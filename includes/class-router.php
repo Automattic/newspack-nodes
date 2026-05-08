@@ -56,7 +56,10 @@ class Router extends Timer {
 			$err[ Message::TO ]        = $message[ Message::FROM ];
 			$err[ Message::ID ]        = $message[ Message::ID ];
 			$err[ Message::VALUE ]     = "NOT_AVAILABLE\n";
-			$this->sink?->fill( $err );
+			// Re-fill via this Router so the error walks the FROM trail. If the FROM head
+			// resolves, the error reaches the originator; if not, the (recursive) call
+			// drops on the TM_ERROR-on-error branch above instead of bouncing forever.
+			$this->fill( $err );
 			return;
 		}
 

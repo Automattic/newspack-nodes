@@ -44,7 +44,6 @@ class RouterTest extends TestCase {
 		$router->name( '_router' );
 		$producer = new CaptureSink();
 		$producer->name( 'producer' );
-		$router->sink( $producer );
 
 		$msg                  = Message::new_message();
 		$msg[ Message::TO ]   = 'nonexistent';
@@ -53,13 +52,15 @@ class RouterTest extends TestCase {
 
 		$router->fill( $msg );
 
-		// Error message routed back to FROM via the router's sink (which gets it because TO='producer'
-		// is the producer's name; for this minimal test, sink is the receiving capture).
+		// Per spec: error re-enters TO-routing and walks the FROM trail. Router strips
+		// 'producer' off the TO head when re-dispatching, leaving TO='' when the producer
+		// finally captures it.
 		$this->assertCount( 1, $producer->captured );
 		$err = $producer->captured[0];
 		$this->assertSame( Message::TM_ERROR, $err[ Message::TYPE ] );
 		$this->assertSame( "NOT_AVAILABLE\n", $err[ Message::VALUE ] );
-		$this->assertSame( 'producer', $err[ Message::TO ] );
+		$this->assertSame( '', $err[ Message::TO ] );
+		$this->assertSame( '_router', $err[ Message::FROM ] );
 	}
 
 	public function test_unknown_target_drops_TM_ERROR_messages_silently(): void {

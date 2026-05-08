@@ -4,8 +4,12 @@
  *
  * Two scheduling modes:
  *  - EventFramework slot: $timer->set_timer( $ms, $oneshot ) — own slot, sub-second precision.
- *  - Router-hitchhike (Task 7): $timer->set_timer() with no args — registers with
- *    Router's TIMER event; Router fires every 5s and notifies all hitchhikers.
+ *  - Router-hitchhike: $timer->set_timer() with no args — registers with Router's TIMER
+ *    event using Node-name dispatch. Router's notify('TIMER', ...) fills a TM_INFO message
+ *    into this Timer (TO=name, KEY='TIMER'); Timer::fill() detects it and calls fire_cb().
+ *    Closure-based hitchhike was rejected because the closure returns void → coerced to
+ *    null → falsy → listener self-unregistered after first tick (per Node::dispatch_listener
+ *    "falsy return removes registration" rule). Node-name dispatch always returns true.
  *
  * @package Newspack_Nodes
  */
@@ -19,6 +23,9 @@ class Timer extends Node {
 	protected bool $active = false;
 	protected bool $oneshot = false;
 
+	/** @var string Tracks scheduling mode: 'inactive' | 'event_framework' | 'router'. */
+	protected string $mode = 'inactive';
+
 	public function __construct() {
 		$this->registrations = [ 'FIRE' => [] ];
 	}
@@ -28,22 +35,41 @@ class Timer extends Node {
 		$this->active  = true;
 
 		if ( $ms === null ) {
+			if ( $this->name === '' ) {
+				throw new \RuntimeException( 'Router-hitchhike requires Timer to have a name' );
+			}
 			$router = Core::node( '_router' );
 			if ( $router === null ) {
 				throw new \RuntimeException( 'Router-hitchhike requires _router to be present' );
 			}
-			$self = $this;
-			$router->register( 'TIMER', 'timer_' . \spl_object_id( $this ), function () use ( $self ) {
-				$self->fire_cb();
-			} );
+			$router->register( 'TIMER', $this->name );
+			$this->mode = 'router';
 			return;
 		}
 		EventFramework::instance()->set_timer( $this, $ms, $oneshot );
+		$this->mode = 'event_framework';
 	}
 
 	public function stop_timer(): void {
-		EventFramework::instance()->stop_timer( $this );
+		$mode       = $this->mode;
+		$self       = $this;
 		$this->active = false;
+		$this->mode   = 'inactive';
+
+		// Defer to closing-queue: avoids mid-iteration mutation of EventFramework $timers
+		// or Router $registrations while drain() / notify() is iterating.
+		Core::push_closing( static function () use ( $self, $mode ): void {
+			if ( $mode === 'router' ) {
+				$router = Core::node( '_router' );
+				if ( $router !== null && $self->name() !== '' ) {
+					$router->unregister( 'TIMER', $self->name() );
+				}
+				return;
+			}
+			if ( $mode === 'event_framework' ) {
+				EventFramework::instance()->stop_timer( $self );
+			}
+		} );
 	}
 
 	public function is_active(): bool {
@@ -54,10 +80,27 @@ class Timer extends Node {
 		return $this->fire_count;
 	}
 
+	/**
+	 * Detect Router-hitchhike TIMER notifications (TM_INFO, KEY='TIMER') and fire.
+	 * All other messages fall through to the default forward-to-sink behavior.
+	 */
+	public function fill( array &$message ): void {
+		if (
+			( $message[ Message::TYPE ] & Message::TM_INFO )
+			&& $message[ Message::KEY ] === 'TIMER'
+		) {
+			++$this->counter;
+			$this->fire_cb();
+			return;
+		}
+		parent::fill( $message );
+	}
+
 	public function fire_cb(): void {
 		++$this->fire_count;
 		if ( $this->oneshot ) {
 			$this->active = false;
+			$this->mode   = 'inactive';
 		}
 		$this->fire();
 		$this->notify( 'FIRE', Core::$right_now );
