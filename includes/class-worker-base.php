@@ -165,4 +165,76 @@ class WorkerBase {
 	public function run_topology( callable $topology, CommandInterpreter $ci ): void {
 		$topology( $ci, $this->partition );
 	}
+
+	/**
+	 * Fire-and-forget POST to the spawn endpoint to ask another zombie process
+	 * to take over the worker after we exit. Non-blocking; ignore failures.
+	 *
+	 * @param string $spawn_url Fully-qualified spawn URL (rest_url + path).
+	 * @param string $token     Current HMAC spawn token.
+	 */
+	public function self_respawn( string $spawn_url, string $token ): void {
+		if ( ! \function_exists( 'wp_remote_post' ) ) {
+			return;
+		}
+		$args = [
+			'method'   => 'POST',
+			'timeout'  => 1, // fire-and-forget
+			'blocking' => false,
+			'body'     => [
+				'type'      => $this->worker_type,
+				'partition' => $this->partition,
+				'nonce'     => $token,
+			],
+		];
+		@\wp_remote_post( $spawn_url, $args );
+	}
+
+	/**
+	 * Full lifecycle wrapper: acquire → grace sleep → register shutdown handler
+	 * → run topology in drain loop → release lock + self_respawn.
+	 *
+	 * Idempotent shutdown: both the registered shutdown handler and the finally
+	 * block flip $shutdown_handled, so release+respawn happens exactly once
+	 * regardless of normal exit, exception, or fatal error.
+	 *
+	 * @param callable $topology  Topology closure (signature: ($ci, $partition)).
+	 * @param string   $spawn_url Spawn endpoint URL for self-respawn.
+	 * @param string   $token     Current HMAC spawn token.
+	 * @return array{status: string, reason?: string}
+	 */
+	public function execute( callable $topology, string $spawn_url, string $token ): array {
+		if ( ! $this->acquire() ) {
+			return [ 'status' => 'skipped', 'reason' => 'lock_held' ];
+		}
+
+		\register_shutdown_function( function () use ( $spawn_url, $token ): void {
+			if ( ! $this->shutdown_handled ) {
+				$this->shutdown_handled = true;
+				$this->release();
+				$this->self_respawn( $spawn_url, $token );
+			}
+		} );
+
+		// Brief grace so any concurrent spawn racing for the same lock can see we
+		// own it before they retry — matches event-logger WorkerBase pattern.
+		\usleep( (int) ( self::LOCK_CHECK_GRACE_S * 1_000_000 ) );
+
+		try {
+			$ci = $this->build_scaffolding();
+			$this->run_topology( $topology, $ci );
+
+			$ef = EventFramework::instance();
+			$ef->install_signal_handlers();
+			$ef->drain( fn() => $this->should_continue() );
+		} finally {
+			if ( ! $this->shutdown_handled ) {
+				$this->shutdown_handled = true;
+				$this->release();
+				$this->self_respawn( $spawn_url, $token );
+			}
+		}
+
+		return [ 'status' => 'ok' ];
+	}
 }

@@ -42,5 +42,24 @@ require_once NEWSPACK_NODES_DIR . 'includes/class-tail.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-worker-base.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-supervisor-base.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-supervisor.php';
+require_once NEWSPACK_NODES_DIR . 'includes/rest/class-spawn-controller.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-bootstrap.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-cli.php';
+
+if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
+	require_once NEWSPACK_NODES_DIR . 'includes/class-cli-command.php';
+	\WP_CLI::add_command( 'nodes', '\\Newspack_Nodes\\Cli_Command' );
+}
+
+// Wire WordPress integration: REST routes, cron-driven supervisor tick, activation/deactivation.
+// Skipped in test environments where add_action is a stub but rest_api_init never fires.
+if ( \function_exists( 'add_action' ) ) {
+	\add_action( 'rest_api_init', [ '\\Newspack_Nodes\\Bootstrap', 'register_rest_routes' ] );
+	\add_action( 'newspack_nodes/supervisor', [ '\\Newspack_Nodes\\Bootstrap', 'run_supervisor_tick' ] );
+}
+if ( \function_exists( 'register_activation_hook' ) ) {
+	\register_activation_hook( NEWSPACK_NODES_FILE, [ '\\Newspack_Nodes\\Bootstrap', 'activate' ] );
+}
+if ( \function_exists( 'register_deactivation_hook' ) ) {
+	\register_deactivation_hook( NEWSPACK_NODES_FILE, [ '\\Newspack_Nodes\\Bootstrap', 'deactivate' ] );
+}

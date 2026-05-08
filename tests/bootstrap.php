@@ -35,6 +35,165 @@ if ( ! function_exists( 'do_action' ) ) {
 	}
 }
 
+// ── WordPress REST API Stubs ────────────────────────────────────────────────────
+
+$GLOBALS['_wp_test_registered_routes'] = [];
+
+if ( ! function_exists( 'register_rest_route' ) ) {
+	function register_rest_route( $namespace, $route, $args = [] ) {
+		$GLOBALS['_wp_test_registered_routes'][] = [
+			'namespace' => $namespace,
+			'route'     => $route,
+			'args'      => $args,
+		];
+		return true;
+	}
+}
+
+if ( ! function_exists( 'rest_url' ) ) {
+	function rest_url( $path = '' ) {
+		return 'http://localhost/wp-json/' . ltrim( $path, '/' );
+	}
+}
+
+if ( ! function_exists( 'wp_remote_post' ) ) {
+	function wp_remote_post( $url, $args = [] ) {
+		// Capture for tests; the final positional arg permits inspection.
+		$GLOBALS['_wp_test_remote_posts'][] = [ 'url' => $url, 'args' => $args ];
+		return [ 'response' => [ 'code' => 200 ] ];
+	}
+}
+
+if ( ! function_exists( 'wp_next_scheduled' ) ) {
+	function wp_next_scheduled( $hook, $args = [] ) {
+		return $GLOBALS['_wp_test_next_scheduled'] ?? false;
+	}
+}
+
+if ( ! function_exists( 'wp_schedule_event' ) ) {
+	function wp_schedule_event( $timestamp, $recurrence, $hook, $args = [] ) {
+		$GLOBALS['_wp_test_scheduled_events'][] = [
+			'timestamp'  => $timestamp,
+			'recurrence' => $recurrence,
+			'hook'       => $hook,
+			'args'       => $args,
+		];
+		return true;
+	}
+}
+
+if ( ! function_exists( 'wp_clear_scheduled_hook' ) ) {
+	function wp_clear_scheduled_hook( $hook, $args = [] ) {
+		return true;
+	}
+}
+
+if ( ! function_exists( 'register_activation_hook' ) ) {
+	function register_activation_hook( $file, $callback ) {
+		$GLOBALS['_wp_test_activation_hooks'][] = [ 'file' => $file, 'callback' => $callback ];
+	}
+}
+
+if ( ! function_exists( 'register_deactivation_hook' ) ) {
+	function register_deactivation_hook( $file, $callback ) {
+		$GLOBALS['_wp_test_deactivation_hooks'][] = [ 'file' => $file, 'callback' => $callback ];
+	}
+}
+
+if ( ! class_exists( 'WP_REST_Server' ) ) {
+	class WP_REST_Server {
+		const READABLE   = 'GET';
+		const CREATABLE  = 'POST';
+		const EDITABLE   = 'PUT, PATCH';
+		const DELETABLE  = 'DELETE';
+		const ALLMETHODS = 'GET, POST, PUT, PATCH, DELETE';
+	}
+}
+
+if ( ! class_exists( 'WP_HTTP_Response' ) ) {
+	class WP_HTTP_Response {
+		public $data;
+		public $status;
+		public $headers = [];
+		public function __construct( $data = null, $status = 200, $headers = [] ) {
+			$this->data    = $data;
+			$this->status  = $status;
+			$this->headers = $headers;
+		}
+		public function get_data() {
+			return $this->data;
+		}
+		public function get_status() {
+			return $this->status;
+		}
+		public function get_headers() {
+			return $this->headers;
+		}
+	}
+}
+
+if ( ! class_exists( 'WP_REST_Response' ) ) {
+	class WP_REST_Response extends WP_HTTP_Response {
+		public function set_status( $code ) {
+			$this->status = $code;
+		}
+		public function set_data( $data ) {
+			$this->data = $data;
+		}
+	}
+}
+
+if ( ! class_exists( 'WP_REST_Request' ) ) {
+	class WP_REST_Request {
+		private $params = [];
+		private $method = 'GET';
+		public function __construct( $method = 'GET', $route = '' ) {
+			$this->method = $method;
+		}
+		public function get_param( $key ) {
+			return $this->params[ $key ] ?? null;
+		}
+		public function set_param( $key, $value ) {
+			$this->params[ $key ] = $value;
+		}
+		public function get_params() {
+			return $this->params;
+		}
+		public function get_method() {
+			return $this->method;
+		}
+	}
+}
+
+if ( ! class_exists( 'WP_Error' ) ) {
+	class WP_Error {
+		private $code;
+		private $message;
+		private $error_data;
+		public function __construct( $code = '', $message = '', $data = '' ) {
+			$this->code       = $code;
+			$this->message    = $message;
+			$this->error_data = $data;
+		}
+		public function get_error_code() {
+			return $this->code;
+		}
+		public function get_error_message() {
+			return $this->message;
+		}
+		public function get_error_data() {
+			return $this->error_data;
+		}
+	}
+}
+
+if ( ! function_exists( 'fastcgi_finish_request' ) ) {
+	function fastcgi_finish_request() {
+		// No-op in test context.
+		return true;
+	}
+}
+
 // Load the plugin (which require_once's the class files).
 require_once \dirname( __DIR__ ) . '/newspack-nodes.php';
 
