@@ -22,16 +22,6 @@ class A5RoundTripTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function rmdir_recursive( string $dir ): void {
-		if ( ! is_dir( $dir ) ) return;
-		foreach ( scandir( $dir ) as $f ) {
-			if ( $f === '.' || $f === '..' ) continue;
-			$path = "$dir/$f";
-			is_dir( $path ) ? $this->rmdir_recursive( $path ) : @unlink( $path );
-		}
-		@rmdir( $dir );
-	}
-
 	public function test_full_lifecycle_acquire_topology_message_release(): void {
 		$w = new WorkerBase( $this->tmp, 'integration-test', 0 );
 		$this->assertTrue( $w->acquire() );

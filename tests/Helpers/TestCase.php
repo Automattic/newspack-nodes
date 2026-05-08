@@ -18,6 +18,20 @@ abstract class TestCase extends PHPUnitTestCase {
 		return $dir;
 	}
 
+	protected function rmdir_recursive( string $dir ): void {
+		if ( ! \is_dir( $dir ) ) {
+			return;
+		}
+		foreach ( \scandir( $dir ) as $f ) {
+			if ( $f === '.' || $f === '..' ) {
+				continue;
+			}
+			$path = "$dir/$f";
+			\is_dir( $path ) ? $this->rmdir_recursive( $path ) : @\unlink( $path );
+		}
+		@\rmdir( $dir );
+	}
+
 	protected function boundedTicks( int $n ): callable {
 		return \Newspack_Nodes\Tests\BoundedTicks::callable( $n );
 	}

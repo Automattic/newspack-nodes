@@ -19,16 +19,6 @@ class SupervisorBaseTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function rmdir_recursive( string $dir ): void {
-		if ( ! is_dir( $dir ) ) return;
-		foreach ( scandir( $dir ) as $f ) {
-			if ( $f === '.' || $f === '..' ) continue;
-			$path = "$dir/$f";
-			is_dir( $path ) ? $this->rmdir_recursive( $path ) : @unlink( $path );
-		}
-		@rmdir( $dir );
-	}
-
 	public function test_worker_needs_spawn_when_no_lock(): void {
 		$s = new SupervisorBase( $this->tmp );
 		$worker = [ 'type' => 'foo', 'partition' => 0, 'stale_timeout' => 60 ];

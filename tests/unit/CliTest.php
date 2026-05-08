@@ -19,16 +19,6 @@ class CliTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function rmdir_recursive( string $dir ): void {
-		if ( ! is_dir( $dir ) ) return;
-		foreach ( scandir( $dir ) as $f ) {
-			if ( $f === '.' || $f === '..' ) continue;
-			$path = "$dir/$f";
-			is_dir( $path ) ? $this->rmdir_recursive( $path ) : @unlink( $path );
-		}
-		@rmdir( $dir );
-	}
-
 	public function test_ls_returns_workers_from_lock_dirs(): void {
 		mkdir( "{$this->tmp}/locks", 0755, true );
 		mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );

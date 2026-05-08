@@ -23,16 +23,6 @@ class TopicTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function rmdir_recursive( string $dir ): void {
-		if ( ! is_dir( $dir ) ) return;
-		foreach ( scandir( $dir ) as $f ) {
-			if ( $f === '.' || $f === '..' ) continue;
-			$path = "$dir/$f";
-			is_dir( $path ) ? $this->rmdir_recursive( $path ) : @unlink( $path );
-		}
-		@rmdir( $dir );
-	}
-
 	public function test_constructor_does_not_create_partitions(): void {
 		new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
 		$this->assertFalse( is_dir( "{$this->tmp}/firehose.log/p0" ) );

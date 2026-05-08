@@ -22,16 +22,6 @@ class StorageRoundTripTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function rmdir_recursive( string $dir ): void {
-		if ( ! is_dir( $dir ) ) return;
-		foreach ( scandir( $dir ) as $f ) {
-			if ( $f === '.' || $f === '..' ) continue;
-			$path = "$dir/$f";
-			is_dir( $path ) ? $this->rmdir_recursive( $path ) : @unlink( $path );
-		}
-		@rmdir( $dir );
-	}
-
 	public function test_topic_write_then_consumer_read_with_restart_replay(): void {
 		// Topic with 4 partitions.
 		$topic = new Topic( "{$this->tmp}/firehose.log", 4 );
