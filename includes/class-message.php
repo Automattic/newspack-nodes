@@ -45,4 +45,32 @@ class Message {
 			self::VALUE     => '',
 		];
 	}
+
+	public static function packed( array $message ): string {
+		return \json_encode(
+			[
+				'type'      => $message[ self::TYPE ],
+				'timestamp' => $message[ self::TIMESTAMP ],
+				'from'      => $message[ self::FROM ],
+				'to'        => $message[ self::TO ],
+				'id'        => $message[ self::ID ],
+				'key'       => $message[ self::KEY ],
+				'value'     => $message[ self::VALUE ],
+			],
+			\JSON_UNESCAPED_SLASHES
+		);
+	}
+
+	public static function unpacked( string $data ): array {
+		$decoded = \json_decode( $data, true );
+		return [
+			self::TYPE      => $decoded['type']      ?? 0,
+			self::TIMESTAMP => $decoded['timestamp'] ?? 0.0,
+			self::FROM      => $decoded['from']      ?? '',
+			self::TO        => $decoded['to']        ?? '',
+			self::ID        => $decoded['id']        ?? '',
+			self::KEY       => $decoded['key']       ?? '',
+			self::VALUE     => $decoded['value']     ?? '',
+		];
+	}
 }

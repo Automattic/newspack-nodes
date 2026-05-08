@@ -47,4 +47,34 @@ class MessageTest extends TestCase {
 		$this->assertSame( '', $m[ Message::KEY ] );
 		$this->assertSame( '', $m[ Message::VALUE ] );
 	}
+
+	public function test_packed_unpacked_round_trip_preserves_all_fields(): void {
+		$m = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM | Message::TM_PERSIST;
+		$m[ Message::FROM ]  = 'producer';
+		$m[ Message::TO ]    = 'consumer';
+		$m[ Message::ID ]    = '1234567890:0000000001';
+		$m[ Message::KEY ]   = '/some/url';
+		$m[ Message::VALUE ] = 'hello world';
+
+		$round_tripped = Message::unpacked( Message::packed( $m ) );
+
+		$this->assertSame( $m[ Message::TYPE ],      $round_tripped[ Message::TYPE ] );
+		$this->assertSame( $m[ Message::TIMESTAMP ], $round_tripped[ Message::TIMESTAMP ] );
+		$this->assertSame( $m[ Message::FROM ],      $round_tripped[ Message::FROM ] );
+		$this->assertSame( $m[ Message::TO ],        $round_tripped[ Message::TO ] );
+		$this->assertSame( $m[ Message::ID ],        $round_tripped[ Message::ID ] );
+		$this->assertSame( $m[ Message::KEY ],       $round_tripped[ Message::KEY ] );
+		$this->assertSame( $m[ Message::VALUE ],     $round_tripped[ Message::VALUE ] );
+	}
+
+	public function test_packed_uses_named_keys_not_positional(): void {
+		$m = Message::new_message();
+		$m[ Message::FROM ] = 'alice';
+		$packed = Message::packed( $m );
+		$decoded = \json_decode( $packed, true );
+		$this->assertArrayHasKey( 'from', $decoded );
+		$this->assertSame( 'alice', $decoded['from'] );
+		$this->assertArrayNotHasKey( '2', $decoded );
+	}
 }
