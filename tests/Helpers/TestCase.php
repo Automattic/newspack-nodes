@@ -17,4 +17,8 @@ abstract class TestCase extends PHPUnitTestCase {
 		\mkdir( $dir, 0755, true );
 		return $dir;
 	}
+
+	protected function boundedTicks( int $n ): callable {
+		return \Newspack_Nodes\Tests\BoundedTicks::callable( $n );
+	}
 }

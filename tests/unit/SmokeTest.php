@@ -12,4 +12,12 @@ class SmokeTest extends TestCase {
 	public function test_core_class_exists(): void {
 		$this->assertTrue( \class_exists( '\Newspack_Nodes\Core' ) );
 	}
+
+	public function test_bounded_ticks_helper(): void {
+		$cb = $this->boundedTicks( 3 );
+		$this->assertTrue( $cb() );
+		$this->assertTrue( $cb() );
+		$this->assertTrue( $cb() );
+		$this->assertFalse( $cb() );
+	}
 }

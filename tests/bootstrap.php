@@ -20,3 +20,4 @@ require_once \dirname( __DIR__ ) . '/newspack-nodes.php';
 // Load test helpers.
 require_once __DIR__ . '/Helpers/TestCase.php';
 require_once __DIR__ . '/Helpers/CaptureSink.php';
+require_once __DIR__ . '/Helpers/BoundedTicks.php';
