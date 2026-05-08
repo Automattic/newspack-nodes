@@ -98,12 +98,26 @@ class Bootstrap {
 	}
 
 	/**
-	 * Activation hook: schedule the supervisor cron (hourly is fine — workers
-	 * self-respawn between ticks; cron is the safety net for cold starts).
+	 * Register a 60-second cron interval for the supervisor tick.
+	 * Wired to the `cron_schedules` filter from the plugin file.
+	 */
+	public static function register_cron_schedules( array $schedules ): array {
+		if ( ! isset( $schedules['newspack_nodes_minute'] ) ) {
+			$schedules['newspack_nodes_minute'] = [
+				'interval' => 60,
+				'display'  => 'Every Minute (Newspack Nodes)',
+			];
+		}
+		return $schedules;
+	}
+
+	/**
+	 * Activation hook: schedule the supervisor cron at minute cadence.
+	 * Workers self-respawn between ticks; cron is the safety net for cold starts.
 	 */
 	public static function activate(): void {
 		if ( ! \wp_next_scheduled( 'newspack_nodes/supervisor' ) ) {
-			\wp_schedule_event( \time() + 5, 'hourly', 'newspack_nodes/supervisor' );
+			\wp_schedule_event( \time() + 5, 'newspack_nodes_minute', 'newspack_nodes/supervisor' );
 		}
 	}
 

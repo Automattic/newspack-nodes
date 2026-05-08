@@ -153,4 +153,103 @@ class EventFrameworkTest extends TestCase {
 		$ef->install_signal_handlers();
 		$this->assertTrue( true );
 	}
+
+	public function test_drain_pure_stream_select_mode_drains_ready_fd(): void {
+		// No cURL handles registered: pure stream_select path with timer-derived timeout.
+		$ef = EventFramework::instance();
+
+		$pipes = \stream_socket_pair( STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP );
+		[ $read, $write ] = $pipes;
+		\stream_set_blocking( $read, false );
+
+		$node = new class {
+			public $stream;
+			public int $drained = 0;
+			public function drain_fh(): void { ++$this->drained; }
+		};
+		$node->stream = $read;
+		$ef->register_reader_node( $node );
+
+		\fwrite( $write, "y" );
+
+		$ef->drain( $this->boundedTicks( 3 ) );
+
+		$this->assertGreaterThan( 0, $node->drained, 'pure stream_select mode must drain ready FDs' );
+
+		\fclose( $write );
+		\fclose( $read );
+	}
+
+	public function test_drain_curl_primary_mode_polls_local_fds_nonblocking(): void {
+		// cURL handles registered: curl_multi_select first (sleep), then drain,
+		// then non-blocking stream_select for local FDs that became ready.
+		$ef = EventFramework::instance();
+
+		$pipes = \stream_socket_pair( STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP );
+		[ $read, $write ] = $pipes;
+		\stream_set_blocking( $read, false );
+
+		$node = new class {
+			public $stream;
+			public int $drained = 0;
+			public function drain_fh(): void { ++$this->drained; }
+		};
+		$node->stream = $read;
+		$ef->register_reader_node( $node );
+
+		// Pre-write so the FD is ready by the time stream_select runs with timeout=0.
+		\fwrite( $write, "z" );
+
+		$curl_node = new class {
+			public int $curl_events = 0;
+			public function on_curl_message( array $info ): void { ++$this->curl_events; }
+		};
+		$mh = \curl_multi_init();
+		$ef->register_curl_handle( $curl_node, $mh );
+
+		$ef->drain( $this->boundedTicks( 3 ) );
+
+		$this->assertGreaterThan( 0, $node->drained, 'curl-primary mode must still poll local FDs (non-blocking)' );
+
+		\curl_multi_close( $mh );
+		\fclose( $write );
+		\fclose( $read );
+	}
+
+	public function test_drain_curl_primary_mode_does_not_block_on_stream_select(): void {
+		// In curl-primary mode, stream_select is called with timeout=0 (non-blocking).
+		// Verify drain returns quickly even if no FD is ready: the timeout budget is
+		// consumed by curl_multi_select, not stream_select.
+		$ef = EventFramework::instance();
+
+		$curl_node = new class {
+			public function on_curl_message( array $info ): void {}
+		};
+		$mh = \curl_multi_init();
+		$ef->register_curl_handle( $curl_node, $mh );
+
+		// Register a local FD that will NOT have any data — proves stream_select
+		// returns immediately because timeout is 0.
+		$pipes = \stream_socket_pair( STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP );
+		[ $read, $write ] = $pipes;
+		\stream_set_blocking( $read, false );
+		$node = new class {
+			public $stream;
+			public function drain_fh(): void {}
+		};
+		$node->stream = $read;
+		$ef->register_reader_node( $node );
+
+		$start = \microtime( true );
+		$ef->drain( $this->boundedTicks( 1 ) );
+		$elapsed = \microtime( true ) - $start;
+
+		// curl_multi_select with empty multi handle returns ~immediately on most systems.
+		// Allow some slack but ensure we're not blocking on stream_select.
+		$this->assertLessThan( 1.5, $elapsed, 'curl-primary mode should not block on stream_select' );
+
+		\curl_multi_close( $mh );
+		\fclose( $write );
+		\fclose( $read );
+	}
 }

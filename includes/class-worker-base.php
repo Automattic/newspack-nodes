@@ -99,6 +99,29 @@ class WorkerBase {
 			$this->last_heartbeat = $now;
 		}
 
+		if ( ( $now - $this->last_db_check ) >= self::DB_CHECK_INTERVAL_S ) {
+			$this->last_db_check = $now;
+			if ( ! $this->db_check_passes() ) {
+				++$this->db_failures;
+				if ( $this->db_failures >= self::DB_CHECK_MAX_FAILURES ) {
+					return false;
+				}
+			} else {
+				$this->db_failures = 0;
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Cheap liveness probe for the WordPress / DB substrate.
+	 *
+	 * Default returns true (always passes); subclasses or test doubles override.
+	 * After DB_CHECK_MAX_FAILURES consecutive false returns at DB_CHECK_INTERVAL_S
+	 * cadence, should_continue() returns false to trigger an orderly shutdown.
+	 */
+	protected function db_check_passes(): bool {
 		return true;
 	}
 

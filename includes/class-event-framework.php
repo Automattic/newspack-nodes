@@ -4,12 +4,13 @@
  *
  * Manages reader/writer file descriptors, timers, cURL multi handles, and
  * deferred-cleanup integration. Drain order per iteration:
- *   1. Handle ready FDs (read + write)
- *   2. Handle cURL info-read events
- *   3. Handle signals
- *   4. Run Core::run_closing() deferred cleanup
- *   5. Fire expired timers
- *   6. Loop check (should_continue)
+ *   1. If cURL handles registered: curl_multi_select (sleep) → drain transfers
+ *      → non-blocking stream_select (timeout=0) for local FDs.
+ *      Else: pure stream_select with timer-derived timeout.
+ *   2. Handle signals
+ *   3. Run Core::run_closing() deferred cleanup
+ *   4. Fire expired timers
+ *   5. Loop check (should_continue)
  *
  * @package Newspack_Nodes
  */
@@ -166,7 +167,30 @@ class EventFramework {
 			$except     = null;
 			$timeout_us = $this->next_timer_timeout_us();
 
-			if ( ! empty( $reads ) || ! empty( $writes ) ) {
+			if ( ! empty( $this->curl_handles ) ) {
+				// cURL-primary mode: sleep on cURL's internal sockets first, then
+				// drain cURL transfers, then non-blocking poll local FDs that may
+				// have become ready during the cURL wait.
+				foreach ( $this->curl_handles as $entry ) {
+					\curl_multi_select( $entry['multi'], $timeout_us / 1_000_000.0 );
+				}
+				$this->drain_curl_multi();
+
+				if ( ! empty( $reads ) || ! empty( $writes ) ) {
+					$ready = @\stream_select( $reads, $writes, $except, 0, 0 );
+					if ( $ready !== false && $ready > 0 ) {
+						foreach ( $reads as $r ) {
+							$node = $this->readers[ \intval( $r ) ] ?? null;
+							if ( $node !== null ) { $node->drain_fh(); }
+						}
+						foreach ( $writes as $w ) {
+							$node = $this->writers[ \intval( $w ) ] ?? null;
+							if ( $node !== null ) { $node->fill_fh(); }
+						}
+					}
+				}
+			} elseif ( ! empty( $reads ) || ! empty( $writes ) ) {
+				// Pure stream_select mode with timer-derived timeout.
 				$ready = @\stream_select(
 					$reads, $writes, $except,
 					(int) ( $timeout_us / 1_000_000 ),
@@ -184,14 +208,6 @@ class EventFramework {
 				}
 			} elseif ( $timeout_us > 0 ) {
 				\usleep( $timeout_us );
-			}
-
-			// Step 2: cURL multi.
-			if ( ! empty( $this->curl_handles ) ) {
-				foreach ( $this->curl_handles as $entry ) {
-					\curl_multi_select( $entry['multi'], $timeout_us / 1_000_000.0 );
-				}
-				$this->drain_curl_multi();
 			}
 
 			// Step 3: signals.

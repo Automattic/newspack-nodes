@@ -59,6 +59,9 @@ if ( \function_exists( 'add_action' ) ) {
 	\add_action( 'rest_api_init', [ '\\Newspack_Nodes\\Bootstrap', 'register_rest_routes' ] );
 	\add_action( 'newspack_nodes/supervisor', [ '\\Newspack_Nodes\\Bootstrap', 'run_supervisor_tick' ] );
 }
+if ( \function_exists( 'add_filter' ) ) {
+	\add_filter( 'cron_schedules', [ '\\Newspack_Nodes\\Bootstrap', 'register_cron_schedules' ] );
+}
 if ( \function_exists( 'register_activation_hook' ) ) {
 	\register_activation_hook( NEWSPACK_NODES_FILE, [ '\\Newspack_Nodes\\Bootstrap', 'activate' ] );
 }
