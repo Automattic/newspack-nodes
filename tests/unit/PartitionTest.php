@@ -103,4 +103,31 @@ class PartitionTest extends TestCase {
 		$result = $p->write( $big );
 		$this->assertTrue( $result );
 	}
+
+	public function test_read_at_returns_bytes_at_offset(): void {
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$p->write( "hello\n" );
+		$p->write( "world\n" );
+
+		$bytes = $p->read_at( 0, 0, 6 );
+		$this->assertSame( "hello\n", $bytes );
+
+		$bytes = $p->read_at( 0, 6, 6 );
+		$this->assertSame( "world\n", $bytes );
+	}
+
+	public function test_scan_index_visits_each_entry(): void {
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$p->write( "a\n" );
+		$p->write( "bb\n" );
+		$p->write( "ccc\n" );
+
+		$entries = [];
+		$p->scan_index( function ( int $seg, int $off ) use ( &$entries ) {
+			$entries[] = [ $seg, $off ];
+			return null;
+		} );
+
+		$this->assertSame( [ [ 0, 0 ], [ 0, 2 ], [ 0, 5 ] ], $entries );
+	}
 }

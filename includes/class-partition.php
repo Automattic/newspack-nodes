@@ -212,16 +212,79 @@ class Partition {
 		}
 
 		// Keep cached size fresh so a stale cache hit doesn't lie about the active segment.
+		// If the active segment isn't in the cache yet (first write materialized it), add it.
 		if ( null !== $this->segments_cache ) {
+			$found = false;
 			foreach ( $this->segments_cache as $i => $s ) {
 				if ( $s['id'] === $this->current_segment_id ) {
 					$this->segments_cache[ $i ]['size'] = $this->current_size;
+					$found = true;
 					break;
 				}
+			}
+			if ( ! $found ) {
+				$this->segments_cache[] = [ 'id' => $this->current_segment_id, 'size' => $this->current_size ];
 			}
 		}
 
 		return true;
+	}
+
+	/**
+	 * Read bytes from a segment at a given offset.
+	 *
+	 * @param int $segment_id Segment to read from.
+	 * @param int $offset     Byte offset within segment.
+	 * @param int $length     Number of bytes to read.
+	 * @return string Bytes read; empty string on missing file or read failure.
+	 */
+	public function read_at( int $segment_id, int $offset, int $length ): string {
+		$path = $this->get_segment_path( $segment_id );
+		if ( ! \file_exists( $path ) ) {
+			return '';
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+		$fh = @\fopen( $path, 'r' );
+		if ( false === $fh ) {
+			return '';
+		}
+		@\fseek( $fh, $offset );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fread
+		$bytes = @\fread( $fh, $length );
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
+		@\fclose( $fh );
+		return false !== $bytes ? $bytes : '';
+	}
+
+	/**
+	 * Walk every .idx entry across all segments and invoke the callback per entry.
+	 *
+	 * Each entry is 8 bytes packed as two big-endian uint32s: segment_id, offset.
+	 *
+	 * @param callable $cb fn(int $segment_id, int $offset): mixed
+	 */
+	public function scan_index( callable $cb ): void {
+		$segments = $this->get_segments();
+		foreach ( $segments as $s ) {
+			$idx_path = "{$this->partition_dir}/{$s['id']}.idx";
+			if ( ! \file_exists( $idx_path ) ) {
+				continue;
+			}
+			// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+			$idx = @\file_get_contents( $idx_path );
+			if ( false === $idx ) {
+				continue;
+			}
+			$len = \strlen( $idx );
+			for ( $i = 0; $i < $len; $i += 8 ) {
+				$entry = \substr( $idx, $i, 8 );
+				if ( \strlen( $entry ) !== 8 ) {
+					break;
+				}
+				[ , $seg, $off ] = \unpack( 'N2', $entry );
+				$cb( $seg, $off );
+			}
+		}
 	}
 
 	/**
