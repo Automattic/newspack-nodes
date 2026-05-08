@@ -36,3 +36,4 @@ require_once NEWSPACK_NODES_DIR . 'includes/class-partition.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-topic.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-consumer.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-callback.php';
+require_once NEWSPACK_NODES_DIR . 'includes/class-tee.php';
