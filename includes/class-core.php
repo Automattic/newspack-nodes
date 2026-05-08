@@ -35,6 +35,12 @@ class Core {
 	/** @var callable */
 	private static $stderr_handler;
 
+	/**
+	 * Monotonic counter for shell message IDs. Reset by Core::reset() in tests.
+	 * Single static int; integer increment is the cheapest possible counter.
+	 */
+	private static int $msg_counter = 0;
+
 	public static function reset(): void {
 		self::$nodes_by_name  = [];
 		self::$nodes_by_fd    = [];
@@ -42,8 +48,14 @@ class Core {
 		self::$shutting_down  = false;
 		self::$closing        = [];
 		self::$print_table    = [];
+		self::$msg_counter    = 0;
 		self::$stderr_handler = static fn ( string $msg ) => \error_log( \rtrim( $msg ) );
 		self::update_time();
+	}
+
+	/** Pre-increment monotonic message-id counter. */
+	public static function msg_counter(): int {
+		return ++self::$msg_counter;
 	}
 
 	public static function register_node( string $name, object $node ): void {

@@ -17,8 +17,19 @@ class Responder extends Node {
 	/** @var array<string,callable> */
 	private array $shell_callbacks = [];
 
+	private ?Shell $shell = null;
+
 	public function register_shell_callback( string $id, callable $cb ): void {
 		$this->shell_callbacks[ $id ] = $cb;
+	}
+
+	/**
+	 * Bind a Shell whose callbacks the Responder will also dispatch into.
+	 * When set, the Responder checks its local shell_callbacks first, then
+	 * falls back to the Shell's registry.
+	 */
+	public function set_shell( Shell $shell ): void {
+		$this->shell = $shell;
 	}
 
 	public function fill( array &$message ): void {
@@ -26,21 +37,25 @@ class Responder extends Node {
 		$type = $message[ Message::TYPE ];
 		$id   = $message[ Message::ID ];
 
-		// Shell-callback path.
-		if ( $id !== '' && isset( $this->shell_callbacks[ $id ] ) ) {
-			$cb     = $this->shell_callbacks[ $id ];
-			$result = $cb(
-				[
-					'from'    => $message[ Message::FROM ],
-					'event'   => $message[ Message::KEY ] !== '' ? $message[ Message::KEY ] : 'unknown',
-					'payload' => $message[ Message::VALUE ],
-					'error'   => (bool) ( $type & Message::TM_ERROR ),
-				]
-			);
-			if ( ! $result ) {
-				unset( $this->shell_callbacks[ $id ] );
+		// Shell-callback path: try local registry first, then bound Shell.
+		if ( $id !== '' ) {
+			$info = [
+				'from'    => $message[ Message::FROM ],
+				'event'   => $message[ Message::KEY ] !== '' ? $message[ Message::KEY ] : 'unknown',
+				'payload' => $message[ Message::VALUE ],
+				'error'   => (bool) ( $type & Message::TM_ERROR ),
+			];
+			if ( isset( $this->shell_callbacks[ $id ] ) ) {
+				$cb     = $this->shell_callbacks[ $id ];
+				$result = $cb( $info );
+				if ( ! $result ) {
+					unset( $this->shell_callbacks[ $id ] );
+				}
+				return; // Do NOT forward to sink — callback handled it.
 			}
-			return; // Do NOT forward to sink — callback handled it.
+			if ( $this->shell !== null && $this->shell->callback( $id, $info ) ) {
+				return; // Shell's single-shot callback handled it.
+			}
 		}
 
 		// Auto-cancel TM_PERSIST.
