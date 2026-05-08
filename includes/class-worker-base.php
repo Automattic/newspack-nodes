@@ -123,4 +123,36 @@ class WorkerBase {
 		}
 		return $num;
 	}
+
+	/**
+	 * Build the standard scaffolding nodes every worker process needs:
+	 *   _router, _command_interpreter (sinks into _router),
+	 *   _responder (sinks into _router), _repl (output Partition).
+	 *
+	 * Returns the CommandInterpreter so topology closures can drive graph construction.
+	 */
+	public function build_scaffolding(): CommandInterpreter {
+		$ipc_dir = "{$this->base_dir}/ipc/{$this->worker_type}.p{$this->partition}";
+
+		$router = new Router();
+		$router->name( '_router' );
+
+		$interpreter = new CommandInterpreter();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( $router );
+
+		$responder = new Responder();
+		$responder->name( '_responder' );
+		$responder->sink( $router );
+
+		// _repl: output IPC partition. Addressable by name; replies route here via TO=_repl.
+		if ( ! \is_dir( "{$ipc_dir}/output" ) ) {
+			@\mkdir( "{$ipc_dir}/output", 0755, true );
+		}
+		$repl_out = new Partition( "{$ipc_dir}/output", 0 );
+		$repl_out->allow_large_writes(); // dump output frequently exceeds PIPE_BUF
+		$repl_out->name( '_repl' );
+
+		return $interpreter;
+	}
 }
