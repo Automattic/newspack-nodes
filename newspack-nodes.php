@@ -26,3 +26,4 @@ require_once NEWSPACK_NODES_DIR . 'includes/class-core.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-message.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-node.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-router.php';
+require_once NEWSPACK_NODES_DIR . 'includes/class-responder.php';
