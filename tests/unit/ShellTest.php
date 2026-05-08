@@ -217,34 +217,36 @@ class ShellTest extends TestCase {
 	// ── FROM=$pid stamping (multi-session contention) ───────────────────────────
 
 	public function test_parse_from_is_pid(): void {
-		// Spec line 686 + 856: Shell stamps FROM=getmypid() so server-side
-		// response routing can disambiguate concurrent REPL sessions hitting
-		// the same worker. The worker's input-Consumer (stamp_as=_repl) builds
-		// a `_repl/$pid` trail; replies arrive with TO=$pid; each cli's Dumper
-		// filters by matching its own getmypid().
+		// Spec line 686 + 856: Shell stamps FROM=`_responder/$pid` so the
+		// response's TO=FROM walks back via `_router → _responder` (which
+		// dispatches by ID through the shell-callback registry → Dumper). The
+		// `$pid` suffix is the multi-session disambiguator: in pivoted mode
+		// the worker's _router peels `_responder`, the Partition envelope ships
+		// back to the cli with TO=$pid, and each cli's Dumper filters on
+		// its own getmypid().
 		$shell = new Shell();
 		$msg   = $shell->parse( 'ls', static fn ( $info ) => null );
 
 		$this->assertNotNull( $msg );
-		$this->assertSame( (string) \getmypid(), $msg[ Message::FROM ] );
+		$this->assertSame( '_responder/' . \getmypid(), $msg[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_pid_for_tell(): void {
 		$shell = new Shell();
 		$msg   = $shell->parse( 'tell node msg', static fn ( $info ) => null );
-		$this->assertSame( (string) \getmypid(), $msg[ Message::FROM ] );
+		$this->assertSame( '_responder/' . \getmypid(), $msg[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_pid_for_send(): void {
 		$shell = new Shell();
 		$msg   = $shell->parse( 'send node bytes', static fn ( $info ) => null );
-		$this->assertSame( (string) \getmypid(), $msg[ Message::FROM ] );
+		$this->assertSame( '_responder/' . \getmypid(), $msg[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_pid_for_send_eof(): void {
 		$shell = new Shell();
 		$msg   = $shell->parse( 'send_eof node', static fn ( $info ) => null );
-		$this->assertSame( (string) \getmypid(), $msg[ Message::FROM ] );
+		$this->assertSame( '_responder/' . \getmypid(), $msg[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_stable_within_a_process(): void {

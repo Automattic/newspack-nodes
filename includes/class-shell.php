@@ -179,17 +179,18 @@ class Shell extends Node {
 			return null;
 		}
 
-		// FROM=$pid so the worker's input-Consumer (stamp_as=_repl) builds a
-		// FROM trail of `_repl/$pid` — that's what makes multi-session safe
-		// (spec line 856). The worker's _router splits the TO on '/' on reply,
-		// peels off `_repl`, and the Partition writes the message envelope with
-		// TO=$pid; each cli's Dumper filters by matching its own getmypid().
-		// (Real Shell3 used FROM='_responder' for in-process routing; we
-		// purposely diverge — see ShellTest::test_parse_from_is_pid for rationale.)
+		// FROM=`_responder/$pid` so the response's TO=FROM walks back via
+		// `_router → _responder` (which dispatches by ID through the shell
+		// callback registry → Dumper). The `$pid` suffix is the multi-session
+		// disambiguator (spec line 856): in pivoted mode the worker's _router
+		// peels `_responder`, the Partition envelope ships back to the cli with
+		// TO=$pid, and each cli's Dumper filters on its own getmypid().
+		// Bare mode never re-emits the path past `_responder`; the suffix is
+		// there but unused locally.
 		$id                   = $this->generate_id();
 		$msg                  = Message::new_message();
 		$msg[ Message::ID ]   = $id;
-		$msg[ Message::FROM ] = (string) \getmypid();
+		$msg[ Message::FROM ] = '_responder/' . \getmypid();
 
 		switch ( $verb ) {
 			case 'tell':
