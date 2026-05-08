@@ -25,6 +25,8 @@ class EventFramework {
 	private array $readers = [];
 	/** @var array<int,object> */
 	private array $writers = [];
+	/** @var array<int,array{node:object,interval_ms:int,oneshot:bool,next_fire:float}> */
+	private array $timers = [];
 
 	private function __construct() {}
 
@@ -75,13 +77,84 @@ class EventFramework {
 		return $this->writers[ $fd ] ?? null;
 	}
 
+	public function set_timer( object $node, int $interval_ms, bool $oneshot = false ): void {
+		$id = \spl_object_id( $node );
+		$this->timers[ $id ] = [
+			'node'        => $node,
+			'interval_ms' => $interval_ms,
+			'oneshot'     => $oneshot,
+			'next_fire'   => Core::$right_now + ( $interval_ms / 1000.0 ),
+		];
+	}
+
+	public function stop_timer( object $node ): void {
+		unset( $this->timers[ \spl_object_id( $node ) ] );
+	}
+
+	private function next_timer_timeout_us(): int {
+		if ( empty( $this->timers ) ) {
+			return 1_000_000;
+		}
+		$soonest = PHP_INT_MAX;
+		foreach ( $this->timers as $t ) {
+			$delta_us = (int) ( ( $t['next_fire'] - Core::$right_now ) * 1_000_000 );
+			if ( $delta_us < $soonest ) {
+				$soonest = $delta_us;
+			}
+		}
+		return \max( 0, $soonest );
+	}
+
+	private function fire_expired_timers(): void {
+		foreach ( $this->timers as $id => $t ) {
+			if ( $t['next_fire'] <= Core::$right_now ) {
+				$t['node']->fire_cb();
+				if ( $t['oneshot'] ) {
+					unset( $this->timers[ $id ] );
+				} else {
+					$this->timers[ $id ]['next_fire'] = Core::$right_now + ( $t['interval_ms'] / 1000.0 );
+				}
+			}
+		}
+	}
+
 	public function drain( callable $should_continue ): void {
 		while ( $should_continue() ) {
 			Core::update_time();
-			// Steps 1-2 (FDs, cURL): added in Tasks 3-4.
+
+			$reads  = [];
+			$writes = [];
+			foreach ( $this->readers as $node ) { $reads[]  = $node->stream; }
+			foreach ( $this->writers as $node ) { $writes[] = $node->stream; }
+			$except     = null;
+			$timeout_us = $this->next_timer_timeout_us();
+
+			if ( ! empty( $reads ) || ! empty( $writes ) ) {
+				$ready = @\stream_select(
+					$reads, $writes, $except,
+					(int) ( $timeout_us / 1_000_000 ),
+					$timeout_us % 1_000_000
+				);
+				if ( $ready !== false && $ready > 0 ) {
+					foreach ( $reads as $r ) {
+						$node = $this->readers[ \intval( $r ) ] ?? null;
+						if ( $node !== null ) { $node->drain_fh(); }
+					}
+					foreach ( $writes as $w ) {
+						$node = $this->writers[ \intval( $w ) ] ?? null;
+						if ( $node !== null ) { $node->fill_fh(); }
+					}
+				}
+			} elseif ( $timeout_us > 0 ) {
+				\usleep( $timeout_us );
+			}
+
+			// Step 2 (cURL): added in Task 4.
 			// Step 3 (signals): added in Task 5.
+
 			Core::run_closing();
-			// Step 5 (timers): added in Task 3.
+			Core::update_time();
+			$this->fire_expired_timers();
 		}
 		Core::run_closing();
 	}

@@ -49,4 +49,67 @@ class EventFrameworkTest extends TestCase {
 		$ef->drain( fn () => false );
 		$this->assertTrue( $post_loop_ran, 'Core::run_closing() must drain after the loop terminates' );
 	}
+
+	public function test_drain_calls_drain_fh_when_FD_is_readable(): void {
+		$ef = EventFramework::instance();
+
+		$pipes = \stream_socket_pair( STREAM_PF_UNIX, STREAM_SOCK_STREAM, STREAM_IPPROTO_IP );
+		[ $read, $write ] = $pipes;
+		\stream_set_blocking( $read, false );
+
+		$node = new class {
+			public $stream;
+			public int $drained = 0;
+			public function drain_fh(): void { ++$this->drained; }
+		};
+		$node->stream = $read;
+		$ef->register_reader_node( $node );
+
+		\fwrite( $write, "x" );
+
+		$ef->drain( $this->boundedTicks( 3 ) );
+
+		$this->assertGreaterThan( 0, $node->drained );
+
+		\fclose( $write );
+		\fclose( $read );
+	}
+
+	public function test_set_timer_fires_after_interval(): void {
+		$ef = EventFramework::instance();
+
+		$timer_node = new class {
+			public int $fired = 0;
+			public function fire_cb(): void { ++$this->fired; }
+		};
+
+		$ef->set_timer( $timer_node, 50 );
+
+		$start = \microtime( true );
+		$ef->drain( function () use ( $start ): bool {
+			\Newspack_Nodes\Core::update_time();
+			return ( \microtime( true ) - $start ) < 0.2;
+		} );
+
+		$this->assertGreaterThan( 0, $timer_node->fired );
+	}
+
+	public function test_oneshot_timer_fires_exactly_once(): void {
+		$ef = EventFramework::instance();
+
+		$timer_node = new class {
+			public int $fired = 0;
+			public function fire_cb(): void { ++$this->fired; }
+		};
+
+		$ef->set_timer( $timer_node, 10, true );
+
+		$start = \microtime( true );
+		$ef->drain( function () use ( $start ): bool {
+			\Newspack_Nodes\Core::update_time();
+			return ( \microtime( true ) - $start ) < 0.1;
+		} );
+
+		$this->assertSame( 1, $timer_node->fired, 'Oneshot fires exactly once' );
+	}
 }
