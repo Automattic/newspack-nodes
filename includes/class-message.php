@@ -73,4 +73,37 @@ class Message {
 			self::VALUE     => $decoded['value']     ?? '',
 		];
 	}
+
+	/**
+	 * Free helpers — declared as static methods on Message for namespace cleanliness.
+	 *
+	 * (Real-Tachikoma names them `produce`/`query` as free functions; PHP namespacing
+	 * makes static methods on Message a cleaner equivalent.)
+	 */
+
+	/**
+	 * Fire-and-forget: build a Message and fill() it into the given Node.
+	 *
+	 * @param object $node  Node-shaped: must have ->fill( array &$message ).
+	 * @param string $key
+	 * @param mixed  $value
+	 * @param int    $type  Defaults to TM_BYTESTREAM.
+	 */
+	public static function produce( object $node, string $key, mixed $value, int $type = self::TM_BYTESTREAM ): void {
+		$m = self::new_message();
+		$m[ self::TYPE ]  = $type;
+		$m[ self::KEY ]   = $key;
+		$m[ self::VALUE ] = $value;
+		$node->fill( $m );
+	}
+
+	/**
+	 * Synchronous request/response: send TM_REQUEST, capture the response value
+	 * via a temporary Callback sink swap.
+	 *
+	 * Implementation deferred to Task 8 once Node base exists.
+	 */
+	public static function query( object $node, string $request ): mixed {
+		throw new \LogicException( 'Message::query() requires Node — implemented in Task 8.' );
+	}
 }
