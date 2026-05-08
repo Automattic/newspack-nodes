@@ -149,6 +149,83 @@ class Node {
 		$this->sink->fill( $response );
 	}
 
+	/** @var array<string,mixed> */
+	protected array $set_state = [];
+
+	/**
+	 * Multi-modal listener: store either a closure (with callable) or a Node name string.
+	 *
+	 * @param string        $event    Must be pre-declared in registrations.
+	 * @param string        $listener Identity (closure ID or Node name).
+	 * @param callable|null $cb       Closure. If null, $listener is a Node name.
+	 */
+	public function register( string $event, string $listener, ?callable $cb = null ): void {
+		if ( ! isset( $this->registrations[ $event ] ) ) {
+			throw new \RuntimeException( "no such event: $event" );
+		}
+		$this->registrations[ $event ][ $listener ] = $cb; // null means "Node-name dispatch".
+
+		// Replay cached state.
+		if ( \array_key_exists( $event, $this->set_state ) ) {
+			$this->dispatch_listener( $event, $listener, $this->set_state[ $event ] );
+		}
+	}
+
+	public function unregister( string $event, string $listener ): void {
+		unset( $this->registrations[ $event ][ $listener ] );
+	}
+
+	/**
+	 * Fire the event to all currently-registered listeners.
+	 */
+	public function notify( string $event, mixed $payload = null ): void {
+		if ( ! isset( $this->registrations[ $event ] ) ) {
+			return;
+		}
+		foreach ( $this->registrations[ $event ] as $listener => $cb ) {
+			$keep = $this->dispatch_listener( $event, $listener, $payload );
+			if ( $keep === false ) {
+				unset( $this->registrations[ $event ][ $listener ] );
+			}
+		}
+	}
+
+	/**
+	 * Notify + cache. New registrants get the cached payload immediately at register-time.
+	 */
+	public function set_state( string $event, mixed $payload = null ): void {
+		$this->set_state[ $event ] = $payload;
+		$this->notify( $event, $payload );
+	}
+
+	/**
+	 * Dispatch a single listener by its identity.
+	 *
+	 * Returns: closure return value (truthy=keep, falsy=unregister) for closures;
+	 * always true for node-name dispatch.
+	 */
+	private function dispatch_listener( string $event, string $listener, mixed $payload ): mixed {
+		$cb = $this->registrations[ $event ][ $listener ] ?? null;
+		if ( $cb !== null && \is_callable( $cb ) ) {
+			// Closure mode.
+			return $cb( $payload );
+		}
+		// Node-name mode: fill TM_INFO into the named node.
+		$target = Core::node( $listener );
+		if ( $target === null ) {
+			Core::print_less_often( "WARNING: $listener forgot to unregister from $event on " . $this->name );
+			return false; // Drop the dead registration.
+		}
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_INFO;
+		$msg[ Message::FROM ]  = $this->name;
+		$msg[ Message::TO ]    = $listener;
+		$msg[ Message::KEY ]   = $event;
+		$msg[ Message::VALUE ] = $payload;
+		$target->fill( $msg );
+		return true;
+	}
+
 	public function drop_message( array &$message, string $error ): void {
 		$type   = $message[ Message::TYPE ];
 		$labels = [];

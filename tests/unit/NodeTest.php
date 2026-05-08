@@ -185,4 +185,86 @@ class NodeTest extends TestCase {
 
 		$this->assertSame( 'cancel', $router->captured[0][ Message::VALUE ] );
 	}
+
+	public function test_register_throws_on_undeclared_event(): void {
+		$n = new class extends Node {};
+		$n->name( 'p' );
+		$this->expectException( \RuntimeException::class );
+		$n->register( 'NEVER', 'listener' );
+	}
+
+	public function test_register_and_notify_with_closure_listener(): void {
+		$n = new class extends Node {
+			public function __construct() {
+				$this->registrations = [ 'PING' => [] ];
+			}
+		};
+		$n->name( 'p' );
+		$received = null;
+		$n->register( 'PING', 'cb', function ( $payload ) use ( &$received ) { $received = $payload; } );
+		$n->notify( 'PING', 'hello' );
+		$this->assertSame( 'hello', $received );
+	}
+
+	public function test_register_replays_cached_state_to_late_subscribers(): void {
+		$n = new class extends Node {
+			public function __construct() {
+				$this->registrations = [ 'READY' => [] ];
+			}
+		};
+		$n->name( 'p' );
+		$n->set_state( 'READY', 'now-ready' );
+
+		$received = null;
+		$n->register( 'READY', 'late', function ( $payload ) use ( &$received ) { $received = $payload; } );
+		$this->assertSame( 'now-ready', $received );
+	}
+
+	public function test_notify_dispatches_to_node_name_via_TM_INFO(): void {
+		$n = new class extends Node {
+			public function __construct() {
+				$this->registrations = [ 'EVT' => [] ];
+			}
+		};
+		$n->name( 'p' );
+		$listener = new CaptureSink();
+		$listener->name( 'l' );
+		$n->register( 'EVT', 'l' );
+		$n->notify( 'EVT', 'payload-x' );
+
+		$this->assertCount( 1, $listener->captured );
+		$msg = $listener->captured[0];
+		$this->assertSame( Message::TM_INFO, $msg[ Message::TYPE ] );
+		$this->assertSame( 'EVT', $msg[ Message::KEY ] );
+		$this->assertSame( 'payload-x', $msg[ Message::VALUE ] );
+	}
+
+	public function test_unregister_removes_listener(): void {
+		$n = new class extends Node {
+			public function __construct() {
+				$this->registrations = [ 'EVT' => [] ];
+			}
+		};
+		$n->name( 'p' );
+		$received = 0;
+		$n->register( 'EVT', 'cb', function () use ( &$received ) { ++$received; } );
+		$n->notify( 'EVT', null );
+		$n->unregister( 'EVT', 'cb' );
+		$n->notify( 'EVT', null );
+		$this->assertSame( 1, $received );
+	}
+
+	public function test_closure_falsy_return_unregisters(): void {
+		$n = new class extends Node {
+			public function __construct() {
+				$this->registrations = [ 'EVT' => [] ];
+			}
+		};
+		$n->name( 'p' );
+		$count = 0;
+		$n->register( 'EVT', 'once', function () use ( &$count ) { ++$count; return false; } );
+		$n->notify( 'EVT', null );
+		$n->notify( 'EVT', null );
+		$this->assertSame( 1, $count, 'Returning falsy single-shots the registration' );
+	}
 }
