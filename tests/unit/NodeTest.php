@@ -267,4 +267,71 @@ class NodeTest extends TestCase {
 		$n->notify( 'EVT', null );
 		$this->assertSame( 1, $count, 'Returning falsy single-shots the registration' );
 	}
+
+	public function test_connect_node_sets_owner(): void {
+		$n = new CaptureSink();
+		$n->name( 'src' );
+		$n->connect_node( 'dst' );
+		$this->assertSame( 'dst', $n->target() );
+	}
+
+	public function test_disconnect_node_clears_owner(): void {
+		$n = new CaptureSink();
+		$n->name( 'src' );
+		$n->connect_node( 'dst' );
+		$n->disconnect_node();
+		$this->assertSame( '', $n->target() );
+	}
+
+	public function test_remove_node_unregisters_and_clears_state(): void {
+		$n = new CaptureSink();
+		$n->name( 'alice' );
+		$dst = new CaptureSink();
+		$n->sink( $dst );
+		$n->connect_node( 'someone' );
+
+		$n->remove_node();
+
+		$this->assertNull( Core::node( 'alice' ) );
+		$this->assertSame( '', $n->name() );
+		$this->assertNull( $n->sink() );
+		$this->assertSame( '', $n->target() );
+	}
+
+	public function test_dump_config_emits_make_node(): void {
+		$n = new CaptureSink();
+		$n->name( 'alice' );
+		$out = $n->dump_config();
+		$this->assertStringContainsString( "make_node CaptureSink alice", $out );
+	}
+
+	public function test_dump_config_suppresses_set_sink_for_default_command_interpreter_sink(): void {
+		$ci = new CaptureSink();
+		$ci->name( '_command_interpreter' );
+		$n  = new CaptureSink();
+		$n->name( 'alice' );
+		$n->sink( $ci );
+
+		$out = $n->dump_config();
+		$this->assertStringNotContainsString( 'set_sink', $out );
+	}
+
+	public function test_dump_config_emits_set_sink_when_sink_overridden(): void {
+		$other = new CaptureSink();
+		$other->name( 'other' );
+		$n     = new CaptureSink();
+		$n->name( 'alice' );
+		$n->sink( $other );
+
+		$out = $n->dump_config();
+		$this->assertStringContainsString( 'set_sink alice other', $out );
+	}
+
+	public function test_dump_config_emits_connect_node(): void {
+		$n = new CaptureSink();
+		$n->name( 'alice' );
+		$n->connect_node( 'bob' );
+		$out = $n->dump_config();
+		$this->assertStringContainsString( 'connect_node alice bob', $out );
+	}
 }

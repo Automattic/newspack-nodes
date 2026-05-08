@@ -226,6 +226,63 @@ class Node {
 		return true;
 	}
 
+	/**
+	 * Set or append target. Polymorphic: regular Node sets single string; Tee overrides to append to array.
+	 */
+	public function connect_node( string $target ): void {
+		$this->target = $target;
+	}
+
+	public function disconnect_node( string $target = '' ): void {
+		$this->target = '';
+	}
+
+	/**
+	 * Cleanup ordering matters: registrations → sink/edge → target → registry → name (LAST).
+	 * Registry-delete-before-name-clear means in-flight Core::node($name) lookups during
+	 * teardown correctly return null (so the "forgot to unregister" warning fires) instead
+	 * of finding a half-torn-down self.
+	 */
+	public function remove_node(): void {
+		$this->registrations = [];
+		$this->set_state     = [];
+		$this->sink          = null;
+		$this->edge          = null;
+		$this->target        = '';
+		if ( $this->name !== '' ) {
+			Core::unregister_node( $this->name );
+			$this->name = '';
+		}
+	}
+
+	/**
+	 * Round-trippable graph snippet. Emits make_node + (optionally) set_sink + connect_node lines.
+	 *
+	 * Suppresses set_sink when sink is the default _command_interpreter (matches real Tachikoma
+	 * CommandInterpreter.pm:1747-1769).
+	 */
+	public function dump_config(): string {
+		$short = ( new \ReflectionClass( $this ) )->getShortName();
+		$out   = "make_node $short {$this->name}\n";
+
+		if ( $this->sink !== null ) {
+			$sink_name = $this->sink->name();
+			if ( $sink_name !== '' && $sink_name !== '_command_interpreter' ) {
+				$out .= "set_sink {$this->name} $sink_name\n";
+			}
+		}
+
+		if ( \is_array( $this->target ) ) {
+			foreach ( $this->target as $owner ) {
+				$out .= "connect_node {$this->name} $owner\n";
+			}
+		} elseif ( $this->target !== '' ) {
+			$out .= "connect_node {$this->name} {$this->target}\n";
+		}
+
+		return $out;
+	}
+
 	public function drop_message( array &$message, string $error ): void {
 		$type   = $message[ Message::TYPE ];
 		$labels = [];
