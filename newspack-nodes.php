@@ -31,3 +31,4 @@ require_once NEWSPACK_NODES_DIR . 'includes/class-timer.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-router.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-responder.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-command-interpreter.php';
+require_once NEWSPACK_NODES_DIR . 'includes/class-lock.php';
