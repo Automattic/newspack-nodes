@@ -130,4 +130,27 @@ class EventFrameworkTest extends TestCase {
 
 		\curl_multi_close( $mh );
 	}
+
+	public function test_drain_exits_when_shutting_down_flag_is_set(): void {
+		$ef = EventFramework::instance();
+		$ticks = 0;
+		$ef->drain( function () use ( &$ticks ): bool {
+			++$ticks;
+			if ( $ticks === 2 ) {
+				\Newspack_Nodes\Core::$shutting_down = true;
+			}
+			return true;
+		} );
+		$this->assertGreaterThanOrEqual( 2, $ticks );
+		$this->assertLessThan( 5, $ticks );
+	}
+
+	public function test_install_signal_handlers_does_not_crash(): void {
+		if ( ! \function_exists( 'pcntl_signal' ) ) {
+			$this->markTestSkipped( 'pcntl not available' );
+		}
+		$ef = EventFramework::instance();
+		$ef->install_signal_handlers();
+		$this->assertTrue( true );
+	}
 }

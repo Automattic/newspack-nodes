@@ -101,6 +101,17 @@ class EventFramework {
 		unset( $this->curl_handles[ \spl_object_id( $node ) ] );
 	}
 
+	public function install_signal_handlers(): void {
+		if ( ! \function_exists( 'pcntl_signal' ) ) {
+			return;
+		}
+		$handler = static function ( int $sig ): void {
+			Core::$shutting_down = true;
+		};
+		\pcntl_signal( SIGTERM, $handler );
+		\pcntl_signal( SIGINT,  $handler );
+	}
+
 	private function drain_curl_multi(): void {
 		foreach ( $this->curl_handles as $entry ) {
 			$still_running = 0;
@@ -141,7 +152,11 @@ class EventFramework {
 	}
 
 	public function drain( callable $should_continue ): void {
+		$has_pcntl = \function_exists( 'pcntl_signal_dispatch' );
 		while ( $should_continue() ) {
+			if ( Core::$shutting_down ) {
+				break;
+			}
 			Core::update_time();
 
 			$reads  = [];
@@ -179,7 +194,10 @@ class EventFramework {
 				$this->drain_curl_multi();
 			}
 
-			// Step 3 (signals): added in Task 5.
+			// Step 3: signals.
+			if ( $has_pcntl ) {
+				\pcntl_signal_dispatch();
+			}
 
 			Core::run_closing();
 			Core::update_time();
