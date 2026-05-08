@@ -1,4 +1,14 @@
 <?php
 namespace Newspack_Nodes\Tests;
 
-// Populated in Task 8 once Node base exists.
+use Newspack_Nodes\Node;
+
+class CaptureSink extends Node {
+	/** @var array<int,array> */
+	public array $captured = [];
+
+	public function fill( array &$message ): void {
+		++$this->counter;
+		$this->captured[] = $message;
+	}
+}
