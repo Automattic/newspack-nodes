@@ -22,11 +22,12 @@ if ( ! \defined( 'NEWSPACK_NODES_DIR' ) ) {
 }
 
 // Load classes (added one per task — kept require_once for parity with event-logger conventions; no composer for A1).
+// Order matters: Router extends Timer (Task 7), so Timer (and EventFramework it depends on) must load before Router.
 require_once NEWSPACK_NODES_DIR . 'includes/class-core.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-message.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-node.php';
+require_once NEWSPACK_NODES_DIR . 'includes/class-event-framework.php';
+require_once NEWSPACK_NODES_DIR . 'includes/class-timer.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-router.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-responder.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-command-interpreter.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-event-framework.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-timer.php';

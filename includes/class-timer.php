@@ -28,7 +28,15 @@ class Timer extends Node {
 		$this->active  = true;
 
 		if ( $ms === null ) {
-			throw new \LogicException( 'Router-hitchhike mode lands in Task 7' );
+			$router = Core::node( '_router' );
+			if ( $router === null ) {
+				throw new \RuntimeException( 'Router-hitchhike requires _router to be present' );
+			}
+			$self = $this;
+			$router->register( 'TIMER', 'timer_' . \spl_object_id( $this ), function () use ( $self ) {
+				$self->fire_cb();
+			} );
+			return;
 		}
 		EventFramework::instance()->set_timer( $this, $ms, $oneshot );
 	}

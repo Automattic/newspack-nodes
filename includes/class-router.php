@@ -1,11 +1,10 @@
 <?php
 /**
- * Router: path-based message dispatch.
+ * Router: path-based message dispatch + TIMER event hub.
  *
- * Splits TO on '/', looks up the first segment as a registered node name,
- * updates TO to the remainder, and forwards. Empty TO passes to sink. Unknown
- * targets generate NOT_AVAILABLE TM_ERROR responses (unless the inbound was
- * already a TM_ERROR — don't bounce errors-on-errors).
+ * Extends Timer (matches real Tachikoma Router.pm). On each fire_cb tick
+ * (5s default), notifies all TIMER registrants — the Router-hitchhike pattern
+ * for cheap periodic work without per-node EventFramework slots.
  *
  * @package Newspack_Nodes
  */
@@ -14,7 +13,18 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Router extends Node {
+class Router extends Timer {
+	public const DEFAULT_TICK_MS = 5000;
+
+	public function __construct() {
+		parent::__construct();
+		$this->registrations['TIMER'] = [];
+	}
+
+	protected function fire(): void {
+		$this->notify( 'TIMER', Core::$right_now );
+	}
+
 	public function fill( array &$message ): void {
 		++$this->counter;
 
@@ -29,7 +39,6 @@ class Router extends Node {
 		$remaining              = $parts[1] ?? '';
 		$message[ Message::TO ] = $remaining;
 
-		// Path-explosion guard.
 		if ( \strlen( $message[ Message::FROM ] ?? '' ) > self::MAX_FROM_SIZE ) {
 			$this->drop_message( $message, 'path exceeded ' . self::MAX_FROM_SIZE . ' bytes' );
 			return;
@@ -38,7 +47,7 @@ class Router extends Node {
 		$target = Core::node( $node_name );
 		if ( $target === null ) {
 			if ( $message[ Message::TYPE ] & Message::TM_ERROR ) {
-				return; // Silently drop bouncing errors.
+				return;
 			}
 			$err                       = Message::new_message();
 			$err[ Message::TYPE ]      = Message::TM_ERROR;
