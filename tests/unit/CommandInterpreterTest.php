@@ -78,4 +78,71 @@ class CommandInterpreterTest extends TestCase {
 
 		$this->assertNotNull( Core::node( 'alice' ) );
 	}
+
+	public function test_set_sink_wires_one_node_to_another(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+		$ci->execute( 'make_node CaptureSink bob' );
+		$ci->execute( 'set_sink alice bob' );
+
+		$this->assertSame( Core::node( 'bob' ), Core::node( 'alice' )->sink() );
+	}
+
+	public function test_connect_node_sets_target(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+		$ci->execute( 'make_node CaptureSink bob' );
+		$ci->execute( 'connect_node alice bob' );
+
+		$this->assertSame( 'bob', Core::node( 'alice' )->target() );
+	}
+
+	public function test_disconnect_node_clears_target(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+		$ci->execute( 'make_node CaptureSink bob' );
+		$ci->execute( 'connect_node alice bob' );
+		$ci->execute( 'disconnect_node alice' );
+
+		$this->assertSame( '', Core::node( 'alice' )->target() );
+	}
+
+	public function test_ls_returns_node_table(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+		$ci->execute( 'make_node CaptureSink bob' );
+
+		$out = $ci->execute( 'ls' );
+		$this->assertStringContainsString( 'alice', $out );
+		$this->assertStringContainsString( 'bob', $out );
+	}
+
+	public function test_dump_config_round_trips_full_graph(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+		$ci->execute( 'make_node CaptureSink bob' );
+		$ci->execute( 'connect_node alice bob' );
+
+		$dump = $ci->execute( 'dump_config' );
+		$this->assertStringContainsString( 'make_node CaptureSink alice', $dump );
+		$this->assertStringContainsString( 'make_node CaptureSink bob', $dump );
+		$this->assertStringContainsString( 'connect_node alice bob', $dump );
+		// alice's sink is _command_interpreter (auto-default) — should NOT be emitted.
+		$this->assertStringNotContainsString( 'set_sink alice', $dump );
+	}
 }

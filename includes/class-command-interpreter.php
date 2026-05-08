@@ -50,6 +50,61 @@ class CommandInterpreter extends Node {
 				$node->sink( $self );
 				return 'ok';
 			},
+			'set_sink' => function ( CommandInterpreter $self, string $args ): string {
+				[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
+				if ( $name === '' || $target === '' ) {
+					return 'usage: set_sink <node> <target>';
+				}
+				$src = Core::node( $name );
+				$dst = Core::node( $target );
+				if ( $src === null || $dst === null ) {
+					return 'unknown node';
+				}
+				$src->sink( $dst );
+				return 'ok';
+			},
+			'connect_node' => function ( CommandInterpreter $self, string $args ): string {
+				[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
+				if ( $name === '' || $target === '' ) {
+					return 'usage: connect_node <node> <target>';
+				}
+				$src = Core::node( $name );
+				if ( $src === null ) {
+					return "unknown node: $name";
+				}
+				$src->connect_node( $target );
+				return 'ok';
+			},
+			'disconnect_node' => function ( CommandInterpreter $self, string $args ): string {
+				$name = \trim( $args );
+				if ( $name === '' ) {
+					return 'usage: disconnect_node <node>';
+				}
+				$src = Core::node( $name );
+				if ( $src === null ) {
+					return "unknown node: $name";
+				}
+				$src->disconnect_node();
+				return 'ok';
+			},
+			'ls' => function ( CommandInterpreter $self, string $args ): string {
+				$lines = [];
+				foreach ( Core::$nodes_by_name as $name => $node ) {
+					$lines[] = \sprintf( '%-30s count=%d', $name, $node->counter() );
+				}
+				\sort( $lines );
+				return \implode( "\n", $lines );
+			},
+			'dump_config' => function ( CommandInterpreter $self, string $args ): string {
+				$out = '';
+				foreach ( \array_keys( Core::$nodes_by_name ) as $name ) {
+					if ( $name === '_command_interpreter' || $name === '_router' || $name === '_responder' ) {
+						continue; // Skip baseline scaffolding.
+					}
+					$out .= Core::node( $name )->dump_config();
+				}
+				return $out;
+			},
 		];
 	}
 
