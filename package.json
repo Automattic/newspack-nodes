@@ -1,0 +1,33 @@
+{
+	"name": "newspack-nodes",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Node-graph runtime for composable PHP services.",
+	"author": "Automattic",
+	"license": "GPL-2.0-or-later",
+	"scripts": {
+		"release:archive": "./build-release.sh",
+		"fix:js": "wp-scripts lint-js --fix 'src/**/*.{js,jsx}'",
+		"fix:php": "phpcbf",
+		"fix:scss": "wp-scripts lint-style 'src/**/*.scss' --customSyntax postcss-scss --fix",
+		"format": "wp-scripts format",
+		"format:js": "wp-scripts format 'src/**/*.{js,jsx}'",
+		"lint:js": "wp-scripts lint-js 'src/**/*.{js,jsx}'",
+		"lint:php": "phpcs",
+		"lint:scss": "wp-scripts lint-style 'src/**/*.scss' --customSyntax postcss-scss"
+	},
+	"devDependencies": {
+		"@commitlint/cli": "^20.1.0",
+		"@commitlint/config-conventional": "^19.8.1",
+		"@wordpress/scripts": "^31.0.0",
+		"lint-staged": "^15.5.2"
+	},
+	"lint-staged": {
+		"*.{js,jsx}": "wp-scripts lint-js",
+		"*.scss": "wp-scripts lint-style --customSyntax postcss-scss",
+		"*.php": "phpcs"
+	},
+	"browserslist": [
+		"extends @wordpress/browserslist-config"
+	]
+}

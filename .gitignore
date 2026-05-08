@@ -4,3 +4,9 @@
 *.swp
 vendor/
 node_modules/
+/release/
+/.release-staging/
+package-lock.json
+*.log
+npm-debug.log*
+Thumbs.db
