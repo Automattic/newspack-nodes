@@ -39,3 +39,4 @@ require_once NEWSPACK_NODES_DIR . 'includes/class-callback.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-tee.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-hook.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-tail.php';
+require_once NEWSPACK_NODES_DIR . 'includes/class-worker-base.php';
