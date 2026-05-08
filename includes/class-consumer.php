@@ -72,6 +72,10 @@ class Consumer extends Timer {
 		$this->offsetlog->allow_large_writes(); // Offsetlog entries with large state can exceed 4KB.
 
 		$this->load_offsetlog();
+
+		// Start polling immediately. fire() re-arms with set_timer(0)/(100)
+		// based on whether new bytes are available.
+		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
 	}
 
 	/**

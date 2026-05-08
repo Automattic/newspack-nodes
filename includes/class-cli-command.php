@@ -192,7 +192,6 @@ class Cli_Command {
 			} );
 			$unpack->name( "cli-repl-unpack.{$pid}" );
 			$reply_in->sink( $unpack );
-			$reply_in->set_timer( Consumer::POLL_INTERVAL_EOF_MS, true ); // bootstrap; fire() re-arms.
 		}
 
 		// Dumper TO filter: matches `_responder/$pid` (worker reply that didn't

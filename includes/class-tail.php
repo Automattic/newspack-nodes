@@ -42,6 +42,10 @@ class Tail extends Timer {
 		parent::__construct();
 		$this->filename    = $filename;
 		$this->buffer_mode = $buffer_mode;
+
+		// Start polling immediately. fire() re-arms with set_timer(0)/(100)
+		// based on whether new bytes are available.
+		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
 	}
 
 	public function poll(): void {

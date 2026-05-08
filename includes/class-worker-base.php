@@ -229,7 +229,6 @@ class WorkerBase {
 		} );
 		$unpack->name( "_repl-in-unpack.{$this->worker_type}.p{$this->partition}" );
 		$repl_in->sink( $unpack );
-		$repl_in->set_timer( Consumer::POLL_INTERVAL_EOF_MS, true ); // bootstrap; fire() re-arms.
 
 		return $interpreter;
 	}
