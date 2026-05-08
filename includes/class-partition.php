@@ -16,7 +16,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Partition {
+class Partition extends Node {
 	public const DEFAULT_SEGMENT_SIZE = 67108864;
 	public const DEFAULT_NUM_SEGMENTS = 4;
 	public const DEFAULT_MAX_LIFESPAN = 86400;
@@ -74,6 +74,43 @@ class Partition {
 			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
 		}
 		return "{$this->partition_dir}/{$segment_id}.log";
+	}
+
+	/**
+	 * Node entry point: dispatch by message type.
+	 *
+	 * - TM_BYTESTREAM: append VALUE to current segment; ack via answer() if TM_PERSIST.
+	 * - TM_REQUEST: parse "GET <seg> <offset> <length>"; respond with bytes via sink.
+	 *
+	 * @param array $message Reference; not mutated.
+	 */
+	public function fill( array &$message ): void {
+		++$this->counter;
+		$type = $message[ Message::TYPE ];
+
+		if ( $type & Message::TM_BYTESTREAM ) {
+			$this->write( $message[ Message::VALUE ] );
+			if ( $type & Message::TM_PERSIST ) {
+				$this->answer( $message );
+			}
+			return;
+		}
+
+		if ( $type & Message::TM_REQUEST ) {
+			$req = $message[ Message::VALUE ];
+			if ( \preg_match( '/^GET (\d+) (\d+) (\d+)$/', $req, $m ) ) {
+				$bytes                      = $this->read_at( (int) $m[1], (int) $m[2], (int) $m[3] );
+				$resp                       = Message::new_message();
+				$resp[ Message::TYPE ]      = Message::TM_RESPONSE;
+				$resp[ Message::TIMESTAMP ] = Core::$right_now;
+				$resp[ Message::FROM ]      = $this->name;
+				$resp[ Message::TO ]        = $message[ Message::FROM ];
+				$resp[ Message::ID ]        = $message[ Message::ID ];
+				$resp[ Message::VALUE ]     = $bytes;
+				$this->sink?->fill( $resp );
+			}
+			return;
+		}
 	}
 
 	public function __destruct() {

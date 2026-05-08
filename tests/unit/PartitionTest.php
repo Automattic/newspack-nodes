@@ -162,4 +162,32 @@ class PartitionTest extends TestCase {
 		$segments = $p->get_segments( true );
 		$this->assertLessThanOrEqual( 2, count( $segments ) );
 	}
+
+	public function test_fill_TM_BYTESTREAM_writes_value(): void {
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$msg = \Newspack_Nodes\Message::new_message();
+		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
+		$msg[ \Newspack_Nodes\Message::VALUE ] = "from-fill\n";
+		$p->fill( $msg );
+		$this->assertSame( "from-fill\n", file_get_contents( "{$this->tmp}/p0/0.log" ) );
+	}
+
+	public function test_fill_TM_REQUEST_GET_returns_bytes_via_response(): void {
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$p->write( "hello\n" );
+
+		$capture = new \Newspack_Nodes\Tests\CaptureSink();
+		$p->sink( $capture );
+
+		$msg = \Newspack_Nodes\Message::new_message();
+		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_REQUEST;
+		$msg[ \Newspack_Nodes\Message::FROM ]  = 'asker';
+		$msg[ \Newspack_Nodes\Message::VALUE ] = 'GET 0 0 6';
+		$p->fill( $msg );
+
+		$this->assertCount( 1, $capture->captured );
+		$resp = $capture->captured[0];
+		$this->assertSame( \Newspack_Nodes\Message::TM_RESPONSE, $resp[ \Newspack_Nodes\Message::TYPE ] );
+		$this->assertSame( "hello\n", $resp[ \Newspack_Nodes\Message::VALUE ] );
+	}
 }
