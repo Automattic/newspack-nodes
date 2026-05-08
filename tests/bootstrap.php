@@ -88,6 +88,86 @@ if ( ! function_exists( 'wp_clear_scheduled_hook' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_unschedule_event' ) ) {
+	function wp_unschedule_event( $timestamp, $hook, $args = [] ) {
+		$GLOBALS['_wp_test_unscheduled_events'][] = [
+			'timestamp' => $timestamp,
+			'hook'      => $hook,
+			'args'      => $args,
+		];
+		return true;
+	}
+}
+
+// ── Auth / capability stubs ───────────────────────────────────────────────────
+
+if ( ! function_exists( 'current_user_can' ) ) {
+	function current_user_can( $cap ) {
+		return $GLOBALS['_wp_test_current_user_can'][ $cap ] ?? false;
+	}
+}
+
+if ( ! function_exists( 'wp_verify_nonce' ) ) {
+	function wp_verify_nonce( $nonce, $action ) {
+		return ( $GLOBALS['_wp_test_valid_nonces'][ $action ] ?? null ) === $nonce ? 1 : false;
+	}
+}
+
+if ( ! function_exists( 'get_current_user_id' ) ) {
+	function get_current_user_id() {
+		return $GLOBALS['_wp_test_current_user_id'] ?? 0;
+	}
+}
+
+if ( ! function_exists( 'is_wp_error' ) ) {
+	function is_wp_error( $thing ) {
+		return $thing instanceof \WP_Error;
+	}
+}
+
+// ── Transient + cache stubs ───────────────────────────────────────────────────
+
+if ( ! function_exists( 'get_transient' ) ) {
+	function get_transient( $key ) {
+		$store = $GLOBALS['_wp_test_transients'] ?? [];
+		if ( ! isset( $store[ $key ] ) ) {
+			return false;
+		}
+		[ $value, $expires_at ] = $store[ $key ];
+		if ( $expires_at !== 0 && time() >= $expires_at ) {
+			unset( $GLOBALS['_wp_test_transients'][ $key ] );
+			return false;
+		}
+		return $value;
+	}
+}
+
+if ( ! function_exists( 'set_transient' ) ) {
+	function set_transient( $key, $value, $expiration = 0 ) {
+		$expires_at                              = $expiration > 0 ? time() + $expiration : 0;
+		$GLOBALS['_wp_test_transients'][ $key ]  = [ $value, $expires_at ];
+		return true;
+	}
+}
+
+// ── REST helpers ──────────────────────────────────────────────────────────────
+
+if ( ! function_exists( 'rest_authorization_required_code' ) ) {
+	function rest_authorization_required_code() {
+		return 401;
+	}
+}
+
+if ( ! function_exists( 'sanitize_text_field' ) ) {
+	function sanitize_text_field( $str ) {
+		return is_string( $str ) ? trim( strip_tags( $str ) ) : '';
+	}
+}
+
+if ( ! function_exists( 'ignore_user_abort' ) && ! function_exists( '\\ignore_user_abort' ) ) {
+	// Built-in PHP function — no need to stub. Kept for symmetry.
+}
+
 if ( ! function_exists( 'register_activation_hook' ) ) {
 	function register_activation_hook( $file, $callback ) {
 		$GLOBALS['_wp_test_activation_hooks'][] = [ 'file' => $file, 'callback' => $callback ];

@@ -50,7 +50,12 @@ require_once NEWSPACK_NODES_DIR . 'includes/class-cli.php';
 
 if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	require_once NEWSPACK_NODES_DIR . 'includes/class-cli-command.php';
+	require_once NEWSPACK_NODES_DIR . 'includes/cli/class-worker-cli-command.php';
 	\WP_CLI::add_command( 'nodes', '\\Newspack_Nodes\\Cli_Command' );
+	\WP_CLI::add_command( 'nodes types',   [ '\\Newspack_Nodes\\WorkerCliCommand', 'types'   ] );
+	\WP_CLI::add_command( 'nodes run',     [ '\\Newspack_Nodes\\WorkerCliCommand', 'run'     ] );
+	\WP_CLI::add_command( 'nodes restart', [ '\\Newspack_Nodes\\WorkerCliCommand', 'restart' ] );
+	\WP_CLI::add_command( 'nodes status',  [ '\\Newspack_Nodes\\WorkerCliCommand', 'status'  ] );
 }
 
 // Wire WordPress integration: REST routes, cron-driven supervisor tick, activation/deactivation.

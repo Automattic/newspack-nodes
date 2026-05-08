@@ -6,6 +6,19 @@
  * worker descriptors (one per partition). Also exposes init helpers used by
  * the main plugin file: REST route registration and supervisor cron tick.
  *
+ * Hardening:
+ *  - MAX_PARTITIONS=16 cap on partition counts read from topologies. Bounded
+ *    loops downstream; matches the supervisor cleanup ceiling. Spec line 844.
+ *  - register_standalone_workers() exposes the supervisor (and any future
+ *    runtime-internal singleton workers) to SpawnController::validate_worker_type
+ *    so SpawnController can accept type='supervisor' without round-tripping
+ *    through the topologies filter.
+ *  - run_supervisor_tick() invokes Supervisor::run() (the long-running 595s
+ *    in-process tick loop), not a single iteration. Cron is the backstop;
+ *    the supervisor's own loop is the primary scheduling mechanism.
+ *  - is_logging_enabled() gates the supervisor: false → unschedule + return
+ *    cleanly (spec line 846).
+ *
  * @package Newspack_Nodes
  */
 
@@ -16,15 +29,26 @@ use Newspack_Nodes\Rest\SpawnController;
 \defined( 'ABSPATH' ) || exit;
 
 class Bootstrap {
+	/**
+	 * Filter-driven topology registry. Returns the raw filter value.
+	 */
 	public static function get_topologies(): array {
 		return (array) \apply_filters( 'newspack_nodes/topologies', [] );
 	}
 
+	/**
+	 * Expand topologies to flat worker descriptors, one per partition.
+	 *
+	 * Partition counts are clamped to MAX_PARTITIONS so the supervisor's
+	 * cleanup walk and the spawn endpoint's bounds checks stay within the
+	 * documented ceiling regardless of misconfiguration.
+	 */
 	public static function expand_workers(): array {
 		$topologies = self::get_topologies();
 		$workers    = [];
 		foreach ( $topologies as $type => $config ) {
 			$count = (int) ( $config['num_partitions'] ?? 1 );
+			$count = \min( SupervisorBase::MAX_PARTITIONS, \max( 1, $count ) );
 			for ( $p = 0; $p < $count; ++$p ) {
 				$workers[] = [
 					'type'          => $type,
@@ -35,6 +59,35 @@ class Bootstrap {
 			}
 		}
 		return $workers;
+	}
+
+	/**
+	 * Register runtime-internal standalone workers (the supervisor itself,
+	 * for now) so SpawnController::validate_worker_type can authorize them
+	 * without faking a topology entry.
+	 *
+	 * @return array<string,array> Map of type => config.
+	 */
+	public static function register_standalone_workers(): array {
+		return [
+			'supervisor' => [
+				'class'      => Supervisor::class,
+				'partitions' => false, // singleton — partition is always 0.
+			],
+		];
+	}
+
+	/**
+	 * Logging gate. Plugins / config can disable the supervisor without
+	 * deactivating the plugin. Implemented as a filter so applications can
+	 * tie it to their own settings UI; defaults to enabled.
+	 *
+	 * Returning false from this filter makes run_supervisor_tick() unschedule
+	 * the cron and return early; supervisor's check_config() honors it too.
+	 * Spec line 846.
+	 */
+	public static function is_logging_enabled(): bool {
+		return (bool) \apply_filters( 'newspack_nodes/enable_logging', true );
 	}
 
 	/**
@@ -63,37 +116,35 @@ class Bootstrap {
 	}
 
 	/**
-	 * Supervisor tick: iterate workers, spawn any that need it.
-	 * Wire to `newspack_nodes/supervisor` (a wp_cron-scheduled action).
+	 * Supervisor tick: invoke Supervisor::run() (long-running 595s loop).
+	 * Wired to `newspack_nodes/supervisor` via wp_cron at minute cadence.
+	 *
+	 * Cron is the BACKSTOP — the supervisor's own self-respawn chain (run()
+	 * end → POST /spawn → fresh supervisor) is the primary scheduling
+	 * mechanism. Cron only catches a dead chain (supervisor crashed and
+	 * couldn't fire spawn_next_supervisor).
+	 *
+	 * If logging is disabled, unschedule the cron and return cleanly.
 	 */
 	public static function run_supervisor_tick(): void {
-		$supervisor = self::supervisor();
-		$workers    = self::expand_workers();
-		$now        = \microtime( true );
-		$spawn_url  = \rest_url( 'newspack-nodes/v1/workers/spawn' );
-		$token      = $supervisor->generate_spawn_token( (int) $now );
+		if ( ! self::is_logging_enabled() ) {
+			self::unschedule_supervisor();
+			return;
+		}
+		self::supervisor()->run();
+	}
 
-		foreach ( $workers as $w ) {
-			if ( ! $supervisor->worker_needs_spawn( $w, $now ) ) {
-				continue;
-			}
-			if ( $supervisor->is_recently_spawned( $w['type'], $w['partition'], $now ) ) {
-				continue;
-			}
-			\wp_remote_post(
-				$spawn_url,
-				[
-					'method'   => 'POST',
-					'timeout'  => 1,
-					'blocking' => false,
-					'body'     => [
-						'type'      => $w['type'],
-						'partition' => $w['partition'],
-						'nonce'     => $token,
-					],
-				]
-			);
-			$supervisor->record_spawn( $w['type'], $w['partition'], $now );
+	/**
+	 * Unschedule the supervisor cron event. Used by the disable-logging path
+	 * and the deactivation hook.
+	 */
+	public static function unschedule_supervisor(): void {
+		if ( ! \function_exists( 'wp_next_scheduled' ) || ! \function_exists( 'wp_unschedule_event' ) ) {
+			return;
+		}
+		$next = \wp_next_scheduled( 'newspack_nodes/supervisor' );
+		if ( $next ) {
+			\wp_unschedule_event( $next, 'newspack_nodes/supervisor' );
 		}
 	}
 

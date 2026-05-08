@@ -16,6 +16,13 @@ namespace Newspack_Nodes;
 class Tail extends Node {
 	public const READ_CHUNK = 65536;
 
+	/**
+	 * Hard cap on cross-poll trailing-line buffer (20MB). Protects against DoS from
+	 * a runaway file with no newlines — without this, line_remainder can balloon
+	 * unboundedly until the worker OOMs.
+	 */
+	public const MAX_LINE_BUFFER_SIZE = 20971520;
+
 	private string $filename;
 	private string $buffer_mode;
 	private int $position = 0;
@@ -83,6 +90,26 @@ class Tail extends Node {
 				return;
 			case 'line-buffered':
 			default:
+				// DoS guard: if appending would exceed MAX_LINE_BUFFER_SIZE, the source
+				// isn't producing newlines (corrupt). Discard remainder + advance to next
+				// newline boundary so we recover at a clean line break.
+				if ( \strlen( $this->line_remainder ) + \strlen( $bytes ) > self::MAX_LINE_BUFFER_SIZE ) {
+					Core::print_less_often(
+						\sprintf(
+							'Tail: line buffer exceeded %d bytes for %s - discarding',
+							self::MAX_LINE_BUFFER_SIZE,
+							$this->filename
+						)
+					);
+					$this->line_remainder = '';
+					$nl                   = \strpos( $bytes, "\n" );
+					if ( false !== $nl ) {
+						// Drop everything up through the newline; carry tail as remainder.
+						$tail = \substr( $bytes, $nl + 1 );
+						$this->line_remainder = $tail;
+					}
+					return;
+				}
 				$buf                  = $this->line_remainder . $bytes;
 				$lines                = \explode( "\n", $buf );
 				$this->line_remainder = (string) \array_pop( $lines );

@@ -111,4 +111,58 @@ class TailTest extends TestCase {
 		$t->poll();
 		$this->assertCount( 3, $cap->captured );
 	}
+
+	// ============================================================================
+	// Hardening: MAX_LINE_BUFFER_SIZE DoS guard.
+	// ============================================================================
+
+	public function test_MAX_LINE_BUFFER_SIZE_constant_defined(): void {
+		$this->assertSame( 20971520, Tail::MAX_LINE_BUFFER_SIZE );
+	}
+
+	public function test_oversized_line_remainder_is_discarded(): void {
+		// Use reflection to push the line_remainder past the MAX threshold without
+		// having to fabricate 20MB of disk content.
+		$t = new Tail( "{$this->tmp}/data.log" );
+		$ref = new \ReflectionClass( $t );
+		$prop = $ref->getProperty( 'line_remainder' );
+		$prop->setAccessible( true );
+		// Pre-populate the remainder near the cap.
+		$prop->setValue( $t, str_repeat( 'x', Tail::MAX_LINE_BUFFER_SIZE - 10 ) );
+
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+
+		// Now write more bytes (no newline) that would push it past MAX. The guard
+		// should fire when emit() runs.
+		file_put_contents( "{$this->tmp}/data.log", str_repeat( 'y', 100 ) );
+		$t->poll();
+
+		// After the guard fires, line_remainder should be empty (no newline in the new bytes).
+		$this->assertSame( '', $prop->getValue( $t ), 'oversize buffer must be discarded' );
+		// And no message should have been emitted (no complete line was available).
+		$this->assertCount( 0, $cap->captured );
+	}
+
+	public function test_oversized_line_remainder_recovers_at_next_newline(): void {
+		$t = new Tail( "{$this->tmp}/data.log" );
+		$ref = new \ReflectionClass( $t );
+		$prop = $ref->getProperty( 'line_remainder' );
+		$prop->setAccessible( true );
+		// Push remainder near the cap.
+		$prop->setValue( $t, str_repeat( 'x', Tail::MAX_LINE_BUFFER_SIZE - 10 ) );
+
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+
+		// New bytes contain a newline; the guard fires (drops remainder + bytes-up-to-newline)
+		// and keeps the tail of new bytes (after newline) as remainder.
+		file_put_contents( "{$this->tmp}/data.log", str_repeat( 'y', 100 ) . "\nrecover" );
+		$t->poll();
+
+		// No emission — the giant line was dropped.
+		$this->assertCount( 0, $cap->captured );
+		// Remainder should be "recover" (the bytes after the newline).
+		$this->assertSame( 'recover', $prop->getValue( $t ) );
+	}
 }
