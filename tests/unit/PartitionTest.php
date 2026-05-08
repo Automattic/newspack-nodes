@@ -190,4 +190,82 @@ class PartitionTest extends TestCase {
 		$this->assertSame( \Newspack_Nodes\Message::TM_RESPONSE, $resp[ \Newspack_Nodes\Message::TYPE ] );
 		$this->assertSame( "hello\n", $resp[ \Newspack_Nodes\Message::VALUE ] );
 	}
+
+	public function test_fill_TM_PERSIST_on_successful_write_answers(): void {
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$capture = new \Newspack_Nodes\Tests\CaptureSink();
+		$p->sink( $capture );
+
+		$msg = \Newspack_Nodes\Message::new_message();
+		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM | \Newspack_Nodes\Message::TM_PERSIST;
+		$msg[ \Newspack_Nodes\Message::FROM ]  = 'producer';
+		$msg[ \Newspack_Nodes\Message::ID ]    = 'req-1';
+		$msg[ \Newspack_Nodes\Message::VALUE ] = "ok\n";
+		$p->fill( $msg );
+
+		$this->assertCount( 1, $capture->captured );
+		$resp = $capture->captured[0];
+		$this->assertSame( \Newspack_Nodes\Message::TM_PERSIST | \Newspack_Nodes\Message::TM_RESPONSE, $resp[ \Newspack_Nodes\Message::TYPE ] );
+		$this->assertSame( 'answer', $resp[ \Newspack_Nodes\Message::VALUE ] );
+	}
+
+	public function test_fill_TM_PERSIST_on_oversize_write_cancels(): void {
+		// Write fails because line exceeds MAX_LINE_SIZE (4096); should send cancel, not answer.
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$capture = new \Newspack_Nodes\Tests\CaptureSink();
+		$p->sink( $capture );
+
+		$msg = \Newspack_Nodes\Message::new_message();
+		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM | \Newspack_Nodes\Message::TM_PERSIST;
+		$msg[ \Newspack_Nodes\Message::FROM ]  = 'producer';
+		$msg[ \Newspack_Nodes\Message::ID ]    = 'req-2';
+		$msg[ \Newspack_Nodes\Message::VALUE ] = str_repeat( 'x', Partition::MAX_LINE_SIZE + 1 );
+		$p->fill( $msg );
+
+		$this->assertCount( 1, $capture->captured );
+		$resp = $capture->captured[0];
+		$this->assertSame( \Newspack_Nodes\Message::TM_PERSIST | \Newspack_Nodes\Message::TM_RESPONSE, $resp[ \Newspack_Nodes\Message::TYPE ] );
+		$this->assertSame( 'cancel', $resp[ \Newspack_Nodes\Message::VALUE ] );
+	}
+
+	public function test_remove_node_closes_file_handles(): void {
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$p->write( "hello\n" );
+
+		// File handle is open after write. Use lsof to verify, but more portably,
+		// rely on reflection to inspect the protected handle.
+		$reflection = new \ReflectionClass( $p );
+		$fh_prop = $reflection->getProperty( 'fh' );
+		$fh_prop->setAccessible( true );
+		$idx_prop = $reflection->getProperty( 'idx_fh' );
+		$idx_prop->setAccessible( true );
+
+		$this->assertTrue( is_resource( $fh_prop->getValue( $p ) ), 'log handle should be open after write' );
+		$this->assertTrue( is_resource( $idx_prop->getValue( $p ) ), 'idx handle should be open after write' );
+
+		$p->remove_node();
+
+		$this->assertNull( $fh_prop->getValue( $p ), 'log handle must be closed after remove_node' );
+		$this->assertNull( $idx_prop->getValue( $p ), 'idx handle must be closed after remove_node' );
+	}
+
+	public function test_remove_node_releases_write_lock(): void {
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$p->allow_large_writes();
+		$p->write( "hello\n" );
+
+		$lock_dir = "{$this->tmp}/p0/write.lock.d";
+		// Lock dir would be present transiently during with_lock, but released on success.
+		// Test the property: write_lock should be null after remove_node.
+		$reflection = new \ReflectionClass( $p );
+		$lock_prop  = $reflection->getProperty( 'write_lock' );
+		$lock_prop->setAccessible( true );
+
+		$this->assertNotNull( $lock_prop->getValue( $p ), 'lock should exist after allow_large_writes' );
+
+		$p->remove_node();
+
+		$this->assertNull( $lock_prop->getValue( $p ) );
+		$this->assertFalse( is_dir( $lock_dir ), 'lock dir should not be left behind' );
+	}
 }

@@ -89,9 +89,15 @@ class Partition extends Node {
 		$type = $message[ Message::TYPE ];
 
 		if ( $type & Message::TM_BYTESTREAM ) {
-			$this->write( $message[ Message::VALUE ] );
+			$ok = $this->write( $message[ Message::VALUE ] );
 			if ( $type & Message::TM_PERSIST ) {
-				$this->answer( $message );
+				if ( $ok ) {
+					$this->answer( $message );
+				} else {
+					// Write dropped (oversize) or fwrite failed — release the producer's
+					// max_unanswered slot via cancel, NOT answer. Otherwise data loss is silent.
+					$this->cancel( $message );
+				}
 			}
 			return;
 		}
@@ -115,6 +121,20 @@ class Partition extends Node {
 
 	public function __destruct() {
 		$this->close_handle();
+	}
+
+	/**
+	 * Close file handles + release write lock before normal Node teardown.
+	 * Without this, files only close at GC/__destruct, leaving a window where
+	 * a stale handle can race against rotate-via-mkdir-lock.
+	 */
+	public function remove_node(): void {
+		$this->close_handle();
+		if ( $this->write_lock !== null ) {
+			$this->write_lock->release();
+			$this->write_lock = null;
+		}
+		parent::remove_node();
 	}
 
 	protected function close_handle(): void {
