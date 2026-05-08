@@ -2,7 +2,19 @@
 namespace Newspack_Nodes\Tests;
 
 use PHPUnit\Framework\TestCase as PHPUnitTestCase;
+use Newspack_Nodes\Core;
 
 abstract class TestCase extends PHPUnitTestCase {
-	// Populated in later tasks.
+	protected function setUp(): void {
+		parent::setUp();
+		if ( \class_exists( '\Newspack_Nodes\Core' ) ) {
+			Core::reset();
+		}
+	}
+
+	protected function make_temp_dir( string $prefix = 'newspack-nodes-test-' ): string {
+		$dir = \sys_get_temp_dir() . '/' . $prefix . \uniqid();
+		\mkdir( $dir, 0755, true );
+		return $dir;
+	}
 }
