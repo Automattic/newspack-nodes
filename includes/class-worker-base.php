@@ -4,7 +4,10 @@
  *
  * Lift-adapted from event-logger's class-worker-base.php. Adaptations:
  *  - $base_dir injected (no Config dependency).
- *  - Spawn URL injected (deferred to later tasks; no hardcoded REST route).
+ *  - Spawn URL injected by the caller (passed into execute() as a constructor-style
+ *    arg; the caller is responsible for resolving it from
+ *    rest_url('newspack-nodes/v1/workers/spawn'), so application plugins can
+ *    override the route without patching this class).
  *  - Env var: NEWSPACK_NODES_WORKER_TYPE.
  *
  * Provides acquire/release/should_continue lifecycle so workers exit cleanly
@@ -83,6 +86,12 @@ class WorkerBase {
 			return false;
 		}
 		if ( ! \is_dir( $this->lock_path() ) ) {
+			return false;
+		}
+
+		// Single restart channel: external request_restart() drops a flag into our
+		// lock dir; we exit cleanly so the supervisor respawns a fresh process.
+		if ( $this->lock->should_restart() ) {
 			return false;
 		}
 

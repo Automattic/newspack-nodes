@@ -73,4 +73,62 @@ class LockTest extends TestCase {
 		$this->assertSame( 'ok', $result );
 		$this->assertFalse( $lock->is_held() );
 	}
+
+	public function test_should_restart_false_by_default(): void {
+		$lock = new Lock( "{$this->tmp}/test.lock.d" );
+		$lock->acquire();
+		$this->assertFalse( $lock->should_restart() );
+	}
+
+	public function test_request_restart_creates_flag_seen_by_should_restart(): void {
+		$holder = new Lock( "{$this->tmp}/test.lock.d" );
+		$this->assertTrue( $holder->acquire() );
+
+		// Different Lock instance pointing at the same path simulates an
+		// external requester (REST endpoint, admin action, supervisor).
+		$external = new Lock( "{$this->tmp}/test.lock.d" );
+		$this->assertTrue( $external->request_restart() );
+
+		// Holder polls; sees the flag.
+		$this->assertTrue( $holder->should_restart() );
+		$this->assertFileExists( "{$this->tmp}/test.lock.d/" . Lock::RESTART_FLAG );
+	}
+
+	public function test_request_restart_returns_false_when_lock_dir_missing(): void {
+		// Brand-new Lock object pointing at a path that hasn't been acquired.
+		$lock = new Lock( "{$this->tmp}/nonexistent.lock.d" );
+		$this->assertFalse( $lock->request_restart() );
+		$this->assertFalse( $lock->should_restart() );
+	}
+
+	public function test_clear_restart_removes_flag(): void {
+		$lock = new Lock( "{$this->tmp}/test.lock.d" );
+		$lock->acquire();
+		$lock->request_restart();
+		$this->assertTrue( $lock->should_restart() );
+
+		$lock->clear_restart();
+		$this->assertFalse( $lock->should_restart() );
+		$this->assertFileDoesNotExist( "{$this->tmp}/test.lock.d/" . Lock::RESTART_FLAG );
+	}
+
+	public function test_clear_restart_idempotent_when_no_flag_present(): void {
+		$lock = new Lock( "{$this->tmp}/test.lock.d" );
+		$lock->acquire();
+		// No request_restart yet — clear is a no-op.
+		$lock->clear_restart();
+		$this->assertFalse( $lock->should_restart() );
+	}
+
+	public function test_release_implicitly_removes_restart_flag(): void {
+		$lock = new Lock( "{$this->tmp}/test.lock.d" );
+		$lock->acquire();
+		$lock->request_restart();
+		$this->assertTrue( $lock->should_restart() );
+
+		// release() removes the entire lock dir, taking the flag with it.
+		$lock->release();
+		$this->assertFalse( $lock->should_restart() );
+		$this->assertFalse( is_dir( "{$this->tmp}/test.lock.d" ) );
+	}
 }

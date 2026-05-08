@@ -121,4 +121,160 @@ class DumperTest extends TestCase {
 
 		$this->assertSame( 2, $dumper->counter() );
 	}
+
+	// ── Async prompt-below dance ────────────────────────────────────────────────
+
+	/** @return array{0:Dumper, 1:resource, 2:resource, 3:Shell} */
+	private function fresh_tty(): array {
+		$out    = \fopen( 'php://memory', 'w+' );
+		$err    = \fopen( 'php://memory', 'w+' );
+		$dumper = new Dumper( $out, $err, true ); // force_tty=true
+		$shell  = new Shell();
+		$shell->prompt = 'newspack> ';
+		$dumper->set_shell( $shell );
+		return [ $dumper, $out, $err, $shell ];
+	}
+
+	public function test_TM_INFO_with_prompt_displayed_emits_wipe_and_redraw_on_tty(): void {
+		[ $dumper, $out, , $shell ] = $this->fresh_tty();
+		$dumper->mark_prompt_displayed();
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_INFO;
+		$msg[ Message::FROM ]  = 'broadcaster';
+		$msg[ Message::VALUE ] = 'hello world';
+		$dumper->fill( $msg );
+
+		$expected = "\033[s" . "\r\033[2K"
+			. "INFO[broadcaster]: hello world\n"
+			. 'newspack> '
+			. "\033[u";
+		$this->assertSame( $expected, $this->read_all( $out ) );
+	}
+
+	public function test_TM_INFO_without_prompt_displayed_falls_back_to_plain_write(): void {
+		[ $dumper, $out ] = $this->fresh_tty();
+		// prompt_displayed=false → no wipe, no redraw.
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_INFO;
+		$msg[ Message::FROM ]  = 'x';
+		$msg[ Message::VALUE ] = 'plain';
+		$dumper->fill( $msg );
+
+		$this->assertSame( "INFO[x]: plain\n", $this->read_all( $out ) );
+	}
+
+	public function test_TM_INFO_on_non_tty_skips_escape_sequences_even_when_prompt_displayed(): void {
+		// Default $force_tty=null on a memory stream → posix_isatty=false →
+		// non-TTY mode. Even with prompt_displayed=true, we must NOT emit ANSI.
+		[ $dumper, $out ] = $this->fresh();
+		$shell = new Shell();
+		$dumper->set_shell( $shell );
+		$dumper->mark_prompt_displayed();
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_INFO;
+		$msg[ Message::FROM ]  = 'x';
+		$msg[ Message::VALUE ] = 'plain';
+		$dumper->fill( $msg );
+
+		$out_text = $this->read_all( $out );
+		$this->assertStringNotContainsString( "\033", $out_text, 'non-TTY must not emit ANSI escapes' );
+		$this->assertSame( "INFO[x]: plain\n", $out_text );
+	}
+
+	public function test_default_bytestream_with_prompt_displayed_emits_wipe_and_redraw(): void {
+		[ $dumper, $out, , $shell ] = $this->fresh_tty();
+		$dumper->mark_prompt_displayed();
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::VALUE ] = 'data';
+		$dumper->fill( $msg );
+
+		$expected = "\033[s" . "\r\033[2K" . "data\n" . 'newspack> ' . "\033[u";
+		$this->assertSame( $expected, $this->read_all( $out ) );
+	}
+
+	public function test_TM_COMMAND_TM_RESPONSE_does_not_emit_escape_sequences_or_redraw_prompt(): void {
+		[ $dumper, $out, , $shell ] = $this->fresh_tty();
+		$dumper->mark_prompt_displayed();
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'ls', 'payload' => 'a' ] );
+		$dumper->fill( $msg );
+
+		// Synchronous responses are direct answers to the user's last command;
+		// the read-eval-print loop is responsible for re-prompting. The Dumper
+		// MUST NOT inject ANSI sequences here.
+		$this->assertSame( "a\n", $this->read_all( $out ) );
+	}
+
+	public function test_TM_COMMAND_TM_RESPONSE_clears_prompt_displayed_flag(): void {
+		[ $dumper, , , $shell ] = $this->fresh_tty();
+		$dumper->mark_prompt_displayed();
+		$this->assertTrue( $dumper->prompt_displayed );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'ls', 'payload' => 'a' ] );
+		$dumper->fill( $msg );
+
+		// The prompt is no longer "displayed" — the response printed past it,
+		// and the Cli loop will draw a fresh prompt on its next readline call.
+		$this->assertFalse( $dumper->prompt_displayed );
+	}
+
+	public function test_async_then_command_response_then_async_round_trip(): void {
+		// Realistic interleaved sequence:
+		//   prompt drawn → async TM_INFO arrives → wipe-and-redraw →
+		//   user types ls → response arrives → prompt cleared →
+		//   loop redraws prompt → another async TM_INFO arrives → wipe-and-redraw.
+		[ $dumper, $out, , $shell ] = $this->fresh_tty();
+		$dumper->mark_prompt_displayed();
+
+		// Async during prompt.
+		$async = Message::new_message();
+		$async[ Message::TYPE ]  = Message::TM_INFO;
+		$async[ Message::FROM ]  = 'a';
+		$async[ Message::VALUE ] = 'one';
+		$dumper->fill( $async );
+
+		// Synchronous response (clears prompt_displayed).
+		$resp = Message::new_message();
+		$resp[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$resp[ Message::VALUE ] = \json_encode( [ 'name' => 'ls', 'payload' => 'two' ] );
+		$dumper->fill( $resp );
+		$this->assertFalse( $dumper->prompt_displayed );
+
+		// Cli draws a fresh prompt and re-marks it.
+		$dumper->mark_prompt_displayed();
+
+		// Another async.
+		$async2 = Message::new_message();
+		$async2[ Message::TYPE ]  = Message::TM_INFO;
+		$async2[ Message::FROM ]  = 'b';
+		$async2[ Message::VALUE ] = 'three';
+		$dumper->fill( $async2 );
+
+		$expected = "\033[s" . "\r\033[2K" . "INFO[a]: one\n" . 'newspack> ' . "\033[u"
+			. "two\n"
+			. "\033[s" . "\r\033[2K" . "INFO[b]: three\n" . 'newspack> ' . "\033[u";
+		$this->assertSame( $expected, $this->read_all( $out ) );
+	}
+
+	public function test_TM_ERROR_does_not_emit_escape_sequences_even_with_prompt_displayed(): void {
+		[ $dumper, $out, $err, $shell ] = $this->fresh_tty();
+		$dumper->mark_prompt_displayed();
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_ERROR;
+		$msg[ Message::VALUE ] = "boom\n";
+		$dumper->fill( $msg );
+
+		// Synchronous error path: stderr untouched by the prompt dance.
+		$this->assertStringNotContainsString( "\033", $this->read_all( $err ) );
+		$this->assertSame( "ERROR: boom\n", $this->read_all( $err ) );
+	}
 }

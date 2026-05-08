@@ -179,12 +179,17 @@ class Shell extends Node {
 			return null;
 		}
 
-		// FROM='_responder' so the response routes back through Router → Responder
-		// → Shell's single-shot callback (matches real Shell3.pm convention).
+		// FROM=$pid so the worker's input-Consumer (stamp_as=_repl) builds a
+		// FROM trail of `_repl/$pid` — that's what makes multi-session safe
+		// (spec line 856). The worker's _router splits the TO on '/' on reply,
+		// peels off `_repl`, and the Partition writes the message envelope with
+		// TO=$pid; each cli's Dumper filters by matching its own getmypid().
+		// (Real Shell3 used FROM='_responder' for in-process routing; we
+		// purposely diverge — see ShellTest::test_parse_from_is_pid for rationale.)
 		$id                   = $this->generate_id();
 		$msg                  = Message::new_message();
 		$msg[ Message::ID ]   = $id;
-		$msg[ Message::FROM ] = '_responder';
+		$msg[ Message::FROM ] = (string) \getmypid();
 
 		switch ( $verb ) {
 			case 'tell':

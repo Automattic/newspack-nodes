@@ -213,4 +213,48 @@ class ShellTest extends TestCase {
 			'missing include must not throw — only warn'
 		);
 	}
+
+	// ── FROM=$pid stamping (multi-session contention) ───────────────────────────
+
+	public function test_parse_from_is_pid(): void {
+		// Spec line 686 + 856: Shell stamps FROM=getmypid() so server-side
+		// response routing can disambiguate concurrent REPL sessions hitting
+		// the same worker. The worker's input-Consumer (stamp_as=_repl) builds
+		// a `_repl/$pid` trail; replies arrive with TO=$pid; each cli's Dumper
+		// filters by matching its own getmypid().
+		$shell = new Shell();
+		$msg   = $shell->parse( 'ls', static fn ( $info ) => null );
+
+		$this->assertNotNull( $msg );
+		$this->assertSame( (string) \getmypid(), $msg[ Message::FROM ] );
+	}
+
+	public function test_parse_from_is_pid_for_tell(): void {
+		$shell = new Shell();
+		$msg   = $shell->parse( 'tell node msg', static fn ( $info ) => null );
+		$this->assertSame( (string) \getmypid(), $msg[ Message::FROM ] );
+	}
+
+	public function test_parse_from_is_pid_for_send(): void {
+		$shell = new Shell();
+		$msg   = $shell->parse( 'send node bytes', static fn ( $info ) => null );
+		$this->assertSame( (string) \getmypid(), $msg[ Message::FROM ] );
+	}
+
+	public function test_parse_from_is_pid_for_send_eof(): void {
+		$shell = new Shell();
+		$msg   = $shell->parse( 'send_eof node', static fn ( $info ) => null );
+		$this->assertSame( (string) \getmypid(), $msg[ Message::FROM ] );
+	}
+
+	public function test_parse_from_is_stable_within_a_process(): void {
+		// All messages from a single Shell instance must carry the same FROM.
+		$shell = new Shell();
+		$m1    = $shell->parse( 'ls', static fn ( $info ) => null );
+		$m2    = $shell->parse( 'tell node hi', static fn ( $info ) => null );
+		$m3    = $shell->parse( 'send node bytes', static fn ( $info ) => null );
+
+		$this->assertSame( $m1[ Message::FROM ], $m2[ Message::FROM ] );
+		$this->assertSame( $m2[ Message::FROM ], $m3[ Message::FROM ] );
+	}
 }
