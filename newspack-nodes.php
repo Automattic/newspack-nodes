@@ -43,3 +43,4 @@ require_once NEWSPACK_NODES_DIR . 'includes/class-worker-base.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-supervisor-base.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-supervisor.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-bootstrap.php';
+require_once NEWSPACK_NODES_DIR . 'includes/class-cli.php';
