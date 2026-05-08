@@ -1,0 +1,108 @@
+<?php
+/**
+ * Tail: generic file follower.
+ *
+ * Constructor takes filename + buffer_mode (line-buffered/block-buffered/binary).
+ * poll() reads new bytes since last read and emits per buffer_mode rules.
+ * Inode + size-shrink rotation detection on each poll.
+ *
+ * @package Newspack_Nodes
+ */
+
+namespace Newspack_Nodes;
+
+\defined( 'ABSPATH' ) || exit;
+
+class Tail extends Node {
+	public const READ_CHUNK = 65536;
+
+	private string $filename;
+	private string $buffer_mode;
+	private int $position = 0;
+	private ?int $inode = null;
+	private string $line_remainder = '';
+
+	public function __construct( string $filename, string $buffer_mode = 'line-buffered' ) {
+		$this->filename    = $filename;
+		$this->buffer_mode = $buffer_mode;
+	}
+
+	public function poll(): void {
+		\clearstatcache( true, $this->filename );
+		if ( ! \file_exists( $this->filename ) ) {
+			return;
+		}
+
+		$stat = @\stat( $this->filename );
+		if ( $stat === false ) {
+			return;
+		}
+		$current_inode = $stat['ino'];
+		$current_size  = $stat['size'];
+
+		// Rotation: inode changed.
+		if ( $this->inode !== null && $current_inode !== $this->inode ) {
+			$this->position       = 0;
+			$this->line_remainder = '';
+		}
+		// Truncation: size shrank.
+		if ( $current_size < $this->position ) {
+			$this->position       = 0;
+			$this->line_remainder = '';
+		}
+		$this->inode = $current_inode;
+
+		if ( $current_size <= $this->position ) {
+			return;
+		}
+
+		$fh = @\fopen( $this->filename, 'r' );
+		if ( $fh === false ) {
+			return;
+		}
+		\fseek( $fh, $this->position );
+		$bytes = \fread( $fh, $current_size - $this->position );
+		\fclose( $fh );
+		if ( $bytes === false || $bytes === '' ) {
+			return;
+		}
+		$this->position += \strlen( $bytes );
+
+		$this->emit( $bytes );
+	}
+
+	private function emit( string $bytes ): void {
+		switch ( $this->buffer_mode ) {
+			case 'binary':
+				$this->emit_message( $bytes );
+				return;
+			case 'block-buffered':
+				$this->emit_message( $bytes );
+				return;
+			case 'line-buffered':
+			default:
+				$buf                  = $this->line_remainder . $bytes;
+				$lines                = \explode( "\n", $buf );
+				$this->line_remainder = (string) \array_pop( $lines );
+				foreach ( $lines as $line ) {
+					$this->emit_message( $line . "\n" );
+				}
+				return;
+		}
+	}
+
+	private function emit_message( string $value ): void {
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$msg[ Message::TIMESTAMP ] = Core::$right_now;
+		$msg[ Message::FROM ]      = $this->name;
+		$msg[ Message::VALUE ]     = $value;
+		$this->sink?->fill( $msg );
+	}
+
+	public function fill( array &$message ): void {
+		++$this->counter;
+		// Tail is poll-driven; fill() forwards.
+		$this->sink?->fill( $message );
+	}
+}
