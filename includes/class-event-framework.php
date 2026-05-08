@@ -27,6 +27,8 @@ class EventFramework {
 	private array $writers = [];
 	/** @var array<int,array{node:object,interval_ms:int,oneshot:bool,next_fire:float}> */
 	private array $timers = [];
+	/** @var array<int,array{node:object,multi:\CurlMultiHandle}> */
+	private array $curl_handles = [];
 
 	private function __construct() {}
 
@@ -91,6 +93,26 @@ class EventFramework {
 		unset( $this->timers[ \spl_object_id( $node ) ] );
 	}
 
+	public function register_curl_handle( object $node, \CurlMultiHandle $multi ): void {
+		$this->curl_handles[ \spl_object_id( $node ) ] = [ 'node' => $node, 'multi' => $multi ];
+	}
+
+	public function unregister_curl_handle( object $node ): void {
+		unset( $this->curl_handles[ \spl_object_id( $node ) ] );
+	}
+
+	private function drain_curl_multi(): void {
+		foreach ( $this->curl_handles as $entry ) {
+			$still_running = 0;
+			\curl_multi_exec( $entry['multi'], $still_running );
+			while ( $info = \curl_multi_info_read( $entry['multi'] ) ) {
+				if ( \method_exists( $entry['node'], 'on_curl_message' ) ) {
+					$entry['node']->on_curl_message( $info );
+				}
+			}
+		}
+	}
+
 	private function next_timer_timeout_us(): int {
 		if ( empty( $this->timers ) ) {
 			return 1_000_000;
@@ -149,7 +171,14 @@ class EventFramework {
 				\usleep( $timeout_us );
 			}
 
-			// Step 2 (cURL): added in Task 4.
+			// Step 2: cURL multi.
+			if ( ! empty( $this->curl_handles ) ) {
+				foreach ( $this->curl_handles as $entry ) {
+					\curl_multi_select( $entry['multi'], $timeout_us / 1_000_000.0 );
+				}
+				$this->drain_curl_multi();
+			}
+
 			// Step 3 (signals): added in Task 5.
 
 			Core::run_closing();

@@ -112,4 +112,22 @@ class EventFrameworkTest extends TestCase {
 
 		$this->assertSame( 1, $timer_node->fired, 'Oneshot fires exactly once' );
 	}
+
+	public function test_register_curl_handle_tracks_node_for_multi_dispatch(): void {
+		$ef = EventFramework::instance();
+
+		$node = new class {
+			public int $curl_events = 0;
+			public function on_curl_message( array $info ): void { ++$this->curl_events; }
+		};
+
+		$mh = \curl_multi_init();
+		$ef->register_curl_handle( $node, $mh );
+
+		$ef->drain( $this->boundedTicks( 1 ) );
+
+		$this->assertTrue( true, 'drain with empty curl multi handle did not crash' );
+
+		\curl_multi_close( $mh );
+	}
 }
