@@ -118,11 +118,14 @@ class Shell extends Node {
 	}
 
 	/**
-	 * Generate a unique-per-process message id. PID-prefixed so concurrent shell
-	 * processes don't collide. Counter is monotonic via Core::msg_counter().
+	 * Generate a message id in canonical Tachikoma format: time():counter.
+	 * Counter is monotonic via Core::msg_counter().
+	 *
+	 * Multi-session collision protection happens via FROM-stamping (FROM=$pid),
+	 * not via the ID prefix — see spec line 856.
 	 */
 	private function generate_id(): string {
-		return \sprintf( '%d:%010d', \getmypid(), Core::msg_counter() );
+		return \sprintf( '%d:%010d', \time(), Core::msg_counter() );
 	}
 
 	/**

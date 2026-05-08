@@ -133,10 +133,14 @@ class Cli_Command {
 		if ( $pivoted && $ipc !== null ) {
 			// Pivoted: shell sends through cmd-out Partition (writing to worker input);
 			// consumer reads worker output and feeds Responder.
-			$partition  = $ipc['partition'];
+			//
+			// IPC topics are always single-partition (p0 layout). The reader id's
+			// outer partition (e.g. .p3) is encoded in the topic dir; the Partition/
+			// Consumer constructors always use partition=0 here, since they each
+			// own a single-partition topic that lives at {topic-dir}/p0/.
 			$offset_dir = "{$this->base_dir()}/offsets/cli-repl";
 
-			$cmd_out = new Partition( $ipc['input'], $partition );
+			$cmd_out = new Partition( $ipc['input'], 0 );
 			$cmd_out->name( 'cmd-out' );
 			$cmd_out->sink( $ci );
 			$shell->sink( $cmd_out );
@@ -144,7 +148,7 @@ class Cli_Command {
 			// reply-in is a Consumer reading the worker's output partition,
 			// feeding into the Responder for ID-correlation. Tests don't
 			// exercise this; bare-mode covers the build path.
-			$reply_in = new Consumer( $ipc['output'], $partition, $offset_dir );
+			$reply_in = new Consumer( $ipc['output'], 0, $offset_dir );
 			$reply_in->name( 'reply-in' );
 			$reply_in->sink( $responder );
 		}

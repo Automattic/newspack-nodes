@@ -21,16 +21,6 @@ class TailTest extends TestCase {
 		parent::tearDown();
 	}
 
-	private function rmdir_recursive( string $dir ): void {
-		if ( ! is_dir( $dir ) ) return;
-		foreach ( scandir( $dir ) as $f ) {
-			if ( $f === '.' || $f === '..' ) continue;
-			$path = "$dir/$f";
-			is_dir( $path ) ? $this->rmdir_recursive( $path ) : @unlink( $path );
-		}
-		@rmdir( $dir );
-	}
-
 	public function test_constructor_does_not_open_file(): void {
 		new Tail( "{$this->tmp}/notyet.log" );
 		$this->assertFalse( file_exists( "{$this->tmp}/notyet.log" ) );
@@ -88,5 +78,37 @@ class TailTest extends TestCase {
 		$t->sink( $cap );
 		$t->poll(); // Should not throw.
 		$this->assertCount( 0, $cap->captured );
+	}
+
+	public function test_poll_bounds_per_call_read_to_READ_CHUNK(): void {
+		// File larger than READ_CHUNK should require multiple polls to drain.
+		// Using binary mode (one message per fread) makes the chunk count assertable.
+		$chunk_size  = Tail::READ_CHUNK;
+		$total_bytes = ( $chunk_size * 2 ) + 100;          // 2.5 chunks
+		$payload     = \str_repeat( 'x', $total_bytes );
+		\file_put_contents( "{$this->tmp}/big.log", $payload );
+
+		$t   = new Tail( "{$this->tmp}/big.log", buffer_mode: 'binary' );
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+
+		// First poll: exactly READ_CHUNK bytes.
+		$t->poll();
+		$this->assertCount( 1, $cap->captured );
+		$this->assertSame( $chunk_size, \strlen( $cap->captured[0][ Message::VALUE ] ) );
+
+		// Second poll: another READ_CHUNK.
+		$t->poll();
+		$this->assertCount( 2, $cap->captured );
+		$this->assertSame( $chunk_size, \strlen( $cap->captured[1][ Message::VALUE ] ) );
+
+		// Third poll: only the trailing 100 bytes remain.
+		$t->poll();
+		$this->assertCount( 3, $cap->captured );
+		$this->assertSame( 100, \strlen( $cap->captured[2][ Message::VALUE ] ) );
+
+		// Fourth poll: nothing new.
+		$t->poll();
+		$this->assertCount( 3, $cap->captured );
 	}
 }

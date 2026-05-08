@@ -17,6 +17,21 @@ class MessageTest extends TestCase {
 		$this->assertSame( 6, Message::VALUE );
 	}
 
+	public function test_last_value_index_constant_matches_value(): void {
+		// Per spec line 770: array_slice(0, LAST_VALUE_INDEX + 1) is the canonical
+		// way to copy a Message and drop any internal bookkeeping fields appended
+		// by callers.
+		$this->assertSame( 6, Message::LAST_VALUE_INDEX );
+		$this->assertSame( Message::VALUE, Message::LAST_VALUE_INDEX );
+
+		// Demonstrate the array_slice(0, LAST_VALUE_INDEX + 1) copy semantics work.
+		$m            = Message::new_message();
+		$m['extra']   = 'bookkeeping'; // simulate a caller-appended field
+		$copy         = \array_slice( $m, 0, Message::LAST_VALUE_INDEX + 1, true );
+		$this->assertCount( 7, $copy );
+		$this->assertArrayNotHasKey( 'extra', $copy );
+	}
+
 	public function test_type_flags_are_distinct_bits(): void {
 		$flags = [
 			Message::TM_BYTESTREAM,

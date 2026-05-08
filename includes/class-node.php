@@ -201,6 +201,13 @@ class Node {
 	/**
 	 * Dispatch a single listener by its identity.
 	 *
+	 * Spec describes 3-mode dispatch: closure / shell-callback / Node-name.
+	 * Node base implements the closure + Node-name modes here. The shell-callback
+	 * mode (ID-correlated single-shot dispatch) lives in Responder::fill (see
+	 * class-responder.php), which is the production location for that path —
+	 * Responder owns the message-arrival side of the loop where ID-correlation
+	 * is meaningful, while Node::register/notify is the event-arrival side.
+	 *
 	 * Returns: closure return value (truthy=keep, falsy=unregister) for closures;
 	 * always true for node-name dispatch.
 	 */

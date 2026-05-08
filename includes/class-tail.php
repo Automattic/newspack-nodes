@@ -61,7 +61,9 @@ class Tail extends Node {
 			return;
 		}
 		\fseek( $fh, $this->position );
-		$bytes = \fread( $fh, $current_size - $this->position );
+		// Bound per-poll syscall to READ_CHUNK so a multi-MB append doesn't block
+		// the event loop in a single fread. Subsequent polls drain the rest.
+		$bytes = \fread( $fh, \min( self::READ_CHUNK, $current_size - $this->position ) );
 		\fclose( $fh );
 		if ( $bytes === false || $bytes === '' ) {
 			return;

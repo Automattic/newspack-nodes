@@ -22,6 +22,13 @@ class Message {
 	public const KEY       = 5;
 	public const VALUE     = 6;
 
+	/**
+	 * Last addressable VALUE-bearing index. Code that copies messages should use
+	 * `array_slice(0, LAST_VALUE_INDEX + 1)` to drop any internal bookkeeping
+	 * fields appended by callers. Per spec line 770.
+	 */
+	public const LAST_VALUE_INDEX = self::VALUE;
+
 	// Type flag bits (10 flags; TM_HEARTBEAT/TM_COMPLETION reserved for future).
 	public const TM_BYTESTREAM = 1;
 	public const TM_EOF        = 2;
