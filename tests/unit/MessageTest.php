@@ -77,4 +77,21 @@ class MessageTest extends TestCase {
 		$this->assertSame( 'alice', $decoded['from'] );
 		$this->assertArrayNotHasKey( '2', $decoded );
 	}
+
+	public function test_query_round_trip(): void {
+		$node = new class extends \Newspack_Nodes\Node {
+			public function fill( array &$message ): void {
+				++$this->counter;
+				if ( $message[ Message::TYPE ] & Message::TM_REQUEST ) {
+					$resp                       = Message::new_message();
+					$resp[ Message::TYPE ]      = Message::TM_RESPONSE;
+					$resp[ Message::VALUE ]     = 'pong: ' . $message[ Message::VALUE ];
+					$this->sink?->fill( $resp );
+				}
+			}
+		};
+
+		$result = Message::query( $node, 'ping' );
+		$this->assertSame( 'pong: ping', $result );
+	}
 }

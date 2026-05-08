@@ -120,4 +120,69 @@ class NodeTest extends TestCase {
 		$n->drop_message( $msg, 'X' );
 		$this->assertStringContainsString( 'payload: should-show', $buf );
 	}
+
+	public function test_answer_silent_when_no_FROM(): void {
+		$n   = new CaptureSink();
+		$n->name( 'alice' );
+		$dst = new CaptureSink();
+		$dst->name( '_router' ); // Where answer/cancel get filled
+		$n->sink( $dst );
+
+		$msg = Message::new_message();
+		$msg[ Message::TYPE ] = Message::TM_PERSIST;
+		// No FROM set
+		$n->answer( $msg );
+
+		$this->assertCount( 0, $dst->captured, 'answer must be silently dropped when FROM is empty' );
+	}
+
+	public function test_cancel_silent_when_no_FROM(): void {
+		$n   = new CaptureSink();
+		$n->name( 'alice' );
+		$dst = new CaptureSink();
+		$dst->name( '_router' );
+		$n->sink( $dst );
+
+		$msg = Message::new_message();
+		$msg[ Message::TYPE ] = Message::TM_PERSIST;
+		$n->cancel( $msg );
+
+		$this->assertCount( 0, $dst->captured );
+	}
+
+	public function test_answer_sends_TM_PERSIST_TM_RESPONSE_to_FROM(): void {
+		$n = new CaptureSink();
+		$n->name( 'alice' );
+		$router = new CaptureSink();
+		$router->name( '_router' );
+		$n->sink( $router );
+
+		$msg                  = Message::new_message();
+		$msg[ Message::TYPE ] = Message::TM_PERSIST;
+		$msg[ Message::FROM ] = 'producer';
+		$msg[ Message::ID ]   = '123';
+		$n->answer( $msg );
+
+		$this->assertCount( 1, $router->captured );
+		$response = $router->captured[0];
+		$this->assertSame( Message::TM_PERSIST | Message::TM_RESPONSE, $response[ Message::TYPE ] );
+		$this->assertSame( 'producer', $response[ Message::TO ] );
+		$this->assertSame( '123',      $response[ Message::ID ] );
+		$this->assertSame( 'answer',   $response[ Message::VALUE ] );
+	}
+
+	public function test_cancel_sends_payload_cancel(): void {
+		$n = new CaptureSink();
+		$n->name( 'alice' );
+		$router = new CaptureSink();
+		$router->name( '_router' );
+		$n->sink( $router );
+
+		$msg                  = Message::new_message();
+		$msg[ Message::TYPE ] = Message::TM_PERSIST;
+		$msg[ Message::FROM ] = 'producer';
+		$n->cancel( $msg );
+
+		$this->assertSame( 'cancel', $router->captured[0][ Message::VALUE ] );
+	}
 }

@@ -98,12 +98,27 @@ class Message {
 	}
 
 	/**
-	 * Synchronous request/response: send TM_REQUEST, capture the response value
-	 * via a temporary Callback sink swap.
-	 *
-	 * Implementation deferred to Task 8 once Node base exists.
+	 * Synchronous request/response. Sends a TM_REQUEST to $node, captures the response
+	 * via a temporary sink swap, returns the VALUE.
 	 */
 	public static function query( object $node, string $request ): mixed {
-		throw new \LogicException( 'Message::query() requires Node — implemented in Task 8.' );
+		$original_sink = $node->sink();
+
+		$capture = new class extends \Newspack_Nodes\Node {
+			public mixed $captured = null;
+			public function fill( array &$message ): void {
+				++$this->counter;
+				$this->captured = $message[ \Newspack_Nodes\Message::VALUE ];
+			}
+		};
+		$node->sink( $capture );
+
+		$m = self::new_message();
+		$m[ self::TYPE ]  = self::TM_REQUEST;
+		$m[ self::VALUE ] = $request;
+		$node->fill( $m );
+
+		$node->sink( $original_sink );
+		return $capture->captured;
 	}
 }

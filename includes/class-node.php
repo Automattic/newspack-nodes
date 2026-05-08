@@ -115,6 +115,40 @@ class Node {
 		Message::TM_REQUEST    => 'TM_REQUEST',
 	];
 
+	/**
+	 * Acknowledge a TM_PERSIST message: send TM_PERSIST|TM_RESPONSE back along the FROM trail
+	 * with payload 'answer'. Empty FROM → silently return (do NOT fall through to TO='';
+	 * see spec invariant "answer/cancel silent-when-no-FROM").
+	 */
+	public function answer( array &$message ): void {
+		$this->send_persist_response( $message, 'answer' );
+	}
+
+	/**
+	 * Negative-ack a TM_PERSIST message: same as answer() but with payload 'cancel'.
+	 */
+	public function cancel( array &$message ): void {
+		$this->send_persist_response( $message, 'cancel' );
+	}
+
+	private function send_persist_response( array &$message, string $payload ): void {
+		if ( $message[ Message::FROM ] === '' ) {
+			return; // Silent drop. Critical: do NOT send to TO=''.
+		}
+		if ( $this->sink === null ) {
+			return;
+		}
+		$response                       = Message::new_message();
+		$response[ Message::TYPE ]      = Message::TM_PERSIST | Message::TM_RESPONSE;
+		$response[ Message::TIMESTAMP ] = Core::$right_now;
+		$response[ Message::FROM ]      = $this->name;
+		$response[ Message::TO ]        = $message[ Message::FROM ];
+		$response[ Message::ID ]        = $message[ Message::ID ];
+		$response[ Message::KEY ]       = $message[ Message::KEY ];
+		$response[ Message::VALUE ]     = $payload;
+		$this->sink->fill( $response );
+	}
+
 	public function drop_message( array &$message, string $error ): void {
 		$type   = $message[ Message::TYPE ];
 		$labels = [];
