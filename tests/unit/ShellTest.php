@@ -217,13 +217,15 @@ class ShellTest extends TestCase {
 	// ── FROM=$pid stamping (multi-session contention) ───────────────────────────
 
 	public function test_parse_from_is_pid(): void {
-		// Spec line 686 + 856: Shell stamps FROM=`_responder/$pid` so the
-		// response's TO=FROM walks back via `_router → _responder` (which
-		// dispatches by ID through the shell-callback registry → Dumper). The
-		// `$pid` suffix is the multi-session disambiguator: in pivoted mode
-		// the worker's _router peels `_responder`, the Partition envelope ships
-		// back to the cli with TO=$pid, and each cli's Dumper filters on
-		// its own getmypid().
+		// Shell stamps FROM=`_responder/$pid` so replies route uniformly in
+		// both bare and pivoted modes (CI's response uses TO=$message->from,
+		// _router peels _responder, _responder dispatches by ID through the
+		// shell-callback registry). In pivoted mode the worker's input-Consumer
+		// prepends stamp_as=_repl, so server-side FROM=_repl/_responder/$pid;
+		// the worker's _router peels _repl, the _repl Partition writes to disk
+		// with TO=_responder/$pid, and the cli's reply-in Consumer reads it
+		// where Dumper's regex filter (`(?:_responder/)?$pid`) matches.
+		// Multi-session: other clis' replies use a different $pid → drop.
 		$shell = new Shell();
 		$msg   = $shell->parse( 'ls', static fn ( $info ) => null );
 

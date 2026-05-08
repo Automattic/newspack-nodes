@@ -58,7 +58,12 @@ class Responder extends Node {
 			}
 		}
 
-		// Auto-cancel TM_PERSIST.
+		// Auto-cancel TM_PERSIST. The reply needs path-based routing back along
+		// the FROM trail, so it goes through _router (Core lookup) — NOT through
+		// $this->sink (which is _dumper in the cli, _router via the worker
+		// scaffolding default; using _router directly works in both). Matches
+		// real Tachikoma's pattern where Responder always sinks into Dumper but
+		// addresses replies through the Router. Spec line 689 + user direction.
 		if ( $type & Message::TM_PERSIST ) {
 			if ( $message[ Message::FROM ] === '' ) {
 				return; // Silent drop, same rule as Node::answer/cancel.
@@ -71,7 +76,12 @@ class Responder extends Node {
 			$ack[ Message::ID ]        = $message[ Message::ID ];
 			$ack[ Message::KEY ]       = $message[ Message::KEY ];
 			$ack[ Message::VALUE ]     = ( $type & Message::TM_ERROR ) ? 'answer' : 'cancel';
-			$this->sink?->fill( $ack );
+			$router                    = Core::node( '_router' );
+			if ( $router !== null ) {
+				$router->fill( $ack );
+			} else {
+				$this->sink?->fill( $ack );
+			}
 			return;
 		}
 

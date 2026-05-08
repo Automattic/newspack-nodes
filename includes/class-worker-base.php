@@ -177,13 +177,59 @@ class WorkerBase {
 		$responder->name( '_responder' );
 		$responder->sink( $router );
 
-		// _repl: output IPC partition. Addressable by name; replies route here via TO=_repl.
+		// IPC output Partition (anonymous file backend). Wrapped by a `_repl`
+		// Callback below that packs non-TM_BYTESTREAM messages on the way to
+		// disk so the cli can `unpacked()` on the read side.
 		if ( ! \is_dir( "{$ipc_dir}/output" ) ) {
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
 		$repl_out = new Partition( "{$ipc_dir}/output", 0 );
-		$repl_out->allow_large_writes(); // dump output frequently exceeds PIPE_BUF
-		$repl_out->name( '_repl' );
+		$repl_out->allow_large_writes(); // dump output regularly exceeds PIPE_BUF.
+
+		// _repl: routable wrapper. Anything addressed to `_repl` lands here;
+		// non-TM_BYTESTREAM messages get packed (Message::packed) into a single
+		// JSON line so the cli unpacks back into the original message.
+		$repl = new Callback( static function ( array $msg ) use ( $repl_out ): void {
+			if ( $msg[ Message::TYPE ] & Message::TM_BYTESTREAM ) {
+				$repl_out->fill( $msg );
+				return;
+			}
+			$packed                          = Message::packed( $msg );
+			$bytes                           = Message::new_message();
+			$bytes[ Message::TYPE ]          = Message::TM_BYTESTREAM;
+			$bytes[ Message::TIMESTAMP ]     = Core::$right_now;
+			$bytes[ Message::VALUE ]         = $packed . "\n";
+			$repl_out->fill( $bytes );
+		} );
+		$repl->name( '_repl' );
+
+		// IPC input Consumer (anonymous-ish — given a Timer-hitchhike-required
+		// name but no callers address it). Reads the cli's command Partition,
+		// emits TM_BYTESTREAM lines.
+		$input_dir = "{$ipc_dir}/input";
+		if ( ! \is_dir( $input_dir ) ) {
+			@\mkdir( $input_dir, 0755, true );
+		}
+		$offset_dir = "{$this->base_dir}/offsets/_repl-in.{$this->worker_type}.p{$this->partition}";
+		$repl_in    = new Consumer( $input_dir, 0, $offset_dir );
+		$repl_in->name( "_repl-in.{$this->worker_type}.p{$this->partition}" );
+
+		// _repl-in's sink: Callback that unpacks each line into the original
+		// Message, prepends `_repl/` to FROM (per spec line 636 — FROM-stamping
+		// happens at the IPC boundary), and forwards to _command_interpreter.
+		$unpack = new Callback( static function ( array $msg ) use ( $interpreter ): void {
+			$value = (string) $msg[ Message::VALUE ];
+			if ( '' === $value ) {
+				return;
+			}
+			$unpacked                  = Message::unpacked( \rtrim( $value, "\n" ) );
+			$prev_from                 = (string) $unpacked[ Message::FROM ];
+			$unpacked[ Message::FROM ] = '' !== $prev_from ? '_repl/' . $prev_from : '_repl';
+			$interpreter->fill( $unpacked );
+		} );
+		$unpack->name( "_repl-in-unpack.{$this->worker_type}.p{$this->partition}" );
+		$repl_in->sink( $unpack );
+		$repl_in->set_timer( Consumer::POLL_INTERVAL_EOF_MS, true ); // bootstrap; fire() re-arms.
 
 		return $interpreter;
 	}

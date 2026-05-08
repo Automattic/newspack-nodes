@@ -97,6 +97,20 @@ class Dumper extends Node {
 	}
 
 	/**
+	 * Multi-session TO filter — set to this cli's $pid. Render iff TO matches
+	 * either `_responder/$pid` (worker reply that didn't peel _responder) or
+	 * `$pid` (worker reply that did peel via _router) OR TO is empty (async
+	 * broadcast / synthetic in-process response). Other sessions' replies are
+	 * dropped silently. Spec line 856; user direction in REPL pivoted-mode
+	 * thread.
+	 */
+	private string $to_filter = '';
+
+	public function set_to_filter( string $pid ): void {
+		$this->to_filter = $pid;
+	}
+
+	/**
 	 * Cli readline loop calls this immediately after writing the prompt so the
 	 * Dumper knows to wipe-and-redraw on the next async write.
 	 */
@@ -106,6 +120,18 @@ class Dumper extends Node {
 
 	public function fill( array &$message ): void {
 		++$this->counter;
+
+		// Multi-session filter: drop messages addressed to a different cli
+		// session. Match `_responder/$pid` and `$pid` (the two forms a reply
+		// can take depending on whether _router peeled the _responder
+		// segment). Empty TO is always rendered.
+		if ( '' !== $this->to_filter ) {
+			$to = (string) $message[ Message::TO ];
+			if ( '' !== $to && ! \preg_match( '/^(?:_responder\/)?' . \preg_quote( $this->to_filter, '/' ) . '$/', $to ) ) {
+				return;
+			}
+		}
+
 		$type = $message[ Message::TYPE ];
 
 		// TM_COMMAND|TM_RESPONSE: synchronous response to the user's command.

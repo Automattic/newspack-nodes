@@ -13,12 +13,18 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Consumer extends Node {
+class Consumer extends Timer {
 	/** Hard cap on the cross-poll trailing-line buffer. 20MB. */
 	public const MAX_LINE_BUFFER_SIZE = 20971520;
 
 	/** Stale-segment threshold: skip corrupt unread bytes only after this many seconds. */
 	public const STALE_SEGMENT_SECONDS = 5;
+
+	/** Re-arm interval at EOF (idle backoff). */
+	public const POLL_INTERVAL_EOF_MS = 100;
+
+	/** Re-arm interval when there's data to drain. 0 = next event-loop iteration. */
+	public const POLL_INTERVAL_BUSY_MS = 0;
 
 	protected string $source_base_dir;
 	protected int $source_partition;
@@ -56,6 +62,7 @@ class Consumer extends Node {
 		int $source_partition,
 		string $offsetlog_base_dir
 	) {
+		parent::__construct();
 		$this->source_base_dir  = \rtrim( $source_base_dir, '/' );
 		$this->source_partition = $source_partition;
 		$this->offsetlog_dir    = \rtrim( $offsetlog_base_dir, '/' );
@@ -407,9 +414,15 @@ class Consumer extends Node {
 		$this->offsetlog->write( $entry . "\n" );
 	}
 
-	public function fill( array &$message ): void {
-		++$this->counter;
-		// Consumer is poll-driven (Timer-fed in the runtime). fill() forwards to sink.
-		$this->sink?->fill( $message );
+	/**
+	 * Consumer is Timer-driven: each fire() polls the source Partition for new
+	 * bytes, emits per-line, and re-arms with set_timer(0) (busy — drain ASAP)
+	 * or set_timer(100) (EOF — back off to 100ms idle ticks). Spec instruction
+	 * matches Tail.pm's poll_timer pattern, simplified to one timer per Consumer.
+	 */
+	protected function fire(): void {
+		$this->poll();
+		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
+		$this->set_timer( $next_ms, true ); // oneshot — fire() re-arms.
 	}
 }

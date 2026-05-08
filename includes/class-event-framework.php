@@ -142,12 +142,12 @@ class EventFramework {
 	private function fire_expired_timers(): void {
 		foreach ( $this->timers as $id => $t ) {
 			if ( $t['next_fire'] <= Core::$right_now ) {
-				$t['node']->fire_cb();
 				if ( $t['oneshot'] ) {
 					unset( $this->timers[ $id ] );
 				} else {
 					$this->timers[ $id ]['next_fire'] = Core::$right_now + ( $t['interval_ms'] / 1000.0 );
 				}
+				$t['node']->fire_cb();
 			}
 		}
 	}

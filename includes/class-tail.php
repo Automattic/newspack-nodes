@@ -13,7 +13,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Tail extends Node {
+class Tail extends Timer {
 	public const READ_CHUNK = 65536;
 
 	/**
@@ -23,13 +23,23 @@ class Tail extends Node {
 	 */
 	public const MAX_LINE_BUFFER_SIZE = 20971520;
 
+	/** Re-arm interval at EOF (idle backoff). */
+	public const POLL_INTERVAL_EOF_MS = 100;
+
+	/** Re-arm interval when the file has unread bytes. 0 = next event-loop iteration. */
+	public const POLL_INTERVAL_BUSY_MS = 0;
+
 	private string $filename;
 	private string $buffer_mode;
 	private int $position = 0;
 	private ?int $inode = null;
 	private string $line_remainder = '';
 
+	/** True once the last poll consumed everything available. */
+	protected bool $at_eof = true;
+
 	public function __construct( string $filename, string $buffer_mode = 'line-buffered' ) {
+		parent::__construct();
 		$this->filename    = $filename;
 		$this->buffer_mode = $buffer_mode;
 	}
@@ -60,11 +70,13 @@ class Tail extends Node {
 		$this->inode = $current_inode;
 
 		if ( $current_size <= $this->position ) {
+			$this->at_eof = true;
 			return;
 		}
 
 		$fh = @\fopen( $this->filename, 'r' );
 		if ( $fh === false ) {
+			$this->at_eof = true;
 			return;
 		}
 		\fseek( $fh, $this->position );
@@ -73,9 +85,14 @@ class Tail extends Node {
 		$bytes = \fread( $fh, \min( self::READ_CHUNK, $current_size - $this->position ) );
 		\fclose( $fh );
 		if ( $bytes === false || $bytes === '' ) {
+			$this->at_eof = true;
 			return;
 		}
 		$this->position += \strlen( $bytes );
+
+		// at_eof iff we drained the file's tail in this poll. If READ_CHUNK
+		// capped us short of $current_size, more data is waiting — busy mode.
+		$this->at_eof = ( $this->position >= $current_size );
 
 		$this->emit( $bytes );
 	}
@@ -129,9 +146,14 @@ class Tail extends Node {
 		$this->sink?->fill( $msg );
 	}
 
-	public function fill( array &$message ): void {
-		++$this->counter;
-		// Tail is poll-driven; fill() forwards.
-		$this->sink?->fill( $message );
+	/**
+	 * Tail is Timer-driven: each fire() polls the file, emits per buffer mode,
+	 * then re-arms with set_timer(0) (file has more bytes) or set_timer(100)
+	 * (at EOF — back off to 100ms idle ticks). Mirrors Tail.pm's poll_timer.
+	 */
+	protected function fire(): void {
+		$this->poll();
+		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
+		$this->set_timer( $next_ms, true ); // oneshot — fire() re-arms.
 	}
 }

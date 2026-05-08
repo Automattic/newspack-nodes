@@ -179,14 +179,21 @@ class Shell extends Node {
 			return null;
 		}
 
-		// FROM=`_responder/$pid` so the response's TO=FROM walks back via
-		// `_router → _responder` (which dispatches by ID through the shell
-		// callback registry → Dumper). The `$pid` suffix is the multi-session
-		// disambiguator (spec line 856): in pivoted mode the worker's _router
-		// peels `_responder`, the Partition envelope ships back to the cli with
-		// TO=$pid, and each cli's Dumper filters on its own getmypid().
-		// Bare mode never re-emits the path past `_responder`; the suffix is
-		// there but unused locally.
+		// FROM=`_responder/$pid` so replies route uniformly in both bare and
+		// pivoted modes:
+		//   - Bare:  CI's response has TO=_responder/$pid. Local _router peels
+		//            _responder, forwards to _responder with TO=$pid; Responder
+		//            dispatches by ID through the shell-callback registry to
+		//            Dumper. Local-only — no IPC envelope.
+		//   - Pivot: Worker's input-Consumer (stamp_as=_repl) prepends, making
+		//            FROM=_repl/_responder/$pid. CI's response TO=_repl/_responder/$pid.
+		//            Worker's _router peels _repl, forwards to _repl Partition
+		//            with TO=_responder/$pid; the envelope hits disk and the
+		//            cli's reply-in Consumer reads it, sinks to _responder,
+		//            which dispatches by ID. Multi-session: each cli's Dumper
+		//            filters TO ∈ {_responder/$pid, $pid} so other sessions'
+		//            replies fall through silently.
+		// Spec line 856.
 		$id                   = $this->generate_id();
 		$msg                  = Message::new_message();
 		$msg[ Message::ID ]   = $id;
