@@ -1,0 +1,6 @@
+.phpunit.cache/
+/tmp/phpunit-cache-newspack-nodes/
+.DS_Store
+*.swp
+vendor/
+node_modules/

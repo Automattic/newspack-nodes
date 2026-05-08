@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<phpunit xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:noNamespaceSchemaLocation="https://schema.phpunit.de/11.5/phpunit.xsd"
+         bootstrap="bootstrap.php"
+         colors="true"
+         cacheDirectory="/tmp/phpunit-cache-newspack-nodes"
+         executionOrder="depends,defects"
+         beStrictAboutOutputDuringTests="false">
+    <testsuites>
+        <testsuite name="Unit Tests">
+            <directory>unit</directory>
+        </testsuite>
+        <testsuite name="Integration Tests">
+            <directory>integration</directory>
+        </testsuite>
+    </testsuites>
+    <source>
+        <include>
+            <directory suffix=".php">/usr/src/newspack-nodes/includes</directory>
+        </include>
+    </source>
+</phpunit>

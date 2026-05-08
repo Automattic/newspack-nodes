@@ -1,0 +1,25 @@
+<?php
+/**
+ * Plugin Name: Newspack Nodes
+ * Description: Node-graph runtime for composable PHP services.
+ * Version: 0.1.0
+ * Author: Automattic
+ * License: GPL-2.0-or-later
+ *
+ * @package Newspack_Nodes
+ */
+
+\defined( 'ABSPATH' ) || exit;
+
+if ( ! \defined( 'NEWSPACK_NODES_VERSION' ) ) {
+	\define( 'NEWSPACK_NODES_VERSION', '0.1.0' );
+}
+if ( ! \defined( 'NEWSPACK_NODES_FILE' ) ) {
+	\define( 'NEWSPACK_NODES_FILE', __FILE__ );
+}
+if ( ! \defined( 'NEWSPACK_NODES_DIR' ) ) {
+	\define( 'NEWSPACK_NODES_DIR', \plugin_dir_path( __FILE__ ) );
+}
+
+// Load classes (added one per task — kept require_once for parity with event-logger conventions; no composer for A1).
+require_once NEWSPACK_NODES_DIR . 'includes/class-core.php';
