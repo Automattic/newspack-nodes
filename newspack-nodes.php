@@ -23,3 +23,4 @@ if ( ! \defined( 'NEWSPACK_NODES_DIR' ) ) {
 
 // Load classes (added one per task — kept require_once for parity with event-logger conventions; no composer for A1).
 require_once NEWSPACK_NODES_DIR . 'includes/class-core.php';
+require_once NEWSPACK_NODES_DIR . 'includes/class-message.php';
