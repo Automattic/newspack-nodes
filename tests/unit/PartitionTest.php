@@ -62,4 +62,45 @@ class PartitionTest extends TestCase {
 		$this->assertGreaterThanOrEqual( 0, $h1 );
 		$this->assertLessThan( 4, $h1 );
 	}
+
+	public function test_first_write_creates_partition_dir_and_segment(): void {
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$result = $p->write( "hello\n" );
+		$this->assertTrue( $result );
+		$this->assertTrue( is_dir( "{$this->tmp}/p0" ) );
+		$this->assertSame( "hello\n", file_get_contents( "{$this->tmp}/p0/0.log" ) );
+	}
+
+	public function test_write_appends_to_segment(): void {
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$p->write( "first\n" );
+		$p->write( "second\n" );
+		$this->assertSame( "first\nsecond\n", file_get_contents( "{$this->tmp}/p0/0.log" ) );
+	}
+
+	public function test_write_writes_index_entry(): void {
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$p->write( "hello\n" );
+		$idx = file_get_contents( "{$this->tmp}/p0/0.idx" );
+		$this->assertSame( 8, strlen( $idx ) );
+		[ , $seg, $off ] = unpack( 'N2', $idx );
+		$this->assertSame( 0, $seg );
+		$this->assertSame( 0, $off );
+	}
+
+	public function test_write_drops_lines_exceeding_MAX_LINE_SIZE(): void {
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$big = str_repeat( 'x', 5000 ) . "\n";
+		$result = $p->write( $big );
+		$this->assertFalse( $result );
+		$this->assertFalse( file_exists( "{$this->tmp}/p0/0.log" ) );
+	}
+
+	public function test_allow_large_writes_lifts_limit_to_10MB(): void {
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$p->allow_large_writes();
+		$big = str_repeat( 'x', 5000 ) . "\n";
+		$result = $p->write( $big );
+		$this->assertTrue( $result );
+	}
 }

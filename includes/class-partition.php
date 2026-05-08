@@ -96,4 +96,157 @@ class Partition {
 		[ $stripped ] = \explode( '?', $key, 2 );
 		return ( \crc32( $stripped ) & 0x7FFFFFFF ) % $num_partitions;
 	}
+
+	/**
+	 * Initialize current segment state from existing segments on disk.
+	 * Does NOT create files — segment files materialize on first write via fopen('a').
+	 */
+	protected function init_current_segment(): void {
+		$this->close_handle();
+		$segments = $this->get_segments( true );
+		if ( empty( $segments ) ) {
+			$this->current_segment_id = 0;
+			$this->current_size       = 0;
+			$this->current_log_path   = "{$this->partition_dir}/0.log";
+			$this->current_idx_path   = "{$this->partition_dir}/0.idx";
+			return;
+		}
+		$newest                   = \end( $segments );
+		$this->current_segment_id = $newest['id'];
+		$this->current_size       = $newest['size'];
+		$this->current_log_path   = "{$this->partition_dir}/{$this->current_segment_id}.log";
+		$this->current_idx_path   = "{$this->partition_dir}/{$this->current_segment_id}.idx";
+	}
+
+	/**
+	 * List segments on disk sorted by id, cached for SEGMENT_CACHE_TTL.
+	 *
+	 * @param bool $force_refresh Skip the cache and rescan.
+	 * @return array<int,array{id:int,size:int}>
+	 */
+	public function get_segments( bool $force_refresh = false ): array {
+		$now = \microtime( true );
+		if ( ! $force_refresh && null !== $this->segments_cache && ( $now - $this->segments_cache_time ) < self::SEGMENT_CACHE_TTL ) {
+			return $this->segments_cache;
+		}
+		$segments = [];
+		if ( ! \is_dir( $this->partition_dir ) ) {
+			$this->segments_cache      = [];
+			$this->segments_cache_time = $now;
+			return [];
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_scandir
+		$files = @\scandir( $this->partition_dir );
+		if ( ! $files ) {
+			$this->segments_cache      = [];
+			$this->segments_cache_time = $now;
+			return [];
+		}
+		foreach ( $files as $f ) {
+			if ( \preg_match( self::SEGMENT_PATTERN, $f, $m ) ) {
+				$segments[] = [ 'id' => (int) $m[1], 'size' => @\filesize( "{$this->partition_dir}/{$f}" ) ?: 0 ];
+			}
+		}
+		\usort( $segments, fn ( $a, $b ) => $a['id'] <=> $b['id'] );
+		$this->segments_cache      = $segments;
+		$this->segments_cache_time = $now;
+		return $segments;
+	}
+
+	/**
+	 * Lift the line-size limit to 10MB and serialize writes via Lock.
+	 *
+	 * @return self
+	 */
+	public function allow_large_writes(): self {
+		$this->allow_large_writes = true;
+		$this->write_lock         = new Lock( "{$this->partition_dir}/write.lock.d", 60 );
+		return $this;
+	}
+
+	/**
+	 * Write a line to the current segment + companion .idx entry.
+	 *
+	 * @param string $line Line to append (caller includes trailing newline).
+	 * @return bool True on success, false if dropped (size limit) or write failed.
+	 */
+	public function write( string $line ): bool {
+		$max = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
+		if ( \strlen( $line ) > $max ) {
+			return false;
+		}
+
+		if ( null === $this->current_segment_id ) {
+			$this->init_current_segment();
+		}
+
+		if ( $this->allow_large_writes ) {
+			return (bool) $this->write_lock->with_lock( fn () => $this->do_write( $line ) );
+		}
+		return $this->do_write( $line );
+	}
+
+	/**
+	 * Append to the current segment + write companion index entry.
+	 * Caller must have set $this->current_* state.
+	 *
+	 * @param string $line Bytes to append.
+	 * @return bool True on success.
+	 */
+	protected function do_write( string $line ): bool {
+		$fh = $this->get_handle();
+		if ( null === $fh ) {
+			return false;
+		}
+		$offset = $this->current_size;
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+		$bytes = @\fwrite( $fh, $line );
+		if ( false === $bytes ) {
+			return false;
+		}
+		$this->current_size += $bytes;
+
+		if ( \is_resource( $this->idx_fh ) ) {
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+			@\fwrite( $this->idx_fh, \pack( 'NN', $this->current_segment_id, $offset ) );
+		}
+
+		// Keep cached size fresh so a stale cache hit doesn't lie about the active segment.
+		if ( null !== $this->segments_cache ) {
+			foreach ( $this->segments_cache as $i => $s ) {
+				if ( $s['id'] === $this->current_segment_id ) {
+					$this->segments_cache[ $i ]['size'] = $this->current_size;
+					break;
+				}
+			}
+		}
+
+		return true;
+	}
+
+	/**
+	 * Lazily open and cache the .log + .idx handles for the current segment.
+	 *
+	 * @return resource|null Log handle, or null on open failure.
+	 */
+	protected function get_handle() {
+		if ( ! \is_dir( $this->partition_dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+			@\mkdir( $this->partition_dir, 0755, true );
+		}
+		if ( null === $this->fh || $this->fh_segment_id !== $this->current_segment_id ) {
+			$this->close_handle();
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+			$fh = @\fopen( $this->current_log_path, 'a' );
+			if ( false === $fh ) {
+				return null;
+			}
+			$this->fh            = $fh;
+			$this->fh_segment_id = $this->current_segment_id;
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+			$idx_fh = @\fopen( $this->current_idx_path, 'a' );
+			$this->idx_fh = ( false === $idx_fh ) ? null : $idx_fh;
+		}
+		return $this->fh;
+	}
 }
