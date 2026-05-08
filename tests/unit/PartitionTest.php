@@ -130,4 +130,36 @@ class PartitionTest extends TestCase {
 
 		$this->assertSame( [ [ 0, 0 ], [ 0, 2 ], [ 0, 5 ] ], $entries );
 	}
+
+	public function test_rotation_when_segment_size_exceeded(): void {
+		$p = new Partition( $this->tmp, 0, 1024, 4, 86400 );
+		$line = str_repeat( 'x', 100 ) . "\n";
+		for ( $i = 0; $i < 15; ++$i ) {
+			$p->write( $line );
+		}
+		$segments = $p->get_segments( true );
+		$this->assertGreaterThan( 1, count( $segments ) );
+	}
+
+	public function test_cleanup_AND_gated_retention(): void {
+		$p = new Partition( $this->tmp, 0, 256, 2, 86400 );
+		$line = str_repeat( 'x', 100 ) . "\n";
+		for ( $i = 0; $i < 10; ++$i ) {
+			$p->write( $line );
+		}
+		$p->cleanup_segments();
+		$segments = $p->get_segments( true );
+		$this->assertGreaterThan( 2, count( $segments ), 'count > num_segments alone is not enough; mtime gate must also fire' );
+	}
+
+	public function test_cleanup_deletes_when_both_count_and_age_exceeded(): void {
+		$p = new Partition( $this->tmp, 0, 256, 2, 0 );
+		$line = str_repeat( 'x', 100 ) . "\n";
+		for ( $i = 0; $i < 10; ++$i ) {
+			$p->write( $line );
+		}
+		$p->cleanup_segments();
+		$segments = $p->get_segments( true );
+		$this->assertLessThanOrEqual( 2, count( $segments ) );
+	}
 }

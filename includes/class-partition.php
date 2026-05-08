@@ -59,7 +59,7 @@ class Partition {
 	) {
 		$this->base_dir      = \rtrim( $base_dir, '/' );
 		$this->partition     = $partition;
-		$this->segment_size  = \max( 1024, $segment_size );
+		$this->segment_size  = \max( 1, $segment_size );
 		$this->num_segments  = \max( 2, $num_segments );
 		$this->max_lifespan  = \max( 0, $max_lifespan );
 		$this->partition_dir = "{$this->base_dir}/p{$partition}";
@@ -194,6 +194,10 @@ class Partition {
 	 * @return bool True on success.
 	 */
 	protected function do_write( string $line ): bool {
+		if ( $this->current_size + \strlen( $line ) > $this->segment_size ) {
+			$this->rotate_segment();
+		}
+
 		$fh = $this->get_handle();
 		if ( null === $fh ) {
 			return false;
@@ -228,6 +232,43 @@ class Partition {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Rotate to a new segment when the current one is full.
+	 * Closes the active handles, bumps segment_id, resets size, invalidates cache.
+	 */
+	protected function rotate_segment(): void {
+		$this->close_handle();
+		++$this->current_segment_id;
+		$this->current_size     = 0;
+		$this->current_log_path = "{$this->partition_dir}/{$this->current_segment_id}.log";
+		$this->current_idx_path = "{$this->partition_dir}/{$this->current_segment_id}.idx";
+		$this->segments_cache   = null;
+	}
+
+	/**
+	 * AND-gated retention: delete oldest segments when BOTH
+	 * count > num_segments AND (now - mtime) >= max_lifespan.
+	 */
+	public function cleanup_segments(): void {
+		$segments = $this->get_segments( true );
+		$count    = \count( $segments );
+		$now      = \time();
+
+		while ( $count > $this->num_segments ) {
+			$oldest = $segments[0];
+			$path   = "{$this->partition_dir}/{$oldest['id']}.log";
+			$mtime  = @\filemtime( $path );
+			if ( false === $mtime || ( $now - $mtime ) < $this->max_lifespan ) {
+				break;
+			}
+			@\unlink( $path );
+			@\unlink( "{$this->partition_dir}/{$oldest['id']}.idx" );
+			\array_shift( $segments );
+			--$count;
+		}
+		$this->segments_cache = null;
 	}
 
 	/**
