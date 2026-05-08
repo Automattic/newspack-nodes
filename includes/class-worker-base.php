@@ -155,4 +155,14 @@ class WorkerBase {
 
 		return $interpreter;
 	}
+
+	/**
+	 * Invoke the topology closure to wire up worker-specific nodes.
+	 *
+	 * Closure receives the CommandInterpreter (drives `make_node`/`connect_node`
+	 * via shell vocabulary) and this worker's partition number.
+	 */
+	public function run_topology( callable $topology, CommandInterpreter $ci ): void {
+		$topology( $ci, $this->partition );
+	}
 }
