@@ -79,4 +79,70 @@ class Node {
 	public function counter(): int {
 		return $this->counter;
 	}
+
+	public const MAX_FROM_SIZE = 1024;
+
+	/**
+	 * Prepend $name to message FROM. Returns false if FROM would exceed MAX_FROM_SIZE.
+	 */
+	public function stamp_message( array &$message, string $name ): bool {
+		if ( $name === '' ) {
+			Core::print_less_often( 'ERROR: ' . static::class . ' stamp_message() called with empty name' );
+			return false;
+		}
+		$from = $message[ Message::FROM ];
+		$new  = $from === '' ? $name : ( $name . '/' . $from );
+		if ( \strlen( $new ) > self::MAX_FROM_SIZE ) {
+			Core::print_less_often( 'ERROR: path exceeded ' . self::MAX_FROM_SIZE . " bytes; dropping from: $new" );
+			return false;
+		}
+		$message[ Message::FROM ] = $new;
+		return true;
+	}
+
+	private const PAYLOAD_TYPES = Message::TM_INFO | Message::TM_REQUEST | Message::TM_ERROR | Message::TM_COMMAND;
+
+	private static array $type_names = [
+		Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
+		Message::TM_EOF        => 'TM_EOF',
+		Message::TM_PING       => 'TM_PING',
+		Message::TM_COMMAND    => 'TM_COMMAND',
+		Message::TM_RESPONSE   => 'TM_RESPONSE',
+		Message::TM_ERROR      => 'TM_ERROR',
+		Message::TM_INFO       => 'TM_INFO',
+		Message::TM_PERSIST    => 'TM_PERSIST',
+		Message::TM_STORABLE   => 'TM_STORABLE',
+		Message::TM_REQUEST    => 'TM_REQUEST',
+	];
+
+	public function drop_message( array &$message, string $error ): void {
+		$type   = $message[ Message::TYPE ];
+		$labels = [];
+		foreach ( self::$type_names as $bit => $label ) {
+			if ( $type & $bit ) {
+				$labels[] = $label;
+			}
+		}
+		$type_str = empty( $labels ) ? 'unknown' : \implode( '|', $labels );
+
+		$parts = [ "WARNING: $error - $type_str" ];
+		if ( $message[ Message::FROM ] !== '' ) {
+			$parts[] = 'from: ' . $message[ Message::FROM ];
+		}
+		if ( $message[ Message::TO ] !== '' ) {
+			$parts[] = 'to: ' . $message[ Message::TO ];
+		}
+		if ( ( $type & self::PAYLOAD_TYPES ) && $message[ Message::VALUE ] !== '' ) {
+			$parts[] = 'payload: ' . (string) $message[ Message::VALUE ];
+		}
+
+		$line = \implode( ' ', $parts );
+
+		// First-300s NOT_AVAILABLE rule.
+		if ( $error === 'NOT_AVAILABLE' && Core::$right_now < 300.0 ) {
+			Core::print_least_often( $line );
+			return;
+		}
+		Core::print_less_often( $line );
+	}
 }

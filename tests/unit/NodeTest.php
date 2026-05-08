@@ -65,4 +65,59 @@ class NodeTest extends TestCase {
 		$this->assertCount( 1, $dst->captured );
 		$this->assertSame( 'payload', $dst->captured[0][ Message::VALUE ] );
 	}
+
+	public function test_stamp_message_sets_from_when_empty(): void {
+		$n = new CaptureSink();
+		$n->name( 'alice' );
+		$msg = Message::new_message();
+		$this->assertTrue( $n->stamp_message( $msg, 'alice' ) );
+		$this->assertSame( 'alice', $msg[ Message::FROM ] );
+	}
+
+	public function test_stamp_message_prepends_to_existing_from(): void {
+		$n = new CaptureSink();
+		$n->name( 'bob' );
+		$msg                     = Message::new_message();
+		$msg[ Message::FROM ]    = 'alice';
+		$this->assertTrue( $n->stamp_message( $msg, 'bob' ) );
+		$this->assertSame( 'bob/alice', $msg[ Message::FROM ] );
+	}
+
+	public function test_stamp_message_drops_if_FROM_exceeds_MAX_FROM_SIZE(): void {
+		$n = new CaptureSink();
+		$n->name( 'x' );
+		$msg                  = Message::new_message();
+		$msg[ Message::FROM ] = \str_repeat( 'a/', 600 ); // ~1200 chars
+		$this->assertFalse( $n->stamp_message( $msg, 'x' ) );
+	}
+
+	public function test_drop_message_format(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$n   = new CaptureSink();
+		$n->name( 'alice' );
+		$msg                     = Message::new_message();
+		$msg[ Message::TYPE ]    = Message::TM_INFO;
+		$msg[ Message::FROM ]    = 'producer';
+		$msg[ Message::TO ]      = 'consumer';
+		$msg[ Message::VALUE ]   = 'data';
+		$n->drop_message( $msg, 'BAD_INPUT' );
+		$this->assertStringContainsString( 'WARNING: BAD_INPUT', $buf );
+		$this->assertStringContainsString( 'TM_INFO', $buf );
+		$this->assertStringContainsString( 'from: producer', $buf );
+		$this->assertStringContainsString( 'to: consumer', $buf );
+		$this->assertStringContainsString( 'payload: data', $buf );
+	}
+
+	public function test_drop_message_uses_bitwise_test_for_combined_flags(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$n   = new CaptureSink();
+		$n->name( 'alice' );
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_INFO | Message::TM_PERSIST;
+		$msg[ Message::VALUE ] = 'should-show';
+		$n->drop_message( $msg, 'X' );
+		$this->assertStringContainsString( 'payload: should-show', $buf );
+	}
 }
