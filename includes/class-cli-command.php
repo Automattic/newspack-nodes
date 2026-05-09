@@ -86,9 +86,9 @@ class Cli_Command {
 			\WP_CLI::log( 'Bare cli mode (local nodes only).' );
 		}
 
-		[ $shell, $dumper, $reply_in ] = $this->build_repl_graph( $pivoted, $ipc );
+		[ $shell, $dumper ] = $this->build_repl_graph( $pivoted, $ipc );
 
-		$this->run_repl( $shell, $dumper, $reply_in );
+		$this->run_repl( $shell, $dumper );
 	}
 
 	/**
@@ -107,7 +107,7 @@ class Cli_Command {
 	 */
 	/**
 	 * @param array{input:string,output:string,type:string,partition:int}|null $ipc
-	 * @return array{0:Shell,1:Dumper,2:?Consumer}
+	 * @return array{0:Shell,1:Dumper}
 	 */
 	private function build_repl_graph( bool $pivoted, ?array $ipc ): array {
 		$pid = (string) \getmypid();
@@ -141,7 +141,6 @@ class Cli_Command {
 		$shell->sink( $ci );
 
 		$dumper->set_shell( $shell );
-		$responder->set_shell( $shell );
 
 		if ( $pivoted && $ipc !== null ) {
 			// Pivoted: shell sends → pack-Callback → cmd-out (Partition,
@@ -194,108 +193,107 @@ class Cli_Command {
 			$reply_in->sink( $unpack );
 		}
 
-		// Dumper TO filter: matches `_responder/$pid` (worker reply that didn't
-		// have _responder peeled — bare mode + path-shorter pivot replies) and
-		// `$pid` (worker reply that did have _responder peeled by _router). Empty
-		// TO is always rendered (covers async broadcasts and the synthetic
-		// TM_COMMAND|TM_RESPONSE the parse-callback feeds Dumper directly).
-		// Multi-session: other clis' replies match a different $pid → drop.
+		// Dumper TO filter: matches `_responder/$pid` (worker reply with
+		// `_responder` not yet peeled) and `$pid` (worker reply with
+		// `_responder` already peeled by _router). Empty TO is always rendered
+		// (async broadcasts). Multi-session: other clis' replies use a
+		// different $pid and drop silently.
 		$dumper->set_to_filter( $pid );
 
-		return [ $shell, $dumper, $pivoted ? $reply_in : null ];
+		return [ $shell, $dumper ];
 	}
 
 	/**
-	 * Drive the REPL: read line, parse, fill, repeat. Exits on EOF / Ctrl-D.
+	 * Drive the REPL via the event loop. STDIN registers as a reader_node;
+	 * EventFramework::drain selects on STDIN and fires Consumer/Tail timers
+	 * (e.g. the pivoted-mode reply-in Consumer). When STDIN becomes readable,
+	 * fgets() reads a line, Shell parses and fills it through the graph; the
+	 * worker's response, when it arrives, propagates through reply-in →
+	 * unpack → _router → _responder → shell-callback → Dumper without any
+	 * synchronous "wait for reply" hack. EOF on STDIN exits the drain loop.
 	 *
-	 * Uses ext-readline if available (history, line editing); falls back to
-	 * raw fgets on STDIN. Prompt updates honor any prompt-intercept the
-	 * Dumper has already applied to $shell->prompt.
+	 * Uses ext-readline when available for history/line-editing; otherwise
+	 * stream_set_blocking(STDIN, false) and stream_select handle non-blocking
+	 * line reads.
 	 */
-	/**
-	 * Drive the cli's pivoted reply-in Consumer for up to $deadline_ms ms.
-	 * Polls in a tight loop; stops as soon as the round-trip flag flips OR the
-	 * deadline expires. Used between command sends so the worker has time to
-	 * respond before the next prompt. Bare mode skips this — local responses
-	 * dispatch synchronously.
-	 */
-	private function drain_reply( ?Consumer $reply_in, int $deadline_ms = 5000 ): void {
-		if ( $reply_in === null ) {
-			return;
-		}
-		$deadline = \microtime( true ) + ( $deadline_ms / 1000.0 );
-		while ( \microtime( true ) < $deadline ) {
-			Core::update_time();
-			$reply_in->poll();
-			\usleep( 10_000 ); // 10ms — friendly to interactive feel.
-		}
-	}
-
-	private function run_repl( Shell $shell, Dumper $dumper, ?Consumer $reply_in = null ): void {
+	private function run_repl( Shell $shell, Dumper $dumper ): void {
 		$has_readline = \function_exists( 'readline' );
 
-		while ( true ) {
-			Core::update_time();
+		// STDIN reader: a tiny anonymous-class Node-like wrapper that exposes
+		// $stream and drain_fh() so EventFramework::register_reader_node can
+		// drive it. drain_fh either uses readline (blocking — the read was
+		// already select-gated) or fgets, then routes the line through Shell.
+		$exit  = false;
+		$stdin = new class( $shell, $dumper, $has_readline, $exit ) {
+			public $stream;
+			private Shell $shell;
+			private Dumper $dumper;
+			private bool $has_readline;
+			private bool $prompt_displayed = false;
 
-			if ( $has_readline ) {
-				$line = \readline( $shell->prompt );
-				if ( $line === false ) {
-					break;
+			public function __construct( Shell $shell, Dumper $dumper, bool $has_readline, bool &$exit ) {
+				$this->stream       = \STDIN;
+				$this->shell        = $shell;
+				$this->dumper       = $dumper;
+				$this->has_readline = $has_readline;
+				$this->exit         = &$exit;
+				if ( ! $has_readline ) {
+					@\stream_set_blocking( $this->stream, false );
 				}
-				if ( $line !== '' && \function_exists( 'readline_add_history' ) ) {
-					\readline_add_history( $line );
-				}
-			} else {
-				\fwrite( \STDOUT, $shell->prompt );
-				$line = \fgets( \STDIN );
-				if ( $line === false ) {
-					break;
-				}
-				$line = \rtrim( $line, "\r\n" );
 			}
 
-			$msg = $shell->parse(
-				$line,
-				static function ( array $info ) use ( $dumper ): void {
-					// Reconstitute a TM_COMMAND|TM_RESPONSE so Dumper unwraps the
-					// Command struct (or TM_ERROR for errors). Payload field of
-					// $info IS the message VALUE, which for command-responses is
-					// the JSON-encoded {name, payload} struct.
-					$response                  = Message::new_message();
-					$response[ Message::FROM ] = (string) ( $info['from'] ?? '' );
-					$value                     = (string) ( $info['payload'] ?? '' );
+			public bool $exit;
 
-					if ( $info['error'] ) {
-						$response[ Message::TYPE ]  = Message::TM_ERROR;
-						$response[ Message::VALUE ] = $value;
-						$dumper->fill( $response );
+			public function show_prompt(): void {
+				if ( $this->has_readline ) {
+					return; // readline owns prompt rendering itself.
+				}
+				if ( $this->prompt_displayed ) {
+					return;
+				}
+				\fwrite( \STDOUT, $this->shell->prompt );
+				$this->dumper->mark_prompt_displayed();
+				$this->prompt_displayed = true;
+			}
+
+			public function drain_fh(): void {
+				if ( $this->has_readline ) {
+					$line = \readline( $this->shell->prompt );
+					if ( $line === false ) {
+						$this->exit = true;
 						return;
 					}
-
-					// Heuristic: if VALUE parses as JSON with a 'name' field,
-					// treat it as a Command response so Dumper unwraps it.
-					$decoded = \json_decode( $value, true );
-					if ( \is_array( $decoded ) && isset( $decoded['name'] ) ) {
-						$response[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-						$response[ Message::VALUE ] = $value;
-					} else {
-						$response[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-						$response[ Message::VALUE ] = $value;
+					if ( $line !== '' && \function_exists( 'readline_add_history' ) ) {
+						\readline_add_history( $line );
 					}
-					$dumper->fill( $response );
+				} else {
+					$line = \fgets( $this->stream );
+					if ( $line === false ) {
+						// fgets returns false on either EOF or no-data-available
+						// (non-blocking). Distinguish via feof.
+						if ( \feof( $this->stream ) ) {
+							$this->exit = true;
+						}
+						return;
+					}
+					$line                   = \rtrim( $line, "\r\n" );
+					$this->prompt_displayed = false;
 				}
-			);
 
-			if ( $msg === null ) {
-				continue;
+				$msg = $this->shell->parse( $line );
+				if ( $msg !== null ) {
+					$this->shell->fill( $msg );
+				}
+				$this->show_prompt();
 			}
-			$shell->fill( $msg );
+		};
 
-			// Pivoted: poll the cli's reply-in for the worker's round-trip
-			// response. Bare: $reply_in is null; this is a no-op.
-			$this->drain_reply( $reply_in );
-		}
+		EventFramework::instance()->register_reader_node( $stdin );
+		$stdin->show_prompt();
 
+		EventFramework::instance()->drain( static fn () => ! $stdin->exit );
+
+		EventFramework::instance()->unregister_reader_node( $stdin );
 		\WP_CLI::log( '' ); // Trailing newline after EOF.
 	}
 }

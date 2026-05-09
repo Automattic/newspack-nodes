@@ -55,30 +55,6 @@ class ResponderTest extends TestCase {
 		$this->assertSame( 'answer', $producer->captured[0][ Message::VALUE ] );
 	}
 
-	public function test_shell_callback_invoked_on_ID_match_and_dispatch_stops_there(): void {
-		$resp = new Responder();
-		$resp->name( '_responder' );
-		$dumper = new CaptureSink();
-		$resp->sink( $dumper );
-
-		$called = null;
-		$resp->register_shell_callback( 'req-9', function ( array $info ) use ( &$called ) {
-			$called = $info;
-			return false; // single-shot
-		} );
-
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_RESPONSE;
-		$msg[ Message::ID ]   = 'req-9';
-		$msg[ Message::FROM ] = 'someone';
-
-		$resp->fill( $msg );
-
-		$this->assertNotNull( $called );
-		$this->assertSame( 'someone', $called['from'] );
-		$this->assertCount( 0, $dumper->captured, 'must NOT forward to sink when callback handled it' );
-	}
-
 	public function test_no_callback_match_forwards_to_sink(): void {
 		$resp = new Responder();
 		$resp->name( '_responder' );

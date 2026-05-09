@@ -20,9 +20,6 @@ namespace Newspack_Nodes;
 class Shell extends Node {
 	public string $prompt = 'newspack-nodes> ';
 
-	/** @var array<string,callable> id → callback */
-	private array $callbacks = [];
-
 	/** @var array<string,string> name → value */
 	public array $variables = [];
 
@@ -30,29 +27,6 @@ class Shell extends Node {
 	private string $continuation = '';
 
 	private const FORBIDDEN = [ 'if', 'while', 'for', 'func', 'eval', 'unless', 'until' ];
-
-	/**
-	 * Accessor primarily for tests; keeps callbacks private.
-	 */
-	public function callbacks(): array {
-		return $this->callbacks;
-	}
-
-	/**
-	 * Invoke a registered callback by id. If the callback returns falsy, it's
-	 * single-shot — auto-deregister. Returns true if the id was registered.
-	 */
-	public function callback( string $id, mixed $info ): bool {
-		if ( ! isset( $this->callbacks[ $id ] ) ) {
-			return false;
-		}
-		$cb   = $this->callbacks[ $id ];
-		$keep = $cb( $info );
-		if ( ! $keep ) {
-			unset( $this->callbacks[ $id ] );
-		}
-		return true;
-	}
 
 	public function set_variable( string $name, string $value ): void {
 		$this->variables[ $name ] = $value;
@@ -134,11 +108,8 @@ class Shell extends Node {
 	 *  - the line is empty/comment after trimming
 	 *  - the line is being held for continuation (caller should read more)
 	 *  - the verb is forbidden (if/while/eval/etc.)
-	 *
-	 * `$emit_callback` is called with response info ({from,event,payload,error})
-	 * when the matching response arrives.
 	 */
-	public function parse( string $line, callable $emit_callback ): ?array {
+	public function parse( string $line ): ?array {
 		// Backslash continuation: accumulate and return null (caller reads next line).
 		if ( \str_ends_with( $line, '\\' ) ) {
 			$this->continuation .= \substr( $line, 0, -1 ) . "\n";
@@ -169,7 +140,7 @@ class Shell extends Node {
 		// `include <file>` builtin: read file, recursively parse each line.
 		if ( $verb === 'include' ) {
 			$file = $args[0] ?? '';
-			$this->include_file( $file, $emit_callback );
+			$this->include_file( $file );
 			return null;
 		}
 
@@ -230,20 +201,15 @@ class Shell extends Node {
 				break;
 		}
 
-		// Single-shot callback: emit_callback runs once, then we drop the registration.
-		$this->callbacks[ $id ] = function ( $info ) use ( $emit_callback ) {
-			$emit_callback( $info );
-			return false;
-		};
-
 		return $msg;
 	}
 
 	/**
-	 * Recursively read & parse a file. Emits each non-trivial line through
-	 * $emit_callback as if it had been typed at the prompt.
+	 * Recursively read & parse a file. Each non-trivial line is parsed and
+	 * filled through this Shell's sink, exactly as if it had been typed at
+	 * the prompt.
 	 */
-	private function include_file( string $file, callable $emit_callback ): void {
+	private function include_file( string $file ): void {
 		if ( $file === '' || ! \is_file( $file ) ) {
 			Core::print_less_often( "Shell: include: file not found: $file" );
 			return;
@@ -255,7 +221,7 @@ class Shell extends Node {
 		}
 		while ( ( $line = \fgets( $fh ) ) !== false ) {
 			$line = \rtrim( $line, "\r\n" );
-			$msg  = $this->parse( $line, $emit_callback );
+			$msg  = $this->parse( $line );
 			if ( $msg !== null ) {
 				$this->fill( $msg );
 			}

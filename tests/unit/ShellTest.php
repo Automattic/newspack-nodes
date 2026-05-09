@@ -54,7 +54,7 @@ class ShellTest extends TestCase {
 
 	public function test_parse_tell_yields_TM_INFO(): void {
 		$shell = new Shell();
-		$msg   = $shell->parse( 'tell node msg', static fn ( $info ) => null );
+		$msg   = $shell->parse( 'tell node msg');
 
 		$this->assertNotNull( $msg );
 		$this->assertSame( Message::TM_INFO, $msg[ Message::TYPE ] );
@@ -65,7 +65,7 @@ class ShellTest extends TestCase {
 
 	public function test_parse_send_yields_TM_BYTESTREAM(): void {
 		$shell = new Shell();
-		$msg   = $shell->parse( 'send node bytes', static fn ( $info ) => null );
+		$msg   = $shell->parse( 'send node bytes');
 
 		$this->assertSame( Message::TM_BYTESTREAM, $msg[ Message::TYPE ] );
 		$this->assertSame( 'node', $msg[ Message::TO ] );
@@ -74,7 +74,7 @@ class ShellTest extends TestCase {
 
 	public function test_parse_send_eof_yields_TM_EOF(): void {
 		$shell = new Shell();
-		$msg   = $shell->parse( 'send_eof node', static fn ( $info ) => null );
+		$msg   = $shell->parse( 'send_eof node');
 
 		$this->assertSame( Message::TM_EOF, $msg[ Message::TYPE ] );
 		$this->assertSame( 'node', $msg[ Message::TO ] );
@@ -82,7 +82,7 @@ class ShellTest extends TestCase {
 
 	public function test_parse_default_verb_yields_TM_COMMAND(): void {
 		$shell = new Shell();
-		$msg   = $shell->parse( 'ls', static fn ( $info ) => null );
+		$msg   = $shell->parse( 'ls');
 
 		$this->assertSame( Message::TM_COMMAND, $msg[ Message::TYPE ] );
 		$cmd = \json_decode( $msg[ Message::VALUE ], true );
@@ -92,7 +92,7 @@ class ShellTest extends TestCase {
 
 	public function test_parse_default_verb_with_args(): void {
 		$shell = new Shell();
-		$msg   = $shell->parse( 'make_node CaptureSink alice', static fn ( $info ) => null );
+		$msg   = $shell->parse( 'make_node CaptureSink alice');
 
 		$cmd = \json_decode( $msg[ Message::VALUE ], true );
 		$this->assertSame( 'make_node', $cmd['name'] );
@@ -101,55 +101,25 @@ class ShellTest extends TestCase {
 
 	public function test_parse_forbidden_verb_returns_null(): void {
 		$shell = new Shell();
-		$this->assertNull( $shell->parse( 'eval foo', static fn ( $info ) => null ) );
-		$this->assertNull( $shell->parse( 'if true', static fn ( $info ) => null ) );
-		$this->assertNull( $shell->parse( 'while x', static fn ( $info ) => null ) );
-		$this->assertNull( $shell->parse( 'for x', static fn ( $info ) => null ) );
-		$this->assertNull( $shell->parse( 'func name', static fn ( $info ) => null ) );
+		$this->assertNull( $shell->parse( 'eval foo') );
+		$this->assertNull( $shell->parse( 'if true') );
+		$this->assertNull( $shell->parse( 'while x') );
+		$this->assertNull( $shell->parse( 'for x') );
+		$this->assertNull( $shell->parse( 'func name') );
 	}
 
 	public function test_parse_empty_or_comment_returns_null(): void {
 		$shell = new Shell();
-		$this->assertNull( $shell->parse( '', static fn ( $info ) => null ) );
-		$this->assertNull( $shell->parse( '   ', static fn ( $info ) => null ) );
-		$this->assertNull( $shell->parse( '# a comment', static fn ( $info ) => null ) );
-	}
-
-	public function test_parse_registers_single_shot_callback(): void {
-		$shell = new Shell();
-		$msg   = $shell->parse( 'ls', static fn ( $info ) => null );
-
-		$this->assertNotNull( $msg );
-		$id = $msg[ Message::ID ];
-		$this->assertArrayHasKey( $id, $shell->callbacks() );
-	}
-
-	public function test_callback_invocation_removes_registration(): void {
-		$shell = new Shell();
-		$received = null;
-		$msg = $shell->parse( 'ls', function ( $info ) use ( &$received ) {
-			$received = $info;
-		} );
-		$id = $msg[ Message::ID ];
-
-		// Pretend a response arrived.
-		$ok = $shell->callback( $id, [ 'from' => 'x', 'event' => 'y', 'payload' => 'z', 'error' => false ] );
-
-		$this->assertTrue( $ok );
-		$this->assertSame( [ 'from' => 'x', 'event' => 'y', 'payload' => 'z', 'error' => false ], $received );
-		$this->assertArrayNotHasKey( $id, $shell->callbacks(), 'callback must auto-deregister after firing' );
-	}
-
-	public function test_callback_unknown_id_returns_false(): void {
-		$shell = new Shell();
-		$this->assertFalse( $shell->callback( 'no-such-id', [] ) );
+		$this->assertNull( $shell->parse( '') );
+		$this->assertNull( $shell->parse( '   ') );
+		$this->assertNull( $shell->parse( '# a comment') );
 	}
 
 	public function test_parse_with_interpolation(): void {
 		$shell = new Shell();
 		$shell->set_variable( 'who', 'bob' );
 
-		$msg = $shell->parse( 'tell <who> hi', static fn ( $info ) => null );
+		$msg = $shell->parse( 'tell <who> hi');
 		$this->assertSame( 'bob', $msg[ Message::TO ] );
 		$this->assertSame( 'hi', $msg[ Message::VALUE ] );
 	}
@@ -157,10 +127,10 @@ class ShellTest extends TestCase {
 	public function test_backslash_continuation_yields_null_until_terminating_line(): void {
 		$shell = new Shell();
 		// First line ends with '\' → continuation.
-		$msg1 = $shell->parse( 'tell node "hello\\', static fn ( $info ) => null );
+		$msg1 = $shell->parse( 'tell node "hello\\');
 		$this->assertNull( $msg1, 'backslash continuation must defer message emission' );
 
-		$msg2 = $shell->parse( ' world"', static fn ( $info ) => null );
+		$msg2 = $shell->parse( ' world"');
 		$this->assertNotNull( $msg2 );
 		$this->assertSame( Message::TM_INFO, $msg2[ Message::TYPE ] );
 	}
@@ -170,7 +140,7 @@ class ShellTest extends TestCase {
 		$sink  = new CaptureSink();
 		$shell->sink( $sink );
 
-		$msg = $shell->parse( 'ls', static fn ( $info ) => null );
+		$msg = $shell->parse( 'ls');
 		$shell->fill( $msg );
 
 		$this->assertCount( 1, $sink->captured );
@@ -179,8 +149,8 @@ class ShellTest extends TestCase {
 
 	public function test_msg_ids_are_unique_within_a_session(): void {
 		$shell = new Shell();
-		$m1 = $shell->parse( 'ls', static fn ( $info ) => null );
-		$m2 = $shell->parse( 'ls', static fn ( $info ) => null );
+		$m1 = $shell->parse( 'ls');
+		$m2 = $shell->parse( 'ls');
 		$this->assertNotSame( $m1[ Message::ID ], $m2[ Message::ID ] );
 	}
 
@@ -189,17 +159,12 @@ class ShellTest extends TestCase {
 		$file = "$dir/script.tsl";
 		\file_put_contents( $file, "tell alpha first\ntell beta second\n# comment\n" );
 
-		$shell    = new Shell();
-		$captured = [];
-		$cb       = static function ( $info ) use ( &$captured ): void {
-			$captured[] = $info;
-		};
-
-		// include is processed inline; each line goes through fill() → sink.
-		$sink = new CaptureSink();
+		// include is processed inline; each parsed line goes through fill() → sink.
+		$shell = new Shell();
+		$sink  = new CaptureSink();
 		$shell->sink( $sink );
 
-		$result = $shell->parse( "include $file", $cb );
+		$result = $shell->parse( "include $file" );
 		$this->assertNull( $result, 'include returns null (handled inline)' );
 		$this->assertCount( 2, $sink->captured, 'include should fire two TM_INFOs' );
 		$this->assertSame( 'alpha', $sink->captured[0][ Message::TO ] );
@@ -209,7 +174,7 @@ class ShellTest extends TestCase {
 	public function test_include_missing_file_is_silent_warning(): void {
 		$shell = new Shell();
 		$this->assertNull(
-			$shell->parse( 'include /no/such/file', static fn ( $info ) => null ),
+			$shell->parse( 'include /no/such/file'),
 			'missing include must not throw — only warn'
 		);
 	}
@@ -227,7 +192,7 @@ class ShellTest extends TestCase {
 		// where Dumper's regex filter (`(?:_responder/)?$pid`) matches.
 		// Multi-session: other clis' replies use a different $pid → drop.
 		$shell = new Shell();
-		$msg   = $shell->parse( 'ls', static fn ( $info ) => null );
+		$msg   = $shell->parse( 'ls');
 
 		$this->assertNotNull( $msg );
 		$this->assertSame( '_responder/' . \getmypid(), $msg[ Message::FROM ] );
@@ -235,28 +200,28 @@ class ShellTest extends TestCase {
 
 	public function test_parse_from_is_pid_for_tell(): void {
 		$shell = new Shell();
-		$msg   = $shell->parse( 'tell node msg', static fn ( $info ) => null );
+		$msg   = $shell->parse( 'tell node msg');
 		$this->assertSame( '_responder/' . \getmypid(), $msg[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_pid_for_send(): void {
 		$shell = new Shell();
-		$msg   = $shell->parse( 'send node bytes', static fn ( $info ) => null );
+		$msg   = $shell->parse( 'send node bytes');
 		$this->assertSame( '_responder/' . \getmypid(), $msg[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_pid_for_send_eof(): void {
 		$shell = new Shell();
-		$msg   = $shell->parse( 'send_eof node', static fn ( $info ) => null );
+		$msg   = $shell->parse( 'send_eof node');
 		$this->assertSame( '_responder/' . \getmypid(), $msg[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_stable_within_a_process(): void {
 		// All messages from a single Shell instance must carry the same FROM.
 		$shell = new Shell();
-		$m1    = $shell->parse( 'ls', static fn ( $info ) => null );
-		$m2    = $shell->parse( 'tell node hi', static fn ( $info ) => null );
-		$m3    = $shell->parse( 'send node bytes', static fn ( $info ) => null );
+		$m1    = $shell->parse( 'ls');
+		$m2    = $shell->parse( 'tell node hi');
+		$m3    = $shell->parse( 'send node bytes');
 
 		$this->assertSame( $m1[ Message::FROM ], $m2[ Message::FROM ] );
 		$this->assertSame( $m2[ Message::FROM ], $m3[ Message::FROM ] );
