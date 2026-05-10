@@ -262,6 +262,12 @@ class WorkerBase {
 		\register_shutdown_function( function () use ( $spawn_url, $token ): void {
 			if ( ! $this->shutdown_handled ) {
 				$this->shutdown_handled = true;
+				// Tear down nodes first so each Partition releases its
+				// write_lock + heartbeat. Otherwise the next spawn races
+				// the stale-timeout window (60s) waiting for our heartbeat
+				// to age out — manifests as RuntimeException on
+				// allow_large_writes() in the new worker's build_scaffolding.
+				Core::cleanup_all_nodes();
 				$this->release();
 				$this->self_respawn( $spawn_url, $token );
 			}
@@ -281,6 +287,7 @@ class WorkerBase {
 		} finally {
 			if ( ! $this->shutdown_handled ) {
 				$this->shutdown_handled = true;
+				Core::cleanup_all_nodes();
 				$this->release();
 				$this->self_respawn( $spawn_url, $token );
 			}
