@@ -29,7 +29,7 @@ class Message {
 	 */
 	public const LAST_VALUE_INDEX = self::VALUE;
 
-	// Type flag bits (10 flags; TM_HEARTBEAT/TM_COMPLETION reserved for future).
+	// Type flag bits.
 	public const TM_BYTESTREAM = 1;
 	public const TM_EOF        = 2;
 	public const TM_PING       = 4;
@@ -37,8 +37,7 @@ class Message {
 	public const TM_RESPONSE   = 16;
 	public const TM_ERROR      = 32;
 	public const TM_INFO       = 64;
-	public const TM_PERSIST    = 128;
-	public const TM_STRUCT   = 256;
+	public const TM_STRUCT     = 256;
 	public const TM_REQUEST    = 512;
 
 	public static function new_message(): array {

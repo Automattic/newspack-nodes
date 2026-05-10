@@ -12,7 +12,7 @@ The canonical design document is [`services/pyrobase/sources/.specs/2026-05-06-n
 - [Router](#router)
 - [Storage: Topic + Partition](#storage-topic--partition)
 - [Consumer + Tail](#consumer--tail)
-- [TM_PERSIST Contract](#tm_persist-contract)
+- [Backpressure (none)](#backpressure-none)
 - [TO=FROM Convention](#tofrom-convention)
 - [EventFramework](#eventframework)
 - [Worker Lifecycle](#worker-lifecycle)
@@ -89,18 +89,18 @@ class Message {
 
 **Field reordering vs Tachikoma**: TIMESTAMP at index 1 (was index 5) so [WHAT + WHEN] groups at the front. STREAM/PAYLOAD renamed to KEY/VALUE — matches Kafka's `ProducerRecord<K,V>`, SQS message attributes, Redis Streams' `XADD key value`.
 
-**Type-flag bitmask** (10 flags):
+**Type-flag bitmask** (9 flags):
 
 ```
-TM_BYTESTREAM = 1     TM_INFO     = 64
-TM_EOF        = 2     TM_PERSIST  = 128
-TM_PING       = 4     TM_STRUCT = 256
-TM_COMMAND    = 8     TM_REQUEST  = 512
+TM_BYTESTREAM = 1     TM_INFO    = 64
+TM_EOF        = 2     TM_STRUCT  = 256
+TM_PING       = 4     TM_REQUEST = 512
+TM_COMMAND    = 8
 TM_RESPONSE   = 16
 TM_ERROR      = 32
 ```
 
-Flags compose via bitwise OR: `TM_PERSIST | TM_RESPONSE` = an acknowledged response. Receivers check via `&`: `if ( $type & TM_PERSIST ) { ... }`. **Never use strict `===`** on combined flags — it misses every combination.
+Flags compose via bitwise OR: `TM_COMMAND | TM_RESPONSE` = a response to a command. Receivers check via `&`: `if ( $type & TM_COMMAND ) { ... }`. **Never use strict `===`** on combined flags — it misses every combination.
 
 **Wire format**: `Message::packed( array $msg ): string` and `Message::unpacked( string $data ): array` round-trip via JSON with named keys (`type` / `timestamp` / `from` / `to` / `id` / `key` / `value`). The positional in-memory representation is internal; nothing serialized depends on it.
 
@@ -134,9 +134,6 @@ class Node {
     public function edge( ?Node $node = null ): ?Node;
     public function counter(): int;
 
-    public function answer( array &$message ): void;
-    public function cancel( array &$message ): void;
-
     public function stamp_message( array &$message, string $name ): bool;
     public function drop_message( array &$message, string $error ): void;
 
@@ -167,8 +164,6 @@ $message[ Message::FROM ] = $from === '' ? $name : ( $name . '/' . $from );
 ```
 
 Returns false (drops) if FROM would exceed `MAX_FROM_SIZE = 1024` — prevents path explosion on cycles. Also drops if `$name` is empty (mid-construction or post-rename); logs via `print_less_often`.
-
-**`answer($message)` / `cancel($message)`** — TM_PERSIST handshake. Both build a `TM_PERSIST | TM_RESPONSE` message with `TO=$message[FROM]`, `ID=$message[ID]`, and VALUE either `'answer'` or `'cancel'`. **Silent-when-no-FROM**: empty FROM returns without sending. Do NOT fall through to `TO=''` — that floods the root path with unrouteable acks at shutdown.
 
 **Name registration**: `$node->name('foo')` registers the node in `Core::$nodes_by_name`. Renaming throws on collision (catches duplicate-node bugs at construction time).
 
@@ -223,7 +218,7 @@ $p->allow_large_writes();                               // 4KB -> 10MB; auto-loc
 
 `fill()` dispatches by message type:
 
-- **TM_BYTESTREAM**: write VALUE to the partition. If TM_PERSIST set: ack via `answer($message)` on success, `cancel($message)` on drop (oversize / fwrite failure).
+- **TM_BYTESTREAM** / **TM_STRUCT**: pack the whole message via `Message::packed()` and append to the current segment.
 - **TM_REQUEST** with VALUE = `"GET <seg> <offset> <length>"`: read synchronously, build TM_RESPONSE with `TO=$message[FROM]`, fill into sink.
 
 **Class-API contract** (net-new constraint vs Tachikoma):
@@ -269,8 +264,6 @@ Three precedences in `fill()`:
 2. **KEY present** — `Partition::hash_to_partition($key, $num_partitions)`.
 3. **No KEY** — round-robin via static counter modulo `PHP_INT_MAX`.
 
-**Topic delegates the persist contract to Partition.** Partition is the true terminal: it writes durably and acks/cancels. Topic is a forwarder. Don't put `answer/cancel` on Topic.
-
 **`READY` event** is pre-declared and fired (`set_state`) after the first Partition is materialized. Late registrants get the cached payload immediately.
 
 **No `RESET` event** — real Tachikoma fires RESET when the broker's partition map changes; our partitions are local directories that don't move. Pre-declaring an event you'll never fire is a foot-gun for downstream registrants.
@@ -303,23 +296,13 @@ $c->checkpoint();   // append {seg, off, ts} JSONL to offsetlog
 
 Inode + size-shrink rotation detection on every poll (`clearstatcache(true, $path)` first). On rotation: reset position to 0, clear remainder.
 
-**Three internal Timers** in the v1-final version: `msg_timer` (paced sends for max_unanswered batching), `poll_timer` (file polling, 10ms), `reattempt_timer` (on_ENOENT retry). Currently the prototype runs all three inline in `fire_cb`; splitting them is on the polish list.
+**Two internal Timers** in the v1-final version: `poll_timer` (file polling, 10ms) and `reattempt_timer` (on_ENOENT retry). Currently the prototype runs both inline in `fire_cb`; splitting them is on the polish list.
 
-## TM_PERSIST Contract
+## Backpressure (none)
 
-The Tachikoma agreement, ported with the real-Tachikoma rules:
+Tachikoma's TM_PERSIST / `answer()` / `cancel()` / `max_unanswered` machinery was removed early on. Synchronous I/O at every boundary serializes the whole graph onto one CPU: LogManager's `Topic::fill` blocks on Partition's `fwrite`; Consumer's `fire_cb` blocks on `read_at`; StreamMerger's curl reads come in at network pace. There's no decoupled queue between producer and consumer that could grow — each step finishes (commits to disk or returns) before the next message is accepted. The producers we care about (LogManager, RequestBuilder, FlameBuilder, JobIntake) are all fire-and-forget.
 
-1. **A *true terminal* node calls `answer()` or `cancel()` before returning from `fill()`.** True terminal = the message has no meaningful downstream from this node. Examples: **Log** (appends to a file) and **Partition** (writes durably to the current segment) are the same pattern at different storage shapes — single file vs segmented + index. Either way the writer terminates the inbound chain at the moment data lands durably; any reader (Tail of the Log, Consumer of the Partition, often in a different process) starts a *new* chain on its outbound side, with the filesystem as the decoupling layer.
-
-2. **A *forwarder* doesn't ack messages it forwards** — let downstream handle the persist. Forwarders call `$this->sink->fill()` (or `parent::fill()`). This is most nodes, including chainable application nodes (RequestBuilder, JobRouter, JobWorker, Hook, Echo, Router, CommandInterpreter, JobController). They process locally AND forward; the persist follows the message until something terminates it. Avoid baking "should I cancel?" decision logic into chainable nodes; topology decides what terminates.
-
-3. **A forwarder MUST `answer()` / `cancel()` any message it drops.** Validation rejects, filter excludes, malformed payload — the message stops here, so its persist tracking has to release upstream. `cancel()` for ordinary drops; `answer()` for benign filter-out where the upstream considers the work done. Silently dropping a TM_PERSIST without acking leaks the producer's `max_unanswered` slot forever.
-
-4. **`_responder` terminates a chain that ends in a chainable node.** When a topology leaves a chainable node at the end (no further processing wanted), connect that node's sink to `_responder`. Responder receives the persist message, replies `cancel` (or `answer` if TM_ERROR) to the persist's last-buffer trail. Cleaner than promoting the chainable node into a "sometimes-terminal" with conditional cancel logic.
-
-5. **Tee is the special case.** Fan-out → multiple terminal acks must consolidate into one upstream ack. Tee tracks per-message responses with a count snapshot at fill-time, clamps via `min(count, current)` against dead-target pruning, answers when all targets answer, **cancels if any cancels** (cancel-dominates). No timer-driven cleanup — process exit (worker ~595s) handles long-tail tracking, and `max_unanswered` upstream bounds in-flight tracking-table size.
-
-Without this discipline, persist messages leak unanswered and any upstream `max_unanswered`-aware producer stalls — outstanding-message count grows until the threshold pauses sends. Concrete v1 case: Consumer uses persist tracking to know downstream has caught up before committing a checkpoint and reading more; if terminals don't ack, Consumer parks at `max_unanswered` and the offsetlog stops advancing.
+If you need slot-based flow control somewhere specific in the future, build it at that producer. Don't reintroduce a global persist contract — it's all dead weight given how the I/O model works.
 
 ## TO=FROM Convention
 
@@ -477,17 +460,14 @@ newspack-nodes> ^D
 The local graph is built at REPL start:
 
 ```
-_shell  ->  _command_interpreter  ->  _router  ->  _responder  ->  _dumper
-                                          ^
-                            (Responder also gates ID-correlated callbacks
-                             - single-shot for shell verbs that expect a reply)
+_shell  ->  _command_interpreter  ->  _router  ->  _output
 ```
 
 **Pivoted mode** (`wp nodes cli firehose-workers.p0`) — same local graph PLUS a `cmd-out` Partition writing to the worker's input IPC dir, and a `reply-in` Consumer reading from the worker's output IPC dir.
 
 ```
 local _shell  ->  cmd-out (Partition, on-disk)  ->  worker input
-worker output  ->  reply-in (Consumer, on-disk)  ->  local _responder
+worker output  ->  reply-in (Consumer, on-disk)  ->  local _output
 ```
 
 IPC layout (always single-partition):
@@ -503,7 +483,7 @@ Reader id form: `{type}.p{N}`, e.g. `firehose-workers.p3`. Dot-and-`p` keeps it 
 
 **Wire / dispatch specifics**:
 
-- **IPC messages use TM_COMMAND, not TM_PERSIST.** TM_COMMAND already has its own request/response shape via TM_COMMAND|TM_RESPONSE with ID-correlation through Responder. TM_PERSIST would layer cancel/answer on top — those are for producer durability/retry, neither of which applies here (input Partition provides durability; cli isn't running max_unanswered).
+- **IPC messages use TM_COMMAND**: replies route via the FROM/TO breadcrumb — Shell stamps FROM=`_output/$pid`, the worker's CommandInterpreter sets TO=$message[FROM] when responding, and Router dispatches the reply by name. No ID-correlation table; the path itself is the addressing.
 - **`Command` struct in VALUE for TM_COMMAND**: JSON-encoded `{name, arguments, payload}`. No `signature` field — single-host filesystem-gated IPC; signing is dead weight.
 - **TO at root prompt is empty.** CommandInterpreter's `interpret` branch requires empty TO; non-empty TO routes through Router as a normal addressed message.
 - **`prompt` reply intercept**: `cd` / `pwd` send a TM_COMMAND with `name=prompt`; Dumper's `dump_response` checks `name === 'prompt'` BEFORE the print path and stores the payload in `$shell->prompt` for the next readline turn.
@@ -525,11 +505,10 @@ Two distinct extensibility mechanisms, both first-class:
 
 Common substrate events: Topic `READY`, FileHandle/Tail `EOF`, Timer `FIRE`, Consumer position notifications. Subclasses pre-declare what they emit; listeners register against the declared channels. `register()` throws on undeclared events — that's the contract surface.
 
-**Multi-modal listener dispatch.** A registered listener identity is one of three things, dispatched in order:
+**Multi-modal listener dispatch.** A registered listener identity is one of two things:
 
 1. **Function/closure ref** — invoked directly with payload. Falsy return removes the registration (single-shot pattern).
-2. **Shell callback name** — when the shell-callback table has an entry, dispatch with `{from, event, payload}`. Same single-shot-on-falsy semantics.
-3. **Node name** — fill a TM_INFO message into the named node with KEY=event, VALUE=payload. Missing node -> log via `print_less_often` ("WARNING: <name> forgot to unregister") and remove the registration.
+2. **Node name** — fill a TM_INFO message into the named node with KEY=event, VALUE=payload. Missing node -> log via `print_less_often` ("WARNING: <name> forgot to unregister") and remove the registration.
 
 `Hook` node is the WordPress-side bridge: action mode forwards the message unchanged after firing `do_action`; filter mode passes the message through `apply_filters` and forwards the result. Plugins observe completed requests, transform job payloads before routing, etc., without touching topology files.
 

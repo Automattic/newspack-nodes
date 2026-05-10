@@ -139,66 +139,9 @@ class Node {
 		Message::TM_RESPONSE   => 'TM_RESPONSE',
 		Message::TM_ERROR      => 'TM_ERROR',
 		Message::TM_INFO       => 'TM_INFO',
-		Message::TM_PERSIST    => 'TM_PERSIST',
-		Message::TM_STRUCT   => 'TM_STRUCT',
+		Message::TM_STRUCT     => 'TM_STRUCT',
 		Message::TM_REQUEST    => 'TM_REQUEST',
 	];
-
-	/**
-	 * `answer` a TM_PERSIST message: send TM_PERSIST | TM_RESPONSE back along
-	 * the FROM trail with payload 'answer'. Per Tachikoma semantics, an
-	 * `answer` tells the producer "keep this in your buffer for retry"
-	 * (transient/soft outcome); `cancel` tells it "drop from buffer, we're
-	 * done" (terminal success OR permanent rejection).
-	 */
-	public function answer( array &$message ): void {
-		if ( ! ( $message[ Message::TYPE ] & Message::TM_PERSIST ) ) {
-			return;
-		}
-		if ( '' === $message[ Message::FROM ] ) {
-			return;
-		}
-		if ( null === $this->sink ) {
-			return;
-		}
-		$response                       = Message::new_message();
-		$response[ Message::TYPE ]      = Message::TM_PERSIST | Message::TM_RESPONSE;
-		$response[ Message::TIMESTAMP ] = Core::$right_now;
-		$response[ Message::FROM ]      = $this->name;
-		$response[ Message::TO ]        = $message[ Message::FROM ];
-		$response[ Message::ID ]        = $message[ Message::ID ];
-		$response[ Message::KEY ]       = $message[ Message::KEY ];
-		$response[ Message::VALUE ]     = 'answer';
-		$this->sink->fill( $response );
-	}
-
-	/**
-	 * `cancel` a TM_PERSIST message: send TM_PERSIST | TM_RESPONSE back along
-	 * the FROM trail with payload 'cancel'. Per Tachikoma semantics, a
-	 * `cancel` tells the producer "drop from buffer, we're done" — fires for
-	 * the terminal success path (durable write succeeded) AND the permanent-
-	 * rejection path (oversize / refused). `answer` is the retry-keep path.
-	 */
-	public function cancel( array &$message ): void {
-		if ( ! ( $message[ Message::TYPE ] & Message::TM_PERSIST ) ) {
-			return;
-		}
-		if ( '' === $message[ Message::FROM ] ) {
-			return;
-		}
-		if ( null === $this->sink ) {
-			return;
-		}
-		$response                       = Message::new_message();
-		$response[ Message::TYPE ]      = Message::TM_PERSIST | Message::TM_RESPONSE;
-		$response[ Message::TIMESTAMP ] = Core::$right_now;
-		$response[ Message::FROM ]      = $this->name;
-		$response[ Message::TO ]        = $message[ Message::FROM ];
-		$response[ Message::ID ]        = $message[ Message::ID ];
-		$response[ Message::KEY ]       = $message[ Message::KEY ];
-		$response[ Message::VALUE ]     = 'cancel';
-		$this->sink->fill( $response );
-	}
 
 	/** @var array<string,mixed> */
 	protected array $set_state = [];
@@ -252,12 +195,9 @@ class Node {
 	/**
 	 * Dispatch a single listener by its identity.
 	 *
-	 * Spec describes 3-mode dispatch: closure / shell-callback / Node-name.
-	 * Node base implements the closure + Node-name modes here. The shell-callback
-	 * mode (ID-correlated single-shot dispatch) lives in Responder::fill (see
-	 * class-responder.php), which is the production location for that path —
-	 * Responder owns the message-arrival side of the loop where ID-correlation
-	 * is meaningful, while Node::register/notify is the event-arrival side.
+	 * Two dispatch modes: closure or Node-name. Node-name resolves via
+	 * Core::node() and forwards a TM_INFO message; closures get invoked
+	 * with the payload directly.
 	 *
 	 * Returns: closure return value (truthy=keep, falsy=unregister) for closures;
 	 * always true for node-name dispatch.

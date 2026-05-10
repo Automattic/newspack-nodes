@@ -134,7 +134,7 @@ class Partition extends Timer {
 	 * - TM_ERROR / TM_EOF: ignored (control flow, not data).
 	 * - Anything else (TM_BYTESTREAM, TM_COMMAND, TM_INFO, TM_RESPONSE, etc.):
 	 *   pack the whole message via Message::packed() and write the bytes to
-	 *   the current segment. Ack/cancel TM_PERSIST based on write outcome.
+	 *   the current segment.
 	 *
 	 * @param array $message Reference; not mutated.
 	 */
@@ -169,9 +169,6 @@ class Partition extends Timer {
 		$packed = Message::packed( $message ) . "\n";
 		$max    = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
 		if ( \strlen( $packed ) > $max ) {
-			if ( $type & Message::TM_PERSIST ) {
-				$this->cancel( $message );
-			}
 			return;
 		}
 
@@ -197,18 +194,15 @@ class Partition extends Timer {
 			}
 			$fh = $this->get_handle();
 			if ( null === $fh ) {
-				$this->answer( $message );
 				return;
 			}
 			$offset = $this->current_size;
 			if ( ! $this->loop_fwrite( $fh, $packed ) ) {
-				$this->answer( $message );
 				return;
 			}
 			// loop_fwrite already advanced current_size.
 			$this->write_index_entry( $packed, $offset, $len, $data );
 			$this->touch_segments_cache();
-			$this->cancel( $message );
 			return;
 		}
 
@@ -238,13 +232,6 @@ class Partition extends Timer {
 		// fill bumps the timer; the iteration's tail calls fire() once,
 		// landing every accumulated message in one syswrite.
 		$this->set_timer( 0, true );
-
-		// Persist contract: the batch may not be on disk yet, but we've
-		// accepted responsibility for it (the next-tick fire or the
-		// request-scope __destruct flush will land it). Cancel the
-		// producer's slot now — same atomicity guarantee Tachikoma's
-		// Partition.pm gives across its set_timer(0, oneshot) flush.
-		$this->cancel( $message );
 	}
 
 	/**

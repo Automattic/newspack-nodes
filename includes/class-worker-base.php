@@ -154,7 +154,7 @@ class WorkerBase {
 	/**
 	 * Build the standard scaffolding nodes every worker process needs:
 	 *   _router, _command_interpreter (sinks into _router),
-	 *   _responder (sinks into _router), _repl (output Partition).
+	 *   _repl (output Partition).
 	 *
 	 * Returns the CommandInterpreter so topology closures can drive graph construction.
 	 */
@@ -167,10 +167,6 @@ class WorkerBase {
 		$interpreter = new CommandInterpreter();
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->sink( $router );
-
-		$responder = new Responder();
-		$responder->name( '_responder' );
-		$responder->sink( $router );
 
 		// _repl: output IPC Partition. Partition::fill auto-packs any non-control
 		// message (Message::packed → bytes → segment), so anything routed to
@@ -191,7 +187,7 @@ class WorkerBase {
 		// IPC input Consumer (unnamed — spec line 636). Reads packed messages
 		// from the cli's command Partition, auto-unpacks, stamps `_repl` onto
 		// FROM (path-prepend, preserving the cli's $pid trail), forwards to
-		// _command_interpreter. Replies route via TO=_repl/_responder/$pid
+		// _command_interpreter. Replies route via TO=_repl/_output/$pid
 		// → worker's _router peels `_repl` → `_repl` Partition (above) writes
 		// to disk → cli reads.
 		//

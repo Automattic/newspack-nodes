@@ -197,46 +197,6 @@ class PartitionTest extends TestCase {
 		$this->assertSame( 'hello', $decoded[ \Newspack_Nodes\Message::VALUE ] );
 	}
 
-	public function test_fill_TM_PERSIST_on_successful_write_answers(): void {
-		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
-		$capture = new \Newspack_Nodes\Tests\CaptureSink();
-		$p->sink( $capture );
-
-		$msg = \Newspack_Nodes\Message::new_message();
-		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM | \Newspack_Nodes\Message::TM_PERSIST;
-		$msg[ \Newspack_Nodes\Message::FROM ]  = 'producer';
-		$msg[ \Newspack_Nodes\Message::ID ]    = 'req-1';
-		$msg[ \Newspack_Nodes\Message::VALUE ] = "ok\n";
-		$p->fill( $msg );
-
-		$this->assertCount( 1, $capture->captured );
-		$resp = $capture->captured[0];
-		$this->assertSame( \Newspack_Nodes\Message::TM_PERSIST | \Newspack_Nodes\Message::TM_RESPONSE, $resp[ \Newspack_Nodes\Message::TYPE ] );
-		// Tachikoma semantics: a successful durable write `cancel`s the
-		// producer's persist slot (drop-from-buffer = "we're done"). `answer`
-		// is the retry path (keep-in-buffer for transient failure).
-		$this->assertSame( 'cancel', $resp[ \Newspack_Nodes\Message::VALUE ] );
-	}
-
-	public function test_fill_TM_PERSIST_on_oversize_write_cancels(): void {
-		// Write fails because line exceeds MAX_LINE_SIZE (4096); should send cancel, not answer.
-		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
-		$capture = new \Newspack_Nodes\Tests\CaptureSink();
-		$p->sink( $capture );
-
-		$msg = \Newspack_Nodes\Message::new_message();
-		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM | \Newspack_Nodes\Message::TM_PERSIST;
-		$msg[ \Newspack_Nodes\Message::FROM ]  = 'producer';
-		$msg[ \Newspack_Nodes\Message::ID ]    = 'req-2';
-		$msg[ \Newspack_Nodes\Message::VALUE ] = str_repeat( 'x', Partition::MAX_LINE_SIZE + 1 );
-		$p->fill( $msg );
-
-		$this->assertCount( 1, $capture->captured );
-		$resp = $capture->captured[0];
-		$this->assertSame( \Newspack_Nodes\Message::TM_PERSIST | \Newspack_Nodes\Message::TM_RESPONSE, $resp[ \Newspack_Nodes\Message::TYPE ] );
-		$this->assertSame( 'cancel', $resp[ \Newspack_Nodes\Message::VALUE ] );
-	}
-
 	public function test_remove_node_closes_file_handles(): void {
 		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
 		$this->produce_into( $p, 'hello' );

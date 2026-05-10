@@ -48,7 +48,7 @@ class Cli_Command {
 	 * Open an interactive REPL.
 	 *
 	 * Bare mode (no <reader> arg): builds a local _router + _command_interpreter +
-	 * _responder + _shell + _dumper graph; commands run against this process.
+	 * _output + _shell + _output graph; commands run against this process.
 	 *
 	 * Pivoted mode (<reader>=type.pN): also wires Partition cmd-out → worker input
 	 * and Consumer reply-in → worker output, so commands cross the IPC boundary.
@@ -95,9 +95,7 @@ class Cli_Command {
 	 * Build the REPL node graph and return [Shell, Dumper] for the loop driver.
 	 *
 	 * Layout (bare):
-	 *   _shell → _command_interpreter → _router → _dumper
-	 *                                          ↑
-	 *                                       _responder (sink for shell-callback dispatch)
+	 *   _shell → _command_interpreter → _router → _output
 	 *
 	 * Pivoted adds: cmd-out (Partition) writing to worker input,
 	 *               reply-in (Consumer) reading from worker output.
@@ -119,20 +117,17 @@ class Cli_Command {
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->sink( $router );
 
+		// Dumper is registered as `_output` because Shell stamps outgoing
+		// messages with `FROM=_output/$pid` — replies route via
+		// `TO=_output/$pid` → Router looks up `_output` → forwards with
+		// `TO=$pid`. Dumper's TO filter matches `$pid` (or the pre-peel
+		// form `_output/$pid`) so other sessions' replies fall through.
 		$dumper = new Dumper();
-		$dumper->name( '_dumper' );
+		$dumper->name( '_output' );
 
-		// Responder always sinks into Dumper. When it needs to send replies
-		// path-routed (TM_PERSIST cancel/answer), it addresses _router via
-		// Core::node('_router')->fill() instead of $this->sink — see
-		// class-responder.php. Spec line 689 + user direction.
-		$responder = new Responder();
-		$responder->name( '_responder' );
-		$responder->sink( $dumper );
-
-		// Router fans into Responder for messages with TO=='' that fall
-		// through (async broadcasts dispatched by Responder's ID match).
-		$router->sink( $responder );
+		// Router fans into Dumper for messages Router can't dispatch (async
+		// broadcasts, TO=='' replies that fell through TO-prefix peeling).
+		$router->sink( $dumper );
 
 		// Real Tachikoma Shell3 nodes are anonymous (Shell3::name throws on
 		// rename). Don't try to give it a name — `ls` filters by sink, so the
@@ -158,7 +153,7 @@ class Cli_Command {
 			// Pivoted: shell → cmd-out (Partition auto-packs each emitted
 			// Message via Message::packed → segment). reply-in (Consumer
 			// auto-unpacks the worker's reply Partition → Message) → _router
-			// (dispatches by TO=_responder/$pid → _responder → Dumper).
+			// (dispatches by TO=_output/$pid → _output → Dumper).
 			// IPC topics are single-partition (p0); the outer partition number
 			// (.p3) lives in the topic dir, so constructors use partition=0.
 
@@ -183,9 +178,9 @@ class Cli_Command {
 			$reply_in->sink( $router );
 		}
 
-		// Dumper TO filter: matches `_responder/$pid` (worker reply with
-		// `_responder` not yet peeled) and `$pid` (worker reply with
-		// `_responder` already peeled by _router). Empty TO is always rendered
+		// Dumper TO filter: matches `_output/$pid` (worker reply with
+		// `_output` not yet peeled) and `$pid` (worker reply with
+		// `_output` already peeled by _router). Empty TO is always rendered
 		// (async broadcasts). Multi-session: other clis' replies use a
 		// different $pid and drop silently.
 		$dumper->set_to_filter( $pid );

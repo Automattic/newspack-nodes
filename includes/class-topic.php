@@ -104,7 +104,7 @@ class Topic extends Node {
 		}
 
 		// Anything else: pick a partition and delegate. Partition::fill packs
-		// the message and writes; ack/cancel TM_PERSIST per its contract.
+		// the message and writes.
 		// Pre-pinned via TO: parse partition index out of TO's leading segment.
 		if ( '' !== $message[ Message::TO ] && \preg_match( '/^p(\d+)/', $message[ Message::TO ], $m ) ) {
 			$idx = (int) $m[1];

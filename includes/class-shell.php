@@ -6,9 +6,8 @@
  * interpolation, backslash continuation, quote-aware tokenization (', ", `).
  * Conditionals/loops/pipes/eval explicitly NOT supported (rejected with warning).
  *
- * Each parsed line emits one Message and registers a single-shot callback under
- * the generated ID. Callbacks fire when the matching response arrives via
- * Responder; they auto-deregister after invocation.
+ * Each parsed line emits one Message stamped with FROM=_output/$pid so the
+ * reply walks back through _router to the local Dumper named `_output`.
  *
  * @package Newspack_Nodes
  */
@@ -163,25 +162,23 @@ class Shell extends Node {
 			return null;
 		}
 
-		// FROM=`_responder/$pid` so replies route uniformly in both bare and
+		// FROM=`_output/$pid` so replies route uniformly in both bare and
 		// pivoted modes:
-		//   - Bare:  CI's response has TO=_responder/$pid. Local _router peels
-		//            _responder, forwards to _responder with TO=$pid; Responder
-		//            dispatches by ID through the shell-callback registry to
-		//            Dumper. Local-only — no IPC envelope.
+		//   - Bare:  CI's response has TO=_output/$pid. Local _router peels
+		//            _output, forwards to _output (Dumper) with TO=$pid.
+		//            Local-only — no IPC envelope.
 		//   - Pivot: Worker's input-Consumer (stamp_as=_repl) prepends, making
-		//            FROM=_repl/_responder/$pid. CI's response TO=_repl/_responder/$pid.
+		//            FROM=_repl/_output/$pid. CI's response TO=_repl/_output/$pid.
 		//            Worker's _router peels _repl, forwards to _repl Partition
-		//            with TO=_responder/$pid; the envelope hits disk and the
-		//            cli's reply-in Consumer reads it, sinks to _responder,
-		//            which dispatches by ID. Multi-session: each cli's Dumper
-		//            filters TO ∈ {_responder/$pid, $pid} so other sessions'
-		//            replies fall through silently.
-		// Spec line 856.
+		//            with TO=_output/$pid; the envelope hits disk and the
+		//            cli's reply-in Consumer reads it, sinks to _router, which
+		//            forwards to _output (Dumper). Multi-session: each cli's
+		//            Dumper filters TO ∈ {_output/$pid, $pid} so other
+		//            sessions' replies fall through silently.
 		$id                   = $this->generate_id();
 		$msg                  = Message::new_message();
 		$msg[ Message::ID ]   = $id;
-		$msg[ Message::FROM ] = '_responder/' . \getmypid();
+		$msg[ Message::FROM ] = '_output/' . \getmypid();
 
 		switch ( $verb ) {
 			case 'tell':
@@ -202,7 +199,7 @@ class Shell extends Node {
 				// Tachikoma Shell3 builtin: build TM_PING addressed at <path>,
 				// payload = current timestamp. Receiver's CommandInterpreter
 				// bounces TO=FROM, so the message returns along the FROM trail
-				// to _responder/$pid → Dumper.
+				// to _output/$pid → Dumper.
 				$msg[ Message::TYPE ]  = Message::TM_PING;
 				$msg[ Message::TO ]    = $args[0] ?? '';
 				$msg[ Message::VALUE ] = (string) Core::$right_now;

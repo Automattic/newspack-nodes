@@ -351,7 +351,7 @@ class CommandInterpreter extends Node {
 	private static function cmd_dump_config(): string {
 		$out = '';
 		foreach ( \array_keys( Core::$nodes_by_name ) as $name ) {
-			if ( '_command_interpreter' === $name || '_router' === $name || '_responder' === $name ) {
+			if ( '_command_interpreter' === $name || '_router' === $name || '_output' === $name ) {
 				continue; // Skip baseline scaffolding.
 			}
 			$out .= Core::node( $name )->dump_config();

@@ -41,11 +41,10 @@ class MessageTest extends TestCase {
 			Message::TM_RESPONSE,
 			Message::TM_ERROR,
 			Message::TM_INFO,
-			Message::TM_PERSIST,
 			Message::TM_STRUCT,
 			Message::TM_REQUEST,
 		];
-		$this->assertCount( 10, \array_unique( $flags ), 'Flags must be distinct' );
+		$this->assertCount( 9, \array_unique( $flags ), 'Flags must be distinct' );
 		foreach ( $flags as $flag ) {
 			$this->assertSame( 1, \substr_count( \decbin( $flag ), '1' ), 'Each flag is a single bit' );
 		}
@@ -65,7 +64,7 @@ class MessageTest extends TestCase {
 
 	public function test_packed_unpacked_round_trip_preserves_all_fields(): void {
 		$m = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM | Message::TM_PERSIST;
+		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM | Message::TM_INFO;
 		$m[ Message::FROM ]  = 'producer';
 		$m[ Message::TO ]    = 'consumer';
 		$m[ Message::ID ]    = '1234567890:0000000001';

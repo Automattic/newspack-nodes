@@ -30,7 +30,6 @@ require_once NEWSPACK_NODES_DIR . 'includes/class-node.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-event-framework.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-timer.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-router.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-responder.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-command-interpreter.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-lock.php';
 require_once NEWSPACK_NODES_DIR . 'includes/class-partition.php';
@@ -75,7 +74,6 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 \Newspack_Nodes\CommandInterpreter::register_class( 'Hook',              \Newspack_Nodes\Hook::class );
 \Newspack_Nodes\CommandInterpreter::register_class( 'Lock',              \Newspack_Nodes\Lock::class );
 \Newspack_Nodes\CommandInterpreter::register_class( 'Partition',         \Newspack_Nodes\Partition::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Responder',         \Newspack_Nodes\Responder::class );
 \Newspack_Nodes\CommandInterpreter::register_class( 'Router',            \Newspack_Nodes\Router::class );
 \Newspack_Nodes\CommandInterpreter::register_class( 'Shell',             \Newspack_Nodes\Shell::class );
 \Newspack_Nodes\CommandInterpreter::register_class( 'Tail',              \Newspack_Nodes\Tail::class );

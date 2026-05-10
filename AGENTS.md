@@ -74,7 +74,7 @@ These are intentional. Don't "fix" them.
 
 2. **Messages are 7-field arrays, not hashes.** Indexed access is faster than hash lookup in hot paths. Field constants live on `Message::TYPE`/`TIMESTAMP`/`FROM`/`TO`/`ID`/`KEY`/`VALUE`. Use `array_slice( 0, Message::LAST_VALUE_INDEX + 1 )` to copy without internal bookkeeping.
 
-3. **TM_PERSIST contract.** True terminals (Partition, Topic) acknowledge via `answer()` after a successful durable write or `cancel()` when the write was dropped. Forwarders don't ack — they let downstream handle the persist. Forwarders that *drop* a message MUST `cancel()` it so the producer's `max_unanswered` slot is released. `_responder` is the convenience cancel-sink for chainable nodes that end without an explicit terminal (cancels by default; messages flagged TM_ERROR get an `answer` instead, since an error response IS the answer the persist contract was waiting for). Tee tracks `answer` and `cancel` counts separately per message ID; the first counter to reach the fan-out count rolls that verdict up to the producer. Mixed responses forward nothing — the producer's own timeout handles that case.
+3. **Fire-and-forget messaging.** No producer/consumer ack handshake. The Tachikoma TM_PERSIST / `answer()` / `cancel()` machinery was removed — synchronous I/O at every boundary (LogManager → Topic → Partition's fwrite, Consumer's poll → fill) serializes the whole graph onto one CPU, so there's no decoupled queue that could grow and need backpressure. Producers don't track in-flight slots; consumers don't ack. If you bring back any kind of slot-based flow control, do it at the producer that needs it — don't reintroduce a global persist contract.
 
 4. **PIPE_BUF atomic writes.** Partition's default 4096-byte limit relies on POSIX guarantee that small append-mode writes don't tear. Producers that need >4KB MUST opt into `Partition::allow_large_writes()`, which auto-locks via a Lock at `{partition_dir}/write.lock.d/`. Without the lock, concurrent large writes silently corrupt.
 
@@ -96,7 +96,7 @@ These are intentional. Don't "fix" them.
 |------|---------|
 | `includes/class-core.php` | Per-process registries (`$nodes_by_name`, `$nodes_by_fd`, `$nodes_by_id`), clock (`now()` / `right_now`), shutdown flag, deferred-cleanup queue, rate-limited stderr. |
 | `includes/class-message.php` | 7-field array constants, type-flag bitmask, `new_message()`, `packed()` / `unpacked()` JSON wire format. |
-| `includes/class-node.php` | Base contract: `fill()`, `sink()`, `target()`, `name()`, `answer()` / `cancel()`, `stamp_message()`, `drop_message()`, `dump_config()`, `register()` / `notify()` / `set_state()`. |
+| `includes/class-node.php` | Base contract: `fill()`, `sink()`, `target()`, `name()`, `stamp_message()`, `drop_message()`, `dump_config()`, `register()` / `notify()` / `set_state()`. |
 | `includes/class-router.php` | Extends Timer. Path-based dispatch by TO; on each tick fires `notify('TIMER', ...)` for hitchhiking nodes. NOT_AVAILABLE error path on missing target. |
 | `includes/class-event-framework.php` | Per-process drain-loop singleton. Merges `stream_select` for local FDs with `curl_multi_select` for cURL handles. Manages timers and deferred cleanup. |
 
@@ -105,14 +105,13 @@ These are intentional. Don't "fix" them.
 | File | Purpose |
 |------|---------|
 | `includes/class-timer.php` | Periodic / one-shot fire. EventFramework slot for sub-second precision; Router-hitchhike for coarse cadences. Pre-declares `FIRE` event. |
-| `includes/class-tee.php` | Fan-out to multiple targets. TM_PERSIST aggregation with cancel-dominates; dead-target pruning at fill; per-target try/catch isolates failures. |
+| `includes/class-tee.php` | Fan-out to multiple targets. Dead-target pruning at fill; per-target try/catch isolates failures. |
 | `includes/class-tail.php` | File follower. Three buffer modes (binary / block-buffered / line-buffered, default line). 65KB read chunk with line-buffer accumulation. Inode + size-shrink rotation detection. |
 | `includes/class-callback.php` | Inline closure as a node. ~10 lines. |
 | `includes/class-hook.php` | WordPress action / filter as a node. Action mode forwards unchanged; filter mode passes message through `apply_filters` and forwards result. |
 | `includes/class-command-interpreter.php` | Shell-vocabulary dispatch (`make_node`, `set_sink`, `connect_node`, `disconnect_node`, `ls`, `dump_config`). Auto-sink default for every `make_node`. Same method invoked by shell verb and by topology PHP code. |
 | `includes/class-shell.php` | Subset of real Tachikoma's Shell3.pm. Quote-aware tokenization, single-tier `<var>` interpolation, backslash continuation, `include` builtin. Conditionals/loops/pipes/eval rejected with warning. |
-| `includes/class-responder.php` | Convenience cancel-sink for terminal consumers of TM_PERSIST. Secondary path: ID-correlation against shell callbacks. |
-| `includes/class-dumper.php` | Terminal output node. Dispatches by TYPE flag (TM_RESPONSE / TM_ERROR / TM_INFO / TM_COMMAND); unwraps Command JSON; intercepts `name=='prompt'` for prompt updates. ANSI prompt-aware async writes. |
+| `includes/class-dumper.php` | Terminal output node, registered as `_output` in the cli. Dispatches by TYPE flag (TM_RESPONSE / TM_ERROR / TM_INFO / TM_COMMAND / TM_STRUCT / default bytestream); unwraps Command JSON; intercepts `name=='prompt'` for prompt updates. ANSI prompt-aware async writes. |
 
 ### Storage primitives
 
@@ -137,7 +136,7 @@ These are intentional. Don't "fix" them.
 | File | Purpose |
 |------|---------|
 | `includes/class-cli.php` | `wp nodes ls` (read lock dirs) and `wp nodes cli` IPC-attach machinery. |
-| `includes/class-cli-command.php` | WP-CLI command wrapper. Builds bare-mode Shell+CommandInterpreter+Router+Responder+Dumper graph, or pivoted-mode with cmd-out Partition + reply-in Consumer. |
+| `includes/class-cli-command.php` | WP-CLI command wrapper. Builds bare-mode Shell+CommandInterpreter+Router+Dumper(`_output`) graph, or pivoted-mode with cmd-out Partition + reply-in Consumer. |
 
 ### REST
 
@@ -151,19 +150,13 @@ These are mistakes that have actually happened. Pay attention.
 
 - **Messages are arrays, not hashes.** Use `Message::TYPE` etc. constants for indexing. `$message['type']` will silently fail (PHP coerces string to int 0 → corrupted TYPE). Always `$message[ Message::TYPE ]`.
 
-- **TM_PERSIST forwarder vs terminal.** Forwarders sink to the next node (don't ack). True terminals (Partition, Topic, Log) ack on durable write. Forwarders that *drop* a message MUST `cancel($message)` it, otherwise the producer's `max_unanswered` slot leaks forever. Silent ack-drop is the #1 stall cause.
-
 - **FROM stamping at I/O boundaries only.** Tail, Consumer, Job, Connector stamp FROM. Internal nodes (Tee, Hook, application nodes) DO NOT stamp. A message flowing `firehose-in → firehose-fanout → request-builder` carries `FROM=firehose-in` when it reaches RequestBuilder, NOT `firehose-fanout/firehose-in`. Matches real Tachikoma.
-
-- **`answer/cancel` silent-when-no-FROM.** Empty FROM → return without sending. Do NOT fall through to TO=`''` (the prototype's old behavior); that flood-fills the root path with unrouteable acks at shutdown.
 
 - **`stamp_message` empty-name guard.** A node with no name (mid-construction or post-rename) emitting `/from` paths breaks Router. Drop with `print_less_often` instead.
 
 - **Class-API must be event-loop-free.** Constructor for Topic/Partition runs in request scope. `set_timer` from constructor → silent no-op leak (registers with EventFramework that will never run). `Core::node()` lookup → NPE. `scandir` on partition dir × N partitions per request → wasted syscalls. Lazy first-write/first-read.
 
 - **`hash_to_partition` is canonical.** Topic, JobIntake-keyed mode, and any other partition routing MUST call `Partition::hash_to_partition()`. Diverging hash families across producers means same key routes to different partitions; ordering breaks silently.
-
-- **Don't put TM_PERSIST in IPC.** REPL uses TM_COMMAND/TM_RESPONSE which already has request/response shape via ID correlation through Responder. Layering persist on top adds cancel/answer semantics that don't apply (input Partition provides durability; cli isn't running max_unanswered).
 
 - **`MAX_FROM_SIZE = 1024`.** `stamp_message` returns false and drops if FROM exceeds 1024 bytes. Prevents path explosion on cycles.
 

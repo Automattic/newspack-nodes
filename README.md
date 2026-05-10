@@ -38,7 +38,7 @@ To get workers running, install an application plugin (e.g., `newspack-event-log
 - **Router** — path-based dispatch. Splits TO on `/`, looks up the leading segment, forwards remainder.
 - **Topic** — multi-Partition wrapper, KEY-routed via CRC32.
 - **Partition** — file-segmented append-only log. Storage primitive AND Node.
-- **Tee** — fan-out. TM_PERSIST aggregation with cancel-dominates.
+- **Tee** — fan-out. Per-target try/catch isolates failures; dead targets pruned at fill.
 - **Tail** — file follower. Three buffer modes; inode + size-shrink rotation detection.
 - **Consumer** — Partition reader with offsetlog checkpointing.
 - **Hook** — WordPress action / filter as a node. Plugin-extensibility surface.

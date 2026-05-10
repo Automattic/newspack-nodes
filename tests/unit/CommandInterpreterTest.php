@@ -326,14 +326,14 @@ class CommandInterpreterTest extends TestCase {
 
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_PING;
-		$msg[ Message::FROM ]      = '_responder/12345';
+		$msg[ Message::FROM ]      = '_output/12345';
 		$msg[ Message::VALUE ]     = '1234567890.123456';
 		$ci->fill( $msg );
 
 		$this->assertCount( 1, $downstream->captured );
 		$bounced = $downstream->captured[0];
 		$this->assertSame( Message::TM_PING, $bounced[ Message::TYPE ] );
-		$this->assertSame( '_responder/12345', $bounced[ Message::TO ], 'TM_PING bounce sets TO=FROM' );
+		$this->assertSame( '_output/12345', $bounced[ Message::TO ], 'TM_PING bounce sets TO=FROM' );
 		$this->assertSame( '1234567890.123456', $bounced[ Message::VALUE ], 'payload preserved' );
 	}
 
@@ -349,7 +349,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$msg                  = Message::new_message();
 		$msg[ Message::TYPE ] = Message::TM_PING;
-		$msg[ Message::FROM ] = '_responder/12345';
+		$msg[ Message::FROM ] = '_output/12345';
 		$msg[ Message::TO ]   = 'some_other_node';
 		$ci->fill( $msg );
 
