@@ -143,11 +143,12 @@ class Cli_Command {
 		}
 
 		$dumper->set_shell( $shell );
-		// When the readline callback API is available, run_repl uses it; tell
-		// the Dumper so its async-output path uses readline_on_new_line +
-		// readline_redisplay instead of the manual ANSI cursor dance (which
-		// leaves readline's internal line buffer out of sync).
-		$dumper->set_readline_mode( \function_exists( 'readline_callback_handler_install' ) );
+		// readline only works on a real TTY — readline_callback_read_char()
+		// reads from the TTY layer, not the stream descriptor, so feeding it a
+		// pipe (heredoc, redirected file) leaves bytes unread while
+		// stream_select keeps reporting STDIN ready → 100% CPU spin loop.
+		$is_tty = \function_exists( 'posix_isatty' ) && @\posix_isatty( \STDIN );
+		$dumper->set_readline_mode( $is_tty && \function_exists( 'readline_callback_handler_install' ) );
 
 		if ( $pivoted && null !== $ipc ) {
 			// Pivoted: shell → cmd-out (Partition auto-packs each emitted
@@ -208,7 +209,11 @@ class Cli_Command {
 	 * EOF on STDIN exits the drain loop.
 	 */
 	private function run_repl( Shell $shell, Dumper $dumper ): void {
-		$has_readline = \function_exists( 'readline_callback_handler_install' );
+		// Same gate as the Dumper's readline_mode: only use readline when STDIN
+		// is a real TTY. Pipes / redirected files fall through to the
+		// non-blocking fgets path which terminates cleanly on EOF.
+		$is_tty       = \function_exists( 'posix_isatty' ) && @\posix_isatty( \STDIN );
+		$has_readline = $is_tty && \function_exists( 'readline_callback_handler_install' );
 
 		$exit  = false;
 		$stdin = new class( $shell, $dumper, $has_readline, $exit ) {
