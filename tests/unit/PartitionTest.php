@@ -381,8 +381,7 @@ class PartitionTest extends TestCase {
 		// at the next fill (after DRIFT_RESCAN_INTERVAL_SECONDS) and follow.
 		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
 		$this->produce_into( $p, 'ours-1' );
-		// Peer creates segment 1 underneath us.
-		mkdir( "{$this->tmp}/p0", 0755, true );
+		// Peer creates segment 1 underneath us. (produce_into already made p0/.)
 		file_put_contents( "{$this->tmp}/p0/1.log", "peer-wrote\n" );
 		// Reach into the partition to push last_segment_check back so the next fill triggers rescan.
 		$ref = new \ReflectionClass( $p );
@@ -538,9 +537,7 @@ class PartitionTest extends TestCase {
 		$p = new Partition( $this->tmp, 0, 1024 * 1024, 4, 86400 );
 		$this->produce_into( $p, 'first' );
 		// The .idx for segment 0 already exists; fabricate a big one for segment 1
-		// without going through the public write API.
-		mkdir( "{$this->tmp}/p0", 0755, true );
-		// Create segment 1 stub log + huge idx.
+		// without going through the public write API. (produce_into already made p0/.)
 		file_put_contents( "{$this->tmp}/p0/1.log", "x\n" );
 		$big_size = Partition::MAX_READ_SIZE + 100;
 		// Use truncate to simulate a giant file without actually allocating MB+.
