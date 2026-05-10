@@ -95,6 +95,22 @@ class PartitionTest extends TestCase {
 		$this->assertSame( [ str_repeat( 'x', 5000 ) ], $this->read_partition_values( $p ) );
 	}
 
+	public function test_allow_large_writes_throws_if_already_held(): void {
+		// allow_large_writes is a single-writer claim: only one Partition can
+		// hold the lock for a given partition_dir at a time. A second writer
+		// must fail loudly rather than silently set $allow_large_writes=true
+		// on an unowned dir (which would race the real owner on >4KB writes).
+		$p1 = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$p1->name( 'p1' );
+		$p1->allow_large_writes();
+
+		$p2 = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$p2->name( 'p2' );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'failed to acquire write lock' );
+		$p2->allow_large_writes();
+	}
+
 	public function test_read_at_returns_bytes_at_offset(): void {
 		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
 		$this->produce_into( $p, 'hello' );
