@@ -22,19 +22,19 @@ class StorageRoundTripTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_topic_write_then_consumer_read_with_restart_replay(): void {
+	public function test_topic_fill_then_consumer_read_with_restart_replay(): void {
 		// Topic with 4 partitions.
 		$topic = new Topic( "{$this->tmp}/firehose.log", 4 );
 
-		// Two writes with the same KEY land in the same partition.
-		$topic->write( '/url1', "{\"k\":\"start\",\"id\":1}\n" );
-		$topic->write( '/url1', "{\"k\":\"complete\",\"id\":1}\n" );
+		// Two fills with the same KEY land in the same partition.
+		$this->produce_into( $topic, '{"k":"start","id":1}', '/url1'  );
+		$this->produce_into( $topic, '{"k":"complete","id":1}', '/url1'  );
 
 		// Identify which partition got the data.
 		$pid = Partition::hash_to_partition( '/url1', 4 );
 
 		// Consumer reads that partition.
-		$c1 = new Consumer( "{$this->tmp}/firehose.log", $pid, "{$this->tmp}/offsets/reader/p{$pid}" );
+		$c1   = new Consumer( "{$this->tmp}/firehose.log", $pid, "{$this->tmp}/offsets/reader/p{$pid}" );
 		$cap1 = new CaptureSink();
 		$c1->sink( $cap1 );
 		$c1->poll();
@@ -43,11 +43,11 @@ class StorageRoundTripTest extends TestCase {
 		$this->assertCount( 2, $cap1->captured );
 
 		// Write more, simulate restart, expect resume.
-		$topic->write( '/url1', "{\"k\":\"third\",\"id\":1}\n" );
+		$this->produce_into( $topic, '{"k":"third","id":1}', '/url1'  );
 
 		unset( $c1 );
 
-		$c2 = new Consumer( "{$this->tmp}/firehose.log", $pid, "{$this->tmp}/offsets/reader/p{$pid}" );
+		$c2   = new Consumer( "{$this->tmp}/firehose.log", $pid, "{$this->tmp}/offsets/reader/p{$pid}" );
 		$cap2 = new CaptureSink();
 		$c2->sink( $cap2 );
 		$c2->poll();

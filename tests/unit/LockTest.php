@@ -111,17 +111,10 @@ class LockTest extends TestCase {
 		$this->assertTrue( true );
 	}
 
-	public function test_with_lock_acquires_runs_releases(): void {
-		$lock = new Lock( "{$this->tmp}/test.lock.d" );
-		$ran  = false;
-		$result = $lock->with_lock( function () use ( &$ran ) {
-			$ran = true;
-			return 'ok';
-		} );
-		$this->assertTrue( $ran );
-		$this->assertSame( 'ok', $result );
-		$this->assertFalse( $lock->is_held() );
-	}
+	// Lock::with_lock() was removed — per-write callback locking was the wrong
+	// abstraction (the user explicitly killed it). Locking now happens once at
+	// allow_large_writes() time on the Partition, with a heartbeat Timer
+	// keeping the lock fresh; see PartitionTest::test_allow_large_writes_*.
 
 	// --- Restart channel ----------------------------------------------------
 

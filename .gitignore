@@ -1,12 +1,20 @@
-.phpunit.cache/
-/tmp/phpunit-cache-newspack-nodes/
-.DS_Store
-*.swp
-vendor/
-node_modules/
-/release/
-/.release-staging/
-package-lock.json
+# Build outputs
+/build/
+/node_modules/
+/vendor/
+
+# Lock files at parent level
+/package-lock.json
+/composer.lock
+
+# Logs
 *.log
 npm-debug.log*
+
+# Release artifacts
+/release/
+/.release-staging/
+
+# OS files
+.DS_Store
 Thumbs.db

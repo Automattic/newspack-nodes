@@ -29,7 +29,7 @@ class Router extends Timer {
 		++$this->counter;
 
 		$to = $message[ Message::TO ];
-		if ( $to === '' ) {
+		if ( '' === $to ) {
 			$this->sink?->fill( $message );
 			return;
 		}
@@ -45,7 +45,7 @@ class Router extends Timer {
 		}
 
 		$target = Core::node( $node_name );
-		if ( $target === null ) {
+		if ( null === $target ) {
 			if ( $message[ Message::TYPE ] & Message::TM_ERROR ) {
 				return;
 			}

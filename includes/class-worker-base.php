@@ -1,24 +1,19 @@
 <?php
 /**
- * WorkerBase: zombie-process worker lifecycle.
+ * Worker Base
  *
- * Lift-adapted from event-logger's class-worker-base.php. Adaptations:
- *  - $base_dir injected (no Config dependency).
- *  - Spawn URL injected by the caller (passed into execute() as a constructor-style
- *    arg; the caller is responsible for resolving it from
- *    rest_url('newspack-nodes/v1/workers/spawn'), so application plugins can
- *    override the route without patching this class).
- *  - Env var: NEWSPACK_NODES_WORKER_TYPE.
- *
- * Provides acquire/release/should_continue lifecycle so workers exit cleanly
- * before OOM, before max_runtime, or when their lock is taken from them.
+ * Zombie-process worker lifecycle. Provides acquire/release/should_continue
+ * so workers exit cleanly before OOM, before max_runtime, or when their lock
+ * is taken from them.
  *
  * @package Newspack_Nodes
  */
 
 namespace Newspack_Nodes;
 
-\defined( 'ABSPATH' ) || exit;
+if ( ! \defined( 'ABSPATH' ) ) {
+	exit;
+}
 
 class WorkerBase {
 	public const DEFAULT_MAX_RUNTIME    = 595;
@@ -73,7 +68,7 @@ class WorkerBase {
 	}
 
 	public function release(): void {
-		if ( $this->lock !== null ) {
+		if ( null !== $this->lock ) {
 			$this->lock->release();
 			$this->lock = null;
 		}
@@ -82,7 +77,7 @@ class WorkerBase {
 	public function should_continue(): bool {
 		$now = \microtime( true );
 
-		if ( $this->lock === null || ! $this->lock->is_held() ) {
+		if ( null === $this->lock || ! $this->lock->is_held() ) {
 			return false;
 		}
 		if ( ! \is_dir( $this->lock_path() ) ) {
@@ -144,7 +139,7 @@ class WorkerBase {
 
 	protected function memory_limit_bytes(): int {
 		$ini = \ini_get( 'memory_limit' );
-		if ( $ini === '-1' || $ini === false ) {
+		if ( '-1' === $ini || false === $ini ) {
 			return -1;
 		}
 		$num = (int) $ini;
@@ -177,58 +172,41 @@ class WorkerBase {
 		$responder->name( '_responder' );
 		$responder->sink( $router );
 
-		// IPC output Partition (anonymous file backend). Wrapped by a `_repl`
-		// Callback below that packs non-TM_BYTESTREAM messages on the way to
-		// disk so the cli can `unpacked()` on the read side.
+		// _repl: output IPC Partition. Partition::fill auto-packs any non-control
+		// message (Message::packed → bytes → segment), so anything routed to
+		// TO=_repl lands on disk in the cli's read-side wire format. No wrapper
+		// needed. allow_large_writes because dump output regularly exceeds
+		// PIPE_BUF.
 		if ( ! \is_dir( "{$ipc_dir}/output" ) ) {
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
-		$repl_out = new Partition( "{$ipc_dir}/output", 0 );
-		$repl_out->allow_large_writes(); // dump output regularly exceeds PIPE_BUF.
-
-		// _repl: routable wrapper. Anything addressed to `_repl` lands here;
-		// non-TM_BYTESTREAM messages get packed (Message::packed) into a single
-		// JSON line so the cli unpacks back into the original message.
-		$repl = new Callback( static function ( array $msg ) use ( $repl_out ): void {
-			if ( $msg[ Message::TYPE ] & Message::TM_BYTESTREAM ) {
-				$repl_out->fill( $msg );
-				return;
-			}
-			$packed                          = Message::packed( $msg );
-			$bytes                           = Message::new_message();
-			$bytes[ Message::TYPE ]          = Message::TM_BYTESTREAM;
-			$bytes[ Message::TIMESTAMP ]     = Core::$right_now;
-			$bytes[ Message::VALUE ]         = $packed . "\n";
-			$repl_out->fill( $bytes );
-		} );
+		$repl = new Partition( "{$ipc_dir}/output", 0 );
 		$repl->name( '_repl' );
+		$repl->sink( $interpreter );
+		// allow_large_writes constructs Lock + heartbeat Timer keyed off
+		// `$repl->name` and routed through `$repl->sink`, so name() and
+		// sink() must be set first.
+		$repl->allow_large_writes();
 
-		// IPC input Consumer (anonymous-ish — given a Timer-hitchhike-required
-		// name but no callers address it). Reads the cli's command Partition,
-		// emits TM_BYTESTREAM lines.
+		// IPC input Consumer (unnamed — spec line 636). Reads packed messages
+		// from the cli's command Partition, auto-unpacks, stamps `_repl` onto
+		// FROM (path-prepend, preserving the cli's $pid trail), forwards to
+		// _command_interpreter. Replies route via TO=_repl/_responder/$pid
+		// → worker's _router peels `_repl` → `_repl` Partition (above) writes
+		// to disk → cli reads.
+		//
+		// Cli commands are ephemeral — running them on worker (re)start would
+		// replay every historical command (e.g. one `ping` triggers a fresh
+		// reply on every worker respawn). Skip the offsetlog and tail-seek so
+		// each fresh worker process starts handling commands from now-forward.
 		$input_dir = "{$ipc_dir}/input";
 		if ( ! \is_dir( $input_dir ) ) {
 			@\mkdir( $input_dir, 0755, true );
 		}
-		$offset_dir = "{$this->base_dir}/offsets/_repl-in.{$this->worker_type}.p{$this->partition}";
-		$repl_in    = new Consumer( $input_dir, 0, $offset_dir );
-		$repl_in->name( "_repl-in.{$this->worker_type}.p{$this->partition}" );
-
-		// _repl-in's sink: Callback that unpacks each line into the original
-		// Message, prepends `_repl/` to FROM (per spec line 636 — FROM-stamping
-		// happens at the IPC boundary), and forwards to _command_interpreter.
-		$unpack = new Callback( static function ( array $msg ) use ( $interpreter ): void {
-			$value = (string) $msg[ Message::VALUE ];
-			if ( '' === $value ) {
-				return;
-			}
-			$unpacked                  = Message::unpacked( \rtrim( $value, "\n" ) );
-			$prev_from                 = (string) $unpacked[ Message::FROM ];
-			$unpacked[ Message::FROM ] = '' !== $prev_from ? '_repl/' . $prev_from : '_repl';
-			$interpreter->fill( $unpacked );
-		} );
-		$unpack->name( "_repl-in-unpack.{$this->worker_type}.p{$this->partition}" );
-		$repl_in->sink( $unpack );
+		$repl_in = new Consumer( $input_dir, 0, '' );
+		$repl_in->next_offset( 'end' );
+		$repl_in->set_stamp_as( '_repl' );
+		$repl_in->sink( $interpreter );
 
 		return $interpreter;
 	}

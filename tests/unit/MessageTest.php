@@ -42,7 +42,7 @@ class MessageTest extends TestCase {
 			Message::TM_ERROR,
 			Message::TM_INFO,
 			Message::TM_PERSIST,
-			Message::TM_STORABLE,
+			Message::TM_STRUCT,
 			Message::TM_REQUEST,
 		];
 		$this->assertCount( 10, \array_unique( $flags ), 'Flags must be distinct' );
@@ -83,30 +83,14 @@ class MessageTest extends TestCase {
 		$this->assertSame( $m[ Message::VALUE ],     $round_tripped[ Message::VALUE ] );
 	}
 
-	public function test_packed_uses_named_keys_not_positional(): void {
+	public function test_packed_is_positional(): void {
 		$m = Message::new_message();
 		$m[ Message::FROM ] = 'alice';
 		$packed = Message::packed( $m );
 		$decoded = \json_decode( $packed, true );
-		$this->assertArrayHasKey( 'from', $decoded );
-		$this->assertSame( 'alice', $decoded['from'] );
-		$this->assertArrayNotHasKey( '2', $decoded );
+		$this->assertTrue( \array_is_list( $decoded ) );
+		$this->assertCount( 7, $decoded );
+		$this->assertSame( 'alice', $decoded[ Message::FROM ] );
 	}
 
-	public function test_query_round_trip(): void {
-		$node = new class extends \Newspack_Nodes\Node {
-			public function fill( array &$message ): void {
-				++$this->counter;
-				if ( $message[ Message::TYPE ] & Message::TM_REQUEST ) {
-					$resp                       = Message::new_message();
-					$resp[ Message::TYPE ]      = Message::TM_RESPONSE;
-					$resp[ Message::VALUE ]     = 'pong: ' . $message[ Message::VALUE ];
-					$this->sink?->fill( $resp );
-				}
-			}
-		};
-
-		$result = Message::query( $node, 'ping' );
-		$this->assertSame( 'pong: ping', $result );
-	}
 }

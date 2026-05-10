@@ -55,14 +55,14 @@ class Tail extends Timer {
 		}
 
 		$stat = @\stat( $this->filename );
-		if ( $stat === false ) {
+		if ( false === $stat ) {
 			return;
 		}
 		$current_inode = $stat['ino'];
 		$current_size  = $stat['size'];
 
 		// Rotation: inode changed.
-		if ( $this->inode !== null && $current_inode !== $this->inode ) {
+		if ( null !== $this->inode && $current_inode !== $this->inode ) {
 			$this->position       = 0;
 			$this->line_remainder = '';
 		}
@@ -79,7 +79,7 @@ class Tail extends Timer {
 		}
 
 		$fh = @\fopen( $this->filename, 'r' );
-		if ( $fh === false ) {
+		if ( false === $fh ) {
 			$this->at_eof = true;
 			return;
 		}
@@ -88,7 +88,7 @@ class Tail extends Timer {
 		// the event loop in a single fread. Subsequent polls drain the rest.
 		$bytes = \fread( $fh, \min( self::READ_CHUNK, $current_size - $this->position ) );
 		\fclose( $fh );
-		if ( $bytes === false || $bytes === '' ) {
+		if ( false === $bytes || '' === $bytes ) {
 			$this->at_eof = true;
 			return;
 		}
@@ -104,10 +104,38 @@ class Tail extends Timer {
 	private function emit( string $bytes ): void {
 		switch ( $this->buffer_mode ) {
 			case 'binary':
+				// No line awareness: emit whatever bytes the read returned, as-is.
+				// Lines may split across messages.
 				$this->emit_message( $bytes );
 				return;
 			case 'block-buffered':
-				$this->emit_message( $bytes );
+				// DoS guard: bound line_remainder.
+				if ( \strlen( $this->line_remainder ) + \strlen( $bytes ) > self::MAX_LINE_BUFFER_SIZE ) {
+					Core::print_less_often(
+						\sprintf(
+							'Tail: line buffer exceeded %d bytes for %s - discarding',
+							self::MAX_LINE_BUFFER_SIZE,
+							$this->filename
+						)
+					);
+					$this->line_remainder = '';
+					$nl                   = \strpos( $bytes, "\n" );
+					if ( false !== $nl ) {
+						$this->line_remainder = \substr( $bytes, $nl + 1 );
+					}
+					return;
+				}
+				// Accumulate bytes; emit everything up to (and including) the LAST newline
+				// as a single message. Trailing partial line carries forward in line_remainder
+				// so a chunk boundary never splits a line.
+				$buf = $this->line_remainder . $bytes;
+				$nl  = \strrpos( $buf, "\n" );
+				if ( false === $nl ) {
+					$this->line_remainder = $buf;
+					return;
+				}
+				$this->emit_message( \substr( $buf, 0, $nl + 1 ) );
+				$this->line_remainder = \substr( $buf, $nl + 1 );
 				return;
 			case 'line-buffered':
 			default:
@@ -125,9 +153,7 @@ class Tail extends Timer {
 					$this->line_remainder = '';
 					$nl                   = \strpos( $bytes, "\n" );
 					if ( false !== $nl ) {
-						// Drop everything up through the newline; carry tail as remainder.
-						$tail = \substr( $bytes, $nl + 1 );
-						$this->line_remainder = $tail;
+						$this->line_remainder = \substr( $bytes, $nl + 1 );
 					}
 					return;
 				}

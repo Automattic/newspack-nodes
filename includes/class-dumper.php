@@ -73,6 +73,16 @@ class Dumper extends Node {
 	private bool $stdout_is_tty;
 
 	/**
+	 * Set by Cli_Command when the REPL is using readline_callback_handler_install
+	 * (the non-blocking readline path that mirrors Term::ReadLine::Gnu's
+	 * callback_handler_install). When true, async output uses
+	 * readline_on_new_line() + readline_redisplay() to re-paint the prompt
+	 * instead of the manual ANSI cursor-save/restore dance — readline owns
+	 * the line buffer and would otherwise be left out of sync.
+	 */
+	private bool $readline_mode = false;
+
+	/**
 	 * @param resource|null $stdout Defaults to STDOUT. Pass php://memory for tests.
 	 * @param resource|null $stderr Defaults to STDERR.
 	 * @param bool|null     $force_tty If non-null, override the posix_isatty()
@@ -83,7 +93,7 @@ class Dumper extends Node {
 		$this->stdout = $stdout ?? \STDOUT;
 		$this->stderr = $stderr ?? \STDERR;
 
-		if ( $force_tty !== null ) {
+		if ( null !== $force_tty ) {
 			$this->stdout_is_tty = $force_tty;
 		} else {
 			$this->stdout_is_tty = \is_resource( $this->stdout )
@@ -94,6 +104,10 @@ class Dumper extends Node {
 
 	public function set_shell( Shell $shell ): void {
 		$this->shell = $shell;
+	}
+
+	public function set_readline_mode( bool $on ): void {
+		$this->readline_mode = $on;
 	}
 
 	/**
@@ -134,22 +148,26 @@ class Dumper extends Node {
 
 		$type = $message[ Message::TYPE ];
 
-		// TM_COMMAND|TM_RESPONSE: synchronous response to the user's command.
-		// Skip the prompt-redraw dance — Shell's read-eval-print loop will
-		// re-prompt on its own once the response is rendered.
+		// TM_COMMAND|TM_RESPONSE: response to the user's command. Bare-mode
+		// responses are synchronous (rendered inside the same drain_fh that
+		// processed the line); pivoted-mode responses arrive async via the
+		// reply-in Consumer poll. Both paths route through write_async — when
+		// the prompt is on screen (async case), the wipe-and-redisplay dance
+		// preserves the user's typing context; when the prompt was just
+		// consumed (sync case, prompt_displayed=false from the readline
+		// callback), it falls through to a plain stdout write.
 		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_RESPONSE ) ) {
 			$cmd = \json_decode( (string) $message[ Message::VALUE ], true );
 			if ( \is_array( $cmd ) ) {
 				$name    = (string) ( $cmd['name'] ?? '' );
 				$payload = (string) ( $cmd['payload'] ?? '' );
 
-				if ( $name === 'prompt' && $this->shell !== null ) {
+				if ( 'prompt' === $name && null !== $this->shell ) {
 					$this->shell->prompt = $payload;
 					return;
 				}
 
-				$this->write( $this->stdout, $payload, true );
-				$this->prompt_displayed = false;
+				$this->write_async( $payload );
 				return;
 			}
 		}
@@ -158,6 +176,27 @@ class Dumper extends Node {
 		// reason as TM_COMMAND|TM_RESPONSE.
 		if ( $type & Message::TM_ERROR ) {
 			$this->write( $this->stderr, 'ERROR: ' . (string) $message[ Message::VALUE ], false );
+			return;
+		}
+
+		// TM_PING: bounced ping reply. VALUE carries the original send timestamp;
+		// rewrite to "round trip time: $rtt ms" before falling into the default
+		// async-bytestream path. Mirrors Tachikoma Dumper.pm:dump_ping.
+		if ( $type & Message::TM_PING ) {
+			$sent = (float) $message[ Message::VALUE ];
+			$rtt  = ( Core::$right_now - $sent ) * 1000.0;
+			$this->write_async( \sprintf( 'round trip time: %.2f ms', $rtt ) );
+			return;
+		}
+
+		// TM_STRUCT: VALUE is structured (array). JSON-encode for display.
+		// Producers writing array VALUE set this flag (LogManager, RequestBuilder,
+		// FlameBuilder, JobIntake, StreamMerger). Plain `(string) $array` would
+		// just print "Array".
+		if ( $type & Message::TM_STRUCT ) {
+			$value = $message[ Message::VALUE ];
+			$line  = \is_string( $value ) ? $value : \wp_json_encode( $value, JSON_UNESCAPED_SLASHES );
+			$this->write_async( (string) $line );
 			return;
 		}
 
@@ -182,12 +221,33 @@ class Dumper extends Node {
 	 * sequences entirely — they would just be noise in a log file.
 	 */
 	private function write_async( string $text ): void {
-		if ( ! $this->stdout_is_tty || ! $this->prompt_displayed || $this->shell === null ) {
+		if ( ! $this->stdout_is_tty || ! $this->prompt_displayed || null === $this->shell ) {
 			// No prompt to step around: plain write.
 			$this->write( $this->stdout, $text, true );
 			return;
 		}
 
+		if ( ! \str_ends_with( $text, "\n" ) ) {
+			$text .= "\n";
+		}
+
+		if ( $this->readline_mode ) {
+			// Readline is installed with an empty prompt (see Cli_Command::
+			// install_handler) so its idea of the prompt is always blank;
+			// the prompt the user sees is whatever we write to stdout. That
+			// means we never call readline_redisplay() / readline_on_new_line()
+			// — those calls were what put readline into incremental-search
+			// mode after the first async output. Wipe the in-flight line,
+			// write the async text, then write a fresh prompt directly.
+			\fwrite(
+				$this->stdout,
+				self::ANSI_CR_CLEAR_LINE . $text . $this->shell->prompt
+			);
+			// prompt_displayed stays true — we re-emitted it.
+			return;
+		}
+
+		// Non-readline manual path: ANSI cursor save/restore.
 		// 1. Save cursor (so terminals supporting it can return to the user's
 		//    typed-input caret column after the redraw).
 		// 2. CR + clear-to-EOL — wipe the in-flight prompt line.
@@ -196,9 +256,6 @@ class Dumper extends Node {
 		// 5. Restore cursor (best-effort; some terminals discard after newline,
 		//    which is fine — the user keeps their typed-input visible courtesy
 		//    of the redrawn prompt).
-		if ( ! \str_ends_with( $text, "\n" ) ) {
-			$text .= "\n";
-		}
 		\fwrite(
 			$this->stdout,
 			self::ANSI_SAVE_CURSOR

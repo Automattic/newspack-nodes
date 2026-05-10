@@ -25,8 +25,8 @@ class ConsumerTest extends TestCase {
 
 	public function test_poll_emits_line_for_each_new_log_entry(): void {
 		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
-		$source->write( "first\n" );
-		$source->write( "second\n" );
+		$this->produce_line( $source, 'first' );
+		$this->produce_line( $source, 'second' );
 
 		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$capture = new CaptureSink();
@@ -35,13 +35,29 @@ class ConsumerTest extends TestCase {
 		$c->poll();
 
 		$this->assertCount( 2, $capture->captured );
-		$this->assertSame( 'first',  trim( $capture->captured[0][ Message::VALUE ] ) );
-		$this->assertSame( 'second', trim( $capture->captured[1][ Message::VALUE ] ) );
+		$this->assertSame( 'first',  $capture->captured[0][ Message::VALUE ] );
+		$this->assertSame( 'second', $capture->captured[1][ Message::VALUE ] );
+	}
+
+	/**
+	 * Build a TM_BYTESTREAM message and fill the Partition. Partition::fill
+	 * packs via Message::packed and appends the bytes; Consumer auto-unpacks
+	 * on the read side. Tests use this to simulate real producer flow.
+	 */
+	private function produce_line( Partition $partition, string $value ): void {
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$msg[ Message::TIMESTAMP ] = microtime( true );
+		$msg[ Message::VALUE ]     = $value;
+		$partition->fill( $msg );
+		// Partition::fill batches in memory now — force on-disk visibility
+		// so the Consumer's poll() picks up the bytes synchronously.
+		$partition->flush();
 	}
 
 	public function test_poll_does_not_re_emit_old_lines_on_second_call(): void {
 		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
-		$source->write( "first\n" );
+		$this->produce_line( $source, 'first' );
 
 		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$capture = new CaptureSink();
@@ -53,29 +69,33 @@ class ConsumerTest extends TestCase {
 		$c->poll();
 		$this->assertCount( 1, $capture->captured );
 
-		$source->write( "second\n" );
+		$this->produce_line( $source, 'second' );
 		$c->poll();
 		$this->assertCount( 2, $capture->captured );
 	}
 
 	public function test_checkpoint_writes_offsetlog_entry(): void {
 		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
-		$source->write( "hello\n" );
+		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$c->poll();
 		$c->checkpoint();
 
+		// Offsetlog stores packed Tachikoma messages whose VALUE is the
+		// {seg, off, ts} struct. The packed line should mention "seg" and "off".
 		$offsetlog_path = "{$this->tmp}/offsets/r/p0/p0/0.log";
 		$this->assertTrue( file_exists( $offsetlog_path ), 'Offsetlog must exist after checkpoint' );
-		$content = file_get_contents( $offsetlog_path );
-		$this->assertStringContainsString( '"seg":0', $content );
-		$this->assertStringContainsString( '"off":6', $content );
+		$content = (string) file_get_contents( $offsetlog_path );
+		$msg     = Message::unpacked( rtrim( $content, "\n" ) );
+		$entry   = $msg[ Message::VALUE ];
+		$this->assertSame( 0, $entry['seg'] );
+		$this->assertGreaterThan( 0, $entry['off'] );
 	}
 
 	public function test_restart_resumes_from_last_checkpoint(): void {
 		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
-		$source->write( "first\n" );
+		$this->produce_line( $source, 'first' );
 
 		$c1 = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$cap1 = new CaptureSink();
@@ -84,7 +104,7 @@ class ConsumerTest extends TestCase {
 		$c1->checkpoint();
 		unset( $c1 );
 
-		$source->write( "second\n" );
+		$this->produce_line( $source, 'second' );
 
 		$c2 = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$cap2 = new CaptureSink();
@@ -92,7 +112,7 @@ class ConsumerTest extends TestCase {
 		$c2->poll();
 
 		$this->assertCount( 1, $cap2->captured );
-		$this->assertSame( 'second', trim( $cap2->captured[0][ Message::VALUE ] ) );
+		$this->assertSame( 'second', $cap2->captured[0][ Message::VALUE ] );
 	}
 
 	// ============================================================================
@@ -100,10 +120,19 @@ class ConsumerTest extends TestCase {
 	// ============================================================================
 
 	public function test_partial_line_carries_across_polls(): void {
-		// Simulate a writer that writes a line in two halves.
-		// Use raw fwrite to bypass write()'s atomic-line semantics.
+		// Simulate a writer that writes a single packed line in two halves.
+		// Use raw fwrite to bypass Partition's atomic-line semantics.
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$msg[ Message::TIMESTAMP ] = 1234567890.0;
+		$msg[ Message::VALUE ]     = 'first';
+		$packed                    = Message::packed( $msg ) . "\n";
+		$mid                       = (int) ( strlen( $packed ) / 2 );
+		$half1                     = substr( $packed, 0, $mid );
+		$half2                     = substr( $packed, $mid );
+
 		mkdir( "{$this->tmp}/data/p0", 0755, true );
-		file_put_contents( "{$this->tmp}/data/p0/0.log", "fir" );
+		file_put_contents( "{$this->tmp}/data/p0/0.log", $half1 );
 
 		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$cap = new CaptureSink();
@@ -114,17 +143,23 @@ class ConsumerTest extends TestCase {
 		$this->assertCount( 0, $cap->captured, 'partial line must NOT be emitted on first poll' );
 
 		// Append the rest of the line.
-		file_put_contents( "{$this->tmp}/data/p0/0.log", "st\n", FILE_APPEND );
+		file_put_contents( "{$this->tmp}/data/p0/0.log", $half2, FILE_APPEND );
 		$c->poll();
 
 		$this->assertCount( 1, $cap->captured, 'completed line must emit on second poll' );
-		$this->assertSame( "first\n", $cap->captured[0][ Message::VALUE ] );
-		// Cursor should be 6 bytes (length of "first\n").
+		$this->assertSame( 'first', $cap->captured[0][ Message::VALUE ] );
+		// Cursor should be at start of segment 0.
 		$this->assertSame( '0:0', $cap->captured[0][ Message::KEY ] );
 	}
 
 	public function test_partial_line_does_not_double_emit_bytes(): void {
-		// Writer writes 1 byte at a time across multiple polls.
+		// Writer writes a packed line 1 byte at a time across multiple polls.
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$msg[ Message::TIMESTAMP ] = 1234567890.0;
+		$msg[ Message::VALUE ]     = 'hello';
+		$packed                    = Message::packed( $msg ) . "\n";
+
 		mkdir( "{$this->tmp}/data/p0", 0755, true );
 		file_put_contents( "{$this->tmp}/data/p0/0.log", '' );
 
@@ -132,14 +167,13 @@ class ConsumerTest extends TestCase {
 		$cap = new CaptureSink();
 		$c->sink( $cap );
 
-		$letters = [ 'h', 'e', 'l', 'l', 'o', "\n" ];
-		foreach ( $letters as $ch ) {
-			file_put_contents( "{$this->tmp}/data/p0/0.log", $ch, FILE_APPEND );
+		for ( $i = 0; $i < strlen( $packed ); $i++ ) {
+			file_put_contents( "{$this->tmp}/data/p0/0.log", $packed[ $i ], FILE_APPEND );
 			$c->poll();
 		}
 
 		$this->assertCount( 1, $cap->captured, 'each byte must accumulate into single emit' );
-		$this->assertSame( "hello\n", $cap->captured[0][ Message::VALUE ] );
+		$this->assertSame( 'hello', $cap->captured[0][ Message::VALUE ] );
 	}
 
 	// ============================================================================
@@ -214,25 +248,21 @@ class ConsumerTest extends TestCase {
 
 	public function test_is_caught_up_false_when_unread_data(): void {
 		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
-		$source->write( "hello\n" );
+		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		// Without polling, we're not caught up (cursor_off=0, segment size=6).
-		// at_eof default is true but is_caught_up checks tail position too. After at least one
-		// poll we want it to reflect actual state.
 		$c->poll();
 		$this->assertTrue( $c->is_caught_up(), 'after polling all bytes, must be caught up' );
 
-		$source->write( "more\n" );
-		// Drain the cache so is_caught_up sees fresh size.
+		$this->produce_line( $source, 'more' );
 		\clearstatcache();
 		$this->assertFalse( $c->is_caught_up(), 'new bytes appearing must un-catch-up the reader' );
 	}
 
 	public function test_is_caught_up_true_after_polling_to_end(): void {
 		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
-		$source->write( "a\n" );
-		$source->write( "b\n" );
+		$this->produce_line( $source, 'a' );
+		$this->produce_line( $source, 'b' );
 
 		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$c->poll();
@@ -287,7 +317,7 @@ class ConsumerTest extends TestCase {
 		$source = new Partition( "{$this->tmp}/data", 0, 32, 2, 0 );
 		// Force several rotations.
 		for ( $i = 0; $i < 6; $i++ ) {
-			$source->write( str_repeat( chr( 97 + $i ), 30 ) . "\n" );
+			$this->produce_line( $source, str_repeat( chr( 97 + $i ), 30 ) );
 		}
 		// cleanup_segments may have already pruned the oldest (num_segments=2, max_lifespan=0).
 
@@ -318,8 +348,8 @@ class ConsumerTest extends TestCase {
 
 	public function test_next_offset_end_seeks_to_tail(): void {
 		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
-		$source->write( "old1\n" );
-		$source->write( "old2\n" );
+		$this->produce_line( $source, 'old1' );
+		$this->produce_line( $source, 'old2' );
 
 		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$cap = new CaptureSink();
@@ -329,15 +359,15 @@ class ConsumerTest extends TestCase {
 		$c->poll();
 		$this->assertCount( 0, $cap->captured, 'end-seek must skip pre-existing lines' );
 
-		$source->write( "new1\n" );
+		$this->produce_line( $source, 'new1' );
 		$c->poll();
 		$this->assertCount( 1, $cap->captured );
-		$this->assertSame( "new1\n", $cap->captured[0][ Message::VALUE ] );
+		$this->assertSame( 'new1', $cap->captured[0][ Message::VALUE ] );
 	}
 
 	public function test_next_offset_start_resets_to_zero(): void {
 		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
-		$source->write( "alpha\n" );
+		$this->produce_line( $source, 'alpha' );
 
 		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$cap = new CaptureSink();
@@ -348,15 +378,15 @@ class ConsumerTest extends TestCase {
 		$c->poll();
 
 		$this->assertCount( 1, $cap->captured );
-		$this->assertSame( "alpha\n", $cap->captured[0][ Message::VALUE ] );
+		$this->assertSame( 'alpha', $cap->captured[0][ Message::VALUE ] );
 	}
 
 	public function test_next_offset_recent_picks_second_to_last_segment(): void {
 		// Force several segments.
 		$source = new Partition( "{$this->tmp}/data", 0, 32, 4, 86400 );
-		$source->write( str_repeat( 'a', 30 ) . "\n" );
-		$source->write( str_repeat( 'b', 30 ) . "\n" );
-		$source->write( str_repeat( 'c', 30 ) . "\n" );
+		$this->produce_line( $source, str_repeat( 'a', 30 ) );
+		$this->produce_line( $source, str_repeat( 'b', 30 ) );
+		$this->produce_line( $source, str_repeat( 'c', 30 ) );
 
 		$segments = $source->get_segments( true );
 		$count = count( $segments );
@@ -370,6 +400,27 @@ class ConsumerTest extends TestCase {
 		$seg_prop->setAccessible( true );
 		$expected = $segments[ $count - 2 ]['id'];
 		$this->assertSame( $expected, $seg_prop->getValue( $c ) );
+	}
+
+	public function test_empty_offsetlog_dir_skips_offsetlog(): void {
+		// cli sessions and other ephemeral readers pass '' for offsetlog dir
+		// to skip the offsetlog entirely — no per-session directories under
+		// offsets/, no checkpoint persistence, just tail.
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'hello' );
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, '' );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+		$c->poll();
+
+		$this->assertCount( 1, $cap->captured );
+		$this->assertSame( 'hello', $cap->captured[0][ Message::VALUE ] );
+
+		// checkpoint() must be a no-op in this mode — no offsetlog directory
+		// should appear underneath $this->tmp.
+		$c->checkpoint();
+		$this->assertFalse( is_dir( "{$this->tmp}/offsets" ), 'no offsetlog dir created with empty offsetlog_base_dir' );
 	}
 
 	public function test_next_offset_explicit_array_position(): void {

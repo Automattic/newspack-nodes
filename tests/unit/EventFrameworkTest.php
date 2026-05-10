@@ -136,7 +136,7 @@ class EventFrameworkTest extends TestCase {
 		$ticks = 0;
 		$ef->drain( function () use ( &$ticks ): bool {
 			++$ticks;
-			if ( $ticks === 2 ) {
+			if ( 2 === $ticks ) {
 				\Newspack_Nodes\Core::$shutting_down = true;
 			}
 			return true;

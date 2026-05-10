@@ -1,32 +1,18 @@
 <?php
 /**
- * Supervisor: long-running tick loop with HMAC spawn token + spawn rate limit.
+ * Supervisor
  *
- * Lifecycle (spec lines 568-590):
- *   loop every 1s for ~595s:
- *     refresh HMAC spawn token (every 10s window)
- *     every 15s: check_config (rebuild worker_locks from filters,
- *                              cleanup_stale_partitions, etc.)
- *     for each registered worker:
- *       if !lock_dir OR heartbeat > worker.stale_timeout:
- *         if last_spawn for this worker > 15s ago:
- *           POST /spawn   (fire-and-forget)
- *     should_restart() check
- *   release supervisor lock
- *   POST /spawn supervisor   (fire-and-forget)
- *   exit
- *
- * The supervisor itself runs as a worker (spawned via the spawn endpoint with
- * type='supervisor'); its own lock at {base_dir}/locks/supervisor.lock.d
- * makes the run() singleton globally so concurrent ticks (cron backstop +
- * self-respawn race window) don't double-spawn workers.
+ * Long-running tick loop with HMAC spawn token + spawn rate limit.
+ * Singleton via supervisor.lock.d so concurrent ticks don't double-spawn.
  *
  * @package Newspack_Nodes
  */
 
 namespace Newspack_Nodes;
 
-\defined( 'ABSPATH' ) || exit;
+if ( ! \defined( 'ABSPATH' ) ) {
+	exit;
+}
 
 class Supervisor extends SupervisorBase {
 	/**
@@ -258,7 +244,7 @@ class Supervisor extends SupervisorBase {
 	 * to GC retired partition dirs."
 	 */
 	public function cleanup_stale_partitions(): void {
-		if ( $this->num_partitions === null ) {
+		if ( null === $this->num_partitions ) {
 			return;
 		}
 
@@ -398,7 +384,7 @@ class Supervisor extends SupervisorBase {
 		}
 
 		// Bail-on-stolen-lock check, mirroring run loop.
-		if ( $this->own_lock !== null && $this->own_lock->should_restart() ) {
+		if ( null !== $this->own_lock && $this->own_lock->should_restart() ) {
 			return false;
 		}
 		return true;
@@ -419,7 +405,7 @@ class Supervisor extends SupervisorBase {
 
 	/** Test hook: release the lock from init_lock_for_test. */
 	public function release_lock_for_test(): void {
-		if ( $this->own_lock !== null ) {
+		if ( null !== $this->own_lock ) {
 			$this->own_lock->release();
 			$this->own_lock = null;
 		}

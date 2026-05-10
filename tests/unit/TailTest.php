@@ -72,6 +72,61 @@ class TailTest extends TestCase {
 		$this->assertSame( 'raw bytes', $cap->captured[0][ Message::VALUE ] );
 	}
 
+	public function test_buffer_mode_block_buffered_holds_partial_line_across_polls(): void {
+		// Block-buffered must accumulate a trailing partial line so a chunk
+		// boundary never splits a line — matches Tachikoma drain_buffer_blocks.
+		file_put_contents( "{$this->tmp}/data.log", "first\nseco" );
+		$t = new Tail( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+
+		$t->poll();
+		// Only 'first\n' is complete; 'seco' is partial and held in line_remainder.
+		$this->assertCount( 1, $cap->captured );
+		$this->assertSame( "first\n", $cap->captured[0][ Message::VALUE ] );
+
+		// Append the rest of the partial line.
+		file_put_contents( "{$this->tmp}/data.log", "nd\n", FILE_APPEND );
+		$t->poll();
+
+		$this->assertCount( 2, $cap->captured );
+		$this->assertSame( "second\n", $cap->captured[1][ Message::VALUE ] );
+	}
+
+	public function test_buffer_mode_block_buffered_holds_entire_chunk_when_no_newline(): void {
+		// No newline at all in the chunk: the entire payload accumulates in
+		// line_remainder; nothing is emitted.
+		file_put_contents( "{$this->tmp}/data.log", "no newline yet" );
+		$t = new Tail( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+
+		$t->poll();
+		$this->assertCount( 0, $cap->captured );
+
+		file_put_contents( "{$this->tmp}/data.log", " here\n", FILE_APPEND );
+		$t->poll();
+		$this->assertCount( 1, $cap->captured );
+		$this->assertSame( "no newline yet here\n", $cap->captured[0][ Message::VALUE ] );
+	}
+
+	public function test_buffer_mode_binary_does_not_accumulate_partial_lines(): void {
+		// Binary mode emits each fread as-is, even if it ends mid-line.
+		file_put_contents( "{$this->tmp}/data.log", "first\nseco" );
+		$t = new Tail( "{$this->tmp}/data.log", buffer_mode: 'binary' );
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+
+		$t->poll();
+		$this->assertCount( 1, $cap->captured );
+		$this->assertSame( "first\nseco", $cap->captured[0][ Message::VALUE ] );
+
+		file_put_contents( "{$this->tmp}/data.log", "nd\n", FILE_APPEND );
+		$t->poll();
+		$this->assertCount( 2, $cap->captured );
+		$this->assertSame( "nd\n", $cap->captured[1][ Message::VALUE ] );
+	}
+
 	public function test_missing_file_does_not_throw(): void {
 		$t = new Tail( "{$this->tmp}/missing.log" );
 		$cap = new CaptureSink();

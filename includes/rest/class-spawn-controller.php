@@ -96,7 +96,7 @@ class SpawnController {
 	 * @return bool True if valid.
 	 */
 	public function validate_worker_type( $type ): bool {
-		if ( ! \is_string( $type ) || $type === '' ) {
+		if ( ! \is_string( $type ) || '' === $type ) {
 			return false;
 		}
 
@@ -134,7 +134,7 @@ class SpawnController {
 		$standalone = Bootstrap::register_standalone_workers();
 		if ( isset( $standalone[ $type ] ) ) {
 			$has_partitions = ! empty( $standalone[ $type ]['partitions'] );
-			return $has_partitions ? true : ( $partition === 0 );
+			return $has_partitions ? true : ( 0 === $partition );
 		}
 
 		// Topology path: partition must be < num_partitions for the type.
@@ -144,7 +144,7 @@ class SpawnController {
 				$max = $w['partition'] + 1;
 			}
 		}
-		if ( $max === 0 ) {
+		if ( 0 === $max ) {
 			// Type isn't in topology at all — fall back to false (validate_worker_type
 			// should have caught this; keep defense-in-depth here).
 			return false;
@@ -165,7 +165,7 @@ class SpawnController {
 	 */
 	public function check_permission( \WP_REST_Request $req ) {
 		$nonce = (string) $req->get_param( 'nonce' );
-		if ( $nonce === '' ) {
+		if ( '' === $nonce ) {
 			return new \WP_Error( 'invalid_token', 'Missing spawn token', [ 'status' => 403 ] );
 		}
 
@@ -266,7 +266,7 @@ class SpawnController {
 		// Supervisor-as-worker: instantiate + run synchronously, return a
 		// minimal sanitized result. The Supervisor class manages its own
 		// lock contention, so a concurrent spawn becomes a quick no-op.
-		if ( $type === 'supervisor' ) {
+		if ( 'supervisor' === $type ) {
 			$result = $this->run_supervisor_sync();
 			return new \WP_REST_Response(
 				[

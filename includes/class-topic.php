@@ -79,45 +79,14 @@ class Topic extends Node {
 		return $this->partitions[ $i ];
 	}
 
-	public function write( string $key, string $value ): bool {
-		if ( $key !== '' ) {
-			$idx = Partition::hash_to_partition( $key, $this->num_partitions );
-		} else {
-			$idx = ( self::$rr_counter++ ) % $this->num_partitions;
-		}
-		return $this->partition( $idx )->write( $value );
-	}
-
 	public function fill( array &$message ): void {
 		++$this->counter;
 		$type = $message[ Message::TYPE ];
 
-		if ( $type & Message::TM_BYTESTREAM ) {
-			// Pre-pinned via TO: parse partition index out of TO's leading segment.
-			if ( $message[ Message::TO ] !== '' && \preg_match( '/^p(\d+)/', $message[ Message::TO ], $m ) ) {
-				$idx = (int) $m[1];
-				if ( $idx >= 0 && $idx < $this->num_partitions ) {
-					// Delegate the entire persist contract to Partition's fill().
-					// Partition is the true terminal: it writes durably and acks/cancels.
-					// Topic is just a forwarder.
-					$this->partition( $idx )->fill( $message );
-					return;
-				}
-			}
-			// KEY-routed (or round-robin if KEY empty).
-			$key = $message[ Message::KEY ];
-			if ( $key !== '' ) {
-				$idx = Partition::hash_to_partition( $key, $this->num_partitions );
-			} else {
-				$idx = ( self::$rr_counter++ ) % $this->num_partitions;
-			}
-			$this->partition( $idx )->fill( $message );
-			return;
-		}
-
+		// TM_REQUEST: introspection (GET_PARTITIONS).
 		if ( $type & Message::TM_REQUEST ) {
 			$req = $message[ Message::VALUE ];
-			if ( $req === 'GET_PARTITIONS' ) {
+			if ( 'GET_PARTITIONS' === $req ) {
 				$resp                       = Message::new_message();
 				$resp[ Message::TYPE ]      = Message::TM_RESPONSE;
 				$resp[ Message::TIMESTAMP ] = Core::$right_now;
@@ -128,6 +97,40 @@ class Topic extends Node {
 				$this->sink?->fill( $resp );
 			}
 			return;
+		}
+
+		if ( $type & ( Message::TM_ERROR | Message::TM_EOF ) ) {
+			return;
+		}
+
+		// Anything else: pick a partition and delegate. Partition::fill packs
+		// the message and writes; ack/cancel TM_PERSIST per its contract.
+		// Pre-pinned via TO: parse partition index out of TO's leading segment.
+		if ( '' !== $message[ Message::TO ] && \preg_match( '/^p(\d+)/', $message[ Message::TO ], $m ) ) {
+			$idx = (int) $m[1];
+			if ( $idx >= 0 && $idx < $this->num_partitions ) {
+				$this->partition( $idx )->fill( $message );
+				return;
+			}
+		}
+		// KEY-routed (or round-robin if KEY empty).
+		$key = $message[ Message::KEY ];
+		if ( '' !== $key ) {
+			$idx = Partition::hash_to_partition( $key, $this->num_partitions );
+		} else {
+			$idx = ( self::$rr_counter++ ) % $this->num_partitions;
+		}
+		$this->partition( $idx )->fill( $message );
+	}
+
+	/**
+	 * Flush every materialized partition's batch — request-scope callers
+	 * (LogManager::finish, the cli REPL between commands) use this to land
+	 * pending writes without waiting for the size-threshold tick.
+	 */
+	public function flush(): void {
+		foreach ( $this->partitions as $p ) {
+			$p->flush();
 		}
 	}
 

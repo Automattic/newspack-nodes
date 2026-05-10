@@ -1,44 +1,24 @@
 <?php
 /**
- * Lock: mkdir-based exclusive lock with heartbeat + restart channel + PID-content
- * theft detection.
+ * Lock
  *
- * Lift from class-lock.php (event-logger). Adaptations:
- *  - No Config dependency.
- *  - Added with_lock( callable ) helper for batch-mode auto-acquire.
- *  - Single-channel restart signaling via a `restart` flag file inside the lock dir
- *    (spec line 832): an external requester writes the flag with request_restart();
- *    workers/supervisors poll should_restart() inside their drain loops; the lock
- *    holder calls clear_restart() once it has handled the signal so a subsequent
- *    relock starts clean.
- *  - PID-content theft detection: heartbeat file contains the holder's PID;
- *    should_restart() exits if the on-disk PID no longer matches getmypid()
- *    (someone else stole the lock).
- *  - `started` timestamp file: written at acquire(), readable without holding
- *    the lock via static get_started_time(). Supervisors use this to compute
- *    worker uptime without parsing heartbeat mtimes.
- *  - Grace period for orphan dirs: if mkdir fails because the dir exists but
- *    the heartbeat file doesn't, the holder may be mid-acquire (race window
- *    between mkdir and file_put_contents). Sleep 1s and re-check before
- *    deciding to steal.
- *  - Static helpers: force_release_at(string), request_restart_at(string),
- *    is_restart_pending(string), get_started_time(string) callable without
- *    instantiating a Lock object — used by REST endpoints, admin actions, and
- *    supervisor relock-on-config-change flows that need to interact with a
- *    lock dir without first knowing whether anyone currently holds it. The
- *    `_at` suffix marks the path-keyed static parallel of an instance method.
- *    PHP forbids declaring instance + static methods with the same name, so
- *    the instance form keeps the bare name (back-compat) and the static form
- *    gets the `_at` suffix.
+ * mkdir+heartbeat based locking utility.
+ * Works on macOS Docker volumes where flock fails.
+ * Uses atomic mkdir for lock acquisition and heartbeat file for stale detection.
  *
  * @package Newspack_Nodes
  */
 
 namespace Newspack_Nodes;
 
-\defined( 'ABSPATH' ) || exit;
+if ( ! \defined( 'ABSPATH' ) ) {
+	exit;
+}
 
-class Lock {
+/**
+ * Lock class.
+ */
+class Lock extends Node {
 	public const STALE_TIMEOUT = 60;
 
 	/** Filename for the restart-flag file inside the lock dir. */
@@ -62,8 +42,34 @@ class Lock {
 	private bool $is_held = false;
 
 	public function __construct( string $lock_path, int $stale_timeout = self::STALE_TIMEOUT ) {
+		// Node has no explicit __construct (its properties are inline-initialized);
+		// no parent::__construct() call needed.
 		$this->lock_path     = \rtrim( $lock_path, '/' );
 		$this->stale_timeout = $stale_timeout;
+	}
+
+	/**
+	 * Node entry point: a heartbeat-tagged message refreshes the lock file;
+	 * anything else falls through to the default forward-via-sink behavior.
+	 *
+	 * Mirrors how real Tachikoma uses `$message->[STREAM]` to disambiguate
+	 * control signals from data — we don't have a STREAM slot in our 7-field
+	 * message layout, so we use KEY for the same purpose. The heartbeat
+	 * Timer (created by `Partition::allow_large_writes()`) sets KEY
+	 * = 'heartbeat' on its emitted messages; everything else routes
+	 * downstream through `parent::fill`.
+	 *
+	 * @param array $message Reference; not mutated by the heartbeat path.
+	 */
+	public function fill( array &$message ): void {
+		if ( 'heartbeat' === $message[ Message::KEY ] ) {
+			++$this->counter;
+			if ( $this->is_held ) {
+				$this->heartbeat();
+			}
+			return;
+		}
+		parent::fill( $message );
 	}
 
 	public function acquire( int $max_wait_ms = 0 ): bool {
@@ -91,7 +97,7 @@ class Lock {
 				return false;
 			}
 
-			if ( $max_wait_ms === 0 || \microtime( true ) >= $deadline ) {
+			if ( 0 === $max_wait_ms || \microtime( true ) >= $deadline ) {
 				return false;
 			}
 			\usleep( 100_000 );
@@ -125,7 +131,7 @@ class Lock {
 			// Still no heartbeat — treat as stale and steal.
 		} else {
 			$mtime = @\filemtime( $hb );
-			if ( $mtime === false ) {
+			if ( false === $mtime ) {
 				// Can't read mtime (permissions?) — don't steal blindly.
 				return false;
 			}
@@ -202,7 +208,7 @@ class Lock {
 			return false;
 		}
 		$mtime = @\filemtime( $hb );
-		if ( $mtime === false || ( \time() - $mtime ) >= $this->stale_timeout ) {
+		if ( false === $mtime || ( \time() - $mtime ) >= $this->stale_timeout ) {
 			self::force_release_at( $this->lock_path );
 			return true;
 		}
@@ -235,17 +241,6 @@ class Lock {
 		@\unlink( $lock_dir . '/' . self::RESTART_FLAG );
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
 		@\rmdir( $lock_dir );
-	}
-
-	public function with_lock( callable $fn, int $max_wait_ms = 5000 ): mixed {
-		if ( ! $this->acquire( $max_wait_ms ) ) {
-			throw new \RuntimeException( "Lock::with_lock could not acquire {$this->lock_path}" );
-		}
-		try {
-			return $fn();
-		} finally {
-			$this->release();
-		}
 	}
 
 	/**

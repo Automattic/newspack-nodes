@@ -80,6 +80,20 @@ class ShellTest extends TestCase {
 		$this->assertSame( 'node', $msg[ Message::TO ] );
 	}
 
+	public function test_parse_ping_yields_TM_PING_with_timestamp_payload(): void {
+		// Tachikoma Shell3 ping builtin: build TM_PING addressed at the path,
+		// payload = current timestamp; receiver's CI bounces TO=FROM.
+		Core::$right_now = 1234567890.123456;
+		$shell = new Shell();
+		$msg   = $shell->parse( 'ping _command_interpreter');
+
+		$this->assertNotNull( $msg );
+		$this->assertSame( Message::TM_PING, $msg[ Message::TYPE ] );
+		$this->assertSame( '_command_interpreter', $msg[ Message::TO ] );
+		$this->assertSame( '1234567890.1235', $msg[ Message::VALUE ] );
+		$this->assertStringStartsWith( '_responder/', $msg[ Message::FROM ] );
+	}
+
 	public function test_parse_default_verb_yields_TM_COMMAND(): void {
 		$shell = new Shell();
 		$msg   = $shell->parse( 'ls');

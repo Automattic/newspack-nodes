@@ -38,7 +38,7 @@ class Message {
 	public const TM_ERROR      = 32;
 	public const TM_INFO       = 64;
 	public const TM_PERSIST    = 128;
-	public const TM_STORABLE   = 256;
+	public const TM_STRUCT   = 256;
 	public const TM_REQUEST    = 512;
 
 	public static function new_message(): array {
@@ -54,78 +54,17 @@ class Message {
 	}
 
 	public static function packed( array $message ): string {
-		return \json_encode(
-			[
-				'type'      => $message[ self::TYPE ],
-				'timestamp' => $message[ self::TIMESTAMP ],
-				'from'      => $message[ self::FROM ],
-				'to'        => $message[ self::TO ],
-				'id'        => $message[ self::ID ],
-				'key'       => $message[ self::KEY ],
-				'value'     => $message[ self::VALUE ],
-			],
-			\JSON_UNESCAPED_SLASHES
-		);
+		// Positional JSON: indexed array, no key strings on the wire. Field
+		// constants TYPE..VALUE = 0..6 so the in-memory message IS the wire
+		// representation — no key->index translation per side.
+		return \json_encode( $message, \JSON_UNESCAPED_SLASHES );
 	}
 
 	public static function unpacked( string $data ): array {
 		$decoded = \json_decode( $data, true );
-		return [
-			self::TYPE      => $decoded['type']      ?? 0,
-			self::TIMESTAMP => $decoded['timestamp'] ?? 0.0,
-			self::FROM      => $decoded['from']      ?? '',
-			self::TO        => $decoded['to']        ?? '',
-			self::ID        => $decoded['id']        ?? '',
-			self::KEY       => $decoded['key']       ?? '',
-			self::VALUE     => $decoded['value']     ?? '',
-		];
-	}
-
-	/**
-	 * Free helpers — declared as static methods on Message for namespace cleanliness.
-	 *
-	 * (Real-Tachikoma names them `produce`/`query` as free functions; PHP namespacing
-	 * makes static methods on Message a cleaner equivalent.)
-	 */
-
-	/**
-	 * Fire-and-forget: build a Message and fill() it into the given Node.
-	 *
-	 * @param object $node  Node-shaped: must have ->fill( array &$message ).
-	 * @param string $key
-	 * @param mixed  $value
-	 * @param int    $type  Defaults to TM_BYTESTREAM.
-	 */
-	public static function produce( object $node, string $key, mixed $value, int $type = self::TM_BYTESTREAM ): void {
-		$m = self::new_message();
-		$m[ self::TYPE ]  = $type;
-		$m[ self::KEY ]   = $key;
-		$m[ self::VALUE ] = $value;
-		$node->fill( $m );
-	}
-
-	/**
-	 * Synchronous request/response. Sends a TM_REQUEST to $node, captures the response
-	 * via a temporary sink swap, returns the VALUE.
-	 */
-	public static function query( object $node, string $request ): mixed {
-		$original_sink = $node->sink();
-
-		$capture = new class extends \Newspack_Nodes\Node {
-			public mixed $captured = null;
-			public function fill( array &$message ): void {
-				++$this->counter;
-				$this->captured = $message[ \Newspack_Nodes\Message::VALUE ];
-			}
-		};
-		$node->sink( $capture );
-
-		$m = self::new_message();
-		$m[ self::TYPE ]  = self::TM_REQUEST;
-		$m[ self::VALUE ] = $request;
-		$node->fill( $m );
-
-		$node->sink( $original_sink );
-		return $capture->captured;
+		if ( \is_array( $decoded ) && \count( $decoded ) >= 7 && \array_is_list( $decoded ) ) {
+			return $decoded;
+		}
+		return self::new_message();
 	}
 }

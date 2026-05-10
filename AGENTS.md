@@ -70,11 +70,11 @@ Conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`). Subject l
 
 These are intentional. Don't "fix" them.
 
-1. **Uniform `fill()` contract.** Every node has exactly one entry point: `fill( array &$message )`. There is no parallel `write()` / `read()` / `process()` API. Two free helpers (`Message::produce()`, `Message::query()`) wrap fill() for fire-and-forget and synchronous request/response patterns; both ultimately call fill().
+1. **Uniform `fill()` contract.** Every node has exactly one entry point: `fill( array &$message )`. There is no parallel `write()` / `read()` / `process()` API. Callers that want fire-and-forget or synchronous request/response build the Message inline and call `fill()` directly — no convenience wrappers.
 
 2. **Messages are 7-field arrays, not hashes.** Indexed access is faster than hash lookup in hot paths. Field constants live on `Message::TYPE`/`TIMESTAMP`/`FROM`/`TO`/`ID`/`KEY`/`VALUE`. Use `array_slice( 0, Message::LAST_VALUE_INDEX + 1 )` to copy without internal bookkeeping.
 
-3. **TM_PERSIST contract.** True terminals (Partition, Topic) ack via `answer()` / `cancel()` once data lands durably. Forwarders don't ack — they let downstream handle the persist. Forwarders that *drop* a message MUST cancel/answer it so the producer's `max_unanswered` slot is released. `_responder` is the convenience cancel-sink for chainable nodes that end without an explicit terminal. Tee aggregates fan-out responses with cancel-dominates.
+3. **TM_PERSIST contract.** True terminals (Partition, Topic) acknowledge via `answer()` after a successful durable write or `cancel()` when the write was dropped. Forwarders don't ack — they let downstream handle the persist. Forwarders that *drop* a message MUST `cancel()` it so the producer's `max_unanswered` slot is released. `_responder` is the convenience cancel-sink for chainable nodes that end without an explicit terminal (cancels by default; messages flagged TM_ERROR get an `answer` instead, since an error response IS the answer the persist contract was waiting for). Tee tracks `answer` and `cancel` counts separately per message ID; the first counter to reach the fan-out count rolls that verdict up to the producer. Mixed responses forward nothing — the producer's own timeout handles that case.
 
 4. **PIPE_BUF atomic writes.** Partition's default 4096-byte limit relies on POSIX guarantee that small append-mode writes don't tear. Producers that need >4KB MUST opt into `Partition::allow_large_writes()`, which auto-locks via a Lock at `{partition_dir}/write.lock.d/`. Without the lock, concurrent large writes silently corrupt.
 
@@ -95,7 +95,7 @@ These are intentional. Don't "fix" them.
 | File | Purpose |
 |------|---------|
 | `includes/class-core.php` | Per-process registries (`$nodes_by_name`, `$nodes_by_fd`, `$nodes_by_id`), clock (`now()` / `right_now`), shutdown flag, deferred-cleanup queue, rate-limited stderr. |
-| `includes/class-message.php` | 7-field array constants, type-flag bitmask, `new_message()`, `packed()` / `unpacked()` JSON wire format, `produce()` / `query()` helpers. |
+| `includes/class-message.php` | 7-field array constants, type-flag bitmask, `new_message()`, `packed()` / `unpacked()` JSON wire format. |
 | `includes/class-node.php` | Base contract: `fill()`, `sink()`, `target()`, `name()`, `answer()` / `cancel()`, `stamp_message()`, `drop_message()`, `dump_config()`, `register()` / `notify()` / `set_state()`. |
 | `includes/class-router.php` | Extends Timer. Path-based dispatch by TO; on each tick fires `notify('TIMER', ...)` for hitchhiking nodes. NOT_AVAILABLE error path on missing target. |
 | `includes/class-event-framework.php` | Per-process drain-loop singleton. Merges `stream_select` for local FDs with `curl_multi_select` for cURL handles. Manages timers and deferred cleanup. |

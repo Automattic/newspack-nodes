@@ -65,7 +65,7 @@ class Cli {
 			$partition = (int) $m[2];
 			$hb        = "{$locks_dir}/{$entry}/heartbeat";
 			$mtime     = @\filemtime( $hb );
-			$stale     = ( $mtime === false || ( $now - $mtime ) > self::STALE_TIMEOUT );
+			$stale     = ( false === $mtime || ( $now - $mtime ) > self::STALE_TIMEOUT );
 			$workers[] = [
 				'type'         => $type,
 				'partition'    => $partition,

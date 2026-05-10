@@ -34,7 +34,7 @@ class EventFramework {
 	private function __construct() {}
 
 	public static function instance(): self {
-		if ( self::$instance === null ) {
+		if ( null === self::$instance ) {
 			self::$instance = new self();
 		}
 		return self::$instance;
@@ -178,14 +178,14 @@ class EventFramework {
 
 				if ( ! empty( $reads ) || ! empty( $writes ) ) {
 					$ready = @\stream_select( $reads, $writes, $except, 0, 0 );
-					if ( $ready !== false && $ready > 0 ) {
+					if ( false !== $ready && $ready > 0 ) {
 						foreach ( $reads as $r ) {
 							$node = $this->readers[ \intval( $r ) ] ?? null;
-							if ( $node !== null ) { $node->drain_fh(); }
+							if ( null !== $node ) { $node->drain_fh(); }
 						}
 						foreach ( $writes as $w ) {
 							$node = $this->writers[ \intval( $w ) ] ?? null;
-							if ( $node !== null ) { $node->fill_fh(); }
+							if ( null !== $node ) { $node->fill_fh(); }
 						}
 					}
 				}
@@ -196,14 +196,14 @@ class EventFramework {
 					(int) ( $timeout_us / 1_000_000 ),
 					$timeout_us % 1_000_000
 				);
-				if ( $ready !== false && $ready > 0 ) {
+				if ( false !== $ready && $ready > 0 ) {
 					foreach ( $reads as $r ) {
 						$node = $this->readers[ \intval( $r ) ] ?? null;
-						if ( $node !== null ) { $node->drain_fh(); }
+						if ( null !== $node ) { $node->drain_fh(); }
 					}
 					foreach ( $writes as $w ) {
 						$node = $this->writers[ \intval( $w ) ] ?? null;
-						if ( $node !== null ) { $node->fill_fh(); }
+						if ( null !== $node ) { $node->fill_fh(); }
 					}
 				}
 			} elseif ( $timeout_us > 0 ) {

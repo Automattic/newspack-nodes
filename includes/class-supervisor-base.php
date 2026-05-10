@@ -1,27 +1,17 @@
 <?php
 /**
- * SupervisorBase: spawn coordination logic without I/O.
+ * Supervisor Base
  *
- * Lift-adapted from event-logger's class-supervisor-base.php. Pure-data methods
- * so tests can drive without spawning real subprocesses.
- *
- * Hardening additions (per spec lines 840-851):
- *  - MAX_PARTITIONS = 16 ceiling for partition counts and stale-partition GC.
- *  - delete_directory_recursive() with depth bound + path-containment guard
- *    (defense-in-depth against symlink loops + accidental sibling-tree wipes).
- *  - remove_stale_directory() — purge a dir whose newest mtime is older than
- *    a stale_age threshold; load-bearing for partition-count downgrades that
- *    leave partition dirs orphaned beyond num_partitions.
- *  - is_recently_spawned() persists last_spawn_time to memcache (with a
- *    transient fallback) so the rate limit survives across supervisor
- *    process restarts (cron backstop respawns or self-respawns).
+ * Pure-data spawn coordination logic so tests can drive without forking.
  *
  * @package Newspack_Nodes
  */
 
 namespace Newspack_Nodes;
 
-\defined( 'ABSPATH' ) || exit;
+if ( ! \defined( 'ABSPATH' ) ) {
+	exit;
+}
 
 class SupervisorBase {
 	/**
@@ -86,7 +76,7 @@ class SupervisorBase {
 		}
 		$hb    = "{$dir}/heartbeat";
 		$mtime = @\filemtime( $hb );
-		if ( $mtime === false ) {
+		if ( false === $mtime ) {
 			return true;
 		}
 		if ( ( $now - $mtime ) > $stale ) {
@@ -110,7 +100,7 @@ class SupervisorBase {
 		// Otherwise consult cross-process state — covers cron-backstop respawns
 		// after a crash and self-respawn handoffs.
 		$persisted = $this->load_spawn_ts( $key );
-		if ( $persisted !== null ) {
+		if ( null !== $persisted ) {
 			$this->last_spawn_time[ $key ] = $persisted;
 			return ( $now - $persisted ) < self::MIN_SPAWN_INTERVAL_S;
 		}
@@ -162,7 +152,7 @@ class SupervisorBase {
 		}
 		$items = @\scandir( $path ) ?: [];
 		foreach ( $items as $item ) {
-			if ( $item === '.' || $item === '..' ) {
+			if ( '.' === $item || '..' === $item ) {
 				continue;
 			}
 			$child = $path . '/' . $item;
@@ -189,7 +179,7 @@ class SupervisorBase {
 	public static function is_within( string $path, string $base_path ): bool {
 		$real_path = \realpath( $path );
 		$real_base = \realpath( $base_path );
-		if ( $real_path === false || $real_base === false ) {
+		if ( false === $real_path || false === $real_base ) {
 			return false;
 		}
 		// Normalize trailing slash on base for the prefix check, but accept
@@ -226,7 +216,7 @@ class SupervisorBase {
 		$newest_mtime = 0;
 		$files        = @\scandir( $dir ) ?: [];
 		foreach ( $files as $file ) {
-			if ( $file === '.' || $file === '..' ) {
+			if ( '.' === $file || '..' === $file ) {
 				continue;
 			}
 			$child = $dir . '/' . $file;
@@ -234,7 +224,7 @@ class SupervisorBase {
 				continue;
 			}
 			$mtime = @\filemtime( $child );
-			if ( $mtime !== false && $mtime > $newest_mtime ) {
+			if ( false !== $mtime && $mtime > $newest_mtime ) {
 				$newest_mtime = $mtime;
 			}
 		}
@@ -277,13 +267,13 @@ class SupervisorBase {
 		if ( \function_exists( 'wp_cache_get' ) ) {
 			$found = false;
 			$value = \wp_cache_get( $cache_key, 'newspack_nodes', false, $found );
-			if ( $found && $value !== false ) {
+			if ( $found && false !== $value ) {
 				return (float) $value;
 			}
 		}
 		if ( \function_exists( 'get_transient' ) ) {
 			$value = \get_transient( $cache_key );
-			if ( $value !== false ) {
+			if ( false !== $value ) {
 				return (float) $value;
 			}
 		}

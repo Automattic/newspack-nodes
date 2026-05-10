@@ -94,7 +94,7 @@ class Message {
 ```
 TM_BYTESTREAM = 1     TM_INFO     = 64
 TM_EOF        = 2     TM_PERSIST  = 128
-TM_PING       = 4     TM_STORABLE = 256
+TM_PING       = 4     TM_STRUCT = 256
 TM_COMMAND    = 8     TM_REQUEST  = 512
 TM_RESPONSE   = 16
 TM_ERROR      = 32
@@ -114,17 +114,7 @@ $m[ Message::VALUE ] = $line;
 $node->fill( $m );
 ```
 
-Or via the helpers:
-
-```php
-// Fire-and-forget
-Message::produce( $topic, '/some-url', $line );
-
-// Synchronous request/response (installs Callback sink, fills, restores)
-$resp = Message::query( $partition, "GET 0 1024 4096" );
-```
-
-Both helpers ultimately call `fill()`. There is no parallel `write()` API.
+There is no parallel `write()` API and no `produce()` / `query()` helpers — `fill()` is the only way bytes enter a node.
 
 ## Node Base Contract
 

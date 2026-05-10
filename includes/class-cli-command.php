@@ -115,9 +115,9 @@ class Cli_Command {
 		$router = new Router();
 		$router->name( '_router' );
 
-		$ci = new CommandInterpreter();
-		$ci->name( '_command_interpreter' );
-		$ci->sink( $router );
+		$interpreter = new CommandInterpreter();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( $router );
 
 		$dumper = new Dumper();
 		$dumper->name( '_dumper' );
@@ -134,63 +134,53 @@ class Cli_Command {
 		// through (async broadcasts dispatched by Responder's ID match).
 		$router->sink( $responder );
 
+		// Real Tachikoma Shell3 nodes are anonymous (Shell3::name throws on
+		// rename). Don't try to give it a name — `ls` filters by sink, so the
+		// shell still appears as a sibling of _command_interpreter without
+		// needing a registered name.
 		$shell = new Shell();
-		$shell->name( '_shell' );
-		// Default shell.sink: pivoted overrides to cmd-out below; bare goes
-		// straight to _command_interpreter (no IPC partitions).
-		$shell->sink( $ci );
+		$shell->sink( $interpreter );
+
+		// Prompt reflects the pivoted target so the user can tell which worker
+		// they're attached to. Bare mode keeps the default `newspack-nodes>`.
+		if ( $pivoted && null !== $ipc ) {
+			$shell->prompt = "{$ipc['type']}.p{$ipc['partition']}> ";
+		}
 
 		$dumper->set_shell( $shell );
+		// When the readline callback API is available, run_repl uses it; tell
+		// the Dumper so its async-output path uses readline_on_new_line +
+		// readline_redisplay instead of the manual ANSI cursor dance (which
+		// leaves readline's internal line buffer out of sync).
+		$dumper->set_readline_mode( \function_exists( 'readline_callback_handler_install' ) );
 
-		if ( $pivoted && $ipc !== null ) {
-			// Pivoted: shell sends → pack-Callback → cmd-out (Partition,
-			// writing JSON-packed lines to worker input). Worker round-trips,
-			// writes its packed reply to its output Partition, which the cli's
-			// reply-in Consumer reads → unpack-Callback → _router (which
-			// dispatches by the unpacked message's TO, e.g. _responder/$pid).
-			//
-			// IPC topics are always single-partition (p0 layout). The reader
-			// id's outer partition (e.g. .p3) is encoded in the topic dir; the
-			// Partition/Consumer constructors here always use partition=0
-			// since each owns a single-partition topic at {topic-dir}/p0/.
-			$offset_dir = "{$this->base_dir()}/offsets/cli-repl.{$pid}";
+		if ( $pivoted && null !== $ipc ) {
+			// Pivoted: shell → cmd-out (Partition auto-packs each emitted
+			// Message via Message::packed → segment). reply-in (Consumer
+			// auto-unpacks the worker's reply Partition → Message) → _router
+			// (dispatches by TO=_responder/$pid → _responder → Dumper).
+			// IPC topics are single-partition (p0); the outer partition number
+			// (.p3) lives in the topic dir, so constructors use partition=0.
 
 			$cmd_out = new Partition( $ipc['input'], 0 );
-			$cmd_out->allow_large_writes(); // packed messages can exceed 4KB on rich payloads.
 			$cmd_out->name( 'cmd-out' );
+			$cmd_out->sink( $interpreter );
+			// allow_large_writes wires Lock + heartbeat Timer keyed off the
+			// Partition's name/sink, so they must be set first. Packed
+			// command messages can exceed 4KB.
+			$cmd_out->allow_large_writes();
+			$shell->sink( $cmd_out );
 
-			// Pack-Callback: takes any message Shell emits (TM_COMMAND etc.),
-			// serializes via Message::packed(), wraps as TM_BYTESTREAM, and
-			// fills cmd-out so the bytes hit disk. Spec line 670.
-			$pack = new Callback( static function ( array $msg ) use ( $cmd_out ): void {
-				$packed                          = Message::packed( $msg );
-				$bytes                           = Message::new_message();
-				$bytes[ Message::TYPE ]          = Message::TM_BYTESTREAM;
-				$bytes[ Message::TIMESTAMP ]     = Core::$right_now;
-				$bytes[ Message::VALUE ]         = $packed . "\n";
-				$cmd_out->fill( $bytes );
-			} );
-			$pack->name( "cli-repl-pack.{$pid}" );
-			$shell->sink( $pack );
-
-			// reply-in: Consumer tailing the worker's output Partition. Each
-			// poll emits TM_BYTESTREAM lines; the unpack-Callback reconstitutes
-			// the original Message and routes it via _router (which dispatches
-			// by TO=`_responder/$pid` → _responder → ID match → shell callback
-			// → Dumper).
-			$reply_in = new Consumer( $ipc['output'], 0, $offset_dir );
-			$reply_in->name( 'reply-in' );
-
-			$unpack = new Callback( static function ( array $msg ) use ( $router ): void {
-				$value = (string) $msg[ Message::VALUE ];
-				if ( '' === $value ) {
-					return;
-				}
-				$unpacked = Message::unpacked( \rtrim( $value, "\n" ) );
-				$router->fill( $unpacked );
-			} );
-			$unpack->name( "cli-repl-unpack.{$pid}" );
-			$reply_in->sink( $unpack );
+			// reply-in is unnamed (no other node addresses it directly); its
+			// Consumer poll emits unpacked Messages whose TO already encodes
+			// the cli's $pid (worker's _router peeled `_repl` before writing).
+			//
+			// Empty offsetlog_base_dir (3rd arg) → Consumer skips the offsetlog
+			// entirely. cli sessions are ephemeral; they tail-seek at startup
+			// and have no need to durably resume a cursor.
+			$reply_in = new Consumer( $ipc['output'], 0, '' );
+			$reply_in->next_offset( 'end' );
+			$reply_in->sink( $router );
 		}
 
 		// Dumper TO filter: matches `_responder/$pid` (worker reply with
@@ -206,23 +196,25 @@ class Cli_Command {
 	/**
 	 * Drive the REPL via the event loop. STDIN registers as a reader_node;
 	 * EventFramework::drain selects on STDIN and fires Consumer/Tail timers
-	 * (e.g. the pivoted-mode reply-in Consumer). When STDIN becomes readable,
-	 * fgets() reads a line, Shell parses and fills it through the graph; the
-	 * worker's response, when it arrives, propagates through reply-in →
-	 * unpack → _router → _responder → shell-callback → Dumper without any
-	 * synchronous "wait for reply" hack. EOF on STDIN exits the drain loop.
+	 * (e.g. the pivoted-mode reply-in Consumer).
 	 *
-	 * Uses ext-readline when available for history/line-editing; otherwise
-	 * stream_set_blocking(STDIN, false) and stream_select handle non-blocking
-	 * line reads.
+	 * Mirrors real Tachikoma TTY.pm. With readline available:
+	 *  - install_handler() calls readline_callback_handler_install(prompt, cb)
+	 *    which renders the prompt immediately and arms a per-byte callback.
+	 *  - drain_fh feeds one byte at a time via readline_callback_read_char();
+	 *    when the user hits enter, the callback fires with the completed
+	 *    line and we queue a Message. PHP auto-removes the handler after
+	 *    each delivered line, so we re-install to render the next prompt.
+	 *  - That's it — no blocking readline() that misses prompt-before-input.
+	 *
+	 * Without readline: stream_set_blocking(STDIN, false), fgets per ready
+	 * chunk, manually print the prompt before the loop and after each line.
+	 *
+	 * EOF on STDIN exits the drain loop.
 	 */
 	private function run_repl( Shell $shell, Dumper $dumper ): void {
-		$has_readline = \function_exists( 'readline' );
+		$has_readline = \function_exists( 'readline_callback_handler_install' );
 
-		// STDIN reader: a tiny anonymous-class Node-like wrapper that exposes
-		// $stream and drain_fh() so EventFramework::register_reader_node can
-		// drive it. drain_fh either uses readline (blocking — the read was
-		// already select-gated) or fgets, then routes the line through Shell.
 		$exit  = false;
 		$stdin = new class( $shell, $dumper, $has_readline, $exit ) {
 			public $stream;
@@ -230,6 +222,9 @@ class Cli_Command {
 			private Dumper $dumper;
 			private bool $has_readline;
 			private bool $prompt_displayed = false;
+			/** @var array<int,string> Lines delivered by the readline callback, drained per drain_fh. */
+			private array $queue = [];
+			private bool $readline_eof = false;
 
 			public function __construct( Shell $shell, Dumper $dumper, bool $has_readline, bool &$exit ) {
 				$this->stream       = \STDIN;
@@ -237,17 +232,68 @@ class Cli_Command {
 				$this->dumper       = $dumper;
 				$this->has_readline = $has_readline;
 				$this->exit         = &$exit;
-				if ( ! $has_readline ) {
+
+				if ( $has_readline ) {
+					$this->install_handler();
+				} else {
 					@\stream_set_blocking( $this->stream, false );
+					$this->show_prompt_fallback();
 				}
 			}
 
 			public bool $exit;
 
-			public function show_prompt(): void {
-				if ( $this->has_readline ) {
-					return; // readline owns prompt rendering itself.
-				}
+			/**
+			 * (Re-)install the readline callback handler. PHP auto-removes the
+			 * handler after each line is delivered, so we install once at
+			 * startup and again after every processed line so the next prompt
+			 * renders.
+			 *
+			 * Install with the REAL prompt so readline knows the prompt's
+			 * width — that's what stops backspace from chewing back through
+			 * the prompt characters once the buffer empties (readline tracks
+			 * cursor as `prompt-end-col + buffer-point`, so an empty prompt
+			 * places the buffer at col 0 and a redraw happily overwrites our
+			 * manually-written prompt).
+			 *
+			 * The earlier reverse-search bug ("typing one char rendered
+			 * `bck:`") came from calling `readline_redisplay()` after a
+			 * non-empty-prompt install — NOT from the non-empty prompt
+			 * itself. The Dumper's async path no longer calls redisplay; it
+			 * just wipes the line, prints the async text, and rewrites the
+			 * prompt to stdout. readline's internal prompt-width still
+			 * matches what's on screen, so cursor math stays correct.
+			 */
+			private function install_handler(): void {
+				\readline_callback_handler_install(
+					$this->shell->prompt,
+					function ( $line ): void {
+						if ( null === $line ) {
+							$this->readline_eof = true;
+							return;
+						}
+						if ( '' !== $line && \function_exists( 'readline_add_history' ) ) {
+							\readline_add_history( $line );
+						}
+						$this->queue[] = $line;
+						// User's line was just consumed; the on-screen prompt is
+						// no longer active. Clear the Dumper's flag so any
+						// synchronous output during queue processing (e.g.,
+						// bare-mode TM_PING bounce) writes plainly instead of
+						// doing the async wipe-and-redisplay dance — that dance
+						// would otherwise paint a duplicate prompt next to the
+						// just-entered line. install_handler() below resets the
+						// flag once the next prompt is on screen, so async
+						// output that arrives later (pivoted-mode worker
+						// replies) still gets the redraw treatment.
+						$this->dumper->prompt_displayed = false;
+					}
+				);
+				// readline drew the prompt itself — no manual fwrite needed.
+				$this->dumper->mark_prompt_displayed();
+			}
+
+			private function show_prompt_fallback(): void {
 				if ( $this->prompt_displayed ) {
 					return;
 				}
@@ -258,42 +304,62 @@ class Cli_Command {
 
 			public function drain_fh(): void {
 				if ( $this->has_readline ) {
-					$line = \readline( $this->shell->prompt );
-					if ( $line === false ) {
+					// Feed one byte from STDIN to readline. If it completed a
+					// line, the callback (set in install_handler) appended to
+					// $this->queue. Mirrors TTY.pm:drain_fh.
+					\readline_callback_read_char();
+
+					foreach ( $this->queue as $line ) {
+						$msg = $this->shell->parse( $line );
+						if ( null !== $msg ) {
+							$this->shell->fill( $msg );
+						}
+					}
+					$delivered = \count( $this->queue ) > 0;
+					$this->queue = [];
+
+					if ( $this->readline_eof ) {
 						$this->exit = true;
 						return;
 					}
-					if ( $line !== '' && \function_exists( 'readline_add_history' ) ) {
-						\readline_add_history( $line );
+					if ( $delivered ) {
+						// Handler was auto-removed when the line was delivered;
+						// re-install so the next prompt renders.
+						$this->install_handler();
 					}
-				} else {
-					$line = \fgets( $this->stream );
-					if ( $line === false ) {
-						// fgets returns false on either EOF or no-data-available
-						// (non-blocking). Distinguish via feof.
-						if ( \feof( $this->stream ) ) {
-							$this->exit = true;
-						}
-						return;
-					}
-					$line                   = \rtrim( $line, "\r\n" );
-					$this->prompt_displayed = false;
+					return;
 				}
 
+				// Non-readline path: line-buffered fgets, manual prompt.
+				$line = \fgets( $this->stream );
+				if ( false === $line ) {
+					// fgets returns false on EOF or no-data-available
+					// (non-blocking). Distinguish via feof.
+					if ( \feof( $this->stream ) ) {
+						$this->exit = true;
+					}
+					return;
+				}
+				$line                   = \rtrim( $line, "\r\n" );
+				$this->prompt_displayed = false;
+
 				$msg = $this->shell->parse( $line );
-				if ( $msg !== null ) {
+				if ( null !== $msg ) {
 					$this->shell->fill( $msg );
 				}
-				$this->show_prompt();
+				$this->show_prompt_fallback();
 			}
 		};
 
 		EventFramework::instance()->register_reader_node( $stdin );
-		$stdin->show_prompt();
 
 		EventFramework::instance()->drain( static fn () => ! $stdin->exit );
 
 		EventFramework::instance()->unregister_reader_node( $stdin );
+
+		if ( $has_readline ) {
+			\readline_callback_handler_remove();
+		}
 		\WP_CLI::log( '' ); // Trailing newline after EOF.
 	}
 }

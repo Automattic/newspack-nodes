@@ -23,6 +23,13 @@ class Node {
 	protected int $counter = 0;
 
 	/**
+	 * Cached configuration string set by `arguments()`. Mirrors real Tachikoma's
+	 * `$self->{arguments}` slot — `dump_config` round-trips this back into the
+	 * `make_node` line so a graph snapshot reproduces the original wiring.
+	 */
+	protected string $arguments = '';
+
+	/**
 	 * @var array<string,array<string,callable|string>> Pre-declared events keyed by event name.
 	 */
 	protected array $registrations = [];
@@ -34,13 +41,20 @@ class Node {
 	 * @param array $message Reference; subclasses may mutate before forwarding.
 	 */
 	public function fill( array &$message ): void {
+		// Mirror real Tachikoma `Node.pm:fill`: if the message has no TO,
+		// stamp it from $this->target so subclasses that forward via
+		// `parent::fill( $message )` get TO=owner routing for free. Tee
+		// overrides this with per-target dispatch in its own fill.
+		if ( '' === $message[ Message::TO ] && \is_string( $this->target ) && '' !== $this->target ) {
+			$message[ Message::TO ] = $this->target;
+		}
 		++$this->counter;
 		$this->sink?->fill( $message );
 	}
 
 	public function name( ?string $name = null ): string {
-		if ( $name !== null ) {
-			if ( $this->name !== '' ) {
+		if ( null !== $name ) {
+			if ( '' !== $this->name ) {
 				Core::unregister_node( $this->name );
 			}
 			if ( Core::node( $name ) !== null ) {
@@ -63,7 +77,7 @@ class Node {
 	 * Get/set target. String or array (Tee uses array form for fan-out).
 	 */
 	public function target( $value = null ) {
-		if ( $value !== null ) {
+		if ( null !== $value ) {
 			$this->target = $value;
 		}
 		return $this->target;
@@ -80,18 +94,33 @@ class Node {
 		return $this->counter;
 	}
 
+	/**
+	 * Get/set the node's argument string. Mirrors real Tachikoma `arguments()`:
+	 * `make_node Tail mytail /var/log/foo` → CommandInterpreter calls
+	 * `$node->arguments('/var/log/foo')`. Subclasses that take configuration
+	 * override this to parse the string and apply it to typed slots.
+	 *
+	 * Default behavior just stores the string so `dump_config` can round-trip it.
+	 */
+	public function arguments( ?string $args = null ): string {
+		if ( null !== $args ) {
+			$this->arguments = $args;
+		}
+		return $this->arguments;
+	}
+
 	public const MAX_FROM_SIZE = 1024;
 
 	/**
 	 * Prepend $name to message FROM. Returns false if FROM would exceed MAX_FROM_SIZE.
 	 */
 	public function stamp_message( array &$message, string $name ): bool {
-		if ( $name === '' ) {
+		if ( '' === $name ) {
 			Core::print_less_often( 'ERROR: ' . static::class . ' stamp_message() called with empty name' );
 			return false;
 		}
 		$from = $message[ Message::FROM ];
-		$new  = $from === '' ? $name : ( $name . '/' . $from );
+		$new  = '' === $from ? $name : ( $name . '/' . $from );
 		if ( \strlen( $new ) > self::MAX_FROM_SIZE ) {
 			Core::print_less_often( 'ERROR: path exceeded ' . self::MAX_FROM_SIZE . " bytes; dropping from: $new" );
 			return false;
@@ -111,31 +140,25 @@ class Node {
 		Message::TM_ERROR      => 'TM_ERROR',
 		Message::TM_INFO       => 'TM_INFO',
 		Message::TM_PERSIST    => 'TM_PERSIST',
-		Message::TM_STORABLE   => 'TM_STORABLE',
+		Message::TM_STRUCT   => 'TM_STRUCT',
 		Message::TM_REQUEST    => 'TM_REQUEST',
 	];
 
 	/**
-	 * Acknowledge a TM_PERSIST message: send TM_PERSIST|TM_RESPONSE back along the FROM trail
-	 * with payload 'answer'. Empty FROM → silently return (do NOT fall through to TO='';
-	 * see spec invariant "answer/cancel silent-when-no-FROM").
+	 * `answer` a TM_PERSIST message: send TM_PERSIST | TM_RESPONSE back along
+	 * the FROM trail with payload 'answer'. Per Tachikoma semantics, an
+	 * `answer` tells the producer "keep this in your buffer for retry"
+	 * (transient/soft outcome); `cancel` tells it "drop from buffer, we're
+	 * done" (terminal success OR permanent rejection).
 	 */
 	public function answer( array &$message ): void {
-		$this->send_persist_response( $message, 'answer' );
-	}
-
-	/**
-	 * Negative-ack a TM_PERSIST message: same as answer() but with payload 'cancel'.
-	 */
-	public function cancel( array &$message ): void {
-		$this->send_persist_response( $message, 'cancel' );
-	}
-
-	private function send_persist_response( array &$message, string $payload ): void {
-		if ( $message[ Message::FROM ] === '' ) {
-			return; // Silent drop. Critical: do NOT send to TO=''.
+		if ( ! ( $message[ Message::TYPE ] & Message::TM_PERSIST ) ) {
+			return;
 		}
-		if ( $this->sink === null ) {
+		if ( '' === $message[ Message::FROM ] ) {
+			return;
+		}
+		if ( null === $this->sink ) {
 			return;
 		}
 		$response                       = Message::new_message();
@@ -145,7 +168,35 @@ class Node {
 		$response[ Message::TO ]        = $message[ Message::FROM ];
 		$response[ Message::ID ]        = $message[ Message::ID ];
 		$response[ Message::KEY ]       = $message[ Message::KEY ];
-		$response[ Message::VALUE ]     = $payload;
+		$response[ Message::VALUE ]     = 'answer';
+		$this->sink->fill( $response );
+	}
+
+	/**
+	 * `cancel` a TM_PERSIST message: send TM_PERSIST | TM_RESPONSE back along
+	 * the FROM trail with payload 'cancel'. Per Tachikoma semantics, a
+	 * `cancel` tells the producer "drop from buffer, we're done" — fires for
+	 * the terminal success path (durable write succeeded) AND the permanent-
+	 * rejection path (oversize / refused). `answer` is the retry-keep path.
+	 */
+	public function cancel( array &$message ): void {
+		if ( ! ( $message[ Message::TYPE ] & Message::TM_PERSIST ) ) {
+			return;
+		}
+		if ( '' === $message[ Message::FROM ] ) {
+			return;
+		}
+		if ( null === $this->sink ) {
+			return;
+		}
+		$response                       = Message::new_message();
+		$response[ Message::TYPE ]      = Message::TM_PERSIST | Message::TM_RESPONSE;
+		$response[ Message::TIMESTAMP ] = Core::$right_now;
+		$response[ Message::FROM ]      = $this->name;
+		$response[ Message::TO ]        = $message[ Message::FROM ];
+		$response[ Message::ID ]        = $message[ Message::ID ];
+		$response[ Message::KEY ]       = $message[ Message::KEY ];
+		$response[ Message::VALUE ]     = 'cancel';
 		$this->sink->fill( $response );
 	}
 
@@ -184,7 +235,7 @@ class Node {
 		}
 		foreach ( $this->registrations[ $event ] as $listener => $cb ) {
 			$keep = $this->dispatch_listener( $event, $listener, $payload );
-			if ( $keep === false ) {
+			if ( false === $keep ) {
 				unset( $this->registrations[ $event ][ $listener ] );
 			}
 		}
@@ -213,13 +264,13 @@ class Node {
 	 */
 	private function dispatch_listener( string $event, string $listener, mixed $payload ): mixed {
 		$cb = $this->registrations[ $event ][ $listener ] ?? null;
-		if ( $cb !== null && \is_callable( $cb ) ) {
+		if ( null !== $cb && \is_callable( $cb ) ) {
 			// Closure mode.
 			return $cb( $payload );
 		}
 		// Node-name mode: fill TM_INFO into the named node.
 		$target = Core::node( $listener );
-		if ( $target === null ) {
+		if ( null === $target ) {
 			Core::print_less_often( "WARNING: $listener forgot to unregister from $event on " . $this->name );
 			return false; // Drop the dead registration.
 		}
@@ -256,7 +307,7 @@ class Node {
 		$this->sink          = null;
 		$this->edge          = null;
 		$this->target        = '';
-		if ( $this->name !== '' ) {
+		if ( '' !== $this->name ) {
 			Core::unregister_node( $this->name );
 			$this->name = '';
 		}
@@ -270,11 +321,15 @@ class Node {
 	 */
 	public function dump_config(): string {
 		$short = ( new \ReflectionClass( $this ) )->getShortName();
-		$out   = "make_node $short {$this->name}\n";
+		$out   = "make_node $short {$this->name}";
+		if ( '' !== $this->arguments ) {
+			$out .= " {$this->arguments}";
+		}
+		$out .= "\n";
 
-		if ( $this->sink !== null ) {
+		if ( null !== $this->sink ) {
 			$sink_name = $this->sink->name();
-			if ( $sink_name !== '' && $sink_name !== '_command_interpreter' ) {
+			if ( '' !== $sink_name && '_command_interpreter' !== $sink_name ) {
 				$out .= "set_sink {$this->name} $sink_name\n";
 			}
 		}
@@ -283,7 +338,7 @@ class Node {
 			foreach ( $this->target as $owner ) {
 				$out .= "connect_node {$this->name} $owner\n";
 			}
-		} elseif ( $this->target !== '' ) {
+		} elseif ( '' !== $this->target ) {
 			$out .= "connect_node {$this->name} {$this->target}\n";
 		}
 
@@ -301,20 +356,20 @@ class Node {
 		$type_str = empty( $labels ) ? 'unknown' : \implode( '|', $labels );
 
 		$parts = [ "WARNING: $error - $type_str" ];
-		if ( $message[ Message::FROM ] !== '' ) {
+		if ( '' !== $message[ Message::FROM ] ) {
 			$parts[] = 'from: ' . $message[ Message::FROM ];
 		}
-		if ( $message[ Message::TO ] !== '' ) {
+		if ( '' !== $message[ Message::TO ] ) {
 			$parts[] = 'to: ' . $message[ Message::TO ];
 		}
-		if ( ( $type & self::PAYLOAD_TYPES ) && $message[ Message::VALUE ] !== '' ) {
+		if ( ( $type & self::PAYLOAD_TYPES ) && '' !== $message[ Message::VALUE ] ) {
 			$parts[] = 'payload: ' . (string) $message[ Message::VALUE ];
 		}
 
 		$line = \implode( ' ', $parts );
 
 		// First-300s NOT_AVAILABLE rule.
-		if ( $error === 'NOT_AVAILABLE' && Core::$right_now < 300.0 ) {
+		if ( 'NOT_AVAILABLE' === $error && Core::$right_now < 300.0 ) {
 			Core::print_least_often( $line );
 			return;
 		}

@@ -1,22 +1,19 @@
 <?php
 /**
- * Partition: file-segmented append-only log.
+ * Partition
  *
- * Lift-adapt from class-firehose.php. Adaptations:
- *  - No scandir in constructor (lazy first-use init)
- *  - $base_dir injected (no Config dependency)
- *  - Auto-locked allow_large_writes (Task 6)
- *
- * Storage primitive AND Node (Node integration in Task 6).
+ * File-segmented append-only log.
  *
  * @package Newspack_Nodes
  */
 
 namespace Newspack_Nodes;
 
-\defined( 'ABSPATH' ) || exit;
+if ( ! \defined( 'ABSPATH' ) ) {
+	exit;
+}
 
-class Partition extends Node {
+class Partition extends Timer {
 	public const DEFAULT_SEGMENT_SIZE = 67108864;
 	public const DEFAULT_NUM_SEGMENTS = 4;
 	public const DEFAULT_MAX_LIFESPAN = 86400;
@@ -59,12 +56,35 @@ class Partition extends Node {
 
 	protected bool $allow_large_writes = false;
 	protected ?Lock $write_lock = null;
+	protected ?Timer $heartbeat_timer = null;
 
 	/** Last drift-rescan timestamp; throttles do_write rescans to once per second. */
 	protected float $last_segment_check = 0.0;
 
 	/** @var callable|null fn(string $line, array $position, ?array &$data) => string|null */
 	protected $index_callback = null;
+
+	/**
+	 * In-memory batch of packed messages awaiting a single PIPE_BUF-atomic
+	 * syswrite. Mirrors Tachikoma `Partition.pm:206`'s `push @{$self->{batch}}`
+	 * + `fire()` flush pattern, with the legacy newspack-performance-logger
+	 * LogManager rule applied: if `strlen(batch) + strlen(new_packed)` would
+	 * exceed `MAX_LINE_SIZE` (4KB), flush the existing batch FIRST, then
+	 * append the new packed message to a now-empty batch.
+	 *
+	 * @var string
+	 */
+	protected string $batch = '';
+
+	/**
+	 * Per-batched-message bookkeeping flushed in lockstep with `$batch` —
+	 * each entry carries the ORIGINAL packed bytes + caller-supplied $data
+	 * so the index_callback can be invoked at flush time once the actual
+	 * on-disk offset is known.
+	 *
+	 * @var list<array{packed:string,len:int,data:mixed}>
+	 */
+	protected array $batch_index_args = [];
 
 	public function __construct(
 		string $base_dir,
@@ -73,12 +93,27 @@ class Partition extends Node {
 		int $num_segments = self::DEFAULT_NUM_SEGMENTS,
 		int $max_lifespan = self::DEFAULT_MAX_LIFESPAN
 	) {
+		// Timer::__construct seeds the FIRE registration slot — we extend
+		// Timer so each batched fill can schedule a 0-delay flush via
+		// `set_timer(0, oneshot)` (mirrors Tachikoma `Partition.pm:207`).
+		parent::__construct();
 		$this->base_dir      = \rtrim( $base_dir, '/' );
 		$this->partition     = $partition;
 		$this->segment_size  = \max( 1, $segment_size );
 		$this->num_segments  = \max( 2, $num_segments );
 		$this->max_lifespan  = \max( 0, $max_lifespan );
 		$this->partition_dir = "{$this->base_dir}/p{$partition}";
+	}
+
+	/**
+	 * Timer fire — drains the batch at the end of the current event-loop
+	 * iteration. Each `fill()` that appends to the batch arms a 0-delay
+	 * one-shot via `set_timer(0, true)`; once the iteration's events finish
+	 * processing, EventFramework calls `fire_cb` here and we land all the
+	 * accumulated packed messages in one syswrite.
+	 */
+	protected function fire(): void {
+		$this->flush();
 	}
 
 	public function partition_dir(): string {
@@ -93,30 +128,19 @@ class Partition extends Node {
 	}
 
 	/**
-	 * Node entry point: dispatch by message type.
+	 * Node entry point. Matches real Tachikoma Partition.pm:122-209.
 	 *
-	 * - TM_BYTESTREAM: append VALUE to current segment; ack via answer() if TM_PERSIST.
-	 * - TM_REQUEST: parse "GET <seg> <offset> <length>"; respond with bytes via sink.
+	 * - TM_REQUEST: parse "GET <seg> <offset> <length>"; respond via sink.
+	 * - TM_ERROR / TM_EOF: ignored (control flow, not data).
+	 * - Anything else (TM_BYTESTREAM, TM_COMMAND, TM_INFO, TM_RESPONSE, etc.):
+	 *   pack the whole message via Message::packed() and write the bytes to
+	 *   the current segment. Ack/cancel TM_PERSIST based on write outcome.
 	 *
 	 * @param array $message Reference; not mutated.
 	 */
 	public function fill( array &$message ): void {
 		++$this->counter;
 		$type = $message[ Message::TYPE ];
-
-		if ( $type & Message::TM_BYTESTREAM ) {
-			$ok = $this->write( $message[ Message::VALUE ] );
-			if ( $type & Message::TM_PERSIST ) {
-				if ( $ok ) {
-					$this->answer( $message );
-				} else {
-					// Write dropped (oversize) or fwrite failed — release the producer's
-					// max_unanswered slot via cancel, NOT answer. Otherwise data loss is silent.
-					$this->cancel( $message );
-				}
-			}
-			return;
-		}
 
 		if ( $type & Message::TM_REQUEST ) {
 			$req = $message[ Message::VALUE ];
@@ -133,9 +157,181 @@ class Partition extends Node {
 			}
 			return;
 		}
+
+		if ( $type & ( Message::TM_ERROR | Message::TM_EOF ) ) {
+			return;
+		}
+
+		// Anything else: pack the whole message and append. Bytes are newline-
+		// terminated so Consumer can split lines without needing Tachikoma's
+		// length-prefix wire format. Size cap is on the FINAL packed bytes
+		// (not VALUE alone) — that's what hits PIPE_BUF.
+		$packed = Message::packed( $message ) . "\n";
+		$max    = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
+		if ( \strlen( $packed ) > $max ) {
+			if ( $type & Message::TM_PERSIST ) {
+				$this->cancel( $message );
+			}
+			return;
+		}
+
+		if ( null === $this->current_segment_id ) {
+			$this->init_current_segment();
+		}
+
+		$len = \strlen( $packed );
+		$this->maybe_rescan_segments();
+
+		// Node-fed path has no pre-decoded $data — index_callback (if any)
+		// re-parses $packed when needed.
+		$data = null;
+
+		// Large messages (only reachable on allow_large_writes Partitions) bypass
+		// the in-memory batch — they're already > 4KB so batching can't shrink
+		// them under PIPE_BUF anyway. Flush any pending batch first so on-disk
+		// ordering matches submission order, then write the lone message.
+		if ( $len > self::MAX_LINE_SIZE ) {
+			$this->flush();
+			if ( $this->current_size + $len > $this->segment_size ) {
+				$this->rotate_segment();
+			}
+			$fh = $this->get_handle();
+			if ( null === $fh ) {
+				$this->answer( $message );
+				return;
+			}
+			$offset = $this->current_size;
+			if ( ! $this->loop_fwrite( $fh, $packed ) ) {
+				$this->answer( $message );
+				return;
+			}
+			// loop_fwrite already advanced current_size.
+			$this->write_index_entry( $packed, $offset, $len, $data );
+			$this->touch_segments_cache();
+			$this->cancel( $message );
+			return;
+		}
+
+		// Small message — append to in-memory batch. Flush first if adding
+		// this packed message would push the batch over PIPE_BUF (4KB), so
+		// every actual syswrite is atomic-append safe. Mirrors the legacy
+		// newspack-performance-logger LogManager batching rule.
+		if ( '' !== $this->batch && \strlen( $this->batch ) + $len > self::MAX_LINE_SIZE ) {
+			$this->flush();
+		}
+
+		// Re-check rotation now that the batch is flushed (or empty); the
+		// pending append needs to fit in the current segment.
+		if ( $this->current_size + $len > $this->segment_size ) {
+			$this->rotate_segment();
+		}
+
+		$this->batch              .= $packed;
+		$this->batch_index_args[]  = [
+			'packed' => $packed,
+			'len'    => $len,
+			'data'   => $data,
+		];
+
+		// Schedule a 0-delay one-shot flush at the end of this event-loop
+		// iteration. Mirrors Tachikoma `Partition.pm:207`: every batched
+		// fill bumps the timer; the iteration's tail calls fire() once,
+		// landing every accumulated message in one syswrite.
+		$this->set_timer( 0, true );
+
+		// Persist contract: the batch may not be on disk yet, but we've
+		// accepted responsibility for it (the next-tick fire or the
+		// request-scope __destruct flush will land it). Cancel the
+		// producer's slot now — same atomicity guarantee Tachikoma's
+		// Partition.pm gives across its set_timer(0, oneshot) flush.
+		$this->cancel( $message );
+	}
+
+	/**
+	 * Sysseek + sysappend the accumulated `$batch` to the current segment,
+	 * then walk `$batch_index_args` to write companion index entries with
+	 * post-flush offsets. Called automatically by `fill()` whenever adding a
+	 * new message would push the batch past PIPE_BUF, and at the latest from
+	 * `__destruct()` so request-scope writes land before the process exits.
+	 */
+	public function flush(): void {
+		if ( '' === $this->batch ) {
+			return;
+		}
+		$batch_bytes = $this->batch;
+		$batch_args  = $this->batch_index_args;
+		// Reset state up-front so an exception below doesn't cause a re-flush
+		// loop (e.g., from __destruct on the way down).
+		$this->batch             = '';
+		$this->batch_index_args  = [];
+
+		if ( null === $this->current_segment_id ) {
+			$this->init_current_segment();
+		}
+
+		$batch_len = \strlen( $batch_bytes );
+		if ( $this->current_size + $batch_len > $this->segment_size ) {
+			$this->rotate_segment();
+		}
+
+		$fh = $this->get_handle();
+		if ( null === $fh ) {
+			return;
+		}
+		$start_offset = $this->current_size;
+		if ( ! $this->loop_fwrite( $fh, $batch_bytes ) ) {
+			return;
+		}
+		// loop_fwrite already advanced $this->current_size — don't double-count.
+
+		// Walk the per-message index args and write each at its computed
+		// post-flush offset. The batch's first message lands at start_offset;
+		// each subsequent one lands at +its packed length.
+		$offset = $start_offset;
+		foreach ( $batch_args as $item ) {
+			$this->write_index_entry( $item['packed'], $offset, $item['len'], $item['data'] );
+			$offset += $item['len'];
+		}
+
+		$this->touch_segments_cache();
+	}
+
+/**
+	 * Write one companion-index entry for a packed message at $offset.
+	 * Caller-supplied formatter (`with_index()`) wins; default is the
+	 * 8-byte binary pack the Consumer's load-offsetlog code expects.
+	 */
+	private function write_index_entry( string $packed, int $offset, int $len, $data ): void {
+		if ( null !== $this->index_callback ) {
+			$position = [
+				'segment_id' => $this->current_segment_id,
+				'offset'     => $offset,
+				'length'     => $len,
+			];
+			try {
+				$entry = ( $this->index_callback )( $packed, $position, $data );
+				if ( null !== $entry && '' !== $entry && \is_resource( $this->idx_fh ) ) {
+					// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+					@\fwrite( $this->idx_fh, $entry . "\n" );
+				}
+			} catch ( \Throwable $e ) {
+				Core::print_less_often( 'Partition: index callback threw: ' . $e->getMessage() );
+			}
+			return;
+		}
+		if ( \is_resource( $this->idx_fh ) ) {
+			// Default binary 8-byte format: <segment_id, offset> as two big-endian uint32s.
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+			@\fwrite( $this->idx_fh, \pack( 'NN', $this->current_segment_id, $offset ) );
+		}
 	}
 
 	public function __destruct() {
+		// Land any residual batched messages before closing handles —
+		// otherwise request-scope writes (LogManager via Topic) get GC'd
+		// without ever hitting disk. Mirrors register_shutdown_function but
+		// scoped tighter: flushes whenever this Partition is collected.
+		$this->flush();
 		$this->close_handle();
 	}
 
@@ -146,7 +342,7 @@ class Partition extends Node {
 	 */
 	public function remove_node(): void {
 		$this->close_handle();
-		if ( $this->write_lock !== null ) {
+		if ( null !== $this->write_lock ) {
 			$this->write_lock->release();
 			$this->write_lock = null;
 		}
@@ -227,13 +423,40 @@ class Partition extends Node {
 	}
 
 	/**
-	 * Lift the line-size limit to 10MB and serialize writes via Lock.
+	 * Lift the line-size limit to 10MB and acquire a Lock that serializes
+	 * cross-process writes for the lifetime of this Partition.
+	 *
+	 * The Lock is constructed as a Node (`{$this->name}:lock`) sinking to
+	 * whatever this Partition sinks into, so its own outbound traffic
+	 * (currently none, but reserved) routes through `_router`. A Timer
+	 * (`{$this->name}:heartbeat`) sinks INTO the Lock and stamps each
+	 * emitted message with `KEY = 'heartbeat'`; Lock::fill matches the KEY
+	 * tag and refreshes the lock file. Heartbeat cadence is one-third the
+	 * stale-timeout — well under the threshold even if the worker stalls
+	 * for one tick.
+	 *
+	 * Requires `name()` and `sink()` to be set BEFORE this is called.
 	 *
 	 * @return self
 	 */
 	public function allow_large_writes(): self {
 		$this->allow_large_writes = true;
-		$this->write_lock         = new Lock( "{$this->partition_dir}/write.lock.d", 60 );
+		$stale_timeout            = 60;
+		$this->write_lock         = new Lock( "{$this->partition_dir}/write.lock.d", $stale_timeout );
+		$this->write_lock->name( "{$this->name}:lock" );
+		$this->write_lock->sink( $this->sink );
+		$this->write_lock->acquire();
+
+		// Heartbeat Timer: sinks into the Lock; KEY='heartbeat' tags every
+		// fired message so Lock::fill recognizes it as a heartbeat tick.
+		// Cadence (ms) = stale_timeout * 1000 / 3 — three heartbeats per
+		// stale window means a single missed tick still doesn't expire us.
+		$this->heartbeat_timer = new Timer();
+		$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
+		$this->heartbeat_timer->sink( $this->write_lock );
+		$this->heartbeat_timer->set_key( 'heartbeat' );
+		$this->heartbeat_timer->set_timer( (int) ( $stale_timeout * 1000 / 3 ) );
+
 		return $this;
 	}
 
@@ -266,132 +489,6 @@ class Partition extends Node {
 			'segment_id' => (int) $this->current_segment_id,
 			'offset'     => $this->current_size,
 		];
-	}
-
-	/**
-	 * Write a line to the current segment + companion .idx entry.
-	 *
-	 * @param string $line Line to append (caller includes trailing newline).
-	 * @param array|null $data Optional pre-decoded data passed through to the
-	 *                         index callback (so callers can avoid a redundant decode).
-	 * @return bool True on success, false if dropped (size limit) or write failed.
-	 */
-	public function write( string $line, ?array &$data = null ): bool {
-		$max = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
-		if ( \strlen( $line ) > $max ) {
-			return false;
-		}
-
-		if ( null === $this->current_segment_id ) {
-			$this->init_current_segment();
-		}
-
-		if ( $this->allow_large_writes ) {
-			return (bool) $this->write_lock->with_lock( fn () => $this->do_write( $line, $data ) );
-		}
-		return $this->do_write( $line, $data );
-	}
-
-	/**
-	 * Write pre-formatted bytes WITHOUT appending a newline, WITHOUT the line-size check,
-	 * and WITHOUT invoking the index callback. Used by callers who batched multiple
-	 * formatted lines into a single buffer (LogManager flush).
-	 *
-	 * Caller is responsible for keeping each constituent line ≤PIPE_BUF.
-	 *
-	 * @param string $bytes Pre-formatted bytes (caller-supplied newlines).
-	 * @return bool True on success.
-	 */
-	public function write_raw( string $bytes ): bool {
-		if ( '' === $bytes ) {
-			return true;
-		}
-		if ( null === $this->current_segment_id ) {
-			$this->init_current_segment();
-		}
-		if ( $this->allow_large_writes ) {
-			return (bool) $this->write_lock->with_lock( fn () => $this->do_raw_write( $bytes ) );
-		}
-		return $this->do_raw_write( $bytes );
-	}
-
-	/**
-	 * Append pre-formatted bytes to the current segment with rotation + drift handling.
-	 * Skips the index callback (write_raw is for batched line buffers).
-	 *
-	 * @param string $bytes Bytes to append.
-	 * @return bool True on success.
-	 */
-	protected function do_raw_write( string $bytes ): bool {
-		$len = \strlen( $bytes );
-		$this->maybe_rescan_segments();
-
-		if ( $this->current_size + $len > $this->segment_size ) {
-			$this->rotate_segment();
-		}
-
-		$fh = $this->get_handle();
-		if ( null === $fh ) {
-			return false;
-		}
-
-		if ( ! $this->loop_fwrite( $fh, $bytes ) ) {
-			return false;
-		}
-
-		$this->touch_segments_cache();
-		return true;
-	}
-
-	/**
-	 * Append to the current segment + write companion index entry.
-	 * Caller must have set $this->current_* state.
-	 *
-	 * @param string     $line Bytes to append.
-	 * @param array|null $data Pre-decoded data passed to index callback.
-	 * @return bool True on success.
-	 */
-	protected function do_write( string $line, ?array &$data = null ): bool {
-		$len = \strlen( $line );
-		$this->maybe_rescan_segments();
-
-		if ( $this->current_size + $len > $this->segment_size ) {
-			$this->rotate_segment();
-		}
-
-		$fh = $this->get_handle();
-		if ( null === $fh ) {
-			return false;
-		}
-		$offset = $this->current_size;
-		if ( ! $this->loop_fwrite( $fh, $line ) ) {
-			return false;
-		}
-
-		// Companion index: caller-supplied formatter wins; default is binary pack.
-		if ( null !== $this->index_callback ) {
-			$position = [
-				'segment_id' => $this->current_segment_id,
-				'offset'     => $offset,
-				'length'     => $len,
-			];
-			try {
-				$entry = ( $this->index_callback )( $line, $position, $data );
-				if ( null !== $entry && '' !== $entry && \is_resource( $this->idx_fh ) ) {
-					// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-					@\fwrite( $this->idx_fh, $entry . "\n" );
-				}
-			} catch ( \Throwable $e ) {
-				Core::print_less_often( 'Partition: index callback threw: ' . $e->getMessage() );
-			}
-		} elseif ( \is_resource( $this->idx_fh ) ) {
-			// Default binary 8-byte format: <segment_id, offset> as two big-endian uint32s.
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-			@\fwrite( $this->idx_fh, \pack( 'NN', $this->current_segment_id, $offset ) );
-		}
-
-		$this->touch_segments_cache();
-		return true;
 	}
 
 	/**

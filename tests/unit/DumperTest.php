@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Dumper;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Shell;
@@ -21,6 +22,22 @@ class DumperTest extends TestCase {
 	private function read_all( $stream ): string {
 		\rewind( $stream );
 		return \stream_get_contents( $stream );
+	}
+
+	public function test_TM_PING_prints_round_trip_time(): void {
+		// Mirrors Tachikoma Dumper.pm:dump_ping. VALUE carries the original send
+		// timestamp; the Dumper computes RTT in ms.
+		[ $dumper, $out ] = $this->fresh();
+
+		Core::$right_now = 1234567890.5;
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_PING;
+		$msg[ Message::VALUE ] = '1234567890.0';   // sent 500 ms before "now"
+		$dumper->fill( $msg );
+
+		$rendered = $this->read_all( $out );
+		$this->assertStringContainsString( 'round trip time:', $rendered );
+		$this->assertStringContainsString( '500.00 ms', $rendered );
 	}
 
 	public function test_TM_COMMAND_TM_RESPONSE_prints_payload(): void {
@@ -196,7 +213,11 @@ class DumperTest extends TestCase {
 		$this->assertSame( $expected, $this->read_all( $out ) );
 	}
 
-	public function test_TM_COMMAND_TM_RESPONSE_does_not_emit_escape_sequences_or_redraw_prompt(): void {
+	public function test_TM_COMMAND_TM_RESPONSE_with_prompt_displayed_takes_async_redraw_path(): void {
+		// In pivoted mode the response arrives async (worker → reply-in
+		// Consumer → router → dumper) AFTER the cli has already drawn its
+		// prompt waiting for input. Dumper goes through write_async so the
+		// prompt line is wiped before the response prints, then redrawn.
 		[ $dumper, $out, , $shell ] = $this->fresh_tty();
 		$dumper->mark_prompt_displayed();
 
@@ -205,32 +226,34 @@ class DumperTest extends TestCase {
 		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'ls', 'payload' => 'a' ] );
 		$dumper->fill( $msg );
 
-		// Synchronous responses are direct answers to the user's last command;
-		// the read-eval-print loop is responsible for re-prompting. The Dumper
-		// MUST NOT inject ANSI sequences here.
-		$this->assertSame( "a\n", $this->read_all( $out ) );
+		$expected = "\033[s" . "\r\033[2K" . "a\n" . 'newspack> ' . "\033[u";
+		$this->assertSame( $expected, $this->read_all( $out ) );
 	}
 
-	public function test_TM_COMMAND_TM_RESPONSE_clears_prompt_displayed_flag(): void {
-		[ $dumper, , , $shell ] = $this->fresh_tty();
-		$dumper->mark_prompt_displayed();
-		$this->assertTrue( $dumper->prompt_displayed );
+	public function test_TM_COMMAND_TM_RESPONSE_with_prompt_not_displayed_is_plain_write(): void {
+		// Bare-mode cli flow: when the readline callback fires it clears
+		// $dumper->prompt_displayed so synchronous output during queue
+		// processing falls through to a plain stdout write — no ANSI dance,
+		// because there's no prompt on screen yet (install_handler will draw
+		// a fresh one after queue processing).
+		[ $dumper, $out, , $shell ] = $this->fresh_tty();
+		$dumper->prompt_displayed = false;
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'ls', 'payload' => 'a' ] );
 		$dumper->fill( $msg );
 
-		// The prompt is no longer "displayed" — the response printed past it,
-		// and the Cli loop will draw a fresh prompt on its next readline call.
-		$this->assertFalse( $dumper->prompt_displayed );
+		$this->assertSame( "a\n", $this->read_all( $out ) );
 	}
 
 	public function test_async_then_command_response_then_async_round_trip(): void {
 		// Realistic interleaved sequence:
-		//   prompt drawn → async TM_INFO arrives → wipe-and-redraw →
-		//   user types ls → response arrives → prompt cleared →
-		//   loop redraws prompt → another async TM_INFO arrives → wipe-and-redraw.
+		//   prompt drawn → async TM_INFO arrives (wipe-and-redraw) →
+		//   pivoted-mode TM_COMMAND|TM_RESPONSE arrives async too (wipe-and-
+		//   redraw, prompt stays on screen) → another TM_INFO arrives (same
+		//   path). All three share the same write_async wipe-and-redraw
+		//   treatment because the prompt is still visible throughout.
 		[ $dumper, $out, , $shell ] = $this->fresh_tty();
 		$dumper->mark_prompt_displayed();
 
@@ -241,15 +264,11 @@ class DumperTest extends TestCase {
 		$async[ Message::VALUE ] = 'one';
 		$dumper->fill( $async );
 
-		// Synchronous response (clears prompt_displayed).
+		// Pivoted-mode response — also async, also redraws around the prompt.
 		$resp = Message::new_message();
 		$resp[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$resp[ Message::VALUE ] = \json_encode( [ 'name' => 'ls', 'payload' => 'two' ] );
 		$dumper->fill( $resp );
-		$this->assertFalse( $dumper->prompt_displayed );
-
-		// Cli draws a fresh prompt and re-marks it.
-		$dumper->mark_prompt_displayed();
 
 		// Another async.
 		$async2 = Message::new_message();
@@ -259,7 +278,7 @@ class DumperTest extends TestCase {
 		$dumper->fill( $async2 );
 
 		$expected = "\033[s" . "\r\033[2K" . "INFO[a]: one\n" . 'newspack> ' . "\033[u"
-			. "two\n"
+			. "\033[s" . "\r\033[2K" . "two\n" . 'newspack> ' . "\033[u"
 			. "\033[s" . "\r\033[2K" . "INFO[b]: three\n" . 'newspack> ' . "\033[u";
 		$this->assertSame( $expected, $this->read_all( $out ) );
 	}

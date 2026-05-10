@@ -23,6 +23,19 @@ class Shell extends Node {
 	/** @var array<string,string> name → value */
 	public array $variables = [];
 
+	/**
+	 * Refuse to register the Shell under a node name. Mirrors real Tachikoma
+	 * `Shell3::name`: shells are anonymous so they don't show up in `ls`,
+	 * can't be addressed via TO, and can't accidentally form a graph cycle by
+	 * sinking into themselves.
+	 */
+	public function name( ?string $name = null ): string {
+		if ( null !== $name ) {
+			throw new \RuntimeException( 'named Shell nodes are not allowed' );
+		}
+		return $this->name;
+	}
+
 	/** Backslash-continuation accumulator. */
 	private string $continuation = '';
 
@@ -46,7 +59,7 @@ class Shell extends Node {
 
 		for ( $i = 0; $i < $len; ++$i ) {
 			$ch = $line[ $i ];
-			if ( $in_quote !== null ) {
+			if ( null !== $in_quote ) {
 				if ( $ch === $in_quote ) {
 					$in_quote = null;
 				} else {
@@ -54,12 +67,12 @@ class Shell extends Node {
 				}
 				continue;
 			}
-			if ( $ch === '"' || $ch === "'" || $ch === '`' ) {
+			if ( '"' === $ch || "'" === $ch || '`' === $ch ) {
 				$in_quote = $ch;
 				$in_token = true; // empty quoted string still counts as a token
 				continue;
 			}
-			if ( $ch === ' ' || $ch === "\t" ) {
+			if ( ' ' === $ch || "\t" === $ch ) {
 				if ( $in_token ) {
 					$tokens[] = $buf;
 					$buf      = '';
@@ -115,7 +128,7 @@ class Shell extends Node {
 			$this->continuation .= \substr( $line, 0, -1 ) . "\n";
 			return null;
 		}
-		if ( $this->continuation !== '' ) {
+		if ( '' !== $this->continuation ) {
 			$line               = $this->continuation . $line;
 			$this->continuation = '';
 		}
@@ -125,7 +138,7 @@ class Shell extends Node {
 		// Strip leading/trailing whitespace AFTER interpolation so `<var>` can
 		// expand into leading whitespace tokens cleanly.
 		$line = \trim( $line );
-		if ( $line === '' || $line[0] === '#' ) {
+		if ( '' === $line || '#' === $line[0] ) {
 			return null;
 		}
 
@@ -138,7 +151,7 @@ class Shell extends Node {
 		$args = $tokens;
 
 		// `include <file>` builtin: read file, recursively parse each line.
-		if ( $verb === 'include' ) {
+		if ( 'include' === $verb ) {
 			$file = $args[0] ?? '';
 			$this->include_file( $file );
 			return null;
@@ -185,6 +198,15 @@ class Shell extends Node {
 				$msg[ Message::TYPE ] = Message::TM_EOF;
 				$msg[ Message::TO ]   = $args[0] ?? '';
 				break;
+			case 'ping':
+				// Tachikoma Shell3 builtin: build TM_PING addressed at <path>,
+				// payload = current timestamp. Receiver's CommandInterpreter
+				// bounces TO=FROM, so the message returns along the FROM trail
+				// to _responder/$pid → Dumper.
+				$msg[ Message::TYPE ]  = Message::TM_PING;
+				$msg[ Message::TO ]    = $args[0] ?? '';
+				$msg[ Message::VALUE ] = (string) Core::$right_now;
+				break;
 			default:
 				// Default: TM_COMMAND with verb as command name. TO empty so
 				// the local _command_interpreter handles it; pivoted-mode
@@ -210,19 +232,19 @@ class Shell extends Node {
 	 * the prompt.
 	 */
 	private function include_file( string $file ): void {
-		if ( $file === '' || ! \is_file( $file ) ) {
+		if ( '' === $file || ! \is_file( $file ) ) {
 			Core::print_less_often( "Shell: include: file not found: $file" );
 			return;
 		}
 		$fh = @\fopen( $file, 'r' );
-		if ( $fh === false ) {
+		if ( false === $fh ) {
 			Core::print_less_often( "Shell: include: cannot open: $file" );
 			return;
 		}
 		while ( ( $line = \fgets( $fh ) ) !== false ) {
 			$line = \rtrim( $line, "\r\n" );
 			$msg  = $this->parse( $line );
-			if ( $msg !== null ) {
+			if ( null !== $msg ) {
 				$this->fill( $msg );
 			}
 		}

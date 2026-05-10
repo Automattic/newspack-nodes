@@ -28,16 +28,20 @@ class TopicTest extends TestCase {
 		$this->assertFalse( is_dir( "{$this->tmp}/firehose.log/p0" ) );
 	}
 
-	public function test_class_api_write_routes_by_key(): void {
+	public function test_fill_routes_by_key(): void {
 		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
-		$t->write( '/url1', "data\n" );
+		$this->produce_into( $t, 'data', '/url1' );
 
-		// Key routing is deterministic; whichever partition got it must contain the data.
+		// Key routing is deterministic; whichever partition got it contains the
+		// packed message. Decode the file to assert on VALUE rather than raw bytes.
 		$found = false;
 		for ( $i = 0; $i < 4; ++$i ) {
 			$path = "{$this->tmp}/firehose.log/p{$i}/0.log";
-			if ( file_exists( $path ) && file_get_contents( $path ) === "data\n" ) {
-				$found = true;
+			if ( file_exists( $path ) ) {
+				$decoded = Message::unpacked( rtrim( file_get_contents( $path ), "\n" ) );
+				if ( 'data' === $decoded[ Message::VALUE ] && '/url1' === $decoded[ Message::KEY ] ) {
+					$found = true;
+				}
 				break;
 			}
 		}
@@ -46,14 +50,17 @@ class TopicTest extends TestCase {
 
 	public function test_same_key_routes_to_same_partition(): void {
 		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
-		$t->write( '/url1', "first\n" );
-		$t->write( '/url1', "second\n" );
+		$this->produce_into( $t, 'first', '/url1' );
+		$this->produce_into( $t, 'second', '/url1' );
 
-		// Find the partition that has data; it must contain both lines.
+		// Find the partition that has data; it must contain two packed lines, both with the same key.
 		for ( $i = 0; $i < 4; ++$i ) {
 			$path = "{$this->tmp}/firehose.log/p{$i}/0.log";
 			if ( file_exists( $path ) ) {
-				$this->assertSame( "first\nsecond\n", file_get_contents( $path ) );
+				$lines = array_filter( explode( "\n", file_get_contents( $path ) ), static fn ( $l ) => '' !== $l );
+				$this->assertCount( 2, $lines );
+				$values = array_map( static fn ( $l ) => Message::unpacked( $l )[ Message::VALUE ], $lines );
+				$this->assertSame( [ 'first', 'second' ], array_values( $values ) );
 				return;
 			}
 		}
@@ -66,12 +73,15 @@ class TopicTest extends TestCase {
 		$msg = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$msg[ Message::KEY ]   = '/some/url';
-		$msg[ Message::VALUE ] = "fill-data\n";
+		$msg[ Message::VALUE ] = 'fill-data';
 		$t->fill( $msg );
+		$t->flush();
 
 		$expected_partition = Partition::hash_to_partition( '/some/url', 4 );
 		$path = "{$this->tmp}/firehose.log/p{$expected_partition}/0.log";
-		$this->assertSame( "fill-data\n", file_get_contents( $path ) );
+		$decoded = Message::unpacked( rtrim( file_get_contents( $path ), "\n" ) );
+		$this->assertSame( 'fill-data', $decoded[ Message::VALUE ] );
+		$this->assertSame( '/some/url', $decoded[ Message::KEY ] );
 	}
 
 	public function test_pre_declares_READY_event(): void {
@@ -94,8 +104,8 @@ class TopicTest extends TestCase {
 		// READY hasn't fired yet — no Partition materialized.
 		$this->assertSame( [], $fired );
 
-		// Trigger first-partition materialization via class-API write().
-		$t->write( '/some/url', "data\n" );
+		// Trigger first-partition materialization via fill().
+		$this->produce_into( $t, 'data', '/some/url' );
 
 		// Listener registered BEFORE first partition should now have been notified.
 		$this->assertSame( [ 'firehose' ], $fired );
@@ -106,7 +116,7 @@ class TopicTest extends TestCase {
 		$t->name( 'firehose' );
 
 		// Materialize first partition before any listener registers.
-		$t->write( '/some/url', "data\n" );
+		$this->produce_into( $t, 'data', '/some/url' );
 
 		// Late registrant should get cached state immediately on register.
 		$received = [];
@@ -128,10 +138,10 @@ class TopicTest extends TestCase {
 
 		// Force materialization of all four partitions via key-routing.
 		// Different keys hit different partitions; only the FIRST should fire READY.
-		$t->write( 'k1', "a\n" );
-		$t->write( 'k2', "b\n" );
-		$t->write( 'k3', "c\n" );
-		$t->write( 'k4', "d\n" );
+		$this->produce_into( $t, 'a', 'k1' );
+		$this->produce_into( $t, 'b', 'k2' );
+		$this->produce_into( $t, 'c', 'k3' );
+		$this->produce_into( $t, 'd', 'k4' );
 
 		$this->assertSame( 1, $count, 'READY must fire exactly once across partition lifetime' );
 	}
@@ -180,7 +190,9 @@ class TopicTest extends TestCase {
 		$this->assertCount( 1, $capture->captured );
 		$resp = $capture->captured[0];
 		$this->assertSame( Message::TM_PERSIST | Message::TM_RESPONSE, $resp[ Message::TYPE ] );
-		$this->assertSame( 'answer', $resp[ Message::VALUE ] );
+		// Tachikoma semantics: successful durable write → `cancel` (drop from
+		// producer's buffer). `answer` is the transient/retry path.
+		$this->assertSame( 'cancel', $resp[ Message::VALUE ] );
 		$this->assertSame( 'req-7', $resp[ Message::ID ] );
 		$this->assertSame( 'producer', $resp[ Message::TO ] );
 	}

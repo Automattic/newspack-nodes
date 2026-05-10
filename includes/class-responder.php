@@ -25,7 +25,7 @@ class Responder extends Node {
 		// $this->sink. Matches real Tachikoma's pattern where Responder always
 		// sinks into Dumper but addresses replies through Router.
 		if ( $type & Message::TM_PERSIST ) {
-			if ( $message[ Message::FROM ] === '' ) {
+			if ( '' === $message[ Message::FROM ] ) {
 				return; // Silent drop, same rule as Node::answer/cancel.
 			}
 			$ack                       = Message::new_message();
@@ -37,7 +37,7 @@ class Responder extends Node {
 			$ack[ Message::KEY ]       = $message[ Message::KEY ];
 			$ack[ Message::VALUE ]     = ( $type & Message::TM_ERROR ) ? 'answer' : 'cancel';
 			$router                    = Core::node( '_router' );
-			if ( $router !== null ) {
+			if ( null !== $router ) {
 				$router->fill( $ack );
 			} else {
 				$this->sink?->fill( $ack );

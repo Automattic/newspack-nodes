@@ -26,6 +26,23 @@ class Timer extends Node {
 	/** @var string Tracks scheduling mode: 'inactive' | 'event_framework' | 'router'. */
 	protected string $mode = 'inactive';
 
+	/**
+	 * Tag stamped onto each emitted message's KEY field — analogous to
+	 * `$self->{stream}` on real Tachikoma's Timer.pm:65, where receivers
+	 * disambiguate control ticks from data via STREAM. Our 7-field message
+	 * layout has no STREAM slot, so KEY plays the same role. Empty string
+	 * = unset (most Timers don't need a tag).
+	 */
+	protected string $key = '';
+
+	public function set_key( string $key ): void {
+		$this->key = $key;
+	}
+
+	public function key(): string {
+		return $this->key;
+	}
+
 	public function __construct() {
 		$this->registrations = [ 'FIRE' => [] ];
 	}
@@ -34,12 +51,12 @@ class Timer extends Node {
 		$this->oneshot = $oneshot;
 		$this->active  = true;
 
-		if ( $ms === null ) {
-			if ( $this->name === '' ) {
+		if ( null === $ms ) {
+			if ( '' === $this->name ) {
 				throw new \RuntimeException( 'Router-hitchhike requires Timer to have a name' );
 			}
 			$router = Core::node( '_router' );
-			if ( $router === null ) {
+			if ( null === $router ) {
 				throw new \RuntimeException( 'Router-hitchhike requires _router to be present' );
 			}
 			$router->register( 'TIMER', $this->name );
@@ -59,14 +76,14 @@ class Timer extends Node {
 		// Defer to closing-queue: avoids mid-iteration mutation of EventFramework $timers
 		// or Router $registrations while drain() / notify() is iterating.
 		Core::push_closing( static function () use ( $self, $mode ): void {
-			if ( $mode === 'router' ) {
+			if ( 'router' === $mode ) {
 				$router = Core::node( '_router' );
-				if ( $router !== null && $self->name() !== '' ) {
+				if ( null !== $router && '' !== $self->name() ) {
 					$router->unregister( 'TIMER', $self->name() );
 				}
 				return;
 			}
-			if ( $mode === 'event_framework' ) {
+			if ( 'event_framework' === $mode ) {
 				EventFramework::instance()->stop_timer( $self );
 			}
 		} );
@@ -87,7 +104,7 @@ class Timer extends Node {
 	public function fill( array &$message ): void {
 		if (
 			( $message[ Message::TYPE ] & Message::TM_INFO )
-			&& $message[ Message::KEY ] === 'TIMER'
+			&& 'TIMER' === $message[ Message::KEY ]
 		) {
 			++$this->counter;
 			$this->fire_cb();
@@ -107,13 +124,16 @@ class Timer extends Node {
 	}
 
 	protected function fire(): void {
-		if ( $this->sink === null ) {
+		if ( null === $this->sink ) {
 			return;
 		}
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 		$msg[ Message::TIMESTAMP ] = Core::$right_now;
 		$msg[ Message::FROM ]      = $this->name;
+		if ( '' !== $this->key ) {
+			$msg[ Message::KEY ] = $this->key;
+		}
 		$msg[ Message::VALUE ]     = (string) Core::$right_now;
 		$this->sink->fill( $msg );
 	}

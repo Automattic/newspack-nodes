@@ -1,7 +1,6 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Callback;
 use Newspack_Nodes\CommandInterpreter;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Partition;
@@ -38,15 +37,15 @@ class WorkerScaffoldingTest extends TestCase {
 	}
 
 	public function test_build_scaffolding_creates_repl_routable(): void {
-		// `_repl` is now a Callback wrapper that packs non-TM_BYTESTREAM
-		// messages before forwarding to the underlying anonymous output
-		// Partition. Anything addressed to TO=`_repl` (e.g. by _router after
-		// peeling) lands here and gets serialized to disk.
+		// `_repl` IS the output Partition (matches real Tachikoma — Partition::fill
+		// auto-packs any non-control message via Message::packed). Anything
+		// addressed to TO=`_repl` after _router peels lands here and gets
+		// serialized to disk.
 		$w = new WorkerBase( $this->tmp, 'test', 0 );
 		$w->build_scaffolding();
 		$repl = Core::node( '_repl' );
 		$this->assertNotNull( $repl );
-		$this->assertInstanceOf( Callback::class, $repl );
+		$this->assertInstanceOf( Partition::class, $repl );
 	}
 
 	public function test_interpreter_sinks_into_router(): void {

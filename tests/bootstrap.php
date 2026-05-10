@@ -25,7 +25,7 @@ if ( ! function_exists( 'do_action' ) ) {
 			$cb( ...$args );
 		}
 	}
-	function add_action( string $hook, callable $cb ): void {
+	function add_action( string $hook, callable $cb, int $priority = 10, int $accepted_args = 1 ): void {
 		$GLOBALS['_wp_actions'][ $hook ][] = $cb;
 	}
 	function apply_filters( string $hook, mixed $value, ...$args ): mixed {
@@ -34,7 +34,7 @@ if ( ! function_exists( 'do_action' ) ) {
 		}
 		return $value;
 	}
-	function add_filter( string $hook, callable $cb ): void {
+	function add_filter( string $hook, callable $cb, int $priority = 10, int $accepted_args = 1 ): void {
 		$GLOBALS['_wp_actions'][ $hook ][] = $cb;
 	}
 }
@@ -138,7 +138,7 @@ if ( ! function_exists( 'get_transient' ) ) {
 			return false;
 		}
 		[ $value, $expires_at ] = $store[ $key ];
-		if ( $expires_at !== 0 && time() >= $expires_at ) {
+		if ( 0 !== $expires_at && time() >= $expires_at ) {
 			unset( $GLOBALS['_wp_test_transients'][ $key ] );
 			return false;
 		}
@@ -275,6 +275,44 @@ if ( ! function_exists( 'fastcgi_finish_request' ) ) {
 	function fastcgi_finish_request() {
 		// No-op in test context.
 		return true;
+	}
+}
+
+// ── WP option / esc helpers — Config tests require these. ──────────────────
+
+if ( ! function_exists( 'get_option' ) ) {
+	$GLOBALS['_wp_options'] = [];
+	function get_option( string $key, mixed $default = false ): mixed {
+		return $GLOBALS['_wp_options'][ $key ] ?? $default;
+	}
+	function update_option( string $key, mixed $value ): bool {
+		$GLOBALS['_wp_options'][ $key ] = $value;
+		return true;
+	}
+	function delete_option( string $key ): bool {
+		unset( $GLOBALS['_wp_options'][ $key ] );
+		return true;
+	}
+}
+
+if ( ! function_exists( 'esc_url_raw' ) ) {
+	function esc_url_raw( string $url ): string {
+		return \filter_var( $url, FILTER_SANITIZE_URL ) ?: '';
+	}
+}
+
+if ( ! function_exists( 'esc_html' ) ) {
+	function esc_html( string $value ): string {
+		return \htmlspecialchars( $value, ENT_QUOTES, 'UTF-8' );
+	}
+}
+
+if ( ! function_exists( 'wp_unslash' ) ) {
+	function wp_unslash( mixed $value ): mixed {
+		if ( \is_string( $value ) ) {
+			return \stripslashes( $value );
+		}
+		return $value;
 	}
 }
 
