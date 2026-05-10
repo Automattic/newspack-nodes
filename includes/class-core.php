@@ -70,6 +70,30 @@ class Core {
 		return self::$nodes_by_name[ $name ] ?? null;
 	}
 
+	/**
+	 * Tear down every registered node. Call from worker shutdown so each
+	 * Partition's `remove_node()` runs — that's where Partition closes its
+	 * file handles and releases its write_lock + heartbeat. Without this,
+	 * the next worker spawn races a heartbeat that takes ~stale_timeout
+	 * seconds to age out before the new Partition can acquire the lock.
+	 *
+	 * Snapshot the registry first so each remove_node()'s unregister doesn't
+	 * mutate the iteration source.
+	 */
+	public static function cleanup_all_nodes(): void {
+		$nodes = self::$nodes_by_name;
+		foreach ( $nodes as $node ) {
+			if ( \is_object( $node ) && \method_exists( $node, 'remove_node' ) ) {
+				try {
+					$node->remove_node();
+				} catch ( \Throwable $e ) {
+					// Best-effort teardown; one node's failure shouldn't block the rest.
+					self::print_less_often( 'cleanup_all_nodes: ' . $e->getMessage() );
+				}
+			}
+		}
+	}
+
 	public static function update_time(): void {
 		$t              = \microtime( true );
 		self::$right_now = $t;

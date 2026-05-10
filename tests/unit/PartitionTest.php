@@ -100,6 +100,8 @@ class PartitionTest extends TestCase {
 		// hold the lock for a given partition_dir at a time. A second writer
 		// must fail loudly rather than silently set $allow_large_writes=true
 		// on an unowned dir (which would race the real owner on >4KB writes).
+		// Use a small max_wait_ms so the test fails fast — the production
+		// default (65s) waits for a possibly-stale heartbeat to age out.
 		$p1 = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
 		$p1->name( 'p1' );
 		$p1->allow_large_writes();
@@ -108,7 +110,7 @@ class PartitionTest extends TestCase {
 		$p2->name( 'p2' );
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'failed to acquire write lock' );
-		$p2->allow_large_writes();
+		$p2->allow_large_writes( 100 ); // 100ms — well under stale_timeout
 	}
 
 	public function test_read_at_returns_bytes_at_offset(): void {

@@ -424,26 +424,39 @@ class Partition extends Timer {
 	 *
 	 * Requires `name()` and `sink()` to be set BEFORE this is called.
 	 *
-	 * Single-writer claim: if another live Partition already holds the lock
-	 * for this dir, `Lock::acquire()` returns false and we throw — the caller
-	 * is configuring two concurrent writers for the same Partition, which is
-	 * a topology bug. Letting it slide would set `$allow_large_writes = true`
-	 * on a Partition that doesn't actually own the dir, and the next >4KB
-	 * write would race the real owner.
+	 * Single-writer claim: only one Partition can hold this dir's write_lock
+	 * at a time. `Lock::acquire()` blocks with retry up to `stale_timeout +
+	 * margin` so the common case — a previous worker that just exited and
+	 * left a heartbeat that hasn't aged out yet — recovers without dropping
+	 * the spawn. The retry loop steals automatically once the heartbeat
+	 * crosses the stale threshold.
 	 *
+	 * If we still can't acquire after that, throw — at that point another
+	 * live writer is genuinely active and proceeding would corrupt their
+	 * writes (and the lock-loser's own state would be set silently to
+	 * allow_large_writes=true on a dir it doesn't own).
+	 *
+	 * @param int $max_wait_ms How long to wait for lock acquisition, in
+	 *                          milliseconds. Default 65000 (stale_timeout +
+	 *                          5s margin) is sized for normal worker respawn
+	 *                          races. Tests can pass a smaller value to
+	 *                          exercise the throw path quickly.
 	 * @throws \RuntimeException when the lock cannot be acquired.
 	 * @return self
 	 */
-	public function allow_large_writes(): self {
+	public function allow_large_writes( int $max_wait_ms = 65000 ): self {
 		$stale_timeout = 60;
 		$lock          = new Lock( "{$this->partition_dir}/write.lock.d", $stale_timeout );
 		$lock->name( "{$this->name}:lock" );
 		$lock->sink( $this->sink );
 
-		if ( ! $lock->acquire() ) {
+		// Block up to max_wait_ms so respawn races (old worker just exited,
+		// heartbeat still fresh) recover automatically once the previous
+		// holder's heartbeat ages out (after stale_timeout).
+		if ( ! $lock->acquire( $max_wait_ms ) ) {
 			throw new \RuntimeException(
 				"Partition::allow_large_writes() failed to acquire write lock at "
-				. "{$this->partition_dir}/write.lock.d — another writer holds it. "
+				. "{$this->partition_dir}/write.lock.d after {$max_wait_ms}ms — another live writer holds it. "
 				. 'Two concurrent writers on the same Partition is unsupported.'
 			);
 		}
