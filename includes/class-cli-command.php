@@ -66,6 +66,17 @@ class Cli_Command {
 	 *     wp nodes cli firehose-workers.p0
 	 */
 	public function cli( array $args, array $assoc_args ): void {
+		// Refuse to run as root. Workers run as the web user and create the
+		// IPC dirs under that ownership; a root cli would create `input/p0/`
+		// (and its descendants) as root, leaving non-root clis unable to
+		// write into the dir afterward — typed lines would silently vanish.
+		// Recovery (after a misfire): `chown -R <web-user>:<web-user>
+		// {base_dir}/ipc/`.
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			\WP_CLI::error( 'wp nodes cli must run as the same user as the workers, not root.' );
+			return;
+		}
+
 		$cli = new Cli( $this->base_dir() );
 
 		$pivoted = ! empty( $args );
@@ -158,13 +169,17 @@ class Cli_Command {
 			// IPC topics are single-partition (p0); the outer partition number
 			// (.p3) lives in the topic dir, so constructors use partition=0.
 
+			// Typed cli commands are small (a few hundred bytes at most), so
+			// the default PIPE_BUF cap is fine and we don't need
+			// allow_large_writes(). Skipping it lets multiple cli sessions
+			// append concurrently without contending on the single-writer
+			// claim — Partition's small-write path is unlocked PIPE_BUF
+			// atomic appends. (The reverse direction, worker→cli, can
+			// produce >4KB output via dump_node, so the worker's `_repl`
+			// Partition still uses allow_large_writes.)
 			$cmd_out = new Partition( $ipc['input'], 0 );
 			$cmd_out->name( 'cmd-out' );
 			$cmd_out->sink( $interpreter );
-			// allow_large_writes wires Lock + heartbeat Timer keyed off the
-			// Partition's name/sink, so they must be set first. Packed
-			// command messages can exceed 4KB.
-			$cmd_out->allow_large_writes();
 			$shell->sink( $cmd_out );
 
 			// reply-in is unnamed (no other node addresses it directly); its

@@ -17,7 +17,9 @@ Live-investigation reference for the substrate. Read `AGENTS.md` first for the c
 
 ## REPL: `wp nodes cli`
 
-**Always run as the same user the worker runs as** — typically `bend`. The cli writes pivoted commands to `{base_dir}/ipc/{type}.p{N}/input/p0/` via a Partition that takes a write lock at `write.lock.d/`. If the cli is run as root and the worker is bend, the lock dir gets created as root and bend can't acquire it (it can't steal a root-owned lock dir because force-release deletes root-owned files). Subsequent bend cli invocations will silently appear to work — typed lines just never land on disk. Recover by `chown -R bend:bend {base_dir}/ipc/`.
+The cli refuses to run as root — workers run as the web user and create their IPC dirs (`{base_dir}/ipc/{type}.p{N}/input/p0/`) under that ownership. A root cli would seed `input/p0/` as root, leaving non-root clis unable to append. The guard prevents that. If you've previously hit this state, recover with `chown -R <web-user>:<web-user> {base_dir}/ipc/`.
+
+Multiple concurrent clis against the same worker work fine — each cli's `cmd-out` Partition appends to the same input dir under PIPE_BUF (no lock; cli writes are tiny and never exceed 4KB).
 
 
 
