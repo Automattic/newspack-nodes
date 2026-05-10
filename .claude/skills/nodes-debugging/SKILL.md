@@ -17,6 +17,10 @@ Live-investigation reference for the substrate. Read `AGENTS.md` first for the c
 
 ## REPL: `wp nodes cli`
 
+**Always run as the same user the worker runs as** — typically `bend`. The cli writes pivoted commands to `{base_dir}/ipc/{type}.p{N}/input/p0/` via a Partition that takes a write lock at `write.lock.d/`. If the cli is run as root and the worker is bend, the lock dir gets created as root and bend can't acquire it (it can't steal a root-owned lock dir because force-release deletes root-owned files). Subsequent bend cli invocations will silently appear to work — typed lines just never land on disk. Recover by `chown -R bend:bend {base_dir}/ipc/`.
+
+
+
 Two modes:
 
 **Bare** (`wp nodes cli`) — local-only. Builds Shell + CommandInterpreter + Router + Dumper(`_output`) and runs commands in the wp-cli process itself. Use for testing CommandInterpreter verbs without touching a worker.
