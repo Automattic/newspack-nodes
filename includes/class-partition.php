@@ -424,15 +424,32 @@ class Partition extends Timer {
 	 *
 	 * Requires `name()` and `sink()` to be set BEFORE this is called.
 	 *
+	 * Single-writer claim: if another live Partition already holds the lock
+	 * for this dir, `Lock::acquire()` returns false and we throw — the caller
+	 * is configuring two concurrent writers for the same Partition, which is
+	 * a topology bug. Letting it slide would set `$allow_large_writes = true`
+	 * on a Partition that doesn't actually own the dir, and the next >4KB
+	 * write would race the real owner.
+	 *
+	 * @throws \RuntimeException when the lock cannot be acquired.
 	 * @return self
 	 */
 	public function allow_large_writes(): self {
+		$stale_timeout = 60;
+		$lock          = new Lock( "{$this->partition_dir}/write.lock.d", $stale_timeout );
+		$lock->name( "{$this->name}:lock" );
+		$lock->sink( $this->sink );
+
+		if ( ! $lock->acquire() ) {
+			throw new \RuntimeException(
+				"Partition::allow_large_writes() failed to acquire write lock at "
+				. "{$this->partition_dir}/write.lock.d — another writer holds it. "
+				. 'Two concurrent writers on the same Partition is unsupported.'
+			);
+		}
+
 		$this->allow_large_writes = true;
-		$stale_timeout            = 60;
-		$this->write_lock         = new Lock( "{$this->partition_dir}/write.lock.d", $stale_timeout );
-		$this->write_lock->name( "{$this->name}:lock" );
-		$this->write_lock->sink( $this->sink );
-		$this->write_lock->acquire();
+		$this->write_lock         = $lock;
 
 		// Heartbeat Timer: sinks into the Lock; KEY='heartbeat' tags every
 		// fired message so Lock::fill recognizes it as a heartbeat tick.
