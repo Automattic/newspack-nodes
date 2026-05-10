@@ -40,9 +40,13 @@ To get workers running, install an application plugin (e.g., `newspack-event-log
 - **Partition** — file-segmented append-only log. Storage primitive AND Node.
 - **Tee** — fan-out. Per-target try/catch isolates failures; dead targets pruned at fill.
 - **Tail** — file follower. Three buffer modes; inode + size-shrink rotation detection.
+- **Log** — file writer (inverse of Tail). Append/overwrite, optional size-based auto-rotate, retention pruning.
 - **Consumer** — Partition reader with offsetlog checkpointing.
+- **Echo** — routing helper that re-addresses on the way through (path-prepend, return-to-sender).
+- **Callback** — closure-as-Node adapter for inline transforms.
 - **Hook** — WordPress action / filter as a node. Plugin-extensibility surface.
-- **CommandInterpreter** — admin shell vocabulary AND graph builder. `make_node` is callable as both a shell verb and a PHP method.
+- **Timer** — base class for time-driven nodes (Router extends it).
+- **Shell** + **CommandInterpreter** + **Dumper** — REPL components. `make_node` is callable as both a shell verb and a PHP method.
 
 For the full mental model, see [ARCHITECTURE.md](ARCHITECTURE.md). For the substrate's contracts and invariants, see [AGENTS.md](AGENTS.md).
 

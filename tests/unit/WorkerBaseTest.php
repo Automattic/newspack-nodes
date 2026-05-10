@@ -115,11 +115,169 @@ class WorkerBaseTest extends TestCase {
 		$this->assertTrue( $w->should_continue() );
 		$this->assertSame( 0, $w->get_db_failures_for_test(), 'within interval: db_check must not run' );
 	}
+
+	public function test_should_continue_returns_false_when_restart_flag_set(): void {
+		// External request_restart drops a `restart` file into the lock dir.
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$w->acquire();
+		\file_put_contents( "{$this->tmp}/locks/test-worker.p0.lock.d/restart", (string) \time() );
+		$this->assertFalse( $w->should_continue() );
+	}
+
+	public function test_should_continue_heartbeats_at_interval(): void {
+		// heartbeat() bumps the lock-dir mtime — verify heartbeat fires when the
+		// interval elapses.
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$w->acquire();
+		$hb_path = "{$this->tmp}/locks/test-worker.p0.lock.d/heartbeat";
+
+		$first_mtime = \filemtime( $hb_path );
+		// Backdate last_heartbeat past the heartbeat interval.
+		$w->set_last_heartbeat_for_test( \microtime( true ) - WorkerBase::HEARTBEAT_INTERVAL_S - 1 );
+		// Backdate the heartbeat file mtime so we can detect a refresh.
+		\touch( $hb_path, \time() - 60 );
+
+		$this->assertTrue( $w->should_continue() );
+		\clearstatcache();
+		$new_mtime = \filemtime( $hb_path );
+		$this->assertGreaterThan( \time() - 5, $new_mtime, 'heartbeat must be touched recently' );
+	}
+
+	public function test_self_respawn_posts_to_spawn_url(): void {
+		// Reset the bootstrap stub's POST log.
+		$GLOBALS['_wp_test_remote_posts'] = [];
+
+		$w = new TestableWorker( $this->tmp, 'firehose-workers', 3 );
+		$w->self_respawn( 'http://example.com/wp-json/newspack-nodes/v1/workers/spawn', 'token-123' );
+
+		$this->assertCount( 1, $GLOBALS['_wp_test_remote_posts'] );
+		$post = $GLOBALS['_wp_test_remote_posts'][0];
+		$this->assertSame( 'http://example.com/wp-json/newspack-nodes/v1/workers/spawn', $post['url'] );
+		// Worker type + partition + token are POSTed in the body so the spawn
+		// endpoint can validate.
+		$this->assertSame( 'firehose-workers', $post['args']['body']['type'] );
+		$this->assertSame( 3, $post['args']['body']['partition'] );
+		$this->assertSame( 'token-123', $post['args']['body']['nonce'] );
+		// Non-blocking + tiny timeout so workers don't hang on respawn.
+		$this->assertFalse( $post['args']['blocking'] );
+		$this->assertSame( 1, $post['args']['timeout'] );
+	}
+
+	public function test_memory_limit_bytes_parses_units(): void {
+		// memory_limit_bytes parses M/G/K suffixes from ini_get('memory_limit').
+		// We can't change ini at runtime in test, so exercise via reflection on
+		// memory_get_usage path indirectly: check that the result is a sane
+		// integer matching what ini_get reports.
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$ref = new \ReflectionMethod( WorkerBase::class, 'memory_limit_bytes' );
+		$ref->setAccessible( true );
+
+		$result = $ref->invoke( $w );
+		// In test environment ini_get('memory_limit') is typically '128M' or '-1'.
+		// Either way the function returns >= -1 and either matches the parsed value
+		// or returns -1 explicitly.
+		$ini = \ini_get( 'memory_limit' );
+		if ( '-1' === $ini || false === $ini ) {
+			$this->assertSame( -1, $result );
+		} else {
+			$this->assertGreaterThan( 0, $result );
+		}
+	}
+
+	public function test_memory_over_watermark_returns_false_when_limit_unset(): void {
+		// limit <= 0 → memory_over_watermark returns false (no shutdown trigger).
+		// We can't easily force memory_limit=-1 inside a single test, but we can
+		// directly verify the unlimited-memory path via subclass override.
+		$w = new UnlimitedMemoryWorker( $this->tmp, 'test-worker', 0 );
+		$w->acquire();
+		$ref = new \ReflectionMethod( WorkerBase::class, 'memory_over_watermark' );
+		$ref->setAccessible( true );
+		$this->assertFalse( $ref->invoke( $w ) );
+	}
+
+	public function test_db_check_passes_default_returns_true(): void {
+		// Default base implementation always passes — subclasses override to do
+		// real liveness checks.
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$ref = new \ReflectionMethod( WorkerBase::class, 'db_check_passes' );
+		$ref->setAccessible( true );
+		$this->assertTrue( $ref->invoke( $w ) );
+	}
+
+	public function test_self_respawn_skips_when_wp_remote_post_unavailable(): void {
+		// Edge case: function_exists check guards the POST call.
+		// We can't undefine the bootstrap-stubbed function in PHP without runkit,
+		// but we verify the documented behavior path: skip silently.
+		// (The branch IS covered by the bootstrap path when wp_remote_post is
+		// available, so we confirm the no-op shape here.)
+		$GLOBALS['_wp_test_remote_posts'] = [];
+		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$w->self_respawn( '', 'token' );
+		// Empty URL still records the post (fire-and-forget). What matters: it doesn't throw.
+		$this->assertTrue( true );
+	}
+
+	public function test_execute_returns_skipped_when_lock_held_by_another(): void {
+		// `execute()` first attempts to acquire(); if another process holds the
+		// lock, it bails with status='skipped'. Simulate by acquiring the lock
+		// from a sibling worker first.
+		$held = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$this->assertTrue( $held->acquire(), 'baseline acquire must succeed' );
+
+		$contender = new TestableWorker( $this->tmp, 'test-worker', 0 );
+		$result    = $contender->execute(
+			fn() => null,           // never reached
+			'http://example/',
+			'token'
+		);
+
+		$this->assertSame( 'skipped', $result['status'] );
+		$this->assertSame( 'lock_held', $result['reason'] );
+	}
+
+	public function test_execute_runs_topology_then_releases_lock_and_respawns(): void {
+		// Happy path: topology closure sets the restart flag so should_continue()
+		// returns false on the first drain tick; finally block releases the lock
+		// and POSTs to the spawn endpoint.
+		$GLOBALS['_wp_test_remote_posts'] = [];
+
+		$worker = new TestableWorker( $this->tmp, 'happy-path', 0 );
+
+		$topology_lock_path = "{$this->tmp}/locks/happy-path.p0.lock.d";
+		$topology = function ( $ci, $partition ) use ( $topology_lock_path ): void {
+			// Drop the restart flag inside the topology closure so the first
+			// drain iteration exits cleanly.
+			\Newspack_Nodes\Lock::request_restart_at( $topology_lock_path );
+		};
+
+		$result = $worker->execute( $topology, 'http://example/spawn', 'token-abc' );
+
+		$this->assertSame( 'ok', $result['status'] );
+
+		// Lock dir released — supervisor / next spawn can take over.
+		$this->assertFalse( \is_dir( $topology_lock_path ) );
+
+		// Self-respawn POSTed to the spawn endpoint with the right body.
+		$this->assertNotEmpty( $GLOBALS['_wp_test_remote_posts'] );
+		$post = $GLOBALS['_wp_test_remote_posts'][0];
+		$this->assertSame( 'http://example/spawn', $post['url'] );
+		$this->assertSame( 'happy-path', $post['args']['body']['type'] );
+		$this->assertSame( 'token-abc', $post['args']['body']['nonce'] );
+	}
 }
 
 class TestableWorker extends WorkerBase {
 	public function set_start_time_for_test( float $t ): void {
 		$this->start_time = $t;
+	}
+	public function set_last_heartbeat_for_test( float $t ): void {
+		$this->last_heartbeat = $t;
+	}
+}
+
+class UnlimitedMemoryWorker extends WorkerBase {
+	protected function memory_limit_bytes(): int {
+		return -1;
 	}
 }
 

@@ -12,6 +12,7 @@ The canonical design document is [`services/pyrobase/sources/.specs/2026-05-06-n
 - [Router](#router)
 - [Storage: Topic + Partition](#storage-topic--partition)
 - [Consumer + Tail](#consumer--tail)
+- [Other Node Primitives](#other-node-primitives)
 - [Backpressure (none)](#backpressure-none)
 - [TO=FROM Convention](#tofrom-convention)
 - [EventFramework](#eventframework)
@@ -216,10 +217,7 @@ $p->scan_index( fn ( $line, $seg ) => ..., $newest_first );
 $p->allow_large_writes();                               // 4KB -> 10MB; auto-locks
 ```
 
-`fill()` dispatches by message type:
-
-- **TM_BYTESTREAM** / **TM_STRUCT**: pack the whole message via `Message::packed()` and append to the current segment.
-- **TM_REQUEST** with VALUE = `"GET <seg> <offset> <length>"`: read synchronously, build TM_RESPONSE with `TO=$message[FROM]`, fill into sink.
+`fill()` packs the whole message via `Message::packed()` and appends to the current segment. All TYPE flags pass through — Partition is a generic transport including for control messages (TM_REQUEST, TM_ERROR, TM_EOF). The pivoted-cli IPC pattern relies on this: cli ↔ worker round-trips drain markers (TM_EOF), error responses (TM_COMMAND|TM_ERROR), and introspection requests (TM_REQUEST) through Partition-as-bus. Data partitions like firehose.log only ever see TM_BYTESTREAM / TM_STRUCT in practice, so the broader contract is a no-op for production paths.
 
 **Class-API contract** (net-new constraint vs Tachikoma):
 
@@ -255,7 +253,7 @@ Multi-Partition wrapper. Hashes KEY to partition, falls back to round-robin when
 ```php
 $t = new Topic( $base_dir, $num_partitions, $segment_size, $num_segments, $max_lifespan );
 $t->write( $key, $value );
-$t->fill( $message );    // KEY -> partition; TM_REQUEST GET_PARTITIONS supported
+$t->fill( $message );    // KEY -> partition routing
 ```
 
 Three precedences in `fill()`:
@@ -297,6 +295,20 @@ $c->checkpoint();   // append {seg, off, ts} JSONL to offsetlog
 Inode + size-shrink rotation detection on every poll (`clearstatcache(true, $path)` first). On rotation: reset position to 0, clear remainder.
 
 **Two internal Timers** in the v1-final version: `poll_timer` (file polling, 10ms) and `reattempt_timer` (on_ENOENT retry). Currently the prototype runs both inline in `fire_cb`; splitting them is on the polish list.
+
+## Other Node Primitives
+
+**Tee** is the fan-out node. Targets are an array; per-target try/catch isolates a failing target from the rest of the broadcast, and dead targets are pruned at fill-time after the first failed dispatch.
+
+**Hook** is the WordPress-extensibility bridge. Action mode forwards the message unchanged after firing `do_action`; filter mode passes the message through `apply_filters` and forwards the result. Plugins observe completed requests, transform job payloads before routing, etc., without touching topology files.
+
+**Callback** is the closure-as-Node adapter — a one-line `fill()` that invokes a stored closure. Useful for inline transforms in tests and small topology stitches without writing a whole subclass.
+
+**Echo** is a routing helper that re-addresses messages on the way through. Both `target` and `TO` set → `TO = target/TO` (path-prepend). Both empty → `TO = FROM` (return-to-sender along the trail). Otherwise TO is unchanged. TM_ERROR with empty TO is dropped rather than bounced (the producer isn't expecting the error trail).
+
+**Log** is the file-writer counterpart to Tail. Constructor: `(string $filename, string $mode = 'append', int $max_size = 0, int $max_rotations = 0)`. `fill()` writes the message VALUE (not the packed envelope) to the file — designed for human-readable structured-text logs (audit trails, application logs) where the on-disk shape is the producer's payload. `max_size > 0` triggers auto-rotation after the write that crossed the threshold; `max_rotations > 0` mtime-prunes older rotated siblings (sibling discovery uses `glob({filename}-*)`, so the prefix is reserved). Overwrite mode is single-shot: the node `remove_node`s itself on TM_EOF; append mode keeps the FD open for additional data. A TM_REQUEST with VALUE starting `rotate` triggers rotation on demand (mirrors Tachikoma `Log.pm`'s `rotate` request).
+
+**Timer** (and its subclass **Router**) is the time-driven base. `set_timer( $interval_ms, $oneshot )` registers with EventFramework; `fire_cb` is the EventFramework-side hook; `fire()` is the override point for subclasses. Default `fire()` emits a TM_BYTESTREAM with the current timestamp at `target` and notifies `FIRE` listeners.
 
 ## Backpressure (none)
 
@@ -490,7 +502,13 @@ Reader id form: `{type}.p{N}`, e.g. `firehose-workers.p3`. Dot-and-`p` keeps it 
 
 **Shell** is a subset of real Tachikoma's `Shell3.pm`: quote-aware tokenization (single, double, backtick), single-tier `<varname>` interpolation, backslash line-continuation, and an `include` builtin. Conditionals, loops, function definitions, pipes, and `eval` all reject with "syntax not supported in v1". Quote-aware tokenization + line-continuation are *required* for `include topology.tch foo=bar` to parse real topology files.
 
-**Dumper** dispatches by TYPE flag: TM_COMMAND|TM_RESPONSE -> unwrap Command JSON, print payload; TM_ERROR -> "ERROR: ..." to stderr; TM_INFO -> "INFO[from]: ..." to stdout (with prompt-aware async write that wipes-and-redraws if a prompt is on screen and stdout is a TTY).
+Shell also intercepts the **path-composing builtins** before they reach the message bus: `cd`/`chdir` updates `$this->path` (the cwd that prepends to any subsequent `<path>` arg via `prefix()`); `tell_node`/`tell` (TM_INFO), `send_node`/`send` (TM_BYTESTREAM), `send_eof` (TM_EOF), `command_node`/`command`/`cmd` (TM_COMMAND), `request_node`/`request` (TM_REQUEST), `pwd`, and `ping` all build their TO via `prefix( <path> )` so the cwd composes uniformly. Verbs that don't match a builtin fall through as TM_COMMAND with the verb as the command name and TO = `prefix('')` (i.e., the cwd itself).
+
+**CommandInterpreter** dispatches by verb. Aliases share the same `cmd_foo` static; e.g. `make` → `cmd_make_node`, `rm`/`remove` → `cmd_remove_node`, `dump` → `cmd_dump_node`, `ls` → `cmd_list_nodes`. CI handles a TM_COMMAND only when TO is empty — non-empty TO means the command is mid-route toward a downstream node, so CI forwards to its sink (Router). Verbs may throw freely; `interpret()` catches `\Throwable` and turns the response into `TM_COMMAND|TM_ERROR` addressed back along FROM. CI also bounces TM_PING and TM_EOF with empty TO back along FROM — the latter is the cli's stdin-close drain marker (cli emits TM_EOF when stdin EOFs, waits for the bounce so all preceding output has been drained off the reply partition before the cli exits).
+
+Constructors of registered Node classes (Topic, Partition, Consumer, Tail, Log, etc.) populate `$this->arguments` — a string of space-joined ctor args — directly. `dump_config()` reads that to emit a round-trippable `make_node <type> <name> <args...>` line; `make_node` round-trips via the same ctor. No separate `dump_config()` override per class.
+
+**Dumper** dispatches by TYPE flag: TM_COMMAND|TM_RESPONSE -> unwrap Command JSON, print payload; TM_COMMAND|TM_ERROR -> "ERROR: ..." to stderr (the wrapped exception path); TM_ERROR -> "ERROR: ..." to stderr; TM_INFO -> "INFO[from]: ..." to stdout (with prompt-aware async write that wipes-and-redraws if a prompt is on screen and stdout is a TTY).
 
 **Multi-session via FROM-trail**: each cli stamps `FROM=$pid` (its wp-cli process PID). The worker's input-Consumer prepends `_repl`, so by the time the interpreter sees the message, `FROM=_repl/$pid`. Replies follow `TO=$message[FROM]`, carrying `TO=_repl/$pid`. The worker's `_router` splits TO on `/`, looks up `_repl` (a Partition), updates TO to `$pid` (the post-strip remainder). All cli sessions read the output Partition; each cli's Dumper filters: render iff TO matches its own `$pid`, OR TO is empty (async broadcasts). No lock, no EBUSY; concurrent shells just work.
 

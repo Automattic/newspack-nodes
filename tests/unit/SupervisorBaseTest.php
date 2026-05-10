@@ -257,4 +257,196 @@ class SupervisorBaseTest extends TestCase {
 		$this->assertSame( 16, SupervisorBase::MAX_PARTITIONS );
 		$this->assertSame( 3600, SupervisorBase::STALE_PARTITION_AGE_S );
 	}
+
+	// ── worker_needs_spawn: heartbeat-missing-but-dir-exists ─────────────
+
+	/**
+	 * A lock dir can exist transiently without a heartbeat file (mid-acquire,
+	 * or after force_release that left the dir but cleaned the heartbeat).
+	 * Supervisor must treat this as "needs spawn" — the worker is not running.
+	 *
+	 * This is distinct from "no lock dir" (test_worker_needs_spawn_when_no_lock)
+	 * and "stale heartbeat" (test_worker_needs_spawn_when_heartbeat_stale).
+	 */
+	public function test_worker_needs_spawn_when_heartbeat_file_missing(): void {
+		$s = new SupervisorBase( $this->tmp );
+		// Lock dir exists but heartbeat file is absent.
+		mkdir( "{$this->tmp}/locks/foo.p0.lock.d", 0755, true );
+
+		$worker = [ 'type' => 'foo', 'partition' => 0, 'stale_timeout' => 60 ];
+		$this->assertTrue(
+			$s->worker_needs_spawn( $worker, microtime( true ) ),
+			'missing heartbeat file in existing dir must trigger spawn'
+		);
+	}
+
+	/**
+	 * worker_needs_spawn must default the stale_timeout to Lock::STALE_TIMEOUT
+	 * when the worker descriptor omits it. Verifies the ?? fallback.
+	 */
+	public function test_worker_needs_spawn_uses_default_stale_timeout(): void {
+		$s = new SupervisorBase( $this->tmp );
+		mkdir( "{$this->tmp}/locks/foo.p0.lock.d", 0755, true );
+		// Heartbeat older than default Lock::STALE_TIMEOUT (60s) but younger
+		// than 90s — this asserts the default is in fact ~60.
+		touch( "{$this->tmp}/locks/foo.p0.lock.d/heartbeat", time() - 75 );
+
+		$worker = [ 'type' => 'foo', 'partition' => 0 ]; // no stale_timeout key
+		$this->assertTrue(
+			$s->worker_needs_spawn( $worker, microtime( true ) ),
+			'missing stale_timeout must default to Lock::STALE_TIMEOUT (60s)'
+		);
+	}
+
+	// ── delete_directory_recursive_inner: edge cases ──────────────────────
+
+	/**
+	 * delete_directory_recursive must be a no-op when invoked on a regular
+	 * file (not a directory). The is_dir check inside the inner helper
+	 * gates this. Defends against accidental misuse — a file inside the
+	 * base shouldn't be silently unlinked through this API.
+	 */
+	public function test_delete_directory_recursive_noop_on_regular_file(): void {
+		$file = "{$this->tmp}/data/regular.txt";
+		mkdir( "{$this->tmp}/data", 0755, true );
+		file_put_contents( $file, 'preserve' );
+
+		// Should be a no-op.
+		SupervisorBase::delete_directory_recursive( $file, $this->tmp );
+
+		$this->assertFileExists( $file, 'regular files must NOT be unlinked' );
+	}
+
+	/**
+	 * When the top-level path itself is a symlink (within base), the inner
+	 * helper's is_link guard refuses to follow. The symlink and its target
+	 * both survive.
+	 */
+	public function test_delete_directory_recursive_refuses_symlinked_top_path(): void {
+		if ( ! function_exists( 'symlink' ) ) {
+			$this->markTestSkipped( 'symlink() unavailable in this environment' );
+		}
+
+		$target = "{$this->tmp}/real-target";
+		mkdir( $target, 0755, true );
+		file_put_contents( "{$target}/preserved.log", 'data' );
+
+		$link = "{$this->tmp}/symlink-to-target";
+		@symlink( $target, $link );
+
+		SupervisorBase::delete_directory_recursive( $link, $this->tmp );
+
+		$this->assertTrue( is_dir( $target ), 'symlink target must survive' );
+		$this->assertTrue( is_file( "{$target}/preserved.log" ) );
+	}
+
+	// ── remove_stale_directory: child symlinks skipped ────────────────────
+
+	/**
+	 * remove_stale_directory's child loop skips symlinks when computing
+	 * newest_mtime. A symlinked file inside the dir must not contribute
+	 * its target's mtime to the staleness decision.
+	 */
+	public function test_remove_stale_directory_skips_symlinked_children(): void {
+		if ( ! function_exists( 'symlink' ) ) {
+			$this->markTestSkipped( 'symlink() unavailable in this environment' );
+		}
+
+		$dir = "{$this->tmp}/with-symlink-child";
+		mkdir( $dir, 0755, true );
+
+		// One real, OLD file in the dir.
+		file_put_contents( "{$dir}/old.log", 'old' );
+		touch( "{$dir}/old.log", time() - 7200 );
+
+		// One symlinked file pointing at a FRESH external file. If the loop
+		// followed the symlink, it would see a fresh mtime and KEEP the dir.
+		// The is_link skip guarantees only the real file's mtime is consulted.
+		$external = $this->make_temp_dir( 'sym-target-' );
+		file_put_contents( "{$external}/fresh.log", 'now' );
+		@symlink( "{$external}/fresh.log", "{$dir}/symlink-to-fresh" );
+
+		$s = new SupervisorBase( $this->tmp );
+		$s->remove_stale_directory( $dir, 3600 );
+
+		// The dir's only "real" file is old → stale → removed despite
+		// the fresh-symlinked child.
+		$this->assertFalse( is_dir( $dir ), 'symlinked children must not protect a stale dir' );
+
+		// External target must survive (we never followed the link).
+		$this->assertTrue( is_file( "{$external}/fresh.log" ) );
+
+		$this->rmdir_recursive( $external );
+	}
+
+	// ── persist_spawn_ts / load_spawn_ts: TTL via transient ───────────────
+
+	/**
+	 * persist_spawn_ts must use a TTL of 2 * MIN_SPAWN_INTERVAL_S (30s) so
+	 * stale entries auto-expire and don't accumulate after retired worker
+	 * types. Verifies the TTL computation by checking the transient store.
+	 */
+	public function test_persist_spawn_ts_writes_with_bounded_ttl(): void {
+		$s   = new SupervisorBase( $this->tmp );
+		$now = microtime( true );
+		$s->record_spawn( 'firehose-workers', 0, $now );
+
+		$key = SupervisorBase::SPAWN_TS_CACHE_KEY . 'firehose-workers|0';
+		// Bootstrap stores transients as [value, expires_at]. Inspect the raw
+		// store to verify expiry was bounded.
+		$entry = $GLOBALS['_wp_test_transients'][ $key ] ?? null;
+		$this->assertNotNull( $entry, 'spawn ts must be persisted under the cache key' );
+
+		[ $value, $expires_at ] = $entry;
+		$ttl = $expires_at - time();
+		$this->assertSame( (int) $now, (int) $value );
+		// TTL bounded by 2 * MIN_SPAWN_INTERVAL_S = 30. Allow off-by-one for
+		// time() roundoff between persist_spawn_ts and our read.
+		$this->assertGreaterThanOrEqual( 28, $ttl );
+		$this->assertLessThanOrEqual( 30, $ttl );
+	}
+
+	/**
+	 * load_spawn_ts returns null when no persisted timestamp exists for
+	 * the key. is_recently_spawned then returns false (nothing to gate).
+	 */
+	public function test_load_spawn_ts_returns_null_on_miss(): void {
+		// No record_spawn called — no persisted state.
+		$s = new SupervisorBase( $this->tmp );
+		$method = new \ReflectionMethod( SupervisorBase::class, 'load_spawn_ts' );
+		$method->setAccessible( true );
+
+		$result = $method->invoke( $s, 'never-recorded|0' );
+		$this->assertNull( $result, 'load_spawn_ts must return null on miss' );
+	}
+
+	/**
+	 * load_spawn_ts caches the persisted value into in-memory state on first
+	 * read (via is_recently_spawned). Subsequent reads use the in-memory copy.
+	 *
+	 * This is a load-bearing optimization: avoids a transient read per tick
+	 * after the first. We assert by clearing the transient store and showing
+	 * is_recently_spawned still returns true.
+	 */
+	public function test_is_recently_spawned_caches_persisted_value_after_first_read(): void {
+		$now = microtime( true );
+
+		// First instance: persist via record_spawn.
+		$first = new SupervisorBase( $this->tmp );
+		$first->record_spawn( 'foo', 0, $now );
+
+		// Second instance: triggers load_spawn_ts internally.
+		$second = new SupervisorBase( $this->tmp );
+		$this->assertTrue( $second->is_recently_spawned( 'foo', 0, $now + 5 ) );
+
+		// Clear the transient store. If is_recently_spawned were re-fetching,
+		// the next call would return false. The cache means it remembers.
+		$GLOBALS['_wp_test_transients'] = [];
+
+		$this->assertTrue(
+			$second->is_recently_spawned( 'foo', 0, $now + 6 ),
+			'second call must use cached in-memory value, not re-fetch from transient'
+		);
+	}
+
 }

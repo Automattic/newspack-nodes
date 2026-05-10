@@ -565,6 +565,458 @@ class AdminTest extends TestCase {
 		$this->assertArrayNotHasKey( Admin::MENU_SLUG, $GLOBALS['_options_pages'] );
 	}
 
+	// ---- section callbacks -----------------------------------------------
+
+	public function test_general_section_callback_outputs_paragraph(): void {
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->general_section_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( '<p>', $html );
+		$this->assertStringContainsString( 'Substrate runtime toggles', $html );
+	}
+
+	public function test_storage_section_callback_outputs_paragraph(): void {
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->storage_section_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( '<p>', $html );
+		$this->assertStringContainsString( 'log storage', $html );
+	}
+
+	// ---- enable_workers_callback -----------------------------------------
+
+	public function test_enable_workers_callback_renders_checkbox_unchecked_when_disabled(): void {
+		\update_option( 'newspack_nodes_enable_workers', 0 );
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->enable_workers_callback();
+		$html = \ob_get_clean();
+
+		// Hidden zero input first so unchecked submit still posts a value.
+		$this->assertStringContainsString( 'type="hidden" name="newspack_nodes_enable_workers" value="0"', $html );
+		// Checkbox renders with the right name + value=1.
+		$this->assertStringContainsString( 'type="checkbox"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_enable_workers"', $html );
+		$this->assertStringContainsString( 'id="enable_workers"', $html );
+		$this->assertStringContainsString( 'value="1"', $html );
+		// Disabled means NOT checked.
+		$this->assertStringNotContainsString( 'checked="checked"', $html );
+	}
+
+	public function test_enable_workers_callback_renders_checkbox_checked_when_enabled(): void {
+		\update_option( 'newspack_nodes_enable_workers', 1 );
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->enable_workers_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'type="checkbox"', $html );
+		$this->assertStringContainsString( 'checked="checked"', $html );
+	}
+
+	// ---- base_directory_callback (render_directory_field) ----------------
+
+	public function test_base_directory_callback_renders_text_input_with_default_placeholder(): void {
+		// No option saved → placeholder shows the default; value is empty.
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->base_directory_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'type="text"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_base_directory"', $html );
+		$this->assertStringContainsString( 'id="base_directory"', $html );
+		$this->assertStringContainsString( 'value=""', $html );
+		// Default-placeholder + reset button + description block + class="regular-text code".
+		$this->assertStringContainsString( 'class="regular-text code"', $html );
+		$this->assertStringContainsString( 'placeholder="', $html );
+		$this->assertStringContainsString( 'Base directory for logs', $html );
+		// Reset-text button wired with data-field.
+		$this->assertStringContainsString( 'newspack-nodes-reset-text', $html );
+		$this->assertStringContainsString( 'data-field="base_directory"', $html );
+	}
+
+	public function test_base_directory_callback_renders_saved_value(): void {
+		\update_option( 'newspack_nodes_base_directory', '/var/log/foo' );
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->base_directory_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'value="/var/log/foo"', $html );
+	}
+
+	// ---- num_partitions_callback (render_number_field, max=16 → small-text) --
+
+	public function test_num_partitions_callback_renders_number_input_with_bounds(): void {
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->num_partitions_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'type="number"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_num_partitions"', $html );
+		$this->assertStringContainsString( 'id="num_partitions"', $html );
+		$this->assertStringContainsString( 'min="1"', $html );
+		$this->assertStringContainsString( 'max="16"', $html );
+		// max <= 999 → small-text input class.
+		$this->assertStringContainsString( 'class="small-text"', $html );
+		// Reset-number button (no data-default attribute).
+		$this->assertStringContainsString( 'newspack-nodes-reset-number', $html );
+		$this->assertStringContainsString( 'data-field="num_partitions"', $html );
+		// No saved option → empty value, default in placeholder.
+		$this->assertStringContainsString( 'value=""', $html );
+	}
+
+	public function test_num_partitions_callback_renders_saved_value_when_not_default(): void {
+		// Save a value different from the default (1) — should render that value, not empty.
+		\update_option( 'newspack_nodes_num_partitions', 4 );
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->num_partitions_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'value="4"', $html );
+	}
+
+	public function test_num_partitions_callback_blanks_value_when_equals_default(): void {
+		// Saving a value equal to the default also blanks the input (uses placeholder).
+		\update_option( 'newspack_nodes_num_partitions', 1 );
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->num_partitions_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'value=""', $html );
+	}
+
+	// ---- num_segments_callback (max=32 → small-text) ---------------------
+
+	public function test_num_segments_callback_renders_number_input_with_bounds(): void {
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->num_segments_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'type="number"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_num_segments"', $html );
+		$this->assertStringContainsString( 'id="num_segments"', $html );
+		$this->assertStringContainsString( 'min="2"', $html );
+		$this->assertStringContainsString( 'max="32"', $html );
+		// max <= 999.
+		$this->assertStringContainsString( 'class="small-text"', $html );
+	}
+
+	// ---- segment_size_callback (max=536870912 → regular-text) ------------
+
+	public function test_segment_size_callback_renders_number_input_with_bounds(): void {
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->segment_size_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'type="number"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_segment_size"', $html );
+		$this->assertStringContainsString( 'min="1048576"', $html );
+		$this->assertStringContainsString( 'max="536870912"', $html );
+		// max > 999 → regular-text branch.
+		$this->assertStringContainsString( 'class="regular-text"', $html );
+	}
+
+	// ---- max_lifespan_callback (max=604800 → regular-text) ---------------
+
+	public function test_max_lifespan_callback_renders_number_input_with_bounds(): void {
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->max_lifespan_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'type="number"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_max_lifespan"', $html );
+		$this->assertStringContainsString( 'min="0"', $html );
+		$this->assertStringContainsString( 'max="604800"', $html );
+		// max > 999 → regular-text branch.
+		$this->assertStringContainsString( 'class="regular-text"', $html );
+	}
+
+	// ---- memcache_servers_callback ---------------------------------------
+
+	public function test_memcache_servers_callback_renders_textarea_with_placeholder(): void {
+		// No saved option — textarea is empty, placeholder reflects the configured defaults
+		// loaded from the installed config file (env-specific: dev container uses
+		// memcache1:11211, vanilla install would use 127.0.0.1:11211). Don't pin the
+		// exact host — pin the shape and the source-of-truth (Config::load_config_defaults).
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->memcache_servers_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( '<textarea', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_memcache_servers"', $html );
+		$this->assertStringContainsString( 'id="memcache_servers"', $html );
+		$this->assertStringContainsString( 'class="regular-text code"', $html );
+
+		// Placeholder must match what Config returns as default.
+		$defaults = \Newspack_Nodes\Config::load_config_defaults();
+		$expected = (string) ( $defaults['memcache_servers'][0] ?? '127.0.0.1:11211' );
+		$this->assertStringContainsString( 'placeholder="' . $expected . '"', $html );
+
+		$this->assertStringContainsString( 'one per line', $html );
+		// Empty textarea body.
+		$this->assertMatchesRegularExpression( '/<textarea[^>]*><\/textarea>/', $html );
+		// Reset-text button wired.
+		$this->assertStringContainsString( 'newspack-nodes-reset-text', $html );
+		$this->assertStringContainsString( 'data-field="memcache_servers"', $html );
+	}
+
+	public function test_memcache_servers_callback_renders_saved_value(): void {
+		\update_option( 'newspack_nodes_memcache_servers', "10.0.0.1:11211\n10.0.0.2:11211" );
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->memcache_servers_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( '10.0.0.1:11211', $html );
+		$this->assertStringContainsString( '10.0.0.2:11211', $html );
+	}
+
+	// ---- total_storage_callback ------------------------------------------
+
+	public function test_total_storage_callback_renders_storage_display(): void {
+		// No options saved — uses defaults from config.
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->total_storage_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( 'id="total_storage_display"', $html );
+		$this->assertStringContainsString( 'MB', $html );
+		// Calculated-as caption.
+		$this->assertStringContainsString( 'Calculated as', $html );
+		// Description references the segment-MB and partitions/segments breakdown.
+		$this->assertStringContainsString( 'segment ', $html );
+		$this->assertStringContainsString( 'partitions', $html );
+		$this->assertStringContainsString( 'logs', $html );
+	}
+
+	public function test_total_storage_callback_uses_filter_for_num_logs(): void {
+		\add_filter(
+			'newspack_nodes/num_logs',
+			function () {
+				return 5;
+			}
+		);
+
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->total_storage_callback();
+		$html = \ob_get_clean();
+
+		// 5 logs should appear in the calculation breakdown.
+		$this->assertMatchesRegularExpression( '/×\s*5\s*logs/u', $html );
+	}
+
+	public function test_total_storage_callback_shows_gb_when_total_over_one_gigabyte(): void {
+		// Force a large enough total: 64MB segment × 4 segments × 4 partitions × 2 logs ≈ 2 GB.
+		\update_option( 'newspack_nodes_segment_size', 64 * 1024 * 1024 );
+		\update_option( 'newspack_nodes_num_segments', 4 );
+		\update_option( 'newspack_nodes_num_partitions', 4 );
+		\add_filter(
+			'newspack_nodes/num_logs',
+			function () {
+				return 2;
+			}
+		);
+
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->total_storage_callback();
+		$html = \ob_get_clean();
+
+		// "X MB (Y GB)" form when ≥ 1 GB.
+		$this->assertMatchesRegularExpression( '/\(\s*\d[\d,.]*\s*GB\s*\)/u', $html );
+	}
+
+	public function test_total_storage_callback_treats_empty_options_as_defaults(): void {
+		// Options stored explicitly as empty strings should fall back to config defaults.
+		\update_option( 'newspack_nodes_segment_size', '' );
+		\update_option( 'newspack_nodes_num_segments', '' );
+		\update_option( 'newspack_nodes_num_partitions', '' );
+
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->total_storage_callback();
+		$html = \ob_get_clean();
+
+		// Should render without error and contain a numeric MB value.
+		$this->assertMatchesRegularExpression( '/[\d,]+\s*MB/u', $html );
+	}
+
+	// ---- sanitize_aggregator_servers -------------------------------------
+
+	public function test_sanitize_aggregator_servers_rejects_non_array_input(): void {
+		$admin = new Admin();
+		$this->assertSame( [], $admin->sanitize_aggregator_servers( 'a string' ) );
+		$this->assertSame( [], $admin->sanitize_aggregator_servers( 42 ) );
+		$this->assertSame( [], $admin->sanitize_aggregator_servers( null ) );
+	}
+
+	public function test_sanitize_aggregator_servers_skips_non_array_config_entries(): void {
+		$admin = new Admin();
+		$result = $admin->sanitize_aggregator_servers(
+			[
+				'web01' => 'not-an-array',
+				'web02' => 12345,
+			]
+		);
+		$this->assertSame( [], $result );
+	}
+
+	public function test_sanitize_aggregator_servers_skips_empty_server_id(): void {
+		$admin  = new Admin();
+		$result = $admin->sanitize_aggregator_servers(
+			[
+				'' => [
+					'url' => 'https://valid.example.com',
+				],
+			]
+		);
+		$this->assertSame( [], $result );
+	}
+
+	public function test_sanitize_aggregator_servers_rejects_non_https_urls(): void {
+		$admin  = new Admin();
+		$result = $admin->sanitize_aggregator_servers(
+			[
+				'web01' => [ 'url' => 'http://insecure.example.com' ],
+				'web02' => [ 'url' => 'ftp://wrong-scheme.example.com' ],
+				'web03' => [ 'url' => '' ],
+				'web04' => [ /* no url at all */ ],
+				'web05' => [ 'url' => 12345 ], // non-string
+			]
+		);
+		$this->assertSame( [], $result );
+	}
+
+	public function test_sanitize_aggregator_servers_keeps_valid_https_entry(): void {
+		$admin  = new Admin();
+		$result = $admin->sanitize_aggregator_servers(
+			[
+				'web01' => [
+					'url'           => 'https://web01.example.com',
+					'auth_username' => 'user',
+					'auth_password' => 'pass',
+					'enabled'       => true,
+				],
+			]
+		);
+		$this->assertArrayHasKey( 'web01', $result );
+		$this->assertSame( 'https://web01.example.com', $result['web01']['url'] );
+		$this->assertSame( 'user', $result['web01']['auth_username'] );
+		$this->assertSame( 'pass', $result['web01']['auth_password'] );
+		$this->assertTrue( $result['web01']['enabled'] );
+	}
+
+	public function test_sanitize_aggregator_servers_defaults_enabled_to_true(): void {
+		$admin  = new Admin();
+		$result = $admin->sanitize_aggregator_servers(
+			[
+				'web01' => [
+					'url' => 'https://web01.example.com',
+					// 'enabled' missing.
+				],
+			]
+		);
+		$this->assertTrue( $result['web01']['enabled'] );
+		// Missing username/password default to empty string.
+		$this->assertSame( '', $result['web01']['auth_username'] );
+		$this->assertSame( '', $result['web01']['auth_password'] );
+	}
+
+	public function test_sanitize_aggregator_servers_coerces_explicit_disabled(): void {
+		$admin  = new Admin();
+		$result = $admin->sanitize_aggregator_servers(
+			[
+				'web01' => [
+					'url'     => 'https://web01.example.com',
+					'enabled' => false,
+				],
+				'web02' => [
+					'url'     => 'https://web02.example.com',
+					'enabled' => 0,
+				],
+			]
+		);
+		$this->assertFalse( $result['web01']['enabled'] );
+		$this->assertFalse( $result['web02']['enabled'] );
+	}
+
+	// ---- Sanitize callbacks via register_settings (instance methods) ----
+
+	public function test_sanitize_aggregator_servers_callback_registered_under_settings(): void {
+		$admin = new Admin();
+		$admin->register_settings();
+
+		$cb = $GLOBALS['_registered_settings']['newspack_nodes_aggregator_servers']['args']['sanitize_callback'];
+		$this->assertIsArray( $cb );
+		$this->assertSame( 'sanitize_aggregator_servers', $cb[1] );
+
+		// Aggregator servers must NOT be autoloaded (extended option).
+		$this->assertFalse( $GLOBALS['_registered_settings']['newspack_nodes_aggregator_servers']['args']['autoload'] );
+
+		// Round-trip via the registered callback.
+		$out = \call_user_func(
+			$cb,
+			[
+				'web01' => [ 'url' => 'https://web01.example.com' ],
+			]
+		);
+		$this->assertArrayHasKey( 'web01', $out );
+	}
+
+	// ---- maybe_request_worker_restart (configuration-error path) --------
+
+	public function test_maybe_request_worker_restart_swallows_throwable_when_locks_dir_unconfigurable(): void {
+		// Force Config::get_locks_directory() to throw by pointing the base_dir
+		// filter at a path with a null byte — Config::ensure_path() rejects
+		// these immediately. The Admin must catch and silently return.
+		\add_filter(
+			'newspack_nodes/base_dir',
+			function () {
+				return "/tmp/has\0null";
+			},
+			20
+		);
+		Config::reset();
+
+		$admin = new Admin();
+		// Must not throw; must be a no-op.
+		$admin->maybe_request_worker_restart( 'newspack_nodes_base_directory' );
+		$this->assertTrue( true );
+	}
+
 	// ---- helpers ----------------------------------------------------------
 
 	private function prepare_lock_dir( string $group, int $partition ): string {

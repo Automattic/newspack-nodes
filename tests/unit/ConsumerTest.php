@@ -3,11 +3,14 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Consumer;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\EventFramework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition;
 use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\PreserveGlobalState;
+use PHPUnit\Framework\Attributes\RunInSeparateProcess;
 
 #[CoversClass( Consumer::class )]
 class ConsumerTest extends TestCase {
@@ -15,6 +18,7 @@ class ConsumerTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		EventFramework::reset();
 		$this->tmp = $this->make_temp_dir();
 	}
 
@@ -434,5 +438,674 @@ class ConsumerTest extends TestCase {
 		$off_prop->setAccessible( true );
 		$this->assertSame( 5, $seg_prop->getValue( $c ) );
 		$this->assertSame( 100, $off_prop->getValue( $c ) );
+	}
+
+	public function test_next_offset_array_clamps_negative_off_to_zero(): void {
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$ref = new \ReflectionClass( $c );
+		$off = $ref->getProperty( 'cursor_off' );
+		$off->setAccessible( true );
+
+		// Spec: negative offsets must be clamped to 0 (max(0, ...)).
+		$c->next_offset( [ 'seg' => 2, 'off' => -42 ] );
+		$this->assertSame( 0, $off->getValue( $c ), 'negative off must be clamped to 0' );
+	}
+
+	// ============================================================================
+	// next_segment() — segment rotation logic. Mirrors FirehoseReader::next_segment.
+	// ============================================================================
+
+	public function test_next_segment_returns_null_when_no_segments(): void {
+		// Empty source — nothing to advance to.
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$this->assertNull( $c->next_segment() );
+	}
+
+	public function test_next_segment_stays_when_current_segment_is_fresh(): void {
+		// Writer is still active on the current segment (mtime within
+		// STALE_SEGMENT_SECONDS): next_segment must not advance the cursor.
+		$source = new Partition( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		// 3 writes guaranteed to produce >=2 segments (matches pattern in
+		// test_next_offset_recent_picks_second_to_last_segment).
+		$this->produce_line( $source, str_repeat( 'a', 30 ) );
+		$this->produce_line( $source, str_repeat( 'b', 30 ) );
+		$this->produce_line( $source, str_repeat( 'c', 30 ) );
+
+		$segments = $source->get_segments( true );
+		$this->assertGreaterThanOrEqual( 2, count( $segments ), 'need >=2 segments' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+
+		$ref      = new \ReflectionClass( $c );
+		$seg_prop = $ref->getProperty( 'cursor_seg' );
+		$seg_prop->setAccessible( true );
+		// Position cursor on segment 0 (first written, exists on disk).
+		$seg_prop->setValue( $c, $segments[0]['id'] );
+
+		// Touch current segment to "now" so writer-fresh logic kicks in.
+		$current_path = "{$source->partition_dir()}/{$segments[0]['id']}.log";
+		@touch( $current_path, time() );
+		clearstatcache( true, $current_path );
+
+		$result = $c->next_segment();
+		$this->assertNull( $result, 'fresh segment must not advance' );
+		$this->assertSame( $segments[0]['id'], $seg_prop->getValue( $c ), 'cursor must remain on fresh segment' );
+	}
+
+	public function test_next_segment_advances_when_current_is_stale_and_next_exists(): void {
+		// Force >=2 segments. Touch the current one to look stale, then verify advance.
+		$source = new Partition( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$this->produce_line( $source, str_repeat( 'a', 30 ) );
+		$this->produce_line( $source, str_repeat( 'b', 30 ) );
+		$this->produce_line( $source, str_repeat( 'c', 30 ) );
+
+		$segments = $source->get_segments( true );
+		$this->assertGreaterThanOrEqual( 2, count( $segments ), 'need >=2 segments' );
+		// next_segment uses cursor_seg + 1 — we need that successor to exist
+		// in the segment list. Pick the oldest and assert its successor exists.
+		$older       = $segments[0];
+		$has_plus_1  = in_array( $older['id'] + 1, array_column( $segments, 'id' ), true );
+		if ( ! $has_plus_1 ) {
+			$this->markTestSkipped( 'rotation produced non-contiguous segments; cannot test +1 advance' );
+			return;
+		}
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+
+		$ref      = new \ReflectionClass( $c );
+		$seg_prop = $ref->getProperty( 'cursor_seg' );
+		$seg_prop->setAccessible( true );
+		$off_prop = $ref->getProperty( 'cursor_off' );
+		$off_prop->setAccessible( true );
+		$rem_prop = $ref->getProperty( 'line_remainder' );
+		$rem_prop->setAccessible( true );
+
+		$seg_prop->setValue( $c, $older['id'] );
+		$off_prop->setValue( $c, 100 );        // Non-zero — must be reset on advance.
+		$rem_prop->setValue( $c, 'partial' );  // Non-empty — must be cleared on advance.
+
+		// Touch current segment far in the past (>STALE_SEGMENT_SECONDS).
+		$current_path = "{$source->partition_dir()}/{$older['id']}.log";
+		@touch( $current_path, time() - 60 );
+		clearstatcache( true, $current_path );
+
+		$expected_next = $older['id'] + 1;
+		$result        = $c->next_segment();
+
+		$this->assertSame( $expected_next, $result );
+		$this->assertSame( $expected_next, $seg_prop->getValue( $c ) );
+		$this->assertSame( 0, $off_prop->getValue( $c ), 'offset must reset on advance' );
+		$this->assertSame( '', $rem_prop->getValue( $c ), 'line_remainder must clear on advance' );
+	}
+
+	public function test_next_segment_returns_null_when_current_stale_but_no_next(): void {
+		// Single segment, stale. There's no "next id" to advance to → return null.
+		// Distinct from the firehose-wiped branch (has_curr=true, has_next=false).
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'only' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+
+		// Stale-touch the only segment so we pass the freshness check, then
+		// hit the `! $has_next` branch.
+		$path = "{$source->partition_dir()}/0.log";
+		@touch( $path, time() - 60 );
+		clearstatcache( true, $path );
+
+		$ref = new \ReflectionClass( $c );
+		$seg = $ref->getProperty( 'cursor_seg' );
+		$seg->setAccessible( true );
+
+		$this->assertNull( $c->next_segment(), 'no successor segment → null' );
+		// Cursor must remain unchanged when next_segment can't advance.
+		$this->assertSame( 0, $seg->getValue( $c ) );
+	}
+
+	public function test_next_segment_resets_when_firehose_was_wiped(): void {
+		// has_curr=false AND has_next=false → "firehose was reset", jump to oldest.
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'a' );
+
+		$segments = $source->get_segments( true );
+		$this->assertNotEmpty( $segments );
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$ref = new \ReflectionClass( $c );
+		$seg = $ref->getProperty( 'cursor_seg' );
+		$seg->setAccessible( true );
+		$off = $ref->getProperty( 'cursor_off' );
+		$off->setAccessible( true );
+		$rem = $ref->getProperty( 'line_remainder' );
+		$rem->setAccessible( true );
+
+		// Park the cursor on a segment id that isn't (and can't be the +1 of) any
+		// existing segment: pick something far higher than max + 1.
+		$max_id = (int) end( $segments )['id'];
+		$seg->setValue( $c, $max_id + 100 );
+		$off->setValue( $c, 50 );
+		$rem->setValue( $c, 'leftover' );
+
+		$result = $c->next_segment();
+
+		// Must have rewound to the oldest available.
+		$this->assertSame( $segments[0]['id'], $result );
+		$this->assertSame( $segments[0]['id'], $seg->getValue( $c ) );
+		$this->assertSame( 0, $off->getValue( $c ) );
+		$this->assertSame( '', $rem->getValue( $c ) );
+	}
+
+	// ============================================================================
+	// poll() — drain branches not yet covered.
+	// ============================================================================
+
+	public function test_poll_recovers_when_cursor_segment_was_deleted(): void {
+		// Cursor parked on a segment id that no longer exists — poll() must
+		// recover by rewinding to the oldest available segment and reading from 0.
+		$source = new Partition( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$this->produce_line( $source, str_repeat( 'a', 30 ) );
+		$this->produce_line( $source, str_repeat( 'b', 30 ) );
+		$this->produce_line( $source, str_repeat( 'c', 30 ) );
+
+		$segments = $source->get_segments( true );
+		$this->assertNotEmpty( $segments );
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		$ref = new \ReflectionClass( $c );
+		$seg = $ref->getProperty( 'cursor_seg' );
+		$seg->setAccessible( true );
+		$off = $ref->getProperty( 'cursor_off' );
+		$off->setAccessible( true );
+
+		// Force cursor into an id that does NOT appear in the segment list.
+		$max_id = (int) end( $segments )['id'];
+		$seg->setValue( $c, $max_id + 50 );
+		$off->setValue( $c, 999 );
+
+		$c->poll();
+
+		// After rewind + drain, cursor lands on the NEWEST segment (the loop
+		// walked from oldest forward through all segments).
+		$this->assertSame( $max_id, $seg->getValue( $c ), 'cursor must end on newest segment after full drain' );
+		// All lines should have been emitted: 3 produce_line calls = 3 lines.
+		$this->assertSame( 3, count( $cap->captured ), 'rewind must let us read all existing data' );
+	}
+
+	public function test_poll_advances_across_segment_boundary(): void {
+		// Multi-segment drain: a single poll spanning into a new segment must
+		// reset cursor_off to 0 when it crosses the boundary.
+		$source = new Partition( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$this->produce_line( $source, str_repeat( 'a', 30 ) );
+		$this->produce_line( $source, str_repeat( 'b', 30 ) );
+		$this->produce_line( $source, str_repeat( 'c', 30 ) );
+
+		$segments = $source->get_segments( true );
+		$this->assertGreaterThanOrEqual( 2, count( $segments ), 'need multiple segments' );
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+		$c->poll();
+
+		// Should have read every line in every segment.
+		$this->assertSame( 3, count( $cap->captured ) );
+		$values = array_map( static fn ( $m ) => $m[ Message::VALUE ], $cap->captured );
+		$this->assertSame(
+			[ str_repeat( 'a', 30 ), str_repeat( 'b', 30 ), str_repeat( 'c', 30 ) ],
+			$values,
+			'every line across segment boundaries must emit in order'
+		);
+
+		// Cursor should be parked on the newest segment.
+		$ref = new \ReflectionClass( $c );
+		$seg = $ref->getProperty( 'cursor_seg' );
+		$seg->setAccessible( true );
+		$this->assertSame( (int) end( $segments )['id'], $seg->getValue( $c ) );
+	}
+
+	public function test_poll_stamps_message_FROM_with_consumer_name(): void {
+		// FROM-stamping is a load-bearing convention — every emitted message must
+		// have the Consumer's name stamped onto FROM so downstream nodes can
+		// reply via TO=FROM.
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'hi' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->name( 'my-consumer' );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		$c->poll();
+
+		$this->assertCount( 1, $cap->captured );
+		$this->assertSame( 'my-consumer', $cap->captured[0][ Message::FROM ] );
+	}
+
+	public function test_poll_stamp_override_replaces_name_in_FROM(): void {
+		// set_stamp_as overrides the FROM stamp — used by the worker's IPC
+		// input Consumer to stamp as the OUTPUT partition's name (`_repl`).
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'data' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->name( 'real-name' );
+		$c->set_stamp_as( '_repl' );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		$c->poll();
+
+		$this->assertCount( 1, $cap->captured );
+		$this->assertSame( '_repl', $cap->captured[0][ Message::FROM ], 'override must replace name in FROM' );
+	}
+
+	public function test_poll_emitted_KEY_is_seg_colon_offset(): void {
+		// Each emitted message's KEY = "{seg}:{abs_offset}" — the offsetlog
+		// uses this to checkpoint by segment+offset.
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'first' );
+		$this->produce_line( $source, 'second' );
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+		$c->poll();
+
+		$this->assertCount( 2, $cap->captured );
+		// First line lands at offset 0 within segment 0.
+		$this->assertSame( '0:0', $cap->captured[0][ Message::KEY ] );
+		// Second line lands AFTER the first packed line + newline.
+		[ $seg2, $off2 ] = explode( ':', $cap->captured[1][ Message::KEY ] );
+		$this->assertSame( '0', $seg2 );
+		$this->assertGreaterThan( 0, (int) $off2, 'second line offset must be past first' );
+	}
+
+	// ============================================================================
+	// open() — empty-segments path.
+	// ============================================================================
+
+	public function test_open_returns_null_when_no_segments(): void {
+		// Empty source: open() must return null without throwing.
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$this->assertNull( $c->open() );
+	}
+
+	// ============================================================================
+	// load_offsetlog() — corrupt / malformed checkpoint entries.
+	// ============================================================================
+
+	public function test_load_offsetlog_ignores_malformed_value_field(): void {
+		// Manually write a packed Message whose VALUE is NOT the expected
+		// {seg, off} struct. load_offsetlog must NOT seed the cursor from it
+		// (the if-is_array+isset gate at line 153 must reject it).
+		mkdir( "{$this->tmp}/offsets/r/p0/p0", 0755, true );
+
+		// Message with VALUE = string "garbage" (not an array with seg/off).
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
+		$msg[ Message::TIMESTAMP ] = 1234567890.0;
+		$msg[ Message::VALUE ]     = 'garbage';
+		file_put_contents( "{$this->tmp}/offsets/r/p0/p0/0.log", Message::packed( $msg ) . "\n" );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+
+		// Cursor must remain at the constructor default (0/0) when the offsetlog
+		// entry's VALUE doesn't match the expected schema.
+		$ref = new \ReflectionClass( $c );
+		$seg = $ref->getProperty( 'cursor_seg' );
+		$seg->setAccessible( true );
+		$off = $ref->getProperty( 'cursor_off' );
+		$off->setAccessible( true );
+
+		$this->assertSame( 0, $seg->getValue( $c ) );
+		$this->assertSame( 0, $off->getValue( $c ) );
+	}
+
+	public function test_load_offsetlog_skips_when_only_blank_lines(): void {
+		// A segment that contains only newlines (no JSON-encoded packed message)
+		// must be ignored — array_filter strips them and load_offsetlog returns
+		// without seeding the cursor.
+		mkdir( "{$this->tmp}/offsets/r/p0/p0", 0755, true );
+		file_put_contents( "{$this->tmp}/offsets/r/p0/p0/0.log", "\n\n\n" );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+
+		$ref = new \ReflectionClass( $c );
+		$seg = $ref->getProperty( 'cursor_seg' );
+		$seg->setAccessible( true );
+		$off = $ref->getProperty( 'cursor_off' );
+		$off->setAccessible( true );
+		$this->assertSame( 0, $seg->getValue( $c ) );
+		$this->assertSame( 0, $off->getValue( $c ) );
+	}
+
+	// ============================================================================
+	// is_caught_up() — cursor strictly behind newest segment.
+	// ============================================================================
+
+	public function test_is_caught_up_false_when_cursor_segment_is_older_than_newest(): void {
+		// Multiple segments. Park the cursor on an older one — caught up must be
+		// false even if at_eof was set on the OLD segment.
+		$source = new Partition( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$this->produce_line( $source, str_repeat( 'a', 30 ) );
+		$this->produce_line( $source, str_repeat( 'b', 30 ) );
+		$this->produce_line( $source, str_repeat( 'c', 30 ) );
+
+		$segments = $source->get_segments( true );
+		$this->assertGreaterThanOrEqual( 2, count( $segments ) );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+
+		$ref = new \ReflectionClass( $c );
+		$seg = $ref->getProperty( 'cursor_seg' );
+		$seg->setAccessible( true );
+		// Park cursor on the OLDEST segment.
+		$seg->setValue( $c, $segments[0]['id'] );
+		$at_eof = $ref->getProperty( 'at_eof' );
+		$at_eof->setAccessible( true );
+		$at_eof->setValue( $c, true ); // Even if at_eof is true on the old segment.
+
+		$this->assertFalse( $c->is_caught_up(), 'cursor on older segment cannot be caught up' );
+	}
+
+	// ============================================================================
+	// checkpoint() — skip-when-unchanged branch.
+	// ============================================================================
+
+	public function test_checkpoint_skips_when_cursor_has_not_advanced(): void {
+		// Spec: "Skip if cursor hasn't advanced since the last commit — the
+		// saved entry is still the truth, no point appending a duplicate every tick."
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'first' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->poll();
+		$c->checkpoint();
+
+		$path  = "{$this->tmp}/offsets/r/p0/p0/0.log";
+		$size1 = filesize( $path );
+
+		// Second checkpoint with no cursor advancement must NOT append.
+		$c->checkpoint();
+		clearstatcache( true, $path );
+		$size2 = filesize( $path );
+
+		$this->assertSame( $size1, $size2, 'duplicate checkpoint must be skipped' );
+	}
+
+	public function test_checkpoint_appends_when_cursor_has_advanced(): void {
+		// Inverse of the skip test: when cursor advances, a new entry MUST land.
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'first' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->poll();
+		$c->checkpoint();
+
+		$path  = "{$this->tmp}/offsets/r/p0/p0/0.log";
+		$size1 = filesize( $path );
+
+		$this->produce_line( $source, 'second' );
+		$c->poll();
+		$c->checkpoint();
+		clearstatcache( true, $path );
+		$size2 = filesize( $path );
+
+		$this->assertGreaterThan( $size1, $size2, 'cursor advancement must add a new offsetlog entry' );
+	}
+
+	// ============================================================================
+	// fire() — Timer hook (protected). Verifies poll(), publish_position(), and
+	// conditional checkpoint() all run; timer is re-armed.
+	// ============================================================================
+
+	public function test_fire_polls_source_and_emits_messages(): void {
+		// fire() is the Timer hook. It must call poll() so new bytes get drained.
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'fired' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		// Invoke protected fire() via reflection.
+		$ref  = new \ReflectionClass( $c );
+		$fire = $ref->getMethod( 'fire' );
+		$fire->setAccessible( true );
+		$fire->invoke( $c );
+
+		$this->assertCount( 1, $cap->captured, 'fire() must drain via poll()' );
+		$this->assertSame( 'fired', $cap->captured[0][ Message::VALUE ] );
+	}
+
+	public function test_fire_writes_first_checkpoint_on_initial_call(): void {
+		// On the FIRST fire(), last_checkpoint=0 so (right_now - 0) >= 1 always
+		// holds — checkpoint() must run (provided the cursor advanced).
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'cp' );
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$ref = new \ReflectionClass( $c );
+
+		Core::update_time(); // Ensure right_now is a real wall-clock value.
+
+		$fire = $ref->getMethod( 'fire' );
+		$fire->setAccessible( true );
+		$fire->invoke( $c );
+
+		$this->assertFileExists(
+			"{$this->tmp}/offsets/r/p0/p0/0.log",
+			'fire() with stale last_checkpoint must invoke checkpoint()'
+		);
+
+		// last_checkpoint should now be set to the current wall-clock time.
+		$last = $ref->getProperty( 'last_checkpoint' );
+		$last->setAccessible( true );
+		$this->assertGreaterThan( 0.0, $last->getValue( $c ) );
+	}
+
+	public function test_fire_skips_checkpoint_when_within_interval(): void {
+		// Spec: "Persist cursor every CHECKPOINT_INTERVAL_S so a respawning
+		// worker resumes from the last commit." Within that interval, fire()
+		// must NOT call checkpoint() — even if data was polled.
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'a' );
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$ref = new \ReflectionClass( $c );
+
+		// Pre-set last_checkpoint to "right now" so the interval gate fails.
+		Core::update_time();
+		$last = $ref->getProperty( 'last_checkpoint' );
+		$last->setAccessible( true );
+		$last->setValue( $c, Core::$right_now );
+
+		// Pre-set checkpoint_seg/off to match cursor so checkpoint() would skip
+		// even if it WAS called — but more importantly, our test asserts the
+		// caller of checkpoint() (fire) is gated by the interval.
+		$cp_seg = $ref->getProperty( 'checkpoint_seg' );
+		$cp_seg->setAccessible( true );
+		$cp_off = $ref->getProperty( 'checkpoint_off' );
+		$cp_off->setAccessible( true );
+		// Force divergent values so if checkpoint() runs, it WOULD write.
+		$cp_seg->setValue( $c, -999 );
+		$cp_off->setValue( $c, -999 );
+
+		$fire = $ref->getMethod( 'fire' );
+		$fire->setAccessible( true );
+		$fire->invoke( $c );
+
+		$this->assertFileDoesNotExist(
+			"{$this->tmp}/offsets/r/p0/p0/0.log",
+			'within CHECKPOINT_INTERVAL_S, fire must not invoke checkpoint'
+		);
+	}
+
+	public function test_fire_does_not_invoke_checkpoint_when_offsetlog_disabled(): void {
+		// Consumer constructed with empty offsetlog_base_dir → no offsetlog
+		// directory ever created, even after fire().
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'a' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, '' );
+
+		Core::update_time();
+		$ref  = new \ReflectionClass( $c );
+		$fire = $ref->getMethod( 'fire' );
+		$fire->setAccessible( true );
+		$fire->invoke( $c );
+
+		$this->assertFalse(
+			is_dir( "{$this->tmp}/offsets" ),
+			'offsetlog disabled → no directory must appear under offsets/'
+		);
+	}
+
+	public function test_fire_rearms_timer_with_eof_interval_when_caught_up(): void {
+		// After draining all available data, fire() must re-arm with
+		// POLL_INTERVAL_EOF_MS (=100) so we back off to 100ms idle ticks.
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'a' );
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		Core::update_time();
+		$ref  = new \ReflectionClass( $c );
+		$fire = $ref->getMethod( 'fire' );
+		$fire->setAccessible( true );
+		$fire->invoke( $c );
+
+		// After fire(), poll() reached EOF (all data consumed, no more bytes).
+		// EventFramework should have a timer entry for this Consumer with
+		// interval_ms = POLL_INTERVAL_EOF_MS.
+		$ef         = EventFramework::instance();
+		$ef_ref     = new \ReflectionClass( $ef );
+		$timers_p   = $ef_ref->getProperty( 'timers' );
+		$timers_p->setAccessible( true );
+		$timers     = $timers_p->getValue( $ef );
+		$id         = \spl_object_id( $c );
+		$this->assertArrayHasKey( $id, $timers, 'fire() must register a timer with EventFramework' );
+		$this->assertSame(
+			Consumer::POLL_INTERVAL_EOF_MS,
+			$timers[ $id ]['interval_ms'],
+			'caught-up fire must re-arm with EOF interval'
+		);
+		$this->assertTrue( $timers[ $id ]['oneshot'], 'fire re-arm must be one-shot' );
+	}
+
+	public function test_fire_rearms_timer_with_busy_interval_when_more_data_pending(): void {
+		// fire() consults $this->at_eof after poll() to decide BUSY vs EOF rearm.
+		// To deterministically exercise the busy branch we use a subclass whose
+		// poll() flips at_eof back to false after the parent drain — simulating
+		// a producer that's still ahead of us.
+		$busy_consumer = new class( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" ) extends Consumer {
+			public function poll(): void {
+				parent::poll();
+				// Pretend the writer is still ahead; force the busy branch.
+				$ref = new \ReflectionClass( Consumer::class );
+				$p   = $ref->getProperty( 'at_eof' );
+				$p->setAccessible( true );
+				$p->setValue( $this, false );
+			}
+		};
+
+		Core::update_time();
+		$ref  = new \ReflectionClass( $busy_consumer );
+		$fire = $ref->getMethod( 'fire' );
+		$fire->setAccessible( true );
+		$fire->invoke( $busy_consumer );
+
+		// Inspect the EventFramework's timers map — fire() should have re-armed
+		// with POLL_INTERVAL_BUSY_MS (=0) so the next tick drains immediately.
+		$ef       = EventFramework::instance();
+		$ef_ref   = new \ReflectionClass( $ef );
+		$timers_p = $ef_ref->getProperty( 'timers' );
+		$timers_p->setAccessible( true );
+		$timers   = $timers_p->getValue( $ef );
+		$id       = \spl_object_id( $busy_consumer );
+
+		$this->assertArrayHasKey( $id, $timers, 'fire() must register a timer' );
+		$this->assertSame(
+			Consumer::POLL_INTERVAL_BUSY_MS,
+			$timers[ $id ]['interval_ms'],
+			'busy fire must re-arm with BUSY interval (drain ASAP next tick)'
+		);
+	}
+
+	// ============================================================================
+	// publish_position() — memcache cursor publishing. Verify the no-op early-exit
+	// branches; the actual set() call needs a live Memcached server which the
+	// test env may not provide. The branches we CAN cover exercise the static
+	// `$memd = false` sticky-fail logic and the class_exists() guard.
+	// ============================================================================
+
+	#[RunInSeparateProcess]
+	#[PreserveGlobalState( false )]
+	public function test_publish_position_short_circuits_on_empty_memcache_servers(): void {
+		// Spec: with no memcache_servers configured, publish_position must
+		// sticky-fail (set static $memd = false) on first call, short-circuit
+		// on every subsequent call. No exception, no side effects.
+		//
+		// Runs in a separate process so the function-static `$memd` is null
+		// (other tests in this class call fire() which initializes $memd).
+		if ( ! \class_exists( '\\Memcached' ) ) {
+			$this->markTestSkipped( 'Memcached extension not loaded.' );
+		}
+
+		// Force Config to return memcache_servers=[] by injecting an empty
+		// $config_full directly via reflection (the disk default is non-empty).
+		\Newspack_Nodes\Config::reset();
+		$config_ref = new \ReflectionClass( \Newspack_Nodes\Config::class );
+		$cf         = $config_ref->getProperty( 'config_full' );
+		$cf->setAccessible( true );
+		$cf->setValue( null, [
+			'base_directory'   => '/tmp/newspack-nodes',
+			'memcache_servers' => [],
+		] );
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$ref = new \ReflectionClass( $c );
+		$pp  = $ref->getMethod( 'publish_position' );
+		$pp->setAccessible( true );
+
+		// First call: class_exists OK → $memd null → load config → servers
+		// empty → sets $memd=false sticky → return.
+		// Second call: $memd is false → early return.
+		// Both must complete without throwing.
+		$pp->invoke( $c );
+		$pp->invoke( $c );
+
+		$this->assertTrue( true, 'empty memcache_servers must produce no error' );
+	}
+
+	public function test_publish_position_runs_on_fire_hot_path_without_crashing(): void {
+		// Behavioral spec: publish_position is called every fire() tick. It
+		// must NEVER throw — even when the configured memcache server isn't
+		// reachable. Verifies the no-throw contract through fire()'s caller
+		// view (poll continues past publish_position to checkpoint).
+		\Newspack_Nodes\Config::reset();
+
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'a' );
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$ref = new \ReflectionClass( $c );
+
+		// Fire twice: first init may construct Memcached + addServer; second
+		// must not redo that work (verifying the static-memoization path).
+		Core::update_time();
+		$fire = $ref->getMethod( 'fire' );
+		$fire->setAccessible( true );
+		$fire->invoke( $c );
+		$fire->invoke( $c );
+
+		// poll() emitted the line on first fire — counter increments via
+		// Node::fill on each emit. Verifies fire() reached past
+		// publish_position to its tail.
+		$this->assertGreaterThanOrEqual( 1, $c->counter(), 'fire() must reach poll() past publish_position' );
 	}
 }

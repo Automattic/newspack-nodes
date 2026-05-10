@@ -220,4 +220,139 @@ class TailTest extends TestCase {
 		// Remainder should be "recover" (the bytes after the newline).
 		$this->assertSame( 'recover', $prop->getValue( $t ) );
 	}
+
+	public function test_oversized_line_remainder_in_block_buffered_mode_is_discarded(): void {
+		// Block-buffered DoS guard: same recovery semantics as line-buffered.
+		$t = new Tail( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
+		$ref = new \ReflectionClass( $t );
+		$prop = $ref->getProperty( 'line_remainder' );
+		$prop->setAccessible( true );
+		$prop->setValue( $t, str_repeat( 'x', Tail::MAX_LINE_BUFFER_SIZE - 10 ) );
+
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+
+		file_put_contents( "{$this->tmp}/data.log", str_repeat( 'y', 100 ) . "\nrecover" );
+		$t->poll();
+
+		// Remainder should be "recover" (post-newline tail of incoming bytes).
+		$this->assertSame( 'recover', $prop->getValue( $t ) );
+		$this->assertCount( 0, $cap->captured );
+	}
+
+	public function test_oversized_line_remainder_in_block_buffered_no_newline_clears(): void {
+		// Block-buffered DoS guard with no newline in the new bytes: line_remainder
+		// is fully discarded with nothing to recover.
+		$t = new Tail( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
+		$ref  = new \ReflectionClass( $t );
+		$prop = $ref->getProperty( 'line_remainder' );
+		$prop->setAccessible( true );
+		$prop->setValue( $t, str_repeat( 'x', Tail::MAX_LINE_BUFFER_SIZE - 10 ) );
+
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+
+		file_put_contents( "{$this->tmp}/data.log", str_repeat( 'y', 100 ) );
+		$t->poll();
+
+		$this->assertSame( '', $prop->getValue( $t ) );
+		$this->assertCount( 0, $cap->captured );
+	}
+
+	public function test_inode_change_resets_position_and_remainder(): void {
+		// File rotation: rename moves the file (preserving its inode under the new
+		// path) and a new file is created at the original path with a fresh inode.
+		// Tail must reset position to 0 and emit from the start of the new file,
+		// even though the original-path file is now larger than what we'd read after
+		// reset — the inode-change detection path is what we're verifying.
+		\file_put_contents( "{$this->tmp}/data.log", "first\n" );
+		$t   = new Tail( "{$this->tmp}/data.log" );
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+		$t->poll();
+		$this->assertCount( 1, $cap->captured );
+
+		// Rotate: rename the original out of the way, write new content under the
+		// original name. rename guarantees the original-path file gets a new inode.
+		\rename( "{$this->tmp}/data.log", "{$this->tmp}/data.log.1" );
+		\file_put_contents( "{$this->tmp}/data.log", "after-rotation-and-padding\n" );
+		$t->poll();
+
+		$this->assertCount( 2, $cap->captured );
+		$this->assertSame( 'after-rotation-and-padding', \trim( $cap->captured[1][ Message::VALUE ] ) );
+	}
+
+	public function test_truncation_resets_position(): void {
+		// File truncation: size shrinks below current position. Tail must reset to 0
+		// (preserving the same inode) so subsequent reads start from the new top.
+		\file_put_contents( "{$this->tmp}/data.log", "first\nsecond\nthird\n" );
+		$t   = new Tail( "{$this->tmp}/data.log" );
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+		$t->poll();
+		$this->assertCount( 3, $cap->captured );
+
+		// Truncate to a much smaller payload.
+		\file_put_contents( "{$this->tmp}/data.log", "tiny\n" );
+		$t->poll();
+
+		// Detection: position was reset, so 'tiny' is read fresh.
+		$this->assertCount( 4, $cap->captured );
+		$this->assertSame( 'tiny', \trim( $cap->captured[3][ Message::VALUE ] ) );
+	}
+
+	public function test_poll_returns_silently_when_size_equals_position(): void {
+		// File hasn't grown — at_eof path. No new emissions.
+		\file_put_contents( "{$this->tmp}/data.log", "first\n" );
+		$t   = new Tail( "{$this->tmp}/data.log" );
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+		$t->poll();
+		$this->assertCount( 1, $cap->captured );
+
+		// Same size next poll → at_eof, no new emit.
+		$t->poll();
+		$this->assertCount( 1, $cap->captured );
+	}
+
+	public function test_fire_polls_and_rearms_busy_when_more_bytes_available(): void {
+		// Force more than READ_CHUNK so that one poll leaves at_eof=false.
+		// fire() must re-arm with POLL_INTERVAL_BUSY_MS so the event loop
+		// re-fires immediately on the next iteration.
+		$total = Tail::READ_CHUNK + 1024;
+		\file_put_contents( "{$this->tmp}/big.log", \str_repeat( 'x', $total ) );
+
+		$t   = new Tail( "{$this->tmp}/big.log", buffer_mode: 'binary' );
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+
+		// Drive fire() via reflection (it's protected — Timer's set_timer/event-loop
+		// call it). One fire() = one poll().
+		$ref  = new \ReflectionMethod( Tail::class, 'fire' );
+		$ref->setAccessible( true );
+		$ref->invoke( $t );
+
+		// First poll consumed exactly READ_CHUNK; more bytes remain so at_eof=false.
+		$at_eof_prop = ( new \ReflectionClass( $t ) )->getProperty( 'at_eof' );
+		$at_eof_prop->setAccessible( true );
+		$this->assertFalse( $at_eof_prop->getValue( $t ) );
+		$this->assertCount( 1, $cap->captured );
+	}
+
+	public function test_fire_rearms_idle_when_at_eof(): void {
+		// File completely drained → at_eof=true → re-arm with POLL_INTERVAL_EOF_MS.
+		\file_put_contents( "{$this->tmp}/small.log", "one\n" );
+		$t = new Tail( "{$this->tmp}/small.log", buffer_mode: 'line-buffered' );
+
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+
+		$ref = new \ReflectionMethod( Tail::class, 'fire' );
+		$ref->setAccessible( true );
+		$ref->invoke( $t );
+
+		$at_eof_prop = ( new \ReflectionClass( $t ) )->getProperty( 'at_eof' );
+		$at_eof_prop->setAccessible( true );
+		$this->assertTrue( $at_eof_prop->getValue( $t ) );
+	}
 }

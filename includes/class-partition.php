@@ -103,6 +103,10 @@ class Partition extends Timer {
 		$this->num_segments  = \max( 2, $num_segments );
 		$this->max_lifespan  = \max( 0, $max_lifespan );
 		$this->partition_dir = "{$this->base_dir}/p{$partition}";
+		// Round-trip ctor args via Node::$arguments so dump_config emits a
+		// `make_node Partition <name> <base_dir> <partition> ...` that
+		// re-creates this instance verbatim.
+		$this->arguments = "{$this->base_dir} {$this->partition} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}";
 	}
 
 	/**
@@ -128,44 +132,26 @@ class Partition extends Timer {
 	}
 
 	/**
-	 * Node entry point. Matches real Tachikoma Partition.pm:122-209.
+	 * Node entry point.
 	 *
-	 * - TM_REQUEST: parse "GET <seg> <offset> <length>"; respond via sink.
-	 * - TM_ERROR / TM_EOF: ignored (control flow, not data).
-	 * - Anything else (TM_BYTESTREAM, TM_COMMAND, TM_INFO, TM_RESPONSE, etc.):
-	 *   pack the whole message via Message::packed() and write the bytes to
-	 *   the current segment.
+	 * Pack the whole message via Message::packed() and append to the current
+	 * segment. All TYPE flags pass through — Partition is a generic transport,
+	 * including for control messages (TM_REQUEST, TM_ERROR, TM_EOF). The
+	 * pivoted-cli IPC pattern relies on this: cli ↔ worker round-trips drain
+	 * markers (TM_EOF), error responses (TM_COMMAND|TM_ERROR), and
+	 * introspection requests (TM_REQUEST) through Partition-as-bus. Data
+	 * partitions like firehose.log only ever see TM_BYTESTREAM / TM_STRUCT in
+	 * practice, so the broader contract is a no-op for production paths.
 	 *
 	 * @param array $message Reference; not mutated.
 	 */
 	public function fill( array &$message ): void {
 		++$this->counter;
-		$type = $message[ Message::TYPE ];
 
-		if ( $type & Message::TM_REQUEST ) {
-			$req = $message[ Message::VALUE ];
-			if ( \preg_match( '/^GET (\d+) (\d+) (\d+)$/', $req, $m ) ) {
-				$bytes                      = $this->read_at( (int) $m[1], (int) $m[2], (int) $m[3] );
-				$resp                       = Message::new_message();
-				$resp[ Message::TYPE ]      = Message::TM_RESPONSE;
-				$resp[ Message::TIMESTAMP ] = Core::$right_now;
-				$resp[ Message::FROM ]      = $this->name;
-				$resp[ Message::TO ]        = $message[ Message::FROM ];
-				$resp[ Message::ID ]        = $message[ Message::ID ];
-				$resp[ Message::VALUE ]     = $bytes;
-				$this->sink?->fill( $resp );
-			}
-			return;
-		}
-
-		if ( $type & ( Message::TM_ERROR | Message::TM_EOF ) ) {
-			return;
-		}
-
-		// Anything else: pack the whole message and append. Bytes are newline-
-		// terminated so Consumer can split lines without needing Tachikoma's
-		// length-prefix wire format. Size cap is on the FINAL packed bytes
-		// (not VALUE alone) — that's what hits PIPE_BUF.
+		// Pack the whole message and append. Bytes are newline-terminated so
+		// Consumer can split lines without needing Tachikoma's length-prefix
+		// wire format. Size cap is on the FINAL packed bytes (not VALUE
+		// alone) — that's what hits PIPE_BUF.
 		$packed = Message::packed( $message ) . "\n";
 		$max    = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
 		if ( \strlen( $packed ) > $max ) {

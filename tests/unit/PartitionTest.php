@@ -191,28 +191,42 @@ class PartitionTest extends TestCase {
 		$this->assertSame( 'from-fill', $decoded[ \Newspack_Nodes\Message::VALUE ] );
 	}
 
-	public function test_fill_TM_REQUEST_GET_returns_bytes_via_response(): void {
-		// GET <seg> <off> <len> returns raw bytes at that range. After fill,
-		// the segment contains a single packed Message line; verify GET round-trips
-		// the entire line and that it unpacks back to the original VALUE.
+	public function test_fill_packs_TM_REQUEST_TM_ERROR_TM_EOF(): void {
+		// Pivoted-mode IPC uses Partition as a generic message transport: cli
+		// → cmd-out (Partition) → worker; worker → _repl (Partition) → cli.
+		// Control messages (TM_REQUEST for introspection requests, TM_ERROR
+		// for failed verb responses, TM_EOF for stdin-close drain markers)
+		// must round-trip through these IPC partitions, so Partition::fill
+		// packs them like any other type. Data partitions like firehose.log
+		// don't see these types in practice — producers only emit
+		// TM_BYTESTREAM / TM_STRUCT — so allowing them through is a no-op
+		// for production paths and makes IPC work.
 		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
-		$this->produce_into( $p, 'hello' );
 
-		$capture = new \Newspack_Nodes\Tests\CaptureSink();
-		$p->sink( $capture );
+		$types = [
+			\Newspack_Nodes\Message::TM_REQUEST,
+			\Newspack_Nodes\Message::TM_ERROR,
+			\Newspack_Nodes\Message::TM_EOF,
+			\Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_ERROR,
+		];
+		foreach ( $types as $type ) {
+			$msg                                   = \Newspack_Nodes\Message::new_message();
+			$msg[ \Newspack_Nodes\Message::TYPE ]  = $type;
+			$msg[ \Newspack_Nodes\Message::FROM ]  = 'someone';
+			$msg[ \Newspack_Nodes\Message::VALUE ] = 'payload-' . $type;
+			$p->fill( $msg );
+		}
+		$p->flush(); // Force the in-memory batch to land on disk synchronously.
 
-		$total_len = filesize( "{$this->tmp}/p0/0.log" );
-		$msg = \Newspack_Nodes\Message::new_message();
-		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_REQUEST;
-		$msg[ \Newspack_Nodes\Message::FROM ]  = 'asker';
-		$msg[ \Newspack_Nodes\Message::VALUE ] = "GET 0 0 {$total_len}";
-		$p->fill( $msg );
-
-		$this->assertCount( 1, $capture->captured );
-		$resp = $capture->captured[0];
-		$this->assertSame( \Newspack_Nodes\Message::TM_RESPONSE, $resp[ \Newspack_Nodes\Message::TYPE ] );
-		$decoded = \Newspack_Nodes\Message::unpacked( rtrim( $resp[ \Newspack_Nodes\Message::VALUE ], "\n" ) );
-		$this->assertSame( 'hello', $decoded[ \Newspack_Nodes\Message::VALUE ] );
+		// All four packed lines land on disk, recoverable by unpacking.
+		$contents = \file_get_contents( "{$this->tmp}/p0/0.log" );
+		$lines    = \array_values( \array_filter( \explode( "\n", $contents ) ) );
+		$this->assertCount( 4, $lines );
+		foreach ( $lines as $i => $line ) {
+			$decoded = \Newspack_Nodes\Message::unpacked( $line );
+			$this->assertSame( $types[ $i ], $decoded[ \Newspack_Nodes\Message::TYPE ] );
+			$this->assertSame( 'payload-' . $types[ $i ], $decoded[ \Newspack_Nodes\Message::VALUE ] );
+		}
 	}
 
 	public function test_remove_node_closes_file_handles(): void {

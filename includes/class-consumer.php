@@ -86,14 +86,16 @@ class Consumer extends Timer {
 	 * @param string $source_base_dir       Source partition's base dir.
 	 * @param int    $source_partition      Partition index within source.
 	 * @param string $offsetlog_base_dir    Where to checkpoint cursor state.
-	 *                                       Pass '' to skip the offsetlog
+	 *                                       Default '' skips the offsetlog
 	 *                                       entirely (ephemeral readers like
-	 *                                       the cli's reply-in Consumer).
+	 *                                       the cli's reply-in Consumer, or
+	 *                                       interactive `make_node Consumer`
+	 *                                       inspections from the REPL).
 	 */
 	public function __construct(
 		string $source_base_dir,
 		int $source_partition,
-		string $offsetlog_base_dir
+		string $offsetlog_base_dir = ''
 	) {
 		parent::__construct();
 		$this->source_base_dir  = \rtrim( $source_base_dir, '/' );
@@ -113,6 +115,11 @@ class Consumer extends Timer {
 		// Start polling immediately. fire() re-arms with set_timer(0)/(100)
 		// based on whether new bytes are available.
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
+
+		// Round-trip ctor args so dump_config emits a `make_node Consumer ...`
+		// line that re-creates this instance. Empty offsetlog_dir is included
+		// so the position is unambiguous on round-trip.
+		$this->arguments = "{$this->source_base_dir} {$this->source_partition} {$this->offsetlog_dir}";
 	}
 
 	/**

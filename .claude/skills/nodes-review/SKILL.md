@@ -75,6 +75,14 @@ A consumer that reads `$entry = $message[Message::VALUE]` as an array MUST gate 
 
 If the diff changes how Dumper renders a TYPE flag, double-check that the cli output still makes sense for both interactive and piped invocations. The `set_readline_mode` flag gates on `posix_isatty(STDIN)`; piped sessions take the plain-write path, so any ANSI escapes you add must be guarded.
 
+### 10. CommandInterpreter dispatch contract
+
+CI handles a TM_COMMAND only when TO is empty. Non-empty TO means the message is mid-route toward a downstream node; CI forwards to its sink (Router). Don't relax that — every CI in a path-routed graph would otherwise consume commands intended for someone else.
+
+Verb handlers may throw freely. `interpret()` catches `\Throwable` and turns the response into `TM_COMMAND|TM_ERROR` addressed back along FROM. Don't restore explicit `try/catch` inside individual `cmd_foo` methods — the central catch is the contract. Reserve `return 'error: ...'` for canonical-OK-shaped argument-validation paths (e.g. malformed args before any work happens).
+
+Aliases share the same `cmd_foo`. When you add or remove a verb, audit `$C` for orphaned alias rows — leaving `'rm' => cmd_remove_node` after dropping `remove_node` is a silent zombie verb.
+
 ## Style gates (lighter-weight)
 
 - WordPress VIP Go: snake_case, Yoda conditions, tabs, spaces inside `( $args )`. PHPCS catches most of these (`npm run lint:php`).

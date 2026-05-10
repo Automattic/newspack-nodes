@@ -24,6 +24,44 @@ class DumperTest extends TestCase {
 		return \stream_get_contents( $stream );
 	}
 
+	public function test_TM_EOF_invokes_on_eof_callback_and_renders_nothing(): void {
+		// TM_EOF is the drain marker for the cli's stdin-close round-trip:
+		// cli emits TM_EOF, worker bounces it, cli's Dumper sees the echo
+		// and fires the registered callback so the cli's run_repl predicate
+		// can exit. The Dumper itself prints nothing — TM_EOF is a control
+		// marker, not output.
+		[ $dumper, $out, $err ] = $this->fresh();
+
+		$fired = 0;
+		$dumper->on_eof( function () use ( &$fired ) { ++$fired; } );
+
+		$msg                  = Message::new_message();
+		$msg[ Message::TYPE ] = Message::TM_EOF;
+		$dumper->fill( $msg );
+
+		$this->assertSame( 1, $fired, 'on_eof callback should fire once' );
+		$this->assertSame( '', $this->read_all( $out ) );
+		$this->assertSame( '', $this->read_all( $err ) );
+	}
+
+	public function test_TM_EOF_filtered_out_by_to_filter_does_not_fire_callback(): void {
+		// TM_EOF addressed at a different pid (different cli session) is
+		// filtered out at the Dumper's to_filter gate — same as any other
+		// type. The callback only fires for our own session's echo.
+		[ $dumper, $out, $err ] = $this->fresh();
+		$dumper->set_to_filter( '12345' );
+
+		$fired = 0;
+		$dumper->on_eof( function () use ( &$fired ) { ++$fired; } );
+
+		$msg                  = Message::new_message();
+		$msg[ Message::TYPE ] = Message::TM_EOF;
+		$msg[ Message::TO ]   = '_output/99999'; // different pid
+		$dumper->fill( $msg );
+
+		$this->assertSame( 0, $fired );
+	}
+
 	public function test_TM_PING_prints_round_trip_time(): void {
 		// Mirrors Tachikoma Dumper.pm:dump_ping. VALUE carries the original send
 		// timestamp; the Dumper computes RTT in ms.
@@ -295,5 +333,112 @@ class DumperTest extends TestCase {
 		// Synchronous error path: stderr untouched by the prompt dance.
 		$this->assertStringNotContainsString( "\033", $this->read_all( $err ) );
 		$this->assertSame( "ERROR: boom\n", $this->read_all( $err ) );
+	}
+
+	public function test_set_readline_mode_changes_async_redraw_path(): void {
+		// readline_mode=true uses the simpler "wipe and rewrite prompt" path —
+		// no ANSI save/restore around it, because readline is installed with an
+		// empty prompt (Cli_Command::install_handler) and we drive the prompt
+		// directly. set_readline_mode toggles between the two paths.
+		[ $dumper, $out, , $shell ] = $this->fresh_tty();
+		$dumper->mark_prompt_displayed();
+		$dumper->set_readline_mode( true );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_INFO;
+		$msg[ Message::FROM ]  = 'a';
+		$msg[ Message::VALUE ] = 'one';
+		$dumper->fill( $msg );
+
+		// readline_mode path: just CR+clear-line + text + prompt — no save/restore.
+		$expected = "\r\033[2K" . "INFO[a]: one\n" . 'newspack> ';
+		$this->assertSame( $expected, $this->read_all( $out ) );
+	}
+
+	public function test_set_to_filter_drops_messages_with_unmatched_TO(): void {
+		// Multi-session: only matching $pid (or empty TO) renders.
+		[ $dumper, $out ] = $this->fresh();
+		$dumper->set_to_filter( '12345' );
+
+		// Different cli's reply — must drop silently.
+		$other                      = Message::new_message();
+		$other[ Message::TYPE ]     = Message::TM_BYTESTREAM;
+		$other[ Message::TO ]       = '99999';
+		$other[ Message::VALUE ]    = 'not-mine';
+		$dumper->fill( $other );
+
+		$this->assertSame( '', $this->read_all( $out ) );
+	}
+
+	public function test_set_to_filter_renders_when_TO_matches_pid(): void {
+		[ $dumper, $out ] = $this->fresh();
+		$dumper->set_to_filter( '12345' );
+
+		// Worker reply with _router-peeled prefix → TO=$pid.
+		$mine                  = Message::new_message();
+		$mine[ Message::TYPE ] = Message::TM_BYTESTREAM;
+		$mine[ Message::TO ]   = '12345';
+		$mine[ Message::VALUE ] = 'mine';
+		$dumper->fill( $mine );
+
+		$this->assertSame( "mine\n", $this->read_all( $out ) );
+	}
+
+	public function test_set_to_filter_renders_with_unpeeled_output_prefix(): void {
+		// The other shape: TO=_output/$pid (worker reply with _output not yet peeled).
+		[ $dumper, $out ] = $this->fresh();
+		$dumper->set_to_filter( '12345' );
+
+		$msg                  = Message::new_message();
+		$msg[ Message::TYPE ] = Message::TM_BYTESTREAM;
+		$msg[ Message::TO ]   = '_output/12345';
+		$msg[ Message::VALUE ] = 'mine';
+		$dumper->fill( $msg );
+
+		$this->assertSame( "mine\n", $this->read_all( $out ) );
+	}
+
+	public function test_set_to_filter_always_renders_empty_TO(): void {
+		// Async broadcasts (TM_INFO) typically have empty TO — must render even
+		// when filter is active so users see their own session's broadcasts.
+		[ $dumper, $out ] = $this->fresh();
+		$dumper->set_to_filter( '12345' );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_INFO;
+		$msg[ Message::FROM ]  = 'broadcaster';
+		$msg[ Message::TO ]    = '';
+		$msg[ Message::VALUE ] = 'broadcast';
+		$dumper->fill( $msg );
+
+		$this->assertSame( "INFO[broadcaster]: broadcast\n", $this->read_all( $out ) );
+	}
+
+	public function test_TM_STRUCT_array_value_json_encodes_for_display(): void {
+		// TM_STRUCT signals VALUE is structured — Dumper JSON-encodes for printable
+		// output so users don't see "Array".
+		[ $dumper, $out ] = $this->fresh();
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [ 'a' => 1, 'nested' => [ 'b' => 2 ] ];
+		$dumper->fill( $msg );
+
+		$rendered = $this->read_all( $out );
+		$decoded  = \json_decode( \rtrim( $rendered, "\n" ), true );
+		$this->assertSame( [ 'a' => 1, 'nested' => [ 'b' => 2 ] ], $decoded );
+	}
+
+	public function test_TM_STRUCT_string_value_renders_as_string_not_double_encoded(): void {
+		// Defense: a producer that mistakenly sets TM_STRUCT on a string VALUE
+		// should still render plainly rather than wrapping the string in JSON quotes.
+		[ $dumper, $out ] = $this->fresh();
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = 'plain';
+		$dumper->fill( $msg );
+
+		$this->assertSame( "plain\n", $this->read_all( $out ) );
 	}
 }

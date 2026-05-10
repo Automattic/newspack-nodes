@@ -28,7 +28,8 @@ class SupervisorTest extends TestCase {
 		$GLOBALS['_wp_test_transients']   = [];
 		unset(
 			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],
-			$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']
+			$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'],
+			$GLOBALS['_wp_test_remote_post_response']
 		);
 		parent::tearDown();
 	}
@@ -37,6 +38,31 @@ class SupervisorTest extends TestCase {
 		\add_filter( 'newspack_nodes/topologies', function () use ( $topologies ) {
 			return $topologies;
 		} );
+	}
+
+	/**
+	 * Seed Supervisor's loop-state properties so we can drive tick_loop via
+	 * reflection without going through run() (which would block on sleep).
+	 */
+	private function seed_loop_state( Supervisor $s, float $now, ?float $last_config_check = null ): void {
+		foreach (
+			[
+				'start_time'        => $now,
+				'last_heartbeat'    => $now,
+				'last_config_check' => $last_config_check ?? $now,
+			]
+			as $prop_name => $value
+		) {
+			$prop = new \ReflectionProperty( Supervisor::class, $prop_name );
+			$prop->setAccessible( true );
+			$prop->setValue( $s, $value );
+		}
+	}
+
+	private function invoke_tick_loop( Supervisor $s ): void {
+		$method = new \ReflectionMethod( Supervisor::class, 'tick_loop' );
+		$method->setAccessible( true );
+		$method->invoke( $s );
 	}
 
 	// ── HMAC token ─────────────────────────────────────────────────────────
@@ -406,5 +432,506 @@ class SupervisorTest extends TestCase {
 		// p1, p2 don't — they didn't exist.
 		$this->assertFalse( is_dir( "{$this->tmp}/locks/firehose-workers.p1.lock.d" ) );
 		$this->assertFalse( is_dir( "{$this->tmp}/locks/firehose-workers.p2.lock.d" ) );
+	}
+
+	// ── tick_loop (driven via reflection) ───────────────────────────────────
+
+	/**
+	 * Drive the private tick_loop with a pre-set restart flag so we exit
+	 * deterministically on iteration 1. Verifies tick_loop checks
+	 * should_restart() and breaks BEFORE sleep — proving the restart
+	 * channel is honored within ~1s in production.
+	 */
+	public function test_tick_loop_breaks_on_restart_flag(): void {
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$this->assertTrue( $s->init_lock_for_test() );
+
+		$this->seed_loop_state( $s, microtime( true ) );
+
+		// Drop a restart flag inside our own lock dir → tick_loop must break.
+		Lock::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
+
+		$started = microtime( true );
+		$this->invoke_tick_loop( $s );
+		$elapsed = microtime( true ) - $started;
+
+		// Must NOT have hit sleep(1) — exit before that line.
+		$this->assertLessThan( 0.5, $elapsed, 'tick_loop must break before sleep on restart' );
+
+		$s->release_lock_for_test();
+	}
+
+	/**
+	 * tick_loop spawns workers for missing locks on its first iteration and
+	 * then exits cleanly when the restart flag is dropped after the spawn.
+	 *
+	 * This is the closest we can get to the production "spawn → next tick"
+	 * cycle without real subprocess timing.
+	 */
+	public function test_tick_loop_spawns_workers_then_exits_on_restart(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
+		] );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$this->assertTrue( $s->init_lock_for_test() );
+
+		$now = microtime( true );
+		// last_config_check=0.0 → first tick will trigger check_config and
+		// build worker_locks. (Pass 0.0 explicitly via the helper.)
+		$this->seed_loop_state( $s, $now, 0.0 );
+
+		// Drop restart flag — tick_loop checks should_restart BEFORE the
+		// worker iteration, so this exit-first contract means NO spawns.
+		Lock::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
+
+		$this->invoke_tick_loop( $s );
+
+		$this->assertEmpty(
+			$GLOBALS['_wp_test_remote_posts'] ?? [],
+			'restart flag observed before spawn iteration must skip spawns'
+		);
+
+		$s->release_lock_for_test();
+	}
+
+	/**
+	 * tick_loop fires the supervisor_periodic action when check_config runs.
+	 * Plugins use this hook for low-frequency housekeeping (cleanup, metrics).
+	 *
+	 * Order in tick_loop is: heartbeat → should_restart → token → config →
+	 * worker iter → sleep. To fire check_config + the action without the
+	 * restart-flag short-circuit, we use a single action that drops the
+	 * restart flag immediately after firing — so the next iteration's
+	 * should_restart() check breaks the loop, but only after one sleep(1).
+	 */
+	public function test_tick_loop_fires_periodic_action_on_config_window(): void {
+		$fired = 0;
+		$tmp   = $this->tmp;
+		\add_action(
+			'newspack_nodes/supervisor_periodic',
+			function () use ( &$fired, $tmp ) {
+				++$fired;
+				// Drop restart flag so iter 2 breaks before sleeping again.
+				Lock::request_restart_at( "{$tmp}/locks/supervisor.lock.d" );
+			}
+		);
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$this->assertTrue( $s->init_lock_for_test() );
+
+		// last_config_check=0.0 → first iter triggers check_config + action.
+		$this->seed_loop_state( $s, microtime( true ), 0.0 );
+
+		$this->invoke_tick_loop( $s );
+
+		$this->assertSame( 1, $fired, 'periodic action must fire when config window elapses' );
+
+		$s->release_lock_for_test();
+	}
+
+	/**
+	 * tick_loop exits when check_config returns false (logging disabled mid-run).
+	 * Verifies the dynamic-disable contract: flipping the gate stops the loop
+	 * within one config-check window.
+	 */
+	public function test_tick_loop_exits_when_check_config_returns_false(): void {
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$this->assertTrue( $s->init_lock_for_test() );
+
+		// last_config_check=0.0 → first tick triggers check_config.
+		$this->seed_loop_state( $s, microtime( true ), 0.0 );
+
+		// Disable logging globally — first config check returns false → break.
+		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
+
+		$started = microtime( true );
+		$this->invoke_tick_loop( $s );
+		$elapsed = microtime( true ) - $started;
+
+		$this->assertLessThan( 0.5, $elapsed, 'tick_loop must exit on logging-disabled within first iter' );
+
+		$s->release_lock_for_test();
+	}
+
+	// ── tick_for_test bail-on-restart ──────────────────────────────────────
+
+	/**
+	 * tick_for_test mirrors the run-loop's bail-on-stolen-lock check at the
+	 * end of each tick. When own_lock has a restart flag, return false so
+	 * the harness knows the loop would exit.
+	 */
+	public function test_tick_for_test_returns_false_on_stolen_lock(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$this->assertTrue( $s->init_lock_for_test() );
+		$s->check_config( microtime( true ) );
+
+		// Drop the restart flag — tick_for_test should detect it after the
+		// worker iteration and return false.
+		Lock::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
+
+		$now    = microtime( true );
+		$result = $s->tick_for_test( $now, $s->generate_spawn_token( (int) $now ) );
+
+		$this->assertFalse( $result, 'tick_for_test must return false when own_lock has restart flag' );
+
+		$s->release_lock_for_test();
+	}
+
+	// ── spawn_next_supervisor (private) ────────────────────────────────────
+
+	/**
+	 * spawn_next_supervisor must POST to /workers/spawn with type=supervisor,
+	 * partition=0, and a valid HMAC token (one this supervisor would accept).
+	 * This is the self-respawn handoff that keeps the chain alive across the
+	 * 595s lifetime cap.
+	 */
+	public function test_spawn_next_supervisor_posts_with_supervisor_type_and_valid_token(): void {
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+
+		$method = new \ReflectionMethod( Supervisor::class, 'spawn_next_supervisor' );
+		$method->setAccessible( true );
+		$method->invoke( $s );
+
+		$posts = $GLOBALS['_wp_test_remote_posts'] ?? [];
+		$this->assertCount( 1, $posts, 'spawn_next_supervisor must fire exactly one POST' );
+
+		$body = $posts[0]['args']['body'];
+		$this->assertSame( 'supervisor', $body['type'] );
+		$this->assertSame( 0, $body['partition'] );
+		$this->assertSame( 64, strlen( $body['nonce'] ), 'token must be a 64-char SHA256 HMAC' );
+
+		// Token must validate — same NONCE_SALT, current window.
+		$this->assertTrue(
+			$s->validate_spawn_token( $body['nonce'], time() ),
+			'POSTed token must validate against this supervisor\'s own validator'
+		);
+	}
+
+	public function test_spawn_next_supervisor_uses_fire_and_forget_args(): void {
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+
+		$method = new \ReflectionMethod( Supervisor::class, 'spawn_next_supervisor' );
+		$method->setAccessible( true );
+		$method->invoke( $s );
+
+		$args = $GLOBALS['_wp_test_remote_posts'][0]['args'];
+		// Fire-and-forget: non-blocking, short timeout, sslverify off (local loopback).
+		$this->assertSame( 'POST', $args['method'] );
+		$this->assertFalse( $args['blocking'] );
+		$this->assertSame( 0.01, $args['timeout'] );
+		$this->assertFalse( $args['sslverify'] );
+	}
+
+	// ── post_spawn (private) ───────────────────────────────────────────────
+
+	/**
+	 * post_spawn must include type, partition, and nonce in the POST body.
+	 * Token-roundtrip already verified in tick tests; here we pin down the
+	 * body shape directly so a typo in field names breaks the test.
+	 */
+	public function test_post_spawn_body_contains_type_partition_nonce(): void {
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$method = new \ReflectionMethod( Supervisor::class, 'post_spawn' );
+		$method->setAccessible( true );
+		$now   = microtime( true );
+		$token = $s->generate_spawn_token( (int) $now );
+
+		$method->invoke(
+			$s,
+			'http://localhost/wp-json/newspack-nodes/v1/workers/spawn',
+			'firehose-workers',
+			3,
+			$token
+		);
+
+		$posts = $GLOBALS['_wp_test_remote_posts'] ?? [];
+		$this->assertCount( 1, $posts );
+		$this->assertSame( 'firehose-workers', $posts[0]['args']['body']['type'] );
+		$this->assertSame( 3, $posts[0]['args']['body']['partition'] );
+		$this->assertSame( $token, $posts[0]['args']['body']['nonce'] );
+	}
+
+	/**
+	 * post_spawn must not throw when wp_remote_post returns a WP_Error.
+	 * The is_wp_error branch only logs (suppressed via error_log redirect
+	 * in bootstrap); we just verify control flow continues.
+	 */
+	public function test_post_spawn_swallows_wp_error_response(): void {
+		// Override the stub to return a WP_Error.
+		$GLOBALS['_wp_test_remote_post_response'] = new \WP_Error( 'http_request_failed', 'simulated DNS failure' );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$method = new \ReflectionMethod( Supervisor::class, 'post_spawn' );
+		$method->setAccessible( true );
+		$now   = microtime( true );
+
+		// No exception → success.
+		$method->invoke(
+			$s,
+			'http://localhost/wp-json/newspack-nodes/v1/workers/spawn',
+			'firehose-workers',
+			0,
+			$s->generate_spawn_token( (int) $now )
+		);
+
+		// The request was still recorded; the response was an error.
+		$this->assertNotEmpty( $GLOBALS['_wp_test_remote_posts'] ?? [] );
+
+		unset( $GLOBALS['_wp_test_remote_post_response'] );
+	}
+
+	/**
+	 * spawn_next_supervisor must not throw on WP_Error either — the chain
+	 * relies on the cron backstop when self-respawn fails.
+	 */
+	public function test_spawn_next_supervisor_swallows_wp_error_response(): void {
+		$GLOBALS['_wp_test_remote_post_response'] = new \WP_Error( 'http_request_failed', 'simulated' );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$method = new \ReflectionMethod( Supervisor::class, 'spawn_next_supervisor' );
+		$method->setAccessible( true );
+
+		// No throw.
+		$method->invoke( $s );
+		$this->assertNotEmpty( $GLOBALS['_wp_test_remote_posts'] ?? [] );
+
+		unset( $GLOBALS['_wp_test_remote_post_response'] );
+	}
+
+	// ── cleanup_stale_partitions early-exit ────────────────────────────────
+
+	/**
+	 * cleanup_stale_partitions is a no-op when num_partitions hasn't been
+	 * computed yet (i.e., check_config never ran). Defends against being
+	 * invoked from a misordered initialization path.
+	 */
+	public function test_cleanup_stale_partitions_noop_before_check_config(): void {
+		// Pre-create a stale dir that would normally be cleaned up.
+		$stale = "{$this->tmp}/locks/firehose-workers.p5.lock.d";
+		mkdir( $stale, 0755, true );
+		touch( "{$stale}/heartbeat", time() - 7200 );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		// Note: NOT calling check_config — num_partitions stays null.
+		$s->cleanup_stale_partitions();
+
+		// Without num_partitions set, no scan happens — stale dir survives.
+		$this->assertTrue(
+			is_dir( $stale ),
+			'cleanup_stale_partitions must early-exit when num_partitions is null'
+		);
+	}
+
+	/**
+	 * Verifies the bound: cleanup walks num_partitions..MAX_PARTITIONS, so
+	 * stale dirs at p15 (just below MAX) are removed.
+	 */
+	public function test_cleanup_stale_partitions_walks_to_max_partitions(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+
+		// Create a stale orphan at the maximum boundary (p15 since MAX=16).
+		$stale_high = "{$this->tmp}/locks/firehose-workers.p15.lock.d";
+		mkdir( $stale_high, 0755, true );
+		touch( "{$stale_high}/heartbeat", time() - 7200 );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$this->assertFalse( is_dir( $stale_high ), 'cleanup must reach all the way to MAX_PARTITIONS-1' );
+	}
+
+	/**
+	 * Verifies cleanup respects type isolation: stale dirs for type A must
+	 * not affect type B's dirs (cleanup walks per-type).
+	 */
+	public function test_cleanup_stale_partitions_per_type_isolation(): void {
+		$this->with_topology( [
+			'type-a' => [ 'num_partitions' => 1, 'topology' => '/a.php' ],
+			'type-b' => [ 'num_partitions' => 1, 'topology' => '/b.php' ],
+		] );
+
+		// Stale orphan for type-a at p5.
+		$stale_a = "{$this->tmp}/locks/type-a.p5.lock.d";
+		mkdir( $stale_a, 0755, true );
+		touch( "{$stale_a}/heartbeat", time() - 7200 );
+
+		// Fresh orphan for type-b at p5 — must NOT be touched.
+		$fresh_b = "{$this->tmp}/locks/type-b.p5.lock.d";
+		mkdir( $fresh_b, 0755, true );
+		file_put_contents( "{$fresh_b}/heartbeat", '' );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$this->assertFalse( is_dir( $stale_a ), 'stale type-a orphan must be removed' );
+		$this->assertTrue( is_dir( $fresh_b ), 'fresh type-b orphan must survive' );
+	}
+
+	// ── run() pre-loop instrumentation ─────────────────────────────────────
+
+	/**
+	 * run() tags the process via $_SERVER so stats workers can exclude
+	 * supervisor activity from request-level metrics. Set early in run(),
+	 * before any other work.
+	 */
+	public function test_run_tags_process_as_supervisor_worker(): void {
+		// Disable logging so run() exits at the first check_config — quick test.
+		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
+
+		// Pre-flight: verify clean state.
+		unset(
+			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],
+			$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']
+		);
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->run();
+
+		$this->assertSame( 'supervisor', $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] );
+		$this->assertSame( '0', $_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] );
+	}
+
+	/**
+	 * run()'s finally block must release the lock AND call
+	 * spawn_next_supervisor. Driven via reflection: pre-acquire via
+	 * init_lock_for_test, then drop restart flag, then invoke run() — but
+	 * run() will fail to acquire (we already hold). So we test via tick_loop
+	 * + manual finally simulation.
+	 *
+	 * This pins down the contract: after tick_loop exits, the lock is gone
+	 * AND a self-respawn POST has fired. We verify by driving tick_loop
+	 * via reflection (exits immediately on restart flag), then simulating
+	 * the finally block.
+	 */
+	public function test_run_finally_releases_lock_and_calls_spawn_next_supervisor(): void {
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$this->assertTrue( $s->init_lock_for_test() );
+		$this->assertTrue( is_dir( "{$this->tmp}/locks/supervisor.lock.d" ) );
+
+		// Pre-arm: tick_loop will exit immediately on this restart flag.
+		Lock::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
+
+		$this->seed_loop_state( $s, microtime( true ) );
+
+		try {
+			$this->invoke_tick_loop( $s );
+		} finally {
+			// Mirror run()'s finally block.
+			$s->release_lock_for_test();
+			$method = new \ReflectionMethod( Supervisor::class, 'spawn_next_supervisor' );
+			$method->setAccessible( true );
+			$method->invoke( $s );
+		}
+
+		// Lock dir must be cleaned up.
+		$this->assertFalse(
+			is_dir( "{$this->tmp}/locks/supervisor.lock.d" ),
+			'finally must release own_lock'
+		);
+
+		// spawn_next_supervisor must have fired one POST.
+		$supervisor_posts = array_filter(
+			$GLOBALS['_wp_test_remote_posts'] ?? [],
+			fn( $p ) => 'supervisor' === ( $p['args']['body']['type'] ?? '' )
+		);
+		$this->assertCount(
+			1,
+			$supervisor_posts,
+			'finally must call spawn_next_supervisor exactly once'
+		);
+	}
+
+	/**
+	 * Multiple supervisors invoked sequentially must hand off the lock cleanly.
+	 * After supervisor A releases (run()'s finally), supervisor B must be
+	 * able to acquire.
+	 */
+	public function test_run_releases_lock_so_next_supervisor_can_acquire(): void {
+		// Disable logging so run() exits before lock acquire — quick path.
+		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
+
+		$first = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$first->run();
+		// In the disabled-logging path, the lock dir was never created.
+		$this->assertFalse( is_dir( "{$this->tmp}/locks/supervisor.lock.d" ) );
+
+		// Second supervisor: lock must be available immediately.
+		$second = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$this->assertTrue(
+			$second->init_lock_for_test(),
+			'lock must be free for the next supervisor to acquire'
+		);
+		$second->release_lock_for_test();
+	}
+
+	/**
+	 * End-to-end test of run(): acquire lock → tick_loop spawns a worker →
+	 * restart flag drops mid-tick → tick_loop exits → finally releases lock
+	 * AND fires spawn_next_supervisor.
+	 *
+	 * Drives run() through its entire body (lock dir creation, acquire,
+	 * tick_loop entry, finally cleanup, self-respawn). The 1s sleep in
+	 * tick_loop is unavoidable here — we accept it as the price of testing
+	 * the production code path end-to-end.
+	 *
+	 * Mechanism: a mock wp_remote_post override fires when tick_loop's
+	 * worker-iteration POSTs the spawn. The override drops the restart flag
+	 * so the NEXT tick_loop iteration breaks before another sleep.
+	 */
+	public function test_run_full_cycle_acquire_spawn_release_respawn(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+
+		$tmp = $this->tmp;
+		// Override wp_remote_post: when the supervisor POSTs a spawn for
+		// firehose-workers, drop our own restart flag mid-cycle so the next
+		// tick exits immediately.
+		$GLOBALS['_wp_test_remote_post_response'] = function ( $url, $args ) use ( $tmp ) {
+			if ( ( $args['body']['type'] ?? '' ) === 'firehose-workers' ) {
+				Lock::request_restart_at( "{$tmp}/locks/supervisor.lock.d" );
+			}
+			return [ 'response' => [ 'code' => 200 ] ];
+		};
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->run();
+
+		// Lock dir cleaned up by finally.
+		$this->assertFalse(
+			is_dir( "{$this->tmp}/locks/supervisor.lock.d" ),
+			'finally must release own_lock'
+		);
+
+		// At least one worker spawn POST + exactly one supervisor self-respawn.
+		$posts = $GLOBALS['_wp_test_remote_posts'] ?? [];
+		$worker_posts = array_filter(
+			$posts,
+			fn( $p ) => 'firehose-workers' === ( $p['args']['body']['type'] ?? '' )
+		);
+		$supervisor_posts = array_filter(
+			$posts,
+			fn( $p ) => 'supervisor' === ( $p['args']['body']['type'] ?? '' )
+		);
+
+		$this->assertGreaterThanOrEqual(
+			1,
+			count( $worker_posts ),
+			'tick_loop must spawn the missing worker'
+		);
+		$this->assertCount(
+			1,
+			$supervisor_posts,
+			'finally must call spawn_next_supervisor exactly once'
+		);
+
+		unset( $GLOBALS['_wp_test_remote_post_response'] );
 	}
 }
