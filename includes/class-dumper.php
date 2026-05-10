@@ -120,6 +120,21 @@ class Dumper extends Node {
 	 */
 	private string $to_filter = '';
 
+	/**
+	 * Callback fired when a TM_EOF echo arrives matching the to_filter — the
+	 * cli's stdin-close round-trip drain marker. Cli wires this to flip the
+	 * reader's exit flag so the event loop terminates after the echo (i.e.
+	 * after every preceding output message has been drained off the reply
+	 * partition). Null when not registered.
+	 *
+	 * @var callable|null
+	 */
+	private $on_eof = null;
+
+	public function on_eof( ?callable $cb ): void {
+		$this->on_eof = $cb;
+	}
+
 	public function set_to_filter( string $pid ): void {
 		$this->to_filter = $pid;
 	}
@@ -148,6 +163,17 @@ class Dumper extends Node {
 
 		$type = $message[ Message::TYPE ];
 
+		// TM_EOF: drain marker — cli emitted TM_EOF on stdin close, the
+		// receiving CI bounced it back, now we're seeing the echo. Fire the
+		// registered callback (Cli wires this to flip the reader's exit flag)
+		// and render nothing. TM_EOF is a control marker, not output.
+		if ( $type & Message::TM_EOF ) {
+			if ( null !== $this->on_eof ) {
+				( $this->on_eof )();
+			}
+			return;
+		}
+
 		// TM_COMMAND|TM_RESPONSE: response to the user's command. Bare-mode
 		// responses are synchronous (rendered inside the same drain_fh that
 		// processed the line); pivoted-mode responses arrive async via the
@@ -170,6 +196,16 @@ class Dumper extends Node {
 				$this->write_async( $payload );
 				return;
 			}
+		}
+
+		// TM_COMMAND|TM_ERROR: a verb handler threw — render the unwrapped
+		// payload as the error message, not the JSON envelope. Mirrors
+		// Tachikoma CommandInterpreter.pm:error() responses.
+		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_ERROR ) ) {
+			$cmd     = \json_decode( (string) $message[ Message::VALUE ], true );
+			$payload = \is_array( $cmd ) ? (string) ( $cmd['payload'] ?? '' ) : (string) $message[ Message::VALUE ];
+			$this->write( $this->stderr, 'ERROR: ' . $payload, true );
+			return;
 		}
 
 		// TM_ERROR: synchronous error path; skip the prompt dance for the same

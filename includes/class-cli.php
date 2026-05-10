@@ -84,12 +84,29 @@ class Cli {
 	 * `input` / `output` as `Partition` paths to drive the REPL pivoted-mode
 	 * graph.
 	 *
+	 * Verifies the worker is actually registered by checking for its lock dir
+	 * (`{base}/locks/{type}.p{N}.lock.d/`). Without this, a typo in the reader
+	 * id silently creates ghost IPC partitions that nobody reads/writes — the
+	 * cli looks like it works but every command is dropped on the floor.
+	 *
+	 * Staleness is NOT checked here. A registered-but-stale worker is in the
+	 * middle of a restart cycle; the supervisor will respawn it shortly and
+	 * the cli's attach is fine. `wp nodes ls` is the canonical way to inspect
+	 * heartbeat freshness.
+	 *
 	 * @param string $reader_id Reader id in `{type}.p{N}` form.
 	 * @return array{input:string,output:string,type:string,partition:int}
-	 * @throws \InvalidArgumentException If reader_id can't be parsed.
+	 * @throws \InvalidArgumentException If reader_id can't be parsed OR no
+	 *                                   matching lock dir exists.
 	 */
 	public function attach_to_worker( string $reader_id ): array {
 		[ $type, $partition ] = self::parse_reader_id( $reader_id );
+		$lock_dir             = "{$this->base_dir}/locks/{$reader_id}.lock.d";
+		if ( ! \is_dir( $lock_dir ) ) {
+			throw new \InvalidArgumentException(
+				"no worker '{$reader_id}' (run `wp nodes ls` to list active workers)"
+			);
+		}
 		return [
 			'input'     => "{$this->base_dir}/ipc/{$reader_id}/input",
 			'output'    => "{$this->base_dir}/ipc/{$reader_id}/output",

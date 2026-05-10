@@ -66,15 +66,32 @@ class Cli_Command {
 	 *     wp nodes cli firehose-workers.p0
 	 */
 	public function cli( array $args, array $assoc_args ): void {
+		[ $shell, $dumper ] = $this->prepare_repl( $args );
+		$this->run_repl( $shell, $dumper );
+	}
+
+	/**
+	 * Build the REPL graph + log the mode line, returning [$shell, $dumper]
+	 * ready for `run_repl`. Extracted from `cli()` so tests can verify the
+	 * setup branches (root guard, attach error, log shape) without entering
+	 * the blocking event loop.
+	 *
+	 * On root or invalid reader id, calls WP_CLI::error which is configured
+	 * by tests to throw, so this method has no return value path for the
+	 * error branches — the caller (cli()) returns implicitly when the
+	 * underlying WP_CLI::error short-circuits.
+	 *
+	 * @param array $args WP_CLI positional arguments. Empty = bare mode;
+	 *                    otherwise $args[0] is the reader id.
+	 * @return array{0:Shell,1:Dumper}
+	 */
+	public function prepare_repl( array $args ): array {
 		// Refuse to run as root. Workers run as the web user and create the
 		// IPC dirs under that ownership; a root cli would create `input/p0/`
 		// (and its descendants) as root, leaving non-root clis unable to
 		// write into the dir afterward — typed lines would silently vanish.
-		// Recovery (after a misfire): `chown -R <web-user>:<web-user>
-		// {base_dir}/ipc/`.
 		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
 			\WP_CLI::error( 'wp nodes cli must run as the same user as the workers, not root.' );
-			return;
 		}
 
 		$cli = new Cli( $this->base_dir() );
@@ -88,18 +105,28 @@ class Cli_Command {
 				$ipc = $cli->attach_to_worker( $reader_id );
 			} catch ( \InvalidArgumentException $e ) {
 				\WP_CLI::error( $e->getMessage() );
-				return;
 			}
-			\WP_CLI::log( "Pivoted-cli mode for $reader_id" );
-			\WP_CLI::log( "  input  partition: {$ipc['input']}" );
-			\WP_CLI::log( "  output partition: {$ipc['output']}" );
-		} else {
-			\WP_CLI::log( 'Bare cli mode (local nodes only).' );
 		}
 
+		// Build the graph first so we have a Shell to populate.
 		[ $shell, $dumper ] = $this->build_repl_graph( $pivoted, $ipc );
 
-		$this->run_repl( $shell, $dumper );
+		// Stash the mode summary on the Shell — `status` builtin renders it
+		// on demand. Suppresses the previous auto-banner so scripted callers
+		// (`echo cmd | wp nodes cli ...`) get clean output.
+		if ( $pivoted && null !== $ipc ) {
+			$shell->status_lines = [
+				"Pivoted-cli mode for {$args[0]}",
+				"  input  partition: {$ipc['input']}",
+				"  output partition: {$ipc['output']}",
+			];
+		} else {
+			$shell->status_lines = [
+				'Bare cli mode (local nodes only).',
+			];
+		}
+
+		return [ $shell, $dumper ];
 	}
 
 	/**
@@ -223,6 +250,40 @@ class Cli_Command {
 	 *
 	 * EOF on STDIN exits the drain loop.
 	 */
+	/**
+	 * Parse one line of input through the Shell graph. Extracted so tests
+	 * can drive the per-line dispatch directly from a memory stream without
+	 * spinning up the event loop. Returns true when the line emitted a
+	 * Message (was a real verb), false when it was a no-op (empty line,
+	 * comment, builtin like `cd`, `include`).
+	 */
+	public function dispatch_line( Shell $shell, string $line ): bool {
+		$line = \rtrim( $line, "\r\n" );
+		$msg  = $shell->parse( $line );
+		if ( null === $msg ) {
+			return false;
+		}
+		$shell->fill( $msg );
+		return true;
+	}
+
+	/**
+	 * Drain a non-blocking input stream of complete lines, dispatching each
+	 * through the Shell. Returns the number of lines processed; 0 typically
+	 * means EOF (caller can flip its exit flag). Used by `run_repl`'s
+	 * non-readline path AND directly by tests via `php://memory` stream
+	 * injection — readline's per-byte feed isn't testable without a real
+	 * TTY, but the line-buffered branch covers the same parse/fill contract.
+	 */
+	public function drain_lines_from_stream( Shell $shell, $stream ): int {
+		$processed = 0;
+		while ( ( $line = \fgets( $stream ) ) !== false ) {
+			$this->dispatch_line( $shell, $line );
+			++$processed;
+		}
+		return $processed;
+	}
+
 	private function run_repl( Shell $shell, Dumper $dumper ): void {
 		// Same gate as the Dumper's readline_mode: only use readline when STDIN
 		// is a real TTY. Pipes / redirected files fall through to the
@@ -230,151 +291,233 @@ class Cli_Command {
 		$is_tty       = \function_exists( 'posix_isatty' ) && @\posix_isatty( \STDIN );
 		$has_readline = $is_tty && \function_exists( 'readline_callback_handler_install' );
 
-		$exit  = false;
-		$stdin = new class( $shell, $dumper, $has_readline, $exit ) {
-			public $stream;
-			private Shell $shell;
-			private Dumper $dumper;
-			private bool $has_readline;
-			private bool $prompt_displayed = false;
-			/** @var array<int,string> Lines delivered by the readline callback, drained per drain_fh. */
-			private array $queue = [];
-			private bool $readline_eof = false;
+		// Wire STDOUT into the Shell so the `status` local builtin has
+		// somewhere to render. (Tests inject memory streams directly.)
+		$shell->output_stream = \STDOUT;
 
-			public function __construct( Shell $shell, Dumper $dumper, bool $has_readline, bool &$exit ) {
-				$this->stream       = \STDIN;
-				$this->shell        = $shell;
-				$this->dumper       = $dumper;
-				$this->has_readline = $has_readline;
-				$this->exit         = &$exit;
+		// Skip prompt rendering when stdin is piped — prompts in captured
+		// output break shell consumers (e.g. `... | grep`).
+		$reader = new Cli_Stdin_Reader( $this, $shell, $dumper, $has_readline, null, $is_tty );
 
-				if ( $has_readline ) {
-					$this->install_handler();
-				} else {
-					@\stream_set_blocking( $this->stream, false );
-					$this->show_prompt_fallback();
-				}
-			}
+		// Stdin-EOF round-trip: when the worker's TM_EOF echo lands on the
+		// reply partition and Dumper renders it, flip the reader's exit
+		// flag so the drain loop terminates. Without this, scripted cli
+		// sessions race — stdin closes, cli exits, pending replies are
+		// orphaned on disk.
+		$dumper->on_eof( static function () use ( $reader ): void {
+			$reader->exit = true;
+		} );
 
-			public bool $exit;
-
-			/**
-			 * (Re-)install the readline callback handler. PHP auto-removes the
-			 * handler after each line is delivered, so we install once at
-			 * startup and again after every processed line so the next prompt
-			 * renders.
-			 *
-			 * Install with the REAL prompt so readline knows the prompt's
-			 * width — that's what stops backspace from chewing back through
-			 * the prompt characters once the buffer empties (readline tracks
-			 * cursor as `prompt-end-col + buffer-point`, so an empty prompt
-			 * places the buffer at col 0 and a redraw happily overwrites our
-			 * manually-written prompt).
-			 *
-			 * The earlier reverse-search bug ("typing one char rendered
-			 * `bck:`") came from calling `readline_redisplay()` after a
-			 * non-empty-prompt install — NOT from the non-empty prompt
-			 * itself. The Dumper's async path no longer calls redisplay; it
-			 * just wipes the line, prints the async text, and rewrites the
-			 * prompt to stdout. readline's internal prompt-width still
-			 * matches what's on screen, so cursor math stays correct.
-			 */
-			private function install_handler(): void {
-				\readline_callback_handler_install(
-					$this->shell->prompt,
-					function ( $line ): void {
-						if ( null === $line ) {
-							$this->readline_eof = true;
-							return;
-						}
-						if ( '' !== $line && \function_exists( 'readline_add_history' ) ) {
-							\readline_add_history( $line );
-						}
-						$this->queue[] = $line;
-						// User's line was just consumed; the on-screen prompt is
-						// no longer active. Clear the Dumper's flag so any
-						// synchronous output during queue processing (e.g.,
-						// bare-mode TM_PING bounce) writes plainly instead of
-						// doing the async wipe-and-redisplay dance — that dance
-						// would otherwise paint a duplicate prompt next to the
-						// just-entered line. install_handler() below resets the
-						// flag once the next prompt is on screen, so async
-						// output that arrives later (pivoted-mode worker
-						// replies) still gets the redraw treatment.
-						$this->dumper->prompt_displayed = false;
-					}
-				);
-				// readline drew the prompt itself — no manual fwrite needed.
-				$this->dumper->mark_prompt_displayed();
-			}
-
-			private function show_prompt_fallback(): void {
-				if ( $this->prompt_displayed ) {
-					return;
-				}
-				\fwrite( \STDOUT, $this->shell->prompt );
-				$this->dumper->mark_prompt_displayed();
-				$this->prompt_displayed = true;
-			}
-
-			public function drain_fh(): void {
-				if ( $this->has_readline ) {
-					// Feed one byte from STDIN to readline. If it completed a
-					// line, the callback (set in install_handler) appended to
-					// $this->queue. Mirrors TTY.pm:drain_fh.
-					\readline_callback_read_char();
-
-					foreach ( $this->queue as $line ) {
-						$msg = $this->shell->parse( $line );
-						if ( null !== $msg ) {
-							$this->shell->fill( $msg );
-						}
-					}
-					$delivered = \count( $this->queue ) > 0;
-					$this->queue = [];
-
-					if ( $this->readline_eof ) {
-						$this->exit = true;
-						return;
-					}
-					if ( $delivered ) {
-						// Handler was auto-removed when the line was delivered;
-						// re-install so the next prompt renders.
-						$this->install_handler();
-					}
-					return;
-				}
-
-				// Non-readline path: line-buffered fgets, manual prompt.
-				$line = \fgets( $this->stream );
-				if ( false === $line ) {
-					// fgets returns false on EOF or no-data-available
-					// (non-blocking). Distinguish via feof.
-					if ( \feof( $this->stream ) ) {
-						$this->exit = true;
-					}
-					return;
-				}
-				$line                   = \rtrim( $line, "\r\n" );
-				$this->prompt_displayed = false;
-
-				$msg = $this->shell->parse( $line );
-				if ( null !== $msg ) {
-					$this->shell->fill( $msg );
-				}
-				$this->show_prompt_fallback();
-			}
-		};
-
-		EventFramework::instance()->register_reader_node( $stdin );
-
-		EventFramework::instance()->drain( static fn () => ! $stdin->exit );
-
-		EventFramework::instance()->unregister_reader_node( $stdin );
+		EventFramework::instance()->register_reader_node( $reader );
+		EventFramework::instance()->drain( static fn () => ! $reader->exit );
+		EventFramework::instance()->unregister_reader_node( $reader );
 
 		if ( $has_readline ) {
 			\readline_callback_handler_remove();
 		}
 		\WP_CLI::log( '' ); // Trailing newline after EOF.
+	}
+}
+
+/**
+ * Stdin-reading driver for `wp nodes cli`. Extracted from `run_repl`'s
+ * anonymous-class body so tests can instantiate it directly with a
+ * `php://memory` stream and verify the per-line dispatch + EOF detection
+ * without entering the EventFramework drain loop.
+ *
+ * Production: constructor reads from STDIN, registers itself as a reader
+ * node, and lets EventFramework call `drain_fh()` whenever STDIN is ready.
+ *
+ * Tests: pass a memory-stream resource as the optional 5th argument; the
+ * class skips `posix_isatty`-dependent branches when `$has_readline` is
+ * false and treats the stream like piped input.
+ *
+ * @package Newspack_Nodes
+ */
+class Cli_Stdin_Reader {
+	public $stream;
+	public bool $exit = false;
+	private Cli_Command $cmd;
+	private Shell $shell;
+	private Dumper $dumper;
+	private bool $has_readline;
+	private bool $show_prompts;
+	private float $eof_deadline_s;
+	private bool $prompt_displayed = false;
+	/** @var array<int,string> Lines delivered by the readline callback, drained per drain_fh. */
+	private array $queue = [];
+	private bool $readline_eof = false;
+	/** Stdin-EOF round-trip state. */
+	private bool $eof_sent = false;
+	private float $eof_deadline_at = 0.0;
+
+	/**
+	 * @param resource|null $stream         Input stream (defaults to STDIN). Tests
+	 *                                      pass a `php://memory` resource so the
+	 *                                      fgets path is exercisable without
+	 *                                      real STDIN.
+	 * @param bool          $show_prompts   Render the shell prompt before each
+	 *                                      read. Default true. Pass false when
+	 *                                      stdin is piped (no TTY) — prompts
+	 *                                      pollute scripted output.
+	 * @param float         $eof_deadline_s Bound on how long to wait for the
+	 *                                      TM_EOF echo after stdin closes
+	 *                                      before exiting anyway. Default 5s.
+	 *                                      A dead worker would otherwise hang
+	 *                                      the cli forever; the deadline is
+	 *                                      the cap. Bare mode echoes
+	 *                                      synchronously inside the same
+	 *                                      drain so the deadline rarely
+	 *                                      matters there.
+	 */
+	public function __construct( Cli_Command $cmd, Shell $shell, Dumper $dumper, bool $has_readline, $stream = null, bool $show_prompts = true, float $eof_deadline_s = 5.0 ) {
+		$this->stream         = $stream ?? \STDIN;
+		$this->cmd            = $cmd;
+		$this->shell          = $shell;
+		$this->dumper         = $dumper;
+		$this->has_readline   = $has_readline;
+		$this->show_prompts   = $show_prompts;
+		$this->eof_deadline_s = $eof_deadline_s;
+
+		if ( $has_readline ) {
+			$this->install_handler();
+		} else {
+			@\stream_set_blocking( $this->stream, false );
+			if ( $show_prompts ) {
+				$this->show_prompt_fallback();
+			}
+		}
+	}
+
+	/**
+	 * Stdin closed: emit a TM_EOF marker through the Shell and arm the
+	 * deadline. Mirrors Tachikoma `FileHandle::handle_EOF` → `send_EOF`.
+	 * The receiving CommandInterpreter (local in bare mode, the worker's
+	 * in pivoted mode) bounces TO=FROM, the echo walks back to our Dumper,
+	 * Dumper fires the on_eof callback (wired by run_repl), $exit flips.
+	 *
+	 * Idempotent — only the first call emits. Subsequent calls (each
+	 * drain_fh tick after stdin closed) are no-ops until the deadline
+	 * elapses or the echo arrives.
+	 */
+	private function send_eof_marker(): void {
+		if ( $this->eof_sent ) {
+			return;
+		}
+		$msg                  = Message::new_message();
+		$msg[ Message::TYPE ] = Message::TM_EOF;
+		$msg[ Message::FROM ] = '_output/' . \getmypid();
+		$this->shell->fill( $msg );
+		$this->eof_sent        = true;
+		$this->eof_deadline_at = \microtime( true ) + $this->eof_deadline_s;
+	}
+
+	/**
+	 * (Re-)install the readline callback handler. PHP auto-removes the
+	 * handler after each line is delivered, so we install once at startup
+	 * and again after every processed line so the next prompt renders.
+	 *
+	 * Install with the REAL prompt so readline knows the prompt's width —
+	 * that's what stops backspace from chewing back through the prompt
+	 * characters once the buffer empties (readline tracks cursor as
+	 * `prompt-end-col + buffer-point`, so an empty prompt places the
+	 * buffer at col 0 and a redraw happily overwrites our manually-
+	 * written prompt).
+	 */
+	private function install_handler(): void {
+		\readline_callback_handler_install(
+			$this->shell->prompt,
+			fn( $line ) => $this->handle_readline_line( $line )
+		);
+		// readline drew the prompt itself — no manual fwrite needed.
+		$this->dumper->mark_prompt_displayed();
+	}
+
+	/**
+	 * Body of the readline-callback closure. Public so tests can drive it
+	 * directly without spinning a real readline TTY.
+	 *
+	 *  - null line → user pressed Ctrl-D / readline EOF; flip the EOF flag
+	 *    so the next drain_fh call exits the event loop.
+	 *  - non-empty line → record in readline history (if extension available)
+	 *    and queue it for processing.
+	 *  - any line → clear the dumper's prompt-displayed flag so synchronous
+	 *    output during queue processing writes plainly instead of doing the
+	 *    async wipe-and-redisplay dance.
+	 */
+	public function handle_readline_line( ?string $line ): void {
+		if ( null === $line ) {
+			$this->readline_eof = true;
+			return;
+		}
+		if ( '' !== $line && \function_exists( 'readline_add_history' ) ) {
+			\readline_add_history( $line );
+		}
+		$this->queue[] = $line;
+		$this->dumper->prompt_displayed = false;
+	}
+
+	private function show_prompt_fallback(): void {
+		if ( $this->prompt_displayed ) {
+			return;
+		}
+		\fwrite( \STDOUT, $this->shell->prompt );
+		$this->dumper->mark_prompt_displayed();
+		$this->prompt_displayed = true;
+	}
+
+	/**
+	 * Drain whatever's ready on $this->stream. EventFramework calls this on
+	 * each select cycle. Tests can call it directly with a fixture stream
+	 * to drive a deterministic number of lines, then assert on the Shell's
+	 * sink to verify dispatch.
+	 */
+	public function drain_fh(): void {
+		// Post-EOF deadline check: if we've already emitted TM_EOF and the
+		// echo never came back, exit anyway after the configured bound.
+		// Runs first so even ticks where stdin is silent still get checked.
+		if ( $this->eof_sent && \microtime( true ) >= $this->eof_deadline_at ) {
+			$this->exit = true;
+			return;
+		}
+
+		if ( $this->has_readline ) {
+			// Feed one byte from STDIN to readline. If it completed a line,
+			// the callback (set in install_handler) appended to $this->queue.
+			\readline_callback_read_char();
+
+			foreach ( $this->queue as $line ) {
+				$this->cmd->dispatch_line( $this->shell, $line );
+			}
+			$delivered = \count( $this->queue ) > 0;
+			$this->queue = [];
+
+			if ( $this->readline_eof ) {
+				$this->send_eof_marker();
+				return;
+			}
+			if ( $delivered ) {
+				// Handler was auto-removed when the line was delivered;
+				// re-install so the next prompt renders.
+				$this->install_handler();
+			}
+			return;
+		}
+
+		// Non-readline path: line-buffered fgets, manual prompt.
+		$line = \fgets( $this->stream );
+		if ( false === $line ) {
+			// fgets returns false on EOF or no-data-available (non-
+			// blocking). Distinguish via feof.
+			if ( \feof( $this->stream ) ) {
+				$this->send_eof_marker();
+			}
+			return;
+		}
+		$this->prompt_displayed = false;
+		$this->cmd->dispatch_line( $this->shell, $line );
+		if ( $this->show_prompts ) {
+			$this->show_prompt_fallback();
+		}
 	}
 }

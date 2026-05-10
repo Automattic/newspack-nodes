@@ -23,6 +23,32 @@ class Shell extends Node {
 	public array $variables = [];
 
 	/**
+	 * Current "directory" — the node-path TO which non-builtin commands route
+	 * by default. Empty = local _command_interpreter handles it. Updated by
+	 * the `cd`/`chdir` builtin (see Tachikoma Shell.pm:106-114).
+	 */
+	public string $path = '';
+
+	/**
+	 * Lines printed by the local `status` builtin. Cli sets these to the
+	 * mode banner + IPC paths so users can summon them on demand instead of
+	 * having them auto-printed at session start (where they pollute scripted
+	 * captures). Empty = `status` is a silent no-op.
+	 *
+	 * @var array<int,string>
+	 */
+	public array $status_lines = [];
+
+	/**
+	 * Output sink for local-only builtins (e.g. `status`). Defaults to null;
+	 * the cli's `run_repl` injects STDOUT in production, tests inject a
+	 * `php://memory` resource. When null, local-print builtins are silent.
+	 *
+	 * @var resource|null
+	 */
+	public $output_stream = null;
+
+	/**
 	 * Refuse to register the Shell under a node name. Mirrors real Tachikoma
 	 * `Shell3::name`: shells are anonymous so they don't show up in `ls`,
 	 * can't be addressed via TO, and can't accidentally form a graph cycle by
@@ -156,6 +182,29 @@ class Shell extends Node {
 			return null;
 		}
 
+		// `cd` / `chdir` builtin: update $this->path so subsequent default
+		// commands route to that node-path (Tachikoma Shell.pm:106-114).
+		// No message emitted — pure state mutation in the local Shell.
+		if ( 'cd' === $verb || 'chdir' === $verb ) {
+			$this->path = $this->cd( $this->path, $args[0] ?? '' );
+			return null;
+		}
+
+		// `status` builtin: print pre-populated $status_lines to the
+		// configured $output_stream. Local-only — no Message emitted, no
+		// command sent to the worker (in pivoted mode, Shell's sink is the
+		// cmd-out Partition, so a Message would just go to disk). Cli
+		// populates the lines at session start; user types `status` to see
+		// them on demand. Empty list or null stream → silent no-op.
+		if ( 'status' === $verb ) {
+			if ( \is_resource( $this->output_stream ) ) {
+				foreach ( $this->status_lines as $line ) {
+					\fwrite( $this->output_stream, $line . "\n" );
+				}
+			}
+			return null;
+		}
+
 		// Reject unsupported features early & loudly.
 		if ( \in_array( $verb, self::FORBIDDEN, true ) ) {
 			Core::print_less_often( "Shell: '$verb' not supported in v1" );
@@ -182,18 +231,68 @@ class Shell extends Node {
 
 		switch ( $verb ) {
 			case 'tell':
+			case 'tell_node':
+				// Tachikoma Shell.pm `tell_node <path> <info>` (alias: tell) —
+				// emits TM_INFO at prefix(<path>) so the cwd composes.
 				$msg[ Message::TYPE ]  = Message::TM_INFO;
-				$msg[ Message::TO ]    = $args[0] ?? '';
+				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
 				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
 				break;
 			case 'send':
+			case 'send_node':
+				// Tachikoma Shell.pm `send_node <path> <bytes>` (alias: send) —
+				// emits TM_BYTESTREAM at prefix(<path>) so the cwd composes.
 				$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-				$msg[ Message::TO ]    = $args[0] ?? '';
+				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
 				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
 				break;
 			case 'send_eof':
 				$msg[ Message::TYPE ] = Message::TM_EOF;
-				$msg[ Message::TO ]   = $args[0] ?? '';
+				$msg[ Message::TO ]   = $this->prefix( $args[0] ?? '' );
+				break;
+			case 'command':
+			case 'cmd':
+			case 'command_node':
+				// Tachikoma Shell.pm `command_node <path> <verb> [<args>]`
+				// (aliases: command, cmd) — drive a TM_COMMAND at a specific
+				// path without changing cwd. Uses prefix() so the cwd
+				// composes as it does for `send_node`.
+				$cmd_path  = $args[0] ?? '';
+				$cmd_verb  = $args[1] ?? '';
+				$cmd_args  = \implode( ' ', \array_slice( $args, 2 ) );
+				$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+				$msg[ Message::TO ]    = $this->prefix( $cmd_path );
+				$msg[ Message::VALUE ] = (string) \json_encode(
+					[
+						'name'      => $cmd_verb,
+						'arguments' => $cmd_args,
+						'payload'   => '',
+					]
+				);
+				break;
+			case 'request':
+			case 'request_node':
+				// Tachikoma-style introspection: TM_REQUEST at prefix(<path>)
+				// with the rest of the line as VALUE. Receiver is expected to
+				// build a TM_RESPONSE addressed back at FROM.
+				$msg[ Message::TYPE ]  = Message::TM_REQUEST;
+				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
+				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
+				break;
+			case 'pwd':
+				// Tachikoma Shell.pm:146-150 — send `pwd <cwd>` as TM_COMMAND
+				// to the current path. The receiving CI's `pwd` handler
+				// renders ` <args> -> <from>` so output reflects where the
+				// command landed and where the reply walked back from.
+				$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+				$msg[ Message::TO ]    = $this->path;
+				$msg[ Message::VALUE ] = (string) \json_encode(
+					[
+						'name'      => 'pwd',
+						'arguments' => $this->path,
+						'payload'   => '',
+					]
+				);
 				break;
 			case 'ping':
 				// Tachikoma Shell3 builtin: build TM_PING addressed at <path>,
@@ -201,15 +300,17 @@ class Shell extends Node {
 				// bounces TO=FROM, so the message returns along the FROM trail
 				// to _output/$pid → Dumper.
 				$msg[ Message::TYPE ]  = Message::TM_PING;
-				$msg[ Message::TO ]    = $args[0] ?? '';
+				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
 				$msg[ Message::VALUE ] = (string) Core::$right_now;
 				break;
 			default:
-				// Default: TM_COMMAND with verb as command name. TO empty so
-				// the local _command_interpreter handles it; pivoted-mode
-				// callers re-route via Partition.
+				// Default: TM_COMMAND with verb as command name. TO is the
+				// shell's current `path` — empty means the local
+				// _command_interpreter handles it; non-empty (after `cd
+				// firehose:partition`) routes via _router to that node's CI.
+				// Pivoted-mode callers re-route via the cmd-out Partition.
 				$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-				$msg[ Message::TO ]    = '';
+				$msg[ Message::TO ]    = $this->prefix( '' );
 				$msg[ Message::VALUE ] = (string) \json_encode(
 					[
 						'name'      => $verb,
@@ -222,6 +323,49 @@ class Shell extends Node {
 
 		return $msg;
 	}
+
+	/**
+	 * Tachikoma Shell.pm:prefix() — combine the shell's cwd (`$this->path`)
+	 * with an additional `<path>` arg into the canonical slash-joined form.
+	 * Empty pieces drop out so leading/trailing slashes don't appear when
+	 * either side is empty.
+	 */
+	public function prefix( string $path ): string {
+		$parts = [];
+		if ( '' !== $this->path ) {
+			$parts[] = $this->path;
+		}
+		if ( '' !== $path ) {
+			$parts[] = $path;
+		}
+		return \implode( '/', $parts );
+	}
+
+	/**
+	 * Tachikoma Shell.pm:cd() — resolve a relative or absolute path against
+	 * the current cwd. Empty path clears cwd; absolute paths replace it;
+	 * `../` walks up one segment (recursing for chains like `../../foo`).
+	 * Final result has leading/trailing slashes stripped so it can be used
+	 * directly as a Message TO.
+	 */
+	public function cd( string $cwd, string $path ): string {
+		// Empty path is a no-op — keeps cwd as-is (matches Tachikoma
+		// Shell.pm:cd; `cd` with no args is "redraw the prompt"). Use `cd /`
+		// to reset to the local interpreter.
+		if ( '/' !== $path && '' !== $path && '/' === $path[0] ) {
+			$cwd = $path;
+		} elseif ( '/' === $path ) {
+			$cwd = '';
+		} elseif ( '' !== $path && \preg_match( '#^[.][.]/?#', $path ) ) {
+			$cwd  = (string) \preg_replace( '#/?[^/]+$#', '', $cwd );
+			$path = (string) \preg_replace( '#^[.][.]/?#', '', $path );
+			$cwd  = $this->cd( $cwd, $path );
+		} elseif ( '' !== $path ) {
+			$cwd .= '/' . $path;
+		}
+		return \trim( $cwd, '/' );
+	}
+
 
 	/**
 	 * Recursively read & parse a file. Each non-trivial line is parsed and

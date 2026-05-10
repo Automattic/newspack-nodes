@@ -25,7 +25,7 @@ For application-side changes (RequestBuilder, FlameBuilder, REST controllers, da
 
 The boundary that matters: **does this belong in the substrate?** Substrate code is application-agnostic. If you find yourself reaching for an event-logger-specific concept (request_id, firehose, jobintake, flame), you're in the wrong plugin — go to `newspack-event-logger-nodes/`.
 
-Substrate-appropriate examples: a generic Filter node, a new TYPE flag, a Tail buffering mode, a Router heuristic. Substrate-inappropriate: a node that knows what a "request" is.
+Substrate-appropriate examples: a generic Filter node, a new TYPE flag, a Tail buffering mode, a Router heuristic, a file-writing primitive (Log), a routing helper (Echo). Substrate-inappropriate: a node that knows what a "request" is.
 
 ### Phase 2: Implement
 
@@ -38,9 +38,10 @@ For a new Node subclass:
 
 For a new CommandInterpreter verb:
 
-1. Add to `$H` (help text) and `$C` (callable map) in `init_C()`.
+1. Add to `$H` (help text) and `$C` (callable map) in `init_C()`. Aliases get their own `$C` row pointing at the same `cmd_foo` static; document them in the canonical verb's `$H` entry (`alias: bar`).
 2. Add `cmd_foo()` static method following the `[$arg1, $arg2] = array_pad(preg_split(..., $args, N), N, '')` pattern.
-3. Update the help line if there's an alias.
+3. If the verb is purely shell-side (e.g. `cd`, `tell_node`, `send_node`), intercept it in `Shell::parse()` instead — it never reaches CI dispatch. Document it in `$H` anyway so `help` covers everything the user can type.
+4. Throwing from `cmd_foo` is fine — `interpret()` catches `\Throwable` and wraps the response as `TM_COMMAND|TM_ERROR`. Reserve `return 'error: ...'` for malformed-args paths where you want the canonical OK response shape.
 
 ### Phase 3: Test, deploy, verify
 

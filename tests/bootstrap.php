@@ -64,6 +64,12 @@ if ( ! function_exists( 'wp_remote_post' ) ) {
 	function wp_remote_post( $url, $args = [] ) {
 		// Capture for tests; the final positional arg permits inspection.
 		$GLOBALS['_wp_test_remote_posts'][] = [ 'url' => $url, 'args' => $args ];
+		// Tests can short-circuit the response by setting this global.
+		// Useful for exercising is_wp_error() branches in callers.
+		if ( isset( $GLOBALS['_wp_test_remote_post_response'] ) ) {
+			$resp = $GLOBALS['_wp_test_remote_post_response'];
+			return is_callable( $resp ) ? $resp( $url, $args ) : $resp;
+		}
 		return [ 'response' => [ 'code' => 200 ] ];
 	}
 }
@@ -153,6 +159,12 @@ if ( ! function_exists( 'set_transient' ) ) {
 		return true;
 	}
 }
+
+// Note: wp_cache_set / wp_cache_get are intentionally NOT stubbed here.
+// SupervisorBase falls back to set_transient/get_transient when the object
+// cache API is unavailable, and the cross-process persistence test exercises
+// that fallback path. Tests can opt into object-cache simulation by defining
+// these in their own setUp via runkit (not currently used).
 
 // ── REST helpers ──────────────────────────────────────────────────────────────
 
@@ -313,6 +325,12 @@ if ( ! function_exists( 'wp_unslash' ) ) {
 			return \stripslashes( $value );
 		}
 		return $value;
+	}
+}
+
+if ( ! function_exists( 'wp_json_encode' ) ) {
+	function wp_json_encode( $data, $options = 0, $depth = 512 ) {
+		return \json_encode( $data, $options, $depth );
 	}
 }
 

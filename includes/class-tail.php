@@ -46,6 +46,11 @@ class Tail extends Timer {
 		// Start polling immediately. fire() re-arms with set_timer(0)/(100)
 		// based on whether new bytes are available.
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
+
+		// Round-trip ctor args via Node::$arguments so dump_config emits a
+		// `make_node Tail <name> <filename> <buffer_mode>` line that
+		// re-creates this instance.
+		$this->arguments = "{$this->filename} {$this->buffer_mode}";
 	}
 
 	public function poll(): void {

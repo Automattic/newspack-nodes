@@ -38,6 +38,9 @@ class Topic extends Node {
 		$this->num_segments   = $num_segments;
 		$this->max_lifespan   = $max_lifespan;
 		$this->registrations  = [ 'READY' => [] ];
+		// Round-trip ctor args so dump_config emits a `make_node Topic ...`
+		// line that re-creates this instance.
+		$this->arguments = "{$this->base_dir} {$this->num_partitions} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}";
 	}
 
 	public function num_partitions(): int {
@@ -79,32 +82,19 @@ class Topic extends Node {
 		return $this->partitions[ $i ];
 	}
 
+	/**
+	 * Node entry point. Pick a partition (pre-pinned TO, KEY hash, or
+	 * round-robin) and delegate. All TYPE flags pass through — Topic mirrors
+	 * Partition::fill's "generic transport" contract so control messages
+	 * (TM_REQUEST, TM_ERROR, TM_EOF) round-trip through Topic-as-bus in IPC
+	 * scenarios. Data topics like firehose.log only see TM_BYTESTREAM /
+	 * TM_STRUCT in practice, so the broader contract is a no-op there.
+	 *
+	 * @param array $message Reference; not mutated.
+	 */
 	public function fill( array &$message ): void {
 		++$this->counter;
-		$type = $message[ Message::TYPE ];
 
-		// TM_REQUEST: introspection (GET_PARTITIONS).
-		if ( $type & Message::TM_REQUEST ) {
-			$req = $message[ Message::VALUE ];
-			if ( 'GET_PARTITIONS' === $req ) {
-				$resp                       = Message::new_message();
-				$resp[ Message::TYPE ]      = Message::TM_RESPONSE;
-				$resp[ Message::TIMESTAMP ] = Core::$right_now;
-				$resp[ Message::FROM ]      = $this->name;
-				$resp[ Message::TO ]        = $message[ Message::FROM ];
-				$resp[ Message::ID ]        = $message[ Message::ID ];
-				$resp[ Message::VALUE ]     = (string) $this->num_partitions;
-				$this->sink?->fill( $resp );
-			}
-			return;
-		}
-
-		if ( $type & ( Message::TM_ERROR | Message::TM_EOF ) ) {
-			return;
-		}
-
-		// Anything else: pick a partition and delegate. Partition::fill packs
-		// the message and writes.
 		// Pre-pinned via TO: parse partition index out of TO's leading segment.
 		if ( '' !== $message[ Message::TO ] && \preg_match( '/^p(\d+)/', $message[ Message::TO ], $m ) ) {
 			$idx = (int) $m[1];

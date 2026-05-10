@@ -57,24 +57,7 @@ class WorkerCliCommand {
 	 * into a flat list of `{type, partition, stale_timeout}` rows.
 	 */
 	private function workers(): array {
-		if ( \class_exists( '\Newspack_Nodes\Bootstrap' ) ) {
-			return Bootstrap::expand_workers();
-		}
-		// Fallback: parse the filter directly so this command works during early
-		// plugin tests where Bootstrap isn't autoloaded yet.
-		$topologies = (array) \apply_filters( 'newspack_nodes/topologies', [] );
-		$workers    = [];
-		foreach ( $topologies as $type => $config ) {
-			$count = (int) ( $config['num_partitions'] ?? 1 );
-			for ( $p = 0; $p < $count; ++$p ) {
-				$workers[] = [
-					'type'          => $type,
-					'partition'     => $p,
-					'stale_timeout' => $config['stale_timeout'] ?? Lock::STALE_TIMEOUT,
-				];
-			}
-		}
-		return $workers;
+		return Bootstrap::expand_workers();
 	}
 
 	/**
@@ -183,9 +166,7 @@ class WorkerCliCommand {
 		// Bootstrap::supervisor() keeps the salt source aligned with the rest of
 		// the runtime so respawns from a CLI-launched worker are accepted by the
 		// real spawn endpoint.
-		$supervisor = \class_exists( '\Newspack_Nodes\Bootstrap' )
-			? Bootstrap::supervisor()
-			: new Supervisor( $this->base_dir(), \defined( 'NONCE_SALT' ) ? \NONCE_SALT : 'fallback-salt' );
+		$supervisor = Bootstrap::supervisor();
 
 		$wb = new WorkerBase(
 			$this->base_dir(),

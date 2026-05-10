@@ -41,10 +41,14 @@ class CommandInterpreter extends Node {
 			return;
 		}
 		self::$H = [
-			'make_node' => "make_node <type> <name> [<arguments>]\n",
+			// CI-dispatched verbs.
+			'make_node' => "make_node <type> <name> [<arguments>]\n    alias: make\n",
 			'set_sink'  => "set_sink <node> <target>\n",
 			'connect_node' => "connect_node <node> <target>\n    alias: connect\n",
 			'disconnect_node' => "disconnect_node <node> [<target>]\n    alias: disconnect\n    note: <target> is required for multi-target nodes (e.g. Tee).\n",
+			'remove_node' => "remove_node <node name> [<more names>...]\n"
+				. "remove_node -a <anchored regex glob>\n"
+				. "    aliases: remove, rm\n",
 			'list_nodes' => "list_nodes [ -celos ] [ <node name> ]\n"
 				. "list_nodes -a [ -celos ] [ <regex glob> ]\n"
 				. "    -c show message counters\n"
@@ -59,16 +63,36 @@ class CommandInterpreter extends Node {
 				. "    alias: ls\n",
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
 			'dump_config' => "dump_config\n",
-			'ping' => "ping <path>\n",
+			'pwd' => "pwd\n",
 			'help' => "help [ <topic> ]\n",
+
+			// Shell-level builtins. Documented here so `help` is a single
+			// source of truth for everything the user can type at the prompt.
+			// These never reach the CI dispatch table — Shell intercepts them
+			// before sending a Message — but they're part of the interactive
+			// vocabulary so they belong in `help`.
+			'cd' => "cd [ <path> ]\n    alias: chdir\n    note: empty path resets cwd to the local interpreter.\n",
+			'status' => "status\n    note: print local cli mode summary (no command sent to worker).\n",
+			'tell_node' => "tell_node <path> <info>\n    alias: tell\n    note: emits TM_INFO at prefix(<path>); fire-and-forget broadcast.\n",
+			'send_node' => "send_node <path> <bytes>\n    alias: send\n    note: emits TM_BYTESTREAM at prefix(<path>).\n",
+			'send_eof' => "send_eof <path>\n    note: emits TM_EOF at prefix(<path>).\n",
+			'command_node' => "command_node <path> <verb> [<arguments>]\n    aliases: command, cmd\n    note: dispatches a TM_COMMAND at prefix(<path>) without changing cwd.\n",
+			'request_node' => "request_node <path> [<value>]\n    alias: request\n    note: emits TM_REQUEST at prefix(<path>); receiver replies via TO=FROM.\n",
+			'ping' => "ping <path>\n    note: round-trips a TM_PING; receiver bounces TO=FROM. Output shows RTT.\n",
+			'include' => "include <file>\n    note: read commands from <file>, parse each line as if typed.\n",
 		];
 		self::$C = [
 			'make_node'       => fn ( CommandInterpreter $self, string $args ): string => self::cmd_make_node( $self, $args ),
+			'make'            => fn ( CommandInterpreter $self, string $args ): string => self::cmd_make_node( $self, $args ),
+			'pwd'             => fn ( CommandInterpreter $self, string $args, array $message ): string => self::cmd_pwd( $args, $message ),
 			'set_sink'        => fn ( CommandInterpreter $self, string $args ): string => self::cmd_set_sink( $args ),
 			'connect_node'    => fn ( CommandInterpreter $self, string $args ): string => self::cmd_connect_node( $args ),
 			'connect'         => fn ( CommandInterpreter $self, string $args ): string => self::cmd_connect_node( $args ),
 			'disconnect_node' => fn ( CommandInterpreter $self, string $args ): string => self::cmd_disconnect_node( $args ),
 			'disconnect'      => fn ( CommandInterpreter $self, string $args ): string => self::cmd_disconnect_node( $args ),
+			'remove_node'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
+			'remove'          => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
+			'rm'              => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
 			'list_nodes'      => fn ( CommandInterpreter $self, string $args ): string => self::cmd_list_nodes( $self, $args ),
 			'ls'              => fn ( CommandInterpreter $self, string $args ): string => self::cmd_list_nodes( $self, $args ),
 			'dump_node'       => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_node( $args ),
@@ -129,6 +153,18 @@ class CommandInterpreter extends Node {
 		return $node;
 	}
 
+	/**
+	 * `pwd` verb: return ` <args> -> <envelope.from>` so the user sees both
+	 * the cwd that issued the command and the path the response walked back
+	 * along. Mirrors Tachikoma CommandInterpreter.pm:pwd. The Shell builtin
+	 * passes its current path as $args; empty args displays as `/`.
+	 */
+	private static function cmd_pwd( string $args, array $envelope ): string {
+		$cwd  = '' === $args ? '/' : $args;
+		$from = $envelope[ Message::FROM ] ?? '';
+		return ' ' . $cwd . ' -> ' . $from;
+	}
+
 	private static function cmd_set_sink( string $args ): string {
 		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
 		if ( '' === $name || '' === $target ) {
@@ -167,6 +203,80 @@ class CommandInterpreter extends Node {
 		}
 		$src->disconnect_node( $target );
 		return 'ok';
+	}
+
+	/**
+	 * `remove_node <name>` / `remove_node <a> <b> <c>` / `remove_node -a <regex>`.
+	 *
+	 * Mirrors Tachikoma CommandInterpreter.pm:remove_node — single name,
+	 * space-separated list, or anchored-regex glob via -a. Refuses to destroy
+	 * the baseline scaffolding (`_command_interpreter`, `_router`, `_output`)
+	 * or the calling interpreter itself; everything else gets `remove_node()`
+	 * called on it. The Tachikoma JobController-specific guard isn't ported
+	 * because we don't have JobController here.
+	 *
+	 * Returns a multi-line summary so the cli can render which nodes were
+	 * removed and which weren't found. Throws (caught upstream as
+	 * TM_COMMAND|TM_ERROR) only when the args are malformed.
+	 */
+	private static function cmd_remove_node( CommandInterpreter $self, string $args ): string {
+		$args = \trim( $args );
+		if ( '' === $args ) {
+			return 'usage: remove_node <node name>';
+		}
+
+		$list_matches = false;
+		if ( \str_starts_with( $args, '-a ' ) || '-a' === $args ) {
+			$list_matches = true;
+			$args         = \trim( \substr( $args, 2 ) );
+			if ( '' === $args ) {
+				return 'usage: remove_node -a <anchored regex glob>';
+			}
+		}
+
+		if ( $list_matches ) {
+			// Anchored regex match. Use `@regex@` so user-supplied / and ^$ don't
+			// need to be escaped. Filter out anything that doesn't match cleanly.
+			$names = [];
+			foreach ( \array_keys( Core::$nodes_by_name ) as $candidate ) {
+				if ( @\preg_match( '@^' . $args . '$@', $candidate ) ) {
+					$names[] = $candidate;
+				}
+			}
+			\sort( $names );
+		} else {
+			$names = \preg_split( '/\s+/', $args );
+		}
+
+		$removed   = [];
+		$errors    = [];
+		$protected = [ '_command_interpreter', '_router', '_output' ];
+		foreach ( $names as $name ) {
+			if ( '' === $name ) {
+				continue;
+			}
+			$node = Core::node( $name );
+			if ( null === $node ) {
+				$errors[] = "can't find node \"$name\"";
+				continue;
+			}
+			if ( $node === $self ) {
+				$errors[] = 'refusing to destroy interpreter';
+				continue;
+			}
+			if ( \in_array( $name, $protected, true ) ) {
+				$errors[] = "refusing to destroy baseline scaffolding: $name";
+				continue;
+			}
+			$node->remove_node();
+			$removed[] = "removed $name";
+		}
+
+		$out = \implode( "\n", \array_merge( $removed, $errors ) );
+		if ( $list_matches && empty( $removed ) && empty( $errors ) ) {
+			return 'no matches';
+		}
+		return '' === $out ? 'ok' : $out;
 	}
 
 	/**
@@ -384,10 +494,24 @@ class CommandInterpreter extends Node {
 			}
 			return self::tabulate( [ 'left', 'left', 'left', 'left' ], null, $rows );
 		}
-		// Resolve aliases to the canonical entry name (ls → list_nodes; dump → dump_node).
+		// Resolve aliases to the canonical entry name. Every alias the user
+		// might type maps to the corresponding $H key — keep this table in
+		// lockstep with the alias entries in $C and the Shell builtin
+		// dispatch table.
 		$alias_to_canonical = [
-			'ls'   => 'list_nodes',
-			'dump' => 'dump_node',
+			'ls'           => 'list_nodes',
+			'dump'         => 'dump_node',
+			'make'         => 'make_node',
+			'connect'      => 'connect_node',
+			'disconnect'   => 'disconnect_node',
+			'remove'       => 'remove_node',
+			'rm'           => 'remove_node',
+			'chdir'        => 'cd',
+			'tell'         => 'tell_node',
+			'send'         => 'send_node',
+			'command'      => 'command_node',
+			'cmd'          => 'command_node',
+			'request'      => 'request_node',
 		];
 		$key = $alias_to_canonical[ $topic ] ?? $topic;
 		if ( isset( self::$H[ $key ] ) ) {
@@ -454,22 +578,38 @@ class CommandInterpreter extends Node {
 
 		$type = $message[ Message::TYPE ];
 
-		// TM_PING with empty TO: bounce back along the FROM trail.
-		// Mirrors real Tachikoma CommandInterpreter.pm:94-96.
-		if ( ( $type & Message::TM_PING ) && '' === $message[ Message::TO ] ) {
+		// TM_PING / TM_EOF with empty TO: bounce back along the FROM trail.
+		// Mirrors real Tachikoma CommandInterpreter.pm:94-96 for PING;
+		// TM_EOF round-trip is the drain marker the pivoted-cli relies on
+		// (cli emits TM_EOF on stdin close, waits for the bounce to know
+		// all preceding output has been read off the reply partition before
+		// exiting).
+		if ( ( $type & ( Message::TM_PING | Message::TM_EOF ) ) && '' === $message[ Message::TO ] ) {
 			$message[ Message::TO ] = $message[ Message::FROM ];
 			$this->sink?->fill( $message );
 			return;
 		}
 
-		if ( ( $type & Message::TM_COMMAND ) && ! ( $type & Message::TM_RESPONSE ) ) {
+		// Only handle commands addressed at us — empty TO means "for whoever
+		// receives this", which by convention is the local interpreter. A
+		// non-empty TO indicates the message is in transit toward another
+		// node; forward it through the sink so Router can route it. Without
+		// this guard, an intermediate CI on the path (e.g. cd-routed cmds in
+		// pivoted mode) would intercept commands meant for a downstream CI.
+		if ( ( $type & Message::TM_COMMAND ) && ! ( $type & Message::TM_RESPONSE ) && '' === $message[ Message::TO ] ) {
 			$this->interpret( $message );
 			return;
 		}
 		$this->sink?->fill( $message );
 	}
 
-	public function execute( string $command_line ): string {
+	/**
+	 * Run a verb. `$envelope` is the inbound TM_COMMAND message (when this
+	 * was driven by a CI dispatch); pass an empty array for inline calls.
+	 * Verb handlers may peek at the envelope's FROM/TO to compose responses
+	 * — see Tachikoma CommandInterpreter.pm:pwd().
+	 */
+	public function execute( string $command_line, array $envelope = [] ): string {
 		self::init_C();
 		$parts = \explode( ' ', $command_line, 2 );
 		$verb  = $parts[0];
@@ -477,7 +617,7 @@ class CommandInterpreter extends Node {
 		if ( ! isset( self::$C[ $verb ] ) ) {
 			return "unknown command: $verb";
 		}
-		return ( self::$C[ $verb ] )( $this, $args );
+		return ( self::$C[ $verb ] )( $this, $args, $envelope );
 	}
 
 	private function interpret( array &$message ): void {
@@ -486,10 +626,21 @@ class CommandInterpreter extends Node {
 			$this->drop_message( $message, 'invalid command struct' );
 			return;
 		}
-		$result = $this->execute( $cmd['name'] . ' ' . ( $cmd['arguments'] ?? '' ) );
-		// Build TM_COMMAND|TM_RESPONSE; route TO=FROM.
+		// Catch exceptions from any verb handler (typo'd ctor args, missing
+		// node, bad regex, etc.) and turn them into a TM_COMMAND|TM_ERROR
+		// response so the cli renders "ERROR: ..." instead of crashing the
+		// worker. Mirrors Tachikoma CommandInterpreter.pm:error().
+		try {
+			$result    = $this->execute( $cmd['name'] . ' ' . ( $cmd['arguments'] ?? '' ), $message );
+			$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
+		} catch ( \Throwable $e ) {
+			$result    = $e->getMessage();
+			$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
+		}
+
+		// Route TO=FROM (response walks the breadcrumb trail back).
 		$response                   = Message::new_message();
-		$response[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$response[ Message::TYPE ]  = $resp_type;
 		$response[ Message::FROM ]  = $this->name;
 		$response[ Message::TO ]    = $message[ Message::FROM ];
 		$response[ Message::ID ]    = $message[ Message::ID ];

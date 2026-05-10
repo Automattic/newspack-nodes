@@ -65,11 +65,11 @@ These are intentional. Don't "fix" them.
 | `includes/class-node.php` | Base contract: `fill()`, sink/target/edge, `stamp_message()`, `register()` / `notify()` |
 | `includes/class-router.php` | Path-based dispatch by TO; Timer-hitchhike on each tick |
 | `includes/class-event-framework.php` | Drain loop singleton (`stream_select` + `curl_multi_select` + timers) |
-| `includes/class-{tee,tail,callback,hook,timer}.php` | Generic node primitives |
+| `includes/class-{tee,tail,log,echo,callback,hook,timer}.php` | Generic node primitives |
 | `includes/class-{partition,topic,consumer}.php` | Storage + log-tailing primitives |
 | `includes/class-{lock,worker-base,supervisor,supervisor-base,bootstrap}.php` | Lifecycle |
 | `includes/class-{shell,command-interpreter,dumper}.php` | REPL components |
-| `includes/class-cli-command.php` | `wp nodes cli` (bare + pivoted modes) |
+| `includes/class-cli-command.php` | `wp nodes cli` (bare + pivoted modes); `Cli_Stdin_Reader` is the readline-driven Node that drains stdin into the local Shell |
 | `includes/cli/class-worker-cli-command.php` | `wp nodes {types,run,restart,status}` |
 | `includes/rest/class-spawn-controller.php` | `POST /newspack-nodes/v1/workers/spawn` (HMAC-validated) |
 | `includes/admin/class-admin.php` | Substrate settings UI |
@@ -87,8 +87,15 @@ These are mistakes that have actually happened. Pay attention.
 - **`MAX_FROM_SIZE = 1024`.** `stamp_message` returns false and drops if FROM exceeds 1024 bytes. Prevents path explosion on cycles.
 - **Worker lock release before spawn.** `WorkerBase::execute()`'s `finally` block does `release()` THEN `self_respawn()`. Don't reorder; the reverse leaves a 15-second slot gap.
 - **HMAC spawn token has TWO accepted windows.** Validates current AND previous 10-second window. Don't tighten to one — race tolerance is intentional.
+- **Partition and Topic pack ALL message types** — including TM_REQUEST, TM_ERROR, TM_EOF. The earlier "drop control messages" rule broke `request_node`, `send_eof`, pivoted-mode error responses (TM_COMMAND|TM_ERROR), and the cli's TM_EOF round-trip drain. Data partitions only see TM_BYTESTREAM / TM_STRUCT in practice; allowing other types through is a no-op there and makes IPC work.
+- **TM_EOF round-trip drains the cli on stdin close.** Cli emits TM_EOF (FROM=`_output/$pid`); the CI it lands on (local in bare mode, the worker's in pivoted mode) bounces TO=FROM; the cli's Dumper sees the echo and flips the exit flag. Mirrors Tachikoma `FileHandle::handle_EOF` → `send_EOF`. There's a 5s deadline fallback so a dead worker doesn't hang the cli.
 - **Don't reintroduce TM_PERSIST.** The removal is intentional. See decision 3.
 - **Skip readline when STDIN isn't a TTY.** `readline_callback_read_char()` reads from the TTY layer, not the stream descriptor; piping into `wp nodes cli` without the gate burns 100% CPU. Already gated; don't remove.
+- **CommandInterpreter only handles TM_COMMAND with empty TO.** Non-empty TO means the message is in transit toward another node — CI forwards to Router. If you "fix" CI to also dispatch on non-empty TO, every CI in a path-routed graph eats commands intended for downstream peers.
+- **Verb handlers throw freely; `interpret()` wraps as TM_COMMAND|TM_ERROR.** Don't add per-verb `try/catch` — the central catch is the contract. Keep `return 'error: ...'` only for canonical-OK-shaped argument-validation paths where you want to return without error semantics.
+- **Constructors set `$this->arguments` directly.** No `dump_config()` override per class. `dump_config()` reads the field to emit a round-trippable `make_node <type> <name> <args>` line; if you forget to set it, `dump_config` emits without args and the round-trip silently produces a different node.
+- **`Log`'s `prune_rotated()` reserves the `{filename}-` prefix.** Sibling discovery uses `glob({filename}-*)`; storing unrelated files under the same prefix (e.g. `out.log-keep_forever`) makes them eligible for pruning. Document and don't co-locate other artifacts.
+- **`Echo` drops TM_ERROR with empty TO.** It would otherwise bounce to a producer that isn't expecting the error trail. If you change Echo's routing rules, preserve the drop.
 
 ## Local Skills
 

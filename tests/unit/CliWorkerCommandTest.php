@@ -214,4 +214,46 @@ class CliWorkerCommandTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		( new WorkerCliCommand() )->run( [ 'firehose-workers' ], [] );
 	}
+
+	public function test_run_errors_when_topology_file_does_not_return_callable(): void {
+		// Topology file returns an array (or anything non-callable). The closure
+		// loader rejects with a clear message.
+		$path = "{$this->tmp}/bad-topology.php";
+		\file_put_contents( $path, "<?php return [ 'not' => 'callable' ];\n" );
+		$this->register_topology( 'bad-topology', 1, $path );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessageMatches( '/Topology must return a closure/' );
+		( new WorkerCliCommand() )->run( [ 'bad-topology' ], [] );
+	}
+
+	public function test_run_executes_topology_until_restart_flag(): void {
+		// Happy-path execution: provide a topology closure that takes the worker
+		// straight to "restart pending" so should_continue() returns false on
+		// the first drain tick. The worker exits cleanly with status='ok'.
+		$path = "{$this->tmp}/exit-immediately-topology.php";
+		\file_put_contents(
+			$path,
+			"<?php\n"
+			. "return function ( \$ci, \$partition ): void {\n"
+			. "    // Set the restart flag so the worker exits immediately.\n"
+			. "    \$lock_path = \$GLOBALS['_topology_lock_path'] ?? '/tmp/newspack-nodes/locks/exit-test.p0.lock.d';\n"
+			. "    \\Newspack_Nodes\\Lock::request_restart_at( \$lock_path );\n"
+			. "};\n"
+		);
+		$this->register_topology( 'exit-test', 1, $path );
+
+		$GLOBALS['_topology_lock_path'] = "{$this->tmp}/locks/exit-test.p0.lock.d";
+
+		// Capture WP_CLI::success message — the only assertion that the run
+		// completed all the way through execute().
+		( new WorkerCliCommand() )->run( [ 'exit-test' ], [ 'quiet' => true ] );
+
+		// Worker exited cleanly. Lock dir is cleaned up by Lock::release after
+		// the restart flag was honored.
+		$this->assertFalse(
+			\is_dir( "{$this->tmp}/locks/exit-test.p0.lock.d" ),
+			'lock dir should be released after restart-flag exit'
+		);
+	}
 }

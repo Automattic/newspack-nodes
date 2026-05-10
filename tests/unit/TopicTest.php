@@ -145,4 +145,158 @@ class TopicTest extends TestCase {
 
 		$this->assertSame( 1, $count, 'READY must fire exactly once across partition lifetime' );
 	}
+
+	public function test_num_partitions_returns_constructor_value(): void {
+		$t = new Topic( "{$this->tmp}/firehose.log", 7, 64*1024, 4, 86400 );
+		$this->assertSame( 7, $t->num_partitions() );
+	}
+
+	public function test_constructor_clamps_num_partitions_to_minimum_one(): void {
+		// max(1, $n) clamps zero/negative to 1 — callers that pass bad config don't
+		// trip a divide-by-zero in hash_to_partition.
+		$t = new Topic( "{$this->tmp}/firehose.log", 0, 64*1024, 4, 86400 );
+		$this->assertSame( 1, $t->num_partitions() );
+
+		$t2 = new Topic( "{$this->tmp}/firehose.log", -3, 64*1024, 4, 86400 );
+		$this->assertSame( 1, $t2->num_partitions() );
+	}
+
+	public function test_fill_packs_TM_REQUEST_TM_ERROR_TM_EOF(): void {
+		// Topic::fill mirrors Partition::fill — it's the user-facing
+		// multi-Partition wrapper. Control messages (TM_REQUEST, TM_ERROR,
+		// TM_EOF) round-trip through Topic-as-transport in IPC scenarios,
+		// so Topic packs them like any other type instead of dropping.
+		$t = new Topic( "{$this->tmp}/firehose.log", 2, 64*1024, 4, 86400 );
+
+		$types = [
+			Message::TM_REQUEST,
+			Message::TM_ERROR,
+			Message::TM_EOF,
+		];
+		foreach ( $types as $type ) {
+			$msg                   = Message::new_message();
+			$msg[ Message::TYPE ]  = $type;
+			$msg[ Message::KEY ]   = '/url'; // Same KEY routes to same partition.
+			$msg[ Message::VALUE ] = 'payload-' . $type;
+			$t->fill( $msg );
+		}
+		$t->flush(); // Force the in-memory batch to land on disk synchronously.
+
+		// All three packed onto the partition (3 lines on disk).
+		$idx     = Partition::hash_to_partition( '/url', 2 );
+		$lines   = \array_values( \array_filter(
+			\explode( "\n", \file_get_contents( "{$this->tmp}/firehose.log/p{$idx}/0.log" ) )
+		) );
+		$this->assertCount( 3, $lines );
+		foreach ( $lines as $i => $line ) {
+			$decoded = Message::unpacked( $line );
+			$this->assertSame( $types[ $i ], $decoded[ Message::TYPE ] );
+		}
+	}
+
+	public function test_fill_pre_pinned_TO_routes_to_specified_partition(): void {
+		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+
+		// TO=p2/... pins partition 2 regardless of KEY.
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::TO ]    = 'p2/some/path';
+		$msg[ Message::KEY ]   = 'unrelated-key';
+		$msg[ Message::VALUE ] = 'pinned-data';
+		$t->fill( $msg );
+		$t->flush();
+
+		$this->assertFileExists( "{$this->tmp}/firehose.log/p2/0.log" );
+		// Other partitions must not be touched.
+		$this->assertFalse( is_dir( "{$this->tmp}/firehose.log/p0" ) );
+		$this->assertFalse( is_dir( "{$this->tmp}/firehose.log/p1" ) );
+		$this->assertFalse( is_dir( "{$this->tmp}/firehose.log/p3" ) );
+	}
+
+	public function test_fill_pre_pinned_TO_out_of_range_falls_through_to_key_routing(): void {
+		// TO=p99/... where 99 >= num_partitions(2) → falls through to KEY routing.
+		$t = new Topic( "{$this->tmp}/firehose.log", 2, 64*1024, 4, 86400 );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::TO ]    = 'p99/path';
+		$msg[ Message::KEY ]   = 'k';
+		$msg[ Message::VALUE ] = 'data';
+		$t->fill( $msg );
+		$t->flush();
+
+		// Whichever partition the key hashes to is materialized; the out-of-range
+		// pin was ignored.
+		$idx = \Newspack_Nodes\Partition::hash_to_partition( 'k', 2 );
+		$this->assertFileExists( "{$this->tmp}/firehose.log/p{$idx}/0.log" );
+	}
+
+	public function test_fill_empty_key_uses_round_robin(): void {
+		// Round-robin counter is static — clear by getting baseline first.
+		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+
+		// Empty KEY → round-robin. Send 8 messages and confirm at least 2 partitions
+		// got data (deterministic round-robin, but counter is shared across tests).
+		for ( $i = 0; $i < 8; ++$i ) {
+			$msg                   = Message::new_message();
+			$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$msg[ Message::KEY ]   = '';
+			$msg[ Message::VALUE ] = "msg-{$i}";
+			$t->fill( $msg );
+		}
+		$t->flush();
+
+		$populated = 0;
+		for ( $i = 0; $i < 4; ++$i ) {
+			if ( file_exists( "{$this->tmp}/firehose.log/p{$i}/0.log" ) ) {
+				++$populated;
+			}
+		}
+		// Round-robin across 4 partitions with 8 messages = each partition got exactly 2.
+		$this->assertSame( 4, $populated );
+	}
+
+	public function test_sink_propagates_to_existing_partitions(): void {
+		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+
+		// Materialize a partition first.
+		$this->produce_into( $t, 'data', 'k1' );
+
+		// Find which partition got materialized.
+		$partition_idx = Partition::hash_to_partition( 'k1', 4 );
+
+		// Now wire a sink AFTER partition materialization — it must propagate to
+		// every partition currently held so their persist responses still flow.
+		$new_sink = new CaptureSink();
+		$t->sink( $new_sink );
+
+		// Verify the partition's sink was updated by routing a response back from it.
+		// A partition's sink is exercised when it emits. Force one to emit by sending
+		// a TM_REQUEST through Topic — Topic itself answers, but if we use the
+		// reflection on Topic to peek at its partitions array we can verify directly.
+		$ref      = new \ReflectionClass( Topic::class );
+		$prop     = $ref->getProperty( 'partitions' );
+		$prop->setAccessible( true );
+		$partitions = $prop->getValue( $t );
+
+		$this->assertSame( $new_sink, $partitions[ $partition_idx ]->sink() );
+	}
+
+	public function test_remove_node_tears_down_partitions(): void {
+		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+
+		// Materialize two partitions.
+		$this->produce_into( $t, 'a', 'k1' );
+		$this->produce_into( $t, 'b', 'k2' );
+
+		// remove_node calls Partition::remove_node on each, which closes file handles
+		// and clears Core registrations. Should not throw.
+		$t->remove_node();
+
+		// After remove, internal partitions array is reset.
+		// Subsequent fill should re-materialize cleanly.
+		$this->produce_into( $t, 'c', 'k1' );
+		// Test passes if no exception was thrown above.
+		$this->assertTrue( true );
+	}
 }

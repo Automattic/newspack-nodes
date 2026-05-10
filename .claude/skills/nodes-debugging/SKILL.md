@@ -29,33 +29,52 @@ Two modes:
 
 **Pivoted** (`wp nodes cli <reader>.p<N>`) — attaches to a live worker via a pair of IPC Partitions. Commands you type get serialized to disk; the worker reads them, processes them in its own event loop, and writes responses back to a different Partition the cli tails. Lets you `dump_node`, `connect_node`, `disconnect_node` against a running graph without disturbing it.
 
-Useful verbs (run from inside the cli prompt):
+The cli verifies the worker exists by checking for `{base}/locks/{reader}.lock.d/`. Typo'd reader ids fail fast with "no worker '<id>' (run `wp nodes ls` to list active workers)" instead of creating ghost IPC partitions. Staleness is not blocked at attach time — a stale worker is mid-restart and the cli will work once the supervisor respawns it.
+
+Useful verbs (run from inside the cli prompt — see `help` for the full set):
 
 ```
-ls                                  # nodes whose sink is _command_interpreter
-ls -a [<glob>]                      # all nodes, optionally filtered by regex
-ls -ceolos <node>                   # nodes sinking INTO <node>; flags add c/e/l/o/s columns
-dump_node <node>                    # config + state of one node (alias: dump)
+make_node <type> <name> [<args>]    # construct a registered Node (alias: make)
+remove_node <name> [<more>...]      # remove a node by name, also -a <regex> (aliases: remove, rm)
+list_nodes [-celos] [<node>]        # nodes sinking INTO <node>; flags add columns (alias: ls)
+list_nodes -a [-celos] [<glob>]     # all nodes filtered by anchored regex
+dump_node <node> [<keys>]           # config + state of one node (alias: dump)
 dump_config                         # full topology as round-trippable shell verbs
-connect / connect_node <a> <b>      # add b as target of a
-disconnect / disconnect_node <a> [<b>]
-                                    # remove b from a's targets (b required for Tee)
+set_sink <node> <target>            # rewrite a node's sink at runtime
+connect_node <node> <target>        # set or add a target on <node> (alias: connect)
+disconnect_node <node> [<target>]   # alias: disconnect; <target> required for multi-target nodes (Tee)
+cd [<path>]                         # change cwd; empty resets to local interpreter (alias: chdir)
+status                              # print local cli mode summary (no message sent to worker)
+pwd                                 # print cwd; reply shows ` <args> -> <from>`
+tell_node <path> <info>             # TM_INFO at prefix(<path>) — fire-and-forget (alias: tell)
+send_node <path> <bytes>            # TM_BYTESTREAM at prefix(<path>) (alias: send)
+send_eof <path>                     # TM_EOF at prefix(<path>)
+command_node <path> <verb> [<args>] # TM_COMMAND at prefix(<path>) without changing cwd (aliases: command, cmd)
+request_node <path> [<value>]       # TM_REQUEST at prefix(<path>); receiver replies via TO=FROM (alias: request)
 ping <path>                         # round-trip latency probe
+include <file>                      # read commands from <file>, parse each line
+help [<topic>]                      # full help; per-verb if <topic> given
 ```
 
-`ping` and `tell` use the FROM=`_output/$pid` stamp so the reply walks back through `_router → _output`. `_output` is the Dumper instance; its TO filter matches `(?:_output/)?$pid` so other cli sessions' replies fall through silently.
+The `<path>` arg to `tell_node` / `send_node` / `command_node` / `request_node` / `ping` composes with the shell's cwd via `prefix()` — so `cd firehose-workers.p0` then `command_node "" status` dispatches `status` to the worker without further typing.
+
+`ping`, `tell`, and command responses use the FROM=`_output/$pid` stamp so replies walk back through `_router → _output`. `_output` is the Dumper instance; its TO filter matches `(?:_output/)?$pid` so other cli sessions' replies fall through silently.
+
+CommandInterpreter only handles TM_COMMAND with empty TO. A non-empty TO means the message is in transit toward another node; CI forwards it to its sink (Router) and lets the addressed node decide. Any exception thrown by a verb is caught and returned as `TM_COMMAND|TM_ERROR` along the FROM trail — you'll see it in the cli as `ERROR: <message>`.
 
 ### Piping into the REPL
 
-If you redirect stdin (heredoc, file), readline gets skipped automatically (it'd otherwise busy-loop reading from a TTY layer that doesn't see the pipe). `posix_isatty(STDIN)` gates the choice. The non-readline path is fgets-based and exits cleanly on EOF.
+If you redirect stdin (heredoc, file), readline gets skipped automatically (it'd otherwise busy-loop reading from a TTY layer that doesn't see the pipe). `posix_isatty(STDIN)` gates the choice — the same flag also suppresses prompt rendering and the pivoted-mode banner so scripted captures are clean. The mode summary is still available on demand via the `status` builtin.
 
 ```bash
 # Drive the REPL non-interactively for scripted testing.
-echo -e "ls\ndump my-node\nquit" | docker exec -i eve-pyrobase1-1 wp nodes cli \
+echo -e "ls\ndump my-node" | docker exec -i eve-pyrobase1-1 wp nodes cli \
     --allow-root --path=/var/www/html
 ```
 
-(`quit` isn't a real verb; the loop exits when stdin closes.)
+The non-readline path is fgets-based. On stdin EOF, the cli emits a TM_EOF Message through the Shell (FROM=`_output/$pid`); the receiving CommandInterpreter bounces TO=FROM, and the cli's Dumper sees the echo and flips the exit flag. In pivoted mode this round-trip rides through the cmd-out / reply-in IPC partitions, guaranteeing all preceding output has been read off disk before the cli exits — no `sleep` slack needed. The 5-second deadline is the fallback for a dead worker; the cli exits anyway after that.
+
+For the round-trip to work, Partition and Topic pack ALL message types (TM_REQUEST, TM_ERROR, TM_EOF included). Earlier behavior dropped these as "control flow, not data" — that broke `request_node`, `send_eof`, and pivoted-mode TM_COMMAND|TM_ERROR responses (a verb that throws on the worker). Data partitions (firehose.log, jobs.log) still only see TM_BYTESTREAM / TM_STRUCT in practice; the broader contract is a no-op there.
 
 ## Worker health
 
