@@ -2,14 +2,17 @@
 <ruleset name="Newspack Nodes">
 	<description>PHP Coding Standards for the Newspack Nodes runtime plugin.</description>
 
-	<!-- Scan plugin source and tests -->
+	<!-- Scan plugin source -->
 	<file>./includes</file>
-	<file>./tests</file>
 
-	<!-- Exclude build, vendor, and dependency directories -->
+	<!-- Exclude build, vendor, and dependency directories. Tests are excluded
+	     because they create fixture directories under /tmp/, set $_SERVER
+	     values, and inject memory streams — all flagged by VIP-Go's
+	     pet rules even when intentional and harmless. -->
 	<exclude-pattern>*/build/*</exclude-pattern>
 	<exclude-pattern>*/vendor/*</exclude-pattern>
 	<exclude-pattern>*/node_modules/*</exclude-pattern>
+	<exclude-pattern>*/tests/*</exclude-pattern>
 
 	<!-- How to scan -->
 	<arg value="sp"/>

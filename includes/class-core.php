@@ -19,15 +19,20 @@ class Core {
 	/** @var array<int,object> */
 	public static array $nodes_by_id = [];
 
-	/** @var float Microsecond timestamp; updated by event loop or set explicitly in tests. */
+	/** @var float Microsecond-resolution timestamp; updated by the event loop or set explicitly in tests. */
 	public static float $now = 0.0;
-	/** @var float Same as $now (microsecond resolution; do not truncate). */
-	public static float $right_now = 0.0;
 
 	public static bool $shutting_down = false;
 
-	/** @var array<callable> */
-	private static array $closing = [];
+	/**
+	 * Deferred-cleanup queue. Public so EventFramework's hot drain loop can
+	 * read/shift it directly without paying a method-call frame per tick.
+	 * Sibling to Core::$now and Core::$shutting_down (also public for
+	 * the same reason).
+	 *
+	 * @var array<int, callable>
+	 */
+	public static array $closing = [];
 
 	/** @var array<string,array{first_seen:float,count:int,emitted:bool}> */
 	private static array $print_table = [];
@@ -49,8 +54,11 @@ class Core {
 		self::$closing        = [];
 		self::$print_table    = [];
 		self::$msg_counter    = 0;
+		// Default handler writes through PHP's error log — that's intentional
+		// for worker stderr. Override via set_stderr_handler() in tests.
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 		self::$stderr_handler = static fn ( string $msg ) => \error_log( \rtrim( $msg ) );
-		self::update_time();
+		self::$now            = \microtime( true );
 	}
 
 	/** Pre-increment monotonic message-id counter. */
@@ -94,17 +102,6 @@ class Core {
 		}
 	}
 
-	public static function update_time(): void {
-		$t              = \microtime( true );
-		self::$right_now = $t;
-		self::$now       = $t;
-	}
-
-	public static function set_now( float $t ): void {
-		self::$right_now = $t;
-		self::$now       = $t;
-	}
-
 	public static function push_closing( callable $cb ): void {
 		self::$closing[] = $cb;
 	}
@@ -131,9 +128,9 @@ class Core {
 		$key = $text;
 		$row = self::$print_table[ $key ] ?? [ 'first_seen' => 0.0, 'count' => 0, 'emitted' => false ];
 
-		if ( ! $row['emitted'] || ( self::$right_now - $row['first_seen'] >= 60.0 ) ) {
+		if ( ! $row['emitted'] || ( self::$now - $row['first_seen'] >= 60.0 ) ) {
 			self::emit_stderr( $text );
-			$row['first_seen'] = self::$right_now;
+			$row['first_seen'] = self::$now;
 			$row['emitted']    = true;
 			$row['count']      = 1;
 		} else {
@@ -147,7 +144,7 @@ class Core {
 	 */
 	public static function print_least_often( string $text ): void {
 		$key = '_least_' . $text;
-		$row = self::$print_table[ $key ] ?? [ 'first_seen' => self::$right_now, 'count' => 0, 'emitted' => false ];
+		$row = self::$print_table[ $key ] ?? [ 'first_seen' => self::$now, 'count' => 0, 'emitted' => false ];
 
 		++$row['count'];
 

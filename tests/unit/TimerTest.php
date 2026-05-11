@@ -23,7 +23,7 @@ class TimerTest extends TestCase {
 
 		$start = \microtime( true );
 		EventFramework::instance()->drain( function () use ( $start ) {
-			Core::update_time();
+			Core::$now = \microtime(true);
 			return ( \microtime( true ) - $start ) < 0.15;
 		} );
 		$this->assertGreaterThan( 0, $timer->fire_count() );
@@ -60,7 +60,7 @@ class TimerTest extends TestCase {
 
 		$start = \microtime( true );
 		EventFramework::instance()->drain( function () use ( $start ) {
-			Core::update_time();
+			Core::$now = \microtime(true);
 			return ( \microtime( true ) - $start ) < 0.1;
 		} );
 		$this->assertSame( 1, $timer->fire_count() );

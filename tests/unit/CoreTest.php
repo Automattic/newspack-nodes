@@ -29,15 +29,15 @@ class CoreTest extends TestCase {
 	}
 
 	public function test_now_returns_float(): void {
-		Core::update_time();
+		Core::$now = \microtime(true);
 		$this->assertIsFloat( Core::$now );
-		$this->assertIsFloat( Core::$right_now );
+		$this->assertIsFloat( Core::$now );
 	}
 
 	public function test_now_microsecond_precision(): void {
-		Core::set_now( 1234567890.123456 );
-		$this->assertSame( 1234567890.123456, Core::$right_now );
-		// $now matches $right_now (no truncation).
+		Core::$now = 1234567890.123456;
+		$this->assertSame( 1234567890.123456, Core::$now );
+		// $now matches $now (no truncation).
 		$this->assertSame( 1234567890.123456, Core::$now );
 	}
 
@@ -69,9 +69,9 @@ class CoreTest extends TestCase {
 	public function test_print_less_often_suppresses_within_60s(): void {
 		$buf = '';
 		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
-		Core::set_now( 1000.0 );
+		Core::$now = 1000.0;
 		Core::print_less_often( 'duplicate' );
-		Core::set_now( 1030.0 ); // 30s later — within window
+		Core::$now = 1030.0; // 30s later — within window
 		Core::print_less_often( 'duplicate' );
 		$this->assertSame( 1, \substr_count( $buf, 'duplicate' ) );
 	}

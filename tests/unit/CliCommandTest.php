@@ -332,13 +332,13 @@ class CliCommandTest extends TestCase {
 		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream );
 
 		// Tick 1 → line "ls\n".
-		$reader->drain_fh();
+		$reader->fire();
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( \Newspack_Nodes\Message::TM_COMMAND, $sink->captured[0][ \Newspack_Nodes\Message::TYPE ] );
 		$this->assertFalse( $reader->exit );
 
 		// Tick 2 → "tell foo hi\n".
-		$reader->drain_fh();
+		$reader->fire();
 		$this->assertCount( 2, $sink->captured );
 		$this->assertSame( \Newspack_Nodes\Message::TM_INFO, $sink->captured[1][ \Newspack_Nodes\Message::TYPE ] );
 		$this->assertFalse( $reader->exit );
@@ -346,7 +346,7 @@ class CliCommandTest extends TestCase {
 		// Tick 3 → stdin EOF: reader emits TM_EOF and waits for the echo
 		// (or the deadline) before flipping exit. So exit is still false
 		// here — that's the round-trip drain pattern.
-		$reader->drain_fh();
+		$reader->fire();
 		$this->assertCount( 3, $sink->captured, 'EOF tick adds a TM_EOF Message' );
 		$this->assertSame( \Newspack_Nodes\Message::TM_EOF, $sink->captured[2][ \Newspack_Nodes\Message::TYPE ] );
 		$this->assertFalse( $reader->exit );
@@ -404,7 +404,7 @@ class CliCommandTest extends TestCase {
 		$this->assertFalse( $prop->getValue( $dumper ) );
 
 		// drain_fh processes the line and must not redraw a prompt either.
-		$reader->drain_fh();
+		$reader->fire();
 		$this->assertCount( 1, $sink->captured );
 		$this->assertFalse( $prop->getValue( $dumper ) );
 
@@ -431,7 +431,7 @@ class CliCommandTest extends TestCase {
 
 		// show_prompts=false (we're simulating a piped session).
 		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false );
-		$reader->drain_fh();
+		$reader->fire();
 
 		$this->assertCount( 1, $sink->captured, 'stdin EOF emits exactly one TM_EOF Message' );
 		$this->assertSame( \Newspack_Nodes\Message::TM_EOF, $sink->captured[0][ \Newspack_Nodes\Message::TYPE ] );
@@ -440,7 +440,7 @@ class CliCommandTest extends TestCase {
 
 		// Second drain: stdin still EOF; reader must NOT re-emit. One TM_EOF
 		// per session is the contract.
-		$reader->drain_fh();
+		$reader->fire();
 		$this->assertCount( 1, $sink->captured, 'TM_EOF must not be re-emitted on subsequent ticks' );
 		$this->assertFalse( $reader->exit );
 
@@ -464,7 +464,7 @@ class CliCommandTest extends TestCase {
 		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false );
 		$dumper->on_eof( function () use ( $reader ) { $reader->exit = true; } );
 
-		$reader->drain_fh(); // hit stdin EOF, emit TM_EOF, wait
+		$reader->fire(); // hit stdin EOF, emit TM_EOF, wait
 		$this->assertFalse( $reader->exit );
 
 		// Simulate the worker's echo arriving: feed a TM_EOF through the
@@ -496,10 +496,10 @@ class CliCommandTest extends TestCase {
 		// the next tick notices "deadline elapsed" and exits.
 		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false, 0.0 );
 
-		$reader->drain_fh(); // emit TM_EOF
+		$reader->fire(); // emit TM_EOF
 		$this->assertFalse( $reader->exit );
 		\usleep( 1000 );      // ensure clock advanced past deadline
-		$reader->drain_fh(); // notice deadline, exit
+		$reader->fire(); // notice deadline, exit
 		$this->assertTrue( $reader->exit );
 
 		\fclose( $stream );
@@ -564,7 +564,7 @@ class CliCommandTest extends TestCase {
 		$this->assertTrue( $prop->getValue( $reader ) );
 
 		// First drain processes the line; show_prompt_fallback redraws.
-		$reader->drain_fh();
+		$reader->fire();
 		$this->assertCount( 1, $sink->captured );
 		$this->assertTrue( $prop->getValue( $reader ), 'prompt should be re-shown after a processed line' );
 
@@ -651,7 +651,7 @@ class CliCommandTest extends TestCase {
 
 		try {
 			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
-			$reader->drain_fh();
+			$reader->fire();
 
 			$this->assertFalse( $reader->exit );
 			$this->assertCount( 0, $sink->captured );

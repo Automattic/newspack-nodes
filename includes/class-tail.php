@@ -83,6 +83,9 @@ class Tail extends Timer {
 			return;
 		}
 
+		// Tail's whole purpose is reading log files in `base_dir`. WP_Filesystem
+		// can't tail incrementally — we need fopen/fread directly.
+		// phpcs:disable WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPress.WP.AlternativeFunctions.file_system_operations_fread
 		$fh = @\fopen( $this->filename, 'r' );
 		if ( false === $fh ) {
 			$this->at_eof = true;
@@ -93,6 +96,7 @@ class Tail extends Timer {
 		// the event loop in a single fread. Subsequent polls drain the rest.
 		$bytes = \fread( $fh, \min( self::READ_CHUNK, $current_size - $this->position ) );
 		\fclose( $fh );
+		// phpcs:enable
 		if ( false === $bytes || '' === $bytes ) {
 			$this->at_eof = true;
 			return;
@@ -175,7 +179,7 @@ class Tail extends Timer {
 	private function emit_message( string $value ): void {
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$msg[ Message::TIMESTAMP ] = Core::$right_now;
+		$msg[ Message::TIMESTAMP ] = Core::$now;
 		$msg[ Message::FROM ]      = $this->name;
 		$msg[ Message::VALUE ]     = $value;
 		$this->sink?->fill( $msg );

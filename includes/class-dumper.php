@@ -220,7 +220,7 @@ class Dumper extends Node {
 		// async-bytestream path. Mirrors Tachikoma Dumper.pm:dump_ping.
 		if ( $type & Message::TM_PING ) {
 			$sent = (float) $message[ Message::VALUE ];
-			$rtt  = ( Core::$right_now - $sent ) * 1000.0;
+			$rtt  = ( Core::$now - $sent ) * 1000.0;
 			$this->write_async( \sprintf( 'round trip time: %.2f ms', $rtt ) );
 			return;
 		}
@@ -267,6 +267,8 @@ class Dumper extends Node {
 			$text .= "\n";
 		}
 
+		// stdout/stderr are the cli's own terminal streams — not WP-Filesystem paths.
+		// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 		if ( $this->readline_mode ) {
 			// Readline is installed with an empty prompt (see Cli_Command::
 			// install_handler) so its idea of the prompt is always blank;
@@ -301,6 +303,7 @@ class Dumper extends Node {
 				. self::ANSI_RESTORE_CURSOR
 		);
 		// prompt_displayed stays true — we re-emitted it.
+		// phpcs:enable
 	}
 
 	/**
@@ -313,6 +316,7 @@ class Dumper extends Node {
 		if ( $ensure_newline && ! \str_ends_with( $text, "\n" ) ) {
 			$text .= "\n";
 		}
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 		\fwrite( $stream, $text );
 	}
 }

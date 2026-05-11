@@ -67,7 +67,7 @@ class DumperTest extends TestCase {
 		// timestamp; the Dumper computes RTT in ms.
 		[ $dumper, $out ] = $this->fresh();
 
-		Core::$right_now = 1234567890.5;
+		Core::$now = 1234567890.5;
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_PING;
 		$msg[ Message::VALUE ] = '1234567890.0';   // sent 500 ms before "now"

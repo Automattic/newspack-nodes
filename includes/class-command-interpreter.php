@@ -455,7 +455,7 @@ class CommandInterpreter extends Node {
 		}
 
 		// JSON render with pretty-print so structure is readable in the REPL.
-		return (string) \json_encode( $snapshot, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
+		return (string) \wp_json_encode( $snapshot, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
 	}
 
 	private static function cmd_dump_config(): string {
@@ -644,7 +644,7 @@ class CommandInterpreter extends Node {
 		$response[ Message::FROM ]  = $this->name;
 		$response[ Message::TO ]    = $message[ Message::FROM ];
 		$response[ Message::ID ]    = $message[ Message::ID ];
-		$response[ Message::VALUE ] = \json_encode(
+		$response[ Message::VALUE ] = \wp_json_encode(
 			[
 				'name'    => $cmd['name'],
 				'payload' => $result,

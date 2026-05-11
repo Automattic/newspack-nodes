@@ -31,7 +31,7 @@ class EventLoopRoundTripTest extends TestCase {
 
 		$start = \microtime( true );
 		EventFramework::instance()->drain( function () use ( $start ): bool {
-			Core::update_time();
+			Core::$now = \microtime(true);
 			return ( \microtime( true ) - $start ) < 0.2;
 		} );
 

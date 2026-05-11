@@ -496,11 +496,11 @@ class Consumer extends Timer {
 		}
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
-		$msg[ Message::TIMESTAMP ] = Core::$right_now;
+		$msg[ Message::TIMESTAMP ] = Core::$now;
 		$msg[ Message::VALUE ]     = [
 			'seg' => $this->cursor_seg,
 			'off' => $this->cursor_off,
-			'ts'  => Core::$right_now,
+			'ts'  => Core::$now,
 		];
 		$this->offsetlog->fill( $msg );
 		// Persist immediately — checkpoint is the durable cursor commit;
@@ -527,10 +527,10 @@ class Consumer extends Timer {
 		// is what makes that durable.) Skipped when offsetlog is disabled.
 		if (
 			null !== $this->offsetlog
-			&& ( Core::$right_now - $this->last_checkpoint ) >= self::CHECKPOINT_INTERVAL_S
+			&& ( Core::$now - $this->last_checkpoint ) >= self::CHECKPOINT_INTERVAL_S
 		) {
 			$this->checkpoint();
-			$this->last_checkpoint = Core::$right_now;
+			$this->last_checkpoint = Core::$now;
 		}
 		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
 		$this->set_timer( $next_ms, true ); // oneshot — fire() re-arms.
@@ -574,7 +574,7 @@ class Consumer extends Timer {
 		}
 		$memd->set(
 			"np:pos:{$this->source_base_dir}:p{$this->source_partition}",
-			[ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'ts' => Core::$right_now ],
+			[ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'ts' => Core::$now ],
 			60
 		);
 	}

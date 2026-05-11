@@ -199,6 +199,8 @@ class Shell extends Node {
 		if ( 'status' === $verb ) {
 			if ( \is_resource( $this->output_stream ) ) {
 				foreach ( $this->status_lines as $line ) {
+					// $output_stream is STDOUT or a test memory stream — never a managed path.
+					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 					\fwrite( $this->output_stream, $line . "\n" );
 				}
 			}
@@ -262,7 +264,7 @@ class Shell extends Node {
 				$cmd_args  = \implode( ' ', \array_slice( $args, 2 ) );
 				$msg[ Message::TYPE ]  = Message::TM_COMMAND;
 				$msg[ Message::TO ]    = $this->prefix( $cmd_path );
-				$msg[ Message::VALUE ] = (string) \json_encode(
+				$msg[ Message::VALUE ] = (string) \wp_json_encode(
 					[
 						'name'      => $cmd_verb,
 						'arguments' => $cmd_args,
@@ -286,7 +288,7 @@ class Shell extends Node {
 				// command landed and where the reply walked back from.
 				$msg[ Message::TYPE ]  = Message::TM_COMMAND;
 				$msg[ Message::TO ]    = $this->path;
-				$msg[ Message::VALUE ] = (string) \json_encode(
+				$msg[ Message::VALUE ] = (string) \wp_json_encode(
 					[
 						'name'      => 'pwd',
 						'arguments' => $this->path,
@@ -301,7 +303,7 @@ class Shell extends Node {
 				// to _output/$pid → Dumper.
 				$msg[ Message::TYPE ]  = Message::TM_PING;
 				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
-				$msg[ Message::VALUE ] = (string) Core::$right_now;
+				$msg[ Message::VALUE ] = (string) Core::$now;
 				break;
 			default:
 				// Default: TM_COMMAND with verb as command name. TO is the
@@ -311,7 +313,7 @@ class Shell extends Node {
 				// Pivoted-mode callers re-route via the cmd-out Partition.
 				$msg[ Message::TYPE ]  = Message::TM_COMMAND;
 				$msg[ Message::TO ]    = $this->prefix( '' );
-				$msg[ Message::VALUE ] = (string) \json_encode(
+				$msg[ Message::VALUE ] = (string) \wp_json_encode(
 					[
 						'name'      => $verb,
 						'arguments' => \implode( ' ', $args ),
@@ -377,6 +379,8 @@ class Shell extends Node {
 			Core::print_less_often( "Shell: include: file not found: $file" );
 			return;
 		}
+		// Topology files live alongside the plugin, not in WP-managed storage.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
 		$fh = @\fopen( $file, 'r' );
 		if ( false === $fh ) {
 			Core::print_less_often( "Shell: include: cannot open: $file" );

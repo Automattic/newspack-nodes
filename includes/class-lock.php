@@ -176,16 +176,56 @@ class Lock extends Node {
 		$this->is_held = false;
 	}
 
-	public function heartbeat(): void {
-		if ( ! $this->is_held ) {
-			return;
+	/**
+	 * Refresh the on-disk heartbeat file so this lock doesn't go stale.
+	 *
+	 * Verifies ownership FIRST. If the on-disk PID doesn't match getmypid()
+	 * — someone stale-stole us between heartbeats — bails and returns false.
+	 * `verify_ownership` flips local is_held=false on mismatch, which makes
+	 * a later release() correctly no-op (we must not force-release the new
+	 * holder's lock) and lets callers see false and stop writing before
+	 * they corrupt the new holder's segments.
+	 *
+	 * @return bool True if heartbeat refreshed; false if not held or lost.
+	 */
+	public function heartbeat(): bool {
+		if ( ! $this->verify_ownership() ) {
+			return false;
 		}
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_touch
 		@\touch( $this->lock_path . '/' . self::HEARTBEAT_FILE );
+		return true;
 	}
 
 	public function is_held(): bool {
 		return $this->is_held;
+	}
+
+	/**
+	 * Verify the on-disk heartbeat file still names us as the holder. Returns
+	 * false if the lock dir is gone (lost), the heartbeat is unreadable, or
+	 * the PID inside doesn't match `getmypid()` (someone else stole it via
+	 * stale-takeover while we were doing other work). Used by event-loop-less
+	 * holders (JobIntake-style Partition writers driven by a request, not by
+	 * an EventFramework Timer) to sanity-check before each large write.
+	 *
+	 * Side effect: if ownership has been lost, flips `is_held` to false so
+	 * `release()` becomes a no-op (we don't want to force-release a lock
+	 * someone else now holds legitimately).
+	 */
+	public function verify_ownership(): bool {
+		if ( ! $this->is_held ) {
+			return false;
+		}
+		$hb = $this->lock_path . '/' . self::HEARTBEAT_FILE;
+		\clearstatcache( true, $hb );
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		$pid = @\file_get_contents( $hb );
+		if ( false === $pid || (int) \trim( (string) $pid ) !== \getmypid() ) {
+			$this->is_held = false;
+			return false;
+		}
+		return true;
 	}
 
 	/**

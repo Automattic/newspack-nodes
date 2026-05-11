@@ -14,19 +14,17 @@ This is a working prototype of an idea pitched at the team meetup: the Lego-bric
 
 ## Quick Start
 
-```bash
-# Deploy to dndocker container.
-docker exec eve-pyrobase1-1 /services/pyrobase/setup/newspack-nodes.sh
+Install as a standard WordPress plugin, then:
 
-# Activate plugin (no app — just the runtime).
-docker exec -u bend eve-pyrobase1-1 wp plugin activate newspack-nodes \
-    --allow-root --path=/var/www/html
+```bash
+# Activate (no app — just the runtime).
+wp plugin activate newspack-nodes
 
 # List active workers (none, until an application registers a topology).
-docker exec eve-pyrobase1-1 wp nodes ls --allow-root --path=/var/www/html
+wp nodes ls
 
 # Open the bare REPL (local nodes only).
-docker exec -it eve-pyrobase1-1 wp nodes cli --allow-root --path=/var/www/html
+wp nodes cli
 ```
 
 To get workers running, install an application plugin (e.g., `newspack-event-logger-nodes`) that registers via the `newspack_nodes/topologies` filter.

@@ -83,7 +83,7 @@ class ShellTest extends TestCase {
 	public function test_parse_ping_yields_TM_PING_with_timestamp_payload(): void {
 		// Tachikoma Shell3 ping builtin: build TM_PING addressed at the path,
 		// payload = current timestamp; receiver's CI bounces TO=FROM.
-		Core::$right_now = 1234567890.123456;
+		Core::$now = 1234567890.123456;
 		$shell = new Shell();
 		$msg   = $shell->parse( 'ping _command_interpreter');
 
