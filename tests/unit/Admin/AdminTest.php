@@ -248,7 +248,6 @@ class AdminTest extends TestCase {
 		$admin->register_settings();
 
 		$expected = [
-			'newspack_nodes_enable_workers',
 			'newspack_nodes_base_directory',
 			'newspack_nodes_num_partitions',
 			'newspack_nodes_num_segments',
@@ -335,11 +334,10 @@ class AdminTest extends TestCase {
 		$admin = new Admin();
 		$admin->register_settings();
 
-		$this->assertArrayHasKey( 'newspack_nodes_general_section', $GLOBALS['_registered_sections'] );
 		$this->assertArrayHasKey( 'newspack_nodes_storage_section', $GLOBALS['_registered_sections'] );
 
 		// Fields populated under the right page.
-		foreach ( [ 'enable_workers', 'num_partitions', 'num_segments', 'segment_size', 'max_lifespan', 'total_storage', 'base_directory', 'memcache_servers' ] as $field ) {
+		foreach ( [ 'num_partitions', 'num_segments', 'segment_size', 'max_lifespan', 'total_storage', 'base_directory', 'memcache_servers' ] as $field ) {
 			$this->assertArrayHasKey( $field, $GLOBALS['_registered_fields'], "field $field not registered" );
 			$this->assertSame( Admin::SETTINGS_PAGE, $GLOBALS['_registered_fields'][ $field ]['page'] );
 		}
@@ -386,7 +384,6 @@ class AdminTest extends TestCase {
 		$_POST = [ Admin::RESET_NONCE => $this->valid_nonce() ];
 
 		// Seed substrate + unrelated options.
-		\update_option( 'newspack_nodes_enable_workers', 0 );
 		\update_option( 'newspack_nodes_num_partitions', 8 );
 		\update_option( 'unrelated_option', 'survives' );
 		\update_option( 'newspack_event_logger_nodes_enable_logging', 1 );
@@ -399,7 +396,6 @@ class AdminTest extends TestCase {
 			// Expected — the handler completes via redirect.
 		}
 
-		$this->assertFalse( \get_option( 'newspack_nodes_enable_workers' ) );
 		$this->assertFalse( \get_option( 'newspack_nodes_num_partitions' ) );
 		$this->assertSame( 'survives', \get_option( 'unrelated_option' ) ); // unrelated options untouched
 		// Application options are NOT touched by substrate reset.
@@ -455,7 +451,6 @@ class AdminTest extends TestCase {
 		$this->prepare_lock_dir( 'request-workers', 0 );
 		$this->prepare_lock_dir( 'job-workers', 0 );
 		$admin = new Admin();
-		$admin->maybe_request_worker_restart( 'newspack_nodes_enable_workers' );
 		$admin->maybe_request_worker_restart( 'newspack_nodes_num_partitions' );
 		$this->assertFalse( \file_exists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' ) );
 		$this->assertFalse( \file_exists( $this->base_dir . '/locks/job-workers.p0.lock.d/restart' ) );
@@ -565,18 +560,7 @@ class AdminTest extends TestCase {
 
 	// ---- section callbacks -----------------------------------------------
 
-	public function test_general_section_callback_outputs_paragraph(): void {
-		$admin = new Admin();
-
-		\ob_start();
-		$admin->general_section_callback();
-		$html = \ob_get_clean();
-
-		$this->assertStringContainsString( '<p>', $html );
-		$this->assertStringContainsString( 'Substrate runtime toggles', $html );
-	}
-
-	public function test_storage_section_callback_outputs_paragraph(): void {
+public function test_storage_section_callback_outputs_paragraph(): void {
 		$admin = new Admin();
 
 		\ob_start();
@@ -585,39 +569,6 @@ class AdminTest extends TestCase {
 
 		$this->assertStringContainsString( '<p>', $html );
 		$this->assertStringContainsString( 'log storage', $html );
-	}
-
-	// ---- enable_workers_callback -----------------------------------------
-
-	public function test_enable_workers_callback_renders_checkbox_unchecked_when_disabled(): void {
-		\update_option( 'newspack_nodes_enable_workers', 0 );
-		$admin = new Admin();
-
-		\ob_start();
-		$admin->enable_workers_callback();
-		$html = \ob_get_clean();
-
-		// Hidden zero input first so unchecked submit still posts a value.
-		$this->assertStringContainsString( 'type="hidden" name="newspack_nodes_enable_workers" value="0"', $html );
-		// Checkbox renders with the right name + value=1.
-		$this->assertStringContainsString( 'type="checkbox"', $html );
-		$this->assertStringContainsString( 'name="newspack_nodes_enable_workers"', $html );
-		$this->assertStringContainsString( 'id="enable_workers"', $html );
-		$this->assertStringContainsString( 'value="1"', $html );
-		// Disabled means NOT checked.
-		$this->assertStringNotContainsString( 'checked="checked"', $html );
-	}
-
-	public function test_enable_workers_callback_renders_checkbox_checked_when_enabled(): void {
-		\update_option( 'newspack_nodes_enable_workers', 1 );
-		$admin = new Admin();
-
-		\ob_start();
-		$admin->enable_workers_callback();
-		$html = \ob_get_clean();
-
-		$this->assertStringContainsString( 'type="checkbox"', $html );
-		$this->assertStringContainsString( 'checked="checked"', $html );
 	}
 
 	// ---- base_directory_callback (render_directory_field) ----------------
