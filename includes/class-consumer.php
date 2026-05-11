@@ -537,10 +537,14 @@ class Consumer extends Timer {
 	}
 
 	/**
-	 * Publish current cursor to memcache, keyed by source path. Dashboards
-	 * read the same key to compute live read rates between offsetlog
-	 * checkpoints. The path-as-key avoids any topology-side wiring: every
-	 * Consumer knows its source dir, every reader can derive the same key.
+	 * Publish current cursor to memcache, keyed by hostname + source path.
+	 * Dashboards read the same key to compute live read rates between
+	 * offsetlog checkpoints. The hostname-as-prefix prevents collisions in
+	 * shared-memcache deployments where the same `{base_dir}` path resolves
+	 * on multiple hosts (e.g. render1 / render2 each writing their own
+	 * `firehose.log` consumer position). The path-as-key avoids any
+	 * topology-side wiring: every Consumer knows its source dir, every
+	 * reader can derive the same key.
 	 *
 	 * Server discovery: substrate `Config::load_config('full')['memcache_servers']`.
 	 * No-op when the Memcached PHP extension is missing or the server is
@@ -572,8 +576,9 @@ class Consumer extends Timer {
 				return;
 			}
 		}
+		$host = \gethostname() ?: 'unknown';
 		$memd->set(
-			"np:pos:{$this->source_base_dir}:p{$this->source_partition}",
+			"np:pos:{$host}:{$this->source_base_dir}:p{$this->source_partition}",
 			[ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'ts' => Core::$now ],
 			60
 		);
