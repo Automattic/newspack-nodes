@@ -16,6 +16,7 @@ Tachikoma-inspired node-graph runtime for PHP. This document describes the subst
 - [EventFramework](#eventframework)
 - [Worker Lifecycle](#worker-lifecycle)
 - [Supervisor Lifecycle](#supervisor-lifecycle)
+- [Lock](#lock)
 - [REPL: wp nodes cli](#repl-wp-nodes-cli)
 - [Substrate Lifecycle Events vs WordPress Hooks](#substrate-lifecycle-events-vs-wordpress-hooks)
 
@@ -372,6 +373,45 @@ PHP I/O quirks the implementation handles:
 
 - `fseek($fp, 0, SEEK_CUR)` before `ftell` — PHP's stdio caches position; without the no-op seek, `ftell` returns stale values after external appends.
 - `clearstatcache(true, $path)` before every stat in poll loops — PHP caches stat results aggressively per request.
+
+## Lock
+
+Mkdir-based advisory locking with a PID-stamped heartbeat file. Used by workers, the supervisor, and `Partition::allow_large_writes()`. Atomic on every filesystem we ship on (NFS, tmpfs, ext4 — `mkdir(2)` is the POSIX-mandated atomic primitive). No `flock`, no daemon, no DB row.
+
+```php
+class Lock extends Node {
+    public const STALE_TIMEOUT  = 60;          // seconds without heartbeat → stale, eligible for takeover
+    public const HEARTBEAT_FILE = 'heartbeat';
+
+    public function acquire( int $max_wait_ms = 0 ): bool;
+    public function release(): void;
+    public function heartbeat(): bool;          // verify_ownership() + touch
+    public function verify_ownership(): bool;   // read PID from heartbeat, compare to getmypid()
+    public function is_held(): bool;
+    public function force_release(): bool;
+}
+```
+
+**Acquire**:
+
+```
+mkdir $lock_path/   // atomic; returns false if already exists
+  └─ if false:
+      stat $lock_path/heartbeat
+      if mtime > STALE_TIMEOUT seconds old:
+          force_release()  // unlink heartbeat, rmdir
+          retry mkdir
+      else:
+          give up (return false) or wait if $max_wait_ms > 0
+
+file_put_contents $lock_path/heartbeat ← getmypid()
+```
+
+**Heartbeat**: workers touch their lock's heartbeat file every 10s during drain. The supervisor's stale-takeover check reads `mtime` only — never the file's contents during normal scans, so a busy supervisor doesn't pay PID-comparison costs on every tick. PID comparison happens on `verify_ownership()` (called from `heartbeat()` before the touch, and from `Partition::fill()` before every large write under `allow_large_writes`).
+
+**Stale takeover**: if `STALE_TIMEOUT` (60s default) elapses without a heartbeat refresh, the lock is considered stale and another acquirer is free to `force_release()` it and take over. The previous holder's `getmypid()` no longer matches the heartbeat file → `verify_ownership()` flips local `is_held=false` → the displaced holder fails its next heartbeat and exits. This is the supervisor's main job for workers (catching crashed or wedged workers and respawning their replacement); it's also how multiple `wp nodes restart` invocations don't fight over slots.
+
+**`should_restart()` / `request_restart()`**: writes `$lock_path/restart` as a sentinel. Workers check `Lock::should_restart()` on every drain tick and exit cleanly when set. Used by the admin `wp nodes restart` verb, by application code after a config change requiring a worker bounce, and by the supervisor's deactivation cleanup. The sentinel file is consumed (unlinked) by the next acquirer. Static form `Lock::request_restart_at( $lock_dir )` lets callers signal restart without holding a `Lock` instance — useful from admin request scope where the worker's `Lock` object lives in a different process.
 
 ## Worker Lifecycle
 
