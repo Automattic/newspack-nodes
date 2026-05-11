@@ -3,10 +3,6 @@
 /node_modules/
 /vendor/
 
-# Lock files at parent level
-/package-lock.json
-/composer.lock
-
 # Logs
 *.log
 npm-debug.log*
