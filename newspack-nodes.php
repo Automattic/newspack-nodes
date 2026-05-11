@@ -21,43 +21,21 @@ if ( ! \defined( 'NEWSPACK_NODES_DIR' ) ) {
 	\define( 'NEWSPACK_NODES_DIR', \plugin_dir_path( __FILE__ ) );
 }
 
-// Load classes (added one per task — kept require_once for parity with event-logger conventions; no composer for A1).
-// Order matters: Router extends Timer (Task 7), so Timer (and EventFramework it depends on) must load before Router.
-require_once NEWSPACK_NODES_DIR . 'includes/class-core.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-config.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-message.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-node.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-event-framework.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-timer.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-router.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-command-interpreter.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-lock.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-partition.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-topic.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-consumer.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-callback.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-shell.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-dumper.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-echo.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-tee.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-hook.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-tail.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-log.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-worker-base.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-supervisor-base.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-supervisor.php';
-require_once NEWSPACK_NODES_DIR . 'includes/rest/class-spawn-controller.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-bootstrap.php';
-require_once NEWSPACK_NODES_DIR . 'includes/class-cli.php';
+// Composer classmap autoloader. Class files inside includes/ are scanned at
+// `composer install` / `composer dump-autoload` time and registered with a
+// FQCN-to-path map; classes load on first reference so request scope doesn't
+// pay for code it never touches. Generated vendor/autoload.php ships with the
+// release zip via build-release.sh (which runs composer install --no-dev
+// --optimize-autoloader pre-stage). Dev environments need a `composer install`
+// after cloning; the build:autoloaders npm script wraps this for parity with
+// the other plugins.
+require_once NEWSPACK_NODES_DIR . 'vendor/autoload.php';
 
 if ( \function_exists( 'is_admin' ) && \is_admin() ) {
-	require_once NEWSPACK_NODES_DIR . 'includes/admin/class-admin.php';
 	new \Newspack_Nodes\Admin\Admin();
 }
 
 if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
-	require_once NEWSPACK_NODES_DIR . 'includes/class-cli-command.php';
-	require_once NEWSPACK_NODES_DIR . 'includes/cli/class-worker-cli-command.php';
 	\WP_CLI::add_command( 'nodes', '\\Newspack_Nodes\\Cli_Command' );
 	\WP_CLI::add_command( 'nodes types',   [ '\\Newspack_Nodes\\WorkerCliCommand', 'types'   ] );
 	\WP_CLI::add_command( 'nodes run',     [ '\\Newspack_Nodes\\WorkerCliCommand', 'run'     ] );

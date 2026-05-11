@@ -6,6 +6,9 @@
 	"require": {
 		"php": ">=8.0"
 	},
+	"autoload": {
+		"classmap": [ "includes/" ]
+	},
 	"require-dev": {
 		"automattic/vipwpcs": "^3.0",
 		"wp-coding-standards/wpcs": "^3.0",
