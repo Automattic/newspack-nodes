@@ -500,22 +500,53 @@ class Cli_Stdin_Reader extends Timer {
 		$delivered = false;
 
 		if ( $this->has_readline ) {
-			// Feed one byte from STDIN to readline. If it completed a line,
-			// the callback (set in install_handler) appended to $this->queue.
-			\readline_callback_read_char();
-
-			foreach ( $this->queue as $line ) {
-				$this->cmd->dispatch_line( $this->shell, $line );
-				$delivered = true;
+			// Gate the readline read on stdin actually having data. readline's
+			// rl_getc layer blocks on a TTY with no pending input — left
+			// ungated it stalls the entire drain loop inside the read syscall
+			// until the user types again, which is what prevents Consumer/Tail
+			// timers (notably the pivoted-cli reply-in Consumer) from firing
+			// between commands. The legacy stream_select-driven loop gated
+			// this externally; we do it inline now that EventFramework polls
+			// timers only.
+			//
+			// Memory streams (php://memory in tests) have no underlying FD —
+			// stream_select throws ValueError on them. Tests with memory
+			// streams aren't blocking anyway, so fall through to the read.
+			$ready = 1;
+			try {
+				$read   = [ $this->stream ];
+				$write  = null;
+				$except = null;
+				$ready  = (int) \stream_select( $read, $write, $except, 0, 0 );
+			} catch ( \ValueError $e ) {
+				$ready = 1;
 			}
-			$this->queue = [];
+			if ( $ready > 0 ) {
+				// Feed one byte from STDIN to readline. If it completed a line,
+				// the callback (set in install_handler) appended to $this->queue.
+				\readline_callback_read_char();
 
-			if ( $this->readline_eof ) {
-				$this->send_eof_marker();
-			} elseif ( $delivered ) {
-				// Handler was auto-removed when the line was delivered;
-				// re-install so the next prompt renders.
-				$this->install_handler();
+				foreach ( $this->queue as $line ) {
+					$this->cmd->dispatch_line( $this->shell, $line );
+					$delivered = true;
+				}
+				$this->queue = [];
+
+				if ( $this->readline_eof ) {
+					$this->send_eof_marker();
+				} elseif ( $delivered ) {
+					// Handler was auto-removed when the line was delivered;
+					// re-install so the next prompt renders.
+					$this->install_handler();
+				}
+
+				// We just consumed a char (or readline buffered it). Either
+				// way stdin had data; flag delivered so the re-arm picks
+				// BUSY_POLL_MS=0 and drains the rest of the kernel buffer
+				// ASAP. Without this, fast typing crawls at 1 char per
+				// IDLE_POLL_MS (100ms) because $delivered only flips on full
+				// line completion.
+				$delivered = true;
 			}
 		} else {
 			// Non-readline path: line-buffered fgets, manual prompt.
