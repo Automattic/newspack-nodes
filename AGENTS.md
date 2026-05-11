@@ -19,19 +19,18 @@ Conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`).
 ## Build / Test
 
 ```bash
-# Deploy to dndocker container.
-docker exec eve-pyrobase1-1 /services/pyrobase/setup/newspack-nodes.sh
-
-# Run unit + integration tests inside the container.
-docker exec -u bend eve-pyrobase1-1 bash -c 'cd /usr/src/newspack-nodes/tests && phpunit'
+# Run unit + integration tests.
+cd tests && phpunit
 
 # Lint PHP.
 npm run lint:php
 
 # REPL against a live worker.
-docker exec -it eve-pyrobase1-1 wp nodes ls --allow-root --path=/var/www/html
-docker exec -it eve-pyrobase1-1 wp nodes cli firehose-workers.p0 --allow-root --path=/var/www/html
+wp nodes ls
+wp nodes cli firehose-workers.p0
 ```
+
+The plugin is shipped as a standard WordPress plugin; deployment (containers, bind mounts, rsync, etc.) is environment-specific and lives outside this repo.
 
 ## Architecture Decisions
 

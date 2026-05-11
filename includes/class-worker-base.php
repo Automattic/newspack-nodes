@@ -55,6 +55,8 @@ class WorkerBase {
 
 	public function acquire(): bool {
 		if ( ! \is_dir( "{$this->base_dir}/locks" ) ) {
+			// base_dir is operator-configured worker storage, not WP-managed.
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
 		$this->lock = new Lock( $this->lock_path(), $this->stale_timeout );
@@ -174,6 +176,7 @@ class WorkerBase {
 		// needed. allow_large_writes because dump output regularly exceeds
 		// PIPE_BUF.
 		if ( ! \is_dir( "{$ipc_dir}/output" ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
 		$repl = new Partition( "{$ipc_dir}/output", 0 );
@@ -197,6 +200,7 @@ class WorkerBase {
 		// each fresh worker process starts handling commands from now-forward.
 		$input_dir = "{$ipc_dir}/input";
 		if ( ! \is_dir( $input_dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $input_dir, 0755, true );
 		}
 		$repl_in = new Consumer( $input_dir, 0, '' );

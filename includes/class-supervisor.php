@@ -115,6 +115,8 @@ class Supervisor extends SupervisorBase {
 		// is already running this host, defer to it.
 		$lock_dir = "{$this->base_dir}/locks/supervisor.lock.d";
 		if ( ! \is_dir( "{$this->base_dir}/locks" ) ) {
+			// base_dir is operator-configured under /tmp/ or similar — not WP-managed.
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
 		$this->own_lock = new Lock( $lock_dir, self::SUPERVISOR_STALE_TIMEOUT );
@@ -397,6 +399,7 @@ class Supervisor extends SupervisorBase {
 	 */
 	public function init_lock_for_test(): bool {
 		if ( ! \is_dir( "{$this->base_dir}/locks" ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
 		$this->own_lock = new Lock( "{$this->base_dir}/locks/supervisor.lock.d", self::SUPERVISOR_STALE_TIMEOUT );

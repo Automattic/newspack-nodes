@@ -22,7 +22,7 @@ class Router extends Timer {
 	}
 
 	protected function fire(): void {
-		$this->notify( 'TIMER', Core::$right_now );
+		$this->notify( 'TIMER', Core::$now );
 	}
 
 	public function fill( array &$message ): void {
@@ -51,7 +51,7 @@ class Router extends Timer {
 			}
 			$err                       = Message::new_message();
 			$err[ Message::TYPE ]      = Message::TM_ERROR;
-			$err[ Message::TIMESTAMP ] = Core::$right_now;
+			$err[ Message::TIMESTAMP ] = Core::$now;
 			$err[ Message::FROM ]      = $this->name;
 			$err[ Message::TO ]        = $message[ Message::FROM ];
 			$err[ Message::ID ]        = $message[ Message::ID ];

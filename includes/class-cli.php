@@ -104,7 +104,7 @@ class Cli {
 		$lock_dir             = "{$this->base_dir}/locks/{$reader_id}.lock.d";
 		if ( ! \is_dir( $lock_dir ) ) {
 			throw new \InvalidArgumentException(
-				"no worker '{$reader_id}' (run `wp nodes ls` to list active workers)"
+				\esc_html( "no worker '{$reader_id}' (run `wp nodes ls` to list active workers)" )
 			);
 		}
 		return [
@@ -125,7 +125,7 @@ class Cli {
 	 */
 	public static function parse_reader_id( string $reader_id ): array {
 		if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $reader_id, $m ) ) {
-			throw new \InvalidArgumentException( "invalid reader id: $reader_id (expected {type}.p{N})" );
+			throw new \InvalidArgumentException( \esc_html( "invalid reader id: $reader_id (expected {type}.p{N})" ) );
 		}
 		return [ $m[1], (int) $m[2] ];
 	}

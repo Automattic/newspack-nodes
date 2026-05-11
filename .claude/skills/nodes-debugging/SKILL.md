@@ -68,8 +68,7 @@ If you redirect stdin (heredoc, file), readline gets skipped automatically (it'd
 
 ```bash
 # Drive the REPL non-interactively for scripted testing.
-echo -e "ls\ndump my-node" | docker exec -i eve-pyrobase1-1 wp nodes cli \
-    --allow-root --path=/var/www/html
+echo -e "ls\ndump my-node" | wp nodes cli
 ```
 
 The non-readline path is fgets-based. On stdin EOF, the cli emits a TM_EOF Message through the Shell (FROM=`_output/$pid`); the receiving CommandInterpreter bounces TO=FROM, and the cli's Dumper sees the echo and flips the exit flag. In pivoted mode this round-trip rides through the cmd-out / reply-in IPC partitions, guaranteeing all preceding output has been read off disk before the cli exits — no `sleep` slack needed. The 5-second deadline is the fallback for a dead worker; the cli exits anyway after that.
@@ -80,15 +79,13 @@ For the round-trip to work, Partition and Topic pack ALL message types (TM_REQUE
 
 ```bash
 # List all worker types + last heartbeat age.
-docker exec eve-pyrobase1-1 wp nodes ls --allow-root --path=/var/www/html
+wp nodes ls
 
 # Status (formats: table, json).
-docker exec eve-pyrobase1-1 wp nodes status \
-    --format=json --allow-root --path=/var/www/html
+wp nodes status --format=json
 
 # Force-restart by type (sends a restart flag-file via Lock).
-docker exec eve-pyrobase1-1 wp nodes restart firehose-workers --all-partitions \
-    --allow-root --path=/var/www/html
+wp nodes restart firehose-workers --all-partitions
 ```
 
 A worker reports as `[live]` if its heartbeat file (under `{base}/locks/{type}.p{N}.lock.d/heartbeat`) was touched within `stale_timeout`. `[stale]` means the supervisor will respawn it on the next minute-cron tick.
@@ -123,8 +120,7 @@ The on-disk format is a 7-element positional JSON list per line: `[TYPE, TIMESTA
 
 ```bash
 # First entry of partition 0's segment 0 of the firehose.
-docker exec eve-pyrobase1-1 head -c 500 \
-    /tmp/newspack-nodes/logs/firehose.log/p0/0.log
+head -c 500 {base_dir}/logs/firehose.log/p0/0.log
 ```
 
 For the application's reqgrep pretty-printer, see the event-logger-nodes plugin's debugging skill — it knows how to unwrap the envelope and render the inner entry.

@@ -120,7 +120,7 @@ class Timer extends Node {
 			$this->mode   = 'inactive';
 		}
 		$this->fire();
-		$this->notify( 'FIRE', Core::$right_now );
+		$this->notify( 'FIRE', Core::$now );
 	}
 
 	protected function fire(): void {
@@ -129,12 +129,12 @@ class Timer extends Node {
 		}
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$msg[ Message::TIMESTAMP ] = Core::$right_now;
+		$msg[ Message::TIMESTAMP ] = Core::$now;
 		$msg[ Message::FROM ]      = $this->name;
 		if ( '' !== $this->key ) {
 			$msg[ Message::KEY ] = $this->key;
 		}
-		$msg[ Message::VALUE ]     = (string) Core::$right_now;
+		$msg[ Message::VALUE ]     = (string) Core::$now;
 		$this->sink->fill( $msg );
 	}
 }

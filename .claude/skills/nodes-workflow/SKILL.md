@@ -43,39 +43,29 @@ For a new CommandInterpreter verb:
 3. If the verb is purely shell-side (e.g. `cd`, `tell_node`, `send_node`), intercept it in `Shell::parse()` instead — it never reaches CI dispatch. Document it in `$H` anyway so `help` covers everything the user can type.
 4. Throwing from `cmd_foo` is fine — `interpret()` catches `\Throwable` and wraps the response as `TM_COMMAND|TM_ERROR`. Reserve `return 'error: ...'` for malformed-args paths where you want the canonical OK response shape.
 
-### Phase 3: Test, deploy, verify
+### Phase 3: Test, restart, verify
 
 ```bash
 # Run unit + integration tests inline.
-docker exec -u bend eve-pyrobase1-1 bash -c 'cd /usr/src/newspack-nodes/tests && phpunit'
-
-# Deploy the runtime.
-docker exec eve-pyrobase1-1 /services/pyrobase/setup/newspack-nodes.sh
+cd tests && phpunit
 
 # Restart workers so they pick up the new code (otherwise the old class lives
 # in the running PHP process for ~10 more minutes).
-docker exec eve-pyrobase1-1 wp nodes restart firehose-workers --all-partitions \
-    --allow-root --path=/var/www/html
+wp nodes restart firehose-workers --all-partitions
 
 # Verify workers came back.
-docker exec eve-pyrobase1-1 wp nodes ls --allow-root --path=/var/www/html
+wp nodes ls
 ```
 
-If the change touches an application plugin (e.g., the substrate change requires the application to update its consumer), redeploy that plugin too:
-
-```bash
-docker exec eve-pyrobase1-1 /services/pyrobase/setup/newspack-event-logger-nodes.sh
-```
+If the change requires an application plugin to also update (e.g., a substrate change that affects how the app's consumer attaches), redeploy that plugin in your environment.
 
 ### Phase 4: Live-verify
 
 For changes affecting the firehose pipeline, hit the dashboard or a real URL:
 
 ```bash
-curl -sk "https://www.bendsource.com/" -o /dev/null -w "HTTP %{http_code}\n"
-sleep 3  # Let the firehose flush, RequestBuilder assemble, etc.
-docker exec eve-pyrobase1-1 wp nodes reqgrep --recent \
-    --allow-root --path=/var/www/html | head -10
+curl -sk "<site>/" -o /dev/null
+wp nodes reqgrep --recent | head -10
 ```
 
 Match what you see against your expectations. If something's off, the `nodes-debugging` skill walks through `wp nodes cli` for live introspection.

@@ -56,7 +56,7 @@ abstract class TestCase extends PHPUnitTestCase {
 	protected function produce( string $value, string $key = '' ): array {
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$msg[ Message::TIMESTAMP ] = Core::$right_now;
+		$msg[ Message::TIMESTAMP ] = Core::$now;
 		$msg[ Message::KEY ]       = $key;
 		$msg[ Message::VALUE ]     = $value;
 		return $msg;

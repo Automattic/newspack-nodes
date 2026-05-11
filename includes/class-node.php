@@ -58,7 +58,7 @@ class Node {
 				Core::unregister_node( $this->name );
 			}
 			if ( Core::node( $name ) !== null ) {
-				throw new \RuntimeException( "node name collision: $name already registered" );
+				throw new \RuntimeException( \esc_html( "node name collision: $name already registered" ) );
 			}
 			$this->name = $name;
 			Core::register_node( $name, $this );
@@ -155,7 +155,7 @@ class Node {
 	 */
 	public function register( string $event, string $listener, ?callable $cb = null ): void {
 		if ( ! isset( $this->registrations[ $event ] ) ) {
-			throw new \RuntimeException( "no such event: $event" );
+			throw new \RuntimeException( \esc_html( "no such event: $event" ) );
 		}
 		$this->registrations[ $event ][ $listener ] = $cb; // null means "Node-name dispatch".
 
@@ -309,7 +309,7 @@ class Node {
 		$line = \implode( ' ', $parts );
 
 		// First-300s NOT_AVAILABLE rule.
-		if ( 'NOT_AVAILABLE' === $error && Core::$right_now < 300.0 ) {
+		if ( 'NOT_AVAILABLE' === $error && Core::$now < 300.0 ) {
 			Core::print_least_often( $line );
 			return;
 		}

@@ -56,7 +56,7 @@ class Message {
 		// Positional JSON: indexed array, no key strings on the wire. Field
 		// constants TYPE..VALUE = 0..6 so the in-memory message IS the wire
 		// representation — no key->index translation per side.
-		return \json_encode( $message, \JSON_UNESCAPED_SLASHES );
+		return \wp_json_encode( $message, \JSON_UNESCAPED_SLASHES );
 	}
 
 	public static function unpacked( string $data ): array {

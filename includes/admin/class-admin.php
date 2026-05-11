@@ -597,6 +597,7 @@ class Admin {
 			: '';
 		if ( '' !== $redirect ) {
 			\wp_safe_redirect( $redirect );
+			exit;
 		}
 		exit;
 	}

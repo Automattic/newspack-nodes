@@ -881,7 +881,7 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_fire_writes_first_checkpoint_on_initial_call(): void {
-		// On the FIRST fire(), last_checkpoint=0 so (right_now - 0) >= 1 always
+		// On the FIRST fire(), last_checkpoint=0 so (now - 0) >= 1 always
 		// holds — checkpoint() must run (provided the cursor advanced).
 		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
 		$this->produce_line( $source, 'cp' );
@@ -889,7 +889,7 @@ class ConsumerTest extends TestCase {
 		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$ref = new \ReflectionClass( $c );
 
-		Core::update_time(); // Ensure right_now is a real wall-clock value.
+		Core::$now = \microtime(true); // Ensure now is a real wall-clock value.
 
 		$fire = $ref->getMethod( 'fire' );
 		$fire->setAccessible( true );
@@ -917,10 +917,10 @@ class ConsumerTest extends TestCase {
 		$ref = new \ReflectionClass( $c );
 
 		// Pre-set last_checkpoint to "right now" so the interval gate fails.
-		Core::update_time();
+		Core::$now = \microtime(true);
 		$last = $ref->getProperty( 'last_checkpoint' );
 		$last->setAccessible( true );
-		$last->setValue( $c, Core::$right_now );
+		$last->setValue( $c, Core::$now );
 
 		// Pre-set checkpoint_seg/off to match cursor so checkpoint() would skip
 		// even if it WAS called — but more importantly, our test asserts the
@@ -951,7 +951,7 @@ class ConsumerTest extends TestCase {
 
 		$c = new Consumer( "{$this->tmp}/data", 0, '' );
 
-		Core::update_time();
+		Core::$now = \microtime(true);
 		$ref  = new \ReflectionClass( $c );
 		$fire = $ref->getMethod( 'fire' );
 		$fire->setAccessible( true );
@@ -973,7 +973,7 @@ class ConsumerTest extends TestCase {
 		$cap = new CaptureSink();
 		$c->sink( $cap );
 
-		Core::update_time();
+		Core::$now = \microtime(true);
 		$ref  = new \ReflectionClass( $c );
 		$fire = $ref->getMethod( 'fire' );
 		$fire->setAccessible( true );
@@ -1013,7 +1013,7 @@ class ConsumerTest extends TestCase {
 			}
 		};
 
-		Core::update_time();
+		Core::$now = \microtime(true);
 		$ref  = new \ReflectionClass( $busy_consumer );
 		$fire = $ref->getMethod( 'fire' );
 		$fire->setAccessible( true );
@@ -1097,7 +1097,7 @@ class ConsumerTest extends TestCase {
 
 		// Fire twice: first init may construct Memcached + addServer; second
 		// must not redo that work (verifying the static-memoization path).
-		Core::update_time();
+		Core::$now = \microtime(true);
 		$fire = $ref->getMethod( 'fire' );
 		$fire->setAccessible( true );
 		$fire->invoke( $c );

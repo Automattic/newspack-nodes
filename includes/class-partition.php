@@ -57,6 +57,10 @@ class Partition extends Timer {
 	protected bool $allow_large_writes = false;
 	protected ?Lock $write_lock = null;
 	protected ?Timer $heartbeat_timer = null;
+	/** stale_timeout (s) cached at acquire so fill() can compute the heartbeat cadence in no-event-loop mode. */
+	protected int $lock_stale_timeout = 0;
+	/** Last manually-driven heartbeat timestamp (no-event-loop mode only). */
+	protected float $last_lock_heartbeat = 0.0;
 
 	/** Last drift-rescan timestamp; throttles do_write rescans to once per second. */
 	protected float $last_segment_check = 0.0;
@@ -147,6 +151,29 @@ class Partition extends Timer {
 	 */
 	public function fill( array &$message ): void {
 		++$this->counter;
+
+		// No-event-loop heartbeat: when allow_large_writes was set up outside
+		// a drain (request-scope JobIntake-style callers), there's no Timer
+		// to refresh the lock's heartbeat file. Drive it from here at most
+		// once per (stale_timeout/3) seconds. Lock::heartbeat verifies
+		// ownership before touching the file and returns false if we lost
+		// it (stale-takeover by another holder) — throw in that case so
+		// the caller can't unknowingly write into another holder's segments.
+		// $write_lock is guaranteed non-null when allow_large_writes is true.
+		if ( $this->allow_large_writes && null === $this->heartbeat_timer ) {
+			$now = \microtime( true );
+			if ( $now - $this->last_lock_heartbeat >= $this->lock_stale_timeout / 3.0 ) {
+				if ( ! $this->write_lock->heartbeat() ) {
+					throw new \RuntimeException(
+						\esc_html(
+							"Partition: write lock at {$this->partition_dir}/write.lock.d "
+							. 'no longer owned (stolen via stale-takeover); cannot continue.'
+						)
+					);
+				}
+				$this->last_lock_heartbeat = $now;
+			}
+		}
 
 		// Pack the whole message and append. Bytes are newline-terminated so
 		// Consumer can split lines without needing Tachikoma's length-prefix
@@ -433,32 +460,53 @@ class Partition extends Timer {
 	public function allow_large_writes( int $max_wait_ms = 65000 ): self {
 		$stale_timeout = 60;
 		$lock          = new Lock( "{$this->partition_dir}/write.lock.d", $stale_timeout );
-		$lock->name( "{$this->name}:lock" );
-		$lock->sink( $this->sink );
+
+		// Two call patterns:
+		//   (a) Inside a worker — EventFramework::drain() is active. Use the
+		//       Node-graph integration: Lock as a sink, heartbeat Timer fires
+		//       every stale_timeout/3 ms via the EF, KEY='heartbeat' is the
+		//       Lock::fill dispatch tag.
+		//   (b) Outside an event loop — request-scope code (JobIntake etc.)
+		//       acquires the lock for a few writes and releases. A Timer here
+		//       would register with EF but never fire (no drain), and the
+		//       graph wiring (lock->name + lock->sink) would never be reached
+		//       by any router. Skip all of it; drive the heartbeat manually
+		//       from fill() and verify ownership inline.
+		$ef_running = EventFramework::instance()->is_running();
+		if ( $ef_running ) {
+			$lock->name( "{$this->name}:lock" );
+			$lock->sink( $this->sink );
+		}
 
 		// Block up to max_wait_ms so respawn races (old worker just exited,
 		// heartbeat still fresh) recover automatically once the previous
 		// holder's heartbeat ages out (after stale_timeout).
 		if ( ! $lock->acquire( $max_wait_ms ) ) {
 			throw new \RuntimeException(
-				"Partition::allow_large_writes() failed to acquire write lock at "
-				. "{$this->partition_dir}/write.lock.d after {$max_wait_ms}ms — another live writer holds it. "
-				. 'Two concurrent writers on the same Partition is unsupported.'
+				\esc_html(
+					"Partition::allow_large_writes() failed to acquire write lock at "
+					. "{$this->partition_dir}/write.lock.d after {$max_wait_ms}ms — another live writer holds it. "
+					. 'Two concurrent writers on the same Partition is unsupported.'
+				)
 			);
 		}
 
-		$this->allow_large_writes = true;
-		$this->write_lock         = $lock;
+		$this->allow_large_writes  = true;
+		$this->write_lock          = $lock;
+		$this->lock_stale_timeout  = $stale_timeout;
+		$this->last_lock_heartbeat = \microtime( true );
 
-		// Heartbeat Timer: sinks into the Lock; KEY='heartbeat' tags every
-		// fired message so Lock::fill recognizes it as a heartbeat tick.
-		// Cadence (ms) = stale_timeout * 1000 / 3 — three heartbeats per
-		// stale window means a single missed tick still doesn't expire us.
-		$this->heartbeat_timer = new Timer();
-		$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
-		$this->heartbeat_timer->sink( $this->write_lock );
-		$this->heartbeat_timer->set_key( 'heartbeat' );
-		$this->heartbeat_timer->set_timer( (int) ( $stale_timeout * 1000 / 3 ) );
+		if ( $ef_running ) {
+			// Heartbeat Timer: sinks into the Lock; KEY='heartbeat' tags every
+			// fired message so Lock::fill recognizes it as a heartbeat tick.
+			// Cadence (ms) = stale_timeout * 1000 / 3 — three heartbeats per
+			// stale window means a single missed tick still doesn't expire us.
+			$this->heartbeat_timer = new Timer();
+			$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
+			$this->heartbeat_timer->sink( $this->write_lock );
+			$this->heartbeat_timer->set_key( 'heartbeat' );
+			$this->heartbeat_timer->set_timer( (int) ( $stale_timeout * 1000 / 3 ) );
+		}
 
 		return $this;
 	}
@@ -699,8 +747,11 @@ class Partition extends Timer {
 			if ( false === $mtime || ( $now - $mtime ) < $this->max_lifespan ) {
 				break;
 			}
+			// Partition's segment directory is base_dir-relative — not WP-managed.
+			// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 			@\unlink( $path );
 			@\unlink( "{$this->partition_dir}/{$oldest['id']}.idx" );
+			// phpcs:enable
 			\array_shift( $segments );
 			--$count;
 		}

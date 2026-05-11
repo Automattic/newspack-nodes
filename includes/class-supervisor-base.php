@@ -249,6 +249,8 @@ class SupervisorBase {
 		$ttl       = self::MIN_SPAWN_INTERVAL_S * 2;
 
 		if ( \function_exists( 'wp_cache_set' ) ) {
+			// Short-TTL by design — spawn rate-limit gate, not durable cache.
+			// phpcs:ignore WordPressVIPMinimum.Performance.LowExpiryCacheTime.CacheTimeUndetermined
 			\wp_cache_set( $cache_key, (int) $when, 'newspack_nodes', $ttl );
 			return;
 		}

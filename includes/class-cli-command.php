@@ -308,9 +308,11 @@ class Cli_Command {
 			$reader->exit = true;
 		} );
 
-		EventFramework::instance()->register_reader_node( $reader );
+		// Cli_Stdin_Reader is timer-driven (extends Timer); schedule its
+		// first fire so the drain loop has at least one timer to wait on.
+		// Subsequent fires self-schedule via set_timer at end of fire().
+		$reader->set_timer( 0, true );
 		EventFramework::instance()->drain( static fn () => ! $reader->exit );
-		EventFramework::instance()->unregister_reader_node( $reader );
 
 		if ( $has_readline ) {
 			\readline_callback_handler_remove();
@@ -320,21 +322,20 @@ class Cli_Command {
 }
 
 /**
- * Stdin-reading driver for `wp nodes cli`. Extracted from `run_repl`'s
- * anonymous-class body so tests can instantiate it directly with a
- * `php://memory` stream and verify the per-line dispatch + EOF detection
- * without entering the EventFramework drain loop.
+ * Stdin-reading driver for `wp nodes cli`. Timer-driven (extends Timer):
+ * each tick reads what's available on $stream, dispatches through the
+ * Shell, then re-arms with set_timer(0) (more bytes pending — drain ASAP,
+ * crucial for piped-stdin throughput) or set_timer(100) (idle — back off
+ * to 100ms polling). Mirrors how Tail and Consumer self-schedule.
  *
- * Production: constructor reads from STDIN, registers itself as a reader
- * node, and lets EventFramework call `drain_fh()` whenever STDIN is ready.
- *
- * Tests: pass a memory-stream resource as the optional 5th argument; the
- * class skips `posix_isatty`-dependent branches when `$has_readline` is
- * false and treats the stream like piped input.
+ * Tests instantiate directly with a `php://memory` stream and call `fire()`
+ * to drive a deterministic number of dispatches without entering the
+ * EventFramework drain loop.
  *
  * @package Newspack_Nodes
  */
-class Cli_Stdin_Reader {
+class Cli_Stdin_Reader extends Timer {
+	/** @var resource */
 	public $stream;
 	public bool $exit = false;
 	private Cli_Command $cmd;
@@ -344,12 +345,16 @@ class Cli_Stdin_Reader {
 	private bool $show_prompts;
 	private float $eof_deadline_s;
 	private bool $prompt_displayed = false;
-	/** @var array<int,string> Lines delivered by the readline callback, drained per drain_fh. */
+	/** @var array<int,string> Lines delivered by the readline callback, drained per fire(). */
 	private array $queue = [];
 	private bool $readline_eof = false;
 	/** Stdin-EOF round-trip state. */
 	private bool $eof_sent = false;
 	private float $eof_deadline_at = 0.0;
+	/** Re-arm cadences. */
+	private const IDLE_POLL_MS = 100; // No bytes pending — back off.
+	private const BUSY_POLL_MS = 0;   // Bytes pending — drain ASAP next tick.
+	private const EOF_POLL_MS  = 10;  // After TM_EOF emit — check deadline + watch for echo.
 
 	/**
 	 * @param resource|null $stream         Input stream (defaults to STDIN). Tests
@@ -371,6 +376,7 @@ class Cli_Stdin_Reader {
 	 *                                      matters there.
 	 */
 	public function __construct( Cli_Command $cmd, Shell $shell, Dumper $dumper, bool $has_readline, $stream = null, bool $show_prompts = true, float $eof_deadline_s = 5.0 ) {
+		parent::__construct();
 		$this->stream         = $stream ?? \STDIN;
 		$this->cmd            = $cmd;
 		$this->shell          = $shell;
@@ -461,18 +467,28 @@ class Cli_Stdin_Reader {
 		if ( $this->prompt_displayed ) {
 			return;
 		}
+		// STDOUT is the cli's own terminal, not a WP-Filesystem-managed path.
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 		\fwrite( \STDOUT, $this->shell->prompt );
 		$this->dumper->mark_prompt_displayed();
 		$this->prompt_displayed = true;
 	}
 
 	/**
-	 * Drain whatever's ready on $this->stream. EventFramework calls this on
-	 * each select cycle. Tests can call it directly with a fixture stream
-	 * to drive a deterministic number of lines, then assert on the Shell's
+	 * Timer override: drain whatever's ready on $this->stream, dispatch
+	 * through the Shell, re-arm for the next tick. Cadence picked from the
+	 * state we left this tick in:
+	 *  - delivered a line/byte → set_timer(0): there might be more, drain ASAP.
+	 *    Critical for piped-stdin throughput (`echo big_script | wp nodes cli`)
+	 *    where the kernel has many lines buffered ready to read.
+	 *  - waiting for TM_EOF echo → set_timer(10): tight loop to notice the
+	 *    deadline or the echo within ~10ms.
+	 *  - idle → set_timer(100): no bytes; back off to 100ms polling.
+	 *
+	 * Tests call this directly with a fixture stream + assert on the Shell's
 	 * sink to verify dispatch.
 	 */
-	public function drain_fh(): void {
+	public function fire(): void {
 		// Post-EOF deadline check: if we've already emitted TM_EOF and the
 		// echo never came back, exit anyway after the configured bound.
 		// Runs first so even ticks where stdin is silent still get checked.
@@ -481,6 +497,8 @@ class Cli_Stdin_Reader {
 			return;
 		}
 
+		$delivered = false;
+
 		if ( $this->has_readline ) {
 			// Feed one byte from STDIN to readline. If it completed a line,
 			// the callback (set in install_handler) appended to $this->queue.
@@ -488,36 +506,49 @@ class Cli_Stdin_Reader {
 
 			foreach ( $this->queue as $line ) {
 				$this->cmd->dispatch_line( $this->shell, $line );
+				$delivered = true;
 			}
-			$delivered = \count( $this->queue ) > 0;
 			$this->queue = [];
 
 			if ( $this->readline_eof ) {
 				$this->send_eof_marker();
-				return;
-			}
-			if ( $delivered ) {
+			} elseif ( $delivered ) {
 				// Handler was auto-removed when the line was delivered;
 				// re-install so the next prompt renders.
 				$this->install_handler();
 			}
-			return;
+		} else {
+			// Non-readline path: line-buffered fgets, manual prompt.
+			$line = \fgets( $this->stream );
+			if ( false === $line ) {
+				// fgets returns false on EOF or no-data-available (non-
+				// blocking). Distinguish via feof.
+				if ( \feof( $this->stream ) ) {
+					$this->send_eof_marker();
+				}
+			} else {
+				$this->prompt_displayed = false;
+				$this->cmd->dispatch_line( $this->shell, $line );
+				if ( $this->show_prompts ) {
+					$this->show_prompt_fallback();
+				}
+				$delivered = true;
+			}
 		}
 
-		// Non-readline path: line-buffered fgets, manual prompt.
-		$line = \fgets( $this->stream );
-		if ( false === $line ) {
-			// fgets returns false on EOF or no-data-available (non-
-			// blocking). Distinguish via feof.
-			if ( \feof( $this->stream ) ) {
-				$this->send_eof_marker();
-			}
+		// Re-arm for the next tick (oneshot — we self-schedule each cycle).
+		// Run loop exits ahead of any re-arm if $exit got flipped (deadline,
+		// or run_repl's on_eof callback after the echo).
+		if ( $this->exit ) {
 			return;
 		}
-		$this->prompt_displayed = false;
-		$this->cmd->dispatch_line( $this->shell, $line );
-		if ( $this->show_prompts ) {
-			$this->show_prompt_fallback();
+		if ( $delivered ) {
+			$next_ms = self::BUSY_POLL_MS;
+		} elseif ( $this->eof_sent ) {
+			$next_ms = self::EOF_POLL_MS;
+		} else {
+			$next_ms = self::IDLE_POLL_MS;
 		}
+		$this->set_timer( $next_ms, true );
 	}
 }
