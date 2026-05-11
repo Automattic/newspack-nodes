@@ -3,7 +3,7 @@
  * Tests for the substrate Config (file overlay + WP options + path validation
  * + kill_readers). Mirrors the application-side ConfigTest, scoped to substrate
  * keys (base_directory, num_partitions, num_segments, segment_size,
- * max_lifespan, memcache_servers, enable_workers, aggregator_servers).
+ * max_lifespan, memcache_servers, enable_workers).
  *
  * Reflection is used to exercise private surfaces (`validate_config_path`,
  * `validate_config_values`, `sanitize_option`).
@@ -308,32 +308,7 @@ class ConfigTest extends TestCase {
 		$this->assertNull( $ref->invoke( null, '', 'memcache_servers' ) );
 	}
 
-	public function test_sanitize_option_aggregator_servers_valid(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$input  = [
-			'server1' => [
-				'url'           => 'https://example.com/api',
-				'auth_username' => 'user',
-				'auth_password' => 'pass',
-				'enabled'       => true,
-			],
-		];
-		$result = $ref->invoke( null, $input, 'aggregator_servers' );
-		$this->assertArrayHasKey( 'server1', $result );
-		$this->assertStringStartsWith( 'https://', $result['server1']['url'] );
-		$this->assertTrue( $result['server1']['enabled'] );
-	}
-
-	public function test_sanitize_option_aggregator_servers_rejects_http(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$input  = [ 'bad' => [ 'url' => 'http://insecure.example.com' ] ];
-		$result = $ref->invoke( null, $input, 'aggregator_servers' );
-		$this->assertSame( [], $result );
-	}
-
-	public function test_sanitize_option_unknown_type_returns_null(): void {
+public function test_sanitize_option_unknown_type_returns_null(): void {
 		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, 'value', 'never-heard-of-this-type' ) );
@@ -573,32 +548,7 @@ class ConfigTest extends TestCase {
 		$this->assertNull( $ref->invoke( null, 'not-array', 'array_strings' ) );
 	}
 
-	public function test_sanitize_option_aggregator_servers_skips_non_array_entries(): void {
-		// Mixed input: server2 is a scalar — skipped silently.
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$result = $ref->invoke(
-			null,
-			[
-				'server1' => [ 'url' => 'https://ok.example.com' ],
-				'server2' => 'not-an-array',
-				''        => [ 'url' => 'https://empty-id.example.com' ],
-			],
-			'aggregator_servers'
-		);
-		$this->assertArrayHasKey( 'server1', $result );
-		$this->assertArrayNotHasKey( 'server2', $result );
-		// Empty server-id is filtered after sanitization.
-		$this->assertArrayNotHasKey( '', $result );
-	}
-
-	public function test_sanitize_option_aggregator_servers_rejects_non_array_input(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertNull( $ref->invoke( null, 'not-array', 'aggregator_servers' ) );
-	}
-
-	public function test_sanitize_option_memcache_servers_rejects_non_string(): void {
+public function test_sanitize_option_memcache_servers_rejects_non_string(): void {
 		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, [ 'array', 'instead' ], 'memcache_servers' ) );

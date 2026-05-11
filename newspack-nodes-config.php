@@ -48,10 +48,4 @@ return [
 	'num_segments'       => 2,
 	'segment_size'       => 64 * 1024 * 1024,
 	'max_lifespan'       => 86400,
-
-	// ── Remote aggregation (hub/spoke) ─────────────────────────────────────
-	// Empty `aggregator_servers` = hub mode disabled (this node is a spoke
-	// or standalone). Spokes don't need aggregator config; the hub pulls
-	// from them via SSE using credentials stored in ServerRegistry.
-	'aggregator_servers' => [],
 ];

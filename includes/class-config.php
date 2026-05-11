@@ -3,10 +3,12 @@
  * Newspack Nodes runtime configuration.
  *
  * Owns the substrate-level keys: base_directory, num_partitions, num_segments,
- * segment_size, max_lifespan, memcache_servers, enable_workers,
- * aggregator_servers. Reads WordPress options under the `newspack_nodes_*`
- * prefix. Application plugins (e.g. newspack-event-logger-nodes) own their own
- * application-level Config and can compose this for substrate values.
+ * segment_size, max_lifespan, memcache_servers, enable_workers. Reads
+ * WordPress options under the `newspack_nodes_*` prefix. Application plugins
+ * (e.g. newspack-event-logger-nodes) own their own application-level Config
+ * and can compose this for substrate values; the aggregator spoke list
+ * (`aggregator_servers`) is application-owned and lives in the event-logger
+ * plugin's Config.
  *
  * Mirrors the application Config layout so callers see a familiar API
  * (`load_config`, `get_base_directory`, etc.).
@@ -112,8 +114,7 @@ class Config {
 	private static function get_option_schema_extended(): array {
 		// Substrate extended options.
 		$schema = [
-			'memcache_servers'   => 'memcache_servers',
-			'aggregator_servers' => 'aggregator_servers',
+			'memcache_servers' => 'memcache_servers',
 		];
 
 		// Allow plugins to add their extended options.
@@ -297,34 +298,6 @@ class Config {
 					} elseif ( \is_bool( $v ) || \is_int( $v ) ) {
 						$result[ self::sanitize_string( $k ) ] = $v;
 					}
-				}
-				return $result;
-
-			case 'aggregator_servers':
-				// Sanitize aggregator server configs (keyed by server ID).
-				if ( ! \is_array( $value ) ) {
-					return null;
-				}
-				$result = [];
-				foreach ( $value as $server_id => $config ) {
-					if ( ! \is_array( $config ) ) {
-						continue;
-					}
-					$server_id = self::sanitize_string( $server_id );
-					if ( empty( $server_id ) ) {
-						continue;
-					}
-					$url = $config['url'] ?? '';
-					// URL must be https.
-					if ( ! \is_string( $url ) || 0 !== \strpos( $url, 'https://' ) ) {
-						continue;
-					}
-					$result[ $server_id ] = [
-						'url'           => \esc_url_raw( $url ),
-						'auth_username' => self::sanitize_string( $config['auth_username'] ?? '' ),
-						'auth_password' => self::sanitize_string( $config['auth_password'] ?? '' ),
-						'enabled'       => (bool) ( $config['enabled'] ?? true ),
-					];
 				}
 				return $result;
 

@@ -10,10 +10,10 @@
  *   - segment_size
  *   - max_lifespan
  *   - memcache_servers
- *   - aggregator_servers
  *
- * Application-level options (logging toggles, URL filters, hook lists, etc.)
- * live in the application plugin's own Admin class. The application Admin
+ * Application-level options (logging toggles, URL filters, hook lists, the
+ * aggregator spoke list, etc.) live in the application plugin's own Admin
+ * class. The application Admin
  * may READ substrate values via `\Newspack_Nodes\Config` but must NOT WRITE
  * substrate options.
  *
@@ -93,7 +93,6 @@ class Admin {
 		'newspack_nodes_segment_size',
 		'newspack_nodes_max_lifespan',
 		'newspack_nodes_memcache_servers',
-		'newspack_nodes_aggregator_servers',
 	];
 
 	/**
@@ -247,16 +246,6 @@ class Admin {
 			]
 		);
 
-		// Aggregator-server list (typed array). Not autoloaded.
-		\register_setting(
-			self::OPTIONS_GROUP,
-			'newspack_nodes_aggregator_servers',
-			[
-				'sanitize_callback' => [ $this, 'sanitize_aggregator_servers' ],
-				'autoload'          => false,
-			]
-		);
-
 		// General section.
 		\add_settings_section(
 			'newspack_nodes_general_section',
@@ -372,43 +361,7 @@ class Admin {
 		return \implode( "\n", $sanitized_lines );
 	}
 
-	/**
-	 * Sanitize the `aggregator_servers` option.
-	 *
-	 * Stored as `[ server_id => [ url, auth_username, auth_password, enabled ] ]`.
-	 * URL must be HTTPS. Non-array input becomes an empty array.
-	 *
-	 * @param mixed $value Aggregator-servers map.
-	 * @return array<string,array<string,mixed>> Sanitized map.
-	 */
-	public function sanitize_aggregator_servers( $value ): array {
-		if ( ! \is_array( $value ) ) {
-			return [];
-		}
-		$result = [];
-		foreach ( $value as $server_id => $config ) {
-			if ( ! \is_array( $config ) ) {
-				continue;
-			}
-			$server_id = \sanitize_text_field( (string) $server_id );
-			if ( '' === $server_id ) {
-				continue;
-			}
-			$url = $config['url'] ?? '';
-			if ( ! \is_string( $url ) || 0 !== \strpos( $url, 'https://' ) ) {
-				continue;
-			}
-			$result[ $server_id ] = [
-				'url'           => \esc_url_raw( $url ),
-				'auth_username' => \sanitize_text_field( (string) ( $config['auth_username'] ?? '' ) ),
-				'auth_password' => \sanitize_text_field( (string) ( $config['auth_password'] ?? '' ) ),
-				'enabled'       => (bool) ( $config['enabled'] ?? true ),
-			];
-		}
-		return $result;
-	}
-
-	// -- Section callbacks --------------------------------------------------
+// -- Section callbacks --------------------------------------------------
 
 	public function general_section_callback(): void {
 		echo '<p>' . \esc_html__( 'Substrate runtime toggles. Disabling workers stops the supervisor from spawning new workers; existing workers exit at their next graceful checkpoint.', 'newspack-nodes' ) . '</p>';
@@ -637,7 +590,6 @@ class Admin {
 		$supervisor_only_options = [
 			'num_partitions',
 			'enable_workers',
-			'aggregator_servers',
 		];
 		if ( \in_array( $short, $supervisor_only_options, true ) ) {
 			return;

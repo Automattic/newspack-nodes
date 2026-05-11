@@ -255,7 +255,6 @@ class AdminTest extends TestCase {
 			'newspack_nodes_segment_size',
 			'newspack_nodes_max_lifespan',
 			'newspack_nodes_memcache_servers',
-			'newspack_nodes_aggregator_servers',
 		];
 		foreach ( $expected as $option ) {
 			$this->assertArrayHasKey( $option, $GLOBALS['_registered_settings'], "missing option: $option" );
@@ -458,7 +457,6 @@ class AdminTest extends TestCase {
 		$admin = new Admin();
 		$admin->maybe_request_worker_restart( 'newspack_nodes_enable_workers' );
 		$admin->maybe_request_worker_restart( 'newspack_nodes_num_partitions' );
-		$admin->maybe_request_worker_restart( 'newspack_nodes_aggregator_servers' );
 		$this->assertFalse( \file_exists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' ) );
 		$this->assertFalse( \file_exists( $this->base_dir . '/locks/job-workers.p0.lock.d/restart' ) );
 	}
@@ -872,128 +870,6 @@ class AdminTest extends TestCase {
 
 		// Should render without error and contain a numeric MB value.
 		$this->assertMatchesRegularExpression( '/[\d,]+\s*MB/u', $html );
-	}
-
-	// ---- sanitize_aggregator_servers -------------------------------------
-
-	public function test_sanitize_aggregator_servers_rejects_non_array_input(): void {
-		$admin = new Admin();
-		$this->assertSame( [], $admin->sanitize_aggregator_servers( 'a string' ) );
-		$this->assertSame( [], $admin->sanitize_aggregator_servers( 42 ) );
-		$this->assertSame( [], $admin->sanitize_aggregator_servers( null ) );
-	}
-
-	public function test_sanitize_aggregator_servers_skips_non_array_config_entries(): void {
-		$admin = new Admin();
-		$result = $admin->sanitize_aggregator_servers(
-			[
-				'web01' => 'not-an-array',
-				'web02' => 12345,
-			]
-		);
-		$this->assertSame( [], $result );
-	}
-
-	public function test_sanitize_aggregator_servers_skips_empty_server_id(): void {
-		$admin  = new Admin();
-		$result = $admin->sanitize_aggregator_servers(
-			[
-				'' => [
-					'url' => 'https://valid.example.com',
-				],
-			]
-		);
-		$this->assertSame( [], $result );
-	}
-
-	public function test_sanitize_aggregator_servers_rejects_non_https_urls(): void {
-		$admin  = new Admin();
-		$result = $admin->sanitize_aggregator_servers(
-			[
-				'web01' => [ 'url' => 'http://insecure.example.com' ],
-				'web02' => [ 'url' => 'ftp://wrong-scheme.example.com' ],
-				'web03' => [ 'url' => '' ],
-				'web04' => [ /* no url at all */ ],
-				'web05' => [ 'url' => 12345 ], // non-string
-			]
-		);
-		$this->assertSame( [], $result );
-	}
-
-	public function test_sanitize_aggregator_servers_keeps_valid_https_entry(): void {
-		$admin  = new Admin();
-		$result = $admin->sanitize_aggregator_servers(
-			[
-				'web01' => [
-					'url'           => 'https://web01.example.com',
-					'auth_username' => 'user',
-					'auth_password' => 'pass',
-					'enabled'       => true,
-				],
-			]
-		);
-		$this->assertArrayHasKey( 'web01', $result );
-		$this->assertSame( 'https://web01.example.com', $result['web01']['url'] );
-		$this->assertSame( 'user', $result['web01']['auth_username'] );
-		$this->assertSame( 'pass', $result['web01']['auth_password'] );
-		$this->assertTrue( $result['web01']['enabled'] );
-	}
-
-	public function test_sanitize_aggregator_servers_defaults_enabled_to_true(): void {
-		$admin  = new Admin();
-		$result = $admin->sanitize_aggregator_servers(
-			[
-				'web01' => [
-					'url' => 'https://web01.example.com',
-					// 'enabled' missing.
-				],
-			]
-		);
-		$this->assertTrue( $result['web01']['enabled'] );
-		// Missing username/password default to empty string.
-		$this->assertSame( '', $result['web01']['auth_username'] );
-		$this->assertSame( '', $result['web01']['auth_password'] );
-	}
-
-	public function test_sanitize_aggregator_servers_coerces_explicit_disabled(): void {
-		$admin  = new Admin();
-		$result = $admin->sanitize_aggregator_servers(
-			[
-				'web01' => [
-					'url'     => 'https://web01.example.com',
-					'enabled' => false,
-				],
-				'web02' => [
-					'url'     => 'https://web02.example.com',
-					'enabled' => 0,
-				],
-			]
-		);
-		$this->assertFalse( $result['web01']['enabled'] );
-		$this->assertFalse( $result['web02']['enabled'] );
-	}
-
-	// ---- Sanitize callbacks via register_settings (instance methods) ----
-
-	public function test_sanitize_aggregator_servers_callback_registered_under_settings(): void {
-		$admin = new Admin();
-		$admin->register_settings();
-
-		$cb = $GLOBALS['_registered_settings']['newspack_nodes_aggregator_servers']['args']['sanitize_callback'];
-		$this->assertIsArray( $cb );
-		$this->assertSame( 'sanitize_aggregator_servers', $cb[1] );
-
-		// Aggregator servers must NOT be autoloaded (extended option).
-		$this->assertFalse( $GLOBALS['_registered_settings']['newspack_nodes_aggregator_servers']['args']['autoload'] );
-
-		// Round-trip via the registered callback.
-		$out = \call_user_func(
-			$cb,
-			[
-				'web01' => [ 'url' => 'https://web01.example.com' ],
-			]
-		);
-		$this->assertArrayHasKey( 'web01', $out );
 	}
 
 	// ---- maybe_request_worker_restart (configuration-error path) --------
