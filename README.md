@@ -10,7 +10,7 @@ Newspack Nodes is a different bet. The substrate gives you one contract — ever
 
 The runtime is independent of any application. It owns the substrate (Node, Message, Router, Topic, Partition, Worker, Supervisor, REPL) and ships nothing application-specific. The first application built on top is `newspack-event-logger-nodes`, replacing a 10-plugin event-logging monorepo with a graph of ~10 node classes.
 
-This is a working prototype of an idea pitched at the team meetup: the Lego-bricks architecture, brought to PHP/WordPress, without giving up production fitness on Atomic / WP-Cloud.
+This is an early implementation of an idea pitched at the team meetup: the Lego-bricks architecture, brought to PHP/WordPress, without giving up production fitness on Atomic / WP-Cloud.
 
 ## Quick Start
 
@@ -64,4 +64,4 @@ GPL-2.0-or-later
 
 ## Status
 
-Prototype. First application port (`newspack-event-logger-nodes`) in progress. Not yet in production.
+v0.1.0 — initial public release. The first application port, `newspack-event-logger-nodes`, ships alongside this substrate. Not yet running in production.

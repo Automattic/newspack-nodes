@@ -2,8 +2,6 @@
 
 Tachikoma-inspired node-graph runtime for PHP. This document describes the substrate. Application-level shape lives in the consuming plugin (e.g., `newspack-event-logger-nodes/ARCHITECTURE.md`).
 
-The canonical design document is [`services/pyrobase/sources/.specs/2026-05-06-newspack-nodes-design.md`](../../../.specs/2026-05-06-newspack-nodes-design.md) in dndocker. This file summarizes the substrate; for rationale and decision history, read the spec.
-
 ## Table of Contents
 
 - [Overview](#overview)
@@ -27,17 +25,18 @@ Three core ideas:
 
 1. **Nodes** — processing units. Every node has `fill( array &$message )` as its only entry point.
 2. **Messages** — 7-field arrays carrying a type bitmask, a routable path (TO/FROM), an ID, a KEY, and a VALUE.
-3. **Drain loop** — EventFramework merges `stream_select` and `curl_multi_select`, fires timers, runs deferred cleanup.
+3. **Drain loop** — EventFramework picks the soonest pending timer's deadline as its wait timeout, then sleeps on `curl_multi_select` (when cURL handles are registered) or `usleep` (otherwise), fires expired timers, and runs deferred cleanup.
 
 ```
 +-----------------------------------------------------------+
 |                      EventFramework                       |
 |  drain():                                                 |
+|   - compute timeout = next-timer deadline                 |
 |   - if cURL handles: curl_multi_select(timeout) ->        |
-|       drain transfers -> non-blocking stream_select       |
-|   - else:           stream_select(timeout)                |
+|       drain transfers                                     |
+|   - else:           usleep(timeout)                       |
 |   - handle signals                                        |
-|   - run Core::run_closing()                               |
+|   - run Core::$closing deferred-cleanup queue             |
 |   - fire expired timers                                   |
 |   - loop check (should_continue)                          |
 +-------------------------+---------------------------------+
@@ -103,7 +102,7 @@ TM_ERROR      = 32
 
 Flags compose via bitwise OR: `TM_COMMAND | TM_RESPONSE` = a response to a command. Receivers check via `&`: `if ( $type & TM_COMMAND ) { ... }`. **Never use strict `===`** on combined flags — it misses every combination.
 
-**Wire format**: `Message::packed( array $msg ): string` and `Message::unpacked( string $data ): array` round-trip via JSON with named keys (`type` / `timestamp` / `from` / `to` / `id` / `key` / `value`). The positional in-memory representation is internal; nothing serialized depends on it.
+**Wire format**: `Message::packed( array $msg ): string` and `Message::unpacked( string $data ): array` round-trip via positional JSON — the in-memory indexed array is the wire representation, so there's no key-to-index translation per side. `unpacked` validates `array_is_list` + length ≥ 7 before returning; malformed input falls back to a fresh `new_message()`.
 
 **Message constructors**:
 
@@ -294,7 +293,7 @@ $c->checkpoint();   // append {seg, off, ts} JSONL to offsetlog
 
 Inode + size-shrink rotation detection on every poll (`clearstatcache(true, $path)` first). On rotation: reset position to 0, clear remainder.
 
-**Two internal Timers** in the v1-final version: `poll_timer` (file polling, 10ms) and `reattempt_timer` (on_ENOENT retry). Currently the prototype runs both inline in `fire_cb`; splitting them is on the polish list.
+**Single timer-driven poll**: Tail extends Timer; each `fire()` polls the file, emits per buffer mode, and re-arms with `set_timer(0, true)` when there are still bytes to drain or `set_timer(100, true)` at EOF (idle backoff). A missing file just no-ops the poll and re-arms on the idle cadence.
 
 ## Other Node Primitives
 
@@ -334,26 +333,26 @@ Path-based routing via `_router` does the rest. Nodes don't track sockets or add
 
 ## EventFramework
 
-Per-process drain-loop singleton. Manages reader/writer file descriptors, timers, cURL multi handles, and deferred-cleanup integration.
+Per-process drain-loop singleton. Manages timers, cURL multi handles, and deferred-cleanup integration. There is no FD-registration path: local file polling (Tail, Consumer, the cli's stdin reader) is driven by `set_timer`, so the loop always has exactly one blocking waiter regardless of which I/O sources are active.
 
-The merge layer is the most concrete net-new piece of the runtime design. Local file descriptors (Tail-style file polls, stdin, Partition file handles) are stream resources; `stream_select` works on them. cURL handles (used for HTTP/SSE clients in `StreamMerger`) hide their underlying socket FDs behind cURL's API; they have to be driven by `curl_multi_select` and `curl_multi_exec`.
+cURL handles (used for HTTP/SSE clients) hide their underlying socket FDs behind cURL's API and have to be driven by `curl_multi_select` and `curl_multi_exec`. When at least one is registered, the loop sleeps on `curl_multi_select` (timeout = next-fire deadline); otherwise it sleeps in `usleep` for the same duration. Either way a soon-firing timer wakes the wait promptly.
 
 Drain iteration:
 
 ```
-1. Compute single timeout (next-fire time of soonest timer).
+1. Compute timeout_us = microseconds until soonest pending timer (or
+   IDLE_TIMEOUT_US = 100_000 if no timers).
 2. If any cURL multi handles registered:
-     curl_multi_select($mh, $timeout)         # sleeps on cURL's internal sockets
-     curl_multi_exec(...) until done           # drain ready transfers
-     stream_select(timeout=0, non-blocking)    # poll local FDs that became ready
-   Else:
-     stream_select($timeout)                   # pure stream_select with timer-derived timeout
-3. Process readable / writable FDs.
-4. Process curl_multi_info_read events (CURLMSG_DONE for done handles).
-5. Handle signals (SIGTERM / SIGINT -> Core::$shutting_down = true).
-6. Run Core::run_closing() deferred-cleanup queue.
-7. Fire expired timers.
-8. Loop check (should_continue callback).
+     curl_multi_select($mh, $timeout_us / 1e6)  # sleeps on cURL's internal sockets
+     drain_curl_multi()                         # curl_multi_exec + curl_multi_info_read
+   Else if $timeout_us > 0:
+     usleep($timeout_us)
+3. pcntl_signal_dispatch() if pcntl available (SIGTERM/SIGINT -> Core::$shutting_down).
+4. Drain Core::$closing deferred-cleanup queue.
+5. Refresh Core::$now.
+6. Fire any timers whose next_fire <= Core::$now (oneshot timers unregister
+   themselves; recurring timers re-schedule).
+7. should_continue() check; break on false or on Core::$shutting_down.
 ```
 
 Deferred cleanup runs **inside** the loop (so node-removal callbacks fire while the loop is alive) AND **once more** after the loop terminates (because shutdown pushes additional cleanup callbacks during teardown that the now-stopped loop won't process). Mirrors real Tachikoma's `Router::drain` post-loop sweep.
@@ -361,43 +360,46 @@ Deferred cleanup runs **inside** the loop (so node-removal callbacks fire while 
 Registration API:
 
 ```php
-$ef->register_reader_node( $node );    // requires $node->stream resource
-$ef->register_writer_node( $node );
 $ef->set_timer( $node, $interval_ms, $oneshot = false );
 $ef->stop_timer( $node );
 $ef->register_curl_handle( $node, $multi_handle );
 $ef->unregister_curl_handle( $node );
+$ef->install_signal_handlers();   // SIGTERM/SIGINT -> Core::$shutting_down
+$ef->is_running(): bool;           // true while inside drain()
 ```
 
 PHP I/O quirks the implementation handles:
 
 - `fseek($fp, 0, SEEK_CUR)` before `ftell` — PHP's stdio caches position; without the no-op seek, `ftell` returns stale values after external appends.
 - `clearstatcache(true, $path)` before every stat in poll loops — PHP caches stat results aggressively per request.
-- `@stream_select` for EINTR — PHP emits "Interrupted system call" warnings; `@` suppresses; function returns false; re-loop.
-- `stream_set_blocking($fh, false)` on every async filehandle — required for non-blocking reads/writes; forgetting silently blocks the loop.
 
 ## Worker Lifecycle
 
 Each worker is a cron-style PHP process spawned via HTTP POST, going zombie via `ignore_user_abort(true) + fastcgi_finish_request()`. Lifetime ~595s (just under 10 min, sized for Atomic's 15-min cap with margin).
 
 ```php
-// WorkerBase::execute()
-if ( ! $this->acquire() ) return [ 'status' => 'skipped' ];
-usleep( 250_000 );                              // grace: let predecessor exit
-@set_time_limit( 0 );
-register_shutdown_function( ... );              // catch exit() / die() bypass
+// WorkerBase::execute( callable $topology, string $spawn_url, string $token )
+if ( ! $this->acquire() ) return [ 'status' => 'skipped', 'reason' => 'lock_held' ];
+
+register_shutdown_function( /* cleanup_all_nodes + release + self_respawn */ );
+usleep( LOCK_CHECK_GRACE_S * 1e6 );             // 250ms grace: let predecessor exit
 
 try {
-    $this->build_admin_scaffolding();
-    $this->run_topology();
-    EventFramework::drain( $this->should_continue );
+    $ci = $this->build_scaffolding();
+    $this->run_topology( $topology, $ci );
+    $ef = EventFramework::instance();
+    $ef->install_signal_handlers();
+    $ef->drain( fn () => $this->should_continue() );
 } finally {
+    Core::cleanup_all_nodes();                  // tear down Partitions -> release write_locks
     $this->release();                           // release BEFORE spawn
-    $this->self_respawn();                      // POST /spawn (fire-and-forget)
+    $this->self_respawn( $spawn_url, $token );  // POST /spawn (fire-and-forget)
 }
 ```
 
 Lock release happens **before** the spawn POST inside `finally`. Because the spawn handler is fire-and-forget, the new worker reaches `acquire()` before this process has even fully exited; the slot is immediately free. No retry loop, no waiting.
+
+The `register_shutdown_function` + `finally` block both check `$this->shutdown_handled` so a clean `exit()` doesn't double-run the cleanup; whichever path fires first wins.
 
 `should_continue` returns false when:
 
@@ -510,7 +512,7 @@ Constructors of registered Node classes (Topic, Partition, Consumer, Tail, Log, 
 
 **Dumper** dispatches by TYPE flag: TM_COMMAND|TM_RESPONSE -> unwrap Command JSON, print payload; TM_COMMAND|TM_ERROR -> "ERROR: ..." to stderr (the wrapped exception path); TM_ERROR -> "ERROR: ..." to stderr; TM_INFO -> "INFO[from]: ..." to stdout (with prompt-aware async write that wipes-and-redraws if a prompt is on screen and stdout is a TTY).
 
-**Multi-session via FROM-trail**: each cli stamps `FROM=$pid` (its wp-cli process PID). The worker's input-Consumer prepends `_repl`, so by the time the interpreter sees the message, `FROM=_repl/$pid`. Replies follow `TO=$message[FROM]`, carrying `TO=_repl/$pid`. The worker's `_router` splits TO on `/`, looks up `_repl` (a Partition), updates TO to `$pid` (the post-strip remainder). All cli sessions read the output Partition; each cli's Dumper filters: render iff TO matches its own `$pid`, OR TO is empty (async broadcasts). No lock, no EBUSY; concurrent shells just work.
+**Multi-session via FROM-trail**: each cli stamps `FROM=_output/$pid` (its wp-cli process PID). The worker's input-Consumer prepends `_repl`, so by the time the interpreter sees the message, `FROM=_repl/_output/$pid`. Replies follow `TO=$message[FROM]`, carrying `TO=_repl/_output/$pid`. The worker's `_router` splits TO on `/`, looks up `_repl` (a Partition), updates TO to `_output/$pid` (the post-strip remainder) and writes the envelope to disk. The cli's local `_router` reads the entry, splits again, looks up `_output` (the cli's Dumper), and forwards with `TO=$pid`. All cli sessions read the output Partition; each cli's Dumper filters: render iff TO matches its own `$pid` (or the pre-peel form `_output/$pid`), OR TO is empty (async broadcasts). No lock, no EBUSY; concurrent shells just work.
 
 ## Substrate Lifecycle Events vs WordPress Hooks
 
@@ -518,10 +520,10 @@ Two distinct extensibility mechanisms, both first-class:
 
 | Mechanism | Scope | Use |
 |-----------|-------|-----|
-| `register` / `notify` / `set_state` on Node | Per-node-instance. Events are pre-declared in the subclass constructor (e.g., `$this->registrations['FIRE'] = []`); listeners can only register for declared events. Late subscribers get the cached `set_state` payload immediately at registration time. Multi-modal listener dispatch (closure / shell callback / Node name -> fill TM_INFO). | Substrate-internal lifecycle: Topic `READY`, FileHandle `EOF`, Timer `FIRE`, Consumer position notifications. Per-instance, events as a contract surface. |
+| `register` / `notify` / `set_state` on Node | Per-node-instance. Events are pre-declared in the subclass constructor (e.g., `$this->registrations['FIRE'] = []`); listeners can only register for declared events. Late subscribers get the cached `set_state` payload immediately at registration time. Multi-modal listener dispatch (closure / shell callback / Node name -> fill TM_INFO). | Substrate-internal lifecycle: Topic `READY`, Timer `FIRE`, Router `TIMER` (the hitchhike channel Timer subclasses register against). Per-instance, events as a contract surface. |
 | WordPress hooks via `Hook` node | Global by name. Anyone can `add_action` / `apply_filters`; no pre-declaration. No payload cache. | Plugin extensibility points. Transformation filters, observation listeners, "let other plugins react to this." |
 
-Common substrate events: Topic `READY`, FileHandle/Tail `EOF`, Timer `FIRE`, Consumer position notifications. Subclasses pre-declare what they emit; listeners register against the declared channels. `register()` throws on undeclared events — that's the contract surface.
+Shipped substrate events in v0.1.0: Topic `READY` (set_state on first partition materialization), Timer `FIRE` (notify after each `fire()`), Router `TIMER` (notify on every Router tick — Timer subclasses hitchhike here to avoid per-node EventFramework slots). Subclasses pre-declare what they emit; listeners register against the declared channels. `register()` throws on undeclared events — that's the contract surface.
 
 **Multi-modal listener dispatch.** A registered listener identity is one of two things:
 
@@ -534,4 +536,3 @@ Common substrate events: Topic `READY`, FileHandle/Tail `EOF`, Timer `FIRE`, Con
 
 - [AGENTS.md](AGENTS.md) — substrate contracts and invariants (anchored in real bugs).
 - [API.md](API.md) — REST endpoint reference.
-- [Spec](../../../.specs/2026-05-06-newspack-nodes-design.md) — canonical design document with full rationale.

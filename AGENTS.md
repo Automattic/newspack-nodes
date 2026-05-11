@@ -85,16 +85,18 @@ These are intentional. Don't "fix" them.
 | Path | What |
 |------|------|
 | `newspack-nodes.php` | Plugin entry point + class registry for `make_node` |
-| `includes/class-core.php` | Per-process registries, clock, shutdown flag, deferred-cleanup queue |
-| `includes/class-message.php` | 7-field array constants, type flags, `packed()` / `unpacked()` JSON wire |
+| `includes/class-core.php` | Per-process registries, clock (`Core::$now`), shutdown flag, deferred-cleanup queue, rate-limited stderr |
+| `includes/class-config.php` | Substrate option storage + per-option-group worker-restart dispatch |
+| `includes/class-message.php` | 7-field array constants, type flags, positional `packed()` / `unpacked()` JSON wire |
 | `includes/class-node.php` | Base contract: `fill()`, sink/target/edge, `stamp_message()`, `register()` / `notify()` |
 | `includes/class-router.php` | Path-based dispatch by TO; Timer-hitchhike on each tick |
-| `includes/class-event-framework.php` | Drain loop singleton (`stream_select` + `curl_multi_select` + timers) |
+| `includes/class-event-framework.php` | Drain loop singleton (`curl_multi_select` or `usleep` + timers; no FD machinery) |
 | `includes/class-{tee,tail,log,echo,callback,hook,timer}.php` | Generic node primitives |
 | `includes/class-{partition,topic,consumer}.php` | Storage + log-tailing primitives |
 | `includes/class-{lock,worker-base,supervisor,supervisor-base,bootstrap}.php` | Lifecycle |
 | `includes/class-{shell,command-interpreter,dumper}.php` | REPL components |
-| `includes/class-cli-command.php` | `wp nodes cli` (bare + pivoted modes); `Cli_Stdin_Reader` is the readline-driven Node that drains stdin into the local Shell |
+| `includes/class-cli.php` | Worker-discovery + pivoted-cli IPC helpers (used by both `wp nodes ls` and `wp nodes cli`) |
+| `includes/class-cli-command.php` | `wp nodes cli` (bare + pivoted modes); `Cli_Stdin_Reader` extends `Timer` and self-schedules each fire (0ms busy / 10ms post-EOF / 100ms idle) to drain stdin via readline or fgets — no FD registration |
 | `includes/cli/class-worker-cli-command.php` | `wp nodes {types,run,restart,status}` |
 | `includes/rest/class-spawn-controller.php` | `POST /newspack-nodes/v1/workers/spawn` (HMAC-validated) |
 | `includes/admin/class-admin.php` | Substrate settings UI |

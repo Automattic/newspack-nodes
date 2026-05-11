@@ -28,15 +28,19 @@ Body: form-encoded (`application/x-www-form-urlencoded`) or JSON (`application/j
 
 ```json
 {
-  "spawned": true
+  "spawned": true,
+  "type": "firehose-workers",
+  "partition": 3
 }
 ```
+
+For `type=supervisor`, the response additionally includes a sanitized `result` payload (whitelist `entries_processed`, `requests_complete`, `requests_pending`, `flames_written`, `jobs_processed`) drawn from the supervisor's synchronous `run()` return.
 
 The endpoint acknowledges synchronously, then detaches from FPM via `fastcgi_finish_request()` (or proceeds inline if not in FPM context, e.g. CLI tests). After detach:
 
 1. `ignore_user_abort(true) + set_time_limit(0)` so the process survives the client disconnect.
 2. `$_SERVER['NEWSPACK_NODES_WORKER_TYPE']` and `$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']` are populated for sub-actions / logging.
-3. The `newspack_nodes/spawn_worker` action fires with `( string $type, int $partition )`.
+3. For topology workers, the `newspack_nodes/spawn_worker` action fires with `( string $type, int $partition )`. For `type=supervisor`, the controller instantiates and runs the supervisor synchronously inside the request — no separate fork.
 
 Topology owners hook the `newspack_nodes/spawn_worker` action to instantiate the right worker class for the given `$type` and call `->execute()`. The runtime ships no built-in topologies; application plugins (e.g., `newspack-event-logger-nodes`) register them.
 
@@ -82,9 +86,9 @@ These are process-identity tags, not credentials. Downstream code uses them to:
 
 ## Rate Limiting
 
-The runtime does not rate-limit the spawn endpoint at the REST layer. Spawn rate-limiting happens at the supervisor:
+The spawn endpoint applies a 2-second per-user rate limit (`SpawnController::RATE_LIMIT_S`) on the WordPress-admin auth path — transient-backed, returning `429` on overflow. The HMAC path is not rate-limited at the REST layer; spawn rate-limiting for internal traffic happens at the supervisor:
 
-- `MIN_SPAWN_INTERVAL_S = 15` per `{type}|{partition}` key.
-- Tracked in `Supervisor::$last_spawn_time`; updated after every spawn attempt (success or failure).
+- `MIN_SPAWN_INTERVAL_S = 15` per `{type}|{partition}` key (`SupervisorBase::MIN_SPAWN_INTERVAL_S`).
+- Tracked in `SupervisorBase::$last_spawn_time`; updated after every spawn attempt (success or failure).
 
-Application plugins that add public-facing endpoints should use `PerformanceControllerBase::check_rate_limit()` or equivalent. See `newspack-event-logger-nodes/API.md`.
+Application plugins that add public-facing endpoints should layer their own rate limits on top.
