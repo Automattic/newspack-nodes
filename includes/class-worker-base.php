@@ -165,6 +165,13 @@ class WorkerBase {
 
 		$router = new Router();
 		$router->name( '_router' );
+		// Router extends Timer and serves as the TIMER event hub for the
+		// Router-hitchhike pattern (see Timer::set_timer() with no args).
+		// Without an active timer the Router never fires `notify('TIMER',...)`
+		// and any node registered via `$router->register('TIMER', $name)`
+		// silently stops ticking. DEFAULT_TICK_MS is 5s — fine grain for
+		// keepalives like StreamMerger's /firehose/heartbeat POSTs.
+		$router->set_timer( Router::DEFAULT_TICK_MS );
 
 		$interpreter = new CommandInterpreter();
 		$interpreter->name( '_command_interpreter' );
