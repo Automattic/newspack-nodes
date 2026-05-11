@@ -3,7 +3,6 @@
  * Admin: substrate-side WP-Settings-API surface.
  *
  * Owns ONLY the substrate-level options:
- *   - enable_workers
  *   - base_directory
  *   - num_partitions
  *   - num_segments
@@ -86,7 +85,6 @@ class Admin {
 	 * @var string[]
 	 */
 	private static array $option_names = [
-		'newspack_nodes_enable_workers',
 		'newspack_nodes_base_directory',
 		'newspack_nodes_num_partitions',
 		'newspack_nodes_num_segments',
@@ -189,13 +187,6 @@ class Admin {
 	 * Wires every substrate option, plus the General + Storage sections.
 	 */
 	public function register_settings(): void {
-		// Boolean toggle.
-		\register_setting(
-			self::OPTIONS_GROUP,
-			'newspack_nodes_enable_workers',
-			[ 'sanitize_callback' => 'absint' ]
-		);
-
 		// Path. Sanitize: no null bytes, no `..`, must be absolute, trailing slash stripped.
 		\register_setting(
 			self::OPTIONS_GROUP,
@@ -247,20 +238,6 @@ class Admin {
 		);
 
 		// General section.
-		\add_settings_section(
-			'newspack_nodes_general_section',
-			\__( 'General', 'newspack-nodes' ),
-			[ $this, 'general_section_callback' ],
-			self::SETTINGS_PAGE
-		);
-		\add_settings_field(
-			'enable_workers',
-			\__( 'Enable Workers', 'newspack-nodes' ),
-			[ $this, 'enable_workers_callback' ],
-			self::SETTINGS_PAGE,
-			'newspack_nodes_general_section'
-		);
-
 		// Storage section.
 		\add_settings_section(
 			'newspack_nodes_storage_section',
@@ -363,25 +340,11 @@ class Admin {
 
 // -- Section callbacks --------------------------------------------------
 
-	public function general_section_callback(): void {
-		echo '<p>' . \esc_html__( 'Substrate runtime toggles. Disabling workers stops the supervisor from spawning new workers; existing workers exit at their next graceful checkpoint.', 'newspack-nodes' ) . '</p>';
-	}
-
 	public function storage_section_callback(): void {
 		echo '<p>' . \esc_html__( 'Configure log storage and memcache infrastructure. Changing storage layout (base directory, segment size, retention) restarts every worker.', 'newspack-nodes' ) . '</p>';
 	}
 
 	// -- Field callbacks ----------------------------------------------------
-
-	public function enable_workers_callback(): void {
-		$config  = Config::load_config( 'full' );
-		$enabled = \get_option( 'newspack_nodes_enable_workers', $config['enable_workers'] ?? 1 );
-		?>
-		<input type="hidden" name="newspack_nodes_enable_workers" value="0" />
-		<input type="checkbox" id="enable_workers" name="newspack_nodes_enable_workers" value="1" <?php \checked( 1, $enabled ); ?> />
-		<label for="enable_workers"><?php \esc_html_e( 'Enable supervisor / worker fleet for this node.', 'newspack-nodes' ); ?></label>
-		<?php
-	}
 
 	public function base_directory_callback(): void {
 		$defaults = Config::load_config_defaults();
@@ -589,7 +552,6 @@ class Admin {
 		// Supervisor-only options (it refreshes config each loop).
 		$supervisor_only_options = [
 			'num_partitions',
-			'enable_workers',
 		];
 		if ( \in_array( $short, $supervisor_only_options, true ) ) {
 			return;

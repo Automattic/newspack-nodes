@@ -23,12 +23,6 @@ return [
 	// the substrate needs a different root.
 	// 'base_directory'   => '/tmp/newspack-nodes',
 
-	// ── Worker toggle ──────────────────────────────────────────────────────
-	// Strict `=== true` to enable hub-mode worker fan-out. Default-off so
-	// fresh installs are spokes; deployments that act as hubs set
-	// `newspack_nodes_enable_workers=1` (WP option) or override here.
-	'enable_workers'     => false,
-
 	// ── Memcache (extended; loaded only in 'full' mode) ───────────────────
 	// Override via WP option `newspack_nodes_memcache_servers` (newline-
 	// separated `host:port`).

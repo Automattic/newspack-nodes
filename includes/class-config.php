@@ -3,12 +3,12 @@
  * Newspack Nodes runtime configuration.
  *
  * Owns the substrate-level keys: base_directory, num_partitions, num_segments,
- * segment_size, max_lifespan, memcache_servers, enable_workers. Reads
- * WordPress options under the `newspack_nodes_*` prefix. Application plugins
- * (e.g. newspack-event-logger-nodes) own their own application-level Config
- * and can compose this for substrate values; the aggregator spoke list
- * (`aggregator_servers`) is application-owned and lives in the event-logger
- * plugin's Config.
+ * segment_size, max_lifespan, memcache_servers. Reads WordPress options
+ * under the `newspack_nodes_*` prefix. Application plugins (e.g.
+ * newspack-event-logger-nodes) own their own application-level Config
+ * and can compose this for substrate values; aggregator-related keys
+ * (`aggregator_servers`) and the hub designation (`enable_workers`) are
+ * application-owned and live in the event-logger plugin's Config.
  *
  * Mirrors the application Config layout so callers see a familiar API
  * (`load_config`, `get_base_directory`, etc.).
@@ -91,7 +91,6 @@ class Config {
 			'num_segments'   => 'int',
 			'segment_size'   => 'int',
 			'max_lifespan'   => 'int',
-			'enable_workers' => 'bool',
 		];
 
 		// Allow plugins to add their core options.
