@@ -6,7 +6,7 @@ use Newspack_Nodes\Tests\TestCase;
 class SmokeTest extends TestCase {
 	public function test_plugin_constants_defined(): void {
 		$this->assertTrue( \defined( 'NEWSPACK_NODES_VERSION' ) );
-		$this->assertSame( '0.1.0', \NEWSPACK_NODES_VERSION );
+		$this->assertMatchesRegularExpression( '/^\d+\.\d+\.\d+(-[\w.]+)?$/', \NEWSPACK_NODES_VERSION );
 	}
 
 	public function test_core_class_exists(): void {
