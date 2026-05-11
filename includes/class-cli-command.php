@@ -517,7 +517,12 @@ class Cli_Stdin_Reader extends Timer {
 				$read   = [ $this->stream ];
 				$write  = null;
 				$except = null;
-				$ready  = (int) \stream_select( $read, $write, $except, 0, 0 );
+				// Suppress the companion E_WARNING that PHP raises alongside
+				// the ValueError on un-selectable streams (php://memory in
+				// tests). The catch handles the failure path; the warning
+				// would just be noise in `phpunit --display-warnings`.
+				// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				$ready  = (int) @\stream_select( $read, $write, $except, 0, 0 );
 			} catch ( \ValueError $e ) {
 				$ready = 1;
 			}
