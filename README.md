@@ -64,4 +64,4 @@ GPL-2.0-or-later
 
 ## Status
 
-Prototype. Drawer-stable substrate; first application port (`newspack-event-logger-nodes`) in progress. Not yet in production.
+Prototype. First application port (`newspack-event-logger-nodes`) in progress. Not yet in production.
