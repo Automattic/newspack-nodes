@@ -7,7 +7,9 @@
 		"php": ">=8.0"
 	},
 	"autoload": {
-		"classmap": [ "includes/" ]
+		"classmap": [
+			"includes/"
+		]
 	},
 	"require-dev": {
 		"automattic/vipwpcs": "^3.0",
