@@ -11,6 +11,12 @@
 // into test output. (Matches newspack-event-logger-plugins/tests/bootstrap.php:35.)
 \ini_set( 'error_log', '/dev/null' );
 
+// Point Config at the baseline test config so the substrate's `base_directory`
+// lands in `/tmp/newspack-nodes-test` for any test that doesn't override it.
+// Tests that need a per-test base_dir use `TestCase::use_base_dir()` which
+// writes a tmp config file and re-points this env var.
+\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . __DIR__ . '/newspack-nodes-test-config.php' );
+
 \define( 'ABSPATH', '/' );
 
 // Minimal WP stubs needed for the plugin file.

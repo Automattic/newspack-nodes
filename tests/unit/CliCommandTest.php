@@ -42,7 +42,7 @@ class CliCommandTest extends TestCase {
 		$GLOBALS['_test_wp_cli_warns']  = [];
 		$GLOBALS['_test_wp_cli_errors'] = [];
 
-		\add_filter( 'newspack_nodes/base_dir', fn () => $this->tmp );
+		$this->use_base_dir( $this->tmp );
 	}
 
 	protected function tearDown(): void {
@@ -114,32 +114,20 @@ class CliCommandTest extends TestCase {
 		$this->markTestSkipped( 'Root guard branch only reachable when test user has uid 0' );
 	}
 
-	// ── base_dir filter resolution ────────────────────────────────────────────
+	// ── base_dir resolution ───────────────────────────────────────────────────
 
-	public function test_base_dir_returns_filtered_path(): void {
+	public function test_base_dir_picks_up_config_file_value(): void {
 		// base_dir() is private but we can verify it through the public surface:
-		// `ls` builds a Cli with `base_dir()`, so an unfiltered location would not
-		// pick up the lock dirs we created.
+		// `ls` builds a Cli with `base_dir()`. Without the config file pointing
+		// at our tmp dir (set in setUp via use_base_dir), we'd see
+		// "No workers running" because the lock dirs are under $this->tmp.
 		\mkdir( "{$this->tmp}/locks/test-worker.p0.lock.d", 0755, true );
 		\touch( "{$this->tmp}/locks/test-worker.p0.lock.d/heartbeat" );
 
 		( new Cli_Command() )->ls( [], [] );
 
-		// If base_dir() didn't apply the filter, we'd see "No workers running".
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( 'test-worker.p0', $haystack );
-	}
-
-	public function test_base_dir_default_when_filter_unhooked(): void {
-		// Reset filters so base_dir uses the default.
-		$GLOBALS['_wp_actions'] = [];
-
-		// base_dir() falls back to apply_filters' second arg ('/tmp/newspack-nodes').
-		// Verify by checking the value via reflection (more reliable than running
-		// `ls` since the dev container actually has live workers under that path).
-		$ref = new \ReflectionMethod( Cli_Command::class, 'base_dir' );
-		$ref->setAccessible( true );
-		$this->assertSame( '/tmp/newspack-nodes', $ref->invoke( new Cli_Command() ) );
 	}
 
 	// ── build_repl_graph: bare and pivoted ───────────────────────────────────

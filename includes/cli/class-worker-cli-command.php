@@ -30,7 +30,7 @@ namespace Newspack_Nodes;
 class WorkerCliCommand {
 
 	private function base_dir(): string {
-		return (string) \apply_filters( 'newspack_nodes/base_dir', '/tmp/newspack-nodes' );
+		return (string) ( Config::load_config()['base_directory'] ?? '/tmp/newspack-nodes' );
 	}
 
 	/**
