@@ -49,13 +49,12 @@ class CommandInterpreter extends Node {
 			'remove_node' => "remove_node <node name> [<more names>...]\n"
 				. "remove_node -a <anchored regex glob>\n"
 				. "    aliases: remove, rm\n",
-			'list_nodes' => "list_nodes [ -celos ] [ <node name> ]\n"
-				. "list_nodes -a [ -celos ] [ <regex glob> ]\n"
+			'list_nodes' => "list_nodes [ -clst ] [ <node name> ]\n"
+				. "list_nodes -a [ -clst ] [ <regex glob> ]\n"
 				. "    -c show message counters\n"
-				. "    -e show edges\n"
-				. "    -l show counters and owners\n"
-				. "    -o show owners\n"
+				. "    -l show counters and targets\n"
 				. "    -s show sinks\n"
+				. "    -t show targets\n"
 				. "    -a show all nodes matching regex glob\n"
 				. "       show all nodes if regex glob is omitted\n"
 				. "    note: Without -a, the argument specifies a node;\n"
@@ -285,46 +284,43 @@ class CommandInterpreter extends Node {
 	 *  - `-a [glob]`: all nodes (or filtered by regex glob)
 	 *  - `<name>` (no -a): nodes whose sink IS the named node
 	 *
-	 * Flags: `-c` count, `-s` sink, `-e` edge, `-o` owner (target), `-l` = -co.
+	 * Flags: `-c` count, `-s` sink, `-t` target, `-l` = -ct.
 	 */
 	private static function cmd_list_nodes( CommandInterpreter $self, string $args ): string {
 		$list_matches = false;
 		$show_count   = false;
 		$show_sink    = false;
-		$show_edge    = false;
-		$show_owner   = false;
+		$show_target  = false;
 		$argv         = [];
 
 		foreach ( \preg_split( '/\s+/', \trim( $args ) ) as $tok ) {
 			if ( '' === $tok ) {
 				continue;
 			}
-			if ( \preg_match( '/^-([acelos]+)$/', $tok, $m ) ) {
+			if ( \preg_match( '/^-([aclst]+)$/', $tok, $m ) ) {
 				$len = \strlen( $m[1] );
 				for ( $i = 0; $i < $len; ++$i ) {
 					$opt = $m[1][ $i ];
 					if ( 'a' === $opt ) { $list_matches = true; }
 					if ( 'c' === $opt ) { $show_count   = true; }
-					if ( 'e' === $opt ) { $show_edge    = true; }
-					if ( 'l' === $opt ) { $show_count   = true; $show_owner = true; }
-					if ( 'o' === $opt ) { $show_owner   = true; }
+					if ( 'l' === $opt ) { $show_count   = true; $show_target = true; }
 					if ( 's' === $opt ) { $show_sink    = true; }
+					if ( 't' === $opt ) { $show_target  = true; }
 				}
 				continue;
 			}
 			$argv[] = $tok;
 		}
 
-		// Build header row: COUNT NAME [SINK] [EDGE] [OWNER]
+		// Build header row: COUNT NAME [SINK] [TARGET]
 		$dirs   = [];
 		$header = [];
-		$any_extra = $show_count || $show_sink || $show_edge || $show_owner;
+		$any_extra = $show_count || $show_sink || $show_target;
 		if ( $show_count ) { $dirs[] = 'right'; $header[] = 'COUNT'; }
 		$dirs[]   = 'left';
 		$header[] = 'NAME';
-		if ( $show_sink )  { $dirs[] = 'left'; $header[] = 'SINK';  }
-		if ( $show_edge )  { $dirs[] = 'left'; $header[] = 'EDGE';  }
-		if ( $show_owner ) { $dirs[] = 'left'; $header[] = 'OWNER'; }
+		if ( $show_sink )   { $dirs[] = 'left'; $header[] = 'SINK';   }
+		if ( $show_target ) { $dirs[] = 'left'; $header[] = 'TARGET'; }
 
 		$rows = [];
 
@@ -350,13 +346,12 @@ class CommandInterpreter extends Node {
 					continue;
 				}
 				$sink_name  = $node->sink() ? $node->sink()->name() : '';
-				$edge_name  = $node->edge() ? $node->edge()->name() : '';
 				$target_val = $node->target();
-				$owner_str  = '';
+				$target_str = '';
 				if ( \is_array( $target_val ) ) {
-					$owner_str = \implode( ', ', $target_val );
+					$target_str = \implode( ', ', $target_val );
 				} elseif ( \is_string( $target_val ) && '' !== $target_val ) {
-					$owner_str = $target_val;
+					$target_str = $target_val;
 				}
 
 				if ( $list_matches ) {
@@ -380,9 +375,8 @@ class CommandInterpreter extends Node {
 				$row     = [];
 				if ( $show_count ) { $row[] = (string) $node->counter(); }
 				$row[] = $name;
-				if ( $show_sink )  { $row[] = '' !== $sink_name ? "> $sink_name"   : '- '; }
-				if ( $show_edge )  { $row[] = '' !== $edge_name ? ">> $edge_name"  : '- '; }
-				if ( $show_owner ) { $row[] = '' !== $owner_str ? "-> $owner_str"  : '- '; }
+				if ( $show_sink )   { $row[] = '' !== $sink_name ? "> $sink_name"    : '- '; }
+				if ( $show_target ) { $row[] = '' !== $target_str ? "-> $target_str" : '- '; }
 				$rows[] = $row;
 			}
 
@@ -403,8 +397,8 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * Pretty-print a node's internal state. Mirrors Tachikoma's `dump_node`:
-	 * sink/edge collapse to names; optional key-filter narrows the dump.
+	 * Pretty-print a node's internal state. `sink` collapses to its name;
+	 * optional key-filter narrows the dump.
 	 */
 	private static function cmd_dump_node( string $args ): string {
 		$parts = \preg_split( '/\s+/', \trim( $args ) );
@@ -418,7 +412,7 @@ class CommandInterpreter extends Node {
 		}
 		$wanted = \array_slice( $parts, 1 );
 
-		// Reflect node properties (declared + dynamic). Collapse sink/edge to names.
+		// Reflect node properties (declared + dynamic). Collapse sink to its name.
 		$ref     = new \ReflectionObject( $node );
 		$snapshot = [];
 		foreach ( $ref->getProperties() as $prop ) {
@@ -428,8 +422,7 @@ class CommandInterpreter extends Node {
 			}
 			$key   = $prop->getName();
 			$value = $prop->getValue( $node );
-			if ( 'sink' === $key  && $value instanceof Node ) { $value = $value->name(); }
-			if ( 'edge' === $key  && $value instanceof Node ) { $value = $value->name(); }
+			if ( 'sink' === $key && $value instanceof Node ) { $value = $value->name(); }
 			if ( \is_object( $value ) ) {
 				$value = '(' . \get_class( $value ) . ')';
 			}

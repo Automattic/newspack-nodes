@@ -123,8 +123,7 @@ There is no parallel `write()` API and no `produce()` / `query()` helpers — `f
 class Node {
     protected string $name = '';
     protected ?Node  $sink = null;
-    protected $target;          // string for single owner; array for Tee fan-out
-    protected ?Node  $edge = null;
+    protected $target;          // string for single target; array for Tee fan-out
     protected int $counter = 0;
     protected array $registrations = [];   // pre-declared events
 
@@ -132,7 +131,6 @@ class Node {
     public function sink( ?Node $node = null ): ?Node;
     public function target( $value = null );
     public function name( ?string $name = null ): string;
-    public function edge( ?Node $node = null ): ?Node;
     public function counter(): int;
 
     public function stamp_message( array &$message, string $name ): bool;
