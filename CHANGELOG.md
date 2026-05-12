@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.6] - 2026-05-12
+
+### Added
+
+- **`newspack_nodes/before_supervisor_run` / `newspack_nodes/after_supervisor_run` actions** wrap the call to `Supervisor::run()` from `Bootstrap::run_supervisor_tick()`, giving application layers a hook point to swap request context around the 595s tick. `run_supervisor_tick()` also now sets `$_SERVER['NEWSPACK_NODES_WORKER_TYPE']='supervisor'` (and `..._PARTITION='0'`) BEFORE firing the wrapping action, so the listener observes the env var when it inits its per-job LogManager. Without this, the cron-backstop path (WP-Cron fires `newspack_nodes/supervisor` inside a regular `/wp-cron.php` request, supervisor sets the env var late from inside `run()` after LogManager has already captured `process (start)`) logged a 595s `/wp-cron.php` request that was missing `worker_type` and counted toward global averages. The self-respawn path was unaffected (its REQUEST_URI matches `skip_urls`). The env-var assignment inside `Supervisor::run()` itself is preserved as a defensive baseline for callers that invoke `run()` outside the cron path.
+
 ## [0.1.5] - 2026-05-12
 
 ### Removed
