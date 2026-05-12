@@ -6,6 +6,9 @@
          cacheDirectory="/tmp/phpunit-cache-newspack-nodes"
          executionOrder="depends,defects"
          beStrictAboutOutputDuringTests="false">
+    <php>
+        <env name="LOCAL_NEWSPACK_NODES_CONF" value="newspack-nodes-test-config.php"/>
+    </php>
     <testsuites>
         <testsuite name="Unit Tests">
             <directory>unit</directory>

@@ -17,8 +17,7 @@ class SupervisorTest extends TestCase {
 		$GLOBALS['_wp_actions']               = [];
 		$GLOBALS['_wp_test_remote_posts']     = [];
 		$GLOBALS['_wp_test_transients']       = [];
-		// Force Bootstrap::base_dir() to point at our temp dir for cleanup tests.
-		\add_filter( 'newspack_nodes/base_dir', fn() => $this->tmp );
+		$this->use_base_dir( $this->tmp );
 	}
 
 	protected function tearDown(): void {

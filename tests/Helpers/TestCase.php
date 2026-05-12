@@ -25,6 +25,37 @@ abstract class TestCase extends PHPUnitTestCase {
 		return $dir;
 	}
 
+	/**
+	 * Point Config at a temp config file under $dir so that
+	 * `Config::load_config()['base_directory']` returns $dir for the rest of
+	 * this test. Mirrors the legacy pattern (`LOCAL_NEWSPACK_NODES_CONF`
+	 * pointing at a per-test config file) — replaces the old
+	 * `add_filter('newspack_nodes/base_dir', fn() => $this->tmp)` shortcut.
+	 */
+	protected function use_base_dir( string $dir, array $extras = [] ): void {
+		$config = \array_merge( [ 'base_directory' => $dir ], $extras );
+		$conf   = $dir . '/test-config.php';
+		\file_put_contents(
+			$conf,
+			"<?php\nreturn " . \var_export( $config, true ) . ";\n"
+		);
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
+		if ( \class_exists( '\\Newspack_Nodes\\Config' ) ) {
+			// Whitelist this tmp directory so Config::validate_config_path()
+			// accepts the per-test config file. allowed_config_dirs only
+			// permits /usr/src by default; /tmp is where every test puts
+			// its scratch directory.
+			$ref  = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'allowed_config_dirs' );
+			$ref->setAccessible( true );
+			$dirs = $ref->getValue();
+			if ( ! \in_array( $dir, $dirs, true ) ) {
+				$dirs[] = $dir;
+				$ref->setValue( null, $dirs );
+			}
+			\Newspack_Nodes\Config::reset();
+		}
+	}
+
 	protected function rmdir_recursive( string $dir ): void {
 		if ( ! \is_dir( $dir ) ) {
 			return;

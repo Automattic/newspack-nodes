@@ -334,13 +334,10 @@ class Config {
 			return self::$config_defaults;
 		}
 
-		// Seed with the runtime's base_dir filter, so callers always see a
-		// non-empty base_directory even before any file overlay loads.
-		$config = [
-			'base_directory' => \function_exists( 'apply_filters' )
-				? (string) \apply_filters( 'newspack_nodes/base_dir', '/tmp/newspack-nodes' )
-				: '/tmp/newspack-nodes',
-		];
+		// Seed with the hardcoded default. Config files (this plugin's
+		// `newspack-nodes-config.php` plus any `LOCAL_NEWSPACK_NODES_CONF`
+		// override) and WP options layer in below.
+		$config = [ 'base_directory' => '/tmp/newspack-nodes' ];
 
 		// Load main config file.
 		$config_path = \dirname( __DIR__ ) . '/newspack-nodes-config.php';

@@ -58,9 +58,9 @@ class ConfigTest extends TestCase {
 		$this->assertIsArray( $config );
 	}
 
-	public function test_load_config_has_base_directory_from_runtime_filter(): void {
-		// With no explicit overrides, base_directory comes from the runtime's
-		// `newspack_nodes/base_dir` filter (default `/tmp/newspack-nodes`).
+	public function test_load_config_has_base_directory(): void {
+		// `base_directory` comes from the config file (or the hardcoded
+		// `/tmp/newspack-nodes` fallback when no file exists).
 		$config = Config::load_config();
 		$this->assertArrayHasKey( 'base_directory', $config );
 		$this->assertNotEmpty( $config['base_directory'] );
@@ -622,21 +622,19 @@ public function test_sanitize_option_memcache_servers_rejects_non_string(): void
 	// ── get_base_directory throws when not configured ──────────────────────
 
 	public function test_get_base_directory_throws_when_unconfigured(): void {
-		// Force config to a state where base_directory is empty.
-		$ref_filter = function( $value ) {
-			return ''; // override the default '/tmp/newspack-nodes' filter
-		};
-		\add_filter( 'newspack_nodes/base_dir', $ref_filter );
+		// Force config to a state where base_directory is empty: point at a
+		// per-test config file that explicitly sets it to empty string. WP
+		// option also empty so neither overlay populates it.
+		$this->allow_dir( $this->temp_dir );
+		$conf = $this->temp_dir . '/empty-base.php';
+		\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => '' ];\n" );
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
 		\update_option( 'newspack_nodes_base_directory', '' );
 		Config::reset();
 
-		try {
-			$this->expectException( \RuntimeException::class );
-			$this->expectExceptionMessageMatches( '/base_directory not configured/' );
-			Config::get_base_directory();
-		} finally {
-			$GLOBALS['_wp_actions']['newspack_nodes/base_dir'] = [];
-		}
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessageMatches( '/base_directory not configured/' );
+		Config::get_base_directory();
 	}
 
 	// ── get_offsets_directory caches result ────────────────────────────────

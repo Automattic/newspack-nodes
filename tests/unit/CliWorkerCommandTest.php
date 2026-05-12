@@ -38,8 +38,7 @@ class CliWorkerCommandTest extends TestCase {
 		$GLOBALS['_test_wp_cli_errors']        = [];
 		$GLOBALS['_test_wp_cli_success']       = [];
 
-		// Filter base_dir to point at our tmp.
-		\add_filter( 'newspack_nodes/base_dir', fn () => $this->tmp );
+		$this->use_base_dir( $this->tmp );
 	}
 
 	protected function tearDown(): void {

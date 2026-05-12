@@ -92,10 +92,11 @@ class Bootstrap {
 
 	/**
 	 * Resolve the configured base directory for runtime state (locks/, ipc/).
-	 * Filterable so deployments can move it (e.g., /volumes/pyrobase/tmp/...).
+	 * Single source of truth: `Config::load_config()` (file default → WP
+	 * options overlay).
 	 */
 	public static function base_dir(): string {
-		return (string) \apply_filters( 'newspack_nodes/base_dir', '/tmp/newspack-nodes' );
+		return (string) ( Config::load_config()['base_directory'] ?? '/tmp/newspack-nodes' );
 	}
 
 	/**

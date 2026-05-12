@@ -218,14 +218,7 @@ class AdminTest extends TestCase {
 		$this->base_dir = '/tmp/newspack-nodes-admin-test-' . \uniqid();
 		\mkdir( $this->base_dir, 0755, true );
 
-		// Point the runtime base_dir filter at our temp dir so Config::get_locks_directory() works.
-		\add_filter(
-			'newspack_nodes/base_dir',
-			function () {
-				return $this->base_dir;
-			}
-		);
-		Config::reset();
+		$this->use_base_dir( $this->base_dir );
 	}
 
 	protected function tearDown(): void {
@@ -826,16 +819,12 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	// ---- maybe_request_worker_restart (configuration-error path) --------
 
 	public function test_maybe_request_worker_restart_swallows_throwable_when_locks_dir_unconfigurable(): void {
-		// Force Config::get_locks_directory() to throw by pointing the base_dir
-		// filter at a path with a null byte — Config::ensure_path() rejects
-		// these immediately. The Admin must catch and silently return.
-		\add_filter(
-			'newspack_nodes/base_dir',
-			function () {
-				return "/tmp/has\0null";
-			},
-			20
-		);
+		// Force Config::get_locks_directory() to throw by writing a config file
+		// whose `base_directory` contains a null byte — Config::ensure_path()
+		// rejects these immediately. The Admin must catch and silently return.
+		$conf = $this->base_dir . '/bad-base-dir.php';
+		\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => \"/tmp/has\\0null\" ];\n" );
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
 		Config::reset();
 
 		$admin = new Admin();
