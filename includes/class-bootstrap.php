@@ -132,7 +132,20 @@ class Bootstrap {
 			self::unschedule_supervisor();
 			return;
 		}
-		self::supervisor()->run();
+		// Tag the env var BEFORE firing the wrapping action so a listener
+		// (event-logger-nodes wraps this with begin_job_context) builds its
+		// fresh request scope with `worker_type='supervisor'` already set.
+		// Without this, the cron-backstop path logs the 595s tick as an
+		// untagged /wp-cron.php request that counts in global averages.
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'supervisor';
+		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = '0';
+		\do_action( 'newspack_nodes/before_supervisor_run' );
+		try {
+			self::supervisor()->run();
+		} finally {
+			\do_action( 'newspack_nodes/after_supervisor_run' );
+		}
 	}
 
 	/**
