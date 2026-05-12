@@ -18,7 +18,6 @@ class Node {
 	protected ?Node  $sink = null;
 	/** @var string|array<string> */
 	protected $target = '';
-	protected ?Node  $edge = null;
 
 	protected int $counter = 0;
 
@@ -81,13 +80,6 @@ class Node {
 			$this->target = $value;
 		}
 		return $this->target;
-	}
-
-	public function edge( ?Node $node = null ): ?Node {
-		if ( \func_num_args() > 0 ) {
-			$this->edge = $node;
-		}
-		return $this->edge;
 	}
 
 	public function counter(): int {
@@ -236,7 +228,7 @@ class Node {
 	}
 
 	/**
-	 * Cleanup ordering matters: registrations → sink/edge → target → registry → name (LAST).
+	 * Cleanup ordering matters: registrations → sink → target → registry → name (LAST).
 	 * Registry-delete-before-name-clear means in-flight Core::node($name) lookups during
 	 * teardown correctly return null (so the "forgot to unregister" warning fires) instead
 	 * of finding a half-torn-down self.
@@ -245,7 +237,6 @@ class Node {
 		$this->registrations = [];
 		$this->set_state     = [];
 		$this->sink          = null;
-		$this->edge          = null;
 		$this->target        = '';
 		if ( '' !== $this->name ) {
 			Core::unregister_node( $this->name );
