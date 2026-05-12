@@ -1,6 +1,6 @@
 # Newspack Nodes Architecture
 
-Tachikoma-inspired node-graph runtime for PHP. This document describes the substrate. Application-level shape lives in the consuming plugin (e.g., `newspack-event-logger-nodes/ARCHITECTURE.md`).
+Node-graph runtime for PHP. This document describes the substrate; application-level shape lives in the consuming plugin's own ARCHITECTURE.md.
 
 ## Table of Contents
 
@@ -88,7 +88,7 @@ class Message {
 
 **Why arrays not hashes**: indexed access is faster than hash lookup in hot paths. Messages flow through every Node in the graph; this is one of the busiest data structures in the runtime.
 
-**Field reordering vs Tachikoma**: TIMESTAMP at index 1 (was index 5) so [WHAT + WHEN] groups at the front. STREAM/PAYLOAD renamed to KEY/VALUE — matches Kafka's `ProducerRecord<K,V>`, SQS message attributes, Redis Streams' `XADD key value`.
+**Field layout rationale**: TIMESTAMP sits at index 1 so [WHAT + WHEN] groups at the front of the array. KEY/VALUE naming matches Kafka's `ProducerRecord<K,V>`, SQS message attributes, Redis Streams' `XADD key value`.
 
 **Type-flag bitmask** (9 flags):
 
@@ -172,7 +172,7 @@ Returns false (drops) if FROM would exceed `MAX_FROM_SIZE = 1024` — prevents p
 
 ## Router
 
-`Router` extends `Timer` (matches real Tachikoma's `Router.pm`). On each tick (default 5s, sized to FlameBuilder/StatsAggregator's flush cadence), it fires `notify('TIMER', now)` — the **Router-hitchhike pattern** for cheap periodic work without per-node EventFramework slots.
+`Router` extends `Timer`. On each tick (default 5s), it fires `notify('TIMER', now)` — the **Router-hitchhike pattern** for cheap periodic work without per-node EventFramework slots.
 
 `Router::fill()` does path-based dispatch:
 
@@ -219,7 +219,7 @@ $p->allow_large_writes();                               // 4KB -> 10MB; auto-loc
 
 `fill()` packs the whole message via `Message::packed()` and appends to the current segment. All TYPE flags pass through — Partition is a generic transport including for control messages (TM_REQUEST, TM_ERROR, TM_EOF). The pivoted-cli IPC pattern relies on this: cli ↔ worker round-trips drain markers (TM_EOF), error responses (TM_COMMAND|TM_ERROR), and introspection requests (TM_REQUEST) through Partition-as-bus. Data partitions like firehose.log only ever see TM_BYTESTREAM / TM_STRUCT in practice, so the broader contract is a no-op for production paths.
 
-**Class-API contract** (net-new constraint vs Tachikoma):
+**Class-API contract**:
 
 `new Partition()` and `new Topic()` MUST be safe to call from request-scope code without an EventFramework running. Specifically:
 
@@ -238,13 +238,19 @@ public static function hash_to_partition( string $key, int $num_partitions ): in
 }
 ```
 
-Topic, JobIntake-keyed mode, and any other partition routing MUST call this same function. Diverging hash families across producers means the same key routes to different partitions and breaks ordering.
+Topic and any other partition router MUST call this same function. Diverging hash families across producers means the same key routes to different partitions and breaks ordering.
 
 **AND-gated retention**: `cleanup_segments` deletes a segment only when BOTH `count > num_segments` AND `(now - mtime) >= max_lifespan`. Low-traffic partitions may retain segments for days — documented behavior, not a bug.
 
 **`SEGMENT_CACHE_TTL = 0.25` seconds**: segment-list cache so back-to-back reads don't `scandir` per call. Readers may see stale segment lists for up to 250ms after rotation. Consumer's checkpoint logic must tolerate this.
 
-**`MAX_LINE_SIZE = 4096`** (PIPE_BUF) for default writes. `allow_large_writes()` lifts to `MAX_LARGE_LINE_SIZE = 10485760` (10MB) AND constructs a Lock at `{partition_dir}/write.lock.d/`. Every write under `allow_large_writes` flows through `with_lock()`. Single-writer logs (jobs.log, requests.log) and >4KB payloads (SettingsSync, large job payloads) lose data silently without the opt-out.
+**`MAX_LINE_SIZE = 4096`** (PIPE_BUF) for default writes. `allow_large_writes()` lifts to `MAX_LARGE_LINE_SIZE = 10485760` (10MB) AND constructs a Lock at `{partition_dir}/write.lock.d/`. Every write under `allow_large_writes` flows through `with_lock()`. Single-writer partitions and >4KB payloads lose data silently without the opt-out.
+
+**Per-partition batching.** `fill()` packs the message and appends it to an in-memory `$batch` string. If adding the new packed bytes would push the batch over `MAX_LINE_SIZE` (4KB), the existing batch flushes FIRST and the new message starts a fresh batch — preserving PIPE_BUF atomicity per syswrite. Each batched `fill()` also arms a 0-delay one-shot timer via `set_timer(0, oneshot)`; when the event loop finishes the current iteration, `fire_cb()` calls `flush()` to land whatever's still accumulated.
+
+Messages larger than 4KB (only reachable on `allow_large_writes` partitions) bypass the batch entirely — they're already over PIPE_BUF so batching can't shrink them, and the lock around large writes serializes them with batched small-message flushes.
+
+`Topic::flush()` walks every materialized Partition and calls `Partition::flush()` on each. Callers handing off to a subprocess that writes to the same partition path use this to land pending writes before forking, so the parent's accumulated messages land on disk in source-order with the child's appends.
 
 ### Topic
 
@@ -258,15 +264,15 @@ $t->fill( $message );    // KEY -> partition routing
 
 Three precedences in `fill()`:
 
-1. **TO field already set** — caller pre-pinned. Topic parses `p\d+` from TO and uses it directly. Used by replay tools and JobIntake's "pinned" mode.
+1. **TO field already set** — caller pre-pinned. Topic parses `p\d+` from TO and uses it directly. Used by replay tools and any producer that needs to write a specific partition.
 2. **KEY present** — `Partition::hash_to_partition($key, $num_partitions)`.
 3. **No KEY** — round-robin via static counter modulo `PHP_INT_MAX`.
 
 **`READY` event** is pre-declared and fired (`set_state`) after the first Partition is materialized. Late registrants get the cached payload immediately.
 
-**No `RESET` event** — real Tachikoma fires RESET when the broker's partition map changes; our partitions are local directories that don't move. Pre-declaring an event you'll never fire is a foot-gun for downstream registrants.
+**No `RESET` event** — our partitions are local directories that don't move at runtime, so there's no partition-map mutation to signal. Pre-declaring an event you'll never fire is a foot-gun for downstream registrants.
 
-**No batching in v1.** LogManager already batches at PIPE_BUF granularity (one `flush_buffer()` per ~4KB of accumulated output). Tachikoma's 64KB/250ms Topic batching would be redundant and adds ~917 lines of state-machine code we don't need yet.
+**No Topic-level batching.** Per-partition batching happens INSIDE `Partition::fill()` itself — see the Partition section above. Topic is a pure router on top, so a single message routed to a partition lands in that partition's `$batch` and follows the partition's flush rules (size threshold + 0-delay one-shot timer).
 
 ### Offsetlog
 
@@ -306,15 +312,15 @@ Inode + size-shrink rotation detection on every poll (`clearstatcache(true, $pat
 
 **Echo** is a routing helper that re-addresses messages on the way through. Both `target` and `TO` set → `TO = target/TO` (path-prepend). Both empty → `TO = FROM` (return-to-sender along the trail). Otherwise TO is unchanged. TM_ERROR with empty TO is dropped rather than bounced (the producer isn't expecting the error trail).
 
-**Log** is the file-writer counterpart to Tail. Constructor: `(string $filename, string $mode = 'append', int $max_size = 0, int $max_rotations = 0)`. `fill()` writes the message VALUE (not the packed envelope) to the file — designed for human-readable structured-text logs (audit trails, application logs) where the on-disk shape is the producer's payload. `max_size > 0` triggers auto-rotation after the write that crossed the threshold; `max_rotations > 0` mtime-prunes older rotated siblings (sibling discovery uses `glob({filename}-*)`, so the prefix is reserved). Overwrite mode is single-shot: the node `remove_node`s itself on TM_EOF; append mode keeps the FD open for additional data. A TM_REQUEST with VALUE starting `rotate` triggers rotation on demand (mirrors Tachikoma `Log.pm`'s `rotate` request).
+**Log** is the file-writer counterpart to Tail. Constructor: `(string $filename, string $mode = 'append', int $max_size = 0, int $max_rotations = 0)`. `fill()` writes the message VALUE (not the packed envelope) to the file — designed for human-readable structured-text logs (audit trails, application logs) where the on-disk shape is the producer's payload. `max_size > 0` triggers auto-rotation after the write that crossed the threshold; `max_rotations > 0` mtime-prunes older rotated siblings (sibling discovery uses `glob({filename}-*)`, so the prefix is reserved). Overwrite mode is single-shot: the node `remove_node`s itself on TM_EOF; append mode keeps the FD open for additional data. A TM_REQUEST with VALUE starting `rotate` triggers rotation on demand.
 
 **Timer** (and its subclass **Router**) is the time-driven base. `set_timer( $interval_ms, $oneshot )` registers with EventFramework; `fire_cb` is the EventFramework-side hook; `fire()` is the override point for subclasses. Default `fire()` emits a TM_BYTESTREAM with the current timestamp at `target` and notifies `FIRE` listeners.
 
 ## Backpressure (none)
 
-Tachikoma's TM_PERSIST / `answer()` / `cancel()` / `max_unanswered` machinery was removed early on. Synchronous I/O at every boundary serializes the whole graph onto one CPU: LogManager's `Topic::fill` blocks on Partition's `fwrite`; Consumer's `fire_cb` blocks on `read_at`; StreamMerger's curl reads come in at network pace. There's no decoupled queue between producer and consumer that could grow — each step finishes (commits to disk or returns) before the next message is accepted. The producers we care about (LogManager, RequestBuilder, FlameBuilder, JobIntake) are all fire-and-forget.
+There's no graph-wide ack/retry machinery. Synchronous I/O at every boundary serializes the whole graph onto one CPU: `Topic::fill` blocks on `Partition`'s `fwrite`; `Consumer::fire_cb` blocks on `read_at`; network-driven nodes pace at the network's speed. There's no decoupled queue between producer and consumer that could grow — each step finishes (commits to disk or returns) before the next message is accepted. All substrate-provided producers are fire-and-forget.
 
-If you need slot-based flow control somewhere specific in the future, build it at that producer. Don't reintroduce a global persist contract — it's all dead weight given how the I/O model works.
+If an application needs slot-based flow control somewhere specific, build it at that producer. Don't add a graph-wide ack contract at the substrate — given how the I/O model works, it'd be dead weight.
 
 ## TO=FROM Convention
 
@@ -326,11 +332,10 @@ Forward direction uses `TO=$this->target` (the path `connect_node` put there). R
 | Reverse | Forwarder dropping / terminal acking | `$message[FROM]` |
 | Reverse | TM_REQUEST handler responding | `$message[FROM]` |
 | Reverse | CommandInterpreter responding to TM_COMMAND | `$message[FROM]` |
-| Reverse | Tee aggregating persist responses | original sender's FROM |
 
 Path-based routing via `_router` does the rest. Nodes don't track sockets or addresses; they just stamp FROM at I/O boundaries on the way in, and reverse direction follows the trail back out.
 
-**FROM stamping at I/O boundaries**: Tail, Consumer, Job, Connector stamp FROM on the way in. Internal nodes (Tee, Hook, application Node subclasses) DO NOT stamp. A message flowing `firehose-in -> firehose-fanout -> request-builder` carries `FROM=firehose-in` at RequestBuilder, NOT `firehose-fanout/firehose-in`. Matches real Tachikoma exactly.
+**FROM stamping at I/O boundaries only**: Tail, Consumer, Job, Connector stamp FROM on the way in. Internal nodes (Tee, Hook, and any application Node subclass) do NOT stamp. A message flowing `tail -> tee -> consumer` carries `FROM=tail` at consumer, NOT `tee/tail`.
 
 ## EventFramework
 
@@ -356,7 +361,7 @@ Drain iteration:
 7. should_continue() check; break on false or on Core::$shutting_down.
 ```
 
-Deferred cleanup runs **inside** the loop (so node-removal callbacks fire while the loop is alive) AND **once more** after the loop terminates (because shutdown pushes additional cleanup callbacks during teardown that the now-stopped loop won't process). Mirrors real Tachikoma's `Router::drain` post-loop sweep.
+Deferred cleanup runs **inside** the loop (so node-removal callbacks fire while the loop is alive) AND **once more** after the loop terminates (because shutdown pushes additional cleanup callbacks during teardown that the now-stopped loop won't process).
 
 Registration API:
 
@@ -502,7 +507,7 @@ Each tier only knows about the level immediately below. Clean separation; no cro
 
 `wp nodes cli` — open an interactive REPL. Two modes:
 
-**Bare mode** (no `<reader>` arg) — local Tachikoma standalone, same shape as `bin/tachikoma`:
+**Bare mode** (no `<reader>` arg) — runs a self-contained graph in the current process:
 
 ```
 wp nodes cli
@@ -533,7 +538,7 @@ IPC layout (always single-partition):
 
 Reader id form: `{type}.p{N}`, e.g. `firehose-workers.p3`. Dot-and-`p` keeps it a single path segment — `firehose-workers/3` would route as "find node `firehose-workers`, pass remaining path `3`," which is wrong.
 
-**No cryptographic handshake** — filesystem permissions on `/tmp/newspack-nodes/ipc/` gate access. Real Tachikoma's `pivot_client` is a CommandInterpreter builtin doing in-flight graph rewrites; we just `make_node` the IPC pair directly and pass the worker name.
+**No cryptographic handshake** — filesystem permissions on `/tmp/newspack-nodes/ipc/` gate access. The cli `make_node`s the IPC pair (`cmd-out` Partition + `reply-in` Consumer) directly at startup and passes the worker name; no in-flight graph rewrite is needed.
 
 **Wire / dispatch specifics**:
 
@@ -542,7 +547,7 @@ Reader id form: `{type}.p{N}`, e.g. `firehose-workers.p3`. Dot-and-`p` keeps it 
 - **TO at root prompt is empty.** CommandInterpreter's `interpret` branch requires empty TO; non-empty TO routes through Router as a normal addressed message.
 - **`prompt` reply intercept**: `cd` / `pwd` send a TM_COMMAND with `name=prompt`; Dumper's `dump_response` checks `name === 'prompt'` BEFORE the print path and stores the payload in `$shell->prompt` for the next readline turn.
 
-**Shell** is a subset of real Tachikoma's `Shell3.pm`: quote-aware tokenization (single, double, backtick), single-tier `<varname>` interpolation, backslash line-continuation, and an `include` builtin. Conditionals, loops, function definitions, pipes, and `eval` all reject with "syntax not supported in v1". Quote-aware tokenization + line-continuation are *required* for `include topology.tch foo=bar` to parse real topology files.
+**Shell** supports quote-aware tokenization (single, double, backtick), single-tier `<varname>` interpolation, backslash line-continuation, and an `include` builtin. Conditionals, loops, function definitions, pipes, and `eval` all reject with "syntax not supported in v1". Quote-aware tokenization + line-continuation are *required* for `include topology.tch foo=bar` to parse topology files.
 
 Shell also intercepts the **path-composing builtins** before they reach the message bus: `cd`/`chdir` updates `$this->path` (the cwd that prepends to any subsequent `<path>` arg via `prefix()`); `tell_node`/`tell` (TM_INFO), `send_node`/`send` (TM_BYTESTREAM), `send_eof` (TM_EOF), `command_node`/`command`/`cmd` (TM_COMMAND), `request_node`/`request` (TM_REQUEST), `pwd`, and `ping` all build their TO via `prefix( <path> )` so the cwd composes uniformly. Verbs that don't match a builtin fall through as TM_COMMAND with the verb as the command name and TO = `prefix('')` (i.e., the cwd itself).
 

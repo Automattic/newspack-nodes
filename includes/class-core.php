@@ -140,17 +140,29 @@ class Core {
 	}
 
 	/**
-	 * Suppress until 10th occurrence (within 300s); emit once at that point.
+	 * Suppress until the 10th occurrence within a 60s window, then emit and
+	 * suppress further emissions for another 60s. Workers live ~10 minutes,
+	 * so a longer squelch could mean a single emission per worker lifetime
+	 * for rare-but-real noise — 60s gives enough visibility to catch
+	 * intermittent issues without flooding stderr on a tight loop.
 	 */
 	public static function print_least_often( string $text ): void {
 		$key = '_least_' . $text;
 		$row = self::$print_table[ $key ] ?? [ 'first_seen' => self::$now, 'count' => 0, 'emitted' => false ];
 
+		// Window expired since last emission → start a fresh count.
+		if ( $row['emitted'] && ( self::$now - $row['first_seen'] >= 60.0 ) ) {
+			$row['first_seen'] = self::$now;
+			$row['count']      = 0;
+			$row['emitted']    = false;
+		}
+
 		++$row['count'];
 
 		if ( $row['count'] >= 10 && ! $row['emitted'] ) {
 			self::emit_stderr( $text );
-			$row['emitted'] = true;
+			$row['first_seen'] = self::$now;
+			$row['emitted']    = true;
 		}
 
 		self::$print_table[ $key ] = $row;
