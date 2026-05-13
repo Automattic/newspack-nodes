@@ -128,8 +128,13 @@ class CommandInterpreter extends Node {
 	 *   ≥ 1 day  → `up Xd HH:MM:SS`
 	 */
 	private static function cmd_uptime(): string {
-		$uptime  = (int) ( Core::$now - Core::$init_time );
-		$clock   = \date( 'H:i:s', (int) Core::$now );
+		$uptime = (int) ( Core::$now - Core::$init_time );
+		// gmdate() (UTC) instead of date() (timezone-dependent): the
+		// runtime-timezone-changes hazard the WordPress.DateTime rule
+		// catches matters less here than predictability across worker
+		// environments. UTC clock + uptime is unambiguous regardless of
+		// where the worker runs.
+		$clock   = \gmdate( 'H:i:s', (int) Core::$now );
 		$elapsed = self::format_uptime( $uptime );
 		return "{$clock}  up {$elapsed}\n";
 	}
