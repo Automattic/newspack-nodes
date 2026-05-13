@@ -732,19 +732,36 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 0,  $decoded['alice']['bytes_written'] );
 	}
 
-	public function test_uptime_renders_tachikoma_format(): void {
+	public function test_uptime_under_one_minute_shows_seconds_only(): void {
 		$ci = new CommandInterpreter();
 		$ci->name( '_command_interpreter' );
+		Core::$init_time = 1_700_000_000.0;
+		Core::$now       = 1_700_000_000.0 + 42;
+		$this->assertStringContainsString( 'up 42s', $ci->execute( 'uptime' ) );
+	}
 
-		// 3 days, 4 hours, 5 minutes, 6 seconds after init.
+	public function test_uptime_under_one_hour_shows_minutes_and_seconds(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		Core::$init_time = 1_700_000_000.0;
+		Core::$now       = 1_700_000_000.0 + ( 4 * 60 ) + 12;
+		$this->assertStringContainsString( 'up 4m 12s', $ci->execute( 'uptime' ) );
+	}
+
+	public function test_uptime_under_one_day_shows_hours_and_minutes(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		Core::$init_time = 1_700_000_000.0;
+		Core::$now       = 1_700_000_000.0 + ( 2 * 3_600 ) + ( 35 * 60 );
+		$this->assertStringContainsString( 'up 2h 35m', $ci->execute( 'uptime' ) );
+	}
+
+	public function test_uptime_over_one_day_shows_days_and_hms(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
 		Core::$init_time = 1_700_000_000.0;
 		Core::$now       = 1_700_000_000.0 + ( 3 * 86_400 ) + ( 4 * 3_600 ) + ( 5 * 60 ) + 6;
-
-		$out = $ci->execute( 'uptime' );
-
-		// Expected shape (clock varies with localtime, so only assert the
-		// "up <days>, <HH:MM:SS>" portion which is uptime-derived):
-		$this->assertStringContainsString( 'up 3 days, 04:05:06', $out );
+		$this->assertStringContainsString( 'up 3d 04:05:06', $ci->execute( 'uptime' ) );
 	}
 
 	public function test_dump_config_round_trips_full_graph(): void {

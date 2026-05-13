@@ -117,17 +117,40 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * `uptime` — Tachikoma-style:
-	 *   `HH:MM:SS  up N days, HH:MM:SS\n`
-	 * (clock-time on the left, time-since-Core::reset() on the right).
+	 * `uptime` — clock-time on the left, time-since-Core::reset() on the
+	 * right. Adapted from Tachikoma's format for shorter-lived workers
+	 * (we max out at ~10 minutes per process), so the elapsed portion
+	 * scales with magnitude rather than always rendering `0 days,
+	 * 00:00:42`:
+	 *   < 1 min  → `up Xs`
+	 *   < 1 hr   → `up Xm Ys`
+	 *   < 1 day  → `up Xh Ym`
+	 *   ≥ 1 day  → `up Xd HH:MM:SS`
 	 */
 	private static function cmd_uptime(): string {
 		$uptime  = (int) ( Core::$now - Core::$init_time );
-		$days    = (int) ( $uptime / 86400 );
-		$uptime -= $days * 86400;
 		$clock   = \date( 'H:i:s', (int) Core::$now );
-		$elapsed = \gmdate( 'H:i:s', $uptime );
-		return "{$clock}  up {$days} days, {$elapsed}\n";
+		$elapsed = self::format_uptime( $uptime );
+		return "{$clock}  up {$elapsed}\n";
+	}
+
+	private static function format_uptime( int $seconds ): string {
+		if ( $seconds < 60 ) {
+			return "{$seconds}s";
+		}
+		if ( $seconds < 3600 ) {
+			$m = (int) ( $seconds / 60 );
+			$s = $seconds % 60;
+			return "{$m}m {$s}s";
+		}
+		if ( $seconds < 86400 ) {
+			$h = (int) ( $seconds / 3600 );
+			$m = (int) ( ( $seconds % 3600 ) / 60 );
+			return "{$h}h {$m}m";
+		}
+		$d   = (int) ( $seconds / 86400 );
+		$rem = $seconds - ( $d * 86400 );
+		return "{$d}d " . \gmdate( 'H:i:s', $rem );
 	}
 
 	/**
