@@ -740,12 +740,36 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( 'up 42s', $ci->execute( 'uptime' ) );
 	}
 
+	public function test_uptime_under_one_minute_pads_single_digit_seconds(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		Core::$init_time = 1_700_000_000.0;
+		Core::$now       = 1_700_000_000.0 + 7;
+		$this->assertStringContainsString( 'up 07s', $ci->execute( 'uptime' ) );
+	}
+
+	public function test_uptime_under_one_hour_pads_single_digit_seconds(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		Core::$init_time = 1_700_000_000.0;
+		Core::$now       = 1_700_000_000.0 + ( 4 * 60 ) + 7;
+		$this->assertStringContainsString( 'up 4m 07s', $ci->execute( 'uptime' ) );
+	}
+
 	public function test_uptime_under_one_hour_shows_minutes_and_seconds(): void {
 		$ci = new CommandInterpreter();
 		$ci->name( '_command_interpreter' );
 		Core::$init_time = 1_700_000_000.0;
 		Core::$now       = 1_700_000_000.0 + ( 4 * 60 ) + 12;
 		$this->assertStringContainsString( 'up 4m 12s', $ci->execute( 'uptime' ) );
+	}
+
+	public function test_uptime_under_one_day_pads_single_digit_minutes(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		Core::$init_time = 1_700_000_000.0;
+		Core::$now       = 1_700_000_000.0 + ( 2 * 3_600 ) + ( 5 * 60 );
+		$this->assertStringContainsString( 'up 2h 05m', $ci->execute( 'uptime' ) );
 	}
 
 	public function test_uptime_under_one_day_shows_hours_and_minutes(): void {
