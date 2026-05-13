@@ -17,7 +17,14 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class CommandInterpreter extends Node {
-	/** @var array<string,callable>|null Verb → handler. Initialized lazily. */
+	/**
+	 * Default verb table — shared template the bare `_command_interpreter`
+	 * starts from. Patron-linked sibling CIs (auto-created by
+	 * configurable Node ctors) overwrite their own copy via the
+	 * `commands()` setter, leaving this table untouched.
+	 *
+	 * @var array<string,callable>|null Verb → handler. Initialized lazily.
+	 */
 	private static ?array $C = null;
 
 	/**
@@ -32,8 +39,59 @@ class CommandInterpreter extends Node {
 	/** @var array<string,class-string> Class registry: shell-name → FQCN. */
 	private static array $class_map = [];
 
+	/**
+	 * Per-instance verb table. Defaults to the shared
+	 * `self::$C` template; patron-linked siblings (e.g.
+	 * `requests:partition:config`) install their own table via the
+	 * `commands()` setter at construction time. Lazily resolved so
+	 * the bare ctor doesn't force init_C() into request scope.
+	 *
+	 * @var array<string,callable>|null
+	 */
+	protected ?array $commands = null;
+
+	/**
+	 * Patron pointer. Non-null on sibling CIs auto-created by Node
+	 * constructors (Partition, RequestBuilder, …); null on the
+	 * default `_command_interpreter` and any other freestanding CI.
+	 * `dump_metadata` filters CIs with a non-null patron out of the
+	 * GUI-visible node list — they're configuration plumbing.
+	 */
+	protected ?Node $patron = null;
+
 	public static function register_class( string $shell_name, string $fqcn ): void {
 		self::$class_map[ $shell_name ] = $fqcn;
+	}
+
+	/**
+	 * Per-instance verb-table accessor. Patron Node ctors call
+	 * `commands(static::config_verbs())` after instantiating their
+	 * sibling CI. Default CI's lookup falls back to `self::$C`.
+	 *
+	 * @param array<string,callable>|null $table Replacement verb table.
+	 * @return array<string,callable>
+	 */
+	public function commands( ?array $table = null ): array {
+		if ( null !== $table ) {
+			$this->commands = $table;
+		}
+		if ( null === $this->commands ) {
+			self::init_C();
+			$this->commands = self::$C ?? [];
+		}
+		return $this->commands;
+	}
+
+	/**
+	 * Patron-Node accessor. Sibling CIs hold a back-reference at
+	 * their patron data node so verb handlers can reach it via
+	 * `$ci->patron()` at dispatch time.
+	 */
+	public function patron( ?Node $node = null ): ?Node {
+		if ( null !== $node ) {
+			$this->patron = $node;
+		}
+		return $this->patron;
 	}
 
 	private static function init_C(): void {
@@ -844,14 +902,14 @@ class CommandInterpreter extends Node {
 	 * — see Tachikoma CommandInterpreter.pm:pwd().
 	 */
 	public function execute( string $command_line, array $envelope = [] ): string {
-		self::init_C();
-		$parts = \explode( ' ', $command_line, 2 );
-		$verb  = $parts[0];
-		$args  = $parts[1] ?? '';
-		if ( ! isset( self::$C[ $verb ] ) ) {
+		$parts    = \explode( ' ', $command_line, 2 );
+		$verb     = $parts[0];
+		$args     = $parts[1] ?? '';
+		$commands = $this->commands();
+		if ( ! isset( $commands[ $verb ] ) ) {
 			return "unknown command: $verb";
 		}
-		return ( self::$C[ $verb ] )( $this, $args, $envelope );
+		return ( $commands[ $verb ] )( $this, $args, $envelope );
 	}
 
 	private function interpret( array &$message ): void {
