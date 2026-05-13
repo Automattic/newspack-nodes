@@ -24,6 +24,10 @@ class Tee extends Node {
 		}
 		if ( ! \in_array( $target, $this->target, true ) ) {
 			$this->target[] = $target;
+			// Durable state: which targets does this Tee fan out to? Cached
+			// so late subscribers (debug_state) see the current target list
+			// without replaying every connect/disconnect.
+			$this->set_state( 'TARGETS', $this->target );
 		}
 	}
 
@@ -32,7 +36,11 @@ class Tee extends Node {
 			$this->target = [];
 			return;
 		}
+		$before       = $this->target;
 		$this->target = \array_values( \array_filter( $this->target, fn ( $t ) => $t !== $target ) );
+		if ( $before !== $this->target ) {
+			$this->set_state( 'TARGETS', $this->target );
+		}
 	}
 
 	public function fill( array &$message ): void {

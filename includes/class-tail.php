@@ -70,11 +70,13 @@ class Tail extends Timer {
 		if ( null !== $this->inode && $current_inode !== $this->inode ) {
 			$this->position       = 0;
 			$this->line_remainder = '';
+			$this->set_state( 'ROTATED', [ 'inode' => $current_inode ] );
 		}
 		// Truncation: size shrank.
 		if ( $current_size < $this->position ) {
 			$this->position       = 0;
 			$this->line_remainder = '';
+			$this->set_state( 'TRUNCATED', [ 'size' => $current_size ] );
 		}
 		$this->inode = $current_inode;
 

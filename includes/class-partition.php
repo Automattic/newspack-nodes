@@ -729,6 +729,12 @@ class Partition extends Timer {
 		// Run retention right after rotating so we don't accumulate forever — matches
 		// upstream Firehose::do_rotate().
 		$this->cleanup_segments();
+
+		// Durable state: which segment are we writing to now? Late
+		// subscribers (incl. show_sse cli, eventual SSE controller, plus
+		// any in-process Topic that wires up an event listener) get
+		// immediate replay of the current segment. Cached by set_state.
+		$this->set_state( 'SEGMENT', $this->current_segment_id );
 	}
 
 	/**
@@ -736,9 +742,10 @@ class Partition extends Timer {
 	 * count > num_segments AND (now - mtime) >= max_lifespan.
 	 */
 	public function cleanup_segments(): void {
-		$segments = $this->get_segments( true );
-		$count    = \count( $segments );
-		$now      = \time();
+		$segments       = $this->get_segments( true );
+		$count          = \count( $segments );
+		$initial_count  = $count;
+		$now            = \time();
 
 		while ( $count > $this->num_segments ) {
 			$oldest = $segments[0];
@@ -756,6 +763,15 @@ class Partition extends Timer {
 			--$count;
 		}
 		$this->segments_cache = null;
+
+		// State transition only when retention actually removed something —
+		// `cleanup_segments` runs every rotate but most calls are no-ops
+		// (under the lifespan threshold). Late subscribers see the most
+		// recent non-zero deletion + current alive count.
+		$deleted = $initial_count - $count;
+		if ( $deleted > 0 ) {
+			$this->set_state( 'CLEANUP', [ 'deleted' => $deleted, 'alive' => $count ] );
+		}
 	}
 
 	/**

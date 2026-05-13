@@ -174,6 +174,61 @@ class PartitionTest extends TestCase {
 		$this->assertLessThanOrEqual( 2, count( $segments ) );
 	}
 
+	public function test_rotate_emits_SEGMENT_state_with_new_id(): void {
+		// Force a rotation by filling small segments, capture the trace via a
+		// _router CaptureSink (the address Node::emit_debug_state_trace routes
+		// through). Asserts the SEGMENT state fires with the just-rotated id.
+		$router = new \Newspack_Nodes\Tests\CaptureSink();
+		$router->name( '_router' );
+
+		$p = new Partition( $this->tmp, 0, 256, 4, 86400 );
+		$p->name( 'p-rot' );
+		$p->debug_state( 1 );
+
+		// Each write is ~120 bytes packed; 4 writes push past the 256-byte
+		// segment_size and force at least one rotation.
+		for ( $i = 0; $i < 4; ++$i ) {
+			$this->produce_into( $p, str_repeat( 'r', 100 ) );
+		}
+
+		$segment_traces = \array_filter(
+			$router->captured,
+			static fn ( $m ) => \is_array( $m[ \Newspack_Nodes\Message::VALUE ] ?? null )
+				&& 'debug_state' === ( $m[ \Newspack_Nodes\Message::VALUE ]['k'] ?? '' )
+				&& 'SEGMENT' === ( $m[ \Newspack_Nodes\Message::VALUE ]['event'] ?? '' )
+		);
+		$this->assertNotEmpty( $segment_traces, 'rotate should emit SEGMENT trace' );
+		$last = \end( $segment_traces );
+		$this->assertSame( 'p-rot', $last[ \Newspack_Nodes\Message::VALUE ]['node'] );
+		$this->assertGreaterThan( 0, $last[ \Newspack_Nodes\Message::VALUE ]['value'], 'SEGMENT id should be > 0 after rotation' );
+	}
+
+	public function test_cleanup_emits_CLEANUP_state_only_when_deletions_happen(): void {
+		// max_lifespan=0 → cleanup always deletes once count > num_segments.
+		$router = new \Newspack_Nodes\Tests\CaptureSink();
+		$router->name( '_router' );
+
+		$p = new Partition( $this->tmp, 0, 256, 2, 0 );
+		$p->name( 'p-clean' );
+		$p->debug_state( 1 );
+
+		for ( $i = 0; $i < 6; ++$i ) {
+			$this->produce_into( $p, str_repeat( 'c', 100 ) );
+		}
+
+		$cleanup_traces = \array_filter(
+			$router->captured,
+			static fn ( $m ) => \is_array( $m[ \Newspack_Nodes\Message::VALUE ] ?? null )
+				&& 'CLEANUP' === ( $m[ \Newspack_Nodes\Message::VALUE ]['event'] ?? '' )
+		);
+		$this->assertNotEmpty( $cleanup_traces, 'cleanup with deletions should emit CLEANUP trace' );
+		$first = \reset( $cleanup_traces );
+		$payload = $first[ \Newspack_Nodes\Message::VALUE ]['value'];
+		$this->assertIsArray( $payload );
+		$this->assertGreaterThan( 0, $payload['deleted'] );
+		$this->assertArrayHasKey( 'alive', $payload );
+	}
+
 	public function test_fill_TM_BYTESTREAM_writes_packed_message(): void {
 		// Real Tachikoma Partition.fill packs ANY message via Message::packed
 		// and appends a newline. Consumer auto-unpacks on the read side.
