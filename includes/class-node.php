@@ -39,11 +39,10 @@ class Node {
 	 *
 	 *   0 (default) — set_state notifies as usual; no diagnostic emission.
 	 *   1+          — set_state additionally emits a TM_STRUCT to
-	 *                 `TO=_repl/sse` so cli sessions (with `show_sse` on)
-	 *                 and the SSE controller both pick up state transitions
-	 *                 as they happen. Higher integer levels are reserved for
-	 *                 finer-grained tracing per subclass — base Node only
-	 *                 differentiates 0 vs not-0.
+	 *                 `TO=_repl` so cli sessions and the SSE controller both
+	 *                 pick up state transitions as they happen. Higher integer
+	 *                 levels are reserved for finer-grained tracing per subclass
+	 *                 — base Node only differentiates 0 vs not-0.
 	 *
 	 * Toggled via the `debug_state` CommandInterpreter verb; auto-propagates
 	 * from a CI to make_node children (so `debug_state CI 1` followed by
@@ -205,10 +204,9 @@ class Node {
 	 * Notify + cache. New registrants get the cached payload immediately at register-time.
 	 *
 	 * When `debug_state` is on, ALSO emit a TM_STRUCT trace message addressed
-	 * to `_repl/sse` so cli sessions with `show_sse` on, and the SSE
-	 * controller, both see state transitions in real time. The trace doesn't
-	 * replace the normal `notify()` — that still fires for registered
-	 * listeners. Trace is purely additive observability.
+	 * to `_repl` so cli sessions and the SSE controller both see state transitions
+	 * in real time. The trace doesn't replace the normal `notify()` — that still
+	 * fires for registered listeners. Trace is purely additive observability.
 	 */
 	public function set_state( string $event, mixed $payload = null ): void {
 		$this->set_state[ $event ] = $payload;
@@ -220,8 +218,8 @@ class Node {
 
 	/**
 	 * Build and route a TM_STRUCT trace message for a single state transition.
-	 * Addressed to `_repl/sse` — `_router` on the worker side strips `_repl`
-	 * before the Partition write, so cli/SSE readers see `TO=sse`. Routed via
+	 * Addressed to `_repl` — `_router` on the worker side strips `_repl`
+	 * before the Partition write, so cli/SSE readers see `TO=""`. Routed via
 	 * Core::node('_router') so workers without a wired sink chain still get
 	 * the trace through. Safe no-op when `_router` isn't registered (e.g.
 	 * unit tests constructing nodes in isolation).
@@ -235,7 +233,7 @@ class Node {
 		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
 		$msg[ Message::TIMESTAMP ] = Core::$now;
 		$msg[ Message::FROM ]      = $this->name;
-		$msg[ Message::TO ]        = '_repl/sse';
+		$msg[ Message::TO ]        = '_repl';
 		$msg[ Message::VALUE ]     = [
 			'k'     => 'debug_state',
 			'node'  => $this->name,
