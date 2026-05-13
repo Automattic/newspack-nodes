@@ -719,7 +719,7 @@ class CommandInterpreter extends Node {
 			if ( ! empty( $row ) ) {
 				$rows[] = $row;
 			}
-			return self::tabulate( [ 'left', 'left', 'left', 'left' ], null, $rows );
+			return "### SERVER COMMANDS ###\n" . self::tabulate( [ 'left', 'left', 'left', 'left' ], null, $rows );
 		}
 		// Resolve aliases to the canonical entry name. Every alias the user
 		// might type maps to the corresponding $H key — keep this table in

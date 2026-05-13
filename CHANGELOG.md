@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.18] - 2026-05-13
+
+### Added
+
+- **More `set_state()` coverage** so `debug_state <node> 1` produces a meaningful trace of failure modes and lifecycle moments instead of being effectively silent:
+  - **`Router::fill`** — `NOT_AVAILABLE` set_state when a routed path's leading segment doesn't resolve to a node. `debug_state _router 1` turns "why isn't my message landing?" debugging from a guessing game into a per-failure trace.
+  - **`Partition::fill`** — `DROPPED` set_state with `reason=oversize`, size, and max when a packed message exceeds `MAX_LINE_SIZE`/`MAX_LARGE_LINE_SIZE`. The most common "where did my message go?" mystery — the silent drop — is now visible.
+  - **`Consumer::poll`** — `OVERFLOW` set_state with seg/off/limit when the DoS line-buffer guard fires. Mirrors the existing `print_less_often` stderr emission so debug_state observers see the same event.
+  - **`Log::rotate`** — `ROTATED` set_state with the new rotated filename.
+  - **`Log::prune_rotated`** — `PRUNED` set_state with the count of rotated files unlinked (only when something was actually pruned).
+  - **`Echo::fill`** — `DROPPED_ERROR` set_state with the originating FROM when a TM_ERROR with empty TO is dropped (avoids bouncing the error trail to an unsuspecting producer).
+
 ## [0.1.17] - 2026-05-13
 
 ### Fixed

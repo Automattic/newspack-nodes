@@ -111,6 +111,7 @@ class Log extends Node {
 		$this->fh   = \fopen( $this->filename, self::MODE_OVERWRITE === $this->mode ? 'wb' : 'ab' );
 		// phpcs:enable
 		$this->size = 0;
+		$this->set_state( 'ROTATED', [ 'rotated_to' => $rotated_name ] );
 		$this->prune_rotated();
 	}
 
@@ -143,6 +144,12 @@ class Log extends Node {
 		foreach ( $to_delete as $path ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 			@\unlink( $path );
+		}
+		if ( ! empty( $to_delete ) ) {
+			$this->set_state(
+				'PRUNED',
+				[ 'removed' => \count( $to_delete ), 'kept' => $this->max_rotations ]
+			);
 		}
 	}
 

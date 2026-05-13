@@ -25,6 +25,10 @@ class Echo_Node extends Node {
 
 		// TM_ERROR with no TO would otherwise bounce — drop instead.
 		if ( ( $type & Message::TM_ERROR ) && '' === $to ) {
+			$this->set_state(
+				'DROPPED_ERROR',
+				[ 'from' => $message[ Message::FROM ] ]
+			);
 			return;
 		}
 
