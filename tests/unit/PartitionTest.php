@@ -79,6 +79,20 @@ class PartitionTest extends TestCase {
 		$this->assertSame( 0, $off );
 	}
 
+	public function test_fill_tracks_largest_msg_sent(): void {
+		// Partition overrides Node::fill() to write to disk; that override
+		// must still track largest_msg_sent or the Inspector will report
+		// 0 for every Partition. Measured against Message::value_size,
+		// same as the base Node tracking.
+		$p     = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$small = $this->produce( 'hi' );
+		$big   = $this->produce( \str_repeat( 'x', 100 ) );
+		$p->fill( $small );
+		$p->fill( $big );
+		$p->fill( $small ); // shouldn't lower the max
+		$this->assertSame( 100, $p->largest_msg_sent() );
+	}
+
 	public function test_fill_accumulates_bytes_written(): void {
 		$p     = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
 		$msg_a = $this->produce( 'hello' );

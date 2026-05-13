@@ -27,6 +27,25 @@ class ConsumerTest extends TestCase {
 		parent::tearDown();
 	}
 
+	public function test_poll_accumulates_bytes_read_on_consumer(): void {
+		// bytes_read on Consumer should reflect total bytes pulled from its
+		// source partition via poll(). The Partition itself ALSO tracks
+		// its own bytes_read (sourced from read_at calls), but the Consumer
+		// is the node operators see in `stats` so it needs to surface the
+		// volume too.
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$msg_a  = $this->produce( 'first' );
+		$source->fill( $msg_a );
+		$source->flush();
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->sink( new CaptureSink() );
+		$c->poll();
+
+		$packed_size = \strlen( Message::packed( $msg_a ) ) + 1; // trailing \n
+		$this->assertSame( $packed_size, $c->bytes_read() );
+	}
+
 	public function test_poll_emits_line_for_each_new_log_entry(): void {
 		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
 		$this->produce_line( $source, 'first' );
