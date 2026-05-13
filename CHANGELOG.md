@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.12] - 2026-05-12
+
+### Added
+
+- **`Core::$stderr_handler` defaults to routing through the worker's `_repl` conduit when one is registered.** Stderr-style diagnostics (`print_less_often`, `print_least_often`, `print_now_and_then`) build a TM_BYTESTREAM addressed `TO=_repl` and fill the worker-side `_repl` node directly. `_router` peels the prefix; downstream cli/SSE readers see the message with empty TO, which the Dumper always renders — unaddressed broadcast, no `show_sse` opt-in needed. Falls back to PHP's `error_log()` when there's no `_repl` (request scope, tests, CLI tools). Tests can override via `Core::set_stderr_handler()` as before.
+
+### Changed
+
+- **`Node::set_state()` traces and `Core::$stderr_handler` both address `TO=_repl`** (was `_repl/sse` in 0.1.11 for traces). Matches Perl Tachikoma exactly: stderr and state transitions are alarm-style broadcasts — always visible to cli sessions and the SSE controller, no opt-in gating. `show_sse` remains for genuinely opt-in observability streams (the upcoming periodic stats emitter etc.) where the user explicitly chooses to consume an additional channel.
+
+  The `Node::emit_debug_state_trace()` routing path is unchanged otherwise — still routes via `Core::node('_router')->fill()`; still safe no-op when `_router` isn't registered.
+
 ## [0.1.11] - 2026-05-12
 
 ### Added

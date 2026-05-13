@@ -54,10 +54,28 @@ class Core {
 		self::$closing        = [];
 		self::$print_table    = [];
 		self::$msg_counter    = 0;
-		// Default handler writes through PHP's error log — that's intentional
-		// for worker stderr. Override via set_stderr_handler() in tests.
-		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		self::$stderr_handler = static fn ( string $msg ) => \error_log( \rtrim( $msg ) );
+		// Default handler: when a worker has wired up the `_repl` conduit, route
+		// stderr-style diagnostics through it as TM_BYTESTREAM addressed to
+		// `_repl`. The worker's `_router` peels `_repl` and dispatches into
+		// the Partition; downstream cli/SSE readers see the message with
+		// empty TO, which the Dumper always renders — unaddressed broadcast,
+		// no `show_sse` opt-in needed (stderr is an alarm, not observability).
+		// Falls back to PHP's error_log when there's no _repl (request scope,
+		// tests, CLI tools). Override via set_stderr_handler() in tests.
+		self::$stderr_handler = static function ( string $msg ): void {
+			$repl = self::$nodes_by_name['_repl'] ?? null;
+			if ( null !== $repl ) {
+				$m                       = Message::new_message();
+				$m[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+				$m[ Message::TIMESTAMP ] = self::$now;
+				$m[ Message::TO ]        = '_repl';
+				$m[ Message::VALUE ]     = $msg;
+				$repl->fill( $m );
+				return;
+			}
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			\error_log( \rtrim( $msg ) );
+		};
 		self::$now            = \microtime( true );
 	}
 

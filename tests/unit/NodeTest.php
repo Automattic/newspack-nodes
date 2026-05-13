@@ -211,7 +211,7 @@ class NodeTest extends TestCase {
 		$this->assertCount( 1, $router->captured );
 		$msg = $router->captured[0];
 		$this->assertSame( Message::TM_STRUCT, $msg[ Message::TYPE ] );
-		$this->assertSame( '_repl/sse',         $msg[ Message::TO ] );
+		$this->assertSame( '_repl',             $msg[ Message::TO ] );
 		$this->assertSame( 'producer',          $msg[ Message::FROM ] );
 
 		$v = $msg[ Message::VALUE ];

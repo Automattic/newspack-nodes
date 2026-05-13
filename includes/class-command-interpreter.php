@@ -66,9 +66,9 @@ class CommandInterpreter extends Node {
 				. "    no args:      toggle this CommandInterpreter's debug_state.\n"
 				. "    name only:    toggle that node's debug_state.\n"
 				. "    name <n>:     set that node's debug_state to <n>.\n"
-				. "    note: when set, the node emits a TM_STRUCT trace to _repl/sse\n"
-				. "          on every set_state() call. cli sessions with `show_sse`\n"
-				. "          on, and the SSE controller, see the trace in real time.\n"
+				. "    note: when set, the node emits a TM_STRUCT trace to _repl\n"
+				. "          on every set_state() call.\n"
+				. "          cli sessions and the SSE controller see the trace in real time.\n"
 				. "          New nodes created by `make_node` inherit this CI's level.\n",
 			'pwd' => "pwd\n",
 			'help' => "help [ <topic> ]\n",
@@ -488,7 +488,7 @@ class CommandInterpreter extends Node {
 	 *   debug_state foo 2        → set node `foo`'s debug_state to level 2
 	 *
 	 * When set on a node, every subsequent `set_state()` call emits a
-	 * TM_STRUCT trace addressed to `_repl/sse` — the cli/SSE fan-out path.
+	 * TM_STRUCT trace addressed to `_repl` — the cli fan-out path.
 	 * New nodes created by `make_node` inherit THIS CI's level (see
 	 * make_node()), so `debug_state 1` followed by topology setup makes
 	 * every newly-constructed node trace from birth.
