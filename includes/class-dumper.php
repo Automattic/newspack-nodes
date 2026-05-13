@@ -6,7 +6,8 @@
  *  - TM_COMMAND|TM_RESPONSE → unwrap Command JSON, print payload to stdout
  *    (special case: name=='prompt' updates the Shell's prompt, no print)
  *  - TM_ERROR               → "ERROR: …" to stderr
- *  - TM_INFO                → "INFO[from]: …" to stdout
+ *  - TM_INFO                → payload to stdout (no prefix; the `debug_level 1`
+ *                              header already labels TM_INFO when it's wanted)
  *  - default                → VALUE to stdout
  *
  * Async-output dance: when a TM_INFO or default-bytestream message arrives while
@@ -465,15 +466,11 @@ class Dumper extends Node {
 			return;
 		}
 
-		// TM_INFO: async broadcast — may interrupt the user's prompt.
-		if ( $type & Message::TM_INFO ) {
-			$line = 'INFO[' . (string) $message[ Message::FROM ] . ']: '
-				. (string) $message[ Message::VALUE ];
-			$this->write_async( $line );
-			return;
-		}
-
-		// Default: async bytestream — same prompt-aware path as TM_INFO.
+		// TM_INFO and default TM_BYTESTREAM both render as plain async
+		// bytestreams. The former `INFO[from]: ...` prefix was redundant
+		// noise — `debug_level 1` already prepends a `TM_INFO from <from>:`
+		// header to every message at the verbosity dial; the curated
+		// level-0 render should just show the payload.
 		$this->write_async( (string) $message[ Message::VALUE ] );
 	}
 

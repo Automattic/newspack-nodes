@@ -128,7 +128,11 @@ class DumperTest extends TestCase {
 		$this->assertSame( "ERROR: NOT_AVAILABLE\n", $this->read_all( $err ) );
 	}
 
-	public function test_TM_INFO_prints_with_FROM_prefix(): void {
+	public function test_TM_INFO_prints_payload_without_prefix(): void {
+		// TM_INFO renders as a plain async bytestream — same as default
+		// TM_BYTESTREAM. The former `INFO[from]: ...` prefix was
+		// redundant noise; debug_level 1 already prepends a
+		// `TM_INFO from <from>:` header when verbosity is wanted.
 		[ $dumper, $out, $err ] = $this->fresh();
 
 		$msg                   = Message::new_message();
@@ -137,7 +141,7 @@ class DumperTest extends TestCase {
 		$msg[ Message::VALUE ] = 'broadcast text';
 		$dumper->fill( $msg );
 
-		$this->assertSame( "INFO[alpha]: broadcast text\n", $this->read_all( $out ) );
+		$this->assertSame( "broadcast text\n", $this->read_all( $out ) );
 		$this->assertSame( '', $this->read_all( $err ) );
 	}
 
@@ -201,7 +205,7 @@ class DumperTest extends TestCase {
 		$dumper->fill( $msg );
 
 		$expected = "\033[s" . "\r\033[2K"
-			. "INFO[broadcaster]: hello world\n"
+			. "hello world\n"
 			. 'newspack> '
 			. "\033[u";
 		$this->assertSame( $expected, $this->read_all( $out ) );
@@ -216,7 +220,7 @@ class DumperTest extends TestCase {
 		$msg[ Message::VALUE ] = 'plain';
 		$dumper->fill( $msg );
 
-		$this->assertSame( "INFO[x]: plain\n", $this->read_all( $out ) );
+		$this->assertSame( "plain\n", $this->read_all( $out ) );
 	}
 
 	public function test_TM_INFO_on_non_tty_skips_escape_sequences_even_when_prompt_displayed(): void {
@@ -235,7 +239,7 @@ class DumperTest extends TestCase {
 
 		$out_text = $this->read_all( $out );
 		$this->assertStringNotContainsString( "\033", $out_text, 'non-TTY must not emit ANSI escapes' );
-		$this->assertSame( "INFO[x]: plain\n", $out_text );
+		$this->assertSame( "plain\n", $out_text );
 	}
 
 	public function test_default_bytestream_with_prompt_displayed_emits_wipe_and_redraw(): void {
@@ -315,9 +319,9 @@ class DumperTest extends TestCase {
 		$async2[ Message::VALUE ] = 'three';
 		$dumper->fill( $async2 );
 
-		$expected = "\033[s" . "\r\033[2K" . "INFO[a]: one\n" . 'newspack> ' . "\033[u"
+		$expected = "\033[s" . "\r\033[2K" . "one\n" . 'newspack> ' . "\033[u"
 			. "\033[s" . "\r\033[2K" . "two\n" . 'newspack> ' . "\033[u"
-			. "\033[s" . "\r\033[2K" . "INFO[b]: three\n" . 'newspack> ' . "\033[u";
+			. "\033[s" . "\r\033[2K" . "three\n" . 'newspack> ' . "\033[u";
 		$this->assertSame( $expected, $this->read_all( $out ) );
 	}
 
@@ -351,7 +355,7 @@ class DumperTest extends TestCase {
 		$dumper->fill( $msg );
 
 		// readline_mode path: just CR+clear-line + text + prompt — no save/restore.
-		$expected = "\r\033[2K" . "INFO[a]: one\n" . 'newspack> ';
+		$expected = "\r\033[2K" . "one\n" . 'newspack> ';
 		$this->assertSame( $expected, $this->read_all( $out ) );
 	}
 
@@ -411,7 +415,7 @@ class DumperTest extends TestCase {
 		$msg[ Message::VALUE ] = 'broadcast';
 		$dumper->fill( $msg );
 
-		$this->assertSame( "INFO[broadcaster]: broadcast\n", $this->read_all( $out ) );
+		$this->assertSame( "broadcast\n", $this->read_all( $out ) );
 	}
 
 	public function test_TM_STRUCT_array_value_json_encodes_for_display(): void {
