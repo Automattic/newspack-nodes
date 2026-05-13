@@ -402,4 +402,15 @@ class NodeTest extends TestCase {
 		// Sibling adopts the patron's existing name immediately.
 		$this->assertSame( 'preset:config', $sibling->name() );
 	}
+
+	// ── A1: node_schema() manifest ───────────────────────────
+
+	public function test_node_schema_default_returns_empty_manifest(): void {
+		$schema = Node::node_schema();
+		$this->assertIsArray( $schema );
+		$this->assertSame( '', $schema['category'] );
+		$this->assertSame( '', $schema['description'] );
+		$this->assertSame( [], $schema['ctor'] );
+		$this->assertSame( [], $schema['verbs'] );
+	}
 }
