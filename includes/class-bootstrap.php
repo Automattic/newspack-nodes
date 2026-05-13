@@ -25,6 +25,7 @@
 namespace Newspack_Nodes;
 
 use Newspack_Nodes\Rest\SpawnController;
+use Newspack_Nodes\Rest\TopologyStreamController;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -110,10 +111,11 @@ class Bootstrap {
 	}
 
 	/**
-	 * Register the SpawnController routes — wire to `rest_api_init`.
+	 * Register substrate REST routes — wired to `rest_api_init`.
 	 */
 	public static function register_rest_routes(): void {
 		( new SpawnController( self::supervisor() ) )->register_routes();
+		( new TopologyStreamController() )->register_routes();
 	}
 
 	/**
