@@ -725,15 +725,42 @@ class PartitionTest extends TestCase {
 		$this->assertStringContainsString( 'cmd my_part:config allow_large_writes', $dump );
 	}
 
-	public function test_partition_with_index_verb_records_formatter_name(): void {
+	public function test_partition_with_index_verb_resolves_and_installs_callable(): void {
+		\Newspack_Nodes\Formatters::reset();
+		$called = 0;
+		\Newspack_Nodes\Formatters::register(
+			'a2-test-formatter',
+			static function ( $line, $position, &$data = null ) use ( &$called ) {
+				$called++;
+				return 'fmt:' . $line;
+			}
+		);
 		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
 		$p->name( 'my_part' );
 
-		$result = $p->interpreter()->execute( 'with_index request-index' );
+		$result = $p->interpreter()->execute( 'with_index a2-test-formatter' );
 		$this->assertSame( 'ok', $result );
 
+		// Verb installs the formatter as the patron's index callback.
+		$ref     = new \ReflectionClass( $p );
+		$cb_prop = $ref->getProperty( 'index_callback' );
+		$cb_prop->setAccessible( true );
+		$installed = $cb_prop->getValue( $p );
+		$this->assertNotNull( $installed );
+		$installed( 'check', [] );
+		$this->assertSame( 1, $called );
+
 		$dump = $p->dump_config();
-		$this->assertStringContainsString( 'cmd my_part:config with_index request-index', $dump );
+		$this->assertStringContainsString( 'cmd my_part:config with_index a2-test-formatter', $dump );
+	}
+
+	public function test_partition_with_index_verb_unknown_formatter_errors(): void {
+		\Newspack_Nodes\Formatters::reset();
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$p->name( 'my_part' );
+
+		$result = $p->interpreter()->execute( 'with_index no-such-formatter' );
+		$this->assertStringContainsString( 'unknown formatter', $result );
 	}
 
 	public function test_partition_with_index_verb_requires_formatter_name(): void {
