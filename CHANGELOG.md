@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.16] - 2026-05-13
+
+### Added
+
+- **`dump_metadata` verb** — single JSON-encoded snapshot of every registered node's GUI-relevant state: `{ class, counter, sink, target, debug_state, arguments, lgst_msg, bytes_read, bytes_written }` per node. Designed for the topology console's per-tick poll (replaces the older `ls -als` + `ls -ct` pair); KEY-correlation through `Message::KEY` lets the controller distinguish auto-polls from user-typed commands silently. Inspired by Perl Tachikoma's `JSONvisualizer` node, but as a verb so it composes with the rest of the cli surface and skips the visualizer's caching layer (our poll cadence is already coarse).
+
+- **`stats [-a] [<regex>]` verb** — Tachikoma-style tabular per-node counters with columns `NAME | COUNT | LGST_MSG | READ | WRITTEN`. Scope rules match `ls`: default shows siblings of this CI; `-a` shows every node; optional regex narrows by name. Dropped Tachikoma's `BUF_SIZE` and `HIGH_WATER` columns since we have no in-memory message buffers (Partition and Topic flush every fill into a per-node line buffer that drains synchronously).
+
+- **`uptime` verb** — clock time on the left, time-since-`Core::reset()` on the right. Scale-aware compact format suited to our short-lived workers (~10 min lifespan): `up 42s` → `up 4m 07s` → `up 2h 35m` → `up 3d 04:05:06`. Trailing components zero-pad to two digits so the value width stays steady tick-to-tick.
+
+- **`Core::$init_time`** — process start time, stamped at every `Core::reset()` (worker bootstrap, test setUp). `uptime` subtracts this from `Core::$now`.
+
+- **Per-node observability counters on `Node` base.** `largest_msg_sent` (bytes, updated by `fill()`) plus `bytes_read` / `bytes_written` (populated by I/O nodes — Partition increments them in `loop_fwrite` and `read_at`; logic nodes leave them at 0). Tachikoma-equivalent of `$node->{largest_msg_sent}` / `bytes_read` / `bytes_written`. Surfaced by `stats` and `dump_metadata` alike.
+
+- **`Message::value_size()`** — bytes of the VALUE field (strlen for strings, `wp_json_encode` length for arrays). Used by `Node::fill()` to track `largest_msg_sent` consistently across TM_BYTESTREAM and TM_STRUCT shapes.
+
+- **`connect_node <node>` / `disconnect_node <node>` (no target) default to `$message[FROM]`.** Matches Perl Tachikoma: a `connect_node firehose:tee` from a cli/SSE session tees the node's output back to that session's Dumper without having to know the breadcrumb path. Stale targets self-clear when the worker recycles (~10 min in this deployment), so the lack of an explicit disconnect-on-exit signal isn't a real liability. Symmetric `disconnect_node <node>` (no target) removes the issuing message's FROM from a Tee's fan-out, exactly undoing a default `connect_node <tee>`.
+
+### Fixed
+
+- **`Tee::fill` was pruning path-shaped targets** (`_repl/_output/{pid}` and other slash-containing values). `connect_node firehose:tee` from a SSE session would report `ok`, the target would be added, then the very next `fill()` would drop it because `Core::node('_repl/_output/{pid}')` returned null. Now the path-shape check (`strpos === '/'`) skips the existence-lookup for path targets — they survive until the Router fails to deliver to the prefix, at which point normal error semantics apply.
+
 ## [0.1.15] - 2026-05-13
 
 ### Added
