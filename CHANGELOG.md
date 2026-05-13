@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.8] - 2026-05-12
+
+### Added
+
+- **`show_sse` Shell builtin** — toggles the local Dumper's broadcast-filter opt-in for `TO=sse` traffic. The worker side will fan stats / `debug_state` events out as TM_STRUCT addressed to `_repl/sse`; the worker-side `_router` peels `_repl`, so each cli/SSE reader sees bare `TO=sse` arriving at its Dumper. By default the Dumper drops it (not addressed to the session's `$pid`). After `show_sse`, those messages render alongside personal replies. Pure toggle — no arguments — mirroring Perl Tachikoma's builtin convention.
+
+  Underlying API: `Dumper::toggle_broadcast_filter( $name, ?bool $explicit = null )` and `Dumper::broadcast_filter_enabled( $name )`. Set-of-strings storage so future broadcast addresses can opt in without redesign.
+
+- **`debug_level [<n>]` Shell builtin** — set or toggle the local Dumper's render verbosity. With no args, toggles between 0 and 1 (matching Perl Tachikoma semantics). With a numeric arg, sets explicitly (clamped to 0..2). Levels:
+    - 0 — default curated rendering
+    - 1 — additionally emit a one-line debug header per Message to stderr: `<TM_FLAGS> from <FROM>: <stringified-payload>`. Every Message that reaches the Dumper, including control messages the normal renderer would silence
+    - 2 — same as 1, but the header is the full envelope: `<TM_FLAGS> id=<ID> stream=<STREAM> from=<FROM> to=<TO> ts=<TIMESTAMP>` followed by the payload on the next line.
+
+  The normal render still happens after the debug header — level 1/2 additively narrate without replacing user-friendly output. Header goes to stderr so `wp nodes cli ... | grep foo` on stdout is unaffected.
+
+- **`show_parse` Shell builtin** — toggle dumping of the post-interpolation line and tokenized form to `$output_stream` for every subsequent `parse()` call. Mirrors Perl Tachikoma Shell3 `show_parse`; useful when interpolation or tokenization quirks need a microscope. Local-only — no IPC, no worker involvement. Pure toggle.
+
+  Distinct from `debug_level`: `show_parse` is about the parser (what tokens did I see for this line); `debug_level` is about the Dumper (how verbosely should I render messages that arrive). The two stack — `show_parse` + `debug_level 1` shows both ends of the REPL pipeline at once.
+
 ## [0.1.7] - 2026-05-12
 
 ### Changed

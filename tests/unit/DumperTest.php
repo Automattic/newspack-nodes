@@ -441,4 +441,140 @@ class DumperTest extends TestCase {
 
 		$this->assertSame( "plain\n", $this->read_all( $out ) );
 	}
+
+	public function test_broadcast_filter_off_drops_sse_traffic(): void {
+		// Default state: TO=sse (the post-_router-peel form of TO=_repl/sse)
+		// is foreign traffic to this cli session and gets dropped silently.
+		[ $dumper, $out ] = $this->fresh();
+		$dumper->set_to_filter( '12345' );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::TO ]    = 'sse';
+		$msg[ Message::VALUE ] = [ 'rate' => 42.5 ];
+		$dumper->fill( $msg );
+
+		$this->assertSame( '', $this->read_all( $out ) );
+		$this->assertFalse( $dumper->broadcast_filter_enabled( 'sse' ) );
+	}
+
+	public function test_broadcast_filter_on_renders_sse_traffic(): void {
+		// After toggle_broadcast_filter('sse'), TO=sse messages render through
+		// to the Dumper output the same as personal pid traffic.
+		[ $dumper, $out ] = $this->fresh();
+		$dumper->set_to_filter( '12345' );
+		$new_state = $dumper->toggle_broadcast_filter( 'sse' );
+		$this->assertTrue( $new_state );
+		$this->assertTrue( $dumper->broadcast_filter_enabled( 'sse' ) );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::TO ]    = 'sse';
+		$msg[ Message::VALUE ] = [ 'rate' => 42.5 ];
+		$dumper->fill( $msg );
+
+		// TM_STRUCT array renders as JSON.
+		$rendered = $this->read_all( $out );
+		$this->assertSame( [ 'rate' => 42.5 ], \json_decode( \rtrim( $rendered, "\n" ), true ) );
+	}
+
+	public function test_broadcast_filter_toggle_is_idempotent_per_direction(): void {
+		// Calling toggle() flips. Two flips = back to off.
+		[ $dumper ] = $this->fresh();
+		$this->assertTrue( $dumper->toggle_broadcast_filter( 'sse' ) );
+		$this->assertFalse( $dumper->toggle_broadcast_filter( 'sse' ) );
+		$this->assertFalse( $dumper->broadcast_filter_enabled( 'sse' ) );
+	}
+
+	public function test_broadcast_filter_explicit_argument_sets_state(): void {
+		// Explicit true/false bypasses the toggle.
+		[ $dumper ] = $this->fresh();
+		$this->assertTrue( $dumper->toggle_broadcast_filter( 'sse', true ) );
+		$this->assertTrue( $dumper->toggle_broadcast_filter( 'sse', true ), 'idempotent on true' );
+		$this->assertFalse( $dumper->toggle_broadcast_filter( 'sse', false ) );
+		$this->assertFalse( $dumper->toggle_broadcast_filter( 'sse', false ), 'idempotent on false' );
+	}
+
+	public function test_debug_level_default_off_no_header_emitted(): void {
+		// Baseline: debug_level=0 → no debug header to stderr, only the
+		// curated rendering to stdout.
+		[ $dumper, $out, $err ] = $this->fresh();
+		$this->assertSame( 0, $dumper->debug_level() );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::FROM ]  = 'producer';
+		$msg[ Message::VALUE ] = 'hello';
+		$dumper->fill( $msg );
+
+		$this->assertSame( "hello\n", $this->read_all( $out ) );
+		$this->assertSame( '', $this->read_all( $err ) );
+	}
+
+	public function test_debug_level_1_emits_one_line_header_to_stderr(): void {
+		// Level 1: one-line header `<FLAGS> from <FROM>: <payload>` to stderr,
+		// AND the normal curated render still goes to stdout. Both happen.
+		[ $dumper, $out, $err ] = $this->fresh();
+		$dumper->set_debug_level( 1 );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::FROM ]  = 'producer';
+		$msg[ Message::VALUE ] = 'hello';
+		$dumper->fill( $msg );
+
+		$this->assertSame( "hello\n", $this->read_all( $out ), 'normal render unchanged' );
+		$header = $this->read_all( $err );
+		$this->assertStringContainsString( 'TM_BYTESTREAM', $header );
+		$this->assertStringContainsString( 'from producer', $header );
+		$this->assertStringContainsString( 'hello', $header );
+	}
+
+	public function test_debug_level_2_emits_full_envelope_to_stderr(): void {
+		// Level 2: envelope-style header — id=, stream=, from=, to=, ts=.
+		[ $dumper, $out, $err ] = $this->fresh();
+		$dumper->set_debug_level( 2 );
+
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$msg[ Message::ID ]        = 'abc';
+		$msg[ Message::FROM ]      = 'producer';
+		$msg[ Message::TO ]        = 'consumer';
+		$msg[ Message::TIMESTAMP ] = '1700000000.0';
+		$msg[ Message::VALUE ]     = 'hello';
+		$dumper->fill( $msg );
+
+		$header = $this->read_all( $err );
+		$this->assertStringContainsString( 'TM_BYTESTREAM', $header );
+		$this->assertStringContainsString( 'id=abc', $header );
+		$this->assertStringContainsString( 'from=producer', $header );
+		$this->assertStringContainsString( 'to=consumer', $header );
+		$this->assertStringContainsString( 'ts=1700000000.0', $header );
+	}
+
+	public function test_debug_level_clamps_to_0_2_range(): void {
+		// Out-of-range arguments clamp instead of raising.
+		[ $dumper ] = $this->fresh();
+
+		$this->assertSame( 2, $dumper->set_debug_level( 5 ),  'overshoot clamps high' );
+		$this->assertSame( 0, $dumper->set_debug_level( -1 ), 'undershoot clamps low' );
+		$this->assertSame( 1, $dumper->set_debug_level( 1 ),  'middle preserved' );
+	}
+
+	public function test_broadcast_filter_does_not_render_other_broadcast_names(): void {
+		// Distinct broadcast names are independent — opting into 'sse' must
+		// not silently also accept 'metrics' or any other TO that's not the
+		// session's pid.
+		[ $dumper, $out ] = $this->fresh();
+		$dumper->set_to_filter( '12345' );
+		$dumper->toggle_broadcast_filter( 'sse', true );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::TO ]    = 'metrics';
+		$msg[ Message::VALUE ] = [ 'irrelevant' => true ];
+		$dumper->fill( $msg );
+
+		$this->assertSame( '', $this->read_all( $out ) );
+	}
 }
