@@ -64,6 +64,22 @@ class Shell extends Node {
 	/** Backslash-continuation accumulator. */
 	private string $continuation = '';
 
+	/**
+	 * `show_parse` toggle — when true, every parsed line emits its post-
+	 * interpolation form, tokenized form, and the message envelope it built
+	 * (if any) to $output_stream. Useful when debugging interpolation /
+	 * tokenization quirks. Mirrors Perl Tachikoma Shell3 `show_parse`.
+	 */
+	private bool $show_parse = false;
+
+	public function show_parse(): bool {
+		return $this->show_parse;
+	}
+
+	public function set_show_parse( bool $on ): void {
+		$this->show_parse = $on;
+	}
+
 	private const FORBIDDEN = [ 'if', 'while', 'for', 'func', 'eval', 'unless', 'until' ];
 
 	public function set_variable( string $name, string $value ): void {
@@ -172,6 +188,20 @@ class Shell extends Node {
 			return null;
 		}
 
+		// show_parse: report the post-interpolation line + tokens before
+		// dispatching. Builtins return before constructing a Message, so this
+		// is the only place every line passes through. Goes to output_stream
+		// (same channel as `status` / `show_sse` reporting); silent when
+		// output_stream is unset.
+		if ( $this->show_parse && \is_resource( $this->output_stream ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+			\fwrite(
+				$this->output_stream,
+				'parse> line: ' . $line . "\n" .
+				'parse> tokens: ' . (string) \wp_json_encode( $tokens ) . "\n"
+			);
+		}
+
 		$verb = \array_shift( $tokens );
 		$args = $tokens;
 
@@ -202,6 +232,65 @@ class Shell extends Node {
 					// $output_stream is STDOUT or a test memory stream — never a managed path.
 					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 					\fwrite( $this->output_stream, $line . "\n" );
+				}
+			}
+			return null;
+		}
+
+		// `show_parse` builtin: toggle dumping of the parsed token list (and the
+		// resulting Message envelope) to $output_stream for every subsequent
+		// parse(). Local-only, mirrors Perl Tachikoma Shell3 `show_parse` —
+		// useful when interpolation/tokenization quirks need a microscope. No
+		// arguments — pure toggle.
+		if ( 'show_parse' === $verb ) {
+			$this->show_parse = ! $this->show_parse;
+			if ( \is_resource( $this->output_stream ) ) {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+				\fwrite( $this->output_stream, 'show_parse: ' . ( $this->show_parse ? 'on' : 'off' ) . "\n" );
+			}
+			return null;
+		}
+
+		// `debug_level` builtin: set or toggle the local Dumper's render
+		// verbosity. With no args, toggles between 0 and 1 (matching Perl
+		// Tachikoma's `debug_level` semantics). With one numeric arg, sets
+		// explicitly (clamped to 0..2 inside Dumper). Levels:
+		//   0  curated interactive output (default)
+		//   1  + one-line debug header per Message to stderr
+		//   2  + full envelope (id/stream/from/to/ts) in the header
+		// Reports the resulting level to $output_stream.
+		if ( 'debug_level' === $verb ) {
+			$dumper = Core::node( '_output' );
+			if ( $dumper instanceof Dumper ) {
+				$current = $dumper->debug_level();
+				$next    = ! empty( $args )
+					? (int) $args[0]
+					: ( $current > 0 ? 0 : 1 );
+				$applied = $dumper->set_debug_level( $next );
+				if ( \is_resource( $this->output_stream ) ) {
+					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+					\fwrite( $this->output_stream, 'debug_level: ' . $applied . "\n" );
+				}
+			}
+			return null;
+		}
+
+		// `show_sse` builtin: toggle the local Dumper's `TO=sse` filter. The
+		// worker fans stats / debug_state events out to `TO=_repl/sse`; the
+		// worker-side _router peels `_repl`, so each cli/SSE reader sees
+		// bare `TO=sse` arriving at its Dumper. By default the Dumper drops
+		// those (they're not addressed to this session's $pid). `show_sse`
+		// flips the per-session opt-in so the user can peek at the stream.
+		// Takes no arguments — pure toggle, matching Perl Tachikoma's
+		// builtin convention. Reports the new state to $output_stream.
+		if ( 'show_sse' === $verb ) {
+			$dumper = Core::node( '_output' );
+			if ( $dumper instanceof Dumper ) {
+				$now = $dumper->toggle_broadcast_filter( 'sse' );
+				if ( \is_resource( $this->output_stream ) ) {
+					// $output_stream is STDOUT or a test memory stream — never a managed path.
+					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+					\fwrite( $this->output_stream, 'show_sse: ' . ( $now ? 'on' : 'off' ) . "\n" );
 				}
 			}
 			return null;

@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Dumper;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Shell;
 use Newspack_Nodes\Tests\CaptureSink;
@@ -136,6 +137,121 @@ class ShellTest extends TestCase {
 		$this->assertStringContainsString( 'Pivoted-cli mode for firehose-workers.p0', $contents );
 		$this->assertStringContainsString( '  input  partition: /tmp/in', $contents );
 		$this->assertStringContainsString( '  output partition: /tmp/out', $contents );
+		\fclose( $out_stream );
+	}
+
+	public function test_parse_show_sse_toggles_local_dumper_filter(): void {
+		// `show_sse` is a local-only builtin: it looks up the cli's Dumper by
+		// its registered `_output` name and flips its broadcast filter for
+		// `TO=sse` (the post-_router-peel form of `_repl/sse`). Pure toggle —
+		// no arguments — matching Perl Tachikoma's builtin convention. Reports
+		// the new state to $output_stream so the user knows whether they're
+		// looking at sse traffic or not.
+		$dumper = new Dumper();
+		$dumper->name( '_output' );
+		$this->assertFalse( $dumper->broadcast_filter_enabled( 'sse' ), 'default off' );
+
+		$out_stream = \fopen( 'php://memory', 'w+' );
+		$shell      = new Shell();
+		$shell->output_stream = $out_stream;
+
+		$this->assertNull( $shell->parse( 'show_sse' ) );
+		$this->assertTrue( $dumper->broadcast_filter_enabled( 'sse' ), 'first call enables' );
+
+		\rewind( $out_stream );
+		$this->assertSame( "show_sse: on\n", \stream_get_contents( $out_stream ) );
+
+		// Second invocation toggles back off; output reflects the new state.
+		\ftruncate( $out_stream, 0 );
+		\rewind( $out_stream );
+		$this->assertNull( $shell->parse( 'show_sse' ) );
+		$this->assertFalse( $dumper->broadcast_filter_enabled( 'sse' ), 'second call disables' );
+		\rewind( $out_stream );
+		$this->assertSame( "show_sse: off\n", \stream_get_contents( $out_stream ) );
+		\fclose( $out_stream );
+	}
+
+	public function test_parse_debug_level_no_args_toggles_dumper_state(): void {
+		// `debug_level` with no args toggles between 0 and 1.
+		$dumper = new Dumper();
+		$dumper->name( '_output' );
+		$this->assertSame( 0, $dumper->debug_level(), 'default off' );
+
+		$out_stream = \fopen( 'php://memory', 'w+' );
+		$shell      = new Shell();
+		$shell->output_stream = $out_stream;
+
+		$this->assertNull( $shell->parse( 'debug_level' ) );
+		$this->assertSame( 1, $dumper->debug_level(), 'toggle 0→1' );
+		\rewind( $out_stream );
+		$this->assertSame( "debug_level: 1\n", \stream_get_contents( $out_stream ) );
+
+		\ftruncate( $out_stream, 0 );
+		\rewind( $out_stream );
+		$this->assertNull( $shell->parse( 'debug_level' ) );
+		$this->assertSame( 0, $dumper->debug_level(), 'toggle back 1→0' );
+		\fclose( $out_stream );
+	}
+
+	public function test_parse_debug_level_with_explicit_argument_sets(): void {
+		// `debug_level 2` explicitly sets to 2 (max).
+		$dumper = new Dumper();
+		$dumper->name( '_output' );
+
+		$out_stream = \fopen( 'php://memory', 'w+' );
+		$shell      = new Shell();
+		$shell->output_stream = $out_stream;
+
+		$this->assertNull( $shell->parse( 'debug_level 2' ) );
+		$this->assertSame( 2, $dumper->debug_level() );
+
+		\rewind( $out_stream );
+		$this->assertSame( "debug_level: 2\n", \stream_get_contents( $out_stream ) );
+		\fclose( $out_stream );
+	}
+
+	public function test_parse_show_parse_toggles_and_dumps_tokens(): void {
+		// `show_parse` is a Shell-local toggle (no Dumper involvement). When
+		// on, every parse() emits the post-interpolation line and tokens to
+		// $output_stream BEFORE the actual command dispatches.
+		$out_stream = \fopen( 'php://memory', 'w+' );
+		$shell      = new Shell();
+		$shell->output_stream = $out_stream;
+		$this->assertFalse( $shell->show_parse(), 'default off' );
+
+		$this->assertNull( $shell->parse( 'show_parse' ) );
+		$this->assertTrue( $shell->show_parse() );
+		\rewind( $out_stream );
+		$this->assertSame( "show_parse: on\n", \stream_get_contents( $out_stream ) );
+
+		// Now a real command should emit parse> diagnostics before the message.
+		\ftruncate( $out_stream, 0 );
+		\rewind( $out_stream );
+		$captured = new CaptureSink();
+		$shell->sink( $captured );
+		$msg = $shell->parse( 'tell some/path hello' );
+		$this->assertIsArray( $msg, 'should still build a Message' );
+
+		\rewind( $out_stream );
+		$contents = \stream_get_contents( $out_stream );
+		$this->assertStringContainsString( 'parse> line: tell some/path hello', $contents );
+		$this->assertStringContainsString( 'parse> tokens: ', $contents );
+		$this->assertStringContainsString( '"tell"', $contents );
+		\fclose( $out_stream );
+	}
+
+	public function test_parse_show_sse_silent_when_no_dumper_registered(): void {
+		// Defensive: if the Shell runs in a context where no Dumper is
+		// registered under `_output` (e.g. a fully-headless test harness),
+		// `show_sse` must not crash — silent no-op, returning null.
+		$out_stream = \fopen( 'php://memory', 'w+' );
+		$shell      = new Shell();
+		$shell->output_stream = $out_stream;
+
+		$this->assertNull( $shell->parse( 'show_sse' ) );
+
+		\rewind( $out_stream );
+		$this->assertSame( '', \stream_get_contents( $out_stream ), 'silent when no Dumper' );
 		\fclose( $out_stream );
 	}
 

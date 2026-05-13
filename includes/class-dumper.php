@@ -121,6 +121,21 @@ class Dumper extends Node {
 	private string $to_filter = '';
 
 	/**
+	 * Broadcast TO addresses the Dumper should ALSO render in addition to its
+	 * own pid/to_filter traffic. Empty = render only personal traffic. Used by
+	 * `show_sse` (and any future similar toggles) to opt into watching a
+	 * worker-side fan-out stream — `TO=sse` traffic, after `_router` peels the
+	 * `_repl` conduit prefix on the producer side, becomes a bare `sse` here.
+	 *
+	 * Matched as an exact equality against the (already-peeled) TO. No pid
+	 * suffix, no regex — the broadcast address is a fixed identity that
+	 * multiple cli/SSE sessions all consume.
+	 *
+	 * @var array<string,bool> Set-of-strings, e.g. [ 'sse' => true ].
+	 */
+	private array $broadcast_filter = [];
+
+	/**
 	 * Callback fired when a TM_EOF echo arrives matching the to_filter — the
 	 * cli's stdin-close round-trip drain marker. Cli wires this to flip the
 	 * reader's exit flag so the event loop terminates after the echo (i.e.
@@ -140,6 +155,97 @@ class Dumper extends Node {
 	}
 
 	/**
+	 * Render-verbosity dial. Mirrors Perl Tachikoma `debug_level` semantics:
+	 *
+	 *   0 (default) — interactive rendering only; control messages (TM_EOF
+	 *                 echo) silenced; the user sees curated output.
+	 *   1           — additionally emit a one-line debug header to stderr
+	 *                 for EVERY Message that arrives at this Dumper, including
+	 *                 messages the normal renderer would silence. Format:
+	 *                   <TM_FLAGS> from <FROM>: <stringified-payload>
+	 *   2           — same as 1, but the header is the full envelope:
+	 *                   <TM_FLAGS> id=<ID> stream=<STREAM> from=<FROM> to=<TO>
+	 *                 followed by the payload on the next line.
+	 *
+	 * The normal render still happens after the debug header, so level 1/2
+	 * additively narrate without replacing user-friendly output.
+	 *
+	 * @var int 0, 1, or 2.
+	 */
+	private int $debug_level = 0;
+
+	/**
+	 * Set the debug-render level. Clamps to [0, 2]. Returns the value actually
+	 * applied so the Shell builtin can report `debug_level: <n>` to the user.
+	 */
+	public function set_debug_level( int $level ): int {
+		$this->debug_level = \max( 0, \min( 2, $level ) );
+		return $this->debug_level;
+	}
+
+	/**
+	 * Read-only accessor — used by Shell builtins to toggle (read current,
+	 * pass `!current` to set) and by tests.
+	 */
+	public function debug_level(): int {
+		return $this->debug_level;
+	}
+
+	/**
+	 * Render a TM-flag bitmask as a human-readable string. Multi-flag types
+	 * (TM_COMMAND|TM_RESPONSE etc.) get all their flags concatenated.
+	 */
+	private static function format_type_flags( int $type ): string {
+		static $map = [
+			Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
+			Message::TM_EOF        => 'TM_EOF',
+			Message::TM_PING       => 'TM_PING',
+			Message::TM_COMMAND    => 'TM_COMMAND',
+			Message::TM_RESPONSE   => 'TM_RESPONSE',
+			Message::TM_ERROR      => 'TM_ERROR',
+			Message::TM_INFO       => 'TM_INFO',
+			Message::TM_STRUCT     => 'TM_STRUCT',
+			Message::TM_REQUEST    => 'TM_REQUEST',
+		];
+		$flags = [];
+		foreach ( $map as $flag => $name ) {
+			if ( $type & $flag ) {
+				$flags[] = $name;
+			}
+		}
+		return $flags ? \implode( '|', $flags ) : \sprintf( 'TM_UNKNOWN(0x%x)', $type );
+	}
+
+	/**
+	 * Toggle whether the Dumper renders TM_BYTESTREAM/TM_STRUCT messages with
+	 * a given broadcast address (post-router-peel form — e.g. 'sse' for the
+	 * `_repl/sse` fan-out). Idempotent; returns the new state so the caller
+	 * (Shell builtin) can report `show_sse: on` / `show_sse: off`.
+	 *
+	 * @param string $name        Broadcast address (post-peel form).
+	 * @param bool|null $explicit If null, toggles current state; otherwise sets.
+	 * @return bool New state.
+	 */
+	public function toggle_broadcast_filter( string $name, ?bool $explicit = null ): bool {
+		$current = ! empty( $this->broadcast_filter[ $name ] );
+		$next    = $explicit ?? ! $current;
+		if ( $next ) {
+			$this->broadcast_filter[ $name ] = true;
+		} else {
+			unset( $this->broadcast_filter[ $name ] );
+		}
+		return $next;
+	}
+
+	/**
+	 * Read-only accessor — used by Shell builtins to report current state and
+	 * by tests to assert the filter map without exposing the internal storage.
+	 */
+	public function broadcast_filter_enabled( string $name ): bool {
+		return ! empty( $this->broadcast_filter[ $name ] );
+	}
+
+	/**
 	 * Cli readline loop calls this immediately after writing the prompt so the
 	 * Dumper knows to wipe-and-redraw on the next async write.
 	 */
@@ -153,15 +259,51 @@ class Dumper extends Node {
 		// Multi-session filter: drop messages addressed to a different cli
 		// session. Match `_output/$pid` and `$pid` (the two forms a reply
 		// can take depending on whether _router peeled the _output
-		// segment). Empty TO is always rendered.
+		// segment). Empty TO is always rendered. Broadcasts (an exact TO
+		// match in the broadcast_filter set, e.g. `sse`) are also rendered
+		// — used by `show_sse` to opt into the worker's _repl/sse fan-out.
 		if ( '' !== $this->to_filter ) {
 			$to = (string) $message[ Message::TO ];
-			if ( '' !== $to && ! \preg_match( '/^(?:_output\/)?' . \preg_quote( $this->to_filter, '/' ) . '$/', $to ) ) {
+			if ( '' !== $to
+				&& ! \preg_match( '/^(?:_output\/)?' . \preg_quote( $this->to_filter, '/' ) . '$/', $to )
+				&& empty( $this->broadcast_filter[ $to ] )
+			) {
 				return;
 			}
 		}
 
 		$type = $message[ Message::TYPE ];
+
+		// debug_level >= 1: emit a one-line debug header to stderr BEFORE the
+		// normal renderer fires, so the user sees a wire-level trace alongside
+		// the curated output. Level 2 emits the full envelope. Mirrors Perl
+		// Tachikoma Dumper.pm `dump_message`. Goes to stderr so a pipe like
+		// `wp nodes cli ... | grep foo` still gets only the normal stdout.
+		if ( $this->debug_level >= 1 ) {
+			$value    = $message[ Message::VALUE ] ?? '';
+			$as_text  = \is_string( $value ) ? $value : (string) \wp_json_encode( $value, JSON_UNESCAPED_SLASHES );
+			$flags    = self::format_type_flags( (int) $type );
+			if ( $this->debug_level >= 2 ) {
+				$header = \sprintf(
+					'%s id=%s stream=%s from=%s to=%s ts=%s',
+					$flags,
+					(string) ( $message[ Message::ID ] ?? '' ),
+					(string) ( $message[ Message::KEY ] ?? '' ),
+					(string) ( $message[ Message::FROM ] ?? '' ),
+					(string) ( $message[ Message::TO ] ?? '' ),
+					(string) ( $message[ Message::TIMESTAMP ] ?? '' )
+				);
+				$this->write( $this->stderr, $header . "\n  " . $as_text, true );
+			} else {
+				$header = \sprintf(
+					'%s from %s: %s',
+					$flags,
+					(string) ( $message[ Message::FROM ] ?? '' ),
+					$as_text
+				);
+				$this->write( $this->stderr, $header, true );
+			}
+		}
 
 		// TM_EOF: drain marker — cli emitted TM_EOF on stdin close, the
 		// receiving CI bounced it back, now we're seeing the echo. Fire the
