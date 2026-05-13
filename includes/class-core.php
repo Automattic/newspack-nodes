@@ -41,6 +41,18 @@ class Core {
 	private static $stderr_handler;
 
 	/**
+	 * Re-entry guard for emit_stderr(). The default handler routes through a
+	 * `_repl` Partition; a fault inside that path (Partition write failure,
+	 * Router throw, a node's fill() rate-limit-logging its own error) calls
+	 * back into print_less_often → emit_stderr and recurses. Custom handlers
+	 * set via set_stderr_handler() can recurse the same way. Guarded at the
+	 * dispatcher (not inside one handler) so the protection applies uniformly.
+	 *
+	 * @var bool
+	 */
+	private static bool $in_stderr = false;
+
+	/**
 	 * Monotonic counter for shell message IDs. Reset by Core::reset() in tests.
 	 * Single static int; integer increment is the cheapest possible counter.
 	 */
@@ -54,6 +66,7 @@ class Core {
 		self::$closing        = [];
 		self::$print_table    = [];
 		self::$msg_counter    = 0;
+		self::$in_stderr      = false;
 		// Default handler: when a worker has wired up the `_repl` conduit, route
 		// stderr-style diagnostics through it as TM_BYTESTREAM addressed to
 		// `_repl`. The worker's `_router` peels `_repl` and dispatches into
@@ -136,7 +149,25 @@ class Core {
 	}
 
 	private static function emit_stderr( string $msg ): void {
-		( self::$stderr_handler )( $msg . "\n" );
+		if ( self::$in_stderr ) {
+			// Re-entry: the active handler itself triggered another stderr
+			// emission (e.g., the _repl Partition write inside the default
+			// handler failed and called print_less_often). Recursing back
+			// through the handler would deadlock or stack-overflow; emit
+			// straight to PHP's error_log as the last-resort sink.
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			\error_log( \rtrim( $msg ) );
+			return;
+		}
+		self::$in_stderr = true;
+		try {
+			( self::$stderr_handler )( $msg . "\n" );
+		} finally {
+			// Reset even if the handler throws — otherwise a single bad
+			// emission permanently latches every future stderr to the
+			// error_log fallback.
+			self::$in_stderr = false;
+		}
 	}
 
 	/**

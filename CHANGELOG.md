@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.15] - 2026-05-13
+
+### Added
+
+- **`CommandInterpreter` echoes `Message::KEY` from request onto its `TM_RESPONSE` / `TM_COMMAND|TM_ERROR`.** KEY is application-defined correlation metadata that now survives the round trip — a GUI client (the new event-logger-nodes Topology Console is the first consumer) can stamp `KEY='gui:auto'` on its own automated polls and recognize them on the way back without tracking IDs by hand or adding a TM_NOREPLY-style bitflag. Empty KEY (the cli's default) is unaffected.
+
+### Fixed
+
+- **Cli prompt no longer pollutes phpunit output.** `Cli_Stdin_Reader::show_prompt_fallback()` was writing directly to `\STDOUT` via `fwrite`, bypassing the Dumper's injectable stdout stream. Every CliCommandTest that constructed a `Cli_Stdin_Reader` in non-readline mode with the default `show_prompts=true` (a half-dozen cases) spat `newspack-nodes> ` straight at phpunit's real stdout, producing the `newspack-nodes> newspack-nodes> .test-prompt> ...` litter mid-progress-dots. Routed through a new `Dumper::write_prompt( string $prompt )` method instead — same `fwrite` semantics, but to the Dumper's owned `$stdout` resource which tests can swap for `php://memory`. The `mark_prompt_displayed()` side-effect folds into `write_prompt()` so the call site is one method instead of fwrite+mark.
+
+- **`Core::emit_stderr()` is now re-entrant safe.** The default handler routes through a `_repl` Partition; if a fault inside that path (Partition write failure, Router throw, a node's `fill()` rate-limit-logging its own error) calls back into `print_less_often`, the dispatcher used to recurse straight through the handler — stack-overflowing or deadlocking depending on what the inner call touched. Custom handlers set via `set_stderr_handler()` could recurse the same way. Now guarded at the dispatcher: a re-entry falls back to PHP's `\error_log()` (the same last-resort sink the default handler already uses when `_repl` isn't wired up), the flag is reset in `finally` so a throwing handler doesn't permanently latch the diverter, and `Core::reset()` clears it for tests.
+
 ## [0.1.14] - 2026-05-13
 
 ### Fixed

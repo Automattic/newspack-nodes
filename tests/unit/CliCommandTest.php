@@ -344,8 +344,9 @@ class CliCommandTest extends TestCase {
 
 	public function test_stdin_reader_constructor_writes_initial_prompt_in_non_readline_mode(): void {
 		// Non-readline mode shows a manual prompt at construction so the
-		// user sees something before typing the first line. Verify the
-		// prompt landed on the dumper's stdout layer.
+		// user sees something before typing the first line. The write is
+		// routed through Dumper::write_prompt, so a memory-stream Dumper
+		// captures it and phpunit's real STDOUT stays clean.
 		$cmd        = new Cli_Command();
 		$shell      = new \Newspack_Nodes\Shell();
 		$shell->prompt = 'test-prompt> ';
@@ -353,14 +354,15 @@ class CliCommandTest extends TestCase {
 		$dumper     = new \Newspack_Nodes\Dumper( $out_stream, \fopen( 'php://memory', 'w+' ) );
 		$stream     = \fopen( 'php://memory', 'r+' );
 
-		// Constructor writes the prompt on STDOUT directly via fwrite. We
-		// can't capture that without ob_start, but we can verify the dumper
-		// got marked as prompt-displayed.
 		new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream );
 
 		$prop = new \ReflectionProperty( $dumper, 'prompt_displayed' );
 		$prop->setAccessible( true );
 		$this->assertTrue( $prop->getValue( $dumper ) );
+
+		// Prompt content reached the dumper's stdout stream.
+		\rewind( $out_stream );
+		$this->assertSame( 'test-prompt> ', \stream_get_contents( $out_stream ) );
 
 		\fclose( $stream );
 	}
