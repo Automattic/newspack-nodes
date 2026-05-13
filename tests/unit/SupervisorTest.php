@@ -136,6 +136,16 @@ class SupervisorTest extends TestCase {
 		$this->assertFalse( $s->check_config( microtime( true ) ) );
 	}
 
+	public function test_check_config_returns_false_when_no_topologies_registered(): void {
+		// No topologies → no workers to spawn → no reason for the supervisor
+		// to keep ticking. The hook fires every 15s and the spawn rate limit
+		// keeps respawning the supervisor itself; both are wasted work
+		// without any topology to consume the output.
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+
+		$this->assertFalse( $s->check_config( microtime( true ) ) );
+	}
+
 	public function test_check_config_clamps_num_partitions_to_max(): void {
 		$this->with_topology( [
 			'huge' => [ 'num_partitions' => 9999, 'topology' => '/x.php' ],
@@ -505,6 +515,13 @@ class SupervisorTest extends TestCase {
 	 * should_restart() check breaks the loop, but only after one sleep(1).
 	 */
 	public function test_tick_loop_fires_periodic_action_on_config_window(): void {
+		// Register a topology so check_config's empty-workers gate doesn't
+		// bail before firing supervisor_periodic. The hook is the load-bearing
+		// behavior under test; the worker spawning is a side effect.
+		$this->with_topology( [
+			'noop' => [ 'topology' => '/dev/null', 'stale_timeout' => 60 ],
+		] );
+
 		$fired = 0;
 		$tmp   = $this->tmp;
 		\add_action(

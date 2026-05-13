@@ -132,6 +132,19 @@ class Bootstrap {
 			self::unschedule_supervisor();
 			return;
 		}
+		// Don't run the supervisor if there's nothing to supervise. With every
+		// topology gated off (enable_workers/enable_jobs/enable_aggregator all
+		// false, etc.), `expand_workers()` returns []. The supervisor would
+		// otherwise still spin up its 595s tick loop, heartbeat, fire
+		// supervisor_periodic, and self-respawn — all pointless when no
+		// workers exist to spawn or to consume the periodic-hook output.
+		// Leave the cron scheduled so the next minute-tick after the operator
+		// flips a gate back on picks up the new topology fleet automatically —
+		// unscheduling would require plugin re-activation to re-arm.
+		// Cost of a minute-cadence no-op tick is negligible.
+		if ( empty( self::expand_workers() ) ) {
+			return;
+		}
 		// Tag the env var BEFORE firing the wrapping action so a listener
 		// (event-logger-nodes wraps this with begin_job_context) builds its
 		// fresh request scope with `worker_type='supervisor'` already set.
