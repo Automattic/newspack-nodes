@@ -532,6 +532,13 @@ class CommandInterpreter extends Node {
 			$snapshot[ $key ] = $value;
 		}
 
+		// Sort alphabetically so the dump output is stable and scannable.
+		// Reflection returns properties in declaration order — readable
+		// for one class but inconsistent across nodes that inherit from
+		// different ancestors. Alphabetical gives the REPL operator a
+		// predictable lookup spot for any key.
+		\ksort( $snapshot );
+
 		if ( ! empty( $wanted ) ) {
 			foreach ( $wanted as $k ) {
 				if ( ! \array_key_exists( $k, $snapshot ) ) {
