@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# Pre-push gate. Smart-scoped by file type touched in the push range:
+#
+#   PHP changed  → npm run lint:php  + deploy to container + phpunit in container
+#   JS changed   → npm run lint:js   + npm run build
+#   SCSS changed → npm run lint:scss + npm run build
+#
+# Skips entirely when the push contains only docs / CHANGELOG / config-only
+# tweaks. Skip the whole gate with `git push --no-verify` when you know it's
+# fine (in-flight WIP branches, etc.).
+#
+# Wired via composer.json `extra.hooks.pre-push`; cghooks installs to
+# .git/hooks/pre-push on `composer install`.
+
+set -euo pipefail
+
+readonly PLUGIN_SLUG="newspack-nodes"
+readonly DEPLOY_SCRIPT="/services/pyrobase/setup/${PLUGIN_SLUG}.sh"
+readonly CONTAINER="eve-pyrobase1-1"
+readonly TEST_DIR_IN_CONTAINER="/usr/src/${PLUGIN_SLUG}/tests"
+
+red()    { printf '\033[31m%s\033[0m' "$*"; }
+green()  { printf '\033[32m%s\033[0m' "$*"; }
+yellow() { printf '\033[33m%s\033[0m' "$*"; }
+dim()    { printf '\033[2m%s\033[0m' "$*"; }
+
+step() { printf '%s %s\n' "$(yellow '→')" "$*" >&2; }
+ok()   { printf '%s %s\n' "$(green '✓')" "$*" >&2; }
+fail() { printf '%s %s\n' "$(red   '✗')" "$*" >&2; exit 1; }
+
+# git's native pre-push protocol delivers one "<local_ref> <local_sha>
+# <remote_ref> <remote_sha>" line per pushed ref on stdin. Find the diff
+# range vs what the remote already has.
+range=""
+while read -r local_ref local_sha remote_ref remote_sha; do
+	[[ -z "${local_sha:-}" ]] && continue
+	if [[ "$local_sha" =~ ^0+$ ]]; then
+		continue  # branch delete — nothing to gate
+	fi
+	if [[ "$remote_sha" =~ ^0+$ ]]; then
+		# New branch — compare against main/trunk merge-base.
+		base="$(git merge-base "$local_sha" origin/main 2>/dev/null \
+		     || git merge-base "$local_sha" origin/trunk 2>/dev/null \
+		     || git merge-base "$local_sha" origin/HEAD 2>/dev/null \
+		     || echo "${local_sha}~10")"
+		range="${base}..${local_sha}"
+	else
+		range="${remote_sha}..${local_sha}"
+	fi
+	break  # scope to the first ref-update line; multi-ref pushes are rare
+done
+
+if [[ -z "$range" ]]; then
+	step "$(dim 'nothing on stdin — skipping')"
+	exit 0
+fi
+
+step "checking $(dim "$range")"
+
+# Classify the diff by file type. Exclude generated / vendored paths.
+changed="$(git diff --name-only "$range" 2>/dev/null || true)"
+php_changed="$(echo  "$changed" | grep -E '\.php$'           | grep -v -E '^(vendor/|release/)'          || true)"
+js_changed="$(echo   "$changed" | grep -E '\.(js|jsx|tsx)$'  | grep -v -E '^(node_modules/|build/|release/)' || true)"
+scss_changed="$(echo "$changed" | grep -E '\.scss$'          | grep -v -E '^(node_modules/|build/|release/)' || true)"
+
+if [[ -z "$php_changed" && -z "$js_changed" && -z "$scss_changed" ]]; then
+	step "$(dim 'no PHP/JS/SCSS in range — skipping')"
+	exit 0
+fi
+
+# --- Lint pass — only run the linters for file types that actually changed. -
+if [[ -n "$php_changed" ]]; then
+	step "lint:php ($(echo "$php_changed" | wc -l | tr -d ' ') file(s) changed)"
+	npm run lint:php --silent || fail "lint:php failed — fix or push --no-verify"
+	ok "lint:php clean"
+fi
+if [[ -n "$js_changed" ]]; then
+	step "lint:js ($(echo "$js_changed" | wc -l | tr -d ' ') file(s) changed)"
+	npm run lint:js --silent || fail "lint:js failed — fix or push --no-verify"
+	ok "lint:js clean"
+fi
+if [[ -n "$scss_changed" ]]; then
+	step "lint:scss ($(echo "$scss_changed" | wc -l | tr -d ' ') file(s) changed)"
+	npm run lint:scss --silent || fail "lint:scss failed — fix or push --no-verify"
+	ok "lint:scss clean"
+fi
+
+# --- Build only when frontend changed (release-zip needs current build/). ---
+if [[ -n "$js_changed" || -n "$scss_changed" ]]; then
+	step "npm run build (frontend changed)"
+	npm run build >/dev/null 2>&1 || fail "npm run build failed"
+	ok "build clean"
+fi
+
+# --- PHP tests run in the docker container when one is available. ----------
+# The "eve" container (`eve-pyrobase1-1`) only exists on Chris's laptop —
+# anyone else who clones this plugin won't have it and the silent skip is
+# the right behavior. No dndocker-tree detection needed: the container
+# either responds to `docker exec` or it doesn't.
+if [[ -n "$php_changed" ]]; then
+	if ! command -v docker >/dev/null 2>&1 \
+	   || ! docker ps --format '{{.Names}}' 2>/dev/null | grep -q "^${CONTAINER}$"; then
+		step "$(dim "container ${CONTAINER} not available — skipping deploy + phpunit")"
+	else
+		step "deploy → ${CONTAINER}"
+		docker exec "$CONTAINER" "$DEPLOY_SCRIPT" >/dev/null || fail "deploy script failed"
+
+		step "phpunit in container"
+		out=/tmp/pre-push-phpunit.out
+		docker exec -u bend "$CONTAINER" bash -c "cd ${TEST_DIR_IN_CONTAINER} && phpunit 2>&1" >"$out" || true
+		tail -3 "$out" >&2
+		if grep -qE 'FAILURES|ERRORS' "$out"; then
+			fail "phpunit failed — full output at ${out}"
+		fi
+		ok "phpunit clean"
+	fi
+fi
+
+ok "pre-push checks passed"

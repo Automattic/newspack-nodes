@@ -467,10 +467,11 @@ class Cli_Stdin_Reader extends Timer {
 		if ( $this->prompt_displayed ) {
 			return;
 		}
-		// STDOUT is the cli's own terminal, not a WP-Filesystem-managed path.
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-		\fwrite( \STDOUT, $this->shell->prompt );
-		$this->dumper->mark_prompt_displayed();
+		// Routed through Dumper so tests with a memory-stream Dumper don't
+		// pollute phpunit's real STDOUT. write_prompt() also flips the
+		// dumper's prompt_displayed flag (replacing the prior pair of
+		// fwrite + mark_prompt_displayed).
+		$this->dumper->write_prompt( $this->shell->prompt );
 		$this->prompt_displayed = true;
 	}
 

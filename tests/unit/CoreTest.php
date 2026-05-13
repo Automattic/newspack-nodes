@@ -86,4 +86,65 @@ class CoreTest extends TestCase {
 		Core::print_least_often( 'rare' ); // 10th
 		$this->assertStringContainsString( 'rare', $buf );
 	}
+
+	public function test_emit_stderr_falls_back_when_handler_re_enters(): void {
+		// Handler that synchronously re-emits via print_less_often. Without
+		// the re-entry guard this recurses until the stack blows.
+		$outer_called = 0;
+		$inner_called = 0;
+		Core::set_stderr_handler(
+			function ( $msg ) use ( &$outer_called, &$inner_called ) {
+				++$outer_called;
+				if ( 1 === $outer_called ) {
+					// Fault inside the handler: emit another stderr line.
+					// Distinct text so print_less_often's dedup doesn't
+					// short-circuit before reaching emit_stderr.
+					Core::print_less_often( 'inner failure' );
+					++$inner_called;
+				}
+			}
+		);
+		// Capture PHP's error_log fallback output for the re-entry path.
+		$tmp = \tempnam( \sys_get_temp_dir(), 'nodes-stderr-' );
+		$old = \ini_set( 'error_log', $tmp );
+		try {
+			Core::print_less_often( 'outer failure' );
+		} finally {
+			\ini_set( 'error_log', false === $old ? '' : $old );
+		}
+		$fallback_log = (string) \file_get_contents( $tmp );
+		\unlink( $tmp );
+
+		// Outer message went through the custom handler exactly once.
+		$this->assertSame( 1, $outer_called );
+		// The recursive call inside the handler returned (no stack overflow).
+		$this->assertSame( 1, $inner_called );
+		// Inner message landed on the error_log fallback, not the custom handler.
+		$this->assertStringContainsString( 'inner failure', $fallback_log );
+	}
+
+	public function test_emit_stderr_resets_guard_when_handler_throws(): void {
+		// A throwing handler must not permanently latch the re-entry flag —
+		// otherwise the very next emit_stderr call would forever divert to
+		// error_log, silently disabling the configured handler.
+		$call = 0;
+		Core::set_stderr_handler(
+			function ( $msg ) use ( &$call ) {
+				++$call;
+				if ( 1 === $call ) {
+					throw new \RuntimeException( 'first call' );
+				}
+			}
+		);
+		try {
+			Core::print_less_often( 'first' );
+			$this->fail( 'Expected RuntimeException to propagate' );
+		} catch ( \RuntimeException $e ) {
+			// Expected.
+		}
+		// Second call (distinct text → no dedup): the handler should see it,
+		// proving the in_stderr flag was reset by the finally block.
+		Core::print_less_often( 'second' );
+		$this->assertSame( 2, $call );
+	}
 }

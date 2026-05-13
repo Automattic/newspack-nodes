@@ -14,7 +14,8 @@
 	"require-dev": {
 		"automattic/vipwpcs": "^3.0",
 		"wp-coding-standards/wpcs": "^3.0",
-		"dealerdirect/phpcodesniffer-composer-installer": "*"
+		"dealerdirect/phpcodesniffer-composer-installer": "*",
+		"brainmaestro/composer-git-hooks": "^3.0"
 	},
 	"config": {
 		"platform": {
@@ -24,10 +25,21 @@
 			"dealerdirect/phpcodesniffer-composer-installer": true
 		}
 	},
+	"extra": {
+		"hooks": {
+			"pre-push": "./scripts/pre-push"
+		}
+	},
 	"scripts": {
 		"lint": "phpcs",
 		"lint:fix": "phpcbf",
 		"build:autoloaders": "composer install --no-dev --optimize-autoloader",
-		"build-release": "./build-release.sh"
+		"build-release": "./build-release.sh",
+		"post-install-cmd": [
+			"[ -f vendor/bin/cghooks ] && vendor/bin/cghooks add --no-lock --force-win || true"
+		],
+		"post-update-cmd": [
+			"[ -f vendor/bin/cghooks ] && vendor/bin/cghooks update || true"
+		]
 	}
 }

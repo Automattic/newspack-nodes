@@ -334,6 +334,20 @@ class Dumper extends Node {
 		$this->prompt_displayed = true;
 	}
 
+	/**
+	 * Write the cli prompt onto our owned stdout stream and flip the
+	 * prompt-displayed flag. Routed through Dumper (rather than `fwrite(STDOUT,
+	 * …)` at the call site) so tests with a memory-stream Dumper don't pollute
+	 * phpunit's real STDOUT.
+	 */
+	public function write_prompt( string $prompt ): void {
+		// $this->stdout is the cli's own output stream (real STDOUT in
+		// production; injected php://memory in tests).
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+		\fwrite( $this->stdout, $prompt );
+		$this->prompt_displayed = true;
+	}
+
 	public function fill( array &$message ): void {
 		++$this->counter;
 
