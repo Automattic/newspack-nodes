@@ -135,18 +135,22 @@ class CommandInterpreter extends Node {
 	}
 
 	private static function format_uptime( int $seconds ): string {
+		// Trailing components zero-pad to 2 digits ("4m 07s") so the
+		// width stays steady across consecutive ticks. Leading component
+		// stays unpadded — pad-by-position is a tabular concern, not
+		// useful for the first digit of the value.
 		if ( $seconds < 60 ) {
-			return "{$seconds}s";
+			return \sprintf( '%02ds', $seconds );
 		}
 		if ( $seconds < 3600 ) {
 			$m = (int) ( $seconds / 60 );
 			$s = $seconds % 60;
-			return "{$m}m {$s}s";
+			return \sprintf( '%dm %02ds', $m, $s );
 		}
 		if ( $seconds < 86400 ) {
 			$h = (int) ( $seconds / 3600 );
 			$m = (int) ( ( $seconds % 3600 ) / 60 );
-			return "{$h}h {$m}m";
+			return \sprintf( '%dh %02dm', $h, $m );
 		}
 		$d   = (int) ( $seconds / 86400 );
 		$rem = $seconds - ( $d * 86400 );
