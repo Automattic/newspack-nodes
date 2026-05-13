@@ -95,6 +95,46 @@ class Node {
 		return $this->interpreter;
 	}
 
+	/**
+	 * Class manifest the topology console reads to generate the
+	 * palette entry + node configuration form. Subclasses
+	 * override to declare ctor params, sibling-CI verbs,
+	 * category, description. Shape:
+	 *
+	 *     [
+	 *         'category'    => 'Storage' | 'Routing' | 'Filtering' | …,
+	 *         'description' => '…',
+	 *         'ctor'        => [
+	 *             [ 'name' => 'base_dir', 'type' => 'string', 'required' => true ],
+	 *             …
+	 *         ],
+	 *         'verbs' => [
+	 *             [
+	 *                 'name'        => 'allow_large_writes',
+	 *                 'description' => '…',
+	 *                 'args'        => [],
+	 *             ],
+	 *             …
+	 *         ],
+	 *     ]
+	 *
+	 * Type values: 'string' | 'int' | 'float' | 'bool' |
+	 * 'formatter_name' | 'path' | 'config_var' | 'node_name'.
+	 *
+	 * `config_var` marks an argument that the loader will
+	 * substitute via `{config:foo}` syntax. `node_name` is the
+	 * type the editor renders as a "pick an existing node"
+	 * dropdown (e.g. set_errors_target's target arg).
+	 */
+	public static function node_schema(): array {
+		return [
+			'category'    => '',
+			'description' => '',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
+
 	public function debug_state( ?int $level = null ): int {
 		if ( null !== $level ) {
 			$this->debug_state = \max( 0, $level );
