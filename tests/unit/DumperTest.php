@@ -511,9 +511,10 @@ class DumperTest extends TestCase {
 		$this->assertSame( '', $this->read_all( $err ) );
 	}
 
-	public function test_debug_level_1_emits_one_line_header_to_stderr(): void {
-		// Level 1: one-line header `<FLAGS> from <FROM>: <payload>` to stderr,
-		// AND the normal curated render still goes to stdout. Both happen.
+	public function test_debug_level_1_replaces_render_with_type_from_header_payload(): void {
+		// Level 1: the dump REPLACES the normal render — same as Perl
+		// Tachikoma where dump_message rewrites the payload before
+		// SUPER::fill writes it. Shape is `<FLAGS> from <FROM>:\n<payload>`.
 		[ $dumper, $out, $err ] = $this->fresh();
 		$dumper->set_debug_level( 1 );
 
@@ -523,16 +524,21 @@ class DumperTest extends TestCase {
 		$msg[ Message::VALUE ] = 'hello';
 		$dumper->fill( $msg );
 
-		$this->assertSame( "hello\n", $this->read_all( $out ), 'normal render unchanged' );
-		$header = $this->read_all( $err );
-		$this->assertStringContainsString( 'TM_BYTESTREAM', $header );
-		$this->assertStringContainsString( 'from producer', $header );
-		$this->assertStringContainsString( 'hello', $header );
+		$rendered = $this->read_all( $out );
+		$this->assertStringContainsString( 'TM_BYTESTREAM from producer:', $rendered );
+		$this->assertStringContainsString( 'hello', $rendered );
+		// The plain "hello\n" curated render is NOT additionally emitted — the
+		// dump replaces it. Count occurrences to assert.
+		$this->assertSame( 1, \substr_count( $rendered, 'hello' ), 'payload appears exactly once' );
+		// stderr unused.
+		$this->assertSame( '', $this->read_all( $err ) );
 	}
 
-	public function test_debug_level_2_emits_full_envelope_to_stderr(): void {
-		// Level 2: envelope-style header — id=, stream=, from=, to=, ts=.
-		[ $dumper, $out, $err ] = $this->fresh();
+	public function test_debug_level_2_emits_full_envelope_dump(): void {
+		// Level 2: multi-line structural dump with all envelope fields,
+		// type flags by name, timestamp humanized. Equivalent to Perl
+		// $message->as_string output.
+		[ $dumper, $out ] = $this->fresh();
 		$dumper->set_debug_level( 2 );
 
 		$msg                       = Message::new_message();
@@ -540,16 +546,46 @@ class DumperTest extends TestCase {
 		$msg[ Message::ID ]        = 'abc';
 		$msg[ Message::FROM ]      = 'producer';
 		$msg[ Message::TO ]        = 'consumer';
-		$msg[ Message::TIMESTAMP ] = '1700000000.0';
+		$msg[ Message::TIMESTAMP ] = '1700000000';
 		$msg[ Message::VALUE ]     = 'hello';
 		$dumper->fill( $msg );
 
-		$header = $this->read_all( $err );
-		$this->assertStringContainsString( 'TM_BYTESTREAM', $header );
-		$this->assertStringContainsString( 'id=abc', $header );
-		$this->assertStringContainsString( 'from=producer', $header );
-		$this->assertStringContainsString( 'to=consumer', $header );
-		$this->assertStringContainsString( 'ts=1700000000.0', $header );
+		$rendered = $this->read_all( $out );
+		// Structural shape — labelled fields, indented payload, opens/closes with braces.
+		$this->assertStringContainsString( 'Message {', $rendered );
+		$this->assertStringContainsString( 'type:      TM_BYTESTREAM',       $rendered );
+		$this->assertStringContainsString( 'from:      producer',            $rendered );
+		$this->assertStringContainsString( 'to:        consumer',            $rendered );
+		$this->assertStringContainsString( 'id:        abc',                 $rendered );
+		$this->assertStringContainsString( 'timestamp: 1700000000 (2023-11-14', $rendered );
+		$this->assertStringContainsString( 'value:     hello',               $rendered );
+		$this->assertStringContainsString( "\n}\n",                          $rendered );
+	}
+
+	public function test_debug_level_2_decodes_tm_command_payload(): void {
+		// TM_COMMAND payloads are JSON envelopes (`{"name":"ls","payload":...}`).
+		// Level 2 should decode and pretty-print so the user sees structure,
+		// not a stringified-of-string with backslash-escapes everywhere.
+		[ $dumper, $out ] = $this->fresh();
+		$dumper->set_debug_level( 2 );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$msg[ Message::FROM ]  = '_command_interpreter';
+		$msg[ Message::VALUE ] = \wp_json_encode( [
+			'name'      => 'ls',
+			'arguments' => '-al',
+			'payload'   => "alpha\nbeta\n",
+		] );
+		$dumper->fill( $msg );
+
+		$rendered = $this->read_all( $out );
+		$this->assertStringContainsString( 'TM_COMMAND | TM_RESPONSE',     $rendered );
+		// Decoded and pretty-printed — keys appear on their own indented lines.
+		$this->assertStringContainsString( '"name": "ls"',                 $rendered );
+		$this->assertStringContainsString( '"arguments": "-al"',           $rendered );
+		// Payload is inside the decoded JSON, not in a separate escaped string.
+		$this->assertStringContainsString( '"alpha',                       $rendered );
 	}
 
 	public function test_debug_level_clamps_to_0_2_range(): void {
