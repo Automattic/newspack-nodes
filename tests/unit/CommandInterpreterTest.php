@@ -804,4 +804,35 @@ class CommandInterpreterTest extends TestCase {
 		// alice's sink is _command_interpreter (auto-default) — should NOT be emitted.
 		$this->assertStringNotContainsString( 'set_sink alice', $dump );
 	}
+
+	// ── A1: instance verb table + patron pointer ─────────────────
+
+	public function test_patron_accessor_round_trips(): void {
+		$ci   = new CommandInterpreter();
+		$node = new \Newspack_Nodes\Callback( static fn () => null );
+		$this->assertNull( $ci->patron() );
+		$ci->patron( $node );
+		$this->assertSame( $node, $ci->patron() );
+	}
+
+	public function test_commands_accessor_replaces_verb_table(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( 'test_ci' );
+		$ci->commands(
+			[
+				'echo_args' => static fn ( CommandInterpreter $self, string $args ) => "got: $args",
+			]
+		);
+		$result = $ci->execute( 'echo_args hello world' );
+		$this->assertSame( 'got: hello world', $result );
+	}
+
+	public function test_default_ci_still_has_default_verbs_after_refactor(): void {
+		// Regression: moving $C from class-level static to instance must
+		// not break the bare `_command_interpreter`'s built-in verbs.
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		$result = $ci->execute( 'ls' );
+		$this->assertStringNotContainsString( 'unknown command', $result );
+	}
 }
