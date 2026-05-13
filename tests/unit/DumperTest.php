@@ -511,10 +511,11 @@ class DumperTest extends TestCase {
 		$this->assertSame( '', $this->read_all( $err ) );
 	}
 
-	public function test_debug_level_1_replaces_render_with_type_from_header_payload(): void {
-		// Level 1: the dump REPLACES the normal render — same as Perl
-		// Tachikoma where dump_message rewrites the payload before
-		// SUPER::fill writes it. Shape is `<FLAGS> from <FROM>:\n<payload>`.
+	public function test_debug_level_1_prepends_header_then_falls_through_to_normal_render(): void {
+		// Level 1: emit a one-line `<FLAGS> from <FROM>:` header and FALL
+		// THROUGH to the normal type-specific renderer. For TM_BYTESTREAM
+		// this means header + plain payload. Mirrors Perl Tachikoma where
+		// dump_message prepends and SUPER::fill writes the result.
 		[ $dumper, $out, $err ] = $this->fresh();
 		$dumper->set_debug_level( 1 );
 
@@ -525,13 +526,39 @@ class DumperTest extends TestCase {
 		$dumper->fill( $msg );
 
 		$rendered = $this->read_all( $out );
-		$this->assertStringContainsString( 'TM_BYTESTREAM from producer:', $rendered );
+		$this->assertStringContainsString( "TM_BYTESTREAM from producer:\n", $rendered );
 		$this->assertStringContainsString( 'hello', $rendered );
-		// The plain "hello\n" curated render is NOT additionally emitted — the
-		// dump replaces it. Count occurrences to assert.
-		$this->assertSame( 1, \substr_count( $rendered, 'hello' ), 'payload appears exactly once' );
-		// stderr unused.
+		// The payload appears once (via the normal TM_BYTESTREAM renderer,
+		// not duplicated by the header itself).
+		$this->assertSame( 1, \substr_count( $rendered, 'hello' ) );
 		$this->assertSame( '', $this->read_all( $err ) );
+	}
+
+	public function test_debug_level_1_unwraps_tm_command_response_payload(): void {
+		// TM_COMMAND|TM_RESPONSE's normal renderer decodes the JSON envelope
+		// and writes just the inner command `payload` field. Level 1's header
+		// rides on top, but the unwrap still happens — the user sees the
+		// header + the friendly unwrapped output, NOT the raw JSON envelope.
+		[ $dumper, $out ] = $this->fresh();
+		$dumper->set_debug_level( 1 );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$msg[ Message::FROM ]  = '_command_interpreter';
+		$msg[ Message::VALUE ] = \wp_json_encode( [
+			'name'    => 'ls',
+			'payload' => "alpha\nbeta\n",
+		] );
+		$dumper->fill( $msg );
+
+		$rendered = $this->read_all( $out );
+		$this->assertStringContainsString( "TM_COMMAND | TM_RESPONSE from _command_interpreter:\n", $rendered );
+		$this->assertStringContainsString( 'alpha', $rendered );
+		$this->assertStringContainsString( 'beta',  $rendered );
+		// No raw JSON envelope leakage — the unwrap fired, so the user does
+		// NOT see `{"name":"ls"...}`.
+		$this->assertStringNotContainsString( '"name":"ls"', $rendered );
+		$this->assertStringNotContainsString( '\\n', $rendered );
 	}
 
 	public function test_debug_level_2_emits_full_envelope_dump(): void {
