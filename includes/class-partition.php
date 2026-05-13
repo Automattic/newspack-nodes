@@ -999,13 +999,13 @@ class Partition extends Timer {
 					if ( '' === $args ) {
 						return 'usage: with_index <formatter_name>';
 					}
+					$callable = Formatters::resolve( $args );
+					if ( null === $callable ) {
+						return "unknown formatter: $args";
+					}
 					/** @var self $patron */
 					$patron = $ci->patron();
-					// A1 records the formatter name only — actual
-					// resolution (name → callable) lands with the
-					// Formatters registry in A2. Existing PHP
-					// topology files keep wiring `with_index($closure)`
-					// via the public method.
+					$patron->with_index( $callable );
 					$patron->mark_verb_invoked( 'with_index', $args );
 					return 'ok';
 				},
