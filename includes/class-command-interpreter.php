@@ -62,6 +62,14 @@ class CommandInterpreter extends Node {
 				. "    alias: ls\n",
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
 			'dump_config' => "dump_config\n",
+			'debug_state' => "debug_state [ <node name> [ <level> ] ]\n"
+				. "    no args:      toggle this CommandInterpreter's debug_state.\n"
+				. "    name only:    toggle that node's debug_state.\n"
+				. "    name <n>:     set that node's debug_state to <n>.\n"
+				. "    note: when set, the node emits a TM_STRUCT trace to _repl/sse\n"
+				. "          on every set_state() call. cli sessions with `show_sse`\n"
+				. "          on, and the SSE controller, see the trace in real time.\n"
+				. "          New nodes created by `make_node` inherit this CI's level.\n",
 			'pwd' => "pwd\n",
 			'help' => "help [ <topic> ]\n",
 
@@ -97,6 +105,7 @@ class CommandInterpreter extends Node {
 			'dump_node'       => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_node( $args ),
 			'dump'            => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_node( $args ),
 			'dump_config'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_config(),
+			'debug_state'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_debug_state( $self, $args ),
 			'help'            => fn ( CommandInterpreter $self, string $args ): string => self::cmd_help( $args ),
 		];
 	}
@@ -149,6 +158,13 @@ class CommandInterpreter extends Node {
 		$node = new $fqcn( ...$ctor_args );
 		$node->name( $name );
 		$node->sink( $this );
+		// Inherit debug_state from this CI so `debug_state 1` followed by
+		// topology setup makes every newly-constructed node trace from birth.
+		// Mirrors Perl Tachikoma CommandInterpreter.pm:
+		//   $node->debug_state( $self->debug_state );
+		if ( $this->debug_state() > 0 ) {
+			$node->debug_state( $this->debug_state() );
+		}
 		return $node;
 	}
 
@@ -460,6 +476,49 @@ class CommandInterpreter extends Node {
 			$out .= Core::node( $name )->dump_config();
 		}
 		return $out;
+	}
+
+	/**
+	 * `debug_state [ <node name> [ <level> ] ]` — toggle or explicitly set a
+	 * node's debug_state level. Mirrors Perl Tachikoma CI:
+	 *
+	 *   debug_state              → toggle this CI's own debug_state
+	 *   debug_state 1            → set this CI to level 1
+	 *   debug_state foo          → toggle node `foo`'s debug_state
+	 *   debug_state foo 2        → set node `foo`'s debug_state to level 2
+	 *
+	 * When set on a node, every subsequent `set_state()` call emits a
+	 * TM_STRUCT trace addressed to `_repl/sse` — the cli/SSE fan-out path.
+	 * New nodes created by `make_node` inherit THIS CI's level (see
+	 * make_node()), so `debug_state 1` followed by topology setup makes
+	 * every newly-constructed node trace from birth.
+	 */
+	private static function cmd_debug_state( CommandInterpreter $self, string $args ): string {
+		[ $first, $second ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
+
+		// No args → toggle self.
+		if ( '' === $first ) {
+			$new = $self->debug_state() > 0 ? 0 : 1;
+			$self->debug_state( $new );
+			return "_command_interpreter debug_state: $new";
+		}
+
+		// Numeric-only first arg → set self to that level.
+		if ( \ctype_digit( $first ) && '' === $second ) {
+			$self->debug_state( (int) $first );
+			return '_command_interpreter debug_state: ' . $self->debug_state();
+		}
+
+		// Otherwise first arg is a node name.
+		$node = Core::node( $first );
+		if ( null === $node ) {
+			return "unknown node: $first";
+		}
+		$new = '' === $second
+			? ( $node->debug_state() > 0 ? 0 : 1 )
+			: (int) $second;
+		$node->debug_state( $new );
+		return "$first debug_state: " . $node->debug_state();
 	}
 
 	/**
