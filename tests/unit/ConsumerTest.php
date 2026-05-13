@@ -153,7 +153,7 @@ class ConsumerTest extends TestCase {
 		$this->assertCount( 1, $cap->captured, 'completed line must emit on second poll' );
 		$this->assertSame( 'first', $cap->captured[0][ Message::VALUE ] );
 		// Cursor should be at start of segment 0.
-		$this->assertSame( '0:0', $cap->captured[0][ Message::KEY ] );
+		$this->assertSame( '0:0', $cap->captured[0][ Message::ID ] );
 	}
 
 	public function test_partial_line_does_not_double_emit_bytes(): void {
@@ -701,9 +701,11 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( '_repl', $cap->captured[0][ Message::FROM ], 'override must replace name in FROM' );
 	}
 
-	public function test_poll_emitted_KEY_is_seg_colon_offset(): void {
-		// Each emitted message's KEY = "{seg}:{abs_offset}" — the offsetlog
-		// uses this to checkpoint by segment+offset.
+	public function test_poll_emitted_ID_is_seg_colon_offset(): void {
+		// Each emitted message's ID = "{seg}:{abs_offset}" — the offsetlog
+		// uses this to checkpoint by segment+offset. ID (not KEY) because KEY
+		// is the producer's routing key (rid for firehose, handler for
+		// jobintake) and Consumer must preserve it for downstream routing.
 		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
 		$this->produce_line( $source, 'first' );
 		$this->produce_line( $source, 'second' );
@@ -715,11 +717,36 @@ class ConsumerTest extends TestCase {
 
 		$this->assertCount( 2, $cap->captured );
 		// First line lands at offset 0 within segment 0.
-		$this->assertSame( '0:0', $cap->captured[0][ Message::KEY ] );
+		$this->assertSame( '0:0', $cap->captured[0][ Message::ID ] );
 		// Second line lands AFTER the first packed line + newline.
-		[ $seg2, $off2 ] = explode( ':', $cap->captured[1][ Message::KEY ] );
+		[ $seg2, $off2 ] = explode( ':', $cap->captured[1][ Message::ID ] );
 		$this->assertSame( '0', $seg2 );
 		$this->assertGreaterThan( 0, (int) $off2, 'second line offset must be past first' );
+	}
+
+	public function test_poll_preserves_producer_KEY(): void {
+		// Consumer MUST NOT overwrite the producer's KEY. KEY is the routing
+		// key — rid for firehose entries, handler for jobintake. Overwriting
+		// it to seg:offset (as Consumer used to do) breaks RequestBuilder's
+		// rid grouping and any multi-partition queue keyed on handler.
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$msg[ Message::TIMESTAMP ] = 1234567890.0;
+		$msg[ Message::KEY ]       = 'producer-key-abc123';
+		$msg[ Message::VALUE ]     = 'hello';
+		$source->fill( $msg );
+		$source->flush();
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+		$c->poll();
+
+		$this->assertCount( 1, $cap->captured );
+		$this->assertSame( 'producer-key-abc123', $cap->captured[0][ Message::KEY ] );
+		// Position breadcrumb lands on ID alongside.
+		$this->assertSame( '0:0', $cap->captured[0][ Message::ID ] );
 	}
 
 	// ============================================================================

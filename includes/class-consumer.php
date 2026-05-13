@@ -486,7 +486,15 @@ class Consumer extends Timer {
 				if ( '' !== $stamp && ! $this->stamp_message( $msg, $stamp ) ) {
 					continue; // FROM exceeded MAX_FROM_SIZE; drop_message handled.
 				}
-				$msg[ Message::KEY ] = "{$s['id']}:{$abs_offset}";
+				// Position breadcrumb goes in ID (matches Tachikoma convention
+				// — KEY is the producer's routing key, ID is per-message
+				// position/correlation). Overwriting KEY here destroys the
+				// producer's partition-routing key (rid for firehose entries,
+				// handler for jobintake), which silently corrupts:
+				// — multi-partition job queues that depend on KEY=handler
+				// — RequestBuilder's rid grouping (every entry's "rid" became
+				//   a unique seg:offset and the request cache never aggregated)
+				$msg[ Message::ID ] = "{$s['id']}:{$abs_offset}";
 				// parent::fill is Timer::fill which falls through to Node::fill
 				// for TM_BYTESTREAM. Node::fill stamps TO=target (if TO empty),
 				// bumps counter, and sinks. Mirrors Tachikoma Tail.pm:236.

@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.14] - 2026-05-13
+
+### Fixed
+
+- **Consumer was overwriting `Message::KEY` with `"{seg}:{abs_offset}"`, destroying the producer's routing key.** After v0.2.17 of `newspack-event-logger-nodes` moved `rid` from inside the entry to `Message::KEY` (so partitions co-locate by request), Consumer's overwrite turned every entry's KEY into a unique segment:offset string before it reached downstream nodes. RequestBuilder's BC fallback to KEY then returned `"12:35296133"` instead of the rid, and every entry's "rid" was different — the request cache never aggregated entries by rid, so no request ever assembled and `requests.log` stayed empty for any request that went through the firehose-workers pipeline. The same overwrite would have silently misrouted any multi-partition job queue keyed on `handler` whenever Consumer's output fed back into a partition-routing Topic.
+
+  Position breadcrumb moves to `Message::ID` (matching Perl Tachikoma's convention — KEY is the producer's routing key, ID is per-message position / correlation). Consumer preserves the producer's KEY untouched. Offsetlog continues to checkpoint by `{seg, off}` struct in VALUE, unaffected.
+
 ## [0.1.13] - 2026-05-12
 
 ### Added
