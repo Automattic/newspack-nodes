@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.10] - 2026-05-12
+
+### Changed
+
+- **`debug_level 1` now prepends the header and falls through to the normal renderer** instead of replacing it. The unwrapping that `TM_COMMAND|TM_RESPONSE` does (decode the JSON envelope, write just the inner `payload`) still happens — the user sees the type/from header followed by the friendly unwrapped output, not the raw JSON envelope. Mirrors Perl Tachikoma where `dump_response` runs BEFORE `dump_message`. Level 2 still replaces the render entirely with the structural envelope dump.
+
+  Before:
+  ```
+  TM_COMMAND | TM_RESPONSE from _command_interpreter:
+  {"name":"ls","payload":"_repl\nerrors:partition\n…"}
+  ```
+
+  After:
+  ```
+  TM_COMMAND | TM_RESPONSE from _command_interpreter:
+  _repl
+  errors:partition
+  …
+  ```
+
 ## [0.1.9] - 2026-05-12
 
 ### Changed

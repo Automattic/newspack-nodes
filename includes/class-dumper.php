@@ -217,17 +217,6 @@ class Dumper extends Node {
 	}
 
 	/**
-	 * Level-1 dump: short header followed by the value as-is. Mirrors Perl
-	 * Tachikoma Dumper.pm dump_message branch where debug_level == 1.
-	 */
-	private function format_level_1_dump( array $message ): string {
-		$value     = self::stringify_value( $message[ Message::VALUE ] ?? '', false );
-		$flags     = self::format_type_flags( (int) ( $message[ Message::TYPE ] ?? 0 ) );
-		$from      = (string) ( $message[ Message::FROM ] ?? '' );
-		return $flags . ' from ' . $from . ":\n" . $value;
-	}
-
-	/**
 	 * Level-2 dump: full envelope as a structural multi-line render. Equivalent
 	 * to Perl's `$message->as_string`, which Data::Dumper-prints all envelope
 	 * fields with the value unwrapped (TM_COMMAND values get their inner
@@ -367,18 +356,26 @@ class Dumper extends Node {
 		$type = $message[ Message::TYPE ];
 
 		// debug_level >= 1: the dump REPLACES the normal render — same as Perl
-		// Tachikoma Dumper.pm where dump_message rewrites $message->[PAYLOAD]
-		// before SUPER::fill writes it out. Level 1 prepends a type-from
-		// header to the payload; level 2 emits the full envelope as a
-		// structural dump (multi-line, indented, all fields labelled, payload
-		// unwrapped). Pipe-friendly: still goes to stdout because the user
-		// asked for it.
-		if ( $this->debug_level >= 1 ) {
-			$dump = $this->debug_level >= 2
-				? $this->format_envelope_dump( $message )
-				: $this->format_level_1_dump( $message );
-			$this->write_async( $dump );
+		// Tachikoma Dumper.pm where dump_message rewrites the rendered output.
+		//
+		// Level 2 REPLACES the normal render entirely — emit the full structural
+		// envelope dump and return; the type-specific renderers below are skipped.
+		//
+		// Level 1 PREPENDS a type-from header and falls through to the normal
+		// renderer. For TM_COMMAND|TM_RESPONSE this means the user sees the
+		// header followed by the unwrapped inner payload (not the raw JSON
+		// envelope) — matching how `dump_response` runs before `dump_message`
+		// in Perl Tachikoma. For TM_EOF, the header writes through but the
+		// callback still fires below and the return prevents an empty render.
+		if ( $this->debug_level >= 2 ) {
+			$this->write_async( $this->format_envelope_dump( $message ) );
 			return;
+		}
+		if ( $this->debug_level >= 1 ) {
+			$flags = self::format_type_flags( (int) $type );
+			$from  = (string) ( $message[ Message::FROM ] ?? '' );
+			$this->write_async( $flags . ' from ' . $from . ':' );
+			// fall through to the type-specific renderer.
 		}
 
 		// TM_EOF: drain marker — cli emitted TM_EOF on stdin close, the
