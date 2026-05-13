@@ -62,6 +62,7 @@ class CommandInterpreter extends Node {
 				. "    alias: ls\n",
 			'dump_node' => "dump_node <node name> [<keys>]\n    alias: dump\n",
 			'dump_config' => "dump_config\n",
+			'dump_metadata' => "dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments` — one round-trip gives a GUI/visualizer everything it needs to render the graph.\n",
 			'debug_state' => "debug_state [ <node name> [ <level> ] ]\n"
 				. "    no args:      toggle this CommandInterpreter's debug_state.\n"
 				. "    name only:    toggle that node's debug_state.\n"
@@ -105,6 +106,7 @@ class CommandInterpreter extends Node {
 			'dump_node'       => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_node( $args ),
 			'dump'            => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_node( $args ),
 			'dump_config'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_config(),
+			'dump_metadata'   => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_metadata(),
 			'debug_state'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_debug_state( $self, $args ),
 			'help'            => fn ( CommandInterpreter $self, string $args ): string => self::cmd_help( $args ),
 		];
@@ -502,6 +504,43 @@ class CommandInterpreter extends Node {
 			$out .= Core::node( $name )->dump_config();
 		}
 		return $out;
+	}
+
+	/**
+	 * `dump_metadata` — single-round-trip stats snapshot for a GUI/
+	 * visualizer. Returns a JSON object keyed by node name; each
+	 * value carries every field a topology console needs to render
+	 * the current state of the graph:
+	 *
+	 *   class        short class name (e.g. "Tee", "RequestBuilder")
+	 *   counter      total messages processed
+	 *   sink         singular sink path (string), or '' if unset
+	 *   target       owners: string for single-target nodes, array
+	 *                for Tee-style fan-outs, '' if no target
+	 *   debug_state  per-node debug level (0 / 1 / 2)
+	 *   arguments    the `arguments` ctor string used by make_node
+	 *
+	 * Equivalent to running `dump_node` against every node and
+	 * picking out the GUI-relevant subset, in one envelope — replaces
+	 * `ls -als` + `ls -ct` as the GUI's poll command. Inspired by
+	 * Perl Tachikoma's JSONvisualizer node (without that node's
+	 * caching, since our poll cadence is already coarse).
+	 */
+	private static function cmd_dump_metadata(): string {
+		$out = [];
+		foreach ( Core::$nodes_by_name as $name => $node ) {
+			$class = ( new \ReflectionClass( $node ) )->getShortName();
+			$sink  = $node->sink();
+			$out[ $name ] = [
+				'class'       => $class,
+				'counter'     => $node->counter(),
+				'sink'        => $sink instanceof Node ? $sink->name() : '',
+				'target'      => $node->target(),
+				'debug_state' => $node->debug_state(),
+				'arguments'   => $node->arguments(),
+			];
+		}
+		return (string) \wp_json_encode( $out, \JSON_UNESCAPED_SLASHES );
 	}
 
 	/**
