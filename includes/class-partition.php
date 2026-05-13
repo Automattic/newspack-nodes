@@ -111,6 +111,17 @@ class Partition extends Timer {
 		// `make_node Partition <name> <base_dir> <partition> ...` that
 		// re-creates this instance verbatim.
 		$this->arguments = "{$this->base_dir} {$this->partition} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}";
+
+		// Sibling CommandInterpreter for runtime configuration verbs
+		// (allow_large_writes, with_index). Constructed nameless;
+		// Node::name() will propagate `{patron}:config` once make_node
+		// names the patron. Routing happens via the existing `cmd`
+		// builtin (Shell) → TM_COMMAND → Router → sibling CI's
+		// interpret() → verb handler in self::config_verbs().
+		$ci = new CommandInterpreter();
+		$ci->patron( $this );
+		$ci->commands( self::config_verbs() );
+		$this->attach_interpreter( $ci );
 	}
 
 	/**
@@ -957,5 +968,77 @@ class Partition extends Timer {
 			$this->idx_fh = ( false === $idx_fh ) ? null : $idx_fh;
 		}
 		return $this->fh;
+	}
+
+	/**
+	 * Per-class verb table for the sibling `:config` CI. Resolved
+	 * per-instance via `$ci->patron()` at dispatch time so each
+	 * closure is stateless and shareable across all Partition
+	 * instances (memoized on first call).
+	 *
+	 * @return array<string,callable>
+	 */
+	private static function config_verbs(): array {
+		static $verbs = null;
+		if ( null === $verbs ) {
+			$verbs = [
+				'allow_large_writes' => static function ( CommandInterpreter $ci, string $args ): string {
+					/** @var self $patron */
+					$patron = $ci->patron();
+					$patron->allow_large_writes();
+					$patron->mark_verb_invoked( 'allow_large_writes', '' );
+					return 'ok';
+				},
+				'with_index'         => static function ( CommandInterpreter $ci, string $args ): string {
+					$args = \trim( $args );
+					if ( '' === $args ) {
+						return 'usage: with_index <formatter_name>';
+					}
+					/** @var self $patron */
+					$patron = $ci->patron();
+					// A1 records the formatter name only — actual
+					// resolution (name → callable) lands with the
+					// Formatters registry in A2. Existing PHP
+					// topology files keep wiring `with_index($closure)`
+					// via the public method.
+					$patron->mark_verb_invoked( 'with_index', $args );
+					return 'ok';
+				},
+			];
+		}
+		return $verbs;
+	}
+
+	/**
+	 * Manifest the topology console reads to render the palette
+	 * entry + ctor form + verb forms for Partition. See
+	 * Node::node_schema() for the shape contract.
+	 */
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Storage',
+			'description' => 'Append-only segmented log; data file + offset index per partition.',
+			'ctor'        => [
+				[ 'name' => 'base_dir',     'type' => 'string', 'required' => true ],
+				[ 'name' => 'partition',    'type' => 'int',    'required' => true ],
+				[ 'name' => 'segment_size', 'type' => 'int',    'default' => self::DEFAULT_SEGMENT_SIZE ],
+				[ 'name' => 'num_segments', 'type' => 'int',    'default' => self::DEFAULT_NUM_SEGMENTS ],
+				[ 'name' => 'max_lifespan', 'type' => 'int',    'default' => self::DEFAULT_MAX_LIFESPAN ],
+			],
+			'verbs'       => [
+				[
+					'name'        => 'allow_large_writes',
+					'description' => 'Lift the 4KB PIPE_BUF cap; acquire per-partition write lock.',
+					'args'        => [],
+				],
+				[
+					'name'        => 'with_index',
+					'description' => 'Use a named line-formatter for the companion index file.',
+					'args'        => [
+						[ 'name' => 'formatter', 'type' => 'formatter_name', 'required' => true ],
+					],
+				],
+			],
+		];
 	}
 }
