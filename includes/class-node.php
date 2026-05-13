@@ -96,6 +96,27 @@ class Node {
 	}
 
 	/**
+	 * Recorded sibling-CI verb invocations needed to recreate this
+	 * node's state. Keyed by verb name; value is the args string
+	 * (empty string when the verb takes none). `dump_config()`
+	 * walks this map and emits one
+	 * `cmd {name}:config {verb} {args}` line per entry.
+	 *
+	 * Verb handlers call `$patron->mark_verb_invoked($verb, $args)`
+	 * themselves so a node configured at runtime round-trips
+	 * through dump_config without manual tracking. Re-invoking the
+	 * same verb overwrites — last value wins (matches the
+	 * "patron's current state" semantics dump_config implements).
+	 *
+	 * @var array<string,string>
+	 */
+	protected array $invoked_verbs = [];
+
+	public function mark_verb_invoked( string $verb, string $args ): void {
+		$this->invoked_verbs[ $verb ] = $args;
+	}
+
+	/**
 	 * Class manifest the topology console reads to generate the
 	 * palette entry + node configuration form. Subclasses
 	 * override to declare ctor params, sibling-CI verbs,
@@ -438,6 +459,16 @@ class Node {
 			}
 		} elseif ( '' !== $this->target ) {
 			$out .= "connect_node {$this->name} {$this->target}\n";
+		}
+
+		// Sibling-CI verb invocations needed to reconstruct this
+		// node's runtime configuration (allow_large_writes,
+		// with_index, set_errors_target, …). Emits one cmd line
+		// per recorded invocation; the loader (A2) replays them
+		// after `make_node` to land the patron in the same state.
+		foreach ( $this->invoked_verbs as $verb => $args ) {
+			$args_suffix = '' === $args ? '' : ' ' . $args;
+			$out        .= "cmd {$this->name}:config {$verb}{$args_suffix}\n";
 		}
 
 		return $out;

@@ -413,4 +413,30 @@ class NodeTest extends TestCase {
 		$this->assertSame( [], $schema['ctor'] );
 		$this->assertSame( [], $schema['verbs'] );
 	}
+
+	// ── A1: invoked_verbs round-trip via dump_config ─────────
+
+	public function test_dump_config_emits_cmd_lines_for_invoked_verbs(): void {
+		$patron = new CaptureSink();
+		$patron->name( 'alice' );
+
+		// Sibling pretends to exist (don't actually attach one — the
+		// invoked-verb recording happens patron-side; dump_config
+		// emits cmd lines regardless of whether the sibling is
+		// attached, because the patron carries the record).
+		$patron->mark_verb_invoked( 'enable_thing', '' );
+		$patron->mark_verb_invoked( 'set_target', 'errors:partition' );
+
+		$out = $patron->dump_config();
+		$this->assertStringContainsString( 'cmd alice:config enable_thing', $out );
+		$this->assertStringContainsString( 'cmd alice:config set_target errors:partition', $out );
+	}
+
+	public function test_dump_config_without_invoked_verbs_emits_no_cmd_lines(): void {
+		$patron = new CaptureSink();
+		$patron->name( 'bob' );
+
+		$out = $patron->dump_config();
+		$this->assertStringNotContainsString( ':config ', $out );
+	}
 }
