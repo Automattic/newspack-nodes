@@ -67,6 +67,34 @@ class Node {
 	 */
 	protected int $debug_state = 0;
 
+	/**
+	 * Sibling CommandInterpreter when this node opts into the
+	 * Ruleset pattern (Partition, RequestBuilder, …). Constructors
+	 * instantiate it, set its patron pointer back at $this, and
+	 * call `commands(static::config_verbs())`. `name()` keeps the
+	 * sibling registered at `{patron_name}:config`. Null on
+	 * nodes that have no runtime configuration verbs.
+	 */
+	protected ?CommandInterpreter $interpreter = null;
+
+	/**
+	 * Attach a sibling CommandInterpreter. Patron Node ctors call
+	 * this after building the sibling so the base class can take
+	 * over name propagation; the sibling adopts
+	 * `{patron_name}:config` immediately if the patron is already
+	 * named, otherwise the next `name()` call propagates.
+	 */
+	public function attach_interpreter( CommandInterpreter $ci ): void {
+		$this->interpreter = $ci;
+		if ( '' !== $this->name ) {
+			$this->interpreter->name( $this->name . ':config' );
+		}
+	}
+
+	public function interpreter(): ?CommandInterpreter {
+		return $this->interpreter;
+	}
+
 	public function debug_state( ?int $level = null ): int {
 		if ( null !== $level ) {
 			$this->debug_state = \max( 0, $level );
@@ -106,6 +134,12 @@ class Node {
 			}
 			$this->name = $name;
 			Core::register_node( $name, $this );
+			// Sibling-CI naming convention: `{patron_name}:config`.
+			// Propagates on every rename so editor-driven node
+			// renames keep the sibling in lockstep.
+			if ( null !== $this->interpreter ) {
+				$this->interpreter->name( $name . ':config' );
+			}
 		}
 		return $this->name;
 	}

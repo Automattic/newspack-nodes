@@ -369,4 +369,37 @@ class NodeTest extends TestCase {
 		$out = $n->dump_config();
 		$this->assertStringContainsString( 'connect_node alice bob', $out );
 	}
+
+	// ── A1: sibling-CI plumbing ──────────────────────────────
+
+	public function test_attach_interpreter_keeps_sibling_synced_with_patron_name(): void {
+		$patron = new CaptureSink();
+		$sibling = new \Newspack_Nodes\CommandInterpreter();
+		$sibling->patron( $patron );
+		$patron->attach_interpreter( $sibling );
+
+		$patron->name( 'alice' );
+
+		$this->assertSame( 'alice', $patron->name() );
+		$this->assertSame( 'alice:config', $sibling->name() );
+		$this->assertSame( $sibling, $patron->interpreter() );
+	}
+
+	public function test_node_without_interpreter_name_unaffected(): void {
+		$n = new CaptureSink();
+		$n->name( 'bob' );
+		$this->assertSame( 'bob', $n->name() );
+		$this->assertNull( $n->interpreter() );
+	}
+
+	public function test_attach_interpreter_named_after_already_named_patron(): void {
+		$patron = new CaptureSink();
+		$patron->name( 'preset' );
+		$sibling = new \Newspack_Nodes\CommandInterpreter();
+		$sibling->patron( $patron );
+		$patron->attach_interpreter( $sibling );
+
+		// Sibling adopts the patron's existing name immediately.
+		$this->assertSame( 'preset:config', $sibling->name() );
+	}
 }
