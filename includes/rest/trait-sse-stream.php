@@ -65,6 +65,7 @@ trait SSE_Stream_Trait {
 			@\ob_end_clean();
 		}
 		if ( \function_exists( 'apache_setenv' ) ) {
+			// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.runtime_configuration_apache_setenv
 			@\apache_setenv( 'no-gzip', '1' );
 		}
 		\header( 'Content-Type: text/event-stream; charset=utf-8' );
@@ -87,8 +88,11 @@ trait SSE_Stream_Trait {
 				$name = 'msg';
 			}
 		}
-		echo "event: {$name}\n";
-		echo 'data: ' . \wp_json_encode( $payload ) . "\n\n";
+		$payload_json = (string) \wp_json_encode( $payload );
+		// SSE wire format — `event:` + `data:` framing must reach the
+		// client byte-for-byte. HTML escaping would corrupt the stream.
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		echo "event: {$name}\ndata: {$payload_json}\n\n";
 		$this->needs_flush = true;
 	}
 
@@ -102,7 +106,9 @@ trait SSE_Stream_Trait {
 		}
 		// SSE comments start with `:` and a single space and end with
 		// "\n\n". 4096 total - 1 (':') - 1 (' ') - 2 ("\n\n") = 4092
-		// dots → 4096-byte payload.
+		// dots → 4096-byte payload. Wire format — must reach the
+		// client byte-for-byte.
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo ': ' . \str_repeat( '.', 4092 ) . "\n\n";
 		\flush();
 		$this->needs_flush = false;
