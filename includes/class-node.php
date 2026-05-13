@@ -426,6 +426,14 @@ class Node {
 		$this->set_state     = [];
 		$this->sink          = null;
 		$this->target        = '';
+		// Sibling CI is plumbing — must not outlive the patron.
+		// Cascade-unregister it so a Partition / JobIntake recycle
+		// (which re-uses object ids and therefore re-uses Partition
+		// names) doesn't collide with an orphaned `:config` entry.
+		if ( null !== $this->interpreter && '' !== $this->interpreter->name() ) {
+			Core::unregister_node( $this->interpreter->name() );
+		}
+		$this->interpreter = null;
 		if ( '' !== $this->name ) {
 			Core::unregister_node( $this->name );
 			$this->name = '';

@@ -701,4 +701,55 @@ class PartitionTest extends TestCase {
 		$ref = new \ReflectionClass( Partition::class );
 		$this->assertTrue( $ref->hasMethod( 'loop_fwrite' ) );
 	}
+
+	// ── A1: sibling-CI + node_schema ─────────────────────────
+
+	public function test_partition_constructs_sibling_ci(): void {
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$p->name( 'my_part' );
+
+		$sibling = $p->interpreter();
+		$this->assertNotNull( $sibling );
+		$this->assertSame( 'my_part:config', $sibling->name() );
+		$this->assertSame( $p, $sibling->patron() );
+	}
+
+	public function test_partition_allow_large_writes_verb_emits_cmd_line(): void {
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$p->name( 'my_part' );
+
+		$result = $p->interpreter()->execute( 'allow_large_writes' );
+		$this->assertSame( 'ok', $result );
+
+		$dump = $p->dump_config();
+		$this->assertStringContainsString( 'cmd my_part:config allow_large_writes', $dump );
+	}
+
+	public function test_partition_with_index_verb_records_formatter_name(): void {
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$p->name( 'my_part' );
+
+		$result = $p->interpreter()->execute( 'with_index request-index' );
+		$this->assertSame( 'ok', $result );
+
+		$dump = $p->dump_config();
+		$this->assertStringContainsString( 'cmd my_part:config with_index request-index', $dump );
+	}
+
+	public function test_partition_with_index_verb_requires_formatter_name(): void {
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$p->name( 'my_part' );
+
+		$result = $p->interpreter()->execute( 'with_index' );
+		$this->assertStringContainsString( 'usage', $result );
+	}
+
+	public function test_partition_node_schema_declares_ctor_and_verbs(): void {
+		$schema = Partition::node_schema();
+		$this->assertSame( 'Storage', $schema['category'] );
+		$this->assertSame( 5, \count( $schema['ctor'] ) );
+		$verb_names = \array_column( $schema['verbs'], 'name' );
+		$this->assertContains( 'allow_large_writes', $verb_names );
+		$this->assertContains( 'with_index', $verb_names );
+	}
 }

@@ -439,4 +439,20 @@ class NodeTest extends TestCase {
 		$out = $patron->dump_config();
 		$this->assertStringNotContainsString( ':config ', $out );
 	}
+
+	public function test_remove_node_cascades_sibling_unregistration(): void {
+		$patron = new CaptureSink();
+		$sibling = new \Newspack_Nodes\CommandInterpreter();
+		$sibling->patron( $patron );
+		$patron->attach_interpreter( $sibling );
+		$patron->name( 'alice' );
+
+		$this->assertSame( $sibling, Core::node( 'alice:config' ) );
+		$patron->remove_node();
+		$this->assertNull( Core::node( 'alice' ) );
+		$this->assertNull(
+			Core::node( 'alice:config' ),
+			'sibling :config must be unregistered when patron removed'
+		);
+	}
 }
