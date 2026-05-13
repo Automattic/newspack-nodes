@@ -434,6 +434,11 @@ class Consumer extends Timer {
 			}
 
 			$bytes = ( $len > 0 ) ? $this->source->read_at( $s['id'], $read_start, $len ) : '';
+			// Mirror Partition's bytes_read on the Consumer too — the
+			// source Partition's counter reflects file-system read
+			// volume; the Consumer's counter is what surfaces in `stats`
+			// since Consumers are the user-facing read nodes.
+			$this->bytes_read += \strlen( $bytes );
 
 			// DoS guard: reject if buffer would exceed MAX_LINE_BUFFER_SIZE.
 			if ( $remainder_len + \strlen( $bytes ) > self::MAX_LINE_BUFFER_SIZE ) {
