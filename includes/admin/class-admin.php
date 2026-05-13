@@ -108,16 +108,126 @@ class Admin {
 		return (bool) \current_user_can( 'manage_options' );
 	}
 
+	/**
+	 * Top-level menu slug for the topology console. Distinct from the
+	 * Settings-API slug above so the console gets its own first-class
+	 * admin entry rather than living under Settings.
+	 */
+	public const TOPOLOGY_MENU_SLUG = 'newspack-nodes-topology';
+
 	public function __construct() {
 		\add_action( 'admin_menu', [ $this, 'add_admin_menu' ] );
+		\add_action( 'admin_menu', [ $this, 'register_topology_admin_page' ] );
 		\add_action( 'admin_init', [ $this, 'register_settings' ] );
 		\add_action( 'admin_post_' . self::RESET_ACTION, [ $this, 'handle_reset_settings' ] );
+		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_topology_console_assets' ] );
 
 		// Per-option granular worker-restart on save. Both `added_option` (first
 		// save) and `updated_option` (subsequent saves) fire this so newly-added
 		// options trigger the right restart class too.
 		\add_action( 'updated_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
 		\add_action( 'added_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
+	}
+
+	/**
+	 * Register the Topology Console as a top-level admin menu. The
+	 * page renders a single mount div the React tree hooks onto.
+	 */
+	public function register_topology_admin_page(): void {
+		if ( ! self::current_user_allowed() ) {
+			return;
+		}
+		if ( ! \function_exists( 'add_menu_page' ) ) {
+			return;
+		}
+		\add_menu_page(
+			\__( 'Newspack Nodes', 'newspack-nodes' ),
+			\__( 'Nodes', 'newspack-nodes' ),
+			'manage_options',
+			self::TOPOLOGY_MENU_SLUG,
+			[ $this, 'render_topology_page' ],
+			'dashicons-networking',
+			81
+		);
+	}
+
+	/**
+	 * Render the topology console mount element. The React bundle
+	 * (enqueued in enqueue_topology_console_assets) finds this id and
+	 * mounts itself.
+	 */
+	public function render_topology_page(): void {
+		if ( ! self::current_user_allowed() ) {
+			\wp_die( \esc_html__( 'You do not have permission to access this page.', 'newspack-nodes' ) );
+		}
+		echo '<div id="event-logger-topology-console" class="event-logger-topology-console-page"></div>';
+	}
+
+	/**
+	 * Enqueue the topology-console asset bundle on its admin page.
+	 *
+	 * The React tree imports @wordpress/element + @wordpress/api-fetch,
+	 * mounts on `#event-logger-topology-console`, and talks to the
+	 * substrate's REST controllers via the localized REST URL + nonce.
+	 */
+	public function enqueue_topology_console_assets( string $hook = '' ): void {
+		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
+			return;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page = isset( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
+		if ( self::TOPOLOGY_MENU_SLUG !== $page ) {
+			return;
+		}
+		$asset_path = \NEWSPACK_NODES_DIR . 'build/topology-console/index.js';
+		$asset_url  = ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/topology-console/index.js';
+		if ( ! \file_exists( $asset_path ) ) {
+			return;
+		}
+		$handle  = 'newspack-nodes-topology-console';
+		$version = \filemtime( $asset_path ) ?: \NEWSPACK_NODES_VERSION;
+		$deps    = [ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ];
+		\wp_enqueue_script( $handle, $asset_url, $deps, $version, true );
+
+		$css_path = \NEWSPACK_NODES_DIR . 'build/topology-console/index.css';
+		$css_url  = ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/topology-console/index.css';
+		if ( \file_exists( $css_path ) ) {
+			$css_version = \filemtime( $css_path ) ?: \NEWSPACK_NODES_VERSION;
+			\wp_enqueue_style( $handle, $css_url, [ 'wp-components' ], $css_version );
+		}
+
+		// Per-topology partition counts. The React tree reads these to
+		// size its partition dropdown so it can't show p0–p3 for a
+		// 1-partition aggregator (nor stop at p3 when num_partitions
+		// was bumped). The `newspack_nodes/topologies` filter is the
+		// same map the supervisor uses to spawn workers, so reusing it
+		// keeps the dropdown and the worker fleet in lockstep.
+		$topology_partitions = [];
+		if ( \function_exists( 'apply_filters' ) ) {
+			$resolved = \apply_filters( 'newspack_nodes/topologies', [] );
+			if ( \is_array( $resolved ) ) {
+				foreach ( $resolved as $name => $def ) {
+					if ( \is_string( $name ) && \is_array( $def ) && isset( $def['num_partitions'] ) ) {
+						$topology_partitions[ $name ] = (int) $def['num_partitions'];
+					}
+				}
+			}
+		}
+
+		// REST root + nonce for apiFetch wrappers in the React tree.
+		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
+		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
+		\wp_localize_script(
+			$handle,
+			'NewspackNodesData',
+			[
+				'restUrl'             => $rest_url,
+				'nonce'               => $nonce,
+				'tree'                => 'topology-console',
+				'version'             => \NEWSPACK_NODES_VERSION,
+				'topologyPartitions'  => $topology_partitions,
+			]
+		);
 	}
 
 	/**
