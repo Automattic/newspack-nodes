@@ -45,7 +45,7 @@ class CommandInterpreter extends Node {
 			'make_node' => "make_node <type> <name> [<arguments>]\n    alias: make\n",
 			'set_sink'  => "set_sink <node> <target>\n",
 			'connect_node' => "connect_node <node> [<target>]\n    alias: connect\n    note: <target> defaults to the issuing message's FROM — tails the node's flow back to your own cli/SSE session.\n",
-			'disconnect_node' => "disconnect_node <node> [<target>]\n    alias: disconnect\n    note: <target> is required for multi-target nodes (e.g. Tee).\n",
+			'disconnect_node' => "disconnect_node <node> [<target>]\n    alias: disconnect\n    note: for a Tee, <target> defaults to the issuing message's FROM — undoes a default `connect_node <tee>` for this session.\n",
 			'remove_node' => "remove_node <node name> [<more names>...]\n"
 				. "remove_node -a <anchored regex glob>\n"
 				. "    aliases: remove, rm\n",
@@ -95,8 +95,8 @@ class CommandInterpreter extends Node {
 			'set_sink'        => fn ( CommandInterpreter $self, string $args ): string => self::cmd_set_sink( $args ),
 			'connect_node'    => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_connect_node( $args, $envelope ),
 			'connect'         => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_connect_node( $args, $envelope ),
-			'disconnect_node' => fn ( CommandInterpreter $self, string $args ): string => self::cmd_disconnect_node( $args ),
-			'disconnect'      => fn ( CommandInterpreter $self, string $args ): string => self::cmd_disconnect_node( $args ),
+			'disconnect_node' => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_disconnect_node( $args, $envelope ),
+			'disconnect'      => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_disconnect_node( $args, $envelope ),
 			'remove_node'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
 			'remove'          => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
 			'rm'              => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
@@ -221,7 +221,7 @@ class CommandInterpreter extends Node {
 		return 'ok';
 	}
 
-	private static function cmd_disconnect_node( string $args ): string {
+	private static function cmd_disconnect_node( string $args, array $envelope = [] ): string {
 		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
 		if ( '' === $name ) {
 			return 'usage: disconnect_node <node> [<target>]';
@@ -229,6 +229,18 @@ class CommandInterpreter extends Node {
 		$src = Core::node( $name );
 		if ( null === $src ) {
 			return "unknown node: $name";
+		}
+		// Symmetric to `connect_node`'s default: for a Tee (target()
+		// returns an array), disconnect_node with no target removes
+		// the issuing message's FROM from the fan-out — exactly
+		// undoes a default `connect_node <tee>`. For a single-target
+		// node the existing semantics (empty target clears) is
+		// preserved.
+		if ( '' === $target && \is_array( $src->target() ) ) {
+			$target = (string) ( $envelope[ Message::FROM ] ?? '' );
+			if ( '' === $target ) {
+				return 'usage: disconnect_node <node> [<target>]';
+			}
 		}
 		$src->disconnect_node( $target );
 		return 'ok';
