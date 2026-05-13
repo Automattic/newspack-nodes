@@ -690,12 +690,16 @@ class CommandInterpreter extends Node {
 			$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
 		}
 
-		// Route TO=FROM (response walks the breadcrumb trail back).
+		// Route TO=FROM (response walks the breadcrumb trail back). KEY
+		// is application-defined correlation metadata: a GUI client can
+		// stamp KEY on its outgoing TM_COMMAND and recognise the matched
+		// response on the way back regardless of routing order.
 		$response                   = Message::new_message();
 		$response[ Message::TYPE ]  = $resp_type;
 		$response[ Message::FROM ]  = $this->name;
 		$response[ Message::TO ]    = $message[ Message::FROM ];
 		$response[ Message::ID ]    = $message[ Message::ID ];
+		$response[ Message::KEY ]   = $message[ Message::KEY ];
 		$response[ Message::VALUE ] = \wp_json_encode(
 			[
 				'name'    => $cmd['name'],
