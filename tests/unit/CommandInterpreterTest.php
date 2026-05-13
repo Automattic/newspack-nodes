@@ -836,6 +836,30 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringNotContainsString( 'unknown command', $result );
 	}
 
+	public function test_dump_metadata_skips_any_patron_linked_node(): void {
+		// Patron data node — visible.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		$ci->execute( 'make_node CaptureSink patron_node' );
+		$patron = \Newspack_Nodes\Core::node( 'patron_node' );
+
+		// Non-CI plumbing node (e.g. mirrors Partition's Lock helper).
+		$helper = new CaptureSink();
+		$helper->patron( $patron );
+		$helper->name( 'patron_node:helper' );
+
+		$payload  = $ci->execute( 'dump_metadata' );
+		$metadata = \json_decode( $payload, true );
+
+		$this->assertArrayHasKey( 'patron_node', $metadata );
+		$this->assertArrayNotHasKey(
+			'patron_node:helper',
+			$metadata,
+			'any node with patron() set must be hidden, not just CIs'
+		);
+	}
+
 	public function test_dump_metadata_skips_patron_linked_sibling_cis(): void {
 		// Patron data node — visible to the canvas.
 		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
