@@ -51,7 +51,7 @@ export function useTopologyStream( topology, partition, onMessage ) {
 		}
 		const baseUrl = data.restUrl;
 		const nonce = data.nonce || '';
-		const url = `${ baseUrl }newspack-event-logger-nodes/v1/topology/${ encodeURIComponent(
+		const url = `${ baseUrl }newspack-nodes/v1/topology/${ encodeURIComponent(
 			topology
 		) }/p${ encodeURIComponent(
 			partition
