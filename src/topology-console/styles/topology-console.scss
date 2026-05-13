@@ -1,0 +1,1265 @@
+/**
+ * Topology Console — engineering plotter aesthetic.
+ *
+ * Drafting paper background, 24px primary + 96px secondary grid, ink
+ * outlines, oxide accents, brass+sage+oxide status LEDs, JetBrains
+ * Mono body, Major Mono Display brand, Workbench display. Three-pane
+ * shell (palette / canvas / inspector) plus header and REPL footer.
+ */
+
+// Google Fonts — imported into the admin page asset graph.
+// @import url is fine here; wp-scripts' sass loader pipes the URL
+// through to the final CSS without trying to inline it.
+@import url(https://fonts.googleapis.com/css2?family=Major+Mono+Display&family=Workbench&family=JetBrains+Mono:wght@300;400;500;700&display=swap);
+
+// Palette.
+$paper:         #f0e7d6;
+$paper-2:       #e8dcc4;
+$paper-3:       #dbcdb1;
+$paper-shadow:  #c8b998;
+$ink:           #18222e;
+$ink-2:         #2e3f4f;
+$ink-3:         #5a6f7f;
+$ink-4:         #8294a2;
+$grid:          rgba(60, 80, 96, 0.1);
+$grid-coarse:   rgba(60, 80, 96, 0.07);
+$oxide:         #b25538;
+$oxide-dark:    #8a3d24;
+$brass:         #b4914a;
+$brass-dark:    #876a2e;
+$cyan:          #4a7290;
+$cyan-dark:     #305670;
+$sage:          #7a8f6a;
+$sage-dark:     #5b6e4d;
+
+$mono: "JetBrains Mono", ui-monospace, monospace;
+$display-brand: "Major Mono Display", ui-monospace, monospace;
+$display-stencil: "Workbench", monospace;
+
+// Hide WP admin gunk so we own the viewport. The actual body class
+// is `{parent}_page_newspack-nodes-topology` — the parent slug varies
+// (toplevel vs submenu, slug rename, etc.), so match any class that
+// ends with `_page_newspack-nodes-topology` rather than enumerating.
+body[class*="_page_newspack-nodes-topology"] {
+
+	#wpcontent {
+		padding-left: 0;
+	}
+
+	#wpbody-content {
+		padding-bottom: 0;
+	}
+
+	.wrap {
+		margin: 0;
+	}
+
+	// "Thank you for creating with WordPress" + version line at the
+	// page bottom — visible as a fragment below our console because
+	// .topology-app's calc(100vh - 32px) accounts only for the admin
+	// bar at the top, not this footer. Console fills the whole space
+	// without it.
+	#wpfooter {
+		display: none;
+	}
+}
+
+// Paper backdrop + grid is painted as full-viewport fixed layers so
+// the schematic plotter feel persists when the user scrolls inside
+// the panes.
+.event-logger-topology-console-page {
+	margin: 0;
+	padding: 0;
+}
+
+.topology-app {
+	position: relative;
+	z-index: 2;
+	height: calc(100vh - 32px); // leave WP admin bar visible.
+	display: grid;
+	grid-template-rows: 64px 1fr 38px;
+	// v1 is inspect-only — the palette pane is hidden until EDIT
+	// mode lands. Inspector is only mounted when a node is selected;
+	// the default layout reclaims the full width for the canvas, and
+	// `.is-inspector-open` (toggled by the React parent when
+	// `selectedId` is set) brings back the 308px right column.
+	grid-template-columns: 1fr;
+	grid-template-areas:
+		"header"
+		"canvas"
+		"repl";
+
+	&.is-inspector-open {
+		grid-template-columns: 1fr 308px;
+		grid-template-areas:
+			"header header"
+			"canvas inspector"
+			"repl   inspector";
+	}
+	font-family: $mono;
+	font-size: 13px;
+	line-height: 1.45;
+	color: $ink;
+	background: $paper;
+	-webkit-font-smoothing: antialiased;
+	overflow: hidden;
+
+	&::before,
+	&::after {
+		content: "";
+		position: absolute;
+		inset: 0;
+		pointer-events: none;
+		z-index: 0;
+	}
+
+	&::before {
+		background-image:
+			linear-gradient(to right, $grid 1px, transparent 1px),
+			linear-gradient(to bottom, $grid 1px, transparent 1px);
+		background-size: 24px 24px;
+	}
+
+	&::after {
+		background-image:
+			linear-gradient(to right, $grid-coarse 1px, transparent 1px),
+			linear-gradient(to bottom, $grid-coarse 1px, transparent 1px);
+		background-size: 96px 96px;
+	}
+
+	* {
+		box-sizing: border-box;
+	}
+}
+
+@keyframes topology-pulse {
+
+	0%,
+	100% {
+		opacity: 1;
+	}
+
+	50% {
+		opacity: 0.3;
+	}
+}
+
+@keyframes topology-flow {
+
+	to {
+		stroke-dashoffset: -8;
+	}
+}
+
+@keyframes topology-fadein {
+
+	from {
+		opacity: 0;
+	}
+
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes topology-draw {
+
+	to {
+		stroke-dashoffset: 0;
+	}
+}
+
+// =====================================================================
+// Header
+// =====================================================================
+
+.topology-header {
+	grid-area: header;
+	border-bottom: 1px solid $ink;
+	background: $paper;
+	display: flex;
+	align-items: stretch;
+	padding: 0 18px;
+	gap: 24px;
+	z-index: 3;
+	box-shadow: 0 1px 0 $paper-shadow;
+}
+
+.topology-brand {
+	font-family: $display-brand;
+	font-size: 19px;
+	letter-spacing: 0.04em;
+	align-self: center;
+
+	&__colon {
+		color: $oxide;
+	}
+}
+
+.topology-subtitle {
+	align-self: center;
+	font-size: 10px;
+	text-transform: uppercase;
+	letter-spacing: 0.22em;
+	color: $ink-3;
+	border-left: 1px solid $ink-4;
+	padding-left: 16px;
+}
+
+.topology-header__controls {
+	margin-left: auto;
+	display: flex;
+	align-items: center;
+	gap: 12px;
+}
+
+.topology-ctl-label {
+	font-size: 9px;
+	text-transform: uppercase;
+	letter-spacing: 0.22em;
+	color: $ink-3;
+}
+
+.topology-select {
+	appearance: none;
+	background: transparent;
+	border: 1px solid $ink-2;
+	color: $ink;
+	font: 500 12px/1 $mono;
+	padding: 7px 22px 7px 10px;
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%2318222E'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 8px center;
+	background-size: 8px;
+	border-radius: 0;
+	cursor: pointer;
+
+	&:focus-visible {
+		outline: 2px solid $oxide;
+		outline-offset: -1px;
+	}
+}
+
+.topology-mode {
+	display: inline-flex;
+	border: 1px solid $ink;
+	overflow: hidden;
+	margin-left: 4px;
+
+	&__btn {
+		background: transparent;
+		border: 0;
+		padding: 7px 14px;
+		font: 700 10px $mono;
+		color: $ink-3;
+		letter-spacing: 0.16em;
+		cursor: pointer;
+		transition: all 100ms ease;
+
+		&[disabled] {
+			cursor: not-allowed;
+			opacity: 0.5;
+		}
+
+		&--live.is-active {
+			background: $oxide;
+			color: $paper;
+		}
+
+		// Live button hosts both "LIVE" (left) and the uptime slot
+		// (right). Inline-flex lets margin-left:auto push the slot to
+		// the far edge while LIVE stays anchored on the left.
+		&--live {
+			display: inline-flex;
+			align-items: center;
+		}
+	}
+}
+
+.topology-live-led {
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: $paper;
+	margin-right: 6px;
+	vertical-align: middle;
+
+	&.is-pulsing {
+		animation: topology-pulse 1.4s ease-in-out infinite;
+	}
+}
+
+// Worker uptime, rendered inline after "LIVE" in the header — the
+// LIVE LED says the worker is alive, this says how long for.
+// `margin-left: auto` (the button is inline-flex) pushes the uptime
+// to the far right, leaving LIVE anchored on the left. `min-width`
+// covers the realistic upper-bound for our short-lived workers
+// ("9m 59s" / "9h 59m"); `text-align: right` keeps the value
+// flush-right inside its slot.
+.topology-uptime {
+	display: inline-block;
+	min-width: 48px;
+	margin-left: auto;
+	padding-left: 8px;
+	text-align: right;
+	opacity: 0.75;
+	font-weight: 400;
+	letter-spacing: 0;
+}
+
+// =====================================================================
+// Palette
+// =====================================================================
+
+.topology-palette {
+	grid-area: palette;
+	border-right: 1px solid $ink;
+	background: $paper-2;
+	padding: 14px 0 60px;
+	overflow-y: auto;
+	position: relative;
+
+	&__group {
+		margin: 14px 16px 8px;
+		font: 700 9px/1 $mono;
+		text-transform: uppercase;
+		letter-spacing: 0.22em;
+		color: $ink-3;
+		border-bottom: 1px dotted $ink-4;
+		padding-bottom: 8px;
+
+		&:first-child {
+			margin-top: 0;
+		}
+	}
+
+	&__item {
+		display: flex;
+		align-items: center;
+		padding: 7px 16px 7px 13px;
+		cursor: grab;
+		border-left: 3px solid transparent;
+		transition: all 80ms ease;
+
+		&:hover {
+			background: $paper;
+			border-left-color: $oxide;
+
+			.topology-palette__glyph {
+				background: $paper-2;
+			}
+		}
+	}
+
+	/* stylelint-disable-next-line no-descending-specificity */
+	&__glyph {
+		width: 28px;
+		height: 18px;
+		margin-right: 11px;
+		border: 1px solid $ink-2;
+		background: $paper;
+		position: relative;
+		flex-shrink: 0;
+
+		&::before,
+		&::after {
+			content: "";
+			position: absolute;
+			width: 5px;
+			height: 5px;
+			border-radius: 50%;
+			background: $ink-2;
+			top: 6px;
+		}
+
+		&::before {
+			left: -3px;
+		}
+
+		&::after {
+			right: -3px;
+		}
+	}
+
+	// Variant glyphs — keyed on the data-type attribute the React
+	// component sets, exposed here through chained BEM class names.
+	// stylelint-disable no-descending-specificity
+	&__item--tee &__glyph::after {
+		box-shadow: 0 8px 0 $ink-2, 0 -8px 0 $ink-2;
+	}
+
+	&__item--partition &__glyph {
+		// stylelint-disable-next-line @stylistic/declaration-colon-space-after
+		background-image: linear-gradient(to bottom, transparent 4px, $ink-2 4px, $ink-2 5px, transparent 5px, transparent 9px, $ink-2 9px, $ink-2 10px, transparent 10px, transparent 14px, $ink-2 14px, $ink-2 15px, transparent 15px);
+	}
+
+	&__item--tail &__glyph::before {
+		background: $brass;
+	}
+
+	&__item--topic &__glyph::after {
+		background: $oxide;
+	}
+
+	&__item--timer &__glyph {
+		background:
+			radial-gradient(circle at center, $ink-2 1px, transparent 1.5px) center / 4px 4px no-repeat,
+			conic-gradient(from -90deg, $ink-2 90deg, transparent 90deg) center / 12px 12px no-repeat;
+
+		&::before,
+		&::after {
+			display: none;
+		}
+	}
+	// stylelint-enable no-descending-specificity
+
+	&__name {
+		font: 500 12px $mono;
+		color: $ink;
+	}
+
+	&__badge {
+		margin-left: auto;
+		font: 700 8px $mono;
+		color: $ink-4;
+		letter-spacing: 0.1em;
+	}
+
+	&__footer {
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		// Match the REPL bar's 38px so the bottom edge of palette,
+		// canvas (bar), and inspector all share a clean horizontal
+		// baseline.
+		height: 38px;
+		display: flex;
+		align-items: center;
+		padding: 0 16px;
+		border-top: 1px solid $ink-4;
+		background: $paper-3;
+		font: 400 9px $mono;
+		letter-spacing: 0.1em;
+		color: $ink-3;
+		text-transform: uppercase;
+	}
+
+	&__count {
+		color: $ink;
+		font-weight: 700;
+	}
+}
+
+// =====================================================================
+// Canvas
+// =====================================================================
+
+.topology-canvas {
+	grid-area: canvas;
+	position: relative;
+	overflow: hidden;
+	background: $paper;
+
+	&__meta {
+		position: absolute;
+		top: 14px;
+		left: 18px;
+		font: 700 9px/1.5 $mono;
+		text-transform: uppercase;
+		letter-spacing: 0.22em;
+		color: $ink-3;
+		pointer-events: none;
+		z-index: 5;
+	}
+
+	&__topology-name {
+		font-family: $display-stencil;
+		font-variation-settings: "BLCK" 5, "ROND" 20;
+		font-size: 18px;
+		font-weight: 400;
+		color: $ink;
+		letter-spacing: 0.02em;
+		margin-top: 6px;
+		text-transform: none;
+	}
+
+	// Reset-layout chip — top-right of the canvas, in the gap between
+	// the header bar and the TR alignment reticle (top: 70px,
+	// 24x24 → ends at y≈94). Sits above the reticle, with right edge
+	// aligned to where the LIVE button lives in the header above.
+	&__reset {
+		position: absolute;
+		top: 14px;
+		right: 16px;
+		z-index: 5;
+		background: transparent;
+		border: 1px solid $ink-3;
+		color: $ink-3;
+		font: 500 10px/1 $mono;
+		letter-spacing: 0.16em;
+		text-transform: uppercase;
+		padding: 5px 10px;
+		cursor: pointer;
+		transition: all 100ms ease;
+
+		&:hover {
+			border-color: $oxide;
+			color: $oxide;
+		}
+	}
+}
+
+.topology-canvas-svg {
+	width: 100%;
+	height: 100%;
+	display: block;
+	cursor: default;
+}
+
+
+.topology-reticle {
+	position: absolute;
+	width: 24px;
+	height: 24px;
+	border: 1px solid $ink-2;
+	pointer-events: none;
+	z-index: 4;
+
+	&::before {
+		content: "";
+		position: absolute;
+		inset: 50% 50% 50% 50%;
+		width: 4px;
+		height: 4px;
+		border: 1px solid $oxide;
+		border-radius: 50%;
+		transform: translate(-50%, -50%);
+		background: $paper;
+	}
+
+	&--tl {
+		top: 70px;
+		left: 16px;
+		border-right: 0;
+		border-bottom: 0;
+	}
+
+	&--tr {
+		top: 70px;
+		right: 16px;
+		border-left: 0;
+		border-bottom: 0;
+	}
+
+	&--bl {
+		bottom: 16px;
+		left: 16px;
+		border-right: 0;
+		border-top: 0;
+	}
+
+	&--br {
+		bottom: 16px;
+		right: 16px;
+		border-left: 0;
+		border-top: 0;
+	}
+}
+
+.topology-title-block {
+	position: absolute;
+	bottom: 14px;
+	right: 18px;
+	background: $paper;
+	border: 1px solid $ink;
+	font: 400 10px $mono;
+	z-index: 5;
+	box-shadow: 2px 2px 0 $paper-shadow;
+
+	&__row {
+		display: grid;
+		grid-template-columns: 70px 130px;
+		border-bottom: 1px solid $ink-2;
+
+		&:last-child {
+			border-bottom: 0;
+		}
+	}
+
+	&__k {
+		padding: 3px 8px;
+		border-right: 1px solid $ink-2;
+		font: 700 8px $mono;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+		color: $ink-3;
+		background: $paper-2;
+	}
+
+	&__v {
+		padding: 3px 8px;
+		font-size: 10px;
+
+		&--proj {
+			font: 700 11px $display-stencil;
+			font-variation-settings: "BLCK" 8;
+		}
+	}
+}
+
+// =====================================================================
+// SVG nodes + edges
+// =====================================================================
+
+.topology-node {
+	cursor: grab;
+	animation: topology-fadein 0.35s ease-out both;
+	transition: opacity 120ms ease;
+	// Drag inside the SVG should never spill into a browser text
+	// selection of surrounding chrome.
+	user-select: none;
+	-webkit-user-select: none;
+
+	&.is-faded {
+		opacity: 0.4;
+	}
+
+	// While being dragged: cursor flips to grabbing and the node sits
+	// above its peers so it isn't occluded by neighboring shadow
+	// rectangles. No animated transition — drag updates positions
+	// many times per second and any transition would feel laggy.
+	&.is-dragging {
+		cursor: grabbing;
+		opacity: 0.9;
+	}
+
+	&__shadow {
+		fill: rgba(0, 0, 0, 0.04);
+	}
+
+	&__bg {
+		fill: $paper-2;
+		stroke: $ink;
+		stroke-width: 1;
+	}
+
+	&__divider {
+		stroke: $ink-2;
+		stroke-width: 1;
+	}
+
+	&__type {
+		font: 700 9px $mono;
+		fill: $ink-3;
+		letter-spacing: 0.18em;
+		text-transform: uppercase;
+	}
+
+	&__led {
+		fill: $sage;
+		stroke: $sage-dark;
+		stroke-width: 0.6;
+	}
+
+	&__id {
+		font: 700 13px $mono;
+		fill: $ink;
+	}
+
+	&__meta {
+		font: 400 10px $mono;
+		fill: $ink-3;
+	}
+
+	// Per-node message rate in the lower-left. Same slot the former
+	// "live" label occupied — labels are useless ("LIVE" lives in
+	// the header for the whole topology), so we put the actually-
+	// informative signal there instead. Format and threshold come
+	// from formatNodeRate; the renderer returns null below the
+	// threshold so the slot is empty rather than "0 /s".
+	&__rate {
+		font: 400 10px $mono;
+		fill: $oxide;
+		font-variant-numeric: tabular-nums;
+	}
+
+	// Sparkline of trailing message rates, drawn between the id row
+	// and the bottom rate/counter row. Auto-scaled to the window's
+	// max so the curve shape is always readable; oxide stroke at low
+	// opacity so it reads as decoration rather than competing with
+	// the foreground text.
+	&__spark {
+		fill: none;
+		stroke: $oxide;
+		stroke-width: 1.25;
+		stroke-linejoin: round;
+		stroke-linecap: round;
+		opacity: 0.55;
+		pointer-events: none;
+	}
+
+	&__counter {
+		font: 700 13px $mono;
+		fill: $oxide;
+		font-variant-numeric: tabular-nums;
+	}
+
+	&:hover &__bg {
+		fill: $paper;
+	}
+
+	&.is-selected &__bg {
+		stroke: $oxide;
+		stroke-width: 2;
+	}
+}
+
+.topology-port {
+	fill: $paper;
+	stroke: $ink;
+	stroke-width: 1;
+
+	&--out {
+		// Same default; active state will flip to brass once we wire
+		// per-edge throughput. Live counter ticks already animate, so
+		// keeping ports static for v1 avoids visual noise.
+	}
+}
+
+.topology-edge {
+	fill: none;
+	stroke: $ink-3;
+	stroke-width: 1.2;
+	stroke-dasharray: 1000;
+	stroke-dashoffset: 1000;
+	animation: topology-draw 0.8s ease-out 0.2s forwards;
+	transition: stroke 120ms ease, stroke-width 120ms ease, opacity 120ms ease;
+
+	&--active {
+		stroke: $cyan;
+		stroke-width: 1.6;
+		stroke-dasharray: 5 3;
+		animation:
+			topology-draw 0.8s ease-out 0.2s forwards,
+			topology-flow 0.8s linear 1s infinite;
+	}
+
+	// Hovering a node lights up its inbound + outbound edges and
+	// dims the rest, so the user can read the flow neighborhood of
+	// any node at a glance.
+	&.is-touched {
+		stroke: $oxide;
+		stroke-width: 2.2;
+	}
+
+	&.is-dimmed {
+		opacity: 0.15;
+	}
+}
+
+
+.topology-arrow-head {
+	fill: $ink-3;
+
+	&--active {
+		fill: $cyan-dark;
+	}
+}
+
+// =====================================================================
+// Inspector
+// =====================================================================
+
+.topology-inspector {
+	grid-area: inspector;
+	background: $paper-2;
+	border-left: 1px solid $ink;
+	padding: 20px 18px 24px;
+	overflow-y: auto;
+}
+
+.topology-insp__empty {
+	text-align: center;
+	color: $ink-4;
+	padding: 100px 20px;
+	font-size: 11px;
+	text-transform: uppercase;
+	letter-spacing: 0.18em;
+}
+
+.topology-insp__title {
+	font-family: $display-stencil;
+	font-variation-settings: "BLCK" 4, "ROND" 10;
+	font-size: 19px;
+	font-weight: 400;
+	margin: 0 0 2px;
+	color: $ink;
+	word-break: break-all;
+}
+
+.topology-insp__type {
+	font: 700 9px $mono;
+	text-transform: uppercase;
+	letter-spacing: 0.22em;
+	color: $oxide;
+	margin-bottom: 16px;
+	padding-bottom: 12px;
+	border-bottom: 1px solid $ink-4;
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.topology-insp__led {
+	display: inline-block;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: $sage;
+	box-shadow: 0 0 0 1px $sage-dark;
+
+	&.is-pulsing {
+		animation: topology-pulse 1.4s ease-in-out infinite;
+	}
+}
+
+.topology-insp__section {
+	margin: 18px 0;
+
+	&-title {
+		font: 700 9px $mono;
+		text-transform: uppercase;
+		letter-spacing: 0.22em;
+		color: $ink-3;
+		margin: 0 0 9px;
+		display: flex;
+		justify-content: space-between;
+	}
+
+	&-meta {
+		color: $ink-4;
+		font-weight: 400;
+		letter-spacing: 0.1em;
+	}
+}
+
+// Activity sparklines — three stacked rows, each with a label/current-
+// value header above a fixed-height plot. Mirrors the per-node-card
+// sparkline visually (oxide stroke, low opacity) but wider and taller
+// for legibility inside the inspector pane.
+.topology-insp__spark-row {
+	margin: 0 0 10px;
+
+	&:last-child {
+		margin-bottom: 0;
+	}
+}
+
+.topology-insp__spark-head {
+	display: flex;
+	justify-content: space-between;
+	align-items: baseline;
+	margin: 0 0 3px;
+}
+
+.topology-insp__spark-label {
+	font: 400 10px $mono;
+	color: $ink-3;
+}
+
+.topology-insp__spark-vals {
+	display: flex;
+	flex-direction: column;
+	align-items: flex-end;
+	gap: 1px;
+}
+
+.topology-insp__spark-val {
+	font: 700 11px $mono;
+	color: $oxide;
+	font-variant-numeric: tabular-nums;
+
+	&--dim {
+		color: $ink-4;
+		font-weight: 400;
+	}
+}
+
+.topology-insp__spark-peak {
+	font: 400 9px $mono;
+	color: $ink-3;
+	font-variant-numeric: tabular-nums;
+	letter-spacing: 0.05em;
+}
+
+.topology-insp__spark-svg {
+	display: block;
+	width: 100%;
+	height: 32px;
+}
+
+.topology-insp__spark-path {
+	stroke: $oxide;
+	stroke-width: 1.25;
+	stroke-linejoin: round;
+	stroke-linecap: round;
+	opacity: 0.65;
+}
+
+.topology-field-row {
+	display: grid;
+	grid-template-columns: 88px 1fr;
+	padding: 5px 0;
+	border-bottom: 1px dotted $ink-4;
+	gap: 10px;
+	align-items: baseline;
+
+	&:last-child {
+		border-bottom: 0;
+	}
+
+	&__key {
+		font: 400 10px $mono;
+		color: $ink-3;
+	}
+
+	&__val {
+		font: 500 11px $mono;
+		color: $ink;
+		word-break: break-all;
+
+		&--num {
+			color: $oxide;
+			font-variant-numeric: tabular-nums;
+			font-weight: 700;
+			text-align: right;
+		}
+
+		// `--right` is the alignment-only modifier — same right-justify
+		// as --num but without the oxide color or bold weight. Used
+		// for text-shaped values that should align to the value column
+		// (e.g. `last_seen` "14.2s ago") alongside numeric siblings.
+		&--right {
+			text-align: right;
+			font-variant-numeric: tabular-nums;
+		}
+
+		&--link {
+			color: $cyan-dark;
+			cursor: pointer;
+			text-decoration: underline dotted;
+			text-underline-offset: 2px;
+		}
+
+		// `--dim` is purely a color/weight modifier. It deliberately
+		// leaves text-align alone so it composes cleanly with --num
+		// or --right when a numeric field is currently zero/empty
+		// (still right-aligned, just muted).
+		&--dim {
+			color: $ink-4;
+			font-weight: 400;
+			font-style: italic;
+		}
+
+		// `--mono` is the long-string / path / arguments variant —
+		// slightly smaller and tighter so a Partition's full
+		// constructor args ("/tmp/.../requests.log 0 67108864 2 86400")
+		// stay readable inside the 308px inspector column without
+		// blowing past the value cell.
+		&--mono {
+			font: 400 10px/1.4 $mono;
+			color: $ink-2;
+			word-break: break-all;
+		}
+	}
+
+	// Interactive node-name link inside a routing row (target/also/
+	// from). Looks like a link, behaves like a button — hover
+	// highlights the corresponding node's edges on the canvas; click
+	// selects it. Sink is intentionally NOT rendered as one of these
+	// (it's framework plumbing, not navigable).
+	&__nav {
+		background: transparent;
+		border: 0;
+		padding: 0;
+		margin: 0;
+		font: inherit;
+		color: $cyan-dark;
+		cursor: pointer;
+		text-decoration: underline dotted;
+		text-underline-offset: 2px;
+		transition: color 100ms ease;
+
+		&:hover {
+			color: $oxide;
+			text-decoration-style: solid;
+		}
+
+		&:focus-visible {
+			outline: 1px solid $oxide;
+			outline-offset: 2px;
+		}
+	}
+}
+
+.topology-insp__actions {
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 6px;
+	margin-top: 18px;
+
+	button {
+		background: transparent;
+		border: 1px solid $ink-2;
+		color: $ink;
+		padding: 8px 10px;
+		font: 700 10px $mono;
+		letter-spacing: 0.14em;
+		text-transform: uppercase;
+		text-align: left;
+		cursor: pointer;
+		transition: all 100ms ease;
+		border-radius: 0;
+
+		&:hover:not([disabled]) {
+			background: $ink;
+			color: $paper;
+		}
+
+		&[disabled] {
+			cursor: not-allowed;
+			opacity: 0.5;
+		}
+
+		// Inverted/pressed state for toggles whose action is currently
+		// "in effect" (Trace = debug_state on, Tail = our session is
+		// in the Tee's target list). Mirrors the substrate state so
+		// the visual is authoritative.
+		&.is-active {
+			background: $oxide;
+			color: $paper;
+			border-color: $oxide-dark;
+		}
+
+		&.is-active:hover:not([disabled]) {
+			background: $oxide-dark;
+			color: $paper;
+		}
+	}
+}
+
+.topology-insp__actions-full {
+	grid-column: span 2;
+}
+
+.topology-insp__actions-danger {
+	color: $oxide !important;
+	border-color: $oxide !important;
+
+	&:hover:not([disabled]) {
+		background: $oxide !important;
+		color: $paper !important;
+	}
+}
+
+// =====================================================================
+// REPL footer
+// =====================================================================
+
+.topology-repl {
+	grid-area: repl;
+	position: relative;
+	border-top: 1px solid $ink;
+	background: $ink;
+	color: $paper;
+	font: 400 12px $mono;
+	// Above the reticles (z=4) so the expanded transcript pane and
+	// the single-line peek both occlude the corner alignment marks
+	// rather than peeking through them.
+	z-index: 5;
+
+	// Button styles come BEFORE `&__bar` so the descending-specificity
+	// rule is happy — `.topology-repl__bar .topology-repl__toggle`
+	// (defined inside `&__bar`) is more specific than `&__toggle` and
+	// must follow it in source order.
+	&__toggle,
+	&__clear {
+		// Solid background so the button visually clears its own
+		// footprint from any transcript text scrolling behind —
+		// without a wrapping rectangle around both controls.
+		background: $ink;
+		border: 1px solid rgba(240, 231, 214, 0.25);
+		color: rgba(240, 231, 214, 0.55);
+		width: 22px;
+		height: 22px;
+		font: 700 11px $mono;
+		line-height: 1;
+		cursor: pointer;
+		border-radius: 0;
+		padding: 0;
+		transition: all 100ms ease;
+
+		&:hover {
+			border-color: $brass;
+			color: $brass;
+		}
+	}
+
+	&__clear:hover {
+		border-color: $oxide;
+		color: $oxide;
+	}
+
+	&__bar {
+		height: 38px;
+		display: flex;
+		align-items: center;
+		padding: 0 18px;
+		gap: 10px;
+
+		// Restore-arrow (▲) sits at the right edge of the bar when
+		// the transcript is minimized. Pull it past the bar's 18px
+		// right padding so its right gap matches its vertical
+		// centering (≈8px on each side of the 22px button in a 38px
+		// bar — symmetric corner.)
+		.topology-repl__toggle {
+			margin-right: -10px;
+		}
+	}
+
+	&__prompt {
+		color: $brass;
+		font-weight: 700;
+	}
+
+	&__input {
+		flex: 1;
+		background: transparent;
+		border: 0;
+		color: $paper;
+		font: inherit;
+		outline: none;
+		padding: 6px 0;
+		caret-color: $brass;
+
+		&::placeholder {
+			color: rgba(240, 231, 214, 0.35);
+		}
+	}
+
+	&__status {
+		font: 700 9px $mono;
+		letter-spacing: 0.22em;
+		color: rgba(240, 231, 214, 0.5);
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	&__dot {
+		width: 6px;
+		height: 6px;
+		border-radius: 50%;
+		background: $sage;
+
+		&.is-pulsing {
+			animation: topology-pulse 1.4s ease-in-out infinite;
+		}
+	}
+
+	&__transcript {
+		position: absolute;
+		// Fills the REPL footer's column (canvas column only, thanks
+		// to the grid-template-areas reshuffle in `.topology-app`).
+		// Same horizontal extent as the prompt bar — no offset.
+		left: 0;
+		right: 0;
+		bottom: 38px;
+		// Fill the entire canvas row when expanded so the operator
+		// gets maximum reading area for long `ls`/`help`/`dump`
+		// outputs. 134px = 32 (wp admin bar) + 64 (header) + 38 (bar
+		// underneath us).
+		height: calc(100vh - 134px);
+		overflow-y: auto;
+		// 85% opacity so the schematic peeks through behind the
+		// transcript — the canvas updates are still visible while
+		// you're reading command output.
+		background: rgba(24, 34, 46, 0.85);
+		backdrop-filter: blur(2px);
+		border-top: 1px solid rgba(240, 231, 214, 0.18);
+		border-bottom: 1px solid rgba(240, 231, 214, 0.18);
+		// Right padding leaves a corridor wide enough for the sticky
+		// [✕ ▼] actions row to sit on top of without ever overlapping
+		// transcript text. Bottom padding gives the last line clearance
+		// from the bar's border so descenders don't bleed across.
+		padding: 8px 70px 14px 18px;
+		font: 400 11px/1.5 $mono;
+		color: rgba(240, 231, 214, 0.92);
+		box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
+	}
+
+	// Top-right corner controls inside the transcript pane:
+	// [✕ clear] [▼ minimize]. Sticky so they stay visible while
+	// the transcript scrolls underneath them. The wrapper itself is
+	// transparent — only the individual buttons carry opaque
+	// backgrounds, so scrolling text behind only gets occluded under
+	// each button's footprint rather than under a full rectangle.
+	&__actions {
+		position: sticky;
+		top: 4px;
+		float: right;
+		display: flex;
+		gap: 4px;
+		// Transcript reserves 70px right-padding so text never slides
+		// under the buttons. Float-right normally sits the buttons at
+		// THAT edge (way too far from the box edge); negative margin
+		// pulls them back into the corridor so the right offset
+		// matches the 4px top offset for a clean corner anchor.
+		margin: 0 -60px 0 0;
+		background: transparent;
+		z-index: 1;
+	}
+
+	&__entry {
+		margin: 0;
+		padding: 2px 0;
+		font: inherit;
+		white-space: pre-wrap;
+		word-break: break-all;
+
+		// `sent` entries are echoes of what the user typed at the
+		// prompt; render in brass to match the live prompt's caret/
+		// prefix and stand out from worker responses.
+		&--sent {
+			color: $brass;
+		}
+
+		// `error` entries already carry an "ERROR: " prefix from the
+		// Dumper-style renderer; just colorize them to make them
+		// scannable in a busy transcript.
+		&--error {
+			color: #cf6f4c;
+		}
+	}
+}
+
+// Scrollbars — paper-themed.
+.topology-app ::-webkit-scrollbar {
+	width: 10px;
+	height: 10px;
+}
+
+.topology-app ::-webkit-scrollbar-track {
+	background: transparent;
+}
+
+.topology-app ::-webkit-scrollbar-thumb {
+	background: $ink-4;
+	border: 2px solid $paper-2;
+}
+
+.topology-app ::-webkit-scrollbar-thumb:hover {
+	background: $ink-3;
+}

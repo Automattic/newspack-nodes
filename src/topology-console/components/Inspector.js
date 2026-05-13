@@ -1,0 +1,504 @@
+/**
+ * Right-pane inspector for the selected node.
+ *
+ * Inspect-only in v1. The available data is what `ls -al` exposes —
+ * id, counter, and the edges connecting it. Type is inferred from the
+ * name. Activity sparklines (msg/s, bytes read/s, bytes written/s) are
+ * computed client-side from the cumulative counters. Message-size
+ * histogram, memory, and richer per-node diagnostics are v2 affordances
+ * that will land once the substrate gains an `inspect <node>` verb
+ * returning the full state envelope.
+ */
+
+import { inferType } from '../utils/inferType';
+
+function FieldRow( { k, v, vClass } ) {
+	return (
+		<div className="topology-field-row">
+			<span className="topology-field-row__key">{ k }</span>
+			<span
+				className={ `topology-field-row__val${
+					vClass ? ' ' + vClass : ''
+				}` }
+			>
+				{ v }
+			</span>
+		</div>
+	);
+}
+
+// Comma-joined list of clickable node-name links — used for the
+// Routing section's `target →`, `also →`, and `← from` values.
+// Hover highlights the node's edges on the canvas (same hoveredId
+// state the canvas's onMouseEnter drives); click selects it.
+// Names that don't correspond to a known node in the parsed graph
+// (substrate scaffolding like `_command_interpreter`, or path-shaped
+// targets like `_repl/_output/1490`) render as plain dim text — no
+// point hovering or clicking something the canvas can't show.
+function NodeLinks( { names, nodeIds, onSelect, onHover } ) {
+	if ( ! names || ! names.length ) {
+		return (
+			<span className="topology-field-row__val topology-field-row__val--dim">
+				—
+			</span>
+		);
+	}
+	return (
+		<span className="topology-field-row__val">
+			{ names.map( ( name, i ) => {
+				const known = nodeIds && nodeIds.has( name );
+				const sep = i < names.length - 1 ? ', ' : '';
+				if ( ! known ) {
+					return (
+						<span
+							key={ name }
+							className="topology-field-row__val--dim"
+						>
+							{ name }
+							{ sep }
+						</span>
+					);
+				}
+				return (
+					<span key={ name }>
+						<button
+							type="button"
+							className="topology-field-row__nav"
+							onClick={ () => onSelect && onSelect( name ) }
+							onMouseEnter={ () => onHover && onHover( name ) }
+							onMouseLeave={ () => onHover && onHover( null ) }
+						>
+							{ name }
+						</button>
+						{ sep }
+					</span>
+				);
+			} ) }
+		</span>
+	);
+}
+
+function Section( { title, meta, children } ) {
+	return (
+		<div className="topology-insp__section">
+			<h4 className="topology-insp__section-title">
+				{ title }
+				{ meta && (
+					<span className="topology-insp__section-meta">
+						{ meta }
+					</span>
+				) }
+			</h4>
+			{ children }
+		</div>
+	);
+}
+
+function formatRate( rate ) {
+	if ( rate === undefined || rate === null ) {
+		return '— /s';
+	}
+	if ( rate === 0 ) {
+		return '0 /s';
+	}
+	if ( rate >= 100 ) {
+		return `${ Math.round( rate ) } /s`;
+	}
+	if ( rate >= 1 ) {
+		return `${ rate.toFixed( 1 ) } /s`;
+	}
+	return `${ rate.toFixed( 2 ) } /s`;
+}
+
+// Bytes-per-second formatter — same magnitude suffixes as formatBytes
+// with a `/s` tail. Used for the read/write sparkline current-value
+// labels.
+function formatByteRate( rate ) {
+	if ( rate === undefined || rate === null ) {
+		return '— /s';
+	}
+	if ( rate < 1 ) {
+		return '0 B/s';
+	}
+	if ( rate < 1024 ) {
+		return `${ Math.round( rate ) } B/s`;
+	}
+	if ( rate < 1024 * 1024 ) {
+		return `${ ( rate / 1024 ).toFixed( 1 ) } K/s`;
+	}
+	if ( rate < 1024 * 1024 * 1024 ) {
+		return `${ ( rate / ( 1024 * 1024 ) ).toFixed( 1 ) } M/s`;
+	}
+	return `${ ( rate / ( 1024 * 1024 * 1024 ) ).toFixed( 1 ) } G/s`;
+}
+
+// Inspector-resident sparkline. Same right-aligned fixed-step approach
+// as the node-card sparkline (history grows leftward until the ring is
+// full), but parameterized for the wider, taller plot area inside the
+// inspector pane. Auto-scales to the window's max so a bursty node
+// shows shape regardless of absolute magnitude.
+const INSP_SPARK_HISTORY_MAX = 60;
+function inspectorSparklinePath( history, width, height ) {
+	if ( ! history || history.length < 2 ) {
+		return null;
+	}
+	const max = Math.max( ...history, 1e-9 );
+	const step = width / ( INSP_SPARK_HISTORY_MAX - 1 );
+	const startIdx = INSP_SPARK_HISTORY_MAX - history.length;
+	return history
+		.map( ( v, i ) => {
+			const safeV = v > 0 ? v : 0;
+			const x = ( startIdx + i ) * step;
+			const y = height - ( safeV / max ) * height;
+			return `${ i === 0 ? 'M' : 'L' } ${ x.toFixed( 2 ) },${ y.toFixed(
+				2
+			) }`;
+		} )
+		.join( ' ' );
+}
+
+// One labeled sparkline row. Label sits on top-left, current value on
+// top-right (oxide bold), peak-in-window dimmed below the current.
+// Knowing the peak makes the auto-scaled curve readable — without it
+// a flat-looking line could be 5 msg/s or 5000 msg/s.
+function SparklineRow( { label, history, currentValue, format } ) {
+	const W = 270;
+	const H = 32;
+	const path = inspectorSparklinePath( history, W, H );
+	const peak = history && history.length ? Math.max( ...history, 0 ) : 0;
+	return (
+		<div className="topology-insp__spark-row">
+			<div className="topology-insp__spark-head">
+				<span className="topology-insp__spark-label">{ label }</span>
+				<span className="topology-insp__spark-vals">
+					<span
+						className={ `topology-insp__spark-val${
+							currentValue > 0
+								? ''
+								: ' topology-insp__spark-val--dim'
+						}` }
+					>
+						{ format( currentValue ) }
+					</span>
+					<span className="topology-insp__spark-peak">
+						peak { format( peak ) }
+					</span>
+				</span>
+			</div>
+			<svg
+				className="topology-insp__spark-svg"
+				viewBox={ `0 0 ${ W } ${ H }` }
+				preserveAspectRatio="none"
+				aria-hidden="true"
+			>
+				{ path && (
+					<path
+						d={ path }
+						className="topology-insp__spark-path"
+						fill="none"
+					/>
+				) }
+			</svg>
+		</div>
+	);
+}
+
+// Bytes rendered with K / M / G suffixes once the magnitude makes the
+// raw number unreadable. Mirrors what the Throughput / Process panel
+// in the mockup wants: dense, glanceable values.
+function formatBytes( n ) {
+	if ( typeof n !== 'number' || n < 0 ) {
+		return '—';
+	}
+	if ( n < 1024 ) {
+		return `${ n } B`;
+	}
+	if ( n < 1024 * 1024 ) {
+		return `${ ( n / 1024 ).toFixed( 1 ) } K`;
+	}
+	if ( n < 1024 * 1024 * 1024 ) {
+		return `${ ( n / ( 1024 * 1024 ) ).toFixed( 1 ) } M`;
+	}
+	return `${ ( n / ( 1024 * 1024 * 1024 ) ).toFixed( 1 ) } G`;
+}
+
+function formatLastSeen( ts, live ) {
+	if ( ts === undefined || ts === null ) {
+		return live ? 'streaming' : '—';
+	}
+	const ago = Date.now() / 1000 - ts;
+	if ( ago < 1 ) {
+		return 'just now';
+	}
+	if ( ago < 60 ) {
+		return `${ ago.toFixed( 1 ) }s ago`;
+	}
+	if ( ago < 3600 ) {
+		return `${ Math.round( ago / 60 ) }m ago`;
+	}
+	return `${ Math.round( ago / 3600 ) }h ago`;
+}
+
+export default function Inspector( {
+	selectedId,
+	parsed,
+	streamStatus,
+	rateInfo,
+	onAction,
+	onSelect,
+	onHover,
+	nodeIds,
+	ssePid,
+} ) {
+	if ( ! selectedId ) {
+		return (
+			<aside className="topology-inspector">
+				<div className="topology-insp__empty">
+					Select a node to inspect
+				</div>
+			</aside>
+		);
+	}
+
+	const node = parsed.nodes.find( ( n ) => n.id === selectedId );
+	if ( ! node ) {
+		return (
+			<aside className="topology-inspector">
+				<div className="topology-insp__empty">
+					{ selectedId } no longer present
+				</div>
+			</aside>
+		);
+	}
+
+	const targets = parsed.edges.filter( ( e ) => e.from === selectedId );
+	const sources = parsed.edges.filter( ( e ) => e.to === selectedId );
+	// Prefer the authoritative class name from dump_metadata; fall
+	// back to inferring from the node name if (somehow) absent.
+	const type = node.klass || inferType( node.id );
+	const live = streamStatus === 'open';
+
+	// Authoritative button state, derived from server metadata —
+	// no client-side bookkeeping that could drift from worker reality.
+	const traceOn = node.debugState > 0;
+	// The worker's input Partition is named `_repl`, so it stamps
+	// `_repl/` onto every incoming command's FROM before CI sees it —
+	// `connect_node <tee>` from this SSE session therefore lands in
+	// the tee's target list as `_repl/_output/{sse_pid}`. The bare
+	// `_output/{pid}` and `{pid}` forms only exist transiently on TO
+	// as Router peels path segments; they're never stored in any
+	// target list, so we only need to match the stamped form.
+	const tailOn =
+		ssePid &&
+		parsed.edges.some(
+			( e ) =>
+				e.from === selectedId && e.to === `_repl/_output/${ ssePid }`
+		);
+
+	return (
+		<aside className="topology-inspector">
+			<h2 className="topology-insp__title">{ node.id }</h2>
+			<div className="topology-insp__type">
+				<span
+					className={ `topology-insp__led${
+						live ? ' is-pulsing' : ''
+					}` }
+				/>
+				{ type } · { live ? 'LIVE' : streamStatus.toUpperCase() }
+			</div>
+
+			<Section title="Routing">
+				<div className="topology-field-row">
+					<span className="topology-field-row__key">target →</span>
+					<NodeLinks
+						names={ targets.slice( 0, 1 ).map( ( t ) => t.to ) }
+						nodeIds={ nodeIds }
+						onSelect={ onSelect }
+						onHover={ onHover }
+					/>
+				</div>
+				{ targets.length > 1 && (
+					<div className="topology-field-row">
+						<span className="topology-field-row__key">also →</span>
+						<NodeLinks
+							names={ targets.slice( 1 ).map( ( t ) => t.to ) }
+							nodeIds={ nodeIds }
+							onSelect={ onSelect }
+							onHover={ onHover }
+						/>
+					</div>
+				) }
+				<FieldRow
+					k="sink ↦"
+					v={ node.sink !== undefined ? node.sink : '—' }
+					vClass="topology-field-row__val--dim"
+				/>
+				<div className="topology-field-row">
+					<span className="topology-field-row__key">← from</span>
+					<NodeLinks
+						names={ sources.map( ( s ) => s.from ) }
+						nodeIds={ nodeIds }
+						onSelect={ onSelect }
+						onHover={ onHover }
+					/>
+				</div>
+			</Section>
+
+			{ ( rateInfo?.hasMessages ||
+				rateInfo?.hasRead ||
+				rateInfo?.hasWritten ) && (
+				<Section title="Activity" meta="last ~60s">
+					{ rateInfo.hasMessages && (
+						<SparklineRow
+							label="messages /s"
+							history={ rateInfo.history }
+							currentValue={ rateInfo.rate || 0 }
+							format={ formatRate }
+						/>
+					) }
+					{ rateInfo.hasRead && (
+						<SparklineRow
+							label="bytes read /s"
+							history={ rateInfo.readHistory }
+							currentValue={ rateInfo.readRate || 0 }
+							format={ formatByteRate }
+						/>
+					) }
+					{ rateInfo.hasWritten && (
+						<SparklineRow
+							label="bytes written /s"
+							history={ rateInfo.writtenHistory }
+							currentValue={ rateInfo.writtenRate || 0 }
+							format={ formatByteRate }
+						/>
+					) }
+				</Section>
+			) }
+
+			<Section title="Throughput" meta="cumulative">
+				<FieldRow
+					k="counter"
+					v={
+						node.count !== undefined
+							? node.count.toLocaleString()
+							: '—'
+					}
+					vClass="topology-field-row__val--num"
+				/>
+				<FieldRow
+					k="rate"
+					v={ formatRate( rateInfo?.rate ) }
+					vClass={
+						rateInfo && rateInfo.rate > 0
+							? 'topology-field-row__val--num'
+							: 'topology-field-row__val--num topology-field-row__val--dim'
+					}
+				/>
+				<FieldRow
+					k="lgst_msg"
+					v={ formatBytes( node.lgstMsg || 0 ) }
+					vClass={
+						node.lgstMsg
+							? 'topology-field-row__val--num'
+							: 'topology-field-row__val--num topology-field-row__val--dim'
+					}
+				/>
+				<FieldRow
+					k="read"
+					v={ formatBytes( node.bytesRead || 0 ) }
+					vClass={
+						node.bytesRead
+							? 'topology-field-row__val--num'
+							: 'topology-field-row__val--num topology-field-row__val--dim'
+					}
+				/>
+				<FieldRow
+					k="written"
+					v={ formatBytes( node.bytesWritten || 0 ) }
+					vClass={
+						node.bytesWritten
+							? 'topology-field-row__val--num'
+							: 'topology-field-row__val--num topology-field-row__val--dim'
+					}
+				/>
+				<FieldRow
+					k="last_seen"
+					v={ formatLastSeen( rateInfo?.lastChangedTs, live ) }
+					vClass={
+						rateInfo && rateInfo.rate > 0
+							? 'topology-field-row__val--right'
+							: 'topology-field-row__val--right topology-field-row__val--dim'
+					}
+				/>
+			</Section>
+
+			<div className="topology-insp__actions">
+				<button
+					type="button"
+					onClick={ () => onAction && onAction( 'dump', node.id ) }
+					disabled={ ! live }
+					title="Send `dump_node <name>` to the worker"
+				>
+					Dump
+				</button>
+				<button
+					type="button"
+					onClick={ () => {
+						// eslint-disable-next-line no-alert
+						const payload = window.prompt(
+							`Send bytes to ${ node.id }:`,
+							''
+						);
+						if ( payload !== null && payload !== '' ) {
+							if ( onAction ) {
+								onAction( 'send', node.id, payload );
+							}
+						}
+					} }
+					disabled={ ! live }
+					title="Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`"
+				>
+					Send
+				</button>
+				<button
+					type="button"
+					className={ `topology-insp__actions-full${
+						traceOn ? ' is-active' : ''
+					}` }
+					onClick={ () =>
+						onAction &&
+						onAction( 'trace', node.id, traceOn ? 0 : 1 )
+					}
+					disabled={ ! live }
+					title={
+						traceOn
+							? 'Stop tracing — `debug_state <name> 0`'
+							: 'Start tracing — `debug_state <name> 1`'
+					}
+				>
+					{ traceOn ? 'Stop Trace' : 'Trace' }
+				</button>
+				{ type === 'Tee' && (
+					<button
+						type="button"
+						className={ `topology-insp__actions-full${
+							tailOn ? ' is-active' : ''
+						}` }
+						onClick={ () =>
+							onAction &&
+							onAction( tailOn ? 'disconnect' : 'tail', node.id )
+						}
+						disabled={ ! live }
+						title={
+							tailOn
+								? 'Disconnect this session from the Tee — `disconnect_node <name>`'
+								: 'Connect this session to the Tee — `connect_node <name>` (its output then flows into the transcript)'
+						}
+					>
+						{ tailOn ? 'Disconnect' : 'Connect' }
+					</button>
+				) }
+			</div>
+		</aside>
+	);
+}

@@ -1,0 +1,155 @@
+/**
+ * Frontend Shell layer — parses a user-typed line into either a local
+ * builtin action or a typed POST descriptor.
+ *
+ * Mirrors the verb dispatch in newspack-nodes/includes/class-shell.php
+ * so the GUI accepts the same vocabulary as `wp nodes cli`.
+ *
+ * Local builtins (handled in the browser, never sent to the worker):
+ *   clear                         — wipe transcript
+ *   debug_level [0|1|2]           — toggle local Dumper verbosity
+ *
+ * Note: `help` is NOT intercepted locally. It passes through to the
+ * worker's CommandInterpreter, which has the authoritative list of
+ * verbs it accepts. The TopologyConsole prepends a
+ * `### SHELL BUILTINS ###` blurb to the response so the user sees
+ * GUI-local verbs alongside server commands in one transcript view
+ * (Perl Tachikoma CommandInterpreter::help pattern).
+ *
+ *   Typed-message verbs (POST with type=…):
+ *     ping [<path>]                 — TM_PING
+ *     tell|tell_node <path> <bytes> — TM_INFO
+ *     send|send_node <path> <bytes> — TM_BYTESTREAM
+ *     send_eof <path>               — TM_EOF
+ *     request|request_node <path> <args> — TM_REQUEST
+ *     cmd|command|command_node <path> <verb> [<args>] — TM_COMMAND at <path>
+ *
+ *   Default (POST type=command):
+ *     <verb> [<args>]               — TM_COMMAND at _command_interpreter
+ *
+ * Returns one of:
+ *   { kind: 'local', name: 'clear' }
+ *   { kind: 'local', name: 'debug_level', level: 0|1|2 }
+ *   { kind: 'local', name: 'help' }
+ *   { kind: 'post', body: { type, name?, arguments?, to? } }
+ *   { kind: 'error', text: 'usage: …' }
+ *   null                            — empty input
+ */
+
+const LOCAL_BUILTINS = new Set( [ 'clear', 'debug_level' ] );
+
+// Shell-builtins blurb that prepends the worker's `help` output —
+// mirrors the `### SHELL BUILTINS ###` section in Perl Tachikoma where
+// CommandInterpreter::help concatenates its responder Shell's help
+// topics with its own server commands. We don't have direct access to
+// the worker's CI from here, so we inject our half locally before the
+// remote `help` POST flies.
+const SHELL_BUILTINS_BLURB = [
+	'### SHELL BUILTINS ###',
+	'  clear                          — wipe the transcript',
+	'  debug_level [0|1|2]            — local Dumper verbosity',
+	'  ping [<path>]                  — TM_PING (RTT measured locally)',
+	'  tell <path> <bytes>            — TM_INFO',
+	'  send <path> <bytes>            — TM_BYTESTREAM',
+	'  send_eof <path>                — TM_EOF',
+	'  request <path> <args>          — TM_REQUEST',
+	'  cmd <path> <verb> [<args>]     — TM_COMMAND at <path>',
+].join( '\n' );
+
+function splitFirst( s ) {
+	const idx = s.search( /\s/ );
+	if ( idx === -1 ) {
+		return [ s, '' ];
+	}
+	return [ s.slice( 0, idx ), s.slice( idx + 1 ).trim() ];
+}
+
+export function shellInterpret( line ) {
+	const trimmed = ( line || '' ).trim();
+	if ( ! trimmed ) {
+		return null;
+	}
+	const parts = splitFirst( trimmed );
+	const verb = parts[ 0 ];
+	const rest = parts[ 1 ];
+
+	if ( verb === 'clear' ) {
+		return { kind: 'local', name: 'clear' };
+	}
+	if ( verb === 'debug_level' ) {
+		const level = rest === '' ? null : parseInt( rest, 10 );
+		if (
+			level !== null &&
+			( Number.isNaN( level ) || level < 0 || level > 2 )
+		) {
+			return { kind: 'error', text: 'usage: debug_level [0|1|2]' };
+		}
+		return { kind: 'local', name: 'debug_level', level };
+	}
+
+	if ( verb === 'ping' ) {
+		// `ping [<path>]` — empty path = ping the worker's _command_interpreter.
+		return {
+			kind: 'post',
+			body: {
+				type: 'ping',
+				to: rest, // empty string handled server-side
+			},
+		};
+	}
+	if ( verb === 'tell' || verb === 'tell_node' ) {
+		const [ to, body ] = splitFirst( rest );
+		if ( ! to ) {
+			return { kind: 'error', text: 'usage: tell <path> <bytes>' };
+		}
+		return {
+			kind: 'post',
+			body: { type: 'info', to, arguments: body },
+		};
+	}
+	if ( verb === 'send' || verb === 'send_node' ) {
+		const [ to, body ] = splitFirst( rest );
+		if ( ! to ) {
+			return { kind: 'error', text: 'usage: send <path> <bytes>' };
+		}
+		return {
+			kind: 'post',
+			body: { type: 'bytestream', to, arguments: body },
+		};
+	}
+	if ( verb === 'send_eof' ) {
+		const to = rest;
+		if ( ! to ) {
+			return { kind: 'error', text: 'usage: send_eof <path>' };
+		}
+		return { kind: 'post', body: { type: 'eof', to } };
+	}
+	if ( verb === 'request' || verb === 'request_node' ) {
+		const [ to, body ] = splitFirst( rest );
+		if ( ! to ) {
+			return { kind: 'error', text: 'usage: request <path> <args>' };
+		}
+		return {
+			kind: 'post',
+			body: { type: 'request', to, arguments: body },
+		};
+	}
+	if ( verb === 'cmd' || verb === 'command' || verb === 'command_node' ) {
+		const [ to, after ] = splitFirst( rest );
+		const [ name, args ] = splitFirst( after );
+		if ( ! to || ! name ) {
+			return { kind: 'error', text: 'usage: cmd <path> <verb> [<args>]' };
+		}
+		return {
+			kind: 'post',
+			body: { type: 'command', to, name, arguments: args },
+		};
+	}
+
+	return {
+		kind: 'post',
+		body: { type: 'command', name: verb, arguments: rest },
+	};
+}
+
+export { LOCAL_BUILTINS, SHELL_BUILTINS_BLURB };
