@@ -644,6 +644,15 @@ class CommandInterpreter extends Node {
 	private static function cmd_dump_metadata(): string {
 		$out = [];
 		foreach ( Core::$nodes_by_name as $name => $node ) {
+			// Sibling CIs auto-created by configurable Node ctors
+			// (the Ruleset pattern — Partition, RequestBuilder, …)
+			// are configuration plumbing, not graph data. Filter
+			// them out so the topology console never renders them
+			// as canvas nodes. `ls -al`, `dump_node` and
+			// `stats` still surface them — only the GUI feed hides.
+			if ( $node instanceof CommandInterpreter && null !== $node->patron() ) {
+				continue;
+			}
 			$class = ( new \ReflectionClass( $node ) )->getShortName();
 			$sink  = $node->sink();
 			$out[ $name ] = [

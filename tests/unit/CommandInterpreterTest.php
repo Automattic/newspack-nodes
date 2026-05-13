@@ -835,4 +835,25 @@ class CommandInterpreterTest extends TestCase {
 		$result = $ci->execute( 'ls' );
 		$this->assertStringNotContainsString( 'unknown command', $result );
 	}
+
+	public function test_dump_metadata_skips_patron_linked_sibling_cis(): void {
+		// Patron data node — visible to the canvas.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		$ci->execute( 'make_node CaptureSink patron_node' );
+		$patron = \Newspack_Nodes\Core::node( 'patron_node' );
+
+		// Sibling CI — should be filtered out of dump_metadata.
+		$sibling = new CommandInterpreter();
+		$sibling->patron( $patron );
+		$sibling->name( 'patron_node:config' );
+
+		$payload  = $ci->execute( 'dump_metadata' );
+		$metadata = \json_decode( $payload, true );
+
+		$this->assertIsArray( $metadata );
+		$this->assertArrayHasKey( 'patron_node', $metadata );
+		$this->assertArrayNotHasKey( 'patron_node:config', $metadata );
+	}
 }
