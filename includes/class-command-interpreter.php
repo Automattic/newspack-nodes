@@ -88,6 +88,8 @@ class CommandInterpreter extends Node {
 			'request_node' => "request_node <path> [<value>]\n    alias: request\n    note: emits TM_REQUEST at prefix(<path>); receiver replies via TO=FROM.\n",
 			'ping' => "ping <path>\n    note: round-trips a TM_PING; receiver bounces TO=FROM. Output shows RTT.\n",
 			'include' => "include <file>\n    note: read commands from <file>, parse each line as if typed.\n",
+			'uptime' => "uptime\n    note: clock-time, plus days+HH:MM:SS since Core::reset() (worker spawn).\n",
+			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN. Default: sibling nodes of this CI; -a: all nodes.\n",
 		];
 		self::$C = [
 			'make_node'       => fn ( CommandInterpreter $self, string $args ): string => self::cmd_make_node( $self, $args ),
@@ -107,9 +109,25 @@ class CommandInterpreter extends Node {
 			'dump'            => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_node( $args ),
 			'dump_config'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_config(),
 			'dump_metadata'   => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_metadata(),
+			'stats'           => fn ( CommandInterpreter $self, string $args ): string => self::cmd_stats( $self, $args ),
+			'uptime'          => fn ( CommandInterpreter $self, string $args ): string => self::cmd_uptime(),
 			'debug_state'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_debug_state( $self, $args ),
 			'help'            => fn ( CommandInterpreter $self, string $args ): string => self::cmd_help( $args ),
 		];
+	}
+
+	/**
+	 * `uptime` — Tachikoma-style:
+	 *   `HH:MM:SS  up N days, HH:MM:SS\n`
+	 * (clock-time on the left, time-since-Core::reset() on the right).
+	 */
+	private static function cmd_uptime(): string {
+		$uptime  = (int) ( Core::$now - Core::$init_time );
+		$days    = (int) ( $uptime / 86400 );
+		$uptime -= $days * 86400;
+		$clock   = \date( 'H:i:s', (int) Core::$now );
+		$elapsed = \gmdate( 'H:i:s', $uptime );
+		return "{$clock}  up {$days} days, {$elapsed}\n";
 	}
 
 	/**
@@ -532,15 +550,75 @@ class CommandInterpreter extends Node {
 			$class = ( new \ReflectionClass( $node ) )->getShortName();
 			$sink  = $node->sink();
 			$out[ $name ] = [
-				'class'       => $class,
-				'counter'     => $node->counter(),
-				'sink'        => $sink instanceof Node ? $sink->name() : '',
-				'target'      => $node->target(),
-				'debug_state' => $node->debug_state(),
-				'arguments'   => $node->arguments(),
+				'class'         => $class,
+				'counter'       => $node->counter(),
+				'sink'          => $sink instanceof Node ? $sink->name() : '',
+				'target'        => $node->target(),
+				'debug_state'   => $node->debug_state(),
+				'arguments'     => $node->arguments(),
+				'lgst_msg'      => $node->largest_msg_sent(),
+				'bytes_read'    => $node->bytes_read(),
+				'bytes_written' => $node->bytes_written(),
 			];
 		}
 		return (string) \wp_json_encode( $out, \JSON_UNESCAPED_SLASHES );
+	}
+
+	/**
+	 * `stats [-a] [<regex>]` — Tachikoma-style tabular per-node counters.
+	 *
+	 * Columns: NAME, COUNT, LGST_MSG, READ, WRITTEN. The Tachikoma original
+	 * also surfaces BUF_SIZE / HIGH_WATER for output_buffer-bearing nodes;
+	 * we have no in-memory message buffers (Partition + Topic flush every
+	 * fill into a per-node line buffer that drains synchronously), so those
+	 * columns are dropped.
+	 *
+	 * Scope rules match `cmd_ls`:
+	 *   stats           → siblings (nodes whose sink IS this CI).
+	 *   stats -a [glob] → every registered node; optional regex filter on name.
+	 *   stats <name>    → only the named sink's children (treated as glob).
+	 */
+	private static function cmd_stats( CommandInterpreter $self, string $args ): string {
+		$list_matches = false;
+		$argv         = [];
+		foreach ( \preg_split( '/\s+/', \trim( $args ) ) as $tok ) {
+			if ( '' === $tok ) {
+				continue;
+			}
+			if ( '-a' === $tok ) {
+				$list_matches = true;
+				continue;
+			}
+			$argv[] = $tok;
+		}
+		$glob      = $argv[0] ?? null;
+		$header    = [ 'NAME', 'COUNT', 'LGST_MSG', 'READ', 'WRITTEN' ];
+		$dirs      = [ 'left', 'right', 'right', 'right', 'right' ];
+		$rows      = [];
+		$all_names = \array_keys( Core::$nodes_by_name );
+		\sort( $all_names );
+		foreach ( $all_names as $name ) {
+			$node      = Core::node( $name );
+			$sink_name = $node->sink() ? $node->sink()->name() : '';
+			if ( $list_matches ) {
+				if ( null !== $glob && '' !== $glob && ! @\preg_match( "/$glob/", $name ) ) {
+					continue;
+				}
+			} else {
+				$expected = $glob ?? $self->name();
+				if ( $expected !== $sink_name ) {
+					continue;
+				}
+			}
+			$rows[] = [
+				$name,
+				(string) $node->counter(),
+				(string) $node->largest_msg_sent(),
+				(string) $node->bytes_read(),
+				(string) $node->bytes_written(),
+			];
+		}
+		return self::tabulate( $dirs, $header, $rows );
 	}
 
 	/**

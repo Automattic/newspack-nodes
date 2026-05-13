@@ -79,6 +79,28 @@ class PartitionTest extends TestCase {
 		$this->assertSame( 0, $off );
 	}
 
+	public function test_fill_accumulates_bytes_written(): void {
+		$p     = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$msg_a = $this->produce( 'hello' );
+		$msg_b = $this->produce( 'world!' );
+		$p->fill( $msg_a );
+		$p->fill( $msg_b );
+		$p->flush(); // bytes_written tracks bytes-on-disk; flush forces batch drain.
+		$expected = \strlen( \Newspack_Nodes\Message::packed( $msg_a ) ) + 1
+			+ \strlen( \Newspack_Nodes\Message::packed( $msg_b ) ) + 1; // trailing \n per message
+		$this->assertSame( $expected, $p->bytes_written() );
+	}
+
+	public function test_read_at_accumulates_bytes_read(): void {
+		$p = new Partition( $this->tmp, 0, 64*1024, 4, 86400 );
+		$msg = $this->produce( 'hello' );
+		$p->fill( $msg );
+		$p->flush();
+		$packed_size = \strlen( \Newspack_Nodes\Message::packed( $msg ) ) + 1;
+		$p->read_at( 0, 0, $packed_size );
+		$this->assertSame( $packed_size, $p->bytes_read() );
+	}
+
 	public function test_fill_drops_messages_exceeding_MAX_LINE_SIZE(): void {
 		// Cap is on the FINAL packed bytes — Message::packed adds JSON envelope
 		// so a 5000-byte VALUE comfortably exceeds the 4096 cap.

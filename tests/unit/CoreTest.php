@@ -41,6 +41,13 @@ class CoreTest extends TestCase {
 		$this->assertSame( 1234567890.123456, Core::$now );
 	}
 
+	public function test_reset_stamps_init_time_with_current_now(): void {
+		Core::$now = 0.0;
+		Core::reset();
+		$this->assertSame( Core::$now, Core::$init_time );
+		$this->assertGreaterThan( 0.0, Core::$init_time );
+	}
+
 	public function test_run_closing_executes_callbacks_in_order(): void {
 		$order = [];
 		Core::push_closing( function () use ( &$order ) { $order[] = 'a'; } );

@@ -591,8 +591,9 @@ class Partition extends Timer {
 				}
 				continue;
 			}
-			$this->current_size += $written;
-			$remaining           = \substr( $remaining, $written );
+			$this->current_size  += $written;
+			$this->bytes_written += $written;
+			$remaining            = \substr( $remaining, $written );
 		}
 		return true;
 	}
@@ -806,7 +807,11 @@ class Partition extends Timer {
 		$bytes = @\fread( $fh, $length );
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fclose
 		@\fclose( $fh );
-		return false !== $bytes ? $bytes : '';
+		if ( false !== $bytes ) {
+			$this->bytes_read += \strlen( $bytes );
+			return $bytes;
+		}
+		return '';
 	}
 
 	/**
