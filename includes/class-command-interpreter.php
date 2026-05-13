@@ -44,7 +44,7 @@ class CommandInterpreter extends Node {
 			// CI-dispatched verbs.
 			'make_node' => "make_node <type> <name> [<arguments>]\n    alias: make\n",
 			'set_sink'  => "set_sink <node> <target>\n",
-			'connect_node' => "connect_node <node> <target>\n    alias: connect\n",
+			'connect_node' => "connect_node <node> [<target>]\n    alias: connect\n    note: <target> defaults to the issuing message's FROM — tails the node's flow back to your own cli/SSE session.\n",
 			'disconnect_node' => "disconnect_node <node> [<target>]\n    alias: disconnect\n    note: <target> is required for multi-target nodes (e.g. Tee).\n",
 			'remove_node' => "remove_node <node name> [<more names>...]\n"
 				. "remove_node -a <anchored regex glob>\n"
@@ -93,8 +93,8 @@ class CommandInterpreter extends Node {
 			'make'            => fn ( CommandInterpreter $self, string $args ): string => self::cmd_make_node( $self, $args ),
 			'pwd'             => fn ( CommandInterpreter $self, string $args, array $message ): string => self::cmd_pwd( $args, $message ),
 			'set_sink'        => fn ( CommandInterpreter $self, string $args ): string => self::cmd_set_sink( $args ),
-			'connect_node'    => fn ( CommandInterpreter $self, string $args ): string => self::cmd_connect_node( $args ),
-			'connect'         => fn ( CommandInterpreter $self, string $args ): string => self::cmd_connect_node( $args ),
+			'connect_node'    => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_connect_node( $args, $envelope ),
+			'connect'         => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_connect_node( $args, $envelope ),
 			'disconnect_node' => fn ( CommandInterpreter $self, string $args ): string => self::cmd_disconnect_node( $args ),
 			'disconnect'      => fn ( CommandInterpreter $self, string $args ): string => self::cmd_disconnect_node( $args ),
 			'remove_node'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
@@ -194,14 +194,28 @@ class CommandInterpreter extends Node {
 		return 'ok';
 	}
 
-	private static function cmd_connect_node( string $args ): string {
+	private static function cmd_connect_node( string $args, array $envelope = [] ): string {
 		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
-		if ( '' === $name || '' === $target ) {
-			return 'usage: connect_node <node> <target>';
+		if ( '' === $name ) {
+			return 'usage: connect_node <node> [<target>]';
 		}
 		$src = Core::node( $name );
 		if ( null === $src ) {
 			return "unknown node: $name";
+		}
+		// `connect_node <node>` with no target defaults to the issuing
+		// message's FROM — same as Perl Tachikoma. That's the path back
+		// to whatever cli/SSE session sent the command, so the node's
+		// flow tees into THAT session's Dumper specifically rather than
+		// fanning out to every listener via `_repl`. Stale targets
+		// self-clear when the worker recycles (~10 min in this
+		// deployment), so the lack of a disconnect-on-exit signal
+		// from the client side isn't a real liability.
+		if ( '' === $target ) {
+			$target = (string) ( $envelope[ Message::FROM ] ?? '' );
+			if ( '' === $target ) {
+				return 'usage: connect_node <node> [<target>]';
+			}
 		}
 		$src->connect_node( $target );
 		return 'ok';
