@@ -7,6 +7,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.11] - 2026-05-12
+
+### Added
+
+- **`Node::$debug_state` per-node state-tracing dial** + matching `Node::debug_state( ?int $level = null )` accessor. Mirrors Perl Tachikoma `Tachikoma::Node`'s `$self->{debug_state}`. When > 0, `set_state()` additionally emits a TM_STRUCT trace addressed to `TO=_repl/sse` so cli sessions (with `show_sse` on, from 0.1.8) and the SSE controller both see state transitions in real time. The trace doesn't replace the normal `notify()` — that still fires for registered listeners. Trace is purely additive observability.
+
+  Trace payload shape:
+  ```php
+  [
+    'k'     => 'debug_state',
+    'node'  => '<this node name>',
+    'class' => '<FQCN>',
+    'event' => '<event name passed to set_state>',
+    'value' => <payload>,
+  ]
+  ```
+
+  Emission routes via `Core::node('_router')->fill()` so workers without wired sink chains still get the trace through. Safe no-op when `_router` isn't registered (e.g. unit tests constructing nodes in isolation).
+
+- **`debug_state [ <node name> [ <level> ] ]` CommandInterpreter verb.** Mirrors Perl Tachikoma:
+    - `debug_state` (no args) — toggle this CommandInterpreter's own debug_state.
+    - `debug_state 1` (numeric arg only) — set this CI to level 1.
+    - `debug_state foo` (name only) — toggle node `foo`'s debug_state.
+    - `debug_state foo 2` (name + level) — set node `foo`'s debug_state to level 2.
+- **`CommandInterpreter::make_node()` propagates the CI's `debug_state` to newly-created children.** Lets the operator turn tracing on for an entire topology in one command: `debug_state 1` then `make_node` for each node — every constructed node inherits level 1 from birth. Mirrors Perl Tachikoma CommandInterpreter.pm which assigns `$node->debug_state( $self->debug_state )` after every node creation.
+
+  Combined with 0.1.8's `show_sse` and 0.1.10's `debug_level` cleanup, a cli session can now narrate the worker's internals at multiple levels of detail and addressing:
+
+  ```
+  firehose-workers.p0> show_sse
+  show_sse: on
+  firehose-workers.p0> debug_state job-router 1
+  job-router debug_state: 1
+  firehose-workers.p0>                                # idle...
+  # then a state transition on job-router fires:
+  {"k":"debug_state","node":"job-router","class":"…","event":"BACKPRESSURE","value":42}
+  ```
+
 ## [0.1.10] - 2026-05-12
 
 ### Changed

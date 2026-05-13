@@ -45,6 +45,90 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 'ok', $result );
 	}
 
+	public function test_debug_state_no_args_toggles_self(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		$this->assertSame( 0, $ci->debug_state() );
+
+		$this->assertSame( '_command_interpreter debug_state: 1', $ci->execute( 'debug_state' ) );
+		$this->assertSame( 1, $ci->debug_state() );
+
+		$this->assertSame( '_command_interpreter debug_state: 0', $ci->execute( 'debug_state' ) );
+		$this->assertSame( 0, $ci->debug_state() );
+	}
+
+	public function test_debug_state_numeric_arg_sets_self_to_level(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$this->assertSame( '_command_interpreter debug_state: 2', $ci->execute( 'debug_state 2' ) );
+		$this->assertSame( 2, $ci->debug_state() );
+	}
+
+	public function test_debug_state_with_node_name_toggles_that_node(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		$ci->execute( 'make_node CaptureSink alice' );
+
+		$alice = Core::node( 'alice' );
+		$this->assertSame( 0, $alice->debug_state() );
+
+		$this->assertSame( 'alice debug_state: 1', $ci->execute( 'debug_state alice' ) );
+		$this->assertSame( 1, $alice->debug_state() );
+
+		$this->assertSame( 'alice debug_state: 0', $ci->execute( 'debug_state alice' ) );
+		$this->assertSame( 0, $alice->debug_state() );
+	}
+
+	public function test_debug_state_with_node_name_and_level_sets_explicitly(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		$ci->execute( 'make_node CaptureSink alice' );
+
+		$this->assertSame( 'alice debug_state: 3', $ci->execute( 'debug_state alice 3' ) );
+		$this->assertSame( 3, Core::node( 'alice' )->debug_state() );
+	}
+
+	public function test_debug_state_unknown_node_returns_error(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$this->assertSame( 'unknown node: nonexistent', $ci->execute( 'debug_state nonexistent' ) );
+	}
+
+	public function test_make_node_propagates_ci_debug_state_to_children(): void {
+		// When the CommandInterpreter has debug_state set, every node it
+		// creates via make_node inherits the same level. Lets the operator
+		// turn on tracing for an entire topology in one command:
+		//   debug_state 1
+		//   make_node Foo bar
+		//   make_node Foo baz  ← also at level 1
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'debug_state 1' );
+		$ci->execute( 'make_node CaptureSink alice' );
+
+		$alice = Core::node( 'alice' );
+		$this->assertSame( 1, $alice->debug_state(), 'new node inherits CI level' );
+	}
+
+	public function test_make_node_does_not_propagate_when_ci_state_is_zero(): void {
+		// Inverse: nodes constructed while the CI is at default level 0
+		// stay at level 0. No "inherit zero" pun intended — the test guards
+		// against accidental writebacks if the propagation logic is sloppy.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+
+		$this->assertSame( 0, Core::node( 'alice' )->debug_state() );
+	}
+
 	public function test_command_interpreter_forwards_non_commands_to_sink(): void {
 		$ci = new CommandInterpreter();
 		$ci->name( '_command_interpreter' );

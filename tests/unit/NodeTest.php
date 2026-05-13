@@ -174,6 +174,86 @@ class NodeTest extends TestCase {
 		$this->assertSame( 'payload-x', $msg[ Message::VALUE ] );
 	}
 
+	public function test_debug_state_default_zero_no_trace_emitted(): void {
+		// Baseline: with debug_state=0, set_state does NOT emit any trace to
+		// _router (cli/SSE fan-out is silent until explicitly enabled).
+		$router = new CaptureSink();
+		$router->name( '_router' );
+
+		$n = new class extends Node {
+			public function __construct() {
+				$this->registrations = [ 'READY' => [] ];
+			}
+		};
+		$n->name( 'producer' );
+		$this->assertSame( 0, $n->debug_state(), 'default off' );
+		$n->set_state( 'READY', 'payload' );
+
+		$this->assertCount( 0, $router->captured, 'no trace emitted at level 0' );
+	}
+
+	public function test_debug_state_level_1_emits_trace_to_repl_sse(): void {
+		// Level 1: set_state fires the normal notify AND additionally emits
+		// a TM_STRUCT trace addressed to _repl/sse so cli (with show_sse on)
+		// and the SSE controller both see the transition.
+		$router = new CaptureSink();
+		$router->name( '_router' );
+
+		$n = new class extends Node {
+			public function __construct() {
+				$this->registrations = [ 'READY' => [] ];
+			}
+		};
+		$n->name( 'producer' );
+		$n->debug_state( 1 );
+		$n->set_state( 'READY', 'payload-x' );
+
+		$this->assertCount( 1, $router->captured );
+		$msg = $router->captured[0];
+		$this->assertSame( Message::TM_STRUCT, $msg[ Message::TYPE ] );
+		$this->assertSame( '_repl/sse',         $msg[ Message::TO ] );
+		$this->assertSame( 'producer',          $msg[ Message::FROM ] );
+
+		$v = $msg[ Message::VALUE ];
+		$this->assertIsArray( $v );
+		$this->assertSame( 'debug_state', $v['k'] );
+		$this->assertSame( 'producer',    $v['node'] );
+		$this->assertSame( 'READY',       $v['event'] );
+		$this->assertSame( 'payload-x',   $v['value'] );
+		// `class` exposes the FQCN so dashboards / readers can render
+		// subclass-specific metadata without reflecting on the node itself.
+		$this->assertArrayHasKey( 'class', $v );
+	}
+
+	public function test_debug_state_silent_when_no_router_registered(): void {
+		// Defensive: nodes constructed in isolation (unit tests, ad-hoc
+		// scripts) often have no _router registered. set_state with
+		// debug_state on must not crash — silent no-op for the trace path;
+		// the normal notify still fires.
+		$received = null;
+		$n = new class extends Node {
+			public function __construct() {
+				$this->registrations = [ 'READY' => [] ];
+			}
+		};
+		$n->name( 'producer' );
+		$n->debug_state( 1 );
+		$n->register( 'READY', 'subscriber', function ( $p ) use ( &$received ) { $received = $p; } );
+		$n->set_state( 'READY', 'still-fires' );
+
+		// notify still ran (state cache replays to the late subscriber);
+		// no trace was emitted because _router isn't registered.
+		$this->assertSame( 'still-fires', $received );
+	}
+
+	public function test_debug_state_clamps_to_non_negative(): void {
+		// debug_state is always >= 0; negative values clamp to 0 (off).
+		$n = new Node();
+		$this->assertSame( 0, $n->debug_state(), 'default' );
+		$this->assertSame( 2, $n->debug_state( 2 ) );
+		$this->assertSame( 0, $n->debug_state( -1 ), 'negative clamps to 0' );
+	}
+
 	public function test_unregister_removes_listener(): void {
 		$n = new class extends Node {
 			public function __construct() {
