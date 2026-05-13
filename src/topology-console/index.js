@@ -2,8 +2,8 @@
  * Topology Console entry point.
  *
  * Mounts on the admin page's #event-logger-topology-console root
- * (registered in newspack-event-logger-nodes.php under the
- * `newspack-nodes-topology` dashboard slug).
+ * (registered in newspack-nodes.php under the
+ * `newspack-nodes-topology` admin slug).
  */
 
 import { createRoot } from '@wordpress/element';

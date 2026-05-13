@@ -655,7 +655,7 @@ export default function TopologyConsole() {
 				} );
 			}
 			apiFetch( {
-				path: `/newspack-event-logger-nodes/v1/topology/${ encodeURIComponent(
+				path: `/newspack-nodes/v1/topology/${ encodeURIComponent(
 					topology
 				) }/p${ encodeURIComponent( partition ) }/command`,
 				method: 'POST',
