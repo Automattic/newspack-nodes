@@ -116,7 +116,7 @@ class DumperTest extends TestCase {
 		$this->assertSame( '', $this->read_all( $out ), 'prompt-update must NOT print to stdout' );
 	}
 
-	public function test_TM_ERROR_prints_to_stderr_with_prefix(): void {
+	public function test_TM_ERROR_prints_payload_to_stderr_without_prefix(): void {
 		[ $dumper, $out, $err ] = $this->fresh();
 
 		$msg                   = Message::new_message();
@@ -125,7 +125,7 @@ class DumperTest extends TestCase {
 		$dumper->fill( $msg );
 
 		$this->assertSame( '', $this->read_all( $out ) );
-		$this->assertSame( "ERROR: NOT_AVAILABLE\n", $this->read_all( $err ) );
+		$this->assertSame( "NOT_AVAILABLE\n", $this->read_all( $err ) );
 	}
 
 	public function test_TM_INFO_prints_payload_without_prefix(): void {
@@ -336,7 +336,7 @@ class DumperTest extends TestCase {
 
 		// Synchronous error path: stderr untouched by the prompt dance.
 		$this->assertStringNotContainsString( "\033", $this->read_all( $err ) );
-		$this->assertSame( "ERROR: boom\n", $this->read_all( $err ) );
+		$this->assertSame( "boom\n", $this->read_all( $err ) );
 	}
 
 	public function test_set_readline_mode_changes_async_redraw_path(): void {

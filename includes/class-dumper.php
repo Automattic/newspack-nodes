@@ -5,7 +5,9 @@
  * Dispatches by TYPE flag:
  *  - TM_COMMAND|TM_RESPONSE → unwrap Command JSON, print payload to stdout
  *    (special case: name=='prompt' updates the Shell's prompt, no print)
- *  - TM_ERROR               → "ERROR: …" to stderr
+ *  - TM_ERROR               → payload to stderr (no prefix; the stream
+ *                              itself + the `debug_level 1` header already
+ *                              identify it as an error)
  *  - TM_INFO                → payload to stdout (no prefix; the `debug_level 1`
  *                              header already labels TM_INFO when it's wanted)
  *  - default                → VALUE to stdout
@@ -430,18 +432,20 @@ class Dumper extends Node {
 
 		// TM_COMMAND|TM_ERROR: a verb handler threw — render the unwrapped
 		// payload as the error message, not the JSON envelope. Mirrors
-		// Tachikoma CommandInterpreter.pm:error() responses.
+		// Tachikoma CommandInterpreter.pm:error() responses. No `ERROR:`
+		// prefix — the stderr stream + `debug_level 1`'s TM_FLAGS header
+		// already identify it as an error.
 		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_ERROR ) ) {
 			$cmd     = \json_decode( (string) $message[ Message::VALUE ], true );
 			$payload = \is_array( $cmd ) ? (string) ( $cmd['payload'] ?? '' ) : (string) $message[ Message::VALUE ];
-			$this->write( $this->stderr, 'ERROR: ' . $payload, true );
+			$this->write( $this->stderr, $payload, true );
 			return;
 		}
 
-		// TM_ERROR: synchronous error path; skip the prompt dance for the same
-		// reason as TM_COMMAND|TM_RESPONSE.
+		// TM_ERROR: synchronous error path; skip the prompt dance for the
+		// same reason as TM_COMMAND|TM_RESPONSE.
 		if ( $type & Message::TM_ERROR ) {
-			$this->write( $this->stderr, 'ERROR: ' . (string) $message[ Message::VALUE ], false );
+			$this->write( $this->stderr, (string) $message[ Message::VALUE ], false );
 			return;
 		}
 
