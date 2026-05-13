@@ -6,6 +6,9 @@
 	"author": "Automattic",
 	"license": "GPL-2.0-or-later",
 	"scripts": {
+		"build": "npm run build:topology-console",
+		"build:topology-console": "wp-scripts build src/topology-console/index.js --output-path=build/topology-console",
+		"clean": "rm -rf build",
 		"release:archive": "./build-release.sh",
 		"fix:js": "wp-scripts lint-js --fix 'src/**/*.{js,jsx}'",
 		"fix:php": "phpcbf",
