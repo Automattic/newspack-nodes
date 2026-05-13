@@ -219,6 +219,15 @@ class Supervisor extends SupervisorBase {
 		// Spec line 590.
 		$workers = Bootstrap::expand_workers();
 
+		// No topologies → no work. Exit the tick loop and let
+		// run_supervisor_tick's empty-check skip the cron until the
+		// configuration changes. Mid-run config flips (operator turns
+		// enable_jobs / enable_workers / enable_aggregator off) land here
+		// on the 15s tick boundary.
+		if ( empty( $workers ) ) {
+			return false;
+		}
+
 		// Determine effective num_partitions (max across topologies, clamped).
 		$max_partitions = 1;
 		foreach ( $workers as $w ) {

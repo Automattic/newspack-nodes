@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.7] - 2026-05-12
+
+### Changed
+
+- **Supervisor no longer runs when no topologies are registered.** `Bootstrap::run_supervisor_tick()` now returns early if `Bootstrap::expand_workers()` is empty (every topology gated off, no application registered any, etc.) — the supervisor's 595s tick loop, its heartbeat, the `supervisor_periodic` hook, and the self-respawn chain are all pointless work when there are no workers to spawn or to consume the periodic-hook output. `Supervisor::check_config()` also exits the loop when topologies disappear mid-run (e.g. operator flips a gate off), so a running supervisor winds down on its next 15s config window instead of finishing its full 595s.
+
+  The cron stays scheduled — minute-cadence no-op ticks are cheap, and unscheduling would require plugin re-activation to re-arm once the operator flips a gate back on. The next tick after gates return picks up the new topology fleet automatically.
+
 ## [0.1.6] - 2026-05-12
 
 ### Added

@@ -142,6 +142,29 @@ class BootstrapTest extends TestCase {
 		);
 	}
 
+	public function test_run_supervisor_tick_returns_without_unscheduling_when_no_topologies(): void {
+		// Logging is on, but no topologies are registered — no workers to
+		// spawn, no reason to actually run the supervisor's 595s loop. But
+		// DO leave the cron scheduled so the next tick after the operator
+		// flips a gate back on picks up the fresh topology fleet without
+		// requiring plugin re-activation. A minute-cadence no-op tick is
+		// cheap.
+		$GLOBALS['_wp_test_next_scheduled']     = 1234567890;
+		$GLOBALS['_wp_test_unscheduled_events'] = [];
+		$GLOBALS['_wp_test_remote_posts']       = [];
+
+		Bootstrap::run_supervisor_tick();
+
+		$this->assertEmpty(
+			$GLOBALS['_wp_test_unscheduled_events'],
+			'empty topology fleet must NOT unschedule (re-enable path needs it)'
+		);
+		$this->assertEmpty(
+			$GLOBALS['_wp_test_remote_posts'],
+			'empty topology fleet must not invoke supervisor->run()'
+		);
+	}
+
 	// ── unschedule_supervisor ─────────────────────────────────────────────
 
 	public function test_unschedule_supervisor_clears_existing_event(): void {
