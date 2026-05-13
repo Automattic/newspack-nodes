@@ -162,10 +162,10 @@ class Dumper extends Node {
 	 *   1           — additionally emit a one-line debug header to stderr
 	 *                 for EVERY Message that arrives at this Dumper, including
 	 *                 messages the normal renderer would silence. Format:
-	 *                   <TM_FLAGS> from <FROM>: <stringified-payload>
+	 *                   <TM_FLAGS> from <FROM>: <stringified-value>
 	 *   2           — same as 1, but the header is the full envelope:
 	 *                   <TM_FLAGS> id=<ID> stream=<STREAM> from=<FROM> to=<TO>
-	 *                 followed by the payload on the next line.
+	 *                 followed by the value on the next line.
 	 *
 	 * The normal render still happens after the debug header, so level 1/2
 	 * additively narrate without replacing user-friendly output.
@@ -213,7 +213,99 @@ class Dumper extends Node {
 				$flags[] = $name;
 			}
 		}
-		return $flags ? \implode( '|', $flags ) : \sprintf( 'TM_UNKNOWN(0x%x)', $type );
+		return $flags ? \implode( ' | ', $flags ) : \sprintf( 'TM_UNKNOWN(0x%x)', $type );
+	}
+
+	/**
+	 * Level-1 dump: short header followed by the value as-is. Mirrors Perl
+	 * Tachikoma Dumper.pm dump_message branch where debug_level == 1.
+	 */
+	private function format_level_1_dump( array $message ): string {
+		$value     = self::stringify_value( $message[ Message::VALUE ] ?? '', false );
+		$flags     = self::format_type_flags( (int) ( $message[ Message::TYPE ] ?? 0 ) );
+		$from      = (string) ( $message[ Message::FROM ] ?? '' );
+		return $flags . ' from ' . $from . ":\n" . $value;
+	}
+
+	/**
+	 * Level-2 dump: full envelope as a structural multi-line render. Equivalent
+	 * to Perl's `$message->as_string`, which Data::Dumper-prints all envelope
+	 * fields with the value unwrapped (TM_COMMAND values get their inner
+	 * Tachikoma::Command shown as a sub-hash). Goal here is to be every bit
+	 * as readable: each envelope field on its own line, type flags by name,
+	 * timestamp humanized, value either pretty-printed JSON (for TM_STRUCT
+	 * arrays) or — for TM_COMMAND envelopes — the decoded inner command as
+	 * a nested block.
+	 */
+	private function format_envelope_dump( array $message ): string {
+		$type      = (int) ( $message[ Message::TYPE ] ?? 0 );
+		$flags     = self::format_type_flags( $type );
+		$ts        = (string) ( $message[ Message::TIMESTAMP ] ?? '' );
+		$ts_human  = '' !== $ts && \is_numeric( $ts )
+			? \gmdate( 'Y-m-d H:i:s', (int) $ts ) . ' UTC'
+			: '';
+		$value     = self::stringify_value( $message[ Message::VALUE ] ?? '', true );
+
+		$lines = [
+			'Message {',
+			'    type:      ' . $flags,
+			'    from:      ' . (string) ( $message[ Message::FROM ] ?? '' ),
+			'    to:        ' . (string) ( $message[ Message::TO ] ?? '' ),
+			'    id:        ' . (string) ( $message[ Message::ID ] ?? '' ),
+			'    key:       ' . (string) ( $message[ Message::KEY ] ?? '' ),
+			'    timestamp: ' . $ts . ( '' !== $ts_human ? ' (' . $ts_human . ')' : '' ),
+			'    value:     ' . self::indent_following_lines( $value, '               ' ),
+			'}',
+		];
+		return \implode( "\n", $lines );
+	}
+
+	/**
+	 * Stringify a Message::VALUE for debug rendering.
+	 *
+	 * - Arrays (TM_STRUCT VALUE) → JSON. Pretty-printed when $structured=true.
+	 * - JSON-encoded Command strings (TM_COMMAND VALUE — `{"name":...,"payload":...}`):
+	 *   decode and re-render so the user sees the command structure, not a
+	 *   stringified-of-string. Matches Perl Tachikoma which calls
+	 *   `Tachikoma::Command->new($payload)` and renders the resulting hash.
+	 *   (The inner `payload` field is a Tachikoma::Command convention; the
+	 *   outer Message slot is what we call VALUE.)
+	 * - Plain strings → as-is.
+	 *
+	 * @param mixed $value      Raw VALUE.
+	 * @param bool  $structured Whether to use JSON_PRETTY_PRINT for arrays.
+	 */
+	private static function stringify_value( $value, bool $structured ): string {
+		if ( \is_array( $value ) ) {
+			$flags = JSON_UNESCAPED_SLASHES;
+			if ( $structured ) {
+				$flags |= JSON_PRETTY_PRINT;
+			}
+			return (string) \wp_json_encode( $value, $flags );
+		}
+		if ( \is_string( $value ) && '' !== $value && ( '{' === $value[0] || '[' === $value[0] ) ) {
+			$decoded = \json_decode( $value, true );
+			if ( \is_array( $decoded ) ) {
+				$flags = JSON_UNESCAPED_SLASHES;
+				if ( $structured ) {
+					$flags |= JSON_PRETTY_PRINT;
+				}
+				return (string) \wp_json_encode( $decoded, $flags );
+			}
+		}
+		return (string) $value;
+	}
+
+	/**
+	 * Indent every line after the first by $prefix. Used so the value block
+	 * sits visually under `value:` rather than wrapping under the column.
+	 */
+	private static function indent_following_lines( string $text, string $prefix ): string {
+		$lines = \explode( "\n", $text );
+		if ( \count( $lines ) <= 1 ) {
+			return $text;
+		}
+		return $lines[0] . "\n" . \implode( "\n", \array_map( static fn ( $l ) => $prefix . $l, \array_slice( $lines, 1 ) ) );
 	}
 
 	/**
@@ -274,35 +366,19 @@ class Dumper extends Node {
 
 		$type = $message[ Message::TYPE ];
 
-		// debug_level >= 1: emit a one-line debug header to stderr BEFORE the
-		// normal renderer fires, so the user sees a wire-level trace alongside
-		// the curated output. Level 2 emits the full envelope. Mirrors Perl
-		// Tachikoma Dumper.pm `dump_message`. Goes to stderr so a pipe like
-		// `wp nodes cli ... | grep foo` still gets only the normal stdout.
+		// debug_level >= 1: the dump REPLACES the normal render — same as Perl
+		// Tachikoma Dumper.pm where dump_message rewrites $message->[PAYLOAD]
+		// before SUPER::fill writes it out. Level 1 prepends a type-from
+		// header to the payload; level 2 emits the full envelope as a
+		// structural dump (multi-line, indented, all fields labelled, payload
+		// unwrapped). Pipe-friendly: still goes to stdout because the user
+		// asked for it.
 		if ( $this->debug_level >= 1 ) {
-			$value    = $message[ Message::VALUE ] ?? '';
-			$as_text  = \is_string( $value ) ? $value : (string) \wp_json_encode( $value, JSON_UNESCAPED_SLASHES );
-			$flags    = self::format_type_flags( (int) $type );
-			if ( $this->debug_level >= 2 ) {
-				$header = \sprintf(
-					'%s id=%s stream=%s from=%s to=%s ts=%s',
-					$flags,
-					(string) ( $message[ Message::ID ] ?? '' ),
-					(string) ( $message[ Message::KEY ] ?? '' ),
-					(string) ( $message[ Message::FROM ] ?? '' ),
-					(string) ( $message[ Message::TO ] ?? '' ),
-					(string) ( $message[ Message::TIMESTAMP ] ?? '' )
-				);
-				$this->write( $this->stderr, $header . "\n  " . $as_text, true );
-			} else {
-				$header = \sprintf(
-					'%s from %s: %s',
-					$flags,
-					(string) ( $message[ Message::FROM ] ?? '' ),
-					$as_text
-				);
-				$this->write( $this->stderr, $header, true );
-			}
+			$dump = $this->debug_level >= 2
+				? $this->format_envelope_dump( $message )
+				: $this->format_level_1_dump( $message );
+			$this->write_async( $dump );
+			return;
 		}
 
 		// TM_EOF: drain marker — cli emitted TM_EOF on stdin close, the

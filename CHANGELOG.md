@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.9] - 2026-05-12
+
+### Changed
+
+- **`debug_level >= 1` now REPLACES the normal render instead of stacking with it.** 0.1.8 emitted a one-line header to stderr in addition to the normal stdout render — left the user reading both copies of the value. Now mirrors Perl Tachikoma Dumper.pm exactly: the dump rewrites what gets rendered, no double output.
+- **Level 2 is a structural multi-line envelope dump** instead of a flat key=value header. Each envelope field on its own line, type flags rendered by name with `' | '` separator, timestamp humanized (`1700000000 (2023-11-14 22:13:20 UTC)`), value either pretty-printed JSON (for TM_STRUCT arrays) or — for TM_COMMAND envelopes — the decoded inner command unwrapped as a nested JSON block. Matches the readability of Perl's `Data::Dumper` output of `$message->as_string`.
+
+  ```
+  Message {
+      type:      TM_COMMAND | TM_RESPONSE
+      from:      _command_interpreter
+      to:        450
+      id:        1778641673:0000000003
+      key:
+      timestamp: 1778641673 (2026-05-12 03:01:13 UTC)
+      value:     {
+                     "name": "ls",
+                     "arguments": "",
+                     "payload": "COUNT NAME                 TARGET\n…"
+                 }
+  }
+  ```
+
+  Field labelled `value:` (matches `Message::VALUE`). The inner Tachikoma::Command keys keep their canonical `name`/`arguments`/`payload` names — those describe the Command shape, not the envelope slot.
+
 ## [0.1.8] - 2026-05-12
 
 ### Added
