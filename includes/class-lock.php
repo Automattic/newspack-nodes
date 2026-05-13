@@ -79,6 +79,7 @@ class Lock extends Node {
 			if ( @\mkdir( $this->lock_path, 0755, true ) ) {
 				if ( $this->write_acquire_files() ) {
 					$this->is_held = true;
+					$this->set_state( 'HELD', [ 'path' => $this->lock_path, 'stolen' => false ] );
 					return true;
 				}
 				// Couldn't write required files (disk full / permissions). Roll back
@@ -91,6 +92,9 @@ class Lock extends Node {
 			if ( $this->try_steal_orphan_or_stale() ) {
 				if ( $this->write_acquire_files() ) {
 					$this->is_held = true;
+					// Stolen = true so dashboards can render a distinct
+					// "took over an orphan/stale lock" badge.
+					$this->set_state( 'HELD', [ 'path' => $this->lock_path, 'stolen' => true ] );
 					return true;
 				}
 				self::force_release_at( $this->lock_path );
@@ -174,6 +178,7 @@ class Lock extends Node {
 		}
 		self::force_release_at( $this->lock_path );
 		$this->is_held = false;
+		$this->set_state( 'HELD', [ 'path' => $this->lock_path, 'released' => true ] );
 	}
 
 	/**

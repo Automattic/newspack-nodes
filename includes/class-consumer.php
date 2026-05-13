@@ -83,6 +83,16 @@ class Consumer extends Timer {
 	protected bool $at_eof = true;
 
 	/**
+	 * Tracks the last `is_caught_up()` reading we emitted as a state
+	 * transition, so set_state('CAUGHT_UP', ...) fires only when the boolean
+	 * flips. Without this we'd emit on every poll regardless of change.
+	 * Initialised to a sentinel (-1) so the first observation always fires.
+	 *
+	 * @var int -1 sentinel, 0 false, 1 true.
+	 */
+	private int $last_caught_up_emit = -1;
+
+	/**
 	 * @param string $source_base_dir       Source partition's base dir.
 	 * @param int    $source_partition      Partition index within source.
 	 * @param string $offsetlog_base_dir    Where to checkpoint cursor state.
@@ -232,6 +242,20 @@ class Consumer extends Timer {
 	 * calls don't thrash the filesystem.
 	 */
 	public function is_caught_up(): bool {
+		$result = $this->compute_is_caught_up();
+		// State transition: emit only when the boolean flips. Subscribers
+		// (debug_state cli/SSE) see "BEHIND" → "CAUGHT_UP" transitions
+		// without churn from per-poll evaluations.
+		$now = $result ? 1 : 0;
+		if ( $now !== $this->last_caught_up_emit ) {
+			$this->last_caught_up_emit = $now;
+			$this->set_state( 'CAUGHT_UP', $result );
+		}
+		return $result;
+	}
+
+	/** Pure computation extracted so is_caught_up() can wrap with transition tracking. */
+	private function compute_is_caught_up(): bool {
 		if ( ! $this->at_eof ) {
 			return false;
 		}
@@ -388,6 +412,10 @@ class Consumer extends Timer {
 				$this->cursor_seg     = $s['id'];
 				$this->cursor_off     = 0;
 				$this->line_remainder = '';
+				// Durable state: which segment is the cursor currently on?
+				// Late subscribers (incl. dashboards via show_sse) see the
+				// current segment. Cached by set_state.
+				$this->set_state( 'SEGMENT', $this->cursor_seg );
 			}
 
 			// Read past whatever's already in line_remainder. Read offset = cursor_off
@@ -510,6 +538,11 @@ class Consumer extends Timer {
 		$this->offsetlog->flush();
 		$this->checkpoint_seg = $this->cursor_seg;
 		$this->checkpoint_off = $this->cursor_off;
+
+		// Durable state: where did we last commit our cursor? Cached so
+		// late subscribers see the most recent checkpoint without having
+		// to read the offsetlog file themselves.
+		$this->set_state( 'CHECKPOINT', [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off ] );
 	}
 
 	/**

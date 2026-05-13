@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.13] - 2026-05-12
+
+### Added
+
+- **Substrate Node subclasses now emit `set_state` traces at natural state-transition points.** Combined with 0.1.11's per-node `debug_state` flag, this turns the substrate into a self-narrating instrument when tracing is enabled.
+
+  - `Partition::do_rotate()` → `set_state('SEGMENT', $current_segment_id)` when a rotation lands.
+  - `Partition::cleanup_segments()` → `set_state('CLEANUP', ['deleted'=>N,'alive'=>K])` only when retention actually removed segments.
+  - `Consumer::poll()` → `set_state('SEGMENT', $cursor_seg)` when the cursor crosses into a new segment.
+  - `Consumer::checkpoint()` → `set_state('CHECKPOINT', ['seg'=>X,'off'=>Y])` after a successful offsetlog commit (gated by the existing "skip if cursor hasn't advanced" check, so this only fires on real progress).
+  - `Consumer::is_caught_up()` → `set_state('CAUGHT_UP', bool)` on transition only (tracks the last emitted boolean and fires only when it flips, so no churn from per-poll evaluations).
+  - `Tail::poll()` → `set_state('ROTATED', ['inode'=>N])` on file-inode change, `set_state('TRUNCATED', ['size'=>N])` when the file shrinks.
+  - `Tee::connect_node()` / `disconnect_node()` → `set_state('TARGETS', $list)` when the target set changes.
+  - `Lock::acquire()` → `set_state('HELD', ['path'=>$p,'stolen'=>bool])` on successful acquire (stolen=true distinguishes orphan/stale takeover from a clean acquire). `Lock::release()` → `set_state('HELD', ['path'=>$p,'released'=>true])`.
+
+  Each transition is selected to represent a genuine durable state change, not a high-frequency tick — `Timer::set_timer()` is NOT instrumented because `Consumer`/`Tail` re-arm via `set_timer(N, true)` on every poll cycle, which would make ARMED traces a hot path. Notify-only events (Router TIMER ticks, Timer FIRE) remain notify-only by design.
+
+  All transitions ride the existing `Node::set_state()` → `emit_debug_state_trace()` path: a TM_STRUCT addressed to `TO=_repl`, payload `{k:'debug_state', node, class, event, value}`. Visible in any `wp nodes cli` session and the future SSE controller without further plumbing.
+
 ## [0.1.12] - 2026-05-12
 
 ### Added
