@@ -500,6 +500,9 @@ class Partition extends Timer {
 		if ( $ef_running ) {
 			$lock->name( "{$this->name}:lock" );
 			$lock->sink( $this->sink );
+			// Mark as patron-linked plumbing so dump_metadata hides
+			// it from the topology console canvas.
+			$lock->patron( $this );
 		}
 
 		// Block up to max_wait_ms so respawn races (old worker just exited,
@@ -530,6 +533,8 @@ class Partition extends Timer {
 			$this->heartbeat_timer->sink( $this->write_lock );
 			$this->heartbeat_timer->set_key( 'heartbeat' );
 			$this->heartbeat_timer->set_timer( (int) ( $stale_timeout * 1000 / 3 ) );
+			// Same hide-from-canvas marker as the Lock above.
+			$this->heartbeat_timer->patron( $this );
 		}
 
 		return $this;

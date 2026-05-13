@@ -78,6 +78,23 @@ class Node {
 	protected ?CommandInterpreter $interpreter = null;
 
 	/**
+	 * Patron pointer — set on nodes that are plumbing for another
+	 * node. Two kinds of patron-linked nodes today:
+	 *
+	 *   1. Sibling CommandInterpreters (`:config`) auto-created by
+	 *      configurable Node ctors (Partition, RequestBuilder, …).
+	 *   2. Lock + Timer helpers Partition::allow_large_writes()
+	 *      creates inside a running event loop (`:lock`,
+	 *      `:heartbeat`) — these handle the per-Partition lock
+	 *      hygiene but aren't meaningful as canvas nodes.
+	 *
+	 * `dump_metadata` filters any node with patron() !== null so
+	 * the GUI canvas never renders these. `ls -al` and other
+	 * substrate-level tools still see them.
+	 */
+	protected ?Node $patron = null;
+
+	/**
 	 * Attach a sibling CommandInterpreter. Patron Node ctors call
 	 * this after building the sibling so the base class can take
 	 * over name propagation; the sibling adopts
@@ -93,6 +110,18 @@ class Node {
 
 	public function interpreter(): ?CommandInterpreter {
 		return $this->interpreter;
+	}
+
+	/**
+	 * Patron getter/setter. Non-null marks this node as plumbing
+	 * for the patron and excludes it from the canvas-feed
+	 * `dump_metadata` output.
+	 */
+	public function patron( ?Node $node = null ): ?Node {
+		if ( null !== $node ) {
+			$this->patron = $node;
+		}
+		return $this->patron;
 	}
 
 	/**

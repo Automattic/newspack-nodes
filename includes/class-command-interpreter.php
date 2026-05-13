@@ -50,14 +50,10 @@ class CommandInterpreter extends Node {
 	 */
 	protected ?array $commands = null;
 
-	/**
-	 * Patron pointer. Non-null on sibling CIs auto-created by Node
-	 * constructors (Partition, RequestBuilder, …); null on the
-	 * default `_command_interpreter` and any other freestanding CI.
-	 * `dump_metadata` filters CIs with a non-null patron out of the
-	 * GUI-visible node list — they're configuration plumbing.
-	 */
-	protected ?Node $patron = null;
+	// $patron + patron() live on Node now — see class-node.php. CIs
+	// inherit them so the sibling-CI pattern keeps working, and
+	// non-CI plumbing nodes (Partition's Lock + heartbeat Timer)
+	// can use the same hide-from-canvas mechanism.
 
 	public static function register_class( string $shell_name, string $fqcn ): void {
 		self::$class_map[ $shell_name ] = $fqcn;
@@ -80,18 +76,6 @@ class CommandInterpreter extends Node {
 			$this->commands = self::$C ?? [];
 		}
 		return $this->commands;
-	}
-
-	/**
-	 * Patron-Node accessor. Sibling CIs hold a back-reference at
-	 * their patron data node so verb handlers can reach it via
-	 * `$ci->patron()` at dispatch time.
-	 */
-	public function patron( ?Node $node = null ): ?Node {
-		if ( null !== $node ) {
-			$this->patron = $node;
-		}
-		return $this->patron;
 	}
 
 	private static function init_C(): void {
@@ -644,13 +628,12 @@ class CommandInterpreter extends Node {
 	private static function cmd_dump_metadata(): string {
 		$out = [];
 		foreach ( Core::$nodes_by_name as $name => $node ) {
-			// Sibling CIs auto-created by configurable Node ctors
-			// (the Ruleset pattern — Partition, RequestBuilder, …)
-			// are configuration plumbing, not graph data. Filter
-			// them out so the topology console never renders them
-			// as canvas nodes. `ls -al`, `dump_node` and
-			// `stats` still surface them — only the GUI feed hides.
-			if ( $node instanceof CommandInterpreter && null !== $node->patron() ) {
+			// Any patron-linked node is plumbing for another node:
+			// sibling CIs (`:config`), Partition's Lock + heartbeat
+			// Timer (`:lock`, `:heartbeat`), etc. The canvas
+			// shouldn't render them. `ls -al`, `dump_node`, `stats`
+			// still surface them — only the GUI feed hides.
+			if ( null !== $node->patron() ) {
 				continue;
 			}
 			$class = ( new \ReflectionClass( $node ) )->getShortName();
