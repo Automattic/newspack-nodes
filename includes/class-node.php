@@ -22,6 +22,23 @@ class Node {
 	protected int $counter = 0;
 
 	/**
+	 * Largest VALUE size, in bytes, of any message that has flowed through
+	 * fill(). Tachikoma-equivalent of `$node->{largest_msg_sent}`; used by
+	 * the `stats` verb and the topology console's Inspector to surface
+	 * outliers without storing a full histogram.
+	 */
+	protected int $largest_msg_sent = 0;
+
+	/**
+	 * Bytes consumed from / written to backing storage by this node. Only
+	 * I/O nodes (Partition, Consumer) populate these; logic nodes (Tee,
+	 * Hook, app subclasses) leave them at zero — same shape as Tachikoma's
+	 * `$node->{bytes_read}` / `$node->{bytes_written}`.
+	 */
+	protected int $bytes_read    = 0;
+	protected int $bytes_written = 0;
+
+	/**
 	 * Cached configuration string set by `arguments()`. Mirrors real Tachikoma's
 	 * `$self->{arguments}` slot — `dump_config` round-trips this back into the
 	 * `make_node` line so a graph snapshot reproduces the original wiring.
@@ -72,6 +89,10 @@ class Node {
 			$message[ Message::TO ] = $this->target;
 		}
 		++$this->counter;
+		$size = Message::value_size( $message );
+		if ( $size > $this->largest_msg_sent ) {
+			$this->largest_msg_sent = $size;
+		}
 		$this->sink?->fill( $message );
 	}
 
@@ -108,6 +129,18 @@ class Node {
 
 	public function counter(): int {
 		return $this->counter;
+	}
+
+	public function largest_msg_sent(): int {
+		return $this->largest_msg_sent;
+	}
+
+	public function bytes_read(): int {
+		return $this->bytes_read;
+	}
+
+	public function bytes_written(): int {
+		return $this->bytes_written;
 	}
 
 	/**

@@ -22,6 +22,13 @@ class Core {
 	/** @var float Microsecond-resolution timestamp; updated by the event loop or set explicitly in tests. */
 	public static float $now = 0.0;
 
+	/**
+	 * Process start time. Stamped at every Core::reset() (worker bootstrap,
+	 * test setUp); the `uptime` verb subtracts this from $now to render
+	 * `up N days, HH:MM:SS` Tachikoma-style.
+	 */
+	public static float $init_time = 0.0;
+
 	public static bool $shutting_down = false;
 
 	/**
@@ -90,6 +97,7 @@ class Core {
 			\error_log( \rtrim( $msg ) );
 		};
 		self::$now            = \microtime( true );
+		self::$init_time      = self::$now;
 	}
 
 	/** Pre-increment monotonic message-id counter. */

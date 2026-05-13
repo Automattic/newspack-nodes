@@ -682,6 +682,71 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 'some_other_node', $forwarded[ Message::TO ], 'TO preserved on transit' );
 	}
 
+	public function test_stats_renders_tachikoma_columns(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		// alice is a sibling (sinks into _command_interpreter via make_node).
+		$ci->execute( 'make_node CaptureSink alice' );
+		$alice                       = Core::node( 'alice' );
+		$msg                         = Message::new_message();
+		$msg[ Message::VALUE ]       = 'twelve bytes';
+		$alice->fill( $msg );
+
+		$out = $ci->execute( 'stats' );
+
+		// Header columns:
+		$this->assertStringContainsString( 'NAME',     $out );
+		$this->assertStringContainsString( 'COUNT',    $out );
+		$this->assertStringContainsString( 'LGST_MSG', $out );
+		$this->assertStringContainsString( 'READ',     $out );
+		$this->assertStringContainsString( 'WRITTEN',  $out );
+		// Per-node row: name + values.
+		$this->assertMatchesRegularExpression(
+			'/alice\s+1\s+12\s+0\s+0/',
+			$out,
+			'alice row should show counter=1, lgst_msg=12, read=0, written=0'
+		);
+	}
+
+	public function test_dump_metadata_includes_lgst_msg_and_byte_counters(): void {
+		// Use a stock Node (default fill() runs the base tracking).
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$alice = new \Newspack_Nodes\Node();
+		$alice->name( 'alice' );
+		$alice->sink( new CaptureSink() );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::VALUE ] = 'twelve bytes';
+		$alice->fill( $msg );
+
+		$json    = $ci->execute( 'dump_metadata' );
+		$decoded = \json_decode( $json, true );
+
+		$this->assertArrayHasKey( 'alice', $decoded );
+		$this->assertSame( 12, $decoded['alice']['lgst_msg'] );
+		$this->assertSame( 0,  $decoded['alice']['bytes_read'] );
+		$this->assertSame( 0,  $decoded['alice']['bytes_written'] );
+	}
+
+	public function test_uptime_renders_tachikoma_format(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		// 3 days, 4 hours, 5 minutes, 6 seconds after init.
+		Core::$init_time = 1_700_000_000.0;
+		Core::$now       = 1_700_000_000.0 + ( 3 * 86_400 ) + ( 4 * 3_600 ) + ( 5 * 60 ) + 6;
+
+		$out = $ci->execute( 'uptime' );
+
+		// Expected shape (clock varies with localtime, so only assert the
+		// "up <days>, <HH:MM:SS>" portion which is uptime-derived):
+		$this->assertStringContainsString( 'up 3 days, 04:05:06', $out );
+	}
+
 	public function test_dump_config_round_trips_full_graph(): void {
 		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
 		$ci = new CommandInterpreter();
