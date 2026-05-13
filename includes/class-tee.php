@@ -46,11 +46,18 @@ class Tee extends Node {
 	public function fill( array &$message ): void {
 		++$this->counter;
 
-		// Snapshot live targets.
+		// Snapshot live targets. A target that's a bare node name
+		// (no slash) gets pruned if the node disappeared since the
+		// last connect — keeps the array clean across remove_node
+		// churn. A path-shaped target (has a slash, e.g.
+		// `_repl/_output/12345`) is routed by the sink, not looked up
+		// here; we hand it through as-is. Without that distinction
+		// the Tee would silently drop tail targets the cli/SSE adds
+		// via `connect_node <tee>` (default = $message[FROM]).
 		$targets = \is_array( $this->target ) ? $this->target : [];
 		$alive   = [];
 		foreach ( $targets as $t ) {
-			if ( Core::node( $t ) !== null ) {
+			if ( false !== \strpos( $t, '/' ) || Core::node( $t ) !== null ) {
 				$alive[] = $t;
 			}
 		}
