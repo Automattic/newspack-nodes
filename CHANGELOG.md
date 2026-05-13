@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.17] - 2026-05-13
+
+### Fixed
+
+- **Partition was missing `largest_msg_sent` tracking.** Its `fill()` override (writes the packed message to disk) skipped the base `Node::fill()`'s `largest_msg_sent` update, so `stats` and `dump_metadata` reported 0 for every Partition. Now mirrors Node's tracking — measures `Message::value_size()` and updates `$largest_msg_sent` if the new size exceeds the previous max.
+
+- **Consumer was missing `bytes_read` tracking.** Consumer's `poll()` reads bytes via `$this->source->read_at()`, which incremented the source Partition's `bytes_read` but not the Consumer's. Stats showed `read=0` for every Consumer despite Consumers being the user-facing read nodes. Now both increment in parallel: the Partition tracks file-system read volume; the Consumer tracks what surfaces in `stats`.
+
+- **`cmd_uptime` was using `\date()`** for the clock segment, which the `WordPress.DateTime.RestrictedFunctions.date_date` PHPCS rule rightly flags as runtime-timezone-dependent. Switched to `\gmdate()` — UTC is more predictable across worker environments anyway, and the test suite doesn't assert on the clock portion so semantics are preserved.
+
+### Chores
+
+- **Locked `brainmaestro/composer-git-hooks` in `composer.lock`.** The dep was already declared in `require-dev` + `extra.hooks` config, but the lock file was never updated. `composer install --no-dev` (build path) short-circuits the post-install cghooks installer, so a regular `composer install` is the only path that wires `.git/hooks/pre-push`. Locking makes that one-shot setup deterministic.
+
 ## [0.1.16] - 2026-05-13
 
 ### Added
