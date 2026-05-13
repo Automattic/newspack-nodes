@@ -450,6 +450,13 @@ class Consumer extends Timer {
 						$read_start
 					)
 				);
+				// Narrate the same event for debug_state observers —
+				// print_less_often is rate-limited and goes to stderr;
+				// set_state propagates to anyone tracing this Consumer.
+				$this->set_state(
+					'OVERFLOW',
+					[ 'seg' => $s['id'], 'off' => $read_start, 'limit' => self::MAX_LINE_BUFFER_SIZE ]
+				);
 				// Discard remainder + advance cursor past everything we've read in this poll.
 				// remainder bytes were beyond cursor_off; we now sweep cursor_off past them
 				// and past the bytes just fetched so subsequent polls don't re-read them.

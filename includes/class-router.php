@@ -46,6 +46,13 @@ class Router extends Timer {
 
 		$target = Core::node( $node_name );
 		if ( null === $target ) {
+			// Cached/traced state moment — `debug_state _router 1`
+			// turns this into a per-failure trace, useful for
+			// "why isn't my message landing?" debugging.
+			$this->set_state(
+				'NOT_AVAILABLE',
+				[ 'node' => $node_name, 'from' => $message[ Message::FROM ] ]
+			);
 			if ( $message[ Message::TYPE ] & Message::TM_ERROR ) {
 				return;
 			}

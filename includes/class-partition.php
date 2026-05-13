@@ -189,6 +189,12 @@ class Partition extends Timer {
 		$packed = Message::packed( $message ) . "\n";
 		$max    = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
 		if ( \strlen( $packed ) > $max ) {
+			// Silent oversize drop is the most common "where did my
+			// message go?" mystery. Narrate it for debug_state.
+			$this->set_state(
+				'DROPPED',
+				[ 'reason' => 'oversize', 'size' => \strlen( $packed ), 'max' => $max ]
+			);
 			return;
 		}
 
