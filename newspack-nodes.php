@@ -20,6 +20,9 @@ if ( ! \defined( 'NEWSPACK_NODES_FILE' ) ) {
 if ( ! \defined( 'NEWSPACK_NODES_DIR' ) ) {
 	\define( 'NEWSPACK_NODES_DIR', \plugin_dir_path( __FILE__ ) );
 }
+if ( ! \defined( 'NEWSPACK_NODES_URL' ) && \function_exists( 'plugin_dir_url' ) ) {
+	\define( 'NEWSPACK_NODES_URL', \plugin_dir_url( __FILE__ ) );
+}
 
 // Composer classmap autoloader. Class files inside includes/ are scanned at
 // `composer install` / `composer dump-autoload` time and registered with a
