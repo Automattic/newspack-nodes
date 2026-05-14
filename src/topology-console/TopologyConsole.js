@@ -778,7 +778,7 @@ export default function TopologyConsole() {
 				onCancel: () => setDiscardModal( null ),
 			} );
 		},
-		[ mode, parsed, draft, baseline ]
+		[ mode, draft, baseline ]
 	);
 
 	// View vs edit picks the source of truth for everything downstream:
