@@ -35,6 +35,14 @@ class Supervisor extends SupervisorBase {
 	public const CONFIG_CHECK_INTERVAL = 15;
 
 	/**
+	 * Seconds to defer first spawn for a topology type that just appeared in
+	 * the active set. Gives any still-exiting predecessor (released by the
+	 * same check_config tick) time to flush its offsetlog before a fresh
+	 * worker grabs the same source.
+	 */
+	public const NEW_TYPE_SPAWN_DELAY_S = 5;
+
+	/**
 	 * Stale timeout for the supervisor's own lock. Conservative — supervisor
 	 * pings heartbeat well within Lock::STALE_TIMEOUT (60s) on every 1s tick.
 	 */
@@ -60,6 +68,12 @@ class Supervisor extends SupervisorBase {
 
 	/** @var array<int,array> Worker descriptors built from expand_workers(). */
 	private array $worker_locks = [];
+
+	/** @var array<string,bool> Set of topology types active on the previous check_config tick. */
+	private array $active_types = [];
+
+	/** @var array<string,float> type => earliest unix timestamp at which spawn is allowed. */
+	private array $spawn_after = [];
 
 	public function __construct( string $base_dir, string $nonce_salt ) {
 		parent::__construct( $base_dir );
@@ -192,6 +206,16 @@ class Supervisor extends SupervisorBase {
 				if ( $this->is_recently_spawned( $worker['type'], $worker['partition'], $now ) ) {
 					continue;
 				}
+				// Type was just added via check_config; honor the
+				// post-detection delay so a released predecessor has time
+				// to flush its offsetlog cleanly.
+				$deferred_until = $this->spawn_after[ $worker['type'] ] ?? 0;
+				if ( $deferred_until > 0 ) {
+					if ( $now < $deferred_until ) {
+						continue;
+					}
+					unset( $this->spawn_after[ $worker['type'] ] );
+				}
 				$this->post_spawn( $spawn_url, $worker['type'], $worker['partition'], $token );
 				$this->record_spawn( $worker['type'], $worker['partition'], $now );
 			}
@@ -237,6 +261,30 @@ class Supervisor extends SupervisorBase {
 		}
 		$this->num_partitions = \min( self::MAX_PARTITIONS, \max( 1, $max_partitions ) );
 
+		// Detect topology types that left the active set since the last
+		// check_config tick (operator unchecked them in the admin UI, or a
+		// plugin removed its filter). Force-release their lock dirs so the
+		// running workers exit on the next poll.
+		$new_types = [];
+		foreach ( $workers as $w ) {
+			$new_types[ $w['type'] ] = true;
+		}
+		$removed = \array_diff_key( $this->active_types, $new_types );
+		if ( ! empty( $removed ) ) {
+			$this->kill_readers( \array_keys( $removed ) );
+		}
+		// Newly added types: defer first spawn so a released-but-not-yet-
+		// exited predecessor (e.g. swapping firehose-workers-and-jobs for
+		// firehose-workers-only) has time to flush its offsetlog. Skipped on
+		// the very first check_config tick (no prior active_types == cold
+		// start, every type is "new" but there's no predecessor to wait for).
+		if ( ! empty( $this->active_types ) ) {
+			$added = \array_diff_key( $new_types, $this->active_types );
+			foreach ( \array_keys( $added ) as $type ) {
+				$this->spawn_after[ $type ] = $now + self::NEW_TYPE_SPAWN_DELAY_S;
+			}
+		}
+		$this->active_types = $new_types;
 		$this->worker_locks = $workers;
 
 		// Clean up stale partition directories beyond the current num_partitions.
@@ -389,6 +437,13 @@ class Supervisor extends SupervisorBase {
 			}
 			if ( $this->is_recently_spawned( $worker['type'], $worker['partition'], $now ) ) {
 				continue;
+			}
+			$deferred_until = $this->spawn_after[ $worker['type'] ] ?? 0;
+			if ( $deferred_until > 0 ) {
+				if ( $now < $deferred_until ) {
+					continue;
+				}
+				unset( $this->spawn_after[ $worker['type'] ] );
 			}
 			$this->post_spawn( $spawn_url, $worker['type'], $worker['partition'], $token );
 			$this->record_spawn( $worker['type'], $worker['partition'], $now );
