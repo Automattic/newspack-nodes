@@ -265,6 +265,9 @@ export default function SchematicCanvas( {
 	// pointer position and whether the drag has crossed the threshold.
 	const panRef = useRef( null );
 
+	// Debounce flag for beginDrag — see comment in beginDrag below.
+	const beginDragGuardRef = useRef( false );
+
 	// SVG element ref used to project HTML drop coordinates (clientX/Y)
 	// back into the canvas's viewBox coordinate system. Without the
 	// projection, drops would land at raw pixel offsets that ignore
@@ -277,30 +280,69 @@ export default function SchematicCanvas( {
 	// it up). Wire drags suppress the background pan handler (port
 	// hits e.stopPropagation), so these two pointer paths don't fight.
 	const [ wireDrag, setWireDrag ] = useState( null );
+	// Mirror of wireDrag for the window-level mousemove/mouseup
+	// listeners that drive the rubber-band — those closures capture
+	// state at attach time and would otherwise read a stale value.
+	const wireDragRef = useRef( null );
+	const updateWireDrag = useCallback( ( next ) => {
+		wireDragRef.current = next;
+		setWireDrag( next );
+	}, [] );
 
 	// Port hit radius in SVG units. Generous enough to make snapping
 	// feel responsive without overlapping adjacent nodes (NODE_W is
 	// 196, so 24 is well under any node spacing).
 	const PORT_HIT_R = 24;
 
+	// Same pointerdown vs mousedown debounce as beginDrag — Safari
+	// swallows the first pointerdown after an HTML5 drop, so we listen
+	// to both events and dedupe via this ref.
+	const portDownGuardRef = useRef( false );
+
 	const handlePortPointerDown = useCallback(
 		( nodeId, e ) => {
 			if ( ! editMode || ! onConnect || e.button !== 0 ) {
 				return;
 			}
+			if ( portDownGuardRef.current ) {
+				// Stop propagation on the deduped duplicate so the
+				// node-g's onMouseDown doesn't pick it up and start
+				// a node drag in parallel with the wire drag.
+				e.stopPropagation();
+				return;
+			}
+			portDownGuardRef.current = true;
+			setTimeout( () => {
+				portDownGuardRef.current = false;
+			}, 50 );
 			e.stopPropagation();
 			const svg = svgRef.current;
 			if ( ! svg ) {
 				return;
 			}
-			svg.setPointerCapture( e.pointerId );
+			// Use window-level mousemove/mouseup for the rest of the
+			// drag rather than SVG-pointer-capture. Two reasons:
+			//   1. Mouse events work in the Safari post-drop case where
+			//      pointer events get swallowed (same path that broke
+			//      node selection earlier).
+			//   2. The cursor can leave the SVG mid-drag and still
+			//      report position back — useful for cross-pane wires
+			//      when the inspector is open.
+			const onMove = ( me ) => handleWindowWireMove( me );
+			const onUp = ( me ) => {
+				handleWindowWireUp( me );
+				window.removeEventListener( 'mousemove', onMove );
+				window.removeEventListener( 'mouseup', onUp );
+			};
+			window.addEventListener( 'mousemove', onMove );
+			window.addEventListener( 'mouseup', onUp );
 			const node = nodes.find( ( n ) => n.id === nodeId );
 			if ( ! node ) {
 				return;
 			}
 			const x1 = node.position.x + NODE_W;
 			const y1 = node.position.y + NODE_H / 2;
-			setWireDrag( {
+			updateWireDrag( {
 				fromId: nodeId,
 				x1,
 				y1,
@@ -309,66 +351,61 @@ export default function SchematicCanvas( {
 				hoveredId: null,
 			} );
 		},
-		[ editMode, onConnect, nodes ]
+		// handleWindowWireMove / handleWindowWireUp are function declarations
+		// in this same render scope — they close over wireDragRef + nodes,
+		// so they don't need to be in this dep list.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+		[ editMode, onConnect, nodes, updateWireDrag ]
 	);
 
-	const handlePortPointerMove = useCallback(
-		( e ) => {
-			if ( ! wireDrag ) {
-				return;
+	function handleWindowWireMove( e ) {
+		const current = wireDragRef.current;
+		if ( ! current ) {
+			return;
+		}
+		const svg = svgRef.current;
+		if ( ! svg ) {
+			return;
+		}
+		const local = screenToSvg( svg, e.clientX, e.clientY );
+		// Snap-to-IN-port: any node whose IN port (left edge,
+		// vertical center) is within PORT_HIT_R of the cursor wins,
+		// except the source node (no self-edges).
+		let snapTargetId = null;
+		let bestDist = PORT_HIT_R;
+		for ( const n of nodes ) {
+			if ( n.id === current.fromId ) {
+				continue;
 			}
-			const svg = svgRef.current;
-			if ( ! svg ) {
-				return;
+			const px = n.position.x;
+			const py = n.position.y + NODE_H / 2;
+			const dx = local.x - px;
+			const dy = local.y - py;
+			const d = Math.sqrt( dx * dx + dy * dy );
+			if ( d <= bestDist ) {
+				bestDist = d;
+				snapTargetId = n.id;
 			}
-			const local = screenToSvg( svg, e.clientX, e.clientY );
-			// Snap-to-IN-port: any node whose IN port (left edge,
-			// vertical center) is within PORT_HIT_R of the cursor wins,
-			// except the source node (no self-edges).
-			let snapTargetId = null;
-			let bestDist = PORT_HIT_R;
-			for ( const n of nodes ) {
-				if ( n.id === wireDrag.fromId ) {
-					continue;
-				}
-				const px = n.position.x;
-				const py = n.position.y + NODE_H / 2;
-				const dx = local.x - px;
-				const dy = local.y - py;
-				const d = Math.sqrt( dx * dx + dy * dy );
-				if ( d <= bestDist ) {
-					bestDist = d;
-					snapTargetId = n.id;
-				}
-			}
-			setWireDrag( {
-				...wireDrag,
-				x2: local.x,
-				y2: local.y,
-				hoveredId: snapTargetId,
-			} );
-		},
-		[ wireDrag, nodes ]
-	);
+		}
+		updateWireDrag( {
+			...current,
+			x2: local.x,
+			y2: local.y,
+			hoveredId: snapTargetId,
+		} );
+	}
 
-	const handlePortPointerUp = useCallback(
-		( e ) => {
-			if ( ! wireDrag ) {
-				return;
-			}
-			try {
-				e.currentTarget.releasePointerCapture( e.pointerId );
-			} catch ( _err ) {
-				// already released
-			}
-			const { fromId, hoveredId: snapId } = wireDrag;
-			setWireDrag( null );
-			if ( snapId && onConnect ) {
-				onConnect( fromId, snapId );
-			}
-		},
-		[ wireDrag, onConnect ]
-	);
+	function handleWindowWireUp() {
+		const current = wireDragRef.current;
+		if ( ! current ) {
+			return;
+		}
+		const { fromId, hoveredId: snapId } = current;
+		updateWireDrag( null );
+		if ( snapId && onConnect ) {
+			onConnect( fromId, snapId );
+		}
+	}
 
 	const handleDragOver = useCallback(
 		( e ) => {
@@ -408,6 +445,16 @@ export default function SchematicCanvas( {
 			}
 			const local = pt.matrixTransform( ctm.inverse() );
 			onDropNode( { shellName, x: local.x, y: local.y } );
+			// After HTML5 drop the SVG ref is the closest stable focus
+			// target; blurring whatever the browser left active (the
+			// palette item) prevents stale focus from intercepting the
+			// next click. Touch via ownerDocument to satisfy the
+			// no-global-active-element rule.
+			const doc = svgRef.current && svgRef.current.ownerDocument;
+			const active = doc && doc.activeElement;
+			if ( active && active.blur ) {
+				active.blur();
+			}
 		},
 		[ editMode, onDropNode ]
 	);
@@ -557,6 +604,25 @@ export default function SchematicCanvas( {
 		if ( e.button !== 0 ) {
 			return;
 		}
+		// After an HTML5 drop, the browser swallows the next
+		// pointerdown but still fires mousedown + click. We listen to
+		// both — beginDragGuard prevents double-firing in the normal
+		// case where pointerdown DOES fire (immediately followed by
+		// mousedown).
+		if ( beginDragGuardRef.current ) {
+			// Still stop propagation on the deduped duplicate — without
+			// this, the paired event would bubble to the SVG bg handler
+			// and start a pan, even though we already handled it.
+			e.stopPropagation();
+			return;
+		}
+		beginDragGuardRef.current = true;
+		// Reset on next tick — long enough that the paired mouse event
+		// has been swallowed, short enough that the next user
+		// interaction starts fresh.
+		setTimeout( () => {
+			beginDragGuardRef.current = false;
+		}, 50 );
 		e.stopPropagation();
 		draggedRef.current = false;
 		const svg = e.currentTarget.ownerSVGElement;
@@ -640,27 +706,9 @@ export default function SchematicCanvas( {
 			viewBox={ viewBox }
 			preserveAspectRatio="xMidYMid meet"
 			onPointerDown={ handleBgPointerDown }
-			onPointerMove={ ( e ) => {
-				if ( wireDrag ) {
-					handlePortPointerMove( e );
-				} else {
-					handleBgPointerMove( e );
-				}
-			} }
-			onPointerUp={ ( e ) => {
-				if ( wireDrag ) {
-					handlePortPointerUp( e );
-				} else {
-					handleBgPointerUp( e );
-				}
-			} }
-			onPointerCancel={ ( e ) => {
-				if ( wireDrag ) {
-					handlePortPointerUp( e );
-				} else {
-					handleBgPointerUp( e );
-				}
-			} }
+			onPointerMove={ handleBgPointerMove }
+			onPointerUp={ handleBgPointerUp }
+			onPointerCancel={ handleBgPointerUp }
 			onWheel={ handleWheel }
 			onDragOver={ handleDragOver }
 			onDrop={ handleDrop }
@@ -761,6 +809,7 @@ export default function SchematicCanvas( {
 								}
 							} }
 							onPointerDown={ ( ev ) => beginDrag( ev, n ) }
+							onMouseDown={ ( ev ) => beginDrag( ev, n ) }
 							onPointerMove={ updateDrag }
 							onPointerUp={ endDrag }
 							onPointerCancel={ endDrag }
@@ -874,6 +923,9 @@ export default function SchematicCanvas( {
 								cy={ NODE_H / 2 }
 								r={ PORT_R }
 								onPointerDown={ ( e ) =>
+									handlePortPointerDown( n.id, e )
+								}
+								onMouseDown={ ( e ) =>
 									handlePortPointerDown( n.id, e )
 								}
 							/>
