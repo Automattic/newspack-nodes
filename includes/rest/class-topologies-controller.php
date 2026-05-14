@@ -43,6 +43,75 @@ class TopologiesController {
 				'permission_callback' => [ $this, 'check_write_permission' ],
 			]
 		);
+		\register_rest_route(
+			self::REST_NAMESPACE,
+			'/topologies/(?P<name>[a-zA-Z0-9_-]+)',
+			[
+				'methods'             => 'GET',
+				'callback'            => [ $this, 'get_topology' ],
+				'permission_callback' => [ $this, 'check_read_permission' ],
+			]
+		);
+	}
+
+	/**
+	 * GET /newspack-nodes/v1/topologies/{name} — return the raw TSL
+	 * body for a single topology, plus its source breakdown. Powers
+	 * the editor's "Open existing topology" affordance.
+	 *
+	 * Lookup order matches Topology_Registry::resolve(): user-dir
+	 * shadows stock, so the body returned is whichever copy the
+	 * supervisor would actually load at spawn time.
+	 */
+	public function get_topology( \WP_REST_Request $request ): \WP_REST_Response {
+		$name = (string) $request->get_param( 'name' );
+		if ( ! \preg_match( self::NAME_PATTERN, $name ) ) {
+			return new \WP_REST_Response(
+				[
+					'code'    => 'invalid_name',
+					'message' => 'Topology name must match [a-zA-Z0-9_-]+',
+				],
+				400
+			);
+		}
+		$path = Topology_Registry::resolve( $name );
+		if ( null === $path ) {
+			return new \WP_REST_Response(
+				[
+					'code'    => 'not_found',
+					'message' => "No topology named '{$name}'.",
+				],
+				404
+			);
+		}
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_get_contents
+		$tsl = @\file_get_contents( $path );
+		if ( false === $tsl ) {
+			return new \WP_REST_Response(
+				[
+					'code'    => 'read_failed',
+					'message' => "Failed to read {$path}",
+				],
+				500
+			);
+		}
+		$sources   = Topology_Registry::describe()[ $name ] ?? [
+			'user'  => null,
+			'stock' => [],
+		];
+		$has_user  = null !== $sources['user'];
+		$has_stock = ! empty( $sources['stock'] );
+		$source    = ( $has_user && $has_stock )
+			? 'both'
+			: ( $has_user ? 'user' : 'stock' );
+		return new \WP_REST_Response(
+			[
+				'name'   => $name,
+				'source' => $source,
+				'tsl'    => $tsl,
+			],
+			200
+		);
 	}
 
 	public function check_read_permission(): bool|\WP_Error {
