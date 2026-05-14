@@ -340,12 +340,9 @@ class Config {
 			return self::$config_defaults;
 		}
 
-		// Seed with the hardcoded default. Config files (this plugin's
-		// `newspack-nodes-config.php` plus any `LOCAL_NEWSPACK_NODES_CONF`
-		// override) and WP options layer in below.
-		$config = [ 'base_directory' => '/tmp/newspack-nodes' ];
 
 		// Load main config file.
+		$config      = [];
 		$config_path = \dirname( __DIR__ ) . '/newspack-nodes-config.php';
 		if ( \file_exists( $config_path ) ) {
 			$config = self::load_config_file( $config, $config_path );
