@@ -42,6 +42,71 @@ class BootstrapTest extends TestCase {
 		$this->assertSame( [], $result );
 	}
 
+	public function test_get_topologies_synthesizes_entry_for_operator_selection_not_in_catalog(): void {
+		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
+			$topologies['request-workers'] = [ 'topology' => 'request-workers', 'num_partitions' => 2, 'stale_timeout' => 60 ];
+			return $topologies;
+		} );
+		// Operator checks aggregator (a real TSL file the app didn't publish)
+		// + request-workers via the admin UI; both must survive get_topologies().
+		$stock = $this->make_temp_dir( 'tsl-stock-' );
+		\file_put_contents(
+			"$stock/aggregator.tsl",
+			"var num_partitions = 3\nvar stale_timeout = 120\n"
+		);
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'aggregator', 'request-workers' ];
+
+		try {
+			$result = Bootstrap::get_topologies();
+			$this->assertArrayHasKey( 'aggregator', $result, 'operator-checked non-catalog topology must be honored' );
+			$this->assertSame( 'aggregator', $result['aggregator']['topology'] );
+			$this->assertSame( 3, $result['aggregator']['num_partitions'] );
+			$this->assertSame( 120, $result['aggregator']['stale_timeout'] );
+			$this->assertArrayHasKey( 'request-workers', $result );
+			$this->assertSame( 2, $result['request-workers']['num_partitions'] );
+		} finally {
+			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
+	public function test_get_topologies_synthesizes_defaults_when_frontmatter_silent(): void {
+		$stock = $this->make_temp_dir( 'tsl-stock-' );
+		\file_put_contents( "$stock/quiet.tsl", "# no var lines here\n" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'quiet' ];
+
+		try {
+			$result = Bootstrap::get_topologies();
+			$this->assertArrayHasKey( 'quiet', $result );
+			$this->assertSame( 1, $result['quiet']['num_partitions'] );
+			$this->assertSame( \Newspack_Nodes\Lock::STALE_TIMEOUT, $result['quiet']['stale_timeout'] );
+		} finally {
+			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
+	public function test_get_topologies_drops_operator_names_that_have_no_tsl_file(): void {
+		// Operator option points at a topology with no TSL file (typo or
+		// stale selection after the app removed the file). Must not blow
+		// up the supervisor — silently dropped.
+		\Newspack_Nodes\Topology_Registry::reset();
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'no-such-topology', 'also-missing' ];
+
+		try {
+			$result = Bootstrap::get_topologies();
+			$this->assertSame( [], $result );
+		} finally {
+			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		}
+	}
+
 	// ── expand_workers ────────────────────────────────────────────────────
 
 	public function test_expand_topologies_yields_one_entry_per_partition(): void {

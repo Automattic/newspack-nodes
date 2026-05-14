@@ -80,6 +80,42 @@ class TopologyRegistryTest extends TestCase {
 		$this->assertSame( [], Topology_Registry::frontmatter( 'no-such-topology' ) );
 	}
 
+	public function test_synthesize_entry_reads_frontmatter_vars(): void {
+		\file_put_contents(
+			"{$this->stock}/aggregator.tsl",
+			"var num_partitions = 3\nvar stale_timeout = 120\n"
+		);
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		$this->assertSame(
+			[
+				'topology'       => 'aggregator',
+				'num_partitions' => 3,
+				'stale_timeout'  => 120,
+			],
+			Topology_Registry::synthesize_entry( 'aggregator' )
+		);
+	}
+
+	public function test_synthesize_entry_uses_caller_defaults_when_frontmatter_silent(): void {
+		\file_put_contents( "{$this->stock}/quiet.tsl", "# no var lines\n" );
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		$this->assertSame(
+			[
+				'topology'       => 'quiet',
+				'num_partitions' => 4,
+				'stale_timeout'  => 99,
+			],
+			Topology_Registry::synthesize_entry( 'quiet', 4, 99 )
+		);
+	}
+
+	public function test_synthesize_entry_returns_null_for_missing_tsl(): void {
+		Topology_Registry::register_stock_dir( $this->stock );
+		$this->assertNull( Topology_Registry::synthesize_entry( 'no-such-topology' ) );
+	}
+
 	public function test_multiple_stock_dirs_first_wins(): void {
 		$second = $this->make_temp_dir( 'tsl-stock-2-' );
 		\file_put_contents( "{$second}/only-stock.tsl", '' );

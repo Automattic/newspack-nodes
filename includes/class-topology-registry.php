@@ -155,6 +155,34 @@ class Topology_Registry {
 		return $out;
 	}
 
+	/**
+	 * Build a topology config entry — `[topology, num_partitions, stale_timeout]`
+	 * — for a TSL file by reading its frontmatter. Returns null if `$name`
+	 * doesn't resolve to a TSL file, so callers can drop typos / stale
+	 * option values without crashing the supervisor.
+	 *
+	 * Shared by the substrate's `Bootstrap::get_topologies()` (synthesizes
+	 * entries for admin-UI selections the app didn't publish in its
+	 * catalog) and applications' own `newspack_nodes/topologies` filter
+	 * callbacks (build the catalog from a `topologies` config list). Each
+	 * caller passes the defaults appropriate to its context.
+	 */
+	public static function synthesize_entry(
+		string $name,
+		int $default_num_partitions = 1,
+		int $default_stale_timeout = Lock::STALE_TIMEOUT
+	): ?array {
+		if ( null === self::resolve( $name ) ) {
+			return null;
+		}
+		$front = self::frontmatter( $name );
+		return [
+			'topology'       => $name,
+			'num_partitions' => isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions,
+			'stale_timeout'  => isset( $front['stale_timeout'] ) ? (int) $front['stale_timeout'] : $default_stale_timeout,
+		];
+	}
+
 	public static function reset(): void {
 		self::$stock_dirs = [];
 		self::$user_dir   = '';

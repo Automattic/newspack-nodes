@@ -44,6 +44,14 @@ class Bootstrap {
 	 * on a fresh install without shadowing operator choices. `[]` is a
 	 * valid stored value (operator unchecked everything), distinct from
 	 * `false`.
+	 *
+	 * Operator selections that name a TSL file the application didn't
+	 * publish in its catalog (the admin UI renders every registered TSL,
+	 * not just catalog entries) fall back to `Topology_Registry` lookup —
+	 * the entry is synthesized from the TSL frontmatter with the same
+	 * shape the application produces, so the supervisor can spawn it.
+	 * Names that don't resolve to a TSL file are dropped, guarding
+	 * against typos / stale option values.
 	 */
 	public static function get_topologies(): array {
 		$catalog = (array) \apply_filters( 'newspack_nodes/topologies', [] );
@@ -58,8 +66,16 @@ class Bootstrap {
 		}
 		$active = [];
 		foreach ( $option as $name ) {
-			if ( \is_string( $name ) && isset( $catalog[ $name ] ) ) {
+			if ( ! \is_string( $name ) || '' === $name ) {
+				continue;
+			}
+			if ( isset( $catalog[ $name ] ) ) {
 				$active[ $name ] = $catalog[ $name ];
+				continue;
+			}
+			$synthesized = Topology_Registry::synthesize_entry( $name, 1, Lock::STALE_TIMEOUT );
+			if ( null !== $synthesized ) {
+				$active[ $name ] = $synthesized;
 			}
 		}
 		return $active;
