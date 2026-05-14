@@ -1,72 +1,76 @@
 /**
- * Left-pane palette of available node classes.
+ * Edit-mode palette of available node classes.
  *
- * Inert in v1 — drag-to-create is a v2 affordance. The list itself is
- * static (mirrors the substrate's class registry); the count footer
- * tells the operator how many primitives are available.
+ * Populated from `GET /newspack-nodes/v1/classes` via the
+ * useClassCatalog hook in TopologyConsole; rendered only when
+ * `mode === 'edit'`. Each item is HTML5-draggable and carries the
+ * shell name on its dataTransfer payload so SchematicCanvas's
+ * onDrop (Task 6) knows what to instantiate.
+ *
+ * Hidden categories (`'Hidden'`) are filtered out at the controller
+ * level, so anything we receive here is meant to appear in the UI.
  */
 
-const PALETTE = {
-	'I/O': [
-		{ type: 'Tail', badge: 'SRC' },
-		{ type: 'Consumer', badge: 'SRC' },
-		{ type: 'Topic', badge: 'SNK' },
-		{ type: 'Partition', badge: 'STO' },
-	],
-	Flow: [
-		{ type: 'Tee' },
-		{ type: 'Callback' },
-		{ type: 'Hook' },
-		{ type: 'Echo' },
-	],
-	Application: [
-		{ type: 'RequestBuilder' },
-		{ type: 'FlameBuilder' },
-		{ type: 'JobRouter' },
-		{ type: 'JobWorker' },
-		{ type: 'StreamMerger' },
-	],
-	Control: [ { type: 'Timer' }, { type: 'Log' } ],
-};
+const DRAG_MIME = 'application/x-newspack-node';
 
-function totalClasses() {
-	return Object.values( PALETTE ).reduce(
-		( sum, group ) => sum + group.length,
-		0
-	);
+function groupByCategory( classes ) {
+	const out = {};
+	for ( const c of classes ) {
+		( out[ c.category ] ||= [] ).push( c );
+	}
+	for ( const cat of Object.keys( out ) ) {
+		out[ cat ].sort( ( a, b ) =>
+			a.shell_name.localeCompare( b.shell_name )
+		);
+	}
+	return out;
 }
 
-export default function Palette() {
+export default function Palette( { classes = [], loading = false } ) {
+	if ( loading && ! classes.length ) {
+		return (
+			<aside className="topology-palette">
+				<div className="topology-palette__footer">Loading…</div>
+			</aside>
+		);
+	}
+	const grouped = groupByCategory( classes );
+	const total = classes.length;
+
 	return (
 		<aside className="topology-palette">
-			{ Object.entries( PALETTE ).map( ( [ group, items ] ) => (
+			{ Object.entries( grouped ).map( ( [ group, items ] ) => (
 				<div key={ group }>
 					<h3 className="topology-palette__group">{ group }</h3>
-					{ items.map( ( item ) => (
+					{ items.map( ( c ) => (
 						<div
-							key={ item.type }
-							className={ `topology-palette__item topology-palette__item--${ item.type.toLowerCase() }` }
-							data-type={ item.type }
+							key={ c.shell_name }
+							className={ `topology-palette__item topology-palette__item--${ c.shell_name.toLowerCase() }` }
+							data-shell-name={ c.shell_name }
+							draggable
+							title={ c.description || '' }
+							onDragStart={ ( e ) => {
+								e.dataTransfer.setData(
+									DRAG_MIME,
+									c.shell_name
+								);
+								e.dataTransfer.effectAllowed = 'copy';
+							} }
 						>
 							<div className="topology-palette__glyph" />
 							<div className="topology-palette__name">
-								{ item.type }
+								{ c.shell_name }
 							</div>
-							{ item.badge && (
-								<div className="topology-palette__badge">
-									{ item.badge }
-								</div>
-							) }
 						</div>
 					) ) }
 				</div>
 			) ) }
 			<div className="topology-palette__footer">
-				<span className="topology-palette__count">
-					{ totalClasses() }
-				</span>{ ' ' }
+				<span className="topology-palette__count">{ total }</span>{ ' ' }
 				classes registered
 			</div>
 		</aside>
 	);
 }
+
+export { DRAG_MIME };
