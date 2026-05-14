@@ -31,6 +31,7 @@ import SchematicCanvas from './components/SchematicCanvas';
 
 import { useClassCatalog } from './hooks/useClassCatalog';
 import { useTopologyStream } from './hooks/useTopologyStream';
+import { addNode, generateNodeName } from './utils/draftGraph';
 import { parseMetadata } from './utils/parseMetadata';
 import { shellInterpret, SHELL_BUILTINS_BLURB } from './utils/shellInterpret';
 
@@ -768,6 +769,26 @@ export default function TopologyConsole() {
 	// underneath; the draft is frozen until the user saves or discards.
 	const canvasGraph = mode === 'edit' ? draft : parsed;
 
+	// Drop handler — fired by SchematicCanvas when the user releases a
+	// palette drag over the SVG. The shellName comes from the
+	// dataTransfer payload set by Palette; (x, y) is already projected
+	// into SVG-space by the canvas.
+	const handleDropNode = useCallback(
+		( { shellName, x, y } ) => {
+			setDraft( ( g ) => {
+				const name = generateNodeName( g, shellName );
+				// Seed a position override too — autoLayout would otherwise
+				// reposition the freshly-dropped node, defeating the cursor
+				// placement. handlePositionChange's setter writes through to
+				// localStorage; we use the same path so the placement
+				// survives reloads.
+				handlePositionChange( name, { x, y } );
+				return addNode( g, { shellName, name, x, y } );
+			} );
+		},
+		[ handlePositionChange ]
+	);
+
 	// Pull rate info for the selected node. rateVersion is the
 	// "something changed in the rate map" signal that drives the
 	// useMemo recompute; the actual data lives in rateRef (mutable so
@@ -821,6 +842,8 @@ export default function TopologyConsole() {
 					rateVersion={ rateVersion }
 					viewport={ viewport }
 					onViewportChange={ handleViewportChange }
+					editMode={ mode === 'edit' }
+					onDropNode={ handleDropNode }
 				/>
 			</CanvasFrame>
 			{ /* Inspector is only mounted when a node is selected — the

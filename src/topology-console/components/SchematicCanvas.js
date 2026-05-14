@@ -12,7 +12,13 @@
  * the canvas stable while counters tick.
  */
 
-import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from '@wordpress/element';
 
 import { autoLayout, X_STEP, Y_STEP, X_PAD, Y_PAD } from '../utils/autoLayout';
 import { inferType } from '../utils/inferType';
@@ -196,6 +202,12 @@ export default function SchematicCanvas( {
 	rateVersion,
 	viewport,
 	onViewportChange,
+	// Edit-mode affordances. `onDropNode` receives { shellName, x, y }
+	// in SVG-space coordinates (post-viewBox projection). Both are
+	// noop in view mode — wired through TopologyConsole based on the
+	// current `mode` state.
+	onDropNode,
+	editMode = false,
 } ) {
 	// Apply user-pinned position overrides on top of the auto-layout
 	// output. autoLayout still runs every poll (so newly-added nodes
@@ -250,6 +262,54 @@ export default function SchematicCanvas( {
 	// (so each move re-reads from a stable origin) plus the starting
 	// pointer position and whether the drag has crossed the threshold.
 	const panRef = useRef( null );
+
+	// SVG element ref used to project HTML drop coordinates (clientX/Y)
+	// back into the canvas's viewBox coordinate system. Without the
+	// projection, drops would land at raw pixel offsets that ignore
+	// pan/zoom — perfectly wrong in any non-default viewport.
+	const svgRef = useRef( null );
+
+	const handleDragOver = useCallback(
+		( e ) => {
+			if ( ! editMode ) {
+				return;
+			}
+			// preventDefault is what marks the surface as a valid drop
+			// target; without it, the browser refuses the drop and the
+			// onDrop handler never fires.
+			e.preventDefault();
+			e.dataTransfer.dropEffect = 'copy';
+		},
+		[ editMode ]
+	);
+
+	const handleDrop = useCallback(
+		( e ) => {
+			if ( ! editMode || ! onDropNode || ! svgRef.current ) {
+				return;
+			}
+			const shellName = e.dataTransfer.getData(
+				'application/x-newspack-node'
+			);
+			if ( ! shellName ) {
+				return;
+			}
+			e.preventDefault();
+			// Project (clientX, clientY) → SVG-space (x, y) using the
+			// current screen-CTM, so the drop position lands under the
+			// cursor regardless of the active viewBox / zoom level.
+			const pt = svgRef.current.createSVGPoint();
+			pt.x = e.clientX;
+			pt.y = e.clientY;
+			const ctm = svgRef.current.getScreenCTM();
+			if ( ! ctm ) {
+				return;
+			}
+			const local = pt.matrixTransform( ctm.inverse() );
+			onDropNode( { shellName, x: local.x, y: local.y } );
+		},
+		[ editMode, onDropNode ]
+	);
 
 	const defaultViewBox = useMemo(
 		() => tightViewBoxFor( displayNodes ),
@@ -474,6 +534,7 @@ export default function SchematicCanvas( {
 
 	return (
 		<svg
+			ref={ svgRef }
 			className="topology-canvas-svg"
 			viewBox={ viewBox }
 			preserveAspectRatio="xMidYMid meet"
@@ -482,6 +543,8 @@ export default function SchematicCanvas( {
 			onPointerUp={ handleBgPointerUp }
 			onPointerCancel={ handleBgPointerUp }
 			onWheel={ handleWheel }
+			onDragOver={ handleDragOver }
+			onDrop={ handleDrop }
 		>
 			<defs>
 				<marker
