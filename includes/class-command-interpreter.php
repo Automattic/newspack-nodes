@@ -126,6 +126,7 @@ class CommandInterpreter extends Node {
 				. "          cli sessions and the SSE controller see the trace in real time.\n"
 				. "          New nodes created by `make_node` inherit this CI's level.\n",
 			'pwd' => "pwd\n",
+			'log' => "log <message>\n    note: prints <message> to stderr (server-side debug log).\n",
 			'help' => "help [ <topic> ]\n",
 
 			// Shell-level builtins. Documented here so `help` is a single
@@ -159,6 +160,7 @@ class CommandInterpreter extends Node {
 			'rm'              => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
 			'list_nodes'      => fn ( CommandInterpreter $self, string $args ): string => self::cmd_list_nodes( $self, $args ),
 			'ls'              => fn ( CommandInterpreter $self, string $args ): string => self::cmd_list_nodes( $self, $args ),
+			'log'             => fn ( CommandInterpreter $self, string $args ): string => self::cmd_log( $args ),
 			'dump_node'       => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_node( $args ),
 			'dump'            => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_node( $args ),
 			'dump_config'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_config(),
@@ -542,6 +544,14 @@ class CommandInterpreter extends Node {
 			return \implode( "\n", $names );
 		}
 		return self::tabulate( $dirs, $header, $rows );
+	}
+
+	/**
+	 * Send output to stderr.
+	 */
+	private static function cmd_log( string $args ): string {
+		\error_log( $args );
+		return '';
 	}
 
 	/**
@@ -938,19 +948,21 @@ class CommandInterpreter extends Node {
 		// is application-defined correlation metadata: a GUI client can
 		// stamp KEY on its outgoing TM_COMMAND and recognise the matched
 		// response on the way back regardless of routing order.
-		$response                   = Message::new_message();
-		$response[ Message::TYPE ]  = $resp_type;
-		$response[ Message::FROM ]  = $this->name;
-		$response[ Message::TO ]    = $message[ Message::FROM ];
-		$response[ Message::ID ]    = $message[ Message::ID ];
-		$response[ Message::KEY ]   = $message[ Message::KEY ];
-		$response[ Message::VALUE ] = \wp_json_encode(
-			[
-				'name'    => $cmd['name'],
-				'payload' => $result,
-			]
-		);
-		$this->sink?->fill( $response );
+		if ( ! \is_string( $result ) || '' !== $result ) {
+			$response                   = Message::new_message();
+			$response[ Message::TYPE ]  = $resp_type;
+			$response[ Message::FROM ]  = $this->name;
+			$response[ Message::TO ]    = $message[ Message::FROM ];
+			$response[ Message::ID ]    = $message[ Message::ID ];
+			$response[ Message::KEY ]   = $message[ Message::KEY ];
+			$response[ Message::VALUE ] = \wp_json_encode(
+				[
+					'name'    => $cmd['name'],
+					'payload' => $result,
+				]
+			);
+			$this->sink?->fill( $response );
+		}
 	}
 
 	public static function node_schema(): array {
