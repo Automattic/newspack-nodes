@@ -157,9 +157,7 @@ class WorkerCliCommand {
 		// CLI-side runs use the substrate's own Config; application
 		// plugins that need richer config can hook the spawn-action
 		// path instead.
-		$config   = \class_exists( '\\Newspack_Nodes\\Config' )
-			? \Newspack_Nodes\Config::load_config( 'full' )
-			: [];
+		$config = \Newspack_Nodes\Config::load_config( 'full' );
 		if ( ! isset( $config['logs_dir'] ) && isset( $config['base_directory'] ) ) {
 			$config['logs_dir'] = \rtrim( (string) $config['base_directory'], '/' ) . '/logs';
 		}

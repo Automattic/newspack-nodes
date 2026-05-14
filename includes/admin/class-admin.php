@@ -504,9 +504,6 @@ class Admin {
 			if ( ! \is_string( $name ) || '' === $name ) {
 				continue;
 			}
-			if ( ! \class_exists( '\\Newspack_Nodes\\Topology_Registry' ) ) {
-				continue;
-			}
 			if ( null !== \Newspack_Nodes\Topology_Registry::resolve( $name ) ) {
 				$out[] = $name;
 			}
@@ -531,9 +528,7 @@ class Admin {
 	 * deployment knows where to look.
 	 */
 	public function topologies_callback(): void {
-		$available = \class_exists( '\\Newspack_Nodes\\Topology_Registry' )
-			? \Newspack_Nodes\Topology_Registry::list()
-			: [];
+		$available = \Newspack_Nodes\Topology_Registry::list();
 		\sort( $available );
 		// The application publishes its file-default catalog (and ONLY
 		// that) via `newspack_nodes/topologies`. The substrate owns the
