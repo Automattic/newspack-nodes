@@ -224,6 +224,9 @@ class Admin {
 		$save_nonce  = \function_exists( 'wp_create_nonce' )
 			? \wp_create_nonce( \Newspack_Nodes\Rest\TopologiesController::NONCE_ACTION )
 			: '';
+		$layout_nonce = \function_exists( 'wp_create_nonce' )
+			? \wp_create_nonce( \Newspack_Nodes\Rest\LayoutsController::NONCE_ACTION )
+			: '';
 		\wp_localize_script(
 			$handle,
 			'NewspackNodesData',
@@ -231,6 +234,7 @@ class Admin {
 				'restUrl'             => $rest_url,
 				'nonce'               => $nonce,
 				'saveTopologyNonce'   => $save_nonce,
+				'saveLayoutNonce'     => $layout_nonce,
 				'tree'                => 'topology-console',
 				'version'             => \NEWSPACK_NODES_VERSION,
 				'topologyPartitions'  => $topology_partitions,

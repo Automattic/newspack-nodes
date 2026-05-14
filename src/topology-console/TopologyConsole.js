@@ -32,6 +32,7 @@ import SchematicCanvas from './components/SchematicCanvas';
 import OpenTopologyModal from './components/OpenTopologyModal';
 
 import { useClassCatalog } from './hooks/useClassCatalog';
+import { useLayout } from './hooks/useLayout';
 import { useSaveTopology } from './hooks/useSaveTopology';
 import { useTopology, useTopologyList } from './hooks/useTopologyList';
 import { useTopologyStream } from './hooks/useTopologyStream';
@@ -417,32 +418,156 @@ export default function TopologyConsole() {
 		[ viewportStorageKey ]
 	);
 
-	// Reset Layout also clears any pan/zoom override and signals the
-	// canvas to autofit to the (refreshed) tight bbox via a `null`
-	// viewport — SchematicCanvas treats null as "autofit on next
-	// render." Deferred by one tick so the cleared positions have
-	// time to flow through before the autofit recomputes the bbox.
-	const handleResetLayout = useCallback( () => {
-		setPositionOverrides( {} );
-		try {
-			window.localStorage.removeItem( positionStorageKey );
-		} catch ( _err ) {
-			// Ignore — clearing in-memory state is the important part.
+	// Server-side saved layout for the current topology (fetched on
+	// topology change). Reset Layout reverts to this; Save Layout
+	// writes the current positionOverrides to it. Null until the
+	// fetch has resolved; an empty `positions` map means "no saved
+	// layout exists" and Reset falls back to autoLayout.
+	const [ savedLayout, setSavedLayout ] = useState( null );
+	const { fetchLayout, saveLayout } = useLayout();
+	const effectiveTopologyName =
+		mode === 'edit' && editingName ? editingName : topology;
+
+	useEffect( () => {
+		if ( ! effectiveTopologyName ) {
+			setSavedLayout( null );
+			return;
 		}
-		setTimeout( () => {
-			setViewport( null );
-			try {
-				window.localStorage.removeItem( viewportStorageKey );
-			} catch ( _err ) {
-				// Ignore.
+		// Null while fetching so the live-mode seed effect can't lock
+		// in stale positions from the previous topology before the
+		// new fetch resolves.
+		setSavedLayout( null );
+		fetchLayout( effectiveTopologyName )
+			.then( ( resp ) => {
+				setSavedLayout( {
+					positions: resp.positions || null,
+				} );
+			} )
+			.catch( () => {
+				setSavedLayout( { positions: null } );
+			} );
+	}, [ effectiveTopologyName, fetchLayout ] );
+
+	// Pending "Reset layout — are you sure?" modal. Edit-mode only;
+	// live mode resets without confirmation since the change is
+	// in-session.
+	const [ resetConfirm, setResetConfirm ] = useState( null );
+
+	// Convert a savedLayout payload to the {id: {x, y}} shape
+	// positionOverrides uses. Returns null when the payload is empty
+	// or malformed so callers can branch cleanly.
+	const savedPositionsToOverrides = useCallback( ( layout ) => {
+		const saved = layout && layout.positions;
+		if ( ! saved || Object.keys( saved ).length === 0 ) {
+			return null;
+		}
+		const next = {};
+		for ( const [ id, xy ] of Object.entries( saved ) ) {
+			if ( Array.isArray( xy ) && xy.length >= 2 ) {
+				next[ id ] = { x: xy[ 0 ], y: xy[ 1 ] };
 			}
-		}, 0 );
-	}, [ positionStorageKey, viewportStorageKey ] );
-	// Reset Layout shows iff the operator has placed at least one
-	// node by hand. Auto-seeded entries don't count.
-	const hasOverrides = Object.values( positionOverrides ).some(
-		( p ) => p && p.user
+		}
+		return next;
+	}, [] );
+
+	// Restore the canvas to a default layout. Edit-mode default is
+	// the programmatic autoLayout (empty overrides); live-mode default
+	// is the operator-pinned saved layout (or autoLayout if none).
+	const applyLayoutReset = useCallback(
+		( target ) => {
+			const seeded =
+				target === 'saved' ? savedPositionsToOverrides( savedLayout ) : null;
+			setPositionOverrides( seeded ?? {} );
+			try {
+				window.localStorage.removeItem( positionStorageKey );
+			} catch ( _err ) {
+				// in-memory state is the important part
+			}
+			setTimeout( () => {
+				setViewport( null );
+				try {
+					window.localStorage.removeItem( viewportStorageKey );
+				} catch ( _err ) {
+					// ignore
+				}
+			}, 0 );
+		},
+		[ savedLayout, savedPositionsToOverrides, positionStorageKey, viewportStorageKey ]
 	);
+
+	const handleResetLayout = useCallback( () => {
+		if ( mode === 'edit' ) {
+			setResetConfirm( {
+				onConfirm: () => {
+					setResetConfirm( null );
+					applyLayoutReset( 'auto' );
+				},
+				onCancel: () => setResetConfirm( null ),
+			} );
+			return;
+		}
+		applyLayoutReset( 'saved' );
+	}, [ mode, applyLayoutReset ] );
+
+	const handleSaveLayout = useCallback( async () => {
+		if ( ! effectiveTopologyName ) return;
+		const positions = {};
+		for ( const [ id, p ] of Object.entries( positionOverrides ) ) {
+			if ( p && Number.isFinite( p.x ) && Number.isFinite( p.y ) ) {
+				positions[ id ] = [ p.x, p.y ];
+			}
+		}
+		try {
+			const resp = await saveLayout( {
+				name: effectiveTopologyName,
+				positions,
+			} );
+			setSavedLayout( { positions: resp.positions || null } );
+			setToast( {
+				kind: 'success',
+				text: `Saved layout for ${ resp.name }.`,
+			} );
+		} catch ( e ) {
+			const msg =
+				( e && e.data && e.data.message ) ||
+				( e && e.message ) ||
+				'Save layout failed';
+			setToast( { kind: 'error', text: msg } );
+		}
+	}, [ effectiveTopologyName, positionOverrides, saveLayout ] );
+	// Layout-control visibility. The default state for each mode:
+	//   - edit: empty positionOverrides (canvas falls back to autoLayout)
+	//   - live: positionOverrides == savedLayout (operator-pinned baseline)
+	// Reset Layout shows whenever current ≠ default. Save Layout shows
+	// (in edit mode only) whenever current ≠ savedLayout — something to
+	// persist.
+	const layoutsEqualSaved = useMemo( () => {
+		const saved = ( savedLayout && savedLayout.positions ) || null;
+		const overrideIds = Object.keys( positionOverrides );
+		const savedIds = saved ? Object.keys( saved ) : [];
+		if ( ! saved ) {
+			return overrideIds.length === 0;
+		}
+		if ( overrideIds.length !== savedIds.length ) {
+			return false;
+		}
+		for ( const id of overrideIds ) {
+			const cur = positionOverrides[ id ];
+			const sav = saved[ id ];
+			if ( ! Array.isArray( sav ) || sav.length < 2 ) {
+				return false;
+			}
+			if ( cur.x !== sav[ 0 ] || cur.y !== sav[ 1 ] ) {
+				return false;
+			}
+		}
+		return true;
+	}, [ positionOverrides, savedLayout ] );
+	const hasOverrides =
+		mode === 'edit'
+			? Object.keys( positionOverrides ).length > 0
+			: ! layoutsEqualSaved;
+	const layoutDirty = ! layoutsEqualSaved;
 
 	const partitions = useMemo( () => partitionList( topology ), [ topology ] );
 
@@ -843,37 +968,26 @@ export default function TopologyConsole() {
 		[ catalog.classes ]
 	);
 
-	// Run autoLayout on a freshly-loaded graph and freeze every
-	// node's position into positionOverrides. Once seeded, the canvas
-	// stops re-shuffling unplaced nodes when the user drops/wires
-	// new ones — the auto-layout still runs but is invisible because
-	// every node has an override. Hoisted above handleModeChange
-	// so its useCallback deps array doesn't TDZ-trap on first render.
-	const seedOverridesFromLayout = useCallback(
-		( graph ) => {
-			// Merge: fill in any node positions that don't already
-			// have an override, but never clobber existing ones —
-			// user-customized positions from a prior session
-			// (loaded via localStorage) need to stick. Reset Layout
-			// is the explicit "wipe and re-autolayout" affordance.
-			setPositionOverrides( ( prev ) => {
-				const laid = autoLayout( augmentWithVirtualEdges( graph ) );
-				const next = { ...prev };
-				let changed = false;
-				for ( const n of laid.nodes ) {
-					if ( n.position && ! next[ n.id ] ) {
-						next[ n.id ] = {
-							x: n.position.x,
-							y: n.position.y,
-						};
-						changed = true;
-					}
-				}
-				return changed ? next : prev;
-			} );
-		},
-		[ augmentWithVirtualEdges ]
-	);
+	// Merge savedLayout positions into positionOverrides without
+	// clobbering existing entries. User-tagged drags always survive;
+	// only ids the operator hasn't placed yet pick up saved-layout
+	// values.
+	const seedOverridesFromLayout = useCallback( () => {
+		const seeded = savedPositionsToOverrides( savedLayout );
+		if ( ! seeded ) {
+			return;
+		}
+		setPositionOverrides( ( prev ) => {
+			const next = { ...prev };
+			let changed = false;
+			for ( const [ id, xy ] of Object.entries( seeded ) ) {
+				if ( next[ id ] ) continue;
+				next[ id ] = xy;
+				changed = true;
+			}
+			return changed ? next : prev;
+		} );
+	}, [ savedLayout, savedPositionsToOverrides ] );
 
 	// EDIT auto-load races the catalog fetch — the seed may fire
 	// before catalog.classes is populated, in which case virtual
@@ -893,9 +1007,42 @@ export default function TopologyConsole() {
 		if ( JSON.stringify( draft ) !== JSON.stringify( baseline ) ) {
 			return; // user has edited — don't clobber
 		}
-		seedOverridesFromLayout( draft );
+		seedOverridesFromLayout();
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ catalog.classes, mode ] );
+	}, [ catalog.classes, mode, savedLayout ] );
+
+	// Live-mode seed. Fires once per (topology, savedLayout) when
+	// positionOverrides is empty — so reset, fresh-mount, or
+	// edit→live-with-other-topology all land their saved positions
+	// here. The empty-overrides gate makes this a no-op on every
+	// later SSE tick (drags + seeded entries keep it non-empty).
+	// Viewport=null batches alongside the seed so SchematicCanvas's
+	// autofit-commit hook refits to the new bbox in one render.
+	useEffect( () => {
+		if ( mode === 'edit' ) {
+			return;
+		}
+		if ( Object.keys( positionOverrides ).length > 0 ) {
+			return;
+		}
+		if ( ! savedPositionsToOverrides( savedLayout ) ) {
+			return;
+		}
+		seedOverridesFromLayout();
+		setViewport( null );
+		try {
+			window.localStorage.removeItem( viewportStorageKey );
+		} catch ( _err ) {
+			// in-memory state is the important part
+		}
+	}, [
+		savedLayout,
+		mode,
+		positionOverrides,
+		seedOverridesFromLayout,
+		savedPositionsToOverrides,
+		viewportStorageKey,
+	] );
 
 	// Edit-mode toggle. Entering: snapshot the live parsed as the
 	// draft baseline; leaving: pop a confirm modal if the draft has
@@ -935,7 +1082,7 @@ export default function TopologyConsole() {
 							// Initial seed here in case the catalog
 							// is already populated (re-entry into
 							// edit mode within the same session).
-							seedOverridesFromLayout( loaded );
+							seedOverridesFromLayout();
 						} )
 						.catch( () => {
 							// Silent fallback — operator can build
@@ -953,6 +1100,31 @@ export default function TopologyConsole() {
 			// touched anything.
 			const dirty =
 				JSON.stringify( draft ) !== JSON.stringify( baseline );
+			// Re-fit the live canvas when the edit session leaves stale
+			// positions on screen: either the operator just hit Reset
+			// (positionOverrides empty → live-mode seed will repopulate
+			// from saved layout), or they were editing a different
+			// topology than what's live (current overrides match the
+			// edit graph, not the live one). Wipe the latter so the
+			// live-mode seed gets a clean slate; the former is already
+			// empty and just needs a viewport reset. Both branches
+			// batch with setViewport(null) so SchematicCanvas's
+			// autofit-commit hook fires on the rebuilt bbox.
+			const isResetToAuto =
+				Object.keys( positionOverrides ).length === 0;
+			const editedDifferentTopology =
+				editingName && editingName !== topology;
+			if ( isResetToAuto || editedDifferentTopology ) {
+				if ( editedDifferentTopology ) {
+					setPositionOverrides( {} );
+				}
+				setViewport( null );
+				try {
+					window.localStorage.removeItem( viewportStorageKey );
+				} catch ( _err ) {
+					// in-memory state is the important part
+				}
+			}
 			if ( ! dirty ) {
 				setMode( 'view' );
 				return;
@@ -970,8 +1142,12 @@ export default function TopologyConsole() {
 			draft,
 			baseline,
 			topology,
+			editingName,
 			fetchTopology,
 			seedOverridesFromLayout,
+			positionOverrides,
+			savedLayout,
+			viewportStorageKey,
 		]
 	);
 
@@ -1128,7 +1304,7 @@ export default function TopologyConsole() {
 				// auto-layout so subsequent drops/wires don't reshuffle
 				// the rest of the canvas. Viewport reset = autofit on
 				// the next render.
-				seedOverridesFromLayout( next );
+				seedOverridesFromLayout();
 				setViewport( null );
 				rateRef.current = new Map();
 				setRateVersion( ( v ) => v + 1 );
@@ -1350,6 +1526,8 @@ export default function TopologyConsole() {
 				}
 				partition={ mode === 'edit' ? null : partition }
 				onResetLayout={ hasOverrides ? handleResetLayout : null }
+				onSaveLayout={ layoutDirty ? handleSaveLayout : null }
+				editMode={ mode === 'edit' }
 			>
 				<SchematicCanvas
 					parsed={ canvasGraph }
@@ -1435,6 +1613,17 @@ export default function TopologyConsole() {
 					confirmLabel="Save"
 					onConfirm={ handleSaveConfirm }
 					onCancel={ () => setSaveModal( null ) }
+				/>
+			) }
+			{ resetConfirm && (
+				<ConfirmModal
+					title="Reset to saved layout?"
+					body="This replaces your current customizations with the last saved layout (or auto-layout if none). You'll need to Save Layout to make changes permanent."
+					confirmLabel="Reset"
+					cancelLabel="Cancel"
+					danger
+					onConfirm={ resetConfirm.onConfirm }
+					onCancel={ resetConfirm.onCancel }
 				/>
 			) }
 			{ openModalShown && (
