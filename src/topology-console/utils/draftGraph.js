@@ -40,9 +40,7 @@ export function addEdge( graph, { from, to } ) {
 	if ( from === to ) {
 		return graph;
 	}
-	const exists = graph.edges.some(
-		( e ) => e.from === from && e.to === to
-	);
+	const exists = graph.edges.some( ( e ) => e.from === from && e.to === to );
 	if ( exists ) {
 		return graph;
 	}
@@ -51,7 +49,14 @@ export function addEdge( graph, { from, to } ) {
 	// per edge rather than walking node.target/also separately.
 	const nodes = graph.nodes.map( ( n ) =>
 		n.id === from
-			? { ...n, target: n.target ? n.target : to, also: n.target && n.target !== to ? [ ...( n.also || [] ), to ] : ( n.also || [] ) }
+			? {
+					...n,
+					target: n.target ? n.target : to,
+					also:
+						n.target && n.target !== to
+							? [ ...( n.also || [] ), to ]
+							: n.also || [],
+			  }
 			: n
 	);
 	return { nodes, edges: [ ...graph.edges, { from, to } ] };
@@ -59,9 +64,7 @@ export function addEdge( graph, { from, to } ) {
 
 export function removeNode( graph, id ) {
 	const nodes = graph.nodes.filter( ( n ) => n.id !== id );
-	const edges = graph.edges.filter(
-		( e ) => e.from !== id && e.to !== id
-	);
+	const edges = graph.edges.filter( ( e ) => e.from !== id && e.to !== id );
 	return { nodes, edges };
 }
 
@@ -81,9 +84,7 @@ export function updateNodeArgs( graph, id, ctorArgs ) {
 
 export function updateNodeVerbs( graph, id, verbInvocations ) {
 	const nodes = graph.nodes.map( ( n ) =>
-		n.id === id
-			? { ...n, verbInvocations: verbInvocations.slice() }
-			: n
+		n.id === id ? { ...n, verbInvocations: verbInvocations.slice() } : n
 	);
 	return { nodes, edges: graph.edges };
 }
@@ -93,6 +94,10 @@ export function updateNodeVerbs( graph, id, verbInvocations ) {
  * edit-mode entry. JSON.stringify is good enough — graphs are small,
  * the field set is fixed, and ordering is stable in our helpers (we
  * always append).
+ *
+ * @param {object} draft    Current draft graph.
+ * @param {object} baseline Snapshot taken when edit mode was entered.
+ * @return {boolean} True if draft has diverged.
  */
 export function draftIsDirty( draft, baseline ) {
 	return JSON.stringify( draft ) !== JSON.stringify( baseline );
@@ -103,6 +108,10 @@ export function draftIsDirty( draft, baseline ) {
  * First instance: lowercased class name. Subsequent: `-2`, `-3`, …
  * counting from the existing population — collisions are detected
  * against `graph.nodes[].id`.
+ *
+ * @param {object} graph     Graph to search for collisions.
+ * @param {string} shellName Class name (e.g. 'Echo').
+ * @return {string} Unique node name.
  */
 export function generateNodeName( graph, shellName ) {
 	const base = shellName.toLowerCase();
