@@ -215,14 +215,22 @@ class Admin {
 		}
 
 		// REST root + nonce for apiFetch wrappers in the React tree.
-		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
-		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
+		$rest_url    = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
+		$nonce       = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
+		// Separate save-topology nonce — REST PromptModal POSTs use this.
+		// Distinct action from the wp_rest cookie nonce so a leaked
+		// wp_rest nonce doesn't grant authoring rights to the topology
+		// dir; mirror SpawnController's per-action nonce policy.
+		$save_nonce  = \function_exists( 'wp_create_nonce' )
+			? \wp_create_nonce( \Newspack_Nodes\Rest\TopologiesController::NONCE_ACTION )
+			: '';
 		\wp_localize_script(
 			$handle,
 			'NewspackNodesData',
 			[
 				'restUrl'             => $rest_url,
 				'nonce'               => $nonce,
+				'saveTopologyNonce'   => $save_nonce,
 				'tree'                => 'topology-console',
 				'version'             => \NEWSPACK_NODES_VERSION,
 				'topologyPartitions'  => $topology_partitions,

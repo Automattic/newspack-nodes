@@ -24,12 +24,13 @@ import apiFetch from '@wordpress/api-fetch';
 import CanvasFrame from './components/CanvasFrame';
 import Header from './components/Header';
 import Inspector from './components/Inspector';
-import { ConfirmModal } from './components/Modal';
+import { ConfirmModal, PromptModal } from './components/Modal';
 import Palette from './components/Palette';
 import ReplFooter from './components/ReplFooter';
 import SchematicCanvas from './components/SchematicCanvas';
 
 import { useClassCatalog } from './hooks/useClassCatalog';
+import { useSaveTopology } from './hooks/useSaveTopology';
 import { useTopologyStream } from './hooks/useTopologyStream';
 import {
 	addEdge,
@@ -38,6 +39,7 @@ import {
 	updateNodeArgs,
 	updateNodeVerbs,
 } from './utils/draftGraph';
+import { serializeTsl } from './utils/serializeTsl';
 import { parseMetadata } from './utils/parseMetadata';
 import { shellInterpret, SHELL_BUILTINS_BLURB } from './utils/shellInterpret';
 
@@ -259,6 +261,11 @@ export default function TopologyConsole() {
 	// to invoke if the user clicks "Discard" — keeps the confirm logic
 	// declarative (state-driven), not imperative window.confirm-style.
 	const [ discardModal, setDiscardModal ] = useState( null );
+	// Save-topology PromptModal state. Null = closed; object = open.
+	const [ saveModal, setSaveModal ] = useState( null );
+	// Toast for the post-save success/error banner. { kind, text } or null.
+	const [ toast, setToast ] = useState( null );
+	const saveTopology = useSaveTopology();
 	// Lazy-load the class catalog the first time the user enters edit
 	// mode. useClassCatalog caches the response, so re-entries are free.
 	const catalog = useClassCatalog( { enabled: mode === 'edit' } );
@@ -783,6 +790,49 @@ export default function TopologyConsole() {
 		setDraft( ( g ) => addEdge( g, { from, to } ) );
 	}, [] );
 
+	// Save flow — open the PromptModal. Confirm-side runs serializeTsl,
+	// POSTs via useSaveTopology, then either toasts success and exits to
+	// view mode, or toasts the validation error and stays in edit mode
+	// so the operator can fix the issue.
+	const handleSave = useCallback( () => {
+		setSaveModal( {} );
+	}, [] );
+
+	const handleSaveConfirm = useCallback(
+		async ( name ) => {
+			setSaveModal( null );
+			try {
+				const tsl = serializeTsl( draft );
+				const resp = await saveTopology( { name, tsl } );
+				const restartedCount = ( resp.restarted_fleets || [] ).length;
+				setToast( {
+					kind: 'success',
+					text: `Saved ${ resp.name }. Restarted ${ restartedCount } fleet(s).`,
+				} );
+				setMode( 'view' );
+			} catch ( e ) {
+				const msg =
+					( e && e.data && e.data.message ) ||
+					( e && e.message ) ||
+					'Save failed';
+				const lineHint =
+					e && e.data && e.data.line_number
+						? ` (line ${ e.data.line_number })`
+						: '';
+				setToast( { kind: 'error', text: `${ msg }${ lineHint }` } );
+			}
+		},
+		[ draft, saveTopology ]
+	);
+
+	useEffect( () => {
+		if ( ! toast ) {
+			return undefined;
+		}
+		const t = setTimeout( () => setToast( null ), 5000 );
+		return () => clearTimeout( t );
+	}, [ toast ] );
+
 	const handleUpdateArgs = useCallback( ( id, args ) => {
 		setDraft( ( g ) => updateNodeArgs( g, id, args ) );
 	}, [] );
@@ -835,6 +885,7 @@ export default function TopologyConsole() {
 				uptime={ uptime }
 				mode={ mode }
 				onModeChange={ handleModeChange }
+				onSave={ handleSave }
 			/>
 			{ mode === 'edit' && (
 				<Palette
@@ -909,6 +960,25 @@ export default function TopologyConsole() {
 					onConfirm={ discardModal.onConfirm }
 					onCancel={ discardModal.onCancel }
 				/>
+			) }
+			{ saveModal && (
+				<PromptModal
+					title="Save topology"
+					body="Choose a name. Letters, numbers, dash, underscore."
+					placeholder="my-topology"
+					pattern={ /^[a-zA-Z0-9_-]+$/ }
+					confirmLabel="Save"
+					onConfirm={ handleSaveConfirm }
+					onCancel={ () => setSaveModal( null ) }
+				/>
+			) }
+			{ toast && (
+				<div
+					className={ `topology-toast topology-toast--${ toast.kind }` }
+					role="status"
+				>
+					{ toast.text }
+				</div>
 			) }
 		</div>
 	);
