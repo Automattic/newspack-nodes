@@ -168,9 +168,11 @@ class Shell extends Node {
 	}
 
 	/**
-	 * Quote-aware statement splitter. Splits a multi-statement script on
-	 * unquoted `;` and newlines into trimmed non-empty fragments.
-	 * Mirrors Tachikoma Shell.pm's statement separator handling.
+	 * Quote-aware statement splitter. Splits a multi-statement script
+	 * into trimmed non-empty fragments. Lines whose first non-whitespace
+	 * character is `#` are returned whole (comment lines aren't scanned
+	 * for `;`); other lines split on unquoted `;` so multiple statements
+	 * fit on one line.
 	 *
 	 * Topology_Loader (and any other multi-statement caller) uses this
 	 * to turn a TSL file into a list of single-statement strings before
@@ -180,36 +182,48 @@ class Shell extends Node {
 	 */
 	public function split_statements( string $script ): array {
 		$statements = [];
-		$buf        = '';
-		$in_quote   = null;
-		$len        = \strlen( $script );
-		for ( $i = 0; $i < $len; ++$i ) {
-			$ch = $script[ $i ];
-			if ( null !== $in_quote ) {
+		foreach ( \explode( "\n", $script ) as $line ) {
+			$leading = \ltrim( $line );
+			if ( '' === $leading ) {
+				continue;
+			}
+			if ( '#' === $leading[0] ) {
+				// Whole-line comment — don't scan for `;` inside it.
+				$statements[] = \trim( $line );
+				continue;
+			}
+			// Non-comment line: split on unquoted `;`.
+			$buf      = '';
+			$in_quote = null;
+			$len      = \strlen( $line );
+			for ( $i = 0; $i < $len; ++$i ) {
+				$ch = $line[ $i ];
+				if ( null !== $in_quote ) {
+					$buf .= $ch;
+					if ( $ch === $in_quote ) {
+						$in_quote = null;
+					}
+					continue;
+				}
+				if ( "'" === $ch || '"' === $ch || '`' === $ch ) {
+					$in_quote = $ch;
+					$buf     .= $ch;
+					continue;
+				}
+				if ( ';' === $ch ) {
+					$trim = \trim( $buf );
+					if ( '' !== $trim ) {
+						$statements[] = $trim;
+					}
+					$buf = '';
+					continue;
+				}
 				$buf .= $ch;
-				if ( $ch === $in_quote ) {
-					$in_quote = null;
-				}
-				continue;
 			}
-			if ( "'" === $ch || '"' === $ch || '`' === $ch ) {
-				$in_quote = $ch;
-				$buf     .= $ch;
-				continue;
+			$tail = \trim( $buf );
+			if ( '' !== $tail ) {
+				$statements[] = $tail;
 			}
-			if ( ';' === $ch || "\n" === $ch ) {
-				$trim = \trim( $buf );
-				if ( '' !== $trim ) {
-					$statements[] = $trim;
-				}
-				$buf = '';
-				continue;
-			}
-			$buf .= $ch;
-		}
-		$tail = \trim( $buf );
-		if ( '' !== $tail ) {
-			$statements[] = $tail;
 		}
 		return $statements;
 	}

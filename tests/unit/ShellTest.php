@@ -664,6 +664,16 @@ class ShellTest extends TestCase {
 		);
 	}
 
+	public function test_split_statements_does_not_split_semicolons_inside_comments(): void {
+		// Bug regression: a `;` in a `# comment` line was treated as a
+		// statement separator, breaking the second half off as a verb.
+		$shell = new Shell();
+		$this->assertSame(
+			[ '# warning; jobs can be slow', 'var foo = 1' ],
+			$shell->split_statements( "# warning; jobs can be slow\nvar foo = 1" )
+		);
+	}
+
 	public function test_split_statements_preserves_semicolons_inside_quotes(): void {
 		$shell = new Shell();
 		$this->assertSame(
