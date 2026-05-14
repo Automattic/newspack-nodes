@@ -755,6 +755,13 @@ export default function TopologyConsole() {
 				const snapshot = { nodes: [], edges: [] };
 				setDraft( snapshot );
 				setBaseline( snapshot );
+				// Lock the viewport BEFORE the user drops the first
+				// node. Without this, the first drop transitions the
+				// canvas from empty-autofit to one-node-autofit, which
+				// shifts the viewBox under the cursor — the click that
+				// would normally select the freshly-dropped node
+				// instead lands on empty space.
+				setViewport( { x: 0, y: 0, w: 1280, h: 720 } );
 				setMode( 'edit' );
 				return;
 			}
