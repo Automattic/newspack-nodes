@@ -42,6 +42,17 @@ class ClassesControllerTest extends TestCase {
 		);
 	}
 
+	public function test_response_includes_formatters_array(): void {
+		\Newspack_Nodes\Formatters::reset();
+		\Newspack_Nodes\Formatters::register( 'foo', static fn () => null );
+		\Newspack_Nodes\Formatters::register( 'bar', static fn () => null );
+		$body = ( new ClassesController() )
+			->get_classes( new \WP_REST_Request() )
+			->get_data();
+		$this->assertArrayHasKey( 'formatters', $body );
+		$this->assertSame( [ 'bar', 'foo' ], $body['formatters'] );
+	}
+
 	public function test_check_permission_requires_manage_options(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$allow = ( new ClassesController() )->check_permission();

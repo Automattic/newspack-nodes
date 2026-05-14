@@ -15,6 +15,7 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Formatters;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -71,6 +72,17 @@ class ClassesController {
 				[ $a['category'], $a['shell_name'] ] <=>
 				[ $b['category'], $b['shell_name'] ]
 		);
-		return new \WP_REST_Response( [ 'classes' => $classes ], 200 );
+		// Bundle formatter names alongside classes so the editor's
+		// `formatter_name` arg dropdown has a populated options list
+		// without a second round-trip.
+		$formatters = Formatters::list_names();
+		\sort( $formatters );
+		return new \WP_REST_Response(
+			[
+				'classes'    => $classes,
+				'formatters' => $formatters,
+			],
+			200
+		);
 	}
 }
