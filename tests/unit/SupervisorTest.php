@@ -182,6 +182,45 @@ class SupervisorTest extends TestCase {
 		$this->assertCount( 1, $s->worker_locks_for_test() );
 	}
 
+	public function test_check_config_releases_locks_for_removed_topologies(): void {
+		// Initial topology has two types running.
+		$captured_topologies = [
+			'firehose-workers' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
+			'job-workers'      => [ 'num_partitions' => 1, 'topology' => '/y.php' ],
+		];
+		\add_filter( 'newspack_nodes/topologies', function () use ( &$captured_topologies ) {
+			return $captured_topologies;
+		} );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		// Simulate live workers having their lock dirs on disk.
+		$locks_dir = $this->tmp . '/locks';
+		\mkdir( $locks_dir, 0755, true );
+		\mkdir( "{$locks_dir}/firehose-workers.p0.lock.d" );
+		\mkdir( "{$locks_dir}/firehose-workers.p1.lock.d" );
+		\mkdir( "{$locks_dir}/job-workers.p0.lock.d" );
+
+		// Operator unchecks job-workers in the admin UI.
+		unset( $captured_topologies['job-workers'] );
+		$s->check_config( microtime( true ) + 100 );
+
+		// Supervisor should have dropped a restart flag in job-workers.p0.
+		$this->assertFileExists(
+			"{$locks_dir}/job-workers.p0.lock.d/restart",
+			'removed topology should have restart flag dropped'
+		);
+		// firehose-workers locks should NOT be touched.
+		$this->assertFileDoesNotExist(
+			"{$locks_dir}/firehose-workers.p0.lock.d/restart",
+			'surviving topology should be left alone'
+		);
+		$this->assertFileDoesNotExist(
+			"{$locks_dir}/firehose-workers.p1.lock.d/restart",
+		);
+	}
+
 	// ── tick_for_test: spawn iteration ─────────────────────────────────────
 
 	public function test_tick_spawns_for_missing_lock(): void {
@@ -199,6 +238,50 @@ class SupervisorTest extends TestCase {
 		$this->assertCount( 2, $posts, 'two missing locks → two spawn POSTs' );
 		$this->assertSame( 'firehose-workers', $posts[0]['args']['body']['type'] );
 		$this->assertSame( $token, $posts[0]['args']['body']['nonce'] );
+	}
+
+	public function test_check_config_defers_spawn_for_newly_added_topologies(): void {
+		// Existing topology, already running.
+		$captured = [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		];
+		\add_filter( 'newspack_nodes/topologies', function () use ( &$captured ) {
+			return $captured;
+		} );
+		// Existing worker has a live lock so it doesn't fight for tick attention.
+		mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
+		touch( "{$this->tmp}/locks/firehose-workers.p0.lock.d/heartbeat" );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		// Operator adds job-workers in the admin UI.
+		$captured['job-workers'] = [ 'num_partitions' => 1, 'topology' => '/y.php' ];
+		$detect_now              = microtime( true ) + 100;
+		$s->check_config( $detect_now );
+
+		$token = $s->generate_spawn_token( (int) $detect_now );
+
+		// Immediate tick — newly added topology shouldn't spawn yet; old
+		// instances of the same type (if any) need a beat to exit cleanly
+		// before the new ones start.
+		$s->tick_for_test( $detect_now + 0.1, $token );
+		$posts = $GLOBALS['_wp_test_remote_posts'] ?? [];
+		$job_spawns = \array_values( \array_filter(
+			$posts,
+			fn ( $p ) => 'job-workers' === ( $p['args']['body']['type'] ?? '' )
+		) );
+		$this->assertCount( 0, $job_spawns, 'newly added topology should defer first spawn' );
+
+		// Tick after the spawn-deferral window — job-workers should spawn now.
+		$GLOBALS['_wp_test_remote_posts'] = [];
+		$s->tick_for_test( $detect_now + 6, $token );
+		$posts      = $GLOBALS['_wp_test_remote_posts'] ?? [];
+		$job_spawns = \array_values( \array_filter(
+			$posts,
+			fn ( $p ) => 'job-workers' === ( $p['args']['body']['type'] ?? '' )
+		) );
+		$this->assertCount( 1, $job_spawns, 'deferred topology should spawn after window' );
 	}
 
 	public function test_tick_skips_workers_with_fresh_locks(): void {
