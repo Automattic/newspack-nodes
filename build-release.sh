@@ -30,6 +30,16 @@ mkdir -p "${RELEASE_DIR}"
 echo "=== Building autoloader ==="
 (cd "${SCRIPT_DIR}" && rm -rf vendor 2>/dev/null; composer install --no-dev --optimize-autoloader --quiet)
 
+# Build React bundles. The rsync stage excludes `src/` but includes
+# `build/`, so whatever's on disk at this point is what ships. Run
+# `npm run build` here so the zip always carries fresh artifacts —
+# previously, the script relied on whatever the developer had built
+# locally, which is how v0.1.21 shipped without build/topology-console
+# (the admin enqueue then silently bails on the missing asset.php and
+# the React tree never mounts).
+echo "=== Building React bundles ==="
+(cd "${SCRIPT_DIR}" && npm run build --silent)
+
 # Stage plugin into a clean directory.
 echo "=== Creating release zip ==="
 echo "  ${PLUGIN}.zip"

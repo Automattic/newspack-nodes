@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.22] - 2026-05-14
+
+### Fixed
+
+- **`build-release.sh` now runs `npm run build` before staging.** v0.1.21 shipped without `build/topology-console/` because the release script only ran `composer install` and rsynced whatever happened to be on disk — so if the developer hadn't built bundles locally before tagging, the zip carried no React tree. The substrate's admin enqueue then silently bails on the missing `index.asset.php` and the topology console renders an empty mount div. The release script now always builds bundles before rsync.
+
 ## [0.1.21] - 2026-05-14
 
 ### Fixed
