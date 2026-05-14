@@ -261,6 +261,11 @@ body[class*="_page_newspack-nodes-topology"] {
 			opacity: 0.5;
 		}
 
+		&.is-active {
+			background: $ink;
+			color: $paper;
+		}
+
 		&--live.is-active {
 			background: $oxide;
 			color: $paper;
@@ -1262,4 +1267,114 @@ body[class*="_page_newspack-nodes-topology"] {
 
 .topology-app ::-webkit-scrollbar-thumb:hover {
 	background: $ink-3;
+}
+
+// ── Modal (ConfirmModal + PromptModal) ──────────────────────────────────────
+// Brutalist paper-themed dialogs used by the edit-mode flow. No drop
+// shadows; backdrop is a translucent ink wash. Header inverts to the
+// stencil display family so the eye lands on the action label.
+.topology-modal-backdrop {
+	position: fixed;
+	inset: 0;
+	background: rgba($ink, 0.55);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	z-index: 9000;
+}
+
+.topology-modal {
+	background: $paper;
+	border: 2px solid $ink;
+	min-width: 360px;
+	max-width: 560px;
+	font-family: $mono;
+	color: $ink;
+}
+
+.topology-modal__header {
+	background: $ink;
+	color: $paper;
+	padding: 8px 14px;
+	font-family: $display-stencil;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+}
+
+.topology-modal__body {
+	padding: 16px 14px;
+	font-size: 13px;
+	line-height: 1.5;
+}
+
+.topology-modal__input {
+	display: block;
+	width: 100%;
+	margin-top: 10px;
+	padding: 6px 8px;
+	background: $paper-2;
+	border: 1px solid $ink-3;
+	font-family: $mono;
+	font-size: 13px;
+	color: $ink;
+	box-sizing: border-box;
+}
+
+.topology-modal__input:focus {
+	outline: none;
+	border-color: $ink;
+	background: $paper;
+}
+
+.topology-modal__hint {
+	margin-top: 6px;
+	font-size: 11px;
+	color: $oxide-dark;
+}
+
+.topology-modal__actions {
+	display: flex;
+	justify-content: flex-end;
+	gap: 8px;
+	padding: 10px 14px;
+	border-top: 1px solid $paper-shadow;
+}
+
+.topology-modal__btn {
+	font-family: $mono;
+	font-size: 12px;
+	padding: 6px 14px;
+	background: $paper-2;
+	border: 1px solid $ink-3;
+	color: $ink;
+	cursor: pointer;
+}
+
+.topology-modal__btn:hover {
+	background: $paper-3;
+}
+
+.topology-modal__btn:disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.topology-modal__btn--primary {
+	background: $ink;
+	color: $paper;
+	border-color: $ink;
+}
+
+.topology-modal__btn--primary:hover {
+	background: $ink-2;
+}
+
+.topology-modal__btn--danger {
+	background: $oxide;
+	color: $paper;
+	border-color: $oxide-dark;
+}
+
+.topology-modal__btn--danger:hover {
+	background: $oxide-dark;
 }

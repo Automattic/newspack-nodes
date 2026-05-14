@@ -19,6 +19,8 @@ export default function Header( {
 	onPartitionChange,
 	streamStatus,
 	uptime,
+	mode = 'view',
+	onModeChange,
 } ) {
 	return (
 		<header className="topology-header">
@@ -61,20 +63,27 @@ export default function Header( {
 				<div className="topology-mode">
 					<button
 						type="button"
-						className="topology-mode__btn"
-						disabled
+						className={ `topology-mode__btn${
+							mode === 'edit' ? ' is-active' : ''
+						}` }
+						onClick={ () => onModeChange && onModeChange( 'edit' ) }
 					>
 						EDIT
 					</button>
 					<button
 						type="button"
 						className={ `topology-mode__btn topology-mode__btn--live${
-							streamStatus === 'open' ? ' is-active' : ''
+							mode === 'view' && streamStatus === 'open'
+								? ' is-active'
+								: ''
 						}` }
+						onClick={ () => onModeChange && onModeChange( 'view' ) }
 					>
 						<span
 							className={ `topology-live-led${
-								streamStatus === 'open' ? ' is-pulsing' : ''
+								mode === 'view' && streamStatus === 'open'
+									? ' is-pulsing'
+									: ''
 							}` }
 						/>
 						LIVE
