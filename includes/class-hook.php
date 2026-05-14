@@ -35,7 +35,10 @@ class Hook extends Node {
 		return [
 			'category'    => 'Control',
 			'description' => 'WordPress hook adapter — fires do_action/apply_filters on each message.',
-			'ctor'        => [],
+			'ctor'        => [
+				[ 'name' => 'hook_name', 'type' => 'string', 'required' => true ],
+				[ 'name' => 'filter',    'type' => 'bool',   'default' => false ],
+			],
 			'verbs'       => [],
 		];
 	}

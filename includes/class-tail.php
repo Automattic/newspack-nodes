@@ -202,7 +202,15 @@ class Tail extends Timer {
 		return [
 			'category'    => 'I/O',
 			'description' => 'Polls a file for appended bytes; emits each line to its sink.',
-			'ctor'        => [],
+			'ctor'        => [
+				[ 'name' => 'filename',    'type' => 'string', 'required' => true ],
+				[
+					'name'    => 'buffer_mode',
+					'type'    => 'string',
+					'default' => 'line-buffered',
+					'enum'    => [ 'line-buffered', 'block-buffered', 'binary' ],
+				],
+			],
 			'verbs'       => [],
 		];
 	}
