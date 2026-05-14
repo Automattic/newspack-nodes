@@ -20,6 +20,7 @@ class TopologiesControllerPostTest extends TestCase {
 			TopologiesController::NONCE_ACTION => 'valid-nonce',
 		];
 		$GLOBALS['_wp_options']               = [];
+		$GLOBALS['_wp_actions']               = [];
 		Config::reset();
 
 		$this->stock = $this->make_temp_dir( 'a4-post-stock-' );
@@ -104,8 +105,20 @@ class TopologiesControllerPostTest extends TestCase {
 	}
 
 	public function test_active_name_triggers_restart_action(): void {
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'active-name' ];
-		Config::reset();
+		// Active = appears in the resolved newspack_nodes/topologies filter,
+		// not just listed in WP options. Register the filter the same way
+		// the application plugin does at load time.
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ): array {
+				$topologies['active-name'] = [
+					'topology'       => 'active-name',
+					'num_partitions' => 1,
+					'stale_timeout'  => 60,
+				];
+				return $topologies;
+			}
+		);
 
 		$restarted = [];
 		$hook = static function ( string $fleet ) use ( &$restarted ): void {

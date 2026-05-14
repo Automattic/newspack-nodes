@@ -16,10 +16,20 @@ class TopologiesControllerGetTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
-		$GLOBALS['_wp_options']               = [
-			'newspack_nodes_topologies' => [ 'stock-only' ],
-		];
+		$GLOBALS['_wp_actions']               = [];
+		$GLOBALS['_wp_options']               = [];
 		Config::reset();
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ): array {
+				$topologies['stock-only'] = [
+					'topology'       => 'stock-only',
+					'num_partitions' => 1,
+					'stale_timeout'  => 60,
+				];
+				return $topologies;
+			}
+		);
 
 		$this->stock = $this->make_temp_dir( 'a4-get-stock-' );
 		$this->user  = $this->make_temp_dir( 'a4-get-user-' );
