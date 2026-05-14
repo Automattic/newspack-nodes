@@ -620,4 +620,68 @@ class ShellTest extends TestCase {
 			$this->rmdir_recursive( $tmp );
 		}
 	}
+
+	// ── A3: Core::$var / Core::$config interpolation + var builtin ─────
+
+	public function test_set_variable_writes_to_core_var(): void {
+		\Newspack_Nodes\Core::$var = [];
+		$shell = new Shell();
+		$shell->set_variable( 'partition', '7' );
+		$this->assertSame( '7', \Newspack_Nodes\Core::$var['partition'] );
+	}
+
+	public function test_interpolate_reads_config_namespace_from_core_config(): void {
+		\Newspack_Nodes\Core::$config = [ 'base_directory' => '/tmp/foo' ];
+		\Newspack_Nodes\Core::$var    = [ 'partition' => '0' ];
+		$shell = new Shell();
+		$this->assertSame(
+			'make_node Partition p /tmp/foo/p0',
+			$shell->interpolate( 'make_node Partition p <config:base_directory>/p<partition>' )
+		);
+	}
+
+	public function test_var_builtin_writes_core_var(): void {
+		\Newspack_Nodes\Core::$var = [];
+		$shell = new Shell();
+		$shell->parse( 'var num_partitions = 4' );
+		$this->assertSame( '4', \Newspack_Nodes\Core::$var['num_partitions'] );
+	}
+
+	public function test_var_builtin_rejects_colon_namespaced_name(): void {
+		\Newspack_Nodes\Core::$var    = [];
+		\Newspack_Nodes\Core::$config = [];
+		$shell = new Shell();
+		$shell->parse( 'var config:foo = 1' );
+		$this->assertArrayNotHasKey( 'config:foo', \Newspack_Nodes\Core::$var );
+		$this->assertArrayNotHasKey( 'foo', \Newspack_Nodes\Core::$config );
+	}
+
+	public function test_split_statements_on_semicolons_and_newlines(): void {
+		$shell = new Shell();
+		$this->assertSame(
+			[ 'var foo = 1', 'var bar = 2', 'tell node hi' ],
+			$shell->split_statements( "var foo = 1; var bar = 2\ntell node hi" )
+		);
+	}
+
+	public function test_split_statements_preserves_semicolons_inside_quotes(): void {
+		$shell = new Shell();
+		$this->assertSame(
+			[ "tell node 'a;b;c'", 'var foo = 1' ],
+			$shell->split_statements( "tell node 'a;b;c'; var foo = 1" )
+		);
+	}
+
+	public function test_eval_script_dispatches_each_statement(): void {
+		\Newspack_Nodes\Core::reset();
+		$shell = new Shell();
+		$sink  = new \Newspack_Nodes\Tests\CaptureSink();
+		$shell->sink( $sink );
+		$shell->eval_script( "var partition = 3; tell foo hello; tell bar <partition>" );
+		// `var` doesn't emit; the two `tell` statements do.
+		$this->assertCount( 2, $sink->captured );
+		$this->assertSame( 'hello', $sink->captured[0][ Message::VALUE ] );
+		// Second tell uses the var set by the first statement.
+		$this->assertSame( '3', $sink->captured[1][ Message::VALUE ] );
+	}
 }

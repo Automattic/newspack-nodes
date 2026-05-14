@@ -47,10 +47,10 @@ class TopologyLoaderTest extends TestCase {
 		$this->assertNotNull( Core::node( 'bob' ) );
 	}
 
-	public function test_load_substitutes_partition_token(): void {
+	public function test_load_interpolates_partition_via_angle_bracket(): void {
 		$this->write_tsl(
 			'parted',
-			"make_node CaptureSink consumer-p{partition}\n"
+			"make_node CaptureSink consumer-p<partition>\n"
 		);
 
 		$ci = new CommandInterpreter();
@@ -61,10 +61,10 @@ class TopologyLoaderTest extends TestCase {
 		$this->assertNotNull( Core::node( 'consumer-p7' ) );
 	}
 
-	public function test_load_substitutes_config_vars(): void {
+	public function test_load_interpolates_config_namespace(): void {
 		$this->write_tsl(
 			'configed',
-			"make_node CaptureSink node-{config:env_label}\n"
+			"make_node CaptureSink node-<config:env_label>\n"
 		);
 
 		$ci = new CommandInterpreter();
@@ -73,6 +73,18 @@ class TopologyLoaderTest extends TestCase {
 		Topology_Loader::load( 'configed', 0, $ci, [ 'env_label' => 'prod' ] );
 
 		$this->assertNotNull( Core::node( 'node-prod' ) );
+	}
+
+	public function test_load_unknown_config_key_expands_to_empty_string(): void {
+		// Shell's interpolate-then-expand-empty policy applies — unknown
+		// `<config:foo>` becomes ''. The loader doesn't pre-validate.
+		$this->write_tsl( 'unknown', "make_node CaptureSink node-<config:nope>\n" );
+
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		Topology_Loader::load( 'unknown', 0, $ci, [] );
+		$this->assertNotNull( Core::node( 'node-' ) );
 	}
 
 	public function test_load_skips_blank_lines_and_comments(): void {
@@ -89,6 +101,25 @@ class TopologyLoaderTest extends TestCase {
 		$this->assertNotNull( Core::node( 'alice' ) );
 	}
 
+	public function test_load_supports_var_frontmatter_and_semicolons(): void {
+		// Frontmatter `var` lines populate Core::$var so subsequent
+		// statements (and supervisor-side metadata reads) can pick
+		// them up. Semicolons separate statements on a single line.
+		$this->write_tsl(
+			'frontmatter',
+			"var num_partitions = 4; var stale_timeout = 60\nmake_node CaptureSink leader-p<partition>"
+		);
+
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		Topology_Loader::load( 'frontmatter', 0, $ci );
+
+		$this->assertSame( '4', Core::$var['num_partitions'] );
+		$this->assertSame( '60', Core::$var['stale_timeout'] );
+		$this->assertNotNull( Core::node( 'leader-p0' ) );
+	}
+
 	public function test_load_throws_when_topology_not_found(): void {
 		$ci = new CommandInterpreter();
 		$ci->name( '_command_interpreter' );
@@ -96,16 +127,5 @@ class TopologyLoaderTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'no-such-topology' );
 		Topology_Loader::load( 'no-such-topology', 0, $ci );
-	}
-
-	public function test_load_throws_on_unknown_substitution_key(): void {
-		$this->write_tsl( 'bad', "make_node CaptureSink {config:nope}\n" );
-
-		$ci = new CommandInterpreter();
-		$ci->name( '_command_interpreter' );
-
-		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessage( 'nope' );
-		Topology_Loader::load( 'bad', 0, $ci, [] );
 	}
 }

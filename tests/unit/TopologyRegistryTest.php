@@ -62,6 +62,24 @@ class TopologyRegistryTest extends TestCase {
 		$this->assertSame( [ 'firehose-workers', 'only-stock', 'only-user' ], $names );
 	}
 
+	public function test_frontmatter_extracts_var_lines(): void {
+		\file_put_contents(
+			"{$this->stock}/aggregator.tsl",
+			"# header\nvar num_partitions = 1\nvar stale_timeout = 600;\nmake_node Topic firehose:topic foo bar baz\n"
+		);
+		Topology_Registry::register_stock_dir( $this->stock );
+		$frontmatter = Topology_Registry::frontmatter( 'aggregator' );
+		$this->assertSame(
+			[ 'num_partitions' => '1', 'stale_timeout' => '600' ],
+			$frontmatter
+		);
+	}
+
+	public function test_frontmatter_returns_empty_for_unknown_topology(): void {
+		Topology_Registry::register_stock_dir( $this->stock );
+		$this->assertSame( [], Topology_Registry::frontmatter( 'no-such-topology' ) );
+	}
+
 	public function test_multiple_stock_dirs_first_wins(): void {
 		$second = $this->make_temp_dir( 'tsl-stock-2-' );
 		\file_put_contents( "{$second}/only-stock.tsl", '' );
