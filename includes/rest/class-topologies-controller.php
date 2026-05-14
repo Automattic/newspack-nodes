@@ -84,7 +84,7 @@ class TopologiesController {
 				404
 			);
 		}
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_get_contents
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_get_contents,WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Path is always a local .tsl file resolved via Topology_Registry; never a URL.
 		$tsl = @\file_get_contents( $path );
 		if ( false === $tsl ) {
 			return new \WP_REST_Response(
