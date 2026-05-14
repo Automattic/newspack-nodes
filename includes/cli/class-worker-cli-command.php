@@ -135,9 +135,7 @@ class WorkerCliCommand {
 			\WP_CLI::error( 'Invalid worker type: ' . $type . '. Available: ' . \implode( ', ', $valid ) );
 		}
 
-		// Find the descriptor for this {type, partition} so we know the topology
-		// path + stale_timeout. WorkerBase wants the topology closure, not just
-		// the path; the closure is loaded via `require` (matches main plugin file).
+		// Find the descriptor for this {type, partition}.
 		$descriptor = null;
 		foreach ( $workers as $w ) {
 			if ( $w['type'] === $type && (int) $w['partition'] === $partition ) {
@@ -149,14 +147,28 @@ class WorkerCliCommand {
 			\WP_CLI::error( \sprintf( 'No worker registered for %s partition %d', $type, $partition ) );
 		}
 
-		$topology_path = (string) ( $descriptor['topology'] ?? '' );
-		if ( '' === $topology_path || ! \file_exists( $topology_path ) ) {
-			\WP_CLI::error( 'Topology file missing: ' . $topology_path );
+		// `topology` is a TSL topology name. Resolve via
+		// Topology_Registry; build a closure that runs it through
+		// Topology_Loader against the worker's CommandInterpreter.
+		$topology_name = (string) ( $descriptor['topology'] ?? '' );
+		if ( '' === $topology_name || null === Topology_Registry::resolve( $topology_name ) ) {
+			\WP_CLI::error( 'Topology not found in registry: ' . $topology_name );
 		}
-		$topology = require $topology_path;
-		if ( ! \is_callable( $topology ) ) {
-			\WP_CLI::error( 'Topology must return a closure' );
+		// CLI-side runs use the substrate's own Config; application
+		// plugins that need richer config can hook the spawn-action
+		// path instead.
+		$config   = \class_exists( '\\Newspack_Nodes\\Config' )
+			? \Newspack_Nodes\Config::load_config( 'full' )
+			: [];
+		if ( ! isset( $config['logs_dir'] ) && isset( $config['base_directory'] ) ) {
+			$config['logs_dir'] = \rtrim( (string) $config['base_directory'], '/' ) . '/logs';
 		}
+		$topology = static function (
+			CommandInterpreter $ci,
+			int $partition_arg
+		) use ( $topology_name, $config ): void {
+			Topology_Loader::load( $topology_name, $partition_arg, $ci, $config );
+		};
 
 		if ( ! $quiet ) {
 			\WP_CLI::log( \sprintf( 'Starting %s.p%d (direct mode, no spawn endpoint)...', $type, $partition ) );
