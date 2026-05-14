@@ -616,7 +616,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'class="small-text"', $html );
 		// Reset-number button (no data-default attribute).
 		$this->assertStringContainsString( 'newspack-nodes-reset-number', $html );
-		$this->assertStringContainsString( 'data-field="num_partitions"', $html );
+		$this->assertStringContainsString( 'data-newspack-nodes-reset-target="num_partitions"', $html );
 		// No saved option → empty value, default in placeholder.
 		$this->assertStringContainsString( 'value=""', $html );
 	}
