@@ -31,7 +31,12 @@ import SchematicCanvas from './components/SchematicCanvas';
 
 import { useClassCatalog } from './hooks/useClassCatalog';
 import { useTopologyStream } from './hooks/useTopologyStream';
-import { addNode, generateNodeName } from './utils/draftGraph';
+import {
+	addNode,
+	generateNodeName,
+	updateNodeArgs,
+	updateNodeVerbs,
+} from './utils/draftGraph';
 import { parseMetadata } from './utils/parseMetadata';
 import { shellInterpret, SHELL_BUILTINS_BLURB } from './utils/shellInterpret';
 
@@ -773,6 +778,14 @@ export default function TopologyConsole() {
 	// palette drag over the SVG. The shellName comes from the
 	// dataTransfer payload set by Palette; (x, y) is already projected
 	// into SVG-space by the canvas.
+	const handleUpdateArgs = useCallback( ( id, args ) => {
+		setDraft( ( g ) => updateNodeArgs( g, id, args ) );
+	}, [] );
+
+	const handleUpdateVerbs = useCallback( ( id, verbs ) => {
+		setDraft( ( g ) => updateNodeVerbs( g, id, verbs ) );
+	}, [] );
+
 	const handleDropNode = useCallback(
 		( { shellName, x, y } ) => {
 			setDraft( ( g ) => {
@@ -863,6 +876,10 @@ export default function TopologyConsole() {
 						new Set( canvasGraph.nodes.map( ( n ) => n.id ) )
 					}
 					ssePid={ ssePid }
+					editMode={ mode === 'edit' }
+					catalog={ catalog.classes }
+					onUpdateArgs={ handleUpdateArgs }
+					onUpdateVerbs={ handleUpdateVerbs }
 				/>
 			) }
 			<ReplFooter
