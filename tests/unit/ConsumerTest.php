@@ -97,6 +97,40 @@ class ConsumerTest extends TestCase {
 		$this->assertCount( 2, $capture->captured );
 	}
 
+	public function test_checkpoint_records_target_and_worker_type(): void {
+		// Dashboard needs per-Consumer metadata so it can render rows
+		// like "worker X · consumer Y · target Z" instead of the static
+		// hardcoded WORKER_INPUTS map. Worker_type comes from the env
+		// var the supervisor sets; target is what Node::target() holds.
+		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$this->produce_line( $source, 'hello' );
+
+		$_SERVER['NEWSPACK_NODES_WORKER_TYPE'] = 'firehose-workers';
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->target( 'firehose:tee' );
+		$c->poll();
+		$c->checkpoint();
+
+		$offsetlog_path = "{$this->tmp}/offsets/r/p0/p0/0.log";
+		$content = (string) file_get_contents( $offsetlog_path );
+		$msg     = Message::unpacked( rtrim( $content, "\n" ) );
+		$entry   = $msg[ Message::VALUE ];
+
+		$this->assertSame( 'firehose-workers', $entry['worker_type'] ?? null );
+		$this->assertSame( 'firehose:tee',     $entry['target']      ?? null );
+		$this->assertSame( 'firehose:consumer', $entry['name']       ?? null );
+		// `targets` resolves downstream; with no node registered for
+		// firehose:tee, the row surfaces the name with an empty class.
+		$this->assertSame(
+			[ [ 'name' => 'firehose:tee', 'class' => '' ] ],
+			$entry['targets'] ?? null
+		);
+
+		unset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] );
+	}
+
 	public function test_checkpoint_writes_offsetlog_entry(): void {
 		$source = new Partition( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
 		$this->produce_line( $source, 'hello' );
