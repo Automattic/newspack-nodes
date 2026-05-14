@@ -93,7 +93,7 @@ if [[ -n "$js_changed" || -n "$scss_changed" ]]; then
 fi
 
 # --- PHP tests run in the docker container when one is available. ----------
-# The "eve" container (`eve-pyrobase1-1`) only exists on Chris's laptop —
+# The configured CONTAINER only exists in some local dev environments —
 # anyone else who clones this plugin won't have it and the silent skip is
 # the right behavior. No dndocker-tree detection needed: the container
 # either responds to `docker exec` or it doesn't.
