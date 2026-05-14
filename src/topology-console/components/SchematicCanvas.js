@@ -210,6 +210,8 @@ export default function SchematicCanvas( {
 	onDropNode,
 	onConnect,
 	editMode = false,
+	selectedEdge = null,
+	onSelectEdge,
 } ) {
 	// Apply user-pinned position overrides on top of the auto-layout
 	// output. autoLayout still runs every poll (so newly-added nodes
@@ -763,16 +765,49 @@ export default function SchematicCanvas( {
 					// still see the surrounding context.
 					const touches = hoverTouches || selectTouches;
 					const dimmed = hoveredId && ! hoverTouches;
+					const isEdgeSelected =
+						selectedEdge &&
+						selectedEdge.from === e.from &&
+						selectedEdge.to === e.to;
+					const d = edgePath( a, b );
 					return (
-						<path
-							key={ `edge-${ i }-${ e.from }-${ e.to }` }
-							className={ `topology-edge topology-edge--active${
-								touches ? ' is-touched' : ''
-							}${ dimmed ? ' is-dimmed' : '' }` }
-							d={ edgePath( a, b ) }
-							markerEnd="url(#topology-arrow-active)"
-							style={ { animationDelay: `${ 200 + i * 80 }ms` } }
-						/>
+						<g key={ `edge-${ i }-${ e.from }-${ e.to }` }>
+							<path
+								className={ `topology-edge topology-edge--active${
+									touches ? ' is-touched' : ''
+								}${ dimmed ? ' is-dimmed' : '' }${
+									isEdgeSelected ? ' is-selected' : ''
+								}` }
+								d={ d }
+								markerEnd="url(#topology-arrow-active)"
+								style={ {
+									animationDelay: `${ 200 + i * 80 }ms`,
+								} }
+							/>
+							{ /* Fat invisible hit-target. Edit mode only —
+							no point making edges clickable in view mode
+							where we have nothing to do with them. Use
+							onMouseDown rather than onClick — Safari
+							drops `click` events for SVG paths after
+							other interactions on the canvas, the same
+							pattern that broke node selection earlier. */ }
+							{ editMode && onSelectEdge && (
+								<path
+									className="topology-edge-hit"
+									d={ d }
+									onMouseDown={ ( ev ) => {
+										ev.stopPropagation();
+										onSelectEdge( {
+											from: e.from,
+											to: e.to,
+										} );
+									} }
+									onPointerDown={ ( ev ) =>
+										ev.stopPropagation()
+									}
+								/>
+							) }
+						</g>
 					);
 				} ) }
 			</g>

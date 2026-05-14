@@ -778,6 +778,16 @@ body[class*="_page_newspack-nodes-topology"] {
 	pointer-events: none;
 }
 
+// Invisible hit target — sits underneath the visible edge stroke,
+// fat enough to click reliably (a 1.6px line is a frustrating target).
+.topology-edge-hit {
+	fill: none;
+	stroke: transparent;
+	stroke-width: 14;
+	cursor: pointer;
+	pointer-events: stroke;
+}
+
 .topology-edge {
 	fill: none;
 	stroke: $ink-3;
@@ -786,6 +796,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	stroke-dashoffset: 1000;
 	animation: topology-draw 0.8s ease-out 0.2s forwards;
 	transition: stroke 120ms ease, stroke-width 120ms ease, opacity 120ms ease;
+	pointer-events: none;
 
 	&--active {
 		stroke: $cyan;
@@ -794,6 +805,12 @@ body[class*="_page_newspack-nodes-topology"] {
 		animation:
 			topology-draw 0.8s ease-out 0.2s forwards,
 			topology-flow 0.8s linear 1s infinite;
+	}
+
+	&.is-selected {
+		stroke: $oxide;
+		stroke-width: 2.6;
+		filter: drop-shadow(0 0 4px $oxide);
 	}
 
 	// Hovering a node lights up its inbound + outbound edges and
@@ -1315,6 +1332,25 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 // ── Edit-mode Inspector form ────────────────────────────────────────────────
+.topology-edit-delete {
+	display: block;
+	margin: 8px 0 12px;
+	padding: 6px 12px;
+	background: $oxide;
+	color: $paper;
+	border: 1px solid $oxide-dark;
+	font-family: $mono;
+	font-size: 11px;
+	letter-spacing: 0.06em;
+	text-transform: uppercase;
+	cursor: pointer;
+}
+
+.topology-edit-delete:hover {
+	background: $oxide-dark;
+}
+
+
 .topology-edit-row {
 	display: flex;
 	align-items: center;

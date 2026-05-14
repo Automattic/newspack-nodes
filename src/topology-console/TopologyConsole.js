@@ -36,6 +36,8 @@ import {
 	addEdge,
 	addNode,
 	generateNodeName,
+	removeEdge,
+	removeNode,
 	updateNodeArgs,
 	updateNodeVerbs,
 } from './utils/draftGraph';
@@ -243,6 +245,9 @@ export default function TopologyConsole() {
 	const [ topology, setTopology ] = useState( TOPOLOGIES[ 0 ] );
 	const [ partition, setPartition ] = useState( 0 );
 	const [ selectedId, setSelectedId ] = useState( null );
+	// Edge selection (edit mode only). { from, to } or null. Mutually
+	// exclusive with selectedId — clicking either clears the other.
+	const [ selectedEdge, setSelectedEdge ] = useState( null );
 	// Hover state — lifted so the Inspector can highlight a node by
 	// hovering one of its routing-list links (target/also/from).
 	const [ hoveredId, setHoveredId ] = useState( null );
@@ -801,6 +806,73 @@ export default function TopologyConsole() {
 		setDraft( ( g ) => addEdge( g, { from, to } ) );
 	}, [] );
 
+	const handleRemoveNode = useCallback(
+		( id ) => {
+			setDraft( ( g ) => removeNode( g, id ) );
+			if ( selectedId === id ) {
+				setSelectedId( null );
+			}
+		},
+		[ selectedId ]
+	);
+
+	const handleRemoveEdge = useCallback(
+		( from, to ) => {
+			setDraft( ( g ) => removeEdge( g, from, to ) );
+			if (
+				selectedEdge &&
+				selectedEdge.from === from &&
+				selectedEdge.to === to
+			) {
+				setSelectedEdge( null );
+			}
+		},
+		[ selectedEdge ]
+	);
+
+	// Selecting one clears the other — node and edge selection are
+	// mutually exclusive so the Delete key has unambiguous intent.
+	const handleSelectNode = useCallback( ( id ) => {
+		setSelectedId( id );
+		setSelectedEdge( null );
+	}, [] );
+
+	const handleSelectEdge = useCallback( ( edge ) => {
+		setSelectedEdge( edge );
+		setSelectedId( null );
+	}, [] );
+
+	// Keyboard: Delete/Backspace removes whichever is selected. Only
+	// active in edit mode — and skipped when the focus is in a form
+	// field so the user can edit text without nuking nodes.
+	useEffect( () => {
+		if ( mode !== 'edit' ) {
+			return undefined;
+		}
+		const onKey = ( e ) => {
+			if ( e.key !== 'Delete' && e.key !== 'Backspace' ) {
+				return;
+			}
+			const target = e.target;
+			const tag = target && target.tagName;
+			if ( tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ) {
+				return;
+			}
+			if ( target && target.isContentEditable ) {
+				return;
+			}
+			if ( selectedId ) {
+				e.preventDefault();
+				handleRemoveNode( selectedId );
+			} else if ( selectedEdge ) {
+				e.preventDefault();
+				handleRemoveEdge( selectedEdge.from, selectedEdge.to );
+			}
+		};
+		document.addEventListener( 'keydown', onKey );
+		return () => document.removeEventListener( 'keydown', onKey );
+	}, [ mode, selectedId, selectedEdge, handleRemoveNode, handleRemoveEdge ] );
+
 	// Save flow — open the PromptModal. Confirm-side runs serializeTsl,
 	// POSTs via useSaveTopology, then either toasts success and exits to
 	// view mode, or toasts the validation error and stays in edit mode
@@ -912,10 +984,13 @@ export default function TopologyConsole() {
 				<SchematicCanvas
 					parsed={ canvasGraph }
 					selectedId={ selectedId }
-					onSelect={ setSelectedId }
+					onSelect={ handleSelectNode }
 					positionOverrides={ positionOverrides }
 					onPositionChange={ handlePositionChange }
-					onDeselect={ () => setSelectedId( null ) }
+					onDeselect={ () => {
+						setSelectedId( null );
+						setSelectedEdge( null );
+					} }
 					hoveredId={ hoveredId }
 					onHover={ setHoveredId }
 					rateRef={ rateRef }
@@ -925,6 +1000,8 @@ export default function TopologyConsole() {
 					editMode={ mode === 'edit' }
 					onDropNode={ handleDropNode }
 					onConnect={ handleConnect }
+					selectedEdge={ selectedEdge }
+					onSelectEdge={ handleSelectEdge }
 				/>
 			</CanvasFrame>
 			{ /* Inspector is only mounted when a node is selected — the
@@ -938,7 +1015,7 @@ export default function TopologyConsole() {
 					streamStatus={ status }
 					rateInfo={ selectedRateInfo }
 					onAction={ handleInspectorAction }
-					onSelect={ setSelectedId }
+					onSelect={ handleSelectNode }
 					onHover={ setHoveredId }
 					nodeIds={
 						new Set( canvasGraph.nodes.map( ( n ) => n.id ) )
@@ -948,6 +1025,7 @@ export default function TopologyConsole() {
 					catalog={ catalog.classes }
 					onUpdateArgs={ handleUpdateArgs }
 					onUpdateVerbs={ handleUpdateVerbs }
+					onRemoveNode={ handleRemoveNode }
 				/>
 			) }
 			<ReplFooter
