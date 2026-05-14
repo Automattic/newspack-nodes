@@ -34,9 +34,43 @@ use Newspack_Nodes\Rest\TopologyStreamController;
 
 class Bootstrap {
 	/**
-	 * Filter-driven topology registry. Returns the raw filter value.
+	 * Filter-driven topology catalog. The application publishes its full
+	 * file-default set via `newspack_nodes/topologies` — that's the catalog
+	 * of what topologies exist and their default per-topology metadata. The
+	 * substrate owns the operator overlay: `newspack_nodes_topologies` is a
+	 * substrate option set by the admin checkboxes. When present, it
+	 * filters the catalog down to the active subset. `false` (option never
+	 * written) means "use the full catalog" — gives a sensible starter set
+	 * on a fresh install without shadowing operator choices. `[]` is a
+	 * valid stored value (operator unchecked everything), distinct from
+	 * `false`.
 	 */
 	public static function get_topologies(): array {
+		$catalog = (array) \apply_filters( 'newspack_nodes/topologies', [] );
+		$option  = \function_exists( 'get_option' )
+			? \get_option( 'newspack_nodes_topologies', false )
+			: false;
+		if ( false === $option ) {
+			return $catalog;
+		}
+		if ( ! \is_array( $option ) ) {
+			return $catalog;
+		}
+		$active = [];
+		foreach ( $option as $name ) {
+			if ( \is_string( $name ) && isset( $catalog[ $name ] ) ) {
+				$active[ $name ] = $catalog[ $name ];
+			}
+		}
+		return $active;
+	}
+
+	/**
+	 * Full topology catalog (ignores the active-overlay option). Substrate
+	 * admin's Topologies checkboxes render against this so operators can
+	 * see every available topology, including ones currently unchecked.
+	 */
+	public static function get_topology_catalog(): array {
 		return (array) \apply_filters( 'newspack_nodes/topologies', [] );
 	}
 

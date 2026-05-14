@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Substrate owns the `newspack_nodes_topologies` operator overlay.** `Bootstrap::get_topologies()` reads the `newspack_nodes/topologies` filter as a file-default catalog (what the application publishes), then applies the `newspack_nodes_topologies` WP-option overlay itself: `false` (never saved) → full catalog, `[]` → empty, array → intersection. New `Bootstrap::get_topology_catalog()` returns the unfiltered catalog for admin UI rendering. Previously, applications duplicated `get_option` logic inside their `newspack_nodes/topologies` filter callback — the substrate is the right place for substrate options.
+- **Admin Topologies checkbox list + `↺` Load Defaults chip both read `Bootstrap::get_topology_catalog()`.** Single source of truth for what the application ships in its config file. Removes the parallel `newspack_nodes/topologies_defaults` filter that briefly existed for the chip.
+
 ## [0.1.19] - 2026-05-14
 
 ### Added
