@@ -58,10 +58,19 @@ class TopologiesController {
 	}
 
 	public function get_topologies( \WP_REST_Request $request ): \WP_REST_Response {
-		$config = Config::load_config();
-		$active = \is_array( $config['topologies'] ?? null )
-			? \array_flip( $config['topologies'] )
+		// Active = whatever the supervisor would actually spawn. The
+		// `newspack_nodes/topologies` filter is the single source of
+		// truth for fleet configuration; reading the substrate's own
+		// `topologies` config key would miss app-side filter additions.
+		$resolved = \function_exists( 'apply_filters' )
+			? (array) \apply_filters( 'newspack_nodes/topologies', [] )
 			: [];
+		$active = [];
+		foreach ( $resolved as $name => $_def ) {
+			if ( \is_string( $name ) && '' !== $name ) {
+				$active[ $name ] = true;
+			}
+		}
 
 		$out = [];
 		foreach ( Topology_Registry::describe() as $name => $sources ) {
@@ -195,10 +204,12 @@ class TopologiesController {
 		}
 
 		// Trigger restart for any active fleet running this topology.
-		$config    = Config::load_config();
-		$active    = \is_array( $config['topologies'] ?? null ) ? $config['topologies'] : [];
+		// Same filter the supervisor uses — see get_topologies() above.
+		$resolved  = \function_exists( 'apply_filters' )
+			? (array) \apply_filters( 'newspack_nodes/topologies', [] )
+			: [];
 		$restarted = [];
-		if ( \in_array( $name, $active, true ) ) {
+		if ( isset( $resolved[ $name ] ) ) {
 			\do_action( 'newspack_nodes/restart_fleet', $name );
 			$restarted[] = $name;
 		}
