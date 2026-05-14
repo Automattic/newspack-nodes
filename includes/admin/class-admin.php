@@ -34,6 +34,7 @@
 
 namespace Newspack_Nodes\Admin;
 
+use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Lock;
 
@@ -199,18 +200,13 @@ class Admin {
 		// Per-topology partition counts. The React tree reads these to
 		// size its partition dropdown so it can't show p0–p3 for a
 		// 1-partition aggregator (nor stop at p3 when num_partitions
-		// was bumped). The `newspack_nodes/topologies` filter is the
-		// same map the supervisor uses to spawn workers, so reusing it
-		// keeps the dropdown and the worker fleet in lockstep.
+		// was bumped). Use the full catalog (not the active overlay)
+		// so the dropdown sees every topology that could spawn workers,
+		// not just the operator-selected subset.
 		$topology_partitions = [];
-		if ( \function_exists( 'apply_filters' ) ) {
-			$resolved = \apply_filters( 'newspack_nodes/topologies', [] );
-			if ( \is_array( $resolved ) ) {
-				foreach ( $resolved as $name => $def ) {
-					if ( \is_string( $name ) && \is_array( $def ) && isset( $def['num_partitions'] ) ) {
-						$topology_partitions[ $name ] = (int) $def['num_partitions'];
-					}
-				}
+		foreach ( Bootstrap::get_topology_catalog() as $name => $def ) {
+			if ( \is_string( $name ) && \is_array( $def ) && isset( $def['num_partitions'] ) ) {
+				$topology_partitions[ $name ] = (int) $def['num_partitions'];
 			}
 		}
 
@@ -539,30 +535,30 @@ class Admin {
 			? \Newspack_Nodes\Topology_Registry::list()
 			: [];
 		\sort( $available );
-		// Mirror what the supervisor sees. When the operator hasn't
-		// saved anything yet, the option is `false` and we derive
-		// the active set from the resolved `newspack_nodes/topologies`
-		// filter — application plugins inject their file-default list
-		// through that filter, so the boxes pre-check to whatever is
-		// actually running. After the operator saves once, the option
-		// becomes authoritative (even `[]` = explicit "spawn nothing").
-		$option = \get_option( 'newspack_nodes_topologies', false );
-		if ( false === $option ) {
-			$resolved = \apply_filters( 'newspack_nodes/topologies', [] );
-			$active   = \is_array( $resolved ) ? \array_keys( $resolved ) : [];
-		} else {
-			$active = \is_array( $option ) ? $option : [];
-		}
-		// Resolved filter list = the application's file-default set.
-		// Surfaced as a data attribute so the "Load Defaults" button can
-		// restore the checkboxes to that set without round-tripping.
-		$resolved_filter = \apply_filters( 'newspack_nodes/topologies', [] );
-		$defaults        = \is_array( $resolved_filter ) ? \array_keys( $resolved_filter ) : [];
+		// The application publishes its file-default catalog (and ONLY
+		// that) via `newspack_nodes/topologies`. The substrate owns the
+		// operator-overlay option `newspack_nodes_topologies`:
+		//  - option === false → no operator preference; default to
+		//    every file-default topology being active (sensible fresh-
+		//    install behavior).
+		//  - option === []    → operator unchecked everything; spawn
+		//    nothing (distinct from never having saved).
+		//  - option array     → exact active list.
+		$defaults = \array_keys( Bootstrap::get_topology_catalog() );
 		\sort( $defaults );
+		$option = \get_option( 'newspack_nodes_topologies', false );
+		$active = false === $option
+			? $defaults
+			: ( \is_array( $option ) ? $option : [] );
 		if ( empty( $available ) ) {
 			echo '<p class="description">' . \esc_html__( 'No topologies registered. Application plugins must call Newspack_Nodes\\Topology_Registry::register_stock_dir() at load time.', 'newspack-nodes' ) . '</p>';
 			return;
 		}
+		// Mirror render_number_field's chip layout: fieldset on the left,
+		// `↺` reset chip on the right. Click restores the resolved-filter
+		// list (application's file defaults).
+		echo '<div style="display: flex; align-items: flex-start; gap: 10px;">';
+		echo '<div style="flex: 1;">';
 		echo '<fieldset id="newspack-nodes-topologies-fieldset">';
 		foreach ( $available as $name ) {
 			$checked = \in_array( $name, $active, true ) ? ' checked' : '';
@@ -572,10 +568,12 @@ class Admin {
 			echo '</label>';
 		}
 		echo '</fieldset>';
-		echo '<button type="button" class="button button-secondary" data-newspack-nodes-load-defaults="'
-			. \esc_attr( (string) \wp_json_encode( $defaults ) ) . '">'
-			. \esc_html__( 'Load Defaults', 'newspack-nodes' ) . '</button>';
-		echo '<p class="description">' . \esc_html__( 'Each checked topology becomes one worker fleet. The supervisor picks up changes on its next loop (~1 minute). Load Defaults restores the application-shipped set; click Save Settings to commit.', 'newspack-nodes' ) . '</p>';
+		echo '<p class="description">' . \esc_html__( 'Each checked topology becomes one worker fleet. The supervisor picks up changes on its next loop (~1 minute). Click ↺ to restore the application-shipped defaults, then Save Settings to commit.', 'newspack-nodes' ) . '</p>';
+		echo '</div>';
+		echo '<button type="button" class="button button-secondary newspack-nodes-reset-number"'
+			. ' data-newspack-nodes-load-defaults="' . \esc_attr( (string) \wp_json_encode( $defaults ) ) . '"'
+			. ' title="' . \esc_attr__( 'Load defaults from config file', 'newspack-nodes' ) . '">↺</button>';
+		echo '</div>';
 		echo '<script>(function(){
 			var btn = document.querySelector( "button[data-newspack-nodes-load-defaults]" );
 			if ( ! btn ) { return; }
