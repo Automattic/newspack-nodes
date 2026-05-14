@@ -62,8 +62,9 @@ class ClassesController {
 				'fqcn'        => $fqcn,
 				'category'    => $cat,
 				'description' => $schema['description'] ?? '',
-				'ctor'        => $schema['ctor']  ?? [],
-				'verbs'       => $schema['verbs'] ?? [],
+				'ctor'        => $schema['ctor']     ?? [],
+				'verbs'       => $schema['verbs']    ?? [],
+				'requests'    => $schema['requests'] ?? [],
 			];
 		}
 		\usort(

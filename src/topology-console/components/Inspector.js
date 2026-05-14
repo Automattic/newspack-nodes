@@ -12,8 +12,6 @@
 
 import { useEffect, useState } from '@wordpress/element';
 
-import { inferType } from '../utils/inferType';
-
 function FieldRow( { k, v, vClass } ) {
 	return (
 		<div className="topology-field-row">
@@ -942,7 +940,7 @@ export default function Inspector( {
 	const targets = parsed.edges.filter( ( e ) => e.from === selectedId );
 	// Prefer the authoritative class name from dump_metadata; fall
 	// back to inferring from the node name if (somehow) absent.
-	const type = node.klass || inferType( node.id );
+	const type = node.klass;
 	const live = streamStatus === 'open';
 
 	// Authoritative button state, derived from server metadata —
@@ -1155,6 +1153,30 @@ export default function Inspector( {
 						{ tailOn ? 'Disconnect' : 'Connect' }
 					</button>
 				) }
+				{ /* TM_REQUEST verbs declared in this class's node_schema.
+				Sending fires `request_node <name> <verb>` through the
+				worker; the typed reply lands in the transcript via
+				the SSE Dumper. */ }
+				{ ( () => {
+					const klass = catalog.find(
+						( c ) => c.shell_name === type
+					);
+					const requests = klass && klass.requests ? klass.requests : [];
+					return requests.map( ( req ) => (
+						<button
+							key={ req.name }
+							type="button"
+							className="topology-insp__actions-full"
+							onClick={ () =>
+								onAction && onAction( 'request', node.id, req.name )
+							}
+							disabled={ ! live }
+							title={ req.description || `Send TM_REQUEST ${ req.name }` }
+						>
+							{ req.name }
+						</button>
+					) );
+				} )() }
 			</div>
 		</aside>
 	);
