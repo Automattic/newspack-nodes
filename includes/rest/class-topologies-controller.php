@@ -174,16 +174,18 @@ class TopologiesController {
 				500
 			);
 		}
-		if ( ! \is_dir( $user_dir )
-			&& ! \mkdir( $user_dir, 0700, true )
-			&& ! \is_dir( $user_dir ) ) {
-			return new \WP_REST_Response(
-				[
-					'code'    => 'user_dir_unwritable',
-					'message' => "Failed to create {$user_dir}",
-				],
-				500
-			);
+		if ( ! \is_dir( $user_dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+			$made = @\mkdir( $user_dir, 0700, true );
+			if ( ! $made && ! \is_dir( $user_dir ) ) {
+				return new \WP_REST_Response(
+					[
+						'code'    => 'user_dir_unwritable',
+						'message' => "Failed to create {$user_dir}",
+					],
+					500
+				);
+			}
 		}
 
 		// shadows_stock determined BEFORE writing so it reflects the
@@ -191,7 +193,8 @@ class TopologiesController {
 		$pre_sources = Topology_Registry::describe()[ $name ] ?? [ 'stock' => [] ];
 		$shadows     = ! empty( $pre_sources['stock'] );
 
-		$path  = $user_dir . '/' . $name . '.tsl';
+		$path = $user_dir . '/' . $name . '.tsl';
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
 		$bytes = \file_put_contents( $path, $body );
 		if ( false === $bytes ) {
 			return new \WP_REST_Response(

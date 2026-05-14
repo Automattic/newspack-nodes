@@ -110,7 +110,9 @@ class Shell extends Node {
 		}
 		$verb = $tokens[0];
 		if ( \in_array( $verb, self::FORBIDDEN, true ) ) {
-			throw new \RuntimeException( "forbidden verb '{$verb}'" );
+			$safe = \function_exists( 'esc_html' ) ? \esc_html( $verb ) : $verb;
+			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $safe already escaped above.
+			throw new \RuntimeException( "forbidden verb '" . $safe . "'" );
 		}
 	}
 
