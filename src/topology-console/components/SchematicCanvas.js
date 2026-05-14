@@ -20,7 +20,7 @@ import {
 	useState,
 } from '@wordpress/element';
 
-import { autoLayout, X_STEP, Y_STEP, X_PAD, Y_PAD } from '../utils/autoLayout';
+import { autoLayout, X_PAD, X_STEP, Y_PAD, Y_STEP } from '../utils/autoLayout';
 import { inferType } from '../utils/inferType';
 
 const NODE_W = 196;
@@ -585,13 +585,12 @@ export default function SchematicCanvas( {
 		panRef.current = null;
 		if ( ! wasDragged ) {
 			// Plain click on empty canvas. Two-stage:
-			//   - If a node is selected, first click just deselects
-			//     (closes the inspector). Don't autofit yet — the user
-			//     probably wanted to dismiss the inspector, not jump
-			//     the viewport.
-			//   - If nothing is selected (inspector already closed),
-			//     autofit to the tight bbox.
-			if ( selectedId ) {
+			//   - If a node OR edge is selected, first click just
+			//     deselects (closes the inspector / clears the edge
+			//     highlight). Don't autofit yet — the user probably
+			//     wanted to dismiss, not jump the viewport.
+			//   - If nothing is selected, autofit to the tight bbox.
+			if ( selectedId || selectedEdge ) {
 				if ( onDeselect ) {
 					onDeselect();
 				}
@@ -716,6 +715,26 @@ export default function SchematicCanvas( {
 			onDrop={ handleDrop }
 		>
 			<defs>
+				{ /* Canvas-space grid: half-step (X_STEP/2 × Y_STEP/2)
+				lattice offset by NODE_W/2 + X_PAD, NODE_H/2 + Y_PAD
+				so intersections fall on NODE CENTERS. Auto-laid
+				nodes place top-lefts at (X_PAD + k*X_STEP, Y_PAD +
+				j*Y_STEP) → centers at (X_PAD + NODE_W/2 + k*X_STEP,
+				Y_PAD + NODE_H/2 + j*Y_STEP), which line up with the
+				even multiples of this grid's half-step lattice. */ }
+				<pattern
+					id="topology-grid"
+					x={ X_PAD + NODE_W / 2 }
+					y={ Y_PAD + NODE_H / 2 }
+					width={ X_STEP / 2 }
+					height={ Y_STEP / 2 }
+					patternUnits="userSpaceOnUse"
+				>
+					<path
+						d={ `M ${ X_STEP / 2 } 0 L 0 0 0 ${ Y_STEP / 2 }` }
+						className="topology-grid-line"
+					/>
+				</pattern>
 				<marker
 					id="topology-arrow"
 					viewBox="0 0 10 10"
@@ -745,6 +764,20 @@ export default function SchematicCanvas( {
 					/>
 				</marker>
 			</defs>
+
+			{ /* Pattern-filled rects sized to a large region centered
+			on the origin — covers any plausible pan/zoom without
+			re-rendering on every viewport change. ±4000 SVG units
+			≈ 16 X_STEP columns × 36 Y_STEP rows, more than enough
+			for the biggest realistic topology. */ }
+			<rect
+				x="-4000"
+				y="-4000"
+				width="8000"
+				height="8000"
+				fill="url(#topology-grid)"
+				pointerEvents="none"
+			/>
 
 			<g className="topology-edges">
 				{ edges.map( ( e, i ) => {
@@ -777,7 +810,7 @@ export default function SchematicCanvas( {
 									touches ? ' is-touched' : ''
 								}${ dimmed ? ' is-dimmed' : '' }${
 									isEdgeSelected ? ' is-selected' : ''
-								}` }
+								}${ e.virtual ? ' is-virtual' : '' }` }
 								d={ d }
 								markerEnd="url(#topology-arrow-active)"
 								style={ {
@@ -786,12 +819,11 @@ export default function SchematicCanvas( {
 							/>
 							{ /* Fat invisible hit-target. Edit mode only —
 							no point making edges clickable in view mode
-							where we have nothing to do with them. Use
-							onMouseDown rather than onClick — Safari
-							drops `click` events for SVG paths after
-							other interactions on the canvas, the same
-							pattern that broke node selection earlier. */ }
-							{ editMode && onSelectEdge && (
+							where we have nothing to do with them. Skip
+							virtual edges (synthesized from verb args):
+							the operator unchecks the verb to remove
+							them, not click-then-Delete. */ }
+							{ editMode && onSelectEdge && ! e.virtual && (
 								<path
 									className="topology-edge-hit"
 									d={ d }

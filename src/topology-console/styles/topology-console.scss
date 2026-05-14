@@ -90,7 +90,7 @@ body[class*="_page_newspack-nodes-topology"] {
 		"repl";
 
 	&.is-inspector-open {
-		grid-template-columns: 1fr 308px;
+		grid-template-columns: 1fr 380px;
 		grid-template-areas:
 			"header header"
 			"canvas inspector"
@@ -98,19 +98,19 @@ body[class*="_page_newspack-nodes-topology"] {
 	}
 
 	&.is-edit-mode {
+		grid-template-rows: 64px 1fr;
 		grid-template-columns: 232px 1fr;
 		grid-template-areas:
 			"header  header"
-			"palette canvas"
-			"palette repl";
+			"palette canvas";
 	}
 
 	&.is-edit-mode.is-inspector-open {
-		grid-template-columns: 232px 1fr 308px;
+		grid-template-rows: 64px 1fr;
+		grid-template-columns: 232px 1fr 380px;
 		grid-template-areas:
 			"header  header header"
-			"palette canvas inspector"
-			"palette repl   inspector";
+			"palette canvas inspector";
 	}
 	font-family: $mono;
 	font-size: 13px;
@@ -120,28 +120,9 @@ body[class*="_page_newspack-nodes-topology"] {
 	-webkit-font-smoothing: antialiased;
 	overflow: hidden;
 
-	&::before,
-	&::after {
-		content: "";
-		position: absolute;
-		inset: 0;
-		pointer-events: none;
-		z-index: 0;
-	}
-
-	&::before {
-		background-image:
-			linear-gradient(to right, $grid 1px, transparent 1px),
-			linear-gradient(to bottom, $grid 1px, transparent 1px);
-		background-size: 24px 24px;
-	}
-
-	&::after {
-		background-image:
-			linear-gradient(to right, $grid-coarse 1px, transparent 1px),
-			linear-gradient(to bottom, $grid-coarse 1px, transparent 1px);
-		background-size: 96px 96px;
-	}
+	// Grid is painted inside the SVG canvas now (.topology-grid-line),
+	// in SVG-space so it pans/zooms with the content. The .topology-app
+	// keeps its paper background but no overlay grid.
 
 	* {
 		box-sizing: border-box;
@@ -304,6 +285,16 @@ body[class*="_page_newspack-nodes-topology"] {
 
 			&:hover {
 				background: $cyan-dark;
+			}
+		}
+
+		&--new {
+			background: $brass;
+			color: $paper;
+			border-right: 1px solid $ink;
+
+			&:hover {
+				background: $brass-dark;
 			}
 		}
 
@@ -557,6 +548,19 @@ body[class*="_page_newspack-nodes-topology"] {
 	height: 100%;
 	display: block;
 	cursor: default;
+}
+
+// SVG-space grid: 1 SVG-unit lines, fine + coarse passes. Lives
+// inside the canvas (not the page) so pan/zoom moves it with the
+// graph. shape-rendering: crispEdges forces the strokes to pixel
+// boundaries — node corners sit exactly at grid intersections in
+// SVG-space, and we don't want anti-aliasing to smear the lines
+// half a pixel away from where nodes actually land.
+.topology-grid-line {
+	fill: none;
+	stroke: $grid;
+	stroke-width: 1;
+	shape-rendering: crispedges;
 }
 
 
@@ -821,6 +825,18 @@ body[class*="_page_newspack-nodes-topology"] {
 		stroke: $oxide;
 		stroke-width: 2.6;
 		filter: drop-shadow(0 0 4px $oxide);
+	}
+
+	// Virtual edges — derived from a verb arg with type=node_name
+	// (e.g. RequestBuilder's set_errors_target). Painted dimmer + a
+	// finer dash pattern so the operator can tell them apart from
+	// physical connect_node wires; not click-deletable.
+	&.is-virtual {
+		stroke: $brass-dark;
+		stroke-width: 1;
+		stroke-dasharray: 2 4;
+		opacity: 0.6;
+		animation: none;
 	}
 
 	// Hovering a node lights up its inbound + outbound edges and
@@ -1363,32 +1379,149 @@ body[class*="_page_newspack-nodes-topology"] {
 
 .topology-edit-row {
 	display: flex;
+	flex-direction: column;
+	align-items: stretch;
+	gap: 2px;
+	padding: 6px 0;
+	font-size: 12px;
+}
+
+// Checkbox rows opt back into the inline layout — checkbox + label
+// reads better side-by-side than stacked.
+.topology-edit-row:has(> input[type="checkbox"]) {
+	flex-direction: row;
 	align-items: center;
 	gap: 8px;
-	padding: 4px 0;
-	font-size: 12px;
 }
 
 .topology-edit-row__label {
 	color: $ink-2;
-	min-width: 110px;
+	font-size: 11px;
+	text-transform: lowercase;
 }
 
 .topology-edit-row__input {
-	flex: 1;
+	width: 100%;
 	min-width: 0;
-	padding: 4px 6px;
+	padding: 5px 7px;
 	background: $paper-2;
 	border: 1px solid $ink-3;
 	font-family: $mono;
 	font-size: 12px;
 	color: $ink;
+	box-sizing: border-box;
+}
+
+// Wrapper that overlays the X-clear button on the right edge of the
+// input. Padding-right on the input itself keeps the typed text out
+// from under the button glyph.
+.topology-edit-row__input-wrap {
+	position: relative;
+	display: flex;
+	align-items: stretch;
+}
+
+.topology-edit-row__input-wrap .topology-edit-row__input {
+	padding-right: 22px;
+}
+
+.topology-edit-row__clear {
+	position: absolute;
+	right: 0;
+	top: 0;
+	bottom: 0;
+	width: 22px;
+	background: transparent;
+	border: 0;
+	color: $ink-3;
+	font: 700 14px/1 $mono;
+	cursor: pointer;
+}
+
+.topology-edit-row__clear:hover {
+	color: $oxide;
 }
 
 .topology-edit-row__input:focus {
 	outline: none;
 	border-color: $ink;
 	background: $paper;
+}
+
+.topology-edit-row__hint {
+	font-size: 10px;
+	color: $oxide-dark;
+	margin-top: 2px;
+}
+
+.topology-edit-chips {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 4px;
+	min-height: 22px;
+}
+
+.topology-edit-chip {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	background: $paper-2;
+	border: 1px solid $ink-3;
+	padding: 2px 4px 2px 7px;
+	font-family: $mono;
+	font-size: 11px;
+	color: $ink;
+}
+
+.topology-edit-chip--virtual {
+	background: transparent;
+	border-style: dashed;
+	border-color: $brass-dark;
+	color: $brass-dark;
+	opacity: 0.85;
+}
+
+.topology-edit-chip__name {
+	font-family: $mono;
+}
+
+.topology-edit-chip__clear {
+	background: transparent;
+	border: 0;
+	color: $oxide-dark;
+	font: 700 14px/1 $mono;
+	cursor: pointer;
+	padding: 0 4px;
+}
+
+.topology-edit-chip__clear:hover {
+	color: $oxide;
+}
+
+// Inline "+ add target…" select dropdown rendered as a chip-shaped
+// affordance at the end of the chips row. Native <select> so the
+// chevron + popdown is browser-managed (no custom positioning).
+.topology-edit-add-chip {
+	display: inline-flex;
+	align-items: center;
+	background: $paper-2;
+	border: 1px dashed $ink-3;
+	padding: 1px 22px 1px 7px;
+	font-family: $mono;
+	font-size: 11px;
+	color: $ink-2;
+	cursor: pointer;
+	appearance: none;
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%235A6F7F'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 6px center;
+	background-size: 7px;
+	border-radius: 0;
+}
+
+.topology-edit-add-chip:hover {
+	border-style: solid;
+	color: $ink;
 }
 
 .topology-edit-verb {

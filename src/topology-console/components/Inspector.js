@@ -10,6 +10,8 @@
  * returning the full state envelope.
  */
 
+import { useEffect, useState } from '@wordpress/element';
+
 import { inferType } from '../utils/inferType';
 
 function FieldRow( { k, v, vClass } ) {
@@ -250,12 +252,17 @@ function formatLastSeen( ts, live ) {
 
 function inputForType( type ) {
 	switch ( type ) {
-		case 'int':
-			return { type: 'number', inputMode: 'numeric', step: 1 };
-		case 'float':
-			return { type: 'number', inputMode: 'decimal', step: 'any' };
 		case 'bool':
 			return { type: 'checkbox' };
+		// All other types render as text inputs — substitution
+		// patterns like `<partition>` or `<config:segment_size>` are
+		// strings and would be silently rejected by an `input
+		// type="number"` field. The TSL loader does the int/float
+		// coercion at runtime; the editor just stores the raw token.
+		case 'int':
+			return { type: 'text', inputMode: 'numeric' };
+		case 'float':
+			return { type: 'text', inputMode: 'decimal' };
 		default:
 			return { type: 'text' };
 	}
@@ -282,7 +289,97 @@ function coerceValue( type, raw, prevRaw ) {
 	return String( raw );
 }
 
-function CtorField( { spec, value, onChange } ) {
+function NameField( { node, takenNames, onRenameNode } ) {
+	const [ value, setValue ] = useState( node.id );
+	const [ error, setError ] = useState( '' );
+
+	// Reset the local input when the selected node changes (parent
+	// passes a fresh `node`).
+	useEffect( () => {
+		setValue( node.id );
+		setError( '' );
+	}, [ node.id ] );
+
+	const validate = ( raw ) => {
+		const trimmed = String( raw || '' ).trim();
+		if ( ! trimmed ) {
+			return 'Name cannot be empty.';
+		}
+		if ( trimmed === node.id ) {
+			return '';
+		}
+		if ( takenNames.has( trimmed ) ) {
+			return `Name '${ trimmed }' already in use.`;
+		}
+		if ( ! /^[a-zA-Z0-9_:-]+$/.test( trimmed ) ) {
+			return 'Letters, digits, dash, underscore, colon only.';
+		}
+		return '';
+	};
+
+	const commit = () => {
+		const trimmed = value.trim();
+		const err = validate( trimmed );
+		if ( err ) {
+			setError( err );
+			return;
+		}
+		if ( trimmed === node.id ) {
+			return;
+		}
+		const ok = onRenameNode && onRenameNode( node.id, trimmed );
+		if ( ! ok ) {
+			// Caller refused (race condition: collision raced in). Snap
+			// the input back to the canonical id and show why.
+			setValue( node.id );
+			setError( 'Rename refused — name already taken.' );
+		}
+	};
+
+	return (
+		<div className="topology-edit-row">
+			<label
+				htmlFor="topology-name-field"
+				className="topology-edit-row__label"
+			>
+				name
+			</label>
+			<input
+				id="topology-name-field"
+				className="topology-edit-row__input"
+				type="text"
+				value={ value }
+				onChange={ ( e ) => {
+					setValue( e.target.value );
+					setError( validate( e.target.value ) );
+				} }
+				onBlur={ commit }
+				onKeyDown={ ( e ) => {
+					if ( e.key === 'Enter' ) {
+						e.preventDefault();
+						e.target.blur();
+					}
+					if ( e.key === 'Escape' ) {
+						setValue( node.id );
+						setError( '' );
+						e.target.blur();
+					}
+				} }
+			/>
+			{ error && (
+				<span className="topology-edit-row__hint">{ error }</span>
+			) }
+		</div>
+	);
+}
+
+function CtorField( {
+	spec,
+	value,
+	onChange,
+	nodeNames = [],
+	formatters = [],
+} ) {
 	const meta = inputForType( spec.type );
 	const id = `topology-ctor-${ spec.name }`;
 	if ( 'checkbox' === meta.type ) {
@@ -305,31 +402,126 @@ function CtorField( { spec, value, onChange } ) {
 			</label>
 		);
 	}
+	if ( 'formatter_name' === spec.type ) {
+		// Pick from the formatters that application plugins
+		// registered via Formatters::register(). Empty list = no
+		// options other than (none); the operator can still type a
+		// name into a free-form text input via the fallback below.
+		if ( formatters.length === 0 ) {
+			return (
+				<div className="topology-edit-row">
+					<label htmlFor={ id } className="topology-edit-row__label">
+						{ spec.name }
+						{ spec.required ? ' *' : '' }
+					</label>
+					<input
+						id={ id }
+						type="text"
+						className="topology-edit-row__input"
+						value={ value ?? '' }
+						placeholder="(no formatters registered)"
+						onChange={ ( e ) => onChange( e.target.value ) }
+					/>
+				</div>
+			);
+		}
+		return (
+			<div className="topology-edit-row">
+				<label htmlFor={ id } className="topology-edit-row__label">
+					{ spec.name }
+					{ spec.required ? ' *' : '' }
+				</label>
+				<select
+					id={ id }
+					className="topology-edit-row__input"
+					value={ value ?? '' }
+					onChange={ ( e ) => onChange( e.target.value ) }
+				>
+					<option value="">(pick a formatter)</option>
+					{ formatters.map( ( name ) => (
+						<option key={ name } value={ name }>
+							{ name }
+						</option>
+					) ) }
+				</select>
+			</div>
+		);
+	}
+	if ( 'node_name' === spec.type ) {
+		// node_name args define a logical edge from the patron node
+		// to whichever draft node is selected — TopologyConsole's
+		// augmented graph synthesizes the canvas edge from this
+		// value automatically.
+		return (
+			<div className="topology-edit-row">
+				<label htmlFor={ id } className="topology-edit-row__label">
+					{ spec.name }
+					{ spec.required ? ' *' : '' }
+				</label>
+				<select
+					id={ id }
+					className="topology-edit-row__input"
+					value={ value ?? '' }
+					onChange={ ( e ) => onChange( e.target.value ) }
+				>
+					<option value="">(pick a node)</option>
+					{ nodeNames.map( ( name ) => (
+						<option key={ name } value={ name }>
+							{ name }
+						</option>
+					) ) }
+				</select>
+			</div>
+		);
+	}
+	const currentValue = value ?? spec.default ?? '';
+	const hasContent = String( currentValue ).length > 0;
 	return (
 		<div className="topology-edit-row">
 			<label htmlFor={ id } className="topology-edit-row__label">
 				{ spec.name }
 				{ spec.required ? ' *' : '' }
 			</label>
-			<input
-				id={ id }
-				type={ meta.type }
-				inputMode={ meta.inputMode }
-				step={ meta.step }
-				className="topology-edit-row__input"
-				value={ value ?? spec.default ?? '' }
-				placeholder={
-					spec.default !== undefined ? String( spec.default ) : ''
-				}
-				onChange={ ( e ) =>
-					onChange( coerceValue( spec.type, e.target.value, value ) )
-				}
-			/>
+			<div className="topology-edit-row__input-wrap">
+				<input
+					id={ id }
+					type={ meta.type }
+					inputMode={ meta.inputMode }
+					step={ meta.step }
+					className="topology-edit-row__input"
+					value={ currentValue }
+					placeholder={
+						spec.default !== undefined ? String( spec.default ) : ''
+					}
+					onChange={ ( e ) =>
+						onChange(
+							coerceValue( spec.type, e.target.value, value )
+						)
+					}
+				/>
+				{ hasContent && (
+					<button
+						type="button"
+						className="topology-edit-row__clear"
+						aria-label={ `Clear ${ spec.name }` }
+						onClick={ () => onChange( '' ) }
+					>
+						×
+					</button>
+				) }
+			</div>
 		</div>
 	);
 }
 
-function VerbRow( { spec, invocation, onToggle, onArgChange } ) {
+function VerbRow( {
+	spec,
+	invocation,
+	onToggle,
+	onArgChange,
+	nodeNames = [],
+	formatters = [],
+} ) {
 	const checked = !! invocation;
 	const id = `topology-verb-${ spec.name }`;
 	return (
@@ -353,6 +545,8 @@ function VerbRow( { spec, invocation, onToggle, onArgChange } ) {
 							key={ arg.name }
 							spec={ arg }
 							value={ invocation.args[ i ] }
+							nodeNames={ nodeNames }
+							formatters={ formatters }
 							onChange={ ( v ) => onArgChange( i, v ) }
 						/>
 					) ) }
@@ -362,18 +556,207 @@ function VerbRow( { spec, invocation, onToggle, onArgChange } ) {
 	);
 }
 
+// Tee: tag list + autocomplete "add target" input (multi).
+// Everything else: single text input bound to the current target,
+// X-clear breaks the connection, typing + Enter (or blur) replaces it.
+function TargetsField( { node, nodeNames, targets, onConnect, onRemoveEdge } ) {
+	const isTee = node.class === 'Tee';
+	const datalistId = `topology-targets-${ node.id }`;
+	if ( isTee ) {
+		return (
+			<TeeTargetsField
+				node={ node }
+				nodeNames={ nodeNames }
+				targets={ targets }
+				datalistId={ datalistId }
+				onConnect={ onConnect }
+				onRemoveEdge={ onRemoveEdge }
+			/>
+		);
+	}
+	return (
+		<SingleTargetField
+			node={ node }
+			nodeNames={ nodeNames }
+			targets={ targets }
+			datalistId={ datalistId }
+			onConnect={ onConnect }
+			onRemoveEdge={ onRemoveEdge }
+		/>
+	);
+}
+
+function TeeTargetsField( {
+	node,
+	nodeNames,
+	targets,
+	onConnect,
+	onRemoveEdge,
+} ) {
+	// Available = every other draft node minus those already wired
+	// from this Tee. Empty list = nothing to pick from.
+	const wired = new Set(
+		targets.filter( ( e ) => ! e.virtual ).map( ( e ) => e.to )
+	);
+	const available = nodeNames.filter( ( n ) => ! wired.has( n ) );
+
+	return (
+		<div className="topology-edit-row">
+			<span className="topology-edit-row__label">targets</span>
+			<div className="topology-edit-chips">
+				{ targets.map( ( e ) => (
+					<RoutingChip
+						key={ `${ e.from }->${ e.to }` }
+						label={ e.to }
+						virtual={ e.virtual }
+						onClear={
+							onRemoveEdge && ! e.virtual
+								? () => onRemoveEdge( e.from, e.to )
+								: null
+						}
+					/>
+				) ) }
+				{ available.length > 0 && (
+					<select
+						className="topology-edit-add-chip"
+						value=""
+						onChange={ ( e ) => {
+							if ( ! e.target.value || ! onConnect ) {
+								return;
+							}
+							onConnect( node.id, e.target.value );
+						} }
+					>
+						<option value="">+ add target…</option>
+						{ available.map( ( n ) => (
+							<option key={ n } value={ n }>
+								{ n }
+							</option>
+						) ) }
+					</select>
+				) }
+				{ available.length === 0 && targets.length === 0 && (
+					<span className="topology-edit-row__hint">
+						No other nodes to wire to yet.
+					</span>
+				) }
+			</div>
+		</div>
+	);
+}
+
+function SingleTargetField( {
+	node,
+	nodeNames,
+	targets,
+	onConnect,
+	onRemoveEdge,
+} ) {
+	// Physical edge (if any) — virtual edges (verb-derived) are
+	// managed in the Verbs section, not here.
+	const physical = targets.find( ( e ) => ! e.virtual ) || null;
+	const currentTarget = physical ? physical.to : '';
+
+	const handleChange = ( next ) => {
+		if ( next === currentTarget ) {
+			return;
+		}
+		if ( next === '' ) {
+			if ( physical && onRemoveEdge ) {
+				onRemoveEdge( physical.from, physical.to );
+			}
+			return;
+		}
+		if ( onConnect ) {
+			// handleConnect's non-Tee branch replaces the existing
+			// target automatically — no separate remove step needed.
+			onConnect( node.id, next );
+		}
+	};
+
+	// Selectable options = every other node, plus the current target
+	// even when it's not in the draft (preserves the value during a
+	// transient mismatch, e.g. after rename or partial load).
+	const options = nodeNames.slice();
+	if ( currentTarget && ! options.includes( currentTarget ) ) {
+		options.push( currentTarget );
+	}
+
+	return (
+		<div className="topology-edit-row">
+			<label
+				htmlFor={ `topology-target-input-${ node.id }` }
+				className="topology-edit-row__label"
+			>
+				target
+			</label>
+			<select
+				id={ `topology-target-input-${ node.id }` }
+				className="topology-edit-row__input"
+				value={ currentTarget }
+				onChange={ ( e ) => handleChange( e.target.value ) }
+			>
+				<option value="">(none)</option>
+				{ options.map( ( n ) => (
+					<option key={ n } value={ n }>
+						{ n }
+					</option>
+				) ) }
+			</select>
+			{ targets.some( ( e ) => e.virtual ) && (
+				<span className="topology-edit-row__hint">
+					Plus virtual edge(s) from verb args — manage in Verbs.
+				</span>
+			) }
+		</div>
+	);
+}
+
+function RoutingChip( { label, virtual, onClear } ) {
+	return (
+		<span
+			className={ `topology-edit-chip${
+				virtual ? ' topology-edit-chip--virtual' : ''
+			}` }
+		>
+			<code className="topology-edit-chip__name">{ label }</code>
+			{ onClear && ! virtual && (
+				<button
+					type="button"
+					className="topology-edit-chip__clear"
+					aria-label={ `Remove ${ label }` }
+					onClick={ onClear }
+				>
+					×
+				</button>
+			) }
+		</span>
+	);
+}
+
 function EditForm( {
 	node,
 	catalog,
+	formatters,
+	parsed,
 	onUpdateArgs,
 	onUpdateVerbs,
 	onRemoveNode,
+	onRenameNode,
+	onRemoveEdge,
+	onConnect,
 } ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
 	const ctorSpecs = schema?.ctor || [];
 	const verbSpecs = schema?.verbs || [];
 	const ctorArgs = node.ctorArgs || [];
 	const verbInvocations = node.verbInvocations || [];
+	// Names of every other draft node — used by node_name verb arg
+	// selects so the operator picks from existing nodes rather than
+	// typing a free-form string.
+	const nodeNames = ( parsed?.nodes || [] )
+		.map( ( n ) => n.name || n.id )
+		.filter( ( n ) => n && n !== node.id );
 
 	return (
 		<aside className="topology-inspector">
@@ -392,6 +775,32 @@ function EditForm( {
 				</button>
 			) }
 
+			<Section title="Identity">
+				<NameField
+					node={ node }
+					takenNames={
+						new Set(
+							( parsed?.nodes || [] )
+								.map( ( n ) => n.id )
+								.filter( ( id ) => id !== node.id )
+						)
+					}
+					onRenameNode={ onRenameNode }
+				/>
+			</Section>
+
+			<Section title="Routing">
+				<TargetsField
+					node={ node }
+					nodeNames={ nodeNames }
+					targets={ ( parsed?.edges || [] ).filter(
+						( e ) => e.from === node.id
+					) }
+					onConnect={ onConnect }
+					onRemoveEdge={ onRemoveEdge }
+				/>
+			</Section>
+
 			<Section title="Constructor">
 				{ ctorSpecs.length === 0 && (
 					<div className="topology-edit-empty">
@@ -403,6 +812,8 @@ function EditForm( {
 						key={ spec.name }
 						spec={ spec }
 						value={ ctorArgs[ i ] }
+						nodeNames={ nodeNames }
+						formatters={ formatters }
 						onChange={ ( v ) => {
 							const next = ctorArgs.slice();
 							next[ i ] = v;
@@ -458,6 +869,8 @@ function EditForm( {
 							key={ vspec.name }
 							spec={ vspec }
 							invocation={ invocation }
+							nodeNames={ nodeNames }
+							formatters={ formatters }
 							onToggle={ handleToggle }
 							onArgChange={ handleArgChange }
 						/>
@@ -480,9 +893,13 @@ export default function Inspector( {
 	ssePid,
 	editMode = false,
 	catalog = [],
+	formatters = [],
 	onUpdateArgs,
 	onUpdateVerbs,
 	onRemoveNode,
+	onRenameNode,
+	onRemoveEdge,
+	onConnect,
 } ) {
 	if ( ! selectedId ) {
 		return (
@@ -510,15 +927,19 @@ export default function Inspector( {
 			<EditForm
 				node={ node }
 				catalog={ catalog }
+				formatters={ formatters }
+				parsed={ parsed }
 				onUpdateArgs={ onUpdateArgs }
 				onUpdateVerbs={ onUpdateVerbs }
 				onRemoveNode={ onRemoveNode }
+				onRenameNode={ onRenameNode }
+				onRemoveEdge={ onRemoveEdge }
+				onConnect={ onConnect }
 			/>
 		);
 	}
 
 	const targets = parsed.edges.filter( ( e ) => e.from === selectedId );
-	const sources = parsed.edges.filter( ( e ) => e.to === selectedId );
 	// Prefer the authoritative class name from dump_metadata; fall
 	// back to inferring from the node name if (somehow) absent.
 	const type = node.klass || inferType( node.id );
@@ -574,20 +995,10 @@ export default function Inspector( {
 						/>
 					</div>
 				) }
-				<FieldRow
-					k="sink ↦"
-					v={ node.sink !== undefined ? node.sink : '—' }
-					vClass="topology-field-row__val--dim"
-				/>
-				<div className="topology-field-row">
-					<span className="topology-field-row__key">← from</span>
-					<NodeLinks
-						names={ sources.map( ( s ) => s.from ) }
-						nodeIds={ nodeIds }
-						onSelect={ onSelect }
-						onHover={ onHover }
-					/>
-				</div>
+				{ /* sink + from intentionally dropped — those are
+				substrate plumbing details that don't make sense for
+				the operator's mental model and don't have an
+				edit-mode equivalent. */ }
 			</Section>
 
 			{ ( rateInfo?.hasMessages ||
