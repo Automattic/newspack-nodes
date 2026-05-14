@@ -203,10 +203,12 @@ export default function SchematicCanvas( {
 	viewport,
 	onViewportChange,
 	// Edit-mode affordances. `onDropNode` receives { shellName, x, y }
-	// in SVG-space coordinates (post-viewBox projection). Both are
-	// noop in view mode — wired through TopologyConsole based on the
-	// current `mode` state.
+	// in SVG-space coordinates (post-viewBox projection). `onConnect`
+	// fires when the user drags from a node's OUT port and releases on
+	// another node's IN port. Both are no-ops in view mode — wired
+	// through TopologyConsole based on the current `mode` state.
 	onDropNode,
+	onConnect,
 	editMode = false,
 } ) {
 	// Apply user-pinned position overrides on top of the auto-layout
@@ -268,6 +270,105 @@ export default function SchematicCanvas( {
 	// projection, drops would land at raw pixel offsets that ignore
 	// pan/zoom — perfectly wrong in any non-default viewport.
 	const svgRef = useRef( null );
+
+	// Wire-drag state. Null when idle; during a drag holds the source
+	// node id, the SVG-space coords of both endpoints, and the id of
+	// the IN port currently being snapped to (so the renderer can light
+	// it up). Wire drags suppress the background pan handler (port
+	// hits e.stopPropagation), so these two pointer paths don't fight.
+	const [ wireDrag, setWireDrag ] = useState( null );
+
+	// Port hit radius in SVG units. Generous enough to make snapping
+	// feel responsive without overlapping adjacent nodes (NODE_W is
+	// 196, so 24 is well under any node spacing).
+	const PORT_HIT_R = 24;
+
+	const handlePortPointerDown = useCallback(
+		( nodeId, e ) => {
+			if ( ! editMode || ! onConnect || e.button !== 0 ) {
+				return;
+			}
+			e.stopPropagation();
+			const svg = svgRef.current;
+			if ( ! svg ) {
+				return;
+			}
+			svg.setPointerCapture( e.pointerId );
+			const node = nodes.find( ( n ) => n.id === nodeId );
+			if ( ! node ) {
+				return;
+			}
+			const x1 = node.position.x + NODE_W;
+			const y1 = node.position.y + NODE_H / 2;
+			setWireDrag( {
+				fromId: nodeId,
+				x1,
+				y1,
+				x2: x1,
+				y2: y1,
+				hoveredId: null,
+			} );
+		},
+		[ editMode, onConnect, nodes ]
+	);
+
+	const handlePortPointerMove = useCallback(
+		( e ) => {
+			if ( ! wireDrag ) {
+				return;
+			}
+			const svg = svgRef.current;
+			if ( ! svg ) {
+				return;
+			}
+			const local = screenToSvg( svg, e.clientX, e.clientY );
+			// Snap-to-IN-port: any node whose IN port (left edge,
+			// vertical center) is within PORT_HIT_R of the cursor wins,
+			// except the source node (no self-edges).
+			let snapTargetId = null;
+			let bestDist = PORT_HIT_R;
+			for ( const n of nodes ) {
+				if ( n.id === wireDrag.fromId ) {
+					continue;
+				}
+				const px = n.position.x;
+				const py = n.position.y + NODE_H / 2;
+				const dx = local.x - px;
+				const dy = local.y - py;
+				const d = Math.sqrt( dx * dx + dy * dy );
+				if ( d <= bestDist ) {
+					bestDist = d;
+					snapTargetId = n.id;
+				}
+			}
+			setWireDrag( {
+				...wireDrag,
+				x2: local.x,
+				y2: local.y,
+				hoveredId: snapTargetId,
+			} );
+		},
+		[ wireDrag, nodes ]
+	);
+
+	const handlePortPointerUp = useCallback(
+		( e ) => {
+			if ( ! wireDrag ) {
+				return;
+			}
+			try {
+				e.currentTarget.releasePointerCapture( e.pointerId );
+			} catch ( _err ) {
+				// already released
+			}
+			const { fromId, hoveredId: snapId } = wireDrag;
+			setWireDrag( null );
+			if ( snapId && onConnect ) {
+				onConnect( fromId, snapId );
+			}
+		},
+		[ wireDrag, onConnect ]
+	);
 
 	const handleDragOver = useCallback(
 		( e ) => {
@@ -539,9 +640,27 @@ export default function SchematicCanvas( {
 			viewBox={ viewBox }
 			preserveAspectRatio="xMidYMid meet"
 			onPointerDown={ handleBgPointerDown }
-			onPointerMove={ handleBgPointerMove }
-			onPointerUp={ handleBgPointerUp }
-			onPointerCancel={ handleBgPointerUp }
+			onPointerMove={ ( e ) => {
+				if ( wireDrag ) {
+					handlePortPointerMove( e );
+				} else {
+					handleBgPointerMove( e );
+				}
+			} }
+			onPointerUp={ ( e ) => {
+				if ( wireDrag ) {
+					handlePortPointerUp( e );
+				} else {
+					handleBgPointerUp( e );
+				}
+			} }
+			onPointerCancel={ ( e ) => {
+				if ( wireDrag ) {
+					handlePortPointerUp( e );
+				} else {
+					handleBgPointerUp( e );
+				}
+			} }
 			onWheel={ handleWheel }
 			onDragOver={ handleDragOver }
 			onDrop={ handleDrop }
@@ -738,21 +857,41 @@ export default function SchematicCanvas( {
 								{ compactCount( n.count ) }
 							</text>
 							<circle
-								className="topology-port topology-port--in"
+								className={ `topology-port topology-port--in${
+									wireDrag && wireDrag.hoveredId === n.id
+										? ' is-snap-target'
+										: ''
+								}` }
 								cx={ 0 }
 								cy={ NODE_H / 2 }
 								r={ PORT_R }
 							/>
 							<circle
-								className="topology-port topology-port--out"
+								className={ `topology-port topology-port--out${
+									editMode ? ' is-edit' : ''
+								}` }
 								cx={ NODE_W }
 								cy={ NODE_H / 2 }
 								r={ PORT_R }
+								onPointerDown={ ( e ) =>
+									handlePortPointerDown( n.id, e )
+								}
 							/>
 						</g>
 					);
 				} ) }
 			</g>
+			{ wireDrag && (
+				<g className="topology-wire-drag">
+					<line
+						x1={ wireDrag.x1 }
+						y1={ wireDrag.y1 }
+						x2={ wireDrag.x2 }
+						y2={ wireDrag.y2 }
+						className="topology-wire-drag__line"
+					/>
+				</g>
+			) }
 		</svg>
 	);
 }

@@ -32,6 +32,7 @@ import SchematicCanvas from './components/SchematicCanvas';
 import { useClassCatalog } from './hooks/useClassCatalog';
 import { useTopologyStream } from './hooks/useTopologyStream';
 import {
+	addEdge,
 	addNode,
 	generateNodeName,
 	updateNodeArgs,
@@ -778,6 +779,10 @@ export default function TopologyConsole() {
 	// palette drag over the SVG. The shellName comes from the
 	// dataTransfer payload set by Palette; (x, y) is already projected
 	// into SVG-space by the canvas.
+	const handleConnect = useCallback( ( from, to ) => {
+		setDraft( ( g ) => addEdge( g, { from, to } ) );
+	}, [] );
+
 	const handleUpdateArgs = useCallback( ( id, args ) => {
 		setDraft( ( g ) => updateNodeArgs( g, id, args ) );
 	}, [] );
@@ -857,6 +862,7 @@ export default function TopologyConsole() {
 					onViewportChange={ handleViewportChange }
 					editMode={ mode === 'edit' }
 					onDropNode={ handleDropNode }
+					onConnect={ handleConnect }
 				/>
 			</CanvasFrame>
 			{ /* Inspector is only mounted when a node is selected — the

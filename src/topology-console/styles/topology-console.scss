@@ -742,11 +742,30 @@ body[class*="_page_newspack-nodes-topology"] {
 	stroke: $ink;
 	stroke-width: 1;
 
-	&--out {
-		// Same default; active state will flip to brass once we wire
-		// per-edge throughput. Live counter ticks already animate, so
-		// keeping ports static for v1 avoids visual noise.
+	&--out.is-edit {
+		// Edit-mode OUT port: cursor changes to crosshair so the user
+		// knows it's draggable; fill flips to brass to draw the eye.
+		cursor: crosshair;
+		fill: $brass;
+		stroke: $brass-dark;
 	}
+
+	&--in.is-snap-target {
+		// Active drag-wire snap target — green halo + filled center so
+		// release-to-connect is unambiguous.
+		fill: $sage;
+		stroke: $sage-dark;
+		stroke-width: 2;
+		r: 7;
+	}
+}
+
+// Rubber-band wire while drag-from-OUT is active.
+.topology-wire-drag__line {
+	stroke: $brass-dark;
+	stroke-width: 1.5;
+	stroke-dasharray: 4 3;
+	pointer-events: none;
 }
 
 .topology-edge {
