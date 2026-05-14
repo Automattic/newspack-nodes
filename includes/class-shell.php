@@ -344,6 +344,7 @@ class Shell extends Node {
 		// `echo` builtin: send output to stdout.
 		// No message emitted.
 		if ( 'echo' === $verb ) {
+			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- shell-builtin output, not user-facing HTML.
 			echo \implode( ' ', $args ) . "\n";
 			return null;
 		}

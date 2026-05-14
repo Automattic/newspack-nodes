@@ -604,7 +604,9 @@ class Consumer extends Timer {
 			'name'        => $this->name,
 			'target'      => \is_string( $this->target ) ? $this->target : '',
 			'targets'     => $this->resolve_downstream_targets(),
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
 			'worker_type' => isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] )
+				// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
 				? (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE']
 				: '',
 		];
@@ -697,7 +699,9 @@ class Consumer extends Timer {
 				'name'        => $this->name,
 				'target'      => \is_string( $this->target ) ? $this->target : '',
 				'targets'     => $this->resolve_downstream_targets(),
+				// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
 				'worker_type' => isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] )
+					// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
 					? (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE']
 					: '',
 			],

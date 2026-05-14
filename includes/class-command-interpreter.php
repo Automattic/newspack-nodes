@@ -554,7 +554,7 @@ class CommandInterpreter extends Node {
 	 * primitive.
 	 */
 	private static function cmd_log( string $args ): string {
-		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log,WordPress.Security.EscapeOutput.OutputNotEscaped
 		\error_log( $args );
 		return '';
 	}

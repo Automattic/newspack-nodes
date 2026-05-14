@@ -1161,17 +1161,22 @@ export default function Inspector( {
 					const klass = catalog.find(
 						( c ) => c.shell_name === type
 					);
-					const requests = klass && klass.requests ? klass.requests : [];
+					const requests =
+						klass && klass.requests ? klass.requests : [];
 					return requests.map( ( req ) => (
 						<button
 							key={ req.name }
 							type="button"
 							className="topology-insp__actions-full"
 							onClick={ () =>
-								onAction && onAction( 'request', node.id, req.name )
+								onAction &&
+								onAction( 'request', node.id, req.name )
 							}
 							disabled={ ! live }
-							title={ req.description || `Send TM_REQUEST ${ req.name }` }
+							title={
+								req.description ||
+								`Send TM_REQUEST ${ req.name }`
+							}
 						>
 							{ req.name }
 						</button>
