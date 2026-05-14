@@ -166,7 +166,7 @@ class Config {
 			foreach ( self::get_option_schema_core() as $key => $type ) {
 				$value = \get_option( "newspack_nodes_{$key}" );
 				if ( false !== $value && '' !== $value ) {
-					$sanitized = self::sanitize_option( $value, $type );
+					$sanitized = Config_Utils::sanitize_option( $value, $type );
 					if ( null !== $sanitized ) {
 						$config[ $key ] = $sanitized;
 					}
@@ -178,7 +178,7 @@ class Config {
 				foreach ( self::get_option_schema_extended() as $key => $type ) {
 					$value = \get_option( "newspack_nodes_{$key}" );
 					if ( false !== $value && '' !== $value ) {
-						$sanitized = self::sanitize_option( $value, $type );
+						$sanitized = Config_Utils::sanitize_option( $value, $type );
 						if ( null !== $sanitized ) {
 							$config[ $key ] = $sanitized;
 						}
@@ -233,102 +233,6 @@ class Config {
 		}
 	}
 
-	/**
-	 * Sanitize an option value based on its type.
-	 *
-	 * @param mixed  $value The value to sanitize.
-	 * @param string $type  The type of sanitization to apply.
-	 * @return mixed|null Sanitized value, or null if invalid.
-	 */
-	private static function sanitize_option( $value, string $type ) {
-		switch ( $type ) {
-			case 'bool':
-				return (bool) $value;
-
-			case 'int':
-				if ( ! \is_numeric( $value ) ) {
-					return null;
-				}
-				return (int) $value;
-
-			case 'float':
-				if ( ! \is_numeric( $value ) ) {
-					return null;
-				}
-				return (float) $value;
-
-			case 'path':
-				// Sanitize path: no null bytes, no .., must be absolute.
-				if ( ! \is_string( $value ) ) {
-					return null;
-				}
-				$path = \trim( $value );
-				// Reject null bytes and directory traversal.
-				if ( false !== \strpos( $path, "\0" ) || false !== \strpos( $path, '..' ) ) {
-					return null;
-				}
-				// Must be absolute path.
-				if ( 0 !== \strpos( $path, '/' ) ) {
-					return null;
-				}
-				return $path;
-
-			case 'memcache_servers':
-				// Newline-separated host:port list.
-				if ( ! \is_string( $value ) ) {
-					return null;
-				}
-				$servers = \array_filter( \array_map( 'trim', \explode( "\n", $value ) ) );
-				if ( empty( $servers ) ) {
-					return null;
-				}
-				$validated = [];
-				foreach ( $servers as $server ) {
-					// Must match host:port pattern.
-					if ( \preg_match( '/^[a-zA-Z0-9.\-]+:\d{1,5}$/', $server ) ) {
-						$validated[] = $server;
-					}
-				}
-				return empty( $validated ) ? null : $validated;
-
-			case 'array_strings':
-				// Sanitize array of strings.
-				if ( ! \is_array( $value ) ) {
-					return null;
-				}
-				$result = [];
-				foreach ( $value as $k => $v ) {
-					if ( \is_string( $v ) ) {
-						$result[ self::sanitize_string( $k ) ] = self::sanitize_string( $v );
-					} elseif ( \is_bool( $v ) || \is_int( $v ) ) {
-						$result[ self::sanitize_string( $k ) ] = $v;
-					}
-				}
-				return $result;
-
-			default:
-				// Unknown type - reject.
-				return null;
-		}
-	}
-
-	/**
-	 * Sanitize a string value.
-	 *
-	 * Uses WordPress sanitize_text_field if available.
-	 * Throws RuntimeException if WordPress unavailable (fail-fast pattern).
-	 *
-	 * @param mixed $value The value to sanitize.
-	 * @return string Sanitized string.
-	 * @throws \RuntimeException If sanitize_text_field unavailable.
-	 */
-	private static function sanitize_string( $value ): string {
-		$value = (string) $value;
-		if ( ! \function_exists( 'sanitize_text_field' ) ) {
-			throw new \RuntimeException( 'sanitize_text_field unavailable - WordPress required for sanitization' );
-		}
-		return \sanitize_text_field( $value );
-	}
 
 	/**
 	 * Load configuration defaults from file only (no WordPress options).
@@ -341,19 +245,22 @@ class Config {
 		}
 
 
-		// Load main config file.
-		$config      = [];
-		$config_path = \dirname( __DIR__ ) . '/newspack-nodes-config.php';
-		if ( \file_exists( $config_path ) ) {
-			$config = self::load_config_file( $config, $config_path );
-		}
-
-		// Load local override if specified (for CLI/testing).
+		$config = Config_Utils::load_config_file(
+			[],
+			\dirname( __DIR__ ) . '/newspack-nodes-config.php',
+			'Newspack_Nodes\\Config'
+		);
+		// Local override (for CLI/testing) — env var points at an
+		// alternate config file inside the allowed directories.
 		$local_config_file = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
 		if ( $local_config_file ) {
 			$validated_path = self::validate_config_path( $local_config_file );
-			if ( $validated_path && \file_exists( $validated_path ) ) {
-				$config = self::load_config_file( $config, $validated_path );
+			if ( $validated_path ) {
+				$config = Config_Utils::load_config_file(
+					$config,
+					$validated_path,
+					'Newspack_Nodes\\Config'
+				);
 			}
 		}
 
@@ -363,49 +270,13 @@ class Config {
 	}
 
 	/**
-	 * Validate that a config file path is within allowed directories.
-	 *
-	 * Security: Prevents arbitrary file include via environment variable.
-	 *
-	 * @param string $path The path to validate.
-	 * @return string|null The validated real path, or null if invalid.
+	 * Validate a config-override path against the substrate's allowed
+	 * directories (plus the plugin dir itself as a fallback). Wraps
+	 * Config_Utils::validate_config_path with the substrate's list.
 	 */
 	private static function validate_config_path( string $path ): ?string {
-		// Reject null bytes (path injection).
-		if ( false !== \strpos( $path, "\0" ) ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( 'Newspack_Nodes\\Config::validate_config_path() failed: null byte in path' );
-			return null;
-		}
-
-		// Must be a .php file.
-		if ( '.php' !== \substr( $path, -4 ) ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( \sprintf( 'Newspack_Nodes\\Config::validate_config_path() failed: not .php file (%s)', \preg_replace( '/[\x00-\x1f\x7f]/', '', $path ) ) );
-			return null;
-		}
-
-		// Check if path is within allowed directories.
-		$real_path = null;
-		foreach ( self::$allowed_config_dirs as $allowed_dir ) {
-			$real_path = self::is_within( $path, $allowed_dir );
-			if ( $real_path ) {
-				break;
-			}
-		}
-
-		// Also allow plugin directory itself.
-		if ( ! $real_path ) {
-			$plugin_dir = \dirname( __DIR__ );
-			$real_path  = self::is_within( $path, $plugin_dir );
-		}
-
-		if ( ! $real_path ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( \sprintf( 'Newspack_Nodes\\Config::validate_config_path() failed: path not found or not in allowed directories (%s)', \preg_replace( '/[\x00-\x1f\x7f]/', '', $path ) ) );
-		}
-
-		return $real_path;
+		$dirs = [ ...self::$allowed_config_dirs, \dirname( __DIR__ ) ];
+		return Config_Utils::validate_config_path( $path, $dirs, 'Newspack_Nodes\\Config' );
 	}
 
 	/**
@@ -464,31 +335,6 @@ class Config {
 		}
 
 		return $real;
-	}
-
-	/**
-	 * Check if a path is within a base directory.
-	 *
-	 * Resolves the path to its canonical form and checks containment.
-	 * Returns the canonical path on success, null on failure.
-	 *
-	 * @param string $path Path to check.
-	 * @param string $base Base directory that path must be within.
-	 * @return string|null Canonical path if within base, null otherwise.
-	 */
-	private static function is_within( string $path, string $base ): ?string {
-		$real_path = \realpath( $path );
-		$real_base = \realpath( $base );
-
-		if ( false === $real_path || false === $real_base ) {
-			return null;
-		}
-
-		// Must be within base directory.
-		$real_base = \rtrim( $real_base, '/' ) . '/';
-		$within    = 0 === \strpos( $real_path, $real_base ) || $real_path === \rtrim( $real_base, '/' );
-
-		return $within ? $real_path : null;
 	}
 
 	/**
@@ -629,63 +475,4 @@ class Config {
 		}
 	}
 
-	/**
-	 * Load a PHP config file.
-	 *
-	 * @param array  $config      Hash of config options.
-	 * @param string $config_file Path to config file.
-	 * @return array
-	 */
-	private static function load_config_file( array $config, string $config_file ): array {
-		if ( ! \file_exists( $config_file ) ) {
-			return $config;
-		}
-
-		// Load PHP config file (returns array).
-		// Note: This executes PHP code. Allowed directories should be tightly controlled.
-		$parsed_config = require $config_file;
-		if ( \is_array( $parsed_config ) && self::validate_config_values( $parsed_config ) ) {
-			$config = [ ...$config, ...$parsed_config ];
-		} else {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( 'Newspack_Nodes\\Config::load_config_file() rejected: config must return array of scalar/array values only' );
-		}
-
-		return $config;
-	}
-
-	/**
-	 * Validate that config values contain only safe types (scalars and arrays).
-	 *
-	 * Security: Rejects objects, closures, and resources that could execute code
-	 * or leak sensitive data when the config is serialized or accessed.
-	 *
-	 * @param mixed $value Value to validate.
-	 * @param int   $depth Current recursion depth.
-	 * @return bool True if value contains only safe types.
-	 */
-	private static function validate_config_values( $value, int $depth = 0 ): bool {
-		// Prevent excessive recursion.
-		if ( $depth > 10 ) {
-			return false;
-		}
-
-		// Allow scalars (string, int, float, bool) and null.
-		if ( \is_scalar( $value ) || null === $value ) {
-			return true;
-		}
-
-		// Allow arrays, validate contents recursively.
-		if ( \is_array( $value ) ) {
-			foreach ( $value as $v ) {
-				if ( ! self::validate_config_values( $v, $depth + 1 ) ) {
-					return false;
-				}
-			}
-			return true;
-		}
-
-		// Reject objects, closures, resources, etc.
-		return false;
-	}
 }
