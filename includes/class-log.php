@@ -160,4 +160,13 @@ class Log extends Node {
 		}
 		parent::remove_node();
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'I/O',
+			'description' => 'Append-only file writer with rotation by line count.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }

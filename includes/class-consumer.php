@@ -636,4 +636,13 @@ class Consumer extends Timer {
 			60
 		);
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'I/O',
+			'description' => 'Tails a Partition; emits each appended message to its sink.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }

@@ -952,4 +952,13 @@ class CommandInterpreter extends Node {
 		);
 		$this->sink?->fill( $response );
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Hidden',
+			'description' => 'Command dispatch — placed implicitly as sibling of patron nodes; not draggable.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }

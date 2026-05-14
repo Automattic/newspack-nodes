@@ -197,4 +197,13 @@ class Tail extends Timer {
 		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
 		$this->set_timer( $next_ms, true ); // oneshot — fire() re-arms.
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'I/O',
+			'description' => 'Polls a file for appended bytes; emits each line to its sink.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }

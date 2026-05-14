@@ -611,4 +611,13 @@ class Shell extends Node {
 		++$this->counter;
 		$this->sink?->fill( $message );
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Hidden',
+			'description' => 'TSL parser/REPL — used in cli sessions, not part of topology graphs.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }

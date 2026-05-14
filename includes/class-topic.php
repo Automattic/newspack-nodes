@@ -135,4 +135,13 @@ class Topic extends Node {
 		$this->partitions = [];
 		parent::remove_node();
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Storage',
+			'description' => 'Multi-partition log abstraction; routes by hash to one of N Partitions.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }

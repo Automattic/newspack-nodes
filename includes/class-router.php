@@ -72,4 +72,13 @@ class Router extends Timer {
 
 		$target->fill( $message );
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Hidden',
+			'description' => 'Path-based message routing — placed automatically as `_router`.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }

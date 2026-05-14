@@ -137,4 +137,13 @@ class Timer extends Node {
 		$msg[ Message::VALUE ]     = (string) Core::$now;
 		$this->sink->fill( $msg );
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Control',
+			'description' => 'Periodic firing — emits a heartbeat message every N ms.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }
