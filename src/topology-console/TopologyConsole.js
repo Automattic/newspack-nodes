@@ -294,8 +294,10 @@ export default function TopologyConsole() {
 	const fetchTopology = useTopology();
 	const topologyList = useTopologyList( { enabled: openModalShown } );
 	// Lazy-load the class catalog the first time the user enters edit
-	// mode. useClassCatalog caches the response, so re-entries are free.
-	const catalog = useClassCatalog( { enabled: mode === 'edit' } );
+	// mode AND in live mode (so the Inspector's per-class TM_REQUEST
+	// buttons can read the `requests` schema). useClassCatalog caches
+	// the response, so re-entries are free.
+	const catalog = useClassCatalog( { enabled: true } );
 	const [ transcript, setTranscript ] = useState( [] );
 	// Lifted: ReplFooter's transcript visibility, so Inspector actions
 	// (Dump, Tail) can pop the pane open when they fire commands the
@@ -916,6 +918,12 @@ export default function TopologyConsole() {
 				// debug_state field from the latest dump_metadata.
 				const level = typeof payload === 'number' ? payload : 1;
 				sendLine( `debug_state ${ nodeId } ${ level }` );
+			} else if ( action === 'request' ) {
+				// payload here is the request verb (e.g. GET_LAG).
+				// `request_node` (alias `request`) sends a TM_REQUEST
+				// at the target node; the reply walks TO=FROM back
+				// to the SSE session's `_repl/_output/{pid}`.
+				sendLine( `request_node ${ nodeId } ${ payload }` );
 			}
 			// Always pop the transcript open after an Inspector action
 			// — the user's expecting to see the worker's reply.
