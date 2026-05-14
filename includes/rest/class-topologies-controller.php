@@ -103,9 +103,15 @@ class TopologiesController {
 		if ( \is_wp_error( $base ) ) {
 			return $base;
 		}
+		// Read the per-action nonce from `save_nonce` (custom param name)
+		// FIRST so apiFetch's wp_rest-nonce X-WP-Nonce header doesn't
+		// shadow it. Standard `_wpnonce` is reserved by WP's cookie auth
+		// layer for the wp_rest action — using a custom name keeps the
+		// per-action nonce path independent of cookie auth. Header path
+		// stays as a fallback for non-browser callers.
 		$nonce = (string) (
-			$request->get_header( 'x_wp_nonce' )
-				?: $request->get_param( '_wpnonce' )
+			$request->get_param( 'save_nonce' )
+				?: $request->get_header( 'x_wp_nonce' )
 				?: ''
 		);
 		if ( '' === $nonce

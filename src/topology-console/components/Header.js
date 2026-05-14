@@ -21,6 +21,7 @@ export default function Header( {
 	uptime,
 	mode = 'view',
 	onModeChange,
+	onSave,
 } ) {
 	return (
 		<header className="topology-header">
@@ -61,6 +62,15 @@ export default function Header( {
 					) ) }
 				</select>
 				<div className="topology-mode">
+					{ mode === 'edit' && (
+						<button
+							type="button"
+							className="topology-mode__btn topology-mode__btn--save"
+							onClick={ () => onSave && onSave() }
+						>
+							SAVE
+						</button>
+					) }
 					<button
 						type="button"
 						className={ `topology-mode__btn${

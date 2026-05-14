@@ -287,6 +287,16 @@ body[class*="_page_newspack-nodes-topology"] {
 			color: $paper;
 		}
 
+		&--save {
+			background: $sage;
+			color: $paper;
+			border-right: 1px solid $ink;
+
+			&:hover {
+				background: $sage-dark;
+			}
+		}
+
 		// Live button hosts both "LIVE" (left) and the uptime slot
 		// (right). Inline-flex lets margin-left:auto push the slot to
 		// the far edge while LIVE stays anchored on the left.
@@ -1350,6 +1360,32 @@ body[class*="_page_newspack-nodes-topology"] {
 	color: $ink-4;
 	font-style: italic;
 	padding: 4px 0;
+}
+
+// ── Toast (post-save success / error banner) ───────────────────────────────
+.topology-toast {
+	position: fixed;
+	left: 50%;
+	bottom: 60px;
+	transform: translateX(-50%);
+	padding: 10px 18px;
+	border: 2px solid $ink;
+	font-family: $mono;
+	font-size: 13px;
+	z-index: 9100;
+	max-width: 70vw;
+}
+
+.topology-toast--success {
+	background: $sage;
+	color: $paper;
+	border-color: $sage-dark;
+}
+
+.topology-toast--error {
+	background: $oxide;
+	color: $paper;
+	border-color: $oxide-dark;
 }
 
 // ── Modal (ConfirmModal + PromptModal) ──────────────────────────────────────
