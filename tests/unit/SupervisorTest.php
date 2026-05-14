@@ -182,6 +182,74 @@ class SupervisorTest extends TestCase {
 		$this->assertCount( 1, $s->worker_locks_for_test() );
 	}
 
+	public function test_check_config_rms_orphan_type_lock_dirs_once_worker_exits(): void {
+		// kill_readers flags a removed-topology worker to exit, but the
+		// lock dir lingers afterward — `wp nodes ls` and the topology
+		// console would keep surfacing it as a stale ghost forever. The
+		// supervisor should rm the dir once the worker has gone cold.
+		\add_filter( 'newspack_nodes/topologies', function () {
+			return [
+				'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+			];
+		} );
+
+		// Pre-seed: aggregator lock dir whose newest file is older than
+		// Lock::STALE_TIMEOUT (worker dead), plus a live firehose worker
+		// dir, plus the supervisor's own dir (must not be touched).
+		$locks_dir = $this->tmp . '/locks';
+		\mkdir( $locks_dir, 0755, true );
+		\mkdir( "{$locks_dir}/aggregator.p0.lock.d" );
+		\file_put_contents( "{$locks_dir}/aggregator.p0.lock.d/heartbeat", '0' );
+		\touch( "{$locks_dir}/aggregator.p0.lock.d/heartbeat", time() - Lock::STALE_TIMEOUT - 1 );
+		\mkdir( "{$locks_dir}/firehose-workers.p0.lock.d" );
+		\file_put_contents( "{$locks_dir}/firehose-workers.p0.lock.d/heartbeat", '0' );
+		\mkdir( "{$locks_dir}/supervisor.lock.d" );
+		\file_put_contents( "{$locks_dir}/supervisor.lock.d/heartbeat", '0' );
+		\touch( "{$locks_dir}/supervisor.lock.d/heartbeat", time() - Lock::STALE_TIMEOUT - 1 );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$this->assertDirectoryDoesNotExist(
+			"{$locks_dir}/aggregator.p0.lock.d",
+			'orphan-type lock dir with dead worker should be removed'
+		);
+		$this->assertDirectoryExists(
+			"{$locks_dir}/firehose-workers.p0.lock.d",
+			'active-topology lock dir is left alone'
+		);
+		$this->assertDirectoryExists(
+			"{$locks_dir}/supervisor.lock.d",
+			'standalone runtime worker (supervisor) is left alone'
+		);
+	}
+
+	public function test_cleanup_orphan_type_locks_skips_live_worker(): void {
+		// If a removed-topology worker is still running (fresh heartbeat),
+		// we MUST NOT rm its lock dir — that'd corrupt the running
+		// process's lock state mid-flight. kill_readers' restart flag is
+		// the right tool there; cleanup_orphan_type_locks is only for
+		// reaping already-dead workers' lingering dirs.
+		\add_filter( 'newspack_nodes/topologies', function () {
+			return [
+				'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+			];
+		} );
+		$locks_dir = $this->tmp . '/locks';
+		\mkdir( $locks_dir, 0755, true );
+		\mkdir( "{$locks_dir}/aggregator.p0.lock.d" );
+		// Fresh heartbeat — worker still alive.
+		\file_put_contents( "{$locks_dir}/aggregator.p0.lock.d/heartbeat", (string) time() );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$this->assertDirectoryExists(
+			"{$locks_dir}/aggregator.p0.lock.d",
+			'live orphan-type worker dir must NOT be rmd — let kill_readers signal it instead'
+		);
+	}
+
 	public function test_check_config_releases_locks_for_removed_topologies(): void {
 		// Initial topology has two types running.
 		$captured_topologies = [

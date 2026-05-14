@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.25] - 2026-05-14
+
+### Fixed
+
+- **Supervisor now sees operator option changes within 15s, not 595s.** The supervisor is a long-running PHP process — `wp_load_alloptions()` caches into a static `$alloptions` on first call and never re-reads, so option toggles in admin (`newspack_nodes_topologies`, `enable_logging`, partition counts) had no effect until the supervisor's natural respawn boundary. `check_config()` now drops `wp_cache_delete( 'alloptions', 'options' )` and calls `Config::reset()` at the top of every 15s tick, mirroring the legacy event-logger supervisor's preamble. Topology changes now propagate end-to-end in ≤ 15s (add) / ≤ 75s (remove + ghost cleanup).
+- **Orphan-type lock dirs are reaped once the worker exits.** When `kill_readers()` flags a removed-topology worker to exit, the lock dir was lingering on disk forever — `wp nodes ls` and the topology console kept surfacing it as a stale ghost. New `cleanup_orphan_type_locks()` runs on every `check_config()` tick: scans `{base}/locks/*.lock.d`, skips standalone runtime workers and dirs whose type is still in the active set, then `remove_stale_directory()`s any whose heartbeat is older than `Lock::STALE_TIMEOUT` (60s). Live workers are never touched — the heartbeat-cold gate ensures we only collect corpses.
+
 ## [0.1.24] - 2026-05-14
 
 ### Added

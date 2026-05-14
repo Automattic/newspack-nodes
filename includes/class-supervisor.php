@@ -233,6 +233,25 @@ class Supervisor extends SupervisorBase {
 	public function check_config( float $now ): bool {
 		$this->last_config_check = $now;
 
+		// Refresh per-process option snapshots so operator changes
+		// reach the supervisor on its next 15s tick instead of waiting
+		// for natural respawn (~595s). Two cache layers to invalidate:
+		// (1) WP's autoloaded-options snapshot, cached as `alloptions`
+		//     in the `options` group; `wp_load_alloptions()` reads this
+		//     once per process and never re-reads it.
+		// (2) The substrate's own `Config` class statics
+		//     (`$config`, `$config_full`, `$config_defaults`,
+		//      `$validated_*`), which cache config-file + option merges
+		//     across calls.
+		// Mirrors the legacy event-logger supervisor's check_config
+		// preamble (wp_cache_delete('alloptions', 'options') +
+		// Config::reset()) — solved the same staleness bug there.
+		if ( \function_exists( 'wp_cache_delete' ) ) {
+			\wp_cache_delete( 'alloptions', 'options' );
+			\wp_cache_delete( 'notoptions', 'options' );
+		}
+		Config::reset();
+
 		// Honor the enable_logging gate. Bootstrap is the source of truth.
 		if ( ! Bootstrap::is_logging_enabled() ) {
 			return false;
@@ -290,7 +309,52 @@ class Supervisor extends SupervisorBase {
 		// Clean up stale partition directories beyond the current num_partitions.
 		$this->cleanup_stale_partitions();
 
+		// Remove lock dirs for topology types the operator disabled but
+		// whose workers have since exited. `kill_readers` above drops a
+		// restart flag so the worker exits cleanly; this step rms the
+		// lock dir AFTER the worker has actually gone dark, so `wp nodes
+		// ls` and the topology console don't keep surfacing it forever
+		// as a stale ghost.
+		$this->cleanup_orphan_type_locks();
+
 		return true;
+	}
+
+	/**
+	 * Remove `{type}.p{N}.lock.d` directories whose type is no longer in
+	 * the active topology set AND whose newest mtime is older than the
+	 * worker's stale threshold (i.e., the worker has actually exited).
+	 * Standalone runtime workers (the supervisor itself) are skipped.
+	 *
+	 * Paired with `kill_readers` — that one flags running workers to
+	 * exit; this one collects the corpses once they've gone cold.
+	 */
+	public function cleanup_orphan_type_locks(): void {
+		$locks_dir = "{$this->base_dir}/locks";
+		if ( ! \is_dir( $locks_dir ) ) {
+			return;
+		}
+		$standalone = Bootstrap::register_standalone_workers();
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		$candidates = \glob( $locks_dir . '/*.lock.d' );
+		if ( false === $candidates ) {
+			return;
+		}
+		foreach ( $candidates as $path ) {
+			$base = \basename( $path, '.lock.d' );
+			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $base, $m ) ) {
+				// Non-partitioned dir (e.g. supervisor.lock.d) — leave alone.
+				continue;
+			}
+			$type = $m[1];
+			if ( isset( $standalone[ $type ] ) ) {
+				continue;
+			}
+			if ( isset( $this->active_types[ $type ] ) ) {
+				continue;
+			}
+			$this->remove_stale_directory( $path, Lock::STALE_TIMEOUT );
+		}
 	}
 
 	/**
