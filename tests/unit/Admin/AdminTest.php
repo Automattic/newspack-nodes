@@ -833,6 +833,76 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertTrue( true );
 	}
 
+	// ---- topologies setting + sanitizer + UI ------------------------------
+
+	public function test_register_settings_registers_topologies_option(): void {
+		$admin = new Admin();
+		$admin->register_settings();
+		$this->assertArrayHasKey( 'newspack_nodes_topologies', $GLOBALS['_registered_settings'] );
+		$cb = $GLOBALS['_registered_settings']['newspack_nodes_topologies']['args']['sanitize_callback'];
+		$this->assertIsArray( $cb );
+		$this->assertSame( 'sanitize_topologies', $cb[1] );
+	}
+
+	public function test_sanitize_topologies_drops_unknown_names(): void {
+		$tmp = sys_get_temp_dir() . '/tsl-admin-' . uniqid();
+		mkdir( $tmp, 0755, true );
+		file_put_contents( "{$tmp}/known.tsl", '' );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
+
+		$admin = new Admin();
+		$result = $admin->sanitize_topologies( [ 'known', 'bogus', 'known' ] );
+		// `bogus` dropped (not in registry); duplicates collapsed.
+		$this->assertSame( [ 'known' ], $result );
+
+		\unlink( "{$tmp}/known.tsl" );
+		\rmdir( $tmp );
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	public function test_sanitize_topologies_handles_non_array_input(): void {
+		$admin = new Admin();
+		$this->assertSame( [], $admin->sanitize_topologies( null ) );
+		$this->assertSame( [], $admin->sanitize_topologies( 'not-an-array' ) );
+	}
+
+	public function test_topologies_callback_renders_checkbox_per_known_topology(): void {
+		$tmp = sys_get_temp_dir() . '/tsl-admin-ui-' . uniqid();
+		mkdir( $tmp, 0755, true );
+		file_put_contents( "{$tmp}/firehose-workers-only.tsl", '' );
+		file_put_contents( "{$tmp}/request-workers.tsl", '' );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
+
+		\update_option( 'newspack_nodes_topologies', [ 'request-workers' ] );
+		$admin = new Admin();
+		\ob_start();
+		$admin->topologies_callback();
+		$out = \ob_get_clean();
+
+		$this->assertStringContainsString( 'firehose-workers-only', $out );
+		$this->assertStringContainsString( 'request-workers', $out );
+		// request-workers must render checked; firehose-workers-only must not.
+		$this->assertMatchesRegularExpression( '/request-workers"[^>]*checked/', $out );
+		$this->assertDoesNotMatchRegularExpression( '/firehose-workers-only"[^>]*checked/', $out );
+
+		\unlink( "{$tmp}/firehose-workers-only.tsl" );
+		\unlink( "{$tmp}/request-workers.tsl" );
+		\rmdir( $tmp );
+		\delete_option( 'newspack_nodes_topologies' );
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	public function test_topologies_callback_empty_state_when_registry_empty(): void {
+		\Newspack_Nodes\Topology_Registry::reset();
+		$admin = new Admin();
+		\ob_start();
+		$admin->topologies_callback();
+		$out = \ob_get_clean();
+		$this->assertStringContainsString( 'No topologies registered', $out );
+	}
+
 	// ---- helpers ----------------------------------------------------------
 
 	private function prepare_lock_dir( string $group, int $partition ): string {

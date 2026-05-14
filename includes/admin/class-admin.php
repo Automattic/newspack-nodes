@@ -347,6 +347,18 @@ class Admin {
 			]
 		);
 
+		// Flat list of active TSL topology names. Sanitizer drops
+		// names that don't resolve via Topology_Registry so a typo
+		// can't cause the supervisor to spawn a nonexistent fleet.
+		\register_setting(
+			self::OPTIONS_GROUP,
+			'newspack_nodes_topologies',
+			[
+				'sanitize_callback' => [ $this, 'sanitize_topologies' ],
+				'autoload'          => true,
+			]
+		);
+
 		// General section.
 		// Storage section.
 		\add_settings_section(
@@ -404,6 +416,24 @@ class Admin {
 			self::SETTINGS_PAGE,
 			'newspack_nodes_storage_section'
 		);
+
+		// Topologies section — flat checkbox list of every topology
+		// the registry knows about. Toggling an entry changes the
+		// `topologies` option; the supervisor picks up the new list
+		// on its next loop.
+		\add_settings_section(
+			'newspack_nodes_topologies_section',
+			\__( 'Topologies', 'newspack-nodes' ),
+			[ $this, 'topologies_section_callback' ],
+			self::SETTINGS_PAGE
+		);
+		\add_settings_field(
+			'topologies',
+			\__( 'Active Topologies', 'newspack-nodes' ),
+			[ $this, 'topologies_callback' ],
+			self::SETTINGS_PAGE,
+			'newspack_nodes_topologies_section'
+		);
 	}
 
 	// -- Sanitizers ---------------------------------------------------------
@@ -448,10 +478,72 @@ class Admin {
 		return \implode( "\n", $sanitized_lines );
 	}
 
+	/**
+	 * Sanitize the active-topologies list. Drops entries that don't
+	 * resolve via Topology_Registry — a typo (or removed plugin)
+	 * shouldn't leave the supervisor trying to spawn a phantom fleet.
+	 *
+	 * @param mixed $value Posted form value (array of topology names).
+	 * @return array<int,string>
+	 */
+	public function sanitize_topologies( $value ): array {
+		if ( ! \is_array( $value ) ) {
+			return [];
+		}
+		$out = [];
+		foreach ( $value as $name ) {
+			if ( ! \is_string( $name ) || '' === $name ) {
+				continue;
+			}
+			if ( ! \class_exists( '\\Newspack_Nodes\\Topology_Registry' ) ) {
+				continue;
+			}
+			if ( null !== \Newspack_Nodes\Topology_Registry::resolve( $name ) ) {
+				$out[] = $name;
+			}
+		}
+		return \array_values( \array_unique( $out ) );
+	}
+
 // -- Section callbacks --------------------------------------------------
 
 	public function storage_section_callback(): void {
 		echo '<p>' . \esc_html__( 'Configure log storage and memcache infrastructure. Changing storage layout (base directory, segment size, retention) restarts every worker.', 'newspack-nodes' ) . '</p>';
+	}
+
+	public function topologies_section_callback(): void {
+		echo '<p>' . \esc_html__( 'Pick which TSL topologies the supervisor spawns workers for. Each entry runs as its own worker fleet, named after the topology.', 'newspack-nodes' ) . '</p>';
+	}
+
+	/**
+	 * Render a checkbox per known topology. Names come from
+	 * Topology_Registry::list() (user dir + every plugin-registered
+	 * stock dir). Empty state surfaces a help line so a fresh
+	 * deployment knows where to look.
+	 */
+	public function topologies_callback(): void {
+		$available = \class_exists( '\\Newspack_Nodes\\Topology_Registry' )
+			? \Newspack_Nodes\Topology_Registry::list()
+			: [];
+		\sort( $available );
+		$active = \get_option( 'newspack_nodes_topologies', [] );
+		if ( ! \is_array( $active ) ) {
+			$active = [];
+		}
+		if ( empty( $available ) ) {
+			echo '<p class="description">' . \esc_html__( 'No topologies registered. Application plugins must call Newspack_Nodes\\Topology_Registry::register_stock_dir() at load time.', 'newspack-nodes' ) . '</p>';
+			return;
+		}
+		echo '<fieldset>';
+		foreach ( $available as $name ) {
+			$checked = \in_array( $name, $active, true ) ? ' checked' : '';
+			echo '<label style="display:block; margin-bottom: 4px;">';
+			echo '<input type="checkbox" name="newspack_nodes_topologies[]" value="' . \esc_attr( $name ) . '"' . $checked . ' /> ';
+			echo '<code>' . \esc_html( $name ) . '</code>';
+			echo '</label>';
+		}
+		echo '</fieldset>';
+		echo '<p class="description">' . \esc_html__( 'Each checked topology becomes one worker fleet. The supervisor picks up changes on its next loop (~1 minute).', 'newspack-nodes' ) . '</p>';
 	}
 
 	// -- Field callbacks ----------------------------------------------------
