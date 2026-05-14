@@ -19,9 +19,7 @@ describe( 'parseTsl', () => {
 	} );
 
 	it( 'parses ctor args positionally', () => {
-		const g = parseTsl(
-			'make_node Partition p /tmp/log 0 16777216\n'
-		);
+		const g = parseTsl( 'make_node Partition p /tmp/log 0 16777216\n' );
 		expect( g.nodes[ 0 ].ctorArgs ).toEqual( [
 			'/tmp/log',
 			'0',
@@ -49,9 +47,7 @@ describe( 'parseTsl', () => {
 	} );
 
 	it( 'unwraps single-quoted args containing spaces', () => {
-		const g = parseTsl(
-			"make_node Hook h wp_loaded 'this has spaces'\n"
-		);
+		const g = parseTsl( "make_node Hook h wp_loaded 'this has spaces'\n" );
 		expect( g.nodes[ 0 ].ctorArgs ).toEqual( [
 			'wp_loaded',
 			'this has spaces',
@@ -59,9 +55,7 @@ describe( 'parseTsl', () => {
 	} );
 
 	it( 'ignores blank lines and # comments', () => {
-		const g = parseTsl(
-			'\n# a comment\nmake_node Echo a\n# another\n'
-		);
+		const g = parseTsl( '\n# a comment\nmake_node Echo a\n# another\n' );
 		expect( g.nodes ).toHaveLength( 1 );
 		expect( g.nodes[ 0 ].name ).toBe( 'a' );
 	} );
