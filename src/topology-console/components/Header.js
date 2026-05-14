@@ -22,6 +22,7 @@ export default function Header( {
 	mode = 'view',
 	onModeChange,
 	onSave,
+	onOpen,
 } ) {
 	return (
 		<header className="topology-header">
@@ -62,6 +63,15 @@ export default function Header( {
 					) ) }
 				</select>
 				<div className="topology-mode">
+					{ mode === 'edit' && (
+						<button
+							type="button"
+							className="topology-mode__btn topology-mode__btn--open"
+							onClick={ () => onOpen && onOpen() }
+						>
+							OPEN
+						</button>
+					) }
 					{ mode === 'edit' && (
 						<button
 							type="button"

@@ -297,6 +297,16 @@ body[class*="_page_newspack-nodes-topology"] {
 			}
 		}
 
+		&--open {
+			background: $cyan;
+			color: $paper;
+			border-right: 1px solid $ink;
+
+			&:hover {
+				background: $cyan-dark;
+			}
+		}
+
 		// Live button hosts both "LIVE" (left) and the uptime slot
 		// (right). Inline-flex lets margin-left:auto push the slot to
 		// the far edge while LIVE stays anchored on the left.
@@ -1422,6 +1432,69 @@ body[class*="_page_newspack-nodes-topology"] {
 	background: $oxide;
 	color: $paper;
 	border-color: $oxide-dark;
+}
+
+// ── OpenTopologyModal — saved-topology picker ───────────────────────────────
+.topology-modal--wide {
+	min-width: 420px;
+	max-width: 640px;
+}
+
+.topology-open-group {
+	margin-top: 12px;
+}
+
+.topology-open-group:first-of-type {
+	margin-top: 0;
+}
+
+.topology-open-group__title {
+	font: 700 9px $mono;
+	letter-spacing: 0.18em;
+	text-transform: uppercase;
+	color: $ink-3;
+	margin: 0 0 6px;
+	border-bottom: 1px solid $paper-shadow;
+	padding-bottom: 3px;
+}
+
+.topology-open-list {
+	list-style: none;
+	margin: 0;
+	padding: 0;
+}
+
+.topology-open-item {
+	display: flex;
+	width: 100%;
+	align-items: center;
+	gap: 8px;
+	padding: 6px 8px;
+	background: $paper-2;
+	border: 1px solid $paper-shadow;
+	font: 500 12px $mono;
+	color: $ink;
+	cursor: pointer;
+	margin-bottom: 4px;
+}
+
+.topology-open-item:hover {
+	background: $paper-3;
+	border-color: $ink-3;
+}
+
+.topology-open-item__name {
+	flex: 1;
+	text-align: left;
+}
+
+.topology-open-item__badge {
+	background: $oxide;
+	color: $paper;
+	padding: 1px 6px;
+	font-size: 9px;
+	letter-spacing: 0.12em;
+	text-transform: uppercase;
 }
 
 // ── Modal (ConfirmModal + PromptModal) ──────────────────────────────────────
