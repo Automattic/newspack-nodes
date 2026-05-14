@@ -85,6 +85,35 @@ class Shell extends Node {
 
 	private const FORBIDDEN = [ 'if', 'while', 'for', 'func', 'eval', 'unless', 'until' ];
 
+	/**
+	 * Syntax-check a single TSL statement and throw a RuntimeException
+	 * with a human-readable reason on failure. Powers POST /topologies
+	 * dry-run validation.
+	 *
+	 * - Forbidden verbs (if/while/for/func/eval/unless/until) throw.
+	 * - Backslash continuation that never terminates throws.
+	 * - Tokenizer errors (unbalanced quotes) propagate as exceptions.
+	 *
+	 * Comments and empty lines are valid no-ops (return without throwing).
+	 */
+	public function validate_line( string $line ): void {
+		$line = \trim( $line );
+		if ( '' === $line || '#' === $line[0] ) {
+			return;
+		}
+		if ( \str_ends_with( $line, '\\' ) ) {
+			throw new \RuntimeException( 'unterminated backslash continuation' );
+		}
+		$tokens = $this->tokenize( $this->interpolate( $line ) );
+		if ( empty( $tokens ) ) {
+			return;
+		}
+		$verb = $tokens[0];
+		if ( \in_array( $verb, self::FORBIDDEN, true ) ) {
+			throw new \RuntimeException( "forbidden verb '{$verb}'" );
+		}
+	}
+
 	public function set_variable( string $name, string $value ): void {
 		Core::$var[ $name ] = $value;
 	}
