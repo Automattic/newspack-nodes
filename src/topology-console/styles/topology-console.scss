@@ -517,22 +517,29 @@ body[class*="_page_newspack-nodes-topology"] {
 		text-transform: none;
 	}
 
-	// Reset-layout chip — top-right of the canvas, in the gap between
-	// the header bar and the TR alignment reticle (top: 70px,
-	// 24x24 → ends at y≈94). Sits above the reticle, with right edge
-	// aligned to where the LIVE button lives in the header above.
-	&__reset {
+	// Layout-control chip stack — top-right of the canvas, in the gap
+	// between the header bar and the TR alignment reticle. Stacks
+	// vertically (Save above Reset) when both are visible; either
+	// alone occupies the same slot.
+	&__layout-actions {
 		position: absolute;
 		top: 14px;
 		right: 16px;
 		z-index: 5;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		gap: 6px;
+	}
+
+	&__layout-chip {
 		background: transparent;
 		border: 1px solid $ink-3;
 		color: $ink-3;
 		font: 500 10px/1 $mono;
 		letter-spacing: 0.16em;
 		text-transform: uppercase;
-		padding: 5px 10px;
+		padding: 8px 14px;
 		cursor: pointer;
 		transition: all 100ms ease;
 

@@ -21,6 +21,8 @@ export default function CanvasFrame( {
 	partition,
 	children,
 	onResetLayout,
+	onSaveLayout,
+	editMode,
 } ) {
 	return (
 		<div className="topology-canvas">
@@ -39,20 +41,32 @@ export default function CanvasFrame( {
 			<div className="topology-reticle topology-reticle--bl" />
 			<div className="topology-reticle topology-reticle--br" />
 
-			{ /* Reset Layout chip — only mounted when there's an
-			override to clear. Sits in the gap between the header bar
-			and the top-right reticle so it's discoverable without
-			fighting the topology metadata at top-left. */ }
-			{ onResetLayout && (
-				<button
-					type="button"
-					className="topology-canvas__reset"
-					onClick={ onResetLayout }
-					title="Discard dragged positions and re-auto-layout"
-				>
-					↺ Reset layout
-				</button>
-			) }
+			{ /* Layout controls — top-right chip stack. Save Layout
+			is edit-mode only (writing the canvas state is an authoring
+			action). Reset Layout shows in both modes as long as the
+			operator has user-tagged overrides to revert. */ }
+			<div className="topology-canvas__layout-actions">
+				{ editMode && onSaveLayout && (
+					<button
+						type="button"
+						className="topology-canvas__layout-chip"
+						onClick={ onSaveLayout }
+						title="Save current node positions as this topology's default layout"
+					>
+						💾 Save layout
+					</button>
+				) }
+				{ onResetLayout && (
+					<button
+						type="button"
+						className="topology-canvas__layout-chip"
+						onClick={ onResetLayout }
+						title="Revert to this topology's saved layout (or auto-layout if none)"
+					>
+						↺ Reset layout
+					</button>
+				) }
+			</div>
 
 			{ children }
 
