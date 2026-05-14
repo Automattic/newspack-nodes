@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Inspector renders `bool` ctor/verb args as text inputs.** Bool args were native checkboxes, which couldn't hold a substitution token like `<config:enable_aggregator>` — forcing operators to hand-edit TSL whenever a bool needed to come from config. Now they're text inputs with a `true | false | <config:...>` placeholder hint; the TSL loader / verb handler does the string→bool coercion at runtime, exactly as int and string args already do. Legacy stored boolean values (from the old checkbox UI) are stringified to `"true"`/`"false"` on render so existing layouts round-trip cleanly.
+
 ## [0.1.20] - 2026-05-14
 
 ### Changed

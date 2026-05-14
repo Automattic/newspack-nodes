@@ -251,7 +251,15 @@ function formatLastSeen( ts, live ) {
 function inputForType( type ) {
 	switch ( type ) {
 		case 'bool':
-			return { type: 'checkbox' };
+			// Render bool args as text so the field can hold either a
+			// literal `true`/`false` OR a substitution token like
+			// `<config:enable_aggregator>`. A native checkbox can't
+			// carry the token, which forces operators to hand-edit TSL
+			// for any config-driven bool. The TSL loader / verb
+			// handler does the string→bool coercion at runtime; the
+			// editor just stores the raw token. Placeholder hints at
+			// the accepted shapes.
+			return { type: 'text', placeholder: 'true | false | <config:...>' };
 		// All other types render as text inputs — substitution
 		// patterns like `<partition>` or `<config:segment_size>` are
 		// strings and would be silently rejected by an `input
@@ -268,7 +276,15 @@ function inputForType( type ) {
 
 function coerceValue( type, raw, prevRaw ) {
 	if ( 'bool' === type ) {
-		return !! raw;
+		// Strings store as-is: literal "true"/"false", config tokens
+		// like "<config:enable_aggregator>", or the patron-supplied
+		// "<partition>". Legacy stored values (JS booleans from the
+		// old checkbox UI) are normalized to "true"/"false" so the
+		// text field renders correctly without surprising round-trips.
+		if ( 'boolean' === typeof raw ) {
+			return raw ? 'true' : 'false';
+		}
+		return String( raw ?? '' );
 	}
 	if ( 'int' === type ) {
 		if ( '' === raw ) {
@@ -380,26 +396,6 @@ function CtorField( {
 } ) {
 	const meta = inputForType( spec.type );
 	const id = `topology-ctor-${ spec.name }`;
-	if ( 'checkbox' === meta.type ) {
-		return (
-			<label className="topology-edit-row" htmlFor={ id }>
-				<input
-					id={ id }
-					type="checkbox"
-					checked={ !! value }
-					onChange={ ( e ) =>
-						onChange(
-							coerceValue( spec.type, e.target.checked, value )
-						)
-					}
-				/>
-				<span className="topology-edit-row__label">
-					{ spec.name }
-					{ spec.required ? ' *' : '' }
-				</span>
-			</label>
-		);
-	}
 	if ( 'formatter_name' === spec.type ) {
 		// Pick from the formatters that application plugins
 		// registered via Formatters::register(). Empty list = no
@@ -472,7 +468,14 @@ function CtorField( {
 			</div>
 		);
 	}
-	const currentValue = value ?? spec.default ?? '';
+	// Legacy bool args were stored as JS booleans (old checkbox UI);
+	// normalize to "true"/"false" strings so the text input renders
+	// without `[object]`/`true`-as-blank surprises.
+	const rawValue = value ?? spec.default ?? '';
+	let currentValue = rawValue;
+	if ( 'boolean' === typeof rawValue ) {
+		currentValue = rawValue ? 'true' : 'false';
+	}
 	const hasContent = String( currentValue ).length > 0;
 	return (
 		<div className="topology-edit-row">
@@ -489,7 +492,10 @@ function CtorField( {
 					className="topology-edit-row__input"
 					value={ currentValue }
 					placeholder={
-						spec.default !== undefined ? String( spec.default ) : ''
+						meta.placeholder ??
+						( spec.default !== undefined
+							? String( spec.default )
+							: '' )
 					}
 					onChange={ ( e ) =>
 						onChange(
