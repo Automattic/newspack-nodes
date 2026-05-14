@@ -362,7 +362,13 @@ function VerbRow( { spec, invocation, onToggle, onArgChange } ) {
 	);
 }
 
-function EditForm( { node, catalog, onUpdateArgs, onUpdateVerbs } ) {
+function EditForm( {
+	node,
+	catalog,
+	onUpdateArgs,
+	onUpdateVerbs,
+	onRemoveNode,
+} ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
 	const ctorSpecs = schema?.ctor || [];
 	const verbSpecs = schema?.verbs || [];
@@ -375,6 +381,16 @@ function EditForm( { node, catalog, onUpdateArgs, onUpdateVerbs } ) {
 			<div className="topology-insp__type">
 				{ node.class || '?' } · EDIT
 			</div>
+
+			{ onRemoveNode && (
+				<button
+					type="button"
+					className="topology-edit-delete"
+					onClick={ () => onRemoveNode( node.id ) }
+				>
+					Delete node
+				</button>
+			) }
 
 			<Section title="Constructor">
 				{ ctorSpecs.length === 0 && (
@@ -466,6 +482,7 @@ export default function Inspector( {
 	catalog = [],
 	onUpdateArgs,
 	onUpdateVerbs,
+	onRemoveNode,
 } ) {
 	if ( ! selectedId ) {
 		return (
@@ -495,6 +512,7 @@ export default function Inspector( {
 				catalog={ catalog }
 				onUpdateArgs={ onUpdateArgs }
 				onUpdateVerbs={ onUpdateVerbs }
+				onRemoveNode={ onRemoveNode }
 			/>
 		);
 	}
