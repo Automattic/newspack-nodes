@@ -341,32 +341,34 @@ class Shell extends Node {
 			return null;
 		}
 
-		// `var name = value` builtin (Tachikoma Shell-style). Writes
-		// Core::$var[$name]. Used in TSL frontmatter to declare
-		// per-topology metadata (var num_partitions = 4;) and ad-hoc
-		// shell variables. No Message emitted.
-		//
-		// Tokenizer eats the `=` when it's whitespace-separated; the
-		// shape is `var <name> = <value>` (3 tokens after the verb)
-		// or `var <name> = <value with spaces>` (the value is the
-		// tail joined). Reject names containing `:` — that namespace
-		// is reserved for read-only PHP-populated lookups (e.g.
-		// `<config:foo>` resolves Core::$config['foo']) and writes
-		// to it through `var` would silently confuse readers.
-		if ( 'var' === $verb ) {
-			$name = $args[0] ?? '';
-			$eq   = $args[1] ?? '';
-			if ( '' === $name || '=' !== $eq ) {
-				return null;
-			}
-			if ( \str_contains( $name , ':' ) ) {
+		// `echo` builtin: send output to stdout.
+		// No message emitted.
+		if ( 'echo' === $verb ) {
+			echo \implode( ' ', $args ) . "\n";
+			return null;
+		}
+
+		// `debug_level` builtin: set or toggle the local Dumper's render
+		// verbosity. With no args, toggles between 0 and 1 (matching Perl
+		// Tachikoma's `debug_level` semantics). With one numeric arg, sets
+		// explicitly (clamped to 0..2 inside Dumper). Levels:
+		//   0  curated interactive output (default)
+		//   1  + one-line debug header per Message to stderr
+		//   2  + full envelope (id/stream/from/to/ts) in the header
+		// Reports the resulting level to $output_stream.
+		if ( 'debug_level' === $verb ) {
+			$dumper = Core::node( '_output' );
+			if ( $dumper instanceof Dumper ) {
+				$current = $dumper->debug_level();
+				$next    = ! empty( $args )
+					? (int) $args[0]
+					: ( $current > 0 ? 0 : 1 );
+				$applied = $dumper->set_debug_level( $next );
 				if ( \is_resource( $this->output_stream ) ) {
 					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-					\fwrite( $this->output_stream, "var: invalid name '{$name}' (':' is reserved for read-only namespaces like config:)\n" );
+					\fwrite( $this->output_stream, 'debug_level: ' . $applied . "\n" );
 				}
-				return null;
 			}
-			Core::$var[ $name ] = \implode( ' ', \array_slice( $args, 2 ) );
 			return null;
 		}
 
@@ -401,30 +403,6 @@ class Shell extends Node {
 			return null;
 		}
 
-		// `debug_level` builtin: set or toggle the local Dumper's render
-		// verbosity. With no args, toggles between 0 and 1 (matching Perl
-		// Tachikoma's `debug_level` semantics). With one numeric arg, sets
-		// explicitly (clamped to 0..2 inside Dumper). Levels:
-		//   0  curated interactive output (default)
-		//   1  + one-line debug header per Message to stderr
-		//   2  + full envelope (id/stream/from/to/ts) in the header
-		// Reports the resulting level to $output_stream.
-		if ( 'debug_level' === $verb ) {
-			$dumper = Core::node( '_output' );
-			if ( $dumper instanceof Dumper ) {
-				$current = $dumper->debug_level();
-				$next    = ! empty( $args )
-					? (int) $args[0]
-					: ( $current > 0 ? 0 : 1 );
-				$applied = $dumper->set_debug_level( $next );
-				if ( \is_resource( $this->output_stream ) ) {
-					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-					\fwrite( $this->output_stream, 'debug_level: ' . $applied . "\n" );
-				}
-			}
-			return null;
-		}
-
 		// `show_sse` builtin: toggle the local Dumper's `TO=sse` filter. The
 		// worker fans stats / debug_state events out to `TO=_repl/sse`; the
 		// worker-side _router peels `_repl`, so each cli/SSE reader sees
@@ -443,6 +421,35 @@ class Shell extends Node {
 					\fwrite( $this->output_stream, 'show_sse: ' . ( $now ? 'on' : 'off' ) . "\n" );
 				}
 			}
+			return null;
+		}
+
+		// `var name = value` builtin (Tachikoma Shell-style). Writes
+		// Core::$var[$name]. Used in TSL frontmatter to declare
+		// per-topology metadata (var num_partitions = 4;) and ad-hoc
+		// shell variables. No Message emitted.
+		//
+		// Tokenizer eats the `=` when it's whitespace-separated; the
+		// shape is `var <name> = <value>` (3 tokens after the verb)
+		// or `var <name> = <value with spaces>` (the value is the
+		// tail joined). Reject names containing `:` — that namespace
+		// is reserved for read-only PHP-populated lookups (e.g.
+		// `<config:foo>` resolves Core::$config['foo']) and writes
+		// to it through `var` would silently confuse readers.
+		if ( 'var' === $verb ) {
+			$name = $args[0] ?? '';
+			$eq   = $args[1] ?? '';
+			if ( '' === $name || '=' !== $eq ) {
+				return null;
+			}
+			if ( \str_contains( $name , ':' ) ) {
+				if ( \is_resource( $this->output_stream ) ) {
+					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+					\fwrite( $this->output_stream, "var: invalid name '{$name}' (':' is reserved for read-only namespaces like config:)\n" );
+				}
+				return null;
+			}
+			Core::$var[ $name ] = \implode( ' ', \array_slice( $args, 2 ) );
 			return null;
 		}
 
@@ -471,26 +478,6 @@ class Shell extends Node {
 		$msg[ Message::FROM ] = '_output/' . \getmypid();
 
 		switch ( $verb ) {
-			case 'tell':
-			case 'tell_node':
-				// Tachikoma Shell.pm `tell_node <path> <info>` (alias: tell) —
-				// emits TM_INFO at prefix(<path>) so the cwd composes.
-				$msg[ Message::TYPE ]  = Message::TM_INFO;
-				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
-				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
-				break;
-			case 'send':
-			case 'send_node':
-				// Tachikoma Shell.pm `send_node <path> <bytes>` (alias: send) —
-				// emits TM_BYTESTREAM at prefix(<path>) so the cwd composes.
-				$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
-				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
-				break;
-			case 'send_eof':
-				$msg[ Message::TYPE ] = Message::TM_EOF;
-				$msg[ Message::TO ]   = $this->prefix( $args[0] ?? '' );
-				break;
 			case 'command':
 			case 'cmd':
 			case 'command_node':
@@ -510,15 +497,6 @@ class Shell extends Node {
 						'payload'   => '',
 					]
 				);
-				break;
-			case 'request':
-			case 'request_node':
-				// Tachikoma-style introspection: TM_REQUEST at prefix(<path>)
-				// with the rest of the line as VALUE. Receiver is expected to
-				// build a TM_RESPONSE addressed back at FROM.
-				$msg[ Message::TYPE ]  = Message::TM_REQUEST;
-				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
-				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
 				break;
 			case 'pwd':
 				// Tachikoma Shell.pm:146-150 — send `pwd <cwd>` as TM_COMMAND
@@ -543,6 +521,35 @@ class Shell extends Node {
 				$msg[ Message::TYPE ]  = Message::TM_PING;
 				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
 				$msg[ Message::VALUE ] = (string) Core::$now;
+				break;
+			case 'request':
+			case 'request_node':
+				// Tachikoma-style introspection: TM_REQUEST at prefix(<path>)
+				// with the rest of the line as VALUE. Receiver is expected to
+				// build a TM_RESPONSE addressed back at FROM.
+				$msg[ Message::TYPE ]  = Message::TM_REQUEST;
+				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
+				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
+				break;
+			case 'send':
+			case 'send_node':
+				// Tachikoma Shell.pm `send_node <path> <bytes>` (alias: send) —
+				// emits TM_BYTESTREAM at prefix(<path>) so the cwd composes.
+				$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
+				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
+				break;
+			case 'send_eof':
+				$msg[ Message::TYPE ] = Message::TM_EOF;
+				$msg[ Message::TO ]   = $this->prefix( $args[0] ?? '' );
+				break;
+			case 'tell':
+			case 'tell_node':
+				// Tachikoma Shell.pm `tell_node <path> <info>` (alias: tell) —
+				// emits TM_INFO at prefix(<path>) so the cwd composes.
+				$msg[ Message::TYPE ]  = Message::TM_INFO;
+				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
+				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
 				break;
 			default:
 				// Default: TM_COMMAND with verb as command name. TO is the

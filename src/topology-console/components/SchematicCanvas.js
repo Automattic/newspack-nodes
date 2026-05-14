@@ -21,7 +21,6 @@ import {
 } from '@wordpress/element';
 
 import { autoLayout, X_PAD, X_STEP, Y_PAD, Y_STEP } from '../utils/autoLayout';
-import { inferType } from '../utils/inferType';
 
 const NODE_W = 196;
 const NODE_H = 84;
@@ -907,7 +906,7 @@ export default function SchematicCanvas( {
 								x={ 11 }
 								y={ 15 }
 							>
-								{ inferType( n.id ) }
+								{ n.klass }
 							</text>
 							<circle
 								className="topology-node__led"
