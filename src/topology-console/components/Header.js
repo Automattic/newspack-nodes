@@ -24,6 +24,8 @@ export default function Header( {
 	onSave,
 	onOpen,
 	onNew,
+	onDelete,
+	canDelete,
 } ) {
 	return (
 		<header className="topology-header">
@@ -101,6 +103,16 @@ export default function Header( {
 							onClick={ () => onSave && onSave() }
 						>
 							SAVE
+						</button>
+					) }
+					{ mode === 'edit' && canDelete && (
+						<button
+							type="button"
+							className="topology-mode__btn topology-mode__btn--delete"
+							onClick={ () => onDelete && onDelete() }
+							title="Delete this user-saved topology (stock copies are protected)"
+						>
+							DELETE
 						</button>
 					) }
 					<button

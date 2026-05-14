@@ -13,6 +13,7 @@
 
 namespace Newspack_Nodes\Rest;
 
+use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Topology_Registry;
 
@@ -51,6 +52,75 @@ class TopologiesController {
 				'callback'            => [ $this, 'get_topology' ],
 				'permission_callback' => [ $this, 'check_read_permission' ],
 			]
+		);
+		\register_rest_route(
+			self::REST_NAMESPACE,
+			'/topologies/(?P<name>[a-zA-Z0-9_-]+)',
+			[
+				'methods'             => 'DELETE',
+				'callback'            => [ $this, 'delete_topology' ],
+				'permission_callback' => [ $this, 'check_write_permission' ],
+			]
+		);
+	}
+
+	/**
+	 * DELETE /newspack-nodes/v1/topologies/{name} — remove a USER copy
+	 * of the named topology. Stock TSL files (shipped with plugins) are
+	 * never touched — only the operator-saved override at
+	 * `{user_dir}/{name}.tsl`. Returns 404 if no user file exists. After
+	 * deletion, if a stock copy exists the topology reverts to it
+	 * automatically (Topology_Registry::resolve falls through).
+	 */
+	public function delete_topology( \WP_REST_Request $request ): \WP_REST_Response {
+		$name = (string) $request->get_param( 'name' );
+		if ( ! \preg_match( self::NAME_PATTERN, $name ) ) {
+			return new \WP_REST_Response(
+				[
+					'code'    => 'invalid_name',
+					'message' => 'Topology name must match [a-zA-Z0-9_-]+',
+				],
+				400
+			);
+		}
+		$user_dir = Topology_Registry::user_dir();
+		if ( '' === $user_dir ) {
+			return new \WP_REST_Response(
+				[
+					'code'    => 'no_user_dir',
+					'message' => 'User topology dir not configured.',
+				],
+				404
+			);
+		}
+		$path = $user_dir . '/' . $name . '.tsl';
+		if ( ! \is_file( $path ) ) {
+			return new \WP_REST_Response(
+				[
+					'code'    => 'not_user_topology',
+					'message' => "No user-saved topology named '{$name}' to delete (stock copies are protected).",
+				],
+				404
+			);
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink,WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+		if ( ! @\unlink( $path ) ) {
+			return new \WP_REST_Response(
+				[
+					'code'    => 'unlink_failed',
+					'message' => "Failed to unlink {$path}",
+				],
+				500
+			);
+		}
+		$has_stock_fallback = null !== Topology_Registry::resolve( $name );
+		return new \WP_REST_Response(
+			[
+				'name'              => $name,
+				'deleted'           => $path,
+				'stock_fallback'    => $has_stock_fallback,
+			],
+			200
 		);
 	}
 
@@ -127,13 +197,13 @@ class TopologiesController {
 	}
 
 	public function get_topologies( \WP_REST_Request $request ): \WP_REST_Response {
-		// Active = whatever the supervisor would actually spawn. The
-		// `newspack_nodes/topologies` filter is the single source of
-		// truth for fleet configuration; reading the substrate's own
-		// `topologies` config key would miss app-side filter additions.
-		$resolved = \function_exists( 'apply_filters' )
-			? (array) \apply_filters( 'newspack_nodes/topologies', [] )
-			: [];
+		// Active = whatever the supervisor would actually spawn. Read
+		// through `Bootstrap::get_topologies()` so the merged catalog +
+		// `newspack_nodes_topologies` operator overlay drives the flag:
+		// a topology the admin checked but the app didn't ship in its
+		// file-default catalog (e.g. `aggregator`) shows as active here,
+		// matching what the supervisor does.
+		$resolved = Bootstrap::get_topologies();
 		$active = [];
 		foreach ( $resolved as $name => $_def ) {
 			if ( \is_string( $name ) && '' !== $name ) {

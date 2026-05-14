@@ -944,9 +944,9 @@ export default function Inspector( {
 	}
 
 	const targets = parsed.edges.filter( ( e ) => e.from === selectedId );
-	// Prefer the authoritative class name from dump_metadata; fall
-	// back to inferring from the node name if (somehow) absent.
-	const type = node.klass;
+	// Authoritative class name from dump_metadata (live) or
+	// parseTsl/draftGraph (edit). Both paths set the same field.
+	const type = node.class;
 	const live = streamStatus === 'open';
 
 	// Authoritative button state, derived from server metadata —
@@ -1164,11 +1164,11 @@ export default function Inspector( {
 				worker; the typed reply lands in the transcript via
 				the SSE Dumper. */ }
 				{ ( () => {
-					const klass = catalog.find(
+					const schema = catalog.find(
 						( c ) => c.shell_name === type
 					);
 					const requests =
-						klass && klass.requests ? klass.requests : [];
+						schema && schema.requests ? schema.requests : [];
 					return requests.map( ( req ) => (
 						<button
 							key={ req.name }

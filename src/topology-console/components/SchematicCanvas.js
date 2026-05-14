@@ -906,7 +906,7 @@ export default function SchematicCanvas( {
 								x={ 11 }
 								y={ 15 }
 							>
-								{ n.klass }
+								{ n.class }
 							</text>
 							<circle
 								className="topology-node__led"
