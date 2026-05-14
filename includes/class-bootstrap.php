@@ -26,6 +26,7 @@ namespace Newspack_Nodes;
 
 use Newspack_Nodes\Rest\ClassesController;
 use Newspack_Nodes\Rest\SpawnController;
+use Newspack_Nodes\Rest\TopologiesController;
 use Newspack_Nodes\Rest\TopologyStreamController;
 
 \defined( 'ABSPATH' ) || exit;
@@ -118,6 +119,7 @@ class Bootstrap {
 		( new SpawnController( self::supervisor() ) )->register_routes();
 		( new TopologyStreamController() )->register_routes();
 		( new ClassesController() )->register_routes();
+		( new TopologiesController() )->register_routes();
 	}
 
 	/**
