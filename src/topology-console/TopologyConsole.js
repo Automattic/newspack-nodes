@@ -31,24 +31,25 @@ import { useTopologyStream } from './hooks/useTopologyStream';
 import { parseMetadata } from './utils/parseMetadata';
 import { shellInterpret, SHELL_BUILTINS_BLURB } from './utils/shellInterpret';
 
-const TOPOLOGIES = [
-	'firehose-workers',
-	'request-workers',
-	'job-workers',
-	'aggregator',
-];
-
-// Per-topology partition counts, injected by the admin page via
-// NewspackNodesData.topologyPartitions (filled from the
-// `newspack_nodes/topologies` filter — the same map the supervisor
-// uses to spawn workers, so the dropdown can't drift). Fallback to a
-// single partition for any topology the map doesn't cover.
-function partitionList( topology ) {
-	const map =
+// The topology dropdown and partition counts both come from the same map
+// injected by the admin page as `NewspackNodesData.topologyPartitions`,
+// itself the resolved `newspack_nodes/topologies` filter that the
+// supervisor uses to spawn workers. Reading from one source keeps the
+// console in lockstep with whatever fleets are actually running, with no
+// drift when topology names change (e.g. `firehose-workers` →
+// `firehose-workers-and-jobs`).
+function topologyMap() {
+	return (
 		( window.NewspackNodesData &&
 			window.NewspackNodesData.topologyPartitions ) ||
-		{};
-	const n = map[ topology ] || 1;
+		{}
+	);
+}
+
+const TOPOLOGIES = Object.keys( topologyMap() );
+
+function partitionList( topology ) {
+	const n = topologyMap()[ topology ] || 1;
 	return Array.from( { length: n }, ( _, i ) => i );
 }
 
