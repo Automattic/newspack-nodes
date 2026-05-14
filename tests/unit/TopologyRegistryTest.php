@@ -93,4 +93,39 @@ class TopologyRegistryTest extends TestCase {
 		);
 		$this->rmdir_recursive( $second );
 	}
+
+	public function test_describe_reports_user_only_stock_only_and_both(): void {
+		$stock = $this->make_temp_dir( 'a4-stock-' );
+		$user  = $this->make_temp_dir( 'a4-user-' );
+		\file_put_contents( "{$stock}/stock-only.tsl", "make_node Echo e\n" );
+		\file_put_contents( "{$stock}/shadowed.tsl", "make_node Echo s\n" );
+		\file_put_contents( "{$user}/user-only.tsl", "make_node Echo u\n" );
+		\file_put_contents( "{$user}/shadowed.tsl", "make_node Echo o\n" );
+
+		Topology_Registry::reset();
+		Topology_Registry::register_stock_dir( $stock );
+		Topology_Registry::set_user_dir( $user );
+
+		$desc = Topology_Registry::describe();
+		$this->assertArrayHasKey( 'stock-only', $desc );
+		$this->assertNull( $desc['stock-only']['user'] );
+		$this->assertSame( [ "{$stock}/stock-only.tsl" ], $desc['stock-only']['stock'] );
+
+		$this->assertArrayHasKey( 'user-only', $desc );
+		$this->assertSame( "{$user}/user-only.tsl", $desc['user-only']['user'] );
+		$this->assertSame( [], $desc['user-only']['stock'] );
+
+		$this->assertArrayHasKey( 'shadowed', $desc );
+		$this->assertSame( "{$user}/shadowed.tsl", $desc['shadowed']['user'] );
+		$this->assertSame( [ "{$stock}/shadowed.tsl" ], $desc['shadowed']['stock'] );
+
+		$this->rmdir_recursive( $stock );
+		$this->rmdir_recursive( $user );
+	}
+
+	public function test_user_dir_getter_returns_set_value(): void {
+		Topology_Registry::reset();
+		Topology_Registry::set_user_dir( '/tmp/np-a4-user-getter' );
+		$this->assertSame( '/tmp/np-a4-user-getter', Topology_Registry::user_dir() );
+	}
 }

@@ -60,6 +60,18 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
+	 * Read-only view of the shell-name → FQCN registration map. The
+	 * REST `/classes` endpoint iterates this to build the editor's
+	 * palette; iterating internals from outside is what `register_class`
+	 * is meant to opt out of, so callers go through this getter.
+	 *
+	 * @return array<string,class-string>
+	 */
+	public static function class_map(): array {
+		return self::$class_map;
+	}
+
+	/**
 	 * Per-instance verb-table accessor. Patron Node ctors call
 	 * `commands(static::config_verbs())` after instantiating their
 	 * sibling CI. Default CI's lookup falls back to `self::$C`.
