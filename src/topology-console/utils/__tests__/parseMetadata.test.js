@@ -27,7 +27,7 @@ describe( 'parseMetadata', () => {
 				id: 'alpha',
 				count: 42,
 				sink: '_command_interpreter',
-				klass: 'Echo',
+				class: 'Echo',
 				debugState: 0,
 				arguments: '',
 				lgstMsg: 0,

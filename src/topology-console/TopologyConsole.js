@@ -34,6 +34,7 @@ import OpenTopologyModal from './components/OpenTopologyModal';
 import { useClassCatalog } from './hooks/useClassCatalog';
 import { useLayout } from './hooks/useLayout';
 import { useSaveTopology } from './hooks/useSaveTopology';
+import { useDeleteTopology } from './hooks/useDeleteTopology';
 import { useTopology, useTopologyList } from './hooks/useTopologyList';
 import { useTopologyStream } from './hooks/useTopologyStream';
 import {
@@ -61,11 +62,12 @@ import { shellInterpret, SHELL_BUILTINS_BLURB } from './utils/shellInterpret';
 
 // The topology dropdown and partition counts both come from the same map
 // injected by the admin page as `NewspackNodesData.topologyPartitions`,
-// itself the resolved `newspack_nodes/topologies` filter that the
-// supervisor uses to spawn workers. Reading from one source keeps the
-// console in lockstep with whatever fleets are actually running, with no
-// drift when topology names change (e.g. `firehose-workers` →
-// `firehose-workers-and-jobs`).
+// itself built by enumerating every TSL file `Topology_Registry::list()`
+// returns. That's the same set the admin Topologies checkbox renders,
+// so the console dropdown surfaces both the operator's currently-active
+// selections and any other TSL files they could turn on — not just the
+// app's file-default catalog. Partition counts come from each topology's
+// TSL frontmatter when present, with a sensible fallback.
 function topologyMap() {
 	return (
 		( window.NewspackNodesData &&
@@ -74,7 +76,28 @@ function topologyMap() {
 	);
 }
 
-const TOPOLOGIES = Object.keys( topologyMap() );
+function activeTopologySet() {
+	const list =
+		( window.NewspackNodesData &&
+			window.NewspackNodesData.activeTopologies ) ||
+		[];
+	return new Set( list );
+}
+
+// Active topologies (the ones the supervisor is currently spawning
+// workers for) sort to the top of the dropdown so "what's running" is
+// one click away regardless of how many other TSL files exist. Within
+// each group we keep alphabetical order, which is what the admin
+// already ships from PHP.
+const TOPOLOGIES = ( () => {
+	const all = Object.keys( topologyMap() );
+	const active = activeTopologySet();
+	return [ ...all ].sort( ( a, b ) => {
+		const ad = active.has( a ) ? 0 : 1;
+		const bd = active.has( b ) ? 0 : 1;
+		return ad !== bd ? ad - bd : a.localeCompare( b );
+	} );
+} )();
 
 function partitionList( topology ) {
 	const n = topologyMap()[ topology ] || 1;
@@ -291,6 +314,7 @@ export default function TopologyConsole() {
 	// Toast for the post-save success/error banner. { kind, text } or null.
 	const [ toast, setToast ] = useState( null );
 	const saveTopology = useSaveTopology();
+	const deleteTopology = useDeleteTopology();
 	const fetchTopology = useTopology();
 	const topologyList = useTopologyList( { enabled: openModalShown } );
 	// Lazy-load the class catalog the first time the user enters edit
@@ -1302,6 +1326,55 @@ export default function TopologyConsole() {
 		setRateVersion( ( v ) => v + 1 );
 	}, [] );
 
+	// Whether a DELETE button should appear in the header — true only
+	// when the currently-edited topology has a user-saved copy. Stock
+	// TSL files are protected (the REST controller returns 404 if asked
+	// to delete a stock-only topology). `topologyList.topologies` is
+	// the same array OpenTopologyModal renders; we look up the current
+	// `editingName` and check its `source` (`user` or `both`).
+	const canDeleteCurrent = useMemo( () => {
+		if ( mode !== 'edit' || ! editingName ) {
+			return false;
+		}
+		const entry = ( topologyList.topologies || [] ).find(
+			( t ) => t.name === editingName
+		);
+		return !! entry && ( entry.source === 'user' || entry.source === 'both' );
+	}, [ mode, editingName, topologyList.topologies ] );
+
+	const handleDelete = useCallback( async () => {
+		if ( ! editingName ) {
+			return;
+		}
+		// eslint-disable-next-line no-alert -- intentional confirm; this is a destructive action.
+		const ok = window.confirm(
+			`Delete user-saved topology "${ editingName }"? Stock copy (if any) will become the active version.`
+		);
+		if ( ! ok ) {
+			return;
+		}
+		try {
+			const resp = await deleteTopology( { name: editingName } );
+			setToast( {
+				kind: 'success',
+				text: resp.stock_fallback
+					? `Deleted user copy of ${ editingName }; stock copy now active.`
+					: `Deleted ${ editingName }.`,
+			} );
+			topologyList.reload();
+			// Drop the editor back to view mode so the operator isn't
+			// staring at a draft of a file that no longer exists.
+			setMode( 'view' );
+			setEditingName( '' );
+		} catch ( e ) {
+			const msg =
+				( e && e.data && e.data.message ) ||
+				( e && e.message ) ||
+				'Delete failed';
+			setToast( { kind: 'error', text: msg } );
+		}
+	}, [ editingName, deleteTopology, topologyList ] );
+
 	const handleOpenPick = useCallback(
 		async ( name ) => {
 			setOpenModalShown( false );
@@ -1529,6 +1602,8 @@ export default function TopologyConsole() {
 				onSave={ handleSave }
 				onOpen={ handleOpen }
 				onNew={ handleNew }
+				onDelete={ handleDelete }
+				canDelete={ canDeleteCurrent }
 			/>
 			{ mode === 'edit' && (
 				<Palette

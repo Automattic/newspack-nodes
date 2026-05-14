@@ -10,7 +10,7 @@
  * Output:
  *   {
  *     nodes: [
- *       { id, count, sink, klass, debugState, arguments },
+ *       { id, count, sink, class, debugState, arguments },
  *       ...
  *     ],
  *     edges: [ { from, to }, ... ]
@@ -54,7 +54,7 @@ export function parseMetadata( payload ) {
 			id: name,
 			count: typeof meta.counter === 'number' ? meta.counter : 0,
 			sink: typeof meta.sink === 'string' ? meta.sink : '',
-			klass: typeof meta.class === 'string' ? meta.class : 'Node',
+			class: typeof meta.class === 'string' ? meta.class : 'Node',
 			debugState:
 				typeof meta.debug_state === 'number' ? meta.debug_state : 0,
 			arguments: typeof meta.arguments === 'string' ? meta.arguments : '',

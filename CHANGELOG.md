@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.24] - 2026-05-14
+
+### Added
+
+- **DELETE button in the topology console header.** Appears in edit mode only when the currently-edited topology has a user-saved copy (`source: user` or `both` per `/topologies` list). New `DELETE /newspack-nodes/v1/topologies/{name}` endpoint removes the operator-saved file from `{user_dir}/{name}.tsl`; stock copies shipped by plugins are protected (the endpoint returns 404 if asked to delete a stock-only topology). After delete, if a stock fallback exists the topology automatically reverts to it; the success toast says which case happened. Same `save_nonce` permission gate as save.
+- **Active topologies sort to the top of the console dropdown.** The supervisor's currently-spawned set (the merged `newspack_nodes/topologies` catalog + `newspack_nodes_topologies` operator overlay) is now grouped first, followed by the rest of `Topology_Registry::list()` alphabetically. New `activeTopologies` field on `window.NewspackNodesData` drives the order.
+
+### Fixed
+
+- **Edit mode renders class labels on node cards.** Live mode reads `n.class` from `dump_metadata` via `parseMetadata`; edit mode reads it from `parseTsl` / `draftGraph`. Both shapes write the same `class` field, but the canvas was reading `n.klass` — which `parseMetadata` had renamed to dodge nothing in particular. Normalized everywhere to `node.class`.
+- **`Bootstrap::get_topology_catalog()` is no longer guarded by `class_exists()` from inside the substrate.** Same pattern as the earlier same-plugin guard cleanups: with the classmap autoloader, defending against load-order races for own-plugin classes is dead branch.
+
+### Changed
+
+- **Topology-console partition dropdown enumerates `Topology_Registry::list()`.** Previously sourced from `Bootstrap::get_topology_catalog()`, which only surfaced the app's file-default catalog — operators couldn't select TSL files they hadn't yet checked in the admin UI. Partition counts now come from the catalog when present, else synthesized from each TSL file's frontmatter via `Topology_Registry::synthesize_entry()`.
+- **`/topologies` REST endpoint's `active` flag reads `Bootstrap::get_topologies()`.** Previously checked only the app-published catalog filter, so a topology the operator had checked but the app didn't ship in its catalog (e.g. `aggregator`) reported `active: false` despite the supervisor spawning it.
+
 ## [0.1.23] - 2026-05-14
 
 ### Fixed
