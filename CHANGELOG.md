@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.23] - 2026-05-14
+
+### Fixed
+
+- **`Bootstrap::get_topologies()` honors admin-UI topology selections that aren't in the app catalog.** The admin Topologies form renders every TSL file found by `Topology_Registry::list()`, but the bootstrap was intersecting the operator's selections against the app-published catalog from the `newspack_nodes/topologies` filter — silently dropping any name the app hadn't shipped as a file-default. Checking e.g. `aggregator` in the admin UI saved the option but the supervisor never spawned a worker for it. The bootstrap now falls back to `Topology_Registry` for selections not in the catalog, synthesizing an entry from the TSL frontmatter. Names that don't resolve to a TSL file are still dropped (typos / stale option values can't crash the supervisor).
+
+### Added
+
+- **`Topology_Registry::synthesize_entry( $name, $default_num_partitions, $default_stale_timeout )` helper.** Public, returns the same `{topology, num_partitions, stale_timeout}` shape the application's `newspack_nodes/topologies` filter callback was building inline. Applications can now call this from their filter instead of duplicating the frontmatter-read + shape-build logic.
+
+### Changed
+
+- Drops three `class_exists()` guards on same-plugin classes (`Topology_Registry` in admin × 2, `Config` in worker-cli-command). With the classmap autoloader, these defended against load-order races that can't happen.
+
 ## [0.1.22] - 2026-05-14
 
 ### Fixed
