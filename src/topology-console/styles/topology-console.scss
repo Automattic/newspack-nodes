@@ -78,11 +78,11 @@ body[class*="_page_newspack-nodes-topology"] {
 	height: calc(100vh - 32px); // leave WP admin bar visible.
 	display: grid;
 	grid-template-rows: 64px 1fr 38px;
-	// v1 is inspect-only — the palette pane is hidden until EDIT
-	// mode lands. Inspector is only mounted when a node is selected;
-	// the default layout reclaims the full width for the canvas, and
-	// `.is-inspector-open` (toggled by the React parent when
-	// `selectedId` is set) brings back the 308px right column.
+	// Default layout (view mode, no inspector open): canvas spans the
+	// full width. Inspector is only mounted when a node is selected;
+	// `.is-inspector-open` brings back the 308px right column. Edit
+	// mode adds a 232px palette column on the left, mounted only when
+	// `.is-edit-mode` is set so view mode never pays the column cost.
 	grid-template-columns: 1fr;
 	grid-template-areas:
 		"header"
@@ -95,6 +95,22 @@ body[class*="_page_newspack-nodes-topology"] {
 			"header header"
 			"canvas inspector"
 			"repl   inspector";
+	}
+
+	&.is-edit-mode {
+		grid-template-columns: 232px 1fr;
+		grid-template-areas:
+			"header  header"
+			"palette canvas"
+			"palette repl";
+	}
+
+	&.is-edit-mode.is-inspector-open {
+		grid-template-columns: 232px 1fr 308px;
+		grid-template-areas:
+			"header  header header"
+			"palette canvas inspector"
+			"palette repl   inspector";
 	}
 	font-family: $mono;
 	font-size: 13px;

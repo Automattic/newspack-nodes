@@ -25,6 +25,7 @@ import CanvasFrame from './components/CanvasFrame';
 import Header from './components/Header';
 import Inspector from './components/Inspector';
 import { ConfirmModal } from './components/Modal';
+import Palette from './components/Palette';
 import ReplFooter from './components/ReplFooter';
 import SchematicCanvas from './components/SchematicCanvas';
 
@@ -767,9 +768,6 @@ export default function TopologyConsole() {
 	// underneath; the draft is frozen until the user saves or discards.
 	const canvasGraph = mode === 'edit' ? draft : parsed;
 
-	// Avoid eslint "unused" warning until Task 4 consumes `catalog`.
-	void catalog;
-
 	// Pull rate info for the selected node. rateVersion is the
 	// "something changed in the rate map" signal that drives the
 	// useMemo recompute; the actual data lives in rateRef (mutable so
@@ -799,10 +797,12 @@ export default function TopologyConsole() {
 				mode={ mode }
 				onModeChange={ handleModeChange }
 			/>
-			{ /* Palette is a v2 edit-mode affordance (drag node types onto
-			the canvas). In v1 we're inspect-only — hiding the pane
-			reclaims its 232px column for the canvas. Reintroduce when
-			the EDIT button becomes live. */ }
+			{ mode === 'edit' && (
+				<Palette
+					classes={ catalog.classes }
+					loading={ catalog.loading }
+				/>
+			) }
 			<CanvasFrame
 				topology={ topology }
 				partition={ partition }
