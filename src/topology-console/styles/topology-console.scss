@@ -298,6 +298,20 @@ body[class*="_page_newspack-nodes-topology"] {
 			}
 		}
 
+		// Destructive action — only appears when a user-saved topology
+		// is being edited. Oxide is the existing "warning" hue used for
+		// selection outlines and error pips; reusing it here keeps the
+		// destructive intent obvious without a new color in the palette.
+		&--delete {
+			background: $oxide;
+			color: $paper;
+			border-right: 1px solid $ink;
+
+			&:hover {
+				background: $oxide-dark;
+			}
+		}
+
 		// Live button hosts both "LIVE" (left) and the uptime slot
 		// (right). Inline-flex lets margin-left:auto push the slot to
 		// the far edge while LIVE stays anchored on the left.
