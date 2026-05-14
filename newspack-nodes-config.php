@@ -12,9 +12,7 @@
 
 return [
 	// Filesystem root for logs / locks / offsets / IPC dirs.
-	// 'base_directory' (commented) — defaults to /tmp/newspack-nodes via
-	// Config when this key is absent. Per-env overlays set it explicitly to
-	// a persistent volume path.
+	'base_directory'   => '/tmp/newspack-nodes',
 
 	// Partitioning + segment retention.
 	//   num_partitions: parallelism factor (CRC32-keyed; capped at 16).

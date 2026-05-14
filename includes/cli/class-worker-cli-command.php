@@ -163,6 +163,9 @@ class WorkerCliCommand {
 		if ( ! isset( $config['logs_dir'] ) && isset( $config['base_directory'] ) ) {
 			$config['logs_dir'] = \rtrim( (string) $config['base_directory'], '/' ) . '/logs';
 		}
+		if ( ! isset( $config['offsets_dir'] ) && isset( $config['base_directory'] ) ) {
+			$config['offsets_dir'] = \rtrim( (string) $config['base_directory'], '/' ) . '/offsets';
+		}
 		$topology = static function (
 			CommandInterpreter $ci,
 			int $partition_arg
