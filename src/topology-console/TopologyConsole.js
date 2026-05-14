@@ -47,7 +47,6 @@ import {
 	updateNodeVerbs,
 } from './utils/draftGraph';
 import {
-	autoLayout,
 	NODE_H,
 	NODE_W,
 	X_PAD,
@@ -476,7 +475,9 @@ export default function TopologyConsole() {
 	const applyLayoutReset = useCallback(
 		( target ) => {
 			const seeded =
-				target === 'saved' ? savedPositionsToOverrides( savedLayout ) : null;
+				target === 'saved'
+					? savedPositionsToOverrides( savedLayout )
+					: null;
 			setPositionOverrides( seeded ?? {} );
 			try {
 				window.localStorage.removeItem( positionStorageKey );
@@ -492,7 +493,12 @@ export default function TopologyConsole() {
 				}
 			}, 0 );
 		},
-		[ savedLayout, savedPositionsToOverrides, positionStorageKey, viewportStorageKey ]
+		[
+			savedLayout,
+			savedPositionsToOverrides,
+			positionStorageKey,
+			viewportStorageKey,
+		]
 	);
 
 	const handleResetLayout = useCallback( () => {
@@ -510,7 +516,9 @@ export default function TopologyConsole() {
 	}, [ mode, applyLayoutReset ] );
 
 	const handleSaveLayout = useCallback( async () => {
-		if ( ! effectiveTopologyName ) return;
+		if ( ! effectiveTopologyName ) {
+			return;
+		}
 		const positions = {};
 		for ( const [ id, p ] of Object.entries( positionOverrides ) ) {
 			if ( p && Number.isFinite( p.x ) && Number.isFinite( p.y ) ) {
@@ -981,7 +989,9 @@ export default function TopologyConsole() {
 			const next = { ...prev };
 			let changed = false;
 			for ( const [ id, xy ] of Object.entries( seeded ) ) {
-				if ( next[ id ] ) continue;
+				if ( next[ id ] ) {
+					continue;
+				}
 				next[ id ] = xy;
 				changed = true;
 			}
@@ -1110,8 +1120,7 @@ export default function TopologyConsole() {
 			// empty and just needs a viewport reset. Both branches
 			// batch with setViewport(null) so SchematicCanvas's
 			// autofit-commit hook fires on the rebuilt bbox.
-			const isResetToAuto =
-				Object.keys( positionOverrides ).length === 0;
+			const isResetToAuto = Object.keys( positionOverrides ).length === 0;
 			const editedDifferentTopology =
 				editingName && editingName !== topology;
 			if ( isResetToAuto || editedDifferentTopology ) {
@@ -1146,7 +1155,6 @@ export default function TopologyConsole() {
 			fetchTopology,
 			seedOverridesFromLayout,
 			positionOverrides,
-			savedLayout,
 			viewportStorageKey,
 		]
 	);
