@@ -538,7 +538,7 @@ class Admin {
 		foreach ( $available as $name ) {
 			$checked = \in_array( $name, $active, true ) ? ' checked' : '';
 			echo '<label style="display:block; margin-bottom: 4px;">';
-			echo '<input type="checkbox" name="newspack_nodes_topologies[]" value="' . \esc_attr( $name ) . '"' . $checked . ' /> ';
+			echo '<input type="checkbox" name="newspack_nodes_topologies[]" value="' . \esc_attr( $name ) . '"' . \esc_attr( $checked ) . ' /> ';
 			echo '<code>' . \esc_html( $name ) . '</code>';
 			echo '</label>';
 		}
