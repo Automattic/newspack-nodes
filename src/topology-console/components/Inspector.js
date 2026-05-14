@@ -239,6 +239,219 @@ function formatLastSeen( ts, live ) {
 	return `${ Math.round( ago / 3600 ) }h ago`;
 }
 
+// ── Edit-mode form ────────────────────────────────────────────────────────
+//
+// Schema-driven form for the selected draft node. Two sections:
+//   1. Constructor — one input per ctor arg (typed via schema).
+//   2. Verbs       — checkbox per verb; when checked, inline arg inputs.
+//
+// node.ctorArgs is a positional array; node.verbInvocations is an
+// array of { verb, args }.
+
+function inputForType( type ) {
+	switch ( type ) {
+		case 'int':
+			return { type: 'number', inputMode: 'numeric', step: 1 };
+		case 'float':
+			return { type: 'number', inputMode: 'decimal', step: 'any' };
+		case 'bool':
+			return { type: 'checkbox' };
+		default:
+			return { type: 'text' };
+	}
+}
+
+function coerceValue( type, raw, prevRaw ) {
+	if ( 'bool' === type ) {
+		return !! raw;
+	}
+	if ( 'int' === type ) {
+		if ( '' === raw ) {
+			return '';
+		}
+		const n = parseInt( raw, 10 );
+		return Number.isNaN( n ) ? prevRaw : n;
+	}
+	if ( 'float' === type ) {
+		if ( '' === raw ) {
+			return '';
+		}
+		const n = parseFloat( raw );
+		return Number.isNaN( n ) ? prevRaw : n;
+	}
+	return String( raw );
+}
+
+function CtorField( { spec, value, onChange } ) {
+	const meta = inputForType( spec.type );
+	const id = `topology-ctor-${ spec.name }`;
+	if ( 'checkbox' === meta.type ) {
+		return (
+			<label className="topology-edit-row" htmlFor={ id }>
+				<input
+					id={ id }
+					type="checkbox"
+					checked={ !! value }
+					onChange={ ( e ) =>
+						onChange(
+							coerceValue( spec.type, e.target.checked, value )
+						)
+					}
+				/>
+				<span className="topology-edit-row__label">
+					{ spec.name }
+					{ spec.required ? ' *' : '' }
+				</span>
+			</label>
+		);
+	}
+	return (
+		<div className="topology-edit-row">
+			<label htmlFor={ id } className="topology-edit-row__label">
+				{ spec.name }
+				{ spec.required ? ' *' : '' }
+			</label>
+			<input
+				id={ id }
+				type={ meta.type }
+				inputMode={ meta.inputMode }
+				step={ meta.step }
+				className="topology-edit-row__input"
+				value={ value ?? spec.default ?? '' }
+				placeholder={
+					spec.default !== undefined ? String( spec.default ) : ''
+				}
+				onChange={ ( e ) =>
+					onChange( coerceValue( spec.type, e.target.value, value ) )
+				}
+			/>
+		</div>
+	);
+}
+
+function VerbRow( { spec, invocation, onToggle, onArgChange } ) {
+	const checked = !! invocation;
+	const id = `topology-verb-${ spec.name }`;
+	return (
+		<div className="topology-edit-verb">
+			{ /* eslint-disable-next-line jsx-a11y/label-has-associated-control -- the input IS the associated control (nested child); the rule's required-htmlFor pattern is also satisfied. */ }
+			<label className="topology-edit-row" htmlFor={ id }>
+				<input
+					id={ id }
+					type="checkbox"
+					checked={ checked }
+					onChange={ ( e ) => onToggle( e.target.checked ) }
+				/>
+				<span className="topology-edit-row__label">
+					<code>{ spec.name }</code>
+				</span>
+			</label>
+			{ checked && spec.args && spec.args.length > 0 && (
+				<div className="topology-edit-verb__args">
+					{ spec.args.map( ( arg, i ) => (
+						<CtorField
+							key={ arg.name }
+							spec={ arg }
+							value={ invocation.args[ i ] }
+							onChange={ ( v ) => onArgChange( i, v ) }
+						/>
+					) ) }
+				</div>
+			) }
+		</div>
+	);
+}
+
+function EditForm( { node, catalog, onUpdateArgs, onUpdateVerbs } ) {
+	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
+	const ctorSpecs = schema?.ctor || [];
+	const verbSpecs = schema?.verbs || [];
+	const ctorArgs = node.ctorArgs || [];
+	const verbInvocations = node.verbInvocations || [];
+
+	return (
+		<aside className="topology-inspector">
+			<h2 className="topology-insp__title">{ node.id }</h2>
+			<div className="topology-insp__type">
+				{ node.class || '?' } · EDIT
+			</div>
+
+			<Section title="Constructor">
+				{ ctorSpecs.length === 0 && (
+					<div className="topology-edit-empty">
+						No constructor arguments.
+					</div>
+				) }
+				{ ctorSpecs.map( ( spec, i ) => (
+					<CtorField
+						key={ spec.name }
+						spec={ spec }
+						value={ ctorArgs[ i ] }
+						onChange={ ( v ) => {
+							const next = ctorArgs.slice();
+							next[ i ] = v;
+							if ( onUpdateArgs ) {
+								onUpdateArgs( node.id, next );
+							}
+						} }
+					/>
+				) ) }
+			</Section>
+
+			<Section title="Verbs">
+				{ verbSpecs.length === 0 && (
+					<div className="topology-edit-empty">
+						No verbs registered.
+					</div>
+				) }
+				{ verbSpecs.map( ( vspec ) => {
+					const idx = verbInvocations.findIndex(
+						( inv ) => inv.verb === vspec.name
+					);
+					const invocation = idx >= 0 ? verbInvocations[ idx ] : null;
+					const handleToggle = ( on ) => {
+						if ( ! onUpdateVerbs ) {
+							return;
+						}
+						if ( on && idx < 0 ) {
+							onUpdateVerbs( node.id, [
+								...verbInvocations,
+								{
+									verb: vspec.name,
+									args: ( vspec.args || [] ).map( () => '' ),
+								},
+							] );
+						} else if ( ! on && idx >= 0 ) {
+							const next = verbInvocations.slice();
+							next.splice( idx, 1 );
+							onUpdateVerbs( node.id, next );
+						}
+					};
+					const handleArgChange = ( argIdx, value ) => {
+						if ( ! onUpdateVerbs || idx < 0 ) {
+							return;
+						}
+						const next = verbInvocations.slice();
+						const args = next[ idx ].args.slice();
+						args[ argIdx ] = value;
+						next[ idx ] = { ...next[ idx ], args };
+						onUpdateVerbs( node.id, next );
+					};
+					return (
+						<VerbRow
+							key={ vspec.name }
+							spec={ vspec }
+							invocation={ invocation }
+							onToggle={ handleToggle }
+							onArgChange={ handleArgChange }
+						/>
+					);
+				} ) }
+			</Section>
+		</aside>
+	);
+}
+
 export default function Inspector( {
 	selectedId,
 	parsed,
@@ -249,6 +462,10 @@ export default function Inspector( {
 	onHover,
 	nodeIds,
 	ssePid,
+	editMode = false,
+	catalog = [],
+	onUpdateArgs,
+	onUpdateVerbs,
 } ) {
 	if ( ! selectedId ) {
 		return (
@@ -268,6 +485,17 @@ export default function Inspector( {
 					{ selectedId } no longer present
 				</div>
 			</aside>
+		);
+	}
+
+	if ( editMode ) {
+		return (
+			<EditForm
+				node={ node }
+				catalog={ catalog }
+				onUpdateArgs={ onUpdateArgs }
+				onUpdateVerbs={ onUpdateVerbs }
+			/>
 		);
 	}
 
