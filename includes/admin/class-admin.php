@@ -298,6 +298,7 @@ class Admin {
 			<?php
 			// Allow extension plugins to inject sections below the form.
 			\do_action( 'newspack_nodes/settings_after_form' );
+			$this->render_reset_button_handler();
 			?>
 		</div>
 		<?php
@@ -552,11 +553,17 @@ class Admin {
 		} else {
 			$active = \is_array( $option ) ? $option : [];
 		}
+		// Resolved filter list = the application's file-default set.
+		// Surfaced as a data attribute so the "Load Defaults" button can
+		// restore the checkboxes to that set without round-tripping.
+		$resolved_filter = \apply_filters( 'newspack_nodes/topologies', [] );
+		$defaults        = \is_array( $resolved_filter ) ? \array_keys( $resolved_filter ) : [];
+		\sort( $defaults );
 		if ( empty( $available ) ) {
 			echo '<p class="description">' . \esc_html__( 'No topologies registered. Application plugins must call Newspack_Nodes\\Topology_Registry::register_stock_dir() at load time.', 'newspack-nodes' ) . '</p>';
 			return;
 		}
-		echo '<fieldset>';
+		echo '<fieldset id="newspack-nodes-topologies-fieldset">';
 		foreach ( $available as $name ) {
 			$checked = \in_array( $name, $active, true ) ? ' checked' : '';
 			echo '<label style="display:block; margin-bottom: 4px;">';
@@ -565,7 +572,24 @@ class Admin {
 			echo '</label>';
 		}
 		echo '</fieldset>';
-		echo '<p class="description">' . \esc_html__( 'Each checked topology becomes one worker fleet. The supervisor picks up changes on its next loop (~1 minute).', 'newspack-nodes' ) . '</p>';
+		echo '<button type="button" class="button button-secondary" data-newspack-nodes-load-defaults="'
+			. \esc_attr( (string) \wp_json_encode( $defaults ) ) . '">'
+			. \esc_html__( 'Load Defaults', 'newspack-nodes' ) . '</button>';
+		echo '<p class="description">' . \esc_html__( 'Each checked topology becomes one worker fleet. The supervisor picks up changes on its next loop (~1 minute). Load Defaults restores the application-shipped set; click Save Settings to commit.', 'newspack-nodes' ) . '</p>';
+		echo '<script>(function(){
+			var btn = document.querySelector( "button[data-newspack-nodes-load-defaults]" );
+			if ( ! btn ) { return; }
+			btn.addEventListener( "click", function () {
+				var defaults;
+				try { defaults = JSON.parse( btn.getAttribute( "data-newspack-nodes-load-defaults" ) ) || []; }
+				catch ( e ) { defaults = []; }
+				var fieldset = document.getElementById( "newspack-nodes-topologies-fieldset" );
+				if ( ! fieldset ) { return; }
+				fieldset.querySelectorAll( "input[type=checkbox][name=\"newspack_nodes_topologies[]\"]" ).forEach( function ( cb ) {
+					cb.checked = defaults.indexOf( cb.value ) !== -1;
+				} );
+			} );
+		})();</script>';
 	}
 
 	// -- Field callbacks ----------------------------------------------------
@@ -879,9 +903,35 @@ class Admin {
 				<p class="description"><?php echo \esc_html( $description ); ?></p>
 			</div>
 			<button type="button" class="button button-secondary newspack-nodes-reset-number"
-				data-field="<?php echo \esc_attr( $field ); ?>"
-				title="<?php \esc_attr_e( 'Clear (use default)', 'newspack-nodes' ); ?>">↺</button>
+				data-newspack-nodes-reset-target="<?php echo \esc_attr( $field ); ?>"
+				title="<?php \esc_attr_e( 'Clear (use default from config file)', 'newspack-nodes' ); ?>">↺</button>
 		</div>
+		<?php
+	}
+
+	/**
+	 * Inline `↺` reset handler. The button clears the bound input so the
+	 * placeholder (which renders the file default) shows through. Storing
+	 * empty triggers `skip_default_writes` on save → option row deleted →
+	 * next read picks up the file default.
+	 *
+	 * Lives here (not enqueued) because it's a 10-line behavior that only
+	 * runs on the settings page and doesn't justify a separate asset.
+	 */
+	public function render_reset_button_handler(): void {
+		?>
+		<script>(function () {
+			document.querySelectorAll( 'button[data-newspack-nodes-reset-target]' ).forEach( function ( btn ) {
+				btn.addEventListener( 'click', function () {
+					var id = btn.getAttribute( 'data-newspack-nodes-reset-target' );
+					var el = document.getElementById( id );
+					if ( el ) {
+						el.value = '';
+						el.dispatchEvent( new Event( 'input', { bubbles: true } ) );
+					}
+				} );
+			} );
+		})();</script>
 		<?php
 	}
 }

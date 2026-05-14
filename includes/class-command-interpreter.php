@@ -547,9 +547,14 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * Send output to stderr.
+	 * `log <message>` builtin — surface `$args` on stderr (server-side
+	 * error_log). Operator-invoked side effect, not a debug instrument
+	 * left in production code; the phpcs rule that flags error_log()
+	 * doesn't apply to the implementation of an intentional logging
+	 * primitive.
 	 */
 	private static function cmd_log( string $args ): string {
+		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 		\error_log( $args );
 		return '';
 	}
