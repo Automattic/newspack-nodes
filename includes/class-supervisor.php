@@ -235,21 +235,10 @@ class Supervisor extends SupervisorBase {
 
 		// Refresh per-process option snapshots so operator changes
 		// reach the supervisor on its next 15s tick instead of waiting
-		// for natural respawn (~595s). Two cache layers to invalidate:
-		// (1) WP's autoloaded-options snapshot, cached as `alloptions`
-		//     in the `options` group; `wp_load_alloptions()` reads this
-		//     once per process and never re-reads it.
-		// (2) The substrate's own `Config` class statics
-		//     (`$config`, `$config_full`, `$config_defaults`,
-		//      `$validated_*`), which cache config-file + option merges
-		//     across calls.
-		// Mirrors the legacy event-logger supervisor's check_config
-		// preamble (wp_cache_delete('alloptions', 'options') +
-		// Config::reset()) — solved the same staleness bug there.
-		if ( \function_exists( 'wp_cache_delete' ) ) {
-			\wp_cache_delete( 'alloptions', 'options' );
-			\wp_cache_delete( 'notoptions', 'options' );
-		}
+		// for natural respawn (~595s). Mirrors the legacy event-logger
+		// supervisor's check_config preamble — solved the same
+		// staleness bug there.
+		Config::invalidate_options_cache();
 		Config::reset();
 
 		// Honor the enable_logging gate. Bootstrap is the source of truth.

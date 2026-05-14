@@ -293,6 +293,28 @@ class Config {
 	}
 
 	/**
+	 * Drop WordPress's per-process `alloptions` / `notoptions` snapshots.
+	 *
+	 * `wp_load_alloptions()` caches into a static var on first call and
+	 * never re-reads, so any `get_option()` for an autoloaded option
+	 * returns whatever was cached at the start of the PHP process.
+	 * Long-lived workers (Supervisor, Job/Request workers) need to
+	 * invalidate this between work cycles to see admin / cross-worker
+	 * option writes.
+	 *
+	 * Pair with `Config::reset()` when the caller also reads merged
+	 * config — `reset()` only invalidates the in-memory `Config` cache
+	 * but its rebuild still reads through `get_option`, so without
+	 * invalidating `alloptions` first the rebuild gets stale values too.
+	 */
+	public static function invalidate_options_cache(): void {
+		if ( \function_exists( 'wp_cache_delete' ) ) {
+			\wp_cache_delete( 'alloptions', 'options' );
+			\wp_cache_delete( 'notoptions', 'options' );
+		}
+	}
+
+	/**
 	 * Ensure a directory path exists and is canonical.
 	 *
 	 * Creates the directory if it doesn't exist, then validates that
