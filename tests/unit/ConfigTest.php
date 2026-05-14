@@ -14,6 +14,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Config;
+use Newspack_Nodes\Config_Utils;
 use Newspack_Nodes\Tests\TestCase;
 
 #[\PHPUnit\Framework\Attributes\CoversClass( Config::class )]
@@ -237,55 +238,55 @@ class ConfigTest extends TestCase {
 	// ── sanitize_option: type matrix ──────────────────────────────────────
 
 	public function test_sanitize_option_bool_truthy(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertTrue( $ref->invoke( null, '1', 'bool' ) );
 	}
 
 	public function test_sanitize_option_bool_falsy(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertFalse( $ref->invoke( null, '', 'bool' ) );
 	}
 
 	public function test_sanitize_option_int_valid(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertSame( 42, $ref->invoke( null, '42', 'int' ) );
 	}
 
 	public function test_sanitize_option_int_rejects_non_numeric(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, 'abc', 'int' ) );
 	}
 
 	public function test_sanitize_option_path_accepts_valid_absolute(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertSame( '/var/www/html', $ref->invoke( null, '/var/www/html', 'path' ) );
 	}
 
 	public function test_sanitize_option_path_rejects_relative(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, 'relative/path', 'path' ) );
 	}
 
 	public function test_sanitize_option_path_rejects_null_byte(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, "/tmp/evil\0path", 'path' ) );
 	}
 
 	public function test_sanitize_option_path_rejects_traversal(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, '/tmp/../etc/passwd', 'path' ) );
 	}
 
 	public function test_sanitize_option_memcache_servers_valid(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertSame(
 			[ 'host1:11211', 'host2:11212' ],
@@ -294,7 +295,7 @@ class ConfigTest extends TestCase {
 	}
 
 	public function test_sanitize_option_memcache_servers_filters_invalid(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertSame(
 			[ 'valid:11211', 'ok:1234' ],
@@ -303,13 +304,13 @@ class ConfigTest extends TestCase {
 	}
 
 	public function test_sanitize_option_memcache_servers_empty_string(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, '', 'memcache_servers' ) );
 	}
 
 public function test_sanitize_option_unknown_type_returns_null(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, 'value', 'never-heard-of-this-type' ) );
 	}
@@ -331,13 +332,13 @@ public function test_sanitize_option_unknown_type_returns_null(): void {
 	// ── validate_config_values ────────────────────────────────────────────
 
 	public function test_validate_config_values_rejects_objects(): void {
-		$ref = new \ReflectionMethod( Config::class, 'validate_config_values' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'validate_config_values' );
 		$ref->setAccessible( true );
 		$this->assertFalse( $ref->invoke( null, new \stdClass() ) );
 	}
 
 	public function test_validate_config_values_rejects_deep_nesting(): void {
-		$ref = new \ReflectionMethod( Config::class, 'validate_config_values' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'validate_config_values' );
 		$ref->setAccessible( true );
 		$value = 'leaf';
 		for ( $i = 0; $i < 12; $i++ ) {
@@ -347,7 +348,7 @@ public function test_sanitize_option_unknown_type_returns_null(): void {
 	}
 
 	public function test_validate_config_values_allows_scalars(): void {
-		$ref = new \ReflectionMethod( Config::class, 'validate_config_values' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'validate_config_values' );
 		$ref->setAccessible( true );
 		$this->assertTrue( $ref->invoke( null, 'string' ) );
 		$this->assertTrue( $ref->invoke( null, 42 ) );
@@ -357,7 +358,7 @@ public function test_sanitize_option_unknown_type_returns_null(): void {
 	}
 
 	public function test_validate_config_values_allows_arrays(): void {
-		$ref = new \ReflectionMethod( Config::class, 'validate_config_values' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'validate_config_values' );
 		$ref->setAccessible( true );
 		$this->assertTrue( $ref->invoke( null, [ 'a', 'b' ] ) );
 		$this->assertTrue( $ref->invoke( null, [ 'nested' => [ 'k' => 'v' ] ] ) );
@@ -507,20 +508,20 @@ public function test_sanitize_option_unknown_type_returns_null(): void {
 	// ── sanitize_option additional types ───────────────────────────────────
 
 	public function test_sanitize_option_float_valid(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertSame( 3.14, $ref->invoke( null, '3.14', 'float' ) );
 		$this->assertSame( 0.0, $ref->invoke( null, 0, 'float' ) );
 	}
 
 	public function test_sanitize_option_float_rejects_non_numeric(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, 'not-a-number', 'float' ) );
 	}
 
 	public function test_sanitize_option_array_strings_keeps_string_int_bool_values(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$result = $ref->invoke(
 			null,
@@ -543,19 +544,19 @@ public function test_sanitize_option_unknown_type_returns_null(): void {
 	}
 
 	public function test_sanitize_option_array_strings_rejects_non_array(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, 'not-array', 'array_strings' ) );
 	}
 
 public function test_sanitize_option_memcache_servers_rejects_non_string(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, [ 'array', 'instead' ], 'memcache_servers' ) );
 	}
 
 	public function test_sanitize_option_path_rejects_non_string(): void {
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_option' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
 		$ref->setAccessible( true );
 		$this->assertNull( $ref->invoke( null, 12345, 'path' ) );
 	}
@@ -596,7 +597,7 @@ public function test_sanitize_option_memcache_servers_rejects_non_string(): void
 	// ── is_within edge case ────────────────────────────────────────────────
 
 	public function test_is_within_returns_null_when_path_does_not_exist(): void {
-		$ref = new \ReflectionMethod( Config::class, 'is_within' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'is_within' );
 		$ref->setAccessible( true );
 		// Both args nonexistent.
 		$this->assertNull( $ref->invoke( null, '/never/existed/anywhere', '/tmp' ) );
@@ -605,7 +606,7 @@ public function test_sanitize_option_memcache_servers_rejects_non_string(): void
 	}
 
 	public function test_is_within_returns_null_when_outside_base(): void {
-		$ref = new \ReflectionMethod( Config::class, 'is_within' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'is_within' );
 		$ref->setAccessible( true );
 		// Real path exists but outside base.
 		$this->assertNull( $ref->invoke( null, '/etc', $this->temp_dir ) );
@@ -613,7 +614,7 @@ public function test_sanitize_option_memcache_servers_rejects_non_string(): void
 
 	public function test_is_within_accepts_path_that_equals_base(): void {
 		// Path == base must be considered "within" (the base itself).
-		$ref = new \ReflectionMethod( Config::class, 'is_within' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'is_within' );
 		$ref->setAccessible( true );
 		$result = $ref->invoke( null, $this->temp_dir, $this->temp_dir );
 		$this->assertSame( \realpath( $this->temp_dir ), $result );
@@ -657,7 +658,7 @@ public function test_sanitize_option_memcache_servers_rejects_non_string(): void
 		// path via reflection: invoking sanitize_string with a value that requires
 		// the WP function still works (since we're in a test bootstrap that defines
 		// it), but the throw branch is documented as the failure mode.
-		$ref = new \ReflectionMethod( Config::class, 'sanitize_string' );
+		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_string' );
 		$ref->setAccessible( true );
 		// Pass a value with leading/trailing whitespace — confirm sanitize_text_field
 		// (the bootstrap stub) is what's stripping it.

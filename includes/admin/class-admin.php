@@ -538,9 +538,19 @@ class Admin {
 			? \Newspack_Nodes\Topology_Registry::list()
 			: [];
 		\sort( $available );
-		$active = \get_option( 'newspack_nodes_topologies', [] );
-		if ( ! \is_array( $active ) ) {
-			$active = [];
+		// Mirror what the supervisor sees. When the operator hasn't
+		// saved anything yet, the option is `false` and we derive
+		// the active set from the resolved `newspack_nodes/topologies`
+		// filter — application plugins inject their file-default list
+		// through that filter, so the boxes pre-check to whatever is
+		// actually running. After the operator saves once, the option
+		// becomes authoritative (even `[]` = explicit "spawn nothing").
+		$option = \get_option( 'newspack_nodes_topologies', false );
+		if ( false === $option ) {
+			$resolved = \apply_filters( 'newspack_nodes/topologies', [] );
+			$active   = \is_array( $resolved ) ? \array_keys( $resolved ) : [];
+		} else {
+			$active = \is_array( $option ) ? $option : [];
 		}
 		if ( empty( $available ) ) {
 			echo '<p class="description">' . \esc_html__( 'No topologies registered. Application plugins must call Newspack_Nodes\\Topology_Registry::register_stock_dir() at load time.', 'newspack-nodes' ) . '</p>';
