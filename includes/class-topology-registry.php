@@ -43,6 +43,45 @@ class Topology_Registry {
 	}
 
 	/**
+	 * Read-only view of the user-dir path. The REST list endpoint
+	 * surfaces this so the UI can show the on-disk location.
+	 */
+	public static function user_dir(): string {
+		return self::$user_dir;
+	}
+
+	/**
+	 * Per-name source breakdown across user + stock dirs. Powers the
+	 * REST list endpoint's `source` field. Returns:
+	 *   [ name => [ 'user' => ?absolute-path, 'stock' => [ absolute-paths ] ] ]
+	 *
+	 * `user` is null when no user copy exists; `stock` is empty when
+	 * the name isn't in any registered stock dir. A name appears in
+	 * the result if it has at least one of either.
+	 *
+	 * @return array<string,array{user:?string,stock:array<int,string>}>
+	 */
+	public static function describe(): array {
+		$out = [];
+		if ( '' !== self::$user_dir && \is_dir( self::$user_dir ) ) {
+			foreach ( \glob( self::$user_dir . '/*.tsl' ) ?: [] as $path ) {
+				$name                    = \basename( $path, '.tsl' );
+				$out[ $name ]['user']    = $path;
+				$out[ $name ]['stock'] ??= [];
+			}
+		}
+		foreach ( self::$stock_dirs as $dir ) {
+			foreach ( \glob( $dir . '/*.tsl' ) ?: [] as $path ) {
+				$name                      = \basename( $path, '.tsl' );
+				$out[ $name ]['user']    ??= null;
+				$out[ $name ]['stock']   ??= [];
+				$out[ $name ]['stock'][]   = $path;
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Return the absolute path to `<name>.tsl` or null if unknown.
 	 */
 	public static function resolve( string $name ): ?string {
