@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.19] - 2026-05-14
+
+### Added
+
+- **Topology console: save / reset layout.** Layouts decouple from topologies — TSL describes graph structure; the `.layout` file describes node positions, stored server-side at `{base_directory}/layouts/{name}.layout` via a new `LayoutsController` (GET/POST `/newspack-nodes/v1/layouts/{name}`) with a dedicated `newspack_nodes_save_layout` nonce. Save Layout (edit-mode only) persists the current pinned positions; Reset Layout shows when current ≠ default for the mode — in edit it clears overrides to `autoLayout` (with confirm modal), in live it reverts to the saved layout. Mode-transition auto-fit fires when re-entering live mode from a different topology or from a fresh reset, batching positionOverrides + viewport=null so the canvas's autofit-commit hook fires on the rebuilt bbox in one render.
+- **Node schemas exposed for the Inspector.** `Topic`, `Log`, `Tail`, `Consumer`, `Hook` now declare their constructor arguments via `node_schema()`, so the topology console renders an editable form for each. `Log` adds the `rotate` verb. `Callback` and `Lock` flip to `category: 'Hidden'` — Callback wraps a PHP closure that can't be expressed in TSL or constructed from the GUI; Lock is an internal primitive used by `Partition::allow_large_writes()` and Worker lifecycle, not meaningful as a standalone graph node.
+- **Topology admin UI mirrors the resolved fleet.** When `newspack_nodes_topologies` is unset (`get_option` returns `false`), the checkboxes pre-check the resolved `newspack_nodes/topologies` filter so an operator visiting a fresh install sees what's actually running. Once they save once, the option becomes authoritative (including `[]` = explicit "spawn nothing").
+- **`<config:offsets_dir>` helper.** `WorkerCliCommand` now derives `offsets_dir` alongside `logs_dir` from `base_directory`, so TSL can reference `<config:offsets_dir>` directly instead of building `<config:base_directory>/offsets/...` inline.
+
+### Changed
+
+- **`Newspack_Nodes\Config_Utils` owns the sanitize / validate / path-guard primitives** every plugin's Config previously duplicated. Methods are public + static so tests call them directly. Substrate `Config` shrinks from 691 → 478 lines by delegating; the moved methods (`sanitize_option`, `sanitize_string`, `is_within`, `validate_config_values`, `load_config_file`) are gone from Config itself. `validate_config_path` stays on Config as a thin wrapper that injects its allowed-dirs list before delegating to Config_Utils.
+- **`newspack-nodes-config.php` declares `base_directory` explicitly** instead of relying on the hardcoded `/tmp/newspack-nodes` fallback inside `Config::load_config_defaults()`. The fallback is gone — the config file is now the only source of the default.
+
 ## [0.1.18] - 2026-05-13
 
 ### Added
