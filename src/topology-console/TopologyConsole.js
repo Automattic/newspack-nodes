@@ -29,8 +29,11 @@ import Palette from './components/Palette';
 import ReplFooter from './components/ReplFooter';
 import SchematicCanvas from './components/SchematicCanvas';
 
+import OpenTopologyModal from './components/OpenTopologyModal';
+
 import { useClassCatalog } from './hooks/useClassCatalog';
 import { useSaveTopology } from './hooks/useSaveTopology';
+import { useTopology, useTopologyList } from './hooks/useTopologyList';
 import { useTopologyStream } from './hooks/useTopologyStream';
 import {
 	addEdge,
@@ -41,6 +44,7 @@ import {
 	updateNodeArgs,
 	updateNodeVerbs,
 } from './utils/draftGraph';
+import { parseTsl } from './utils/parseTsl';
 import { serializeTsl } from './utils/serializeTsl';
 import { parseMetadata } from './utils/parseMetadata';
 import { shellInterpret, SHELL_BUILTINS_BLURB } from './utils/shellInterpret';
@@ -268,9 +272,13 @@ export default function TopologyConsole() {
 	const [ discardModal, setDiscardModal ] = useState( null );
 	// Save-topology PromptModal state. Null = closed; object = open.
 	const [ saveModal, setSaveModal ] = useState( null );
+	// Open-topology picker state. Boolean — modal mounts when true.
+	const [ openModalShown, setOpenModalShown ] = useState( false );
 	// Toast for the post-save success/error banner. { kind, text } or null.
 	const [ toast, setToast ] = useState( null );
 	const saveTopology = useSaveTopology();
+	const fetchTopology = useTopology();
+	const topologyList = useTopologyList( { enabled: openModalShown } );
 	// Lazy-load the class catalog the first time the user enters edit
 	// mode. useClassCatalog caches the response, so re-entries are free.
 	const catalog = useClassCatalog( { enabled: mode === 'edit' } );
@@ -881,6 +889,38 @@ export default function TopologyConsole() {
 		setSaveModal( {} );
 	}, [] );
 
+	const handleOpen = useCallback( () => {
+		setOpenModalShown( true );
+	}, [] );
+
+	const handleOpenPick = useCallback(
+		async ( name ) => {
+			setOpenModalShown( false );
+			try {
+				const resp = await fetchTopology( name );
+				const next = parseTsl( resp.tsl || '' );
+				// Replace the draft AND baseline so the just-loaded
+				// topology starts clean — discarding back to view mode
+				// won't pop a confirm modal until the operator edits it.
+				setDraft( next );
+				setBaseline( next );
+				setSelectedId( null );
+				setSelectedEdge( null );
+				setToast( {
+					kind: 'success',
+					text: `Loaded ${ resp.name } (${ resp.source }).`,
+				} );
+			} catch ( e ) {
+				const msg =
+					( e && e.data && e.data.message ) ||
+					( e && e.message ) ||
+					'Open failed';
+				setToast( { kind: 'error', text: msg } );
+			}
+		},
+		[ fetchTopology ]
+	);
+
 	const handleSaveConfirm = useCallback(
 		async ( name ) => {
 			setSaveModal( null );
@@ -892,6 +932,9 @@ export default function TopologyConsole() {
 					kind: 'success',
 					text: `Saved ${ resp.name }. Restarted ${ restartedCount } fleet(s).`,
 				} );
+				// Refresh the picker's list — next "Open" sees the new
+				// topology without a page reload. Cheap network call.
+				topologyList.reload();
 				setMode( 'view' );
 			} catch ( e ) {
 				const msg =
@@ -905,7 +948,7 @@ export default function TopologyConsole() {
 				setToast( { kind: 'error', text: `${ msg }${ lineHint }` } );
 			}
 		},
-		[ draft, saveTopology ]
+		[ draft, saveTopology, topologyList ]
 	);
 
 	useEffect( () => {
@@ -969,6 +1012,7 @@ export default function TopologyConsole() {
 				mode={ mode }
 				onModeChange={ handleModeChange }
 				onSave={ handleSave }
+				onOpen={ handleOpen }
 			/>
 			{ mode === 'edit' && (
 				<Palette
@@ -1059,6 +1103,15 @@ export default function TopologyConsole() {
 					confirmLabel="Save"
 					onConfirm={ handleSaveConfirm }
 					onCancel={ () => setSaveModal( null ) }
+				/>
+			) }
+			{ openModalShown && (
+				<OpenTopologyModal
+					topologies={ topologyList.topologies }
+					loading={ topologyList.loading }
+					error={ topologyList.error }
+					onPick={ handleOpenPick }
+					onCancel={ () => setOpenModalShown( false ) }
 				/>
 			) }
 			{ toast && (
