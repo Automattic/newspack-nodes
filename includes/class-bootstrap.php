@@ -24,6 +24,7 @@
 
 namespace Newspack_Nodes;
 
+use Newspack_Nodes\Rest\ClassesController;
 use Newspack_Nodes\Rest\SpawnController;
 use Newspack_Nodes\Rest\TopologyStreamController;
 
@@ -116,6 +117,7 @@ class Bootstrap {
 	public static function register_rest_routes(): void {
 		( new SpawnController( self::supervisor() ) )->register_routes();
 		( new TopologyStreamController() )->register_routes();
+		( new ClassesController() )->register_routes();
 	}
 
 	/**
