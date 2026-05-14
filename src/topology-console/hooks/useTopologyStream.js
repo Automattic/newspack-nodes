@@ -27,10 +27,16 @@ import { useEffect, useRef, useState } from '@wordpress/element';
  *                               could (when a TM_STRUCT broadcast flood
  *                               clobbered a single setLastMessage call,
  *                               command responses got lost).
+ * @param {boolean}  [enabled]   Set false to short-circuit the EventSource — used by edit mode so the canvas stops poking the live worker.
  * @return {{status, ssePid}} Connection state + the worker's pid from
  *                            the hello event.
  */
-export function useTopologyStream( topology, partition, onMessage ) {
+export function useTopologyStream(
+	topology,
+	partition,
+	onMessage,
+	enabled = true
+) {
 	const [ status, setStatus ] = useState( 'connecting' );
 	const [ ssePid, setSsePid ] = useState( null );
 
@@ -43,6 +49,16 @@ export function useTopologyStream( topology, partition, onMessage ) {
 	}, [ onMessage ] );
 
 	useEffect( () => {
+		// `enabled: false` short-circuits the SSE entirely. Used by
+		// edit mode — the operator is authoring offline, so streaming
+		// `ls` polls at the worker is wasted load + a misleading UI
+		// signal (the LIVE LED would pulse against a graph the user
+		// isn't even looking at).
+		if ( ! enabled ) {
+			setStatus( 'closed' );
+			setSsePid( null );
+			return undefined;
+		}
 		setSsePid( null );
 		const data = window.NewspackNodesData;
 		if ( ! data || ! data.restUrl ) {
@@ -91,7 +107,7 @@ export function useTopologyStream( topology, partition, onMessage ) {
 			es.close();
 			setStatus( 'closed' );
 		};
-	}, [ topology, partition ] );
+	}, [ topology, partition, enabled ] );
 
 	return { status, ssePid };
 }

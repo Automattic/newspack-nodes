@@ -41,9 +41,19 @@ import {
 	generateNodeName,
 	removeEdge,
 	removeNode,
+	renameNode,
 	updateNodeArgs,
 	updateNodeVerbs,
 } from './utils/draftGraph';
+import {
+	autoLayout,
+	NODE_H,
+	NODE_W,
+	X_PAD,
+	X_STEP,
+	Y_PAD,
+	Y_STEP,
+} from './utils/autoLayout';
 import { parseTsl } from './utils/parseTsl';
 import { serializeTsl } from './utils/serializeTsl';
 import { parseMetadata } from './utils/parseMetadata';
@@ -266,6 +276,10 @@ export default function TopologyConsole() {
 	const [ mode, setMode ] = useState( 'view' );
 	const [ draft, setDraft ] = useState( { nodes: [], edges: [] } );
 	const [ baseline, setBaseline ] = useState( { nodes: [], edges: [] } );
+	// Name of the topology being edited. Drives the canvas title +
+	// pre-fills the Save modal. Reset on each edit-mode entry; updated
+	// on Open and after a successful Save.
+	const [ editingName, setEditingName ] = useState( '' );
 	// Pending discard-confirm modal. Null = no modal. Holds the closure
 	// to invoke if the user clicks "Discard" — keeps the confirm logic
 	// declarative (state-driven), not imperative window.confirm-style.
@@ -315,11 +329,21 @@ export default function TopologyConsole() {
 	// bleed between worker types. Loaded on topology/partition change;
 	// updates write back synchronously on each drag commit.
 	const positionStorageKey = `newspack-nodes:topology:${ topology }.p${ partition }:positions`;
+	// Each entry: { x, y, user?: boolean }. `user: true` marks a
+	// position the operator explicitly placed via drag — only those
+	// persist to localStorage and only those toggle "Reset Layout".
+	// Auto-seeded positions (from autoLayout on edit-mode entry)
+	// stay in-memory only and don't trip the reset affordance.
 	const [ positionOverrides, setPositionOverrides ] = useState( {} );
 	useEffect( () => {
 		try {
 			const raw = window.localStorage.getItem( positionStorageKey );
-			setPositionOverrides( raw ? JSON.parse( raw ) : {} );
+			const loaded = raw ? JSON.parse( raw ) : {};
+			const tagged = {};
+			for ( const [ id, p ] of Object.entries( loaded ) ) {
+				tagged[ id ] = { x: p.x, y: p.y, user: true };
+			}
+			setPositionOverrides( tagged );
 		} catch ( _err ) {
 			setPositionOverrides( {} );
 		}
@@ -327,11 +351,22 @@ export default function TopologyConsole() {
 	const handlePositionChange = useCallback(
 		( nodeId, pos ) => {
 			setPositionOverrides( ( prev ) => {
-				const next = { ...prev, [ nodeId ]: pos };
+				const next = {
+					...prev,
+					[ nodeId ]: { x: pos.x, y: pos.y, user: true },
+				};
+				// Persist user-tagged entries only — auto-seeded
+				// positions are transient and re-derived each session.
+				const userOnly = {};
+				for ( const [ id, p ] of Object.entries( next ) ) {
+					if ( p.user ) {
+						userOnly[ id ] = { x: p.x, y: p.y };
+					}
+				}
 				try {
 					window.localStorage.setItem(
 						positionStorageKey,
-						JSON.stringify( next )
+						JSON.stringify( userOnly )
 					);
 				} catch ( _err ) {
 					// localStorage may be disabled / quota'd; silently
@@ -403,7 +438,11 @@ export default function TopologyConsole() {
 			}
 		}, 0 );
 	}, [ positionStorageKey, viewportStorageKey ] );
-	const hasOverrides = Object.keys( positionOverrides ).length > 0;
+	// Reset Layout shows iff the operator has placed at least one
+	// node by hand. Auto-seeded entries don't count.
+	const hasOverrides = Object.values( positionOverrides ).some(
+		( p ) => p && p.user
+	);
 
 	const partitions = useMemo( () => partitionList( topology ), [ topology ] );
 
@@ -637,10 +676,14 @@ export default function TopologyConsole() {
 		[ appendTranscript ]
 	);
 
+	// SSE off in edit mode — the operator is authoring offline and
+	// shouldn't poke the live worker with `ls` ticks. Stream resumes
+	// when they switch back to view mode.
 	const { status, ssePid } = useTopologyStream(
 		topology,
 		partition,
-		handleMessage
+		handleMessage,
+		mode !== 'edit'
 	);
 
 	const sendLine = useCallback(
@@ -748,6 +791,112 @@ export default function TopologyConsole() {
 		[ sendLine ]
 	);
 
+	// Augment a graph with virtual edges synthesized from node_name
+	// verb args (e.g. RequestBuilder's set_errors_target target=…).
+	// Used by both the canvas's display graph and the auto-layout
+	// seeder so loaded topologies place verb-targeted nodes in the
+	// right columns (otherwise autoLayout treats them as sources and
+	// stacks them at column 0).
+	const augmentWithVirtualEdges = useCallback(
+		( graph ) => {
+			const classByName = new Map();
+			for ( const c of catalog.classes || [] ) {
+				classByName.set( c.shell_name, c );
+			}
+			const virtualEdges = [];
+			for ( const node of graph.nodes ) {
+				const schema = classByName.get( node.class );
+				if ( ! schema || ! schema.verbs ) {
+					continue;
+				}
+				for ( const inv of node.verbInvocations || [] ) {
+					const vspec = schema.verbs.find(
+						( v ) => v.name === inv.verb
+					);
+					if ( ! vspec || ! vspec.args ) {
+						continue;
+					}
+					vspec.args.forEach( ( argSpec, i ) => {
+						if ( argSpec.type !== 'node_name' ) {
+							return;
+						}
+						const targetName = inv.args && inv.args[ i ];
+						if ( ! targetName ) {
+							return;
+						}
+						virtualEdges.push( {
+							from: node.id,
+							to: targetName,
+							virtual: true,
+						} );
+					} );
+				}
+			}
+			if ( ! virtualEdges.length ) {
+				return graph;
+			}
+			return {
+				nodes: graph.nodes,
+				edges: [ ...graph.edges, ...virtualEdges ],
+			};
+		},
+		[ catalog.classes ]
+	);
+
+	// Run autoLayout on a freshly-loaded graph and freeze every
+	// node's position into positionOverrides. Once seeded, the canvas
+	// stops re-shuffling unplaced nodes when the user drops/wires
+	// new ones — the auto-layout still runs but is invisible because
+	// every node has an override. Hoisted above handleModeChange
+	// so its useCallback deps array doesn't TDZ-trap on first render.
+	const seedOverridesFromLayout = useCallback(
+		( graph ) => {
+			// Merge: fill in any node positions that don't already
+			// have an override, but never clobber existing ones —
+			// user-customized positions from a prior session
+			// (loaded via localStorage) need to stick. Reset Layout
+			// is the explicit "wipe and re-autolayout" affordance.
+			setPositionOverrides( ( prev ) => {
+				const laid = autoLayout( augmentWithVirtualEdges( graph ) );
+				const next = { ...prev };
+				let changed = false;
+				for ( const n of laid.nodes ) {
+					if ( n.position && ! next[ n.id ] ) {
+						next[ n.id ] = {
+							x: n.position.x,
+							y: n.position.y,
+						};
+						changed = true;
+					}
+				}
+				return changed ? next : prev;
+			} );
+		},
+		[ augmentWithVirtualEdges ]
+	);
+
+	// EDIT auto-load races the catalog fetch — the seed may fire
+	// before catalog.classes is populated, in which case virtual
+	// edges aren't computed and verb-targeted nodes stack at column
+	// 0. Re-seed once the catalog arrives, but only if the user
+	// hasn't started editing yet (draft still matches baseline).
+	useEffect( () => {
+		if ( mode !== 'edit' ) {
+			return;
+		}
+		if ( ! catalog.classes || catalog.classes.length === 0 ) {
+			return;
+		}
+		if ( draft.nodes.length === 0 ) {
+			return;
+		}
+		if ( JSON.stringify( draft ) !== JSON.stringify( baseline ) ) {
+			return; // user has edited — don't clobber
+		}
+		seedOverridesFromLayout( draft );
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ catalog.classes, mode ] );
+
 	// Edit-mode toggle. Entering: snapshot the live parsed as the
 	// draft baseline; leaving: pop a confirm modal if the draft has
 	// diverged from the (current) live snapshot. The draft is
@@ -758,24 +907,42 @@ export default function TopologyConsole() {
 				return;
 			}
 			if ( next === 'edit' ) {
-				// Edit mode starts with a blank draft. Live `parsed`
-				// nodes use a different shape (id/klass) than what
-				// serializeTsl + the inspector form expect (name/class
-				// + ctorArgs/verbInvocations), and silently inheriting
-				// them produces broken TSL on save. Future work: an
-				// "Open existing topology" affordance can populate the
-				// draft from a stored .tsl file via the registry.
-				const snapshot = { nodes: [], edges: [] };
-				setDraft( snapshot );
-				setBaseline( snapshot );
-				// Lock the viewport BEFORE the user drops the first
-				// node. Without this, the first drop transitions the
-				// canvas from empty-autofit to one-node-autofit, which
-				// shifts the viewBox under the cursor — the click that
-				// would normally select the freshly-dropped node
-				// instead lands on empty space.
-				setViewport( { x: 0, y: 0, w: 1280, h: 720 } );
+				// Entering edit mode: auto-load the currently-live
+				// topology so the operator continues with what they
+				// were just looking at. Falls back to a blank canvas
+				// if no live topology is selected, or the fetch fails.
+				// Use the NEW button to start blank explicitly.
 				setMode( 'edit' );
+				setEditingName( '' );
+				rateRef.current = new Map();
+				setRateVersion( ( v ) => v + 1 );
+				// Preserve positionOverrides + viewport so user
+				// customizations from a previous edit session of
+				// the same topology stick. seedOverridesFromLayout
+				// will no-op if overrides exist; Reset Layout is
+				// the explicit "start over" affordance.
+				const blank = { nodes: [], edges: [] };
+				setDraft( blank );
+				setBaseline( blank );
+				if ( topology ) {
+					fetchTopology( topology )
+						.then( ( resp ) => {
+							const loaded = parseTsl( resp.tsl || '' );
+							setDraft( loaded );
+							setBaseline( loaded );
+							setEditingName( resp.name );
+							// Re-seed on catalog load (effect below).
+							// Initial seed here in case the catalog
+							// is already populated (re-entry into
+							// edit mode within the same session).
+							seedOverridesFromLayout( loaded );
+						} )
+						.catch( () => {
+							// Silent fallback — operator can build
+							// from scratch or click OPEN to pick
+							// something else.
+						} );
+				}
 				return;
 			}
 			// Going back to view: dirty iff the draft has diverged from
@@ -798,20 +965,57 @@ export default function TopologyConsole() {
 				onCancel: () => setDiscardModal( null ),
 			} );
 		},
-		[ mode, draft, baseline ]
+		[
+			mode,
+			draft,
+			baseline,
+			topology,
+			fetchTopology,
+			seedOverridesFromLayout,
+		]
 	);
 
 	// View vs edit picks the source of truth for everything downstream:
 	// canvas, inspector, node-name lookup. SSE keeps writing `parsed`
 	// underneath; the draft is frozen until the user saves or discards.
-	const canvasGraph = mode === 'edit' ? draft : parsed;
+	const baseCanvasGraph = mode === 'edit' ? draft : parsed;
+
+	// Augmented draft graph: synthesize edges from any verb whose
+	// schema declares an arg of type `node_name` (e.g. RequestBuilder's
+	// `set_errors_target target=errors:partition` is a logical wire to
+	// the named partition). These are visualized on the canvas but
+	// don't appear in the draft's edges array — they're derived from
+	// verbInvocations + the catalog schema. Marked `virtual: true` so
+	// the canvas can paint them dimmer and skip the click-to-delete
+	// hit-target (the operator unchecks the verb to remove them).
+	const canvasGraph = useMemo( () => {
+		if ( mode !== 'edit' ) {
+			return baseCanvasGraph;
+		}
+		return augmentWithVirtualEdges( baseCanvasGraph );
+	}, [ baseCanvasGraph, mode, augmentWithVirtualEdges ] );
 
 	// Drop handler — fired by SchematicCanvas when the user releases a
 	// palette drag over the SVG. The shellName comes from the
 	// dataTransfer payload set by Palette; (x, y) is already projected
 	// into SVG-space by the canvas.
 	const handleConnect = useCallback( ( from, to ) => {
-		setDraft( ( g ) => addEdge( g, { from, to } ) );
+		setDraft( ( g ) => {
+			// Non-Tee nodes have a single target slot — dragging a new
+			// wire replaces the existing one. Tees fan out, so new
+			// wires accumulate.
+			const fromNode = g.nodes.find( ( n ) => n.id === from );
+			if ( fromNode && fromNode.class !== 'Tee' ) {
+				let cleared = { nodes: g.nodes, edges: g.edges };
+				for ( const e of g.edges ) {
+					if ( e.from === from ) {
+						cleared = removeEdge( cleared, e.from, e.to );
+					}
+				}
+				return addEdge( cleared, { from, to } );
+			}
+			return addEdge( g, { from, to } );
+		} );
 	}, [] );
 
 	const handleRemoveNode = useCallback(
@@ -893,6 +1097,19 @@ export default function TopologyConsole() {
 		setOpenModalShown( true );
 	}, [] );
 
+	const handleNew = useCallback( () => {
+		const blank = { nodes: [], edges: [] };
+		setDraft( blank );
+		setBaseline( blank );
+		setEditingName( '' );
+		setSelectedId( null );
+		setSelectedEdge( null );
+		setPositionOverrides( {} );
+		setViewport( null );
+		rateRef.current = new Map();
+		setRateVersion( ( v ) => v + 1 );
+	}, [] );
+
 	const handleOpenPick = useCallback(
 		async ( name ) => {
 			setOpenModalShown( false );
@@ -904,8 +1121,17 @@ export default function TopologyConsole() {
 				// won't pop a confirm modal until the operator edits it.
 				setDraft( next );
 				setBaseline( next );
+				setEditingName( resp.name );
 				setSelectedId( null );
 				setSelectedEdge( null );
+				// Seed positionOverrides from the loaded graph's
+				// auto-layout so subsequent drops/wires don't reshuffle
+				// the rest of the canvas. Viewport reset = autofit on
+				// the next render.
+				seedOverridesFromLayout( next );
+				setViewport( null );
+				rateRef.current = new Map();
+				setRateVersion( ( v ) => v + 1 );
 				setToast( {
 					kind: 'success',
 					text: `Loaded ${ resp.name } (${ resp.source }).`,
@@ -918,7 +1144,7 @@ export default function TopologyConsole() {
 				setToast( { kind: 'error', text: msg } );
 			}
 		},
-		[ fetchTopology ]
+		[ fetchTopology, seedOverridesFromLayout ]
 	);
 
 	const handleSaveConfirm = useCallback(
@@ -932,6 +1158,7 @@ export default function TopologyConsole() {
 					kind: 'success',
 					text: `Saved ${ resp.name }. Restarted ${ restartedCount } fleet(s).`,
 				} );
+				setEditingName( resp.name );
 				// Refresh the picker's list — next "Open" sees the new
 				// topology without a page reload. Cheap network call.
 				topologyList.reload();
@@ -959,6 +1186,79 @@ export default function TopologyConsole() {
 		return () => clearTimeout( t );
 	}, [ toast ] );
 
+	const handleRenameNode = useCallback(
+		( oldId, rawNew ) => {
+			const newName = String( rawNew || '' ).trim();
+			if ( ! newName || newName === oldId ) {
+				return false;
+			}
+			// Reject collisions before mutating anything.
+			if ( draft.nodes.some( ( n ) => n.id === newName ) ) {
+				return false;
+			}
+			const classByName = new Map();
+			for ( const c of catalog.classes || [] ) {
+				classByName.set( c.shell_name, c );
+			}
+			setDraft( ( g ) => {
+				const renamed = renameNode( g, oldId, newName );
+				if ( renamed === g ) {
+					return g;
+				}
+				// Rewrite node_name verb args on every OTHER node that
+				// referenced oldId — keeps the augmented-graph virtual
+				// edges in lockstep with the rename.
+				const nodes = renamed.nodes.map( ( n ) => {
+					if ( ! n.verbInvocations || ! n.verbInvocations.length ) {
+						return n;
+					}
+					const schema = classByName.get( n.class );
+					if ( ! schema || ! schema.verbs ) {
+						return n;
+					}
+					const nextInvs = n.verbInvocations.map( ( inv ) => {
+						const vspec = schema.verbs.find(
+							( v ) => v.name === inv.verb
+						);
+						if ( ! vspec || ! vspec.args ) {
+							return inv;
+						}
+						let touched = false;
+						const args = inv.args.slice();
+						vspec.args.forEach( ( a, i ) => {
+							if (
+								a.type === 'node_name' &&
+								args[ i ] === oldId
+							) {
+								args[ i ] = newName;
+								touched = true;
+							}
+						} );
+						return touched ? { ...inv, args } : inv;
+					} );
+					return { ...n, verbInvocations: nextInvs };
+				} );
+				return { nodes, edges: renamed.edges };
+			} );
+			// Carry the position override onto the new key so the
+			// renamed node stays put.
+			setPositionOverrides( ( prev ) => {
+				if ( ! prev[ oldId ] ) {
+					return prev;
+				}
+				const next = { ...prev };
+				next[ newName ] = next[ oldId ];
+				delete next[ oldId ];
+				return next;
+			} );
+			if ( selectedId === oldId ) {
+				setSelectedId( newName );
+			}
+			return true;
+		},
+		[ draft.nodes, catalog.classes, selectedId ]
+	);
+
 	const handleUpdateArgs = useCallback( ( id, args ) => {
 		setDraft( ( g ) => updateNodeArgs( g, id, args ) );
 	}, [] );
@@ -967,20 +1267,43 @@ export default function TopologyConsole() {
 		setDraft( ( g ) => updateNodeVerbs( g, id, verbs ) );
 	}, [] );
 
+	// Grid-snap drop coords to the visible grid lattice. The grid
+	// pattern is offset by X_PAD + NODE_W/2 / Y_PAD + NODE_H/2 in
+	// SVG-space so its intersections fall on node CENTERS; snap
+	// uses the same origin to keep dropped-node centers on grid
+	// lines. Returns the top-left position the renderer stores.
+	const snapToGrid = useCallback( ( x, y ) => {
+		const sx = X_STEP / 2;
+		const sy = Y_STEP / 2;
+		const ox = X_PAD + NODE_W / 2;
+		const oy = Y_PAD + NODE_H / 2;
+		const centerX = Math.round( ( x - ox ) / sx ) * sx + ox;
+		const centerY = Math.round( ( y - oy ) / sy ) * sy + oy;
+		return {
+			x: centerX - NODE_W / 2,
+			y: centerY - NODE_H / 2,
+		};
+	}, [] );
+
 	const handleDropNode = useCallback(
 		( { shellName, x, y } ) => {
+			// Snap the cursor coords to the auto-layout grid before
+			// committing, so dropped nodes line up with the rest of
+			// the canvas and dragging one later doesn't reveal
+			// sub-pixel drift.
+			const snapped = snapToGrid( x, y );
 			setDraft( ( g ) => {
 				const name = generateNodeName( g, shellName );
-				// Seed a position override too — autoLayout would otherwise
-				// reposition the freshly-dropped node, defeating the cursor
-				// placement. handlePositionChange's setter writes through to
-				// localStorage; we use the same path so the placement
-				// survives reloads.
-				handlePositionChange( name, { x, y } );
-				return addNode( g, { shellName, name, x, y } );
+				handlePositionChange( name, snapped );
+				return addNode( g, {
+					shellName,
+					name,
+					x: snapped.x,
+					y: snapped.y,
+				} );
 			} );
 		},
-		[ handlePositionChange ]
+		[ handlePositionChange, snapToGrid ]
 	);
 
 	// Pull rate info for the selected node. rateVersion is the
@@ -1013,6 +1336,7 @@ export default function TopologyConsole() {
 				onModeChange={ handleModeChange }
 				onSave={ handleSave }
 				onOpen={ handleOpen }
+				onNew={ handleNew }
 			/>
 			{ mode === 'edit' && (
 				<Palette
@@ -1021,8 +1345,10 @@ export default function TopologyConsole() {
 				/>
 			) }
 			<CanvasFrame
-				topology={ topology }
-				partition={ partition }
+				topology={
+					mode === 'edit' ? editingName || 'untitled' : topology
+				}
+				partition={ mode === 'edit' ? null : partition }
 				onResetLayout={ hasOverrides ? handleResetLayout : null }
 			>
 				<SchematicCanvas
@@ -1067,22 +1393,28 @@ export default function TopologyConsole() {
 					ssePid={ ssePid }
 					editMode={ mode === 'edit' }
 					catalog={ catalog.classes }
+					formatters={ catalog.formatters }
 					onUpdateArgs={ handleUpdateArgs }
 					onUpdateVerbs={ handleUpdateVerbs }
 					onRemoveNode={ handleRemoveNode }
+					onRenameNode={ handleRenameNode }
+					onRemoveEdge={ handleRemoveEdge }
+					onConnect={ handleConnect }
 				/>
 			) }
-			<ReplFooter
-				topology={ topology }
-				partition={ partition }
-				streamStatus={ status }
-				canSend={ status === 'open' && !! ssePid }
-				onSubmit={ sendLine }
-				onClear={ () => setTranscript( [] ) }
-				transcript={ transcript }
-				expanded={ replExpanded }
-				onExpandedChange={ setReplExpanded }
-			/>
+			{ mode !== 'edit' && (
+				<ReplFooter
+					topology={ topology }
+					partition={ partition }
+					streamStatus={ status }
+					canSend={ status === 'open' && !! ssePid }
+					onSubmit={ sendLine }
+					onClear={ () => setTranscript( [] ) }
+					transcript={ transcript }
+					expanded={ replExpanded }
+					onExpandedChange={ setReplExpanded }
+				/>
+			) }
 			{ discardModal && (
 				<ConfirmModal
 					title="Discard unsaved changes?"

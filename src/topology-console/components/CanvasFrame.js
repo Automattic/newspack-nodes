@@ -25,9 +25,12 @@ export default function CanvasFrame( {
 	return (
 		<div className="topology-canvas">
 			<div className="topology-canvas__meta">
-				{ topology } · Partition { partition }
+				{ topology }
+				{ partition !== null && partition !== undefined
+					? ` · Partition ${ partition }`
+					: '' }
 				<div className="topology-canvas__topology-name">
-					topologies/{ topology }.php
+					topologies/{ topology }.tsl
 				</div>
 			</div>
 

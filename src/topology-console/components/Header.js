@@ -23,6 +23,7 @@ export default function Header( {
 	onModeChange,
 	onSave,
 	onOpen,
+	onNew,
 } ) {
 	return (
 		<header className="topology-header">
@@ -36,33 +37,54 @@ export default function Header( {
 				{ HOST }
 			</div>
 			<div className="topology-header__controls">
-				<span className="topology-ctl-label">Topology</span>
-				<select
-					className="topology-select"
-					value={ topology }
-					onChange={ ( e ) => onTopologyChange( e.target.value ) }
-				>
-					{ topologies.map( ( t ) => (
-						<option key={ t } value={ t }>
-							{ t }
-						</option>
-					) ) }
-				</select>
-				<span className="topology-ctl-label">Partition</span>
-				<select
-					className="topology-select"
-					value={ String( partition ) }
-					onChange={ ( e ) =>
-						onPartitionChange( parseInt( e.target.value, 10 ) )
-					}
-				>
-					{ partitions.map( ( p ) => (
-						<option key={ p } value={ String( p ) }>
-							p{ p }
-						</option>
-					) ) }
-				</select>
+				{ /* Topology + partition selectors apply only to the
+				live SSE feed; in edit mode the operator is authoring
+				offline and these would be misleading (no SSE, no
+				partition concept until the topology is saved + spawned). */ }
+				{ mode !== 'edit' && (
+					<>
+						<span className="topology-ctl-label">Topology</span>
+						<select
+							className="topology-select"
+							value={ topology }
+							onChange={ ( e ) =>
+								onTopologyChange( e.target.value )
+							}
+						>
+							{ topologies.map( ( t ) => (
+								<option key={ t } value={ t }>
+									{ t }
+								</option>
+							) ) }
+						</select>
+						<span className="topology-ctl-label">Partition</span>
+						<select
+							className="topology-select"
+							value={ String( partition ) }
+							onChange={ ( e ) =>
+								onPartitionChange(
+									parseInt( e.target.value, 10 )
+								)
+							}
+						>
+							{ partitions.map( ( p ) => (
+								<option key={ p } value={ String( p ) }>
+									p{ p }
+								</option>
+							) ) }
+						</select>
+					</>
+				) }
 				<div className="topology-mode">
+					{ mode === 'edit' && (
+						<button
+							type="button"
+							className="topology-mode__btn topology-mode__btn--new"
+							onClick={ () => onNew && onNew() }
+						>
+							NEW
+						</button>
+					) }
 					{ mode === 'edit' && (
 						<button
 							type="button"

@@ -29,6 +29,11 @@ export const X_STEP = 240;
 export const Y_STEP = 110;
 export const X_PAD = 60;
 export const Y_PAD = 80;
+// Node card dimensions — referenced here so callers that need
+// to convert top-left ⇄ center positions (snap, grid alignment)
+// share the same source of truth as SchematicCanvas.
+export const NODE_W = 196;
+export const NODE_H = 84;
 
 export function autoLayout( parsed ) {
 	const nodes = parsed?.nodes ?? [];

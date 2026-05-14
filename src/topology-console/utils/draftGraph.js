@@ -68,6 +68,47 @@ export function removeNode( graph, id ) {
 	return { nodes, edges };
 }
 
+/**
+ * Rename a node — updates the node's id + name and rewrites every
+ * edge that referenced the old id. Returns the original graph
+ * unchanged if `newName` is empty, equal to the existing name, or
+ * already taken by another node (caller is responsible for surfacing
+ * the rejection).
+ *
+ * Does NOT rewrite verb-arg references (those live on OTHER nodes
+ * and require the schema to know which args are node_name typed) —
+ * the caller (TopologyConsole) handles that with catalog access.
+ *
+ * @param {Object} graph   Current graph.
+ * @param {string} oldId   Existing node id.
+ * @param {string} newName Desired new name.
+ * @return {Object} New graph reference, or the original on a no-op.
+ */
+export function renameNode( graph, oldId, newName ) {
+	const trimmed = String( newName || '' ).trim();
+	if ( ! trimmed || trimmed === oldId ) {
+		return graph;
+	}
+	const taken = graph.nodes.some( ( n ) => n.id === trimmed );
+	if ( taken ) {
+		return graph;
+	}
+	const nodes = graph.nodes.map( ( n ) =>
+		n.id === oldId ? { ...n, id: trimmed, name: trimmed } : n
+	);
+	const edges = graph.edges.map( ( e ) => {
+		if ( e.from !== oldId && e.to !== oldId ) {
+			return e;
+		}
+		return {
+			...e,
+			from: e.from === oldId ? trimmed : e.from,
+			to: e.to === oldId ? trimmed : e.to,
+		};
+	} );
+	return { nodes, edges };
+}
+
 export function removeEdge( graph, fromId, toId ) {
 	const edges = graph.edges.filter(
 		( e ) => ! ( e.from === fromId && e.to === toId )
