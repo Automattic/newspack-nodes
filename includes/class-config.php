@@ -91,6 +91,12 @@ class Config {
 			'num_segments'   => 'int',
 			'segment_size'   => 'int',
 			'max_lifespan'   => 'int',
+			// Flat list of active topology names. Each entry must
+			// resolve via Topology_Registry. The supervisor spawns
+			// one worker fleet per entry, named after the topology.
+			// Substrate ships an empty default; application plugins
+			// (or per-deployment config files) populate it.
+			'topologies'     => 'array_strings',
 		];
 
 		// Allow plugins to add their core options.

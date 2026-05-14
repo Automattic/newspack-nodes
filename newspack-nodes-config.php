@@ -32,4 +32,11 @@ return [
 	'memcache_servers' => [
 		'127.0.0.1:11211',
 	],
+
+	// Active topologies — flat list of names resolved via
+	// Topology_Registry. Substrate ships none; application plugins
+	// (or per-deployment overlays) populate this list. Each entry
+	// becomes one fleet of `num_partitions` workers (sized by the
+	// topology's frontmatter when present).
+	'topologies'       => [],
 ];
