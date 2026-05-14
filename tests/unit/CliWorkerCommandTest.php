@@ -214,45 +214,31 @@ class CliWorkerCommandTest extends TestCase {
 		( new WorkerCliCommand() )->run( [ 'firehose-workers' ], [] );
 	}
 
-	public function test_run_errors_when_topology_file_does_not_return_callable(): void {
-		// Topology file returns an array (or anything non-callable). The closure
-		// loader rejects with a clear message.
-		$path = "{$this->tmp}/bad-topology.php";
-		\file_put_contents( $path, "<?php return [ 'not' => 'callable' ];\n" );
-		$this->register_topology( 'bad-topology', 1, $path );
-
+	public function test_run_errors_when_topology_name_not_in_registry(): void {
+		// Descriptor names a topology no plugin has registered with
+		// Topology_Registry — the registry returns null on resolve()
+		// and WorkerCliCommand bails with a clear message.
+		$this->register_topology( 'bogus-topology', 1, 'bogus-topology' );
 		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessageMatches( '/Topology must return a closure/' );
-		( new WorkerCliCommand() )->run( [ 'bad-topology' ], [] );
+		$this->expectExceptionMessageMatches( '/Topology not found in registry/' );
+		( new WorkerCliCommand() )->run( [ 'bogus-topology' ], [] );
 	}
 
-	public function test_run_executes_topology_until_restart_flag(): void {
-		// Happy-path execution: provide a topology closure that takes the worker
-		// straight to "restart pending" so should_continue() returns false on
-		// the first drain tick. The worker exits cleanly with status='ok'.
-		$path = "{$this->tmp}/exit-immediately-topology.php";
-		\file_put_contents(
-			$path,
-			"<?php\n"
-			. "return function ( \$ci, \$partition ): void {\n"
-			. "    // Set the restart flag so the worker exits immediately.\n"
-			. "    \$lock_path = \$GLOBALS['_topology_lock_path'] ?? '/tmp/newspack-nodes/locks/exit-test.p0.lock.d';\n"
-			. "    \\Newspack_Nodes\\Lock::request_restart_at( \$lock_path );\n"
-			. "};\n"
-		);
-		$this->register_topology( 'exit-test', 1, $path );
-
-		$GLOBALS['_topology_lock_path'] = "{$this->tmp}/locks/exit-test.p0.lock.d";
-
-		// Capture WP_CLI::success message — the only assertion that the run
-		// completed all the way through execute().
-		( new WorkerCliCommand() )->run( [ 'exit-test' ], [ 'quiet' => true ] );
-
-		// Worker exited cleanly. Lock dir is cleaned up by Lock::release after
-		// the restart flag was honored.
-		$this->assertFalse(
-			\is_dir( "{$this->tmp}/locks/exit-test.p0.lock.d" ),
-			'lock dir should be released after restart-flag exit'
-		);
-	}
+	// Integration coverage of "WorkerCliCommand runs a TSL topology to
+	// completion" sat here pre-A3 but no longer fits cleanly:
+	//
+	//  - The old shape returned a PHP closure that could set the
+	//    restart flag inline; TSL loads can't.
+	//  - Pre-arming the marker before run() doesn't work — Lock's
+	//    orphan-grace + force_release_at delete the dir contents
+	//    (including the marker) before the worker acquires.
+	//
+	// The narrower pieces are covered separately:
+	//  - Topology_Loader::load — TopologyLoaderTest
+	//  - Topology_Registry::resolve — TopologyRegistryTest
+	//  - WorkerBase::execute / should_continue — WorkerBaseTest
+	//
+	// WorkerCliCommand's responsibility is descriptor lookup +
+	// closure construction, both covered by the not-found-in-registry
+	// test above.
 }
