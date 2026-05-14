@@ -19,8 +19,11 @@ namespace Newspack_Nodes;
 class Shell extends Node {
 	public string $prompt = 'newspack-nodes> ';
 
-	/** @var array<string,string> name → value */
-	public array $variables = [];
+	// Variable storage moved to Core::$var (process-global) so multiple
+	// Shell instances share state and any PHP caller can read the
+	// current TSL bindings (e.g. JobWorker handlers reading `partition`
+	// or `config:base_directory`). The `$variables` accessor below
+	// reads/writes the same map.
 
 	/**
 	 * Current "directory" — the node-path TO which non-builtin commands route
@@ -83,7 +86,7 @@ class Shell extends Node {
 	private const FORBIDDEN = [ 'if', 'while', 'for', 'func', 'eval', 'unless', 'until' ];
 
 	public function set_variable( string $name, string $value ): void {
-		$this->variables[ $name ] = $value;
+		Core::$var[ $name ] = $value;
 	}
 
 	/**
@@ -133,14 +136,22 @@ class Shell extends Node {
 	}
 
 	/**
-	 * Single-tier interpolation: `<varname>` → $variables['varname'].
-	 * Unknown vars expand to empty string (matches real Shell3 unset-var policy).
-	 * Pre-compiled regex pattern (efficiency: hot-path-cheap dispatch).
+	 * Single-tier interpolation. Two namespaces:
+	 *   `<varname>`     → Core::$var[varname]
+	 *   `<config:foo>`  → Core::$config[foo]   (read-only PHP-populated)
+	 * Unknown keys expand to empty string (matches real Shell3 unset-var policy).
 	 */
 	public function interpolate( string $line ): string {
 		return (string) \preg_replace_callback(
-			'/<([a-zA-Z_][a-zA-Z0-9_]*)>/',
-			fn ( $m ) => $this->variables[ $m[1] ] ?? '',
+			'/<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/',
+			static function ( array $m ): string {
+				$key = $m[1];
+				if ( \str_starts_with( $key, 'config:' ) ) {
+					$cfg_key = \substr( $key, 7 );
+					return (string) ( Core::$config[ $cfg_key ] ?? '' );
+				}
+				return (string) ( Core::$var[ $key ] ?? '' );
+			},
 			$line
 		);
 	}
@@ -154,6 +165,71 @@ class Shell extends Node {
 	 */
 	private function generate_id(): string {
 		return \sprintf( '%d:%010d', \time(), Core::msg_counter() );
+	}
+
+	/**
+	 * Quote-aware statement splitter. Splits a multi-statement script on
+	 * unquoted `;` and newlines into trimmed non-empty fragments.
+	 * Mirrors Tachikoma Shell.pm's statement separator handling.
+	 *
+	 * Topology_Loader (and any other multi-statement caller) uses this
+	 * to turn a TSL file into a list of single-statement strings before
+	 * handing each one to parse().
+	 *
+	 * @return array<int,string>
+	 */
+	public function split_statements( string $script ): array {
+		$statements = [];
+		$buf        = '';
+		$in_quote   = null;
+		$len        = \strlen( $script );
+		for ( $i = 0; $i < $len; ++$i ) {
+			$ch = $script[ $i ];
+			if ( null !== $in_quote ) {
+				$buf .= $ch;
+				if ( $ch === $in_quote ) {
+					$in_quote = null;
+				}
+				continue;
+			}
+			if ( "'" === $ch || '"' === $ch || '`' === $ch ) {
+				$in_quote = $ch;
+				$buf     .= $ch;
+				continue;
+			}
+			if ( ';' === $ch || "\n" === $ch ) {
+				$trim = \trim( $buf );
+				if ( '' !== $trim ) {
+					$statements[] = $trim;
+				}
+				$buf = '';
+				continue;
+			}
+			$buf .= $ch;
+		}
+		$tail = \trim( $buf );
+		if ( '' !== $tail ) {
+			$statements[] = $tail;
+		}
+		return $statements;
+	}
+
+	/**
+	 * Parse a multi-statement script and dispatch each resulting
+	 * Message via $this->sink->fill(). Statements are separated by
+	 * unquoted `;` or newline. Builtins (var, cd, …) take effect via
+	 * side-effects and emit no Message.
+	 *
+	 * Used by Topology_Loader to feed a whole TSL file through the
+	 * Shell in one call. Cli REPL keeps using parse() per typed line.
+	 */
+	public function eval_script( string $script ): void {
+		foreach ( $this->split_statements( $script ) as $statement ) {
+			$msg = $this->parse( $statement );
+			if ( null !== $msg && null !== $this->sink ) {
+				$this->sink->fill( $msg );
+			}
+		}
 	}
 
 	/**
@@ -217,6 +293,35 @@ class Shell extends Node {
 		// No message emitted — pure state mutation in the local Shell.
 		if ( 'cd' === $verb || 'chdir' === $verb ) {
 			$this->path = $this->cd( $this->path, $args[0] ?? '' );
+			return null;
+		}
+
+		// `var name = value` builtin (Tachikoma Shell-style). Writes
+		// Core::$var[$name]. Used in TSL frontmatter to declare
+		// per-topology metadata (var num_partitions = 4;) and ad-hoc
+		// shell variables. No Message emitted.
+		//
+		// Tokenizer eats the `=` when it's whitespace-separated; the
+		// shape is `var <name> = <value>` (3 tokens after the verb)
+		// or `var <name> = <value with spaces>` (the value is the
+		// tail joined). Reject names containing `:` — that namespace
+		// is reserved for read-only PHP-populated lookups (e.g.
+		// `<config:foo>` resolves Core::$config['foo']) and writes
+		// to it through `var` would silently confuse readers.
+		if ( 'var' === $verb ) {
+			$name = $args[0] ?? '';
+			$eq   = $args[1] ?? '';
+			if ( '' === $name || '=' !== $eq ) {
+				return null;
+			}
+			if ( \str_contains( $name , ':' ) ) {
+				if ( \is_resource( $this->output_stream ) ) {
+					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+					\fwrite( $this->output_stream, "var: invalid name '{$name}' (':' is reserved for read-only namespaces like config:)\n" );
+				}
+				return null;
+			}
+			Core::$var[ $name ] = \implode( ' ', \array_slice( $args, 2 ) );
 			return null;
 		}
 

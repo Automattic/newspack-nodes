@@ -41,6 +41,29 @@ class Core {
 	 */
 	public static array $closing = [];
 
+	/**
+	 * Process-global Shell variable map. `<varname>` interpolation in
+	 * Shell::interpolate reads from here, and the Shell `var name =
+	 * value` builtin writes here. Topology_Loader pre-populates
+	 * predefined entries like `partition` before parsing a TSL file
+	 * so the topology can refer to them via `<partition>`.
+	 *
+	 * @var array<string,string>
+	 */
+	public static array $var = [];
+
+	/**
+	 * Process-global runtime-config map. `<config:foo>` interpolation
+	 * in Shell::interpolate reads `Core::$config['foo']`. Distinct
+	 * namespace from $var: $var is mutable from TSL via the `var name
+	 * = value` builtin; $config originates PHP-side (Topology_Loader
+	 * populates it from substrate Config::load_config) and TSL is
+	 * read-only against it.
+	 *
+	 * @var array<string,mixed>
+	 */
+	public static array $config = [];
+
 	/** @var array<string,array{first_seen:float,count:int,emitted:bool}> */
 	private static array $print_table = [];
 
@@ -74,6 +97,8 @@ class Core {
 		self::$print_table    = [];
 		self::$msg_counter    = 0;
 		self::$in_stderr      = false;
+		self::$var            = [];
+		self::$config         = [];
 		// Default handler: when a worker has wired up the `_repl` conduit, route
 		// stderr-style diagnostics through it as TM_BYTESTREAM addressed to
 		// `_repl`. The worker's `_router` peels `_repl` and dispatches into

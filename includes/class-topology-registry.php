@@ -81,6 +81,41 @@ class Topology_Registry {
 		return \array_keys( $names );
 	}
 
+	/**
+	 * Lightweight `var name = value` extractor for supervisor-side
+	 * metadata reads (num_partitions, stale_timeout, …) without
+	 * executing the topology. Mirrors the `var` builtin's parse rule:
+	 * three-token form `var <name> = <value>`, optional trailing `;`,
+	 * comments and blank lines skipped, names with `:` rejected.
+	 *
+	 * Reads the WHOLE file (vars can appear anywhere); supervisor
+	 * lookups don't care about ordering relative to make_node lines.
+	 *
+	 * @return array<string,string>
+	 */
+	public static function frontmatter( string $name ): array {
+		$path = self::resolve( $name );
+		if ( null === $path ) {
+			return [];
+		}
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		$contents = (string) \file_get_contents( $path );
+		$out      = [];
+		foreach ( \explode( "\n", $contents ) as $raw ) {
+			// Statements can also be `;`-separated on one line.
+			foreach ( \explode( ';', $raw ) as $stmt ) {
+				$stmt = \trim( $stmt );
+				if ( '' === $stmt || '#' === $stmt[0] ) {
+					continue;
+				}
+				if ( \preg_match( '/^var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/', $stmt, $m ) ) {
+					$out[ $m[1] ] = \trim( $m[2] );
+				}
+			}
+		}
+		return $out;
+	}
+
 	public static function reset(): void {
 		self::$stock_dirs = [];
 		self::$user_dir   = '';
