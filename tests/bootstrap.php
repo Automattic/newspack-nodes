@@ -43,6 +43,20 @@ if ( ! function_exists( 'do_action' ) ) {
 	function add_filter( string $hook, callable $cb, int $priority = 10, int $accepted_args = 1 ): void {
 		$GLOBALS['_wp_actions'][ $hook ][] = $cb;
 	}
+	function remove_action( string $hook, callable $cb, int $priority = 10 ): bool {
+		$list  = $GLOBALS['_wp_actions'][ $hook ] ?? [];
+		$keep  = [];
+		$found = false;
+		foreach ( $list as $registered ) {
+			if ( $registered === $cb ) {
+				$found = true;
+				continue;
+			}
+			$keep[] = $registered;
+		}
+		$GLOBALS['_wp_actions'][ $hook ] = $keep;
+		return $found;
+	}
 }
 
 // ── WordPress REST API Stubs ────────────────────────────────────────────────────
@@ -247,13 +261,16 @@ if ( ! class_exists( 'WP_REST_Response' ) ) {
 
 if ( ! class_exists( 'WP_REST_Request' ) ) {
 	class WP_REST_Request {
-		private $params = [];
-		private $method = 'GET';
+		private $params     = [];
+		private $url_params = [];
+		private $headers    = [];
+		private $body       = '';
+		private $method     = 'GET';
 		public function __construct( $method = 'GET', $route = '' ) {
 			$this->method = $method;
 		}
 		public function get_param( $key ) {
-			return $this->params[ $key ] ?? null;
+			return $this->params[ $key ] ?? $this->url_params[ $key ] ?? null;
 		}
 		public function set_param( $key, $value ) {
 			$this->params[ $key ] = $value;
@@ -263,6 +280,23 @@ if ( ! class_exists( 'WP_REST_Request' ) ) {
 		}
 		public function get_method() {
 			return $this->method;
+		}
+		public function set_url_params( array $params ): void {
+			$this->url_params = $params;
+		}
+		public function set_body( string $body ): void {
+			$this->body = $body;
+		}
+		public function get_body(): string {
+			return $this->body;
+		}
+		public function set_header( string $name, string $value ): void {
+			// Real WP_REST_Request normalizes header keys to underscored
+			// lowercase for get_header() lookup ('X-WP-Nonce' → 'x_wp_nonce').
+			$this->headers[ \strtolower( \str_replace( '-', '_', $name ) ) ] = $value;
+		}
+		public function get_header( string $name ): ?string {
+			return $this->headers[ \strtolower( \str_replace( '-', '_', $name ) ) ] ?? null;
 		}
 	}
 }

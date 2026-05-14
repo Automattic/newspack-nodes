@@ -248,6 +248,26 @@ class WorkerCliCommand {
 	}
 
 	/**
+	 * Action handler — restart every partition of one fleet by topology
+	 * name. Wired to `newspack_nodes/restart_fleet` so REST controllers
+	 * (POST /topologies/{name}) can trigger restarts without depending
+	 * on the WP-CLI surface. Best-effort: unknown name or no live
+	 * workers → no-op.
+	 */
+	public static function restart_fleet_by_name( string $name ): void {
+		$workers = Bootstrap::expand_workers();
+		$workers = \array_values( \array_filter(
+			$workers,
+			static fn ( $w ) => ( $w['type'] ?? '' ) === $name
+		) );
+		if ( empty( $workers ) ) {
+			return;
+		}
+		$base_dir = (string) ( Config::load_config()['base_directory'] ?? '/tmp/newspack-nodes' );
+		( new Cli( $base_dir ) )->restart_workers( $workers, [ $name => true ], -1 );
+	}
+
+	/**
 	 * Rich worker-status table. Six columns:
 	 *   Type | Partition | Status | Uptime | Behind | Restart
 	 *
