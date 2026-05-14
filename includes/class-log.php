@@ -165,8 +165,19 @@ class Log extends Node {
 		return [
 			'category'    => 'I/O',
 			'description' => 'Append-only file writer with rotation by line count.',
-			'ctor'        => [],
-			'verbs'       => [],
+			'ctor'        => [
+				[ 'name' => 'filename',      'type' => 'string', 'required' => true ],
+				[ 'name' => 'mode',          'type' => 'string', 'default' => self::MODE_APPEND, 'enum' => [ self::MODE_APPEND, self::MODE_OVERWRITE ] ],
+				[ 'name' => 'max_size',      'type' => 'int',    'default' => 0 ],
+				[ 'name' => 'max_rotations', 'type' => 'int',    'default' => 0 ],
+			],
+			'verbs'       => [
+				[
+					'name'        => 'rotate',
+					'description' => 'Rotate the log file: close current, rename to {filename}-{ts}, reopen.',
+					'args'        => [],
+				],
+			],
 		];
 	}
 }

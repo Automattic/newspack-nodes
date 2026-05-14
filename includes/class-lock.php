@@ -396,8 +396,11 @@ class Lock extends Node {
 	}
 
 	public static function node_schema(): array {
+		// Hidden from the topology console. Lock is an internal primitive
+		// used by Partition::allow_large_writes() and Worker lifecycle —
+		// not meaningful as a standalone graph node.
 		return [
-			'category'    => 'Control',
+			'category'    => 'Hidden',
 			'description' => 'Advisory cooperative file lock with heartbeat; blocks until acquired.',
 			'ctor'        => [],
 			'verbs'       => [],
