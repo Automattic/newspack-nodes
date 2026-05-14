@@ -16,4 +16,13 @@ class CaptureSink extends Node {
 		}
 		$this->captured[] = $message;
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Hidden',
+			'description' => 'Test fixture — captures messages in-memory for assertions.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }

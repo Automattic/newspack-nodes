@@ -30,4 +30,13 @@ class Hook extends Node {
 		}
 		$this->sink?->fill( $message );
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Control',
+			'description' => 'WordPress hook adapter — fires do_action/apply_filters on each message.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }

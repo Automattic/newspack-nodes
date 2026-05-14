@@ -21,4 +21,13 @@ class Callback extends Node {
 		++$this->counter;
 		( $this->cb )( $message );
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Transform',
+			'description' => 'Inline PHP closure as a node — invokes a callable on each message.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }

@@ -73,4 +73,13 @@ class Tee extends Node {
 			}
 		}
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Routing',
+			'description' => 'Fan-out: copies each message to multiple targets via Router.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }

@@ -40,4 +40,13 @@ class Echo_Node extends Node {
 
 		parent::fill( $message );
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Routing',
+			'description' => 'Re-addresses messages: target/TO, bounce, or pass-through.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }

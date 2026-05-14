@@ -549,4 +549,13 @@ class Dumper extends Node {
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 		\fwrite( $stream, $text );
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Hidden',
+			'description' => 'REPL output — printed to stream, not user-placeable in topology graphs.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }

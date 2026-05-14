@@ -394,4 +394,13 @@ class Lock extends Node {
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 		@\unlink( $this->lock_path . '/' . self::RESTART_FLAG );
 	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Control',
+			'description' => 'Advisory cooperative file lock with heartbeat; blocks until acquired.',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 }
