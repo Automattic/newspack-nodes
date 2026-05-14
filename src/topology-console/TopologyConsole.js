@@ -745,10 +745,14 @@ export default function TopologyConsole() {
 				return;
 			}
 			if ( next === 'edit' ) {
-				const snapshot = {
-					nodes: parsed.nodes.slice(),
-					edges: parsed.edges.slice(),
-				};
+				// Edit mode starts with a blank draft. Live `parsed`
+				// nodes use a different shape (id/klass) than what
+				// serializeTsl + the inspector form expect (name/class
+				// + ctorArgs/verbInvocations), and silently inheriting
+				// them produces broken TSL on save. Future work: an
+				// "Open existing topology" affordance can populate the
+				// draft from a stored .tsl file via the registry.
+				const snapshot = { nodes: [], edges: [] };
 				setDraft( snapshot );
 				setBaseline( snapshot );
 				setMode( 'edit' );
