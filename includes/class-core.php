@@ -113,7 +113,6 @@ class Core {
 				$m                       = Message::new_message();
 				$m[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 				$m[ Message::TIMESTAMP ] = self::$now;
-				$m[ Message::TO ]        = '_repl';
 				$m[ Message::VALUE ]     = $msg;
 				$repl->fill( $m );
 				return;
