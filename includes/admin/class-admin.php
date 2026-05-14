@@ -200,15 +200,35 @@ class Admin {
 		// Per-topology partition counts. The React tree reads these to
 		// size its partition dropdown so it can't show p0–p3 for a
 		// 1-partition aggregator (nor stop at p3 when num_partitions
-		// was bumped). Use the full catalog (not the active overlay)
-		// so the dropdown sees every topology that could spawn workers,
-		// not just the operator-selected subset.
+		// was bumped). Enumerate Topology_Registry::list() — the same
+		// set the admin Topologies checkbox renders — so the dropdown
+		// surfaces every TSL file the operator could pick, not just
+		// the app's published file-default catalog. Partition counts
+		// come from the catalog when the topology is in it, otherwise
+		// synthesized from each TSL file's frontmatter.
 		$topology_partitions = [];
-		foreach ( Bootstrap::get_topology_catalog() as $name => $def ) {
-			if ( \is_string( $name ) && \is_array( $def ) && isset( $def['num_partitions'] ) ) {
-				$topology_partitions[ $name ] = (int) $def['num_partitions'];
+		$catalog             = Bootstrap::get_topology_catalog();
+		foreach ( \Newspack_Nodes\Topology_Registry::list() as $name ) {
+			if ( ! \is_string( $name ) || '' === $name ) {
+				continue;
+			}
+			if ( isset( $catalog[ $name ]['num_partitions'] ) ) {
+				$topology_partitions[ $name ] = (int) $catalog[ $name ]['num_partitions'];
+				continue;
+			}
+			$synth = \Newspack_Nodes\Topology_Registry::synthesize_entry( $name, 1, Lock::STALE_TIMEOUT );
+			if ( null !== $synth && isset( $synth['num_partitions'] ) ) {
+				$topology_partitions[ $name ] = (int) $synth['num_partitions'];
 			}
 		}
+		\ksort( $topology_partitions );
+
+		// Active topologies — the merged catalog + operator-overlay set
+		// the supervisor would actually spawn. The React tree groups
+		// these to the top of the dropdown so "what's running" is one
+		// click away regardless of how many other TSL files exist.
+		$active_topologies = \array_keys( Bootstrap::get_topologies() );
+		\sort( $active_topologies );
 
 		// REST root + nonce for apiFetch wrappers in the React tree.
 		$rest_url    = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
@@ -234,6 +254,7 @@ class Admin {
 				'tree'                => 'topology-console',
 				'version'             => \NEWSPACK_NODES_VERSION,
 				'topologyPartitions'  => $topology_partitions,
+				'activeTopologies'    => $active_topologies,
 			]
 		);
 	}
