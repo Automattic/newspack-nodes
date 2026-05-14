@@ -24,9 +24,11 @@ import apiFetch from '@wordpress/api-fetch';
 import CanvasFrame from './components/CanvasFrame';
 import Header from './components/Header';
 import Inspector from './components/Inspector';
+import { ConfirmModal } from './components/Modal';
 import ReplFooter from './components/ReplFooter';
 import SchematicCanvas from './components/SchematicCanvas';
 
+import { useClassCatalog } from './hooks/useClassCatalog';
 import { useTopologyStream } from './hooks/useTopologyStream';
 import { parseMetadata } from './utils/parseMetadata';
 import { shellInterpret, SHELL_BUILTINS_BLURB } from './utils/shellInterpret';
@@ -235,6 +237,23 @@ export default function TopologyConsole() {
 	// hovering one of its routing-list links (target/also/from).
 	const [ hoveredId, setHoveredId ] = useState( null );
 	const [ parsed, setParsed ] = useState( { nodes: [], edges: [] } );
+	// Edit-mode state. `view` (default) renders the live SSE-driven graph;
+	// `edit` freezes a draft snapshot taken at the toggle moment so SSE
+	// pushes never clobber operator work in progress. `baseline` is the
+	// draft as it stood at edit-mode entry — kept separate so the dirty
+	// check compares draft-vs-baseline (real edits) rather than
+	// draft-vs-live-parsed (which would constantly disagree with itself
+	// thanks to SSE counter updates).
+	const [ mode, setMode ] = useState( 'view' );
+	const [ draft, setDraft ] = useState( { nodes: [], edges: [] } );
+	const [ baseline, setBaseline ] = useState( { nodes: [], edges: [] } );
+	// Pending discard-confirm modal. Null = no modal. Holds the closure
+	// to invoke if the user clicks "Discard" — keeps the confirm logic
+	// declarative (state-driven), not imperative window.confirm-style.
+	const [ discardModal, setDiscardModal ] = useState( null );
+	// Lazy-load the class catalog the first time the user enters edit
+	// mode. useClassCatalog caches the response, so re-entries are free.
+	const catalog = useClassCatalog( { enabled: mode === 'edit' } );
 	const [ transcript, setTranscript ] = useState( [] );
 	// Lifted: ReplFooter's transcript visibility, so Inspector actions
 	// (Dump, Tail) can pop the pane open when they fire commands the
@@ -701,6 +720,56 @@ export default function TopologyConsole() {
 		[ sendLine ]
 	);
 
+	// Edit-mode toggle. Entering: snapshot the live parsed as the
+	// draft baseline; leaving: pop a confirm modal if the draft has
+	// diverged from the (current) live snapshot. The draft is
+	// authoritative inside edit mode — SSE pushes don't clobber it.
+	const handleModeChange = useCallback(
+		( next ) => {
+			if ( next === mode ) {
+				return;
+			}
+			if ( next === 'edit' ) {
+				const snapshot = {
+					nodes: parsed.nodes.slice(),
+					edges: parsed.edges.slice(),
+				};
+				setDraft( snapshot );
+				setBaseline( snapshot );
+				setMode( 'edit' );
+				return;
+			}
+			// Going back to view: dirty iff the draft has diverged from
+			// the snapshot taken at edit-mode entry. Live `parsed` keeps
+			// changing under SSE (counters, flowing edges, late-arriving
+			// nodes) — if we compared against parsed we'd flag every
+			// edit-mode session as dirty even if the operator never
+			// touched anything.
+			const dirty =
+				JSON.stringify( draft ) !== JSON.stringify( baseline );
+			if ( ! dirty ) {
+				setMode( 'view' );
+				return;
+			}
+			setDiscardModal( {
+				onConfirm: () => {
+					setDiscardModal( null );
+					setMode( 'view' );
+				},
+				onCancel: () => setDiscardModal( null ),
+			} );
+		},
+		[ mode, parsed, draft, baseline ]
+	);
+
+	// View vs edit picks the source of truth for everything downstream:
+	// canvas, inspector, node-name lookup. SSE keeps writing `parsed`
+	// underneath; the draft is frozen until the user saves or discards.
+	const canvasGraph = mode === 'edit' ? draft : parsed;
+
+	// Avoid eslint "unused" warning until Task 4 consumes `catalog`.
+	void catalog;
+
 	// Pull rate info for the selected node. rateVersion is the
 	// "something changed in the rate map" signal that drives the
 	// useMemo recompute; the actual data lives in rateRef (mutable so
@@ -716,7 +785,7 @@ export default function TopologyConsole() {
 		<div
 			className={ `topology-app${
 				selectedId ? ' is-inspector-open' : ''
-			}` }
+			}${ mode === 'edit' ? ' is-edit-mode' : '' }` }
 		>
 			<Header
 				topologies={ TOPOLOGIES }
@@ -727,6 +796,8 @@ export default function TopologyConsole() {
 				onPartitionChange={ setPartition }
 				streamStatus={ status }
 				uptime={ uptime }
+				mode={ mode }
+				onModeChange={ handleModeChange }
 			/>
 			{ /* Palette is a v2 edit-mode affordance (drag node types onto
 			the canvas). In v1 we're inspect-only — hiding the pane
@@ -738,7 +809,7 @@ export default function TopologyConsole() {
 				onResetLayout={ hasOverrides ? handleResetLayout : null }
 			>
 				<SchematicCanvas
-					parsed={ parsed }
+					parsed={ canvasGraph }
 					selectedId={ selectedId }
 					onSelect={ setSelectedId }
 					positionOverrides={ positionOverrides }
@@ -759,13 +830,15 @@ export default function TopologyConsole() {
 			{ selectedId && (
 				<Inspector
 					selectedId={ selectedId }
-					parsed={ parsed }
+					parsed={ canvasGraph }
 					streamStatus={ status }
 					rateInfo={ selectedRateInfo }
 					onAction={ handleInspectorAction }
 					onSelect={ setSelectedId }
 					onHover={ setHoveredId }
-					nodeIds={ new Set( parsed.nodes.map( ( n ) => n.id ) ) }
+					nodeIds={
+						new Set( canvasGraph.nodes.map( ( n ) => n.id ) )
+					}
 					ssePid={ ssePid }
 				/>
 			) }
@@ -780,6 +853,17 @@ export default function TopologyConsole() {
 				expanded={ replExpanded }
 				onExpandedChange={ setReplExpanded }
 			/>
+			{ discardModal && (
+				<ConfirmModal
+					title="Discard unsaved changes?"
+					body="Leaving edit mode drops the draft topology. This cannot be undone."
+					confirmLabel="Discard"
+					cancelLabel="Keep editing"
+					danger
+					onConfirm={ discardModal.onConfirm }
+					onCancel={ discardModal.onCancel }
+				/>
+			) }
 		</div>
 	);
 }
