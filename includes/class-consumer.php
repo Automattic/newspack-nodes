@@ -533,22 +533,80 @@ class Consumer extends Timer {
 	 * Partition::fill so the offsetlog stores the canonical packed wire format
 	 * — same contract every Partition follows. load_offsetlog() unpacks back.
 	 */
+	/**
+	 * Resolve the Consumer's immediate downstream processor(s) into a flat
+	 * list of `{name, class}` entries. If `$this->target` resolves to a
+	 * `Tee`, expand the Tee's targets — the dashboard wants to display the
+	 * RequestBuilder / JobRouter / etc. that actually processes the data,
+	 * not the Tee plumbing in between. Empty list when no target is set or
+	 * the target node has gone away.
+	 *
+	 * @return array<int,array{name:string,class:string}>
+	 */
+	private function resolve_downstream_targets(): array {
+		if ( ! \is_string( $this->target ) || '' === $this->target ) {
+			return [];
+		}
+		$node = Core::node( $this->target );
+		if ( null === $node ) {
+			// Target node not yet registered (early checkpoint) or got
+			// removed; surface the name without a class so the dashboard
+			// can still render the row.
+			return [ [ 'name' => $this->target, 'class' => '' ] ];
+		}
+		$class = ( new \ReflectionClass( $node ) )->getShortName();
+		if ( 'Tee' !== $class ) {
+			return [ [ 'name' => $this->target, 'class' => $class ] ];
+		}
+		// Tee: expand to its targets so the dashboard shows the actual
+		// downstream processors.
+		$tee_targets = $node->target ?? [];
+		if ( ! \is_array( $tee_targets ) ) {
+			return [ [ 'name' => $this->target, 'class' => 'Tee' ] ];
+		}
+		$out = [];
+		foreach ( $tee_targets as $t ) {
+			if ( ! \is_string( $t ) || '' === $t ) {
+				continue;
+			}
+			$tn = Core::node( $t );
+			$tc = null === $tn ? '' : ( new \ReflectionClass( $tn ) )->getShortName();
+			$out[] = [ 'name' => $t, 'class' => $tc ];
+		}
+		return $out;
+	}
+
 	public function checkpoint(): void {
 		if ( null === $this->offsetlog ) {
 			return;
 		}
 		// Skip if cursor hasn't advanced since the last commit — the saved
 		// entry is still the truth, no point appending a duplicate every tick.
-		if ( $this->cursor_seg === $this->checkpoint_seg && $this->cursor_off === $this->checkpoint_off ) {
+		// Exception: the first checkpoint after construction always writes,
+		// even when the cursor is still at 0:0. That seeds the metadata
+		// (name/target/worker_type) so the dashboard can attribute this
+		// Consumer to a worker even when its source is idle.
+		$first_checkpoint = -1 === $this->checkpoint_seg && -1 === $this->checkpoint_off;
+		if (
+			! $first_checkpoint
+			&& $this->cursor_seg === $this->checkpoint_seg
+			&& $this->cursor_off === $this->checkpoint_off
+		) {
 			return;
 		}
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
 		$msg[ Message::TIMESTAMP ] = Core::$now;
 		$msg[ Message::VALUE ]     = [
-			'seg' => $this->cursor_seg,
-			'off' => $this->cursor_off,
-			'ts'  => Core::$now,
+			'seg'         => $this->cursor_seg,
+			'off'         => $this->cursor_off,
+			'ts'          => Core::$now,
+			'name'        => $this->name,
+			'target'      => \is_string( $this->target ) ? $this->target : '',
+			'targets'     => $this->resolve_downstream_targets(),
+			'worker_type' => isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] )
+				? (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE']
+				: '',
 		];
 		$this->offsetlog->fill( $msg );
 		// Persist immediately — checkpoint is the durable cursor commit;
@@ -632,9 +690,95 @@ class Consumer extends Timer {
 		$host = \gethostname() ?: 'unknown';
 		$memd->set(
 			"np:pos:{$host}:{$this->source_base_dir}:p{$this->source_partition}",
-			[ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'ts' => Core::$now ],
+			[
+				'seg'         => $this->cursor_seg,
+				'off'         => $this->cursor_off,
+				'ts'          => Core::$now,
+				'name'        => $this->name,
+				'target'      => \is_string( $this->target ) ? $this->target : '',
+				'targets'     => $this->resolve_downstream_targets(),
+				'worker_type' => isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] )
+					? (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE']
+					: '',
+			],
 			60
 		);
+	}
+
+	/**
+	 * Handle TM_REQUEST introspection verbs in addition to Timer's TIMER
+	 * hitchhike. Reply pattern is TO=FROM (walks the breadcrumb back),
+	 * VALUE is an array with TM_STRUCT set.
+	 */
+	public function fill( array &$message ): void {
+		$type = $message[ Message::TYPE ];
+		if ( ( $type & Message::TM_REQUEST ) && ! ( $type & Message::TM_RESPONSE ) ) {
+			$this->handle_request( $message );
+			return;
+		}
+		parent::fill( $message );
+	}
+
+	private function handle_request( array $message ): void {
+		$value = (string) $message[ Message::VALUE ];
+		// Verb name is the leading token; ignore any trailing args.
+		$verb = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
+
+		$payload = null;
+		if ( 'GET_LAG' === $verb ) {
+			$payload = $this->compute_lag();
+		} elseif ( 'GET_OFFSET' === $verb ) {
+			$payload = [
+				'cursor_seg'         => $this->cursor_seg,
+				'cursor_off'         => $this->cursor_off,
+				'checkpoint_seg'     => $this->checkpoint_seg,
+				'checkpoint_off'     => $this->checkpoint_off,
+				'last_checkpoint_ts' => (int) $this->last_checkpoint,
+			];
+		} else {
+			$payload = [ 'error' => "unknown request verb: {$verb}" ];
+		}
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_REQUEST | Message::TM_RESPONSE | Message::TM_STRUCT;
+		$reply[ Message::FROM ]  = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
+		$reply[ Message::TO ]    = $message[ Message::FROM ];
+		$reply[ Message::ID ]    = $message[ Message::ID ];
+		$reply[ Message::KEY ]   = $message[ Message::KEY ];
+		$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $payload ];
+		$this->sink?->fill( $reply );
+	}
+
+	private function compute_lag(): array {
+		\clearstatcache( true, $this->source->partition_dir() );
+		$segments = $this->source->get_segments( true );
+		if ( empty( $segments ) ) {
+			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true ];
+		}
+		$bytes_behind     = 0;
+		$segments_behind  = 0;
+		foreach ( $segments as $s ) {
+			$id   = (int) $s['id'];
+			$size = (int) $s['size'];
+			if ( $id < $this->cursor_seg ) {
+				continue;
+			}
+			if ( $id === $this->cursor_seg ) {
+				$bytes_behind += \max( 0, $size - $this->cursor_off );
+			} else {
+				$bytes_behind += $size;
+				++$segments_behind;
+			}
+		}
+		// `line_remainder` is past cursor_off but not yet emitted — count it
+		// as already-read so the lag reflects bytes-still-to-emit, not bytes-
+		// not-yet-fetched.
+		$bytes_behind = \max( 0, $bytes_behind - \strlen( $this->line_remainder ) );
+		return [
+			'bytes_behind'    => $bytes_behind,
+			'segments_behind' => $segments_behind,
+			'caught_up'       => 0 === $bytes_behind,
+		];
 	}
 
 	public static function node_schema(): array {
@@ -647,6 +791,18 @@ class Consumer extends Timer {
 				[ 'name' => 'offsetlog_base_dir', 'type' => 'string', 'default' => '' ],
 			],
 			'verbs'       => [],
+			'requests'    => [
+				[
+					'name'        => 'GET_LAG',
+					'description' => 'Bytes/messages behind the source partition tail.',
+					'reply_shape' => '{ bytes_behind, segments_behind, caught_up }',
+				],
+				[
+					'name'        => 'GET_OFFSET',
+					'description' => 'Current cursor + last checkpoint.',
+					'reply_shape' => '{ cursor_seg, cursor_off, checkpoint_seg, checkpoint_off, last_checkpoint_ts }',
+				],
+			],
 		];
 	}
 }
