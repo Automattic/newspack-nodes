@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.30] - 2026-05-15
+
+### Added
+
+- **`/` from anywhere in the live view focuses the REPL input.** Same convention as Discord/Slack/vim search. Pressing `/` over the canvas, header, palette, or any non-editable element jumps focus to the REPL and expands the transcript if collapsed. The literal `/` is preserved when typed inside an `<input>`/`<textarea>`/contenteditable so the shortcut doesn't steal slashes mid-edit.
+- **Drag-to-resize transcript pane.** Top-edge handle (faint center bar, brass on hover) lets the operator size the transcript up or down. Default = 20% of the canvas area, clamped `[80px, full canvas]`; persisted to `localStorage` so the preference survives reloads.
+
+### Changed
+
+- **Transcript entries cluster at the bottom of the pane.** Terminal-style anchor — a few entries sit near the input bar instead of floating at the top of an otherwise-empty pane. Once entries overflow the pane, normal scroll kicks in and the existing scrollTop=scrollHeight effect keeps the newest line visible.
+- **Esc now blurs the REPL input after minimizing the transcript.** Lets a subsequent `/` keystroke fire the focus-shortcut and re-summon the pane without clicking out first. Esc → minimize, `/` → restore: clean toggle.
+
 ## [0.1.29] - 2026-05-15
 
 ### Fixed
