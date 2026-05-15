@@ -1320,22 +1320,25 @@ body[class*="_page_newspack-nodes-topology"] {
 		box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
 	}
 
-	// Top-edge drag handle. 4px tall hit target; cursor and a faint
+	// Top-edge drag handle. 6px tall hit target; cursor and a faint
 	// hover line give the affordance without competing with transcript
-	// text for attention. Sits absolutely-positioned over the
-	// transcript's top border so the handle and the border occupy the
-	// same pixel row.
+	// text for attention.
+	// Sibling of the transcript inside the `.topology-repl` footer
+	// (which is `position: relative`), not nested inside the scrollable
+	// transcript container — so the handle stays anchored to the
+	// visible top edge of the pane regardless of how far the operator
+	// has scrolled the transcript contents. `bottom` is set inline via
+	// React state: `${height + 38 - 3}px` centers the 6px handle on the
+	// transcript's top border (38 = bar height, 3 = half handle).
 	&__resize-handle {
 		position: absolute;
-		top: 0;
 		left: 0;
 		right: 0;
 		height: 6px;
 		cursor: ns-resize;
-		z-index: 2;
-		// Lifted off the absolute-position layout so the operator
-		// can grab anywhere across the top edge — including under the
-		// sticky actions row, which sits at z-index: 1.
+		// Above the transcript (z=1 for actions, transcript itself
+		// participates in the footer's z=5 stacking context).
+		z-index: 6;
 
 		&::before {
 			content: "";

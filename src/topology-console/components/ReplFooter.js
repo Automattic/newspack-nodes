@@ -261,19 +261,7 @@ export default function ReplFooter( {
 			}` }
 		>
 			{ showTranscript && (
-				/* The transcript is a passive display region; the click
-				   handler is a UX nicety (focus the input) and doesn't
-				   make this an "interactive element" in the a11y sense.
-				   Keyboard users already have the input focused from the
-				   start and can re-Tab to it; they don't need a key
-				   binding on the transcript itself. */
-				/* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */
-				<div
-					className="topology-repl__transcript"
-					ref={ logRef }
-					onClick={ handleTranscriptClick }
-					style={ { height: `${ height }px` } }
-				>
+				<>
 					{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
 					<div
 						className="topology-repl__resize-handle"
@@ -282,45 +270,68 @@ export default function ReplFooter( {
 						aria-label="Resize transcript"
 						role="separator"
 						aria-orientation="horizontal"
+						// Sibling of the transcript (not nested inside it),
+						// so the handle stays anchored to the visible top
+						// edge of the pane regardless of how far the
+						// operator has scrolled the transcript contents.
+						// Vertically centered on the transcript's top
+						// border by offsetting half the handle's height
+						// past the bar+transcript stack.
+						style={ { bottom: `${ height + 38 - 3 }px` } }
 					/>
-					<div className="topology-repl__actions">
-						<button
-							type="button"
-							className="topology-repl__toggle"
-							onClick={ () => setExpanded( false ) }
-							title="Minimize transcript"
-							aria-label="Minimize transcript"
-						>
-							▼
-						</button>
-						<button
-							type="button"
-							className="topology-repl__clear"
-							onClick={ () => {
-								if ( onClear ) {
-									onClear();
-								}
-								setExpanded( false );
-							} }
-							title="Clear and minimize transcript (Ctrl+L clears only)"
-							aria-label="Clear and minimize transcript"
-						>
-							✕
-						</button>
-					</div>
-					<div className="topology-repl__entries">
-						{ transcript.map( ( entry ) => (
-							<pre
-								key={ entry.key }
-								className={ `topology-repl__entry topology-repl__entry--${ entry.kind }` }
+					{ /* The transcript is a passive display region; the click
+					     handler is a UX nicety (focus the input) and doesn't
+					     make this an "interactive element" in the a11y sense.
+					     Keyboard users already have the input focused from the
+					     start and can re-Tab to it; they don't need a key
+					     binding on the transcript itself. */ }
+					{ /* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */ }
+					<div
+						className="topology-repl__transcript"
+						ref={ logRef }
+						onClick={ handleTranscriptClick }
+						style={ { height: `${ height }px` } }
+					>
+						<div className="topology-repl__actions">
+							<button
+								type="button"
+								className="topology-repl__toggle"
+								onClick={ () => setExpanded( false ) }
+								title="Minimize transcript"
+								aria-label="Minimize transcript"
 							>
-								{ entry.kind === 'sent'
-									? `${ topology }.p${ partition }> ${ entry.text }`
-									: entry.text }
-							</pre>
-						) ) }
+								▼
+							</button>
+							<button
+								type="button"
+								className="topology-repl__clear"
+								onClick={ () => {
+									if ( onClear ) {
+										onClear();
+									}
+									setExpanded( false );
+								} }
+								title="Clear and minimize transcript (Ctrl+L clears only)"
+								aria-label="Clear and minimize transcript"
+							>
+								✕
+							</button>
+						</div>
+						<div className="topology-repl__entries">
+							{ transcript.map( ( entry ) => (
+								<pre
+									key={ entry.key }
+									className={ `topology-repl__entry topology-repl__entry--${ entry.kind }` }
+								>
+									{ entry.kind === 'sent'
+										? `${ topology }.p${ partition }> ${ entry.text }`
+										: entry.text }
+								</pre>
+							) ) }
+						</div>
 					</div>
-				</div>
+					tttt
+				</>
 			) }
 			<div className="topology-repl__bar">
 				<span className="topology-repl__prompt">
