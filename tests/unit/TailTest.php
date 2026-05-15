@@ -39,6 +39,21 @@ class TailTest extends TestCase {
 		$this->assertSame( 'third',  trim( $cap->captured[2][ Message::VALUE ] ) );
 	}
 
+	public function test_poll_stamps_TO_from_connect_node_target(): void {
+		// `connect_node mytail mysession` sets target='mysession'; without
+		// the parent::fill() route the emitted message had TO='' and the
+		// Router had no destination to dispatch to — silent black hole.
+		file_put_contents( "{$this->tmp}/data.log", "hello\n" );
+		$t = new Tail( "{$this->tmp}/data.log" );
+		$t->connect_node( 'mysession' );
+		$cap = new CaptureSink();
+		$t->sink( $cap );
+		$t->poll();
+
+		$this->assertCount( 1, $cap->captured );
+		$this->assertSame( 'mysession', $cap->captured[0][ Message::TO ] );
+	}
+
 	public function test_poll_does_not_re_emit_old_data(): void {
 		file_put_contents( "{$this->tmp}/data.log", "first\n" );
 		$t = new Tail( "{$this->tmp}/data.log" );
