@@ -241,4 +241,226 @@ class CliWorkerCommandTest extends TestCase {
 	// WorkerCliCommand's responsibility is descriptor lookup +
 	// closure construction, both covered by the not-found-in-registry
 	// test above.
+
+	// -------------------------------------------------------------------------
+	// restart_fleet_by_name (static action handler)
+	// -------------------------------------------------------------------------
+
+	public function test_restart_fleet_by_name_writes_restart_flag_for_every_partition(): void {
+		// Action handler wired to `newspack_nodes/restart_fleet`. Operator
+		// triggers via REST → WorkerCliCommand::restart_fleet_by_name fires.
+		$this->register_topology( 'firehose-workers', 3 );
+		for ( $p = 0; $p < 3; $p++ ) {
+			\mkdir( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d", 0755, true );
+		}
+
+		WorkerCliCommand::restart_fleet_by_name( 'firehose-workers' );
+
+		for ( $p = 0; $p < 3; $p++ ) {
+			$this->assertTrue(
+				Lock::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d" ),
+				"partition p{$p} must have restart flag written"
+			);
+		}
+	}
+
+	public function test_restart_fleet_by_name_noop_for_unknown_fleet(): void {
+		// "Best-effort: unknown name or no live workers → no-op."
+		// No matching workers in expand_workers → array_filter strips all
+		// entries → no work to do. Must not throw, must not touch disk.
+		\mkdir( "{$this->tmp}/locks", 0755, true );
+
+		WorkerCliCommand::restart_fleet_by_name( 'never-registered' );
+
+		// No restart flag files were written.
+		$entries = \scandir( "{$this->tmp}/locks" );
+		$entries = false === $entries ? [] : \array_values( \array_diff( $entries, [ '.', '..' ] ) );
+		$this->assertSame( [], $entries, 'no lock dirs should be created for unknown fleets' );
+	}
+
+	public function test_restart_fleet_by_name_filters_to_named_fleet_only(): void {
+		// Other fleets must not be touched — the action handler is named:
+		// restart only the fleet keyed by $name.
+		$this->register_topology( 'firehose-workers', 1 );
+		$this->register_topology( 'aggregator', 1 );
+		\mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
+		\mkdir( "{$this->tmp}/locks/aggregator.p0.lock.d", 0755, true );
+
+		WorkerCliCommand::restart_fleet_by_name( 'firehose-workers' );
+
+		$this->assertTrue( Lock::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p0.lock.d" ) );
+		$this->assertFalse(
+			Lock::is_restart_pending( "{$this->tmp}/locks/aggregator.p0.lock.d" ),
+			'aggregator must not be restarted when the named fleet is firehose-workers'
+		);
+	}
+
+	// -------------------------------------------------------------------------
+	// run command (error paths only — full run() requires a live worker)
+	// -------------------------------------------------------------------------
+
+	public function test_run_errors_on_unknown_partition_for_known_type(): void {
+		// Known type + nonexistent partition → "No worker registered for
+		// {type} partition {N}" error. Distinct from unknown-type which is
+		// caught earlier by the in_array check.
+		$this->register_topology( 'firehose-workers', 1 );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessageMatches( '/No worker registered for firehose-workers partition 5/' );
+		( new WorkerCliCommand() )->run(
+			[ 'firehose-workers' ],
+			[ 'partition' => 5 ]
+		);
+	}
+
+	// -------------------------------------------------------------------------
+	// types command — partition pluralization branches
+	// -------------------------------------------------------------------------
+
+	public function test_types_renders_singular_partition_form(): void {
+		// 1 partition → "1 partition" (singular); multi-partition path already
+		// covered by test_types_lists_registered_groups.
+		$this->register_topology( 'aggregator', 1 );
+
+		( new WorkerCliCommand() )->types( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( '1 partition', $haystack );
+		// Make sure the plural form did NOT also leak in.
+		$this->assertStringNotContainsString( '1 partitions', $haystack );
+	}
+
+	public function test_types_includes_topology_path_when_provided(): void {
+		// Each entry's `topology` field is logged on a separate "topology:"
+		// line when set; verifies the secondary log statement.
+		$this->register_topology( 'firehose-workers', 2, '/some/explicit/path.tsl' );
+
+		( new WorkerCliCommand() )->types( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( '/some/explicit/path.tsl', $haystack );
+	}
+
+	// -------------------------------------------------------------------------
+	// status command — saved_position + Behind + cache filter branches
+	// -------------------------------------------------------------------------
+
+	public function test_status_renders_uptime_when_started_file_present(): void {
+		// `Uptime` reads Lock::get_started_time(); produce a real `started`
+		// file via the substrate convention so the format_duration path runs.
+		$this->register_topology( 'firehose-workers', 1 );
+		$lock = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
+		\mkdir( $lock, 0755, true );
+		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
+		\file_put_contents( "{$lock}/started", (string) ( \time() - 120 ) );
+
+		( new WorkerCliCommand() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		// 120 seconds → format_duration emits "2m" or similar minute-grain.
+		// Allow some clock slop in case the test machine is busy.
+		$this->assertMatchesRegularExpression( '/\d+(m|s)/', $haystack );
+	}
+
+	public function test_status_renders_behind_when_partition_dir_present(): void {
+		// `Behind` reads partition file sizes via saved_position fallback.
+		// Without an offsetlog/cache, the column stays '-'; drop a
+		// saved-position file so the Behind column gets populated.
+		$this->register_topology( 'firehose-workers', 1 );
+		$lock = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
+		\mkdir( $lock, 0755, true );
+		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
+
+		// Substrate convention: offsetlog under offsets/{type}.p{partition}/p0/.
+		$offset_dir = "{$this->tmp}/offsets/firehose-workers.p0/p0";
+		\mkdir( $offset_dir, 0755, true );
+		\file_put_contents(
+			"{$offset_dir}/0.log",
+			\json_encode( [ 'seg' => 0, 'off' => 100, 'ts' => \time() ] ) . "\n"
+		);
+
+		// And a firehose.log partition dir under logs/firehose.log/p0 with
+		// content larger than the cursor offset so the "Behind" calculation
+		// has something to report.
+		$partition_dir = "{$this->tmp}/logs/firehose.log/p0";
+		\mkdir( $partition_dir, 0755, true );
+		// 300 bytes total → 200 bytes behind (300 - 100).
+		\file_put_contents( "{$partition_dir}/0.log", \str_repeat( 'a', 300 ) );
+
+		( new WorkerCliCommand() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		// 200B → format_bytes → "200B". At minimum verify the column
+		// changed shape from '-' (no offsetlog path) to a byte literal.
+		$this->assertStringContainsString( '200B', $haystack );
+	}
+
+	public function test_status_uses_filtered_cache_when_provided(): void {
+		// Live-position memcache is hooked via newspack_nodes/worker_cli_cache.
+		// Apps providing a Cache_Interface-compatible object see their cached
+		// positions in the Behind column.
+		$this->register_topology( 'firehose-workers', 1 );
+		$lock = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
+		\mkdir( $lock, 0755, true );
+		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
+
+		$partition_dir = "{$this->tmp}/logs/firehose.log/p0";
+		\mkdir( $partition_dir, 0755, true );
+		\file_put_contents( "{$partition_dir}/0.log", \str_repeat( 'b', 500 ) );
+
+		$cache = new class {
+			public array $hits = [];
+			public function get( string $key ) {
+				$this->hits[] = $key;
+				return [ 'seg' => 0, 'off' => 50, 'ts' => \time() ];
+			}
+		};
+
+		\add_filter( 'newspack_nodes/worker_cli_cache', function () use ( $cache ) {
+			return $cache;
+		} );
+
+		( new WorkerCliCommand() )->status( [], [] );
+
+		$this->assertNotEmpty( $cache->hits, 'cache must be consulted via live_position' );
+		$this->assertStringContainsString( 'newspack_nodes:cursor:firehose-workers.p0', $cache->hits[0] );
+	}
+
+	public function test_status_ignores_filter_value_that_is_not_object(): void {
+		// `cache()` returns null when the filter delivers a non-object;
+		// status() then falls back to saved_position. Validates the
+		// `is_object()` guard branch.
+		$this->register_topology( 'firehose-workers', 1 );
+		$lock = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
+		\mkdir( $lock, 0755, true );
+		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
+
+		\add_filter( 'newspack_nodes/worker_cli_cache', function () {
+			// Junk value — must be filtered out by the is_object check.
+			return 'not-an-object';
+		} );
+
+		( new WorkerCliCommand() )->status( [], [] );
+
+		// No exception, output produced.
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( 'firehose-workers', $haystack );
+	}
+
+	public function test_status_exits_cleanly_with_fallback_renderer(): void {
+		// `WP_CLI\Utils\format_items` is not stubbed in this test harness, so
+		// status() emits via the printf-style fallback. Pin the contract so a
+		// future regression removing the fallback fails this test.
+		$this->register_topology( 'firehose-workers', 1 );
+		$lock = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
+		\mkdir( $lock, 0755, true );
+		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
+
+		( new WorkerCliCommand() )->status( [], [] );
+
+		// Plain-text fallback emits one log line per row.
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( 'firehose-workers', $haystack );
+		$this->assertStringContainsString( 'p0', $haystack );
+		$this->assertStringContainsString( 'restart=no', $haystack );
+	}
 }

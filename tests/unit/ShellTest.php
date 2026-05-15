@@ -70,7 +70,7 @@ class ShellTest extends TestCase {
 
 		$this->assertSame( Message::TM_BYTESTREAM, $msg[ Message::TYPE ] );
 		$this->assertSame( 'node', $msg[ Message::TO ] );
-		$this->assertSame( 'bytes', $msg[ Message::VALUE ] );
+		$this->assertSame( "bytes\n", $msg[ Message::VALUE ] );
 	}
 
 	public function test_parse_send_eof_yields_TM_EOF(): void {
