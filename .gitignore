@@ -3,6 +3,9 @@
 /node_modules/
 /vendor/
 
+# Test coverage outputs
+/coverage/
+
 # Logs
 *.log
 npm-debug.log*
