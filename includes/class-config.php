@@ -76,59 +76,28 @@ class Config {
 	private static ?string $validated_offsets_directory = null;
 
 	/**
-	 * Get core option schema - loaded on every request (autoloaded).
-	 *
-	 * Plugins can add their core options via the 'newspack_nodes_option_schema_core'
-	 * filter. Core options are needed for request logging and hook timing.
-	 *
-	 * @return array Associative array of option_name => type.
+	 * Core options are needed for request logging and hook timing.
 	 */
-	private static function get_option_schema_core(): array {
-		// Substrate core options.
-		$schema = [
-			'base_directory' => 'path',
-			'num_partitions' => 'int',
-			'num_segments'   => 'int',
-			'segment_size'   => 'int',
-			'max_lifespan'   => 'int',
-			// Flat list of active topology names. Each entry must
-			// resolve via Topology_Registry. The supervisor spawns
-			// one worker fleet per entry, named after the topology.
-			// Substrate ships an empty default; application plugins
-			// (or per-deployment config files) populate it.
-			'topologies'     => 'array_strings',
-		];
-
-		// Allow plugins to add their core options.
-		if ( \function_exists( 'apply_filters' ) ) {
-			$schema = \apply_filters( 'newspack_nodes_option_schema_core', $schema );
-		}
-
-		return \is_array( $schema ) ? $schema : [];
-	}
+	private static $option_schema_core = [
+		'base_directory' => 'path',
+		'num_partitions' => 'int',
+		'num_segments'   => 'int',
+		'segment_size'   => 'int',
+		'max_lifespan'   => 'int',
+		// Flat list of active topology names. Each entry must
+		// resolve via Topology_Registry. The supervisor spawns
+		// one worker fleet per entry, named after the topology.
+		// Substrate ships an empty default; application plugins
+		// (or per-deployment config files) populate it.
+		'topologies'     => 'array_strings',
+	];
 
 	/**
-	 * Get extended option schema - only loaded for workers/admin (not autoloaded).
-	 *
-	 * Plugins can add their extended options via the
-	 * 'newspack_nodes_option_schema_extended' filter. Extended options are only
-	 * needed by workers and admin settings.
-	 *
-	 * @return array Associative array of option_name => type.
+	 * Extended options are only needed by workers and admin settings.
 	 */
-	private static function get_option_schema_extended(): array {
-		// Substrate extended options.
-		$schema = [
-			'memcache_servers' => 'memcache_servers',
-		];
-
-		// Allow plugins to add their extended options.
-		if ( \function_exists( 'apply_filters' ) ) {
-			$schema = \apply_filters( 'newspack_nodes_option_schema_extended', $schema );
-		}
-
-		return \is_array( $schema ) ? $schema : [];
-	}
+	private static $option_schema_extended = [
+		'memcache_servers' => 'memcache_servers',
+	];
 
 	/**
 	 * Allowed directories for local config override files.
@@ -163,7 +132,7 @@ class Config {
 		// Override with WordPress options (with sanitization).
 		if ( \defined( 'ABSPATH' ) && \function_exists( 'get_option' ) ) {
 			// Always load core options.
-			foreach ( self::get_option_schema_core() as $key => $type ) {
+			foreach ( self::$option_schema_core as $key => $type ) {
 				$value = \get_option( "newspack_nodes_{$key}" );
 				if ( false !== $value && '' !== $value ) {
 					$sanitized = Config_Utils::sanitize_option( $value, $type );
@@ -175,7 +144,7 @@ class Config {
 
 			// Load extended options only for 'full' mode.
 			if ( $is_full ) {
-				foreach ( self::get_option_schema_extended() as $key => $type ) {
+				foreach ( self::$option_schema_extended as $key => $type ) {
 					$value = \get_option( "newspack_nodes_{$key}" );
 					if ( false !== $value && '' !== $value ) {
 						$sanitized = Config_Utils::sanitize_option( $value, $type );
@@ -187,13 +156,6 @@ class Config {
 			}
 		}
 
-		// Cache the computed config. Late-loading plugins may add to the option
-		// schema via the `newspack_nodes_option_schema_core` filter AFTER this
-		// call, so the main plugin file hooks a one-shot cache reset on
-		// `plugins_loaded` at priority PHP_INT_MIN — see `register_cache_invalidation`
-		// below. That guarantees post-plugins_loaded reads pick up the full schema
-		// without forcing every pre-plugins_loaded caller to re-run the full
-		// filter chain.
 		if ( $is_full ) {
 			self::$config_full = $config;
 		} else {
@@ -202,37 +164,6 @@ class Config {
 
 		return $config;
 	}
-
-	/**
-	 * Invalidate cached config so the next load_config() call rebuilds with
-	 * the complete schema. Called once on plugins_loaded (see register_cache_invalidation).
-	 */
-	public static function invalidate_cache(): void {
-		self::$config                      = null;
-		self::$config_full                 = null;
-		self::$config_defaults             = null;
-		self::$validated_base_directory    = null;
-		self::$validated_logs_directory    = null;
-		self::$validated_locks_directory   = null;
-		self::$validated_offsets_directory = null;
-	}
-
-	/**
-	 * Hook a one-shot cache invalidation on plugins_loaded so that any
-	 * schema additions registered by late-loading plugins are picked up by
-	 * the next load_config() call. Invoked from the plugin main file.
-	 */
-	public static function register_cache_invalidation(): void {
-		static $registered = false;
-		if ( $registered ) {
-			return;
-		}
-		$registered = true;
-		if ( \function_exists( 'add_action' ) ) {
-			\add_action( 'plugins_loaded', [ self::class, 'invalidate_cache' ], PHP_INT_MIN );
-		}
-	}
-
 
 	/**
 	 * Load configuration defaults from file only (no WordPress options).

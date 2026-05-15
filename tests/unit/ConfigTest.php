@@ -420,66 +420,6 @@ public function test_sanitize_option_unknown_type_returns_null(): void {
 		$this->assertFileDoesNotExist( "{$other}/restart" );
 	}
 
-	// ── Schema filter ─────────────────────────────────────────────────────
-
-	public function test_schema_core_filter_appends_keys(): void {
-		\add_filter(
-			'newspack_nodes_option_schema_core',
-			static function ( array $schema ): array {
-				$schema['extra_substrate_key'] = 'int';
-				return $schema;
-			}
-		);
-		Config::reset();
-		\update_option( 'newspack_nodes_extra_substrate_key', '17' );
-		$config = Config::load_config();
-		$this->assertSame( 17, $config['extra_substrate_key'] );
-		// Reset filter so other tests don't see it.
-		$GLOBALS['_wp_actions']['newspack_nodes_option_schema_core'] = [];
-	}
-
-	// ── invalidate_cache + register_cache_invalidation ───────────────────
-
-	public function test_invalidate_cache_clears_all_cached_values(): void {
-		// Prime caches by triggering various loaders.
-		\update_option( 'newspack_nodes_base_directory', $this->temp_dir . '/cache-base' );
-		Config::load_config();
-		Config::get_base_directory();
-
-		// Cached values should be non-null at this point.
-		$ref_full = new \ReflectionProperty( Config::class, 'config' );
-		$ref_full->setAccessible( true );
-		$ref_base = new \ReflectionProperty( Config::class, 'validated_base_directory' );
-		$ref_base->setAccessible( true );
-
-		$this->assertNotNull( $ref_full->getValue() );
-		$this->assertNotNull( $ref_base->getValue() );
-
-		Config::invalidate_cache();
-
-		// All cached values must be null.
-		$this->assertNull( $ref_full->getValue() );
-		$this->assertNull( $ref_base->getValue() );
-	}
-
-	public function test_register_cache_invalidation_hooks_plugins_loaded_only_once(): void {
-		// Reset the static guard via reflection — register_cache_invalidation uses
-		// `static $registered = false;` so multiple calls to register would otherwise
-		// no-op silently. We can't reset it directly without reflection on the
-		// generator function's frame, but we CAN observe the behavior: hook list grows.
-		$initial_count = \count( $GLOBALS['_wp_actions']['plugins_loaded'] ?? [] );
-
-		// Calling repeatedly must add the hook only once across the process lifetime.
-		Config::register_cache_invalidation();
-		Config::register_cache_invalidation();
-		Config::register_cache_invalidation();
-
-		$final_count = \count( $GLOBALS['_wp_actions']['plugins_loaded'] ?? [] );
-		// 0 or 1 added — the guard prevents duplicates. Static state is shared
-		// across tests, so we only assert the upper bound.
-		$this->assertLessThanOrEqual( $initial_count + 1, $final_count );
-	}
-
 	// ── ensure_path: symlink rejection ─────────────────────────────────────
 
 	public function test_ensure_path_rejects_symlinks_outside_canonical(): void {

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`Config::get_option_schema_core/extended()` filter hooks.** No plugin used `apply_filters( 'newspack_nodes_option_schema_core' )` or `…_extended` to extend the substrate's option schema; both methods are now inline `private static $option_schema_core/extended` arrays. Plugins still extend the application surface via the application's own Config class, just not by filtering the substrate's schema.
+- **`Config::invalidate_cache()` and `Config::register_cache_invalidation()`.** The supervisor's `wp_cache_delete( 'alloptions', 'options' )` + `Config::reset()` pair (added in v0.1.25/0.1.26 at the top of every `check_config()` tick) handles option-snapshot staleness for the only consumer that actually needed the one-shot-on-`plugins_loaded` reset. Per-request callers don't have a long enough lifetime to need it.
+- **`tests/unit/ConfigTest.php` tests for the removed filters and methods** (−60 lines).
+
 ## [0.1.26] - 2026-05-14
 
 ### Changed
