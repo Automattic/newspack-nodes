@@ -17,6 +17,7 @@
 		"format:js": "wp-scripts format 'src/**/*.{js,jsx}'",
 		"lint:js": "wp-scripts lint-js 'src/**/*.{js,jsx}'",
 		"lint:php": "phpcs",
+		"lint:phpstan": "vendor/bin/phpstan analyse --memory-limit=1G --no-progress",
 		"lint:scss": "wp-scripts lint-style 'src/**/*.scss' --customSyntax postcss-scss",
 		"test:js": "wp-scripts test-unit-js --passWithNoTests"
 	},

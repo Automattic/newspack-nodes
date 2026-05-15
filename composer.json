@@ -15,14 +15,19 @@
 		"automattic/vipwpcs": "^3.0",
 		"wp-coding-standards/wpcs": "^3.0",
 		"dealerdirect/phpcodesniffer-composer-installer": "*",
-		"brainmaestro/composer-git-hooks": "^3.0"
+		"brainmaestro/composer-git-hooks": "^3.0",
+		"phpstan/phpstan": "^2.1",
+		"phpstan/extension-installer": "^1.4",
+		"szepeviktor/phpstan-wordpress": "^2.0",
+		"php-stubs/wp-cli-stubs": "^2.12"
 	},
 	"config": {
 		"platform": {
 			"php": "8.0"
 		},
 		"allow-plugins": {
-			"dealerdirect/phpcodesniffer-composer-installer": true
+			"dealerdirect/phpcodesniffer-composer-installer": true,
+			"phpstan/extension-installer": true
 		}
 	},
 	"extra": {
