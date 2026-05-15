@@ -22,6 +22,7 @@ rm -rf /tmp/newspack-nodes-test 2>/dev/null
 phpunit --configuration phpunit.xml \
     --coverage-clover /volumes/pyrobase/tmp/newspack-nodes-coverage/clover.xml \
     --coverage-html /volumes/pyrobase/tmp/newspack-nodes-coverage \
+	--enforce-time-limit \
     "$@"
 
 echo ""
