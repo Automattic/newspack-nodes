@@ -1436,4 +1436,583 @@ class PartitionTest extends TestCase {
 		// All three messages land in order.
 		$this->assertSame( [ $value, $value, $value ], $this->read_partition_values( $p ) );
 	}
+
+	// ============================================================================
+	// Coverage: init_current_segment non-empty path (anchors on newest segment).
+	// ============================================================================
+
+	public function test_init_current_segment_adopts_newest_when_segments_exist(): void {
+		// init_current_segment() runs `empty($segments)` first; the non-empty
+		// branch reads `\end($segments)` and anchors current_segment_id/size to
+		// it. Pre-seed two real segment files on disk so get_segments returns
+		// both, then call init_current_segment via reflection and confirm we
+		// landed on the newest with its filesize as current_size.
+		\mkdir( "{$this->tmp}/p0", 0755, true );
+		\file_put_contents( "{$this->tmp}/p0/0.log", \str_repeat( 'a', 10 ) );
+		\file_put_contents( "{$this->tmp}/p0/3.log", \str_repeat( 'b', 25 ) );
+
+		$p   = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$ref = new \ReflectionClass( $p );
+		$init = $ref->getMethod( 'init_current_segment' );
+		$init->setAccessible( true );
+		$init->invoke( $p );
+
+		$cur_seg = $ref->getProperty( 'current_segment_id' );
+		$cur_seg->setAccessible( true );
+		$cur_size = $ref->getProperty( 'current_size' );
+		$cur_size->setAccessible( true );
+		$cur_log = $ref->getProperty( 'current_log_path' );
+		$cur_log->setAccessible( true );
+		$cur_idx = $ref->getProperty( 'current_idx_path' );
+		$cur_idx->setAccessible( true );
+
+		$this->assertSame( 3, $cur_seg->getValue( $p ), 'newest segment id should be adopted' );
+		$this->assertSame( 25, $cur_size->getValue( $p ), 'current_size mirrors newest filesize' );
+		$this->assertSame( "{$this->tmp}/p0/3.log", $cur_log->getValue( $p ) );
+		$this->assertSame( "{$this->tmp}/p0/3.idx", $cur_idx->getValue( $p ) );
+	}
+
+	// ============================================================================
+	// Coverage: flush's lazy init when batch arrives before any prior segment.
+	// ============================================================================
+
+	public function test_flush_initializes_current_segment_when_null(): void {
+		// flush() guards with `null === $this->current_segment_id` and calls
+		// init_current_segment so callers can hand-seed the batch without
+		// going through fill(). Exercise that branch by pushing bytes
+		// straight into the protected $batch + $batch_index_args, then
+		// flushing.
+		$p   = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$ref = new \ReflectionClass( $p );
+
+		// Sanity: current_segment_id is still null pre-flush.
+		$cur_seg = $ref->getProperty( 'current_segment_id' );
+		$cur_seg->setAccessible( true );
+		$this->assertNull( $cur_seg->getValue( $p ) );
+
+		// Build a real packed message and inject it as the resident batch.
+		$msg    = $this->produce( 'lazy-init' );
+		$packed = \Newspack_Nodes\Message::packed( $msg ) . "\n";
+
+		$batch = $ref->getProperty( 'batch' );
+		$batch->setAccessible( true );
+		$batch->setValue( $p, $packed );
+
+		$bargs = $ref->getProperty( 'batch_index_args' );
+		$bargs->setAccessible( true );
+		$bargs->setValue( $p, [ [
+			'packed' => $packed,
+			'len'    => \strlen( $packed ),
+			'data'   => null,
+		] ] );
+
+		$p->flush();
+
+		$this->assertSame( 0, $cur_seg->getValue( $p ), 'flush must init to segment 0 when batch precedes any prior write' );
+		$this->assertSame( [ 'lazy-init' ], $this->read_partition_values( $p ) );
+	}
+
+	// ============================================================================
+	// Coverage: loop_fwrite partial-write stall loop.
+	// ============================================================================
+
+	public function test_loop_fwrite_returns_false_after_MAX_PARTIAL_WRITE_ATTEMPTS(): void {
+		// A read-only file handle makes fwrite() return false. loop_fwrite
+		// must increment $attempts on each failure and bail with return false
+		// once $attempts >= MAX_PARTIAL_WRITE_ATTEMPTS — covering the
+		// rate-limited stderr emit on the way out.
+		$probe   = "{$this->tmp}/loop-fwrite-probe.bin";
+		\file_put_contents( $probe, 'seed' );
+		$ro_fh = \fopen( $probe, 'rb' );
+		$this->assertNotFalse( $ro_fh );
+
+		$p   = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$ref = new \ReflectionClass( $p );
+		$lf  = $ref->getMethod( 'loop_fwrite' );
+		$lf->setAccessible( true );
+
+		// loop_fwrite calls print_less_often on stall. Capture any stderr so
+		// it doesn't leak into test output; the assertion is just "false".
+		\Newspack_Nodes\Core::set_stderr_handler( static function () { /* swallow */ } );
+
+		$result = $lf->invoke( $p, $ro_fh, 'payload-to-write' );
+		\fclose( $ro_fh );
+
+		$this->assertFalse( $result, 'loop_fwrite must return false after exhausting retries' );
+	}
+
+	// ============================================================================
+	// Coverage: rotate_segment makes locks_dir when missing.
+	// ============================================================================
+
+	public function test_rotate_segment_creates_locks_dir_when_missing(): void {
+		// rotate_segment derives locks_dir from `dirname(base_dir)/locks`. To
+		// exercise the @mkdir($locks_dir,...) branch we need that dir to NOT
+		// exist when rotate triggers. Use a tmp child dir so dirname is a
+		// freshly-empty parent.
+		$parent = $this->tmp . '/parent';
+		\mkdir( $parent, 0755, true );
+		$base = $parent . '/base'; // dirname($base)/locks = $parent/locks (missing).
+		\mkdir( $base, 0755, true );
+
+		$p = new Partition( $base, 0, 32, 4, 86400 );
+		// Three 30-byte VALUES force at least one true rotation past segment 0.
+		$this->produce_into( $p, \str_repeat( 'a', 30 ) );
+		$this->produce_into( $p, \str_repeat( 'b', 30 ) );
+		$this->produce_into( $p, \str_repeat( 'c', 30 ) );
+
+		$this->assertTrue( \is_dir( "{$parent}/locks" ), 'rotate_segment must materialize the locks directory when absent' );
+	}
+
+	// ============================================================================
+	// Coverage: rotate_segment contention paths (peer holding / stale lock).
+	// ============================================================================
+
+	public function test_rotate_segment_peer_holding_active_lock_reinits_from_disk(): void {
+		// rotate_segment with a fresh (mtime < ROTATE_LOCK_TTL_SECONDS) peer
+		// lock present: mkdir($lock_dir) fails, filemtime returns now, age is
+		// under TTL → usleep + init_current_segment + return. We pre-create
+		// the lock dir + a peer-written segment 1 so init_current_segment
+		// adopts segment 1.
+		$p = new Partition( $this->tmp, 0, 32, 4, 86400 );
+		// Land one write so the partition_dir + segment 0 exist.
+		$this->produce_into( $p, \str_repeat( 'a', 10 ) );
+
+		$log_name  = \basename( $this->tmp );
+		$log_base  = \dirname( $this->tmp );
+		$locks_dir = "{$log_base}/locks";
+		$lock_dir  = "{$locks_dir}/{$log_name}.p0.rotate.lock.d";
+		@\mkdir( $locks_dir, 0755, true );
+		@\mkdir( $lock_dir, 0755, true ); // FRESH lock — mtime is now.
+
+		// Peer-write segment 1 so init_current_segment lands on it post-contention.
+		\file_put_contents( "{$this->tmp}/p0/1.log", "peer\n" );
+
+		try {
+			$ref = new \ReflectionClass( $p );
+			$rs  = $ref->getMethod( 'rotate_segment' );
+			$rs->setAccessible( true );
+			$rs->invoke( $p );
+
+			$cur_seg = $ref->getProperty( 'current_segment_id' );
+			$cur_seg->setAccessible( true );
+			$this->assertSame(
+				1,
+				$cur_seg->getValue( $p ),
+				'peer-holding-active-lock path must re-init from disk and adopt the newest segment'
+			);
+		} finally {
+			@\rmdir( $lock_dir );
+		}
+	}
+
+	public function test_rotate_segment_disappeared_lock_dir_mid_check_reinits(): void {
+		// When mkdir($lock_dir) fails but filemtime returns false (lock dir
+		// vanished mid-check after the @mkdir failed for a transient reason),
+		// rotate_segment usleeps + re-inits from disk + returns. We synthesise
+		// this by setting up the directory layout to make mkdir fail (file in
+		// the way, NOT a directory), then deleting before filemtime. The
+		// simplest realisation: create a regular file at $lock_dir so mkdir
+		// rejects (it's an existing path), and immediately unlink it before
+		// filemtime can succeed.
+		//
+		// Easier and equally diagnostic: use a wrapper class that overrides
+		// rotate_segment behaviour. We don't want to add subclasses inside
+		// includes/, so instead seed an empty lock_dir with mtime set far in
+		// the future (>=now+ROTATE_LOCK_TTL_SECONDS+1) so mkdir fails but
+		// filemtime returns a *finite* large value — that goes through the
+		// stale branch, not this one. We DO want the false-mtime branch.
+		//
+		// To deterministically force filemtime() to return false on an
+		// existing path, we make it a broken symlink: create a symlink to a
+		// non-existent target. mkdir on an existing symlink fails; filemtime
+		// on a broken symlink returns false on PHP (errno).
+		$lock_target = $this->tmp . '/nonexistent-target';
+		$log_name    = \basename( $this->tmp );
+		$log_base    = \dirname( $this->tmp );
+		$locks_dir   = "{$log_base}/locks";
+		$lock_dir    = "{$locks_dir}/{$log_name}.p0.rotate.lock.d";
+		@\mkdir( $locks_dir, 0755, true );
+		@\unlink( $lock_dir );
+		// Broken symlink to a missing target — mkdir rejects existing path,
+		// filemtime returns false on the broken-symlink stat.
+		if ( ! @\symlink( $lock_target, $lock_dir ) ) {
+			$this->markTestSkipped( 'symlink() unavailable in this environment' );
+		}
+
+		$p = new Partition( $this->tmp, 0, 32, 4, 86400 );
+		$this->produce_into( $p, 'before' ); // seed seg 0.
+
+		try {
+			$ref = new \ReflectionClass( $p );
+			$rs  = $ref->getMethod( 'rotate_segment' );
+			$rs->setAccessible( true );
+			$rs->invoke( $p ); // must not throw.
+
+			$cur_seg = $ref->getProperty( 'current_segment_id' );
+			$cur_seg->setAccessible( true );
+			$this->assertIsInt( $cur_seg->getValue( $p ), 'disappeared-lock-dir path must re-init without crash' );
+		} finally {
+			@\unlink( $lock_dir );
+		}
+	}
+
+	public function test_rotate_segment_stale_lock_force_clears_and_retries(): void {
+		// rotate_segment finds a lock dir older than ROTATE_LOCK_TTL_SECONDS:
+		// rmdir it, mkdir again, then proceed to do_rotate. Verify the
+		// segment actually rotated.
+		$p = new Partition( $this->tmp, 0, 32, 4, 86400 );
+		$this->produce_into( $p, \str_repeat( 'a', 20 ) ); // seed seg 0.
+
+		$log_name  = \basename( $this->tmp );
+		$log_base  = \dirname( $this->tmp );
+		$locks_dir = "{$log_base}/locks";
+		$lock_dir  = "{$locks_dir}/{$log_name}.p0.rotate.lock.d";
+		@\mkdir( $locks_dir, 0755, true );
+		@\mkdir( $lock_dir, 0755, true );
+		// Backdate well past the TTL.
+		\touch( $lock_dir, \time() - ( Partition::ROTATE_LOCK_TTL_SECONDS + 10 ) );
+
+		$before = $p->get_segments( true );
+		$before_max = \max( \array_column( $before, 'id' ) );
+
+		$ref = new \ReflectionClass( $p );
+		$rs  = $ref->getMethod( 'rotate_segment' );
+		$rs->setAccessible( true );
+		$rs->invoke( $p );
+
+		// Lock dir must be cleared after rotate completes (the `finally`
+		// at the end of rotate_segment).
+		$this->assertFalse( \is_dir( $lock_dir ), 'stale lock must be force-cleared and released after rotate' );
+		// And the rotation must have bumped past whatever segment was last
+		// recorded — or at minimum adopted/created an active segment without
+		// crashing.
+		$after = $p->get_segments( true );
+		$this->assertGreaterThanOrEqual(
+			$before_max,
+			\max( \array_column( $after, 'id' ) ),
+			'rotate_segment with stale lock must succeed'
+		);
+	}
+
+	// ============================================================================
+	// Coverage: do_rotate touch() failure emits print_less_often.
+	// ============================================================================
+
+	public function test_do_rotate_touch_failure_swallowed_with_print_less_often(): void {
+		// touch() at line 755 fails when the partition_dir is read-only.
+		// Run as bend (non-root) so 0500 perms actually deny writes. Skip if
+		// running as root since chmod is a no-op for privileged users.
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'chmod 0500 is bypassed for root; the touch-fail branch needs a non-root uid (production runs as bend).' );
+		}
+
+		// Hand-seed a "full" segment 0 on disk (>= segment_size) so do_rotate
+		// skips the adopt-if-room branch and goes through the
+		// touch($current_log_path) path on a fresh seg 1 id.
+		$p = new Partition( $this->tmp, 0, 16, 4, 86400 );
+		\mkdir( "{$this->tmp}/p0", 0755, true );
+		\file_put_contents( "{$this->tmp}/p0/0.log", \str_repeat( 'x', 32 ) ); // >= segment_size.
+
+		// Capture stderr emissions so print_less_often's output doesn't leak.
+		$captured = [];
+		\Newspack_Nodes\Core::set_stderr_handler(
+			static function ( string $msg ) use ( &$captured ) {
+				$captured[] = $msg;
+			}
+		);
+
+		// Make partition_dir read-only so touch() of the new 1.log fails.
+		\chmod( "{$this->tmp}/p0", 0500 );
+
+		try {
+			$ref       = new \ReflectionClass( $p );
+			$do_rotate = $ref->getMethod( 'do_rotate' );
+			$do_rotate->setAccessible( true );
+			$do_rotate->invoke( $p );
+
+			// touch() failure produces a "touch() failed" print_less_often emission.
+			$matched = \array_filter(
+				$captured,
+				static fn ( $line ) => false !== \strpos( $line, 'touch() failed' )
+			);
+			$this->assertNotEmpty( $matched, 'touch() failure must surface via print_less_often' );
+		} finally {
+			\chmod( "{$this->tmp}/p0", 0755 ); // restore for tearDown cleanup.
+		}
+	}
+
+	// ============================================================================
+	// Coverage: read_at file-not-present + fopen-fails branches.
+	// ============================================================================
+
+	public function test_read_at_missing_segment_returns_empty(): void {
+		// read_at on a segment_id whose .log doesn't exist must early-return ''
+		// (file_exists false branch) without falling through to fopen.
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'seed' ); // segment 0 exists.
+
+		$this->assertSame(
+			'',
+			$p->read_at( 99, 0, 8 ),
+			'missing-segment read must return empty string'
+		);
+	}
+
+	public function test_read_at_returns_empty_when_fopen_fails(): void {
+		// file_exists succeeds, but fopen('r') fails when the file has no
+		// read permission for the running user. Non-root only.
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'chmod 0000 is bypassed for root; fopen-fail branch needs a non-root uid (production runs as bend).' );
+		}
+
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'seed' );
+		$p->remove_node(); // close handles so chmod takes effect for next open.
+
+		$path = "{$this->tmp}/p0/0.log";
+		\chmod( $path, 0000 );
+
+		try {
+			$result = $p->read_at( 0, 0, 4 );
+			$this->assertSame( '', $result, 'fopen failure must surface as empty string' );
+		} finally {
+			\chmod( $path, 0644 );
+		}
+	}
+
+	// ============================================================================
+	// Coverage: scan_index oversized filesize + JSONL reverse + empty-line skip.
+	// ============================================================================
+
+	public function test_scan_index_skips_idx_when_filesize_exceeds_MAX_READ_SIZE(): void {
+		// Existing test_scan_index_skips_oversized_idx_files runs through the
+		// segment cache and never actually exercises the >MAX_READ_SIZE branch
+		// (cached segments list doesn't include the fabricated one). Invalidate
+		// the cache before scanning so segment 1 is enumerated and filesize is
+		// re-stat'd post-truncate.
+		$p = new Partition( $this->tmp, 0, 1024 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'first' );
+
+		// Fabricate a sparse oversized .idx for a peer-created segment 1.
+		\file_put_contents( "{$this->tmp}/p0/1.log", "x\n" );
+		$over = Partition::MAX_READ_SIZE + 100;
+		$fh   = \fopen( "{$this->tmp}/p0/1.idx", 'wb' );
+		\ftruncate( $fh, $over );
+		\fclose( $fh );
+		\clearstatcache( true, "{$this->tmp}/p0/1.idx" );
+
+		// Force a fresh segments list including segment 1.
+		$ref   = new \ReflectionClass( $p );
+		$cache = $ref->getProperty( 'segments_cache' );
+		$cache->setAccessible( true );
+		$cache->setValue( $p, null );
+
+		$count = 0;
+		$p->scan_index( function ( int $seg, int $off ) use ( &$count ) {
+			++$count;
+		} );
+
+		// Segment 0 contributes 1 entry; segment 1's oversized .idx is skipped.
+		$this->assertSame( 1, $count, 'oversized .idx filesize must short-circuit scan_index' );
+	}
+
+	public function test_scan_index_jsonl_reverse_order(): void {
+		// JSONL + newest_first reverses the line order within a segment.
+		// Confirms the `array_reverse($lines)` branch (line 890).
+		$p = new Partition( $this->tmp, 0, 1024 * 1024, 4, 86400 );
+		$p->with_index( static function ( string $line, array $pos, ?array &$data = null ) {
+			$decoded = \json_decode( \rtrim( $line, "\n" ), true );
+			return (string) \json_encode( [ 'v' => $decoded[ \Newspack_Nodes\Message::VALUE ] ?? '' ] );
+		} );
+
+		$this->produce_into( $p, 'alpha' );
+		$this->produce_into( $p, 'beta' );
+		$this->produce_into( $p, 'gamma' );
+
+		$collected = [];
+		$p->scan_index( function ( string $line, int $seg ) use ( &$collected ) {
+			$collected[] = \json_decode( $line, true )['v'];
+		}, true ); // newest_first
+
+		$this->assertSame( [ 'gamma', 'beta', 'alpha' ], $collected, 'JSONL reverse mode must walk entries newest-first' );
+	}
+
+	public function test_scan_index_jsonl_skips_empty_lines(): void {
+		// rtrim($idx,"\n") + explode() can produce empty string entries on
+		// double-newlines or blank lines mid-stream. The `if ( '' === $line )
+		// { continue; }` branch (line 894) is the safety net. Pre-create the
+		// .idx with a deliberate blank line in the middle and confirm the
+		// callback only sees the two real entries.
+		$p = new Partition( $this->tmp, 0, 1024 * 1024, 4, 86400 );
+		$p->with_index(
+			static function ( string $line, array $pos, ?array &$data = null ) {
+				return 'real-entry';
+			}
+		);
+
+		// Seed one real entry through the normal path so segments_cache + .log
+		// exist for segment 0.
+		$this->produce_into( $p, 'seed' );
+
+		// Now overwrite the .idx with a manually-crafted file that has a blank
+		// middle line so scan_index hits the empty-line skip.
+		\file_put_contents(
+			"{$this->tmp}/p0/0.idx",
+			"entry-one\n\nentry-two\n"
+		);
+
+		$collected = [];
+		$p->scan_index( function ( string $line, int $seg ) use ( &$collected ) {
+			$collected[] = $line;
+		} );
+
+		$this->assertSame(
+			[ 'entry-one', 'entry-two' ],
+			$collected,
+			'JSONL empty-line entries must be skipped without invoking callback'
+		);
+	}
+
+	// ============================================================================
+	// Coverage: flush bails when get_handle returns null.
+	// ============================================================================
+
+	public function test_flush_returns_when_get_handle_returns_null(): void {
+		// flush() builds the batch in memory then asks for an open handle.
+		// If get_handle returns null (e.g., current_log_path points at a
+		// non-openable target), flush must `return` without crashing or
+		// re-flushing on retry. Force the open to fail by setting
+		// current_log_path to an existing directory (fopen('a') on a dir
+		// returns false on every supported OS).
+		$p = new Partition( $this->tmp, 0, 1024 * 1024, 4, 86400 );
+		\mkdir( "{$this->tmp}/p0", 0755, true );
+		\mkdir( "{$this->tmp}/p0/blocker", 0755, true );
+
+		// Anchor partition state at the directory-path blocker so the lazy
+		// fopen in get_handle fails. (No prior open — fresh partition.)
+		$ref     = new \ReflectionClass( $p );
+		$cur_seg = $ref->getProperty( 'current_segment_id' );
+		$cur_seg->setAccessible( true );
+		$cur_seg->setValue( $p, 0 );
+		$cur_log = $ref->getProperty( 'current_log_path' );
+		$cur_log->setAccessible( true );
+		$cur_log->setValue( $p, "{$this->tmp}/p0/blocker" );
+		$cur_idx = $ref->getProperty( 'current_idx_path' );
+		$cur_idx->setAccessible( true );
+		$cur_idx->setValue( $p, "{$this->tmp}/p0/blocker.idx" );
+		$cur_size = $ref->getProperty( 'current_size' );
+		$cur_size->setAccessible( true );
+		$cur_size->setValue( $p, 0 );
+
+		// Inject a real packed message as the resident batch.
+		$msg    = $this->produce( 'unreachable' );
+		$packed = \Newspack_Nodes\Message::packed( $msg ) . "\n";
+		$batch  = $ref->getProperty( 'batch' );
+		$batch->setAccessible( true );
+		$batch->setValue( $p, $packed );
+		$bargs = $ref->getProperty( 'batch_index_args' );
+		$bargs->setAccessible( true );
+		$bargs->setValue( $p, [ [
+			'packed' => $packed,
+			'len'    => \strlen( $packed ),
+			'data'   => null,
+		] ] );
+
+		$p->flush(); // Must not throw; bails on null fh.
+
+		// Batch is reset (flush's reset-up-front contract), blocker is intact.
+		$this->assertSame( '', $batch->getValue( $p ), 'flush must clear the batch even when the write bailed' );
+		$this->assertTrue( \is_dir( "{$this->tmp}/p0/blocker" ), 'blocker dir untouched after failed flush' );
+	}
+
+	// ============================================================================
+	// Coverage: fill large-message path bails when get_handle returns null.
+	// ============================================================================
+
+	public function test_fill_large_message_returns_when_get_handle_returns_null(): void {
+		// The large-message branch (>MAX_LINE_SIZE, only legal under
+		// allow_large_writes) flushes the batch, optionally rotates, then asks
+		// for an open file handle. If get_handle returns null, fill must
+		// `return` without crashing. Force get_handle to fail by pointing
+		// current_log_path at a directory (fopen('a') on a directory fails)
+		// after allow_large_writes seeded the partition_dir.
+		$p = new Partition( $this->tmp, 0, 1024 * 1024, 4, 86400 );
+		$p->allow_large_writes();
+
+		// Force current_log_path to a directory; fopen('a') on a directory
+		// returns false on every supported OS. Use reflection because
+		// get_handle's TOCTOU recovery would re-init if we just delete the
+		// file.
+		\mkdir( "{$this->tmp}/p0/blocker", 0755, true );
+		$ref     = new \ReflectionClass( $p );
+		$cur_seg = $ref->getProperty( 'current_segment_id' );
+		$cur_seg->setAccessible( true );
+		$cur_seg->setValue( $p, 0 );
+		$cur_log = $ref->getProperty( 'current_log_path' );
+		$cur_log->setAccessible( true );
+		$cur_log->setValue( $p, "{$this->tmp}/p0/blocker" ); // existing directory.
+		$cur_idx = $ref->getProperty( 'current_idx_path' );
+		$cur_idx->setAccessible( true );
+		$cur_idx->setValue( $p, "{$this->tmp}/p0/blocker.idx" );
+
+		$big_msg = $this->produce( \str_repeat( 'L', 5000 ) );
+		$p->fill( $big_msg ); // Must not throw; bails on null fh.
+
+		// File-content sanity: nothing was written to a real segment because
+		// the open failed. (No assertion against the value of bytes_written:
+		// loop_fwrite never ran.)
+		$this->assertTrue( \is_dir( "{$this->tmp}/p0/blocker" ), 'blocker dir must still be present (fill must not have unlinked it)' );
+	}
+
+	// ============================================================================
+	// Coverage: get_segments scandir-failure branch.
+	// ============================================================================
+
+	public function test_get_segments_returns_empty_when_scandir_fails(): void {
+		// scandir() on a 0000-perm directory returns false for non-root users.
+		// get_segments must catch that (it asserts `! $files`) and return empty.
+		// Root bypasses permission checks; skip in that case.
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'scandir failure on 0000 dir needs a non-root uid (production runs as bend).' );
+		}
+
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		// Pre-create the partition_dir so is_dir passes — get_segments then
+		// proceeds to scandir, which fails on 0000 perms.
+		\mkdir( "{$this->tmp}/p0", 0755, true );
+		\chmod( "{$this->tmp}/p0", 0000 );
+
+		try {
+			$segments = $p->get_segments( true );
+			$this->assertSame( [], $segments, 'get_segments must return [] when scandir fails' );
+		} finally {
+			\chmod( "{$this->tmp}/p0", 0755 ); // restore for tearDown cleanup.
+		}
+	}
+
+	// ============================================================================
+	// Coverage: scan_index binary reverse — early termination via false return.
+	// ============================================================================
+
+	public function test_scan_index_binary_reverse_early_termination_via_false_return(): void {
+		// Reverse-mode equivalent of the existing forward-mode early-termination
+		// test — exercises the `if ( false === $cb(...) ) { return; }` at
+		// line 914.
+		$p = new Partition( $this->tmp, 0, 1024 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'a' );
+		$this->produce_into( $p, 'b' );
+		$this->produce_into( $p, 'c' );
+
+		$count = 0;
+		$p->scan_index(
+			function ( int $seg, int $off ) use ( &$count ) {
+				++$count;
+				return ( $count >= 2 ) ? false : null;
+			},
+			true
+		);
+
+		$this->assertSame( 2, $count, 'reverse-walk callback returning false must terminate the scan' );
+	}
 }

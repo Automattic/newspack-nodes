@@ -1721,4 +1721,243 @@ class ConsumerTest extends TestCase {
 		$c = new Consumer( "{$this->tmp}/data", 0, '' );
 		$this->assertSame( "{$this->tmp}/data 0 ", $c->arguments() );
 	}
+
+	// ============================================================================
+	// node_schema() — palette manifest for the topology console.
+	// ============================================================================
+
+	public function test_node_schema_declares_io_category_and_request_verbs(): void {
+		// Topology console reads node_schema() to render the palette entry.
+		// Consumer is in the I/O category and declares two request verbs
+		// (GET_LAG, GET_OFFSET) — both surfaceable in the topology editor
+		// as introspection requests an operator can fire from the canvas.
+		$schema = Consumer::node_schema();
+		$this->assertIsArray( $schema );
+		$this->assertSame( 'I/O', $schema['category'] );
+		$this->assertNotSame( '', $schema['description'] );
+		$this->assertIsArray( $schema['ctor'] );
+		$this->assertIsArray( $schema['verbs'] );
+		$this->assertSame( [], $schema['verbs'], 'Consumer has no sibling-CI verbs' );
+
+		// Three ctor params: source_base_dir (required), source_partition
+		// (required, default <partition>), offsetlog_base_dir (default '').
+		$this->assertCount( 3, $schema['ctor'] );
+		$names = \array_column( $schema['ctor'], 'name' );
+		$this->assertSame(
+			[ 'source_base_dir', 'source_partition', 'offsetlog_base_dir' ],
+			$names
+		);
+
+		// Two request verbs: GET_LAG + GET_OFFSET with documented reply shapes.
+		$this->assertCount( 2, $schema['requests'] );
+		$verbs = \array_column( $schema['requests'], 'name' );
+		$this->assertContains( 'GET_LAG', $verbs );
+		$this->assertContains( 'GET_OFFSET', $verbs );
+		foreach ( $schema['requests'] as $req ) {
+			$this->assertNotSame( '', $req['description'] );
+			$this->assertNotSame( '', $req['reply_shape'] );
+		}
+	}
+
+	// ============================================================================
+	// next_offset() — explicit array with default off when not provided.
+	// ============================================================================
+
+	public function test_next_offset_array_defaults_offset_to_zero_when_missing(): void {
+		// Explicit-array form: seg=5 with no 'off' key. The off lookup uses
+		// `? 0` so absent off lands at 0 — matches the spec "explicit position
+		// with seg only".
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->next_offset( [ 'seg' => 7 ] );
+
+		$ref = new \ReflectionClass( $c );
+		$seg = $ref->getProperty( 'cursor_seg' );
+		$seg->setAccessible( true );
+		$off = $ref->getProperty( 'cursor_off' );
+		$off->setAccessible( true );
+
+		$this->assertSame( 7, $seg->getValue( $c ) );
+		$this->assertSame( 0, $off->getValue( $c ), 'missing off must default to 0' );
+	}
+
+	public function test_next_offset_array_defaults_seg_to_zero_when_missing(): void {
+		// Explicit-array form: off=42 with no 'seg' key. Defaults to 0.
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->next_offset( [ 'off' => 42 ] );
+
+		$ref = new \ReflectionClass( $c );
+		$seg = $ref->getProperty( 'cursor_seg' );
+		$seg->setAccessible( true );
+		$off = $ref->getProperty( 'cursor_off' );
+		$off->setAccessible( true );
+
+		$this->assertSame( 0, $seg->getValue( $c ) );
+		$this->assertSame( 42, $off->getValue( $c ) );
+	}
+
+	public function test_next_offset_recent_with_single_segment_picks_that_one(): void {
+		// 'recent' fallback: when there's only ONE segment, pick the oldest
+		// (which is also the newest in that case). Distinct from the
+		// already-tested multi-segment 'recent' path.
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'only' );
+
+		$segments = $source->get_segments( true );
+		$this->assertCount( 1, $segments, 'precondition: single segment' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->next_offset( 'recent' );
+
+		$ref      = new \ReflectionClass( $c );
+		$seg_prop = $ref->getProperty( 'cursor_seg' );
+		$seg_prop->setAccessible( true );
+		$off_prop = $ref->getProperty( 'cursor_off' );
+		$off_prop->setAccessible( true );
+
+		$this->assertSame( $segments[0]['id'], $seg_prop->getValue( $c ), 'single-segment recent picks that segment' );
+		$this->assertSame( 0, $off_prop->getValue( $c ), 'recent always resets off to 0' );
+	}
+
+	public function test_next_offset_end_with_no_segments_leaves_cursor_at_default(): void {
+		// 'end' on an empty source must NOT crash and must NOT advance the
+		// cursor (segments empty → switch case is a no-op).
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->next_offset( 'end' );
+
+		$ref      = new \ReflectionClass( $c );
+		$seg_prop = $ref->getProperty( 'cursor_seg' );
+		$seg_prop->setAccessible( true );
+		$off_prop = $ref->getProperty( 'cursor_off' );
+		$off_prop->setAccessible( true );
+
+		$this->assertSame( 0, $seg_prop->getValue( $c ) );
+		$this->assertSame( 0, $off_prop->getValue( $c ) );
+	}
+
+	public function test_next_offset_recent_with_no_segments_leaves_cursor_at_default(): void {
+		// 'recent' on an empty source must early-exit cleanly.
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->next_offset( 'recent' );
+
+		$ref      = new \ReflectionClass( $c );
+		$seg_prop = $ref->getProperty( 'cursor_seg' );
+		$seg_prop->setAccessible( true );
+		$off_prop = $ref->getProperty( 'cursor_off' );
+		$off_prop->setAccessible( true );
+
+		$this->assertSame( 0, $seg_prop->getValue( $c ) );
+		$this->assertSame( 0, $off_prop->getValue( $c ) );
+	}
+
+	// ============================================================================
+	// open() — segments empty edge case (returns null).
+	// ============================================================================
+
+	public function test_open_returns_segment_metadata_when_cursor_matches_existing(): void {
+		// open() with a cursor that matches an existing segment id returns
+		// that segment's metadata without resetting cursor_off.
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'hello' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		// Cursor is parked on segment 0 by default; segment 0 exists.
+
+		$ref      = new \ReflectionClass( $c );
+		$off_prop = $ref->getProperty( 'cursor_off' );
+		$off_prop->setAccessible( true );
+		$off_prop->setValue( $c, 5 );
+
+		$result = $c->open();
+		$this->assertNotNull( $result );
+		$this->assertSame( 0, $result['id'] );
+		$this->assertGreaterThan( 0, $result['size'] );
+		// cursor_off MUST NOT be reset when the segment is found.
+		$this->assertSame( 5, $off_prop->getValue( $c ) );
+	}
+
+	// ============================================================================
+	// load_offsetlog() — early-return when offsetlog disabled.
+	// ============================================================================
+
+	public function test_load_offsetlog_null_guard_returns_when_offsetlog_unset(): void {
+		// Direct exercise of the null guard inside load_offsetlog: a
+		// Consumer constructed with offsetlog_base_dir='' leaves
+		// $this->offsetlog at null. Calling load_offsetlog() (via reflection)
+		// must return immediately without touching the filesystem.
+		$c = new Consumer( "{$this->tmp}/data", 0, '' );
+
+		$ref    = new \ReflectionMethod( Consumer::class, 'load_offsetlog' );
+		$ref->setAccessible( true );
+		$ref->invoke( $c );
+
+		// Cursor stays at default; no offsets directory appears.
+		$rc      = new \ReflectionClass( $c );
+		$seg     = $rc->getProperty( 'cursor_seg' );
+		$seg->setAccessible( true );
+		$off     = $rc->getProperty( 'cursor_off' );
+		$off->setAccessible( true );
+		$this->assertSame( 0, $seg->getValue( $c ) );
+		$this->assertSame( 0, $off->getValue( $c ) );
+		$this->assertFalse( \is_dir( "{$this->tmp}/offsets" ) );
+	}
+
+	// ============================================================================
+	// poll() — empty-source early-exit and read-cap branches.
+	// ============================================================================
+
+	public function test_poll_empty_source_sets_at_eof_and_returns(): void {
+		// poll() on an empty source (no segments) sets at_eof=true and
+		// returns without emitting anything. Different from the cursor-
+		// segment-deleted recovery branch since `empty($segments)` is the
+		// first early-exit.
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		// Force at_eof to false so we can verify poll() flips it back.
+		$ref    = new \ReflectionClass( $c );
+		$at_eof = $ref->getProperty( 'at_eof' );
+		$at_eof->setAccessible( true );
+		$at_eof->setValue( $c, false );
+
+		$c->poll();
+
+		$this->assertCount( 0, $cap->captured );
+		$this->assertTrue( $at_eof->getValue( $c ), 'empty source sets at_eof' );
+	}
+
+	public function test_poll_skips_segments_older_than_cursor(): void {
+		// Cursor parked on a newer segment must skip older segments in the
+		// poll loop. The `$s['id'] < $this->cursor_seg → continue` branch.
+		$source = new Partition( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$this->produce_line( $source, \str_repeat( 'a', 30 ) );
+		$this->produce_line( $source, \str_repeat( 'b', 30 ) );
+		$this->produce_line( $source, \str_repeat( 'c', 30 ) );
+
+		$segments = $source->get_segments( true );
+		$this->assertGreaterThanOrEqual( 2, \count( $segments ) );
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		// Park cursor at NEWEST segment, off=size so nothing to read.
+		$ref      = new \ReflectionClass( $c );
+		$seg_prop = $ref->getProperty( 'cursor_seg' );
+		$seg_prop->setAccessible( true );
+		$off_prop = $ref->getProperty( 'cursor_off' );
+		$off_prop->setAccessible( true );
+
+		$newest = \end( $segments );
+		$seg_prop->setValue( $c, (int) $newest['id'] );
+		$off_prop->setValue( $c, (int) $newest['size'] );
+
+		$c->poll();
+
+		$this->assertCount( 0, $cap->captured, 'no new bytes → no emissions' );
+		// at_eof should be true after poll.
+		$at_eof_prop = $ref->getProperty( 'at_eof' );
+		$at_eof_prop->setAccessible( true );
+		$this->assertTrue( $at_eof_prop->getValue( $c ) );
+	}
 }

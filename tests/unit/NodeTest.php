@@ -455,4 +455,338 @@ class NodeTest extends TestCase {
 			'sibling :config must be unregistered when patron removed'
 		);
 	}
+
+	// ── byte counters and arguments() round-trip ─────────────────────────
+
+	public function test_bytes_read_defaults_to_zero(): void {
+		// Logic nodes (Tee, Hook, app subclasses) leave bytes_read at 0;
+		// only I/O nodes (Partition, Consumer) populate it. Accessor must
+		// surface the protected slot value.
+		$n = new CaptureSink();
+		$this->assertSame( 0, $n->bytes_read() );
+	}
+
+	public function test_bytes_read_reflects_protected_property(): void {
+		// Inject a non-zero bytes_read via reflection (mimicking what a
+		// Partition / Consumer would do internally) and verify the public
+		// accessor reads back through.
+		$n   = new CaptureSink();
+		$ref = new \ReflectionProperty( \Newspack_Nodes\Node::class, 'bytes_read' );
+		$ref->setAccessible( true );
+		$ref->setValue( $n, 12345 );
+		$this->assertSame( 12345, $n->bytes_read() );
+	}
+
+	public function test_bytes_written_defaults_to_zero(): void {
+		$n = new CaptureSink();
+		$this->assertSame( 0, $n->bytes_written() );
+	}
+
+	public function test_bytes_written_reflects_protected_property(): void {
+		$n   = new CaptureSink();
+		$ref = new \ReflectionProperty( \Newspack_Nodes\Node::class, 'bytes_written' );
+		$ref->setAccessible( true );
+		$ref->setValue( $n, 98765 );
+		$this->assertSame( 98765, $n->bytes_written() );
+	}
+
+	public function test_arguments_get_set_roundtrip(): void {
+		// arguments() with no arg returns the stored value; with an arg sets
+		// and returns the new value. dump_config() reads this field to emit
+		// the `make_node Foo bar <args>` line.
+		$n = new CaptureSink();
+		$this->assertSame( '', $n->arguments(), 'default is empty' );
+		$this->assertSame( '/path/to/foo 2', $n->arguments( '/path/to/foo 2' ) );
+		$this->assertSame( '/path/to/foo 2', $n->arguments(), 'value persists after set' );
+	}
+
+	public function test_dump_config_includes_stored_arguments(): void {
+		// dump_config emits `make_node Class name <arguments>` — verifying
+		// arguments() is round-trippable through the config snippet.
+		$n = new CaptureSink();
+		$n->name( 'mynode' );
+		$n->arguments( '/var/log /partition 0' );
+
+		$out = $n->dump_config();
+		$this->assertStringContainsString( 'make_node CaptureSink mynode /var/log /partition 0', $out );
+	}
+
+	// ── patron() getter/setter ───────────────────────────────────────────
+
+	public function test_patron_returns_null_by_default(): void {
+		$n = new CaptureSink();
+		$this->assertNull( $n->patron(), 'patron defaults to null' );
+	}
+
+	public function test_patron_setter_records_passed_node(): void {
+		// Patron pointer is set on plumbing nodes — sibling CIs and Lock /
+		// heartbeat helpers Partition creates inside a running event loop.
+		// dump_metadata filters any node with patron() !== null from the
+		// canvas feed.
+		$plumbing = new CaptureSink();
+		$primary  = new CaptureSink();
+		$plumbing->patron( $primary );
+
+		$this->assertSame( $primary, $plumbing->patron() );
+	}
+
+	public function test_patron_getter_does_not_overwrite_when_null_arg(): void {
+		// Calling patron() with no arg (or explicit null) returns current
+		// value without overwriting. Same pattern as sink() and target()
+		// accessors.
+		$plumbing = new CaptureSink();
+		$primary  = new CaptureSink();
+		$plumbing->patron( $primary );
+
+		// Re-call with null → must NOT clear the patron.
+		$this->assertSame( $primary, $plumbing->patron( null ) );
+		$this->assertSame( $primary, $plumbing->patron() );
+	}
+
+	// ── interpreter() getter ─────────────────────────────────────────────
+
+	public function test_interpreter_returns_null_when_unattached(): void {
+		// Nodes without sibling-CI plumbing return null from interpreter().
+		$n = new CaptureSink();
+		$this->assertNull( $n->interpreter() );
+	}
+
+	// ── stamp_message empty-name guard ───────────────────────────────────
+
+	public function test_stamp_message_returns_false_on_empty_name(): void {
+		// Spec: "A node with no name (mid-construction or post-rename)
+		// emitting `/from` paths breaks Router. Drop with print_less_often
+		// instead." stamp_message() with empty $name must return false
+		// without mutating the message.
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+
+		$n   = new CaptureSink();
+		$msg = Message::new_message();
+		$msg[ Message::FROM ] = 'preexisting';
+
+		$this->assertFalse( $n->stamp_message( $msg, '' ) );
+		$this->assertSame( 'preexisting', $msg[ Message::FROM ], 'FROM must NOT be mutated' );
+		$this->assertStringContainsString( 'stamp_message() called with empty name', $buf );
+	}
+
+	// ── dump_node() reflection-based snapshot ────────────────────────────
+
+	public function test_dump_node_includes_declared_properties(): void {
+		// dump_node() reflects every initialized property; default Node
+		// fields (name, target, counter, …) must appear in the snapshot.
+		$n = new CaptureSink();
+		$n->name( 'snapshot-test' );
+		$n->target( 'somewhere' );
+
+		$snap = $n->dump_node();
+
+		$this->assertIsArray( $snap );
+		$this->assertArrayHasKey( 'name', $snap );
+		$this->assertSame( 'snapshot-test', $snap['name'] );
+		$this->assertArrayHasKey( 'target', $snap );
+		$this->assertSame( 'somewhere', $snap['target'] );
+		$this->assertArrayHasKey( 'counter', $snap );
+		$this->assertSame( 0, $snap['counter'] );
+	}
+
+	public function test_dump_node_collapses_sink_to_node_name_string(): void {
+		// dump_node() replaces the sink object reference with the sink's
+		// name() string — the special-cased branch right before the generic
+		// object-to-class-name fallback. Without this, the sink would
+		// render as `(CaptureSink)` losing the relationship info.
+		$src = new CaptureSink();
+		$dst = new CaptureSink();
+		$dst->name( 'sink-name' );
+		$src->sink( $dst );
+
+		$snap = $src->dump_node();
+		$this->assertArrayHasKey( 'sink', $snap );
+		$this->assertSame( 'sink-name', $snap['sink'], 'sink object collapses to its name string' );
+	}
+
+	public function test_dump_node_collapses_arbitrary_object_to_class_name(): void {
+		// Non-sink object properties render as `(FQCN)`. We construct an
+		// ad-hoc Node subclass with an extra object property to drive this
+		// branch.
+		$n = new class extends \Newspack_Nodes\Node {
+			public ?\stdClass $helper = null;
+		};
+		$n->helper = new \stdClass();
+
+		$snap = $n->dump_node();
+		$this->assertArrayHasKey( 'helper', $snap );
+		$this->assertSame( '(stdClass)', $snap['helper'] );
+	}
+
+	public function test_dump_node_collapses_resource_to_debug_string(): void {
+		// Spec: resources aren't JSON-encodable; dump_node coerces them
+		// to `(resource:<type>)` so json_encode doesn't fail on the
+		// whole snapshot. Was: dumping a Partition with open file
+		// handles returned an empty payload silently.
+		$n = new class extends \Newspack_Nodes\Node {
+			/** @var resource|null */
+			public $stream = null;
+		};
+		$n->stream = \fopen( 'php://memory', 'r+' );
+
+		try {
+			$snap = $n->dump_node();
+			$this->assertArrayHasKey( 'stream', $snap );
+			$this->assertStringStartsWith( '(resource:', $snap['stream'] );
+		} finally {
+			if ( \is_resource( $n->stream ) ) {
+				\fclose( $n->stream );
+			}
+		}
+	}
+
+	// ── drop_message branches ────────────────────────────────────────────
+
+	public function test_drop_message_routes_NOT_AVAILABLE_to_least_often_in_first_300s(): void {
+		// Spec: "First-300s NOT_AVAILABLE rule" — when Core::$now < 300 and
+		// the error is 'NOT_AVAILABLE', drop_message routes through
+		// print_least_often (suppresses until 10th occurrence) instead of
+		// print_less_often (emits first then suppresses 60s). This dampens
+		// boot-time noise from nodes that haven't been registered yet.
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+
+		// Force Core::$now to early-boot value.
+		$saved_now = Core::$now;
+		Core::$now = 100.0;
+
+		try {
+			$n   = new CaptureSink();
+			$n->name( 'boot' );
+			$msg                  = Message::new_message();
+			$msg[ Message::TYPE ] = Message::TM_INFO;
+			$msg[ Message::TO ]   = 'nobody-home';
+
+			// Single call should not emit (print_least_often holds 9 occurrences).
+			$n->drop_message( $msg, 'NOT_AVAILABLE' );
+			$this->assertSame( '', $buf, 'first NOT_AVAILABLE in boot window must be suppressed' );
+
+			// Same drop_message 9 more times → on the 10th, it emits.
+			for ( $i = 0; $i < 9; $i++ ) {
+				$n->drop_message( $msg, 'NOT_AVAILABLE' );
+			}
+			$this->assertStringContainsString(
+				'NOT_AVAILABLE',
+				$buf,
+				'10th occurrence must finally emit'
+			);
+		} finally {
+			Core::$now = $saved_now;
+		}
+	}
+
+	public function test_drop_message_handles_empty_FROM_and_TO_fields(): void {
+		// drop_message must not crash when FROM and TO are both empty
+		// strings — the conditional appends skip them and the warning
+		// just contains the error + type.
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+
+		$n   = new CaptureSink();
+		$n->name( 'q' );
+		$msg                  = Message::new_message();
+		$msg[ Message::TYPE ] = Message::TM_BYTESTREAM;
+		$n->drop_message( $msg, 'TEST_ERROR' );
+
+		$this->assertStringContainsString( 'WARNING: TEST_ERROR', $buf );
+		$this->assertStringContainsString( 'TM_BYTESTREAM', $buf );
+		$this->assertStringNotContainsString( 'from:', $buf );
+		$this->assertStringNotContainsString( 'to:', $buf );
+	}
+
+	public function test_drop_message_does_not_emit_payload_for_pure_control_type(): void {
+		// PAYLOAD_TYPES bitmask covers TM_INFO|TM_REQUEST|TM_ERROR|TM_COMMAND.
+		// A pure TM_BYTESTREAM message must NOT emit a "payload:" suffix
+		// even with a non-empty VALUE.
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+
+		$n = new CaptureSink();
+		$n->name( 'q' );
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::VALUE ] = 'should-not-appear';
+		$n->drop_message( $msg, 'X' );
+
+		$this->assertStringNotContainsString(
+			'payload:',
+			$buf,
+			'TM_BYTESTREAM is not in PAYLOAD_TYPES — payload must be suppressed'
+		);
+	}
+
+	// ── notify on unregistered event ─────────────────────────────────────
+
+	public function test_notify_on_unregistered_event_is_silent_noop(): void {
+		// notify() on an event with no listeners (and no pre-declared
+		// registration) must return without throwing. The `! isset` guard.
+		$n = new CaptureSink();
+		$n->name( 'p' );
+
+		// No expectation other than no exception.
+		$n->notify( 'NONEXISTENT', 'data' );
+		$this->assertTrue( true );
+	}
+
+	public function test_notify_unregisters_dead_node_listener(): void {
+		// Node-name dispatch where the named target is gone (forgot to
+		// unregister) → dispatch_listener returns false → the registration
+		// is silently dropped on this notify call. Subsequent notifies
+		// have zero listeners.
+		$producer = new class extends \Newspack_Nodes\Node {
+			public function __construct() {
+				$this->registrations = [ 'EVT' => [] ];
+			}
+		};
+		$producer->name( 'producer' );
+		$listener = new CaptureSink();
+		$listener->name( 'listener' );
+
+		$producer->register( 'EVT', 'listener' );
+
+		// Manually pull `listener` out of Core's registry to simulate a
+		// listener that died without unregistering.
+		Core::unregister_node( 'listener' );
+
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$producer->notify( 'EVT', 'data' );
+
+		$this->assertStringContainsString( 'forgot to unregister', $buf );
+
+		// The dead registration is now removed — verify by reflecting on
+		// the registrations array.
+		$ref = new \ReflectionProperty( $producer, 'registrations' );
+		$ref->setAccessible( true );
+		$regs = $ref->getValue( $producer );
+		$this->assertArrayNotHasKey( 'listener', $regs['EVT'], 'dead listener pruned on notify' );
+	}
+
+	// ── debug_state passthrough getter ───────────────────────────────────
+
+	public function test_debug_state_getter_returns_current_level(): void {
+		// debug_state() with no arg returns the current level (already
+		// covered by clamp test in passing, but worth a focused getter
+		// assertion).
+		$n = new \Newspack_Nodes\Node();
+		$n->debug_state( 3 );
+		$this->assertSame( 3, $n->debug_state() );
+	}
+
+	// ── target() getter when no arg ──────────────────────────────────────
+
+	public function test_target_getter_returns_current_value_when_called_without_arg(): void {
+		$n = new CaptureSink();
+		// Default value is '' (empty string).
+		$this->assertSame( '', $n->target() );
+		$n->target( 'somewhere' );
+		// Calling again with no arg returns the stored value.
+		$this->assertSame( 'somewhere', $n->target() );
+	}
 }

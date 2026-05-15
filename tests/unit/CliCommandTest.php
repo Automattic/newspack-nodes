@@ -737,4 +737,225 @@ class CliCommandTest extends TestCase {
 		$this->assertSame( 4, $processed );        // 4 lines read
 		$this->assertCount( 2, $sink->captured );  // 2 messages emitted (ls, ping)
 	}
+
+	// ── fire() additional branches ────────────────────────────────────────
+
+	public function test_stdin_reader_fire_rearms_at_eof_poll_after_eof_sent(): void {
+		// Spec: after fire() emits TM_EOF (stdin closed), subsequent fire()
+		// ticks re-arm at EOF_POLL_MS=10 — tight enough to notice deadline /
+		// echo, light enough to leave CPU for other timers in the meantime.
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
+		$dumper = new \Newspack_Nodes\Dumper(
+			\fopen( 'php://memory', 'w+' ),
+			\fopen( 'php://memory', 'w+' )
+		);
+		$stream = \fopen( 'php://memory', 'r+' );
+
+		\Newspack_Nodes\EventFramework::reset();
+
+		// Generous deadline so the deadline-elapsed branch doesn't flip exit
+		// in this single fire(); we're isolating the EOF_POLL_MS re-arm.
+		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false, 60.0 );
+
+		$reader->fire(); // empty memory stream → feof=true → send_eof_marker
+
+		$ef       = \Newspack_Nodes\EventFramework::instance();
+		$ef_ref   = new \ReflectionClass( $ef );
+		$timers_p = $ef_ref->getProperty( 'timers' );
+		$timers_p->setAccessible( true );
+		$timers   = $timers_p->getValue( $ef );
+		$id       = \spl_object_id( $reader );
+		$this->assertArrayHasKey( $id, $timers, 'reader must register a timer' );
+		$this->assertSame(
+			10,
+			$timers[ $id ]['interval_ms'],
+			'after EOF emit, re-arm uses EOF_POLL_MS=10'
+		);
+
+		\fclose( $stream );
+	}
+
+	public function test_stdin_reader_fire_rearms_at_busy_poll_after_delivered_line(): void {
+		// Spec: fire() with a delivered line re-arms at BUSY_POLL_MS=0 so the
+		// next event-loop iteration drains the next line ASAP — critical for
+		// piped-stdin throughput where the kernel has many lines buffered.
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper(
+			\fopen( 'php://memory', 'w+' ),
+			\fopen( 'php://memory', 'w+' )
+		);
+		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$shell->sink( $sink );
+
+		$stream = \fopen( 'php://memory', 'r+' );
+		\fwrite( $stream, "ls\n" );
+		\rewind( $stream );
+
+		\Newspack_Nodes\EventFramework::reset();
+		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false );
+
+		$reader->fire();
+
+		$ef       = \Newspack_Nodes\EventFramework::instance();
+		$ef_ref   = new \ReflectionClass( $ef );
+		$timers_p = $ef_ref->getProperty( 'timers' );
+		$timers_p->setAccessible( true );
+		$timers   = $timers_p->getValue( $ef );
+		$id       = \spl_object_id( $reader );
+
+		$this->assertArrayHasKey( $id, $timers );
+		$this->assertSame( 0, $timers[ $id ]['interval_ms'], 'delivered line re-arms at BUSY_POLL_MS=0' );
+
+		\fclose( $stream );
+	}
+
+	public function test_stdin_reader_fire_does_not_rearm_when_exit_already_flipped(): void {
+		// Spec: the exit check before re-arm means a fire() that emits TM_EOF
+		// AND has its exit flipped (deadline elapsed, or echo received) MUST
+		// NOT re-arm the timer. Otherwise the drain loop would spin one more
+		// iteration after exit conditions met.
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
+		$dumper = new \Newspack_Nodes\Dumper(
+			\fopen( 'php://memory', 'w+' ),
+			\fopen( 'php://memory', 'w+' )
+		);
+		$stream = \fopen( 'php://memory', 'r+' );
+
+		// 0s deadline → fire() emits TM_EOF, then next fire() flips exit.
+		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false, 0.0 );
+
+		$reader->fire(); // emit TM_EOF, sets eof_deadline_at = now (0s deadline)
+		\usleep( 1000 );  // advance clock past deadline
+
+		// Reset EventFramework right before fire #2 so any timer it registers
+		// is the ONLY one we'd see. The deadline-elapsed branch should return
+		// before set_timer() — so the registry must remain empty.
+		\Newspack_Nodes\EventFramework::reset();
+
+		$reader->fire(); // deadline check fires, $exit=true, early return
+
+		$this->assertTrue( $reader->exit );
+
+		$ef       = \Newspack_Nodes\EventFramework::instance();
+		$ef_ref   = new \ReflectionClass( $ef );
+		$timers_p = $ef_ref->getProperty( 'timers' );
+		$timers_p->setAccessible( true );
+		$timers   = $timers_p->getValue( $ef );
+		$id       = \spl_object_id( $reader );
+		$this->assertArrayNotHasKey(
+			$id,
+			$timers,
+			'exit-flipped fire() must not re-arm the timer'
+		);
+
+		\fclose( $stream );
+	}
+
+	public function test_stdin_reader_readline_mode_fire_processes_queued_lines_and_reinstalls_handler(): void {
+		// Readline mode: tests bootstrap stubs $readline_handler_install and
+		// $readline_read_char to no-ops. Manually inject a line into the
+		// queue, fire(), and verify:
+		//   1. The line goes through dispatch_line (sink sees a Message).
+		//   2. install_handler is re-called after delivery — verified by
+		//      hooking the closure to count invocations.
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper(
+			\fopen( 'php://memory', 'w+' ),
+			\fopen( 'php://memory', 'w+' )
+		);
+		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$shell->sink( $sink );
+		$stream = \fopen( 'php://memory', 'r+' );
+
+		\Newspack_Nodes\EventFramework::reset();
+
+		$install_calls = 0;
+		$saved_install = \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install;
+		$saved_read    = \Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char;
+		\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = static function ( string $prompt, callable $cb ) use ( &$install_calls ): void {
+			++$install_calls;
+		};
+		// read_char is no-op (no line consumed). We pre-seed the queue.
+		\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char = static function (): void {};
+
+		try {
+			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+
+			$this->assertSame( 1, $install_calls, 'constructor installs the handler once' );
+
+			// Inject a queued line and fire — fire() will dispatch it, then re-install.
+			$queue_prop = new \ReflectionProperty( $reader, 'queue' );
+			$queue_prop->setAccessible( true );
+			$queue_prop->setValue( $reader, [ 'ls' ] );
+
+			$reader->fire();
+
+			// Sink got the dispatched message.
+			$this->assertCount( 1, $sink->captured, 'queued line must be dispatched on fire()' );
+			$this->assertSame(
+				\Newspack_Nodes\Message::TM_COMMAND,
+				$sink->captured[0][ \Newspack_Nodes\Message::TYPE ]
+			);
+			// Handler re-installed after the dispatch (so the next prompt renders).
+			$this->assertSame( 2, $install_calls, 'fire() re-installs handler after delivered line' );
+		} finally {
+			\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = $saved_install;
+			\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char       = $saved_read;
+			\fclose( $stream );
+		}
+	}
+
+	public function test_stdin_reader_readline_mode_fire_emits_eof_when_readline_signaled_eof(): void {
+		// Readline mode: when readline_callback_read_char calls back with
+		// null, the handle_readline_line flips $readline_eof. The NEXT
+		// fire() sees the flag and emits TM_EOF (via send_eof_marker).
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper(
+			\fopen( 'php://memory', 'w+' ),
+			\fopen( 'php://memory', 'w+' )
+		);
+		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$shell->sink( $sink );
+		$stream = \fopen( 'php://memory', 'r+' );
+
+		\Newspack_Nodes\EventFramework::reset();
+
+		$saved_install = \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install;
+		$saved_read    = \Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char;
+		\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = static function ( string $prompt, callable $cb ): void {};
+		\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char       = static function (): void {};
+
+		try {
+			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+
+			// Simulate readline delivering null (Ctrl-D / EOF).
+			$reader->handle_readline_line( null );
+
+			// fire(): stream_select on a memory stream throws ValueError →
+			// caught → $ready=1 → reads (no-op) → drains queue (empty) →
+			// notices readline_eof=true → send_eof_marker.
+			$reader->fire();
+
+			$this->assertCount( 1, $sink->captured, 'fire() with readline_eof must emit TM_EOF via Shell' );
+			$this->assertSame(
+				\Newspack_Nodes\Message::TM_EOF,
+				$sink->captured[0][ \Newspack_Nodes\Message::TYPE ]
+			);
+			// eof_sent should now be true.
+			$prop = new \ReflectionProperty( $reader, 'eof_sent' );
+			$prop->setAccessible( true );
+			$this->assertTrue( $prop->getValue( $reader ) );
+		} finally {
+			\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = $saved_install;
+			\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char       = $saved_read;
+			\fclose( $stream );
+		}
+	}
 }
