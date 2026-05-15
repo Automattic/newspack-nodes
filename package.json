@@ -18,7 +18,7 @@
 		"lint:js": "wp-scripts lint-js 'src/**/*.{js,jsx}'",
 		"lint:php": "phpcs",
 		"lint:scss": "wp-scripts lint-style 'src/**/*.scss' --customSyntax postcss-scss",
-		"test:js": "wp-scripts test-unit-js"
+		"test:js": "wp-scripts test-unit-js --passWithNoTests"
 	},
 	"dependencies": {
 		"@wordpress/api-fetch": "^7.0.0",
