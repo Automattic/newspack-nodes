@@ -518,6 +518,23 @@ class ShellTest extends TestCase {
 		$this->assertSame( 'hello world', $msg[ Message::VALUE ] );
 	}
 
+	public function test_send_node_canonical_emits_TM_BYTESTREAM_at_prefix_with_lf_terminator(): void {
+		$shell       = new Shell();
+		$shell->path = 'cwd';
+		$msg         = $shell->parse( 'send_node target hello world' );
+		$this->assertSame( Message::TM_BYTESTREAM, $msg[ Message::TYPE ] );
+		$this->assertSame( 'cwd/target', $msg[ Message::TO ] );
+		$this->assertSame( "hello world\n", $msg[ Message::VALUE ] );
+	}
+
+	public function test_send_alias_works_like_send_node(): void {
+		$shell = new Shell();
+		$msg   = $shell->parse( 'send target payload' );
+		$this->assertSame( Message::TM_BYTESTREAM, $msg[ Message::TYPE ] );
+		$this->assertSame( 'target', $msg[ Message::TO ] );
+		$this->assertSame( "payload\n", $msg[ Message::VALUE ] );
+	}
+
 	public function test_command_node_canonical_emits_TM_COMMAND_at_prefix(): void {
 		$shell       = new Shell();
 		$shell->path = 'jobs:partition';

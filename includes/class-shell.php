@@ -536,9 +536,11 @@ class Shell extends Node {
 			case 'send_node':
 				// Tachikoma Shell.pm `send_node <path> <bytes>` (alias: send) —
 				// emits TM_BYTESTREAM at prefix(<path>) so the cwd composes.
+				// Append "\n" so the byte payload is line-terminated, matching
+				// line-oriented downstream nodes (Log, Tail).
 				$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
-				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
+				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) ) . "\n";
 				break;
 			case 'send_eof':
 				$msg[ Message::TYPE ] = Message::TM_EOF;
