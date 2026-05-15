@@ -300,16 +300,18 @@ export default function ReplFooter( {
 							✕
 						</button>
 					</div>
-					{ transcript.map( ( entry ) => (
-						<pre
-							key={ entry.key }
-							className={ `topology-repl__entry topology-repl__entry--${ entry.kind }` }
-						>
-							{ entry.kind === 'sent'
-								? `${ topology }.p${ partition }> ${ entry.text }`
-								: entry.text }
-						</pre>
-					) ) }
+					<div className="topology-repl__entries">
+						{ transcript.map( ( entry ) => (
+							<pre
+								key={ entry.key }
+								className={ `topology-repl__entry topology-repl__entry--${ entry.kind }` }
+							>
+								{ entry.kind === 'sent'
+									? `${ topology }.p${ partition }> ${ entry.text }`
+									: entry.text }
+							</pre>
+						) ) }
+					</div>
 				</div>
 			) }
 			<div className="topology-repl__bar">
