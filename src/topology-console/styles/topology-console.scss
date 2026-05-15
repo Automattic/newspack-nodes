@@ -1296,15 +1296,11 @@ body[class*="_page_newspack-nodes-topology"] {
 		// is 20% of the canvas area; min 80px, max = full canvas. See
 		// ReplFooter.js (`defaultHeight()` + `handleResizeStart`).
 		overflow-y: auto;
-		// Flex-end clusters entries at the bottom of the pane when the
-		// content is shorter than the height — terminal-style. Once
-		// content overflows, normal overflow-y: auto kicks in and the
-		// auto-scroll-to-bottom effect (scrollTop = scrollHeight) keeps
-		// the newest line visible. Actions stay sticky to the top via
-		// `position: sticky` regardless.
-		display: flex;
-		flex-direction: column;
-		justify-content: flex-end;
+		// Plain block layout on the transcript itself — the actions div
+		// uses `position: sticky + float: right` to anchor top-right,
+		// and float doesn't behave inside flex. The bottom-anchored
+		// entries cluster is its own inner flex container
+		// (`&__entries` below) so the two layouts don't fight.
 		// 85% opacity so the schematic peeks through behind the
 		// transcript — the canvas updates are still visible while
 		// you're reading command output.
@@ -1380,6 +1376,18 @@ body[class*="_page_newspack-nodes-topology"] {
 		margin: 0 -60px 0 0;
 		background: transparent;
 		z-index: 1;
+	}
+
+	// Entries cluster at the bottom of the transcript pane when there's
+	// only a few — terminal-style. min-height + flex-end pushes the
+	// entries column down; once the content overflows the pane, the
+	// outer `overflow-y: auto` takes over and the existing
+	// scrollTop=scrollHeight effect keeps the newest line visible.
+	&__entries {
+		display: flex;
+		flex-direction: column;
+		justify-content: flex-end;
+		min-height: 100%;
 	}
 
 	&__entry {
