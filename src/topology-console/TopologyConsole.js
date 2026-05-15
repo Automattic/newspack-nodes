@@ -58,7 +58,7 @@ import {
 import { parseTsl } from './utils/parseTsl';
 import { serializeTsl } from './utils/serializeTsl';
 import { parseMetadata } from './utils/parseMetadata';
-import { shellInterpret, splitStatements, } from './utils/shellInterpret';
+import { shellInterpret, splitStatements } from './utils/shellInterpret';
 
 // The topology dropdown and partition counts both come from the same map
 // injected by the admin page as `NewspackNodesData.topologyPartitions`,
