@@ -446,9 +446,10 @@ class DumperTest extends TestCase {
 		$this->assertSame( "plain\n", $this->read_all( $out ) );
 	}
 
-	public function test_broadcast_filter_off_drops_sse_traffic(): void {
-		// Default state: TO=sse (the post-_router-peel form of TO=_repl/sse)
-		// is foreign traffic to this cli session and gets dropped silently.
+	public function test_to_filter_drops_foreign_session_traffic(): void {
+		// `TO=sse` (the post-_router-peel form of TO=_repl/sse) is foreign
+		// traffic to this cli session and gets dropped silently — same as
+		// any other TO that doesn't match this session's pid.
 		[ $dumper, $out ] = $this->fresh();
 		$dumper->set_to_filter( '12345' );
 
@@ -459,44 +460,6 @@ class DumperTest extends TestCase {
 		$dumper->fill( $msg );
 
 		$this->assertSame( '', $this->read_all( $out ) );
-		$this->assertFalse( $dumper->broadcast_filter_enabled( 'sse' ) );
-	}
-
-	public function test_broadcast_filter_on_renders_sse_traffic(): void {
-		// After toggle_broadcast_filter('sse'), TO=sse messages render through
-		// to the Dumper output the same as personal pid traffic.
-		[ $dumper, $out ] = $this->fresh();
-		$dumper->set_to_filter( '12345' );
-		$new_state = $dumper->toggle_broadcast_filter( 'sse' );
-		$this->assertTrue( $new_state );
-		$this->assertTrue( $dumper->broadcast_filter_enabled( 'sse' ) );
-
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::TO ]    = 'sse';
-		$msg[ Message::VALUE ] = [ 'rate' => 42.5 ];
-		$dumper->fill( $msg );
-
-		// TM_STRUCT array renders as JSON.
-		$rendered = $this->read_all( $out );
-		$this->assertSame( [ 'rate' => 42.5 ], \json_decode( \rtrim( $rendered, "\n" ), true ) );
-	}
-
-	public function test_broadcast_filter_toggle_is_idempotent_per_direction(): void {
-		// Calling toggle() flips. Two flips = back to off.
-		[ $dumper ] = $this->fresh();
-		$this->assertTrue( $dumper->toggle_broadcast_filter( 'sse' ) );
-		$this->assertFalse( $dumper->toggle_broadcast_filter( 'sse' ) );
-		$this->assertFalse( $dumper->broadcast_filter_enabled( 'sse' ) );
-	}
-
-	public function test_broadcast_filter_explicit_argument_sets_state(): void {
-		// Explicit true/false bypasses the toggle.
-		[ $dumper ] = $this->fresh();
-		$this->assertTrue( $dumper->toggle_broadcast_filter( 'sse', true ) );
-		$this->assertTrue( $dumper->toggle_broadcast_filter( 'sse', true ), 'idempotent on true' );
-		$this->assertFalse( $dumper->toggle_broadcast_filter( 'sse', false ) );
-		$this->assertFalse( $dumper->toggle_broadcast_filter( 'sse', false ), 'idempotent on false' );
 	}
 
 	public function test_debug_level_default_off_no_header_emitted(): void {
@@ -628,20 +591,4 @@ class DumperTest extends TestCase {
 		$this->assertSame( 1, $dumper->set_debug_level( 1 ),  'middle preserved' );
 	}
 
-	public function test_broadcast_filter_does_not_render_other_broadcast_names(): void {
-		// Distinct broadcast names are independent — opting into 'sse' must
-		// not silently also accept 'metrics' or any other TO that's not the
-		// session's pid.
-		[ $dumper, $out ] = $this->fresh();
-		$dumper->set_to_filter( '12345' );
-		$dumper->toggle_broadcast_filter( 'sse', true );
-
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::TO ]    = 'metrics';
-		$msg[ Message::VALUE ] = [ 'irrelevant' => true ];
-		$dumper->fill( $msg );
-
-		$this->assertSame( '', $this->read_all( $out ) );
-	}
 }

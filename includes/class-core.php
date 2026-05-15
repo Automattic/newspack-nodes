@@ -103,8 +103,8 @@ class Core {
 		// stderr-style diagnostics through it as TM_BYTESTREAM addressed to
 		// `_repl`. The worker's `_router` peels `_repl` and dispatches into
 		// the Partition; downstream cli/SSE readers see the message with
-		// empty TO, which the Dumper always renders — unaddressed broadcast,
-		// no `show_sse` opt-in needed (stderr is an alarm, not observability).
+		// empty TO, which the Dumper always renders — unaddressed broadcast
+		// (stderr is an alarm, not observability).
 		// Falls back to PHP's error_log when there's no _repl (request scope,
 		// tests, CLI tools). Override via set_stderr_handler() in tests.
 		self::$stderr_handler = static function ( string $msg ): void {

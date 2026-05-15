@@ -124,21 +124,6 @@ class Dumper extends Node {
 	private string $to_filter = '';
 
 	/**
-	 * Broadcast TO addresses the Dumper should ALSO render in addition to its
-	 * own pid/to_filter traffic. Empty = render only personal traffic. Used by
-	 * `show_sse` (and any future similar toggles) to opt into watching a
-	 * worker-side fan-out stream — `TO=sse` traffic, after `_router` peels the
-	 * `_repl` conduit prefix on the producer side, becomes a bare `sse` here.
-	 *
-	 * Matched as an exact equality against the (already-peeled) TO. No pid
-	 * suffix, no regex — the broadcast address is a fixed identity that
-	 * multiple cli/SSE sessions all consume.
-	 *
-	 * @var array<string,bool> Set-of-strings, e.g. [ 'sse' => true ].
-	 */
-	private array $broadcast_filter = [];
-
-	/**
 	 * Callback fired when a TM_EOF echo arrives matching the to_filter — the
 	 * cli's stdin-close round-trip drain marker. Cli wires this to flip the
 	 * reader's exit flag so the event loop terminates after the echo (i.e.
@@ -301,35 +286,6 @@ class Dumper extends Node {
 	}
 
 	/**
-	 * Toggle whether the Dumper renders TM_BYTESTREAM/TM_STRUCT messages with
-	 * a given broadcast address (post-router-peel form — e.g. 'sse' for the
-	 * `_repl/sse` fan-out). Idempotent; returns the new state so the caller
-	 * (Shell builtin) can report `show_sse: on` / `show_sse: off`.
-	 *
-	 * @param string $name        Broadcast address (post-peel form).
-	 * @param bool|null $explicit If null, toggles current state; otherwise sets.
-	 * @return bool New state.
-	 */
-	public function toggle_broadcast_filter( string $name, ?bool $explicit = null ): bool {
-		$current = ! empty( $this->broadcast_filter[ $name ] );
-		$next    = $explicit ?? ! $current;
-		if ( $next ) {
-			$this->broadcast_filter[ $name ] = true;
-		} else {
-			unset( $this->broadcast_filter[ $name ] );
-		}
-		return $next;
-	}
-
-	/**
-	 * Read-only accessor — used by Shell builtins to report current state and
-	 * by tests to assert the filter map without exposing the internal storage.
-	 */
-	public function broadcast_filter_enabled( string $name ): bool {
-		return ! empty( $this->broadcast_filter[ $name ] );
-	}
-
-	/**
 	 * Cli readline loop calls this immediately after writing the prompt so the
 	 * Dumper knows to wipe-and-redraw on the next async write.
 	 */
@@ -357,14 +313,11 @@ class Dumper extends Node {
 		// Multi-session filter: drop messages addressed to a different cli
 		// session. Match `_output/$pid` and `$pid` (the two forms a reply
 		// can take depending on whether _router peeled the _output
-		// segment). Empty TO is always rendered. Broadcasts (an exact TO
-		// match in the broadcast_filter set, e.g. `sse`) are also rendered
-		// — used by `show_sse` to opt into the worker's _repl/sse fan-out.
+		// segment). Empty TO is always rendered.
 		if ( '' !== $this->to_filter ) {
 			$to = (string) $message[ Message::TO ];
 			if ( '' !== $to
 				&& ! \preg_match( '/^(?:_output\/)?' . \preg_quote( $this->to_filter, '/' ) . '$/', $to )
-				&& empty( $this->broadcast_filter[ $to ] )
 			) {
 				return;
 			}

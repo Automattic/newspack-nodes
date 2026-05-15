@@ -761,9 +761,9 @@ class Partition extends Timer {
 		$this->cleanup_segments();
 
 		// Durable state: which segment are we writing to now? Late
-		// subscribers (incl. show_sse cli, eventual SSE controller, plus
-		// any in-process Topic that wires up an event listener) get
-		// immediate replay of the current segment. Cached by set_state.
+		// subscribers (eventual SSE controller, any in-process Topic that
+		// wires up an event listener) get immediate replay of the current
+		// segment. Cached by set_state.
 		$this->set_state( 'SEGMENT', $this->current_segment_id );
 	}
 

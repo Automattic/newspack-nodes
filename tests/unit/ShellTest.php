@@ -140,37 +140,6 @@ class ShellTest extends TestCase {
 		\fclose( $out_stream );
 	}
 
-	public function test_parse_show_sse_toggles_local_dumper_filter(): void {
-		// `show_sse` is a local-only builtin: it looks up the cli's Dumper by
-		// its registered `_output` name and flips its broadcast filter for
-		// `TO=sse` (the post-_router-peel form of `_repl/sse`). Pure toggle —
-		// no arguments — matching Perl Tachikoma's builtin convention. Reports
-		// the new state to $output_stream so the user knows whether they're
-		// looking at sse traffic or not.
-		$dumper = new Dumper();
-		$dumper->name( '_output' );
-		$this->assertFalse( $dumper->broadcast_filter_enabled( 'sse' ), 'default off' );
-
-		$out_stream = \fopen( 'php://memory', 'w+' );
-		$shell      = new Shell();
-		$shell->output_stream = $out_stream;
-
-		$this->assertNull( $shell->parse( 'show_sse' ) );
-		$this->assertTrue( $dumper->broadcast_filter_enabled( 'sse' ), 'first call enables' );
-
-		\rewind( $out_stream );
-		$this->assertSame( "show_sse: on\n", \stream_get_contents( $out_stream ) );
-
-		// Second invocation toggles back off; output reflects the new state.
-		\ftruncate( $out_stream, 0 );
-		\rewind( $out_stream );
-		$this->assertNull( $shell->parse( 'show_sse' ) );
-		$this->assertFalse( $dumper->broadcast_filter_enabled( 'sse' ), 'second call disables' );
-		\rewind( $out_stream );
-		$this->assertSame( "show_sse: off\n", \stream_get_contents( $out_stream ) );
-		\fclose( $out_stream );
-	}
-
 	public function test_parse_debug_level_no_args_toggles_dumper_state(): void {
 		// `debug_level` with no args toggles between 0 and 1.
 		$dumper = new Dumper();
@@ -237,21 +206,6 @@ class ShellTest extends TestCase {
 		$this->assertStringContainsString( 'parse> line: tell some/path hello', $contents );
 		$this->assertStringContainsString( 'parse> tokens: ', $contents );
 		$this->assertStringContainsString( '"tell"', $contents );
-		\fclose( $out_stream );
-	}
-
-	public function test_parse_show_sse_silent_when_no_dumper_registered(): void {
-		// Defensive: if the Shell runs in a context where no Dumper is
-		// registered under `_output` (e.g. a fully-headless test harness),
-		// `show_sse` must not crash — silent no-op, returning null.
-		$out_stream = \fopen( 'php://memory', 'w+' );
-		$shell      = new Shell();
-		$shell->output_stream = $out_stream;
-
-		$this->assertNull( $shell->parse( 'show_sse' ) );
-
-		\rewind( $out_stream );
-		$this->assertSame( '', \stream_get_contents( $out_stream ), 'silent when no Dumper' );
 		\fclose( $out_stream );
 	}
 
