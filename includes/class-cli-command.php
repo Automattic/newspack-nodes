@@ -339,6 +339,31 @@ class Cli_Command {
  * @package Newspack_Nodes
  */
 class Cli_Stdin_Reader extends Timer {
+	/**
+	 * `readline_callback_handler_install` seam — defaults to the real
+	 * libreadline call (lazy-initialized inside `install_handler`).
+	 * Tests reassign to a no-op so phpunit-in-a-terminal (where stdin
+	 * IS a tty, so we can't gate on `posix_isatty`) doesn't get the
+	 * raw prompt written to fd 1 and put the terminal into callback
+	 * mode. Pattern mirrors `Supervisor::$curl_exec`.
+	 *
+	 * Signature: `function (string $prompt, callable $line_cb): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $readline_handler_install = null;
+
+	/**
+	 * `readline_callback_read_char` seam — same pattern, defaults to
+	 * the real call. Tests reassign to a no-op so a test exercising
+	 * `fire()` in readline mode doesn't block on real stdin.
+	 *
+	 * Signature: `function (): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $readline_read_char = null;
+
 	/** @var resource */
 	public $stream;
 	public bool $exit = false;
@@ -435,11 +460,20 @@ class Cli_Stdin_Reader extends Timer {
 	 * written prompt).
 	 */
 	private function install_handler(): void {
-		\readline_callback_handler_install(
+		// Production: real `readline_callback_handler_install` writes the
+		// prompt to fd 1 and puts the tty into callback mode. Tests
+		// override via `self::$readline_handler_install` to skip the
+		// real call so a phpunit-in-a-terminal run (where stdin IS a
+		// tty, gating on `posix_isatty` is useless) doesn't pollute
+		// fd 1 with raw bytes. The dumper's `prompt_displayed`
+		// invariant flips either way.
+		$install = self::$readline_handler_install ?? static function ( string $prompt, callable $cb ): void {
+			\readline_callback_handler_install( $prompt, $cb );
+		};
+		$install(
 			$this->shell->prompt,
-			fn( $line ) => $this->handle_readline_line( $line )
+			fn ( $line ) => $this->handle_readline_line( $line )
 		);
-		// readline drew the prompt itself — no manual fwrite needed.
 		$this->dumper->mark_prompt_displayed();
 	}
 
@@ -534,7 +568,12 @@ class Cli_Stdin_Reader extends Timer {
 			if ( $ready > 0 ) {
 				// Feed one byte from STDIN to readline. If it completed a line,
 				// the callback (set in install_handler) appended to $this->queue.
-				\readline_callback_read_char();
+				// Tests override via `self::$readline_read_char` to no-op,
+				// preventing a stdin-block when phpunit runs in a terminal.
+				$read_char = self::$readline_read_char ?? static function (): void {
+					\readline_callback_read_char();
+				};
+				$read_char();
 
 				foreach ( $this->queue as $line ) {
 					$this->cmd->dispatch_line( $this->shell, $line );

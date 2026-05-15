@@ -83,7 +83,7 @@ if ( ! function_exists( 'rest_url' ) ) {
 if ( ! function_exists( 'wp_remote_post' ) ) {
 	function wp_remote_post( $url, $args = [] ) {
 		// Capture for tests; the final positional arg permits inspection.
-		$GLOBALS['_wp_test_remote_posts'][] = [ 'url' => $url, 'args' => $args ];
+		$GLOBALS['_test_outbound_posts'][] = [ 'url' => $url, 'args' => $args ];
 		// Tests can short-circuit the response by setting this global.
 		// Useful for exercising is_wp_error() branches in callers.
 		if ( isset( $GLOBALS['_wp_test_remote_post_response'] ) ) {
@@ -381,3 +381,40 @@ require_once \dirname( __DIR__ ) . '/newspack-nodes.php';
 require_once __DIR__ . '/Helpers/TestCase.php';
 require_once __DIR__ . '/Helpers/CaptureSink.php';
 require_once __DIR__ . '/Helpers/BoundedTicks.php';
+
+// Capture Supervisor fire-and-forget POSTs without actually hitting
+// libcurl. `$curl_exec` is a narrow seam — the rest of
+// `fire_and_forget_post` (curl_init, curl_setopt_array, errno
+// classification) still runs so the tests exercise it. URL comes off
+// the handle via curl_getinfo; body comes in as the 2nd arg because PHP
+// curl doesn't expose POSTFIELDS through getinfo. Honors the same
+// `$_wp_test_remote_post_response` override the wp_remote_post mock
+// above honors so test side-effects (e.g. "drop a restart flag when
+// this spawn fires") fire in both transports.
+// Block real libreadline from firing during tests — even when phpunit is
+// invoked interactively (stdin/stdout ARE a tty, so `posix_isatty`-style
+// gating is useless). The real call would write the prompt to fd 1 and
+// put the terminal into callback mode; `read_char` would then block on
+// stdin. Both seams default to the real libcurl/readline calls in
+// production and are no-op'd here for the test process.
+\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = static function ( string $prompt, callable $cb ): void {};
+\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char       = static function (): void {};
+
+\Newspack_Nodes\Supervisor::$curl_exec = static function ( $ch, array $body ) {
+	$url  = (string) \curl_getinfo( $ch, \CURLINFO_EFFECTIVE_URL );
+	$args = [
+		'method'    => 'POST',
+		'timeout'   => 0.01,
+		'blocking'  => false,
+		'sslverify' => false,
+		'body'      => $body,
+	];
+	$GLOBALS['_test_outbound_posts'][] = [ 'url' => $url, 'args' => $args ];
+	if ( isset( $GLOBALS['_wp_test_remote_post_response'] ) ) {
+		$resp = $GLOBALS['_wp_test_remote_post_response'];
+		if ( \is_callable( $resp ) ) {
+			$resp( $url, $args );
+		}
+	}
+	return false; // simulate "no response received" — we'd hang up anyway.
+};

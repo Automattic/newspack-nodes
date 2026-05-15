@@ -61,7 +61,12 @@ class WorkerCliCommand {
 	}
 
 	/**
-	 * List available worker topology groups.
+	 * List active worker topology groups — the same set the supervisor
+	 * will spawn (`Bootstrap::get_topologies()`), so this agrees with
+	 * `wp nodes ls`. Operator-selected TSL files that the application
+	 * didn't publish in its catalog are included here with their
+	 * frontmatter-derived (or substrate-num_partitions-defaulted)
+	 * partition counts; the previous catalog-only view hid them.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -70,14 +75,14 @@ class WorkerCliCommand {
 	 * @when after_wp_load
 	 */
 	public function types( array $args, array $assoc_args ): void {
-		$topologies = (array) \apply_filters( 'newspack_nodes/topologies', [] );
+		$topologies = Bootstrap::get_topologies();
 
 		if ( empty( $topologies ) ) {
-			\WP_CLI::warning( 'No topologies registered. Add via the `newspack_nodes/topologies` filter.' );
+			\WP_CLI::warning( 'No active topologies. Activate one via Settings → Nodes Runtime → Topologies, or add via the `newspack_nodes/topologies` filter.' );
 			return;
 		}
 
-		\WP_CLI::log( 'Registered topology groups:' );
+		\WP_CLI::log( 'Active topology groups:' );
 		foreach ( $topologies as $name => $config ) {
 			$partitions = (int) ( $config['num_partitions'] ?? 1 );
 			$stale      = (int) ( $config['stale_timeout'] ?? Lock::STALE_TIMEOUT );
@@ -157,7 +162,7 @@ class WorkerCliCommand {
 		// CLI-side runs use the substrate's own Config; application
 		// plugins that need richer config can hook the spawn-action
 		// path instead.
-		$config = \Newspack_Nodes\Config::load_config( 'full' );
+		$config = \Newspack_Nodes\Config::load_config();
 		if ( ! isset( $config['logs_dir'] ) && isset( $config['base_directory'] ) ) {
 			$config['logs_dir'] = \rtrim( (string) $config['base_directory'], '/' ) . '/logs';
 		}

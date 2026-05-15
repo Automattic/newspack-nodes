@@ -15,12 +15,18 @@ class BootstrapTest extends TestCase {
 		$GLOBALS['_wp_actions']                = [];
 		$GLOBALS['_wp_test_scheduled_events']  = [];
 		$GLOBALS['_wp_test_unscheduled_events'] = [];
-		$GLOBALS['_wp_test_remote_posts']      = [];
+		$GLOBALS['_test_outbound_posts']      = [];
 		$GLOBALS['_wp_test_next_scheduled']    = false;
+		// Config is statically cached — clear so each test sees fresh option
+		// values. get_topologies() now reads Config::load_config()['num_partitions']
+		// to default synthesized entries, so stale cache here leaks
+		// num_partitions across tests.
+		\Newspack_Nodes\Config::reset();
 	}
 
 	protected function tearDown(): void {
 		$GLOBALS['_wp_actions'] = [];
+		\Newspack_Nodes\Config::reset();
 		parent::tearDown();
 	}
 
@@ -87,6 +93,65 @@ class BootstrapTest extends TestCase {
 			$this->assertSame( \Newspack_Nodes\Lock::STALE_TIMEOUT, $result['quiet']['stale_timeout'] );
 		} finally {
 			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
+	public function test_get_topologies_inherits_substrate_num_partitions_for_synthesized_entries(): void {
+		// Operator bumps num_partitions to 2 and checks a TSL file the app
+		// didn't publish in its catalog (here `aggregator`, mirroring the
+		// real event-logger setup where `aggregator` is commented out of
+		// the file-default `topologies` list). Synthesis MUST honor the
+		// substrate's live num_partitions or only `aggregator.p0` will
+		// spawn while the rest of the stack runs p0+p1.
+		$stock = $this->make_temp_dir( 'tsl-stock-' );
+		\file_put_contents( "$stock/aggregator.tsl", "# no var lines here\n" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies']     = [ 'aggregator' ];
+		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 2;
+		\Newspack_Nodes\Config::reset();
+
+		try {
+			$result = Bootstrap::get_topologies();
+			$this->assertArrayHasKey( 'aggregator', $result );
+			$this->assertSame( 2, $result['aggregator']['num_partitions'], 'synthesized entry must inherit substrate num_partitions' );
+
+			// And expand_workers must emit one descriptor per partition.
+			$workers = Bootstrap::expand_workers();
+			$agg     = \array_values( \array_filter( $workers, fn ( $w ) => 'aggregator' === $w['type'] ) );
+			$this->assertCount( 2, $agg, 'aggregator must spawn p0 and p1' );
+			$this->assertSame( 0, $agg[0]['partition'] );
+			$this->assertSame( 1, $agg[1]['partition'] );
+		} finally {
+			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+			unset( $GLOBALS['_wp_options']['newspack_nodes_num_partitions'] );
+			\Newspack_Nodes\Config::reset();
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
+	public function test_get_topologies_frontmatter_wins_over_substrate_num_partitions(): void {
+		// A TSL file that DOES declare `var num_partitions` in frontmatter
+		// stays authoritative — substrate-num_partitions default only kicks
+		// in for frontmatter-silent files.
+		$stock = $this->make_temp_dir( 'tsl-stock-' );
+		\file_put_contents( "$stock/single.tsl", "var num_partitions = 1\n" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies']     = [ 'single' ];
+		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 4;
+		\Newspack_Nodes\Config::reset();
+
+		try {
+			$result = Bootstrap::get_topologies();
+			$this->assertSame( 1, $result['single']['num_partitions'] );
+		} finally {
+			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+			unset( $GLOBALS['_wp_options']['newspack_nodes_num_partitions'] );
+			\Newspack_Nodes\Config::reset();
 			\Newspack_Nodes\Topology_Registry::reset();
 			$this->rmdir_recursive( $stock );
 		}
@@ -216,7 +281,7 @@ class BootstrapTest extends TestCase {
 		// cheap.
 		$GLOBALS['_wp_test_next_scheduled']     = 1234567890;
 		$GLOBALS['_wp_test_unscheduled_events'] = [];
-		$GLOBALS['_wp_test_remote_posts']       = [];
+		$GLOBALS['_test_outbound_posts']       = [];
 
 		Bootstrap::run_supervisor_tick();
 
@@ -225,7 +290,7 @@ class BootstrapTest extends TestCase {
 			'empty topology fleet must NOT unschedule (re-enable path needs it)'
 		);
 		$this->assertEmpty(
-			$GLOBALS['_wp_test_remote_posts'],
+			$GLOBALS['_test_outbound_posts'],
 			'empty topology fleet must not invoke supervisor->run()'
 		);
 	}

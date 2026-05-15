@@ -145,13 +145,13 @@ class WorkerBaseTest extends TestCase {
 
 	public function test_self_respawn_posts_to_spawn_url(): void {
 		// Reset the bootstrap stub's POST log.
-		$GLOBALS['_wp_test_remote_posts'] = [];
+		$GLOBALS['_test_outbound_posts'] = [];
 
 		$w = new TestableWorker( $this->tmp, 'firehose-workers', 3 );
 		$w->self_respawn( 'http://example.com/wp-json/newspack-nodes/v1/workers/spawn', 'token-123' );
 
-		$this->assertCount( 1, $GLOBALS['_wp_test_remote_posts'] );
-		$post = $GLOBALS['_wp_test_remote_posts'][0];
+		$this->assertCount( 1, $GLOBALS['_test_outbound_posts'] );
+		$post = $GLOBALS['_test_outbound_posts'][0];
 		$this->assertSame( 'http://example.com/wp-json/newspack-nodes/v1/workers/spawn', $post['url'] );
 		// Worker type + partition + token are POSTed in the body so the spawn
 		// endpoint can validate.
@@ -210,7 +210,7 @@ class WorkerBaseTest extends TestCase {
 		// but we verify the documented behavior path: skip silently.
 		// (The branch IS covered by the bootstrap path when wp_remote_post is
 		// available, so we confirm the no-op shape here.)
-		$GLOBALS['_wp_test_remote_posts'] = [];
+		$GLOBALS['_test_outbound_posts'] = [];
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
 		$w->self_respawn( '', 'token' );
 		// Empty URL still records the post (fire-and-forget). What matters: it doesn't throw.
@@ -239,7 +239,7 @@ class WorkerBaseTest extends TestCase {
 		// Happy path: topology closure sets the restart flag so should_continue()
 		// returns false on the first drain tick; finally block releases the lock
 		// and POSTs to the spawn endpoint.
-		$GLOBALS['_wp_test_remote_posts'] = [];
+		$GLOBALS['_test_outbound_posts'] = [];
 
 		$worker = new TestableWorker( $this->tmp, 'happy-path', 0 );
 
@@ -258,8 +258,8 @@ class WorkerBaseTest extends TestCase {
 		$this->assertFalse( \is_dir( $topology_lock_path ) );
 
 		// Self-respawn POSTed to the spawn endpoint with the right body.
-		$this->assertNotEmpty( $GLOBALS['_wp_test_remote_posts'] );
-		$post = $GLOBALS['_wp_test_remote_posts'][0];
+		$this->assertNotEmpty( $GLOBALS['_test_outbound_posts'] );
+		$post = $GLOBALS['_test_outbound_posts'][0];
 		$this->assertSame( 'http://example/spawn', $post['url'] );
 		$this->assertSame( 'happy-path', $post['args']['body']['type'] );
 		$this->assertSame( 'token-abc', $post['args']['body']['nonce'] );

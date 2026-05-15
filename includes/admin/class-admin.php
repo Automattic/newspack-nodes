@@ -205,9 +205,13 @@ class Admin {
 		// surfaces every TSL file the operator could pick, not just
 		// the app's published file-default catalog. Partition counts
 		// come from the catalog when the topology is in it, otherwise
-		// synthesized from each TSL file's frontmatter.
+		// synthesized from each TSL file's frontmatter — with the
+		// substrate's live num_partitions as the default so a fleet
+		// the operator just checked sizes to match the rest of the
+		// stack instead of collapsing to p0 only.
 		$topology_partitions = [];
 		$catalog             = Bootstrap::get_topology_catalog();
+		$default_np          = (int) ( Config::load_config()['num_partitions'] ?? 1 );
 		foreach ( \Newspack_Nodes\Topology_Registry::list() as $name ) {
 			if ( ! \is_string( $name ) || '' === $name ) {
 				continue;
@@ -216,7 +220,7 @@ class Admin {
 				$topology_partitions[ $name ] = (int) $catalog[ $name ]['num_partitions'];
 				continue;
 			}
-			$synth = \Newspack_Nodes\Topology_Registry::synthesize_entry( $name, 1, Lock::STALE_TIMEOUT );
+			$synth = \Newspack_Nodes\Topology_Registry::synthesize_entry( $name, $default_np, Lock::STALE_TIMEOUT );
 			if ( null !== $synth && isset( $synth['num_partitions'] ) ) {
 				$topology_partitions[ $name ] = (int) $synth['num_partitions'];
 			}
@@ -854,7 +858,7 @@ class Admin {
 		}
 
 		try {
-			$config         = Config::load_config( 'full' );
+			$config         = Config::load_config();
 			$locks_dir      = Config::get_locks_directory();
 			$num_partitions = (int) ( $config['num_partitions'] ?? 1 );
 		} catch ( \Throwable $e ) {

@@ -27,18 +27,18 @@ if ( ! \defined( 'ABSPATH' ) ) {
  */
 class Config {
 	/**
+	 * Action fired from `reset()` so dependent Configs can invalidate their
+	 * own static caches. Listener contract is fan-out-free (no calls back
+	 * into substrate reset) to avoid recursion.
+	 */
+	public const RESET_ACTION = 'newspack_nodes/config_reset';
+
+	/**
 	 * Cached config (file defaults + WordPress options).
 	 *
 	 * @var array|null
 	 */
 	private static $config = null;
-
-	/**
-	 * Cached full config (includes extended options).
-	 *
-	 * @var array|null
-	 */
-	private static $config_full = null;
 
 	/**
 	 * Cached config defaults from files.
@@ -76,27 +76,22 @@ class Config {
 	private static ?string $validated_offsets_directory = null;
 
 	/**
-	 * Core options are needed for request logging and hook timing.
+	 * Option schema — every key loaded on every `load_config()` call.
+	 * Sanitizer types live in `Config_Utils::sanitize_option`.
 	 */
-	private static $option_schema_core = [
-		'base_directory' => 'path',
-		'num_partitions' => 'int',
-		'num_segments'   => 'int',
-		'segment_size'   => 'int',
-		'max_lifespan'   => 'int',
-		// Flat list of active topology names. Each entry must
-		// resolve via Topology_Registry. The supervisor spawns
-		// one worker fleet per entry, named after the topology.
-		// Substrate ships an empty default; application plugins
-		// (or per-deployment config files) populate it.
-		'topologies'     => 'array_strings',
-	];
-
-	/**
-	 * Extended options are only needed by workers and admin settings.
-	 */
-	private static $option_schema_extended = [
+	private static $option_schema = [
+		'base_directory'   => 'path',
+		'num_partitions'   => 'int',
+		'num_segments'     => 'int',
+		'segment_size'     => 'int',
+		'max_lifespan'     => 'int',
 		'memcache_servers' => 'memcache_servers',
+		// Flat list of active topology names. Each entry must resolve via
+		// Topology_Registry. The supervisor spawns one worker fleet per
+		// entry, named after the topology. Substrate ships an empty
+		// default; application plugins (or per-deployment config files)
+		// populate it.
+		'topologies'       => 'array_strings',
 	];
 
 	/**
@@ -111,57 +106,29 @@ class Config {
 	/**
 	 * Load configuration from disk + WordPress options.
 	 *
-	 * @param string $mode 'core' (default) loads only options needed for request logging.
-	 *                     'full' loads all options including worker/admin settings.
 	 * @return array Configuration array.
 	 */
-	public static function load_config( string $mode = 'core' ): array {
-		$is_full = 'full' === $mode;
-
-		// Return cached config if available.
-		if ( $is_full && null !== self::$config_full ) {
-			return self::$config_full;
-		}
-		if ( ! $is_full && null !== self::$config ) {
+	public static function load_config(): array {
+		if ( null !== self::$config ) {
 			return self::$config;
 		}
 
-		// Load from disk.
 		$config = self::load_config_defaults();
 
-		// Override with WordPress options (with sanitization).
 		if ( \defined( 'ABSPATH' ) && \function_exists( 'get_option' ) ) {
-			// Always load core options.
-			foreach ( self::$option_schema_core as $key => $type ) {
+			foreach ( self::$option_schema as $key => $type ) {
 				$value = \get_option( "newspack_nodes_{$key}" );
-				if ( false !== $value && '' !== $value ) {
-					$sanitized = Config_Utils::sanitize_option( $value, $type );
-					if ( null !== $sanitized ) {
-						$config[ $key ] = $sanitized;
-					}
+				if ( false === $value || '' === $value ) {
+					continue;
 				}
-			}
-
-			// Load extended options only for 'full' mode.
-			if ( $is_full ) {
-				foreach ( self::$option_schema_extended as $key => $type ) {
-					$value = \get_option( "newspack_nodes_{$key}" );
-					if ( false !== $value && '' !== $value ) {
-						$sanitized = Config_Utils::sanitize_option( $value, $type );
-						if ( null !== $sanitized ) {
-							$config[ $key ] = $sanitized;
-						}
-					}
+				$sanitized = Config_Utils::sanitize_option( $value, $type );
+				if ( null !== $sanitized ) {
+					$config[ $key ] = $sanitized;
 				}
 			}
 		}
 
-		if ( $is_full ) {
-			self::$config_full = $config;
-		} else {
-			self::$config = $config;
-		}
-
+		self::$config = $config;
 		return $config;
 	}
 
@@ -212,15 +179,27 @@ class Config {
 
 	/**
 	 * Reset cached config - call before load_config() to get fresh values.
+	 *
+	 * Fires `newspack_nodes/config_reset` so dependent Configs (e.g.
+	 * `Newspack_Event_Logger_Nodes\Config`, which layers app overrides on
+	 * top of this substrate config and maintains its OWN merged-result
+	 * static cache) can invalidate alongside us. Without that fan-out, the
+	 * supervisor's per-tick `Config::reset()` only clears the substrate
+	 * cache — the app's filter callbacks would still see stale values like
+	 * `num_partitions=1` while the substrate sees the fresh 2, producing
+	 * mismatched topology entries (only one operator-overlay topology
+	 * synthesized, others built from the stale app catalog).
 	 */
 	public static function reset(): void {
 		self::$config                      = null;
-		self::$config_full                 = null;
 		self::$config_defaults             = null;
 		self::$validated_base_directory    = null;
 		self::$validated_logs_directory    = null;
 		self::$validated_locks_directory   = null;
 		self::$validated_offsets_directory = null;
+		if ( \function_exists( 'do_action' ) ) {
+			\do_action( self::RESET_ACTION );
+		}
 	}
 
 	/**

@@ -50,8 +50,11 @@ class Bootstrap {
 	 * not just catalog entries) fall back to `Topology_Registry` lookup —
 	 * the entry is synthesized from the TSL frontmatter with the same
 	 * shape the application produces, so the supervisor can spawn it.
-	 * Names that don't resolve to a TSL file are dropped, guarding
-	 * against typos / stale option values.
+	 * Synthesized entries inherit the substrate's live `num_partitions`
+	 * setting as the default partition count — operators expect the
+	 * admin's num_partitions slider to size every fleet they check, not
+	 * just the ones the app pre-blessed. Names that don't resolve to a
+	 * TSL file are dropped, guarding against typos / stale option values.
 	 */
 	public static function get_topologies(): array {
 		$catalog = (array) \apply_filters( 'newspack_nodes/topologies', [] );
@@ -64,6 +67,7 @@ class Bootstrap {
 		if ( ! \is_array( $option ) ) {
 			return $catalog;
 		}
+		$default_np = (int) ( Config::load_config()['num_partitions'] ?? 1 );
 		$active = [];
 		foreach ( $option as $name ) {
 			if ( ! \is_string( $name ) || '' === $name ) {
@@ -73,7 +77,7 @@ class Bootstrap {
 				$active[ $name ] = $catalog[ $name ];
 				continue;
 			}
-			$synthesized = Topology_Registry::synthesize_entry( $name, 1, Lock::STALE_TIMEOUT );
+			$synthesized = Topology_Registry::synthesize_entry( $name, $default_np, Lock::STALE_TIMEOUT );
 			if ( null !== $synthesized ) {
 				$active[ $name ] = $synthesized;
 			}

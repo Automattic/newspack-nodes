@@ -32,7 +32,7 @@ class CliWorkerCommandTest extends TestCase {
 		$this->tmp = \realpath( $staging ) ?: $staging;
 
 		$GLOBALS['_wp_actions']                = [];
-		$GLOBALS['_wp_test_remote_posts']      = [];
+		$GLOBALS['_test_outbound_posts']      = [];
 		$GLOBALS['_test_wp_cli_logs']          = [];
 		$GLOBALS['_test_wp_cli_warns']         = [];
 		$GLOBALS['_test_wp_cli_errors']        = [];
@@ -67,7 +67,7 @@ class CliWorkerCommandTest extends TestCase {
 	public function test_types_warns_when_no_topologies(): void {
 		( new WorkerCliCommand() )->types( [], [] );
 		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_warns'] );
-		$this->assertStringContainsString( 'No topologies registered', $GLOBALS['_test_wp_cli_warns'][0] );
+		$this->assertStringContainsString( 'No active topologies', $GLOBALS['_test_wp_cli_warns'][0] );
 	}
 
 	public function test_types_lists_registered_groups(): void {

@@ -659,7 +659,7 @@ class Consumer extends Timer {
 	 * topology-side wiring: every Consumer knows its source dir, every
 	 * reader can derive the same key.
 	 *
-	 * Server discovery: substrate `Config::load_config('full')['memcache_servers']`.
+	 * Server discovery: substrate `Config::load_config()['memcache_servers']`.
 	 * No-op when the Memcached PHP extension is missing or the server is
 	 * unreachable. Sticky-fail: a failed connect never retries within this
 	 * worker's lifetime.
@@ -673,7 +673,7 @@ class Consumer extends Timer {
 			return;
 		}
 		if ( null === $memd ) {
-			$config  = Config::load_config( 'full' );
+			$config  = Config::load_config();
 			$servers = $config['memcache_servers'] ?? [];
 			if ( ! \is_array( $servers ) || empty( $servers ) ) {
 				$memd = false;

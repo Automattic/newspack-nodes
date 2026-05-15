@@ -4,7 +4,9 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Lock;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Medium;
 
+#[Medium]
 #[CoversClass( Lock::class )]
 class LockTest extends TestCase {
 	private string $tmp;
@@ -66,8 +68,12 @@ class LockTest extends TestCase {
 		$lock = new Lock( "{$this->tmp}/test.lock.d" );
 		$lock->acquire();
 		$hb = "{$this->tmp}/test.lock.d/heartbeat";
+		// Backdate so heartbeat()'s touch produces a strictly-newer mtime
+		// without waiting a wall-clock second (filemtime is integer-second
+		// resolution).
+		touch( $hb, time() - 5 );
+		clearstatcache();
 		$old = filemtime( $hb );
-		sleep( 1 );
 		$lock->heartbeat();
 		clearstatcache();
 		$this->assertGreaterThan( $old, filemtime( $hb ) );
@@ -263,6 +269,8 @@ class LockTest extends TestCase {
 	public function test_acquire_takes_over_orphan_dir_after_grace(): void {
 		// Lock dir exists but no heartbeat file (crash during creation).
 		// After ORPHAN_GRACE_S seconds with no heartbeat appearing, acquire() steals it.
+		// The grace is implemented as a real sleep() inside the production
+		// code; phpunit.xml's `defaultTimeLimit` accommodates the wait.
 		mkdir( "{$this->tmp}/orphan.lock.d", 0755, true );
 
 		$lock = new Lock( "{$this->tmp}/orphan.lock.d" );

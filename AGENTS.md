@@ -19,8 +19,13 @@ Conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`).
 ## Build / Test
 
 ```bash
-# Run unit + integration tests.
-cd tests && phpunit
+# Run unit + integration tests. Always pass `--enforce-time-limit` so a
+# test that accidentally blocks on stdin (readline mode without a TTY)
+# or an infinite drain loop gets aborted at the per-test budget instead
+# of hanging the whole suite. Class-level `#[Medium]` raises the limit
+# from 1s to 10s for tests that legitimately sleep through production
+# code (Lock orphan grace, supervisor tick_loop).
+cd tests && phpunit --enforce-time-limit
 
 # Lint PHP.
 npm run lint:php
