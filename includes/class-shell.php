@@ -312,8 +312,8 @@ class Shell extends Node {
 		// show_parse: report the post-interpolation line + tokens before
 		// dispatching. Builtins return before constructing a Message, so this
 		// is the only place every line passes through. Goes to output_stream
-		// (same channel as `status` / `show_sse` reporting); silent when
-		// output_stream is unset.
+		// (same channel as `status` reporting); silent when output_stream is
+		// unset.
 		if ( $this->show_parse && \is_resource( $this->output_stream ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 			\fwrite(
@@ -400,27 +400,6 @@ class Shell extends Node {
 			if ( \is_resource( $this->output_stream ) ) {
 				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 				\fwrite( $this->output_stream, 'show_parse: ' . ( $this->show_parse ? 'on' : 'off' ) . "\n" );
-			}
-			return null;
-		}
-
-		// `show_sse` builtin: toggle the local Dumper's `TO=sse` filter. The
-		// worker fans stats / debug_state events out to `TO=_repl/sse`; the
-		// worker-side _router peels `_repl`, so each cli/SSE reader sees
-		// bare `TO=sse` arriving at its Dumper. By default the Dumper drops
-		// those (they're not addressed to this session's $pid). `show_sse`
-		// flips the per-session opt-in so the user can peek at the stream.
-		// Takes no arguments — pure toggle, matching Perl Tachikoma's
-		// builtin convention. Reports the new state to $output_stream.
-		if ( 'show_sse' === $verb ) {
-			$dumper = Core::node( '_output' );
-			if ( $dumper instanceof Dumper ) {
-				$now = $dumper->toggle_broadcast_filter( 'sse' );
-				if ( \is_resource( $this->output_stream ) ) {
-					// $output_stream is STDOUT or a test memory stream — never a managed path.
-					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-					\fwrite( $this->output_stream, 'show_sse: ' . ( $now ? 'on' : 'off' ) . "\n" );
-				}
 			}
 			return null;
 		}

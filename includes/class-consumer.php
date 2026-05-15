@@ -413,8 +413,7 @@ class Consumer extends Timer {
 				$this->cursor_off     = 0;
 				$this->line_remainder = '';
 				// Durable state: which segment is the cursor currently on?
-				// Late subscribers (incl. dashboards via show_sse) see the
-				// current segment. Cached by set_state.
+				// Late subscribers see the current segment. Cached by set_state.
 				$this->set_state( 'SEGMENT', $this->cursor_seg );
 			}
 
