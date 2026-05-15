@@ -61,7 +61,6 @@ import { parseMetadata } from './utils/parseMetadata';
 import {
 	shellInterpret,
 	splitStatements,
-	SHELL_BUILTINS_BLURB,
 } from './utils/shellInterpret';
 
 // The topology dropdown and partition counts both come from the same map
@@ -954,17 +953,6 @@ export default function TopologyConsole() {
 					text: '[no sse_pid yet] retry once CONNECTED',
 				} );
 				return;
-			}
-			// `help`: prepend the Shell-builtins blurb so the user sees
-			// our local verbs alongside the worker's authoritative
-			// server-side list. Mirrors Perl Tachikoma CommandInterpreter::
-			// help which prepends `### SHELL BUILTINS ###` from the
-			// responder's $shell->help_topics before its own commands.
-			if ( interpreted.body.name === 'help' ) {
-				appendTranscript( {
-					kind: 'info',
-					text: SHELL_BUILTINS_BLURB,
-				} );
 			}
 			apiFetch( {
 				path: `/newspack-nodes/v1/topology/${ encodeURIComponent(
