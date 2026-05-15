@@ -103,7 +103,9 @@ class Tail extends Timer {
 			$this->at_eof = true;
 			return;
 		}
-		$this->position += \strlen( $bytes );
+		$read_len         = \strlen( $bytes );
+		$this->position  += $read_len;
+		$this->bytes_read += $read_len;
 
 		// at_eof iff we drained the file's tail in this poll. If READ_CHUNK
 		// capped us short of $current_size, more data is waiting — busy mode.

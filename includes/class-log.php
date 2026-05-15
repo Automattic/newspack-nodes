@@ -79,8 +79,13 @@ class Log extends Node {
 			}
 			return;
 		}
-		$value      = (string) $message[ Message::VALUE ];
-		$this->size += \strlen( $value );
+		$value                = (string) $message[ Message::VALUE ];
+		$write_len            = \strlen( $value );
+		$this->size          += $write_len;
+		$this->bytes_written += $write_len;
+		if ( $write_len > $this->largest_msg_sent ) {
+			$this->largest_msg_sent = $write_len;
+		}
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 		\fwrite( $this->fh, $value );
 		// Auto-rotate after the write so the bytes that pushed us over the

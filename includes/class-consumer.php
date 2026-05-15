@@ -791,7 +791,7 @@ class Consumer extends Timer {
 			'description' => 'Tails a Partition; emits each appended message to its sink.',
 			'ctor'        => [
 				[ 'name' => 'source_base_dir',    'type' => 'string', 'required' => true ],
-				[ 'name' => 'source_partition',   'type' => 'int',    'required' => true ],
+				[ 'name' => 'source_partition',   'type' => 'int',    'required' => true, 'default' => '<partition>' ],
 				[ 'name' => 'offsetlog_base_dir', 'type' => 'string', 'default' => '' ],
 			],
 			'verbs'       => [],
