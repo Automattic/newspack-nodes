@@ -66,7 +66,7 @@ describe( 'shellInterpret', () => {
 			body: {
 				type: 'bytestream',
 				to: 'my_node',
-				arguments: 'payload',
+				arguments: 'payload\n',
 			},
 		} );
 		expect( shellInterpret( 'send' ).kind ).toBe( 'error' );

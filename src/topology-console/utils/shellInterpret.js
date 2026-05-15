@@ -112,9 +112,14 @@ export function shellInterpret( line ) {
 		if ( ! to ) {
 			return { kind: 'error', text: 'usage: send <path> <bytes>' };
 		}
+		// Match the PHP Shell parser: line-terminate the bytestream so
+		// line-oriented downstream nodes (Log, Tail) don't run consecutive
+		// sends together. The trailing newline is appended here rather than
+		// server-side so the REST payload is the exact byte sequence the
+		// receiver will see — easier to reason about in the network log.
 		return {
 			kind: 'post',
-			body: { type: 'bytestream', to, arguments: body },
+			body: { type: 'bytestream', to, arguments: `${ body }\n` },
 		};
 	}
 	if ( verb === 'send_eof' ) {
