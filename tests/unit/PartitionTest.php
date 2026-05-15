@@ -1,6 +1,8 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Core;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -962,6 +964,46 @@ class PartitionTest extends TestCase {
 		$cache_prop->setAccessible( true );
 		$ids = \array_column( $cache_prop->getValue( $p ), 'id' );
 		$this->assertContains( 7, $ids, 'unfamiliar current_segment_id must be appended to the cache' );
+	}
+
+	// ============================================================================
+	// Coverage: __destruct flushes pending batch via remove_node() cleanup chain.
+	// ============================================================================
+
+	public function test_destruct_flushes_batched_messages_after_remove_node(): void {
+		// fill() batches in memory; __destruct must flush before close_handle()
+		// so a request-scope Partition (LogManager via Topic) doesn't lose data
+		// when PHP collects it.
+		//
+		// To trigger __destruct deterministically, the test follows the
+		// production cleanup chain in order:
+		//   1. fill() — message lives in $batch.
+		//   2. remove_node() — Partition cascades close_handle + write_lock,
+		//      Timer cascades stop_timer (deferred onto Core's closing queue),
+		//      Node clears registrations + sibling CI + name registration.
+		//   3. Core::run_closing() — drains the deferred queue, which fires
+		//      EventFramework::stop_timer($p), dropping the EF's back-ref into
+		//      $timers (the second of two cycles holding the Partition alive).
+		//   4. unset($p) — refcount now actually drops to 0, __destruct fires
+		//      synchronously, flush() writes the batch, close_handle() closes.
+		$p   = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$msg = $this->produce( 'gc-flushed' );
+		$p->fill( $msg );
+
+		// File doesn't exist yet — batch is in memory.
+		$file = "{$this->tmp}/p0/0.log";
+		$this->assertFalse( \file_exists( $file ), 'batch must not have flushed yet' );
+
+		$p->remove_node();
+		Core::run_closing();
+		unset( $p );
+
+		$this->assertTrue( \file_exists( $file ), '__destruct must materialize the segment file' );
+		$bytes = (string) \file_get_contents( $file );
+		$lines = \array_values( \array_filter( \explode( "\n", $bytes ) ) );
+		$this->assertNotEmpty( $lines, 'flush must write at least one line' );
+		$decoded = Message::unpacked( $lines[0] );
+		$this->assertSame( 'gc-flushed', $decoded[ Message::VALUE ] );
 	}
 
 	// ============================================================================
