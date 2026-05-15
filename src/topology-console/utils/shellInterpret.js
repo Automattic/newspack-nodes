@@ -64,6 +64,51 @@ function splitFirst( s ) {
 	return [ s.slice( 0, idx ), s.slice( idx + 1 ).trim() ];
 }
 
+/**
+ * Split a typed line on unquoted `;` into separate statements, so the
+ * REPL accepts `help; ls` as two commands instead of treating the `;`
+ * as part of the verb. Mirrors `Shell::split_statements` on the PHP
+ * side. Single, double, and backtick quotes shield their interior
+ * `;` from splitting. Trims each result and drops empties.
+ *
+ * @param {string} line Raw line from the REPL input.
+ * @return {string[]}   Zero or more individual statements.
+ */
+export function splitStatements( line ) {
+	const statements = [];
+	let buf = '';
+	let inQuote = null;
+	for ( let i = 0; i < line.length; i++ ) {
+		const ch = line[ i ];
+		if ( inQuote !== null ) {
+			buf += ch;
+			if ( ch === inQuote ) {
+				inQuote = null;
+			}
+			continue;
+		}
+		if ( ch === "'" || ch === '"' || ch === '`' ) {
+			inQuote = ch;
+			buf += ch;
+			continue;
+		}
+		if ( ch === ';' ) {
+			const trimmed = buf.trim();
+			if ( trimmed !== '' ) {
+				statements.push( trimmed );
+			}
+			buf = '';
+			continue;
+		}
+		buf += ch;
+	}
+	const tail = buf.trim();
+	if ( tail !== '' ) {
+		statements.push( tail );
+	}
+	return statements;
+}
+
 export function shellInterpret( line ) {
 	const trimmed = ( line || '' ).trim();
 	if ( ! trimmed ) {
