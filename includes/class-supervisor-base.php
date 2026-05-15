@@ -206,10 +206,12 @@ class SupervisorBase {
 	public function remove_stale_directory( string $dir, int $stale_age_s ): void {
 		// Handle symlinks to prevent escaping the intended directory.
 		if ( \is_link( $dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink -- substrate manages its own base_dir tree (default /tmp/newspack-nodes/); the VIP hosted-filesystem rule doesn't apply to a runtime's reserved directory.
 			@\unlink( $dir );
 			return;
 		}
 		if ( ! \is_dir( $dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink -- see above.
 			@\unlink( $dir );
 			return;
 		}
