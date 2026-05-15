@@ -1188,4 +1188,537 @@ class ConsumerTest extends TestCase {
 		// publish_position to its tail.
 		$this->assertGreaterThanOrEqual( 1, $c->counter(), 'fire() must reach poll() past publish_position' );
 	}
+
+	// ============================================================================
+	// fill() / handle_request() — TM_REQUEST introspection verbs.
+	// ============================================================================
+
+	public function test_fill_routes_TM_REQUEST_to_handle_request(): void {
+		// fill() must detect TM_REQUEST (without TM_RESPONSE) and dispatch to
+		// handle_request() — NOT forward to sink. This is the introspection
+		// path that powers GET_LAG / GET_OFFSET verbs.
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'one' );
+		$this->produce_line( $source, 'two' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->name( 'my-consumer' );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		$req                       = Message::new_message();
+		$req[ Message::TYPE ]      = Message::TM_REQUEST;
+		$req[ Message::FROM ]      = 'asker';
+		$req[ Message::ID ]        = 'req-1';
+		$req[ Message::KEY ]       = 'k';
+		$req[ Message::VALUE ]     = 'GET_OFFSET';
+		$c->fill( $req );
+
+		$this->assertCount( 1, $cap->captured, 'request must produce exactly one reply' );
+		$reply = $cap->captured[0];
+		$this->assertSame(
+			Message::TM_REQUEST | Message::TM_RESPONSE | Message::TM_STRUCT,
+			$reply[ Message::TYPE ],
+			'reply must carry TM_REQUEST|TM_RESPONSE|TM_STRUCT'
+		);
+		$this->assertSame( 'my-consumer', $reply[ Message::FROM ], 'reply FROM = Consumer name' );
+		$this->assertSame( 'asker', $reply[ Message::TO ], 'reply TO walks breadcrumb back via FROM' );
+		$this->assertSame( 'req-1', $reply[ Message::ID ], 'reply ID echoes request ID' );
+		$this->assertSame( 'k', $reply[ Message::KEY ], 'reply KEY echoes request KEY' );
+		$this->assertIsArray( $reply[ Message::VALUE ] );
+		$this->assertSame( 'GET_OFFSET', $reply[ Message::VALUE ]['verb'] );
+		$this->assertIsArray( $reply[ Message::VALUE ]['data'] );
+	}
+
+	public function test_fill_TM_REQUEST_with_TM_RESPONSE_falls_through(): void {
+		// A message that's both TM_REQUEST and TM_RESPONSE is an in-flight
+		// reply — must NOT be re-handled. Falls through to parent::fill()
+		// (Timer::fill → Node::fill → forward to sink).
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_REQUEST | Message::TM_RESPONSE;
+		$msg[ Message::FROM ]      = 'someone';
+		$msg[ Message::VALUE ]     = 'GET_OFFSET'; // would otherwise dispatch
+		$c->fill( $msg );
+
+		// Forwarded once; never doubled by a handle_request reply.
+		$this->assertCount( 1, $cap->captured, 'response messages must forward to sink, not re-handled' );
+		// VALUE preserved — handle_request would have replaced it with an array.
+		$this->assertSame( 'GET_OFFSET', $cap->captured[0][ Message::VALUE ] );
+	}
+
+	public function test_handle_request_GET_OFFSET_returns_cursor_and_checkpoint(): void {
+		// Spec: GET_OFFSET reply payload is
+		// { cursor_seg, cursor_off, checkpoint_seg, checkpoint_off, last_checkpoint_ts }.
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'hello' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+		$c->poll();
+		$c->checkpoint();
+		// poll() forwarded the produced bytestream line to the sink; clear so
+		// captured[0] below is the TM_REQUEST reply we're asserting on.
+		$cap->captured = [];
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'asker';
+		$req[ Message::VALUE ] = 'GET_OFFSET';
+		$c->fill( $req );
+
+		$data = $cap->captured[0][ Message::VALUE ]['data'];
+		$this->assertArrayHasKey( 'cursor_seg', $data );
+		$this->assertArrayHasKey( 'cursor_off', $data );
+		$this->assertArrayHasKey( 'checkpoint_seg', $data );
+		$this->assertArrayHasKey( 'checkpoint_off', $data );
+		$this->assertArrayHasKey( 'last_checkpoint_ts', $data );
+		$this->assertSame( 0, $data['cursor_seg'] );
+		$this->assertGreaterThan( 0, $data['cursor_off'] );
+		// checkpoint_seg/off match cursor after checkpoint() committed.
+		$this->assertSame( $data['cursor_seg'], $data['checkpoint_seg'] );
+		$this->assertSame( $data['cursor_off'], $data['checkpoint_off'] );
+	}
+
+	public function test_handle_request_GET_LAG_returns_caught_up_when_empty(): void {
+		// Spec: GET_LAG reply payload for an empty source partition has
+		// bytes_behind=0, segments_behind=0, caught_up=true.
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'asker';
+		$req[ Message::VALUE ] = 'GET_LAG';
+		$c->fill( $req );
+
+		$data = $cap->captured[0][ Message::VALUE ]['data'];
+		$this->assertSame( 0, $data['bytes_behind'] );
+		$this->assertSame( 0, $data['segments_behind'] );
+		$this->assertTrue( $data['caught_up'] );
+	}
+
+	public function test_handle_request_GET_LAG_returns_bytes_behind_when_unread(): void {
+		// With pending bytes on the source partition, GET_LAG must report
+		// bytes_behind > 0 and caught_up=false. line_remainder bytes don't
+		// inflate the count (they're already "fetched", just not emitted yet).
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'pending' );
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+		// Don't poll — leave the bytes behind so the lag computation has work.
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'asker';
+		$req[ Message::VALUE ] = 'GET_LAG';
+		$c->fill( $req );
+
+		$data = $cap->captured[0][ Message::VALUE ]['data'];
+		$this->assertGreaterThan( 0, $data['bytes_behind'], 'unread bytes must surface in bytes_behind' );
+		$this->assertSame( 0, $data['segments_behind'], 'single-segment lag has 0 segments_behind' );
+		$this->assertFalse( $data['caught_up'] );
+	}
+
+	public function test_handle_request_GET_LAG_counts_segments_behind(): void {
+		// Multi-segment: a consumer parked on segment 0 with newer segments
+		// available must report segments_behind > 0.
+		$source = new Partition( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$this->produce_line( $source, \str_repeat( 'a', 30 ) );
+		$this->produce_line( $source, \str_repeat( 'b', 30 ) );
+		$this->produce_line( $source, \str_repeat( 'c', 30 ) );
+
+		$segments = $source->get_segments( true );
+		$this->assertGreaterThanOrEqual( 2, \count( $segments ), 'need multi-segment for this test' );
+
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		// Park cursor at oldest segment, offset 0 — every newer segment is
+		// behind.
+		$ref = new \ReflectionClass( $c );
+		$seg = $ref->getProperty( 'cursor_seg' );
+		$seg->setAccessible( true );
+		$seg->setValue( $c, (int) $segments[0]['id'] );
+		$off = $ref->getProperty( 'cursor_off' );
+		$off->setAccessible( true );
+		$off->setValue( $c, 0 );
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'asker';
+		$req[ Message::VALUE ] = 'GET_LAG';
+		$c->fill( $req );
+
+		$data = $cap->captured[0][ Message::VALUE ]['data'];
+		$this->assertGreaterThan( 0, $data['segments_behind'], 'segments_behind must count newer segments' );
+		$this->assertGreaterThan( 0, $data['bytes_behind'] );
+	}
+
+	public function test_handle_request_GET_LAG_subtracts_line_remainder_from_bytes_behind(): void {
+		// `line_remainder` bytes have been READ but not yet emitted — they
+		// must subtract from bytes_behind so the report reflects bytes-still-
+		// to-fetch, not bytes-still-to-emit. (Without the subtraction, a
+		// partial-line accumulator would double-count.)
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'hello' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+
+		// Pretend we already have 3 bytes in line_remainder (already read).
+		$ref = new \ReflectionClass( $c );
+		$rem = $ref->getProperty( 'line_remainder' );
+		$rem->setAccessible( true );
+		$rem->setValue( $c, 'xyz' ); // 3 bytes
+
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'asker';
+		$req[ Message::VALUE ] = 'GET_LAG';
+		$c->fill( $req );
+
+		$data           = $cap->captured[0][ Message::VALUE ]['data'];
+		$segments       = $source->get_segments( true );
+		$total_bytes    = (int) $segments[0]['size'];
+		// line_remainder len = 3, so bytes_behind = total - 3.
+		$this->assertSame( $total_bytes - 3, $data['bytes_behind'] );
+	}
+
+	public function test_handle_request_unknown_verb_returns_error_payload(): void {
+		// Spec: unknown verbs reply with `[ 'error' => "unknown request verb: $VERB" ]`.
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'asker';
+		$req[ Message::VALUE ] = 'WHO_KNOWS';
+		$c->fill( $req );
+
+		$this->assertCount( 1, $cap->captured );
+		$data = $cap->captured[0][ Message::VALUE ]['data'];
+		$this->assertArrayHasKey( 'error', $data );
+		$this->assertStringContainsString( 'WHO_KNOWS', $data['error'] );
+		$this->assertSame( 'WHO_KNOWS', $cap->captured[0][ Message::VALUE ]['verb'] );
+	}
+
+	public function test_handle_request_verb_is_case_insensitive_and_strips_args(): void {
+		// Spec: verb extraction is strtoupper(explode(' ', trim($value), 2)[0]).
+		// "get_offset extra args" → GET_OFFSET.
+		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'asker';
+		$req[ Message::VALUE ] = '  get_offset trailing args ignored  ';
+		$c->fill( $req );
+
+		$reply = $cap->captured[0];
+		$this->assertSame( 'GET_OFFSET', $reply[ Message::VALUE ]['verb'] );
+		$data = $reply[ Message::VALUE ]['data'];
+		// GET_OFFSET shape (not the error shape) — verifies the verb was
+		// recognized after trim+upper+arg-strip.
+		$this->assertArrayHasKey( 'cursor_seg', $data );
+	}
+
+	public function test_handle_request_reply_uses_stamp_override_in_FROM(): void {
+		// IPC input Consumer (cli/scaffolding case): set_stamp_as('_repl') —
+		// the request reply's FROM must use the override, NOT the underlying
+		// name. Otherwise replies wouldn't route through the worker's _repl
+		// Partition.
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->name( 'real-name' );
+		$c->set_stamp_as( '_repl' );
+
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'cli';
+		$req[ Message::VALUE ] = 'GET_OFFSET';
+		$c->fill( $req );
+
+		$this->assertSame( '_repl', $cap->captured[0][ Message::FROM ], 'reply FROM uses stamp_override' );
+	}
+
+	// ============================================================================
+	// resolve_downstream_targets() — Tee target expansion in checkpoint metadata.
+	// ============================================================================
+
+	public function test_resolve_downstream_targets_expands_Tee_to_its_targets(): void {
+		// When the Consumer's target is a Tee, resolve_downstream_targets
+		// expands the Tee's targets so the dashboard sees the actual
+		// downstream processors (RequestBuilder, JobRouter, ...), not the
+		// plumbing Tee in between.
+		$processor_a = new CaptureSink();
+		$processor_a->name( 'processor-a' );
+		$processor_b = new CaptureSink();
+		$processor_b->name( 'processor-b' );
+
+		$tee = new \Newspack_Nodes\Tee();
+		$tee->name( 'firehose:tee' );
+		$tee->connect_node( 'processor-a' );
+		$tee->connect_node( 'processor-b' );
+
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'data' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->target( 'firehose:tee' );
+		$c->poll();
+		$c->checkpoint();
+
+		$offsetlog_path = "{$this->tmp}/offsets/r/p0/p0/0.log";
+		$content        = (string) \file_get_contents( $offsetlog_path );
+		$msg            = Message::unpacked( \rtrim( $content, "\n" ) );
+		$entry          = $msg[ Message::VALUE ];
+
+		$this->assertCount( 2, $entry['targets'], 'Tee must expand to N targets' );
+		$names = \array_column( $entry['targets'], 'name' );
+		$this->assertContains( 'processor-a', $names );
+		$this->assertContains( 'processor-b', $names );
+		// Class column is the ShortName of the registered node (CaptureSink here).
+		foreach ( $entry['targets'] as $t ) {
+			$this->assertSame( 'CaptureSink', $t['class'] );
+		}
+	}
+
+	public function test_resolve_downstream_targets_handles_Tee_with_missing_inner_node(): void {
+		// Tee fans to a name with no registered node — surface the name with
+		// an empty class column rather than throwing or dropping the row.
+		$tee = new \Newspack_Nodes\Tee();
+		$tee->name( 'firehose:tee' );
+		$tee->connect_node( 'ghost' ); // no Core::node('ghost') registered.
+
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'data' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->target( 'firehose:tee' );
+		$c->poll();
+		$c->checkpoint();
+
+		$offsetlog_path = "{$this->tmp}/offsets/r/p0/p0/0.log";
+		$content        = (string) \file_get_contents( $offsetlog_path );
+		$msg            = Message::unpacked( \rtrim( $content, "\n" ) );
+		$entry          = $msg[ Message::VALUE ];
+
+		$this->assertCount( 1, $entry['targets'] );
+		$this->assertSame( 'ghost', $entry['targets'][0]['name'] );
+		$this->assertSame( '', $entry['targets'][0]['class'], 'missing target surfaces empty class' );
+	}
+
+	public function test_resolve_downstream_targets_skips_empty_string_in_Tee_targets(): void {
+		// Tee's target array shouldn't contain '' in production, but if it
+		// does (defensive), resolve_downstream_targets must skip it rather
+		// than emit `{name:'', class:''}` rows.
+		$tee = new \Newspack_Nodes\Tee();
+		$tee->name( 'firehose:tee' );
+		// Set target directly to an array with an empty string and a real one.
+		$ref = new \ReflectionProperty( $tee, 'target' );
+		$ref->setAccessible( true );
+		$ref->setValue( $tee, [ '', 'real' ] );
+
+		$real = new CaptureSink();
+		$real->name( 'real' );
+
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'data' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->target( 'firehose:tee' );
+		$c->poll();
+		$c->checkpoint();
+
+		$offsetlog_path = "{$this->tmp}/offsets/r/p0/p0/0.log";
+		$content        = (string) \file_get_contents( $offsetlog_path );
+		$msg            = Message::unpacked( \rtrim( $content, "\n" ) );
+		$entry          = $msg[ Message::VALUE ];
+
+		$this->assertCount( 1, $entry['targets'], 'empty-string target must be skipped' );
+		$this->assertSame( 'real', $entry['targets'][0]['name'] );
+	}
+
+	public function test_resolve_downstream_targets_handles_Tee_with_non_array_target(): void {
+		// Defensive branch: Tee object whose target is somehow a string
+		// (corrupted state, mid-construction) collapses into a single-row
+		// `{name:<consumer-target>, class:'Tee'}` entry.
+		$tee = new \Newspack_Nodes\Tee();
+		$tee->name( 'firehose:tee' );
+		// Force target to a string — bypasses Tee's normal array form.
+		$ref = new \ReflectionProperty( $tee, 'target' );
+		$ref->setAccessible( true );
+		$ref->setValue( $tee, 'unexpected-string' );
+
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'data' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->target( 'firehose:tee' );
+		// Call resolve_downstream_targets directly via reflection so we test
+		// just this branch in isolation.
+		$c_ref = new \ReflectionClass( $c );
+		$rdt   = $c_ref->getMethod( 'resolve_downstream_targets' );
+		$rdt->setAccessible( true );
+		$out = $rdt->invoke( $c );
+
+		$this->assertCount( 1, $out );
+		$this->assertSame( 'firehose:tee', $out[0]['name'] );
+		$this->assertSame( 'Tee', $out[0]['class'] );
+	}
+
+	public function test_resolve_downstream_targets_returns_empty_when_no_target(): void {
+		// Consumer with no target → returns []. Verified via the direct call
+		// since the checkpoint() path always sets `targets` to whatever it
+		// returns.
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+
+		$c_ref = new \ReflectionClass( $c );
+		$rdt   = $c_ref->getMethod( 'resolve_downstream_targets' );
+		$rdt->setAccessible( true );
+
+		$this->assertSame( [], $rdt->invoke( $c ), 'no target → empty list' );
+	}
+
+	public function test_resolve_downstream_targets_handles_non_Tee_target_class(): void {
+		// Target resolves to a non-Tee node — single-row `{name, class}` with
+		// the actual node's ShortName.
+		$processor = new CaptureSink();
+		$processor->name( 'just-a-processor' );
+
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'data' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->target( 'just-a-processor' );
+		$c->poll();
+		$c->checkpoint();
+
+		$offsetlog_path = "{$this->tmp}/offsets/r/p0/p0/0.log";
+		$content        = (string) \file_get_contents( $offsetlog_path );
+		$msg            = Message::unpacked( \rtrim( $content, "\n" ) );
+		$entry          = $msg[ Message::VALUE ];
+
+		$this->assertCount( 1, $entry['targets'] );
+		$this->assertSame( 'just-a-processor', $entry['targets'][0]['name'] );
+		$this->assertSame( 'CaptureSink', $entry['targets'][0]['class'] );
+	}
+
+	// ============================================================================
+	// set_stamp_as — coverage of the standalone setter.
+	// ============================================================================
+
+	public function test_set_stamp_as_changes_FROM_stamp_on_emit(): void {
+		// Standalone coverage of set_stamp_as(): empty default falls back to
+		// $this->name, but once set it replaces it on every poll-emitted msg.
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'one' );
+		$this->produce_line( $source, 'two' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c->name( 'real' );
+		$c->set_stamp_as( 'override-stamp' );
+		$cap = new CaptureSink();
+		$c->sink( $cap );
+		$c->poll();
+
+		$this->assertCount( 2, $cap->captured );
+		$this->assertSame( 'override-stamp', $cap->captured[0][ Message::FROM ] );
+		$this->assertSame( 'override-stamp', $cap->captured[1][ Message::FROM ] );
+
+		// Re-set to '' — must fall back to name on the next emit.
+		$c->set_stamp_as( '' );
+		$this->produce_line( $source, 'three' );
+		$c->poll();
+		$this->assertSame( 'real', $cap->captured[2][ Message::FROM ] );
+	}
+
+	// ============================================================================
+	// is_caught_up() — set_state transition emission to subscribers.
+	// ============================================================================
+
+	public function test_is_caught_up_emits_CAUGHT_UP_state_only_on_transition(): void {
+		// is_caught_up() wraps compute_is_caught_up() with transition tracking
+		// — set_state('CAUGHT_UP', $bool) fires ONLY when the boolean flips.
+		// Subscribers can register on the event and see false→true→false
+		// without per-poll churn.
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+
+		// Manually inject a CAUGHT_UP listener via the registrations slot.
+		// (set_state caches the payload and notifies all registrants.)
+		$ref = new \ReflectionClass( $c );
+		$rp  = $ref->getProperty( 'registrations' );
+		$rp->setAccessible( true );
+		$regs                  = $rp->getValue( $c );
+		$regs['CAUGHT_UP']     = [];
+		$rp->setValue( $c, $regs );
+
+		$emits = [];
+		$c->register( 'CAUGHT_UP', 'observer', static function ( $v ) use ( &$emits ): bool {
+			$emits[] = $v;
+			return true;
+		} );
+		// On register, the cached payload (none yet) is NOT replayed
+		// because no set_state has fired — verified by emits == [].
+		$this->assertSame( [], $emits, 'no prior set_state → register replays nothing' );
+
+		// First is_caught_up() call: trivially true (no segments) → flips
+		// from sentinel(-1) to 1 → set_state fires.
+		$this->assertTrue( $c->is_caught_up() );
+		$this->assertSame( [ true ], $emits, 'first observation must fire' );
+
+		// Second call: same value → must NOT fire again.
+		$this->assertTrue( $c->is_caught_up() );
+		$this->assertSame( [ true ], $emits, 'duplicate state must NOT fire' );
+
+		// Add bytes, repoll → cursor falls behind → state flips to false.
+		$this->produce_line( $source, 'data' );
+		\clearstatcache();
+		$this->assertFalse( $c->is_caught_up() );
+		$this->assertSame( [ true, false ], $emits, 'flip must fire again' );
+	}
+
+	// ============================================================================
+	// Constructor: arguments() round-trip + ephemeral mode.
+	// ============================================================================
+
+	public function test_constructor_sets_arguments_for_dump_config_roundtrip(): void {
+		// Constructor stores ctor args in $this->arguments so dump_config can
+		// emit a `make_node Consumer NAME <base_dir> <partition> <offsetlog>`
+		// line that re-creates this instance.
+		$c = new Consumer( "{$this->tmp}/data", 2, "{$this->tmp}/offsets/r/p2" );
+		$this->assertSame(
+			"{$this->tmp}/data 2 {$this->tmp}/offsets/r/p2",
+			$c->arguments()
+		);
+	}
+
+	public function test_constructor_ephemeral_mode_records_empty_offsetlog_in_arguments(): void {
+		// Ephemeral consumer (no offsetlog) — arguments still reflect the
+		// trailing empty string so the make_node round-trip is unambiguous.
+		$c = new Consumer( "{$this->tmp}/data", 0, '' );
+		$this->assertSame( "{$this->tmp}/data 0 ", $c->arguments() );
+	}
 }

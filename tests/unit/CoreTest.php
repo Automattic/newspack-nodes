@@ -154,4 +154,199 @@ class CoreTest extends TestCase {
 		Core::print_less_often( 'second' );
 		$this->assertSame( 2, $call );
 	}
+
+	// ── msg_counter ──────────────────────────────────────────────────────
+
+	public function test_msg_counter_pre_increments_starting_from_one(): void {
+		// Counter is reset to 0 in reset(); first call must return 1.
+		Core::reset();
+		$this->assertSame( 1, Core::msg_counter() );
+		$this->assertSame( 2, Core::msg_counter() );
+		$this->assertSame( 3, Core::msg_counter() );
+	}
+
+	public function test_msg_counter_resets_with_core(): void {
+		Core::msg_counter();
+		Core::msg_counter();
+		Core::msg_counter();
+		Core::reset();
+		$this->assertSame( 1, Core::msg_counter() );
+	}
+
+	// ── cleanup_all_nodes ────────────────────────────────────────────────
+
+	public function test_cleanup_all_nodes_calls_remove_node_on_each_registered(): void {
+		// Build two fake nodes with remove_node() that records being called.
+		// Use static :: state on a one-off class so the side effects survive
+		// across calls without needing pass-by-reference into anon classes.
+		CoreTest_RecordingNode::$log = [];
+		Core::register_node( 'a', new CoreTest_RecordingNode( 'a' ) );
+		Core::register_node( 'b', new CoreTest_RecordingNode( 'b' ) );
+
+		Core::cleanup_all_nodes();
+
+		$this->assertSame( [ 'a', 'b' ], CoreTest_RecordingNode::$log );
+	}
+
+	public function test_cleanup_all_nodes_skips_objects_without_remove_node(): void {
+		// Pure value objects don't implement remove_node — must not blow up.
+		$plain = new \stdClass();
+		Core::register_node( 'plain', $plain );
+
+		// No exception thrown.
+		Core::cleanup_all_nodes();
+
+		// Registry still references the plain object; cleanup doesn't unregister
+		// blindly. The node-side remove_node implementation is responsible for
+		// dropping its own registry entry.
+		$this->assertSame( $plain, Core::node( 'plain' ) );
+	}
+
+	public function test_cleanup_all_nodes_keeps_going_when_one_throws(): void {
+		// Spec docs: "Best-effort teardown; one node's failure shouldn't block
+		// the rest." A throwing remove_node() must not prevent the next node
+		// from being cleaned up.
+		CoreTest_RecordingNode::$log = [];
+
+		Core::register_node( 'a', new class {
+			public function remove_node(): void {
+				throw new \RuntimeException( 'simulated teardown failure' );
+			}
+		} );
+		Core::register_node( 'b', new CoreTest_RecordingNode( 'b' ) );
+
+		// Swallow the rate-limited stderr emission from the thrown error.
+		Core::set_stderr_handler( static function ( string $msg ): void {} );
+
+		Core::cleanup_all_nodes();
+
+		$this->assertSame( [ 'b' ], CoreTest_RecordingNode::$log, 'second node must still be cleaned up after the first throws' );
+	}
+
+	public function test_cleanup_all_nodes_snapshots_registry_before_iterating(): void {
+		// remove_node() typically unregisters itself; the snapshot prevents
+		// the iteration source from mutating mid-walk. Build a node whose
+		// remove_node() calls unregister_node('x') and verify both 'x' and
+		// 'y' still get cleaned up.
+		CoreTest_SelfUnregisteringNode::$log = [];
+
+		Core::register_node( 'x', new CoreTest_SelfUnregisteringNode( 'x' ) );
+		Core::register_node( 'y', new CoreTest_SelfUnregisteringNode( 'y' ) );
+
+		Core::cleanup_all_nodes();
+
+		$this->assertSame( [ 'x', 'y' ], CoreTest_SelfUnregisteringNode::$log );
+		$this->assertNull( Core::node( 'x' ) );
+		$this->assertNull( Core::node( 'y' ) );
+	}
+
+	// ── print_least_often window expiration ─────────────────────────────
+
+	public function test_print_least_often_resets_after_window_expires(): void {
+		// After 10 calls within a window, print_least_often emits once.
+		// When the 60s window expires and a fresh batch starts, the counter
+		// resets to 0 — verify by emitting once, advancing time past the
+		// window, and confirming that 9 new calls don't trigger a second
+		// emission but the 10th does.
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+
+		Core::$now = 1000.0;
+		for ( $i = 0; $i < 10; ++$i ) {
+			Core::print_least_often( 'flaky' );
+		}
+		$this->assertSame( 1, \substr_count( $buf, 'flaky' ), 'first emission at 10th call' );
+
+		// Jump past the 60s window — the next call must reset the counter.
+		Core::$now = 1070.0;
+		for ( $i = 0; $i < 9; ++$i ) {
+			Core::print_least_often( 'flaky' );
+		}
+		$this->assertSame( 1, \substr_count( $buf, 'flaky' ), 'no second emission until 10th call in new window' );
+
+		Core::print_least_often( 'flaky' );
+		$this->assertSame( 2, \substr_count( $buf, 'flaky' ), 'second emission lands at the 10th call of the new window' );
+	}
+
+	// ── stderr in_stderr re-entry guard exits via error_log ─────────────
+
+	public function test_stderr_re_entry_lands_on_error_log_fallback(): void {
+		// Direct re-entry through stderr() (vs going through print_less_often):
+		// during the first call, the handler itself calls Core::stderr().
+		// The dispatcher's in_stderr flag is set, so the second call hits the
+		// guard and routes to PHP's error_log() instead of the handler.
+		Core::set_stderr_handler( function ( string $msg ): void {
+			if ( \strpos( $msg, 'first' ) !== false ) {
+				// Direct re-entry — must not invoke the handler again.
+				Core::stderr( 'second-direct' );
+			}
+		} );
+
+		$tmp = \tempnam( \sys_get_temp_dir(), 'nodes-stderr-direct-' );
+		$old = \ini_set( 'error_log', $tmp );
+		try {
+			Core::stderr( 'first' );
+		} finally {
+			\ini_set( 'error_log', false === $old ? '' : $old );
+		}
+
+		$log_text = (string) \file_get_contents( $tmp );
+		\unlink( $tmp );
+
+		// The re-entered call should have landed in error_log, not the handler.
+		$this->assertStringContainsString( 'second-direct', $log_text );
+	}
+
+	// ── push_closing / run_closing edge cases ────────────────────────────
+
+	public function test_run_closing_handles_callbacks_pushed_during_drain(): void {
+		// A callback may push another callback while draining. run_closing()'s
+		// `while ( ! empty( ... ) )` loop must keep draining until the queue
+		// is truly empty.
+		$order = [];
+		Core::push_closing( function () use ( &$order ) {
+			$order[] = 'outer';
+			Core::push_closing( function () use ( &$order ) {
+				$order[] = 'inner';
+			} );
+		} );
+
+		Core::run_closing();
+
+		$this->assertSame( [ 'outer', 'inner' ], $order );
+	}
+}
+
+/**
+ * Recording node used in cleanup_all_nodes tests. Static log avoids the
+ * pass-by-reference dance through anon-class constructors and survives across
+ * multiple instances within a single test.
+ */
+class CoreTest_RecordingNode {
+	public static array $log = [];
+	private string $tag;
+	public function __construct( string $tag ) {
+		$this->tag = $tag;
+	}
+	public function remove_node(): void {
+		self::$log[] = $this->tag;
+	}
+}
+
+/**
+ * Recording node that ALSO unregisters itself from Core during remove_node().
+ * Used to verify that cleanup_all_nodes snapshots the registry before
+ * iterating — otherwise the self-unregister mutates the iteration source
+ * mid-walk and the second node is skipped.
+ */
+class CoreTest_SelfUnregisteringNode {
+	public static array $log = [];
+	private string $tag;
+	public function __construct( string $tag ) {
+		$this->tag = $tag;
+	}
+	public function remove_node(): void {
+		self::$log[] = $this->tag;
+		Core::unregister_node( $this->tag );
+	}
 }

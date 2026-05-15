@@ -351,4 +351,186 @@ class BootstrapTest extends TestCase {
 		$s = Bootstrap::supervisor();
 		$this->assertInstanceOf( Supervisor::class, $s );
 	}
+
+	// ── get_topology_catalog ──────────────────────────────────────────────
+
+	public function test_get_topology_catalog_returns_unfiltered_set(): void {
+		// get_topology_catalog ignores the active-overlay option entirely:
+		// admin UI checkboxes render against this so operators can see every
+		// available topology, including ones currently unchecked.
+		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
+			$topologies['firehose-workers'] = [ 'num_partitions' => 2, 'topology' => '/x.php' ];
+			$topologies['job-workers']      = [ 'num_partitions' => 1, 'topology' => '/y.php' ];
+			return $topologies;
+		} );
+		// Stored option says: only firehose-workers is "active".
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'firehose-workers' ];
+
+		try {
+			$catalog = Bootstrap::get_topology_catalog();
+
+			// Full catalog returned — the option overlay is ignored.
+			$this->assertCount( 2, $catalog );
+			$this->assertArrayHasKey( 'firehose-workers', $catalog );
+			$this->assertArrayHasKey( 'job-workers', $catalog );
+		} finally {
+			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		}
+	}
+
+	public function test_get_topology_catalog_returns_empty_array_when_no_filter(): void {
+		// No filter registered → catalog is empty (matches get_topologies
+		// behaviour in the same scenario).
+		$this->assertSame( [], Bootstrap::get_topology_catalog() );
+	}
+
+	// ── base_dir ──────────────────────────────────────────────────────────
+
+	public function test_base_dir_returns_config_base_directory(): void {
+		// Bootstrap::base_dir() pulls base_directory out of
+		// Config::load_config(). use_base_dir() writes a per-test config file
+		// pointing at $tmp; verify the static reads the same source.
+		$prev_env = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		$tmp      = $this->make_temp_dir( 'bootstrap-base-dir-' );
+		try {
+			$this->use_base_dir( $tmp );
+			$this->assertSame( $tmp, Bootstrap::base_dir() );
+		} finally {
+			// Restore the env var so subsequent tests aren't pointed at
+			// a now-deleted config file.
+			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . ( false === $prev_env ? '' : $prev_env ) );
+			\Newspack_Nodes\Config::reset();
+			$this->rmdir_recursive( $tmp );
+		}
+	}
+
+	public function test_base_dir_returns_string(): void {
+		// With the bootstrap-default config file in play (set by phpunit's
+		// env var), base_dir resolves to /tmp/newspack-nodes-test. Either
+		// way the contract is: returns a non-empty string ready for use.
+		$dir = Bootstrap::base_dir();
+		$this->assertIsString( $dir );
+		$this->assertNotSame( '', $dir );
+	}
+
+	// ── register_rest_routes ──────────────────────────────────────────────
+
+	public function test_register_rest_routes_registers_all_substrate_routes(): void {
+		// register_rest_routes news up each REST controller and calls
+		// register_routes() on it. We verify by inspecting the global
+		// stub registry — every controller should land at least one route.
+		$GLOBALS['_wp_test_registered_routes'] = [];
+
+		Bootstrap::register_rest_routes();
+
+		$routes     = $GLOBALS['_wp_test_registered_routes'];
+		$this->assertNotEmpty( $routes, 'register_rest_routes must register at least one route' );
+
+		// Spawn endpoint is the only canonical one we can pin down by route
+		// path; the rest of the controllers register at least one route each
+		// (count >= 5 controllers worth of registrations).
+		$paths = \array_column( $routes, 'route' );
+		$this->assertContains( '/workers/spawn', $paths, 'spawn route must be registered' );
+		// All routes are namespaced under newspack-nodes/v1.
+		foreach ( $routes as $route ) {
+			$this->assertSame( 'newspack-nodes/v1', $route['namespace'] );
+		}
+	}
+
+	// ── deactivate ─────────────────────────────────────────────────────────
+
+	public function test_deactivate_clears_supervisor_cron_hook(): void {
+		// Deactivation calls wp_clear_scheduled_hook for the supervisor.
+		// The stub doesn't capture invocations, so we just verify the call
+		// runs to completion without throwing — the same idempotency the
+		// real WP function provides.
+		Bootstrap::deactivate();
+		Bootstrap::deactivate(); // idempotent.
+		$this->assertTrue( true, 'deactivate() must run to completion (idempotent)' );
+	}
+
+	// ── run_supervisor_tick: full execution ──────────────────────────────
+
+	public function test_run_supervisor_tick_invokes_supervisor_run_when_topology_present(): void {
+		// Happy-path branch: logging enabled, topologies non-empty → wraps the
+		// `newspack_nodes/before_supervisor_run` and `/after_supervisor_run`
+		// actions around a Supervisor::run() invocation, and tags $_SERVER
+		// with worker_type=supervisor.
+		\add_filter( 'newspack_nodes/topologies', function () {
+			return [
+				'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+			];
+		} );
+		// Disable logging from inside the supervisor so run() bails after the
+		// $_SERVER tag + before-action fire but before tick_loop hits sleep(1).
+		// This keeps the test fast (<1s) while still proving the wrapper code
+		// path is executed.
+		\add_filter( 'newspack_nodes/enable_logging', function ( $allowed ) {
+			static $called = 0;
+			++$called;
+			// First call comes from is_logging_enabled() at the top of
+			// run_supervisor_tick — must return true to proceed past the
+			// guard. Subsequent calls (Supervisor::check_config) return
+			// false so run() bails fast.
+			return 1 === $called;
+		} );
+
+		// Pre-flight: clean state.
+		unset(
+			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],
+			$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']
+		);
+		$before = 0;
+		$after  = 0;
+		\add_action( 'newspack_nodes/before_supervisor_run', function () use ( &$before ) { ++$before; } );
+		\add_action( 'newspack_nodes/after_supervisor_run', function () use ( &$after ) { ++$after; } );
+
+		Bootstrap::run_supervisor_tick();
+
+		$this->assertSame( 'supervisor', $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] );
+		$this->assertSame( '0', $_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] );
+		$this->assertSame( 1, $before, 'before_supervisor_run action must fire' );
+		$this->assertSame( 1, $after, 'after_supervisor_run action must fire even when supervisor bails fast' );
+
+		// Clean up env after.
+		unset(
+			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],
+			$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']
+		);
+	}
+
+	public function test_run_supervisor_tick_after_action_fires_even_when_run_throws(): void {
+		// The finally block must fire `after_supervisor_run` even when
+		// Supervisor::run() throws — the action is part of the lifecycle
+		// contract, not gated on success.
+		\add_filter( 'newspack_nodes/topologies', function () {
+			return [ 'noop' => [ 'num_partitions' => 1, 'topology' => '/x.php' ] ];
+		} );
+		// First call (run_supervisor_tick guard) → true; later (Supervisor)
+		// throws synthetically before sleeping.
+		\add_filter( 'newspack_nodes/enable_logging', function ( $allowed ) {
+			static $n = 0;
+			++$n;
+			if ( 1 === $n ) {
+				return true;
+			}
+			throw new \RuntimeException( 'simulated supervisor failure' );
+		} );
+
+		$after = 0;
+		\add_action( 'newspack_nodes/after_supervisor_run', function () use ( &$after ) { ++$after; } );
+
+		try {
+			Bootstrap::run_supervisor_tick();
+		} catch ( \RuntimeException $e ) {
+			// Expected — propagated through finally.
+		}
+
+		$this->assertSame( 1, $after, 'after_supervisor_run must fire from finally on throw' );
+
+		unset(
+			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],
+			$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']
+		);
+	}
 }
