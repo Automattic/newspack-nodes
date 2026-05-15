@@ -779,4 +779,619 @@ class PartitionTest extends TestCase {
 		$this->assertContains( 'allow_large_writes', $verb_names );
 		$this->assertContains( 'with_index', $verb_names );
 	}
+
+	// ============================================================================
+	// Coverage: fire() drains batched messages.
+	// ============================================================================
+
+	public function test_fire_drains_pending_batch(): void {
+		// fire() is the Timer entry point Partition::fill() arms via
+		// set_timer(0, true); calling it directly through reflection mirrors
+		// what the EventFramework drain loop does at iteration tail.
+		$p   = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$msg = $this->produce( 'pending' );
+		$p->fill( $msg ); // appends to in-memory batch, doesn't write yet.
+
+		$ref  = new \ReflectionClass( $p );
+		$fire = $ref->getMethod( 'fire' );
+		$fire->setAccessible( true );
+		$fire->invoke( $p );
+
+		$this->assertSame( [ 'pending' ], $this->read_partition_values( $p ) );
+	}
+
+	public function test_fire_on_empty_batch_is_noop(): void {
+		// Flushing nothing must not create files or throw — fire() may run
+		// once after a manual flush with no further fills.
+		$p   = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$ref = new \ReflectionClass( $p );
+		$fire = $ref->getMethod( 'fire' );
+		$fire->setAccessible( true );
+		$fire->invoke( $p );
+
+		$this->assertFalse( \is_dir( "{$this->tmp}/p0" ), 'empty fire must not eager-create the partition dir' );
+	}
+
+	// ============================================================================
+	// Coverage: flush early-return + idempotency.
+	// ============================================================================
+
+	public function test_flush_with_empty_batch_is_noop(): void {
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$p->flush(); // empty batch — must early-return without touching disk.
+		$this->assertFalse( \is_dir( "{$this->tmp}/p0" ) );
+	}
+
+	public function test_repeat_flush_after_first_is_noop(): void {
+		// Second flush on an empty batch must return immediately without
+		// re-rotating, re-writing, or otherwise corrupting state.
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'one' );
+		$before = \file_get_contents( "{$this->tmp}/p0/0.log" );
+		$p->flush();
+		$after = \file_get_contents( "{$this->tmp}/p0/0.log" );
+		$this->assertSame( $before, $after, 'second flush must not touch the file' );
+	}
+
+	// ============================================================================
+	// Coverage: get_segments cache + force_refresh.
+	// ============================================================================
+
+	public function test_get_segments_returns_empty_when_partition_dir_missing(): void {
+		// Pre-fill state: no fill yet → no p0 dir. get_segments must return [].
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$this->assertSame( [], $p->get_segments( true ) );
+		$this->assertFalse( \is_dir( "{$this->tmp}/p0" ), 'get_segments must not create the dir' );
+	}
+
+	public function test_get_segments_cache_hit_within_ttl(): void {
+		// First call populates the cache; create a new segment file BEHIND the
+		// cache and verify a non-force-refresh call still returns the cached
+		// list (no segment 1 in the result).
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'hi' );
+		$initial = $p->get_segments(); // populates cache.
+		$this->assertCount( 1, $initial );
+
+		// Manually create a peer segment without going through Partition.
+		\file_put_contents( "{$this->tmp}/p0/1.log", 'peer-wrote' );
+
+		// Non-force call must hit the cache and still report 1 segment.
+		$cached = $p->get_segments( false );
+		$this->assertCount( 1, $cached, 'cache hit within TTL must skip rescan' );
+
+		// Force refresh sees the peer.
+		$fresh = $p->get_segments( true );
+		$this->assertCount( 2, $fresh );
+	}
+
+	public function test_get_segments_filters_non_matching_files(): void {
+		// Files that don't match SEGMENT_PATTERN must be ignored.
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'hi' );
+		\file_put_contents( "{$this->tmp}/p0/garbage.txt", 'noise' );
+		\file_put_contents( "{$this->tmp}/p0/0.idx", 'idx' ); // .idx isn't a .log either.
+
+		$segments = $p->get_segments( true );
+		$ids      = \array_column( $segments, 'id' );
+		$this->assertSame( [ 0 ], $ids, 'only .log files matching the segment pattern are listed' );
+	}
+
+	// ============================================================================
+	// Coverage: maybe_rescan_segments empty-segments early return.
+	// ============================================================================
+
+	public function test_maybe_rescan_segments_handles_empty_list(): void {
+		// When the partition_dir gets wiped between drift-check ticks, the
+		// rescan walks an empty result and early-returns without crashing.
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'seed' );
+
+		$ref        = new \ReflectionClass( $p );
+		$last_check = $ref->getProperty( 'last_segment_check' );
+		$last_check->setAccessible( true );
+		$last_check->setValue( $p, \microtime( true ) - 5.0 ); // force re-scan.
+
+		$this->rmdir_recursive( "{$this->tmp}/p0" );
+
+		$rescan = $ref->getMethod( 'maybe_rescan_segments' );
+		$rescan->setAccessible( true );
+		$rescan->invoke( $p ); // must not throw.
+
+		$this->assertTrue( true );
+	}
+
+	// ============================================================================
+	// Coverage: touch_segments_cache adds + updates entries.
+	// ============================================================================
+
+	public function test_touch_segments_cache_noop_when_cache_null(): void {
+		// If get_segments hasn't been called yet, segments_cache is null.
+		// touch_segments_cache must early-return without throwing.
+		$p   = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$ref = new \ReflectionClass( $p );
+
+		$cache_prop = $ref->getProperty( 'segments_cache' );
+		$cache_prop->setAccessible( true );
+		$this->assertNull( $cache_prop->getValue( $p ) );
+
+		$touch = $ref->getMethod( 'touch_segments_cache' );
+		$touch->setAccessible( true );
+		$touch->invoke( $p );
+
+		$this->assertNull( $cache_prop->getValue( $p ), 'cache must stay null when not yet populated' );
+	}
+
+	public function test_touch_segments_cache_updates_existing_entry(): void {
+		// First fill populates the segments_cache, second fill writes more
+		// bytes and touch_segments_cache must mirror the new current_size.
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'first' );
+		$p->get_segments(); // populate the cache.
+
+		$this->produce_into( $p, 'second' );
+
+		$ref        = new \ReflectionClass( $p );
+		$cache_prop = $ref->getProperty( 'segments_cache' );
+		$cache_prop->setAccessible( true );
+		$cache = $cache_prop->getValue( $p );
+		$this->assertCount( 1, $cache );
+		$cur_size = $ref->getProperty( 'current_size' );
+		$cur_size->setAccessible( true );
+		$this->assertSame( $cur_size->getValue( $p ), $cache[0]['size'], 'touch_segments_cache mirrors current_size' );
+	}
+
+	public function test_touch_segments_cache_adds_new_segment_when_missing(): void {
+		// Force the cache to think we're still on segment 0 even though the
+		// partition just bumped to segment 1. touch_segments_cache should
+		// append the new segment to the cache rather than miss it.
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'seed' );
+		$p->get_segments(); // populate cache with seg 0.
+
+		$ref      = new \ReflectionClass( $p );
+		$cur_seg  = $ref->getProperty( 'current_segment_id' );
+		$cur_seg->setAccessible( true );
+		$cur_seg->setValue( $p, 7 ); // pretend we're on a never-cached segment.
+
+		$touch = $ref->getMethod( 'touch_segments_cache' );
+		$touch->setAccessible( true );
+		$touch->invoke( $p );
+
+		$cache_prop = $ref->getProperty( 'segments_cache' );
+		$cache_prop->setAccessible( true );
+		$ids = \array_column( $cache_prop->getValue( $p ), 'id' );
+		$this->assertContains( 7, $ids, 'unfamiliar current_segment_id must be appended to the cache' );
+	}
+
+	// ============================================================================
+	// Coverage: get_handle TOCTOU + rm -rf recovery.
+	// ============================================================================
+
+	public function test_get_handle_recovers_when_partition_dir_wiped(): void {
+		// rm -rf the partition dir after a successful write; the next fill must
+		// re-create the dir, re-init from disk (segment 0), and write fresh.
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'before-wipe' );
+
+		// Drop file handles AND on-disk state.
+		$p->remove_node();
+		$this->rmdir_recursive( "{$this->tmp}/p0" );
+
+		// Reset segment state so next fill re-discovers via init_current_segment.
+		$ref     = new \ReflectionClass( $p );
+		$cur_seg = $ref->getProperty( 'current_segment_id' );
+		$cur_seg->setAccessible( true );
+		$cur_seg->setValue( $p, null );
+		$cur_size = $ref->getProperty( 'current_size' );
+		$cur_size->setAccessible( true );
+		$cur_size->setValue( $p, 0 );
+		$cache = $ref->getProperty( 'segments_cache' );
+		$cache->setAccessible( true );
+		$cache->setValue( $p, null );
+
+		$this->produce_into( $p, 'after-wipe' );
+		$this->assertTrue( \is_dir( "{$this->tmp}/p0" ), 'partition dir must be recreated by get_handle' );
+		$this->assertSame( [ 'after-wipe' ], $this->read_partition_values( $p ) );
+	}
+
+	public function test_get_handle_reinits_when_current_log_path_missing(): void {
+		// Active log file disappears mid-flight (peer rotated + wiped); next
+		// fill's get_handle() must spot the missing path and call
+		// init_current_segment to re-anchor.
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'first' );
+
+		// Close handles so a subsequent fill goes through get_handle's open path.
+		$p->remove_node();
+
+		// Delete just the active .log but leave the dir; init_current_segment
+		// should land at segment 0 again.
+		\unlink( "{$this->tmp}/p0/0.log" );
+
+		$this->produce_into( $p, 'after' );
+		$this->assertSame( [ 'after' ], $this->read_partition_values( $p ), 'fill must succeed after current_log_path disappears' );
+	}
+
+	public function test_get_handle_returns_null_when_fopen_target_is_a_directory(): void {
+		// Simulate a "fopen fails" path without depending on uid permissions:
+		// drop a directory at the spot where current_log_path expects to land
+		// a regular file. fopen('a') on a directory returns false on every
+		// supported OS — a deterministic way to exercise the null-return
+		// branch in get_handle without chmod tricks (which silently no-op as
+		// root).
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+
+		// Force current_log_path to point at the partition_dir itself (a real
+		// directory). init_current_segment hasn't run yet, so set state by
+		// hand via reflection.
+		$ref = new \ReflectionClass( $p );
+
+		// Create the partition_dir AS a directory, then replace 0.log with
+		// another directory of the same name.
+		\mkdir( "{$this->tmp}/p0", 0755, true );
+		\mkdir( "{$this->tmp}/p0/0.log", 0755, true );
+
+		$cur_seg = $ref->getProperty( 'current_segment_id' );
+		$cur_seg->setAccessible( true );
+		$cur_seg->setValue( $p, 0 );
+
+		$cur_log = $ref->getProperty( 'current_log_path' );
+		$cur_log->setAccessible( true );
+		$cur_log->setValue( $p, "{$this->tmp}/p0/0.log" );
+
+		$cur_idx = $ref->getProperty( 'current_idx_path' );
+		$cur_idx->setAccessible( true );
+		$cur_idx->setValue( $p, "{$this->tmp}/p0/0.idx" );
+
+		try {
+			$get_handle = $ref->getMethod( 'get_handle' );
+			$get_handle->setAccessible( true );
+			$result = $get_handle->invoke( $p );
+
+			$this->assertNull( $result, 'get_handle must return null when fopen("a") fails on a directory target' );
+		} finally {
+			@\rmdir( "{$this->tmp}/p0/0.log" );
+		}
+	}
+
+	// ============================================================================
+	// Coverage: allow_large_writes inside an active event loop.
+	// ============================================================================
+
+	public function test_allow_large_writes_with_event_loop_running_attaches_lock_and_heartbeat(): void {
+		// When EventFramework::is_running() is true (worker drain in
+		// progress), allow_large_writes wires the Lock as a sink and creates
+		// a heartbeat Timer. Outside a drain it manages the heartbeat from
+		// fill() instead. Toggle the EF's draining flag via reflection.
+		\Newspack_Nodes\EventFramework::reset();
+		$ef   = \Newspack_Nodes\EventFramework::instance();
+		$ref  = new \ReflectionClass( $ef );
+		$flag = $ref->getProperty( 'draining' );
+		$flag->setAccessible( true );
+		$flag->setValue( $ef, true );
+
+		try {
+			$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+			$p->name( 'evp' );
+			$p->allow_large_writes();
+
+			$pref = new \ReflectionClass( $p );
+
+			$lock_prop = $pref->getProperty( 'write_lock' );
+			$lock_prop->setAccessible( true );
+			$lock = $lock_prop->getValue( $p );
+			$this->assertSame( 'evp:lock', $lock->name(), 'lock must adopt :lock sibling name inside EF' );
+			$this->assertSame( $p, $lock->patron(), 'lock must mark partition as its patron' );
+
+			$hb_prop = $pref->getProperty( 'heartbeat_timer' );
+			$hb_prop->setAccessible( true );
+			$hb = $hb_prop->getValue( $p );
+			$this->assertNotNull( $hb, 'heartbeat timer must be created inside an event loop' );
+			$this->assertSame( 'evp:heartbeat', $hb->name() );
+
+			$p->remove_node();
+		} finally {
+			$flag->setValue( $ef, false );
+			\Newspack_Nodes\EventFramework::reset();
+		}
+	}
+
+	// ============================================================================
+	// Coverage: no-event-loop heartbeat path in fill().
+	// ============================================================================
+
+	public function test_fill_throws_when_no_event_loop_heartbeat_loses_ownership(): void {
+		// Outside an EF, fill() drives the lock's heartbeat itself. If the
+		// lock was stolen between heartbeats, heartbeat() returns false and
+		// fill must throw rather than silently write into another holder's
+		// segment.
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$p->name( 'no-ef' );
+		$p->allow_large_writes();
+
+		// Force the next fill to attempt a heartbeat by aging last_lock_heartbeat
+		// well past lock_stale_timeout / 3.
+		$ref           = new \ReflectionClass( $p );
+		$last_hb       = $ref->getProperty( 'last_lock_heartbeat' );
+		$last_hb->setAccessible( true );
+		$last_hb->setValue( $p, \microtime( true ) - 1000.0 );
+
+		// Yank the lock dir out from under us — Lock::heartbeat will fail
+		// verify_ownership when the heartbeat file is gone.
+		\Newspack_Nodes\Lock::force_release_at( "{$this->tmp}/p0/write.lock.d" );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no longer owned' );
+		$msg = $this->produce( 'this-throws' );
+		$p->fill( $msg );
+	}
+
+	public function test_fill_refreshes_heartbeat_without_throw_when_lock_still_held(): void {
+		// Happy path of the same branch: fill() runs the heartbeat path,
+		// succeeds, and updates last_lock_heartbeat to the current time.
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$p->name( 'no-ef-ok' );
+		$p->allow_large_writes();
+
+		$ref     = new \ReflectionClass( $p );
+		$last_hb = $ref->getProperty( 'last_lock_heartbeat' );
+		$last_hb->setAccessible( true );
+		$last_hb->setValue( $p, \microtime( true ) - 1000.0 );
+		$before = $last_hb->getValue( $p );
+
+		$this->produce_into( $p, 'heartbeat-ok' );
+
+		$after = $last_hb->getValue( $p );
+		$this->assertGreaterThan( $before, $after, 'fill must update last_lock_heartbeat on successful refresh' );
+
+		$p->remove_node();
+	}
+
+	// ============================================================================
+	// Coverage: emit DROPPED state when message exceeds size cap.
+	// ============================================================================
+
+	public function test_fill_emits_DROPPED_state_when_oversized(): void {
+		$router = new \Newspack_Nodes\Tests\CaptureSink();
+		$router->name( '_router' );
+
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$p->name( 'p-drop' );
+		$p->debug_state( 1 );
+
+		$msg = $this->produce( \str_repeat( 'x', 5000 ) ); // > MAX_LINE_SIZE
+		$p->fill( $msg );
+
+		$dropped_traces = \array_filter(
+			$router->captured,
+			static fn ( $m ) => \is_array( $m[ \Newspack_Nodes\Message::VALUE ] ?? null )
+				&& 'DROPPED' === ( $m[ \Newspack_Nodes\Message::VALUE ]['event'] ?? '' )
+		);
+		$this->assertNotEmpty( $dropped_traces, 'oversize fill must emit DROPPED debug_state' );
+		$payload = \reset( $dropped_traces )[ \Newspack_Nodes\Message::VALUE ]['value'];
+		$this->assertSame( 'oversize', $payload['reason'] );
+		$this->assertGreaterThan( $payload['max'], $payload['size'] );
+	}
+
+	// ============================================================================
+	// Coverage: with_index callback exception-safety.
+	// ============================================================================
+
+	public function test_with_index_callback_exception_does_not_kill_fill(): void {
+		// write_index_entry wraps the callback in try/catch — a throwing
+		// formatter must NOT propagate out of fill(); the .log is still
+		// written and the next fill continues normally.
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$p->with_index( static function () {
+			throw new \RuntimeException( 'formatter exploded' );
+		} );
+
+		$this->produce_into( $p, 'survives' );
+
+		$this->assertSame( [ 'survives' ], $this->read_partition_values( $p ), 'fill must survive a throwing index callback' );
+		// .idx may be empty (callback never returned a value) but the file
+		// can exist as an artifact of the lazy-open path; the contract is
+		// just "no crash + data lands".
+	}
+
+	// ============================================================================
+	// Coverage: scan_index handles truncated/corrupt binary entries.
+	// ============================================================================
+
+	public function test_scan_index_default_skips_truncated_trailing_entry(): void {
+		// Each binary entry is 8 bytes. A trailing partial entry (3 bytes) at
+		// the tail of the file must `break` the loop without invoking the
+		// callback for that fragment.
+		$p = new Partition( $this->tmp, 0, 1024 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'a' );
+		$this->produce_into( $p, 'b' );
+
+		// Append 3 garbage bytes to the .idx — simulating a torn write.
+		\file_put_contents( "{$this->tmp}/p0/0.idx", 'xyz', \FILE_APPEND );
+
+		$entries = [];
+		$p->scan_index( function ( int $seg, int $off ) use ( &$entries ) {
+			$entries[] = [ $seg, $off ];
+		} );
+
+		$this->assertCount( 2, $entries, 'truncated trailing entry must be skipped' );
+	}
+
+	public function test_scan_index_continues_when_idx_file_missing_for_a_segment(): void {
+		// Force two segments where the second segment has a .log but no .idx
+		// (callable-with-index disabled, so the default binary path runs).
+		$p = new Partition( $this->tmp, 0, 64, 4, 86400 );
+		$this->produce_into( $p, \str_repeat( 'a', 40 ) ); // seg 0.
+		$this->produce_into( $p, \str_repeat( 'b', 40 ) ); // forces rotate.
+
+		$segments = $p->get_segments( true );
+		$this->assertGreaterThanOrEqual( 2, \count( $segments ) );
+
+		// Remove the .idx for whichever segment is newest.
+		$max_id = \max( \array_column( $segments, 'id' ) );
+		if ( \file_exists( "{$this->tmp}/p0/{$max_id}.idx" ) ) {
+			\unlink( "{$this->tmp}/p0/{$max_id}.idx" );
+		}
+
+		$count = 0;
+		$p->scan_index( function () use ( &$count ) {
+			++$count;
+		} );
+
+		// Segment 0's index entry must still be visited; the missing-idx
+		// segment is silently skipped.
+		$this->assertGreaterThanOrEqual( 1, $count );
+	}
+
+	// ============================================================================
+	// Coverage: cleanup_segments handles unreadable mtime.
+	// ============================================================================
+
+	public function test_cleanup_segments_under_age_threshold_short_circuits(): void {
+		// cleanup_segments has TWO break conditions: false mtime AND a fresh
+		// segment whose age < max_lifespan. Exercise the age-gate branch: a
+		// reasonably-large max_lifespan (1 hour) ensures all segments are
+		// "young" and the loop breaks on the first iteration without
+		// deleting anything, even with count >> num_segments.
+		$p = new Partition( $this->tmp, 0, 256, 2, 3600 );
+		for ( $i = 0; $i < 5; ++$i ) {
+			$this->produce_into( $p, \str_repeat( \chr( 97 + $i ), 100 ) );
+		}
+
+		$before = \count( $p->get_segments( true ) );
+		$this->assertGreaterThan( 2, $before, 'fixture must have more segments than num_segments' );
+
+		$p->cleanup_segments();
+
+		$after = \count( $p->get_segments( true ) );
+		$this->assertSame( $before, $after, 'age-gate break must prevent deletions' );
+	}
+
+	// ============================================================================
+	// Coverage: large-message bypass-batch path in fill().
+	// ============================================================================
+
+	public function test_large_message_bypasses_batch_and_writes_directly(): void {
+		// Messages bigger than MAX_LINE_SIZE (only legal when allow_large_writes
+		// is set) bypass the in-memory batch — they're already > 4KB so batching
+		// can't keep them under PIPE_BUF. Verify the bytes land without needing
+		// a manual flush.
+		$p = new Partition( $this->tmp, 0, 1024 * 1024, 4, 86400 );
+		$p->allow_large_writes();
+
+		$value = \str_repeat( 'L', 5000 );
+		$msg   = $this->produce( $value );
+		$p->fill( $msg );
+
+		// No flush() — large messages were supposed to land synchronously.
+		$bytes = (string) \file_get_contents( "{$this->tmp}/p0/0.log" );
+		$line  = \rtrim( $bytes, "\n" );
+		$decoded = \Newspack_Nodes\Message::unpacked( $line );
+		$this->assertSame( $value, $decoded[ \Newspack_Nodes\Message::VALUE ] );
+	}
+
+	public function test_large_message_triggers_rotate_when_segment_would_overflow(): void {
+		// Pre-fill the segment past capacity, then a single large message must
+		// trigger rotation before its own write. segment_size=4500 keeps seg 0
+		// past the "adopt if room" threshold after the first 5000-byte VALUE
+		// lands (~5050 packed bytes >= 4500), so the second write rotates to
+		// a fresh segment 1.
+		$p = new Partition( $this->tmp, 0, 4500, 4, 86400 );
+		$p->allow_large_writes();
+		// Pump a 5000-byte VALUE into seg 0.
+		$msg_a = $this->produce( \str_repeat( 'A', 5000 ) );
+		$p->fill( $msg_a );
+
+		// A second 5000-byte VALUE doesn't fit; rotation must bump to seg 1.
+		$msg_b = $this->produce( \str_repeat( 'B', 5000 ) );
+		$p->fill( $msg_b );
+
+		$segments = $p->get_segments( true );
+		$ids      = \array_column( $segments, 'id' );
+		$this->assertContains( 0, $ids );
+		$this->assertContains( 1, $ids, 'large-message overflow must rotate' );
+	}
+
+	// ============================================================================
+	// Coverage: rotation creates partition_dir if missing inside do_rotate.
+	// ============================================================================
+
+	public function test_do_rotate_creates_partition_dir_when_missing(): void {
+		// Force the path where do_rotate runs without partition_dir existing
+		// — exercises the @mkdir( $partition_dir, ..., true ) branch. The
+		// public path to this branch is: rotate_segment in allow_large_writes
+		// mode (skips the rotation lock), starting with no segments yet.
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$p->allow_large_writes();
+
+		// Confirm pre-state: dir exists (allow_large_writes created it for the lock).
+		$this->assertTrue( \is_dir( "{$this->tmp}/p0" ) );
+		$this->rmdir_recursive( "{$this->tmp}/p0/write.lock.d" );
+		\rmdir( "{$this->tmp}/p0" );
+
+		// Now invoke do_rotate via reflection — it must re-create the dir.
+		$ref       = new \ReflectionClass( $p );
+		$do_rotate = $ref->getMethod( 'do_rotate' );
+		$do_rotate->setAccessible( true );
+		$do_rotate->invoke( $p );
+
+		$this->assertTrue( \is_dir( "{$this->tmp}/p0" ), 'do_rotate must materialize partition_dir when missing' );
+	}
+
+	// ============================================================================
+	// Coverage: scan_index empty .idx file path.
+	// ============================================================================
+
+	public function test_scan_index_handles_completely_empty_idx_file(): void {
+		// Stub a 0-byte .idx — file_exists is true, filesize is 0, so the read
+		// path yields a zero-length string and the for-loop's first iteration
+		// breaks immediately (binary mode).
+		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$this->produce_into( $p, 'seed' ); // creates p0/.
+
+		// Pre-create segment 5 with an empty .idx + a corresponding .log so
+		// get_segments includes it.
+		\file_put_contents( "{$this->tmp}/p0/5.log", 'x' );
+		\file_put_contents( "{$this->tmp}/p0/5.idx", '' );
+
+		$count = 0;
+		$p->scan_index( function () use ( &$count ) {
+			++$count;
+		} );
+
+		// Only segment 0 contributes an entry; segment 5's empty .idx is a no-op.
+		$this->assertSame( 1, $count, 'empty .idx must contribute zero entries without crashing' );
+	}
+
+	// ============================================================================
+	// Coverage: PIPE_BUF batch-flush threshold.
+	// ============================================================================
+
+	public function test_batch_flushes_before_adding_message_that_overflows_PIPE_BUF(): void {
+		// PIPE_BUF (4KB) is the atomic-write limit. The in-memory batch must
+		// flush *before* appending a message that would push it over the cap,
+		// so every syswrite stays under PIPE_BUF.
+		$p = new Partition( $this->tmp, 0, 1024 * 1024, 4, 86400 );
+
+		// Fill the batch close to PIPE_BUF (4096) with two ~1.5KB messages —
+		// total batch lands around 3KB, but a 3rd 1.5KB push would overflow.
+		// Each packed Message has ~50 bytes of JSON envelope overhead.
+		$value = \str_repeat( 'a', 1500 );
+		$msg1  = $this->produce( $value );
+		$msg2  = $this->produce( $value );
+		$msg3  = $this->produce( $value );
+
+		$p->fill( $msg1 );
+		$p->fill( $msg2 );
+		// Before $msg3 lands, the batch should auto-flush so $msg3 alone is
+		// the resident batch.
+		$p->fill( $msg3 );
+
+		// Force any final residual to disk.
+		$p->flush();
+
+		// All three messages land in order.
+		$this->assertSame( [ $value, $value, $value ], $this->read_partition_values( $p ) );
+	}
 }

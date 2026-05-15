@@ -165,6 +165,71 @@ namespace {
 			return \abs( (int) $v );
 		}
 	}
+	if ( ! \function_exists( 'add_menu_page' ) ) {
+		function add_menu_page(
+			string $page_title,
+			string $menu_title,
+			string $cap,
+			string $slug,
+			callable $cb,
+			string $icon = '',
+			?int $position = null
+		): string {
+			$GLOBALS['_admin_menu_pages'][ $slug ] = [
+				'page_title' => $page_title,
+				'menu_title' => $menu_title,
+				'capability' => $cap,
+				'callback'   => $cb,
+				'icon'       => $icon,
+				'position'   => $position,
+			];
+			return 'toplevel_page_' . $slug;
+		}
+	}
+	if ( ! \function_exists( 'wp_enqueue_script' ) ) {
+		function wp_enqueue_script(
+			string $handle,
+			string $src = '',
+			array $deps = [],
+			$ver = false,
+			bool $in_footer = false
+		): void {
+			$GLOBALS['_enqueued_scripts'][ $handle ] = [
+				'src'       => $src,
+				'deps'      => $deps,
+				'version'   => $ver,
+				'in_footer' => $in_footer,
+			];
+		}
+	}
+	if ( ! \function_exists( 'wp_enqueue_style' ) ) {
+		function wp_enqueue_style(
+			string $handle,
+			string $src = '',
+			array $deps = [],
+			$ver = false
+		): void {
+			$GLOBALS['_enqueued_styles'][ $handle ] = [
+				'src'     => $src,
+				'deps'    => $deps,
+				'version' => $ver,
+			];
+		}
+	}
+	if ( ! \function_exists( 'wp_localize_script' ) ) {
+		function wp_localize_script( string $handle, string $object_name, array $data ): bool {
+			$GLOBALS['_localized_scripts'][ $handle ] = [
+				'object_name' => $object_name,
+				'data'        => $data,
+			];
+			return true;
+		}
+	}
+	if ( ! \function_exists( 'wp_create_nonce' ) ) {
+		function wp_create_nonce( string $action ): string {
+			return 'nonce_' . \substr( \md5( $action ), 0, 10 );
+		}
+	}
 
 	// Substrate Admin class is normally required by the main plugin file's
 	// `is_admin()` block; in tests `is_admin()` is undefined / falsey, so
@@ -200,10 +265,17 @@ class AdminTest extends TestCase {
 		$GLOBALS['_registered_sections']         = [];
 		$GLOBALS['_registered_fields']           = [];
 		$GLOBALS['_options_pages']               = [];
+		$GLOBALS['_admin_menu_pages']            = [];
+		$GLOBALS['_enqueued_scripts']            = [];
+		$GLOBALS['_enqueued_styles']             = [];
+		$GLOBALS['_localized_scripts']           = [];
 		$GLOBALS['_wp_options']                  = [];
 		$GLOBALS['_wp_actions']                  = [];
 		$GLOBALS['_wp_test_current_user_can']    = [ 'manage_options' => true ];
 		$GLOBALS['_last_redirect']               = null;
+		// Sanitize $_GET so enqueue_topology_console_assets() isn't influenced by
+		// a previous test that left a page= behind.
+		$_GET = [];
 
 		// Pre-seed the runtime bootstrap's nonce table so the Admin's
 		// wp_verify_nonce() call accepts the test's nonce. Tests build the
@@ -223,6 +295,11 @@ class AdminTest extends TestCase {
 
 	protected function tearDown(): void {
 		Config::reset();
+		// Clear any registry leakage from tests that registered stock dirs;
+		// the next test starts with an empty registry.
+		if ( \class_exists( '\\Newspack_Nodes\\Topology_Registry' ) ) {
+			\Newspack_Nodes\Topology_Registry::reset();
+		}
 		$this->rmdir_recursive( $this->base_dir );
 		parent::tearDown();
 	}
@@ -901,6 +978,436 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$admin->topologies_callback();
 		$out = \ob_get_clean();
 		$this->assertStringContainsString( 'No topologies registered', $out );
+	}
+
+	// ---- __construct ------------------------------------------------------
+
+	public function test_constructor_registers_all_admin_hooks(): void {
+		// Fresh action table so we observe only this construction's registrations.
+		$GLOBALS['_wp_actions'] = [];
+		new Admin();
+		$this->assertArrayHasKey( 'admin_menu', $GLOBALS['_wp_actions'] );
+		$this->assertArrayHasKey( 'admin_init', $GLOBALS['_wp_actions'] );
+		$this->assertArrayHasKey( 'admin_post_' . Admin::RESET_ACTION, $GLOBALS['_wp_actions'] );
+		$this->assertArrayHasKey( 'admin_enqueue_scripts', $GLOBALS['_wp_actions'] );
+		$this->assertArrayHasKey( 'updated_option', $GLOBALS['_wp_actions'] );
+		$this->assertArrayHasKey( 'added_option', $GLOBALS['_wp_actions'] );
+
+		// admin_menu fires both `add_admin_menu` AND `register_topology_admin_page`.
+		$this->assertCount( 2, $GLOBALS['_wp_actions']['admin_menu'] );
+	}
+
+	public function test_constructor_admin_init_hook_invokes_register_settings(): void {
+		// Drive register_settings via the registered admin_init callback to
+		// verify the constructor wires the right method.
+		new Admin();
+		$this->assertEmpty( $GLOBALS['_registered_settings'] );
+		// The bootstrap's add_action stub stores callables under _wp_actions[$hook][].
+		foreach ( $GLOBALS['_wp_actions']['admin_init'] as $cb ) {
+			$cb();
+		}
+		$this->assertArrayHasKey( 'newspack_nodes_base_directory', $GLOBALS['_registered_settings'] );
+	}
+
+	// ---- register_topology_admin_page ------------------------------------
+
+	public function test_register_topology_admin_page_registers_top_level_menu(): void {
+		$admin = new Admin();
+		$admin->register_topology_admin_page();
+
+		$this->assertArrayHasKey( Admin::TOPOLOGY_MENU_SLUG, $GLOBALS['_admin_menu_pages'] );
+		$entry = $GLOBALS['_admin_menu_pages'][ Admin::TOPOLOGY_MENU_SLUG ];
+		$this->assertSame( 'manage_options', $entry['capability'] );
+		$this->assertSame( 'dashicons-networking', $entry['icon'] );
+		$this->assertSame( 81, $entry['position'] );
+		// Callback must point at render_topology_page.
+		$this->assertIsArray( $entry['callback'] );
+		$this->assertInstanceOf( Admin::class, $entry['callback'][0] );
+		$this->assertSame( 'render_topology_page', $entry['callback'][1] );
+	}
+
+	public function test_register_topology_admin_page_skips_unauthorized_user(): void {
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
+		$admin                                                  = new Admin();
+		$admin->register_topology_admin_page();
+		$this->assertArrayNotHasKey( Admin::TOPOLOGY_MENU_SLUG, $GLOBALS['_admin_menu_pages'] );
+	}
+
+	// ---- render_topology_page --------------------------------------------
+
+	public function test_render_topology_page_outputs_mount_element(): void {
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->render_topology_page();
+		$html = \ob_get_clean();
+
+		// React tree mounts on this id; production class hook lives in admin CSS.
+		$this->assertStringContainsString( 'id="event-logger-topology-console"', $html );
+		$this->assertStringContainsString( 'class="event-logger-topology-console-page"', $html );
+	}
+
+	public function test_render_topology_page_blocks_unauthorized_user(): void {
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
+		$admin                                                  = new Admin();
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'You do not have permission' );
+		$admin->render_topology_page();
+	}
+
+	// ---- enqueue_topology_console_assets ---------------------------------
+
+	public function test_enqueue_topology_console_assets_skips_when_page_unset(): void {
+		$_GET = [];
+		$admin = new Admin();
+		$admin->enqueue_topology_console_assets();
+		$this->assertEmpty( $GLOBALS['_enqueued_scripts'] );
+		$this->assertEmpty( $GLOBALS['_localized_scripts'] );
+	}
+
+	public function test_enqueue_topology_console_assets_skips_on_wrong_page(): void {
+		$_GET = [ 'page' => 'some-other-admin-page' ];
+		$admin = new Admin();
+		$admin->enqueue_topology_console_assets();
+		$this->assertEmpty( $GLOBALS['_enqueued_scripts'] );
+		$this->assertEmpty( $GLOBALS['_localized_scripts'] );
+	}
+
+	public function test_enqueue_topology_console_assets_enqueues_script_and_localizes_data(): void {
+		// Plugin ships build/topology-console/index.js + index.css; tests run
+		// against the live plugin tree so these files exist by construction.
+		// If they're missing the deploy is broken — fail loudly, not silently.
+		$asset_path = \NEWSPACK_NODES_DIR . 'build/topology-console/index.js';
+		$this->assertFileExists( $asset_path, 'topology-console build asset missing — run `npm run build` before tests' );
+
+		$_GET = [ 'page' => Admin::TOPOLOGY_MENU_SLUG ];
+
+		// Make Topology_Registry::list() return at least one entry so the
+		// topologyPartitions data is non-trivial.
+		$tmp = \sys_get_temp_dir() . '/tsl-enqueue-' . \uniqid();
+		\mkdir( $tmp, 0755, true );
+		\file_put_contents( "{$tmp}/synthetic.tsl", "var num_partitions = 3\n" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
+
+		// Application catalog seed — Admin reads via
+		// Bootstrap::get_topology_catalog() which applies the
+		// `newspack_nodes/topologies` filter. Returning an entry here
+		// exercises the "catalog wins" branch.
+		\add_filter(
+			'newspack_nodes/topologies',
+			function () {
+				return [
+					'catalog-only' => [
+						'topology'       => 'catalog-only',
+						'num_partitions' => 7,
+					],
+				];
+			}
+		);
+
+		$admin = new Admin();
+		$admin->enqueue_topology_console_assets();
+
+		$handle = 'newspack-nodes-topology-console';
+		$this->assertArrayHasKey( $handle, $GLOBALS['_enqueued_scripts'] );
+		$enq = $GLOBALS['_enqueued_scripts'][ $handle ];
+		$this->assertStringEndsWith( 'build/topology-console/index.js', (string) $enq['src'] );
+		$this->assertSame( [ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ], $enq['deps'] );
+		$this->assertTrue( $enq['in_footer'] );
+		// Version is filemtime() of the asset (truthy).
+		$this->assertNotEmpty( $enq['version'] );
+
+		$this->assertArrayHasKey( $handle, $GLOBALS['_localized_scripts'] );
+		$payload = $GLOBALS['_localized_scripts'][ $handle ];
+		$this->assertSame( 'NewspackNodesData', $payload['object_name'] );
+		$data = $payload['data'];
+		$this->assertArrayHasKey( 'restUrl', $data );
+		$this->assertArrayHasKey( 'nonce', $data );
+		$this->assertArrayHasKey( 'saveTopologyNonce', $data );
+		$this->assertArrayHasKey( 'saveLayoutNonce', $data );
+		$this->assertSame( 'topology-console', $data['tree'] );
+		$this->assertSame( \NEWSPACK_NODES_VERSION, $data['version'] );
+
+		// Synthesized entry (from frontmatter) appears with its declared partition count.
+		$this->assertArrayHasKey( 'topologyPartitions', $data );
+		$this->assertSame( 3, $data['topologyPartitions']['synthetic'] );
+
+		// Catalog-driven entry appears (the catalog branch in the loop).
+		// Topology_Registry::list() only scans TSL files on disk, so the
+		// catalog-only entry won't appear in topologyPartitions UNLESS a
+		// matching TSL file exists. Active-topologies, on the other hand,
+		// surfaces it because get_topologies() reads the catalog directly.
+		$this->assertArrayHasKey( 'activeTopologies', $data );
+		$this->assertContains( 'catalog-only', $data['activeTopologies'] );
+
+		// Nonces must be DISTINCT actions — substrate uses a per-action policy.
+		$this->assertNotSame( $data['nonce'], $data['saveTopologyNonce'] );
+		$this->assertNotSame( $data['nonce'], $data['saveLayoutNonce'] );
+		$this->assertNotSame( $data['saveTopologyNonce'], $data['saveLayoutNonce'] );
+
+		// CSS sidecar exists in the plugin tree, so wp_enqueue_style must fire too.
+		if ( \file_exists( \NEWSPACK_NODES_DIR . 'build/topology-console/index.css' ) ) {
+			$this->assertArrayHasKey( $handle, $GLOBALS['_enqueued_styles'] );
+			$css = $GLOBALS['_enqueued_styles'][ $handle ];
+			$this->assertStringEndsWith( 'build/topology-console/index.css', (string) $css['src'] );
+			$this->assertSame( [ 'wp-components' ], $css['deps'] );
+		}
+
+		// Cleanup.
+		\unlink( "{$tmp}/synthetic.tsl" );
+		\rmdir( $tmp );
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	public function test_enqueue_topology_console_assets_uses_catalog_partition_count_when_available(): void {
+		$asset_path = \NEWSPACK_NODES_DIR . 'build/topology-console/index.js';
+		$this->assertFileExists( $asset_path, 'topology-console build asset missing — run `npm run build` before tests' );
+
+		$_GET = [ 'page' => Admin::TOPOLOGY_MENU_SLUG ];
+
+		// Stage: TSL on disk so Topology_Registry::list() sees the name,
+		// catalog entry that disagrees with the frontmatter on partition
+		// count. Admin must prefer the catalog value.
+		$tmp = \sys_get_temp_dir() . '/tsl-enqueue-cat-' . \uniqid();
+		\mkdir( $tmp, 0755, true );
+		\file_put_contents( "{$tmp}/known.tsl", "var num_partitions = 99\n" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
+
+		\add_filter(
+			'newspack_nodes/topologies',
+			function () {
+				return [
+					'known' => [
+						'topology'       => 'known',
+						'num_partitions' => 2,
+					],
+				];
+			}
+		);
+
+		$admin = new Admin();
+		$admin->enqueue_topology_console_assets();
+
+		$handle = 'newspack-nodes-topology-console';
+		$data   = $GLOBALS['_localized_scripts'][ $handle ]['data'];
+		// Catalog wins (2), NOT the frontmatter value (99).
+		$this->assertSame( 2, $data['topologyPartitions']['known'] );
+
+		\unlink( "{$tmp}/known.tsl" );
+		\rmdir( $tmp );
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	public function test_enqueue_topology_console_assets_drops_unresolved_topology_names(): void {
+		$asset_path = \NEWSPACK_NODES_DIR . 'build/topology-console/index.js';
+		$this->assertFileExists( $asset_path, 'topology-console build asset missing — run `npm run build` before tests' );
+
+		$_GET = [ 'page' => Admin::TOPOLOGY_MENU_SLUG ];
+
+		\Newspack_Nodes\Topology_Registry::reset();
+
+		$admin = new Admin();
+		$admin->enqueue_topology_console_assets();
+
+		$handle = 'newspack-nodes-topology-console';
+		$data   = $GLOBALS['_localized_scripts'][ $handle ]['data'];
+		// No TSL files registered → empty list. Sanitization through ksort
+		// + array_keys yields [] for both maps.
+		$this->assertSame( [], $data['topologyPartitions'] );
+		$this->assertSame( [], $data['activeTopologies'] );
+	}
+
+	// ---- topologies_section_callback -------------------------------------
+
+	public function test_topologies_section_callback_outputs_paragraph(): void {
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->topologies_section_callback();
+		$html = \ob_get_clean();
+
+		$this->assertStringContainsString( '<p>', $html );
+		// Description references the supervisor + fleet behavior.
+		$this->assertStringContainsString( 'supervisor', $html );
+		$this->assertStringContainsString( 'worker fleet', $html );
+	}
+
+	// ---- render_reset_button_handler -------------------------------------
+
+	public function test_render_reset_button_handler_outputs_inline_script(): void {
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->render_reset_button_handler();
+		$html = \ob_get_clean();
+
+		// Inline JS that targets the reset chips by data attribute.
+		$this->assertStringContainsString( '<script>', $html );
+		$this->assertStringContainsString( 'data-newspack-nodes-reset-target', $html );
+		// Reset behavior: set value to '' so placeholder shines through.
+		$this->assertStringContainsString( "value = ''", $html );
+		// Dispatches an input event to notify React-style listeners.
+		$this->assertStringContainsString( 'Event', $html );
+	}
+
+	// ---- additional handle_reset_settings + filter coverage --------------
+
+	public function test_handle_reset_settings_filter_returning_non_array_is_ignored(): void {
+		// When the reset_options filter returns a non-array (a misuse),
+		// Admin must keep its built-in option list rather than crashing on
+		// foreach.
+		\add_filter(
+			'newspack_nodes/reset_options',
+			static function () {
+				return 'not-an-array';
+			}
+		);
+		$_POST = [ Admin::RESET_NONCE => $this->valid_nonce() ];
+		\update_option( 'newspack_nodes_num_partitions', 9 );
+
+		$admin = new Admin();
+		try {
+			$admin->handle_reset_settings();
+			$this->fail( 'expected RedirectException' );
+		} catch ( RedirectException $e ) {
+			// Built-in option list was used; substrate option cleared.
+		}
+		$this->assertFalse( \get_option( 'newspack_nodes_num_partitions' ) );
+	}
+
+	// ---- maybe_request_worker_restart filter-returns-non-array ------------
+
+	public function test_maybe_request_worker_restart_filter_returning_non_array_keeps_defaults(): void {
+		$this->prepare_lock_dir( 'request-workers', 0 );
+		$this->prepare_lock_dir( 'job-workers', 0 );
+
+		\add_filter(
+			'newspack_nodes/worker_restart_groups',
+			static function () {
+				return 'not-an-array';
+			}
+		);
+
+		$admin = new Admin();
+		$admin->maybe_request_worker_restart( 'newspack_nodes_base_directory' );
+
+		// Non-array filter return discarded; built-in `all_workers_options`
+		// group list still applies.
+		$this->assertFileExists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' );
+		$this->assertFileExists( $this->base_dir . '/locks/job-workers.p0.lock.d/restart' );
+	}
+
+	public function test_maybe_request_worker_restart_filter_collapses_duplicates_and_drops_non_strings(): void {
+		$this->prepare_lock_dir( 'request-workers', 0 );
+		$this->prepare_lock_dir( 'custom-workers', 0 );
+
+		\add_filter(
+			'newspack_nodes/worker_restart_groups',
+			static function ( $groups ) {
+				// Inject duplicates and a non-string sentinel. Admin filters
+				// to strings + dedupes via array_unique.
+				return [ ...$groups, 'custom-workers', 'custom-workers', 42, null ];
+			}
+		);
+
+		$admin = new Admin();
+		$admin->maybe_request_worker_restart( 'newspack_nodes_memcache_servers' );
+
+		$this->assertFileExists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' );
+		$this->assertFileExists( $this->base_dir . '/locks/custom-workers.p0.lock.d/restart' );
+		// No spurious lock dirs created for the non-string sentinels.
+		$this->assertFalse( \is_dir( $this->base_dir . '/locks/42.p0.lock.d' ) );
+	}
+
+	public function test_maybe_request_worker_restart_filter_emptying_groups_is_noop(): void {
+		// If a filter clobbers the groups list to [], Admin's `if ( empty(
+		// $worker_groups ) ) return;` guard prevents any flag-file write.
+		$this->prepare_lock_dir( 'request-workers', 0 );
+		$this->prepare_lock_dir( 'job-workers', 0 );
+
+		\add_filter(
+			'newspack_nodes/worker_restart_groups',
+			static function () {
+				return [];
+			}
+		);
+
+		$admin = new Admin();
+		$admin->maybe_request_worker_restart( 'newspack_nodes_base_directory' );
+
+		$this->assertFalse( \file_exists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' ) );
+		$this->assertFalse( \file_exists( $this->base_dir . '/locks/job-workers.p0.lock.d/restart' ) );
+	}
+
+	// ---- topologies_callback (additional branches) -----------------------
+
+	public function test_topologies_callback_defaults_to_catalog_when_option_unset(): void {
+		// option=false (never saved) → admin renders all catalog defaults as checked.
+		\Newspack_Nodes\Topology_Registry::reset();
+		$tmp = \sys_get_temp_dir() . '/tsl-default-' . \uniqid();
+		\mkdir( $tmp, 0755, true );
+		\file_put_contents( "{$tmp}/blessed.tsl", '' );
+		\file_put_contents( "{$tmp}/unblessed.tsl", '' );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
+
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function () {
+				return [
+					'blessed' => [
+						'topology'       => 'blessed',
+						'num_partitions' => 1,
+					],
+				];
+			}
+		);
+
+		// Ensure no operator override.
+		\delete_option( 'newspack_nodes_topologies' );
+
+		$admin = new Admin();
+		\ob_start();
+		$admin->topologies_callback();
+		$out = \ob_get_clean();
+
+		// blessed is in the catalog → checked. unblessed is NOT → unchecked.
+		$this->assertMatchesRegularExpression( '/blessed"[^>]*checked/', $out );
+		$this->assertDoesNotMatchRegularExpression( '/unblessed"[^>]*checked/', $out );
+		// Reset chip carries the catalog defaults in its data attribute.
+		$this->assertStringContainsString( 'data-newspack-nodes-load-defaults', $out );
+
+		\unlink( "{$tmp}/blessed.tsl" );
+		\unlink( "{$tmp}/unblessed.tsl" );
+		\rmdir( $tmp );
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	public function test_topologies_callback_empty_array_option_renders_all_unchecked(): void {
+		// option=[] (operator unchecked everything) is distinct from option=false.
+		\Newspack_Nodes\Topology_Registry::reset();
+		$tmp = \sys_get_temp_dir() . '/tsl-empty-' . \uniqid();
+		\mkdir( $tmp, 0755, true );
+		\file_put_contents( "{$tmp}/one.tsl", '' );
+		\file_put_contents( "{$tmp}/two.tsl", '' );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
+
+		\update_option( 'newspack_nodes_topologies', [] );
+
+		$admin = new Admin();
+		\ob_start();
+		$admin->topologies_callback();
+		$out = \ob_get_clean();
+
+		$this->assertDoesNotMatchRegularExpression( '/one"[^>]*checked/', $out );
+		$this->assertDoesNotMatchRegularExpression( '/two"[^>]*checked/', $out );
+
+		\unlink( "{$tmp}/one.tsl" );
+		\unlink( "{$tmp}/two.tsl" );
+		\rmdir( $tmp );
+		\delete_option( 'newspack_nodes_topologies' );
+		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
 	// ---- helpers ----------------------------------------------------------

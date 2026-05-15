@@ -880,4 +880,618 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertArrayHasKey( 'patron_node', $metadata );
 		$this->assertArrayNotHasKey( 'patron_node:config', $metadata );
 	}
+
+	// ── Argument validation paths on verb handlers ────────────────
+
+	public function test_make_node_with_too_few_args_returns_usage(): void {
+		// `make_node` alone — no type, no name — must return a usage hint
+		// rather than throw. Tachikoma CI contract: validation errors fall
+		// out as plain strings, only handler exceptions go through the
+		// TM_ERROR wrap in interpret().
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$out = $ci->execute( 'make_node' );
+		$this->assertStringContainsString( 'usage: make_node', $out );
+	}
+
+	public function test_make_node_with_only_type_returns_usage(): void {
+		// `make_node CaptureSink` (no name) — still under the 2-token bar.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$out = $ci->execute( 'make_node CaptureSink' );
+		$this->assertStringContainsString( 'usage: make_node', $out );
+	}
+
+	public function test_make_node_unknown_class_returns_error(): void {
+		// Class shell-name not in `register_class` table — the cmd should
+		// surface `unknown class: <type>` and NOT auto-create anything.
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$out = $ci->execute( 'make_node NotARegisteredClass alice' );
+		$this->assertSame( 'unknown class: NotARegisteredClass', $out );
+		$this->assertNull( Core::node( 'alice' ) );
+	}
+
+	// ── cmd_set_sink error paths ──────────────────────────────────
+
+	public function test_set_sink_missing_target_returns_usage(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+		$out = $ci->execute( 'set_sink alice' );
+		$this->assertStringContainsString( 'usage: set_sink', $out );
+	}
+
+	public function test_set_sink_empty_args_returns_usage(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$out = $ci->execute( 'set_sink' );
+		$this->assertStringContainsString( 'usage: set_sink', $out );
+	}
+
+	public function test_set_sink_unknown_node_returns_error(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+
+		// alice exists, ghost does not — both src and dst lookup go
+		// through Core::node, so either being null yields 'unknown node'.
+		$out = $ci->execute( 'set_sink alice ghost' );
+		$this->assertSame( 'unknown node', $out );
+
+		$out = $ci->execute( 'set_sink ghost alice' );
+		$this->assertSame( 'unknown node', $out );
+	}
+
+	// ── cmd_connect_node error paths + envelope FROM defaulting ──
+
+	public function test_connect_node_empty_args_returns_usage(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$out = $ci->execute( 'connect_node' );
+		$this->assertStringContainsString( 'usage: connect_node', $out );
+	}
+
+	public function test_connect_node_unknown_node_returns_error(): void {
+		// `connect_node` with a name not in the registry: must surface
+		// the not-found message rather than touch any node state.
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$out = $ci->execute( 'connect_node ghost bob' );
+		$this->assertStringContainsString( 'unknown node: ghost', $out );
+	}
+
+	public function test_connect_node_without_target_and_without_envelope_returns_usage(): void {
+		// `connect_node alice` with no envelope FROM — should fall through
+		// to the second usage branch (line 325): no target supplied, no
+		// FROM to default to, so the verb has nothing to bind alice to.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+
+		// $ci->execute( verb, envelope=[] ) — empty envelope == empty FROM.
+		$out = $ci->execute( 'connect_node alice' );
+		$this->assertStringContainsString( 'usage: connect_node', $out );
+	}
+
+	public function test_connect_node_defaults_to_envelope_FROM_when_target_omitted(): void {
+		// Tachikoma contract: `connect_node <node>` with no target binds
+		// the node back to the cli/SSE session that issued the command
+		// (the message's FROM). This is the "tail this node into my
+		// session" shortcut.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+
+		// Hand-build the envelope and call execute with it.
+		$envelope                       = Message::new_message();
+		$envelope[ Message::FROM ]      = '_output/4242';
+
+		$out = $ci->execute( 'connect_node alice', $envelope );
+		$this->assertSame( 'ok', $out );
+		$this->assertSame( '_output/4242', Core::node( 'alice' )->target() );
+	}
+
+	// ── cmd_disconnect_node error paths + Tee envelope behavior ──
+
+	public function test_disconnect_node_empty_args_returns_usage(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$out = $ci->execute( 'disconnect_node' );
+		$this->assertStringContainsString( 'usage: disconnect_node', $out );
+	}
+
+	public function test_disconnect_node_unknown_node_returns_error(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$out = $ci->execute( 'disconnect_node ghost' );
+		$this->assertStringContainsString( 'unknown node: ghost', $out );
+	}
+
+	public function test_disconnect_node_tee_with_empty_target_and_empty_envelope_returns_usage(): void {
+		// `disconnect_node <tee>` with no explicit target AND no envelope
+		// FROM to default to: hits the second usage branch (line 350).
+		// Tees have array target(); we need the array branch to be
+		// taken for this guard to fire.
+		CommandInterpreter::register_class( 'Tee', \Newspack_Nodes\Tee::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node Tee fanout' );
+		$tee = Core::node( 'fanout' );
+		$this->assertIsArray( $tee->target() );
+
+		$out = $ci->execute( 'disconnect_node fanout' );
+		$this->assertStringContainsString( 'usage: disconnect_node', $out );
+	}
+
+	public function test_disconnect_node_tee_defaults_to_envelope_FROM_when_target_omitted(): void {
+		// Mirror of connect_node's default-to-FROM behavior for the
+		// symmetric undo path: `disconnect_node <tee>` with no explicit
+		// target should peel the issuing FROM out of the Tee's fan-out.
+		CommandInterpreter::register_class( 'Tee', \Newspack_Nodes\Tee::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node Tee fanout' );
+
+		// First wire two targets — one default, one explicit.
+		$envelope                  = Message::new_message();
+		$envelope[ Message::FROM ] = '_output/9999';
+		$ci->execute( 'connect_node fanout', $envelope );
+		$ci->execute( 'connect_node fanout other_target' );
+		$this->assertSame( [ '_output/9999', 'other_target' ], Core::node( 'fanout' )->target() );
+
+		// disconnect with the same envelope — should remove only the FROM.
+		$out = $ci->execute( 'disconnect_node fanout', $envelope );
+		$this->assertSame( 'ok', $out );
+		$this->assertSame( [ 'other_target' ], \array_values( Core::node( 'fanout' )->target() ) );
+	}
+
+	// ── cmd_pwd ────────────────────────────────────────────────────
+
+	public function test_pwd_renders_cwd_arrow_from(): void {
+		// `pwd` reports the cwd token (from $args) and the issuing
+		// envelope's FROM in `  <cwd> -> <from>` form.
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$envelope                  = Message::new_message();
+		$envelope[ Message::FROM ] = '_output/abc';
+
+		$out = $ci->execute( 'pwd /some/path', $envelope );
+		$this->assertSame( ' /some/path -> _output/abc', $out );
+	}
+
+	public function test_pwd_empty_cwd_shows_slash(): void {
+		// `pwd` with no args defaults to `/` (the root scope marker that
+		// the Shell uses when cwd is empty).
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$envelope                  = Message::new_message();
+		$envelope[ Message::FROM ] = '_output/abc';
+
+		$out = $ci->execute( 'pwd', $envelope );
+		$this->assertSame( ' / -> _output/abc', $out );
+	}
+
+	// ── cmd_log ───────────────────────────────────────────────────
+
+	public function test_log_routes_args_through_core_stderr(): void {
+		// `log <message>` emits its args through the Core stderr pipeline
+		// (the test handler captures the text). Returns empty string —
+		// `interpret()` suppresses response wrapping for that case so the
+		// operator's transcript stays quiet.
+		$captured = [];
+		Core::set_stderr_handler(
+			static function ( string $msg ) use ( &$captured ): void {
+				$captured[] = $msg;
+			}
+		);
+
+		try {
+			$ci = new CommandInterpreter();
+			$ci->name( '_command_interpreter' );
+
+			$out = $ci->execute( 'log hello from log verb' );
+			$this->assertSame( '', $out, 'log returns empty string — caller suppresses response' );
+			$this->assertCount( 1, $captured );
+			$this->assertSame( "hello from log verb\n", $captured[0] );
+		} finally {
+			// Restore the bootstrap default so subsequent tests don't leak.
+			Core::reset();
+		}
+	}
+
+	// ── cmd_dump_node misuses ─────────────────────────────────────
+
+	public function test_dump_node_with_empty_args_says_no_node_specified(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$out = $ci->execute( 'dump_node' );
+		$this->assertSame( 'no node specified', $out );
+	}
+
+	// ── cmd_uptime: clock segment ─────────────────────────────────
+
+	public function test_uptime_renders_clock_prefix_in_HHMMSS(): void {
+		// The output is `HH:MM:SS  up <elapsed>` — covers the gmdate()
+		// clock-segment branch that wasn't asserted on by the existing
+		// uptime suite (which only checked the elapsed portion).
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		// 2023-11-14T22:13:20+00:00.
+		Core::$init_time = 1_700_000_000.0;
+		Core::$now       = 1_700_000_000.0 + 7;
+
+		$out = $ci->execute( 'uptime' );
+		$this->assertMatchesRegularExpression( '/^\d{2}:\d{2}:\d{2}  up /', $out );
+		// Core::$now == 1_700_000_007 → 22:13:27 UTC. Elapsed 7s pads to "07s".
+		$this->assertStringContainsString( '22:13:27  up 07s', $out );
+	}
+
+	// ── cmd_list_nodes additional column flags ────────────────────
+
+	public function test_ls_dash_s_shows_sink_column(): void {
+		// -s flag enables the SINK column in the tabulated output.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+
+		$out = $ci->execute( 'ls -s' );
+		$this->assertStringContainsString( 'SINK', $out );
+		$this->assertStringContainsString( '_command_interpreter', $out );
+	}
+
+	public function test_ls_dash_t_shows_target_column(): void {
+		// -t flag enables the TARGET column.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+		$ci->execute( 'make_node CaptureSink bob' );
+		$ci->execute( 'connect_node alice bob' );
+
+		$out = $ci->execute( 'ls -t' );
+		$this->assertStringContainsString( 'TARGET', $out );
+		$this->assertStringContainsString( '-> bob', $out );
+	}
+
+	public function test_ls_dash_l_implies_count_and_target(): void {
+		// -l == -ct: count column AND target column rendered together.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+		$ci->execute( 'make_node CaptureSink bob' );
+		$ci->execute( 'connect_node alice bob' );
+
+		$out = $ci->execute( 'ls -l' );
+		$this->assertStringContainsString( 'COUNT', $out );
+		$this->assertStringContainsString( 'TARGET', $out );
+		$this->assertStringContainsString( '-> bob', $out );
+	}
+
+	public function test_ls_dash_a_with_glob_no_matches_renders_no_matches_row(): void {
+		// `ls -a <glob>` with a regex that doesn't hit any node should
+		// surface a `no matches` row in the output. Tabulated output goes
+		// through the column-flag path even though no flags were given —
+		// the no-matches branch happens regardless.
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$out = $ci->execute( 'ls -a never-going-to-match-anything' );
+		$this->assertStringContainsString( 'no matches', $out );
+	}
+
+	public function test_ls_with_target_column_for_tee_renders_comma_separated(): void {
+		// Tee target() returns an array; ls -t implodes with ', '.
+		CommandInterpreter::register_class( 'Tee', \Newspack_Nodes\Tee::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node Tee fanout' );
+		$ci->execute( 'connect_node fanout one' );
+		$ci->execute( 'connect_node fanout two' );
+
+		$out = $ci->execute( 'ls -t' );
+		$this->assertStringContainsString( '-> one, two', $out );
+	}
+
+	// ── cmd_stats: -a flag and missing-stats default header ───────
+
+	public function test_stats_dash_a_shows_every_registered_node(): void {
+		// `-a` flag short-circuits the sibling filter and lists every
+		// node regardless of sink. Forces the `$list_matches` branch
+		// in cmd_stats.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+		$ci->execute( 'make_node CaptureSink bob' );
+		$ci->execute( 'set_sink bob alice' );  // bob's sink isn't this CI.
+
+		$out = $ci->execute( 'stats -a' );
+		$this->assertStringContainsString( 'NAME', $out );
+		$this->assertStringContainsString( 'alice', $out );
+		$this->assertStringContainsString( 'bob', $out, '-a includes non-sibling nodes' );
+	}
+
+	public function test_stats_dash_a_with_glob_filters_by_regex(): void {
+		// Regex glob with `-a`: only nodes whose name matches the glob
+		// pattern should appear. Covers the @preg_match branch inside
+		// the $list_matches arm.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink alice' );
+		$ci->execute( 'make_node CaptureSink alex' );
+		$ci->execute( 'make_node CaptureSink bob' );
+
+		$out = $ci->execute( 'stats -a ^al' );
+		$this->assertStringContainsString( 'alice', $out );
+		$this->assertStringContainsString( 'alex', $out );
+		$this->assertStringNotContainsString( 'bob', $out );
+	}
+
+	public function test_stats_with_explicit_sink_name_treats_as_glob(): void {
+		// `stats <name>` — no -a — should restrict rows to nodes whose
+		// sink IS the named node. Covers the `$expected = $glob` branch.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->execute( 'make_node CaptureSink hub' );
+		$ci->execute( 'make_node CaptureSink leaf1' );
+		$ci->execute( 'set_sink leaf1 hub' );
+
+		$out = $ci->execute( 'stats hub' );
+		$this->assertStringContainsString( 'leaf1', $out );
+		// hub itself sinks into the CI, not into hub, so the row should
+		// be absent.
+		$this->assertStringNotContainsString( "\nhub ", "\n$out " );
+	}
+
+	// ── cmd_debug_state: numeric-arg-with-second-token branch ─────
+
+	public function test_debug_state_self_numeric_first_then_token_treats_as_node_name(): void {
+		// `debug_state 1 something` — first arg is numeric BUT there's a
+		// second token, so the "numeric-only first arg" branch is bypassed
+		// and the cmd treats `1` as a node name. Since there's no node
+		// named `1`, it falls into the `unknown node` arm.
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$out = $ci->execute( 'debug_state 1 2' );
+		$this->assertSame( 'unknown node: 1', $out );
+	}
+
+	// ── interpret() error wrap & invalid-struct drop ─────────────
+
+	public function test_interpret_drops_message_with_invalid_command_struct(): void {
+		// TM_COMMAND with a malformed JSON VALUE — `interpret()` should
+		// drop_message() rather than emit a response. The sink must not
+		// see any new envelopes after the drop.
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$downstream = new CaptureSink();
+		$ci->sink( $downstream );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$msg[ Message::VALUE ] = 'this is not json';
+		$ci->fill( $msg );
+
+		$this->assertCount( 0, $downstream->captured, 'malformed TM_COMMAND must be dropped, not echoed' );
+	}
+
+	public function test_interpret_drops_command_without_name_key(): void {
+		// JSON decodes fine but no `name` key in the dict — same drop path
+		// as the not-an-array case. Covers `! isset( $cmd['name'] )` arm.
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$downstream = new CaptureSink();
+		$ci->sink( $downstream );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$msg[ Message::VALUE ] = \json_encode( [ 'arguments' => 'nope' ] );
+		$ci->fill( $msg );
+
+		$this->assertCount( 0, $downstream->captured );
+	}
+
+	public function test_interpret_wraps_handler_exceptions_as_TM_ERROR(): void {
+		// Replace the verb table with a handler that throws. The CI must
+		// catch it in interpret() and emit a TM_COMMAND|TM_ERROR response
+		// back along the FROM trail, instead of crashing the worker.
+		// This is the central contract for "verb handlers throw freely;
+		// interpret() wraps as TM_ERROR".
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$downstream = new CaptureSink();
+		$ci->sink( $downstream );
+
+		$ci->commands(
+			[
+				'boom' => static function (): string {
+					throw new \RuntimeException( 'kaboom!' );
+				},
+			]
+		);
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$msg[ Message::FROM ]  = '_output/777';
+		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'boom', 'arguments' => '' ] );
+		$ci->fill( $msg );
+
+		$this->assertCount( 1, $downstream->captured );
+		$response = $downstream->captured[0];
+		$this->assertSame(
+			Message::TM_COMMAND | Message::TM_ERROR,
+			$response[ Message::TYPE ],
+			'thrown verb errors must be re-emitted as TM_COMMAND|TM_ERROR'
+		);
+		$this->assertSame( '_output/777', $response[ Message::TO ], 'response walks the FROM trail back' );
+		$payload = \json_decode( $response[ Message::VALUE ], true );
+		$this->assertSame( 'boom', $payload['name'] );
+		$this->assertSame( 'kaboom!', $payload['payload'] );
+	}
+
+	public function test_interpret_wraps_unknown_command_as_TM_RESPONSE(): void {
+		// An unknown verb is NOT an exception — execute() returns the
+		// "unknown command: <verb>" string. interpret() should wrap it as
+		// TM_COMMAND|TM_RESPONSE (not TM_ERROR). Verifies the
+		// happy-path return label of interpret().
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$downstream = new CaptureSink();
+		$ci->sink( $downstream );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$msg[ Message::FROM ]  = '_output/77';
+		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'i_do_not_exist', 'arguments' => '' ] );
+		$ci->fill( $msg );
+
+		$this->assertCount( 1, $downstream->captured );
+		$response = $downstream->captured[0];
+		$this->assertSame(
+			Message::TM_COMMAND | Message::TM_RESPONSE,
+			$response[ Message::TYPE ],
+			'unknown verbs return a string (not throw) — wrapped as TM_RESPONSE not TM_ERROR'
+		);
+		$payload = \json_decode( $response[ Message::VALUE ], true );
+		$this->assertStringContainsString( 'unknown command', $payload['payload'] );
+	}
+
+	public function test_interpret_carries_ID_and_KEY_through_to_response(): void {
+		// GUI clients stamp a correlation ID + KEY on outbound commands
+		// and expect them mirrored on the response. Make sure interpret()
+		// copies both fields (not just FROM/TO) — that's the documented
+		// "application-defined correlation metadata" contract.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$downstream = new CaptureSink();
+		$ci->sink( $downstream );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$msg[ Message::FROM ]  = '_output/42';
+		$msg[ Message::ID ]    = 'corr-id-123';
+		$msg[ Message::KEY ]   = 'gui-tag-abc';
+		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'make_node', 'arguments' => 'CaptureSink coverage_alice' ] );
+		$ci->fill( $msg );
+
+		$this->assertCount( 1, $downstream->captured );
+		$response = $downstream->captured[0];
+		$this->assertSame( 'corr-id-123', $response[ Message::ID ] );
+		$this->assertSame( 'gui-tag-abc', $response[ Message::KEY ] );
+	}
+
+	// ── fill() TM_COMMAND-with-non-empty-TO forwarding ────────────
+
+	public function test_fill_forwards_TM_COMMAND_with_non_empty_TO_to_sink(): void {
+		// A TM_COMMAND in transit — TO is still set — must be forwarded
+		// through the sink (typically _router) untouched. If the CI
+		// dispatched on transit messages, every intermediate CI in a
+		// path-routed graph would eat commands meant for downstream peers
+		// (see AGENTS.md "CommandInterpreter only handles TM_COMMAND
+		// with empty TO").
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$downstream = new CaptureSink();
+		$ci->sink( $downstream );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$msg[ Message::TO ]    = 'some/path/ahead';
+		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'make_node', 'arguments' => 'CaptureSink not_made' ] );
+		$ci->fill( $msg );
+
+		$this->assertCount( 1, $downstream->captured );
+		$this->assertSame( 'some/path/ahead', $downstream->captured[0][ Message::TO ], 'TO preserved on transit' );
+		$this->assertNull( Core::node( 'not_made' ), 'CI must not dispatch a transit command' );
+	}
+
+	public function test_fill_forwards_TM_COMMAND_TM_RESPONSE_to_sink(): void {
+		// Response-flavored TM_COMMAND (the reply leg) must NOT be
+		// re-interpreted — otherwise the response payload would round-
+		// trip into the verb table and crash. Covers the
+		// `! ( $type & TM_RESPONSE )` guard in fill().
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$downstream = new CaptureSink();
+		$ci->sink( $downstream );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'make_node', 'arguments' => 'CaptureSink ghost_response' ] );
+		$ci->fill( $msg );
+
+		$this->assertCount( 1, $downstream->captured );
+		$this->assertNull( Core::node( 'ghost_response' ), 'TM_RESPONSE must not be re-dispatched' );
+	}
+
+	// ── node_schema() ────────────────────────────────────────────
+
+	public function test_node_schema_returns_hidden_category(): void {
+		// CommandInterpreter's schema marks it Hidden so the editor's
+		// palette never offers it for drag-and-drop — it's placed
+		// implicitly as a sibling of patron nodes. Locks the description
+		// down so future "fix" attempts that flip it to a draggable
+		// category trip this test.
+		$schema = CommandInterpreter::node_schema();
+		$this->assertSame( 'Hidden', $schema['category'] );
+		$this->assertArrayHasKey( 'description', $schema );
+		$this->assertSame( [], $schema['ctor'] );
+		$this->assertSame( [], $schema['verbs'] );
+	}
+
+	// ── make_node instance API: null when class not registered ───
+
+	public function test_make_node_instance_api_returns_null_for_unregistered_class(): void {
+		// The cmd_make_node verb returns "unknown class: <type>"; the
+		// underlying instance API returns null. Direct unit test, since
+		// the verb wraps null into the string.
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$this->assertNull( $ci->make_node( 'NotARegisteredClassEver', 'wont_exist' ) );
+		$this->assertNull( Core::node( 'wont_exist' ) );
+	}
 }
