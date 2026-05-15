@@ -1472,11 +1472,26 @@ export default function TopologyConsole() {
 		[ fetchTopology, seedOverridesFromLayout ]
 	);
 
+	// Pass the catalog as a class-name → schema map to serializeTsl so
+	// it can fill empty positional slots with schema defaults (e.g.
+	// `<config:segment_size>`) instead of stripping them as trailing
+	// empties. Without this, a freshly-dragged Partition would save with
+	// only its `base_dir` arg — Topology_Loader would then fall through
+	// to the PHP class's hard-coded literal defaults instead of
+	// resolving the operator's substrate-config values.
+	const schemasByShellName = useMemo(
+		() =>
+			Object.fromEntries(
+				( catalog.classes || [] ).map( ( c ) => [ c.shell_name, c ] )
+			),
+		[ catalog.classes ]
+	);
+
 	const handleSaveConfirm = useCallback(
 		async ( name ) => {
 			setSaveModal( null );
 			try {
-				const tsl = serializeTsl( draft );
+				const tsl = serializeTsl( draft, schemasByShellName );
 				const resp = await saveTopology( { name, tsl } );
 				const restartedCount = ( resp.restarted_fleets || [] ).length;
 				setToast( {
@@ -1500,7 +1515,7 @@ export default function TopologyConsole() {
 				setToast( { kind: 'error', text: `${ msg }${ lineHint }` } );
 			}
 		},
-		[ draft, saveTopology, topologyList ]
+		[ draft, saveTopology, topologyList, schemasByShellName ]
 	);
 
 	useEffect( () => {
