@@ -69,7 +69,7 @@ class Supervisor extends SupervisorBase {
 	/** @var array<int,array> Worker descriptors built from expand_workers(). */
 	private array $worker_locks = [];
 
-	/** @var array<string,bool> Set of topology types active on the previous check_config tick. */
+	/** @var array<string,int> type ⇒ max-partition-count, built fresh each check_config tick. Used by reconcile_lock_dirs to recognize which on-disk lock dirs belong in the active fleet, and by the spawn-delay logic to detect newly-added types. */
 	private array $active_types = [];
 
 	/** @var array<string,float> type => earliest unix timestamp at which spawn is allowed. */
@@ -269,18 +269,17 @@ class Supervisor extends SupervisorBase {
 		}
 		$this->num_partitions = \min( self::MAX_PARTITIONS, \max( 1, $max_partitions ) );
 
-		// Detect topology types that left the active set since the last
-		// check_config tick (operator unchecked them in the admin UI, or a
-		// plugin removed its filter). Force-release their lock dirs so the
-		// running workers exit on the next poll.
+		// Build active fleet table: type => max-partition-count. Each
+		// topology can declare its own count via TSL frontmatter, so this
+		// honors per-type sizing instead of using the global max.
 		$new_types = [];
 		foreach ( $workers as $w ) {
-			$new_types[ $w['type'] ] = true;
+			$new_types[ $w['type'] ] = \max(
+				$new_types[ $w['type'] ] ?? 0,
+				$w['partition'] + 1
+			);
 		}
-		$removed = \array_diff_key( $this->active_types, $new_types );
-		if ( ! empty( $removed ) ) {
-			$this->kill_readers( \array_keys( $removed ) );
-		}
+
 		// Newly added types: defer first spawn so a released-but-not-yet-
 		// exited predecessor (e.g. swapping firehose-workers-and-jobs for
 		// firehose-workers-only) has time to flush its offsetlog. Skipped on
@@ -295,82 +294,75 @@ class Supervisor extends SupervisorBase {
 		$this->active_types = $new_types;
 		$this->worker_locks = $workers;
 
-		// Clean up stale partition directories beyond the current num_partitions.
-		$this->cleanup_stale_partitions();
-
-		// Remove lock dirs for topology types the operator disabled but
-		// whose workers have since exited. `kill_readers` above drops a
-		// restart flag so the worker exits cleanly; this step rms the
-		// lock dir AFTER the worker has actually gone dark, so `wp nodes
-		// ls` and the topology console don't keep surfacing it forever
-		// as a stale ghost.
-		$this->cleanup_orphan_type_locks();
+		// Reconcile lock dirs on disk against the active fleet — one
+		// state-free pass that handles every "this worker shouldn't be
+		// running anymore" case: operator-removed topology, shrunk
+		// num_partitions, or stale orphans inherited from a previous
+		// supervisor.
+		$this->reconcile_lock_dirs();
 
 		return true;
 	}
 
 	/**
-	 * Remove `{type}.p{N}.lock.d` directories whose type is no longer in
-	 * the active topology set AND whose newest mtime is older than the
-	 * worker's stale threshold (i.e., the worker has actually exited).
-	 * Standalone runtime workers (the supervisor itself) are skipped.
+	 * Walk every `*.lock.d` on disk and reconcile against the active fleet
+	 * (`$active_types` = type ⇒ partition-count). One state-free pass
+	 * handles every "this worker shouldn't be running anymore" case:
+	 *   - Operator removed the topology from the active list.
+	 *   - Operator shrunk `num_partitions` (orphans partition slots >= count).
+	 *   - Previous supervisor left stale dirs we never spawned ourselves.
 	 *
-	 * Paired with `kill_readers` — that one flags running workers to
-	 * exit; this one collects the corpses once they've gone cold.
+	 * Per dir:
+	 *   - Standalone runtime worker (supervisor, etc.) → leave alone.
+	 *   - In active fleet (type+partition both still wanted) → leave alone.
+	 *   - Otherwise → cold-removal attempt first; if dir survives (live
+	 *     worker), drop a restart flag so the worker exits on its next
+	 *     250ms drain iteration. Next tick reaps the dir once cold.
+	 *
+	 * State-free intentionally: derived purely from on-disk lock dirs and
+	 * the live `$active_types` table built this tick. Survives supervisor
+	 * respawn boundaries and rapid topology / num_partitions flips within
+	 * a single check_config interval.
+	 *
+	 * Order matters: `remove_stale_directory` reads the newest mtime among
+	 * files in the dir; running it AFTER `request_restart_at` would always
+	 * see a fresh mtime (the restart flag we just wrote) and skip removal.
 	 */
-	public function cleanup_orphan_type_locks(): void {
+	public function reconcile_lock_dirs(): void {
+		if ( empty( $this->active_types ) ) {
+			// Cold start (check_config hasn't run) — without a known fleet
+			// every dir would be tagged "orphan" and reaped. Bail.
+			return;
+		}
 		$locks_dir = "{$this->base_dir}/locks";
-		if ( ! \is_dir( $locks_dir ) ) {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		$candidates = \glob( $locks_dir . '/*.lock.d' );
+		if ( empty( $candidates ) ) {
 			return;
 		}
 		$standalone = Bootstrap::register_standalone_workers();
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
-		$candidates = \glob( $locks_dir . '/*.lock.d' );
-		if ( false === $candidates ) {
-			return;
-		}
 		foreach ( $candidates as $path ) {
 			$base = \basename( $path, '.lock.d' );
 			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $base, $m ) ) {
 				// Non-partitioned dir (e.g. supervisor.lock.d) — leave alone.
 				continue;
 			}
-			$type = $m[1];
+			$type      = $m[1];
+			$partition = (int) $m[2];
 			if ( isset( $standalone[ $type ] ) ) {
 				continue;
 			}
-			if ( isset( $this->active_types[ $type ] ) ) {
+			$max_partitions = $this->active_types[ $type ] ?? 0;
+			if ( $partition < $max_partitions ) {
+				// In fleet — leave alone.
 				continue;
 			}
 			$this->remove_stale_directory( $path, Lock::STALE_TIMEOUT );
-		}
-	}
-
-	/**
-	 * Walk [num_partitions, MAX_PARTITIONS) partition lock dirs; remove any
-	 * whose newest mtime is older than STALE_PARTITION_AGE_S (1h). Bounded
-	 * loop — MAX_PARTITIONS=16, so worst case 16-num_partitions iterations
-	 * per topology type.
-	 *
-	 * Spec line 844: "cleanup_stale_partitions walks num_partitions..MAX_PARTITIONS
-	 * to GC retired partition dirs."
-	 */
-	public function cleanup_stale_partitions(): void {
-		if ( null === $this->num_partitions ) {
-			return;
-		}
-
-		// Collect distinct types from worker_locks for cleanup scope.
-		$types = [];
-		foreach ( $this->worker_locks as $w ) {
-			$types[ $w['type'] ] = true;
-		}
-
-		$locks_dir = "{$this->base_dir}/locks";
-		foreach ( \array_keys( $types ) as $type ) {
-			for ( $p = $this->num_partitions; $p < self::MAX_PARTITIONS; $p++ ) {
-				$lock_dir = "{$locks_dir}/{$type}.p{$p}.lock.d";
-				$this->remove_stale_directory( $lock_dir, self::STALE_PARTITION_AGE_S );
+			if ( \is_dir( $path ) && ! \file_exists( $path . '/' . Lock::RESTART_FLAG ) ) {
+				// Skip rewriting the restart flag if one's already dropped —
+				// otherwise every 15s tick stomps the file (no behavioral
+				// impact; just wasted disk churn until the worker exits).
+				Lock::request_restart_at( $path );
 			}
 		}
 	}
@@ -414,28 +406,35 @@ class Supervisor extends SupervisorBase {
 	}
 
 	/**
+	 * `curl_exec` seam. Lazily-defaulted to a closure that calls real
+	 * libcurl (can't default a Closure on a class property — must be a
+	 * constant expression). Tests reassign in their bootstrap to
+	 * capture without short-circuiting the rest of the curl_init /
+	 * curl_setopt_array path; that lets the suite exercise the actual
+	 * production setopt + error-classification logic.
+	 *
+	 * Signature: `function (\CurlHandle $ch, array $body): mixed`.
+	 * The default ignores `$body` — POSTFIELDS was already set on the
+	 * handle. Tests use `$body` to record what was POSTed, since PHP
+	 * curl doesn't expose POSTFIELDS through `curl_getinfo`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $curl_exec = null;
+
+	/**
 	 * Fire-and-forget spawn POST. Errors are logged but not retried; the
 	 * 1s-tick + 15s rate limit + cron backstop together guarantee eventual
 	 * spawn even if individual POSTs fail.
 	 */
 	private function post_spawn( string $spawn_url, string $type, int $partition, string $token ): void {
-		if ( ! \function_exists( 'wp_remote_post' ) ) {
-			return;
-		}
-		$args = [
-			'method'    => 'POST',
-			'timeout'   => 0.01,
-			'blocking'  => false,
-			'sslverify' => false,
-			'body'      => [
-				'type'      => $type,
-				'partition' => $partition,
-				'nonce'     => $token,
-			],
-		];
-		$response = \wp_remote_post( $spawn_url, $args );
-		if ( \function_exists( 'is_wp_error' ) && \is_wp_error( $response ) ) {
-			Core::stderr( 'Newspack_Nodes\\Supervisor: spawn failed for ' . $type . '|' . $partition . ': ' . $response->get_error_message() );
+		$err = self::fire_and_forget_post( $spawn_url, [
+			'type'      => $type,
+			'partition' => $partition,
+			'nonce'     => $token,
+		] );
+		if ( null !== $err ) {
+			Core::stderr( 'Newspack_Nodes\\Supervisor: spawn failed for ' . $type . '|' . $partition . ': ' . $err );
 		}
 	}
 
@@ -444,24 +443,63 @@ class Supervisor extends SupervisorBase {
 	 * forget; WP-Cron is the backstop if this fails.
 	 */
 	private function spawn_next_supervisor(): void {
-		if ( ! \function_exists( 'wp_remote_post' ) ) {
-			return;
+		$err = self::fire_and_forget_post( \rest_url( 'newspack-nodes/v1/workers/spawn' ), [
+			'type'      => 'supervisor',
+			'partition' => 0,
+			'nonce'     => $this->generate_spawn_token( \time() ),
+		] );
+		if ( null !== $err ) {
+			Core::stderr( 'Newspack_Nodes\\Supervisor: spawn_next_supervisor failed: ' . $err );
 		}
-		$args = [
-			'method'    => 'POST',
-			'timeout'   => 0.01,
-			'blocking'  => false,
-			'sslverify' => false,
-			'body'      => [
-				'type'      => 'supervisor',
-				'partition' => 0,
-				'nonce'     => $this->generate_spawn_token( \time() ),
-			],
-		];
-		$response = \wp_remote_post( \rest_url( 'newspack-nodes/v1/workers/spawn' ), $args );
-		if ( \function_exists( 'is_wp_error' ) && \is_wp_error( $response ) ) {
-			Core::stderr( 'Newspack_Nodes\\Supervisor: spawn_next_supervisor failed: ' . $response->get_error_message() );
+	}
+
+	/**
+	 * Raw-curl fire-and-forget POST. Bypasses `wp_remote_post` because
+	 * WP's Requests library floors the timeout at 1s
+	 * (`Requests/src/Transport/Curl.php:427`) — a SIGALRM-resolver guard
+	 * that serializes a per-tick sweep of N spawns into N seconds.
+	 * `CURLOPT_NOSIGNAL=1` skips the alarm machinery so the requested
+	 * `CURLOPT_TIMEOUT_MS=10` is honored verbatim. The expected outcome
+	 * IS `CURLE_OPERATION_TIMEDOUT` — we hang up well before the
+	 * synchronous spawn handler finishes — so timeout errors are
+	 * swallowed and counted as success.
+	 *
+	 * Test seam: `Supervisor::$curl_exec` (a static closure with the
+	 * real libcurl call as its default) is the one swappable line —
+	 * everything around it still runs unmocked, so the test suite
+	 * covers the actual setopt + error-classification logic.
+	 */
+	private static function fire_and_forget_post( string $url, array $body ): ?string {
+		if ( ! \function_exists( 'curl_init' ) ) {
+			return 'curl extension not available';
 		}
+		$ch = \curl_init();
+		if ( false === $ch ) {
+			return 'curl_init failed';
+		}
+		\curl_setopt_array( $ch, [
+			\CURLOPT_URL               => $url,
+			\CURLOPT_POST              => true,
+			\CURLOPT_POSTFIELDS        => \http_build_query( $body ),
+			\CURLOPT_NOSIGNAL          => 1,
+			\CURLOPT_TIMEOUT_MS        => 10,
+			\CURLOPT_CONNECTTIMEOUT_MS => 10,
+			\CURLOPT_RETURNTRANSFER    => false,
+			\CURLOPT_HEADER            => false,
+			\CURLOPT_SSL_VERIFYHOST    => 0,
+			\CURLOPT_SSL_VERIFYPEER    => false,
+		] );
+		// Default closure ignores `$body` — it's already set on the
+		// handle's POSTFIELDS by the curl_setopt_array above. The arg
+		// only matters to test mocks (POSTFIELDS isn't recoverable via
+		// curl_getinfo, so this is the narrowest seam that still
+		// preserves body-shape assertions in supervisor tests).
+		$exec = self::$curl_exec ?? static fn ( $h, $b ) => \curl_exec( $h );
+		$exec( $ch, $body );
+		$errno = \curl_errno( $ch );
+		$err   = ( 0 === $errno || \CURLE_OPERATION_TIMEDOUT === $errno ) ? null : \curl_error( $ch );
+		\curl_close( $ch );
+		return $err;
 	}
 
 	/**

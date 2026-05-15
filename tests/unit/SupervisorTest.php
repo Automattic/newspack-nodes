@@ -6,7 +6,9 @@ use Newspack_Nodes\Supervisor;
 use Newspack_Nodes\SupervisorBase;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Medium;
 
+#[Medium]
 #[CoversClass( Supervisor::class )]
 class SupervisorTest extends TestCase {
 	private string $tmp;
@@ -15,7 +17,7 @@ class SupervisorTest extends TestCase {
 		parent::setUp();
 		$this->tmp                            = $this->make_temp_dir();
 		$GLOBALS['_wp_actions']               = [];
-		$GLOBALS['_wp_test_remote_posts']     = [];
+		$GLOBALS['_test_outbound_posts']     = [];
 		$GLOBALS['_wp_test_transients']       = [];
 		$this->use_base_dir( $this->tmp );
 	}
@@ -23,7 +25,7 @@ class SupervisorTest extends TestCase {
 	protected function tearDown(): void {
 		$this->rmdir_recursive( $this->tmp );
 		$GLOBALS['_wp_actions']           = [];
-		$GLOBALS['_wp_test_remote_posts'] = [];
+		$GLOBALS['_test_outbound_posts'] = [];
 		$GLOBALS['_wp_test_transients']   = [];
 		unset(
 			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],
@@ -289,6 +291,104 @@ class SupervisorTest extends TestCase {
 		);
 	}
 
+	public function test_check_config_releases_locks_for_dropped_partitions(): void {
+		// Initial topology has firehose-workers running 2 partitions.
+		$captured_topologies = [
+			'firehose-workers' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
+		];
+		\add_filter( 'newspack_nodes/topologies', function () use ( &$captured_topologies ) {
+			return $captured_topologies;
+		} );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		// Simulate both partitions' lock dirs on disk.
+		$locks_dir = $this->tmp . '/locks';
+		\mkdir( $locks_dir, 0755, true );
+		\mkdir( "{$locks_dir}/firehose-workers.p0.lock.d" );
+		\mkdir( "{$locks_dir}/firehose-workers.p1.lock.d" );
+
+		// Operator drops num_partitions from 2 to 1. The TYPE stays
+		// active, but partition 1 should be flagged for restart-exit.
+		// Without this, p1 keeps heartbeating forever (cleanup_stale_partitions
+		// only catches heartbeat-cold dirs).
+		$captured_topologies['firehose-workers']['num_partitions'] = 1;
+		$s->check_config( microtime( true ) + 100 );
+
+		$this->assertFileExists(
+			"{$locks_dir}/firehose-workers.p1.lock.d/restart",
+			'dropped partition should have restart flag dropped'
+		);
+		$this->assertFileDoesNotExist(
+			"{$locks_dir}/firehose-workers.p0.lock.d/restart",
+			'surviving partition should be left alone'
+		);
+	}
+
+	public function test_check_config_grows_num_partitions_without_touching_existing_workers(): void {
+		// Reverse of the shrink case: operator bumps num_partitions from 1
+		// to 2. The existing p0 worker must be left alone (reconcile
+		// recognizes p0 as in-fleet); p1 has no lock dir yet, so the
+		// spawn loop will pick it up on its next iteration.
+		$captured_topologies = [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		];
+		\add_filter( 'newspack_nodes/topologies', function () use ( &$captured_topologies ) {
+			return $captured_topologies;
+		} );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$locks_dir = $this->tmp . '/locks';
+		\mkdir( $locks_dir, 0755, true );
+		\mkdir( "{$locks_dir}/firehose-workers.p0.lock.d" );
+		\file_put_contents( "{$locks_dir}/firehose-workers.p0.lock.d/heartbeat", (string) time() );
+
+		// Bump to 2.
+		$captured_topologies['firehose-workers']['num_partitions'] = 2;
+		$s->check_config( microtime( true ) + 100 );
+
+		$this->assertFileDoesNotExist(
+			"{$locks_dir}/firehose-workers.p0.lock.d/restart",
+			'p0 (in fleet) must NOT receive a restart flag on growth'
+		);
+		$this->assertDirectoryExists(
+			"{$locks_dir}/firehose-workers.p0.lock.d",
+			'p0 lock dir must survive growth'
+		);
+	}
+
+	public function test_check_config_releases_locks_for_orphan_partitions_at_cold_start(): void {
+		// Fresh supervisor process (prev_num_partitions = null) inheriting
+		// a p1 lock dir from a predecessor that was running with
+		// num_partitions=2. Current config says 1, so p1 is orphaned.
+		// State-free cleanup MUST flag it for restart-exit on the first
+		// check_config tick — the supervisor has no in-memory record of
+		// the previous fleet size to diff against.
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+		$locks_dir = $this->tmp . '/locks';
+		\mkdir( $locks_dir, 0755, true );
+		\mkdir( "{$locks_dir}/firehose-workers.p0.lock.d" );
+		\mkdir( "{$locks_dir}/firehose-workers.p1.lock.d" );
+		// Fresh heartbeat — looks live, not stale.
+		\file_put_contents( "{$locks_dir}/firehose-workers.p1.lock.d/heartbeat", '' );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$this->assertFileExists(
+			"{$locks_dir}/firehose-workers.p1.lock.d/restart",
+			'cold-start supervisor must still flag orphan partitions'
+		);
+		$this->assertFileDoesNotExist(
+			"{$locks_dir}/firehose-workers.p0.lock.d/restart",
+		);
+	}
+
 	// ── tick_for_test: spawn iteration ─────────────────────────────────────
 
 	public function test_tick_spawns_for_missing_lock(): void {
@@ -302,7 +402,7 @@ class SupervisorTest extends TestCase {
 		$token = $s->generate_spawn_token( (int) $now );
 		$s->tick_for_test( $now, $token );
 
-		$posts = $GLOBALS['_wp_test_remote_posts'] ?? [];
+		$posts = $GLOBALS['_test_outbound_posts'] ?? [];
 		$this->assertCount( 2, $posts, 'two missing locks → two spawn POSTs' );
 		$this->assertSame( 'firehose-workers', $posts[0]['args']['body']['type'] );
 		$this->assertSame( $token, $posts[0]['args']['body']['nonce'] );
@@ -334,7 +434,7 @@ class SupervisorTest extends TestCase {
 		// instances of the same type (if any) need a beat to exit cleanly
 		// before the new ones start.
 		$s->tick_for_test( $detect_now + 0.1, $token );
-		$posts = $GLOBALS['_wp_test_remote_posts'] ?? [];
+		$posts = $GLOBALS['_test_outbound_posts'] ?? [];
 		$job_spawns = \array_values( \array_filter(
 			$posts,
 			fn ( $p ) => 'job-workers' === ( $p['args']['body']['type'] ?? '' )
@@ -342,14 +442,39 @@ class SupervisorTest extends TestCase {
 		$this->assertCount( 0, $job_spawns, 'newly added topology should defer first spawn' );
 
 		// Tick after the spawn-deferral window — job-workers should spawn now.
-		$GLOBALS['_wp_test_remote_posts'] = [];
+		$GLOBALS['_test_outbound_posts'] = [];
 		$s->tick_for_test( $detect_now + 6, $token );
-		$posts      = $GLOBALS['_wp_test_remote_posts'] ?? [];
+		$posts      = $GLOBALS['_test_outbound_posts'] ?? [];
 		$job_spawns = \array_values( \array_filter(
 			$posts,
 			fn ( $p ) => 'job-workers' === ( $p['args']['body']['type'] ?? '' )
 		) );
 		$this->assertCount( 1, $job_spawns, 'deferred topology should spawn after window' );
+	}
+
+	public function test_tick_spawns_for_stale_lock(): void {
+		// Lock dir exists but heartbeat is older than STALE_TIMEOUT —
+		// previous holder crashed without releasing. Supervisor must
+		// respawn, matching the worker_needs_spawn contract. Distinct
+		// from `test_tick_spawns_for_missing_lock` (no dir at all) and
+		// `test_tick_skips_workers_with_fresh_locks` (live worker).
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+		$lock_dir = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
+		mkdir( $lock_dir, 0755, true );
+		touch( "{$lock_dir}/heartbeat", time() - Lock::STALE_TIMEOUT - 5 );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$now = microtime( true );
+		$s->tick_for_test( $now, $s->generate_spawn_token( (int) $now ) );
+
+		$posts = $GLOBALS['_test_outbound_posts'] ?? [];
+		$this->assertCount( 1, $posts, 'stale lock should trigger respawn' );
+		$this->assertSame( 'firehose-workers', $posts[0]['args']['body']['type'] );
+		$this->assertSame( 0, (int) $posts[0]['args']['body']['partition'] );
 	}
 
 	public function test_tick_skips_workers_with_fresh_locks(): void {
@@ -365,7 +490,7 @@ class SupervisorTest extends TestCase {
 		$now = microtime( true );
 		$s->tick_for_test( $now, $s->generate_spawn_token( (int) $now ) );
 
-		$this->assertEmpty( $GLOBALS['_wp_test_remote_posts'] ?? [] );
+		$this->assertEmpty( $GLOBALS['_test_outbound_posts'] ?? [] );
 	}
 
 	public function test_tick_respects_min_spawn_interval(): void {
@@ -380,15 +505,15 @@ class SupervisorTest extends TestCase {
 
 		// First tick spawns.
 		$s->tick_for_test( $now, $token );
-		$this->assertCount( 1, $GLOBALS['_wp_test_remote_posts'] ?? [] );
+		$this->assertCount( 1, $GLOBALS['_test_outbound_posts'] ?? [] );
 
 		// Second tick within rate-limit window: no spawn.
 		$s->tick_for_test( $now + 5, $token );
-		$this->assertCount( 1, $GLOBALS['_wp_test_remote_posts'] ?? [] );
+		$this->assertCount( 1, $GLOBALS['_test_outbound_posts'] ?? [] );
 
 		// Third tick after rate-limit window: spawns again (lock still missing).
 		$s->tick_for_test( $now + 20, $token );
-		$this->assertCount( 2, $GLOBALS['_wp_test_remote_posts'] ?? [] );
+		$this->assertCount( 2, $GLOBALS['_test_outbound_posts'] ?? [] );
 	}
 
 	public function test_min_spawn_interval_persists_across_supervisor_instances(): void {
@@ -405,7 +530,7 @@ class SupervisorTest extends TestCase {
 		$first = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 		$first->check_config( $now );
 		$first->tick_for_test( $now, $token );
-		$this->assertCount( 1, $GLOBALS['_wp_test_remote_posts'] ?? [] );
+		$this->assertCount( 1, $GLOBALS['_test_outbound_posts'] ?? [] );
 
 		// Fresh supervisor (cron backstop after crash, or self-respawn).
 		$second = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
@@ -415,7 +540,7 @@ class SupervisorTest extends TestCase {
 		// No additional spawn — the persisted timestamp gates this.
 		$this->assertCount(
 			1,
-			$GLOBALS['_wp_test_remote_posts'] ?? [],
+			$GLOBALS['_test_outbound_posts'] ?? [],
 			'persisted last_spawn must survive supervisor process restart'
 		);
 	}
@@ -469,7 +594,7 @@ class SupervisorTest extends TestCase {
 		$s->run();
 
 		$this->assertEmpty(
-			$GLOBALS['_wp_test_remote_posts'] ?? [],
+			$GLOBALS['_test_outbound_posts'] ?? [],
 			'concurrent supervisor must not fire spawns'
 		);
 
@@ -648,7 +773,7 @@ class SupervisorTest extends TestCase {
 		$this->invoke_tick_loop( $s );
 
 		$this->assertEmpty(
-			$GLOBALS['_wp_test_remote_posts'] ?? [],
+			$GLOBALS['_test_outbound_posts'] ?? [],
 			'restart flag observed before spawn iteration must skip spawns'
 		);
 
@@ -764,7 +889,7 @@ class SupervisorTest extends TestCase {
 		$method->setAccessible( true );
 		$method->invoke( $s );
 
-		$posts = $GLOBALS['_wp_test_remote_posts'] ?? [];
+		$posts = $GLOBALS['_test_outbound_posts'] ?? [];
 		$this->assertCount( 1, $posts, 'spawn_next_supervisor must fire exactly one POST' );
 
 		$body = $posts[0]['args']['body'];
@@ -786,7 +911,7 @@ class SupervisorTest extends TestCase {
 		$method->setAccessible( true );
 		$method->invoke( $s );
 
-		$args = $GLOBALS['_wp_test_remote_posts'][0]['args'];
+		$args = $GLOBALS['_test_outbound_posts'][0]['args'];
 		// Fire-and-forget: non-blocking, short timeout, sslverify off (local loopback).
 		$this->assertSame( 'POST', $args['method'] );
 		$this->assertFalse( $args['blocking'] );
@@ -816,7 +941,7 @@ class SupervisorTest extends TestCase {
 			$token
 		);
 
-		$posts = $GLOBALS['_wp_test_remote_posts'] ?? [];
+		$posts = $GLOBALS['_test_outbound_posts'] ?? [];
 		$this->assertCount( 1, $posts );
 		$this->assertSame( 'firehose-workers', $posts[0]['args']['body']['type'] );
 		$this->assertSame( 3, $posts[0]['args']['body']['partition'] );
@@ -847,7 +972,7 @@ class SupervisorTest extends TestCase {
 		);
 
 		// The request was still recorded; the response was an error.
-		$this->assertNotEmpty( $GLOBALS['_wp_test_remote_posts'] ?? [] );
+		$this->assertNotEmpty( $GLOBALS['_test_outbound_posts'] ?? [] );
 
 		unset( $GLOBALS['_wp_test_remote_post_response'] );
 	}
@@ -865,32 +990,32 @@ class SupervisorTest extends TestCase {
 
 		// No throw.
 		$method->invoke( $s );
-		$this->assertNotEmpty( $GLOBALS['_wp_test_remote_posts'] ?? [] );
+		$this->assertNotEmpty( $GLOBALS['_test_outbound_posts'] ?? [] );
 
 		unset( $GLOBALS['_wp_test_remote_post_response'] );
 	}
 
-	// ── cleanup_stale_partitions early-exit ────────────────────────────────
+	// ── reconcile_lock_dirs early-exit ─────────────────────────────────────
 
 	/**
-	 * cleanup_stale_partitions is a no-op when num_partitions hasn't been
-	 * computed yet (i.e., check_config never ran). Defends against being
-	 * invoked from a misordered initialization path.
+	 * reconcile_lock_dirs is a no-op when called before check_config has
+	 * populated `$active_types` — defends against mass-reaping live lock
+	 * dirs if a misordered initialization path ever calls it cold.
 	 */
-	public function test_cleanup_stale_partitions_noop_before_check_config(): void {
+	public function test_reconcile_lock_dirs_noop_before_check_config(): void {
 		// Pre-create a stale dir that would normally be cleaned up.
 		$stale = "{$this->tmp}/locks/firehose-workers.p5.lock.d";
 		mkdir( $stale, 0755, true );
 		touch( "{$stale}/heartbeat", time() - 7200 );
 
 		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
-		// Note: NOT calling check_config — num_partitions stays null.
-		$s->cleanup_stale_partitions();
+		// Note: NOT calling check_config — active_types stays [].
+		$s->reconcile_lock_dirs();
 
-		// Without num_partitions set, no scan happens — stale dir survives.
+		// Empty active_types must not be treated as "every dir is orphan".
 		$this->assertTrue(
 			is_dir( $stale ),
-			'cleanup_stale_partitions must early-exit when num_partitions is null'
+			'reconcile_lock_dirs must early-exit when active_types is empty'
 		);
 	}
 
@@ -1005,7 +1130,7 @@ class SupervisorTest extends TestCase {
 
 		// spawn_next_supervisor must have fired one POST.
 		$supervisor_posts = array_filter(
-			$GLOBALS['_wp_test_remote_posts'] ?? [],
+			$GLOBALS['_test_outbound_posts'] ?? [],
 			fn( $p ) => 'supervisor' === ( $p['args']['body']['type'] ?? '' )
 		);
 		$this->assertCount(
@@ -1078,7 +1203,7 @@ class SupervisorTest extends TestCase {
 		);
 
 		// At least one worker spawn POST + exactly one supervisor self-respawn.
-		$posts = $GLOBALS['_wp_test_remote_posts'] ?? [];
+		$posts = $GLOBALS['_test_outbound_posts'] ?? [];
 		$worker_posts = array_filter(
 			$posts,
 			fn( $p ) => 'firehose-workers' === ( $p['args']['body']['type'] ?? '' )

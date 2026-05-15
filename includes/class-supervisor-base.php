@@ -204,11 +204,13 @@ class SupervisorBase {
 	 * @param int    $stale_age_s  Threshold in seconds.
 	 */
 	public function remove_stale_directory( string $dir, int $stale_age_s ): void {
-		// Skip symlinks to prevent escaping the intended directory.
+		// Handle symlinks to prevent escaping the intended directory.
 		if ( \is_link( $dir ) ) {
+			@\unlink( $dir );
 			return;
 		}
 		if ( ! \is_dir( $dir ) ) {
+			@\unlink( $dir );
 			return;
 		}
 

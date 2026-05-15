@@ -1136,11 +1136,11 @@ class ConsumerTest extends TestCase {
 			$this->markTestSkipped( 'Memcached extension not loaded.' );
 		}
 
-		// Force Config to return memcache_servers=[] by injecting an empty
-		// $config_full directly via reflection (the disk default is non-empty).
+		// Force Config to return memcache_servers=[] by injecting directly via
+		// reflection (the disk default is non-empty).
 		\Newspack_Nodes\Config::reset();
 		$config_ref = new \ReflectionClass( \Newspack_Nodes\Config::class );
-		$cf         = $config_ref->getProperty( 'config_full' );
+		$cf         = $config_ref->getProperty( 'config' );
 		$cf->setAccessible( true );
 		$cf->setValue( null, [
 			'base_directory'   => '/tmp/newspack-nodes',

@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.28] - 2026-05-15
+
+### Fixed
+
+- **Operator-selected topologies that aren't in the app's catalog now inherit the substrate's `num_partitions`.** `Bootstrap::get_topologies()` was synthesizing entries for these names with a hardcoded `default_num_partitions=1`, so e.g. a user with `newspack_nodes_num_partitions=2` who checks `aggregator` (commented out of the application's file-default `topologies` list) got `aggregator.p0` only — every other fleet ran p0+p1, but the aggregator's StreamMerger silently dropped partition-1-keyed firehose data. Synthesis now reads `Config::load_config()['num_partitions']` and passes it as the default, so an operator-checked topology sizes to match the rest of the stack.
+- **Topology console partition dropdown sizes correctly for non-catalog topologies.** Same fix applied in `Admin::enqueue_topology_console()` — the partition dropdown for TSL files the operator could pick (but the app didn't ship in its catalog) was capped at p0 instead of inheriting the substrate's `num_partitions`.
+- **Supervisor stops orphaned workers state-free, in one disk-driven sweep.** Previously: `kill_readers()` flagged workers of removed topology types (driven by an `$active_types` diff in `check_config`), and `cleanup_stale_partitions()` walked `[num_partitions, MAX_PARTITIONS)` for cold-stale dirs only — live workers in dropped partitions / unchecked topologies kept heartbeating forever, and a 2→1 transition that straddled a supervisor respawn boundary was invisible to the diff. Now `reconcile_lock_dirs()` runs every `check_config()` tick: one `glob()` over `{base}/locks/*.lock.d`, then for any dir that doesn't belong in the live fleet (`{type}.p{N}` where N >= per-type partition count, OR type isn't in `$active_types` at all, OR standalone-worker exception) it first attempts cold-removal, then drops a restart flag if the dir is still there. Replaces `cleanup_stale_partitions()` + `cleanup_orphan_type_locks()` + the `kill_readers()` call from `check_config()`; `Supervisor::kill_readers()` remains as a public deactivation-path API.
+- **`reconcile_lock_dirs()` skips rewriting an in-flight `restart` flag.** Without the guard, every 15s tick stomped the file in orphan partitions until the worker actually exited — no behavioral impact, just wasted disk churn.
+
+### Changed
+
+- **`wp nodes types` reports the active topology set, not the app's published catalog.** Previously read `apply_filters( 'newspack_nodes/topologies', [] )` directly — so an operator-selected topology not in the app's catalog (e.g. `aggregator` for event-logger-nodes) would appear in `wp nodes ls` as a running worker but be denied by `wp nodes types`. Now reads `Bootstrap::get_topologies()`, matching what the supervisor actually spawns.
+- **`Supervisor::fire_and_forget_post()` bypasses `wp_remote_post` for spawn POSTs.** WP's Requests library clamps the timeout at `max($timeout, 1)` second (`Requests/src/Transport/Curl.php:427` — a SIGALRM-resolver guard against curl's synchronous DNS) so a 4-spawn per-tick sweep used to serialize into 4+ seconds of blocked supervisor. The new helper uses raw curl with `CURLOPT_NOSIGNAL=1 + CURLOPT_TIMEOUT_MS=10`, returning in ~10ms regardless of how the spawn endpoint hangs. Tests inject a closure via `Supervisor::$curl_exec` so the existing `$_test_outbound_posts` capture keeps working — production never references that seam.
+- **`Cli_Stdin_Reader::install_handler()` / `fire()` route libreadline through a swappable seam.** `Cli_Stdin_Reader::$readline_handler_install` and `$readline_read_char` default to the real libreadline calls; `tests/bootstrap.php` reassigns to no-ops so phpunit-in-a-terminal (where stdin/stdout ARE a tty, so `posix_isatty` gating is useless) doesn't get the prompt written to fd 1 and `readline_callback_read_char` doesn't block on real stdin. Production gates `$has_readline` on `posix_isatty(STDIN)` at the construction site — workers without a real tty never reach the seam at all.
+
+### Removed
+
+- **Substrate `Config` mode dispatching deleted.** `$option_schema_extended` was an empty placeholder after `memcache_servers` moved into core; the per-mode `$config` / `$config_full` cache pair, the `$mode` parameter on `load_config()`, and the `'full'`-only branch in `load_config()` are all gone. Single `$option_schema` array, single cache, single signature. Callers passing `'full'` cleaned up in 4 sites (`Admin`, `Cli_Worker_Command`, `Consumer`, and the app plugin's substrate calls).
+
+### Added
+
+- **`Config::RESET_ACTION` constant + broadcast.** `Config::reset()` now fires `do_action( self::RESET_ACTION )` so dependent Configs (e.g. `Newspack_Event_Logger_Nodes\Config`, which layers app overrides on top of substrate config and maintains its own merged-result static cache) can invalidate alongside us. Without that fan-out, the supervisor's per-tick `check_config()` only cleared the substrate cache, leaving the app's static cache showing stale `num_partitions` — the actual root cause behind the "only aggregator spawns when num_partitions changes" symptom this release fixes upstream.
+
+### Tests
+
+- **`phpunit --enforce-time-limit` is the documented default invocation.** AGENTS.md and the repository's test conventions now flag the flag explicitly. Tests that legitimately sleep through production code (`Lock` orphan grace, `Supervisor` tick_loop) carry class-level `#[Medium]` to raise the limit from 1s to 10s.
+- **`$_wp_test_remote_posts` renamed to `$_test_outbound_posts`** — the old name implied the captures came only from `wp_remote_post`, but `Supervisor::$curl_exec`'s capture also writes to it now.
+
 ## [0.1.27] - 2026-05-14
 
 ### Removed
