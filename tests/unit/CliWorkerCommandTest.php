@@ -13,6 +13,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Cli;
 use Newspack_Nodes\Lock;
 use Newspack_Nodes\Tests\TestCase;
+use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\WorkerCliCommand;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -39,9 +40,11 @@ class CliWorkerCommandTest extends TestCase {
 		$GLOBALS['_test_wp_cli_success']       = [];
 
 		$this->use_base_dir( $this->tmp );
+		Topology_Registry::reset();
 	}
 
 	protected function tearDown(): void {
+		Topology_Registry::reset();
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
@@ -462,5 +465,112 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertStringContainsString( 'firehose-workers', $haystack );
 		$this->assertStringContainsString( 'p0', $haystack );
 		$this->assertStringContainsString( 'restart=no', $haystack );
+	}
+
+	// -------------------------------------------------------------------------
+	// status — Behind column edge: position present but partition_dir missing
+	// -------------------------------------------------------------------------
+
+	public function test_status_leaves_behind_as_dash_when_no_partition_dir(): void {
+		// `saved_position` returns a non-null cursor (offsetlog has data), but
+		// the conventional firehose.log partition dir doesn't exist on disk —
+		// the `is_dir($partition_dir)` guard around `calculate_behind` should
+		// skip the byte computation and `Behind` stays '-'. Exercises the
+		// non-null-position, no-partition-dir branch.
+		$this->register_topology( 'firehose-workers', 1 );
+		$lock = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
+		\mkdir( $lock, 0755, true );
+		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
+
+		// Offsetlog with a checkpoint — Cli::saved_position returns non-null.
+		$offset_dir = "{$this->tmp}/offsets/firehose-workers.p0/p0";
+		\mkdir( $offset_dir, 0755, true );
+		\file_put_contents(
+			"{$offset_dir}/0.log",
+			\json_encode( [ 'seg' => 0, 'off' => 0, 'ts' => \time() ] ) . "\n"
+		);
+		// Deliberately DO NOT create logs/firehose.log/p0 — that's the branch.
+
+		( new WorkerCliCommand() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( 'firehose-workers', $haystack );
+		// Behind column must NOT have a byte literal rendered — calculate_behind
+		// never ran. format_bytes would emit one of B/KB/MB/GB; assert none of
+		// those rendered, which proves the is_dir guard short-circuited.
+		$this->assertDoesNotMatchRegularExpression(
+			'/\d+(B|KB|MB|GB)\s/',
+			$haystack,
+			'Behind column must stay as the dash fallback when no partition dir exists'
+		);
+	}
+
+	// -------------------------------------------------------------------------
+	// run — full path: descriptor lookup → topology resolution → execute()
+	// -------------------------------------------------------------------------
+
+	public function test_run_returns_skipped_status_when_lock_already_held(): void {
+		// Full run() path. We arrange a fresh-held lock so WorkerBase::execute()
+		// returns ['status' => 'skipped', 'reason' => 'lock_held'] immediately
+		// — no drain loop, no shutdown handler, no respawn. The post-execute
+		// WP_CLI::success log line is what we assert on.
+		//
+		// Register a real stock TSL so Topology_Registry::resolve() returns a
+		// non-null path; content is irrelevant because the closure is never
+		// invoked (we exit before run_topology()).
+		$stock_dir = "{$this->tmp}/stock";
+		\mkdir( $stock_dir, 0755, true );
+		\file_put_contents( "{$stock_dir}/run-test-topology.tsl", "# noop\n" );
+		Topology_Registry::register_stock_dir( $stock_dir );
+
+		$this->register_topology( 'run-test-topology', 1, 'run-test-topology' );
+
+		// Pre-create the lock dir with a fresh heartbeat naming another PID —
+		// Lock::try_steal_orphan_or_stale sees fresh mtime → returns false →
+		// WorkerBase::acquire() returns false → execute() returns 'skipped'.
+		$lock_dir = "{$this->tmp}/locks/run-test-topology.p0.lock.d";
+		\mkdir( $lock_dir, 0755, true );
+		\file_put_contents( "{$lock_dir}/heartbeat", (string) ( \getmypid() + 99999 ) );
+
+		( new WorkerCliCommand() )->run( [ 'run-test-topology' ], [ 'partition' => 0 ] );
+
+		// Non-quiet: a 'Starting…' log line and a 'Worker exited with status:'
+		// success line both fire. The success line carries the skipped status.
+		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString(
+			'Starting run-test-topology.p0',
+			\implode( "\n", $GLOBALS['_test_wp_cli_logs'] )
+		);
+		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_success'] );
+		$this->assertStringContainsString( 'skipped', $GLOBALS['_test_wp_cli_success'][0] );
+	}
+
+	public function test_run_quiet_suppresses_logs_and_success(): void {
+		// `--quiet` short-circuits the non-essential WP_CLI::log + ::success
+		// calls. The command still drives execute() to completion (skipped),
+		// but the stream stays empty.
+		$stock_dir = "{$this->tmp}/stock";
+		\mkdir( $stock_dir, 0755, true );
+		\file_put_contents( "{$stock_dir}/run-quiet-test.tsl", "# noop\n" );
+		Topology_Registry::register_stock_dir( $stock_dir );
+
+		$this->register_topology( 'run-quiet-test', 1, 'run-quiet-test' );
+
+		$lock_dir = "{$this->tmp}/locks/run-quiet-test.p0.lock.d";
+		\mkdir( $lock_dir, 0755, true );
+		\file_put_contents( "{$lock_dir}/heartbeat", (string) ( \getmypid() + 99999 ) );
+
+		( new WorkerCliCommand() )->run(
+			[ 'run-quiet-test' ],
+			[ 'partition' => 0, 'quiet' => true ]
+		);
+
+		// Quiet mode: neither 'Starting…' nor the success line are emitted.
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringNotContainsString( 'Starting run-quiet-test', $haystack );
+		$this->assertEmpty(
+			$GLOBALS['_test_wp_cli_success'],
+			'quiet mode must suppress WP_CLI::success after execute()'
+		);
 	}
 }
