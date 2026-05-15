@@ -817,10 +817,17 @@ export default function TopologyConsole() {
 					const rawDWritten =
 						bytesWritten - ( prevEntry.bytesWritten || 0 );
 					const dWritten = rawDWritten < 0 ? 0 : rawDWritten;
-					const dTime = now - prevEntry.ts;
-					const rate = dTime > 0 ? dCount / dTime : 0;
-					const readRate = dTime > 0 ? dRead / dTime : 0;
-					const writtenRate = dTime > 0 ? dWritten / dTime : 0;
+					// Clamp to the nominal tick interval (1s) so bunched-up
+					// gui:auto responses — e.g. two arrivals 100ms apart
+					// after a worker stall — don't divide a full tick's
+					// delta by a tiny dt and report a 10× spike. Worst case
+					// we under-report on a genuinely-fast tick; the
+					// alternative (nonsense peaks) is worse for the
+					// auto-scaling sparkline.
+					const dTime = Math.max( 1, now - prevEntry.ts );
+					const rate = dCount / dTime;
+					const readRate = dRead / dTime;
+					const writtenRate = dWritten / dTime;
 					const history = prevEntry.history || [];
 					const readHistory = prevEntry.readHistory || [];
 					const writtenHistory = prevEntry.writtenHistory || [];

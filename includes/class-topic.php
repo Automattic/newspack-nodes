@@ -95,6 +95,17 @@ class Topic extends Node {
 	public function fill( array &$message ): void {
 		++$this->counter;
 
+		// Surface bytes-through + largest message on the Topic itself so
+		// the dump_metadata `bytes_written` / `lgst_msg` columns reflect
+		// per-Topic flow (not just the underlying Partitions). VALUE size
+		// is the canonical "payload that flowed through" measurement,
+		// matching Node::fill's largest_msg_sent contract.
+		$value_size = Message::value_size( $message );
+		$this->bytes_written += $value_size;
+		if ( $value_size > $this->largest_msg_sent ) {
+			$this->largest_msg_sent = $value_size;
+		}
+
 		// Pre-pinned via TO: parse partition index out of TO's leading segment.
 		if ( '' !== $message[ Message::TO ] && \preg_match( '/^p(\d+)/', $message[ Message::TO ], $m ) ) {
 			$idx = (int) $m[1];
@@ -142,10 +153,10 @@ class Topic extends Node {
 			'description' => 'Multi-partition log abstraction; routes by hash to one of N Partitions.',
 			'ctor'        => [
 				[ 'name' => 'base_dir',       'type' => 'string', 'required' => true ],
-				[ 'name' => 'num_partitions', 'type' => 'int',    'required' => true ],
-				[ 'name' => 'segment_size',   'type' => 'int',    'default' => Partition::DEFAULT_SEGMENT_SIZE ],
-				[ 'name' => 'num_segments',   'type' => 'int',    'default' => Partition::DEFAULT_NUM_SEGMENTS ],
-				[ 'name' => 'max_lifespan',   'type' => 'int',    'default' => Partition::DEFAULT_MAX_LIFESPAN ],
+				[ 'name' => 'num_partitions', 'type' => 'int',    'required' => true, 'default' => '<config:num_partitions>' ],
+				[ 'name' => 'segment_size',   'type' => 'int',    'default' => '<config:segment_size>' ],
+				[ 'name' => 'num_segments',   'type' => 'int',    'default' => '<config:num_segments>' ],
+				[ 'name' => 'max_lifespan',   'type' => 'int',    'default' => '<config:max_lifespan>' ],
 			],
 			'verbs'       => [],
 		];

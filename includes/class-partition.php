@@ -1025,10 +1025,10 @@ class Partition extends Timer {
 			'description' => 'Append-only segmented log; data file + offset index per partition.',
 			'ctor'        => [
 				[ 'name' => 'base_dir',     'type' => 'string', 'required' => true ],
-				[ 'name' => 'partition',    'type' => 'int',    'required' => true ],
-				[ 'name' => 'segment_size', 'type' => 'int',    'default' => self::DEFAULT_SEGMENT_SIZE ],
-				[ 'name' => 'num_segments', 'type' => 'int',    'default' => self::DEFAULT_NUM_SEGMENTS ],
-				[ 'name' => 'max_lifespan', 'type' => 'int',    'default' => self::DEFAULT_MAX_LIFESPAN ],
+				[ 'name' => 'partition',    'type' => 'int',    'required' => true, 'default' => '<partition>' ],
+				[ 'name' => 'segment_size', 'type' => 'int',    'default' => '<config:segment_size>' ],
+				[ 'name' => 'num_segments', 'type' => 'int',    'default' => '<config:num_segments>' ],
+				[ 'name' => 'max_lifespan', 'type' => 'int',    'default' => '<config:max_lifespan>' ],
 			],
 			'verbs'       => [
 				[
