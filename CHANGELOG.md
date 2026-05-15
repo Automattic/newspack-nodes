@@ -7,6 +7,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.29] - 2026-05-15
+
+### Fixed
+
+- **`Tail` actually delivers to `connect_node` targets.** `Tail::emit_message` bypassed `Node::fill`, so the `TO=target` stamp that `connect_node` relies on never happened. Every TSL topology wiring Tail downstream via `connect_node` (REPL tail, Log-as-sink, fan-outs) was silently emitting bytes to nowhere. Now routes through `parent::fill()` like Consumer does. Production-affecting for anyone using a Tail node.
+- **Topology editor saves now include schema defaults.** Operator drags Partition from the palette, types only `base_dir` → save would strip the empty trailing positional slots and emit `make_node Partition flames:partition /tmp/flames.log` instead of the operator's intended `... /tmp/flames.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>`. Topology_Loader then fell through to the PHP class's hard-coded literal defaults, silently ignoring the operator's substrate-config values. `serializeTsl` now takes an optional `schemas` map and fills empty positional slots from each spec entry's `default` before the trailing-empty trim. Same treatment for verb args.
+- **Inspector int/float fields accept TSL substitution tokens.** `coerceValue` was falling back to `prevRaw` whenever `parseInt`/`parseFloat` returned `NaN` — silently swallowed every keystroke of `<partition>` / `<config:foo>`. Now only converts when the raw matches a pure-numeric regex; otherwise passes through as a string and lets the TSL loader coerce at load time. Also catches the lossy `parseInt('123abc')` → `123` case.
+- **`send_node` / `send` REPL verb appends `\n`.** Line-oriented downstream nodes (Log, Tail) need each `send_node` payload terminated so consecutive sends don't run together on disk. Both the PHP `Shell` parser and the JS topology-console REPL apply this now; the two paths stay byte-identical on the wire. Mirrors Tachikoma `Shell.pm`.
+- **Two stale VIP-lint warnings silenced on intentional code paths.** `Supervisor::fire_and_forget_post()` (raw curl is required because `wp_remote_post` clamps timeout to `max($timeout, 1)` second, defeating `CURLOPT_TIMEOUT_MS=10`) and `SupervisorBase::remove_stale_directory()` (substrate operates inside its own reserved base_dir tree).
+
+### Added
+
+- **`Node::dump_node(): array` is overridable for per-class redaction.** Reflection-based default snapshot logic moved out of `CommandInterpreter::cmd_dump_node` and onto `Node`, so subclasses can scrub secrets or synthesize derived fields before the dump hits the REPL. The motivating use case is in the application plugin: `RemoteSource` overrides this to return `[REDACTED]` for `auth_password` / `auth_token` instead of leaking raw credentials via `dump_node my_remote`.
+- **TSL-substitution defaults on substrate schemas.** Consumer's `source_partition`, Topic's `num_partitions`/`segment_size`/`num_segments`/`max_lifespan`, and Partition's `partition`/`segment_size`/`num_segments`/`max_lifespan` ship with `<partition>` / `<config:*>` defaults. The editor pre-fills the same tokens the production TSL uses; required-flags are preserved alongside.
+- **`bytes_read` / `bytes_written` / `lgst_msg` actually populated for Tail, Log, Topic.** The dump_metadata columns existed and were emitted, but the underlying counters on `Node` were never incremented for these primitives — Inspector sparklines for them were dead lines. Tail's `poll()` now bumps `bytes_read`; Log's `fill()` bumps `bytes_written` and tracks `largest_msg_sent` (its fill bypasses `parent::fill`); Topic does the same per-Message via `Message::value_size`.
+- **Two-way URL sync for `topology` + `partition` in the topology console.** Selecting from the dropdowns rewrites `?topology=<name>&partition=<n>` via `history.replaceState`; opening the page with those params initialises the selectors. Refresh / copy-link preserves the operator's current view. `replaceState` not `pushState` — these are filter toggles, not navigation events.
+
+### Changed
+
+- **Rate sparkline clamps `dt` to the nominal tick interval (1s).** When two `gui:auto` responses arrived bunched up (e.g. 100ms apart after a worker stall), `dCount / 0.1` produced 10× spikes on the auto-scaling sparkline. Worst case post-clamp is under-reporting on a genuinely fast tick; the prior nonsense peaks were worse for the auto-scale envelope.
+
+### Tests
+
+- **Coverage push: every class in `includes/` is now ≥80% statement coverage** (lowest is `WorkerCliCommand` at 80.0%; total moved from 80.2% → 90.5% across 39 classes). New test files: `ConfigUtilsTest`, `LayoutsControllerTest`, `TopologiesControllerTest`, `TopologyStreamControllerTest`. Existing files extended: Bootstrap, CliWorkerCommand, Consumer, Core, Shell, SseStreamTrait, Tee, integration/ClassesController.
+- **`--enforce-time-limit` is the documented PHPUnit default.** Class-level `#[Medium]` raises the 1s budget to 10s for tests that legitimately sleep through production code.
+- New jest coverage for `coerceValue`, `serializeTsl` (default expansion), and `shellInterpret` (send_node LF).
+
 ## [0.1.28] - 2026-05-15
 
 ### Fixed
