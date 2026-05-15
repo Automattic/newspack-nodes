@@ -184,7 +184,11 @@ class Tail extends Timer {
 		$msg[ Message::TIMESTAMP ] = Core::$now;
 		$msg[ Message::FROM ]      = $this->name;
 		$msg[ Message::VALUE ]     = $value;
-		$this->sink?->fill( $msg );
+		// Route through parent::fill so a connect_node-set target gets
+		// stamped into TO. Without this the emitted message has TO='' and
+		// the Router has no destination to dispatch it to — `connect_node
+		// mytail mysession` would set target but never deliver a byte.
+		parent::fill( $msg );
 	}
 
 	/**
