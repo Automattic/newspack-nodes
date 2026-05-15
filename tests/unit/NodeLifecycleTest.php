@@ -31,11 +31,13 @@ use Newspack_Nodes\Echo_Node;
 use Newspack_Nodes\Hook;
 use Newspack_Nodes\Lock;
 use Newspack_Nodes\Log;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition;
 use Newspack_Nodes\Router;
 use Newspack_Nodes\Shell;
 use Newspack_Nodes\Tail;
 use Newspack_Nodes\Tee;
+use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Timer;
 use Newspack_Nodes\Topic;
@@ -93,5 +95,99 @@ class NodeLifecycleTest extends TestCase {
 			$weak->get(),
 			'Node must reach refcount=0 after remove_node() + Core::run_closing() + unset()'
 		);
+	}
+
+	/**
+	 * Mirrors the uniform TM_ERROR contract test from Perl Tachikoma's
+	 * nodes.t — every Node either forwards a TM_ERROR untouched (no
+	 * FROM restamp, no payload rewrite) or silently absorbs it. Anything
+	 * else (mutating the message, throwing, restamping FROM as `$this`)
+	 * is a contract violation that breaks the upstream error-propagation
+	 * trail.
+	 *
+	 * Tail is excluded because its fill() ignores its argument entirely
+	 * — it's a source node driven by Timer ticks, not a transit node.
+	 * Lock is excluded for the same reason: it only listens for its own
+	 * HEARTBEAT KEY messages and drops everything else.
+	 *
+	 * @param \Closure $factory
+	 */
+	#[DataProvider( 'node_factories' )]
+	public function test_fill_tm_error_preserves_payload_and_does_not_restamp_from( \Closure $factory ): void {
+		$node = $factory();
+		if ( ! $this->is_transit_node( $node ) ) {
+			$this->assertTrue( true, 'source/sink-only node — TM_ERROR contract not applicable' );
+			return;
+		}
+		$capture = new CaptureSink();
+		$node->sink( $capture );
+
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_ERROR;
+		$msg[ Message::FROM ]      = 'upstream';
+		$msg[ Message::TO ]        = 'downstream';
+		$msg[ Message::VALUE ]     = "NOT_AVAILABLE\n";
+
+		$node->fill( $msg );
+
+		// Either forwarded (capture[0] === the message we sent) or absorbed
+		// (capture stays empty). Anything else means the Node rewrote
+		// something it shouldn't.
+		if ( ! empty( $capture->captured ) ) {
+			$out = $capture->captured[0];
+			$this->assertSame( Message::TM_ERROR, $out[ Message::TYPE ] & Message::TM_ERROR, 'TYPE must retain TM_ERROR bit' );
+			$this->assertSame( 'upstream', $out[ Message::FROM ], 'FROM must not be restamped' );
+			$this->assertSame( "NOT_AVAILABLE\n", $out[ Message::VALUE ], 'VALUE must not be rewritten' );
+		} else {
+			$this->assertCount( 0, $capture->captured, 'TM_ERROR was absorbed silently — also valid' );
+		}
+	}
+
+	/**
+	 * Same contract as the TM_ERROR test, applied to TM_EOF. A Node that
+	 * mishandles TM_EOF can interrupt graceful-shutdown propagation or
+	 * leave downstream consumers waiting on a stream the upstream
+	 * already closed.
+	 *
+	 * @param \Closure $factory
+	 */
+	#[DataProvider( 'node_factories' )]
+	public function test_fill_tm_eof_preserves_payload_and_does_not_restamp_from( \Closure $factory ): void {
+		$node = $factory();
+		if ( ! $this->is_transit_node( $node ) ) {
+			$this->assertTrue( true, 'source/sink-only node — TM_EOF contract not applicable' );
+			return;
+		}
+		$capture = new CaptureSink();
+		$node->sink( $capture );
+
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_EOF;
+		$msg[ Message::FROM ]      = 'upstream';
+		$msg[ Message::TO ]        = 'downstream';
+		$msg[ Message::VALUE ]     = '';
+
+		$node->fill( $msg );
+
+		if ( ! empty( $capture->captured ) ) {
+			$out = $capture->captured[0];
+			$this->assertSame( Message::TM_EOF, $out[ Message::TYPE ] & Message::TM_EOF, 'TYPE must retain TM_EOF bit' );
+			$this->assertSame( 'upstream', $out[ Message::FROM ], 'FROM must not be restamped' );
+			$this->assertSame( '', $out[ Message::VALUE ], 'VALUE must not be rewritten' );
+		} else {
+			$this->assertCount( 0, $capture->captured, 'TM_EOF was absorbed silently — also valid' );
+		}
+	}
+
+	/**
+	 * Tail is a Timer-driven source: its fill() ignores its argument
+	 * entirely (the inherited Timer::fill detects the TIMER KEY and
+	 * fires poll). Lock only acts on its own HEARTBEAT KEY messages.
+	 * Sending TM_ERROR / TM_EOF through them doesn't exercise the
+	 * cross-node error-propagation contract this test was written for —
+	 * skip rather than assert on a no-op.
+	 */
+	private function is_transit_node( object $node ): bool {
+		return ! ( $node instanceof Tail || $node instanceof Lock );
 	}
 }
