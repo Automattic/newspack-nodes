@@ -274,7 +274,7 @@ function inputForType( type ) {
 	}
 }
 
-function coerceValue( type, raw, prevRaw ) {
+export function coerceValue( type, raw ) {
 	if ( 'bool' === type ) {
 		// Strings store as-is: literal "true"/"false", config tokens
 		// like "<config:enable_aggregator>", or the patron-supplied
@@ -290,15 +290,24 @@ function coerceValue( type, raw, prevRaw ) {
 		if ( '' === raw ) {
 			return '';
 		}
-		const n = parseInt( raw, 10 );
-		return Number.isNaN( n ) ? prevRaw : n;
+		// Pure-integer strings convert to numbers; anything else
+		// (TSL substitution tokens like `<partition>` or
+		// `<config:num_partitions>`, partial typing, leading whitespace
+		// while the operator is mid-edit) passes through as a string and
+		// gets coerced at load time by Topology_Loader. Previously this
+		// fell back to `prevRaw` on NaN, which silently swallowed every
+		// keystroke of a `<` token.
+		return /^-?\d+$/.test( String( raw ).trim() )
+			? parseInt( raw, 10 )
+			: raw;
 	}
 	if ( 'float' === type ) {
 		if ( '' === raw ) {
 			return '';
 		}
-		const n = parseFloat( raw );
-		return Number.isNaN( n ) ? prevRaw : n;
+		return /^-?\d*\.?\d+(?:[eE][+-]?\d+)?$/.test( String( raw ).trim() )
+			? parseFloat( raw )
+			: raw;
 	}
 	return String( raw );
 }
@@ -498,9 +507,7 @@ function CtorField( {
 							: '' )
 					}
 					onChange={ ( e ) =>
-						onChange(
-							coerceValue( spec.type, e.target.value, value )
-						)
+						onChange( coerceValue( spec.type, e.target.value ) )
 					}
 				/>
 				{ hasContent && (
