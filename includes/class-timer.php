@@ -123,6 +123,23 @@ class Timer extends Node {
 		$this->notify( 'FIRE', Core::$now );
 	}
 
+	/**
+	 * Cascade timer-slot unregistration ahead of normal Node teardown.
+	 * Without this, EventFramework's `$timers` (or Router's TIMER
+	 * registration list) keeps a back-reference to this object, and
+	 * `unset($node)` never drops refcount to zero — `__destruct` only
+	 * fires when the event loop finally drains, well after the operator
+	 * thought the node was gone. Stops are deferred onto Core's
+	 * closing queue so a remove_node() that fires mid-drain doesn't
+	 * mutate `$timers` while it's being iterated.
+	 */
+	public function remove_node(): void {
+		if ( 'inactive' !== $this->mode ) {
+			$this->stop_timer();
+		}
+		parent::remove_node();
+	}
+
 	protected function fire(): void {
 		if ( null === $this->sink ) {
 			return;
