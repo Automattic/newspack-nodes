@@ -65,6 +65,9 @@ class Topology_Registry {
 		$out = [];
 		if ( '' !== self::$user_dir && \is_dir( self::$user_dir ) ) {
 			foreach ( \glob( self::$user_dir . '/*.tsl' ) ?: [] as $path ) {
+				if ( ! \is_file( $path ) ) {
+					continue;
+				}
 				$name                    = \basename( $path, '.tsl' );
 				$out[ $name ]['user']    = $path;
 				$out[ $name ]['stock'] ??= [];
@@ -72,6 +75,9 @@ class Topology_Registry {
 		}
 		foreach ( self::$stock_dirs as $dir ) {
 			foreach ( \glob( $dir . '/*.tsl' ) ?: [] as $path ) {
+				if ( ! \is_file( $path ) ) {
+					continue;
+				}
 				$name                      = \basename( $path, '.tsl' );
 				$out[ $name ]['user']    ??= null;
 				$out[ $name ]['stock']   ??= [];
@@ -83,17 +89,24 @@ class Topology_Registry {
 
 	/**
 	 * Return the absolute path to `<name>.tsl` or null if unknown.
+	 *
+	 * `is_file()` (not `file_exists()`) so callers can trust they got a
+	 * readable file path. A directory at `{dir}/{name}.tsl/` would
+	 * `file_exists` → true, but `file_get_contents` on a directory returns
+	 * `""` (PHP 8.0+) — yielding a 200-OK with an empty body for the
+	 * `get_topology` controller. `is_file()` filters that at the source,
+	 * pushing the caller down the `null → not_found` branch.
 	 */
 	public static function resolve( string $name ): ?string {
 		if ( '' !== self::$user_dir ) {
 			$user_path = self::$user_dir . '/' . $name . '.tsl';
-			if ( \file_exists( $user_path ) ) {
+			if ( \is_file( $user_path ) ) {
 				return $user_path;
 			}
 		}
 		foreach ( self::$stock_dirs as $dir ) {
 			$path = $dir . '/' . $name . '.tsl';
-			if ( \file_exists( $path ) ) {
+			if ( \is_file( $path ) ) {
 				return $path;
 			}
 		}
@@ -109,11 +122,17 @@ class Topology_Registry {
 		$names = [];
 		if ( '' !== self::$user_dir && \is_dir( self::$user_dir ) ) {
 			foreach ( \glob( self::$user_dir . '/*.tsl' ) ?: [] as $path ) {
+				if ( ! \is_file( $path ) ) {
+					continue;
+				}
 				$names[ \basename( $path, '.tsl' ) ] = true;
 			}
 		}
 		foreach ( self::$stock_dirs as $dir ) {
 			foreach ( \glob( $dir . '/*.tsl' ) ?: [] as $path ) {
+				if ( ! \is_file( $path ) ) {
+					continue;
+				}
 				$names[ \basename( $path, '.tsl' ) ] = true;
 			}
 		}

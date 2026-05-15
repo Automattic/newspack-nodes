@@ -1226,4 +1226,149 @@ class SupervisorTest extends TestCase {
 
 		unset( $GLOBALS['_wp_test_remote_post_response'] );
 	}
+
+	// HMAC token rejection: a token from a future window (clock skew) is
+	// rejected too — only current OR previous window validates.
+	public function test_validate_spawn_token_rejects_future_window(): void {
+		$s = new Supervisor( '/tmp', 'NONCE_SALT_FOR_TEST' );
+		// Token generated 20s in the FUTURE relative to validation moment.
+		$future_token = $s->generate_spawn_token( 1000020 );
+		$this->assertFalse(
+			$s->validate_spawn_token( $future_token, 1000000 ),
+			'future-window tokens must not validate'
+		);
+	}
+
+	// Spec: SUPERVISOR_STALE_TIMEOUT pinned to 60s. Heartbeat fires at
+	// stale/6 = ~10s intervals.
+	public function test_supervisor_stale_timeout_constant(): void {
+		$this->assertSame( 60, Supervisor::SUPERVISOR_STALE_TIMEOUT );
+	}
+
+	// New-type spawn deferral constant.
+	public function test_new_type_spawn_delay_constant(): void {
+		$this->assertSame( 5, Supervisor::NEW_TYPE_SPAWN_DELAY_S );
+	}
+
+	// tick_loop heartbeat refresh: the heartbeat slot is touched when
+	// (now - last_heartbeat) >= STALE_TIMEOUT/6 (=10s).
+	public function test_tick_loop_refreshes_heartbeat_when_window_elapsed(): void {
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$this->assertTrue( $s->init_lock_for_test() );
+
+		$now = microtime( true );
+		$this->seed_loop_state( $s, $now );
+		// Backdate last_heartbeat far into the past so the (>=10s) branch fires.
+		$hb_prop = new \ReflectionProperty( Supervisor::class, 'last_heartbeat' );
+		$hb_prop->setAccessible( true );
+		$hb_prop->setValue( $s, $now - 100.0 );
+
+		// Drop restart flag so tick_loop exits after the first iteration's
+		// heartbeat refresh — before sleep().
+		Lock::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
+
+		$this->invoke_tick_loop( $s );
+
+		$new_hb = (float) $hb_prop->getValue( $s );
+		$this->assertGreaterThan(
+			$now - 1.0,
+			$new_hb,
+			'tick_loop must refresh last_heartbeat when the window has elapsed'
+		);
+
+		$s->release_lock_for_test();
+	}
+
+	// reconcile_lock_dirs idempotency: a second pass over a dir whose
+	// restart flag is already present must NOT rewrite the file (spec
+	// "skip rewriting if one's already dropped — every 15s tick stomps
+	// the file otherwise, just wasted disk churn"). We verify by stamping
+	// the existing flag's CONTENTS with a sentinel and checking it survives
+	// the second reconcile.
+	public function test_reconcile_lock_dirs_does_not_rewrite_existing_restart_flag(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+
+		$locks_dir = "{$this->tmp}/locks";
+		mkdir( $locks_dir, 0755, true );
+		$orphan_dir = "{$locks_dir}/firehose-workers.p1.lock.d";
+		mkdir( $orphan_dir, 0755, true );
+		// Fresh heartbeat so remove_stale_directory doesn't reap immediately.
+		file_put_contents( "{$orphan_dir}/heartbeat", '' );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$flag_path = "{$orphan_dir}/restart";
+		$this->assertFileExists( $flag_path );
+
+		// Stamp the flag with a sentinel that the supervisor's
+		// request_restart_at would overwrite with `time()` if it were
+		// called. A different sentinel proves no rewrite happened.
+		file_put_contents( $flag_path, 'sentinel-do-not-overwrite' );
+
+		// Second reconcile pass — must NOT rewrite the flag.
+		$s->check_config( microtime( true ) + 100 );
+
+		$this->assertSame(
+			'sentinel-do-not-overwrite',
+			file_get_contents( $flag_path ),
+			'second reconcile must NOT rewrite the restart flag'
+		);
+	}
+
+	// tick_for_test deferred-spawn clearing: when spawn_after[type]'s
+	// deadline has elapsed, the entry must be unset after the spawn fires
+	// — line 537 in source. Lets subsequent ticks proceed without the
+	// deferral check.
+	public function test_tick_for_test_clears_spawn_after_once_window_passes(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		// Inject a spawn_after deferral in the past so the elapsed-window
+		// path runs (rather than the not-yet-elapsed continue).
+		$prop = new \ReflectionProperty( Supervisor::class, 'spawn_after' );
+		$prop->setAccessible( true );
+		$prop->setValue( $s, [ 'firehose-workers' => microtime( true ) - 1.0 ] );
+
+		$now = microtime( true );
+		$s->tick_for_test( $now, $s->generate_spawn_token( (int) $now ) );
+
+		// Spawn should have fired AND the deferred entry should be cleared.
+		$this->assertNotEmpty( $GLOBALS['_test_outbound_posts'] ?? [] );
+		$this->assertArrayNotHasKey(
+			'firehose-workers',
+			$prop->getValue( $s ),
+			'deferred key must be unset once window has elapsed'
+		);
+	}
+
+	// kill_readers MAX_PARTITIONS fallback: a type not in topology is
+	// flagged across the full MAX_PARTITIONS range so any orphan dir is
+	// cleaned up.
+	public function test_kill_readers_uses_max_partitions_for_type_not_in_topology(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+
+		// Pre-create orphan lock dirs at partitions NOT covered by the
+		// (empty) topology entry for 'orphan-type'.
+		$locks_dir = "{$this->tmp}/locks";
+		mkdir( $locks_dir, 0755, true );
+		mkdir( "{$locks_dir}/orphan-type.p0.lock.d", 0755, true );
+		mkdir( "{$locks_dir}/orphan-type.p3.lock.d", 0755, true );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->kill_readers( [ 'orphan-type' ] );
+
+		// Both existing partitions get the restart flag — kill_readers
+		// fell back to MAX_PARTITIONS so even p3 is reached.
+		$this->assertTrue( Lock::is_restart_pending( "{$locks_dir}/orphan-type.p0.lock.d" ) );
+		$this->assertTrue( Lock::is_restart_pending( "{$locks_dir}/orphan-type.p3.lock.d" ) );
+	}
 }

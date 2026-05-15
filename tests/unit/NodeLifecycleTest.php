@@ -183,11 +183,14 @@ class NodeLifecycleTest extends TestCase {
 	 * Tail is a Timer-driven source: its fill() ignores its argument
 	 * entirely (the inherited Timer::fill detects the TIMER KEY and
 	 * fires poll). Lock only acts on its own HEARTBEAT KEY messages.
-	 * Sending TM_ERROR / TM_EOF through them doesn't exercise the
-	 * cross-node error-propagation contract this test was written for —
-	 * skip rather than assert on a no-op.
+	 * Dumper is a terminal renderer — `fill(TM_ERROR)` writes the
+	 * VALUE directly to its `$stderr` handle (defaulted to PHP's
+	 * STDERR), so feeding it through this transit-node contract test
+	 * would leak the assertion payload to the real terminal. None of
+	 * the three exercise the cross-node error-propagation contract
+	 * this test was written for — skip rather than assert on a no-op.
 	 */
 	private function is_transit_node( object $node ): bool {
-		return ! ( $node instanceof Tail || $node instanceof Lock );
+		return ! ( $node instanceof Tail || $node instanceof Lock || $node instanceof Dumper );
 	}
 }

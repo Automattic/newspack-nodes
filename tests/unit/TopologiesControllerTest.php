@@ -259,6 +259,21 @@ class TopologiesControllerTest extends TestCase {
 		$this->assertSame( 'not_found', $resp->get_data()['code'] );
 	}
 
+	/**
+	 * `Topology_Registry::resolve()` uses `is_file()`, not `file_exists()`,
+	 * so a directory at `{stock|user}/{name}.tsl/` is filtered at the
+	 * source — the controller takes the `null → not_found` branch instead
+	 * of `file_get_contents` returning `""` (PHP 8.0+'s behavior on a
+	 * directory path) and landing on a 200-OK with an empty body.
+	 */
+	public function test_get_topology_returns_404_when_path_is_a_directory(): void {
+		\mkdir( "{$this->stock}/is-a-dir.tsl" );
+		$req  = $this->make_request( 'is-a-dir', '', true, 'GET' );
+		$resp = ( new TopologiesController() )->get_topology( $req );
+		$this->assertSame( 404, $resp->get_status() );
+		$this->assertSame( 'not_found', $resp->get_data()['code'] );
+	}
+
 	public function test_get_topology_reports_stock_source_when_only_stock(): void {
 		\file_put_contents( "{$this->stock}/stock-only.tsl", "make_node Echo e\n" );
 		$req  = $this->make_request( 'stock-only', '', true, 'GET' );
@@ -450,4 +465,54 @@ class TopologiesControllerTest extends TestCase {
 		$resp = ( new TopologiesController() )->save_topology( $req );
 		$this->assertSame( 201, $resp->get_status() );
 	}
+
+	// ── save_topology — 500 paths for mkdir / file_put_contents failures ───
+
+	public function test_save_topology_returns_500_when_user_dir_mkdir_fails(): void {
+		// Force `@mkdir($user_dir, 0700, true)` to fail by nesting the user
+		// dir under a regular file (not a directory). Recursive mkdir can't
+		// traverse a file, so it fails; `is_dir` stays false post-mkdir;
+		// controller returns user_dir_unwritable. uid-independent (works
+		// the same as root or non-root since the failure is a file-vs-dir
+		// type error, not a permission error).
+		$blocker = $this->user . '/i-am-a-file';
+		\file_put_contents( $blocker, 'regular file, not a directory' );
+		Topology_Registry::set_user_dir( $blocker . '/child' );
+
+		$req  = $this->make_request( 'whatever', "make_node Echo e\n" );
+		$resp = ( new TopologiesController() )->save_topology( $req );
+
+		$this->assertSame( 500, $resp->get_status() );
+		$body = $resp->get_data();
+		$this->assertSame( 'user_dir_unwritable', $body['code'] );
+		$this->assertStringContainsString( $blocker . '/child', $body['message'] );
+	}
+
+	public function test_save_topology_returns_500_when_file_put_contents_fails(): void {
+		// Force `file_put_contents($path, $body)` to fail by pre-creating a
+		// DIRECTORY at the target file path. is_dir($user_dir) is true so
+		// the mkdir branch is skipped; file_put_contents on a directory
+		// returns false → write_failed 500. Independent of uid.
+		\mkdir( "{$this->user}/conflict.tsl", 0755, true );
+
+		// The controller's file_put_contents() call is NOT @-suppressed
+		// (Lock.php is; TopologiesController is not). Install a no-op
+		// error handler so the deliberately-triggered "is a directory"
+		// E_WARNING is swallowed before PHPUnit's handler can surface
+		// it as a test-warning. The controller still observes the false
+		// return value and emits the 500 we assert on below.
+		\set_error_handler( static fn ( int $err, string $msg ): bool => true, \E_WARNING );
+		try {
+			$req  = $this->make_request( 'conflict', "make_node Echo e\n" );
+			$resp = ( new TopologiesController() )->save_topology( $req );
+		} finally {
+			\restore_error_handler();
+		}
+
+		$this->assertSame( 500, $resp->get_status() );
+		$body = $resp->get_data();
+		$this->assertSame( 'write_failed', $body['code'] );
+		$this->assertStringContainsString( "{$this->user}/conflict.tsl", $body['message'] );
+	}
+
 }

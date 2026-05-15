@@ -22,22 +22,14 @@ class Echo_Node extends Node {
 		$type   = $message[ Message::TYPE ];
 		$to     = $message[ Message::TO ];
 		$target = $this->target;
-
-		// TM_ERROR with no TO would otherwise bounce — drop instead.
 		if ( ( $type & Message::TM_ERROR ) && '' === $to ) {
-			$this->set_state(
-				'DROPPED_ERROR',
-				[ 'from' => $message[ Message::FROM ] ]
-			);
 			return;
 		}
-
 		if ( \is_string( $target ) && '' !== $target && '' !== $to ) {
 			$message[ Message::TO ] = $target . '/' . $to;
 		} elseif ( ( ! \is_string( $target ) || '' === $target ) && '' === $to ) {
 			$message[ Message::TO ] = $message[ Message::FROM ];
 		}
-
 		parent::fill( $message );
 	}
 

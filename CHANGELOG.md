@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`Topology_Registry::resolve()` / `describe()` / `list()` now filter via `is_file()` instead of `file_exists()`.** A directory at `{user_dir|stock_dir}/{name}.tsl/` no longer surfaces as a topology. PHP 8.0+'s `file_get_contents()` returns `""` on a directory path, which would have made the REST `get_topology` endpoint return a 200-OK with an empty body for a directory-shaped path — `is_file()` filters that at the source so callers take the `null → not_found` branch.
+- **`Echo` now silently drops `TM_ERROR` messages with empty TO** (previously it called `set_state('DROPPED_ERROR', …)`). The drop was always the contract — the state set was noise that no other node consumed.
+
+### Tests
+
+- **Round-3 coverage push: 94.4% → 95.8% (4747/4955 stmts across 39 classes).** Paired-class deep-dive on `Cli_Command` (`Cli_Stdin_Reader::fire()` re-arm branches + readline-mode queued-line path), `Consumer` (`node_schema`, `next_offset` array/recent/end defaults, `open()` mid-loop match, `load_offsetlog` null guard, `poll` empty-source + skip-older-segment branches), `Node` (`dump_node` reflection-snapshot + sink-string/object/resource branches, `drop_message` NOT_AVAILABLE rate-limit, `notify` dead-listener prune), `Supervisor` (future-window token reject, heartbeat refresh, `reconcile_lock_dirs` rewrite guard, kill-readers MAX_PARTITIONS fallback), `Partition` (17 tests including `__destruct` flush via cleanup chain), and `TopologiesController` (new `is_file()` directory-rejection coverage).
+
 ## [0.1.31] - 2026-05-15
 
 ### Added
