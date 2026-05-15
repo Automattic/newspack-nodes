@@ -39,7 +39,7 @@ if ( \function_exists( 'is_admin' ) && \is_admin() ) {
 }
 
 if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
-	\WP_CLI::add_command( 'nodes', '\\Newspack_Nodes\\Cli_Command' );
+	\WP_CLI::add_command( 'nodes',           '\\Newspack_Nodes\\Cli_Command'                   );
 	\WP_CLI::add_command( 'nodes types',   [ '\\Newspack_Nodes\\WorkerCliCommand', 'types'   ] );
 	\WP_CLI::add_command( 'nodes run',     [ '\\Newspack_Nodes\\WorkerCliCommand', 'run'     ] );
 	\WP_CLI::add_command( 'nodes restart', [ '\\Newspack_Nodes\\WorkerCliCommand', 'restart' ] );
@@ -50,26 +50,21 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 // shell `make_node` verb and the topology-side `$interpreter->make_node()`
 // instance API can construct them by short name. Plugins extending the
 // runtime add their own subclasses via additional `register_class()` calls.
-\Newspack_Nodes\CommandInterpreter::register_class( 'Callback',          \Newspack_Nodes\Callback::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Callback',           \Newspack_Nodes\Callback::class );
 \Newspack_Nodes\CommandInterpreter::register_class( 'CommandInterpreter', \Newspack_Nodes\CommandInterpreter::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Consumer',          \Newspack_Nodes\Consumer::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Dumper',            \Newspack_Nodes\Dumper::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Echo',              \Newspack_Nodes\Echo_Node::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Hook',              \Newspack_Nodes\Hook::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Lock',              \Newspack_Nodes\Lock::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Log',               \Newspack_Nodes\Log::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Partition',         \Newspack_Nodes\Partition::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Router',            \Newspack_Nodes\Router::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Shell',             \Newspack_Nodes\Shell::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Tail',              \Newspack_Nodes\Tail::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Tee',               \Newspack_Nodes\Tee::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Timer',             \Newspack_Nodes\Timer::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Topic',             \Newspack_Nodes\Topic::class );
-
-// One-shot cache invalidation on plugins_loaded so late-loading plugins that
-// register substrate option-schema additions are picked up by the next
-// load_config() call.
-\Newspack_Nodes\Config::register_cache_invalidation();
+\Newspack_Nodes\CommandInterpreter::register_class( 'Consumer',           \Newspack_Nodes\Consumer::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Dumper',             \Newspack_Nodes\Dumper::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Echo',               \Newspack_Nodes\Echo_Node::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Hook',               \Newspack_Nodes\Hook::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Lock',               \Newspack_Nodes\Lock::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Log',                \Newspack_Nodes\Log::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Partition',          \Newspack_Nodes\Partition::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Router',             \Newspack_Nodes\Router::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Shell',              \Newspack_Nodes\Shell::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Tail',               \Newspack_Nodes\Tail::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Tee',                \Newspack_Nodes\Tee::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Timer',              \Newspack_Nodes\Timer::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Topic',              \Newspack_Nodes\Topic::class );
 
 // Wire WordPress integration: REST routes, cron-driven supervisor tick, activation/deactivation.
 // Skipped in test environments where add_action is a stub but rest_api_init never fires.
