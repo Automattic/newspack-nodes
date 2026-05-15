@@ -470,6 +470,9 @@ class Supervisor extends SupervisorBase {
 	 * covers the actual setopt + error-classification logic.
 	 */
 	private static function fire_and_forget_post( string $url, array $body ): ?string {
+		if ( '' === $url ) {
+			return 'empty url';
+		}
 		if ( ! \function_exists( 'curl_init' ) ) {
 			return 'curl extension not available';
 		}
@@ -482,7 +485,7 @@ class Supervisor extends SupervisorBase {
 			\CURLOPT_URL               => $url,
 			\CURLOPT_POST              => true,
 			\CURLOPT_POSTFIELDS        => \http_build_query( $body ),
-			\CURLOPT_NOSIGNAL          => 1,
+			\CURLOPT_NOSIGNAL          => true,
 			\CURLOPT_TIMEOUT_MS        => 10,
 			\CURLOPT_CONNECTTIMEOUT_MS => 10,
 			\CURLOPT_RETURNTRANSFER    => false,

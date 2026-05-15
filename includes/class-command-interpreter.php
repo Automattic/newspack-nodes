@@ -505,7 +505,7 @@ class CommandInterpreter extends Node {
 				}
 
 				if ( $list_matches ) {
-					if ( null !== $glob && '' !== $glob && ! @\preg_match( "/$glob/", $name ) ) {
+					if ( null !== $glob && ! @\preg_match( "/$glob/", $name ) ) {
 						continue;
 					}
 				} else {
@@ -530,7 +530,7 @@ class CommandInterpreter extends Node {
 				$rows[] = $row;
 			}
 
-			if ( $list_matches && null !== $glob && '' !== $glob && ! $matched ) {
+			if ( $list_matches && null !== $glob && ! $matched ) {
 				$rows[] = [ 'no matches' ];
 			}
 		}
@@ -693,7 +693,7 @@ class CommandInterpreter extends Node {
 			$node      = Core::node( $name );
 			$sink_name = $node->sink() ? $node->sink()->name() : '';
 			if ( $list_matches ) {
-				if ( null !== $glob && '' !== $glob && ! @\preg_match( "/$glob/", $name ) ) {
+				if ( null !== $glob && ! @\preg_match( "/$glob/", $name ) ) {
 					continue;
 				}
 			} else {
@@ -941,7 +941,7 @@ class CommandInterpreter extends Node {
 		// is application-defined correlation metadata: a GUI client can
 		// stamp KEY on its outgoing TM_COMMAND and recognise the matched
 		// response on the way back regardless of routing order.
-		if ( ! \is_string( $result ) || '' !== $result ) {
+		if ( '' !== $result ) {
 			$response                   = Message::new_message();
 			$response[ Message::TYPE ]  = $resp_type;
 			$response[ Message::FROM ]  = $this->name;

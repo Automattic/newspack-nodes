@@ -39,11 +39,18 @@ if ( \function_exists( 'is_admin' ) && \is_admin() ) {
 }
 
 if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
-	\WP_CLI::add_command( 'nodes',           '\\Newspack_Nodes\\Cli_Command'                   );
-	\WP_CLI::add_command( 'nodes types',   [ '\\Newspack_Nodes\\WorkerCliCommand', 'types'   ] );
-	\WP_CLI::add_command( 'nodes run',     [ '\\Newspack_Nodes\\WorkerCliCommand', 'run'     ] );
-	\WP_CLI::add_command( 'nodes restart', [ '\\Newspack_Nodes\\WorkerCliCommand', 'restart' ] );
-	\WP_CLI::add_command( 'nodes status',  [ '\\Newspack_Nodes\\WorkerCliCommand', 'status'  ] );
+	// `types`, `run`, `restart`, `status` are instance methods on
+	// WorkerCliCommand. PHP 8+ rejects `[ClassName::class, 'instance_method']`
+	// as a callable (see wp-cli/wp-cli#5472), so register a single shared
+	// instance per subcommand. PHPStan's strict callable check requires this
+	// form too; the old class-string-plus-method array form is no longer a
+	// valid callable type. Instance reuse keeps registration cost flat.
+	$nodes_worker_cli = new \Newspack_Nodes\WorkerCliCommand();
+	\WP_CLI::add_command( 'nodes',           '\\Newspack_Nodes\\Cli_Command' );
+	\WP_CLI::add_command( 'nodes types',   [ $nodes_worker_cli, 'types' ]   );
+	\WP_CLI::add_command( 'nodes run',     [ $nodes_worker_cli, 'run' ]     );
+	\WP_CLI::add_command( 'nodes restart', [ $nodes_worker_cli, 'restart' ] );
+	\WP_CLI::add_command( 'nodes status',  [ $nodes_worker_cli, 'status' ]  );
 }
 
 // Register substrate node types with CommandInterpreter::$class_map so the
