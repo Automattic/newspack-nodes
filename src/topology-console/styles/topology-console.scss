@@ -1291,12 +1291,20 @@ body[class*="_page_newspack-nodes-topology"] {
 		left: 0;
 		right: 0;
 		bottom: 38px;
-		// Fill the entire canvas row when expanded so the operator
-		// gets maximum reading area for long `ls`/`help`/`dump`
-		// outputs. 134px = 32 (wp admin bar) + 64 (header) + 38 (bar
-		// underneath us).
-		height: calc(100vh - 134px);
+		// Height comes from inline style (operator-controlled via the
+		// top-edge resize handle, persisted to localStorage). Default
+		// is 20% of the canvas area; min 80px, max = full canvas. See
+		// ReplFooter.js (`defaultHeight()` + `handleResizeStart`).
 		overflow-y: auto;
+		// Flex-end clusters entries at the bottom of the pane when the
+		// content is shorter than the height — terminal-style. Once
+		// content overflows, normal overflow-y: auto kicks in and the
+		// auto-scroll-to-bottom effect (scrollTop = scrollHeight) keeps
+		// the newest line visible. Actions stay sticky to the top via
+		// `position: sticky` regardless.
+		display: flex;
+		flex-direction: column;
+		justify-content: flex-end;
 		// 85% opacity so the schematic peeks through behind the
 		// transcript — the canvas updates are still visible while
 		// you're reading command output.
@@ -1307,11 +1315,49 @@ body[class*="_page_newspack-nodes-topology"] {
 		// Right padding leaves a corridor wide enough for the sticky
 		// [✕ ▼] actions row to sit on top of without ever overlapping
 		// transcript text. Bottom padding gives the last line clearance
-		// from the bar's border so descenders don't bleed across.
-		padding: 8px 70px 14px 18px;
+		// from the bar's border so descenders don't bleed across. Top
+		// padding bumped from 8px to 12px to clear the 4px resize
+		// handle that overlays the top edge.
+		padding: 12px 70px 14px 18px;
 		font: 400 11px/1.5 $mono;
 		color: rgba(240, 231, 214, 0.92);
 		box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
+	}
+
+	// Top-edge drag handle. 4px tall hit target; cursor and a faint
+	// hover line give the affordance without competing with transcript
+	// text for attention. Sits absolutely-positioned over the
+	// transcript's top border so the handle and the border occupy the
+	// same pixel row.
+	&__resize-handle {
+		position: absolute;
+		top: 0;
+		left: 0;
+		right: 0;
+		height: 6px;
+		cursor: ns-resize;
+		z-index: 2;
+		// Lifted off the absolute-position layout so the operator
+		// can grab anywhere across the top edge — including under the
+		// sticky actions row, which sits at z-index: 1.
+
+		&::before {
+			content: "";
+			position: absolute;
+			left: 50%;
+			top: 50%;
+			transform: translate(-50%, -50%);
+			width: 32px;
+			height: 2px;
+			border-radius: 2px;
+			background: rgba(240, 231, 214, 0.25);
+			transition: background 100ms ease;
+		}
+
+		&:hover::before,
+		&:active::before {
+			background: $brass;
+		}
 	}
 
 	// Top-right corner controls inside the transcript pane:
