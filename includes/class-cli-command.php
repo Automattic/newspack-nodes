@@ -257,18 +257,27 @@ class Cli_Command {
 	/**
 	 * Parse one line of input through the Shell graph. Extracted so tests
 	 * can drive the per-line dispatch directly from a memory stream without
-	 * spinning up the event loop. Returns true when the line emitted a
-	 * Message (was a real verb), false when it was a no-op (empty line,
-	 * comment, builtin like `cd`, `include`).
+	 * spinning up the event loop. Returns true when the line emitted at
+	 * least one Message; false when every statement on the line was a
+	 * no-op (empty, comment, builtin like `cd`/`include`).
+	 *
+	 * The typed line is first run through `Shell::split_statements()` so
+	 * `help; ls` dispatches as two commands instead of being tokenized as
+	 * verb=`help;` — same convention as Topology_Loader's TSL eval path
+	 * and the topology console's REPL.
 	 */
 	public function dispatch_line( Shell $shell, string $line ): bool {
-		$line = \rtrim( $line, "\r\n" );
-		$msg  = $shell->parse( $line );
-		if ( null === $msg ) {
-			return false;
+		$line     = \rtrim( $line, "\r\n" );
+		$dispatched = false;
+		foreach ( $shell->split_statements( $line ) as $statement ) {
+			$msg = $shell->parse( $statement );
+			if ( null === $msg ) {
+				continue;
+			}
+			$shell->fill( $msg );
+			$dispatched = true;
 		}
-		$shell->fill( $msg );
-		return true;
+		return $dispatched;
 	}
 
 	/**
