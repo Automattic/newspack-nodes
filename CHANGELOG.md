@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.31] - 2026-05-15
+
+### Added
+
+- **`;` is now a statement separator in both the JS topology-console REPL and the `wp nodes cli` REPL.** `help; ls` dispatches as two commands instead of being tokenized as `verb=help;` → `unknown command`. Same convention `Shell::split_statements()` already applied for TSL files via `Topology_Loader`. Single, double, and backtick quotes shield interior `;` from splitting.
+
+### Fixed
+
+- **Stray `tttt` text node in the REPL footer.** Literal text snuck into JSX during the resize-handle restructure (likely an errant paste while wrestling with tab indentation around the new fragment). React rendered it as a text-node sibling of `.topology-repl__transcript` and `.topology-repl__bar`, showing up as floating text just above the prompt bar.
+
+### Removed
+
+- **`show_sse` Shell builtin + the entire `Dumper::$broadcast_filter` machinery it was the only caller of.** Designed for opting cli sessions into a periodic stats fan-out; the dump_metadata polling route superseded it and the builtin has been dead code. Drops `Dumper::toggle_broadcast_filter()`, `Dumper::broadcast_filter_enabled()`, the broadcast-rescue clause in `Dumper::fill()`'s multi-session filter, six tests, and four stale comment references.
+
 ## [0.1.30] - 2026-05-15
 
 ### Added
