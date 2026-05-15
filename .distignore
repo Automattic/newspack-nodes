@@ -1,47 +1,47 @@
 # Development files - exclude from distribution
-.babelrc
-.editorconfig
+*.config.js
+*.sql
+*.tar.gz
+*.zip
 .*ignore
 .*rc*
-*.config.js
+.DS_Store
+.babelrc
+.editorconfig
 .git
 .gitlab-ci.yml
+.phpcs.xml
+.phpcs.xml.dist
 .travis.yml
-.DS_Store
+API.md
+ARCHITECTURE.md
+PULL_REQUEST_TEMPLATE.md
+README.md
 Thumbs.db
 behat.yml
 bitbucket-pipelines.yml
 composer.json
 composer.lock
 dependencies.yml
-package.json
 package-lock.json
+package.json
+phpcs.xml
+phpcs.xml.dist
 phpunit.xml
 phpunit.xml.dist
-.phpcs.xml
-phpcs.xml
-.phpcs.xml.dist
-phpcs.xml.dist
-README.md
-ARCHITECTURE.md
-API.md
-PULL_REQUEST_TEMPLATE.md
 webpack.config.js
 wp-cli.local.yml
 yarn.lock
-*.sql
-*.tar.gz
-*.zip
 
 # Development directories
-node_modules
 .cache
+.circleci
 .git
 .github
-.circleci
-/tests
 /bin
+/tests
 __mocks__
+node_modules
 phpcsSniffs
 
 # Tooling files
