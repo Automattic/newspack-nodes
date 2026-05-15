@@ -124,14 +124,12 @@ class Config_Utils {
 		string $error_log_prefix = 'Config_Utils'
 	): ?string {
 		if ( false !== \strpos( $path, "\0" ) ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( "{$error_log_prefix}::validate_config_path() failed: null byte in path" );
+			Core::stderr( "{$error_log_prefix}::validate_config_path() failed: null byte in path" );
 			return null;
 		}
 		if ( '.php' !== \substr( $path, -4 ) ) {
 			$safe = \preg_replace( '/[\x00-\x1f\x7f]/', '', $path );
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( "{$error_log_prefix}::validate_config_path() failed: not .php file ({$safe})" );
+			Core::stderr( "{$error_log_prefix}::validate_config_path() failed: not .php file ({$safe})" );
 			return null;
 		}
 		foreach ( $allowed_dirs as $allowed_dir ) {
@@ -141,8 +139,7 @@ class Config_Utils {
 			}
 		}
 		$safe = \preg_replace( '/[\x00-\x1f\x7f]/', '', $path );
-		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		\error_log( "{$error_log_prefix}::validate_config_path() failed: path not found or not in allowed directories ({$safe})" );
+		Core::stderr( "{$error_log_prefix}::validate_config_path() failed: path not found or not in allowed directories ({$safe})" );
 		return null;
 	}
 
@@ -208,8 +205,7 @@ class Config_Utils {
 		if ( \is_array( $parsed_config ) && self::validate_config_values( $parsed_config ) ) {
 			return [ ...$config, ...$parsed_config ];
 		}
-		// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-		\error_log( "{$error_log_prefix}::load_config_file() rejected: config must return array of scalar/array values only" );
+		Core::stderr( "{$error_log_prefix}::load_config_file() rejected: config must return array of scalar/array values only" );
 		return $config;
 	}
 }

@@ -219,6 +219,10 @@ class Cli_Command {
 			$reply_in = new Consumer( $ipc['output'], 0, '' );
 			$reply_in->next_offset( 'end' );
 			$reply_in->sink( $router );
+		} else {
+			$echo = new Echo_Node();
+			$echo->name( '_repl' );
+			$echo->sink( $interpreter );
 		}
 
 		// Dumper TO filter: matches `_output/$pid` (worker reply with

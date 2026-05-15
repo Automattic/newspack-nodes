@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.26] - 2026-05-14
+
+### Changed
+
+- **`Core::emit_stderr()` promoted to public `Core::stderr()`.** Same body (re-entry guard + handler dispatch); now callable from anywhere a single line should be visible to the operator without going through the rate-limited `print_less_often` / `print_least_often` paths. Use this instead of bare `\error_log()` so the message routes through `Core::$stderr_handler` (worker → `_repl` conduit → cli session; tests → captured handler).
+- **`cmd_log` (the REPL `log <msg>` builtin) routes through `Core::stderr()`.** Previously called `\error_log()` directly, which bypassed the stderr_handler entirely — operators typing `log foo` in a pivoted-cli session got nothing in their terminal because the message landed in PHP's error log, not the `_repl` Partition the cli was tailing. Now visible in the cli where it was issued.
+- **`Supervisor` spawn-failure messages route through `Core::stderr()`.** Spawn POST failures (`spawn failed for <type>|<partition>`) and supervisor-respawn failures (`spawn_next_supervisor failed`) previously went to `\error_log()` and disappeared. Now they surface through the same handler chain as every other stderr message.
+- **`Config_Utils` validation failures route through `Core::stderr()`.** Path-validation rejections (null byte, non-`.php`, outside allowed dirs) and config-file shape rejections now go through the handler instead of bare `\error_log()` — consistent with the rest of the substrate.
+
+### Fixed
+
+- **`wp nodes cli` (bare mode) now wires up a `_repl` echo node so `Core::stderr()` calls land in the cli session.** Previously the bare cli had no `_repl` registered, so the default stderr handler fell through to `\error_log()` and the operator saw nothing — defeated the purpose of `Core::stderr()` for any in-process diagnostic.
+
 ## [0.1.25] - 2026-05-14
 
 ### Fixed
