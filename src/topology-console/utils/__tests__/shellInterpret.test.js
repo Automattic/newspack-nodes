@@ -130,3 +130,53 @@ describe( 'shellInterpret', () => {
 		} );
 	} );
 } );
+
+describe( 'splitStatements', () => {
+	// Need the import at module scope; reuse via require to avoid touching
+	// the top of the file. Jest hoists describe blocks but not imports here.
+	// eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
+	const { splitStatements } = require( '../shellInterpret' );
+
+	it( 'returns single statement when no semicolons', () => {
+		expect( splitStatements( 'help' ) ).toEqual( [ 'help' ] );
+	} );
+
+	it( 'splits on `;` and trims surrounding whitespace', () => {
+		expect( splitStatements( 'help; ls' ) ).toEqual( [ 'help', 'ls' ] );
+		expect( splitStatements( '  clear  ;  help  ;  ls -al  ' ) ).toEqual( [
+			'clear',
+			'help',
+			'ls -al',
+		] );
+	} );
+
+	it( 'drops empty statements from consecutive `;`', () => {
+		expect( splitStatements( ';;help;;ls;;' ) ).toEqual( [ 'help', 'ls' ] );
+	} );
+
+	it( 'preserves `;` inside single quotes', () => {
+		expect( splitStatements( "tell my_node 'hello; world'; ls" ) ).toEqual(
+			[ "tell my_node 'hello; world'", 'ls' ]
+		);
+	} );
+
+	it( 'preserves `;` inside double quotes', () => {
+		expect( splitStatements( 'tell my_node "a;b"; help' ) ).toEqual( [
+			'tell my_node "a;b"',
+			'help',
+		] );
+	} );
+
+	it( 'preserves `;` inside backtick quotes', () => {
+		expect( splitStatements( 'cmd target `inner; cmd`; ls' ) ).toEqual( [
+			'cmd target `inner; cmd`',
+			'ls',
+		] );
+	} );
+
+	it( 'returns empty array for empty or whitespace input', () => {
+		expect( splitStatements( '' ) ).toEqual( [] );
+		expect( splitStatements( '   ' ) ).toEqual( [] );
+		expect( splitStatements( ';;;' ) ).toEqual( [] );
+	} );
+} );

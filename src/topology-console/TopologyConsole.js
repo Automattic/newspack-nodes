@@ -58,7 +58,11 @@ import {
 import { parseTsl } from './utils/parseTsl';
 import { serializeTsl } from './utils/serializeTsl';
 import { parseMetadata } from './utils/parseMetadata';
-import { shellInterpret, SHELL_BUILTINS_BLURB } from './utils/shellInterpret';
+import {
+	shellInterpret,
+	splitStatements,
+	SHELL_BUILTINS_BLURB,
+} from './utils/shellInterpret';
 
 // The topology dropdown and partition counts both come from the same map
 // injected by the admin page as `NewspackNodesData.topologyPartitions`,
@@ -903,16 +907,16 @@ export default function TopologyConsole() {
 		mode !== 'edit'
 	);
 
-	const sendLine = useCallback(
-		( line ) => {
-			const interpreted = shellInterpret( line );
+	const dispatchStatement = useCallback(
+		( statement ) => {
+			const interpreted = shellInterpret( statement );
 			if ( ! interpreted ) {
 				return;
 			}
 			// Echo the user's input verbatim so they see what was
 			// dispatched. Sigil styling distinguishes outgoing from
 			// responses in the transcript.
-			appendTranscript( { kind: 'sent', text: line.trim() } );
+			appendTranscript( { kind: 'sent', text: statement } );
 
 			if ( interpreted.kind === 'error' ) {
 				appendTranscript( { kind: 'error', text: interpreted.text } );
@@ -978,6 +982,19 @@ export default function TopologyConsole() {
 			} );
 		},
 		[ topology, partition, ssePid, appendTranscript ]
+	);
+
+	// Split the typed line on unquoted `;` so `help; ls` dispatches two
+	// commands instead of one. Each statement runs through
+	// dispatchStatement independently — local builtins (clear,
+	// debug_level) and remote POSTs interleave in the order typed.
+	const sendLine = useCallback(
+		( line ) => {
+			for ( const stmt of splitStatements( line ) ) {
+				dispatchStatement( stmt );
+			}
+		},
+		[ dispatchStatement ]
 	);
 
 	// Inspector action dispatch. Each action maps to a verb the user
