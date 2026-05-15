@@ -330,7 +330,6 @@ export default function ReplFooter( {
 							) ) }
 						</div>
 					</div>
-					tttt
 				</>
 			) }
 			<div className="topology-repl__bar">
