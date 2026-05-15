@@ -104,6 +104,28 @@ function partitionList( topology ) {
 	return Array.from( { length: n }, ( _, i ) => i );
 }
 
+// URL-state helpers. The admin page deep-links to a topology/partition
+// via ?topology=<name>&partition=<n>; the selectors below mirror back
+// into the URL via history.replaceState so refreshing or copying the
+// URL preserves the operator's current view.
+function readUrlParam( key ) {
+	try {
+		return new URLSearchParams( window.location.search ).get( key );
+	} catch ( _e ) {
+		return null;
+	}
+}
+function initialTopologyFromUrl( fallback ) {
+	const t = readUrlParam( 'topology' );
+	return t && Object.prototype.hasOwnProperty.call( topologyMap(), t )
+		? t
+		: fallback;
+}
+function initialPartitionFromUrl() {
+	const p = parseInt( readUrlParam( 'partition' ) || '0', 10 );
+	return Number.isInteger( p ) && p >= 0 ? p : 0;
+}
+
 const TRANSCRIPT_MAX = 200;
 
 // Per-node rate history depth. With STATS_INTERVAL_S = 1s on the
@@ -279,8 +301,12 @@ function dumperRender( msg ) {
 }
 
 export default function TopologyConsole() {
-	const [ topology, setTopology ] = useState( TOPOLOGIES[ 0 ] );
-	const [ partition, setPartition ] = useState( 0 );
+	const [ topology, setTopology ] = useState( () =>
+		initialTopologyFromUrl( TOPOLOGIES[ 0 ] )
+	);
+	const [ partition, setPartition ] = useState( () =>
+		initialPartitionFromUrl()
+	);
 	const [ selectedId, setSelectedId ] = useState( null );
 	// Edge selection (edit mode only). { from, to } or null. Mutually
 	// exclusive with selectedId — clicking either clears the other.
@@ -613,6 +639,31 @@ export default function TopologyConsole() {
 			setPartition( 0 );
 		}
 	}, [ partitions, partition ] );
+
+	// Mirror the current (topology, partition) into the URL so refreshing
+	// or copy-pasting the address preserves what the operator is looking
+	// at. `replaceState` instead of `pushState` — these are filter
+	// toggles, not navigation events, and stacking them in the back-
+	// button history would be annoying. `partition=0` is the default and
+	// stays out of the URL to keep the canonical share-link minimal.
+	useEffect( () => {
+		try {
+			const url = new URL( window.location.href );
+			if ( topology ) {
+				url.searchParams.set( 'topology', topology );
+			} else {
+				url.searchParams.delete( 'topology' );
+			}
+			if ( partition > 0 ) {
+				url.searchParams.set( 'partition', String( partition ) );
+			} else {
+				url.searchParams.delete( 'partition' );
+			}
+			window.history.replaceState( null, '', url.toString() );
+		} catch ( _e ) {
+			// SSR / restricted-context fallback — URL just won't update.
+		}
+	}, [ topology, partition ] );
 
 	const appendTranscript = useCallback( ( entry ) => {
 		setTranscript( ( prev ) => {
