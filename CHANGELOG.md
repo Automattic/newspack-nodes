@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.27] - 2026-05-14
+
 ### Removed
 
 - **`Config::get_option_schema_core/extended()` filter hooks.** No plugin used `apply_filters( 'newspack_nodes_option_schema_core' )` or `…_extended` to extend the substrate's option schema; both methods are now inline `private static $option_schema_core/extended` arrays. Plugins still extend the application surface via the application's own Config class, just not by filtering the substrate's schema.
