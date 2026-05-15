@@ -78,6 +78,9 @@ if [[ -n "$js_changed" ]]; then
 	step "lint:js ($(echo "$js_changed" | wc -l | tr -d ' ') file(s) changed)"
 	npm run lint:js --silent || fail "lint:js failed — fix or push --no-verify"
 	ok "lint:js clean"
+	step "test:js"
+	npm run test:js --silent || fail "test:js failed — fix or push --no-verify"
+	ok "test:js clean"
 fi
 if [[ -n "$scss_changed" ]]; then
 	step "lint:scss ($(echo "$scss_changed" | wc -l | tr -d ' ') file(s) changed)"
