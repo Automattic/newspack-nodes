@@ -9,13 +9,6 @@
  *   clear                         — wipe transcript
  *   debug_level [0|1|2]           — toggle local Dumper verbosity
  *
- * Note: `help` is NOT intercepted locally. It passes through to the
- * worker's CommandInterpreter, which has the authoritative list of
- * verbs it accepts. The TopologyConsole prepends a
- * `### SHELL BUILTINS ###` blurb to the response so the user sees
- * GUI-local verbs alongside server commands in one transcript view
- * (Perl Tachikoma CommandInterpreter::help pattern).
- *
  *   Typed-message verbs (POST with type=…):
  *     ping [<path>]                 — TM_PING
  *     tell|tell_node <path> <bytes> — TM_INFO
@@ -37,24 +30,6 @@
  */
 
 const LOCAL_BUILTINS = new Set( [ 'clear', 'debug_level' ] );
-
-// Shell-builtins blurb that prepends the worker's `help` output —
-// mirrors the `### SHELL BUILTINS ###` section in Perl Tachikoma where
-// CommandInterpreter::help concatenates its responder Shell's help
-// topics with its own server commands. We don't have direct access to
-// the worker's CI from here, so we inject our half locally before the
-// remote `help` POST flies.
-const SHELL_BUILTINS_BLURB = [
-	'### SHELL BUILTINS ###',
-	'  clear                          — wipe the transcript',
-	'  debug_level [0|1|2]            — local Dumper verbosity',
-	'  ping [<path>]                  — TM_PING (RTT measured locally)',
-	'  tell <path> <bytes>            — TM_INFO',
-	'  send <path> <bytes>            — TM_BYTESTREAM',
-	'  send_eof <path>                — TM_EOF',
-	'  request <path> <args>          — TM_REQUEST',
-	'  cmd <path> <verb> [<args>]     — TM_COMMAND at <path>',
-].join( '\n' );
 
 function splitFirst( s ) {
 	const idx = s.search( /\s/ );
@@ -202,4 +177,4 @@ export function shellInterpret( line ) {
 	};
 }
 
-export { LOCAL_BUILTINS, SHELL_BUILTINS_BLURB };
+export { LOCAL_BUILTINS };

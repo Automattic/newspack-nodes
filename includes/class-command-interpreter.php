@@ -779,7 +779,19 @@ class CommandInterpreter extends Node {
 			if ( ! empty( $row ) ) {
 				$rows[] = $row;
 			}
-			return "### SERVER COMMANDS ###\n" . self::tabulate( [ 'left', 'left', 'left', 'left' ], null, $rows );
+			return implode( "\n", [
+				'### SHELL BUILTINS ###',
+				// '  clear                          — wipe the transcript',
+				'  debug_level [0|1|2]            — local Dumper verbosity',
+				'  ping [<path>]                  — TM_PING (RTT measured locally)',
+				'  tell <path> <bytes>            — TM_INFO',
+				'  send <path> <bytes>            — TM_BYTESTREAM',
+				'  send_eof <path>                — TM_EOF',
+				'  request <path> <args>          — TM_REQUEST',
+				'  cmd <path> <verb> [<args>]     — TM_COMMAND at <path>',
+				"### SERVER COMMANDS ###",
+				self::tabulate( [ 'left', 'left', 'left', 'left' ], null, $rows )
+			] );
 		}
 		// Resolve aliases to the canonical entry name. Every alias the user
 		// might type maps to the corresponding $H key — keep this table in
