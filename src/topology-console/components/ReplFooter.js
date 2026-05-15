@@ -119,6 +119,14 @@ export default function ReplFooter( {
 			if ( ev.key === 'Escape' ) {
 				ev.preventDefault();
 				setExpanded( false );
+				// Drop focus off the REPL input so the document-level
+				// `/` handler below can fire on the next keystroke and
+				// reopen the transcript. Without this, focus stays on
+				// the input (it's still in the DOM, just visually
+				// minimized behind the bar), `/` is treated as literal
+				// text, and the operator has to click out before the
+				// shortcut works again.
+				inputRef.current?.blur();
 			}
 		};
 		document.addEventListener( 'keydown', handler );
