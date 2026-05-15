@@ -559,8 +559,10 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * Pretty-print a node's internal state. `sink` collapses to its name;
-	 * optional key-filter narrows the dump.
+	 * Pretty-print a node's internal state. Delegates the snapshot to
+	 * `Node::dump_node()` (overridable) so subclasses can redact secrets,
+	 * synthesize derived fields, or hide internals. Optional key-filter
+	 * narrows the dump; alphabetical sort keeps output stable.
 	 */
 	private static function cmd_dump_node( string $args ): string {
 		$parts = \preg_split( '/\s+/', \trim( $args ) );
@@ -572,33 +574,8 @@ class CommandInterpreter extends Node {
 		if ( null === $node ) {
 			return "can't find node \"$name\"";
 		}
-		$wanted = \array_slice( $parts, 1 );
-
-		// Reflect node properties (declared + dynamic). Collapse sink to its name.
-		$ref     = new \ReflectionObject( $node );
-		$snapshot = [];
-		foreach ( $ref->getProperties() as $prop ) {
-			$prop->setAccessible( true );
-			if ( ! $prop->isInitialized( $node ) ) {
-				continue;
-			}
-			$key   = $prop->getName();
-			$value = $prop->getValue( $node );
-			if ( 'sink' === $key && $value instanceof Node ) { $value = $value->name(); }
-			if ( \is_object( $value ) ) {
-				$value = '(' . \get_class( $value ) . ')';
-			}
-			// Resources (open file handles, etc.) aren't JSON-encodable —
-			// without this coercion, json_encode fails on the whole snapshot
-			// with "Type is not supported" and returns false (cast to '').
-			// Was: dumping `_repl` after its first write returned an empty
-			// payload because Partition's $fh / $idx_fh held stream
-			// resources by then.
-			if ( \is_resource( $value ) ) {
-				$value = '(resource:' . \get_resource_type( $value ) . ')';
-			}
-			$snapshot[ $key ] = $value;
-		}
+		$wanted   = \array_slice( $parts, 1 );
+		$snapshot = $node->dump_node();
 
 		// Sort alphabetically so the dump output is stable and scannable.
 		// Reflection returns properties in declaration order — readable

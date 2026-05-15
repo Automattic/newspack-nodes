@@ -470,6 +470,48 @@ class Node {
 	}
 
 	/**
+	 * Build a snapshot of this node's internal state for the REPL's
+	 * `dump_node` verb. Default: reflect every declared/dynamic
+	 * property, collapse object references to class names, coerce
+	 * resources to a debug string. Subclasses override to redact
+	 * secrets (auth_password, tokens) or synthesize derived fields.
+	 *
+	 * Returns an associative array; `CommandInterpreter::cmd_dump_node`
+	 * sorts + key-filters + JSON-encodes it.
+	 *
+	 * @return array<string, mixed>
+	 */
+	public function dump_node(): array {
+		$ref      = new \ReflectionObject( $this );
+		$snapshot = [];
+		foreach ( $ref->getProperties() as $prop ) {
+			$prop->setAccessible( true );
+			if ( ! $prop->isInitialized( $this ) ) {
+				continue;
+			}
+			$key   = $prop->getName();
+			$value = $prop->getValue( $this );
+			if ( 'sink' === $key && $value instanceof Node ) {
+				$value = $value->name();
+			}
+			if ( \is_object( $value ) ) {
+				$value = '(' . \get_class( $value ) . ')';
+			}
+			// Resources (open file handles, etc.) aren't JSON-encodable —
+			// without this coercion, json_encode fails on the whole snapshot
+			// with "Type is not supported" and returns false (cast to '').
+			// Was: dumping `_repl` after its first write returned an empty
+			// payload because Partition's $fh / $idx_fh held stream
+			// resources by then.
+			if ( \is_resource( $value ) ) {
+				$value = '(resource:' . \get_resource_type( $value ) . ')';
+			}
+			$snapshot[ $key ] = $value;
+		}
+		return $snapshot;
+	}
+
+	/**
 	 * Round-trippable graph snippet. Emits make_node + (optionally) set_sink + connect_node lines.
 	 *
 	 * Suppresses set_sink when sink is the default _command_interpreter (matches real Tachikoma
