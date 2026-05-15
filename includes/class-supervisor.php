@@ -435,8 +435,7 @@ class Supervisor extends SupervisorBase {
 		];
 		$response = \wp_remote_post( $spawn_url, $args );
 		if ( \function_exists( 'is_wp_error' ) && \is_wp_error( $response ) ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( 'Newspack_Nodes\\Supervisor: spawn failed for ' . $type . '|' . $partition . ': ' . $response->get_error_message() );
+			Core::stderr( 'Newspack_Nodes\\Supervisor: spawn failed for ' . $type . '|' . $partition . ': ' . $response->get_error_message() );
 		}
 	}
 
@@ -461,8 +460,7 @@ class Supervisor extends SupervisorBase {
 		];
 		$response = \wp_remote_post( \rest_url( 'newspack-nodes/v1/workers/spawn' ), $args );
 		if ( \function_exists( 'is_wp_error' ) && \is_wp_error( $response ) ) {
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( 'Newspack_Nodes\\Supervisor: spawn_next_supervisor failed: ' . $response->get_error_message() );
+			Core::stderr( 'Newspack_Nodes\\Supervisor: spawn_next_supervisor failed: ' . $response->get_error_message() );
 		}
 	}
 

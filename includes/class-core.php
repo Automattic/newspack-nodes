@@ -71,10 +71,10 @@ class Core {
 	private static $stderr_handler;
 
 	/**
-	 * Re-entry guard for emit_stderr(). The default handler routes through a
+	 * Re-entry guard for stderr(). The default handler routes through a
 	 * `_repl` Partition; a fault inside that path (Partition write failure,
 	 * Router throw, a node's fill() rate-limit-logging its own error) calls
-	 * back into print_less_often → emit_stderr and recurses. Custom handlers
+	 * back into print_less_often → stderr and recurses. Custom handlers
 	 * set via set_stderr_handler() can recurse the same way. Guarded at the
 	 * dispatcher (not inside one handler) so the protection applies uniformly.
 	 *
@@ -180,7 +180,7 @@ class Core {
 		self::$stderr_handler = $h;
 	}
 
-	private static function emit_stderr( string $msg ): void {
+	public static function stderr( string $msg ): void {
 		if ( self::$in_stderr ) {
 			// Re-entry: the active handler itself triggered another stderr
 			// emission (e.g., the _repl Partition write inside the default
@@ -210,7 +210,7 @@ class Core {
 		$row = self::$print_table[ $key ] ?? [ 'first_seen' => 0.0, 'count' => 0, 'emitted' => false ];
 
 		if ( ! $row['emitted'] || ( self::$now - $row['first_seen'] >= 60.0 ) ) {
-			self::emit_stderr( $text );
+			self::stderr( $text );
 			$row['first_seen'] = self::$now;
 			$row['emitted']    = true;
 			$row['count']      = 1;
@@ -241,7 +241,7 @@ class Core {
 		++$row['count'];
 
 		if ( $row['count'] >= 10 && ! $row['emitted'] ) {
-			self::emit_stderr( $text );
+			self::stderr( $text );
 			$row['first_seen'] = self::$now;
 			$row['emitted']    = true;
 		}
