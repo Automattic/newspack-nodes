@@ -92,7 +92,9 @@ class SpawnController {
 	 * Reject unknown types with a 400 — prevents the spawn endpoint from
 	 * being used to instantiate arbitrary classes via the type parameter.
 	 *
-	 * @param string $type Worker type string.
+	 * @param mixed $type Worker type — comes from `$request->get_param('type')`
+	 *                   so it's whatever the user sent (mixed), not yet
+	 *                   guaranteed to be a string.
 	 * @return bool True if valid.
 	 */
 	public function validate_worker_type( $type ): bool {
@@ -316,7 +318,10 @@ class SpawnController {
 	 * Whitelist response fields. Surfaced numeric counters; no internal
 	 * paths, stack traces, or arbitrary keys leak into the response body.
 	 *
-	 * @param array $result Worker-reported result.
+	 * @param mixed $result Worker-reported result — comes from a
+	 *                     `wp_remote_post`/`json_decode` chain so it's
+	 *                     whatever the worker emitted (mixed), not yet
+	 *                     guaranteed to be an array.
 	 * @return array Sanitized projection.
 	 */
 	public function sanitize_worker_result( $result ): array {

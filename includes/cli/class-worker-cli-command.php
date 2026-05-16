@@ -200,7 +200,7 @@ class WorkerCliCommand {
 
 		$result = $wb->execute( $topology, $spawn_url, $token );
 		if ( ! $quiet ) {
-			\WP_CLI::success( 'Worker exited with status: ' . ( $result['status'] ?? 'unknown' ) );
+			\WP_CLI::success( 'Worker exited with status: ' . $result['status'] );
 		}
 	}
 
