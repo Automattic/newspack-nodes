@@ -19,11 +19,12 @@
 		"phpstan/phpstan": "^2.1",
 		"phpstan/extension-installer": "^1.4",
 		"szepeviktor/phpstan-wordpress": "^2.0",
-		"php-stubs/wp-cli-stubs": "^2.12"
+		"php-stubs/wp-cli-stubs": "^2.12",
+		"phpunit/phpunit": "^10.0"
 	},
 	"config": {
 		"platform": {
-			"php": "8.0"
+			"php": "8.1"
 		},
 		"allow-plugins": {
 			"dealerdirect/phpcodesniffer-composer-installer": true,
