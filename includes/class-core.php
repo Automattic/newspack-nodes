@@ -154,7 +154,7 @@ class Core {
 	public static function cleanup_all_nodes(): void {
 		$nodes = self::$nodes_by_name;
 		foreach ( $nodes as $node ) {
-			if ( \is_object( $node ) && \method_exists( $node, 'remove_node' ) ) {
+			if ( \method_exists( $node, 'remove_node' ) ) {
 				try {
 					$node->remove_node();
 				} catch ( \Throwable $e ) {

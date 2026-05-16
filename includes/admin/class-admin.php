@@ -213,7 +213,7 @@ class Admin {
 		$catalog             = Bootstrap::get_topology_catalog();
 		$default_np          = (int) ( Config::load_config()['num_partitions'] ?? 1 );
 		foreach ( \Newspack_Nodes\Topology_Registry::list() as $name ) {
-			if ( ! \is_string( $name ) || '' === $name ) {
+			if ( '' === $name ) {
 				continue;
 			}
 			if ( isset( $catalog[ $name ]['num_partitions'] ) ) {
