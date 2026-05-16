@@ -12,6 +12,14 @@
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# Pin phpunit to the project's vendor binary rather than whatever
+# /usr/bin/phpunit happens to be. The container's system phpunit is
+# 11.x; the project pins 10.5.x in composer.json. Mixing them causes
+# "Call to undefined method PHPUnit\Event\DispatchingEmitter::exportsObjects"
+# because the system loader pulls 11.x classes while the vendor tree
+# is wired for 10.x.
+PHPUNIT="$SCRIPT_DIR/../vendor/bin/phpunit"
+
 # Ensure xdebug coverage mode is enabled
 export XDEBUG_MODE=coverage
 
@@ -19,7 +27,7 @@ export XDEBUG_MODE=coverage
 rm -rf /tmp/newspack-nodes-test 2>/dev/null
 
 # Run PHPUnit with coverage
-phpunit --configuration phpunit.xml \
+"$PHPUNIT" --configuration phpunit.xml \
     --coverage-clover /volumes/pyrobase/tmp/newspack-nodes-coverage/clover.xml \
     --coverage-html /volumes/pyrobase/tmp/newspack-nodes-coverage \
 	--enforce-time-limit \
