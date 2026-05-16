@@ -1,49 +1,49 @@
-# Development files - exclude from distribution
-*.config.js
-*.sql
-*.tar.gz
-*.zip
-.*ignore
-.*rc*
+# Files to exclude from the installable plugin zip.
+# Used by `./build-release.sh` via `rsync --exclude-from=.distignore`.
+#
+# NOTE: composer.json / composer.lock are NOT excluded — build-release.sh
+# runs `composer install --no-dev --optimize-autoloader` inside staging after
+# the rsync, so those files must ride along. They're removed from staging
+# right before the zip step.
+
+# OS noise (appears spontaneously during dev/build)
 .DS_Store
-.babelrc
-.editorconfig
-.git
-.gitlab-ci.yml
-.phpcs.xml
-.phpcs.xml.dist
-.travis.yml
-API.md
-ARCHITECTURE.md
-PULL_REQUEST_TEMPLATE.md
-README.md
+._*
+*.log
 Thumbs.db
-behat.yml
-bitbucket-pipelines.yml
-composer.json
-composer.lock
-dependencies.yml
+
+# Build output and staging (avoid self-recursion in rsync)
+.release-staging
+/release
+
+# VCS / IDE
+.claude
+.git
+.gitignore
+.vscode
+
+# Dev tooling / configs
+.distignore
+build-release.sh
+cghooks.lock
+commitlint.config.js
 package-lock.json
 package.json
-phpcs.xml
 phpcs.xml.dist
-phpunit.xml
-phpunit.xml.dist
-webpack.config.js
-wp-cli.local.yml
-yarn.lock
+phpstan.neon.dist
 
-# Development directories
-.cache
-.circleci
-.git
-.github
-/bin
+# Dev infrastructure — not part of the installable plugin
+/coverage
+/scripts
+/src
 /tests
-__mocks__
+/vendor
 node_modules
-phpcsSniffs
 
-# Tooling files
-build-release.sh
-commitlint.config.js
+# Dev documentation (WordPress.org reads readme.txt; README.md is GitHub-only)
+AGENTS.md
+API.md
+ARCHITECTURE.md
+CHANGELOG.md
+CLAUDE.md
+README.md

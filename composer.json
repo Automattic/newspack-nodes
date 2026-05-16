@@ -40,7 +40,7 @@
 	"scripts": {
 		"lint": "phpcs",
 		"lint:fix": "phpcbf",
-		"build:autoloaders": "composer install --no-dev --optimize-autoloader",
+		"build:autoloaders": "composer install --optimize-autoloader",
 		"build-release": "./build-release.sh",
 		"post-install-cmd": [
 			"[ -f vendor/bin/cghooks ] && vendor/bin/cghooks add --no-lock --force-win || true"

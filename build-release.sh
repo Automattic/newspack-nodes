@@ -26,10 +26,6 @@ PLUGIN="newspack-nodes"
 rm -rf "${RELEASE_DIR}" "${STAGING_DIR}"
 mkdir -p "${RELEASE_DIR}"
 
-# Build production autoloader.
-echo "=== Building autoloader ==="
-(cd "${SCRIPT_DIR}" && rm -rf vendor 2>/dev/null; composer install --no-dev --optimize-autoloader --quiet)
-
 # Build React bundles. The rsync stage excludes `src/` but includes
 # `build/`, so whatever's on disk at this point is what ships. Run
 # `npm run build` here so the zip always carries fresh artifacts —
@@ -41,41 +37,34 @@ echo "=== Building React bundles ==="
 (cd "${SCRIPT_DIR}" && npm run build --silent)
 
 # Stage plugin into a clean directory.
-echo "=== Creating release zip ==="
-echo "  ${PLUGIN}.zip"
+echo "=== Staging plugin files ==="
 mkdir -p "${STAGING_DIR}/${PLUGIN}"
 
-# Copy plugin files, excluding dev artifacts.
-# '._*' catches any AppleDouble companion files left over from macOS
-# tooling — letting them through means WP loads them as PHP at runtime.
-rsync -a \
-	--exclude='src' \
-	--exclude='tests' \
-	--exclude='node_modules' \
-	--exclude='release' \
-	--exclude='.release-staging' \
-	--exclude='.git' \
-	--exclude='.github' \
-	--exclude='composer.json' \
-	--exclude='composer.lock' \
-	--exclude='package.json' \
-	--exclude='package-lock.json' \
-	--exclude='phpcs.xml.dist' \
-	--exclude='commitlint.config.js' \
-	--exclude='build-release.sh' \
-	--exclude='.distignore' \
-	--exclude='.gitignore' \
-	--exclude='.gitkeep' \
-	--exclude='.DS_Store' \
-	--exclude='._*' \
-	--exclude='*.log' \
-	"${SCRIPT_DIR}/" "${STAGING_DIR}/${PLUGIN}/"
+# Copy plugin files, excluding dev artifacts per .distignore. Source
+# `vendor/` is excluded there — we regenerate a production-only vendor
+# inside staging below, so the developer's dev install (with phpunit
+# etc.) is never disturbed by a release build. `composer.json` /
+# `composer.lock` are NOT excluded by .distignore so they ride along
+# for the in-staging install; they're removed before the zip step
+# since the released plugin doesn't need them.
+rsync -a --exclude-from="${SCRIPT_DIR}/.distignore" "${SCRIPT_DIR}/" "${STAGING_DIR}/${PLUGIN}/"
+
+# Generate the production autoloader inside staging. Source vendor is
+# untouched — the dev environment survives a release build.
+echo "=== Building production autoloader in staging ==="
+(cd "${STAGING_DIR}/${PLUGIN}" && composer install --no-dev --optimize-autoloader --quiet)
 
 # Belt-and-suspenders: scrub anything the rsync excludes might've missed.
 find "${STAGING_DIR}/${PLUGIN}" \( -name '._*' -o -name '.DS_Store' \) -delete
 
+# Strip composer.* now (they had to ride along for the in-staging install,
+# but the released plugin doesn't need them).
+rm -f "${STAGING_DIR}/${PLUGIN}"/composer.*
+
 # Create zip with plugin dir at root (required for wp plugin install).
 # -X strips extra file attributes; -x patterns block AppleDouble re-entry.
+echo "=== Creating release zip ==="
+echo "  ${PLUGIN}.zip"
 (cd "${STAGING_DIR}" && zip -rqX "${RELEASE_DIR}/${PLUGIN}.zip" "${PLUGIN}" --exclude '*/._*' --exclude '*/.DS_Store')
 
 # Clean up.
