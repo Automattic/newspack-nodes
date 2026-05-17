@@ -29,6 +29,19 @@ test( 'useNodeState updates when setState fires', () => {
 	expect( result.current ).toBe( 'hello' );
 } );
 
+test( 'useNodeState auto-pre-declares the event on a node that did not declare it', () => {
+	const n = new Node();
+	n.setName( 'svc' );
+	// NOTE: deliberately NOT pre-declaring the event. The hook's
+	// useEffect should auto-declare so register() doesn't throw.
+	const { result } = renderHook( () => useNodeState( 'svc', 'autoevt' ) );
+	expect( result.current ).toBeUndefined();
+	act( () => {
+		n.setState( 'autoevt', 'auto' );
+	} );
+	expect( result.current ).toBe( 'auto' );
+} );
+
 test( 'useNodeFill returns a fill function for the named node', () => {
 	const n = new Node();
 	n.setName( 'svc' );
