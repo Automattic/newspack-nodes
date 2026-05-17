@@ -91,3 +91,17 @@ test( 'valueSize on object VALUE returns JSON-encoded byte length', () => {
 	m[ VALUE ] = { k: 'v' };
 	expect( valueSize( m ) ).toBe( JSON.stringify( { k: 'v' } ).length );
 } );
+
+test( 'unpack returns a fresh new message on invalid JSON', () => {
+	const m = unpack( 'not json' );
+	expect( m ).toHaveLength( 7 );
+	expect( m[ TYPE ] ).toBe( 0 );
+} );
+
+test( 'valueSize returns 0 when VALUE is null or undefined', () => {
+	const m = newMessage();
+	m[ VALUE ] = null;
+	expect( valueSize( m ) ).toBe( 0 );
+	m[ VALUE ] = undefined;
+	expect( valueSize( m ) ).toBe( 0 );
+} );
