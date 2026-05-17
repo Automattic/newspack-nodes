@@ -345,6 +345,66 @@ class BootstrapTest extends TestCase {
 		$this->assertEmpty( $GLOBALS['_wp_test_scheduled_events'] );
 	}
 
+	// ── self_heal_supervisor_cron ─────────────────────────────────────────
+
+	public function test_self_heal_schedules_when_logging_on_topologies_present_cron_missing(): void {
+		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
+			$topologies['my-fleet'] = [ 'num_partitions' => 1, 'topology' => '/x.php' ];
+			return $topologies;
+		} );
+		$GLOBALS['_wp_test_next_scheduled'] = false;
+
+		Bootstrap::self_heal_supervisor_cron();
+
+		$this->assertNotEmpty(
+			$GLOBALS['_wp_test_scheduled_events'],
+			'self-heal must call activate() when all 3 conditions are met'
+		);
+		$this->assertSame( 'newspack_nodes/supervisor', $GLOBALS['_wp_test_scheduled_events'][0]['hook'] );
+	}
+
+	public function test_self_heal_skips_when_logging_disabled(): void {
+		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
+		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
+			$topologies['my-fleet'] = [ 'num_partitions' => 1, 'topology' => '/x.php' ];
+			return $topologies;
+		} );
+		$GLOBALS['_wp_test_next_scheduled'] = false;
+
+		Bootstrap::self_heal_supervisor_cron();
+
+		$this->assertEmpty(
+			$GLOBALS['_wp_test_scheduled_events'],
+			'logging-disabled must short-circuit before scheduling'
+		);
+	}
+
+	public function test_self_heal_skips_when_no_topologies_selected(): void {
+		$GLOBALS['_wp_test_next_scheduled'] = false;
+
+		Bootstrap::self_heal_supervisor_cron();
+
+		$this->assertEmpty(
+			$GLOBALS['_wp_test_scheduled_events'],
+			'empty topology set must short-circuit before scheduling'
+		);
+	}
+
+	public function test_self_heal_skips_when_cron_already_scheduled(): void {
+		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
+			$topologies['my-fleet'] = [ 'num_partitions' => 1, 'topology' => '/x.php' ];
+			return $topologies;
+		} );
+		$GLOBALS['_wp_test_next_scheduled'] = 1234567890;
+
+		Bootstrap::self_heal_supervisor_cron();
+
+		$this->assertEmpty(
+			$GLOBALS['_wp_test_scheduled_events'],
+			'no need to re-schedule when wp_next_scheduled returns a timestamp'
+		);
+	}
+
 	// ── supervisor() factory ──────────────────────────────────────────────
 
 	public function test_supervisor_returns_supervisor_instance(): void {

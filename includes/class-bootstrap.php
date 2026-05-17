@@ -292,6 +292,35 @@ class Bootstrap {
 	}
 
 	/**
+	 * Self-heal: re-arm the supervisor cron if it should be running but isn't.
+	 *
+	 * The activation hook only fires on plugin (re)activation. If the cron
+	 * event gets cleared by anything else — DB rebuild, `wp cron event delete`,
+	 * hosting platform reset — workers stop ticking until the operator
+	 * deactivates and reactivates the plugin. Hook this on `admin_init` so
+	 * the next wp-admin pageview re-arms the schedule automatically.
+	 *
+	 * Three short-circuits keep this cheap and idempotent:
+	 *   - logging disabled → operator intent says "don't run"
+	 *   - no topologies selected → nothing to supervise
+	 *   - cron already scheduled → already healthy
+	 *
+	 * Only when all three pass do we call activate() to re-schedule.
+	 */
+	public static function self_heal_supervisor_cron(): void {
+		if ( ! self::is_logging_enabled() ) {
+			return;
+		}
+		if ( empty( self::get_topologies() ) ) {
+			return;
+		}
+		if ( \wp_next_scheduled( 'newspack_nodes/supervisor' ) ) {
+			return;
+		}
+		self::activate();
+	}
+
+	/**
 	 * Deactivation hook: clear the supervisor cron.
 	 */
 	public static function deactivate(): void {
