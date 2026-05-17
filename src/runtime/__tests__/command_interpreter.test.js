@@ -11,6 +11,8 @@ import {
 	TM_COMMAND,
 	TM_RESPONSE,
 	TM_ERROR,
+	TM_PING,
+	TM_EOF,
 	newMessage,
 } from '../message';
 
@@ -133,4 +135,65 @@ test( 'invalid command JSON drops the message silently', () => {
 	expect( got ).toHaveLength( 0 );
 
 	warnSpy.mockRestore();
+} );
+
+test( 'TM_PING with empty TO bounces back to FROM via sink', () => {
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+
+	const ci = new CommandInterpreter();
+	ci.sink = sink;
+	ci.commands( {} );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_PING;
+	m[ FROM ] = 'caller';
+	m[ VALUE ] = '1700000000.5'; // originating timestamp the caller will diff against
+	ci.fill( m );
+
+	expect( got ).toHaveLength( 1 );
+	expect( got[ 0 ][ TYPE ] ).toBe( TM_PING );
+	expect( got[ 0 ][ TO ] ).toBe( 'caller' );
+	// PHP CommandInterpreter::fill leaves FROM untouched on the bounce.
+	expect( got[ 0 ][ FROM ] ).toBe( 'caller' );
+	expect( got[ 0 ][ VALUE ] ).toBe( '1700000000.5' ); // payload preserved
+} );
+
+test( 'TM_EOF with empty TO bounces back to FROM via sink', () => {
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+
+	const ci = new CommandInterpreter();
+	ci.sink = sink;
+	ci.commands( {} );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_EOF;
+	m[ FROM ] = 'producer';
+	ci.fill( m );
+
+	expect( got ).toHaveLength( 1 );
+	expect( got[ 0 ][ TYPE ] ).toBe( TM_EOF );
+	expect( got[ 0 ][ TO ] ).toBe( 'producer' );
+} );
+
+test( 'TM_PING with non-empty TO is forwarded as in-transit (no bounce)', () => {
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+
+	const ci = new CommandInterpreter();
+	ci.sink = sink;
+	ci.commands( {} );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_PING;
+	m[ FROM ] = 'caller';
+	m[ TO ] = 'somewhere/else'; // not addressed at us
+	ci.fill( m );
+
+	expect( got ).toHaveLength( 1 );
+	expect( got[ 0 ][ TO ] ).toBe( 'somewhere/else' ); // TO unchanged
 } );
