@@ -1,5 +1,14 @@
 import { Core } from './core';
-import { FROM, TO, valueSize } from './message';
+import {
+	FROM,
+	TO,
+	TYPE,
+	KEY,
+	VALUE,
+	TM_INFO,
+	newMessage,
+	valueSize,
+} from './message';
 
 export const MAX_FROM_SIZE = 1024;
 
@@ -66,6 +75,68 @@ export class Node {
 			return false;
 		}
 		message[ FROM ] = next;
+		return true;
+	}
+
+	register( event, listener, cb = null ) {
+		if ( ! ( event in this.registrations ) ) {
+			throw new Error( `no such event: ${ event }` );
+		}
+		this.registrations[ event ][ listener ] = cb;
+		if ( event in this.setStateCache ) {
+			this._dispatchListener(
+				event,
+				listener,
+				this.setStateCache[ event ]
+			);
+		}
+	}
+
+	unregister( event, listener ) {
+		if ( this.registrations[ event ] ) {
+			delete this.registrations[ event ][ listener ];
+		}
+	}
+
+	notify( event, payload = null ) {
+		const listeners = this.registrations[ event ];
+		if ( ! listeners ) {
+			return;
+		}
+		for ( const listener of Object.keys( listeners ) ) {
+			const keep = this._dispatchListener( event, listener, payload );
+			if ( false === keep ) {
+				delete this.registrations[ event ][ listener ];
+			}
+		}
+	}
+
+	setState( event, payload = null ) {
+		this.setStateCache[ event ] = payload;
+		this.notify( event, payload );
+	}
+
+	_dispatchListener( event, listener, payload ) {
+		const cb = this.registrations[ event ]?.[ listener ];
+		if ( 'function' === typeof cb ) {
+			return cb( payload );
+		}
+		// Node-name mode: forward TM_INFO to named node.
+		const target = Core.node( listener );
+		if ( ! target ) {
+			// Stale listener could fire on every notify — rate-limit.
+			Core.printLessOften(
+				`WARNING: ${ listener } forgot to unregister from ${ event } on ${ this.name }`
+			);
+			return false;
+		}
+		const msg = newMessage();
+		msg[ TYPE ] = TM_INFO;
+		msg[ FROM ] = this.name;
+		msg[ TO ] = listener;
+		msg[ KEY ] = event;
+		msg[ VALUE ] = payload;
+		target.fill( msg );
 		return true;
 	}
 }

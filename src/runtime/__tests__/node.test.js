@@ -1,6 +1,6 @@
 import { Node } from '../node';
 import { Core } from '../core';
-import { FROM, TO, VALUE, newMessage } from '../message';
+import { FROM, TO, KEY, VALUE, newMessage } from '../message';
 
 beforeEach( () => Core.reset() );
 
@@ -126,4 +126,81 @@ test( 'largestMsgSent tracks the largest VALUE byte size ever filled', () => {
 	expect( n.largestMsgSent ).toBe( 500 );
 	n.fill( medium ); // smaller than large — should NOT regress
 	expect( n.largestMsgSent ).toBe( 500 );
+} );
+
+test( 'register requires the event to have been pre-declared', () => {
+	const n = new Node();
+	expect( () => n.register( 'UNKNOWN', 'listener', () => {} ) ).toThrow(
+		/no such event/
+	);
+} );
+
+test( 'declared event with closure listener fires on notify', () => {
+	const n = new Node();
+	n.registrations.HELLO = {};
+	const seen = [];
+	n.register( 'HELLO', 'l1', ( p ) => {
+		seen.push( p );
+		return true;
+	} );
+	n.notify( 'HELLO', { v: 42 } );
+	expect( seen ).toEqual( [ { v: 42 } ] );
+} );
+
+test( 'closure returning false unregisters itself', () => {
+	const n = new Node();
+	n.registrations.HELLO = {};
+	let calls = 0;
+	n.register( 'HELLO', 'l1', () => {
+		calls += 1;
+		return false;
+	} );
+	n.notify( 'HELLO' );
+	n.notify( 'HELLO' );
+	expect( calls ).toBe( 1 );
+} );
+
+test( 'node-name listener mode forwards a TM_INFO to the named node', () => {
+	Core.reset();
+	const targetNode = new Node();
+	targetNode.setName( 'listener' );
+	const got = [];
+	targetNode.fill = ( m ) => got.push( [ ...m ] );
+
+	const n = new Node();
+	n.name = 'producer';
+	n.registrations.HELLO = {};
+	n.register( 'HELLO', 'listener', null );
+
+	n.notify( 'HELLO', 'payload-string' );
+	expect( got ).toHaveLength( 1 );
+	expect( got[ 0 ][ KEY ] ).toBe( 'HELLO' );
+	expect( got[ 0 ][ VALUE ] ).toBe( 'payload-string' );
+	expect( got[ 0 ][ FROM ] ).toBe( 'producer' );
+	expect( got[ 0 ][ TO ] ).toBe( 'listener' );
+} );
+
+test( 'setState caches payload and replays to late closure registrants', () => {
+	const n = new Node();
+	n.registrations.STATE = {};
+	n.setState( 'STATE', 'cached' );
+	const got = [];
+	n.register( 'STATE', 'l1', ( p ) => {
+		got.push( p );
+		return true;
+	} );
+	expect( got ).toEqual( [ 'cached' ] );
+} );
+
+test( 'unregister stops further notifications', () => {
+	const n = new Node();
+	n.registrations.X = {};
+	const got = [];
+	n.register( 'X', 'l1', ( p ) => {
+		got.push( p );
+		return true;
+	} );
+	n.unregister( 'X', 'l1' );
+	n.notify( 'X', 'after' );
+	expect( got ).toEqual( [] );
 } );
