@@ -328,6 +328,9 @@ class Messages_Stream_Controller {
 			'pid'           => \getmypid(),
 			'slot'          => $slot,
 			'subscriptions' => $subs,
+			// TODO(M2/M4): $interval is reflected to the client for cadence display, but
+			// the drain loop itself doesn't gate on it — Consumer self-paces. Wire to
+			// heartbeat tick when M2 dashboards need it.
 			'interval'      => $interval,
 		];
 		return $msg;
