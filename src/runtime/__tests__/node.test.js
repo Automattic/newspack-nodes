@@ -204,3 +204,51 @@ test( 'unregister stops further notifications', () => {
 	n.notify( 'X', 'after' );
 	expect( got ).toEqual( [] );
 } );
+
+test( 'closure returning truthy stays registered across notifies', () => {
+	const n = new Node();
+	n.registrations.HELLO = {};
+	let calls = 0;
+	n.register( 'HELLO', 'l1', () => {
+		calls += 1;
+		return true;
+	} );
+	n.notify( 'HELLO' );
+	n.notify( 'HELLO' );
+	expect( calls ).toBe( 2 );
+} );
+
+test( 'multiple closure listeners on the same event all fire', () => {
+	const n = new Node();
+	n.registrations.HELLO = {};
+	const got = [];
+	n.register( 'HELLO', 'a', () => {
+		got.push( 'a' );
+		return true;
+	} );
+	n.register( 'HELLO', 'b', () => {
+		got.push( 'b' );
+		return true;
+	} );
+	n.notify( 'HELLO' );
+	expect( got.sort() ).toEqual( [ 'a', 'b' ] );
+} );
+
+test( 'notify on an undeclared event is a silent no-op', () => {
+	const n = new Node();
+	expect( () => n.notify( 'NEVER', 'data' ) ).not.toThrow();
+} );
+
+test( 'notify prunes a node-name listener whose target was removed', () => {
+	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	const target = new Node();
+	target.setName( 'listener' );
+	const n = new Node();
+	n.name = 'producer';
+	n.registrations.EVT = {};
+	n.register( 'EVT', 'listener', null );
+	Core.unregisterNode( 'listener' );
+	n.notify( 'EVT', 'data' );
+	expect( n.registrations.EVT.listener ).toBeUndefined();
+	spy.mockRestore();
+} );
