@@ -115,6 +115,11 @@ if ( \function_exists( 'add_action' ) ) {
 	\add_action( 'newspack_nodes/supervisor', [ '\\Newspack_Nodes\\Bootstrap', 'run_supervisor_tick' ] );
 	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\WorkerCliCommand', 'restart_fleet_by_name' ] );
 	\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
+	// Self-heal: if logging is on and a topology is selected but the
+	// supervisor cron got cleared (DB rebuild, manual wp cron delete, etc.),
+	// re-arm it on the next admin page view rather than waiting for the
+	// operator to deactivate + reactivate the plugin.
+	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Bootstrap', 'self_heal_supervisor_cron' ] );
 }
 if ( \function_exists( 'add_filter' ) ) {
 	// phpcs:ignore WordPress.WP.CronInterval.ChangeDetected -- The 60s interval registered by the callback is intentional (substrate supervisor tick); rule can't see into array-callable targets.
