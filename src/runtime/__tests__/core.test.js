@@ -9,6 +9,13 @@ test( 'registerNode and node lookup', () => {
 	expect( Core.node( 'missing' ) ).toBeNull();
 } );
 
+test( 'registerNode throws on name collision', () => {
+	Core.registerNode( 'x', { a: 1 } );
+	expect( () => Core.registerNode( 'x', { b: 2 } ) ).toThrow(
+		/node name collision/
+	);
+} );
+
 test( 'unregisterNode removes from registry', () => {
 	const obj = { name: 'x' };
 	Core.registerNode( 'x', obj );
