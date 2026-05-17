@@ -211,6 +211,13 @@ export default function SchematicCanvas( {
 	editMode = false,
 	selectedEdge = null,
 	onSelectEdge,
+	// Returning truthy from this skips the canvas's own deselect/autofit
+	// for this click — lets the parent spend the first click on a
+	// dismissal and defer the autofit to the next.
+	onBackgroundClickConsumed,
+	// `shell_name` → class schema. Drives per-node IN/OUT port visibility
+	// via `accepts_fill` and `has_target`; both default true for absent.
+	classCatalog = {},
 } ) {
 	// Apply user-pinned position overrides on top of the auto-layout
 	// output. autoLayout still runs every poll (so newly-added nodes
@@ -583,6 +590,15 @@ export default function SchematicCanvas( {
 		const wasDragged = panRef.current.dragged;
 		panRef.current = null;
 		if ( ! wasDragged ) {
+			// Background-click consumer (parent) gets first refusal. If it
+			// blurred the REPL prompt to hide the transcript, this click
+			// was a dismissal and shouldn't also deselect or autofit —
+			// either of those would be a surprising side effect of "click
+			// outside the prompt." The next plain canvas click runs the
+			// usual deselect-or-autofit path.
+			if ( onBackgroundClickConsumed && onBackgroundClickConsumed() ) {
+				return;
+			}
 			// Plain click on empty canvas. Two-stage:
 			//   - If a node OR edge is selected, first click just
 			//     deselects (closes the inspector / clears the edge
@@ -971,30 +987,36 @@ export default function SchematicCanvas( {
 							>
 								{ compactCount( n.count ) }
 							</text>
-							<circle
-								className={ `topology-port topology-port--in${
-									wireDrag && wireDrag.hoveredId === n.id
-										? ' is-snap-target'
-										: ''
-								}` }
-								cx={ 0 }
-								cy={ NODE_H / 2 }
-								r={ PORT_R }
-							/>
-							<circle
-								className={ `topology-port topology-port--out${
-									editMode ? ' is-edit' : ''
-								}` }
-								cx={ NODE_W }
-								cy={ NODE_H / 2 }
-								r={ PORT_R }
-								onPointerDown={ ( e ) =>
-									handlePortPointerDown( n.id, e )
-								}
-								onMouseDown={ ( e ) =>
-									handlePortPointerDown( n.id, e )
-								}
-							/>
+							{ ( classCatalog[ n.class ]?.accepts_fill ??
+								true ) && (
+								<circle
+									className={ `topology-port topology-port--in${
+										wireDrag && wireDrag.hoveredId === n.id
+											? ' is-snap-target'
+											: ''
+									}` }
+									cx={ 0 }
+									cy={ NODE_H / 2 }
+									r={ PORT_R }
+								/>
+							) }
+							{ ( classCatalog[ n.class ]?.has_target ??
+								true ) && (
+								<circle
+									className={ `topology-port topology-port--out${
+										editMode ? ' is-edit' : ''
+									}` }
+									cx={ NODE_W }
+									cy={ NODE_H / 2 }
+									r={ PORT_R }
+									onPointerDown={ ( e ) =>
+										handlePortPointerDown( n.id, e )
+									}
+									onMouseDown={ ( e ) =>
+										handlePortPointerDown( n.id, e )
+									}
+								/>
+							) }
 						</g>
 					);
 				} ) }
