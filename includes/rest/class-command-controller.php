@@ -38,6 +38,7 @@
 
 namespace Newspack_Nodes\Rest;
 
+use Newspack_Nodes\CommandInterpreter;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\HTTP_Out;
 use Newspack_Nodes\Message;
@@ -77,6 +78,14 @@ class Command_Controller {
 			$msg[ Message::FROM ] = '_http';
 		}
 
+		// Lazy-init the request-scope graph (idempotent). REST requests
+		// hit this dispatch directly; no other entry point builds the
+		// graph for them. CLI, workers, and SSE controllers each build
+		// their own. Then fire `newspack_nodes/request_graph_ready` so
+		// applications can mount service CIs via `$base_ci->make_node(...)`.
+		$base_ci = $this->ensure_request_graph();
+		\do_action( 'newspack_nodes/request_graph_ready', $base_ci );
+
 		$router = Core::node( '_router' );
 		$out    = Core::node( '_http' );
 		if ( ! $router instanceof Router || ! $out instanceof HTTP_Out ) {
@@ -96,6 +105,36 @@ class Command_Controller {
 			echo \wp_json_encode( [ 'queued' => true, 'id' => $msg[ Message::ID ] ] );
 		}
 		$this->finish();
+	}
+
+	/**
+	 * Lazy-construct the request-scope graph if it's not already in
+	 * Core's registry. Idempotent — call sites that already built the
+	 * graph (e.g. CLI, workers, or tests that wire it up explicitly)
+	 * pay nothing here.
+	 *
+	 * Returns the base CommandInterpreter so callers can hand it to
+	 * the `newspack_nodes/request_graph_ready` hook for application-
+	 * level CI mounting via `$base_ci->make_node(...)`.
+	 */
+	private function ensure_request_graph(): CommandInterpreter {
+		$router = Core::node( '_router' );
+		if ( ! $router instanceof Router ) {
+			$router = new Router();
+			$router->name( '_router' );
+		}
+		$base_ci = Core::node( '_command_interpreter' );
+		if ( ! $base_ci instanceof CommandInterpreter ) {
+			$base_ci = new CommandInterpreter();
+			$base_ci->name( '_command_interpreter' );
+			$base_ci->sink( $router );
+		}
+		$http_out = Core::node( '_http' );
+		if ( ! $http_out instanceof HTTP_Out ) {
+			$http_out = new HTTP_Out( static fn ( int $code ) => \status_header( $code ) );
+			$http_out->name( '_http' );
+		}
+		return $base_ci;
 	}
 
 	private function finish(): void {

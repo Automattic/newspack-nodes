@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Rest\Command_Controller;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\HTTP_Out;
 use Newspack_Nodes\CommandInterpreter;
 use Newspack_Nodes\Consumer;
@@ -136,6 +137,117 @@ class CommandControllerTest extends TestCase {
 		$this->assertNotSame( '', $body );
 		$msg = Message::unpacked( $body );
 		$this->assertSame( 'cmd-3', $msg[ Message::ID ] );
+	}
+
+	public function test_dispatch_without_pregraph_lazy_builds_and_fires_request_graph_ready_hook(): void {
+		// Production REST entry point has no prior bootstrap building the
+		// request-scope graph for it. Dispatch must lazy-build _router /
+		// _command_interpreter / _http and fire the
+		// `newspack_nodes/request_graph_ready` hook so applications can
+		// mount their CIs via $base_ci->make_node(...).
+		$this->assertNull( Core::node( '_router' ), 'pre-condition: no graph yet' );
+		$this->assertNull( Core::node( '_command_interpreter' ) );
+		$this->assertNull( Core::node( '_http' ) );
+
+		// Capture hook fires and the CI argument the hook receives.
+		$fires = [];
+		\add_action(
+			'newspack_nodes/request_graph_ready',
+			static function ( $base_ci ) use ( &$fires ): void {
+				$fires[] = $base_ci;
+				// Application code mounts its CIs here. Use a tiny echo CI
+				// to prove dispatch can route through a hook-mounted CI.
+				$echo = new CommandInterpreter();
+				$echo->name( 'hook_echo' );
+				$echo->sink( $base_ci );
+				$echo->commands(
+					[ 'echo' => static fn( $self, $args ): string => "got: {$args}" ]
+				);
+			}
+		);
+
+		$req = $this->make_request(
+			[
+				'type'  => Message::TM_COMMAND,
+				'to'    => 'hook_echo',
+				'from'  => '_http',
+				'id'    => 'cmd-lazy-1',
+				'value' => \wp_json_encode( [ 'name' => 'echo', 'arguments' => 'hi', 'payload' => '' ] ),
+			]
+		);
+
+		$ctrl = new Command_Controller();
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		$body = (string) \ob_get_clean();
+
+		// Hook fired exactly once with the base CI as the argument.
+		$this->assertCount( 1, $fires, 'request_graph_ready hook must fire exactly once' );
+		$this->assertInstanceOf( CommandInterpreter::class, $fires[0] );
+		$this->assertSame( '_command_interpreter', $fires[0]->name() );
+
+		// Dispatch produced a TM_COMMAND|TM_RESPONSE (not the "graph not
+		// initialized" error). Use the production HTTP_Out (not the test
+		// seam) — status_header is a stub in our bootstrap, so it's harmless.
+		$this->assertNotSame( '', $body, 'dispatch produced no body' );
+		$msg            = Message::unpacked( $body );
+		$response_flags = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$this->assertSame(
+			$response_flags,
+			$msg[ Message::TYPE ] & ( $response_flags | Message::TM_ERROR ),
+			'dispatch returned TM_ERROR — request graph was not lazy-built'
+		);
+		$this->assertSame( 'cmd-lazy-1', $msg[ Message::ID ] );
+		$payload = \json_decode( $msg[ Message::VALUE ], true );
+		$this->assertSame( 'got: hi', $payload['payload'] );
+	}
+
+	public function test_dispatch_lazy_init_is_idempotent_when_graph_already_present(): void {
+		// Pre-build the graph (as a real Bootstrap would for non-REST entry
+		// points) and prove that the second dispatch doesn't double-create
+		// or re-fire the hook.
+		$base_ci = $this->build_graph();
+		$echo    = new CommandInterpreter();
+		$echo->name( 'idem_echo' );
+		$echo->sink( $base_ci );
+		$echo->commands( [ 'echo' => static fn( $self, $args ): string => 'ok' ] );
+
+		$pre_router  = Core::node( '_router' );
+		$pre_base_ci = Core::node( '_command_interpreter' );
+		$pre_http    = Core::node( '_http' );
+
+		$fires = [];
+		\add_action(
+			'newspack_nodes/request_graph_ready',
+			static function ( $ci ) use ( &$fires ): void {
+				$fires[] = $ci;
+			}
+		);
+
+		$req = $this->make_request(
+			[
+				'type'  => Message::TM_COMMAND,
+				'to'    => 'idem_echo',
+				'from'  => '_http',
+				'id'    => 'cmd-idem',
+				'value' => \wp_json_encode( [ 'name' => 'echo', 'arguments' => '', 'payload' => '' ] ),
+			]
+		);
+		$ctrl = new Command_Controller();
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		\ob_get_clean();
+
+		// Graph nodes are the SAME instances — no re-creation.
+		$this->assertSame( $pre_router,  Core::node( '_router' ) );
+		$this->assertSame( $pre_base_ci, Core::node( '_command_interpreter' ) );
+		$this->assertSame( $pre_http,    Core::node( '_http' ) );
+
+		// Hook still fires (application code may need to mount per-request).
+		$this->assertCount( 1, $fires );
+		$this->assertSame( $pre_base_ci, $fires[0] );
 	}
 
 	public function test_ipc_command_emits_202_ack_and_writes_to_worker_input(): void {
