@@ -29,6 +29,10 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		// Reset the static seam so a test that reassigns it can't leak into
+		// later tests (today no other test touches it, but Task 18 will add
+		// more tests against this controller).
+		Messages_Stream_Controller::$attach_to_worker = null;
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
@@ -62,6 +66,39 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$this->assertCount( 1, $consumers );
 		$this->assertContainsOnlyInstancesOf( Consumer::class, $consumers );
+	}
+
+	public function test_ipc_subscription_uses_attach_to_worker_seam_when_set(): void {
+		// Mutation guard for the seam branch in `open_subscription`. The
+		// existing IPC test goes through the real `Cli::attach_to_worker`,
+		// so the `self::$attach_to_worker ?? ...` closure-property branch is
+		// dead to coverage. Set the seam to a recording closure and verify
+		// it gets invoked with the right args.
+		$recorded = [];
+		Messages_Stream_Controller::$attach_to_worker = static function ( string $reader_id, string $base_dir ) use ( &$recorded ): array {
+			$recorded[] = [
+				'reader_id' => $reader_id,
+				'base_dir'  => $base_dir,
+			];
+			return [
+				'input'     => "{$base_dir}/ipc/{$reader_id}/input",
+				'output'    => "{$base_dir}/ipc/{$reader_id}/output",
+				'type'      => 'firehose-workers',
+				'partition' => 0,
+			];
+		};
+
+		\mkdir( "{$this->tmp}/ipc/firehose-workers.p0/output", 0755, true );
+
+		$ctrl = new Messages_Stream_Controller();
+		$ctrl->set_base_dir( $this->tmp );
+		$consumers = $ctrl->open_subscription( 'firehose-workers.p0', null );
+
+		$this->assertCount( 1, $consumers );
+		$this->assertContainsOnlyInstancesOf( Consumer::class, $consumers );
+		$this->assertCount( 1, $recorded );
+		$this->assertSame( 'firehose-workers.p0', $recorded[0]['reader_id'] );
+		$this->assertSame( $this->tmp, $recorded[0]['base_dir'] );
 	}
 
 	public function test_invalid_subscription_throws(): void {
