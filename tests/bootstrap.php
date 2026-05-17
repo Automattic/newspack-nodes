@@ -391,6 +391,7 @@ require_once \dirname( __DIR__ ) . '/newspack-nodes.php';
 require_once __DIR__ . '/Helpers/TestCase.php';
 require_once __DIR__ . '/Helpers/CaptureSink.php';
 require_once __DIR__ . '/Helpers/BoundedTicks.php';
+require_once __DIR__ . '/Helpers/VerbHarness.php';
 
 // Capture Supervisor fire-and-forget POSTs without actually hitting
 // libcurl. `$curl_exec` is a narrow seam — the rest of
