@@ -226,6 +226,32 @@ class Bootstrap {
 	}
 
 	/**
+	 * Scan {base_dir}/locks/*.lock.d/ and register one substrate Partition
+	 * Node per live worker. The Partition is named after the worker's
+	 * reader id (e.g. `firehose-workers.p0`) and pointed at the worker's
+	 * input partition directory. Router's existing TO-peel dispatch then
+	 * routes IPC commands uniformly — `Router::fill` resolves the head
+	 * to the registered Partition, which writes the message to disk.
+	 *
+	 * Returns the number of Partitions registered (= live workers found
+	 * with both a lock dir AND an ipc/.../input dir).
+	 */
+	public static function register_worker_partitions( string $base_dir ): int {
+		$count = 0;
+		foreach ( \glob( "{$base_dir}/locks/*.lock.d", \GLOB_ONLYDIR ) ?: [] as $lock_dir ) {
+			$reader_id = \basename( $lock_dir, '.lock.d' );
+			$input_dir = "{$base_dir}/ipc/{$reader_id}/input";
+			if ( ! \is_dir( $input_dir ) ) {
+				continue;
+			}
+			$p = new Partition( $input_dir, 0 );
+			$p->name( $reader_id );
+			++$count;
+		}
+		return $count;
+	}
+
+	/**
 	 * Unschedule the supervisor cron event. Used by the disable-logging path
 	 * and the deactivation hook.
 	 */
