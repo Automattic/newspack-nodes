@@ -353,6 +353,14 @@ export default function TopologyConsole() {
 	// (Dump, Tail) can pop the pane open when they fire commands the
 	// user wants to see the response of.
 	const [ replExpanded, setReplExpanded ] = useState( false );
+	// REPL input ref — canvas + Inspector handlers blur or re-focus it to
+	// maintain the "transcript visible ⟺ prompt focused" invariant.
+	const replInputRef = useRef( null );
+	const refocusReplIfExpanded = useCallback( () => {
+		if ( replExpanded ) {
+			window.requestAnimationFrame( () => replInputRef.current?.focus() );
+		}
+	}, [ replExpanded ] );
 
 	// Per-node rate tracking: { id: { count, ts, rate, lastChangedTs } }
 	// Updated each time a `gui:auto` ls table arrives. rate = Δcount/Δs
@@ -1010,8 +1018,12 @@ export default function TopologyConsole() {
 				sendLine( `request_node ${ nodeId } ${ payload }` );
 			}
 			// Always pop the transcript open after an Inspector action
-			// — the user's expecting to see the worker's reply.
+			// — the user's expecting to see the worker's reply. Move
+			// focus to the prompt too so the next keystroke goes into a
+			// follow-up command (and the invariant "transcript shown ⟺
+			// prompt focused" holds after this state change).
 			setReplExpanded( true );
+			window.requestAnimationFrame( () => replInputRef.current?.focus() );
 		},
 		[ sendLine ]
 	);
@@ -1319,16 +1331,39 @@ export default function TopologyConsole() {
 	);
 
 	// Selecting one clears the other — node and edge selection are
-	// mutually exclusive so the Delete key has unambiguous intent.
-	const handleSelectNode = useCallback( ( id ) => {
-		setSelectedId( id );
-		setSelectedEdge( null );
-	}, [] );
+	// mutually exclusive so the Delete key has unambiguous intent. Both
+	// re-focus the REPL prompt if it was focused before the click; the
+	// browser's default moves focus to the SVG group on click.
+	const handleSelectNode = useCallback(
+		( id ) => {
+			setSelectedId( id );
+			setSelectedEdge( null );
+			refocusReplIfExpanded();
+		},
+		[ refocusReplIfExpanded ]
+	);
 
-	const handleSelectEdge = useCallback( ( edge ) => {
-		setSelectedEdge( edge );
-		setSelectedId( null );
-	}, [] );
+	const handleSelectEdge = useCallback(
+		( edge ) => {
+			setSelectedEdge( edge );
+			setSelectedId( null );
+			refocusReplIfExpanded();
+		},
+		[ refocusReplIfExpanded ]
+	);
+
+	// Spends the first canvas click on dismissing the prompt (blur +
+	// collapse). Returning true tells the canvas to skip its own
+	// deselect-or-autofit action for this click; the next plain canvas
+	// click proceeds normally.
+	const handleCanvasBackgroundClickConsumed = useCallback( () => {
+		if ( ! replExpanded ) {
+			return false;
+		}
+		setReplExpanded( false );
+		replInputRef.current?.blur();
+		return true;
+	}, [ replExpanded ] );
 
 	// Keyboard: Delete/Backspace removes whichever is selected. Only
 	// active in edit mode — and skipped when the focus is in a form
@@ -1707,6 +1742,9 @@ export default function TopologyConsole() {
 						setSelectedId( null );
 						setSelectedEdge( null );
 					} }
+					onBackgroundClickConsumed={
+						handleCanvasBackgroundClickConsumed
+					}
 					hoveredId={ hoveredId }
 					onHover={ setHoveredId }
 					rateRef={ rateRef }
@@ -1718,6 +1756,7 @@ export default function TopologyConsole() {
 					onConnect={ handleConnect }
 					selectedEdge={ selectedEdge }
 					onSelectEdge={ handleSelectEdge }
+					classCatalog={ schemasByShellName }
 				/>
 			</CanvasFrame>
 			{ /* Inspector is only mounted when a node is selected — the
@@ -1759,6 +1798,7 @@ export default function TopologyConsole() {
 					transcript={ transcript }
 					expanded={ replExpanded }
 					onExpandedChange={ setReplExpanded }
+					inputRef={ replInputRef }
 				/>
 			) }
 			{ discardModal && (
@@ -1777,6 +1817,12 @@ export default function TopologyConsole() {
 					title="Save topology"
 					body="Choose a name. Letters, numbers, dash, underscore."
 					placeholder="my-topology"
+					// Pre-fill the current topology name when editing an
+					// existing one — Save-as-rename is the rare case, so
+					// the default of saving over the same name should
+					// be one click. PromptModal's effect auto-selects
+					// the text so retyping replaces it.
+					initialValue={ topology || '' }
 					pattern={ /^[a-zA-Z0-9_-]+$/ }
 					confirmLabel="Save"
 					onConfirm={ handleSaveConfirm }
