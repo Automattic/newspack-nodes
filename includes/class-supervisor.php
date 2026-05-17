@@ -192,6 +192,7 @@ class Supervisor extends SupervisorBase {
 				if ( ! $this->check_config( $now ) ) {
 					break;
 				}
+				Log_Cleaner::cleanup_orphan_partitions( $this->base_dir, (int) ( $this->num_partitions ?? 1 ) );
 				// Lightweight periodic hook for plugins.
 				if ( \function_exists( 'do_action' ) ) {
 					\do_action( 'newspack_nodes/supervisor_periodic' );
@@ -293,6 +294,22 @@ class Supervisor extends SupervisorBase {
 		}
 		$this->active_types = $new_types;
 		$this->worker_locks = $workers;
+
+		// Detect a shrunk fleet and arm Log_Cleaner. The prior set is
+		// persisted (non-autoloaded) so the comparison survives supervisor
+		// respawns without firing a false positive on every cold start.
+		$current_set = [];
+		foreach ( $workers as $w ) {
+			$current_set[] = "{$w['type']}.p{$w['partition']}";
+		}
+		\sort( $current_set );
+		$prior = \get_option( Log_Cleaner::FLEET_DESCRIPTORS_OPTION, null );
+		if ( \is_array( $prior ) && ! empty( \array_diff( $prior, $current_set ) ) ) {
+			\update_option( Log_Cleaner::LOGS_DIRTY_OPTION, '1', false );
+		}
+		if ( $current_set !== $prior ) {
+			\update_option( Log_Cleaner::FLEET_DESCRIPTORS_OPTION, $current_set, false );
+		}
 
 		// Reconcile lock dirs on disk against the active fleet — one
 		// state-free pass that handles every "this worker shouldn't be
