@@ -73,14 +73,51 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 \Newspack_Nodes\CommandInterpreter::register_class( 'Timer',              \Newspack_Nodes\Timer::class );
 \Newspack_Nodes\CommandInterpreter::register_class( 'Topic',              \Newspack_Nodes\Topic::class );
 
+// Substrate service CIs — discoverable to `$base_ci->make_node(...)`,
+// which constructs + names + sinks each in one step from the
+// `newspack_nodes/request_graph_ready` hook mounted below. Matches the
+// app-side `_CI`-suffix convention (newspack-event-logger-nodes.php)
+// so `Classes_CI.list` returns a consistent shell-name catalog across
+// substrate + application CIs.
+\Newspack_Nodes\CommandInterpreter::register_class( 'Classes_CI',    \Newspack_Nodes\Rest\Classes_CI::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Layouts_CI',    \Newspack_Nodes\Rest\Layouts_CI::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Topologies_CI', \Newspack_Nodes\Rest\Topologies_CI::class );
+
+/**
+ * Service-CommandInterpreter (CI) mounting.
+ *
+ * `Command_Controller::dispatch` lazy-builds the request-scope graph
+ * (`_router` / `_command_interpreter` / `_http`) then fires
+ * `newspack_nodes/request_graph_ready` so anything that wants to mount
+ * a CI can do so via `$base_ci->make_node(...)` — which constructs,
+ * names, and sinks each node in one atomic step. Without the sink, verb
+ * responses (which walk back via TO=FROM) would have no path to the
+ * HTTP_Out and silently drop.
+ *
+ * The substrate uses the SAME hook the apps use (newspack-event-logger-
+ * nodes does the symmetric mount via its own callback), so substrate
+ * CIs can also be filter-replaced if a future app needs to override one.
+ *
+ * Named function (not a closure) so tests that wipe
+ * `$GLOBALS['_wp_actions']` for isolation can re-attach the same
+ * callback without duplicating the mount logic.
+ */
+function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\CommandInterpreter $base_ci ): void {
+	$base_ci->make_node( 'Classes_CI',    'classes' );
+	$base_ci->make_node( 'Layouts_CI',    'layouts' );
+	$base_ci->make_node( 'Topologies_CI', 'topologies' );
+}
+
 // Wire WordPress integration: REST routes, cron-driven supervisor tick, activation/deactivation.
 // Skipped in test environments where add_action is a stub but rest_api_init never fires.
 if ( \function_exists( 'add_action' ) ) {
 	\add_action( 'rest_api_init', [ '\\Newspack_Nodes\\Bootstrap', 'register_rest_routes' ] );
 	\add_action( 'newspack_nodes/supervisor', [ '\\Newspack_Nodes\\Bootstrap', 'run_supervisor_tick' ] );
 	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\WorkerCliCommand', 'restart_fleet_by_name' ] );
+	\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
 }
 if ( \function_exists( 'add_filter' ) ) {
+	// phpcs:ignore WordPress.WP.CronInterval.ChangeDetected -- The 60s interval registered by the callback is intentional (substrate supervisor tick); rule can't see into array-callable targets.
 	\add_filter( 'cron_schedules', [ '\\Newspack_Nodes\\Bootstrap', 'register_cron_schedules' ] );
 }
 if ( \function_exists( 'register_activation_hook' ) ) {
