@@ -30,6 +30,7 @@ export class SseConnector extends Node {
 	}
 
 	start() {
+		this.close();
 		const url =
 			`${ this.baseUrl }newspack-nodes/v1/messages/stream` +
 			`?subscribe=${ encodeURIComponent( this.subscribe.join( ',' ) ) }` +

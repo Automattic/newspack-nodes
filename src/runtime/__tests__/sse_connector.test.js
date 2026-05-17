@@ -87,3 +87,18 @@ test( 'close() closes the EventSource', () => {
 	s.close();
 	expect( FakeEventSource.last.closed ).toBe( true );
 } );
+
+test( 'start() called twice closes the first EventSource before opening the second', () => {
+	const s = new SseConnector( {
+		subscribe: [ 'x' ],
+		interval: 1,
+		baseUrl: '/',
+		nonce: 'n',
+	} );
+	s.start();
+	const first = FakeEventSource.last;
+	s.start();
+	const second = FakeEventSource.last;
+	expect( first ).not.toBe( second );
+	expect( first.closed ).toBe( true );
+} );
