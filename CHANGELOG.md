@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`node_schema` advertises `accepts_fill` and `has_target` port flags.** Default Node returns both as `true`. Tail/Consumer override `accepts_fill: false` (pure producers — no upstream `fill()`); Partition/Log override `has_target: false` (terminal storage — no downstream forwarding). The substrate REST `/classes` endpoint passes both through; the topology canvas conditionally renders the IN / OUT port circles per flag, so Consumer/Tail nodes no longer show an unwired left-side input port and Partition/Log nodes no longer show an unwired right-side output port. Edit-mode wire-dragging naturally inherits the constraint — you can't initiate a wire from a port that doesn't render.
+- **`Timer::node_schema()` merges from `parent::node_schema()`** so subclasses (Tail, Consumer, Partition) inherit the port-flag defaults through the Node → Timer → subclass chain.
+
 ### Changed
 
 - **`Topology_Registry::resolve()` / `describe()` / `list()` now filter via `is_file()` instead of `file_exists()`.** A directory at `{user_dir|stock_dir}/{name}.tsl/` no longer surfaces as a topology. PHP 8.0+'s `file_get_contents()` returns `""` on a directory path, which would have made the REST `get_topology` endpoint return a 200-OK with an empty body for a directory-shaped path — `is_file()` filters that at the source so callers take the `null → not_found` branch.

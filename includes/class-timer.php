@@ -156,11 +156,9 @@ class Timer extends Node {
 	}
 
 	public static function node_schema(): array {
-		return [
+		return \array_merge( parent::node_schema(), [
 			'category'    => 'Control',
 			'description' => 'Periodic firing — emits a heartbeat message every N ms.',
-			'ctor'        => [],
-			'verbs'       => [],
-		];
+		] );
 	}
 }

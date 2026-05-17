@@ -1020,7 +1020,7 @@ class Partition extends Timer {
 	 * Node::node_schema() for the shape contract.
 	 */
 	public static function node_schema(): array {
-		return [
+		return \array_merge( parent::node_schema(), [
 			'category'    => 'Storage',
 			'description' => 'Append-only segmented log; data file + offset index per partition.',
 			'ctor'        => [
@@ -1044,6 +1044,7 @@ class Partition extends Timer {
 					],
 				],
 			],
-		];
+			'has_target'  => false,
+		] );
 	}
 }

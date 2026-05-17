@@ -205,7 +205,7 @@ class Tail extends Timer {
 	}
 
 	public static function node_schema(): array {
-		return [
+		return \array_merge( parent::node_schema(), [
 			'category'    => 'I/O',
 			'description' => 'Polls a file for appended bytes; emits each line to its sink.',
 			'ctor'        => [
@@ -217,7 +217,7 @@ class Tail extends Timer {
 					'enum'    => [ 'line-buffered', 'block-buffered', 'binary' ],
 				],
 			],
-			'verbs'       => [],
-		];
+			'accepts_fill' => false,
+		] );
 	}
 }

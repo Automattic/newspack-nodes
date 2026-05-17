@@ -182,6 +182,14 @@ class Node {
 			'description' => '',
 			'ctor'        => [],
 			'verbs'       => [],
+			// Port flags. The default Node has a meaningful fill() and a
+			// $this->target it forwards to, so both ports render. Pure-
+			// producer classes (Tail, Consumer) override `accepts_fill` to
+			// false; pure-sink classes (Partition, Log) override
+			// `has_target` to false. The schematic renderer reads these
+			// to skip the IN / OUT port circle on the respective edge.
+			'accepts_fill' => true,
+			'has_target'   => true,
 		];
 	}
 
