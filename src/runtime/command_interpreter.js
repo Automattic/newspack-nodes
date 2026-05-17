@@ -11,6 +11,8 @@ import {
 	TM_COMMAND,
 	TM_RESPONSE,
 	TM_ERROR,
+	TM_PING,
+	TM_EOF,
 	newMessage,
 } from './message';
 
@@ -49,6 +51,19 @@ export class CommandInterpreter extends Node {
 	fill( message ) {
 		this.counter += 1;
 		const type = message[ TYPE ];
+
+		// TM_PING / TM_EOF with empty TO bounce back along FROM so the
+		// producer can measure RTT (PING) or detect drain completion (EOF).
+		// Mirrors PHP CommandInterpreter::fill — same predicate, same effect.
+		// eslint-disable-next-line no-bitwise
+		if ( type & ( TM_PING | TM_EOF ) && message[ TO ] === '' ) {
+			message[ TO ] = message[ FROM ];
+			if ( this.sink ) {
+				this.sink.fill( message );
+			}
+			return;
+		}
+
 		// eslint-disable-next-line no-bitwise
 		const isCommand = type & TM_COMMAND && ! ( type & TM_RESPONSE );
 		if ( ! isCommand || message[ TO ] !== '' ) {
