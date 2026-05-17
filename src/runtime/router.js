@@ -26,6 +26,9 @@ export class Router extends Node {
 	}
 
 	fill( message ) {
+		// Counter increments once per fill, including the recursive call
+		// we make on the NOT_AVAILABLE bounce — so one inbound miss
+		// increments counter by 2. Intentional (matches PHP).
 		this.counter += 1;
 
 		const to = message[ TO ];
@@ -43,6 +46,10 @@ export class Router extends Node {
 
 		const target = Core.node( head );
 		if ( null === target ) {
+			// setState fires BEFORE the TM_ERROR-drop branch on purpose:
+			// debug observers want to see the NOT_AVAILABLE event even
+			// when the message itself is silently dropped to break a
+			// potential error-cycle.
 			this.setState( 'NOT_AVAILABLE', {
 				node: head,
 				from: message[ FROM ],
@@ -53,6 +60,9 @@ export class Router extends Node {
 			}
 			const err = newMessage();
 			err[ TYPE ] = TM_ERROR;
+			// Re-set TIMESTAMP explicitly so a mocked Core.now() in
+			// tests overrides the newMessage() default clock. Matches
+			// PHP class-router.php where the same explicit re-set is used.
 			err[ TIMESTAMP ] = Core.now();
 			err[ FROM ] = this.name;
 			err[ TO ] = message[ FROM ];

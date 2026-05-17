@@ -67,3 +67,30 @@ test( 'TM_ERROR on a missing TO is dropped (no error-on-error bounce)', () => {
 	// No throw, no infinite loop — silently consumed.
 	expect( () => r.fill( m ) ).not.toThrow();
 } );
+
+test( 'single-segment TO with no slash peels head and forwards with empty TO', () => {
+	const r = new Router();
+	r.setName( '_router' );
+
+	const downstream = new Node();
+	downstream.setName( 'alpha' );
+	const captured = [];
+	downstream.fill = ( m ) => captured.push( [ ...m ] );
+
+	const m = newMessage();
+	m[ TO ] = 'alpha';
+	r.fill( m );
+
+	expect( captured ).toHaveLength( 1 );
+	expect( captured[ 0 ][ TO ] ).toBe( '' );
+} );
+
+test( 'NOT_AVAILABLE bounce with empty FROM is silently dropped (no throw, no loop)', () => {
+	const r = new Router();
+	r.setName( '_router' );
+	// No FROM, so the synthetic error addresses TO='' and falls into
+	// the empty-TO sink branch. With no sink set, it's a silent drop.
+	const m = newMessage();
+	m[ TO ] = 'missing/path';
+	expect( () => r.fill( m ) ).not.toThrow();
+} );
