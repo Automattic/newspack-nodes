@@ -40,10 +40,9 @@
  * the capability (`manage_options`). Errors throw RuntimeException;
  * CommandInterpreter::interpret() wraps them as TM_COMMAND | TM_ERROR.
  *
- * The require_manage_options / decode_args / require_valid_name private
- * helpers duplicate Layouts_CI's; M3 keeps the copy small to keep each
- * CI standalone. If a fourth CI follows the same pattern, M4 should
- * promote to a trait or base class.
+ * The require_manage_options / decode_args / require_valid_name helpers
+ * are inherited from Service_CI (the shared base class), so this file no
+ * longer carries local copies.
  *
  * @package Newspack_Nodes
  */
@@ -52,14 +51,14 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Service_CI;
 use Newspack_Nodes\Shell;
 use Newspack_Nodes\Topology_Registry;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Topologies_CI extends CommandInterpreter {
+class Topologies_CI extends Service_CI {
 
-	private const NAME_PATTERN   = '/^[a-zA-Z0-9_-]+$/';
 	private const MAX_BODY_BYTES = 65536;
 
 	public function __construct() {
@@ -102,7 +101,7 @@ class Topologies_CI extends CommandInterpreter {
 			},
 			'get'    => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): string {
 				$decoded = self::decode_args( $args );
-				$name    = self::require_valid_name( $decoded['name'] ?? '' );
+				$name    = self::require_valid_name( $decoded );
 
 				$path = Topology_Registry::resolve( $name );
 				if ( null === $path ) {
@@ -139,7 +138,7 @@ class Topologies_CI extends CommandInterpreter {
 					);
 				}
 				$decoded = self::decode_args( $args );
-				$name    = self::require_valid_name( $decoded['name'] ?? '' );
+				$name    = self::require_valid_name( $decoded );
 				if ( ! isset( $decoded['tsl'] ) || ! \is_string( $decoded['tsl'] ) ) {
 					throw new \RuntimeException( 'invalid arguments: tsl must be a string' );
 				}
@@ -226,7 +225,7 @@ class Topologies_CI extends CommandInterpreter {
 			'delete' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): string {
 				self::require_manage_options();
 				$decoded = self::decode_args( $args );
-				$name    = self::require_valid_name( $decoded['name'] ?? '' );
+				$name    = self::require_valid_name( $decoded );
 
 				$user_dir = Topology_Registry::user_dir();
 				if ( '' === $user_dir ) {
@@ -260,39 +259,6 @@ class Topologies_CI extends CommandInterpreter {
 				);
 			},
 		];
-	}
-
-	private static function require_manage_options(): void {
-		if ( \function_exists( 'current_user_can' ) && ! \current_user_can( 'manage_options' ) ) {
-			throw new \RuntimeException( 'permission denied: manage_options required' );
-		}
-	}
-
-	/**
-	 * Decode the JSON arg blob and require an object (associative array).
-	 * Empty args decodes to []; the caller still pulls expected keys off it.
-	 *
-	 * @return array<string,mixed>
-	 */
-	private static function decode_args( string $args ): array {
-		if ( '' === $args ) {
-			return [];
-		}
-		$decoded = \json_decode( $args, true );
-		if ( ! \is_array( $decoded ) ) {
-			throw new \RuntimeException( 'invalid arguments: expected object' );
-		}
-		return $decoded;
-	}
-
-	private static function require_valid_name( mixed $name ): string {
-		$name = (string) $name;
-		if ( ! \preg_match( self::NAME_PATTERN, $name ) ) {
-			throw new \RuntimeException(
-				'invalid name: topology name must match [a-zA-Z0-9_-]+'
-			);
-		}
-		return $name;
 	}
 
 	/**
