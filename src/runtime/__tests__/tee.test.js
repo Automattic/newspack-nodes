@@ -12,6 +12,14 @@ test( 'connectNode appends to the array target', () => {
 	expect( t.target ).toEqual( [ 'a', 'b' ] );
 } );
 
+test( 'connectNode is idempotent — duplicates are skipped (matches PHP Tee)', () => {
+	const t = new Tee();
+	t.connectNode( 'a' );
+	t.connectNode( 'b' );
+	t.connectNode( 'a' ); // duplicate, should NOT append again
+	expect( t.target ).toEqual( [ 'a', 'b' ] );
+} );
+
 test( 'fill stamps TO with each owner and forwards N times', () => {
 	const a = new Node();
 	a.setName( 'a' );
@@ -40,4 +48,30 @@ test( 'fill stamps TO with each owner and forwards N times', () => {
 	t.fill( m );
 	expect( routed ).toHaveLength( 2 );
 	expect( routed.map( ( r ) => r[ TO ] ).sort() ).toEqual( [ 'a', 'b' ] );
+} );
+
+test( 'fill with no targets is a no-op but still increments counter', () => {
+	const t = new Tee();
+	t.fill( newMessage() );
+	expect( t.counter ).toBe( 1 );
+} );
+
+test( 'fill with targets but no sink does not throw', () => {
+	const t = new Tee();
+	t.connectNode( 'a' );
+	expect( () => t.fill( newMessage() ) ).not.toThrow();
+	expect( t.counter ).toBe( 1 );
+} );
+
+test( 'fill does not mutate caller TO when fanning out', () => {
+	const sink = new Node();
+	sink.fill = () => {};
+	const t = new Tee();
+	t.sink = sink;
+	t.connectNode( 'a' );
+	t.connectNode( 'b' );
+	const m = newMessage();
+	m[ TO ] = 'caller-set';
+	t.fill( m );
+	expect( m[ TO ] ).toBe( 'caller-set' );
 } );
