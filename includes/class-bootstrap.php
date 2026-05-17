@@ -25,6 +25,7 @@
 namespace Newspack_Nodes;
 
 use Newspack_Nodes\Rest\ClassesController;
+use Newspack_Nodes\Rest\Command_Controller;
 use Newspack_Nodes\Rest\LayoutsController;
 use Newspack_Nodes\Rest\Messages_Stream_Controller;
 use Newspack_Nodes\Rest\SpawnController;
@@ -178,6 +179,7 @@ class Bootstrap {
 		( new TopologiesController() )->register_routes();
 		( new LayoutsController() )->register_routes();
 		( new Messages_Stream_Controller() )->register_routes();
+		( new Command_Controller() )->register_routes();
 	}
 
 	/**
