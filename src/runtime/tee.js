@@ -19,6 +19,11 @@ export class Tee extends Node {
 			// silently drop the prior target.
 			this.target = '' === this.target ? [] : [ this.target ];
 		}
+		// Idempotent: matches PHP Tee::connect_node, which uses in_array to
+		// skip duplicates so fanout doesn't send N copies to the same owner.
+		if ( this.target.includes( owner ) ) {
+			return;
+		}
 		this.target.push( owner );
 	}
 
