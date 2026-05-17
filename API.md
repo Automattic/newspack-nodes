@@ -145,6 +145,20 @@ Returned when `Router::fill()` returned without `HTTP_Out` seeing a reply — ty
 
 Sent (as a packed Message) when `ensure_request_graph()` couldn't build the graph — typically a bootstrap-misconfiguration condition. Operational application errors don't reach this path; they come back as `TM_COMMAND|TM_ERROR` replies through the normal sync path with the verb's exception message in `VALUE`.
 
+### Service CIs
+
+The substrate plugin mounts 3 service CIs (7 verbs total) via `newspack_nodes/request_graph_ready`:
+
+| CI shell-name | Verbs | Replaces |
+|---------------|-------|----------|
+| `classes` | `list` | `class-classes-controller.php` |
+| `layouts` | `get`, `save` | `class-layouts-controller.php` |
+| `topologies` | `list`, `get`, `save`, `delete` | `class-topologies-controller.php` |
+
+Application plugins layer additional CIs onto the same endpoint (the first being `newspack-event-logger-nodes` with its nine application-side CIs). The `to` field on the dispatch envelope distinguishes targets — there is no substrate-vs-application namespacing at the endpoint layer.
+
+Per-verb args, return shapes, error semantics, and auth gating are documented in [MIGRATION.md → M3 substrate service CIs](MIGRATION.md#m3-substrate-service-cis--verb-reference).
+
 ### Test mode
 
 `Command_Controller::set_test_mode(true)` makes `dispatch()` return instead of `exit()`, so PHPUnit can capture stdout via `ob_start()`.
