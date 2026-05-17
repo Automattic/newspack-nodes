@@ -17,9 +17,15 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\Callback;
 use Newspack_Nodes\Cli;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer;
+use Newspack_Nodes\Core;
+use Newspack_Nodes\EventFramework;
+use Newspack_Nodes\HTTP_Filter;
+use Newspack_Nodes\Message;
+use Newspack_Nodes\Router;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -53,12 +59,30 @@ class Messages_Stream_Controller {
 	 */
 	public static ?\Closure $attach_to_worker = null;
 
+	/**
+	 * Test seam: bounded drain loop. Production loops on
+	 * `connection_aborted()` (real streaming); test_mode counts iterations
+	 * up to `$test_iterations` and returns so `ob_start()` / `ob_get_clean()`
+	 * can capture the emitted SSE bytes synchronously without blocking on a
+	 * non-existent HTTP socket.
+	 */
+	private bool $test_mode = false;
+	private int  $test_iterations = 0;
+
 	public function set_base_dir( string $dir ): void {
 		$this->base_dir = $dir;
 	}
 
 	public function set_num_partitions( int $n ): void {
 		$this->num_partitions = $n;
+	}
+
+	public function set_test_mode( bool $on ): void {
+		$this->test_mode = $on;
+	}
+
+	public function set_test_iterations( int $n ): void {
+		$this->test_iterations = $n;
 	}
 
 	public function register_routes(): void {
@@ -163,14 +187,141 @@ class Messages_Stream_Controller {
 	}
 
 	/**
-	 * Stream handler — placeholder until Task 18 lands the drain loop.
-	 * Returns a JSON `{pending: true}` body so a smoke check of the
-	 * route's wiring + permission callback still surfaces a clean
-	 * response while the SSE body is unimplemented.
+	 * Decode the `positions` query parameter (JSON object keyed by
+	 * subscription name, value is `Consumer::next_offset` shape). Returns
+	 * null when omitted/empty/malformed — caller treats null as "no saved
+	 * positions; tail-seek every partition".
+	 *
+	 * @return array<string,array>|null
+	 */
+	public function parse_positions( string $raw ): ?array {
+		if ( '' === $raw ) {
+			return null;
+		}
+		$decoded = \json_decode( $raw, true );
+		return \is_array( $decoded ) ? $decoded : null;
+	}
+
+	/**
+	 * Stream handler — parses request params, sets SSE headers, and
+	 * delegates the drain loop to `run_stream_loop()`. The loop method is
+	 * extracted so tests can exercise the substrate graph build /
+	 * connected envelope / Consumer wiring without the headers + `exit`
+	 * gymnastics.
 	 */
 	public function stream( \WP_REST_Request $request ) {
-		\header( 'Content-Type: application/json' );
-		echo \wp_json_encode( [ 'pending' => true ] );
+		$subs      = $this->parse_subscriptions( (string) $request->get_param( 'subscribe' ) );
+		$positions = $this->parse_positions( (string) ( $request->get_param( 'positions' ) ?? '' ) );
+		$interval  = (int) ( $request->get_param( 'interval' ) ?? 500 );
+
+		$this->init_sse_headers();
+		$this->run_stream_loop( $subs, $positions, $interval );
 		exit;
+	}
+
+	/**
+	 * Drain loop body — split out from `stream()` so tests can call
+	 * without the headers / exit. Emits the `connected` envelope, builds
+	 * the SSE-process substrate graph (`_router`, `_http`, sink), opens
+	 * one-or-more Consumers per subscription, and drains via
+	 * `EventFramework::drain()` until the should_continue gate flips
+	 * false. Cleanup in `finally` removes every node so the next request
+	 * starts with a clean substrate.
+	 *
+	 * @param array<int,string>             $subs      Subscription names.
+	 * @param array<string,array>|null      $positions Per-subscription saved positions.
+	 * @param int                            $interval Heartbeat / flush cadence ms.
+	 */
+	public function run_stream_loop( array $subs, ?array $positions, int $interval ): void {
+		// M1 stub: slot acquisition (memcache-based concurrency cap)
+		// arrives in M4 alongside the migrated Memcached_Cache.
+		$slot = 1;
+		$this->send_sse_event( 'msg', $this->build_connected_msg( $slot, $subs, $interval ) );
+
+		// SSE-process substrate graph. Same naming convention as worker
+		// processes (`_router`, `_http`) so cli REPL inspection of an SSE
+		// process feels the same as inspecting a worker.
+		( new Router() )->name( '_router' );
+		$emit = function ( array $m ): void {
+			$this->send_sse_event( 'msg', $m );
+		};
+		( new HTTP_Filter( (int) \getmypid(), $emit ) )->name( '_http' );
+
+		// Sink for non-pivoted SSE traffic (raw log tails, heartbeats).
+		// Empty TO → emit directly. Non-empty TO → route through _router
+		// so HTTP_Filter can gate per-session pivoted replies.
+		$direct_sink = new Callback(
+			static function ( array &$m ) use ( $emit ): void {
+				if ( '' === $m[ Message::TO ] ) {
+					$emit( $m );
+					return;
+				}
+				$router = Core::node( '_router' );
+				if ( null !== $router ) {
+					$router->fill( $m );
+				}
+			}
+		);
+		$direct_sink->name( '_stream_sink' );
+
+		$consumers = [];
+		foreach ( $subs as $sub ) {
+			$pos = $positions[ $sub ] ?? null;
+			foreach ( $this->open_subscription( $sub, $pos ) as $c ) {
+				$c->sink( $direct_sink );
+				$consumers[] = $c;
+			}
+		}
+
+		$iterations = 0;
+		try {
+			EventFramework::instance()->drain(
+				function () use ( &$iterations ): bool {
+					if ( $this->test_mode ) {
+						return ++$iterations <= $this->test_iterations;
+					}
+					return ! \connection_aborted();
+				}
+			);
+		} finally {
+			foreach ( $consumers as $c ) {
+				$c->remove_node();
+			}
+			$direct_sink->remove_node();
+			$http = Core::node( '_http' );
+			if ( $http instanceof HTTP_Filter ) {
+				$http->remove_node();
+			}
+			$router = Core::node( '_router' );
+			if ( $router instanceof Router ) {
+				$router->remove_node();
+			}
+		}
+	}
+
+	/**
+	 * Build the `connected` Message envelope the SSE client expects as the
+	 * first event on the stream. Carries the session pid (for pivoted
+	 * commands' FROM stamp), slot index (M4: concurrency cap), the list
+	 * of subscriptions the server actually opened (echo to confirm the
+	 * client's request was parsed), and the heartbeat/flush interval.
+	 *
+	 * @param array<int,string> $subs
+	 */
+	private function build_connected_msg( int $slot, array $subs, int $interval ): array {
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_INFO;
+		// connected fires BEFORE the drain loop seeds `Core::$now`; fall
+		// back to microtime() so the envelope carries a real timestamp.
+		$msg[ Message::TIMESTAMP ] = 0.0 !== Core::$now ? Core::$now : \microtime( true );
+		$msg[ Message::FROM ]      = '_stream';
+		$msg[ Message::KEY ]       = 'connected';
+		$msg[ Message::VALUE ]     = [
+			'pid'           => \getmypid(),
+			'slot'          => $slot,
+			'subscriptions' => $subs,
+			'interval'      => $interval,
+		];
+		return $msg;
 	}
 }
