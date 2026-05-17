@@ -105,3 +105,11 @@ test( 'valueSize returns 0 when VALUE is null or undefined', () => {
 	m[ VALUE ] = undefined;
 	expect( valueSize( m ) ).toBe( 0 );
 } );
+
+test( 'valueSize on multibyte string returns UTF-8 byte count, not char count', () => {
+	const m = newMessage();
+	m[ VALUE ] = 'é'; // 1 JS char, 2 UTF-8 bytes — matches PHP strlen()
+	expect( valueSize( m ) ).toBe( 2 );
+	m[ VALUE ] = '日本'; // 2 JS chars, 6 UTF-8 bytes (3 each)
+	expect( valueSize( m ) ).toBe( 6 );
+} );
