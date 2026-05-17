@@ -236,45 +236,51 @@ class Messages_Stream_Controller {
 		// M1 stub: slot acquisition (memcache-based concurrency cap)
 		// arrives in M4 alongside the migrated Memcached_Cache.
 		$slot = 1;
+		// `connected` envelope emits BEFORE the substrate graph is built —
+		// it doesn't register any nodes, so it stays outside the try/finally.
 		$this->send_sse_event( 'msg', $this->build_connected_msg( $slot, $subs, $interval ) );
 
-		// SSE-process substrate graph. Same naming convention as worker
-		// processes (`_router`, `_http`) so cli REPL inspection of an SSE
-		// process feels the same as inspecting a worker.
-		( new Router() )->name( '_router' );
-		$emit = function ( array $m ): void {
-			$this->send_sse_event( 'msg', $m );
-		};
-		( new HTTP_Filter( (int) \getmypid(), $emit ) )->name( '_http' );
-
-		// Sink for non-pivoted SSE traffic (raw log tails, heartbeats).
-		// Empty TO → emit directly. Non-empty TO → route through _router
-		// so HTTP_Filter can gate per-session pivoted replies.
-		$direct_sink = new Callback(
-			static function ( array &$m ) use ( $emit ): void {
-				if ( '' === $m[ Message::TO ] ) {
-					$emit( $m );
-					return;
-				}
-				$router = Core::node( '_router' );
-				if ( null !== $router ) {
-					$router->fill( $m );
-				}
-			}
-		);
-		$direct_sink->name( '_stream_sink' );
-
-		$consumers = [];
-		foreach ( $subs as $sub ) {
-			$pos = $positions[ $sub ] ?? null;
-			foreach ( $this->open_subscription( $sub, $pos ) as $c ) {
-				$c->sink( $direct_sink );
-				$consumers[] = $c;
-			}
-		}
-
-		$iterations = 0;
+		$consumers   = [];
+		$direct_sink = null;
 		try {
+			// SSE-process substrate graph. Same naming convention as worker
+			// processes (`_router`, `_http`) so cli REPL inspection of an SSE
+			// process feels the same as inspecting a worker. Build INSIDE the
+			// try so the finally cleans up even when open_subscription throws
+			// (path-traversal InvalidArgumentException) — otherwise the next
+			// SSE request hits `node name collision: _router already registered`.
+			( new Router() )->name( '_router' );
+			$emit = function ( array $m ): void {
+				$this->send_sse_event( 'msg', $m );
+			};
+			( new HTTP_Filter( (int) \getmypid(), $emit ) )->name( '_http' );
+
+			// Sink for non-pivoted SSE traffic (raw log tails, heartbeats).
+			// Empty TO → emit directly. Non-empty TO → route through _router
+			// so HTTP_Filter can gate per-session pivoted replies.
+			$direct_sink = new Callback(
+				static function ( array &$m ) use ( $emit ): void {
+					if ( '' === $m[ Message::TO ] ) {
+						$emit( $m );
+						return;
+					}
+					$router = Core::node( '_router' );
+					if ( null !== $router ) {
+						$router->fill( $m );
+					}
+				}
+			);
+			$direct_sink->name( '_stream_sink' );
+
+			foreach ( $subs as $sub ) {
+				$pos = $positions[ $sub ] ?? null;
+				foreach ( $this->open_subscription( $sub, $pos ) as $c ) {
+					$c->sink( $direct_sink );
+					$consumers[] = $c;
+				}
+			}
+
+			$iterations = 0;
 			EventFramework::instance()->drain(
 				function () use ( &$iterations ): bool {
 					if ( $this->test_mode ) {
@@ -287,7 +293,9 @@ class Messages_Stream_Controller {
 			foreach ( $consumers as $c ) {
 				$c->remove_node();
 			}
-			$direct_sink->remove_node();
+			if ( null !== $direct_sink ) {
+				$direct_sink->remove_node();
+			}
 			$http = Core::node( '_http' );
 			if ( $http instanceof HTTP_Filter ) {
 				$http->remove_node();

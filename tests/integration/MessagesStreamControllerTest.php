@@ -15,6 +15,7 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Integration;
 
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition;
 use Newspack_Nodes\Rest\Messages_Stream_Controller;
@@ -48,14 +49,24 @@ class MessagesStreamControllerTest extends TestCase {
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );
-		$ctrl->set_test_iterations( 5 );
+		// 20 ticks is enough for the Consumer's busy-poll cycle to seek to
+		// 'start', read both lines, emit them through the sink, and let the
+		// SSE writes hit the captured stdout buffer.
+		$ctrl->set_test_iterations( 20 );
 
 		\ob_start();
-		$ctrl->run_stream_loop( [ 'firehose' ], null, 500 );
+		// Per-subscription positions, keyed first by subscription name then
+		// by partition index (matches `open_subscription`'s `$positions[$p]`
+		// loop). 'start' is a magic value `Consumer::next_offset` accepts
+		// (cursor → seg 0 / off 0). Without this, the Consumer tail-seeks
+		// via 'end' and the two pre-populated lines never reach the SSE
+		// output — the test passes without exercising line forwarding.
+		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose' => [ 0 => 'start' ] ], 500 );
 		$out = \ob_get_clean();
 
 		$events = $this->split_sse_events( $out );
-		$this->assertGreaterThanOrEqual( 1, \count( $events ) );
+		// connected + line-one + line-two = at least 3 events.
+		$this->assertGreaterThanOrEqual( 3, \count( $events ) );
 
 		// First event should be connected.
 		$this->assertSame( 'msg', $events[0]['event'] );
@@ -63,7 +74,49 @@ class MessagesStreamControllerTest extends TestCase {
 		$this->assertSame( 'connected', $first[ Message::KEY ] );
 		$this->assertArrayHasKey( 'pid', $first[ Message::VALUE ] );
 
+		// Subsequent events carry the line-one / line-two VALUEs. Each
+		// TM_BYTESTREAM message the Consumer emits gets JSON-encoded into
+		// a single SSE `msg` event.
+		$values = [];
+		foreach ( \array_slice( $events, 1 ) as $ev ) {
+			$decoded = \json_decode( $ev['data'], true );
+			if ( \is_array( $decoded ) && isset( $decoded[ Message::VALUE ] ) ) {
+				$values[] = $decoded[ Message::VALUE ];
+			}
+		}
+		$this->assertContains( "line-one\n", $values );
+		$this->assertContains( "line-two\n", $values );
+
 		$this->rmdir_recursive( $base );
+	}
+
+	/**
+	 * A subscription that throws (e.g. path-traversal `../etc/passwd`) MUST
+	 * NOT leave `_router`, `_http`, or `_stream_sink` registered in the
+	 * substrate. If it does, the next SSE request hits `node name collision:
+	 * _router already registered` on `Router->name('_router')` and every
+	 * subsequent stream blows up until the process recycles.
+	 */
+	public function test_invalid_subscription_does_not_leak_substrate_nodes(): void {
+		$ctrl = new Messages_Stream_Controller();
+		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-stream-leak-' ) );
+		$ctrl->set_num_partitions( 1 );
+		$ctrl->set_test_mode( true );
+		$ctrl->set_test_iterations( 5 );
+
+		try {
+			\ob_start();
+			$ctrl->run_stream_loop( [ '../etc/passwd' ], null, 500 );
+			$this->fail( 'expected InvalidArgumentException' );
+		} catch ( \InvalidArgumentException $e ) {
+			// expected
+		} finally {
+			\ob_get_clean();
+		}
+
+		$this->assertNull( Core::node( '_router' ) );
+		$this->assertNull( Core::node( '_http' ) );
+		$this->assertNull( Core::node( '_stream_sink' ) );
 	}
 
 	/**
