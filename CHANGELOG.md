@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`newspack_nodes/request_graph_ready` action — applications mount service CIs here.** Fires from `Command_Controller::dispatch()` after building the request-scope graph (`_router`, `_command_interpreter`, `_http`). Hook signature: `function ( \Newspack_Nodes\CommandInterpreter $base_ci ): void`. Application plugins (the first being `newspack-event-logger-nodes`) hook this and call `$base_ci->make_node( $shell_name, $node_name, ...$ctor_args )` to atomically instantiate + name + sink each service CI in one step. The sink wiring is what closes the loop — verb responses walk back via `TO=FROM` through the base CI → router → `_http`. CIs registered without the sink (e.g. via a bare `register_class()` + manual name) silently drop their replies.
+- **`Command_Controller::dispatch()` lazy-builds the request-scope graph.** REST requests to `/command` previously assumed some earlier entry point had already built the graph and returned 500 (`request-scope graph not initialized`) when none had. CLI/workers/SSE controllers each build their own; the REST path had no equivalent. The new `ensure_request_graph()` helper is idempotent — call sites that pre-build pay nothing.
+
+### Added
+
 - **`node_schema` advertises `accepts_fill` and `has_target` port flags.** Default Node returns both as `true`. Tail/Consumer override `accepts_fill: false` (pure producers — no upstream `fill()`); Partition/Log override `has_target: false` (terminal storage — no downstream forwarding). The substrate REST `/classes` endpoint passes both through; the topology canvas conditionally renders the IN / OUT port circles per flag, so Consumer/Tail nodes no longer show an unwired left-side input port and Partition/Log nodes no longer show an unwired right-side output port. Edit-mode wire-dragging naturally inherits the constraint — you can't initiate a wire from a port that doesn't render.
 - **`Timer::node_schema()` merges from `parent::node_schema()`** so subclasses (Tail, Consumer, Partition) inherit the port-flag defaults through the Node → Timer → subclass chain.
 
