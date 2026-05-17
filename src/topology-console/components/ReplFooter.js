@@ -60,6 +60,8 @@ export default function ReplFooter( {
 	transcript = [],
 	expanded,
 	onExpandedChange,
+	// Optional external ref so the parent can blur / re-focus the prompt.
+	inputRef: externalInputRef,
 } ) {
 	const [ value, setValue ] = useState( '' );
 	const setExpanded = ( next ) => {
@@ -70,7 +72,8 @@ export default function ReplFooter( {
 		}
 	};
 	const logRef = useRef( null );
-	const inputRef = useRef( null );
+	const internalInputRef = useRef( null );
+	const inputRef = externalInputRef ?? internalInputRef;
 	const [ height, setHeight ] = useState(
 		() => loadStoredHeight() ?? defaultHeight()
 	);
@@ -348,6 +351,13 @@ export default function ReplFooter( {
 					value={ value }
 					onChange={ ( ev ) => setValue( ev.target.value ) }
 					onKeyDown={ handleKeyDown }
+					// Focus → show transcript. The reverse half of the
+					// invariant (blur → hide) is handled explicitly by the
+					// canvas-background-click consumer + Escape handler;
+					// using onBlur here would also fire when focus moves to
+					// a node click / Inspector button, collapsing the pane
+					// when we don't want it to.
+					onFocus={ () => setExpanded( true ) }
 					disabled={ ! canSend }
 					autoComplete="off"
 					spellCheck="false"
