@@ -32,4 +32,16 @@ class HTTPFilterTest extends TestCase {
 		$f->fill( $msg );
 		$this->assertCount( 0, $emitted );
 	}
+
+	public function test_counter_increments_even_when_message_is_dropped(): void {
+		$emitted = [];
+		$f = new HTTP_Filter( 12345, static function ( array $msg ) use ( &$emitted ): void {
+			$emitted[] = $msg;
+		} );
+		$msg                = Message::new_message();
+		$msg[ Message::TO ] = '99999';  // Different session.
+		$f->fill( $msg );
+		$this->assertCount( 0, $emitted );
+		$this->assertSame( 1, $f->counter() );
+	}
 }
