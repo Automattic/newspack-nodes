@@ -167,7 +167,7 @@ class Log extends Node {
 	}
 
 	public static function node_schema(): array {
-		return [
+		return \array_merge( parent::node_schema(), [
 			'category'    => 'I/O',
 			'description' => 'Append-only file writer with rotation by line count.',
 			'ctor'        => [
@@ -183,6 +183,7 @@ class Log extends Node {
 					'args'        => [],
 				],
 			],
-		];
+			'has_target'  => false,
+		] );
 	}
 }

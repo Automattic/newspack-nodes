@@ -785,7 +785,7 @@ class Consumer extends Timer {
 	}
 
 	public static function node_schema(): array {
-		return [
+		return \array_merge( parent::node_schema(), [
 			'category'    => 'I/O',
 			'description' => 'Tails a Partition; emits each appended message to its sink.',
 			'ctor'        => [
@@ -793,7 +793,7 @@ class Consumer extends Timer {
 				[ 'name' => 'source_partition',   'type' => 'int',    'required' => true, 'default' => '<partition>' ],
 				[ 'name' => 'offsetlog_base_dir', 'type' => 'string', 'default' => '' ],
 			],
-			'verbs'       => [],
+			'accepts_fill' => false,
 			'requests'    => [
 				[
 					'name'        => 'GET_LAG',
@@ -806,6 +806,6 @@ class Consumer extends Timer {
 					'reply_shape' => '{ cursor_seg, cursor_off, checkpoint_seg, checkpoint_off, last_checkpoint_ts }',
 				],
 			],
-		];
+		] );
 	}
 }

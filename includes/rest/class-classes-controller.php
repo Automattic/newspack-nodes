@@ -58,13 +58,15 @@ class ClassesController {
 				continue;
 			}
 			$classes[] = [
-				'shell_name'  => $shell_name,
-				'fqcn'        => $fqcn,
-				'category'    => $cat,
-				'description' => $schema['description'] ?? '',
-				'ctor'        => $schema['ctor']     ?? [],
-				'verbs'       => $schema['verbs']    ?? [],
-				'requests'    => $schema['requests'] ?? [],
+				'shell_name'   => $shell_name,
+				'fqcn'         => $fqcn,
+				'category'     => $cat,
+				'description'  => $schema['description'] ?? '',
+				'ctor'         => $schema['ctor']     ?? [],
+				'verbs'        => $schema['verbs']    ?? [],
+				'requests'     => $schema['requests'] ?? [],
+				'accepts_fill' => (bool) ( $schema['accepts_fill'] ?? true ),
+				'has_target'   => (bool) ( $schema['has_target'] ?? true ),
 			];
 		}
 		\usort(

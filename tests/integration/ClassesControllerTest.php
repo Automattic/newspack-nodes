@@ -131,6 +131,32 @@ class ClassesControllerTest extends TestCase {
 		}
 	}
 
+	public function test_get_classes_passes_through_port_flags(): void {
+		// `accepts_fill` and `has_target` drive the schematic renderer's
+		// per-class IN/OUT port visibility. The controller must surface
+		// them so the React canvas can read them off the catalog.
+		$body = ( new ClassesController() )
+			->get_classes( new \WP_REST_Request() )
+			->get_data();
+		$by_shell = [];
+		foreach ( $body['classes'] as $entry ) {
+			$by_shell[ $entry['shell_name'] ] = $entry;
+			$this->assertArrayHasKey( 'accepts_fill', $entry );
+			$this->assertArrayHasKey( 'has_target', $entry );
+			$this->assertIsBool( $entry['accepts_fill'] );
+			$this->assertIsBool( $entry['has_target'] );
+		}
+		// Spot-check the four classes whose ports differ from the default.
+		$this->assertFalse( $by_shell['Tail']['accepts_fill'] );
+		$this->assertTrue( $by_shell['Tail']['has_target'] );
+		$this->assertFalse( $by_shell['Consumer']['accepts_fill'] );
+		$this->assertTrue( $by_shell['Consumer']['has_target'] );
+		$this->assertTrue( $by_shell['Partition']['accepts_fill'] );
+		$this->assertFalse( $by_shell['Partition']['has_target'] );
+		$this->assertTrue( $by_shell['Log']['accepts_fill'] );
+		$this->assertFalse( $by_shell['Log']['has_target'] );
+	}
+
 	public function test_get_classes_skips_classes_without_node_schema(): void {
 		// Register a stub class with NO node_schema() method. It must be
 		// silently skipped — not surfaced in the response, not crashed on.
