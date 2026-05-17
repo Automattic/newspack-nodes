@@ -60,8 +60,11 @@ class CoreImpl {
 		this.stderr( msg );
 	}
 
-	// Rate-limited: prints once per 10 occurrences. Use for very common but
-	// tolerable conditions like NOT_AVAILABLE during normal startup.
+	// Rate-limited: emits on every Nth occurrence and resets the counter.
+	// Intentionally simpler than PHP `print_least_often`, which adds a 60s
+	// squelch window after each emit. The browser-tab lifecycle and lower
+	// message cardinality on the JS side don't need that extra guard — if
+	// a tight loop on the browser side ever drowns the console, revisit.
 	printLeastOften( msg ) {
 		const n = ( this._countSince.get( msg ) ?? 0 ) + 1;
 		if ( n < PRINT_LEAST_OFTEN_THRESHOLD ) {
