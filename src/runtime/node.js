@@ -78,6 +78,24 @@ export class Node {
 		return true;
 	}
 
+	/**
+	 * Multi-modal listener registration. The `event` MUST have been
+	 * pre-declared by the Node subclass via `this.registrations[event] = {}`;
+	 * `register` throws otherwise. This is intentional (not a defensive
+	 * check) — it forces subclasses to declare the events they emit.
+	 *
+	 * `cb === null` selects node-name dispatch: at notify time, the
+	 * `listener` string is looked up via `Core.node(listener)` and a
+	 * TM_INFO message is forwarded to that node. Otherwise `cb` is a
+	 * closure called with the payload; returning `false` self-unregisters.
+	 *
+	 * If the event has a cached `setState` payload, the new listener
+	 * receives it immediately at register time.
+	 *
+	 * @param {string}        event    Pre-declared event name on this node.
+	 * @param {string}        listener Listener id; in node-name mode this MUST be a registered node name.
+	 * @param {Function|null} cb       Closure dispatch when truthy; node-name dispatch when null.
+	 */
 	register( event, listener, cb = null ) {
 		if ( ! ( event in this.registrations ) ) {
 			throw new Error( `no such event: ${ event }` );
