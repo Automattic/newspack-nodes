@@ -4,6 +4,18 @@ Generic message-passing runtime for PHP/WordPress: a Tachikoma-style node graph.
 
 Every node honors one contract: `fill( array &$message ): void`. That uniformity is what lets composition work — any node can sink into any other node.
 
+## Workflow discipline (mandatory)
+
+Every code-writing turn — main Claude AND every subagent dispatched via the Agent tool — MUST:
+
+1. **Invoke `superpowers:test-driven-development` BEFORE writing any code.** No production code without a failing test first.
+2. **Invoke `superpowers:simplify` BEFORE every commit.** Review changed code for reuse, quality, efficiency; fix issues before committing.
+
+Subagent prompts MUST include the literal phrase:
+> "Invoke `superpowers:test-driven-development` via the Skill tool BEFORE writing any code. Invoke `superpowers:simplify` via the Skill tool BEFORE every commit. Both are mandatory; do not skip."
+
+Subagents have no memory of conversation conventions; omission is a workflow violation. See `~/.claude/rules/workflow-discipline.md`.
+
 ## Code Style
 
 WordPress VIP Go (enforced by `phpcs.xml.dist`):

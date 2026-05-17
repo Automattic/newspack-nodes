@@ -17,6 +17,10 @@ abstract class TestCase extends PHPUnitTestCase {
 			// needed here. Tests that need to assert on emitted text set their
 			// own handler via Core::set_stderr_handler( ... ).
 		}
+		// Reset the stubbed WP-options store so option state set by a
+		// previous test (dirty flag, fleet descriptors, etc.) doesn't
+		// bleed into this one.
+		$GLOBALS['_wp_options'] = [];
 	}
 
 	protected function make_temp_dir( string $prefix = 'newspack-nodes-test-' ): string {
