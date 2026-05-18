@@ -9,10 +9,6 @@
  * Hardening:
  *  - MAX_PARTITIONS=16 cap on partition counts read from topologies. Bounded
  *    loops downstream; matches the supervisor cleanup ceiling. Spec line 844.
- *  - register_standalone_workers() exposes the supervisor (and any future
- *    runtime-internal singleton workers) to SpawnController::validate_worker_type
- *    so SpawnController can accept type='supervisor' without round-tripping
- *    through the topologies filter.
  *  - run_supervisor_tick() invokes Supervisor::run() (the long-running 595s
  *    in-process tick loop), not a single iteration. Cron is the backstop;
  *    the supervisor's own loop is the primary scheduling mechanism.
@@ -116,22 +112,6 @@ class Bootstrap {
 			}
 		}
 		return $workers;
-	}
-
-	/**
-	 * Register runtime-internal standalone workers (the supervisor itself,
-	 * for now) so SpawnController::validate_worker_type can authorize them
-	 * without faking a topology entry.
-	 *
-	 * @return array<string,array> Map of type => config.
-	 */
-	public static function register_standalone_workers(): array {
-		return [
-			'supervisor' => [
-				'class'      => Supervisor::class,
-				'partitions' => false, // singleton — partition is always 0.
-			],
-		];
 	}
 
 	/**

@@ -247,7 +247,7 @@ class Supervisor extends SupervisorBase {
 			return false;
 		}
 
-		// Rebuild worker_locks from current topology + standalone-worker filters.
+		// Rebuild worker_locks from current topology.
 		// Filter iteration is cheap; no marker file or restart dance needed.
 		// Spec line 590.
 		$workers = Bootstrap::expand_workers();
@@ -330,7 +330,7 @@ class Supervisor extends SupervisorBase {
 	 *   - Previous supervisor left stale dirs we never spawned ourselves.
 	 *
 	 * Per dir:
-	 *   - Standalone runtime worker (supervisor, etc.) → leave alone.
+	 *   - Non-partitioned dir (supervisor, etc.) → leave alone.
 	 *   - In active fleet (type+partition both still wanted) → leave alone.
 	 *   - Otherwise → cold-removal attempt first; if dir survives (live
 	 *     worker), drop a restart flag so the worker exits on its next
@@ -357,18 +357,14 @@ class Supervisor extends SupervisorBase {
 		if ( empty( $candidates ) ) {
 			return;
 		}
-		$standalone = Bootstrap::register_standalone_workers();
 		foreach ( $candidates as $path ) {
 			$base = \basename( $path, '.lock.d' );
 			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $base, $m ) ) {
 				// Non-partitioned dir (e.g. supervisor.lock.d) — leave alone.
 				continue;
 			}
-			$type      = $m[1];
-			$partition = (int) $m[2];
-			if ( isset( $standalone[ $type ] ) ) {
-				continue;
-			}
+			$type           = $m[1];
+			$partition      = (int) $m[2];
 			$max_partitions = $this->active_types[ $type ] ?? 0;
 			if ( $partition < $max_partitions ) {
 				// In fleet — leave alone.

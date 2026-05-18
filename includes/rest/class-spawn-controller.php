@@ -14,11 +14,9 @@
  *
  * Validation:
  *   - validate_worker_type: type must be in expand_workers() topology types
- *     OR register_standalone_workers() (currently 'supervisor'). Prevents
- *     spinning up arbitrary class names.
+ *     OR 'supervisor'. Prevents spinning up arbitrary class names.
  *   - validate_partition: partition must satisfy 0 <= p < num_partitions
- *     for the type (read from the topology). Standalone workers with
- *     partitions=false require partition===0.
+ *     for the type (read from the topology). Supervisor requires partition===0.
  *
  * Special case: type='supervisor' invokes Supervisor::run() synchronously
  * inside the spawn handler. The worker IS the supervisor; no separate fork
@@ -87,7 +85,7 @@ class SpawnController {
 	/**
 	 * Validate a worker type. Accepts:
 	 *  - any type registered in the topology filter (via expand_workers).
-	 *  - any type registered as a standalone worker (currently: 'supervisor').
+	 *  - 'supervisor'.
 	 *
 	 * Reject unknown types with a 400 — prevents the spawn endpoint from
 	 * being used to instantiate arbitrary classes via the type parameter.
@@ -102,8 +100,7 @@ class SpawnController {
 			return false;
 		}
 
-		$standalone = Bootstrap::register_standalone_workers();
-		if ( isset( $standalone[ $type ] ) ) {
+		if ( 'supervisor' === $type ) {
 			return true;
 		}
 
@@ -117,8 +114,7 @@ class SpawnController {
 
 	/**
 	 * Validate a partition number for a given type. Must be in
-	 * [0, num_partitions) for that type. Standalone non-partitioned workers
-	 * (partitions=false) require partition===0.
+	 * [0, num_partitions) for that type. Supervisor requires partition===0.
 	 *
 	 * @param string $type Worker type.
 	 * @param int    $partition Partition number.
@@ -132,11 +128,9 @@ class SpawnController {
 			return false;
 		}
 
-		// Standalone path first — these set partition expectations explicitly.
-		$standalone = Bootstrap::register_standalone_workers();
-		if ( isset( $standalone[ $type ] ) ) {
-			$has_partitions = ! empty( $standalone[ $type ]['partitions'] );
-			return $has_partitions ? true : ( 0 === $partition );
+		// Supervisor path first.  There can be only one.
+		if ( 'supervisor' === $type ) {
+			return 0 === $partition;
 		}
 
 		// Topology path: partition must be < num_partitions for the type.
