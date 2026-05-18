@@ -115,6 +115,9 @@ if ( \function_exists( 'add_action' ) ) {
 	\add_action( 'newspack_nodes/supervisor', [ '\\Newspack_Nodes\\Bootstrap', 'run_supervisor_tick' ] );
 	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\WorkerCliCommand', 'restart_fleet_by_name' ] );
 	\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
+	// Long-lived workers that survive a config reload need their on-disk
+	// log view invalidated so newly-created log dirs become visible.
+	\add_action( \Newspack_Nodes\Config::RESET_ACTION, [ '\\Newspack_Nodes\\Log_Discovery', 'reset' ] );
 	// Self-heal: if logging is on and a topology is selected but the
 	// supervisor cron got cleared (DB rebuild, manual wp cron delete, etc.),
 	// re-arm it on the next admin page view rather than waiting for the
