@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`Partition::read_at` no longer rejects reads larger than `MAX_READ_SIZE` (10MB).** The cap was misapplied at the buffer-allocation layer; it's meant as a per-record ceiling for framers (a single decoded record larger than 10MB is corrupt or malicious). A legitimate full-segment read of a long-lived offsetlog can exceed 10MB before the segment rotates — segment_size config defaults to 16MB. Pre-fix, `read_at($id, 0, $size)` silently returned `''` once the segment grew past 10MB, which broke three callers in different ways: (1) `Consumer::load_offsetlog` lost the checkpoint and reset cursor to (0,0) on restart, causing the worker to reprocess the entire upstream log; (2) downstream `Workers_CI::read_offsetlog_latest_entry` dropped the consumer row, hiding worker cards in the dashboard; (3) `StreamMerger::restore_position_for` fell back to the previous segment (often also >10MB), ultimately returning null and reseting the hub's cross-server position. Removing the cap from `read_at` (negatives still rejected; PHP's fread bounds memory by file size) restores all three. The constant survives as documented intent — per-record ceiling, not per-call.
+
 ### Removed
 
 - **`Bootstrap::register_standalone_workers()` — the map of singleton runtime workers.** Returned a single-entry array `{ supervisor: { class, partitions: false } }` consulted by `SpawnController` (validate_worker_type, validate_partition) and `Supervisor` (cleanup_lock_dirs candidate filter). With only one entry and no realistic extension path, the factory was scaffolding for a polymorphism that never arrived — every caller now inlines `'supervisor' === $type` at the one place it actually matters. Substrate stays simpler.
