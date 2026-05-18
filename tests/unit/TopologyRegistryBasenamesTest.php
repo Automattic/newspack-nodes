@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Config;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -141,6 +142,39 @@ TSL
 
 		$this->assertSame( $first, Topology_Registry::basenames_for( 'memo' ) );
 		$this->assertSame( [ 'foo' ], $first );
+	}
+
+	public function test_config_reset_action_clears_basename_cache_but_preserves_stock_dirs(): void {
+		// Workers surviving a `Config::reset()` need their basename cache
+		// invalidated so newly-edited TSLs are re-read. Unlike `reset()`
+		// (which tears down stock_dirs + user_dir for test isolation), the
+		// RESET_ACTION wiring must NOT clear those — production workers
+		// would lose the topology lookup entirely. Pin both halves.
+		$this->write_tsl(
+			'wired',
+			"make_node Partition v1:partition <config:logs_dir>/v1.log <partition>\n"
+		);
+		// Re-register the boot-time wiring; other tests in the suite wipe
+		// `$GLOBALS['_wp_actions']` to isolate, dropping the registration
+		// `newspack-nodes.php` adds at plugin load.
+		\add_action(
+			Config::RESET_ACTION,
+			[ Topology_Registry::class, 'reset_basename_cache' ]
+		);
+
+		$this->assertSame( [ 'v1' ], Topology_Registry::basenames_for( 'wired' ) );
+
+		// Edit the TSL behind the cache's back.
+		\file_put_contents(
+			"{$this->tmp}/wired.tsl",
+			"make_node Partition v2:partition <config:logs_dir>/v2.log <partition>\n"
+		);
+		\do_action( Config::RESET_ACTION );
+
+		// Cache invalidated → fresh parse.
+		$this->assertSame( [ 'v2' ], Topology_Registry::basenames_for( 'wired' ) );
+		// stock_dirs survived — `wired` still resolves.
+		$this->assertNotNull( Topology_Registry::resolve( 'wired' ) );
 	}
 
 	public function test_reset_clears_basename_cache(): void {

@@ -116,8 +116,12 @@ if ( \function_exists( 'add_action' ) ) {
 	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\WorkerCliCommand', 'restart_fleet_by_name' ] );
 	\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
 	// Long-lived workers that survive a config reload need their on-disk
-	// log view invalidated so newly-created log dirs become visible.
+	// log view invalidated so newly-created log dirs become visible AND
+	// their per-topology basename cache cleared so newly-edited TSLs are
+	// re-read. Narrow reset_basename_cache() keeps `Topology_Registry`'s
+	// stock_dirs + user_dir intact (the full `reset()` is test-only).
 	\add_action( \Newspack_Nodes\Config::RESET_ACTION, [ '\\Newspack_Nodes\\Log_Discovery', 'reset' ] );
+	\add_action( \Newspack_Nodes\Config::RESET_ACTION, [ '\\Newspack_Nodes\\Topology_Registry', 'reset_basename_cache' ] );
 	// Self-heal: if logging is on and a topology is selected but the
 	// supervisor cron got cleared (DB rebuild, manual wp cron delete, etc.),
 	// re-arm it on the next admin page view rather than waiting for the
