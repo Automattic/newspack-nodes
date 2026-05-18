@@ -1,39 +1,33 @@
 /**
- * useSaveTopology — POST /newspack-nodes/v1/topologies/{name}.
+ * useSaveTopology — dispatch `topologies.save` via the M4 CommandClient.
  *
- * Wraps apiFetch with the right query string (?_wpnonce=…) and body
- * type. Returns the server's response body verbatim:
+ * Returns the server's verb payload verbatim:
  *   { name, path, shadows_stock, restarted_fleets }
- * 4xx errors throw with `e.data.code` / `e.data.message` populated by
- * apiFetch's standard rejection shape.
+ * On verb error (validation failed, body too large, permission denied,
+ * etc.) the underlying `unwrapCommandResponse` throws an Error whose
+ * `.message` is the verb's RuntimeException text — e.g.
+ * "validation failed at line 3: forbidden verb 'if'". Callers display
+ * it via `e.message`.
  *
- * Why save_nonce as a custom query param: WordPress's apiFetch nonce
- * middleware injects the wp_rest nonce in X-WP-Nonce on every request
- * and supersedes ours, so a per-action nonce passed via header is
- * silently overwritten. The standard `_wpnonce` query param IS
- * available — but WP's cookie auth layer reads it first and verifies
- * it against the `wp_rest` action, which our save-topology nonce
- * obviously fails. A non-standard param name (`save_nonce`) sidesteps
- * the cookie auth path; the controller reads it explicitly.
+ * Per-action nonces are no longer required: the substrate's
+ * `Command_Controller` gates on `manage_options` + the standard
+ * `X-WP-Nonce` (`wp_rest` action) that CommandClient already injects
+ * from `window.NewspackNodesData.nonce`. The legacy save_nonce
+ * query-string dance was a workaround for apiFetch's nonce middleware
+ * shadowing per-action nonces; CommandClient bypasses apiFetch.
  */
 
 import { useCallback } from '@wordpress/element';
-import apiFetch from '@wordpress/api-fetch';
+import { getCommandClient } from '../utils/commandClient';
+import unwrapCommandResponse from '../utils/unwrapCommandResponse';
 
 export function useSaveTopology() {
 	return useCallback( async ( { name, tsl } ) => {
-		const nonce =
-			( window.NewspackNodesData &&
-				window.NewspackNodesData.saveTopologyNonce ) ||
-			'';
-		return apiFetch( {
-			path: `/newspack-nodes/v1/topologies/${ encodeURIComponent(
-				name
-			) }?save_nonce=${ encodeURIComponent( nonce ) }`,
-			method: 'POST',
-			headers: { 'Content-Type': 'text/plain' },
-			body: tsl,
-			parse: true,
+		const message = await getCommandClient().send( {
+			to: 'topologies',
+			verb: 'save',
+			args: { name, tsl },
 		} );
+		return unwrapCommandResponse( message );
 	}, [] );
 }

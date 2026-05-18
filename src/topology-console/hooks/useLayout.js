@@ -1,5 +1,6 @@
 /**
- * useLayout — fetch and save canvas-position layouts.
+ * useLayout — fetch and save canvas-position layouts via the M4
+ * CommandClient pipe (`layouts.get` / `.save`).
  *
  * Layouts are decoupled from topologies (a topology's TSL describes
  * graph structure; a layout file describes node positions). One
@@ -9,32 +10,33 @@
  * Returns:
  *   - fetchLayout(name) → Promise<{ name, positions: {id: [x,y]} | null }>
  *   - saveLayout({ name, positions }) → Promise<{ name, path, positions }>
+ *
+ * Per-action nonces are no longer required (see useSaveTopology for
+ * the reasoning); auth is `manage_options` + the standard X-WP-Nonce
+ * that CommandClient injects.
  */
 
 import { useCallback } from '@wordpress/element';
-import apiFetch from '@wordpress/api-fetch';
+import { getCommandClient } from '../utils/commandClient';
+import unwrapCommandResponse from '../utils/unwrapCommandResponse';
 
 export function useLayout() {
 	const fetchLayout = useCallback( async ( name ) => {
-		return apiFetch( {
-			path: `/newspack-nodes/v1/layouts/${ encodeURIComponent( name ) }`,
+		const message = await getCommandClient().send( {
+			to: 'layouts',
+			verb: 'get',
+			args: { name },
 		} );
+		return unwrapCommandResponse( message );
 	}, [] );
 
 	const saveLayout = useCallback( async ( { name, positions } ) => {
-		const nonce =
-			( window.NewspackNodesData &&
-				window.NewspackNodesData.saveLayoutNonce ) ||
-			'';
-		return apiFetch( {
-			path:
-				`/newspack-nodes/v1/layouts/${ encodeURIComponent( name ) }` +
-				`?save_nonce=${ encodeURIComponent( nonce ) }`,
-			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
-			body: JSON.stringify( { positions } ),
-			parse: true,
+		const message = await getCommandClient().send( {
+			to: 'layouts',
+			verb: 'save',
+			args: { name, positions },
 		} );
+		return unwrapCommandResponse( message );
 	}, [] );
 
 	return { fetchLayout, saveLayout };
