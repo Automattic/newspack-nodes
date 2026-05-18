@@ -209,7 +209,13 @@ class Messages_Stream_Controller {
 				} else {
 					$consumer->next_offset( 'end' );
 				}
-				$consumer->set_stamp_as( $sub );
+				// Stamp `{sub}.p{N}` (matching the IPC subscription shape) so
+				// the dashboard JS can parse partition out of the Message FROM
+				// field without a sidecar metadata channel. The legacy
+				// per-feed SSE controllers carried partition in a `{p, line}`
+				// batch payload; on the unified endpoint the per-Message
+				// envelope IS the wire format, so partition lives in FROM.
+				$consumer->set_stamp_as( "{$sub}.p{$p}" );
 				$consumers[] = $consumer;
 			}
 			return $consumers;
