@@ -250,6 +250,33 @@ class CommandControllerTest extends TestCase {
 		$this->assertSame( $pre_base_ci, $fires[0] );
 	}
 
+	/**
+	 * `newspack_nodes_mount_substrate_cis` must be safe to invoke twice within
+	 * one PHP process. The action it's hooked to (`request_graph_ready`) fires
+	 * once per `Command_Controller::dispatch`, but production has seen the
+	 * action handler run twice in a single request — likely via plugin file
+	 * re-loaded by some bootstrap path — and the second call fatals with
+	 * `node name collision: workers already registered`. That kills the whole
+	 * REST response with a 500. Idempotency is the cheap fix: skip if the CIs
+	 * are already mounted under this base CI.
+	 */
+	public function test_mount_substrate_cis_is_idempotent(): void {
+		$base_ci = $this->build_graph();
+		$names   = [ 'classes', 'layouts', 'topologies', 'raw-logs', 'workers' ];
+
+		\newspack_nodes_mount_substrate_cis( $base_ci );
+		foreach ( $names as $name ) {
+			$this->assertNotNull( Core::node( $name ), "first mount must create '{$name}'" );
+		}
+
+		// Second invocation must not throw "node name collision".
+		\newspack_nodes_mount_substrate_cis( $base_ci );
+
+		foreach ( $names as $name ) {
+			$this->assertNotNull( Core::node( $name ), "second mount must leave '{$name}' present" );
+		}
+	}
+
 	public function test_ipc_command_emits_202_ack_and_writes_to_worker_input(): void {
 		$this->build_graph();
 

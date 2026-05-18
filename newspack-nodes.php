@@ -105,6 +105,15 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
  * callback without duplicating the mount logic.
  */
 function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\CommandInterpreter $base_ci ): void {
+	// Idempotency guard. The `newspack_nodes/request_graph_ready` action
+	// has been observed firing twice in the same PHP request in production —
+	// without this guard the second invocation throws "node name collision:
+	// workers already registered" at make_node('Workers_CI', 'workers') and
+	// fatals the REST response with a 500.
+	if ( null !== \Newspack_Nodes\Core::node( 'workers' ) ) {
+		return;
+	}
+
 	$base_ci->make_node( 'Classes_CI',    'classes' );
 	$base_ci->make_node( 'Layouts_CI',    'layouts' );
 	$base_ci->make_node( 'Topologies_CI', 'topologies' );
