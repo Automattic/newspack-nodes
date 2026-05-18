@@ -51,9 +51,9 @@ class Raw_Logs_CI extends Service_CI {
 					}
 					return (string) \wp_json_encode( $result );
 				},
-				'firehose_status' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): string {
+				'firehose_status' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): string {
 					self::require_manage_options();
-					$decoded = self::decode_args( $args );
+					$decoded = \is_array( $payload ) ? $payload : [];
 					$log_key = self::resolve_log_key( (string) ( $decoded['log'] ?? '' ) );
 
 					$config         = RuntimeConfig::load_config();

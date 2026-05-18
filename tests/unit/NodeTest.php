@@ -53,26 +53,6 @@ class NodeTest extends TestCase {
 		$this->assertSame( 1, $n->counter() );
 	}
 
-	public function test_fill_tracks_largest_msg_sent_across_calls(): void {
-		$src = new class extends Node {};
-		$dst = new CaptureSink();
-		$src->sink( $dst );
-
-		$small                       = Message::new_message();
-		$small[ Message::VALUE ]     = 'small'; // strlen 5
-		$src->fill( $small );
-
-		$big                       = Message::new_message();
-		$big[ Message::VALUE ]     = \str_repeat( 'x', 100 ); // strlen 100
-		$src->fill( $big );
-
-		$medium                       = Message::new_message();
-		$medium[ Message::VALUE ]     = \str_repeat( 'y', 50 ); // strlen 50 - shouldn't lower the max
-		$src->fill( $medium );
-
-		$this->assertSame( 100, $src->largest_msg_sent() );
-	}
-
 	public function test_default_fill_forwards_to_sink(): void {
 		$src = new class extends Node {}; // default fill() forwards
 		$dst = new CaptureSink();

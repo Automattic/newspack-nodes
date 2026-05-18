@@ -27,7 +27,7 @@ class WorkerLifecycleTest extends TestCase {
 
 		$topology = function ( $ci, int $partition ) {
 			\Newspack_Nodes\CommandInterpreter::register_class( 'CaptureSink', \Newspack_Nodes\Tests\CaptureSink::class );
-			$ci->execute( 'make_node CaptureSink echo' );
+			$ci->dispatch( 'make_node', 'CaptureSink echo' );
 		};
 		$w->run_topology( $topology, $interpreter );
 

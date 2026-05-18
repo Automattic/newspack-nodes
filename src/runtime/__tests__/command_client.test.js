@@ -23,7 +23,7 @@ test( 'send defaults FROM=_http for local commands', async () => {
 	await client.send( {
 		to: 'performance',
 		verb: 'overview',
-		args: { range: '1h' },
+		payload: { range: '1h' },
 	} );
 	expect( global.fetch ).toHaveBeenCalledTimes( 1 );
 	const [ url, opts ] = global.fetch.mock.calls[ 0 ];
@@ -36,7 +36,11 @@ test( 'send defaults FROM=_http for local commands', async () => {
 	expect( body.from ).toBe( '_http' );
 	const value = JSON.parse( body.value );
 	expect( value.name ).toBe( 'overview' );
-	expect( JSON.parse( value.arguments ) ).toEqual( { range: '1h' } );
+	// `arguments` is a literal-string CLI tail (default '' when caller passes
+	// structured data via `payload` instead). `payload` carries the actual
+	// args object — no JSON-string-in-string nesting.
+	expect( value.arguments ).toBe( '' );
+	expect( value.payload ).toEqual( { range: '1h' } );
 } );
 
 test( 'send with ssePid produces FROM=_http/<ssePid> for pivoted mode', async () => {
@@ -44,7 +48,6 @@ test( 'send with ssePid produces FROM=_http/<ssePid> for pivoted mode', async ()
 	await client.send( {
 		to: 'firehose-workers.p0/_command_interpreter',
 		verb: 'dump_metadata',
-		args: {},
 		ssePid: 12345,
 		key: 'gui:typed',
 	} );

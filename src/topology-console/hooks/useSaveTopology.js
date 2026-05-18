@@ -26,7 +26,7 @@ export function useSaveTopology() {
 		const message = await getCommandClient().send( {
 			to: 'topologies',
 			verb: 'save',
-			args: { name, tsl },
+			payload: { name, tsl },
 		} );
 		return unwrapCommandResponse( message );
 	}, [] );

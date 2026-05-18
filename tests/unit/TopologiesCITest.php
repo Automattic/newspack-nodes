@@ -176,7 +176,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'get',
-			(string) \wp_json_encode( [ 'name' => 'some-topology' ] )
+			[ 'name' => 'some-topology' ]
 		);
 
 		$this->assertSame( 'some-topology', $result['name'] );
@@ -192,7 +192,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'get',
-			(string) \wp_json_encode( [ 'name' => 'dual' ] )
+			[ 'name' => 'dual' ]
 		);
 
 		$this->assertSame( 'both', $result['source'] );
@@ -204,7 +204,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'get',
-			(string) \wp_json_encode( [ 'name' => 'does-not-exist' ] )
+			[ 'name' => 'does-not-exist' ]
 		);
 
 		$this->assertIsString( $result );
@@ -217,7 +217,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'get',
-			(string) \wp_json_encode( [ 'name' => '../etc/passwd' ] )
+			[ 'name' => '../etc/passwd' ]
 		);
 
 		$this->assertIsString( $result );
@@ -231,12 +231,10 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name' => 'fresh',
 					'tsl'  => "make_node Echo e\n",
 				]
-			)
 		);
 
 		$this->assertSame( 'fresh', $result['name'] );
@@ -254,12 +252,10 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name' => 'roundtrip',
 					'tsl'  => "make_node Tee t\nmake_node Echo e\n",
 				]
-			)
 		);
 		VerbHarness::reset();
 
@@ -267,7 +263,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'get',
-			(string) \wp_json_encode( [ 'name' => 'roundtrip' ] )
+			[ 'name' => 'roundtrip' ]
 		);
 
 		$this->assertSame( 'user', $result['source'] );
@@ -281,12 +277,10 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name' => 'shadowing',
 					'tsl'  => "make_node Echo u\n",
 				]
-			)
 		);
 
 		$this->assertTrue( $result['shadows_stock'] );
@@ -302,12 +296,10 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name' => 'bad-verb',
 					'tsl'  => $tsl,
 				]
-			)
 		);
 
 		$this->assertIsString( $result );
@@ -337,12 +329,10 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name' => 'bad.name',
 					'tsl'  => "make_node Echo e\n",
 				]
-			)
 		);
 
 		$this->assertIsString( $result );
@@ -354,7 +344,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'save',
-			(string) \wp_json_encode( [ 'name' => 'no-body' ] )
+			[ 'name' => 'no-body' ]
 		);
 
 		$this->assertIsString( $result );
@@ -368,12 +358,10 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name' => 'nope',
 					'tsl'  => "make_node Echo e\n",
 				]
-			)
 		);
 
 		$this->assertIsString( $result );
@@ -404,12 +392,10 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name' => 'active-one',
 					'tsl'  => "make_node Echo e\n",
 				]
-			)
 		);
 
 		$this->assertSame( [ 'active-one' ], $result['restarted_fleets'] );
@@ -429,12 +415,10 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name' => 'dormant',
 					'tsl'  => "make_node Echo e\n",
 				]
-			)
 		);
 
 		$this->assertSame( [], $result['restarted_fleets'] );
@@ -449,12 +433,10 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name' => 'auto-mkdir',
 					'tsl'  => "make_node Echo e\n",
 				]
-			)
 		);
 
 		$this->assertDirectoryExists( $nested );
@@ -472,7 +454,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'delete',
-			(string) \wp_json_encode( [ 'name' => 'to-delete' ] )
+			[ 'name' => 'to-delete' ]
 		);
 
 		$this->assertSame( 'to-delete', $result['name'] );
@@ -489,7 +471,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'delete',
-			(string) \wp_json_encode( [ 'name' => 'shadowed' ] )
+			[ 'name' => 'shadowed' ]
 		);
 
 		$this->assertTrue( $result['stock_fallback'] );
@@ -504,7 +486,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'delete',
-			(string) \wp_json_encode( [ 'name' => 'stock-only' ] )
+			[ 'name' => 'stock-only' ]
 		);
 
 		$this->assertIsString( $result );
@@ -516,7 +498,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'delete',
-			(string) \wp_json_encode( [ 'name' => '../bad' ] )
+			[ 'name' => '../bad' ]
 		);
 
 		$this->assertIsString( $result );
@@ -531,7 +513,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'delete',
-			(string) \wp_json_encode( [ 'name' => 'locked' ] )
+			[ 'name' => 'locked' ]
 		);
 
 		$this->assertIsString( $result );

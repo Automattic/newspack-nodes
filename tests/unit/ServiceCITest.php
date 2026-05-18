@@ -47,28 +47,6 @@ class ServiceCITest extends TestCase {
 		ServiceCITestProbe::require_manage_options_probe();
 	}
 
-	// ── decode_args ──────────────────────────────────────────────────────────
-
-	public function test_decode_args_returns_empty_array_for_empty_string(): void {
-		$this->assertSame( [], ServiceCITestProbe::decode_args_probe( '' ) );
-	}
-
-	public function test_decode_args_returns_decoded_array_for_valid_json_object(): void {
-		$this->assertSame(
-			[ 'foo' => 'bar', 'n' => 42 ],
-			ServiceCITestProbe::decode_args_probe( '{"foo":"bar","n":42}' )
-		);
-	}
-
-	public function test_decode_args_returns_empty_array_for_invalid_json(): void {
-		$this->assertSame( [], ServiceCITestProbe::decode_args_probe( '{not json' ) );
-	}
-
-	public function test_decode_args_returns_empty_array_for_non_object_json(): void {
-		// `true` decodes to the scalar true; ?? [] coerces to [].
-		$this->assertSame( [], ServiceCITestProbe::decode_args_probe( 'true' ) );
-	}
-
 	// ── require_valid_name ───────────────────────────────────────────────────
 
 	public function test_require_valid_name_returns_name_when_valid(): void {
@@ -126,10 +104,6 @@ class ServiceCITestProbe extends Service_CI {
 
 	public static function require_manage_options_probe(): void {
 		self::require_manage_options();
-	}
-
-	public static function decode_args_probe( string $args ): array {
-		return self::decode_args( $args );
 	}
 
 	public static function require_valid_name_probe(

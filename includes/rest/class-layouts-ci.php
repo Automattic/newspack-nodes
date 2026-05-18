@@ -35,6 +35,7 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\CommandInterpreter;
 use Newspack_Nodes\Config;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Service_CI;
 
 \defined( 'ABSPATH' ) || exit;
@@ -52,9 +53,9 @@ class Layouts_CI extends Service_CI {
 
 	private function verb_table(): array {
 		return [
-			'get'  => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): string {
+			'get'  => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): string {
 				self::require_manage_options();
-				$decoded = self::decode_args( $args );
+				$decoded = \is_array( $payload ) ? $payload : [];
 				$name    = self::require_valid_name( $decoded );
 				$path    = self::layout_path( $name );
 
@@ -77,14 +78,14 @@ class Layouts_CI extends Service_CI {
 					]
 				);
 			},
-			'save' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): string {
+			'save' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): string {
 				self::require_manage_options();
-				if ( \strlen( $args ) > self::MAX_BODY_BYTES ) {
+				if ( Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 					throw new \RuntimeException(
 						\esc_html( 'body too large: layout payload exceeds 64 KiB' )
 					);
 				}
-				$decoded = self::decode_args( $args );
+				$decoded = \is_array( $payload ) ? $payload : [];
 				$name    = self::require_valid_name( $decoded );
 				if ( ! isset( $decoded['positions'] ) || ! \is_array( $decoded['positions'] ) ) {
 					throw new \RuntimeException( 'invalid arguments: positions must be an object' );

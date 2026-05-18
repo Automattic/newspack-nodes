@@ -51,6 +51,7 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Service_CI;
 use Newspack_Nodes\Shell;
 use Newspack_Nodes\Topology_Registry;
@@ -99,8 +100,8 @@ class Topologies_CI extends Service_CI {
 					]
 				);
 			},
-			'get'    => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): string {
-				$decoded = self::decode_args( $args );
+			'get'    => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): string {
+				$decoded = \is_array( $payload ) ? $payload : [];
 				$name    = self::require_valid_name( $decoded );
 
 				$path = Topology_Registry::resolve( $name );
@@ -130,14 +131,14 @@ class Topologies_CI extends Service_CI {
 					]
 				);
 			},
-			'save'   => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): string {
+			'save'   => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): string {
 				self::require_manage_options();
-				if ( \strlen( $args ) > self::MAX_BODY_BYTES ) {
+				if ( Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 					throw new \RuntimeException(
 						\esc_html( 'body too large: topology payload exceeds 64 KiB' )
 					);
 				}
-				$decoded = self::decode_args( $args );
+				$decoded = \is_array( $payload ) ? $payload : [];
 				$name    = self::require_valid_name( $decoded );
 				if ( ! isset( $decoded['tsl'] ) || ! \is_string( $decoded['tsl'] ) ) {
 					throw new \RuntimeException( 'invalid arguments: tsl must be a string' );
@@ -222,9 +223,9 @@ class Topologies_CI extends Service_CI {
 					]
 				);
 			},
-			'delete' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): string {
+			'delete' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): string {
 				self::require_manage_options();
-				$decoded = self::decode_args( $args );
+				$decoded = \is_array( $payload ) ? $payload : [];
 				$name    = self::require_valid_name( $decoded );
 
 				$user_dir = Topology_Registry::user_dir();

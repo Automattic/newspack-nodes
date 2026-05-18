@@ -204,21 +204,18 @@ class Node {
 	 * Default: forward the message to the sink, incrementing counter first
 	 * (so the message is counted even if the sink throws).
 	 *
+	 * Mirror real Tachikoma `Node.pm:fill`: if the message has no TO,
+	 * stamp it from $this->target so subclasses that forward via
+	 * `parent::fill( $message )` get TO=owner routing for free. Tee
+	 * overrides this with per-target dispatch in its own fill.
+	 *
 	 * @param array $message Reference; subclasses may mutate before forwarding.
 	 */
 	public function fill( array &$message ): void {
-		// Mirror real Tachikoma `Node.pm:fill`: if the message has no TO,
-		// stamp it from $this->target so subclasses that forward via
-		// `parent::fill( $message )` get TO=owner routing for free. Tee
-		// overrides this with per-target dispatch in its own fill.
 		if ( '' === $message[ Message::TO ] && \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}
 		++$this->counter;
-		$size = Message::value_size( $message );
-		if ( $size > $this->largest_msg_sent ) {
-			$this->largest_msg_sent = $size;
-		}
 		$this->sink?->fill( $message );
 	}
 

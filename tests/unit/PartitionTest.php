@@ -84,15 +84,21 @@ class PartitionTest extends TestCase {
 	public function test_fill_tracks_largest_msg_sent(): void {
 		// Partition overrides Node::fill() to write to disk; that override
 		// must still track largest_msg_sent or the Inspector will report
-		// 0 for every Partition. Measured against Message::value_size,
-		// same as the base Node tracking.
+		// 0 for every Partition. Measured against Message::packed_size
+		// (on-wire bytes), same as the base Node tracking.
 		$p     = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
 		$small = $this->produce( 'hi' );
 		$big   = $this->produce( \str_repeat( 'x', 100 ) );
 		$p->fill( $small );
 		$p->fill( $big );
 		$p->fill( $small ); // shouldn't lower the max
-		$this->assertSame( 100, $p->largest_msg_sent() );
+		// Partition appends a trailing "\n" to each packed message so
+		// Consumer can line-split on read — `largest_msg_sent` includes
+		// that framing byte.
+		$this->assertSame(
+			\strlen( \Newspack_Nodes\Message::packed( $big ) ) + 1,
+			$p->largest_msg_sent()
+		);
 	}
 
 	public function test_fill_accumulates_bytes_written(): void {
@@ -712,7 +718,7 @@ class PartitionTest extends TestCase {
 		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
 		$p->name( 'my_part' );
 
-		$result = $p->interpreter()->execute( 'allow_large_writes' );
+		$result = $p->interpreter()->dispatch( 'allow_large_writes' );
 		$this->assertSame( 'ok', $result );
 
 		$dump = $p->dump_config();
@@ -732,7 +738,7 @@ class PartitionTest extends TestCase {
 		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
 		$p->name( 'my_part' );
 
-		$result = $p->interpreter()->execute( 'with_index a2-test-formatter' );
+		$result = $p->interpreter()->dispatch( 'with_index', 'a2-test-formatter' );
 		$this->assertSame( 'ok', $result );
 
 		// Verb installs the formatter as the patron's index callback.
@@ -753,7 +759,7 @@ class PartitionTest extends TestCase {
 		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
 		$p->name( 'my_part' );
 
-		$result = $p->interpreter()->execute( 'with_index no-such-formatter' );
+		$result = $p->interpreter()->dispatch( 'with_index', 'no-such-formatter' );
 		$this->assertStringContainsString( 'unknown formatter', $result );
 	}
 
@@ -761,7 +767,7 @@ class PartitionTest extends TestCase {
 		$p = new Partition( $this->tmp, 0, 64 * 1024, 4, 86400 );
 		$p->name( 'my_part' );
 
-		$result = $p->interpreter()->execute( 'with_index' );
+		$result = $p->interpreter()->dispatch( 'with_index' );
 		$this->assertStringContainsString( 'usage', $result );
 	}
 

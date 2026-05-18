@@ -903,20 +903,29 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * Run a verb. `$envelope` is the inbound TM_COMMAND message (when this
-	 * was driven by a CI dispatch); pass an empty array for inline calls.
-	 * Verb handlers may peek at the envelope's FROM/TO to compose responses
-	 * — see Tachikoma CommandInterpreter.pm:pwd().
+	 * Dispatch a verb by name. `$args` is the literal argument-tail string —
+	 * exactly the `arguments` field a TM_COMMAND carried in. `$envelope` is
+	 * the inbound TM_COMMAND message (or `[]` for inline calls) so verbs
+	 * can read FROM/TO/KEY. `$payload` is the optional structured-data
+	 * slot from the command struct (verbs that need it declare a 4th
+	 * parameter; 3-parameter closures silently ignore the extra arg, so
+	 * the legacy `$self, $args, $envelope` shape keeps working unchanged).
+	 *
+	 * Mirrors Tachikoma's contract: `name` and `arguments` are already
+	 * split by Shell (or by the JSON command-struct) by the time we get
+	 * here. CommandInterpreter just looks the verb up and runs it.
+	 *
+	 * @param string                  $name     Verb name.
+	 * @param string                  $args     Literal arguments tail.
+	 * @param array<int,mixed>        $envelope Inbound TM_COMMAND message, or [] for inline calls.
+	 * @param mixed                   $payload  Optional structured data.
 	 */
-	public function execute( string $command_line, array $envelope = [] ): string {
-		$parts    = \explode( ' ', $command_line, 2 );
-		$verb     = $parts[0];
-		$args     = $parts[1] ?? '';
+	public function dispatch( string $name, string $args = '', array $envelope = [], mixed $payload = null ): string {
 		$commands = $this->commands();
-		if ( ! isset( $commands[ $verb ] ) ) {
-			return "unknown command: $verb";
+		if ( ! isset( $commands[ $name ] ) ) {
+			return "unknown command: $name";
 		}
-		return ( $commands[ $verb ] )( $this, $args, $envelope );
+		return ( $commands[ $name ] )( $this, $args, $envelope, $payload );
 	}
 
 	private function interpret( array &$message ): void {
@@ -930,7 +939,12 @@ class CommandInterpreter extends Node {
 		// response so the cli renders "ERROR: ..." instead of crashing the
 		// worker. Mirrors Tachikoma CommandInterpreter.pm:error().
 		try {
-			$result    = $this->execute( $cmd['name'] . ' ' . ( $cmd['arguments'] ?? '' ), $message );
+			$result    = $this->dispatch(
+				(string) $cmd['name'],
+				(string) ( $cmd['arguments'] ?? '' ),
+				$message,
+				$cmd['payload'] ?? null
+			);
 			$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
 		} catch ( \Throwable $e ) {
 			$result    = $e->getMessage();

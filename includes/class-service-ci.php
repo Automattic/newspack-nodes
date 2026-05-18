@@ -48,29 +48,15 @@ abstract class Service_CI extends CommandInterpreter {
 	}
 
 	/**
-	 * Decode a verb's JSON args. Empty string returns `[]`; malformed,
-	 * null, or non-array JSON (scalars like `true` / `42` / `"foo"`) also
-	 * returns `[]` — the tolerant form. Verbs needing stricter shape
-	 * validation peel the expected keys off the decoded array themselves.
+	 * Pull a `name` field out of a payload-style associative array and
+	 * validate it against $pattern. Defaults to `[a-zA-Z0-9_-]+` — the
+	 * shape Layouts_CI and Topologies_CI both require. Callers needing a
+	 * wider charset (e.g. layout node ids that include `:` / `.`) pass a
+	 * custom pattern.
 	 *
-	 * @param string $args Raw JSON argument blob from the wire.
-	 * @return array<int|string,mixed>
-	 */
-	protected static function decode_args( string $args ): array {
-		if ( '' === $args ) {
-			return [];
-		}
-		$decoded = \json_decode( $args, true );
-		return \is_array( $decoded ) ? $decoded : [];
-	}
-
-	/**
-	 * Pull a `name` field out of a decoded args array and validate it
-	 * against $pattern. Defaults to `[a-zA-Z0-9_-]+` — the shape Layouts_CI
-	 * and Topologies_CI both require. Callers needing a wider charset
-	 * (e.g. layout node ids that include `:` / `.`) pass a custom pattern.
-	 *
-	 * @param array<int|string,mixed> $decoded Args already through `decode_args()`.
+	 * @param array<int|string,mixed> $decoded Verb payload, typically the
+	 *                                          structured-data slot of the
+	 *                                          TM_COMMAND envelope.
 	 * @param string                  $pattern Regex with delimiters; default is the
 	 *                                          common file-name-safe pattern.
 	 * @return string The validated name.

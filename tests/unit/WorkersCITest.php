@@ -178,7 +178,7 @@ class WorkersCITest extends TestCase {
 		};
 		$ci = new Workers_CI( $fake_cli );
 
-		$result = VerbHarness::fire( $ci, 'workers', 'restart', \wp_json_encode( [ 'types' => [ 'firehose-workers-and-jobs' ] ] ) );
+		$result = VerbHarness::fire( $ci, 'workers', 'restart', [ 'types' => [ 'firehose-workers-and-jobs' ] ] );
 
 		$this->assertSame( [ 'restarted' => 2 ], $result );
 		$this->assertSame( [ 'firehose-workers-and-jobs' => true ], $fake_cli->called_with['filter'] );
@@ -198,7 +198,7 @@ class WorkersCITest extends TestCase {
 		};
 		$ci = new Workers_CI( $this->stub_cli(), $fake_cache );
 
-		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', \wp_json_encode( [ 'slot' => 7 ] ) );
+		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', [ 'slot' => 7 ] );
 
 		$this->assertSame( [ 'success' => true, 'slot' => 7 ], $result );
 		$this->assertSame( 7, $fake_cache->recorded['slot'] );

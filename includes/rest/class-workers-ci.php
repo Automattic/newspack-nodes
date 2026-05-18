@@ -85,8 +85,8 @@ class Workers_CI extends Service_CI {
 				self::require_manage_options();
 				return (string) \wp_json_encode( self::collect_dump_metadata( $cache ) );
 			},
-			'restart' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ) use ( $cli ): string {
-				$decoded   = '' === $args ? [] : ( \json_decode( $args, true ) ?? [] );
+			'restart' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ) use ( $cli ): string {
+				$decoded   = \is_array( $payload ) ? $payload : [];
 				$types     = (array) ( $decoded['types']     ?? [] );
 				$partition = (int)   ( $decoded['partition'] ?? -1 );
 				$filter    = [];
@@ -97,11 +97,11 @@ class Workers_CI extends Service_CI {
 				$restarted = $cli->restart_workers( $workers, $filter, $partition );
 				return (string) \wp_json_encode( [ 'restarted' => $restarted ] );
 			},
-			'heartbeat' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ) use ( $cache ): string {
+			'heartbeat' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ) use ( $cache ): string {
 				if ( null === $cache ) {
 					throw new \RuntimeException( 'cache not configured' );
 				}
-				$decoded = '' === $args ? [] : ( \json_decode( $args, true ) ?? [] );
+				$decoded = \is_array( $payload ) ? $payload : [];
 				$slot    = (int) ( $decoded['slot'] ?? -1 );
 				if ( $slot < 0 ) {
 					throw new \RuntimeException( 'slot required' );

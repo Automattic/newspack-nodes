@@ -230,7 +230,7 @@ class LogTest extends TestCase {
 		$ci = new \Newspack_Nodes\CommandInterpreter();
 		$ci->name( '_command_interpreter' );
 
-		$ci->execute( "make Log mylog {$this->tmp}/out.log" );
+		$ci->dispatch( 'make', "Log mylog {$this->tmp}/out.log" );
 		$node = \Newspack_Nodes\Core::node( 'mylog' );
 		$this->assertInstanceOf( Log::class, $node );
 
@@ -249,14 +249,14 @@ class LogTest extends TestCase {
 		$ci = new \Newspack_Nodes\CommandInterpreter();
 		$ci->name( '_command_interpreter' );
 
-		$ci->execute( "make Log mylog {$this->tmp}/out.log overwrite" );
+		$ci->dispatch( 'make', "Log mylog {$this->tmp}/out.log overwrite" );
 
 		// Pre-existing file content should be wiped by overwrite mode.
 		\file_put_contents( "{$this->tmp}/out.log", "PRE-EXISTING\n" );
 
 		// Re-create through the REPL after seeding (overwrite mode opens 'wb').
-		$ci->execute( 'remove mylog' );
-		$ci->execute( "make Log mylog {$this->tmp}/out.log overwrite" );
+		$ci->dispatch( 'remove', 'mylog' );
+		$ci->dispatch( 'make', "Log mylog {$this->tmp}/out.log overwrite" );
 
 		$node = \Newspack_Nodes\Core::node( 'mylog' );
 		$msg                   = Message::new_message();
@@ -276,7 +276,7 @@ class LogTest extends TestCase {
 		$ci = new \Newspack_Nodes\CommandInterpreter();
 		$ci->name( '_command_interpreter' );
 
-		$ci->execute( "make Log mylog {$this->tmp}/out.log append 10" );
+		$ci->dispatch( 'make', "Log mylog {$this->tmp}/out.log append 10" );
 
 		$node = \Newspack_Nodes\Core::node( 'mylog' );
 		// 11 bytes — auto-rotate fires post-write because 11 > 10.

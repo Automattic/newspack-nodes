@@ -68,11 +68,11 @@ class M3CommandDispatchE2ETest extends TestCase {
 	/**
 	 * @dataProvider verb_provider
 	 */
-	public function test_each_substrate_ci_responds_to_a_representative_verb( string $to, string $verb, string $args ): void {
+	public function test_each_substrate_ci_responds_to_a_representative_verb( string $to, string $verb, mixed $payload ): void {
 		$ctrl = new Command_Controller();
 		$ctrl->set_test_mode( true );
 		\ob_start();
-		$ctrl->dispatch( $this->build_request( $to, $verb, $args ) );
+		$ctrl->dispatch( $this->build_request( $to, $verb, $payload ) );
 		$body = (string) \ob_get_clean();
 
 		$this->assertNotEmpty( $body, "verb '{$verb}' on '{$to}' produced no response" );
@@ -95,7 +95,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 	 * get_body() / set_body() / set_header(), so unlike M2 (event-logger-
 	 * nodes) no anonymous-class subclass is needed here.
 	 */
-	private function build_request( string $to, string $verb, string $args ): \WP_REST_Request {
+	private function build_request( string $to, string $verb, mixed $payload ): \WP_REST_Request {
 		$req = new \WP_REST_Request();
 		$req->set_body(
 			(string) \wp_json_encode(
@@ -104,7 +104,9 @@ class M3CommandDispatchE2ETest extends TestCase {
 					'to'    => $to,
 					'from'  => '_http',
 					'id'    => "e2e-{$verb}",
-					'value' => \wp_json_encode( [ 'name' => $verb, 'arguments' => $args, 'payload' => '' ] ),
+					'value' => \wp_json_encode(
+						[ 'name' => $verb, 'arguments' => '', 'payload' => $payload ]
+					),
 				]
 			)
 		);
@@ -114,18 +116,18 @@ class M3CommandDispatchE2ETest extends TestCase {
 
 	/**
 	 * Representative verb per substrate CI. Each verb is read-only and
-	 * takes either no args or a minimal safe arg blob. Verbs that mutate
+	 * takes either no payload or a minimal safe one. Verbs that mutate
 	 * (save / delete) trigger side effects like `restart_fleet` and are
 	 * covered by per-verb tests — this test proves the dispatch path,
 	 * not that every verb is implemented correctly.
 	 *
-	 * @return array<string,array{string,string,string}>
+	 * @return array<string,array{string,string,mixed}>
 	 */
 	public static function verb_provider(): array {
 		return [
-			'classes.list'    => [ 'classes',    'list', '{}' ],
-			'layouts.get'     => [ 'layouts',    'get',  '{"name":"fresh"}' ],
-			'topologies.list' => [ 'topologies', 'list', '{}' ],
+			'classes.list'    => [ 'classes',    'list', null ],
+			'layouts.get'     => [ 'layouts',    'get',  [ 'name' => 'fresh' ] ],
+			'topologies.list' => [ 'topologies', 'list', null ],
 		];
 	}
 }

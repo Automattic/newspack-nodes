@@ -61,7 +61,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			(string) \wp_json_encode( [ 'name' => 'never-saved' ] )
+			[ 'name' => 'never-saved' ]
 		);
 
 		$this->assertIsArray( $result );
@@ -82,7 +82,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			(string) \wp_json_encode( [ 'name' => 'saved' ] )
+			[ 'name' => 'saved' ]
 		);
 
 		$this->assertSame( 'saved', $result['name'] );
@@ -100,7 +100,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			(string) \wp_json_encode( [ 'name' => 'garbage' ] )
+			[ 'name' => 'garbage' ]
 		);
 
 		$this->assertSame( 'garbage', $result['name'] );
@@ -118,7 +118,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			(string) \wp_json_encode( [ 'name' => 'no-positions' ] )
+			[ 'name' => 'no-positions' ]
 		);
 
 		$this->assertNull( $result['positions'] );
@@ -142,7 +142,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			(string) \wp_json_encode( [ 'name' => 'extra' ] )
+			[ 'name' => 'extra' ]
 		);
 
 		$this->assertArrayHasKey( 'positions', $result );
@@ -158,7 +158,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			(string) \wp_json_encode( [ 'name' => 'bad name!' ] )
+			[ 'name' => 'bad name!' ]
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'invalid name', $result );
@@ -169,7 +169,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			(string) \wp_json_encode( [ 'name' => 'a/b' ] )
+			[ 'name' => 'a/b' ]
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'invalid name', $result );
@@ -181,7 +181,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			(string) \wp_json_encode( [ 'name' => 'anything' ] )
+			[ 'name' => 'anything' ]
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
@@ -194,15 +194,13 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name'      => 'happy',
 					'positions' => [
 						'node_a' => [ 10.5, 20.5 ],
 						'node_b' => [ -3, 7.25 ],
 					],
 				]
-			)
 		);
 
 		$this->assertSame( 'happy', $result['name'] );
@@ -233,12 +231,10 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name'      => 'first',
 					'positions' => [ 'n' => [ 1, 2 ] ],
 				]
-			)
 		);
 
 		$this->assertDirectoryExists( "{$this->base_dir}/layouts" );
@@ -250,15 +246,13 @@ class LayoutsCITest extends TestCase {
 			$ci,
 			'layouts',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name'      => 'roundtrip',
 					'positions' => [
 						'alpha' => [ 100.5, 200.25 ],
 						'beta'  => [ -50.5, 75.25 ],
 					],
 				]
-			)
 		);
 		VerbHarness::reset();
 
@@ -266,7 +260,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			(string) \wp_json_encode( [ 'name' => 'roundtrip' ] )
+			[ 'name' => 'roundtrip' ]
 		);
 
 		$this->assertSame(
@@ -280,17 +274,20 @@ class LayoutsCITest extends TestCase {
 		// id-with-disallowed-chars, non-array value, too-few-coords, and
 		// non-finite coordinates. The valid entry must survive; the
 		// invalid ones must be dropped silently.
-		$body = '{"name":"mixed","positions":{'
-			. '"keep_me":[1,2],'
-			. '"bad node!":[3,4],'
-			. '"also/bad":[5,6],'
-			. '"bad_val":"not-an-array",'
-			. '"too_short":[1],'
-			. '"bad_inf":["1e500",2],'
-			. '"42":[7,8]'
-			. '}}';
 		// "42" is the only string-key that decodes to an integer key in
 		// PHP — verifies the is_string() guard.
+		$body = [
+			'name'      => 'mixed',
+			'positions' => [
+				'keep_me'   => [ 1, 2 ],
+				'bad node!' => [ 3, 4 ],
+				'also/bad'  => [ 5, 6 ],
+				'bad_val'   => 'not-an-array',
+				'too_short' => [ 1 ],
+				'bad_inf'   => [ '1e500', 2 ],
+				'42'        => [ 7, 8 ],
+			],
+		];
 
 		$result = VerbHarness::fire( new Layouts_CI(), 'layouts', 'save', $body );
 
@@ -310,8 +307,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name'      => 'compound',
 					'positions' => [
 						'requests:partition:config' => [ 1, 2 ],
@@ -320,7 +316,6 @@ class LayoutsCITest extends TestCase {
 						'node_with_underscore'      => [ 7, 8 ],
 					],
 				]
-			)
 		);
 
 		$this->assertCount( 4, $result['positions'] );
@@ -331,7 +326,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'save',
-			'{"name":"empty","positions":{}}'
+			[ 'name' => 'empty', 'positions' => [] ]
 		);
 
 		$this->assertSame( [], $result['positions'] );
@@ -342,12 +337,10 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name'      => 'bad name!',
 					'positions' => [],
 				]
-			)
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'invalid name', $result );
@@ -358,7 +351,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'save',
-			(string) \wp_json_encode( [ 'name' => 'foo' ] )
+			[ 'name' => 'foo' ]
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'positions', $result );
@@ -369,12 +362,10 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name'      => 'foo',
 					'positions' => 'oops',
 				]
-			)
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'positions', $result );
@@ -400,12 +391,10 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'save',
-			(string) \wp_json_encode(
-				[
+			[
 					'name'      => 'nope',
 					'positions' => [],
 				]
-			)
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
