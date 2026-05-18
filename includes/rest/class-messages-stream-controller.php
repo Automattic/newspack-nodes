@@ -259,7 +259,7 @@ class Messages_Stream_Controller {
 		$interval  = (int) ( $request->get_param( 'interval' ) ?? 500 );
 
 		$partition = $this->subscription_partition( $subs );
-		$acquire   = self::$acquire_slot ?? static fn ( int $p ): int|false => 1;
+		$acquire   = self::$acquire_slot ?? static fn ( int $p ): int => 1;
 		$slot      = $acquire( $partition );
 		if ( false === $slot ) {
 			return new \WP_Error(

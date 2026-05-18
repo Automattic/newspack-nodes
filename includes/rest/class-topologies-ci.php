@@ -272,7 +272,7 @@ class Topologies_CI extends Service_CI {
 	 */
 	private static function source_of( array $sources ): string {
 		$has_user  = null !== ( $sources['user'] ?? null );
-		$has_stock = ! empty( $sources['stock'] ?? [] );
+		$has_stock = ! empty( $sources['stock'] );
 		if ( $has_user && $has_stock ) {
 			return 'both';
 		}
