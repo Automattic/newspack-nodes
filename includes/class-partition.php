@@ -19,7 +19,6 @@ class Partition extends Timer {
 	public const DEFAULT_MAX_LIFESPAN = 86400;
 	public const MAX_LINE_SIZE        = 4096;
 	public const MAX_LARGE_LINE_SIZE  = 10485760;
-	public const MAX_READ_SIZE        = 10485760; // 10MB per-record ceiling — framers reject any single record larger than this. Not a per-call read cap.
 	public const SEGMENT_CACHE_TTL    = 0.25;
 	public const SEGMENT_PATTERN      = '/^(\d+)\.log$/';
 
@@ -809,9 +808,9 @@ class Partition extends Timer {
 	 *
 	 * Bounds-checked: rejects negative IDs/offsets/lengths. No per-call
 	 * upper cap — fread returns at most segment-size bytes, and
-	 * segment_size is bounded by config. MAX_READ_SIZE is a per-record
-	 * ceiling that framers apply, not a buffer cap; a legitimate
-	 * full-segment read of a long-lived offsetlog can exceed it.
+	 * segment_size is bounded by config. Per-record DoS protection lives
+	 * one layer up (Consumer/Tail enforce MAX_LINE_BUFFER_SIZE on the
+	 * \n-delimited line buffer); read_at itself is record-format agnostic.
 	 *
 	 * @param int $segment_id Segment to read from.
 	 * @param int $offset     Byte offset within segment.
@@ -870,13 +869,6 @@ class Partition extends Timer {
 		foreach ( $segments as $s ) {
 			$idx_path = "{$this->partition_dir}/{$s['id']}.idx";
 			if ( ! \file_exists( $idx_path ) ) {
-				continue;
-			}
-
-			// Cap the per-file read at MAX_READ_SIZE so a runaway .idx file
-			// can't OOM the worker on scan.
-			$idx_size = @\filesize( $idx_path );
-			if ( false === $idx_size || $idx_size > self::MAX_READ_SIZE ) {
 				continue;
 			}
 

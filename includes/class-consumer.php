@@ -14,8 +14,15 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Consumer extends Timer {
+	/** Default segment size for offset log: 64KB **/
+	public const DEFAULT_OFFSETLOG_SEGMENT_SIZE = 65536;
+
 	/** Hard cap on the cross-poll trailing-line buffer. 20MB. */
 	public const MAX_LINE_BUFFER_SIZE = 20971520;
+
+	/** Max bytes per poll. Caps a single fread so giant segments drain
+	 *  across polls instead of blocking the event loop on one read. */
+	public const MAX_POLL_BYTES = 10485760;
 
 	/** Stale-segment threshold: skip corrupt unread bytes only after this many seconds. */
 	public const STALE_SEGMENT_SECONDS = 5;
@@ -115,7 +122,7 @@ class Consumer extends Timer {
 		$this->source = new Partition( $this->source_base_dir, $this->source_partition );
 
 		if ( '' !== $this->offsetlog_dir ) {
-			$this->offsetlog = new Partition( $this->offsetlog_dir, 0 );
+			$this->offsetlog = new Partition( $this->offsetlog_dir, 0, self::DEFAULT_OFFSETLOG_SEGMENT_SIZE );
 			// Offsetlog payload is a tiny `{seg, off, ts}` JSON — well under
 			// the 4KB PIPE_BUF limit. Single-writer (this Consumer is the
 			// only writer) so no cross-process lock needed either.
@@ -423,9 +430,10 @@ class Consumer extends Timer {
 			$read_start    = $this->cursor_off + $remainder_len;
 			$len           = $s['size'] - $read_start;
 
-			// Cap per-poll read at Partition::MAX_READ_SIZE so giant segments drain across polls.
-			if ( $len > Partition::MAX_READ_SIZE ) {
-				$len = Partition::MAX_READ_SIZE;
+			// Cap per-poll read at MAX_POLL_BYTES so giant segments drain
+			// across polls instead of blocking the event loop on one read.
+			if ( $len > self::MAX_POLL_BYTES ) {
+				$len = self::MAX_POLL_BYTES;
 			}
 
 			if ( $len <= 0 && 0 === $remainder_len ) {
