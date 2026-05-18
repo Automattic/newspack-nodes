@@ -260,6 +260,22 @@ class CliTest extends TestCase {
 		$this->assertSame( 0, $count );
 	}
 
+	public function test_restart_handles_non_partitioned_standalone(): void {
+		// Non-partitioned standalone workers (e.g. supervisor, stream-merger,
+		// health-check) live at {locks}/{type}.lock.d (no .pN suffix) per
+		// Workers_CI::build_standalone_status. The dashboard's restart button
+		// sends `partition: null` for these rows; restart_workers must fall
+		// back to the un-suffixed lock dir or the restart silently no-ops.
+		mkdir( "{$this->tmp}/locks/supervisor.lock.d", 0755, true );
+
+		$cli     = new Cli( $this->tmp );
+		$workers = [ [ 'type' => 'supervisor', 'partition' => null ] ];
+		$count   = $cli->restart_workers( $workers );
+
+		$this->assertSame( 1, $count, 'standalone restart should touch supervisor.lock.d, not supervisor.p0.lock.d' );
+		$this->assertFileExists( "{$this->tmp}/locks/supervisor.lock.d/" . Lock::RESTART_FLAG );
+	}
+
 	// ── live_position() ────────────────────────────────────────────────────────
 
 	public function test_live_position_returns_null_when_cache_is_null(): void {

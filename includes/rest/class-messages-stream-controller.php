@@ -356,9 +356,16 @@ class Messages_Stream_Controller {
 				}
 			}
 
-			$iterations = 0;
+			// Heartbeat cadence: emit a `heartbeat` SSE event every $interval
+			// ms so dashboards can distinguish an idle-but-live stream from
+			// a dead one. Without this, a stream with no data lines goes
+			// dark to the client until the next forwarded message — which
+			// can be minutes on quiet topologies.
+			$heartbeat_interval = \max( 0.1, $interval / 1000.0 );
+			$last_heartbeat     = \microtime( true );
+			$iterations         = 0;
 			EventFramework::instance()->drain(
-				function () use ( &$iterations, $slot, $partition ): bool {
+				function () use ( &$iterations, &$last_heartbeat, $heartbeat_interval, $slot, $partition ): bool {
 					if ( $this->test_mode && ++$iterations > $this->test_iterations ) {
 						return false;
 					}
@@ -368,6 +375,14 @@ class Messages_Stream_Controller {
 					}
 					if ( ! $this->test_mode && \connection_aborted() ) {
 						return false;
+					}
+					$now = \microtime( true );
+					if ( ( $now - $last_heartbeat ) >= $heartbeat_interval ) {
+						$this->send_sse_event(
+							'heartbeat',
+							[ 'ts' => $now ]
+						);
+						$last_heartbeat = $now;
 					}
 					return true;
 				}

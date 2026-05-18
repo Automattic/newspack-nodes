@@ -150,17 +150,26 @@ class Cli {
 
 		foreach ( $workers as $w ) {
 			$type = $w['type'] ?? '';
-			$p    = (int) ( $w['partition'] ?? 0 );
+			// Standalone non-partitioned workers (supervisor, stream-merger,
+			// health-check) carry partition=null and live at {type}.lock.d
+			// without a .pN suffix; partitioned fleets always have an int
+			// partition and live at {type}.p{N}.lock.d.
+			// `isset` returns false for both "key absent" and "value is null",
+			// covering both shapes the dashboard might emit for a standalone.
+			$is_standalone = ! isset( $w['partition'] );
+			$p             = $is_standalone ? -1 : (int) $w['partition'];
 			if ( '' === $type ) {
 				continue;
 			}
 			if ( ! $wildcard && empty( $filter[ $type ] ) ) {
 				continue;
 			}
-			if ( $partition >= 0 && $p !== $partition ) {
+			if ( $partition >= 0 && ( $is_standalone || $p !== $partition ) ) {
 				continue;
 			}
-			$lock_dir = "{$this->base_dir}/locks/{$type}.p{$p}.lock.d";
+			$lock_dir = $is_standalone
+				? "{$this->base_dir}/locks/{$type}.lock.d"
+				: "{$this->base_dir}/locks/{$type}.p{$p}.lock.d";
 			if ( Lock::request_restart_at( $lock_dir ) ) {
 				++$restarted;
 			}

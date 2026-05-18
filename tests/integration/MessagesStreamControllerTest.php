@@ -119,6 +119,35 @@ class MessagesStreamControllerTest extends TestCase {
 		$this->assertNull( Core::node( '_stream_sink' ) );
 	}
 
+	public function test_stream_emits_heartbeat_events_during_idle(): void {
+		// Empty firehose dir so no data lines compete with heartbeats — any
+		// `heartbeat` event in the captured output came from the drain loop
+		// itself, not from a forwarded message.
+		$base = $this->make_temp_dir( 'msg-stream-heartbeat-' );
+		\mkdir( "{$base}/logs/firehose.log", 0755, true );
+
+		$ctrl = new Messages_Stream_Controller();
+		$ctrl->set_base_dir( $base );
+		$ctrl->set_num_partitions( 1 );
+		$ctrl->set_test_mode( true );
+		// 50 ticks over a 1ms heartbeat interval is enough wall time for at
+		// least one heartbeat to fire (real time advances between ticks).
+		$ctrl->set_test_iterations( 50 );
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose' => [ 0 => 'start' ] ], 1 );
+		$out = \ob_get_clean();
+
+		$events    = $this->split_sse_events( $out );
+		$heartbeat = \array_filter( $events, static fn ( $e ) => 'heartbeat' === $e['event'] );
+		$this->assertNotEmpty(
+			$heartbeat,
+			'drain loop should emit at least one `heartbeat` SSE event so dashboards can detect a live but idle stream'
+		);
+
+		$this->rmdir_recursive( $base );
+	}
+
 	/**
 	 * Parse `event: X\ndata: Y\n\n` SSE chunks from a captured stdout
 	 * buffer. Skips empty chunks and comment-only flush filler lines.
