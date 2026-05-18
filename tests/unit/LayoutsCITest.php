@@ -1,10 +1,10 @@
 <?php
 /**
- * LayoutsCITest: unit tests for Layouts_CI, the M3 service-CI that
- * replaces the legacy LayoutsController. Mirrors ClassesCITest's
- * VerbHarness pattern and LayoutsControllerTest's per-test filesystem
- * fixture (use_base_dir() points Config at a tmp directory; the verb
- * writes its .layout file under `{base}/layouts/`).
+ * LayoutsCITest: unit tests for Layouts_CI, the M3 service-CI for
+ * topology layout persistence. Mirrors ClassesCITest's VerbHarness
+ * pattern with a per-test filesystem fixture (use_base_dir() points
+ * Config at a tmp directory; the verb writes its .layout file under
+ * `{base}/layouts/`).
  *
  * The CI returns raw payloads (decoded JSON) rather than the legacy
  * {code, message, status} envelopes. Errors bubble as RuntimeException;

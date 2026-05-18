@@ -58,4 +58,25 @@ class M3BootstrapTest extends TestCase {
 			$this->assertNotNull( Core::node( $name ), "CI '{$name}' must be registered" );
 		}
 	}
+
+	public function test_legacy_classes_controller_class_is_gone(): void {
+		$this->assertFalse(
+			\class_exists( '\\Newspack_Nodes\\Rest\\ClassesController' ),
+			'Legacy ClassesController must be deleted; Classes_CI.list replaces it.'
+		);
+	}
+
+	public function test_legacy_layouts_controller_class_is_gone(): void {
+		$this->assertFalse(
+			\class_exists( '\\Newspack_Nodes\\Rest\\LayoutsController' ),
+			'Legacy LayoutsController must be deleted; Layouts_CI.get + .save replace it.'
+		);
+	}
+
+	public function test_legacy_topologies_controller_class_is_gone(): void {
+		$this->assertFalse(
+			\class_exists( '\\Newspack_Nodes\\Rest\\TopologiesController' ),
+			'Legacy TopologiesController must be deleted; Topologies_CI.list/get/save/delete replace it. TopologyStreamController stays for SSE + pivoted-IPC POST.'
+		);
+	}
 }

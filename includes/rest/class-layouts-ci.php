@@ -124,9 +124,9 @@ class Layouts_CI extends Service_CI {
 	}
 
 	/**
-	 * Mirror of LayoutsController::save_layout sanitization: drop entries
-	 * with non-string ids, ids that don't match ID_PATTERN, non-array
-	 * positions, fewer than 2 coordinates, or non-finite x/y.
+	 * Sanitize a positions blob — drop entries with non-string ids,
+	 * ids that don't match ID_PATTERN, non-array positions, fewer
+	 * than 2 coordinates, or non-finite x/y.
 	 *
 	 * @param array<mixed,mixed> $positions Raw positions blob from the args.
 	 * @return array<string,array{0:float,1:float}>
