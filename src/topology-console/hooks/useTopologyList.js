@@ -14,10 +14,13 @@
  *
  * `reload()` triggers a refetch — used after a save so the picker
  * reflects newly-written user topologies without a page reload.
+ *
+ * Dispatches via the M4 CommandClient pipe: `topologies.list` / `.get`.
  */
 
 import { useCallback, useEffect, useState } from '@wordpress/element';
-import apiFetch from '@wordpress/api-fetch';
+import { getCommandClient } from '../utils/commandClient';
+import unwrapCommandResponse from '../utils/unwrapCommandResponse';
 
 export function useTopologyList( { enabled = false } = {} ) {
 	const [ topologies, setTopologies ] = useState( [] );
@@ -31,8 +34,10 @@ export function useTopologyList( { enabled = false } = {} ) {
 			return;
 		}
 		setLoading( true );
-		apiFetch( { path: '/newspack-nodes/v1/topologies' } )
-			.then( ( body ) => {
+		getCommandClient()
+			.send( { to: 'topologies', verb: 'list' } )
+			.then( ( message ) => {
+				const body = unwrapCommandResponse( message );
 				setTopologies( body?.topologies || [] );
 				setUserDir( body?.user_dir || '' );
 			} )
@@ -51,10 +56,11 @@ export function useTopologyList( { enabled = false } = {} ) {
  */
 export function useTopology() {
 	return useCallback( async ( name ) => {
-		return apiFetch( {
-			path: `/newspack-nodes/v1/topologies/${ encodeURIComponent(
-				name
-			) }`,
+		const message = await getCommandClient().send( {
+			to: 'topologies',
+			verb: 'get',
+			args: { name },
 		} );
+		return unwrapCommandResponse( message );
 	}, [] );
 }

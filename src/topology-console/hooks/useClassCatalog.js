@@ -3,16 +3,17 @@
  *
  * Lazy: nothing happens until `enabled` is true (so view-mode never
  * pays the cost). First-truthy `enabled` triggers a single
- * `GET /newspack-nodes/v1/classes` round-trip; result is cached in
- * component state for the rest of the session — toggling enabled
- * off → on doesn't re-fetch.
+ * `classes.list` round-trip via the M4 CommandClient pipe; result is
+ * cached in component state for the rest of the session — toggling
+ * enabled off → on doesn't re-fetch.
  *
  * Smoke-tested via the topology console's edit-mode entry; covered
  * end-to-end in A5's Task 11 browser smoke.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
-import apiFetch from '@wordpress/api-fetch';
+import { getCommandClient } from '../utils/commandClient';
+import unwrapCommandResponse from '../utils/unwrapCommandResponse';
 
 export function useClassCatalog( { enabled = false } = {} ) {
 	const [ classes, setClasses ] = useState( [] );
@@ -27,8 +28,10 @@ export function useClassCatalog( { enabled = false } = {} ) {
 		}
 		fetched.current = true;
 		setLoading( true );
-		apiFetch( { path: '/newspack-nodes/v1/classes' } )
-			.then( ( body ) => {
+		getCommandClient()
+			.send( { to: 'classes', verb: 'list' } )
+			.then( ( message ) => {
+				const body = unwrapCommandResponse( message );
 				setClasses( body?.classes || [] );
 				setFormatters( body?.formatters || [] );
 			} )
