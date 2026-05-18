@@ -234,27 +234,19 @@ class Admin {
 		$active_topologies = \array_keys( Bootstrap::get_topologies() );
 		\sort( $active_topologies );
 
-		// REST root + nonce for apiFetch wrappers in the React tree.
-		$rest_url    = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
-		$nonce       = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
-		// Separate save-topology nonce — REST PromptModal POSTs use this.
-		// Distinct action from the wp_rest cookie nonce so a leaked
-		// wp_rest nonce doesn't grant authoring rights to the topology
-		// dir; mirror SpawnController's per-action nonce policy.
-		$save_nonce  = \function_exists( 'wp_create_nonce' )
-			? \wp_create_nonce( \Newspack_Nodes\Rest\TopologiesController::NONCE_ACTION )
-			: '';
-		$layout_nonce = \function_exists( 'wp_create_nonce' )
-			? \wp_create_nonce( \Newspack_Nodes\Rest\LayoutsController::NONCE_ACTION )
-			: '';
+		// REST root + nonce for apiFetch wrappers in the React tree. The
+		// topology-console reaches the substrate exclusively through
+		// CommandClient now (POST /command via apiFetch), so the wp_rest
+		// cookie nonce is the only nonce surface here — Command_Controller's
+		// permission_callback enforces manage_options on every dispatch.
+		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
+		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
 		\wp_localize_script(
 			$handle,
 			'NewspackNodesData',
 			[
 				'restUrl'             => $rest_url,
 				'nonce'               => $nonce,
-				'saveTopologyNonce'   => $save_nonce,
-				'saveLayoutNonce'     => $layout_nonce,
 				'tree'                => 'topology-console',
 				'version'             => \NEWSPACK_NODES_VERSION,
 				'topologyPartitions'  => $topology_partitions,

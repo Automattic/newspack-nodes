@@ -1124,8 +1124,12 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$data = $payload['data'];
 		$this->assertArrayHasKey( 'restUrl', $data );
 		$this->assertArrayHasKey( 'nonce', $data );
-		$this->assertArrayHasKey( 'saveTopologyNonce', $data );
-		$this->assertArrayHasKey( 'saveLayoutNonce', $data );
+		// The body-borne save_nonce / layout_nonce keys are gone — the
+		// topology-console reaches the substrate via CommandClient now
+		// (X-WP-Nonce on apiFetch), so the wp_rest cookie nonce in
+		// `nonce` is the only nonce surface.
+		$this->assertArrayNotHasKey( 'saveTopologyNonce', $data );
+		$this->assertArrayNotHasKey( 'saveLayoutNonce', $data );
 		$this->assertSame( 'topology-console', $data['tree'] );
 		$this->assertSame( \NEWSPACK_NODES_VERSION, $data['version'] );
 
@@ -1140,11 +1144,6 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		// surfaces it because get_topologies() reads the catalog directly.
 		$this->assertArrayHasKey( 'activeTopologies', $data );
 		$this->assertContains( 'catalog-only', $data['activeTopologies'] );
-
-		// Nonces must be DISTINCT actions — substrate uses a per-action policy.
-		$this->assertNotSame( $data['nonce'], $data['saveTopologyNonce'] );
-		$this->assertNotSame( $data['nonce'], $data['saveLayoutNonce'] );
-		$this->assertNotSame( $data['saveTopologyNonce'], $data['saveLayoutNonce'] );
 
 		// CSS sidecar exists in the plugin tree, so wp_enqueue_style must fire too.
 		if ( \file_exists( \NEWSPACK_NODES_DIR . 'build/topology-console/index.css' ) ) {
