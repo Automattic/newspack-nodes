@@ -125,6 +125,23 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertSame( $this->tmp, $recorded[0]['base_dir'] );
 	}
 
+	public function test_ipc_subscription_falls_back_to_log_partition_when_no_worker(): void {
+		// Aggregator hub path: RemoteSource subscribes as `firehose.p0` to
+		// tail the spoke's firehose.log partition 0. There's NO worker
+		// named `firehose.p0` on the spoke (workers live at e.g.
+		// `firehose-workers-and-jobs.p0`), so the IPC-attach throws.
+		// Resolver must catch and fall through to log-name + partition.
+		\mkdir( "{$this->tmp}/logs/firehose.log/p0", 0755, true );
+
+		$ctrl = new Messages_Stream_Controller();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription( 'firehose.p0', null );
+
+		$this->assertCount( 1, $consumers );
+		$this->assertContainsOnlyInstancesOf( Consumer::class, $consumers );
+	}
+
 	public function test_invalid_subscription_throws(): void {
 		$ctrl = new Messages_Stream_Controller();
 		$ctrl->set_base_dir( $this->tmp );

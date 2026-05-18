@@ -14,10 +14,20 @@
  */
 
 import { useState, useRef, useCallback } from '@wordpress/element';
+import { getCommandClient } from '../utils/commandClient';
 
 const TYPE = 0;
 const FROM = 2;
 const ID = 4;
+const KEY = 5;
+const VALUE = 6;
+
+// Client-side keep-alive cadence. The substrate's slot pool gives each
+// connection a TTL (default 10s, configurable via the `interval` param on
+// /messages/stream). The half-TTL cadence below keeps the slot from
+// expiring on any single missed poke without flooding the server.
+const SLOT_HEARTBEAT_MS = 5000;
+const SLOT_TTL_S = 10;
 
 /**
  * Exponential backoff with a 30s cap.
@@ -48,6 +58,9 @@ export default function useMessageStream( {
 	const sourceRef = useRef( null );
 	const retryRef = useRef( 0 );
 	const reconnectTimeoutRef = useRef( null );
+	// Slot id from the `connected` envelope + setInterval handle for the
+	// keep-alive poke that touches Sse_Slot_Pool's TTL on every tick.
+	const slotIntervalRef = useRef( null );
 
 	// Per-subscription per-partition positions. Shape:
 	//   { 'firehose': { 0: { seg: 42, off: 1024 }, 1: { ... } } }
@@ -68,6 +81,10 @@ export default function useMessageStream( {
 		if ( reconnectTimeoutRef.current ) {
 			clearTimeout( reconnectTimeoutRef.current );
 			reconnectTimeoutRef.current = null;
+		}
+		if ( slotIntervalRef.current ) {
+			clearInterval( slotIntervalRef.current );
+			slotIntervalRef.current = null;
 		}
 		if ( sourceRef.current ) {
 			sourceRef.current.close();
@@ -136,6 +153,34 @@ export default function useMessageStream( {
 			}
 			if ( ! Array.isArray( envelope ) ) {
 				return;
+			}
+
+			// First envelope on the stream carries `KEY = 'connected'` and
+			// includes the slot id assigned by Sse_Slot_Pool. Start the
+			// keep-alive poker so the slot doesn't expire its TTL while
+			// the connection is otherwise idle — without this the
+			// dashboard cycles through reconnects every 30s as each new
+			// connection steals the previous slot before the server has
+			// noticed the old one was still alive.
+			if ( 'connected' === envelope[ KEY ] && envelope[ VALUE ] ) {
+				const slot = envelope[ VALUE ].slot;
+				if ( Number.isInteger( slot ) && slot >= 0 ) {
+					if ( slotIntervalRef.current ) {
+						clearInterval( slotIntervalRef.current );
+					}
+					slotIntervalRef.current = setInterval( () => {
+						getCommandClient()
+							.send( {
+								to: 'workers',
+								verb: 'heartbeat',
+								payload: { slot, ttl: SLOT_TTL_S },
+							} )
+							.catch( () => {
+								// Best-effort; transient failures are
+								// absorbed by the slot's TTL grace.
+							} );
+					}, SLOT_HEARTBEAT_MS );
+				}
 			}
 
 			// Track per-subscription per-partition position from each
