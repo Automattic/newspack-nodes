@@ -185,17 +185,39 @@ class Messages_Stream_Controller {
 	public function open_subscription( string $sub, ?array $positions ): array {
 		$base = $this->base_dir ?? Bootstrap::base_dir();
 
-		if ( \preg_match( '/^[a-z0-9_-]+\.p\d+$/', $sub ) ) {
+		if ( \preg_match( '/^([a-z0-9_-]+)\.p(\d+)$/', $sub, $m ) ) {
 			$attach = self::$attach_to_worker ?? static function ( string $reader_id, string $base_dir ): array {
 				return ( new Cli( $base_dir ) )->attach_to_worker( $reader_id );
 			};
-			$ipc = $attach( $sub, $base );
-			// Empty offsetlog_base_dir disables checkpointing — cli/SSE
-			// sessions tail-seek and never resume from a saved position.
-			$consumer = new Consumer( $ipc['output'], 0, '' );
-			$consumer->next_offset( 'end' );
-			$consumer->set_stamp_as( $sub );
-			return [ $consumer ];
+			try {
+				$ipc = $attach( $sub, $base );
+				// Empty offsetlog_base_dir disables checkpointing — cli/SSE
+				// sessions tail-seek and never resume from a saved position.
+				$consumer = new Consumer( $ipc['output'], 0, '' );
+				$consumer->next_offset( 'end' );
+				$consumer->set_stamp_as( $sub );
+				return [ $consumer ];
+			} catch ( \InvalidArgumentException $e ) {
+				// No worker by that name — fall through to the log-file
+				// path with explicit partition. This is the aggregator
+				// hub's path: it subscribes as `firehose.p0` to tail the
+				// spoke's firehose.log partition 0; there's no worker
+				// named `firehose.p0` (workers live at
+				// `firehose-workers-and-jobs.p0` etc.) so the IPC attempt
+				// always misses, but a log file at
+				// `{base}/logs/firehose.log/p0/` does exist.
+				$log_name  = $m[1];
+				$partition = (int) $m[2];
+				$log_base  = "{$base}/logs/{$log_name}.log";
+				$consumer  = new Consumer( $log_base, $partition, '' );
+				if ( isset( $positions[ $partition ] ) ) {
+					$consumer->next_offset( $positions[ $partition ] );
+				} else {
+					$consumer->next_offset( 'end' );
+				}
+				$consumer->set_stamp_as( $sub );
+				return [ $consumer ];
+			}
 		}
 
 		if ( \preg_match( '/^[a-z0-9_-]+$/', $sub ) ) {
