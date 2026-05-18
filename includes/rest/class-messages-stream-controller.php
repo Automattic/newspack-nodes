@@ -92,6 +92,15 @@ class Messages_Stream_Controller {
 			[
 				'methods'             => 'GET',
 				'callback'            => [ $this, 'stream' ],
+				// Capability-only gate. WordPress's REST dispatcher resolves
+				// `determine_current_user` BEFORE this fires, so this works
+				// transparently for either auth path the dashboards / cross-
+				// server pull use:
+				//   * cookie + `_wpnonce` (browser EventSource)
+				//   * `Authorization: Basic <login:app-password>` via core's
+				//     Application Password handler (RemoteSource / StreamMerger)
+				// Don't add a nonce check here — that would silently break
+				// the cross-server SSE pull.
 				'permission_callback' => static fn () => \current_user_can( 'manage_options' ),
 				'args'                => [
 					'subscribe' => [ 'required' => true,  'type' => 'string' ],
