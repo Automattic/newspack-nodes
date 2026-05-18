@@ -60,6 +60,31 @@ class Messages_Stream_Controller {
 	public static ?\Closure $attach_to_worker = null;
 
 	/**
+	 * SSE slot-pool seams. The substrate stays generic; the application
+	 * (newspack-event-logger-nodes) wires these in during bootstrap to
+	 * gate concurrent SSE connections via Memcached_Cache.
+	 *
+	 * When unset (substrate-only test runs, or any environment that does
+	 * not want concurrency caps), acquire returns slot 1, release/check
+	 * are no-ops, and the stream proceeds without rate-limiting.
+	 *
+	 *   * acquire: `function ( int $partition ): int|false`
+	 *       - `-1` for the shared browser pool, `>=0` for a per-partition
+	 *         aggregator pool (RemoteSource cross-server pull).
+	 *       - returns the slot index on success, or `false` to signal
+	 *         rate-limit (controller returns HTTP 429 before headers).
+	 *   * release: `function ( int $slot, int $partition ): void`
+	 *       - runs in the drain-loop `finally`, even on disconnect.
+	 *   * check:   `function ( int $slot, int $partition ): bool`
+	 *       - polled per drain iteration; false aborts the stream.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $acquire_slot = null;
+	public static ?\Closure $release_slot = null;
+	public static ?\Closure $check_slot   = null;
+
+	/**
 	 * Test seam: bounded drain loop. Production loops on
 	 * `connection_aborted()` (real streaming); test_mode counts iterations
 	 * up to `$test_iterations` and returns so `ob_start()` / `ob_get_clean()`
@@ -217,15 +242,47 @@ class Messages_Stream_Controller {
 	 * extracted so tests can exercise the substrate graph build /
 	 * connected envelope / Consumer wiring without the headers + `exit`
 	 * gymnastics.
+	 *
+	 * Slot acquisition fires BEFORE `init_sse_headers` so a rate-limited
+	 * stream can still return a JSON `WP_Error` (HTTP 429); after headers
+	 * are sent the response body is committed to text/event-stream.
 	 */
 	public function stream( \WP_REST_Request $request ) {
 		$subs      = $this->parse_subscriptions( (string) $request->get_param( 'subscribe' ) );
 		$positions = $this->parse_positions( (string) ( $request->get_param( 'positions' ) ?? '' ) );
 		$interval  = (int) ( $request->get_param( 'interval' ) ?? 500 );
 
+		$partition = $this->subscription_partition( $subs );
+		$acquire   = self::$acquire_slot ?? static fn ( int $p ): int|false => 1;
+		$slot      = $acquire( $partition );
+		if ( false === $slot ) {
+			return new \WP_Error(
+				'too_many_connections',
+				'Maximum concurrent SSE streams reached. Close other tabs or wait.',
+				[ 'status' => 429 ]
+			);
+		}
+
 		$this->init_sse_headers();
-		$this->run_stream_loop( $subs, $positions, $interval );
+		$this->run_stream_loop( $subs, $positions, $interval, $slot, $partition );
 		exit;
+	}
+
+	/**
+	 * Compute the partition number the slot pool should key on. IPC-shape
+	 * subscriptions (`{type}.p{N}`) → that partition; log-shape
+	 * subscriptions (or empty list) → `-1` for the shared browser pool.
+	 * First IPC sub wins if multiple are present.
+	 *
+	 * @param array<int,string> $subs
+	 */
+	private function subscription_partition( array $subs ): int {
+		foreach ( $subs as $sub ) {
+			if ( \preg_match( '/^[a-z0-9_-]+\.p(\d+)$/', $sub, $m ) ) {
+				return (int) $m[1];
+			}
+		}
+		return -1;
 	}
 
 	/**
@@ -237,14 +294,18 @@ class Messages_Stream_Controller {
 	 * false. Cleanup in `finally` removes every node so the next request
 	 * starts with a clean substrate.
 	 *
+	 * The slot/partition pair is provided by `stream()` after a successful
+	 * `$acquire_slot` call; the drain predicate consults `$check_slot`
+	 * each iteration so a TTL-expired slot terminates the stream, and the
+	 * `finally` block calls `$release_slot` on disconnect or normal exit.
+	 *
 	 * @param array<int,string>             $subs      Subscription names.
 	 * @param array<string,array>|null      $positions Per-subscription saved positions.
 	 * @param int                            $interval Heartbeat / flush cadence ms.
+	 * @param int                            $slot      Acquired slot index (default 1 = unmetered).
+	 * @param int                            $partition Slot-pool partition (-1 = shared browser).
 	 */
-	public function run_stream_loop( array $subs, ?array $positions, int $interval ): void {
-		// M1 stub: slot acquisition (memcache-based concurrency cap)
-		// arrives in M4 alongside the migrated Memcached_Cache.
-		$slot = 1;
+	public function run_stream_loop( array $subs, ?array $positions, int $interval, int $slot = 1, int $partition = -1 ): void {
 		// `connected` envelope emits BEFORE the substrate graph is built —
 		// it doesn't register any nodes, so it stays outside the try/finally.
 		$this->send_sse_event( 'msg', $this->build_connected_msg( $slot, $subs, $interval ) );
@@ -291,11 +352,18 @@ class Messages_Stream_Controller {
 
 			$iterations = 0;
 			EventFramework::instance()->drain(
-				function () use ( &$iterations ): bool {
-					if ( $this->test_mode ) {
-						return ++$iterations <= $this->test_iterations;
+				function () use ( &$iterations, $slot, $partition ): bool {
+					if ( $this->test_mode && ++$iterations > $this->test_iterations ) {
+						return false;
 					}
-					return ! \connection_aborted();
+					$check = self::$check_slot;
+					if ( null !== $check && ! $check( $slot, $partition ) ) {
+						return false;
+					}
+					if ( ! $this->test_mode && \connection_aborted() ) {
+						return false;
+					}
+					return true;
 				}
 			);
 		} finally {
@@ -312,6 +380,10 @@ class Messages_Stream_Controller {
 			$router = Core::node( '_router' );
 			if ( $router instanceof Router ) {
 				$router->remove_node();
+			}
+			$release = self::$release_slot;
+			if ( null !== $release ) {
+				$release( $slot, $partition );
 			}
 		}
 	}
