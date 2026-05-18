@@ -989,8 +989,9 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertArrayHasKey( 'updated_option', $GLOBALS['_wp_actions'] );
 		$this->assertArrayHasKey( 'added_option', $GLOBALS['_wp_actions'] );
 
-		// admin_menu fires both `add_admin_menu` AND `register_topology_admin_page`.
-		$this->assertCount( 2, $GLOBALS['_wp_actions']['admin_menu'] );
+		// admin_menu fires three hooks: `add_admin_menu`,
+		// `register_topology_admin_page`, and `register_event_dashboard_pages`.
+		$this->assertCount( 3, $GLOBALS['_wp_actions']['admin_menu'] );
 	}
 
 	public function test_constructor_admin_init_hook_invokes_register_settings(): void {

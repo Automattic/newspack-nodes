@@ -31,6 +31,7 @@ package-lock.json
 package.json
 phpcs.xml.dist
 phpstan.neon.dist
+sync-shared.sh
 
 # Dev infrastructure — not part of the installable plugin
 /coverage

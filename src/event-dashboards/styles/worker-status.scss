@@ -1,0 +1,522 @@
+/**
+ * Worker Status Styles
+ *
+ * Worker status page, pipeline flow, partitions, segments.
+ */
+
+@use "base";
+
+// Worker Status Component - Full Page
+.worker-status-full {
+	padding: 20px 16px 16px;
+	color: base.$dark-text;
+	font-family: base.$system-font;
+
+	.worker-status-total-rate {
+		flex: 1;
+		display: flex;
+		align-items: baseline;
+		justify-content: center;
+		gap: 12px;
+
+		.total-rate-write,
+		.total-rate-read {
+			display: inline-flex;
+			align-items: baseline;
+			justify-content: flex-start;
+			gap: 4px;
+			min-width: 160px;
+		}
+
+		.total-rate-label {
+			font-size: 14px;
+			color: base.$dark-text-dim;
+			text-transform: uppercase;
+		}
+
+		.total-rate-value {
+			font-size: 20px;
+			font-weight: 600;
+			color: base.$dark-info;
+		}
+	}
+
+	.worker-status-controls {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+
+	.worker-status-error-inline {
+		background: base.$error-bg;
+		color: base.$white;
+		padding: 4px 12px;
+		border-radius: 3px;
+		font-size: 11px;
+		margin-left: 12px;
+	}
+}
+
+// Worker Status Component - Embedded
+.worker-status {
+	margin-top: 24px;
+
+	h3 {
+		margin: 0 0 16px;
+		font-size: 14px;
+		font-weight: 600;
+	}
+}
+
+.worker-status-loading,
+.worker-status-error {
+	padding: 24px;
+	text-align: center;
+	color: base.$light-text-muted;
+	background: base.$light-surface;
+	border-radius: 4px;
+}
+
+.worker-status-error {
+	color: base.$error-text;
+	background: base.$error-surface;
+}
+
+// Pipeline flow layout
+.pipeline-flow {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	font-family: base.$mono-font;
+	font-size: 13px;
+	color: base.$dark-text;
+}
+
+// Pipeline separator for different branches
+.pipeline-separator {
+	margin: 12px 0 4px;
+	padding: 4px 12px;
+	font-size: 11px;
+	font-weight: 600;
+	color: base.$dark-text-placeholder;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+	border-top: 1px solid base.$dark-header-border;
+}
+
+// Log section (firehose, requests, flames)
+.log-section {
+	background: base.$dark-bg-secondary;
+	border-radius: 6px;
+	padding: 8px 12px;
+}
+
+.log-header {
+	margin-bottom: 6px;
+}
+
+.log-name {
+	font-weight: 600;
+	font-size: 14px;
+	color: base.$dark-info;
+}
+
+.log-partitions {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.log-partition-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	background: base.$dark-bg-deep;
+	border-radius: 4px;
+	padding: 4px 8px;
+}
+
+.log-partition-info {
+	display: flex;
+	align-items: baseline;
+	gap: 8px;
+	flex-shrink: 0;
+	width: 110px;
+}
+
+.log-write-rate {
+	font-size: 10px;
+	color: base.$dark-info;
+	min-width: 70px;
+}
+
+// Worker connector between logs
+.connector-name {
+	font-weight: 600;
+	font-size: 13px;
+	color: base.$white;
+	min-width: 150px;
+}
+
+.worker-connector {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 4px 16px;
+	color: base.$dark-text-placeholder;
+
+	&.dead .connector-name {
+		opacity: 0.5;
+	}
+}
+
+.connector-arrow {
+	font-size: 14px;
+	color: base.$dark-text-dim;
+	width: 10px;
+}
+
+.connector-content {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex: 1;
+}
+
+.connector-trailing {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	margin-left: auto;
+}
+
+.connector-partition {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	min-width: 250px;
+}
+
+.connector-age {
+	font-size: 10px;
+	color: base.$dark-text-muted;
+	min-width: 24px;
+}
+
+.connector-heartbeat {
+	font-size: 10px;
+	color: base.$dark-text-muted;
+	min-width: 20px;
+
+	&.stale {
+		color: #ffa726;
+	}
+}
+
+.connector-rate {
+	font-size: 10px;
+	color: base.$dark-info;
+	min-width: 85px;
+
+	&.dead {
+		text-decoration: line-through;
+		color: base.$dark-text-placeholder;
+		opacity: 0.5;
+	}
+}
+
+.connector-behind {
+	font-size: 10px;
+	color: base.$dark-text-placeholder;
+	min-width: 50px;
+
+	&.warning {
+		color: base.$status-3xx;
+	}
+}
+
+.connector-eta {
+	font-size: 10px;
+	color: base.$dark-info;
+	min-width: 40px;
+
+	&::before {
+		content: "ETA ";
+		color: base.$dark-text-placeholder;
+	}
+
+	&.stalled {
+		color: base.$status-3xx;
+
+		&::before {
+			content: "";
+		}
+	}
+}
+
+.connector-restart-pending {
+	font-size: 12px;
+	color: base.$warning-color;
+	animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+
+	from {
+		transform: rotate(0deg);
+	}
+
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.worker-restart-btn {
+	background: transparent;
+	border: 1px solid base.$dark-border-light;
+	color: base.$dark-text-muted;
+	padding: 2px 8px;
+	border-radius: 3px;
+	font-size: 12px;
+	cursor: pointer;
+	margin-left: auto;
+	transition: all 0.2s ease;
+
+	&:hover {
+		background: base.$dark-bg-hover;
+		border-color: base.$dark-info;
+		color: base.$dark-info;
+	}
+}
+
+.worker-restart-pending-label {
+	font-size: 10px;
+	color: base.$warning-color;
+	font-style: italic;
+	margin-left: auto;
+}
+
+.worker-status-badge.compact {
+	padding: 1px 6px;
+	font-size: 9px;
+
+	&.running {
+		background: base.$success-bg;
+		color: base.$white;
+	}
+
+	&.dead {
+		background: base.$dead-bg;
+		color: base.$white;
+		opacity: 0.5;
+	}
+}
+
+.worker-status-badge.small {
+	padding: 2px 6px;
+	font-size: 9px;
+}
+
+.partition-label-inline {
+	color: base.$dark-text-placeholder;
+	font-size: 12px;
+	font-weight: 600;
+}
+
+.partition-segments {
+	display: flex;
+	flex-direction: row;
+	gap: 6px;
+	align-items: stretch;
+	flex: 1;
+	overflow: hidden; // Clip segments sliding off the left edge.
+}
+
+.worker-status-badge {
+	padding: 2px 8px;
+	border-radius: 3px;
+	font-size: 10px;
+	font-weight: 600;
+	text-transform: uppercase;
+
+	&.running {
+		background: base.$success-bg;
+		color: base.$white;
+	}
+
+	&.dead {
+		background: base.$dead-bg;
+		color: base.$white;
+	}
+
+	&.idle {
+		background: base.$idle-bg;
+		color: base.$white;
+	}
+}
+
+// Single segment - horizontal bar
+.worker-segment-h {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+
+	&.segment-slide-in {
+		animation: segment-slide-in 0.5s ease-out forwards;
+	}
+
+	&.segment-slide-out {
+		animation: segment-slide-out 0.4s ease-in forwards;
+	}
+}
+
+@keyframes segment-slide-in {
+
+	from {
+		flex: 0;
+		opacity: 0;
+		min-width: 0;
+		max-width: 0;
+	}
+
+	to {
+		flex: 1;
+		opacity: 1;
+		min-width: 0;
+		max-width: 100%;
+	}
+}
+
+@keyframes segment-slide-out {
+
+	from {
+		flex: 1;
+		opacity: 1;
+		max-width: 100%;
+	}
+
+	to {
+		flex: 0;
+		opacity: 0;
+		max-width: 0;
+		margin: 0;
+		padding: 0;
+	}
+}
+
+.segment-label-h,
+.segment-size-h {
+	display: none;
+}
+
+.segment-bar-h {
+	width: 100%;
+	height: 32px;
+	background: base.$dark-bg-deepest;
+	border-radius: 3px;
+	overflow: hidden;
+	position: relative;
+	display: flex;
+}
+
+.segment-fill-h {
+	height: 100%;
+	background: base.$dead-bg; // Red - unprocessed
+	transition: width 0.3s ease, background-color 0.3s ease;
+	position: relative;
+
+	&:first-child {
+		border-radius: 3px 0 0 3px;
+	}
+
+	&:last-child {
+		border-radius: 0 3px 3px 0;
+	}
+
+	&:only-child {
+		border-radius: 3px;
+	}
+
+	&.processed {
+		background: base.$success-bg; // Green - processed
+	}
+
+	&.pending {
+		background: base.$warning-color; // Yellow/amber - pending in current segment
+	}
+}
+
+.no-segments-h {
+	color: base.$dark-text-dim;
+	font-style: italic;
+	padding: 8px 0;
+}
+
+// Standalone Workers Section
+.standalone-workers-section {
+	background: base.$dark-bg-secondary;
+	border-radius: 6px;
+	padding: 8px 12px;
+	margin-bottom: 12px;
+}
+
+.standalone-workers-header {
+	margin-bottom: 8px;
+	padding-bottom: 6px;
+	border-bottom: 1px solid base.$dark-border;
+}
+
+.standalone-workers-title {
+	font-weight: 600;
+	font-size: 12px;
+	color: base.$dark-text-muted;
+	text-transform: uppercase;
+	letter-spacing: 0.5px;
+}
+
+.standalone-workers-list {
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+}
+
+.standalone-worker-name {
+	font-weight: 600;
+	font-size: 13px;
+	color: base.$white;
+	min-width: 150px;
+	font-family: base.$mono-font;
+}
+
+.standalone-worker-row {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	padding: 4px 8px;
+	background: base.$dark-bg-deep;
+	border-radius: 4px;
+
+	&.dead .standalone-worker-name {
+		opacity: 0.5;
+	}
+}
+
+.standalone-worker-partitions {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex: 1;
+}
+
+.standalone-worker-instance {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+}
+
+.standalone-worker-age {
+	font-size: 10px;
+	color: base.$dark-text-muted;
+	min-width: 24px;
+	font-family: base.$mono-font;
+}
