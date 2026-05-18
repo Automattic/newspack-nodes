@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`Topology_Registry::reset_basename_cache()` — narrow invalidation tied to `Config::RESET_ACTION`.** Drops only the parsed-basename cache; keeps `$stock_dirs` + `$user_dir` intact so long-lived workers surviving a config reload re-read newly-edited TSLs without losing their registry lookups. Wired alongside the existing `Log_Discovery::reset()` hook in `newspack-nodes.php`. Pairs the two discovery primitives' invalidation behavior — both clear on the same signal, neither tears down state a worker needs to keep running.
+
 - **`Log_Discovery::on_disk()` — substrate primitive for "what log directories exist."** Globs `{base}/logs/*.log/` and returns the sorted basename list (no `.log` suffix). Memoized per-PHP-process; invalidated on `Config::RESET_ACTION` so long-lived workers surviving a config reload pick up newly-created log dirs. Replaces the `newspack_nodes/num_logs` filter — admin "Total Log Storage" now counts directly from the discovery primitive, and applications no longer have to register a `+N` callback that drifts every time they add a topology Partition. Seven unit tests in `LogDiscoveryTest.php`.
 - **`Topology_Registry::basenames_for(string $name): array<string>`** — parses a topology TSL's `make_node Partition` lines and returns the declared basenames (sorted, deduplicated, `.log` suffix stripped). Memoized per-topology. Applications' `expected_log_basenames` filter callbacks now derive their per-topology data from this method instead of a hand-maintained const map — the TSL is the single source of truth for what each topology writes. Nine unit tests in `TopologyRegistryBasenamesTest.php`.
 

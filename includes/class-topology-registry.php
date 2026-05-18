@@ -252,9 +252,20 @@ class Topology_Registry {
 		return self::$basename_cache[ $name ] = $out;
 	}
 
-	public static function reset(): void {
-		self::$stock_dirs     = [];
-		self::$user_dir       = '';
+	/**
+	 * Narrow invalidation: drop only the parsed-basename cache, keeping
+	 * `$stock_dirs` and `$user_dir` intact. Wired to `Config::RESET_ACTION`
+	 * at boot so long-lived workers surviving a config reload re-read
+	 * newly-edited TSLs without losing their registry lookups. The full
+	 * `reset()` (which clears the dirs too) is test-isolation-only.
+	 */
+	public static function reset_basename_cache(): void {
 		self::$basename_cache = [];
+	}
+
+	public static function reset(): void {
+		self::$stock_dirs = [];
+		self::$user_dir   = '';
+		self::reset_basename_cache();
 	}
 }
