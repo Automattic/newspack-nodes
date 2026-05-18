@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Log_Discovery::on_disk()` — substrate primitive for "what log directories exist."** Globs `{base}/logs/*.log/` and returns the sorted basename list (no `.log` suffix). Memoized per-PHP-process; invalidated on `Config::RESET_ACTION` so long-lived workers surviving a config reload pick up newly-created log dirs. Replaces the `newspack_nodes/num_logs` filter — admin "Total Log Storage" now counts directly from the discovery primitive, and applications no longer have to register a `+N` callback that drifts every time they add a topology Partition. Seven unit tests in `LogDiscoveryTest.php`.
+- **`Topology_Registry::basenames_for(string $name): array<string>`** — parses a topology TSL's `make_node Partition` lines and returns the declared basenames (sorted, deduplicated, `.log` suffix stripped). Memoized per-topology. Applications' `expected_log_basenames` filter callbacks now derive their per-topology data from this method instead of a hand-maintained const map — the TSL is the single source of truth for what each topology writes. Nine unit tests in `TopologyRegistryBasenamesTest.php`.
+
+### Changed
+
+- **Admin "Total Log Storage" widget** counts log streams via `Log_Discovery::on_disk()` instead of `apply_filters('newspack_nodes/num_logs', 0)`. The `num_logs` filter surface is gone — adding a partition to a topology shows up automatically.
+
 ### Changed
 
 - **`Messages_Stream_Controller::open_subscription()` stamps log-subscription Consumers with `{sub}.pN` (partition-aware) instead of plain `{sub}`.** Mirrors the existing IPC-subscription shape and surfaces the partition number to dashboard JS without a sidecar metadata channel — RawLogs (and other M6 dashboards) parses partition out of the Message FROM field. The IPC subscription shape (`{type}.p{N}`) is unchanged.

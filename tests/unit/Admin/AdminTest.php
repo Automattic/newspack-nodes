@@ -837,13 +837,13 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'logs', $html );
 	}
 
-	public function test_total_storage_callback_uses_filter_for_num_logs(): void {
-		\add_filter(
-			'newspack_nodes/num_logs',
-			function () {
-				return 5;
-			}
-		);
+	public function test_total_storage_callback_counts_logs_from_disk(): void {
+		// `num_logs` factor now reads from `Log_Discovery::on_disk()`. Seed
+		// five log directories so the calculation breakdown shows `× 5 logs`.
+		foreach ( [ 'a', 'b', 'c', 'd', 'e' ] as $name ) {
+			\mkdir( "{$this->base_dir}/logs/{$name}.log", 0755, true );
+		}
+		\Newspack_Nodes\Log_Discovery::reset();
 
 		$admin = new Admin();
 
@@ -851,7 +851,6 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$admin->total_storage_callback();
 		$html = \ob_get_clean();
 
-		// 5 logs should appear in the calculation breakdown.
 		$this->assertMatchesRegularExpression( '/×\s*5\s*logs/u', $html );
 	}
 
@@ -860,12 +859,9 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		\update_option( 'newspack_nodes_segment_size', 64 * 1024 * 1024 );
 		\update_option( 'newspack_nodes_num_segments', 4 );
 		\update_option( 'newspack_nodes_num_partitions', 4 );
-		\add_filter(
-			'newspack_nodes/num_logs',
-			function () {
-				return 2;
-			}
-		);
+		\mkdir( "{$this->base_dir}/logs/one.log", 0755, true );
+		\mkdir( "{$this->base_dir}/logs/two.log", 0755, true );
+		\Newspack_Nodes\Log_Discovery::reset();
 
 		$admin = new Admin();
 

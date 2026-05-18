@@ -701,7 +701,10 @@ class Admin {
 		$num_segments   = '' === $num_segments ? (int) ( $defaults['num_segments'] ?? 4 ) : (int) $num_segments;
 		$num_partitions = '' === $num_partitions ? (int) ( $defaults['num_partitions'] ?? 1 ) : (int) $num_partitions;
 
-		$num_logs    = (int) \apply_filters( 'newspack_nodes/num_logs', 0 );
+		// Count log streams from disk — every `{base}/logs/*.log/` directory
+		// IS a stream. Replaces the `num_logs` filter (which had to be kept
+		// in sync by hand as topologies added partitions).
+		$num_logs    = \count( \Newspack_Nodes\Log_Discovery::on_disk() );
 		$total_bytes = $segment_size * $num_segments * $num_partitions * $num_logs;
 		$total_mb    = \round( $total_bytes / ( 1024 * 1024 ) );
 		$total_gb    = \round( $total_bytes / ( 1024 * 1024 * 1024 ), 2 );

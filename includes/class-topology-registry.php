@@ -28,6 +28,15 @@ class Topology_Registry {
 	/** @var string Writable per-deployment user dir. */
 	private static string $user_dir = '';
 
+	/**
+	 * Per-topology basename cache. Populated lazily by `basenames_for()`;
+	 * cleared by `reset()` (also fires on Config::RESET_ACTION via
+	 * `Bootstrap::reset_caches`).
+	 *
+	 * @var array<string,array<string>>
+	 */
+	private static array $basename_cache = [];
+
 	public static function register_stock_dir( string $path ): void {
 		$path = \rtrim( $path, '/' );
 		if ( '' === $path ) {
@@ -202,8 +211,50 @@ class Topology_Registry {
 		];
 	}
 
+	/**
+	 * Basenames declared by `$name`'s topology TSL — every
+	 * `make_node Partition <node>:partition <config:logs_dir>/<basename>.log ...`
+	 * line contributes one basename. Returns sorted, deduplicated, with the
+	 * `.log` suffix stripped. Empty array for unknown topologies and for
+	 * topologies that declare no Partition nodes.
+	 *
+	 * Memoized per-name; cleared by `reset()`.
+	 *
+	 * @return array<string>
+	 */
+	public static function basenames_for( string $name ): array {
+		if ( isset( self::$basename_cache[ $name ] ) ) {
+			return self::$basename_cache[ $name ];
+		}
+		$path = self::resolve( $name );
+		if ( null === $path ) {
+			return self::$basename_cache[ $name ] = [];
+		}
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		$contents = (string) \file_get_contents( $path );
+		$seen     = [];
+		foreach ( \explode( "\n", $contents ) as $raw ) {
+			$line = \trim( $raw );
+			if ( '' === $line || '#' === $line[0] ) {
+				continue;
+			}
+			if ( ! \preg_match(
+				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.log\b/',
+				$line,
+				$m
+			) ) {
+				continue;
+			}
+			$seen[ $m[1] ] = true;
+		}
+		$out = \array_keys( $seen );
+		\sort( $out );
+		return self::$basename_cache[ $name ] = $out;
+	}
+
 	public static function reset(): void {
-		self::$stock_dirs = [];
-		self::$user_dir   = '';
+		self::$stock_dirs     = [];
+		self::$user_dir       = '';
+		self::$basename_cache = [];
 	}
 }

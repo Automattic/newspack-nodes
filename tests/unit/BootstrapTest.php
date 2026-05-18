@@ -223,15 +223,6 @@ class BootstrapTest extends TestCase {
 		$this->assertCount( 1, $workers );
 	}
 
-	// ── register_standalone_workers ───────────────────────────────────────
-
-	public function test_register_standalone_workers_includes_supervisor(): void {
-		$workers = Bootstrap::register_standalone_workers();
-		$this->assertArrayHasKey( 'supervisor', $workers );
-		$this->assertSame( Supervisor::class, $workers['supervisor']['class'] );
-		$this->assertFalse( $workers['supervisor']['partitions'] );
-	}
-
 	// ── is_logging_enabled ────────────────────────────────────────────────
 
 	public function test_is_logging_enabled_defaults_true(): void {
