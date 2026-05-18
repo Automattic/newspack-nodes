@@ -115,13 +115,17 @@ class Admin {
 	 * admin entry rather than living under Settings.
 	 */
 	public const TOPOLOGY_MENU_SLUG = 'newspack-nodes-topology';
+	public const WORKERS_MENU_SLUG  = 'newspack-nodes-workers';
+	public const RAWLOGS_MENU_SLUG  = 'newspack-nodes-rawlogs';
 
 	public function __construct() {
 		\add_action( 'admin_menu', [ $this, 'add_admin_menu' ] );
 		\add_action( 'admin_menu', [ $this, 'register_topology_admin_page' ] );
+		\add_action( 'admin_menu', [ $this, 'register_event_dashboard_pages' ], 11 );
 		\add_action( 'admin_init', [ $this, 'register_settings' ] );
 		\add_action( 'admin_post_' . self::RESET_ACTION, [ $this, 'handle_reset_settings' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_topology_console_assets' ] );
+		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_event_dashboards_assets' ] );
 
 		// Per-option granular worker-restart on save. Both `added_option` (first
 		// save) and `updated_option` (subsequent saves) fire this so newly-added
@@ -149,6 +153,92 @@ class Admin {
 			[ $this, 'render_topology_page' ],
 			'dashicons-networking',
 			81
+		);
+	}
+
+	/**
+	 * Register the Workers + Raw Logs admin pages as siblings of the
+	 * Topology Console under the same top-level "Nodes" menu. Both pages
+	 * print a single mount div that the event-dashboards React bundle
+	 * (enqueued by enqueue_event_dashboards_assets) finds and renders into.
+	 *
+	 * Priority 11 so they appear after the topology-console submenu (which
+	 * registers at the default priority 10 via add_menu_page above) — the
+	 * top-level link itself routes to the topology page; Workers + Raw
+	 * Logs appear as second/third submenu entries.
+	 */
+	public function register_event_dashboard_pages(): void {
+		if ( ! self::current_user_allowed() ) {
+			return;
+		}
+		if ( ! \function_exists( 'add_submenu_page' ) ) {
+			return;
+		}
+		\add_submenu_page(
+			self::TOPOLOGY_MENU_SLUG,
+			\__( 'Workers', 'newspack-nodes' ),
+			\__( 'Workers', 'newspack-nodes' ),
+			'manage_options',
+			self::WORKERS_MENU_SLUG,
+			static fn () => print( '<div id="event-logger-workers" class="event-logger-workers-page"></div>' )
+		);
+		\add_submenu_page(
+			self::TOPOLOGY_MENU_SLUG,
+			\__( 'Raw Logs', 'newspack-nodes' ),
+			\__( 'Raw Logs', 'newspack-nodes' ),
+			'manage_options',
+			self::RAWLOGS_MENU_SLUG,
+			static fn () => print( '<div id="event-logger-rawlogs" class="event-logger-rawlogs-page"></div>' )
+		);
+	}
+
+	/**
+	 * Enqueue the event-dashboards asset bundle when on the Workers or
+	 * Raw Logs admin pages. Both pages share one React bundle (entry
+	 * `src/event-dashboards/index.js`) whose mount logic matches its
+	 * #event-logger-workers / #event-logger-rawlogs root div to the right
+	 * component.
+	 */
+	public function enqueue_event_dashboards_assets( string $hook = '' ): void {
+		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
+			return;
+		}
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page = isset( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
+		if ( self::WORKERS_MENU_SLUG !== $page && self::RAWLOGS_MENU_SLUG !== $page ) {
+			return;
+		}
+		$asset_path = \NEWSPACK_NODES_DIR . 'build/event-dashboards/index.js';
+		$asset_url  = ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-dashboards/index.js';
+		if ( ! \file_exists( $asset_path ) ) {
+			return;
+		}
+		$handle  = 'newspack-nodes-event-dashboards';
+		$version = \filemtime( $asset_path ) ?: \NEWSPACK_NODES_VERSION;
+		$deps    = [ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ];
+		\wp_enqueue_script( $handle, $asset_url, $deps, $version, true );
+
+		$css_path = \NEWSPACK_NODES_DIR . 'build/event-dashboards/index.css';
+		$css_url  = ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-dashboards/index.css';
+		if ( \file_exists( $css_path ) ) {
+			$css_version = \filemtime( $css_path ) ?: \NEWSPACK_NODES_VERSION;
+			\wp_enqueue_style( $handle, $css_url, [ 'wp-components' ], $css_version );
+		}
+
+		// REST root + nonce for the shared CommandClient. Same data shape
+		// as the topology-console enqueue uses, so the React bundle finds
+		// what it expects on `window.NewspackNodesData`.
+		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
+		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
+		\wp_localize_script(
+			$handle,
+			'NewspackNodesData',
+			[
+				'restUrl' => $rest_url,
+				'nonce'   => $nonce,
+				'tree'    => 'event-dashboards',
+				'version' => \NEWSPACK_NODES_VERSION,
+			]
 		);
 	}
 

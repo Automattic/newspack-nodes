@@ -81,7 +81,9 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 // substrate + application CIs.
 \Newspack_Nodes\CommandInterpreter::register_class( 'Classes_CI',    \Newspack_Nodes\Rest\Classes_CI::class );
 \Newspack_Nodes\CommandInterpreter::register_class( 'Layouts_CI',    \Newspack_Nodes\Rest\Layouts_CI::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Raw_Logs_CI',   \Newspack_Nodes\Rest\Raw_Logs_CI::class );
 \Newspack_Nodes\CommandInterpreter::register_class( 'Topologies_CI', \Newspack_Nodes\Rest\Topologies_CI::class );
+\Newspack_Nodes\CommandInterpreter::register_class( 'Workers_CI',    \Newspack_Nodes\Rest\Workers_CI::class );
 
 /**
  * Service-CommandInterpreter (CI) mounting.
@@ -106,6 +108,19 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\CommandInterpreter 
 	$base_ci->make_node( 'Classes_CI',    'classes' );
 	$base_ci->make_node( 'Layouts_CI',    'layouts' );
 	$base_ci->make_node( 'Topologies_CI', 'topologies' );
+	$base_ci->make_node( 'Raw_Logs_CI',   'raw-logs' );
+
+	// Workers_CI needs the substrate Cli plus an optional Cache_Interface
+	// for live-position memcache reads + SSE-slot heartbeats. Substrate
+	// can't ship a cache (the existing implementation lives in the
+	// application layer), so apply a filter for an application to provide
+	// one. Null cache means live-position falls back to on-disk offsetlog
+	// and the `heartbeat` verb throws "cache not configured".
+	$cli   = new \Newspack_Nodes\Cli( \Newspack_Nodes\Bootstrap::base_dir() );
+	$cache = \function_exists( 'apply_filters' )
+		? \apply_filters( 'newspack_nodes/workers_cache', null )
+		: null;
+	$base_ci->make_node( 'Workers_CI', 'workers', $cli, $cache );
 }
 
 // Wire WordPress integration: REST routes, cron-driven supervisor tick, activation/deactivation.

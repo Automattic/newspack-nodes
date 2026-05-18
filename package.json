@@ -6,9 +6,11 @@
 	"author": "Automattic",
 	"license": "GPL-2.0-or-later",
 	"scripts": {
-		"build": "npm run build:topology-console",
+		"build": "npm run clean && npm run sync && npm run build:topology-console && npm run build:event-dashboards",
+		"build:event-dashboards": "wp-scripts build src/event-dashboards/index.js --output-path=build/event-dashboards",
 		"build:topology-console": "wp-scripts build src/topology-console/index.js --output-path=build/topology-console",
 		"clean": "rm -rf build",
+		"sync": "./sync-shared.sh",
 		"release:archive": "./build-release.sh",
 		"fix:js": "wp-scripts lint-js --fix 'src/**/*.{js,jsx}'",
 		"fix:php": "phpcbf",

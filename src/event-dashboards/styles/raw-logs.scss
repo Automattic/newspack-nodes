@@ -1,0 +1,249 @@
+/**
+ * Raw Logs Styles
+ *
+ * Dark theme styling for the raw log viewer.
+ */
+
+@use "base";
+
+.event-logger-raw-logs {
+	background: base.$dark-bg;
+	color: base.$dark-text;
+	padding: 20px 16px 16px;
+	height: 100%;
+	display: flex;
+	flex-direction: column;
+	font-family: base.$system-font;
+}
+
+.event-logger-raw-logs-header {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	min-height: 40px;
+	margin-bottom: 12px;
+	padding-bottom: 12px;
+	border-bottom: 1px solid base.$dark-header-border;
+	flex-shrink: 0;
+
+	h3 {
+		margin: 0;
+		font-size: 14px;
+		font-weight: 600;
+		color: base.$white;
+	}
+}
+
+.event-logger-raw-logs-controls {
+	display: flex;
+	align-items: center;
+	gap: 12px;
+	flex-wrap: wrap;
+}
+
+select.event-logger-raw-logs-select {
+	-webkit-appearance: none;
+	-moz-appearance: none;
+	appearance: none;
+	background: base.$dark-bg-tertiary;
+	border: 1px solid base.$dark-border;
+	color: base.$white;
+	padding: 0 8px;
+	border-radius: base.$border-radius;
+	font-size: 12px;
+	cursor: pointer;
+	min-width: 120px;
+	height: 28px;
+
+	&:hover {
+		background: base.$dark-bg-hover;
+		color: base.$white;
+	}
+
+	&:focus {
+		outline: none;
+		border-color: base.$dark-accent;
+		color: base.$white;
+	}
+
+	option {
+		background: base.$dark-bg;
+		color: base.$white;
+	}
+}
+
+input.event-logger-raw-logs-search {
+
+	@include base.dark-search-input;
+	width: 160px;
+}
+
+.event-logger-raw-logs-stats {
+
+	@include base.dark-stats;
+	min-width: 80px;
+}
+
+.event-logger-raw-logs-count {
+
+	@include base.dark-stats-count;
+}
+
+.event-logger-raw-logs-rps {
+	font-family: base.$mono-font;
+	font-size: 11px;
+	color: base.$dark-text-dim;
+	margin-left: 8px;
+}
+
+.event-logger-raw-logs-btn {
+
+	@include base.dark-button;
+
+	&.active {
+		background: base.$success-bg;
+		border-color: base.$success-border;
+		color: base.$white;
+	}
+
+	&.paused {
+		background: base.$warning-color;
+		border-color: base.$warning-color;
+		color: base.$dark-bg;
+	}
+
+	&:disabled {
+		opacity: 0.5;
+		cursor: not-allowed;
+	}
+}
+
+.event-logger-raw-logs-error {
+
+	@include base.dark-error-banner;
+}
+
+// Canvas-based rendering container.
+.event-logger-raw-logs-canvas-container {
+	flex: 1;
+	position: relative;
+	overflow: hidden;
+	border-radius: base.$border-radius;
+}
+
+.event-logger-raw-logs-canvas {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	z-index: 0;
+	pointer-events: none;
+}
+
+.event-logger-raw-logs-scroll {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	overflow-y: scroll;
+	overflow-x: hidden;
+	z-index: 1;
+
+	// Custom scrollbar.
+	&::-webkit-scrollbar {
+		width: 8px;
+	}
+
+	&::-webkit-scrollbar-track {
+		background: base.$dark-bg;
+		border-radius: 4px;
+	}
+
+	&::-webkit-scrollbar-thumb {
+		background: base.$dark-border;
+		border-radius: 4px;
+
+		&:hover {
+			background: base.$dark-bg-active;
+		}
+	}
+}
+
+.event-logger-raw-logs-empty {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 100%;
+	color: base.$dark-text-dim;
+	font-size: 14px;
+	font-style: italic;
+}
+
+.event-logger-raw-logs-pre {
+	margin: 0;
+	padding: 0;
+	font-family: base.$mono-font;
+	font-size: 12px;
+	line-height: 1.5;
+	white-space: pre;
+}
+
+// Single div per line, partition via ::before pseudo-element.
+.log-line {
+	min-height: 18px;
+	padding: 0 8px 0 40px;
+	position: relative;
+	white-space: pre;
+
+	&.row-odd {
+		background: base.$dark-bg-secondary;
+	}
+
+	&.row-even {
+		background: base.$dark-bg-row-even;
+	}
+
+	&:hover {
+		background: base.$dark-bg-row-hover;
+	}
+
+	// Partition number from data attribute.
+	&::before {
+		content: "P" attr(data-p);
+		position: absolute;
+		left: 0;
+		width: 32px;
+		padding-right: 8px;
+		text-align: right;
+		color: base.$dark-text-dim;
+		font-size: 10px;
+		user-select: none;
+		border-right: 1px solid base.$dark-border;
+		box-sizing: border-box;
+	}
+}
+
+// Responsive adjustments.
+@media (max-width: 1200px) {
+
+	.event-logger-raw-logs-controls {
+		gap: 8px;
+	}
+
+	input.event-logger-raw-logs-search {
+		width: 120px !important;
+	}
+}
+
+@media (max-width: 800px) {
+
+	input.event-logger-raw-logs-search {
+		width: 100px !important;
+	}
+
+	.event-logger-raw-logs-controls {
+		flex-wrap: wrap;
+	}
+}
