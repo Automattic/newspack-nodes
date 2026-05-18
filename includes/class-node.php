@@ -124,75 +124,6 @@ class Node {
 		return $this->patron;
 	}
 
-	/**
-	 * Recorded sibling-CI verb invocations needed to recreate this
-	 * node's state. Keyed by verb name; value is the args string
-	 * (empty string when the verb takes none). `dump_config()`
-	 * walks this map and emits one
-	 * `cmd {name}:config {verb} {args}` line per entry.
-	 *
-	 * Verb handlers call `$patron->mark_verb_invoked($verb, $args)`
-	 * themselves so a node configured at runtime round-trips
-	 * through dump_config without manual tracking. Re-invoking the
-	 * same verb overwrites — last value wins (matches the
-	 * "patron's current state" semantics dump_config implements).
-	 *
-	 * @var array<string,string>
-	 */
-	protected array $invoked_verbs = [];
-
-	public function mark_verb_invoked( string $verb, string $args ): void {
-		$this->invoked_verbs[ $verb ] = $args;
-	}
-
-	/**
-	 * Class manifest the topology console reads to generate the
-	 * palette entry + node configuration form. Subclasses
-	 * override to declare ctor params, sibling-CI verbs,
-	 * category, description. Shape:
-	 *
-	 *     [
-	 *         'category'    => 'Storage' | 'Routing' | 'Filtering' | …,
-	 *         'description' => '…',
-	 *         'ctor'        => [
-	 *             [ 'name' => 'base_dir', 'type' => 'string', 'required' => true ],
-	 *             …
-	 *         ],
-	 *         'verbs' => [
-	 *             [
-	 *                 'name'        => 'allow_large_writes',
-	 *                 'description' => '…',
-	 *                 'args'        => [],
-	 *             ],
-	 *             …
-	 *         ],
-	 *     ]
-	 *
-	 * Type values: 'string' | 'int' | 'float' | 'bool' |
-	 * 'formatter_name' | 'path' | 'config_var' | 'node_name'.
-	 *
-	 * `config_var` marks an argument that the loader will
-	 * substitute via `{config:foo}` syntax. `node_name` is the
-	 * type the editor renders as a "pick an existing node"
-	 * dropdown (e.g. set_errors_target's target arg).
-	 */
-	public static function node_schema(): array {
-		return [
-			'category'    => '',
-			'description' => '',
-			'ctor'        => [],
-			'verbs'       => [],
-			// Port flags. The default Node has a meaningful fill() and a
-			// $this->target it forwards to, so both ports render. Pure-
-			// producer classes (Tail, Consumer) override `accepts_fill` to
-			// false; pure-sink classes (Partition, Log) override
-			// `has_target` to false. The schematic renderer reads these
-			// to skip the IN / OUT port circle on the respective edge.
-			'accepts_fill' => true,
-			'has_target'   => true,
-		];
-	}
-
 	public function debug_state( ?int $level = null ): int {
 		if ( null !== $level ) {
 			$this->debug_state = \max( 0, $level );
@@ -307,20 +238,6 @@ class Node {
 		return true;
 	}
 
-	private const PAYLOAD_TYPES = Message::TM_INFO | Message::TM_REQUEST | Message::TM_ERROR | Message::TM_COMMAND;
-
-	private static array $type_names = [
-		Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
-		Message::TM_EOF        => 'TM_EOF',
-		Message::TM_PING       => 'TM_PING',
-		Message::TM_COMMAND    => 'TM_COMMAND',
-		Message::TM_RESPONSE   => 'TM_RESPONSE',
-		Message::TM_ERROR      => 'TM_ERROR',
-		Message::TM_INFO       => 'TM_INFO',
-		Message::TM_STRUCT     => 'TM_STRUCT',
-		Message::TM_REQUEST    => 'TM_REQUEST',
-	];
-
 	/** @var array<string,mixed> */
 	protected array $set_state = [];
 
@@ -360,6 +277,38 @@ class Node {
 				unset( $this->registrations[ $event ][ $listener ] );
 			}
 		}
+	}
+
+	/**
+	 * Dispatch a single listener by its identity.
+	 *
+	 * Two dispatch modes: closure or Node-name. Node-name resolves via
+	 * Core::node() and forwards a TM_INFO message; closures get invoked
+	 * with the payload directly.
+	 *
+	 * Returns: closure return value (truthy=keep, falsy=unregister) for closures;
+	 * always true for node-name dispatch.
+	 */
+	private function dispatch_listener( string $event, string $listener, mixed $payload ): mixed {
+		$cb = $this->registrations[ $event ][ $listener ] ?? null;
+		if ( null !== $cb && \is_callable( $cb ) ) {
+			// Closure mode.
+			return $cb( $payload );
+		}
+		// Node-name mode: fill TM_INFO into the named node.
+		$target = Core::node( $listener );
+		if ( null === $target ) {
+			Core::print_less_often( "WARNING: $listener forgot to unregister from $event on " . $this->name );
+			return false; // Drop the dead registration.
+		}
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_INFO;
+		$msg[ Message::FROM ]  = $this->name;
+		$msg[ Message::TO ]    = $listener;
+		$msg[ Message::KEY ]   = $event;
+		$msg[ Message::VALUE ] = $payload;
+		$target->fill( $msg );
+		return true;
 	}
 
 	/**
@@ -404,38 +353,6 @@ class Node {
 			'value' => $payload,
 		];
 		$router->fill( $msg );
-	}
-
-	/**
-	 * Dispatch a single listener by its identity.
-	 *
-	 * Two dispatch modes: closure or Node-name. Node-name resolves via
-	 * Core::node() and forwards a TM_INFO message; closures get invoked
-	 * with the payload directly.
-	 *
-	 * Returns: closure return value (truthy=keep, falsy=unregister) for closures;
-	 * always true for node-name dispatch.
-	 */
-	private function dispatch_listener( string $event, string $listener, mixed $payload ): mixed {
-		$cb = $this->registrations[ $event ][ $listener ] ?? null;
-		if ( null !== $cb && \is_callable( $cb ) ) {
-			// Closure mode.
-			return $cb( $payload );
-		}
-		// Node-name mode: fill TM_INFO into the named node.
-		$target = Core::node( $listener );
-		if ( null === $target ) {
-			Core::print_less_often( "WARNING: $listener forgot to unregister from $event on " . $this->name );
-			return false; // Drop the dead registration.
-		}
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_INFO;
-		$msg[ Message::FROM ]  = $this->name;
-		$msg[ Message::TO ]    = $listener;
-		$msg[ Message::KEY ]   = $event;
-		$msg[ Message::VALUE ] = $payload;
-		$target->fill( $msg );
-		return true;
 	}
 
 	/**
@@ -558,6 +475,50 @@ class Node {
 		return $out;
 	}
 
+	/**
+	 * Recorded sibling-CI verb invocations needed to recreate this
+	 * node's state. Keyed by verb name; value is the args string
+	 * (empty string when the verb takes none). `dump_config()`
+	 * walks this map and emits one
+	 * `cmd {name}:config {verb} {args}` line per entry.
+	 *
+	 * Verb handlers call `$patron->mark_verb_invoked($verb, $args)`
+	 * themselves so a node configured at runtime round-trips
+	 * through dump_config without manual tracking. Re-invoking the
+	 * same verb overwrites — last value wins (matches the
+	 * "patron's current state" semantics dump_config implements).
+	 *
+	 * @var array<string,string>
+	 */
+	protected array $invoked_verbs = [];
+
+	public function mark_verb_invoked( string $verb, string $args ): void {
+		$this->invoked_verbs[ $verb ] = $args;
+	}
+
+	/**
+	 * Human readable message type translations
+	 */
+	private static array $type_names = [
+		Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
+		Message::TM_EOF        => 'TM_EOF',
+		Message::TM_PING       => 'TM_PING',
+		Message::TM_COMMAND    => 'TM_COMMAND',
+		Message::TM_RESPONSE   => 'TM_RESPONSE',
+		Message::TM_ERROR      => 'TM_ERROR',
+		Message::TM_INFO       => 'TM_INFO',
+		Message::TM_STRUCT     => 'TM_STRUCT',
+		Message::TM_REQUEST    => 'TM_REQUEST',
+	];
+
+	/**
+	 * List of message types for which we should include payloads in the drop_message() log
+	 */
+	private const PAYLOAD_TYPES = Message::TM_INFO | Message::TM_REQUEST | Message::TM_ERROR | Message::TM_COMMAND;
+
+	/**
+	 * Drop a message with an audit trail
+	 */
 	public function drop_message( array &$message, string $error ): void {
 		$type   = $message[ Message::TYPE ];
 		$labels = [];
@@ -587,5 +548,53 @@ class Node {
 			return;
 		}
 		Core::print_less_often( $line );
+	}
+
+	/**
+	 * Class manifest the topology console reads to generate the
+	 * palette entry + node configuration form. Subclasses
+	 * override to declare ctor params, sibling-CI verbs,
+	 * category, description. Shape:
+	 *
+	 *     [
+	 *         'category'    => 'Storage' | 'Routing' | 'Filtering' | …,
+	 *         'description' => '…',
+	 *         'ctor'        => [
+	 *             [ 'name' => 'base_dir', 'type' => 'string', 'required' => true ],
+	 *             …
+	 *         ],
+	 *         'verbs' => [
+	 *             [
+	 *                 'name'        => 'allow_large_writes',
+	 *                 'description' => '…',
+	 *                 'args'        => [],
+	 *             ],
+	 *             …
+	 *         ],
+	 *     ]
+	 *
+	 * Type values: 'string' | 'int' | 'float' | 'bool' |
+	 * 'formatter_name' | 'path' | 'config_var' | 'node_name'.
+	 *
+	 * `config_var` marks an argument that the loader will
+	 * substitute via `{config:foo}` syntax. `node_name` is the
+	 * type the editor renders as a "pick an existing node"
+	 * dropdown (e.g. set_errors_target's target arg).
+	 */
+	public static function node_schema(): array {
+		return [
+			'category'    => '',
+			'description' => '',
+			'ctor'        => [],
+			'verbs'       => [],
+			// Port flags. The default Node has a meaningful fill() and a
+			// $this->target it forwards to, so both ports render. Pure-
+			// producer classes (Tail, Consumer) override `accepts_fill` to
+			// false; pure-sink classes (Partition, Log) override
+			// `has_target` to false. The schematic renderer reads these
+			// to skip the IN / OUT port circle on the respective edge.
+			'accepts_fill' => true,
+			'has_target'   => true,
+		];
 	}
 }
