@@ -216,19 +216,30 @@ fetch( '/wp-json/newspack-nodes/v1/command', {
 
 For high-level patterns, prefer the React glue (`useNodeFill`) over raw `fetch()` — it handles envelope construction, KEY correlation, and packed-Message unpacking. See `src/topology-console/hooks/` for examples.
 
-### Legacy controllers (deletable in M5)
+### Legacy controllers (deleted in M4.7.2)
 
-The legacy REST controllers remain alive until M5 deletion so the rollback path stays open during the M4 topology-console rebuild. Files to delete in M5:
+The 3 legacy REST controllers were deleted at commit `895ab89` after the topology-console rewrite (`05403b1`) verified all 7 verbs flow through `CommandClient`. The post-deletion surface is:
 
-- `includes/rest/class-classes-controller.php`
-- `includes/rest/class-layouts-controller.php`
-- `includes/rest/class-topologies-controller.php`
+Deleted:
+- `includes/rest/class-classes-controller.php` — replaced by `Classes_CI.list`.
+- `includes/rest/class-layouts-controller.php` — replaced by `Layouts_CI.get` + `.save`.
+- `includes/rest/class-topologies-controller.php` — replaced by `Topologies_CI.list/get/save/delete`.
+- 7 PHPUnit suites: `tests/unit/{Layouts,Topologies}ControllerTest.php`, `tests/integration/{Classes,TopologiesGet,TopologiesGetOne,TopologiesPost}ControllerTest.php`.
 
-Files to keep:
-
-- `includes/rest/class-topology-stream-controller.php` — SSE endpoint; doesn't fit the synchronous `CommandInterpreter` model. SSE controllers each build their own request-scope graph and stream out of band; the `/command` endpoint is request/response only.
+Kept:
+- `includes/rest/class-topology-stream-controller.php` — SSE stream + the pivoted-IPC `POST /topology/{x}/p{y}/command` companion. SSE doesn't fit the synchronous `CommandInterpreter` model; the pivoted POST is a different mechanism than local CI dispatch.
 - `includes/rest/class-spawn-controller.php` — HMAC-gated worker spawn endpoint; orthogonal to the command-dispatch surface.
-- `includes/rest/class-messages-stream-controller.php` — paired SSE controller for the M3 messages stream; same reasoning as `class-topology-stream-controller.php`.
+- `includes/rest/class-messages-stream-controller.php` — paired SSE controller for the M3 messages stream.
 - `includes/rest/class-command-controller.php` — the unified endpoint itself.
 
-When M5 runs, remove the three legacy controller files, drop their `register_rest_route` calls from `Bootstrap::register_rest_routes()`, and delete the per-controller PHPUnit suites under `tests/integration/`.
+Gate tests in `tests/integration/M3BootstrapTest.php` (`test_legacy_*_controller_class_is_gone`) assert non-existence at the class-loader level so accidental re-registration trips CI.
+
+### M4 dashboard cutovers — substrate-side
+
+The application-side cutover log in `newspack-event-logger-nodes/MIGRATION.md` tracks all 7 dashboards; only one of them (topology-console) is substrate-resident:
+
+| # | Dashboard | Rewrite commit | Deletion commit | Legacy controllers removed |
+|---|-----------|----------------|-----------------|----------------------------|
+| 7 | `topology-console` | `05403b1` | `895ab89` | `class-classes-controller.php`, `class-layouts-controller.php`, `class-topologies-controller.php` |
+
+This is the final M4 cutover. With it M4 is COMPLETE — all 7 dashboards across both repos have migrated to the unified `POST /command` endpoint via `CommandClient`. ~30 `apiFetch` calls cut over; 14 legacy REST controllers deleted (3 here + 11 in the app). Reusable helpers (`getCommandClient()` singleton + `unwrapCommandResponse()` peeler) live in `src/shared/utils/` in both repos. Pivoted-REPL POST + 5 SSE controllers stay — `CommandInterpreter` dispatch is request/response only.
