@@ -35,7 +35,10 @@
 	"lint-staged": {
 		"*.{js,jsx}": "wp-scripts lint-js",
 		"*.scss": "wp-scripts lint-style --customSyntax postcss-scss",
-		"*.php": "phpcs"
+		"*.php": [
+			"phpcs",
+			"sh -c 'npm run lint:phpstan --silent'"
+		]
 	},
 	"browserslist": [
 		"extends @wordpress/browserslist-config"

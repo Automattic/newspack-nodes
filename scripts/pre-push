@@ -73,9 +73,9 @@ if [[ -n "$php_changed" ]]; then
 	step "lint:php ($(echo "$php_changed" | wc -l | tr -d ' ') file(s) changed)"
 	npm run lint:php --silent || fail "lint:php failed — fix or push --no-verify"
 	ok "lint:php clean"
-	step "lint:phpstan"
-	npm run lint:phpstan --silent || fail "lint:phpstan failed — fix or push --no-verify"
-	ok "lint:phpstan clean"
+	# phpstan runs in pre-commit (lint-staged *.php) where the feedback
+	# loop is tightest. Doubling it here would re-pay the analysis cost
+	# on every push for no extra signal.
 fi
 if [[ -n "$js_changed" ]]; then
 	step "lint:js ($(echo "$js_changed" | wc -l | tr -d ' ') file(s) changed)"
