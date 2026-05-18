@@ -53,6 +53,30 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertContainsOnlyInstancesOf( Consumer::class, $consumers );
 	}
 
+	public function test_log_subscription_stamps_partition_into_from(): void {
+		// Dashboards subscribing to a multi-partition log need to know which
+		// partition each line came from (rawlogs UI shows P0/P1/P2 alongside
+		// each row). The resolver overrides Consumer's FROM stamp with the
+		// subscription-scoped `{sub}.p{N}` shape so the JS side can parse it
+		// without a separate sidecar field. Without this, every partition's
+		// stream emits FROM=`firehose` and the dashboard loses the per-row
+		// partition column.
+		\mkdir( "{$this->tmp}/logs/firehose.log", 0755, true );
+		$ctrl = new Messages_Stream_Controller();
+		$ctrl->set_base_dir( $this->tmp );
+		$ctrl->set_num_partitions( 3 );
+
+		$consumers = $ctrl->open_subscription( 'firehose', null );
+
+		$ref    = new \ReflectionProperty( Consumer::class, 'stamp_override' );
+		$stamps = [];
+		foreach ( $consumers as $c ) {
+			$stamps[] = $ref->getValue( $c );
+		}
+		\sort( $stamps );
+		$this->assertSame( [ 'firehose.p0', 'firehose.p1', 'firehose.p2' ], $stamps );
+	}
+
 	public function test_ipc_reader_subscription_returns_one_consumer(): void {
 		// IPC pattern `{type}.p{N}` resolves through `Cli::attach_to_worker`,
 		// which requires a worker lock dir to exist (typo guard).

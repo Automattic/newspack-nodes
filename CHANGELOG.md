@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`Messages_Stream_Controller::open_subscription()` stamps log-subscription Consumers with `{sub}.pN` (partition-aware) instead of plain `{sub}`.** Mirrors the existing IPC-subscription shape and surfaces the partition number to dashboard JS without a sidecar metadata channel — RawLogs (and other M6 dashboards) parses partition out of the Message FROM field. The IPC subscription shape (`{type}.p{N}`) is unchanged.
+
 ### Added
 
 - **M6.1 / M6.2 — slot-pool seams on `Messages_Stream_Controller`.** Three static Closure properties (`$acquire_slot`, `$release_slot`, `$check_slot`) let applications plug in memcache-backed concurrency caps without bringing the cache interface into the substrate. Default: when the seam closure is unset, acquire returns slot 1 and release/check are no-ops (unmetered — same as the removed `M1 stub: $slot = 1`). `stream()` now acquires the slot BEFORE `init_sse_headers()` so a rate-limited connection can still return a JSON `WP_Error` with HTTP 429; the drain predicate consults `$check_slot` per iteration and aborts on false; `run_stream_loop`'s `finally` block calls `$release_slot` on every exit path including client disconnect. Partition is extracted from the subscription shape: `{type}.p{N}` IPC subs yield partition N; log subs default to -1 (shared browser pool). Six new unit tests in `tests/unit/MessagesStreamSlotPoolTest.php` pin the contract.
