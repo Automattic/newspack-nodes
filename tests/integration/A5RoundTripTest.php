@@ -30,7 +30,7 @@ class A5RoundTripTest extends TestCase {
 
 		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
 		$topology = function ( $ci, int $partition ) {
-			$ci->execute( 'make_node CaptureSink target' );
+			$ci->dispatch( 'make_node', 'CaptureSink target' );
 		};
 		$w->run_topology( $topology, $ci );
 

@@ -20,9 +20,9 @@ class SubstrateRoundTripTest extends TestCase {
 
 		// Build app graph via shell verbs.
 		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$this->assertSame( 'ok', $ci->execute( 'make_node CaptureSink alice' ) );
-		$this->assertSame( 'ok', $ci->execute( 'make_node CaptureSink bob' ) );
-		$this->assertSame( 'ok', $ci->execute( 'connect_node alice bob' ) );
+		$this->assertSame( 'ok', $ci->dispatch( 'make_node', 'CaptureSink alice' ) );
+		$this->assertSame( 'ok', $ci->dispatch( 'make_node', 'CaptureSink bob' ) );
+		$this->assertSame( 'ok', $ci->dispatch( 'connect_node', 'alice bob' ) );
 
 		// Send addressed message: TO=alice, expects router → alice (capture).
 		$msg                  = Message::new_message();

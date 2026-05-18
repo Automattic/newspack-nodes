@@ -100,10 +100,10 @@ class Topic extends Node {
 		// per-Topic flow (not just the underlying Partitions). VALUE size
 		// is the canonical "payload that flowed through" measurement,
 		// matching Node::fill's largest_msg_sent contract.
-		$value_size = Message::value_size( $message );
-		$this->bytes_written += $value_size;
-		if ( $value_size > $this->largest_msg_sent ) {
-			$this->largest_msg_sent = $value_size;
+		$packed_size = Message::packed_size( $message );
+		$this->bytes_written += $packed_size;
+		if ( $packed_size > $this->largest_msg_sent ) {
+			$this->largest_msg_sent = $packed_size;
 		}
 
 		// Pre-pinned via TO: parse partition index out of TO's leading segment.

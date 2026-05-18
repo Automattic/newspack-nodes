@@ -10,7 +10,7 @@ class CaptureSink extends Node {
 
 	public function fill( array &$message ): void {
 		++$this->counter;
-		$size = Message::value_size( $message );
+		$size = Message::packed_size( $message );
 		if ( $size > $this->largest_msg_sent ) {
 			$this->largest_msg_sent = $size;
 		}

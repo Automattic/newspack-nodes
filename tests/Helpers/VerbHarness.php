@@ -41,19 +41,23 @@ class VerbHarness {
 	 * the decoded value is returned; otherwise the raw payload string
 	 * comes back unchanged so verbs that return plain text still work.
 	 *
-	 * @param CommandInterpreter $ci        CI under test (already constructed; the
-	 *                                       harness names it and wires it into the
-	 *                                       request-scope graph).
-	 * @param string             $name      Name to register the CI under (e.g. 'classes').
-	 * @param string             $verb      Verb to invoke (e.g. 'list').
-	 * @param string             $args_json JSON-encoded argument blob the verb decodes
-	 *                                       from $args. Default '{}' for verbs that
-	 *                                       take no arguments.
-	 * @param string             $key       Optional KEY field for the inbound message
-	 *                                       (correlation metadata; rarely needed).
+	 * @param CommandInterpreter $ci      CI under test (already constructed; the
+	 *                                     harness names it and wires it into the
+	 *                                     request-scope graph).
+	 * @param string             $name    Name to register the CI under (e.g. 'classes').
+	 * @param string             $verb    Verb to invoke (e.g. 'list').
+	 * @param mixed              $payload Structured data the verb consumes via its
+	 *                                     `$payload` parameter. Pass `null` (default)
+	 *                                     for verbs that take no input.
+	 * @param string             $args    Optional literal-string argument tail (the
+	 *                                     `arguments` field). Most CIs read structured
+	 *                                     data from `$payload`; this is for the few
+	 *                                     verbs that genuinely take a CLI-style line.
+	 * @param string             $key     Optional KEY field for the inbound message
+	 *                                     (correlation metadata; rarely needed).
 	 * @return mixed Decoded payload, or raw payload string if it isn't valid JSON.
 	 */
-	public static function fire( CommandInterpreter $ci, string $name, string $verb, string $args_json = '{}', string $key = '' ): mixed {
+	public static function fire( CommandInterpreter $ci, string $name, string $verb, mixed $payload = null, string $args = '', string $key = '' ): mixed {
 		$router = new Router(); $router->name( '_router' );
 		$base   = new CommandInterpreter(); $base->name( '_command_interpreter' ); $base->sink( $router );
 		$ci->name( $name );
@@ -74,8 +78,8 @@ class VerbHarness {
 		$msg[ Message::KEY ]   = $key;
 		$msg[ Message::VALUE ] = \wp_json_encode( [
 			'name'      => $verb,
-			'arguments' => $args_json,
-			'payload'   => '',
+			'arguments' => $args,
+			'payload'   => $payload,
 		] );
 
 		\ob_start();

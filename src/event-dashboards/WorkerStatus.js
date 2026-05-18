@@ -957,7 +957,7 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 			const message = await getCommandClient().send( {
 				to: 'workers',
 				verb: 'restart',
-				args: {
+				payload: {
 					types: [ workerType ],
 					partition: -1,
 				},

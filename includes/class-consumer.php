@@ -495,6 +495,9 @@ class Consumer extends Timer {
 				$abs_offset = $this->cursor_off + $offset_in_buffer;
 				$line_size  = \strlen( $line ) + 1; // +1 for the consumed \n.
 				$offset_in_buffer += $line_size;
+				if ( $line_size > $this->largest_msg_sent ) {
+					$this->largest_msg_sent = $line_size;
+				}
 
 				// Each line is a packed Message (Partition wrote it via
 				// Message::packed). Unpack to recover the original message,

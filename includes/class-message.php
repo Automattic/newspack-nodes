@@ -59,25 +59,20 @@ class Message {
 		return \wp_json_encode( $message, \JSON_UNESCAPED_SLASHES );
 	}
 
+	/**
+	 * Byte size of the whole packed Message — what actually hits the wire
+	 * and what Partition writes to disk. Use this (not `value_size`) for
+	 * PIPE_BUF checks and any other "is this Message too big" decision.
+	 */
+	public static function packed_size( array $message ): int {
+		return \strlen( self::packed( $message ) );
+	}
+
 	public static function unpacked( string $data ): array {
 		$decoded = \json_decode( $data, true );
 		if ( \is_array( $decoded ) && \count( $decoded ) >= 7 && \array_is_list( $decoded ) ) {
 			return $decoded;
 		}
 		return self::new_message();
-	}
-
-	/**
-	 * Byte size of the VALUE field. Strings (TM_BYTESTREAM) measure directly;
-	 * arrays (TM_STRUCT) measure their JSON-encoded form so the value is
-	 * comparable with the on-wire size Partitions write.
-	 */
-	public static function value_size( array $message ): int {
-		$value = $message[ self::VALUE ] ?? '';
-		if ( \is_string( $value ) ) {
-			return \strlen( $value );
-		}
-		$encoded = \wp_json_encode( $value );
-		return \is_string( $encoded ) ? \strlen( $encoded ) : 0;
 	}
 }

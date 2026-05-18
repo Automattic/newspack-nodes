@@ -161,13 +161,6 @@ class Partition extends Timer {
 	 */
 	public function fill( array &$message ): void {
 		++$this->counter;
-		// Mirror Node::fill's largest_msg_sent tracking — Partition's
-		// override of fill() skips the base, so without this every
-		// Partition would report 0 in stats / dump_metadata.
-		$size = Message::value_size( $message );
-		if ( $size > $this->largest_msg_sent ) {
-			$this->largest_msg_sent = $size;
-		}
 
 		// No-event-loop heartbeat: when allow_large_writes was set up outside
 		// a drain (request-scope JobIntake-style callers), there's no Timer
@@ -198,14 +191,19 @@ class Partition extends Timer {
 		// alone) — that's what hits PIPE_BUF.
 		$packed = Message::packed( $message ) . "\n";
 		$max    = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
-		if ( \strlen( $packed ) > $max ) {
+		$size   = \strlen( $packed );
+		if ( $size > $max ) {
 			// Silent oversize drop is the most common "where did my
 			// message go?" mystery. Narrate it for debug_state.
 			$this->set_state(
 				'DROPPED',
-				[ 'reason' => 'oversize', 'size' => \strlen( $packed ), 'max' => $max ]
+				[ 'reason' => 'oversize', 'size' => $size, 'max' => $max ]
 			);
 			return;
+		}
+
+		if ( $size > $this->largest_msg_sent ) {
+			$this->largest_msg_sent = $size;
 		}
 
 		if ( null === $this->current_segment_id ) {

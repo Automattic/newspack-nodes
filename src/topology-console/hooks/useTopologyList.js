@@ -59,7 +59,7 @@ export function useTopology() {
 		const message = await getCommandClient().send( {
 			to: 'topologies',
 			verb: 'get',
-			args: { name },
+			payload: { name },
 		} );
 		return unwrapCommandResponse( message );
 	}, [] );

@@ -25,7 +25,7 @@ export function useLayout() {
 		const message = await getCommandClient().send( {
 			to: 'layouts',
 			verb: 'get',
-			args: { name },
+			payload: { name },
 		} );
 		return unwrapCommandResponse( message );
 	}, [] );
@@ -34,7 +34,7 @@ export function useLayout() {
 		const message = await getCommandClient().send( {
 			to: 'layouts',
 			verb: 'save',
-			args: { name, positions },
+			payload: { name, positions },
 		} );
 		return unwrapCommandResponse( message );
 	}, [] );

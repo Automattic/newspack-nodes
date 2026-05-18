@@ -93,7 +93,7 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI(),
 			'raw-logs',
 			'firehose_status',
-			(string) \wp_json_encode( [ 'log' => 'firehose' ] )
+			[ 'log' => 'firehose' ]
 		);
 
 		$this->assertIsArray( $result );
@@ -116,7 +116,7 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI(),
 			'raw-logs',
 			'firehose_status',
-			(string) \wp_json_encode( [ 'log' => 'firehose.log' ] )
+			[ 'log' => 'firehose.log' ]
 		);
 
 		$this->assertIsArray( $result );
@@ -132,7 +132,7 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI(),
 			'raw-logs',
 			'firehose_status',
-			(string) \wp_json_encode( [ 'log' => 'bogus-log-name' ] )
+			[ 'log' => 'bogus-log-name' ]
 		);
 
 		$this->assertIsArray( $result );
@@ -149,7 +149,7 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI(),
 			'raw-logs',
 			'firehose_status',
-			(string) \wp_json_encode( [ 'log' => 'firehose' ] )
+			[ 'log' => 'firehose' ]
 		);
 
 		$this->assertSame( 128, $result['total_size'] );
@@ -165,7 +165,7 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI(),
 			'raw-logs',
 			'firehose_status',
-			(string) \wp_json_encode( [ 'log' => 'firehose' ] )
+			[ 'log' => 'firehose' ]
 		);
 
 		$this->assertIsString( $result );
