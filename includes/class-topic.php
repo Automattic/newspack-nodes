@@ -159,6 +159,7 @@ class Topic extends Node {
 				[ 'name' => 'max_lifespan',   'type' => 'int',    'default' => '<config:max_lifespan>' ],
 			],
 			'verbs'       => [],
+			'has_target'  => false,
 		];
 	}
 }

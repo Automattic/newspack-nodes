@@ -804,7 +804,6 @@ class Consumer extends Timer {
 				[ 'name' => 'source_partition',   'type' => 'int',    'required' => true, 'default' => '<partition>' ],
 				[ 'name' => 'offsetlog_base_dir', 'type' => 'string', 'default' => '' ],
 			],
-			'accepts_fill' => false,
 			'requests'    => [
 				[
 					'name'        => 'GET_LAG',
@@ -817,6 +816,7 @@ class Consumer extends Timer {
 					'reply_shape' => '{ cursor_seg, cursor_off, checkpoint_seg, checkpoint_off, last_checkpoint_ts }',
 				],
 			],
+			'accepts_fill' => false,
 		] );
 	}
 }
