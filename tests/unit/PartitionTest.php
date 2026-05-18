@@ -444,23 +444,24 @@ class PartitionTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Hardening: read_at MAX_READ_SIZE cap + bounds.
+	// Hardening: read_at bounds.
 	// ============================================================================
 
-	public function test_read_at_allows_reads_past_max_read_size(): void {
-		// MAX_READ_SIZE is a per-record ceiling, not a per-read buffer cap.
+	public function test_read_at_allows_reads_past_ten_megabytes(): void {
+		// read_at is record-format agnostic — no per-call buffer cap.
 		// A legitimate full-segment read of an offsetlog that's been
 		// checkpointing for days can legitimately push past 10MB before
-		// the segment rotates (segment_size default is 16MB).
+		// the segment rotates (segment_size default is 16MB). Per-record
+		// DoS protection lives one layer up (Consumer/Tail enforce
+		// MAX_LINE_BUFFER_SIZE on the \n-delimited line buffer).
 		//
-		// Regression: a hardcoded `$length > MAX_READ_SIZE` gate in
-		// read_at silently returned '' once length exceeded 10MB,
-		// dropping consumer rows from Workers_CI::dump_metadata,
-		// resetting Consumer cursors on restart, and breaking
-		// StreamMerger hub-position restore.
+		// Regression: a hardcoded 10MB gate silently returned '' once
+		// length exceeded 10MB, dropping consumer rows from
+		// Workers_CI::dump_metadata, resetting Consumer cursors on
+		// restart, and breaking StreamMerger hub-position restore.
 		$p = new Partition( $this->tmp, 0, 16 * 1024 * 1024, 4, 86400 );
 		\mkdir( "{$this->tmp}/p0", 0755, true );
-		$size = Partition::MAX_READ_SIZE + 1024 * 1024;
+		$size = 11 * 1024 * 1024;
 		\file_put_contents( "{$this->tmp}/p0/0.log", \str_repeat( 'x', $size ) );
 
 		$result = $p->read_at( 0, 0, $size );
@@ -652,28 +653,6 @@ class PartitionTest extends TestCase {
 		} );
 
 		$this->assertSame( 2, $count );
-	}
-
-	public function test_scan_index_skips_oversized_idx_files(): void {
-		// MAX_READ_SIZE = 10MB; write a fake .idx larger than that and confirm scan skips it.
-		$p = new Partition( $this->tmp, 0, 1024 * 1024, 4, 86400 );
-		$this->produce_into( $p, 'first' );
-		// The .idx for segment 0 already exists; fabricate a big one for segment 1
-		// without going through the public write API. (produce_into already made p0/.)
-		file_put_contents( "{$this->tmp}/p0/1.log", "x\n" );
-		$big_size = Partition::MAX_READ_SIZE + 100;
-		// Use truncate to simulate a giant file without actually allocating MB+.
-		$fh = fopen( "{$this->tmp}/p0/1.idx", 'wb' );
-		ftruncate( $fh, $big_size );
-		fclose( $fh );
-
-		$count = 0;
-		$p->scan_index( function ( int $seg, int $off ) use ( &$count ) {
-			++$count;
-		} );
-
-		// Segment 0 has 1 entry (from "first"); segment 1's oversized .idx must be skipped.
-		$this->assertSame( 1, $count, 'oversized idx files must be skipped' );
 	}
 
 	// ============================================================================
@@ -1795,40 +1774,8 @@ class PartitionTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Coverage: scan_index oversized filesize + JSONL reverse + empty-line skip.
+	// Coverage: scan_index JSONL reverse + empty-line skip.
 	// ============================================================================
-
-	public function test_scan_index_skips_idx_when_filesize_exceeds_MAX_READ_SIZE(): void {
-		// Existing test_scan_index_skips_oversized_idx_files runs through the
-		// segment cache and never actually exercises the >MAX_READ_SIZE branch
-		// (cached segments list doesn't include the fabricated one). Invalidate
-		// the cache before scanning so segment 1 is enumerated and filesize is
-		// re-stat'd post-truncate.
-		$p = new Partition( $this->tmp, 0, 1024 * 1024, 4, 86400 );
-		$this->produce_into( $p, 'first' );
-
-		// Fabricate a sparse oversized .idx for a peer-created segment 1.
-		\file_put_contents( "{$this->tmp}/p0/1.log", "x\n" );
-		$over = Partition::MAX_READ_SIZE + 100;
-		$fh   = \fopen( "{$this->tmp}/p0/1.idx", 'wb' );
-		\ftruncate( $fh, $over );
-		\fclose( $fh );
-		\clearstatcache( true, "{$this->tmp}/p0/1.idx" );
-
-		// Force a fresh segments list including segment 1.
-		$ref   = new \ReflectionClass( $p );
-		$cache = $ref->getProperty( 'segments_cache' );
-		$cache->setAccessible( true );
-		$cache->setValue( $p, null );
-
-		$count = 0;
-		$p->scan_index( function ( int $seg, int $off ) use ( &$count ) {
-			++$count;
-		} );
-
-		// Segment 0 contributes 1 entry; segment 1's oversized .idx is skipped.
-		$this->assertSame( 1, $count, 'oversized .idx filesize must short-circuit scan_index' );
-	}
 
 	public function test_scan_index_jsonl_reverse_order(): void {
 		// JSONL + newest_first reverses the line order within a segment.

@@ -275,7 +275,7 @@ class ConsumerTest extends TestCase {
 		$cap = new CaptureSink();
 		$c->sink( $cap );
 
-		// Drive the consumer through several polls. Each poll appends up to MAX_READ_SIZE (10MB)
+		// Drive the consumer through several polls. Each poll appends up to MAX_POLL_BYTES (10MB)
 		// to line_remainder. After enough polls the 20MB cap MUST kick in via the discard branch.
 		for ( $i = 0; $i < 5; ++$i ) {
 			$c->poll();
