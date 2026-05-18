@@ -447,11 +447,24 @@ class PartitionTest extends TestCase {
 	// Hardening: read_at MAX_READ_SIZE cap + bounds.
 	// ============================================================================
 
-	public function test_read_at_rejects_oversized_length(): void {
-		$p = new Partition( $this->tmp, 0, 1024 * 1024, 4, 86400 );
-		$this->produce_into( $p, 'hello' );
-		$result = $p->read_at( 0, 0, Partition::MAX_READ_SIZE + 1 );
-		$this->assertSame( '', $result );
+	public function test_read_at_allows_reads_past_max_read_size(): void {
+		// MAX_READ_SIZE is a per-record ceiling, not a per-read buffer cap.
+		// A legitimate full-segment read of an offsetlog that's been
+		// checkpointing for days can legitimately push past 10MB before
+		// the segment rotates (segment_size default is 16MB).
+		//
+		// Regression: a hardcoded `$length > MAX_READ_SIZE` gate in
+		// read_at silently returned '' once length exceeded 10MB,
+		// dropping consumer rows from Workers_CI::dump_metadata,
+		// resetting Consumer cursors on restart, and breaking
+		// StreamMerger hub-position restore.
+		$p = new Partition( $this->tmp, 0, 16 * 1024 * 1024, 4, 86400 );
+		\mkdir( "{$this->tmp}/p0", 0755, true );
+		$size = Partition::MAX_READ_SIZE + 1024 * 1024;
+		\file_put_contents( "{$this->tmp}/p0/0.log", \str_repeat( 'x', $size ) );
+
+		$result = $p->read_at( 0, 0, $size );
+		$this->assertSame( $size, \strlen( $result ) );
 	}
 
 	public function test_read_at_rejects_negative_segment_id(): void {

@@ -19,7 +19,7 @@ class Partition extends Timer {
 	public const DEFAULT_MAX_LIFESPAN = 86400;
 	public const MAX_LINE_SIZE        = 4096;
 	public const MAX_LARGE_LINE_SIZE  = 10485760;
-	public const MAX_READ_SIZE        = 10485760; // 10MB cap on read_at + scan_index per-file size.
+	public const MAX_READ_SIZE        = 10485760; // 10MB per-record ceiling — framers reject any single record larger than this. Not a per-call read cap.
 	public const SEGMENT_CACHE_TTL    = 0.25;
 	public const SEGMENT_PATTERN      = '/^(\d+)\.log$/';
 
@@ -807,8 +807,11 @@ class Partition extends Timer {
 	/**
 	 * Read bytes from a segment at a given offset.
 	 *
-	 * Bounds-checked: rejects negative IDs/offsets/lengths and lengths over
-	 * MAX_READ_SIZE to prevent memory exhaustion from malicious or buggy callers.
+	 * Bounds-checked: rejects negative IDs/offsets/lengths. No per-call
+	 * upper cap — fread returns at most segment-size bytes, and
+	 * segment_size is bounded by config. MAX_READ_SIZE is a per-record
+	 * ceiling that framers apply, not a buffer cap; a legitimate
+	 * full-segment read of a long-lived offsetlog can exceed it.
 	 *
 	 * @param int $segment_id Segment to read from.
 	 * @param int $offset     Byte offset within segment.
@@ -816,7 +819,7 @@ class Partition extends Timer {
 	 * @return string Bytes read; empty string on bounds violation, missing file, or read failure.
 	 */
 	public function read_at( int $segment_id, int $offset, int $length ): string {
-		if ( $segment_id < 0 || $offset < 0 || $length < 0 || $length > self::MAX_READ_SIZE ) {
+		if ( $segment_id < 0 || $offset < 0 || $length < 0 ) {
 			return '';
 		}
 		if ( 0 === $length ) {
