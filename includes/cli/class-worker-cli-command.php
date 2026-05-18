@@ -4,7 +4,7 @@
  *
  * Adds three subcommands beyond the existing `wp nodes ls` / `wp nodes cli`:
  *
- *  - `wp nodes types`            — list registered topology groups + standalone workers.
+ *  - `wp nodes types`            — list registered topology groups.
  *  - `wp nodes run <type>`       — run a worker process directly (no spawn endpoint).
  *  - `wp nodes restart <type>`   — write the restart flag via Lock::request_restart_at().
  *  - `wp nodes status`           — rich `Type | Partition | Status | Uptime | Behind | Restart`

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **`Bootstrap::register_standalone_workers()` — the map of singleton runtime workers.** Returned a single-entry array `{ supervisor: { class, partitions: false } }` consulted by `SpawnController` (validate_worker_type, validate_partition) and `Supervisor` (cleanup_lock_dirs candidate filter). With only one entry and no realistic extension path, the factory was scaffolding for a polymorphism that never arrived — every caller now inlines `'supervisor' === $type` at the one place it actually matters. Substrate stays simpler.
+
 ### Added
 
 - **`Topology_Registry::reset_basename_cache()` — narrow invalidation tied to `Config::RESET_ACTION`.** Drops only the parsed-basename cache; keeps `$stock_dirs` + `$user_dir` intact so long-lived workers surviving a config reload re-read newly-edited TSLs without losing their registry lookups. Wired alongside the existing `Log_Discovery::reset()` hook in `newspack-nodes.php`. Pairs the two discovery primitives' invalidation behavior — both clear on the same signal, neither tears down state a worker needs to keep running.
