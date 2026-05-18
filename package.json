@@ -6,37 +6,49 @@
 	"author": "Automattic",
 	"license": "GPL-2.0-or-later",
 	"scripts": {
-		"build": "npm run clean && npm run sync && npm run build:topology-console && npm run build:event-dashboards",
-		"build:event-dashboards": "wp-scripts build src/event-dashboards/index.js --output-path=build/event-dashboards",
-		"build:topology-console": "wp-scripts build src/topology-console/index.js --output-path=build/topology-console",
+		"build": "npm run clean && npm run sync && node scripts/build.mjs",
 		"clean": "rm -rf build",
 		"sync": "./sync-shared.sh",
 		"release:archive": "./build-release.sh",
-		"fix:js": "wp-scripts lint-js --fix 'src/**/*.{js,jsx}'",
+		"fix:js": "eslint --fix 'src/**/*.{js,jsx}'",
 		"fix:php": "phpcbf",
-		"fix:scss": "wp-scripts lint-style 'src/**/*.scss' --customSyntax postcss-scss --fix",
-		"format": "wp-scripts format",
-		"format:js": "wp-scripts format 'src/**/*.{js,jsx}'",
-		"lint:js": "wp-scripts lint-js 'src/**/*.{js,jsx}'",
+		"fix:scss": "stylelint --customSyntax postcss-scss --fix 'src/**/*.scss'",
+		"format": "prettier --write 'src/**/*.{js,jsx,scss,json}'",
+		"format:js": "prettier --write 'src/**/*.{js,jsx}'",
+		"lint:js": "eslint 'src/**/*.{js,jsx}'",
 		"lint:php": "phpcs",
 		"lint:phpstan": "vendor/bin/phpstan analyse --memory-limit=1G --no-progress",
-		"lint:scss": "wp-scripts lint-style 'src/**/*.scss' --customSyntax postcss-scss",
-		"test:js": "wp-scripts test-unit-js --passWithNoTests"
+		"lint:scss": "stylelint --customSyntax postcss-scss 'src/**/*.scss'",
+		"test:js": "jest --passWithNoTests"
 	},
 	"dependencies": {
 		"@wordpress/api-fetch": "^7.0.0",
 		"@wordpress/element": "^6.0.0"
 	},
 	"devDependencies": {
+		"@babel/preset-env": "^7.29.5",
+		"@babel/preset-react": "^7.28.5",
 		"@commitlint/cli": "^20.1.0",
 		"@commitlint/config-conventional": "^19.8.1",
 		"@testing-library/react": "^16.3.2",
-		"@wordpress/scripts": "^31.0.0",
-		"lint-staged": "^15.5.2"
+		"@wordpress/eslint-plugin": "^24.5.0",
+		"@wordpress/prettier-config": "^4.46.0",
+		"@wordpress/stylelint-config": "^23.38.0",
+		"babel-jest": "^30.4.1",
+		"esbuild": "^0.28.0",
+		"eslint": "^8.57.1",
+		"jest": "^30.4.2",
+		"jest-environment-jsdom": "^30.4.1",
+		"lint-staged": "^15.5.2",
+		"postcss-scss": "^4.0.9",
+		"prettier": "npm:wp-prettier@^3.0.3",
+		"rtlcss": "^4.3.0",
+		"sass": "^1.99.0",
+		"stylelint": "^16.26.1"
 	},
 	"lint-staged": {
-		"*.{js,jsx}": "wp-scripts lint-js",
-		"*.scss": "wp-scripts lint-style --customSyntax postcss-scss",
+		"*.{js,jsx}": "eslint",
+		"*.scss": "stylelint --customSyntax postcss-scss",
 		"*.php": [
 			"phpcs",
 			"sh -c 'npm run lint:phpstan --silent'"
@@ -44,5 +56,10 @@
 	},
 	"browserslist": [
 		"extends @wordpress/browserslist-config"
-	]
+	],
+	"overrides": {
+		"@typescript-eslint/typescript-estree": {
+			"minimatch": "^9.0.7"
+		}
+	}
 }

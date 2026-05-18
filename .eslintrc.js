@@ -1,18 +1,24 @@
 /**
- * Eslint config — extends wp-scripts defaults and tells eslint-plugin-import
- * to treat `@newspack-nodes/runtime` and `d3` as known modules so it doesn't
- * flag aliases as unresolvable. Resolution at runtime is handled by
- * webpack.config.js (build time) and jest.config.js (test time).
+ * ESLint config — standalone (no @wordpress/scripts dependency).
  *
- * `d3` is listed only as a dev dep on the sibling `newspack-event-logger-nodes`
- * package — substrate doesnt install it as a direct dependency, but the
- * `useTimeChart` shared hook (synced into both plugins) imports it. The
- * substrate-side bundle never imports `useTimeChart` (it's used by the
- * gyroscope dashboard, app-side), but linting walks the source tree, so
- * marking d3 as a core module keeps the lint pass clean here.
+ * Uses @wordpress/eslint-plugin's `recommended` config directly, plus the
+ * `test-unit` override for unit tests. `parserOptions` references our own
+ * babel.config.js so JSX/automatic-runtime is understood.
+ *
+ * `import/core-modules` tells eslint-plugin-import that aliased imports
+ * resolve at runtime (build script handles `@newspack-nodes/runtime`; `d3`
+ * is provided by the sibling event-logger plugin via shared hooks that are
+ * synced here but unused on the substrate side).
  */
 module.exports = {
-	extends: [ require.resolve( '@wordpress/scripts/config/.eslintrc.js' ) ],
+	root: true,
+	extends: [ 'plugin:@wordpress/eslint-plugin/recommended' ],
+	overrides: [
+		{
+			files: [ '**/@(test|__tests__)/**/*.js', '**/?(*.)test.js' ],
+			extends: [ 'plugin:@wordpress/eslint-plugin/test-unit' ],
+		},
+	],
 	settings: {
 		'import/core-modules': [ '@newspack-nodes/runtime', 'd3' ],
 	},
