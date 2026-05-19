@@ -260,19 +260,16 @@ class CliTest extends TestCase {
 		$this->assertSame( 0, $count );
 	}
 
-	public function test_restart_handles_non_partitioned_standalone(): void {
-		// Non-partitioned standalone workers (e.g. supervisor, stream-merger,
-		// health-check) live at {locks}/{type}.lock.d (no .pN suffix) per
-		// Workers_CI::build_standalone_status. The dashboard's restart button
-		// sends `partition: null` for these rows; restart_workers must fall
-		// back to the un-suffixed lock dir or the restart silently no-ops.
-		mkdir( "{$this->tmp}/locks/supervisor.lock.d", 0755, true );
+	public function test_restart_supervisor_writes_flag_at_un_suffixed_lock_dir(): void {
+		// The supervisor is the only worker that doesn't run as a partition
+		// fleet; it lives at `{locks}/supervisor.lock.d` with no `.pN`
+		// suffix. `restart_workers` only knows the `{type}.p{N}` shape, so
+		// the supervisor needs its own path.
+		\mkdir( "{$this->tmp}/locks/supervisor.lock.d", 0755, true );
 
-		$cli     = new Cli( $this->tmp );
-		$workers = [ [ 'type' => 'supervisor', 'partition' => null ] ];
-		$count   = $cli->restart_workers( $workers );
+		$cli = new Cli( $this->tmp );
 
-		$this->assertSame( 1, $count, 'standalone restart should touch supervisor.lock.d, not supervisor.p0.lock.d' );
+		$this->assertTrue( $cli->restart_supervisor() );
 		$this->assertFileExists( "{$this->tmp}/locks/supervisor.lock.d/" . Lock::RESTART_FLAG );
 	}
 

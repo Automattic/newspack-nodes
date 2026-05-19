@@ -173,15 +173,55 @@ class WorkersCITest extends TestCase {
 			public function live_position( $cache, string $type, int $partition ): ?array { return null; }
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int {
 				$this->called_with = [ 'workers' => $workers, 'filter' => $filter, 'partition' => $partition ];
-				return \count( $workers );
+				$matched = 0;
+				foreach ( $workers as $w ) {
+					if ( ! empty( $filter ) && empty( $filter[ $w['type'] ?? '' ] ) ) {
+						continue;
+					}
+					++$matched;
+				}
+				return $matched;
 			}
 		};
 		$ci = new Workers_CI( $fake_cli );
 
 		$result = VerbHarness::fire( $ci, 'workers', 'restart', [ 'types' => [ 'firehose-workers-and-jobs' ] ] );
 
-		$this->assertSame( [ 'restarted' => 2 ], $result );
+		$this->assertSame( [ 'restarted' => 1 ], $result );
 		$this->assertSame( [ 'firehose-workers-and-jobs' => true ], $fake_cli->called_with['filter'] );
+	}
+
+	public function test_restart_verb_routes_supervisor_through_restart_supervisor(): void {
+		// The supervisor lives at `supervisor.lock.d` — no `.pN` suffix — so
+		// `Cli::ls_workers()` never sees it and `restart_workers` (which
+		// only knows the partitioned `{type}.p{N}` shape) can't touch it.
+		// The verb routes supervisor restarts through the dedicated
+		// `Cli::restart_supervisor()` and only delegates partitioned types
+		// to `restart_workers`.
+		$fake_cli = new class {
+			public int  $supervisor_calls = 0;
+			public ?array $restart_called_with = null;
+			public function ls_workers(): array { return []; }
+			public function live_position( $cache, string $type, int $partition ): ?array { return null; }
+			public function restart_supervisor(): bool {
+				++$this->supervisor_calls;
+				return true;
+			}
+			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int {
+				$this->restart_called_with = [ 'filter' => $filter ];
+				return 0;
+			}
+		};
+		$ci = new Workers_CI( $fake_cli );
+
+		$result = VerbHarness::fire( $ci, 'workers', 'restart', [ 'types' => [ 'supervisor' ] ] );
+
+		$this->assertSame( [ 'restarted' => 1 ], $result );
+		$this->assertSame( 1, $fake_cli->supervisor_calls );
+		// With only supervisor in the filter, restart_workers must NOT
+		// fire — the filter is empty after the supervisor is peeled off,
+		// and an empty filter would otherwise wildcard-restart every worker.
+		$this->assertNull( $fake_cli->restart_called_with );
 	}
 
 	public function test_heartbeat_verb_records_slot_via_cache(): void {
@@ -318,11 +358,10 @@ class WorkersCITest extends TestCase {
 	// -------------------------------------------------------------------------
 
 	public function test_dump_metadata_returns_seven_top_level_keys(): void {
-		// Envelope shape (post-WorkersController parity): workers[],
-		// standalone[], logs[], num_partitions, num_segments, segment_size,
-		// timestamp. Even with no workers configured + no disk state, the
-		// envelope keys must be present so the dashboard can fan out from a
-		// stable shape.
+		// Envelope shape: workers[], supervisor, logs[], num_partitions,
+		// num_segments, segment_size, timestamp. Even with no workers
+		// configured + no disk state, every envelope key must be present so
+		// the dashboard can fan out from a stable shape.
 		$this->arrange_base_dir();
 		$cache = new FakeMemcached();
 		$ci    = new Workers_CI( $this->stub_cli(), $cache );
@@ -333,7 +372,7 @@ class WorkersCITest extends TestCase {
 		foreach (
 			[
 				'workers',
-				'standalone',
+				'supervisor',
 				'logs',
 				'num_partitions',
 				'num_segments',
@@ -347,9 +386,9 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 1, $result['num_partitions'] );
 		$this->assertSame( 8, $result['num_segments'] );
 		$this->assertSame( 16 * 1024 * 1024, $result['segment_size'] );
-		// supervisor is always emitted into standalone[].
-		$this->assertNotEmpty( $result['standalone'] );
-		$this->assertSame( 'supervisor', $result['standalone'][0]['type'] );
+		// Supervisor descriptor is always emitted as a single object.
+		$this->assertIsArray( $result['supervisor'] );
+		$this->assertSame( 'supervisor', $result['supervisor']['type'] );
 	}
 
 	public function test_dump_metadata_workers_each_have_rich_descriptor_fields(): void {
@@ -492,29 +531,18 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
-	public function test_dump_metadata_includes_standalone_workers(): void {
-		// supervisor is always present; additional standalone workers come
-		// from the `newspack_nodes/standalone_workers` filter, each emitted
-		// per-partition when `partitions=true` is set or as a singleton row
-		// otherwise.
+	public function test_dump_metadata_includes_supervisor_descriptor(): void {
+		// The supervisor is a singleton — exactly one entry, always emitted,
+		// at the un-suffixed lock dir `supervisor.lock.d`. No `partition`
+		// field (it doesn't run as a partition fleet).
 		$base = $this->arrange_base_dir();
-		\add_filter(
-			'newspack_nodes/standalone_workers',
-			static fn ( $w ) => \array_merge(
-				(array) $w,
-				[
-					'health-check' => [ 'partitions' => false ],
-					'sse-pump'     => [ 'partitions' => true ],
-				]
-			)
-		);
 		$ci     = new Workers_CI( $this->stub_cli(), new FakeMemcached() );
 		$result = VerbHarness::fire( $ci, 'workers', 'dump_metadata' );
 
-		$standalone_types = \array_column( $result['standalone'], 'type' );
-		$this->assertContains( 'supervisor', $standalone_types );
-		$this->assertContains( 'health-check', $standalone_types );
-		$this->assertContains( 'sse-pump', $standalone_types );
+		$this->assertIsArray( $result['supervisor'] );
+		$this->assertSame( 'supervisor', $result['supervisor']['type'] );
+		$this->assertArrayNotHasKey( 'partition', $result['supervisor'] );
+		$this->assertArrayHasKey( 'status', $result['supervisor'] );
 	}
 
 	public function test_dump_metadata_inputs_status_includes_segments_metadata(): void {

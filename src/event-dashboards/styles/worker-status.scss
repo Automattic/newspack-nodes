@@ -452,21 +452,21 @@
 	padding: 8px 0;
 }
 
-// Standalone Workers Section
-.standalone-workers-section {
+// Supervisor Section
+.supervisor-section {
 	background: base.$dark-bg-secondary;
 	border-radius: 6px;
 	padding: 8px 12px;
 	margin-bottom: 12px;
 }
 
-.standalone-workers-header {
+.supervisor-header {
 	margin-bottom: 8px;
 	padding-bottom: 6px;
 	border-bottom: 1px solid base.$dark-border;
 }
 
-.standalone-workers-title {
+.supervisor-title {
 	font-weight: 600;
 	font-size: 12px;
 	color: base.$dark-text-muted;
@@ -474,13 +474,13 @@
 	letter-spacing: 0.5px;
 }
 
-.standalone-workers-list {
+.supervisor-list {
 	display: flex;
 	flex-direction: column;
 	gap: 4px;
 }
 
-.standalone-worker-name {
+.supervisor-name {
 	font-weight: 600;
 	font-size: 13px;
 	color: base.$white;
@@ -488,7 +488,7 @@
 	font-family: base.$mono-font;
 }
 
-.standalone-worker-row {
+.supervisor-row {
 	display: flex;
 	align-items: center;
 	gap: 12px;
@@ -496,25 +496,19 @@
 	background: base.$dark-bg-deep;
 	border-radius: 4px;
 
-	&.dead .standalone-worker-name {
+	&.dead .supervisor-name {
 		opacity: 0.5;
 	}
 }
 
-.standalone-worker-partitions {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	flex: 1;
-}
-
-.standalone-worker-instance {
+.supervisor-instance {
 	display: flex;
 	align-items: center;
 	gap: 6px;
+	flex: 1;
 }
 
-.standalone-worker-age {
+.supervisor-age {
 	font-size: 10px;
 	color: base.$dark-text-muted;
 	min-width: 24px;

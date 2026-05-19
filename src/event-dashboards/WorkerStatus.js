@@ -436,169 +436,90 @@ const WorkerConnector = memo( function WorkerConnector( {
 } );
 
 /**
- * Standalone workers section (supervisor, stream-merger, health-check).
+ * Supervisor status row.
  *
  * @param {Object}   props             Component props.
- * @param {Array}    props.workers     Array of standalone worker status objects.
+ * @param {Object}   props.supervisor  Supervisor status descriptor.
  * @param {number}   props.currentTime Current timestamp for age calculation.
- * @param {Function} props.onRestart   Callback to restart worker(s).
+ * @param {Function} props.onRestart   Callback to restart the supervisor.
  * @return {import('react').ReactElement} Rendered component.
  */
-const StandaloneWorkers = memo( function StandaloneWorkers( {
-	workers,
+const SupervisorStatus = memo( function SupervisorStatus( {
+	supervisor,
 	currentTime,
 	onRestart,
 } ) {
-	if ( ! workers || workers.length === 0 ) {
+	if ( ! supervisor ) {
 		return null;
 	}
 
-	// Group workers by type.
-	const byType = {};
-	workers.forEach( ( w ) => {
-		if ( ! byType[ w.type ] ) {
-			byType[ w.type ] = [];
-		}
-		byType[ w.type ].push( w );
-	} );
-
-	// Format type name for display.
-	const formatTypeName = ( type ) => {
-		return type
-			.split( '-' )
-			.map( ( word ) => word.charAt( 0 ).toUpperCase() + word.slice( 1 ) )
-			.join( ' ' );
-	};
+	const isDead = supervisor.status === 'dead';
 
 	return (
-		<div className="standalone-workers-section">
-			<div className="standalone-workers-header">
-				<span className="standalone-workers-title">
-					Standalone Workers
-				</span>
+		<div className="supervisor-section">
+			<div className="supervisor-header">
+				<span className="supervisor-title">Supervisor</span>
 			</div>
-			<div className="standalone-workers-list">
-				{ Object.entries( byType ).map( ( [ type, typeWorkers ] ) => {
-					const allRunning = typeWorkers.every(
-						( w ) => w.status === 'running'
-					);
-					const allDead = typeWorkers.every(
-						( w ) => w.status === 'dead'
-					);
-					const anyPendingRestart = typeWorkers.some(
-						( w ) => w.restart_pending
-					);
-					const isPartitioned = typeWorkers.some(
-						( w ) => w.partition !== null
-					);
-
-					return (
-						<div
-							key={ type }
-							className={ `standalone-worker-row ${
-								allDead ? 'dead' : ''
-							}` }
+			<div className="supervisor-list">
+				<div className={ `supervisor-row ${ isDead ? 'dead' : '' }` }>
+					<span className="supervisor-name">Supervisor</span>
+					<div className="supervisor-instance">
+						<span
+							className={ `worker-status-badge compact ${ supervisor.status }` }
 						>
-							<span className="standalone-worker-name">
-								{ formatTypeName( type ) }
+							{ supervisor.status === 'running' ? 'RUN' : 'DEAD' }
+						</span>
+						<span className="supervisor-age" title="Uptime">
+							{ supervisor.started_at &&
+							supervisor.status === 'running'
+								? formatAge(
+										supervisor.started_at,
+										currentTime
+								  )
+								: '' }
+						</span>
+						{ supervisor.heartbeat_age !== null &&
+							supervisor.heartbeat_age !== undefined && (
+								<span
+									className={ `connector-heartbeat ${
+										supervisor.heartbeat_age > 30
+											? 'stale'
+											: ''
+									}` }
+									title="Heartbeat age"
+								>
+									{ supervisor.heartbeat_age }s
+								</span>
+							) }
+						{ supervisor.restart_pending && (
+							<span
+								className="connector-restart-pending"
+								title="Restart pending"
+							>
+								⟳
 							</span>
-							<div className="standalone-worker-partitions">
-								{ typeWorkers
-									.sort(
-										( a, b ) =>
-											( a.partition ?? -1 ) -
-											( b.partition ?? -1 )
-									)
-									.map( ( w, idx ) => (
-										<span
-											key={ w.partition ?? idx }
-											className="standalone-worker-instance"
-										>
-											{ isPartitioned && (
-												<span
-													className={ `worker-status-badge compact ${ w.status }` }
-												>
-													P{ w.partition }
-												</span>
-											) }
-											{ ! isPartitioned && (
-												<span
-													className={ `worker-status-badge compact ${ w.status }` }
-												>
-													{ w.status === 'running'
-														? 'RUN'
-														: 'DEAD' }
-												</span>
-											) }
-											<span
-												className="standalone-worker-age"
-												title="Uptime"
-											>
-												{ w.started_at &&
-												w.status === 'running'
-													? formatAge(
-															w.started_at,
-															currentTime
-													  )
-													: '' }
-											</span>
-											{ w.heartbeat_age !== null &&
-												w.heartbeat_age !==
-													undefined && (
-													<span
-														className={ `connector-heartbeat ${
-															w.heartbeat_age > 30
-																? 'stale'
-																: ''
-														}` }
-														title="Heartbeat age"
-													>
-														{ w.heartbeat_age }s
-													</span>
-												) }
-											{ w.restart_pending && (
-												<span
-													className="connector-restart-pending"
-													title="Restart pending"
-												>
-													⟳
-												</span>
-											) }
-										</span>
-									) ) }
-							</div>
-							<span className="connector-trailing">
-								{ allRunning && isPartitioned && (
-									<span className="worker-status-badge running small">
-										ALL RUN
-									</span>
-								) }
-								{ allDead && isPartitioned && (
-									<span className="worker-status-badge dead small">
-										ALL DEAD
-									</span>
-								) }
-								{ onRestart &&
-									! allDead &&
-									! anyPendingRestart && (
-										<button
-											type="button"
-											className="worker-restart-btn"
-											onClick={ () => onRestart( type ) }
-											title="Request graceful restart"
-										>
-											↻
-										</button>
-									) }
-								{ anyPendingRestart && (
-									<span className="worker-restart-pending-label">
-										restarting...
-									</span>
-								) }
+						) }
+					</div>
+					<span className="connector-trailing">
+						{ onRestart &&
+							! isDead &&
+							! supervisor.restart_pending && (
+								<button
+									type="button"
+									className="worker-restart-btn"
+									onClick={ () => onRestart( 'supervisor' ) }
+									title="Request graceful restart"
+								>
+									↻
+								</button>
+							) }
+						{ supervisor.restart_pending && (
+							<span className="worker-restart-pending-label">
+								restarting...
 							</span>
-						</div>
-					);
-				} ) }
+						) }
+					</span>
+				</div>
 			</div>
 		</div>
 	);
@@ -916,7 +837,7 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
  */
 export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 	const [ workers, setWorkers ] = useState( [] );
-	const [ standalone, setStandalone ] = useState( [] ); // Standalone workers.
+	const [ supervisor, setSupervisor ] = useState( null );
 	const [ logsCatalog, setLogsCatalog ] = useState( [] ); // Top-level `logs` array — full per-log slot list.
 	const [ loading, setLoading ] = useState( true );
 	const [ error, setError ] = useState( null );
@@ -987,7 +908,7 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 		try {
 			const now = Date.now();
 			// workers.dump_metadata returns the full 7-field operator-grade
-			// envelope (workers[], standalone[], logs[], num_partitions,
+			// envelope (workers[], supervisor, logs[], num_partitions,
 			// num_segments, segment_size, timestamp) — same shape the legacy
 			// WorkersController::get_workers() route produced. The minimal
 			// workers.list projection is for CLI / topology callers; the
@@ -1136,8 +1057,8 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 			setWorkers( ( prev ) =>
 				replaceIfChanged( prev, data.workers || [] )
 			);
-			setStandalone( ( prev ) =>
-				replaceIfChanged( prev, data.standalone || [] )
+			setSupervisor( ( prev ) =>
+				replaceIfChanged( prev, data.supervisor ?? null )
 			);
 			setLogsCatalog( ( prev ) =>
 				replaceIfChanged( prev, data.logs || [] )
@@ -1287,10 +1208,9 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 					</div>
 				</div>
 			) }
-			{ /* Standalone Workers Section */ }
-			{ standalone.length > 0 && (
-				<StandaloneWorkers
-					workers={ standalone }
+			{ supervisor && (
+				<SupervisorStatus
+					supervisor={ supervisor }
 					currentTime={ currentTime }
 					onRestart={ handleRestart }
 				/>

@@ -150,31 +150,35 @@ class Cli {
 
 		foreach ( $workers as $w ) {
 			$type = $w['type'] ?? '';
-			// Standalone non-partitioned workers (supervisor, stream-merger,
-			// health-check) carry partition=null and live at {type}.lock.d
-			// without a .pN suffix; partitioned fleets always have an int
-			// partition and live at {type}.p{N}.lock.d.
-			// `isset` returns false for both "key absent" and "value is null",
-			// covering both shapes the dashboard might emit for a standalone.
-			$is_standalone = ! isset( $w['partition'] );
-			$p             = $is_standalone ? -1 : (int) $w['partition'];
+			$p    = (int) ( $w['partition'] ?? 0 );
 			if ( '' === $type ) {
 				continue;
 			}
 			if ( ! $wildcard && empty( $filter[ $type ] ) ) {
 				continue;
 			}
-			if ( $partition >= 0 && ( $is_standalone || $p !== $partition ) ) {
+			if ( $partition >= 0 && $p !== $partition ) {
 				continue;
 			}
-			$lock_dir = $is_standalone
-				? "{$this->base_dir}/locks/{$type}.lock.d"
-				: "{$this->base_dir}/locks/{$type}.p{$p}.lock.d";
-			if ( Lock::request_restart_at( $lock_dir ) ) {
+			if ( Lock::request_restart_at( "{$this->base_dir}/locks/{$type}.p{$p}.lock.d" ) ) {
 				++$restarted;
 			}
 		}
 		return $restarted;
+	}
+
+	/**
+	 * Drop a restart flag at the supervisor's lock dir
+	 * (`{base}/locks/supervisor.lock.d/`). The live supervisor sees the
+	 * flag from its tick loop, exits cleanly, and self-respawns. The path
+	 * is supervisor-specific because the supervisor is the only worker that
+	 * doesn't run as a partition fleet — `restart_workers()` handles
+	 * everything `{type}.p{N}.lock.d`-shaped; this handles the singleton.
+	 *
+	 * @return bool True when the flag was written.
+	 */
+	public function restart_supervisor(): bool {
+		return Lock::request_restart_at( "{$this->base_dir}/locks/supervisor.lock.d" );
 	}
 
 	/**
