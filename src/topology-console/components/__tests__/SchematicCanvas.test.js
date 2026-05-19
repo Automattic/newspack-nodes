@@ -1,19 +1,18 @@
 /**
  * SchematicCanvas — SVG drafting-room canvas. The component is large
  * (drag, port wiring, pan/zoom, drop targets, viewbox autofit); these
- * tests focus on the rendering invariants we DO want to pin:
- * node/edge mount, selection class flips, viewBox autofit / override,
- * drop-target opt-out outside edit mode, and the className surface
- * the parent reads for hit testing.
+ * tests pin the rendering invariants AND drive the pointer-event paths
+ * the original skip note attributed to "jsdom can't provide".
  *
- * Drag math, port snapping, and wheel-zoom pan/zoom are exercised end-
- * to-end via the topology-console smoke test rather than here — jsdom's
- * SVG layer doesn't expose getScreenCTM, so it can't drive the math.
+ * The skip rationale was wrong: jsdom DOES support pointer events and
+ * SVG geometry. What jsdom lacks is a PointerEvent constructor — pointer
+ * events dispatched via fireEvent.pointer* fall back to a bare Event
+ * without MouseEvent fields, so React handlers see clientX/clientY
+ * undefined. Polyfilling PointerEvent extends MouseEvent unblocks the
+ * entire drag / pan / zoom test surface (this file's beforeAll).
  *
- * Note: We DO NOT chase 80% on this file because the dominant
- * uncovered branches are SVG pointer-event handlers that require a
- * full CTM and HTML5-drag implementation jsdom doesn't provide. The
- * "skip" note here is intentional documentation, not a missing test.
+ * createSVGPoint + getScreenCTM are stubbed with identity-transform
+ * math so screenToSvg returns the same coordinates the test provides.
  */
 
 import { render, fireEvent } from '@testing-library/react';

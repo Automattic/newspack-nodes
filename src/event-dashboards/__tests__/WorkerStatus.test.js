@@ -1,20 +1,16 @@
 /**
  * WorkerStatus — log-reader status visualization. The component is
- * very large (~1346 lines) so this file targets the top-level surface
- * the parent observes: loading vs populated states, refresh-interval
- * persistence + select wiring, error banner from a rejected fetch,
- * and the restart-button → CommandClient round-trip.
+ * very large (~1346 lines); this file pins the top-level lifecycle
+ * (loading vs populated, refresh-interval persistence, error banner)
+ * AND drives the internal buildRenderPlan helper plus all four memo'd
+ * sub-components (SegmentBar, LogSection, WorkerConnector,
+ * StandaloneWorkers) through fixtured dump_metadata responses.
  *
  * getCommandClient is mocked so we can drive dump_metadata responses
- * deterministically.
- *
- * Reaching 80% here would require driving the segment-animation
- * lifecycle (timers, prev/next id diffing, removingSegments map) and
- * the buildRenderPlan log-pipeline shaping helper — both rely on rich
- * worker fixtures with realistic outputs_status / inputs_status that
- * are easier to validate end-to-end in the browser smoke test than
- * to fixture in jest. Coverage here intentionally stops at the
- * lifecycle + UI chrome surface.
+ * deterministically. Each buildRenderPlan branch is exercised by
+ * shaping the workers + logs payload to match the topo-sort case
+ * being tested (producer-consumer pair, terminal output, source
+ * input, catalog-only, unvisited tail-append).
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
