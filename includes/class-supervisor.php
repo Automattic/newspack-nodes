@@ -161,6 +161,12 @@ class Supervisor extends SupervisorBase {
 		$token             = '';
 		$spawn_url         = \rest_url( 'newspack-nodes/v1/workers/spawn' );
 
+		// One reconciliation sweep per supervisor lifecycle. Covers the
+		// reality-vs-config drift cases the fleet-shrink diff misses (prior
+		// supervisor persisted the new set before dying; upgrade from a
+		// pre-Log_Cleaner substrate; manual `wp option` edits).
+		\update_option( Log_Cleaner::LOGS_DIRTY_OPTION, '1', false );
+
 		while ( true ) {
 			$now = \microtime( true );
 
