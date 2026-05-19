@@ -257,8 +257,10 @@ class CliCommandTest extends TestCase {
 		// No lock dir exists for `nope.p0`, so attach_to_worker throws
 		// InvalidArgumentException; prepare_repl catches and re-emits via
 		// WP_CLI::error (which the WPCLIStub turns into a RuntimeException).
+		// Cli::attach_to_worker wraps the reader id in esc_html(), so the
+		// apostrophes around `nope.p0` arrive HTML-encoded (`&#039;`).
 		$this->expectException( \RuntimeException::class );
-		$this->expectExceptionMessageMatches( "/no worker 'nope.p0'/" );
+		$this->expectExceptionMessageMatches( "/no worker &#039;nope\\.p0&#039;/" );
 
 		( new Cli_Command() )->prepare_repl( [ 'nope.p0' ] );
 	}
