@@ -11,6 +11,10 @@ class LogCleanerTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// Filter callbacks added by a previous test in this class leak
+		// through the parent's option-only reset; wipe them so each test
+		// sees a clean expected_log_basenames chain.
+		$GLOBALS['_wp_actions'] = [];
 		$this->tmp = $this->make_temp_dir();
 		\mkdir( "{$this->tmp}/logs", 0755, true );
 		\mkdir( "{$this->tmp}/offsets", 0755, true );
@@ -225,6 +229,84 @@ class LogCleanerTest extends TestCase {
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 1 );
 
 		$this->assertDirectoryExists( $log_dir );
+	}
+
+	// ── expected_basenames: substrate computes the topology-derived set ─────
+
+	public function test_expected_basenames_unions_active_topology_basenames(): void {
+		// Substrate computes the base expected set itself — apps just register
+		// a filter to append runtime basenames they manage outside the topology
+		// graph. The base set is the union of every active topology's TSL
+		// Partition basenames, ignoring the filter input.
+		$stock = "{$this->tmp}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/firehose-workers-only.tsl",
+			"make_node Partition completed:partition <config:logs_dir>/completed.log <partition> 1048576 <config:num_segments> <config:max_lifespan>\n"
+			. "make_node Partition errors:partition <config:logs_dir>/errors.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+
+		// Operator-overlay names this topology.
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'firehose-workers-only' ];
+
+		$result = Log_Cleaner::expected_basenames( $this->tmp );
+
+		\sort( $result );
+		$this->assertSame( [ 'completed', 'errors' ], $result );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	public function test_expected_basenames_runs_filter_after_topology_derivation(): void {
+		// App callback appends runtime-pinned basenames; the substrate seeds
+		// the filter input with the topology-derived set so the callback
+		// stays a pure "I add X" — never has to recompute substrate state.
+		$stock = "{$this->tmp}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/job-workers.tsl",
+			"make_node Partition jobs:partition <config:logs_dir>/jobs.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'job-workers' ];
+
+		\add_filter(
+			'newspack_nodes/expected_log_basenames',
+			static fn ( array $basenames ): array => \array_merge( $basenames, [ 'firehose', 'jobintake' ] )
+		);
+
+		$result = Log_Cleaner::expected_basenames( $this->tmp );
+
+		\sort( $result );
+		$this->assertSame( [ 'firehose', 'jobintake', 'jobs' ], $result );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	public function test_expected_basenames_includes_running_workers_topology_basenames(): void {
+		// A lock dir on disk for a topology that's no longer in the active
+		// set still counts — the worker may still be writing to its logs as
+		// the operator-side change settles. Once the worker exits and its
+		// lock dir clears, the basenames drop out on the next call.
+		$stock = "{$this->tmp}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/request-workers.tsl",
+			"make_node Partition flames:partition <config:logs_dir>/flames.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+
+		// Operator overlay deactivated request-workers — but its worker
+		// is still on disk.
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [];
+		$this->seed_lock_dir( 'request-workers', 0 );
+
+		$result = Log_Cleaner::expected_basenames( $this->tmp );
+
+		$this->assertContains( 'flames', $result );
+
+		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
 	// ── Dirty-flag gate ───────────────────────────────────────────────────
