@@ -3,6 +3,7 @@ import {
 	addEdge,
 	removeNode,
 	removeEdge,
+	renameNode,
 	updateNodeArgs,
 	updateNodeVerbs,
 	draftIsDirty,
@@ -102,6 +103,87 @@ describe( 'draftGraph', () => {
 			g = addEdge( g, { from: 'a', to: 'c' } );
 			const next = removeEdge( g, 'a', 'b' );
 			expect( next.edges ).toEqual( [ { from: 'a', to: 'c' } ] );
+		} );
+	} );
+
+	describe( 'renameNode', () => {
+		const seed = () => {
+			let g = addNode( empty, {
+				shellName: 'Echo',
+				name: 'a',
+				x: 0,
+				y: 0,
+			} );
+			g = addNode( g, {
+				shellName: 'Echo',
+				name: 'b',
+				x: 0,
+				y: 0,
+			} );
+			g = addEdge( g, { from: 'a', to: 'b' } );
+			return g;
+		};
+
+		it( 'renames the node id + name and rewrites incident edges', () => {
+			const g = seed();
+			const next = renameNode( g, 'a', 'alpha' );
+			expect( next ).not.toBe( g );
+			expect( next.nodes.map( ( n ) => n.id ) ).toEqual( [
+				'alpha',
+				'b',
+			] );
+			expect( next.nodes[ 0 ].name ).toBe( 'alpha' );
+			expect( next.edges ).toEqual( [ { from: 'alpha', to: 'b' } ] );
+		} );
+
+		it( 'rewrites the to side of an edge too', () => {
+			const g = seed();
+			const next = renameNode( g, 'b', 'beta' );
+			expect( next.edges ).toEqual( [ { from: 'a', to: 'beta' } ] );
+		} );
+
+		it( 'is a no-op when newName is empty', () => {
+			const g = seed();
+			expect( renameNode( g, 'a', '' ) ).toBe( g );
+			expect( renameNode( g, 'a', '   ' ) ).toBe( g );
+		} );
+
+		it( 'is a no-op when newName equals the existing name', () => {
+			const g = seed();
+			expect( renameNode( g, 'a', 'a' ) ).toBe( g );
+		} );
+
+		it( 'is a no-op when newName is already taken by another node', () => {
+			const g = seed();
+			expect( renameNode( g, 'a', 'b' ) ).toBe( g );
+		} );
+
+		it( 'trims surrounding whitespace before applying', () => {
+			const g = seed();
+			const next = renameNode( g, 'a', '  alpha  ' );
+			expect( next.nodes[ 0 ].id ).toBe( 'alpha' );
+		} );
+
+		it( 'leaves edges unrelated to the rename alone', () => {
+			let g = seed();
+			g = addNode( g, {
+				shellName: 'Echo',
+				name: 'c',
+				x: 0,
+				y: 0,
+			} );
+			g = addEdge( g, { from: 'b', to: 'c' } );
+			const next = renameNode( g, 'a', 'alpha' );
+			// b → c is unrelated; same reference, not re-mapped.
+			const bc = next.edges.find(
+				( e ) => e.from === 'b' && e.to === 'c'
+			);
+			expect( bc ).toBeDefined();
+		} );
+
+		it( 'coerces non-string newName via String()', () => {
+			const g = seed();
+			expect( renameNode( g, 'a', 42 ).nodes[ 0 ].id ).toBe( '42' );
 		} );
 	} );
 
