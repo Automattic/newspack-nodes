@@ -5,12 +5,21 @@
  * large (~1862 lines) with heavy view/edit-mode state, SSE wiring,
  * shell-interpret dispatch, and canvas pan/zoom logic.
  *
- * This file covers the boot path (initial render, topology/partition
- * URL state, mode switching, basic command sending) by mocking the
- * heavy children + hooks. Deeper coverage of edit-mode workflows,
- * SSE-driven graph updates, layout persistence, and shell interpret
- * paths is left to browser smoke testing — jest can't observe the
- * SVG getScreenCTM math the canvas relies on.
+ * Tests cover the boot path, the full TM_ bitmask dumperRender table,
+ * gui:auto/gui:uptime/debug_level message routing, transcript cap +
+ * clear builtin, selection + Inspector action dispatch, position +
+ * viewport persistence, edit-mode workflows (save / open / new /
+ * delete / discard / rename / remove), modal-driven confirm/cancel
+ * flows, and layout reset.
+ *
+ * Approach: useTopologyStream is mocked to capture the onMessage
+ * callback so tests pump synthetic SSE messages through handleMessage
+ * without a real EventSource. Mocked Canvas / Inspector / Header /
+ * CanvasFrame / Modal components expose every prop callback as a
+ * button so handlers run end-to-end without driving SVG drag math.
+ * Hook fetches (fetchTopology / saveTopology / deleteTopology /
+ * fetchLayout / saveLayout) are stubbed via a globalThis.__hooks
+ * registry the mock factories read at invocation time.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
