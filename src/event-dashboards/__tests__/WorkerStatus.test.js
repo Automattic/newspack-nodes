@@ -440,6 +440,47 @@ describe( 'WorkerStatus', () => {
 		).toBeGreaterThan( 0 );
 	} );
 
+	it( 'SegmentBar fill uses per-log segment_size override, not global default', async () => {
+		// `completed.log` and `gyroscope.log` are declared in the firehose
+		// -workers-only TSL with a hardcoded 1 MiB segment_size — much
+		// smaller than the global 64 MiB default. The dashboard must scale
+		// each log's bars against its OWN cap so a full 1 MiB segment shows
+		// as ~100% full, not the ~1.5% it would compute against the global.
+		// buildRenderPlan was dropping `segment_size` off the catalog entry
+		// before passing the item to LogSection — every log fell back to
+		// the global default, making hardcoded-cap logs look perpetually
+		// empty even when their segments were full.
+		sendMock.mockResolvedValue( [] );
+		unwrapCommandResponse.mockReturnValue( {
+			workers: [],
+			standalone: [],
+			segment_size: 64 * 1024 * 1024, // global default — 64 MiB
+			logs: [
+				{
+					name: 'completed.log',
+					segment_size: 1048576, // 1 MiB override
+					partitions: [
+						{
+							partition: 0,
+							segments: [ { id: 0, size: 1048576 } ], // full at 1 MiB
+							total_size: 1048576,
+						},
+					],
+				},
+			],
+		} );
+		const { container } = render( <WorkerStatus fullPage /> );
+		await act( async () => {} );
+
+		const fills = container.querySelectorAll( '.segment-fill-h' );
+		expect( fills.length ).toBeGreaterThan( 0 );
+		// A 1 MiB segment under a 1 MiB cap renders as 100% wide. The bug:
+		// it was rendering against 64 MiB (≈1.5% wide) because the log
+		// item lost its segment_size in buildRenderPlan.
+		const widthPercent = parseFloat( fills[ 0 ].style.width );
+		expect( widthPercent ).toBeGreaterThanOrEqual( 99 );
+	} );
+
 	it( 'WorkerConnector renders ALL RUN badge when every worker is running', async () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
