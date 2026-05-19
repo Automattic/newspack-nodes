@@ -59,6 +59,17 @@ final class SseHelpersTraitTest extends TestCase {
 			public function read_needs_flush(): bool {
 				return $this->needs_flush;
 			}
+
+			/**
+			 * Expose init_sse_headers() to the test. PHPUnit's CLI runner
+			 * has already emitted output by the time we get here, so the
+			 * trait's `header()` calls would trigger "headers already
+			 * sent" warnings — `@`-suppressed like the sibling
+			 * SseStreamTraitTest host.
+			 */
+			public function call_init_sse_headers(): void {
+				@$this->init_sse_headers();
+			}
 		};
 	}
 
@@ -119,5 +130,67 @@ final class SseHelpersTraitTest extends TestCase {
 
 	public function test_flush_if_needed_is_noop_when_unset(): void {
 		$this->assertSame( '', $this->host()->call_flush_unset() );
+	}
+
+	// ── init_sse_headers ───────────────────────────────────────────────────
+
+	public function test_init_sse_headers_drains_all_active_output_buffers(): void {
+		// init_sse_headers() runs `while ob_get_level() > 0: ob_end_clean()`.
+		// Open extra buffer levels here, then verify they're all gone after
+		// the call. Mirrors the sibling SseStreamTraitTest pattern — see
+		// that file for the rationale on `@`-suppressed header() calls in
+		// the host wrapper.
+		$host        = $this->host();
+		$start_level = \ob_get_level();
+
+		\ob_start();
+		\ob_start();
+		\ob_start();
+		$this->assertSame( $start_level + 3, \ob_get_level(), 'sanity: opened 3 buffers' );
+
+		try {
+			$host->call_init_sse_headers();
+			$this->assertSame( 0, \ob_get_level(), 'init_sse_headers must drain every active buffer' );
+		} finally {
+			while ( \ob_get_level() < $start_level ) {
+				\ob_start();
+			}
+		}
+	}
+
+	public function test_init_sse_headers_is_safe_to_call_with_no_active_buffers(): void {
+		// Drain anything ambient so the while loop has nothing to do, then
+		// re-open in finally so PHPUnit's risky-test buffer-level check passes.
+		$host        = $this->host();
+		$start_level = \ob_get_level();
+		while ( \ob_get_level() > 0 ) {
+			\ob_end_clean();
+		}
+		$this->assertSame( 0, \ob_get_level() );
+
+		try {
+			$host->call_init_sse_headers();
+			$this->assertSame( 0, \ob_get_level() );
+		} finally {
+			while ( \ob_get_level() < $start_level ) {
+				\ob_start();
+			}
+		}
+	}
+
+	public function test_init_sse_headers_returns_void(): void {
+		// Explicit void return — the method is side-effecting setup, not a
+		// value-producing call. Lock that contract.
+		$host        = $this->host();
+		$start_level = \ob_get_level();
+		\ob_start();
+		try {
+			$result = $host->call_init_sse_headers();
+			$this->assertNull( $result );
+		} finally {
+			while ( \ob_get_level() < $start_level ) {
+				\ob_start();
+			}
+		}
 	}
 }
