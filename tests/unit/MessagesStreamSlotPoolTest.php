@@ -6,6 +6,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Rest\Messages_Stream_Controller;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
+use PHPUnit\Framework\Attributes\Medium;
 
 /**
  * Slot-pool acquisition / release / check seams on the unified SSE
@@ -21,12 +22,22 @@ use PHPUnit\Framework\Attributes\CoversClass;
  * envelope and the matching release-closure call.
  */
 #[CoversClass( Messages_Stream_Controller::class )]
+#[Medium]
 class MessagesStreamSlotPoolTest extends TestCase {
+
+	protected function setUp(): void {
+		parent::setUp();
+		// Drop the EventFramework singleton so timers / curl handles from
+		// prior tests don't bleed into this one's drain loop and eat
+		// iteration budget before the Consumer's first fire().
+		\Newspack_Nodes\EventFramework::reset();
+	}
 
 	protected function tearDown(): void {
 		Messages_Stream_Controller::$acquire_slot = null;
 		Messages_Stream_Controller::$release_slot = null;
 		Messages_Stream_Controller::$check_slot   = null;
+		\Newspack_Nodes\EventFramework::reset();
 		parent::tearDown();
 	}
 
@@ -166,9 +177,10 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );
 		// Consumer's first fire() is scheduled at POLL_INTERVAL_EOF_MS=100ms.
-		// One iteration sleeps until that timer fires; one more iteration to
-		// run the loop body once the message has landed. Three is plenty.
-		$ctrl->set_test_iterations( 3 );
+		// Drain iterates between events; we need enough iterations that the
+		// timer fires AND its read+callback path completes within the loop.
+		// 3 was empirically flaky under load; 10 leaves room for slow CI.
+		$ctrl->set_test_iterations( 10 );
 
 		// Capture all router fills so we can assert the message landed on
 		// _router (instead of being emitted to SSE). Use a Callback under
