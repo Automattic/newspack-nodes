@@ -186,6 +186,25 @@ namespace {
 			return 'toplevel_page_' . $slug;
 		}
 	}
+	if ( ! \function_exists( 'add_submenu_page' ) ) {
+		function add_submenu_page(
+			string $parent_slug,
+			string $page_title,
+			string $menu_title,
+			string $cap,
+			string $slug,
+			callable $cb
+		): string {
+			$GLOBALS['_admin_submenu_pages'][ $slug ] = [
+				'parent_slug' => $parent_slug,
+				'page_title'  => $page_title,
+				'menu_title'  => $menu_title,
+				'capability'  => $cap,
+				'callback'    => $cb,
+			];
+			return $parent_slug . '_page_' . $slug;
+		}
+	}
 	if ( ! \function_exists( 'wp_enqueue_script' ) ) {
 		function wp_enqueue_script(
 			string $handle,
@@ -266,6 +285,7 @@ class AdminTest extends TestCase {
 		$GLOBALS['_registered_fields']           = [];
 		$GLOBALS['_options_pages']               = [];
 		$GLOBALS['_admin_menu_pages']            = [];
+		$GLOBALS['_admin_submenu_pages']         = [];
 		$GLOBALS['_enqueued_scripts']            = [];
 		$GLOBALS['_enqueued_styles']             = [];
 		$GLOBALS['_localized_scripts']           = [];
@@ -1404,6 +1424,99 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		\rmdir( $tmp );
 		\delete_option( 'newspack_nodes_topologies' );
 		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	// ---- register_event_dashboard_pages ----------------------------------
+
+	public function test_register_event_dashboard_pages_registers_workers_and_rawlogs_submenus(): void {
+		$admin = new Admin();
+		$admin->register_event_dashboard_pages();
+
+		$this->assertArrayHasKey( Admin::WORKERS_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
+		$this->assertArrayHasKey( Admin::RAWLOGS_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
+
+		$workers = $GLOBALS['_admin_submenu_pages'][ Admin::WORKERS_MENU_SLUG ];
+		$this->assertSame( Admin::TOPOLOGY_MENU_SLUG, $workers['parent_slug'] );
+		$this->assertSame( 'manage_options', $workers['capability'] );
+
+		$rawlogs = $GLOBALS['_admin_submenu_pages'][ Admin::RAWLOGS_MENU_SLUG ];
+		$this->assertSame( Admin::TOPOLOGY_MENU_SLUG, $rawlogs['parent_slug'] );
+		$this->assertSame( 'manage_options', $rawlogs['capability'] );
+	}
+
+	public function test_register_event_dashboard_page_callbacks_print_mount_divs(): void {
+		// The callback closures print the React mount points the
+		// event-dashboards bundle attaches to. Without these, the page is
+		// blank — drive each callback and assert the mount div renders.
+		$admin = new Admin();
+		$admin->register_event_dashboard_pages();
+
+		$workers_cb = $GLOBALS['_admin_submenu_pages'][ Admin::WORKERS_MENU_SLUG ]['callback'];
+		\ob_start();
+		$workers_cb();
+		$this->assertSame( '<div id="event-logger-workers" class="event-logger-workers-page"></div>', \ob_get_clean() );
+
+		$rawlogs_cb = $GLOBALS['_admin_submenu_pages'][ Admin::RAWLOGS_MENU_SLUG ]['callback'];
+		\ob_start();
+		$rawlogs_cb();
+		$this->assertSame( '<div id="event-logger-rawlogs" class="event-logger-rawlogs-page"></div>', \ob_get_clean() );
+	}
+
+	public function test_register_event_dashboard_pages_skips_unauthorized_user(): void {
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
+		$admin                                                  = new Admin();
+		$admin->register_event_dashboard_pages();
+
+		$this->assertArrayNotHasKey( Admin::WORKERS_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
+		$this->assertArrayNotHasKey( Admin::RAWLOGS_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
+	}
+
+	// ---- enqueue_event_dashboards_assets ----------------------------------
+
+	public function test_enqueue_event_dashboards_assets_skips_on_wrong_page(): void {
+		$_GET = [ 'page' => 'some-other-admin-page' ];
+		( new Admin() )->enqueue_event_dashboards_assets();
+		$this->assertEmpty( $GLOBALS['_enqueued_scripts'] );
+		$this->assertEmpty( $GLOBALS['_localized_scripts'] );
+	}
+
+	public function test_enqueue_event_dashboards_assets_enqueues_for_workers_page(): void {
+		$asset_path = \NEWSPACK_NODES_DIR . 'build/event-dashboards/index.js';
+		$this->assertFileExists( $asset_path, 'event-dashboards build asset missing — run `npm run build` before tests' );
+
+		$_GET = [ 'page' => Admin::WORKERS_MENU_SLUG ];
+
+		$admin = new Admin();
+		$admin->enqueue_event_dashboards_assets();
+
+		$handle = 'newspack-nodes-event-dashboards';
+		$this->assertArrayHasKey( $handle, $GLOBALS['_enqueued_scripts'] );
+		$enq = $GLOBALS['_enqueued_scripts'][ $handle ];
+		$this->assertStringEndsWith( 'build/event-dashboards/index.js', (string) $enq['src'] );
+		$this->assertSame( [ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ], $enq['deps'] );
+		$this->assertTrue( $enq['in_footer'] );
+
+		$this->assertArrayHasKey( $handle, $GLOBALS['_localized_scripts'] );
+		$payload = $GLOBALS['_localized_scripts'][ $handle ];
+		$this->assertSame( 'NewspackNodesData', $payload['object_name'] );
+		// `tree` discriminates which React mount logic kicks in inside the
+		// shared event-dashboards bundle. Locking it pins the contract with
+		// the JS bundle's entry point.
+		$this->assertSame( 'event-dashboards', $payload['data']['tree'] );
+		$this->assertSame( \NEWSPACK_NODES_VERSION, $payload['data']['version'] );
+		$this->assertArrayHasKey( 'restUrl', $payload['data'] );
+		$this->assertArrayHasKey( 'nonce',   $payload['data'] );
+	}
+
+	public function test_enqueue_event_dashboards_assets_enqueues_for_rawlogs_page(): void {
+		// Same bundle, different page — both pages share one React bundle.
+		// Without this, a regression that ties the bundle to only the
+		// workers page would silently leave rawlogs blank.
+		$_GET = [ 'page' => Admin::RAWLOGS_MENU_SLUG ];
+
+		( new Admin() )->enqueue_event_dashboards_assets();
+
+		$this->assertArrayHasKey( 'newspack-nodes-event-dashboards', $GLOBALS['_enqueued_scripts'] );
 	}
 
 	// ---- helpers ----------------------------------------------------------
