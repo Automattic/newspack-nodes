@@ -221,17 +221,36 @@ class SupervisorTest extends TestCase {
 		$this->assertFalse( ! empty( $GLOBALS['_wp_options'][Log_Cleaner::LOGS_DIRTY_OPTION] ) );
 	}
 
-	public function test_check_config_does_not_set_logs_dirty_on_cold_start(): void {
-		// First-ever check_config has no prior signature to compare to;
-		// triggering dirty here would force a redundant scan on every
-		// supervisor cold-start / respawn, defeating the gate's purpose.
+	public function test_tick_loop_arms_log_cleaner_on_boot(): void {
+		// Each supervisor process runs one cleanup pass on boot so on-disk
+		// reality gets reconciled even when the fleet-shrink diff is empty
+		// (e.g. a prior supervisor persisted the shrunk fleet_descriptors
+		// before dying; pre-Log_Cleaner upgrade; manual `wp option` edits).
+		// The arm fires once at the top of tick_loop, before the first
+		// check_config call — Log_Cleaner picks it up on its next sweep.
 		$this->with_topology( [
 			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
 		] );
 		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
-		$s->check_config( microtime( true ) );
 
-		$this->assertFalse( ! empty( $GLOBALS['_wp_options'][Log_Cleaner::LOGS_DIRTY_OPTION] ) );
+		// Pre-seed FLEET_DESCRIPTORS to the current set so the existing
+		// shrink-diff branch is a no-op — proves the arm comes from the
+		// new lifecycle preamble, not the diff path.
+		\update_option(
+			Log_Cleaner::FLEET_DESCRIPTORS_OPTION,
+			[ 'firehose-workers.p0' ]
+		);
+
+		// Seed loop state so tick_loop exits via MAX_SUPERVISOR_RUNTIME_S
+		// on the first iteration (start_time well in the past) — we only
+		// need the preamble to run.
+		$this->seed_loop_state( $s, microtime( true ) - 1000.0 );
+		$this->invoke_tick_loop( $s );
+
+		$this->assertTrue(
+			! empty( $GLOBALS['_wp_options'][ Log_Cleaner::LOGS_DIRTY_OPTION ] ),
+			'tick_loop should arm Log_Cleaner once at boot'
+		);
 	}
 
 	public function test_check_config_clamps_num_partitions_to_max(): void {
