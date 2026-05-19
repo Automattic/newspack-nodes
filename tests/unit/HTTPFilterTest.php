@@ -44,4 +44,15 @@ class HTTPFilterTest extends TestCase {
 		$this->assertCount( 0, $emitted );
 		$this->assertSame( 1, $f->counter() );
 	}
+
+	public function test_node_schema_is_hidden_with_empty_ctor_and_verbs(): void {
+		// HTTP_Filter is bootstrap-instantiated (per-session, per-PID); it
+		// must never appear in the `make_node` factory's discoverable
+		// category list or expose user-facing verbs.
+		$schema = HTTP_Filter::node_schema();
+		$this->assertSame( 'Hidden', $schema['category'] );
+		$this->assertSame( [], $schema['ctor'] );
+		$this->assertSame( [], $schema['verbs'] );
+		$this->assertNotEmpty( $schema['description'] );
+	}
 }
