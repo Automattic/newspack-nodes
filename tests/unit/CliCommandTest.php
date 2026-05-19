@@ -658,7 +658,10 @@ class CliCommandTest extends TestCase {
 		// $shell->status_lines for the `status` builtin to render on demand;
 		// it's no longer auto-logged at startup (would pollute scripted
 		// captures). Verify the lines are populated and the bare prompt
-		// stays default.
+		// stays default. Root guard short-circuits before this branch.
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'prepare_repl bare branch only reachable when test user is non-root' );
+		}
 		$cmd = new Cli_Command();
 		[ $shell, $dumper ] = $cmd->prepare_repl( [] );
 
@@ -678,6 +681,9 @@ class CliCommandTest extends TestCase {
 		// $shell->status_lines (renderable via the `status` builtin), the
 		// prompt is rewritten to identify the target, and the previous
 		// auto-banner is no longer emitted.
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'prepare_repl pivoted branch only reachable when test user is non-root' );
+		}
 		\mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
 		\mkdir( "{$this->tmp}/ipc/firehose-workers.p0/input", 0755, true );
 		\mkdir( "{$this->tmp}/ipc/firehose-workers.p0/output", 0755, true );
@@ -699,6 +705,12 @@ class CliCommandTest extends TestCase {
 	public function test_prepare_repl_invalid_reader_id_calls_WP_CLI_error(): void {
 		// Bad reader-id throws InvalidArgumentException from
 		// Cli::attach_to_worker → WP_CLI::error → test stub throws.
+		// Skip when the test runner is root — prepare_repl's root guard
+		// short-circuits before reaching the reader-id validation. Covered
+		// by `test_cli_refuses_to_run_as_root` instead.
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'reader-id branch only reachable when test user is non-root' );
+		}
 		$cmd = new Cli_Command();
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessageMatches( '/invalid reader id/' );
@@ -709,6 +721,10 @@ class CliCommandTest extends TestCase {
 		// Parseable reader-id but no lock dir → attach_to_worker throws
 		// "no worker ..." → WP_CLI::error → test stub throws RuntimeException.
 		// Without this guard the cli would silently create ghost IPC dirs.
+		// Skip under root for the same reason as the sibling test above.
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'unknown-worker branch only reachable when test user is non-root' );
+		}
 		$cmd = new Cli_Command();
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessageMatches( '/no worker.*typo\.p0/' );
