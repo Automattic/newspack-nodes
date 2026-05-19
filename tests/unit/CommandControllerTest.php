@@ -20,7 +20,12 @@ class CommandControllerTest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
-		$this->status_codes = [];
+		// The base TestCase resets Core's registry and $GLOBALS['_wp_options'],
+		// but NOT $GLOBALS['_wp_actions']. Hooks added in previous tests
+		// (including the request_graph_ready hook tests below) leak across
+		// boundaries and break later dispatches. Reset here.
+		$GLOBALS['_wp_actions'] = [];
+		$this->status_codes     = [];
 	}
 
 	/**
@@ -333,5 +338,112 @@ class CommandControllerTest extends TestCase {
 		// Consumer overwrites ID with seg:offset — decode VALUE to confirm payload identity.
 		$payload = \json_decode( $got[0][ Message::VALUE ], true );
 		$this->assertSame( 'dump_metadata', $payload['name'] );
+	}
+
+	// ── register_routes ────────────────────────────────────────────────────
+
+	public function test_register_routes_registers_command_post_route(): void {
+		$GLOBALS['_wp_test_registered_routes'] = [];
+
+		( new Command_Controller() )->register_routes();
+
+		$this->assertCount( 1, $GLOBALS['_wp_test_registered_routes'] );
+		$route = $GLOBALS['_wp_test_registered_routes'][0];
+		$this->assertSame( 'newspack-nodes/v1', $route['namespace'] );
+		$this->assertSame( '/command', $route['route'] );
+		$this->assertSame( 'POST', $route['args']['methods'] );
+		$this->assertIsCallable( $route['args']['callback'] );
+		$this->assertIsCallable( $route['args']['permission_callback'] );
+	}
+
+	// ── 7-field positional body shape ──────────────────────────────────────
+
+	public function test_dispatch_accepts_positional_seven_element_array_body(): void {
+		// normalize_body_to_message has two body shapes: a 7-field positional
+		// array (count >= 7 and array_is_list) which is returned verbatim,
+		// and the keyed-object fallback. The positional path was uncovered.
+		$base_ci = $this->build_graph();
+		$echo    = new CommandInterpreter();
+		$echo->name( 'pos_echo' );
+		$echo->sink( $base_ci );
+		$echo->commands( [ 'echo' => static fn( $self, $args ): string => "got: {$args}" ] );
+
+		// Positional layout: [ TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE ].
+		$body                       = Message::new_message();
+		$body[ Message::TYPE ]      = Message::TM_COMMAND;
+		$body[ Message::FROM ]      = '_http';
+		$body[ Message::TO ]        = 'pos_echo';
+		$body[ Message::ID ]        = 'pos-1';
+		$body[ Message::VALUE ]     = \wp_json_encode( [ 'name' => 'echo', 'arguments' => 'arr', 'payload' => '' ] );
+		$req = new \WP_REST_Request();
+		$req->set_body( \wp_json_encode( $body ) );
+		$req->set_header( 'content-type', 'application/json' );
+
+		$ctrl = new Command_Controller();
+		$ctrl->set_test_mode( true );
+
+		\ob_start();
+		$ctrl->dispatch( $req );
+		$out = \ob_get_clean();
+
+		// Verify the positional body was preserved (not coerced through the
+		// keyed fallback) and reached the echo CI.
+		$this->assertSame( [ 200 ], $this->status_codes );
+		$msg = Message::unpacked( $out );
+		$this->assertSame( 'pos-1', $msg[ Message::ID ] );
+		$payload = \json_decode( $msg[ Message::VALUE ], true );
+		$this->assertSame( 'got: arr', $payload['payload'] );
+	}
+
+	// ── emit_error: graph not initialized ──────────────────────────────────
+
+	public function test_dispatch_emits_500_when_router_is_replaced_by_non_Router_via_hook(): void {
+		// ensure_request_graph() builds _router / _http defensively if
+		// missing, but the `newspack_nodes/request_graph_ready` hook fires
+		// AFTER that. A hook handler can register a different object under
+		// '_router' (or '_http') — the post-hook `instanceof` guard catches
+		// it and emit_error() writes a 500 + TM_ERROR packed reply.
+		$this->build_graph();
+
+		\add_action(
+			'newspack_nodes/request_graph_ready',
+			static function (): void {
+				// Replace _router with something that is NOT a Router instance.
+				// A bare CommandInterpreter is a Node but not a Router, so the
+				// instanceof check fails.
+				Core::register_node( '_router', new CommandInterpreter() );
+			}
+		);
+
+		$GLOBALS['_wp_test_status_headers'] = [];
+
+		$req = $this->make_request(
+			[
+				'type'  => Message::TM_COMMAND,
+				'to'    => 'something',
+				'from'  => '_http',
+				'id'    => 'cmd-err-1',
+				'value' => '',
+			]
+		);
+
+		$ctrl = new Command_Controller();
+		$ctrl->set_test_mode( true );
+
+		\ob_start();
+		$ctrl->dispatch( $req );
+		$body = \ob_get_clean();
+
+		// emit_error writes status_header( 500 ) directly (not via HTTP_Out's
+		// seam), so the bootstrap-stub recorder captures it.
+		$this->assertSame( [ 500 ], $GLOBALS['_wp_test_status_headers'] );
+
+		// Body is a packed TM_RESPONSE|TM_ERROR with the originating ID.
+		$err = Message::unpacked( $body );
+		$this->assertSame( Message::TM_RESPONSE | Message::TM_ERROR, $err[ Message::TYPE ] );
+		$this->assertSame( '_command', $err[ Message::FROM ] );
+		$this->assertSame( '_http', $err[ Message::TO ] );
+		$this->assertSame( 'cmd-err-1', $err[ Message::ID ] );
+		$this->assertStringContainsString( 'request-scope graph not initialized', $err[ Message::VALUE ] );
 	}
 }
