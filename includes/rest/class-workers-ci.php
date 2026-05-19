@@ -41,6 +41,7 @@ use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\CommandInterpreter;
 use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Lock;
+use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition;
 use Newspack_Nodes\Service_CI;
@@ -85,6 +86,37 @@ class Workers_CI extends Service_CI {
 			'dump_metadata' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ) use ( $cache ): string {
 				self::require_manage_options();
 				return (string) \wp_json_encode( self::collect_dump_metadata( $cache ) );
+			},
+			'cleanup_status' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): string {
+				// Diagnostic: surface every input Log_Cleaner reads when it
+				// decides whether to delete on-disk log dirs. Lets operators
+				// answer "the dashboard shows orphan logs — why isn't the
+				// sweep cleaning them?" without shell access.
+				self::require_manage_options();
+				$config        = RuntimeConfig::load_config();
+				$base_dir      = (string) ( $config['base_directory'] ?? '/tmp/newspack-nodes' );
+				$logs_dir      = $base_dir . '/logs';
+				$dirty_flag    = \get_option( Log_Cleaner::LOGS_DIRTY_OPTION, null );
+				$prior_fleet   = \get_option( Log_Cleaner::FLEET_DESCRIPTORS_OPTION, null );
+				$on_disk       = [];
+				foreach ( @\glob( $logs_dir . '/*.log', \GLOB_ONLYDIR ) ?: [] as $dir ) {
+					if ( \preg_match( '#/([^/]+)\.log$#', $dir, $m ) ) {
+						$on_disk[] = $m[1];
+					}
+				}
+				\sort( $on_disk );
+				$expected = \apply_filters( 'newspack_nodes/expected_log_basenames', [] );
+				$expected = \is_array( $expected ) ? \array_values( \array_unique( $expected ) ) : [];
+				\sort( $expected );
+				$orphans = \array_values( \array_diff( $on_disk, $expected ) );
+				return (string) \wp_json_encode( [
+					'logs_dirty_option'        => $dirty_flag,
+					'fleet_descriptors_option' => $prior_fleet,
+					'logs_dir'                 => $logs_dir,
+					'on_disk_basenames'        => $on_disk,
+					'expected_basenames'       => $expected,
+					'orphans'                  => $orphans,
+				] );
 			},
 			'restart' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ) use ( $cli ): string {
 				$decoded   = \is_array( $payload ) ? $payload : [];
