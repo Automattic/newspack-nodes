@@ -37,6 +37,14 @@ class Topology_Registry {
 	 */
 	private static array $basename_cache = [];
 
+	/**
+	 * Memoized `{basename => int}` map of per-Partition segment_size overrides
+	 * keyed by topology name. Populated by `segment_size_overrides_for`.
+	 *
+	 * @var array<string,array<string,int>>
+	 */
+	private static array $segment_size_overrides_cache = [];
+
 	public static function register_stock_dir( string $path ): void {
 		$path = \rtrim( $path, '/' );
 		if ( '' === $path ) {
@@ -253,6 +261,58 @@ class Topology_Registry {
 	}
 
 	/**
+	 * Per-Partition segment_size overrides declared by `$name`'s topology
+	 * TSL. The 4th positional arg of a Partition `make_node` line is the
+	 * segment_size; topologies that hardcode an int there (rather than the
+	 * `<config:segment_size>` token) want a tighter rotation budget for
+	 * that specific log. Workers dashboard surfaces these so each log's
+	 * "max segment size" indicator reflects what's actually configured —
+	 * 1 MiB for completed.log / gyroscope.log instead of the global default.
+	 *
+	 * Returns `{basename => int}` only for Partition lines that supplied a
+	 * literal int. Token-substituted values (`<config:segment_size>` etc.)
+	 * are omitted; the caller falls back to the global config default.
+	 *
+	 * Memoized per-name; cleared by `reset_basename_cache()` /  `reset()`.
+	 *
+	 * @return array<string,int>
+	 */
+	public static function segment_size_overrides_for( string $name ): array {
+		if ( isset( self::$segment_size_overrides_cache[ $name ] ) ) {
+			return self::$segment_size_overrides_cache[ $name ];
+		}
+		$path = self::resolve( $name );
+		if ( null === $path ) {
+			return self::$segment_size_overrides_cache[ $name ] = [];
+		}
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		$contents  = (string) \file_get_contents( $path );
+		$overrides = [];
+		foreach ( \explode( "\n", $contents ) as $raw ) {
+			$line = \trim( $raw );
+			if ( '' === $line || '#' === $line[0] ) {
+				continue;
+			}
+			// Match the full Partition declaration: basename + <partition>
+			// substitution token + segment_size positional arg. Capture
+			// basename in $m[1] and segment_size in $m[2]. The segment_size
+			// arg is either a bare int (override) or a `<config:…>` token
+			// (no override) — we filter on int after the match.
+			if ( ! \preg_match(
+				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.log\s+\S+\s+(\S+)/',
+				$line,
+				$m
+			) ) {
+				continue;
+			}
+			if ( \ctype_digit( $m[2] ) ) {
+				$overrides[ $m[1] ] = (int) $m[2];
+			}
+		}
+		return self::$segment_size_overrides_cache[ $name ] = $overrides;
+	}
+
+	/**
 	 * Narrow invalidation: drop only the parsed-basename cache, keeping
 	 * `$stock_dirs` and `$user_dir` intact. Wired to `Config::RESET_ACTION`
 	 * at boot so long-lived workers surviving a config reload re-read
@@ -260,7 +320,8 @@ class Topology_Registry {
 	 * `reset()` (which clears the dirs too) is test-isolation-only.
 	 */
 	public static function reset_basename_cache(): void {
-		self::$basename_cache = [];
+		self::$basename_cache               = [];
+		self::$segment_size_overrides_cache = [];
 	}
 
 	public static function reset(): void {

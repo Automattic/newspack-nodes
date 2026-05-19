@@ -177,6 +177,91 @@ TSL
 		$this->assertNotNull( Topology_Registry::resolve( 'wired' ) );
 	}
 
+	// =========================================================================
+	// segment_size_overrides_for — per-log segment_size from TSL
+	// =========================================================================
+	//
+	// Some topologies hardcode a smaller segment_size on specific Partitions
+	// (e.g. completed.log + gyroscope.log on the firehose-workers topology use
+	// 1 MiB instead of the global config:segment_size). Workers dashboard wants
+	// to render the right rotation budget per log, so the TSL is the source of
+	// truth — Topology_Registry exposes the literal-int overrides; tokens like
+	// `<config:segment_size>` flow through as "no override" so the consumer
+	// keeps using the global default.
+
+	public function test_segment_size_overrides_returns_literal_int_when_partition_hardcodes(): void {
+		$this->write_tsl(
+			'firehose-workers',
+			<<<TSL
+make_node Partition firehose:partition <config:logs_dir>/firehose.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition completed:partition <config:logs_dir>/completed.log <partition> 1048576 <config:num_segments> <config:max_lifespan>
+make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.log <partition> 1048576 <config:num_segments> <config:max_lifespan>
+TSL
+		);
+
+		$this->assertSame(
+			[
+				'completed' => 1048576,
+				'gyroscope' => 1048576,
+			],
+			Topology_Registry::segment_size_overrides_for( 'firehose-workers' )
+		);
+	}
+
+	public function test_segment_size_overrides_returns_empty_for_topology_with_no_overrides(): void {
+		// All Partitions use `<config:segment_size>` — caller falls back to
+		// the global config default for every log.
+		$this->write_tsl(
+			'plain',
+			<<<TSL
+make_node Partition foo:partition <config:logs_dir>/foo.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition bar:partition <config:logs_dir>/bar.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+TSL
+		);
+
+		$this->assertSame( [], Topology_Registry::segment_size_overrides_for( 'plain' ) );
+	}
+
+	public function test_segment_size_overrides_returns_empty_for_unknown_topology(): void {
+		$this->assertSame(
+			[],
+			Topology_Registry::segment_size_overrides_for( 'does-not-exist' )
+		);
+	}
+
+	public function test_segment_size_overrides_skips_commented_lines(): void {
+		$this->write_tsl(
+			'commented',
+			<<<TSL
+# make_node Partition disabled:partition <config:logs_dir>/disabled.log <partition> 999 <config:num_segments> <config:max_lifespan>
+make_node Partition active:partition <config:logs_dir>/active.log <partition> 2048 <config:num_segments> <config:max_lifespan>
+TSL
+		);
+
+		$this->assertSame(
+			[ 'active' => 2048 ],
+			Topology_Registry::segment_size_overrides_for( 'commented' )
+		);
+	}
+
+	public function test_segment_size_overrides_ignores_non_partition_lines(): void {
+		// Tee / Tail / make_node-of-other-classes can reference paths too.
+		// Only Partition declarations should contribute.
+		$this->write_tsl(
+			'mixed',
+			<<<TSL
+make_node Partition real:partition <config:logs_dir>/real.log <partition> 4096 <config:num_segments> <config:max_lifespan>
+make_node Tee fake:tee <config:logs_dir>/fake.log <partition>
+make_node Tail other:tail <config:logs_dir>/other.log <partition>
+TSL
+		);
+
+		$this->assertSame(
+			[ 'real' => 4096 ],
+			Topology_Registry::segment_size_overrides_for( 'mixed' )
+		);
+	}
+
 	public function test_reset_clears_basename_cache(): void {
 		$this->write_tsl(
 			'cleared',

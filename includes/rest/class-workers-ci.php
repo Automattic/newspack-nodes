@@ -44,6 +44,7 @@ use Newspack_Nodes\Lock;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition;
 use Newspack_Nodes\Service_CI;
+use Newspack_Nodes\Topology_Registry;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -279,7 +280,15 @@ class Workers_CI extends Service_CI {
 		// and (b) stale slots left over when num_partitions shrinks (orphan
 		// data the producer no longer touches). Cursor data is overlaid by
 		// the frontend from `workers[]`.
-		$logs = self::enumerate_logs( $log_base, $num_partitions );
+		//
+		// Build a `{basename => int}` overrides map across every active
+		// topology so each log entry reflects the literal `segment_size`
+		// declared in TSL (e.g. `completed.log` / `gyroscope.log` hardcoded
+		// to 1 MiB) instead of the global config default. Token-substituted
+		// (`<config:segment_size>`) Partition lines contribute nothing here;
+		// `enumerate_logs` falls back to `$segment_size` for those.
+		$segment_size_overrides = self::collect_segment_size_overrides();
+		$logs                   = self::enumerate_logs( $log_base, $num_partitions, $segment_size, $segment_size_overrides );
 
 		return [
 			'workers'        => $workers,
@@ -427,16 +436,51 @@ class Workers_CI extends Service_CI {
 	}
 
 	/**
+	 * Union the per-Partition `segment_size` overrides declared across every
+	 * active topology. Same basename in two topologies → last-write-wins;
+	 * topologies in practice don't collide on per-log overrides, but the
+	 * fallback is harmless because TSL parsing is deterministic.
+	 *
+	 * @return array<string,int> `{basename => int}` (basename without `.log`).
+	 */
+	private static function collect_segment_size_overrides(): array {
+		$topologies = [];
+		if ( \class_exists( '\\Newspack_Nodes\\Bootstrap' ) ) {
+			try {
+				$topologies = Bootstrap::get_topologies();
+			} catch ( \Throwable $e ) {
+				$topologies = [];
+			}
+		}
+		$out = [];
+		foreach ( $topologies as $name => $_cfg ) {
+			$overrides = Topology_Registry::segment_size_overrides_for( (string) $name );
+			foreach ( $overrides as $basename => $size ) {
+				$out[ $basename ] = $size;
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Walk `{logs_dir}/*.log/` and return one entry per log. Each entry's
 	 * `partitions[]` covers slots `0..max( num_partitions, max-on-disk + 1 )`,
 	 * which is the union of "configured" (so freshly-bumped partitions show
 	 * up before they're written) and "on disk" (so orphan partitions left
 	 * over when num_partitions shrinks remain visible). Cursor fields are
-	 * omitted here; the frontend overlays them from `workers[]`.
+	 * omitted here; the frontend overlays them from `workers[]`. Per-log
+	 * `segment_size` reflects any literal-int override declared in the
+	 * topology's Partition line; otherwise the global default applies.
 	 *
-	 * @return array<int,array{name:string,partitions:array}>
+	 * @param array<string,int> $segment_size_overrides `{basename => int}` map.
+	 * @return array<int,array{name:string,partitions:array,segment_size:int}>
 	 */
-	private static function enumerate_logs( string $log_base, int $num_partitions ): array {
+	private static function enumerate_logs(
+		string $log_base,
+		int $num_partitions,
+		int $default_segment_size,
+		array $segment_size_overrides
+	): array {
 		if ( ! \is_dir( $log_base ) ) {
 			return [];
 		}
@@ -488,7 +532,12 @@ class Workers_CI extends Service_CI {
 					];
 				}
 			}
-			$logs[] = [ 'name' => $entry, 'partitions' => $partitions ];
+			$basename = $m[1];
+			$logs[]   = [
+				'name'         => $entry,
+				'partitions'   => $partitions,
+				'segment_size' => $segment_size_overrides[ $basename ] ?? $default_segment_size,
+			];
 		}
 		return $logs;
 	}

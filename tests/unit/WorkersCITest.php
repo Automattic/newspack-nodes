@@ -354,6 +354,46 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 128 + 256, $firehose['partitions'][0]['total_size'] );
 	}
 
+	public function test_dump_metadata_logs_carry_per_partition_segment_size_overrides(): void {
+		// Workers dashboard surfaces a per-log "max segment size" indicator.
+		// Topologies that hardcode an int as the Partition `segment_size`
+		// positional arg (instead of the `<config:segment_size>` token) want
+		// that override reflected — 1 MiB for completed.log / gyroscope.log
+		// even when the global config default is much larger. Logs without
+		// a literal override fall back to the global default.
+		$base = $this->arrange_base_dir();
+
+		// Drop a TSL file matching one of the topology names registered by
+		// arrange_base_dir()'s filter, then point Topology_Registry at it.
+		// `completed.log` gets a literal int; `requests.log` uses the
+		// `<config:segment_size>` token (no override).
+		$stock = "{$base}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/aggregator.tsl",
+			"make_node Partition completed:partition <config:logs_dir>/completed.log <partition> 1048576 <config:num_segments> <config:max_lifespan>\n"
+			. "make_node Partition requests:partition <config:logs_dir>/requests.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+
+		$this->seed_log_segment( $base, 'completed', 0, 0, 32 );
+		$this->seed_log_segment( $base, 'requests',  0, 0, 64 );
+
+		$ci     = new Workers_CI( $this->stub_cli(), new FakeMemcached() );
+		$result = VerbHarness::fire( $ci, 'workers', 'dump_metadata' );
+
+		$by_name = [];
+		foreach ( $result['logs'] as $log ) {
+			$by_name[ $log['name'] ] = $log;
+		}
+		$this->assertArrayHasKey( 'completed.log', $by_name );
+		$this->assertArrayHasKey( 'requests.log',  $by_name );
+		$this->assertSame( 1048576,           $by_name['completed.log']['segment_size'] );
+		$this->assertSame( 16 * 1024 * 1024,  $by_name['requests.log']['segment_size'] );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
 	public function test_dump_metadata_includes_standalone_workers(): void {
 		// supervisor is always present; additional standalone workers come
 		// from the `newspack_nodes/standalone_workers` filter, each emitted
