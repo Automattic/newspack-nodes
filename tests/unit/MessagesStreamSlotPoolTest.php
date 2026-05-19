@@ -136,4 +136,60 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		// First data: line carries the connected envelope.
 		$this->assertStringContainsString( '"slot":4', $raw );
 	}
+
+	public function test_run_stream_loop_routes_messages_with_non_empty_TO_through_router(): void {
+		// The direct_sink Callback's else-branch: when an incoming message
+		// carries a non-empty TO, the SSE writer doesn't emit it directly —
+		// it forwards through _router so HTTP_Filter can gate per-session
+		// pivoted replies. Seed a log partition with a TO-stamped packed
+		// Message and prove the Callback routes it via Router instead of
+		// emitting it on the wire.
+		Messages_Stream_Controller::$acquire_slot = static fn (): int|false => 1;
+
+		$base = $this->make_temp_dir( 'msg-slot-direct-sink-' );
+		$pdir = "{$base}/logs/firehose.log/p0";
+		\mkdir( $pdir, 0755, true );
+
+		// Pre-seed segment 0 of the firehose log partition 0 with a packed
+		// Message whose TO is non-empty. Partition writes the JSON-encoded
+		// 7-field message plus a newline — same on-the-wire shape Consumer
+		// reads back per fgets() in poll().
+		$msg                       = \Newspack_Nodes\Message::new_message();
+		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
+		$msg[ \Newspack_Nodes\Message::FROM ]  = 'firehose';
+		$msg[ \Newspack_Nodes\Message::TO ]    = 'some-target';
+		$msg[ \Newspack_Nodes\Message::VALUE ] = 'pivoted-payload';
+		\file_put_contents( "{$pdir}/0.log", \Newspack_Nodes\Message::packed( $msg ) . "\n" );
+
+		$ctrl = new Messages_Stream_Controller();
+		$ctrl->set_base_dir( $base );
+		$ctrl->set_num_partitions( 1 );
+		$ctrl->set_test_mode( true );
+		// Consumer's first fire() is scheduled at POLL_INTERVAL_EOF_MS=100ms.
+		// One iteration sleeps until that timer fires; one more iteration to
+		// run the loop body once the message has landed. Three is plenty.
+		$ctrl->set_test_iterations( 3 );
+
+		// Capture all router fills so we can assert the message landed on
+		// _router (instead of being emitted to SSE). Use a Callback under
+		// the `some-target` name so Router::fill walks TO=some-target to it.
+		$routed = [];
+		$capture = new \Newspack_Nodes\Callback(
+			static function ( array &$m ) use ( &$routed ): void {
+				$routed[] = $m;
+			}
+		);
+		$capture->name( 'some-target' );
+
+		// Positions = start so the consumer reads our seeded message instead
+		// of skipping to end-of-partition (the default for null positions).
+		$positions = [ 'firehose' => [ 0 => [ 'seg' => 0, 'off' => 0 ] ] ];
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose' ], $positions, 500, 1, -1 );
+		\ob_get_clean();
+
+		$this->assertNotEmpty( $routed, 'Callback else-branch must have routed the TO-stamped message through Router' );
+		$this->assertSame( 'pivoted-payload', $routed[0][ \Newspack_Nodes\Message::VALUE ] );
+	}
 }
