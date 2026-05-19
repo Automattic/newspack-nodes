@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-19
+
+### Fixed
+
+- **`WorkerStatus` dashboard renders per-log `segment_size` correctly.** `buildRenderPlan` was dropping the `segment_size` field off log catalog entries before passing them to `LogSection`, so every SegmentBar rendered against the global default (64 MiB) instead of the per-log cap. Logs declared with a hardcoded 1 MiB segment_size in their TSL (`completed.log`, `gyroscope.log`) rendered as ~1.5% full at 1 MiB instead of ~100%. Threading restored through all three plan-push sites (`logsCatalog`-fallback, step-walking `renderLog`, and the catalog tail-append pass).
+
+### Changed
+
+- **`Log_Cleaner` now computes the topology-derived `expected_basenames` set itself; the `newspack_nodes/expected_log_basenames` filter receives that set as its input.** Inverts the prior contract where applications computed the full set from scratch (active topologies, running workers, topology-to-basename lookups, runtime basenames) and the substrate passed `[]`. That asked the application to be a partial reimplementation of substrate state — which it got wrong twice (`$config['topologies']` reading the app's file-default list instead of the operator overlay, then again after the v0.2.34 patch where the app started reading substrate state). New shape: substrate publishes its truth as the filter input; application callbacks extend it with runtime-pinned basenames they manage outside the topology graph (`firehose` / `jobintake` in `newspack-event-logger-nodes`). New public `Log_Cleaner::expected_basenames( $base_dir )` is the single source of truth; the `Workers_CI::cleanup_status` diagnostic verb uses it too so dashboard output and cleanup decisions never diverge.
+
 ## [0.2.0] - 2026-05-18
 
 ### Changed
