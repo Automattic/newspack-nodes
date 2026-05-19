@@ -204,6 +204,104 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 7, $fake_cache->recorded['slot'] );
 	}
 
+	// ── heartbeat error paths ───────────────────────────────────────────────
+
+	public function test_heartbeat_verb_errors_when_no_cache_configured(): void {
+		// Cache is wired in production by the application bootstrap; absent
+		// it, the verb must fail fast with a clear runtime error so the
+		// dashboard caller sees the misconfiguration instead of a silent no-op.
+		// CommandInterpreter catches verb exceptions and wraps them as
+		// TM_COMMAND|TM_ERROR with the exception message in VALUE, so the
+		// dispatched payload IS the error string.
+		$ci = new Workers_CI( $this->stub_cli() );  // null cache
+
+		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', [ 'slot' => 7 ] );
+
+		$this->assertSame( 'cache not configured', $result );
+	}
+
+	public function test_heartbeat_verb_errors_when_slot_is_missing_or_negative(): void {
+		// `slot` is required and must be non-negative — the cache keys it
+		// per-(user,ip,slot), so a -1 slot would silently collide across
+		// browser sessions. Guard fires before touch_sse_slot is invoked.
+		$fake_cache = new class {
+			public int $calls = 0;
+			public function touch_sse_slot( int $user_id, string $ip_hash, int $slot, int $ttl, int $partition = -1 ): bool {
+				++$this->calls;
+				return true;
+			}
+		};
+		$ci = new Workers_CI( $this->stub_cli(), $fake_cache );
+
+		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', [] );  // no slot
+
+		$this->assertSame( 'slot required', $result );
+		$this->assertSame( 0, $fake_cache->calls, 'touch_sse_slot must not fire when slot is missing' );
+	}
+
+	// ── cleanup_status verb ─────────────────────────────────────────────────
+
+	public function test_cleanup_status_returns_diagnostic_envelope_with_orphans(): void {
+		// Verb is the Log_Cleaner sweep's mirror: same inputs the sweep
+		// consults (LOGS_DIRTY_OPTION + FLEET_DESCRIPTORS_OPTION +
+		// {base}/logs/*.log/ + 'expected_log_basenames' filter) plus the
+		// computed orphan diff. Without this, dashboard cleanup-status
+		// debugging requires shell access.
+		$base    = $this->arrange_base_dir();
+		$logs    = "{$base}/logs";
+		\mkdir( "{$logs}/firehose.log", 0755, true );
+		\mkdir( "{$logs}/orphan.log",   0755, true );  // not in expected list
+
+		// Seed the two options the sweep keys on.
+		\update_option( \Newspack_Nodes\Log_Cleaner::LOGS_DIRTY_OPTION, 1 );
+		\update_option(
+			\Newspack_Nodes\Log_Cleaner::FLEET_DESCRIPTORS_OPTION,
+			[ 'firehose-workers-and-jobs' => 1 ]
+		);
+
+		// Application bootstrap publishes the canonical expected-basenames
+		// list via this filter. Mirror that here so the orphan diff has a
+		// real `expected` to subtract from.
+		\add_filter(
+			'newspack_nodes/expected_log_basenames',
+			static fn ( array $basenames ): array => [ 'firehose' ]
+		);
+
+		$ci     = new Workers_CI( $this->stub_cli() );
+		$result = VerbHarness::fire( $ci, 'workers', 'cleanup_status' );
+
+		$this->assertSame( 1, $result['logs_dirty_option'] );
+		$this->assertSame( [ 'firehose-workers-and-jobs' => 1 ], $result['fleet_descriptors_option'] );
+		$this->assertSame( $logs, $result['logs_dir'] );
+		$this->assertSame( [ 'firehose', 'orphan' ], $result['on_disk_basenames'] );
+		$this->assertSame( [ 'firehose' ], $result['expected_basenames'] );
+		$this->assertSame( [ 'orphan' ], $result['orphans'] );
+	}
+
+	public function test_cleanup_status_handles_missing_options_and_filter(): void {
+		// Defensive: when LOGS_DIRTY_OPTION isn't set, `get_option` returns
+		// null (the explicit default we pass). When the
+		// expected_log_basenames filter returns a non-array, the verb falls
+		// back to an empty list — that branch is otherwise unreachable from
+		// the happy-path test above.
+		$base = $this->arrange_base_dir();
+		\mkdir( "{$base}/logs", 0755, true );
+
+		\add_filter(
+			'newspack_nodes/expected_log_basenames',
+			static fn (): mixed => 'not an array'
+		);
+
+		$ci     = new Workers_CI( $this->stub_cli() );
+		$result = VerbHarness::fire( $ci, 'workers', 'cleanup_status' );
+
+		$this->assertNull( $result['logs_dirty_option'] );
+		$this->assertNull( $result['fleet_descriptors_option'] );
+		$this->assertSame( [], $result['on_disk_basenames'] );
+		$this->assertSame( [], $result['expected_basenames'] );
+		$this->assertSame( [], $result['orphans'] );
+	}
+
 	private function stub_cli(): object {
 		return new class {
 			public function ls_workers(): array { return []; }
