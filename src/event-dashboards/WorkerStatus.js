@@ -1319,7 +1319,7 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 								logKey={ logKey }
 								partitions={ item.partitions }
 								writeRates={ writeRates }
-								maxSize={ segmentSize }
+								maxSize={ item.segment_size || segmentSize }
 								prevSegments={ prevSegmentsRef.current }
 								cursorData={ cursorData }
 								removingSegments={ removingSegments }
