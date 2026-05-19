@@ -633,6 +633,7 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 			kind: 'log',
 			name: log.name,
 			partitions: log.partitions || [],
+			segment_size: log.segment_size,
 			hasCursor: false,
 		} ) );
 	}
@@ -758,8 +759,12 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 	// rows to render under each log header. Cursor data is overlaid from
 	// the matching worker per partition where available.
 	const logSlotsByName = new Map();
+	const logSegmentSizeByName = new Map();
 	logsCatalog.forEach( ( log ) => {
 		logSlotsByName.set( log.name, log.partitions || [] );
+		if ( log.segment_size ) {
+			logSegmentSizeByName.set( log.name, log.segment_size );
+		}
 	} );
 
 	const collectLogPartitions = ( logName ) => {
@@ -862,6 +867,7 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 			kind: 'log',
 			name: logName,
 			partitions,
+			segment_size: logSegmentSizeByName.get( logName ),
 			hasCursor,
 		} );
 	};
@@ -892,6 +898,7 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 			kind: 'log',
 			name: log.name,
 			partitions: log.partitions || [],
+			segment_size: log.segment_size,
 			hasCursor: false,
 		} );
 	} );
