@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-05-19
+
+### Fixed
+
+- **Supervisor restart button on the Workers dashboard now actually restarts.** `Cli::ls_workers()` only enumerates `{type}.p{N}.lock.d/` directories, so the supervisor (which lives at `supervisor.lock.d/` without a partition suffix) was absent from the worker list `restart_workers` walked, and the dashboard's `types: ['supervisor']` filter never matched anything. Restart now routes through a dedicated `Cli::restart_supervisor()` — the verb peels `'supervisor'` off the type filter, drops the restart flag at the un-suffixed lock dir, and delegates the rest to `restart_workers`.
+
+### Removed
+
+- **`newspack_nodes/standalone_workers` filter, `is_standalone` branch, and the "standalone workers" abstraction.** Originally an extension point for plugin-registered non-partitioned worker groups, but the supervisor is the only such worker in practice — the abstraction never grew the second user that would justify it. Cleaning up makes the surface honest: the supervisor is the supervisor, partitioned workers are partitioned workers, no fuzzy middle category. `Cli::restart_workers` simplifies to partitioned-only; `Workers_CI::collect_dump_metadata` returns a single `supervisor` object instead of a `standalone[]` array; `Workers_CI::build_standalone_status` becomes `build_supervisor_status` (fewer parameters); the helper enumeration plumbing is gone. JS: `StandaloneWorkers` component becomes `SupervisorStatus`, CSS classes renamed from `standalone-worker-*` to `supervisor-*`. Apps that depended on `newspack_nodes/standalone_workers` (none in this codebase) would need to roll their own equivalent — but a worker that's neither the supervisor nor a partition fleet probably wants to be modeled as a partition fleet anyway.
+
 ## [0.2.1] - 2026-05-19
 
 ### Fixed
