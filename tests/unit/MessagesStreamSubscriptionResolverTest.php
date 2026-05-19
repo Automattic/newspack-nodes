@@ -162,4 +162,89 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$ctrl = new Messages_Stream_Controller();
 		$this->assertSame( [], $ctrl->parse_subscriptions( '' ) );
 	}
+
+	// ── register_routes ─────────────────────────────────────────────────────
+
+	public function test_register_routes_registers_stream_get_route(): void {
+		$GLOBALS['_wp_test_registered_routes'] = [];
+
+		( new Messages_Stream_Controller() )->register_routes();
+
+		$this->assertCount( 1, $GLOBALS['_wp_test_registered_routes'] );
+		$route = $GLOBALS['_wp_test_registered_routes'][0];
+		$this->assertSame( 'newspack-nodes/v1', $route['namespace'] );
+		$this->assertSame( '/messages/stream', $route['route'] );
+		$this->assertSame( 'GET', $route['args']['methods'] );
+		// `subscribe` is required so an EventSource missing it gets a 400 from
+		// WP's own arg validator instead of hitting our handler with a blank.
+		$this->assertTrue( $route['args']['args']['subscribe']['required'] );
+		$this->assertFalse( $route['args']['args']['interval']['required'] );
+		$this->assertSame( 500, $route['args']['args']['interval']['default'] );
+		$this->assertFalse( $route['args']['args']['positions']['required'] );
+		$this->assertIsCallable( $route['args']['callback'] );
+		$this->assertIsCallable( $route['args']['permission_callback'] );
+	}
+
+	// ── parse_positions ─────────────────────────────────────────────────────
+
+	public function test_parse_positions_returns_null_on_empty_string(): void {
+		$ctrl = new Messages_Stream_Controller();
+		$this->assertNull( $ctrl->parse_positions( '' ) );
+	}
+
+	public function test_parse_positions_decodes_valid_json_object(): void {
+		$ctrl = new Messages_Stream_Controller();
+		// Browser sends `{"0":"3:1024","1":"7:0"}` — partition→position map.
+		// Returned as an associative array; the consumer-walker uses the
+		// partition index as key.
+		$decoded = $ctrl->parse_positions( '{"0":"3:1024","1":"7:0"}' );
+		$this->assertIsArray( $decoded );
+		$this->assertSame( '3:1024', $decoded[0] );
+		$this->assertSame( '7:0',    $decoded[1] );
+	}
+
+	public function test_parse_positions_returns_null_when_json_is_not_an_array(): void {
+		$ctrl = new Messages_Stream_Controller();
+		// A bare JSON string / int / bool decodes successfully but isn't an
+		// array. Resolver must reject so a poisoned `positions` param doesn't
+		// later break Consumer::next_offset's positions[$partition] lookup.
+		$this->assertNull( $ctrl->parse_positions( '"not an array"' ) );
+		$this->assertNull( $ctrl->parse_positions( '123' ) );
+		$this->assertNull( $ctrl->parse_positions( 'completely invalid json' ) );
+	}
+
+	// ── open_subscription: positions reach Consumer::next_offset ────────────
+
+	public function test_log_subscription_seeks_to_supplied_position(): void {
+		// `{type}.p{N}` aggregator-hub fallback path with positions supplied.
+		// The IPC attach fails (no worker), so the resolver falls through to
+		// the log-file consumer; with a positions map it must call
+		// next_offset($positions[$partition]) instead of 'end'.
+		//
+		// Browser shape: `{ "0": { seg: 5, off: 1024 }, ... }`. PHP receives
+		// the JSON-decoded version, which matches Consumer::next_offset's
+		// is_array($position) branch (cursor_seg/cursor_off direct seed).
+		\mkdir( "{$this->tmp}/logs/firehose.log/p0", 0755, true );
+
+		$ctrl = new Messages_Stream_Controller();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription(
+			'firehose.p0',
+			[ 0 => [ 'seg' => 5, 'off' => 1024 ] ]
+		);
+
+		$this->assertCount( 1, $consumers );
+		$consumer = $consumers[0];
+		// next_offset's array branch seeds cursor_seg / cursor_off directly.
+		// Reflect on the protected fields to confirm the resolver routed
+		// the supplied position through (instead of silently falling
+		// through to the 'end' default which would skip historical events).
+		$seg = new \ReflectionProperty( $consumer, 'cursor_seg' );
+		$seg->setAccessible( true );
+		$off = new \ReflectionProperty( $consumer, 'cursor_off' );
+		$off->setAccessible( true );
+		$this->assertSame( 5, $seg->getValue( $consumer ) );
+		$this->assertSame( 1024, $off->getValue( $consumer ) );
+	}
 }
