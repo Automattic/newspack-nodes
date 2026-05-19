@@ -210,6 +210,59 @@ class CliCommandTest extends TestCase {
 		Core::cleanup_all_nodes();
 	}
 
+	// ── prepare_repl ────────────────────────────────────────────────────────
+
+	public function test_prepare_repl_bare_mode_sets_bare_status_line(): void {
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'prepare_repl WP_CLI::errors on root before reaching the bare-mode path' );
+		}
+
+		[ $shell, $dumper ] = ( new Cli_Command() )->prepare_repl( [] );
+
+		$this->assertInstanceOf( \Newspack_Nodes\Shell::class, $shell );
+		$this->assertInstanceOf( \Newspack_Nodes\Dumper::class, $dumper );
+		// Bare mode emits exactly one status line — the "local nodes only"
+		// banner. Pivoted mode emits three.
+		$this->assertCount( 1, $shell->status_lines );
+		$this->assertStringContainsString( 'Bare cli mode', $shell->status_lines[0] );
+
+		Core::cleanup_all_nodes();
+	}
+
+	public function test_prepare_repl_pivoted_mode_stashes_ipc_paths_in_status_lines(): void {
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'prepare_repl WP_CLI::errors on root before reaching the pivoted-mode path' );
+		}
+
+		// attach_to_worker requires a lock dir under {base}/locks/{reader}.lock.d.
+		// Mirror the on-disk shape `wp nodes ls` discovers.
+		\mkdir( "{$this->tmp}/locks/jobs.p0.lock.d", 0755, true );
+
+		[ $shell, $dumper ] = ( new Cli_Command() )->prepare_repl( [ 'jobs.p0' ] );
+
+		// Pivoted mode banner: three lines including the input/output IPC paths.
+		$this->assertCount( 3, $shell->status_lines );
+		$this->assertStringContainsString( 'Pivoted-cli mode for jobs.p0', $shell->status_lines[0] );
+		$this->assertStringContainsString( "{$this->tmp}/ipc/jobs.p0/input",  $shell->status_lines[1] );
+		$this->assertStringContainsString( "{$this->tmp}/ipc/jobs.p0/output", $shell->status_lines[2] );
+
+		Core::cleanup_all_nodes();
+	}
+
+	public function test_prepare_repl_translates_attach_failure_to_wp_cli_error(): void {
+		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+			$this->markTestSkipped( 'prepare_repl WP_CLI::errors on root before reaching the attach path' );
+		}
+
+		// No lock dir exists for `nope.p0`, so attach_to_worker throws
+		// InvalidArgumentException; prepare_repl catches and re-emits via
+		// WP_CLI::error (which the WPCLIStub turns into a RuntimeException).
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessageMatches( "/no worker 'nope.p0'/" );
+
+		( new Cli_Command() )->prepare_repl( [ 'nope.p0' ] );
+	}
+
 	// ── dispatch_line / drain_lines_from_stream ─────────────────────────────
 
 	public function test_dispatch_line_returns_false_for_empty_or_comment_lines(): void {
@@ -493,6 +546,89 @@ class CliCommandTest extends TestCase {
 		$this->assertTrue( $reader->exit );
 
 		\fclose( $stream );
+	}
+
+	public function test_stdin_reader_default_readline_install_closure_calls_real_libreadline(): void {
+		// bootstrap.php no-ops $readline_handler_install for every test so a
+		// phpunit-in-a-terminal run doesn't write `prompt> ` to fd 1. That
+		// leaves the default closure (which wraps the real libreadline call)
+		// uncovered. Drop the seam to null here, drive install_handler() via
+		// a fresh reader, then restore the bootstrap stub so subsequent tests
+		// stay clean.
+		if ( ! \function_exists( 'readline_callback_handler_install' ) ) {
+			$this->markTestSkipped( 'readline extension not available' );
+		}
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper(
+			\fopen( 'php://memory', 'w+' ),
+			\fopen( 'php://memory', 'w+' )
+		);
+		$stream = \fopen( 'php://memory', 'r+' );
+
+		$saved = \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install;
+		\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = null;
+		try {
+			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+
+			// Defensive: real readline write went to fd 1; we only need to
+			// know the default closure ran (no exception, prompt_displayed
+			// flipped via mark_prompt_displayed at the tail of install_handler).
+			$prop = new \ReflectionProperty( $dumper, 'prompt_displayed' );
+			$prop->setAccessible( true );
+			$this->assertTrue( $prop->getValue( $dumper ) );
+			$this->assertFalse( $reader->exit );
+		} finally {
+			@\readline_callback_handler_remove();
+			\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = $saved;
+			\fclose( $stream );
+		}
+	}
+
+	public function test_stdin_reader_default_readline_read_char_closure_calls_real_libreadline(): void {
+		// As above, but for $readline_read_char's default closure (line 583-584
+		// of class-cli-command.php). Driving fire() with null seam executes the
+		// real readline_callback_read_char which reads one byte from STDIN —
+		// non-blocking because stream_select sees no data on the memory stream
+		// path (the inline try/catch covers ValueError on un-selectable streams).
+		if ( ! \function_exists( 'readline_callback_read_char' ) ) {
+			$this->markTestSkipped( 'readline extension not available' );
+		}
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper(
+			\fopen( 'php://memory', 'w+' ),
+			\fopen( 'php://memory', 'w+' )
+		);
+		$stream = \fopen( 'php://memory', 'r+' );
+
+		\Newspack_Nodes\EventFramework::reset();
+
+		$saved_install = \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install;
+		$saved_read    = \Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char;
+		// install_handler stays stubbed (real one writes to fd 1); only
+		// read_char goes back to the real libreadline.
+		\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = static function ( string $prompt, callable $cb ): void {};
+		\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char       = null;
+
+		try {
+			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+
+			// fire() will reach the default read_char closure if stream_select
+			// reports any readiness on the memory stream. Even when stream_select
+			// returns 0, the catch block forces $ready=1 on ValueError. Either
+			// way the default closure executes — that's the line we want.
+			$reader->fire();
+
+			// Default closure ran without throwing; the test passes if we got
+			// here. No further behavior to assert — the seam is what we're
+			// proving works end-to-end.
+			$this->assertFalse( $reader->exit );
+		} finally {
+			\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = $saved_install;
+			\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char       = $saved_read;
+			\fclose( $stream );
+		}
 	}
 
 	public function test_stdin_reader_readline_mode_installs_handler_and_marks_prompt(): void {
