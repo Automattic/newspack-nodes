@@ -4,7 +4,7 @@
  * (loading vs populated, refresh-interval persistence, error banner)
  * AND drives the internal buildRenderPlan helper plus all four memo'd
  * sub-components (SegmentBar, LogSection, WorkerConnector,
- * StandaloneWorkers) through fixtured dump_metadata responses.
+ * SupervisorStatus) through fixtured dump_metadata responses.
  *
  * getCommandClient is mocked so we can drive dump_metadata responses
  * deterministically. Each buildRenderPlan branch is exercised by
@@ -48,7 +48,7 @@ describe( 'WorkerStatus', () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 			num_partitions: 1,
 			num_segments: 1,
@@ -64,7 +64,7 @@ describe( 'WorkerStatus', () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -80,7 +80,7 @@ describe( 'WorkerStatus', () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -97,7 +97,7 @@ describe( 'WorkerStatus', () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -113,7 +113,7 @@ describe( 'WorkerStatus', () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render(
@@ -137,7 +137,7 @@ describe( 'WorkerStatus', () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage={ false } /> );
@@ -160,7 +160,7 @@ describe( 'WorkerStatus', () => {
 					outputs_status: [],
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 			num_partitions: 1,
 			num_segments: 1,
@@ -171,22 +171,25 @@ describe( 'WorkerStatus', () => {
 		expect( container.querySelector( '.pipeline-flow' ) ).not.toBeNull();
 	} );
 
-	it( 'displays standalone workers when present', async () => {
+	it( 'renders the supervisor card when the descriptor is present', async () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
-			standalone: [
-				{
-					type: 'log-cleaner',
-					started_at: 1000,
-				},
-			],
+			supervisor: {
+				type: 'supervisor',
+				status: 'running',
+				started_at: 1000,
+				heartbeat_age: 2,
+				restart_pending: false,
+			},
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
-		// StandaloneWorkers should mount when the array is non-empty.
-		expect( container.querySelector( '.pipeline-flow' ) ).not.toBeNull();
+		expect(
+			container.querySelector( '.supervisor-section' )
+		).not.toBeNull();
+		expect( container.querySelector( '.supervisor-row' ) ).not.toBeNull();
 	} );
 
 	// === buildRenderPlan: pure topo-sort + log-placement function ===
@@ -232,7 +235,7 @@ describe( 'WorkerStatus', () => {
 					outputs_status: [],
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -275,7 +278,7 @@ describe( 'WorkerStatus', () => {
 					],
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -293,7 +296,7 @@ describe( 'WorkerStatus', () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
-			standalone: [],
+			supervisor: null,
 			logs: [
 				{
 					name: 'orphan.log',
@@ -330,7 +333,7 @@ describe( 'WorkerStatus', () => {
 					outputs_status: [],
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [
 				{
 					name: 'firehose.log',
@@ -366,7 +369,7 @@ describe( 'WorkerStatus', () => {
 					outputs_status: [],
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [
 				{
 					name: 'untouched.log',
@@ -382,7 +385,7 @@ describe( 'WorkerStatus', () => {
 	} );
 
 	// === Sub-component rendering: SegmentBar, LogSection, WorkerConnector,
-	// StandaloneWorkers, formatBytes / formatByteRate / formatAge / formatEta.
+	// SupervisorStatus, formatBytes / formatByteRate / formatAge / formatEta.
 
 	it( 'renders SegmentBar with cursor-relative classes', async () => {
 		sendMock.mockResolvedValue( [] );
@@ -411,7 +414,7 @@ describe( 'WorkerStatus', () => {
 					outputs_status: [],
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [
 				{
 					name: 'firehose.log',
@@ -453,7 +456,7 @@ describe( 'WorkerStatus', () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
-			standalone: [],
+			supervisor: null,
 			segment_size: 64 * 1024 * 1024, // global default — 64 MiB
 			logs: [
 				{
@@ -508,7 +511,7 @@ describe( 'WorkerStatus', () => {
 					outputs_status: [],
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -532,7 +535,7 @@ describe( 'WorkerStatus', () => {
 					outputs_status: [],
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -556,7 +559,7 @@ describe( 'WorkerStatus', () => {
 					outputs_status: [],
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -580,62 +583,46 @@ describe( 'WorkerStatus', () => {
 		);
 	} );
 
-	it( 'StandaloneWorkers renders multiple types grouped by type', async () => {
+	it( 'SupervisorStatus exposes a restart button when supervisor is alive and not pending', async () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
-			standalone: [
-				{
-					type: 'supervisor',
-					started_at: 1000,
-					partition: null,
-					status: 'running',
-				},
-				{
-					type: 'log-cleaner',
-					started_at: 1000,
-					partition: null,
-					status: 'running',
-				},
-			],
+			supervisor: {
+				type: 'supervisor',
+				status: 'running',
+				started_at: 1000,
+				heartbeat_age: 2,
+				restart_pending: false,
+			},
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
-		// formatTypeName: 'supervisor' → 'Supervisor', 'log-cleaner' → 'Log Cleaner'.
-		expect( container.textContent ).toMatch( /Supervisor/ );
-		expect( container.textContent ).toMatch( /Log Cleaner/ );
-		// Two rows.
-		const rows = container.querySelectorAll( '.standalone-worker-row' );
-		expect( rows.length ).toBe( 2 );
+		const btn = container.querySelector(
+			'.supervisor-section .worker-restart-btn'
+		);
+		expect( btn ).not.toBeNull();
 	} );
 
-	it( 'StandaloneWorkers shows partition badges for partitioned types', async () => {
+	it( 'SupervisorStatus replaces the restart button with a pending label when restart_pending', async () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
-			standalone: [
-				{
-					type: 'health-check',
-					started_at: 1000,
-					partition: 0,
-					status: 'running',
-				},
-				{
-					type: 'health-check',
-					started_at: 1000,
-					partition: 1,
-					status: 'running',
-				},
-			],
+			supervisor: {
+				type: 'supervisor',
+				status: 'running',
+				started_at: 1000,
+				heartbeat_age: 2,
+				restart_pending: true,
+			},
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
-		// isPartitioned == true → P0 / P1 badges + ALL RUN badge.
-		expect( container.textContent ).toMatch( /P0/ );
-		expect( container.textContent ).toMatch( /P1/ );
-		expect( container.textContent ).toMatch( /ALL RUN/ );
+		expect(
+			container.querySelector( '.supervisor-section .worker-restart-btn' )
+		).toBeNull();
+		expect( container.textContent ).toMatch( /restarting/ );
 	} );
 
 	it( 'renders worker heartbeat age + stale class above 30s', async () => {
@@ -655,7 +642,7 @@ describe( 'WorkerStatus', () => {
 					outputs_status: [],
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -682,7 +669,7 @@ describe( 'WorkerStatus', () => {
 					outputs_status: [],
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -710,7 +697,7 @@ describe( 'WorkerStatus', () => {
 					outputs_status: [],
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -726,7 +713,7 @@ describe( 'WorkerStatus', () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -762,7 +749,7 @@ describe( 'WorkerStatus', () => {
 						],
 					},
 				],
-				standalone: [],
+				supervisor: null,
 				logs: [
 					{
 						name: 'firehose.log',
@@ -796,7 +783,7 @@ describe( 'WorkerStatus', () => {
 						],
 					},
 				],
-				standalone: [],
+				supervisor: null,
 				logs: [
 					{
 						name: 'firehose.log',
@@ -837,7 +824,7 @@ describe( 'WorkerStatus', () => {
 					// No inputs/outputs/inputs_status/outputs_status keys.
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [],
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -871,7 +858,7 @@ describe( 'WorkerStatus', () => {
 					outputs_status: [],
 				},
 			],
-			standalone: [],
+			supervisor: null,
 			logs: [
 				{
 					name: 'firehose.log',
@@ -896,7 +883,7 @@ describe( 'WorkerStatus', () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
-			standalone: [],
+			supervisor: null,
 			logs: [
 				{
 					name: 'firehose.log',

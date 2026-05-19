@@ -14,7 +14,7 @@
  *                    stale, position}]`.
  *   dump_metadata — full operator-grade payload (the legacy WorkersController::
  *                    get_workers() shape). Returns the 7-field envelope
- *                    `{workers[], standalone[], logs[], num_partitions,
+ *                    `{workers[], supervisor, logs[], num_partitions,
  *                    num_segments, segment_size, timestamp}` with per-worker
  *                    rich descriptors. Heavyweight (disk walks, offsetlog
  *                    reads, segment metadata, behind-byte calculations);
@@ -129,8 +129,17 @@ class Workers_CI extends Service_CI {
 				foreach ( $types as $t ) {
 					$filter[ (string) $t ] = true;
 				}
-				$workers   = $cli->ls_workers();
-				$restarted = $cli->restart_workers( $workers, $filter, $partition );
+				$restarted = 0;
+				// Supervisor lives at `supervisor.lock.d` (no partition
+				// suffix); `restart_workers` only knows the `{type}.p{N}`
+				// shape, so route the supervisor through its own path.
+				if ( isset( $filter['supervisor'] ) && $cli->restart_supervisor() ) {
+					++$restarted;
+					unset( $filter['supervisor'] );
+				}
+				if ( ! empty( $filter ) || empty( $types ) ) {
+					$restarted += $cli->restart_workers( $cli->ls_workers(), $filter, $partition );
+				}
 				return (string) \wp_json_encode( [ 'restarted' => $restarted ] );
 			},
 			'heartbeat' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ) use ( $cache ): string {
@@ -283,32 +292,11 @@ class Workers_CI extends Service_CI {
 			}
 		}
 
-		// Standalone workers (supervisor + plugin-registered partitioned /
-		// non-partitioned). The filter is substrate-namespaced; applications
-		// that need additional standalone fleets surfaced register against
-		// `newspack_nodes/standalone_workers`.
-		$standalone   = [];
-		$standalone[] = self::build_standalone_status(
-			'supervisor',
-			null,
-			"{$locks_base}/supervisor.lock.d",
-			$now,
-			Lock::STALE_TIMEOUT
-		);
-		$standalone_workers = [];
-		if ( \function_exists( 'apply_filters' ) ) {
-			$standalone_workers = (array) \apply_filters( 'newspack_nodes/standalone_workers', [] );
-		}
-		foreach ( $standalone_workers as $name => $cfg ) {
-			$partitioned = ! empty( $cfg['partitions'] );
-			if ( $partitioned ) {
-				for ( $p = 0; $p < $num_partitions; $p++ ) {
-					$standalone[] = self::build_standalone_status( (string) $name, $p, "{$locks_base}/{$name}.p{$p}.lock.d", $now );
-				}
-			} else {
-				$standalone[] = self::build_standalone_status( (string) $name, null, "{$locks_base}/{$name}.lock.d", $now );
-			}
-		}
+		// Supervisor status. Singleton — there is exactly one supervisor per
+		// install, at `supervisor.lock.d/` (no partition suffix). The
+		// dashboard renders its own card for this; it isn't grouped with
+		// partitioned workers.
+		$supervisor = self::build_supervisor_status( "{$locks_base}/supervisor.lock.d", $now );
 
 		// Per-log per-partition slot list. Lets the dashboard show (a)
 		// configured-but-empty slots when the producer hasn't written yet
@@ -327,7 +315,7 @@ class Workers_CI extends Service_CI {
 
 		return [
 			'workers'        => $workers,
-			'standalone'     => $standalone,
+			'supervisor'     => $supervisor,
 			'logs'           => $logs,
 			'num_partitions' => $num_partitions,
 			'num_segments'   => $num_segments,
@@ -443,10 +431,13 @@ class Workers_CI extends Service_CI {
 	}
 
 	/**
-	 * Build the standalone-worker descriptor (supervisor + plugin-registered).
-	 * Mirror of WorkersController::build_standalone_status.
+	 * Build the supervisor descriptor: status (`running` / `dead`),
+	 * heartbeat age, started_at, restart_pending. The supervisor is the
+	 * only worker that doesn't run as a partition fleet, so it has its
+	 * own descriptor shape (no `partition` field) and its own restart
+	 * path (`Cli::restart_supervisor()`).
 	 */
-	private static function build_standalone_status( string $name, ?int $partition, string $lock_dir, int $now, int $stale_timeout = 60 ): array {
+	private static function build_supervisor_status( string $lock_dir, int $now ): array {
 		$status        = 'dead';
 		$heartbeat_age = null;
 		$hb_file       = $lock_dir . '/heartbeat';
@@ -454,15 +445,14 @@ class Workers_CI extends Service_CI {
 			$mtime = @\filemtime( $hb_file );
 			if ( false !== $mtime ) {
 				$heartbeat_age = $now - (int) $mtime;
-				if ( $heartbeat_age < $stale_timeout ) {
+				if ( $heartbeat_age < Lock::STALE_TIMEOUT ) {
 					$status = 'running';
 				}
 			}
 		}
 
 		return [
-			'type'            => $name,
-			'partition'       => $partition,
+			'type'            => 'supervisor',
 			'status'          => $status,
 			'started_at'      => Lock::get_started_time( $lock_dir ),
 			'heartbeat_age'   => $heartbeat_age,
