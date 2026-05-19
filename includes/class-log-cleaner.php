@@ -79,17 +79,17 @@ class Log_Cleaner {
 		}
 
 		// Topology-shrink sweep: entire `*.log/` dirs whose basename isn't
-		// in the application's `newspack_nodes/expected_log_basenames`
-		// filter result. Substrate trusts the filter — it's the
-		// application's job to keep a basename "expected" while any
-		// worker that touches it is still running. The substrate has no
-		// basename → worker-type map and a blanket lock-dir gate would
-		// permanently defer cleanup in any live system (workers are
-		// always running for the survivors). Skipped when the
-		// application hasn't registered the filter (empty array →
-		// back-compat: only partition-slice cleanup runs).
-		$expected = \apply_filters( 'newspack_nodes/expected_log_basenames', [] );
-		if ( \is_array( $expected ) && ! empty( $expected ) ) {
+		// in `expected_basenames()`. Substrate computes the
+		// topology-derived expected set itself (Bootstrap::get_topologies +
+		// non-stale Cli::ls_workers + Topology_Registry::basenames_for)
+		// and the `newspack_nodes/expected_log_basenames` filter runs on
+		// top so applications can ADD runtime basenames they manage
+		// outside the topology graph (LogManager's `firehose`, JobIntake's
+		// `jobintake`). Skipped when the resolved set is empty — first-
+		// boot back-compat so a misconfigured / not-yet-loaded app
+		// doesn't auto-delete every log dir on the spot.
+		$expected = self::expected_basenames( $base_dir );
+		if ( ! empty( $expected ) ) {
 			$expected_set = \array_flip( $expected );
 			foreach ( @\glob( "{$base_dir}/logs/*.log", \GLOB_ONLYDIR ) ?: [] as $log_dir ) {
 				if ( ! \preg_match( '#/([^/]+)\.log$#', $log_dir, $m ) ) {
@@ -113,6 +113,60 @@ class Log_Cleaner {
 			\delete_option( self::LOGS_DIRTY_OPTION );
 		}
 		return $deleted;
+	}
+
+	/**
+	 * Compute the expected-log-basenames set the cleanup sweep gates on.
+	 * Substrate owns the topology-derivation half: every active topology's
+	 * Partition basenames + every still-running (non-stale) worker's
+	 * topology's basenames. The `newspack_nodes/expected_log_basenames`
+	 * filter runs on top so applications can append runtime-pinned
+	 * basenames they manage outside the topology graph (LogManager's
+	 * `firehose`, JobIntake's `jobintake`) — the contract is one-way:
+	 * substrate publishes its truth as the filter input, app callbacks
+	 * extend it. Apps that ignore the input and return a fresh array can
+	 * still override, but the well-behaved callback is one `array_merge`.
+	 *
+	 * Also called by the dashboard's `cleanup_status` diagnostic verb so
+	 * what the operator sees matches what Log_Cleaner sees.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function expected_basenames( string $base_dir ): array {
+		$topology_names = [];
+		if ( \class_exists( '\\Newspack_Nodes\\Bootstrap' ) ) {
+			try {
+				foreach ( \array_keys( Bootstrap::get_topologies() ) as $name ) {
+					$topology_names[ (string) $name ] = true;
+				}
+			} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
+				// Bootstrap is request-scope; tolerate worker contexts.
+			}
+		}
+		try {
+			foreach ( ( new Cli( $base_dir ) )->ls_workers() as $worker ) {
+				if ( empty( $worker['stale'] ) ) {
+					$topology_names[ (string) $worker['type'] ] = true;
+				}
+			}
+		} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
+			// Cli reads $base_dir; tolerate missing dir.
+		}
+		unset( $topology_names[''] );
+
+		$basenames = [];
+		foreach ( \array_keys( $topology_names ) as $name ) {
+			foreach ( Topology_Registry::basenames_for( $name ) as $basename ) {
+				$basenames[] = $basename;
+			}
+		}
+		$base = \array_values( \array_unique( $basenames ) );
+
+		$filtered = \apply_filters( 'newspack_nodes/expected_log_basenames', $base );
+		if ( ! \is_array( $filtered ) ) {
+			return $base;
+		}
+		return \array_values( \array_unique( $filtered ) );
 	}
 
 	/**

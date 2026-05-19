@@ -105,8 +105,11 @@ class Workers_CI extends Service_CI {
 					}
 				}
 				\sort( $on_disk );
-				$expected = \apply_filters( 'newspack_nodes/expected_log_basenames', [] );
-				$expected = \is_array( $expected ) ? \array_values( \array_unique( $expected ) ) : [];
+				// Use the same code path Log_Cleaner uses so the diagnostic
+				// matches the cleanup sweep's actual expected set — substrate
+				// computes the topology-derived basenames, then the filter
+				// appends app runtime basenames.
+				$expected = Log_Cleaner::expected_basenames( $base_dir );
 				\sort( $expected );
 				$orphans = \array_values( \array_diff( $on_disk, $expected ) );
 				return (string) \wp_json_encode( [
