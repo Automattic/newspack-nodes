@@ -33,6 +33,32 @@ class Config {
 	 */
 	public const RESET_ACTION = 'newspack_nodes/config_reset';
 
+	/** One-time marker so `correct_option_autoload()` sweeps once per install. */
+	public const AUTOLOAD_FIXED_OPTION = 'newspack_nodes_autoload_fixed';
+
+	/**
+	 * One-time autoload-correction sweep. Existing installs persisted the
+	 * substrate scalars with autoload=false (the old Settings_CI write flag),
+	 * so they fell out of the single `alloptions` query into N per-request
+	 * `get_option` lookups. This flips every schema key to autoloaded once,
+	 * guarded by a marker so it doesn't re-run on every admin pageview.
+	 * Hooked on `admin_init` (off the frontend path). No-op on WP < 6.6,
+	 * which lacks `wp_set_option_autoload()` — new writes still carry the
+	 * correct flag, so those installs converge on the next settings save.
+	 */
+	public static function correct_option_autoload(): void {
+		if ( ! \function_exists( 'wp_set_option_autoload' ) ) {
+			return;
+		}
+		if ( ! empty( \get_option( self::AUTOLOAD_FIXED_OPTION ) ) ) {
+			return;
+		}
+		foreach ( \array_keys( self::$option_schema ) as $key ) {
+			\wp_set_option_autoload( "newspack_nodes_{$key}", true );
+		}
+		\update_option( self::AUTOLOAD_FIXED_OPTION, '1', false );
+	}
+
 	/**
 	 * Cached config (file defaults + WordPress options).
 	 *
