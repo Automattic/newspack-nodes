@@ -23,6 +23,7 @@ class Router extends Timer {
 
 	protected function fire(): void {
 		$this->notify( 'TIMER', Core::$now );
+		Core::prune_logs();
 	}
 
 	public function fill( array &$message ): void {

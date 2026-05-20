@@ -243,11 +243,11 @@ class CoreTest extends TestCase {
 	// ── print_least_often window expiration ─────────────────────────────
 
 	public function test_print_least_often_resets_after_window_expires(): void {
-		// After 10 calls within a window, print_least_often emits once.
-		// When the 60s window expires and a fresh batch starts, the counter
-		// resets to 0 — verify by emitting once, advancing time past the
-		// window, and confirming that 9 new calls don't trigger a second
-		// emission but the 10th does.
+		// print_least_often emits once at the 10th call. Re-windowing is NOT
+		// inline: it happens when prune_logs() ages the entry out (the Router
+		// calls it each tick) — matches Perl Tachikoma (Node::print_least_often
+		// + Router::update_logs). Advancing time alone does nothing; the
+		// counter restarts only once the aged entry is pruned.
 		$buf = '';
 		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
 
@@ -257,8 +257,10 @@ class CoreTest extends TestCase {
 		}
 		$this->assertSame( 1, \substr_count( $buf, 'flaky' ), 'first emission at 10th call' );
 
-		// Jump past the 60s window — the next call must reset the counter.
+		// Advance past the timeout and prune (simulating the Router tick) to
+		// evict the 'flaky' entry, restarting the counter.
 		Core::$now = 1070.0;
+		Core::prune_logs();
 		for ( $i = 0; $i < 9; ++$i ) {
 			Core::print_least_often( 'flaky' );
 		}
@@ -266,6 +268,36 @@ class CoreTest extends TestCase {
 
 		Core::print_least_often( 'flaky' );
 		$this->assertSame( 2, \substr_count( $buf, 'flaky' ), 'second emission lands at the 10th call of the new window' );
+	}
+
+	public function test_prune_logs_evicts_entries_older_than_timeout(): void {
+		// prune_logs() removes recent_log_timers entries older than the
+		// timeout; the next rate-limiter call then re-emits. Mirrors Perl
+		// Tachikoma Router::update_logs.
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+
+		Core::$now = 1000.0;
+		Core::print_less_often( 'aged' ); // emit #1
+		Core::print_less_often( 'aged' ); // suppressed (within window)
+		$this->assertSame( 1, \substr_count( $buf, 'aged' ), 'suppressed within window' );
+
+		Core::$now = 1100.0; // past the 60s timeout
+		Core::prune_logs();
+		Core::print_less_often( 'aged' ); // entry evicted → emit #2
+		$this->assertSame( 2, \substr_count( $buf, 'aged' ), 're-emits after prune evicts the aged entry' );
+	}
+
+	public function test_stderr_recent_log_ring_buffer_is_bounded(): void {
+		// stderr() keeps a bounded tail of recent lines (Perl Tachikoma caps
+		// @RECENT_LOG at 100); it must not grow without bound in a worker.
+		Core::set_stderr_handler( static function () {} );
+		for ( $i = 0; $i < 150; ++$i ) {
+			Core::stderr( "line {$i}" );
+		}
+		$ref = new \ReflectionProperty( Core::class, 'recent_log' );
+		$ref->setAccessible( true );
+		$this->assertCount( 100, $ref->getValue() );
 	}
 
 	// ── stderr in_stderr re-entry guard exits via error_log ─────────────

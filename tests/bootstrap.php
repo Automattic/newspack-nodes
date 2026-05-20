@@ -347,12 +347,25 @@ if ( ! function_exists( 'get_option' ) ) {
 	function get_option( string $key, mixed $default = false ): mixed {
 		return $GLOBALS['_wp_options'][ $key ] ?? $default;
 	}
-	function update_option( string $key, mixed $value ): bool {
-		$GLOBALS['_wp_options'][ $key ] = $value;
+	// Records the autoload arg per option so tests can assert autoload
+	// hygiene. Mirrors WP's 3-arg signature; `null` = caller unspecified.
+	$GLOBALS['_wp_option_autoload'] = [];
+	function update_option( string $key, mixed $value, $autoload = null ): bool {
+		$GLOBALS['_wp_options'][ $key ]         = $value;
+		$GLOBALS['_wp_option_autoload'][ $key ] = $autoload;
 		return true;
 	}
 	function delete_option( string $key ): bool {
 		unset( $GLOBALS['_wp_options'][ $key ] );
+		return true;
+	}
+	// WP 6.6+ autoload setter. Records the requested flag so the one-time
+	// autoload-correction sweep can be asserted; also mirrors it into the
+	// general autoload-capture map.
+	$GLOBALS['_wp_set_option_autoload'] = [];
+	function wp_set_option_autoload( string $option, $autoload ): bool {
+		$GLOBALS['_wp_set_option_autoload'][ $option ] = $autoload;
+		$GLOBALS['_wp_option_autoload'][ $option ]     = $autoload;
 		return true;
 	}
 }
