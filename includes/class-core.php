@@ -64,8 +64,14 @@ class Core {
 	 */
 	public static array $config = [];
 
-	/** @var array<string,array{first_seen:float,count:int,emitted:bool}> */
-	private static array $print_table = [];
+	/** @var array<string> */
+	public static array $recent_log = [];
+
+	/** @var array<string,array{timestamp:float,count:int}> */
+	public static array $recent_log_timers = [];
+
+	/** @var float Seconds before a rate-limiter entry is eligible for pruning. */
+	public static float $log_timeout = 60;
 
 	/** @var callable */
 	private static $stderr_handler;
@@ -89,16 +95,17 @@ class Core {
 	private static int $msg_counter = 0;
 
 	public static function reset(): void {
-		self::$nodes_by_name  = [];
-		self::$nodes_by_fd    = [];
-		self::$nodes_by_id    = [];
-		self::$shutting_down  = false;
-		self::$closing        = [];
-		self::$print_table    = [];
-		self::$msg_counter    = 0;
-		self::$in_stderr      = false;
-		self::$var            = [];
-		self::$config         = [];
+		self::$nodes_by_name     = [];
+		self::$nodes_by_fd       = [];
+		self::$nodes_by_id       = [];
+		self::$shutting_down     = false;
+		self::$closing           = [];
+		self::$recent_log        = [];
+		self::$recent_log_timers = [];
+		self::$msg_counter       = 0;
+		self::$in_stderr         = false;
+		self::$var               = [];
+		self::$config            = [];
 		// Default handler: when a worker has wired up the `_repl` conduit, route
 		// stderr-style diagnostics through it as TM_BYTESTREAM addressed to
 		// `_repl`. The worker's `_router` peels `_repl` and dispatches into
@@ -159,7 +166,7 @@ class Core {
 					$node->remove_node();
 				} catch ( \Throwable $e ) {
 					// Best-effort teardown; one node's failure shouldn't block the rest.
-					self::print_less_often( 'cleanup_all_nodes: ' . $e->getMessage() );
+					self::stderr( 'cleanup_all_nodes: ' . $e->getMessage() );
 				}
 			}
 		}
@@ -180,7 +187,46 @@ class Core {
 		self::$stderr_handler = $h;
 	}
 
-	public static function stderr( string $msg ): void {
+	/**
+	 * Emit once at the 10th identical occurrence; suppress otherwise. The
+	 * entry is re-windowed when prune_logs() ages it out (Router tick), so a
+	 * recurring message re-emits each timeout window. Mirrors Perl Tachikoma
+	 * Node::print_least_often.
+	 */
+	public static function print_least_often( string $text ): void {
+		$row = self::$recent_log_timers[ $text ] ?? null;
+		if ( null !== $row ) {
+			++$row['count'];
+			if ( 10 === $row['count'] ) {
+				self::stderr( $text );
+			}
+		} else {
+			$row = [ 'timestamp' => self::$now, 'count' => 1, ];
+		}
+		self::$recent_log_timers[ $text ] = $row;
+	}
+
+	/**
+	 * Emit text on first sight; suppress identical text thereafter. The entry
+	 * is re-windowed when prune_logs() ages it out (Router tick), so a
+	 * recurring message re-emits each timeout window. Mirrors Perl Tachikoma
+	 * Node::print_less_often.
+	 */
+	public static function print_less_often( string $text ): void {
+		$row = self::$recent_log_timers[ $text ] ?? null;
+		if ( null !== $row ) {
+			++$row['count'];
+		} else {
+			self::stderr( $text );
+			$row = [ 'timestamp' => self::$now, 'count' => 1, ];
+		}
+		self::$recent_log_timers[ $text ] = $row;
+	}
+
+	public static function stderr( string $text ): void {
+		if ( '' === $text ) {
+			return;
+		}
 		if ( self::$in_stderr ) {
 			// Re-entry: the active handler itself triggered another stderr
 			// emission (e.g., the _repl Partition write inside the default
@@ -188,12 +234,18 @@ class Core {
 			// through the handler would deadlock or stack-overflow; emit
 			// straight to PHP's error_log as the last-resort sink.
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( \rtrim( $msg ) );
+			\error_log( \rtrim( $text ) );
 			return;
 		}
 		self::$in_stderr = true;
 		try {
-			( self::$stderr_handler )( $msg . "\n" );
+			$line               = \rtrim( $text ) . "\n";
+			self::$recent_log[] = $line;
+			// Bounded tail for the REPL (Perl Tachikoma caps @RECENT_LOG at 100).
+			while ( \count( self::$recent_log ) > 100 ) {
+				\array_shift( self::$recent_log );
+			}
+			( self::$stderr_handler )( $line );
 		} finally {
 			// Reset even if the handler throws — otherwise a single bad
 			// emission permanently latches every future stderr to the
@@ -203,50 +255,16 @@ class Core {
 	}
 
 	/**
-	 * Emit text on first call; suppress identical text within 60s window.
+	 * Evict rate-limiter entries older than the timeout, so a recurring-but-
+	 * stale message re-emits next time it fires. The Router calls this each
+	 * tick (mirrors Perl Tachikoma Router::update_logs).
 	 */
-	public static function print_less_often( string $text ): void {
-		$key = $text;
-		$row = self::$print_table[ $key ] ?? [ 'first_seen' => 0.0, 'count' => 0, 'emitted' => false ];
-
-		if ( ! $row['emitted'] || ( self::$now - $row['first_seen'] >= 60.0 ) ) {
-			self::stderr( $text );
-			$row['first_seen'] = self::$now;
-			$row['emitted']    = true;
-			$row['count']      = 1;
-		} else {
-			++$row['count'];
+	public static function prune_logs(): void {
+		foreach ( self::$recent_log_timers as $key => $row ) {
+			if ( self::$now - $row['timestamp'] > self::$log_timeout ) {
+				unset( self::$recent_log_timers[ $key ] );
+			}
 		}
-		self::$print_table[ $key ] = $row;
-	}
-
-	/**
-	 * Suppress until the 10th occurrence within a 60s window, then emit and
-	 * suppress further emissions for another 60s. Workers live ~10 minutes,
-	 * so a longer squelch could mean a single emission per worker lifetime
-	 * for rare-but-real noise — 60s gives enough visibility to catch
-	 * intermittent issues without flooding stderr on a tight loop.
-	 */
-	public static function print_least_often( string $text ): void {
-		$key = '_least_' . $text;
-		$row = self::$print_table[ $key ] ?? [ 'first_seen' => self::$now, 'count' => 0, 'emitted' => false ];
-
-		// Window expired since last emission → start a fresh count.
-		if ( $row['emitted'] && ( self::$now - $row['first_seen'] >= 60.0 ) ) {
-			$row['first_seen'] = self::$now;
-			$row['count']      = 0;
-			$row['emitted']    = false;
-		}
-
-		++$row['count'];
-
-		if ( $row['count'] >= 10 && ! $row['emitted'] ) {
-			self::stderr( $text );
-			$row['first_seen'] = self::$now;
-			$row['emitted']    = true;
-		}
-
-		self::$print_table[ $key ] = $row;
 	}
 }
 

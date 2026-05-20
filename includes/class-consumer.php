@@ -172,7 +172,14 @@ class Consumer extends Timer {
 		if ( empty( $lines ) ) {
 			return;
 		}
-		$msg   = Message::unpacked( (string) \end( $lines ) );
+		try {
+			$msg = Message::unpacked( (string) \end( $lines ) );
+		} catch ( \InvalidArgumentException $e ) {
+			// Unparseable offsetlog entry: skip seeding and start from the
+			// default cursor rather than failing Consumer construction.
+			Core::print_less_often( "Consumer: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
+			return;
+		}
 		$entry = $msg[ Message::VALUE ];
 		if ( \is_array( $entry ) && isset( $entry['seg'], $entry['off'] ) ) {
 			$this->cursor_seg     = (int) $entry['seg'];
@@ -503,7 +510,19 @@ class Consumer extends Timer {
 				// Message::packed). Unpack to recover the original message,
 				// stamp our name onto FROM (path-prepend, preserving any
 				// upstream trail), and forward.
-				$msg   = Message::unpacked( $line );
+				try {
+					$msg = Message::unpacked( $line );
+				} catch ( \InvalidArgumentException $e ) {
+					// Corrupt/unparseable line on disk: skip it (the offset was
+					// already advanced above, so the cursor moves past it) and
+					// keep draining instead of aborting the whole poll. Keep the
+					// log text constant (no per-line offset) — print_less_often
+					// keys its suppression table on the full string, so a flood
+					// of distinct-offset corrupt lines would otherwise defeat
+					// the rate-limit and grow the table unbounded in the worker.
+					Core::print_less_often( "Consumer: skipping unparseable line: {$e->getMessage()}" );
+					continue;
+				}
 				$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
 				if ( '' !== $stamp && ! $this->stamp_message( $msg, $stamp ) ) {
 					continue; // FROM exceeded MAX_FROM_SIZE; drop_message handled.

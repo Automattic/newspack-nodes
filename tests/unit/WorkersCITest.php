@@ -26,6 +26,12 @@ class WorkersCITest extends TestCase {
 
 	protected function setUp(): void {
 		parent::setUp();
+		// Topology_Registry is static (stock dirs + a segment_size-override
+		// cache). Reset per method or a prior test's topology state leaks —
+		// e.g. dump_metadata reads a stale empty override cache and reports the
+		// global segment_size for logs that should carry a literal override.
+		// Matches the pattern in TopologyLoaderTest / CliWorkerCommandTest.
+		\Newspack_Nodes\Topology_Registry::reset();
 		$GLOBALS['_wp_options']               = [];
 		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
 		$GLOBALS['_wp_actions']               = [];
@@ -525,8 +531,12 @@ class WorkersCITest extends TestCase {
 		}
 		$this->assertArrayHasKey( 'completed.log', $by_name );
 		$this->assertArrayHasKey( 'requests.log',  $by_name );
-		$this->assertSame( 1048576,           $by_name['completed.log']['segment_size'] );
-		$this->assertSame( 16 * 1024 * 1024,  $by_name['requests.log']['segment_size'] );
+		$pollution_hint = 'If this fails in the full suite but passes in isolation '
+			. '(--filter test_dump_metadata_logs_carry_per_partition_segment_size_overrides), '
+			. 'a prior test almost certainly threw mid-run and left Core/Config static '
+			. 'state polluted — fix the throwing test, not this assertion.';
+		$this->assertSame( 1048576,           $by_name['completed.log']['segment_size'], $pollution_hint );
+		$this->assertSame( 16 * 1024 * 1024,  $by_name['requests.log']['segment_size'],  $pollution_hint );
 
 		\Newspack_Nodes\Topology_Registry::reset();
 	}

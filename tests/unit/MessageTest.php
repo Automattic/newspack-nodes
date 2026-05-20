@@ -92,4 +92,26 @@ class MessageTest extends TestCase {
 		$this->assertSame( 'alice', $decoded[ Message::FROM ] );
 	}
 
+	public function test_unpacked_throws_on_malformed_json(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		Message::unpacked( 'not valid json' );
+	}
+
+	public function test_unpacked_throws_on_too_few_fields(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		Message::unpacked( '[1,2,3]' );
+	}
+
+	public function test_unpacked_throws_on_too_many_fields(): void {
+		// Stricter than the former `>= 7`: a trailing field on the wire is now
+		// rejected, not silently accepted.
+		$this->expectException( \InvalidArgumentException::class );
+		Message::unpacked( '[0,0,"","","","","","extra"]' );
+	}
+
+	public function test_unpacked_throws_on_associative_array(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		Message::unpacked( '{"type":1}' );
+	}
+
 }
