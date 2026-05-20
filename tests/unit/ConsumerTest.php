@@ -1960,4 +1960,59 @@ class ConsumerTest extends TestCase {
 		$at_eof_prop->setAccessible( true );
 		$this->assertTrue( $at_eof_prop->getValue( $c ) );
 	}
+
+	public function test_poll_skips_line_that_fails_unpacked_and_continues(): void {
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+
+		// A message with a trailing 8th field packs and is written normally,
+		// but Message::unpacked() rejects it (exactly 7 fields) — standing in
+		// for any line on disk that fails to unpack. The drain loop must skip
+		// it and still emit the following valid line, not abort the poll.
+		$bad                   = Message::new_message();
+		$bad[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$bad[ Message::VALUE ] = 'corruptme';
+		$bad[]                 = 'extra-eighth-field';
+		$source->fill( $bad );
+		$source->flush();
+
+		$this->produce_line( $source, 'keepme' );
+
+		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$capture = new CaptureSink();
+		$c->sink( $capture );
+
+		$c->poll();
+
+		$values = \array_map( static fn ( $m ) => $m[ Message::VALUE ], $capture->captured );
+		$this->assertSame( [ 'keepme' ], $values );
+	}
+
+	public function test_construct_ignores_unparseable_offsetlog_entry(): void {
+		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'hello' );
+
+		// Write a real checkpoint, then corrupt that entry in place at the same
+		// byte length (segment size unchanged) so it is a complete-but-
+		// unparseable offsetlog line. A fresh Consumer must seed past it without
+		// throwing, starting from the default cursor (0/0).
+		$c1 = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c1->poll();
+		$c1->checkpoint();
+		unset( $c1 );
+
+		$offsetlog_path = "{$this->tmp}/offsets/r/p0/p0/0.log";
+		$content        = (string) \file_get_contents( $offsetlog_path );
+		$nl             = \strpos( $content, "\n" );
+		\file_put_contents( $offsetlog_path, \str_repeat( 'x', (int) $nl ) . \substr( $content, (int) $nl ) );
+		\clearstatcache();
+
+		$c2  = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$ref = new \ReflectionObject( $c2 );
+		$seg = $ref->getProperty( 'cursor_seg' );
+		$seg->setAccessible( true );
+		$off = $ref->getProperty( 'cursor_off' );
+		$off->setAccessible( true );
+		$this->assertSame( 0, $seg->getValue( $c2 ) );
+		$this->assertSame( 0, $off->getValue( $c2 ) );
+	}
 }

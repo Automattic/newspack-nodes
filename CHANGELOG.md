@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`Message::unpacked()` now rejects malformed wire data instead of silently
+  substituting an empty message.** It throws `InvalidArgumentException` unless
+  the payload decodes to exactly a 7-element positional array (previously it
+  returned `new_message()` for any non-conforming input, masking on-disk
+  corruption). The on-disk readers in `Consumer` (cursor seeding + the drain
+  loop) catch and skip the bad entry — with a rate-limited log — rather than
+  abort the poll/construction.
+- **Rate-limited logging reworked to match the Perl Tachikoma reference.**
+  `print_less_often` emits on first sight; `print_least_often` emits at the
+  10th occurrence; both re-window when `Core::prune_logs()` (called each Router
+  tick) ages `recent_log_timers` entries past `log_timeout`. This replaces the
+  never-pruned `$print_table`, which grew unbounded in long-running workers.
+  `Core::$recent_log` now keeps a bounded 100-line stderr tail, surfaced via a
+  new `dmesg` CommandInterpreter verb (port of Perl Tachikoma's `dmesg`).
+
 ## [0.2.2] - 2026-05-19
 
 ### Fixed

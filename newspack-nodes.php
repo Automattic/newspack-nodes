@@ -151,6 +151,9 @@ if ( \function_exists( 'add_action' ) ) {
 	// re-arm it on the next admin page view rather than waiting for the
 	// operator to deactivate + reactivate the plugin.
 	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Bootstrap', 'self_heal_supervisor_cron' ] );
+	// One-time autoload-correction sweep for existing installs (guarded;
+	// off the frontend path). See Config::correct_option_autoload().
+	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Config', 'correct_option_autoload' ] );
 }
 if ( \function_exists( 'add_filter' ) ) {
 	// phpcs:ignore WordPress.WP.CronInterval.ChangeDetected -- The 60s interval registered by the callback is intentional (substrate supervisor tick); rule can't see into array-callable targets.

@@ -70,9 +70,9 @@ class Message {
 
 	public static function unpacked( string $data ): array {
 		$decoded = \json_decode( $data, true );
-		if ( \is_array( $decoded ) && \count( $decoded ) >= 7 && \array_is_list( $decoded ) ) {
+		if ( \is_array( $decoded ) && \count( $decoded ) == 7 && \array_is_list( $decoded ) ) {
 			return $decoded;
 		}
-		return self::new_message();
+		throw new \InvalidArgumentException( 'Message::unpacked(): expected a 7-element positional array' );
 	}
 }

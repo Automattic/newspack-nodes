@@ -52,6 +52,31 @@ class ConfigTest extends TestCase {
 		parent::tearDown();
 	}
 
+	// ── correct_option_autoload: one-time sweep ────────────────────────────
+
+	public function test_correct_option_autoload_sets_hot_path_keys_autoloaded(): void {
+		// One-time sweep flips existing installs so the per-request substrate
+		// scalars ride the single alloptions query. Every schema key is a
+		// small hot-path value → autoload=true.
+		$GLOBALS['_wp_set_option_autoload'] = [];
+		$GLOBALS['_wp_options']             = [];
+
+		Config::correct_option_autoload();
+
+		$this->assertTrue( $GLOBALS['_wp_set_option_autoload']['newspack_nodes_num_partitions'] );
+		$this->assertTrue( $GLOBALS['_wp_set_option_autoload']['newspack_nodes_segment_size'] );
+		$this->assertTrue( $GLOBALS['_wp_set_option_autoload']['newspack_nodes_topologies'] );
+	}
+
+	public function test_correct_option_autoload_runs_once(): void {
+		// Guarded by a marker so it doesn't re-sweep on every admin pageview.
+		$GLOBALS['_wp_options'] = [];
+		Config::correct_option_autoload();
+		$GLOBALS['_wp_set_option_autoload'] = [];
+		Config::correct_option_autoload();
+		$this->assertSame( [], $GLOBALS['_wp_set_option_autoload'] );
+	}
+
 	// ── load_config: shape + caching ───────────────────────────────────────
 
 	public function test_load_config_returns_array(): void {
