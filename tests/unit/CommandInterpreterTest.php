@@ -1501,4 +1501,14 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertNull( $ci->make_node( 'NotARegisteredClassEver', 'wont_exist' ) );
 		$this->assertNull( Core::node( 'wont_exist' ) );
 	}
+
+	public function test_dmesg_returns_recent_log_tail(): void {
+		// `dmesg` dumps Core's recent stderr tail — the PHP port of Perl
+		// Tachikoma's dmesg (join of @RECENT_LOG). Each entry already carries
+		// its trailing newline.
+		Core::$recent_log = [ "alpha\n", "beta\n" ];
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		$this->assertSame( "alpha\nbeta\n", $ci->dispatch( 'dmesg' ) );
+	}
 }

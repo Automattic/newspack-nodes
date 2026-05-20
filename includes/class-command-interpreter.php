@@ -127,6 +127,7 @@ class CommandInterpreter extends Node {
 				. "          New nodes created by `make_node` inherit this CI's level.\n",
 			'pwd' => "pwd\n",
 			'log' => "log <message>\n    note: prints <message> to stderr (server-side debug log).\n",
+			'dmesg' => "dmesg\n    note: print the recent server-side stderr tail (last 100 lines).\n",
 			'help' => "help [ <topic> ]\n",
 
 			// Shell-level builtins. Documented here so `help` is a single
@@ -161,6 +162,7 @@ class CommandInterpreter extends Node {
 			'list_nodes'      => fn ( CommandInterpreter $self, string $args ): string => self::cmd_list_nodes( $self, $args ),
 			'ls'              => fn ( CommandInterpreter $self, string $args ): string => self::cmd_list_nodes( $self, $args ),
 			'log'             => fn ( CommandInterpreter $self, string $args ): string => self::cmd_log( $args ),
+			'dmesg'           => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dmesg(),
 			'dump_node'       => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_node( $args ),
 			'dump'            => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_node( $args ),
 			'dump_config'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_config(),
@@ -556,6 +558,15 @@ class CommandInterpreter extends Node {
 	private static function cmd_log( string $args ): string {
 		Core::stderr( $args );
 		return '';
+	}
+
+	/**
+	 * `dmesg` builtin — dump Core's recent stderr tail (the bounded
+	 * `Core::$recent_log` ring buffer). PHP port of Perl Tachikoma's dmesg
+	 * (join of @RECENT_LOG); each entry already carries its trailing newline.
+	 */
+	private static function cmd_dmesg(): string {
+		return \implode( '', Core::$recent_log );
 	}
 
 	/**
