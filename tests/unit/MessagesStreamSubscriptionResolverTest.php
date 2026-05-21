@@ -178,8 +178,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// `subscribe` is required so an EventSource missing it gets a 400 from
 		// WP's own arg validator instead of hitting our handler with a blank.
 		$this->assertTrue( $route['args']['args']['subscribe']['required'] );
-		$this->assertFalse( $route['args']['args']['interval']['required'] );
-		$this->assertSame( 2000, $route['args']['args']['interval']['default'] );
+		$this->assertArrayNotHasKey( 'interval', $route['args']['args'] );
 		$this->assertFalse( $route['args']['args']['positions']['required'] );
 		$this->assertIsCallable( $route['args']['callback'] );
 		$this->assertIsCallable( $route['args']['permission_callback'] );

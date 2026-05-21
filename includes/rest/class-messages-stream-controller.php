@@ -35,6 +35,11 @@ class Messages_Stream_Controller {
 	public const REST_NAMESPACE = 'newspack-nodes/v1';
 	public const ROUTE          = '/messages/stream';
 
+	// Idle-keepalive heartbeat cadence (ms). Hardcoded, not client-configurable:
+	// data flushes every drain tick regardless (see run_stream_loop), so this
+	// only paces the idle heartbeat. 2s matches the dashboards' refresh.
+	public const HEARTBEAT_MS = 2000;
+
 	/**
 	 * Test seam: overrides `Bootstrap::base_dir()` so unit tests can point
 	 * the resolver at an isolated temp directory without touching Config.
@@ -128,12 +133,7 @@ class Messages_Stream_Controller {
 				// the cross-server SSE pull.
 				'permission_callback' => static fn () => \current_user_can( 'manage_options' ),
 				'args'                => [
-					'subscribe' => [ 'required' => true,  'type' => 'string' ],
-					// Heartbeat / idle-keepalive cadence in ms. Data flushes every
-				// drain tick regardless (see run_stream_loop), so this only
-				// paces the idle heartbeat — 2s matches the dashboard's refresh
-				// and is ~4x less idle traffic than the old 500ms default.
-				'interval'  => [ 'required' => false, 'type' => 'integer', 'default' => 2000 ],
+					'subscribe' => [ 'required' => true, 'type' => 'string' ],
 					'positions' => [ 'required' => false, 'type' => 'string' ],
 				],
 			]
@@ -282,7 +282,7 @@ class Messages_Stream_Controller {
 	public function stream( \WP_REST_Request $request ) {
 		$subs      = $this->parse_subscriptions( (string) $request->get_param( 'subscribe' ) );
 		$positions = $this->parse_positions( (string) ( $request->get_param( 'positions' ) ?? '' ) );
-		$interval  = (int) ( $request->get_param( 'interval' ) ?? 2000 );
+		$interval  = self::HEARTBEAT_MS;
 
 		$partition = $this->subscription_partition( $subs );
 		$acquire   = self::$acquire_slot ?? static fn ( int $p ): int => 1;
