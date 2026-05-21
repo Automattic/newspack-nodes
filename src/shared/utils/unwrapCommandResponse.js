@@ -5,23 +5,29 @@
  *
  * Wire format recap (from newspack-nodes substrate):
  *   Message = [ TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE ]
- *   VALUE   = JSON.stringify( { name: <verb>, payload: <verb-return-string> } )
- *   payload = the verb's return string — for our verbs this is
- *             `wp_json_encode($result)`, i.e. a JSON-encoded object.
+ *   VALUE   = { name: <verb>, payload: <verb-return> }
  *
- * The substrate's CommandInterpreter wraps every verb response this way (see
- * `CommandInterpreter::interpret()` in class-command-interpreter.php). So
- * every dashboard that calls a verb needs the same double-parse:
- *   - JSON.parse the outer VALUE → { name, payload }
- *   - JSON.parse the inner payload → the actual data
+ * The only JSON serialization happens at the wire boundary, on the WHOLE
+ * message: CommandClient.send() reads `fetch().json()` (and the SSE path
+ * `JSON.parse`s the whole frame), so by the time the Message reaches here
+ * its VALUE field is already the structured `{ name, payload }` OBJECT —
+ * NOT a JSON string. `payload` is the verb's structured return (object /
+ * array / scalar), likewise carried as-is with no inner encoding. So there
+ * is no parse step here: read `message[VALUE]` directly and hand back its
+ * `payload`.
  *
- * This helper centralizes that logic and the TM_ERROR detection so each
- * dashboard's fetch callback can be a one-liner.
+ * This helper centralizes that read and the TM_ERROR detection so each
+ * dashboard's fetch callback can be a one-liner. It is the canonical copy.
+ * `sync-shared.sh` copies it into the sibling plugin at
+ * `newspack-event-logger-nodes/src/shared/utils/unwrapCommandResponse.js`;
+ * the in-repo topology-console consumer re-exports this module directly
+ * (`src/topology-console/utils/unwrapCommandResponse.js`) rather than being
+ * sync-copied, so sync does NOT cover that path.
  *
  * @param {Array} message Seven-field Message tuple as returned by
  *                        CommandClient.send().
- * @return {*} The parsed payload (typically an object or array). Returns null
- *             when the verb returned an empty payload.
+ * @return {*} The payload (typically an object or array). Returns null when
+ *             the verb returned an empty payload.
  * @throws {Error} If TYPE has TM_ERROR set, throws with the payload string as
  *                 the message. Also throws on malformed input.
  */
@@ -34,7 +40,7 @@ export default function unwrapCommandResponse( message ) {
 			'CommandClient response is malformed (expected 7-field Message array)'
 		);
 	}
-	const outer = JSON.parse( message[ VALUE ] );
+	const outer = message[ VALUE ];
 	const payload = outer?.payload;
 	if ( message[ TYPE ] & TM_ERROR ) {
 		throw new Error(
@@ -46,8 +52,5 @@ export default function unwrapCommandResponse( message ) {
 	if ( payload === '' || payload === undefined || payload === null ) {
 		return null;
 	}
-	if ( typeof payload !== 'string' ) {
-		return payload;
-	}
-	return JSON.parse( payload );
+	return payload;
 }

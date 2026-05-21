@@ -3,12 +3,15 @@
  * Tests for unwrapCommandResponse — extracts a verb's response payload from
  * the raw 7-field Message array that CommandClient.send() returns.
  *
- * Wire shape recap:
+ * Wire shape recap (post de-double-encoding):
  *   Message = [TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE]
- *   VALUE   = JSON-encoded { name: <verb>, payload: <verb-return-string> }
- *   payload = the verb's return string (typically wp_json_encode(<data>))
+ *   VALUE   = the structured response object `{ name, payload }` itself —
+ *             fetch().json() / the SSE JSON.parse already decoded the whole
+ *             message envelope, so VALUE arrives as an OBJECT, not a string.
+ *   payload = the verb's structured return (object / array / scalar), carried
+ *             as-is with no inner encoding.
  *
- * The helper does the double-unwrap and returns the final data object.
+ * The helper reads `message[VALUE].payload` directly — no parse step.
  */
 
 import { TM_COMMAND, TM_RESPONSE, TM_ERROR } from '@newspack-nodes/runtime';
@@ -16,23 +19,17 @@ import { TM_COMMAND, TM_RESPONSE, TM_ERROR } from '@newspack-nodes/runtime';
 import unwrapCommandResponse from '../unwrapCommandResponse';
 
 describe( 'unwrapCommandResponse', () => {
+	// VALUE is the structured response object itself — NOT a JSON string.
+	// `payload` is the verb's structured return, also not separately encoded.
 	function buildMessage( type, valueObject ) {
-		return [
-			type,
-			1.23,
-			'aggregator',
-			'',
-			'cmd-1',
-			'',
-			JSON.stringify( valueObject ),
-		];
+		return [ type, 1.23, 'aggregator', '', 'cmd-1', '', valueObject ];
 	}
 
-	it( 'returns the parsed payload object for a successful TM_RESPONSE', () => {
+	it( 'returns the payload object for a successful TM_RESPONSE', () => {
 		const inner = { server1: { id: 'server1', enabled: true } };
 		const msg = buildMessage( TM_COMMAND | TM_RESPONSE, {
 			name: 'status',
-			payload: JSON.stringify( inner ),
+			payload: inner,
 		} );
 		expect( unwrapCommandResponse( msg ) ).toEqual( inner );
 	} );
@@ -41,6 +38,13 @@ describe( 'unwrapCommandResponse', () => {
 		const msg = buildMessage( TM_COMMAND | TM_RESPONSE, {
 			name: 'status',
 			payload: '',
+		} );
+		expect( unwrapCommandResponse( msg ) ).toBeNull();
+	} );
+
+	it( 'returns null when payload is absent', () => {
+		const msg = buildMessage( TM_COMMAND | TM_RESPONSE, {
+			name: 'status',
 		} );
 		expect( unwrapCommandResponse( msg ) ).toBeNull();
 	} );
@@ -59,23 +63,19 @@ describe( 'unwrapCommandResponse', () => {
 		expect( () => unwrapCommandResponse( [ 16 ] ) ).toThrow();
 	} );
 
-	it( 'throws when VALUE is not valid JSON', () => {
-		const msg = [ TM_COMMAND | TM_RESPONSE, 1, '', '', '', '', 'not-json' ];
-		expect( () => unwrapCommandResponse( msg ) ).toThrow();
+	it( 'returns a scalar/string payload as-is', () => {
+		const msg = buildMessage( TM_COMMAND | TM_RESPONSE, {
+			name: 'uptime',
+			payload: 'up 3 days',
+		} );
+		expect( unwrapCommandResponse( msg ) ).toBe( 'up 3 days' );
 	} );
 
-	it( 'returns the payload as-is if payload is already an object (defensive)', () => {
-		// Some hypothetical verbs might emit a non-string payload. The helper
-		// shouldn't double-parse an already-parsed value.
-		const msg = [
-			TM_COMMAND | TM_RESPONSE,
-			1,
-			'',
-			'',
-			'',
-			'',
-			JSON.stringify( { name: 'x', payload: { already: 'parsed' } } ),
-		];
+	it( 'returns a nested object payload directly (no double-parse)', () => {
+		const msg = buildMessage( TM_COMMAND | TM_RESPONSE, {
+			name: 'x',
+			payload: { already: 'parsed' },
+		} );
 		expect( unwrapCommandResponse( msg ) ).toEqual( { already: 'parsed' } );
 	} );
 } );

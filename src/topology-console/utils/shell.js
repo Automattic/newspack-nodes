@@ -84,7 +84,7 @@ export function splitStatements( line ) {
 	return statements;
 }
 
-export function shellInterpret( line ) {
+export function shell( line ) {
 	const trimmed = ( line || '' ).trim();
 	if ( ! trimmed ) {
 		return null;

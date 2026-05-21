@@ -244,7 +244,7 @@ export default function ReplFooter( {
 			return;
 		}
 		// Pass the raw line up — the parent runs it through
-		// shellInterpret so the same shell layer drives every code
+		// shell so the same shell layer drives every code
 		// path (local builtins included).
 		onSubmit( trimmed );
 		setValue( '' );

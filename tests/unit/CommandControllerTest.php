@@ -49,9 +49,56 @@ class CommandControllerTest extends TestCase {
 		return $base_ci;
 	}
 
-	private function make_request( array $body ): \WP_REST_Request {
+	/**
+	 * Translate the named fields a test expresses into a packed 7-element
+	 * positional Message array (the wire shape `Message::unpacked()` requires)
+	 * — the same named→positional mapping the controller's now-deleted
+	 * `normalize_body_to_message()` used to perform, relocated into the harness.
+	 *
+	 * @param array<string,mixed> $fields Any of type/from/to/id/key/value (all optional).
+	 * @return array<int,mixed> A 7-element positional Message.
+	 */
+	private function fields_to_message( array $fields ): array {
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = (int) ( $fields['type'] ?? Message::TM_COMMAND );
+		$msg[ Message::FROM ]  = (string) ( $fields['from'] ?? '' );
+		$msg[ Message::TO ]    = (string) ( $fields['to'] ?? '' );
+		$msg[ Message::ID ]    = (string) ( $fields['id'] ?? '' );
+		$msg[ Message::KEY ]   = (string) ( $fields['key'] ?? '' );
+		// VALUE rides as whatever the test supplies — a command struct is a
+		// live PHP array (`['name'=>,'arguments'=>,'payload'=>]`), not a JSON
+		// string. Only the envelope/wire (Message::packed) is JSON. Don't
+		// string-cast: that would flatten an array VALUE to "Array".
+		$msg[ Message::VALUE ] = $fields['value'] ?? '';
+		return $msg;
+	}
+
+	/**
+	 * Build a POST /command request carrying a single packed Message.
+	 *
+	 * @param array<string,mixed> $fields Any of type/from/to/id/key/value (all optional).
+	 */
+	private function make_request( array $fields ): \WP_REST_Request {
 		$req = new \WP_REST_Request();
-		$req->set_body( \wp_json_encode( $body ) );
+		$req->set_body( Message::packed( $this->fields_to_message( $fields ) ) );
+		$req->set_header( 'content-type', 'application/json' );
+		return $req;
+	}
+
+	/**
+	 * Build a POST /command request carrying a BATCH — a JSON list of packed
+	 * Messages. dispatch() routes each in order through the one request graph.
+	 *
+	 * @param array<int,array<string,mixed>> $fields_list One field-set per message.
+	 */
+	private function make_batch_request( array $fields_list ): \WP_REST_Request {
+		// JSONL wire: one packed Message per line.
+		$lines = \array_map(
+			fn( array $fields ): string => Message::packed( $this->fields_to_message( $fields ) ),
+			$fields_list
+		);
+		$req = new \WP_REST_Request();
+		$req->set_body( \implode( "\n", $lines ) );
 		$req->set_header( 'content-type', 'application/json' );
 		return $req;
 	}
@@ -73,7 +120,7 @@ class CommandControllerTest extends TestCase {
 				'to'    => 'echo_service',
 				'from'  => '_http',
 				'id'    => 'cmd-1',
-				'value' => \wp_json_encode( [ 'name' => 'echo', 'arguments' => 'hi', 'payload' => '' ] ),
+				'value' => [ 'name' => 'echo', 'arguments' => 'hi', 'payload' => '' ],
 			]
 		);
 
@@ -88,9 +135,45 @@ class CommandControllerTest extends TestCase {
 		$msg = Message::unpacked( $body );
 		$this->assertSame( Message::TM_COMMAND | Message::TM_RESPONSE, $msg[ Message::TYPE ] );
 		$this->assertSame( 'cmd-1', $msg[ Message::ID ] );
-		$payload = \json_decode( $msg[ Message::VALUE ], true );
+		// Response VALUE rides as a live `['name'=>,'payload'=>]` array.
+		$payload = $msg[ Message::VALUE ];
 		$this->assertSame( 'echo', $payload['name'] );
 		$this->assertSame( 'got: hi', $payload['payload'] );
+	}
+
+	public function test_dispatch_routes_a_batch_of_messages_in_order(): void {
+		// A request body that is a LIST of packed Messages (not a single one)
+		// dispatches each in order through the one request graph. This is what
+		// lets the topology dashboard send `connect_worker_input` immediately
+		// before its real pivoted command in the SAME request.
+		$base_ci = $this->build_graph();
+		$echo    = new CommandInterpreter();
+		$echo->name( 'echo_service' );
+		$echo->sink( $base_ci );
+		$calls = [];
+		$echo->commands(
+			[
+				'echo' => static function ( $self, $args ) use ( &$calls ): string {
+					$calls[] = $args;
+					return "got: {$args}";
+				},
+			]
+		);
+
+		$req = $this->make_batch_request(
+			[
+				[ 'type' => Message::TM_COMMAND, 'to' => 'echo_service', 'from' => '_http', 'id' => 'c1', 'value' => [ 'name' => 'echo', 'arguments' => 'one', 'payload' => '' ] ],
+				[ 'type' => Message::TM_COMMAND, 'to' => 'echo_service', 'from' => '_http', 'id' => 'c2', 'value' => [ 'name' => 'echo', 'arguments' => 'two', 'payload' => '' ] ],
+			]
+		);
+
+		$ctrl = new Command_Controller();
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		\ob_get_clean();
+
+		$this->assertSame( [ 'one', 'two' ], $calls, 'both batched commands must route in order' );
 	}
 
 	public function test_unknown_to_head_writes_tm_error_via_router_NOT_AVAILABLE(): void {
@@ -101,7 +184,7 @@ class CommandControllerTest extends TestCase {
 				'to'    => 'missing_service',
 				'from'  => '_http',
 				'id'    => 'cmd-2',
-				'value' => \wp_json_encode( [ 'name' => 'whatever', 'arguments' => '', 'payload' => '' ] ),
+				'value' => [ 'name' => 'whatever', 'arguments' => '', 'payload' => '' ],
 			]
 		);
 
@@ -129,7 +212,7 @@ class CommandControllerTest extends TestCase {
 				'type'  => Message::TM_COMMAND,
 				'to'    => 'echo_service',
 				'id'    => 'cmd-3',
-				'value' => \wp_json_encode( [ 'name' => 'echo', 'arguments' => '', 'payload' => '' ] ),
+				'value' => [ 'name' => 'echo', 'arguments' => '', 'payload' => '' ],
 			]
 		);
 
@@ -177,7 +260,7 @@ class CommandControllerTest extends TestCase {
 				'to'    => 'hook_echo',
 				'from'  => '_http',
 				'id'    => 'cmd-lazy-1',
-				'value' => \wp_json_encode( [ 'name' => 'echo', 'arguments' => 'hi', 'payload' => '' ] ),
+				'value' => [ 'name' => 'echo', 'arguments' => 'hi', 'payload' => '' ],
 			]
 		);
 
@@ -204,7 +287,7 @@ class CommandControllerTest extends TestCase {
 			'dispatch returned TM_ERROR — request graph was not lazy-built'
 		);
 		$this->assertSame( 'cmd-lazy-1', $msg[ Message::ID ] );
-		$payload = \json_decode( $msg[ Message::VALUE ], true );
+		$payload = $msg[ Message::VALUE ];
 		$this->assertSame( 'got: hi', $payload['payload'] );
 	}
 
@@ -236,7 +319,7 @@ class CommandControllerTest extends TestCase {
 				'to'    => 'idem_echo',
 				'from'  => '_http',
 				'id'    => 'cmd-idem',
-				'value' => \wp_json_encode( [ 'name' => 'echo', 'arguments' => '', 'payload' => '' ] ),
+				'value' => [ 'name' => 'echo', 'arguments' => '', 'payload' => '' ],
 			]
 		);
 		$ctrl = new Command_Controller();
@@ -300,7 +383,7 @@ class CommandControllerTest extends TestCase {
 				'to'    => 'firehose-workers.p0/_command_interpreter',
 				'from'  => '_http/4242',  // pivoted: SSE process pid
 				'id'    => 'cmd-xyz',
-				'value' => \wp_json_encode( [ 'name' => 'dump_metadata', 'arguments' => '', 'payload' => '' ] ),
+				'value' => [ 'name' => 'dump_metadata', 'arguments' => '', 'payload' => '' ],
 			]
 		);
 
@@ -335,8 +418,10 @@ class CommandControllerTest extends TestCase {
 		$consumer->poll();
 		$this->assertCount( 1, $got );
 		$this->assertSame( '_command_interpreter', $got[0][ Message::TO ] );
-		// Consumer overwrites ID with seg:offset — decode VALUE to confirm payload identity.
-		$payload = \json_decode( $got[0][ Message::VALUE ], true );
+		// Consumer overwrites ID with seg:offset; VALUE rode through
+		// pack/unpack as a live array, so read it directly to confirm
+		// payload identity.
+		$payload = $got[0][ Message::VALUE ];
 		$this->assertSame( 'dump_metadata', $payload['name'] );
 	}
 
@@ -354,45 +439,6 @@ class CommandControllerTest extends TestCase {
 		$this->assertSame( 'POST', $route['args']['methods'] );
 		$this->assertIsCallable( $route['args']['callback'] );
 		$this->assertIsCallable( $route['args']['permission_callback'] );
-	}
-
-	// ── 7-field positional body shape ──────────────────────────────────────
-
-	public function test_dispatch_accepts_positional_seven_element_array_body(): void {
-		// normalize_body_to_message has two body shapes: a 7-field positional
-		// array (count >= 7 and array_is_list) which is returned verbatim,
-		// and the keyed-object fallback. The positional path was uncovered.
-		$base_ci = $this->build_graph();
-		$echo    = new CommandInterpreter();
-		$echo->name( 'pos_echo' );
-		$echo->sink( $base_ci );
-		$echo->commands( [ 'echo' => static fn( $self, $args ): string => "got: {$args}" ] );
-
-		// Positional layout: [ TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE ].
-		$body                       = Message::new_message();
-		$body[ Message::TYPE ]      = Message::TM_COMMAND;
-		$body[ Message::FROM ]      = '_http';
-		$body[ Message::TO ]        = 'pos_echo';
-		$body[ Message::ID ]        = 'pos-1';
-		$body[ Message::VALUE ]     = \wp_json_encode( [ 'name' => 'echo', 'arguments' => 'arr', 'payload' => '' ] );
-		$req = new \WP_REST_Request();
-		$req->set_body( \wp_json_encode( $body ) );
-		$req->set_header( 'content-type', 'application/json' );
-
-		$ctrl = new Command_Controller();
-		$ctrl->set_test_mode( true );
-
-		\ob_start();
-		$ctrl->dispatch( $req );
-		$out = \ob_get_clean();
-
-		// Verify the positional body was preserved (not coerced through the
-		// keyed fallback) and reached the echo CI.
-		$this->assertSame( [ 200 ], $this->status_codes );
-		$msg = Message::unpacked( $out );
-		$this->assertSame( 'pos-1', $msg[ Message::ID ] );
-		$payload = \json_decode( $msg[ Message::VALUE ], true );
-		$this->assertSame( 'got: arr', $payload['payload'] );
 	}
 
 	// ── emit_error: graph not initialized ──────────────────────────────────

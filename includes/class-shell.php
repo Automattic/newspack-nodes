@@ -470,13 +470,14 @@ class Shell extends Node {
 				$cmd_args  = \implode( ' ', \array_slice( $args, 2 ) );
 				$msg[ Message::TYPE ]  = Message::TM_COMMAND;
 				$msg[ Message::TO ]    = $this->prefix( $cmd_path );
-				$msg[ Message::VALUE ] = (string) \wp_json_encode(
-					[
-						'name'      => $cmd_verb,
-						'arguments' => $cmd_args,
-						'payload'   => '',
-					]
-				);
+				// VALUE is the command struct as a live PHP array — never separately
+				// json-encoded; it rides through packed()/unpacked() as a nested
+				// object. Only the envelope/wire is JSON.
+				$msg[ Message::VALUE ] = [
+					'name'      => $cmd_verb,
+					'arguments' => $cmd_args,
+					'payload'   => '',
+				];
 				break;
 			case 'pwd':
 				// Tachikoma Shell.pm:146-150 — send `pwd <cwd>` as TM_COMMAND
@@ -485,13 +486,11 @@ class Shell extends Node {
 				// command landed and where the reply walked back from.
 				$msg[ Message::TYPE ]  = Message::TM_COMMAND;
 				$msg[ Message::TO ]    = $this->path;
-				$msg[ Message::VALUE ] = (string) \wp_json_encode(
-					[
-						'name'      => 'pwd',
-						'arguments' => $this->path,
-						'payload'   => '',
-					]
-				);
+				$msg[ Message::VALUE ] = [
+					'name'      => 'pwd',
+					'arguments' => $this->path,
+					'payload'   => '',
+				];
 				break;
 			case 'ping':
 				// Tachikoma Shell3 builtin: build TM_PING addressed at <path>,
@@ -541,13 +540,11 @@ class Shell extends Node {
 				// Pivoted-mode callers re-route via the cmd-out Partition.
 				$msg[ Message::TYPE ]  = Message::TM_COMMAND;
 				$msg[ Message::TO ]    = $this->prefix( '' );
-				$msg[ Message::VALUE ] = (string) \wp_json_encode(
-					[
-						'name'      => $verb,
-						'arguments' => \implode( ' ', $args ),
-						'payload'   => '',
-					]
-				);
+				$msg[ Message::VALUE ] = [
+					'name'      => $verb,
+					'arguments' => \implode( ' ', $args ),
+					'payload'   => '',
+				];
 				break;
 		}
 

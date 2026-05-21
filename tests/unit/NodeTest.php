@@ -109,6 +109,25 @@ class NodeTest extends TestCase {
 		$this->assertStringContainsString( 'payload: data', $buf );
 	}
 
+	public function test_drop_message_renders_array_value_as_json(): void {
+		// Under the command protocol a TM_COMMAND VALUE is a live PHP array
+		// (`['name'=>,'arguments'=>,'payload'=>]`). A malformed command struct
+		// reaches drop_message with an ARRAY VALUE; the audit line must
+		// json-encode it for display rather than `(string)`-cast it (which
+		// triggers an "Array to string conversion" warning and prints
+		// "payload: Array").
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$n   = new CaptureSink();
+		$n->name( 'alice' );
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$msg[ Message::VALUE ] = [ 'arguments' => 'nope' ];
+		$n->drop_message( $msg, 'invalid command struct' );
+		$this->assertStringContainsString( 'payload: {"arguments":"nope"}', $buf );
+		$this->assertStringNotContainsString( 'payload: Array', $buf );
+	}
+
 	public function test_drop_message_uses_bitwise_test_for_combined_flags(): void {
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );

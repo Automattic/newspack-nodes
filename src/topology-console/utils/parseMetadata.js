@@ -1,11 +1,16 @@
 /**
- * Parse a `dump_metadata` JSON response into the shape the canvas
+ * Parse a `dump_metadata` response payload into the shape the canvas
  * and inspector expect.
  *
- * Input is a substrate `dump_metadata` payload: an object keyed by
+ * Input is the substrate `dump_metadata` payload — an OBJECT keyed by
  * node name with `{ class, counter, sink, target, debug_state,
- * arguments }`. `target` is a string for single-target nodes or an
- * array for Tee fan-outs.
+ * arguments }`. Per the command protocol contract the response VALUE
+ * (and its `payload`) ride through the whole-message JSON envelope as
+ * nested objects, so callers hand this an object directly — never a
+ * JSON string. A defensive string-parse fallback is retained only so a
+ * stray serialized payload degrades gracefully instead of throwing.
+ * `target` is a string for single-target nodes or an array for Tee
+ * fan-outs.
  *
  * Output:
  *   {
@@ -32,14 +37,16 @@ const SCAFFOLDING = new Set( [
 
 export function parseMetadata( payload ) {
 	let raw;
-	if ( typeof payload === 'string' ) {
+	if ( payload && typeof payload === 'object' ) {
+		// Primary path: the contract hands us the metadata object directly.
+		raw = payload;
+	} else if ( typeof payload === 'string' ) {
+		// Defensive fallback for a stray serialized payload.
 		try {
 			raw = JSON.parse( payload );
 		} catch ( e ) {
 			return { nodes: [], edges: [] };
 		}
-	} else if ( payload && typeof payload === 'object' ) {
-		raw = payload;
 	} else {
 		return { nodes: [], edges: [] };
 	}

@@ -42,7 +42,7 @@ class Classes_CI extends CommandInterpreter {
 
 	private function verb_table(): array {
 		return [
-			'list' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): string {
+			'list' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): array {
 				$classes = [];
 				foreach ( CommandInterpreter::class_map() as $shell_name => $fqcn ) {
 					if ( ! \method_exists( $fqcn, 'node_schema' ) ) {
@@ -73,12 +73,10 @@ class Classes_CI extends CommandInterpreter {
 				);
 				$formatters = Formatters::list_names();
 				\sort( $formatters );
-				return (string) \wp_json_encode(
-					[
-						'classes'    => $classes,
-						'formatters' => $formatters,
-					]
-				);
+				return [
+					'classes'    => $classes,
+					'formatters' => $formatters,
+				];
 			},
 		];
 	}

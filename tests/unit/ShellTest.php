@@ -100,7 +100,8 @@ class ShellTest extends TestCase {
 		$msg   = $shell->parse( 'ls');
 
 		$this->assertSame( Message::TM_COMMAND, $msg[ Message::TYPE ] );
-		$cmd = \json_decode( $msg[ Message::VALUE ], true );
+		// VALUE rides as a live PHP array — no JSON string to decode.
+		$cmd = $msg[ Message::VALUE ];
 		$this->assertSame( 'ls', $cmd['name'] );
 		$this->assertSame( '', $cmd['arguments'] );
 	}
@@ -109,7 +110,7 @@ class ShellTest extends TestCase {
 		$shell = new Shell();
 		$msg   = $shell->parse( 'make_node CaptureSink alice');
 
-		$cmd = \json_decode( $msg[ Message::VALUE ], true );
+		$cmd = $msg[ Message::VALUE ];
 		$this->assertSame( 'make_node', $cmd['name'] );
 		$this->assertSame( 'CaptureSink alice', $cmd['arguments'] );
 	}
@@ -456,7 +457,7 @@ class ShellTest extends TestCase {
 		$shell->path = 'firehose-workers.p0';
 		$msg         = $shell->parse( 'ls -al' );
 		$this->assertSame( 'firehose-workers.p0', $msg[ Message::TO ] );
-		$decoded = \json_decode( $msg[ Message::VALUE ], true );
+		$decoded = $msg[ Message::VALUE ];
 		$this->assertSame( 'ls', $decoded['name'] );
 		$this->assertSame( '-al', $decoded['arguments'] );
 	}
@@ -495,7 +496,7 @@ class ShellTest extends TestCase {
 		$msg         = $shell->parse( 'command_node helper-node ls -al' );
 		$this->assertSame( Message::TM_COMMAND, $msg[ Message::TYPE ] );
 		$this->assertSame( 'jobs:partition/helper-node', $msg[ Message::TO ] );
-		$decoded = \json_decode( $msg[ Message::VALUE ], true );
+		$decoded = $msg[ Message::VALUE ];
 		$this->assertSame( 'ls', $decoded['name'] );
 		$this->assertSame( '-al', $decoded['arguments'] );
 	}
@@ -538,7 +539,7 @@ class ShellTest extends TestCase {
 		$msg         = $shell->parse( 'pwd' );
 		$this->assertSame( Message::TM_COMMAND, $msg[ Message::TYPE ] );
 		$this->assertSame( 'firehose-workers.p0', $msg[ Message::TO ] );
-		$decoded = \json_decode( $msg[ Message::VALUE ], true );
+		$decoded = $msg[ Message::VALUE ];
 		$this->assertSame( 'pwd', $decoded['name'] );
 		$this->assertSame( 'firehose-workers.p0', $decoded['arguments'] );
 	}
@@ -548,7 +549,7 @@ class ShellTest extends TestCase {
 		$shell = new Shell();
 		$msg   = $shell->parse( 'pwd' );
 		$this->assertSame( '', $msg[ Message::TO ] );
-		$decoded = \json_decode( $msg[ Message::VALUE ], true );
+		$decoded = $msg[ Message::VALUE ];
 		$this->assertSame( '', $decoded['arguments'] );
 	}
 

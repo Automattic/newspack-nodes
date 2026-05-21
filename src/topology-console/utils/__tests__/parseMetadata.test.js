@@ -10,7 +10,7 @@ describe( 'parseMetadata', () => {
 		} );
 	} );
 
-	it( 'parses a JSON object payload directly', () => {
+	it( 'parses a metadata OBJECT (the post-fix contract: object-in, no JSON string)', () => {
 		const payload = {
 			alpha: {
 				class: 'Echo',

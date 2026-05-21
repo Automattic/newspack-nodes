@@ -1,19 +1,16 @@
 /**
- * Tests for sendInterpretedCommand — translates a shellInterpret `post`
- * body into a dispatch on the generic `/command` endpoint, pivoting the
- * reply back through the open messages-stream session via FROM=`_http/<pid>`.
- *
- * TM_COMMAND verbs (default + `cmd`) go through the shared CommandClient.
- * The other typed verbs (ping/info/bytestream/eof/request) post a raw
- * positional Message array directly to `/command` (the controller's
- * normalize_body_to_message accepts a 7-field list), since CommandClient
- * only builds TM_COMMAND.
+ * Tests for sendWorkerCommand — sends a command descriptor
+ * (`{type, name, arguments, to}`) to a worker. Every send is a 2-message BATCH:
+ * `connect_worker_input` (mounts the worker's input Partition in the /command
+ * process) followed by the real command/typed message, so the second routes to
+ * the worker instead of NOT_AVAILABLE. Both messages ride one request so they
+ * run serially in one process.
  */
 
-import { sendInterpretedCommand } from '../sendCommand';
+import { sendWorkerCommand, sendWorkerCommands } from '../sendCommand';
+import { CommandClient } from '../../../runtime/command_client';
 import {
 	TYPE,
-	TIMESTAMP,
 	FROM,
 	TO,
 	KEY,
@@ -31,51 +28,64 @@ jest.mock( '../commandClient', () => ( {
 
 const { getCommandClient } = require( '../commandClient' );
 
-describe( 'sendInterpretedCommand', () => {
-	let send;
-	let fetchMock;
-	const originalFetch = global.fetch;
+describe( 'sendWorkerCommand', () => {
+	let postBatch;
 
 	beforeEach( () => {
-		send = jest.fn().mockResolvedValue( [ 0, 0, '', '', '', '', '{}' ] );
-		getCommandClient.mockReturnValue( {
-			send,
+		// Real buildMessage (so the batched messages are well-formed) plus a
+		// captured postBatch. sendWorkerCommand builds via buildMessage and
+		// dispatches via postBatch — never fetch directly.
+		const real = new CommandClient( {
 			baseUrl: '/wp-json/',
 			nonce: 'NONCE',
 		} );
-		fetchMock = jest
+		postBatch = jest
 			.fn()
-			.mockResolvedValue( { json: () => Promise.resolve( {} ) } );
-		global.fetch = fetchMock;
+			.mockResolvedValue( [ 0, 0, '', '', '', '', '{}' ] );
+		getCommandClient.mockReturnValue( {
+			buildMessage: real.buildMessage.bind( real ),
+			postBatch,
+			baseUrl: '/wp-json/',
+			nonce: 'NONCE',
+		} );
 	} );
 
 	afterEach( () => {
-		global.fetch = originalFetch;
 		jest.clearAllMocks();
 	} );
 
 	const ctx = { topology: 'demo', partition: 2, ssePid: 4242 };
 
-	it( 'default command verb routes through CommandClient at the worker reader id', () => {
-		// shellInterpret('ls') → { type:'command', name:'ls', arguments:'' }
-		sendInterpretedCommand(
+	const batchPosted = () => {
+		expect( postBatch ).toHaveBeenCalledTimes( 1 );
+		return postBatch.mock.calls[ 0 ][ 0 ];
+	};
+	// Every send leads with connect_worker_input → topologies, arg = reader id.
+	// Command-type messages go through buildMessage, whose VALUE is the
+	// structured command OBJECT itself (no inner JSON string) — read it
+	// directly.
+	const expectConnectFirst = ( batch ) => {
+		expect( batch ).toHaveLength( 2 );
+		expect( batch[ 0 ][ TO ] ).toBe( 'topologies' );
+		expect( batch[ 0 ][ VALUE ].name ).toBe( 'connect_worker_input' );
+		expect( batch[ 0 ][ VALUE ].arguments ).toBe( 'demo.p2' );
+	};
+
+	it( 'default command verb batches connect + the command at the worker reader id', () => {
+		sendWorkerCommand(
 			{ type: 'command', name: 'ls', arguments: '' },
 			ctx
 		);
-		expect( send ).toHaveBeenCalledWith( {
-			to: 'demo.p2',
-			verb: 'ls',
-			args: '',
-			ssePid: 4242,
-			key: 'gui:typed',
-		} );
-		expect( fetchMock ).not.toHaveBeenCalled();
+		const batch = batchPosted();
+		expectConnectFirst( batch );
+		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p2' );
+		expect( batch[ 1 ][ VALUE ].name ).toBe( 'ls' );
+		expect( batch[ 1 ][ FROM ] ).toBe( '_http/4242' );
+		expect( batch[ 1 ][ KEY ] ).toBe( 'gui:typed' );
 	} );
 
 	it( 'cmd <path> <verb> addresses a node inside the worker by path', () => {
-		// shellInterpret('cmd firehose-in dump_metadata') →
-		//   { type:'command', to:'firehose-in', name:'dump_metadata', arguments:'' }
-		sendInterpretedCommand(
+		sendWorkerCommand(
 			{
 				type: 'command',
 				to: 'firehose-in',
@@ -84,98 +94,119 @@ describe( 'sendInterpretedCommand', () => {
 			},
 			ctx
 		);
-		expect( send ).toHaveBeenCalledWith( {
-			to: 'demo.p2/firehose-in',
-			verb: 'dump_metadata',
-			args: '',
-			ssePid: 4242,
-			key: 'gui:typed',
-		} );
+		const batch = batchPosted();
+		expectConnectFirst( batch );
+		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p2/firehose-in' );
+		expect( batch[ 1 ][ VALUE ].name ).toBe( 'dump_metadata' );
 	} );
 
 	it( 'honours a custom key so silent canvas polls route to gui:auto', () => {
-		sendInterpretedCommand(
+		sendWorkerCommand(
 			{ type: 'command', name: 'dump_metadata', arguments: '' },
 			{ ...ctx, key: 'gui:auto' }
 		);
-		expect( send ).toHaveBeenCalledWith( {
-			to: 'demo.p2',
-			verb: 'dump_metadata',
-			args: '',
-			ssePid: 4242,
-			key: 'gui:auto',
-		} );
+		const batch = batchPosted();
+		// Both the connect and the command carry the caller's key.
+		expect( batch[ 0 ][ KEY ] ).toBe( 'gui:auto' );
+		expect( batch[ 1 ][ KEY ] ).toBe( 'gui:auto' );
 	} );
 
-	it( 'ping posts a raw TM_PING positional array to /command', async () => {
-		await sendInterpretedCommand( { type: 'ping', to: '' }, ctx );
-		expect( send ).not.toHaveBeenCalled();
-		expect( fetchMock ).toHaveBeenCalledTimes( 1 );
-		const [ url, opts ] = fetchMock.mock.calls[ 0 ];
-		expect( url ).toBe( '/wp-json/newspack-nodes/v1/command' );
-		expect( opts.method ).toBe( 'POST' );
-		expect( opts.headers[ 'X-WP-Nonce' ] ).toBe( 'NONCE' );
-		const arr = JSON.parse( opts.body );
-		expect( Array.isArray( arr ) ).toBe( true );
-		expect( arr.length ).toBe( 7 );
-		expect( arr[ TYPE ] ).toBe( TM_PING );
-		expect( arr[ FROM ] ).toBe( '_http/4242' );
-		// Empty `to` → address the worker reader id directly (worker CI
-		// handles ping locally, bouncing TO=FROM).
-		expect( arr[ TO ] ).toBe( 'demo.p2' );
-		expect( typeof arr[ TIMESTAMP ] ).toBe( 'number' );
-		expect( arr[ KEY ] ).toBe( 'gui:typed' );
+	it( 'ping batches connect + a TM_PING positional message', async () => {
+		await sendWorkerCommand( { type: 'ping', to: '' }, ctx );
+		const batch = batchPosted();
+		expectConnectFirst( batch );
+		expect( batch[ 1 ][ TYPE ] ).toBe( TM_PING );
+		expect( batch[ 1 ][ FROM ] ).toBe( '_http/4242' );
+		// Empty `to` → address the worker reader id directly.
+		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p2' );
+		expect( batch[ 1 ][ KEY ] ).toBe( 'gui:typed' );
+		// VALUE carries the send timestamp (seconds) so the bounced reply's
+		// round-trip computes — an empty VALUE renders "round trip time: NaN ms".
+		expect( typeof batch[ 1 ][ VALUE ] ).toBe( 'number' );
+		expect( batch[ 1 ][ VALUE ] ).toBeGreaterThan( 0 );
 	} );
 
-	it( 'info posts a TM_INFO array carrying arguments as VALUE at the worker path', async () => {
-		await sendInterpretedCommand(
+	it( 'info carries arguments as VALUE at the worker path', async () => {
+		await sendWorkerCommand(
 			{ type: 'info', to: 'firehose-in', arguments: 'hello' },
 			ctx
 		);
-		const arr = JSON.parse( fetchMock.mock.calls[ 0 ][ 1 ].body );
-		expect( arr[ TYPE ] ).toBe( TM_INFO );
-		expect( arr[ TO ] ).toBe( 'demo.p2/firehose-in' );
-		expect( arr[ VALUE ] ).toBe( 'hello' );
+		const batch = batchPosted();
+		expect( batch[ 1 ][ TYPE ] ).toBe( TM_INFO );
+		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p2/firehose-in' );
+		expect( batch[ 1 ][ VALUE ] ).toBe( 'hello' );
 	} );
 
-	it( 'bytestream posts a TM_BYTESTREAM array', async () => {
-		await sendInterpretedCommand(
+	it( 'bytestream posts a TM_BYTESTREAM message', async () => {
+		await sendWorkerCommand(
 			{ type: 'bytestream', to: 'log-node', arguments: 'line\n' },
 			ctx
 		);
-		const arr = JSON.parse( fetchMock.mock.calls[ 0 ][ 1 ].body );
-		expect( arr[ TYPE ] ).toBe( TM_BYTESTREAM );
-		expect( arr[ TO ] ).toBe( 'demo.p2/log-node' );
-		expect( arr[ VALUE ] ).toBe( 'line\n' );
+		const batch = batchPosted();
+		expect( batch[ 1 ][ TYPE ] ).toBe( TM_BYTESTREAM );
+		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p2/log-node' );
+		expect( batch[ 1 ][ VALUE ] ).toBe( 'line\n' );
 	} );
 
-	it( 'eof posts a TM_EOF array with no VALUE', async () => {
-		await sendInterpretedCommand( { type: 'eof', to: 'drain-node' }, ctx );
-		const arr = JSON.parse( fetchMock.mock.calls[ 0 ][ 1 ].body );
-		expect( arr[ TYPE ] ).toBe( TM_EOF );
-		expect( arr[ TO ] ).toBe( 'demo.p2/drain-node' );
-		expect( arr[ VALUE ] ).toBe( '' );
+	it( 'eof posts a TM_EOF message with no VALUE', async () => {
+		await sendWorkerCommand( { type: 'eof', to: 'drain-node' }, ctx );
+		const batch = batchPosted();
+		expect( batch[ 1 ][ TYPE ] ).toBe( TM_EOF );
+		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p2/drain-node' );
+		expect( batch[ 1 ][ VALUE ] ).toBe( '' );
 	} );
 
-	it( 'request posts a TM_REQUEST array carrying arguments', async () => {
-		await sendInterpretedCommand(
+	it( 'request posts a TM_REQUEST message carrying arguments', async () => {
+		await sendWorkerCommand(
 			{ type: 'request', to: 'consumer', arguments: 'GET_LAG' },
 			ctx
 		);
-		const arr = JSON.parse( fetchMock.mock.calls[ 0 ][ 1 ].body );
-		expect( arr[ TYPE ] ).toBe( TM_REQUEST );
-		expect( arr[ TO ] ).toBe( 'demo.p2/consumer' );
-		expect( arr[ VALUE ] ).toBe( 'GET_LAG' );
+		const batch = batchPosted();
+		expect( batch[ 1 ][ TYPE ] ).toBe( TM_REQUEST );
+		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p2/consumer' );
+		expect( batch[ 1 ][ VALUE ] ).toBe( 'GET_LAG' );
 	} );
 
-	it( 'returns the fetch JSON promise for typed posts', async () => {
-		fetchMock.mockResolvedValueOnce( {
-			json: () => Promise.resolve( { queued: true } ),
-		} );
-		const result = await sendInterpretedCommand(
-			{ type: 'ping', to: '' },
+	it( 'rejects an unsupported message type without posting', async () => {
+		await expect(
+			sendWorkerCommand( { type: 'bogus' }, ctx )
+		).rejects.toThrow( 'unsupported command type' );
+		expect( postBatch ).not.toHaveBeenCalled();
+	} );
+
+	it( 'returns the postBatch promise', async () => {
+		postBatch.mockResolvedValueOnce( { queued: true } );
+		const result = await sendWorkerCommand( { type: 'ping', to: '' }, ctx );
+		expect( result ).toEqual( { queued: true } );
+	} );
+
+	it( 'sendWorkerCommands batches one connect + each command with its own key', () => {
+		sendWorkerCommands(
+			[
+				{
+					type: 'command',
+					name: 'dump_metadata',
+					arguments: '',
+					key: 'gui:auto',
+				},
+				{
+					type: 'command',
+					name: 'uptime',
+					arguments: '',
+					key: 'gui:uptime',
+				},
+			],
 			ctx
 		);
-		expect( result ).toEqual( { queued: true } );
+		const batch = batchPosted();
+		// One leading connect_worker_input, then every command — three JSONL lines.
+		expect( batch ).toHaveLength( 3 );
+		expect( batch[ 0 ][ TO ] ).toBe( 'topologies' );
+		expect( batch[ 0 ][ VALUE ].name ).toBe( 'connect_worker_input' );
+		expect( batch[ 0 ][ VALUE ].arguments ).toBe( 'demo.p2' );
+		expect( batch[ 1 ][ VALUE ].name ).toBe( 'dump_metadata' );
+		expect( batch[ 1 ][ KEY ] ).toBe( 'gui:auto' );
+		expect( batch[ 2 ][ VALUE ].name ).toBe( 'uptime' );
+		expect( batch[ 2 ][ KEY ] ).toBe( 'gui:uptime' );
 	} );
 } );

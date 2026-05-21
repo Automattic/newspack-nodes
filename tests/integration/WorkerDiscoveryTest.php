@@ -41,7 +41,11 @@ class WorkerDiscoveryTest extends TestCase {
 		$msg[ Message::FROM ]  = '_http/4242';
 		$msg[ Message::TO ]    = '_command_interpreter';
 		$msg[ Message::ID ]    = 'cmd-xyz';
-		$msg[ Message::VALUE ] = \wp_json_encode( [ 'name' => 'dump_metadata', 'arguments' => '', 'payload' => '' ] );
+		// A worker-bound command's VALUE is the structured struct (the same
+		// shape Shell/Command_Controller build) — never a separately
+		// json-encoded string. The Partition packs the whole envelope to
+		// disk; only that wire is JSON.
+		$msg[ Message::VALUE ] = [ 'name' => 'dump_metadata', 'arguments' => '', 'payload' => '' ];
 		Core::node( 'firehose-workers.p0' )->fill( $msg );
 		// Production: Partition flushes via Timer fire during the worker's
 		// drain loop. Tests have no event loop, so drive the flush directly
@@ -57,10 +61,10 @@ class WorkerDiscoveryTest extends TestCase {
 		$consumer->poll();
 		$this->assertCount( 1, $got );
 		// Consumer overwrites Message::ID with a `seg:offset` position
-		// breadcrumb (see Consumer::poll comment on line ~500). VALUE is
-		// the message payload that survives the round-trip — assert on
-		// that to prove the same message landed on disk.
-		$decoded = \json_decode( $got[0][ Message::VALUE ], true );
+		// breadcrumb (see Consumer::poll comment on line ~500). VALUE rode
+		// through pack/unpack as a live array — read it directly to prove
+		// the same message landed on disk.
+		$decoded = $got[0][ Message::VALUE ];
 		$this->assertSame( 'dump_metadata', $decoded['name'] );
 	}
 
@@ -73,5 +77,50 @@ class WorkerDiscoveryTest extends TestCase {
 
 		$this->assertSame( 0, $count );
 		$this->assertNull( Core::node( 'dead-worker.p0' ) );
+	}
+
+	public function test_register_worker_partition_mounts_only_the_named_worker(): void {
+		$base = $this->make_temp_dir( 'worker-disc-' );
+		\mkdir( "{$base}/locks/firehose-workers.p0.lock.d", 0755, true );
+		\mkdir( "{$base}/locks/firehose-workers.p1.lock.d", 0755, true );
+		\mkdir( "{$base}/ipc/firehose-workers.p0/input", 0755, true );
+		\mkdir( "{$base}/ipc/firehose-workers.p1/input", 0755, true );
+
+		$this->assertTrue( Bootstrap::register_worker_partition( 'firehose-workers.p0', $base ) );
+
+		$this->assertInstanceOf( Partition::class, Core::node( 'firehose-workers.p0' ) );
+		// The other live worker is NOT mounted — we mount only what we're told.
+		$this->assertNull( Core::node( 'firehose-workers.p1' ) );
+	}
+
+	public function test_register_worker_partition_is_idempotent(): void {
+		$base = $this->make_temp_dir( 'worker-disc-' );
+		\mkdir( "{$base}/locks/firehose-workers.p0.lock.d", 0755, true );
+		\mkdir( "{$base}/ipc/firehose-workers.p0/input", 0755, true );
+
+		$this->assertTrue( Bootstrap::register_worker_partition( 'firehose-workers.p0', $base ) );
+		// Second call must not throw a node-name collision.
+		$this->assertTrue( Bootstrap::register_worker_partition( 'firehose-workers.p0', $base ) );
+		$this->assertInstanceOf( Partition::class, Core::node( 'firehose-workers.p0' ) );
+	}
+
+	public function test_register_worker_partition_rejects_invalid_reader_id(): void {
+		$base = $this->make_temp_dir( 'worker-disc-' );
+		// Path-traversal / wrong shape — rejected without mounting (the id is
+		// now client-supplied via the connect_worker_input command argument).
+		$this->assertFalse( Bootstrap::register_worker_partition( '../../etc/passwd', $base ) );
+		$this->assertFalse( Bootstrap::register_worker_partition( 'no-partition-suffix', $base ) );
+	}
+
+	public function test_register_worker_partition_returns_false_for_dead_or_inputless_worker(): void {
+		$base = $this->make_temp_dir( 'worker-disc-' );
+		// Live lock dir but no input dir.
+		\mkdir( "{$base}/locks/firehose-workers.p0.lock.d", 0755, true );
+		$this->assertFalse( Bootstrap::register_worker_partition( 'firehose-workers.p0', $base ) );
+		// Input dir but no lock dir (dead worker, lingering dir).
+		\mkdir( "{$base}/ipc/job-workers.p0/input", 0755, true );
+		$this->assertFalse( Bootstrap::register_worker_partition( 'job-workers.p0', $base ) );
+		$this->assertNull( Core::node( 'firehose-workers.p0' ) );
+		$this->assertNull( Core::node( 'job-workers.p0' ) );
 	}
 }

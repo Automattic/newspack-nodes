@@ -200,27 +200,49 @@ class Bootstrap {
 	}
 
 	/**
-	 * Scan {base_dir}/locks/*.lock.d/ and register one substrate Partition
-	 * Node per live worker. The Partition is named after the worker's
-	 * reader id (e.g. `firehose-workers.p0`) and pointed at the worker's
-	 * input partition directory. Router's existing TO-peel dispatch then
-	 * routes IPC commands uniformly — `Router::fill` resolves the head
-	 * to the registered Partition, which writes the message to disk.
+	 * Mount ONE worker's input Partition by reader id into this request's node
+	 * graph, named after the reader id and pointed at the worker's IPC input
+	 * dir. Router's TO-peel dispatch then routes `TO={reader}.pN` commands to
+	 * it. Returns true iff the partition is now mounted.
 	 *
-	 * Returns the number of Partitions registered (= live workers found
-	 * with both a lock dir AND an ipc/.../input dir).
+	 * The reader id is client-supplied (the `connect_worker_input` command
+	 * argument), so it's format-validated — that's also the path-traversal
+	 * guard. Idempotent: re-mounting an already-registered reader is a no-op.
+	 *
+	 * The Partition index is always 0: each worker's IPC dir is per-reader
+	 * (`ipc/{reader}/input`) and the input store inside it is a single
+	 * partition (`input/p0/`), matching how WorkerBase reads its own input.
+	 * The worker's partition number lives in the reader id, not the index.
+	 */
+	public static function register_worker_partition( string $reader_id, string $base_dir ): bool {
+		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/', $reader_id ) ) {
+			return false;
+		}
+		if ( Core::node( $reader_id ) instanceof Partition ) {
+			return true;
+		}
+		// A live worker holds a lock dir; its input dir is what we mount.
+		if ( ! \is_dir( "{$base_dir}/locks/{$reader_id}.lock.d" ) ) {
+			return false;
+		}
+		$input_dir = "{$base_dir}/ipc/{$reader_id}/input";
+		if ( ! \is_dir( $input_dir ) ) {
+			return false;
+		}
+		( new Partition( $input_dir, 0 ) )->name( $reader_id );
+		return true;
+	}
+
+	/**
+	 * Mount every live worker's input Partition (delegating each to
+	 * register_worker_partition). Returns the count registered.
 	 */
 	public static function register_worker_partitions( string $base_dir ): int {
 		$count = 0;
 		foreach ( \glob( "{$base_dir}/locks/*.lock.d", \GLOB_ONLYDIR ) ?: [] as $lock_dir ) {
-			$reader_id = \basename( $lock_dir, '.lock.d' );
-			$input_dir = "{$base_dir}/ipc/{$reader_id}/input";
-			if ( ! \is_dir( $input_dir ) ) {
-				continue;
+			if ( self::register_worker_partition( \basename( $lock_dir, '.lock.d' ), $base_dir ) ) {
+				++$count;
 			}
-			$p = new Partition( $input_dir, 0 );
-			$p->name( $reader_id );
-			++$count;
 		}
 		return $count;
 	}

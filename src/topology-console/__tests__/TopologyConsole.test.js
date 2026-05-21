@@ -98,12 +98,16 @@ jest.mock( '../utils/commandClient', () => ( {
 // Spy on the command dispatcher so the post path is observable without a
 // real fetch (jsdom has no global fetch). Assigned to a global so tests
 // can assert the body + context the console threaded through.
-globalThis.__sendInterpretedCommand = jest
+globalThis.__sendWorkerCommand = jest
+	.fn()
+	.mockResolvedValue( { queued: true } );
+globalThis.__sendWorkerCommands = jest
 	.fn()
 	.mockResolvedValue( { queued: true } );
 jest.mock( '../utils/sendCommand', () => ( {
-	sendInterpretedCommand: ( ...args ) =>
-		globalThis.__sendInterpretedCommand( ...args ),
+	sendWorkerCommand: ( ...args ) => globalThis.__sendWorkerCommand( ...args ),
+	sendWorkerCommands: ( ...args ) =>
+		globalThis.__sendWorkerCommands( ...args ),
 } ) );
 // Capture the canvas + inspector props so tests can invoke any handler
 // the parent threaded through without needing to drive synthetic
@@ -431,33 +435,55 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'canvas' ).dataset.mode ).toBe( 'view' );
 	} );
 
-	it( 'polls dump_metadata (gui:auto) on an interval while connected in view mode', () => {
+	it( 'polls dump_metadata every tick and batches uptime onto the 5s tick', () => {
 		// The old server-side controller fired ls/dump_metadata every 1s to
-		// refresh the live canvas; that poll now lives client-side. It must
-		// carry KEY=gui:auto so responses route to the silent canvas path,
-		// not the transcript.
+		// refresh the live canvas; that poll now lives client-side as a single
+		// batched request: dump_metadata (gui:auto) every second, with uptime
+		// (gui:uptime) riding the SAME batch on the immediate paint and every
+		// 5th tick — so a poll cycle is one /command request, not two.
 		jest.useFakeTimers();
 		try {
-			globalThis.__sendInterpretedCommand.mockClear();
+			globalThis.__sendWorkerCommands.mockClear();
 			act( () => {
 				render( <TopologyConsole /> );
 			} );
-			const autoPolls = () =>
-				globalThis.__sendInterpretedCommand.mock.calls.filter(
-					( [ body, ctx ] ) =>
-						body &&
-						body.name === 'dump_metadata' &&
-						ctx &&
-						ctx.key === 'gui:auto'
+			const hasVerb = ( commands, name ) =>
+				Array.isArray( commands ) &&
+				commands.some( ( c ) => c.name === name );
+			const dumpBatches = () =>
+				globalThis.__sendWorkerCommands.mock.calls.filter( ( [ c ] ) =>
+					hasVerb( c, 'dump_metadata' )
 				);
-			// Fires once immediately on connect so the canvas paints without
-			// waiting a full interval.
-			expect( autoPolls().length ).toBeGreaterThanOrEqual( 1 );
-			const before = autoPolls().length;
+			const uptimeBatches = () =>
+				globalThis.__sendWorkerCommands.mock.calls.filter( ( [ c ] ) =>
+					hasVerb( c, 'uptime' )
+				);
+			// Immediate paint: ONE batch carrying both commands, each with its
+			// own routing key.
+			expect( dumpBatches().length ).toBeGreaterThanOrEqual( 1 );
+			expect( uptimeBatches().length ).toBeGreaterThanOrEqual( 1 );
+			const first = globalThis.__sendWorkerCommands.mock.calls[ 0 ][ 0 ];
+			expect( hasVerb( first, 'dump_metadata' ) ).toBe( true );
+			expect( hasVerb( first, 'uptime' ) ).toBe( true );
+			expect(
+				first.find( ( c ) => c.name === 'dump_metadata' ).key
+			).toBe( 'gui:auto' );
+			expect( first.find( ( c ) => c.name === 'uptime' ).key ).toBe(
+				'gui:uptime'
+			);
+			// One stats tick: a new dump_metadata batch, but uptime is NOT due.
+			const dumpBefore = dumpBatches().length;
+			const uptimeBefore = uptimeBatches().length;
 			act( () => {
 				jest.advanceTimersByTime( 1000 );
 			} );
-			expect( autoPolls().length ).toBeGreaterThan( before );
+			expect( dumpBatches().length ).toBeGreaterThan( dumpBefore );
+			expect( uptimeBatches().length ).toBe( uptimeBefore );
+			// Reaching the 5s uptime cadence: uptime rides the next stats batch.
+			act( () => {
+				jest.advanceTimersByTime( 4000 );
+			} );
+			expect( uptimeBatches().length ).toBeGreaterThan( uptimeBefore );
 		} finally {
 			jest.useRealTimers();
 		}
@@ -688,7 +714,7 @@ describe( 'TopologyConsole boot', () => {
 			type: TM_STRUCT,
 			from: 'worker',
 			key: 'gui:auto',
-			value: JSON.stringify( {
+			value: {
 				num_nodes: 1,
 				num_edges: 0,
 				nodes: [
@@ -699,13 +725,50 @@ describe( 'TopologyConsole boot', () => {
 					},
 				],
 				edges: [],
-			} ),
+			},
 		} );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
 		// gui:auto suppresses transcript output.
 		expect( items.length ).toBe( 0 );
+	} );
+
+	it( 'handleMessage: gui:auto with a {name,payload} object envelope feeds the canvas', async () => {
+		// VALUE is the structured object `{ name, payload }` and `payload` is
+		// the dump_metadata OBJECT itself — neither is a JSON string, so
+		// handleMessage must unwrap value.payload and parse it for the canvas.
+		const { getByTestId } = render( <TopologyConsole /> );
+		await fireMsg( {
+			// eslint-disable-next-line no-bitwise
+			type: TM_COMMAND | TM_RESPONSE,
+			from: 'worker',
+			key: 'gui:auto',
+			value: {
+				name: 'dump_metadata',
+				payload: {
+					n1: {
+						class: 'Echo',
+						counter: 7,
+						sink: '_command_interpreter',
+						target: 'n2',
+						debug_state: 0,
+						arguments: '',
+					},
+					n2: {
+						class: 'Echo',
+						counter: 3,
+						sink: '_command_interpreter',
+						target: '',
+						debug_state: 0,
+						arguments: '',
+					},
+				},
+			},
+		} );
+		// Canvas mock surfaces parsed.nodes.length via data-node-count;
+		// both n1 and n2 should make it through parseMetadata.
+		expect( getByTestId( 'canvas' ).dataset.nodeCount ).toBe( '2' );
 	} );
 
 	it( 'handleMessage: gui:uptime key extracts the right-half uptime', async () => {
@@ -1237,32 +1300,34 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'handleMessage: gui:auto with parsed nodes seeds rate tracking', async () => {
 		render( <TopologyConsole /> );
-		// dump_metadata format: { nodeName: { counter, class, target, ... } }.
+		// dump_metadata format is the OBJECT { nodeName: { counter, class,
+		// target, ... } } — it rides the VALUE field as a nested object, not
+		// a JSON string.
 		await fireMsg( {
 			type: TM_STRUCT,
 			from: 'worker',
 			key: 'gui:auto',
-			value: JSON.stringify( {
+			value: {
 				n1: {
 					counter: 10,
 					class: 'Echo',
 					bytes_read: 100,
 					bytes_written: 50,
 				},
-			} ),
+			},
 		} );
 		await fireMsg( {
 			type: TM_STRUCT,
 			from: 'worker',
 			key: 'gui:auto',
-			value: JSON.stringify( {
+			value: {
 				n1: {
 					counter: 20,
 					class: 'Echo',
 					bytes_read: 200,
 					bytes_written: 100,
 				},
-			} ),
+			},
 		} );
 		expect( lastCanvasProps ).not.toBeNull();
 		expect( lastCanvasProps.rateRef.current.size ).toBeGreaterThanOrEqual(
@@ -1277,9 +1342,9 @@ describe( 'TopologyConsole boot', () => {
 			type: TM_STRUCT,
 			from: 'worker',
 			key: 'gui:auto',
-			value: JSON.stringify( {
+			value: {
 				n1: { counter: 100, class: 'Echo' },
-			} ),
+			},
 		} );
 		// Wait at least 1s so prevEntry.ts < now.
 		await act( async () => {
@@ -1290,9 +1355,9 @@ describe( 'TopologyConsole boot', () => {
 			type: TM_STRUCT,
 			from: 'worker',
 			key: 'gui:auto',
-			value: JSON.stringify( {
+			value: {
 				n1: { counter: 5, class: 'Echo' },
-			} ),
+			},
 		} );
 		const entry = lastCanvasProps.rateRef.current.get( 'n1' );
 		expect( entry ).not.toBeUndefined();
@@ -1632,7 +1697,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
 
-	// === sendLine post path (sendInterpretedCommand) ===
+	// === sendLine post path (sendWorkerCommand) ===
 
 	it( 'sendLine: a remote command echoes the sent text', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
@@ -1652,14 +1717,14 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'sendLine: dispatches the interpreted body + pivot context', async () => {
-		globalThis.__sendInterpretedCommand.mockClear();
+		globalThis.__sendWorkerCommand.mockClear();
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText } = render( <TopologyConsole /> );
 		await act( async () => {
 			fireEvent.click( getByText( 'submit' ) );
 		} );
 		// `ls` → default command verb; pivoted through the mocked ssePid.
-		expect( globalThis.__sendInterpretedCommand ).toHaveBeenCalledWith(
+		expect( globalThis.__sendWorkerCommand ).toHaveBeenCalledWith(
 			{ type: 'command', name: 'ls', arguments: '' },
 			{ topology: 'demo', partition: 0, ssePid: 1234 }
 		);

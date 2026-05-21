@@ -1,8 +1,10 @@
 import { CommandClient } from '../command_client';
-import { TYPE, TM_COMMAND } from '../message';
+import { TYPE, FROM, TO, KEY, VALUE, TM_COMMAND } from '../message';
 
 beforeEach( () => {
 	global.fetch = jest.fn().mockResolvedValue( {
+		// Response VALUE rides as a nested object — the only JSON layer is
+		// the whole-message envelope (fetch's .json() parses it back).
 		json: async () => [
 			16,
 			1.23,
@@ -10,7 +12,7 @@ beforeEach( () => {
 			'',
 			'cmd-1',
 			'',
-			'{"name":"overview","payload":"{}"}',
+			{ name: 'overview', payload: {} },
 		],
 	} );
 } );
@@ -30,11 +32,23 @@ test( 'send defaults FROM=_http for local commands', async () => {
 	expect( url ).toBe( 'https://test/wp-json/newspack-nodes/v1/command' );
 	expect( opts.method ).toBe( 'POST' );
 	expect( opts.headers[ 'X-WP-Nonce' ] ).toBe( 'NONCE' );
-	const body = JSON.parse( opts.body );
-	expect( body.type ).toBe( TM_COMMAND );
-	expect( body.to ).toBe( 'performance' );
-	expect( body.from ).toBe( '_http' );
-	const value = JSON.parse( body.value );
+	// Non-JSON content type: the body is JSONL, and `application/json` would
+	// make WP's REST dispatcher 400 it as invalid JSON before our handler runs.
+	expect( opts.headers[ 'Content-Type' ] ).toBe(
+		'text/plain; charset=UTF-8'
+	);
+	const msg = JSON.parse( opts.body );
+	// Controller requires a packed 7-element positional Message
+	// (Message::unpacked()); the body is that array, not a keyed object.
+	expect( Array.isArray( msg ) ).toBe( true );
+	expect( msg ).toHaveLength( 7 );
+	expect( msg[ TYPE ] ).toBe( TM_COMMAND );
+	expect( msg[ TO ] ).toBe( 'performance' );
+	expect( msg[ FROM ] ).toBe( '_http' );
+	// VALUE is the structured command object itself — it rides through the
+	// whole-message JSON envelope as a nested object, never separately
+	// stringified. Reading the parsed body's VALUE yields that object.
+	const value = msg[ VALUE ];
 	expect( value.name ).toBe( 'overview' );
 	// `arguments` is a literal-string CLI tail (default '' when caller passes
 	// structured data via `payload` instead). `payload` carries the actual
@@ -51,13 +65,45 @@ test( 'send with ssePid produces FROM=_http/<ssePid> for pivoted mode', async ()
 		ssePid: 12345,
 		key: 'gui:typed',
 	} );
-	const body = JSON.parse( global.fetch.mock.calls[ 0 ][ 1 ].body );
-	expect( body.from ).toBe( '_http/12345' );
-	expect( body.key ).toBe( 'gui:typed' );
+	const msg = JSON.parse( global.fetch.mock.calls[ 0 ][ 1 ].body );
+	expect( msg[ FROM ] ).toBe( '_http/12345' );
+	expect( msg[ KEY ] ).toBe( 'gui:typed' );
 } );
 
 test( 'send returns the parsed JSON response', async () => {
 	const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
 	const res = await client.send( { to: 'performance', verb: 'overview' } );
 	expect( res[ TYPE ] ).toBe( 16 );
+} );
+
+test( 'buildMessage returns a positional 7-element TM_COMMAND Message', () => {
+	const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
+	const msg = client.buildMessage( {
+		to: 'demo.p0',
+		verb: 'dump_metadata',
+		ssePid: 7,
+	} );
+	expect( Array.isArray( msg ) ).toBe( true );
+	expect( msg ).toHaveLength( 7 );
+	expect( msg[ TYPE ] ).toBe( TM_COMMAND );
+	expect( msg[ TO ] ).toBe( 'demo.p0' );
+	expect( msg[ FROM ] ).toBe( '_http/7' );
+	// VALUE is the command object directly — no inner JSON layer.
+	expect( msg[ VALUE ].name ).toBe( 'dump_metadata' );
+} );
+
+test( 'postBatch posts JSONL — one packed Message per line — to /command', async () => {
+	const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
+	const a = client.buildMessage( {
+		to: 'topologies',
+		verb: 'connect_worker_input',
+		args: 'demo.p0',
+	} );
+	const b = client.buildMessage( { to: 'demo.p0', verb: 'dump_metadata' } );
+	await client.postBatch( [ a, b ] );
+
+	const lines = global.fetch.mock.calls[ 0 ][ 1 ].body.split( '\n' );
+	expect( lines ).toHaveLength( 2 );
+	expect( JSON.parse( lines[ 0 ] )[ TO ] ).toBe( 'topologies' );
+	expect( JSON.parse( lines[ 1 ] )[ TO ] ).toBe( 'demo.p0' );
 } );

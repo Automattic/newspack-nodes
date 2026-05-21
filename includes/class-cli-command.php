@@ -330,7 +330,14 @@ class Cli_Command {
 		if ( $has_readline ) {
 			\readline_callback_handler_remove();
 		}
-		\WP_CLI::log( '' ); // Trailing newline after EOF.
+		// Courtesy trailing newline so an interactive (TTY) session's shell
+		// prompt resumes on a fresh line below the readline buffer after Ctrl-D.
+		// Piped / redirected stdin (non-TTY) skips it — a blank line there is
+		// stray noise (the `}}\n\n` double-newline in captured `wp nodes cli`
+		// output) that also breaks `... | wp nodes cli | grep` consumers.
+		if ( $is_tty ) {
+			\WP_CLI::log( '' );
+		}
 	}
 }
 
