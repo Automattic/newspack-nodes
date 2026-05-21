@@ -1,15 +1,9 @@
 <?php
 /**
  * Messages_Stream_Controller: one SSE endpoint for every subscription the
- * dashboards need (firehose / errors / completed / IPC worker outputs).
- * Replaces six legacy per-feed SSE controllers in
- * `newspack-event-logger-nodes` once M5 lands. The resolver treats log
- * partitions and worker IPC partitions uniformly — both surface as
- * `Consumer` instances the caller drains in a single loop.
- *
- * Task 17 (this file) wires the route, the CSV splitter, and the
- * subscription → Consumer resolver. Task 18 fills in the drain loop;
- * `stream()` returns a `{pending: true}` JSON placeholder until then.
+ * dashboards need (firehose / errors / completed / IPC worker outputs). The
+ * resolver treats log partitions and worker IPC partitions uniformly — both
+ * surface as `Consumer` instances the caller drains in a single loop.
  *
  * @package Newspack_Nodes
  */
@@ -35,28 +29,18 @@ class Messages_Stream_Controller {
 	public const REST_NAMESPACE = 'newspack-nodes/v1';
 	public const ROUTE          = '/messages/stream';
 
-	// Idle-keepalive heartbeat cadence (ms). Hardcoded, not client-configurable:
-	// data flushes every drain tick regardless (see run_stream_loop), so this
-	// only paces the idle heartbeat. 2s matches the dashboards' refresh.
+	// Idle-keepalive heartbeat cadence (ms). Data flushes every drain tick regardless;
+	// this only paces the idle heartbeat. 2s matches the dashboards' refresh.
 	public const HEARTBEAT_MS = 2000;
 
-	/**
-	 * Test seam: overrides `Bootstrap::base_dir()` so unit tests can point
-	 * the resolver at an isolated temp directory without touching Config.
-	 */
+	/** Test seam: overrides `Bootstrap::base_dir()`. */
 	private ?string $base_dir = null;
 
-	/**
-	 * Test seam: overrides `Config::load_config()['num_partitions']` so
-	 * log-partition subscriptions can be sized in a unit test without
-	 * writing a per-test config file.
-	 */
+	/** Test seam: overrides `Config::load_config()['num_partitions']`. */
 	private ?int $num_partitions = null;
 
 	/**
-	 * `Cli::attach_to_worker` seam. Lazily defaulted to a closure that
-	 * wraps the real call; tests that need IPC isolation reassign in
-	 * setUp. See `~/.claude/rules/test-seams.md`.
+	 * `Cli::attach_to_worker` seam. Lazily defaulted; tests reassign in setUp.
 	 *
 	 * Signature: `function ( string $reader_id, string $base_dir ): array`.
 	 *
@@ -65,23 +49,13 @@ class Messages_Stream_Controller {
 	public static ?\Closure $attach_to_worker = null;
 
 	/**
-	 * SSE slot-pool seams. The substrate stays generic; the application
-	 * (newspack-event-logger-nodes) wires these in during bootstrap to
-	 * gate concurrent SSE connections via Memcached_Cache.
+	 * SSE slot-pool seams. The application wires these in to gate concurrent
+	 * SSE connections; unset → acquire returns slot 1, release/check are no-ops.
 	 *
-	 * When unset (substrate-only test runs, or any environment that does
-	 * not want concurrency caps), acquire returns slot 1, release/check
-	 * are no-ops, and the stream proceeds without rate-limiting.
-	 *
-	 *   * acquire: `function ( int $partition ): int|false`
-	 *       - `-1` for the shared browser pool, `>=0` for a per-partition
-	 *         aggregator pool (RemoteSource cross-server pull).
-	 *       - returns the slot index on success, or `false` to signal
-	 *         rate-limit (controller returns HTTP 429 before headers).
-	 *   * release: `function ( int $slot, int $partition ): void`
-	 *       - runs in the drain-loop `finally`, even on disconnect.
-	 *   * check:   `function ( int $slot, int $partition ): bool`
-	 *       - polled per drain iteration; false aborts the stream.
+	 *   * acquire: `function ( int $partition ): int|false` (-1 shared browser
+	 *     pool, >=0 per-partition; false → HTTP 429 before headers).
+	 *   * release: `function ( int $slot, int $partition ): void` (drain `finally`).
+	 *   * check:   `function ( int $slot, int $partition ): bool` (false aborts).
 	 *
 	 * @var \Closure|null
 	 */
@@ -90,11 +64,8 @@ class Messages_Stream_Controller {
 	public static ?\Closure $check_slot   = null;
 
 	/**
-	 * Test seam: bounded drain loop. Production loops on
-	 * `connection_aborted()` (real streaming); test_mode counts iterations
-	 * up to `$test_iterations` and returns so `ob_start()` / `ob_get_clean()`
-	 * can capture the emitted SSE bytes synchronously without blocking on a
-	 * non-existent HTTP socket.
+	 * Test seam: bounded drain loop. Production loops on `connection_aborted()`;
+	 * test_mode counts iterations so ob_get_clean() can capture SSE bytes.
 	 */
 	private bool $test_mode = false;
 	private int  $test_iterations = 0;
@@ -122,15 +93,8 @@ class Messages_Stream_Controller {
 			[
 				'methods'             => 'GET',
 				'callback'            => [ $this, 'stream' ],
-				// Capability-only gate. WordPress's REST dispatcher resolves
-				// `determine_current_user` BEFORE this fires, so this works
-				// transparently for either auth path the dashboards / cross-
-				// server pull use:
-				//   * cookie + `_wpnonce` (browser EventSource)
-				//   * `Authorization: Basic <login:app-password>` via core's
-				//     Application Password handler (RemoteSource / StreamMerger)
-				// Don't add a nonce check here — that would silently break
-				// the cross-server SSE pull.
+				// Capability-only gate (auth resolved upstream by the REST dispatcher).
+				// Don't add a nonce check — it would break the cross-server SSE pull.
 				'permission_callback' => static fn () => \current_user_can( 'manage_options' ),
 				'args'                => [
 					'subscribe' => [ 'required' => true, 'type' => 'string' ],
@@ -142,8 +106,7 @@ class Messages_Stream_Controller {
 
 	/**
 	 * Split the CSV `subscribe` query parameter into trimmed subscription
-	 * names. Empty input → empty list; empty entries between commas are
-	 * dropped so trailing/leading commas don't produce ghost entries.
+	 * names. Empty/blank entries dropped so stray commas don't produce ghosts.
 	 *
 	 * @return array<int,string>
 	 */
@@ -158,29 +121,14 @@ class Messages_Stream_Controller {
 	/**
 	 * Resolve a subscription name to one-or-more `Consumer`s.
 	 *
-	 * Two shapes are recognized:
-	 *   * `{type}.p{N}`         — IPC reader; one Consumer over the
-	 *                             worker's output Partition (no offsetlog
-	 *                             because cli/SSE sessions are ephemeral).
-	 *                             Resolved via `Cli::attach_to_worker` so
-	 *                             a missing worker fails fast.
-	 *   * `{a-z0-9_-+}`         — log feed; one Consumer per partition
-	 *                             rooted at `{base}/logs/{name}.log`. The
-	 *                             caller's saved `$positions` (keyed by
-	 *                             partition index) seed each Consumer's
-	 *                             cursor; partitions without saved
-	 *                             positions tail-seek with `'end'`.
-	 *
-	 * Anything that matches neither shape throws
+	 * Two shapes: `{type}.p{N}` (IPC reader, resolved via
+	 * `Cli::attach_to_worker`) and `{a-z0-9_-}` (log feed, one Consumer per
+	 * partition under `{base}/logs/{name}.log`). Anything else throws
 	 * `InvalidArgumentException` (path-traversal guard for query input).
+	 * `$positions` (keyed by partition) seed each cursor; absent → tail-seek.
 	 *
 	 * @param string                $sub       Subscription name.
-	 * @param array<int,mixed>|null $positions Saved positions, indexed by
-	 *                                         partition number; each
-	 *                                         value is whatever
-	 *                                         `Consumer::next_offset`
-	 *                                         accepts (magic string or
-	 *                                         `{seg,off}` array).
+	 * @param array<int,mixed>|null $positions Saved positions, indexed by partition.
 	 *
 	 * @return array<int,Consumer>
 	 *
@@ -195,21 +143,14 @@ class Messages_Stream_Controller {
 			};
 			try {
 				$ipc = $attach( $sub, $base );
-				// Empty offsetlog_base_dir disables checkpointing — cli/SSE
-				// sessions tail-seek and never resume from a saved position.
+				// Empty offsetlog_base_dir disables checkpointing — ephemeral sessions tail-seek.
 				$consumer = new Consumer( $ipc['output'], 0, '' );
 				$consumer->next_offset( 'end' );
 				$consumer->set_stamp_as( $sub );
 				return [ $consumer ];
 			} catch ( \InvalidArgumentException $e ) {
-				// No worker by that name — fall through to the log-file
-				// path with explicit partition. This is the aggregator
-				// hub's path: it subscribes as `firehose.p0` to tail the
-				// spoke's firehose.log partition 0; there's no worker
-				// named `firehose.p0` (workers live at
-				// `firehose-workers-and-jobs.p0` etc.) so the IPC attempt
-				// always misses, but a log file at
-				// `{base}/logs/firehose.log/p0/` does exist.
+				// No worker by that name — fall through to the log-file path. This is the
+				// aggregator hub's path: `firehose.p0` has no worker but a log dir exists.
 				$log_name  = $m[1];
 				$partition = (int) $m[2];
 				$log_base  = "{$base}/logs/{$log_name}.log";
@@ -235,12 +176,7 @@ class Messages_Stream_Controller {
 				} else {
 					$consumer->next_offset( 'end' );
 				}
-				// Stamp `{sub}.p{N}` (matching the IPC subscription shape) so
-				// the dashboard JS can parse partition out of the Message FROM
-				// field without a sidecar metadata channel. The legacy
-				// per-feed SSE controllers carried partition in a `{p, line}`
-				// batch payload; on the unified endpoint the per-Message
-				// envelope IS the wire format, so partition lives in FROM.
+				// Stamp `{sub}.p{N}` so the dashboard JS can parse partition from the Message FROM field.
 				$consumer->set_stamp_as( "{$sub}.p{$p}" );
 				$consumers[] = $consumer;
 			}
@@ -254,9 +190,7 @@ class Messages_Stream_Controller {
 
 	/**
 	 * Decode the `positions` query parameter (JSON object keyed by
-	 * subscription name, value is `Consumer::next_offset` shape). Returns
-	 * null when omitted/empty/malformed — caller treats null as "no saved
-	 * positions; tail-seek every partition".
+	 * subscription name). Null when omitted/empty/malformed → tail-seek all.
 	 *
 	 * @return array<string,array>|null
 	 */
@@ -269,15 +203,11 @@ class Messages_Stream_Controller {
 	}
 
 	/**
-	 * Stream handler — parses request params, sets SSE headers, and
-	 * delegates the drain loop to `run_stream_loop()`. The loop method is
-	 * extracted so tests can exercise the substrate graph build /
-	 * connected envelope / Consumer wiring without the headers + `exit`
-	 * gymnastics.
+	 * Stream handler — parses params, sets SSE headers, delegates the drain
+	 * loop to `run_stream_loop()`.
 	 *
 	 * Slot acquisition fires BEFORE `init_sse_headers` so a rate-limited
-	 * stream can still return a JSON `WP_Error` (HTTP 429); after headers
-	 * are sent the response body is committed to text/event-stream.
+	 * stream can still return a JSON `WP_Error` (HTTP 429).
 	 */
 	public function stream( \WP_REST_Request $request ) {
 		$subs      = $this->parse_subscriptions( (string) $request->get_param( 'subscribe' ) );
@@ -301,10 +231,8 @@ class Messages_Stream_Controller {
 	}
 
 	/**
-	 * Compute the partition number the slot pool should key on. IPC-shape
-	 * subscriptions (`{type}.p{N}`) → that partition; log-shape
-	 * subscriptions (or empty list) → `-1` for the shared browser pool.
-	 * First IPC sub wins if multiple are present.
+	 * Compute the partition the slot pool keys on. IPC-shape (`{type}.p{N}`)
+	 * → that partition (first wins); log-shape or empty → `-1` (browser pool).
 	 *
 	 * @param array<int,string> $subs
 	 */
@@ -318,51 +246,38 @@ class Messages_Stream_Controller {
 	}
 
 	/**
-	 * Drain loop body — split out from `stream()` so tests can call
-	 * without the headers / exit. Emits the `connected` envelope, builds
-	 * the SSE-process substrate graph (`_router`, `_http`, sink), opens
-	 * one-or-more Consumers per subscription, and drains via
-	 * `EventFramework::drain()` until the should_continue gate flips
-	 * false. Cleanup in `finally` removes every node so the next request
-	 * starts with a clean substrate.
+	 * Drain loop body — split out from `stream()` so tests can call without
+	 * the headers / exit. Emits the `connected` envelope, builds the
+	 * SSE-process substrate graph, opens one-or-more Consumers per
+	 * subscription, and drains until the should_continue gate flips false.
+	 * Cleanup in `finally` removes every node. The drain predicate consults
+	 * `$check_slot` each iteration; `finally` calls `$release_slot`.
 	 *
-	 * The slot/partition pair is provided by `stream()` after a successful
-	 * `$acquire_slot` call; the drain predicate consults `$check_slot`
-	 * each iteration so a TTL-expired slot terminates the stream, and the
-	 * `finally` block calls `$release_slot` on disconnect or normal exit.
-	 *
-	 * @param array<int,string>             $subs      Subscription names.
-	 * @param array<string,array>|null      $positions Per-subscription saved positions.
-	 * @param int                            $interval Heartbeat / flush cadence ms.
-	 * @param int                            $slot      Acquired slot index (default 1 = unmetered).
-	 * @param int                            $partition Slot-pool partition (-1 = shared browser).
+	 * @param array<int,string>        $subs      Subscription names.
+	 * @param array<string,array>|null $positions Per-subscription saved positions.
+	 * @param int                      $interval  Heartbeat / flush cadence ms.
+	 * @param int                      $slot      Acquired slot index (default 1 = unmetered).
+	 * @param int                      $partition Slot-pool partition (-1 = shared browser).
 	 */
 	public function run_stream_loop( array $subs, ?array $positions, int $interval, int $slot = 1, int $partition = -1 ): void {
-		// `connected` envelope emits BEFORE the substrate graph is built —
-		// it doesn't register any nodes, so it stays outside the try/finally.
+		// `connected` emits before the graph is built (registers no nodes), so it stays outside try.
 		$this->send_sse_event( 'msg', $this->build_connected_msg( $slot, $subs, $interval ) );
-		// Push it through fastcgi/nginx buffers now — a bare flush() doesn't
-		// clear them, only the FLUSH_SIZE padding does.
+		// A bare flush() doesn't clear fastcgi/nginx buffers; the FLUSH_SIZE padding does.
 		$this->flush_if_needed();
 
 		$consumers   = [];
 		$direct_sink = null;
 		try {
-			// SSE-process substrate graph. Same naming convention as worker
-			// processes (`_router`, `_http`) so cli REPL inspection of an SSE
-			// process feels the same as inspecting a worker. Build INSIDE the
-			// try so the finally cleans up even when open_subscription throws
-			// (path-traversal InvalidArgumentException) — otherwise the next
-			// SSE request hits `node name collision: _router already registered`.
+			// Build INSIDE the try so finally cleans up even when open_subscription
+			// throws — otherwise the next request hits a `_router already registered` collision.
 			( new Router() )->name( '_router' );
 			$emit = function ( array $m ): void {
 				$this->send_sse_event( 'msg', $m );
 			};
 			( new HTTP_Filter( (int) \getmypid(), $emit ) )->name( '_http' );
 
-			// Sink for non-pivoted SSE traffic (raw log tails, heartbeats).
-			// Empty TO → emit directly. Non-empty TO → route through _router
-			// so HTTP_Filter can gate per-session pivoted replies.
+			// Empty TO → emit directly. Non-empty TO → route through _router so
+			// HTTP_Filter can gate per-session pivoted replies.
 			$direct_sink = new Callback(
 				static function ( array &$m ) use ( $emit ): void {
 					if ( '' === $m[ Message::TO ] ) {
@@ -385,11 +300,8 @@ class Messages_Stream_Controller {
 				}
 			}
 
-			// Heartbeat cadence: emit a `heartbeat` SSE event every $interval
-			// ms so dashboards can distinguish an idle-but-live stream from
-			// a dead one. Without this, a stream with no data lines goes
-			// dark to the client until the next forwarded message — which
-			// can be minutes on quiet topologies.
+			// Heartbeat every $interval ms so dashboards can tell an idle-but-live
+			// stream from a dead one (quiet topologies would otherwise go dark).
 			$heartbeat_interval = \max( 0.1, $interval / 1000.0 );
 			$last_heartbeat     = \microtime( true );
 			$iterations         = 0;
@@ -413,9 +325,7 @@ class Messages_Stream_Controller {
 						);
 						$last_heartbeat = $now;
 					}
-					// Flush before the framework sleeps so forwarded msgs +
-					// heartbeats reach the client this tick instead of sitting
-					// in the buffer until ~4KB of real data accumulates.
+					// Flush before the framework sleeps so this tick's msgs + heartbeats reach the client.
 					$this->flush_if_needed();
 					return true;
 				}
@@ -443,19 +353,16 @@ class Messages_Stream_Controller {
 	}
 
 	/**
-	 * Build the `connected` Message envelope the SSE client expects as the
-	 * first event on the stream. Carries the session pid (for pivoted
-	 * commands' FROM stamp), slot index (M4: concurrency cap), the list
-	 * of subscriptions the server actually opened (echo to confirm the
-	 * client's request was parsed), and the heartbeat/flush interval.
+	 * Build the `connected` Message envelope the SSE client expects first:
+	 * session pid (pivoted-command FROM stamp), slot index, the opened
+	 * subscriptions (echoed back), and the heartbeat/flush interval.
 	 *
 	 * @param array<int,string> $subs
 	 */
 	private function build_connected_msg( int $slot, array $subs, int $interval ): array {
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_INFO;
-		// connected fires BEFORE the drain loop seeds `Core::$now`; fall
-		// back to microtime() so the envelope carries a real timestamp.
+		// connected fires before the drain loop seeds `Core::$now`; fall back to microtime().
 		$msg[ Message::TIMESTAMP ] = 0.0 !== Core::$now ? Core::$now : \microtime( true );
 		$msg[ Message::FROM ]      = '_stream';
 		$msg[ Message::KEY ]       = 'connected';
@@ -463,9 +370,6 @@ class Messages_Stream_Controller {
 			'pid'           => \getmypid(),
 			'slot'          => $slot,
 			'subscriptions' => $subs,
-			// TODO(M2/M4): $interval is reflected to the client for cadence display, but
-			// the drain loop itself doesn't gate on it — Consumer self-paces. Wire to
-			// heartbeat tick when M2 dashboards need it.
 			'interval'      => $interval,
 		];
 		return $msg;

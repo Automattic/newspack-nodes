@@ -1,17 +1,7 @@
 /* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
- * Tests for unwrapCommandResponse — extracts a verb's response payload from
- * the raw 7-field Message array that CommandClient.send() returns.
- *
- * Wire shape recap (post de-double-encoding):
- *   Message = [TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE]
- *   VALUE   = the structured response object `{ name, payload }` itself —
- *             fetch().json() / the SSE JSON.parse already decoded the whole
- *             message envelope, so VALUE arrives as an OBJECT, not a string.
- *   payload = the verb's structured return (object / array / scalar), carried
- *             as-is with no inner encoding.
- *
- * The helper reads `message[VALUE].payload` directly — no parse step.
+ * Tests for unwrapCommandResponse — extracts the verb payload from the
+ * raw 7-field Message array (VALUE is already the `{ name, payload }` object).
  */
 
 import { TM_COMMAND, TM_RESPONSE, TM_ERROR } from '@newspack-nodes/runtime';
@@ -19,8 +9,7 @@ import { TM_COMMAND, TM_RESPONSE, TM_ERROR } from '@newspack-nodes/runtime';
 import unwrapCommandResponse from '../unwrapCommandResponse';
 
 describe( 'unwrapCommandResponse', () => {
-	// VALUE is the structured response object itself — NOT a JSON string.
-	// `payload` is the verb's structured return, also not separately encoded.
+	// VALUE is the structured `{ name, payload }` object, not a JSON string.
 	function buildMessage( type, valueObject ) {
 		return [ type, 1.23, 'aggregator', '', 'cmd-1', '', valueObject ];
 	}

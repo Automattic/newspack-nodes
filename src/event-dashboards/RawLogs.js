@@ -1,10 +1,6 @@
 /* global requestAnimationFrame, cancelAnimationFrame */
 /**
- * Raw Logs Component
- *
- * Real-time streaming view of raw log lines.
- * Uses SSE to multiplex all partitions into a single stream.
- * Canvas-based rendering for maximum performance.
+ * Raw Logs Component — canvas-rendered real-time SSE stream of log lines.
  */
 
 import {
@@ -50,9 +46,7 @@ export default function RawLogs() {
 
 	const isPageVisible = usePageVisibility();
 
-	// Fetch available logs on mount via CommandClient — raw-logs.firehose_logs
-	// returns `[{key, label}]` mirroring the legacy /firehose/logs REST shape
-	// (see Raw_Logs_CI::firehose_logs).
+	// Fetch available logs on mount; returns `[{key, label}]`.
 	useEffect( () => {
 		getCommandClient()
 			.send( { to: 'raw-logs', verb: 'firehose_logs' } )
@@ -107,10 +101,7 @@ export default function RawLogs() {
 		setLinesPerSecond( smoothedLPS.current );
 	}, [] );
 
-	// Per-Message transform: each Message envelope on the unified
-	// /messages/stream endpoint becomes one row in the buffer. Skips the
-	// substrate's `connected` envelope (KEY=='connected') so the
-	// dashboard doesn't render the slot/pid metadata as a log line.
+	// Each Message envelope becomes one buffer row; skip the `connected` one.
 	const handleMessage = useCallback( ( envelope ) => {
 		if ( envelope[ 5 ] === 'connected' ) {
 			return;
@@ -165,10 +156,7 @@ export default function RawLogs() {
 		linesBufferRef.current = [];
 		lineCounterRef.current = 0;
 		lastProcessedCountRef.current = 0;
-		// Canvas reads from filteredLinesRef directly — clearing the buffer
-		// + state isn't enough; the 100ms ticker only refreshes the snapshot
-		// when newCount > 0, so without this we keep drawing the old log's
-		// lines until new ones arrive on the new log.
+		// Clear the canvas snapshot too (ticker only refreshes on newCount>0).
 		filteredLinesRef.current = [];
 		setLines( [] );
 		offsetRef.current = 0;
@@ -320,8 +308,7 @@ export default function RawLogs() {
 				}
 
 				if ( visibleNewCount > 0 ) {
-					// Update spacer height BEFORE scroll adjustment so
-					// the browser does not clamp scrollTop to the old max.
+					// Update spacer height before scroll adjust so scrollTop isn't clamped.
 					if ( spacerRef.current ) {
 						spacerRef.current.style.height =
 							filteredLinesRef.current.length * ROW_HEIGHT + 'px';
@@ -363,8 +350,7 @@ export default function RawLogs() {
 		return () => closeSource();
 	}, [ isPageVisible, isPaused, selectedLog, connect, closeSource ] );
 
-	// Filtered lines for React UI (counts, spacer height).
-	// Canvas reads from filteredLinesRef (set only in setInterval).
+	// Filtered lines for React UI; canvas reads filteredLinesRef separately.
 	const filteredLines = useMemo( () => {
 		if ( ! filter ) {
 			return lines;
@@ -383,10 +369,7 @@ export default function RawLogs() {
 		linesBufferRef.current = [];
 		lineCounterRef.current = 0;
 		lastProcessedCountRef.current = 0;
-		// Canvas reads from filteredLinesRef directly. The 100ms ticker
-		// only refreshes the snapshot when newCount > 0; after Clear,
-		// newCount stays 0 until new lines arrive, so without this the
-		// canvas keeps drawing the pre-clear lines.
+		// Clear the canvas snapshot too (ticker only refreshes on newCount>0).
 		filteredLinesRef.current = [];
 		setLines( [] );
 		offsetRef.current = 0;

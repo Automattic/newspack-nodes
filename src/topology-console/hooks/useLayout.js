@@ -1,19 +1,6 @@
 /**
- * useLayout — fetch and save canvas-position layouts via the M4
- * CommandClient pipe (`layouts.get` / `.save`).
- *
- * Layouts are decoupled from topologies (a topology's TSL describes
- * graph structure; a layout file describes node positions). One
- * layout per topology name, stored server-side at
- * <base_directory>/layouts/<name>.layout.
- *
- * Returns:
- *   - fetchLayout(name) → Promise<{ name, positions: {id: [x,y]} | null }>
- *   - saveLayout({ name, positions }) → Promise<{ name, path, positions }>
- *
- * Per-action nonces are no longer required (see useSaveTopology for
- * the reasoning); auth is `manage_options` + the standard X-WP-Nonce
- * that CommandClient injects.
+ * useLayout — fetch/save canvas-position layouts (`layouts.get` / `.save`),
+ * decoupled from topology TSL. Returns { fetchLayout, saveLayout }.
  */
 
 import { useCallback } from '@wordpress/element';

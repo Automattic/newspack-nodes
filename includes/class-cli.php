@@ -1,22 +1,6 @@
 <?php
 /**
- * Cli: helper methods backing the WP-CLI commands.
- *
- * The shape mirrors event-logger's legacy `WorkerCommand` helpers so worker-cli
- * surfaces (run/restart/status/types/reqgrep) share one source of truth:
- *
- *  - `ls_workers()` enumerates lock-dir heartbeats for `wp nodes ls`.
- *  - `attach_to_worker()` resolves IPC paths for `wp nodes cli {reader}`.
- *  - `parse_reader_id()` parses `{type}.p{N}` (public so command classes share it).
- *  - `restart_workers()` writes the restart flag for one type+partition or `all`,
- *    fanning across topologies discovered from the runtime's `newspack_nodes/topologies`
- *    filter (registered via `Bootstrap::expand_workers()`).
- *  - `live_positions()` reads worker-cursor positions from memcache when a
- *    Cache_Interface-shaped instance is supplied. Returns null if memcache is
- *    unreachable so callers can fall back to on-disk offsetlog reads.
- *
- * Capability + nonce checks live in the WP_CLI command classes (`WorkerCliCommand`,
- * `ReqgrepCommand`) — this class is pure I/O against the on-disk + memcache state.
+ * Cli: helper methods backing the WP-CLI commands (pure I/O against on-disk + memcache state).
  *
  * @package Newspack_Nodes
  */
@@ -28,10 +12,7 @@ namespace Newspack_Nodes;
 class Cli {
 	public const STALE_TIMEOUT = 60;
 
-	/**
-	 * Default key prefix for worker-cursor positions in memcache. Mirrors the
-	 * event-logger plugin convention so reading code can be migrated 1:1.
-	 */
+	/** Default memcache key prefix for worker-cursor positions. */
 	public const POSITION_KEY_PREFIX = 'newspack_nodes:cursor:';
 
 	private string $base_dir;
@@ -45,8 +26,7 @@ class Cli {
 	}
 
 	/**
-	 * Enumerate worker lock dirs under `{base}/locks/` and report each worker's
-	 * staleness. Used by `wp nodes ls` and the rich `wp nodes status` table.
+	 * Enumerate worker lock dirs and report each one's staleness.
 	 *
 	 * @return array<int,array{type:string,partition:int,heartbeat_at:int,stale:bool}>
 	 */
@@ -80,24 +60,11 @@ class Cli {
 	}
 
 	/**
-	 * Resolve IPC paths for a `{type}.p{N}` reader id. Caller uses the returned
-	 * `input` / `output` as `Partition` paths to drive the REPL pivoted-mode
-	 * graph.
-	 *
-	 * Verifies the worker is actually registered by checking for its lock dir
-	 * (`{base}/locks/{type}.p{N}.lock.d/`). Without this, a typo in the reader
-	 * id silently creates ghost IPC partitions that nobody reads/writes — the
-	 * cli looks like it works but every command is dropped on the floor.
-	 *
-	 * Staleness is NOT checked here. A registered-but-stale worker is in the
-	 * middle of a restart cycle; the supervisor will respawn it shortly and
-	 * the cli's attach is fine. `wp nodes ls` is the canonical way to inspect
-	 * heartbeat freshness.
+	 * Resolve IPC paths for a `{type}.p{N}` reader id; verifies the worker's lock dir exists.
 	 *
 	 * @param string $reader_id Reader id in `{type}.p{N}` form.
 	 * @return array{input:string,output:string,type:string,partition:int}
-	 * @throws \InvalidArgumentException If reader_id can't be parsed OR no
-	 *                                   matching lock dir exists.
+	 * @throws \InvalidArgumentException If reader_id can't be parsed or no matching lock dir exists.
 	 */
 	public function attach_to_worker( string $reader_id ): array {
 		[ $type, $partition ] = self::parse_reader_id( $reader_id );
@@ -116,8 +83,7 @@ class Cli {
 	}
 
 	/**
-	 * Parse `{type}.p{N}` into [type, partition]. Public so command classes can
-	 * validate user input without re-deriving the regex.
+	 * Parse `{type}.p{N}` into [type, partition].
 	 *
 	 * @param string $reader_id Reader id.
 	 * @return array{0:string,1:int}
@@ -131,17 +97,11 @@ class Cli {
 	}
 
 	/**
-	 * Request restart for one or more worker groups. Drops a `restart` flag file
-	 * into each lock dir; the live holder polls `should_restart()` from its drain
-	 * loop and exits cleanly so a fresh process can take over.
+	 * Request restart for one or more worker groups by dropping a `restart` flag.
 	 *
-	 * @param array $workers   List of `[type=>str, partition=>int]` (typically from
-	 *                          `Bootstrap::expand_workers()`).
-	 * @param array $filter    Optional filter `[type => bool]`. If empty, all
-	 *                          workers are matched. Use type='all' (special) to
-	 *                          force a wildcard.
-	 * @param int   $partition If >= 0, only restart workers on this partition.
-	 *                         Use -1 to match any partition.
+	 * @param array $workers   List of `[type=>str, partition=>int]`.
+	 * @param array $filter    Optional `[type => bool]`; empty or 'all' = wildcard.
+	 * @param int   $partition Only this partition if >= 0; -1 = any.
 	 * @return int Number of restart-flag files written.
 	 */
 	public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int {
@@ -168,12 +128,7 @@ class Cli {
 	}
 
 	/**
-	 * Drop a restart flag at the supervisor's lock dir
-	 * (`{base}/locks/supervisor.lock.d/`). The live supervisor sees the
-	 * flag from its tick loop, exits cleanly, and self-respawns. The path
-	 * is supervisor-specific because the supervisor is the only worker that
-	 * doesn't run as a partition fleet — `restart_workers()` handles
-	 * everything `{type}.p{N}.lock.d`-shaped; this handles the singleton.
+	 * Drop a restart flag at the supervisor's singleton lock dir.
 	 *
 	 * @return bool True when the flag was written.
 	 */
@@ -182,15 +137,12 @@ class Cli {
 	}
 
 	/**
-	 * Read live worker-cursor positions from memcache. Each worker publishes
-	 * `{type}.p{partition}` to a key under `POSITION_KEY_PREFIX`; the value is
-	 * an array `[ 'seg' => int, 'off' => int, 'ts' => int ]`.
+	 * Read a live worker-cursor position from memcache.
 	 *
-	 * @param object $cache    Anything with a `get(string)` method (Cache_Interface
-	 *                          or any duck-typed equivalent). Pass null to skip.
+	 * @param object $cache    Anything with a `get(string)` method; null to skip.
 	 * @param string $type     Worker type.
 	 * @param int    $partition Partition index.
-	 * @return array{seg:int,off:int,ts?:int}|null Position or null if not in cache / unreachable.
+	 * @return array{seg:int,off:int,ts?:int}|null Position or null if not cached / unreachable.
 	 */
 	public function live_position( ?object $cache, string $type, int $partition ): ?array {
 		if ( null === $cache || ! \method_exists( $cache, 'get' ) ) {
@@ -212,11 +164,7 @@ class Cli {
 	}
 
 	/**
-	 * Read the latest checkpointed position from a worker's offsetlog directory.
-	 * Used as the fallback when memcache is unreachable.
-	 *
-	 * Offsetlog layout: `{base}/offsets/{type}.p{partition}/p0/{segment_id}.log`
-	 * (single-partition Partition writes JSONL `{seg, off, ts}` lines).
+	 * Read the latest checkpointed position from a worker's offsetlog dir (memcache fallback).
 	 *
 	 * @param string $type     Worker type.
 	 * @param int    $partition Partition index.
@@ -265,13 +213,12 @@ class Cli {
 	}
 
 	/**
-	 * Sum bytes still ahead of a cursor across all segments of a partition. Used
-	 * by `wp nodes status` to display "Behind" so operators can see consumer lag.
+	 * Sum bytes still ahead of a cursor across a partition's segments (the "Behind" column).
 	 *
 	 * @param string $partition_dir Absolute path to the partition directory.
 	 * @param int    $cursor_seg    Cursor segment id.
 	 * @param int    $cursor_offset Cursor offset within $cursor_seg.
-	 * @return int Bytes remaining to be consumed (0 if caught up or partition missing).
+	 * @return int Bytes remaining (0 if caught up or partition missing).
 	 */
 	public static function calculate_behind( string $partition_dir, int $cursor_seg, int $cursor_offset ): int {
 		if ( ! \is_dir( $partition_dir ) ) {
@@ -329,9 +276,7 @@ class Cli {
 	}
 
 	/**
-	 * Format an uptime duration compactly for `wp nodes status`. Mirrors the
-	 * event-logger plugin's `format_duration` so output is byte-for-byte
-	 * compatible with operator scripts.
+	 * Format an uptime duration compactly for `wp nodes status`.
 	 */
 	public static function format_duration( int $seconds ): string {
 		if ( $seconds < 60 ) {

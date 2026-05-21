@@ -1,16 +1,7 @@
 /* global EventSource */
 /**
- * Message-Stream SSE Connection Hook
- *
- * Subscribes to one-or-more named logs / worker IPC partitions on the
- * substrate's unified `/messages/stream` endpoint. The endpoint emits
- * a single `msg` event per Message envelope, and the caller's
- * `onMessage` callback decides what to do with each one.
- *
- * Positions are tracked client-side by reading each envelope's
- * `ID = "seg:off"` field and keying by `FROM = "{sub}.pN"`. On
- * reconnect the saved positions ride the next request so the stream
- * resumes from the last observed offset per partition.
+ * Message-Stream SSE Connection Hook — subscribes to named logs / IPC
+ * partitions on `/messages/stream`, tracking per-partition resume offsets.
  */
 
 import { useState, useRef, useCallback } from '@wordpress/element';
@@ -22,10 +13,8 @@ const ID = 4;
 const KEY = 5;
 const VALUE = 6;
 
-// Client-side keep-alive cadence. The substrate's slot pool keys each
-// connection's TTL off this client poke (NOT the server heartbeat). The
-// half-TTL cadence keeps the slot from expiring on a single missed poke
-// without flooding the server.
+// Client keep-alive cadence; the slot TTL keys off this poke (not the
+// server heartbeat). Half-TTL survives one missed poke without flooding.
 const SLOT_HEARTBEAT_MS = 5000;
 const SLOT_TTL_S = 10;
 
@@ -92,9 +81,7 @@ export default function useMessageStream( {
 		close();
 		setError( null );
 
-		// Drop saved positions when the subscription set changes — they
-		// reference offsets in the previous log set and would silently
-		// mis-resume into the new selection.
+		// Drop saved positions when the subscription set changes (stale offsets).
 		const currentSubsKey = subsKeyRef.current;
 		if (
 			lastSubsKeyRef.current !== null &&
@@ -150,13 +137,8 @@ export default function useMessageStream( {
 				return;
 			}
 
-			// First envelope on the stream carries `KEY = 'connected'` and
-			// includes the slot id assigned by Sse_Slot_Pool. Start the
-			// keep-alive poker so the slot doesn't expire its TTL while
-			// the connection is otherwise idle — without this the
-			// dashboard cycles through reconnects every 30s as each new
-			// connection steals the previous slot before the server has
-			// noticed the old one was still alive.
+			// First envelope (KEY='connected') carries the slot id; start the
+			// keep-alive poker so an idle slot doesn't expire its TTL.
 			if ( 'connected' === envelope[ KEY ] && envelope[ VALUE ] ) {
 				const slot = envelope[ VALUE ].slot;
 				if ( Number.isInteger( slot ) && slot >= 0 ) {
@@ -171,16 +153,13 @@ export default function useMessageStream( {
 								payload: { slot, ttl: SLOT_TTL_S },
 							} )
 							.catch( () => {
-								// Best-effort; transient failures are
-								// absorbed by the slot's TTL grace.
+								// Best-effort; TTL grace absorbs transient failures.
 							} );
 					}, SLOT_HEARTBEAT_MS );
 				}
 			}
 
-			// Track per-subscription per-partition position from each
-			// envelope's FROM=`{sub}.pN` + ID=`seg:off` pair. The next
-			// reconnect rides these as the `positions` query param.
+			// Track resume position from FROM=`{sub}.pN` + ID=`seg:off`.
 			const from = String( envelope[ FROM ] || '' );
 			const dotP = from.lastIndexOf( '.p' );
 			if ( dotP > 0 ) {
@@ -203,10 +182,7 @@ export default function useMessageStream( {
 				}
 			}
 
-			// Hand off to caller. The TYPE check is defensive — substrate
-			// connected envelope is TM_INFO (64); data lines are
-			// TM_BYTESTREAM (1) or TM_STRUCT (256). Caller filters by
-			// FROM / KEY as needed.
+			// Hand off to caller (it filters by FROM/KEY as needed).
 			if ( onMessageRef.current ) {
 				onMessageRef.current( envelope, { type: envelope[ TYPE ] } );
 			}
@@ -215,11 +191,8 @@ export default function useMessageStream( {
 		source.addEventListener( 'heartbeat', touch );
 
 		source.onerror = () => {
-			// Reconnect-stack guard: EventSource can fire `error` multiple
-			// times for one failure (each readyState change emits one). Without
-			// the guard, we stack setTimeout calls and burn through the slot
-			// pool (8 slots × 30s TTL = locked out for half a minute) before
-			// exponential backoff catches up.
+			// Reconnect-stack guard: EventSource fires `error` per readyState
+			// change; without this we'd stack timers and burn the slot pool.
 			if ( reconnectTimeoutRef.current ) {
 				return;
 			}

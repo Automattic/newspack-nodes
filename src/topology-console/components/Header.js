@@ -1,9 +1,5 @@
 /**
  * Top header — brand, subtitle, topology+partition selectors, mode toggle.
- *
- * The mode toggle is inert in v1 (LIVE is the only available mode;
- * EDIT is a v2 affordance). The pulsing LED dot on the LIVE button
- * doubles as a connection-health indicator.
  */
 
 const VERSION =
@@ -39,10 +35,7 @@ export default function Header( {
 				{ HOST }
 			</div>
 			<div className="topology-header__controls">
-				{ /* Topology + partition selectors apply only to the
-				live SSE feed; in edit mode the operator is authoring
-				offline and these would be misleading (no SSE, no
-				partition concept until the topology is saved + spawned). */ }
+				{ /* Selectors apply only to the live feed, not edit mode. */ }
 				{ mode !== 'edit' && (
 					<>
 						<span className="topology-ctl-label">Topology</span>
@@ -141,11 +134,7 @@ export default function Header( {
 							}` }
 						/>
 						LIVE
-						{ /* Always-rendered right-aligned slot — shows an
-						em-dash until the first `gui:uptime` poll lands
-						(~5s after connect) so the button width doesn't
-						jump on first appearance. Spatial separation is
-						provided by the flex layout instead of a bullet. */ }
+						{ /* Always-rendered slot (em-dash until first uptime) so the button width is stable. */ }
 						<span className="topology-uptime">
 							{ uptime || '—' }
 						</span>

@@ -1,9 +1,5 @@
 /**
- * Tests for the extracted Dumper-render helpers. These were previously
- * module-private inside TopologyConsole; the in-browser SessionSink node
- * needs them, so they live in their own module now. The transcript-framing
- * rules must match the substrate cli Dumper exactly (TM_EOF dropped,
- * TM_COMMAND|TM_RESPONSE unwrapped, TM_PING → round trip, etc.).
+ * Tests for the Dumper-render helpers; framing must match the substrate cli Dumper.
  */
 
 import {

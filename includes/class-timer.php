@@ -1,15 +1,8 @@
 <?php
 /**
- * Timer: periodic / one-shot fire.
+ * Timer: periodic / one-shot fire. Two modes: own EventFramework slot (set_timer($ms)) or Router-hitchhike (set_timer() no args).
  *
- * Two scheduling modes:
- *  - EventFramework slot: $timer->set_timer( $ms, $oneshot ) — own slot, sub-second precision.
- *  - Router-hitchhike: $timer->set_timer() with no args — registers with Router's TIMER
- *    event using Node-name dispatch. Router's notify('TIMER', ...) fills a TM_INFO message
- *    into this Timer (TO=name, KEY='TIMER'); Timer::fill() detects it and calls fire_cb().
- *    Closure-based hitchhike was rejected because the closure returns void → coerced to
- *    null → falsy → listener self-unregistered after first tick (per Node::dispatch_listener
- *    "falsy return removes registration" rule). Node-name dispatch always returns true.
+ * Hitchhike uses Node-name dispatch, not a closure: a void-returning closure coerces to falsy and self-unregisters after one tick.
  *
  * @package Newspack_Nodes
  */
@@ -26,13 +19,7 @@ class Timer extends Node {
 	/** @var string Tracks scheduling mode: 'inactive' | 'event_framework' | 'router'. */
 	protected string $mode = 'inactive';
 
-	/**
-	 * Tag stamped onto each emitted message's KEY field — analogous to
-	 * `$self->{stream}` on real Tachikoma's Timer.pm:65, where receivers
-	 * disambiguate control ticks from data via STREAM. Our 7-field message
-	 * layout has no STREAM slot, so KEY plays the same role. Empty string
-	 * = unset (most Timers don't need a tag).
-	 */
+	/** Tag stamped onto each emitted message's KEY (Tachikoma uses STREAM; we have no STREAM slot). Empty = unset. */
 	protected string $key = '';
 
 	public function set_key( string $key ): void {
@@ -73,8 +60,7 @@ class Timer extends Node {
 		$this->active = false;
 		$this->mode   = 'inactive';
 
-		// Defer to closing-queue: avoids mid-iteration mutation of EventFramework $timers
-		// or Router $registrations while drain() / notify() is iterating.
+		// Defer to closing-queue: avoids mutating EventFramework $timers / Router $registrations mid-iteration.
 		Core::push_closing( static function () use ( $self, $mode ): void {
 			if ( 'router' === $mode ) {
 				$router = Core::node( '_router' );
@@ -97,10 +83,7 @@ class Timer extends Node {
 		return $this->fire_count;
 	}
 
-	/**
-	 * Detect Router-hitchhike TIMER notifications (TM_INFO, KEY='TIMER') and fire.
-	 * All other messages fall through to the default forward-to-sink behavior.
-	 */
+	/** Detect Router-hitchhike TIMER notifications (TM_INFO, KEY='TIMER') and fire; else forward to sink. */
 	public function fill( array &$message ): void {
 		if (
 			( $message[ Message::TYPE ] & Message::TM_INFO )
@@ -123,16 +106,7 @@ class Timer extends Node {
 		$this->notify( 'FIRE', Core::$now );
 	}
 
-	/**
-	 * Cascade timer-slot unregistration ahead of normal Node teardown.
-	 * Without this, EventFramework's `$timers` (or Router's TIMER
-	 * registration list) keeps a back-reference to this object, and
-	 * `unset($node)` never drops refcount to zero — `__destruct` only
-	 * fires when the event loop finally drains, well after the operator
-	 * thought the node was gone. Stops are deferred onto Core's
-	 * closing queue so a remove_node() that fires mid-drain doesn't
-	 * mutate `$timers` while it's being iterated.
-	 */
+	/** Cascade timer-slot unregistration before Node teardown, else EventFramework/Router keeps a back-reference and refcount never hits zero. */
 	public function remove_node(): void {
 		if ( 'inactive' !== $this->mode ) {
 			$this->stop_timer();

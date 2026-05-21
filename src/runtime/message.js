@@ -41,9 +41,7 @@ export function unpack( s ) {
 export function valueSize( m ) {
 	const v = m[ VALUE ];
 	if ( typeof v === 'string' ) {
-		// UTF-8 byte count to match PHP strlen() on multibyte payloads.
-		// Blob is used over TextEncoder because jest's jsdom sandbox
-		// doesn't expose TextEncoder.
+		// UTF-8 byte count (Blob, since jsdom lacks TextEncoder) to match PHP strlen().
 		return new Blob( [ v ] ).size;
 	}
 	if ( v === null || v === undefined ) {

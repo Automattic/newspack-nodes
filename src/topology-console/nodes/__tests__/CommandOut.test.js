@@ -1,15 +1,5 @@
 /**
- * CommandOut — the in-browser graph node that performs the worker-bound
- * command send. It folds in the routing/pivot/connect logic that used to
- * live in the standalone sendCommand util: every fill posts a BATCH of
- * one leading `connect_worker_input` (mounts the worker's input Partition
- * in the request-scoped /command process) followed by each worker
- * command, pivoting replies through the open SSE session via
- * FROM=`_http/<ssePid>`.
- *
- * The reply-pivot pid is read from the SseConnector at fill time (via
- * connector.pid()), so a reconnect that re-keys the session is picked up
- * automatically on the next send.
+ * CommandOut tests — the worker-bound command send (batched connect_worker_input + commands, reply pivot via FROM=`_http/<ssePid>`).
  */
 
 import { CommandOut } from '../CommandOut';

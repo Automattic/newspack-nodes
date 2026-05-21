@@ -2,32 +2,6 @@
 /**
  * Dumper: terminal output node for the REPL.
  *
- * Dispatches by TYPE flag:
- *  - TM_COMMAND|TM_RESPONSE → unwrap Command JSON, print payload to stdout
- *    (special case: name=='prompt' updates the Shell's prompt, no print)
- *  - TM_ERROR               → payload to stderr (no prefix; the stream
- *                              itself + the `debug_level 1` header already
- *                              identify it as an error)
- *  - TM_INFO                → payload to stdout (no prefix; the `debug_level 1`
- *                              header already labels TM_INFO when it's wanted)
- *  - default                → VALUE to stdout
- *
- * Async-output dance: when a TM_INFO or default-bytestream message arrives while
- * a prompt is on screen, the Dumper emits ANSI escape codes so the async output
- * appears above a freshly-redrawn prompt instead of trampling the user's typing:
- *   1. \033[s         — save cursor (capture user's caret column)
- *   2. \r\033[2K      — CR + clear-to-EOL (wipe the in-flight prompt)
- *   3. async output + "\n"
- *   4. $shell->prompt — redraw prompt on the fresh line
- *   5. \033[u         — restore cursor (best-effort caret return)
- *
- * Synchronous responses (TM_COMMAND|TM_RESPONSE, TM_ERROR) skip the redraw —
- * those are direct answers to the user's last command and the caller (Shell)
- * is already responsible for re-prompting.
- *
- * Non-TTY stdout falls back to plain writes (no ANSI escapes) — escape sequences
- * in a piped log file are noise.
- *
  * @package Newspack_Nodes
  */
 
@@ -36,65 +10,30 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Dumper extends Node {
-	// ANSI escape sequences. Pre-computed constants — declared once, used on every
-	// async write (efficiency principle: pre-compute at setup).
-	//
-	// Sequence used:
-	//   \033[s   save cursor       — captures column of user's typed-input caret
-	//   \r       carriage return   — moves to start of line
-	//   \033[2K  erase entire line — wipes the in-flight prompt+input
-	//   (write async output + "\n")
-	//   (write $shell->prompt)
-	//   \033[u   restore cursor    — best-effort return to caret column past prompt
-	//
-	// Concatenated into a single fwrite so partial-write windows are minimized;
-	// the wipe and redraw normally hit the terminal in one syscall.
 	private const ANSI_SAVE_CURSOR    = "\033[s";
 	private const ANSI_RESTORE_CURSOR = "\033[u";
 	private const ANSI_CR_CLEAR_LINE  = "\r\033[2K";
 
 	/** @var resource */
 	private $stdout;
-	/** @var resource */
-	private $stderr;
 
 	private ?Shell $shell = null;
 
-	/**
-	 * Tracks whether a prompt is currently on the user's screen. Set by
-	 * mark_prompt_displayed() (called by the Cli loop right after writing the
-	 * prompt); cleared by the Dumper after each redraw of the prompt below
-	 * async output. Public so the Cli readline loop can flip it without
-	 * needing a setter call per iteration.
-	 */
+	/** Whether a prompt is on screen; public so the Cli readline loop can flip it per iteration. */
 	public bool $prompt_displayed = false;
 
-	/**
-	 * Whether stdout is a real terminal. Cached at construction so we don't
-	 * call posix_isatty() per message. False → fall back to plain writes.
-	 */
+	/** Whether stdout is a real terminal, cached at construction; false → plain writes. */
 	private bool $stdout_is_tty;
 
-	/**
-	 * Set by Cli_Command when the REPL is using readline_callback_handler_install
-	 * (the non-blocking readline path that mirrors Term::ReadLine::Gnu's
-	 * callback_handler_install). When true, async output uses
-	 * readline_on_new_line() + readline_redisplay() to re-paint the prompt
-	 * instead of the manual ANSI cursor-save/restore dance — readline owns
-	 * the line buffer and would otherwise be left out of sync.
-	 */
+	/** Readline path skips readline_redisplay in the async redraw to keep it in sync. */
 	private bool $readline_mode = false;
 
 	/**
-	 * @param resource|null $stdout Defaults to STDOUT. Pass php://memory for tests.
-	 * @param resource|null $stderr Defaults to STDERR.
-	 * @param bool|null     $force_tty If non-null, override the posix_isatty()
-	 *                                 detection (tests pass true to exercise the
-	 *                                 escape-sequence path on a memory stream).
+	 * @param resource|null $stdout    Defaults to STDOUT. Pass php://memory for tests.
+	 * @param bool|null     $force_tty If non-null, override the posix_isatty() detection.
 	 */
-	public function __construct( $stdout = null, $stderr = null, ?bool $force_tty = null ) {
+	public function __construct( $stdout = null, ?bool $force_tty = null ) {
 		$this->stdout = $stdout ?? \STDOUT;
-		$this->stderr = $stderr ?? \STDERR;
 
 		if ( null !== $force_tty ) {
 			$this->stdout_is_tty = $force_tty;
@@ -113,22 +52,11 @@ class Dumper extends Node {
 		$this->readline_mode = $on;
 	}
 
-	/**
-	 * Multi-session TO filter — set to this cli's $pid. Render iff TO matches
-	 * either `_output/$pid` (worker reply that didn't peel _output) or
-	 * `$pid` (worker reply that did peel via _router) OR TO is empty (async
-	 * broadcast / synthetic in-process response). Other sessions' replies are
-	 * dropped silently. Spec line 856; user direction in REPL pivoted-mode
-	 * thread.
-	 */
+	/** Multi-session TO filter (this cli's $pid); render only matching or empty-TO messages. */
 	private string $to_filter = '';
 
 	/**
-	 * Callback fired when a TM_EOF echo arrives matching the to_filter — the
-	 * cli's stdin-close round-trip drain marker. Cli wires this to flip the
-	 * reader's exit flag so the event loop terminates after the echo (i.e.
-	 * after every preceding output message has been drained off the reply
-	 * partition). Null when not registered.
+	 * Fired when a TM_EOF echo matching to_filter arrives (stdin-close drain marker).
 	 *
 	 * @var callable|null
 	 */
@@ -143,45 +71,26 @@ class Dumper extends Node {
 	}
 
 	/**
-	 * Render-verbosity dial. Mirrors Perl Tachikoma `debug_level` semantics:
-	 *
-	 *   0 (default) — interactive rendering only; control messages (TM_EOF
-	 *                 echo) silenced; the user sees curated output.
-	 *   1           — additionally emit a one-line debug header to stderr
-	 *                 for EVERY Message that arrives at this Dumper, including
-	 *                 messages the normal renderer would silence. Format:
-	 *                   <TM_FLAGS> from <FROM>: <stringified-value>
-	 *   2           — same as 1, but the header is the full envelope:
-	 *                   <TM_FLAGS> id=<ID> stream=<STREAM> from=<FROM> to=<TO>
-	 *                 followed by the value on the next line.
-	 *
-	 * The normal render still happens after the debug header, so level 1/2
-	 * additively narrate without replacing user-friendly output.
+	 * Render-verbosity dial: 0 = curated, 1 = + per-message header, 2 = + full envelope dump.
 	 *
 	 * @var int 0, 1, or 2.
 	 */
 	private int $debug_level = 0;
 
 	/**
-	 * Set the debug-render level. Clamps to [0, 2]. Returns the value actually
-	 * applied so the Shell builtin can report `debug_level: <n>` to the user.
+	 * Set the debug-render level (clamped to [0, 2]); returns the applied value.
 	 */
 	public function set_debug_level( int $level ): int {
 		$this->debug_level = \max( 0, \min( 2, $level ) );
 		return $this->debug_level;
 	}
 
-	/**
-	 * Read-only accessor — used by Shell builtins to toggle (read current,
-	 * pass `!current` to set) and by tests.
-	 */
 	public function debug_level(): int {
 		return $this->debug_level;
 	}
 
 	/**
-	 * Render a TM-flag bitmask as a human-readable string. Multi-flag types
-	 * (TM_COMMAND|TM_RESPONSE etc.) get all their flags concatenated.
+	 * Render a TM-flag bitmask as a human-readable string (multi-flag types concatenated).
 	 */
 	private static function format_type_flags( int $type ): string {
 		static $map = [
@@ -205,14 +114,7 @@ class Dumper extends Node {
 	}
 
 	/**
-	 * Level-2 dump: full envelope as a structural multi-line render. Equivalent
-	 * to Perl's `$message->as_string`, which Data::Dumper-prints all envelope
-	 * fields with the value unwrapped (TM_COMMAND values get their inner
-	 * Tachikoma::Command shown as a sub-hash). Goal here is to be every bit
-	 * as readable: each envelope field on its own line, type flags by name,
-	 * timestamp humanized, value either pretty-printed JSON (for TM_STRUCT
-	 * arrays) or — for TM_COMMAND envelopes — the decoded inner command as
-	 * a nested block.
+	 * Level-2 dump: full envelope as a structural multi-line render.
 	 */
 	private function format_envelope_dump( array $message ): string {
 		$type      = (int) ( $message[ Message::TYPE ] ?? 0 );
@@ -238,14 +140,7 @@ class Dumper extends Node {
 	}
 
 	/**
-	 * Render a command-response `payload` for terminal display.
-	 *
-	 * Verbs return their result as a live PHP structure (the command
-	 * protocol never separately json-encodes the payload). Most verbs
-	 * return a string — printed verbatim. The introspection verbs
-	 * (`dump_node`, `dump_metadata`) return an array; json-encoding it
-	 * HERE — at the render boundary, for display only — is the allowed
-	 * place to serialize. Pretty-printed for readability in the REPL.
+	 * Render a command-response `payload` for terminal display (arrays → pretty JSON).
 	 *
 	 * @param mixed $payload The `payload` field of a response VALUE.
 	 */
@@ -257,16 +152,7 @@ class Dumper extends Node {
 	}
 
 	/**
-	 * Stringify a Message::VALUE for the level-2 debug envelope dump.
-	 *
-	 * - Arrays (TM_STRUCT VALUE, or a TM_COMMAND struct) → JSON. Pretty-printed
-	 *   when $structured=true.
-	 * - A JSON-looking string (starts with `{`/`[`) → decode and re-render so a
-	 *   producer that hand-encoded its VALUE still shows as structure, not a
-	 *   stringified-of-string. Defensive only: the command protocol carries
-	 *   VALUE as a live array (hits the array branch above), so this branch
-	 *   never fires for commands.
-	 * - Plain strings → as-is.
+	 * Stringify a Message::VALUE for the level-2 envelope dump (arrays/JSON-strings → JSON).
 	 *
 	 * @param mixed $value      Raw VALUE.
 	 * @param bool  $structured Whether to use JSON_PRETTY_PRINT for arrays.
@@ -293,8 +179,7 @@ class Dumper extends Node {
 	}
 
 	/**
-	 * Indent every line after the first by $prefix. Used so the value block
-	 * sits visually under `value:` rather than wrapping under the column.
+	 * Indent every line after the first by $prefix.
 	 */
 	private static function indent_following_lines( string $text, string $prefix ): string {
 		$lines = \explode( "\n", $text );
@@ -305,22 +190,16 @@ class Dumper extends Node {
 	}
 
 	/**
-	 * Cli readline loop calls this immediately after writing the prompt so the
-	 * Dumper knows to wipe-and-redraw on the next async write.
+	 * Mark that a prompt is on screen so the next async write wipes-and-redraws.
 	 */
 	public function mark_prompt_displayed(): void {
 		$this->prompt_displayed = true;
 	}
 
 	/**
-	 * Write the cli prompt onto our owned stdout stream and flip the
-	 * prompt-displayed flag. Routed through Dumper (rather than `fwrite(STDOUT,
-	 * …)` at the call site) so tests with a memory-stream Dumper don't pollute
-	 * phpunit's real STDOUT.
+	 * Write the cli prompt onto our owned stdout stream and flip the flag.
 	 */
 	public function write_prompt( string $prompt ): void {
-		// $this->stdout is the cli's own output stream (real STDOUT in
-		// production; injected php://memory in tests).
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 		\fwrite( $this->stdout, $prompt );
 		$this->prompt_displayed = true;
@@ -329,10 +208,7 @@ class Dumper extends Node {
 	public function fill( array &$message ): void {
 		++$this->counter;
 
-		// Multi-session filter: drop messages addressed to a different cli
-		// session. Match `_output/$pid` and `$pid` (the two forms a reply
-		// can take depending on whether _router peeled the _output
-		// segment). Empty TO is always rendered.
+		// Drop messages addressed to a different cli session; empty TO always renders.
 		if ( '' !== $this->to_filter ) {
 			$to = (string) $message[ Message::TO ];
 			if ( '' !== $to
@@ -344,18 +220,6 @@ class Dumper extends Node {
 
 		$type = $message[ Message::TYPE ];
 
-		// debug_level >= 1: the dump REPLACES the normal render — same as Perl
-		// Tachikoma Dumper.pm where dump_message rewrites the rendered output.
-		//
-		// Level 2 REPLACES the normal render entirely — emit the full structural
-		// envelope dump and return; the type-specific renderers below are skipped.
-		//
-		// Level 1 PREPENDS a type-from header and falls through to the normal
-		// renderer. For TM_COMMAND|TM_RESPONSE this means the user sees the
-		// header followed by the unwrapped inner payload (not the raw JSON
-		// envelope) — matching how `dump_response` runs before `dump_message`
-		// in Perl Tachikoma. For TM_EOF, the header writes through but the
-		// callback still fires below and the return prevents an empty render.
 		if ( $this->debug_level >= 2 ) {
 			$this->write_async( $this->format_envelope_dump( $message ) );
 			return;
@@ -364,13 +228,9 @@ class Dumper extends Node {
 			$flags = self::format_type_flags( (int) $type );
 			$from  = (string) ( $message[ Message::FROM ] ?? '' );
 			$this->write_async( $flags . ' from ' . $from . ':' );
-			// fall through to the type-specific renderer.
 		}
 
-		// TM_EOF: drain marker — cli emitted TM_EOF on stdin close, the
-		// receiving CI bounced it back, now we're seeing the echo. Fire the
-		// registered callback (Cli wires this to flip the reader's exit flag)
-		// and render nothing. TM_EOF is a control marker, not output.
+		// TM_EOF: drain marker — fire the callback, render nothing.
 		if ( $type & Message::TM_EOF ) {
 			if ( null !== $this->on_eof ) {
 				( $this->on_eof )();
@@ -378,17 +238,7 @@ class Dumper extends Node {
 			return;
 		}
 
-		// TM_COMMAND|TM_RESPONSE: response to the user's command. Bare-mode
-		// responses are synchronous (rendered inside the same drain_fh that
-		// processed the line); pivoted-mode responses arrive async via the
-		// reply-in Consumer poll. Both paths route through write_async — when
-		// the prompt is on screen (async case), the wipe-and-redisplay dance
-		// preserves the user's typing context; when the prompt was just
-		// consumed (sync case, prompt_displayed=false from the readline
-		// callback), it falls through to a plain stdout write.
 		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_RESPONSE ) ) {
-			// VALUE rides as a live `['name'=>,'payload'=>]` array (the
-			// command-protocol contract); only the envelope/wire is JSON.
 			$cmd = $message[ Message::VALUE ];
 			if ( \is_array( $cmd ) ) {
 				$name    = (string) ( $cmd['name'] ?? '' );
@@ -404,31 +254,15 @@ class Dumper extends Node {
 			}
 		}
 
-		// TM_COMMAND|TM_ERROR: a verb handler threw — render the unwrapped
-		// payload as the error message, not the JSON envelope. Mirrors
-		// Tachikoma CommandInterpreter.pm:error() responses. No `ERROR:`
-		// prefix — the stderr stream + `debug_level 1`'s TM_FLAGS header
-		// already identify it as an error.
+		// TM_COMMAND|TM_ERROR: a verb threw — render the unwrapped payload.
 		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_ERROR ) ) {
-			// VALUE rides as a live `['name'=>,'payload'=>]` array; the error
-			// message is the `payload` field. A non-array VALUE is malformed
-			// — fall back to stringifying it whole.
 			$cmd     = $message[ Message::VALUE ];
 			$payload = \is_array( $cmd ) ? self::render_payload( $cmd['payload'] ?? '' ) : (string) $cmd;
-			$this->write( $this->stderr, $payload, true );
+			$this->write_async( $payload );
 			return;
 		}
 
-		// TM_ERROR: synchronous error path; skip the prompt dance for the
-		// same reason as TM_COMMAND|TM_RESPONSE.
-		if ( $type & Message::TM_ERROR ) {
-			$this->write( $this->stderr, (string) $message[ Message::VALUE ], false );
-			return;
-		}
-
-		// TM_PING: bounced ping reply. VALUE carries the original send timestamp;
-		// rewrite to "round trip time: $rtt ms" before falling into the default
-		// async-bytestream path. Mirrors Tachikoma Dumper.pm:dump_ping.
+		// TM_PING: bounced reply; VALUE is the send timestamp, render as RTT.
 		if ( $type & Message::TM_PING ) {
 			$sent = (float) $message[ Message::VALUE ];
 			$rtt  = ( Core::$now - $sent ) * 1000.0;
@@ -436,10 +270,6 @@ class Dumper extends Node {
 			return;
 		}
 
-		// TM_STRUCT: VALUE is structured (array). JSON-encode for display.
-		// Producers writing array VALUE set this flag (LogManager, RequestBuilder,
-		// FlameBuilder, JobIntake, StreamMerger). Plain `(string) $array` would
-		// just print "Array".
 		if ( $type & Message::TM_STRUCT ) {
 			$value = $message[ Message::VALUE ];
 			$line  = \is_string( $value ) ? $value : \wp_json_encode( $value, JSON_UNESCAPED_SLASHES );
@@ -447,25 +277,14 @@ class Dumper extends Node {
 			return;
 		}
 
-		// TM_INFO and default TM_BYTESTREAM both render as plain async
-		// bytestreams. The former `INFO[from]: ...` prefix was redundant
-		// noise — `debug_level 1` already prepends a `TM_INFO from <from>:`
-		// header to every message at the verbosity dial; the curated
-		// level-0 render should just show the payload.
 		$this->write_async( (string) $message[ Message::VALUE ] );
 	}
 
 	/**
-	 * Async-output path. If a prompt is on screen AND stdout is a TTY, wipe
-	 * the prompt line first, write the async text + newline, then redraw the
-	 * prompt below it so the user's editing context survives.
-	 *
-	 * Non-TTY output (piped to a file or a test memory stream) bypasses ANSI
-	 * sequences entirely — they would just be noise in a log file.
+	 * Async-output path: on a TTY with a prompt up, wipe-and-redraw; otherwise plain write.
 	 */
 	private function write_async( string $text ): void {
 		if ( ! $this->stdout_is_tty || ! $this->prompt_displayed || null === $this->shell ) {
-			// No prompt to step around: plain write.
 			$this->write( $this->stdout, $text, true );
 			return;
 		}
@@ -477,30 +296,14 @@ class Dumper extends Node {
 		// stdout/stderr are the cli's own terminal streams — not WP-Filesystem paths.
 		// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 		if ( $this->readline_mode ) {
-			// Readline is installed with an empty prompt (see Cli_Command::
-			// install_handler) so its idea of the prompt is always blank;
-			// the prompt the user sees is whatever we write to stdout. That
-			// means we never call readline_redisplay() / readline_on_new_line()
-			// — those calls were what put readline into incremental-search
-			// mode after the first async output. Wipe the in-flight line,
-			// write the async text, then write a fresh prompt directly.
+			// Readline runs with an empty prompt; never call readline_redisplay (flips into incremental-search).
 			\fwrite(
 				$this->stdout,
 				self::ANSI_CR_CLEAR_LINE . $text . $this->shell->prompt
 			);
-			// prompt_displayed stays true — we re-emitted it.
 			return;
 		}
 
-		// Non-readline manual path: ANSI cursor save/restore.
-		// 1. Save cursor (so terminals supporting it can return to the user's
-		//    typed-input caret column after the redraw).
-		// 2. CR + clear-to-EOL — wipe the in-flight prompt line.
-		// 3. Async output + newline.
-		// 4. Redraw the prompt on the fresh line.
-		// 5. Restore cursor (best-effort; some terminals discard after newline,
-		//    which is fine — the user keeps their typed-input visible courtesy
-		//    of the redrawn prompt).
 		\fwrite(
 			$this->stdout,
 			self::ANSI_SAVE_CURSOR
@@ -509,15 +312,11 @@ class Dumper extends Node {
 				. $this->shell->prompt
 				. self::ANSI_RESTORE_CURSOR
 		);
-		// prompt_displayed stays true — we re-emitted it.
 		// phpcs:enable
 	}
 
 	/**
-	 * Write to the given stream. If $ensure_newline, append "\n" only when
-	 * the payload doesn't already end with one (avoids double-newlines in
-	 * common command output). For stderr we deliberately preserve the raw
-	 * payload — error formatters typically include their own trailing newline.
+	 * Write to a stream; $ensure_newline appends "\n" only if absent. stderr is left raw.
 	 */
 	private function write( $stream, string $text, bool $ensure_newline ): void {
 		if ( $ensure_newline && ! \str_ends_with( $text, "\n" ) ) {

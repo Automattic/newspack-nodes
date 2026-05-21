@@ -1,24 +1,8 @@
 /**
  * draftGraph — pure helpers for the edit-mode draft topology.
  *
- * Graph shape mirrors `parseMetadata`'s output (so SchematicCanvas can
- * render either a parsed live graph or a draft without branching):
- *   {
- *     nodes: [
- *       {
- *         id, name, class,         // identity
- *         x, y,                    // canvas position
- *         target, also,            // parsed-style routing fields
- *         ctorArgs: [],            // edit-mode authoring fields
- *         verbInvocations: []
- *       }, ...
- *     ],
- *     edges: [ { from, to }, ... ]
- *   }
- *
- * Every helper returns a NEW graph reference (never mutates the input)
- * so React's setDraft( ( g ) => addNode( g, … ) ) bails out of an
- * update only when the operation is a true no-op.
+ * Graph shape mirrors parseMetadata's output. Every helper returns a NEW
+ * graph reference (never mutates) so React bails out only on true no-ops.
  */
 
 export function addNode( graph, { shellName, name, x, y } ) {
@@ -44,9 +28,7 @@ export function addEdge( graph, { from, to } ) {
 	if ( exists ) {
 		return graph;
 	}
-	// Mirror the connect_node side effect on the source node so a
-	// downstream serializer (Task 9) can emit a single connect_node
-	// per edge rather than walking node.target/also separately.
+	// Mirror the edge onto the source node's target/also routing fields.
 	const nodes = graph.nodes.map( ( n ) =>
 		n.id === from
 			? {
@@ -69,15 +51,8 @@ export function removeNode( graph, id ) {
 }
 
 /**
- * Rename a node — updates the node's id + name and rewrites every
- * edge that referenced the old id. Returns the original graph
- * unchanged if `newName` is empty, equal to the existing name, or
- * already taken by another node (caller is responsible for surfacing
- * the rejection).
- *
- * Does NOT rewrite verb-arg references (those live on OTHER nodes
- * and require the schema to know which args are node_name typed) —
- * the caller (TopologyConsole) handles that with catalog access.
+ * Rename a node + rewrite edges referencing the old id (no-op on empty,
+ * unchanged, or taken name). Does NOT rewrite verb-arg refs — caller does.
  *
  * @param {Object} graph   Current graph.
  * @param {string} oldId   Existing node id.
@@ -131,10 +106,7 @@ export function updateNodeVerbs( graph, id, verbInvocations ) {
 }
 
 /**
- * True when the draft has diverged from the snapshot taken at
- * edit-mode entry. JSON.stringify is good enough — graphs are small,
- * the field set is fixed, and ordering is stable in our helpers (we
- * always append).
+ * True when the draft has diverged from the edit-entry snapshot.
  *
  * @param {Object} draft    Current draft graph.
  * @param {Object} baseline Snapshot taken when edit mode was entered.
@@ -145,10 +117,7 @@ export function draftIsDirty( draft, baseline ) {
 }
 
 /**
- * Produce a unique kebab-case name for a new instance of `shellName`.
- * First instance: lowercased class name. Subsequent: `-2`, `-3`, …
- * counting from the existing population — collisions are detected
- * against `graph.nodes[].id`.
+ * Produce a unique name for a new `shellName` instance (`echo`, `echo-2`, …).
  *
  * @param {Object} graph     Graph to search for collisions.
  * @param {string} shellName Class name (e.g. 'Echo').

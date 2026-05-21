@@ -1,37 +1,16 @@
 /**
  * Compute x/y positions for a parsed {nodes, edges} graph.
  *
- * Left-to-right column layout: a node's column index is one more than
- * the deepest incoming-edge predecessor (sources land in column 0).
- *
- * Three-pass row assignment minimizes the two kinds of visual
- * ambiguity that wreck a layered graph drawing:
- *
- *   1. Edge crossings — sort each column's nodes by barycenter (avg
- *      predecessor row) so successor positions roughly follow the
- *      sources that feed them.
- *   2. False adjacency — snap each producer's row to its first
- *      target's row by walking right-to-left after barycenter. This
- *      shifts producers DOWN past their siblings' fan-out rows, so
- *      a producer never sits beside a target it doesn't write to.
- *   3. Conflicts — if the snap collapses two same-column nodes onto
- *      one row, resolve by walking that column top-down and bumping
- *      duplicates to the next free row.
- *
- * Returns a new array of node objects extended with `position: {x, y}`
- * — does not mutate the input. Edges are returned unchanged.
+ * Left-to-right column layout (column = deepest predecessor + 1) with a
+ * three-pass row assignment: barycenter, target-snap, deconflict.
+ * Returns new node objects with `position: {x, y}`; does not mutate.
  */
 
-// Exported so drag-snap can land on the same column/row grid the
-// auto-layout uses. Keeping these in one file means a single source
-// of truth for "where can a node sit?"
+// Exported so drag-snap lands on the same grid (single source of truth).
 export const X_STEP = 240;
 export const Y_STEP = 110;
 export const X_PAD = 60;
 export const Y_PAD = 80;
-// Node card dimensions — referenced here so callers that need
-// to convert top-left ⇄ center positions (snap, grid alignment)
-// share the same source of truth as SchematicCanvas.
 export const NODE_W = 196;
 export const NODE_H = 84;
 
@@ -72,15 +51,8 @@ export function autoLayout( parsed ) {
 	};
 	nodes.forEach( ( n ) => visit( n.id ) );
 
-	// Push each node forward to `min(target depths) - 1` when that
-	// shifts it RIGHT. The DFS pass computes the minimum depth a node
-	// can occupy (one past its deepest predecessor); for a node with
-	// no incoming but a far-away target, that leaves a long forward
-	// edge cutting across intermediate columns. Pulling the node
-	// rightward to sit one column before its earliest target shortens
-	// the edge and stops it from cutting under unrelated nodes.
-	// Walk in DECREASING-depth order so each node sees its targets'
-	// final depths before deciding its own.
+	// Push each node right to `min(target depths) - 1` to shorten long
+	// forward edges. Walk in decreasing-depth order so targets settle first.
 	const sortedByDepthDesc = [ ...nodes ].sort(
 		( a, b ) => depth.get( b.id ) - depth.get( a.id )
 	);
@@ -141,14 +113,8 @@ export function autoLayout( parsed ) {
 		scored.forEach( ( s, i ) => row.set( s.node.id, i ) );
 	}
 
-	// Pass 2: snap each producer's row to the BARYCENTER (mean) of
-	// its target rows, right-to-left. Mean instead of min so a
-	// producer with one target at row 0 and one at row 1 sits
-	// between them — pulling everything to row 0 used to force
-	// pass 3 to bump column-mates in a way that broke crossing-
-	// free placements (firehose:tee → request-builder and
-	// jobintake:consumer → job-router both crossing in col 1→col 2
-	// was the canonical symptom).
+	// Pass 2: snap each producer's row to the mean of its target rows,
+	// right-to-left. Mean (not min) sits a producer between split targets.
 	for ( let i = depthsAscending.length - 1; i >= 0; i-- ) {
 		const d = depthsAscending[ i ];
 		for ( const n of byDepth.get( d ) ) {
@@ -165,19 +131,8 @@ export function autoLayout( parsed ) {
 		}
 	}
 
-	// Pass 3: deconflict — within each column, two nodes may now share
-	// a row (e.g. two producers whose first targets are both at row 0).
-	// Walk each column in row order and bump duplicates down to the
-	// next free row.
-	//
-	// Tiebreaker = "straightness": when two column-mates both want row
-	// R, the one with more edges (in + out) whose OTHER endpoint is
-	// also at row R keeps it; the other bumps. This preserves linear
-	// chains — `job-router (col 2 row 0) → jobs:tee (col 3 row ?) →
-	// jobs:partition (col 4 row 0)` resolves to row 0 for jobs:tee
-	// because both endpoints are there, even when an unrelated
-	// column-mate (e.g. errors:partition) also wants row 0. Alphabetical
-	// is the final fallback for fully equal cases.
+	// Pass 3: deconflict same-row column-mates. Tiebreaker = "straightness"
+	// (more edges whose other endpoint shares the row keeps it), then alpha.
 	const straightnessAt = ( nodeId, targetRow ) => {
 		let count = 0;
 		for ( const p of incoming.get( nodeId ) || [] ) {

@@ -1,10 +1,6 @@
 /* global requestAnimationFrame, cancelAnimationFrame */
 /**
  * Shared hook for time-series chart rendering (resize, scroll, tooltip).
- *
- * Provides the common lifecycle (useCallback renderChart + resize/scroll effects)
- * and shared D3 helpers (axes, highlight bar, tooltip, legend) used by both
- * AggregateTimeChart and CategoryTimeChart.
  */
 
 import { useCallback, useEffect, useRef } from '@wordpress/element';
@@ -250,13 +246,10 @@ export const setupTooltip = (
 // --- Hook ---
 
 /**
- * Hook providing the common render/resize/scroll lifecycle for time-series charts.
+ * Hook providing the render/resize/scroll lifecycle for time-series charts.
+ * Callers must memoize `renderFn` (else infinite re-renders).
  *
- * Callers must memoize `renderFn` themselves (via `useCallback` with their own
- * deps) so the render lifecycle only fires when the underlying data changes.
- * Passing a fresh function every render would cause infinite re-renders.
- *
- * @param {Function} renderFn Memoized chart render function. Receives { containerRef, tooltipRef, lastMouseXRef }.
+ * @param {Function} renderFn Memoized render fn; receives { containerRef, tooltipRef, lastMouseXRef }.
  * @return {Object} { containerRef, tooltipRef, lastMouseXRef } refs to pass to JSX.
  */
 export function useTimeChart( renderFn ) {

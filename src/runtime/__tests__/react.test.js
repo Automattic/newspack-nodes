@@ -32,8 +32,7 @@ test( 'useNodeState updates when setState fires', () => {
 test( 'useNodeState auto-pre-declares the event on a node that did not declare it', () => {
 	const n = new Node();
 	n.setName( 'svc' );
-	// NOTE: deliberately NOT pre-declaring the event. The hook's
-	// useEffect should auto-declare so register() doesn't throw.
+	// Don't pre-declare the event; the hook must auto-declare.
 	const { result } = renderHook( () => useNodeState( 'svc', 'autoevt' ) );
 	expect( result.current ).toBeUndefined();
 	act( () => {
@@ -43,9 +42,7 @@ test( 'useNodeState auto-pre-declares the event on a node that did not declare i
 } );
 
 test( 'useNodeState re-subscribes when the node under the name is replaced', () => {
-	// A session-style graph swaps the node registered under a stable name
-	// (e.g. on worker change). The hook must follow the swap: re-subscribe
-	// to the NEW node and reflect ITS state, not the stale old node's.
+	// The hook must follow a node swap under a stable name.
 	const first = new Node();
 	first.setName( 'session' );
 	first.registrations.data = {};
@@ -56,7 +53,6 @@ test( 'useNodeState re-subscribes when the node under the name is replaced', () 
 	);
 	expect( result.current ).toBe( 'from-first' );
 
-	// Swap: drop the first node, register a fresh one under the same name.
 	act( () => {
 		Core.unregisterNode( 'session' );
 		const second = new Node();
@@ -64,7 +60,7 @@ test( 'useNodeState re-subscribes when the node under the name is replaced', () 
 		second.registrations.data = {};
 		// Re-render so the hook's effect re-runs against the new instance.
 		rerender();
-		// A later setState on the NEW node must reach the hook.
+		// A later setState on the new node must reach the hook.
 		second.setState( 'data', 'from-second' );
 	} );
 	expect( result.current ).toBe( 'from-second' );
@@ -88,8 +84,7 @@ test( 'useNodeState resets to undefined when the replacement node has no cached 
 		second.registrations.data = {};
 		rerender();
 	} );
-	// The fresh node has no cached `data` yet — the hook must not keep
-	// showing the previous node's value.
+	// The fresh node has no cached value; don't show the old one.
 	expect( result.current ).toBeUndefined();
 } );
 

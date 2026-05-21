@@ -1,38 +1,10 @@
 /**
  * serializeTsl — render an edit-mode draft graph as a TSL script.
  *
- * Output shape, one node per block:
- *   make_node <Class> <name> [<ctor args, space-separated>]
- *   cmd <name>:config <verb> [<verb args>]   (one per invocation)
- *
- * After all node blocks, a trailing line per edge:
- *   connect_node <from> <to>
- *
- * Ordering matches the substrate's `dump_config` so a draft -> save
- * -> reload round-trip produces a stable file (the editor's draft
- * order is preserved, edges follow nodes, and ctor args stay
- * positional).
- *
- * Quoting rule: any arg containing whitespace is wrapped in single
- * quotes. The shell tokenizer in `Shell::tokenize` handles single,
- * double, and backtick quotes; single quotes are the simplest
- * (no escape interpretation) so they're the safest default.
- *
- * Default expansion: when `schemas` is provided, empty positional
- * slots are filled from each arg's `default` before serialization.
- * The editor renders schema defaults (e.g. `<partition>`,
- * `<config:segment_size>`) as input placeholders without committing
- * them to `ctorArgs`, so without this expansion a save would emit a
- * make_node line missing every "default" arg — Topology_Loader would
- * then fall through to the node class's hard-coded literal defaults
- * (e.g. `Partition::DEFAULT_SEGMENT_SIZE`) instead of resolving the
- * operator's substrate-config values.
- *
- * Empty trailing string slots in ctorArgs are dropped AFTER default
- * expansion — they represent optional ctor parameters with no
- * authored value and no schema default, and emitting them as
- * literal empty tokens would shift positional indexing on the
- * substrate side.
+ * Emits `make_node`/`cmd` per node then `connect_node` per edge, ordered to
+ * match the substrate's dump_config for a stable round-trip. Whitespace args
+ * are single-quoted; with `schemas`, empty slots are filled from defaults and
+ * trailing empties dropped (so positional indexing stays aligned).
  */
 
 function serializeArg( value ) {
@@ -55,10 +27,7 @@ function trimTrailingEmpties( args ) {
 }
 
 /**
- * Fill empty slots in `args` from `spec[i].default` when available.
- * Non-empty author-provided values always win; spec entries without a
- * default leave their slot empty (caller's trimTrailingEmpties drops
- * any that end up trailing).
+ * Fill empty slots in `args` from `spec[i].default`; author values win.
  *
  * @param {Array} args Positional arg values from the draft graph.
  * @param {Array} spec Schema arg list (each entry may carry `default`).
@@ -127,11 +96,7 @@ function emitVerb( name, invocation, schemas, className ) {
 
 /**
  * @param {Object} graph   Draft graph (nodes + edges + per-node verbInvocations).
- * @param {Object} schemas Optional class-name → schema map (`{ ctor, verbs, … }`).
- *                         Catalog's `classes` array maps directly:
- *                         Object.fromEntries(catalog.classes.map(c => [c.shell_name, c]))
- *                         When omitted, no default expansion happens — useful for
- *                         tests and any caller that has only the draft.
+ * @param {Object} schemas Optional class-name → schema map; omitted = no default expansion.
  */
 export function serializeTsl( graph, schemas = null ) {
 	if ( ! graph || ! graph.nodes || graph.nodes.length === 0 ) {

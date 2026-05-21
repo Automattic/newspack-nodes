@@ -1,9 +1,5 @@
 /**
- * ReplFooter — collapsible transcript + prompt + status row.
- *
- * Focus: input/submit cycle, Ctrl+L clear, expanded/collapsed toggles,
- * Esc-to-minimize, `/`-to-focus shortcut, status label mapping, and
- * height-storage persistence.
+ * ReplFooter tests — input/submit, Ctrl+L clear, toggles, shortcuts, height persistence.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';

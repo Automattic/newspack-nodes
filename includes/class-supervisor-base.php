@@ -1,8 +1,6 @@
 <?php
 /**
- * Supervisor Base
- *
- * Pure-data spawn coordination logic so tests can drive without forking.
+ * Supervisor Base: pure-data spawn coordination so tests can drive it without forking.
  *
  * @package Newspack_Nodes
  */
@@ -14,43 +12,18 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class SupervisorBase {
-	/**
-	 * Minimum interval between spawning the same worker (rate limiting).
-	 *
-	 * Prevents thundering-herd respawns when locks flap. Updated after every
-	 * spawn attempt — success OR failure — so a failing-to-acquire worker
-	 * doesn't get hammered. Spec line 588.
-	 */
+	/** Min interval between spawning the same worker; updated after every attempt (success or fail). */
 	public const MIN_SPAWN_INTERVAL_S = 15;
 
-	/**
-	 * Hard ceiling on partition counts. min/max-clamped at supervisor +
-	 * Bootstrap; cleanup walks num_partitions..MAX_PARTITIONS to GC retired
-	 * partition dirs. Bounded loops. Spec line 844.
-	 */
+	/** Cleanup walks num_partitions..MAX_PARTITIONS. */
 	public const MAX_PARTITIONS = 16;
 
-	/**
-	 * Grace period (seconds) before purging retired partition directories.
-	 * Load-bearing for partition-count downgrades: gives in-flight workers
-	 * (still running with the old count) time to finish before their data
-	 * dirs disappear under them. Spec line 849.
-	 */
+	/** Grace (s) before purging retired partition dirs — lets old-count workers finish. */
 	public const STALE_PARTITION_AGE_S = 3600;
 
-	/**
-	 * Maximum recursion depth for delete_directory_recursive.
-	 * Defense-in-depth against symlink loops. Spec line 850.
-	 */
+	/** Symlink-loop defense. */
 	public const MAX_DEPTH = 5;
 
-	/**
-	 * Memcache key prefix for cross-process spawn-rate-limit persistence.
-	 *
-	 * Without persistence, a supervisor that just respawned (cron backstop
-	 * after a crash, or self-respawn) starts with last_spawn_time=[] and
-	 * could re-spawn workers that were already spawned <15s ago.
-	 */
 	public const SPAWN_TS_CACHE_KEY = 'newspack_nodes:last_spawn:';
 
 	protected string $base_dir;
@@ -97,8 +70,7 @@ class SupervisorBase {
 		if ( isset( $this->last_spawn_time[ $key ] ) ) {
 			return ( $now - $this->last_spawn_time[ $key ] ) < self::MIN_SPAWN_INTERVAL_S;
 		}
-		// Otherwise consult cross-process state — covers cron-backstop respawns
-		// after a crash and self-respawn handoffs.
+		// Otherwise consult cross-process state — covers cron-backstop respawns and self-respawn handoffs.
 		$persisted = $this->load_spawn_ts( $key );
 		if ( null !== $persisted ) {
 			$this->last_spawn_time[ $key ] = $persisted;
@@ -108,25 +80,17 @@ class SupervisorBase {
 	}
 
 	/**
-	 * Recursively delete a directory and its contents.
-	 *
-	 * Depth-bounded (MAX_DEPTH=5) and path-containment-checked: only paths
-	 * under $base_path are eligible at depth 0. realpath() resolution at the
-	 * top-level call defends against symlink escapes; subsequent depths use
-	 * a simple is_link() skip so a symlink inside the tree can't redirect
-	 * the recursion outside the original $base_path.
+	 * Recursively delete a directory, depth-bounded and containment-checked under $base_path.
 	 *
 	 * @param string $path      Directory to delete.
-	 * @param string $base_path Containment root; only paths under this are
-	 *                          eligible at the top-level call.
+	 * @param string $base_path Containment root (top-level call only).
 	 * @param int    $max_depth Optional override of MAX_DEPTH for tests.
 	 */
 	public static function delete_directory_recursive( string $path, string $base_path, int $max_depth = self::MAX_DEPTH ): void {
 		if ( ! self::is_within( $path, $base_path ) ) {
 			return;
 		}
-		// Strict-proper-subpath: refuse equality so `$base/..` (which realpaths
-		// back to $base) can't wipe the base itself.
+		// Strict-proper-subpath: refuse equality so `$base/..` can't wipe the base itself.
 		$real_path = \realpath( $path );
 		$real_base = \realpath( $base_path );
 		if ( false === $real_path || false === $real_base
@@ -137,8 +101,7 @@ class SupervisorBase {
 	}
 
 	/**
-	 * Internal recursion helper. Containment is established at the top-level
-	 * call; this only enforces depth bounds + symlink avoidance per node.
+	 * Internal recursion helper: enforces depth bounds + per-node symlink avoidance.
 	 */
 	private static function delete_directory_recursive_inner( string $path, int $max_depth, int $depth ): void {
 		if ( $depth > $max_depth ) {
@@ -168,9 +131,7 @@ class SupervisorBase {
 	}
 
 	/**
-	 * Verify $path is the same as or strictly under $base_path after realpath
-	 * resolution. Both must exist on disk for realpath to resolve. If either
-	 * fails to resolve, return false (refuse the operation rather than guess).
+	 * True if $path equals or is under $base_path after realpath; false if either won't resolve.
 	 *
 	 * @param string $path      Candidate path.
 	 * @param string $base_path Containment root.
@@ -182,10 +143,7 @@ class SupervisorBase {
 		if ( false === $real_path || false === $real_base ) {
 			return false;
 		}
-		// Normalize trailing slash on base for the prefix check, but accept
-		// equality — is_within() is a containment predicate. Callers that need
-		// strict-proper-subpath semantics (e.g. delete_directory_recursive)
-		// reject equality at their own boundary.
+		// Accept equality — this is a containment predicate; callers reject equality if needed.
 		$real_base_trim = \rtrim( $real_base, '/' );
 		if ( $real_path === $real_base_trim ) {
 			return true;
@@ -194,17 +152,13 @@ class SupervisorBase {
 	}
 
 	/**
-	 * Remove a directory if its newest file mtime is older than $stale_age_s
-	 * seconds. Skips symlinks (top-level + when checking mtimes) so a
-	 * misconfigured symlink can't redirect the deletion. The directory must
-	 * be inside $this->base_dir for the deletion to proceed (containment via
-	 * delete_directory_recursive).
+	 * Remove $dir if its newest file mtime exceeds $stale_age_s (symlink-safe, base_dir-contained).
 	 *
 	 * @param string $dir          Candidate stale directory.
 	 * @param int    $stale_age_s  Threshold in seconds.
 	 */
 	public function remove_stale_directory( string $dir, int $stale_age_s ): void {
-		// Handle symlinks to prevent escaping the intended directory.
+		// Symlink: unlink rather than recurse, to prevent escaping the intended directory.
 		if ( \is_link( $dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink -- substrate manages its own base_dir tree (default /tmp/newspack-nodes/); the VIP hosted-filesystem rule doesn't apply to a runtime's reserved directory.
 			@\unlink( $dir );
@@ -216,7 +170,6 @@ class SupervisorBase {
 			return;
 		}
 
-		// Find newest mtime among files (skip symlinks).
 		$newest_mtime = 0;
 		$files        = @\scandir( $dir ) ?: [];
 		foreach ( $files as $file ) {
@@ -233,20 +186,13 @@ class SupervisorBase {
 			}
 		}
 
-		// Only remove if we found at least one file and it's older than threshold.
 		if ( $newest_mtime > 0 && ( \time() - $newest_mtime ) > $stale_age_s ) {
 			self::delete_directory_recursive( $dir, $this->base_dir );
 		}
 	}
 
 	/**
-	 * Persist a {type}|{partition} spawn timestamp so a respawned supervisor
-	 * (cron backstop or self-respawn) sees recent activity and honors the
-	 * 15s rate limit. Memcache is preferred (low TTL, cluster-safe);
-	 * transients are the fallback when memcache is unavailable.
-	 *
-	 * TTL is bounded by MIN_SPAWN_INTERVAL_S * 2 so stale entries auto-expire
-	 * and don't accumulate after retired worker types.
+	 * Persist a spawn timestamp (memcache, transient fallback) so a respawn honors the rate limit.
 	 */
 	protected function persist_spawn_ts( string $key, float $when ): void {
 		$cache_key = self::SPAWN_TS_CACHE_KEY . $key;
@@ -264,8 +210,7 @@ class SupervisorBase {
 	}
 
 	/**
-	 * Load a persisted spawn timestamp. Returns null if not present or
-	 * unavailable (no memcache + no transient API).
+	 * Load a persisted spawn timestamp; null if absent or no cache API available.
 	 */
 	protected function load_spawn_ts( string $key ): ?float {
 		$cache_key = self::SPAWN_TS_CACHE_KEY . $key;

@@ -1,20 +1,8 @@
 <?php
 /**
- * EventFramework: per-process drain-loop singleton.
+ * EventFramework: per-process drain-loop singleton (timers + cURL multi handles + deferred cleanup).
  *
- * Manages timers, cURL multi handles, and deferred-cleanup integration.
- * Drain order per iteration:
- *   1. Wait: curl_multi_select (when cURL handles are registered) or usleep
- *      (otherwise), capped by the soonest pending timer.
- *   2. Signal dispatch (pcntl_signal_dispatch if available).
- *   3. Run Core::$closing deferred-cleanup queue.
- *   4. Fire any timers whose next_fire has elapsed.
- *   5. Loop check (should_continue callable).
- *
- * Local file descriptors (Tail, Consumer, Cli_Stdin_Reader) are timer-driven
- * via set_timer — there's no FD registration / stream_select path. cli's
- * stdin polls at 0ms when piped data is flowing, 10ms during EOF round-trip,
- * 100ms idle.
+ * Local file descriptors are timer-driven via set_timer — no FD registration / stream_select path.
  *
  * @package Newspack_Nodes
  */
@@ -31,11 +19,7 @@ class EventFramework {
 	/** @var array<int,array{node:object,multi:\CurlMultiHandle}> */
 	private array $curl_handles = [];
 
-	/**
-	 * True while inside `drain()`. Lets callers (Partition, etc.) detect
-	 * "am I inside a worker event loop?" — false in web-request /
-	 * static-helper contexts where there's no drain to fire Timer callbacks.
-	 */
+	/** True while inside `drain()`; lets callers detect "am I inside a worker event loop?" (false in web-request contexts). */
 	private bool $draining = false;
 
 	public function is_running(): bool {
@@ -89,8 +73,7 @@ class EventFramework {
 	}
 
 	private function drain_curl_multi(): void {
-		// Raw cURL is intentional: wp_remote_get is request/response only,
-		// no streaming multi handle. SSE pulls need curl_multi_*.
+		// Raw cURL is intentional: wp_remote_get is one-shot; SSE pulls need curl_multi_*.
 		// phpcs:disable WordPress.WP.AlternativeFunctions.curl_curl_multi_exec, WordPress.WP.AlternativeFunctions.curl_curl_multi_info_read
 		foreach ( $this->curl_handles as $entry ) {
 			$still_running = 0;
@@ -104,12 +87,8 @@ class EventFramework {
 		// phpcs:enable
 	}
 
-	/**
-	 * Microseconds until the soonest expiring timer (or the idle cap when no
-	 * timers are registered). cURL waits use this as the curl_multi_select
-	 * timeout so a timer firing wakes us promptly.
-	 */
-	private const IDLE_TIMEOUT_US = 100_000; // 0.1s when nothing has a timer.
+	/** Idle cap for the wait when no timers are registered; also the curl_multi_select timeout so a timer firing wakes us. */
+	private const IDLE_TIMEOUT_US = 100_000;
 
 	private function next_timer_timeout_us(): int {
 		if ( empty( $this->timers ) ) {
@@ -135,12 +114,7 @@ class EventFramework {
 		}
 	}
 
-	/**
-	 * Hot loop — clock refresh, Core::run_closing, and the expired-timer
-	 * scan are inlined for one less call frame per tick. PHP function call
-	 * cost is ~100ns each on PHP 8.4; with a busy worker hitting hundreds
-	 * of iterations per second, that's measurable. Logic unchanged.
-	 */
+	/** Hot loop — clock refresh, run_closing, and the expired-timer scan are inlined to save a call frame per tick. */
 	private function drain_inner( callable $should_continue, bool $has_pcntl ): void {
 		Core::$now = \microtime( true );
 		while ( $should_continue() ) {
@@ -150,15 +124,9 @@ class EventFramework {
 
 			$timeout_us = $this->next_timer_timeout_us();
 
-			// Two waiters: cURL handles (block on their internal sockets) or
-			// nothing (sleep until the next timer). Local file descriptors
-			// are reached via timer-driven polling — every Tail / Consumer /
-			// Cli_Stdin_Reader uses set_timer to schedule its next poll.
-			// That keeps the loop down to one blocking call per iteration
-			// regardless of which I/O sources are active.
+			// One blocking call per iteration: cURL handles, or usleep until the next timer.
 			if ( ! empty( $this->curl_handles ) ) {
 				foreach ( $this->curl_handles as $entry ) {
-					// Raw cURL needed for streaming SSE — wp_remote_get is one-shot.
 					// phpcs:ignore WordPress.WP.AlternativeFunctions.curl_curl_multi_select
 					\curl_multi_select( $entry['multi'], $timeout_us / 1_000_000.0 );
 				}
@@ -190,7 +158,7 @@ class EventFramework {
 			}
 		}
 
-		// Post-loop drain so close-handlers scheduled during shutdown actually run.
+		// Post-loop drain so close-handlers scheduled during shutdown still run.
 		while ( ! empty( Core::$closing ) ) {
 			( \array_shift( Core::$closing ) )();
 		}

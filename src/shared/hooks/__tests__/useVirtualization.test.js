@@ -60,8 +60,7 @@ describe( 'useVirtualization', () => {
 			const ref = useRef( el );
 			return useVirtualization( ref, ROW, 200 );
 		} );
-		// Initial scroll state {top:0, height:2160} is what's reported because
-		// the update() short-circuits when the element is offscreen.
+		// Offscreen: update() short-circuits, leaving the initial scroll state.
 		expect( result.current.startIndex ).toBe( 0 );
 	} );
 
@@ -108,9 +107,7 @@ describe( 'useVirtualization', () => {
 			const ref = useRef( el );
 			return useVirtualization( ref, ROW, 200, '.host' );
 		} );
-		// containerTop - elementTop = 50 - 30 = 20; height = 200.
-		// start = max(0, floor(20/20) - 5) = 0
-		// count = ceil(200/20) + 10 = 20
+		// container offset 20, height 200 -> start 0, count 20.
 		expect( result.current.startIndex ).toBe( 0 );
 		expect( result.current.endIndex ).toBe( 20 );
 	} );

@@ -1,21 +1,9 @@
 <?php
 /**
- * Topology_Loader — reads a TSL topology file and runs it through a
- * Shell instance. The Shell handles `<varname>` / `<config:foo>`
- * interpolation, `var name = value` frontmatter, statement splitting
- * on `;`/newline, and dispatching each resulting Message via the
- * provided sink.
+ * Topology_Loader — reads a TSL topology file and runs it through a Shell instance.
  *
- * Predefined bindings populated before parsing:
- *   Core::$var['partition']   → integer partition number (string)
- *   Core::$config[...]        → entire $config arg, key-by-key
- *
- * The TSL refers to them as `<partition>` and `<config:foo>`.
- *
- * Anything else the topology needs (per-fleet metadata like
- * num_partitions / stale_timeout) is declared inline with `var`
- * frontmatter; supervisor-side metadata lookups read the same TSL
- * file via Topology_Registry::frontmatter() without executing it.
+ * Predefined bindings populated before parsing: Core::$var['partition'] and Core::$config[...]
+ * (referenced in the TSL as `<partition>` and `<config:foo>`).
  *
  * @package Newspack_Nodes
  */
@@ -27,9 +15,7 @@ namespace Newspack_Nodes;
 class Topology_Loader {
 
 	/**
-	 * Load `<name>.tsl`, install pre-defined Shell bindings, and
-	 * execute every statement against $sink (typically a CI). Throws
-	 * when the topology is unknown.
+	 * Load `<name>.tsl`, install pre-defined Shell bindings, and execute every statement against $sink.
 	 *
 	 * @param string              $name      Topology name (no .tsl suffix).
 	 * @param int                 $partition Partition number for `<partition>`.
@@ -50,21 +36,14 @@ class Topology_Loader {
 			);
 		}
 
-		// Pre-populate the global maps the Shell reads from. $var
-		// holds the predefined `partition` binding; $config holds
-		// the runtime config the topology refers to via
-		// `<config:foo>`. Topology authors can override $var via
-		// `var name = value` frontmatter (and any verb dispatched
-		// during load can read/write it).
+		// Pre-populate the global maps the Shell reads from for `<partition>` / `<config:foo>`.
 		Core::$var['partition'] = (string) $partition;
 		Core::$config           = $config;
 
 		$shell = new Shell();
 		$shell->sink( $sink );
 
-		// TSL file content is local-disk only — Topology_Registry
-		// resolves to plugin or user dir paths. phpcs's remote-fetch
-		// rule doesn't apply.
+		// TSL file content is local-disk only — phpcs's remote-fetch rule doesn't apply.
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 		$shell->eval_script( (string) \file_get_contents( $path ) );
 	}

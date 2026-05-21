@@ -2,7 +2,9 @@
 
 Generic message-passing runtime for PHP/WordPress: a Tachikoma-style node graph. Independent of any application; this plugin owns the substrate (Node, Message, Router, Topic, Partition, Worker, Supervisor, REPL). Applications (the first being `newspack-event-logger-nodes`) compose Nodes on top.
 
-Every node honors one contract: `fill( array &$message ): void`. That uniformity is what lets composition work — any node can sink into any other node.
+Every node honors one contract: `fill( array &$message ): void`. Nodes connect two ways: **`sink`** — a node reference, the physical next hop `fill()` forwards to; and **`target`** — a string path stamped into `message[TO]` when TO is empty (this is Tachikoma's `owner`; we did not port `edge`). `_router` dispatches by peeling `message[TO]`. That uniformity is what lets any node compose with any other.
+
+The ground truth for this model is **Perl Tachikoma** (`services/tachikoma/sources/tachikoma/lib/Tachikoma/`); newspack-nodes ports its semantics but keeps deliberate improvements (KEY/VALUE fields, JSON wire, no TM_PERSIST). Match Tachikoma's model; don't blind-copy its field names.
 
 ## Workflow discipline (mandatory)
 
@@ -81,7 +83,7 @@ These are intentional. Don't "fix" them.
 
 1. **Uniform `fill()` contract.** Every node has exactly one entry point: `fill( array &$message )`. No parallel `write()` / `read()` / `process()` API. Callers build the Message inline and call `fill()` directly — no convenience wrappers.
 
-2. **Messages are 7-field arrays, not hashes.** Indexed access is faster than hash lookup in hot paths. Field constants on `Message::TYPE` / `TIMESTAMP` / `FROM` / `TO` / `ID` / `KEY` / `VALUE`. `Message::TM_BYTESTREAM` (string VALUE) and `Message::TM_STRUCT` (array VALUE) are mutually exclusive in our convention; consumers reading array VALUE gate on TM_STRUCT.
+2. **ONE message format: the 7-field positional array.** `[TYPE=0, TIMESTAMP=1, FROM=2, TO=3, ID=4, KEY=5, VALUE=6]` — always use the `Message::*` constants (`$message['type']` coerces to int 0 and silently corrupts TYPE). This is the only shape: in PHP, in JS, on the wire (`packed()`/`unpacked()` = JSON of the array), and in memory. There is **no** `{ type, ts, from, to, id, key, value }` object form — if you see one it is a bug to delete (it crept into the topology-console GUI once and broke the canvas). The fields diverge from Tachikoma on purpose (KEY not STREAM, VALUE not PAYLOAD, TIMESTAMP at index 1). `TM_BYTESTREAM` (string VALUE) and `TM_STRUCT` (array VALUE) are mutually exclusive; array-VALUE consumers gate on TM_STRUCT.
 
 3. **Fire-and-forget messaging.** No producer/consumer ack handshake. Tachikoma's TM_PERSIST / `answer()` / `cancel()` machinery was removed — synchronous I/O at every boundary serializes the whole graph onto one CPU, so there's no decoupled queue to backpressure. If you bring back slot-based flow control, do it at the producer that needs it; don't reintroduce a global persist contract.
 
@@ -91,7 +93,7 @@ These are intentional. Don't "fix" them.
 
 6. **CRC32 + 31-bit-mask partition routing.** `Partition::hash_to_partition()` is canonical: strip query string with `explode('?')`, CRC32 hash, `& 0x7FFFFFFF` for 32-bit-PHP safety. Topic, JobIntake-keyed mode, and any other partition routing MUST call this same function — divergent hash families silently misroute the same key across producers.
 
-7. **TO=FROM convention for replies.** Forward direction sets `TO=$this->target`. Reverse direction (any response, ack, error) sets `TO=$message[FROM]` so it walks the breadcrumb trail back. One rule, applied uniformly; path-based routing via `_router` does the rest.
+7. **`sink` vs `target`, and TO=FROM replies.** `sink` is the physical next node `fill()` forwards to. `target` is the logical destination — a path string stamped into `message[TO]` ONLY when TO is empty (Tachikoma's `owner`; Tee's `target` is an array for fan-out). `_router` resolves a non-empty TO by peeling the head segment and looking it up in `Core`. Replies (response/ack/error) set `TO=$message[FROM]` to walk the FROM breadcrumb back. The pivot to a remote/other worker is just a `TO` prefix (the Shell's `path`) — not hardwiring.
 
 8. **Worker zombie pattern.** Workers spawn via HTTP POST to a HMAC-validated `/spawn` endpoint, then detach with `ignore_user_abort(true) + fastcgi_finish_request() + set_time_limit(0)`. Lifetime ~595s (sized for Atomic's 15-min cap with margin). Self-respawn fires inside `finally`; `release()` BEFORE `self_respawn()` so the new worker can acquire immediately.
 
@@ -105,7 +107,7 @@ These are intentional. Don't "fix" them.
 | `includes/class-core.php` | Per-process registries, clock (`Core::$now`), shutdown flag, deferred-cleanup queue, rate-limited stderr |
 | `includes/class-config.php` | Substrate option storage + per-option-group worker-restart dispatch |
 | `includes/class-message.php` | 7-field array constants, type flags, positional `packed()` / `unpacked()` JSON wire |
-| `includes/class-node.php` | Base contract: `fill()`, sink/target/edge, `stamp_message()`, `register()` / `notify()` |
+| `includes/class-node.php` | Base contract: `fill()`, `sink` (physical next node) + `target` (logical TO path), `stamp_message()`, `register()` / `notify()` / `set_state()` |
 | `includes/class-router.php` | Path-based dispatch by TO; Timer-hitchhike on each tick |
 | `includes/class-event-framework.php` | Drain loop singleton (`curl_multi_select` or `usleep` + timers; no FD machinery) |
 | `includes/class-{tee,tail,log,echo,callback,hook,timer}.php` | Generic node primitives |

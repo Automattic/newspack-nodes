@@ -2,22 +2,13 @@
 /**
  * Raw_Logs_CI: command-dispatch for the Raw Logs dashboard.
  *
- * Two verbs exposed to the operator UI:
+ * Verbs:
+ *   firehose_logs   — args `{}`. Sorted catalog of subscribable log files,
+ *                     derived from `{base}/logs/*.log/` via `Log_Discovery::on_disk`.
+ *   firehose_status — args `{log:string?}`. Per-partition segment metadata
+ *                     (size, count); unknown keys fall through to `firehose.log`.
  *
- *   firehose_logs    — args `{}`. Returns the sorted catalog of log files
- *                       the dashboard's picker can subscribe to, derived
- *                       from `{base}/logs/*.log/` via `Log_Discovery::on_disk`.
- *                       Replaces the legacy hardcoded `AVAILABLE_LOGS` list
- *                       in `FirehoseController`, which silently omitted any
- *                       log a topology added after deploy.
- *
- *   firehose_status  — args `{log:string?}`. Returns per-partition segment
- *                       metadata (size, count) for one log file. Unknown
- *                       or missing log keys fall through to `firehose.log`.
- *
- * Both verbs read substrate state only (the on-disk log directory + config),
- * so the entire CI is substrate-owned. Live SSE tailing of the chosen log
- * happens through `Messages_Stream_Controller`, which is also substrate.
+ * Both read substrate state only; live SSE tailing happens via Messages_Stream_Controller.
  *
  * @package Newspack_Nodes
  */

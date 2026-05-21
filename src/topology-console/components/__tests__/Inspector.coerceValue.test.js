@@ -13,9 +13,7 @@ describe( 'coerceValue', () => {
 	} );
 
 	it( 'int: TSL substitution tokens pass through as strings', () => {
-		// `<partition>` is the canonical patron-supplied token; the TSL
-		// loader resolves it at load time. Editor must preserve the raw
-		// string instead of falling back to prevRaw on NaN.
+		// Preserve the raw `<partition>` token (loader resolves it later).
 		expect( coerceValue( 'int', '<partition>', 0 ) ).toBe( '<partition>' );
 		expect( coerceValue( 'int', '<config:num_partitions>', 0 ) ).toBe(
 			'<config:num_partitions>'
@@ -23,18 +21,14 @@ describe( 'coerceValue', () => {
 	} );
 
 	it( 'int: partial typing of a substitution token is preserved', () => {
-		// While the operator is typing `<partition>` one character at a
-		// time, every intermediate string must round-trip — otherwise
-		// the first `<` keystroke gets swallowed and the field appears
-		// stuck.
+		// Every intermediate keystroke of a `<` token must round-trip.
 		expect( coerceValue( 'int', '<', 0 ) ).toBe( '<' );
 		expect( coerceValue( 'int', '<p', 0 ) ).toBe( '<p' );
 		expect( coerceValue( 'int', '<partition', 0 ) ).toBe( '<partition' );
 	} );
 
 	it( 'int: lossy numeric prefixes pass through as strings (not silently truncated)', () => {
-		// `parseInt('123abc') === 123` would drop the `abc` portion —
-		// surprising in an editor context. Require strict numeric match.
+		// Require strict numeric match (parseInt would drop trailing chars).
 		expect( coerceValue( 'int', '123abc', 0 ) ).toBe( '123abc' );
 	} );
 

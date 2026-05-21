@@ -2,23 +2,9 @@
 /**
  * Classes_CI: command-dispatch for substrate class-catalog verbs.
  *
- * Replaces legacy class-classes-controller.php (the GET /classes REST
- * endpoint) with a CommandInterpreter the M3 Command_Controller mounts
- * alongside the other substrate-side CIs.
- *
- * Verbs:
- *   list — enumerate every class registered via
- *          CommandInterpreter::register_class(), inline its node_schema(),
- *          filter out the Hidden category (plumbing — Shell, Dumper, CI,
- *          Router), sort by `[category, shell_name]`, and bundle the
- *          Formatters registry alongside so the topology-editor palette
- *          can populate its `formatter_name` arg dropdown in one
- *          round-trip.
- *
- * Substrate state is process-global (CommandInterpreter's class_map and
- * Formatters' registry are static), so there are no constructor
- * dependencies to inject — the M2 dep-injection pattern (Workers_CI takes
- * Cli + Cache) doesn't apply here. The ctor is just a verb-table install.
+ * Verb `list` enumerates every registered class, inlines its node_schema(),
+ * drops the Hidden category, sorts by `[category, shell_name]`, and bundles
+ * the Formatters registry for the topology-editor palette's arg dropdown.
  *
  * @package Newspack_Nodes
  */
@@ -33,10 +19,6 @@ use Newspack_Nodes\Formatters;
 class Classes_CI extends CommandInterpreter {
 
 	public function __construct() {
-		// Node + CommandInterpreter have no explicit __construct, so the
-		// inherited no-op is implicit. Mirrors M2's Workers_CI (and
-		// substrate's RequestBuilder / FlameBuilder), which extend Node
-		// and also skip the parent call.
 		$this->commands( $this->verb_table() );
 	}
 

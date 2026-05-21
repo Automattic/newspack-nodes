@@ -2,36 +2,15 @@
 /**
  * Command_Controller: single POST endpoint for non-streaming dispatch.
  *
- * Uniformly routes via the substrate's Router. The browser-supplied
- * `to` is the message's TO field; Router peels the head and looks up
- * the named Node. There are no IPC vs local branches — IPC is handled
- * by the per-worker `Partition` Nodes the bootstrap registers (one per
- * discovered worker) before this controller runs. Partition's own
- * `fill()` writes the message to disk.
- *
- * Response handling: the bootstrap registers a `HTTP_Out` Node at
- * `_http`. Browsers stamp FROM=`_http` (or `_http/<anything>`) for
- * local commands; the CI's response with TO=FROM walks back through
- * Router → HTTP_Out, whose `fill()` writes the packed Message directly
- * to the HTTP response body. After Router::fill returns, the controller
- * inspects `HTTP_Out::sent_headers`:
- *
- *   - sent_headers true   →  the response is already on the wire.
- *                             exit() to bypass WP's REST wrapping.
- *   - sent_headers false  →  no synchronous reply landed; this is the
- *                             async/IPC case (worker Partition wrote
- *                             the message to disk, no in-process
- *                             response). Emit a 202 ack so the caller
- *                             knows the message was queued. Real
- *                             replies arrive via the SSE stream the
- *                             browser already has open.
- *
- * For pivoted IPC commands the browser sets FROM=`_http/<ssePid>` so
- * the worker's reply walks back to the SSE process — HTTP_Out is
- * bypassed in that case (TO=FROM never resolves back to this process).
- *
- * Test mode: when `set_test_mode(true)` is set, dispatch returns
- * instead of exit(), so PHPUnit can capture stdout via ob_start().
+ * Uniformly routes via the substrate's Router (no IPC vs local branches —
+ * worker `Partition` Nodes handle IPC). The bootstrap registers a `HTTP_Out`
+ * Node at `_http`; a CI response with TO=FROM walks back to it and writes the
+ * packed Message to the HTTP body. After Router::fill returns:
+ *   - sent_headers true  → response already on the wire; exit().
+ *   - sent_headers false → async/IPC; emit a 202 ack (real replies arrive
+ *                          via the browser's open SSE stream).
+ * Pivoted IPC commands set FROM=`_http/<ssePid>` so the reply walks to the
+ * SSE process (HTTP_Out bypassed). test_mode returns instead of exit().
  *
  * @package Newspack_Nodes
  */
@@ -71,11 +50,8 @@ class Command_Controller {
 	public function dispatch( \WP_REST_Request $request ): void {
 		$messages = $this->messages_from_body( (string) $request->get_body() );
 
-		// Lazy-init the request-scope graph (idempotent). REST requests
-		// hit this dispatch directly; no other entry point builds the
-		// graph for them. CLI, workers, and SSE controllers each build
-		// their own. Then fire `newspack_nodes/request_graph_ready` so
-		// applications can mount service CIs via `$base_ci->make_node(...)`.
+		// Lazy-init the request-scope graph (idempotent), then let applications
+		// mount service CIs via the request_graph_ready hook.
 		$base_ci = $this->ensure_request_graph();
 		\do_action( 'newspack_nodes/request_graph_ready', $base_ci );
 
@@ -90,16 +66,13 @@ class Command_Controller {
 			return;
 		}
 
-		// Route each message in order through the one request graph. A batch
-		// (e.g. `[connect_worker_input, dump_metadata]`) runs serially in this
-		// single process, so an earlier command's side effect — mounting the
-		// worker Partition — is visible to the later command's routing.
+		// Route messages in order through the one request graph: a batch runs
+		// serially, so an earlier command's side effect is visible to a later one.
 		$out->reset();
 		$last = null;
 		foreach ( $messages as $msg ) {
-			// Default FROM to `_http` so the CI's TO=FROM response routes
-			// back to our registered HTTP_Out. Pivoted IPC commands supply
-			// their own FROM (`_http/<ssePid>`) — leave it alone.
+			// Default FROM=`_http` so the CI's TO=FROM response routes back to our
+			// HTTP_Out. Pivoted IPC commands supply their own FROM — leave it alone.
 			if ( '' === $msg[ Message::FROM ] ) {
 				$msg[ Message::FROM ] = '_http';
 			}
@@ -108,9 +81,8 @@ class Command_Controller {
 		}
 
 		if ( ! $out->sent_headers ) {
-			// Async / IPC case — no in-process response landed. 202 ack keyed
-			// off the LAST message (the real command; any leading setup commands
-			// such as connect_worker_input return '' and never reply).
+			// Async / IPC case. 202 ack keyed off the LAST message (leading setup
+			// commands like connect_worker_input return '' and never reply).
 			\status_header( 202 );
 			\header( 'Content-Type: application/json' );
 			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
@@ -120,12 +92,8 @@ class Command_Controller {
 	}
 
 	/**
-	 * Decode the request body into an ordered list of Messages. The body is
-	 * JSONL — one packed Message per line. A single command is one line; a
-	 * batch is several (e.g. `connect_worker_input` then the real command),
-	 * dispatched in order so they run serially in this one process. Each line
-	 * goes through `Message::unpacked()` — the only JSON boundary; there is no
-	 * array-of-messages wrapper. Blank lines are skipped.
+	 * Decode the JSONL request body into an ordered list of Messages (one
+	 * packed Message per line via `Message::unpacked()`; blank lines skipped).
 	 *
 	 * @return array<int,array<int,mixed>>
 	 * @throws \InvalidArgumentException When no line parses to a Message.
@@ -146,14 +114,9 @@ class Command_Controller {
 	}
 
 	/**
-	 * Lazy-construct the request-scope graph if it's not already in
-	 * Core's registry. Idempotent — call sites that already built the
-	 * graph (e.g. CLI, workers, or tests that wire it up explicitly)
-	 * pay nothing here.
-	 *
-	 * Returns the base CommandInterpreter so callers can hand it to
-	 * the `newspack_nodes/request_graph_ready` hook for application-
-	 * level CI mounting via `$base_ci->make_node(...)`.
+	 * Lazy-construct the request-scope graph if not already in Core's registry
+	 * (idempotent). Returns the base CommandInterpreter for the
+	 * `newspack_nodes/request_graph_ready` hook.
 	 */
 	private function ensure_request_graph(): CommandInterpreter {
 		$router = Core::node( '_router' );
@@ -184,7 +147,6 @@ class Command_Controller {
 	private function emit_error( array $msg, string $err ): void {
 		\status_header( 500 );
 		\header( 'Content-Type: application/json' );
-		// TIMESTAMP slot is already seeded by Message::new_message — no need to overwrite.
 		$r                   = Message::new_message();
 		$r[ Message::TYPE ]  = Message::TM_RESPONSE | Message::TM_ERROR;
 		$r[ Message::FROM ]  = '_command';

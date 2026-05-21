@@ -26,17 +26,21 @@ class RouterTest extends TestCase {
 		$this->assertSame( 'some/path', $dst->captured[0][ Message::TO ] );
 	}
 
-	public function test_empty_TO_passes_through_to_sink(): void {
+	public function test_empty_TO_with_FROM_sends_NOT_AVAILABLE_back_to_FROM(): void {
+		// No empty-TO->sink shortcut: empty TO -> NOT_AVAILABLE; with FROM set the error walks back to that node.
 		$router = new Router();
 		$router->name( '_router' );
+		$producer = new CaptureSink();
+		$producer->name( 'producer' );
 
-		$captured = new CaptureSink();
-		$router->sink( $captured );
-
-		$msg = Message::new_message(); // TO=''
+		$msg                  = Message::new_message(); // TO=''
+		$msg[ Message::FROM ] = 'producer';
 		$router->fill( $msg );
 
-		$this->assertCount( 1, $captured->captured );
+		$this->assertCount( 1, $producer->captured );
+		$err = $producer->captured[0];
+		$this->assertSame( Message::TM_ERROR, $err[ Message::TYPE ] );
+		$this->assertSame( "NOT_AVAILABLE\n", $err[ Message::VALUE ] );
 	}
 
 	public function test_unknown_target_sends_NOT_AVAILABLE_error(): void {

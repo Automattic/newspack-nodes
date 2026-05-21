@@ -2,31 +2,17 @@
 /**
  * Layouts_CI: command-dispatch for substrate layout-storage verbs.
  *
- * Replaces legacy class-layouts-controller.php (the GET/POST
- * /layouts/{name} REST endpoints) with a CommandInterpreter the M3
- * Command_Controller mounts alongside the other substrate-side CIs.
- *
- * Layouts are decoupled from topologies — the TSL file describes the
- * graph (nodes, edges, verbs); the `.layout` file describes positions.
- * The supervisor never reads layouts; only the topology console does,
- * as a default for the canvas's "Reset Layout" affordance.
- *
- * Files live at `<base_directory>/layouts/<name>.layout`, JSON encoded
- * as `{ positions: { node_id: [x, y], ... } }`.
+ * Layouts (canvas node positions) are decoupled from topologies and live at
+ * `<base_directory>/layouts/<name>.layout` as `{ positions: { node_id: [x, y] } }`.
  *
  * Verbs:
- *   get  — args `{name}`. Returns `{name, positions: object|null}`. Missing
- *          file or unparseable JSON returns `positions: null`; the response
- *          NEVER surfaces non-positions top-level keys from the saved file.
- *   save — args `{name, positions: {node_id: [x,y]}}`. Returns
- *          `{name, path, positions}`. Sanitizes positions (numeric pairs
- *          only, node-id matches `[a-zA-Z0-9_:.-]+`, x/y finite floats);
- *          silently drops invalid entries.
+ *   get  — args `{name}`. Returns `{name, positions: object|null}`; never
+ *          surfaces non-positions top-level keys from the saved file.
+ *   save — args `{name, positions: {node_id: [x,y]}}`. Returns `{name, path,
+ *          positions}`; silently drops invalid entries.
  *
- * The legacy controller's nonce check is dropped — CI dispatch happens
- * post-auth via Command_Controller, so verb-level checks are limited to
- * the capability (`manage_options`). Errors throw RuntimeException;
- * CommandInterpreter::interpret() wraps them as TM_COMMAND | TM_ERROR.
+ * Verb-level auth is capability-only (manage_options); errors throw
+ * RuntimeException, which CommandInterpreter::interpret() wraps as TM_ERROR.
  *
  * @package Newspack_Nodes
  */
@@ -46,8 +32,6 @@ class Layouts_CI extends Service_CI {
 	private const MAX_BODY_BYTES  = 65536;
 
 	public function __construct() {
-		// Node + CommandInterpreter have no explicit __construct; the
-		// inherited no-op is implicit. Mirrors M3 Classes_CI and M2 CIs.
 		$this->commands( $this->verb_table() );
 	}
 

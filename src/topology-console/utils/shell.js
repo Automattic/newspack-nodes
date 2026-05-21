@@ -1,32 +1,7 @@
 /**
- * Frontend Shell layer — parses a user-typed line into either a local
- * builtin action or a typed POST descriptor.
- *
- * Mirrors the verb dispatch in newspack-nodes/includes/class-shell.php
- * so the GUI accepts the same vocabulary as `wp nodes cli`.
- *
- * Local builtins (handled in the browser, never sent to the worker):
- *   clear                         — wipe transcript
- *   debug_level [0|1|2]           — toggle local Dumper verbosity
- *
- *   Typed-message verbs (POST with type=…):
- *     ping [<path>]                 — TM_PING
- *     tell|tell_node <path> <bytes> — TM_INFO
- *     send|send_node <path> <bytes> — TM_BYTESTREAM
- *     send_eof <path>               — TM_EOF
- *     request|request_node <path> <args> — TM_REQUEST
- *     cmd|command|command_node <path> <verb> [<args>] — TM_COMMAND at <path>
- *
- *   Default (POST type=command):
- *     <verb> [<args>]               — TM_COMMAND at _command_interpreter
- *
- * Returns one of:
- *   { kind: 'local', name: 'clear' }
- *   { kind: 'local', name: 'debug_level', level: 0|1|2 }
- *   { kind: 'local', name: 'help' }
- *   { kind: 'post', body: { type, name?, arguments?, to? } }
- *   { kind: 'error', text: 'usage: …' }
- *   null                            — empty input
+ * Frontend Shell layer — parses a typed line into a local builtin action or a
+ * typed POST descriptor. Mirrors the verb dispatch in class-shell.php so the
+ * GUI accepts the same vocabulary as `wp nodes cli`.
  */
 
 const LOCAL_BUILTINS = new Set( [ 'clear', 'debug_level' ] );
@@ -40,11 +15,7 @@ function splitFirst( s ) {
 }
 
 /**
- * Split a typed line on unquoted `;` into separate statements, so the
- * REPL accepts `help; ls` as two commands instead of treating the `;`
- * as part of the verb. Mirrors `Shell::split_statements` on the PHP
- * side. Single, double, and backtick quotes shield their interior
- * `;` from splitting. Trims each result and drops empties.
+ * Split a typed line on unquoted `;` into statements (quotes shield interior `;`).
  *
  * @param {string} line Raw line from the REPL input.
  * @return {string[]}   Zero or more individual statements.
@@ -132,11 +103,7 @@ export function shell( line ) {
 		if ( ! to ) {
 			return { kind: 'error', text: 'usage: send <path> <bytes>' };
 		}
-		// Match the PHP Shell parser: line-terminate the bytestream so
-		// line-oriented downstream nodes (Log, Tail) don't run consecutive
-		// sends together. The trailing newline is appended here rather than
-		// server-side so the REST payload is the exact byte sequence the
-		// receiver will see — easier to reason about in the network log.
+		// Line-terminate the bytestream so line-oriented nodes don't merge sends.
 		return {
 			kind: 'post',
 			body: { type: 'bytestream', to, arguments: `${ body }\n` },

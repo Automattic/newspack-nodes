@@ -1,32 +1,8 @@
 /**
- * CommandOut — in-browser graph node for the topology console's
- * command-out path. Driven by both the silent canvas poll and the REPL:
- * each `fill({ commands })` posts ONE /command request carrying a JSONL
- * batch of a leading `connect_worker_input` plus each worker command.
- *
- * Routing model (formerly in the standalone sendCommand util):
- *
- *   1. `connect_worker_input` → the `topologies` CI, with the worker
- *      reader id as its argument. The /command process is request-scoped
- *      and starts with no worker nodes, so this mounts that one worker's
- *      input Partition (named `{topology}.p{N}`) into THIS process's
- *      graph. Without it the commands route to a non-existent node and
- *      `_router` returns NOT_AVAILABLE — they never reach the worker.
- *   2. each real command/message, addressed at the worker:
- *      - Empty inner path → TO=`{reader}`; the worker's CI sees an empty
- *        TO and handles the command locally.
- *      - Explicit node path → TO=`{reader}/{path}`; the worker's CI
- *        forwards through its own `_router` to that node.
- *
- * The messages run serially in one process, so the mount from (1) is
- * visible to the commands' routing. FROM=`_http/<ssePid>` stamps each
- * message with the open messages-stream session's pid — the worker's
- * reply walks back: worker `_router` peels `_repl` → shared output
- * partition; the SSE session reads it, peels `_http`, and HTTP_Filter
- * matches `<ssePid>` to deliver only to that session.
- *
- * The pid is read from the SseConnector at fill time, so a reconnect that
- * re-keys the session is picked up automatically on the next send.
+ * CommandOut — command-out path node. Each `fill({ commands })` posts one
+ * /command request: a leading `connect_worker_input` (mounts the worker's
+ * input Partition) plus each worker command. FROM=`_http/<ssePid>` is the
+ * reply pivot; the pid is read at fill time so reconnects are picked up.
  */
 
 import { Node } from '../../runtime/node';
@@ -45,8 +21,7 @@ import {
 	TM_REQUEST,
 } from '../../runtime/message';
 
-// KEY stamped on user-typed commands so the frontend can distinguish their
-// responses from the silent `gui:auto` / `gui:uptime` snapshot polls.
+// KEY on user-typed commands, distinct from the silent gui:auto/gui:uptime polls.
 const TYPED_KEY = 'gui:typed';
 
 const TYPED_MESSAGE_TYPES = {
@@ -88,10 +63,7 @@ export class CommandOut extends Node {
 	}
 
 	/**
-	 * Build the worker-bound message for one descriptor. Command-type goes
-	 * through buildMessage (structured VALUE); typed types (ping/info/
-	 * bytestream/eof/request) carry a raw scalar VALUE. Returns null for an
-	 * unsupported type so fill() can reject without posting.
+	 * Build the worker-bound message for one descriptor.
 	 *
 	 * @param {Object} body   Command descriptor {type, name, arguments, to}.
 	 * @param {number} ssePid Open messages-stream session pid (reply pivot).
@@ -112,10 +84,7 @@ export class CommandOut extends Node {
 		if ( ! type ) {
 			return null;
 		}
-		// newMessage() seeds TIMESTAMP with the send clock. A ping carries
-		// that timestamp as its VALUE so the bounced reply's round-trip
-		// computes (the renderer does now - VALUE); other typed messages
-		// carry their arg bytes.
+		// A ping carries its send TIMESTAMP as VALUE for round-trip timing.
 		const msg = newMessage();
 		msg[ TYPE ] = type;
 		msg[ FROM ] = `_http/${ ssePid }`;
@@ -127,16 +96,11 @@ export class CommandOut extends Node {
 	}
 
 	/**
-	 * Send a batch of command descriptors to the worker: a leading
-	 * `connect_worker_input` (mounts the worker's input Partition once),
-	 * then each command. Several behind one connect costs one /command
-	 * request and one mount instead of one per command.
+	 * Send a batch of command descriptors behind one connect_worker_input.
 	 *
 	 * @param {Object}        payload          Fill payload.
-	 * @param {Array<Object>} payload.commands Command descriptors, each optionally
-	 *                                         carrying its own `key`.
-	 * @return {Promise} Resolves with the dispatch response (202 ack;
-	 *                   pivoted replies arrive over the SSE stream).
+	 * @param {Array<Object>} payload.commands Command descriptors (each may carry `key`).
+	 * @return {Promise} Resolves with the dispatch response (202 ack).
 	 */
 	fill( payload ) {
 		this.counter += 1;

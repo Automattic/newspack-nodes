@@ -1,30 +1,11 @@
 /**
- * parseTsl — inverse of serializeTsl. Parse TSL text into an
- * edit-mode draft graph:
- *   { nodes: [{ id, name, class, ctorArgs, verbInvocations, ... }],
- *     edges: [{ from, to }] }
- *
- * Recognized statements (one per line; blank lines and `# comments`
- * are ignored):
- *   make_node <Class> <name> [<ctor args>]
- *   cmd <name>:config <verb> [<verb args>]
- *   connect_node <from> <to>
- *
- * The substitution patterns the loader handles (`<partition>`,
- * `<config:foo>`, etc.) pass through unchanged — they're authoring
- * hints, not values, so the editor surfaces them as-is until the
- * loader expands them at worker spawn time.
- *
- * Anything else is silently dropped — this is a permissive parser
- * for "open existing topology" round-tripping, not the canonical
- * validator. Server-side dry-run validation in the save endpoint
- * is the source of truth for syntax correctness.
+ * parseTsl — inverse of serializeTsl. Parses make_node / cmd / connect_node
+ * statements into an edit-mode draft graph; substitution patterns pass
+ * through unchanged and anything unrecognized is silently dropped.
  */
 
 function tokenize( line ) {
-	// Same single-quote-aware tokenization the substrate Shell uses,
-	// trimmed for the editor's needs (no double-quote/backtick variants
-	// — the serializer only emits single quotes).
+	// Single-quote-aware tokenization (the serializer only emits single quotes).
 	const out = [];
 	let buf = '';
 	let inQuote = false;
@@ -83,8 +64,7 @@ export function parseTsl( text ) {
 			nodesByName.set( name, node );
 			nodes.push( node );
 		} else if ( verb === 'cmd' && tokens.length >= 3 ) {
-			// `cmd <name>:config <verb> [<args>]` — strip the :config
-			// suffix and look up the patron node.
+			// `cmd <name>:config <verb> [<args>]` — strip :config, find the owner.
 			const target = tokens[ 1 ];
 			const colonIdx = target.indexOf( ':config' );
 			if ( colonIdx <= 0 ) {

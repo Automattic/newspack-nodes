@@ -1,34 +1,13 @@
 /* global globalThis */
 /**
- * TopologyConsole — top-level page composing Header, Palette,
- * SchematicCanvas, Inspector, and ReplFooter. The component is very
- * large (~1862 lines) with heavy view/edit-mode state, SSE wiring,
- * shell-interpret dispatch, and canvas pan/zoom logic.
- *
- * Tests cover the boot path, the full TM_ bitmask dumperRender table,
- * gui:auto/gui:uptime/debug_level message routing, transcript cap +
- * clear builtin, selection + Inspector action dispatch, position +
- * viewport persistence, edit-mode workflows (save / open / new /
- * delete / discard / rename / remove), modal-driven confirm/cancel
- * flows, and layout reset.
- *
- * Approach: useConsoleGraph is mocked to hand back a REAL SessionSink
- * (registered `session`) + a capture-only command-out node, so tests
- * pump synthetic SSE messages through `globalThis.__sessionNode.fill()`
- * (running the real parseMetadata / dumperRender / transcript logic)
- * without a real EventSource, and assert poll/REPL sends via
- * `globalThis.__commandOutFill`. Mocked Canvas / Inspector / Header /
- * CanvasFrame / Modal components expose every prop callback as a
- * button so handlers run end-to-end without driving SVG drag math.
- * Hook fetches (fetchTopology / saveTopology / deleteTopology /
- * fetchLayout / saveLayout) are stubbed via a globalThis.__hooks
- * registry the mock factories read at invocation time.
+ * TopologyConsole tests. useConsoleGraph is mocked to hand back a real
+ * SessionSink + capture-only command-out node; mocked child components
+ * expose every prop callback as a button so handlers run end-to-end.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
 
-// Pre-seed window.NewspackNodesData so the module-level TOPOLOGIES /
-// activeTopologySet IIFEs read sensible defaults at import time.
+// Pre-seed window.NewspackNodesData for the module-level IIFEs.
 window.NewspackNodesData = {
 	restUrl: '/wp-json/',
 	nonce: 'NONCE',
@@ -38,24 +17,10 @@ window.NewspackNodesData = {
 	userLogin: 'tester',
 };
 
-// The console's live SSE-in + command-out path now flows through a real
-// in-browser node graph (SseConnector → SessionSink; CommandOut). We mock
-// ONLY useConsoleGraph — to skip the real SseConnector/EventSource and
-// control status/pid — and hand back a REAL SessionSink (registered as
-// `session`, so the unmocked useNodeState/useNodeFill read it via Core)
-// plus a capture-only CommandOut (registered `command-out`) whose fill
-// records the poll/REPL command batches.
-//
-// Tests drive synthetic SSE messages by calling
-// `globalThis.__sessionNode.fill( msg )` — the SessionSink runs the real
-// parseMetadata / dumperRender / debug-header / transcript logic, so the
-// console renders exactly what the live path would produce.
+// Mock only useConsoleGraph; hand back a real SessionSink + capture CommandOut.
 globalThis.__commandOutFill = jest.fn();
 globalThis.__sessionNode = null;
-// Tracks the {topology}.p{N} the mock graph is currently built for, so a
-// topology/partition change rebuilds a fresh SessionSink — mirroring the
-// real useConsoleGraph's teardown-on-deps-change (which is what resets the
-// transcript + parsed graph for a new worker).
+// {topology}.p{N} the mock graph is built for; a change rebuilds a fresh sink.
 globalThis.__graphKey = null;
 jest.mock( '../hooks/useConsoleGraph', () => {
 	const { Core } = require( '../../runtime/core' );
@@ -82,8 +47,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 			}
 			const key = `${ topology }.p${ partition }`;
 			if ( globalThis.__graphKey !== key ) {
-				// Worker changed (or first mount): drop the old graph and
-				// build a fresh SessionSink + capture CommandOut.
+				// Worker changed: rebuild a fresh SessionSink + capture CommandOut.
 				Core.unregisterNode( 'session' );
 				Core.unregisterNode( 'command-out' );
 				const session = new SessionSink( { debugLevelRef } );
@@ -104,12 +68,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 		},
 	};
 } );
-// Test-overridable references so individual tests can stub topology fetches
-// without re-mocking the whole module. Mutable globals (assigned via the
-// hooks alias on `window`) so mock factories can read them at call
-// time without violating temporal dead zone — the factories run during
-// jest's hoisted `jest.mock`, before any of the test-file's const
-// declarations are initialized.
+// Mutable globals the hoisted jest.mock factories read at call time.
 globalThis.__hooks = {
 	topologies: [],
 	fetchTopology: jest.fn().mockResolvedValue( null ),
@@ -149,10 +108,7 @@ jest.mock( '../hooks/useSaveTopology', () => ( {
 jest.mock( '../hooks/useDeleteTopology', () => ( {
 	useDeleteTopology: () => globalThis.__hooks.deleteTopology,
 } ) );
-// Capture the canvas + inspector props so tests can invoke any handler
-// the parent threaded through without needing to drive synthetic
-// SVG / DOM events. This makes click-through paths reachable from a
-// regular `it(...)` without jsdom getScreenCTM stubbing.
+// Capture canvas + inspector props so tests can invoke any threaded handler.
 // eslint-disable-next-line no-unused-vars
 let lastCanvasProps = null;
 // eslint-disable-next-line no-unused-vars
@@ -384,8 +340,7 @@ jest.mock( '../components/CanvasFrame', () => ( props ) => {
 		</div>
 	);
 } );
-// Expose modal callbacks so tests can invoke confirm/cancel/onPick
-// without driving DOM events through a real modal component.
+// Expose modal callbacks so tests can invoke confirm/cancel/onPick.
 globalThis.__lastConfirmModal = null;
 globalThis.__lastPromptModal = null;
 globalThis.__lastOpenTopologyModal = null;
@@ -441,18 +396,14 @@ import { Core } from '../../runtime/core';
 describe( 'TopologyConsole boot', () => {
 	beforeEach( () => {
 		window.history.replaceState( {}, '', '/' );
-		// Clear localStorage so persisted positions / viewport from one
-		// test don't bleed into the next.
+		// Clear localStorage so persisted state doesn't bleed between tests.
 		window.localStorage.clear();
-		// Drop the graph nodes the mocked useConsoleGraph registered so the
-		// next render builds a fresh SessionSink (no name collision, no
-		// transcript bleed between tests).
+		// Reset Core so the next render builds a fresh SessionSink.
 		Core.reset();
 		globalThis.__sessionNode = null;
 		globalThis.__graphKey = null;
 		globalThis.__commandOutFill.mockClear();
-		// Reset hook mocks so leftover mockResolvedValueOnce queues from
-		// earlier tests don't bleed into later ones.
+		// Reset hook mocks between tests.
 		hooks.fetchTopology.mockReset();
 		hooks.fetchTopology.mockResolvedValue( null );
 		hooks.saveTopology.mockReset();
@@ -469,10 +420,8 @@ describe( 'TopologyConsole boot', () => {
 	it( 'renders Header, Canvas, and ReplFooter on mount (Inspector is selection-only)', () => {
 		const { getByTestId, queryByTestId } = render( <TopologyConsole /> );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
-		// Palette is edit-only — view mode skips it.
 		expect( queryByTestId( 'palette' ) ).toBeNull();
 		expect( getByTestId( 'canvas' ) ).not.toBeNull();
-		// Inspector only mounts when a node is selected; not on boot.
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
 		expect( getByTestId( 'repl' ) ).not.toBeNull();
 	} );
@@ -484,18 +433,13 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'polls dump_metadata every tick and batches uptime onto the 5s tick', () => {
-		// The old server-side controller fired ls/dump_metadata every 1s to
-		// refresh the live canvas; that poll now lives client-side as a single
-		// fill of the command-out node carrying a batch: dump_metadata
-		// (gui:auto) every second, with uptime (gui:uptime) riding the SAME
-		// batch on the immediate paint and every 5th tick.
+		// dump_metadata (gui:auto) fires every tick; uptime (gui:uptime) rides every 5th.
 		jest.useFakeTimers();
 		try {
 			globalThis.__commandOutFill.mockClear();
 			act( () => {
 				render( <TopologyConsole /> );
 			} );
-			// Each fill call payload is `{ commands: [...] }`.
 			const commandsOf = ( call ) => call[ 0 ].commands;
 			const hasVerb = ( commands, name ) =>
 				Array.isArray( commands ) &&
@@ -508,8 +452,7 @@ describe( 'TopologyConsole boot', () => {
 				globalThis.__commandOutFill.mock.calls.filter( ( c ) =>
 					hasVerb( commandsOf( c ), 'uptime' )
 				);
-			// Immediate paint: ONE batch carrying both commands, each with its
-			// own routing key.
+			// Immediate paint: one batch carrying both commands.
 			expect( dumpBatches().length ).toBeGreaterThanOrEqual( 1 );
 			expect( uptimeBatches().length ).toBeGreaterThanOrEqual( 1 );
 			const first = commandsOf(
@@ -545,16 +488,9 @@ describe( 'TopologyConsole boot', () => {
 		const { getByText, getByTestId, queryByTestId } = render(
 			<TopologyConsole />
 		);
-		// Edit mode requires confirming a snapshot via the ConfirmModal,
-		// but our mock returns null so the toggle happens immediately.
-		// However, the real TopologyConsole shows the modal — so just
-		// verify the button click does NOT crash. (Mode change is
-		// gated; we can at least exercise the handler.)
 		fireEvent.click( getByText( 'edit' ) );
-		// Best-effort assertion — either the mode flipped or the modal
-		// gate held it back.
+		// Best-effort: the mode flipped or the modal held it back.
 		expect( getByTestId( 'header' ) ).not.toBeNull();
-		// view button should remain functional.
 		fireEvent.click( getByText( 'view' ) );
 		expect( queryByTestId( 'header' ) ).not.toBeNull();
 	} );
@@ -564,12 +500,10 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'submit' ) );
 		} );
-		// Component stays mounted afterwards — no crash during submit.
 		expect( getByTestId( 'repl' ) ).not.toBeNull();
 	} );
 
-	// SSE message bitmask constants — mirror TopologyConsole's module-level
-	// values so tests express intent without raw integers.
+	// SSE message bitmask constants (mirror class-message.php).
 	const TM_BYTESTREAM = 1;
 	const TM_EOF = 2;
 	const TM_PING = 4;
@@ -579,9 +513,7 @@ describe( 'TopologyConsole boot', () => {
 	const TM_INFO = 64;
 	const TM_STRUCT = 256;
 
-	// Helper to pump a synthetic SSE message through the live SessionSink —
-	// the same node the SseConnector fills each frame into. Runs the real
-	// parseMetadata / dumperRender / transcript logic.
+	// Pump a synthetic SSE message through the live SessionSink.
 	const fireMsg = async ( msg ) => {
 		await act( async () => {
 			globalThis.__sessionNode.fill( msg );
@@ -713,7 +645,6 @@ describe( 'TopologyConsole boot', () => {
 			( i ) => i.dataset.kind === 'recv'
 		);
 		expect( recv ).not.toBeUndefined();
-		// JSON.stringify with indent uses 2 spaces; just match on `foo`.
 		expect( recv.textContent ).toMatch( /"foo": "bar"/ );
 	} );
 
@@ -757,8 +688,7 @@ describe( 'TopologyConsole boot', () => {
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
-		// Only logs would appear; an empty type with no curated render →
-		// no transcript entry at all.
+		// Empty type with no curated render -> no transcript entry.
 		expect( items.length ).toBe( 0 );
 	} );
 
@@ -784,14 +714,11 @@ describe( 'TopologyConsole boot', () => {
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
-		// gui:auto suppresses transcript output.
 		expect( items.length ).toBe( 0 );
 	} );
 
 	it( 'handleMessage: gui:auto with a {name,payload} object envelope feeds the canvas', async () => {
-		// VALUE is the structured object `{ name, payload }` and `payload` is
-		// the dump_metadata OBJECT itself — neither is a JSON string, so
-		// handleMessage must unwrap value.payload and parse it for the canvas.
+		// gui:auto envelope: unwrap value.payload (the dump_metadata object) for the canvas.
 		const { getByTestId } = render( <TopologyConsole /> );
 		await fireMsg( {
 			// eslint-disable-next-line no-bitwise
@@ -820,8 +747,7 @@ describe( 'TopologyConsole boot', () => {
 				},
 			},
 		} );
-		// Canvas mock surfaces parsed.nodes.length via data-node-count;
-		// both n1 and n2 should make it through parseMetadata.
+		// Both n1 and n2 make it through parseMetadata (data-node-count).
 		expect( getByTestId( 'canvas' ).dataset.nodeCount ).toBe( '2' );
 	} );
 
@@ -833,15 +759,12 @@ describe( 'TopologyConsole boot', () => {
 			key: 'gui:uptime',
 			value: '09:44:52  up 0 days, 00:01:00\n',
 		} );
-		// gui:uptime never reaches the transcript.
 		const transcript = getByTestId( 'repl-transcript' );
 		expect( transcript.children.length ).toBe( 0 );
 	} );
 
 	it( 'handleMessage: debug_level 1 injects type/from header', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
-		// Set debug_level 1 via the submit-multi button which dispatches
-		// `clear; debug_level 1`.
 		await act( async () => {
 			fireEvent.click( getByText( 'submit-multi' ) );
 		} );
@@ -853,7 +776,6 @@ describe( 'TopologyConsole boot', () => {
 		const items = Array.from(
 			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
 		);
-		// Look for the level-1 header line.
 		const header = items.find( ( i ) =>
 			i.textContent.includes( 'TM_BYTESTREAM from worker:' )
 		);
@@ -862,7 +784,6 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'sendLine: clear builtin empties the transcript', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
-		// Seed a transcript entry first.
 		await fireMsg( {
 			type: TM_BYTESTREAM,
 			from: 'worker',
@@ -872,17 +793,13 @@ describe( 'TopologyConsole boot', () => {
 			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
 				.length
 		).toBeGreaterThan( 0 );
-		// `clear; debug_level 1` → dispatchStatement runs each statement
-		// separately. First: echo "clear" (sent) → setTranscript([]) clears
-		// the whole pane. Then: echo "debug_level 1" (sent) + the
-		// "debug_level: 1" info line. Net: 2 entries left.
+		// `clear; debug_level 1`: clear wipes the pane, leaving the debug_level echo + info.
 		await act( async () => {
 			fireEvent.click( getByText( 'submit-multi' ) );
 		} );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
-		// "debug_level 1" sent echo + its info reply.
 		expect( items.length ).toBe( 2 );
 		expect( items[ 0 ].dataset.kind ).toBe( 'sent' );
 		expect( items[ 1 ].dataset.kind ).toBe( 'info' );
@@ -891,7 +808,6 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'transcript caps at TRANSCRIPT_MAX entries', async () => {
 		const { container } = render( <TopologyConsole /> );
-		// Push 250 messages; TRANSCRIPT_MAX is 200.
 		await act( async () => {
 			for ( let i = 0; i < 250; i++ ) {
 				globalThis.__sessionNode.fill( {
@@ -905,7 +821,6 @@ describe( 'TopologyConsole boot', () => {
 			'[data-testid="repl-transcript"] li'
 		);
 		expect( items.length ).toBe( 200 );
-		// First retained should be msg-50 (we pushed 0..249, dropped 0..49).
 		expect( items[ 0 ].textContent ).toBe( 'msg-50' );
 		expect( items[ 199 ].textContent ).toBe( 'msg-249' );
 	} );
@@ -928,8 +843,6 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
 
-	// === Selection state: clicking on the canvas/inspector ===
-
 	it( 'select node mounts the inspector', () => {
 		const { getByText, queryByTestId } = render( <TopologyConsole /> );
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
@@ -951,11 +864,8 @@ describe( 'TopologyConsole boot', () => {
 		fireEvent.click( getByText( 'select-n1' ) );
 		expect( queryByTestId( 'inspector' ) ).not.toBeNull();
 		fireEvent.click( getByText( 'select-edge' ) );
-		// Selecting an edge clears the node selection.
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
 	} );
-
-	// === Inspector actions dispatch to the REPL ===
 
 	it( 'Inspector dump action emits a sent transcript entry', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
@@ -1036,14 +946,10 @@ describe( 'TopologyConsole boot', () => {
 		expect( sent.textContent ).toMatch( /disconnect_node n1/ );
 	} );
 
-	// === Position + viewport callbacks ===
-
 	it( 'position change persists to localStorage with user flag', () => {
 		const { getByText } = render( <TopologyConsole /> );
 		fireEvent.click( getByText( 'move-n1' ) );
-		// Find any positions key — module-level TOPOLOGIES IIFE pins the
-		// initial topology at import time; whatever it landed on, the
-		// drag should round-trip through localStorage.
+		// The drag should round-trip through localStorage.
 		const keys = Object.keys( window.localStorage ).filter( ( k ) =>
 			k.endsWith( ':positions' )
 		);
@@ -1059,7 +965,6 @@ describe( 'TopologyConsole boot', () => {
 		try {
 			const { getByText } = render( <TopologyConsole /> );
 			fireEvent.click( getByText( 'vp-change' ) );
-			// Before debounce expiry, no viewport key written yet.
 			const beforeKeys = Object.keys( window.localStorage ).filter(
 				( k ) => k.endsWith( ':viewport' )
 			);
@@ -1080,14 +985,11 @@ describe( 'TopologyConsole boot', () => {
 		}
 	} );
 
-	// === Header buttons: save / new / open paths ===
-
 	it( 'header new resets draft + selection state', () => {
 		const { getByText, queryByTestId } = render( <TopologyConsole /> );
 		fireEvent.click( getByText( 'select-n1' ) );
 		expect( queryByTestId( 'inspector' ) ).not.toBeNull();
 		fireEvent.click( getByText( 'new' ) );
-		// New empties draft + selection; inspector gone.
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
 	} );
 
@@ -1100,20 +1002,13 @@ describe( 'TopologyConsole boot', () => {
 	it( 'header open opens the OpenTopologyModal', () => {
 		const { getByText, getByTestId } = render( <TopologyConsole /> );
 		fireEvent.click( getByText( 'open' ) );
-		// OpenTopologyModal is mocked to null, but the click should not throw.
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
 
-	// === Partition / topology change via Header callbacks ===
-
 	it( 'Header onTopologyChange updates the URL', () => {
-		// Seed the URL so initialTopologyFromUrl picks `demo` — the
-		// module-level TOPOLOGIES IIFE was pinned at import time before
-		// the test file's `window.NewspackNodesData` assignment, so
-		// the default fallback is undefined.
+		// Seed the URL so initialTopologyFromUrl picks `demo`.
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
-		// Trigger another setTopology to force the URL effect to re-run.
 		act( () => {
 			lastHeaderProps.onTopologyChange( 'demo' );
 		} );
@@ -1129,17 +1024,11 @@ describe( 'TopologyConsole boot', () => {
 		expect( window.location.search ).toMatch( /partition=1/ );
 	} );
 
-	// === SSE stream / graph wiring ===
-
 	it( 'mounts the session graph in view mode (SessionSink registered)', () => {
 		render( <TopologyConsole /> );
-		// useConsoleGraph (mocked) builds + registers a real SessionSink in
-		// Core because mode === 'view'. Its existence attests the graph is
-		// wired; the console reads it via useNodeState.
+		// The mocked graph registered a real SessionSink in view mode.
 		expect( Core.node( 'session' ) ).toBe( globalThis.__sessionNode );
 	} );
-
-	// === Edit-mode workflows ===
 
 	it( 'edit mode: entering shows the Palette', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
@@ -1164,7 +1053,6 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// Connect a -> b. The handler should not throw.
 		await act( async () => {
 			fireEvent.click( getByText( 'connect-a-b' ) );
 		} );
@@ -1181,11 +1069,9 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// Drop an Echo node at (50, 60) via the mocked canvas button.
 		await act( async () => {
 			fireEvent.click( getByText( 'drop-echo' ) );
 		} );
-		// A position override should exist (snapped values).
 		const keys = Object.keys( window.localStorage ).filter( ( k ) =>
 			k.endsWith( ':positions' )
 		);
@@ -1202,9 +1088,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// Trigger Save — opens setSaveModal({}) which causes PromptModal
-		// to mount. Our mock renders the modal as null but the handler
-		// runs without throwing.
+		// Trigger Save; the handler runs without throwing.
 		await act( async () => {
 			fireEvent.click( getByText( 'save' ) );
 		} );
@@ -1221,15 +1105,12 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// Select n1 so the inspector mounts.
 		await act( async () => {
 			fireEvent.click( getByText( 'select-n1' ) );
 		} );
-		// Trigger rename via the inspector mock's rename button.
 		await act( async () => {
 			fireEvent.click( getByText( 'rename-n1' ) );
 		} );
-		// No throw; selectedId should follow the rename.
 		expect( lastInspectorProps.selectedId ).toBe( 'renamed' );
 	} );
 
@@ -1250,7 +1131,6 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'remove-n1' ) );
 		} );
-		// Selection should clear; inspector unmounts.
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
 	} );
 
@@ -1268,10 +1148,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'select-edge' ) );
 		} );
-		// Inspector won't mount for an edge — onRemoveEdge is wired
-		// through to handleRemoveEdge regardless via the canvas mock; we
-		// can't trigger it through the Inspector mock here. Verify the
-		// state at least changed without throw.
+		// Inspector doesn't mount for an edge; just verify the selection changed.
 		expect( lastCanvasProps.selectedEdge ).toEqual( {
 			from: 'n1',
 			to: 'n2',
@@ -1297,12 +1174,8 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'update-verbs' ) );
 		} );
-		// No assertion needed beyond no-crash; the inspector still
-		// shows n1.
 		expect( lastInspectorProps.selectedId ).toBe( 'n1' );
 	} );
-
-	// === Layout reset / save layout ===
 
 	it( 'handleSaveLayout writes positions to layout endpoint', async () => {
 		hooks.saveLayout.mockResolvedValueOnce( {
@@ -1311,52 +1184,38 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText } = render( <TopologyConsole /> );
-		// Move a node to dirty the layout.
 		await act( async () => {
 			fireEvent.click( getByText( 'move-n1' ) );
 		} );
-		// Verify saveLayout was wired via the hook.
 		expect( typeof hooks.saveLayout ).toBe( 'function' );
 	} );
 
-	// === Background-click consumer ===
-
 	it( 'background-click-consumed callback can swallow the first click', () => {
 		render( <TopologyConsole /> );
-		// Invoke onBackgroundClickConsumed via the mocked canvas button.
 		const fn = lastCanvasProps.onBackgroundClickConsumed;
 		expect( typeof fn ).toBe( 'function' );
 		// Initial: replExpanded false → returns false (not consumed).
 		expect( fn() ).toBe( false );
 	} );
 
-	// === Toast lifecycle ===
-
 	it( 'toast clears after 5 seconds', () => {
 		jest.useFakeTimers();
 		try {
 			const { container, getByText } = render( <TopologyConsole /> );
-			// Force a toast by clicking save in view mode (no-op) — toast
-			// is hard to drive without going through edit-mode + saveLayout.
-			// Skip-but-verify that the render mounts without errors.
+			// Verify the render mounts without errors.
 			fireEvent.click( getByText( 'save' ) );
 			act( () => {
 				jest.advanceTimersByTime( 5000 );
 			} );
-			// No toast element should exist after the timer.
 			expect( container.querySelector( '.topology-toast' ) ).toBeNull();
 		} finally {
 			jest.useRealTimers();
 		}
 	} );
 
-	// === handleMessage rate-tracking branches ===
-
 	it( 'handleMessage: gui:auto with parsed nodes seeds rate tracking', async () => {
 		render( <TopologyConsole /> );
-		// dump_metadata format is the OBJECT { nodeName: { counter, class,
-		// target, ... } } — it rides the VALUE field as a nested object, not
-		// a JSON string.
+		// dump_metadata is the object { name: { counter, class, ... } } in VALUE.
 		await fireMsg( {
 			type: TM_STRUCT,
 			from: 'worker',
@@ -1391,7 +1250,6 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'handleMessage: counter reset across worker respawn clamps to 0', async () => {
 		render( <TopologyConsole /> );
-		// First: counter=100.
 		await fireMsg( {
 			type: TM_STRUCT,
 			from: 'worker',
@@ -1404,7 +1262,6 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 1100 ) );
 		} );
-		// Second: counter=5 (reset). Should not produce negative rate.
 		await fireMsg( {
 			type: TM_STRUCT,
 			from: 'worker',
@@ -1418,26 +1275,16 @@ describe( 'TopologyConsole boot', () => {
 		expect( entry.rate ).toBeGreaterThanOrEqual( 0 );
 	}, 5000 );
 
-	// === Snapshot of rendering effects ===
-
 	it( 'topology with multiple partitions: switching partition clamps when invalid', () => {
-		// Modify the runtime topology map to have demo with only 1 partition.
 		window.NewspackNodesData.topologyPartitions = { demo: 1 };
 		window.history.replaceState( {}, '', '/?topology=demo&partition=3' );
 		const { getByTestId } = render( <TopologyConsole /> );
-		// Header should still mount; partition gets clamped to 0 on effect.
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
 
-	// === debug_level 2: full envelope dump ===
-
 	it( 'debug_level 2 emits buildDebugHeader2 multi-line envelope', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
-		// The ReplFooter mock's submit-multi button dispatches
-		// `clear; debug_level 1`, which can only reach level 1 (not 2). We
-		// can't drive a literal `debug_level 2` through the existing mock,
-		// so this exercises the level-1 header injection path on an
-		// incoming message and asserts a transcript entry results.
+		// The mock can only reach debug_level 1; exercise the header-injection path.
 		fireEvent.click( getByText( 'submit-multi' ) );
 		await fireMsg( {
 			type: TM_BYTESTREAM,
@@ -1449,8 +1296,6 @@ describe( 'TopologyConsole boot', () => {
 		);
 		expect( items.length ).toBeGreaterThan( 0 );
 	} );
-
-	// === Keyboard handlers: Delete / Backspace ===
 
 	it( 'edit mode: Delete key removes the selected node', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
@@ -1469,7 +1314,6 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.keyDown( document, { key: 'Delete' } );
 		} );
-		// n1 was removed; selectedId cleared.
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
 	} );
 
@@ -1486,13 +1330,11 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'select-n1' ) );
 		} );
-		// Fire Delete from an input target → handler should bail early.
 		const input = document.createElement( 'input' );
 		document.body.appendChild( input );
 		await act( async () => {
 			fireEvent.keyDown( input, { key: 'Delete' } );
 		} );
-		// Inspector still mounted (n1 not deleted).
 		expect( queryByTestId( 'inspector' ) ).not.toBeNull();
 		document.body.removeChild( input );
 	} );
@@ -1532,11 +1374,8 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.keyDown( document, { key: 'Delete' } );
 		} );
-		// selectedEdge cleared after delete.
 		expect( lastCanvasProps.selectedEdge ).toBeNull();
 	} );
-
-	// === handleSaveConfirm flow ===
 
 	it( 'handleSaveConfirm calls saveTopology + toasts on success', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
@@ -1552,14 +1391,11 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// Open save modal.
 		await act( async () => {
 			fireEvent.click( getByText( 'save' ) );
 		} );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
-
-	// === handleOpenPick ===
 
 	it( 'handleOpenPick fetches the picked topology + replaces draft', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
@@ -1576,25 +1412,15 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// `handleOpenPick` is wired into the OpenTopologyModal; our
-		// Modal mock returns null. Drive the path by simulating the
-		// modal opening + invoking the picker. The handler's the only
-		// caller — verify via the header's open path that no errors
-		// happen.
 		await act( async () => {
 			fireEvent.click( getByText( 'open' ) );
 		} );
 		expect( hooks.fetchTopology ).toHaveBeenCalled();
 	} );
 
-	// === handleDelete flow ===
-
 	it( 'canDeleteCurrent: returns false when no user-saved topology', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
-		// Default hooks.topologies is [], so no entry matches editingName.
-		// canDeleteCurrent should be false. handleDelete is gated; clicking
-		// would be a no-op.
 		expect( lastHeaderProps.canDelete ).toBe( false );
 	} );
 
@@ -1609,22 +1435,12 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// Extra act flush so the post-fetch setEditingName is applied
-		// + canDeleteCurrent useMemo recomputes against the updated deps.
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 10 ) );
 		} );
-		// At minimum the handler ran without throwing. canDelete depends
-		// on editingName being set AND topologies containing a user entry.
-		// In practice the useMemo refresh path is harder to drive
-		// reliably from jest than from the browser; we just verify the
-		// handler reaches the inspector mode without crashing.
 		expect( lastHeaderProps.mode ).toBe( 'edit' );
-		// reset for follow-on tests
 		hooks.topologies = [];
 	} );
-
-	// === stringifyValue branches (level-1 header) ===
 
 	it( 'debug_level 1: number value stringifies', async () => {
 		const { getByText, container } = render( <TopologyConsole /> );
@@ -1634,7 +1450,6 @@ describe( 'TopologyConsole boot', () => {
 			from: 'worker',
 			value: 42, // number, exercises String() branch
 		} );
-		// Level-1 header injected; transcript should mention 'TM_BYTESTREAM'.
 		expect( container.textContent ).toMatch( /TM_BYTESTREAM from worker/ );
 	} );
 
@@ -1646,7 +1461,6 @@ describe( 'TopologyConsole boot', () => {
 			from: 'worker',
 			value: null,
 		} );
-		// Header still appears.
 		expect( container.textContent ).toMatch( /TM_BYTESTREAM from worker/ );
 	} );
 
@@ -1661,29 +1475,20 @@ describe( 'TopologyConsole boot', () => {
 		expect( container.textContent ).toMatch( /TM_STRUCT from worker/ );
 	} );
 
-	// === Layout reset ===
-
 	it( 'handleResetLayout in live mode applies the saved layout', async () => {
 		hooks.fetchLayout.mockResolvedValueOnce( {
 			positions: { n1: [ 100, 200 ] },
 		} );
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText } = render( <TopologyConsole /> );
-		// Wait for fetchLayout to resolve.
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 0 ) );
 		} );
-		// Move a node, then reset.
 		await act( async () => {
 			fireEvent.click( getByText( 'move-n1' ) );
 		} );
-		// hasOverrides should now be true → CanvasFrame would render
-		// the Reset button. We can't drive that path through the mocked
-		// CanvasFrame, but the wiring is established. No-crash assertion.
 		expect( hooks.fetchLayout ).toHaveBeenCalled();
 	} );
-
-	// === Stringify edge cases via debug_level header ===
 
 	it( 'debug_level 1: object with circular reference falls back to String', async () => {
 		const { getByText, container } = render( <TopologyConsole /> );
@@ -1695,21 +1500,16 @@ describe( 'TopologyConsole boot', () => {
 			from: 'worker',
 			value: circular,
 		} );
-		// JSON.stringify throws on circular; stringifyValue falls back to
-		// String(). Header should still render.
+		// stringifyValue falls back to String() on circular; header still renders.
 		expect( container.textContent ).toMatch( /TM_BYTESTREAM from worker/ );
 	} );
 
-	// === Localstorage fallback paths ===
-
 	it( 'positionOverrides falls back to empty object on parse error', () => {
-		// Pre-pollute localStorage with malformed JSON for the positions key.
 		window.localStorage.setItem(
 			'newspack-nodes:topology:undefined.p0:positions',
 			'this is not json'
 		);
 		const { getByTestId } = render( <TopologyConsole /> );
-		// Component should mount despite the parse error.
 		expect( getByTestId( 'canvas' ) ).not.toBeNull();
 	} );
 
@@ -1722,8 +1522,6 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'canvas' ) ).not.toBeNull();
 	} );
 
-	// === Empty topology fallback ===
-
 	it( 'switching partition to higher than available clamps to 0', () => {
 		window.NewspackNodesData.topologyPartitions = { demo: 2 };
 		window.history.replaceState( {}, '', '/?topology=demo&partition=5' );
@@ -1731,12 +1529,9 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
 
-	// === sendLine post path (fills the command-out node) ===
-
 	it( 'sendLine: a remote command echoes the sent text', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
-		// The default submit button sends `ls`. The remote path fires
-		// because ssePid is 1234 (from the useConsoleGraph mock).
+		// submit sends `ls`; the remote path fires (ssePid=1234 from the mock).
 		await act( async () => {
 			fireEvent.click( getByText( 'submit' ) );
 		} );
@@ -1757,15 +1552,11 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'submit' ) );
 		} );
-		// `ls` → default command verb. The pivot (topology / partition /
-		// ssePid) is held by CommandOut, so the fill payload is just the
-		// command batch.
+		// `ls` -> default command verb; the fill payload is just the command batch.
 		expect( globalThis.__commandOutFill ).toHaveBeenCalledWith( {
 			commands: [ { type: 'command', name: 'ls', arguments: '' } ],
 		} );
 	} );
-
-	// === Modal-driven workflows ===
 
 	it( 'handleSave: PromptModal mounts in edit mode; confirm triggers saveTopology', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
@@ -1784,9 +1575,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'save' ) );
 		} );
-		// PromptModal is mounted.
 		expect( queryByTestId( 'prompt-modal' ) ).not.toBeNull();
-		// Confirm with 'newname'.
 		await act( async () => {
 			fireEvent.click( getByText( 'prompt-ok' ) );
 		} );
@@ -1834,7 +1623,6 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		await act( async () => {
 			fireEvent.click( getByText( 'prompt-ok' ) );
-			// Allow the rejected promise to settle.
 			await new Promise( ( r ) => setTimeout( r, 10 ) );
 		} );
 		const toast = container.querySelector( '.topology-toast--error' );
@@ -1923,16 +1711,13 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// Make a draft change by dropping a node.
 		await act( async () => {
 			fireEvent.click( getByText( 'drop-echo' ) );
 		} );
-		// Attempt to leave edit mode — ConfirmModal mounts.
 		await act( async () => {
 			fireEvent.click( getByText( 'view' ) );
 		} );
 		expect( queryByTestId( 'confirm-modal' ) ).not.toBeNull();
-		// Click confirm → mode flips to view.
 		await act( async () => {
 			fireEvent.click( getByText( 'confirm' ) );
 		} );
@@ -1956,15 +1741,12 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'view' ) );
 		} );
-		// Cancel keeps the modal closed but stays in edit mode.
 		await act( async () => {
 			fireEvent.click( getByText( 'cancel-confirm' ) );
 		} );
 		expect( queryByTestId( 'confirm-modal' ) ).toBeNull();
 		expect( lastHeaderProps.mode ).toBe( 'edit' );
 	} );
-
-	// === handleDelete ===
 
 	it( 'handleDelete: confirmed delete removes via deleteTopology', async () => {
 		hooks.topologies = [ { name: 'demo', source: 'user' } ];
@@ -1975,7 +1757,6 @@ describe( 'TopologyConsole boot', () => {
 		hooks.deleteTopology.mockResolvedValueOnce( {
 			stock_fallback: false,
 		} );
-		// Override window.confirm to auto-accept.
 		const originalConfirm = window.confirm;
 		window.confirm = () => true;
 		try {
@@ -2048,8 +1829,6 @@ describe( 'TopologyConsole boot', () => {
 		}
 	} );
 
-	// === Rename with cross-node verb arg rewrite ===
-
 	it( 'handleRenameNode: rejects empty name', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: 'make_node Echo n1\n',
@@ -2063,7 +1842,6 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'select-n1' ) );
 		} );
-		// Invoke onRenameNode with empty name via props.
 		const result = lastInspectorProps.onRenameNode( 'n1', '' );
 		expect( result ).toBe( false );
 	} );
@@ -2085,13 +1863,10 @@ describe( 'TopologyConsole boot', () => {
 		expect( result ).toBe( false );
 	} );
 
-	// === Misc test path: graph re-mount via topology change ===
-
 	it( 'changing partition resets selection + transcript + parsed', async () => {
 		window.NewspackNodesData.topologyPartitions = { demo: 2 };
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { container } = render( <TopologyConsole /> );
-		// Seed a transcript entry.
 		await fireMsg( {
 			type: TM_BYTESTREAM,
 			from: 'worker',
@@ -2101,20 +1876,15 @@ describe( 'TopologyConsole boot', () => {
 			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
 				.length
 		).toBeGreaterThan( 0 );
-		// Switch to partition 1.
 		await act( async () => {
 			lastHeaderProps.onPartitionChange( 1 );
 		} );
-		// Transcript should be cleared.
 		expect(
 			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
 				.length
 		).toBe( 0 );
-		// Cleanup so subsequent tests don't see partition=1 stale.
 		window.history.replaceState( {}, '', '/' );
 	} );
-
-	// === handleSaveLayout / handleResetLayout via CanvasFrame ===
 
 	it( 'handleSaveLayout: positions get serialized + sent to saveLayout', async () => {
 		hooks.saveLayout.mockResolvedValueOnce( {
@@ -2123,12 +1893,10 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText, queryByText } = render( <TopologyConsole /> );
-		// Move n1 to create a dirty layout — save-layout button mounts
-		// only when layout differs from saved.
+		// Move n1 so the save-layout button mounts (layout differs from saved).
 		await act( async () => {
 			fireEvent.click( getByText( 'move-n1' ) );
 		} );
-		// CanvasFrame now exposes save-layout button (layoutDirty=true).
 		const saveBtn = queryByText( 'save-layout' );
 		expect( saveBtn ).not.toBeNull();
 		await act( async () => {
@@ -2172,7 +1940,6 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 10 ) );
 		} );
-		// Move a node to make layout dirty.
 		await act( async () => {
 			fireEvent.click( getByText( 'move-n1' ) );
 		} );
@@ -2181,11 +1948,9 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( resetBtn );
 		} );
-		// Live-mode reset is immediate (no confirm modal).
 		const positionsKey = Object.keys( window.localStorage ).find( ( k ) =>
 			k.endsWith( ':positions' )
 		);
-		// Positions key removed by applyLayoutReset.
 		expect( window.localStorage.getItem( positionsKey ) ).toBeNull();
 	} );
 
@@ -2201,7 +1966,6 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// Move a node in edit mode.
 		await act( async () => {
 			fireEvent.click( getByText( 'move-n1' ) );
 		} );
@@ -2210,7 +1974,6 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( resetBtn );
 		} );
-		// Edit-mode reset shows the confirm modal first.
 		expect( queryByTestId( 'confirm-modal' ) ).not.toBeNull();
 		await act( async () => {
 			fireEvent.click( getByText( 'confirm' ) );
@@ -2243,8 +2006,6 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByTestId( 'confirm-modal' ) ).toBeNull();
 	} );
 
-	// === Edge cases / fallback paths ===
-
 	it( 'savedLayout fetch error: layout state falls back to {positions: null}', async () => {
 		hooks.fetchLayout.mockRejectedValueOnce( new Error( 'boom' ) );
 		window.history.replaceState( {}, '', '/?topology=demo' );
@@ -2252,7 +2013,6 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 10 ) );
 		} );
-		// Component stays mounted.
 		expect( getByTestId( 'canvas' ) ).not.toBeNull();
 	} );
 
@@ -2265,8 +2025,7 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 10 ) );
 		} );
-		// Layout dirty path checked elsewhere. Verify save-layout button
-		// is gone after seeding (overrides equal saved).
+		// save-layout button is gone after seeding (overrides equal saved).
 		expect( queryByText( 'save-layout' ) ).toBeNull();
 		expect( getByText( 'submit' ) ).not.toBeNull();
 	} );

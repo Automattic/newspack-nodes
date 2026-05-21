@@ -1,8 +1,5 @@
 /**
- * Tests for the substrate-side CommandClient singleton factory used by the
- * topology console's M4 hooks. Mirrors the app-side helper in
- * `newspack-event-logger-nodes/src/shared/utils/commandClient.js` but lives
- * here because the substrate has no dependency on the application repo.
+ * Tests for the topology-console CommandClient singleton factory.
  */
 
 import {

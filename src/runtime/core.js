@@ -39,17 +39,13 @@ class CoreImpl {
 		return this._msgCounter;
 	}
 
-	// Direct path: errors that are unlikely to repeat call this.
-	// Browser substrate: stderr is the JS console. Use warn so messages
-	// stand out from regular logging without triggering devtools' error
-	// counter (errors imply a thrown exception).
+	// stderr = the JS console; warn (not error) to skip devtools' error counter.
 	stderr( msg ) {
 		// eslint-disable-next-line no-console
 		console.warn( msg );
 	}
 
-	// Rate-limited: at most one print per identical message per 60s window.
-	// Use for warnings that COULD repeat per-message in a hot path.
+	// At most one print per identical message per 60s window.
 	printLessOften( msg ) {
 		const now = Date.now();
 		const last = this._lastPrint.get( msg ) ?? 0;
@@ -60,11 +56,7 @@ class CoreImpl {
 		this.stderr( msg );
 	}
 
-	// Rate-limited: emits on every Nth occurrence and resets the counter.
-	// Intentionally simpler than PHP `print_least_often`, which adds a 60s
-	// squelch window after each emit. The browser-tab lifecycle and lower
-	// message cardinality on the JS side don't need that extra guard — if
-	// a tight loop on the browser side ever drowns the console, revisit.
+	// Emits on every Nth occurrence, then resets the counter.
 	printLeastOften( msg ) {
 		const n = ( this._countSince.get( msg ) ?? 0 ) + 1;
 		if ( n < PRINT_LEAST_OFTEN_THRESHOLD ) {

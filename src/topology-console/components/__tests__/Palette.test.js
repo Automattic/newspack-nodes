@@ -57,9 +57,7 @@ describe( 'Palette', () => {
 		const echo = container.querySelector( '[data-shell-name="Echo"]' );
 		const setData = jest.fn();
 		const dataTransfer = { setData, effectAllowed: '' };
-		// Manually invoke React's onDragStart through the SyntheticEvent
-		// surface — easier than dispatching a real DragEvent (jsdom has
-		// no DataTransfer constructor).
+		// Invoke onDragStart via the SyntheticEvent (jsdom has no DataTransfer).
 		const reactKey = Object.keys( echo ).find( ( k ) =>
 			k.startsWith( '__reactProps' )
 		);

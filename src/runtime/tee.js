@@ -4,23 +4,17 @@ import { TO, valueSize } from './message';
 export class Tee extends Node {
 	constructor() {
 		super();
-		// Tee overrides the parent's default target='' with an array. The
-		// parent's fill() has a `typeof this.target === 'string'` guard that
-		// keeps it from stamping TO when target is an array, which is what
-		// lets this subclass own the fan-out stamping below.
+		// Array target (not string) so the parent's fill() skips stamping and
+		// this subclass owns the fan-out below.
 		this.target = [];
 	}
 
 	connectNode( owner ) {
 		if ( ! Array.isArray( this.target ) ) {
-			// Legacy/parent default of '' becomes []. A non-empty string would
-			// only show up if something mutated target directly after
-			// construction; wrap it into a single-element array so we don't
-			// silently drop the prior target.
+			// Coerce a stray string target into an array without dropping it.
 			this.target = '' === this.target ? [] : [ this.target ];
 		}
-		// Idempotent: matches PHP Tee::connect_node, which uses in_array to
-		// skip duplicates so fanout doesn't send N copies to the same owner.
+		// Idempotent (matches PHP Tee::connect_node) so fanout doesn't dup.
 		if ( this.target.includes( owner ) ) {
 			return;
 		}
@@ -38,8 +32,7 @@ export class Tee extends Node {
 			return;
 		}
 		for ( const owner of this.target ) {
-			// Per-target shallow copy: stamping TO mutates this owner's copy
-			// without leaking back to the caller's message or to peer targets.
+			// Per-target copy so stamping TO doesn't leak to caller or peers.
 			const copy = message.slice();
 			copy[ TO ] = owner;
 			if ( this.sink ) {

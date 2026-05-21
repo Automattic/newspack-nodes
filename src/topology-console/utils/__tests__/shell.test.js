@@ -128,8 +128,7 @@ describe( 'shell', () => {
 } );
 
 describe( 'splitStatements', () => {
-	// Need the import at module scope; reuse via require to avoid touching
-	// the top of the file. Jest hoists describe blocks but not imports here.
+	// require here since jest hoists describe but not imports.
 	// eslint-disable-next-line @typescript-eslint/no-var-requires, global-require
 	const { splitStatements } = require( '../shell' );
 

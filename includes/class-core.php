@@ -2,8 +2,6 @@
 /**
  * Core: global registries + clock + closing queue + stderr.
  *
- * Per-process singleton state for the node-graph runtime.
- *
  * @package Newspack_Nodes
  */
 
@@ -19,49 +17,25 @@ class Core {
 	/** @var array<int,object> */
 	public static array $nodes_by_id = [];
 
-	/** @var float Microsecond-resolution timestamp; updated by the event loop or set explicitly in tests. */
+	/** @var float Microsecond-resolution timestamp; updated by the event loop or in tests. */
 	public static float $now = 0.0;
 
-	/**
-	 * Process start time. Stamped at every Core::reset() (worker bootstrap,
-	 * test setUp); the `uptime` verb subtracts this from $now to render
-	 * `up N days, HH:MM:SS` Tachikoma-style.
-	 */
+	/** Process start time, stamped each Core::reset(); the `uptime` verb subtracts it from $now. */
 	public static float $init_time = 0.0;
 
 	public static bool $shutting_down = false;
 
 	/**
-	 * Deferred-cleanup queue. Public so EventFramework's hot drain loop can
-	 * read/shift it directly without paying a method-call frame per tick.
-	 * Sibling to Core::$now and Core::$shutting_down (also public for
-	 * the same reason).
+	 * Deferred-cleanup queue; public so the hot drain loop can shift it without a method frame.
 	 *
 	 * @var array<int, callable>
 	 */
 	public static array $closing = [];
 
-	/**
-	 * Process-global Shell variable map. `<varname>` interpolation in
-	 * Shell::interpolate reads from here, and the Shell `var name =
-	 * value` builtin writes here. Topology_Loader pre-populates
-	 * predefined entries like `partition` before parsing a TSL file
-	 * so the topology can refer to them via `<partition>`.
-	 *
-	 * @var array<string,string>
-	 */
+	/** @var array<string,string> Process-global Shell variable map. */
 	public static array $var = [];
 
-	/**
-	 * Process-global runtime-config map. `<config:foo>` interpolation
-	 * in Shell::interpolate reads `Core::$config['foo']`. Distinct
-	 * namespace from $var: $var is mutable from TSL via the `var name
-	 * = value` builtin; $config originates PHP-side (Topology_Loader
-	 * populates it from substrate Config::load_config) and TSL is
-	 * read-only against it.
-	 *
-	 * @var array<string,mixed>
-	 */
+	/** @var array<string,mixed> Process-global runtime-config map; read-only from TSL. */
 	public static array $config = [];
 
 	/** @var array<string> */
@@ -76,22 +50,10 @@ class Core {
 	/** @var callable */
 	private static $stderr_handler;
 
-	/**
-	 * Re-entry guard for stderr(). The default handler routes through a
-	 * `_repl` Partition; a fault inside that path (Partition write failure,
-	 * Router throw, a node's fill() rate-limit-logging its own error) calls
-	 * back into print_less_often → stderr and recurses. Custom handlers
-	 * set via set_stderr_handler() can recurse the same way. Guarded at the
-	 * dispatcher (not inside one handler) so the protection applies uniformly.
-	 *
-	 * @var bool
-	 */
+	/** Re-entry guard for stderr(); the default handler can recurse via _repl write failures. */
 	private static bool $in_stderr = false;
 
-	/**
-	 * Monotonic counter for shell message IDs. Reset by Core::reset() in tests.
-	 * Single static int; integer increment is the cheapest possible counter.
-	 */
+	/** Monotonic counter for shell message IDs; reset by Core::reset(). */
 	private static int $msg_counter = 0;
 
 	public static function reset(): void {
@@ -106,14 +68,7 @@ class Core {
 		self::$in_stderr         = false;
 		self::$var               = [];
 		self::$config            = [];
-		// Default handler: when a worker has wired up the `_repl` conduit, route
-		// stderr-style diagnostics through it as TM_BYTESTREAM addressed to
-		// `_repl`. The worker's `_router` peels `_repl` and dispatches into
-		// the Partition; downstream cli/SSE readers see the message with
-		// empty TO, which the Dumper always renders — unaddressed broadcast
-		// (stderr is an alarm, not observability).
-		// Falls back to PHP's error_log when there's no _repl (request scope,
-		// tests, CLI tools). Override via set_stderr_handler() in tests.
+		// Default handler: route through `_repl` if wired, else error_log.
 		self::$stderr_handler = static function ( string $msg ): void {
 			$repl = self::$nodes_by_name['_repl'] ?? null;
 			if ( null !== $repl ) {
@@ -148,16 +103,7 @@ class Core {
 		return self::$nodes_by_name[ $name ] ?? null;
 	}
 
-	/**
-	 * Tear down every registered node. Call from worker shutdown so each
-	 * Partition's `remove_node()` runs — that's where Partition closes its
-	 * file handles and releases its write_lock + heartbeat. Without this,
-	 * the next worker spawn races a heartbeat that takes ~stale_timeout
-	 * seconds to age out before the new Partition can acquire the lock.
-	 *
-	 * Snapshot the registry first so each remove_node()'s unregister doesn't
-	 * mutate the iteration source.
-	 */
+	/** Tear down every registered node; snapshots the registry first so unregister doesn't mutate the iteration source. */
 	public static function cleanup_all_nodes(): void {
 		$nodes = self::$nodes_by_name;
 		foreach ( $nodes as $node ) {
@@ -165,7 +111,7 @@ class Core {
 				try {
 					$node->remove_node();
 				} catch ( \Throwable $e ) {
-					// Best-effort teardown; one node's failure shouldn't block the rest.
+					// Best-effort: one node's failure shouldn't block the rest.
 					self::stderr( 'cleanup_all_nodes: ' . $e->getMessage() );
 				}
 			}
@@ -187,12 +133,7 @@ class Core {
 		self::$stderr_handler = $h;
 	}
 
-	/**
-	 * Emit once at the 10th identical occurrence; suppress otherwise. The
-	 * entry is re-windowed when prune_logs() ages it out (Router tick), so a
-	 * recurring message re-emits each timeout window. Mirrors Perl Tachikoma
-	 * Node::print_least_often.
-	 */
+	/** Emit once at the 10th identical occurrence; suppress otherwise (re-windowed by prune_logs). */
 	public static function print_least_often( string $text ): void {
 		$row = self::$recent_log_timers[ $text ] ?? null;
 		if ( null !== $row ) {
@@ -206,12 +147,7 @@ class Core {
 		self::$recent_log_timers[ $text ] = $row;
 	}
 
-	/**
-	 * Emit text on first sight; suppress identical text thereafter. The entry
-	 * is re-windowed when prune_logs() ages it out (Router tick), so a
-	 * recurring message re-emits each timeout window. Mirrors Perl Tachikoma
-	 * Node::print_less_often.
-	 */
+	/** Emit text on first sight; suppress identical text thereafter (re-windowed by prune_logs). */
 	public static function print_less_often( string $text ): void {
 		$row = self::$recent_log_timers[ $text ] ?? null;
 		if ( null !== $row ) {
@@ -228,11 +164,7 @@ class Core {
 			return;
 		}
 		if ( self::$in_stderr ) {
-			// Re-entry: the active handler itself triggered another stderr
-			// emission (e.g., the _repl Partition write inside the default
-			// handler failed and called print_less_often). Recursing back
-			// through the handler would deadlock or stack-overflow; emit
-			// straight to PHP's error_log as the last-resort sink.
+			// Re-entry guard: go straight to error_log to avoid recursion.
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			\error_log( \rtrim( $text ) );
 			return;
@@ -241,24 +173,18 @@ class Core {
 		try {
 			$line               = \rtrim( $text ) . "\n";
 			self::$recent_log[] = $line;
-			// Bounded tail for the REPL (Perl Tachikoma caps @RECENT_LOG at 100).
+			// Bounded tail for the REPL (Tachikoma caps @RECENT_LOG at 100).
 			while ( \count( self::$recent_log ) > 100 ) {
 				\array_shift( self::$recent_log );
 			}
 			( self::$stderr_handler )( $line );
 		} finally {
-			// Reset even if the handler throws — otherwise a single bad
-			// emission permanently latches every future stderr to the
-			// error_log fallback.
+			// Reset even if the handler throws, else stderr latches to fallback forever.
 			self::$in_stderr = false;
 		}
 	}
 
-	/**
-	 * Evict rate-limiter entries older than the timeout, so a recurring-but-
-	 * stale message re-emits next time it fires. The Router calls this each
-	 * tick (mirrors Perl Tachikoma Router::update_logs).
-	 */
+	/** Evict rate-limiter entries older than the timeout so stale messages re-emit (per Router tick). */
 	public static function prune_logs(): void {
 		foreach ( self::$recent_log_timers as $key => $row ) {
 			if ( self::$now - $row['timestamp'] > self::$log_timeout ) {
@@ -268,5 +194,4 @@ class Core {
 	}
 }
 
-// Initialize singletons on plugin load.
 Core::reset();

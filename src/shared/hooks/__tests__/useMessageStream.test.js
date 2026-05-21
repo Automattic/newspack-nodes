@@ -1,9 +1,5 @@
 /**
- * Tests for useMessageStream — SSE wiring + slot keep-alive + position
- * tracking + exponential backoff reconnect.
- *
- * EventSource is mocked so we can drive `msg` / `heartbeat` / `error`
- * deterministically. CommandClient is mocked to capture slot heartbeats.
+ * useMessageStream tests — SSE wiring, slot keep-alive, position tracking, backoff. EventSource + CommandClient are mocked.
  */
 
 import { renderHook, act } from '@testing-library/react';
@@ -110,7 +106,6 @@ describe( 'useMessageStream', () => {
 			} )
 		);
 		act( () => result.current.connect() );
-		// envelope = [TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE]
 		act( () =>
 			FakeEventSource.last().dispatch( 'msg', [
 				1,
@@ -166,7 +161,6 @@ describe( 'useMessageStream', () => {
 				{ slot: 3 },
 			] )
 		);
-		// Heartbeat cadence is 5s.
 		act( () => jest.advanceTimersByTime( 5000 ) );
 		expect( sendMock ).toHaveBeenCalledWith( {
 			to: 'workers',
@@ -176,9 +170,7 @@ describe( 'useMessageStream', () => {
 	} );
 
 	it( 'tracks per-subscription per-partition positions from envelope FROM+ID', () => {
-		// Custom subclass so we can read positionsRef indirectly: after
-		// processing an envelope, a reconnect should carry `positions=...`
-		// in the URL with the seg/off encoded.
+		// After an envelope, a reconnect should carry positions=seg:off in the URL.
 		const { result } = renderHook( () =>
 			useMessageStream( { subscriptions: [ 'firehose' ] } )
 		);
@@ -194,7 +186,6 @@ describe( 'useMessageStream', () => {
 				'x',
 			] )
 		);
-		// Reconnect to surface the positions param.
 		act( () => result.current.connect() );
 		const reconnectUrl = FakeEventSource.last().url;
 		const positions = decodeURIComponent(
@@ -225,7 +216,6 @@ describe( 'useMessageStream', () => {
 				'x',
 			] )
 		);
-		// Reconfigure to a different subscription set, then reconnect.
 		rerender( { subs: [ 'errors' ] } );
 		act( () => result.current.connect() );
 		const reconnectUrl = FakeEventSource.last().url;
@@ -241,7 +231,6 @@ describe( 'useMessageStream', () => {
 		act( () => first.onerror() );
 		expect( result.current.error ).toMatch( /Reconnecting/ );
 		expect( first.closed ).toBe( true );
-		// Advance by the first delay (2s) — should reconnect.
 		act( () => jest.advanceTimersByTime( 2000 ) );
 		expect( FakeEventSource.instances.length ).toBeGreaterThan( 1 );
 	} );
@@ -255,7 +244,6 @@ describe( 'useMessageStream', () => {
 		act( () => first.onerror() );
 		act( () => first.onerror() ); // Second fire while a reconnect is queued.
 		act( () => jest.advanceTimersByTime( 2000 ) );
-		// Only one reconnect should have fired (so two total ES instances).
 		expect( FakeEventSource.instances.length ).toBe( 2 );
 	} );
 
@@ -278,7 +266,6 @@ describe( 'useMessageStream', () => {
 		const es = FakeEventSource.last();
 		act( () => result.current.close() );
 		expect( es.closed ).toBe( true );
-		// Advance past one heartbeat interval — no further heartbeat sends.
 		const callsBefore = sendMock.mock.calls.length;
 		act( () => jest.advanceTimersByTime( 10000 ) );
 		expect( sendMock.mock.calls.length ).toBe( callsBefore );
@@ -303,8 +290,7 @@ describe( 'useMessageStream', () => {
 		);
 		act( () => result.current.connect() );
 		act( () => FakeEventSource.last().onopen() );
-		// Errors should restart backoff from 2s (retry=1) again. We just
-		// verify the path executes without throwing.
+		// Errors restart backoff; verify the path runs without throwing.
 		expect( result.current.error ).toBeNull();
 	} );
 
@@ -335,7 +321,6 @@ describe( 'useMessageStream', () => {
 				{ slot: 2 },
 			] )
 		);
-		// Advance the heartbeat cadence — newest slot wins.
 		act( () => jest.advanceTimersByTime( 5000 ) );
 		const lastCall = sendMock.mock.calls.at( -1 )[ 0 ];
 		expect( lastCall.payload.slot ).toBe( 2 );

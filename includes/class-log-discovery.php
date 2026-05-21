@@ -1,15 +1,6 @@
 <?php
 /**
- * Log_Discovery — readdir-based "what logs exist on disk" primitive.
- *
- * Replaces hardcoded log catalogs that drift when applications add
- * topology partitions. Globs `{base}/logs/*.log/` and returns the
- * sorted basename list (without the `.log` suffix).
- *
- * Cache policy:
- *   * Memoized per-PHP-process (admin / REST / CLI / worker).
- *   * `Config::RESET_ACTION` clears the cache so long-lived workers see
- *     new log dirs after a config reload.
+ * Log_Discovery — globs `{base}/logs/*.log/` for the sorted basename list (without `.log`). Memoized per-process; cleared on Config::RESET_ACTION.
  *
  * @package Newspack_Nodes
  */
@@ -20,16 +11,11 @@ namespace Newspack_Nodes;
 
 final class Log_Discovery {
 
-	/**
-	 * Memoized basename list. `null` = not yet scanned.
-	 *
-	 * @var array<string>|null
-	 */
+	/** @var array<string>|null Memoized basename list; null = not yet scanned. */
 	private static ?array $cached = null;
 
 	/**
-	 * Sorted basenames of every `{base}/logs/*.log/` directory on disk
-	 * (without the `.log` suffix).
+	 * Sorted basenames of every `{base}/logs/*.log/` directory (without `.log`).
 	 *
 	 * @return array<string>
 	 */
@@ -51,11 +37,7 @@ final class Log_Discovery {
 		return self::$cached = $out;
 	}
 
-	/**
-	 * Drop the memoized result. Wired to `Config::RESET_ACTION` at
-	 * `Bootstrap::init()` so workers surviving a config reload pick up
-	 * newly-created log directories.
-	 */
+	/** Drop the memoized result; wired to Config::RESET_ACTION so workers pick up new log dirs after a config reload. */
 	public static function reset(): void {
 		self::$cached = null;
 	}

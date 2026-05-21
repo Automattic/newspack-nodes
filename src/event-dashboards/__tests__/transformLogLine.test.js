@@ -1,14 +1,5 @@
 /**
- * Pure transform: Message envelope from the unified /messages/stream
- * endpoint → `{ p, line }` row shape the RawLogs dashboard renders.
- *
- * Mirrors the legacy server-side `RawlogsController::transform_line()`:
- *   * Render Message[VALUE] as JSON (objects/arrays) or use the string verbatim.
- *   * Prefix with `${KEY}: ` when KEY is non-empty (rid for firehose
- *     entries, handler for jobintake, etc.).
- *   * Truncate to 1000 chars + ellipsis.
- *   * Pull partition from the FROM field (`{sub}.p{N}`); fall back to 0
- *     when FROM doesn't match — defensive, never expected in practice.
+ * transformLogLine tests — Message envelope → `{ p, line }` row shape.
  */
 
 import transformLogLine from '../transformLogLine';

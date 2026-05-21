@@ -1,9 +1,6 @@
 <?php
 /**
- * Log_Cleaner: GC for orphan partition dirs left behind when `num_partitions`
- * shrinks. Removes `{base}/logs/{name}.log/p{N}/` and `{base}/offsets/{src}.p{N}/`
- * where N >= num_partitions AND no `*.p{N}.lock.d/` exists (the worker has
- * fully exited; Lock::release() rmdirs the lock dir on clean exit).
+ * Log_Cleaner: GC for orphan partition dirs left behind when `num_partitions` shrinks.
  *
  * @package Newspack_Nodes
  */
@@ -14,35 +11,21 @@ namespace Newspack_Nodes;
 
 class Log_Cleaner {
 
-	/**
-	 * WP option set by `Supervisor::check_config` when it detects a fleet
-	 * shrink. Cleared by `cleanup_orphan_partitions` once the sweep finishes
-	 * without any deferrals. Single source of truth — Supervisor writes,
-	 * Log_Cleaner reads / clears.
-	 */
+	/** Set by Supervisor on fleet shrink; cleared once a sweep finishes without deferrals. */
 	public const LOGS_DIRTY_OPTION = 'newspack_nodes_logs_dirty';
 
-	/**
-	 * WP option holding the prior tick's `{type}.p{N}` descriptor set so
-	 * the comparison survives supervisor respawns.
-	 */
+	/** Prior tick's `{type}.p{N}` descriptor set, persisted to survive supervisor respawns. */
 	public const FLEET_DESCRIPTORS_OPTION = 'newspack_nodes_fleet_descriptors';
 
 	/**
-	 * Walk the on-disk log and offsetlog trees under $base_dir and remove any
-	 * `p{N}` directory where N >= $num_partitions AND no `*.p{N}.lock.d/`
-	 * exists under `{base_dir}/locks/`. Deletes happen via
-	 * SupervisorBase::delete_directory_recursive — inherits containment-to-
-	 * base_dir + depth-cap + symlink-skip from the substrate primitive.
+	 * Remove `p{N}` dirs where N >= $num_partitions AND no matching lock dir exists.
 	 *
-	 * @param string $base_dir       Base data directory (e.g. `/tmp/newspack-nodes`).
+	 * @param string $base_dir       Base data directory.
 	 * @param int    $num_partitions Current configured partition count.
-	 * @return array<int,string>     Absolute paths of the directories that were removed.
+	 * @return array<int,string>     Absolute paths of the directories removed.
 	 */
 	public static function cleanup_orphan_partitions( string $base_dir, int $num_partitions ): array {
-		// Steady-state short-circuit. Supervisor arms LOGS_DIRTY_OPTION
-		// on observed fleet shrink (topology disabled or num_partitions
-		// reduced); we no-op otherwise.
+		// Steady-state short-circuit; Supervisor arms LOGS_DIRTY_OPTION on shrink.
 		if ( empty( \get_option( self::LOGS_DIRTY_OPTION, false ) ) ) {
 			return [];
 		}
@@ -50,8 +33,7 @@ class Log_Cleaner {
 		$base_dir = \rtrim( $base_dir, '/' );
 		$deleted  = [];
 		$blocked  = false;
-		// Lock-dir presence is gated per partition N, not per directory: same
-		// `*.p{N}.lock.d` glob serves both the logs/ and offsets/ sweeps.
+		// Per-N lock-dir presence; one glob serves both the logs/ and offsets/ sweeps.
 		$has_lock = [];
 		$is_orphan = static function ( int $n ) use ( &$has_lock, &$blocked, $base_dir, $num_partitions ): bool {
 			if ( $n < $num_partitions ) {
@@ -78,16 +60,7 @@ class Log_Cleaner {
 			$deleted[] = $dir;
 		}
 
-		// Topology-shrink sweep: entire `*.log/` dirs whose basename isn't
-		// in `expected_basenames()`. Substrate computes the
-		// topology-derived expected set itself (Bootstrap::get_topologies +
-		// non-stale Cli::ls_workers + Topology_Registry::basenames_for)
-		// and the `newspack_nodes/expected_log_basenames` filter runs on
-		// top so applications can ADD runtime basenames they manage
-		// outside the topology graph (LogManager's `firehose`, JobIntake's
-		// `jobintake`). Skipped when the resolved set is empty — first-
-		// boot back-compat so a misconfigured / not-yet-loaded app
-		// doesn't auto-delete every log dir on the spot.
+		// Topology-shrink sweep of unexpected `*.log/` dirs; skipped when empty so a not-yet-loaded app doesn't wipe every log dir.
 		$expected = self::expected_basenames( $base_dir );
 		if ( ! empty( $expected ) ) {
 			$expected_set = \array_flip( $expected );
@@ -107,8 +80,7 @@ class Log_Cleaner {
 			}
 		}
 
-		// Clear the flag only when nothing deferred us. A still-running
-		// pre-shrink worker keeps it set until its lock dir clears.
+		// Clear the flag only when nothing deferred us (a pre-shrink worker holds it until its lock clears).
 		if ( ! $blocked ) {
 			\delete_option( self::LOGS_DIRTY_OPTION );
 		}
@@ -116,19 +88,7 @@ class Log_Cleaner {
 	}
 
 	/**
-	 * Compute the expected-log-basenames set the cleanup sweep gates on.
-	 * Substrate owns the topology-derivation half: every active topology's
-	 * Partition basenames + every still-running (non-stale) worker's
-	 * topology's basenames. The `newspack_nodes/expected_log_basenames`
-	 * filter runs on top so applications can append runtime-pinned
-	 * basenames they manage outside the topology graph (LogManager's
-	 * `firehose`, JobIntake's `jobintake`) — the contract is one-way:
-	 * substrate publishes its truth as the filter input, app callbacks
-	 * extend it. Apps that ignore the input and return a fresh array can
-	 * still override, but the well-behaved callback is one `array_merge`.
-	 *
-	 * Also called by the dashboard's `cleanup_status` diagnostic verb so
-	 * what the operator sees matches what Log_Cleaner sees.
+	 * Expected-log-basenames set the cleanup gates on (active + non-stale topologies, plus the `newspack_nodes/expected_log_basenames` filter).
 	 *
 	 * @return array<int,string>
 	 */
@@ -170,13 +130,11 @@ class Log_Cleaner {
 	}
 
 	/**
-	 * Yield every `p{N}` directory under `{base}/logs/*.log/` and `{base}/offsets/*.p*`
-	 * where `$is_orphan( N )` returns true.
+	 * Yield every `p{N}` dir under logs/ and offsets/ where `$is_orphan( N )` is true.
 	 *
 	 * @return iterable<string>
 	 */
 	private static function orphan_dirs( string $base_dir, callable $is_orphan ): iterable {
-		// Data partitions.
 		foreach ( @\glob( "{$base_dir}/logs/*.log", \GLOB_ONLYDIR ) ?: [] as $log_dir ) {
 			foreach ( @\glob( "{$log_dir}/p*", \GLOB_ONLYDIR ) ?: [] as $pdir ) {
 				if ( \preg_match( '#/p(\d+)$#', $pdir, $m ) && $is_orphan( (int) $m[1] ) ) {
@@ -184,7 +142,6 @@ class Log_Cleaner {
 				}
 			}
 		}
-		// Per-Consumer offsetlogs.
 		foreach ( @\glob( "{$base_dir}/offsets/*.p*", \GLOB_ONLYDIR ) ?: [] as $odir ) {
 			if ( \preg_match( '#\.p(\d+)$#', $odir, $m ) && $is_orphan( (int) $m[1] ) ) {
 				yield $odir;

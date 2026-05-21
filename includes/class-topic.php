@@ -2,8 +2,6 @@
 /**
  * Topic: multi-partition wrapper. Hashes KEY to partition via Partition::hash_to_partition.
  *
- * Storage primitive AND Node. KEY-routed; pre-pinned writes via TO carry partition index.
- *
  * Class-API contract: constructor must be safe in request scope (no event-loop deps).
  *
  * @package Newspack_Nodes
@@ -38,8 +36,7 @@ class Topic extends Node {
 		$this->num_segments   = $num_segments;
 		$this->max_lifespan   = $max_lifespan;
 		$this->registrations  = [ 'READY' => [] ];
-		// Round-trip ctor args so dump_config emits a `make_node Topic ...`
-		// line that re-creates this instance.
+		// Round-trip ctor args so dump_config can re-create this instance.
 		$this->arguments = "{$this->base_dir} {$this->num_partitions} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}";
 	}
 
@@ -47,11 +44,7 @@ class Topic extends Node {
 		return $this->num_partitions;
 	}
 
-	/**
-	 * Override Node::sink() so child Partitions inherit the new sink — needed because
-	 * Partition is the persist-contract terminal and its answer/cancel responses must
-	 * flow back along the same path Topic uses.
-	 */
+	/** Override Node::sink() so child Partitions inherit the new sink. */
 	public function sink( ?Node $node = null ): ?Node {
 		$result = parent::sink( ...\func_get_args() );
 		if ( \func_num_args() > 0 ) {
@@ -69,37 +62,24 @@ class Topic extends Node {
 				$this->base_dir, $i,
 				$this->segment_size, $this->num_segments, $this->max_lifespan
 			);
-			// Wire Partition's sink to ours so its persist response (answer/cancel)
-			// flows back along the producer's FROM trail through the same path the
-			// inbound message arrived on.
 			$this->partitions[ $i ]->sink( $this->sink );
 		}
 		if ( $first ) {
-			// Spec line 395: fire READY after first Partition is materialized.
-			// set_state caches the payload so late registrants get immediate replay.
+			// set_state caches READY so late registrants get immediate replay.
 			$this->set_state( 'READY', $this->name );
 		}
 		return $this->partitions[ $i ];
 	}
 
 	/**
-	 * Node entry point. Pick a partition (pre-pinned TO, KEY hash, or
-	 * round-robin) and delegate. All TYPE flags pass through — Topic mirrors
-	 * Partition::fill's "generic transport" contract so control messages
-	 * (TM_REQUEST, TM_ERROR, TM_EOF) round-trip through Topic-as-bus in IPC
-	 * scenarios. Data topics like firehose.log only see TM_BYTESTREAM /
-	 * TM_STRUCT in practice, so the broader contract is a no-op there.
+	 * Node entry point. Pick a partition (pre-pinned TO, KEY hash, or round-robin) and delegate.
 	 *
 	 * @param array $message Reference; not mutated.
 	 */
 	public function fill( array &$message ): void {
 		++$this->counter;
 
-		// Surface bytes-through + largest message on the Topic itself so
-		// the dump_metadata `bytes_written` / `lgst_msg` columns reflect
-		// per-Topic flow (not just the underlying Partitions). VALUE size
-		// is the canonical "payload that flowed through" measurement,
-		// matching Node::fill's largest_msg_sent contract.
+		// Surface bytes-through + largest message on the Topic itself for dump_metadata.
 		$packed_size = Message::packed_size( $message );
 		$this->bytes_written += $packed_size;
 		if ( $packed_size > $this->largest_msg_sent ) {
@@ -124,21 +104,14 @@ class Topic extends Node {
 		$this->partition( $idx )->fill( $message );
 	}
 
-	/**
-	 * Flush every materialized partition's batch — request-scope callers
-	 * (LogManager::finish, the cli REPL between commands) use this to land
-	 * pending writes without waiting for the size-threshold tick.
-	 */
+	/** Flush every materialized partition's batch (request-scope callers land pending writes). */
 	public function flush(): void {
 		foreach ( $this->partitions as $p ) {
 			$p->flush();
 		}
 	}
 
-	/**
-	 * Tear down owned Partitions before normal Node teardown so their file handles
-	 * close deterministically (matches Partition::remove_node contract).
-	 */
+	/** Tear down owned Partitions before normal Node teardown so file handles close deterministically. */
 	public function remove_node(): void {
 		foreach ( $this->partitions as $p ) {
 			$p->remove_node();

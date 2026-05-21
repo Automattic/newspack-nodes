@@ -1217,9 +1217,9 @@ class ConsumerTest extends TestCase {
 		$this->assertCount( 1, $cap->captured, 'request must produce exactly one reply' );
 		$reply = $cap->captured[0];
 		$this->assertSame(
-			Message::TM_REQUEST | Message::TM_RESPONSE | Message::TM_STRUCT,
+			Message::TM_STRUCT | Message::TM_RESPONSE,
 			$reply[ Message::TYPE ],
-			'reply must carry TM_REQUEST|TM_RESPONSE|TM_STRUCT'
+			'reply must carry TM_STRUCT|TM_RESPONSE'
 		);
 		$this->assertSame( 'my-consumer', $reply[ Message::FROM ], 'reply FROM = Consumer name' );
 		$this->assertSame( 'asker', $reply[ Message::TO ], 'reply TO walks breadcrumb back via FROM' );
@@ -1228,26 +1228,6 @@ class ConsumerTest extends TestCase {
 		$this->assertIsArray( $reply[ Message::VALUE ] );
 		$this->assertSame( 'GET_OFFSET', $reply[ Message::VALUE ]['verb'] );
 		$this->assertIsArray( $reply[ Message::VALUE ]['data'] );
-	}
-
-	public function test_fill_TM_REQUEST_with_TM_RESPONSE_falls_through(): void {
-		// A message that's both TM_REQUEST and TM_RESPONSE is an in-flight
-		// reply — must NOT be re-handled. Falls through to parent::fill()
-		// (Timer::fill → Node::fill → forward to sink).
-		$c   = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
-		$c->sink( $cap );
-
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_REQUEST | Message::TM_RESPONSE;
-		$msg[ Message::FROM ]      = 'someone';
-		$msg[ Message::VALUE ]     = 'GET_OFFSET'; // would otherwise dispatch
-		$c->fill( $msg );
-
-		// Forwarded once; never doubled by a handle_request reply.
-		$this->assertCount( 1, $cap->captured, 'response messages must forward to sink, not re-handled' );
-		// VALUE preserved — handle_request would have replaced it with an array.
-		$this->assertSame( 'GET_OFFSET', $cap->captured[0][ Message::VALUE ] );
 	}
 
 	public function test_handle_request_GET_OFFSET_returns_cursor_and_checkpoint(): void {

@@ -1,10 +1,9 @@
 <?php
 /**
- * Lock
+ * Lock: mkdir+heartbeat locking utility.
  *
- * mkdir+heartbeat based locking utility.
- * Works on macOS Docker volumes where flock fails.
- * Uses atomic mkdir for lock acquisition and heartbeat file for stale detection.
+ * Works on macOS Docker volumes where flock fails. Atomic mkdir for acquisition,
+ * heartbeat file for stale detection.
  *
  * @package Newspack_Nodes
  */
@@ -15,26 +14,13 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-/**
- * Lock class.
- */
 class Lock extends Node {
-	public const STALE_TIMEOUT = 60;
-
-	/** Filename for the restart-flag file inside the lock dir. */
-	public const RESTART_FLAG = 'restart';
-
-	/** Filename for the heartbeat file (contains holder's PID). */
+	public const STALE_TIMEOUT  = 60;
+	public const RESTART_FLAG   = 'restart';
 	public const HEARTBEAT_FILE = 'heartbeat';
+	public const STARTED_FILE   = 'started';
 
-	/** Filename for the started-timestamp file. */
-	public const STARTED_FILE = 'started';
-
-	/**
-	 * Grace period (seconds) for orphan dir detection. If mkdir fails because
-	 * the dir exists but no heartbeat file is present, the holder may be
-	 * mid-acquire. Sleep this many seconds and re-check before stealing.
-	 */
+	/** Grace period (s) before stealing an orphan dir (no heartbeat) — holder may be mid-acquire. */
 	public const ORPHAN_GRACE_S = 1;
 
 	private string $lock_path;
@@ -42,22 +28,12 @@ class Lock extends Node {
 	private bool $is_held = false;
 
 	public function __construct( string $lock_path, int $stale_timeout = self::STALE_TIMEOUT ) {
-		// Node has no explicit __construct (its properties are inline-initialized);
-		// no parent::__construct() call needed.
 		$this->lock_path     = \rtrim( $lock_path, '/' );
 		$this->stale_timeout = $stale_timeout;
 	}
 
 	/**
-	 * Node entry point: a heartbeat-tagged message refreshes the lock file;
-	 * anything else falls through to the default forward-via-sink behavior.
-	 *
-	 * Mirrors how real Tachikoma uses `$message->[STREAM]` to disambiguate
-	 * control signals from data — we don't have a STREAM slot in our 7-field
-	 * message layout, so we use KEY for the same purpose. The heartbeat
-	 * Timer (created by `Partition::allow_large_writes()`) sets KEY
-	 * = 'heartbeat' on its emitted messages; everything else routes
-	 * downstream through `parent::fill`.
+	 * Node entry point: KEY='heartbeat' refreshes the lock; anything else forwards via sink.
 	 *
 	 * @param array $message Reference; not mutated by the heartbeat path.
 	 */
@@ -82,8 +58,7 @@ class Lock extends Node {
 					$this->set_state( 'HELD', [ 'path' => $this->lock_path, 'stolen' => false ] );
 					return true;
 				}
-				// Couldn't write required files (disk full / permissions). Roll back
-				// the dir so we don't leave an orphan; report acquire failure.
+				// Couldn't write required files; roll back the dir so we don't orphan it.
 				self::force_release_at( $this->lock_path );
 				return false;
 			}
@@ -92,8 +67,7 @@ class Lock extends Node {
 			if ( $this->try_steal_orphan_or_stale() ) {
 				if ( $this->write_acquire_files() ) {
 					$this->is_held = true;
-					// Stolen = true so dashboards can render a distinct
-					// "took over an orphan/stale lock" badge.
+					// stolen=true so dashboards can badge the takeover.
 					$this->set_state( 'HELD', [ 'path' => $this->lock_path, 'stolen' => true ] );
 					return true;
 				}
@@ -109,17 +83,9 @@ class Lock extends Node {
 	}
 
 	/**
-	 * Decide whether to steal an existing lock dir.
+	 * Steal an existing lock dir if orphaned (no heartbeat, past grace) or stale (mtime > timeout).
 	 *
-	 * Two reasons to steal:
-	 *   - Orphan: the dir exists but no heartbeat file is present (crash during
-	 *     creation). Honor a grace period so we don't race a holder who's
-	 *     between `mkdir()` and `file_put_contents( heartbeat )`.
-	 *   - Stale: heartbeat file exists but mtime is older than stale_timeout
-	 *     (holder hung or crashed without releasing).
-	 *
-	 * Steals by force-releasing the dir and re-mkdir'ing. Returns true if the
-	 * dir is now ours (mkdir succeeded after force_release).
+	 * @return bool True if the dir is now ours.
 	 */
 	private function try_steal_orphan_or_stale(): bool {
 		$hb = $this->lock_path . '/' . self::HEARTBEAT_FILE;
@@ -150,8 +116,7 @@ class Lock extends Node {
 	}
 
 	/**
-	 * Write the heartbeat (PID) and started-timestamp files. Both must succeed
-	 * for the acquire to be considered complete.
+	 * Write the heartbeat (PID) and started-timestamp files; both must succeed.
 	 *
 	 * @return bool True if both files written; false on first failure.
 	 */
@@ -182,14 +147,7 @@ class Lock extends Node {
 	}
 
 	/**
-	 * Refresh the on-disk heartbeat file so this lock doesn't go stale.
-	 *
-	 * Verifies ownership FIRST. If the on-disk PID doesn't match getmypid()
-	 * — someone stale-stole us between heartbeats — bails and returns false.
-	 * `verify_ownership` flips local is_held=false on mismatch, which makes
-	 * a later release() correctly no-op (we must not force-release the new
-	 * holder's lock) and lets callers see false and stop writing before
-	 * they corrupt the new holder's segments.
+	 * Refresh the heartbeat file. Verifies ownership first; returns false if stolen (flips is_held).
 	 *
 	 * @return bool True if heartbeat refreshed; false if not held or lost.
 	 */
@@ -206,18 +164,7 @@ class Lock extends Node {
 		return $this->is_held;
 	}
 
-	/**
-	 * Verify the on-disk heartbeat file still names us as the holder. Returns
-	 * false if the lock dir is gone (lost), the heartbeat is unreadable, or
-	 * the PID inside doesn't match `getmypid()` (someone else stole it via
-	 * stale-takeover while we were doing other work). Used by event-loop-less
-	 * holders (JobIntake-style Partition writers driven by a request, not by
-	 * an EventFramework Timer) to sanity-check before each large write.
-	 *
-	 * Side effect: if ownership has been lost, flips `is_held` to false so
-	 * `release()` becomes a no-op (we don't want to force-release a lock
-	 * someone else now holds legitimately).
-	 */
+	/** Verify the heartbeat PID still matches getmypid(); flips is_held=false on loss. */
 	public function verify_ownership(): bool {
 		if ( ! $this->is_held ) {
 			return false;
@@ -233,19 +180,15 @@ class Lock extends Node {
 		return true;
 	}
 
-	/**
-	 * Path used by this Lock instance.
-	 */
+	/** Path used by this Lock instance. */
 	public function path(): string {
 		return $this->lock_path;
 	}
 
 	/**
-	 * Instance helper: only release if heartbeat is stale (or missing).
+	 * Release only if the heartbeat is stale/missing.
 	 *
-	 * Returns true if the lock was forcibly released, false if the holder was
-	 * still alive within the stale_timeout window. Preserves prior behavior of
-	 * the instance API used by acquire-time stale-takeover paths.
+	 * @return bool True if released; false if the holder is still alive.
 	 */
 	public function force_release(): bool {
 		$hb = $this->lock_path . '/' . self::HEARTBEAT_FILE;
@@ -262,14 +205,6 @@ class Lock extends Node {
 
 	/**
 	 * Static unconditional release: clear a lock dir regardless of staleness.
-	 *
-	 * Used by REST endpoints, supervisors stealing locks during relock-on-config-
-	 * change, and acquire()'s own internal cleanup. Available without an
-	 * instance for callers that just have a path and no holder context.
-	 *
-	 * Spec asked for "static `force_release(string $lock_dir)` in addition to
-	 * existing instance method"; PHP forbids same-name instance/static methods,
-	 * so the static form is named `force_release_at`.
 	 *
 	 * @param string $lock_dir The lock directory path.
 	 */
@@ -289,15 +224,9 @@ class Lock extends Node {
 	}
 
 	/**
-	 * Drop a `restart` flag file inside the lock dir. The current holder polls
-	 * should_restart() from its drain loop and exits cleanly when it sees the flag.
+	 * Drop a `restart` flag in the lock dir; the holder exits when it polls should_restart().
 	 *
-	 * Called by external requesters (REST endpoint, admin action, supervisor
-	 * relock-on-config-change). Does NOT require the caller to hold the lock —
-	 * a stranger writing into someone else's lock dir is the entire point of the
-	 * channel. No-op (returns false) if the lock dir doesn't exist.
-	 *
-	 * Instance form. Static form: Lock::request_restart_at( $path ).
+	 * Does NOT require holding the lock (cross-process signal). Static form: request_restart_at().
 	 */
 	public function request_restart(): bool {
 		return self::request_restart_at( $this->lock_path );
@@ -319,16 +248,9 @@ class Lock extends Node {
 	}
 
 	/**
-	 * Poll for a pending restart request OR PID-content theft.
+	 * True if a restart flag is present OR the heartbeat is gone / PID-stolen.
 	 *
-	 * Two exit conditions:
-	 *   1. restart flag file present (external requester wants us out).
-	 *   2. heartbeat file gone OR contains a PID different from ours (someone
-	 *      else stole the lock — we exit so they can take over cleanly).
-	 *
-	 * Both conditions imply "exit clean and let the supervisor respawn." Heavy
-	 * stat-cache invalidation is intentional: long-running workers won't see
-	 * filesystem changes from external processes without it.
+	 * Heavy clearstatcache is intentional — long-running workers won't see external changes otherwise.
 	 */
 	public function should_restart(): bool {
 		\clearstatcache( true, $this->lock_path . '/' . self::RESTART_FLAG );
@@ -342,21 +264,17 @@ class Lock extends Node {
 			// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 			$content = @\file_get_contents( $this->lock_path . '/' . self::HEARTBEAT_FILE );
 			if ( false === $content ) {
-				// Heartbeat gone — lock dir was deleted out from under us.
-				return true;
+				return true; // Heartbeat gone — lock dir was deleted out from under us.
 			}
 			if ( (int) $content !== \getmypid() ) {
-				// PID mismatch — another process is now the rightful holder.
-				return true;
+				return true; // PID mismatch — another process is now the rightful holder.
 			}
 		}
 		return false;
 	}
 
 	/**
-	 * Static restart-pending query (path-only; no PID check). Used by callers
-	 * that want to know whether a restart was requested without taking any
-	 * action — e.g., admin UI status displays.
+	 * Static restart-pending query (path-only; no PID check).
 	 *
 	 * @param string $lock_dir The lock directory path.
 	 */
@@ -367,9 +285,7 @@ class Lock extends Node {
 	}
 
 	/**
-	 * Read the started-timestamp file for a lock dir. Callable without an
-	 * instance — supervisors compute worker uptime via this without knowing
-	 * the worker's own Lock object.
+	 * Read the started-timestamp file for a lock dir (no instance needed).
 	 *
 	 * @param string $lock_dir The lock directory path.
 	 * @return int|null Unix timestamp when acquire() succeeded, or null if missing.
@@ -385,20 +301,14 @@ class Lock extends Node {
 		return false !== $content ? (int) $content : null;
 	}
 
-	/**
-	 * Remove a pending restart flag. Called by the holder once it has acted on
-	 * the signal (right before exiting), or by a supervisor after relocking,
-	 * so the next holder doesn't immediately exit on inherited state.
-	 */
+	/** Remove a pending restart flag so the next holder doesn't exit on inherited state. */
 	public function clear_restart(): void {
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 		@\unlink( $this->lock_path . '/' . self::RESTART_FLAG );
 	}
 
 	public static function node_schema(): array {
-		// Hidden from the topology console. Lock is an internal primitive
-		// used by Partition::allow_large_writes() and Worker lifecycle —
-		// not meaningful as a standalone graph node.
+		// Hidden: internal primitive, not a standalone graph node.
 		return [
 			'category'    => 'Hidden',
 			'description' => 'Advisory cooperative file lock with heartbeat; blocks until acquired.',

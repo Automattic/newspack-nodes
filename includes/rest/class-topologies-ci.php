@@ -2,47 +2,23 @@
 /**
  * Topologies_CI: command-dispatch for substrate topology-management verbs.
  *
- * Replaces legacy class-topologies-controller.php (the GET/POST/DELETE
- * /topologies REST endpoints) with a CommandInterpreter the M3
- * Command_Controller mounts alongside the other substrate-side CIs.
- *
- * Topologies are .tsl files describing the node graph. The supervisor
- * loads them at worker startup; the topology editor manages them via
- * this CI. Per Topology_Registry, user copies at `{user_dir}/{name}.tsl`
- * shadow stock copies shipped by plugins. The CI honors that resolution
- * order and only mutates the user dir — stock copies are immutable.
+ * Topologies are .tsl files describing the node graph. User copies at
+ * `{user_dir}/{name}.tsl` shadow plugin-shipped stock copies; this CI honors
+ * that resolution order and only mutates the (writable) user dir.
  *
  * Verbs:
- *   list   — args `{}`. Returns `{topologies: [{name, source, active,
- *            frontmatter}], user_dir}`. `source` is 'user'|'stock'|'both'.
- *            `active` follows Bootstrap::get_topologies() (the operator
- *            overlay), matching what the supervisor actually spawns.
- *            Read perm.
- *   get    — args `{name}`. Returns `{name, source, tsl: string}`.
- *            Throws "no topology named: <name>" on miss. Read perm.
- *   save   — args `{name, tsl: string}`. Returns `{name, path,
- *            shadows_stock, restarted_fleets}`. Body capped at 64 KiB.
- *            Dry-run validation via Shell::validate_line — forbidden
- *            verbs (if/while/etc.) and malformed continuations get
- *            "validation failed at line N: <reason>". After write, if
- *            $name is in `apply_filters('newspack_nodes/topologies', [])`
- *            (the raw catalog filter — same surface the supervisor uses),
- *            fire `do_action('newspack_nodes/restart_fleet', $name)`.
- *            Write perm (manage_options).
- *   delete — args `{name}`. Returns `{name, deleted, stock_fallback}`.
- *            Removes USER copy only (stock files are immutable). Throws
- *            "no user-saved topology named: <name>" if no user file. After
- *            unlink, `stock_fallback` is true iff a stock copy remains.
- *            Write perm (manage_options).
+ *   list   — `{topologies: [{name, source, active, frontmatter}], user_dir}`.
+ *            `source` is 'user'|'stock'|'both'; `active` follows the operator overlay.
+ *   get    — args `{name}`. Returns `{name, source, tsl}`; throws on miss.
+ *   save   — args `{name, tsl}`. Returns `{name, path, shadows_stock,
+ *            restarted_fleets}`. 64 KiB cap; dry-run validation via
+ *            Shell::validate_line; restarts the matching active fleet.
+ *   delete — args `{name}`. Returns `{name, deleted, stock_fallback}`. User
+ *            copy only (stock immutable).
  *
- * The legacy controller's nonce check is dropped — CI dispatch happens
- * post-auth via Command_Controller, so verb-level checks are limited to
- * the capability (`manage_options`). Errors throw RuntimeException;
- * CommandInterpreter::interpret() wraps them as TM_COMMAND | TM_ERROR.
- *
- * The require_manage_options / decode_args / require_valid_name helpers
- * are inherited from Service_CI (the shared base class), so this file no
- * longer carries local copies.
+ * Verb-level auth is capability-only (manage_options); errors throw
+ * RuntimeException, which CommandInterpreter::interpret() wraps as TM_ERROR.
+ * Shared helpers come from Service_CI.
  *
  * @package Newspack_Nodes
  */
@@ -63,17 +39,13 @@ class Topologies_CI extends Service_CI {
 	private const MAX_BODY_BYTES = 65536;
 
 	public function __construct() {
-		// Node + CommandInterpreter have no explicit __construct; the
-		// inherited no-op is implicit. Mirrors M3 Classes_CI / Layouts_CI.
 		$this->commands( $this->verb_table() );
 	}
 
 	private function verb_table(): array {
 		return [
 			'list'   => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): array {
-				// Active = whatever the supervisor would actually spawn. Read
-				// through Bootstrap::get_topologies() so the merged catalog +
-				// `newspack_nodes_topologies` operator overlay drives the flag.
+				// Active = whatever the supervisor would spawn (merged catalog + operator overlay).
 				$resolved = Bootstrap::get_topologies();
 				$active   = [];
 				foreach ( $resolved as $name => $_def ) {
@@ -99,15 +71,8 @@ class Topologies_CI extends Service_CI {
 				];
 			},
 			'connect_worker_input' => static function ( CommandInterpreter $self, string $args ): string {
-				// Mount the named worker's input Partition (reader id in $args)
-				// into THIS request's node graph. The topology dashboard sends
-				// this immediately before its pivoted command(s) in the SAME
-				// /command batch, so by the time Router routes TO={reader}.pN the
-				// worker Partition exists and the command writes to the worker's
-				// input. Without it, Router can't resolve the worker node and
-				// returns NOT_AVAILABLE. Only the one named worker is mounted —
-				// every other live worker is irrelevant to this request. Returns
-				// '' (no reply): purely a routing-setup side effect.
+				// Mount the named worker's input Partition into THIS request's graph so a
+				// pivoted command in the same batch can route TO={reader}.pN. Returns '' (no reply).
 				Bootstrap::register_worker_partition( \trim( $args ), Bootstrap::base_dir() );
 				return '';
 			},
@@ -154,25 +119,15 @@ class Topologies_CI extends Service_CI {
 				}
 				$tsl = $decoded['tsl'];
 
-				// Dry-run validation: every statement passes Shell's syntax
-				// check. validate_line throws on forbidden verbs (if/while/
-				// for/func/eval/unless/until) and unterminated continuations.
-				// Report the offending line number (1-based) so the editor
-				// can show the cursor at the failing line.
+				// Dry-run validation: each statement passes Shell's syntax check.
+				// Report the 1-based offending line so the editor can position its cursor.
 				$shell = new Shell();
 				foreach ( $shell->split_statements( $tsl ) as $i => $stmt ) {
 					try {
 						$shell->validate_line( $stmt );
 					} catch ( \RuntimeException $e ) {
-						// Don't esc_html() the compound message: $line_no
-						// is an int, and $e->getMessage() is already-safe
-						// content from Shell (which esc_html()'d its own
-						// dynamic tokens). Re-escaping HTML-encodes the
-						// quote characters Shell added around the verb,
-						// turning "forbidden verb 'if'" into
-						// "forbidden verb &#039;if&#039;" — which makes the
-						// editor's "show me the offending verb" UX worse,
-						// not safer.
+						// Don't re-esc_html(): $msg is already Shell-sanitized; re-escaping would
+						// HTML-encode the quotes Shell added around the verb, worsening the UX.
 						$line_no = $i + 1;
 						$msg     = $e->getMessage();
 						// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $line_no is int; $msg is pre-sanitized by Shell::validate_line.
@@ -196,8 +151,7 @@ class Topologies_CI extends Service_CI {
 					}
 				}
 
-				// shadows_stock determined BEFORE writing so it reflects the
-				// pre-existing stock state, not "we just made a user copy".
+				// shadows_stock determined BEFORE writing so it reflects pre-existing stock state.
 				$pre_sources = Topology_Registry::describe()[ $name ] ?? [ 'stock' => [] ];
 				$shadows     = ! empty( $pre_sources['stock'] );
 
@@ -210,10 +164,8 @@ class Topologies_CI extends Service_CI {
 					);
 				}
 
-				// Trigger restart for any active fleet running this topology.
-				// Same raw catalog filter the supervisor's bootstrap walks —
-				// not the operator overlay, since this is "what topologies
-				// might be running right now" rather than "what's checked".
+				// Restart any active fleet running this topology, keyed off the raw
+				// catalog filter (what might be running) not the operator overlay.
 				$resolved  = \function_exists( 'apply_filters' )
 					? (array) \apply_filters( 'newspack_nodes/topologies', [] )
 					: [];
@@ -253,9 +205,7 @@ class Topologies_CI extends Service_CI {
 						\esc_html( "failed to unlink topology file: $path" )
 					);
 				}
-				// After unlink, resolve() returns the stock copy iff one
-				// exists. Use it as the canonical "is there a fallback?"
-				// signal rather than re-scanning describe().
+				// After unlink, resolve() returns the stock copy iff one exists — the fallback signal.
 				$has_stock_fallback = null !== Topology_Registry::resolve( $name );
 
 				return [
@@ -269,12 +219,9 @@ class Topologies_CI extends Service_CI {
 
 	/**
 	 * Reduce a Topology_Registry::describe() entry to its 'user'|'stock'|'both'
-	 * label. Pulled out so list+get stay byte-for-byte consistent on the
-	 * source flag — the legacy controller had two copies of this rule and
-	 * the parity tests rely on them never drifting.
+	 * label (shared by list+get so the source flag stays consistent).
 	 *
-	 * @param array{user:?string,stock:array<int,string>} $sources Entry from
-	 *        `Topology_Registry::describe()[$name]`.
+	 * @param array{user:?string,stock:array<int,string>} $sources describe() entry.
 	 */
 	private static function source_of( array $sources ): string {
 		$has_user  = null !== ( $sources['user'] ?? null );

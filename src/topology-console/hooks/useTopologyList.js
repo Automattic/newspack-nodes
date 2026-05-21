@@ -1,21 +1,6 @@
 /**
- * useTopologyList — fetch the substrate's catalog of saved topologies.
- *
- * Lazy: nothing happens until `enabled` flips true (only matters when
- * the OpenModal is being shown). Returned shape:
- *   {
- *     topologies: [
- *       { name, source: 'stock'|'user'|'both', active, frontmatter },
- *       ...
- *     ],
- *     userDir: string,
- *     loading, error, reload,
- *   }
- *
- * `reload()` triggers a refetch — used after a save so the picker
- * reflects newly-written user topologies without a page reload.
- *
- * Dispatches via the M4 CommandClient pipe: `topologies.list` / `.get`.
+ * useTopologyList — lazily fetch the catalog of saved topologies (when
+ * `enabled`). `reload()` refetches after a save.
  */
 
 import { useCallback, useEffect, useState } from '@wordpress/element';

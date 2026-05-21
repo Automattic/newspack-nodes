@@ -1,8 +1,6 @@
 <?php
 /**
- * Consumer
- *
- * Partition-aware reader with offsetlog checkpointing.
+ * Consumer: partition-aware reader with offsetlog checkpointing.
  *
  * @package Newspack_Nodes
  */
@@ -14,29 +12,22 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Consumer extends Timer {
-	/** Default segment size for offset log: 64KB **/
 	public const DEFAULT_OFFSETLOG_SEGMENT_SIZE = 65536;
 
-	/** Hard cap on the cross-poll trailing-line buffer. 20MB. */
 	public const MAX_LINE_BUFFER_SIZE = 20971520;
 
-	/** Max bytes per poll. Caps a single fread so giant segments drain
-	 *  across polls instead of blocking the event loop on one read. */
 	public const MAX_POLL_BYTES = 10485760;
 
-	/** Stale-segment threshold: skip corrupt unread bytes only after this many seconds. */
+	/** Skip corrupt unread bytes only after this many seconds. */
 	public const STALE_SEGMENT_SECONDS = 5;
 
-	/** Re-arm interval at EOF (idle backoff). */
 	public const POLL_INTERVAL_EOF_MS = 100;
 
-	/** Re-arm interval when there's data to drain. 0 = next event-loop iteration. */
+	/** 0 = next event-loop iteration. */
 	public const POLL_INTERVAL_BUSY_MS = 0;
 
-	/** Checkpoint interval — write `{seg, off, ts}` to offsetlog this often. */
 	public const CHECKPOINT_INTERVAL_S = 1;
 
-	/** Wall-clock time of last successful checkpoint(); 0 until first commit. */
 	protected float $last_checkpoint = 0.0;
 
 	/** Last (seg, off) committed; skip checkpoint if cursor hasn't advanced. */
@@ -47,67 +38,30 @@ class Consumer extends Timer {
 	protected int $source_partition;
 	protected string $offsetlog_dir;
 	protected Partition $source;
-	/**
-	 * Offsetlog Partition; null when the constructor was called with an empty
-	 * `$offsetlog_base_dir` — cli sessions and other ephemeral readers that
-	 * tail-seek at startup don't need durable cursors and shouldn't pollute
-	 * the offsets/ tree with per-session directories.
-	 */
+	/** Null when constructed with empty $offsetlog_base_dir (ephemeral readers skip durable cursors). */
 	protected ?Partition $offsetlog = null;
 
-	/**
-	 * Override for the FROM-stamp. Defaults to `$this->name` (real Tachikoma
-	 * Consumer.pm:369-372 behavior). The IPC input-Consumer in worker
-	 * scaffolding sets this to the OUTPUT partition's name (`_repl`) so the
-	 * cli's reply path resolves through TO=_repl/$pid → _router → _repl
-	 * (output Partition). Spec line 636.
-	 */
+	/** FROM-stamp override; defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
 	private string $stamp_override = '';
 
-	/**
-	 * Cursor segment. Bytes up to (but not including) cursor_off + line_remainder
-	 * length have been read from this segment. cursor_off + line_remainder.length
-	 * is the next read position.
-	 */
+	/** Cursor segment. cursor_off + line_remainder length is the next read position. */
 	protected int $cursor_seg = 0;
 
-	/**
-	 * Last byte offset COMMITTED to the offsetlog for cursor_seg. cursor_off always
-	 * lands on a line boundary — never mid-line. Trailing partial bytes live in
-	 * $line_remainder until a future poll completes them with a newline.
-	 */
+	/** Last offset committed for cursor_seg; always a line boundary. */
 	protected int $cursor_off = 0;
 
-	/**
-	 * Trailing partial line read past cursor_off but not yet emitted.
-	 * Bytes here have been READ from the source but their offset has NOT been
-	 * committed to cursor_off. The next poll prepends this to its read so a
-	 * line split across PIPE_BUF boundaries gets emitted intact.
-	 */
+	/** Partial line read past cursor_off but not yet emitted; prepended to the next poll's read. */
 	protected string $line_remainder = '';
 
-	/** True once the newest segment's tail has been consumed. */
 	protected bool $at_eof = true;
 
-	/**
-	 * Tracks the last `is_caught_up()` reading we emitted as a state
-	 * transition, so set_state('CAUGHT_UP', ...) fires only when the boolean
-	 * flips. Without this we'd emit on every poll regardless of change.
-	 * Initialised to a sentinel (-1) so the first observation always fires.
-	 *
-	 * @var int -1 sentinel, 0 false, 1 true.
-	 */
+	/** @var int Last is_caught_up() emitted, so CAUGHT_UP fires only on flip. -1 sentinel, 0 false, 1 true. */
 	private int $last_caught_up_emit = -1;
 
 	/**
-	 * @param string $source_base_dir       Source partition's base dir.
-	 * @param int    $source_partition      Partition index within source.
-	 * @param string $offsetlog_base_dir    Where to checkpoint cursor state.
-	 *                                       Default '' skips the offsetlog
-	 *                                       entirely (ephemeral readers like
-	 *                                       the cli's reply-in Consumer, or
-	 *                                       interactive `make_node Consumer`
-	 *                                       inspections from the REPL).
+	 * @param string $source_base_dir    Source partition's base dir.
+	 * @param int    $source_partition   Partition index within source.
+	 * @param string $offsetlog_base_dir Cursor checkpoint dir; '' skips the offsetlog entirely.
 	 */
 	public function __construct(
 		string $source_base_dir,
@@ -123,41 +77,20 @@ class Consumer extends Timer {
 
 		if ( '' !== $this->offsetlog_dir ) {
 			$this->offsetlog = new Partition( $this->offsetlog_dir, 0, self::DEFAULT_OFFSETLOG_SEGMENT_SIZE );
-			// Offsetlog payload is a tiny `{seg, off, ts}` JSON — well under
-			// the 4KB PIPE_BUF limit. Single-writer (this Consumer is the
-			// only writer) so no cross-process lock needed either.
 			$this->load_offsetlog();
 		}
 
-		// Start polling immediately. fire() re-arms with set_timer(0)/(100)
-		// based on whether new bytes are available.
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
 
-		// Round-trip ctor args so dump_config emits a `make_node Consumer ...`
-		// line that re-creates this instance. Empty offsetlog_dir is included
-		// so the position is unambiguous on round-trip.
 		$this->arguments = "{$this->source_base_dir} {$this->source_partition} {$this->offsetlog_dir}";
 	}
 
-	/**
-	 * Override the FROM-stamp value used when emitting messages. Empty string
-	 * (default) falls back to $this->name. Used by the worker's IPC input
-	 * Consumer to stamp as `_repl` even though that name is owned by the
-	 * sibling output Partition.
-	 */
+	/** Override the FROM-stamp used when emitting messages; '' falls back to $this->name. */
 	public function set_stamp_as( string $stamp ): void {
 		$this->stamp_override = $stamp;
 	}
 
-	/**
-	 * Read the newest offsetlog entry to seed the cursor.
-	 *
-	 * Each line is a packed Tachikoma Message whose VALUE carries the JSON
-	 * checkpoint `{seg, off, ts}` (see checkpoint()). Unpack the outer wire
-	 * format, decode VALUE, seed the cursor.
-	 *
-	 * No-op when offsetlog is disabled.
-	 */
+	/** Read the newest offsetlog entry to seed the cursor. No-op when offsetlog is disabled. */
 	protected function load_offsetlog(): void {
 		if ( null === $this->offsetlog ) {
 			return;
@@ -175,8 +108,7 @@ class Consumer extends Timer {
 		try {
 			$msg = Message::unpacked( (string) \end( $lines ) );
 		} catch ( \InvalidArgumentException $e ) {
-			// Unparseable offsetlog entry: skip seeding and start from the
-			// default cursor rather than failing Consumer construction.
+			// Unparseable entry: start from the default cursor rather than failing construction.
 			Core::print_less_often( "Consumer: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
 			return;
 		}
@@ -190,13 +122,7 @@ class Consumer extends Timer {
 	}
 
 	/**
-	 * Set next read position. Mirrors FirehoseReader::next_offset:
-	 *   - 'start':  segment 0 / offset 0
-	 *   - 'recent': start of second-to-last segment (oldest if only one)
-	 *   - 'end':    tail of newest segment
-	 *   - array{seg:int,off:int}: explicit position
-	 *
-	 * Used by SSE/tail callers that want to skip historical data.
+	 * Set next read position: 'start' | 'recent' | 'end' | array{seg,off}.
 	 *
 	 * @param string|array $position Magic value or explicit position.
 	 */
@@ -241,25 +167,15 @@ class Consumer extends Timer {
 		}
 	}
 
-	/**
-	 * Force-mark caught up. Used by callers driving fgets() directly instead of poll().
-	 */
+	/** Force-mark caught up. Used by callers driving fgets() directly instead of poll(). */
 	public function mark_eof(): void {
 		$this->at_eof = true;
 	}
 
-	/**
-	 * True if the last poll ran the newest segment to its end.
-	 *
-	 * SSE callers use this to decide when to sleep instead of busy-looping.
-	 * Uses the cached segments list (SEGMENT_CACHE_TTL = 250ms) so frequent
-	 * calls don't thrash the filesystem.
-	 */
+	/** True if the last poll ran the newest segment to its end. */
 	public function is_caught_up(): bool {
 		$result = $this->compute_is_caught_up();
-		// State transition: emit only when the boolean flips. Subscribers
-		// (debug_state cli/SSE) see "BEHIND" → "CAUGHT_UP" transitions
-		// without churn from per-poll evaluations.
+		// Emit only when the boolean flips, to avoid per-poll churn.
 		$now = $result ? 1 : 0;
 		if ( $now !== $this->last_caught_up_emit ) {
 			$this->last_caught_up_emit = $now;
@@ -279,8 +195,6 @@ class Consumer extends Timer {
 			return true;
 		}
 		$newest = \end( $segments );
-		// Caught up if our cursor (plus any uncommitted remainder bytes) has
-		// reached the newest segment's tail.
 		if ( $this->cursor_seg < $newest['id'] ) {
 			return false;
 		}
@@ -289,9 +203,7 @@ class Consumer extends Timer {
 	}
 
 	/**
-	 * Sync the in-memory cursor offset from a caller's external read.
-	 * Used by fgets()-direct callers — they advance their own ftell() and tell us
-	 * how many bytes they consumed since our last commit.
+	 * Sync the in-memory cursor offset from a caller's external (fgets-direct) read.
 	 *
 	 * @param int $bytes_consumed Bytes consumed beyond the current cursor_off.
 	 */
@@ -304,9 +216,6 @@ class Consumer extends Timer {
 
 	/**
 	 * Open the source partition and resync if our cursor segment was deleted.
-	 *
-	 * Returns the segment we'll read from on next poll. Used by callers that want
-	 * to verify the cursor is positioned on a live segment before reading.
 	 *
 	 * @return array{id:int,size:int}|null Current segment metadata or null if no segments exist.
 	 */
@@ -324,8 +233,7 @@ class Consumer extends Timer {
 			}
 		}
 		if ( null === $found ) {
-			// Cursor segment was deleted (cleanup_segments). Jump to oldest available
-			// and resync the offset to 0.
+			// Cursor segment was deleted; jump to oldest and resync offset to 0.
 			$found                = $segments[0];
 			$this->cursor_seg     = $found['id'];
 			$this->cursor_off     = 0;
@@ -335,12 +243,7 @@ class Consumer extends Timer {
 	}
 
 	/**
-	 * Move past the current segment when its writer has gone stale.
-	 *
-	 * Logic mirrors FirehoseReader::next_segment:
-	 *   - If next id missing AND current id missing → firehose was wiped; jump to oldest.
-	 *   - If current segment was modified within STALE_SEGMENT_SECONDS, stay (writer alive).
-	 *   - Otherwise advance to the next id.
+	 * Move past the current segment when its writer has gone stale (STALE_SEGMENT_SECONDS).
 	 *
 	 * @return int|null New cursor segment id, or null if there's nothing to advance to.
 	 */
@@ -357,7 +260,7 @@ class Consumer extends Timer {
 		$has_curr  = \in_array( $this->cursor_seg, $ids, true );
 
 		if ( ! $has_next && ! $has_curr ) {
-			// Both gone: firehose was reset. Jump to oldest.
+			// Both gone: firehose was reset; jump to oldest.
 			$this->cursor_seg     = $segments[0]['id'];
 			$this->cursor_off     = 0;
 			$this->line_remainder = '';
@@ -370,8 +273,7 @@ class Consumer extends Timer {
 			$mtime = @\filemtime( $current_path );
 			$stale = $mtime ? ( \time() - $mtime ) : PHP_INT_MAX;
 			if ( $stale < self::STALE_SEGMENT_SECONDS ) {
-				// Writer is still active on this segment. Don't advance.
-				return null;
+				return null; // Writer still active on this segment.
 			}
 		}
 
@@ -386,16 +288,12 @@ class Consumer extends Timer {
 	}
 
 	/**
-	 * Read new bytes since the last cursor; emit a TM_BYTESTREAM per complete line; advance cursor.
+	 * Read new bytes; emit a TM_BYTESTREAM per complete line; advance cursor at line boundaries.
 	 *
-	 * Trailing partial lines are carried across poll boundaries via $line_remainder so a
-	 * line split mid-buffer (e.g. by a writer's PIPE_BUF boundary or a slow producer)
-	 * gets emitted intact on the next poll. Cursor commits ONLY at line boundaries.
-	 *
-	 * KEY = "{seg}:{offset}" so the offsetlog can checkpoint by segment+offset.
+	 * Trailing partial lines carry across polls via $line_remainder so a split line emits intact next poll.
 	 */
 	public function poll(): void {
-		// Defeat PHP's stat cache so size growth from a writer in another process is visible.
+		// Defeat the stat cache so size growth from another process's writer is visible.
 		\clearstatcache( true, $this->source->partition_dir() );
 		$segments = $this->source->get_segments( true );
 		if ( empty( $segments ) ) {
@@ -403,7 +301,7 @@ class Consumer extends Timer {
 			return;
 		}
 
-		// If the cursor segment is gone (deleted by cleanup), recover via open().
+		// If the cursor segment was deleted by cleanup, recover.
 		$ids = \array_column( $segments, 'id' );
 		if ( ! \in_array( $this->cursor_seg, $ids, true ) ) {
 			$this->cursor_seg     = $segments[0]['id'];
@@ -419,26 +317,18 @@ class Consumer extends Timer {
 				continue;
 			}
 
-			// Crossing into a new segment: drop any line_remainder from the prior segment
-			// (it would have been emitted as a partial line; let it die here) and reset
-			// the cursor onto the new segment.
+			// Crossing into a new segment: drop the prior segment's line_remainder and reset cursor.
 			if ( $s['id'] !== $this->cursor_seg ) {
 				$this->cursor_seg     = $s['id'];
 				$this->cursor_off     = 0;
 				$this->line_remainder = '';
-				// Durable state: which segment is the cursor currently on?
-				// Late subscribers see the current segment. Cached by set_state.
 				$this->set_state( 'SEGMENT', $this->cursor_seg );
 			}
 
-			// Read past whatever's already in line_remainder. Read offset = cursor_off
-			// + remainder.length (= total bytes already consumed FROM THIS SEGMENT).
 			$remainder_len = \strlen( $this->line_remainder );
 			$read_start    = $this->cursor_off + $remainder_len;
 			$len           = $s['size'] - $read_start;
 
-			// Cap per-poll read at MAX_POLL_BYTES so giant segments drain
-			// across polls instead of blocking the event loop on one read.
 			if ( $len > self::MAX_POLL_BYTES ) {
 				$len = self::MAX_POLL_BYTES;
 			}
@@ -448,10 +338,7 @@ class Consumer extends Timer {
 			}
 
 			$bytes = ( $len > 0 ) ? $this->source->read_at( $s['id'], $read_start, $len ) : '';
-			// Mirror Partition's bytes_read on the Consumer too — the
-			// source Partition's counter reflects file-system read
-			// volume; the Consumer's counter is what surfaces in `stats`
-			// since Consumers are the user-facing read nodes.
+			// Consumers are the user-facing read nodes, so surface bytes_read here too.
 			$this->bytes_read += \strlen( $bytes );
 
 			// DoS guard: reject if buffer would exceed MAX_LINE_BUFFER_SIZE.
@@ -464,27 +351,20 @@ class Consumer extends Timer {
 						$read_start
 					)
 				);
-				// Narrate the same event for debug_state observers —
-				// print_less_often is rate-limited and goes to stderr;
-				// set_state propagates to anyone tracing this Consumer.
 				$this->set_state(
 					'OVERFLOW',
 					[ 'seg' => $s['id'], 'off' => $read_start, 'limit' => self::MAX_LINE_BUFFER_SIZE ]
 				);
-				// Discard remainder + advance cursor past everything we've read in this poll.
-				// remainder bytes were beyond cursor_off; we now sweep cursor_off past them
-				// and past the bytes just fetched so subsequent polls don't re-read them.
+				// Discard remainder + sweep cursor past everything read so polls don't re-read it.
 				$this->line_remainder = '';
 				$this->cursor_seg     = $s['id'];
 				$nl                   = \strpos( $bytes, "\n" );
 				if ( false !== $nl ) {
-					// Land cursor immediately after the newline; carry the bytes after the
-					// newline as the new remainder (they may complete on a future poll).
+					// Land after the newline; carry the tail as the new remainder.
 					$this->cursor_off     = $read_start + $nl + 1;
 					$tail                 = \substr( $bytes, $nl + 1 );
 					$this->line_remainder = $tail;
 				} else {
-					// No newline at all — sweep cursor past everything we've read.
 					$this->cursor_off = $read_start + \strlen( $bytes );
 				}
 				continue;
@@ -492,11 +372,9 @@ class Consumer extends Timer {
 
 			$buffer = $this->line_remainder . $bytes;
 			$lines  = \explode( "\n", $buffer );
-			// array_pop removes the trailing partial (will be empty if buffer ended with \n).
+			// Trailing partial (empty if buffer ended with \n).
 			$pending = (string) \array_pop( $lines );
 
-			// Each emitted line's absolute offset within the source segment:
-			// cursor_off + (cumulative bytes of prior emitted lines in $buffer).
 			$offset_in_buffer = 0;
 			foreach ( $lines as $line ) {
 				$abs_offset = $this->cursor_off + $offset_in_buffer;
@@ -506,20 +384,11 @@ class Consumer extends Timer {
 					$this->largest_msg_sent = $line_size;
 				}
 
-				// Each line is a packed Message (Partition wrote it via
-				// Message::packed). Unpack to recover the original message,
-				// stamp our name onto FROM (path-prepend, preserving any
-				// upstream trail), and forward.
+				// Each line is a packed Message; unpack, stamp FROM, forward.
 				try {
 					$msg = Message::unpacked( $line );
 				} catch ( \InvalidArgumentException $e ) {
-					// Corrupt/unparseable line on disk: skip it (the offset was
-					// already advanced above, so the cursor moves past it) and
-					// keep draining instead of aborting the whole poll. Keep the
-					// log text constant (no per-line offset) — print_less_often
-					// keys its suppression table on the full string, so a flood
-					// of distinct-offset corrupt lines would otherwise defeat
-					// the rate-limit and grow the table unbounded in the worker.
+					// Skip corrupt lines (cursor already advanced) and keep draining.
 					Core::print_less_often( "Consumer: skipping unparseable line: {$e->getMessage()}" );
 					continue;
 				}
@@ -527,23 +396,12 @@ class Consumer extends Timer {
 				if ( '' !== $stamp && ! $this->stamp_message( $msg, $stamp ) ) {
 					continue; // FROM exceeded MAX_FROM_SIZE; drop_message handled.
 				}
-				// Position breadcrumb goes in ID (matches Tachikoma convention
-				// — KEY is the producer's routing key, ID is per-message
-				// position/correlation). Overwriting KEY here destroys the
-				// producer's partition-routing key (rid for firehose entries,
-				// handler for jobintake), which silently corrupts:
-				// — multi-partition job queues that depend on KEY=handler
-				// — RequestBuilder's rid grouping (every entry's "rid" became
-				//   a unique seg:offset and the request cache never aggregated)
+				// Position breadcrumb goes in ID; KEY must stay the producer's routing key.
 				$msg[ Message::ID ] = "{$s['id']}:{$abs_offset}";
-				// parent::fill is Timer::fill which falls through to Node::fill
-				// for TM_BYTESTREAM. Node::fill stamps TO=target (if TO empty),
-				// bumps counter, and sinks. Mirrors Tachikoma Tail.pm:236.
 				parent::fill( $msg );
 			}
 
-			// Commit cursor past all emitted lines. Trailing partial bytes are NOT
-			// reflected in cursor_off — they survive in $line_remainder for the next poll.
+			// Commit past emitted lines; trailing partial survives in $line_remainder.
 			$this->cursor_seg     = $s['id'];
 			$this->cursor_off    += $offset_in_buffer;
 			$this->line_remainder = $pending;
@@ -554,21 +412,9 @@ class Consumer extends Timer {
 	}
 
 	/**
-	 * Append a {seg, off, ts} entry to the offsetlog so a future Consumer
-	 * instance can resume. No-op when offsetlog is disabled (constructor was
-	 * called with empty $offsetlog_base_dir).
+	 * Resolve the Consumer's immediate downstream processor(s) to `{name, class}` entries.
 	 *
-	 * Wraps the JSON checkpoint as a TM_BYTESTREAM Message and routes through
-	 * Partition::fill so the offsetlog stores the canonical packed wire format
-	 * — same contract every Partition follows. load_offsetlog() unpacks back.
-	 */
-	/**
-	 * Resolve the Consumer's immediate downstream processor(s) into a flat
-	 * list of `{name, class}` entries. If `$this->target` resolves to a
-	 * `Tee`, expand the Tee's targets — the dashboard wants to display the
-	 * RequestBuilder / JobRouter / etc. that actually processes the data,
-	 * not the Tee plumbing in between. Empty list when no target is set or
-	 * the target node has gone away.
+	 * A Tee target is expanded to its targets so the dashboard shows the real processors.
 	 *
 	 * @return array<int,array{name:string,class:string}>
 	 */
@@ -578,17 +424,13 @@ class Consumer extends Timer {
 		}
 		$node = Core::node( $this->target );
 		if ( null === $node ) {
-			// Target node not yet registered (early checkpoint) or got
-			// removed; surface the name without a class so the dashboard
-			// can still render the row.
+			// Not yet registered or removed; surface the name without a class.
 			return [ [ 'name' => $this->target, 'class' => '' ] ];
 		}
 		$class = ( new \ReflectionClass( $node ) )->getShortName();
 		if ( 'Tee' !== $class ) {
 			return [ [ 'name' => $this->target, 'class' => $class ] ];
 		}
-		// Tee: expand to its targets so the dashboard shows the actual
-		// downstream processors.
 		$tee_targets = $node->target ?? [];
 		if ( ! \is_array( $tee_targets ) ) {
 			return [ [ 'name' => $this->target, 'class' => 'Tee' ] ];
@@ -609,12 +451,7 @@ class Consumer extends Timer {
 		if ( null === $this->offsetlog ) {
 			return;
 		}
-		// Skip if cursor hasn't advanced since the last commit — the saved
-		// entry is still the truth, no point appending a duplicate every tick.
-		// Exception: the first checkpoint after construction always writes,
-		// even when the cursor is still at 0:0. That seeds the metadata
-		// (name/target/worker_type) so the dashboard can attribute this
-		// Consumer to a worker even when its source is idle.
+		// Always write the first checkpoint (even at 0:0) so an idle Consumer is still attributed.
 		$first_checkpoint = -1 === $this->checkpoint_seg && -1 === $this->checkpoint_off;
 		if (
 			! $first_checkpoint
@@ -640,33 +477,19 @@ class Consumer extends Timer {
 				: '',
 		];
 		$this->offsetlog->fill( $msg );
-		// Persist immediately — checkpoint is the durable cursor commit;
-		// callers (next-Consumer-on-restart, periodic fire-time saves) need
-		// the entry on disk synchronously, not waiting for the offsetlog
-		// Partition's PIPE_BUF threshold to fire.
+		// Persist synchronously — don't wait for the offsetlog Partition's PIPE_BUF threshold.
 		$this->offsetlog->flush();
 		$this->checkpoint_seg = $this->cursor_seg;
 		$this->checkpoint_off = $this->cursor_off;
 
-		// Durable state: where did we last commit our cursor? Cached so
-		// late subscribers see the most recent checkpoint without having
-		// to read the offsetlog file themselves.
 		$this->set_state( 'CHECKPOINT', [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off ] );
 	}
 
-	/**
-	 * Consumer is Timer-driven: each fire() polls the source Partition for new
-	 * bytes, emits per-line, and re-arms with set_timer(0) (busy — drain ASAP)
-	 * or set_timer(100) (EOF — back off to 100ms idle ticks). Spec instruction
-	 * matches Tail.pm's poll_timer pattern, simplified to one timer per Consumer.
-	 */
+	/** Timer-driven: poll, publish position, periodically checkpoint, then re-arm (busy/EOF cadence). */
 	protected function fire(): void {
 		$this->poll();
 		$this->publish_position();
-		// Persist cursor every CHECKPOINT_INTERVAL_S so a respawning worker
-		// resumes from the last commit instead of re-reading from offset 0.
-		// (poll() updates the in-memory cursor on every read; checkpoint()
-		// is what makes that durable.) Skipped when offsetlog is disabled.
+		// poll() updates the in-memory cursor every read; checkpoint() makes it durable.
 		if (
 			null !== $this->offsetlog
 			&& ( Core::$now - $this->last_checkpoint ) >= self::CHECKPOINT_INTERVAL_S
@@ -679,19 +502,9 @@ class Consumer extends Timer {
 	}
 
 	/**
-	 * Publish current cursor to memcache, keyed by hostname + source path.
-	 * Dashboards read the same key to compute live read rates between
-	 * offsetlog checkpoints. The hostname-as-prefix prevents collisions in
-	 * shared-memcache deployments where the same `{base_dir}` path resolves
-	 * on multiple hosts (e.g. render1 / render2 each writing their own
-	 * `firehose.log` consumer position). The path-as-key avoids any
-	 * topology-side wiring: every Consumer knows its source dir, every
-	 * reader can derive the same key.
+	 * Publish the current cursor to memcache, keyed by hostname + source path, for live dashboards.
 	 *
-	 * Server discovery: substrate `Config::load_config()['memcache_servers']`.
-	 * No-op when the Memcached PHP extension is missing or the server is
-	 * unreachable. Sticky-fail: a failed connect never retries within this
-	 * worker's lifetime.
+	 * No-op when Memcached is missing or unreachable; a failed connect is sticky for this worker.
 	 */
 	private function publish_position(): void {
 		if ( ! \class_exists( '\\Memcached' ) ) {
@@ -739,13 +552,11 @@ class Consumer extends Timer {
 	}
 
 	/**
-	 * Handle TM_REQUEST introspection verbs in addition to Timer's TIMER
-	 * hitchhike. Reply pattern is TO=FROM (walks the breadcrumb back),
-	 * VALUE is an array with TM_STRUCT set.
+	 * Handle TM_REQUEST introspection verbs (reply TO=FROM); else defer to Timer.
 	 */
 	public function fill( array &$message ): void {
 		$type = $message[ Message::TYPE ];
-		if ( ( $type & Message::TM_REQUEST ) && ! ( $type & Message::TM_RESPONSE ) ) {
+		if ( $type & Message::TM_REQUEST ) {
 			$this->handle_request( $message );
 			return;
 		}
@@ -754,8 +565,7 @@ class Consumer extends Timer {
 
 	private function handle_request( array $message ): void {
 		$value = (string) $message[ Message::VALUE ];
-		// Verb name is the leading token; ignore any trailing args.
-		$verb = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
+		$verb  = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
 
 		$payload = null;
 		if ( 'GET_LAG' === $verb ) {
@@ -773,7 +583,7 @@ class Consumer extends Timer {
 		}
 
 		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_REQUEST | Message::TM_RESPONSE | Message::TM_STRUCT;
+        $reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
 		$reply[ Message::FROM ]  = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
 		$reply[ Message::TO ]    = $message[ Message::FROM ];
 		$reply[ Message::ID ]    = $message[ Message::ID ];
@@ -803,9 +613,7 @@ class Consumer extends Timer {
 				++$segments_behind;
 			}
 		}
-		// `line_remainder` is past cursor_off but not yet emitted — count it
-		// as already-read so the lag reflects bytes-still-to-emit, not bytes-
-		// not-yet-fetched.
+		// Count line_remainder as already-read so lag reflects bytes-still-to-emit.
 		$bytes_behind = \max( 0, $bytes_behind - \strlen( $this->line_remainder ) );
 		return [
 			'bytes_behind'    => $bytes_behind,

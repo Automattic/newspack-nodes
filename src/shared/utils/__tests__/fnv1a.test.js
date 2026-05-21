@@ -1,10 +1,5 @@
 /**
- * Tests for the FNV-1a hash util.
- *
- * Behavior under test: produces a 12-char lowercase hex digest, deterministic,
- * varies on input change, and stays bounded for the empty string. We don't
- * pin specific golden values here — the canonical pin is the PHP-side cross-
- * implementation test in tests/php (fnv1a must match PHP's fnv1a()).
+ * Tests for the FNV-1a hash util (the golden cross-impl pin lives in tests/php).
  */
 
 import fnv1a from '../fnv1a';
@@ -34,8 +29,7 @@ describe( 'fnv1a', () => {
 	} );
 
 	it( 'discriminates single-character changes', () => {
-		// FNV-1a is designed to avalanche on single-char changes; a same-prefix
-		// pair should not collide.
+		// Avalanche: a same-prefix pair must not collide.
 		expect( fnv1a( 'abc' ) ).not.toBe( fnv1a( 'abd' ) );
 	} );
 

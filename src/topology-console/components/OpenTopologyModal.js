@@ -1,15 +1,6 @@
 /**
- * OpenTopologyModal — list every saved topology and let the operator
- * pick one to load into the edit-mode draft.
- *
- * One-shot affordance: the editor's draft is replaced wholesale by
- * the loaded TSL. If the operator had unsaved work, they should have
- * cancelled out (the discard-confirm modal) before opening this.
- *
- * Listed entries are grouped by source (user dirs first — the user's
- * own topologies are usually what they want to edit) and show the
- * `active` flag as a small badge so they can see at a glance which
- * topology is currently spawning workers.
+ * OpenTopologyModal — pick a saved topology to load into the edit-mode draft.
+ * Entries are grouped by source (user first) with an `active` badge.
  */
 
 import { useEffect, useRef } from '@wordpress/element';

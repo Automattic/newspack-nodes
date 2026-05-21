@@ -17,8 +17,7 @@ const SYSTEM_COLORS = {
 };
 
 /**
- * Compiled regex patterns for hook categorization.
- * Built lazily from window.eventLoggerHookCategories._patterns.
+ * Compiled regex patterns for hook categorization (built lazily).
  */
 let compiledPatternsCache = null;
 const getCompiledPatterns = () => {

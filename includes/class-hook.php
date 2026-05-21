@@ -1,9 +1,6 @@
 <?php
 /**
- * Hook: WordPress action/filter as a node.
- *
- * Action mode: do_action($hook, $message) then forward unchanged to sink.
- * Filter mode: apply_filters($hook, $message) and forward result to sink.
+ * Hook: WordPress action/filter as a node. Action mode forwards unchanged; filter mode forwards the apply_filters result.
  *
  * @package Newspack_Nodes
  */

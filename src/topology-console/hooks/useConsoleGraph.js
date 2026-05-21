@@ -1,27 +1,7 @@
 /**
- * useConsoleGraph — mounts the per-session in-browser node graph that runs
- * the topology console's live SSE-in + command-out path. Replaces the
- * raw-EventSource `useTopologyStream` + procedural handleMessage + direct
- * sendWorkerCommand wiring with an actual node graph:
- *
- *   SseConnector --fill--> SessionSink  (registered `session`)
- *                          CommandOut   (registered `command-out`)
- *
- * The SseConnector opens the unified `/messages/stream` endpoint for the
- * selected worker (subscription `{topology}.p{N}`), fills each frame into
- * SessionSink, and snoops the `connected` envelope for the session pid.
- * SessionSink routes by KEY (gui:auto → metadata, gui:uptime → uptime,
- * else → transcript) and owns the shared transcript. CommandOut performs
- * the worker-bound command send, pivoting replies through the connector's
- * pid.
- *
- * The graph is mounted when `enabled` is true (view mode + a worker
- * selected) and torn down on unmount or when `enabled` flips false (edit
- * mode) — so the server-side drain loop's `connection_aborted()` check
- * fires and the worker stops being poked.
- *
- * Status is derived: `enabled=false` → 'closed'; pid not yet seen →
- * 'connecting'; pid present → 'open'.
+ * useConsoleGraph — mounts the per-session in-browser node graph (SseConnector
+ * → SessionSink; CommandOut) for the console's live SSE-in + command-out path.
+ * Mounted while `enabled`; torn down on unmount or edit mode.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
@@ -31,15 +11,12 @@ import { SessionSink } from '../nodes/SessionSink';
 import { CommandOut } from '../nodes/CommandOut';
 import { getCommandClient } from '../utils/commandClient';
 
-// Registered node names. `session` / `command-out` are the names
-// TopologyConsole reads via useNodeState / useNodeFill.
+// Registered node names TopologyConsole reads via useNodeState / useNodeFill.
 const SESSION_NODE = 'session';
 const COMMAND_OUT_NODE = 'command-out';
 const SSE_NODE = '_console_sse';
 
-// SSE heartbeat/flush cadence query param. The server fixes its own
-// heartbeat interval and only reflects this back in the connected
-// envelope, but SseConnector requires a value for the URL.
+// SSE cadence query param (server fixes its own; SseConnector needs a value).
 const STREAM_INTERVAL_MS = 5000;
 
 /**
@@ -61,8 +38,7 @@ export function useConsoleGraph( {
 	const [ ssePid, setSsePid ] = useState( null );
 	const [ sessionNode, setSessionNode ] = useState( null );
 
-	// Stash the latest debugLevelRef so the effect always wires the
-	// freshest ref without re-subscribing on every render.
+	// Stash the latest debugLevelRef so the effect wires it without re-subscribing.
 	const debugLevelRefRef = useRef( debugLevelRef );
 	debugLevelRefRef.current = debugLevelRef;
 
@@ -99,8 +75,7 @@ export function useConsoleGraph( {
 		} );
 		commandOut.setName( COMMAND_OUT_NODE );
 
-		// Reset to "connecting" (clears any prior worker's pid on a
-		// topology/partition switch), then track the connected envelope.
+		// Reset to "connecting" (clears a prior worker's pid), then track connected.
 		setSsePid( connector.pid() );
 		connector.register( 'connected', 'useConsoleGraph', ( payload ) => {
 			setSsePid(
