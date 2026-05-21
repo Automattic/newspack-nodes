@@ -1,156 +1,157 @@
 /**
- * Tests for useTopologyStream — wraps the per-(topology, partition)
- * SSE controller into a React hook. Mocks the EventSource global so we
- * can drive `hello` / `msg` / `error` events deterministically without
- * a server.
+ * Tests for useTopologyStream — now a thin adapter over the shared
+ * `useMessageStream` hook. It subscribes to the worker reader id
+ * `{topology}.p{N}`, reads the session pid from the substrate's
+ * `connected` envelope, and converts each raw positional Message array
+ * into the `{type, ts, from, to, id, key, value}` object shape the
+ * TopologyConsole's handleMessage expects.
+ *
+ * `useMessageStream` is mocked so we can capture its options and drive
+ * synthetic envelopes through the adapter deterministically.
  */
 
 import { renderHook, act } from '@testing-library/react';
-import { useTopologyStream } from '../useTopologyStream';
 
-class FakeEventSource {
-	constructor( url ) {
-		this.url = url;
-		this.listeners = {};
-		this.closed = false;
-		FakeEventSource.last = this;
-	}
-	addEventListener( type, fn ) {
-		this.listeners[ type ] = this.listeners[ type ] || [];
-		this.listeners[ type ].push( fn );
-	}
-	dispatch( type, data ) {
-		( this.listeners[ type ] || [] ).forEach( ( fn ) =>
-			fn( {
-				data: typeof data === 'string' ? data : JSON.stringify( data ),
-			} )
-		);
-	}
-	triggerError() {
-		if ( this.onerror ) {
-			this.onerror();
-		}
-	}
-	close() {
-		this.closed = true;
-	}
+let lastOptions = null;
+let mockError = null;
+const mockConnect = jest.fn();
+const mockClose = jest.fn();
+
+jest.mock( '../../../shared/hooks/useMessageStream', () => ( {
+	__esModule: true,
+	default: ( options ) => {
+		lastOptions = options;
+		return {
+			error: mockError,
+			connect: mockConnect,
+			close: mockClose,
+			lastEventTime: null,
+		};
+	},
+} ) );
+
+import { useTopologyStream } from '../useTopologyStream';
+import {
+	newMessage,
+	TYPE,
+	TIMESTAMP,
+	FROM,
+	TO,
+	ID,
+	KEY,
+	VALUE,
+	TM_INFO,
+	TM_COMMAND,
+	TM_RESPONSE,
+} from '../../../runtime/message';
+
+function connectedEnvelope( pid ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_INFO;
+	m[ FROM ] = '_stream';
+	m[ KEY ] = 'connected';
+	m[ VALUE ] = { pid, slot: 1, subscriptions: [ 'demo.p0' ], interval: 5000 };
+	return m;
 }
 
 describe( 'useTopologyStream', () => {
-	const originalEventSource = window.EventSource;
-	const originalData = window.NewspackNodesData;
 	beforeEach( () => {
-		window.EventSource = FakeEventSource;
-		window.NewspackNodesData = {
-			restUrl: '/wp-json/',
-			nonce: 'NONCE',
-		};
-	} );
-	afterEach( () => {
-		window.EventSource = originalEventSource;
-		window.NewspackNodesData = originalData;
-		FakeEventSource.last = undefined;
+		lastOptions = null;
+		mockError = null;
+		mockConnect.mockClear();
+		mockClose.mockClear();
 	} );
 
-	it( 'starts in connecting status and opens an EventSource with the right URL', () => {
+	it( 'subscribes to the worker reader id {topology}.p{N}', () => {
+		renderHook( () => useTopologyStream( 'demo', 3, () => {} ) );
+		expect( lastOptions.subscriptions ).toEqual( [ 'demo.p3' ] );
+	} );
+
+	it( 'starts in connecting status with a null pid', () => {
 		const { result } = renderHook( () =>
-			useTopologyStream( 'demo', 3, () => {} )
+			useTopologyStream( 'demo', 0, () => {} )
 		);
 		expect( result.current.status ).toBe( 'connecting' );
 		expect( result.current.ssePid ).toBeNull();
-		expect( FakeEventSource.last.url ).toContain(
-			'newspack-nodes/v1/topology/demo/p3/stream'
-		);
-		expect( FakeEventSource.last.url ).toContain( '_wpnonce=NONCE' );
 	} );
 
-	it( 'flips to open and captures pid on hello event', () => {
+	it( 'connects on mount when enabled', () => {
+		renderHook( () => useTopologyStream( 'demo', 0, () => {} ) );
+		expect( mockConnect ).toHaveBeenCalled();
+	} );
+
+	it( 'flips to open and captures pid from the connected envelope', () => {
 		const { result } = renderHook( () =>
 			useTopologyStream( 'demo', 0, () => {} )
 		);
 		act( () => {
-			FakeEventSource.last.dispatch( 'hello', { pid: 12345 } );
+			lastOptions.onMessage( connectedEnvelope( 12345 ), {
+				type: TM_INFO,
+			} );
 		} );
 		expect( result.current.status ).toBe( 'open' );
 		expect( result.current.ssePid ).toBe( 12345 );
 	} );
 
-	it( 'tolerates a malformed hello payload without crashing', () => {
-		const { result } = renderHook( () =>
-			useTopologyStream( 'demo', 0, () => {} )
-		);
-		act( () => {
-			FakeEventSource.last.dispatch( 'hello', 'not-json' );
-		} );
-		expect( result.current.status ).toBe( 'open' );
-		expect( result.current.ssePid ).toBeNull();
-	} );
-
-	it( 'invokes onMessage for each msg event', () => {
+	it( 'does not forward the connected envelope to the caller', () => {
 		const onMessage = jest.fn();
 		renderHook( () => useTopologyStream( 'demo', 0, onMessage ) );
 		act( () => {
-			FakeEventSource.last.dispatch( 'msg', { hello: 'world' } );
-		} );
-		expect( onMessage ).toHaveBeenCalledWith( { hello: 'world' } );
-	} );
-
-	it( 'silently drops malformed msg events', () => {
-		const onMessage = jest.fn();
-		renderHook( () => useTopologyStream( 'demo', 0, onMessage ) );
-		act( () => {
-			FakeEventSource.last.dispatch( 'msg', 'not-json' );
+			lastOptions.onMessage( connectedEnvelope( 7 ), { type: TM_INFO } );
 		} );
 		expect( onMessage ).not.toHaveBeenCalled();
 	} );
 
-	it( 'flips to error on EventSource error', () => {
+	it( 'converts a positional Message array into the object shape', () => {
+		// eslint-disable-next-line no-bitwise
+		const cmdResponse = TM_COMMAND | TM_RESPONSE;
+		const onMessage = jest.fn();
+		renderHook( () => useTopologyStream( 'demo', 0, onMessage ) );
+		const m = newMessage();
+		m[ TYPE ] = cmdResponse;
+		m[ TIMESTAMP ] = 1700000000;
+		m[ FROM ] = '_command_interpreter';
+		m[ TO ] = '_http/99';
+		m[ ID ] = '3:128';
+		m[ KEY ] = 'gui:auto';
+		m[ VALUE ] = { name: 'dump_metadata', payload: '{"nodes":[]}' };
+		act( () => {
+			lastOptions.onMessage( m, { type: m[ TYPE ] } );
+		} );
+		expect( onMessage ).toHaveBeenCalledWith( {
+			type: cmdResponse,
+			ts: 1700000000,
+			from: '_command_interpreter',
+			to: '_http/99',
+			id: '3:128',
+			key: 'gui:auto',
+			value: { name: 'dump_metadata', payload: '{"nodes":[]}' },
+		} );
+	} );
+
+	it( 'maps useMessageStream error into error status', () => {
+		mockError = 'Reconnecting in 2s...';
 		const { result } = renderHook( () =>
 			useTopologyStream( 'demo', 0, () => {} )
 		);
-		act( () => {
-			FakeEventSource.last.triggerError();
-		} );
 		expect( result.current.status ).toBe( 'error' );
+	} );
+
+	it( 'short-circuits (closed, no connect) when enabled=false', () => {
+		const { result } = renderHook( () =>
+			useTopologyStream( 'demo', 0, () => {}, false )
+		);
+		expect( result.current.status ).toBe( 'closed' );
+		expect( result.current.ssePid ).toBeNull();
+		expect( mockConnect ).not.toHaveBeenCalled();
 	} );
 
 	it( 'closes the connection on unmount', () => {
 		const { unmount } = renderHook( () =>
 			useTopologyStream( 'demo', 0, () => {} )
 		);
-		const es = FakeEventSource.last;
 		unmount();
-		expect( es.closed ).toBe( true );
-	} );
-
-	it( 'short-circuits when enabled=false', () => {
-		const { result } = renderHook( () =>
-			useTopologyStream( 'demo', 0, () => {}, false )
-		);
-		expect( result.current.status ).toBe( 'closed' );
-		expect( FakeEventSource.last ).toBeUndefined();
-	} );
-
-	it( 'sets status=error when NewspackNodesData is missing', () => {
-		delete window.NewspackNodesData;
-		const { result } = renderHook( () =>
-			useTopologyStream( 'demo', 0, () => {} )
-		);
-		expect( result.current.status ).toBe( 'error' );
-		expect( FakeEventSource.last ).toBeUndefined();
-	} );
-
-	it( 'heartbeat events are accepted without side effects', () => {
-		const onMessage = jest.fn();
-		const { result } = renderHook( () =>
-			useTopologyStream( 'demo', 0, onMessage )
-		);
-		act( () => {
-			FakeEventSource.last.dispatch( 'heartbeat', {} );
-		} );
-		// Heartbeats don't change status or fire onMessage.
-		expect( result.current.status ).toBe( 'connecting' );
-		expect( onMessage ).not.toHaveBeenCalled();
+		expect( mockClose ).toHaveBeenCalled();
 	} );
 
 	it( 'always uses the latest onMessage closure', () => {
@@ -161,10 +162,13 @@ describe( 'useTopologyStream', () => {
 			{ initialProps: { fn: first } }
 		);
 		rerender( { fn: second } );
+		const m = newMessage();
+		m[ TYPE ] = 1;
+		m[ VALUE ] = 'x';
 		act( () => {
-			FakeEventSource.last.dispatch( 'msg', { x: 1 } );
+			lastOptions.onMessage( m, { type: 1 } );
 		} );
 		expect( first ).not.toHaveBeenCalled();
-		expect( second ).toHaveBeenCalledWith( { x: 1 } );
+		expect( second ).toHaveBeenCalled();
 	} );
 } );
