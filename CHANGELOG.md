@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-05-20
+
 ### Changed
 
 - **Removed the `interval` query param from `/messages/stream`.** The heartbeat
