@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Newspack Nodes
  * Description: Node-graph runtime for composable PHP services.
- * Version: 0.2.3
+ * Version: 0.2.4
  * Author: Automattic
  * License: GPL-2.0-or-later
  *
@@ -12,7 +12,7 @@
 \defined( 'ABSPATH' ) || exit;
 
 if ( ! \defined( 'NEWSPACK_NODES_VERSION' ) ) {
-	\define( 'NEWSPACK_NODES_VERSION', '0.2.3' );
+	\define( 'NEWSPACK_NODES_VERSION', '0.2.4' );
 }
 if ( ! \defined( 'NEWSPACK_NODES_FILE' ) ) {
 	\define( 'NEWSPACK_NODES_FILE', __FILE__ );
