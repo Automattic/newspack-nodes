@@ -1,10 +1,6 @@
 /* eslint-disable no-bitwise */
 /**
- * FNV-1a hash implementation.
- *
- * Fast non-cryptographic hash for URL identification.
- * ~20-50x faster than MD5 for short strings.
- * Must match PHP's fnv1a() implementation.
+ * FNV-1a hash implementation. Must match PHP's fnv1a().
  */
 
 const FNV_OFFSET = 2166136261;
@@ -27,10 +23,7 @@ function fnv1a32( str, seed = FNV_OFFSET ) {
 }
 
 /**
- * Compute FNV-1a hash producing 12 hex characters.
- *
- * Runs two passes with different seeds, combines into 48 bits.
- * Still ~10-20x faster than MD5 for short strings.
+ * Compute FNV-1a hash producing 12 hex characters (two seeded passes).
  *
  * @param {string} str Input string to hash.
  * @return {string} 12-character hex string.

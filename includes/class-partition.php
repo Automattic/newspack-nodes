@@ -1,8 +1,6 @@
 <?php
 /**
- * Partition
- *
- * File-segmented append-only log.
+ * Partition: file-segmented append-only log.
  *
  * @package Newspack_Nodes
  */
@@ -25,10 +23,8 @@ class Partition extends Timer {
 	/** Inter-process rotation lock TTL: anything older counts as stale. */
 	public const ROTATE_LOCK_TTL_SECONDS = 5;
 
-	/** Max in-loop fwrite attempts before giving up on a partial write. */
 	public const MAX_PARTIAL_WRITE_ATTEMPTS = 5;
 
-	/** Minimum interval between drift-detection rescans inside do_write(). */
 	public const DRIFT_RESCAN_INTERVAL_SECONDS = 1.0;
 
 	protected string $base_dir;
@@ -56,37 +52,18 @@ class Partition extends Timer {
 	protected bool $allow_large_writes = false;
 	protected ?Lock $write_lock = null;
 	protected ?Timer $heartbeat_timer = null;
-	/** stale_timeout (s) cached at acquire so fill() can compute the heartbeat cadence in no-event-loop mode. */
 	protected int $lock_stale_timeout = 0;
-	/** Last manually-driven heartbeat timestamp (no-event-loop mode only). */
 	protected float $last_lock_heartbeat = 0.0;
 
-	/** Last drift-rescan timestamp; throttles do_write rescans to once per second. */
 	protected float $last_segment_check = 0.0;
 
 	/** @var callable|null fn(string $line, array $position, ?array &$data) => string|null */
 	protected $index_callback = null;
 
-	/**
-	 * In-memory batch of packed messages awaiting a single PIPE_BUF-atomic
-	 * syswrite. Mirrors Tachikoma `Partition.pm:206`'s `push @{$self->{batch}}`
-	 * + `fire()` flush pattern, with the legacy newspack-performance-logger
-	 * LogManager rule applied: if `strlen(batch) + strlen(new_packed)` would
-	 * exceed `MAX_LINE_SIZE` (4KB), flush the existing batch FIRST, then
-	 * append the new packed message to a now-empty batch.
-	 *
-	 * @var string
-	 */
+	/** @var string Packed messages awaiting one PIPE_BUF-atomic syswrite. */
 	protected string $batch = '';
 
-	/**
-	 * Per-batched-message bookkeeping flushed in lockstep with `$batch` —
-	 * each entry carries the ORIGINAL packed bytes + caller-supplied $data
-	 * so the index_callback can be invoked at flush time once the actual
-	 * on-disk offset is known.
-	 *
-	 * @var list<array{packed:string,len:int,data:mixed}>
-	 */
+	/** @var list<array{packed:string,len:int,data:mixed}> Flushed in lockstep with $batch. */
 	protected array $batch_index_args = [];
 
 	public function __construct(
@@ -96,9 +73,6 @@ class Partition extends Timer {
 		int $num_segments = self::DEFAULT_NUM_SEGMENTS,
 		int $max_lifespan = self::DEFAULT_MAX_LIFESPAN
 	) {
-		// Timer::__construct seeds the FIRE registration slot — we extend
-		// Timer so each batched fill can schedule a 0-delay flush via
-		// `set_timer(0, oneshot)` (mirrors Tachikoma `Partition.pm:207`).
 		parent::__construct();
 		$this->base_dir      = \rtrim( $base_dir, '/' );
 		$this->partition     = $partition;
@@ -106,30 +80,15 @@ class Partition extends Timer {
 		$this->num_segments  = \max( 2, $num_segments );
 		$this->max_lifespan  = \max( 0, $max_lifespan );
 		$this->partition_dir = "{$this->base_dir}/p{$partition}";
-		// Round-trip ctor args via Node::$arguments so dump_config emits a
-		// `make_node Partition <name> <base_dir> <partition> ...` that
-		// re-creates this instance verbatim.
-		$this->arguments = "{$this->base_dir} {$this->partition} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}";
+		$this->arguments     = "{$this->base_dir} {$this->partition} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}";
 
-		// Sibling CommandInterpreter for runtime configuration verbs
-		// (allow_large_writes, with_index). Constructed nameless;
-		// Node::name() will propagate `{patron}:config` once make_node
-		// names the patron. Routing happens via the existing `cmd`
-		// builtin (Shell) → TM_COMMAND → Router → sibling CI's
-		// interpret() → verb handler in self::config_verbs().
 		$ci = new CommandInterpreter();
 		$ci->patron( $this );
 		$ci->commands( self::config_verbs() );
 		$this->attach_interpreter( $ci );
 	}
 
-	/**
-	 * Timer fire — drains the batch at the end of the current event-loop
-	 * iteration. Each `fill()` that appends to the batch arms a 0-delay
-	 * one-shot via `set_timer(0, true)`; once the iteration's events finish
-	 * processing, EventFramework calls `fire_cb` here and we land all the
-	 * accumulated packed messages in one syswrite.
-	 */
+	/** Timer fire: drain the batch at the end of the current event-loop iteration. */
 	protected function fire(): void {
 		$this->flush();
 	}
@@ -146,30 +105,14 @@ class Partition extends Timer {
 	}
 
 	/**
-	 * Node entry point.
-	 *
-	 * Pack the whole message via Message::packed() and append to the current
-	 * segment. All TYPE flags pass through — Partition is a generic transport,
-	 * including for control messages (TM_REQUEST, TM_ERROR, TM_EOF). The
-	 * pivoted-cli IPC pattern relies on this: cli ↔ worker round-trips drain
-	 * markers (TM_EOF), error responses (TM_COMMAND|TM_ERROR), and
-	 * introspection requests (TM_REQUEST) through Partition-as-bus. Data
-	 * partitions like firehose.log only ever see TM_BYTESTREAM / TM_STRUCT in
-	 * practice, so the broader contract is a no-op for production paths.
+	 * Node entry point: pack the message and append to the current segment.
 	 *
 	 * @param array $message Reference; not mutated.
 	 */
 	public function fill( array &$message ): void {
 		++$this->counter;
 
-		// No-event-loop heartbeat: when allow_large_writes was set up outside
-		// a drain (request-scope JobIntake-style callers), there's no Timer
-		// to refresh the lock's heartbeat file. Drive it from here at most
-		// once per (stale_timeout/3) seconds. Lock::heartbeat verifies
-		// ownership before touching the file and returns false if we lost
-		// it (stale-takeover by another holder) — throw in that case so
-		// the caller can't unknowingly write into another holder's segments.
-		// $write_lock is guaranteed non-null when allow_large_writes is true.
+		// No-event-loop heartbeat: heartbeat() returns false if ownership was stolen, so throw.
 		if ( $this->allow_large_writes && null === $this->heartbeat_timer ) {
 			$now = \microtime( true );
 			if ( $now - $this->last_lock_heartbeat >= $this->lock_stale_timeout / 3.0 ) {
@@ -185,16 +128,11 @@ class Partition extends Timer {
 			}
 		}
 
-		// Pack the whole message and append. Bytes are newline-terminated so
-		// Consumer can split lines without needing Tachikoma's length-prefix
-		// wire format. Size cap is on the FINAL packed bytes (not VALUE
-		// alone) — that's what hits PIPE_BUF.
+		// Size cap is on the final packed bytes (not VALUE alone) — that's what hits PIPE_BUF.
 		$packed = Message::packed( $message ) . "\n";
 		$max    = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
 		$size   = \strlen( $packed );
 		if ( $size > $max ) {
-			// Silent oversize drop is the most common "where did my
-			// message go?" mystery. Narrate it for debug_state.
 			$this->set_state(
 				'DROPPED',
 				[ 'reason' => 'oversize', 'size' => $size, 'max' => $max ]
@@ -213,14 +151,9 @@ class Partition extends Timer {
 		$len = \strlen( $packed );
 		$this->maybe_rescan_segments();
 
-		// Node-fed path has no pre-decoded $data — index_callback (if any)
-		// re-parses $packed when needed.
 		$data = null;
 
-		// Large messages (only reachable on allow_large_writes Partitions) bypass
-		// the in-memory batch — they're already > 4KB so batching can't shrink
-		// them under PIPE_BUF anyway. Flush any pending batch first so on-disk
-		// ordering matches submission order, then write the lone message.
+		// Large messages bypass the batch; flush pending batch first to preserve ordering.
 		if ( $len > self::MAX_LINE_SIZE ) {
 			$this->flush();
 			if ( $this->current_size + $len > $this->segment_size ) {
@@ -234,22 +167,16 @@ class Partition extends Timer {
 			if ( ! $this->loop_fwrite( $fh, $packed ) ) {
 				return;
 			}
-			// loop_fwrite already advanced current_size.
 			$this->write_index_entry( $packed, $offset, $len, $data );
 			$this->touch_segments_cache();
 			return;
 		}
 
-		// Small message — append to in-memory batch. Flush first if adding
-		// this packed message would push the batch over PIPE_BUF (4KB), so
-		// every actual syswrite is atomic-append safe. Mirrors the legacy
-		// newspack-performance-logger LogManager batching rule.
+		// Flush if this message would push the batch over PIPE_BUF — keeps syswrites atomic.
 		if ( '' !== $this->batch && \strlen( $this->batch ) + $len > self::MAX_LINE_SIZE ) {
 			$this->flush();
 		}
 
-		// Re-check rotation now that the batch is flushed (or empty); the
-		// pending append needs to fit in the current segment.
 		if ( $this->current_size + $len > $this->segment_size ) {
 			$this->rotate_segment();
 		}
@@ -261,28 +188,18 @@ class Partition extends Timer {
 			'data'   => $data,
 		];
 
-		// Schedule a 0-delay one-shot flush at the end of this event-loop
-		// iteration. Mirrors Tachikoma `Partition.pm:207`: every batched
-		// fill bumps the timer; the iteration's tail calls fire() once,
-		// landing every accumulated message in one syswrite.
+		// 0-delay one-shot flush at the end of this event-loop iteration.
 		$this->set_timer( 0, true );
 	}
 
-	/**
-	 * Sysseek + sysappend the accumulated `$batch` to the current segment,
-	 * then walk `$batch_index_args` to write companion index entries with
-	 * post-flush offsets. Called automatically by `fill()` whenever adding a
-	 * new message would push the batch past PIPE_BUF, and at the latest from
-	 * `__destruct()` so request-scope writes land before the process exits.
-	 */
+	/** Append $batch to the current segment, then write companion index entries with post-flush offsets. */
 	public function flush(): void {
 		if ( '' === $this->batch ) {
 			return;
 		}
 		$batch_bytes = $this->batch;
 		$batch_args  = $this->batch_index_args;
-		// Reset state up-front so an exception below doesn't cause a re-flush
-		// loop (e.g., from __destruct on the way down).
+		// Reset up-front so an exception below doesn't cause a re-flush loop.
 		$this->batch             = '';
 		$this->batch_index_args  = [];
 
@@ -303,11 +220,7 @@ class Partition extends Timer {
 		if ( ! $this->loop_fwrite( $fh, $batch_bytes ) ) {
 			return;
 		}
-		// loop_fwrite already advanced $this->current_size — don't double-count.
 
-		// Walk the per-message index args and write each at its computed
-		// post-flush offset. The batch's first message lands at start_offset;
-		// each subsequent one lands at +its packed length.
 		$offset = $start_offset;
 		foreach ( $batch_args as $item ) {
 			$this->write_index_entry( $item['packed'], $offset, $item['len'], $item['data'] );
@@ -317,11 +230,7 @@ class Partition extends Timer {
 		$this->touch_segments_cache();
 	}
 
-/**
-	 * Write one companion-index entry for a packed message at $offset.
-	 * Caller-supplied formatter (`with_index()`) wins; default is the
-	 * 8-byte binary pack the Consumer's load-offsetlog code expects.
-	 */
+	/** Write one companion-index entry for a packed message at $offset. */
 	private function write_index_entry( string $packed, int $offset, int $len, $data ): void {
 		if ( null !== $this->index_callback ) {
 			$position = [
@@ -348,19 +257,12 @@ class Partition extends Timer {
 	}
 
 	public function __destruct() {
-		// Land any residual batched messages before closing handles —
-		// otherwise request-scope writes (LogManager via Topic) get GC'd
-		// without ever hitting disk. Mirrors register_shutdown_function but
-		// scoped tighter: flushes whenever this Partition is collected.
+		// Flush residual batched messages so request-scope writes aren't GC'd unwritten.
 		$this->flush();
 		$this->close_handle();
 	}
 
-	/**
-	 * Close file handles + release write lock before normal Node teardown.
-	 * Without this, files only close at GC/__destruct, leaving a window where
-	 * a stale handle can race against rotate-via-mkdir-lock.
-	 */
+	/** Close file handles + release write lock before normal Node teardown. */
 	public function remove_node(): void {
 		$this->close_handle();
 		if ( null !== $this->write_lock ) {
@@ -389,6 +291,7 @@ class Partition extends Timer {
 
 	/**
 	 * Initialize current segment state from existing segments on disk.
+	 *
 	 * Does NOT create files — segment files materialize on first write via fopen('a').
 	 */
 	protected function init_current_segment(): void {
@@ -444,37 +347,11 @@ class Partition extends Timer {
 	}
 
 	/**
-	 * Lift the line-size limit to 10MB and acquire a Lock that serializes
-	 * cross-process writes for the lifetime of this Partition.
+	 * Lift the line-size limit to 10MB and acquire a Lock serializing cross-process writes.
 	 *
-	 * The Lock is constructed as a Node (`{$this->name}:lock`) sinking to
-	 * whatever this Partition sinks into, so its own outbound traffic
-	 * (currently none, but reserved) routes through `_router`. A Timer
-	 * (`{$this->name}:heartbeat`) sinks INTO the Lock and stamps each
-	 * emitted message with `KEY = 'heartbeat'`; Lock::fill matches the KEY
-	 * tag and refreshes the lock file. Heartbeat cadence is one-third the
-	 * stale-timeout — well under the threshold even if the worker stalls
-	 * for one tick.
+	 * Requires name() and sink() to be set BEFORE this is called.
 	 *
-	 * Requires `name()` and `sink()` to be set BEFORE this is called.
-	 *
-	 * Single-writer claim: only one Partition can hold this dir's write_lock
-	 * at a time. `Lock::acquire()` blocks with retry up to `stale_timeout +
-	 * margin` so the common case — a previous worker that just exited and
-	 * left a heartbeat that hasn't aged out yet — recovers without dropping
-	 * the spawn. The retry loop steals automatically once the heartbeat
-	 * crosses the stale threshold.
-	 *
-	 * If we still can't acquire after that, throw — at that point another
-	 * live writer is genuinely active and proceeding would corrupt their
-	 * writes (and the lock-loser's own state would be set silently to
-	 * allow_large_writes=true on a dir it doesn't own).
-	 *
-	 * @param int $max_wait_ms How long to wait for lock acquisition, in
-	 *                          milliseconds. Default 65000 (stale_timeout +
-	 *                          5s margin) is sized for normal worker respawn
-	 *                          races. Tests can pass a smaller value to
-	 *                          exercise the throw path quickly.
+	 * @param int $max_wait_ms Lock acquisition timeout (ms).
 	 * @throws \RuntimeException when the lock cannot be acquired.
 	 * @return self
 	 */
@@ -482,29 +359,15 @@ class Partition extends Timer {
 		$stale_timeout = 60;
 		$lock          = new Lock( "{$this->partition_dir}/write.lock.d", $stale_timeout );
 
-		// Two call patterns:
-		//   (a) Inside a worker — EventFramework::drain() is active. Use the
-		//       Node-graph integration: Lock as a sink, heartbeat Timer fires
-		//       every stale_timeout/3 ms via the EF, KEY='heartbeat' is the
-		//       Lock::fill dispatch tag.
-		//   (b) Outside an event loop — request-scope code (JobIntake etc.)
-		//       acquires the lock for a few writes and releases. A Timer here
-		//       would register with EF but never fire (no drain), and the
-		//       graph wiring (lock->name + lock->sink) would never be reached
-		//       by any router. Skip all of it; drive the heartbeat manually
-		//       from fill() and verify ownership inline.
+		// Drain active: wire Lock + heartbeat Timer. Request-scope: drive heartbeat from fill().
 		$ef_running = EventFramework::instance()->is_running();
 		if ( $ef_running ) {
 			$lock->name( "{$this->name}:lock" );
 			$lock->sink( $this->sink );
-			// Mark as patron-linked plumbing so dump_metadata hides
-			// it from the topology console canvas.
+			// Patron-linked so dump_metadata hides it from the topology console canvas.
 			$lock->patron( $this );
 		}
 
-		// Block up to max_wait_ms so respawn races (old worker just exited,
-		// heartbeat still fresh) recover automatically once the previous
-		// holder's heartbeat ages out (after stale_timeout).
 		if ( ! $lock->acquire( $max_wait_ms ) ) {
 			throw new \RuntimeException(
 				\esc_html(
@@ -521,16 +384,12 @@ class Partition extends Timer {
 		$this->last_lock_heartbeat = \microtime( true );
 
 		if ( $ef_running ) {
-			// Heartbeat Timer: sinks into the Lock; KEY='heartbeat' tags every
-			// fired message so Lock::fill recognizes it as a heartbeat tick.
-			// Cadence (ms) = stale_timeout * 1000 / 3 — three heartbeats per
-			// stale window means a single missed tick still doesn't expire us.
+			// Heartbeat cadence = stale_timeout/3 ms; three ticks per stale window.
 			$this->heartbeat_timer = new Timer();
 			$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
 			$this->heartbeat_timer->sink( $this->write_lock );
 			$this->heartbeat_timer->set_key( 'heartbeat' );
 			$this->heartbeat_timer->set_timer( (int) ( $stale_timeout * 1000 / 3 ) );
-			// Same hide-from-canvas marker as the Lock above.
 			$this->heartbeat_timer->patron( $this );
 		}
 
@@ -540,12 +399,7 @@ class Partition extends Timer {
 	/**
 	 * Enable companion index files via a custom formatter callback.
 	 *
-	 * Replaces the default binary `pack('NN', ...)` format with caller-supplied
-	 * JSONL (or any other shape returned by the formatter). Used by
-	 * RequestBuilder::format_index_entry and FlameBuilder::format_index_entry.
-	 *
-	 * @param callable $callback fn(string $line, array $position, ?array &$data) => string|null
-	 *                           Return null to skip the entry; '' is treated as overflow-skip.
+	 * @param callable $callback fn(string $line, array $position, ?array &$data) => string|null. Return null/'' to skip.
 	 * @return self
 	 */
 	public function with_index( callable $callback ): self {
@@ -554,7 +408,7 @@ class Partition extends Timer {
 	}
 
 	/**
-	 * Get the current write position (segment_id + tail offset of the active segment).
+	 * Current write position (segment_id + tail offset of the active segment).
 	 *
 	 * @return array{segment_id:int, offset:int}
 	 */
@@ -569,11 +423,7 @@ class Partition extends Timer {
 	}
 
 	/**
-	 * Drift / TOCTOU recovery: every DRIFT_RESCAN_INTERVAL_SECONDS, rescan the
-	 * segment list and follow the newest if another writer rotated underneath us.
-	 *
-	 * Without this, a long-lived single-process writer can wedge on a stale segment_id
-	 * after a peer (or test) rotated the directory.
+	 * Drift / TOCTOU recovery: rescan and follow the newest segment if a peer rotated.
 	 */
 	protected function maybe_rescan_segments(): void {
 		$now = \microtime( true );
@@ -597,7 +447,6 @@ class Partition extends Timer {
 
 	/**
 	 * Loop fwrite up to MAX_PARTIAL_WRITE_ATTEMPTS to handle short writes.
-	 * Updates $this->current_size as bytes go out.
 	 *
 	 * @param resource $fh    Open file handle (append mode).
 	 * @param string   $bytes Bytes to write.
@@ -625,8 +474,7 @@ class Partition extends Timer {
 	}
 
 	/**
-	 * Mirror current_size back into the segments_cache so a stale cache hit
-	 * doesn't lie about the active segment. Adds the segment if it's new.
+	 * Mirror current_size into segments_cache so a stale hit doesn't misreport the active segment.
 	 */
 	protected function touch_segments_cache(): void {
 		if ( null === $this->segments_cache ) {
@@ -646,18 +494,13 @@ class Partition extends Timer {
 	}
 
 	/**
-	 * Rotate to a new segment. Multi-writer-safe: acquires an mkdir lock at
-	 * `{base}/locks/{topic}.p{N}.rotate.lock.d` so concurrent writers can't both
-	 * create segment N+1. Stale locks (mtime older than ROTATE_LOCK_TTL_SECONDS)
-	 * are forced.
+	 * Rotate to a new segment, multi-writer-safe via an mkdir lock.
 	 *
-	 * Single-writer mode (allow_large_writes()) skips the lock since the per-write
-	 * Lock already serializes access.
+	 * Single-writer mode (allow_large_writes) skips the lock — the per-write Lock serializes.
 	 */
 	protected function rotate_segment(): void {
 		$this->close_handle();
 
-		// Single-writer / large-writes mode already serializes; skip the rotation lock.
 		if ( $this->allow_large_writes ) {
 			$this->do_rotate();
 			return;
@@ -691,7 +534,7 @@ class Partition extends Timer {
 				$this->init_current_segment();
 				return;
 			}
-			// Stale lock: force-clear and retry. If retry still fails, give up gracefully.
+			// Stale lock: force-clear and retry.
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
 			@\rmdir( $lock_dir );
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
@@ -710,20 +553,17 @@ class Partition extends Timer {
 	}
 
 	/**
-	 * Perform the actual rotation. Called either with the rotation lock held
-	 * (multi-writer) or without it (single-writer / allow_large_writes).
+	 * Perform the actual rotation, with or without the rotation lock held.
 	 *
-	 * Also detects "another writer already advanced": if the newest segment on
-	 * disk still has room, just adopt it instead of bumping the id.
+	 * Detects "a peer already advanced": adopt the newest segment if it still has room.
 	 */
 	protected function do_rotate(): void {
-		// Force-refresh the segments list — the cache may pre-date a peer's rotation.
+		// Force-refresh — the cache may pre-date a peer's rotation.
 		$segments = $this->get_segments( true );
 
 		if ( ! empty( $segments ) ) {
 			$newest = \end( $segments );
 			if ( $newest['size'] < $this->segment_size ) {
-				// A peer already rotated and the new segment still has room. Adopt it.
 				$this->current_segment_id = $newest['id'];
 				$this->current_size       = $newest['size'];
 				$this->current_log_path   = "{$this->partition_dir}/{$this->current_segment_id}.log";
@@ -741,9 +581,7 @@ class Partition extends Timer {
 		$this->current_idx_path   = "{$this->partition_dir}/{$next_id}.idx";
 		$this->segments_cache     = null;
 
-		// Defeat get_handle()'s file-missing TOCTOU guard: materialize the empty file
-		// now so a concurrent reader/writer doesn't trip the "missing? must be a wipe"
-		// path and re-init back to segment 0.
+		// Materialize the empty file so get_handle()'s missing-file guard doesn't reset to segment 0.
 		if ( ! \is_dir( $this->partition_dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $this->partition_dir, 0755, true );
@@ -753,20 +591,14 @@ class Partition extends Timer {
 			Core::print_less_often( "Partition: touch() failed for {$this->current_log_path}" );
 		}
 
-		// Run retention right after rotating so we don't accumulate forever — matches
-		// upstream Firehose::do_rotate().
 		$this->cleanup_segments();
 
-		// Durable state: which segment are we writing to now? Late
-		// subscribers (eventual SSE controller, any in-process Topic that
-		// wires up an event listener) get immediate replay of the current
-		// segment. Cached by set_state.
 		$this->set_state( 'SEGMENT', $this->current_segment_id );
 	}
 
 	/**
-	 * AND-gated retention: delete oldest segments when BOTH
-	 * count > num_segments AND (now - mtime) >= max_lifespan.
+	 * AND-gated retention: delete oldest segments only when count > num_segments
+	 * AND (now - mtime) >= max_lifespan.
 	 */
 	public function cleanup_segments(): void {
 		$segments       = $this->get_segments( true );
@@ -791,10 +623,6 @@ class Partition extends Timer {
 		}
 		$this->segments_cache = null;
 
-		// State transition only when retention actually removed something —
-		// `cleanup_segments` runs every rotate but most calls are no-ops
-		// (under the lifespan threshold). Late subscribers see the most
-		// recent non-zero deletion + current alive count.
 		$deleted = $initial_count - $count;
 		if ( $deleted > 0 ) {
 			$this->set_state( 'CLEANUP', [ 'deleted' => $deleted, 'alive' => $count ] );
@@ -802,13 +630,7 @@ class Partition extends Timer {
 	}
 
 	/**
-	 * Read bytes from a segment at a given offset.
-	 *
-	 * Bounds-checked: rejects negative IDs/offsets/lengths. No per-call
-	 * upper cap — fread returns at most segment-size bytes, and
-	 * segment_size is bounded by config. Per-record DoS protection lives
-	 * one layer up (Consumer/Tail enforce MAX_LINE_BUFFER_SIZE on the
-	 * \n-delimited line buffer); read_at itself is record-format agnostic.
+	 * Read bytes from a segment at a given offset (bounds-checked).
 	 *
 	 * @param int $segment_id Segment to read from.
 	 * @param int $offset     Byte offset within segment.
@@ -846,17 +668,12 @@ class Partition extends Timer {
 	/**
 	 * Walk every .idx entry across all segments and invoke the callback per entry.
 	 *
-	 * Behavior depends on whether with_index() configured a custom formatter:
-	 *   - Default (no custom formatter): each entry is 8 bytes packed as two
-	 *     big-endian uint32s; callback signature is fn(int $segment_id, int $offset).
-	 *   - Custom formatter (JSONL): each line in the .idx file is delivered as
-	 *     a string; callback signature is fn(string $line, int $segment_id).
-	 *
-	 * Returns false from the callback to terminate the scan early.
+	 * Callback signature depends on with_index(): default binary →
+	 * fn(int $segment_id, int $offset); custom JSONL → fn(string $line, int $segment_id).
+	 * Return false from the callback to terminate the scan early.
 	 *
 	 * @param callable $cb           Per-entry callback.
-	 * @param bool     $newest_first Iterate newest segment first (and entries within
-	 *                               newest-first too) when true. Default oldest-first.
+	 * @param bool     $newest_first Iterate newest segment first when true.
 	 */
 	public function scan_index( callable $cb, bool $newest_first = false ): void {
 		$segments = $this->get_segments();
@@ -877,7 +694,6 @@ class Partition extends Timer {
 			}
 
 			if ( null !== $this->index_callback ) {
-				// Custom (JSONL) format.
 				$lines = \explode( "\n", \rtrim( $idx, "\n" ) );
 				if ( $newest_first ) {
 					$lines = \array_reverse( $lines );
@@ -894,7 +710,6 @@ class Partition extends Timer {
 				continue;
 			}
 
-			// Default binary 8-byte format.
 			$len = \strlen( $idx );
 			if ( $newest_first ) {
 				for ( $i = $len - 8; $i >= 0; $i -= 8 ) {
@@ -925,23 +740,16 @@ class Partition extends Timer {
 	/**
 	 * Lazily open and cache the .log + .idx handles for the current segment.
 	 *
-	 * Re-init on partition_dir disappearance (recovery from rm -rf), and on missing
-	 * current_log_path (defeats TOCTOU when a peer rotates between init and open).
-	 *
-	 * For single-writer scenarios (allow_large_writes), disable PHP's stream buffer
-	 * so downstream readers see new entries immediately instead of waiting for the
-	 * 8KB stdio buffer to fill.
-	 *
 	 * @return resource|null Log handle, or null on open failure.
 	 */
 	protected function get_handle() {
 		if ( ! \is_dir( $this->partition_dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $this->partition_dir, 0755, true );
-			// Whole tree got wiped; reset state from disk (will land at segment 0).
+			// Whole tree got wiped; reset from disk (lands at segment 0).
 			$this->init_current_segment();
 		} elseif ( null !== $this->current_log_path && ! \file_exists( $this->current_log_path ) ) {
-			// Active log file disappeared underneath us — re-init from on-disk state.
+			// Active log file disappeared underneath us — re-init from disk.
 			$this->init_current_segment();
 		}
 
@@ -955,8 +763,7 @@ class Partition extends Timer {
 			$this->fh            = $fh;
 			$this->fh_segment_id = $this->current_segment_id;
 
-			// Single-writer mode: disable PHP's 8KB stream buffer so SSE / Tail readers
-			// see writes immediately (matches upstream Firehose).
+			// Single-writer mode: disable PHP's 8KB buffer so readers see writes immediately.
 			if ( $this->allow_large_writes ) {
 				\stream_set_write_buffer( $this->fh, 0 );
 			}
@@ -969,10 +776,7 @@ class Partition extends Timer {
 	}
 
 	/**
-	 * Per-class verb table for the sibling `:config` CI. Resolved
-	 * per-instance via `$ci->patron()` at dispatch time so each
-	 * closure is stateless and shareable across all Partition
-	 * instances (memoized on first call).
+	 * Per-class verb table for the sibling `:config` CI (memoized).
 	 *
 	 * @return array<string,callable>
 	 */
@@ -1007,11 +811,7 @@ class Partition extends Timer {
 		return $verbs;
 	}
 
-	/**
-	 * Manifest the topology console reads to render the palette
-	 * entry + ctor form + verb forms for Partition. See
-	 * Node::node_schema() for the shape contract.
-	 */
+	/** Topology console manifest: palette entry + ctor form + verb forms. */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Storage',

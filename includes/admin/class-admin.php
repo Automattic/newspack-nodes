@@ -2,32 +2,9 @@
 /**
  * Admin: substrate-side WP-Settings-API surface.
  *
- * Owns ONLY the substrate-level options:
- *   - base_directory
- *   - num_partitions
- *   - num_segments
- *   - segment_size
- *   - max_lifespan
- *   - memcache_servers
- *
- * Application-level options (logging toggles, URL filters, hook lists, the
- * aggregator spoke list, etc.) live in the application plugin's own Admin
- * class. The application Admin
- * may READ substrate values via `\Newspack_Nodes\Config` but must NOT WRITE
- * substrate options.
- *
- * Settings group / option-prefix logic matches `\Newspack_Nodes\Config`:
- *   - Settings group:  `newspack_nodes`
- *   - Option prefix:   `newspack_nodes_`
- *   - Settings page slug: `newspack_nodes`
- *   - Menu page slug:  `newspack-nodes` (mounted under
- *     Settings → Nodes Runtime).
- *
- * Per-option granular worker-restart on save: substrate options that affect
- * the file segment layout or memcache topology trigger a restart request via
- * `Lock::request_restart_at()` for every active partition. Application
- * plugins can extend the worker-group set via the
- * `newspack_nodes/worker_restart_groups` filter.
+ * Owns ONLY substrate options (base_directory, num_partitions, num_segments,
+ * segment_size, max_lifespan, memcache_servers). Saving layout/memcache options
+ * triggers a per-partition worker-restart request.
  *
  * @package Newspack_Nodes
  */
@@ -45,43 +22,24 @@ use Newspack_Nodes\Lock;
  */
 class Admin {
 
-	/**
-	 * Settings group registered with `register_setting()`. WordPress uses this
-	 * to scope nonce verification and validation when the form posts to
-	 * `options.php`.
-	 */
+	/** Settings group for register_setting() / options.php. */
 	public const OPTIONS_GROUP = 'newspack_nodes';
 
-	/**
-	 * Settings page slug used by `add_settings_section/field()` and
-	 * `do_settings_sections()`. Distinct from the menu-page slug below.
-	 */
+	/** Settings page slug for add_settings_field() / do_settings_sections(). */
 	public const SETTINGS_PAGE = 'newspack_nodes';
 
-	/**
-	 * Menu page slug used by `add_options_page()` (the URL fragment after
-	 * `?page=`).
-	 */
+	/** Menu page slug for add_options_page() (the `?page=` fragment). */
 	public const MENU_SLUG = 'newspack-nodes';
 
-	/**
-	 * WP-option name prefix. All admin-managed options live under this prefix.
-	 * Worker-restart classification (see `maybe_request_worker_restart`) keys
-	 * off it.
-	 */
+	/** WP-option name prefix; worker-restart classification keys off it. */
 	public const OPTION_PREFIX = 'newspack_nodes_';
 
-	/**
-	 * Nonce action / field name for the reset-to-defaults form.
-	 */
+	/** Nonce action / field for the reset-to-defaults form. */
 	public const RESET_ACTION = 'newspack_nodes_reset_settings';
 	public const RESET_NONCE  = 'newspack_nodes_reset_nonce';
 
 	/**
-	 * Substrate option names cleared by `handle_reset_settings()`.
-	 *
-	 * Kept on the class so external callers can extend via the
-	 * `newspack_nodes/reset_options` filter without re-listing these.
+	 * Substrate option names cleared by handle_reset_settings(); extend via the reset_options filter.
 	 *
 	 * @var string[]
 	 */
@@ -95,25 +53,18 @@ class Admin {
 	];
 
 	/**
-	 * Permission gate: `manage_options` baseline. Substrate admin doesn't
-	 * gate behind an `allowed_users` whitelist — the application plugin owns
-	 * that list, and substrate must remain reachable to bootstrap-level
-	 * admins regardless of application-level access policy.
+	 * Permission gate: `manage_options` baseline (no allowed_users whitelist — app plugin owns that).
 	 *
 	 * @return bool True if user is allowed.
 	 */
 	public static function current_user_allowed(): bool {
 		if ( ! \function_exists( 'current_user_can' ) ) {
-			return true; // CLI / no user context — don't lock out admins running CLI tools.
+			return true; // CLI / no user context — don't lock out CLI tools.
 		}
 		return (bool) \current_user_can( 'manage_options' );
 	}
 
-	/**
-	 * Top-level menu slug for the topology console. Distinct from the
-	 * Settings-API slug above so the console gets its own first-class
-	 * admin entry rather than living under Settings.
-	 */
+	/** Top-level menu slug for the topology console (its own admin entry, not under Settings). */
 	public const TOPOLOGY_MENU_SLUG = 'newspack-nodes-topology';
 	public const WORKERS_MENU_SLUG  = 'newspack-nodes-workers';
 	public const RAWLOGS_MENU_SLUG  = 'newspack-nodes-rawlogs';
@@ -127,16 +78,13 @@ class Admin {
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_topology_console_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_event_dashboards_assets' ] );
 
-		// Per-option granular worker-restart on save. Both `added_option` (first
-		// save) and `updated_option` (subsequent saves) fire this so newly-added
-		// options trigger the right restart class too.
+		// Both hooks so first + subsequent saves restart correctly.
 		\add_action( 'updated_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
 		\add_action( 'added_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
 	}
 
 	/**
-	 * Register the Topology Console as a top-level admin menu. The
-	 * page renders a single mount div the React tree hooks onto.
+	 * Register the Topology Console as a top-level admin menu (renders the React mount div).
 	 */
 	public function register_topology_admin_page(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -157,15 +105,7 @@ class Admin {
 	}
 
 	/**
-	 * Register the Workers + Raw Logs admin pages as siblings of the
-	 * Topology Console under the same top-level "Nodes" menu. Both pages
-	 * print a single mount div that the event-dashboards React bundle
-	 * (enqueued by enqueue_event_dashboards_assets) finds and renders into.
-	 *
-	 * Priority 11 so they appear after the topology-console submenu (which
-	 * registers at the default priority 10 via add_menu_page above) — the
-	 * top-level link itself routes to the topology page; Workers + Raw
-	 * Logs appear as second/third submenu entries.
+	 * Register Workers + Raw Logs as submenus under "Nodes" (priority 11 so they follow Topology).
 	 */
 	public function register_event_dashboard_pages(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -193,11 +133,7 @@ class Admin {
 	}
 
 	/**
-	 * Enqueue the event-dashboards asset bundle when on the Workers or
-	 * Raw Logs admin pages. Both pages share one React bundle (entry
-	 * `src/event-dashboards/index.js`) whose mount logic matches its
-	 * #event-logger-workers / #event-logger-rawlogs root div to the right
-	 * component.
+	 * Enqueue the event-dashboards bundle on the Workers / Raw Logs pages.
 	 */
 	public function enqueue_event_dashboards_assets( string $hook = '' ): void {
 		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
@@ -225,9 +161,7 @@ class Admin {
 			\wp_enqueue_style( $handle, $css_url, [ 'wp-components' ], $css_version );
 		}
 
-		// REST root + nonce for the shared CommandClient. Same data shape
-		// as the topology-console enqueue uses, so the React bundle finds
-		// what it expects on `window.NewspackNodesData`.
+		// REST root + nonce for the shared CommandClient.
 		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
 		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
 		\wp_localize_script(
@@ -243,9 +177,7 @@ class Admin {
 	}
 
 	/**
-	 * Render the topology console mount element. The React bundle
-	 * (enqueued in enqueue_topology_console_assets) finds this id and
-	 * mounts itself.
+	 * Render the topology console mount element.
 	 */
 	public function render_topology_page(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -255,11 +187,7 @@ class Admin {
 	}
 
 	/**
-	 * Enqueue the topology-console asset bundle on its admin page.
-	 *
-	 * The React tree imports @wordpress/element + @wordpress/api-fetch,
-	 * mounts on `#event-logger-topology-console`, and talks to the
-	 * substrate's REST controllers via the localized REST URL + nonce.
+	 * Enqueue the topology-console bundle on its admin page.
 	 */
 	public function enqueue_topology_console_assets( string $hook = '' ): void {
 		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
@@ -287,18 +215,7 @@ class Admin {
 			\wp_enqueue_style( $handle, $css_url, [ 'wp-components' ], $css_version );
 		}
 
-		// Per-topology partition counts. The React tree reads these to
-		// size its partition dropdown so it can't show p0–p3 for a
-		// 1-partition aggregator (nor stop at p3 when num_partitions
-		// was bumped). Enumerate Topology_Registry::list() — the same
-		// set the admin Topologies checkbox renders — so the dropdown
-		// surfaces every TSL file the operator could pick, not just
-		// the app's published file-default catalog. Partition counts
-		// come from the catalog when the topology is in it, otherwise
-		// synthesized from each TSL file's frontmatter — with the
-		// substrate's live num_partitions as the default so a fleet
-		// the operator just checked sizes to match the rest of the
-		// stack instead of collapsing to p0 only.
+		// Per-topology partition counts for the React dropdown: catalog count, else synthesized frontmatter.
 		$topology_partitions = [];
 		$catalog             = Bootstrap::get_topology_catalog();
 		$default_np          = (int) ( Config::load_config()['num_partitions'] ?? 1 );
@@ -317,18 +234,11 @@ class Admin {
 		}
 		\ksort( $topology_partitions );
 
-		// Active topologies — the merged catalog + operator-overlay set
-		// the supervisor would actually spawn. The React tree groups
-		// these to the top of the dropdown so "what's running" is one
-		// click away regardless of how many other TSL files exist.
+		// Active topologies (catalog + operator overlay) the supervisor would spawn.
 		$active_topologies = \array_keys( Bootstrap::get_topologies() );
 		\sort( $active_topologies );
 
-		// REST root + nonce for apiFetch wrappers in the React tree. The
-		// topology-console reaches the substrate exclusively through
-		// CommandClient now (POST /command via apiFetch), so the wp_rest
-		// cookie nonce is the only nonce surface here — Command_Controller's
-		// permission_callback enforces manage_options on every dispatch.
+		// REST root + nonce for apiFetch.
 		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
 		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
 		\wp_localize_script(
@@ -365,10 +275,7 @@ class Admin {
 	}
 
 	/**
-	 * Render the settings page: form + Reset-to-Defaults secondary form.
-	 *
-	 * The reset is in a separate hidden form so cancelling the confirm()
-	 * dialog leaves the main form's pending edits intact.
+	 * Render the settings page: main form + hidden Reset-to-Defaults form.
 	 */
 	public function render_settings_page(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -399,7 +306,7 @@ class Admin {
 				<?php \wp_nonce_field( self::RESET_ACTION, self::RESET_NONCE ); ?>
 			</form>
 			<?php
-			// Allow extension plugins to inject sections below the form.
+			// Extension plugins inject sections below the form.
 			\do_action( 'newspack_nodes/settings_after_form' );
 			$this->render_reset_button_handler();
 			?>
@@ -408,12 +315,10 @@ class Admin {
 	}
 
 	/**
-	 * Register settings with the WP Settings API.
-	 *
-	 * Wires every substrate option, plus the General + Storage sections.
+	 * Register every substrate option + the Storage and Topologies sections.
 	 */
 	public function register_settings(): void {
-		// Path. Sanitize: no null bytes, no `..`, must be absolute, trailing slash stripped.
+		// Path: no null bytes, no `..`, must be absolute, trailing slash stripped.
 		\register_setting(
 			self::OPTIONS_GROUP,
 			'newspack_nodes_base_directory',
@@ -431,7 +336,7 @@ class Admin {
 			]
 		);
 
-		// Integers — empty string preserved for "use default".
+		// Integers — empty string = "use default".
 		\register_setting(
 			self::OPTIONS_GROUP,
 			'newspack_nodes_num_partitions',
@@ -453,7 +358,7 @@ class Admin {
 			[ 'sanitize_callback' => [ $this, 'sanitize_int_or_empty' ] ]
 		);
 
-		// Newline-separated host:port list. Not autoloaded (read by workers, not request path).
+		// Newline-separated host:port list. Not autoloaded (read by workers).
 		\register_setting(
 			self::OPTIONS_GROUP,
 			'newspack_nodes_memcache_servers',
@@ -463,9 +368,7 @@ class Admin {
 			]
 		);
 
-		// Flat list of active TSL topology names. Sanitizer drops
-		// names that don't resolve via Topology_Registry so a typo
-		// can't cause the supervisor to spawn a nonexistent fleet.
+		// Flat list of active TSL topology names; sanitizer drops names that don't resolve.
 		\register_setting(
 			self::OPTIONS_GROUP,
 			'newspack_nodes_topologies',
@@ -475,7 +378,6 @@ class Admin {
 			]
 		);
 
-		// General section.
 		// Storage section.
 		\add_settings_section(
 			'newspack_nodes_storage_section',
@@ -533,10 +435,7 @@ class Admin {
 			'newspack_nodes_storage_section'
 		);
 
-		// Topologies section — flat checkbox list of every topology
-		// the registry knows about. Toggling an entry changes the
-		// `topologies` option; the supervisor picks up the new list
-		// on its next loop.
+		// Topologies section — checkbox list; toggling changes the `topologies` option.
 		\add_settings_section(
 			'newspack_nodes_topologies_section',
 			\__( 'Topologies', 'newspack-nodes' ),
@@ -568,10 +467,7 @@ class Admin {
 	}
 
 	/**
-	 * Sanitize memcache servers option (newline-separated host:port list).
-	 *
-	 * Underscore is allowed in hostnames so Docker container names like
-	 * `mem_cache_1` validate.
+	 * Sanitize memcache servers (newline-separated host:port; underscores allowed in hostnames).
 	 *
 	 * @param mixed $value Newline-separated server list.
 	 * @return string Sanitized servers (one per line) or empty string if all invalid.
@@ -595,9 +491,7 @@ class Admin {
 	}
 
 	/**
-	 * Sanitize the active-topologies list. Drops entries that don't
-	 * resolve via Topology_Registry — a typo (or removed plugin)
-	 * shouldn't leave the supervisor trying to spawn a phantom fleet.
+	 * Sanitize the active-topologies list, dropping entries that don't resolve via Topology_Registry.
 	 *
 	 * @param mixed $value Posted form value (array of topology names).
 	 * @return array<int,string>
@@ -629,23 +523,12 @@ class Admin {
 	}
 
 	/**
-	 * Render a checkbox per known topology. Names come from
-	 * Topology_Registry::list() (user dir + every plugin-registered
-	 * stock dir). Empty state surfaces a help line so a fresh
-	 * deployment knows where to look.
+	 * Render a checkbox per known topology, from Topology_Registry::list().
 	 */
 	public function topologies_callback(): void {
 		$available = \Newspack_Nodes\Topology_Registry::list();
 		\sort( $available );
-		// The application publishes its file-default catalog (and ONLY
-		// that) via `newspack_nodes/topologies`. The substrate owns the
-		// operator-overlay option `newspack_nodes_topologies`:
-		//  - option === false → no operator preference; default to
-		//    every file-default topology being active (sensible fresh-
-		//    install behavior).
-		//  - option === []    → operator unchecked everything; spawn
-		//    nothing (distinct from never having saved).
-		//  - option array     → exact active list.
+		// Operator overlay: false → all file-defaults; [] → none; array → exact.
 		$defaults = \array_keys( Bootstrap::get_topology_catalog() );
 		\sort( $defaults );
 		$option = \get_option( 'newspack_nodes_topologies', false );
@@ -656,9 +539,7 @@ class Admin {
 			echo '<p class="description">' . \esc_html__( 'No topologies registered. Application plugins must call Newspack_Nodes\\Topology_Registry::register_stock_dir() at load time.', 'newspack-nodes' ) . '</p>';
 			return;
 		}
-		// Mirror render_number_field's chip layout: fieldset on the left,
-		// `↺` reset chip on the right. Click restores the resolved-filter
-		// list (application's file defaults).
+		// Fieldset on the left, `↺` reset chip on the right.
 		echo '<div style="display: flex; align-items: flex-start; gap: 10px;">';
 		echo '<div style="flex: 1;">';
 		echo '<fieldset id="newspack-nodes-topologies-fieldset">';
@@ -776,9 +657,7 @@ class Admin {
 	}
 
 	/**
-	 * Total-storage field. Computed bytes display: `segment_size × num_segments
-	 * × num_partitions × num_logs`. `num_logs` is filterable so plugins (Jobs,
-	 * Performance, etc.) can register their additional log streams.
+	 * Total-storage field: segment_size × num_segments × num_partitions × num_logs.
 	 */
 	public function total_storage_callback(): void {
 		$defaults       = Config::load_config_defaults();
@@ -791,9 +670,7 @@ class Admin {
 		$num_segments   = '' === $num_segments ? (int) ( $defaults['num_segments'] ?? 4 ) : (int) $num_segments;
 		$num_partitions = '' === $num_partitions ? (int) ( $defaults['num_partitions'] ?? 1 ) : (int) $num_partitions;
 
-		// Count log streams from disk — every `{base}/logs/*.log/` directory
-		// IS a stream. Replaces the `num_logs` filter (which had to be kept
-		// in sync by hand as topologies added partitions).
+		// One log stream per `{base}/logs/*.log/` directory.
 		$num_logs    = \count( \Newspack_Nodes\Log_Discovery::on_disk() );
 		$total_bytes = $segment_size * $num_segments * $num_partitions * $num_logs;
 		$total_mb    = \round( $total_bytes / ( 1024 * 1024 ) );
@@ -825,10 +702,7 @@ class Admin {
 	}
 
 	/**
-	 * Reset-to-defaults handler — admin-post target.
-	 *
-	 * Nonce + permission checks before deleting any options. Allows extensions
-	 * to extend the reset list via the `newspack_nodes/reset_options` filter.
+	 * Reset-to-defaults admin-post handler (nonce + permission checked before deleting options).
 	 */
 	public function handle_reset_settings(): void {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
@@ -870,22 +744,7 @@ class Admin {
 	}
 
 	/**
-	 * Per-option granular worker-restart on save.
-	 *
-	 * Workers pick up restart requests on their next graceful exit point
-	 * (segment-close in WorkerBase). Categories — for substrate options:
-	 *
-	 *  supervisor_only_options:  the supervisor refreshes config each loop;
-	 *                            no worker restart needed.
-	 *  all_workers_options:      base directory / segment layout changes —
-	 *                            every worker must rebuild file handles.
-	 *  request_workers_options:  memcache topology — only the request-side
-	 *                            workers (which read/write memcache stats)
-	 *                            need to restart.
-	 *
-	 * Default substrate worker groups: `request-workers` + `job-workers`.
-	 * Application plugins can extend the set via the
-	 * `newspack_nodes/worker_restart_groups` filter.
+	 * Per-option granular worker-restart on save (restart picked up at the next graceful exit).
 	 *
 	 * @param string $option Option name (full WP option key).
 	 */
@@ -894,13 +753,12 @@ class Admin {
 			return;
 		}
 
-		// Reset cached config so this process sees the new value if it reads
-		// later in the same request.
+		// Reset cached config so this process sees the new value later in the same request.
 		Config::reset();
 
 		$short = \substr( $option, \strlen( self::OPTION_PREFIX ) );
 
-		// Supervisor-only options (it refreshes config each loop).
+		// Supervisor-only (it refreshes config each loop) — no worker restart needed.
 		$supervisor_only_options = [
 			'num_partitions',
 		];
@@ -908,7 +766,6 @@ class Admin {
 			return;
 		}
 
-		// All workers (request + job) need restart.
 		$all_workers_options = [
 			'base_directory',
 			'num_segments',
@@ -916,7 +773,6 @@ class Admin {
 			'max_lifespan',
 		];
 
-		// Request-side workers only.
 		$request_workers_options = [
 			'memcache_servers',
 		];
@@ -928,9 +784,7 @@ class Admin {
 			$worker_groups = [ 'request-workers' ];
 		}
 
-		// Allow extensions to extend the restart map for options they own.
-		// Filter receives [ option_short_name => [ group1, group2, ... ] ] and
-		// returns a (possibly extended) array of groups to restart.
+		// Let extensions extend the restart groups for options they own.
 		if ( \function_exists( 'apply_filters' ) ) {
 			$filtered = \apply_filters( 'newspack_nodes/worker_restart_groups', $worker_groups, $short );
 			if ( \is_array( $filtered ) ) {
@@ -947,15 +801,11 @@ class Admin {
 			$locks_dir      = Config::get_locks_directory();
 			$num_partitions = (int) ( $config['num_partitions'] ?? 1 );
 		} catch ( \Throwable $e ) {
-			// Locks dir not creatable, base dir misconfigured, etc. Best-effort:
-			// the next supervisor pass will pick up the new config.
+			// Best-effort: the next supervisor pass picks up the new config.
 			return;
 		}
 
-		// Touch the restart flag file inside each affected lock dir. The lock
-		// holder polls should_restart() from its drain loop and exits cleanly
-		// at the next tick. No-op if the dir doesn't exist (worker was never
-		// started, or dir was cleaned up after a deploy).
+		// Touch the restart flag in each affected lock dir; the holder exits next tick.
 		for ( $p = 0; $p < $num_partitions; $p++ ) {
 			foreach ( $worker_groups as $group ) {
 				$lock_dir = "{$locks_dir}/{$group}.p{$p}.lock.d";
@@ -990,7 +840,7 @@ class Admin {
 
 	private function render_number_field( string $field, int $default, int $min, int $max, string $description ): void {
 		$value = \get_option( self::OPTION_PREFIX . $field, '' );
-		// Show empty (with placeholder) if not set or equals default.
+		// Show empty (placeholder) when unset or equal to default.
 		$display_value = ( '' === $value || (int) $value === $default ) ? '' : $value;
 		$input_class   = $max > 999 ? 'regular-text' : 'small-text';
 		?>
@@ -1013,13 +863,7 @@ class Admin {
 	}
 
 	/**
-	 * Inline `↺` reset handler. The button clears the bound input so the
-	 * placeholder (which renders the file default) shows through. Storing
-	 * empty triggers `skip_default_writes` on save → option row deleted →
-	 * next read picks up the file default.
-	 *
-	 * Lives here (not enqueued) because it's a 10-line behavior that only
-	 * runs on the settings page and doesn't justify a separate asset.
+	 * Inline `↺` reset handler: clears the bound input so its placeholder (file default) shows.
 	 */
 	public function render_reset_button_handler(): void {
 		?>

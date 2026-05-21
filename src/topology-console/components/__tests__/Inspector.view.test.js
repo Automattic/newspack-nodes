@@ -1,12 +1,5 @@
 /**
- * Inspector — view-mode rendering. Edit-mode paths and the deeper
- * EditForm internals (CtorField type variants, VerbRow toggle, Tee
- * target chips, RoutingChip) are exercised in a separate file.
- *
- * View mode: empty selection, missing-id branch, routing rows,
- * activity sparkline gating, throughput formatting, action buttons,
- * Tee-only Connect/Disconnect button, and TM_REQUEST verbs from the
- * catalog.
+ * Inspector view-mode rendering (edit-mode paths live in a separate file).
  */
 
 import { render, fireEvent } from '@testing-library/react';

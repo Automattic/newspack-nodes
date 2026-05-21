@@ -1,16 +1,6 @@
 /**
- * WorkerStatus — log-reader status visualization. The component is
- * very large (~1346 lines); this file pins the top-level lifecycle
- * (loading vs populated, refresh-interval persistence, error banner)
- * AND drives the internal buildRenderPlan helper plus all four memo'd
- * sub-components (SegmentBar, LogSection, WorkerConnector,
- * SupervisorStatus) through fixtured dump_metadata responses.
- *
- * getCommandClient is mocked so we can drive dump_metadata responses
- * deterministically. Each buildRenderPlan branch is exercised by
- * shaping the workers + logs payload to match the topo-sort case
- * being tested (producer-consumer pair, terminal output, source
- * input, catalog-only, unvisited tail-append).
+ * WorkerStatus tests. getCommandClient is mocked to drive dump_metadata
+ * responses; buildRenderPlan branches are exercised via shaped payloads.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
@@ -192,9 +182,7 @@ describe( 'WorkerStatus', () => {
 		expect( container.querySelector( '.supervisor-row' ) ).not.toBeNull();
 	} );
 
-	// === buildRenderPlan: pure topo-sort + log-placement function ===
-	// Driven through the component because the function is not exported.
-	// We assert the rendered DOM order, which is what the function decides.
+	// buildRenderPlan (not exported): asserted via rendered DOM order.
 
 	it( 'buildRenderPlan: producer-consumer pair places log between workers', async () => {
 		sendMock.mockResolvedValue( [] );
@@ -240,16 +228,13 @@ describe( 'WorkerStatus', () => {
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
-		// Pipeline should contain log-section + worker-connectors;
 		// firehose-workers should appear BEFORE the log, request-workers AFTER.
 		const flow = container.querySelector( '.pipeline-flow' );
 		expect( flow ).not.toBeNull();
 		const text = flow.textContent;
-		// Both workers (formatted as title-case) appear with the log between.
 		expect( text ).toMatch( /Firehose Workers/ );
 		expect( text ).toMatch( /Request Workers/ );
 		expect( text ).toMatch( /firehose\.log/ );
-		// Producer is upstream of consumer's input log.
 		const firehoseIdx = text.indexOf( 'Firehose Workers' );
 		const logIdx = text.indexOf( 'firehose.log' );
 		const requestIdx = text.indexOf( 'Request Workers' );
@@ -287,7 +272,6 @@ describe( 'WorkerStatus', () => {
 		const text = flow.textContent;
 		const workerIdx = text.indexOf( 'Firehose Workers' );
 		const logIdx = text.indexOf( 'errors.log' );
-		// Worker comes BEFORE its terminal output.
 		expect( workerIdx ).toBeLessThan( logIdx );
 		expect( workerIdx ).toBeGreaterThanOrEqual( 0 );
 	} );
@@ -346,15 +330,13 @@ describe( 'WorkerStatus', () => {
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
-		// Two partition rows should render even though only p0 has a worker.
 		expect(
 			container.querySelectorAll( '.log-partition-row' ).length
 		).toBeGreaterThanOrEqual( 2 );
 	} );
 
 	it( 'buildRenderPlan: catalog log not reached by step-walk still appears', async () => {
-		// Producer with no consumer in workers; log appears via the
-		// "logs not visited" tail-append pass at the end of buildRenderPlan.
+		// Log appears via the tail-append pass for catalog logs the step-walk missed.
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [
@@ -384,8 +366,7 @@ describe( 'WorkerStatus', () => {
 		expect( container.textContent ).toMatch( /untouched\.log/ );
 	} );
 
-	// === Sub-component rendering: SegmentBar, LogSection, WorkerConnector,
-	// SupervisorStatus, formatBytes / formatByteRate / formatAge / formatEta.
+	// Sub-component rendering: SegmentBar / LogSection / WorkerConnector / SupervisorStatus.
 
 	it( 'renders SegmentBar with cursor-relative classes', async () => {
 		sendMock.mockResolvedValue( [] );
@@ -434,25 +415,15 @@ describe( 'WorkerStatus', () => {
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
-		// Should have three segment bars.
 		const bars = container.querySelectorAll( '.worker-segment-h' );
 		expect( bars.length ).toBe( 3 );
-		// Some bars should have "processed" fills (everything before the cursor).
 		expect(
 			container.querySelectorAll( '.segment-fill-h.processed' ).length
 		).toBeGreaterThan( 0 );
 	} );
 
 	it( 'SegmentBar fill uses per-log segment_size override, not global default', async () => {
-		// `completed.log` and `gyroscope.log` are declared in the firehose
-		// -workers-only TSL with a hardcoded 1 MiB segment_size — much
-		// smaller than the global 64 MiB default. The dashboard must scale
-		// each log's bars against its OWN cap so a full 1 MiB segment shows
-		// as ~100% full, not the ~1.5% it would compute against the global.
-		// buildRenderPlan was dropping `segment_size` off the catalog entry
-		// before passing the item to LogSection — every log fell back to
-		// the global default, making hardcoded-cap logs look perpetually
-		// empty even when their segments were full.
+		// Per-log segment_size override must scale bars against its own cap, not the global default.
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( {
 			workers: [],
@@ -477,9 +448,7 @@ describe( 'WorkerStatus', () => {
 
 		const fills = container.querySelectorAll( '.segment-fill-h' );
 		expect( fills.length ).toBeGreaterThan( 0 );
-		// A 1 MiB segment under a 1 MiB cap renders as 100% wide. The bug:
-		// it was rendering against 64 MiB (≈1.5% wide) because the log
-		// item lost its segment_size in buildRenderPlan.
+		// A 1 MiB segment under a 1 MiB cap is 100% wide (was ~1.5% against the global).
 		const widthPercent = parseFloat( fills[ 0 ].style.width );
 		expect( widthPercent ).toBeGreaterThanOrEqual( 99 );
 	} );
@@ -569,7 +538,6 @@ describe( 'WorkerStatus', () => {
 		sendMock.mockClear();
 		sendMock.mockResolvedValue( [] );
 		fireEvent.click( restartBtn );
-		// Single tick to let the restart request go out.
 		await act( async () => {} );
 		expect( sendMock ).toHaveBeenCalledWith(
 			expect.objectContaining( {
@@ -676,7 +644,6 @@ describe( 'WorkerStatus', () => {
 		await act( async () => {} );
 		const behind = container.querySelector( '.connector-behind.warning' );
 		expect( behind ).not.toBeNull();
-		// formatEta with no readRate → "stalled".
 		expect( container.textContent ).toMatch( /stalled/ );
 	} );
 
@@ -703,7 +670,6 @@ describe( 'WorkerStatus', () => {
 		const { container } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
 		expect( container.textContent ).toMatch( /restarting/ );
-		// Restart button NOT shown while a restart is pending.
 		expect(
 			container.querySelectorAll( '.worker-restart-btn' ).length
 		).toBe( 0 );
@@ -718,7 +684,6 @@ describe( 'WorkerStatus', () => {
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
-		// `0 B/s` for both R + W when empty.
 		const totals = container.querySelectorAll( '.total-rate-value' );
 		expect( totals.length ).toBe( 2 );
 		expect( totals[ 0 ].textContent ).toMatch( /B\/s/ );
@@ -726,8 +691,7 @@ describe( 'WorkerStatus', () => {
 	} );
 
 	it( 'second fetch tick computes write rates from total_size deltas', async () => {
-		// First tick: total_size 100. Second tick: total_size 1100.
-		// Δ over time → non-zero write rate text.
+		// First tick total_size 100; second tick 1100 -> non-zero write rate.
 		unwrapCommandResponse
 			.mockReturnValueOnce( {
 				workers: [
@@ -800,12 +764,10 @@ describe( 'WorkerStatus', () => {
 		sendMock.mockResolvedValue( [] );
 		const { container, rerender } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
-		// Force a second tick via rerender + manual fetchWorkers invocation
-		// is awkward — instead we rely on the auto-refresh timer firing.
+		// Rely on the auto-refresh timer for the second tick.
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 0 ) );
 		} );
-		// Re-render is enough to verify the component rendered at all;
 		// rate-display only manifests after the second poll fires.
 		expect( container.querySelector( '.pipeline-flow' ) ).not.toBeNull();
 		rerender( <WorkerStatus fullPage /> );
@@ -834,8 +796,7 @@ describe( 'WorkerStatus', () => {
 	} );
 
 	it( 'segments animation: new segment gets segment-slide-in class', async () => {
-		// First tick: segment 1. Second tick: segment 1 + 2. Segment 2 should
-		// render with the segment-slide-in class via prevSegments diff.
+		// Segment 2 should render with segment-slide-in via the prevSegments diff.
 		const firstTick = {
 			workers: [
 				{
@@ -895,7 +856,6 @@ describe( 'WorkerStatus', () => {
 		} );
 		const { container } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
-		// The log section renders the rate label "W <byte-rate>" for the
 		// stripped key. Empty stats → "0 B/s".
 		expect( container.textContent ).toMatch( /W 0 B\/s/ );
 	} );

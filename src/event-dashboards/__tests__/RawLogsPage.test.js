@@ -16,8 +16,7 @@ jest.mock( '../../shared/hooks/useAdminMenuWidth', () => ( {
 describe( 'RawLogsPage', () => {
 	it( 'renders the RawLogs panel inside a fixed wrapper offset by menu width', () => {
 		const { getByTestId, container } = render( <RawLogsPage /> );
-		// jest-dom isn't installed in this repo; fall back to bare DOM
-		// assertions, which is the same approach the existing tests use.
+		// No jest-dom; use bare DOM assertions.
 		expect( getByTestId( 'raw-logs' ) ).not.toBeNull();
 		const wrapper = container.firstChild;
 		expect( wrapper.style.position ).toBe( 'fixed' );

@@ -106,9 +106,7 @@ describe( 'serializeTsl', () => {
 	} );
 
 	it( 'omits empty-string ctor arg trailing slots', () => {
-		// Empty trailing slots are user-skipped optional args; the
-		// serializer should not emit literal empty tokens (which the
-		// shell tokenizer would treat as positional).
+		// Empty trailing slots are dropped, not emitted as literal tokens.
 		const g = {
 			nodes: [
 				{
@@ -196,11 +194,7 @@ describe( 'serializeTsl', () => {
 		};
 
 		it( 'fills empty trailing ctor slots from schema defaults', () => {
-			// Reproduces the bug from the bug report: operator drags
-			// Partition from palette, only types base_dir; saved TSL
-			// must include the substitution-token defaults so
-			// Topology_Loader resolves the operator's substrate config
-			// rather than falling through to PHP literal defaults.
+			// Operator types only base_dir; saved TSL must keep the substitution-token defaults.
 			const g = {
 				nodes: [
 					{
@@ -296,8 +290,7 @@ describe( 'serializeTsl', () => {
 		} );
 
 		it( 'unknown class falls through with no defaults applied', () => {
-			// Trailing empties get trimmed; with no schema entry to consult,
-			// nothing fills the gap.
+			// No schema -> trailing empties trimmed, nothing fills the gap.
 			const g = {
 				nodes: [
 					{

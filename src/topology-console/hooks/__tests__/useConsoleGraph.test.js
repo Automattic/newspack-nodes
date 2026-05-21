@@ -1,18 +1,5 @@
 /**
- * useConsoleGraph — mounts the per-session in-browser node graph that
- * carries the topology console's live SSE-in + command-out path:
- *
- *   SseConnector --fill--> SessionSink (registered as `session`)
- *   CommandOut   (registered as `command-out`), driven by the poll + REPL
- *
- * The hook constructs + registers the three nodes in Core, wires
- * connector.setSink(session), starts the stream, derives status/pid from
- * the connector's `connected` state, and tears everything down on unmount
- * or when `enabled` flips false (edit mode).
- *
- * The runtime SseConnector is mocked with a fake EventSource so tests can
- * drive the connected envelope deterministically; SessionSink, CommandOut,
- * and Core are real.
+ * useConsoleGraph tests. The SseConnector is mocked with a fake EventSource; SessionSink, CommandOut, and Core are real.
  */
 
 import { renderHook, act } from '@testing-library/react';

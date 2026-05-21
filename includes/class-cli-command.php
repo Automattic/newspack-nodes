@@ -1,9 +1,6 @@
 <?php
 /**
- * Cli_Command: WP-CLI command wrapper that exposes `wp nodes ls` and `wp nodes cli`.
- *
- * Registered via WP_CLI::add_command('nodes', ...) from the plugin bootstrap
- * when WP-CLI is available.
+ * Cli_Command: WP-CLI command wrapper for `wp nodes ls` and `wp nodes cli`.
  *
  * @package Newspack_Nodes
  */
@@ -19,10 +16,7 @@ class Cli_Command {
 	}
 
 	/**
-	 * List live workers.
-	 *
-	 * Reads `{base_dir}/locks/{type}.p{N}.lock.d/heartbeat` and reports each
-	 * worker's age and freshness. Stale entries (heartbeat > 60s old) are flagged.
+	 * List live workers, reporting each one's heartbeat age and freshness.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -45,15 +39,7 @@ class Cli_Command {
 	}
 
 	/**
-	 * Open an interactive REPL.
-	 *
-	 * Bare mode (no <reader> arg): builds a local _router + _command_interpreter +
-	 * _output + _shell + _output graph; commands run against this process.
-	 *
-	 * Pivoted mode (<reader>=type.pN): also wires Partition cmd-out → worker input
-	 * and Consumer reply-in → worker output, so commands cross the IPC boundary.
-	 *
-	 * Uses ext-readline if available; falls back to fgets() on STDIN otherwise.
+	 * Open an interactive REPL — bare mode (local graph) or pivoted mode (IPC to a worker).
 	 *
 	 * ## OPTIONS
 	 *
@@ -71,25 +57,13 @@ class Cli_Command {
 	}
 
 	/**
-	 * Build the REPL graph + log the mode line, returning [$shell, $dumper]
-	 * ready for `run_repl`. Extracted from `cli()` so tests can verify the
-	 * setup branches (root guard, attach error, log shape) without entering
-	 * the blocking event loop.
+	 * Build the REPL graph + log the mode line, returning [$shell, $dumper] for run_repl.
 	 *
-	 * On root or invalid reader id, calls WP_CLI::error which is configured
-	 * by tests to throw, so this method has no return value path for the
-	 * error branches — the caller (cli()) returns implicitly when the
-	 * underlying WP_CLI::error short-circuits.
-	 *
-	 * @param array $args WP_CLI positional arguments. Empty = bare mode;
-	 *                    otherwise $args[0] is the reader id.
+	 * @param array $args WP_CLI positional arguments. Empty = bare mode; else $args[0] is the reader id.
 	 * @return array{0:Shell,1:Dumper}
 	 */
 	public function prepare_repl( array $args ): array {
-		// Refuse to run as root. Workers run as the web user and create the
-		// IPC dirs under that ownership; a root cli would create `input/p0/`
-		// (and its descendants) as root, leaving non-root clis unable to
-		// write into the dir afterward — typed lines would silently vanish.
+		// Refuse root: a root cli would create the IPC dirs root-owned, so non-root clis lose writes.
 		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
 			\WP_CLI::error( 'wp nodes cli must run as the same user as the workers, not root.' );
 		}
@@ -108,12 +82,9 @@ class Cli_Command {
 			}
 		}
 
-		// Build the graph first so we have a Shell to populate.
 		[ $shell, $dumper ] = $this->build_repl_graph( $pivoted, $ipc );
 
-		// Stash the mode summary on the Shell — `status` builtin renders it
-		// on demand. Suppresses the previous auto-banner so scripted callers
-		// (`echo cmd | wp nodes cli ...`) get clean output.
+		// Stash the mode summary; the `status` builtin renders it on demand.
 		if ( $pivoted && null !== $ipc ) {
 			$shell->status_lines = [
 				"Pivoted-cli mode for {$args[0]}",
@@ -130,18 +101,8 @@ class Cli_Command {
 	}
 
 	/**
-	 * Build the REPL node graph and return [Shell, Dumper] for the loop driver.
+	 * Build the REPL node graph (bare: _shell → CI → _router → _output; pivoted adds IPC nodes).
 	 *
-	 * Layout (bare):
-	 *   _shell → _command_interpreter → _router → _output
-	 *
-	 * Pivoted adds: cmd-out (Partition) writing to worker input,
-	 *               reply-in (Consumer) reading from worker output.
-	 *
-	 * @param array{input:string,output:string,type:string,partition:int}|null $ipc
-	 * @return array{0:Shell,1:Dumper}
-	 */
-	/**
 	 * @param array{input:string,output:string,type:string,partition:int}|null $ipc
 	 * @return array{0:Shell,1:Dumper}
 	 */
@@ -155,153 +116,77 @@ class Cli_Command {
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->sink( $router );
 
-		// Dumper is registered as `_output` because Shell stamps outgoing
-		// messages with `FROM=_output/$pid` — replies route via
-		// `TO=_output/$pid` → Router looks up `_output` → forwards with
-		// `TO=$pid`. Dumper's TO filter matches `$pid` (or the pre-peel
-		// form `_output/$pid`) so other sessions' replies fall through.
+		// `_output`: Shell stamps FROM=_output/$pid, so replies route back here.
 		$dumper = new Dumper();
 		$dumper->name( '_output' );
 
-		// Real Tachikoma Shell3 nodes are anonymous (Shell3::name throws on
-		// rename). Don't try to give it a name — `ls` filters by sink, so the
-		// shell still appears as a sibling of _command_interpreter without
-		// needing a registered name.
+		// Shell stays anonymous (Shell::name would throw); `ls` filters by sink anyway.
 		$shell = new Shell();
 		$shell->sink( $interpreter );
 
-		// Prompt reflects the pivoted target so the user can tell which worker
-		// they're attached to. Bare mode keeps the default `newspack-nodes>`.
 		if ( $pivoted && null !== $ipc ) {
 			$shell->prompt = "{$ipc['type']}.p{$ipc['partition']}> ";
 		}
 
 		$dumper->set_shell( $shell );
-		// readline only works on a real TTY — readline_callback_read_char()
-		// reads from the TTY layer, not the stream descriptor, so feeding it a
-		// pipe (heredoc, redirected file) leaves bytes unread while
-		// stream_select keeps reporting STDIN ready → 100% CPU spin loop.
+		// readline only works on a real TTY; on a pipe it spins at 100% CPU.
 		$is_tty = \function_exists( 'posix_isatty' ) && @\posix_isatty( \STDIN );
 		$dumper->set_readline_mode( $is_tty && \function_exists( 'readline_callback_handler_install' ) );
 
 		if ( $pivoted && null !== $ipc ) {
-			// Pivoted: shell → cmd-out (Partition auto-packs each emitted
-			// Message via Message::packed → segment). reply-in (Consumer
-			// auto-unpacks the worker's reply Partition → Message) → _router
-			// (dispatches by TO=_output/$pid → _output → Dumper).
-			// IPC topics are single-partition (p0); the outer partition number
-			// (.p3) lives in the topic dir, so constructors use partition=0.
-
-			// Typed cli commands are small (a few hundred bytes at most), so
-			// the default PIPE_BUF cap is fine and we don't need
-			// allow_large_writes(). Skipping it lets multiple cli sessions
-			// append concurrently without contending on the single-writer
-			// claim — Partition's small-write path is unlocked PIPE_BUF
-			// atomic appends. (The reverse direction, worker→cli, can
-			// produce >4KB output via dump_node, so the worker's `_repl`
-			// Partition still uses allow_large_writes.)
+			// IPC topics are single-partition; skip allow_large_writes so sessions append concurrently.
 			$cmd_out = new Partition( $ipc['input'], 0 );
 			$cmd_out->name( 'cmd-out' );
 			$cmd_out->sink( $interpreter );
 			$shell->sink( $cmd_out );
 
-			// reply-in is unnamed (no other node addresses it directly); its
-			// Consumer poll emits unpacked Messages whose TO already encodes
-			// the cli's $pid (worker's _router peeled `_repl` before writing).
-			//
-			// Empty offsetlog_base_dir (3rd arg) → Consumer skips the offsetlog
-			// entirely. cli sessions are ephemeral; they tail-seek at startup
-			// and have no need to durably resume a cursor.
+			// reply-in: ephemeral, so empty offsetlog_base_dir (no durable cursor).
 			$reply_in = new Consumer( $ipc['output'], 0 );
 			$reply_in->next_offset( 'end' );
 			$reply_in->sink( $router );
 			$reply_in->target( '_output' );
 		}
 
-		// Dumper TO filter: matches `_output/$pid` (worker reply with
-		// `_output` not yet peeled) and `$pid` (worker reply with
-		// `_output` already peeled by _router). Empty TO is always rendered
-		// (async broadcasts). Multi-session: other clis' replies use a
-		// different $pid and drop silently.
+		// TO filter matches `_output/$pid` and `$pid`; empty TO always renders, other sessions drop.
 		$dumper->set_to_filter( $pid );
 
 		return [ $shell, $dumper ];
 	}
 
 	/**
-	 * Drive the REPL via the event loop. STDIN registers as a reader_node;
-	 * EventFramework::drain selects on STDIN and fires Consumer/Tail timers
-	 * (e.g. the pivoted-mode reply-in Consumer).
-	 *
-	 * Mirrors real Tachikoma TTY.pm. With readline available:
-	 *  - install_handler() calls readline_callback_handler_install(prompt, cb)
-	 *    which renders the prompt immediately and arms a per-byte callback.
-	 *  - drain_fh feeds one byte at a time via readline_callback_read_char();
-	 *    when the user hits enter, the callback fires with the completed
-	 *    line and we queue a Message. PHP auto-removes the handler after
-	 *    each delivered line, so we re-install to render the next prompt.
-	 *  - That's it — no blocking readline() that misses prompt-before-input.
-	 *
-	 * Without readline: stream_set_blocking(STDIN, false), fgets per ready
-	 * chunk, manually print the prompt before the loop and after each line.
-	 *
-	 * EOF on STDIN exits the drain loop.
+	 * Drive the REPL via the event loop until STDIN EOF. Readline on a TTY, fgets otherwise.
 	 */
-
 	private function run_repl( Shell $shell, Dumper $dumper ): void {
-		// Same gate as the Dumper's readline_mode: only use readline when STDIN
-		// is a real TTY. Pipes / redirected files fall through to the
-		// non-blocking fgets path which terminates cleanly on EOF.
+		// readline only on a real TTY; pipes fall through to fgets (EOF-terminating).
 		$is_tty       = \function_exists( 'posix_isatty' ) && @\posix_isatty( \STDIN );
 		$has_readline = $is_tty && \function_exists( 'readline_callback_handler_install' );
 
-		// Wire STDOUT into the Shell so the `status` local builtin has
-		// somewhere to render. (Tests inject memory streams directly.)
+		// Wire STDOUT into the Shell for the `status` builtin.
 		$shell->output_stream = \STDOUT;
 
-		// Skip prompt rendering when stdin is piped — prompts in captured
-		// output break shell consumers (e.g. `... | grep`).
+		// Skip prompts when stdin is piped — they break `... | grep` consumers.
 		$reader = new Cli_Stdin_Reader( $this, $shell, $dumper, $has_readline, null, $is_tty );
 
-		// Stdin-EOF round-trip: when the worker's TM_EOF echo lands on the
-		// reply partition and Dumper renders it, flip the reader's exit
-		// flag so the drain loop terminates. Without this, scripted cli
-		// sessions race — stdin closes, cli exits, pending replies are
-		// orphaned on disk.
+		// On the worker's TM_EOF echo, flip the exit flag so scripted sessions don't orphan replies.
 		$dumper->on_eof( static function () use ( $reader ): void {
 			$reader->exit = true;
 		} );
 
-		// Cli_Stdin_Reader is timer-driven (extends Timer); schedule its
-		// first fire so the drain loop has at least one timer to wait on.
-		// Subsequent fires self-schedule via set_timer at end of fire().
+		// Schedule the first fire; subsequent fires self-schedule.
 		$reader->set_timer( 0, true );
 		EventFramework::instance()->drain( static fn () => ! $reader->exit );
 
 		if ( $has_readline ) {
 			\readline_callback_handler_remove();
 		}
-		// Courtesy trailing newline so an interactive (TTY) session's shell
-		// prompt resumes on a fresh line below the readline buffer after Ctrl-D.
-		// Piped / redirected stdin (non-TTY) skips it — a blank line there is
-		// stray noise (the `}}\n\n` double-newline in captured `wp nodes cli`
-		// output) that also breaks `... | wp nodes cli | grep` consumers.
+		// Courtesy trailing newline on a TTY; skipped when piped (stray noise breaks consumers).
 		if ( $is_tty ) {
 			\WP_CLI::log( '' );
 		}
 	}
 
 	/**
-	 * Parse one line of input through the Shell graph. Extracted so tests
-	 * can drive the per-line dispatch directly from a memory stream without
-	 * spinning up the event loop. Returns true when the line emitted at
-	 * least one Message; false when every statement on the line was a
-	 * no-op (empty, comment, builtin like `cd`/`include`).
-	 *
-	 * The typed line is first run through `Shell::split_statements()` so
-	 * `help; ls` dispatches as two commands instead of being tokenized as
-	 * verb=`help;` — same convention as Topology_Loader's TSL eval path
-	 * and the topology console's REPL.
+	 * Parse one input line through the Shell graph (split into statements). True if any Message emitted.
 	 */
 	public function dispatch_line( Shell $shell, string $line ): bool {
 		$line     = \rtrim( $line, "\r\n" );
@@ -319,26 +204,13 @@ class Cli_Command {
 }
 
 /**
- * Stdin-reading driver for `wp nodes cli`. Timer-driven (extends Timer):
- * each tick reads what's available on $stream, dispatches through the
- * Shell, then re-arms with set_timer(0) (more bytes pending — drain ASAP,
- * crucial for piped-stdin throughput) or set_timer(100) (idle — back off
- * to 100ms polling). Mirrors how Tail and Consumer self-schedule.
- *
- * Tests instantiate directly with a `php://memory` stream and call `fire()`
- * to drive a deterministic number of dispatches without entering the
- * EventFramework drain loop.
+ * Stdin-reading driver for `wp nodes cli`. Timer-driven: read $stream, dispatch, re-arm.
  *
  * @package Newspack_Nodes
  */
 class Cli_Stdin_Reader extends Timer {
 	/**
-	 * `readline_callback_handler_install` seam — defaults to the real
-	 * libreadline call (lazy-initialized inside `install_handler`).
-	 * Tests reassign to a no-op so phpunit-in-a-terminal (where stdin
-	 * IS a tty, so we can't gate on `posix_isatty`) doesn't get the
-	 * raw prompt written to fd 1 and put the terminal into callback
-	 * mode. Pattern mirrors `Supervisor::$curl_exec`.
+	 * `readline_callback_handler_install` seam. Tests reassign to a no-op.
 	 *
 	 * Signature: `function (string $prompt, callable $line_cb): void`.
 	 *
@@ -347,9 +219,7 @@ class Cli_Stdin_Reader extends Timer {
 	public static ?\Closure $readline_handler_install = null;
 
 	/**
-	 * `readline_callback_read_char` seam — same pattern, defaults to
-	 * the real call. Tests reassign to a no-op so a test exercising
-	 * `fire()` in readline mode doesn't block on real stdin.
+	 * `readline_callback_read_char` seam. Tests reassign to a no-op so fire() doesn't block on stdin.
 	 *
 	 * Signature: `function (): void`.
 	 *
@@ -370,32 +240,16 @@ class Cli_Stdin_Reader extends Timer {
 	/** @var array<int,string> Lines delivered by the readline callback, drained per fire(). */
 	private array $queue = [];
 	private bool $readline_eof = false;
-	/** Stdin-EOF round-trip state. */
 	private bool $eof_sent = false;
 	private float $eof_deadline_at = 0.0;
-	/** Re-arm cadences. */
 	private const IDLE_POLL_MS = 100; // No bytes pending — back off.
 	private const BUSY_POLL_MS = 0;   // Bytes pending — drain ASAP next tick.
 	private const EOF_POLL_MS  = 10;  // After TM_EOF emit — check deadline + watch for echo.
 
 	/**
-	 * @param resource|null $stream         Input stream (defaults to STDIN). Tests
-	 *                                      pass a `php://memory` resource so the
-	 *                                      fgets path is exercisable without
-	 *                                      real STDIN.
-	 * @param bool          $show_prompts   Render the shell prompt before each
-	 *                                      read. Default true. Pass false when
-	 *                                      stdin is piped (no TTY) — prompts
-	 *                                      pollute scripted output.
-	 * @param float         $eof_deadline_s Bound on how long to wait for the
-	 *                                      TM_EOF echo after stdin closes
-	 *                                      before exiting anyway. Default 5s.
-	 *                                      A dead worker would otherwise hang
-	 *                                      the cli forever; the deadline is
-	 *                                      the cap. Bare mode echoes
-	 *                                      synchronously inside the same
-	 *                                      drain so the deadline rarely
-	 *                                      matters there.
+	 * @param resource|null $stream         Input stream (defaults to STDIN).
+	 * @param bool          $show_prompts   Render the prompt before each read; false when piped.
+	 * @param float         $eof_deadline_s Cap on waiting for the TM_EOF echo after stdin closes.
 	 */
 	public function __construct( Cli_Command $cmd, Shell $shell, Dumper $dumper, bool $has_readline, $stream = null, bool $show_prompts = true, float $eof_deadline_s = 5.0 ) {
 		parent::__construct();
@@ -418,15 +272,7 @@ class Cli_Stdin_Reader extends Timer {
 	}
 
 	/**
-	 * Stdin closed: emit a TM_EOF marker through the Shell and arm the
-	 * deadline. Mirrors Tachikoma `FileHandle::handle_EOF` → `send_EOF`.
-	 * The receiving CommandInterpreter (local in bare mode, the worker's
-	 * in pivoted mode) bounces TO=FROM, the echo walks back to our Dumper,
-	 * Dumper fires the on_eof callback (wired by run_repl), $exit flips.
-	 *
-	 * Idempotent — only the first call emits. Subsequent calls (each
-	 * drain_fh tick after stdin closed) are no-ops until the deadline
-	 * elapses or the echo arrives.
+	 * Stdin closed: emit a TM_EOF marker through the Shell and arm the deadline. Idempotent.
 	 */
 	private function send_eof_marker(): void {
 		if ( $this->eof_sent ) {
@@ -441,25 +287,12 @@ class Cli_Stdin_Reader extends Timer {
 	}
 
 	/**
-	 * (Re-)install the readline callback handler. PHP auto-removes the
-	 * handler after each line is delivered, so we install once at startup
-	 * and again after every processed line so the next prompt renders.
+	 * (Re-)install the readline callback handler with the real prompt.
 	 *
-	 * Install with the REAL prompt so readline knows the prompt's width —
-	 * that's what stops backspace from chewing back through the prompt
-	 * characters once the buffer empties (readline tracks cursor as
-	 * `prompt-end-col + buffer-point`, so an empty prompt places the
-	 * buffer at col 0 and a redraw happily overwrites our manually-
-	 * written prompt).
+	 * PHP auto-removes the handler per delivered line; the real-prompt width stops
+	 * backspace from chewing through the prompt once the buffer empties.
 	 */
 	private function install_handler(): void {
-		// Production: real `readline_callback_handler_install` writes the
-		// prompt to fd 1 and puts the tty into callback mode. Tests
-		// override via `self::$readline_handler_install` to skip the
-		// real call so a phpunit-in-a-terminal run (where stdin IS a
-		// tty, gating on `posix_isatty` is useless) doesn't pollute
-		// fd 1 with raw bytes. The dumper's `prompt_displayed`
-		// invariant flips either way.
 		$install = self::$readline_handler_install ?? static function ( string $prompt, callable $cb ): void {
 			\readline_callback_handler_install( $prompt, $cb );
 		};
@@ -471,16 +304,7 @@ class Cli_Stdin_Reader extends Timer {
 	}
 
 	/**
-	 * Body of the readline-callback closure. Public so tests can drive it
-	 * directly without spinning a real readline TTY.
-	 *
-	 *  - null line → user pressed Ctrl-D / readline EOF; flip the EOF flag
-	 *    so the next drain_fh call exits the event loop.
-	 *  - non-empty line → record in readline history (if extension available)
-	 *    and queue it for processing.
-	 *  - any line → clear the dumper's prompt-displayed flag so synchronous
-	 *    output during queue processing writes plainly instead of doing the
-	 *    async wipe-and-redisplay dance.
+	 * Body of the readline-callback closure (public for tests): null → EOF, else queue the line.
 	 */
 	public function handle_readline_line( ?string $line ): void {
 		if ( null === $line ) {
@@ -498,32 +322,16 @@ class Cli_Stdin_Reader extends Timer {
 		if ( $this->prompt_displayed ) {
 			return;
 		}
-		// Routed through Dumper so tests with a memory-stream Dumper don't
-		// pollute phpunit's real STDOUT. write_prompt() also flips the
-		// dumper's prompt_displayed flag (replacing the prior pair of
-		// fwrite + mark_prompt_displayed).
+		// Routed through Dumper so a memory-stream Dumper doesn't pollute phpunit's STDOUT.
 		$this->dumper->write_prompt( $this->shell->prompt );
 		$this->prompt_displayed = true;
 	}
 
 	/**
-	 * Timer override: drain whatever's ready on $this->stream, dispatch
-	 * through the Shell, re-arm for the next tick. Cadence picked from the
-	 * state we left this tick in:
-	 *  - delivered a line/byte → set_timer(0): there might be more, drain ASAP.
-	 *    Critical for piped-stdin throughput (`echo big_script | wp nodes cli`)
-	 *    where the kernel has many lines buffered ready to read.
-	 *  - waiting for TM_EOF echo → set_timer(10): tight loop to notice the
-	 *    deadline or the echo within ~10ms.
-	 *  - idle → set_timer(100): no bytes; back off to 100ms polling.
-	 *
-	 * Tests call this directly with a fixture stream + assert on the Shell's
-	 * sink to verify dispatch.
+	 * Timer override: drain $this->stream, dispatch, re-arm (busy/EOF/idle cadence).
 	 */
 	public function fire(): void {
-		// Post-EOF deadline check: if we've already emitted TM_EOF and the
-		// echo never came back, exit anyway after the configured bound.
-		// Runs first so even ticks where stdin is silent still get checked.
+		// Exit if TM_EOF was emitted and the echo never came back within the deadline.
 		if ( $this->eof_sent && \microtime( true ) >= $this->eof_deadline_at ) {
 			$this->exit = true;
 			return;
@@ -532,37 +340,19 @@ class Cli_Stdin_Reader extends Timer {
 		$delivered = false;
 
 		if ( $this->has_readline ) {
-			// Gate the readline read on stdin actually having data. readline's
-			// rl_getc layer blocks on a TTY with no pending input — left
-			// ungated it stalls the entire drain loop inside the read syscall
-			// until the user types again, which is what prevents Consumer/Tail
-			// timers (notably the pivoted-cli reply-in Consumer) from firing
-			// between commands. The legacy stream_select-driven loop gated
-			// this externally; we do it inline now that EventFramework polls
-			// timers only.
-			//
-			// Memory streams (php://memory in tests) have no underlying FD —
-			// stream_select throws ValueError on them. Tests with memory
-			// streams aren't blocking anyway, so fall through to the read.
+			// Gate the readline read on stdin having data — rl_getc blocks on an idle TTY,
+			// stalling the drain loop. Memory streams (tests) throw ValueError → fall through.
 			$ready = 1;
 			try {
 				$read   = [ $this->stream ];
 				$write  = null;
 				$except = null;
-				// Suppress the companion E_WARNING that PHP raises alongside
-				// the ValueError on un-selectable streams (php://memory in
-				// tests). The catch handles the failure path; the warning
-				// would just be noise in `phpunit --display-warnings`.
 				// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
 				$ready  = (int) @\stream_select( $read, $write, $except, 0, 0 );
 			} catch ( \ValueError $e ) {
 				$ready = 1;
 			}
 			if ( $ready > 0 ) {
-				// Feed one byte from STDIN to readline. If it completed a line,
-				// the callback (set in install_handler) appended to $this->queue.
-				// Tests override via `self::$readline_read_char` to no-op,
-				// preventing a stdin-block when phpunit runs in a terminal.
 				$read_char = self::$readline_read_char ?? static function (): void {
 					\readline_callback_read_char();
 				};
@@ -577,25 +367,17 @@ class Cli_Stdin_Reader extends Timer {
 				if ( $this->readline_eof ) {
 					$this->send_eof_marker();
 				} elseif ( $delivered ) {
-					// Handler was auto-removed when the line was delivered;
-					// re-install so the next prompt renders.
+					// Handler auto-removed on delivery; re-install for the next prompt.
 					$this->install_handler();
 				}
 
-				// We just consumed a char (or readline buffered it). Either
-				// way stdin had data; flag delivered so the re-arm picks
-				// BUSY_POLL_MS=0 and drains the rest of the kernel buffer
-				// ASAP. Without this, fast typing crawls at 1 char per
-				// IDLE_POLL_MS (100ms) because $delivered only flips on full
-				// line completion.
 				$delivered = true;
 			}
 		} else {
 			// Non-readline path: line-buffered fgets, manual prompt.
 			$line = \fgets( $this->stream );
 			if ( false === $line ) {
-				// fgets returns false on EOF or no-data-available (non-
-				// blocking). Distinguish via feof.
+				// false on EOF or no-data (non-blocking); distinguish via feof.
 				if ( \feof( $this->stream ) ) {
 					$this->send_eof_marker();
 				}
@@ -609,9 +391,7 @@ class Cli_Stdin_Reader extends Timer {
 			}
 		}
 
-		// Re-arm for the next tick (oneshot — we self-schedule each cycle).
-		// Run loop exits ahead of any re-arm if $exit got flipped (deadline,
-		// or run_repl's on_eof callback after the echo).
+		// Re-arm (oneshot — self-schedule each cycle); exit first if $exit got flipped.
 		if ( $this->exit ) {
 			return;
 		}

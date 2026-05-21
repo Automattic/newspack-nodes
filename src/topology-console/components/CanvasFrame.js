@@ -1,12 +1,5 @@
 /**
  * Decorative frame around the SVG canvas — engineering plotter chrome.
- *
- * Top-left: human-readable topology label + file-path hint
- * Four corners: alignment reticles
- * Bottom-right: drafting title block
- *
- * Renders its children inside the inner canvas area so the SVG fits
- * within the reticle frame.
  */
 
 const DRAWN_BY =
@@ -41,10 +34,7 @@ export default function CanvasFrame( {
 			<div className="topology-reticle topology-reticle--bl" />
 			<div className="topology-reticle topology-reticle--br" />
 
-			{ /* Layout controls — top-right chip stack. Save Layout
-			is edit-mode only (writing the canvas state is an authoring
-			action). Reset Layout shows in both modes as long as the
-			operator has user-tagged overrides to revert. */ }
+			{ /* Layout controls — Save is edit-mode only; Reset shows in both. */ }
 			<div className="topology-canvas__layout-actions">
 				{ editMode && onSaveLayout && (
 					<button

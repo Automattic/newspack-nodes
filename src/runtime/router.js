@@ -14,21 +14,14 @@ import {
 export class Router extends Node {
 	constructor() {
 		super();
-		// TIMER-hitchhike pre-declaration: subscribers register via
-		// node.register('TIMER', listener, cb). Router doesn't fire it
-		// in M1 (no drain loop on the browser side yet); the slot
-		// matters so future tick infrastructure can subscribe.
+		// TIMER hitchhike slot (not fired browser-side yet) so future ticks can subscribe.
 		this.registrations.TIMER = {};
-		// Pre-declared so `setState('NOT_AVAILABLE', ...)` doesn't throw
-		// when a routing failure occurs. Debug observers can subscribe
-		// via `debug_state _router 1`-style introspection.
+		// Pre-declared so setState('NOT_AVAILABLE', ...) doesn't throw.
 		this.registrations.NOT_AVAILABLE = {};
 	}
 
 	fill( message ) {
-		// Counter increments once per fill, including the recursive call
-		// we make on the NOT_AVAILABLE bounce — so one inbound miss
-		// increments counter by 2. Intentional (matches PHP).
+		// One inbound miss increments counter by 2 via the bounce (matches PHP).
 		this.counter += 1;
 
 		const to = message[ TO ];
@@ -46,10 +39,8 @@ export class Router extends Node {
 
 		const target = Core.node( head );
 		if ( null === target ) {
-			// setState fires BEFORE the TM_ERROR-drop branch on purpose:
-			// debug observers want to see the NOT_AVAILABLE event even
-			// when the message itself is silently dropped to break a
-			// potential error-cycle.
+			// setState fires before the TM_ERROR-drop branch so observers
+			// still see NOT_AVAILABLE even when the message is dropped.
 			this.setState( 'NOT_AVAILABLE', {
 				node: head,
 				from: message[ FROM ],
@@ -60,18 +51,13 @@ export class Router extends Node {
 			}
 			const err = newMessage();
 			err[ TYPE ] = TM_ERROR;
-			// Re-set TIMESTAMP explicitly so a mocked Core.now() in
-			// tests overrides the newMessage() default clock. Matches
-			// PHP class-router.php where the same explicit re-set is used.
+			// Explicit so a mocked Core.now() in tests wins (matches PHP).
 			err[ TIMESTAMP ] = Core.now();
 			err[ FROM ] = this.name;
 			err[ TO ] = message[ FROM ];
 			err[ ID ] = message[ ID ];
 			err[ VALUE ] = 'NOT_AVAILABLE\n';
-			// Re-fill via this Router so the error walks the FROM trail.
-			// If the FROM head resolves, the error reaches the originator;
-			// if not, the recursive call drops on the TM_ERROR branch above
-			// instead of bouncing forever.
+			// Re-fill so the error walks the FROM trail (drops on the TM_ERROR branch if unrouted).
 			this.fill( err );
 			return;
 		}

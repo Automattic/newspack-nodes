@@ -99,8 +99,7 @@ describe( 'Inspector (edit mode)', () => {
 		input.focus();
 		fireEvent.change( input, { target: { value: 'beta' } } );
 		const event = fireEvent.keyDown( input, { key: 'Enter' } );
-		// Just verify the handler ran without throwing — fireEvent.keyDown
-		// returns false if preventDefault was called.
+		// Verify the keyDown handler ran without throwing.
 		expect( event ).toBe( false );
 	} );
 

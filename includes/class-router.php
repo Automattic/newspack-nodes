@@ -2,9 +2,7 @@
 /**
  * Router: path-based message dispatch + TIMER event hub.
  *
- * Extends Timer (matches real Tachikoma Router.pm). On each fire_cb tick
- * (5s default), notifies all TIMER registrants — the Router-hitchhike pattern
- * for cheap periodic work without per-node EventFramework slots.
+ * Extends Timer; each fire_cb tick (5s) notifies TIMER registrants — the Router-hitchhike pattern.
  *
  * @package Newspack_Nodes
  */
@@ -30,11 +28,6 @@ class Router extends Timer {
 		++$this->counter;
 
 		$to = $message[ Message::TO ];
-		if ( '' === $to ) {
-			$this->sink?->fill( $message );
-			return;
-		}
-
 		$parts                  = \explode( '/', $to, 2 );
 		$node_name              = $parts[0];
 		$remaining              = $parts[1] ?? '';
@@ -47,9 +40,7 @@ class Router extends Timer {
 
 		$target = Core::node( $node_name );
 		if ( null === $target ) {
-			// Cached/traced state moment — `debug_state _router 1`
-			// turns this into a per-failure trace, useful for
-			// "why isn't my message landing?" debugging.
+			// `debug_state _router 1` turns this into a per-failure trace.
 			$this->set_state(
 				'NOT_AVAILABLE',
 				[ 'node' => $node_name, 'from' => $message[ Message::FROM ] ]
@@ -64,9 +55,7 @@ class Router extends Timer {
 			$err[ Message::TO ]        = $message[ Message::FROM ];
 			$err[ Message::ID ]        = $message[ Message::ID ];
 			$err[ Message::VALUE ]     = "NOT_AVAILABLE\n";
-			// Re-fill via this Router so the error walks the FROM trail. If the FROM head
-			// resolves, the error reaches the originator; if not, the (recursive) call
-			// drops on the TM_ERROR-on-error branch above instead of bouncing forever.
+			// Re-fill so the error walks the FROM trail; a re-failure drops on the TM_ERROR branch above, not bouncing forever.
 			$this->fill( $err );
 			return;
 		}

@@ -45,13 +45,13 @@ Three core ideas:
                           v
 +-----------------------------------------------------------+
 |                         Router                            |
-|  fill($message):                                          |
-|   - if TO == "":   sink->fill($message)                   |
-|   - else:          [head, rest] = explode("/", TO, 2)     |
-|                    target = Core::node(head)              |
-|                    if !target: send NOT_AVAILABLE error   |
-|                    else:        target->fill($message)    |
-|   - on TIMER tick: notify("TIMER", now)  (hitchhike)      |
+|  fill($message):  (PHP — there is NO empty-TO short-cut)  |
+|   - [head, rest] = explode("/", TO, 2)                    |
+|   - TO = rest                                             |
+|   - target = Core::node(head)                             |
+|   - if !target: bounce NOT_AVAILABLE (TM_ERROR) to FROM   |
+|   - else:        target->fill($message)                   |
+|   - fire() tick: notify("TIMER", now) + Core::prune_logs()|
 +-------------------------+---------------------------------+
                           | fill($message)
                           v
@@ -103,7 +103,12 @@ TM_ERROR      = 32
 
 Flags compose via bitwise OR: `TM_COMMAND | TM_RESPONSE` = a response to a command. Receivers check via `&`: `if ( $type & TM_COMMAND ) { ... }`. **Never use strict `===`** on combined flags — it misses every combination.
 
-**Wire format**: `Message::packed( array $msg ): string` and `Message::unpacked( string $data ): array` round-trip via positional JSON — the in-memory indexed array is the wire representation, so there's no key-to-index translation per side. `unpacked` validates `array_is_list` + length ≥ 7 before returning; malformed input falls back to a fresh `new_message()`.
+**ONE shape, everywhere**: the positional indexed array IS the message — in PHP, in JS (`src/runtime/message.js` exports the same indices/flags), in memory, and on the wire. There is **no** `{ type, ts, from, to, id, key, value }` object form anywhere; if you see one it's a bug.
+
+**Wire format**: `Message::packed( array $msg ): string` is `wp_json_encode` of the array; `Message::unpacked( string $data ): array` is `json_decode`. The in-memory indexed array is the wire representation, so there's no key-to-index translation per side. The two ports differ on malformed input — a documented divergence:
+
+- **PHP** `unpacked()` accepts ONLY `count() === 7 && array_is_list()`. Anything else **throws** `InvalidArgumentException`. Callers that read off-disk lines (`Consumer::poll`, `Consumer::load_offsetlog`) catch it and skip the bad line.
+- **JS** `unpack()` accepts `Array.isArray && length >= 7` and otherwise (including a JSON parse error) falls back to a fresh `newMessage()` — never throws.
 
 **Message constructors**:
 
@@ -115,28 +120,33 @@ $m[ Message::VALUE ] = $line;
 $node->fill( $m );
 ```
 
-There is no parallel `write()` API and no `produce()` / `query()` helpers — `fill()` is the only way bytes enter a node.
+There is no parallel `write()` / `produce()` / `query()` API on any node — `fill()` is the only way a message enters a node.
 
 ## Node Base Contract
+
+A node connects two ways: **`sink`** is the physical next node `fill()` forwards to; **`target`** is a logical path string stamped into `message[TO]` when TO is empty (this is Tachikoma's `owner`). **There is NO `edge`** — Tachikoma's second physical output was not ported; don't look for one.
 
 ```php
 class Node {
     protected string $name = '';
     protected ?Node  $sink = null;
-    protected $target;          // string for single target; array for Tee fan-out
+    protected $target = '';      // string for single target; array for Tee fan-out
     protected int $counter = 0;
     protected array $registrations = [];   // pre-declared events
 
     public function fill( array &$message ): void;
     public function sink( ?Node $node = null ): ?Node;
     public function target( $value = null );
+    public function connect_node( string $target ): void;     // sets target (Tee appends)
+    public function disconnect_node( string $target = '' ): void;
     public function name( ?string $name = null ): string;
     public function counter(): int;
 
     public function stamp_message( array &$message, string $name ): bool;
     public function drop_message( array &$message, string $error ): void;
 
-    public function dump_config(): string;
+    public function dump_node(): array;       // state snapshot for `dump_node` verb
+    public function dump_config(): string;    // round-trippable make_node line
 
     public function register( string $event, string $listener, ?callable $cb = null ): void;
     public function unregister( string $event, string $listener ): void;
@@ -145,16 +155,19 @@ class Node {
 }
 ```
 
-**Default `fill()`**:
+**Default `fill()`** stamps TO from `target` (only when TO is empty), counts, then forwards:
 
 ```php
 public function fill( array &$message ): void {
+    if ( '' === $message[ Message::TO ] && \is_string( $this->target ) && '' !== $this->target ) {
+        $message[ Message::TO ] = $this->target;
+    }
     ++$this->counter;
     $this->sink?->fill( $message );
 }
 ```
 
-The base just forwards. Subclasses override with their actual behavior.
+Subclasses override with their actual behavior. (Several primitives — Shell, Hook, Callback, Dumper, Tail's `emit_message` path — count-and-forward without the TO stamp; only the base `Node::fill` and the subclasses that call `parent::fill` apply it.)
 
 **`stamp_message`** prepends `$name` to the message's FROM with a `/` separator:
 
@@ -170,35 +183,39 @@ Returns false (drops) if FROM would exceed `MAX_FROM_SIZE = 1024` — prevents p
 
 ## Router
 
-`Router` extends `Timer`. On each tick (default 5s), it fires `notify('TIMER', now)` — the **Router-hitchhike pattern** for cheap periodic work without per-node EventFramework slots.
+`Router` extends `Timer`. PHP's `fire()` notifies all TIMER registrants and calls `Core::prune_logs()` on each tick (default 5s) — the **Router-hitchhike pattern** for cheap periodic work without per-node EventFramework slots. (The worker scaffolding arms this via `$router->set_timer( Router::DEFAULT_TICK_MS )`; without that the TIMER channel never fires.)
 
-`Router::fill()` does path-based dispatch:
+`Router::fill()` (PHP) peels the head segment unconditionally and dispatches:
 
 ```php
 public function fill( array &$message ): void {
-    $to = $message[ Message::TO ];
-    if ( $to === '' ) {
-        $this->sink?->fill( $message );    // empty TO -> forward to default sink
+    ++$this->counter;
+    [ $head, $rest ] = array_pad( explode( '/', $message[ Message::TO ], 2 ), 2, '' );
+    $message[ Message::TO ] = $rest;
+    if ( strlen( $message[ Message::FROM ] ?? '' ) > self::MAX_FROM_SIZE ) {
+        $this->drop_message( $message, 'path exceeded ...' );
         return;
     }
-    [ $head, $rest ] = explode( '/', $to, 2 );
-    $message[ Message::TO ] = $rest ?? '';
     $target = Core::node( $head );
-    if ( $target === null ) {
-        // NOT_AVAILABLE error path - sends a TM_ERROR with TO=$message[FROM] back along
-        // the breadcrumb trail, so the originator (or some upstream that handles errors)
-        // sees it. Re-fills via this Router; the error walks the path. If the FROM head
-        // does not resolve either, the recursive call drops on the TM_ERROR-on-error
-        // branch (no infinite bounce).
+    if ( null === $target ) {
+        $this->set_state( 'NOT_AVAILABLE', [ 'node' => $head, 'from' => $message[ Message::FROM ] ] );
+        if ( $message[ Message::TYPE ] & Message::TM_ERROR ) {
+            return;                       // don't bounce an error about an error
+        }
+        // build TM_ERROR (VALUE "NOT_AVAILABLE\n", TO=FROM, FROM=self) and re-fill via this Router
         return;
     }
     $target->fill( $message );
 }
 ```
 
-Routing is path-based (`a/b/c` → "find node a, pass remaining path `b/c`"), not socket-based. Replies use the `TO=$message[FROM]` convention to walk back along the breadcrumb trail.
+**Empty-TO divergence (PHP vs JS).** PHP has **no** empty-TO short-cut: `explode('/', '', 2)` yields `['', '']`, so `Core::node('')` returns null and an empty-TO message becomes a NOT_AVAILABLE bounce. **JS (`src/runtime/router.js`)** does the opposite — an empty TO forwards straight to `sink` and returns before any lookup. The JS behavior is arguably drift from the port's model; treat PHP as authoritative for routing semantics.
 
-**First-300s NOT_AVAILABLE rule**: `drop_message` on a NOT_AVAILABLE error AND process uptime < 300s logs via `print_least_often` (silences boot-time race noise). Otherwise `print_less_often`.
+Routing is path-based (`a/b/c` → "find node `a`, pass remaining path `b/c`"), not socket-based. Replies use the `TO=$message[FROM]` convention to walk back along the breadcrumb trail. Both ports increment `counter` on the recursive NOT_AVAILABLE re-fill, so one inbound miss bumps the counter by 2 (intentional, matched across ports).
+
+**First-300s NOT_AVAILABLE rule lives in `Node::drop_message`, not Router.** Router builds the NOT_AVAILABLE error inline (it does NOT call `drop_message` for that path; it only calls `drop_message` for the FROM-too-long case). The 300s rule applies wherever `drop_message` IS called: a NOT_AVAILABLE drop while `Core::$now < 300.0` logs via `print_least_often` (silences boot-race noise); otherwise `print_less_often`.
+
+**TIMER hitchhike is PHP-only.** JS Router pre-declares the `TIMER` and `NOT_AVAILABLE` slots but never fires TIMER (no browser-side drain loop yet).
 
 ## Storage: Topic + Partition
 
@@ -208,14 +225,17 @@ One file-segmented append-only log, plus a `.idx` companion. Storage primitive A
 
 ```php
 $p = new Partition( $base_dir, $partition_id, $segment_size, $num_segments, $max_lifespan );
-$p->write( $line );                                     // class API
-$p->fill( $message );                                   // Node API
-$p->read_at( $segment_id, $offset, $length );           // class API
+$p->fill( $message );                                   // ONLY ingress — no write()/produce()
+$p->flush();                                            // land the in-memory batch now
+$p->read_at( $segment_id, $offset, $length );           // read bytes
 $p->scan_index( fn ( $line, $seg ) => ..., $newest_first );
-$p->allow_large_writes();                               // 4KB -> 10MB; auto-locks
+$p->get_segments( $force_refresh );                     // [{id,size}, ...] sorted by id
+$p->get_current_position();                             // ['segment_id'=>, 'offset'=>]
+$p->allow_large_writes();                               // 4KB -> 10MB; acquires a Lock
+$p->with_index( $formatter );                           // custom .idx line formatter
 ```
 
-`fill()` packs the whole message via `Message::packed()` and appends to the current segment. All TYPE flags pass through — Partition is a generic transport including for control messages (TM_REQUEST, TM_ERROR, TM_EOF). The pivoted-cli IPC pattern relies on this: cli ↔ worker round-trips drain markers (TM_EOF), error responses (TM_COMMAND|TM_ERROR), and introspection requests (TM_REQUEST) through Partition-as-bus. Data partitions like firehose.log only ever see TM_BYTESTREAM / TM_STRUCT in practice, so the broader contract is a no-op for production paths.
+**There is NO `Partition::write()` method** — the only way bytes enter a Partition is `fill()`. (The doc once claimed a `write( $line )` class API; it does not exist and never did.) `fill()` packs the whole message via `Message::packed()` (+ `"\n"`) and appends to the current segment. All TYPE flags pass through — Partition is a generic transport including control messages (TM_REQUEST, TM_ERROR, TM_EOF). The pivoted-cli IPC pattern relies on this: cli ↔ worker round-trips drain markers (TM_EOF), error responses (TM_COMMAND|TM_ERROR), and introspection requests (TM_REQUEST) through Partition-as-bus. Data partitions like firehose.log only ever see TM_BYTESTREAM / TM_STRUCT in practice, so the broader contract is a no-op for production paths.
 
 **Class-API contract**:
 
@@ -242,11 +262,11 @@ Topic and any other partition router MUST call this same function. Diverging has
 
 **`SEGMENT_CACHE_TTL = 0.25` seconds**: segment-list cache so back-to-back reads don't `scandir` per call. Readers may see stale segment lists for up to 250ms after rotation. Consumer's checkpoint logic must tolerate this.
 
-**`MAX_LINE_SIZE = 4096`** (PIPE_BUF) for default writes. `allow_large_writes()` lifts to `MAX_LARGE_LINE_SIZE = 10485760` (10MB) AND constructs a Lock at `{partition_dir}/write.lock.d/`. Every write under `allow_large_writes` flows through `with_lock()`. Single-writer partitions and >4KB payloads lose data silently without the opt-out.
+**`MAX_LINE_SIZE = 4096`** (PIPE_BUF) caps default writes; the size check is on the FINAL packed bytes (envelope + `"\n"`), not VALUE alone. `allow_large_writes()` lifts to `MAX_LARGE_LINE_SIZE = 10485760` (10MB) AND acquires a `Lock` at `{partition_dir}/write.lock.d/` (blocking up to `max_wait_ms`, default 65s, so a respawn race recovers once the predecessor's heartbeat ages out). **There is NO `with_lock()` method** — the doc once claimed every large write "flows through `with_lock()`"; that wrapper does not exist. Instead the held Lock is kept fresh two ways: inside a running event loop a heartbeat `Timer` (`{name}:heartbeat`, KEY=`heartbeat`) sinks into the Lock and refreshes it; in request scope (no drain) `fill()` drives the heartbeat inline (at most once per `stale_timeout/3` s) and throws if `Lock::heartbeat()` reports the lock was stolen. Single-writer partitions writing >4KB payloads lose data silently (oversize drop) without the opt-out.
 
-**Per-partition batching.** `fill()` packs the message and appends it to an in-memory `$batch` string. If adding the new packed bytes would push the batch over `MAX_LINE_SIZE` (4KB), the existing batch flushes FIRST and the new message starts a fresh batch — preserving PIPE_BUF atomicity per syswrite. Each batched `fill()` also arms a 0-delay one-shot timer via `set_timer(0, oneshot)`; when the event loop finishes the current iteration, `fire_cb()` calls `flush()` to land whatever's still accumulated.
+**Per-partition batching.** `fill()` packs the message and appends it to an in-memory `$batch` string. If adding the new packed bytes would push the batch over `MAX_LINE_SIZE` (4KB), the existing batch flushes FIRST and the new message starts a fresh batch — preserving PIPE_BUF atomicity per syswrite. Each batched `fill()` also arms a 0-delay one-shot timer via `set_timer(0, true)`; when the event-loop iteration finishes, `fire()` calls `flush()` to land whatever's still accumulated. `__destruct()` also flushes, so request-scope writes land before GC.
 
-Messages larger than 4KB (only reachable on `allow_large_writes` partitions) bypass the batch entirely — they're already over PIPE_BUF so batching can't shrink them, and the lock around large writes serializes them with batched small-message flushes.
+Messages larger than 4KB (only reachable on `allow_large_writes` partitions) bypass the batch entirely — they're already over PIPE_BUF so batching can't shrink them. The held write Lock serializes them with batched small-message flushes.
 
 `Topic::flush()` walks every materialized Partition and calls `Partition::flush()` on each. Callers handing off to a subprocess that writes to the same partition path use this to land pending writes before forking, so the parent's accumulated messages land on disk in source-order with the child's appends.
 
@@ -256,15 +276,15 @@ Multi-Partition wrapper. Hashes KEY to partition, falls back to round-robin when
 
 ```php
 $t = new Topic( $base_dir, $num_partitions, $segment_size, $num_segments, $max_lifespan );
-$t->write( $key, $value );
-$t->fill( $message );    // KEY -> partition routing
+$t->fill( $message );    // ONLY ingress — KEY -> partition routing; no write()
+$t->flush();             // flush every materialized partition's batch
 ```
 
-Three precedences in `fill()`:
+**There is NO `Topic::write()` method** — `fill()` is the only ingress (the old `write( $key, $value )` claim was fiction). Three precedences in `fill()`:
 
-1. **TO field already set** — caller pre-pinned. Topic parses `p\d+` from TO and uses it directly. Used by replay tools and any producer that needs to write a specific partition.
+1. **TO field already set** — caller pre-pinned. Topic parses a leading `p\d+` out of TO and, if in range, routes there directly. Used by replay tools and any producer that needs a specific partition.
 2. **KEY present** — `Partition::hash_to_partition($key, $num_partitions)`.
-3. **No KEY** — round-robin via static counter modulo `PHP_INT_MAX`.
+3. **No KEY** — round-robin via a static counter (`self::$rr_counter++ % $num_partitions`).
 
 **`READY` event** is pre-declared and fired (`set_state`) after the first Partition is materialized. Late registrants get the cached payload immediately.
 
@@ -274,19 +294,20 @@ Three precedences in `fill()`:
 
 ### Offsetlog
 
-Just another Partition under `offsets/{reader_name}/p0/`. Consumer writes JSONL commits on each checkpoint; on restart, Consumer reads the last commit. No special class.
+Just another Partition under `offsets/{reader}/p0/`. Each checkpoint is a `TM_STRUCT` Message whose VALUE is `{seg, off, ts, name, target, targets, worker_type}`, routed through `Partition::fill` (so it lands as the canonical packed wire format, not raw JSONL) and `flush`ed immediately. On restart `load_offsetlog()` reads the newest segment's last line, `Message::unpacked`s it, and decodes VALUE to seed the cursor. An empty `$offsetlog_base_dir` disables the offsetlog entirely (ephemeral readers like the cli's `reply-in`). No special class.
 
 ## Consumer + Tail
 
-**Consumer** generalizes existing `LogReader`. Tails a Partition; commits cursor `{seg, off, ts}` to its offsetlog (which is itself a single-partition Partition). On restart, reads the newest offsetlog entry to seed the cursor.
+**Consumer** generalizes existing `LogReader`. Tails a source Partition; commits cursor `{seg, off, ts, ...}` to its offsetlog (itself a single-partition Partition). On restart, reads the newest offsetlog entry to seed the cursor.
 
 ```php
-$c = new Consumer( $source_base_dir, $source_partition, $offsetlog_base_dir );
-$c->poll();         // read new bytes, emit TM_BYTESTREAM per line, advance cursor
-$c->checkpoint();   // append {seg, off, ts} JSONL to offsetlog
+$c = new Consumer( $source_base_dir, $source_partition, $offsetlog_base_dir = '' );
+$c->next_offset( 'start' | 'recent' | 'end' | ['seg'=>, 'off'=>] );  // seek
+$c->poll();         // read new bytes, re-emit each line's Message, advance cursor
+$c->checkpoint();   // append a {seg, off, ts, ...} TM_STRUCT to offsetlog
 ```
 
-`poll()` reads new bytes since the last cursor position, splits by `\n`, drops the trailing partial, emits one TM_BYTESTREAM per complete line. KEY = `"{seg}:{offset}"` so the offsetlog can checkpoint by segment+offset.
+`poll()` reads new bytes since the cursor, splits on `\n`, drops the trailing partial, and for each complete line `Message::unpacked`s it (Partition wrote a packed Message per line), stamps its own name onto FROM, and forwards via `parent::fill`. The position breadcrumb goes in **ID** as `"{seg}:{offset}"` — **NOT KEY**. The code comment is explicit: overwriting KEY would destroy the producer's partition-routing key (rid / handler) and silently break multi-partition queues and RequestBuilder's rid grouping. Corrupt/unparseable lines are skipped (cursor already advanced) rather than aborting the poll.
 
 **Tail** is the file-following primitive (no offsetlog, no Partition awareness — just a plain file). Three buffer modes:
 
@@ -302,7 +323,7 @@ Inode + size-shrink rotation detection on every poll (`clearstatcache(true, $pat
 
 ## Other Node Primitives
 
-**Tee** is the fan-out node. Targets are an array; per-target try/catch isolates a failing target from the rest of the broadcast, and dead targets are pruned at fill-time after the first failed dispatch.
+**Tee** is the fan-out node. Targets are an array; each `fill()` snapshots a live-target list, copies the message per target with `TO=target`, and forwards through `sink` (typically `_router`) under a per-target try/catch that isolates one failing target from the rest. Pruning is by a liveness check on every fill, not "after a failed dispatch": a **bare-name** target (no `/`) whose node has disappeared is dropped; a **path-shaped** target (has a `/`, e.g. `_repl/_output/12345`) is always kept and handed to the sink to route. A `request <tee> GET_TARGETS` (TM_REQUEST) replies with the current list inline.
 
 **Hook** is the WordPress-extensibility bridge. Action mode forwards the message unchanged after firing `do_action`; filter mode passes the message through `apply_filters` and forwards the result. Plugins observe completed requests, transform job payloads before routing, etc., without touching topology files.
 
@@ -333,7 +354,7 @@ Forward direction uses `TO=$this->target` (the path `connect_node` put there). R
 
 Path-based routing via `_router` does the rest. Nodes don't track sockets or addresses; they just stamp FROM at I/O boundaries on the way in, and reverse direction follows the trail back out.
 
-**FROM stamping at I/O boundaries only**: Tail, Consumer, Job, Connector stamp FROM on the way in. Internal nodes (Tee, Hook, and any application Node subclass) do NOT stamp. A message flowing `tail -> tee -> consumer` carries `FROM=tail` at consumer, NOT `tee/tail`.
+**FROM stamping at I/O boundaries only**: the substrate's source nodes — **Tail** (`emit_message` sets FROM directly) and **Consumer** (`stamp_message`, using `stamp_override` when set — the worker IPC input Consumer stamps `_repl`) — stamp FROM as messages enter the graph. Internal nodes (Tee, Hook, and any application Node subclass) do NOT stamp. A message flowing `tail -> tee -> request-builder` carries `FROM=tail`, NOT `tee/tail`. (There are no `Job` / `Connector` node classes in this substrate; those Tachikoma concepts were not ported.)
 
 ## EventFramework
 
@@ -381,40 +402,43 @@ PHP I/O quirks the implementation handles:
 
 Mkdir-based advisory locking with a PID-stamped heartbeat file. Used by workers, the supervisor, and `Partition::allow_large_writes()`. Atomic on every filesystem we ship on (NFS, tmpfs, ext4 — `mkdir(2)` is the POSIX-mandated atomic primitive). No `flock`, no daemon, no DB row.
 
+Verified against `includes/class-lock.php`:
+
 ```php
 class Lock extends Node {
-    public const STALE_TIMEOUT  = 60;          // seconds without heartbeat → stale, eligible for takeover
-    public const HEARTBEAT_FILE = 'heartbeat';
+    public const STALE_TIMEOUT  = 60;          // seconds without heartbeat → stale
+    public const ORPHAN_GRACE_S = 1;           // dir-but-no-heartbeat grace before stealing
+    public const HEARTBEAT_FILE = 'heartbeat'; // contains the holder's PID
+    public const STARTED_FILE   = 'started';   // acquire() timestamp
+    public const RESTART_FLAG   = 'restart';   // restart sentinel
 
     public function acquire( int $max_wait_ms = 0 ): bool;
     public function release(): void;
-    public function heartbeat(): bool;          // verify_ownership() + touch
-    public function verify_ownership(): bool;   // read PID from heartbeat, compare to getmypid()
+    public function heartbeat(): bool;            // verify_ownership() then touch
+    public function verify_ownership(): bool;     // read PID, compare to getmypid(); flips is_held on mismatch
     public function is_held(): bool;
-    public function force_release(): bool;
+    public function force_release(): bool;        // INSTANCE: releases ONLY if heartbeat is stale/missing
+    public function should_restart(): bool;       // restart flag present, OR heartbeat gone / PID-mismatch
+    public function request_restart(): bool;      // drop the restart flag (caller need not hold the lock)
+    public function clear_restart(): void;
+    public function path(): string;
+
+    public static function force_release_at( string $lock_dir ): void;   // UNCONDITIONAL clear
+    public static function request_restart_at( string $lock_dir ): bool;
+    public static function is_restart_pending( string $lock_dir ): bool;
+    public static function get_started_time( string $lock_dir ): ?int;
 }
 ```
 
-**Acquire**:
+Note the two distinct releases: instance `force_release()` is **conditional** (returns false and leaves the dir alone if the holder is still within `stale_timeout`); static `force_release_at()` is **unconditional** (unlinks heartbeat/started/restart, rmdir). PHP forbids same-name instance+static methods, hence the `_at` suffix on the statics.
 
-```
-mkdir $lock_path/   // atomic; returns false if already exists
-  └─ if false:
-      stat $lock_path/heartbeat
-      if mtime > STALE_TIMEOUT seconds old:
-          force_release()  // unlink heartbeat, rmdir
-          retry mkdir
-      else:
-          give up (return false) or wait if $max_wait_ms > 0
+**Acquire**: atomic `mkdir`. If the dir already exists, `try_steal_orphan_or_stale()` decides whether to take over — an *orphan* dir (no heartbeat file → possible mid-acquire) is honored for `ORPHAN_GRACE_S` then stolen if still empty; a *stale* dir (heartbeat mtime older than `stale_timeout`) is stolen immediately; otherwise back off, and either return false or retry every 100ms until `$max_wait_ms`. On success it writes the `heartbeat` (PID) + `started` (timestamp) files and clears any inherited `restart` flag.
 
-file_put_contents $lock_path/heartbeat ← getmypid()
-```
+**Heartbeat**: workers touch their heartbeat every 10s during drain. `heartbeat()` calls `verify_ownership()` first; if the on-disk PID no longer matches `getmypid()` (someone stale-stole us), it flips local `is_held=false` and returns false so `release()` becomes a no-op and the displaced holder stops writing. `Partition::fill()` calls `heartbeat()` inline on the no-event-loop large-write path.
 
-**Heartbeat**: workers touch their lock's heartbeat file every 10s during drain. The supervisor's stale-takeover check reads `mtime` only — never the file's contents during normal scans, so a busy supervisor doesn't pay PID-comparison costs on every tick. PID comparison happens on `verify_ownership()` (called from `heartbeat()` before the touch, and from `Partition::fill()` before every large write under `allow_large_writes`).
+**Stale takeover**: once `STALE_TIMEOUT` elapses without a refresh, the next acquirer steals the dir and the displaced holder fails its next heartbeat and exits. This is the supervisor's main job for workers, and it's how concurrent `wp nodes restart` invocations don't fight over slots.
 
-**Stale takeover**: if `STALE_TIMEOUT` (60s default) elapses without a heartbeat refresh, the lock is considered stale and another acquirer is free to `force_release()` it and take over. The previous holder's `getmypid()` no longer matches the heartbeat file → `verify_ownership()` flips local `is_held=false` → the displaced holder fails its next heartbeat and exits. This is the supervisor's main job for workers (catching crashed or wedged workers and respawning their replacement); it's also how multiple `wp nodes restart` invocations don't fight over slots.
-
-**`should_restart()` / `request_restart()`**: writes `$lock_path/restart` as a sentinel. Workers check `Lock::should_restart()` on every drain tick and exit cleanly when set. Used by the admin `wp nodes restart` verb, by application code after a config change requiring a worker bounce, and by the supervisor's deactivation cleanup. The sentinel file is consumed (unlinked) by the next acquirer. Static form `Lock::request_restart_at( $lock_dir )` lets callers signal restart without holding a `Lock` instance — useful from admin request scope where the worker's `Lock` object lives in a different process.
+**`should_restart()` / `request_restart()`**: writes `$lock_path/restart` as a sentinel. Workers poll `should_restart()` on every drain tick and exit cleanly when the flag is present **or** the heartbeat file is gone / its PID no longer matches (PID-content theft). The flag is cleared on the next acquire (`write_acquire_files` unlinks it) or via `clear_restart()`. Static `request_restart_at( $lock_dir )` lets a stranger (admin request, supervisor) signal restart into another process's lock dir without a `Lock` instance.
 
 ## Worker Lifecycle
 
@@ -514,17 +538,19 @@ newspack-nodes> dump_config
 newspack-nodes> ^D
 ```
 
-The local graph is built at REPL start:
+`build_repl_graph()` builds the local graph at REPL start (bare):
 
 ```
-_shell  ->  _command_interpreter  ->  _router  ->  _output
+_shell  ->  _command_interpreter  ->  _router  ->  _output (Dumper)
 ```
 
-**Pivoted mode** (`wp nodes cli firehose-workers.p0`) — same local graph PLUS a `cmd-out` Partition writing to the worker's input IPC dir, and a `reply-in` Consumer reading from the worker's output IPC dir.
+`_router` is a `Router`, `_command_interpreter` a `CommandInterpreter` sinking into it, `_output` a `Dumper`. The `Shell` is anonymous (Shell3 refuses a name) and sinks into `_command_interpreter`.
+
+**Pivoted mode** (`wp nodes cli firehose-workers.p0`) — the SAME local nodes, but with two additions and one re-wire: a `cmd-out` Partition (at the worker's input IPC dir, sink = `_command_interpreter`), a `reply-in` Consumer (at the worker's output IPC dir, sink = `_router`, `target = '_output'`, `next_offset('end')`), and crucially **`$shell->sink` is re-pointed from `_command_interpreter` to `cmd-out`** so typed lines cross the IPC boundary instead of running locally.
 
 ```
 local _shell  ->  cmd-out (Partition, on-disk)  ->  worker input
-worker output  ->  reply-in (Consumer, on-disk)  ->  local _output
+worker output  ->  reply-in (Consumer, on-disk)  ->  local _router  ->  _output (Dumper)
 ```
 
 IPC layout (always single-partition):
@@ -536,24 +562,42 @@ IPC layout (always single-partition):
 
 Reader id form: `{type}.p{N}`, e.g. `firehose-workers.p3`. Dot-and-`p` keeps it a single path segment — `firehose-workers/3` would route as "find node `firehose-workers`, pass remaining path `3`," which is wrong.
 
-**No cryptographic handshake** — filesystem permissions on `/tmp/newspack-nodes/ipc/` gate access. The cli `make_node`s the IPC pair (`cmd-out` Partition + `reply-in` Consumer) directly at startup and passes the worker name; no in-flight graph rewrite is needed.
+**No cryptographic handshake** — filesystem permissions on `/tmp/newspack-nodes/ipc/` gate access. `Cli::attach_to_worker( $reader_id )` resolves the IPC paths: it parses `{type}.p{N}`, checks the worker is registered by `is_dir( {base}/locks/{reader_id}.lock.d )`, and throws `InvalidArgumentException` with `"no worker '{reader_id}' (run \`wp nodes ls\` to list active workers)"` if the lock dir is absent (staleness is NOT checked — a mid-restart worker still attaches). It returns `{input, output, type, partition}`. `build_repl_graph()` then constructs the IPC pair directly with `new Partition( $ipc['input'], 0 )` (named `cmd-out`) and `new Consumer( $ipc['output'], 0 )` (unnamed `reply-in`) — not via `make_node`.
 
 **Wire / dispatch specifics**:
 
-- **IPC messages use TM_COMMAND**: replies route via the FROM/TO breadcrumb — Shell stamps FROM=`_output/$pid`, the worker's CommandInterpreter sets TO=$message[FROM] when responding, and Router dispatches the reply by name. No ID-correlation table; the path itself is the addressing.
-- **`Command` struct in VALUE for TM_COMMAND**: JSON-encoded `{name, arguments, payload}`. No `signature` field — single-host filesystem-gated IPC; signing is dead weight.
-- **TO at root prompt is empty.** CommandInterpreter's `interpret` branch requires empty TO; non-empty TO routes through Router as a normal addressed message.
-- **`prompt` reply intercept**: `cd` / `pwd` send a TM_COMMAND with `name=prompt`; Dumper's `dump_response` checks `name === 'prompt'` BEFORE the print path and stores the payload in `$shell->prompt` for the next readline turn.
+- **IPC messages use TM_COMMAND**: replies route via the FROM/TO breadcrumb — Shell stamps FROM=`_output/$pid`, the worker's CommandInterpreter sets TO=`$message[FROM]` when responding, and Router dispatches the reply by name. No ID-correlation table; the path itself is the addressing.
+- **`Command` struct in VALUE is a LIVE PHP array, NOT JSON-encoded.** Inbound TM_COMMAND VALUE is `['name'=>, 'arguments'=>, 'payload'=>]`; the response VALUE is `['name'=>, 'payload'=>]`. The struct rides through `packed()`/`unpacked()` as a nested object inside the whole-message envelope — the envelope (and the SSE/REST body) is the ONLY place JSON serialization happens. Verb results are likewise live structures; the cli Dumper json-encodes array payloads only at the render boundary. No `signature` field — single-host filesystem-gated IPC; signing is dead weight.
+- **TO at the root prompt is empty.** CommandInterpreter dispatches a TM_COMMAND only when TO is empty; non-empty TO routes through Router as a normal addressed message.
+- **`pwd` reply via the `prompt` intercept**: the Shell `pwd` builtin sends a TM_COMMAND `name=pwd`; `cd` is purely local (no message). When a response carries `name === 'prompt'`, Dumper sets `$shell->prompt` and renders nothing. (The Shell does not emit a `name=prompt` command itself; that path is a convention for a worker that wants to drive the cli's prompt.)
 
 **Shell** supports quote-aware tokenization (single, double, backtick), single-tier `<varname>` interpolation, backslash line-continuation, and an `include` builtin. Conditionals, loops, function definitions, pipes, and `eval` all reject with "syntax not supported in v1". Quote-aware tokenization + line-continuation are *required* for `include topology.tch foo=bar` to parse topology files.
 
-Shell also intercepts the **path-composing builtins** before they reach the message bus: `cd`/`chdir` updates `$this->path` (the cwd that prepends to any subsequent `<path>` arg via `prefix()`); `tell_node`/`tell` (TM_INFO), `send_node`/`send` (TM_BYTESTREAM), `send_eof` (TM_EOF), `command_node`/`command`/`cmd` (TM_COMMAND), `request_node`/`request` (TM_REQUEST), `pwd`, and `ping` all build their TO via `prefix( <path> )` so the cwd composes uniformly. Verbs that don't match a builtin fall through as TM_COMMAND with the verb as the command name and TO = `prefix('')` (i.e., the cwd itself).
+Shell also intercepts the **path-composing builtins** before they reach the message bus: `cd`/`chdir` updates `$this->path` (the cwd) and emits no message; `tell_node`/`tell` (TM_INFO), `send_node`/`send` (TM_BYTESTREAM, VALUE newline-terminated), `send_eof` (TM_EOF), `command_node`/`command`/`cmd` (TM_COMMAND), `request_node`/`request` (TM_REQUEST), `ping` (TM_PING, VALUE = now) all build TO via `prefix( <path> )`; `pwd` sends TM_COMMAND `name=pwd` with TO = `$this->path`. **A verb that matches no builtin falls through as a TM_COMMAND** with the verb as the command name and `TO = prefix('')` (i.e. the cwd itself). Every emitted message is stamped `FROM = _output/$pid`. `prefix($arg)` is just `join('/', filter([$this->path, $arg]))`, and `cd` resolves relative/absolute/`..` paths into `$this->path` with slashes trimmed.
 
-**CommandInterpreter** dispatches by verb. Aliases share the same `cmd_foo` static; e.g. `make` → `cmd_make_node`, `rm`/`remove` → `cmd_remove_node`, `dump` → `cmd_dump_node`, `ls` → `cmd_list_nodes`. CI handles a TM_COMMAND only when TO is empty — non-empty TO means the command is mid-route toward a downstream node, so CI forwards to its sink (Router). Verbs may throw freely; `interpret()` catches `\Throwable` and turns the response into `TM_COMMAND|TM_ERROR` addressed back along FROM. CI also bounces TM_PING and TM_EOF with empty TO back along FROM — the latter is the cli's stdin-close drain marker (cli emits TM_EOF when stdin EOFs, waits for the bounce so all preceding output has been drained off the reply partition before the cli exits).
+**The pivot to a remote/other worker is just `$this->path`** — a TO prefix, nothing hardwired. At the root prompt `path=''` so default commands carry empty TO and the local `_command_interpreter` handles them; after `cd firehose:partition` the same default command carries `TO=firehose:partition` and `_router` dispatches it. In pivoted mode the Shell's sink is `cmd-out` (set by `build_repl_graph`), so those same messages are written to the worker's input partition instead of run locally.
+
+**`list_nodes` (alias `ls`) flags are `-a c l s t`** (matched by `^-([aclst]+)$`), NOT `-celos`: `-a` all-nodes (optional regex glob), `-c` counters, `-s` sinks, `-t` targets, `-l` = `-ct`. Without `-a`, a bare name lists nodes whose sink IS that node; no arg lists this CI's siblings.
+
+**CommandInterpreter** dispatches by verb. Aliases share the same `cmd_foo` static; e.g. `make` → `cmd_make_node`, `rm`/`remove` → `cmd_remove_node`, `dump` → `cmd_dump_node`, `ls` → `cmd_list_nodes`. CI dispatches a TM_COMMAND (not TM_RESPONSE) only when TO is empty — non-empty TO means the command is mid-route toward a downstream node, so CI forwards to its sink (Router). Verbs may throw freely; `interpret()` catches `\Throwable` and builds the response as `TM_COMMAND|TM_ERROR`. CI also bounces TM_PING and TM_EOF with empty TO back along FROM — the latter is the cli's stdin-close drain marker (cli emits TM_EOF when stdin EOFs, waits for the bounce so all preceding output has been drained off the reply partition before the cli exits).
+
+The response envelope: `TYPE = TM_COMMAND|TM_RESPONSE` (or `|TM_ERROR` on throw), `TO = $message[FROM]`, `FROM = $this->name` (self), `ID`/`KEY` copied from the inbound message, and `VALUE = ['name' => $cmd_name, 'payload' => $result]` as a **live array** (never separately json-encoded). An empty-string result emits no response.
+
+**`commands()` differs across ports — a real divergence.** PHP `commands($table)` **REPLACES** the instance verb table (`$this->commands = $table`); patron Node ctors install a fresh per-instance table this way. JS `commands(table)` **MERGES** via `{ ...this._commands, ...table }` so callers layer verbs. Don't assume one from the other.
 
 Constructors of registered Node classes (Topic, Partition, Consumer, Tail, Log, etc.) populate `$this->arguments` — a string of space-joined ctor args — directly. `dump_config()` reads that to emit a round-trippable `make_node <type> <name> <args...>` line; `make_node` round-trips via the same ctor. No separate `dump_config()` override per class.
 
-**Dumper** dispatches by TYPE flag: TM_COMMAND|TM_RESPONSE -> unwrap Command JSON, print payload; TM_COMMAND|TM_ERROR -> "ERROR: ..." to stderr (the wrapped exception path); TM_ERROR -> "ERROR: ..." to stderr; TM_INFO -> "INFO[from]: ..." to stdout (with prompt-aware async write that wipes-and-redraws if a prompt is on screen and stdout is a TTY).
+**Dumper** dispatches by TYPE flag and writes payloads **plain — there is NO `ERROR:` or `INFO[from]:` prefix** (both were removed; the `debug_level 1` header and the stderr stream already identify the kind):
+
+- **TM_COMMAND|TM_RESPONSE** → unwrap the live `['name'=>,'payload'=>]` VALUE; if `name === 'prompt'`, set the Shell's prompt and render nothing; otherwise write the payload to stdout (array payloads pretty-printed JSON, at the render boundary only).
+- **TM_COMMAND|TM_ERROR** → write the `payload` field to stderr, plain.
+- **TM_ERROR** → write VALUE to stderr, plain.
+- **TM_EOF** → fire the registered `on_eof` callback (the cli's drain-marker exit hook), render nothing.
+- **TM_PING** → rewrite VALUE (original send timestamp) into `round trip time: %.2f ms` and write to stdout.
+- **TM_STRUCT** → json-encode the array VALUE to stdout.
+- **TM_INFO / default TM_BYTESTREAM** → write VALUE to stdout, plain.
+
+Stdout writes go through a prompt-aware async path that wipes-and-redraws when a prompt is on screen and stdout is a TTY; non-TTY output is plain (no ANSI). `debug_level` 0/1/2 layers a per-message header (1) or a full structural envelope dump that replaces the normal render (2). The multi-session TO filter renders only when TO matches `_output/$pid`, bare `$pid`, or is empty.
 
 **Multi-session via FROM-trail**: each cli stamps `FROM=_output/$pid` (its wp-cli process PID). The worker's input-Consumer prepends `_repl`, so by the time the interpreter sees the message, `FROM=_repl/_output/$pid`. Replies follow `TO=$message[FROM]`, carrying `TO=_repl/_output/$pid`. The worker's `_router` splits TO on `/`, looks up `_repl` (a Partition), updates TO to `_output/$pid` (the post-strip remainder) and writes the envelope to disk. The cli's local `_router` reads the entry, splits again, looks up `_output` (the cli's Dumper), and forwards with `TO=$pid`. All cli sessions read the output Partition; each cli's Dumper filters: render iff TO matches its own `$pid` (or the pre-peel form `_output/$pid`), OR TO is empty (async broadcasts). No lock, no EBUSY; concurrent shells just work.
 
@@ -563,7 +607,7 @@ Two distinct extensibility mechanisms, both first-class:
 
 | Mechanism | Scope | Use |
 |-----------|-------|-----|
-| `register` / `notify` / `set_state` on Node | Per-node-instance. Events are pre-declared in the subclass constructor (e.g., `$this->registrations['FIRE'] = []`); listeners can only register for declared events. Late subscribers get the cached `set_state` payload immediately at registration time. Multi-modal listener dispatch (closure / shell callback / Node name -> fill TM_INFO). | Substrate-internal lifecycle: Topic `READY`, Timer `FIRE`, Router `TIMER` (the hitchhike channel Timer subclasses register against). Per-instance, events as a contract surface. |
+| `register` / `notify` / `set_state` on Node | Per-node-instance. Events are pre-declared in the subclass constructor (e.g., `$this->registrations['FIRE'] = []`); listeners can only register for declared events. Late subscribers get the cached `set_state` payload immediately at registration time. Two listener-dispatch modes (closure, or Node name -> fill TM_INFO). | Substrate-internal lifecycle: Topic `READY`, Timer `FIRE`, Router `TIMER` (the hitchhike channel Timer subclasses register against). Per-instance, events as a contract surface. |
 | WordPress hooks via `Hook` node | Global by name. Anyone can `add_action` / `apply_filters`; no pre-declaration. No payload cache. | Plugin extensibility points. Transformation filters, observation listeners, "let other plugins react to this." |
 
 Shipped substrate events in v0.1.0: Topic `READY` (set_state on first partition materialization), Timer `FIRE` (notify after each `fire()`), Router `TIMER` (notify on every Router tick — Timer subclasses hitchhike here to avoid per-node EventFramework slots). Subclasses pre-declare what they emit; listeners register against the declared channels. `register()` throws on undeclared events — that's the contract surface.

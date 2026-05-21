@@ -3,24 +3,9 @@
  * SpawnController: REST endpoint that spawns a worker zombie-process.
  *
  * Accepts POST /newspack-nodes/v1/workers/spawn with {type, partition, nonce}.
- *
- * Auth model (dual):
- *   1. Internal supervisor / worker self-respawn: HMAC token validates via
- *      Supervisor::validate_spawn_token() (current OR previous 10s window).
- *      No user capability needed — token IS the credential.
- *   2. External / admin-initiated: current_user_can('manage_options') AND
- *      wp_verify_nonce($nonce, 'newspack_nodes_spawn_worker'). Adds a 2s
- *      per-user rate limit so accidental dashboard hammering doesn't fork-bomb.
- *
- * Validation:
- *   - validate_worker_type: type must be in expand_workers() topology types
- *     OR 'supervisor'. Prevents spinning up arbitrary class names.
- *   - validate_partition: partition must satisfy 0 <= p < num_partitions
- *     for the type (read from the topology). Supervisor requires partition===0.
- *
- * Special case: type='supervisor' invokes Supervisor::run() synchronously
- * inside the spawn handler. The worker IS the supervisor; no separate fork
- * needed.
+ * Dual auth: internal HMAC token (current OR previous 10s window) OR external
+ * manage_options + nonce (with a 2s per-user rate limit). type='supervisor'
+ * runs Supervisor::run() synchronously — the worker IS the supervisor.
  *
  * @package Newspack_Nodes
  */
@@ -83,16 +68,10 @@ class SpawnController {
 	}
 
 	/**
-	 * Validate a worker type. Accepts:
-	 *  - any type registered in the topology filter (via expand_workers).
-	 *  - 'supervisor'.
+	 * Validate a worker type: a topology type (via expand_workers) or
+	 * 'supervisor'. Rejecting unknown types blocks arbitrary class instantiation.
 	 *
-	 * Reject unknown types with a 400 — prevents the spawn endpoint from
-	 * being used to instantiate arbitrary classes via the type parameter.
-	 *
-	 * @param mixed $type Worker type — comes from `$request->get_param('type')`
-	 *                   so it's whatever the user sent (mixed), not yet
-	 *                   guaranteed to be a string.
+	 * @param mixed $type Worker type (unsanitized request param).
 	 * @return bool True if valid.
 	 */
 	public function validate_worker_type( $type ): bool {
@@ -113,10 +92,10 @@ class SpawnController {
 	}
 
 	/**
-	 * Validate a partition number for a given type. Must be in
-	 * [0, num_partitions) for that type. Supervisor requires partition===0.
+	 * Validate a partition number for a type: [0, num_partitions); supervisor
+	 * requires partition===0.
 	 *
-	 * @param string $type Worker type.
+	 * @param string $type      Worker type.
 	 * @param int    $partition Partition number.
 	 * @return bool True if valid.
 	 */
@@ -128,12 +107,11 @@ class SpawnController {
 			return false;
 		}
 
-		// Supervisor path first.  There can be only one.
+		// There can be only one supervisor.
 		if ( 'supervisor' === $type ) {
 			return 0 === $partition;
 		}
 
-		// Topology path: partition must be < num_partitions for the type.
 		$max = 0;
 		foreach ( Bootstrap::expand_workers() as $w ) {
 			if ( $w['type'] === $type && ( $w['partition'] + 1 ) > $max ) {
@@ -141,20 +119,15 @@ class SpawnController {
 			}
 		}
 		if ( 0 === $max ) {
-			// Type isn't in topology at all — fall back to false (validate_worker_type
-			// should have caught this; keep defense-in-depth here).
+			// Not in topology — defense-in-depth (validate_worker_type should have caught it).
 			return false;
 		}
 		return $partition < $max;
 	}
 
 	/**
-	 * Permission check: dual auth.
-	 *
-	 *  - HMAC token (current or previous 10s window) → authorized as
-	 *    internal request. No user capability needed.
-	 *  - Otherwise: capability 'manage_options' AND a valid wp_verify_nonce
-	 *    against the NONCE_ACTION; plus a 2s per-user rate limit.
+	 * Permission check: internal HMAC token (current/previous 10s window), else
+	 * external manage_options + valid nonce + 2s per-user rate limit.
 	 *
 	 * @param \WP_REST_Request $req Request.
 	 * @return bool|\WP_Error
@@ -165,16 +138,13 @@ class SpawnController {
 			return new \WP_Error( 'invalid_token', 'Missing spawn token', [ 'status' => 403 ] );
 		}
 
-		// Internal HMAC path. No capability check, no rate limit — supervisor
-		// handles its own spawn rate limiting.
+		// Internal HMAC path — no capability/rate limit (supervisor self-limits).
 		if ( $this->supervisor->validate_spawn_token( $nonce, \time() ) ) {
 			return true;
 		}
 
-		// External path. Capability THEN nonce THEN rate-limit. Order matters:
-		// rate-limit before capability would let unauthenticated requests
-		// poison the transient table; capability before rate-limit makes the
-		// rate counter meaningful only against authenticated users.
+		// Capability THEN nonce THEN rate-limit: rate-limiting first would let
+		// unauthenticated requests poison the transient table.
 		if ( ! \function_exists( 'current_user_can' ) || ! \current_user_can( 'manage_options' ) ) {
 			return new \WP_Error(
 				'invalid_token',
@@ -200,9 +170,8 @@ class SpawnController {
 	}
 
 	/**
-	 * 2s per-user rate limit on external spawn requests. No-op if the
-	 * transient API isn't available (test contexts) — the HMAC path
-	 * doesn't go through this and is fine.
+	 * 2s per-user rate limit on external spawn requests. No-op without the
+	 * transient API (test contexts).
 	 *
 	 * @return true|\WP_Error
 	 */
@@ -229,8 +198,7 @@ class SpawnController {
 
 	/**
 	 * Spawn handler. Detaches from FPM, validates the partition, dispatches
-	 * to the supervisor (special-cased) or fires the spawn_worker action
-	 * for topology owners to instantiate the right worker class.
+	 * to the supervisor (special-cased) or fires the spawn_worker action.
 	 *
 	 * @param \WP_REST_Request $req Request.
 	 * @return \WP_REST_Response|\WP_Error
@@ -247,21 +215,19 @@ class SpawnController {
 			);
 		}
 
-		// Acknowledge synchronously; do the work zombie-style.
-		// Skip the FPM detach in CLI/test contexts where the function is a no-op.
+		// Acknowledge synchronously; do the work zombie-style. FPM detach is a no-op in CLI/test.
 		if ( \function_exists( 'fastcgi_finish_request' ) ) {
 			\fastcgi_finish_request();
 		}
 		\ignore_user_abort( true );
 		\set_time_limit( 0 );
 
-		// Store worker context in $_SERVER for sub-actions / logging.
+		// Worker context for sub-actions / logging.
 		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = $type;
 		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = (string) $partition;
 
-		// Supervisor-as-worker: instantiate + run synchronously, return a
-		// minimal sanitized result. The Supervisor class manages its own
-		// lock contention, so a concurrent spawn becomes a quick no-op.
+		// Supervisor-as-worker: run synchronously. It self-manages lock contention,
+		// so a concurrent spawn becomes a quick no-op.
 		if ( 'supervisor' === $type ) {
 			$result = $this->run_supervisor_sync();
 			return new \WP_REST_Response(
@@ -275,8 +241,7 @@ class SpawnController {
 			);
 		}
 
-		// Topology / application worker: fire the action; topology owners
-		// hook this to build the graph and call ->execute().
+		// Topology / application worker: topology owners hook this to build the graph and execute().
 		\do_action( 'newspack_nodes/spawn_worker', $type, $partition );
 
 		return new \WP_REST_Response(
@@ -290,9 +255,8 @@ class SpawnController {
 	}
 
 	/**
-	 * Build a fresh Supervisor and run() it synchronously inside the spawn
-	 * handler. Wrapped in try/catch so a transient failure doesn't crash
-	 * the request — the cron backstop will pick it up.
+	 * Build a fresh Supervisor and run() it synchronously. try/catch so a
+	 * transient failure doesn't crash the request — the cron backstop catches it.
 	 *
 	 * @return array{status: string}
 	 */
@@ -309,13 +273,9 @@ class SpawnController {
 	}
 
 	/**
-	 * Whitelist response fields. Surfaced numeric counters; no internal
-	 * paths, stack traces, or arbitrary keys leak into the response body.
+	 * Whitelist response fields so no internal paths/traces/arbitrary keys leak.
 	 *
-	 * @param mixed $result Worker-reported result — comes from a
-	 *                     `wp_remote_post`/`json_decode` chain so it's
-	 *                     whatever the worker emitted (mixed), not yet
-	 *                     guaranteed to be an array.
+	 * @param mixed $result Worker-reported result (unsanitized from the wire).
 	 * @return array Sanitized projection.
 	 */
 	public function sanitize_worker_result( $result ): array {

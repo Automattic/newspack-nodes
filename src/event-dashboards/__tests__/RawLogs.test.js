@@ -1,10 +1,5 @@
 /**
- * RawLogs — real-time streaming view of raw log lines. Tests focus on
- * the UI surface (header chrome, selector, filter, pause/clear, error
- * banner) rather than the canvas rendering pipeline or the SSE stream.
- *
- * useMessageStream and getCommandClient are mocked so we can drive the
- * lifecycle deterministically without a server.
+ * RawLogs UI-surface tests; useMessageStream + getCommandClient are mocked.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
@@ -41,8 +36,7 @@ const installMessageStreamMock = ( overrides = {} ) => {
 describe( 'RawLogs', () => {
 	let sendMock;
 	beforeAll( () => {
-		// jsdom does not implement Canvas 2D context. Stub just enough
-		// for the rendering code path to run.
+		// Stub the Canvas 2D context (jsdom lacks it).
 		window.HTMLCanvasElement.prototype.getContext = function () {
 			return {
 				setTransform: () => {},
@@ -157,7 +151,6 @@ describe( 'RawLogs', () => {
 			container.querySelectorAll( '.event-logger-raw-logs-btn' )
 		).find( ( b ) => b.textContent === 'Clear' );
 		expect( clear ).not.toBeUndefined();
-		// Clicking should not throw — it tears down ref state.
 		fireEvent.click( clear );
 	} );
 
@@ -186,8 +179,7 @@ describe( 'RawLogs', () => {
 		sendMock.mockRejectedValue( new Error( 'boom' ) );
 		const { container } = render( <RawLogs /> );
 		await act( async () => {} );
-		// The catch sets isLoadingLogs=false; we end up in the
-		// "No logs available" state.
+		// The catch lands us in the "No logs available" state.
 		expect( container.textContent ).toMatch( /No logs available/ );
 	} );
 
@@ -211,20 +203,16 @@ describe( 'RawLogs', () => {
 			] );
 			const { container } = render( <RawLogs /> );
 			await act( async () => {} );
-			// Grab the onMessage callback the component registered with
-			// useMessageStream and drive it directly.
+			// Drive the component's onMessage callback directly.
 			const onMessage =
 				useMessageStream.mock.calls.at( -1 )[ 0 ].onMessage;
-			// envelope = [TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE]; we
-			// just need FROM=`{sub}.pN` and VALUE=text so transformLogLine
-			// can produce { partition, content }.
+			// Need FROM=`{sub}.pN` and VALUE=text for transformLogLine.
 			act( () => {
 				onMessage(
 					[ 1, 1234, 'firehose.p0', '', '1:1', '', 'a log line' ],
 					{ type: 1 }
 				);
 			} );
-			// Drain the 100ms batcher.
 			act( () => {
 				jest.advanceTimersByTime( 200 );
 			} );

@@ -1,11 +1,8 @@
 <?php
 /**
- * Formatters — substrate-side registry of named callables that
- * TSL topology files can reference by name (e.g. Partition's
- * `with_index <formatter_name>` verb resolves through here).
+ * Formatters — substrate-side registry of named callables that TSL topology files reference by name.
  *
- * Closures aren't expressible in TSL, so we register them in PHP
- * once at plugin load and reference by name from .tsl scripts.
+ * Closures aren't expressible in TSL, so register them in PHP once at plugin load.
  *
  * @package Newspack_Nodes
  */
@@ -36,10 +33,7 @@ class Formatters {
 		return \array_keys( self::$registry );
 	}
 
-	/**
-	 * Test seam. Production code never calls this — formatters are
-	 * registered once at plugin load and remain for the request.
-	 */
+	/** Test seam. Production code never calls this — formatters persist for the request. */
 	public static function reset(): void {
 		self::$registry = [];
 	}

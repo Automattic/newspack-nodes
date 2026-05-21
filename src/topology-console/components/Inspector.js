@@ -1,13 +1,5 @@
 /**
  * Right-pane inspector for the selected node.
- *
- * Inspect-only in v1. The available data is what `ls -al` exposes —
- * id, counter, and the edges connecting it. Type is inferred from the
- * name. Activity sparklines (msg/s, bytes read/s, bytes written/s) are
- * computed client-side from the cumulative counters. Message-size
- * histogram, memory, and richer per-node diagnostics are v2 affordances
- * that will land once the substrate gains an `inspect <node>` verb
- * returning the full state envelope.
  */
 
 import { useEffect, useState } from '@wordpress/element';
@@ -27,14 +19,7 @@ function FieldRow( { k, v, vClass } ) {
 	);
 }
 
-// Comma-joined list of clickable node-name links — used for the
-// Routing section's `target →`, `also →`, and `← from` values.
-// Hover highlights the node's edges on the canvas (same hoveredId
-// state the canvas's onMouseEnter drives); click selects it.
-// Names that don't correspond to a known node in the parsed graph
-// (substrate scaffolding like `_command_interpreter`, or path-shaped
-// targets like `_repl/_output/1490`) render as plain dim text — no
-// point hovering or clicking something the canvas can't show.
+// Clickable node-name links; unknown names render as plain dim text.
 function NodeLinks( { names, nodeIds, onSelect, onHover } ) {
 	if ( ! names || ! names.length ) {
 		return (
@@ -110,9 +95,7 @@ function formatRate( rate ) {
 	return `${ rate.toFixed( 2 ) } /s`;
 }
 
-// Bytes-per-second formatter — same magnitude suffixes as formatBytes
-// with a `/s` tail. Used for the read/write sparkline current-value
-// labels.
+// Bytes-per-second formatter.
 function formatByteRate( rate ) {
 	if ( rate === undefined || rate === null ) {
 		return '— /s';
@@ -132,11 +115,7 @@ function formatByteRate( rate ) {
 	return `${ ( rate / ( 1024 * 1024 * 1024 ) ).toFixed( 1 ) } G/s`;
 }
 
-// Inspector-resident sparkline. Same right-aligned fixed-step approach
-// as the node-card sparkline (history grows leftward until the ring is
-// full), but parameterized for the wider, taller plot area inside the
-// inspector pane. Auto-scales to the window's max so a bursty node
-// shows shape regardless of absolute magnitude.
+// Inspector sparkline (wider/taller variant of the node-card one).
 const INSP_SPARK_HISTORY_MAX = 60;
 function inspectorSparklinePath( history, width, height ) {
 	if ( ! history || history.length < 2 ) {
@@ -157,10 +136,7 @@ function inspectorSparklinePath( history, width, height ) {
 		.join( ' ' );
 }
 
-// One labeled sparkline row. Label sits on top-left, current value on
-// top-right (oxide bold), peak-in-window dimmed below the current.
-// Knowing the peak makes the auto-scaled curve readable — without it
-// a flat-looking line could be 5 msg/s or 5000 msg/s.
+// One labeled sparkline row; peak label makes the auto-scaled curve readable.
 function SparklineRow( { label, history, currentValue, format } ) {
 	const W = 270;
 	const H = 32;
@@ -203,9 +179,7 @@ function SparklineRow( { label, history, currentValue, format } ) {
 	);
 }
 
-// Bytes rendered with K / M / G suffixes once the magnitude makes the
-// raw number unreadable. Mirrors what the Throughput / Process panel
-// in the mockup wants: dense, glanceable values.
+// Bytes with K/M/G suffixes for glanceable values.
 function formatBytes( n ) {
 	if ( typeof n !== 'number' || n < 0 ) {
 		return '—';
@@ -239,32 +213,15 @@ function formatLastSeen( ts, live ) {
 	return `${ Math.round( ago / 3600 ) }h ago`;
 }
 
-// ── Edit-mode form ────────────────────────────────────────────────────────
-//
-// Schema-driven form for the selected draft node. Two sections:
-//   1. Constructor — one input per ctor arg (typed via schema).
-//   2. Verbs       — checkbox per verb; when checked, inline arg inputs.
-//
-// node.ctorArgs is a positional array; node.verbInvocations is an
-// array of { verb, args }.
+// Edit-mode form: schema-driven Constructor + Verbs sections for the draft node.
 
 function inputForType( type ) {
 	switch ( type ) {
 		case 'bool':
-			// Render bool args as text so the field can hold either a
-			// literal `true`/`false` OR a substitution token like
-			// `<config:enable_aggregator>`. A native checkbox can't
-			// carry the token, which forces operators to hand-edit TSL
-			// for any config-driven bool. The TSL loader / verb
-			// handler does the string→bool coercion at runtime; the
-			// editor just stores the raw token. Placeholder hints at
-			// the accepted shapes.
+			// Text, not checkbox, so the field can hold a `<config:...>` token.
 			return { type: 'text', placeholder: 'true | false | <config:...>' };
-		// All other types render as text inputs — substitution
-		// patterns like `<partition>` or `<config:segment_size>` are
-		// strings and would be silently rejected by an `input
-		// type="number"` field. The TSL loader does the int/float
-		// coercion at runtime; the editor just stores the raw token.
+		// All types are text: substitution tokens are strings an
+		// `input type="number"` would reject; loader coerces at runtime.
 		case 'int':
 			return { type: 'text', inputMode: 'numeric' };
 		case 'float':
@@ -276,11 +233,7 @@ function inputForType( type ) {
 
 export function coerceValue( type, raw ) {
 	if ( 'bool' === type ) {
-		// Strings store as-is: literal "true"/"false", config tokens
-		// like "<config:enable_aggregator>", or the patron-supplied
-		// "<partition>". Legacy stored values (JS booleans from the
-		// old checkbox UI) are normalized to "true"/"false" so the
-		// text field renders correctly without surprising round-trips.
+		// Store strings as-is; normalize legacy JS booleans to "true"/"false".
 		if ( 'boolean' === typeof raw ) {
 			return raw ? 'true' : 'false';
 		}
@@ -290,13 +243,7 @@ export function coerceValue( type, raw ) {
 		if ( '' === raw ) {
 			return '';
 		}
-		// Pure-integer strings convert to numbers; anything else
-		// (TSL substitution tokens like `<partition>` or
-		// `<config:num_partitions>`, partial typing, leading whitespace
-		// while the operator is mid-edit) passes through as a string and
-		// gets coerced at load time by Topology_Loader. Previously this
-		// fell back to `prevRaw` on NaN, which silently swallowed every
-		// keystroke of a `<` token.
+		// Pure-integer strings → number; tokens/partial input pass through.
 		return /^-?\d+$/.test( String( raw ).trim() )
 			? parseInt( raw, 10 )
 			: raw;
@@ -316,8 +263,7 @@ function NameField( { node, takenNames, onRenameNode } ) {
 	const [ value, setValue ] = useState( node.id );
 	const [ error, setError ] = useState( '' );
 
-	// Reset the local input when the selected node changes (parent
-	// passes a fresh `node`).
+	// Reset the local input when the selected node changes.
 	useEffect( () => {
 		setValue( node.id );
 		setError( '' );
@@ -352,8 +298,7 @@ function NameField( { node, takenNames, onRenameNode } ) {
 		}
 		const ok = onRenameNode && onRenameNode( node.id, trimmed );
 		if ( ! ok ) {
-			// Caller refused (race condition: collision raced in). Snap
-			// the input back to the canonical id and show why.
+			// Caller refused (collision raced in) — snap back and explain.
 			setValue( node.id );
 			setError( 'Rename refused — name already taken.' );
 		}
@@ -406,10 +351,7 @@ function CtorField( {
 	const meta = inputForType( spec.type );
 	const id = `topology-ctor-${ spec.name }`;
 	if ( 'formatter_name' === spec.type ) {
-		// Pick from the formatters that application plugins
-		// registered via Formatters::register(). Empty list = no
-		// options other than (none); the operator can still type a
-		// name into a free-form text input via the fallback below.
+		// Pick from registered formatters; empty list falls back to free text.
 		if ( formatters.length === 0 ) {
 			return (
 				<div className="topology-edit-row">
@@ -451,10 +393,7 @@ function CtorField( {
 		);
 	}
 	if ( 'node_name' === spec.type ) {
-		// node_name args define a logical edge from the patron node
-		// to whichever draft node is selected — TopologyConsole's
-		// augmented graph synthesizes the canvas edge from this
-		// value automatically.
+		// node_name args define a logical edge synthesized onto the canvas.
 		return (
 			<div className="topology-edit-row">
 				<label htmlFor={ id } className="topology-edit-row__label">
@@ -477,9 +416,7 @@ function CtorField( {
 			</div>
 		);
 	}
-	// Legacy bool args were stored as JS booleans (old checkbox UI);
-	// normalize to "true"/"false" strings so the text input renders
-	// without `[object]`/`true`-as-blank surprises.
+	// Normalize legacy JS-boolean bool args to "true"/"false" strings.
 	const rawValue = value ?? spec.default ?? '';
 	let currentValue = rawValue;
 	if ( 'boolean' === typeof rawValue ) {
@@ -567,9 +504,7 @@ function VerbRow( {
 	);
 }
 
-// Tee: tag list + autocomplete "add target" input (multi).
-// Everything else: single text input bound to the current target,
-// X-clear breaks the connection, typing + Enter (or blur) replaces it.
+// Tee fans out to many targets; everything else has a single target.
 function TargetsField( { node, nodeNames, targets, onConnect, onRemoveEdge } ) {
 	const isTee = node.class === 'Tee';
 	const datalistId = `topology-targets-${ node.id }`;
@@ -604,8 +539,7 @@ function TeeTargetsField( {
 	onConnect,
 	onRemoveEdge,
 } ) {
-	// Available = every other draft node minus those already wired
-	// from this Tee. Empty list = nothing to pick from.
+	// Available = every other node not already wired from this Tee.
 	const wired = new Set(
 		targets.filter( ( e ) => ! e.virtual ).map( ( e ) => e.to )
 	);
@@ -663,8 +597,7 @@ function SingleTargetField( {
 	onConnect,
 	onRemoveEdge,
 } ) {
-	// Physical edge (if any) — virtual edges (verb-derived) are
-	// managed in the Verbs section, not here.
+	// Physical edge only; virtual (verb-derived) edges live in the Verbs section.
 	const physical = targets.find( ( e ) => ! e.virtual ) || null;
 	const currentTarget = physical ? physical.to : '';
 
@@ -679,15 +612,12 @@ function SingleTargetField( {
 			return;
 		}
 		if ( onConnect ) {
-			// handleConnect's non-Tee branch replaces the existing
-			// target automatically — no separate remove step needed.
+			// The non-Tee branch replaces the existing target automatically.
 			onConnect( node.id, next );
 		}
 	};
 
-	// Selectable options = every other node, plus the current target
-	// even when it's not in the draft (preserves the value during a
-	// transient mismatch, e.g. after rename or partial load).
+	// Options = every other node, plus the current target if not in the draft.
 	const options = nodeNames.slice();
 	if ( currentTarget && ! options.includes( currentTarget ) ) {
 		options.push( currentTarget );
@@ -762,9 +692,7 @@ function EditForm( {
 	const verbSpecs = schema?.verbs || [];
 	const ctorArgs = node.ctorArgs || [];
 	const verbInvocations = node.verbInvocations || [];
-	// Names of every other draft node — used by node_name verb arg
-	// selects so the operator picks from existing nodes rather than
-	// typing a free-form string.
+	// Names of every other draft node, for node_name verb-arg selects.
 	const nodeNames = ( parsed?.nodes || [] )
 		.map( ( n ) => n.name || n.id )
 		.filter( ( n ) => n && n !== node.id );
@@ -951,21 +879,13 @@ export default function Inspector( {
 	}
 
 	const targets = parsed.edges.filter( ( e ) => e.from === selectedId );
-	// Authoritative class name from dump_metadata (live) or
-	// parseTsl/draftGraph (edit). Both paths set the same field.
 	const type = node.class;
 	const live = streamStatus === 'open';
 
-	// Authoritative button state, derived from server metadata —
-	// no client-side bookkeeping that could drift from worker reality.
+	// Button state derived from server metadata, not client bookkeeping.
 	const traceOn = node.debugState > 0;
-	// The worker's input Partition is named `_repl`, so it stamps
-	// `_repl/` onto every incoming command's FROM before CI sees it —
-	// `connect_node <tee>` from this SSE session therefore lands in
-	// the tee's target list as `_repl/_output/{sse_pid}`. The bare
-	// `_output/{pid}` and `{pid}` forms only exist transiently on TO
-	// as Router peels path segments; they're never stored in any
-	// target list, so we only need to match the stamped form.
+	// The worker stamps `_repl/` onto incoming FROM, so a tail from this
+	// session lands as `_repl/_output/{sse_pid}` — match that stored form.
 	const tailOn =
 		ssePid &&
 		parsed.edges.some(
@@ -1006,10 +926,7 @@ export default function Inspector( {
 						/>
 					</div>
 				) }
-				{ /* sink + from intentionally dropped — those are
-				substrate plumbing details that don't make sense for
-				the operator's mental model and don't have an
-				edit-mode equivalent. */ }
+				{ /* sink + from dropped — substrate plumbing, no edit-mode equivalent. */ }
 			</Section>
 
 			{ ( rateInfo?.hasMessages ||
@@ -1166,10 +1083,7 @@ export default function Inspector( {
 						{ tailOn ? 'Disconnect' : 'Connect' }
 					</button>
 				) }
-				{ /* TM_REQUEST verbs declared in this class's node_schema.
-				Sending fires `request_node <name> <verb>` through the
-				worker; the typed reply lands in the transcript via
-				the SSE Dumper. */ }
+				{ /* TM_REQUEST verbs from this class's node_schema. */ }
 				{ ( () => {
 					const schema = catalog.find(
 						( c ) => c.shell_name === type

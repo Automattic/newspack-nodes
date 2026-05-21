@@ -86,8 +86,7 @@ describe( 'parseTsl', () => {
 		};
 		const tsl = serializeTsl( original );
 		const reparsed = parseTsl( tsl );
-		// strip x/y/target/also fields that draftGraph attaches but the
-		// parser doesn't reconstruct
+		// draftGraph attaches x/y/target/also; the parser doesn't reconstruct them.
 		const clean = ( n ) => ( {
 			id: n.id,
 			name: n.name,

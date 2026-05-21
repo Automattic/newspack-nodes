@@ -2,35 +2,17 @@
 /**
  * Workers_CI: command-dispatch for worker-lifecycle verbs.
  *
- * Replaces legacy class-workers-controller.php + the heartbeat method on
- * class-firehose-controller.php with a CommandInterpreter that mounts on the
- * `newspack_nodes/request_graph_ready` hook alongside the other substrate
- * service CIs (Classes_CI, Layouts_CI, Topologies_CI).
- *
  * Verbs:
- *   list          — minimal worker enumeration (Cli::ls_workers() projection
- *                    with live cursor positions). Used by topology + CLI
- *                    callers that just need `[{type, partition, heartbeat_at,
- *                    stale, position}]`.
- *   dump_metadata — full operator-grade payload (the legacy WorkersController::
- *                    get_workers() shape). Returns the 7-field envelope
- *                    `{workers[], supervisor, logs[], num_partitions,
- *                    num_segments, segment_size, timestamp}` with per-worker
- *                    rich descriptors. Heavyweight (disk walks, offsetlog
- *                    reads, segment metadata, behind-byte calculations);
- *                    the dashboard reads this, not list.
- *   restart       — request restart for one or more worker types.
- *   heartbeat     — refresh an SSE slot for the current user.
+ *   list           — minimal worker enumeration (Cli::ls_workers() projection +
+ *                    live cursor positions) for programmatic callers.
+ *   dump_metadata  — full operator-grade 7-field envelope (`{workers[],
+ *                    supervisor, logs[], num_partitions, num_segments,
+ *                    segment_size, timestamp}`) the dashboard reads; heavyweight.
+ *   cleanup_status — diagnostic of what Log_Cleaner sees vs the expected set.
+ *   restart        — request restart for one or more worker types.
+ *   heartbeat      — refresh an SSE slot for the current user.
  *
- * Why split list vs dump_metadata? list is the tight projection programmatic
- * callers want (~one row per partition, minimal data). dump_metadata is the
- * dashboard's introspection payload — segment metadata, cursor positions,
- * lag in bytes, per-input-log status, etc. Mirrors topology-console's
- * `dump_state` vs `list` pattern: same data tree, different read shapes.
- *
- * Dependencies are injected via the constructor so tests can stub Cli
- * and Cache without touching the substrate's request-scope graph; this
- * mirrors the dependency-injection pattern other M2 CIs adopted.
+ * Cli + Cache are constructor-injected so tests can stub them.
  *
  * @package Newspack_Nodes
  */
@@ -54,22 +36,11 @@ class Workers_CI extends Service_CI {
 	/**
 	 * Build a Workers_CI bound to the supplied Cli + Cache.
 	 *
-	 * @param object      $cli   Anything exposing `ls_workers()`, `live_position(?$cache, $type, $partition)`,
-	 *                            and `restart_workers(array $workers, array $filter, int $partition)`.
-	 *                            Production passes \Newspack_Nodes\Cli; tests pass anon classes that
-	 *                            duck-type the same surface.
-	 * @param object|null $cache Anything exposing `touch_sse_slot($user_id, $ip_hash, $slot, $ttl, $partition)`
-	 *                            (for the heartbeat verb) plus `is_available()` + `get(string)` (for the
-	 *                            dump_metadata verb's live-position lookup). Production passes the
-	 *                            application's Cache_Interface implementation (e.g. Memcached_Cache);
-	 *                            tests pass a FakeMemcached or anon stub. Null disables the heartbeat
-	 *                            verb and forces dump_metadata to fall back to on-disk offsetlog reads
-	 *                            exclusively.
+	 * @param object      $cli   Duck-types Cli: `ls_workers()`, `live_position()`, `restart_workers()`.
+	 * @param object|null $cache Cache_Interface-shaped (`touch_sse_slot`, `is_available`, `get`); null
+	 *                           disables heartbeat and forces offsetlog-only cursor reads.
 	 */
 	public function __construct( object $cli, ?object $cache = null ) {
-		// Node + CommandInterpreter have no explicit __construct, so the
-		// inherited no-op is implicit. Mirrors RequestBuilder /
-		// FlameBuilder, which extend Node and also skip the parent call.
 		$this->commands( $this->verb_table( $cli, $cache ) );
 	}
 
@@ -88,10 +59,8 @@ class Workers_CI extends Service_CI {
 				return self::collect_dump_metadata( $cache );
 			},
 			'cleanup_status' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): array {
-				// Diagnostic: surface every input Log_Cleaner reads when it
-				// decides whether to delete on-disk log dirs. Lets operators
-				// answer "the dashboard shows orphan logs — why isn't the
-				// sweep cleaning them?" without shell access.
+				// Diagnostic: surface what Log_Cleaner reads when deciding which
+				// log dirs to delete, so operators can debug orphan-log sweeps.
 				self::require_manage_options();
 				$config        = RuntimeConfig::load_config();
 				$base_dir      = (string) ( $config['base_directory'] ?? '/tmp/newspack-nodes' );
@@ -171,12 +140,9 @@ class Workers_CI extends Service_CI {
 	// -------------------------------------------------------------------------
 
 	/**
-	 * Build the full 7-field operator-grade envelope. Mirror of
-	 * WorkersController::get_workers() — same field shapes, same disk-walk
-	 * choreography, same memcache-first fallback-to-offsetlog cursor lookup.
+	 * Build the full 7-field operator-grade envelope.
 	 *
-	 * @param object|null $cache Cache_Interface-shaped instance, or null to
-	 *                            skip memcache cursor lookups (offsetlog only).
+	 * @param object|null $cache Cache_Interface-shaped, or null for offsetlog-only cursor reads.
 	 * @return array<string,mixed> Envelope ready for wp_json_encode.
 	 */
 	private static function collect_dump_metadata( ?object $cache ): array {
@@ -325,15 +291,11 @@ class Workers_CI extends Service_CI {
 	}
 
 	/**
-	 * Build the per-worker rich descriptor. Mirror of
-	 * WorkersController::build_worker_status with added `live`/`stale`/
-	 * `heartbeat_at` fields surfaced from the heartbeat file's mtime so
-	 * the dashboard can render the Cli-style status badges without a
-	 * separate `list` round-trip.
+	 * Build the per-worker rich descriptor, adding `live`/`stale`/`heartbeat_at`
+	 * from the heartbeat mtime so the dashboard renders status badges in one round-trip.
 	 *
 	 * @param object|null $cache    Cache_Interface-shaped instance for live cursor lookups (or null).
-	 * @param string      $base_dir Substrate base directory (passed in so live-position
-	 *                               key matches the legacy controller's key shape exactly).
+	 * @param string      $base_dir Substrate base directory.
 	 */
 	private static function build_worker_status(
 		string $type,
@@ -348,9 +310,8 @@ class Workers_CI extends Service_CI {
 		?object $cache,
 		string $base_dir
 	): array {
-		// Workers without a local tail (e.g. aggregator pulls remote feeds
-		// via SSE) have no Partition to scan; skip the segment lookup and
-		// report zeroed stats so the dashboard renders a clean row.
+		// Workers without a local tail (e.g. SSE aggregator pulls) have no Partition;
+		// skip the segment lookup and report zeroed stats.
 		if ( '' === $input_log ) {
 			$segments      = [];
 			$total_size    = 0;
@@ -362,14 +323,12 @@ class Workers_CI extends Service_CI {
 			$segments      = $partition_obj->get_segments();
 			$total_size    = (int) \array_sum( \array_column( $segments, 'size' ) );
 
-			// Cursor: live position from memcache; falls back to the on-disk
-			// offsetlog when memcache is unreachable or absent.
+			// Cursor: live memcache position, falling back to the on-disk offsetlog.
 			$cursor        = self::get_live_position( $type, $partition, $input_log, $cache, $base_dir );
 			$cursor_seg    = (int) ( $cursor['seg'] ?? 0 );
 			$cursor_offset = (int) ( $cursor['off'] ?? 0 );
 
-			// Bytes-behind: walk segments at/after cursor_seg, summing
-			// remaining bytes.
+			// Bytes-behind: sum remaining bytes in segments at/after cursor_seg.
 			$behind        = 0;
 			$found_current = false;
 			foreach ( $segments as $seg ) {
@@ -401,11 +360,8 @@ class Workers_CI extends Service_CI {
 				}
 			}
 		}
-		// `live` and `stale` are the Cli::ls_workers()-style projections of
-		// the same heartbeat state — surfaced on the descriptor so the
-		// dashboard doesn't need a second `list` round-trip to render the
-		// status badges. `stale=true` when the heartbeat exists but is
-		// older than stale_timeout (= the Cli's "stale" classification).
+		// `live`/`stale`: Cli::ls_workers()-style heartbeat projections surfaced here so the
+		// dashboard skips a second `list` round-trip. stale = heartbeat older than stale_timeout.
 		$live  = ( 'running' === $status );
 		$stale = ( ! $live && null !== $heartbeat_age );
 
@@ -431,11 +387,8 @@ class Workers_CI extends Service_CI {
 	}
 
 	/**
-	 * Build the supervisor descriptor: status (`running` / `dead`),
-	 * heartbeat age, started_at, restart_pending. The supervisor is the
-	 * only worker that doesn't run as a partition fleet, so it has its
-	 * own descriptor shape (no `partition` field) and its own restart
-	 * path (`Cli::restart_supervisor()`).
+	 * Build the supervisor descriptor (status, heartbeat age, started_at,
+	 * restart_pending). Singleton, so no `partition` field.
 	 */
 	private static function build_supervisor_status( string $lock_dir, int $now ): array {
 		$status        = 'dead';
@@ -461,10 +414,8 @@ class Workers_CI extends Service_CI {
 	}
 
 	/**
-	 * Union the per-Partition `segment_size` overrides declared across every
-	 * active topology. Same basename in two topologies → last-write-wins;
-	 * topologies in practice don't collide on per-log overrides, but the
-	 * fallback is harmless because TSL parsing is deterministic.
+	 * Union the per-Partition `segment_size` overrides across every active
+	 * topology (last-write-wins on basename collision).
 	 *
 	 * @return array<string,int> `{basename => int}` (basename without `.log`).
 	 */
@@ -488,14 +439,9 @@ class Workers_CI extends Service_CI {
 	}
 
 	/**
-	 * Walk `{logs_dir}/*.log/` and return one entry per log. Each entry's
-	 * `partitions[]` covers slots `0..max( num_partitions, max-on-disk + 1 )`,
-	 * which is the union of "configured" (so freshly-bumped partitions show
-	 * up before they're written) and "on disk" (so orphan partitions left
-	 * over when num_partitions shrinks remain visible). Cursor fields are
-	 * omitted here; the frontend overlays them from `workers[]`. Per-log
-	 * `segment_size` reflects any literal-int override declared in the
-	 * topology's Partition line; otherwise the global default applies.
+	 * Walk `{logs_dir}/*.log/` and return one entry per log, covering the union
+	 * of configured and on-disk partition slots. Cursor fields are overlaid by
+	 * the frontend; per-log `segment_size` honors any TSL literal override.
 	 *
 	 * @param array<string,int> $segment_size_overrides `{basename => int}` map.
 	 * @return array<int,array{name:string,partitions:array,segment_size:int}>
@@ -547,9 +493,7 @@ class Workers_CI extends Service_CI {
 						'total_size' => $status['total_size'] ?? 0,
 					];
 				} else {
-					// Padded slot — configured partition with no on-disk
-					// dir yet. Skip the scandir + filesize loop and emit
-					// an empty entry inline.
+					// Padded slot: configured partition with no on-disk dir yet — emit empty inline.
 					$partitions[] = [
 						'partition'  => $p,
 						'segments'   => [],
@@ -568,13 +512,9 @@ class Workers_CI extends Service_CI {
 	}
 
 	/**
-	 * Scan a log's segment directory and return the per-log status block
-	 * used by `inputs_status` / `outputs_status`. Cursor fields are
-	 * included only when both `$cursor_seg` and `$cursor_offset` are
-	 * non-null — the React `LogSection` treats absent cursor data as
-	 * "output-only" (all segments rendered green).
-	 *
-	 * Mirror of WorkersController::build_log_status_entry.
+	 * Scan a log's segment directory and return the per-log status block for
+	 * `inputs_status` / `outputs_status`. Cursor fields included only when both
+	 * `$cursor_seg` and `$cursor_offset` are non-null (else the UI treats it as output-only).
 	 */
 	private static function build_log_status_entry(
 		string $log_name,
@@ -622,12 +562,8 @@ class Workers_CI extends Service_CI {
 	}
 
 	/**
-	 * Live cursor lookup. Prefer memcache (workers publish positions every
-	 * ~10s under `np:pos:{host}:{source_path}:p{N}`); fall back to reading
-	 * the Consumer's offsetlog directly.
-	 *
-	 * Mirror of WorkersController::get_live_position, kept on this class
-	 * so deletion of the legacy controller doesn't orphan the lookup.
+	 * Live cursor lookup: prefer memcache (`np:pos:{host}:{source_path}:p{N}`),
+	 * fall back to the Consumer's offsetlog.
 	 *
 	 * @return array{seg:int, off:int}|null
 	 */
@@ -636,9 +572,7 @@ class Workers_CI extends Service_CI {
 		$host        = \gethostname() ?: 'unknown';
 		$cache_key   = "np:pos:{$host}:{$source_path}:p{$partition}";
 
-		// `is_available` + `get` are the Cache_Interface contract; null
-		// `$cache` (e.g. test that doesn't wire one) skips straight to
-		// the offsetlog.
+		// `is_available` + `get` are the Cache_Interface contract; null cache skips to the offsetlog.
 		if ( null !== $cache && \method_exists( $cache, 'is_available' ) && $cache->is_available() ) {
 			$val = $cache->get( $cache_key );
 			if ( \is_array( $val ) && isset( $val['seg'], $val['off'] ) ) {
@@ -649,13 +583,9 @@ class Workers_CI extends Service_CI {
 	}
 
 	/**
-	 * Scan `{base}/offsets/` and return one entry per active Consumer.
-	 *
-	 * Each Consumer publishes its name + target + worker_type into its
-	 * offsetlog on every checkpoint (see Consumer::checkpoint), so the
-	 * latest entry of each `{source}.p{N}/` directory tells the dashboard
-	 * everything it needs to render a per-Consumer row without hardcoding
-	 * a per-worker-type inputs/outputs map.
+	 * Scan `{base}/offsets/` and return one entry per active Consumer. Each
+	 * Consumer's latest checkpoint carries name/target/worker_type, enough to
+	 * render a per-Consumer row without a hardcoded map.
 	 *
 	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,partition:int,seg:int,off:int,ts:float}>
 	 */
@@ -683,8 +613,7 @@ class Workers_CI extends Service_CI {
 			if ( null === $row ) {
 				continue;
 			}
-			// Skip entries that pre-date the metadata addition (no
-			// worker_type means we can't attribute the row to a worker).
+			// Skip entries pre-dating the metadata addition (no worker_type to attribute the row).
 			if ( '' === ( $row['worker_type'] ?? '' ) ) {
 				continue;
 			}
@@ -704,11 +633,9 @@ class Workers_CI extends Service_CI {
 	}
 
 	/**
-	 * Read the latest committed offsetlog entry and return its VALUE array
-	 * (or null if empty/unreadable). Each Consumer's offsetlog is itself a
-	 * single-partition Partition (Consumer constructs it as `new Partition(
-	 * $dir, 0 )`). The OUTER `{source}.p{N}/` dir name encodes the spoke
-	 * partition; the inner Partition is always p0.
+	 * Read the latest committed offsetlog entry's VALUE array (null if
+	 * empty/unreadable). The offsetlog is itself a single-partition Partition (p0);
+	 * the outer `{source}.p{N}/` dir name encodes the spoke partition.
 	 *
 	 * @return array<string,mixed>|null
 	 */

@@ -1,8 +1,5 @@
 /**
- * Tests for the dashboard format utilities.
- *
- * Covers status/duration color + class lookups, hex→rgba, formatDuration's
- * unit cascade, and getStateColor's hook/plugin/custom suffix handling.
+ * Tests for the dashboard format utilities (color/class lookups, hex->rgba, formatDuration, getStateColor).
  */
 
 import {

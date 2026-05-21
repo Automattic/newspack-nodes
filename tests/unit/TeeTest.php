@@ -187,9 +187,9 @@ class TeeTest extends TestCase {
 		$this->assertCount( 1, $reply_sink->captured );
 		$reply = $reply_sink->captured[0];
 		$this->assertSame(
-			Message::TM_REQUEST | Message::TM_RESPONSE | Message::TM_STRUCT,
+			Message::TM_STRUCT | Message::TM_RESPONSE,
 			$reply[ Message::TYPE ],
-			'reply TYPE must include TM_REQUEST|TM_RESPONSE|TM_STRUCT'
+			'reply TYPE must be TM_STRUCT|TM_RESPONSE'
 		);
 		$this->assertSame( 'tee', $reply[ Message::FROM ], 'reply FROM = Tee name' );
 		$this->assertSame( 'asker', $reply[ Message::TO ], 'reply TO walks breadcrumb back' );
@@ -198,31 +198,6 @@ class TeeTest extends TestCase {
 		$this->assertSame( 'GET_TARGETS', $reply[ Message::VALUE ]['verb'] );
 		$this->assertSame( 2, $reply[ Message::VALUE ]['data']['count'] );
 		$this->assertSame( [ 'alive-a', 'alive-b' ], $reply[ Message::VALUE ]['data']['targets'] );
-	}
-
-	public function test_fill_TM_REQUEST_with_TM_RESPONSE_falls_through_to_fanout(): void {
-		// TM_REQUEST | TM_RESPONSE is an in-flight reply — must NOT be
-		// re-handled. Falls through to the normal fan-out path.
-		$router = new Router();
-		$router->name( '_router' );
-
-		$alive = new CaptureSink();
-		$alive->name( 'alive' );
-
-		$tee = new Tee();
-		$tee->name( 'tee' );
-		$tee->sink( $router );
-		$tee->connect_node( 'alive' );
-
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_REQUEST | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = 'GET_TARGETS';
-		$tee->fill( $msg );
-
-		// alive received the forwarded message (fan-out branch ran).
-		$this->assertCount( 1, $alive->captured, 'TM_REQUEST|TM_RESPONSE must fan out, not reply' );
-		// VALUE preserved — handle_request would have replaced it with array shape.
-		$this->assertSame( 'GET_TARGETS', $alive->captured[0][ Message::VALUE ] );
 	}
 
 	public function test_fill_TM_REQUEST_GET_TARGETS_empty_target_list(): void {

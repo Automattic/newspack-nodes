@@ -49,7 +49,7 @@ The function strips query strings (`explode('?', $key, 2)[0]`) before hashing. D
 Forward direction: `TO=$this->target` (Node::fill stamps it if empty).
 Reverse direction (any response, error, ack): `TO=$message[FROM]`.
 
-The `target/sink/edge` distinction matters: `sink` is the physical "where the message goes by default," `target` is the logical "where TO will be set if empty," `edge` is the alternate physical output. A diff that conflates these is a smell.
+The `sink`/`target` distinction matters: `sink` is the physical next node `fill()` forwards to; `target` is the logical destination — a path string stamped into `message[TO]` only when TO is empty (Tachikoma's `owner`; there is no `edge` in this port). `_router` resolves a non-empty TO. A diff that conflates these — or invents an `edge` property — is a smell.
 
 ### 6. Worker lifecycle ordering
 

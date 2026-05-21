@@ -1,27 +1,7 @@
 /**
- * SessionSink — the in-browser graph node the SseConnector fills each frame
- * into. It replaces TopologyConsole's procedural handleMessage and owns the
- * shared REPL transcript.
- *
- * Routing by KEY (preserving the old handleMessage semantics exactly):
- *   - 'gui:auto'  → response to a silent canvas poll; parseMetadata and
- *     publish via setState('metadata', graph). Never the transcript.
- *   - 'gui:uptime' → keep the right half of the `uptime` line and publish
- *     via setState('uptime', text). Never the transcript.
- *   - everything else (gui:typed, async broadcasts) → run through the
- *     Dumper-style renderer (with optional debug_level header injection) and
- *     append to the transcript ring buffer, publishing via
- *     setState('transcript', snapshot).
- *
- * The transcript is shared: REPL command echoes and error/info lines come
- * from TopologyConsole via append(), and the `clear` builtin via clear().
- * Both write the same buffer the incoming-message path writes, so ordering
- * is preserved. Every publish emits a FRESH array so useNodeState's
- * Object.is bail-out doesn't swallow updates.
- *
- * fill() accepts the raw positional Message array the SseConnector delivers
- * (`[TYPE,TIMESTAMP,FROM,TO,ID,KEY,VALUE]`) and normalizes it to the object
- * form `{ type, ts, from, to, id, key, value }` its routing + dumperRender use.
+ * SessionSink — the in-browser graph node the SseConnector fills, owning the
+ * shared REPL transcript. Routes by KEY: gui:auto → metadata, gui:uptime →
+ * uptime, everything else → transcript. Every publish emits a fresh array.
  */
 
 import { Node } from '../../runtime/node';
@@ -47,15 +27,11 @@ export const TRANSCRIPT_MAX = 200;
 export class SessionSink extends Node {
 	/**
 	 * @param {Object} params
-	 * @param {Object} params.debugLevelRef React ref (`{ current }`) holding the
-	 *                                      Dumper verbosity dial (0/1/2). Read
-	 *                                      synchronously on each fill.
+	 * @param {Object} params.debugLevelRef Ref holding the Dumper dial (0/1/2).
 	 */
 	constructor( { debugLevelRef } ) {
 		super();
 		this.debugLevelRef = debugLevelRef || { current: 0 };
-		// Mutable backing store for the transcript; published as fresh
-		// snapshots via setState('transcript', …).
 		this._transcript = [];
 		// Pre-declare the events React subscribes to via useNodeState.
 		this.registrations.metadata = {};
@@ -64,18 +40,13 @@ export class SessionSink extends Node {
 	}
 
 	/**
-	 * Process one incoming SSE msg (object shape). Synchronous so a burst
-	 * can't be coalesced away.
+	 * Process one incoming SSE msg (synchronous so bursts aren't coalesced).
 	 *
-	 * @param {Array|Object} raw The positional Message array
-	 *                           `[TYPE,TIMESTAMP,FROM,TO,ID,KEY,VALUE]` that
-	 *                           SseConnector fills, or the equivalent object
-	 *                           `{ type, ts, from, to, id, key, value }`.
+	 * @param {Array|Object} raw Positional Message array or object form.
 	 */
 	fill( raw ) {
 		this.counter += 1;
-		// SseConnector fills the raw positional Message array; the rest of this
-		// node (and dumperRender) speaks the object shape, so normalize once.
+		// Normalize the positional array to the object shape the rest uses.
 		const msg = Array.isArray( raw )
 			? {
 					type: raw[ TYPE ],
@@ -114,13 +85,8 @@ export class SessionSink extends Node {
 			return;
 		}
 
-		// gui:auto polls only ever emit `dump_metadata`. Per the command
-		// protocol contract the response VALUE rides the whole-message
-		// envelope as a nested object, so `value.payload` is the metadata
-		// OBJECT directly — hand it to parseMetadata (object-in). Fall back
-		// to the bare `value` (when it IS the metadata object) or the
-		// string `text`; parseMetadata degrades malformed input to an empty
-		// graph.
+		// gui:auto carries dump_metadata; prefer value.payload, fall back to
+		// value or text. parseMetadata degrades malformed input to an empty graph.
 		let meta = null;
 		if ( value && 'object' === typeof value ) {
 			meta =
@@ -138,7 +104,6 @@ export class SessionSink extends Node {
 
 	/**
 	 * Append a caller-supplied transcript entry (REPL echo / error / info).
-	 * Shares the same ring buffer as incoming messages so ordering holds.
 	 *
 	 * @param {Object} entry `{ kind, text }`.
 	 */
@@ -157,16 +122,10 @@ export class SessionSink extends Node {
 	// --- internals -------------------------------------------------------
 
 	_renderToTranscript( msg ) {
-		// `debug_level 1+` injects a header BEFORE the curated render — same
-		// shape the substrate Dumper produces. The header always appears
-		// regardless of whether the curated render would suppress the
-		// message (e.g. TM_EOF at level 0 returns null), so observers can
-		// see EVERY arrival at level 1+.
+		// debug_level 1+ injects a header so observers see every arrival.
 		const level = this.debugLevelRef.current;
 		if ( level >= 2 ) {
-			// Level 2 REPLACES the normal render — the envelope dump is the
-			// whole payload. Matches the substrate Dumper's
-			// `if ($debug_level >= 2) { ... return; }`.
+			// Level 2 replaces the normal render with the full envelope dump.
 			this._push( { kind: 'info', text: buildDebugHeader2( msg ) } );
 			return;
 		}

@@ -1,11 +1,5 @@
 /**
  * REPL footer — collapsible transcript + prompt + command input + status.
- *
- * Transcript surfaces worker output: command echoes (kind='sent'),
- * responses (kind='recv'), errors (kind='error'), info lines
- * (kind='info'). Expanded by default; the ▼ toggle minimizes back to
- * the bare 38px bar so the user can reclaim canvas real estate.
- * Auto-scrolls to the latest entry when growing.
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
@@ -17,11 +11,7 @@ const STATUS_LABELS = {
 	closed: 'CLOSED',
 };
 
-// Transcript pane sizing. Default = 20% of the canvas area (the row
-// between the WP admin bar + header above and the 38px bar below).
-// Operator can drag the top edge to taste; min keeps a few lines
-// visible, max fills the canvas. Persisted to localStorage so the
-// preference survives reloads.
+// Transcript pane sizing; default 20% of canvas, drag-resizable, persisted.
 const HEIGHT_STORAGE_KEY = 'newspack-nodes:topology-console:repl-height';
 const HEIGHT_MIN_PX = 80;
 const FIXED_CHROME_PX = 134; // 32 (WP admin bar) + 64 (header) + 38 (bar)
@@ -79,13 +69,8 @@ export default function ReplFooter( {
 	);
 	const dragState = useRef( null );
 
-	// Click anywhere in the transcript pane = refocus the input. Standard
-	// terminal UX — the user expects to keep typing after glancing at
-	// output. Don't steal focus when the click was on a text selection
-	// (we want copy/paste to work), or when it hit one of the action
-	// buttons (their own handlers do the right thing). Uses the
-	// transcript element's ownerDocument so the linter's
-	// no-global-get-selection rule is happy.
+	// Click in the transcript refocuses the input, unless on a selection
+	// or a button (preserves copy/paste; via ownerDocument for the linter).
 	const handleTranscriptClick = ( ev ) => {
 		const win = ev.currentTarget.ownerDocument?.defaultView;
 		const selection = win?.getSelection();
@@ -101,19 +86,14 @@ export default function ReplFooter( {
 	const statusLabel =
 		STATUS_LABELS[ streamStatus ] || streamStatus.toUpperCase();
 
-	// Auto-scroll to the newest entry when the transcript grows. Only
-	// runs when the panel is open; collapsed panel just shows the most
-	// recent line as a peek above the input.
+	// Auto-scroll to the newest entry when the open transcript grows.
 	useEffect( () => {
 		if ( expanded && logRef.current ) {
 			logRef.current.scrollTop = logRef.current.scrollHeight;
 		}
 	}, [ transcript, expanded ] );
 
-	// Esc minimizes the transcript when it's open. Document-level so
-	// it works whether the user is focused on the input, the canvas,
-	// or anywhere else on the page. Listener only attaches while
-	// expanded — no cost when minimized.
+	// Esc minimizes the open transcript (document-level).
 	useEffect( () => {
 		if ( ! expanded ) {
 			return undefined;
@@ -122,13 +102,7 @@ export default function ReplFooter( {
 			if ( ev.key === 'Escape' ) {
 				ev.preventDefault();
 				setExpanded( false );
-				// Drop focus off the REPL input so the document-level
-				// `/` handler below can fire on the next keystroke and
-				// reopen the transcript. Without this, focus stays on
-				// the input (it's still in the DOM, just visually
-				// minimized behind the bar), `/` is treated as literal
-				// text, and the operator has to click out before the
-				// shortcut works again.
+				// Blur the input so the `/` shortcut below fires next keystroke.
 				inputRef.current?.blur();
 			}
 		};
@@ -137,12 +111,7 @@ export default function ReplFooter( {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ expanded ] );
 
-	// `/` from anywhere in the live view focuses the REPL input — same
-	// shortcut convention as Discord/Slack/vim search. Skip when the
-	// operator is already typing into an editable element (input,
-	// textarea, contenteditable, or the REPL input itself) so the
-	// literal `/` keystroke isn't stolen mid-edit. Also auto-expands
-	// the transcript so the operator sees command output.
+	// `/` focuses the REPL input (skipped while typing in an editable element).
 	useEffect( () => {
 		const handler = ( ev ) => {
 			if ( ev.key !== '/' || ev.ctrlKey || ev.metaKey || ev.altKey ) {
@@ -159,8 +128,7 @@ export default function ReplFooter( {
 			}
 			ev.preventDefault();
 			setExpanded( true );
-			// Defer so the transcript expand reflow doesn't steal focus
-			// back; rAF is enough — the input is already in the DOM.
+			// Defer past the expand reflow so it doesn't steal focus back.
 			window.requestAnimationFrame( () => inputRef.current?.focus() );
 		};
 		document.addEventListener( 'keydown', handler );
@@ -168,11 +136,7 @@ export default function ReplFooter( {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [] );
 
-	// Drag-to-resize the transcript pane via the top-edge handle.
-	// pageY decreases as the operator drags up → height grows; opposite
-	// when dragging down. Clamped to [HEIGHT_MIN_PX, maxHeight()] so
-	// the pane can't be dragged smaller than ~80px (no readable area)
-	// or larger than the canvas itself.
+	// Drag the top edge to resize, clamped to [HEIGHT_MIN_PX, maxHeight()].
 	const handleResizeStart = useCallback(
 		( ev ) => {
 			ev.preventDefault();
@@ -201,10 +165,7 @@ export default function ReplFooter( {
 				document.body.style.userSelect = '';
 				document.body.style.cursor = '';
 			};
-			// Suppress text selection + force the resize cursor across
-			// the whole document while dragging — without these, fast
-			// drags select transcript text and the cursor flickers as it
-			// moves over canvas elements.
+			// Suppress selection + force the resize cursor document-wide while dragging.
 			document.body.style.userSelect = 'none';
 			document.body.style.cursor = 'ns-resize';
 			document.addEventListener( 'mousemove', onMove );
@@ -217,14 +178,12 @@ export default function ReplFooter( {
 		try {
 			window.localStorage.setItem( HEIGHT_STORAGE_KEY, String( height ) );
 		} catch ( _e ) {
-			// Private-mode / quota errors are non-fatal — the height
-			// just won't persist across reload.
+			// Private-mode/quota errors are non-fatal; height just won't persist.
 		}
 	}, [ height ] );
 
 	function handleKeyDown( ev ) {
-		// Ctrl+L (or Cmd+L on macOS): clear the transcript, terminal-style.
-		// The cli's readline binding does the same.
+		// Ctrl/Cmd+L clears the transcript, terminal-style.
 		if (
 			( ev.ctrlKey || ev.metaKey ) &&
 			( ev.key === 'l' || ev.key === 'L' )
@@ -243,18 +202,12 @@ export default function ReplFooter( {
 		if ( ! trimmed ) {
 			return;
 		}
-		// Pass the raw line up — the parent runs it through
-		// shell so the same shell layer drives every code
-		// path (local builtins included).
+		// Pass the raw line up; the parent runs it through shell.
 		onSubmit( trimmed );
 		setValue( '' );
 		setExpanded( true );
 	}
 
-	// Show the transcript pane whenever the user has explicitly
-	// expanded it — even if it's empty. Initial render is minimized,
-	// so an empty pane only appears after a click on ▲ or after the
-	// first command auto-opens; either way the user asked for it.
 	const showTranscript = expanded;
 
 	return (
@@ -273,21 +226,9 @@ export default function ReplFooter( {
 						aria-label="Resize transcript"
 						role="separator"
 						aria-orientation="horizontal"
-						// Sibling of the transcript (not nested inside it),
-						// so the handle stays anchored to the visible top
-						// edge of the pane regardless of how far the
-						// operator has scrolled the transcript contents.
-						// Vertically centered on the transcript's top
-						// border by offsetting half the handle's height
-						// past the bar+transcript stack.
+						// Sibling of the transcript so it stays anchored to the top edge.
 						style={ { bottom: `${ height + 38 - 3 }px` } }
 					/>
-					{ /* The transcript is a passive display region; the click
-					     handler is a UX nicety (focus the input) and doesn't
-					     make this an "interactive element" in the a11y sense.
-					     Keyboard users already have the input focused from the
-					     start and can re-Tab to it; they don't need a key
-					     binding on the transcript itself. */ }
 					{ /* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */ }
 					<div
 						className="topology-repl__transcript"
@@ -351,12 +292,8 @@ export default function ReplFooter( {
 					value={ value }
 					onChange={ ( ev ) => setValue( ev.target.value ) }
 					onKeyDown={ handleKeyDown }
-					// Focus → show transcript. The reverse half of the
-					// invariant (blur → hide) is handled explicitly by the
-					// canvas-background-click consumer + Escape handler;
-					// using onBlur here would also fire when focus moves to
-					// a node click / Inspector button, collapsing the pane
-					// when we don't want it to.
+					// Focus → show transcript; blur→hide is handled elsewhere
+					// (onBlur here would fire on node/Inspector clicks too).
 					onFocus={ () => setExpanded( true ) }
 					disabled={ ! canSend }
 					autoComplete="off"

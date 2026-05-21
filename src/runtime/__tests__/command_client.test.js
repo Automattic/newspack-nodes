@@ -3,8 +3,7 @@ import { TYPE, FROM, TO, KEY, VALUE, TM_COMMAND } from '../message';
 
 beforeEach( () => {
 	global.fetch = jest.fn().mockResolvedValue( {
-		// Response VALUE rides as a nested object — the only JSON layer is
-		// the whole-message envelope (fetch's .json() parses it back).
+		// Response VALUE is a nested object (the whole-message envelope is the only JSON layer).
 		json: async () => [
 			16,
 			1.23,
@@ -32,27 +31,21 @@ test( 'send defaults FROM=_http for local commands', async () => {
 	expect( url ).toBe( 'https://test/wp-json/newspack-nodes/v1/command' );
 	expect( opts.method ).toBe( 'POST' );
 	expect( opts.headers[ 'X-WP-Nonce' ] ).toBe( 'NONCE' );
-	// Non-JSON content type: the body is JSONL, and `application/json` would
-	// make WP's REST dispatcher 400 it as invalid JSON before our handler runs.
+	// Non-JSON content type so WP doesn't 400 the JSONL body.
 	expect( opts.headers[ 'Content-Type' ] ).toBe(
 		'text/plain; charset=UTF-8'
 	);
 	const msg = JSON.parse( opts.body );
-	// Controller requires a packed 7-element positional Message
-	// (Message::unpacked()); the body is that array, not a keyed object.
+	// Body is a packed 7-element positional Message, not a keyed object.
 	expect( Array.isArray( msg ) ).toBe( true );
 	expect( msg ).toHaveLength( 7 );
 	expect( msg[ TYPE ] ).toBe( TM_COMMAND );
 	expect( msg[ TO ] ).toBe( 'performance' );
 	expect( msg[ FROM ] ).toBe( '_http' );
-	// VALUE is the structured command object itself — it rides through the
-	// whole-message JSON envelope as a nested object, never separately
-	// stringified. Reading the parsed body's VALUE yields that object.
+	// VALUE is the structured command object directly (no separate stringify).
 	const value = msg[ VALUE ];
 	expect( value.name ).toBe( 'overview' );
-	// `arguments` is a literal-string CLI tail (default '' when caller passes
-	// structured data via `payload` instead). `payload` carries the actual
-	// args object — no JSON-string-in-string nesting.
+	// `arguments` is the CLI tail; `payload` carries structured args.
 	expect( value.arguments ).toBe( '' );
 	expect( value.payload ).toEqual( { range: '1h' } );
 } );
@@ -88,7 +81,7 @@ test( 'buildMessage returns a positional 7-element TM_COMMAND Message', () => {
 	expect( msg[ TYPE ] ).toBe( TM_COMMAND );
 	expect( msg[ TO ] ).toBe( 'demo.p0' );
 	expect( msg[ FROM ] ).toBe( '_http/7' );
-	// VALUE is the command object directly — no inner JSON layer.
+	// VALUE is the command object directly (no inner JSON).
 	expect( msg[ VALUE ].name ).toBe( 'dump_metadata' );
 } );
 

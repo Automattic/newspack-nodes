@@ -2,12 +2,9 @@
 /**
  * CommandInterpreter: graph builder + shell vocabulary dispatch.
  *
- * One per process, named `_command_interpreter`. Auto-sink default for every make_node
- * (matches real Tachikoma; see prototype Nodes/CommandInterpreter.php:319). Forwards
- * non-TM_COMMAND messages to its sink, which is typically `_router`.
- *
- * Vocabulary lives in a static dispatch table ($C) — state-machine pattern, efficiency
- * principle "table-driven dispatch."
+ * One per process (`_command_interpreter`), auto-sink default for every make_node.
+ * Forwards non-TM_COMMAND messages to its sink (typically `_router`). Vocabulary
+ * lives in a static dispatch table ($C).
  *
  * @package Newspack_Nodes
  */
@@ -18,19 +15,14 @@ namespace Newspack_Nodes;
 
 class CommandInterpreter extends Node {
 	/**
-	 * Default verb table — shared template the bare `_command_interpreter`
-	 * starts from. Patron-linked sibling CIs (auto-created by
-	 * configurable Node ctors) overwrite their own copy via the
-	 * `commands()` setter, leaving this table untouched.
+	 * Shared default verb table the bare `_command_interpreter` starts from.
 	 *
 	 * @var array<string,callable>|null Verb → handler. Initialized lazily.
 	 */
 	private static ?array $C = null;
 
 	/**
-	 * Per-command help text. Multi-line strings shown by the `help` command,
-	 * mirrors `$H{...}` in real Tachikoma's CommandInterpreter.pm. Keyed by the
-	 * canonical verb; aliases share entries via the dispatch table.
+	 * Per-command help text shown by `help`, keyed by canonical verb.
 	 *
 	 * @var array<string,string>|null
 	 */
@@ -40,11 +32,7 @@ class CommandInterpreter extends Node {
 	private static array $class_map = [];
 
 	/**
-	 * Per-instance verb table. Defaults to the shared
-	 * `self::$C` template; patron-linked siblings (e.g.
-	 * `requests:partition:config`) install their own table via the
-	 * `commands()` setter at construction time. Lazily resolved so
-	 * the bare ctor doesn't force init_C() into request scope.
+	 * Per-instance verb table; defaults to self::$C, siblings install their own via commands().
 	 *
 	 * @var array<string,callable>|null
 	 */
@@ -55,24 +43,14 @@ class CommandInterpreter extends Node {
 
 		$type = $message[ Message::TYPE ];
 
-		// TM_PING / TM_EOF with empty TO: bounce back along the FROM trail.
-		// Mirrors real Tachikoma CommandInterpreter.pm:94-96 for PING;
-		// TM_EOF round-trip is the drain marker the pivoted-cli relies on
-		// (cli emits TM_EOF on stdin close, waits for the bounce to know
-		// all preceding output has been read off the reply partition before
-		// exiting).
+		// TM_PING / TM_EOF with empty TO: bounce back along the FROM trail (drain marker).
 		if ( ( $type & ( Message::TM_PING | Message::TM_EOF ) ) && '' === $message[ Message::TO ] ) {
 			$message[ Message::TO ] = $message[ Message::FROM ];
 			$this->sink?->fill( $message );
 			return;
 		}
 
-		// Only handle commands addressed at us — empty TO means "for whoever
-		// receives this", which by convention is the local interpreter. A
-		// non-empty TO indicates the message is in transit toward another
-		// node; forward it through the sink so Router can route it. Without
-		// this guard, an intermediate CI on the path (e.g. cd-routed cmds in
-		// pivoted mode) would intercept commands meant for a downstream CI.
+		// Only handle commands with empty TO; non-empty TO forwards so a mid-path CI doesn't eat it.
 		if ( ( $type & Message::TM_COMMAND ) && ! ( $type & Message::TM_RESPONSE ) && '' === $message[ Message::TO ] ) {
 			$this->interpret( $message );
 			return;
@@ -86,10 +64,7 @@ class CommandInterpreter extends Node {
 			$this->drop_message( $message, 'invalid command struct' );
 			return;
 		}
-		// Catch exceptions from any verb handler (typo'd ctor args, missing
-		// node, bad regex, etc.) and turn them into a TM_COMMAND|TM_ERROR
-		// response so the cli renders "ERROR: ..." instead of crashing the
-		// worker. Mirrors Tachikoma CommandInterpreter.pm:error().
+		// Verb handlers throw freely; wrap as TM_COMMAND|TM_ERROR so the cli renders the error.
 		try {
 			$result = $this->dispatch(
 				(string) $cmd['name'],
@@ -103,10 +78,7 @@ class CommandInterpreter extends Node {
 			$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
 		}
 
-		// Route TO=FROM (response walks the breadcrumb trail back). KEY
-		// is application-defined correlation metadata: a GUI client can
-		// stamp KEY on its outgoing TM_COMMAND and recognise the matched
-		// response on the way back regardless of routing order.
+		// Route TO=FROM (walk the breadcrumb back); KEY is client correlation metadata.
 		if ( '' !== $result ) {
 			$response                   = Message::new_message();
 			$response[ Message::TYPE ]  = $resp_type;
@@ -123,23 +95,7 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * Dispatch a verb by name. `$args` is the literal argument-tail string —
-	 * exactly the `arguments` field a TM_COMMAND carried in. `$envelope` is
-	 * the inbound TM_COMMAND message (or `[]` for inline calls) so verbs
-	 * can read FROM/TO/KEY. `$payload` is the optional structured-data
-	 * slot from the command struct (verbs that need it declare a 4th
-	 * parameter; 3-parameter closures silently ignore the extra arg, so
-	 * the legacy `$self, $args, $envelope` shape keeps working unchanged).
-	 *
-	 * Mirrors Tachikoma's contract: `name` and `arguments` are already
-	 * split by Shell (or by the JSON command-struct) by the time we get
-	 * here. CommandInterpreter just looks the verb up and runs it.
-	 *
-	 * Returns the verb's result as a live PHP structure (array/scalar). It is
-	 * NEVER separately json-encoded here — the result rides through the Message
-	 * VALUE field and only the envelope/wire (`Message::packed`/`unpacked`,
-	 * SSE, the REST body) is JSON. The cli Dumper json-encodes array payloads
-	 * at the render boundary for display only.
+	 * Dispatch a verb by name. Result rides the Message VALUE unencoded (never JSON here).
 	 *
 	 * @param string                  $name     Verb name.
 	 * @param string                  $args     Literal arguments tail.
@@ -156,17 +112,14 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * ???
+	 * Register a Node subclass under its shell name for make_node.
 	 */
 	public static function register_class( string $shell_name, string $fqcn ): void {
 		self::$class_map[ $shell_name ] = $fqcn;
 	}
 
 	/**
-	 * Read-only view of the shell-name → FQCN registration map. The
-	 * REST `/classes` endpoint iterates this to build the editor's
-	 * palette; iterating internals from outside is what `register_class`
-	 * is meant to opt out of, so callers go through this getter.
+	 * Read-only view of the shell-name → FQCN registration map.
 	 *
 	 * @return array<string,class-string>
 	 */
@@ -175,9 +128,7 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * Per-instance verb-table accessor. Patron Node ctors call
-	 * `commands(static::config_verbs())` after instantiating their
-	 * sibling CI. Default CI's lookup falls back to `self::$C`.
+	 * Per-instance verb-table accessor; falls back to self::$C.
 	 *
 	 * @param array<string,callable>|null $table Replacement verb table.
 	 * @return array<string,callable>
@@ -233,11 +184,7 @@ class CommandInterpreter extends Node {
 			'dmesg' => "dmesg\n    note: print the recent server-side stderr tail (last 100 lines).\n",
 			'help' => "help [ <topic> ]\n",
 
-			// Shell-level builtins. Documented here so `help` is a single
-			// source of truth for everything the user can type at the prompt.
-			// These never reach the CI dispatch table — Shell intercepts them
-			// before sending a Message — but they're part of the interactive
-			// vocabulary so they belong in `help`.
+			// Shell-level builtins — Shell intercepts these; listed here so `help` is complete.
 			'cd' => "cd [ <path> ]\n    alias: chdir\n    note: empty path resets cwd to the local interpreter.\n",
 			'status' => "status\n    note: print local cli mode summary (no command sent to worker).\n",
 			'tell_node' => "tell_node <path> <info>\n    alias: tell\n    note: emits TM_INFO at prefix(<path>); fire-and-forget broadcast.\n",
@@ -278,33 +225,18 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * `uptime` — clock-time on the left, time-since-Core::reset() on the
-	 * right. Adapted from Tachikoma's format for shorter-lived workers
-	 * (we max out at ~10 minutes per process), so the elapsed portion
-	 * scales with magnitude rather than always rendering `0 days,
-	 * 00:00:42`:
-	 *   < 1 min  → `up Xs`
-	 *   < 1 hr   → `up Xm Ys`
-	 *   < 1 day  → `up Xh Ym`
-	 *   ≥ 1 day  → `up Xd HH:MM:SS`
+	 * `uptime` — UTC clock-time, plus elapsed-since-Core::reset() scaled by magnitude.
 	 */
 	private static function cmd_uptime(): string {
 		$uptime = (int) ( Core::$now - Core::$init_time );
-		// gmdate() (UTC) instead of date() (timezone-dependent): the
-		// runtime-timezone-changes hazard the WordPress.DateTime rule
-		// catches matters less here than predictability across worker
-		// environments. UTC clock + uptime is unambiguous regardless of
-		// where the worker runs.
+		// gmdate (UTC) over date() for predictability across worker timezones.
 		$clock   = \gmdate( 'H:i:s', (int) Core::$now );
 		$elapsed = self::format_uptime( $uptime );
 		return "{$clock}  up {$elapsed}\n";
 	}
 
 	private static function format_uptime( int $seconds ): string {
-		// Trailing components zero-pad to 2 digits ("4m 07s") so the
-		// width stays steady across consecutive ticks. Leading component
-		// stays unpadded — pad-by-position is a tabular concern, not
-		// useful for the first digit of the value.
+		// Trailing components zero-pad to 2 digits so the width stays steady across ticks.
 		if ( $seconds < 60 ) {
 			return \sprintf( '%02ds', $seconds );
 		}
@@ -324,14 +256,9 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * Shell-vocabulary entry: parses `<type> <name> [<ctor_args>...]` from
-	 * the command line and delegates to the instance API. Whitespace-
-	 * separated trailing tokens become variadic constructor arguments —
-	 * since we don't declare `strict_types=1`, PHP coerces string tokens to
-	 * the typed parameter the constructor declares (e.g. `int $partition`).
+	 * Shell entry: parse `<type> <name> [<ctor_args>...]` and delegate to make_node().
 	 *
-	 * Topology code uses the same `make_node()` instance method with native
-	 * PHP types. One construction path, no Node::arguments() round-trip.
+	 * No strict_types, so string tokens coerce to the ctor's typed params.
 	 */
 	private static function cmd_make_node( CommandInterpreter $self, string $args ): string {
 		$parts = \preg_split( '/\s+/', \trim( $args ) );
@@ -345,23 +272,12 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * Instance API used by topology PHP code: construct a registered Node
-	 * subclass with positional ctor args, name it, sink it to this CI, and
-	 * return it. The shell `make_node` verb uses the same code path —
-	 * cmd_make_node just splits its args string and forwards via variadic.
-	 *
-	 * Topology call site:
-	 *   $interpreter->make_node( 'Partition', 'requests:partition',
-	 *       $path, $partition, $segment_size, $num_segments, $max_lifespan );
-	 *
-	 * Returns null when the class shell-name isn't registered. Class
-	 * registration happens via `register_class( $shell_name, $fqcn )`;
-	 * substrate types register themselves at plugin file load.
+	 * Construct a registered Node subclass, name it, sink it to this CI, and return it.
 	 *
 	 * @param string $type      Shell name registered in `$class_map`.
 	 * @param string $name      Unique name for the new node (registered with Core).
 	 * @param mixed  ...$ctor_args Positional constructor arguments.
-	 * @return Node|null
+	 * @return Node|null Null when the shell-name isn't registered.
 	 */
 	public function make_node( string $type, string $name, ...$ctor_args ): ?Node {
 		$fqcn = self::$class_map[ $type ] ?? null;
@@ -371,10 +287,7 @@ class CommandInterpreter extends Node {
 		$node = new $fqcn( ...$ctor_args );
 		$node->name( $name );
 		$node->sink( $this );
-		// Inherit debug_state from this CI so `debug_state 1` followed by
-		// topology setup makes every newly-constructed node trace from birth.
-		// Mirrors Perl Tachikoma CommandInterpreter.pm:
-		//   $node->debug_state( $self->debug_state );
+		// Inherit debug_state so new nodes trace from birth.
 		if ( $this->debug_state() > 0 ) {
 			$node->debug_state( $this->debug_state() );
 		}
@@ -382,10 +295,7 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * `pwd` verb: return ` <args> -> <envelope.from>` so the user sees both
-	 * the cwd that issued the command and the path the response walked back
-	 * along. Mirrors Tachikoma CommandInterpreter.pm:pwd. The Shell builtin
-	 * passes its current path as $args; empty args displays as `/`.
+	 * `pwd` verb: return ` <cwd> -> <envelope.from>`.
 	 */
 	private static function cmd_pwd( string $args, array $envelope ): string {
 		$cwd  = '' === $args ? '/' : $args;
@@ -416,14 +326,7 @@ class CommandInterpreter extends Node {
 		if ( null === $src ) {
 			return "unknown node: $name";
 		}
-		// `connect_node <node>` with no target defaults to the issuing
-		// message's FROM — same as Perl Tachikoma. That's the path back
-		// to whatever cli/SSE session sent the command, so the node's
-		// flow tees into THAT session's Dumper specifically rather than
-		// fanning out to every listener via `_repl`. Stale targets
-		// self-clear when the worker recycles (~10 min in this
-		// deployment), so the lack of a disconnect-on-exit signal
-		// from the client side isn't a real liability.
+		// No target defaults to the issuing message's FROM — tees the node's flow back to that session.
 		if ( '' === $target ) {
 			$target = (string) ( $envelope[ Message::FROM ] ?? '' );
 			if ( '' === $target ) {
@@ -443,12 +346,7 @@ class CommandInterpreter extends Node {
 		if ( null === $src ) {
 			return "unknown node: $name";
 		}
-		// Symmetric to `connect_node`'s default: for a Tee (target()
-		// returns an array), disconnect_node with no target removes
-		// the issuing message's FROM from the fan-out — exactly
-		// undoes a default `connect_node <tee>`. For a single-target
-		// node the existing semantics (empty target clears) is
-		// preserved.
+		// For a Tee, no target removes the issuing FROM from the fan-out (undoes a default connect).
 		if ( '' === $target && \is_array( $src->target() ) ) {
 			$target = (string) ( $envelope[ Message::FROM ] ?? '' );
 			if ( '' === $target ) {
@@ -460,18 +358,7 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * `remove_node <name>` / `remove_node <a> <b> <c>` / `remove_node -a <regex>`.
-	 *
-	 * Mirrors Tachikoma CommandInterpreter.pm:remove_node — single name,
-	 * space-separated list, or anchored-regex glob via -a. Refuses to destroy
-	 * the baseline scaffolding (`_command_interpreter`, `_router`, `_output`)
-	 * or the calling interpreter itself; everything else gets `remove_node()`
-	 * called on it. The Tachikoma JobController-specific guard isn't ported
-	 * because we don't have JobController here.
-	 *
-	 * Returns a multi-line summary so the cli can render which nodes were
-	 * removed and which weren't found. Throws (caught upstream as
-	 * TM_COMMAND|TM_ERROR) only when the args are malformed.
+	 * `remove_node <name>...` or `remove_node -a <regex>`. Refuses to destroy baseline scaffolding.
 	 */
 	private static function cmd_remove_node( CommandInterpreter $self, string $args ): string {
 		$args = \trim( $args );
@@ -489,8 +376,7 @@ class CommandInterpreter extends Node {
 		}
 
 		if ( $list_matches ) {
-			// Anchored regex match. Use `@regex@` so user-supplied / and ^$ don't
-			// need to be escaped. Filter out anything that doesn't match cleanly.
+			// Anchored `@regex@` so user-supplied / and ^$ don't need escaping.
 			$names = [];
 			foreach ( \array_keys( Core::$nodes_by_name ) as $candidate ) {
 				if ( @\preg_match( '@^' . $args . '$@', $candidate ) ) {
@@ -534,10 +420,7 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * Tachikoma `list_nodes` (alias `ls`). Three modes:
-	 *  - default (no args, no -a): nodes whose sink IS this CI ("siblings")
-	 *  - `-a [glob]`: all nodes (or filtered by regex glob)
-	 *  - `<name>` (no -a): nodes whose sink IS the named node
+	 * `list_nodes` (alias `ls`): default=siblings, `-a [glob]`=all, `<name>`=that sink's children.
 	 *
 	 * Flags: `-c` count, `-s` sink, `-t` target, `-l` = -ct.
 	 */
@@ -567,7 +450,6 @@ class CommandInterpreter extends Node {
 			$argv[] = $tok;
 		}
 
-		// Build header row: COUNT NAME [SINK] [TARGET]
 		$dirs   = [];
 		$header = [];
 		$any_extra = $show_count || $show_sink || $show_target;
@@ -579,7 +461,6 @@ class CommandInterpreter extends Node {
 
 		$rows = [];
 
-		// Validate explicit-name targets up front (mode: "ls <name>").
 		if ( ! $list_matches && ! empty( $argv ) ) {
 			foreach ( $argv as $name ) {
 				if ( Core::node( $name ) === null ) {
@@ -652,11 +533,7 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * `log <message>` builtin — emit `$args` through Core's stderr
-	 * pipeline. In a worker the default handler routes to the `_repl`
-	 * conduit (the operator sees the message in their cli session); in
-	 * request scope / tests it falls back to PHP's error_log. Tests
-	 * override the destination via `Core::set_stderr_handler`.
+	 * `log <message>` builtin — emit `$args` through Core's stderr pipeline.
 	 */
 	private static function cmd_log( string $args ): string {
 		Core::stderr( $args );
@@ -664,24 +541,14 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * `dmesg` builtin — dump Core's recent stderr tail (the bounded
-	 * `Core::$recent_log` ring buffer). PHP port of Perl Tachikoma's dmesg
-	 * (join of @RECENT_LOG); each entry already carries its trailing newline.
+	 * `dmesg` builtin — dump Core's recent stderr ring buffer.
 	 */
 	private static function cmd_dmesg(): string {
 		return \implode( '', Core::$recent_log );
 	}
 
 	/**
-	 * Snapshot a node's internal state. Delegates the snapshot to
-	 * `Node::dump_node()` (overridable) so subclasses can redact secrets,
-	 * synthesize derived fields, or hide internals. Optional key-filter
-	 * narrows the dump; alphabetical sort keeps output stable.
-	 *
-	 * Returns the snapshot as a live PHP array (the verb result rides
-	 * through the Message VALUE field unencoded; the cli Dumper pretty-
-	 * prints it at the render boundary). Argument-validation failures
-	 * return a plain error string instead.
+	 * Snapshot a node's state via Node::dump_node(), optionally key-filtered. Sorted for stability.
 	 *
 	 * @return array<string,mixed>|string
 	 */
@@ -698,11 +565,7 @@ class CommandInterpreter extends Node {
 		$wanted   = \array_slice( $parts, 1 );
 		$snapshot = $node->dump_node();
 
-		// Sort alphabetically so the dump output is stable and scannable.
-		// Reflection returns properties in declaration order — readable
-		// for one class but inconsistent across nodes that inherit from
-		// different ancestors. Alphabetical gives the REPL operator a
-		// predictable lookup spot for any key.
+		// Alphabetical so output is stable across nodes with different ancestors.
 		\ksort( $snapshot );
 
 		if ( ! empty( $wanted ) ) {
@@ -729,45 +592,18 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * `dump_metadata` — single-round-trip stats snapshot for a GUI/
-	 * visualizer. Returns a JSON object keyed by node name; each
-	 * value carries every field a topology console needs to render
-	 * the current state of the graph:
-	 *
-	 *   class        short class name (e.g. "Tee", "RequestBuilder")
-	 *   counter      total messages processed
-	 *   sink         singular sink path (string), or '' if unset
-	 *   target       owners: string for single-target nodes, array
-	 *                for Tee-style fan-outs, '' if no target
-	 *   debug_state  per-node debug level (0 / 1 / 2)
-	 *   arguments    the `arguments` ctor string used by make_node
-	 *
-	 * Equivalent to running `dump_node` against every node and
-	 * picking out the GUI-relevant subset, in one envelope — replaces
-	 * `ls -als` + `ls -ct` as the GUI's poll command. Inspired by
-	 * Perl Tachikoma's JSONvisualizer node (without that node's
-	 * caching, since our poll cadence is already coarse).
-	 *
-	 * Returns the metadata as a live PHP array — the verb result rides
-	 * through the Message VALUE field unencoded; the GUI/SSE wire is the
-	 * only place it becomes JSON.
+	 * `dump_metadata` — single-round-trip per-node stats snapshot for the GUI canvas.
 	 *
 	 * @return array<string,array<string,mixed>>
 	 */
 	private static function cmd_dump_metadata(): array {
 		$out = [];
 		foreach ( Core::$nodes_by_name as $name => $node ) {
-			// Any patron-linked node is plumbing for another node:
-			// sibling CIs (`:config`), Partition's Lock + heartbeat
-			// Timer (`:lock`, `:heartbeat`), etc. The canvas
-			// shouldn't render them. `ls -al`, `dump_node`, `stats`
-			// still surface them — only the GUI feed hides.
+			// Patron-linked nodes are plumbing; the canvas shouldn't render them.
 			if ( null !== $node->patron() ) {
 				continue;
 			}
-			// Allocation-free short class name — this runs for every node on
-			// every GUI poll (~1 Hz per console), so avoid a ReflectionClass
-			// per node. Strip the namespace by hand instead.
+			// Strip the namespace by hand to avoid a ReflectionClass per node per poll.
 			$fqcn  = \get_class( $node );
 			$class = ( false !== ( $p = \strrpos( $fqcn, '\\' ) ) ) ? \substr( $fqcn, $p + 1 ) : $fqcn;
 			$sink  = $node->sink();
@@ -787,18 +623,9 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * `stats [-a] [<regex>]` — Tachikoma-style tabular per-node counters.
+	 * `stats [-a] [<regex>]` — tabular per-node counters (NAME, COUNT, LGST_MSG, READ, WRITTEN).
 	 *
-	 * Columns: NAME, COUNT, LGST_MSG, READ, WRITTEN. The Tachikoma original
-	 * also surfaces BUF_SIZE / HIGH_WATER for output_buffer-bearing nodes;
-	 * we have no in-memory message buffers (Partition + Topic flush every
-	 * fill into a per-node line buffer that drains synchronously), so those
-	 * columns are dropped.
-	 *
-	 * Scope rules match `cmd_ls`:
-	 *   stats           → siblings (nodes whose sink IS this CI).
-	 *   stats -a [glob] → every registered node; optional regex filter on name.
-	 *   stats <name>    → only the named sink's children (treated as glob).
+	 * Scope matches `cmd_list_nodes`: default=siblings, `-a`=all, `<name>`=that sink's children.
 	 */
 	private static function cmd_stats( CommandInterpreter $self, string $args ): string {
 		$list_matches = false;
@@ -844,37 +671,24 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * `debug_state [ <node name> [ <level> ] ]` — toggle or explicitly set a
-	 * node's debug_state level. Mirrors Perl Tachikoma CI:
+	 * `debug_state [ <node name> [ <level> ] ]` — toggle or set a node's debug_state level.
 	 *
-	 *   debug_state              → toggle this CI's own debug_state
-	 *   debug_state 1            → set this CI to level 1
-	 *   debug_state foo          → toggle node `foo`'s debug_state
-	 *   debug_state foo 2        → set node `foo`'s debug_state to level 2
-	 *
-	 * When set on a node, every subsequent `set_state()` call emits a
-	 * TM_STRUCT trace addressed to `_repl` — the cli fan-out path.
-	 * New nodes created by `make_node` inherit THIS CI's level (see
-	 * make_node()), so `debug_state 1` followed by topology setup makes
-	 * every newly-constructed node trace from birth.
+	 * No args toggles this CI; numeric arg sets this CI; a name targets that node.
 	 */
 	private static function cmd_debug_state( CommandInterpreter $self, string $args ): string {
 		[ $first, $second ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
 
-		// No args → toggle self.
 		if ( '' === $first ) {
 			$new = $self->debug_state() > 0 ? 0 : 1;
 			$self->debug_state( $new );
 			return "_command_interpreter debug_state: $new";
 		}
 
-		// Numeric-only first arg → set self to that level.
 		if ( \ctype_digit( $first ) && '' === $second ) {
 			$self->debug_state( (int) $first );
 			return '_command_interpreter debug_state: ' . $self->debug_state();
 		}
 
-		// Otherwise first arg is a node name.
 		$node = Core::node( $first );
 		if ( null === $node ) {
 			return "unknown node: $first";
@@ -887,14 +701,11 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * `help` — no args lists all command names tabulated. With a topic, returns
-	 * that command's help string. Mirrors Tachikoma's `topical_help`.
+	 * `help` — no args lists all command names tabulated; a topic returns that command's help.
 	 */
 	private static function cmd_help( string $args ): string {
 		$topic = \trim( $args );
 		if ( '' === $topic ) {
-			// Source of truth for "things the user can type at the shell" is $H,
-			// which includes Shell-level verbs (ping) AND CI commands.
 			$names = \array_keys( self::$H );
 			\sort( $names );
 			$rows = [];
@@ -911,7 +722,6 @@ class CommandInterpreter extends Node {
 			}
 			return implode( "\n", [
 				'### SHELL BUILTINS ###',
-				// '  clear                          — wipe the transcript',
 				'  debug_level [0|1|2]            — local Dumper verbosity',
 				'  ping [<path>]                  — TM_PING (RTT measured locally)',
 				'  tell <path> <bytes>            — TM_INFO',
@@ -923,10 +733,7 @@ class CommandInterpreter extends Node {
 				self::tabulate( [ 'left', 'left', 'left', 'left' ], null, $rows )
 			] );
 		}
-		// Resolve aliases to the canonical entry name. Every alias the user
-		// might type maps to the corresponding $H key — keep this table in
-		// lockstep with the alias entries in $C and the Shell builtin
-		// dispatch table.
+		// Keep aliases in lockstep with the $C alias entries and Shell builtin dispatch.
 		$alias_to_canonical = [
 			'ls'           => 'list_nodes',
 			'dump'         => 'dump_node',
@@ -950,12 +757,10 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * Column-aligned table rendering. $dirs: per-column 'left' or 'right'.
-	 * $header: optional column names; null skips header. Last left-aligned column
-	 * isn't padded (matches Tachikoma's tabulate).
+	 * Column-aligned table rendering; the last left-aligned column isn't padded.
 	 *
-	 * @param array<int,string>            $dirs   One per column.
-	 * @param array<int,string>|null       $header Optional header row.
+	 * @param array<int,string>            $dirs   One per column ('left' or 'right').
+	 * @param array<int,string>|null       $header Optional header row; null skips it.
 	 * @param array<int,array<int,string>> $rows
 	 */
 	private static function tabulate( array $dirs, ?array $header, array $rows ): string {

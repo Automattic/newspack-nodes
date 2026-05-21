@@ -1,14 +1,6 @@
 /**
- * Edit-mode palette of available node classes.
- *
- * Populated from `GET /newspack-nodes/v1/classes` via the
- * useClassCatalog hook in TopologyConsole; rendered only when
- * `mode === 'edit'`. Each item is HTML5-draggable and carries the
- * shell name on its dataTransfer payload so SchematicCanvas's
- * onDrop (Task 6) knows what to instantiate.
- *
- * Hidden categories (`'Hidden'`) are filtered out at the controller
- * level, so anything we receive here is meant to appear in the UI.
+ * Edit-mode palette of node classes. Each item is HTML5-draggable and
+ * carries its shell name on the dataTransfer payload for the canvas drop.
  */
 
 const DRAG_MIME = 'application/x-newspack-node';

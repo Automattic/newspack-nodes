@@ -36,8 +36,8 @@ Useful verbs (run from inside the cli prompt — see `help` for the full set):
 ```
 make_node <type> <name> [<args>]    # construct a registered Node (alias: make)
 remove_node <name> [<more>...]      # remove a node by name, also -a <regex> (aliases: remove, rm)
-list_nodes [-celos] [<node>]        # nodes sinking INTO <node>; flags add columns (alias: ls)
-list_nodes -a [-celos] [<glob>]     # all nodes filtered by anchored regex
+list_nodes [-clst] [<node>]         # nodes sinking INTO <node>; -c count -l count+target -s sink -t target (alias: ls)
+list_nodes -a [-clst] [<glob>]      # all nodes filtered by anchored regex
 dump_node <node> [<keys>]           # config + state of one node (alias: dump)
 dump_config                         # full topology as round-trippable shell verbs
 set_sink <node> <target>            # rewrite a node's sink at runtime
@@ -60,7 +60,7 @@ The `<path>` arg to `tell_node` / `send_node` / `command_node` / `request_node` 
 
 `ping`, `tell`, and command responses use the FROM=`_output/$pid` stamp so replies walk back through `_router → _output`. `_output` is the Dumper instance; its TO filter matches `(?:_output/)?$pid` so other cli sessions' replies fall through silently.
 
-CommandInterpreter only handles TM_COMMAND with empty TO. A non-empty TO means the message is in transit toward another node; CI forwards it to its sink (Router) and lets the addressed node decide. Any exception thrown by a verb is caught and returned as `TM_COMMAND|TM_ERROR` along the FROM trail — you'll see it in the cli as `ERROR: <message>`.
+CommandInterpreter only handles TM_COMMAND with empty TO. A non-empty TO means the message is in transit toward another node; CI forwards it to its sink (Router) and lets the addressed node decide. Any exception thrown by a verb is caught and returned as `TM_COMMAND|TM_ERROR` along the FROM trail — the cli's Dumper writes the payload to stderr (no `ERROR:` prefix).
 
 ### Piping into the REPL
 

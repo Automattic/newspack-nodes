@@ -2,23 +2,9 @@
 /**
  * WorkerCliCommand: WP-CLI subcommands for worker lifecycle management.
  *
- * Adds three subcommands beyond the existing `wp nodes ls` / `wp nodes cli`:
- *
- *  - `wp nodes types`            — list registered topology groups.
- *  - `wp nodes run <type>`       — run a worker process directly (no spawn endpoint).
- *  - `wp nodes restart <type>`   — write the restart flag via Lock::request_restart_at().
- *  - `wp nodes status`           — rich `Type | Partition | Status | Uptime | Behind | Restart`
- *                                  table; reads cursor positions from memcache live with
- *                                  offsetlog fallback; computes Behind by summing partition
- *                                  bytes still ahead of the cursor.
- *
- * Lives in a separate class file (rather than extending `Cli_Command`) so the
- * existing `ls` / `cli` flat command class stays untouched and reviewers can
- * reason about the surface change in isolation.
- *
- * The cache lookup for `live_positions()` is filterable via
- * `newspack_nodes/worker_cli_cache` so applications can wire their own
- * memcache instance without this class linking against `\Memcached_Cache`.
+ * Adds `wp nodes types` / `run <type>` / `restart <type>` / `status` beyond the
+ * existing `ls` / `cli`. The cache lookup is filterable via
+ * `newspack_nodes/worker_cli_cache` so applications wire their own memcache.
  *
  * @package Newspack_Nodes
  */
@@ -61,12 +47,8 @@ class WorkerCliCommand {
 	}
 
 	/**
-	 * List active worker topology groups — the same set the supervisor
-	 * will spawn (`Bootstrap::get_topologies()`), so this agrees with
-	 * `wp nodes ls`. Operator-selected TSL files that the application
-	 * didn't publish in its catalog are included here with their
-	 * frontmatter-derived (or substrate-num_partitions-defaulted)
-	 * partition counts; the previous catalog-only view hid them.
+	 * List active worker topology groups — the same set the supervisor will
+	 * spawn (`Bootstrap::get_topologies()`), so this agrees with `wp nodes ls`.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -152,16 +134,12 @@ class WorkerCliCommand {
 			\WP_CLI::error( \sprintf( 'No worker registered for %s partition %d', $type, $partition ) );
 		}
 
-		// `topology` is a TSL topology name. Resolve via
-		// Topology_Registry; build a closure that runs it through
-		// Topology_Loader against the worker's CommandInterpreter.
+		// Resolve the TSL topology name and build a closure that runs it via Topology_Loader.
 		$topology_name = (string) ( $descriptor['topology'] ?? '' );
 		if ( '' === $topology_name || null === Topology_Registry::resolve( $topology_name ) ) {
 			\WP_CLI::error( 'Topology not found in registry: ' . $topology_name );
 		}
-		// CLI-side runs use the substrate's own Config; application
-		// plugins that need richer config can hook the spawn-action
-		// path instead.
+		// CLI-side runs use the substrate's own Config.
 		$config = \Newspack_Nodes\Config::load_config();
 		if ( ! isset( $config['logs_dir'] ) && isset( $config['base_directory'] ) ) {
 			$config['logs_dir'] = \rtrim( (string) $config['base_directory'], '/' ) . '/logs';
@@ -180,10 +158,8 @@ class WorkerCliCommand {
 			\WP_CLI::log( \sprintf( 'Starting %s.p%d (direct mode, no spawn endpoint)...', $type, $partition ) );
 		}
 
-		// Resolve a Supervisor for the HMAC token used in self_respawn(). Using
-		// Bootstrap::supervisor() keeps the salt source aligned with the rest of
-		// the runtime so respawns from a CLI-launched worker are accepted by the
-		// real spawn endpoint.
+		// Bootstrap::supervisor() so the HMAC salt matches the runtime and
+		// CLI-launched respawns are accepted by the real spawn endpoint.
 		$supervisor = Bootstrap::supervisor();
 
 		$wb = new WorkerBase(
@@ -254,11 +230,8 @@ class WorkerCliCommand {
 	}
 
 	/**
-	 * Action handler — restart every partition of one fleet by topology
-	 * name. Wired to `newspack_nodes/restart_fleet` so REST controllers
-	 * (POST /topologies/{name}) can trigger restarts without depending
-	 * on the WP-CLI surface. Best-effort: unknown name or no live
-	 * workers → no-op.
+	 * Action handler (wired to `newspack_nodes/restart_fleet`): restart every
+	 * partition of one fleet by topology name. Best-effort; unknown → no-op.
 	 */
 	public static function restart_fleet_by_name( string $name ): void {
 		$workers = Bootstrap::expand_workers();
@@ -274,13 +247,7 @@ class WorkerCliCommand {
 	}
 
 	/**
-	 * Rich worker-status table. Six columns:
-	 *   Type | Partition | Status | Uptime | Behind | Restart
-	 *
-	 * - `Status`: 'running' if heartbeat fresh within stale_timeout, else 'dead'.
-	 * - `Uptime`: derived from `Lock::get_started_time()`.
-	 * - `Behind`: bytes ahead of the cursor (live → memcache, fallback → offsetlog).
-	 * - `Restart`: 'yes' if a restart flag is pending in the lock dir.
+	 * Rich worker-status table: Type | Partition | Status | Uptime | Behind | Restart.
 	 *
 	 * ## OPTIONS
 	 *
@@ -330,11 +297,8 @@ class WorkerCliCommand {
 			$position = $cli->live_position( $cache, $type, $p ) ?? $cli->saved_position( $type, $p );
 			$behind   = '-';
 			if ( null !== $position ) {
-				// We don't know which input log this worker drains here — that's
-				// a topology-specific question. Use the conventional firehose.log
-				// directory under {logs}/{topic}/p{partition} as the default
-				// behind target so applications that follow the convention get
-				// useful numbers without per-app wiring.
+				// The drained input log is topology-specific; default to the conventional
+				// firehose.log partition dir so convention-following apps get useful numbers.
 				$logs_dir      = "{$base_dir}/logs";
 				$partition_dir = "{$logs_dir}/firehose.log/p{$p}";
 				if ( \is_dir( $partition_dir ) ) {

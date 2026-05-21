@@ -1,10 +1,6 @@
 <?php
 /**
- * Tail: generic file follower.
- *
- * Constructor takes filename + buffer_mode (line-buffered/block-buffered/binary).
- * poll() reads new bytes since last read and emits per buffer_mode rules.
- * Inode + size-shrink rotation detection on each poll.
+ * Tail: generic file follower. poll() reads new bytes and emits per buffer_mode; inode + size-shrink rotation detection.
  *
  * @package Newspack_Nodes
  */
@@ -16,11 +12,7 @@ namespace Newspack_Nodes;
 class Tail extends Timer {
 	public const READ_CHUNK = 65536;
 
-	/**
-	 * Hard cap on cross-poll trailing-line buffer (20MB). Protects against DoS from
-	 * a runaway file with no newlines — without this, line_remainder can balloon
-	 * unboundedly until the worker OOMs.
-	 */
+	/** Hard cap on cross-poll trailing-line buffer (20MB); DoS guard against a no-newline file ballooning line_remainder until OOM. */
 	public const MAX_LINE_BUFFER_SIZE = 20971520;
 
 	/** Re-arm interval at EOF (idle backoff). */
@@ -43,13 +35,10 @@ class Tail extends Timer {
 		$this->filename    = $filename;
 		$this->buffer_mode = $buffer_mode;
 
-		// Start polling immediately. fire() re-arms with set_timer(0)/(100)
-		// based on whether new bytes are available.
+		// fire() re-arms with set_timer(0)/(100) based on bytes available.
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
 
-		// Round-trip ctor args via Node::$arguments so dump_config emits a
-		// `make_node Tail <name> <filename> <buffer_mode>` line that
-		// re-creates this instance.
+		// Round-trip ctor args via Node::$arguments for dump_config.
 		$this->arguments = "{$this->filename} {$this->buffer_mode}";
 	}
 
@@ -66,13 +55,11 @@ class Tail extends Timer {
 		$current_inode = $stat['ino'];
 		$current_size  = $stat['size'];
 
-		// Rotation: inode changed.
 		if ( null !== $this->inode && $current_inode !== $this->inode ) {
 			$this->position       = 0;
 			$this->line_remainder = '';
 			$this->set_state( 'ROTATED', [ 'inode' => $current_inode ] );
 		}
-		// Truncation: size shrank.
 		if ( $current_size < $this->position ) {
 			$this->position       = 0;
 			$this->line_remainder = '';
@@ -85,8 +72,7 @@ class Tail extends Timer {
 			return;
 		}
 
-		// Tail's whole purpose is reading log files in `base_dir`. WP_Filesystem
-		// can't tail incrementally — we need fopen/fread directly.
+		// WP_Filesystem can't tail incrementally — need fopen/fread directly.
 		// phpcs:disable WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPress.WP.AlternativeFunctions.file_system_operations_fread
 		$fh = @\fopen( $this->filename, 'r' );
 		if ( false === $fh ) {
@@ -94,8 +80,7 @@ class Tail extends Timer {
 			return;
 		}
 		\fseek( $fh, $this->position );
-		// Bound per-poll syscall to READ_CHUNK so a multi-MB append doesn't block
-		// the event loop in a single fread. Subsequent polls drain the rest.
+		// Bound per-poll read to READ_CHUNK so a multi-MB append doesn't block the loop; later polls drain the rest.
 		$bytes = \fread( $fh, \min( self::READ_CHUNK, $current_size - $this->position ) );
 		\fclose( $fh );
 		// phpcs:enable
@@ -107,8 +92,7 @@ class Tail extends Timer {
 		$this->position  += $read_len;
 		$this->bytes_read += $read_len;
 
-		// at_eof iff we drained the file's tail in this poll. If READ_CHUNK
-		// capped us short of $current_size, more data is waiting — busy mode.
+		// at_eof iff we drained the tail this poll; a READ_CHUNK-capped read leaves more waiting (busy mode).
 		$this->at_eof = ( $this->position >= $current_size );
 
 		$this->emit( $bytes );
@@ -117,8 +101,7 @@ class Tail extends Timer {
 	private function emit( string $bytes ): void {
 		switch ( $this->buffer_mode ) {
 			case 'binary':
-				// No line awareness: emit whatever bytes the read returned, as-is.
-				// Lines may split across messages.
+				// No line awareness: emit bytes as-is (lines may split across messages).
 				$this->emit_message( $bytes );
 				return;
 			case 'block-buffered':
@@ -138,9 +121,7 @@ class Tail extends Timer {
 					}
 					return;
 				}
-				// Accumulate bytes; emit everything up to (and including) the LAST newline
-				// as a single message. Trailing partial line carries forward in line_remainder
-				// so a chunk boundary never splits a line.
+				// Emit up to (and including) the LAST newline; trailing partial carries forward so a chunk boundary never splits a line.
 				$buf = $this->line_remainder . $bytes;
 				$nl  = \strrpos( $buf, "\n" );
 				if ( false === $nl ) {
@@ -152,9 +133,7 @@ class Tail extends Timer {
 				return;
 			case 'line-buffered':
 			default:
-				// DoS guard: if appending would exceed MAX_LINE_BUFFER_SIZE, the source
-				// isn't producing newlines (corrupt). Discard remainder + advance to next
-				// newline boundary so we recover at a clean line break.
+				// DoS guard: over-cap means a corrupt no-newline source; discard remainder and resync at the next newline.
 				if ( \strlen( $this->line_remainder ) + \strlen( $bytes ) > self::MAX_LINE_BUFFER_SIZE ) {
 					Core::print_less_often(
 						\sprintf(
@@ -186,22 +165,15 @@ class Tail extends Timer {
 		$msg[ Message::TIMESTAMP ] = Core::$now;
 		$msg[ Message::FROM ]      = $this->name;
 		$msg[ Message::VALUE ]     = $value;
-		// Route through parent::fill so a connect_node-set target gets
-		// stamped into TO. Without this the emitted message has TO='' and
-		// the Router has no destination to dispatch it to — `connect_node
-		// mytail mysession` would set target but never deliver a byte.
+		// Route through parent::fill so a connect_node-set target gets stamped into TO; otherwise TO='' and Router can't dispatch.
 		parent::fill( $msg );
 	}
 
-	/**
-	 * Tail is Timer-driven: each fire() polls the file, emits per buffer mode,
-	 * then re-arms with set_timer(0) (file has more bytes) or set_timer(100)
-	 * (at EOF — back off to 100ms idle ticks). Mirrors Tail.pm's poll_timer.
-	 */
+	/** Timer-driven: poll, emit, then re-arm at 0ms (more bytes) or 100ms (at EOF idle). */
 	protected function fire(): void {
 		$this->poll();
 		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
-		$this->set_timer( $next_ms, true ); // oneshot — fire() re-arms.
+		$this->set_timer( $next_ms, true );
 	}
 
 	public static function node_schema(): array {

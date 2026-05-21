@@ -1,32 +1,8 @@
 /**
- * Parse the `ls -al` / `ls -als` text body emitted by Newspack_Nodes
- * CommandInterpreter.
+ * Parse the `ls -al` / `ls -als` text body into { nodes, edges }.
  *
- * `ls -al` rows:
- *
- *   COUNT NAME                 TARGET
- *    1334 firehose:consumer    -> firehose:tee
- *    1334 firehose:tee         -> request-builder, job-router
- *    1335 job-router           -> jobs:partition
- *
- * `ls -als` rows include an additional SINK column between NAME and TARGET:
- *
- *   COUNT NAME                 SINK                   TARGET
- *    1334 firehose:consumer    > _command_interpreter -> firehose:tee
- *    2076 _router              -                      -
- *
- * Returns { nodes: [{ id, count, sink? }], edges: [{ from, to }] }. The
- * `sink` field is present only when the input is `-als` (carries SINK).
- * Edges are derived only from the TARGET column — sinks are framework-
- * default fall-throughs and almost always point to scaffolding
- * (_command_interpreter / _router) which we already filter out, so
- * drawing them on the canvas would add noise without insight. Surface
- * the sink in the Inspector instead.
- *
- * Comma-separated targets become multiple edges. The
- * `_command_interpreter`, `_router`, `_output`, and `_repl` scaffolding
- * nodes are excluded — they're substrate plumbing the user doesn't
- * need to see on the canvas.
+ * Edges derive from the TARGET column only (sinks surface in the Inspector);
+ * comma-separated targets fan out; scaffolding nodes are excluded.
  */
 
 const SCAFFOLDING = new Set( [

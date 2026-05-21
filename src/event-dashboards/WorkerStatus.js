@@ -1,19 +1,6 @@
 /* global localStorage */
 /**
- * Worker Status Component
- *
- * Displays status of all registered log readers with segment visualization.
- * Renders the topology as a linear pipeline: each log appears exactly once,
- * positioned between the producer (worker that writes it via outputs_status)
- * and the consumer (worker that tails it via inputs_status).
- *
- * Logs with no consumer render as terminal outputs after their producer.
- * Logs with no producer render as source inputs before their consumer.
- *
- * Cursor data is sourced from the consumer's inputs_status entry; segment
- * filesystem data prefers the consumer side too (cursor + segments come from
- * the same snapshot), falling back to the producer's outputs_status when no
- * consumer exists for that log.
+ * Worker Status Component — log readers as a linear producer→consumer pipeline.
  */
 
 import {
@@ -150,13 +137,12 @@ const SegmentBar = memo( function SegmentBar( {
 	isRemoving,
 } ) {
 	const fillPercent = maxSize > 0 ? ( segment.size / maxSize ) * 100 : 0;
-	// If no cursor (output-only log), treat all segments as processed (green).
+	// No cursor (output-only log) → treat all segments as processed.
 	const hasReader = cursorSeg !== undefined && cursorSeg !== null;
 	const isCurrent = hasReader && segment.id === cursorSeg;
 	const isProcessed = ! hasReader || segment.id < cursorSeg;
 	const isNewest = segment.id === newestSegId;
 
-	// For current segment: green up to cursor, then yellow (if newest) or red (if old).
 	const processedPercent =
 		isCurrent && segment.size > 0
 			? ( cursorOffset / segment.size ) * fillPercent
@@ -528,21 +514,8 @@ const SupervisorStatus = memo( function SupervisorStatus( {
 /**
  * Build a linear render plan from the worker list.
  *
- * Each pipeline log appears exactly once. A log shared by a producer and a
- * consumer renders BETWEEN them (so the producer's worker connector sits above
- * the log, and the consumer's connector sits below). Terminal outputs (no
- * consumer) render after their producer; source inputs (no producer) render
- * before their consumer.
- *
- * The returned array is a flat sequence of items consumed by the renderer:
- *  - `{ kind: 'log', ... }` — a LogSection to draw.
- *  - `{ kind: 'worker', ... }` — a WorkerConnector to draw.
- *
  * @param {Array} workers     Worker descriptors from the REST endpoint.
- * @param {Array} logsCatalog Top-level `logs` array — canonical per-log
- *                            per-partition slot list (every `*.log/` on disk
- *                            padded to `max(num_partitions, max-on-disk+1)`).
- *                            Consumer cursor data is overlaid from `workers`.
+ * @param {Array} logsCatalog Top-level `logs` array (canonical per-log slots).
  * @return {Array} Render plan items.
  */
 function buildRenderPlan( workers, logsCatalog = [] ) {
@@ -559,13 +532,8 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 		} ) );
 	}
 
-	// Group workers by (type, handler, source). One step per (Consumer,
-	// target) pair — a single handler can be fed by multiple Consumers
-	// (e.g. JobRouter receives from firehose:consumer via Tee fan-out AND
-	// from jobintake:consumer directly), and each Consumer has its own
-	// cursor / lag / read-rate. Collapsing across sources renders both
-	// as duplicate-looking pills under one header. Multiple partitions of
-	// the same (type, handler, source) still roll up into the same step.
+	// One step per (type, handler, source): a handler fed by multiple
+	// Consumers has a distinct cursor/lag/rate per source.
 	const stepsByKey = new Map();
 	workers.forEach( ( w ) => {
 		const handler = w.handler || w.type;
@@ -573,9 +541,7 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 		const key = `${ w.type }|${ handler }|${ source }`;
 		if ( ! stepsByKey.has( key ) ) {
 			stepsByKey.set( key, {
-				// Keep `type` as the worker_type so styling/category code that
-				// keys on it still works; `key` is what identifies this step
-				// uniquely.
+				// `type` stays the worker_type for styling; `key` is the unique id.
 				type: w.type,
 				key,
 				handlerName: handler,
@@ -589,9 +555,9 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 	} );
 	const steps = [ ...stepsByKey.values() ];
 
-	// Build producer/consumer maps: log name → step type(s).
-	const producers = new Map(); // name → step.type that writes this log.
-	const consumers = new Map(); // name → step.type that reads this log.
+	// Producer/consumer maps: log name → step key(s).
+	const producers = new Map();
+	const consumers = new Map();
 	steps.forEach( ( step ) => {
 		step.outputs.forEach( ( name ) => {
 			if ( ! producers.has( name ) ) {
@@ -607,10 +573,7 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 		} );
 	} );
 
-	// Topological sort: a step that reads log X must come after any step that
-	// writes log X. Stable order on tie (preserves API order for visual
-	// consistency). Indexed by step.key so two Consumers under the same
-	// worker_type don't collide.
+	// Topo sort: a step reading log X comes after any step writing X (stable on tie).
 	const stepIndex = new Map( steps.map( ( s, i ) => [ s.key, i ] ) );
 	const visited = new Set();
 	const sorted = [];
@@ -635,16 +598,9 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 	};
 	steps.forEach( visit );
 
-	// For each log, pick the canonical "info source" (the worker that has the
-	// richest data). Consumers carry cursor + segments + cursor partition data;
-	// producers only carry segments. Prefer consumer-side data when available.
-	//
-	// Store the location plan: where in the rendered sequence each log appears.
-	//  - If producer + consumer exist: render BEFORE the consumer step.
-	//  - If only consumer: render BEFORE the consumer step (source).
-	//  - If only producer: render AFTER the producer step (terminal).
-	const beforeStep = new Map(); // step.key → log[] to render above it.
-	const afterStep = new Map(); // step.key → log[] to render below it.
+	// Place each log: above its first consumer if any, else below its last producer.
+	const beforeStep = new Map();
+	const afterStep = new Map();
 	const allLogs = new Set( [ ...producers.keys(), ...consumers.keys() ] );
 	allLogs.forEach( ( name ) => {
 		const consumerKeys = consumers.get( name ) || [];
@@ -674,11 +630,7 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 		}
 	} );
 
-	// Build a map of log name → canonical slot list from logsCatalog. The
-	// backend's enumerate_logs() pads to max(num_partitions, max-on-disk+1)
-	// per log, so this is the single source of truth for how many partition
-	// rows to render under each log header. Cursor data is overlaid from
-	// the matching worker per partition where available.
+	// log name → canonical slot list (source of truth for partition-row count).
 	const logSlotsByName = new Map();
 	const logSegmentSizeByName = new Map();
 	logsCatalog.forEach( ( log ) => {
@@ -691,7 +643,7 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 	const collectLogPartitions = ( logName ) => {
 		const consumerKeys = consumers.get( logName ) || [];
 
-		// Cursor data, keyed by partition, from any worker that reads this log.
+		// Cursor data by partition from any worker reading this log.
 		const cursorByPartition = new Map();
 		let hasCursor = false;
 		for ( const ckey of consumerKeys ) {
@@ -722,9 +674,7 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 			return { partitions, hasCursor };
 		}
 
-		// No canonical entry — the log directory hasn't been created yet
-		// (fresh deploy, no writes), or it lives outside `logs/`. Fall back
-		// to whatever the workers tell us so the dashboard still renders.
+		// No canonical entry (dir not yet created) — fall back to worker data.
 		const producerKeys = producers.get( logName ) || [];
 		for ( const ckey of consumerKeys ) {
 			const step = steps[ stepIndex.get( ckey ) ];
@@ -805,11 +755,7 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 		( afterStep.get( step.key ) || [] ).forEach( renderLog );
 	} );
 
-	// Append any logs from the catalog that the step-walking pass didn't
-	// reach. Dashboard `steps` are keyed off Consumer offsetlog rows, so a
-	// log that's written by a producer but never tailed by a Consumer (e.g.
-	// errors.log, flames.log, or jobs.log when no job-workers Consumer is
-	// active) won't appear under any step above and drops through to here.
+	// Append catalog logs the step walk missed (produced but never tailed).
 	logsCatalog.forEach( ( log ) => {
 		if ( rendered.has( log.name ) ) {
 			return;
@@ -838,11 +784,11 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 	const [ workers, setWorkers ] = useState( [] );
 	const [ supervisor, setSupervisor ] = useState( null );
-	const [ logsCatalog, setLogsCatalog ] = useState( [] ); // Top-level `logs` array — full per-log slot list.
+	const [ logsCatalog, setLogsCatalog ] = useState( [] );
 	const [ loading, setLoading ] = useState( true );
 	const [ error, setError ] = useState( null );
 	const [ refreshInterval, setRefreshInterval ] = useState( () => {
-		// Load from localStorage with validation against allowed dropdown values.
+		// Validate the saved value against allowed dropdown options.
 		const validValues = REFRESH_OPTIONS.map( ( opt ) => opt.value );
 		const saved = localStorage.getItem(
 			'newspack-event-logger-nodes-worker-refresh'
@@ -852,31 +798,23 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 		}
 		return String( refreshMs );
 	} );
-	const [ byteRates, setByteRates ] = useState( {} ); // Read rates by worker key.
-	const [ writeRates, setWriteRates ] = useState( {} ); // Write rates by log key (logName-partition).
-	const [ segmentSize, setSegmentSize ] = useState( 64 * 1024 * 1024 ); // Default 64MB.
+	const [ byteRates, setByteRates ] = useState( {} );
+	const [ writeRates, setWriteRates ] = useState( {} );
+	const [ segmentSize, setSegmentSize ] = useState( 64 * 1024 * 1024 );
 	const [ currentTime, setCurrentTime ] = useState( () =>
 		Math.floor( Date.now() / 1000 )
 	);
-	const prevSegmentsRef = useRef( {} ); // Previous segment IDs by log key.
-	const prevSegmentDataRef = useRef( {} ); // Previous segment data by log key.
-	const prevPositionsRef = useRef( {} ); // Read positions by worker key.
-	const prevTotalSizesRef = useRef( {} ); // Total sizes by log key for write rates.
+	const prevSegmentsRef = useRef( {} );
+	const prevSegmentDataRef = useRef( {} );
+	const prevPositionsRef = useRef( {} );
+	const prevTotalSizesRef = useRef( {} );
 	const lastFetchTimeRef = useRef( null );
 	const animationTimersRef = useRef( [] );
-	const [ removingSegments, setRemovingSegments ] = useState( {} ); // Segments animating out.
+	const [ removingSegments, setRemovingSegments ] = useState( {} );
 	const isPageVisible = usePageVisibility();
 
 	/**
-	 * Request restart for workers of a given type.
-	 *
-	 * Dispatches `workers.restart` through `/command`. Arg shape differs from
-	 * the legacy REST endpoint: the verb takes `{types: string[], partition:
-	 * int}` (plural types, integer partition where -1 means "all"), whereas
-	 * the legacy route took `{type: string, all_partitions: bool, nonce}`. The
-	 * `/command` route is `manage_options`-guarded and CommandClient supplies
-	 * the WP nonce in its `X-WP-Nonce` header, so we no longer thread a
-	 * per-action nonce through the body.
+	 * Request restart for workers of a given type via `workers.restart`.
 	 *
 	 * @param {string} workerType Worker group name (e.g., 'firehose-workers').
 	 */
@@ -907,13 +845,8 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 	const fetchWorkers = useCallback( async () => {
 		try {
 			const now = Date.now();
-			// workers.dump_metadata returns the full 7-field operator-grade
-			// envelope (workers[], supervisor, logs[], num_partitions,
-			// num_segments, segment_size, timestamp) — same shape the legacy
-			// WorkersController::get_workers() route produced. The minimal
-			// workers.list projection is for CLI / topology callers; the
-			// dashboard needs the rich per-worker descriptors that
-			// dump_metadata supplies.
+			// dump_metadata returns the rich per-worker envelope the dashboard
+			// needs (workers.list is the minimal CLI/topology projection).
 			const message = await getCommandClient().send( {
 				to: 'workers',
 				verb: 'dump_metadata',
@@ -934,19 +867,14 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 				? ( now - lastFetchTimeRef.current ) / 1000
 				: 0;
 
-			// Per-worker read rates (cursor advancement against primary input).
-			// Key by (handler, partition, source) — a single handler can be
-			// fed by multiple Consumers (e.g. JobRouter from firehose:consumer
-			// AND jobintake:consumer), each with its own cursor. Keying only
-			// by handler+partition collapses both rows into one slot and the
-			// rate becomes whichever cursor was processed last.
+			// Per-worker read rates, keyed by (handler, partition, source) so
+			// multi-Consumer handlers don't collapse into one slot.
 			( data.workers || [] ).forEach( ( worker ) => {
 				const workerKey = `${ worker.handler || worker.type }-${
 					worker.partition
 				}-${ worker.source || '' }`;
 
-				// Sum processed bytes across every input — workers can tail
-				// multiple logs (firehose-workers reads firehose + jobintake).
+				// Sum processed bytes across every input (workers tail many logs).
 				let totalProcessed = 0;
 				( worker.inputs_status || [] ).forEach( ( input ) => {
 					if (
@@ -976,13 +904,9 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 				}
 			} );
 
-			// Per-log write rates and segment-change tracking. Each log appears
-			// in possibly multiple workers' inputs_status / outputs_status, so
-			// we collect by (logName, partition) — same physical filesystem
-			// state regardless of which worker reported it. Take the max
-			// total_size and the union of segments seen, so a stale snapshot
-			// from one worker can't shrink the visualization.
-			const logSnapshots = new Map(); // logKey → { total_size, segments[] }.
+			// Per-log write rates + segment tracking by (logName, partition);
+			// max total_size and segment union so a stale snapshot can't shrink it.
+			const logSnapshots = new Map();
 			const recordLog = ( log, partition ) => {
 				if ( ! log || ! log.name ) {
 					return;
@@ -1046,12 +970,8 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 				}
 			} );
 
-			// Skip the state update (and the cascading buildRenderPlan
-			// re-run) when the new payload is structurally identical to
-			// what we already have — common in steady state, where the
-			// 2s refresh just re-reads the same set of workers + logs.
-			// JSON.stringify on ~5KB of REST data is sub-ms; cheaper
-			// than the render plan rebuild it gates.
+			// Skip the state update (and buildRenderPlan re-run) when the
+			// payload is structurally identical — common in steady state.
 			const replaceIfChanged = ( prev, next ) =>
 				JSON.stringify( prev ) === JSON.stringify( next ) ? prev : next;
 			setWorkers( ( prev ) =>

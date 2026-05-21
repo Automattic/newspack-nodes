@@ -265,7 +265,7 @@ class CliCommandTest extends TestCase {
 		( new Cli_Command() )->prepare_repl( [ 'nope.p0' ] );
 	}
 
-	// ── dispatch_line / drain_lines_from_stream ─────────────────────────────
+	// ── dispatch_line ─────────────────────────────
 
 	public function test_dispatch_line_returns_false_for_empty_or_comment_lines(): void {
 		// Lines that the Shell parser drops (empty, comments) report false
@@ -311,60 +311,13 @@ class CliCommandTest extends TestCase {
 		$this->assertSame( 'ls', $decoded['name'] );
 	}
 
-	public function test_drain_lines_from_stream_processes_each_line_until_EOF(): void {
-		// Inject a memory stream with three commands. drain_lines_from_stream
-		// returns the count and the sink sees all three messages in order.
-		$cmd   = new Cli_Command();
-		$shell = new \Newspack_Nodes\Shell();
-		$sink  = new \Newspack_Nodes\Tests\CaptureSink();
-		$shell->sink( $sink );
-
-		$stream = \fopen( 'php://memory', 'r+' );
-		\fwrite( $stream, "ls\n" );
-		\fwrite( $stream, "tell foo hello\n" );
-		\fwrite( $stream, "ping bar\n" );
-		\rewind( $stream );
-
-		$processed = $cmd->drain_lines_from_stream( $shell, $stream );
-		\fclose( $stream );
-
-		$this->assertSame( 3, $processed );
-		$this->assertCount( 3, $sink->captured );
-		// First was `ls` → TM_COMMAND.
-		$this->assertSame( \Newspack_Nodes\Message::TM_COMMAND, $sink->captured[0][ \Newspack_Nodes\Message::TYPE ] );
-		// Second was `tell foo hello` → TM_INFO.
-		$this->assertSame( \Newspack_Nodes\Message::TM_INFO, $sink->captured[1][ \Newspack_Nodes\Message::TYPE ] );
-		// Third was `ping bar` → TM_PING.
-		$this->assertSame( \Newspack_Nodes\Message::TM_PING, $sink->captured[2][ \Newspack_Nodes\Message::TYPE ] );
-	}
-
-	public function test_drain_lines_from_stream_returns_zero_for_empty_stream(): void {
-		// Empty stream → 0 lines processed, 0 messages emitted.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
-		$shell->sink( $sink );
-		$stream = \fopen( 'php://memory', 'r+' );
-
-		$processed = $cmd->drain_lines_from_stream( $shell, $stream );
-		\fclose( $stream );
-
-		$this->assertSame( 0, $processed );
-		$this->assertCount( 0, $sink->captured );
-	}
-
-	// ── Cli_Stdin_Reader ──────────────────────────────────────────────────
-
 	public function test_stdin_reader_dispatches_lines_from_injected_stream(): void {
 		// Inject a memory stream pre-loaded with two complete lines + EOF.
 		// Drain ticks consume one line each; after both are gone, the next
 		// drain hits EOF and flips $exit.
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 
@@ -407,7 +360,7 @@ class CliCommandTest extends TestCase {
 		$shell      = new \Newspack_Nodes\Shell();
 		$shell->prompt = 'test-prompt> ';
 		$out_stream = \fopen( 'php://memory', 'w+' );
-		$dumper     = new \Newspack_Nodes\Dumper( $out_stream, \fopen( 'php://memory', 'w+' ) );
+		$dumper     = new \Newspack_Nodes\Dumper( $out_stream );
 		$stream     = \fopen( 'php://memory', 'r+' );
 
 		new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream );
@@ -432,7 +385,7 @@ class CliCommandTest extends TestCase {
 		$shell      = new \Newspack_Nodes\Shell();
 		$shell->prompt = 'should-not-appear> ';
 		$out_stream = \fopen( 'php://memory', 'w+' );
-		$dumper     = new \Newspack_Nodes\Dumper( $out_stream, \fopen( 'php://memory', 'w+' ) );
+		$dumper     = new \Newspack_Nodes\Dumper( $out_stream );
 		$sink       = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 
@@ -469,10 +422,7 @@ class CliCommandTest extends TestCase {
 		$shell  = new \Newspack_Nodes\Shell();
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' ); // empty -> immediate EOF
 
 		// show_prompts=false (we're simulating a piped session).
@@ -501,10 +451,7 @@ class CliCommandTest extends TestCase {
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
 		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
 		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false );
@@ -532,10 +479,7 @@ class CliCommandTest extends TestCase {
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
 		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
 		// 0-second deadline → drain_fh sees stdin EOF, emits TM_EOF, then
@@ -563,10 +507,7 @@ class CliCommandTest extends TestCase {
 		}
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
 		$saved = \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install;
@@ -599,10 +540,7 @@ class CliCommandTest extends TestCase {
 		}
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
 		\Newspack_Nodes\EventFramework::reset();
@@ -644,10 +582,7 @@ class CliCommandTest extends TestCase {
 		}
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
 		try {
@@ -671,10 +606,7 @@ class CliCommandTest extends TestCase {
 		// already true) — that's the ~1-line early-return branch.
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 		$stream = \fopen( 'php://memory', 'r+' );
@@ -705,10 +637,7 @@ class CliCommandTest extends TestCase {
 		// reader's internal eof flag so the next drain tick exits.
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$reader->handle_readline_line( null );
@@ -724,10 +653,7 @@ class CliCommandTest extends TestCase {
 		// plainly rather than doing the async wipe-and-redisplay dance.
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$dumper->mark_prompt_displayed();
 		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
@@ -749,10 +675,7 @@ class CliCommandTest extends TestCase {
 		// enter as a "no command" signal it can drop).
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$reader->handle_readline_line( '' );
@@ -770,10 +693,7 @@ class CliCommandTest extends TestCase {
 		}
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 		$stream = \fopen( 'php://memory', 'r+' );
@@ -870,31 +790,6 @@ class CliCommandTest extends TestCase {
 		$cmd->prepare_repl( [ 'typo.p0' ] );
 	}
 
-	public function test_drain_lines_from_stream_skips_blank_lines_in_count(): void {
-		// drain_lines_from_stream counts lines READ, not lines emitted —
-		// blank lines come back from fgets, dispatch_line returns false
-		// for them, but the read still counts.
-		$cmd   = new Cli_Command();
-		$shell = new \Newspack_Nodes\Shell();
-		$sink  = new \Newspack_Nodes\Tests\CaptureSink();
-		$shell->sink( $sink );
-
-		$stream = \fopen( 'php://memory', 'r+' );
-		\fwrite( $stream, "ls\n" );
-		\fwrite( $stream, "\n" );
-		\fwrite( $stream, "# a comment\n" );
-		\fwrite( $stream, "ping x\n" );
-		\rewind( $stream );
-
-		$processed = $cmd->drain_lines_from_stream( $shell, $stream );
-		\fclose( $stream );
-
-		$this->assertSame( 4, $processed );        // 4 lines read
-		$this->assertCount( 2, $sink->captured );  // 2 messages emitted (ls, ping)
-	}
-
-	// ── fire() additional branches ────────────────────────────────────────
-
 	public function test_stdin_reader_fire_rearms_at_eof_poll_after_eof_sent(): void {
 		// Spec: after fire() emits TM_EOF (stdin closed), subsequent fire()
 		// ticks re-arm at EOF_POLL_MS=10 — tight enough to notice deadline /
@@ -902,10 +797,7 @@ class CliCommandTest extends TestCase {
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
 		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
 		\Newspack_Nodes\EventFramework::reset();
@@ -938,10 +830,7 @@ class CliCommandTest extends TestCase {
 		// piped-stdin throughput where the kernel has many lines buffered.
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 
@@ -975,10 +864,7 @@ class CliCommandTest extends TestCase {
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
 		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
 		// 0s deadline → fire() emits TM_EOF, then next fire() flips exit.
@@ -1020,10 +906,7 @@ class CliCommandTest extends TestCase {
 		//      hooking the closure to count invocations.
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 		$stream = \fopen( 'php://memory', 'r+' );
@@ -1072,10 +955,7 @@ class CliCommandTest extends TestCase {
 		// fire() sees the flag and emits TM_EOF (via send_eof_marker).
 		$cmd    = new Cli_Command();
 		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper(
-			\fopen( 'php://memory', 'w+' ),
-			\fopen( 'php://memory', 'w+' )
-		);
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 		$stream = \fopen( 'php://memory', 'r+' );

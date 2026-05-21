@@ -17,15 +17,9 @@ import {
 } from './message';
 
 /**
- * Verb dispatch over TM_COMMAND messages with empty TO.
- *
- * Mirrors the PHP `CommandInterpreter`: messages whose TYPE has TM_COMMAND
- * (and NOT TM_RESPONSE) AND whose TO is empty get dispatched to a verb
- * looked up by name in the instance's verb table. Everything else passes
- * through the sink unchanged — including in-transit commands addressed to
- * downstream peers (non-empty TO). Verb handlers may throw; `_interpret`
- * wraps a throw as TM_COMMAND|TM_ERROR with the exception message as
- * payload. Successful returns ride back as TM_COMMAND|TM_RESPONSE.
+ * Verb dispatch over TM_COMMAND messages with empty TO (mirrors PHP
+ * CommandInterpreter). Throws wrap as TM_ERROR, returns as TM_RESPONSE;
+ * everything else passes through the sink unchanged.
  */
 export class CommandInterpreter extends Node {
 	constructor() {
@@ -34,9 +28,7 @@ export class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * Getter/setter for the verb table. Passing a table extends the
-	 * existing one (Object.assign) so callers can layer verbs without
-	 * losing earlier installations.
+	 * Getter/setter for the verb table; passing a table merges (extends) it.
 	 *
 	 * @param {Object<string,Function>|null} table Verb table to merge, or null to read.
 	 * @return {Object<string,Function>} The current verb table.
@@ -52,9 +44,7 @@ export class CommandInterpreter extends Node {
 		this.counter += 1;
 		const type = message[ TYPE ];
 
-		// TM_PING / TM_EOF with empty TO bounce back along FROM so the
-		// producer can measure RTT (PING) or detect drain completion (EOF).
-		// Mirrors PHP CommandInterpreter::fill — same predicate, same effect.
+		// TM_PING / TM_EOF with empty TO bounce back along FROM (RTT / drain).
 		// eslint-disable-next-line no-bitwise
 		if ( type & ( TM_PING | TM_EOF ) && message[ TO ] === '' ) {
 			message[ TO ] = message[ FROM ];
@@ -76,9 +66,7 @@ export class CommandInterpreter extends Node {
 	}
 
 	_interpret( message ) {
-		// VALUE carries the structured command object directly
-		// ({ name, arguments, payload }) — the only JSON layer is the
-		// whole-message envelope, so there is nothing to parse here.
+		// VALUE is the structured command object directly (no parse needed).
 		const cmd = message[ VALUE ];
 		if ( ! cmd || typeof cmd !== 'object' || ! cmd.name ) {
 			Core.stderr( `invalid command struct on ${ this.name }` );
@@ -114,8 +102,7 @@ export class CommandInterpreter extends Node {
 		resp[ TO ] = message[ FROM ];
 		resp[ ID ] = message[ ID ];
 		resp[ KEY ] = message[ KEY ];
-		// Response VALUE rides as the { name, payload } object directly; the
-		// whole-message envelope is the only place JSON serialization happens.
+		// Response VALUE rides as the { name, payload } object directly.
 		resp[ VALUE ] = { name, payload };
 		if ( this.sink ) {
 			this.sink.fill( resp );

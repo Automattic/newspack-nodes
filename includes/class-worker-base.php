@@ -1,10 +1,8 @@
 <?php
 /**
- * Worker Base
+ * Worker Base: zombie-process worker lifecycle.
  *
- * Zombie-process worker lifecycle. Provides acquire/release/should_continue
- * so workers exit cleanly before OOM, before max_runtime, or when their lock
- * is taken from them.
+ * acquire/release/should_continue so workers exit cleanly before OOM, max_runtime, or lock loss.
  *
  * @package Newspack_Nodes
  */
@@ -86,8 +84,7 @@ class WorkerBase {
 			return false;
 		}
 
-		// Single restart channel: external request_restart() drops a flag into our
-		// lock dir; we exit cleanly so the supervisor respawns a fresh process.
+		// External request_restart() drops a flag into our lock dir; exit so the supervisor respawns.
 		if ( $this->lock->should_restart() ) {
 			return false;
 		}
@@ -120,13 +117,7 @@ class WorkerBase {
 		return true;
 	}
 
-	/**
-	 * Cheap liveness probe for the WordPress / DB substrate.
-	 *
-	 * Default returns true (always passes); subclasses or test doubles override.
-	 * After DB_CHECK_MAX_FAILURES consecutive false returns at DB_CHECK_INTERVAL_S
-	 * cadence, should_continue() returns false to trigger an orderly shutdown.
-	 */
+	/** Cheap DB liveness probe; default always passes. N consecutive failures trigger shutdown. */
 	protected function db_check_passes(): bool {
 		return true;
 	}
@@ -154,34 +145,23 @@ class WorkerBase {
 	}
 
 	/**
-	 * Build the standard scaffolding nodes every worker process needs:
-	 *   _router, _command_interpreter (sinks into _router),
-	 *   _repl (output Partition).
+	 * Build the standard scaffolding (_router, _command_interpreter, _repl, input Consumer).
 	 *
-	 * Returns the CommandInterpreter so topology closures can drive graph construction.
+	 * @return CommandInterpreter So topology closures can drive graph construction.
 	 */
 	public function build_scaffolding(): CommandInterpreter {
 		$ipc_dir = "{$this->base_dir}/ipc/{$this->worker_type}.p{$this->partition}";
 
 		$router = new Router();
 		$router->name( '_router' );
-		// Router extends Timer and serves as the TIMER event hub for the
-		// Router-hitchhike pattern (see Timer::set_timer() with no args).
-		// Without an active timer the Router never fires `notify('TIMER',...)`
-		// and any node registered via `$router->register('TIMER', $name)`
-		// silently stops ticking. DEFAULT_TICK_MS is 5s — fine grain for
-		// keepalives like StreamMerger's /firehose/heartbeat POSTs.
+		// Active timer so the Router fires TIMER for the hitchhike pattern (keepalives etc.).
 		$router->set_timer( Router::DEFAULT_TICK_MS );
 
 		$interpreter = new CommandInterpreter();
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->sink( $router );
 
-		// _repl: output IPC Partition. Partition::fill auto-packs any non-control
-		// message (Message::packed → bytes → segment), so anything routed to
-		// TO=_repl lands on disk in the cli's read-side wire format. No wrapper
-		// needed. allow_large_writes because dump output regularly exceeds
-		// PIPE_BUF.
+		// _repl output Partition: TO=_repl lands on disk; allow_large_writes since dumps exceed PIPE_BUF.
 		if ( ! \is_dir( "{$ipc_dir}/output" ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
@@ -189,22 +169,10 @@ class WorkerBase {
 		$repl = new Partition( "{$ipc_dir}/output", 0 );
 		$repl->name( '_repl' );
 		$repl->sink( $interpreter );
-		// allow_large_writes constructs Lock + heartbeat Timer keyed off
-		// `$repl->name` and routed through `$repl->sink`, so name() and
-		// sink() must be set first.
+		// allow_large_writes keys its Lock/heartbeat off name + sink, so set those first.
 		$repl->allow_large_writes();
 
-		// IPC input Consumer (unnamed — spec line 636). Reads packed messages
-		// from the cli's command Partition, auto-unpacks, stamps `_repl` onto
-		// FROM (path-prepend, preserving the cli's $pid trail), forwards to
-		// _command_interpreter. Replies route via TO=_repl/_output/$pid
-		// → worker's _router peels `_repl` → `_repl` Partition (above) writes
-		// to disk → cli reads.
-		//
-		// Cli commands are ephemeral — running them on worker (re)start would
-		// replay every historical command (e.g. one `ping` triggers a fresh
-		// reply on every worker respawn). Skip the offsetlog and tail-seek so
-		// each fresh worker process starts handling commands from now-forward.
+		// IPC input Consumer: ephemeral (empty offsetlog + tail-seek) so respawns don't replay commands.
 		$input_dir = "{$ipc_dir}/input";
 		if ( ! \is_dir( $input_dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
@@ -218,19 +186,13 @@ class WorkerBase {
 		return $interpreter;
 	}
 
-	/**
-	 * Invoke the topology closure to wire up worker-specific nodes.
-	 *
-	 * Closure receives the CommandInterpreter (drives `make_node`/`connect_node`
-	 * via shell vocabulary) and this worker's partition number.
-	 */
+	/** Invoke the topology closure (receives the CI + this worker's partition number). */
 	public function run_topology( callable $topology, CommandInterpreter $ci ): void {
 		$topology( $ci, $this->partition );
 	}
 
 	/**
-	 * Fire-and-forget POST to the spawn endpoint to ask another zombie process
-	 * to take over the worker after we exit. Non-blocking; ignore failures.
+	 * Fire-and-forget spawn POST so another process takes over after we exit.
 	 *
 	 * @param string $spawn_url Fully-qualified spawn URL (rest_url + path).
 	 * @param string $token     Current HMAC spawn token.
@@ -253,12 +215,9 @@ class WorkerBase {
 	}
 
 	/**
-	 * Full lifecycle wrapper: acquire → grace sleep → register shutdown handler
-	 * → run topology in drain loop → release lock + self_respawn.
+	 * Full lifecycle: acquire → grace → shutdown handler → drain → release + self_respawn.
 	 *
-	 * Idempotent shutdown: both the registered shutdown handler and the finally
-	 * block flip $shutdown_handled, so release+respawn happens exactly once
-	 * regardless of normal exit, exception, or fatal error.
+	 * Idempotent shutdown via $shutdown_handled (handler + finally) so release+respawn happens once.
 	 *
 	 * @param callable $topology  Topology closure (signature: ($ci, $partition)).
 	 * @param string   $spawn_url Spawn endpoint URL for self-respawn.
@@ -273,19 +232,14 @@ class WorkerBase {
 		\register_shutdown_function( function () use ( $spawn_url, $token ): void {
 			if ( ! $this->shutdown_handled ) {
 				$this->shutdown_handled = true;
-				// Tear down nodes first so each Partition releases its
-				// write_lock + heartbeat. Otherwise the next spawn races
-				// the stale-timeout window (60s) waiting for our heartbeat
-				// to age out — manifests as RuntimeException on
-				// allow_large_writes() in the new worker's build_scaffolding.
+				// Tear down nodes first so Partitions release their locks before the next spawn.
 				Core::cleanup_all_nodes();
 				$this->release();
 				$this->self_respawn( $spawn_url, $token );
 			}
 		} );
 
-		// Brief grace so any concurrent spawn racing for the same lock can see we
-		// own it before they retry — matches event-logger WorkerBase pattern.
+		// Brief grace so a concurrent spawn sees we own the lock before retrying.
 		\usleep( (int) ( self::LOCK_CHECK_GRACE_S * 1_000_000 ) );
 
 		try {

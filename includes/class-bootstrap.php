@@ -2,18 +2,8 @@
 /**
  * Bootstrap: plugin-level glue.
  *
- * Reads the `newspack_nodes/topologies` filter and expands it to a flat list of
- * worker descriptors (one per partition). Also exposes init helpers used by
- * the main plugin file: REST route registration and supervisor cron tick.
- *
- * Hardening:
- *  - MAX_PARTITIONS=16 cap on partition counts read from topologies. Bounded
- *    loops downstream; matches the supervisor cleanup ceiling. Spec line 844.
- *  - run_supervisor_tick() invokes Supervisor::run() (the long-running 595s
- *    in-process tick loop), not a single iteration. Cron is the backstop;
- *    the supervisor's own loop is the primary scheduling mechanism.
- *  - is_logging_enabled() gates the supervisor: false → unschedule + return
- *    cleanly (spec line 846).
+ * Expands the `newspack_nodes/topologies` filter to flat worker descriptors,
+ * and exposes init helpers (REST routes, supervisor cron tick).
  *
  * @package Newspack_Nodes
  */
@@ -28,27 +18,9 @@ use Newspack_Nodes\Rest\SpawnController;
 
 class Bootstrap {
 	/**
-	 * Filter-driven topology catalog. The application publishes its full
-	 * file-default set via `newspack_nodes/topologies` — that's the catalog
-	 * of what topologies exist and their default per-topology metadata. The
-	 * substrate owns the operator overlay: `newspack_nodes_topologies` is a
-	 * substrate option set by the admin checkboxes. When present, it
-	 * filters the catalog down to the active subset. `false` (option never
-	 * written) means "use the full catalog" — gives a sensible starter set
-	 * on a fresh install without shadowing operator choices. `[]` is a
-	 * valid stored value (operator unchecked everything), distinct from
-	 * `false`.
+	 * Active topology set: the `newspack_nodes/topologies` catalog filtered by the operator overlay.
 	 *
-	 * Operator selections that name a TSL file the application didn't
-	 * publish in its catalog (the admin UI renders every registered TSL,
-	 * not just catalog entries) fall back to `Topology_Registry` lookup —
-	 * the entry is synthesized from the TSL frontmatter with the same
-	 * shape the application produces, so the supervisor can spawn it.
-	 * Synthesized entries inherit the substrate's live `num_partitions`
-	 * setting as the default partition count — operators expect the
-	 * admin's num_partitions slider to size every fleet they check, not
-	 * just the ones the app pre-blessed. Names that don't resolve to a
-	 * TSL file are dropped, guarding against typos / stale option values.
+	 * Overlay option false = full catalog, [] = none, array = that subset (non-catalog names synthesized).
 	 */
 	public static function get_topologies(): array {
 		$catalog = (array) \apply_filters( 'newspack_nodes/topologies', [] );
@@ -79,22 +51,12 @@ class Bootstrap {
 		return $active;
 	}
 
-	/**
-	 * Full topology catalog (ignores the active-overlay option). Substrate
-	 * admin's Topologies checkboxes render against this so operators can
-	 * see every available topology, including ones currently unchecked.
-	 */
+	/** Full topology catalog (ignores the operator overlay); the admin checkboxes render against this. */
 	public static function get_topology_catalog(): array {
 		return (array) \apply_filters( 'newspack_nodes/topologies', [] );
 	}
 
-	/**
-	 * Expand topologies to flat worker descriptors, one per partition.
-	 *
-	 * Partition counts are clamped to MAX_PARTITIONS so the supervisor's
-	 * cleanup walk and the spawn endpoint's bounds checks stay within the
-	 * documented ceiling regardless of misconfiguration.
-	 */
+	/** Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS). */
 	public static function expand_workers(): array {
 		$topologies = self::get_topologies();
 		$workers    = [];
@@ -113,81 +75,40 @@ class Bootstrap {
 		return $workers;
 	}
 
-	/**
-	 * Logging gate. Plugins / config can disable the supervisor without
-	 * deactivating the plugin. Implemented as a filter so applications can
-	 * tie it to their own settings UI; defaults to enabled.
-	 *
-	 * Returning false from this filter makes run_supervisor_tick() unschedule
-	 * the cron and return early; supervisor's check_config() honors it too.
-	 * Spec line 846.
-	 */
+	/** Logging gate (filter, default true); false makes the supervisor unschedule + exit. */
 	public static function is_logging_enabled(): bool {
 		return (bool) \apply_filters( 'newspack_nodes/enable_logging', true );
 	}
 
-	/**
-	 * Resolve the configured base directory for runtime state (locks/, ipc/).
-	 * Single source of truth: `Config::load_config()` (file default → WP
-	 * options overlay).
-	 */
+	/** Configured base directory for runtime state (locks/, ipc/). */
 	public static function base_dir(): string {
 		return (string) ( Config::load_config()['base_directory'] ?? '/tmp/newspack-nodes' );
 	}
 
-	/**
-	 * Build a Supervisor instance using the WordPress NONCE_SALT for HMAC.
-	 * Falls back to a static placeholder if NONCE_SALT is not defined — this
-	 * should only happen in test contexts; production WP always defines it.
-	 */
+	/** Build a Supervisor using NONCE_SALT for HMAC (placeholder fallback only in tests). */
 	public static function supervisor(): Supervisor {
 		$nonce_salt = \defined( 'NONCE_SALT' ) ? \NONCE_SALT : 'fallback-salt-please-set-NONCE_SALT';
 		return new Supervisor( self::base_dir(), $nonce_salt );
 	}
 
-	/**
-	 * Register substrate REST routes — wired to `rest_api_init`.
-	 */
+	/** Register substrate REST routes — wired to `rest_api_init`. */
 	public static function register_rest_routes(): void {
 		( new SpawnController( self::supervisor() ) )->register_routes();
 		( new Messages_Stream_Controller() )->register_routes();
 		( new Command_Controller() )->register_routes();
 	}
 
-	/**
-	 * Supervisor tick: invoke Supervisor::run() (long-running 595s loop).
-	 * Wired to `newspack_nodes/supervisor` via wp_cron at minute cadence.
-	 *
-	 * Cron is the BACKSTOP — the supervisor's own self-respawn chain (run()
-	 * end → POST /spawn → fresh supervisor) is the primary scheduling
-	 * mechanism. Cron only catches a dead chain (supervisor crashed and
-	 * couldn't fire spawn_next_supervisor).
-	 *
-	 * If logging is disabled, unschedule the cron and return cleanly.
-	 */
+	/** Supervisor cron tick: run Supervisor::run() (595s loop). Cron is the cold-start backstop. */
 	public static function run_supervisor_tick(): void {
 		if ( ! self::is_logging_enabled() ) {
 			self::unschedule_supervisor();
 			return;
 		}
-		// Don't run the supervisor if there's nothing to supervise. With every
-		// topology gated off (enable_workers/enable_jobs/enable_aggregator all
-		// false, etc.), `expand_workers()` returns []. The supervisor would
-		// otherwise still spin up its 595s tick loop, heartbeat, fire
-		// supervisor_periodic, and self-respawn — all pointless when no
-		// workers exist to spawn or to consume the periodic-hook output.
-		// Leave the cron scheduled so the next minute-tick after the operator
-		// flips a gate back on picks up the new topology fleet automatically —
-		// unscheduling would require plugin re-activation to re-arm.
-		// Cost of a minute-cadence no-op tick is negligible.
+		// Leave the cron scheduled so a re-enabled gate is picked up next tick.
 		if ( empty( self::expand_workers() ) ) {
 			return;
 		}
-		// Tag the env var BEFORE firing the wrapping action so a listener
-		// (event-logger-nodes wraps this with begin_job_context) builds its
-		// fresh request scope with `worker_type='supervisor'` already set.
-		// Without this, the cron-backstop path logs the 595s tick as an
-		// untagged /wp-cron.php request that counts in global averages.
+		// Tag the env var BEFORE the wrapping action so listeners build scope with worker_type set.
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'supervisor';
 		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = '0';
@@ -200,19 +121,9 @@ class Bootstrap {
 	}
 
 	/**
-	 * Mount ONE worker's input Partition by reader id into this request's node
-	 * graph, named after the reader id and pointed at the worker's IPC input
-	 * dir. Router's TO-peel dispatch then routes `TO={reader}.pN` commands to
-	 * it. Returns true iff the partition is now mounted.
+	 * Mount one worker's input Partition by reader id (format-validated, idempotent).
 	 *
-	 * The reader id is client-supplied (the `connect_worker_input` command
-	 * argument), so it's format-validated — that's also the path-traversal
-	 * guard. Idempotent: re-mounting an already-registered reader is a no-op.
-	 *
-	 * The Partition index is always 0: each worker's IPC dir is per-reader
-	 * (`ipc/{reader}/input`) and the input store inside it is a single
-	 * partition (`input/p0/`), matching how WorkerBase reads its own input.
-	 * The worker's partition number lives in the reader id, not the index.
+	 * @return bool True iff the partition is now mounted.
 	 */
 	public static function register_worker_partition( string $reader_id, string $base_dir ): bool {
 		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/', $reader_id ) ) {
@@ -233,10 +144,7 @@ class Bootstrap {
 		return true;
 	}
 
-	/**
-	 * Mount every live worker's input Partition (delegating each to
-	 * register_worker_partition). Returns the count registered.
-	 */
+	/** Mount every live worker's input Partition; returns the count registered. */
 	public static function register_worker_partitions( string $base_dir ): int {
 		$count = 0;
 		foreach ( \glob( "{$base_dir}/locks/*.lock.d", \GLOB_ONLYDIR ) ?: [] as $lock_dir ) {
@@ -247,10 +155,7 @@ class Bootstrap {
 		return $count;
 	}
 
-	/**
-	 * Unschedule the supervisor cron event. Used by the disable-logging path
-	 * and the deactivation hook.
-	 */
+	/** Unschedule the supervisor cron event. */
 	public static function unschedule_supervisor(): void {
 		if ( ! \function_exists( 'wp_next_scheduled' ) || ! \function_exists( 'wp_unschedule_event' ) ) {
 			return;
@@ -275,32 +180,14 @@ class Bootstrap {
 		return $schedules;
 	}
 
-	/**
-	 * Activation hook: schedule the supervisor cron at minute cadence.
-	 * Workers self-respawn between ticks; cron is the safety net for cold starts.
-	 */
+	/** Activation hook: schedule the supervisor cron at minute cadence. */
 	public static function activate(): void {
 		if ( ! \wp_next_scheduled( 'newspack_nodes/supervisor' ) ) {
 			\wp_schedule_event( \time() + 5, 'newspack_nodes_minute', 'newspack_nodes/supervisor' );
 		}
 	}
 
-	/**
-	 * Self-heal: re-arm the supervisor cron if it should be running but isn't.
-	 *
-	 * The activation hook only fires on plugin (re)activation. If the cron
-	 * event gets cleared by anything else — DB rebuild, `wp cron event delete`,
-	 * hosting platform reset — workers stop ticking until the operator
-	 * deactivates and reactivates the plugin. Hook this on `admin_init` so
-	 * the next wp-admin pageview re-arms the schedule automatically.
-	 *
-	 * Three short-circuits keep this cheap and idempotent:
-	 *   - logging disabled → operator intent says "don't run"
-	 *   - no topologies selected → nothing to supervise
-	 *   - cron already scheduled → already healthy
-	 *
-	 * Only when all three pass do we call activate() to re-schedule.
-	 */
+	/** Self-heal (admin_init): re-arm the supervisor cron if it should run but isn't scheduled. */
 	public static function self_heal_supervisor_cron(): void {
 		if ( ! self::is_logging_enabled() ) {
 			return;
@@ -314,9 +201,7 @@ class Bootstrap {
 		self::activate();
 	}
 
-	/**
-	 * Deactivation hook: clear the supervisor cron.
-	 */
+	/** Deactivation hook: clear the supervisor cron. */
 	public static function deactivate(): void {
 		\wp_clear_scheduled_hook( 'newspack_nodes/supervisor' );
 	}

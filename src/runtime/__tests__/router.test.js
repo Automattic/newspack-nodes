@@ -88,8 +88,7 @@ test( 'single-segment TO with no slash peels head and forwards with empty TO', (
 test( 'NOT_AVAILABLE bounce with empty FROM is silently dropped (no throw, no loop)', () => {
 	const r = new Router();
 	r.setName( '_router' );
-	// No FROM, so the synthetic error addresses TO='' and falls into
-	// the empty-TO sink branch. With no sink set, it's a silent drop.
+	// No FROM -> error hits the empty-TO sink branch; no sink = silent drop.
 	const m = newMessage();
 	m[ TO ] = 'missing/path';
 	expect( () => r.fill( m ) ).not.toThrow();

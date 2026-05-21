@@ -1,15 +1,5 @@
 /**
  * SchematicCanvas — raw SVG drafting-room canvas.
- *
- * Renders {nodes, edges} from parseLsOutput + autoLayout as an
- * engineering schematic: rectangular cards with a TYPE band header, an
- * id row, a status LED, a counter cell, input/output ports on the
- * sides, and orthogonal flow-dashed edges connecting them.
- *
- * Inspect-only in v1 — no drag, no palette drop. Click selects a node;
- * background click deselects. Layout is recomputed whenever the parsed
- * graph changes (node added/removed), but persists otherwise to keep
- * the canvas stable while counters tick.
  */
 
 import {
@@ -25,15 +15,10 @@ import { autoLayout, X_PAD, X_STEP, Y_PAD, Y_STEP } from '../utils/autoLayout';
 const NODE_W = 196;
 const NODE_H = 84;
 const PORT_R = 4.5;
-// Movement threshold (SVG units) before a pointer-down + drag is
-// treated as a drag rather than a click. Anything under suppresses
-// the drag and lets the click handler fire (node selection).
+// Movement (SVG units) before a pointer-down counts as a drag, not a click.
 const DRAG_THRESHOLD = 3;
 
-// Convert a viewport-coords pointer event to SVG-coords. SchematicCanvas
-// uses viewBox so screen pixels and SVG units differ by the CTM scale;
-// without this conversion the dragged node lags behind the cursor at
-// any non-1:1 viewport size.
+// Convert pointer (viewport) coords to SVG coords via the CTM scale.
 function screenToSvg( svg, clientX, clientY ) {
 	const pt = svg.createSVGPoint();
 	pt.x = clientX;
@@ -56,12 +41,7 @@ function edgePath( a, b ) {
 	const y1 = a.position.y + NODE_H / 2;
 	const x2 = b.position.x;
 	const y2 = b.position.y + NODE_H / 2;
-	// Cubic bezier — control points pulled horizontally from each
-	// port so the curve eases in/out of the node. Orthogonal-elbow
-	// routing made long vertical drops read as column separators
-	// rather than directed edges; a smooth S-curve makes the source/
-	// destination of each edge unmistakable even when several edges
-	// converge on the same input port.
+	// Cubic bezier S-curve so edge source/destination read clearly.
 	const dx = Math.max( 60, Math.abs( x2 - x1 ) * 0.5 );
 	const c1x = x1 + dx;
 	const c2x = x2 - dx;
@@ -70,14 +50,8 @@ function edgePath( a, b ) {
 	},${ y2 }`;
 }
 
-// Tight bbox of every node, padded so the graph isn't flush against
-// the pane edges. The SVG's `preserveAspectRatio="xMidYMid meet"`
-// centers this within the pane automatically. A floor on width/
-// height caps the effective zoom — small graphs (2–3 nodes) used
-// to autofit so aggressively that nodes looked giant; the floor
-// expands the viewBox to AUTOFIT_MIN_W/H while keeping it centered
-// on the bbox, so the graph stays at a reasonable cap and the pane
-// has surrounding breathing room.
+// Padded tight bbox of every node. The width/height floor caps the
+// effective zoom so small graphs don't autofit to giant nodes.
 const CENTER_PAD = 80;
 const AUTOFIT_MIN_W = 1280;
 const AUTOFIT_MIN_H = 720;
@@ -107,15 +81,12 @@ function tightViewBoxFor( nodes ) {
 	return `${ x } ${ y } ${ w } ${ h }`;
 }
 
-// Wheel zoom step (multiplicative). Each notch in zooms or out by
-// this factor; modifier-less wheel + cursor-anchored, so the world
-// point under the cursor stays under the cursor.
+// Wheel zoom step (multiplicative), cursor-anchored.
 const ZOOM_STEP = 1.12;
 const ZOOM_MIN = 0.25;
 const ZOOM_MAX = 4.0;
 
-// Parse the "x y w h" viewBox string back into an object for the
-// pan/zoom math. Returns a safe fallback if the input is malformed.
+// Parse "x y w h" into an object; safe fallback on malformed input.
 function parseViewBox( str ) {
 	const parts = str.split( /\s+/ ).map( Number );
 	if ( parts.length !== 4 || parts.some( Number.isNaN ) ) {
@@ -124,20 +95,12 @@ function parseViewBox( str ) {
 	return { x: parts[ 0 ], y: parts[ 1 ], w: parts[ 2 ], h: parts[ 3 ] };
 }
 
-// Sparkline area inside each node card — sits between the id row
-// (text baseline at y=44) and the bottom rate/counter row (baseline
-// at y=76). Auto-scaled to the window's max so a node that's
-// recently bursty shows the shape regardless of absolute rate.
-// Bottom edge at y=64 leaves a 4px breather before the rate/counter
-// text starts climbing into view (the digits' top edge sits ~y=68).
+// Sparkline area inside each node card, auto-scaled to the window's max.
 const SPARK_X = 11;
 const SPARK_Y = 48;
 const SPARK_W = 174; // NODE_W (196) - 11 - 11
 const SPARK_H = 16;
-// Must equal TopologyConsole's RATE_HISTORY_MAX — the per-sample step
-// is computed against this constant, not the current history length,
-// so early ticks render right-aligned at the fixed step width instead
-// of stretching to fill the plot. Keep these two in sync.
+// Must equal TopologyConsole's RATE_HISTORY_MAX — drives the per-sample step.
 const SPARK_HISTORY_MAX = 60;
 function sparklinePath( history ) {
 	if ( ! history || history.length < 2 ) {
@@ -145,18 +108,11 @@ function sparklinePath( history ) {
 	}
 	const max = Math.max( ...history, 1e-9 );
 	const step = SPARK_W / ( SPARK_HISTORY_MAX - 1 );
-	// Right-align: the newest sample lands at the right edge of the
-	// plot; earlier samples walk left at the fixed step. While history
-	// is short, the curve only spans the rightmost portion of the
-	// plot area — as samples accumulate it grows leftward until full.
+	// Right-align: newest sample at the right edge, earlier ones walk left.
 	const startIdx = SPARK_HISTORY_MAX - history.length;
 	return history
 		.map( ( v, i ) => {
-			// Defensive clamp: a negative sample (counter reset) would
-			// otherwise plot below the box. TopologyConsole already
-			// zeros these at source, but the clamp keeps the plot
-			// well-formed even when an explicit zero ends up tiny-
-			// negative from float math.
+			// Clamp negatives (counter reset) so they don't plot below the box.
 			const safeV = v > 0 ? v : 0;
 			const x = SPARK_X + ( startIdx + i ) * step;
 			const y = SPARK_Y + SPARK_H - ( safeV / max ) * SPARK_H;
@@ -167,10 +123,7 @@ function sparklinePath( history ) {
 		.join( ' ' );
 }
 
-// Per-node rate format, lower-left of each node card. Shaved to two
-// significant figures so the text fits inside the 196px node width
-// without wrapping. Returns null below a threshold so dead nodes
-// don't fill the canvas with "0 /s" noise.
+// Per-node rate label; null below threshold so dead nodes don't show "0 /s".
 function formatNodeRate( rate ) {
 	if ( ! rate || rate < 0.05 ) {
 		return null;
@@ -194,36 +147,26 @@ export default function SchematicCanvas( {
 	positionOverrides,
 	onPositionChange,
 	rateRef,
-	// rateVersion is consumed implicitly: a bump on the parent forces
-	// SchematicCanvas to re-render, which re-reads rateRef.current in
-	// the node render loop. Listed as a prop so React knows about it.
+	// rateVersion is consumed implicitly: a parent bump forces a re-render
+	// that re-reads rateRef.current. Listed so React knows about it.
 	// eslint-disable-next-line no-unused-vars
 	rateVersion,
 	viewport,
 	onViewportChange,
-	// Edit-mode affordances. `onDropNode` receives { shellName, x, y }
-	// in SVG-space coordinates (post-viewBox projection). `onConnect`
-	// fires when the user drags from a node's OUT port and releases on
-	// another node's IN port. Both are no-ops in view mode — wired
-	// through TopologyConsole based on the current `mode` state.
+	// Edit-mode affordances; no-ops in view mode. onDropNode receives
+	// SVG-space coords; onConnect fires on OUT-port → IN-port drag.
 	onDropNode,
 	onConnect,
 	editMode = false,
 	selectedEdge = null,
 	onSelectEdge,
-	// Returning truthy from this skips the canvas's own deselect/autofit
-	// for this click — lets the parent spend the first click on a
-	// dismissal and defer the autofit to the next.
+	// Returning truthy skips the canvas's own deselect/autofit for this click.
 	onBackgroundClickConsumed,
-	// `shell_name` → class schema. Drives per-node IN/OUT port visibility
-	// via `accepts_fill` and `has_target`; both default true for absent.
+	// shell_name → schema; drives port visibility (accepts_fill/has_target).
 	classCatalog = {},
 } ) {
-	// Apply user-pinned position overrides on top of the auto-layout
-	// output. autoLayout still runs every poll (so newly-added nodes
-	// get sensible defaults), but any node the user has dragged keeps
-	// its dragged position — keyed by node name, so the override
-	// survives substrate restarts that re-seed counters.
+	// User-pinned overrides win over autoLayout output (keyed by node name
+	// so they survive restarts that re-seed counters).
 	const { nodes: laidOutNodes, edges } = useMemo(
 		() => autoLayout( parsed ),
 		[ parsed ]
@@ -239,13 +182,9 @@ export default function SchematicCanvas( {
 		);
 	}, [ laidOutNodes, positionOverrides ] );
 
-	// Active-drag state. Held in a single object so the dragged node
-	// can render at its current (un-snapped) position while everyone
-	// else stays put. Snap happens on pointerup; that's when the
-	// committed override is sent back to the parent.
+	// Active-drag state; snap + commit happen on pointerup.
 	const [ drag, setDrag ] = useState( null );
-	// Whether the most recent pointer-down crossed the drag threshold.
-	// Click handler reads this to suppress selection after a real drag.
+	// Set when the pointer-down crossed the threshold; suppresses selection.
 	const draggedRef = useRef( false );
 
 	const displayNodes = useMemo( () => {
@@ -262,49 +201,30 @@ export default function SchematicCanvas( {
 		displayNodes.forEach( ( n ) => map.set( n.id, n ) );
 		return map;
 	}, [ displayNodes ] );
-	// Viewport is controlled by the parent — `null` means "no
-	// override, autofit to the tight bbox". The parent persists this
-	// to localStorage so reloads and topology switches preserve the
-	// user's last view. A local setter wraps the prop-handler so
-	// in-flight pan/zoom math stays terse.
+	// Parent-controlled viewport; `null` = autofit to the tight bbox.
 	const setViewport = onViewportChange || ( () => {} );
-	// Active pan drag on the empty canvas. Holds the starting viewport
-	// (so each move re-reads from a stable origin) plus the starting
-	// pointer position and whether the drag has crossed the threshold.
+	// Active pan drag on the empty canvas (stable start origin per move).
 	const panRef = useRef( null );
 
 	// Debounce flag for beginDrag — see comment in beginDrag below.
 	const beginDragGuardRef = useRef( false );
 
-	// SVG element ref used to project HTML drop coordinates (clientX/Y)
-	// back into the canvas's viewBox coordinate system. Without the
-	// projection, drops would land at raw pixel offsets that ignore
-	// pan/zoom — perfectly wrong in any non-default viewport.
+	// SVG ref for projecting HTML drop coords back into viewBox space.
 	const svgRef = useRef( null );
 
-	// Wire-drag state. Null when idle; during a drag holds the source
-	// node id, the SVG-space coords of both endpoints, and the id of
-	// the IN port currently being snapped to (so the renderer can light
-	// it up). Wire drags suppress the background pan handler (port
-	// hits e.stopPropagation), so these two pointer paths don't fight.
+	// Wire-drag state; port hits stopPropagation so this and pan don't fight.
 	const [ wireDrag, setWireDrag ] = useState( null );
-	// Mirror of wireDrag for the window-level mousemove/mouseup
-	// listeners that drive the rubber-band — those closures capture
-	// state at attach time and would otherwise read a stale value.
+	// Mirror for window-level listeners that would otherwise read stale state.
 	const wireDragRef = useRef( null );
 	const updateWireDrag = useCallback( ( next ) => {
 		wireDragRef.current = next;
 		setWireDrag( next );
 	}, [] );
 
-	// Port hit radius in SVG units. Generous enough to make snapping
-	// feel responsive without overlapping adjacent nodes (NODE_W is
-	// 196, so 24 is well under any node spacing).
+	// Port hit radius (SVG units); well under node spacing.
 	const PORT_HIT_R = 24;
 
-	// Same pointerdown vs mousedown debounce as beginDrag — Safari
-	// swallows the first pointerdown after an HTML5 drop, so we listen
-	// to both events and dedupe via this ref.
+	// Same pointerdown/mousedown dedupe as beginDrag (Safari post-drop).
 	const portDownGuardRef = useRef( false );
 
 	const handlePortPointerDown = useCallback(
@@ -313,9 +233,7 @@ export default function SchematicCanvas( {
 				return;
 			}
 			if ( portDownGuardRef.current ) {
-				// Stop propagation on the deduped duplicate so the
-				// node-g's onMouseDown doesn't pick it up and start
-				// a node drag in parallel with the wire drag.
+				// Stop the deduped duplicate so it doesn't also start a node drag.
 				e.stopPropagation();
 				return;
 			}
@@ -328,14 +246,8 @@ export default function SchematicCanvas( {
 			if ( ! svg ) {
 				return;
 			}
-			// Use window-level mousemove/mouseup for the rest of the
-			// drag rather than SVG-pointer-capture. Two reasons:
-			//   1. Mouse events work in the Safari post-drop case where
-			//      pointer events get swallowed (same path that broke
-			//      node selection earlier).
-			//   2. The cursor can leave the SVG mid-drag and still
-			//      report position back — useful for cross-pane wires
-			//      when the inspector is open.
+			// Window-level listeners (not SVG capture): work in the Safari
+			// post-drop case and keep reporting when the cursor leaves the SVG.
 			const onMove = ( me ) => handleWindowWireMove( me );
 			const onUp = ( me ) => {
 				handleWindowWireUp( me );
@@ -359,9 +271,7 @@ export default function SchematicCanvas( {
 				hoveredId: null,
 			} );
 		},
-		// handleWindowWireMove / handleWindowWireUp are function declarations
-		// in this same render scope — they close over wireDragRef + nodes,
-		// so they don't need to be in this dep list.
+		// handleWindowWireMove/Up close over wireDragRef + nodes; not deps.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[ editMode, onConnect, nodes, updateWireDrag ]
 	);
@@ -376,9 +286,7 @@ export default function SchematicCanvas( {
 			return;
 		}
 		const local = screenToSvg( svg, e.clientX, e.clientY );
-		// Snap-to-IN-port: any node whose IN port (left edge,
-		// vertical center) is within PORT_HIT_R of the cursor wins,
-		// except the source node (no self-edges).
+		// Snap to the nearest IN port within PORT_HIT_R (never the source node).
 		let snapTargetId = null;
 		let bestDist = PORT_HIT_R;
 		for ( const n of nodes ) {
@@ -420,9 +328,7 @@ export default function SchematicCanvas( {
 			if ( ! editMode ) {
 				return;
 			}
-			// preventDefault is what marks the surface as a valid drop
-			// target; without it, the browser refuses the drop and the
-			// onDrop handler never fires.
+			// preventDefault marks the surface as a valid drop target.
 			e.preventDefault();
 			e.dataTransfer.dropEffect = 'copy';
 		},
@@ -441,9 +347,7 @@ export default function SchematicCanvas( {
 				return;
 			}
 			e.preventDefault();
-			// Project (clientX, clientY) → SVG-space (x, y) using the
-			// current screen-CTM, so the drop position lands under the
-			// cursor regardless of the active viewBox / zoom level.
+			// Project (clientX, clientY) → SVG-space via the current CTM.
 			const pt = svgRef.current.createSVGPoint();
 			pt.x = e.clientX;
 			pt.y = e.clientY;
@@ -453,11 +357,8 @@ export default function SchematicCanvas( {
 			}
 			const local = pt.matrixTransform( ctm.inverse() );
 			onDropNode( { shellName, x: local.x, y: local.y } );
-			// After HTML5 drop the SVG ref is the closest stable focus
-			// target; blurring whatever the browser left active (the
-			// palette item) prevents stale focus from intercepting the
-			// next click. Touch via ownerDocument to satisfy the
-			// no-global-active-element rule.
+			// Blur the browser-left-active palette item so stale focus
+			// doesn't intercept the next click (via ownerDocument).
 			const doc = svgRef.current && svgRef.current.ownerDocument;
 			const active = doc && doc.activeElement;
 			if ( active && active.blur ) {
@@ -474,44 +375,31 @@ export default function SchematicCanvas( {
 	const viewBox = viewport
 		? `${ viewport.x } ${ viewport.y } ${ viewport.w } ${ viewport.h }`
 		: defaultViewBox;
-	// First-render commit: when there's no persisted viewport AND
-	// we now have nodes, freeze the autofit result so subsequent
-	// renders use it as-is. Without this, `viewport=null` makes
-	// every render re-compute tightViewBoxFor from current node
-	// positions, so a node drag would shift the whole canvas
-	// in real time (live autofit). Click-canvas-to-autofit
-	// already did this via setViewport; the initial state now
-	// matches.
+	// Freeze the autofit on first render so node drags don't live-shift
+	// the whole canvas (viewport=null otherwise re-fits every render).
 	useEffect( () => {
 		if ( ! viewport && nodes.length > 0 ) {
 			setViewport( parseViewBox( tightViewBoxFor( nodes ) ) );
 		}
-		// nodes used (not displayNodes) so an in-flight drag doesn't
-		// trigger the commit — only "real" position changes do.
+		// nodes (not displayNodes) so an in-flight drag doesn't commit.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ viewport, nodes.length ] );
 
-	// hoveredId is lifted to the parent so the Inspector can drive
-	// it too (hovering a `target` / `← from` value in the inspector
-	// highlights the same edges as hovering the node on the canvas).
+	// hoveredId is lifted so the Inspector can drive the same highlight.
 	const setHovered = ( id ) => {
 		if ( onHover ) {
 			onHover( id );
 		}
 	};
 
-	// Wheel zoom — anchored at the cursor so the world point under
-	// the mouse stays under the mouse. preventDefault stops the page
-	// from scrolling when the cursor is over the canvas.
+	// Cursor-anchored wheel zoom; preventDefault stops page scroll.
 	const handleWheel = ( e ) => {
 		e.preventDefault();
 		const svg = e.currentTarget;
 		const world = screenToSvg( svg, e.clientX, e.clientY );
 		const current = viewport || parseViewBox( defaultViewBox );
 		const factor = e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
-		// Clamp via the size — bigger viewBox = zoomed out. Compute
-		// against the ORIGINAL default so the zoom limits make sense
-		// across very different graph sizes.
+		// Clamp via size against the original default (bigger = zoomed out).
 		const baseW = parseViewBox( defaultViewBox ).w;
 		const minW = baseW / ZOOM_MAX;
 		const maxW = baseW / ZOOM_MIN;
@@ -527,11 +415,8 @@ export default function SchematicCanvas( {
 		} );
 	};
 
-	// Pan on background drag. Nodes' pointerdown handlers stopPropagation,
-	// so this only fires when the user grabs the empty canvas. On
-	// pointerup, if the pointer never crossed the drag threshold, treat
-	// the click as "deselect + autofit" — that's how the user re-centers
-	// the graph after they've panned/zoomed away.
+	// Pan on background drag (nodes stopPropagation); a non-drag click
+	// becomes deselect/autofit.
 	const handleBgPointerDown = ( e ) => {
 		if ( e.button !== 0 ) {
 			return;
@@ -562,9 +447,7 @@ export default function SchematicCanvas( {
 			return;
 		}
 		p.dragged = true;
-		// `preserveAspectRatio="xMidYMid meet"` uses min(rect/vb) as the
-		// scale for both axes — read the actual rendered scale off the
-		// SVG so panning matches cursor speed regardless of letterbox.
+		// Read the actual rendered scale (min rect/vb) so pan matches cursor.
 		const scale = Math.min(
 			p.rect.width / p.startVb.w,
 			p.rect.height / p.startVb.h
@@ -590,21 +473,11 @@ export default function SchematicCanvas( {
 		const wasDragged = panRef.current.dragged;
 		panRef.current = null;
 		if ( ! wasDragged ) {
-			// Background-click consumer (parent) gets first refusal. If it
-			// blurred the REPL prompt to hide the transcript, this click
-			// was a dismissal and shouldn't also deselect or autofit —
-			// either of those would be a surprising side effect of "click
-			// outside the prompt." The next plain canvas click runs the
-			// usual deselect-or-autofit path.
+			// Parent consumer gets first refusal (e.g. dismiss the prompt).
 			if ( onBackgroundClickConsumed && onBackgroundClickConsumed() ) {
 				return;
 			}
-			// Plain click on empty canvas. Two-stage:
-			//   - If a node OR edge is selected, first click just
-			//     deselects (closes the inspector / clears the edge
-			//     highlight). Don't autofit yet — the user probably
-			//     wanted to dismiss, not jump the viewport.
-			//   - If nothing is selected, autofit to the tight bbox.
+			// First click deselects if anything is selected; else autofit.
 			if ( selectedId || selectedEdge ) {
 				if ( onDeselect ) {
 					onDeselect();
@@ -616,26 +489,19 @@ export default function SchematicCanvas( {
 	};
 
 	const beginDrag = ( e, node ) => {
-		// Only left-button drags; right/middle reserved for browser.
+		// Left-button only.
 		if ( e.button !== 0 ) {
 			return;
 		}
-		// After an HTML5 drop, the browser swallows the next
-		// pointerdown but still fires mousedown + click. We listen to
-		// both — beginDragGuard prevents double-firing in the normal
-		// case where pointerdown DOES fire (immediately followed by
-		// mousedown).
+		// Listen to both pointerdown + mousedown (Safari swallows pointerdown
+		// after an HTML5 drop); the guard dedupes the normal paired-fire case.
 		if ( beginDragGuardRef.current ) {
-			// Still stop propagation on the deduped duplicate — without
-			// this, the paired event would bubble to the SVG bg handler
-			// and start a pan, even though we already handled it.
+			// Stop the deduped duplicate so it doesn't bubble and start a pan.
 			e.stopPropagation();
 			return;
 		}
 		beginDragGuardRef.current = true;
-		// Reset on next tick — long enough that the paired mouse event
-		// has been swallowed, short enough that the next user
-		// interaction starts fresh.
+		// Reset next tick: after the paired event, before the next interaction.
 		setTimeout( () => {
 			beginDragGuardRef.current = false;
 		}, 50 );
@@ -685,17 +551,8 @@ export default function SchematicCanvas( {
 			// Pointer capture may already be released; ignore.
 		}
 		if ( draggedRef.current && onPositionChange ) {
-			// Snap to HALF-steps of the auto-layout grid (X_STEP / 2,
-			// Y_STEP / 2). Whole-step snap kept dragged nodes aligned
-			// with auto-placed neighbors but didn't leave room to
-			// "nudge between columns" — half-steps give that finer
-			// control while still landing on a predictable lattice
-			// (every other slot is a real auto-layout slot). Anchored
-			// at X_PAD / Y_PAD so n=0 still matches the algorithm.
-			// Negative xi / yi are allowed — a node dragged above or
-			// left of the auto-layout origin is just a node the user
-			// wanted there; pan/zoom + the tight-bbox autofit handle
-			// the resulting viewport adjustment.
+			// Snap to half-steps of the auto-layout grid (anchored at
+			// X_PAD/Y_PAD); negatives are allowed.
 			const halfX = X_STEP / 2;
 			const halfY = Y_STEP / 2;
 			const xi = Math.round( ( drag.currentPos.x - X_PAD ) / halfX );
@@ -706,9 +563,8 @@ export default function SchematicCanvas( {
 			} );
 		}
 		setDrag( null );
-		// Reset the click-suppress flag on the next microtask so the
-		// click handler that fires immediately after pointerup can
-		// still see the "we just dragged" signal.
+		// Reset the click-suppress flag next microtask so the click after
+		// pointerup still sees the "we just dragged" signal.
 		const wasDragged = draggedRef.current;
 		setTimeout( () => {
 			draggedRef.current = wasDragged ? true : false;
@@ -730,13 +586,7 @@ export default function SchematicCanvas( {
 			onDrop={ handleDrop }
 		>
 			<defs>
-				{ /* Canvas-space grid: half-step (X_STEP/2 × Y_STEP/2)
-				lattice offset by NODE_W/2 + X_PAD, NODE_H/2 + Y_PAD
-				so intersections fall on NODE CENTERS. Auto-laid
-				nodes place top-lefts at (X_PAD + k*X_STEP, Y_PAD +
-				j*Y_STEP) → centers at (X_PAD + NODE_W/2 + k*X_STEP,
-				Y_PAD + NODE_H/2 + j*Y_STEP), which line up with the
-				even multiples of this grid's half-step lattice. */ }
+				{ /* Half-step grid offset so intersections fall on node centers. */ }
 				<pattern
 					id="topology-grid"
 					x={ X_PAD + NODE_W / 2 }
@@ -780,11 +630,7 @@ export default function SchematicCanvas( {
 				</marker>
 			</defs>
 
-			{ /* Pattern-filled rects sized to a large region centered
-			on the origin — covers any plausible pan/zoom without
-			re-rendering on every viewport change. ±4000 SVG units
-			≈ 16 X_STEP columns × 36 Y_STEP rows, more than enough
-			for the biggest realistic topology. */ }
+			{ /* Large origin-centered fill so pan/zoom needs no re-render. */ }
 			<rect
 				x="-4000"
 				y="-4000"
@@ -806,11 +652,8 @@ export default function SchematicCanvas( {
 					const selectTouches =
 						! hoveredId &&
 						( selectedId === e.from || selectedId === e.to );
-					// Hover applies the bold highlight + dims everything
-					// else. Selection applies the same bold highlight to
-					// the selected node's edges but DOESN'T dim — the rest
-					// of the graph stays at full intensity so the user can
-					// still see the surrounding context.
+					// Hover highlights + dims the rest; selection highlights
+					// without dimming so surrounding context stays visible.
 					const touches = hoverTouches || selectTouches;
 					const dimmed = hoveredId && ! hoverTouches;
 					const isEdgeSelected =
@@ -832,12 +675,7 @@ export default function SchematicCanvas( {
 									animationDelay: `${ 200 + i * 80 }ms`,
 								} }
 							/>
-							{ /* Fat invisible hit-target. Edit mode only —
-							no point making edges clickable in view mode
-							where we have nothing to do with them. Skip
-							virtual edges (synthesized from verb args):
-							the operator unchecks the verb to remove
-							them, not click-then-Delete. */ }
+							{ /* Fat hit-target, edit mode only; skip virtual edges. */ }
 							{ editMode && onSelectEdge && ! e.virtual && (
 								<path
 									className="topology-edge-hit"
@@ -877,11 +715,7 @@ export default function SchematicCanvas( {
 							style={ { animationDelay: `${ i * 50 }ms` } }
 							onClick={ ( ev ) => {
 								ev.stopPropagation();
-								// Suppress selection after a real drag —
-								// pointer-up sets draggedRef to true in
-								// that case. The flag is reset on the
-								// next microtask so subsequent clicks
-								// (without intervening drags) work.
+								// Suppress selection after a real drag.
 								if ( draggedRef.current ) {
 									draggedRef.current = false;
 									return;
@@ -937,13 +771,7 @@ export default function SchematicCanvas( {
 							>
 								{ n.id }
 							</text>
-							{ /* Per-node rate sparkline — client-side
-							ring buffer of the last RATE_HISTORY_MAX
-							samples (~1 minute at 1s tick cadence).
-							Auto-scaled to the window's max so bursty
-							nodes show their shape regardless of
-							absolute magnitude. Hidden until we have
-							two samples to draw a line between. */ }
+							{ /* Per-node rate sparkline; hidden under two samples. */ }
 							{ rateRef &&
 								( () => {
 									const history = rateRef.current.get(
@@ -960,14 +788,7 @@ export default function SchematicCanvas( {
 										/>
 									);
 								} )() }
-							{ /* Per-node rate in the BOTTOM-left, baseline-
-							aligned with the counter in the bottom-right.
-							Reading from rateRef via the rateVersion-driven
-							re-render — formatNodeRate hides values below a
-							threshold so quiet nodes don't fill the canvas
-							with "0 /s" noise. rateVersion is referenced
-							indirectly: the prop change is what triggers
-							this render path. */ }
+							{ /* Per-node rate, bottom-left; quiet nodes show nothing. */ }
 							{ rateRef && (
 								<text
 									className="topology-node__rate"

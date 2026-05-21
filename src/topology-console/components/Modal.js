@@ -1,19 +1,6 @@
 /**
- * Modal — minimal centered dialog used by the edit-mode flow.
- *
- * Two affordances:
- *   <ConfirmModal>   — title + body + two-button action row (default + danger).
- *   <PromptModal>    — title + body + single text input + two-button row.
- *
- * Why custom: window.confirm/prompt block the JS thread, can't be
- * styled to match the console's brutalist aesthetic, and leak the
- * browser's native chrome (e.g. Chrome's "prevent this site from
- * showing more dialogs" checkbox is hostile for an admin tool).
- *
- * Both modals render via a portal-style overlay div appended to the
- * topology-console root; ESC dismisses (resolves to null/undefined);
- * click-on-backdrop also dismisses; the primary action focuses on
- * mount so Enter confirms without a tab dance.
+ * Modal — minimal centered dialog (ConfirmModal + PromptModal). ESC and
+ * backdrop-click dismiss; the primary action focuses on mount.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';

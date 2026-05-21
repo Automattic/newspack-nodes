@@ -9,11 +9,7 @@ import {
 	TM_COMMAND,
 } from './message';
 
-/**
- * Content-Type for the /command POST. The body is JSONL (one packed Message
- * per line), so it must NOT be `application/json` — see the rationale in
- * `#post`.
- */
+// JSONL body, so NOT application/json (see #post for why).
 const COMMAND_CONTENT_TYPE = 'text/plain; charset=UTF-8';
 
 export class CommandClient {
@@ -23,24 +19,8 @@ export class CommandClient {
 	}
 
 	/**
-	 * Build a TM_COMMAND as a 7-element positional Message array — the wire
-	 * shape the server's `Message::unpacked()` requires. `pack()` it for a
-	 * single `send()`, or include it in a `postBatch()` list.
-	 *
-	 * FROM convention:
-	 *   - ssePid omitted → FROM=`_http`. Local commands; the WP /command
-	 *     process's HTTP_Out writes the response to the HTTP body.
-	 *   - ssePid set → FROM=`_http/<ssePid>`. Pivoted IPC commands; the
-	 *     worker's reply walks the FROM trail back to that SSE process, whose
-	 *     HTTP_Filter forwards only messages addressed to its own PID.
-	 *
-	 * VALUE is the structured command object `{ name, arguments, payload }`
-	 * itself — NOT separately JSON-encoded. It rides through the whole-message
-	 * JSON envelope (`pack()` / `postBatch()`'s `JSON.stringify`) as a nested
-	 * object, the only serialization layer. `arguments` is a literal CLI-shaped
-	 * string (the tail after Shell peels the verb name); `payload` carries
-	 * structured data when a verb needs more than a positional line. ID stays
-	 * '' — responses correlate on KEY.
+	 * Build a TM_COMMAND as a 7-element positional Message array.
+	 * FROM=`_http` (local) or `_http/<ssePid>` (pivoted reply).
 	 *
 	 * @param {Object}      params
 	 * @param {string}      params.to        Target node path.
@@ -73,9 +53,7 @@ export class CommandClient {
 	}
 
 	/**
-	 * Send a single TM_COMMAND. Returns the parsed response Message (the
-	 * synchronous HTTP_Out reply for local commands; a 202 ack for pivoted
-	 * ones, whose real reply arrives via the SSE stream).
+	 * Send a single TM_COMMAND (local sync reply; 202 ack when pivoted).
 	 *
 	 * @param {Object} params See buildMessage().
 	 * @return {Promise<Array>} Parsed response.
@@ -85,11 +63,7 @@ export class CommandClient {
 	}
 
 	/**
-	 * POST a BATCH as JSONL — one packed Message per line. The server routes
-	 * each line in order through one request graph in this single process, so a
-	 * leading setup command (e.g. connect_worker_input) takes effect before a
-	 * following command routes. `pack()` is the only JSON boundary, applied
-	 * per line — there is no array-of-messages wrapper.
+	 * POST a batch as JSONL (one packed Message per line, routed in order).
 	 *
 	 * @param {Array<Array>} messages Positional Messages, in dispatch order.
 	 * @return {Promise<Array>} Parsed response (202 ack keyed off the last).
@@ -102,12 +76,8 @@ export class CommandClient {
 		const r = await fetch( `${ this.baseUrl }newspack-nodes/v1/command`, {
 			method: 'POST',
 			headers: {
-				// The body is JSONL (one packed Message per line) — NOT a single
-				// JSON document. Sending `application/json` makes WordPress's REST
-				// dispatcher pre-parse the body as JSON and reject the newlines
-				// with a 400 `rest_invalid_json` before our handler runs. A
-				// non-JSON content type makes WP pass the raw body through to
-				// Command_Controller::messages_from_body(), which splits the lines.
+				// Non-JSON type so WP's REST dispatcher doesn't reject the
+				// JSONL newlines with rest_invalid_json before our handler runs.
 				'Content-Type': COMMAND_CONTENT_TYPE,
 				'X-WP-Nonce': this.nonce,
 			},

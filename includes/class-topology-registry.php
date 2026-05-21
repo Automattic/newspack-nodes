@@ -2,16 +2,8 @@
 /**
  * Topology_Registry — name → .tsl path resolver.
  *
- * Each plugin that ships topology files registers its stock dir
- * at load time via `Topology_Registry::register_stock_dir($path)`;
- * the writable user dir holds operator customizations and
- * shadows stock by name. The substrate itself ships no stock
- * topologies — application plugins (e.g.
- * `newspack-event-logger-nodes`) contribute theirs.
- *
- * Resolution order at lookup time:
- *   1. `{user_dir}/{name}.tsl` — operator overrides win.
- *   2. Each registered stock dir, in registration order.
+ * Plugins register stock dirs; the writable user dir shadows stock by name.
+ * Resolution: user dir first, then each stock dir in registration order.
  *
  * @package Newspack_Nodes
  */
@@ -28,21 +20,10 @@ class Topology_Registry {
 	/** @var string Writable per-deployment user dir. */
 	private static string $user_dir = '';
 
-	/**
-	 * Per-topology basename cache. Populated lazily by `basenames_for()`;
-	 * cleared by `reset()` (also fires on Config::RESET_ACTION via
-	 * `Bootstrap::reset_caches`).
-	 *
-	 * @var array<string,array<string>>
-	 */
+	/** @var array<string,array<string>> Per-topology basename cache; cleared by reset(). */
 	private static array $basename_cache = [];
 
-	/**
-	 * Memoized `{basename => int}` map of per-Partition segment_size overrides
-	 * keyed by topology name. Populated by `segment_size_overrides_for`.
-	 *
-	 * @var array<string,array<string,int>>
-	 */
+	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides by topology name. */
 	private static array $segment_size_overrides_cache = [];
 
 	public static function register_stock_dir( string $path ): void {
@@ -59,22 +40,13 @@ class Topology_Registry {
 		self::$user_dir = \rtrim( $path, '/' );
 	}
 
-	/**
-	 * Read-only view of the user-dir path. The REST list endpoint
-	 * surfaces this so the UI can show the on-disk location.
-	 */
+	/** Read-only view of the user-dir path. */
 	public static function user_dir(): string {
 		return self::$user_dir;
 	}
 
 	/**
-	 * Per-name source breakdown across user + stock dirs. Powers the
-	 * REST list endpoint's `source` field. Returns:
-	 *   [ name => [ 'user' => ?absolute-path, 'stock' => [ absolute-paths ] ] ]
-	 *
-	 * `user` is null when no user copy exists; `stock` is empty when
-	 * the name isn't in any registered stock dir. A name appears in
-	 * the result if it has at least one of either.
+	 * Per-name source breakdown across user + stock dirs (powers the REST list `source` field).
 	 *
 	 * @return array<string,array{user:?string,stock:array<int,string>}>
 	 */
@@ -105,14 +77,7 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Return the absolute path to `<name>.tsl` or null if unknown.
-	 *
-	 * `is_file()` (not `file_exists()`) so callers can trust they got a
-	 * readable file path. A directory at `{dir}/{name}.tsl/` would
-	 * `file_exists` → true, but `file_get_contents` on a directory returns
-	 * `""` (PHP 8.0+) — yielding a 200-OK with an empty body for the
-	 * `get_topology` controller. `is_file()` filters that at the source,
-	 * pushing the caller down the `null → not_found` branch.
+	 * Return the absolute path to `<name>.tsl` or null if unknown (is_file, not file_exists).
 	 */
 	public static function resolve( string $name ): ?string {
 		if ( '' !== self::$user_dir ) {
@@ -157,14 +122,7 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Lightweight `var name = value` extractor for supervisor-side
-	 * metadata reads (num_partitions, stale_timeout, …) without
-	 * executing the topology. Mirrors the `var` builtin's parse rule:
-	 * three-token form `var <name> = <value>`, optional trailing `;`,
-	 * comments and blank lines skipped, names with `:` rejected.
-	 *
-	 * Reads the WHOLE file (vars can appear anywhere); supervisor
-	 * lookups don't care about ordering relative to make_node lines.
+	 * Lightweight `var name = value` extractor for supervisor metadata reads (no topology execution).
 	 *
 	 * @return array<string,string>
 	 */
@@ -192,16 +150,7 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Build a topology config entry — `[topology, num_partitions, stale_timeout]`
-	 * — for a TSL file by reading its frontmatter. Returns null if `$name`
-	 * doesn't resolve to a TSL file, so callers can drop typos / stale
-	 * option values without crashing the supervisor.
-	 *
-	 * Shared by the substrate's `Bootstrap::get_topologies()` (synthesizes
-	 * entries for admin-UI selections the app didn't publish in its
-	 * catalog) and applications' own `newspack_nodes/topologies` filter
-	 * callbacks (build the catalog from a `topologies` config list). Each
-	 * caller passes the defaults appropriate to its context.
+	 * Build a `[topology, num_partitions, stale_timeout]` entry from a TSL's frontmatter; null if unknown.
 	 */
 	public static function synthesize_entry(
 		string $name,
@@ -220,13 +169,7 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Basenames declared by `$name`'s topology TSL — every
-	 * `make_node Partition <node>:partition <config:logs_dir>/<basename>.log ...`
-	 * line contributes one basename. Returns sorted, deduplicated, with the
-	 * `.log` suffix stripped. Empty array for unknown topologies and for
-	 * topologies that declare no Partition nodes.
-	 *
-	 * Memoized per-name; cleared by `reset()`.
+	 * Log basenames declared by `$name`'s Partition nodes (sorted, deduped, `.log` stripped). Memoized.
 	 *
 	 * @return array<string>
 	 */
@@ -261,19 +204,9 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Per-Partition segment_size overrides declared by `$name`'s topology
-	 * TSL. The 4th positional arg of a Partition `make_node` line is the
-	 * segment_size; topologies that hardcode an int there (rather than the
-	 * `<config:segment_size>` token) want a tighter rotation budget for
-	 * that specific log. Workers dashboard surfaces these so each log's
-	 * "max segment size" indicator reflects what's actually configured —
-	 * 1 MiB for completed.log / gyroscope.log instead of the global default.
+	 * Per-Partition literal segment_size overrides from `$name`'s TSL (`{basename => int}`). Memoized.
 	 *
-	 * Returns `{basename => int}` only for Partition lines that supplied a
-	 * literal int. Token-substituted values (`<config:segment_size>` etc.)
-	 * are omitted; the caller falls back to the global config default.
-	 *
-	 * Memoized per-name; cleared by `reset_basename_cache()` /  `reset()`.
+	 * Token-substituted values are omitted; the caller falls back to the global default.
 	 *
 	 * @return array<string,int>
 	 */
@@ -293,11 +226,7 @@ class Topology_Registry {
 			if ( '' === $line || '#' === $line[0] ) {
 				continue;
 			}
-			// Match the full Partition declaration: basename + <partition>
-			// substitution token + segment_size positional arg. Capture
-			// basename in $m[1] and segment_size in $m[2]. The segment_size
-			// arg is either a bare int (override) or a `<config:…>` token
-			// (no override) — we filter on int after the match.
+			// Capture basename ($m[1]) + segment_size arg ($m[2]); filter on int after the match.
 			if ( ! \preg_match(
 				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.log\s+\S+\s+(\S+)/',
 				$line,
@@ -312,13 +241,7 @@ class Topology_Registry {
 		return self::$segment_size_overrides_cache[ $name ] = $overrides;
 	}
 
-	/**
-	 * Narrow invalidation: drop only the parsed-basename cache, keeping
-	 * `$stock_dirs` and `$user_dir` intact. Wired to `Config::RESET_ACTION`
-	 * at boot so long-lived workers surviving a config reload re-read
-	 * newly-edited TSLs without losing their registry lookups. The full
-	 * `reset()` (which clears the dirs too) is test-isolation-only.
-	 */
+	/** Drop only the parsed caches, keeping the dir registrations (wired to Config::RESET_ACTION). */
 	public static function reset_basename_cache(): void {
 		self::$basename_cache               = [];
 		self::$segment_size_overrides_cache = [];

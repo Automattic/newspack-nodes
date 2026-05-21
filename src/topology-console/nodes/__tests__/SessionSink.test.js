@@ -1,13 +1,5 @@
 /**
- * SessionSink — the in-browser graph node the SseConnector fills each frame
- * into. It replaces TopologyConsole's procedural handleMessage: it routes on
- * msg KEY (gui:auto → parseMetadata → setState('metadata'); gui:uptime →
- * setState('uptime'); everything else → transcript ring buffer +
- * setState('transcript') via dumperRender), and owns the shared transcript so
- * REPL echoes (append) and the clear builtin (clear) write the same buffer.
- *
- * The msg shape is the object form `{ type, ts, from, to, id, key, value }`
- * the connector converts each positional Message array into before filling.
+ * SessionSink tests — KEY routing (gui:auto/gui:uptime/transcript) and the shared transcript ring buffer.
  */
 
 import { SessionSink, TRANSCRIPT_MAX } from '../SessionSink';
@@ -45,9 +37,7 @@ describe( 'SessionSink routing', () => {
 
 	it( 'routes a raw positional Message array (the SseConnector shape)', () => {
 		const { sink } = makeSink();
-		// SseConnector.fill() delivers the raw positional array
-		// [TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE] — NOT the object shape.
-		// The node must accept it; otherwise gui:auto never matches.
+		// fill() must accept the raw positional array, else gui:auto never matches.
 		sink.fill( [
 			TM_STRUCT, // TYPE
 			Date.now() / 1000, // TIMESTAMP

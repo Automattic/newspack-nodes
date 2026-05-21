@@ -1041,7 +1041,7 @@ class CommandInterpreterTest extends TestCase {
 		$envelope                       = Message::new_message();
 		$envelope[ Message::FROM ]      = '_output/4242';
 
-		$out = $ci->dispatch( 'connect_node', 'alice', $envelope  );
+		$out = $ci->dispatch( 'connect_node', 'alice', null, $envelope  );
 		$this->assertSame( 'ok', $out );
 		$this->assertSame( '_output/4242', Core::node( 'alice' )->target() );
 	}
@@ -1094,12 +1094,12 @@ class CommandInterpreterTest extends TestCase {
 		// First wire two targets — one default, one explicit.
 		$envelope                  = Message::new_message();
 		$envelope[ Message::FROM ] = '_output/9999';
-		$ci->dispatch( 'connect_node', 'fanout', $envelope  );
+		$ci->dispatch( 'connect_node', 'fanout', null, $envelope  );
 		$ci->dispatch( 'connect_node', 'fanout other_target' );
 		$this->assertSame( [ '_output/9999', 'other_target' ], Core::node( 'fanout' )->target() );
 
 		// disconnect with the same envelope — should remove only the FROM.
-		$out = $ci->dispatch( 'disconnect_node', 'fanout', $envelope  );
+		$out = $ci->dispatch( 'disconnect_node', 'fanout', null, $envelope  );
 		$this->assertSame( 'ok', $out );
 		$this->assertSame( [ 'other_target' ], \array_values( Core::node( 'fanout' )->target() ) );
 	}
@@ -1115,7 +1115,7 @@ class CommandInterpreterTest extends TestCase {
 		$envelope                  = Message::new_message();
 		$envelope[ Message::FROM ] = '_output/abc';
 
-		$out = $ci->dispatch( 'pwd', '/some/path', $envelope  );
+		$out = $ci->dispatch( 'pwd', '/some/path', null, $envelope  );
 		$this->assertSame( ' /some/path -> _output/abc', $out );
 	}
 
@@ -1128,7 +1128,7 @@ class CommandInterpreterTest extends TestCase {
 		$envelope                  = Message::new_message();
 		$envelope[ Message::FROM ] = '_output/abc';
 
-		$out = $ci->dispatch( 'pwd', '', $envelope  );
+		$out = $ci->dispatch( 'pwd', '', null, $envelope  );
 		$this->assertSame( ' / -> _output/abc', $out );
 	}
 
@@ -1450,11 +1450,10 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( [], $downstream->captured[1][ Message::VALUE ]['payload'] );
 	}
 
-	public function test_interpret_wraps_unknown_command_as_TM_RESPONSE(): void {
-		// An unknown verb is NOT an exception — execute() returns the
-		// "unknown command: <verb>" string. interpret() should wrap it as
-		// TM_COMMAND|TM_RESPONSE (not TM_ERROR). Verifies the
-		// happy-path return label of interpret().
+	public function test_interpret_wraps_unknown_command_as_TM_ERROR(): void {
+		// An unknown verb makes dispatch() throw InvalidArgumentException;
+		// interpret() catches it and wraps the message as TM_COMMAND|TM_ERROR
+		// so the cli renders it as an error.
 		$ci = new CommandInterpreter();
 		$ci->name( '_command_interpreter' );
 
@@ -1470,9 +1469,9 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertCount( 1, $downstream->captured );
 		$response = $downstream->captured[0];
 		$this->assertSame(
-			Message::TM_COMMAND | Message::TM_RESPONSE,
+			Message::TM_COMMAND | Message::TM_ERROR,
 			$response[ Message::TYPE ],
-			'unknown verbs return a string (not throw) — wrapped as TM_RESPONSE not TM_ERROR'
+			'unknown verbs throw — interpret() wraps as TM_ERROR'
 		);
 		$payload = $response[ Message::VALUE ];
 		$this->assertStringContainsString( 'unknown command', $payload['payload'] );

@@ -1,18 +1,6 @@
 /**
- * SchematicCanvas — SVG drafting-room canvas. The component is large
- * (drag, port wiring, pan/zoom, drop targets, viewbox autofit); these
- * tests pin the rendering invariants AND drive the pointer-event paths
- * the original skip note attributed to "jsdom can't provide".
- *
- * The skip rationale was wrong: jsdom DOES support pointer events and
- * SVG geometry. What jsdom lacks is a PointerEvent constructor — pointer
- * events dispatched via fireEvent.pointer* fall back to a bare Event
- * without MouseEvent fields, so React handlers see clientX/clientY
- * undefined. Polyfilling PointerEvent extends MouseEvent unblocks the
- * entire drag / pan / zoom test surface (this file's beforeAll).
- *
- * createSVGPoint + getScreenCTM are stubbed with identity-transform
- * math so screenToSvg returns the same coordinates the test provides.
+ * SchematicCanvas tests. beforeAll polyfills PointerEvent and stubs
+ * createSVGPoint / getScreenCTM with identity-transform math.
  */
 
 import { render, fireEvent } from '@testing-library/react';
@@ -25,12 +13,8 @@ const parsed = {
 
 describe( 'SchematicCanvas', () => {
 	beforeAll( () => {
-		// jsdom (as of v30) doesn't ship a PointerEvent constructor — pointer
-		// events dispatched via fireEvent.pointer* fall back to a bare Event
-		// without MouseEvent fields, so React handlers see clientX/clientY
-		// undefined. Polyfill via MouseEvent so React's synthetic pointer
-		// events carry the coordinate fields drag math reads.
-		// https://github.com/jsdom/jsdom/issues/2527
+		// jsdom lacks a PointerEvent constructor; polyfill via MouseEvent so
+		// synthetic pointer events carry the coordinate fields drag math reads.
 		if ( typeof window.PointerEvent === 'undefined' ) {
 			window.PointerEvent = class PointerEvent extends window.MouseEvent {
 				constructor( type, init = {} ) {
@@ -48,16 +32,11 @@ describe( 'SchematicCanvas', () => {
 				}
 			};
 		}
-		// jsdom's SVGSVGElement lacks createSVGPoint / getScreenCTM. Stub
-		// unconditionally so prior test files that left stale stubs don't
-		// short-circuit our richer identity-CTM behavior.
+		// Stub createSVGPoint / getScreenCTM (jsdom's SVGSVGElement lacks them).
 		const svg = window.SVGSVGElement.prototype;
 		svg.createSVGPoint = function () {
 			const pt = { x: 0, y: 0 };
-			// Apply the 2D affine matrix the way DOMMatrixReadOnly.transformPoint
-			// would, so screenToSvg(clientX, clientY) returns the same coords
-			// for identity. Without this, a pre-existing stale stub from an
-			// earlier test file can leave matrixTransform returning {0,0}.
+			// Apply the affine matrix so identity returns the same coords.
 			pt.matrixTransform = (
 				m = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 }
 			) => ( {
@@ -78,8 +57,7 @@ describe( 'SchematicCanvas', () => {
 				} ),
 			};
 		};
-		// Pointer capture / release are no-ops in jsdom but their existence
-		// is required by the SVG event handlers.
+		// Pointer capture/release are no-ops jsdom requires the handlers to call.
 		window.Element.prototype.setPointerCapture = function () {};
 		window.Element.prototype.releasePointerCapture = function () {};
 		window.Element.prototype.hasPointerCapture = function () {
@@ -142,9 +120,7 @@ describe( 'SchematicCanvas', () => {
 				positionOverrides={ { a: { x: 999, y: 222 } } }
 			/>
 		);
-		// The node's transform comes from its position. We can't read
-		// the resulting attribute directly without parsing — just verify
-		// that overriding doesn't crash and the node still renders.
+		// Verify the override renders without crashing.
 		const nodeA = Array.from(
 			container.querySelectorAll( '.topology-node' )
 		).find( ( g ) => g.getAttribute( 'transform' ).includes( '999' ) );
@@ -166,7 +142,6 @@ describe( 'SchematicCanvas', () => {
 		const { container } = render( <SchematicCanvas { ...baseProps } /> );
 		const svg = container.querySelector( 'svg' );
 		const viewBox = svg.getAttribute( 'viewBox' );
-		// Four whitespace-separated numbers.
 		expect( viewBox.split( /\s+/ ) ).toHaveLength( 4 );
 	} );
 
@@ -191,8 +166,7 @@ describe( 'SchematicCanvas', () => {
 				} }
 			/>
 		);
-		// One node, no rendered edge (the missing endpoint short-
-		// circuits the map callback to null).
+		// Missing endpoint short-circuits the edge render.
 		expect(
 			container.querySelectorAll( '.topology-edge--active' )
 		).toHaveLength( 0 );
@@ -290,10 +264,7 @@ describe( 'SchematicCanvas', () => {
 			/>
 		);
 		const firstNode = container.querySelector( '.topology-node' );
-		// jsdom doesn't dispatch pointer events when calling React handlers
-		// via fireEvent.pointerDown — the React layer listens for both
-		// pointer + mouse events on each node, so mouseDown reliably
-		// drives beginDrag in tests.
+		// mouseDown reliably drives beginDrag in jsdom.
 		fireEvent.mouseDown( firstNode, {
 			button: 0,
 			pointerId: 1,
@@ -306,7 +277,6 @@ describe( 'SchematicCanvas', () => {
 			clientX: 10,
 			clientY: 10,
 		} );
-		// No drag occurred (movement under threshold) → no position commit.
 		expect( onPositionChange ).not.toHaveBeenCalled();
 	} );
 
@@ -319,11 +289,7 @@ describe( 'SchematicCanvas', () => {
 			/>
 		);
 		const firstNode = container.querySelector( '.topology-node' );
-		// onPointerMove + onPointerUp listeners are on the SVG <g>; using
-		// fireEvent.pointer* on a child SVG element doesn't reach the
-		// React handlers reliably in jsdom — see screenToSvg path. Use
-		// mouseDown to start (covers the beginDrag onMouseDown handler),
-		// then pointer-move/-up to drive the rest.
+		// mouseDown starts the drag; pointer-move/-up drive the rest.
 		fireEvent.mouseDown( firstNode, {
 			button: 0,
 			pointerId: 1,
@@ -342,10 +308,7 @@ describe( 'SchematicCanvas', () => {
 			clientX: 50,
 			clientY: 50,
 		} );
-		// If drag happened, onPositionChange called; otherwise the handler
-		// path was still exercised through mouseDown.
-		// Soft assertion: either the drag completed (1 call) or the path
-		// executed without crashing.
+		// Soft assertion: drag completed or the path ran without crashing.
 		expect( onPositionChange.mock.calls.length ).toBeLessThanOrEqual( 1 );
 	} );
 
@@ -379,7 +342,6 @@ describe( 'SchematicCanvas', () => {
 			/>
 		);
 		const svg = container.querySelector( 'svg' );
-		// Mock getBoundingClientRect since jsdom returns zeros.
 		svg.getBoundingClientRect = () => ( {
 			x: 0,
 			y: 0,
@@ -408,7 +370,6 @@ describe( 'SchematicCanvas', () => {
 			clientX: 200,
 			clientY: 150,
 		} );
-		// Pan emitted a new viewport.
 		expect( onViewportChange ).toHaveBeenCalled();
 	} );
 
@@ -432,7 +393,6 @@ describe( 'SchematicCanvas', () => {
 			right: 100,
 			bottom: 100,
 		} );
-		// pointerdown + pointerup without crossing threshold → click → autofit.
 		fireEvent.pointerDown( svg, {
 			button: 0,
 			pointerId: 7,
@@ -445,7 +405,6 @@ describe( 'SchematicCanvas', () => {
 			clientX: 50,
 			clientY: 50,
 		} );
-		// Autofit fires via setViewport(parseViewBox(tightViewBoxFor(...))).
 		expect( onViewportChange ).toHaveBeenCalled();
 	} );
 
@@ -485,9 +444,7 @@ describe( 'SchematicCanvas', () => {
 			clientY: 50,
 		} );
 		expect( onDeselect ).toHaveBeenCalled();
-		// initial mount + the pan-click "autofit" branch is skipped here.
-		// First call is the initial autofit-commit useEffect, but that
-		// doesn't run if viewport is already set. Just check deselect.
+		// Just check deselect.
 	} );
 
 	it( 'onBackgroundClickConsumed truthy skips deselect + autofit', () => {
@@ -544,7 +501,6 @@ describe( 'SchematicCanvas', () => {
 		fireEvent.wheel( svg, { deltaY: 100, clientX: 500, clientY: 400 } );
 		expect( onViewportChange ).toHaveBeenCalled();
 		const [ vp ] = onViewportChange.mock.calls.at( -1 );
-		// Zooming out: viewBox w should be LARGER than starting 1000.
 		expect( vp.w ).toBeGreaterThan( 1000 );
 	} );
 
@@ -561,13 +517,11 @@ describe( 'SchematicCanvas', () => {
 		fireEvent.wheel( svg, { deltaY: -100, clientX: 500, clientY: 400 } );
 		expect( onViewportChange ).toHaveBeenCalled();
 		const [ vp ] = onViewportChange.mock.calls.at( -1 );
-		// Zooming in: viewBox w SMALLER than starting 1000.
 		expect( vp.w ).toBeLessThan( 1000 );
 	} );
 
 	it( 'wheel: zoom clamps to ZOOM_MIN / ZOOM_MAX', () => {
-		// Use a viewport much larger than default — zooming in keeps it
-		// shrinking but the clamp prevents going below baseW / ZOOM_MAX.
+		// Large viewport: zoom-in shrinks it but the clamp floors at baseW/ZOOM_MAX.
 		const onViewportChange = jest.fn();
 		const { container } = render(
 			<SchematicCanvas
@@ -577,7 +531,6 @@ describe( 'SchematicCanvas', () => {
 			/>
 		);
 		const svg = container.querySelector( 'svg' );
-		// Many zoom-in wheels in a row.
 		for ( let i = 0; i < 20; i++ ) {
 			fireEvent.wheel( svg, {
 				deltaY: -100,
@@ -586,7 +539,6 @@ describe( 'SchematicCanvas', () => {
 			} );
 		}
 		const [ vp ] = onViewportChange.mock.calls.at( -1 );
-		// Some positive viewport size still — never reaches zero/negative.
 		expect( vp.w ).toBeGreaterThan( 0 );
 	} );
 
@@ -602,9 +554,7 @@ describe( 'SchematicCanvas', () => {
 			preventDefault,
 			dataTransfer: { dropEffect: '' },
 		} );
-		// react synthetic event masks preventDefault — fireEvent.dragOver
-		// dispatches with isDefaultPrevented after. Easiest assertion is
-		// that the handler ran without throwing.
+		// Assert the handler ran without throwing.
 		expect( svg ).not.toBeNull();
 	} );
 
@@ -686,15 +636,12 @@ describe( 'SchematicCanvas', () => {
 			'.topology-port.topology-port--out'
 		);
 		expect( outPort ).not.toBeNull();
-		// MouseDown on the port begins the wire drag. The window
-		// listeners attached by handlePortPointerDown fire on `window`
-		// mousemove/mouseup. Dispatch a mousemove on window then mouseup.
+		// MouseDown begins the wire drag; window mouseup ends it.
 		fireEvent.mouseDown( outPort, {
 			button: 0,
 			clientX: 200,
 			clientY: 100,
 		} );
-		// Mouseup without snapping over another node's IN port → no connect.
 		fireEvent.mouseUp( window, {
 			clientX: 200,
 			clientY: 100,
@@ -719,13 +666,9 @@ describe( 'SchematicCanvas', () => {
 			clientX: 0,
 			clientY: 0,
 		} );
-		// Move close to node b's IN port. Since CTM is identity and node b
-		// has been auto-laid-out somewhere on the canvas, we just trigger
-		// the handler — the snap may or may not pick up depending on layout.
-		// The assertion is that the handler ran without crashing.
+		// Trigger the snap path; the handler runs without crashing.
 		fireEvent.mouseMove( window, { clientX: 100, clientY: 50 } );
 		fireEvent.mouseUp( window, { clientX: 100, clientY: 50 } );
-		// onConnect may or may not be called; the path is exercised.
 		expect( typeof onConnect.mock.calls.length ).toBe( 'number' );
 	} );
 
@@ -761,7 +704,6 @@ describe( 'SchematicCanvas', () => {
 				} }
 			/>
 		);
-		// No IN ports (this is a source node).
 		expect(
 			container.querySelectorAll( '.topology-port--in' ).length
 		).toBe( 0 );
@@ -909,7 +851,6 @@ describe( 'SchematicCanvas', () => {
 		expect(
 			container.querySelector( '.topology-node.is-hovered' )
 		).not.toBeNull();
-		// The other node should be faded.
 		expect(
 			container.querySelector( '.topology-node.is-faded' )
 		).not.toBeNull();

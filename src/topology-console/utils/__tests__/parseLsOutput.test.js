@@ -47,9 +47,7 @@ describe( 'parseLsOutput', () => {
 	} );
 
 	it( 'parses a node with a bare-dash target (no arrow, just "-")', () => {
-		// Real `ls -al` output uses a bare "-" in the TARGET column
-		// for nodes that have no sink — e.g. partitions whose sole
-		// role is to be written to by upstream producers.
+		// A bare "-" in the TARGET column means no sink.
 		const text =
 			'    0 errors:partition     -\n' +
 			'    1 jobs:partition       -\n' +
@@ -132,8 +130,7 @@ describe( 'parseLsOutput', () => {
 	} );
 
 	it( 'still parses `ls -al` lines (no SINK column) without a sink field', () => {
-		// Backwards compatibility: periodic `ls -ct` ticks use the older
-		// two-column format. Nodes from that input have no sink data.
+		// Older two-column `ls -ct` format has no sink data.
 		const text = '  42 alpha          -> beta\n';
 		const { nodes } = parseLsOutput( text );
 		expect( nodes ).toEqual( [ { id: 'alpha', count: 42 } ] );

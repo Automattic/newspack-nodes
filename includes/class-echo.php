@@ -1,13 +1,6 @@
 <?php
 /**
- * Echo: routing helper that re-addresses messages on the way through.
- *
- * Mirrors Tachikoma::Nodes::Echo:
- *   - Both `target` and `TO` set → join them: `TO = target/TO` (path-prepend).
- *   - Both empty → bounce: `TO = FROM` (return-to-sender along the trail).
- *   - Otherwise → TO unchanged (forward as-is).
- *   - TM_ERROR with empty TO → drop (would otherwise bounce to a producer
- *     who isn't expecting the error trail).
+ * Echo: re-addresses messages. target+TO → `target/TO`; both empty → bounce (TO=FROM); else pass-through. TM_ERROR with empty TO drops.
  *
  * @package Newspack_Nodes
  */

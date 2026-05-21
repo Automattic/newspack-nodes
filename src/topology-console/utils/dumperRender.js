@@ -1,13 +1,5 @@
 /**
- * Dumper-style transcript-render helpers for the topology console.
- *
- * These mirror the substrate cli Dumper's render rules so the in-browser
- * console surfaces each incoming Message exactly as the terminal would.
- * Extracted from TopologyConsole so the SessionSink node (which now owns
- * the live transcript) can apply the same framing.
- *
- * Message TYPE bitmask flags mirror class-message.php so we can apply
- * type-aware rendering to each incoming SSE msg envelope.
+ * Dumper-style transcript-render helpers, mirroring the substrate cli Dumper.
  */
 
 export const TM_BYTESTREAM = 1;
@@ -22,9 +14,7 @@ export const TM_STRUCT = 256;
 // eslint-disable-next-line no-bitwise
 export const has = ( type, flag ) => ( type & flag ) !== 0;
 
-// Render TM_FLAGS as a pipe-joined uppercase label string, matching
-// the substrate Dumper's debug header. `TM_COMMAND|TM_RESPONSE`,
-// `TM_INFO`, etc. Empty type renders as the unknown-hex form.
+// TM_FLAGS as a pipe-joined label string; empty type → unknown-hex form.
 const TM_LABELS = [
 	[ TM_BYTESTREAM, 'TM_BYTESTREAM' ],
 	[ TM_EOF, 'TM_EOF' ],
@@ -45,8 +35,7 @@ export function formatTypeLabel( type ) {
 		: `TM_UNKNOWN(0x${ type.toString( 16 ) })`;
 }
 
-// Stringify VALUE for the debug header — objects get one-line JSON,
-// strings pass through, everything else gets String()'d.
+// Stringify VALUE: objects → JSON, strings pass through, else String().
 export function stringifyValue( value ) {
 	if ( typeof value === 'string' ) {
 		return value;
@@ -61,10 +50,7 @@ export function stringifyValue( value ) {
 	}
 }
 
-// `debug_level 1` header — single line summarizing the message:
-// `<TM_FLAGS> from <FROM>:` — NO value on the header line, the
-// curated render that follows produces the payload. Matches the
-// substrate Dumper's `$flags . ' from ' . $from . ':'` exactly.
+// debug_level 1 header: `<TM_FLAGS> from <FROM>:` (value comes from the render).
 export function buildDebugHeader1( msg ) {
 	const label = formatTypeLabel(
 		typeof msg.type === 'number' ? msg.type : 0
@@ -73,8 +59,7 @@ export function buildDebugHeader1( msg ) {
 	return `${ label } from ${ from }:`;
 }
 
-// `debug_level 2` header — full envelope as a structural multi-line
-// render. Mirrors the substrate Dumper's `format_envelope_dump`.
+// debug_level 2 header: full envelope dump (mirrors format_envelope_dump).
 export function buildDebugHeader2( msg ) {
 	const label = formatTypeLabel(
 		typeof msg.type === 'number' ? msg.type : 0
@@ -106,21 +91,7 @@ export function buildDebugHeader2( msg ) {
 }
 
 /**
- * Convert a raw SSE msg envelope into a transcript entry, following the
- * cli Dumper's render rules so the GUI surfaces what the terminal would:
- *
- *   - TM_EOF                       → dropped (control marker, no output)
- *   - TM_COMMAND|TM_RESPONSE       → payload only, never the wrapper JSON
- *   - TM_COMMAND|TM_ERROR          → unwrapped payload, error styling
- *   - TM_ERROR                     → value as-is, error styling
- *   - TM_PING                      → "round trip time: X ms"
- *   - TM_STRUCT                    → JSON-encoded value
- *   - TM_INFO                      → value as-is (no prefix; debug_level 1
- *                                    adds the `TM_INFO from <from>:` header
- *                                    when verbosity is wanted)
- *   - default (TM_BYTESTREAM)      → value as-is
- *
- * Returns null when the message should be dropped silently.
+ * Convert a raw SSE msg envelope into a transcript entry (cli Dumper rules).
  *
  * @param {Object} msg Raw SSE msg envelope (type, from, to, value, ...).
  * @return {Object|null} { kind, text } transcript entry or null to drop.
@@ -165,10 +136,7 @@ export function dumperRender( msg ) {
 					: JSON.stringify( value, null, 2 ),
 		};
 	}
-	// TM_INFO and default TM_BYTESTREAM both render as plain payload — the
-	// substrate Dumper does the same. `debug_level 1` adds the
-	// `TM_INFO from <from>:` header for verbosity; the curated level-0
-	// render shows the payload only.
+	// TM_INFO and default TM_BYTESTREAM both render as plain payload.
 	if ( has( type, TM_INFO ) || has( type, TM_BYTESTREAM ) ) {
 		return { kind: 'recv', text: String( value ?? '' ) };
 	}

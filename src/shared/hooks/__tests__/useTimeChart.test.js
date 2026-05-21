@@ -1,16 +1,6 @@
 /**
- * useTimeChart — shared hook used by the (future) AggregateTimeChart
- * and CategoryTimeChart components. Currently unused in the substrate
- * code path (no imports in src/) but the file ships with the plugin
- * and is counted toward coverage.
- *
- * Tests exercise the pure helpers (formatXTick, buildTimeSlots
- * shape, hexToRgba via getStateColor in formatUtils.js — not here),
- * the constants surface, and the hook's render/resize/scroll
- * lifecycle. d3 is mocked because the substrate doesn't ship it as
- * a dependency; the helpers that take d3 selections (drawLegend,
- * setupTooltip) require a real selection API and stay uncovered
- * unless the consuming dashboard pulls in d3 explicitly.
+ * useTimeChart tests — pure helpers, constants, and the render/resize
+ * lifecycle. d3 is mocked (the substrate doesn't ship it).
  */
 
 jest.mock(
@@ -38,8 +28,7 @@ import {
 	useTimeChart,
 } from '../useTimeChart';
 
-// Fluent chain mock — every d3 method returns the same object so call
-// chains like `.append(...).attr(...).attr(...)` resolve transparently.
+// Fluent chain mock — every d3 method returns the same object.
 const makeFluent = () => {
 	const obj = {};
 	const fluent = ( ...args ) => obj; // eslint-disable-line no-unused-vars
@@ -128,8 +117,7 @@ describe( 'drawLegend', () => {
 			800
 		);
 		expect( svg.append ).toHaveBeenCalledWith( 'g' );
-		// One group append + per item: one rect-append + one text-append = 5
-		// appends total on the fluent root mock (which is reused).
+		// 1 group + 2 per item (rect + text) = 5 appends on the reused mock.
 		expect( svg.append.mock.calls.length ).toBeGreaterThanOrEqual( 5 );
 	} );
 
@@ -199,8 +187,7 @@ describe( 'setupTooltip', () => {
 			lastMouseXRef,
 			containerRef,
 		} );
-		// Two appends to g — the highlight rect and the overlay. Overlay
-		// registers mousemove + mouseleave.
+		// Overlay registers mousemove + mouseleave.
 		expect( g.handlers.mousemove ).toBeDefined();
 		expect( g.handlers.mouseleave ).toBeDefined();
 	} );

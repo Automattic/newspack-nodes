@@ -1,31 +1,7 @@
 /**
- * Parse a `dump_metadata` response payload into the shape the canvas
- * and inspector expect.
- *
- * Input is the substrate `dump_metadata` payload — an OBJECT keyed by
- * node name with `{ class, counter, sink, target, debug_state,
- * arguments }`. Per the command protocol contract the response VALUE
- * (and its `payload`) ride through the whole-message JSON envelope as
- * nested objects, so callers hand this an object directly — never a
- * JSON string. A defensive string-parse fallback is retained only so a
- * stray serialized payload degrades gracefully instead of throwing.
- * `target` is a string for single-target nodes or an array for Tee
- * fan-outs.
- *
- * Output:
- *   {
- *     nodes: [
- *       { id, count, sink, class, debugState, arguments },
- *       ...
- *     ],
- *     edges: [ { from, to }, ... ]
- *   }
- *
- * Scaffolding nodes (_command_interpreter, _router, _output, _repl)
- * are excluded — same filtering parseLsOutput applied — so the
- * canvas keeps showing only the application graph. Inspector
- * navigation links also fall back to dim styling for any target
- * that resolves to a filtered node id.
+ * Parse a `dump_metadata` payload (object keyed by node name) into
+ * { nodes, edges }. `target` is a string or array (Tee fan-out);
+ * scaffolding nodes are excluded.
  */
 
 const SCAFFOLDING = new Set( [

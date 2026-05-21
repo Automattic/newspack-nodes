@@ -1,14 +1,6 @@
 /**
- * useClassCatalog — fetch the substrate class catalog for the palette.
- *
- * Lazy: nothing happens until `enabled` is true (so view-mode never
- * pays the cost). First-truthy `enabled` triggers a single
- * `classes.list` round-trip via the M4 CommandClient pipe; result is
- * cached in component state for the rest of the session — toggling
- * enabled off → on doesn't re-fetch.
- *
- * Smoke-tested via the topology console's edit-mode entry; covered
- * end-to-end in A5's Task 11 browser smoke.
+ * useClassCatalog — lazily fetch the class catalog (one `classes.list` call
+ * on first truthy `enabled`, then cached for the session).
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';

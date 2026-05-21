@@ -1,10 +1,5 @@
 /**
- * Virtualization Hook
- *
- * Three modes:
- * - null: window scroll (UrlTable)
- * - selector: parent container scroll (UrlDetailView in modal)
- * - 'self': element's own scroll (RequestStream)
+ * Virtualization Hook — window / container-selector / 'self' scroll modes.
  */
 
 import { useState, useEffect } from '@wordpress/element';

@@ -11,12 +11,11 @@ use PHPUnit\Framework\Attributes\CoversClass;
 #[CoversClass( Dumper::class )]
 class DumperTest extends TestCase {
 
-	/** @return array{0:Dumper, 1:resource, 2:resource} */
+	/** @return array{0:Dumper, 1:resource} */
 	private function fresh(): array {
 		$out    = \fopen( 'php://memory', 'w+' );
-		$err    = \fopen( 'php://memory', 'w+' );
-		$dumper = new Dumper( $out, $err );
-		return [ $dumper, $out, $err ];
+		$dumper = new Dumper( $out );
+		return [ $dumper, $out ];
 	}
 
 	private function read_all( $stream ): string {
@@ -30,7 +29,7 @@ class DumperTest extends TestCase {
 		// and fires the registered callback so the cli's run_repl predicate
 		// can exit. The Dumper itself prints nothing — TM_EOF is a control
 		// marker, not output.
-		[ $dumper, $out, $err ] = $this->fresh();
+		[ $dumper, $out ] = $this->fresh();
 
 		$fired = 0;
 		$dumper->on_eof( function () use ( &$fired ) { ++$fired; } );
@@ -41,14 +40,13 @@ class DumperTest extends TestCase {
 
 		$this->assertSame( 1, $fired, 'on_eof callback should fire once' );
 		$this->assertSame( '', $this->read_all( $out ) );
-		$this->assertSame( '', $this->read_all( $err ) );
 	}
 
 	public function test_TM_EOF_filtered_out_by_to_filter_does_not_fire_callback(): void {
 		// TM_EOF addressed at a different pid (different cli session) is
 		// filtered out at the Dumper's to_filter gate — same as any other
 		// type. The callback only fires for our own session's echo.
-		[ $dumper, $out, $err ] = $this->fresh();
+		[ $dumper, $out ] = $this->fresh();
 		$dumper->set_to_filter( '12345' );
 
 		$fired = 0;
@@ -79,7 +77,7 @@ class DumperTest extends TestCase {
 	}
 
 	public function test_TM_COMMAND_TM_RESPONSE_prints_payload(): void {
-		[ $dumper, $out, $err ] = $this->fresh();
+		[ $dumper, $out ] = $this->fresh();
 
 		// Response VALUE rides as a live PHP structure — not a JSON string.
 		$msg                   = Message::new_message();
@@ -88,7 +86,6 @@ class DumperTest extends TestCase {
 		$dumper->fill( $msg );
 
 		$this->assertSame( "alice\nbob\n", $this->read_all( $out ) );
-		$this->assertSame( '', $this->read_all( $err ) );
 	}
 
 	public function test_TM_COMMAND_TM_RESPONSE_does_not_double_newline(): void {
@@ -103,7 +100,7 @@ class DumperTest extends TestCase {
 	}
 
 	public function test_TM_COMMAND_TM_RESPONSE_with_name_prompt_updates_shell_prompt(): void {
-		[ $dumper, $out, $err ] = $this->fresh();
+		[ $dumper, $out ] = $this->fresh();
 
 		$shell = new Shell();
 		$dumper->set_shell( $shell );
@@ -117,16 +114,19 @@ class DumperTest extends TestCase {
 		$this->assertSame( '', $this->read_all( $out ), 'prompt-update must NOT print to stdout' );
 	}
 
-	public function test_TM_ERROR_prints_payload_to_stderr_without_prefix(): void {
-		[ $dumper, $out, $err ] = $this->fresh();
+	public function test_TM_ERROR_prints_payload_to_stdout_like_any_other_value(): void {
+		// A bare TM_ERROR has no dedicated branch — it falls through to the
+		// default renderer and goes out via write_async, exactly like a plain
+		// TM_BYTESTREAM payload. On a non-TTY that's a plain stdout write; stderr
+		// stays untouched.
+		[ $dumper, $out ] = $this->fresh();
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_ERROR;
 		$msg[ Message::VALUE ] = "NOT_AVAILABLE\n";
 		$dumper->fill( $msg );
 
-		$this->assertSame( '', $this->read_all( $out ) );
-		$this->assertSame( "NOT_AVAILABLE\n", $this->read_all( $err ) );
+		$this->assertSame( "NOT_AVAILABLE\n", $this->read_all( $out ) );
 	}
 
 	public function test_TM_INFO_prints_payload_without_prefix(): void {
@@ -134,7 +134,7 @@ class DumperTest extends TestCase {
 		// TM_BYTESTREAM. The former `INFO[from]: ...` prefix was
 		// redundant noise; debug_level 1 already prepends a
 		// `TM_INFO from <from>:` header when verbosity is wanted.
-		[ $dumper, $out, $err ] = $this->fresh();
+		[ $dumper, $out ] = $this->fresh();
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_INFO;
@@ -143,7 +143,6 @@ class DumperTest extends TestCase {
 		$dumper->fill( $msg );
 
 		$this->assertSame( "broadcast text\n", $this->read_all( $out ) );
-		$this->assertSame( '', $this->read_all( $err ) );
 	}
 
 	public function test_default_type_prints_VALUE(): void {
@@ -186,19 +185,18 @@ class DumperTest extends TestCase {
 
 	// ── Async prompt-below dance ────────────────────────────────────────────────
 
-	/** @return array{0:Dumper, 1:resource, 2:resource, 3:Shell} */
+	/** @return array{0:Dumper, 1:resource, 2:Shell} */
 	private function fresh_tty(): array {
 		$out    = \fopen( 'php://memory', 'w+' );
-		$err    = \fopen( 'php://memory', 'w+' );
-		$dumper = new Dumper( $out, $err, true ); // force_tty=true
+		$dumper = new Dumper( $out, true ); // force_tty=true
 		$shell  = new Shell();
 		$shell->prompt = 'newspack> ';
 		$dumper->set_shell( $shell );
-		return [ $dumper, $out, $err, $shell ];
+		return [ $dumper, $out, $shell ];
 	}
 
 	public function test_TM_INFO_with_prompt_displayed_emits_wipe_and_redraw_on_tty(): void {
-		[ $dumper, $out, , $shell ] = $this->fresh_tty();
+		[ $dumper, $out, $shell ] = $this->fresh_tty();
 		$dumper->mark_prompt_displayed();
 
 		$msg                   = Message::new_message();
@@ -246,7 +244,7 @@ class DumperTest extends TestCase {
 	}
 
 	public function test_default_bytestream_with_prompt_displayed_emits_wipe_and_redraw(): void {
-		[ $dumper, $out, , $shell ] = $this->fresh_tty();
+		[ $dumper, $out, $shell ] = $this->fresh_tty();
 		$dumper->mark_prompt_displayed();
 
 		$msg                   = Message::new_message();
@@ -263,7 +261,7 @@ class DumperTest extends TestCase {
 		// Consumer → router → dumper) AFTER the cli has already drawn its
 		// prompt waiting for input. Dumper goes through write_async so the
 		// prompt line is wiped before the response prints, then redrawn.
-		[ $dumper, $out, , $shell ] = $this->fresh_tty();
+		[ $dumper, $out, $shell ] = $this->fresh_tty();
 		$dumper->mark_prompt_displayed();
 
 		$msg                   = Message::new_message();
@@ -281,7 +279,7 @@ class DumperTest extends TestCase {
 		// processing falls through to a plain stdout write — no ANSI dance,
 		// because there's no prompt on screen yet (install_handler will draw
 		// a fresh one after queue processing).
-		[ $dumper, $out, , $shell ] = $this->fresh_tty();
+		[ $dumper, $out, $shell ] = $this->fresh_tty();
 		$dumper->prompt_displayed = false;
 
 		$msg                   = Message::new_message();
@@ -299,7 +297,7 @@ class DumperTest extends TestCase {
 		//   redraw, prompt stays on screen) → another TM_INFO arrives (same
 		//   path). All three share the same write_async wipe-and-redraw
 		//   treatment because the prompt is still visible throughout.
-		[ $dumper, $out, , $shell ] = $this->fresh_tty();
+		[ $dumper, $out, $shell ] = $this->fresh_tty();
 		$dumper->mark_prompt_displayed();
 
 		// Async during prompt.
@@ -328,8 +326,11 @@ class DumperTest extends TestCase {
 		$this->assertSame( $expected, $this->read_all( $out ) );
 	}
 
-	public function test_TM_ERROR_does_not_emit_escape_sequences_even_with_prompt_displayed(): void {
-		[ $dumper, $out, $err, $shell ] = $this->fresh_tty();
+	public function test_TM_ERROR_takes_async_wipe_and_redraw_path_with_prompt_displayed(): void {
+		// A bare TM_ERROR is just another payload now — on a TTY with the prompt
+		// up it goes through write_async's wipe-and-redraw on STDOUT, same as any
+		// async TM_INFO/TM_BYTESTREAM. There's no separate synchronous stderr path.
+		[ $dumper, $out, $shell ] = $this->fresh_tty();
 		$dumper->mark_prompt_displayed();
 
 		$msg                   = Message::new_message();
@@ -337,9 +338,8 @@ class DumperTest extends TestCase {
 		$msg[ Message::VALUE ] = "boom\n";
 		$dumper->fill( $msg );
 
-		// Synchronous error path: stderr untouched by the prompt dance.
-		$this->assertStringNotContainsString( "\033", $this->read_all( $err ) );
-		$this->assertSame( "boom\n", $this->read_all( $err ) );
+		$expected = "\033[s" . "\r\033[2K" . "boom\n" . 'newspack> ' . "\033[u";
+		$this->assertSame( $expected, $this->read_all( $out ) );
 	}
 
 	public function test_set_readline_mode_changes_async_redraw_path(): void {
@@ -347,7 +347,7 @@ class DumperTest extends TestCase {
 		// no ANSI save/restore around it, because readline is installed with an
 		// empty prompt (Cli_Command::install_handler) and we drive the prompt
 		// directly. set_readline_mode toggles between the two paths.
-		[ $dumper, $out, , $shell ] = $this->fresh_tty();
+		[ $dumper, $out, $shell ] = $this->fresh_tty();
 		$dumper->mark_prompt_displayed();
 		$dumper->set_readline_mode( true );
 
@@ -468,7 +468,7 @@ class DumperTest extends TestCase {
 	public function test_debug_level_default_off_no_header_emitted(): void {
 		// Baseline: debug_level=0 → no debug header to stderr, only the
 		// curated rendering to stdout.
-		[ $dumper, $out, $err ] = $this->fresh();
+		[ $dumper, $out ] = $this->fresh();
 		$this->assertSame( 0, $dumper->debug_level() );
 
 		$msg                   = Message::new_message();
@@ -478,7 +478,6 @@ class DumperTest extends TestCase {
 		$dumper->fill( $msg );
 
 		$this->assertSame( "hello\n", $this->read_all( $out ) );
-		$this->assertSame( '', $this->read_all( $err ) );
 	}
 
 	public function test_debug_level_1_prepends_header_then_falls_through_to_normal_render(): void {
@@ -486,7 +485,7 @@ class DumperTest extends TestCase {
 		// THROUGH to the normal type-specific renderer. For TM_BYTESTREAM
 		// this means header + plain payload. Mirrors Perl Tachikoma where
 		// dump_message prepends and SUPER::fill writes the result.
-		[ $dumper, $out, $err ] = $this->fresh();
+		[ $dumper, $out ] = $this->fresh();
 		$dumper->set_debug_level( 1 );
 
 		$msg                   = Message::new_message();
@@ -501,7 +500,6 @@ class DumperTest extends TestCase {
 		// The payload appears once (via the normal TM_BYTESTREAM renderer,
 		// not duplicated by the header itself).
 		$this->assertSame( 1, \substr_count( $rendered, 'hello' ) );
-		$this->assertSame( '', $this->read_all( $err ) );
 	}
 
 	public function test_debug_level_1_unwraps_tm_command_response_payload(): void {

@@ -1,14 +1,6 @@
 <?php
 /**
- * Config_Utils — sanitize / validate / path-guard helpers shared by every
- * plugin's Config class. The substrate and each application Config carry the
- * same primitive operations (type-keyed sanitization, recursive type-checking,
- * realpath/symlink validation, PHP-config-file loading). Centralizing them
- * here keeps the per-plugin Config files focused on schema + cache + path
- * helpers, and ensures the same byte-for-byte behavior across plugins.
- *
- * Methods are static + public. Tests exercise them directly (no reflection
- * wrappers around private surfaces).
+ * Config_Utils — static sanitize / validate / path-guard helpers shared by every Config class.
  *
  * @package Newspack_Nodes
  */
@@ -19,12 +11,7 @@ namespace Newspack_Nodes;
 
 class Config_Utils {
 	/**
-	 * Sanitize an option value based on its type. Returns `null` for unknown
-	 * types so callers can layer plugin-specific cases on top (the application
-	 * Config handles e.g. `aggregator_servers` itself, then delegates here for
-	 * the rest).
-	 *
-	 * Types handled: bool, int, float, path, memcache_servers, array_strings.
+	 * Sanitize an option value by type (bool/int/float/path/memcache_servers/array_strings).
 	 *
 	 * @param mixed  $value Raw option value.
 	 * @param string $type  Schema-declared type tag.
@@ -92,9 +79,7 @@ class Config_Utils {
 	}
 
 	/**
-	 * WP sanitize_text_field wrapper that fails loudly outside WordPress.
-	 * Throws so test/CLI contexts get a clear error rather than silent
-	 * pass-through of unsanitized strings.
+	 * sanitize_text_field wrapper that throws outside WordPress instead of passing through.
 	 *
 	 * @throws \RuntimeException If WordPress is not loaded.
 	 */
@@ -107,16 +92,11 @@ class Config_Utils {
 	}
 
 	/**
-	 * Validate that a config file path is within one of the allowed
-	 * directories. Returns the resolved canonical path, or null if invalid /
-	 * outside the allowed roots.
-	 *
-	 * Security: prevents arbitrary file include via environment variable.
+	 * Validate a config file path is a `.php` within an allowed dir; null otherwise.
 	 *
 	 * @param string   $path             Path to validate.
 	 * @param string[] $allowed_dirs     Roots the path must live under.
-	 * @param string   $error_log_prefix Used to disambiguate error_log lines
-	 *                                   when multiple plugins call into here.
+	 * @param string   $error_log_prefix Disambiguates error_log lines across callers.
 	 */
 	public static function validate_config_path(
 		string $path,
@@ -143,11 +123,7 @@ class Config_Utils {
 		return null;
 	}
 
-	/**
-	 * Check whether a path is contained within a base directory. Returns the
-	 * canonical real path on success, null on failure (path or base doesn't
-	 * exist, or path escapes base).
-	 */
+	/** Path containment check; returns the canonical real path, or null on failure. */
 	public static function is_within( string $path, string $base ): ?string {
 		$real_path = \realpath( $path );
 		$real_base = \realpath( $base );
@@ -160,11 +136,7 @@ class Config_Utils {
 		return $within ? $real_path : null;
 	}
 
-	/**
-	 * Validate that config values contain only safe types (scalars and
-	 * arrays). Rejects objects, closures, resources that could execute code
-	 * or leak sensitive data when the config is serialized or stored.
-	 */
+	/** True if $value is only scalars/arrays (depth-bounded); rejects objects/closures/resources. */
 	public static function validate_config_values( $value, int $depth = 0 ): bool {
 		if ( $depth > 10 ) {
 			return false;
@@ -184,13 +156,11 @@ class Config_Utils {
 	}
 
 	/**
-	 * Load a PHP config file and merge its return value into the given config
-	 * array. The file MUST return a flat scalar/array tree (no objects,
-	 * closures, resources) — `validate_config_values` enforces that.
+	 * Load a PHP config file (validated scalar/array tree) and merge it into $config.
 	 *
 	 * @param array  $config           Existing config to merge into.
 	 * @param string $config_file      Absolute path to a PHP file returning array.
-	 * @param string $error_log_prefix Used to disambiguate error_log lines.
+	 * @param string $error_log_prefix Disambiguates error_log lines.
 	 */
 	public static function load_config_file(
 		array $config,

@@ -1,13 +1,7 @@
 /**
- * Transform a Message envelope from the unified /messages/stream
- * endpoint into the `{ p, line }` row shape the RawLogs dashboard
- * renders. Mirror of the legacy `RawlogsController::transform_line()`
- * — moved client-side now that the unified endpoint passes through
- * parsed Message envelopes instead of the legacy `{p, line}` batch
- * shape.
+ * Transform a Message envelope into the `{ p, line }` row RawLogs renders.
  *
- * @param {Array} envelope 7-field Message array
- *                         `[TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE]`.
+ * @param {Array} envelope 7-field Message array.
  * @return {{p: number, line: string}|null} Row, or `null` if VALUE is empty.
  */
 const FROM = 2;
@@ -23,9 +17,7 @@ export default function transformLogLine( envelope ) {
 		return null;
 	}
 
-	// Object/array VALUE — render as JSON. String VALUE passes through
-	// verbatim (matches the legacy server-side path that returned
-	// `wp_json_encode( $body )` for arrays and the raw line otherwise).
+	// Object/array VALUE → JSON; string VALUE passes through verbatim.
 	let line = typeof value === 'string' ? value : JSON.stringify( value );
 
 	const key = envelope[ KEY ];
@@ -37,9 +29,7 @@ export default function transformLogLine( envelope ) {
 		line = line.substring( 0, MAX_LINE_LENGTH ) + '...';
 	}
 
-	// Partition from FROM stamp (`{sub}.pN`). The resolver in
-	// Messages_Stream_Controller::open_subscription overrides the
-	// Consumer stamp with this shape for log subscriptions.
+	// Partition from the FROM stamp (`{sub}.pN`).
 	const from = String( envelope[ FROM ] || '' );
 	const match = from.match( PARTITION_RE );
 	const p = match ? parseInt( match[ 1 ], 10 ) : 0;
