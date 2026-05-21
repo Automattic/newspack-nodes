@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Deleted `TopologyStreamController`; the Topology Console now rides the
+  generic `/messages/stream` + `/command` endpoints.** The console subscribes to
+  the worker's broadcast IPC partition (`subscribe={topology}.p{N}`, resolved by
+  `open_subscription` → `Cli::attach_to_worker`) and sends commands — plus its
+  1s/5s `dump_metadata`/`uptime` canvas poll, now client-side — through
+  `/command`, pivoted via `FROM=_http/<ssePid>` (the pid from messages-stream's
+  `connected` envelope). Removes a redundant ~440-line SSE controller + its two
+  test suites. No new endpoints; the substrate already supported all of it.
+
 ## [0.2.8] - 2026-05-20
 
 ### Changed

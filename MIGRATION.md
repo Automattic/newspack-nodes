@@ -226,8 +226,10 @@ Deleted:
 - `includes/rest/class-topologies-controller.php` — replaced by `Topologies_CI.list/get/save/delete`.
 - 7 PHPUnit suites: `tests/unit/{Layouts,Topologies}ControllerTest.php`, `tests/integration/{Classes,TopologiesGet,TopologiesGetOne,TopologiesPost}ControllerTest.php`.
 
+Deleted (M4 follow-up):
+- `includes/rest/class-topology-stream-controller.php` + its unit/integration tests — fully redundant. The Topology Console now subscribes to the worker's broadcast IPC partition through the generic `/messages/stream` (`subscribe={topology}.p{N}`, resolved by `open_subscription` → `Cli::attach_to_worker`) and sends commands through the generic `/command` (pivoted via `FROM=_http/<ssePid>`, where the pid comes from messages-stream's `connected` envelope). The 1s/5s `dump_metadata`/`uptime` poll moved client-side into `TopologyConsole.js`.
+
 Kept:
-- `includes/rest/class-topology-stream-controller.php` — SSE stream + the pivoted-IPC `POST /topology/{x}/p{y}/command` companion. SSE doesn't fit the synchronous `CommandInterpreter` model; the pivoted POST is a different mechanism than local CI dispatch.
 - `includes/rest/class-spawn-controller.php` — HMAC-gated worker spawn endpoint; orthogonal to the command-dispatch surface.
 - `includes/rest/class-messages-stream-controller.php` — paired SSE controller for the M3 messages stream.
 - `includes/rest/class-command-controller.php` — the unified endpoint itself.

@@ -1,35 +1,58 @@
-/* global EventSource */
 /**
  * Topology Console SSE Connection Hook
  *
- * Subscribes to TopologyStreamController for a single (topology, partition)
- * pair. The endpoint is a pivoted-REPL-over-HTTP: it emits `hello` once,
- * `msg` for every Message the worker's _repl conduit forwards, and
- * `heartbeat` every five seconds while the connection is open.
+ * Thin adapter over the substrate's shared `useMessageStream` hook. The
+ * topology console no longer has its own SSE endpoint — it subscribes to
+ * the worker's broadcast IPC partition through the generic
+ * `/messages/stream` endpoint (subscription `{topology}.p{N}`, resolved
+ * server-side via `Cli::attach_to_worker`), exactly like every other M4
+ * dashboard.
  *
- * The hook keeps the EventSource open for the lifetime of the component.
- * Unmount closes the connection so the server-side loop's
- * connection_aborted() check fires and the worker stops being poked with
- * ls commands.
+ * Two adaptations keep the rest of TopologyConsole unchanged:
+ *
+ *   1. The session pid the console needs for pivoted `/command` calls
+ *      comes from the substrate's first `connected` envelope
+ *      (KEY=='connected', VALUE.pid) instead of a bespoke `hello` event.
+ *
+ *   2. `useMessageStream` hands the caller a raw positional Message array
+ *      (`[type, ts, from, to, id, key, value]`). The console's
+ *      handleMessage was written against the old per-feed object shape
+ *      (`{type, ts, from, to, id, key, value}`), so we convert here once
+ *      rather than touch every reader downstream.
+ *
+ * The hook keeps the connection open for the component's lifetime and
+ * closes it on unmount or when `enabled` flips false (edit mode), so the
+ * server-side drain loop's `connection_aborted()` check fires and the
+ * worker stops being poked.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
+import useMessageStream from '../../shared/hooks/useMessageStream';
+import {
+	TYPE,
+	TIMESTAMP,
+	FROM,
+	TO,
+	ID,
+	KEY,
+	VALUE,
+} from '../../runtime/message';
 
 /**
- * Subscribe to the topology SSE stream.
+ * Subscribe to a single worker's broadcast partition over the unified
+ * message-stream endpoint.
  *
  * @param {string}   topology    Topology name (e.g. 'firehose-workers').
  * @param {number}   partition   Partition number.
- * @param {Function} [onMessage] Called synchronously for every `msg` event.
- *                               Bypasses React state, so a burst of
- *                               messages can't get coalesced away by
- *                               state batching the way setLastMessage
- *                               could (when a TM_STRUCT broadcast flood
- *                               clobbered a single setLastMessage call,
- *                               command responses got lost).
- * @param {boolean}  [enabled]   Set false to short-circuit the EventSource — used by edit mode so the canvas stops poking the live worker.
- * @return {{status, ssePid}} Connection state + the worker's pid from
- *                            the hello event.
+ * @param {Function} [onMessage] Called synchronously for every Message
+ *                               (converted to object shape). Bypasses
+ *                               React state so a burst can't be coalesced
+ *                               away by batching.
+ * @param {boolean}  [enabled]   Set false to short-circuit the stream —
+ *                               edit mode uses this so the canvas stops
+ *                               poking the live worker.
+ * @return {{status: string, ssePid: ?number}} Connection state + the
+ *                               session pid from the connected envelope.
  */
 export function useTopologyStream(
 	topology,
@@ -37,77 +60,75 @@ export function useTopologyStream(
 	onMessage,
 	enabled = true
 ) {
-	const [ status, setStatus ] = useState( 'connecting' );
+	const [ status, setStatus ] = useState( enabled ? 'connecting' : 'closed' );
 	const [ ssePid, setSsePid ] = useState( null );
 
-	// Stash the latest onMessage in a ref so the EventSource handler
-	// always sees the freshest closure without needing to re-subscribe
-	// on every render.
+	// Stash the latest onMessage in a ref so the stream adapter always
+	// sees the freshest closure without re-subscribing each render.
 	const onMessageRef = useRef( onMessage );
 	useEffect( () => {
 		onMessageRef.current = onMessage;
 	}, [ onMessage ] );
 
+	// Adapter: intercept the substrate `connected` envelope to harvest the
+	// session pid + flip to open; convert every other positional Message
+	// array into the object shape the console's handleMessage expects.
+	const handleEnvelope = useRef( null );
+	handleEnvelope.current = ( envelope ) => {
+		if ( ! Array.isArray( envelope ) ) {
+			return;
+		}
+		if ( 'connected' === envelope[ KEY ] ) {
+			setStatus( 'open' );
+			const value = envelope[ VALUE ];
+			if ( value && typeof value.pid === 'number' ) {
+				setSsePid( value.pid );
+			}
+			return;
+		}
+		if ( onMessageRef.current ) {
+			onMessageRef.current( {
+				type: envelope[ TYPE ],
+				ts: envelope[ TIMESTAMP ],
+				from: envelope[ FROM ],
+				to: envelope[ TO ],
+				id: envelope[ ID ],
+				key: envelope[ KEY ],
+				value: envelope[ VALUE ],
+			} );
+		}
+	};
+
+	const subscription = `${ topology }.p${ partition }`;
+	const { error, connect, close } = useMessageStream( {
+		subscriptions: enabled ? [ subscription ] : [],
+		onMessage: ( envelope ) => handleEnvelope.current( envelope ),
+	} );
+
+	// Connection lifecycle. `enabled: false` short-circuits — the operator
+	// is authoring offline in edit mode, so streaming is wasted load and a
+	// misleading LIVE LED.
 	useEffect( () => {
-		// `enabled: false` short-circuits the SSE entirely. Used by
-		// edit mode — the operator is authoring offline, so streaming
-		// `ls` polls at the worker is wasted load + a misleading UI
-		// signal (the LIVE LED would pulse against a graph the user
-		// isn't even looking at).
 		if ( ! enabled ) {
 			setStatus( 'closed' );
 			setSsePid( null );
 			return undefined;
 		}
+		setStatus( 'connecting' );
 		setSsePid( null );
-		const data = window.NewspackNodesData;
-		if ( ! data || ! data.restUrl ) {
-			setStatus( 'error' );
-			return undefined;
-		}
-		const baseUrl = data.restUrl;
-		const nonce = data.nonce || '';
-		const url = `${ baseUrl }newspack-nodes/v1/topology/${ encodeURIComponent(
-			topology
-		) }/p${ encodeURIComponent(
-			partition
-		) }/stream?_wpnonce=${ encodeURIComponent( nonce ) }`;
-		const es = new EventSource( url, { withCredentials: true } );
-
-		es.addEventListener( 'hello', ( e ) => {
-			setStatus( 'open' );
-			try {
-				const hello = JSON.parse( e.data );
-				if ( hello && typeof hello.pid === 'number' ) {
-					setSsePid( hello.pid );
-				}
-			} catch ( err ) {
-				// Stay connected even if the hello payload is unparseable;
-				// command POSTs will simply have no pid to stamp.
-			}
-		} );
-		es.addEventListener( 'heartbeat', () => {
-			/* keep-alive only */
-		} );
-		es.addEventListener( 'msg', ( e ) => {
-			try {
-				const m = JSON.parse( e.data );
-				if ( onMessageRef.current ) {
-					onMessageRef.current( m );
-				}
-			} catch ( err ) {
-				// Malformed payloads are dropped silently — the SSE
-				// controller already validates JSON before emit, so this
-				// branch is defensive against future protocol drift.
-			}
-		} );
-		es.onerror = () => setStatus( 'error' );
-
+		connect();
 		return () => {
-			es.close();
+			close();
 			setStatus( 'closed' );
 		};
-	}, [ topology, partition, enabled ] );
+	}, [ topology, partition, enabled, connect, close ] );
 
-	return { status, ssePid };
+	// useMessageStream surfaces transient connection trouble as a non-null
+	// `error` string (it self-reconnects with backoff). Reflect it as the
+	// `error` status the Header LED reads, overriding the lifecycle status.
+	// Derived (not stored) so a later recovery automatically falls back to
+	// the connecting/open/closed lifecycle value.
+	const effectiveStatus = enabled && error ? 'error' : status;
+
+	return { status: effectiveStatus, ssePid };
 }

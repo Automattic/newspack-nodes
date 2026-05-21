@@ -19,7 +19,6 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
-import apiFetch from '@wordpress/api-fetch';
 
 import CanvasFrame from './components/CanvasFrame';
 import Header from './components/Header';
@@ -58,6 +57,7 @@ import {
 import { parseTsl } from './utils/parseTsl';
 import { serializeTsl } from './utils/serializeTsl';
 import { parseMetadata } from './utils/parseMetadata';
+import { sendInterpretedCommand } from './utils/sendCommand';
 import { shellInterpret, splitStatements } from './utils/shellInterpret';
 
 // The topology dropdown and partition counts both come from the same map
@@ -128,9 +128,15 @@ function initialPartitionFromUrl() {
 
 const TRANSCRIPT_MAX = 200;
 
-// Per-node rate history depth. With STATS_INTERVAL_S = 1s on the
-// controller side, 60 samples = ~1 minute of trailing data, plenty
-// for a quick "is this node busy or quiet?" glance.
+// Live-canvas poll cadence (ms), client-side. Replaces the deleted
+// TopologyStreamController's server-side STATS_INTERVAL_S / UPTIME_INTERVAL_S
+// timer: now that the console tails the worker via the generic
+// messages-stream, it pokes dump_metadata / uptime itself.
+const STATS_INTERVAL_MS = 1000;
+const UPTIME_INTERVAL_MS = 5000;
+
+// Per-node rate history depth. With a 1s stats poll, 60 samples = ~1 minute
+// of trailing data, plenty for a quick "is this node busy or quiet?" glance.
 const RATE_HISTORY_MAX = 60;
 
 // Message TYPE bitmask flags, mirroring substrate's class-message.php
@@ -959,12 +965,13 @@ export default function TopologyConsole() {
 				} );
 				return;
 			}
-			apiFetch( {
-				path: `/newspack-nodes/v1/topology/${ encodeURIComponent(
-					topology
-				) }/p${ encodeURIComponent( partition ) }/command`,
-				method: 'POST',
-				data: { ...interpreted.body, sse_pid: ssePid },
+			// Dispatch on the generic /command endpoint, pivoting the
+			// worker's reply back through this session's open
+			// messages-stream connection via FROM=`_http/<ssePid>`.
+			sendInterpretedCommand( interpreted.body, {
+				topology,
+				partition,
+				ssePid,
 			} ).catch( ( err ) => {
 				appendTranscript( {
 					kind: 'error',
@@ -976,6 +983,39 @@ export default function TopologyConsole() {
 		},
 		[ topology, partition, ssePid, appendTranscript ]
 	);
+
+	// Live-canvas poll. The deleted TopologyStreamController fired
+	// dump_metadata/uptime server-side on a timer; now that we tail the
+	// worker through the generic messages-stream, the console drives the
+	// poll itself. KEY=gui:auto / gui:uptime route the responses to the
+	// silent canvas-refresh path (see handleMessage), distinct from
+	// user-typed gui:typed commands. Paused in edit mode (the stream is
+	// closed) and until the session pid lands from the connected envelope.
+	useEffect( () => {
+		if ( mode === 'edit' || ! ssePid ) {
+			return undefined;
+		}
+		const poke = ( name, key ) =>
+			sendInterpretedCommand(
+				{ type: 'command', name, arguments: '' },
+				{ topology, partition, ssePid, key }
+			).catch( () => {} );
+		// Immediate paint, then steady cadence.
+		poke( 'dump_metadata', 'gui:auto' );
+		poke( 'uptime', 'gui:uptime' );
+		const statsId = setInterval(
+			() => poke( 'dump_metadata', 'gui:auto' ),
+			STATS_INTERVAL_MS
+		);
+		const uptimeId = setInterval(
+			() => poke( 'uptime', 'gui:uptime' ),
+			UPTIME_INTERVAL_MS
+		);
+		return () => {
+			clearInterval( statsId );
+			clearInterval( uptimeId );
+		};
+	}, [ mode, ssePid, topology, partition ] );
 
 	// Split the typed line on unquoted `;` so `help; ls` dispatches two
 	// commands instead of one. Each statement runs through
@@ -1013,8 +1053,8 @@ export default function TopologyConsole() {
 			} else if ( action === 'request' ) {
 				// payload here is the request verb (e.g. GET_LAG).
 				// `request_node` (alias `request`) sends a TM_REQUEST
-				// at the target node; the reply walks TO=FROM back
-				// to the SSE session's `_repl/_output/{pid}`.
+				// at the target node; the reply walks TO=FROM back via
+				// `_http/<ssePid>` to this messages-stream session.
 				sendLine( `request_node ${ nodeId } ${ payload }` );
 			}
 			// Always pop the transcript open after an Inspector action

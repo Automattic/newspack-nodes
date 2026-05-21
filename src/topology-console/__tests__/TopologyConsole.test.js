@@ -95,6 +95,16 @@ jest.mock( '../utils/commandClient', () => ( {
 		send: jest.fn().mockResolvedValue( [ 0, 0, '', '', '', '', '{}' ] ),
 	} ),
 } ) );
+// Spy on the command dispatcher so the post path is observable without a
+// real fetch (jsdom has no global fetch). Assigned to a global so tests
+// can assert the body + context the console threaded through.
+globalThis.__sendInterpretedCommand = jest
+	.fn()
+	.mockResolvedValue( { queued: true } );
+jest.mock( '../utils/sendCommand', () => ( {
+	sendInterpretedCommand: ( ...args ) =>
+		globalThis.__sendInterpretedCommand( ...args ),
+} ) );
 // Capture the canvas + inspector props so tests can invoke any handler
 // the parent threaded through without needing to drive synthetic
 // SVG / DOM events. This makes click-through paths reachable from a
@@ -419,6 +429,38 @@ describe( 'TopologyConsole boot', () => {
 		const { getByTestId } = render( <TopologyConsole /> );
 		expect( getByTestId( 'header' ).dataset.mode ).toBe( 'view' );
 		expect( getByTestId( 'canvas' ).dataset.mode ).toBe( 'view' );
+	} );
+
+	it( 'polls dump_metadata (gui:auto) on an interval while connected in view mode', () => {
+		// The old server-side controller fired ls/dump_metadata every 1s to
+		// refresh the live canvas; that poll now lives client-side. It must
+		// carry KEY=gui:auto so responses route to the silent canvas path,
+		// not the transcript.
+		jest.useFakeTimers();
+		try {
+			globalThis.__sendInterpretedCommand.mockClear();
+			act( () => {
+				render( <TopologyConsole /> );
+			} );
+			const autoPolls = () =>
+				globalThis.__sendInterpretedCommand.mock.calls.filter(
+					( [ body, ctx ] ) =>
+						body &&
+						body.name === 'dump_metadata' &&
+						ctx &&
+						ctx.key === 'gui:auto'
+				);
+			// Fires once immediately on connect so the canvas paints without
+			// waiting a full interval.
+			expect( autoPolls().length ).toBeGreaterThanOrEqual( 1 );
+			const before = autoPolls().length;
+			act( () => {
+				jest.advanceTimersByTime( 1000 );
+			} );
+			expect( autoPolls().length ).toBeGreaterThan( before );
+		} finally {
+			jest.useRealTimers();
+		}
 	} );
 
 	it( 'switching to edit mode flips header + canvas + reveals palette', () => {
@@ -1590,7 +1632,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
 
-	// === sendLine post path (apiFetch) ===
+	// === sendLine post path (sendInterpretedCommand) ===
 
 	it( 'sendLine: a remote command echoes the sent text', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
@@ -1607,6 +1649,20 @@ describe( 'TopologyConsole boot', () => {
 		);
 		expect( sent ).not.toBeUndefined();
 		expect( sent.textContent ).toBe( 'ls' );
+	} );
+
+	it( 'sendLine: dispatches the interpreted body + pivot context', async () => {
+		globalThis.__sendInterpretedCommand.mockClear();
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'submit' ) );
+		} );
+		// `ls` → default command verb; pivoted through the mocked ssePid.
+		expect( globalThis.__sendInterpretedCommand ).toHaveBeenCalledWith(
+			{ type: 'command', name: 'ls', arguments: '' },
+			{ topology: 'demo', partition: 0, ssePid: 1234 }
+		);
 	} );
 
 	// === Modal-driven workflows ===
