@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-05-20
+
 ### Changed
 
 - **`/messages/stream` heartbeat default lowered to 2s** (from the 5s set in
