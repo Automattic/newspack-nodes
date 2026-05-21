@@ -45,6 +45,15 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 'ok', $result );
 	}
 
+	public function test_dispatch_throws_on_unknown_command(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'unknown command: nope' );
+		$ci->dispatch( 'nope' );
+	}
+
 	public function test_debug_state_no_args_toggles_self(): void {
 		$ci = new CommandInterpreter();
 		$ci->name( '_command_interpreter' );
