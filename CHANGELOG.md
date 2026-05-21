@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`/messages/stream` heartbeat interval now defaults to 5s** (was 500ms).
+  Since the SSE flush fix, data flushes every drain tick regardless, so the
+  interval only paces the idle keepalive — 5s is ample for browser and machine
+  consumers and ~10× less idle traffic (each heartbeat drags a 4KB flush
+  comment with it). Callers no longer pass `interval`; the aggregator and the
+  dashboards both rely on this single default.
+
 ## [0.2.4] - 2026-05-20
 
 ### Changed

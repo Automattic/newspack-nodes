@@ -129,7 +129,11 @@ class Messages_Stream_Controller {
 				'permission_callback' => static fn () => \current_user_can( 'manage_options' ),
 				'args'                => [
 					'subscribe' => [ 'required' => true,  'type' => 'string' ],
-					'interval'  => [ 'required' => false, 'type' => 'integer', 'default' => 500 ],
+					// Heartbeat / idle-keepalive cadence in ms. Data flushes every
+				// drain tick regardless (see run_stream_loop), so this only
+				// paces the idle heartbeat — 5s is plenty for browser + machine
+				// consumers and ~10x less idle traffic than the old 500ms.
+				'interval'  => [ 'required' => false, 'type' => 'integer', 'default' => 5000 ],
 					'positions' => [ 'required' => false, 'type' => 'string' ],
 				],
 			]
@@ -278,7 +282,7 @@ class Messages_Stream_Controller {
 	public function stream( \WP_REST_Request $request ) {
 		$subs      = $this->parse_subscriptions( (string) $request->get_param( 'subscribe' ) );
 		$positions = $this->parse_positions( (string) ( $request->get_param( 'positions' ) ?? '' ) );
-		$interval  = (int) ( $request->get_param( 'interval' ) ?? 500 );
+		$interval  = (int) ( $request->get_param( 'interval' ) ?? 5000 );
 
 		$partition = $this->subscription_partition( $subs );
 		$acquire   = self::$acquire_slot ?? static fn ( int $p ): int => 1;
