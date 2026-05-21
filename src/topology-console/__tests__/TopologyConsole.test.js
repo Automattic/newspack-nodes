@@ -12,9 +12,12 @@
  * delete / discard / rename / remove), modal-driven confirm/cancel
  * flows, and layout reset.
  *
- * Approach: useTopologyStream is mocked to capture the onMessage
- * callback so tests pump synthetic SSE messages through handleMessage
- * without a real EventSource. Mocked Canvas / Inspector / Header /
+ * Approach: useConsoleGraph is mocked to hand back a REAL SessionSink
+ * (registered `session`) + a capture-only command-out node, so tests
+ * pump synthetic SSE messages through `globalThis.__sessionNode.fill()`
+ * (running the real parseMetadata / dumperRender / transcript logic)
+ * without a real EventSource, and assert poll/REPL sends via
+ * `globalThis.__commandOutFill`. Mocked Canvas / Inspector / Header /
  * CanvasFrame / Modal components expose every prop callback as a
  * button so handlers run end-to-end without driving SVG drag math.
  * Hook fetches (fetchTopology / saveTopology / deleteTopology /
@@ -35,16 +38,72 @@ window.NewspackNodesData = {
 	userLogin: 'tester',
 };
 
-// Captures the onMessage handler the parent passes into useTopologyStream
-// so tests can drive synthetic SSE messages through handleMessage and
-// exercise the dumperRender + debug-header path without a real EventSource.
-let lastOnMessage = null;
-jest.mock( '../hooks/useTopologyStream', () => ( {
-	useTopologyStream: ( _t, _p, onMessage ) => {
-		lastOnMessage = onMessage;
-		return { status: 'open', ssePid: 1234 };
-	},
-} ) );
+// The console's live SSE-in + command-out path now flows through a real
+// in-browser node graph (SseConnector → SessionSink; CommandOut). We mock
+// ONLY useConsoleGraph — to skip the real SseConnector/EventSource and
+// control status/pid — and hand back a REAL SessionSink (registered as
+// `session`, so the unmocked useNodeState/useNodeFill read it via Core)
+// plus a capture-only CommandOut (registered `command-out`) whose fill
+// records the poll/REPL command batches.
+//
+// Tests drive synthetic SSE messages by calling
+// `globalThis.__sessionNode.fill( msg )` — the SessionSink runs the real
+// parseMetadata / dumperRender / debug-header / transcript logic, so the
+// console renders exactly what the live path would produce.
+globalThis.__commandOutFill = jest.fn();
+globalThis.__sessionNode = null;
+// Tracks the {topology}.p{N} the mock graph is currently built for, so a
+// topology/partition change rebuilds a fresh SessionSink — mirroring the
+// real useConsoleGraph's teardown-on-deps-change (which is what resets the
+// transcript + parsed graph for a new worker).
+globalThis.__graphKey = null;
+jest.mock( '../hooks/useConsoleGraph', () => {
+	const { Core } = require( '../../runtime/core' );
+	const { SessionSink } = require( '../nodes/SessionSink' );
+	const { Node } = require( '../../runtime/node' );
+	return {
+		useConsoleGraph: ( {
+			topology,
+			partition,
+			enabled,
+			debugLevelRef,
+		} ) => {
+			if ( ! enabled ) {
+				Core.unregisterNode( 'session' );
+				Core.unregisterNode( 'command-out' );
+				globalThis.__sessionNode = null;
+				globalThis.__graphKey = null;
+				return {
+					status: 'closed',
+					ssePid: null,
+					sessionNode: null,
+					commandOutName: 'command-out',
+				};
+			}
+			const key = `${ topology }.p${ partition }`;
+			if ( globalThis.__graphKey !== key ) {
+				// Worker changed (or first mount): drop the old graph and
+				// build a fresh SessionSink + capture CommandOut.
+				Core.unregisterNode( 'session' );
+				Core.unregisterNode( 'command-out' );
+				const session = new SessionSink( { debugLevelRef } );
+				session.setName( 'session' );
+				globalThis.__sessionNode = session;
+				const out = new Node();
+				out.fill = ( payload ) =>
+					globalThis.__commandOutFill( payload );
+				out.setName( 'command-out' );
+				globalThis.__graphKey = key;
+			}
+			return {
+				status: 'open',
+				ssePid: 1234,
+				sessionNode: Core.node( 'session' ),
+				commandOutName: 'command-out',
+			};
+		},
+	};
+} );
 // Test-overridable references so individual tests can stub topology fetches
 // without re-mocking the whole module. Mutable globals (assigned via the
 // hooks alias on `window`) so mock factories can read them at call
@@ -89,25 +148,6 @@ jest.mock( '../hooks/useSaveTopology', () => ( {
 } ) );
 jest.mock( '../hooks/useDeleteTopology', () => ( {
 	useDeleteTopology: () => globalThis.__hooks.deleteTopology,
-} ) );
-jest.mock( '../utils/commandClient', () => ( {
-	getCommandClient: () => ( {
-		send: jest.fn().mockResolvedValue( [ 0, 0, '', '', '', '', '{}' ] ),
-	} ),
-} ) );
-// Spy on the command dispatcher so the post path is observable without a
-// real fetch (jsdom has no global fetch). Assigned to a global so tests
-// can assert the body + context the console threaded through.
-globalThis.__sendWorkerCommand = jest
-	.fn()
-	.mockResolvedValue( { queued: true } );
-globalThis.__sendWorkerCommands = jest
-	.fn()
-	.mockResolvedValue( { queued: true } );
-jest.mock( '../utils/sendCommand', () => ( {
-	sendWorkerCommand: ( ...args ) => globalThis.__sendWorkerCommand( ...args ),
-	sendWorkerCommands: ( ...args ) =>
-		globalThis.__sendWorkerCommands( ...args ),
 } ) );
 // Capture the canvas + inspector props so tests can invoke any handler
 // the parent threaded through without needing to drive synthetic
@@ -396,6 +436,7 @@ jest.mock( '../components/Modal', () => ( {
 } ) );
 
 import TopologyConsole from '../TopologyConsole';
+import { Core } from '../../runtime/core';
 
 describe( 'TopologyConsole boot', () => {
 	beforeEach( () => {
@@ -403,6 +444,13 @@ describe( 'TopologyConsole boot', () => {
 		// Clear localStorage so persisted positions / viewport from one
 		// test don't bleed into the next.
 		window.localStorage.clear();
+		// Drop the graph nodes the mocked useConsoleGraph registered so the
+		// next render builds a fresh SessionSink (no name collision, no
+		// transcript bleed between tests).
+		Core.reset();
+		globalThis.__sessionNode = null;
+		globalThis.__graphKey = null;
+		globalThis.__commandOutFill.mockClear();
 		// Reset hook mocks so leftover mockResolvedValueOnce queues from
 		// earlier tests don't bleed into later ones.
 		hooks.fetchTopology.mockReset();
@@ -438,31 +486,35 @@ describe( 'TopologyConsole boot', () => {
 	it( 'polls dump_metadata every tick and batches uptime onto the 5s tick', () => {
 		// The old server-side controller fired ls/dump_metadata every 1s to
 		// refresh the live canvas; that poll now lives client-side as a single
-		// batched request: dump_metadata (gui:auto) every second, with uptime
-		// (gui:uptime) riding the SAME batch on the immediate paint and every
-		// 5th tick — so a poll cycle is one /command request, not two.
+		// fill of the command-out node carrying a batch: dump_metadata
+		// (gui:auto) every second, with uptime (gui:uptime) riding the SAME
+		// batch on the immediate paint and every 5th tick.
 		jest.useFakeTimers();
 		try {
-			globalThis.__sendWorkerCommands.mockClear();
+			globalThis.__commandOutFill.mockClear();
 			act( () => {
 				render( <TopologyConsole /> );
 			} );
+			// Each fill call payload is `{ commands: [...] }`.
+			const commandsOf = ( call ) => call[ 0 ].commands;
 			const hasVerb = ( commands, name ) =>
 				Array.isArray( commands ) &&
 				commands.some( ( c ) => c.name === name );
 			const dumpBatches = () =>
-				globalThis.__sendWorkerCommands.mock.calls.filter( ( [ c ] ) =>
-					hasVerb( c, 'dump_metadata' )
+				globalThis.__commandOutFill.mock.calls.filter( ( c ) =>
+					hasVerb( commandsOf( c ), 'dump_metadata' )
 				);
 			const uptimeBatches = () =>
-				globalThis.__sendWorkerCommands.mock.calls.filter( ( [ c ] ) =>
-					hasVerb( c, 'uptime' )
+				globalThis.__commandOutFill.mock.calls.filter( ( c ) =>
+					hasVerb( commandsOf( c ), 'uptime' )
 				);
 			// Immediate paint: ONE batch carrying both commands, each with its
 			// own routing key.
 			expect( dumpBatches().length ).toBeGreaterThanOrEqual( 1 );
 			expect( uptimeBatches().length ).toBeGreaterThanOrEqual( 1 );
-			const first = globalThis.__sendWorkerCommands.mock.calls[ 0 ][ 0 ];
+			const first = commandsOf(
+				globalThis.__commandOutFill.mock.calls[ 0 ]
+			);
 			expect( hasVerb( first, 'dump_metadata' ) ).toBe( true );
 			expect( hasVerb( first, 'uptime' ) ).toBe( true );
 			expect(
@@ -527,10 +579,12 @@ describe( 'TopologyConsole boot', () => {
 	const TM_INFO = 64;
 	const TM_STRUCT = 256;
 
-	// Helper to pump a synthetic SSE message through the captured handler.
+	// Helper to pump a synthetic SSE message through the live SessionSink —
+	// the same node the SseConnector fills each frame into. Runs the real
+	// parseMetadata / dumperRender / transcript logic.
 	const fireMsg = async ( msg ) => {
 		await act( async () => {
-			lastOnMessage( msg );
+			globalThis.__sessionNode.fill( msg );
 		} );
 	};
 
@@ -840,7 +894,7 @@ describe( 'TopologyConsole boot', () => {
 		// Push 250 messages; TRANSCRIPT_MAX is 200.
 		await act( async () => {
 			for ( let i = 0; i < 250; i++ ) {
-				lastOnMessage( {
+				globalThis.__sessionNode.fill( {
 					type: TM_BYTESTREAM,
 					from: 'worker',
 					value: `msg-${ i }`,
@@ -1075,14 +1129,14 @@ describe( 'TopologyConsole boot', () => {
 		expect( window.location.search ).toMatch( /partition=1/ );
 	} );
 
-	// === SSE stream callback wiring ===
+	// === SSE stream / graph wiring ===
 
-	it( 'switching to view mode keeps SSE enabled (4th arg true)', () => {
+	it( 'mounts the session graph in view mode (SessionSink registered)', () => {
 		render( <TopologyConsole /> );
-		// useTopologyStream was called with `enabled=true` because mode === 'view'.
-		// The mock simply captures onMessage; existence of lastOnMessage attests
-		// to the wiring.
-		expect( typeof lastOnMessage ).toBe( 'function' );
+		// useConsoleGraph (mocked) builds + registers a real SessionSink in
+		// Core because mode === 'view'. Its existence attests the graph is
+		// wired; the console reads it via useNodeState.
+		expect( Core.node( 'session' ) ).toBe( globalThis.__sessionNode );
 	} );
 
 	// === Edit-mode workflows ===
@@ -1379,31 +1433,11 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'debug_level 2 emits buildDebugHeader2 multi-line envelope', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
-		// Manually set debug_level via dispatchStatement → ReplFooter.
-		// Submit `debug_level 2` through the ReplFooter mock's submit
-		// button (using the default 'ls' isn't useful here — we need a
-		// `debug_level 2` literal).
-		// Send via mocked ReplFooter's onSubmit by feeding a custom command.
-		// The component's `sendLine` handler will route the local builtin.
-		// Easiest path: use the existing submit-multi which sends
-		// `clear; debug_level 1`, then again call sendLine via a custom
-		// invocation. But we can just send a single statement by using
-		// lastOnMessage.
-		// Actually: drive setReplExpanded path explicitly via clicking
-		// the submit-multi (sets level=1), then send another via the
-		// transcript. Simpler: drive via shell-interpret post-dispatch.
-		// Since the only way to reach `level=2` is via the user input,
-		// we'll use a SSE-injected payload that mimics what the user
-		// already typed and verify the buildDebugHeader2 path runs when
-		// a TM_BYTESTREAM message arrives at level 2.
-		// Easiest: call dispatchStatement directly via the SSE callback
-		// `props.onSubmit` from the mocked footer; for `debug_level 2`
-		// the mock's "submit-multi" handler runs `clear; debug_level 1`.
-		// Let's bypass and click submit twice to bump level toggle:
-		// submit-multi → clear + debug_level 1 (level=1).
-		// Then submit-multi again → clear + debug_level 1 (toggle to 1 again).
-		// We can't easily reach level 2 from the existing mock. Skip the
-		// strict level-2 assertion and verify level-1 header path works.
+		// The ReplFooter mock's submit-multi button dispatches
+		// `clear; debug_level 1`, which can only reach level 1 (not 2). We
+		// can't drive a literal `debug_level 2` through the existing mock,
+		// so this exercises the level-1 header injection path on an
+		// incoming message and asserts a transcript entry results.
 		fireEvent.click( getByText( 'submit-multi' ) );
 		await fireMsg( {
 			type: TM_BYTESTREAM,
@@ -1697,12 +1731,12 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
 
-	// === sendLine post path (sendWorkerCommand) ===
+	// === sendLine post path (fills the command-out node) ===
 
 	it( 'sendLine: a remote command echoes the sent text', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
 		// The default submit button sends `ls`. The remote path fires
-		// because ssePid is 1234 (from the useTopologyStream mock).
+		// because ssePid is 1234 (from the useConsoleGraph mock).
 		await act( async () => {
 			fireEvent.click( getByText( 'submit' ) );
 		} );
@@ -1716,18 +1750,19 @@ describe( 'TopologyConsole boot', () => {
 		expect( sent.textContent ).toBe( 'ls' );
 	} );
 
-	it( 'sendLine: dispatches the interpreted body + pivot context', async () => {
-		globalThis.__sendWorkerCommand.mockClear();
+	it( 'sendLine: fills the command-out node with the interpreted body', async () => {
+		globalThis.__commandOutFill.mockClear();
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText } = render( <TopologyConsole /> );
 		await act( async () => {
 			fireEvent.click( getByText( 'submit' ) );
 		} );
-		// `ls` → default command verb; pivoted through the mocked ssePid.
-		expect( globalThis.__sendWorkerCommand ).toHaveBeenCalledWith(
-			{ type: 'command', name: 'ls', arguments: '' },
-			{ topology: 'demo', partition: 0, ssePid: 1234 }
-		);
+		// `ls` → default command verb. The pivot (topology / partition /
+		// ssePid) is held by CommandOut, so the fill payload is just the
+		// command batch.
+		expect( globalThis.__commandOutFill ).toHaveBeenCalledWith( {
+			commands: [ { type: 'command', name: 'ls', arguments: '' } ],
+		} );
 	} );
 
 	// === Modal-driven workflows ===
@@ -2050,7 +2085,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( result ).toBe( false );
 	} );
 
-	// === Misc test path: useTopologyStream re-mount via topology change ===
+	// === Misc test path: graph re-mount via topology change ===
 
 	it( 'changing partition resets selection + transcript + parsed', async () => {
 		window.NewspackNodesData.topologyPartitions = { demo: 2 };

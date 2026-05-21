@@ -23,21 +23,32 @@ export function useNodeState( nodeName, event ) {
 		() => Core.node( nodeName )?.setStateCache?.[ event ]
 	);
 	const reactId = useId();
+	// Resolve the node during render and key the subscribe effect on the
+	// instance (not just the name) so a node swapped under a stable name —
+	// e.g. a per-session graph rebuilt on worker change — re-subscribes to
+	// the NEW node instead of stranding the listener on the dead one.
+	const node = Core.node( nodeName );
 	useEffect( () => {
-		const node = Core.node( nodeName );
 		if ( ! node ) {
+			// No node (yet, or torn down): drop any stale value so the
+			// component doesn't keep showing a removed node's state.
+			setValue( undefined );
 			return undefined;
 		}
 		if ( ! ( event in node.registrations ) ) {
 			node.registrations[ event ] = {};
 		}
+		// Re-seed from the new node's cache (undefined if it has none) so a
+		// swap doesn't leave the previous node's value on screen until the
+		// next setState.
+		setValue( node.setStateCache?.[ event ] );
 		const listenerId = `react/${ reactId }/${ event }`;
 		node.register( event, listenerId, ( payload ) => {
 			setValue( payload );
 			return true;
 		} );
 		return () => node.unregister( event, listenerId );
-	}, [ nodeName, event, reactId ] );
+	}, [ node, event, reactId ] );
 	return value;
 }
 
