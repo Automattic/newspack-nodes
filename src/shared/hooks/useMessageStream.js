@@ -22,10 +22,10 @@ const ID = 4;
 const KEY = 5;
 const VALUE = 6;
 
-// Client-side keep-alive cadence. The substrate's slot pool gives each
-// connection a TTL (default 10s, configurable via the `interval` param on
-// /messages/stream). The half-TTL cadence below keeps the slot from
-// expiring on any single missed poke without flooding the server.
+// Client-side keep-alive cadence. The substrate's slot pool keys each
+// connection's TTL off this client poke (NOT the server heartbeat). The
+// half-TTL cadence keeps the slot from expiring on a single missed poke
+// without flooding the server.
 const SLOT_HEARTBEAT_MS = 5000;
 const SLOT_TTL_S = 10;
 
@@ -41,14 +41,12 @@ const backoffDelay = ( retries ) =>
 /**
  * @param {Object}   options
  * @param {string[]} options.subscriptions   Subscription names (CSV-joined server-side).
- * @param {number}   options.intervalMs      Heartbeat / flush cadence hint (ms).
  * @param {Function} options.onMessage       Called per `msg` event with the parsed envelope.
  * @param {Function} options.onBeforeConnect Called before each (re)connect attempt.
  * @return {Object} { error, connect, close, lastEventTime }
  */
 export default function useMessageStream( {
 	subscriptions = [],
-	intervalMs = 500,
 	onMessage,
 	onBeforeConnect,
 } ) {
@@ -67,8 +65,6 @@ export default function useMessageStream( {
 	const positionsRef = useRef( {} );
 
 	// Refs let connect() stay stable across re-renders.
-	const intervalMsRef = useRef( intervalMs );
-	intervalMsRef.current = intervalMs;
 	const subsKeyRef = useRef( subscriptions.join( ',' ) );
 	subsKeyRef.current = subscriptions.join( ',' );
 	const onMessageRef = useRef( onMessage );
@@ -125,7 +121,6 @@ export default function useMessageStream( {
 
 		const params = {
 			subscribe: currentSubsKey,
-			interval: String( intervalMsRef.current ),
 			_wpnonce: data.nonce,
 		};
 		if ( Object.keys( positionsRef.current ).length > 0 ) {

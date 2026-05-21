@@ -144,7 +144,6 @@ export default function RawLogs() {
 		lastEventTime,
 	} = useMessageStream( {
 		subscriptions: selectedLog ? [ selectedLog ] : [],
-		intervalMs: 100,
 		onMessage: handleMessage,
 		onBeforeConnect: handleBeforeConnect,
 	} );

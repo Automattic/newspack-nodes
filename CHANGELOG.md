@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Shared `useMessageStream` hook no longer sends an `interval` query param.**
+  Completes the client side of the 0.2.7 server-side removal — the hook (and the
+  RawLogs dashboard's 100ms cadence) dropped it. Cadence is server-owned
+  (hardcoded 2s); synced to sibling plugins via `sync-shared.sh`.
+
 ## [0.2.7] - 2026-05-20
 
 ### Changed
