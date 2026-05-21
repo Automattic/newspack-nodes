@@ -69,14 +69,7 @@ class Command_Controller {
 	}
 
 	public function dispatch( \WP_REST_Request $request ): void {
-		$msg = $this->normalize_body_to_message( $request );
-
-		// Default FROM to `_http` so the CI's TO=FROM response routes
-		// back to our registered HTTP_Out. Pivoted IPC commands supply
-		// their own FROM (`_http/<ssePid>`) — leave it alone.
-		if ( '' === $msg[ Message::FROM ] ) {
-			$msg[ Message::FROM ] = '_http';
-		}
+		$messages = $this->messages_from_body( (string) $request->get_body() );
 
 		// Lazy-init the request-scope graph (idempotent). REST requests
 		// hit this dispatch directly; no other entry point builds the
@@ -89,22 +82,67 @@ class Command_Controller {
 		$router = Core::node( '_router' );
 		$out    = Core::node( '_http' );
 		if ( ! $router instanceof Router || ! $out instanceof HTTP_Out ) {
-			$this->emit_error( $msg, 'request-scope graph not initialized (missing _router or _http)' );
+			$this->emit_error(
+				$messages[ \array_key_last( $messages ) ] ?? Message::new_message(),
+				'request-scope graph not initialized (missing _router or _http)'
+			);
 			$this->finish();
 			return;
 		}
 
+		// Route each message in order through the one request graph. A batch
+		// (e.g. `[connect_worker_input, dump_metadata]`) runs serially in this
+		// single process, so an earlier command's side effect — mounting the
+		// worker Partition — is visible to the later command's routing.
 		$out->reset();
-		$router->fill( $msg );
+		$last = null;
+		foreach ( $messages as $msg ) {
+			// Default FROM to `_http` so the CI's TO=FROM response routes
+			// back to our registered HTTP_Out. Pivoted IPC commands supply
+			// their own FROM (`_http/<ssePid>`) — leave it alone.
+			if ( '' === $msg[ Message::FROM ] ) {
+				$msg[ Message::FROM ] = '_http';
+			}
+			$router->fill( $msg );
+			$last = $msg;
+		}
 
 		if ( ! $out->sent_headers ) {
-			// Async / IPC case — no in-process response landed. Emit 202.
+			// Async / IPC case — no in-process response landed. 202 ack keyed
+			// off the LAST message (the real command; any leading setup commands
+			// such as connect_worker_input return '' and never reply).
 			\status_header( 202 );
 			\header( 'Content-Type: application/json' );
 			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-			echo \wp_json_encode( [ 'queued' => true, 'id' => $msg[ Message::ID ] ] );
+			echo \wp_json_encode( [ 'queued' => true, 'id' => null === $last ? '' : $last[ Message::ID ] ] );
 		}
 		$this->finish();
+	}
+
+	/**
+	 * Decode the request body into an ordered list of Messages. The body is
+	 * JSONL — one packed Message per line. A single command is one line; a
+	 * batch is several (e.g. `connect_worker_input` then the real command),
+	 * dispatched in order so they run serially in this one process. Each line
+	 * goes through `Message::unpacked()` — the only JSON boundary; there is no
+	 * array-of-messages wrapper. Blank lines are skipped.
+	 *
+	 * @return array<int,array<int,mixed>>
+	 * @throws \InvalidArgumentException When no line parses to a Message.
+	 */
+	private function messages_from_body( string $body ): array {
+		$messages = [];
+		foreach ( \explode( "\n", $body ) as $line ) {
+			$line = \trim( $line );
+			if ( '' === $line ) {
+				continue;
+			}
+			$messages[] = Message::unpacked( $line );
+		}
+		if ( empty( $messages ) ) {
+			throw new \InvalidArgumentException( 'Command body must be one or more newline-delimited packed Messages (JSONL).' );
+		}
+		return $messages;
 	}
 
 	/**
@@ -155,21 +193,5 @@ class Command_Controller {
 		$r[ Message::VALUE ] = $err;
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo Message::packed( $r );
-	}
-
-	private function normalize_body_to_message( \WP_REST_Request $request ): array {
-		$body = \json_decode( (string) $request->get_body(), true );
-		if ( \is_array( $body ) && \array_is_list( $body ) && \count( $body ) >= 7 ) {
-			return $body;
-		}
-		// TIMESTAMP slot is already seeded by Message::new_message — no need to overwrite.
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = (int) ( $body['type']  ?? Message::TM_COMMAND );
-		$msg[ Message::FROM ]  = (string) ( $body['from']  ?? '' );
-		$msg[ Message::TO ]    = (string) ( $body['to']    ?? '' );
-		$msg[ Message::ID ]    = (string) ( $body['id']    ?? '' );
-		$msg[ Message::KEY ]   = (string) ( $body['key']   ?? '' );
-		$msg[ Message::VALUE ] = (string) ( $body['value'] ?? '' );
-		return $msg;
 	}
 }

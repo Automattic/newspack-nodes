@@ -151,13 +151,13 @@ class CommandInterpreterTest extends TestCase {
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::VALUE ] = \json_encode(
-			[
-				'name'      => 'make_node',
-				'arguments' => 'CaptureSink alice',
-				'payload'   => '',
-			]
-		);
+		// VALUE rides as a live PHP structure (no separate json_encode) —
+		// it travels through packed()/unpacked() as a nested object.
+		$msg[ Message::VALUE ] = [
+			'name'      => 'make_node',
+			'arguments' => 'CaptureSink alice',
+			'payload'   => '',
+		];
 		$ci->fill( $msg );
 
 		$this->assertNotNull( Core::node( 'alice' ) );
@@ -545,11 +545,14 @@ class CommandInterpreterTest extends TestCase {
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
 
+		// dump_node returns the snapshot as a live PHP structure now; the
+		// REPL Dumper pretty-prints it at the render boundary.
 		$out = $ci->dispatch( 'dump_node', 'alice' );
-		$this->assertStringContainsString( '"name"', $out );
-		$this->assertStringContainsString( 'alice', $out );
-		$this->assertStringContainsString( '"sink"', $out );
-		$this->assertStringContainsString( '_command_interpreter', $out );
+		$this->assertIsArray( $out );
+		$this->assertArrayHasKey( 'name', $out );
+		$this->assertSame( 'alice', $out['name'] );
+		$this->assertArrayHasKey( 'sink', $out );
+		$this->assertSame( '_command_interpreter', $out['sink'] );
 	}
 
 	public function test_dump_alias_works(): void {
@@ -560,7 +563,8 @@ class CommandInterpreterTest extends TestCase {
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
 
 		$out = $ci->dispatch( 'dump', 'alice' );
-		$this->assertStringContainsString( 'alice', $out );
+		$this->assertIsArray( $out );
+		$this->assertSame( 'alice', $out['name'] );
 	}
 
 	public function test_dump_node_with_keys_filters_output(): void {
@@ -571,9 +575,10 @@ class CommandInterpreterTest extends TestCase {
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
 
 		$out = $ci->dispatch( 'dump_node', 'alice name' );
-		$this->assertStringContainsString( '"name"', $out );
-		$this->assertStringContainsString( 'alice', $out );
-		$this->assertStringNotContainsString( '"sink"', $out, 'unrequested keys are filtered out' );
+		$this->assertIsArray( $out );
+		$this->assertArrayHasKey( 'name', $out );
+		$this->assertSame( 'alice', $out['name'] );
+		$this->assertArrayNotHasKey( 'sink', $out, 'unrequested keys are filtered out' );
 	}
 
 	public function test_dump_node_unknown_node_returns_error(): void {
@@ -727,9 +732,10 @@ class CommandInterpreterTest extends TestCase {
 		$msg[ Message::VALUE ] = 'twelve bytes';
 		$alice->fill( $msg );
 
-		$json    = $ci->dispatch( 'dump_metadata' );
-		$decoded = \json_decode( $json, true );
+		// dump_metadata returns a live PHP structure now — no JSON string to decode.
+		$decoded = $ci->dispatch( 'dump_metadata' );
 
+		$this->assertIsArray( $decoded );
 		$this->assertArrayHasKey( 'alice', $decoded );
 		$this->assertSame(
 			\strlen( Message::packed( $msg ) ),
@@ -737,6 +743,24 @@ class CommandInterpreterTest extends TestCase {
 		);
 		$this->assertSame( 0,  $decoded['alice']['bytes_read'] );
 		$this->assertSame( 0,  $decoded['alice']['bytes_written'] );
+	}
+
+	public function test_dump_metadata_class_is_the_unqualified_short_name(): void {
+		// The `class` field must be the short, namespace-stripped class name
+		// (what the GUI renders), never the fully-qualified
+		// `Newspack_Nodes\Tests\CaptureSink`. This pins the contract so the
+		// allocation-free basename computation can't regress to the FQCN.
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$alice = new CaptureSink();
+		$alice->name( 'alice' );
+
+		$decoded = $ci->dispatch( 'dump_metadata' );
+
+		$this->assertIsArray( $decoded );
+		$this->assertArrayHasKey( 'alice', $decoded );
+		$this->assertSame( 'CaptureSink', $decoded['alice']['class'] );
 	}
 
 	public function test_uptime_under_one_minute_shows_seconds_only(): void {
@@ -856,9 +880,9 @@ class CommandInterpreterTest extends TestCase {
 		$helper->patron( $patron );
 		$helper->name( 'patron_node:helper' );
 
-		$payload  = $ci->dispatch( 'dump_metadata' );
-		$metadata = \json_decode( $payload, true );
+		$metadata = $ci->dispatch( 'dump_metadata' );
 
+		$this->assertIsArray( $metadata );
 		$this->assertArrayHasKey( 'patron_node', $metadata );
 		$this->assertArrayNotHasKey(
 			'patron_node:helper',
@@ -880,8 +904,7 @@ class CommandInterpreterTest extends TestCase {
 		$sibling->patron( $patron );
 		$sibling->name( 'patron_node:config' );
 
-		$payload  = $ci->dispatch( 'dump_metadata' );
-		$metadata = \json_decode( $payload, true );
+		$metadata = $ci->dispatch( 'dump_metadata' );
 
 		$this->assertIsArray( $metadata );
 		$this->assertArrayHasKey( 'patron_node', $metadata );
@@ -1312,7 +1335,9 @@ class CommandInterpreterTest extends TestCase {
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::VALUE ] = 'this is not json';
+		// VALUE is the command struct directly; a bare string (not an array)
+		// is malformed and must be dropped, not echoed.
+		$msg[ Message::VALUE ] = 'this is not a command struct';
 		$ci->fill( $msg );
 
 		$this->assertCount( 0, $downstream->captured, 'malformed TM_COMMAND must be dropped, not echoed' );
@@ -1329,7 +1354,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::VALUE ] = \json_encode( [ 'arguments' => 'nope' ] );
+		$msg[ Message::VALUE ] = [ 'arguments' => 'nope' ];
 		$ci->fill( $msg );
 
 		$this->assertCount( 0, $downstream->captured );
@@ -1358,7 +1383,7 @@ class CommandInterpreterTest extends TestCase {
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
 		$msg[ Message::FROM ]  = '_output/777';
-		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'boom', 'arguments' => '' ] );
+		$msg[ Message::VALUE ] = [ 'name' => 'boom', 'arguments' => '' ];
 		$ci->fill( $msg );
 
 		$this->assertCount( 1, $downstream->captured );
@@ -1369,9 +1394,51 @@ class CommandInterpreterTest extends TestCase {
 			'thrown verb errors must be re-emitted as TM_COMMAND|TM_ERROR'
 		);
 		$this->assertSame( '_output/777', $response[ Message::TO ], 'response walks the FROM trail back' );
-		$payload = \json_decode( $response[ Message::VALUE ], true );
+		// Response VALUE rides as a live PHP structure — no JSON string to decode.
+		$payload = $response[ Message::VALUE ];
 		$this->assertSame( 'boom', $payload['name'] );
 		$this->assertSame( 'kaboom!', $payload['payload'] );
+	}
+
+	public function test_interpret_responds_with_structured_array_payload(): void {
+		// A verb returning an array (like dump_node / dump_metadata) must
+		// produce a response whose VALUE.payload IS that array — carried as a
+		// live structure, not json-encoded. And an EMPTY array result must
+		// still produce a response (the `'' !== $result` suppression only
+		// catches the empty-STRING case, e.g. `log`).
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$downstream = new CaptureSink();
+		$ci->sink( $downstream );
+
+		$ci->commands(
+			[
+				'give_array' => static fn (): array => [ 'a' => 1, 'nested' => [ 2, 3 ] ],
+				'give_empty' => static fn (): array => [],
+			]
+		);
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$msg[ Message::FROM ]  = '_output/55';
+		$msg[ Message::VALUE ] = [ 'name' => 'give_array', 'arguments' => '' ];
+		$ci->fill( $msg );
+
+		$this->assertCount( 1, $downstream->captured );
+		$payload = $downstream->captured[0][ Message::VALUE ];
+		$this->assertSame( 'give_array', $payload['name'] );
+		$this->assertSame( [ 'a' => 1, 'nested' => [ 2, 3 ] ], $payload['payload'], 'array payload rides as a live structure' );
+
+		// Empty-array result still responds (not suppressed).
+		$empty                   = Message::new_message();
+		$empty[ Message::TYPE ]  = Message::TM_COMMAND;
+		$empty[ Message::FROM ]  = '_output/55';
+		$empty[ Message::VALUE ] = [ 'name' => 'give_empty', 'arguments' => '' ];
+		$ci->fill( $empty );
+
+		$this->assertCount( 2, $downstream->captured, 'an empty-array result must still produce a response' );
+		$this->assertSame( [], $downstream->captured[1][ Message::VALUE ]['payload'] );
 	}
 
 	public function test_interpret_wraps_unknown_command_as_TM_RESPONSE(): void {
@@ -1388,7 +1455,7 @@ class CommandInterpreterTest extends TestCase {
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
 		$msg[ Message::FROM ]  = '_output/77';
-		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'i_do_not_exist', 'arguments' => '' ] );
+		$msg[ Message::VALUE ] = [ 'name' => 'i_do_not_exist', 'arguments' => '' ];
 		$ci->fill( $msg );
 
 		$this->assertCount( 1, $downstream->captured );
@@ -1398,7 +1465,7 @@ class CommandInterpreterTest extends TestCase {
 			$response[ Message::TYPE ],
 			'unknown verbs return a string (not throw) — wrapped as TM_RESPONSE not TM_ERROR'
 		);
-		$payload = \json_decode( $response[ Message::VALUE ], true );
+		$payload = $response[ Message::VALUE ];
 		$this->assertStringContainsString( 'unknown command', $payload['payload'] );
 	}
 
@@ -1419,7 +1486,7 @@ class CommandInterpreterTest extends TestCase {
 		$msg[ Message::FROM ]  = '_output/42';
 		$msg[ Message::ID ]    = 'corr-id-123';
 		$msg[ Message::KEY ]   = 'gui-tag-abc';
-		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'make_node', 'arguments' => 'CaptureSink coverage_alice' ] );
+		$msg[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'CaptureSink coverage_alice' ];
 		$ci->fill( $msg );
 
 		$this->assertCount( 1, $downstream->captured );
@@ -1446,7 +1513,7 @@ class CommandInterpreterTest extends TestCase {
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
 		$msg[ Message::TO ]    = 'some/path/ahead';
-		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'make_node', 'arguments' => 'CaptureSink not_made' ] );
+		$msg[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'CaptureSink not_made' ];
 		$ci->fill( $msg );
 
 		$this->assertCount( 1, $downstream->captured );
@@ -1467,7 +1534,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'make_node', 'arguments' => 'CaptureSink ghost_response' ] );
+		$msg[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'CaptureSink ghost_response' ];
 		$ci->fill( $msg );
 
 		$this->assertCount( 1, $downstream->captured );

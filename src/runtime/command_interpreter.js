@@ -76,13 +76,10 @@ export class CommandInterpreter extends Node {
 	}
 
 	_interpret( message ) {
-		let cmd;
-		try {
-			cmd = JSON.parse( message[ VALUE ] );
-		} catch ( e ) {
-			Core.stderr( `invalid command struct on ${ this.name }` );
-			return;
-		}
+		// VALUE carries the structured command object directly
+		// ({ name, arguments, payload }) — the only JSON layer is the
+		// whole-message envelope, so there is nothing to parse here.
+		const cmd = message[ VALUE ];
 		if ( ! cmd || typeof cmd !== 'object' || ! cmd.name ) {
 			Core.stderr( `invalid command struct on ${ this.name }` );
 			return;
@@ -117,7 +114,9 @@ export class CommandInterpreter extends Node {
 		resp[ TO ] = message[ FROM ];
 		resp[ ID ] = message[ ID ];
 		resp[ KEY ] = message[ KEY ];
-		resp[ VALUE ] = JSON.stringify( { name, payload } );
+		// Response VALUE rides as the { name, payload } object directly; the
+		// whole-message envelope is the only place JSON serialization happens.
+		resp[ VALUE ] = { name, payload };
 		if ( this.sink ) {
 			this.sink.fill( resp );
 		}

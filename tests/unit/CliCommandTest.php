@@ -306,7 +306,8 @@ class CliCommandTest extends TestCase {
 		$cmd->dispatch_line( $shell, "ls\r\n" );
 
 		$this->assertCount( 1, $sink->captured );
-		$decoded = \json_decode( $sink->captured[0][ \Newspack_Nodes\Message::VALUE ], true );
+		// Shell builds the command VALUE as a live PHP array — read directly.
+		$decoded = $sink->captured[0][ \Newspack_Nodes\Message::VALUE ];
 		$this->assertSame( 'ls', $decoded['name'] );
 	}
 

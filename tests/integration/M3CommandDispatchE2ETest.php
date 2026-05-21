@@ -86,7 +86,9 @@ class M3CommandDispatchE2ETest extends TestCase {
 		$this->assertSame(
 			$response_flags,
 			$msg[ Message::TYPE ] & ( $response_flags | Message::TM_ERROR ),
-			"verb '{$verb}' returned TM_ERROR or wrong type. VALUE was: " . (string) $msg[ Message::VALUE ]
+			// VALUE is a live array now — json-encode it for the failure
+			// message so the diagnostic is readable, not "Array".
+			"verb '{$verb}' returned TM_ERROR or wrong type. VALUE was: " . (string) \wp_json_encode( $msg[ Message::VALUE ] )
 		);
 	}
 
@@ -96,21 +98,23 @@ class M3CommandDispatchE2ETest extends TestCase {
 	 * nodes) no anonymous-class subclass is needed here.
 	 */
 	private function build_request( string $to, string $verb, mixed $payload ): \WP_REST_Request {
+		// The controller requires a packed 7-element positional Message
+		// (`Message::unpacked()`), so build one rather than a keyed object.
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$msg[ Message::FROM ]  = '_http';
+		$msg[ Message::TO ]    = $to;
+		$msg[ Message::ID ]    = "e2e-{$verb}";
+		// VALUE is the command struct as a live PHP array — Message::packed
+		// JSON-encodes the whole envelope (the wire), and the controller's
+		// messages_from_body() decodes it back, restoring VALUE as a nested array.
+		$msg[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => '', 'payload' => $payload ];
+
 		$req = new \WP_REST_Request();
-		$req->set_body(
-			(string) \wp_json_encode(
-				[
-					'type'  => Message::TM_COMMAND,
-					'to'    => $to,
-					'from'  => '_http',
-					'id'    => "e2e-{$verb}",
-					'value' => \wp_json_encode(
-						[ 'name' => $verb, 'arguments' => '', 'payload' => $payload ]
-					),
-				]
-			)
-		);
-		$req->set_header( 'content-type', 'application/json' );
+		$req->set_body( Message::packed( $msg ) );
+		// JSONL-as-text/plain is the command contract (the controller ignores
+		// the header, but keep it consistent with the surrounding comments).
+		$req->set_header( 'content-type', 'text/plain; charset=UTF-8' );
 		return $req;
 	}
 

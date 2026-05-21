@@ -537,7 +537,15 @@ class Node {
 			$parts[] = 'to: ' . $message[ Message::TO ];
 		}
 		if ( ( $type & self::PAYLOAD_TYPES ) && '' !== $message[ Message::VALUE ] ) {
-			$parts[] = 'payload: ' . (string) $message[ Message::VALUE ];
+			// VALUE may be a live PHP array — e.g. a TM_COMMAND struct
+			// (`['name'=>,'arguments'=>,'payload'=>]`) or a TM_STRUCT
+			// payload. json-encode arrays for the audit line (display
+			// boundary); plain `(string)` would emit "Array" and warn.
+			$value     = $message[ Message::VALUE ];
+			$value_str = \is_array( $value )
+				? (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES )
+				: (string) $value;
+			$parts[] = 'payload: ' . $value_str;
 		}
 
 		$line = \implode( ' ', $parts );

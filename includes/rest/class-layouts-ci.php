@@ -53,7 +53,7 @@ class Layouts_CI extends Service_CI {
 
 	private function verb_table(): array {
 		return [
-			'get'  => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): string {
+			'get'  => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
 				self::require_manage_options();
 				$decoded = \is_array( $payload ) ? $payload : [];
 				$name    = self::require_valid_name( $decoded );
@@ -71,14 +71,12 @@ class Layouts_CI extends Service_CI {
 					}
 				}
 
-				return (string) \wp_json_encode(
-					[
-						'name'      => $name,
-						'positions' => $positions,
-					]
-				);
+				return [
+					'name'      => $name,
+					'positions' => $positions,
+				];
 			},
-			'save' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): string {
+			'save' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
 				self::require_manage_options();
 				if ( Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 					throw new \RuntimeException(
@@ -113,13 +111,11 @@ class Layouts_CI extends Service_CI {
 					);
 				}
 
-				return (string) \wp_json_encode(
-					[
-						'name'      => $name,
-						'path'      => $path,
-						'positions' => $clean,
-					]
-				);
+				return [
+					'name'      => $name,
+					'path'      => $path,
+					'positions' => $clean,
+				];
 			},
 		];
 	}

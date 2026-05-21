@@ -40,7 +40,7 @@ class Raw_Logs_CI extends Service_CI {
 	public function __construct() {
 		$this->commands(
 			[
-				'firehose_logs'   => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): string {
+				'firehose_logs'   => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): array {
 					self::require_manage_options();
 					$result = [];
 					foreach ( Log_Discovery::on_disk() as $key ) {
@@ -49,9 +49,9 @@ class Raw_Logs_CI extends Service_CI {
 							'label' => "{$key}.log",
 						];
 					}
-					return (string) \wp_json_encode( $result );
+					return $result;
 				},
-				'firehose_status' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): string {
+				'firehose_status' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
 					self::require_manage_options();
 					$decoded = \is_array( $payload ) ? $payload : [];
 					$log_key = self::resolve_log_key( (string) ( $decoded['log'] ?? '' ) );
@@ -78,14 +78,14 @@ class Raw_Logs_CI extends Service_CI {
 						$total_segments  += \count( $segments );
 					}
 
-					return (string) \wp_json_encode( [
+					return [
 						'log_id'         => $log_key,
 						'log_file'       => $log_file,
 						'num_partitions' => $num_partitions,
 						'partitions'     => $partitions,
 						'total_segments' => $total_segments,
 						'total_size'     => $total_size,
-					] );
+					];
 				},
 			]
 		);

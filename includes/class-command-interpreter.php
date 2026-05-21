@@ -50,11 +50,114 @@ class CommandInterpreter extends Node {
 	 */
 	protected ?array $commands = null;
 
-	// $patron + patron() live on Node now — see class-node.php. CIs
-	// inherit them so the sibling-CI pattern keeps working, and
-	// non-CI plumbing nodes (Partition's Lock + heartbeat Timer)
-	// can use the same hide-from-canvas mechanism.
+	public function fill( array &$message ): void {
+		++$this->counter;
 
+		$type = $message[ Message::TYPE ];
+
+		// TM_PING / TM_EOF with empty TO: bounce back along the FROM trail.
+		// Mirrors real Tachikoma CommandInterpreter.pm:94-96 for PING;
+		// TM_EOF round-trip is the drain marker the pivoted-cli relies on
+		// (cli emits TM_EOF on stdin close, waits for the bounce to know
+		// all preceding output has been read off the reply partition before
+		// exiting).
+		if ( ( $type & ( Message::TM_PING | Message::TM_EOF ) ) && '' === $message[ Message::TO ] ) {
+			$message[ Message::TO ] = $message[ Message::FROM ];
+			$this->sink?->fill( $message );
+			return;
+		}
+
+		// Only handle commands addressed at us — empty TO means "for whoever
+		// receives this", which by convention is the local interpreter. A
+		// non-empty TO indicates the message is in transit toward another
+		// node; forward it through the sink so Router can route it. Without
+		// this guard, an intermediate CI on the path (e.g. cd-routed cmds in
+		// pivoted mode) would intercept commands meant for a downstream CI.
+		if ( ( $type & Message::TM_COMMAND ) && ! ( $type & Message::TM_RESPONSE ) && '' === $message[ Message::TO ] ) {
+			$this->interpret( $message );
+			return;
+		}
+		$this->sink?->fill( $message );
+	}
+
+	private function interpret( array &$message ): void {
+		$cmd = $message[ Message::VALUE ];
+		if ( ! \is_array( $cmd ) || ! isset( $cmd['name'] ) ) {
+			$this->drop_message( $message, 'invalid command struct' );
+			return;
+		}
+		// Catch exceptions from any verb handler (typo'd ctor args, missing
+		// node, bad regex, etc.) and turn them into a TM_COMMAND|TM_ERROR
+		// response so the cli renders "ERROR: ..." instead of crashing the
+		// worker. Mirrors Tachikoma CommandInterpreter.pm:error().
+		try {
+			$result = $this->dispatch(
+				(string) $cmd['name'],
+				(string) ( $cmd['arguments'] ?? '' ),
+				$cmd['payload'] ?? null,
+				$message
+			);
+			$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
+		} catch ( \Throwable $e ) {
+			$result    = $e->getMessage();
+			$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
+		}
+
+		// Route TO=FROM (response walks the breadcrumb trail back). KEY
+		// is application-defined correlation metadata: a GUI client can
+		// stamp KEY on its outgoing TM_COMMAND and recognise the matched
+		// response on the way back regardless of routing order.
+		if ( '' !== $result ) {
+			$response                   = Message::new_message();
+			$response[ Message::TYPE ]  = $resp_type;
+			$response[ Message::FROM ]  = $this->name;
+			$response[ Message::TO ]    = $message[ Message::FROM ];
+			$response[ Message::ID ]    = $message[ Message::ID ];
+			$response[ Message::KEY ]   = $message[ Message::KEY ];
+			$response[ Message::VALUE ] = [
+				'name'    => $cmd['name'],
+				'payload' => $result,
+			];
+			$this->sink?->fill( $response );
+		}
+	}
+
+	/**
+	 * Dispatch a verb by name. `$args` is the literal argument-tail string —
+	 * exactly the `arguments` field a TM_COMMAND carried in. `$envelope` is
+	 * the inbound TM_COMMAND message (or `[]` for inline calls) so verbs
+	 * can read FROM/TO/KEY. `$payload` is the optional structured-data
+	 * slot from the command struct (verbs that need it declare a 4th
+	 * parameter; 3-parameter closures silently ignore the extra arg, so
+	 * the legacy `$self, $args, $envelope` shape keeps working unchanged).
+	 *
+	 * Mirrors Tachikoma's contract: `name` and `arguments` are already
+	 * split by Shell (or by the JSON command-struct) by the time we get
+	 * here. CommandInterpreter just looks the verb up and runs it.
+	 *
+	 * Returns the verb's result as a live PHP structure (array/scalar). It is
+	 * NEVER separately json-encoded here — the result rides through the Message
+	 * VALUE field and only the envelope/wire (`Message::packed`/`unpacked`,
+	 * SSE, the REST body) is JSON. The cli Dumper json-encodes array payloads
+	 * at the render boundary for display only.
+	 *
+	 * @param string                  $name     Verb name.
+	 * @param string                  $args     Literal arguments tail.
+	 * @param mixed                   $payload  Optional structured data.
+	 * @param array<int,mixed>        $envelope Inbound TM_COMMAND message, or [] for inline calls.
+	 * @return mixed Verb result (string for most verbs; array for dump_node/dump_metadata).
+	 */
+	public function dispatch( string $name, string $args = '', mixed $payload = null, array $envelope = [] ): mixed {
+		$commands = $this->commands();
+		if ( ! isset( $commands[ $name ] ) ) {
+			Throw new \InvalidArgumentException( "unknown command: {$name}" );
+		}
+		return ( $commands[ $name ] )( $this, $args, $envelope, $payload );
+	}
+
+	/**
+	 * ???
+	 */
 	public static function register_class( string $shell_name, string $fqcn ): void {
 		self::$class_map[ $shell_name ] = $fqcn;
 	}
@@ -163,10 +266,10 @@ class CommandInterpreter extends Node {
 			'ls'              => fn ( CommandInterpreter $self, string $args ): string => self::cmd_list_nodes( $self, $args ),
 			'log'             => fn ( CommandInterpreter $self, string $args ): string => self::cmd_log( $args ),
 			'dmesg'           => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dmesg(),
-			'dump_node'       => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_node( $args ),
-			'dump'            => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_node( $args ),
+			'dump_node'       => fn ( CommandInterpreter $self, string $args ): mixed => self::cmd_dump_node( $args ),
+			'dump'            => fn ( CommandInterpreter $self, string $args ): mixed => self::cmd_dump_node( $args ),
 			'dump_config'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_config(),
-			'dump_metadata'   => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_metadata(),
+			'dump_metadata'   => fn ( CommandInterpreter $self, string $args ): mixed => self::cmd_dump_metadata(),
 			'stats'           => fn ( CommandInterpreter $self, string $args ): string => self::cmd_stats( $self, $args ),
 			'uptime'          => fn ( CommandInterpreter $self, string $args ): string => self::cmd_uptime(),
 			'debug_state'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_debug_state( $self, $args ),
@@ -570,12 +673,19 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * Pretty-print a node's internal state. Delegates the snapshot to
+	 * Snapshot a node's internal state. Delegates the snapshot to
 	 * `Node::dump_node()` (overridable) so subclasses can redact secrets,
 	 * synthesize derived fields, or hide internals. Optional key-filter
 	 * narrows the dump; alphabetical sort keeps output stable.
+	 *
+	 * Returns the snapshot as a live PHP array (the verb result rides
+	 * through the Message VALUE field unencoded; the cli Dumper pretty-
+	 * prints it at the render boundary). Argument-validation failures
+	 * return a plain error string instead.
+	 *
+	 * @return array<string,mixed>|string
 	 */
-	private static function cmd_dump_node( string $args ): string {
+	private static function cmd_dump_node( string $args ): mixed {
 		$parts = \preg_split( '/\s+/', \trim( $args ) );
 		$name  = $parts[0] ?? '';
 		if ( '' === $name ) {
@@ -604,8 +714,7 @@ class CommandInterpreter extends Node {
 			$snapshot = \array_intersect_key( $snapshot, \array_flip( $wanted ) );
 		}
 
-		// JSON render with pretty-print so structure is readable in the REPL.
-		return (string) \wp_json_encode( $snapshot, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
+		return $snapshot;
 	}
 
 	private static function cmd_dump_config(): string {
@@ -638,8 +747,14 @@ class CommandInterpreter extends Node {
 	 * `ls -als` + `ls -ct` as the GUI's poll command. Inspired by
 	 * Perl Tachikoma's JSONvisualizer node (without that node's
 	 * caching, since our poll cadence is already coarse).
+	 *
+	 * Returns the metadata as a live PHP array — the verb result rides
+	 * through the Message VALUE field unencoded; the GUI/SSE wire is the
+	 * only place it becomes JSON.
+	 *
+	 * @return array<string,array<string,mixed>>
 	 */
-	private static function cmd_dump_metadata(): string {
+	private static function cmd_dump_metadata(): array {
 		$out = [];
 		foreach ( Core::$nodes_by_name as $name => $node ) {
 			// Any patron-linked node is plumbing for another node:
@@ -650,7 +765,11 @@ class CommandInterpreter extends Node {
 			if ( null !== $node->patron() ) {
 				continue;
 			}
-			$class = ( new \ReflectionClass( $node ) )->getShortName();
+			// Allocation-free short class name — this runs for every node on
+			// every GUI poll (~1 Hz per console), so avoid a ReflectionClass
+			// per node. Strip the namespace by hand instead.
+			$fqcn  = \get_class( $node );
+			$class = ( false !== ( $p = \strrpos( $fqcn, '\\' ) ) ) ? \substr( $fqcn, $p + 1 ) : $fqcn;
 			$sink  = $node->sink();
 			$out[ $name ] = [
 				'class'         => $class,
@@ -664,7 +783,7 @@ class CommandInterpreter extends Node {
 				'bytes_written' => $node->bytes_written(),
 			];
 		}
-		return (string) \wp_json_encode( $out, \JSON_UNESCAPED_SLASHES );
+		return $out;
 	}
 
 	/**
@@ -881,106 +1000,6 @@ class CommandInterpreter extends Node {
 			$out .= $format_row( $row ) . "\n";
 		}
 		return \rtrim( $out, "\n" );
-	}
-
-	public function fill( array &$message ): void {
-		++$this->counter;
-
-		$type = $message[ Message::TYPE ];
-
-		// TM_PING / TM_EOF with empty TO: bounce back along the FROM trail.
-		// Mirrors real Tachikoma CommandInterpreter.pm:94-96 for PING;
-		// TM_EOF round-trip is the drain marker the pivoted-cli relies on
-		// (cli emits TM_EOF on stdin close, waits for the bounce to know
-		// all preceding output has been read off the reply partition before
-		// exiting).
-		if ( ( $type & ( Message::TM_PING | Message::TM_EOF ) ) && '' === $message[ Message::TO ] ) {
-			$message[ Message::TO ] = $message[ Message::FROM ];
-			$this->sink?->fill( $message );
-			return;
-		}
-
-		// Only handle commands addressed at us — empty TO means "for whoever
-		// receives this", which by convention is the local interpreter. A
-		// non-empty TO indicates the message is in transit toward another
-		// node; forward it through the sink so Router can route it. Without
-		// this guard, an intermediate CI on the path (e.g. cd-routed cmds in
-		// pivoted mode) would intercept commands meant for a downstream CI.
-		if ( ( $type & Message::TM_COMMAND ) && ! ( $type & Message::TM_RESPONSE ) && '' === $message[ Message::TO ] ) {
-			$this->interpret( $message );
-			return;
-		}
-		$this->sink?->fill( $message );
-	}
-
-	/**
-	 * Dispatch a verb by name. `$args` is the literal argument-tail string —
-	 * exactly the `arguments` field a TM_COMMAND carried in. `$envelope` is
-	 * the inbound TM_COMMAND message (or `[]` for inline calls) so verbs
-	 * can read FROM/TO/KEY. `$payload` is the optional structured-data
-	 * slot from the command struct (verbs that need it declare a 4th
-	 * parameter; 3-parameter closures silently ignore the extra arg, so
-	 * the legacy `$self, $args, $envelope` shape keeps working unchanged).
-	 *
-	 * Mirrors Tachikoma's contract: `name` and `arguments` are already
-	 * split by Shell (or by the JSON command-struct) by the time we get
-	 * here. CommandInterpreter just looks the verb up and runs it.
-	 *
-	 * @param string                  $name     Verb name.
-	 * @param string                  $args     Literal arguments tail.
-	 * @param array<int,mixed>        $envelope Inbound TM_COMMAND message, or [] for inline calls.
-	 * @param mixed                   $payload  Optional structured data.
-	 */
-	public function dispatch( string $name, string $args = '', array $envelope = [], mixed $payload = null ): string {
-		$commands = $this->commands();
-		if ( ! isset( $commands[ $name ] ) ) {
-			return "unknown command: $name";
-		}
-		return ( $commands[ $name ] )( $this, $args, $envelope, $payload );
-	}
-
-	private function interpret( array &$message ): void {
-		$cmd = \json_decode( $message[ Message::VALUE ], true );
-		if ( ! \is_array( $cmd ) || ! isset( $cmd['name'] ) ) {
-			$this->drop_message( $message, 'invalid command struct' );
-			return;
-		}
-		// Catch exceptions from any verb handler (typo'd ctor args, missing
-		// node, bad regex, etc.) and turn them into a TM_COMMAND|TM_ERROR
-		// response so the cli renders "ERROR: ..." instead of crashing the
-		// worker. Mirrors Tachikoma CommandInterpreter.pm:error().
-		try {
-			$result    = $this->dispatch(
-				(string) $cmd['name'],
-				(string) ( $cmd['arguments'] ?? '' ),
-				$message,
-				$cmd['payload'] ?? null
-			);
-			$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
-		} catch ( \Throwable $e ) {
-			$result    = $e->getMessage();
-			$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
-		}
-
-		// Route TO=FROM (response walks the breadcrumb trail back). KEY
-		// is application-defined correlation metadata: a GUI client can
-		// stamp KEY on its outgoing TM_COMMAND and recognise the matched
-		// response on the way back regardless of routing order.
-		if ( '' !== $result ) {
-			$response                   = Message::new_message();
-			$response[ Message::TYPE ]  = $resp_type;
-			$response[ Message::FROM ]  = $this->name;
-			$response[ Message::TO ]    = $message[ Message::FROM ];
-			$response[ Message::ID ]    = $message[ Message::ID ];
-			$response[ Message::KEY ]   = $message[ Message::KEY ];
-			$response[ Message::VALUE ] = \wp_json_encode(
-				[
-					'name'    => $cmd['name'],
-					'payload' => $result,
-				]
-			);
-			$this->sink?->fill( $response );
-		}
 	}
 
 	public static function node_schema(): array {

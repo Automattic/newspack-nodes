@@ -66,11 +66,12 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	m[ FROM ] = 'caller';
 	m[ ID ] = 'cmd-1';
 	m[ KEY ] = 'gui:typed';
-	m[ VALUE ] = JSON.stringify( {
+	// VALUE carries the structured command object directly — no inner JSON layer.
+	m[ VALUE ] = {
 		name: 'echo',
 		arguments: 'hi',
 		payload: '',
-	} );
+	};
 	ci.fill( m );
 
 	expect( got ).toHaveLength( 1 );
@@ -79,8 +80,11 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	expect( got[ 0 ][ TO ] ).toBe( 'caller' );
 	expect( got[ 0 ][ ID ] ).toBe( 'cmd-1' );
 	expect( got[ 0 ][ KEY ] ).toBe( 'gui:typed' );
-	const payload = JSON.parse( got[ 0 ][ VALUE ] );
-	expect( payload ).toEqual( { name: 'echo', payload: 'echoed: hi' } );
+	// Response VALUE is the { name, payload } object itself, not a JSON string.
+	expect( got[ 0 ][ VALUE ] ).toEqual( {
+		name: 'echo',
+		payload: 'echoed: hi',
+	} );
 } );
 
 test( 'verb throwing returns TM_COMMAND|TM_ERROR with the message', () => {
@@ -101,21 +105,20 @@ test( 'verb throwing returns TM_COMMAND|TM_ERROR with the message', () => {
 	m[ TYPE ] = TM_COMMAND;
 	m[ FROM ] = 'caller';
 	m[ ID ] = 'cmd-2';
-	m[ VALUE ] = JSON.stringify( {
+	m[ VALUE ] = {
 		name: 'bad',
 		arguments: '',
 		payload: '',
-	} );
+	};
 	ci.fill( m );
 
 	expect( got ).toHaveLength( 1 );
 	// eslint-disable-next-line no-bitwise
 	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
-	const payload = JSON.parse( got[ 0 ][ VALUE ] );
-	expect( payload.payload ).toBe( 'boom' );
+	expect( got[ 0 ][ VALUE ].payload ).toBe( 'boom' );
 } );
 
-test( 'invalid command JSON drops the message silently', () => {
+test( 'malformed command struct (non-object VALUE) drops the message silently', () => {
 	const warnSpy = jest
 		.spyOn( console, 'warn' )
 		.mockImplementation( () => {} );
@@ -130,7 +133,8 @@ test( 'invalid command JSON drops the message silently', () => {
 
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
-	m[ VALUE ] = 'not json';
+	// VALUE must be a { name, ... } object; a bare string is not a command struct.
+	m[ VALUE ] = 'not a command struct';
 	ci.fill( m );
 	expect( got ).toHaveLength( 0 );
 

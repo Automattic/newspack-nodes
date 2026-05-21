@@ -70,7 +70,7 @@ class Topologies_CI extends Service_CI {
 
 	private function verb_table(): array {
 		return [
-			'list'   => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): string {
+			'list'   => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): array {
 				// Active = whatever the supervisor would actually spawn. Read
 				// through Bootstrap::get_topologies() so the merged catalog +
 				// `newspack_nodes_topologies` operator overlay drives the flag.
@@ -93,14 +93,25 @@ class Topologies_CI extends Service_CI {
 				}
 				\usort( $out, static fn ( $a, $b ) => $a['name'] <=> $b['name'] );
 
-				return (string) \wp_json_encode(
-					[
-						'topologies' => $out,
-						'user_dir'   => Topology_Registry::user_dir(),
-					]
-				);
+				return [
+					'topologies' => $out,
+					'user_dir'   => Topology_Registry::user_dir(),
+				];
 			},
-			'get'    => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): string {
+			'connect_worker_input' => static function ( CommandInterpreter $self, string $args ): string {
+				// Mount the named worker's input Partition (reader id in $args)
+				// into THIS request's node graph. The topology dashboard sends
+				// this immediately before its pivoted command(s) in the SAME
+				// /command batch, so by the time Router routes TO={reader}.pN the
+				// worker Partition exists and the command writes to the worker's
+				// input. Without it, Router can't resolve the worker node and
+				// returns NOT_AVAILABLE. Only the one named worker is mounted —
+				// every other live worker is irrelevant to this request. Returns
+				// '' (no reply): purely a routing-setup side effect.
+				Bootstrap::register_worker_partition( \trim( $args ), Bootstrap::base_dir() );
+				return '';
+			},
+			'get'    => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
 				$decoded = \is_array( $payload ) ? $payload : [];
 				$name    = self::require_valid_name( $decoded );
 
@@ -123,15 +134,13 @@ class Topologies_CI extends Service_CI {
 					'stock' => [],
 				];
 
-				return (string) \wp_json_encode(
-					[
-						'name'   => $name,
-						'source' => self::source_of( $sources ),
-						'tsl'    => $tsl,
-					]
-				);
+				return [
+					'name'   => $name,
+					'source' => self::source_of( $sources ),
+					'tsl'    => $tsl,
+				];
 			},
-			'save'   => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): string {
+			'save'   => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
 				self::require_manage_options();
 				if ( Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 					throw new \RuntimeException(
@@ -214,16 +223,14 @@ class Topologies_CI extends Service_CI {
 					$restarted[] = $name;
 				}
 
-				return (string) \wp_json_encode(
-					[
-						'name'             => $name,
-						'path'             => $path,
-						'shadows_stock'    => $shadows,
-						'restarted_fleets' => $restarted,
-					]
-				);
+				return [
+					'name'             => $name,
+					'path'             => $path,
+					'shadows_stock'    => $shadows,
+					'restarted_fleets' => $restarted,
+				];
 			},
-			'delete' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): string {
+			'delete' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
 				self::require_manage_options();
 				$decoded = \is_array( $payload ) ? $payload : [];
 				$name    = self::require_valid_name( $decoded );
@@ -251,13 +258,11 @@ class Topologies_CI extends Service_CI {
 				// signal rather than re-scanning describe().
 				$has_stock_fallback = null !== Topology_Registry::resolve( $name );
 
-				return (string) \wp_json_encode(
-					[
-						'name'           => $name,
-						'deleted'        => $path,
-						'stock_fallback' => $has_stock_fallback,
-					]
-				);
+				return [
+					'name'           => $name,
+					'deleted'        => $path,
+					'stock_fallback' => $has_stock_fallback,
+				];
 			},
 		];
 	}

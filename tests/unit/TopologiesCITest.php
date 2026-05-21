@@ -79,6 +79,36 @@ class TopologiesCITest extends TestCase {
 		parent::tearDown();
 	}
 
+	// ── connect_worker_input verb ──────────────────────────────────────────────
+
+	public function test_connect_worker_input_mounts_only_the_named_worker(): void {
+		// Two live workers (lock dir + ipc input dir); we connect only one.
+		\mkdir( "{$this->base_dir}/locks/firehose-workers.p0.lock.d", 0755, true );
+		\mkdir( "{$this->base_dir}/ipc/firehose-workers.p0/input", 0755, true );
+		\mkdir( "{$this->base_dir}/locks/firehose-workers.p1.lock.d", 0755, true );
+		\mkdir( "{$this->base_dir}/ipc/firehose-workers.p1/input", 0755, true );
+
+		// connect_worker_input returns '' (no reply), so call dispatch directly
+		// rather than VerbHarness::fire, which requires a response payload. The
+		// reader id rides as the command argument.
+		$result = ( new Topologies_CI() )->dispatch( 'connect_worker_input', 'firehose-workers.p0' );
+
+		$this->assertSame( '', $result, 'connect_worker_input must not emit a reply' );
+		// The named worker's input Partition is now a node in the request graph,
+		// so a pivoted command (TO=`firehose-workers.p0`) in the same /command
+		// batch resolves and writes to the worker — instead of NOT_AVAILABLE.
+		$this->assertInstanceOf(
+			\Newspack_Nodes\Partition::class,
+			\Newspack_Nodes\Core::node( 'firehose-workers.p0' ),
+			'connect_worker_input must mount the named worker input Partition'
+		);
+		// The other live worker is NOT mounted — we mount only what we're told.
+		$this->assertNull(
+			\Newspack_Nodes\Core::node( 'firehose-workers.p1' ),
+			'connect_worker_input must mount only the named worker, not every live worker'
+		);
+	}
+
 	// ── list verb ────────────────────────────────────────────────────────────
 
 	public function test_list_returns_empty_when_no_topologies(): void {

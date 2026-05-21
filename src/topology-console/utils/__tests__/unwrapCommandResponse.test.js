@@ -1,79 +1,18 @@
-/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
- * Tests for unwrapCommandResponse — extracts a verb's response payload from
- * the raw 7-field Message array that CommandClient.send() returns. Mirrors
- * the app-side helper in
- * `newspack-event-logger-nodes/src/shared/utils/unwrapCommandResponse.js`
- * but lives here because the substrate has no dependency on the application
- * repo.
+ * The topology-console copy of unwrapCommandResponse is a thin re-export of
+ * the canonical implementation in `src/shared/utils/unwrapCommandResponse.js`.
+ * The behavioral contract is exercised by the shared module's own test suite
+ * (`src/shared/utils/__tests__/unwrapCommandResponse.test.js`); here we only
+ * assert that the re-export hands back the very same function, so the two
+ * import paths can never drift.
  */
 
-import { TM_COMMAND, TM_RESPONSE, TM_ERROR } from '../../../runtime/message';
+import canonical from '../../../shared/utils/unwrapCommandResponse';
 
 import unwrapCommandResponse from '../unwrapCommandResponse';
 
-describe( 'unwrapCommandResponse', () => {
-	function buildMessage( type, valueObject ) {
-		return [
-			type,
-			1.23,
-			'topologies',
-			'',
-			'cmd-1',
-			'',
-			JSON.stringify( valueObject ),
-		];
-	}
-
-	it( 'returns the parsed payload object for a successful TM_RESPONSE', () => {
-		const inner = {
-			topologies: [ { name: 'firehose-workers' } ],
-			user_dir: '/tmp/foo',
-		};
-		const msg = buildMessage( TM_COMMAND | TM_RESPONSE, {
-			name: 'list',
-			payload: JSON.stringify( inner ),
-		} );
-		expect( unwrapCommandResponse( msg ) ).toEqual( inner );
-	} );
-
-	it( 'returns null when payload is an empty string', () => {
-		const msg = buildMessage( TM_COMMAND | TM_RESPONSE, {
-			name: 'list',
-			payload: '',
-		} );
-		expect( unwrapCommandResponse( msg ) ).toBeNull();
-	} );
-
-	it( 'throws an Error with the payload string when TYPE has TM_ERROR set', () => {
-		const msg = buildMessage( TM_COMMAND | TM_ERROR, {
-			name: 'save',
-			payload: 'validation failed at line 3: forbidden verb',
-		} );
-		expect( () => unwrapCommandResponse( msg ) ).toThrow(
-			'validation failed at line 3: forbidden verb'
-		);
-	} );
-
-	it( 'throws when the message array is malformed (too short)', () => {
-		expect( () => unwrapCommandResponse( [ 16 ] ) ).toThrow();
-	} );
-
-	it( 'throws when VALUE is not valid JSON', () => {
-		const msg = [ TM_COMMAND | TM_RESPONSE, 1, '', '', '', '', 'not-json' ];
-		expect( () => unwrapCommandResponse( msg ) ).toThrow();
-	} );
-
-	it( 'returns the payload as-is if payload is already an object (defensive)', () => {
-		const msg = [
-			TM_COMMAND | TM_RESPONSE,
-			1,
-			'',
-			'',
-			'',
-			'',
-			JSON.stringify( { name: 'x', payload: { already: 'parsed' } } ),
-		];
-		expect( unwrapCommandResponse( msg ) ).toEqual( { already: 'parsed' } );
+describe( 'topology-console unwrapCommandResponse re-export', () => {
+	it( 'is the canonical shared implementation, not a copy', () => {
+		expect( unwrapCommandResponse ).toBe( canonical );
 	} );
 } );

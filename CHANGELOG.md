@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Empty Topology Console canvas.** The request-scoped `/command` graph never
+  mounted worker-input Partitions, so the dashboard's pivoted `dump_metadata`
+  poll hit `NOT_AVAILABLE` and never reached the worker. The canvas now batches
+  a `connect_worker_input` verb ahead of its command (same JSONL request),
+  mounting only the one named worker via the new targeted
+  `Bootstrap::register_worker_partition()` (validates the client-supplied reader
+  id; idempotent). The reply also failed to parse due to the double-encoding
+  fixed below.
+- **cli REPL emitted a stray trailing newline** in TTY mode.
+
+### Changed
+
+- **Command protocol no longer double-encodes the Message `VALUE`.** Command and
+  response `VALUE` carry a structured array (`{name, arguments, payload}` /
+  `{name, payload}`); verbs return live PHP structures, not `wp_json_encode`'d
+  strings. The only `json_encode`/`json_decode` is the message envelope/wire
+  (`Message::packed`/`unpacked`, the SSE/HTTP frame). `TM_COMMAND` stays
+  `TM_COMMAND` — not conflated with `TM_STRUCT`. Mirrored in JS
+  (`command_client`, `unwrapCommandResponse`, `parseMetadata`, the
+  `command_interpreter` port).
+- **`/command` batch body is JSONL** (one packed Message per line), posted as
+  `text/plain` — a multi-line body sent as `application/json` is rejected by
+  WordPress's REST dispatcher before the handler runs.
+- Topology Console polls `dump_metadata` + `uptime` as one batched request
+  behind a single `connect_worker_input` (was two requests + two mounts);
+  `cmd_dump_metadata` uses a `get_class` basename instead of `ReflectionClass`
+  on the per-poll path; the topology-console `unwrapCommandResponse` re-exports
+  the canonical copy instead of duplicating it.
+- Renamed `sendInterpretedCommand` → `sendWorkerCommand`, `shellInterpret` →
+  `shell`.
+
 ## [0.2.9] - 2026-05-20
 
 ### Changed

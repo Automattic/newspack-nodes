@@ -32,14 +32,15 @@ use Newspack_Nodes\Router;
 class VerbHarness {
 	/**
 	 * Build a request-scope graph and fire a verb against the supplied CI.
-	 * Returns the parsed payload from the captured TM_RESPONSE.
+	 * Returns the verb's payload from the captured TM_RESPONSE.
 	 *
-	 * The CommandInterpreter response envelope is JSON-encoded as
-	 * `{"name":"<verb>","payload":"<string the verb returned>"}` (see
-	 * CommandInterpreter::interpret in the substrate). When that payload
-	 * string itself parses as JSON (the verb returned `wp_json_encode(...)`),
-	 * the decoded value is returned; otherwise the raw payload string
-	 * comes back unchanged so verbs that return plain text still work.
+	 * Per the command protocol, the response Message's VALUE is a live PHP
+	 * array `['name'=>'<verb>','payload'=><result>]` — it rides through
+	 * packed()/unpacked() as a nested object, so there is nothing to
+	 * json_decode. The verb's `payload` is returned directly: a structure
+	 * for verbs that return arrays/scalars, or the error-message string for
+	 * a TM_COMMAND|TM_ERROR response (since `interpret()` puts the thrown
+	 * message into `payload`).
 	 *
 	 * @param CommandInterpreter $ci      CI under test (already constructed; the
 	 *                                     harness names it and wires it into the
@@ -55,7 +56,7 @@ class VerbHarness {
 	 *                                     verbs that genuinely take a CLI-style line.
 	 * @param string             $key     Optional KEY field for the inbound message
 	 *                                     (correlation metadata; rarely needed).
-	 * @return mixed Decoded payload, or raw payload string if it isn't valid JSON.
+	 * @return mixed The verb's payload (structure for success verbs; error-message string for TM_ERROR).
 	 */
 	public static function fire( CommandInterpreter $ci, string $name, string $verb, mixed $payload = null, string $args = '', string $key = '' ): mixed {
 		$router = new Router(); $router->name( '_router' );
@@ -76,11 +77,13 @@ class VerbHarness {
 		$msg[ Message::TO ]    = '';  // empty TO triggers dispatch in CI::fill
 		$msg[ Message::ID ]    = 'test-' . \bin2hex( \random_bytes( 4 ) );
 		$msg[ Message::KEY ]   = $key;
-		$msg[ Message::VALUE ] = \wp_json_encode( [
+		// VALUE is the command struct as a live PHP array — never separately
+		// json-encoded; only the envelope/wire (HTTP_Out's packed Message) is JSON.
+		$msg[ Message::VALUE ] = [
 			'name'      => $verb,
 			'arguments' => $args,
 			'payload'   => $payload,
-		] );
+		];
 
 		\ob_start();
 		$ci->fill( $msg );
@@ -89,18 +92,16 @@ class VerbHarness {
 		if ( '' === $body ) {
 			throw new \RuntimeException( "verb '{$verb}' on CI '{$name}' produced no response" );
 		}
+		// HTTP_Out packs the whole response Message; unpacked() restores VALUE
+		// as the live `['name'=>,'payload'=>]` array. The verb's payload is
+		// returned directly — a structure for success verbs, or the
+		// error-message string for a TM_COMMAND|TM_ERROR response.
 		$reply   = Message::unpacked( $body );
-		$payload = \json_decode( $reply[ Message::VALUE ], true );
-		if ( ! \is_array( $payload ) || ! \array_key_exists( 'payload', $payload ) ) {
+		$command = $reply[ Message::VALUE ];
+		if ( ! \is_array( $command ) || ! \array_key_exists( 'payload', $command ) ) {
 			throw new \RuntimeException( 'response missing payload field' );
 		}
-		$decoded = \json_decode( $payload['payload'], true );
-		// `null` is a valid JSON value, so 'null' decodes legitimately to null
-		// — distinguish "couldn't decode, hand back the raw string" from "the
-		// verb really did return null" by checking the literal text.
-		return null === $decoded && 'null' !== $payload['payload']
-			? $payload['payload']
-			: $decoded;
+		return $command['payload'];
 	}
 
 	/** Reset the request-scope graph between tests. */

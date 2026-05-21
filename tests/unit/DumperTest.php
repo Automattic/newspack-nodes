@@ -81,9 +81,10 @@ class DumperTest extends TestCase {
 	public function test_TM_COMMAND_TM_RESPONSE_prints_payload(): void {
 		[ $dumper, $out, $err ] = $this->fresh();
 
+		// Response VALUE rides as a live PHP structure — not a JSON string.
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'ls', 'payload' => "alice\nbob" ] );
+		$msg[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => "alice\nbob" ];
 		$dumper->fill( $msg );
 
 		$this->assertSame( "alice\nbob\n", $this->read_all( $out ) );
@@ -95,7 +96,7 @@ class DumperTest extends TestCase {
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'ls', 'payload' => "ends-with-newline\n" ] );
+		$msg[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => "ends-with-newline\n" ];
 		$dumper->fill( $msg );
 
 		$this->assertSame( "ends-with-newline\n", $this->read_all( $out ) );
@@ -109,7 +110,7 @@ class DumperTest extends TestCase {
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'prompt', 'payload' => 'pivot> ' ] );
+		$msg[ Message::VALUE ] = [ 'name' => 'prompt', 'payload' => 'pivot> ' ];
 		$dumper->fill( $msg );
 
 		$this->assertSame( 'pivot> ', $shell->prompt );
@@ -156,16 +157,18 @@ class DumperTest extends TestCase {
 		$this->assertSame( "plain bytes\n", $this->read_all( $out ) );
 	}
 
-	public function test_TM_COMMAND_TM_RESPONSE_with_invalid_json_falls_through_to_default(): void {
+	public function test_TM_COMMAND_TM_RESPONSE_with_non_array_value_falls_through_to_default(): void {
 		[ $dumper, $out ] = $this->fresh();
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = 'not-json';
+		// A bare-string VALUE on a response is malformed (the contract is a
+		// `['name'=>,'payload'=>]` array) — fall through to the default
+		// branch and print VALUE as-is rather than crash.
+		$msg[ Message::VALUE ] = 'not-a-struct';
 		$dumper->fill( $msg );
 
-		// json_decode → null, !is_array → fall through to default branch (prints VALUE).
-		$this->assertSame( "not-json\n", $this->read_all( $out ) );
+		$this->assertSame( "not-a-struct\n", $this->read_all( $out ) );
 	}
 
 	public function test_counter_increments_per_fill(): void {
@@ -265,7 +268,7 @@ class DumperTest extends TestCase {
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'ls', 'payload' => 'a' ] );
+		$msg[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => 'a' ];
 		$dumper->fill( $msg );
 
 		$expected = "\033[s" . "\r\033[2K" . "a\n" . 'newspack> ' . "\033[u";
@@ -283,7 +286,7 @@ class DumperTest extends TestCase {
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = \json_encode( [ 'name' => 'ls', 'payload' => 'a' ] );
+		$msg[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => 'a' ];
 		$dumper->fill( $msg );
 
 		$this->assertSame( "a\n", $this->read_all( $out ) );
@@ -309,7 +312,7 @@ class DumperTest extends TestCase {
 		// Pivoted-mode response — also async, also redraws around the prompt.
 		$resp = Message::new_message();
 		$resp[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$resp[ Message::VALUE ] = \json_encode( [ 'name' => 'ls', 'payload' => 'two' ] );
+		$resp[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => 'two' ];
 		$dumper->fill( $resp );
 
 		// Another async.
@@ -512,10 +515,10 @@ class DumperTest extends TestCase {
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$msg[ Message::FROM ]  = '_command_interpreter';
-		$msg[ Message::VALUE ] = \wp_json_encode( [
+		$msg[ Message::VALUE ] = [
 			'name'    => 'ls',
 			'payload' => "alpha\nbeta\n",
-		] );
+		];
 		$dumper->fill( $msg );
 
 		$rendered = $this->read_all( $out );
@@ -566,11 +569,11 @@ class DumperTest extends TestCase {
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$msg[ Message::FROM ]  = '_command_interpreter';
-		$msg[ Message::VALUE ] = \wp_json_encode( [
+		$msg[ Message::VALUE ] = [
 			'name'      => 'ls',
 			'arguments' => '-al',
 			'payload'   => "alpha\nbeta\n",
-		] );
+		];
 		$dumper->fill( $msg );
 
 		$rendered = $this->read_all( $out );

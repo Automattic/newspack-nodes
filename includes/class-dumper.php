@@ -238,15 +238,34 @@ class Dumper extends Node {
 	}
 
 	/**
-	 * Stringify a Message::VALUE for debug rendering.
+	 * Render a command-response `payload` for terminal display.
 	 *
-	 * - Arrays (TM_STRUCT VALUE) → JSON. Pretty-printed when $structured=true.
-	 * - JSON-encoded Command strings (TM_COMMAND VALUE — `{"name":...,"payload":...}`):
-	 *   decode and re-render so the user sees the command structure, not a
-	 *   stringified-of-string. Matches Perl Tachikoma which calls
-	 *   `Tachikoma::Command->new($payload)` and renders the resulting hash.
-	 *   (The inner `payload` field is a Tachikoma::Command convention; the
-	 *   outer Message slot is what we call VALUE.)
+	 * Verbs return their result as a live PHP structure (the command
+	 * protocol never separately json-encodes the payload). Most verbs
+	 * return a string — printed verbatim. The introspection verbs
+	 * (`dump_node`, `dump_metadata`) return an array; json-encoding it
+	 * HERE — at the render boundary, for display only — is the allowed
+	 * place to serialize. Pretty-printed for readability in the REPL.
+	 *
+	 * @param mixed $payload The `payload` field of a response VALUE.
+	 */
+	private static function render_payload( $payload ): string {
+		if ( \is_array( $payload ) ) {
+			return (string) \wp_json_encode( $payload, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
+		}
+		return (string) $payload;
+	}
+
+	/**
+	 * Stringify a Message::VALUE for the level-2 debug envelope dump.
+	 *
+	 * - Arrays (TM_STRUCT VALUE, or a TM_COMMAND struct) → JSON. Pretty-printed
+	 *   when $structured=true.
+	 * - A JSON-looking string (starts with `{`/`[`) → decode and re-render so a
+	 *   producer that hand-encoded its VALUE still shows as structure, not a
+	 *   stringified-of-string. Defensive only: the command protocol carries
+	 *   VALUE as a live array (hits the array branch above), so this branch
+	 *   never fires for commands.
 	 * - Plain strings → as-is.
 	 *
 	 * @param mixed $value      Raw VALUE.
@@ -368,10 +387,12 @@ class Dumper extends Node {
 		// consumed (sync case, prompt_displayed=false from the readline
 		// callback), it falls through to a plain stdout write.
 		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_RESPONSE ) ) {
-			$cmd = \json_decode( (string) $message[ Message::VALUE ], true );
+			// VALUE rides as a live `['name'=>,'payload'=>]` array (the
+			// command-protocol contract); only the envelope/wire is JSON.
+			$cmd = $message[ Message::VALUE ];
 			if ( \is_array( $cmd ) ) {
 				$name    = (string) ( $cmd['name'] ?? '' );
-				$payload = (string) ( $cmd['payload'] ?? '' );
+				$payload = self::render_payload( $cmd['payload'] ?? '' );
 
 				if ( 'prompt' === $name && null !== $this->shell ) {
 					$this->shell->prompt = $payload;
@@ -389,8 +410,11 @@ class Dumper extends Node {
 		// prefix — the stderr stream + `debug_level 1`'s TM_FLAGS header
 		// already identify it as an error.
 		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_ERROR ) ) {
-			$cmd     = \json_decode( (string) $message[ Message::VALUE ], true );
-			$payload = \is_array( $cmd ) ? (string) ( $cmd['payload'] ?? '' ) : (string) $message[ Message::VALUE ];
+			// VALUE rides as a live `['name'=>,'payload'=>]` array; the error
+			// message is the `payload` field. A non-array VALUE is malformed
+			// — fall back to stringifying it whole.
+			$cmd     = $message[ Message::VALUE ];
+			$payload = \is_array( $cmd ) ? self::render_payload( $cmd['payload'] ?? '' ) : (string) $cmd;
 			$this->write( $this->stderr, $payload, true );
 			return;
 		}

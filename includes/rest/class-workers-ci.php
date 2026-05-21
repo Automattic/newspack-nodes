@@ -75,19 +75,19 @@ class Workers_CI extends Service_CI {
 
 	private function verb_table( object $cli, ?object $cache ): array {
 		return [
-			'list' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ) use ( $cli, $cache ): string {
+			'list' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ) use ( $cli, $cache ): array {
 				$workers = $cli->ls_workers();
 				foreach ( $workers as &$w ) {
 					$w['position'] = $cli->live_position( $cache, $w['type'], $w['partition'] );
 				}
 				unset( $w );
-				return (string) \wp_json_encode( $workers );
+				return $workers;
 			},
-			'dump_metadata' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ) use ( $cache ): string {
+			'dump_metadata' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ) use ( $cache ): array {
 				self::require_manage_options();
-				return (string) \wp_json_encode( self::collect_dump_metadata( $cache ) );
+				return self::collect_dump_metadata( $cache );
 			},
-			'cleanup_status' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): string {
+			'cleanup_status' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): array {
 				// Diagnostic: surface every input Log_Cleaner reads when it
 				// decides whether to delete on-disk log dirs. Lets operators
 				// answer "the dashboard shows orphan logs — why isn't the
@@ -112,16 +112,16 @@ class Workers_CI extends Service_CI {
 				$expected = Log_Cleaner::expected_basenames( $base_dir );
 				\sort( $expected );
 				$orphans = \array_values( \array_diff( $on_disk, $expected ) );
-				return (string) \wp_json_encode( [
+				return [
 					'logs_dirty_option'        => $dirty_flag,
 					'fleet_descriptors_option' => $prior_fleet,
 					'logs_dir'                 => $logs_dir,
 					'on_disk_basenames'        => $on_disk,
 					'expected_basenames'       => $expected,
 					'orphans'                  => $orphans,
-				] );
+				];
 			},
-			'restart' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ) use ( $cli ): string {
+			'restart' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ) use ( $cli ): array {
 				$decoded   = \is_array( $payload ) ? $payload : [];
 				$types     = (array) ( $decoded['types']     ?? [] );
 				$partition = (int)   ( $decoded['partition'] ?? -1 );
@@ -140,9 +140,9 @@ class Workers_CI extends Service_CI {
 				if ( ! empty( $filter ) || empty( $types ) ) {
 					$restarted += $cli->restart_workers( $cli->ls_workers(), $filter, $partition );
 				}
-				return (string) \wp_json_encode( [ 'restarted' => $restarted ] );
+				return [ 'restarted' => $restarted ];
 			},
-			'heartbeat' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ) use ( $cache ): string {
+			'heartbeat' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ) use ( $cache ): array {
 				if ( null === $cache ) {
 					throw new \RuntimeException( 'cache not configured' );
 				}
@@ -157,7 +157,7 @@ class Workers_CI extends Service_CI {
 				// phpcs:ignore WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders
 				$ip_hash   = \substr( \md5( (string) ( $_SERVER['REMOTE_ADDR'] ?? '' ) ), 0, 8 );
 				$success   = (bool) $cache->touch_sse_slot( $user_id, $ip_hash, $slot, $ttl, $partition );
-				return (string) \wp_json_encode( [ 'success' => $success, 'slot' => $slot ] );
+				return [ 'success' => $success, 'slot' => $slot ];
 			},
 		];
 	}

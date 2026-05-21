@@ -57,8 +57,8 @@ import {
 import { parseTsl } from './utils/parseTsl';
 import { serializeTsl } from './utils/serializeTsl';
 import { parseMetadata } from './utils/parseMetadata';
-import { sendInterpretedCommand } from './utils/sendCommand';
-import { shellInterpret, splitStatements } from './utils/shellInterpret';
+import { sendWorkerCommand, sendWorkerCommands } from './utils/sendCommand';
+import { shell, splitStatements } from './utils/shell';
 
 // The topology dropdown and partition counts both come from the same map
 // injected by the admin page as `NewspackNodesData.topologyPartitions`,
@@ -781,13 +781,26 @@ export default function TopologyConsole() {
 				}
 				return;
 			}
-			// gui:auto polls only ever emit `dump_metadata` JSON.
-			// `text` is the JSON payload string; let parseMetadata
-			// handle malformed input gracefully.
-			if ( ! text ) {
+			// gui:auto polls only ever emit `dump_metadata`. Per the command
+			// protocol contract the response VALUE rides the whole-message
+			// envelope as a nested object, so `value.payload` is the metadata
+			// OBJECT directly — hand it to parseMetadata (which takes
+			// object-in). Fall back to the bare `value` (when it IS the
+			// metadata object) or the string `text` for defensiveness;
+			// parseMetadata degrades malformed input to an empty graph.
+			let meta = null;
+			if ( value && typeof value === 'object' ) {
+				meta =
+					value.payload !== undefined && value.payload !== null
+						? value.payload
+						: value;
+			} else {
+				meta = text;
+			}
+			if ( meta === null || meta === undefined || meta === '' ) {
 				return;
 			}
-			const next = parseMetadata( text );
+			const next = parseMetadata( meta );
 
 			// Update per-node rate + last-changed tracking. Same tick
 			// drives both — Δcount/Δs gives the msg/s rate, and a
@@ -919,7 +932,7 @@ export default function TopologyConsole() {
 
 	const dispatchStatement = useCallback(
 		( statement ) => {
-			const interpreted = shellInterpret( statement );
+			const interpreted = shell( statement );
 			if ( ! interpreted ) {
 				return;
 			}
@@ -938,7 +951,7 @@ export default function TopologyConsole() {
 				} else if ( interpreted.name === 'debug_level' ) {
 					// Match the substrate Shell's `debug_level` builtin:
 					// no-arg = toggle between 0 and 1; numeric = set
-					// explicitly (clamped 0..2). The shellInterpret parser
+					// explicitly (clamped 0..2). The shell parser
 					// already returns `null` for no-arg and rejects
 					// out-of-range numeric input.
 					if ( interpreted.level === null ) {
@@ -968,7 +981,7 @@ export default function TopologyConsole() {
 			// Dispatch on the generic /command endpoint, pivoting the
 			// worker's reply back through this session's open
 			// messages-stream connection via FROM=`_http/<ssePid>`.
-			sendInterpretedCommand( interpreted.body, {
+			sendWorkerCommand( interpreted.body, {
 				topology,
 				partition,
 				ssePid,
@@ -995,26 +1008,38 @@ export default function TopologyConsole() {
 		if ( mode === 'edit' || ! ssePid ) {
 			return undefined;
 		}
-		const poke = ( name, key ) =>
-			sendInterpretedCommand(
-				{ type: 'command', name, arguments: '' },
-				{ topology, partition, ssePid, key }
-			).catch( () => {} );
-		// Immediate paint, then steady cadence.
-		poke( 'dump_metadata', 'gui:auto' );
-		poke( 'uptime', 'gui:uptime' );
-		const statsId = setInterval(
-			() => poke( 'dump_metadata', 'gui:auto' ),
-			STATS_INTERVAL_MS
-		);
-		const uptimeId = setInterval(
-			() => poke( 'uptime', 'gui:uptime' ),
-			UPTIME_INTERVAL_MS
-		);
-		return () => {
-			clearInterval( statsId );
-			clearInterval( uptimeId );
+		const dumpCmd = {
+			type: 'command',
+			name: 'dump_metadata',
+			arguments: '',
+			key: 'gui:auto',
 		};
+		const uptimeCmd = {
+			type: 'command',
+			name: 'uptime',
+			arguments: '',
+			key: 'gui:uptime',
+		};
+		const poll = ( commands ) =>
+			sendWorkerCommands( commands, {
+				topology,
+				partition,
+				ssePid,
+			} ).catch( () => {} );
+		// dump_metadata fires every tick; uptime (slower) rides the SAME batch
+		// whenever its cadence has elapsed — one /command request + one worker
+		// mount per cycle instead of two. The immediate paint sends both.
+		poll( [ dumpCmd, uptimeCmd ] );
+		let sinceUptime = 0;
+		const id = setInterval( () => {
+			sinceUptime += STATS_INTERVAL_MS;
+			const uptimeDue = sinceUptime >= UPTIME_INTERVAL_MS;
+			if ( uptimeDue ) {
+				sinceUptime = 0;
+			}
+			poll( uptimeDue ? [ dumpCmd, uptimeCmd ] : [ dumpCmd ] );
+		}, STATS_INTERVAL_MS );
+		return () => clearInterval( id );
 	}, [ mode, ssePid, topology, partition ] );
 
 	// Split the typed line on unquoted `;` so `help; ls` dispatches two
