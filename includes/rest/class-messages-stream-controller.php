@@ -337,6 +337,9 @@ class Messages_Stream_Controller {
 		// `connected` envelope emits BEFORE the substrate graph is built —
 		// it doesn't register any nodes, so it stays outside the try/finally.
 		$this->send_sse_event( 'msg', $this->build_connected_msg( $slot, $subs, $interval ) );
+		// Push it through fastcgi/nginx buffers now — a bare flush() doesn't
+		// clear them, only the FLUSH_SIZE padding does.
+		$this->flush_if_needed();
 
 		$consumers   = [];
 		$direct_sink = null;
@@ -406,6 +409,10 @@ class Messages_Stream_Controller {
 						);
 						$last_heartbeat = $now;
 					}
+					// Flush before the framework sleeps so forwarded msgs +
+					// heartbeats reach the client this tick instead of sitting
+					// in the buffer until ~4KB of real data accumulates.
+					$this->flush_if_needed();
 					return true;
 				}
 			);

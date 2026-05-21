@@ -91,6 +91,42 @@ class MessagesStreamControllerTest extends TestCase {
 	}
 
 	/**
+	 * The stream MUST emit flush padding (a FLUSH_SIZE-byte SSE comment) so
+	 * payloads are pushed through fastcgi/nginx buffers rather than sitting
+	 * buffered — without it, opening the stream URL shows nothing until ~4KB
+	 * of real data accumulates. flush_if_needed() must run in the drain loop.
+	 */
+	public function test_stream_flushes_buffers_with_padding(): void {
+		$base = $this->make_temp_dir( 'msg-stream-flush-' );
+		\mkdir( "{$base}/logs/firehose.log", 0755, true );
+
+		$p    = new Partition( "{$base}/logs/firehose.log", 0 );
+		$line = Message::new_message();
+		$line[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$line[ Message::VALUE ] = "payload\n";
+		$p->fill( $line );
+		$p->flush();
+
+		$ctrl = new Messages_Stream_Controller();
+		$ctrl->set_base_dir( $base );
+		$ctrl->set_num_partitions( 1 );
+		$ctrl->set_test_mode( true );
+		$ctrl->set_test_iterations( 20 );
+
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose' => [ 0 => 'start' ] ], 500 );
+		$out = \ob_get_clean();
+
+		$this->assertStringContainsString(
+			':' . \str_repeat( '.', 200 ),
+			$out,
+			'expected a flush-padding SSE comment to push buffered payloads through'
+		);
+
+		$this->rmdir_recursive( $base );
+	}
+
+	/**
 	 * A subscription that throws (e.g. path-traversal `../etc/passwd`) MUST
 	 * NOT leave `_router`, `_http`, or `_stream_sink` registered in the
 	 * substrate. If it does, the next SSE request hits `node name collision:
