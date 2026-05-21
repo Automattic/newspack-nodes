@@ -63,8 +63,12 @@ final class SseStreamTraitTest extends TestCase {
 
 			public function call_send( string $event, array $payload ): string {
 				\ob_start();
-				$this->send_sse_event( $event, $payload );
-				return (string) \ob_get_clean();
+				try {
+					$this->send_sse_event( $event, $payload );
+				} finally {
+					$out = (string) \ob_get_clean();
+				}
+				return $out;
 			}
 
 			public function call_flush(): string {
@@ -141,15 +145,16 @@ final class SseStreamTraitTest extends TestCase {
 		$this->assertSame( 1, \substr_count( $out, 'event:' ) );
 	}
 
-	public function test_send_sse_event_falls_back_to_msg_when_name_is_all_unsafe(): void {
-		$out = $this->host()->call_send( "<<\n>>", [] );
-		$this->assertStringContainsString( "event: msg\n", $out );
+	public function test_send_sse_event_throws_when_name_is_all_unsafe(): void {
+		// A name that sanitizes to empty is a caller bug — fail loud rather
+		// than emit a nameless `event:` line.
+		$this->expectException( \InvalidArgumentException::class );
+		$this->host()->call_send( "<<\n>>", [] );
 	}
 
-	public function test_send_sse_event_falls_back_to_msg_when_name_is_empty(): void {
-		// Empty unsafe name → preg_replace yields empty string → falls back to 'msg'.
-		$out = $this->host()->call_send( '', [] );
-		$this->assertStringContainsString( "event: msg\n", $out );
+	public function test_send_sse_event_throws_when_name_is_empty(): void {
+		$this->expectException( \InvalidArgumentException::class );
+		$this->host()->call_send( '', [] );
 	}
 
 	public function test_send_sse_event_preserves_underscore_and_hyphen_in_unsafe_name(): void {
@@ -199,10 +204,11 @@ final class SseStreamTraitTest extends TestCase {
 	}
 
 	public function test_flush_if_needed_emits_exact_dot_payload(): void {
-		// Wire-format assertion: `: ` + 4092 dots + `\n\n` = 4096 bytes.
-		// 4096 - 1 (`:`) - 1 (` `) - 2 (`\n\n`) = 4092 dots.
+		// Wire-format assertion: `:` + 4093 dots + `\n\n` = 4096 bytes. No
+		// space after the colon (framing the dashboard React hooks expect).
+		// 4096 - 1 (`:`) - 2 (`\n\n`) = 4093 dots.
 		$out = $this->host()->call_flush();
-		$this->assertSame( ': ' . \str_repeat( '.', 4092 ) . "\n\n", $out );
+		$this->assertSame( ':' . \str_repeat( '.', 4093 ) . "\n\n", $out );
 	}
 
 	public function test_flush_if_needed_is_noop_when_not_set(): void {
