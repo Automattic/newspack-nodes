@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Removed the `interval` query param from `/messages/stream`.** The heartbeat
+  cadence is now a hardcoded `HEARTBEAT_MS = 2000` constant, not client-
+  configurable. Data flushes every drain tick regardless, so `interval` only
+  ever paced the idle heartbeat — callers no longer pass it.
+
 ## [0.2.6] - 2026-05-20
 
 ### Changed
