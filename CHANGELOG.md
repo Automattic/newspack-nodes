@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **SSE message streams now flush payloads through proxy buffers.**
+  `Messages_Stream_Controller::run_stream_loop()` emitted events but never
+  called `flush_if_needed()`, so the `FLUSH_SIZE` padding comment that pushes
+  data past fastcgi/nginx buffers never fired — opening a stream URL showed
+  nothing until ~4KB of real data accumulated. It now flushes after the
+  `connected` envelope and on every drain tick (before the event loop sleeps),
+  matching `Topology_Stream_Controller`.
+
 ## [0.2.3] - 2026-05-20
 
 ### Changed
