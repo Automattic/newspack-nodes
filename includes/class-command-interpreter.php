@@ -150,7 +150,7 @@ class CommandInterpreter extends Node {
 	public function dispatch( string $name, string $args = '', mixed $payload = null, array $envelope = [] ): mixed {
 		$commands = $this->commands();
 		if ( ! isset( $commands[ $name ] ) ) {
-			Throw new \InvalidArgumentException( "unknown command: {$name}" );
+			Throw new \InvalidArgumentException( \esc_html( "unknown command: {$name}" ) );
 		}
 		return ( $commands[ $name ] )( $this, $args, $envelope, $payload );
 	}
