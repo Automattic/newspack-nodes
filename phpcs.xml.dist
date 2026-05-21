@@ -26,6 +26,9 @@
 		<exclude name="WordPressVIPMinimum.JS"/>
 	</rule>
 
+	<!-- Text domain for translations -->
+	<config name="text_domain" value="newspack-nodes"/>
+
 	<!-- Allow short array syntax -->
 	<rule ref="Generic.Arrays.DisallowLongArraySyntax"/>
 
