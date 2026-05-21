@@ -30,7 +30,7 @@ use Newspack_Nodes\Router;
 \defined( 'ABSPATH' ) || exit;
 
 class Messages_Stream_Controller {
-	use SSE_Helpers_Trait;
+	use SSE_Stream_Trait;
 
 	public const REST_NAMESPACE = 'newspack-nodes/v1';
 	public const ROUTE          = '/messages/stream';

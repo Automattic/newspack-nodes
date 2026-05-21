@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Consolidated the two parallel SSE traits into one `SSE_Stream_Trait`.**
+  `SSE_Helpers_Trait` (messages-stream) and `SSE_Stream_Trait` (topology) were
+  near-duplicates with subtly different wire contracts. Kept the canonical body
+  (matches the legacy `SSEControllerBase`: inline `flush()` in `send_sse_event`,
+  no-space `:` flush-comment framing the dashboard hooks expect) under the
+  `SSE_Stream_Trait` name; both stream controllers now share it.
+- **`send_sse_event()` throws `InvalidArgumentException` on an event name that
+  sanitizes to empty** rather than emitting a nameless `event:` line the client
+  would silently treat as a default `message` — fail-loud per the error policy.
+  Partial-unsafe names still sanitize-and-continue.
+
 ### Fixed
 
 - **SSE message streams now flush payloads through proxy buffers.**
