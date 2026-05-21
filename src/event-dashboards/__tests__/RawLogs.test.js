@@ -200,7 +200,6 @@ describe( 'RawLogs', () => {
 		await act( async () => {} );
 		const lastCallProps = useMessageStream.mock.calls.at( -1 )[ 0 ];
 		expect( lastCallProps.subscriptions ).toEqual( [ 'firehose' ] );
-		expect( lastCallProps.intervalMs ).toBe( 100 );
 	} );
 
 	it( 'onMessage handler appends parsed log lines to the internal buffer', async () => {

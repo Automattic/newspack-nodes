@@ -71,17 +71,15 @@ describe( 'useMessageStream', () => {
 		expect( result.current.lastEventTime ).toBeNull();
 	} );
 
-	it( 'connect() opens an EventSource carrying subscribe + interval + nonce', () => {
+	it( 'connect() opens an EventSource carrying subscribe + nonce', () => {
 		const { result } = renderHook( () =>
 			useMessageStream( {
 				subscriptions: [ 'firehose', 'errors' ],
-				intervalMs: 250,
 			} )
 		);
 		act( () => result.current.connect() );
 		const es = FakeEventSource.last();
 		expect( es.url ).toContain( 'subscribe=firehose%2Cerrors' );
-		expect( es.url ).toContain( 'interval=250' );
 		expect( es.url ).toContain( '_wpnonce=N' );
 	} );
 
