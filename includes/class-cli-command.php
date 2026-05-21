@@ -163,10 +163,6 @@ class Cli_Command {
 		$dumper = new Dumper();
 		$dumper->name( '_output' );
 
-		// Router fans into Dumper for messages Router can't dispatch (async
-		// broadcasts, TO=='' replies that fell through TO-prefix peeling).
-		$router->sink( $dumper );
-
 		// Real Tachikoma Shell3 nodes are anonymous (Shell3::name throws on
 		// rename). Don't try to give it a name — `ls` filters by sink, so the
 		// shell still appears as a sibling of _command_interpreter without
@@ -216,13 +212,10 @@ class Cli_Command {
 			// Empty offsetlog_base_dir (3rd arg) → Consumer skips the offsetlog
 			// entirely. cli sessions are ephemeral; they tail-seek at startup
 			// and have no need to durably resume a cursor.
-			$reply_in = new Consumer( $ipc['output'], 0, '' );
+			$reply_in = new Consumer( $ipc['output'], 0 );
 			$reply_in->next_offset( 'end' );
 			$reply_in->sink( $router );
-		} else {
-			$echo = new Echo_Node();
-			$echo->name( '_repl' );
-			$echo->sink( $interpreter );
+			$reply_in->target( '_output' );
 		}
 
 		// Dumper TO filter: matches `_output/$pid` (worker reply with
@@ -254,48 +247,6 @@ class Cli_Command {
 	 *
 	 * EOF on STDIN exits the drain loop.
 	 */
-	/**
-	 * Parse one line of input through the Shell graph. Extracted so tests
-	 * can drive the per-line dispatch directly from a memory stream without
-	 * spinning up the event loop. Returns true when the line emitted at
-	 * least one Message; false when every statement on the line was a
-	 * no-op (empty, comment, builtin like `cd`/`include`).
-	 *
-	 * The typed line is first run through `Shell::split_statements()` so
-	 * `help; ls` dispatches as two commands instead of being tokenized as
-	 * verb=`help;` — same convention as Topology_Loader's TSL eval path
-	 * and the topology console's REPL.
-	 */
-	public function dispatch_line( Shell $shell, string $line ): bool {
-		$line     = \rtrim( $line, "\r\n" );
-		$dispatched = false;
-		foreach ( $shell->split_statements( $line ) as $statement ) {
-			$msg = $shell->parse( $statement );
-			if ( null === $msg ) {
-				continue;
-			}
-			$shell->fill( $msg );
-			$dispatched = true;
-		}
-		return $dispatched;
-	}
-
-	/**
-	 * Drain a non-blocking input stream of complete lines, dispatching each
-	 * through the Shell. Returns the number of lines processed; 0 typically
-	 * means EOF (caller can flip its exit flag). Used by `run_repl`'s
-	 * non-readline path AND directly by tests via `php://memory` stream
-	 * injection — readline's per-byte feed isn't testable without a real
-	 * TTY, but the line-buffered branch covers the same parse/fill contract.
-	 */
-	public function drain_lines_from_stream( Shell $shell, $stream ): int {
-		$processed = 0;
-		while ( ( $line = \fgets( $stream ) ) !== false ) {
-			$this->dispatch_line( $shell, $line );
-			++$processed;
-		}
-		return $processed;
-	}
 
 	private function run_repl( Shell $shell, Dumper $dumper ): void {
 		// Same gate as the Dumper's readline_mode: only use readline when STDIN
@@ -338,6 +289,32 @@ class Cli_Command {
 		if ( $is_tty ) {
 			\WP_CLI::log( '' );
 		}
+	}
+
+	/**
+	 * Parse one line of input through the Shell graph. Extracted so tests
+	 * can drive the per-line dispatch directly from a memory stream without
+	 * spinning up the event loop. Returns true when the line emitted at
+	 * least one Message; false when every statement on the line was a
+	 * no-op (empty, comment, builtin like `cd`/`include`).
+	 *
+	 * The typed line is first run through `Shell::split_statements()` so
+	 * `help; ls` dispatches as two commands instead of being tokenized as
+	 * verb=`help;` — same convention as Topology_Loader's TSL eval path
+	 * and the topology console's REPL.
+	 */
+	public function dispatch_line( Shell $shell, string $line ): bool {
+		$line     = \rtrim( $line, "\r\n" );
+		$dispatched = false;
+		foreach ( $shell->split_statements( $line ) as $statement ) {
+			$msg = $shell->parse( $statement );
+			if ( null === $msg ) {
+				continue;
+			}
+			$shell->fill( $msg );
+			$dispatched = true;
+		}
+		return $dispatched;
 	}
 }
 

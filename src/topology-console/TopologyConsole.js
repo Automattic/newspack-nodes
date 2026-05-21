@@ -2,8 +2,11 @@
  * TopologyConsole — top-level shell.
  *
  * Wires:
- *   useTopologyStream → SSE subscription
- *   parseLsOutput     → derive {nodes, edges} from msg payloads
+ *   useConsoleGraph   → per-session in-browser node graph (SseConnector →
+ *                       SessionSink; CommandOut). The console's live SSE-in
+ *                       and command-out path flow through real nodes.
+ *   useNodeState      → read SessionSink's metadata/uptime/transcript state
+ *   parseMetadata     → derive {nodes, edges} (inside SessionSink)
  *   Header            → topology/partition selectors + LIVE LED
  *   Palette           → static class catalog (inert in v1)
  *   CanvasFrame       → plotter chrome (meta + reticles + title block)
@@ -35,7 +38,8 @@ import { useLayout } from './hooks/useLayout';
 import { useSaveTopology } from './hooks/useSaveTopology';
 import { useDeleteTopology } from './hooks/useDeleteTopology';
 import { useTopology, useTopologyList } from './hooks/useTopologyList';
-import { useTopologyStream } from './hooks/useTopologyStream';
+import { useConsoleGraph } from './hooks/useConsoleGraph';
+import { useNodeState, useNodeFill } from '../runtime/react';
 import {
 	addEdge,
 	addNode,
@@ -56,8 +60,6 @@ import {
 } from './utils/autoLayout';
 import { parseTsl } from './utils/parseTsl';
 import { serializeTsl } from './utils/serializeTsl';
-import { parseMetadata } from './utils/parseMetadata';
-import { sendWorkerCommand, sendWorkerCommands } from './utils/sendCommand';
 import { shell, splitStatements } from './utils/shell';
 
 // The topology dropdown and partition counts both come from the same map
@@ -126,8 +128,6 @@ function initialPartitionFromUrl() {
 	return Number.isInteger( p ) && p >= 0 ? p : 0;
 }
 
-const TRANSCRIPT_MAX = 200;
-
 // Live-canvas poll cadence (ms), client-side. Replaces the deleted
 // TopologyStreamController's server-side STATS_INTERVAL_S / UPTIME_INTERVAL_S
 // timer: now that the console tails the worker via the generic
@@ -139,172 +139,12 @@ const UPTIME_INTERVAL_MS = 5000;
 // of trailing data, plenty for a quick "is this node busy or quiet?" glance.
 const RATE_HISTORY_MAX = 60;
 
-// Message TYPE bitmask flags, mirroring substrate's class-message.php
-// constants so we can apply Dumper-style type-aware rendering to each
-// incoming SSE msg envelope.
-const TM_BYTESTREAM = 1;
-const TM_EOF = 2;
-const TM_PING = 4;
-const TM_COMMAND = 8;
-const TM_RESPONSE = 16;
-const TM_ERROR = 32;
-const TM_INFO = 64;
-const TM_STRUCT = 256;
-
-// eslint-disable-next-line no-bitwise
-const has = ( type, flag ) => ( type & flag ) !== 0;
-
-// Render TM_FLAGS as a pipe-joined uppercase label string, matching
-// the substrate Dumper's debug header. `TM_COMMAND|TM_RESPONSE`,
-// `TM_INFO`, etc. Empty type renders as `0`.
-const TM_LABELS = [
-	[ TM_BYTESTREAM, 'TM_BYTESTREAM' ],
-	[ TM_EOF, 'TM_EOF' ],
-	[ TM_PING, 'TM_PING' ],
-	[ TM_COMMAND, 'TM_COMMAND' ],
-	[ TM_RESPONSE, 'TM_RESPONSE' ],
-	[ TM_ERROR, 'TM_ERROR' ],
-	[ TM_INFO, 'TM_INFO' ],
-	[ TM_STRUCT, 'TM_STRUCT' ],
-];
-function formatTypeLabel( type ) {
-	const flags = TM_LABELS.filter( ( [ flag ] ) => has( type, flag ) ).map(
-		( [ , label ] ) => label
-	);
-	return flags.length
-		? flags.join( ' | ' )
-		: `TM_UNKNOWN(0x${ type.toString( 16 ) })`;
-}
-
-// Stringify VALUE for the debug header — objects get one-line JSON,
-// strings pass through, everything else gets String()'d.
-function stringifyValue( value ) {
-	if ( typeof value === 'string' ) {
-		return value;
-	}
-	if ( value === null || value === undefined ) {
-		return '';
-	}
-	try {
-		return JSON.stringify( value, null, 2 );
-	} catch ( _e ) {
-		return String( value );
-	}
-}
-
-// `debug_level 1` header — single line summarizing the message:
-// `<TM_FLAGS> from <FROM>:` — NO value on the header line, the
-// curated render that follows produces the payload. Matches the
-// substrate Dumper's `$flags . ' from ' . $from . ':'` exactly.
-function buildDebugHeader1( msg ) {
-	const label = formatTypeLabel(
-		typeof msg.type === 'number' ? msg.type : 0
-	);
-	const from = msg.from || '';
-	return `${ label } from ${ from }:`;
-}
-
-// `debug_level 2` header — full envelope as a structural multi-line
-// render. Mirrors the substrate Dumper's `format_envelope_dump`.
-function buildDebugHeader2( msg ) {
-	const label = formatTypeLabel(
-		typeof msg.type === 'number' ? msg.type : 0
-	);
-	const ts = msg.ts ?? '';
-	const tsHuman =
-		typeof ts === 'number' && Number.isFinite( ts )
-			? ` (${ new Date( ts * 1000 )
-					.toISOString()
-					.replace( 'T', ' ' )
-					.replace( /\.\d+Z$/, ' UTC' ) })`
-			: '';
-	const value = stringifyValue( msg.value );
-	const indentedValue = value
-		.split( '\n' )
-		.map( ( line, i ) => ( i === 0 ? line : '               ' + line ) )
-		.join( '\n' );
-	return [
-		'Message {',
-		'    type:      ' + label,
-		'    from:      ' + ( msg.from ?? '' ),
-		'    to:        ' + ( msg.to ?? '' ),
-		'    id:        ' + ( msg.id ?? '' ),
-		'    key:       ' + ( msg.key ?? '' ),
-		'    timestamp: ' + ts + tsHuman,
-		'    value:     ' + indentedValue,
-		'}',
-	].join( '\n' );
-}
-
-/**
- * Convert a raw SSE msg envelope into a transcript entry, following the
- * cli Dumper's render rules so the GUI surfaces what the terminal would:
- *
- *   - TM_EOF                       → dropped (control marker, no output)
- *   - TM_COMMAND|TM_RESPONSE       → payload only, never the wrapper JSON
- *   - TM_COMMAND|TM_ERROR          → unwrapped payload, error styling
- *   - TM_ERROR                     → value as-is, error styling
- *   - TM_PING                      → "round trip time: X ms"
- *   - TM_STRUCT                    → JSON-encoded value
- *   - TM_INFO                      → value as-is (no prefix; debug_level 1
- *                                    adds the `TM_INFO from <from>:` header
- *                                    when verbosity is wanted)
- *   - default (TM_BYTESTREAM)      → value as-is
- *
- * Returns null when the message should be dropped silently.
- *
- * @param {Object} msg Raw SSE msg envelope (type, from, to, value, ...).
- * @return {Object|null} { kind, text } transcript entry or null to drop.
- */
-function dumperRender( msg ) {
-	const type = typeof msg.type === 'number' ? msg.type : 0;
-	const value = msg.value;
-	if ( has( type, TM_EOF ) ) {
-		return null;
-	}
-	const unwrapPayload = () => {
-		if ( value && typeof value === 'object' ) {
-			return typeof value.payload === 'string' ? value.payload : '';
-		}
-		return typeof value === 'string' ? value : '';
-	};
-	if ( has( type, TM_COMMAND ) && has( type, TM_RESPONSE ) ) {
-		const payload = unwrapPayload();
-		if ( ! payload ) {
-			return null;
-		}
-		return { kind: 'recv', text: payload };
-	}
-	if ( has( type, TM_COMMAND ) && has( type, TM_ERROR ) ) {
-		return { kind: 'error', text: unwrapPayload() };
-	}
-	if ( has( type, TM_ERROR ) ) {
-		return { kind: 'error', text: String( value ?? '' ) };
-	}
-	if ( has( type, TM_PING ) ) {
-		const sent = parseFloat( value );
-		const now = Date.now() / 1000;
-		const rtt = ( ( now - sent ) * 1000 ).toFixed( 2 );
-		return { kind: 'info', text: `round trip time: ${ rtt } ms` };
-	}
-	if ( has( type, TM_STRUCT ) ) {
-		return {
-			kind: 'recv',
-			text:
-				typeof value === 'string'
-					? value
-					: JSON.stringify( value, null, 2 ),
-		};
-	}
-	// TM_INFO and default TM_BYTESTREAM both render as plain
-	// payload — the substrate Dumper does the same. `debug_level 1`
-	// adds the `TM_INFO from <from>:` header for verbosity; the
-	// curated level-0 render shows the payload only.
-	if ( has( type, TM_INFO ) || has( type, TM_BYTESTREAM ) ) {
-		return { kind: 'recv', text: String( value ?? '' ) };
-	}
-	return null;
-}
+// Stable empty defaults for the SessionSink-published node state, so a
+// not-yet-populated `metadata` / `transcript` keeps a constant reference
+// across renders (downstream useMemo / props don't churn before the
+// graph mounts).
+const EMPTY_GRAPH = { nodes: [], edges: [] };
+const EMPTY_TRANSCRIPT = [];
 
 export default function TopologyConsole() {
 	const [ topology, setTopology ] = useState( () =>
@@ -320,7 +160,6 @@ export default function TopologyConsole() {
 	// Hover state — lifted so the Inspector can highlight a node by
 	// hovering one of its routing-list links (target/also/from).
 	const [ hoveredId, setHoveredId ] = useState( null );
-	const [ parsed, setParsed ] = useState( { nodes: [], edges: [] } );
 	// Edit-mode state. `view` (default) renders the live SSE-driven graph;
 	// `edit` freezes a draft snapshot taken at the toggle moment so SSE
 	// pushes never clobber operator work in progress. `baseline` is the
@@ -354,7 +193,6 @@ export default function TopologyConsole() {
 	// buttons can read the `requests` schema). useClassCatalog caches
 	// the response, so re-entries are free.
 	const catalog = useClassCatalog( { enabled: true } );
-	const [ transcript, setTranscript ] = useState( [] );
 	// Lifted: ReplFooter's transcript visibility, so Inspector actions
 	// (Dump, Tail) can pop the pane open when they fire commands the
 	// user wants to see the response of.
@@ -375,20 +213,37 @@ export default function TopologyConsole() {
 	const rateRef = useRef( new Map() );
 	const [ rateVersion, setRateVersion ] = useState( 0 );
 
-	// Worker uptime, refreshed by `gui:uptime` polls every UPTIME_INTERVAL_S
-	// (5s). Substrate's `uptime` verb returns one line like
-	// `HH:MM:SS  up N days, HH:MM:SS\n` — we keep just the days/HMS half for
-	// the Inspector's Process section.
-	const [ uptime, setUptime ] = useState( null );
-
 	// Local Dumper verbosity dial. 0 = curated render only (default);
 	// 1 = prepend a one-line `<TM_FLAGS> from <from>: <value>` header
 	// to every incoming msg; 2 = same as 1 but full envelope on the
 	// header line and the value on the next line. Mirrors the substrate
 	// Dumper's `debug_level` semantics. Held in a ref (not state) so
-	// reads happen synchronously inside handleMessage without re-binding
-	// the SSE callback every time the level changes.
+	// SessionSink reads it synchronously per-frame without re-binding the
+	// graph every time the level changes.
 	const debugLevelRef = useRef( 0 );
+
+	// Mount the per-session node graph (SseConnector → SessionSink;
+	// CommandOut). SSE off in edit mode — the operator is authoring
+	// offline and shouldn't poke the live worker with `ls` ticks. The
+	// stream resumes when they switch back to view mode.
+	const { status, ssePid, sessionNode, commandOutName } = useConsoleGraph( {
+		topology,
+		partition,
+		enabled: mode !== 'edit',
+		debugLevelRef,
+	} );
+
+	// Read SessionSink's published state. `metadata` is the live parsed
+	// graph (replaces the old `parsed` state); `uptime` is the right-half
+	// of the worker's uptime line; `transcript` is the shared REPL buffer.
+	const parsed = useNodeState( 'session', 'metadata' ) ?? EMPTY_GRAPH;
+	const uptime = useNodeState( 'session', 'uptime' ) ?? null;
+	const transcript =
+		useNodeState( 'session', 'transcript' ) ?? EMPTY_TRANSCRIPT;
+
+	// Fill the command-out node — both the silent poll and the REPL drive
+	// sends through this single function.
+	const fillCommandOut = useNodeFill( commandOutName );
 
 	// User-pinned positions, keyed by node name. Survives reloads via
 	// localStorage; scoped per `topology.partition` so positions don't
@@ -679,256 +534,141 @@ export default function TopologyConsole() {
 		}
 	}, [ topology, partition ] );
 
-	const appendTranscript = useCallback( ( entry ) => {
-		setTranscript( ( prev ) => {
-			const next = prev.concat( {
-				...entry,
-				key: `${ Date.now() }-${ Math.random()
-					.toString( 36 )
-					.slice( 2, 7 ) }`,
-			} );
-			return next.length > TRANSCRIPT_MAX
-				? next.slice( next.length - TRANSCRIPT_MAX )
-				: next;
-		} );
-	}, [] );
+	// Append a transcript entry through the SessionSink (which owns the
+	// shared ring buffer + cap). REPL echoes, errors, and info lines all
+	// route here so they interleave with incoming-message renders in the
+	// order they occur.
+	const appendTranscript = useCallback(
+		( entry ) => {
+			sessionNode?.append( entry );
+		},
+		[ sessionNode ]
+	);
 
-	// Reset selection + graph + transcript when the (topology, partition)
-	// pair changes — we're effectively starting a fresh REPL session.
+	// Clear the shared transcript (the `clear` builtin + ReplFooter's
+	// clear button).
+	const clearTranscript = useCallback( () => {
+		sessionNode?.clear();
+	}, [ sessionNode ] );
+
+	// Reset selection when the (topology, partition) pair changes — a fresh
+	// REPL session. The parsed graph + transcript live in the SessionSink,
+	// which useConsoleGraph re-creates for the new worker, so they reset
+	// on their own.
 	useEffect( () => {
 		setSelectedId( null );
-		setParsed( { nodes: [], edges: [] } );
-		setTranscript( [] );
 	}, [ topology, partition ] );
 
-	// Process every incoming SSE msg synchronously. Routing by KEY:
-	//   key = 'gui:auto'  → response to one of our own SSE-controller polls;
-	//                       feed it to the canvas-parse and never the transcript.
-	//   key = '' (empty)  → either a user-typed command's response or an
-	//                       async broadcast (debug traces, etc.); show it in
-	//                       the transcript verbatim.
+	// Per-node rate + last-changed tracking, driven off the SessionSink's
+	// published `metadata` graph. Each `gui:auto` poll produces a NEW
+	// metadata object inside the SessionSink, so this effect fires exactly
+	// once per tick (the same cadence the old inline gui:auto branch ran
+	// at). Same tick drives both — Δcount/Δs gives the msg/s rate, and a
+	// non-zero Δcount marks the node as "live, recently active." Also
+	// appends to a ring-buffer history (cap RATE_HISTORY_MAX samples) so
+	// the canvas can draw a per-node sparkline.
 	//
-	// Synchronous handling is critical: a burst of TM_STRUCT broadcasts
-	// could otherwise coalesce React state updates and drop intermediate
-	// values (a command response could land BETWEEN auto-fired ls polls
-	// and get clobbered by setLastMessage). Callback-based processing
-	// guarantees every message is observed.
-	//
-	// CommandInterpreter copies KEY from each TM_COMMAND request onto its
-	// TM_RESPONSE, so the round-trip correlation is automatic.
-	const handleMessage = useCallback(
-		( msg ) => {
-			const value = msg.value;
-			let text = null;
-			if ( typeof value === 'string' ) {
-				text = value;
-			} else if (
-				value &&
-				typeof value === 'object' &&
-				typeof value.payload === 'string'
-			) {
-				text = value.payload;
-			}
-			if ( msg.key === 'gui:uptime' ) {
-				// `09:44:52  up 0 days, 00:01:00\n` → keep the right half.
-				const match =
-					typeof text === 'string'
-						? text.match( /up\s+(.+)$/m )
-						: null;
-				if ( match ) {
-					setUptime( match[ 1 ].trim() );
+	// Byte-rate histories (readHistory / writtenHistory) ride alongside on
+	// the same tick so the inspector can plot bytes/s read and written with
+	// the same horizontal axis as the msg/s sparkline. A worker respawn
+	// resets the counters the same way the message counter resets, so we
+	// clamp negatives to zero the same way.
+	useEffect( () => {
+		const now = Date.now() / 1000;
+		let touched = false;
+		for ( const n of parsed.nodes ) {
+			const prevEntry = rateRef.current.get( n.id );
+			const bytesRead = n.bytesRead || 0;
+			const bytesWritten = n.bytesWritten || 0;
+			// Sticky "has ever been non-zero" flags per stat. The Inspector
+			// uses these to gate sparkline rendering — once a stat has seen
+			// activity, the plot stays even when the counter resets to 0
+			// (e.g. worker respawn). Prevents graphs from blinking out the
+			// moment a worker recycles.
+			const hasMessages =
+				( prevEntry && prevEntry.hasMessages ) || n.count > 0;
+			const hasRead = ( prevEntry && prevEntry.hasRead ) || bytesRead > 0;
+			const hasWritten =
+				( prevEntry && prevEntry.hasWritten ) || bytesWritten > 0;
+			if ( prevEntry && prevEntry.ts < now ) {
+				// A worker respawn resets the counter, so dCount can go
+				// strongly negative on the first tick of a new process.
+				// Treat that as "rate unknown" (0) — using the raw delta
+				// would draw a deep dip below the baseline that
+				// misrepresents what just happened.
+				const rawDCount = n.count - prevEntry.count;
+				const dCount = rawDCount < 0 ? 0 : rawDCount;
+				const rawDRead = bytesRead - ( prevEntry.bytesRead || 0 );
+				const dRead = rawDRead < 0 ? 0 : rawDRead;
+				const rawDWritten =
+					bytesWritten - ( prevEntry.bytesWritten || 0 );
+				const dWritten = rawDWritten < 0 ? 0 : rawDWritten;
+				// Clamp to the nominal tick interval (1s) so bunched-up
+				// gui:auto responses — e.g. two arrivals 100ms apart after
+				// a worker stall — don't divide a full tick's delta by a
+				// tiny dt and report a 10× spike. Worst case we under-report
+				// on a genuinely-fast tick; the alternative (nonsense peaks)
+				// is worse for the auto-scaling sparkline.
+				const dTime = Math.max( 1, now - prevEntry.ts );
+				const rate = dCount / dTime;
+				const readRate = dRead / dTime;
+				const writtenRate = dWritten / dTime;
+				const history = prevEntry.history || [];
+				const readHistory = prevEntry.readHistory || [];
+				const writtenHistory = prevEntry.writtenHistory || [];
+				history.push( rate );
+				readHistory.push( readRate );
+				writtenHistory.push( writtenRate );
+				if ( history.length > RATE_HISTORY_MAX ) {
+					history.shift();
 				}
-				return;
-			}
-			const isOurPoll = msg.key === 'gui:auto';
-			if ( ! isOurPoll ) {
-				// `debug_level 1+` injects a header BEFORE the curated
-				// render — same shape the substrate Dumper produces.
-				// Level 1: single-line `<TM_FLAGS> from <from>: <value>`.
-				// Level 2: full envelope on one line + value on next.
-				// The header always appears regardless of whether the
-				// curated render would suppress the message (e.g. TM_EOF
-				// at level 0 returns null), so observers can see EVERY
-				// arrival at level 1+.
-				const level = debugLevelRef.current;
-				if ( level >= 2 ) {
-					// Level 2 REPLACES the normal render — the envelope
-					// dump is the whole payload. Matches the substrate
-					// Dumper's `if ($debug_level >= 2) { ... return; }`.
-					appendTranscript( {
-						kind: 'info',
-						text: buildDebugHeader2( msg ),
-					} );
-					return;
+				if ( readHistory.length > RATE_HISTORY_MAX ) {
+					readHistory.shift();
 				}
-				if ( level >= 1 ) {
-					// Level 1 AUGMENTS the normal render with a header
-					// line; the curated render below produces the payload.
-					appendTranscript( {
-						kind: 'info',
-						text: buildDebugHeader1( msg ),
-					} );
+				if ( writtenHistory.length > RATE_HISTORY_MAX ) {
+					writtenHistory.shift();
 				}
-				// User-typed command response, or an async broadcast. Run
-				// it through the Dumper-style renderer so each message
-				// type gets its appropriate framing.
-				const rendered = dumperRender( msg );
-				if ( rendered ) {
-					appendTranscript( {
-						...rendered,
-						text: rendered.text.replace( /\n+$/, '' ),
-					} );
-				}
-				return;
+				rateRef.current.set( n.id, {
+					count: n.count,
+					bytesRead,
+					bytesWritten,
+					ts: now,
+					rate,
+					readRate,
+					writtenRate,
+					lastChangedTs: dCount > 0 ? now : prevEntry.lastChangedTs,
+					history,
+					readHistory,
+					writtenHistory,
+					hasMessages,
+					hasRead,
+					hasWritten,
+				} );
+				touched = true;
+			} else if ( ! prevEntry ) {
+				rateRef.current.set( n.id, {
+					count: n.count,
+					bytesRead,
+					bytesWritten,
+					ts: now,
+					rate: 0,
+					readRate: 0,
+					writtenRate: 0,
+					lastChangedTs: now,
+					history: [],
+					readHistory: [],
+					writtenHistory: [],
+					hasMessages,
+					hasRead,
+					hasWritten,
+				} );
+				touched = true;
 			}
-			// gui:auto polls only ever emit `dump_metadata`. Per the command
-			// protocol contract the response VALUE rides the whole-message
-			// envelope as a nested object, so `value.payload` is the metadata
-			// OBJECT directly — hand it to parseMetadata (which takes
-			// object-in). Fall back to the bare `value` (when it IS the
-			// metadata object) or the string `text` for defensiveness;
-			// parseMetadata degrades malformed input to an empty graph.
-			let meta = null;
-			if ( value && typeof value === 'object' ) {
-				meta =
-					value.payload !== undefined && value.payload !== null
-						? value.payload
-						: value;
-			} else {
-				meta = text;
-			}
-			if ( meta === null || meta === undefined || meta === '' ) {
-				return;
-			}
-			const next = parseMetadata( meta );
-
-			// Update per-node rate + last-changed tracking. Same tick
-			// drives both — Δcount/Δs gives the msg/s rate, and a
-			// non-zero Δcount marks the node as "live, recently active."
-			// Also append to a ring-buffer history (cap RATE_HISTORY_MAX
-			// samples) so the canvas can draw a per-node sparkline.
-			//
-			// Byte-rate histories (readHistory / writtenHistory) ride
-			// alongside on the same tick so the inspector can plot
-			// bytes/s read and written with the same horizontal axis as
-			// the msg/s sparkline. A worker respawn resets the counters
-			// the same way the message counter resets, so we clamp
-			// negatives to zero the same way.
-			const now = Date.now() / 1000;
-			let touched = false;
-			for ( const n of next.nodes ) {
-				const prevEntry = rateRef.current.get( n.id );
-				const bytesRead = n.bytesRead || 0;
-				const bytesWritten = n.bytesWritten || 0;
-				// Sticky "has ever been non-zero" flags per stat. The
-				// Inspector uses these to gate sparkline rendering — once
-				// a stat has seen activity, the plot stays even when the
-				// counter resets to 0 (e.g. worker respawn). Prevents
-				// graphs from blinking out the moment a worker recycles.
-				const hasMessages =
-					( prevEntry && prevEntry.hasMessages ) || n.count > 0;
-				const hasRead =
-					( prevEntry && prevEntry.hasRead ) || bytesRead > 0;
-				const hasWritten =
-					( prevEntry && prevEntry.hasWritten ) || bytesWritten > 0;
-				if ( prevEntry && prevEntry.ts < now ) {
-					// A worker respawn resets the counter, so dCount can
-					// go strongly negative on the first tick of a new
-					// process. Treat that as "rate unknown" (0) — using
-					// the raw delta would draw a deep dip below the
-					// baseline that misrepresents what just happened.
-					const rawDCount = n.count - prevEntry.count;
-					const dCount = rawDCount < 0 ? 0 : rawDCount;
-					const rawDRead = bytesRead - ( prevEntry.bytesRead || 0 );
-					const dRead = rawDRead < 0 ? 0 : rawDRead;
-					const rawDWritten =
-						bytesWritten - ( prevEntry.bytesWritten || 0 );
-					const dWritten = rawDWritten < 0 ? 0 : rawDWritten;
-					// Clamp to the nominal tick interval (1s) so bunched-up
-					// gui:auto responses — e.g. two arrivals 100ms apart
-					// after a worker stall — don't divide a full tick's
-					// delta by a tiny dt and report a 10× spike. Worst case
-					// we under-report on a genuinely-fast tick; the
-					// alternative (nonsense peaks) is worse for the
-					// auto-scaling sparkline.
-					const dTime = Math.max( 1, now - prevEntry.ts );
-					const rate = dCount / dTime;
-					const readRate = dRead / dTime;
-					const writtenRate = dWritten / dTime;
-					const history = prevEntry.history || [];
-					const readHistory = prevEntry.readHistory || [];
-					const writtenHistory = prevEntry.writtenHistory || [];
-					history.push( rate );
-					readHistory.push( readRate );
-					writtenHistory.push( writtenRate );
-					if ( history.length > RATE_HISTORY_MAX ) {
-						history.shift();
-					}
-					if ( readHistory.length > RATE_HISTORY_MAX ) {
-						readHistory.shift();
-					}
-					if ( writtenHistory.length > RATE_HISTORY_MAX ) {
-						writtenHistory.shift();
-					}
-					rateRef.current.set( n.id, {
-						count: n.count,
-						bytesRead,
-						bytesWritten,
-						ts: now,
-						rate,
-						readRate,
-						writtenRate,
-						lastChangedTs:
-							dCount > 0 ? now : prevEntry.lastChangedTs,
-						history,
-						readHistory,
-						writtenHistory,
-						hasMessages,
-						hasRead,
-						hasWritten,
-					} );
-					touched = true;
-				} else if ( ! prevEntry ) {
-					rateRef.current.set( n.id, {
-						count: n.count,
-						bytesRead,
-						bytesWritten,
-						ts: now,
-						rate: 0,
-						readRate: 0,
-						writtenRate: 0,
-						lastChangedTs: now,
-						history: [],
-						readHistory: [],
-						writtenHistory: [],
-						hasMessages,
-						hasRead,
-						hasWritten,
-					} );
-					touched = true;
-				}
-			}
-			if ( touched ) {
-				setRateVersion( ( v ) => v + 1 );
-			}
-
-			// dump_metadata is authoritative on every tick — no
-			// need to merge sink data across responses the way the
-			// old ls -als + ls -ct dance required.
-			setParsed( next );
-		},
-		[ appendTranscript ]
-	);
-
-	// SSE off in edit mode — the operator is authoring offline and
-	// shouldn't poke the live worker with `ls` ticks. Stream resumes
-	// when they switch back to view mode.
-	const { status, ssePid } = useTopologyStream(
-		topology,
-		partition,
-		handleMessage,
-		mode !== 'edit'
-	);
+		}
+		if ( touched ) {
+			setRateVersion( ( v ) => v + 1 );
+		}
+	}, [ parsed ] );
 
 	const dispatchStatement = useCallback(
 		( statement ) => {
@@ -947,7 +687,7 @@ export default function TopologyConsole() {
 			}
 			if ( interpreted.kind === 'local' ) {
 				if ( interpreted.name === 'clear' ) {
-					setTranscript( [] );
+					clearTranscript();
 				} else if ( interpreted.name === 'debug_level' ) {
 					// Match the substrate Shell's `debug_level` builtin:
 					// no-arg = toggle between 0 and 1; numeric = set
@@ -978,32 +718,24 @@ export default function TopologyConsole() {
 				} );
 				return;
 			}
-			// Dispatch on the generic /command endpoint, pivoting the
-			// worker's reply back through this session's open
-			// messages-stream connection via FROM=`_http/<ssePid>`.
-			sendWorkerCommand( interpreted.body, {
-				topology,
-				partition,
-				ssePid,
-			} ).catch( ( err ) => {
-				appendTranscript( {
-					kind: 'error',
-					text: `[POST failed] ${
-						( err && err.message ) || 'network error'
-					}`,
-				} );
-			} );
+			// Fill the command-out node, which posts a connect_worker_input +
+			// the command and pivots the worker's reply back through this
+			// session's open messages-stream connection via FROM=`_http/<ssePid>`.
+			// Fire-and-forget — the worker's real reply arrives async over
+			// the SSE stream and lands in the transcript via SessionSink.
+			fillCommandOut( { commands: [ interpreted.body ] } );
 		},
-		[ topology, partition, ssePid, appendTranscript ]
+		[ ssePid, appendTranscript, clearTranscript, fillCommandOut ]
 	);
 
 	// Live-canvas poll. The deleted TopologyStreamController fired
 	// dump_metadata/uptime server-side on a timer; now that we tail the
 	// worker through the generic messages-stream, the console drives the
-	// poll itself. KEY=gui:auto / gui:uptime route the responses to the
-	// silent canvas-refresh path (see handleMessage), distinct from
-	// user-typed gui:typed commands. Paused in edit mode (the stream is
-	// closed) and until the session pid lands from the connected envelope.
+	// poll itself by filling the command-out node. KEY=gui:auto /
+	// gui:uptime route the responses to the silent canvas-refresh path
+	// (SessionSink), distinct from user-typed gui:typed commands. Paused in
+	// edit mode (the stream is closed) and until the session pid lands from
+	// the connected envelope.
 	useEffect( () => {
 		if ( mode === 'edit' || ! ssePid ) {
 			return undefined;
@@ -1020,16 +752,10 @@ export default function TopologyConsole() {
 			arguments: '',
 			key: 'gui:uptime',
 		};
-		const poll = ( commands ) =>
-			sendWorkerCommands( commands, {
-				topology,
-				partition,
-				ssePid,
-			} ).catch( () => {} );
 		// dump_metadata fires every tick; uptime (slower) rides the SAME batch
 		// whenever its cadence has elapsed — one /command request + one worker
 		// mount per cycle instead of two. The immediate paint sends both.
-		poll( [ dumpCmd, uptimeCmd ] );
+		fillCommandOut( { commands: [ dumpCmd, uptimeCmd ] } );
 		let sinceUptime = 0;
 		const id = setInterval( () => {
 			sinceUptime += STATS_INTERVAL_MS;
@@ -1037,10 +763,12 @@ export default function TopologyConsole() {
 			if ( uptimeDue ) {
 				sinceUptime = 0;
 			}
-			poll( uptimeDue ? [ dumpCmd, uptimeCmd ] : [ dumpCmd ] );
+			fillCommandOut( {
+				commands: uptimeDue ? [ dumpCmd, uptimeCmd ] : [ dumpCmd ],
+			} );
 		}, STATS_INTERVAL_MS );
 		return () => clearInterval( id );
-	}, [ mode, ssePid, topology, partition ] );
+	}, [ mode, ssePid, fillCommandOut ] );
 
 	// Split the typed line on unquoted `;` so `help; ls` dispatches two
 	// commands instead of one. Each statement runs through
@@ -1859,7 +1587,7 @@ export default function TopologyConsole() {
 					streamStatus={ status }
 					canSend={ status === 'open' && !! ssePid }
 					onSubmit={ sendLine }
-					onClear={ () => setTranscript( [] ) }
+					onClear={ clearTranscript }
 					transcript={ transcript }
 					expanded={ replExpanded }
 					onExpandedChange={ setReplExpanded }

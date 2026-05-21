@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The Topology Console runs a real in-browser node graph.** Its live SSE-in +
+  command-out path flows through the runtime's own nodes — `SseConnector` →
+  `SessionSink` (KEY-routes to metadata/uptime/transcript) and `CommandOut`
+  (folds the worker-command send) — instead of a raw `EventSource` + procedural
+  `handleMessage` + the standalone `sendCommand` util. React reads node state via
+  the `useNodeState`/`useNodeFill` bridge; the orphaned `useTopologyStream` +
+  `sendCommand` modules are deleted.
 - **Command protocol no longer double-encodes the Message `VALUE`.** Command and
   response `VALUE` carry a structured array (`{name, arguments, payload}` /
   `{name, payload}`); verbs return live PHP structures, not `wp_json_encode`'d
