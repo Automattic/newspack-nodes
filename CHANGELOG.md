@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`/messages/stream` heartbeat default lowered to 2s** (from the 5s set in
+  0.2.5). Matches the dashboard's default refresh, so the aggregator's "Server
+  HB" reads 0–2s; still ~4× less idle traffic than the old 500ms.
+
 ## [0.2.5] - 2026-05-20
 
 ### Changed

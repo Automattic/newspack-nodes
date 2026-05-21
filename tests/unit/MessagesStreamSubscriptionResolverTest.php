@@ -179,7 +179,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// WP's own arg validator instead of hitting our handler with a blank.
 		$this->assertTrue( $route['args']['args']['subscribe']['required'] );
 		$this->assertFalse( $route['args']['args']['interval']['required'] );
-		$this->assertSame( 5000, $route['args']['args']['interval']['default'] );
+		$this->assertSame( 2000, $route['args']['args']['interval']['default'] );
 		$this->assertFalse( $route['args']['args']['positions']['required'] );
 		$this->assertIsCallable( $route['args']['callback'] );
 		$this->assertIsCallable( $route['args']['permission_callback'] );
