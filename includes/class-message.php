@@ -23,6 +23,15 @@ class Message {
 	/** Last addressable VALUE-bearing index; copiers use array_slice(0, LAST_VALUE_INDEX + 1) to drop appended bookkeeping fields. */
 	public const LAST_VALUE_INDEX = self::VALUE;
 
+	/**
+	 * LOCAL: provenance taint appended AFTER the canonical 7 fields. Set only by a
+	 * Shell on a command it mints in-process; its presence means "born here".
+	 * packed() never emits it, so it cannot cross a process boundary — an
+	 * off-process (SSE/IPC) message inherently lacks it. The client-tier
+	 * authorization default gates on isset( $message[ LOCAL ] ).
+	 */
+	public const LOCAL = 7;
+
 	public const TM_BYTESTREAM = 1;
 	public const TM_EOF        = 2;
 	public const TM_PING       = 4;
@@ -46,8 +55,9 @@ class Message {
 	}
 
 	public static function packed( array $message ): string {
-		// Positional JSON: the in-memory message IS the wire representation (no key->index translation).
-		return \wp_json_encode( $message, \JSON_UNESCAPED_SLASHES );
+		// Positional JSON of the canonical 7 fields only; slicing drops any appended
+		// bookkeeping (LOCAL) so it never crosses a process boundary.
+		return \wp_json_encode( \array_slice( $message, 0, self::LAST_VALUE_INDEX + 1 ), \JSON_UNESCAPED_SLASHES );
 	}
 
 	/** Byte size of the whole packed Message; use this (not value_size) for PIPE_BUF / size checks. */

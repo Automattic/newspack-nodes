@@ -7,6 +7,7 @@ import {
 	KEY,
 	VALUE,
 	LAST_VALUE_INDEX,
+	LOCAL,
 	TM_BYTESTREAM,
 	TM_EOF,
 	TM_PING,
@@ -78,6 +79,26 @@ test( 'unpack with truncated array returns a fresh new message', () => {
 	const m = unpack( '[1,2,3]' );
 	expect( m ).toHaveLength( 7 );
 	expect( m[ TYPE ] ).toBe( 0 );
+} );
+
+test( 'LOCAL is index 7, after the canonical fields', () => {
+	expect( LOCAL ).toBe( 7 );
+	expect( LOCAL ).toBe( LAST_VALUE_INDEX + 1 );
+} );
+
+test( 'pack strips the LOCAL provenance field', () => {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ LOCAL ] = true;
+	const decoded = JSON.parse( pack( m ) );
+	expect( decoded ).toHaveLength( 7 );
+	expect( decoded[ LOCAL ] ).toBeUndefined();
+} );
+
+test( 'unpack drops any trailing LOCAL field on the wire', () => {
+	const m = unpack( '[0,0,"","","","","",true]' );
+	expect( m ).toHaveLength( 7 );
+	expect( m[ LOCAL ] ).toBeUndefined();
 } );
 
 test( 'valueSize on string VALUE returns byte length', () => {

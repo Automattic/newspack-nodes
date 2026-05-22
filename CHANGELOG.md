@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Command authorization (two-tier).** A `TM_COMMAND` arriving on an untrusted
+  path can no longer execute. Client tier: a `Message::LOCAL` provenance field,
+  set only by a `Shell` and stripped at the wire boundary by `packed()`/`pack()`,
+  so an SSE/IPC-injected command lacks it and is refused. Server tier: `/command`
+  and pivoted `wp nodes cli` HMAC-sign command semantics; worker and request-scope
+  CommandInterpreters verify the signature (windowed, with single-use nonces) and
+  refuse unsigned/forged/replayed commands. Every command is gated.
+
 ## [0.3.0] - 2026-05-22
 
 ### Fixed
