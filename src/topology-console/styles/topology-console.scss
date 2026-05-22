@@ -10,31 +10,9 @@
 // Google Fonts — imported into the admin page asset graph.
 // @import url is fine here; wp-scripts' sass loader pipes the URL
 // through to the final CSS without trying to inline it.
-@import url(https://fonts.googleapis.com/css2?family=Major+Mono+Display&family=Workbench&family=JetBrains+Mono:wght@300;400;500;700&display=swap);
+@import url(https://fonts.googleapis.com/css2?family=Anonymous+Pro:wght@400;700&family=Archivo:wght@500;700&family=Archivo+Black&family=Barlow+Semi+Condensed:wght@500;700&family=Bitter:wght@500;700&family=Chakra+Petch:wght@400;600&family=DM+Mono:wght@400;500&family=Fira+Code:wght@400;600&family=Fraunces:wght@500;700&family=Fredoka:wght@400;600&family=IBM+Plex+Mono:wght@400;500;600&family=JetBrains+Mono:wght@300;400;500;700&family=Josefin+Sans:wght@500;700&family=Major+Mono+Display&family=Monoton&family=Noto+Sans+JP:wght@500;700&family=Orbitron:wght@500;700&family=Quicksand:wght@500;700&family=Rajdhani:wght@500;600&family=Saira+Condensed:wght@500;700&family=Saira+Stencil+One&family=Share+Tech+Mono&family=Sora:wght@500;700&family=Space+Mono:wght@400;700&family=Spectral:wght@400;600&family=Spline+Sans+Mono:wght@400;500;700&family=Syne:wght@600;800&family=Teko:wght@500;600&family=VT323&family=Workbench&display=swap);
 
-// Palette.
-$paper: #f0e7d6;
-$paper-2: #e8dcc4;
-$paper-3: #dbcdb1;
-$paper-shadow: #c8b998;
-$ink: #18222e;
-$ink-2: #2e3f4f;
-$ink-3: #5a6f7f;
-$ink-4: #8294a2;
-$grid: rgba(60, 80, 96, 0.1);
-$grid-coarse: rgba(60, 80, 96, 0.07);
-$oxide: #b25538;
-$oxide-dark: #8a3d24;
-$brass: #b4914a;
-$brass-dark: #876a2e;
-$cyan: #4a7290;
-$cyan-dark: #305670;
-$sage: #7a8f6a;
-$sage-dark: #5b6e4d;
 
-$mono: "JetBrains Mono", ui-monospace, monospace;
-$display-brand: "Major Mono Display", ui-monospace, monospace;
-$display-stencil: "Workbench", monospace;
 
 // Hide WP admin gunk so we own the viewport. The actual body class
 // is `{parent}_page_newspack-nodes-topology` — the parent slug varies
@@ -72,6 +50,31 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-app {
+	// Skin tokens. Defaults = the drafting-plotter look. Alternative skins
+	// override these under `.topology-app.theme-<slug>` (end of file). Dark
+	// skins also set --repl-bg/--repl-fg so the REPL bar doesn't invert.
+	--paper: #f0e7d6;
+	--paper-2: #e8dcc4;
+	--paper-3: #dbcdb1;
+	--paper-shadow: #c8b998;
+	--ink: #18222e;
+	--ink-2: #2e3f4f;
+	--ink-3: #5a6f7f;
+	--ink-4: #8294a2;
+	--grid: rgba(60, 80, 96, 0.1);
+	--oxide: #b25538;
+	--oxide-dark: #8a3d24;
+	--brass: #b4914a;
+	--brass-dark: #876a2e;
+	--cyan: #4a7290;
+	--cyan-dark: #305670;
+	--sage: #7a8f6a;
+	--sage-dark: #5b6e4d;
+	--repl-bg: var(--ink);
+	--repl-fg: var(--paper);
+	--font-mono: "JetBrains Mono", ui-monospace, monospace;
+	--font-display-brand: "Major Mono Display", ui-monospace, monospace;
+	--font-display-stencil: "Workbench", monospace;
 	position: relative;
 	z-index: 2;
 	height: calc(100vh - 32px); // leave WP admin bar visible.
@@ -111,11 +114,11 @@ body[class*="_page_newspack-nodes-topology"] {
 			"header  header header"
 			"palette canvas inspector";
 	}
-	font-family: $mono;
+	font-family: var(--font-mono);
 	font-size: 13px;
 	line-height: 1.45;
-	color: $ink;
-	background: $paper;
+	color: var(--ink);
+	background: var(--paper);
 	-webkit-font-smoothing: antialiased;
 	overflow: hidden;
 
@@ -167,24 +170,24 @@ body[class*="_page_newspack-nodes-topology"] {
 
 .topology-header {
 	grid-area: header;
-	border-bottom: 1px solid $ink;
-	background: $paper;
+	border-bottom: 1px solid var(--ink);
+	background: var(--paper);
 	display: flex;
 	align-items: stretch;
 	padding: 0 18px;
 	gap: 24px;
 	z-index: 3;
-	box-shadow: 0 1px 0 $paper-shadow;
+	box-shadow: 0 1px 0 var(--paper-shadow);
 }
 
 .topology-brand {
-	font-family: $display-brand;
+	font-family: var(--font-display-brand);
 	font-size: 19px;
 	letter-spacing: 0.04em;
 	align-self: center;
 
 	&__colon {
-		color: $oxide;
+		color: var(--oxide);
 	}
 }
 
@@ -193,8 +196,8 @@ body[class*="_page_newspack-nodes-topology"] {
 	font-size: 10px;
 	text-transform: uppercase;
 	letter-spacing: 0.22em;
-	color: $ink-3;
-	border-left: 1px solid $ink-4;
+	color: var(--ink-3);
+	border-left: 1px solid var(--ink-4);
 	padding-left: 16px;
 }
 
@@ -209,15 +212,15 @@ body[class*="_page_newspack-nodes-topology"] {
 	font-size: 9px;
 	text-transform: uppercase;
 	letter-spacing: 0.22em;
-	color: $ink-3;
+	color: var(--ink-3);
 }
 
 .topology-select {
 	appearance: none;
 	background: transparent;
-	border: 1px solid $ink-2;
-	color: $ink;
-	font: 500 12px/1 $mono;
+	border: 1px solid var(--ink-2);
+	color: var(--ink);
+	font: 500 12px/1 var(--font-mono);
 	padding: 7px 22px 7px 10px;
 	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%2318222E'/%3E%3C/svg%3E");
 	background-repeat: no-repeat;
@@ -227,14 +230,14 @@ body[class*="_page_newspack-nodes-topology"] {
 	cursor: pointer;
 
 	&:focus-visible {
-		outline: 2px solid $oxide;
+		outline: 2px solid var(--oxide);
 		outline-offset: -1px;
 	}
 }
 
 .topology-mode {
 	display: inline-flex;
-	border: 1px solid $ink;
+	border: 1px solid var(--ink);
 	overflow: hidden;
 	margin-left: 4px;
 
@@ -242,8 +245,8 @@ body[class*="_page_newspack-nodes-topology"] {
 		background: transparent;
 		border: 0;
 		padding: 7px 14px;
-		font: 700 10px $mono;
-		color: $ink-3;
+		font: 700 10px var(--font-mono);
+		color: var(--ink-3);
 		letter-spacing: 0.16em;
 		cursor: pointer;
 		transition: all 100ms ease;
@@ -254,42 +257,42 @@ body[class*="_page_newspack-nodes-topology"] {
 		}
 
 		&.is-active {
-			background: $ink;
-			color: $paper;
+			background: var(--ink);
+			color: var(--paper);
 		}
 
 		&--live.is-active {
-			background: $oxide;
-			color: $paper;
+			background: var(--oxide);
+			color: var(--paper);
 		}
 
 		&--save {
-			background: $sage;
-			color: $paper;
-			border-right: 1px solid $ink;
+			background: var(--sage);
+			color: var(--paper);
+			border-right: 1px solid var(--ink);
 
 			&:hover {
-				background: $sage-dark;
+				background: var(--sage-dark);
 			}
 		}
 
 		&--open {
-			background: $cyan;
-			color: $paper;
-			border-right: 1px solid $ink;
+			background: var(--cyan);
+			color: var(--paper);
+			border-right: 1px solid var(--ink);
 
 			&:hover {
-				background: $cyan-dark;
+				background: var(--cyan-dark);
 			}
 		}
 
 		&--new {
-			background: $brass;
-			color: $paper;
-			border-right: 1px solid $ink;
+			background: var(--brass);
+			color: var(--paper);
+			border-right: 1px solid var(--ink);
 
 			&:hover {
-				background: $brass-dark;
+				background: var(--brass-dark);
 			}
 		}
 
@@ -298,12 +301,12 @@ body[class*="_page_newspack-nodes-topology"] {
 		// selection outlines and error pips; reusing it here keeps the
 		// destructive intent obvious without a new color in the palette.
 		&--delete {
-			background: $oxide;
-			color: $paper;
-			border-right: 1px solid $ink;
+			background: var(--oxide);
+			color: var(--paper);
+			border-right: 1px solid var(--ink);
 
 			&:hover {
-				background: $oxide-dark;
+				background: var(--oxide-dark);
 			}
 		}
 
@@ -322,7 +325,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	width: 6px;
 	height: 6px;
 	border-radius: 50%;
-	background: $paper;
+	background: var(--paper);
 	margin-right: 6px;
 	vertical-align: middle;
 
@@ -355,19 +358,19 @@ body[class*="_page_newspack-nodes-topology"] {
 
 .topology-palette {
 	grid-area: palette;
-	border-right: 1px solid $ink;
-	background: $paper-2;
+	border-right: 1px solid var(--ink);
+	background: var(--paper-2);
 	padding: 14px 0 60px;
 	overflow-y: auto;
 	position: relative;
 
 	&__group {
 		margin: 14px 16px 8px;
-		font: 700 9px/1 $mono;
+		font: 700 9px/1 var(--font-mono);
 		text-transform: uppercase;
 		letter-spacing: 0.22em;
-		color: $ink-3;
-		border-bottom: 1px dotted $ink-4;
+		color: var(--ink-3);
+		border-bottom: 1px dotted var(--ink-4);
 		padding-bottom: 8px;
 
 		&:first-child {
@@ -384,11 +387,11 @@ body[class*="_page_newspack-nodes-topology"] {
 		transition: all 80ms ease;
 
 		&:hover {
-			background: $paper;
-			border-left-color: $oxide;
+			background: var(--paper);
+			border-left-color: var(--oxide);
 
 			.topology-palette__glyph {
-				background: $paper-2;
+				background: var(--paper-2);
 			}
 		}
 	}
@@ -398,8 +401,8 @@ body[class*="_page_newspack-nodes-topology"] {
 		width: 28px;
 		height: 18px;
 		margin-right: 11px;
-		border: 1px solid $ink-2;
-		background: $paper;
+		border: 1px solid var(--ink-2);
+		background: var(--paper);
 		position: relative;
 		flex-shrink: 0;
 
@@ -410,7 +413,7 @@ body[class*="_page_newspack-nodes-topology"] {
 			width: 5px;
 			height: 5px;
 			border-radius: 50%;
-			background: $ink-2;
+			background: var(--ink-2);
 			top: 6px;
 		}
 
@@ -428,8 +431,8 @@ body[class*="_page_newspack-nodes-topology"] {
 	// stylelint-disable no-descending-specificity
 	&__item--tee &__glyph::after {
 		box-shadow:
-			0 8px 0 $ink-2,
-			0 -8px 0 $ink-2;
+			0 8px 0 var(--ink-2),
+			0 -8px 0 var(--ink-2);
 	}
 
 	&__item--partition &__glyph {
@@ -437,33 +440,33 @@ body[class*="_page_newspack-nodes-topology"] {
 		background-image: linear-gradient(
 			to bottom,
 			transparent 4px,
-			$ink-2 4px,
-			$ink-2 5px,
+			var(--ink-2) 4px,
+			var(--ink-2) 5px,
 			transparent 5px,
 			transparent 9px,
-			$ink-2 9px,
-			$ink-2 10px,
+			var(--ink-2) 9px,
+			var(--ink-2) 10px,
 			transparent 10px,
 			transparent 14px,
-			$ink-2 14px,
-			$ink-2 15px,
+			var(--ink-2) 14px,
+			var(--ink-2) 15px,
 			transparent 15px
 		);
 	}
 
 	&__item--tail &__glyph::before {
-		background: $brass;
+		background: var(--brass);
 	}
 
 	&__item--topic &__glyph::after {
-		background: $oxide;
+		background: var(--oxide);
 	}
 
 	&__item--timer &__glyph {
 		background:
-			radial-gradient(circle at center, $ink-2 1px, transparent 1.5px)
+			radial-gradient(circle at center, var(--ink-2) 1px, transparent 1.5px)
 				center / 4px 4px no-repeat,
-			conic-gradient(from -90deg, $ink-2 90deg, transparent 90deg) center /
+			conic-gradient(from -90deg, var(--ink-2) 90deg, transparent 90deg) center /
 				12px 12px no-repeat;
 
 		&::before,
@@ -474,14 +477,14 @@ body[class*="_page_newspack-nodes-topology"] {
 	// stylelint-enable no-descending-specificity
 
 	&__name {
-		font: 500 12px $mono;
-		color: $ink;
+		font: 500 12px var(--font-mono);
+		color: var(--ink);
 	}
 
 	&__badge {
 		margin-left: auto;
-		font: 700 8px $mono;
-		color: $ink-4;
+		font: 700 8px var(--font-mono);
+		color: var(--ink-4);
 		letter-spacing: 0.1em;
 	}
 
@@ -497,16 +500,16 @@ body[class*="_page_newspack-nodes-topology"] {
 		display: flex;
 		align-items: center;
 		padding: 0 16px;
-		border-top: 1px solid $ink-4;
-		background: $paper-3;
-		font: 400 9px $mono;
+		border-top: 1px solid var(--ink-4);
+		background: var(--paper-3);
+		font: 400 9px var(--font-mono);
 		letter-spacing: 0.1em;
-		color: $ink-3;
+		color: var(--ink-3);
 		text-transform: uppercase;
 	}
 
 	&__count {
-		color: $ink;
+		color: var(--ink);
 		font-weight: 700;
 	}
 }
@@ -519,28 +522,28 @@ body[class*="_page_newspack-nodes-topology"] {
 	grid-area: canvas;
 	position: relative;
 	overflow: hidden;
-	background: $paper;
+	background: var(--paper);
 
 	&__meta {
 		position: absolute;
 		top: 14px;
 		left: 18px;
-		font: 700 9px/1.5 $mono;
+		font: 700 9px/1.5 var(--font-mono);
 		text-transform: uppercase;
 		letter-spacing: 0.22em;
-		color: $ink-3;
+		color: var(--ink-3);
 		pointer-events: none;
 		z-index: 5;
 	}
 
 	&__topology-name {
-		font-family: $display-stencil;
+		font-family: var(--font-display-stencil);
 		font-variation-settings:
 			"BLCK" 5,
 			"ROND" 20;
 		font-size: 18px;
 		font-weight: 400;
-		color: $ink;
+		color: var(--ink);
 		letter-spacing: 0.02em;
 		margin-top: 6px;
 		text-transform: none;
@@ -563,9 +566,9 @@ body[class*="_page_newspack-nodes-topology"] {
 
 	&__layout-chip {
 		background: transparent;
-		border: 1px solid $ink-3;
-		color: $ink-3;
-		font: 500 10px/1 $mono;
+		border: 1px solid var(--ink-3);
+		color: var(--ink-3);
+		font: 500 10px/1 var(--font-mono);
 		letter-spacing: 0.16em;
 		text-transform: uppercase;
 		padding: 8px 14px;
@@ -573,8 +576,8 @@ body[class*="_page_newspack-nodes-topology"] {
 		transition: all 100ms ease;
 
 		&:hover {
-			border-color: $oxide;
-			color: $oxide;
+			border-color: var(--oxide);
+			color: var(--oxide);
 		}
 	}
 }
@@ -594,7 +597,7 @@ body[class*="_page_newspack-nodes-topology"] {
 // half a pixel away from where nodes actually land.
 .topology-grid-line {
 	fill: none;
-	stroke: $grid;
+	stroke: var(--grid);
 	stroke-width: 1;
 	shape-rendering: crispedges;
 }
@@ -603,7 +606,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	position: absolute;
 	width: 24px;
 	height: 24px;
-	border: 1px solid $ink-2;
+	border: 1px solid var(--ink-2);
 	pointer-events: none;
 	z-index: 4;
 
@@ -613,10 +616,10 @@ body[class*="_page_newspack-nodes-topology"] {
 		inset: 50% 50% 50% 50%;
 		width: 4px;
 		height: 4px;
-		border: 1px solid $oxide;
+		border: 1px solid var(--oxide);
 		border-radius: 50%;
 		transform: translate(-50%, -50%);
-		background: $paper;
+		background: var(--paper);
 	}
 
 	&--tl {
@@ -652,16 +655,16 @@ body[class*="_page_newspack-nodes-topology"] {
 	position: absolute;
 	bottom: 14px;
 	right: 18px;
-	background: $paper;
-	border: 1px solid $ink;
-	font: 400 10px $mono;
+	background: var(--paper);
+	border: 1px solid var(--ink);
+	font: 400 10px var(--font-mono);
 	z-index: 5;
-	box-shadow: 2px 2px 0 $paper-shadow;
+	box-shadow: 2px 2px 0 var(--paper-shadow);
 
 	&__row {
 		display: grid;
 		grid-template-columns: 70px 130px;
-		border-bottom: 1px solid $ink-2;
+		border-bottom: 1px solid var(--ink-2);
 
 		&:last-child {
 			border-bottom: 0;
@@ -670,12 +673,12 @@ body[class*="_page_newspack-nodes-topology"] {
 
 	&__k {
 		padding: 3px 8px;
-		border-right: 1px solid $ink-2;
-		font: 700 8px $mono;
+		border-right: 1px solid var(--ink-2);
+		font: 700 8px var(--font-mono);
 		letter-spacing: 0.18em;
 		text-transform: uppercase;
-		color: $ink-3;
-		background: $paper-2;
+		color: var(--ink-3);
+		background: var(--paper-2);
 	}
 
 	&__v {
@@ -683,7 +686,7 @@ body[class*="_page_newspack-nodes-topology"] {
 		font-size: 10px;
 
 		&--proj {
-			font: 700 11px $display-stencil;
+			font: 700 11px var(--font-display-stencil);
 			font-variation-settings: "BLCK" 8;
 		}
 	}
@@ -720,37 +723,37 @@ body[class*="_page_newspack-nodes-topology"] {
 	}
 
 	&__bg {
-		fill: $paper-2;
-		stroke: $ink;
+		fill: var(--paper-2);
+		stroke: var(--ink);
 		stroke-width: 1;
 	}
 
 	&__divider {
-		stroke: $ink-2;
+		stroke: var(--ink-2);
 		stroke-width: 1;
 	}
 
 	&__type {
-		font: 700 9px $mono;
-		fill: $ink-3;
+		font: 700 9px var(--font-mono);
+		fill: var(--ink-3);
 		letter-spacing: 0.18em;
 		text-transform: uppercase;
 	}
 
 	&__led {
-		fill: $sage;
-		stroke: $sage-dark;
+		fill: var(--sage);
+		stroke: var(--sage-dark);
 		stroke-width: 0.6;
 	}
 
 	&__id {
-		font: 700 13px $mono;
-		fill: $ink;
+		font: 700 13px var(--font-mono);
+		fill: var(--ink);
 	}
 
 	&__meta {
-		font: 400 10px $mono;
-		fill: $ink-3;
+		font: 400 10px var(--font-mono);
+		fill: var(--ink-3);
 	}
 
 	// Per-node message rate in the lower-left. Same slot the former
@@ -760,8 +763,8 @@ body[class*="_page_newspack-nodes-topology"] {
 	// from formatNodeRate; the renderer returns null below the
 	// threshold so the slot is empty rather than "0 /s".
 	&__rate {
-		font: 400 10px $mono;
-		fill: $oxide;
+		font: 400 10px var(--font-mono);
+		fill: var(--oxide);
 		font-variant-numeric: tabular-nums;
 	}
 
@@ -772,7 +775,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	// the foreground text.
 	&__spark {
 		fill: none;
-		stroke: $oxide;
+		stroke: var(--oxide);
 		stroke-width: 1.25;
 		stroke-linejoin: round;
 		stroke-linecap: round;
@@ -781,39 +784,39 @@ body[class*="_page_newspack-nodes-topology"] {
 	}
 
 	&__counter {
-		font: 700 13px $mono;
-		fill: $oxide;
+		font: 700 13px var(--font-mono);
+		fill: var(--oxide);
 		font-variant-numeric: tabular-nums;
 	}
 
 	&:hover &__bg {
-		fill: $paper;
+		fill: var(--paper);
 	}
 
 	&.is-selected &__bg {
-		stroke: $oxide;
+		stroke: var(--oxide);
 		stroke-width: 2;
 	}
 }
 
 .topology-port {
-	fill: $paper;
-	stroke: $ink;
+	fill: var(--paper);
+	stroke: var(--ink);
 	stroke-width: 1;
 
 	&--out.is-edit {
 		// Edit-mode OUT port: cursor changes to crosshair so the user
 		// knows it's draggable; fill flips to brass to draw the eye.
 		cursor: crosshair;
-		fill: $brass;
-		stroke: $brass-dark;
+		fill: var(--brass);
+		stroke: var(--brass-dark);
 	}
 
 	&--in.is-snap-target {
 		// Active drag-wire snap target — green halo + filled center so
 		// release-to-connect is unambiguous.
-		fill: $sage;
-		stroke: $sage-dark;
+		fill: var(--sage);
+		stroke: var(--sage-dark);
 		stroke-width: 2;
 		r: 7;
 	}
@@ -821,7 +824,7 @@ body[class*="_page_newspack-nodes-topology"] {
 
 // Rubber-band wire while drag-from-OUT is active.
 .topology-wire-drag__line {
-	stroke: $brass-dark;
+	stroke: var(--brass-dark);
 	stroke-width: 1.5;
 	stroke-dasharray: 4 3;
 	pointer-events: none;
@@ -839,7 +842,7 @@ body[class*="_page_newspack-nodes-topology"] {
 
 .topology-edge {
 	fill: none;
-	stroke: $ink-3;
+	stroke: var(--ink-3);
 	stroke-width: 1.2;
 	stroke-dasharray: 1000;
 	stroke-dashoffset: 1000;
@@ -851,7 +854,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	pointer-events: none;
 
 	&--active {
-		stroke: $cyan;
+		stroke: var(--cyan);
 		stroke-width: 1.6;
 		stroke-dasharray: 5 3;
 		animation:
@@ -860,9 +863,9 @@ body[class*="_page_newspack-nodes-topology"] {
 	}
 
 	&.is-selected {
-		stroke: $oxide;
+		stroke: var(--oxide);
 		stroke-width: 2.6;
-		filter: drop-shadow(0 0 4px $oxide);
+		filter: drop-shadow(0 0 4px var(--oxide));
 	}
 
 	// Virtual edges — derived from a verb arg with type=node_name
@@ -870,7 +873,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	// finer dash pattern so the operator can tell them apart from
 	// physical connect_node wires; not click-deletable.
 	&.is-virtual {
-		stroke: $brass-dark;
+		stroke: var(--brass-dark);
 		stroke-width: 1;
 		stroke-dasharray: 2 4;
 		opacity: 0.6;
@@ -881,7 +884,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	// dims the rest, so the user can read the flow neighborhood of
 	// any node at a glance.
 	&.is-touched {
-		stroke: $oxide;
+		stroke: var(--oxide);
 		stroke-width: 2.2;
 	}
 
@@ -891,10 +894,10 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-arrow-head {
-	fill: $ink-3;
+	fill: var(--ink-3);
 
 	&--active {
-		fill: $cyan-dark;
+		fill: var(--cyan-dark);
 	}
 }
 
@@ -904,15 +907,15 @@ body[class*="_page_newspack-nodes-topology"] {
 
 .topology-inspector {
 	grid-area: inspector;
-	background: $paper-2;
-	border-left: 1px solid $ink;
+	background: var(--paper-2);
+	border-left: 1px solid var(--ink);
 	padding: 20px 18px 24px;
 	overflow-y: auto;
 }
 
 .topology-insp__empty {
 	text-align: center;
-	color: $ink-4;
+	color: var(--ink-4);
 	padding: 100px 20px;
 	font-size: 11px;
 	text-transform: uppercase;
@@ -920,25 +923,25 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-insp__title {
-	font-family: $display-stencil;
+	font-family: var(--font-display-stencil);
 	font-variation-settings:
 		"BLCK" 4,
 		"ROND" 10;
 	font-size: 19px;
 	font-weight: 400;
 	margin: 0 0 2px;
-	color: $ink;
+	color: var(--ink);
 	word-break: break-all;
 }
 
 .topology-insp__type {
-	font: 700 9px $mono;
+	font: 700 9px var(--font-mono);
 	text-transform: uppercase;
 	letter-spacing: 0.22em;
-	color: $oxide;
+	color: var(--oxide);
 	margin-bottom: 16px;
 	padding-bottom: 12px;
-	border-bottom: 1px solid $ink-4;
+	border-bottom: 1px solid var(--ink-4);
 	display: flex;
 	align-items: center;
 	gap: 8px;
@@ -949,8 +952,8 @@ body[class*="_page_newspack-nodes-topology"] {
 	width: 6px;
 	height: 6px;
 	border-radius: 50%;
-	background: $sage;
-	box-shadow: 0 0 0 1px $sage-dark;
+	background: var(--sage);
+	box-shadow: 0 0 0 1px var(--sage-dark);
 
 	&.is-pulsing {
 		animation: topology-pulse 1.4s ease-in-out infinite;
@@ -961,17 +964,17 @@ body[class*="_page_newspack-nodes-topology"] {
 	margin: 18px 0;
 
 	&-title {
-		font: 700 9px $mono;
+		font: 700 9px var(--font-mono);
 		text-transform: uppercase;
 		letter-spacing: 0.22em;
-		color: $ink-3;
+		color: var(--ink-3);
 		margin: 0 0 9px;
 		display: flex;
 		justify-content: space-between;
 	}
 
 	&-meta {
-		color: $ink-4;
+		color: var(--ink-4);
 		font-weight: 400;
 		letter-spacing: 0.1em;
 	}
@@ -997,8 +1000,8 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-insp__spark-label {
-	font: 400 10px $mono;
-	color: $ink-3;
+	font: 400 10px var(--font-mono);
+	color: var(--ink-3);
 }
 
 .topology-insp__spark-vals {
@@ -1009,19 +1012,19 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-insp__spark-val {
-	font: 700 11px $mono;
-	color: $oxide;
+	font: 700 11px var(--font-mono);
+	color: var(--oxide);
 	font-variant-numeric: tabular-nums;
 
 	&--dim {
-		color: $ink-4;
+		color: var(--ink-4);
 		font-weight: 400;
 	}
 }
 
 .topology-insp__spark-peak {
-	font: 400 9px $mono;
-	color: $ink-3;
+	font: 400 9px var(--font-mono);
+	color: var(--ink-3);
 	font-variant-numeric: tabular-nums;
 	letter-spacing: 0.05em;
 }
@@ -1033,7 +1036,7 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-insp__spark-path {
-	stroke: $oxide;
+	stroke: var(--oxide);
 	stroke-width: 1.25;
 	stroke-linejoin: round;
 	stroke-linecap: round;
@@ -1044,7 +1047,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	display: grid;
 	grid-template-columns: 88px 1fr;
 	padding: 5px 0;
-	border-bottom: 1px dotted $ink-4;
+	border-bottom: 1px dotted var(--ink-4);
 	gap: 10px;
 	align-items: baseline;
 
@@ -1053,17 +1056,17 @@ body[class*="_page_newspack-nodes-topology"] {
 	}
 
 	&__key {
-		font: 400 10px $mono;
-		color: $ink-3;
+		font: 400 10px var(--font-mono);
+		color: var(--ink-3);
 	}
 
 	&__val {
-		font: 500 11px $mono;
-		color: $ink;
+		font: 500 11px var(--font-mono);
+		color: var(--ink);
 		word-break: break-all;
 
 		&--num {
-			color: $oxide;
+			color: var(--oxide);
 			font-variant-numeric: tabular-nums;
 			font-weight: 700;
 			text-align: right;
@@ -1079,7 +1082,7 @@ body[class*="_page_newspack-nodes-topology"] {
 		}
 
 		&--link {
-			color: $cyan-dark;
+			color: var(--cyan-dark);
 			cursor: pointer;
 			text-decoration: underline dotted;
 			text-underline-offset: 2px;
@@ -1090,7 +1093,7 @@ body[class*="_page_newspack-nodes-topology"] {
 		// or --right when a numeric field is currently zero/empty
 		// (still right-aligned, just muted).
 		&--dim {
-			color: $ink-4;
+			color: var(--ink-4);
 			font-weight: 400;
 			font-style: italic;
 		}
@@ -1101,8 +1104,8 @@ body[class*="_page_newspack-nodes-topology"] {
 		// stay readable inside the 308px inspector column without
 		// blowing past the value cell.
 		&--mono {
-			font: 400 10px/1.4 $mono;
-			color: $ink-2;
+			font: 400 10px/1.4 var(--font-mono);
+			color: var(--ink-2);
 			word-break: break-all;
 		}
 	}
@@ -1118,19 +1121,19 @@ body[class*="_page_newspack-nodes-topology"] {
 		padding: 0;
 		margin: 0;
 		font: inherit;
-		color: $cyan-dark;
+		color: var(--cyan-dark);
 		cursor: pointer;
 		text-decoration: underline dotted;
 		text-underline-offset: 2px;
 		transition: color 100ms ease;
 
 		&:hover {
-			color: $oxide;
+			color: var(--oxide);
 			text-decoration-style: solid;
 		}
 
 		&:focus-visible {
-			outline: 1px solid $oxide;
+			outline: 1px solid var(--oxide);
 			outline-offset: 2px;
 		}
 	}
@@ -1144,10 +1147,10 @@ body[class*="_page_newspack-nodes-topology"] {
 
 	button {
 		background: transparent;
-		border: 1px solid $ink-2;
-		color: $ink;
+		border: 1px solid var(--ink-2);
+		color: var(--ink);
 		padding: 8px 10px;
-		font: 700 10px $mono;
+		font: 700 10px var(--font-mono);
 		letter-spacing: 0.14em;
 		text-transform: uppercase;
 		text-align: left;
@@ -1156,8 +1159,8 @@ body[class*="_page_newspack-nodes-topology"] {
 		border-radius: 0;
 
 		&:hover:not([disabled]) {
-			background: $ink;
-			color: $paper;
+			background: var(--ink);
+			color: var(--paper);
 		}
 
 		&[disabled] {
@@ -1170,14 +1173,14 @@ body[class*="_page_newspack-nodes-topology"] {
 		// in the Tee's target list). Mirrors the substrate state so
 		// the visual is authoritative.
 		&.is-active {
-			background: $oxide;
-			color: $paper;
-			border-color: $oxide-dark;
+			background: var(--oxide);
+			color: var(--paper);
+			border-color: var(--oxide-dark);
 		}
 
 		&.is-active:hover:not([disabled]) {
-			background: $oxide-dark;
-			color: $paper;
+			background: var(--oxide-dark);
+			color: var(--paper);
 		}
 	}
 }
@@ -1187,12 +1190,12 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-insp__actions-danger {
-	color: $oxide !important;
-	border-color: $oxide !important;
+	color: var(--oxide) !important;
+	border-color: var(--oxide) !important;
 
 	&:hover:not([disabled]) {
-		background: $oxide !important;
-		color: $paper !important;
+		background: var(--oxide) !important;
+		color: var(--paper) !important;
 	}
 }
 
@@ -1203,10 +1206,10 @@ body[class*="_page_newspack-nodes-topology"] {
 .topology-repl {
 	grid-area: repl;
 	position: relative;
-	border-top: 1px solid $ink;
-	background: $ink;
-	color: $paper;
-	font: 400 12px $mono;
+	border-top: 1px solid var(--ink);
+	background: var(--repl-bg);
+	color: var(--repl-fg);
+	font: 400 12px var(--font-mono);
 	// Above the reticles (z=4) so the expanded transcript pane and
 	// the single-line peek both occlude the corner alignment marks
 	// rather than peeking through them.
@@ -1221,12 +1224,12 @@ body[class*="_page_newspack-nodes-topology"] {
 		// Solid background so the button visually clears its own
 		// footprint from any transcript text scrolling behind —
 		// without a wrapping rectangle around both controls.
-		background: $ink;
-		border: 1px solid rgba(240, 231, 214, 0.25);
-		color: rgba(240, 231, 214, 0.55);
+		background: var(--repl-bg);
+		border: 1px solid color-mix(in srgb, var(--repl-fg) 25%, transparent);
+		color: color-mix(in srgb, var(--repl-fg) 55%, transparent);
 		width: 22px;
 		height: 22px;
-		font: 700 11px $mono;
+		font: 700 11px var(--font-mono);
 		line-height: 1;
 		cursor: pointer;
 		border-radius: 0;
@@ -1234,14 +1237,14 @@ body[class*="_page_newspack-nodes-topology"] {
 		transition: all 100ms ease;
 
 		&:hover {
-			border-color: $brass;
-			color: $brass;
+			border-color: var(--brass);
+			color: var(--brass);
 		}
 	}
 
 	&__clear:hover {
-		border-color: $oxide;
-		color: $oxide;
+		border-color: var(--oxide);
+		color: var(--oxide);
 	}
 
 	&__bar {
@@ -1262,7 +1265,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	}
 
 	&__prompt {
-		color: $brass;
+		color: var(--brass);
 		font-weight: 700;
 	}
 
@@ -1270,21 +1273,21 @@ body[class*="_page_newspack-nodes-topology"] {
 		flex: 1;
 		background: transparent;
 		border: 0;
-		color: $paper;
+		color: var(--repl-fg);
 		font: inherit;
 		outline: none;
 		padding: 6px 0;
-		caret-color: $brass;
+		caret-color: var(--brass);
 
 		&::placeholder {
-			color: rgba(240, 231, 214, 0.35);
+			color: color-mix(in srgb, var(--repl-fg) 35%, transparent);
 		}
 	}
 
 	&__status {
-		font: 700 9px $mono;
+		font: 700 9px var(--font-mono);
 		letter-spacing: 0.22em;
-		color: rgba(240, 231, 214, 0.5);
+		color: color-mix(in srgb, var(--repl-fg) 50%, transparent);
 		display: flex;
 		align-items: center;
 		gap: 6px;
@@ -1294,7 +1297,7 @@ body[class*="_page_newspack-nodes-topology"] {
 		width: 6px;
 		height: 6px;
 		border-radius: 50%;
-		background: $sage;
+		background: var(--sage);
 
 		&.is-pulsing {
 			animation: topology-pulse 1.4s ease-in-out infinite;
@@ -1322,10 +1325,10 @@ body[class*="_page_newspack-nodes-topology"] {
 		// 85% opacity so the schematic peeks through behind the
 		// transcript — the canvas updates are still visible while
 		// you're reading command output.
-		background: rgba(24, 34, 46, 0.85);
+		background: color-mix(in srgb, var(--repl-bg) 85%, transparent);
 		backdrop-filter: blur(2px);
-		border-top: 1px solid rgba(240, 231, 214, 0.18);
-		border-bottom: 1px solid rgba(240, 231, 214, 0.18);
+		border-top: 1px solid color-mix(in srgb, var(--repl-fg) 18%, transparent);
+		border-bottom: 1px solid color-mix(in srgb, var(--repl-fg) 18%, transparent);
 		// Right padding leaves a corridor wide enough for the sticky
 		// [✕ ▼] actions row to sit on top of without ever overlapping
 		// transcript text. Bottom padding gives the last line clearance
@@ -1333,8 +1336,8 @@ body[class*="_page_newspack-nodes-topology"] {
 		// padding bumped from 8px to 12px to clear the 4px resize
 		// handle that overlays the top edge.
 		padding: 12px 70px 14px 18px;
-		font: 400 11px/1.5 $mono;
-		color: rgba(240, 231, 214, 0.92);
+		font: 400 11px/1.5 var(--font-mono);
+		color: color-mix(in srgb, var(--repl-fg) 92%, transparent);
 		box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
 	}
 
@@ -1367,13 +1370,13 @@ body[class*="_page_newspack-nodes-topology"] {
 			width: 32px;
 			height: 2px;
 			border-radius: 2px;
-			background: rgba(240, 231, 214, 0.25);
+			background: color-mix(in srgb, var(--repl-fg) 25%, transparent);
 			transition: background 100ms ease;
 		}
 
 		&:hover::before,
 		&:active::before {
-			background: $brass;
+			background: var(--brass);
 		}
 	}
 
@@ -1422,7 +1425,7 @@ body[class*="_page_newspack-nodes-topology"] {
 		// prompt; render in brass to match the live prompt's caret/
 		// prefix and stand out from worker responses.
 		&--sent {
-			color: $brass;
+			color: var(--brass);
 		}
 
 		// `error` entries already carry an "ERROR: " prefix from the
@@ -1445,12 +1448,12 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-app ::-webkit-scrollbar-thumb {
-	background: $ink-4;
-	border: 2px solid $paper-2;
+	background: var(--ink-4);
+	border: 2px solid var(--paper-2);
 }
 
 .topology-app ::-webkit-scrollbar-thumb:hover {
-	background: $ink-3;
+	background: var(--ink-3);
 }
 
 // ── Edit-mode Inspector form ────────────────────────────────────────────────
@@ -1458,10 +1461,10 @@ body[class*="_page_newspack-nodes-topology"] {
 	display: block;
 	margin: 8px 0 12px;
 	padding: 6px 12px;
-	background: $oxide;
-	color: $paper;
-	border: 1px solid $oxide-dark;
-	font-family: $mono;
+	background: var(--oxide);
+	color: var(--paper);
+	border: 1px solid var(--oxide-dark);
+	font-family: var(--font-mono);
 	font-size: 11px;
 	letter-spacing: 0.06em;
 	text-transform: uppercase;
@@ -1469,7 +1472,7 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-edit-delete:hover {
-	background: $oxide-dark;
+	background: var(--oxide-dark);
 }
 
 .topology-edit-row {
@@ -1490,7 +1493,7 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-edit-row__label {
-	color: $ink-2;
+	color: var(--ink-2);
 	font-size: 11px;
 	text-transform: lowercase;
 }
@@ -1499,11 +1502,11 @@ body[class*="_page_newspack-nodes-topology"] {
 	width: 100%;
 	min-width: 0;
 	padding: 5px 7px;
-	background: $paper-2;
-	border: 1px solid $ink-3;
-	font-family: $mono;
+	background: var(--paper-2);
+	border: 1px solid var(--ink-3);
+	font-family: var(--font-mono);
 	font-size: 12px;
-	color: $ink;
+	color: var(--ink);
 	box-sizing: border-box;
 }
 
@@ -1528,24 +1531,24 @@ body[class*="_page_newspack-nodes-topology"] {
 	width: 22px;
 	background: transparent;
 	border: 0;
-	color: $ink-3;
-	font: 700 14px/1 $mono;
+	color: var(--ink-3);
+	font: 700 14px/1 var(--font-mono);
 	cursor: pointer;
 }
 
 .topology-edit-row__clear:hover {
-	color: $oxide;
+	color: var(--oxide);
 }
 
 .topology-edit-row__input:focus {
 	outline: none;
-	border-color: $ink;
-	background: $paper;
+	border-color: var(--ink);
+	background: var(--paper);
 }
 
 .topology-edit-row__hint {
 	font-size: 10px;
-	color: $oxide-dark;
+	color: var(--oxide-dark);
 	margin-top: 2px;
 }
 
@@ -1560,37 +1563,37 @@ body[class*="_page_newspack-nodes-topology"] {
 	display: inline-flex;
 	align-items: center;
 	gap: 4px;
-	background: $paper-2;
-	border: 1px solid $ink-3;
+	background: var(--paper-2);
+	border: 1px solid var(--ink-3);
 	padding: 2px 4px 2px 7px;
-	font-family: $mono;
+	font-family: var(--font-mono);
 	font-size: 11px;
-	color: $ink;
+	color: var(--ink);
 }
 
 .topology-edit-chip--virtual {
 	background: transparent;
 	border-style: dashed;
-	border-color: $brass-dark;
-	color: $brass-dark;
+	border-color: var(--brass-dark);
+	color: var(--brass-dark);
 	opacity: 0.85;
 }
 
 .topology-edit-chip__name {
-	font-family: $mono;
+	font-family: var(--font-mono);
 }
 
 .topology-edit-chip__clear {
 	background: transparent;
 	border: 0;
-	color: $oxide-dark;
-	font: 700 14px/1 $mono;
+	color: var(--oxide-dark);
+	font: 700 14px/1 var(--font-mono);
 	cursor: pointer;
 	padding: 0 4px;
 }
 
 .topology-edit-chip__clear:hover {
-	color: $oxide;
+	color: var(--oxide);
 }
 
 // Inline "+ add target…" select dropdown rendered as a chip-shaped
@@ -1599,12 +1602,12 @@ body[class*="_page_newspack-nodes-topology"] {
 .topology-edit-add-chip {
 	display: inline-flex;
 	align-items: center;
-	background: $paper-2;
-	border: 1px dashed $ink-3;
+	background: var(--paper-2);
+	border: 1px dashed var(--ink-3);
 	padding: 1px 22px 1px 7px;
-	font-family: $mono;
+	font-family: var(--font-mono);
 	font-size: 11px;
-	color: $ink-2;
+	color: var(--ink-2);
 	cursor: pointer;
 	appearance: none;
 	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%235A6F7F'/%3E%3C/svg%3E");
@@ -1616,11 +1619,11 @@ body[class*="_page_newspack-nodes-topology"] {
 
 .topology-edit-add-chip:hover {
 	border-style: solid;
-	color: $ink;
+	color: var(--ink);
 }
 
 .topology-edit-verb {
-	border-bottom: 1px dotted $paper-shadow;
+	border-bottom: 1px dotted var(--paper-shadow);
 	padding: 2px 0;
 }
 
@@ -1631,7 +1634,7 @@ body[class*="_page_newspack-nodes-topology"] {
 
 .topology-edit-empty {
 	font-size: 11px;
-	color: $ink-4;
+	color: var(--ink-4);
 	font-style: italic;
 	padding: 4px 0;
 }
@@ -1643,23 +1646,23 @@ body[class*="_page_newspack-nodes-topology"] {
 	bottom: 60px;
 	transform: translateX(-50%);
 	padding: 10px 18px;
-	border: 2px solid $ink;
-	font-family: $mono;
+	border: 2px solid var(--ink);
+	font-family: var(--font-mono);
 	font-size: 13px;
 	z-index: 9100;
 	max-width: 70vw;
 }
 
 .topology-toast--success {
-	background: $sage;
-	color: $paper;
-	border-color: $sage-dark;
+	background: var(--sage);
+	color: var(--paper);
+	border-color: var(--sage-dark);
 }
 
 .topology-toast--error {
-	background: $oxide;
-	color: $paper;
-	border-color: $oxide-dark;
+	background: var(--oxide);
+	color: var(--paper);
+	border-color: var(--oxide-dark);
 }
 
 // ── OpenTopologyModal — saved-topology picker ───────────────────────────────
@@ -1677,12 +1680,12 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-open-group__title {
-	font: 700 9px $mono;
+	font: 700 9px var(--font-mono);
 	letter-spacing: 0.18em;
 	text-transform: uppercase;
-	color: $ink-3;
+	color: var(--ink-3);
 	margin: 0 0 6px;
-	border-bottom: 1px solid $paper-shadow;
+	border-bottom: 1px solid var(--paper-shadow);
 	padding-bottom: 3px;
 }
 
@@ -1698,17 +1701,17 @@ body[class*="_page_newspack-nodes-topology"] {
 	align-items: center;
 	gap: 8px;
 	padding: 6px 8px;
-	background: $paper-2;
-	border: 1px solid $paper-shadow;
-	font: 500 12px $mono;
-	color: $ink;
+	background: var(--paper-2);
+	border: 1px solid var(--paper-shadow);
+	font: 500 12px var(--font-mono);
+	color: var(--ink);
 	cursor: pointer;
 	margin-bottom: 4px;
 }
 
 .topology-open-item:hover {
-	background: $paper-3;
-	border-color: $ink-3;
+	background: var(--paper-3);
+	border-color: var(--ink-3);
 }
 
 .topology-open-item__name {
@@ -1717,8 +1720,8 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-open-item__badge {
-	background: $oxide;
-	color: $paper;
+	background: var(--oxide);
+	color: var(--paper);
 	padding: 1px 6px;
 	font-size: 9px;
 	letter-spacing: 0.12em;
@@ -1732,7 +1735,7 @@ body[class*="_page_newspack-nodes-topology"] {
 .topology-modal-backdrop {
 	position: fixed;
 	inset: 0;
-	background: rgba($ink, 0.55);
+	background: color-mix(in srgb, var(--ink) 55%, transparent);
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -1740,19 +1743,19 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-modal {
-	background: $paper;
-	border: 2px solid $ink;
+	background: var(--paper);
+	border: 2px solid var(--ink);
 	min-width: 360px;
 	max-width: 560px;
-	font-family: $mono;
-	color: $ink;
+	font-family: var(--font-mono);
+	color: var(--ink);
 }
 
 .topology-modal__header {
-	background: $ink;
-	color: $paper;
+	background: var(--ink);
+	color: var(--paper);
 	padding: 8px 14px;
-	font-family: $display-stencil;
+	font-family: var(--font-display-stencil);
 	letter-spacing: 0.05em;
 	text-transform: uppercase;
 }
@@ -1768,24 +1771,24 @@ body[class*="_page_newspack-nodes-topology"] {
 	width: 100%;
 	margin-top: 10px;
 	padding: 6px 8px;
-	background: $paper-2;
-	border: 1px solid $ink-3;
-	font-family: $mono;
+	background: var(--paper-2);
+	border: 1px solid var(--ink-3);
+	font-family: var(--font-mono);
 	font-size: 13px;
-	color: $ink;
+	color: var(--ink);
 	box-sizing: border-box;
 }
 
 .topology-modal__input:focus {
 	outline: none;
-	border-color: $ink;
-	background: $paper;
+	border-color: var(--ink);
+	background: var(--paper);
 }
 
 .topology-modal__hint {
 	margin-top: 6px;
 	font-size: 11px;
-	color: $oxide-dark;
+	color: var(--oxide-dark);
 }
 
 .topology-modal__actions {
@@ -1793,21 +1796,21 @@ body[class*="_page_newspack-nodes-topology"] {
 	justify-content: flex-end;
 	gap: 8px;
 	padding: 10px 14px;
-	border-top: 1px solid $paper-shadow;
+	border-top: 1px solid var(--paper-shadow);
 }
 
 .topology-modal__btn {
-	font-family: $mono;
+	font-family: var(--font-mono);
 	font-size: 12px;
 	padding: 6px 14px;
-	background: $paper-2;
-	border: 1px solid $ink-3;
-	color: $ink;
+	background: var(--paper-2);
+	border: 1px solid var(--ink-3);
+	color: var(--ink);
 	cursor: pointer;
 }
 
 .topology-modal__btn:hover {
-	background: $paper-3;
+	background: var(--paper-3);
 }
 
 .topology-modal__btn:disabled {
@@ -1816,21 +1819,21 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-modal__btn--primary {
-	background: $ink;
-	color: $paper;
-	border-color: $ink;
+	background: var(--ink);
+	color: var(--paper);
+	border-color: var(--ink);
 }
 
 .topology-modal__btn--primary:hover {
-	background: $ink-2;
+	background: var(--ink-2);
 }
 
 .topology-modal__btn--danger {
-	background: $oxide;
-	color: $paper;
-	border-color: $oxide-dark;
+	background: var(--oxide);
+	color: var(--paper);
+	border-color: var(--oxide-dark);
 }
 
 .topology-modal__btn--danger:hover {
-	background: $oxide-dark;
+	background: var(--oxide-dark);
 }
