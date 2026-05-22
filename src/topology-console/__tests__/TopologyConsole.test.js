@@ -1976,4 +1976,50 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByText( 'save-layout' ) ).toBeNull();
 		expect( getByText( 'submit' ) ).not.toBeNull();
 	} );
+
+	describe( 'skin theme', () => {
+		const rootClass = ( container ) =>
+			container.querySelector( '.topology-app' ).className;
+
+		it( 'defaults to theme-current when localStorage is empty', () => {
+			const { container } = render( <TopologyConsole /> );
+			expect( rootClass( container ) ).toContain( 'theme-current' );
+		} );
+
+		it( 'applies a valid stored skin on mount', () => {
+			window.localStorage.setItem(
+				'newspack-nodes:topology:theme',
+				'blueprint'
+			);
+			const { container } = render( <TopologyConsole /> );
+			expect( rootClass( container ) ).toContain( 'theme-blueprint' );
+		} );
+
+		it( 'falls back to theme-current for an unknown stored skin', () => {
+			window.localStorage.setItem(
+				'newspack-nodes:topology:theme',
+				'bogus'
+			);
+			const { container } = render( <TopologyConsole /> );
+			expect( rootClass( container ) ).toContain( 'theme-current' );
+			expect( rootClass( container ) ).not.toContain( 'theme-bogus' );
+		} );
+
+		it( 'passes the current theme + full skin list to the header', () => {
+			render( <TopologyConsole /> );
+			expect( lastHeaderProps.theme ).toBe( 'current' );
+			expect( lastHeaderProps.themes.length ).toBe( 13 );
+		} );
+
+		it( 'changing the skin updates the root class and persists', () => {
+			const { container } = render( <TopologyConsole /> );
+			act( () => {
+				lastHeaderProps.onThemeChange( 'crt' );
+			} );
+			expect( rootClass( container ) ).toContain( 'theme-crt' );
+			expect(
+				window.localStorage.getItem( 'newspack-nodes:topology:theme' )
+			).toBe( 'crt' );
+		} );
+	} );
 } );

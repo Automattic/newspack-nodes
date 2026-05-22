@@ -17,15 +17,22 @@ const baseProps = {
 	streamStatus: 'connecting',
 	uptime: '',
 	mode: 'view',
+	theme: 'current',
+	onThemeChange: () => {},
+	themes: [
+		{ slug: 'current', label: 'Current' },
+		{ slug: 'blueprint', label: 'Blueprint' },
+	],
 };
 
 describe( 'Header', () => {
 	it( 'renders topology and partition selectors in view mode', () => {
 		const { container } = render( <Header { ...baseProps } /> );
 		const selects = container.querySelectorAll( 'select' );
-		expect( selects ).toHaveLength( 2 );
+		expect( selects ).toHaveLength( 3 );
 		expect( selects[ 0 ].value ).toBe( 't1' );
 		expect( selects[ 1 ].value ).toBe( '0' );
+		expect( selects[ 2 ].value ).toBe( 'current' );
 	} );
 
 	it( 'calls onTopologyChange when the topology select changes', () => {
@@ -50,9 +57,31 @@ describe( 'Header', () => {
 		expect( onPartitionChange ).toHaveBeenCalledWith( 1 );
 	} );
 
-	it( 'hides topology/partition selects in edit mode', () => {
-		const { container } = render( <Header { ...baseProps } mode="edit" /> );
-		expect( container.querySelectorAll( 'select' ) ).toHaveLength( 0 );
+	it( 'hides feed selects in edit mode but keeps the skin picker', () => {
+		const { container, getByLabelText } = render(
+			<Header { ...baseProps } mode="edit" />
+		);
+		const selects = container.querySelectorAll( 'select' );
+		expect( selects ).toHaveLength( 1 );
+		expect( getByLabelText( 'Skin' ) ).toBe( selects[ 0 ] );
+	} );
+
+	it( 'renders the skin picker and fires onThemeChange', () => {
+		const onThemeChange = jest.fn();
+		const { getByLabelText } = render(
+			<Header { ...baseProps } onThemeChange={ onThemeChange } />
+		);
+		const skin = getByLabelText( 'Skin' );
+		expect( skin.value ).toBe( 'current' );
+		fireEvent.change( skin, { target: { value: 'blueprint' } } );
+		expect( onThemeChange ).toHaveBeenCalledWith( 'blueprint' );
+	} );
+
+	it( 'lists every supplied skin as an option', () => {
+		const { getByLabelText } = render( <Header { ...baseProps } /> );
+		expect(
+			getByLabelText( 'Skin' ).querySelectorAll( 'option' )
+		).toHaveLength( 2 );
 	} );
 
 	it( 'shows NEW/OPEN/SAVE buttons in edit mode and wires them', () => {

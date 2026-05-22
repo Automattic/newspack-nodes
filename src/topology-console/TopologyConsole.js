@@ -58,6 +58,7 @@ import {
 	TM_COMMAND,
 } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
+import { THEMES, DEFAULT_THEME, isValidTheme } from './themes';
 
 function topologyMap() {
 	return (
@@ -119,6 +120,18 @@ const RATE_HISTORY_MAX = 60;
 const EMPTY_GRAPH = { nodes: [], edges: [] };
 const EMPTY_TRANSCRIPT = [];
 
+const THEME_STORAGE_KEY = 'newspack-nodes:topology:theme';
+
+// Read the persisted skin; unknown/absent/disabled storage falls back to default.
+function readStoredTheme() {
+	try {
+		const slug = window.localStorage.getItem( THEME_STORAGE_KEY );
+		return isValidTheme( slug ) ? slug : DEFAULT_THEME;
+	} catch ( _err ) {
+		return DEFAULT_THEME;
+	}
+}
+
 export default function TopologyConsole() {
 	const [ topology, setTopology ] = useState( () =>
 		initialTopologyFromUrl( TOPOLOGIES[ 0 ] )
@@ -141,6 +154,16 @@ export default function TopologyConsole() {
 	const [ saveModal, setSaveModal ] = useState( null );
 	const [ openModalShown, setOpenModalShown ] = useState( false );
 	const [ toast, setToast ] = useState( null );
+	const [ theme, setThemeState ] = useState( readStoredTheme );
+	const setTheme = useCallback( ( slug ) => {
+		const next = isValidTheme( slug ) ? slug : DEFAULT_THEME;
+		setThemeState( next );
+		try {
+			window.localStorage.setItem( THEME_STORAGE_KEY, next );
+		} catch ( _err ) {
+			// localStorage disabled/quota'd; in-session only.
+		}
+	}, [] );
 	const saveTopology = useSaveTopology();
 	const deleteTopology = useDeleteTopology();
 	const fetchTopology = useTopology();
@@ -1236,7 +1259,7 @@ export default function TopologyConsole() {
 
 	return (
 		<div
-			className={ `topology-app${
+			className={ `topology-app theme-${ theme }${
 				selectedId ? ' is-inspector-open' : ''
 			}${ mode === 'edit' ? ' is-edit-mode' : '' }` }
 		>
@@ -1256,6 +1279,9 @@ export default function TopologyConsole() {
 				onNew={ handleNew }
 				onDelete={ handleDelete }
 				canDelete={ canDeleteCurrent }
+				theme={ theme }
+				onThemeChange={ setTheme }
+				themes={ THEMES }
 			/>
 			{ mode === 'edit' && (
 				<Palette

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Topology Console skin menu.** A header picker switches the console between the
+  current drafting-plotter skin and 12 alternatives (Cyanotype Blueprint, CRT Phosphor
+  Terminal, Swiss Brutalist, Synthwave Outrun, Nord Frost, Aurora Glass, Solarized
+  Workshop, Botanical Naturalist, Bauhaus Constructivist, Neo-Tokyo HUD, Pastel Toy,
+  Control-Room SCADA). The choice persists per browser (localStorage). The stylesheet
+  was refactored to CSS custom properties so each skin is a token-override block with
+  no change to the default look.
+
 ### Security
 
 - **Command authorization (two-tier).** A `TM_COMMAND` arriving on an untrusted
