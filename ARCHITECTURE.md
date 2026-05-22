@@ -29,45 +29,47 @@ Three core ideas:
 3. **Drain loop** — EventFramework picks the soonest pending timer's deadline as its wait timeout, then sleeps on `curl_multi_select` (when cURL handles are registered) or `usleep` (otherwise), fires expired timers, and runs deferred cleanup.
 
 ```
-+-----------------------------------------------------------+
-|                      EventFramework                       |
-|  drain():                                                 |
-|   - compute timeout = next-timer deadline                 |
-|   - if cURL handles: curl_multi_select(timeout) ->        |
-|       drain transfers                                     |
-|   - else:           usleep(timeout)                       |
-|   - handle signals                                        |
-|   - run Core::$closing deferred-cleanup queue             |
-|   - fire expired timers                                   |
-|   - loop check (should_continue)                          |
-+-------------------------+---------------------------------+
-                          | on each tick
-                          v
-+-----------------------------------------------------------+
-|                         Router                            |
-|  fill($message):  (PHP — there is NO empty-TO short-cut)  |
-|   - [head, rest] = explode("/", TO, 2)                    |
-|   - TO = rest                                             |
-|   - target = Core::node(head)                             |
-|   - if !target: bounce NOT_AVAILABLE (TM_ERROR) to FROM   |
-|   - else:        target->fill($message)                   |
-|   - fire() tick: notify("TIMER", now) + Core::prune_logs()|
-+-------------------------+---------------------------------+
-                          | fill($message)
-                          v
-+-----------------------------------------------------------+
-|                       Node graph                          |
-|   +----+    +----+    +----+                              |
-|   | A  | -->| B  | -->| C  | --> [terminal]               |
-|   +----+    +----+    +----+                              |
-|              fan-out via Tee:                             |
-|              +----+ -> +----+                             |
-|              |Tee | -> | X  |                             |
-|              +----+ -> +----+                             |
-|                       | Y  |                              |
-|                       +----+                              |
-+-----------------------------------------------------------+
+┌───────────────────────────────────────────────────────────┐
+│                      EventFramework                       │
+│  drain():                                                 │
+│   - compute timeout = next-timer deadline                 │
+│   - if cURL handles: curl_multi_select(timeout) ->        │
+│       drain transfers                                     │
+│   - else:           usleep(timeout)                       │
+│   - handle signals                                        │
+│   - run Core::$closing deferred-cleanup queue             │
+│   - fire expired timers                                   │
+│   - loop check (should_continue)                          │
+└─────────────────────────┬─────────────────────────────────┘
+                          │ on each tick
+                          ▼
+┌───────────────────────────────────────────────────────────┐
+│                         Router                            │
+│  fill($message):  (PHP — there is NO empty-TO short-cut)  │
+│   - [head, rest] = explode("/", TO, 2)                    │
+│   - TO = rest                                             │
+│   - target = Core::node(head)                             │
+│   - if !target: bounce NOT_AVAILABLE (TM_ERROR) to FROM   │
+│   - else:        target->fill($message)                   │
+│   - fire() tick: notify("TIMER", now) + Core::prune_logs()│
+└─────────────────────────┬─────────────────────────────────┘
+                          │ fill($message)
+                          ▼
+┌───────────────────────────────────────────────────────────┐
+│                       Node graph                          │
+│   ┌────┐    ┌────┐    ┌────┐                              │
+│   │ A  │ ──>│ B  │ ──>│ C  │ ──> [terminal]               │
+│   └────┘    └────┘    └────┘                              │
+│              fan─out via Tee:                             │
+│             ┌────┐    ┌────┐                              │
+│             │Tee │ ──>│ X  │                              │
+│             └────┘    └────┘                              │
+│                 │     ┌────┐                              │
+│                 └────>│ Y  │                              │
+│                       └────┘                              │
+└───────────────────────────────────────────────────────────┘
 ```
+─
 
 ## Message Format
 
@@ -93,12 +95,15 @@ class Message {
 **Type-flag bitmask** (9 flags):
 
 ```
-TM_BYTESTREAM = 1     TM_INFO    = 64
-TM_EOF        = 2     TM_STRUCT  = 256
-TM_PING       = 4     TM_REQUEST = 512
-TM_COMMAND    = 8
-TM_RESPONSE   = 16
-TM_ERROR      = 32
+TM_BYTESTREAM = 1;
+TM_EOF        = 2;
+TM_PING       = 4;
+TM_COMMAND    = 8;
+TM_STRUCT     = 16;
+TM_ERROR      = 32;
+TM_INFO       = 64;
+TM_REQUEST    = 128;
+TM_RESPONSE   = 256;
 ```
 
 Flags compose via bitwise OR: `TM_COMMAND | TM_RESPONSE` = a response to a command. Receivers check via `&`: `if ( $type & TM_COMMAND ) { ... }`. **Never use strict `===`** on combined flags — it misses every combination.
