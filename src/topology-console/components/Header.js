@@ -22,6 +22,9 @@ export default function Header( {
 	onNew,
 	onDelete,
 	canDelete,
+	theme,
+	onThemeChange,
+	themes = [],
 } ) {
 	return (
 		<header className="topology-header">
@@ -70,6 +73,22 @@ export default function Header( {
 						</select>
 					</>
 				) }
+				{ /* Skin picker — global preference, shown in every mode. */ }
+				<span className="topology-ctl-label">Skin</span>
+				<select
+					className="topology-select topology-select--skin"
+					aria-label="Skin"
+					value={ theme }
+					onChange={ ( e ) =>
+						onThemeChange && onThemeChange( e.target.value )
+					}
+				>
+					{ themes.map( ( t ) => (
+						<option key={ t.slug } value={ t.slug }>
+							{ t.label }
+						</option>
+					) ) }
+				</select>
 				<div className="topology-mode">
 					{ mode === 'edit' && (
 						<button
