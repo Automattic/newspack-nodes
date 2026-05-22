@@ -48,6 +48,17 @@ class CoreTest extends TestCase {
 		$this->assertGreaterThan( 0.0, Core::$init_time );
 	}
 
+	public function test_memd_defaults_to_null(): void {
+		Core::reset();
+		$this->assertNull( Core::$memd );
+	}
+
+	public function test_reset_clears_memd_handle(): void {
+		Core::$memd = new \Memcached();
+		Core::reset();
+		$this->assertNull( Core::$memd, 'Core::reset() must clear the shared Memcached handle for test isolation' );
+	}
+
 	public function test_run_closing_executes_callbacks_in_order(): void {
 		$order = [];
 		Core::push_closing( function () use ( &$order ) { $order[] = 'a'; } );
