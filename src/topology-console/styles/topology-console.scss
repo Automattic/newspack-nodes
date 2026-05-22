@@ -1290,6 +1290,11 @@ body[class*="_page_newspack-nodes-topology"] {
 		outline: none;
 		padding: 6px 0;
 		caret-color: var(--brass);
+		// Kill WP-admin's blue focus ring; the brass caret already signals focus.
+		&:focus {
+			box-shadow: none;
+			outline: none;
+		}
 
 		&::placeholder {
 			color: color-mix(in srgb, var(--repl-fg) 35%, transparent);
