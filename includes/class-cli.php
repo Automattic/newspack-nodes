@@ -62,21 +62,21 @@ class Cli {
 	/**
 	 * Resolve IPC paths for a `{type}.p{N}` reader id; verifies the worker's lock dir exists.
 	 *
-	 * @param string $reader_id Reader id in `{type}.p{N}` form.
+	 * @param string $worker_id Worker id in `{type}.p{N}` form.
 	 * @return array{input:string,output:string,type:string,partition:int}
-	 * @throws \InvalidArgumentException If reader_id can't be parsed or no matching lock dir exists.
+	 * @throws \InvalidArgumentException If worker_id can't be parsed or no matching lock dir exists.
 	 */
-	public function attach_to_worker( string $reader_id ): array {
-		[ $type, $partition ] = self::parse_reader_id( $reader_id );
-		$lock_dir             = "{$this->base_dir}/locks/{$reader_id}.lock.d";
+	public function attach_to_worker( string $worker_id ): array {
+		[ $type, $partition ] = self::parse_worker_id( $worker_id );
+		$lock_dir             = "{$this->base_dir}/locks/{$worker_id}.lock.d";
 		if ( ! \is_dir( $lock_dir ) ) {
 			throw new \InvalidArgumentException(
-				\esc_html( "no worker '{$reader_id}' (run `wp nodes ls` to list active workers)" )
+				\esc_html( "no worker '{$worker_id}' (run `wp nodes ls` to list active workers)" )
 			);
 		}
 		return [
-			'input'     => "{$this->base_dir}/ipc/{$reader_id}/input",
-			'output'    => "{$this->base_dir}/ipc/{$reader_id}/output",
+			'input'     => "{$this->base_dir}/ipc/{$worker_id}/input",
+			'output'    => "{$this->base_dir}/ipc/{$worker_id}/output",
 			'type'      => $type,
 			'partition' => $partition,
 		];
@@ -85,13 +85,13 @@ class Cli {
 	/**
 	 * Parse `{type}.p{N}` into [type, partition].
 	 *
-	 * @param string $reader_id Reader id.
+	 * @param string $worker_id Worker id.
 	 * @return array{0:string,1:int}
-	 * @throws \InvalidArgumentException If reader_id can't be parsed.
+	 * @throws \InvalidArgumentException If worker_id can't be parsed.
 	 */
-	public static function parse_reader_id( string $reader_id ): array {
-		if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $reader_id, $m ) ) {
-			throw new \InvalidArgumentException( \esc_html( "invalid reader id: $reader_id (expected {type}.p{N})" ) );
+	public static function parse_worker_id( string $worker_id ): array {
+		if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $worker_id, $m ) ) {
+			throw new \InvalidArgumentException( \esc_html( "invalid reader id: $worker_id (expected {type}.p{N})" ) );
 		}
 		return [ $m[1], (int) $m[2] ];
 	}

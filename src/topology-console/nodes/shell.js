@@ -83,8 +83,6 @@ export class Shell extends Node {
 		super();
 		// cwd: the node-path bare verbs route to by default. Settable by the host.
 		this.path = '';
-		// Open messages-stream session pid; the reply pivot. Settable by the host.
-		this.ssePid = null;
 	}
 
 	// Slash-join cwd with an extra path arg, dropping empty pieces (PHP prefix()).
@@ -99,9 +97,35 @@ export class Shell extends Node {
 		return parts.join( '/' );
 	}
 
-	// FROM=`_http/<ssePid>/<reply-node>` so the worker reply walks back here.
+	// FROM = the bare reply node. When the cwd routes through `_sse:{pid}` that
+	// session node wraps it into the private pivot `_http/_sse:{pid}/<reply-node>`;
+	// otherwise (`_http/…`) it stays bare and replies broadcast.
 	replyFrom( replyNode ) {
-		return `${ names.HTTP }/${ this.ssePid }/${ replyNode }`;
+		return replyNode;
+	}
+
+	/**
+	 * Resolve a relative/absolute path against the cwd (mirrors PHP Shell::cd).
+	 * `/` resets to the browser-local graph root; `/x` is absolute; `..` walks up;
+	 * anything else appends. The result is TO-ready (no leading/trailing slash).
+	 *
+	 * @param {string} cwd  Current path.
+	 * @param {string} path The `cd` argument.
+	 * @return {string} The new cwd.
+	 */
+	cd( cwd, path ) {
+		if ( '/' !== path && '' !== path && '/' === path[ 0 ] ) {
+			cwd = path;
+		} else if ( '/' === path ) {
+			cwd = '';
+		} else if ( '' !== path && /^\.\.\/?/.test( path ) ) {
+			cwd = cwd.replace( /\/?[^/]+$/, '' );
+			path = path.replace( /^\.\.\/?/, '' );
+			cwd = this.cd( cwd, path );
+		} else if ( '' !== path ) {
+			cwd += '/' + path;
+		}
+		return cwd.replace( /^\/+/, '' ).replace( /\/+$/, '' );
 	}
 
 	/**
@@ -132,6 +156,14 @@ export class Shell extends Node {
 				return { kind: 'error', text: 'usage: debug_level [0|1|2]' };
 			}
 			return { kind: 'local', name: 'debug_level', level };
+		}
+
+		// `cd` navigates the path tree locally (no message). `/` = browser-internal
+		// graph; `/_http` = the HTTP boundary (HttpOut → /command → PHP HTTP_In);
+		// `/_http/<worker>` = a worker; `..` walks up. Mirrors the cli's cd.
+		if ( 'cd' === verb || 'chdir' === verb ) {
+			this.path = this.cd( this.path, rest );
+			return null;
 		}
 
 		const msg = newMessage();

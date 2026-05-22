@@ -33,6 +33,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   CommandInterpreters verify the signature (windowed, with single-use nonces) and
   refuse unsigned/forged/replayed commands. Every command is gated.
 
+### Changed
+
+- **`cd` navigation in the REPL/console (browser + cli).** The shell path is a
+  node-graph tree you walk with `cd`: `/` is the local in-browser graph, `/_sse`
+  the HTTP/SSE session boundary, `/_sse/{worker}` a worker (cli: `/` local, then
+  the worker mounts as a named node). The prompt reflects the cwd (per-transcript
+  entry, so history doesn't rewrite on `cd`), and the canvas + `ls`/`dump_metadata`
+  show the nodes at the current path — local graph, request-scope graph, or worker
+  graph. The browser CI gained local `ls`/`list_nodes`/`dump_metadata` verbs.
+- **`_sse` is the bidirectional session node; replies are per-session private.** A
+  console command's reply pivots through `_sse:{pid}` (`HTTP_Filter` matches that
+  head) so only the originating session sees it; the synchronous `/command`
+  response is fed back into the receive graph (`HttpOut` → `_sse`, which strips its
+  own `_sse:{pid}` head). Routed-onward commands return a bare `202` (no body).
+- **The Router has no sink.** It routes solely by peeling `TO` and drops what it
+  cannot peel (empty/unknown head → `NOT_AVAILABLE`); setting a sink on it now
+  throws. `HTTP_In` routes incoming `/command` messages through the base
+  `_command_interpreter` (which interprets an empty-`TO` command and forwards the
+  rest to `_router`), mirroring the client's `Shell → CI → _router` spine.
+
 ## [0.3.0] - 2026-05-22
 
 ### Fixed

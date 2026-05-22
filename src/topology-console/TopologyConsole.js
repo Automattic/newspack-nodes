@@ -55,6 +55,7 @@ import {
 	FROM,
 	TO,
 	VALUE,
+	LOCAL,
 	TM_COMMAND,
 } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
@@ -203,6 +204,16 @@ export default function TopologyConsole() {
 
 	// The silent canvas polls fill the CommandInterpreter directly (§5).
 	const fillCommandInterpreter = useNodeFill( names.COMMAND_INTERPRETER );
+
+	// Shell cwd mirrored into React so the prompt + the canvas poll follow `cd`.
+	// `shell.path` is the source of truth; a graph swap (topology/partition change)
+	// remounts the Shell with a fresh path, so re-sync whenever `shell` changes.
+	const [ cwd, setCwd ] = useState( '' );
+	useEffect( () => {
+		if ( shell ) {
+			setCwd( shell.path );
+		}
+	}, [ shell ] );
 
 	// Scoped per topology.partition so positions don't bleed between workers.
 	const positionStorageKey = `newspack-nodes:topology:${ topology }.p${ partition }:positions`;
@@ -566,12 +577,22 @@ export default function TopologyConsole() {
 			// Shell.parse → null (empty/comment), a local/error signal, or a
 			// positional Message. We branch BEFORE filling so the ssePid gate
 			// only blocks worker-bound sends, not local builtins.
+			// Capture the prompt the user typed AT before `cd` mutates the path, so
+			// the echoed entry keeps its own prompt instead of re-rendering on cd.
+			const promptAtSend = `/${ shell.path }`;
 			const parsedLine = shell.parse( statement );
+			// `cd` mutates shell.path and returns null; mirror it so the prompt +
+			// canvas poll follow the new cwd.
+			setCwd( shell.path );
 			if ( null === parsedLine ) {
 				return;
 			}
-			// Echo the user's input verbatim.
-			appendTranscript( { kind: 'sent', text: statement } );
+			// Echo the user's input verbatim, tagged with the prompt at send time.
+			appendTranscript( {
+				kind: 'sent',
+				text: statement,
+				prompt: promptAtSend,
+			} );
 
 			if ( Array.isArray( parsedLine ) ) {
 				// A worker-bound Message; the reply arrives async over SSE.
@@ -618,17 +639,24 @@ export default function TopologyConsole() {
 	// so the Router keeps the silent refresh OUT of the transcript. Filled into
 	// the CommandInterpreter; paused in edit mode and pre-pid.
 	useEffect( () => {
+		// Poll the nodes at the shell's CURRENT path (cwd) — every level: '' (local
+		// browser CI), `_sse`/`_http` (request-scope, reply via POST-body intake),
+		// `_sse/{worker}` (worker, reply via SSE).
 		if ( mode === 'edit' || ! ssePid ) {
 			return undefined;
 		}
-		const reader = `${ topology }.p${ partition }`;
-		// TO=_http/{reader}: the Router peels _http → HttpOut → POST to {reader}.
 		const pollMessage = ( verb, replyNode ) => {
 			const m = newMessage();
 			m[ TYPE ] = TM_COMMAND;
-			m[ FROM ] = `${ names.HTTP }/${ ssePid }/${ replyNode }`;
-			m[ TO ] = `${ names.HTTP }/${ reader }`;
+			// Bare reply node; the `_sse` session node on the cwd wraps it into the
+			// private reply pivot. TO=cwd routes through that session node.
+			m[ FROM ] = replyNode;
+			m[ TO ] = cwd;
 			m[ VALUE ] = { name: verb, arguments: '', payload: '' };
+			// In-process command (minted by the browser for itself) → LOCAL, so the
+			// browser CI authorizes it when interpreted locally (cwd=''). Stripped at
+			// the wire for remote cwds.
+			m[ LOCAL ] = true;
 			return m;
 		};
 		const pollMetadata = () =>
@@ -650,7 +678,7 @@ export default function TopologyConsole() {
 			}
 		}, STATS_INTERVAL_MS );
 		return () => clearInterval( id );
-	}, [ mode, ssePid, topology, partition, fillCommandInterpreter ] );
+	}, [ mode, ssePid, cwd, fillCommandInterpreter ] );
 
 	// Split on unquoted `;` so `help; ls` dispatches as two commands.
 	const sendLine = useCallback(
@@ -1352,8 +1380,7 @@ export default function TopologyConsole() {
 			) }
 			{ mode !== 'edit' && (
 				<ReplFooter
-					topology={ topology }
-					partition={ partition }
+					prompt={ `/${ cwd }` }
 					streamStatus={ status }
 					canSend={ status === 'open' && !! ssePid }
 					onSubmit={ sendLine }

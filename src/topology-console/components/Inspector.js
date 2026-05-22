@@ -884,13 +884,16 @@ export default function Inspector( {
 
 	// Button state derived from server metadata, not client bookkeeping.
 	const traceOn = node.debugState > 0;
-	// The worker stamps `_repl/` onto incoming FROM, so a tail from this
-	// session lands as `_repl/_output/{sse_pid}` — match that stored form.
+	// A tail (`connect_node <node>` with no target) defaults the Tee target to
+	// the issuing command's FROM. That FROM is this session's reply pivot
+	// `_http/_sse:{pid}/_output`, which the worker's reply-in Consumer prefixes
+	// with `_repl/` — so the stored edge target is `_repl/_http/_sse:{pid}/_output`.
 	const tailOn =
 		ssePid &&
 		parsed.edges.some(
 			( e ) =>
-				e.from === selectedId && e.to === `_repl/_output/${ ssePid }`
+				e.from === selectedId &&
+				e.to === `_repl/_http/_sse:${ ssePid }/_output`
 		);
 
 	return (

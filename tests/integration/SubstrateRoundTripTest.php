@@ -41,10 +41,10 @@ class SubstrateRoundTripTest extends TestCase {
 		$router = new Router();
 		$router->name( '_router' );
 
-		// Producer captures the error.
+		// Producer captures the error: the NOT_AVAILABLE bounce routes back via
+		// TO=FROM='producer' (the Router has no sink — the producer is reached by name).
 		$producer = new CaptureSink();
 		$producer->name( 'producer' );
-		$router->sink( $producer );
 
 		$msg                  = Message::new_message();
 		$msg[ Message::TO ]   = 'nowhere';

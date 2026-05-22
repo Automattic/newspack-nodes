@@ -125,22 +125,22 @@ class Bootstrap {
 	 *
 	 * @return bool True iff the partition is now mounted.
 	 */
-	public static function register_worker_partition( string $reader_id, string $base_dir ): bool {
-		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/', $reader_id ) ) {
+	public static function register_worker_partition( string $worker_id, string $base_dir ): bool {
+		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/', $worker_id ) ) {
 			return false;
 		}
-		if ( Core::node( $reader_id ) instanceof Partition ) {
+		if ( Core::node( $worker_id ) instanceof Partition ) {
 			return true;
 		}
 		// A live worker holds a lock dir; its input dir is what we mount.
-		if ( ! \is_dir( "{$base_dir}/locks/{$reader_id}.lock.d" ) ) {
+		if ( ! \is_dir( "{$base_dir}/locks/{$worker_id}.lock.d" ) ) {
 			return false;
 		}
-		$input_dir = "{$base_dir}/ipc/{$reader_id}/input";
+		$input_dir = "{$base_dir}/ipc/{$worker_id}/input";
 		if ( ! \is_dir( $input_dir ) ) {
 			return false;
 		}
-		( new Partition( $input_dir, 0 ) )->name( $reader_id );
+		( new Partition( $input_dir, 0 ) )->name( $worker_id );
 		return true;
 	}
 

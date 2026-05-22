@@ -68,11 +68,13 @@ class RouterTest extends TestCase {
 	}
 
 	public function test_unknown_target_drops_TM_ERROR_messages_silently(): void {
-		// Don't bounce errors-on-errors.
+		// Don't bounce errors-on-errors: a TM_ERROR to an unknown target is dropped,
+		// not walked back to FROM. (Verified via the FROM node, since the Router
+		// has no sink.)
 		$router = new Router();
 		$router->name( '_router' );
-		$out = new CaptureSink();
-		$router->sink( $out );
+		$origin = new CaptureSink();
+		$origin->name( 'someone' );
 
 		$msg                  = Message::new_message();
 		$msg[ Message::TYPE ] = Message::TM_ERROR;
@@ -80,6 +82,21 @@ class RouterTest extends TestCase {
 		$msg[ Message::FROM ] = 'someone';
 
 		$router->fill( $msg );
-		$this->assertCount( 0, $out->captured );
+		$this->assertCount( 0, $origin->captured );
+	}
+
+	public function test_router_getter_returns_null_sink(): void {
+		$router = new Router();
+		$router->name( '_router' );
+		$this->assertNull( $router->sink() );
+	}
+
+	public function test_setting_a_sink_throws(): void {
+		// The Router routes by peeling TO and drops what it cannot peel — it must
+		// never have a sink.
+		$router = new Router();
+		$router->name( '_router' );
+		$this->expectException( \InvalidArgumentException::class );
+		$router->sink( new CaptureSink() );
 	}
 }

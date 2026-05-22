@@ -19,15 +19,16 @@ import names from '../../../runtime/reserved-node-names.json';
 let lastConnector = null;
 
 jest.mock( '../../nodes/sseIn', () => {
-	const { Node } = require( '../../../runtime/node' );
-	class FakeSseIn extends Node {
+	// Extend the REAL SseIn so the session wrap/routing logic is exercised; only
+	// the EventSource bits (start/close/pid) are stubbed.
+	const { SseIn: RealSseIn } = jest.requireActual( '../../nodes/sseIn' );
+	class FakeSseIn extends RealSseIn {
 		constructor( opts ) {
-			super();
+			super( opts );
 			this.opts = opts;
 			this.started = false;
 			this.closed = false;
 			this._pid = null;
-			this.registrations.connected = {};
 			// eslint-disable-next-line no-undef
 			lastConnector = this;
 		}
@@ -106,9 +107,9 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( lastConnector.opts.nonce ).toBe( 'NONCE' );
 	} );
 
-	it( 'sets the Shell cwd path to _http/{reader}', () => {
+	it( 'sets the Shell cwd path to the private session default _sse/{reader}', () => {
 		const { result } = renderGraph( { topology: 'demo', partition: 2 } );
-		expect( result.current.shell.path ).toBe( '_http/demo.p2' );
+		expect( result.current.shell.path ).toBe( '_sse/demo.p2' );
 	} );
 } );
 
@@ -126,10 +127,11 @@ describe( 'useConsoleGraph — connection state', () => {
 		expect( result.current.ssePid ).toBe( 12345 );
 	} );
 
-	it( 'pushes the connected pid onto the Shell so its reply pivot re-keys', () => {
+	it( 'exposes the connected pid (the wrap reads it from _sse, not the Shell)', () => {
 		const { result } = renderGraph();
 		act( () => lastConnector.emitConnected( 777 ) );
-		expect( result.current.shell.ssePid ).toBe( 777 );
+		expect( result.current.ssePid ).toBe( 777 );
+		expect( lastConnector.pid() ).toBe( 777 );
 	} );
 } );
 
@@ -152,6 +154,31 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 			expect.objectContaining( {
 				kind: 'recv',
 				text: 'hello from worker',
+			} ),
+		] );
+	} );
+
+	it( 'an SSE broadcast with empty TO lands in the Dumper transcript', () => {
+		// A broadcast (e.g. `send _repl ...`) arrives over SSE with TO='' (no
+		// reply-node). The browser _router can't peel an empty TO, so it must
+		// forward to its sink (_output) — otherwise the broadcast is dropped.
+		renderGraph();
+		const {
+			newMessage,
+			TYPE,
+			TO,
+			VALUE,
+			TM_BYTESTREAM,
+		} = require( '../../../runtime/message' );
+		const m = newMessage();
+		m[ TYPE ] = TM_BYTESTREAM;
+		m[ TO ] = ''; // broadcast — unaddressed
+		m[ VALUE ] = 'broadcast from worker';
+		act( () => lastConnector.fill( m ) );
+		expect( Core.node( names.OUTPUT ).setStateCache.transcript ).toEqual( [
+			expect.objectContaining( {
+				kind: 'recv',
+				text: 'broadcast from worker',
 			} ),
 		] );
 	} );
@@ -194,8 +221,22 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect( batch[ 0 ][ VALUE ].arguments ).toBe( 'demo.p0' );
 		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p0' );
 		expect( batch[ 1 ][ VALUE ].name ).toBe( 'ls' );
-		// The reply pivot walks back to _output.
-		expect( batch[ 1 ][ FROM ] ).toBe( '_http/4242/_output' );
+		// `_sse` wrapped the bare `_output` FROM into the private reply pivot.
+		expect( batch[ 1 ][ FROM ] ).toBe(
+			`_http/${ names.SSE }:4242/_output`
+		);
+	} );
+
+	it( 'ls at the local root (cd /) lists the in-browser nodes in the transcript', () => {
+		const { result } = renderGraph();
+		act( () => result.current.shell.fill( 'cd /' ) ); // empty cwd → local CI
+		act( () => result.current.shell.fill( 'ls' ) );
+		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
+		const recv = transcript.find( ( e ) => e.kind === 'recv' );
+		expect( recv ).toBeTruthy();
+		expect( recv.text ).toContain( names.COMMAND_INTERPRETER );
+		expect( recv.text ).toContain( names.OUTPUT );
+		expect( recv.text ).toContain( names.SSE );
 	} );
 } );
 

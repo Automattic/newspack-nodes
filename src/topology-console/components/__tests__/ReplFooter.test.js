@@ -6,8 +6,7 @@ import { render, fireEvent, act } from '@testing-library/react';
 import ReplFooter from '../ReplFooter';
 
 const baseProps = {
-	topology: 'demo',
-	partition: 0,
+	prompt: '/_http/demo.p0',
 	streamStatus: 'open',
 	canSend: true,
 	onSubmit: () => {},
@@ -25,10 +24,10 @@ describe( 'ReplFooter', () => {
 		window.localStorage.clear();
 	} );
 
-	it( 'renders the prompt with topology + partition', () => {
+	it( 'renders the cwd prompt it is given', () => {
 		const { container } = render( <ReplFooter { ...baseProps } /> );
 		const prompt = container.querySelector( '.topology-repl__prompt' );
-		expect( prompt.textContent ).toMatch( /demo\.p0/ );
+		expect( prompt.textContent ).toMatch( /\/_http\/demo\.p0>/ );
 	} );
 
 	it( 'maps streamStatus to CONNECTING/CONNECTED/DISCONNECTED/CLOSED', () => {
@@ -190,7 +189,7 @@ describe( 'ReplFooter', () => {
 			<ReplFooter { ...baseProps } expanded transcript={ transcript } />
 		);
 		const entries = container.querySelectorAll( '.topology-repl__entry' );
-		expect( entries[ 0 ].textContent ).toBe( 'demo.p0> ls' );
+		expect( entries[ 0 ].textContent ).toBe( '/_http/demo.p0> ls' );
 		expect( entries[ 1 ].textContent ).toBe( 'response line' );
 	} );
 

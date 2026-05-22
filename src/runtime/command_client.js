@@ -19,29 +19,22 @@ export class CommandClient {
 	}
 
 	/**
-	 * Build a TM_COMMAND as a 7-element positional Message array.
-	 * FROM=`_http` (local) or `_http/<ssePid>` (pivoted reply).
+	 * Build a TM_COMMAND as a 7-element positional Message array. FROM=`_http`
+	 * (the HTTP boundary); the per-session reply pivot is applied downstream by
+	 * the `_sse` session node, not here.
 	 *
-	 * @param {Object}      params
-	 * @param {string}      params.to        Target node path.
-	 * @param {string}      params.verb      Command verb to dispatch.
-	 * @param {string}      [params.args]    Literal-string argument tail, default ''.
-	 * @param {*}           [params.payload] Optional structured data, default null.
-	 * @param {number|null} [params.ssePid]  If set, pivots the reply through this SSE pid.
-	 * @param {string}      [params.key]     Optional Message KEY field.
+	 * @param {Object} params
+	 * @param {string} params.to        Target node path.
+	 * @param {string} params.verb      Command verb to dispatch.
+	 * @param {string} [params.args]    Literal-string argument tail, default ''.
+	 * @param {*}      [params.payload] Optional structured data, default null.
+	 * @param {string} [params.key]     Optional Message KEY field.
 	 * @return {Array} A 7-element positional Message.
 	 */
-	buildMessage( {
-		to,
-		verb,
-		args = '',
-		payload = null,
-		ssePid = null,
-		key = '',
-	} ) {
+	buildMessage( { to, verb, args = '', payload = null, key = '' } ) {
 		const msg = newMessage();
 		msg[ TYPE ] = TM_COMMAND;
-		msg[ FROM ] = ssePid !== null ? `_http/${ ssePid }` : '_http';
+		msg[ FROM ] = '_http';
 		msg[ TO ] = to;
 		msg[ KEY ] = key;
 		msg[ VALUE ] = {
@@ -83,6 +76,9 @@ export class CommandClient {
 			},
 			body,
 		} );
-		return r.json();
+		// A synchronous reply is a packed Message (JSON); a routed-onward command
+		// gets a bare 202 with no body → resolve to null (don't reject the promise).
+		const text = await r.text();
+		return text ? JSON.parse( text ) : null;
 	}
 }

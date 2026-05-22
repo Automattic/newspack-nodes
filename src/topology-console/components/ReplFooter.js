@@ -41,8 +41,7 @@ function loadStoredHeight() {
 }
 
 export default function ReplFooter( {
-	topology,
-	partition,
+	prompt,
 	streamStatus,
 	canSend,
 	onSubmit,
@@ -268,7 +267,9 @@ export default function ReplFooter( {
 									className={ `topology-repl__entry topology-repl__entry--${ entry.kind }` }
 								>
 									{ entry.kind === 'sent'
-										? `${ topology }.p${ partition }> ${ entry.text }`
+										? `${ entry.prompt ?? prompt }> ${
+												entry.text
+										  }`
 										: entry.text }
 								</pre>
 							) ) }
@@ -277,9 +278,7 @@ export default function ReplFooter( {
 				</>
 			) }
 			<div className="topology-repl__bar">
-				<span className="topology-repl__prompt">
-					{ topology }.p{ partition }&gt;
-				</span>
+				<span className="topology-repl__prompt">{ prompt }&gt;</span>
 				<input
 					ref={ inputRef }
 					type="text"

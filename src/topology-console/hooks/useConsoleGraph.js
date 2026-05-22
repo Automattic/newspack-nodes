@@ -74,6 +74,30 @@ export function useConsoleGraph( {
 		const ci = new CommandInterpreter();
 		ci.setName( names.COMMAND_INTERPRETER );
 		ci.sink = router;
+		// Local verbs for the browser-internal graph (cwd `/`). At a worker/`_http`
+		// cwd the command has a non-empty TO and forwards out instead of interpreting
+		// here; these only run when interpreted locally (empty TO).
+		const listLocalNodes = () =>
+			[ ...Core.nodes.keys() ].sort().join( '\n' );
+		const dumpLocalMetadata = () => {
+			const out = {};
+			for ( const [ name, node ] of Core.nodes ) {
+				out[ name ] = {
+					class: node.constructor?.name ?? 'Node',
+					counter: node.counter ?? 0,
+					sink: node.sink?.name ?? '',
+					target: typeof node.target === 'string' ? node.target : '',
+				};
+			}
+			return out;
+		};
+		ci.commands( {
+			ls: listLocalNodes,
+			list_nodes: listLocalNodes,
+			dump_metadata: dumpLocalMetadata,
+			// No meaningful local uptime; '' is suppressed by _respond (no reply).
+			uptime: () => '',
+		} );
 
 		// Receive-side reply nodes (Router peels TO and delivers to these).
 		const dumper = new Dumper( {
@@ -98,21 +122,24 @@ export function useConsoleGraph( {
 		} );
 		sse.setName( names.SSE );
 		sse.sink = router;
+		// `_sse` is the session boundary: incoming replies/broadcasts route by TO
+		// (target=_output so broadcasts reach the transcript); an outgoing
+		// `cd /_sse/…` command gets its reply-node FROM wrapped with the live pid.
+		sse.target = names.OUTPUT;
 
-		// Anonymous, React-driven Shell. cwd = _http/{reader} so a typed line
-		// routes through _http to the worker; replies pivot back via FROM.
+		// Anonymous, React-driven Shell. Default cwd is the private session path
+		// `_sse/{reader}` — routes through `_sse`, which wraps the reply privately.
+		// (`cd /_http/{reader}` opts into broadcast.) Static: the pid lives only in
+		// the wrapped FROM, not the path.
 		const consoleShell = new Shell();
-		consoleShell.path = `${ names.HTTP }/${ reader }`;
-		consoleShell.ssePid = sse.pid();
+		consoleShell.path = `${ names.SSE }/${ reader }`;
 		consoleShell.sink = ci;
 
-		// Track the connected pid: drives both React state and the Shell pivot.
 		setSsePid( sse.pid() );
 		sse.register( 'connected', 'useConsoleGraph', ( payload ) => {
 			const pid =
 				payload && 'number' === typeof payload.pid ? payload.pid : null;
 			setSsePid( pid );
-			consoleShell.ssePid = pid;
 			return true;
 		} );
 

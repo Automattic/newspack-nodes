@@ -2,11 +2,11 @@
 /**
  * HTTP_Filter: SSE-process Node registered at `_http`. Consumers
  * tailing worker output Partitions sink into _router. Worker replies for
- * pivoted commands have TO=`_http/<originating-sse-pid>/<reply-node>`.
- * _router peels `_http` and forwards here with TO=`<sse-pid>/<reply-node>`;
- * this Node matches the head segment against its own PID, strips it, and
- * forwards the remainder (the reply-node, e.g. `_output`) to the SSE writer
- * only on match.
+ * pivoted commands have TO=`_http/_sse:<originating-sse-pid>/<reply-node>`
+ * (the browser `_sse` session node stamps that pivot). _router peels `_http`
+ * and forwards here with TO=`_sse:<sse-pid>/<reply-node>`; this Node matches the
+ * head segment against its own `_sse:<pid>`, strips it, and forwards the
+ * remainder (the reply-node, e.g. `_output`) to the SSE writer only on match.
  *
  * The shared-worker scenario without this filter leaks every other
  * browser tab's command replies to every connected tab. Pid-equality is
@@ -28,9 +28,10 @@ class HTTP_Filter extends Node {
 
 	public function fill( array &$message ): void {
 		++$this->counter;
-		[ $pid, $reply_node ] = Message::split_first( $message[ Message::TO ] );
-		// Drop silently — this reply belongs to a different session's SSE process.
-		if ( (string) $this->own_pid !== $pid ) {
+		[ $head, $reply_node ] = Message::split_first( $message[ Message::TO ] );
+		// Match this session's `_sse:<pid>` head; drop silently otherwise — the
+		// reply belongs to a different session's SSE process.
+		if ( Node_Names::SSE . ':' . $this->own_pid !== $head ) {
 			return;
 		}
 		// The remainder (e.g. `_output`) is the browser-side reply-node.

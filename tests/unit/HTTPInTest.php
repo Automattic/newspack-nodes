@@ -140,6 +140,36 @@ class HTTPInTest extends TestCase {
 		$this->assertSame( 'got: hi', $payload['payload'] );
 	}
 
+	public function test_empty_to_command_is_interpreted_by_the_request_scope_ci(): void {
+		// A command addressed to the request scope itself (TO='') — e.g. the browser
+		// `cd /_sse; <verb>` — must be interpreted by the base CommandInterpreter,
+		// NOT dropped by _router (which can't peel an empty TO). dispatch sinks
+		// through the base CI, mirroring the client's Shell → CI → _router spine.
+		$this->build_graph();
+
+		$req = $this->make_request(
+			[
+				'type'  => Message::TM_COMMAND,
+				'to'    => '',
+				'from'  => '_http',
+				'id'    => 'cmd-empty',
+				'value' => [ 'name' => 'help', 'arguments' => '', 'payload' => '' ],
+			]
+		);
+
+		$ctrl = new HTTP_In();
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		$body = \ob_get_clean();
+
+		$this->assertSame( [ 200 ], $this->status_codes );
+		$msg = Message::unpacked( $body );
+		$this->assertSame( Message::TM_COMMAND | Message::TM_RESPONSE, $msg[ Message::TYPE ] );
+		$this->assertSame( 'cmd-empty', $msg[ Message::ID ] );
+		$this->assertSame( 'help', $msg[ Message::VALUE ]['name'] );
+	}
+
 	public function test_dispatch_routes_a_batch_of_messages_in_order(): void {
 		// A request body that is a LIST of packed Messages (not a single one)
 		// dispatches each in order through the one request graph. This is what
@@ -392,12 +422,11 @@ class HTTPInTest extends TestCase {
 		$ctrl->dispatch( $req );
 		$body = \ob_get_clean();
 
-		// HTTP_In never fires (no in-process reply), so the controller emits
-		// the 202 ack JSON directly.
+		// Routed onward (no in-process reply): the controller emits a bare 202 with
+		// no body. The send_header seam isn't used (that's only HTTP_In::fill's
+		// response-writer path); the client treats an empty response as "nothing to route."
 		$this->assertEmpty( $this->status_codes );
-		$ack = \json_decode( $body, true );
-		$this->assertTrue( $ack['queued'] ?? false );
-		$this->assertSame( 'cmd-xyz', $ack['id'] );
+		$this->assertSame( '', $body );
 
 		// Verify the message landed at the worker's input partition with TO peeled.
 		// Per Task 19 implementer's findings, Partition batches writes; flush
