@@ -38,11 +38,11 @@ test( 'TM_* flags are single-bit', () => {
 	expect( TM_EOF ).toBe( 2 );
 	expect( TM_PING ).toBe( 4 );
 	expect( TM_COMMAND ).toBe( 8 );
-	expect( TM_RESPONSE ).toBe( 16 );
+	expect( TM_STRUCT ).toBe( 16 );
 	expect( TM_ERROR ).toBe( 32 );
 	expect( TM_INFO ).toBe( 64 );
-	expect( TM_STRUCT ).toBe( 256 );
-	expect( TM_REQUEST ).toBe( 512 );
+	expect( TM_REQUEST ).toBe( 128 );
+	expect( TM_RESPONSE ).toBe( 256 );
 } );
 
 test( 'newMessage returns a 7-slot array with TYPE=0, blank string slots', () => {

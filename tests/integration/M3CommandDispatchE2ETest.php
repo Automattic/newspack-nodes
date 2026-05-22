@@ -5,10 +5,10 @@
  * Proves that every substrate CI mounted by the substrate plugin's
  * `newspack_nodes/request_graph_ready` listener (Classes_CI, Layouts_CI,
  * Topologies_CI) responds end-to-end to a representative verb when
- * driven through the production `Command_Controller` endpoint. The
+ * driven through the production `HTTP_In` endpoint. The
  * path under test:
  *
- *   POST /newspack-nodes/v1/command  →  Command_Controller::dispatch
+ *   POST /newspack-nodes/v1/command  →  HTTP_In::dispatch
  *                                    →  ensure_request_graph (lazy-builds
  *                                       _router / _command_interpreter / _http)
  *                                    →  do_action newspack_nodes/request_graph_ready
@@ -17,7 +17,7 @@
  *                                    →  Router (peels TO head)
  *                                    →  substrate CI (interpret + run verb)
  *                                    →  CI sink → base CI → Router
- *                                    →  HTTP_Out (writes packed Message)
+ *                                    →  HTTP_In (writes packed Message)
  *                                    →  ob_get_clean captures the body
  *
  * Mirrors the application-side M2CommandDispatchE2ETest in
@@ -32,7 +32,7 @@ namespace Newspack_Nodes\Tests\Integration;
 
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Rest\Command_Controller;
+use Newspack_Nodes\Rest\HTTP_In;
 use Newspack_Nodes\Tests\TestCase;
 
 class M3CommandDispatchE2ETest extends TestCase {
@@ -69,7 +69,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 	 * @dataProvider verb_provider
 	 */
 	public function test_each_substrate_ci_responds_to_a_representative_verb( string $to, string $verb, mixed $payload ): void {
-		$ctrl = new Command_Controller();
+		$ctrl = new HTTP_In();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $this->build_request( $to, $verb, $payload ) );

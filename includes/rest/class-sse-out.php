@@ -1,9 +1,14 @@
 <?php
 /**
- * Messages_Stream_Controller: one SSE endpoint for every subscription the
- * dashboards need (firehose / errors / completed / IPC worker outputs). The
- * resolver treats log partitions and worker IPC partitions uniformly — both
- * surface as `Consumer` instances the caller drains in a single loop.
+ * SSE_Out: double-duty Node + `/messages/stream` controller. As a Node its
+ * `fill()` emits each Message as an SSE `msg` event (the egress writer the
+ * SSE-process graph sinks into); as a controller it registers
+ * `GET /messages/stream` and runs the drain loop.
+ *
+ * One SSE endpoint for every subscription the dashboards need (firehose /
+ * errors / completed / IPC worker outputs). The resolver treats log
+ * partitions and worker IPC partitions uniformly — both surface as
+ * `Consumer` instances the caller drains in a single loop.
  *
  * @package Newspack_Nodes
  */
@@ -19,11 +24,13 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\EventFramework;
 use Newspack_Nodes\HTTP_Filter;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node;
+use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Router;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Messages_Stream_Controller {
+class SSE_Out extends Node {
 	use SSE_Stream_Trait;
 
 	public const REST_NAMESPACE = 'newspack-nodes/v1';
@@ -69,6 +76,12 @@ class Messages_Stream_Controller {
 	 */
 	private bool $test_mode = false;
 	private int  $test_iterations = 0;
+
+	/** Node egress (terminal, not forwarded): emits each Message as an SSE `msg` event. */
+	public function fill( array &$message ): void {
+		++$this->counter;
+		$this->send_sse_event( 'msg', $message );
+	}
 
 	public function set_base_dir( string $dir ): void {
 		$this->base_dir = $dir;
@@ -270,21 +283,21 @@ class Messages_Stream_Controller {
 		try {
 			// Build INSIDE the try so finally cleans up even when open_subscription
 			// throws — otherwise the next request hits a `_router already registered` collision.
-			( new Router() )->name( '_router' );
-			$emit = function ( array $m ): void {
-				$this->send_sse_event( 'msg', $m );
-			};
-			( new HTTP_Filter( (int) \getmypid(), $emit ) )->name( '_http' );
+			( new Router() )->name( Node_Names::ROUTER );
+			// This controller IS the SSE egress Node; HTTP_Filter sinks into it.
+			$http_filter = new HTTP_Filter( (int) \getmypid() );
+			$http_filter->name( Node_Names::HTTP );
+			$http_filter->sink( $this );
 
-			// Empty TO → emit directly. Non-empty TO → route through _router so
-			// HTTP_Filter can gate per-session pivoted replies.
+			// Empty TO → emit directly via this Node's fill(). Non-empty TO → route
+			// through _router so HTTP_Filter can gate per-session pivoted replies.
 			$direct_sink = new Callback(
-				static function ( array &$m ) use ( $emit ): void {
+				function ( array &$m ): void {
 					if ( '' === $m[ Message::TO ] ) {
-						$emit( $m );
+						$this->fill( $m );
 						return;
 					}
-					$router = Core::node( '_router' );
+					$router = Core::node( Node_Names::ROUTER );
 					if ( null !== $router ) {
 						$router->fill( $m );
 					}
@@ -337,11 +350,11 @@ class Messages_Stream_Controller {
 			if ( null !== $direct_sink ) {
 				$direct_sink->remove_node();
 			}
-			$http = Core::node( '_http' );
+			$http = Core::node( Node_Names::HTTP );
 			if ( $http instanceof HTTP_Filter ) {
 				$http->remove_node();
 			}
-			$router = Core::node( '_router' );
+			$router = Core::node( Node_Names::ROUTER );
 			if ( $router instanceof Router ) {
 				$router->remove_node();
 			}

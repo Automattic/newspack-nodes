@@ -114,4 +114,14 @@ class MessageTest extends TestCase {
 		Message::unpacked( '{"type":1}' );
 	}
 
+	public function test_split_first_splits_on_first_slash(): void {
+		// Single source of truth for taking the leading path segment (Router
+		// dispatch + HTTP_Filter pid gate). Only the first slash splits.
+		$this->assertSame( [ 'a', 'b/c' ], Message::split_first( 'a/b/c' ) );
+		$this->assertSame( [ 'a', '' ], Message::split_first( 'a' ) );
+		$this->assertSame( [ '', '' ], Message::split_first( '' ) );
+		$this->assertSame( [ 'a', '' ], Message::split_first( 'a/' ) );
+		$this->assertSame( [ '12345', '_output' ], Message::split_first( '12345/_output' ) );
+	}
+
 }

@@ -42,7 +42,7 @@ class Timer extends Node {
 			if ( '' === $this->name ) {
 				throw new \RuntimeException( 'Router-hitchhike requires Timer to have a name' );
 			}
-			$router = Core::node( '_router' );
+			$router = Core::node( Node_Names::ROUTER );
 			if ( null === $router ) {
 				throw new \RuntimeException( 'Router-hitchhike requires _router to be present' );
 			}
@@ -63,7 +63,7 @@ class Timer extends Node {
 		// Defer to closing-queue: avoids mutating EventFramework $timers / Router $registrations mid-iteration.
 		Core::push_closing( static function () use ( $self, $mode ): void {
 			if ( 'router' === $mode ) {
-				$router = Core::node( '_router' );
+				$router = Core::node( Node_Names::ROUTER );
 				if ( null !== $router && '' !== $self->name() ) {
 					$router->unregister( 'TIMER', $self->name() );
 				}

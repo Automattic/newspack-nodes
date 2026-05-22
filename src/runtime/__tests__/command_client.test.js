@@ -1,11 +1,19 @@
 import { CommandClient } from '../command_client';
-import { TYPE, FROM, TO, KEY, VALUE, TM_COMMAND } from '../message';
+import {
+	TYPE,
+	FROM,
+	TO,
+	KEY,
+	VALUE,
+	TM_COMMAND,
+	TM_RESPONSE,
+} from '../message';
 
 beforeEach( () => {
 	global.fetch = jest.fn().mockResolvedValue( {
 		// Response VALUE is a nested object (the whole-message envelope is the only JSON layer).
 		json: async () => [
-			16,
+			TM_RESPONSE,
 			1.23,
 			'performance',
 			'',
@@ -66,7 +74,7 @@ test( 'send with ssePid produces FROM=_http/<ssePid> for pivoted mode', async ()
 test( 'send returns the parsed JSON response', async () => {
 	const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
 	const res = await client.send( { to: 'performance', verb: 'overview' } );
-	expect( res[ TYPE ] ).toBe( 16 );
+	expect( res[ TYPE ] ).toBe( TM_RESPONSE );
 } );
 
 test( 'buildMessage returns a positional 7-element TM_COMMAND Message', () => {

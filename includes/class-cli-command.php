@@ -110,15 +110,15 @@ class Cli_Command {
 		$pid = (string) \getmypid();
 
 		$router = new Router();
-		$router->name( '_router' );
+		$router->name( Node_Names::ROUTER );
 
 		$interpreter = new CommandInterpreter();
-		$interpreter->name( '_command_interpreter' );
+		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
 		$interpreter->sink( $router );
 
 		// `_output`: Shell stamps FROM=_output/$pid, so replies route back here.
 		$dumper = new Dumper();
-		$dumper->name( '_output' );
+		$dumper->name( Node_Names::OUTPUT );
 
 		// Shell stays anonymous (Shell::name would throw); `ls` filters by sink anyway.
 		$shell = new Shell();
@@ -144,7 +144,7 @@ class Cli_Command {
 			$reply_in = new Consumer( $ipc['output'], 0 );
 			$reply_in->next_offset( 'end' );
 			$reply_in->sink( $router );
-			$reply_in->target( '_output' );
+			$reply_in->target( Node_Names::OUTPUT );
 		}
 
 		// TO filter matches `_output/$pid` and `$pid`; empty TO always renders, other sessions drop.
@@ -280,7 +280,7 @@ class Cli_Stdin_Reader extends Timer {
 		}
 		$msg                  = Message::new_message();
 		$msg[ Message::TYPE ] = Message::TM_EOF;
-		$msg[ Message::FROM ] = '_output/' . \getmypid();
+		$msg[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
 		$this->shell->fill( $msg );
 		$this->eof_sent        = true;
 		$this->eof_deadline_at = \microtime( true ) + $this->eof_deadline_s;

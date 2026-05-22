@@ -21,13 +21,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **The Topology Console runs a real in-browser node graph.** Its live SSE-in +
-  command-out path flows through the runtime's own nodes — `SseConnector` →
-  `SessionSink` (KEY-routes to metadata/uptime/transcript) and `CommandOut`
-  (folds the worker-command send) — instead of a raw `EventSource` + procedural
-  `handleMessage` + the standalone `sendCommand` util. React reads node state via
-  the `useNodeState`/`useNodeFill` bridge; the orphaned `useTopologyStream` +
-  `sendCommand` modules are deleted.
+- **The Topology Console runs a real in-browser node graph (In/Out nodes).**
+  Send: `Shell` → `_command_interpreter` → `_router` → `_http` (`HttpOut`, POSTs
+  `/command`). Receive: `_sse` (`SseIn`) → `_router` → `_output` (`Dumper`,
+  transcript-only) / `_metadata` / `_uptime`. The `Shell` stamps
+  `FROM=_http/<ssePid>/_output` so a worker reply pivots back to the transcript,
+  and `Dumper` renders structured replies (`dump_node`, etc.) as pretty JSON
+  instead of `[object Object]` / dropping them. ONE positional Message format
+  throughout (the `{type,…}` object shape is gone). React reads node state via
+  `useNodeState`/`useNodeFill`; `SessionSink`, the `dumperRender`/`shell` utils,
+  and the orphaned `useTopologyStream`/`sendCommand` modules are deleted.
+- **In/Out boundary nodes.** `Command_Controller` + `HTTP_Out` merged into
+  `HTTP_In`, and `Messages_Stream_Controller` → `SSE_Out` — each one substrate
+  `Node` + REST controller. `HTTP_Filter` strips the pivot pid; the shared
+  `Message::split_first()` is the canonical TO-head peel (`Router` + `HTTP_Filter`).
+- **Shared-canonical reserved node names.** `Node_Names` (PHP) +
+  `reserved-node-names.json` (imported by the JS graph) name the eight reserved
+  nodes from one source; `NodeNamesTest` is the bidirectional drift guard.
+- **`TM_*` flag renumber** — `TM_STRUCT=16`, `TM_REQUEST=128`, `TM_RESPONSE=256`
+  (contiguous bit sequence). A reply to a `TM_REQUEST` is `TM_STRUCT|TM_RESPONSE`,
+  not an echoed `TM_REQUEST`.
 - **Command protocol no longer double-encodes the Message `VALUE`.** Command and
   response `VALUE` carry a structured array (`{name, arguments, payload}` /
   `{name, payload}`); verbs return live PHP structures, not `wp_json_encode`'d

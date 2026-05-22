@@ -1,16 +1,24 @@
 <?php
 /**
- * Command_Controller: single POST endpoint for non-streaming dispatch.
+ * HTTP_In: double-duty Node + `/command` controller. As a Node its `fill()`
+ * writes the `/command` response body (200 status header on first fill, then
+ * packed-Message bytes); as a controller it registers `POST /command` and
+ * routes the decoded batch through the substrate's Router.
  *
  * Uniformly routes via the substrate's Router (no IPC vs local branches —
- * worker `Partition` Nodes handle IPC). The bootstrap registers a `HTTP_Out`
- * Node at `_http`; a CI response with TO=FROM walks back to it and writes the
- * packed Message to the HTTP body. After Router::fill returns:
+ * worker `Partition` Nodes handle IPC). The per-request controller instance
+ * registers itself as the `_http` Node; a CI response with TO=FROM walks back
+ * to it and writes the packed Message to the HTTP body. After Router::fill
+ * returns:
  *   - sent_headers true  → response already on the wire; exit().
  *   - sent_headers false → async/IPC; emit a 202 ack (real replies arrive
  *                          via the browser's open SSE stream).
  * Pivoted IPC commands set FROM=`_http/<ssePid>` so the reply walks to the
- * SSE process (HTTP_Out bypassed). test_mode returns instead of exit().
+ * SSE process (this Node bypassed). test_mode returns instead of exit().
+ *
+ * The `$send_header` constructor argument is a test seam — production passes a
+ * closure wrapping `\status_header(...)`; tests inject a recorder so PHPUnit
+ * can assert which status codes were emitted.
  *
  * @package Newspack_Nodes
  */
@@ -19,17 +27,54 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\CommandInterpreter;
 use Newspack_Nodes\Core;
-use Newspack_Nodes\HTTP_Out;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node;
+use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Router;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Command_Controller {
+class HTTP_In extends Node {
 	public const REST_NAMESPACE = 'newspack-nodes/v1';
 	public const ROUTE          = '/command';
 
+	public bool $sent_headers = false;
+
+	/** @var \Closure status-header seam */
+	private \Closure $send_header;
+
 	private bool $test_mode = false;
+
+	public function __construct( ?\Closure $send_header = null ) {
+		// Node has no __construct; skip parent call (matches Callback pattern).
+		$this->send_header = $send_header ?? static function ( int $code ): void {
+			\status_header( $code );
+		};
+	}
+
+	/** Node egress (terminal, not forwarded): writes the `/command` HTTP response. */
+	public function fill( array &$message ): void {
+		++$this->counter;
+		if ( ! $this->sent_headers ) {
+			( $this->send_header )( 200 );
+			$this->sent_headers = true;
+		}
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		echo Message::packed( $message );
+	}
+
+	public function reset(): void {
+		$this->sent_headers = false;
+	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Hidden',
+			'description' => '/command response-writer Node (registered as `_http` at request scope).',
+			'ctor'        => [],
+			'verbs'       => [],
+		];
+	}
 
 	public function set_test_mode( bool $on ): void {
 		$this->test_mode = $on;
@@ -55,9 +100,9 @@ class Command_Controller {
 		$base_ci = $this->ensure_request_graph();
 		\do_action( 'newspack_nodes/request_graph_ready', $base_ci );
 
-		$router = Core::node( '_router' );
-		$out    = Core::node( '_http' );
-		if ( ! $router instanceof Router || ! $out instanceof HTTP_Out ) {
+		$router = Core::node( Node_Names::ROUTER );
+		$out    = Core::node( Node_Names::HTTP );
+		if ( ! $router instanceof Router || ! $out instanceof self ) {
 			$this->emit_error(
 				$messages[ \array_key_last( $messages ) ] ?? Message::new_message(),
 				'request-scope graph not initialized (missing _router or _http)'
@@ -71,10 +116,10 @@ class Command_Controller {
 		$out->reset();
 		$last = null;
 		foreach ( $messages as $msg ) {
-			// Default FROM=`_http` so the CI's TO=FROM response routes back to our
-			// HTTP_Out. Pivoted IPC commands supply their own FROM — leave it alone.
+			// Default FROM=`_http` so the CI's TO=FROM response routes back to this
+			// Node. Pivoted IPC commands supply their own FROM — leave it alone.
 			if ( '' === $msg[ Message::FROM ] ) {
-				$msg[ Message::FROM ] = '_http';
+				$msg[ Message::FROM ] = Node_Names::HTTP;
 			}
 			$router->fill( $msg );
 			$last = $msg;
@@ -116,24 +161,24 @@ class Command_Controller {
 	/**
 	 * Lazy-construct the request-scope graph if not already in Core's registry
 	 * (idempotent). Returns the base CommandInterpreter for the
-	 * `newspack_nodes/request_graph_ready` hook.
+	 * `newspack_nodes/request_graph_ready` hook. This controller instance IS
+	 * the `_http` response-writer Node.
 	 */
 	private function ensure_request_graph(): CommandInterpreter {
-		$router = Core::node( '_router' );
+		$router = Core::node( Node_Names::ROUTER );
 		if ( ! $router instanceof Router ) {
 			$router = new Router();
-			$router->name( '_router' );
+			$router->name( Node_Names::ROUTER );
 		}
-		$base_ci = Core::node( '_command_interpreter' );
+		$base_ci = Core::node( Node_Names::COMMAND_INTERPRETER );
 		if ( ! $base_ci instanceof CommandInterpreter ) {
 			$base_ci = new CommandInterpreter();
-			$base_ci->name( '_command_interpreter' );
+			$base_ci->name( Node_Names::COMMAND_INTERPRETER );
 			$base_ci->sink( $router );
 		}
-		$http_out = Core::node( '_http' );
-		if ( ! $http_out instanceof HTTP_Out ) {
-			$http_out = new HTTP_Out( static fn ( int $code ) => \status_header( $code ) );
-			$http_out->name( '_http' );
+		// The controller instance IS the _http egress Node (deliberately the same object).
+		if ( ! Core::node( Node_Names::HTTP ) instanceof self ) {
+			$this->name( Node_Names::HTTP );
 		}
 		return $base_ci;
 	}

@@ -88,13 +88,13 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 /**
  * Service-CommandInterpreter (CI) mounting.
  *
- * `Command_Controller::dispatch` lazy-builds the request-scope graph
+ * `HTTP_In::dispatch` lazy-builds the request-scope graph
  * (`_router` / `_command_interpreter` / `_http`) then fires
  * `newspack_nodes/request_graph_ready` so anything that wants to mount
  * a CI can do so via `$base_ci->make_node(...)` — which constructs,
  * names, and sinks each node in one atomic step. Without the sink, verb
  * responses (which walk back via TO=FROM) would have no path to the
- * HTTP_Out and silently drop.
+ * HTTP_In response-writer and silently drop.
  *
  * The substrate uses the SAME hook the apps use (newspack-event-logger-
  * nodes does the symmetric mount via its own callback), so substrate

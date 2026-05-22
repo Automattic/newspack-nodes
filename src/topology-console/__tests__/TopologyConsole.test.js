@@ -1,11 +1,30 @@
 /* global globalThis */
 /**
- * TopologyConsole tests. useConsoleGraph is mocked to hand back a real
- * SessionSink + capture-only command-out node; mocked child components
- * expose every prop callback as a button so handlers run end-to-end.
+ * TopologyConsole tests. useConsoleGraph is mocked to build the REAL receive
+ * graph (Router → Dumper/_output, Metadata/_metadata, Uptime/_uptime) plus a
+ * real Shell whose sink is the (capture-only) CommandInterpreter and a fake
+ * HttpOut that records POSTs. SSE replies are simulated by filling the Router
+ * with a POSITIONAL Message (the substrate's only format). Mocked child
+ * components expose every prop callback as a button so handlers run end-to-end.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	TO,
+	VALUE,
+	TM_BYTESTREAM,
+	TM_COMMAND,
+	TM_EOF,
+	TM_ERROR,
+	TM_INFO,
+	TM_PING,
+	TM_RESPONSE,
+	TM_STRUCT,
+} from '../../runtime/message';
+import names from '../../runtime/reserved-node-names.json';
 
 // Pre-seed window.NewspackNodesData for the module-level IIFEs.
 window.NewspackNodesData = {
@@ -17,15 +36,38 @@ window.NewspackNodesData = {
 	userLogin: 'tester',
 };
 
-// Mock only useConsoleGraph; hand back a real SessionSink + capture CommandOut.
-globalThis.__commandOutFill = jest.fn();
-globalThis.__sessionNode = null;
-// {topology}.p{N} the mock graph is built for; a change rebuilds a fresh sink.
+// Capture HttpOut POSTs (the worker-bound batch each typed/poll command makes).
+globalThis.__httpPosts = [];
+// {topology}.p{N} the mock graph is built for; a change rebuilds a fresh graph.
 globalThis.__graphKey = null;
+globalThis.__shell = null;
 jest.mock( '../hooks/useConsoleGraph', () => {
 	const { Core } = require( '../../runtime/core' );
-	const { SessionSink } = require( '../nodes/SessionSink' );
-	const { Node } = require( '../../runtime/node' );
+	const { Router } = require( '../../runtime/router' );
+	const {
+		CommandInterpreter,
+	} = require( '../../runtime/command_interpreter' );
+	const { Dumper } = require( '../nodes/dumper' );
+	const { Metadata } = require( '../nodes/metadata' );
+	const { Uptime } = require( '../nodes/uptime' );
+	const { HttpOut } = require( '../nodes/httpOut' );
+	const { Shell } = require( '../nodes/shell' );
+	const reserved = require( '../../runtime/reserved-node-names.json' );
+	const NAMES = [
+		reserved.ROUTER,
+		reserved.COMMAND_INTERPRETER,
+		reserved.OUTPUT,
+		reserved.METADATA,
+		reserved.UPTIME,
+		reserved.HTTP,
+	];
+	const teardown = () => {
+		for ( const n of NAMES ) {
+			Core.unregisterNode( n );
+		}
+		globalThis.__graphKey = null;
+		globalThis.__shell = null;
+	};
 	return {
 		useConsoleGraph: ( {
 			topology,
@@ -34,37 +76,41 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 			debugLevelRef,
 		} ) => {
 			if ( ! enabled ) {
-				Core.unregisterNode( 'session' );
-				Core.unregisterNode( 'command-out' );
-				globalThis.__sessionNode = null;
-				globalThis.__graphKey = null;
-				return {
-					status: 'closed',
-					ssePid: null,
-					sessionNode: null,
-					commandOutName: 'command-out',
-				};
+				teardown();
+				return { status: 'closed', ssePid: null, shell: null };
 			}
-			const key = `${ topology }.p${ partition }`;
+			const reader = `${ topology }.p${ partition }`;
+			const key = reader;
 			if ( globalThis.__graphKey !== key ) {
-				// Worker changed: rebuild a fresh SessionSink + capture CommandOut.
-				Core.unregisterNode( 'session' );
-				Core.unregisterNode( 'command-out' );
-				const session = new SessionSink( { debugLevelRef } );
-				session.setName( 'session' );
-				globalThis.__sessionNode = session;
-				const out = new Node();
-				out.fill = ( payload ) =>
-					globalThis.__commandOutFill( payload );
-				out.setName( 'command-out' );
+				teardown();
+				const router = new Router();
+				router.setName( reserved.ROUTER );
+				const ci = new CommandInterpreter();
+				ci.setName( reserved.COMMAND_INTERPRETER );
+				ci.sink = router;
+				const dumper = new Dumper( { debugLevelRef } );
+				dumper.setName( reserved.OUTPUT );
+				new Metadata().setName( reserved.METADATA );
+				new Uptime().setName( reserved.UPTIME );
+				// Fake HttpOut: capture the routed message instead of POSTing.
+				const httpOut = new HttpOut( {
+					client: {
+						buildMessage: () => null,
+						postBatch: () => Promise.resolve( null ),
+					},
+				} );
+				httpOut.fill = ( message ) => {
+					globalThis.__httpPosts.push( message );
+				};
+				httpOut.setName( reserved.HTTP );
+				const shell = new Shell();
+				shell.path = `${ reserved.HTTP }/${ reader }`;
+				shell.ssePid = 1234;
+				shell.sink = ci;
+				globalThis.__shell = shell;
 				globalThis.__graphKey = key;
 			}
-			return {
-				status: 'open',
-				ssePid: 1234,
-				sessionNode: Core.node( 'session' ),
-				commandOutName: 'command-out',
-			};
+			return { status: 'open', ssePid: 1234, shell: globalThis.__shell };
 		},
 	};
 } );
@@ -393,17 +439,24 @@ jest.mock( '../components/Modal', () => ( {
 import TopologyConsole from '../TopologyConsole';
 import { Core } from '../../runtime/core';
 
+// Build a positional Message; default TO routes to the Dumper transcript.
+function posMsg( { type, value, from = 'worker', to = names.OUTPUT } ) {
+	const m = newMessage();
+	m[ TYPE ] = type;
+	m[ FROM ] = from;
+	m[ TO ] = to;
+	m[ VALUE ] = value;
+	return m;
+}
+
 describe( 'TopologyConsole boot', () => {
 	beforeEach( () => {
 		window.history.replaceState( {}, '', '/' );
-		// Clear localStorage so persisted state doesn't bleed between tests.
 		window.localStorage.clear();
-		// Reset Core so the next render builds a fresh SessionSink.
 		Core.reset();
-		globalThis.__sessionNode = null;
 		globalThis.__graphKey = null;
-		globalThis.__commandOutFill.mockClear();
-		// Reset hook mocks between tests.
+		globalThis.__shell = null;
+		globalThis.__httpPosts = [];
 		hooks.fetchTopology.mockReset();
 		hooks.fetchTopology.mockResolvedValue( null );
 		hooks.saveTopology.mockReset();
@@ -416,6 +469,13 @@ describe( 'TopologyConsole boot', () => {
 		hooks.saveLayout.mockResolvedValue( null );
 		hooks.topologies = [];
 	} );
+
+	// Simulate an SSE reply: the Router routes a positional Message by TO.
+	const fireMsg = async ( opts ) => {
+		await act( async () => {
+			Core.node( names.ROUTER ).fill( posMsg( opts ) );
+		} );
+	};
 
 	it( 'renders Header, Canvas, and ReplFooter on mount (Inspector is selection-only)', () => {
 		const { getByTestId, queryByTestId } = render( <TopologyConsole /> );
@@ -432,53 +492,50 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'canvas' ).dataset.mode ).toBe( 'view' );
 	} );
 
-	it( 'polls dump_metadata every tick and batches uptime onto the 5s tick', () => {
-		// dump_metadata (gui:auto) fires every tick; uptime (gui:uptime) rides every 5th.
+	it( 'polls dump_metadata every tick and uptime on the 5s cadence (reply pivots to _metadata/_uptime)', () => {
 		jest.useFakeTimers();
 		try {
-			globalThis.__commandOutFill.mockClear();
+			globalThis.__httpPosts = [];
+			window.history.replaceState( {}, '', '/?topology=demo' );
 			act( () => {
 				render( <TopologyConsole /> );
 			} );
-			const commandsOf = ( call ) => call[ 0 ].commands;
-			const hasVerb = ( commands, name ) =>
-				Array.isArray( commands ) &&
-				commands.some( ( c ) => c.name === name );
-			const dumpBatches = () =>
-				globalThis.__commandOutFill.mock.calls.filter( ( c ) =>
-					hasVerb( commandsOf( c ), 'dump_metadata' )
+			const verbOf = ( m ) => m[ VALUE ] && m[ VALUE ].name;
+			const fromOf = ( m ) => m[ FROM ];
+			const dumps = () =>
+				globalThis.__httpPosts.filter(
+					( m ) => verbOf( m ) === 'dump_metadata'
 				);
-			const uptimeBatches = () =>
-				globalThis.__commandOutFill.mock.calls.filter( ( c ) =>
-					hasVerb( commandsOf( c ), 'uptime' )
+			const uptimes = () =>
+				globalThis.__httpPosts.filter(
+					( m ) => verbOf( m ) === 'uptime'
 				);
-			// Immediate paint: one batch carrying both commands.
-			expect( dumpBatches().length ).toBeGreaterThanOrEqual( 1 );
-			expect( uptimeBatches().length ).toBeGreaterThanOrEqual( 1 );
-			const first = commandsOf(
-				globalThis.__commandOutFill.mock.calls[ 0 ]
+			// Immediate paint: one of each.
+			expect( dumps().length ).toBeGreaterThanOrEqual( 1 );
+			expect( uptimes().length ).toBeGreaterThanOrEqual( 1 );
+			// The reply pivots route each silent poll to its own node.
+			expect( fromOf( dumps()[ 0 ] ) ).toBe(
+				`${ names.HTTP }/1234/${ names.METADATA }`
 			);
-			expect( hasVerb( first, 'dump_metadata' ) ).toBe( true );
-			expect( hasVerb( first, 'uptime' ) ).toBe( true );
-			expect(
-				first.find( ( c ) => c.name === 'dump_metadata' ).key
-			).toBe( 'gui:auto' );
-			expect( first.find( ( c ) => c.name === 'uptime' ).key ).toBe(
-				'gui:uptime'
+			expect( fromOf( uptimes()[ 0 ] ) ).toBe(
+				`${ names.HTTP }/1234/${ names.UPTIME }`
 			);
-			// One stats tick: a new dump_metadata batch, but uptime is NOT due.
-			const dumpBefore = dumpBatches().length;
-			const uptimeBefore = uptimeBatches().length;
+			// The Router peeled _http before delivering to HttpOut, so the
+			// captured TO is the bare reader.
+			expect( dumps()[ 0 ][ TO ] ).toBe( 'demo.p0' );
+			// One stats tick: a new dump, uptime NOT due.
+			const dumpBefore = dumps().length;
+			const uptimeBefore = uptimes().length;
 			act( () => {
 				jest.advanceTimersByTime( 1000 );
 			} );
-			expect( dumpBatches().length ).toBeGreaterThan( dumpBefore );
-			expect( uptimeBatches().length ).toBe( uptimeBefore );
-			// Reaching the 5s uptime cadence: uptime rides the next stats batch.
+			expect( dumps().length ).toBeGreaterThan( dumpBefore );
+			expect( uptimes().length ).toBe( uptimeBefore );
+			// Reaching the 5s cadence: uptime fires again.
 			act( () => {
 				jest.advanceTimersByTime( 4000 );
 			} );
-			expect( uptimeBatches().length ).toBeGreaterThan( uptimeBefore );
+			expect( uptimes().length ).toBeGreaterThan( uptimeBefore );
 		} finally {
 			jest.useRealTimers();
 		}
@@ -489,7 +546,6 @@ describe( 'TopologyConsole boot', () => {
 			<TopologyConsole />
 		);
 		fireEvent.click( getByText( 'edit' ) );
-		// Best-effort: the mode flipped or the modal held it back.
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 		fireEvent.click( getByText( 'view' ) );
 		expect( queryByTestId( 'header' ) ).not.toBeNull();
@@ -503,30 +559,9 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'repl' ) ).not.toBeNull();
 	} );
 
-	// SSE message bitmask constants (mirror class-message.php).
-	const TM_BYTESTREAM = 1;
-	const TM_EOF = 2;
-	const TM_PING = 4;
-	const TM_COMMAND = 8;
-	const TM_RESPONSE = 16;
-	const TM_ERROR = 32;
-	const TM_INFO = 64;
-	const TM_STRUCT = 256;
-
-	// Pump a synthetic SSE message through the live SessionSink.
-	const fireMsg = async ( msg ) => {
-		await act( async () => {
-			globalThis.__sessionNode.fill( msg );
-		} );
-	};
-
-	it( 'dumperRender: TM_BYTESTREAM appends value to transcript as recv', async () => {
+	it( 'Dumper: TM_BYTESTREAM appends value to transcript as recv', async () => {
 		const { container } = render( <TopologyConsole /> );
-		await fireMsg( {
-			type: TM_BYTESTREAM,
-			from: 'worker',
-			value: 'hello world',
-		} );
+		await fireMsg( { type: TM_BYTESTREAM, value: 'hello world' } );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
@@ -537,23 +572,19 @@ describe( 'TopologyConsole boot', () => {
 		expect( recv.textContent ).toBe( 'hello world' );
 	} );
 
-	it( 'dumperRender: TM_EOF is dropped silently', async () => {
+	it( 'Dumper: TM_EOF is dropped silently', async () => {
 		const { container } = render( <TopologyConsole /> );
-		await fireMsg( { type: TM_EOF, from: 'worker', value: '' } );
+		await fireMsg( { type: TM_EOF, value: '' } );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
 		expect( items.length ).toBe( 0 );
 	} );
 
-	it( 'dumperRender: TM_PING formats round trip time', async () => {
+	it( 'Dumper: TM_PING formats round trip time', async () => {
 		const { container } = render( <TopologyConsole /> );
-		const past = Date.now() / 1000 - 0.05; // 50ms ago
-		await fireMsg( {
-			type: TM_PING,
-			from: 'worker',
-			value: String( past ),
-		} );
+		const past = Date.now() / 1000 - 0.05;
+		await fireMsg( { type: TM_PING, value: String( past ) } );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
@@ -564,13 +595,9 @@ describe( 'TopologyConsole boot', () => {
 		expect( info.textContent ).toMatch( /round trip time:.+ms/ );
 	} );
 
-	it( 'dumperRender: TM_ERROR routes to error transcript kind', async () => {
+	it( 'Dumper: TM_ERROR routes to error transcript kind', async () => {
 		const { container } = render( <TopologyConsole /> );
-		await fireMsg( {
-			type: TM_ERROR,
-			from: 'worker',
-			value: 'something went wrong',
-		} );
+		await fireMsg( { type: TM_ERROR, value: 'something went wrong' } );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
@@ -581,14 +608,13 @@ describe( 'TopologyConsole boot', () => {
 		expect( err.textContent ).toBe( 'something went wrong' );
 	} );
 
-	it( 'dumperRender: TM_COMMAND|TM_RESPONSE unwraps payload', async () => {
+	it( 'Dumper: TM_COMMAND|TM_RESPONSE unwraps payload', async () => {
 		const { container } = render( <TopologyConsole /> );
 		// eslint-disable-next-line no-bitwise
 		const t = TM_COMMAND | TM_RESPONSE;
 		await fireMsg( {
 			type: t,
-			from: 'worker',
-			value: { payload: 'ls result' },
+			value: { name: 'ls', payload: 'ls result' },
 		} );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
@@ -600,27 +626,42 @@ describe( 'TopologyConsole boot', () => {
 		expect( recv.textContent ).toBe( 'ls result' );
 	} );
 
-	it( 'dumperRender: TM_COMMAND|TM_RESPONSE with empty payload is dropped', async () => {
+	it( 'Dumper: TM_COMMAND|TM_RESPONSE with empty payload is dropped', async () => {
 		const { container } = render( <TopologyConsole /> );
 		// eslint-disable-next-line no-bitwise
 		const t = TM_COMMAND | TM_RESPONSE;
-		await fireMsg( { type: t, from: 'worker', value: { payload: '' } } );
-		await fireMsg( { type: t, from: 'worker', value: null } );
+		await fireMsg( { type: t, value: { payload: '' } } );
+		await fireMsg( { type: t, value: null } );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
 		expect( items.length ).toBe( 0 );
 	} );
 
-	it( 'dumperRender: TM_COMMAND|TM_ERROR unwraps as error', async () => {
+	it( 'Dumper: a structured dump_node reply renders as JSON, not [object Object]', async () => {
+		const { container } = render( <TopologyConsole /> );
+		// eslint-disable-next-line no-bitwise
+		const t = TM_COMMAND | TM_RESPONSE;
+		await fireMsg( {
+			type: t,
+			value: { name: 'dump_node', payload: { sink: 'x', counter: 3 } },
+		} );
+		const items = container.querySelectorAll(
+			'[data-testid="repl-transcript"] li'
+		);
+		const recv = Array.from( items ).find(
+			( i ) => i.dataset.kind === 'recv'
+		);
+		expect( recv ).not.toBeUndefined();
+		expect( recv.textContent ).toMatch( /"counter": 3/ );
+		expect( recv.textContent ).not.toContain( '[object Object]' );
+	} );
+
+	it( 'Dumper: TM_COMMAND|TM_ERROR unwraps as error', async () => {
 		const { container } = render( <TopologyConsole /> );
 		// eslint-disable-next-line no-bitwise
 		const t = TM_COMMAND | TM_ERROR;
-		await fireMsg( {
-			type: t,
-			from: 'worker',
-			value: { payload: 'bad arg' },
-		} );
+		await fireMsg( { type: t, value: { name: 'x', payload: 'bad arg' } } );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
@@ -631,13 +672,9 @@ describe( 'TopologyConsole boot', () => {
 		expect( err.textContent ).toBe( 'bad arg' );
 	} );
 
-	it( 'dumperRender: TM_STRUCT stringifies object payload', async () => {
+	it( 'Dumper: TM_STRUCT stringifies object payload', async () => {
 		const { container } = render( <TopologyConsole /> );
-		await fireMsg( {
-			type: TM_STRUCT,
-			from: 'worker',
-			value: { foo: 'bar' },
-		} );
+		await fireMsg( { type: TM_STRUCT, value: { foo: 'bar' } } );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
@@ -648,30 +685,9 @@ describe( 'TopologyConsole boot', () => {
 		expect( recv.textContent ).toMatch( /"foo": "bar"/ );
 	} );
 
-	it( 'dumperRender: TM_STRUCT with string payload passes through', async () => {
+	it( 'Dumper: TM_INFO routes through as recv (curated level 0)', async () => {
 		const { container } = render( <TopologyConsole /> );
-		await fireMsg( {
-			type: TM_STRUCT,
-			from: 'worker',
-			value: 'already serialized',
-		} );
-		const items = container.querySelectorAll(
-			'[data-testid="repl-transcript"] li'
-		);
-		const recv = Array.from( items ).find(
-			( i ) => i.dataset.kind === 'recv'
-		);
-		expect( recv ).not.toBeUndefined();
-		expect( recv.textContent ).toBe( 'already serialized' );
-	} );
-
-	it( 'dumperRender: TM_INFO routes through as recv (curated level 0)', async () => {
-		const { container } = render( <TopologyConsole /> );
-		await fireMsg( {
-			type: TM_INFO,
-			from: 'worker',
-			value: 'some info',
-		} );
+		await fireMsg( { type: TM_INFO, value: 'some info' } );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
@@ -682,97 +698,75 @@ describe( 'TopologyConsole boot', () => {
 		expect( recv.textContent ).toBe( 'some info' );
 	} );
 
-	it( 'dumperRender: unknown TM flag falls through to null (dropped)', async () => {
+	it( 'Dumper: unknown TM flag falls through to null (dropped)', async () => {
 		const { container } = render( <TopologyConsole /> );
-		await fireMsg( { type: 0, from: 'worker', value: 'noflag' } );
+		await fireMsg( { type: 0, value: 'noflag' } );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
-		// Empty type with no curated render -> no transcript entry.
 		expect( items.length ).toBe( 0 );
 	} );
 
-	it( 'handleMessage: gui:auto key feeds parseMetadata + skips transcript', async () => {
-		const { container } = render( <TopologyConsole /> );
+	it( 'reply TO=_metadata feeds parseMetadata + skips transcript', async () => {
+		const { getByTestId } = render( <TopologyConsole /> );
 		await fireMsg( {
 			type: TM_STRUCT,
-			from: 'worker',
-			key: 'gui:auto',
+			to: names.METADATA,
 			value: {
-				num_nodes: 1,
-				num_edges: 0,
-				nodes: [
-					{
-						name: 'foo',
-						class: 'Echo',
-						count: 5,
-					},
-				],
-				edges: [],
+				n1: {
+					class: 'Echo',
+					counter: 7,
+					sink: '_command_interpreter',
+					target: 'n2',
+				},
+				n2: {
+					class: 'Echo',
+					counter: 3,
+					sink: '_command_interpreter',
+					target: '',
+				},
 			},
 		} );
-		const items = container.querySelectorAll(
+		expect( getByTestId( 'canvas' ).dataset.nodeCount ).toBe( '2' );
+		const items = document.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
 		expect( items.length ).toBe( 0 );
 	} );
 
-	it( 'handleMessage: gui:auto with a {name,payload} object envelope feeds the canvas', async () => {
-		// gui:auto envelope: unwrap value.payload (the dump_metadata object) for the canvas.
+	it( 'reply TO=_metadata with a {name,payload} envelope feeds the canvas', async () => {
 		const { getByTestId } = render( <TopologyConsole /> );
 		await fireMsg( {
 			// eslint-disable-next-line no-bitwise
 			type: TM_COMMAND | TM_RESPONSE,
-			from: 'worker',
-			key: 'gui:auto',
+			to: names.METADATA,
 			value: {
 				name: 'dump_metadata',
 				payload: {
-					n1: {
-						class: 'Echo',
-						counter: 7,
-						sink: '_command_interpreter',
-						target: 'n2',
-						debug_state: 0,
-						arguments: '',
-					},
-					n2: {
-						class: 'Echo',
-						counter: 3,
-						sink: '_command_interpreter',
-						target: '',
-						debug_state: 0,
-						arguments: '',
-					},
+					n1: { class: 'Echo', counter: 7, target: 'n2' },
+					n2: { class: 'Echo', counter: 3, target: '' },
 				},
 			},
 		} );
-		// Both n1 and n2 make it through parseMetadata (data-node-count).
 		expect( getByTestId( 'canvas' ).dataset.nodeCount ).toBe( '2' );
 	} );
 
-	it( 'handleMessage: gui:uptime key extracts the right-half uptime', async () => {
+	it( 'reply TO=_uptime extracts the right-half uptime + skips the transcript', async () => {
 		const { getByTestId } = render( <TopologyConsole /> );
 		await fireMsg( {
 			type: TM_BYTESTREAM,
-			from: 'worker',
-			key: 'gui:uptime',
+			to: names.UPTIME,
 			value: '09:44:52  up 0 days, 00:01:00\n',
 		} );
-		const transcript = getByTestId( 'repl-transcript' );
-		expect( transcript.children.length ).toBe( 0 );
+		expect( getByTestId( 'repl-transcript' ).children.length ).toBe( 0 );
 	} );
 
-	it( 'handleMessage: debug_level 1 injects type/from header', async () => {
+	it( 'debug_level 1 injects a type/from header', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
 		await act( async () => {
 			fireEvent.click( getByText( 'submit-multi' ) );
 		} );
-		await fireMsg( {
-			type: TM_BYTESTREAM,
-			from: 'worker',
-			value: 'hi',
-		} );
+		await fireMsg( { type: TM_BYTESTREAM, value: 'hi' } );
 		const items = Array.from(
 			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
 		);
@@ -784,16 +778,11 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'sendLine: clear builtin empties the transcript', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
-		await fireMsg( {
-			type: TM_BYTESTREAM,
-			from: 'worker',
-			value: 'pre-clear',
-		} );
+		await fireMsg( { type: TM_BYTESTREAM, value: 'pre-clear' } );
 		expect(
 			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
 				.length
 		).toBeGreaterThan( 0 );
-		// `clear; debug_level 1`: clear wipes the pane, leaving the debug_level echo + info.
 		await act( async () => {
 			fireEvent.click( getByText( 'submit-multi' ) );
 		} );
@@ -810,11 +799,9 @@ describe( 'TopologyConsole boot', () => {
 		const { container } = render( <TopologyConsole /> );
 		await act( async () => {
 			for ( let i = 0; i < 250; i++ ) {
-				globalThis.__sessionNode.fill( {
-					type: TM_BYTESTREAM,
-					from: 'worker',
-					value: `msg-${ i }`,
-				} );
+				Core.node( names.ROUTER ).fill(
+					posMsg( { type: TM_BYTESTREAM, value: `msg-${ i }` } )
+				);
 			}
 		} );
 		const items = container.querySelectorAll(
@@ -867,7 +854,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
 	} );
 
-	it( 'Inspector dump action emits a sent transcript entry', async () => {
+	it( 'Inspector dump action emits a sent transcript entry', () => {
 		const { container, getByText } = render( <TopologyConsole /> );
 		fireEvent.click( getByText( 'select-n1' ) );
 		fireEvent.click( getByText( 'action-dump' ) );
@@ -949,7 +936,6 @@ describe( 'TopologyConsole boot', () => {
 	it( 'position change persists to localStorage with user flag', () => {
 		const { getByText } = render( <TopologyConsole /> );
 		fireEvent.click( getByText( 'move-n1' ) );
-		// The drag should round-trip through localStorage.
 		const keys = Object.keys( window.localStorage ).filter( ( k ) =>
 			k.endsWith( ':positions' )
 		);
@@ -1006,7 +992,6 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'Header onTopologyChange updates the URL', () => {
-		// Seed the URL so initialTopologyFromUrl picks `demo`.
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
@@ -1024,10 +1009,10 @@ describe( 'TopologyConsole boot', () => {
 		expect( window.location.search ).toMatch( /partition=1/ );
 	} );
 
-	it( 'mounts the session graph in view mode (SessionSink registered)', () => {
+	it( 'mounts the receive graph in view mode (Dumper registered as _output)', () => {
 		render( <TopologyConsole /> );
-		// The mocked graph registered a real SessionSink in view mode.
-		expect( Core.node( 'session' ) ).toBe( globalThis.__sessionNode );
+		const { Dumper } = require( '../nodes/dumper' );
+		expect( Core.node( names.OUTPUT ) ).toBeInstanceOf( Dumper );
 	} );
 
 	it( 'edit mode: entering shows the Palette', async () => {
@@ -1088,7 +1073,6 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// Trigger Save; the handler runs without throwing.
 		await act( async () => {
 			fireEvent.click( getByText( 'save' ) );
 		} );
@@ -1144,11 +1128,9 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// Select the n1→n2 edge from the canvas, then remove via inspector.
 		await act( async () => {
 			fireEvent.click( getByText( 'select-edge' ) );
 		} );
-		// Inspector doesn't mount for an edge; just verify the selection changed.
 		expect( lastCanvasProps.selectedEdge ).toEqual( {
 			from: 'n1',
 			to: 'n2',
@@ -1194,7 +1176,6 @@ describe( 'TopologyConsole boot', () => {
 		render( <TopologyConsole /> );
 		const fn = lastCanvasProps.onBackgroundClickConsumed;
 		expect( typeof fn ).toBe( 'function' );
-		// Initial: replExpanded false → returns false (not consumed).
 		expect( fn() ).toBe( false );
 	} );
 
@@ -1202,7 +1183,6 @@ describe( 'TopologyConsole boot', () => {
 		jest.useFakeTimers();
 		try {
 			const { container, getByText } = render( <TopologyConsole /> );
-			// Verify the render mounts without errors.
 			fireEvent.click( getByText( 'save' ) );
 			act( () => {
 				jest.advanceTimersByTime( 5000 );
@@ -1213,13 +1193,11 @@ describe( 'TopologyConsole boot', () => {
 		}
 	} );
 
-	it( 'handleMessage: gui:auto with parsed nodes seeds rate tracking', async () => {
+	it( 'reply TO=_metadata with parsed nodes seeds rate tracking', async () => {
 		render( <TopologyConsole /> );
-		// dump_metadata is the object { name: { counter, class, ... } } in VALUE.
 		await fireMsg( {
 			type: TM_STRUCT,
-			from: 'worker',
-			key: 'gui:auto',
+			to: names.METADATA,
 			value: {
 				n1: {
 					counter: 10,
@@ -1231,8 +1209,7 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		await fireMsg( {
 			type: TM_STRUCT,
-			from: 'worker',
-			key: 'gui:auto',
+			to: names.METADATA,
 			value: {
 				n1: {
 					counter: 20,
@@ -1248,27 +1225,20 @@ describe( 'TopologyConsole boot', () => {
 		);
 	} );
 
-	it( 'handleMessage: counter reset across worker respawn clamps to 0', async () => {
+	it( 'reply TO=_metadata: counter reset across worker respawn clamps to 0', async () => {
 		render( <TopologyConsole /> );
 		await fireMsg( {
 			type: TM_STRUCT,
-			from: 'worker',
-			key: 'gui:auto',
-			value: {
-				n1: { counter: 100, class: 'Echo' },
-			},
+			to: names.METADATA,
+			value: { n1: { counter: 100, class: 'Echo' } },
 		} );
-		// Wait at least 1s so prevEntry.ts < now.
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 1100 ) );
 		} );
 		await fireMsg( {
 			type: TM_STRUCT,
-			from: 'worker',
-			key: 'gui:auto',
-			value: {
-				n1: { counter: 5, class: 'Echo' },
-			},
+			to: names.METADATA,
+			value: { n1: { counter: 5, class: 'Echo' } },
 		} );
 		const entry = lastCanvasProps.rateRef.current.get( 'n1' );
 		expect( entry ).not.toBeUndefined();
@@ -1282,15 +1252,10 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
 
-	it( 'debug_level 2 emits buildDebugHeader2 multi-line envelope', async () => {
+	it( 'debug_level 2 path: header injection still renders the arrival', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
-		// The mock can only reach debug_level 1; exercise the header-injection path.
 		fireEvent.click( getByText( 'submit-multi' ) );
-		await fireMsg( {
-			type: TM_BYTESTREAM,
-			from: 'worker',
-			value: 'hi',
-		} );
+		await fireMsg( { type: TM_BYTESTREAM, value: 'hi' } );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
@@ -1445,33 +1410,21 @@ describe( 'TopologyConsole boot', () => {
 	it( 'debug_level 1: number value stringifies', async () => {
 		const { getByText, container } = render( <TopologyConsole /> );
 		fireEvent.click( getByText( 'submit-multi' ) );
-		await fireMsg( {
-			type: TM_BYTESTREAM,
-			from: 'worker',
-			value: 42, // number, exercises String() branch
-		} );
+		await fireMsg( { type: TM_BYTESTREAM, value: 42 } );
 		expect( container.textContent ).toMatch( /TM_BYTESTREAM from worker/ );
 	} );
 
 	it( 'debug_level 1: null/undefined value renders empty', async () => {
 		const { getByText, container } = render( <TopologyConsole /> );
 		fireEvent.click( getByText( 'submit-multi' ) );
-		await fireMsg( {
-			type: TM_BYTESTREAM,
-			from: 'worker',
-			value: null,
-		} );
+		await fireMsg( { type: TM_BYTESTREAM, value: null } );
 		expect( container.textContent ).toMatch( /TM_BYTESTREAM from worker/ );
 	} );
 
 	it( 'debug_level 1: object value gets JSON-stringified in header', async () => {
 		const { getByText, container } = render( <TopologyConsole /> );
 		fireEvent.click( getByText( 'submit-multi' ) );
-		await fireMsg( {
-			type: TM_STRUCT,
-			from: 'worker',
-			value: { hello: 'world' },
-		} );
+		await fireMsg( { type: TM_STRUCT, value: { hello: 'world' } } );
 		expect( container.textContent ).toMatch( /TM_STRUCT from worker/ );
 	} );
 
@@ -1495,12 +1448,7 @@ describe( 'TopologyConsole boot', () => {
 		fireEvent.click( getByText( 'submit-multi' ) );
 		const circular = {};
 		circular.self = circular;
-		await fireMsg( {
-			type: TM_BYTESTREAM,
-			from: 'worker',
-			value: circular,
-		} );
-		// stringifyValue falls back to String() on circular; header still renders.
+		await fireMsg( { type: TM_BYTESTREAM, value: circular } );
 		expect( container.textContent ).toMatch( /TM_BYTESTREAM from worker/ );
 	} );
 
@@ -1531,7 +1479,6 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'sendLine: a remote command echoes the sent text', async () => {
 		const { container, getByText } = render( <TopologyConsole /> );
-		// submit sends `ls`; the remote path fires (ssePid=1234 from the mock).
 		await act( async () => {
 			fireEvent.click( getByText( 'submit' ) );
 		} );
@@ -1545,17 +1492,23 @@ describe( 'TopologyConsole boot', () => {
 		expect( sent.textContent ).toBe( 'ls' );
 	} );
 
-	it( 'sendLine: fills the command-out node with the interpreted body', async () => {
-		globalThis.__commandOutFill.mockClear();
+	it( 'sendLine: a typed command flows Shell → CI → Router → HttpOut (captured)', async () => {
+		globalThis.__httpPosts = [];
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText } = render( <TopologyConsole /> );
 		await act( async () => {
 			fireEvent.click( getByText( 'submit' ) );
 		} );
-		// `ls` -> default command verb; the fill payload is just the command batch.
-		expect( globalThis.__commandOutFill ).toHaveBeenCalledWith( {
-			commands: [ { type: 'command', name: 'ls', arguments: '' } ],
-		} );
+		// `ls` → default TM_COMMAND posted to the worker via _http. The Router
+		// peeled _http before HttpOut captured it, so TO is the bare reader.
+		const posted = globalThis.__httpPosts.find(
+			( m ) => m[ VALUE ] && m[ VALUE ].name === 'ls'
+		);
+		expect( posted ).not.toBeUndefined();
+		expect( posted[ TO ] ).toBe( 'demo.p0' );
+		expect( posted[ FROM ] ).toBe(
+			`${ names.HTTP }/1234/${ names.OUTPUT }`
+		);
 	} );
 
 	it( 'handleSave: PromptModal mounts in edit mode; confirm triggers saveTopology', async () => {
@@ -1867,11 +1820,7 @@ describe( 'TopologyConsole boot', () => {
 		window.NewspackNodesData.topologyPartitions = { demo: 2 };
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { container } = render( <TopologyConsole /> );
-		await fireMsg( {
-			type: TM_BYTESTREAM,
-			from: 'worker',
-			value: 'pre-switch',
-		} );
+		await fireMsg( { type: TM_BYTESTREAM, value: 'pre-switch' } );
 		expect(
 			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
 				.length
@@ -1893,7 +1842,6 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText, queryByText } = render( <TopologyConsole /> );
-		// Move n1 so the save-layout button mounts (layout differs from saved).
 		await act( async () => {
 			fireEvent.click( getByText( 'move-n1' ) );
 		} );
@@ -2025,7 +1973,6 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 10 ) );
 		} );
-		// save-layout button is gone after seeding (overrides equal saved).
 		expect( queryByText( 'save-layout' ) ).toBeNull();
 		expect( getByText( 'submit' ) ).not.toBeNull();
 	} );

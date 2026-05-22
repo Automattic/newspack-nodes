@@ -3,45 +3,54 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\HTTP_Filter;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( HTTP_Filter::class )]
 class HTTPFilterTest extends TestCase {
 
-	public function test_fill_emits_when_post_peel_to_matches_own_pid(): void {
-		$emitted = [];
-		$f = new HTTP_Filter( 12345, static function ( array $msg ) use ( &$emitted ): void {
-			$emitted[] = $msg;
-		} );
+	public function test_fill_strips_pid_head_and_emits_remainder_as_to(): void {
+		// Router peeled `_http`, leaving TO=`<ssePid>/<reply-node>`. HTTP_Filter
+		// matches the head segment against its pid, strips it, and forwards the
+		// remainder so the browser receives TO=`_output` (its Dumper).
+		$f = new HTTP_Filter( 12345 );
+		$f->sink( $sink = new CaptureSink() );
 		$msg                   = Message::new_message();
-		$msg[ Message::TO ]    = '12345';  // Router already peeled `_http`.
+		$msg[ Message::TO ]    = '12345/_output';
 		$msg[ Message::VALUE ] = 'reply';
 		$f->fill( $msg );
-		$this->assertCount( 1, $emitted );
-		$this->assertSame( 'reply', $emitted[0][ Message::VALUE ] );
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( '_output', $sink->captured[0][ Message::TO ] );
+		$this->assertSame( 'reply', $sink->captured[0][ Message::VALUE ] );
+	}
+
+	public function test_fill_strips_to_empty_when_pid_has_no_reply_node_suffix(): void {
+		$f = new HTTP_Filter( 12345 );
+		$f->sink( $sink = new CaptureSink() );
+		$msg                = Message::new_message();
+		$msg[ Message::TO ] = '12345';  // Bare pid, no reply-node — strips to ''.
+		$f->fill( $msg );
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( '', $sink->captured[0][ Message::TO ] );
 	}
 
 	public function test_fill_drops_when_to_is_for_a_different_session(): void {
-		$emitted = [];
-		$f = new HTTP_Filter( 12345, static function ( array $msg ) use ( &$emitted ): void {
-			$emitted[] = $msg;
-		} );
+		$f = new HTTP_Filter( 12345 );
+		$f->sink( $sink = new CaptureSink() );
 		$msg                = Message::new_message();
-		$msg[ Message::TO ] = '99999';  // Some other browser tab's reply.
+		$msg[ Message::TO ] = '99999/_output';  // Some other browser tab's reply.
 		$f->fill( $msg );
-		$this->assertCount( 0, $emitted );
+		$this->assertCount( 0, $sink->captured );
 	}
 
 	public function test_counter_increments_even_when_message_is_dropped(): void {
-		$emitted = [];
-		$f = new HTTP_Filter( 12345, static function ( array $msg ) use ( &$emitted ): void {
-			$emitted[] = $msg;
-		} );
+		$f = new HTTP_Filter( 12345 );
+		$f->sink( $sink = new CaptureSink() );
 		$msg                = Message::new_message();
-		$msg[ Message::TO ] = '99999';  // Different session.
+		$msg[ Message::TO ] = '99999/_output';  // Different session.
 		$f->fill( $msg );
-		$this->assertCount( 0, $emitted );
+		$this->assertCount( 0, $sink->captured );
 		$this->assertSame( 1, $f->counter() );
 	}
 
