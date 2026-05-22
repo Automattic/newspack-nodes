@@ -679,9 +679,9 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'class="regular-text code"', $html );
 		$this->assertStringContainsString( 'placeholder="', $html );
 		$this->assertStringContainsString( 'Base directory for logs', $html );
-		// Reset-text button wired with data-field.
+		// Reset button must be wired to render_reset_button_handler (data-newspack-nodes-reset-target).
 		$this->assertStringContainsString( 'newspack-nodes-reset-text', $html );
-		$this->assertStringContainsString( 'data-field="base_directory"', $html );
+		$this->assertStringContainsString( 'data-newspack-nodes-reset-target="base_directory"', $html );
 	}
 
 	public function test_base_directory_callback_renders_saved_value(): void {
@@ -822,7 +822,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertMatchesRegularExpression( '/<textarea[^>]*><\/textarea>/', $html );
 		// Reset-text button wired.
 		$this->assertStringContainsString( 'newspack-nodes-reset-text', $html );
-		$this->assertStringContainsString( 'data-field="memcache_servers"', $html );
+		$this->assertStringContainsString( 'data-newspack-nodes-reset-target="memcache_servers"', $html );
 	}
 
 	public function test_memcache_servers_callback_renders_saved_value(): void {

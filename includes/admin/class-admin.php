@@ -650,7 +650,7 @@ class Admin {
 				</p>
 			</div>
 			<button type="button" class="button button-secondary newspack-nodes-reset-text"
-				data-field="memcache_servers" data-default=""
+				data-newspack-nodes-reset-target="memcache_servers"
 				title="<?php \esc_attr_e( 'Reset to default', 'newspack-nodes' ); ?>">↺</button>
 		</div>
 		<?php
@@ -832,7 +832,7 @@ class Admin {
 				</p>
 			</div>
 			<button type="button" class="button button-secondary newspack-nodes-reset-text"
-				data-field="<?php echo \esc_attr( $field ); ?>" data-default=""
+				data-newspack-nodes-reset-target="<?php echo \esc_attr( $field ); ?>"
 				title="<?php \esc_attr_e( 'Reset to default', 'newspack-nodes' ); ?>">↺</button>
 		</div>
 		<?php
