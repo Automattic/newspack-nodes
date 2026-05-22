@@ -150,6 +150,12 @@ class WorkerBase {
 	 * @return CommandInterpreter So topology closures can drive graph construction.
 	 */
 	public function build_scaffolding(): CommandInterpreter {
+		// This worker process is a command VERIFIER: every CI it builds — the main
+		// _command_interpreter plus the patron CIs embedded in Partitions — must
+		// HMAC-check commands arriving over IPC (which strips the LOCAL taint). Set
+		// the process-wide authorization policy once, before any CI is constructed.
+		CommandInterpreter::$default_authorize = Command_Auth::verifier();
+
 		$ipc_dir = "{$this->base_dir}/ipc/{$this->worker_type}.p{$this->partition}";
 
 		$router = new Router();

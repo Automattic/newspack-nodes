@@ -1942,20 +1942,19 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_poll_skips_line_that_fails_unpacked_and_continues(): void {
-		$source = new Partition( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		// A genuinely corrupt on-disk line (here a too-few-fields array that
+		// Message::unpacked() rejects) followed by a valid packed line. The drain
+		// loop must skip the bad line and still emit the following valid one, not
+		// abort the poll. Written raw because packed() now slices to 7 fields, so
+		// it can no longer be coaxed into emitting a malformed line itself.
+		$seg_dir = "{$this->tmp}/data/p0";
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+		@\mkdir( $seg_dir, 0755, true );
 
-		// A message with a trailing 8th field packs and is written normally,
-		// but Message::unpacked() rejects it (exactly 7 fields) — standing in
-		// for any line on disk that fails to unpack. The drain loop must skip
-		// it and still emit the following valid line, not abort the poll.
-		$bad                   = Message::new_message();
-		$bad[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$bad[ Message::VALUE ] = 'corruptme';
-		$bad[]                 = 'extra-eighth-field';
-		$source->fill( $bad );
-		$source->flush();
-
-		$this->produce_line( $source, 'keepme' );
+		$good                   = Message::new_message();
+		$good[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$good[ Message::VALUE ] = 'keepme';
+		\file_put_contents( "{$seg_dir}/0.log", "[1,2,3]\n" . Message::packed( $good ) . "\n" );
 
 		$c = new Consumer( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$capture = new CaptureSink();

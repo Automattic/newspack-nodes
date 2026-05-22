@@ -25,6 +25,7 @@
 
 namespace Newspack_Nodes\Rest;
 
+use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\CommandInterpreter;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
@@ -111,6 +112,11 @@ class HTTP_In extends Node {
 			return;
 		}
 
+		// This request process is a command VERIFIER: the request-scope base_ci
+		// (and any patron CIs it mounts) must HMAC-check every command. Set the
+		// process-wide policy once before routing.
+		CommandInterpreter::$default_authorize = Command_Auth::verifier();
+
 		// Route messages in order through the one request graph: a batch runs
 		// serially, so an earlier command's side effect is visible to a later one.
 		$out->reset();
@@ -120,6 +126,14 @@ class HTTP_In extends Node {
 			// Node. Pivoted IPC commands supply their own FROM — leave it alone.
 			if ( '' === $msg[ Message::FROM ] ) {
 				$msg[ Message::FROM ] = Node_Names::HTTP;
+			}
+			// WP already authenticated this request (permission_callback:
+			// manage_options). Sign command provenance on the browser's behalf so
+			// downstream verifier CIs (request-scope + worker) accept it; the
+			// signature covers semantics only, so the later FROM/TO peeling is fine.
+			// Non-command messages (TM_BYTESTREAM/INFO, or responses) are left alone.
+			if ( ( $msg[ Message::TYPE ] & Message::TM_COMMAND ) && ! ( $msg[ Message::TYPE ] & Message::TM_RESPONSE ) ) {
+				Command_Auth::sign( $msg );
 			}
 			$router->fill( $msg );
 			$last = $msg;

@@ -180,6 +180,11 @@ class CliCommandTest extends TestCase {
 		// Pivoted shell has a custom prompt reflecting the target.
 		$this->assertSame( 'firehose-workers.p0> ', $shell->prompt );
 
+		// Shell → Command_Signer → cmd-out: pivoted commands are HMAC-signed before
+		// the IPC wire so the worker's verifier accepts them.
+		$this->assertInstanceOf( \Newspack_Nodes\Command_Signer::class, $shell->sink() );
+		$this->assertSame( $nodes['cmd-out'], $shell->sink()->sink() );
+
 		Core::cleanup_all_nodes();
 	}
 
