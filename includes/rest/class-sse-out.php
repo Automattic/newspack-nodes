@@ -49,7 +49,7 @@ class SSE_Out extends Node {
 	/**
 	 * `Cli::attach_to_worker` seam. Lazily defaulted; tests reassign in setUp.
 	 *
-	 * Signature: `function ( string $reader_id, string $base_dir ): array`.
+	 * Signature: `function ( string $worker_id, string $base_dir ): array`.
 	 *
 	 * @var \Closure|null
 	 */
@@ -151,8 +151,8 @@ class SSE_Out extends Node {
 		$base = $this->base_dir ?? Bootstrap::base_dir();
 
 		if ( \preg_match( '/^([a-z0-9_-]+)\.p(\d+)$/', $sub, $m ) ) {
-			$attach = self::$attach_to_worker ?? static function ( string $reader_id, string $base_dir ): array {
-				return ( new Cli( $base_dir ) )->attach_to_worker( $reader_id );
+			$attach = self::$attach_to_worker ?? static function ( string $worker_id, string $base_dir ): array {
+				return ( new Cli( $base_dir ) )->attach_to_worker( $worker_id );
 			};
 			try {
 				$ipc = $attach( $sub, $base );

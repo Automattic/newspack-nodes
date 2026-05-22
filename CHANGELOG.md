@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Topology Console reconnected to `/messages/stream` every ~minute.** The console
+  subscribes to a worker partition (60s aggregator slot TTL) but never poked
+  `workers/heartbeat`, so its SSE slot lapsed and `check_slot` tore the stream down.
+  It now pokes on the same half-TTL cadence as the dashboards — and, because its slot
+  lives at the worker's partition (not the browser pool's `-1`), the poke carries
+  `partition` so it touches the right slot.
+
 ### Added
 
 - **Topology Console skin menu.** A header picker switches the console between the
