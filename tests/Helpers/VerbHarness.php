@@ -84,6 +84,10 @@ class VerbHarness {
 			'arguments' => $args,
 			'payload'   => $payload,
 		];
+		// This harness exercises verb LOGIC, not authorization (covered by
+		// CommandAuthTest / CommandInterpreterTest). Mark the command as
+		// in-process so the client-tier authorize gate passes.
+		$msg[ Message::LOCAL ] = true;
 
 		\ob_start();
 		$ci->fill( $msg );

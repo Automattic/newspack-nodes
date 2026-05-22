@@ -10,6 +10,93 @@ use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( CommandInterpreter::class )]
 class CommandInterpreterTest extends TestCase {
+	protected function tearDown(): void {
+		// $default_authorize is static process state — reset so tests don't bleed.
+		CommandInterpreter::$default_authorize = null;
+		parent::tearDown();
+	}
+
+	/** Build a TM_COMMAND Message (empty TO) for the interpret path. */
+	private function command_message( string $name, string $args = '', bool $local = false ): array {
+		$m                    = Message::new_message();
+		$m[ Message::TYPE ]   = Message::TM_COMMAND;
+		$m[ Message::FROM ]   = '_output/1';
+		$m[ Message::VALUE ]  = [ 'name' => $name, 'arguments' => $args, 'payload' => '' ];
+		if ( $local ) {
+			$m[ Message::LOCAL ] = true;
+		}
+		return $m;
+	}
+
+	public function test_interpret_refuses_command_without_local_provenance(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci   = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		$sink = new CaptureSink();
+		$ci->sink( $sink );
+
+		$msg = $this->command_message( 'make_node', 'CaptureSink ghost' ); // no LOCAL
+		$ci->fill( $msg );
+
+		// Verb did NOT run — node never created.
+		$this->assertNull( Core::node( 'ghost' ) );
+		// An unauthorized error response was emitted.
+		$resp = $sink->captured[0] ?? null;
+		$this->assertNotNull( $resp );
+		$this->assertSame( Message::TM_COMMAND | Message::TM_ERROR, $resp[ Message::TYPE ] );
+		$this->assertStringContainsString( 'unauthorized', $resp[ Message::VALUE ]['payload'] );
+	}
+
+	public function test_interpret_allows_command_with_local_provenance(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$msg = $this->command_message( 'make_node', 'CaptureSink real', true ); // LOCAL
+		$ci->fill( $msg );
+
+		$this->assertInstanceOf( CaptureSink::class, Core::node( 'real' ) );
+	}
+
+	public function test_instance_authorize_overrides_default_local_check(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		$ci->authorize = static fn ( array $m ): bool => true;
+
+		$msg = $this->command_message( 'make_node', 'CaptureSink trusted' ); // no LOCAL
+		$ci->fill( $msg );
+
+		$this->assertInstanceOf( CaptureSink::class, Core::node( 'trusted' ) );
+	}
+
+	public function test_static_default_authorize_can_refuse_even_with_local(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		CommandInterpreter::$default_authorize = static fn ( array $m ): bool => false;
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$msg = $this->command_message( 'make_node', 'CaptureSink nope', true ); // LOCAL set
+		$ci->fill( $msg );
+		$this->assertNull( Core::node( 'nope' ) );
+
+		// Instance override beats the static default.
+		$ci->authorize = static fn ( array $m ): bool => true;
+		$msg2 = $this->command_message( 'make_node', 'CaptureSink yes' );
+		$ci->fill( $msg2 );
+		$this->assertInstanceOf( CaptureSink::class, Core::node( 'yes' ) );
+	}
+
+	public function test_dispatch_is_not_gated_for_programmatic_callers(): void {
+		// The gate lives in interpret() (message path); direct dispatch() stays open
+		// for topology/setup code.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		$ci->dispatch( 'make_node', 'CaptureSink direct' );
+		$this->assertInstanceOf( CaptureSink::class, Core::node( 'direct' ) );
+	}
+
 	public function test_make_node_creates_named_node_in_registry(): void {
 		// Register CaptureSink in the class table so `make_node CaptureSink ...` works.
 		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
@@ -167,6 +254,7 @@ class CommandInterpreterTest extends TestCase {
 			'arguments' => 'CaptureSink alice',
 			'payload'   => '',
 		];
+		$msg[ Message::LOCAL ] = true; // in-process command — carries the provenance taint
 		$ci->fill( $msg );
 
 		$this->assertNotNull( Core::node( 'alice' ) );
@@ -1393,6 +1481,7 @@ class CommandInterpreterTest extends TestCase {
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
 		$msg[ Message::FROM ]  = '_output/777';
 		$msg[ Message::VALUE ] = [ 'name' => 'boom', 'arguments' => '' ];
+		$msg[ Message::LOCAL ] = true;
 		$ci->fill( $msg );
 
 		$this->assertCount( 1, $downstream->captured );
@@ -1432,6 +1521,7 @@ class CommandInterpreterTest extends TestCase {
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
 		$msg[ Message::FROM ]  = '_output/55';
 		$msg[ Message::VALUE ] = [ 'name' => 'give_array', 'arguments' => '' ];
+		$msg[ Message::LOCAL ] = true;
 		$ci->fill( $msg );
 
 		$this->assertCount( 1, $downstream->captured );
@@ -1444,6 +1534,7 @@ class CommandInterpreterTest extends TestCase {
 		$empty[ Message::TYPE ]  = Message::TM_COMMAND;
 		$empty[ Message::FROM ]  = '_output/55';
 		$empty[ Message::VALUE ] = [ 'name' => 'give_empty', 'arguments' => '' ];
+		$empty[ Message::LOCAL ] = true;
 		$ci->fill( $empty );
 
 		$this->assertCount( 2, $downstream->captured, 'an empty-array result must still produce a response' );
@@ -1464,6 +1555,7 @@ class CommandInterpreterTest extends TestCase {
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
 		$msg[ Message::FROM ]  = '_output/77';
 		$msg[ Message::VALUE ] = [ 'name' => 'i_do_not_exist', 'arguments' => '' ];
+		$msg[ Message::LOCAL ] = true;
 		$ci->fill( $msg );
 
 		$this->assertCount( 1, $downstream->captured );
@@ -1495,10 +1587,12 @@ class CommandInterpreterTest extends TestCase {
 		$msg[ Message::ID ]    = 'corr-id-123';
 		$msg[ Message::KEY ]   = 'gui-tag-abc';
 		$msg[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'CaptureSink coverage_alice' ];
+		$msg[ Message::LOCAL ] = true;
 		$ci->fill( $msg );
 
 		$this->assertCount( 1, $downstream->captured );
 		$response = $downstream->captured[0];
+		$this->assertSame( Message::TM_COMMAND | Message::TM_RESPONSE, $response[ Message::TYPE ], 'authorized command yields a success response' );
 		$this->assertSame( 'corr-id-123', $response[ Message::ID ] );
 		$this->assertSame( 'gui-tag-abc', $response[ Message::KEY ] );
 	}

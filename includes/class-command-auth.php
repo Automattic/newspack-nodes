@@ -157,8 +157,18 @@ class Command_Auth {
 		return $claim( $nonce, self::NONCE_TTL_S );
 	}
 
-	/** A verify closure (real clock) for installation as CommandInterpreter's authorize policy. */
+	/**
+	 * Authorize closure for verifier processes (worker, /command request scope).
+	 *
+	 * Accepts a command if it is either in-process (Message::LOCAL set) OR carries
+	 * a valid HMAC. LOCAL cannot cross a process boundary — packed() strips index 7
+	 * and unpacked() rejects 8-field lines — so a command arriving over IPC/the wire
+	 * never has it; trusting LOCAL therefore only admits the process's own commands
+	 * (e.g. a worker loading its topology via Shell::eval_script), while every
+	 * wire command still requires a signature.
+	 */
 	public static function verifier(): \Closure {
-		return static fn ( array $message ): bool => self::verify( $message );
+		return static fn ( array $message ): bool =>
+			isset( $message[ Message::LOCAL ] ) || self::verify( $message );
 	}
 }

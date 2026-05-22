@@ -47,6 +47,26 @@ class TopologyLoaderTest extends TestCase {
 		$this->assertNotNull( Core::node( 'bob' ) );
 	}
 
+	public function test_load_builds_graph_under_worker_verifier_policy(): void {
+		// Regression: a worker installs the HMAC verifier as the process-wide
+		// authorize policy, THEN loads its topology in-process via Shell. The
+		// Shell stamps LOCAL (no HMAC); the verifier must accept LOCAL-tainted
+		// in-process commands or the worker boots with an empty graph.
+		\Newspack_Nodes\CommandInterpreter::$default_authorize = \Newspack_Nodes\Command_Auth::verifier();
+		$this->write_tsl(
+			'verified',
+			"make_node CaptureSink alice\nmake_node CaptureSink bob\nconnect_node alice bob\n"
+		);
+
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		Topology_Loader::load( 'verified', 0, $ci );
+
+		$this->assertNotNull( Core::node( 'alice' ), 'verifier process must build its own topology' );
+		$this->assertNotNull( Core::node( 'bob' ) );
+	}
+
 	public function test_load_interpolates_partition_via_angle_bracket(): void {
 		$this->write_tsl(
 			'parted',

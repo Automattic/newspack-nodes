@@ -335,6 +335,10 @@ class Shell extends Node {
 		$msg                  = Message::new_message();
 		$msg[ Message::ID ]   = $id;
 		$msg[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
+		// LOCAL provenance taint — minted in this process. Stripped at the wire
+		// boundary (packed()), so it authorizes only an in-process CI; a pivoted
+		// command instead gets HMAC-signed by Command_Signer before IPC.
+		$msg[ Message::LOCAL ] = true;
 
 		switch ( $verb ) {
 			case 'command':

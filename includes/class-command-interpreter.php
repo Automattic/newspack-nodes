@@ -38,6 +38,26 @@ class CommandInterpreter extends Node {
 	 */
 	protected ?array $commands = null;
 
+	/**
+	 * Process-wide default command-authorization policy. A verifier process
+	 * (worker, /command request) sets this ONCE at bootstrap so EVERY CI in the
+	 * process — the main `_command_interpreter` plus the patron CIs embedded in
+	 * Partitions and other config-bearing nodes — inherits it without per-instance
+	 * wiring. Null → the built-in LOCAL-provenance check (client tier).
+	 * Signature: `function ( array $message ): bool` (true = allow).
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $default_authorize = null;
+
+	/**
+	 * Per-instance override of $default_authorize (tests / special cases). Null →
+	 * fall back to the static default. Same signature.
+	 *
+	 * @var \Closure|null
+	 */
+	public ?\Closure $authorize = null;
+
 	public function fill( array &$message ): void {
 		++$this->counter;
 
@@ -64,18 +84,29 @@ class CommandInterpreter extends Node {
 			$this->drop_message( $message, 'invalid command struct' );
 			return;
 		}
-		// Verb handlers throw freely; wrap as TM_COMMAND|TM_ERROR so the cli renders the error.
-		try {
-			$result = $this->dispatch(
-				(string) $cmd['name'],
-				(string) ( $cmd['arguments'] ?? '' ),
-				$cmd['payload'] ?? null,
-				$message
-			);
-			$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
-		} catch ( \Throwable $e ) {
-			$result    = $e->getMessage();
+
+		// Authorization gate (every command): client tier requires the LOCAL
+		// provenance taint; verifier processes swap in an HMAC check. Refuse
+		// before dispatch, replying TM_COMMAND|TM_ERROR via the shared block below.
+		$authorize = $this->authorize ?? self::$default_authorize
+			?? static fn ( array $m ): bool => isset( $m[ Message::LOCAL ] );
+		if ( ! $authorize( $message ) ) {
+			$result    = 'unauthorized: ' . $cmd['name'];
 			$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
+		} else {
+			// Verb handlers throw freely; wrap as TM_COMMAND|TM_ERROR so the cli renders the error.
+			try {
+				$result = $this->dispatch(
+					(string) $cmd['name'],
+					(string) ( $cmd['arguments'] ?? '' ),
+					$cmd['payload'] ?? null,
+					$message
+				);
+				$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
+			} catch ( \Throwable $e ) {
+				$result    = $e->getMessage();
+				$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
+			}
 		}
 
 		// Route TO=FROM (walk the breadcrumb back); KEY is client correlation metadata.

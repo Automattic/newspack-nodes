@@ -138,7 +138,12 @@ class Cli_Command {
 			$cmd_out = new Partition( $ipc['input'], 0 );
 			$cmd_out->name( 'cmd-out' );
 			$cmd_out->sink( $interpreter );
-			$shell->sink( $cmd_out );
+			// Sign commands on the way to the worker: the cli is a local
+			// secret-holding issuer, and the worker verifies provenance (the LOCAL
+			// taint is stripped at the IPC boundary). Shell → Command_Signer → cmd-out.
+			$signer = new Command_Signer();
+			$signer->sink( $cmd_out );
+			$shell->sink( $signer );
 
 			// reply-in: ephemeral, so empty offsetlog_base_dir (no durable cursor).
 			$reply_in = new Consumer( $ipc['output'], 0 );

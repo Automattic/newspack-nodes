@@ -21,6 +21,28 @@ abstract class TestCase extends PHPUnitTestCase {
 		// previous test (dirty flag, fleet descriptors, etc.) doesn't
 		// bleed into this one.
 		$GLOBALS['_wp_options'] = [];
+
+		// Command_Auth's single-use nonce claim normally hits Core::$memd, which
+		// isn't wired in unit tests. Install a fresh per-test in-memory claim so
+		// the signed-command verifier path works (and replays within a test are
+		// still rejected). Tests that specifically exercise the no-store fail-closed
+		// path reset this to null themselves.
+		if ( \class_exists( '\Newspack_Nodes\Command_Auth' ) ) {
+			$seen                                       = [];
+			\Newspack_Nodes\Command_Auth::$claim_nonce = static function ( string $nonce, int $ttl ) use ( &$seen ): bool {
+				if ( isset( $seen[ $nonce ] ) ) {
+					return false;
+				}
+				$seen[ $nonce ] = true;
+				return true;
+			};
+		}
+
+		// Authorization policy is static process state; clear it so a verifier
+		// installed by one test (HTTP_In/worker bootstrap) doesn't gate the next.
+		if ( \class_exists( '\Newspack_Nodes\CommandInterpreter' ) ) {
+			\Newspack_Nodes\CommandInterpreter::$default_authorize = null;
+		}
 	}
 
 	protected function make_temp_dir( string $prefix = 'newspack-nodes-test-' ): string {
