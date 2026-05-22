@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Caching is the single shared `Core::$memd` handle — no `Cache_Interface`.**
+  `Core::$memd` (a raw `\Memcached`, built once by the app bootstrap) is the one
+  caching handle; the app-side `Cache_Interface` / `Memcached_Cache` abstraction
+  is gone. `Sse_Slot_Pool` reads `Core::$memd` directly (its `wire()` installs
+  the `SSE_Out` seams), and `Workers_CI`'s injected cache is now just a
+  `\Memcached`-shaped object (or null). The `FakeMemcached` test helper is a
+  duck-typed `\Memcached`-method double for `Core::$memd`, not a `Cache_Interface`
+  implementer.
 - **The Topology Console runs a real in-browser node graph (In/Out nodes).**
   Send: `Shell` → `_command_interpreter` → `_router` → `_http` (`HttpOut`, POSTs
   `/command`). Receive: `_sse` (`SseIn`) → `_router` → `_output` (`Dumper`,

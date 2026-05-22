@@ -119,12 +119,12 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\CommandInterpreter 
 	$base_ci->make_node( 'Topologies_CI', 'topologies' );
 	$base_ci->make_node( 'Raw_Logs_CI',   'raw-logs' );
 
-	// Workers_CI needs the substrate Cli plus an optional Cache_Interface
-	// for live-position memcache reads + SSE-slot heartbeats. Substrate
-	// can't ship a cache (the existing implementation lives in the
-	// application layer), so apply a filter for an application to provide
-	// one. Null cache means live-position falls back to on-disk offsetlog
-	// and the `heartbeat` verb throws "cache not configured".
+	// Workers_CI needs the substrate Cli plus an optional `\Memcached`-shaped
+	// cache (or null) for live-position memcache reads + SSE-slot heartbeats.
+	// Substrate doesn't build a connection itself, so apply a filter for an
+	// application to provide one (event-logger-nodes hands over the shared
+	// `Core::$memd`). Null cache means live-position falls back to on-disk
+	// offsetlog and the `heartbeat` verb throws "cache not configured".
 	$cli   = new \Newspack_Nodes\Cli( \Newspack_Nodes\Bootstrap::base_dir() );
 	$cache = \function_exists( 'apply_filters' )
 		? \apply_filters( 'newspack_nodes/workers_cache', null )
