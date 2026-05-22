@@ -230,36 +230,33 @@ class WorkersCITest extends TestCase {
 		$this->assertNull( $fake_cli->restart_called_with );
 	}
 
-	public function test_heartbeat_verb_records_slot_via_cache(): void {
-		// touch_sse_slot is the real Cache_Interface method (legacy
-		// FirehoseController::heartbeat calls it directly). The plan's
-		// stub of `heartbeat_sse_slot` doesn't exist on Cache_Interface;
-		// aligning here per the plan's "fix divergences" guidance.
-		$fake_cache = new class {
-			public ?array $recorded = null;
-			public function touch_sse_slot( int $user_id, string $ip_hash, int $slot, int $ttl, int $partition = -1 ): bool {
-				$this->recorded = [ 'slot' => $slot, 'ttl' => $ttl, 'partition' => $partition ];
-				return true;
-			}
-		};
-		$ci = new Workers_CI( $this->stub_cli(), $fake_cache );
+	public function test_heartbeat_verb_refreshes_slot_via_pool(): void {
+		// Heartbeat refreshes the SSE slot through Sse_Slot_Pool::touch, keyed
+		// off the shared Core::$memd handle. Seed a held slot then heartbeat it.
+		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		$user_id = \get_current_user_id();
+		$ip_hash = \Newspack_Nodes\Sse_Slot_Pool::ip_hash();
+		$slot    = \Newspack_Nodes\Sse_Slot_Pool::acquire( $user_id, $ip_hash, 8, 30, -1 );
+		$this->assertSame( 0, $slot, 'first acquire claims slot 0' );
 
-		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', [ 'slot' => 7 ] );
+		$ci     = new Workers_CI( $this->stub_cli(), \Newspack_Nodes\Core::$memd );
+		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', [ 'slot' => $slot ] );
 
-		$this->assertSame( [ 'success' => true, 'slot' => 7 ], $result );
-		$this->assertSame( 7, $fake_cache->recorded['slot'] );
+		$this->assertSame( [ 'success' => true, 'slot' => 0 ], $result );
+		\Newspack_Nodes\Core::$memd = null;
 	}
 
 	// ── heartbeat error paths ───────────────────────────────────────────────
 
-	public function test_heartbeat_verb_errors_when_no_cache_configured(): void {
-		// Cache is wired in production by the application bootstrap; absent
-		// it, the verb must fail fast with a clear runtime error so the
-		// dashboard caller sees the misconfiguration instead of a silent no-op.
-		// CommandInterpreter catches verb exceptions and wraps them as
-		// TM_COMMAND|TM_ERROR with the exception message in VALUE, so the
-		// dispatched payload IS the error string.
-		$ci = new Workers_CI( $this->stub_cli() );  // null cache
+	public function test_heartbeat_verb_errors_when_no_memd_configured(): void {
+		// The shared Memcached handle is wired in production by the application
+		// bootstrap; absent it, the verb fails fast with a clear runtime error
+		// so the dashboard caller sees the misconfiguration instead of a silent
+		// no-op. CommandInterpreter catches verb exceptions and wraps them as
+		// TM_COMMAND|TM_ERROR with the message in VALUE, so the payload IS the
+		// error string.
+		\Newspack_Nodes\Core::$memd = null;
+		$ci = new Workers_CI( $this->stub_cli() );
 
 		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', [ 'slot' => 7 ] );
 
@@ -267,22 +264,16 @@ class WorkersCITest extends TestCase {
 	}
 
 	public function test_heartbeat_verb_errors_when_slot_is_missing_or_negative(): void {
-		// `slot` is required and must be non-negative — the cache keys it
+		// `slot` is required and must be non-negative — the pool keys it
 		// per-(user,ip,slot), so a -1 slot would silently collide across
-		// browser sessions. Guard fires before touch_sse_slot is invoked.
-		$fake_cache = new class {
-			public int $calls = 0;
-			public function touch_sse_slot( int $user_id, string $ip_hash, int $slot, int $ttl, int $partition = -1 ): bool {
-				++$this->calls;
-				return true;
-			}
-		};
-		$ci = new Workers_CI( $this->stub_cli(), $fake_cache );
+		// browser sessions. Guard fires before the touch.
+		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		$ci = new Workers_CI( $this->stub_cli(), \Newspack_Nodes\Core::$memd );
 
 		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', [] );  // no slot
 
 		$this->assertSame( 'slot required', $result );
-		$this->assertSame( 0, $fake_cache->calls, 'touch_sse_slot must not fire when slot is missing' );
+		\Newspack_Nodes\Core::$memd = null;
 	}
 
 	// ── cleanup_status verb ─────────────────────────────────────────────────
@@ -661,7 +652,7 @@ class WorkersCITest extends TestCase {
 		$this->seed_heartbeat( $base, 'firehose-workers-and-jobs', 0 );
 		$this->seed_log_segment( $base, 'firehose', 0, 0, 1000 );
 
-		$cache       = new FakeMemcached();
+		$cache       = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		$source_path = "{$base}/logs/firehose.log";
 		$host        = \gethostname() ?: 'unknown';
 		$cache->set(

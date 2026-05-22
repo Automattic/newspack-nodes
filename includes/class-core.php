@@ -38,6 +38,9 @@ class Core {
 	/** @var array<string,mixed> Process-global runtime-config map; read-only from TSL. */
 	public static array $config = [];
 
+	/** Process-global shared Memcached handle; set once by the application bootstrap, null when unconfigured. */
+	public static ?\Memcached $memd = null;
+
 	/** @var array<string> */
 	public static array $recent_log = [];
 
@@ -68,6 +71,7 @@ class Core {
 		self::$in_stderr         = false;
 		self::$var               = [];
 		self::$config            = [];
+		self::$memd              = null;
 		// Default handler: route through `_repl` if wired, else error_log.
 		self::$stderr_handler = static function ( string $msg ): void {
 			$repl = self::$nodes_by_name[ Node_Names::REPL ] ?? null;

@@ -22,7 +22,9 @@ namespace Newspack_Nodes\Rest;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\CommandInterpreter;
 use Newspack_Nodes\Config as RuntimeConfig;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock;
+use Newspack_Nodes\Sse_Slot_Pool;
 use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition;
@@ -37,8 +39,9 @@ class Workers_CI extends Service_CI {
 	 * Build a Workers_CI bound to the supplied Cli + Cache.
 	 *
 	 * @param object      $cli   Duck-types Cli: `ls_workers()`, `live_position()`, `restart_workers()`.
-	 * @param object|null $cache Cache_Interface-shaped (`touch_sse_slot`, `is_available`, `get`); null
-	 *                           disables heartbeat and forces offsetlog-only cursor reads.
+	 * @param object|null $cache `\Memcached`-shaped (`get`) for live cursor reads; null forces
+	 *                           offsetlog-only reads. The `heartbeat` verb refreshes SSE slots via
+	 *                           `Sse_Slot_Pool::touch` against `Core::$memd`, independent of this arg.
 	 */
 	public function __construct( object $cli, ?object $cache = null ) {
 		$this->commands( $this->verb_table( $cli, $cache ) );
@@ -111,8 +114,8 @@ class Workers_CI extends Service_CI {
 				}
 				return [ 'restarted' => $restarted ];
 			},
-			'heartbeat' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ) use ( $cache ): array {
-				if ( null === $cache ) {
+			'heartbeat' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
+				if ( null === Core::$memd ) {
 					throw new \RuntimeException( 'cache not configured' );
 				}
 				$decoded = \is_array( $payload ) ? $payload : [];
@@ -122,10 +125,7 @@ class Workers_CI extends Service_CI {
 				}
 				$ttl       = (int) ( $decoded['ttl']       ?? 10 );
 				$partition = (int) ( $decoded['partition'] ?? -1 );
-				$user_id   = \function_exists( 'get_current_user_id' ) ? (int) \get_current_user_id() : 0;
-				// phpcs:ignore WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized, WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders
-				$ip_hash   = \substr( \md5( (string) ( $_SERVER['REMOTE_ADDR'] ?? '' ) ), 0, 8 );
-				$success   = (bool) $cache->touch_sse_slot( $user_id, $ip_hash, $slot, $ttl, $partition );
+				$success   = Sse_Slot_Pool::touch( Sse_Slot_Pool::user_id(), Sse_Slot_Pool::ip_hash(), $slot, $ttl, $partition );
 				return [ 'success' => $success, 'slot' => $slot ];
 			},
 		];
@@ -572,8 +572,8 @@ class Workers_CI extends Service_CI {
 		$host        = \gethostname() ?: 'unknown';
 		$cache_key   = "np:pos:{$host}:{$source_path}:p{$partition}";
 
-		// `is_available` + `get` are the Cache_Interface contract; null cache skips to the offsetlog.
-		if ( null !== $cache && \method_exists( $cache, 'is_available' ) && $cache->is_available() ) {
+		// Null cache skips to the offsetlog; a raw \Memcached has get(), no is_available().
+		if ( null !== $cache && \method_exists( $cache, 'get' ) ) {
 			$val = $cache->get( $cache_key );
 			if ( \is_array( $val ) && isset( $val['seg'], $val['off'] ) ) {
 				return [ 'seg' => (int) $val['seg'], 'off' => (int) $val['off'] ];

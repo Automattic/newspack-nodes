@@ -406,6 +406,7 @@ require_once __DIR__ . '/Helpers/CaptureSink.php';
 require_once __DIR__ . '/Helpers/BoundedTicks.php';
 require_once __DIR__ . '/Helpers/VerbHarness.php';
 require_once __DIR__ . '/Helpers/FakeMemcached.php';
+require_once __DIR__ . '/Helpers/InMemoryMemcached.php';
 
 // Capture Supervisor fire-and-forget POSTs without actually hitting
 // libcurl. `$curl_exec` is a narrow seam — the rest of
