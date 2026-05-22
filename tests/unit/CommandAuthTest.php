@@ -1,0 +1,186 @@
+<?php
+namespace Newspack_Nodes\Tests\Unit;
+
+use Newspack_Nodes\Tests\TestCase;
+use PHPUnit\Framework\Attributes\CoversClass;
+use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\Core;
+use Newspack_Nodes\Message;
+
+#[CoversClass( Command_Auth::class )]
+class CommandAuthTest extends TestCase {
+	protected function setUp(): void {
+		parent::setUp();
+		// Default the single-use seam to "always claimable" so window/HMAC logic
+		// is what's under test; replay tests install their own stateful claim.
+		Command_Auth::$claim_nonce = static fn ( string $nonce, int $ttl ): bool => true;
+	}
+
+	protected function tearDown(): void {
+		Command_Auth::$claim_nonce = null;
+		parent::tearDown();
+	}
+
+	/** Build a fresh TM_COMMAND with the canonical command VALUE. */
+	private function command( string $name = 'make_node', string $args = 'Tee t', $payload = '' ): array {
+		$m                    = Message::new_message();
+		$m[ Message::TYPE ]   = Message::TM_COMMAND;
+		$m[ Message::VALUE ]  = [ 'name' => $name, 'arguments' => $args, 'payload' => $payload ];
+		return $m;
+	}
+
+	public function test_sign_injects_auth_envelope_and_preserves_command(): void {
+		$m = $this->command();
+		Command_Auth::sign( $m, 1000 );
+		$v = $m[ Message::VALUE ];
+		$this->assertSame( 'make_node', $v['name'] );
+		$this->assertSame( 'Tee t', $v['arguments'] );
+		$this->assertSame( '', $v['payload'] );
+		$this->assertIsArray( $v['auth'] );
+		$this->assertSame( 1000, $v['auth']['ts'] );
+		$this->assertMatchesRegularExpression( '/^[0-9a-f]{32}$/', $v['auth']['nonce'] );
+		$this->assertIsString( $v['auth']['sig'] );
+		$this->assertNotSame( '', $v['auth']['sig'] );
+	}
+
+	public function test_verify_accepts_freshly_signed_command(): void {
+		$m = $this->command();
+		Command_Auth::sign( $m, 1000 );
+		$this->assertTrue( Command_Auth::verify( $m, 1000 ) );
+	}
+
+	public function test_verify_rejects_tampered_name(): void {
+		$m = $this->command();
+		Command_Auth::sign( $m, 1000 );
+		$m[ Message::VALUE ]['name'] = 'remove_node';
+		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+	}
+
+	public function test_verify_rejects_tampered_arguments(): void {
+		$m = $this->command();
+		Command_Auth::sign( $m, 1000 );
+		$m[ Message::VALUE ]['arguments'] = 'Tee evil';
+		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+	}
+
+	public function test_verify_rejects_tampered_payload(): void {
+		$m = $this->command( 'make_node', 'Tee t', 'orig' );
+		Command_Auth::sign( $m, 1000 );
+		$m[ Message::VALUE ]['payload'] = 'tampered';
+		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+	}
+
+	public function test_verify_rejects_signature_too_old(): void {
+		$m = $this->command();
+		Command_Auth::sign( $m, 1000 );
+		// 21s later — past the 20s acceptance window.
+		$this->assertFalse( Command_Auth::verify( $m, 1021 ) );
+	}
+
+	public function test_verify_accepts_within_past_window(): void {
+		$m = $this->command();
+		Command_Auth::sign( $m, 1000 );
+		// 19s later — still inside the 20s window.
+		$this->assertTrue( Command_Auth::verify( $m, 1019 ) );
+	}
+
+	public function test_verify_rejects_future_signature_beyond_skew(): void {
+		$m = $this->command();
+		Command_Auth::sign( $m, 1000 );
+		// Verifier clock 11s behind the signer — beyond the 10s skew tolerance.
+		$this->assertFalse( Command_Auth::verify( $m, 989 ) );
+	}
+
+	public function test_verify_rejects_replayed_nonce(): void {
+		// Stateful single-use seam: first claim true, subsequent false.
+		$seen = [];
+		Command_Auth::$claim_nonce = static function ( string $nonce, int $ttl ) use ( &$seen ): bool {
+			if ( isset( $seen[ $nonce ] ) ) {
+				return false;
+			}
+			$seen[ $nonce ] = true;
+			return true;
+		};
+		$m = $this->command();
+		Command_Auth::sign( $m, 1000 );
+		$this->assertTrue( Command_Auth::verify( $m, 1000 ), 'first use accepted' );
+		$this->assertFalse( Command_Auth::verify( $m, 1000 ), 'replay rejected' );
+	}
+
+	public function test_verify_rejects_missing_auth_envelope(): void {
+		$m = $this->command(); // never signed
+		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+	}
+
+	public function test_verify_rejects_garbled_auth(): void {
+		$m = $this->command();
+		$m[ Message::VALUE ]['auth'] = [ 'ts' => 1000 ]; // missing sig + nonce
+		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+	}
+
+	public function test_verify_fails_closed_without_memcache(): void {
+		// No claim seam, no Memcached handle → strict single-use can't be honored.
+		Command_Auth::$claim_nonce = null;
+		Core::$memd                = null;
+		$captured                  = '';
+		Core::set_stderr_handler( static function ( string $t ) use ( &$captured ): void {
+			$captured .= $t;
+		} );
+		$m = $this->command();
+		Command_Auth::sign( $m, 1000 );
+		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+		$this->assertStringContainsString( 'memcache', \strtolower( $captured ) );
+	}
+
+	public function test_verifier_closure_verifies_with_real_clock(): void {
+		$m = $this->command();
+		Command_Auth::sign( $m ); // real time()
+		$verify = Command_Auth::verifier();
+		$this->assertTrue( $verify( $m ) );
+	}
+
+	public function test_non_command_value_without_name_is_rejected_by_verify(): void {
+		$m                   = Message::new_message();
+		$m[ Message::VALUE ] = 'not a command struct';
+		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+	}
+
+	public function test_nonce_ttl_outlives_full_acceptance_window(): void {
+		// The nonce entry is claimed at first-verify time; it must outlive the full
+		// past+future acceptance span or a clock-skewed verifier reopens replay.
+		$this->assertGreaterThan(
+			Command_Auth::MAX_PAST_S + Command_Auth::MAX_FUTURE_S,
+			Command_Auth::NONCE_TTL_S
+		);
+	}
+
+	public function test_verify_rejects_tampered_type(): void {
+		// TYPE is part of the canonical, so re-typing a signed command breaks it.
+		$m = $this->command();
+		Command_Auth::sign( $m, 1000 );
+		$m[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_STRUCT;
+		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+	}
+
+	public function test_sign_refuses_unencodable_payload(): void {
+		// Invalid UTF-8 makes wp_json_encode return false; signing must fail closed
+		// (no auth) rather than collapse onto an HMAC('') collision.
+		$m = $this->command( 'make_node', 'Tee t', "\xB1\x31" );
+		Command_Auth::sign( $m, 1000 );
+		$this->assertArrayNotHasKey( 'auth', $m[ Message::VALUE ] );
+		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
+	}
+
+	public function test_warns_when_nonce_salt_is_unconfigured(): void {
+		if ( \defined( 'NONCE_SALT' ) && '' !== (string) \NONCE_SALT ) {
+			$this->markTestSkipped( 'NONCE_SALT is configured in this environment.' );
+		}
+		$captured = '';
+		Core::set_stderr_handler( static function ( string $t ) use ( &$captured ): void {
+			$captured .= $t;
+		} );
+		$m = $this->command();
+		Command_Auth::sign( $m, 1000 );
+		$this->assertStringContainsString( 'NONCE_SALT', $captured );
+	}
+}
