@@ -284,11 +284,7 @@ export default function ReplFooter( {
 					ref={ inputRef }
 					type="text"
 					className="topology-repl__input"
-					placeholder={
-						canSend
-							? 'ls / ls -als / make_node Echo my_node / connect_node a b …'
-							: 'Connecting…'
-					}
+					placeholder={ canSend ? '' : 'Connecting…' }
 					value={ value }
 					onChange={ ( ev ) => setValue( ev.target.value ) }
 					onKeyDown={ handleKeyDown }
