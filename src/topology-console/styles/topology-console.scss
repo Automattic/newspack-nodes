@@ -1837,3 +1837,490 @@ body[class*="_page_newspack-nodes-topology"] {
 .topology-modal__btn--danger:hover {
 	background: var(--oxide-dark);
 }
+
+
+// =====================================================================
+// Alternative skins — token overrides + signature flourishes.
+// Selectable via the header Skin picker (writes a theme-<slug> class onto
+// .topology-app). `current` is the default token set above; it needs no
+// block. Palettes mirror the verified mock gallery.
+// =====================================================================
+
+// Dark-skin select chevron: the default chevron data-URI bakes in a dark
+// fill that vanishes on dark surfaces, so repaint it light for dark skins.
+.topology-app.theme-blueprint .topology-select,
+.topology-app.theme-crt .topology-select,
+.topology-app.theme-synthwave .topology-select,
+.topology-app.theme-nord .topology-select,
+.topology-app.theme-aurora .topology-select,
+.topology-app.theme-neotokyo .topology-select,
+.topology-app.theme-scada .topology-select {
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%23ffffff'/%3E%3C/svg%3E");
+}
+
+// 01 — Cyanotype Blueprint
+.topology-app.theme-blueprint {
+	--paper: #103a63;
+	--paper-2: #0c2f53;
+	--paper-3: #0a2746;
+	--paper-shadow: #2f5f8c;
+	--ink: #eaf4ff;
+	--ink-2: #cfe4fb;
+	--ink-3: #9cc3e8;
+	--ink-4: #6f9fce;
+	--grid: rgba(255, 255, 255, 0.16);
+	--oxide: #ffd35c;
+	--oxide-dark: #d9a82f;
+	--brass: #ffd35c;
+	--brass-dark: #d9a82f;
+	--cyan: #7fd0ff;
+	--cyan-dark: #4aa6e0;
+	--sage: #9fe0a0;
+	--sage-dark: #6fb874;
+	--repl-bg: #08203c;
+	--repl-fg: #eaf4ff;
+	--font-mono: "IBM Plex Mono", monospace;
+	--font-display-brand: "Saira Condensed", sans-serif;
+	--font-display-stencil: "Saira Condensed", sans-serif;
+
+	.topology-brand {
+		font-weight: 700;
+		letter-spacing: 0.04em;
+	}
+}
+
+// 02 — CRT Phosphor Terminal
+.topology-app.theme-crt {
+	--paper: #020a05;
+	--paper-2: #03110a;
+	--paper-3: #04140a;
+	--paper-shadow: #1d4a2c;
+	--ink: #7dffa0;
+	--ink-2: #5fcf85;
+	--ink-3: #3aa05f;
+	--ink-4: #2a7344;
+	--grid: rgba(63, 255, 128, 0.08);
+	--oxide: #b6ff6a;
+	--oxide-dark: #7fcf4a;
+	--brass: #9dff5a;
+	--brass-dark: #6fcf3a;
+	--cyan: #41e07a;
+	--cyan-dark: #2fa85a;
+	--sage: #9dff5a;
+	--sage-dark: #6fcf3a;
+	--repl-bg: #03110a;
+	--repl-fg: #7dffa0;
+	--font-mono: "IBM Plex Mono", monospace;
+	--font-display-brand: "VT323", monospace;
+	--font-display-stencil: "VT323", monospace;
+
+	.topology-brand {
+		font-size: 24px;
+	}
+
+	.topology-canvas::after {
+		content: "";
+		position: absolute;
+		inset: 0;
+		z-index: 5;
+		pointer-events: none;
+		background: repeating-linear-gradient(
+			rgba(0, 0, 0, 0) 0 2px,
+			rgba(0, 0, 0, 0.26) 2px 3px
+		);
+	}
+
+	.topology-node__id {
+		filter: drop-shadow(0 0 4px rgba(125, 255, 160, 0.5));
+	}
+}
+
+// 03 — Swiss Brutalist
+.topology-app.theme-swiss {
+	--paper: #fff;
+	--paper-2: #fff;
+	--paper-3: #f2f2f2;
+	--paper-shadow: #000;
+	--ink: #0a0a0a;
+	--ink-2: #0a0a0a;
+	--ink-3: #6b6b6b;
+	--ink-4: #6b6b6b;
+	--grid: rgba(0, 0, 0, 0.06);
+	--oxide: #e2231a;
+	--oxide-dark: #b51810;
+	--brass: #e2231a;
+	--brass-dark: #b51810;
+	--cyan: #e2231a;
+	--cyan-dark: #b51810;
+	--sage: #0a0a0a;
+	--sage-dark: #0a0a0a;
+	--repl-bg: #0a0a0a;
+	--repl-fg: #fff;
+	--font-mono: "Space Mono", monospace;
+	--font-display-brand: "Archivo Black", sans-serif;
+	--font-display-stencil: "Archivo Black", sans-serif;
+
+	.topology-header {
+		border-bottom-width: 2px;
+	}
+
+	.topology-node__bg {
+		stroke-width: 2;
+	}
+}
+
+// 04 — Synthwave Outrun
+.topology-app.theme-synthwave {
+	--paper: #1a0b2e;
+	--paper-2: #2a0f3e;
+	--paper-3: #200a33;
+	--paper-shadow: #ff4da6;
+	--ink: #ffe7fb;
+	--ink-2: #e6b8e0;
+	--ink-3: #b98ad6;
+	--ink-4: #8a5fa8;
+	--grid: rgba(255, 77, 166, 0.13);
+	--oxide: #ff2d95;
+	--oxide-dark: #d61a78;
+	--brass: #ff8fc7;
+	--brass-dark: #ff5fa8;
+	--cyan: #36e0ff;
+	--cyan-dark: #1aa8d6;
+	--sage: #36e0ff;
+	--sage-dark: #1aa8d6;
+	--repl-bg: #160826;
+	--repl-fg: #ffe7fb;
+	--font-mono: "Chakra Petch", sans-serif;
+	--font-display-brand: "Monoton", monospace;
+	--font-display-stencil: "Monoton", monospace;
+
+	.topology-canvas {
+		background: radial-gradient(
+				80% 55% at 50% 122%,
+				#ff7eb6 0%,
+				#ff2d95 16%,
+				transparent 52%
+			),
+			linear-gradient(180deg, #160826 0%, #2a0a3a 62%, #3a0f52 100%);
+	}
+
+	.topology-brand,
+	.topology-node__led,
+	.topology-edge--active {
+		filter: drop-shadow(0 0 4px currentcolor);
+	}
+}
+
+// 05 — Nord Frost
+.topology-app.theme-nord {
+	--paper: #2e3440;
+	--paper-2: #3b4252;
+	--paper-3: #434c5e;
+	--paper-shadow: #4c566a;
+	--ink: #eceff4;
+	--ink-2: #d8dee9;
+	--ink-3: #81a1c1;
+	--ink-4: #677a99;
+	--grid: rgba(216, 222, 233, 0.05);
+	--oxide: #88c0d0;
+	--oxide-dark: #5e9aab;
+	--brass: #ebcb8b;
+	--brass-dark: #d0a85f;
+	--cyan: #88c0d0;
+	--cyan-dark: #5e9aab;
+	--sage: #a3be8c;
+	--sage-dark: #7a9968;
+	--repl-bg: #272c36;
+	--repl-fg: #eceff4;
+	--font-mono: "Fira Code", monospace;
+	--font-display-brand: "Sora", sans-serif;
+	--font-display-stencil: "Sora", sans-serif;
+}
+
+// 06 — Aurora Glass
+.topology-app.theme-aurora {
+	--paper: #0b1020;
+	--paper-2: rgba(255, 255, 255, 0.07);
+	--paper-3: rgba(255, 255, 255, 0.05);
+	--paper-shadow: rgba(255, 255, 255, 0.16);
+	--ink: #eef2ff;
+	--ink-2: #cdd5ee;
+	--ink-3: #9aa6c8;
+	--ink-4: #6f7ba0;
+	--grid: rgba(255, 255, 255, 0.05);
+	--oxide: #7af5d0;
+	--oxide-dark: #4fc9a8;
+	--brass: #9b8cff;
+	--brass-dark: #7a6ce0;
+	--cyan: #9b8cff;
+	--cyan-dark: #7a6ce0;
+	--sage: #7af5d0;
+	--sage-dark: #4fc9a8;
+	--repl-bg: rgba(11, 16, 32, 0.55);
+	--repl-fg: #eef2ff;
+	--font-mono: "Spline Sans Mono", monospace;
+	--font-display-brand: "Syne", sans-serif;
+	--font-display-stencil: "Syne", sans-serif;
+
+	.topology-canvas {
+		background: radial-gradient(
+				60% 80% at 18% 8%,
+				rgba(122, 245, 208, 0.28),
+				transparent 60%
+			),
+			radial-gradient(
+				55% 75% at 92% 95%,
+				rgba(155, 140, 255, 0.34),
+				transparent 60%
+			),
+			radial-gradient(
+				40% 50% at 60% 40%,
+				rgba(94, 180, 255, 0.18),
+				transparent 70%
+			),
+			#0b1020;
+	}
+
+	.topology-header,
+	.topology-repl {
+		background: rgba(255, 255, 255, 0.06);
+		backdrop-filter: blur(9px);
+		-webkit-backdrop-filter: blur(9px);
+	}
+}
+
+// 07 — Solarized Workshop
+.topology-app.theme-solarized {
+	--paper: #fdf6e3;
+	--paper-2: #eee8d5;
+	--paper-3: #e3ddc8;
+	--paper-shadow: #93a1a1;
+	--ink: #073642;
+	--ink-2: #586e75;
+	--ink-3: #93a1a1;
+	--ink-4: #93a1a1;
+	--grid: rgba(101, 123, 131, 0.1);
+	--oxide: #cb4b16;
+	--oxide-dark: #a33a10;
+	--brass: #b58900;
+	--brass-dark: #8a6800;
+	--cyan: #268bd2;
+	--cyan-dark: #1a6ba8;
+	--sage: #859900;
+	--sage-dark: #6a7a00;
+	--repl-bg: #073642;
+	--repl-fg: #fdf6e3;
+	--font-mono: "Anonymous Pro", monospace;
+	--font-display-brand: "Bitter", serif;
+	--font-display-stencil: "Bitter", serif;
+}
+
+// 08 — Botanical Naturalist
+.topology-app.theme-botanical {
+	--paper: #f4efe3;
+	--paper-2: #ece4d2;
+	--paper-3: #e3d9c2;
+	--paper-shadow: #b3a589;
+	--ink: #3a3327;
+	--ink-2: #5c5240;
+	--ink-3: #7d7058;
+	--ink-4: #9a8c70;
+	--grid: rgba(90, 110, 70, 0.08);
+	--oxide: #b5613a;
+	--oxide-dark: #8e4a2c;
+	--brass: #b58a4a;
+	--brass-dark: #8a6630;
+	--cyan: #6f8f5a;
+	--cyan-dark: #547043;
+	--sage: #6f8f5a;
+	--sage-dark: #547043;
+	--repl-bg: #2f2a20;
+	--repl-fg: #f4efe3;
+	--font-mono: "Spectral", serif;
+	--font-display-brand: "Fraunces", serif;
+	--font-display-stencil: "Fraunces", serif;
+
+	.topology-node__bg {
+		rx: 12px;
+		ry: 12px;
+	}
+}
+
+// 09 — Bauhaus Constructivist
+.topology-app.theme-bauhaus {
+	--paper: #f3f0e9;
+	--paper-2: #fff;
+	--paper-3: #eceae3;
+	--paper-shadow: #111;
+	--ink: #111;
+	--ink-2: #111;
+	--ink-3: #555;
+	--ink-4: #555;
+	--grid: rgba(0, 0, 0, 0.05);
+	--oxide: #e63329;
+	--oxide-dark: #b8261e;
+	--brass: #f4c20d;
+	--brass-dark: #c79e0a;
+	--cyan: #1f4ec5;
+	--cyan-dark: #16389a;
+	--sage: #f4c20d;
+	--sage-dark: #111;
+	--repl-bg: #111;
+	--repl-fg: #f3f0e9;
+	--font-mono: "Space Mono", monospace;
+	--font-display-brand: "Josefin Sans", sans-serif;
+	--font-display-stencil: "Josefin Sans", sans-serif;
+
+	.topology-node__bg {
+		stroke-width: 2;
+	}
+
+	.topology-canvas::before {
+		content: "";
+		position: absolute;
+		top: 54px;
+		right: 70px;
+		width: 60px;
+		height: 60px;
+		border-radius: 50%;
+		background: #f4c20d;
+		z-index: 0;
+		pointer-events: none;
+	}
+
+	.topology-canvas::after {
+		content: "";
+		position: absolute;
+		bottom: 60px;
+		left: 60px;
+		width: 0;
+		height: 0;
+		border-left: 30px solid transparent;
+		border-right: 30px solid transparent;
+		border-bottom: 52px solid #1f4ec5;
+		z-index: 0;
+		pointer-events: none;
+	}
+}
+
+// 10 — Neo-Tokyo HUD
+.topology-app.theme-neotokyo {
+	--paper: #0d0d10;
+	--paper-2: #141418;
+	--paper-3: #1a1a1f;
+	--paper-shadow: #3a3a30;
+	--ink: #f2f2e9;
+	--ink-2: #c8c8b8;
+	--ink-3: #8a8a78;
+	--ink-4: #5a5a4a;
+	--grid: rgba(255, 213, 0, 0.06);
+	--oxide: #ffd500;
+	--oxide-dark: #c7a600;
+	--brass: #ffd500;
+	--brass-dark: #c7a600;
+	--cyan: #ff3b30;
+	--cyan-dark: #c72a22;
+	--sage: #ffd500;
+	--sage-dark: #c7a600;
+	--repl-bg: #0a0a0c;
+	--repl-fg: #f2f2e9;
+	--font-mono: "DM Mono", monospace;
+	--font-display-brand: "Orbitron", sans-serif;
+	--font-display-stencil: "Teko", sans-serif;
+
+	.topology-header {
+		border-bottom: 3px solid transparent;
+		border-image: repeating-linear-gradient(
+				45deg,
+				#ffd500 0 9px,
+				#0a0a0c 9px 18px
+			)
+			3;
+	}
+
+	.topology-subtitle::after {
+		content: " / ノードグラフ";
+		color: var(--cyan);
+	}
+
+	.topology-reticle {
+		border-color: var(--oxide);
+		opacity: 0.8;
+	}
+}
+
+// 11 — Pastel Toy
+.topology-app.theme-pastel {
+	--paper: #f6f0fb;
+	--paper-2: #fff;
+	--paper-3: #f0e8f8;
+	--paper-shadow: #b8a6d8;
+	--ink: #5b4b73;
+	--ink-2: #7a6a92;
+	--ink-3: #a596bf;
+	--ink-4: #9a8cbf;
+	--grid: rgba(150, 130, 200, 0.08);
+	--oxide: #ef6f92;
+	--oxide-dark: #d6486f;
+	--brass: #ffb84d;
+	--brass-dark: #e09a2a;
+	--cyan: #7cd6c9;
+	--cyan-dark: #2e8d7e;
+	--sage: #3bb583;
+	--sage-dark: #2e8f68;
+	--repl-bg: #5b4b73;
+	--repl-fg: #fff;
+	--font-mono: "Spline Sans Mono", monospace;
+	--font-display-brand: "Fredoka", sans-serif;
+	--font-display-stencil: "Fredoka", sans-serif;
+
+	.topology-node__bg {
+		rx: 13px;
+		ry: 13px;
+	}
+
+	.topology-node {
+		filter: drop-shadow(0 4px 6px rgba(150, 120, 200, 0.18));
+	}
+}
+
+// 12 — Control-Room SCADA
+.topology-app.theme-scada {
+	--paper: #1a1f23;
+	--paper-2: #20262b;
+	--paper-3: #262d33;
+	--paper-shadow: #3a444b;
+	--ink: #dfe6ea;
+	--ink-2: #b8c2c8;
+	--ink-3: #8b969d;
+	--ink-4: #5f6a70;
+	--grid: rgba(255, 255, 255, 0.04);
+	--oxide: #ff7a18;
+	--oxide-dark: #d65f0a;
+	--brass: #ff7a18;
+	--brass-dark: #d65f0a;
+	--cyan: #39c0c8;
+	--cyan-dark: #2a9aa0;
+	--sage: #5fd35a;
+	--sage-dark: #44a840;
+	--repl-bg: #181c20;
+	--repl-fg: #dfe6ea;
+	--font-mono: "Share Tech Mono", monospace;
+	--font-display-brand: "Saira Stencil One", sans-serif;
+	--font-display-stencil: "Saira Stencil One", sans-serif;
+
+	.topology-header {
+		background: linear-gradient(180deg, #2a3036, #1d2227);
+		border-bottom: 3px solid transparent;
+		border-image: repeating-linear-gradient(
+				45deg,
+				#ff7a18 0 10px,
+				#15191c 10px 20px
+			)
+			3;
+	}
+
+	.topology-node__counter {
+		fill: var(--cyan);
+	}
+}
