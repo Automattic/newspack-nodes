@@ -8,6 +8,7 @@ import {
 	ID,
 	KEY,
 	VALUE,
+	LOCAL,
 	TM_COMMAND,
 	TM_RESPONSE,
 	TM_ERROR,
@@ -25,6 +26,9 @@ export class CommandInterpreter extends Node {
 	constructor() {
 		super();
 		this._commands = {};
+		// Per-instance authorize override (tests / special cases); null falls back
+		// to the static default, then to the built-in LOCAL-provenance check.
+		this.authorize = null;
 	}
 
 	/**
@@ -72,6 +76,24 @@ export class CommandInterpreter extends Node {
 			Core.stderr( `invalid command struct on ${ this.name }` );
 			return;
 		}
+
+		// Authorization gate (every command): the browser tier requires the LOCAL
+		// provenance taint a Shell stamps on in-process commands. An SSE-injected
+		// command routed here lacks it and is refused before dispatch.
+		const authorize =
+			this.authorize ??
+			CommandInterpreter.defaultAuthorize ??
+			( ( m ) => m[ LOCAL ] !== undefined );
+		if ( ! authorize( message ) ) {
+			this._respond(
+				message,
+				cmd.name,
+				`unauthorized: ${ cmd.name }`,
+				TM_ERROR
+			);
+			return;
+		}
+
 		const verb = this._commands[ cmd.name ];
 		if ( typeof verb !== 'function' ) {
 			this._respond(
@@ -109,3 +131,7 @@ export class CommandInterpreter extends Node {
 		}
 	}
 }
+
+// Process-wide default authorization policy. The browser leaves it null (the
+// built-in LOCAL check applies). Same shape as PHP CommandInterpreter::$default_authorize.
+CommandInterpreter.defaultAuthorize = null;
