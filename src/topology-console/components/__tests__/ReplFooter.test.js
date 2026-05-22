@@ -61,6 +61,18 @@ describe( 'ReplFooter', () => {
 		expect( findInput( container ).disabled ).toBe( true );
 	} );
 
+	it( 'shows no example commands in the prompt placeholder', () => {
+		const { container } = render( <ReplFooter { ...baseProps } /> );
+		expect( findInput( container ).placeholder ).toBe( '' );
+	} );
+
+	it( 'keeps the connecting placeholder when canSend=false', () => {
+		const { container } = render(
+			<ReplFooter { ...baseProps } canSend={ false } />
+		);
+		expect( findInput( container ).placeholder ).toBe( 'Connecting…' );
+	} );
+
 	it( 'submits trimmed input on Enter', () => {
 		const onSubmit = jest.fn();
 		const onExpandedChange = jest.fn();
