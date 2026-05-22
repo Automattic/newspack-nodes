@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-22
+
 ### Fixed
 
+- **Text-field reset buttons (Base Directory, Memcache Servers) now clear** — they were wired to an unbound `data-field`; switched to `data-newspack-nodes-reset-target`, which `render_reset_button_handler` binds.
 - **Empty Topology Console canvas.** The request-scoped `/command` graph never
   mounted worker-input Partitions, so the dashboard's pivoted `dump_metadata`
   poll hit `NOT_AVAILABLE` and never reached the worker. The canvas now batches
