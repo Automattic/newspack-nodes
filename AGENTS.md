@@ -55,25 +55,32 @@ The plugin is shipped as a standard WordPress plugin; deployment (containers, bi
 
 The version appears in three places: the `Version:` header in `newspack-nodes.php`, the `NEWSPACK_NODES_VERSION` PHP constant in the same file, and the `"version"` field in `package.json`. Do NOT edit these by hand — `tools/bump-nodes-version.sh` (in `dndocker/`) rewrites all three atomically and refuses to bump to a version that's already current.
 
-```bash
-# Bump version (from dndocker root).
-dndocker/tools/bump-nodes-version.sh <version>
+Releases are **automated by GitHub Actions** (`.github/workflows/release.yml`): pushing a `v<major>.<minor>.<patch>` tag builds the archive and publishes the GitHub Release. You only bump, changelog, commit, and tag:
 
-# Release workflow:
-# 1. Update CHANGELOG.md with new version and changes (use Keep-a-Changelog format).
-# 2. Bump version across plugin header + constant + package.json:
+```bash
+# 1. Update CHANGELOG.md: rename `## [Unreleased]` → `## [<version>] - <date>`,
+#    then add a fresh empty `## [Unreleased]` above it (Keep-a-Changelog format).
+# 2. Bump version across plugin header + constant + package.json (from dndocker root):
 dndocker/tools/bump-nodes-version.sh <version>
-# 3. Commit the changelog entry + version bump together. Conventional message
-#    referencing the new version (e.g. `chore: release v<version>`).
-# 4. Build the release zip:
-./build-release.sh           # outputs to release/newspack-nodes.zip
-# 5. Tag, push, and create GitHub release with the zip:
+# 3. Commit the changelog + bump together (e.g. `chore(release): <version>`).
+# 4. Tag and push — the workflow does the rest:
 git tag v<version>
-git push origin main --tags
-gh release create v<version> release/newspack-nodes.zip --title "v<version>" --notes "changelog here"
+git push origin main
+git push origin v<version>
 ```
 
-`build-release.sh` runs `composer install --no-dev --optimize-autoloader` before staging, then rsyncs the plugin into `release/newspack-nodes/` minus development artifacts (`src/`, `tests/`, `node_modules/`, `composer.{json,lock}`, `package*.json`, `phpcs.xml.dist`, `build-release.sh`, AppleDouble sidecars, etc.) and zips it. The zip contains the plugin directory at root so `wp plugin install --force --activate <url>.zip` works as-is.
+On the tag push, the **Release** workflow validates the tag shape, runs
+`npm run release:archive` (= `build-release.sh`: build assets, rsync via
+`.distignore`, `composer install --no-dev`, zip), extracts the matching
+`CHANGELOG.md` section as the release notes, and publishes the GitHub Release
+with `release/newspack-nodes.zip` attached. No manual `gh release create`.
+
+`build-release.sh` remains the single source of truth for archive contents and
+is what the workflow invokes; run `npm run release:archive` locally to build the
+same zip for testing. It rsyncs the plugin minus development artifacts (`src/`,
+`tests/`, `node_modules/`, `.github`, `composer.{json,lock}`, `package*.json`,
+etc.) so the zip holds the plugin directory at root — `wp plugin install
+--force --activate <url>.zip` works as-is.
 
 **Why three locations?** Plugin header is what WordPress shows in the admin; the PHP constant is what the runtime asserts against; `package.json` is what npm tooling reads. The bump script is the single source of truth — drift between any two of them is a real bug we've shipped before.
 
