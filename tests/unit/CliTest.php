@@ -115,26 +115,26 @@ class CliTest extends TestCase {
 		$this->assertSame( '/tmp/bar', $cli->base_dir() );
 	}
 
-	// ── parse_reader_id() / attach_to_worker() ─────────────────────────────────
+	// ── parse_worker_id() / attach_to_worker() ─────────────────────────────────
 
-	public function test_parse_reader_id_returns_type_and_partition(): void {
-		$this->assertSame( [ 'firehose-workers', 0 ], Cli::parse_reader_id( 'firehose-workers.p0' ) );
-		$this->assertSame( [ 'jobs', 12 ], Cli::parse_reader_id( 'jobs.p12' ) );
+	public function test_parse_worker_id_returns_type_and_partition(): void {
+		$this->assertSame( [ 'firehose-workers', 0 ], Cli::parse_worker_id( 'firehose-workers.p0' ) );
+		$this->assertSame( [ 'jobs', 12 ], Cli::parse_worker_id( 'jobs.p12' ) );
 	}
 
-	public function test_parse_reader_id_handles_dotted_types(): void {
+	public function test_parse_worker_id_handles_dotted_types(): void {
 		// Type can contain dots — only the trailing .p{N} is partition.
-		$this->assertSame( [ 'foo.bar', 3 ], Cli::parse_reader_id( 'foo.bar.p3' ) );
+		$this->assertSame( [ 'foo.bar', 3 ], Cli::parse_worker_id( 'foo.bar.p3' ) );
 	}
 
-	public function test_parse_reader_id_throws_on_invalid_input(): void {
+	public function test_parse_worker_id_throws_on_invalid_input(): void {
 		$this->expectException( \InvalidArgumentException::class );
-		Cli::parse_reader_id( 'no-partition-suffix' );
+		Cli::parse_worker_id( 'no-partition-suffix' );
 	}
 
-	public function test_parse_reader_id_throws_on_non_numeric_partition(): void {
+	public function test_parse_worker_id_throws_on_non_numeric_partition(): void {
 		$this->expectException( \InvalidArgumentException::class );
-		Cli::parse_reader_id( 'foo.pX' );
+		Cli::parse_worker_id( 'foo.pX' );
 	}
 
 	public function test_attach_to_worker_returns_ipc_paths(): void {

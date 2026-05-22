@@ -20,18 +20,26 @@ export class Router extends Node {
 		this.registrations.NOT_AVAILABLE = {};
 	}
 
+	// The Router has no sink: it routes by peeling TO and drops what it cannot
+	// peel (an empty or unknown head → NOT_AVAILABLE). Reject any attempt to set
+	// one; the getter always returns null. (The base constructor's `this.sink =
+	// null` passes through harmlessly.)
+	get sink() {
+		return null;
+	}
+	set sink( node ) {
+		if ( null !== node ) {
+			throw new Error(
+				'Router must not have a sink; it routes by TO and drops what it cannot peel.'
+			);
+		}
+	}
+
 	fill( message ) {
 		// One inbound miss increments counter by 2 via the bounce (matches PHP).
 		this.counter += 1;
 
 		const to = message[ TO ];
-		if ( '' === to ) {
-			if ( this.sink ) {
-				this.sink.fill( message );
-			}
-			return;
-		}
-
 		const slash = to.indexOf( '/' );
 		const head = -1 === slash ? to : to.slice( 0, slash );
 		const rest = -1 === slash ? '' : to.slice( slash + 1 );

@@ -11,13 +11,13 @@ use PHPUnit\Framework\Attributes\CoversClass;
 class HTTPFilterTest extends TestCase {
 
 	public function test_fill_strips_pid_head_and_emits_remainder_as_to(): void {
-		// Router peeled `_http`, leaving TO=`<ssePid>/<reply-node>`. HTTP_Filter
+		// Router peeled `_http`, leaving TO=`_sse:<ssePid>/<reply-node>`. HTTP_Filter
 		// matches the head segment against its pid, strips it, and forwards the
 		// remainder so the browser receives TO=`_output` (its Dumper).
 		$f = new HTTP_Filter( 12345 );
 		$f->sink( $sink = new CaptureSink() );
 		$msg                   = Message::new_message();
-		$msg[ Message::TO ]    = '12345/_output';
+		$msg[ Message::TO ]    = '_sse:12345/_output';
 		$msg[ Message::VALUE ] = 'reply';
 		$f->fill( $msg );
 		$this->assertCount( 1, $sink->captured );
@@ -29,7 +29,7 @@ class HTTPFilterTest extends TestCase {
 		$f = new HTTP_Filter( 12345 );
 		$f->sink( $sink = new CaptureSink() );
 		$msg                = Message::new_message();
-		$msg[ Message::TO ] = '12345';  // Bare pid, no reply-node — strips to ''.
+		$msg[ Message::TO ] = '_sse:12345';  // Bare pid, no reply-node — strips to ''.
 		$f->fill( $msg );
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( '', $sink->captured[0][ Message::TO ] );
@@ -39,7 +39,7 @@ class HTTPFilterTest extends TestCase {
 		$f = new HTTP_Filter( 12345 );
 		$f->sink( $sink = new CaptureSink() );
 		$msg                = Message::new_message();
-		$msg[ Message::TO ] = '99999/_output';  // Some other browser tab's reply.
+		$msg[ Message::TO ] = '_sse:99999/_output';  // Some other browser tab's reply.
 		$f->fill( $msg );
 		$this->assertCount( 0, $sink->captured );
 	}
@@ -48,7 +48,7 @@ class HTTPFilterTest extends TestCase {
 		$f = new HTTP_Filter( 12345 );
 		$f->sink( $sink = new CaptureSink() );
 		$msg                = Message::new_message();
-		$msg[ Message::TO ] = '99999/_output';  // Different session.
+		$msg[ Message::TO ] = '_sse:99999/_output';  // Different session.
 		$f->fill( $msg );
 		$this->assertCount( 0, $sink->captured );
 		$this->assertSame( 1, $f->counter() );

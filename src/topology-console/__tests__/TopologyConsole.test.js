@@ -51,6 +51,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 	const { Metadata } = require( '../nodes/metadata' );
 	const { Uptime } = require( '../nodes/uptime' );
 	const { HttpOut } = require( '../nodes/httpOut' );
+	const { SseIn } = require( '../nodes/sseIn' );
 	const { Shell } = require( '../nodes/shell' );
 	const reserved = require( '../../runtime/reserved-node-names.json' );
 	const NAMES = [
@@ -60,6 +61,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 		reserved.METADATA,
 		reserved.UPTIME,
 		reserved.HTTP,
+		reserved.SSE,
 	];
 	const teardown = () => {
 		for ( const n of NAMES ) {
@@ -103,9 +105,20 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 					globalThis.__httpPosts.push( message );
 				};
 				httpOut.setName( reserved.HTTP );
+				// `_sse` session node: wraps an outgoing reply-node FROM with the
+				// pid; routing `_sse/{reader}` peels here before `_http`.
+				const sse = new SseIn( {
+					subscribe: [ reader ],
+					interval: 5000,
+					baseUrl: '/',
+					nonce: '',
+				} );
+				sse.setName( reserved.SSE );
+				sse.sink = router;
+				sse.target = reserved.OUTPUT;
+				sse.pid = () => 1234;
 				const shell = new Shell();
-				shell.path = `${ reserved.HTTP }/${ reader }`;
-				shell.ssePid = 1234;
+				shell.path = `${ reserved.SSE }/${ reader }`;
 				shell.sink = ci;
 				globalThis.__shell = shell;
 				globalThis.__graphKey = key;
@@ -513,12 +526,12 @@ describe( 'TopologyConsole boot', () => {
 			// Immediate paint: one of each.
 			expect( dumps().length ).toBeGreaterThanOrEqual( 1 );
 			expect( uptimes().length ).toBeGreaterThanOrEqual( 1 );
-			// The reply pivots route each silent poll to its own node.
+			// `_sse` wrapped each poll's bare reply-node FROM into the private pivot.
 			expect( fromOf( dumps()[ 0 ] ) ).toBe(
-				`${ names.HTTP }/1234/${ names.METADATA }`
+				`${ names.HTTP }/${ names.SSE }:1234/${ names.METADATA }`
 			);
 			expect( fromOf( uptimes()[ 0 ] ) ).toBe(
-				`${ names.HTTP }/1234/${ names.UPTIME }`
+				`${ names.HTTP }/${ names.SSE }:1234/${ names.UPTIME }`
 			);
 			// The Router peeled _http before delivering to HttpOut, so the
 			// captured TO is the bare reader.
@@ -1506,8 +1519,9 @@ describe( 'TopologyConsole boot', () => {
 		);
 		expect( posted ).not.toBeUndefined();
 		expect( posted[ TO ] ).toBe( 'demo.p0' );
+		// `_sse` wrapped the bare `_output` FROM into the private reply pivot.
 		expect( posted[ FROM ] ).toBe(
-			`${ names.HTTP }/1234/${ names.OUTPUT }`
+			`${ names.HTTP }/${ names.SSE }:1234/${ names.OUTPUT }`
 		);
 	} );
 

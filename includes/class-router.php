@@ -24,6 +24,23 @@ class Router extends Timer {
 		Core::prune_logs();
 	}
 
+	/**
+	 * The Router has no sink: it routes by peeling TO and drops what it cannot
+	 * peel (an empty or unknown head → NOT_AVAILABLE). Reject any attempt to set
+	 * one; the getter always returns null.
+	 *
+	 * @param Node|null $node Unused; passing any argument is a misuse and throws.
+	 * @throws \InvalidArgumentException When called with an argument (a set attempt).
+	 */
+	public function sink( ?Node $node = null ): ?Node {
+		if ( \func_num_args() > 0 ) {
+			throw new \InvalidArgumentException(
+				\esc_html( 'Router must not have a sink; it routes by TO and drops what it cannot peel.' )
+			);
+		}
+		return null;
+	}
+
 	public function fill( array &$message ): void {
 		++$this->counter;
 

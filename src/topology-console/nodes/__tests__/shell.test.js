@@ -32,6 +32,54 @@ function makeShell( { path = '_http/demo.p0', ssePid = 4242 } = {} ) {
 	return { shell, filled };
 }
 
+describe( 'Shell node — cd navigation', () => {
+	it( 'cd / drops to the browser-internal graph root (empty path)', () => {
+		const { shell } = makeShell( { path: '_http/demo.p0' } );
+		expect( shell.parse( 'cd /' ) ).toBeNull();
+		expect( shell.path ).toBe( '' );
+	} );
+
+	it( 'cd /_http navigates to the HTTP boundary from anywhere', () => {
+		const { shell } = makeShell( { path: '_http/demo.p0' } );
+		shell.parse( 'cd /_http' );
+		expect( shell.path ).toBe( '_http' );
+	} );
+
+	it( 'cd .. from a worker walks up to _http', () => {
+		const { shell } = makeShell( { path: '_http/demo.p0' } );
+		shell.parse( 'cd ..' );
+		expect( shell.path ).toBe( '_http' );
+	} );
+
+	it( 'cd .. from _http walks up to the local root', () => {
+		const { shell } = makeShell( { path: '_http' } );
+		shell.parse( 'cd ..' );
+		expect( shell.path ).toBe( '' );
+	} );
+
+	it( 'cd <name> appends relative to the cwd', () => {
+		const { shell } = makeShell( { path: '_http' } );
+		shell.parse( 'cd demo.p0' );
+		expect( shell.path ).toBe( '_http/demo.p0' );
+	} );
+
+	it( 'cd /_http/<worker> is absolute', () => {
+		const { shell } = makeShell( { path: '' } );
+		shell.parse( 'cd /_http/demo.p0' );
+		expect( shell.path ).toBe( '_http/demo.p0' );
+	} );
+
+	it( 'a command after cd routes from the new cwd (TO reflects the path)', () => {
+		const { shell } = makeShell( { path: '_http/demo.p0' } );
+		shell.parse( 'cd /_http' );
+		const msg = shell.parse( 'ls' );
+		expect( msg[ TO ] ).toBe( '_http' ); // → HttpOut → request-scope CI
+		shell.parse( 'cd /' );
+		const local = shell.parse( 'ls' );
+		expect( local[ TO ] ).toBe( '' ); // → browser-internal CI
+	} );
+} );
+
 describe( 'Shell node — local builtins', () => {
 	it( 'returns null for empty / whitespace input and fills nothing', () => {
 		const { shell, filled } = makeShell();
@@ -83,18 +131,16 @@ describe( 'Shell node — local builtins', () => {
 } );
 
 describe( 'Shell node — fill() reply pivot + TO', () => {
-	it( 'fill() of a typed line stamps FROM=_http/<ssePid>/_output and TO=prefix(path)', () => {
-		const { shell, filled } = makeShell( {
-			path: '_http/demo.p0',
-			ssePid: 777,
-		} );
+	it( 'fill() of a typed line stamps the bare reply-node FROM and TO=prefix(path)', () => {
+		const { shell, filled } = makeShell( { path: '_sse/demo.p0' } );
 		const signal = shell.fill( 'ls -al' );
 		expect( signal ).toBeNull(); // a posted command returns null
 		expect( filled ).toHaveLength( 1 );
 		const m = filled[ 0 ];
 		expect( m[ TYPE ] ).toBe( TM_COMMAND );
-		expect( m[ FROM ] ).toBe( '_http/777/_output' );
-		expect( m[ TO ] ).toBe( '_http/demo.p0' );
+		// FROM is the bare reply node; the `_sse` session node wraps it downstream.
+		expect( m[ FROM ] ).toBe( '_output' );
+		expect( m[ TO ] ).toBe( '_sse/demo.p0' );
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'ls',
 			arguments: '-al',
@@ -109,15 +155,6 @@ describe( 'Shell node — fill() reply pivot + TO', () => {
 			name: 'clear',
 		} );
 		expect( filled ).toHaveLength( 0 );
-	} );
-
-	it( 'reads ssePid at fill time so a reconnect re-keys the reply pivot', () => {
-		const { shell, filled } = makeShell( { ssePid: 1 } );
-		shell.fill( 'ls' );
-		expect( filled[ 0 ][ FROM ] ).toBe( '_http/1/_output' );
-		shell.ssePid = 99;
-		shell.fill( 'ls' );
-		expect( filled[ 1 ][ FROM ] ).toBe( '_http/99/_output' );
 	} );
 
 	it( 'increments the base Node counter on each fill', () => {

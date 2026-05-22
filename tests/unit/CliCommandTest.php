@@ -157,9 +157,9 @@ class CliCommandTest extends TestCase {
 		Core::cleanup_all_nodes();
 	}
 
-	public function test_build_repl_graph_pivoted_adds_cmd_out_and_reply_in(): void {
-		// Pivoted mode: also wires `cmd-out` (Partition writing to worker input)
-		// and an unnamed `reply-in` Consumer.
+	public function test_build_repl_graph_pivoted_mounts_worker_partition_and_reply_in(): void {
+		// Pivoted mode: the IPC input Partition is mounted under the WORKER id (the
+		// mount point routing peels to), plus an unnamed `reply-in` Consumer.
 		$ipc = [
 			'input'     => "{$this->tmp}/ipc/firehose-workers.p0/input",
 			'output'    => "{$this->tmp}/ipc/firehose-workers.p0/output",
@@ -175,15 +175,20 @@ class CliCommandTest extends TestCase {
 		[ $shell, $dumper ] = $ref->invoke( new Cli_Command(), true, $ipc );
 
 		$nodes = Core::$nodes_by_name;
-		// `cmd-out` is the named outbound Partition.
-		$this->assertArrayHasKey( 'cmd-out', $nodes );
-		// Pivoted shell has a custom prompt reflecting the target.
-		$this->assertSame( 'firehose-workers.p0> ', $shell->prompt );
+		// The IPC input Partition is named after the worker, so `cd <worker>` routes to it.
+		$this->assertArrayHasKey( 'firehose-workers.p0', $nodes );
+		$this->assertInstanceOf( \Newspack_Nodes\Partition::class, $nodes['firehose-workers.p0'] );
+		// Prompt + cwd reflect the worker path.
+		$this->assertSame( '/firehose-workers.p0> ', $shell->prompt );
+		$this->assertSame( 'firehose-workers.p0', $shell->path );
 
-		// Shell → Command_Signer → cmd-out: pivoted commands are HMAC-signed before
-		// the IPC wire so the worker's verifier accepts them.
+		// Shell → Command_Signer → CommandInterpreter: pivoted commands are HMAC-signed,
+		// then routed by TO (the Router peels the worker id to the mounted Partition).
 		$this->assertInstanceOf( \Newspack_Nodes\Command_Signer::class, $shell->sink() );
-		$this->assertSame( $nodes['cmd-out'], $shell->sink()->sink() );
+		$this->assertSame(
+			Core::node( \Newspack_Nodes\Node_Names::COMMAND_INTERPRETER ),
+			$shell->sink()->sink()
+		);
 
 		Core::cleanup_all_nodes();
 	}
@@ -735,7 +740,7 @@ class CliCommandTest extends TestCase {
 		// Banner is no longer auto-logged.
 		$this->assertNotContains( 'Bare cli mode (local nodes only).', $GLOBALS['_test_wp_cli_logs'] );
 		// Bare mode keeps the default prompt.
-		$this->assertSame( 'newspack-nodes> ', $shell->prompt );
+		$this->assertSame( '/> ', $shell->prompt );
 
 		Core::cleanup_all_nodes();
 	}
@@ -759,7 +764,7 @@ class CliCommandTest extends TestCase {
 		$this->assertSame( 'Pivoted-cli mode for firehose-workers.p0', $shell->status_lines[0] );
 		$this->assertStringContainsString( 'input  partition', $shell->status_lines[1] );
 		$this->assertStringContainsString( 'output partition', $shell->status_lines[2] );
-		$this->assertSame( 'firehose-workers.p0> ', $shell->prompt );
+		$this->assertSame( '/firehose-workers.p0> ', $shell->prompt );
 		// Banner is no longer auto-logged.
 		$this->assertNotContains( 'Pivoted-cli mode for firehose-workers.p0', $GLOBALS['_test_wp_cli_logs'] );
 

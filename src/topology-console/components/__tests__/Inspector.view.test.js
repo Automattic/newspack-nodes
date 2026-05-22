@@ -211,7 +211,7 @@ describe( 'Inspector (view mode)', () => {
 					edges: [
 						{
 							from: 'tee_a',
-							to: '_repl/_output/9',
+							to: '_repl/_http/_sse:9/_output',
 						},
 					],
 				} }

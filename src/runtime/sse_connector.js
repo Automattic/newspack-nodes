@@ -36,7 +36,11 @@ export class SseConnector extends Node {
 				msg[ TYPE ] & TM_INFO &&
 				'connected' === msg[ KEY ]
 			) {
+				// Snoop-only: the envelope drives pid()/the `connected` event; it is
+				// metadata, not a graph message — don't route it (it would land in
+				// the transcript).
 				this.setState( 'connected', msg[ VALUE ] );
+				return;
 			}
 			this.fill( msg );
 		} );

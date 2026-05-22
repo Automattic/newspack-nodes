@@ -11,16 +11,19 @@ import {
 
 beforeEach( () => {
 	global.fetch = jest.fn().mockResolvedValue( {
-		// Response VALUE is a nested object (the whole-message envelope is the only JSON layer).
-		json: async () => [
-			TM_RESPONSE,
-			1.23,
-			'performance',
-			'',
-			'cmd-1',
-			'',
-			{ name: 'overview', payload: {} },
-		],
+		// #post reads the body as text and JSON.parses it (so a bare-202 empty
+		// body resolves to null instead of rejecting). A synchronous reply is a
+		// packed Message; VALUE is a nested object (the only JSON layer).
+		text: async () =>
+			JSON.stringify( [
+				TM_RESPONSE,
+				1.23,
+				'performance',
+				'',
+				'cmd-1',
+				'',
+				{ name: 'overview', payload: {} },
+			] ),
 	} );
 } );
 
@@ -58,16 +61,15 @@ test( 'send defaults FROM=_http for local commands', async () => {
 	expect( value.payload ).toEqual( { range: '1h' } );
 } );
 
-test( 'send with ssePid produces FROM=_http/<ssePid> for pivoted mode', async () => {
+test( 'send carries the KEY field through (FROM stays the bare _http boundary)', async () => {
 	const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
 	await client.send( {
 		to: 'firehose-workers.p0/_command_interpreter',
 		verb: 'dump_metadata',
-		ssePid: 12345,
 		key: 'gui:typed',
 	} );
 	const msg = JSON.parse( global.fetch.mock.calls[ 0 ][ 1 ].body );
-	expect( msg[ FROM ] ).toBe( '_http/12345' );
+	expect( msg[ FROM ] ).toBe( '_http' );
 	expect( msg[ KEY ] ).toBe( 'gui:typed' );
 } );
 
@@ -82,13 +84,12 @@ test( 'buildMessage returns a positional 7-element TM_COMMAND Message', () => {
 	const msg = client.buildMessage( {
 		to: 'demo.p0',
 		verb: 'dump_metadata',
-		ssePid: 7,
 	} );
 	expect( Array.isArray( msg ) ).toBe( true );
 	expect( msg ).toHaveLength( 7 );
 	expect( msg[ TYPE ] ).toBe( TM_COMMAND );
 	expect( msg[ TO ] ).toBe( 'demo.p0' );
-	expect( msg[ FROM ] ).toBe( '_http/7' );
+	expect( msg[ FROM ] ).toBe( '_http' );
 	// VALUE is the command object directly (no inner JSON).
 	expect( msg[ VALUE ].name ).toBe( 'dump_metadata' );
 } );

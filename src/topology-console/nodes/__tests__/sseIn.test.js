@@ -12,10 +12,14 @@ import { Node } from '../../../runtime/node';
 import {
 	newMessage,
 	TYPE,
+	FROM,
+	TO,
 	KEY,
 	VALUE,
 	TM_INFO,
+	TM_COMMAND,
 } from '../../../runtime/message';
+import names from '../../../runtime/reserved-node-names.json';
 
 class FakeEventSource {
 	constructor( url ) {
@@ -45,6 +49,7 @@ function makeSseIn() {
 		baseUrl: '/wp-json/',
 		nonce: 'NONCE',
 	} );
+	sse.name = '_sse'; // needed so the incoming-stamp breadcrumb has a name
 	const router = new Node();
 	const routed = [];
 	router.fill = ( m ) => routed.push( m );
@@ -86,5 +91,46 @@ describe( 'SseIn', () => {
 			'newspack-nodes/v1/messages/stream'
 		);
 		expect( FakeEventSource.last.url ).toContain( 'subscribe=demo.p0' );
+	} );
+
+	// Outgoing leg: a command routed in via TO=_sse/… (head already peeled).
+	it( 'wraps an outgoing reply-node FROM into the private pivot and prepends _http to TO', () => {
+		const { sse, routed } = makeSseIn();
+		sse.start();
+		sse.setState( 'connected', { pid: 4242, slot: 1 } ); // so pid() resolves
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = names.OUTPUT;
+		m[ TO ] = 'firehose-workers.p0';
+		sse.fill( m );
+		expect( routed[ 0 ][ FROM ] ).toBe(
+			`${ names.HTTP }/${ names.SSE }:4242/${ names.OUTPUT }`
+		);
+		expect( routed[ 0 ][ TO ] ).toBe(
+			`${ names.HTTP }/firehose-workers.p0`
+		);
+	} );
+
+	it( 'routes an incoming reply by TO and stamps the _sse provenance breadcrumb', () => {
+		const { sse, routed } = makeSseIn();
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = '_command_interpreter';
+		m[ TO ] = names.OUTPUT;
+		sse.fill( m );
+		expect( routed[ 0 ][ FROM ] ).toBe( '_sse/_command_interpreter' );
+		expect( routed[ 0 ][ TO ] ).toBe( names.OUTPUT );
+	} );
+
+	it( 'strips its own _sse:{pid} head from an intaken POST reply, then routes', () => {
+		const { sse, routed } = makeSseIn();
+		sse.start();
+		sse.setState( 'connected', { pid: 4242, slot: 1 } );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = '_command_interpreter';
+		m[ TO ] = `${ names.SSE }:4242/${ names.METADATA }`; // unstripped (synchronous POST)
+		sse.fill( m );
+		expect( routed[ 0 ][ TO ] ).toBe( names.METADATA );
 	} );
 } );

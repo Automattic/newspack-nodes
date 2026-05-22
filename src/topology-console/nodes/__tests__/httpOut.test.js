@@ -99,9 +99,9 @@ describe( 'HttpOut', () => {
 
 	it( 'returns the postBatch promise', async () => {
 		const { node, postBatch } = makeNode();
-		postBatch.mockResolvedValueOnce( { queued: true } );
+		postBatch.mockResolvedValueOnce( null );
 		const out = await node.fill( routed( { to: 'demo.p0' } ) );
-		expect( out ).toEqual( { queued: true } );
+		expect( out ).toBeNull();
 	} );
 
 	it( 'increments the base Node counter on each fill', () => {
@@ -116,13 +116,53 @@ describe( 'HttpOut', () => {
 		expect( node.name ).toBe( '_http' );
 	} );
 
-	it( 'POSTs nothing when handed a message with an empty TO (no reader to route)', () => {
+	it( 'feeds a synchronous reply Message from the POST body into _sse', async () => {
+		const { Node } = require( '../../../runtime/node' );
+		const names = require( '../../../runtime/reserved-node-names.json' );
+		const { node, postBatch } = makeNode();
+		const sse = new Node();
+		const got = [];
+		sse.fill = ( m ) => got.push( m );
+		sse.setName( names.SSE );
+
+		const reply = newMessage();
+		reply[ VALUE ] = 'sync-reply';
+		postBatch.mockResolvedValueOnce( reply ); // a packed Message (array)
+
+		await node.fill( routed( { to: '' } ) ); // _http-level → bare POST
+		await Promise.resolve(); // flush the intake microtask
+
+		expect( got ).toHaveLength( 1 );
+		expect( got[ 0 ][ VALUE ] ).toBe( 'sync-reply' );
+	} );
+
+	it( 'ignores a null response (bare 202 — routed onward, reply via SSE)', async () => {
+		const { Node } = require( '../../../runtime/node' );
+		const names = require( '../../../runtime/reserved-node-names.json' );
+		const { node, postBatch } = makeNode();
+		const sse = new Node();
+		const got = [];
+		sse.fill = ( m ) => got.push( m );
+		sse.setName( names.SSE );
+
+		postBatch.mockResolvedValueOnce( null );
+		await node.fill( routed( { to: 'demo.p0' } ) );
+		await Promise.resolve();
+
+		expect( got ).toHaveLength( 0 );
+	} );
+
+	it( 'POSTs the bare command (no connect) when addressed to _http itself (cd /_http)', () => {
 		const { node, postBatch } = makeNode();
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
-		m[ TO ] = '';
+		m[ TO ] = ''; // _router peeled _http, nothing follows → the HTTP boundary itself
 		m[ VALUE ] = { name: 'ls', arguments: '', payload: '' };
 		node.fill( m );
-		expect( postBatch ).not.toHaveBeenCalled();
+		const batch = batchOf( postBatch );
+		// No connect_worker_input prepend — the request-scope CI (HTTP_In) handles it.
+		expect( batch ).toHaveLength( 1 );
+		expect( batch[ 0 ][ VALUE ].name ).toBe( 'ls' );
+		expect( batch[ 0 ][ TO ] ).toBe( '' );
 	} );
 } );

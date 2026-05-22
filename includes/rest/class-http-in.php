@@ -119,8 +119,11 @@ class HTTP_In extends Node {
 
 		// Route messages in order through the one request graph: a batch runs
 		// serially, so an earlier command's side effect is visible to a later one.
+		// Sink through the base CommandInterpreter (mirroring the client's
+		// Shell → CI → _router spine): the CI interprets an empty-TO command
+		// addressed to the request scope itself (`cd /_sse`) and forwards a
+		// non-empty TO on to _router. (_router has no sink and would drop empty TO.)
 		$out->reset();
-		$last = null;
 		foreach ( $messages as $msg ) {
 			// Default FROM=`_http` so the CI's TO=FROM response routes back to this
 			// Node. Pivoted IPC commands supply their own FROM — leave it alone.
@@ -135,17 +138,14 @@ class HTTP_In extends Node {
 			if ( ( $msg[ Message::TYPE ] & Message::TM_COMMAND ) && ! ( $msg[ Message::TYPE ] & Message::TM_RESPONSE ) ) {
 				Command_Auth::sign( $msg );
 			}
-			$router->fill( $msg );
-			$last = $msg;
+			$base_ci->fill( $msg );
 		}
 
 		if ( ! $out->sent_headers ) {
-			// Async / IPC case. 202 ack keyed off the LAST message (leading setup
-			// commands like connect_worker_input return '' and never reply).
+			// Async / IPC case: routed onward (worker IPC), so the reply arrives
+			// later over the SSE stream — a bare 202 ack with no body. The client
+			// treats an empty response as "nothing to route."
 			\status_header( 202 );
-			\header( 'Content-Type: application/json' );
-			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-			echo \wp_json_encode( [ 'queued' => true, 'id' => null === $last ? '' : $last[ Message::ID ] ] );
 		}
 		$this->finish();
 	}

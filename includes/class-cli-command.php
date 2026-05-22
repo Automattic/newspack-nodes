@@ -33,8 +33,8 @@ class Cli_Command {
 		foreach ( $workers as $w ) {
 			$age      = $w['heartbeat_at'] ? ( $now - $w['heartbeat_at'] ) . 's ago' : 'never';
 			$flag     = $w['stale'] ? '[stale]' : '[live] ';
-			$reader   = "{$w['type']}.p{$w['partition']}";
-			\WP_CLI::log( \sprintf( '%s %-30s heartbeat %s', $flag, $reader, $age ) );
+			$worker   = "{$w['type']}.p{$w['partition']}";
+			\WP_CLI::log( \sprintf( '%s %-30s heartbeat %s', $flag, $worker, $age ) );
 		}
 	}
 
@@ -43,8 +43,8 @@ class Cli_Command {
 	 *
 	 * ## OPTIONS
 	 *
-	 * [<reader>]
-	 * : Reader id in the form {type}.p{N}, e.g. firehose-workers.p0.
+	 * [<worker>]
+	 * : Worker id in the form {type}.p{N}, e.g. firehose-workers.p0.
 	 *
 	 * ## EXAMPLES
 	 *
@@ -59,7 +59,7 @@ class Cli_Command {
 	/**
 	 * Build the REPL graph + log the mode line, returning [$shell, $dumper] for run_repl.
 	 *
-	 * @param array $args WP_CLI positional arguments. Empty = bare mode; else $args[0] is the reader id.
+	 * @param array $args WP_CLI positional arguments. Empty = bare mode; else $args[0] is the worker id.
 	 * @return array{0:Shell,1:Dumper}
 	 */
 	public function prepare_repl( array $args ): array {
@@ -74,9 +74,9 @@ class Cli_Command {
 		$ipc     = null;
 
 		if ( $pivoted ) {
-			$reader_id = $args[0];
+			$worker_id = $args[0];
 			try {
-				$ipc = $cli->attach_to_worker( $reader_id );
+				$ipc = $cli->attach_to_worker( $worker_id );
 			} catch ( \InvalidArgumentException $e ) {
 				\WP_CLI::error( $e->getMessage() );
 			}
@@ -123,9 +123,11 @@ class Cli_Command {
 		// Shell stays anonymous (Shell::name would throw); `ls` filters by sink anyway.
 		$shell = new Shell();
 		$shell->sink( $interpreter );
-
+		// Defined unconditionally (empty in bare mode) so it's in scope for both
+		// pivoted blocks below; the blocks themselves are guarded.
+		$worker_id = ( $pivoted && null !== $ipc ) ? "{$ipc['type']}.p{$ipc['partition']}" : '';
 		if ( $pivoted && null !== $ipc ) {
-			$shell->prompt = "{$ipc['type']}.p{$ipc['partition']}> ";
+			$shell->prompt = "/{$worker_id}> ";
 		}
 
 		$dumper->set_shell( $shell );
@@ -135,15 +137,16 @@ class Cli_Command {
 
 		if ( $pivoted && null !== $ipc ) {
 			// IPC topics are single-partition; skip allow_large_writes so sessions append concurrently.
-			$cmd_out = new Partition( $ipc['input'], 0 );
-			$cmd_out->name( 'cmd-out' );
-			$cmd_out->sink( $interpreter );
+			$ipc_out = new Partition( $ipc['input'], 0 );
+			$ipc_out->name( $worker_id );
+			$ipc_out->sink( $interpreter );
 			// Sign commands on the way to the worker: the cli is a local
 			// secret-holding issuer, and the worker verifies provenance (the LOCAL
 			// taint is stripped at the IPC boundary). Shell → Command_Signer → cmd-out.
 			$signer = new Command_Signer();
-			$signer->sink( $cmd_out );
+			$signer->sink( $interpreter );
 			$shell->sink( $signer );
+			$shell->path = $worker_id;
 
 			// reply-in: ephemeral, so empty offsetlog_base_dir (no durable cursor).
 			$reply_in = new Consumer( $ipc['output'], 0 );

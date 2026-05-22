@@ -10,7 +10,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Shell extends Node {
-	public string $prompt = 'newspack-nodes> ';
+	public string $prompt = '/> ';
 
 	/** Current cwd — the node-path non-builtin commands route to by default; empty = local CI. */
 	public string $path = '';
@@ -262,6 +262,7 @@ class Shell extends Node {
 
 		if ( 'cd' === $verb || 'chdir' === $verb ) {
 			$this->path = $this->cd( $this->path, $args[0] ?? '' );
+			$this->prompt = '/' . $this->path . '> ';
 			return null;
 		}
 

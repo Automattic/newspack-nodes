@@ -22,17 +22,32 @@ test( 'peels TO head and forwards to registered node with remaining path', () =>
 	expect( captured[ 0 ][ TO ] ).toBe( 'beta' );
 } );
 
-test( 'empty TO sinks the message via the Router sink', () => {
+test( 'setting a sink throws — the Router has none', () => {
 	const r = new Router();
 	r.setName( '_router' );
-	const sink = new Node();
+	expect( () => {
+		r.sink = new Node();
+	} ).toThrow( /must not have a sink/ );
+	expect( r.sink ).toBeNull();
+} );
+
+test( 'empty TO is not forwarded to a sink — it yields NOT_AVAILABLE', () => {
+	const r = new Router();
+	r.setName( '_router' );
+	const origin = new Node();
+	origin.setName( 'origin' );
 	const got = [];
-	sink.fill = ( m ) => got.push( [ ...m ] );
-	r.sink = sink;
+	origin.fill = ( m ) => got.push( [ ...m ] );
 
 	const m = newMessage();
+	m[ FROM ] = 'origin';
+	m[ TO ] = ''; // empty head → cannot peel → NOT_AVAILABLE, walked back to FROM
 	r.fill( m );
+
 	expect( got ).toHaveLength( 1 );
+	// eslint-disable-next-line no-bitwise
+	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
+	expect( got[ 0 ][ VALUE ] ).toMatch( /NOT_AVAILABLE/ );
 } );
 
 test( 'unknown TO head yields NOT_AVAILABLE error walked back to FROM', () => {
@@ -88,7 +103,8 @@ test( 'single-segment TO with no slash peels head and forwards with empty TO', (
 test( 'NOT_AVAILABLE bounce with empty FROM is silently dropped (no throw, no loop)', () => {
 	const r = new Router();
 	r.setName( '_router' );
-	// No FROM -> error hits the empty-TO sink branch; no sink = silent drop.
+	// No FROM -> the NOT_AVAILABLE error has empty TO -> empty head -> re-fills as
+	// TM_ERROR and drops on the TM_ERROR branch; no loop, no sink.
 	const m = newMessage();
 	m[ TO ] = 'missing/path';
 	expect( () => r.fill( m ) ).not.toThrow();
