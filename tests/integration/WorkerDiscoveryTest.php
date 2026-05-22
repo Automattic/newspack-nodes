@@ -42,7 +42,7 @@ class WorkerDiscoveryTest extends TestCase {
 		$msg[ Message::TO ]    = '_command_interpreter';
 		$msg[ Message::ID ]    = 'cmd-xyz';
 		// A worker-bound command's VALUE is the structured struct (the same
-		// shape Shell/Command_Controller build) — never a separately
+		// shape Shell/HTTP_In build) — never a separately
 		// json-encoded string. The Partition packs the whole envelope to
 		// disk; only that wire is JSON.
 		$msg[ Message::VALUE ] = [ 'name' => 'dump_metadata', 'arguments' => '', 'payload' => '' ];

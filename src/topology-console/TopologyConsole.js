@@ -47,7 +47,17 @@ import {
 } from './utils/autoLayout';
 import { parseTsl } from './utils/parseTsl';
 import { serializeTsl } from './utils/serializeTsl';
-import { shell, splitStatements } from './utils/shell';
+import { splitStatements } from './nodes/shell';
+import { Core } from '../runtime/core';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	TO,
+	VALUE,
+	TM_COMMAND,
+} from '../runtime/message';
+import names from '../runtime/reserved-node-names.json';
 
 function topologyMap() {
 	return (
@@ -149,23 +159,27 @@ export default function TopologyConsole() {
 	const [ rateVersion, setRateVersion ] = useState( 0 );
 
 	// Dumper verbosity dial (0/1/2), mirroring the substrate Dumper. A ref
-	// so SessionSink reads it per-frame without re-binding the graph.
+	// so the Dumper reads it per-frame without re-binding the graph.
 	const debugLevelRef = useRef( 0 );
 
 	// SSE off in edit mode so offline authoring doesn't poke the live worker.
-	const { status, ssePid, sessionNode, commandOutName } = useConsoleGraph( {
+	const { status, ssePid, shell } = useConsoleGraph( {
 		topology,
 		partition,
 		enabled: mode !== 'edit',
 		debugLevelRef,
 	} );
 
-	const parsed = useNodeState( 'session', 'metadata' ) ?? EMPTY_GRAPH;
-	const uptime = useNodeState( 'session', 'uptime' ) ?? null;
+	// Canvas/transcript state lives on dedicated nodes (WIRING-PLAN §4): the
+	// Dumper (`_output`) is transcript-only; `_metadata` / `_uptime` publish the
+	// silent-poll replies the Router routes to them.
+	const parsed = useNodeState( names.METADATA, 'metadata' ) ?? EMPTY_GRAPH;
+	const uptime = useNodeState( names.UPTIME, 'uptime' ) ?? null;
 	const transcript =
-		useNodeState( 'session', 'transcript' ) ?? EMPTY_TRANSCRIPT;
+		useNodeState( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
 
-	const fillCommandOut = useNodeFill( commandOutName );
+	// The silent canvas polls fill the CommandInterpreter directly (§5).
+	const fillCommandInterpreter = useNodeFill( names.COMMAND_INTERPRETER );
 
 	// Scoped per topology.partition so positions don't bleed between workers.
 	const positionStorageKey = `newspack-nodes:topology:${ topology }.p${ partition }:positions`;
@@ -420,16 +434,15 @@ export default function TopologyConsole() {
 		}
 	}, [ topology, partition ] );
 
-	const appendTranscript = useCallback(
-		( entry ) => {
-			sessionNode?.append( entry );
-		},
-		[ sessionNode ]
-	);
+	// Resolve the Dumper at call time so a graph swap (partition change) targets
+	// the live node, not a torn-down one.
+	const appendTranscript = useCallback( ( entry ) => {
+		Core.node( names.OUTPUT )?.append( entry );
+	}, [] );
 
 	const clearTranscript = useCallback( () => {
-		sessionNode?.clear();
-	}, [ sessionNode ] );
+		Core.node( names.OUTPUT )?.clear();
+	}, [] );
 
 	useEffect( () => {
 		setSelectedId( null );
@@ -524,29 +537,47 @@ export default function TopologyConsole() {
 
 	const dispatchStatement = useCallback(
 		( statement ) => {
-			const interpreted = shell( statement );
-			if ( ! interpreted ) {
+			if ( ! shell ) {
+				return;
+			}
+			// Shell.parse → null (empty/comment), a local/error signal, or a
+			// positional Message. We branch BEFORE filling so the ssePid gate
+			// only blocks worker-bound sends, not local builtins.
+			const parsedLine = shell.parse( statement );
+			if ( null === parsedLine ) {
 				return;
 			}
 			// Echo the user's input verbatim.
 			appendTranscript( { kind: 'sent', text: statement } );
 
-			if ( interpreted.kind === 'error' ) {
-				appendTranscript( { kind: 'error', text: interpreted.text } );
+			if ( Array.isArray( parsedLine ) ) {
+				// A worker-bound Message; the reply arrives async over SSE.
+				if ( ! ssePid ) {
+					appendTranscript( {
+						kind: 'error',
+						text: '[no sse_pid yet] retry once CONNECTED',
+					} );
+					return;
+				}
+				shell.sink?.fill( parsedLine );
 				return;
 			}
-			if ( interpreted.kind === 'local' ) {
-				if ( interpreted.name === 'clear' ) {
+			if ( parsedLine.kind === 'error' ) {
+				appendTranscript( { kind: 'error', text: parsedLine.text } );
+				return;
+			}
+			if ( parsedLine.kind === 'local' ) {
+				if ( parsedLine.name === 'clear' ) {
 					clearTranscript();
-				} else if ( interpreted.name === 'debug_level' ) {
+				} else if ( parsedLine.name === 'debug_level' ) {
 					// Substrate Shell semantics: no-arg toggles 0/1, numeric clamps 0..2.
-					if ( interpreted.level === null ) {
+					if ( parsedLine.level === null ) {
 						debugLevelRef.current =
 							debugLevelRef.current > 0 ? 0 : 1;
 					} else {
 						debugLevelRef.current = Math.max(
 							0,
-							Math.min( 2, interpreted.level )
+							Math.min( 2, parsedLine.level )
 						);
 					}
 					appendTranscript( {
@@ -554,55 +585,49 @@ export default function TopologyConsole() {
 						text: `debug_level: ${ debugLevelRef.current }`,
 					} );
 				}
-				return;
 			}
-			// kind === 'post'
-			if ( ! ssePid ) {
-				appendTranscript( {
-					kind: 'error',
-					text: '[no sse_pid yet] retry once CONNECTED',
-				} );
-				return;
-			}
-			// Fire-and-forget; the worker's reply arrives async over SSE.
-			fillCommandOut( { commands: [ interpreted.body ] } );
 		},
-		[ ssePid, appendTranscript, clearTranscript, fillCommandOut ]
+		[ shell, ssePid, appendTranscript, clearTranscript ]
 	);
 
-	// Live-canvas poll. KEY=gui:auto/gui:uptime route to the silent
-	// canvas-refresh path (SessionSink); paused in edit mode and pre-pid.
+	// Live-canvas poll (WIRING-PLAN §4/§5). Each poll is a positional TM_COMMAND
+	// whose FROM pivots the reply to a dedicated node (`_metadata` / `_uptime`)
+	// so the Router keeps the silent refresh OUT of the transcript. Filled into
+	// the CommandInterpreter; paused in edit mode and pre-pid.
 	useEffect( () => {
 		if ( mode === 'edit' || ! ssePid ) {
 			return undefined;
 		}
-		const dumpCmd = {
-			type: 'command',
-			name: 'dump_metadata',
-			arguments: '',
-			key: 'gui:auto',
+		const reader = `${ topology }.p${ partition }`;
+		// TO=_http/{reader}: the Router peels _http → HttpOut → POST to {reader}.
+		const pollMessage = ( verb, replyNode ) => {
+			const m = newMessage();
+			m[ TYPE ] = TM_COMMAND;
+			m[ FROM ] = `${ names.HTTP }/${ ssePid }/${ replyNode }`;
+			m[ TO ] = `${ names.HTTP }/${ reader }`;
+			m[ VALUE ] = { name: verb, arguments: '', payload: '' };
+			return m;
 		};
-		const uptimeCmd = {
-			type: 'command',
-			name: 'uptime',
-			arguments: '',
-			key: 'gui:uptime',
-		};
-		// uptime rides the same batch as dump_metadata when its cadence elapses.
-		fillCommandOut( { commands: [ dumpCmd, uptimeCmd ] } );
+		const pollMetadata = () =>
+			fillCommandInterpreter(
+				pollMessage( 'dump_metadata', names.METADATA )
+			);
+		const pollUptime = () =>
+			fillCommandInterpreter( pollMessage( 'uptime', names.UPTIME ) );
+
+		pollMetadata();
+		pollUptime();
 		let sinceUptime = 0;
 		const id = setInterval( () => {
 			sinceUptime += STATS_INTERVAL_MS;
-			const uptimeDue = sinceUptime >= UPTIME_INTERVAL_MS;
-			if ( uptimeDue ) {
+			pollMetadata();
+			if ( sinceUptime >= UPTIME_INTERVAL_MS ) {
 				sinceUptime = 0;
+				pollUptime();
 			}
-			fillCommandOut( {
-				commands: uptimeDue ? [ dumpCmd, uptimeCmd ] : [ dumpCmd ],
-			} );
 		}, STATS_INTERVAL_MS );
 		return () => clearInterval( id );
-	}, [ mode, ssePid, fillCommandOut ] );
+	}, [ mode, ssePid, topology, partition, fillCommandInterpreter ] );
 
 	// Split on unquoted `;` so `help; ls` dispatches as two commands.
 	const sendLine = useCallback(

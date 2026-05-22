@@ -1,23 +1,38 @@
 /**
- * useConsoleGraph — mounts the per-session in-browser node graph (SseConnector
- * → SessionSink; CommandOut) for the console's live SSE-in + command-out path.
- * Mounted while `enabled`; torn down on unmount or edit mode.
+ * useConsoleGraph — mounts the per-session in-browser node graph (WIRING-PLAN
+ * §2/§4 spine). Send: Shell → _command_interpreter → _router ─[peel _http]→
+ * _http (HttpOut → POST /command). Receive: _sse (SseIn) → _router ─[peel
+ * reply-node]→ _output (Dumper) | _metadata | _uptime. Mounted while `enabled`;
+ * torn down on unmount or edit mode. Node names come from the shared-canonical
+ * reserved-node-names.json.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
-import { SseConnector } from '../../runtime/sse_connector';
-import { SessionSink } from '../nodes/SessionSink';
-import { CommandOut } from '../nodes/CommandOut';
+import { Router } from '../../runtime/router';
+import { CommandInterpreter } from '../../runtime/command_interpreter';
+import { SseIn } from '../nodes/sseIn';
+import { HttpOut } from '../nodes/httpOut';
+import { Dumper } from '../nodes/dumper';
+import { Metadata } from '../nodes/metadata';
+import { Uptime } from '../nodes/uptime';
+import { Shell } from '../nodes/shell';
 import { getCommandClient } from '../utils/commandClient';
+import names from '../../runtime/reserved-node-names.json';
 
-// Registered node names TopologyConsole reads via useNodeState / useNodeFill.
-const SESSION_NODE = 'session';
-const COMMAND_OUT_NODE = 'command-out';
-const SSE_NODE = '_console_sse';
-
-// SSE cadence query param (server fixes its own; SseConnector needs a value).
+// SSE cadence query param (server fixes its own; SseIn needs a value).
 const STREAM_INTERVAL_MS = 5000;
+
+// Every named node this graph mounts — unregistered on teardown.
+const GRAPH_NODE_NAMES = [
+	names.ROUTER,
+	names.COMMAND_INTERPRETER,
+	names.OUTPUT,
+	names.METADATA,
+	names.UPTIME,
+	names.HTTP,
+	names.SSE,
+];
 
 /**
  * @param {Object}  params
@@ -25,9 +40,8 @@ const STREAM_INTERVAL_MS = 5000;
  * @param {number}  params.partition     Partition number.
  * @param {boolean} params.enabled       Mount the graph (false = edit mode).
  * @param {Object}  params.debugLevelRef React ref holding the Dumper verbosity dial.
- * @return {{status: string, ssePid: ?number, sessionNode: ?SessionSink, commandOutName: string}}
- *   Connection state, the live session node (for append/clear), and the
- *   command-out node name (for useNodeFill).
+ * @return {{status: string, ssePid: ?number, shell: ?Shell}} Connection state +
+ *   the anonymous Shell (the console drives typed input through it).
  */
 export function useConsoleGraph( {
 	topology,
@@ -36,7 +50,7 @@ export function useConsoleGraph( {
 	debugLevelRef,
 } ) {
 	const [ ssePid, setSsePid ] = useState( null );
-	const [ sessionNode, setSessionNode ] = useState( null );
+	const [ shell, setShell ] = useState( null );
 
 	// Stash the latest debugLevelRef so the effect wires it without re-subscribing.
 	const debugLevelRefRef = useRef( debugLevelRef );
@@ -45,56 +59,74 @@ export function useConsoleGraph( {
 	useEffect( () => {
 		if ( ! enabled ) {
 			setSsePid( null );
-			setSessionNode( null );
+			setShell( null );
 			return undefined;
 		}
 
 		const data =
 			( typeof window !== 'undefined' && window.NewspackNodesData ) || {};
+		const reader = `${ topology }.p${ partition }`;
 
-		const session = new SessionSink( {
+		// Shared spine: Router + CommandInterpreter.
+		const router = new Router();
+		router.setName( names.ROUTER );
+
+		const ci = new CommandInterpreter();
+		ci.setName( names.COMMAND_INTERPRETER );
+		ci.sink = router;
+
+		// Receive-side reply nodes (Router peels TO and delivers to these).
+		const dumper = new Dumper( {
 			debugLevelRef: debugLevelRefRef.current,
 		} );
-		session.setName( SESSION_NODE );
+		dumper.setName( names.OUTPUT );
+		const metadata = new Metadata();
+		metadata.setName( names.METADATA );
+		const uptime = new Uptime();
+		uptime.setName( names.UPTIME );
 
-		const connector = new SseConnector( {
-			subscribe: [ `${ topology }.p${ partition }` ],
+		// HTTP boundary: Router peels _http and delivers here (TO={reader}).
+		const httpOut = new HttpOut( { client: getCommandClient() } );
+		httpOut.setName( names.HTTP );
+
+		// SSE in: each parsed Message flows to the Router (NOT the Dumper).
+		const sse = new SseIn( {
+			subscribe: [ reader ],
 			interval: STREAM_INTERVAL_MS,
 			baseUrl: data.restUrl || '/wp-json/',
 			nonce: data.nonce || '',
 		} );
-		connector.setName( SSE_NODE );
-		// Node exposes the sink as a plain property (no setSink helper).
-		connector.sink = session;
+		sse.setName( names.SSE );
+		sse.sink = router;
 
-		const commandOut = new CommandOut( {
-			topology,
-			partition,
-			connector,
-			client: getCommandClient(),
-		} );
-		commandOut.setName( COMMAND_OUT_NODE );
+		// Anonymous, React-driven Shell. cwd = _http/{reader} so a typed line
+		// routes through _http to the worker; replies pivot back via FROM.
+		const consoleShell = new Shell();
+		consoleShell.path = `${ names.HTTP }/${ reader }`;
+		consoleShell.ssePid = sse.pid();
+		consoleShell.sink = ci;
 
-		// Reset to "connecting" (clears a prior worker's pid), then track connected.
-		setSsePid( connector.pid() );
-		connector.register( 'connected', 'useConsoleGraph', ( payload ) => {
-			setSsePid(
-				payload && 'number' === typeof payload.pid ? payload.pid : null
-			);
+		// Track the connected pid: drives both React state and the Shell pivot.
+		setSsePid( sse.pid() );
+		sse.register( 'connected', 'useConsoleGraph', ( payload ) => {
+			const pid =
+				payload && 'number' === typeof payload.pid ? payload.pid : null;
+			setSsePid( pid );
+			consoleShell.ssePid = pid;
 			return true;
 		} );
 
-		setSessionNode( session );
-		connector.start();
+		setShell( consoleShell );
+		sse.start();
 
 		return () => {
-			connector.unregister( 'connected', 'useConsoleGraph' );
-			connector.close();
-			Core.unregisterNode( SSE_NODE );
-			Core.unregisterNode( SESSION_NODE );
-			Core.unregisterNode( COMMAND_OUT_NODE );
+			sse.unregister( 'connected', 'useConsoleGraph' );
+			sse.close();
+			for ( const name of GRAPH_NODE_NAMES ) {
+				Core.unregisterNode( name );
+			}
 			setSsePid( null );
-			setSessionNode( null );
+			setShell( null );
 		};
 	}, [ topology, partition, enabled ] );
 
@@ -105,5 +137,5 @@ export function useConsoleGraph( {
 		status = 'connecting';
 	}
 
-	return { status, ssePid, sessionNode, commandOutName: COMMAND_OUT_NODE };
+	return { status, ssePid, shell };
 }

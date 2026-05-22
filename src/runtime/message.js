@@ -5,17 +5,18 @@ export const TO = 3;
 export const ID = 4;
 export const KEY = 5;
 export const VALUE = 6;
+
 export const LAST_VALUE_INDEX = VALUE;
 
 export const TM_BYTESTREAM = 1;
 export const TM_EOF = 2;
 export const TM_PING = 4;
 export const TM_COMMAND = 8;
-export const TM_RESPONSE = 16;
+export const TM_STRUCT = 16;
 export const TM_ERROR = 32;
 export const TM_INFO = 64;
-export const TM_STRUCT = 256;
-export const TM_REQUEST = 512;
+export const TM_REQUEST = 128;
+export const TM_RESPONSE = 256;
 
 export function newMessage() {
 	return [ 0, Date.now() / 1000, '', '', '', '', '' ];

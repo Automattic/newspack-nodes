@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Rest\Messages_Stream_Controller;
+use Newspack_Nodes\Rest\SSE_Out;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Medium;
@@ -21,7 +21,7 @@ use PHPUnit\Framework\Attributes\Medium;
  * an int the stream proceeds and the int reaches the `connected`
  * envelope and the matching release-closure call.
  */
-#[CoversClass( Messages_Stream_Controller::class )]
+#[CoversClass( SSE_Out::class )]
 #[Medium]
 class MessagesStreamSlotPoolTest extends TestCase {
 
@@ -34,17 +34,17 @@ class MessagesStreamSlotPoolTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
-		Messages_Stream_Controller::$acquire_slot = null;
-		Messages_Stream_Controller::$release_slot = null;
-		Messages_Stream_Controller::$check_slot   = null;
+		SSE_Out::$acquire_slot = null;
+		SSE_Out::$release_slot = null;
+		SSE_Out::$check_slot   = null;
 		\Newspack_Nodes\EventFramework::reset();
 		parent::tearDown();
 	}
 
 	public function test_stream_returns_429_when_acquire_slot_returns_false(): void {
-		Messages_Stream_Controller::$acquire_slot = static fn (): int|false => false;
+		SSE_Out::$acquire_slot = static fn (): int|false => false;
 
-		$ctrl = new Messages_Stream_Controller();
+		$ctrl = new SSE_Out();
 		$req  = new \WP_REST_Request( 'GET' );
 		$req->set_param( 'subscribe', 'firehose' );
 
@@ -57,12 +57,12 @@ class MessagesStreamSlotPoolTest extends TestCase {
 
 	public function test_acquire_slot_receives_partition_neg_one_for_log_subscription(): void {
 		$captured = null;
-		Messages_Stream_Controller::$acquire_slot = static function ( int $partition ) use ( &$captured ): int|false {
+		SSE_Out::$acquire_slot = static function ( int $partition ) use ( &$captured ): int|false {
 			$captured = $partition;
 			return false; // short-circuit before headers
 		};
 
-		$ctrl = new Messages_Stream_Controller();
+		$ctrl = new SSE_Out();
 		$req  = new \WP_REST_Request( 'GET' );
 		$req->set_param( 'subscribe', 'firehose' );
 		$ctrl->stream( $req );
@@ -72,12 +72,12 @@ class MessagesStreamSlotPoolTest extends TestCase {
 
 	public function test_acquire_slot_receives_partition_n_for_ipc_subscription(): void {
 		$captured = null;
-		Messages_Stream_Controller::$acquire_slot = static function ( int $partition ) use ( &$captured ): int|false {
+		SSE_Out::$acquire_slot = static function ( int $partition ) use ( &$captured ): int|false {
 			$captured = $partition;
 			return false;
 		};
 
-		$ctrl = new Messages_Stream_Controller();
+		$ctrl = new SSE_Out();
 		$req  = new \WP_REST_Request( 'GET' );
 		$req->set_param( 'subscribe', 'firehose-workers.p3' );
 		$ctrl->stream( $req );
@@ -88,13 +88,13 @@ class MessagesStreamSlotPoolTest extends TestCase {
 	public function test_run_stream_loop_releases_slot_in_finally(): void {
 		$released_slot      = null;
 		$released_partition = null;
-		Messages_Stream_Controller::$acquire_slot = static fn (): int|false => 7;
-		Messages_Stream_Controller::$release_slot = static function ( int $slot, int $partition ) use ( &$released_slot, &$released_partition ): void {
+		SSE_Out::$acquire_slot = static fn (): int|false => 7;
+		SSE_Out::$release_slot = static function ( int $slot, int $partition ) use ( &$released_slot, &$released_partition ): void {
 			$released_slot      = $slot;
 			$released_partition = $partition;
 		};
 
-		$ctrl = new Messages_Stream_Controller();
+		$ctrl = new SSE_Out();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-slot-release-' ) );
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );
@@ -110,12 +110,12 @@ class MessagesStreamSlotPoolTest extends TestCase {
 
 	public function test_run_stream_loop_aborts_when_check_slot_returns_false(): void {
 		$checks                                  = 0;
-		Messages_Stream_Controller::$check_slot = static function () use ( &$checks ): bool {
+		SSE_Out::$check_slot = static function () use ( &$checks ): bool {
 			$checks++;
 			return false; // slot expired on first check → drain stops
 		};
 
-		$ctrl = new Messages_Stream_Controller();
+		$ctrl = new SSE_Out();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-slot-check-' ) );
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );
@@ -132,9 +132,9 @@ class MessagesStreamSlotPoolTest extends TestCase {
 	}
 
 	public function test_connected_envelope_carries_the_acquired_slot(): void {
-		Messages_Stream_Controller::$acquire_slot = static fn (): int|false => 4;
+		SSE_Out::$acquire_slot = static fn (): int|false => 4;
 
-		$ctrl = new Messages_Stream_Controller();
+		$ctrl = new SSE_Out();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-slot-conn-' ) );
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );
@@ -155,7 +155,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		// pivoted replies. Seed a log partition with a TO-stamped packed
 		// Message and prove the Callback routes it via Router instead of
 		// emitting it on the wire.
-		Messages_Stream_Controller::$acquire_slot = static fn (): int|false => 1;
+		SSE_Out::$acquire_slot = static fn (): int|false => 1;
 
 		$base = $this->make_temp_dir( 'msg-slot-direct-sink-' );
 		$pdir = "{$base}/logs/firehose.log/p0";
@@ -172,7 +172,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$msg[ \Newspack_Nodes\Message::VALUE ] = 'pivoted-payload';
 		\file_put_contents( "{$pdir}/0.log", \Newspack_Nodes\Message::packed( $msg ) . "\n" );
 
-		$ctrl = new Messages_Stream_Controller();
+		$ctrl = new SSE_Out();
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );

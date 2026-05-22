@@ -272,7 +272,7 @@ class Shell extends Node {
 		}
 
 		if ( 'debug_level' === $verb ) {
-			$dumper = Core::node( '_output' );
+			$dumper = Core::node( Node_Names::OUTPUT );
 			if ( $dumper instanceof Dumper ) {
 				$current = $dumper->debug_level();
 				$next    = ! empty( $args )
@@ -334,7 +334,7 @@ class Shell extends Node {
 		$id                   = $this->generate_id();
 		$msg                  = Message::new_message();
 		$msg[ Message::ID ]   = $id;
-		$msg[ Message::FROM ] = '_output/' . \getmypid();
+		$msg[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
 
 		switch ( $verb ) {
 			case 'command':

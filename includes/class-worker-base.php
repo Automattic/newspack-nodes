@@ -153,12 +153,12 @@ class WorkerBase {
 		$ipc_dir = "{$this->base_dir}/ipc/{$this->worker_type}.p{$this->partition}";
 
 		$router = new Router();
-		$router->name( '_router' );
+		$router->name( Node_Names::ROUTER );
 		// Active timer so the Router fires TIMER for the hitchhike pattern (keepalives etc.).
 		$router->set_timer( Router::DEFAULT_TICK_MS );
 
 		$interpreter = new CommandInterpreter();
-		$interpreter->name( '_command_interpreter' );
+		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
 		$interpreter->sink( $router );
 
 		// _repl output Partition: TO=_repl lands on disk; allow_large_writes since dumps exceed PIPE_BUF.
@@ -167,7 +167,7 @@ class WorkerBase {
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
 		$repl = new Partition( "{$ipc_dir}/output", 0 );
-		$repl->name( '_repl' );
+		$repl->name( Node_Names::REPL );
 		$repl->sink( $interpreter );
 		// allow_large_writes keys its Lock/heartbeat off name + sink, so set those first.
 		$repl->allow_large_writes();
@@ -180,7 +180,7 @@ class WorkerBase {
 		}
 		$repl_in = new Consumer( $input_dir, 0, '' );
 		$repl_in->next_offset( 'end' );
-		$repl_in->set_stamp_as( '_repl' );
+		$repl_in->set_stamp_as( Node_Names::REPL );
 		$repl_in->sink( $interpreter );
 
 		return $interpreter;

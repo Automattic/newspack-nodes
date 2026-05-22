@@ -1,9 +1,8 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Rest\Command_Controller;
+use Newspack_Nodes\Rest\HTTP_In;
 use Newspack_Nodes\Core;
-use Newspack_Nodes\HTTP_Out;
 use Newspack_Nodes\CommandInterpreter;
 use Newspack_Nodes\Consumer;
 use Newspack_Nodes\Message;
@@ -12,10 +11,10 @@ use Newspack_Nodes\Router;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( Command_Controller::class )]
-class CommandControllerTest extends TestCase {
+#[CoversClass( HTTP_In::class )]
+class HTTPInTest extends TestCase {
 
-	/** @var array<int,int> status_header codes captured by HTTP_Out's seam */
+	/** @var array<int,int> status_header codes captured by HTTP_In's seam */
 	private array $status_codes = [];
 
 	protected function setUp(): void {
@@ -30,7 +29,7 @@ class CommandControllerTest extends TestCase {
 
 	/**
 	 * Production-shaped graph: Router + base CI sinking into Router +
-	 * HTTP_Out registered at _http with a status_header recorder seam.
+	 * HTTP_In registered at _http with a status_header recorder seam.
 	 */
 	private function build_graph(): CommandInterpreter {
 		$router = new Router();
@@ -40,7 +39,7 @@ class CommandControllerTest extends TestCase {
 		$base_ci->sink( $router );
 
 		$self     = $this;
-		$http_out = new HTTP_Out(
+		$http_out = new HTTP_In(
 			static function ( int $code ) use ( $self ): void {
 				$self->status_codes[] = $code;
 			}
@@ -124,7 +123,7 @@ class CommandControllerTest extends TestCase {
 			]
 		);
 
-		$ctrl = new Command_Controller();
+		$ctrl = new HTTP_In();
 		$ctrl->set_test_mode( true );
 
 		\ob_start();
@@ -167,7 +166,7 @@ class CommandControllerTest extends TestCase {
 			]
 		);
 
-		$ctrl = new Command_Controller();
+		$ctrl = new HTTP_In();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
@@ -188,7 +187,7 @@ class CommandControllerTest extends TestCase {
 			]
 		);
 
-		$ctrl = new Command_Controller();
+		$ctrl = new HTTP_In();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
@@ -216,7 +215,7 @@ class CommandControllerTest extends TestCase {
 			]
 		);
 
-		$ctrl = new Command_Controller();
+		$ctrl = new HTTP_In();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
@@ -264,7 +263,7 @@ class CommandControllerTest extends TestCase {
 			]
 		);
 
-		$ctrl = new Command_Controller();
+		$ctrl = new HTTP_In();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
@@ -276,7 +275,7 @@ class CommandControllerTest extends TestCase {
 		$this->assertSame( '_command_interpreter', $fires[0]->name() );
 
 		// Dispatch produced a TM_COMMAND|TM_RESPONSE (not the "graph not
-		// initialized" error). Use the production HTTP_Out (not the test
+		// initialized" error). Use the production HTTP_In (not the test
 		// seam) — status_header is a stub in our bootstrap, so it's harmless.
 		$this->assertNotSame( '', $body, 'dispatch produced no body' );
 		$msg            = Message::unpacked( $body );
@@ -322,7 +321,7 @@ class CommandControllerTest extends TestCase {
 				'value' => [ 'name' => 'echo', 'arguments' => '', 'payload' => '' ],
 			]
 		);
-		$ctrl = new Command_Controller();
+		$ctrl = new HTTP_In();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
@@ -341,7 +340,7 @@ class CommandControllerTest extends TestCase {
 	/**
 	 * `newspack_nodes_mount_substrate_cis` must be safe to invoke twice within
 	 * one PHP process. The action it's hooked to (`request_graph_ready`) fires
-	 * once per `Command_Controller::dispatch`, but production has seen the
+	 * once per `HTTP_In::dispatch`, but production has seen the
 	 * action handler run twice in a single request — likely via plugin file
 	 * re-loaded by some bootstrap path — and the second call fatals with
 	 * `node name collision: workers already registered`. That kills the whole
@@ -387,13 +386,13 @@ class CommandControllerTest extends TestCase {
 			]
 		);
 
-		$ctrl = new Command_Controller();
+		$ctrl = new HTTP_In();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
 		$body = \ob_get_clean();
 
-		// HTTP_Out never fires (no in-process reply), so the controller emits
+		// HTTP_In never fires (no in-process reply), so the controller emits
 		// the 202 ack JSON directly.
 		$this->assertEmpty( $this->status_codes );
 		$ack = \json_decode( $body, true );
@@ -407,21 +406,14 @@ class CommandControllerTest extends TestCase {
 
 		$consumer = new Consumer( $input_dir, 0, '' );
 		$consumer->next_offset( 'start' );
-		$got = [];
-		$consumer->sink(
-			new \Newspack_Nodes\Callback(
-				static function ( array &$m ) use ( &$got ): void {
-					$got[] = $m;
-				}
-			)
-		);
+		$consumer->sink( $got = new \Newspack_Nodes\Tests\CaptureSink() );
 		$consumer->poll();
-		$this->assertCount( 1, $got );
-		$this->assertSame( '_command_interpreter', $got[0][ Message::TO ] );
+		$this->assertCount( 1, $got->captured );
+		$this->assertSame( '_command_interpreter', $got->captured[0][ Message::TO ] );
 		// Consumer overwrites ID with seg:offset; VALUE rode through
 		// pack/unpack as a live array, so read it directly to confirm
 		// payload identity.
-		$payload = $got[0][ Message::VALUE ];
+		$payload = $got->captured[0][ Message::VALUE ];
 		$this->assertSame( 'dump_metadata', $payload['name'] );
 	}
 
@@ -430,7 +422,7 @@ class CommandControllerTest extends TestCase {
 	public function test_register_routes_registers_command_post_route(): void {
 		$GLOBALS['_wp_test_registered_routes'] = [];
 
-		( new Command_Controller() )->register_routes();
+		( new HTTP_In() )->register_routes();
 
 		$this->assertCount( 1, $GLOBALS['_wp_test_registered_routes'] );
 		$route = $GLOBALS['_wp_test_registered_routes'][0];
@@ -473,14 +465,14 @@ class CommandControllerTest extends TestCase {
 			]
 		);
 
-		$ctrl = new Command_Controller();
+		$ctrl = new HTTP_In();
 		$ctrl->set_test_mode( true );
 
 		\ob_start();
 		$ctrl->dispatch( $req );
 		$body = \ob_get_clean();
 
-		// emit_error writes status_header( 500 ) directly (not via HTTP_Out's
+		// emit_error writes status_header( 500 ) directly (not via HTTP_In's
 		// seam), so the bootstrap-stub recorder captures it.
 		$this->assertSame( [ 500 ], $GLOBALS['_wp_test_status_headers'] );
 
@@ -491,5 +483,102 @@ class CommandControllerTest extends TestCase {
 		$this->assertSame( '_http', $err[ Message::TO ] );
 		$this->assertSame( 'cmd-err-1', $err[ Message::ID ] );
 		$this->assertStringContainsString( 'request-scope graph not initialized', $err[ Message::VALUE ] );
+	}
+
+	// ── HTTP_In as a Node: response-writer behavior ──
+
+	public function test_first_fill_sends_status_200_and_echoes_packed_message(): void {
+		$headers = [];
+		$writer  = new HTTP_In(
+			static function ( int $code ) use ( &$headers ): void {
+				$headers[] = $code;
+			}
+		);
+
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_RESPONSE;
+		$m[ Message::ID ]    = 'abc';
+		$m[ Message::VALUE ] = 'payload';
+
+		\ob_start();
+		$writer->fill( $m );
+		$out = \ob_get_clean();
+
+		$this->assertSame( [ 200 ], $headers );
+		$this->assertSame( Message::packed( $m ), $out );
+		$this->assertTrue( $writer->sent_headers );
+	}
+
+	public function test_subsequent_fills_dont_re_send_headers_but_still_echo(): void {
+		$headers = [];
+		$writer  = new HTTP_In(
+			static function ( int $code ) use ( &$headers ): void {
+				$headers[] = $code;
+			}
+		);
+
+		$a                   = Message::new_message();
+		$a[ Message::VALUE ] = 'first';
+		$b                   = Message::new_message();
+		$b[ Message::VALUE ] = 'second';
+
+		\ob_start();
+		$writer->fill( $a );
+		$writer->fill( $b );
+		$out = \ob_get_clean();
+
+		$this->assertSame( [ 200 ], $headers );
+		$this->assertSame( Message::packed( $a ) . Message::packed( $b ), $out );
+	}
+
+	public function test_default_send_header_closure_invokes_status_header_when_none_supplied(): void {
+		// Constructor null-coalesces to a closure wrapping the real
+		// \status_header(). Without a fed seam, we still need to prove that
+		// branch executes on first fill — otherwise the production path is
+		// uncovered. Bootstrap stubs status_header() to push the code into
+		// $GLOBALS['_wp_test_status_headers'] so we can assert the default
+		// closure actually called it.
+		$GLOBALS['_wp_test_status_headers'] = [];
+		$writer                             = new HTTP_In();
+
+		\ob_start();
+		$m = Message::new_message();
+		$writer->fill( $m );
+		$out = \ob_get_clean();
+
+		$this->assertTrue( $writer->sent_headers );
+		$this->assertSame( Message::packed( $m ), $out );
+		$this->assertSame( [ 200 ], $GLOBALS['_wp_test_status_headers'] );
+	}
+
+	public function test_node_schema_is_hidden_with_empty_ctor_and_verbs(): void {
+		// HTTP_In is bootstrap-instantiated at request scope only — never via
+		// `make_node` from a topology. Hidden category + empty ctor/verbs
+		// locks that contract.
+		$schema = HTTP_In::node_schema();
+		$this->assertSame( 'Hidden', $schema['category'] );
+		$this->assertSame( [], $schema['ctor'] );
+		$this->assertSame( [], $schema['verbs'] );
+		$this->assertNotEmpty( $schema['description'] );
+	}
+
+	public function test_reset_allows_fresh_status_header_on_next_fill(): void {
+		$headers = [];
+		$writer  = new HTTP_In(
+			static function ( int $code ) use ( &$headers ): void {
+				$headers[] = $code;
+			}
+		);
+
+		\ob_start();
+		$first = Message::new_message();
+		$writer->fill( $first );
+		$writer->reset();
+		$second = Message::new_message();
+		$writer->fill( $second );
+		\ob_get_clean();
+
+		$this->assertSame( [ 200, 200 ], $headers );
+		$this->assertTrue( $writer->sent_headers );
 	}
 }

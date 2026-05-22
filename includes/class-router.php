@@ -27,11 +27,8 @@ class Router extends Timer {
 	public function fill( array &$message ): void {
 		++$this->counter;
 
-		$to = $message[ Message::TO ];
-		$parts                  = \explode( '/', $to, 2 );
-		$node_name              = $parts[0];
-		$remaining              = $parts[1] ?? '';
-		$message[ Message::TO ] = $remaining;
+		[ $node_name, $remaining ] = Message::split_first( $message[ Message::TO ] );
+		$message[ Message::TO ]    = $remaining;
 
 		if ( \strlen( $message[ Message::FROM ] ?? '' ) > self::MAX_FROM_SIZE ) {
 			$this->drop_message( $message, 'path exceeded ' . self::MAX_FROM_SIZE . ' bytes' );

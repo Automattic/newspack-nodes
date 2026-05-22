@@ -332,8 +332,8 @@ if ( ! function_exists( 'fastcgi_finish_request' ) ) {
 
 if ( ! function_exists( 'status_header' ) ) {
 	// Track every status_header() emission so tests can assert on the
-	// IPC-202 path of Command_Controller (Command_Controller calls
-	// `\status_header(202)` directly, NOT through HTTP_Out's seam).
+	// IPC-202 path of HTTP_In's dispatch(), which writes
+	// `status_header(202)` directly, NOT through the status-header seam.
 	$GLOBALS['_wp_test_status_headers'] = [];
 	function status_header( int $code ): void {
 		$GLOBALS['_wp_test_status_headers'][] = $code;

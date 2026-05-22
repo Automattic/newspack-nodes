@@ -10,8 +10,8 @@
 
 namespace Newspack_Nodes;
 
-use Newspack_Nodes\Rest\Command_Controller;
-use Newspack_Nodes\Rest\Messages_Stream_Controller;
+use Newspack_Nodes\Rest\HTTP_In;
+use Newspack_Nodes\Rest\SSE_Out;
 use Newspack_Nodes\Rest\SpawnController;
 
 \defined( 'ABSPATH' ) || exit;
@@ -94,8 +94,8 @@ class Bootstrap {
 	/** Register substrate REST routes — wired to `rest_api_init`. */
 	public static function register_rest_routes(): void {
 		( new SpawnController( self::supervisor() ) )->register_routes();
-		( new Messages_Stream_Controller() )->register_routes();
-		( new Command_Controller() )->register_routes();
+		( new SSE_Out() )->register_routes();
+		( new HTTP_In() )->register_routes();
 	}
 
 	/** Supervisor cron tick: run Supervisor::run() (595s loop). Cron is the cold-start backstop. */

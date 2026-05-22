@@ -1,0 +1,10 @@
+{
+	"ROUTER": "_router",
+	"COMMAND_INTERPRETER": "_command_interpreter",
+	"HTTP": "_http",
+	"OUTPUT": "_output",
+	"REPL": "_repl",
+	"SSE": "_sse",
+	"METADATA": "_metadata",
+	"UPTIME": "_uptime"
+}

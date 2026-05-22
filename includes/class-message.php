@@ -27,11 +27,11 @@ class Message {
 	public const TM_EOF        = 2;
 	public const TM_PING       = 4;
 	public const TM_COMMAND    = 8;
-	public const TM_RESPONSE   = 16;
+	public const TM_STRUCT     = 16;
 	public const TM_ERROR      = 32;
 	public const TM_INFO       = 64;
-	public const TM_STRUCT     = 256;
-	public const TM_REQUEST    = 512;
+	public const TM_REQUEST    = 128;
+	public const TM_RESPONSE   = 256;
 
 	public static function new_message(): array {
 		return [
@@ -61,5 +61,17 @@ class Message {
 			return $decoded;
 		}
 		throw new \InvalidArgumentException( 'Message::unpacked(): expected a 7-element positional array' );
+	}
+
+	/**
+	 * Split a slash-delimited path into `[ first_segment, remainder ]` — the
+	 * single source of truth for taking the leading path segment (Router
+	 * dispatch + HTTP_Filter pid gate). Remainder is `''` when there is no slash.
+	 *
+	 * @return array{0:string,1:string}
+	 */
+	public static function split_first( string $path ): array {
+		$parts = \explode( '/', $path, 2 );
+		return [ $parts[0], $parts[1] ?? '' ];
 	}
 }

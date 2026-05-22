@@ -225,7 +225,7 @@ class Node {
 
 	/** Build and route a TM_STRUCT debug trace to `_repl`. No-op when `_router` isn't registered. */
 	private function emit_debug_state_trace( string $event, mixed $payload ): void {
-		$router = Core::node( '_router' );
+		$router = Core::node( Node_Names::ROUTER );
 		if ( null === $router ) {
 			return;
 		}
@@ -233,7 +233,7 @@ class Node {
 		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
 		$msg[ Message::TIMESTAMP ] = Core::$now;
 		$msg[ Message::FROM ]      = $this->name;
-		$msg[ Message::TO ]        = '_repl';
+		$msg[ Message::TO ]        = Node_Names::REPL;
 		$msg[ Message::VALUE ]     = [
 			'k'     => 'debug_state',
 			'node'  => $this->name,
@@ -311,7 +311,7 @@ class Node {
 
 		if ( null !== $this->sink ) {
 			$sink_name = $this->sink->name();
-			if ( '' !== $sink_name && '_command_interpreter' !== $sink_name ) {
+			if ( '' !== $sink_name && Node_Names::COMMAND_INTERPRETER !== $sink_name ) {
 				$out .= "set_sink {$this->name} $sink_name\n";
 			}
 		}

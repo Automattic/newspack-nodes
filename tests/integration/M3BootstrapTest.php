@@ -20,7 +20,7 @@ namespace Newspack_Nodes\Tests\Integration;
 
 use Newspack_Nodes\CommandInterpreter;
 use Newspack_Nodes\Core;
-use Newspack_Nodes\HTTP_Out;
+use Newspack_Nodes\Rest\HTTP_In;
 use Newspack_Nodes\Router;
 use Newspack_Nodes\Tests\TestCase;
 
@@ -43,13 +43,13 @@ class M3BootstrapTest extends TestCase {
 
 	public function test_request_graph_ready_mounts_three_substrate_cis(): void {
 		// Build the request-scope graph manually (mirrors what
-		// Command_Controller::dispatch() does in production).
+		// HTTP_In::dispatch() does in production).
 		$router = new Router();
 		$router->name( '_router' );
 		$base = new CommandInterpreter();
 		$base->name( '_command_interpreter' );
 		$base->sink( $router );
-		$http = new HTTP_Out( static fn ( int $c ) => null );
+		$http = new HTTP_In( static fn ( int $c ) => null );
 		$http->name( '_http' );
 
 		\do_action( 'newspack_nodes/request_graph_ready', $base );

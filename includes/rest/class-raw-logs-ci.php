@@ -8,7 +8,7 @@
  *   firehose_status — args `{log:string?}`. Per-partition segment metadata
  *                     (size, count); unknown keys fall through to `firehose.log`.
  *
- * Both read substrate state only; live SSE tailing happens via Messages_Stream_Controller.
+ * Both read substrate state only; live SSE tailing happens via SSE_Out.
  *
  * @package Newspack_Nodes
  */

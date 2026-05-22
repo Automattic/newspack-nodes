@@ -18,14 +18,37 @@ namespace Newspack_Nodes\Tests\Integration;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition;
-use Newspack_Nodes\Rest\Messages_Stream_Controller;
+use Newspack_Nodes\Rest\SSE_Out;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Medium;
 
-#[CoversClass( Messages_Stream_Controller::class )]
+#[CoversClass( SSE_Out::class )]
 #[Medium]
-class MessagesStreamControllerTest extends TestCase {
+class SSEOutTest extends TestCase {
+
+	public function test_fill_emits_msg_event_and_increments_counter(): void {
+		// SSE_Out is double-duty: as a Node, fill() emits the Message as a
+		// single `msg` SSE event and bumps the counter (the egress writer
+		// HTTP_Filter sinks into).
+		$ctrl                  = new SSE_Out();
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::TO ]    = '_output';
+		$msg[ Message::VALUE ] = 'hello';
+
+		\ob_start();
+		$ctrl->fill( $msg );
+		$out = \ob_get_clean();
+
+		$this->assertSame( 1, $ctrl->counter() );
+		$events = $this->split_sse_events( $out );
+		$this->assertCount( 1, $events );
+		$this->assertSame( 'msg', $events[0]['event'] );
+		$decoded = \json_decode( $events[0]['data'], true );
+		$this->assertSame( 'hello', $decoded[ Message::VALUE ] );
+		$this->assertSame( '_output', $decoded[ Message::TO ] );
+	}
 
 	public function test_stream_emits_connected_then_msg_for_each_log_line(): void {
 		$base = $this->make_temp_dir( 'msg-stream-int-' );
@@ -45,7 +68,7 @@ class MessagesStreamControllerTest extends TestCase {
 		$p->fill( $line2 );
 		$p->flush();
 
-		$ctrl = new Messages_Stream_Controller();
+		$ctrl = new SSE_Out();
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );
@@ -107,7 +130,7 @@ class MessagesStreamControllerTest extends TestCase {
 		$p->fill( $line );
 		$p->flush();
 
-		$ctrl = new Messages_Stream_Controller();
+		$ctrl = new SSE_Out();
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );
@@ -134,7 +157,7 @@ class MessagesStreamControllerTest extends TestCase {
 	 * subsequent stream blows up until the process recycles.
 	 */
 	public function test_invalid_subscription_does_not_leak_substrate_nodes(): void {
-		$ctrl = new Messages_Stream_Controller();
+		$ctrl = new SSE_Out();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-stream-leak-' ) );
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );
@@ -162,7 +185,7 @@ class MessagesStreamControllerTest extends TestCase {
 		$base = $this->make_temp_dir( 'msg-stream-heartbeat-' );
 		\mkdir( "{$base}/logs/firehose.log", 0755, true );
 
-		$ctrl = new Messages_Stream_Controller();
+		$ctrl = new SSE_Out();
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );

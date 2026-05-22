@@ -70,7 +70,7 @@ class Core {
 		self::$config            = [];
 		// Default handler: route through `_repl` if wired, else error_log.
 		self::$stderr_handler = static function ( string $msg ): void {
-			$repl = self::$nodes_by_name['_repl'] ?? null;
+			$repl = self::$nodes_by_name[ Node_Names::REPL ] ?? null;
 			if ( null !== $repl ) {
 				$m                       = Message::new_message();
 				$m[ Message::TYPE ]      = Message::TM_BYTESTREAM;

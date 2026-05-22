@@ -390,7 +390,7 @@ class CommandInterpreter extends Node {
 
 		$removed   = [];
 		$errors    = [];
-		$protected = [ '_command_interpreter', '_router', '_output' ];
+		$protected = [ Node_Names::COMMAND_INTERPRETER, Node_Names::ROUTER, Node_Names::OUTPUT ];
 		foreach ( $names as $name ) {
 			if ( '' === $name ) {
 				continue;
@@ -583,7 +583,7 @@ class CommandInterpreter extends Node {
 	private static function cmd_dump_config(): string {
 		$out = '';
 		foreach ( \array_keys( Core::$nodes_by_name ) as $name ) {
-			if ( '_command_interpreter' === $name || '_router' === $name || '_output' === $name ) {
+			if ( Node_Names::COMMAND_INTERPRETER === $name || Node_Names::ROUTER === $name || Node_Names::OUTPUT === $name ) {
 				continue; // Skip baseline scaffolding.
 			}
 			$out .= Core::node( $name )->dump_config();
