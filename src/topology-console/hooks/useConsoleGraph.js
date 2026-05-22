@@ -23,6 +23,13 @@ import names from '../../runtime/reserved-node-names.json';
 // SSE cadence query param (server fixes its own; SseIn needs a value).
 const STREAM_INTERVAL_MS = 5000;
 
+// Slot keep-alive: poke `workers/heartbeat` to refresh this session's SSE slot
+// TTL. The slot is refreshed EXCLUSIVELY by the client (the server's check_slot
+// never refreshes); without this poke the slot TTLs out and the browser
+// reconnects every ~minute. Poke at half the TTL so one missed poke survives.
+const SLOT_TTL_S = 10;
+const SLOT_HEARTBEAT_MS = 5000;
+
 // Every named node this graph mounts — unregistered on teardown.
 const GRAPH_NODE_NAMES = [
 	names.ROUTER,
@@ -136,10 +143,35 @@ export function useConsoleGraph( {
 		consoleShell.sink = ci;
 
 		setSsePid( sse.pid() );
+		let slotPoke = null;
 		sse.register( 'connected', 'useConsoleGraph', ( payload ) => {
 			const pid =
 				payload && 'number' === typeof payload.pid ? payload.pid : null;
 			setSsePid( pid );
+			// Keep this session's SSE slot alive. The slot was acquired at THIS
+			// partition (the subscription resolves to it), so the poke must carry
+			// `partition` — without it the worker-partition slot TTLs out and the
+			// browser reconnects every ~minute. (check_slot never refreshes; only
+			// the client's poke does.)
+			const slot =
+				payload && Number.isInteger( payload.slot )
+					? payload.slot
+					: null;
+			if ( slotPoke ) {
+				clearInterval( slotPoke );
+				slotPoke = null;
+			}
+			if ( null !== slot && slot >= 0 ) {
+				slotPoke = setInterval( () => {
+					getCommandClient()
+						.send( {
+							to: 'workers',
+							verb: 'heartbeat',
+							payload: { slot, ttl: SLOT_TTL_S, partition },
+						} )
+						.catch( () => {} );
+				}, SLOT_HEARTBEAT_MS );
+			}
 			return true;
 		} );
 
@@ -147,6 +179,9 @@ export function useConsoleGraph( {
 		sse.start();
 
 		return () => {
+			if ( slotPoke ) {
+				clearInterval( slotPoke );
+			}
 			sse.unregister( 'connected', 'useConsoleGraph' );
 			sse.close();
 			for ( const name of GRAPH_NODE_NAMES ) {

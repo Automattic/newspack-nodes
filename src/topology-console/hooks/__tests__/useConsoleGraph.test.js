@@ -133,6 +133,30 @@ describe( 'useConsoleGraph — connection state', () => {
 		expect( result.current.ssePid ).toBe( 777 );
 		expect( lastConnector.pid() ).toBe( 777 );
 	} );
+
+	it( 'pokes workers/heartbeat (with this partition) to keep the SSE slot alive', () => {
+		jest.useFakeTimers();
+		try {
+			renderGraph( { topology: 'demo', partition: 0 } );
+			const { getCommandClient } = require( '../../utils/commandClient' );
+			const send = jest.fn().mockResolvedValue( null );
+			getCommandClient().send = send;
+			act( () => lastConnector.emitConnected( 777 ) ); // payload { pid, slot: 1 }
+			act( () => jest.advanceTimersByTime( 5000 ) );
+			expect( send ).toHaveBeenCalledWith(
+				expect.objectContaining( {
+					to: 'workers',
+					verb: 'heartbeat',
+					payload: expect.objectContaining( {
+						slot: 1,
+						partition: 0,
+					} ),
+				} )
+			);
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
 } );
 
 describe( 'useConsoleGraph — reply routing through _router', () => {
