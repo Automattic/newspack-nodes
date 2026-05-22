@@ -11,10 +11,10 @@ The ground truth for this model is **Perl Tachikoma** (`services/tachikoma/sourc
 Every code-writing turn — main Claude AND every subagent dispatched via the Agent tool — MUST:
 
 1. **Invoke `superpowers:test-driven-development` BEFORE writing any code.** No production code without a failing test first.
-2. **Invoke `superpowers:simplify` BEFORE every commit.** Review changed code for reuse, quality, efficiency; fix issues before committing.
+2. **Before every commit, main Claude runs `/code-review`** (replaces `superpowers:simplify`). It spawns its own review agents, so subagents CANNOT run it and do NOT commit; main Claude always runs it after a subagent finishes, then commits.
 
 Subagent prompts MUST include the literal phrase:
-> "Invoke `superpowers:test-driven-development` via the Skill tool BEFORE writing any code. Invoke `superpowers:simplify` via the Skill tool BEFORE every commit. Both are mandatory; do not skip."
+> "Invoke `superpowers:test-driven-development` via the Skill tool BEFORE writing any code — mandatory, no exceptions. Do NOT commit: implement, run your tests, and report; main Claude runs `/code-review` and commits."
 
 Subagents have no memory of conversation conventions; omission is a workflow violation. See `~/.claude/rules/workflow-discipline.md`.
 

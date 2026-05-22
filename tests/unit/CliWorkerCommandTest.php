@@ -399,7 +399,7 @@ class CliWorkerCommandTest extends TestCase {
 
 	public function test_status_uses_filtered_cache_when_provided(): void {
 		// Live-position memcache is hooked via newspack_nodes/worker_cli_cache.
-		// Apps providing a Cache_Interface-compatible object see their cached
+		// Apps providing a `\Memcached`-compatible object see their cached
 		// positions in the Behind column.
 		$this->register_topology( 'firehose-workers', 1 );
 		$lock = "{$this->tmp}/locks/firehose-workers.p0.lock.d";

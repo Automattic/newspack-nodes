@@ -1,13 +1,13 @@
 <?php
 /**
- * FakeMemcached: in-process duck-type of the application Cache_Interface.
+ * FakeMemcached: in-process duck-type of the `\Memcached`-method subset that
+ * caching consumers call.
  *
- * The substrate doesn't declare a Cache_Interface — caching is an app
- * concern (Memcached_Cache lives in newspack-event-logger-nodes). This
- * helper exists so substrate-side tests for Workers_CI can pass a
- * cache-shaped stub without dragging the app interface in. The shape is
- * intentionally identical to the app's FakeMemcached so a future move of
- * Cache_Interface to substrate is a single-line implements addition.
+ * Caching is the single shared `\Newspack_Nodes\Core::$memd` handle (a raw
+ * `\Memcached`); there is no Cache_Interface anywhere. This helper exists so
+ * substrate-side tests for Workers_CI can pass a cache-shaped stub (or stand in
+ * for `Core::$memd`) without a live memcached. The shape mirrors the methods
+ * the substrate actually reads.
  *
  * Set $fail_all = true to simulate a memcache-down scenario (every
  * operation returns the failure sentinel: get → null, set/delete → false).

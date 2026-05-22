@@ -142,7 +142,7 @@ class Workers_CI extends Service_CI {
 	/**
 	 * Build the full 7-field operator-grade envelope.
 	 *
-	 * @param object|null $cache Cache_Interface-shaped, or null for offsetlog-only cursor reads.
+	 * @param object|null $cache `\Memcached`-shaped (or null) for offsetlog-only cursor reads.
 	 * @return array<string,mixed> Envelope ready for wp_json_encode.
 	 */
 	private static function collect_dump_metadata( ?object $cache ): array {
@@ -294,7 +294,7 @@ class Workers_CI extends Service_CI {
 	 * Build the per-worker rich descriptor, adding `live`/`stale`/`heartbeat_at`
 	 * from the heartbeat mtime so the dashboard renders status badges in one round-trip.
 	 *
-	 * @param object|null $cache    Cache_Interface-shaped instance for live cursor lookups (or null).
+	 * @param object|null $cache    `\Memcached`-shaped instance for live cursor lookups (or null).
 	 * @param string      $base_dir Substrate base directory.
 	 */
 	private static function build_worker_status(

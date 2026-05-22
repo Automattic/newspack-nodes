@@ -14,9 +14,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
  * Substrate SSE slot pool: the slot algorithm + SSE_Out seam wiring,
  * keyed directly off the shared `Core::$memd` handle.
  *
- * The pool owns the atomic add()-loop slot claim ported from the legacy
- * `Memcached_Cache::*_sse_slot()`. Tests set `Core::$memd` to an in-memory
- * `\Memcached` subclass so the algorithm runs deterministically.
+ * The pool owns the atomic add()-loop slot claim against `Core::$memd`.
+ * Tests set `Core::$memd` to an in-memory `\Memcached` subclass so the
+ * algorithm runs deterministically.
  */
 #[CoversClass( Sse_Slot_Pool::class )]
 class SseSlotPoolTest extends TestCase {
