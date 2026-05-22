@@ -73,6 +73,8 @@ body[class*="_page_newspack-nodes-topology"] {
 	--repl-bg: var(--ink);
 	--repl-fg: var(--paper);
 	--font-mono: "JetBrains Mono", ui-monospace, monospace;
+	// Terminal/transcript stays monospace even on skins whose --font-mono is a display face.
+	--font-terminal: var(--font-mono);
 	--font-display-brand: "Major Mono Display", ui-monospace, monospace;
 	--font-display-stencil: "Workbench", monospace;
 	position: relative;
@@ -215,11 +217,15 @@ body[class*="_page_newspack-nodes-topology"] {
 	color: var(--ink-3);
 }
 
-.topology-select {
+// Scoped under .topology-app to outrank WP-admin's default select styling; subtle fill + low-contrast border.
+.topology-app .topology-select {
 	appearance: none;
-	background: transparent;
-	border: 1px solid var(--ink-2);
+	-webkit-appearance: none;
+	background-color: color-mix(in srgb, var(--ink) 6%, transparent);
+	border: 1px solid color-mix(in srgb, var(--ink) 24%, transparent);
 	color: var(--ink);
+	// WebKit paints the value via -webkit-text-fill-color; without this it blacks out on focus.
+	-webkit-text-fill-color: var(--ink);
 	font: 500 12px/1 var(--font-mono);
 	padding: 7px 22px 7px 10px;
 	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%2318222E'/%3E%3C/svg%3E");
@@ -1203,13 +1209,14 @@ body[class*="_page_newspack-nodes-topology"] {
 // REPL footer
 // =====================================================================
 
-.topology-repl {
+// Scoped under .topology-app so the REPL input outranks WP-admin's form styling.
+.topology-app .topology-repl {
 	grid-area: repl;
 	position: relative;
 	border-top: 1px solid var(--ink);
-	background: var(--repl-bg);
+	background: transparent;
 	color: var(--repl-fg);
-	font: 400 12px var(--font-mono);
+	font: 400 12px var(--font-terminal);
 	// Above the reticles (z=4) so the expanded transcript pane and
 	// the single-line peek both occlude the corner alignment marks
 	// rather than peeking through them.
@@ -1253,6 +1260,10 @@ body[class*="_page_newspack-nodes-topology"] {
 		align-items: center;
 		padding: 0 18px;
 		gap: 10px;
+		// Same translucent + blur material as the transcript pane.
+		background-color: color-mix(in srgb, var(--repl-bg) 85%, transparent);
+		backdrop-filter: blur(2px);
+		-webkit-backdrop-filter: blur(2px);
 
 		// Restore-arrow (▲) sits at the right edge of the bar when
 		// the transcript is minimized. Pull it past the bar's 18px
@@ -1274,6 +1285,7 @@ body[class*="_page_newspack-nodes-topology"] {
 		background: transparent;
 		border: 0;
 		color: var(--repl-fg);
+		-webkit-text-fill-color: var(--repl-fg);
 		font: inherit;
 		outline: none;
 		padding: 6px 0;
@@ -1285,7 +1297,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	}
 
 	&__status {
-		font: 700 9px var(--font-mono);
+		font: 700 9px var(--font-terminal);
 		letter-spacing: 0.22em;
 		color: color-mix(in srgb, var(--repl-fg) 50%, transparent);
 		display: flex;
@@ -1336,7 +1348,7 @@ body[class*="_page_newspack-nodes-topology"] {
 		// padding bumped from 8px to 12px to clear the 4px resize
 		// handle that overlays the top edge.
 		padding: 12px 70px 14px 18px;
-		font: 400 11px/1.5 var(--font-mono);
+		font: 400 11px/1.5 var(--font-terminal);
 		color: color-mix(in srgb, var(--repl-fg) 92%, transparent);
 		box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
 	}
@@ -1498,7 +1510,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	text-transform: lowercase;
 }
 
-.topology-edit-row__input {
+.topology-app .topology-edit-row__input {
 	width: 100%;
 	min-width: 0;
 	padding: 5px 7px;
@@ -1540,7 +1552,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	color: var(--oxide);
 }
 
-.topology-edit-row__input:focus {
+.topology-app .topology-edit-row__input:focus {
 	outline: none;
 	border-color: var(--ink);
 	background: var(--paper);
@@ -1599,7 +1611,7 @@ body[class*="_page_newspack-nodes-topology"] {
 // Inline "+ add target…" select dropdown rendered as a chip-shaped
 // affordance at the end of the chips row. Native <select> so the
 // chevron + popdown is browser-managed (no custom positioning).
-.topology-edit-add-chip {
+.topology-app .topology-edit-add-chip {
 	display: inline-flex;
 	align-items: center;
 	background: var(--paper-2);
@@ -1608,8 +1620,10 @@ body[class*="_page_newspack-nodes-topology"] {
 	font-family: var(--font-mono);
 	font-size: 11px;
 	color: var(--ink-2);
+	-webkit-text-fill-color: var(--ink-2);
 	cursor: pointer;
 	appearance: none;
+	-webkit-appearance: none;
 	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%235A6F7F'/%3E%3C/svg%3E");
 	background-repeat: no-repeat;
 	background-position: right 6px center;
@@ -1617,7 +1631,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	border-radius: 0;
 }
 
-.topology-edit-add-chip:hover {
+.topology-app .topology-edit-add-chip:hover {
 	border-style: solid;
 	color: var(--ink);
 }
@@ -1766,7 +1780,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	line-height: 1.5;
 }
 
-.topology-modal__input {
+.topology-app .topology-modal__input {
 	display: block;
 	width: 100%;
 	margin-top: 10px;
@@ -1779,7 +1793,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	box-sizing: border-box;
 }
 
-.topology-modal__input:focus {
+.topology-app .topology-modal__input:focus {
 	outline: none;
 	border-color: var(--ink);
 	background: var(--paper);
@@ -1991,6 +2005,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	--repl-bg: #160826;
 	--repl-fg: #ffe7fb;
 	--font-mono: "Chakra Petch", sans-serif;
+	--font-terminal: "Spline Sans Mono", monospace;
 	--font-display-brand: "Monoton", monospace;
 	--font-display-stencil: "Monoton", monospace;
 
@@ -2137,6 +2152,7 @@ body[class*="_page_newspack-nodes-topology"] {
 	--repl-bg: #2f2a20;
 	--repl-fg: #f4efe3;
 	--font-mono: "Spectral", serif;
+	--font-terminal: "Spline Sans Mono", monospace;
 	--font-display-brand: "Fraunces", serif;
 	--font-display-stencil: "Fraunces", serif;
 

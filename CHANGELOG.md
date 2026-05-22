@@ -16,6 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Control-Room SCADA). The choice persists per browser (localStorage). The stylesheet
   was refactored to CSS custom properties so each skin is a token-override block with
   no change to the default look.
+- **Topology Console chrome polish.** Header menus and edit/modal form controls now theme
+  over the WordPress-admin defaults (no white boxes on dark skins; focused text stays
+  legible via `-webkit-text-fill-color`); the REPL terminal stays monospace on every skin
+  (`--font-terminal`); the prompt bar shares the transcript's frosted material; and the
+  prompt placeholder no longer lists example commands.
 
 ### Security
 
