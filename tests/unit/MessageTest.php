@@ -114,6 +114,29 @@ class MessageTest extends TestCase {
 		Message::unpacked( '{"type":1}' );
 	}
 
+	public function test_local_is_index_seven_after_value(): void {
+		// LOCAL is the appended bookkeeping field — provenance taint, never on the wire.
+		$this->assertSame( 7, Message::LOCAL );
+		$this->assertSame( Message::LAST_VALUE_INDEX + 1, Message::LOCAL );
+	}
+
+	public function test_new_message_has_no_local_field(): void {
+		// Absence of LOCAL is the default-untrusted state; only a Shell sets it.
+		$m = Message::new_message();
+		$this->assertArrayNotHasKey( Message::LOCAL, $m );
+	}
+
+	public function test_packed_strips_local_field(): void {
+		// The wire only ever carries the canonical 7 fields; LOCAL is stripped at
+		// the serialization boundary so it can't cross a process.
+		$m                    = Message::new_message();
+		$m[ Message::TYPE ]   = Message::TM_COMMAND;
+		$m[ Message::LOCAL ]  = true;
+		$decoded = \json_decode( Message::packed( $m ), true );
+		$this->assertCount( 7, $decoded );
+		$this->assertArrayNotHasKey( Message::LOCAL, $decoded );
+	}
+
 	public function test_split_first_splits_on_first_slash(): void {
 		// Single source of truth for taking the leading path segment (Router
 		// dispatch + HTTP_Filter pid gate). Only the first slash splits.
