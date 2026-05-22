@@ -73,19 +73,16 @@ select.event-logger-raw-logs-select {
 }
 
 input.event-logger-raw-logs-search {
-
 	@include base.dark-search-input;
 	width: 160px;
 }
 
 .event-logger-raw-logs-stats {
-
 	@include base.dark-stats;
 	min-width: 80px;
 }
 
 .event-logger-raw-logs-count {
-
 	@include base.dark-stats-count;
 }
 
@@ -97,7 +94,6 @@ input.event-logger-raw-logs-search {
 }
 
 .event-logger-raw-logs-btn {
-
 	@include base.dark-button;
 
 	&.active {
@@ -119,7 +115,6 @@ input.event-logger-raw-logs-search {
 }
 
 .event-logger-raw-logs-error {
-
 	@include base.dark-error-banner;
 }
 
@@ -227,7 +222,6 @@ input.event-logger-raw-logs-search {
 
 // Responsive adjustments.
 @media (max-width: 1200px) {
-
 	.event-logger-raw-logs-controls {
 		gap: 8px;
 	}
@@ -238,7 +232,6 @@ input.event-logger-raw-logs-search {
 }
 
 @media (max-width: 800px) {
-
 	input.event-logger-raw-logs-search {
 		width: 100px !important;
 	}

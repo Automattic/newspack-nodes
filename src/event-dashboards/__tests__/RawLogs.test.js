@@ -210,7 +210,9 @@ describe( 'RawLogs', () => {
 			act( () => {
 				onMessage(
 					[ 1, 1234, 'firehose.p0', '', '1:1', '', 'a log line' ],
-					{ type: 1 }
+					{
+						type: 1,
+					}
 				);
 			} );
 			act( () => {
