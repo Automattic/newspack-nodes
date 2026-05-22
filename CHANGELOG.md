@@ -19,8 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Topology Console chrome polish.** Header menus and edit/modal form controls now theme
   over the WordPress-admin defaults (no white boxes on dark skins; focused text stays
   legible via `-webkit-text-fill-color`); the REPL terminal stays monospace on every skin
-  (`--font-terminal`); the prompt bar shares the transcript's frosted material; and the
-  prompt placeholder no longer lists example commands.
+  (`--font-terminal`); the prompt bar shares the transcript's frosted material; the
+  prompt placeholder no longer lists example commands; and the prompt input drops
+  WordPress-admin's blue focus ring (the brass caret signals focus instead).
 
 ### Security
 
