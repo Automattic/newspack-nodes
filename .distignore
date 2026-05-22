@@ -19,6 +19,7 @@ Thumbs.db
 # VCS / IDE
 .claude
 .git
+.github
 .gitignore
 .vscode
 
