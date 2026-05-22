@@ -13,24 +13,24 @@
 @import url(https://fonts.googleapis.com/css2?family=Major+Mono+Display&family=Workbench&family=JetBrains+Mono:wght@300;400;500;700&display=swap);
 
 // Palette.
-$paper:         #f0e7d6;
-$paper-2:       #e8dcc4;
-$paper-3:       #dbcdb1;
-$paper-shadow:  #c8b998;
-$ink:           #18222e;
-$ink-2:         #2e3f4f;
-$ink-3:         #5a6f7f;
-$ink-4:         #8294a2;
-$grid:          rgba(60, 80, 96, 0.1);
-$grid-coarse:   rgba(60, 80, 96, 0.07);
-$oxide:         #b25538;
-$oxide-dark:    #8a3d24;
-$brass:         #b4914a;
-$brass-dark:    #876a2e;
-$cyan:          #4a7290;
-$cyan-dark:     #305670;
-$sage:          #7a8f6a;
-$sage-dark:     #5b6e4d;
+$paper: #f0e7d6;
+$paper-2: #e8dcc4;
+$paper-3: #dbcdb1;
+$paper-shadow: #c8b998;
+$ink: #18222e;
+$ink-2: #2e3f4f;
+$ink-3: #5a6f7f;
+$ink-4: #8294a2;
+$grid: rgba(60, 80, 96, 0.1);
+$grid-coarse: rgba(60, 80, 96, 0.07);
+$oxide: #b25538;
+$oxide-dark: #8a3d24;
+$brass: #b4914a;
+$brass-dark: #876a2e;
+$cyan: #4a7290;
+$cyan-dark: #305670;
+$sage: #7a8f6a;
+$sage-dark: #5b6e4d;
 
 $mono: "JetBrains Mono", ui-monospace, monospace;
 $display-brand: "Major Mono Display", ui-monospace, monospace;
@@ -41,7 +41,6 @@ $display-stencil: "Workbench", monospace;
 // (toplevel vs submenu, slug rename, etc.), so match any class that
 // ends with `_page_newspack-nodes-topology` rather than enumerating.
 body[class*="_page_newspack-nodes-topology"] {
-
 	#wpcontent {
 		padding-left: 0;
 	}
@@ -130,7 +129,6 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 @keyframes topology-pulse {
-
 	0%,
 	100% {
 		opacity: 1;
@@ -142,14 +140,12 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 @keyframes topology-flow {
-
 	to {
 		stroke-dashoffset: -8;
 	}
 }
 
 @keyframes topology-fadein {
-
 	from {
 		opacity: 0;
 	}
@@ -160,7 +156,6 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 @keyframes topology-draw {
-
 	to {
 		stroke-dashoffset: 0;
 	}
@@ -432,12 +427,28 @@ body[class*="_page_newspack-nodes-topology"] {
 	// component sets, exposed here through chained BEM class names.
 	// stylelint-disable no-descending-specificity
 	&__item--tee &__glyph::after {
-		box-shadow: 0 8px 0 $ink-2, 0 -8px 0 $ink-2;
+		box-shadow:
+			0 8px 0 $ink-2,
+			0 -8px 0 $ink-2;
 	}
 
 	&__item--partition &__glyph {
 		// stylelint-disable-next-line @stylistic/declaration-colon-space-after
-		background-image: linear-gradient(to bottom, transparent 4px, $ink-2 4px, $ink-2 5px, transparent 5px, transparent 9px, $ink-2 9px, $ink-2 10px, transparent 10px, transparent 14px, $ink-2 14px, $ink-2 15px, transparent 15px);
+		background-image: linear-gradient(
+			to bottom,
+			transparent 4px,
+			$ink-2 4px,
+			$ink-2 5px,
+			transparent 5px,
+			transparent 9px,
+			$ink-2 9px,
+			$ink-2 10px,
+			transparent 10px,
+			transparent 14px,
+			$ink-2 14px,
+			$ink-2 15px,
+			transparent 15px
+		);
 	}
 
 	&__item--tail &__glyph::before {
@@ -450,8 +461,10 @@ body[class*="_page_newspack-nodes-topology"] {
 
 	&__item--timer &__glyph {
 		background:
-			radial-gradient(circle at center, $ink-2 1px, transparent 1.5px) center / 4px 4px no-repeat,
-			conic-gradient(from -90deg, $ink-2 90deg, transparent 90deg) center / 12px 12px no-repeat;
+			radial-gradient(circle at center, $ink-2 1px, transparent 1.5px)
+				center / 4px 4px no-repeat,
+			conic-gradient(from -90deg, $ink-2 90deg, transparent 90deg) center /
+				12px 12px no-repeat;
 
 		&::before,
 		&::after {
@@ -522,7 +535,9 @@ body[class*="_page_newspack-nodes-topology"] {
 
 	&__topology-name {
 		font-family: $display-stencil;
-		font-variation-settings: "BLCK" 5, "ROND" 20;
+		font-variation-settings:
+			"BLCK" 5,
+			"ROND" 20;
 		font-size: 18px;
 		font-weight: 400;
 		color: $ink;
@@ -583,7 +598,6 @@ body[class*="_page_newspack-nodes-topology"] {
 	stroke-width: 1;
 	shape-rendering: crispedges;
 }
-
 
 .topology-reticle {
 	position: absolute;
@@ -830,7 +844,10 @@ body[class*="_page_newspack-nodes-topology"] {
 	stroke-dasharray: 1000;
 	stroke-dashoffset: 1000;
 	animation: topology-draw 0.8s ease-out 0.2s forwards;
-	transition: stroke 120ms ease, stroke-width 120ms ease, opacity 120ms ease;
+	transition:
+		stroke 120ms ease,
+		stroke-width 120ms ease,
+		opacity 120ms ease;
 	pointer-events: none;
 
 	&--active {
@@ -873,7 +890,6 @@ body[class*="_page_newspack-nodes-topology"] {
 	}
 }
 
-
 .topology-arrow-head {
 	fill: $ink-3;
 
@@ -905,7 +921,9 @@ body[class*="_page_newspack-nodes-topology"] {
 
 .topology-insp__title {
 	font-family: $display-stencil;
-	font-variation-settings: "BLCK" 4, "ROND" 10;
+	font-variation-settings:
+		"BLCK" 4,
+		"ROND" 10;
 	font-size: 19px;
 	font-weight: 400;
 	margin: 0 0 2px;
@@ -1453,7 +1471,6 @@ body[class*="_page_newspack-nodes-topology"] {
 .topology-edit-delete:hover {
 	background: $oxide-dark;
 }
-
 
 .topology-edit-row {
 	display: flex;

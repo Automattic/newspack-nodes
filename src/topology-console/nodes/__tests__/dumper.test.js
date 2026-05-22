@@ -74,13 +74,19 @@ describe( 'renderMessage', () => {
 		const t = TM_COMMAND | TM_ERROR;
 		expect(
 			renderMessage( msg( t, { name: 'x', payload: 'bad arg' } ) )
-		).toEqual( { kind: 'error', text: 'bad arg' } );
+		).toEqual( {
+			kind: 'error',
+			text: 'bad arg',
+		} );
 	} );
 
 	it( 'routes TM_ERROR to error kind with the raw value', () => {
 		expect(
 			renderMessage( msg( TM_ERROR, 'something went wrong' ) )
-		).toEqual( { kind: 'error', text: 'something went wrong' } );
+		).toEqual( {
+			kind: 'error',
+			text: 'something went wrong',
+		} );
 	} );
 
 	it( 'formats TM_PING as round trip time', () => {
@@ -99,7 +105,10 @@ describe( 'renderMessage', () => {
 	it( 'passes TM_STRUCT string payloads through', () => {
 		expect(
 			renderMessage( msg( TM_STRUCT, 'already serialized' ) )
-		).toEqual( { kind: 'recv', text: 'already serialized' } );
+		).toEqual( {
+			kind: 'recv',
+			text: 'already serialized',
+		} );
 	} );
 
 	it( 'renders TM_INFO and TM_BYTESTREAM as recv', () => {
@@ -108,7 +117,10 @@ describe( 'renderMessage', () => {
 			text: 'some info',
 		} );
 		expect( renderMessage( msg( TM_BYTESTREAM, 'hello world' ) ) ).toEqual(
-			{ kind: 'recv', text: 'hello world' }
+			{
+				kind: 'recv',
+				text: 'hello world',
+			}
 		);
 	} );
 

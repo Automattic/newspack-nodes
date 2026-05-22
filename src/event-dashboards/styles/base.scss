@@ -82,7 +82,8 @@ $wp-link: #2271b1;
 $white: #fff;
 
 // Typography
-$system-font: -apple-system, blinkmacsystemfont, "Segoe UI", roboto, oxygen, ubuntu, sans-serif;
+$system-font: -apple-system, blinkmacsystemfont, "Segoe UI", roboto, oxygen,
+	ubuntu, sans-serif;
 $mono-font: "SF Mono", monaco, inconsolata, "Roboto Mono", monospace;
 
 // Sizing
@@ -209,7 +210,9 @@ $focus-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 	max-height: $control-height !important;
 	box-sizing: border-box !important;
 	line-height: normal !important;
-	transition: border-color 0.2s, box-shadow 0.2s;
+	transition:
+		border-color 0.2s,
+		box-shadow 0.2s;
 
 	&:focus {
 		outline: none;
@@ -240,7 +243,6 @@ $focus-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 
 // Skeleton loading animation
 @keyframes skeleton-pulse {
-
 	0% {
 		background-position: -200% 0;
 	}
@@ -251,7 +253,12 @@ $focus-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 }
 
 .event-logger-skeleton {
-	background: linear-gradient(90deg, $light-surface 25%, $light-border-light 50%, $light-surface 75%);
+	background: linear-gradient(
+		90deg,
+		$light-surface 25%,
+		$light-border-light 50%,
+		$light-surface 75%
+	);
 	background-size: 200% 100%;
 	animation: skeleton-pulse 1.5s ease-in-out infinite;
 	border-radius: $border-radius-sm;
@@ -305,7 +312,6 @@ $focus-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 }
 
 .event-logger-stat {
-
 	.event-logger-stat-value {
 		font-size: 28px;
 		font-weight: 600;
@@ -376,7 +382,6 @@ $focus-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 
 // Shared error banner style (dark theme)
 .event-logger-error-banner {
-
 	@include dark-error-banner;
 }
 
@@ -611,6 +616,5 @@ select.event-logger-refresh-select {
 
 // Shared search input (dark theme)
 input.event-logger-search-input {
-
 	@include dark-search-input;
 }

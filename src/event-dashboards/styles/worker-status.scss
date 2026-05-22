@@ -261,7 +261,6 @@
 }
 
 @keyframes spin {
-
 	from {
 		transform: rotate(0deg);
 	}
@@ -371,7 +370,6 @@
 }
 
 @keyframes segment-slide-in {
-
 	from {
 		flex: 0;
 		opacity: 0;
@@ -388,7 +386,6 @@
 }
 
 @keyframes segment-slide-out {
-
 	from {
 		flex: 1;
 		opacity: 1;
@@ -422,7 +419,9 @@
 .segment-fill-h {
 	height: 100%;
 	background: base.$dead-bg; // Red - unprocessed
-	transition: width 0.3s ease, background-color 0.3s ease;
+	transition:
+		width 0.3s ease,
+		background-color 0.3s ease;
 	position: relative;
 
 	&:first-child {
