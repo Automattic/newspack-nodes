@@ -12,6 +12,7 @@ import {
 	FROM,
 	TO,
 	VALUE,
+	LOCAL,
 	TM_COMMAND,
 	TM_PING,
 	TM_INFO,
@@ -37,6 +38,12 @@ describe( 'Shell node — local builtins', () => {
 		expect( shell.parse( '' ) ).toBeNull();
 		expect( shell.parse( '   ' ) ).toBeNull();
 		expect( filled ).toHaveLength( 0 );
+	} );
+
+	it( 'stamps LOCAL provenance on a minted command', () => {
+		const { shell } = makeShell();
+		const msg = shell.parse( 'dump_node x' );
+		expect( msg[ LOCAL ] ).toBe( true );
 	} );
 
 	it( 'clear → a local signal, not a filled message', () => {

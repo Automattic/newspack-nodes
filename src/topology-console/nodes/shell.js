@@ -17,6 +17,7 @@ import {
 	FROM,
 	TO,
 	VALUE,
+	LOCAL,
 	TM_COMMAND,
 	TM_PING,
 	TM_INFO,
@@ -135,6 +136,9 @@ export class Shell extends Node {
 
 		const msg = newMessage();
 		msg[ FROM ] = this.replyFrom( names.OUTPUT );
+		// LOCAL provenance taint — minted in this Shell. Stripped at the wire
+		// (pack()), so it authorizes only the in-browser CI; the server verifies HMAC.
+		msg[ LOCAL ] = true;
 
 		if ( 'ping' === verb ) {
 			msg[ TYPE ] = TM_PING;

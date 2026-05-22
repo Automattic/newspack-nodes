@@ -8,6 +8,7 @@ import {
 	ID,
 	KEY,
 	VALUE,
+	LOCAL,
 	TM_COMMAND,
 	TM_RESPONSE,
 	TM_ERROR,
@@ -72,6 +73,7 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 		arguments: 'hi',
 		payload: '',
 	};
+	m[ LOCAL ] = true; // in-process command — carries the provenance taint
 	ci.fill( m );
 
 	expect( got ).toHaveLength( 1 );
@@ -110,12 +112,95 @@ test( 'verb throwing returns TM_COMMAND|TM_ERROR with the message', () => {
 		arguments: '',
 		payload: '',
 	};
+	m[ LOCAL ] = true;
 	ci.fill( m );
 
 	expect( got ).toHaveLength( 1 );
 	// eslint-disable-next-line no-bitwise
 	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
 	expect( got[ 0 ][ VALUE ].payload ).toBe( 'boom' );
+} );
+
+test( 'command without LOCAL provenance is refused (unauthorized), verb not run', () => {
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+
+	let ran = false;
+	const ci = new CommandInterpreter();
+	ci.setName( 'test_ci' );
+	ci.sink = sink;
+	ci.commands( {
+		echo: () => {
+			ran = true;
+			return 'ok';
+		},
+	} );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ FROM ] = 'caller';
+	m[ VALUE ] = { name: 'echo', arguments: '', payload: '' };
+	// No LOCAL — an injected/off-process command.
+	ci.fill( m );
+
+	expect( ran ).toBe( false );
+	expect( got ).toHaveLength( 1 );
+	// eslint-disable-next-line no-bitwise
+	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
+	expect( got[ 0 ][ VALUE ].payload ).toContain( 'unauthorized' );
+} );
+
+test( 'instance authorize override allows a command without LOCAL', () => {
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+
+	const ci = new CommandInterpreter();
+	ci.setName( 'test_ci' );
+	ci.sink = sink;
+	ci.authorize = () => true;
+	ci.commands( { echo: () => 'ok' } );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ VALUE ] = { name: 'echo', arguments: '', payload: '' };
+	ci.fill( m );
+
+	// eslint-disable-next-line no-bitwise
+	expect( got[ 0 ][ TYPE ] & TM_RESPONSE ).toBeTruthy();
+	expect( got[ 0 ][ VALUE ].payload ).toBe( 'ok' );
+} );
+
+test( 'static defaultAuthorize can refuse even with LOCAL set', () => {
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+
+	let ran = false;
+	const ci = new CommandInterpreter();
+	ci.setName( 'test_ci' );
+	ci.sink = sink;
+	ci.commands( {
+		echo: () => {
+			ran = true;
+			return 'ok';
+		},
+	} );
+
+	CommandInterpreter.defaultAuthorize = () => false;
+	try {
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ VALUE ] = { name: 'echo', arguments: '', payload: '' };
+		m[ LOCAL ] = true;
+		ci.fill( m );
+		expect( ran ).toBe( false );
+		// eslint-disable-next-line no-bitwise
+		expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
+	} finally {
+		CommandInterpreter.defaultAuthorize = null;
+	}
 } );
 
 test( 'malformed command struct (non-object VALUE) drops the message silently', () => {
