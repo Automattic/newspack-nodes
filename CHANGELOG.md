@@ -130,6 +130,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`cd` didn't echo in the console transcript.** `cd` parses to `null` (it only
+  moves the cwd), so the transcript echo — which sat after the null-return — was
+  skipped, unlike every other builtin. The echo now happens before the return
+  (blank lines stay silent), so `cd <path>` shows in the transcript like `ls`.
 - **Path menu listed inactive topologies.** The console's Path menu now lists
   worker entries only for ACTIVE topologies (inactive ones have no live workers
   to reach); an off-menu cwd is still surfaced separately. Matches the active
