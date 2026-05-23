@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Command history in the console REPL.** Up/Down arrows recall submitted
   commands (clamp at the oldest; Down past the newest restores the in-progress
   draft); empty lines and immediate duplicates are skipped — standard shell behavior.
+- **Completion-query mode in the CommandInterpreters.** `help`/`ls` with
+  `KEY='completion'` return a bare candidate list (sorted verb names / node names,
+  no help text or columns) instead of the elaborate output — the foundation for
+  REPL tab-completion. Implemented in both the JS and PHP CIs (identical
+  candidates), mirroring Tachikoma's TM_COMPLETION via a KEY flag.
 
 ### Changed
 

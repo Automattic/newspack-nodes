@@ -635,6 +635,87 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( 'no such topic', $out );
 	}
 
+	/** Build an envelope carrying KEY=completion (the tab-completion flag). */
+	private function completion_envelope(): array {
+		$m                 = Message::new_message();
+		$m[ Message::KEY ] = 'completion';
+		return $m;
+	}
+
+	public function test_help_completion_returns_bare_sorted_verb_names(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$out   = $ci->dispatch( 'help', '', null, $this->completion_envelope() );
+		$lines = \explode( "\n", $out );
+
+		$this->assertContains( 'list_nodes', $lines );
+		$this->assertContains( 'make_node', $lines );
+		$this->assertContains( 'help', $lines );
+		// No section headers, no per-topic help text.
+		$this->assertStringNotContainsString( '###', $out );
+		$this->assertStringNotContainsString( 'SERVER COMMANDS', $out );
+		$this->assertStringNotContainsString( 'TM_PING', $out );
+		// Sorted, newline-separated.
+		$sorted = $lines;
+		\sort( $sorted );
+		$this->assertSame( $sorted, $lines );
+	}
+
+	public function test_help_without_completion_key_is_unchanged(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$out = $ci->dispatch( 'help' );
+		$this->assertStringContainsString( '### SERVER COMMANDS ###', $out );
+		$this->assertStringContainsString( '### SHELL BUILTINS ###', $out );
+	}
+
+	public function test_ls_completion_returns_bare_node_names_no_columns(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->dispatch( 'make_node', 'CaptureSink alice' );
+		$ci->dispatch( 'make_node', 'CaptureSink bob' );
+
+		// -c column flag must be ignored under completion.
+		$out   = $ci->dispatch( 'ls', '-c', null, $this->completion_envelope() );
+		$lines = \explode( "\n", $out );
+		\sort( $lines );
+
+		$this->assertSame( [ 'alice', 'bob' ], $lines );
+		$this->assertStringNotContainsString( 'COUNT', $out );
+		$this->assertStringNotContainsString( 'NAME', $out );
+	}
+
+	public function test_ls_completion_dash_a_returns_all_bare_names(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->dispatch( 'make_node', 'CaptureSink alice' );
+
+		$out   = $ci->dispatch( 'ls', '-a', null, $this->completion_envelope() );
+		$lines = \explode( "\n", $out );
+
+		$this->assertContains( 'alice', $lines );
+		$this->assertContains( '_command_interpreter', $lines );
+		$this->assertStringNotContainsString( 'NAME', $out );
+	}
+
+	public function test_ls_without_completion_key_is_unchanged(): void {
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+
+		$ci->dispatch( 'make_node', 'CaptureSink alice' );
+
+		$out = $ci->dispatch( 'ls', '-c' );
+		$this->assertStringContainsString( 'COUNT', $out );
+		$this->assertStringContainsString( 'NAME', $out );
+	}
+
 	public function test_dump_node_shows_internal_state(): void {
 		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
 		$ci = new CommandInterpreter();
