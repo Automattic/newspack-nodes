@@ -28,8 +28,14 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static ?array $H = null;
 
-	/** @var array<string,class-string> Class registry: shell-name → FQCN. */
-	private static array $class_map = [];
+	/**
+	 * Registered class namespace prefixes. `make_node('Tee')` resolves the
+	 * first `{$prefix}Tee_Node` that exists and is a Node subclass. The catalog
+	 * (Classes_CI) scans the composer classmap for FQCNs under these prefixes.
+	 *
+	 * @var array<string,bool> Prefix → true (set semantics).
+	 */
+	protected static array $namespaces = [];
 
 	/**
 	 * Per-instance verb table; defaults to self::$C, siblings install their own via commands().
@@ -143,38 +149,37 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Register a Node subclass under its shell name for make_node.
+	 * Register a class-namespace prefix for `make_node` resolution. Plugins
+	 * call this once at boot (e.g. `register_namespace( 'Newspack_Nodes\\' )`);
+	 * `make_node('Tee')` then resolves `Newspack_Nodes\Tee_Node`.
 	 */
-	public static function register_class( string $shell_name, string $fqcn ): void {
-		self::$class_map[ $shell_name ] = $fqcn;
+	public static function register_namespace( string $prefix ): void {
+		self::$namespaces[ $prefix ] = true;
 	}
 
 	/**
-	 * Read-only view of the shell-name → FQCN registration map.
+	 * Read-only view of the registered namespace prefixes.
 	 *
-	 * @return array<string,class-string>
+	 * @return array<int,string>
 	 */
-	public static function class_map(): array {
-		return self::$class_map;
+	public static function registered_namespaces(): array {
+		return \array_keys( self::$namespaces );
 	}
 
 	/**
-	 * Registered shell name for a node instance (inverse of `$class_map`).
+	 * Registered shell name for a node instance.
 	 *
-	 * `make_node`/topology lines use the registered shell name (e.g. `Log`,
-	 * `Tee`), which can differ from the PHP class short name (e.g. `Log_Node`,
-	 * `Tee_Node`). Callers that need a round-trippable shell name MUST use this
-	 * rather than `ReflectionClass::getShortName()`, which returns the class
-	 * identifier. Falls back to the class short name for unregistered classes
-	 * (e.g. ad-hoc test sinks).
+	 * `make_node`/topology lines use the shell name (e.g. `Log`, `Tee`), which
+	 * is the class short name minus the `_Node` suffix (`Tee_Node` → `Tee`,
+	 * `Flame_Builder_Node` → `Flame_Builder`). A short name without `_Node`
+	 * (ad-hoc test classes) is returned unchanged.
 	 */
 	public static function shell_name_for( object $node ): string {
-		$fqcn  = \get_class( $node );
-		$shell = \array_search( $fqcn, self::$class_map, true );
-		if ( false !== $shell ) {
-			return $shell;
+		$short = ( new \ReflectionClass( $node ) )->getShortName();
+		if ( \str_ends_with( $short, '_Node' ) ) {
+			return \substr( $short, 0, -\strlen( '_Node' ) );
 		}
-		return ( new \ReflectionClass( $node ) )->getShortName();
+		return $short;
 	}
 
 	/**
@@ -343,24 +348,36 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * Construct a registered Node subclass, name it, sink it to this CI, and return it.
 	 *
-	 * @param string $type      Shell name registered in `$class_map`.
+	 * @param string $type      Shell name (resolved as `{$prefix}{$type}_Node`).
 	 * @param string $name      Unique name for the new node (registered with Core).
 	 * @param mixed  ...$ctor_args Positional constructor arguments.
-	 * @return Node|null Null when the shell-name isn't registered.
+	 * @return Node|null Null when no registered namespace yields a matching Node.
 	 */
 	public function make_node( string $type, string $name, ...$ctor_args ): ?Node {
-		$fqcn = self::$class_map[ $type ] ?? null;
-		if ( null === $fqcn || ! \class_exists( $fqcn ) ) {
-			return null;
+		foreach ( self::registered_namespaces() as $prefix ) {
+			$fqcn = $prefix . $type . '_Node';
+			if ( ! \class_exists( $fqcn ) || ! \is_subclass_of( $fqcn, Node::class ) ) {
+				continue;
+			}
+			// Reflection instantiation (vs `new $fqcn`) keeps the variadic ctor-arg
+			// spread working for any Node subclass without PHPStan narrowing the
+			// FQCN to the abstract base Node (which has no constructor).
+			$ref = new \ReflectionClass( $fqcn );
+			// Abstract Node subclasses (e.g. Service_CI_Node) resolve under a prefix
+			// but can't be instantiated — return null gracefully rather than fatal.
+			if ( $ref->isAbstract() ) {
+				continue;
+			}
+			$node = $ref->newInstanceArgs( $ctor_args );
+			$node->name( $name );
+			$node->sink( $this );
+			// Inherit debug_state so new nodes trace from birth.
+			if ( $this->debug_state() > 0 ) {
+				$node->debug_state( $this->debug_state() );
+			}
+			return $node;
 		}
-		$node = new $fqcn( ...$ctor_args );
-		$node->name( $name );
-		$node->sink( $this );
-		// Inherit debug_state so new nodes trace from birth.
-		if ( $this->debug_state() > 0 ) {
-			$node->debug_state( $this->debug_state() );
-		}
-		return $node;
+		return null;
 	}
 
 	/**

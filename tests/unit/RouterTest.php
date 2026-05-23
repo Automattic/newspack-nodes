@@ -4,7 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Router_Node;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -14,7 +14,7 @@ class RouterTest extends TestCase {
 		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$dst = new CaptureSink();
+		$dst = new Capture_Sink_Node();
 		$dst->name( 'alice' );
 
 		$msg                = Message::new_message();
@@ -30,7 +30,7 @@ class RouterTest extends TestCase {
 		// No empty-TO->sink shortcut: empty TO -> NOT_AVAILABLE; with FROM set the error walks back to that node.
 		$router = new Router_Node();
 		$router->name( '_router' );
-		$producer = new CaptureSink();
+		$producer = new Capture_Sink_Node();
 		$producer->name( 'producer' );
 
 		$msg                  = Message::new_message(); // TO=''
@@ -46,7 +46,7 @@ class RouterTest extends TestCase {
 	public function test_unknown_target_sends_NOT_AVAILABLE_error(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
-		$producer = new CaptureSink();
+		$producer = new Capture_Sink_Node();
 		$producer->name( 'producer' );
 
 		$msg                  = Message::new_message();
@@ -73,7 +73,7 @@ class RouterTest extends TestCase {
 		// has no sink.)
 		$router = new Router_Node();
 		$router->name( '_router' );
-		$origin = new CaptureSink();
+		$origin = new Capture_Sink_Node();
 		$origin->name( 'someone' );
 
 		$msg                  = Message::new_message();
@@ -97,6 +97,6 @@ class RouterTest extends TestCase {
 		$router = new Router_Node();
 		$router->name( '_router' );
 		$this->expectException( \InvalidArgumentException::class );
-		$router->sink( new CaptureSink() );
+		$router->sink( new Capture_Sink_Node() );
 	}
 }

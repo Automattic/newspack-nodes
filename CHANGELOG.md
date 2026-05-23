@@ -81,6 +81,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`make_node` resolves classes by namespace prefix + `_Node`; `register_class`
+  removed.** Plugins now call `Command_Interpreter_Node::register_namespace()`
+  (one call per namespace) instead of ~36 per-class `register_class()` calls.
+  `make_node( $type )` resolves the first `{$prefix}{$type}_Node` that exists and
+  is a concrete `Node` subclass; the shell-name is the class short-name minus
+  `_Node`. The palette catalog (`Classes_CI list`) is now built by scanning the
+  composer classmap for `*_Node` Node subclasses under the registered prefixes
+  (skipping abstract / Hidden / no-category). `register_class()` / `class_map()`
+  are deleted.
 - **Internal: node/helper class names normalized (newspack-nodes).** Every class
   is now `Word_Word` with ALL-CAPS acronyms; Node subclasses carry a `_Node`
   suffix (`CommandInterpreter` → `Command_Interpreter_Node`, `Tee` → `Tee_Node`,

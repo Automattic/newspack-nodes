@@ -300,7 +300,7 @@ class CliCommandTest extends TestCase {
 		// so the loop driver knows nothing was emitted.
 		$cmd   = new CLI_Command();
 		$shell = new \Newspack_Nodes\Shell_Node();
-		$sink  = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink  = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 
 		$this->assertFalse( $cmd->dispatch_line( $shell, '' ) );
@@ -314,7 +314,7 @@ class CliCommandTest extends TestCase {
 		// it and forwards through the Shell. Sink sees one TM_COMMAND.
 		$cmd   = new CLI_Command();
 		$shell = new \Newspack_Nodes\Shell_Node();
-		$sink  = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink  = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 
 		$result = $cmd->dispatch_line( $shell, "ls -al\n" );
@@ -328,7 +328,7 @@ class CliCommandTest extends TestCase {
 		// Windows-style line endings get stripped just like LF.
 		$cmd   = new CLI_Command();
 		$shell = new \Newspack_Nodes\Shell_Node();
-		$sink  = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink  = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 
 		$cmd->dispatch_line( $shell, "ls\r\n" );
@@ -346,7 +346,7 @@ class CliCommandTest extends TestCase {
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
-		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 
 		$stream = \fopen( 'php://memory', 'r+' );
@@ -414,7 +414,7 @@ class CliCommandTest extends TestCase {
 		$shell->prompt = 'should-not-appear> ';
 		$out_stream = \fopen( 'php://memory', 'w+' );
 		$dumper     = new \Newspack_Nodes\Dumper_Node( $out_stream );
-		$sink       = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink       = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 
 		$stream = \fopen( 'php://memory', 'r+' );
@@ -448,7 +448,7 @@ class CliCommandTest extends TestCase {
 		// rendered.
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
-		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' ); // empty -> immediate EOF
@@ -478,7 +478,7 @@ class CliCommandTest extends TestCase {
 		// terminates.
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
-		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
+		$shell->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
@@ -506,7 +506,7 @@ class CliCommandTest extends TestCase {
 		// deadline (configurable per session).
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
-		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
+		$shell->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
@@ -635,7 +635,7 @@ class CliCommandTest extends TestCase {
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
-		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 		$stream = \fopen( 'php://memory', 'r+' );
 		\fwrite( $stream, "ls\n" );
@@ -722,7 +722,7 @@ class CliCommandTest extends TestCase {
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
-		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 		$stream = \fopen( 'php://memory', 'r+' );
 
@@ -824,7 +824,7 @@ class CliCommandTest extends TestCase {
 		// echo, light enough to leave CPU for other timers in the meantime.
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
-		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
+		$shell->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
@@ -859,7 +859,7 @@ class CliCommandTest extends TestCase {
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
-		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 
 		$stream = \fopen( 'php://memory', 'r+' );
@@ -891,7 +891,7 @@ class CliCommandTest extends TestCase {
 		// iteration after exit conditions met.
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
-		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
+		$shell->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
@@ -935,7 +935,7 @@ class CliCommandTest extends TestCase {
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
-		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 		$stream = \fopen( 'php://memory', 'r+' );
 
@@ -1151,7 +1151,7 @@ class CliCommandTest extends TestCase {
 		// (so they ride the same Command_Signer/CI path as any other command).
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
-		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
@@ -1197,7 +1197,7 @@ class CliCommandTest extends TestCase {
 		// sending the initial help+ls queries through the Shell.
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
-		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
@@ -1276,7 +1276,7 @@ class CliCommandTest extends TestCase {
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
-		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 		$stream = \fopen( 'php://memory', 'r+' );
 

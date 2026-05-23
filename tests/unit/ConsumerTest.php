@@ -6,7 +6,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\PreserveGlobalState;
@@ -39,7 +39,7 @@ class ConsumerTest extends TestCase {
 		$source->flush();
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$c->sink( new CaptureSink() );
+		$c->sink( new Capture_Sink_Node() );
 		$c->poll();
 
 		$packed_size = \strlen( Message::packed( $msg_a ) ) + 1; // trailing \n
@@ -52,7 +52,7 @@ class ConsumerTest extends TestCase {
 		$this->produce_line( $source, 'second' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$capture = new CaptureSink();
+		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
 
 		$c->poll();
@@ -83,7 +83,7 @@ class ConsumerTest extends TestCase {
 		$this->produce_line( $source, 'first' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$capture = new CaptureSink();
+		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
 
 		$c->poll();
@@ -155,7 +155,7 @@ class ConsumerTest extends TestCase {
 		$this->produce_line( $source, 'first' );
 
 		$c1 = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap1 = new CaptureSink();
+		$cap1 = new Capture_Sink_Node();
 		$c1->sink( $cap1 );
 		$c1->poll();
 		$c1->checkpoint();
@@ -164,7 +164,7 @@ class ConsumerTest extends TestCase {
 		$this->produce_line( $source, 'second' );
 
 		$c2 = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap2 = new CaptureSink();
+		$cap2 = new Capture_Sink_Node();
 		$c2->sink( $cap2 );
 		$c2->poll();
 
@@ -192,7 +192,7 @@ class ConsumerTest extends TestCase {
 		file_put_contents( "{$this->tmp}/data/p0/0.log", $half1 );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		$c->poll();
@@ -221,7 +221,7 @@ class ConsumerTest extends TestCase {
 		file_put_contents( "{$this->tmp}/data/p0/0.log", '' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		for ( $i = 0; $i < strlen( $packed ); $i++ ) {
@@ -272,7 +272,7 @@ class ConsumerTest extends TestCase {
 		unset( $chunk );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		// Drive the consumer through several polls. Each poll appends up to MAX_POLL_BYTES (10MB)
@@ -409,7 +409,7 @@ class ConsumerTest extends TestCase {
 		$this->produce_line( $source, 'old2' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		$c->next_offset( 'end' ); // Skip past existing data.
@@ -427,7 +427,7 @@ class ConsumerTest extends TestCase {
 		$this->produce_line( $source, 'alpha' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		$c->next_offset( 'end' );
@@ -467,7 +467,7 @@ class ConsumerTest extends TestCase {
 		$this->produce_line( $source, 'hello' );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, '' );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 		$c->poll();
 
@@ -663,7 +663,7 @@ class ConsumerTest extends TestCase {
 		$this->assertNotEmpty( $segments );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		$ref = new \ReflectionClass( $c );
@@ -698,7 +698,7 @@ class ConsumerTest extends TestCase {
 		$this->assertGreaterThanOrEqual( 2, count( $segments ), 'need multiple segments' );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 		$c->poll();
 
@@ -727,7 +727,7 @@ class ConsumerTest extends TestCase {
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$c->name( 'my-consumer' );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		$c->poll();
@@ -745,7 +745,7 @@ class ConsumerTest extends TestCase {
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$c->name( 'real-name' );
 		$c->set_stamp_as( '_repl' );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		$c->poll();
@@ -764,7 +764,7 @@ class ConsumerTest extends TestCase {
 		$this->produce_line( $source, 'second' );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 		$c->poll();
 
@@ -792,7 +792,7 @@ class ConsumerTest extends TestCase {
 		$source->flush();
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 		$c->poll();
 
@@ -947,7 +947,7 @@ class ConsumerTest extends TestCase {
 		$this->produce_line( $source, 'fired' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		// Invoke protected fire() via reflection.
@@ -1050,7 +1050,7 @@ class ConsumerTest extends TestCase {
 		$this->produce_line( $source, 'a' );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		Core::$now = \microtime(true);
@@ -1203,7 +1203,7 @@ class ConsumerTest extends TestCase {
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$c->name( 'my-consumer' );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		$req                       = Message::new_message();
@@ -1237,7 +1237,7 @@ class ConsumerTest extends TestCase {
 		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 		$c->poll();
 		$c->checkpoint();
@@ -1268,7 +1268,7 @@ class ConsumerTest extends TestCase {
 		// Spec: GET_LAG reply payload for an empty source partition has
 		// bytes_behind=0, segments_behind=0, caught_up=true.
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		$req                   = Message::new_message();
@@ -1291,7 +1291,7 @@ class ConsumerTest extends TestCase {
 		$this->produce_line( $source, 'pending' );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 		// Don't poll — leave the bytes behind so the lag computation has work.
 
@@ -1319,7 +1319,7 @@ class ConsumerTest extends TestCase {
 		$this->assertGreaterThanOrEqual( 2, \count( $segments ), 'need multi-segment for this test' );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		// Park cursor at oldest segment, offset 0 — every newer segment is
@@ -1359,7 +1359,7 @@ class ConsumerTest extends TestCase {
 		$rem->setAccessible( true );
 		$rem->setValue( $c, 'xyz' ); // 3 bytes
 
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		$req                   = Message::new_message();
@@ -1378,7 +1378,7 @@ class ConsumerTest extends TestCase {
 	public function test_handle_request_unknown_verb_returns_error_payload(): void {
 		// Spec: unknown verbs reply with `[ 'error' => "unknown request verb: $VERB" ]`.
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		$req                   = Message::new_message();
@@ -1398,7 +1398,7 @@ class ConsumerTest extends TestCase {
 		// Spec: verb extraction is strtoupper(explode(' ', trim($value), 2)[0]).
 		// "get_offset extra args" → GET_OFFSET.
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		$req                   = Message::new_message();
@@ -1424,7 +1424,7 @@ class ConsumerTest extends TestCase {
 		$c->name( 'real-name' );
 		$c->set_stamp_as( '_repl' );
 
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		$req                   = Message::new_message();
@@ -1445,9 +1445,9 @@ class ConsumerTest extends TestCase {
 		// expands the Tee's targets so the dashboard sees the actual
 		// downstream processors (RequestBuilder, JobRouter, ...), not the
 		// plumbing Tee in between.
-		$processor_a = new CaptureSink();
+		$processor_a = new Capture_Sink_Node();
 		$processor_a->name( 'processor-a' );
-		$processor_b = new CaptureSink();
+		$processor_b = new Capture_Sink_Node();
 		$processor_b->name( 'processor-b' );
 
 		$tee = new \Newspack_Nodes\Tee_Node();
@@ -1473,9 +1473,9 @@ class ConsumerTest extends TestCase {
 		$names = \array_column( $entry['targets'], 'name' );
 		$this->assertContains( 'processor-a', $names );
 		$this->assertContains( 'processor-b', $names );
-		// Class column is the ShortName of the registered node (CaptureSink here).
+		// Class column is the shell-name of the node (Capture_Sink here).
 		foreach ( $entry['targets'] as $t ) {
-			$this->assertSame( 'CaptureSink', $t['class'] );
+			$this->assertSame( 'Capture_Sink', $t['class'] );
 		}
 	}
 
@@ -1516,7 +1516,7 @@ class ConsumerTest extends TestCase {
 		$ref->setAccessible( true );
 		$ref->setValue( $tee, [ '', 'real' ] );
 
-		$real = new CaptureSink();
+		$real = new Capture_Sink_Node();
 		$real->name( 'real' );
 
 		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
@@ -1582,7 +1582,7 @@ class ConsumerTest extends TestCase {
 	public function test_resolve_downstream_targets_handles_non_Tee_target_class(): void {
 		// Target resolves to a non-Tee node — single-row `{name, class}` with
 		// the actual node's ShortName.
-		$processor = new CaptureSink();
+		$processor = new Capture_Sink_Node();
 		$processor->name( 'just-a-processor' );
 
 		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
@@ -1601,7 +1601,7 @@ class ConsumerTest extends TestCase {
 
 		$this->assertCount( 1, $entry['targets'] );
 		$this->assertSame( 'just-a-processor', $entry['targets'][0]['name'] );
-		$this->assertSame( 'CaptureSink', $entry['targets'][0]['class'] );
+		$this->assertSame( 'Capture_Sink', $entry['targets'][0]['class'] );
 	}
 
 	// ============================================================================
@@ -1618,7 +1618,7 @@ class ConsumerTest extends TestCase {
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 		$c->name( 'real' );
 		$c->set_stamp_as( 'override-stamp' );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 		$c->poll();
 
@@ -1891,7 +1891,7 @@ class ConsumerTest extends TestCase {
 		// segment-deleted recovery branch since `empty($segments)` is the
 		// first early-exit.
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		// Force at_eof to false so we can verify poll() flips it back.
@@ -1918,7 +1918,7 @@ class ConsumerTest extends TestCase {
 		$this->assertGreaterThanOrEqual( 2, \count( $segments ) );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$cap = new CaptureSink();
+		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
 		// Park cursor at NEWEST segment, off=size so nothing to read.
@@ -1957,7 +1957,7 @@ class ConsumerTest extends TestCase {
 		\file_put_contents( "{$seg_dir}/0.log", "[1,2,3]\n" . Message::packed( $good ) . "\n" );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
-		$capture = new CaptureSink();
+		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
 
 		$c->poll();

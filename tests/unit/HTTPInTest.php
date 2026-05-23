@@ -435,7 +435,7 @@ class HTTPInTest extends TestCase {
 
 		$consumer = new Consumer_Node( $input_dir, 0, '' );
 		$consumer->next_offset( 'start' );
-		$consumer->sink( $got = new \Newspack_Nodes\Tests\CaptureSink() );
+		$consumer->sink( $got = new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$consumer->poll();
 		$this->assertCount( 1, $got->captured );
 		$this->assertSame( '_command_interpreter', $got->captured[0][ Message::TO ] );

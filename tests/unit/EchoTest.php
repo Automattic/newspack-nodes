@@ -3,7 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Echo_Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -16,7 +16,7 @@ class EchoTest extends TestCase {
 		// downstream paths.
 		$echo = new Echo_Node();
 		$echo->target( 'downstream' );
-		$sink = new CaptureSink();
+		$sink = new Capture_Sink_Node();
 		$echo->sink( $sink );
 
 		$msg                  = Message::new_message();
@@ -33,7 +33,7 @@ class EchoTest extends TestCase {
 		// Both empty → return-to-sender (Echo.pm:31). Useful for ping/echo
 		// styled Nodes that want their input bounced back along the trail.
 		$echo = new Echo_Node();
-		$sink = new CaptureSink();
+		$sink = new Capture_Sink_Node();
 		$echo->sink( $sink );
 
 		$msg                   = Message::new_message();
@@ -51,7 +51,7 @@ class EchoTest extends TestCase {
 		// No target set, but TO is non-empty → forward as-is. Lets Echo sit
 		// inline as a no-op when target isn't configured.
 		$echo = new Echo_Node();
-		$sink = new CaptureSink();
+		$sink = new Capture_Sink_Node();
 		$echo->sink( $sink );
 
 		$msg                   = Message::new_message();
@@ -71,7 +71,7 @@ class EchoTest extends TestCase {
 		// routes to the target rather than back to FROM.
 		$echo = new Echo_Node();
 		$echo->target( 'somewhere' );
-		$sink = new CaptureSink();
+		$sink = new Capture_Sink_Node();
 		$echo->sink( $sink );
 
 		$msg                   = Message::new_message();
@@ -90,7 +90,7 @@ class EchoTest extends TestCase {
 		// Echo.pm:28 — error with no TO would bounce to a producer that
 		// isn't expecting the error trail. Drop instead.
 		$echo = new Echo_Node();
-		$sink = new CaptureSink();
+		$sink = new Capture_Sink_Node();
 		$echo->sink( $sink );
 
 		$msg                   = Message::new_message();
@@ -107,7 +107,7 @@ class EchoTest extends TestCase {
 		// Error WITH a TO is still routed (e.g. an explicit error response
 		// addressed at a known handler).
 		$echo = new Echo_Node();
-		$sink = new CaptureSink();
+		$sink = new Capture_Sink_Node();
 		$echo->sink( $sink );
 
 		$msg                   = Message::new_message();

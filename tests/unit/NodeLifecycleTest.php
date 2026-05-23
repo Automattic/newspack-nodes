@@ -37,7 +37,7 @@ use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Shell_Node;
 use Newspack_Nodes\Tail_Node;
 use Newspack_Nodes\Tee_Node;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Timer_Node;
 use Newspack_Nodes\Topic_Node;
@@ -119,7 +119,7 @@ class NodeLifecycleTest extends TestCase {
 			$this->assertTrue( true, 'source/sink-only node — TM_ERROR contract not applicable' );
 			return;
 		}
-		$capture = new CaptureSink();
+		$capture = new Capture_Sink_Node();
 		$capture->name( 'lifecycle_capture' );
 
 		$msg                       = Message::new_message();
@@ -165,7 +165,7 @@ class NodeLifecycleTest extends TestCase {
 			$this->assertTrue( true, 'source/sink-only node — TM_EOF contract not applicable' );
 			return;
 		}
-		$capture = new CaptureSink();
+		$capture = new Capture_Sink_Node();
 		$capture->name( 'lifecycle_capture' );
 
 		$msg                       = Message::new_message();

@@ -6,7 +6,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Router_Node;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Timer_Node;
 
@@ -25,7 +25,7 @@ class EventLoopRoundTripTest extends TestCase {
 
 		$timer = new Timer_Node();
 		$timer->name( 'tick' );
-		$capture = new CaptureSink();
+		$capture = new Capture_Sink_Node();
 		$timer->sink( $capture );
 		$timer->set_timer( 30 );
 
@@ -45,7 +45,7 @@ class EventLoopRoundTripTest extends TestCase {
 
 		$piggy   = new Timer_Node();
 		$piggy->name( 'piggy' );
-		$capture = new CaptureSink();
+		$capture = new Capture_Sink_Node();
 		$piggy->sink( $capture );
 		$piggy->set_timer();
 

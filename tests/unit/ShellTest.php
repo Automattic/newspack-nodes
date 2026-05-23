@@ -5,7 +5,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Dumper_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Shell_Node;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -108,11 +108,11 @@ class ShellTest extends TestCase {
 
 	public function test_parse_default_verb_with_args(): void {
 		$shell = new Shell_Node();
-		$msg   = $shell->parse( 'make_node CaptureSink alice');
+		$msg   = $shell->parse( 'make_node Capture_Sink alice');
 
 		$cmd = $msg[ Message::VALUE ];
 		$this->assertSame( 'make_node', $cmd['name'] );
-		$this->assertSame( 'CaptureSink alice', $cmd['arguments'] );
+		$this->assertSame( 'Capture_Sink alice', $cmd['arguments'] );
 	}
 
 	public function test_parse_status_writes_status_lines_to_output_stream_returns_null(): void {
@@ -197,7 +197,7 @@ class ShellTest extends TestCase {
 		// Now a real command should emit parse> diagnostics before the message.
 		\ftruncate( $out_stream, 0 );
 		\rewind( $out_stream );
-		$captured = new CaptureSink();
+		$captured = new Capture_Sink_Node();
 		$shell->sink( $captured );
 		$msg = $shell->parse( 'tell some/path hello' );
 		$this->assertIsArray( $msg, 'should still build a Message' );
@@ -268,7 +268,7 @@ class ShellTest extends TestCase {
 
 	public function test_fill_forwards_to_sink(): void {
 		$shell = new Shell_Node();
-		$sink  = new CaptureSink();
+		$sink  = new Capture_Sink_Node();
 		$shell->sink( $sink );
 
 		$msg = $shell->parse( 'ls');
@@ -292,7 +292,7 @@ class ShellTest extends TestCase {
 
 		// include is processed inline; each parsed line goes through fill() → sink.
 		$shell = new Shell_Node();
-		$sink  = new CaptureSink();
+		$sink  = new Capture_Sink_Node();
 		$shell->sink( $sink );
 
 		$result = $shell->parse( "include $file" );
@@ -584,7 +584,7 @@ class ShellTest extends TestCase {
 			\file_put_contents( $script, "ls\ntell node hi\n" );
 
 			$shell = new Shell_Node();
-			$sink  = new CaptureSink();
+			$sink  = new Capture_Sink_Node();
 			$shell->sink( $sink );
 
 			$shell->parse( 'include ' . $script );
@@ -663,7 +663,7 @@ class ShellTest extends TestCase {
 	public function test_eval_script_dispatches_each_statement(): void {
 		\Newspack_Nodes\Core::reset();
 		$shell = new Shell_Node();
-		$sink  = new \Newspack_Nodes\Tests\CaptureSink();
+		$sink  = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$shell->sink( $sink );
 		$shell->eval_script( "var partition = 3; tell foo hello; tell bar <partition>" );
 		// `var` doesn't emit; the two `tell` statements do.

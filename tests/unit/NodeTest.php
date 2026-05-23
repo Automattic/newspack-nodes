@@ -4,21 +4,21 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 #[CoversClass( Node::class )]
 class NodeTest extends TestCase {
 	public function test_name_set_and_get(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'alice' );
 		$this->assertSame( 'alice', $n->name() );
 		$this->assertSame( $n, Core::node( 'alice' ) );
 	}
 
 	public function test_rename_updates_registry(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'alice' );
 		$n->name( 'bob' );
 		$this->assertNull( Core::node( 'alice' ) );
@@ -26,28 +26,28 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_rename_collision_throws(): void {
-		$n1 = new CaptureSink();
+		$n1 = new Capture_Sink_Node();
 		$n1->name( 'alice' );
-		$n2 = new CaptureSink();
+		$n2 = new Capture_Sink_Node();
 		$this->expectException( \RuntimeException::class );
 		$n2->name( 'alice' );
 	}
 
 	public function test_sink_set_and_get(): void {
-		$src = new CaptureSink();
-		$dst = new CaptureSink();
+		$src = new Capture_Sink_Node();
+		$dst = new Capture_Sink_Node();
 		$src->sink( $dst );
 		$this->assertSame( $dst, $src->sink() );
 	}
 
 	public function test_target_set_and_get(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->target( 'next-node' );
 		$this->assertSame( 'next-node', $n->target() );
 	}
 
 	public function test_fill_increments_counter_before_dispatch(): void {
-		$n   = new CaptureSink();
+		$n   = new Capture_Sink_Node();
 		$msg = Message::new_message();
 		$n->fill( $msg );
 		$this->assertSame( 1, $n->counter() );
@@ -55,7 +55,7 @@ class NodeTest extends TestCase {
 
 	public function test_default_fill_forwards_to_sink(): void {
 		$src = new class extends Node {}; // default fill() forwards
-		$dst = new CaptureSink();
+		$dst = new Capture_Sink_Node();
 		$src->sink( $dst );
 
 		$msg                       = Message::new_message();
@@ -67,7 +67,7 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_stamp_message_sets_from_when_empty(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'alice' );
 		$msg = Message::new_message();
 		$this->assertTrue( $n->stamp_message( $msg, 'alice' ) );
@@ -75,7 +75,7 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_stamp_message_prepends_to_existing_from(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'bob' );
 		$msg                     = Message::new_message();
 		$msg[ Message::FROM ]    = 'alice';
@@ -84,7 +84,7 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_stamp_message_drops_if_FROM_exceeds_MAX_FROM_SIZE(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'x' );
 		$msg                  = Message::new_message();
 		$msg[ Message::FROM ] = \str_repeat( 'a/', 600 ); // ~1200 chars
@@ -94,7 +94,7 @@ class NodeTest extends TestCase {
 	public function test_drop_message_format(): void {
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
-		$n   = new CaptureSink();
+		$n   = new Capture_Sink_Node();
 		$n->name( 'alice' );
 		$msg                     = Message::new_message();
 		$msg[ Message::TYPE ]    = Message::TM_INFO;
@@ -118,7 +118,7 @@ class NodeTest extends TestCase {
 		// "payload: Array").
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
-		$n   = new CaptureSink();
+		$n   = new Capture_Sink_Node();
 		$n->name( 'alice' );
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
@@ -131,7 +131,7 @@ class NodeTest extends TestCase {
 	public function test_drop_message_uses_bitwise_test_for_combined_flags(): void {
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
-		$n   = new CaptureSink();
+		$n   = new Capture_Sink_Node();
 		$n->name( 'alice' );
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_INFO | Message::TM_RESPONSE;
@@ -181,7 +181,7 @@ class NodeTest extends TestCase {
 			}
 		};
 		$n->name( 'p' );
-		$listener = new CaptureSink();
+		$listener = new Capture_Sink_Node();
 		$listener->name( 'l' );
 		$n->register( 'EVT', 'l' );
 		$n->notify( 'EVT', 'payload-x' );
@@ -196,7 +196,7 @@ class NodeTest extends TestCase {
 	public function test_debug_state_default_zero_no_trace_emitted(): void {
 		// Baseline: with debug_state=0, set_state does NOT emit any trace to
 		// _router (cli/SSE fan-out is silent until explicitly enabled).
-		$router = new CaptureSink();
+		$router = new Capture_Sink_Node();
 		$router->name( '_router' );
 
 		$n = new class extends Node {
@@ -215,7 +215,7 @@ class NodeTest extends TestCase {
 		// Level 1: set_state fires the normal notify AND additionally emits
 		// a TM_STRUCT trace addressed to _repl/sse so cli (with show_sse on)
 		// and the SSE controller both see the transition.
-		$router = new CaptureSink();
+		$router = new Capture_Sink_Node();
 		$router->name( '_router' );
 
 		$n = new class extends Node {
@@ -303,14 +303,14 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_connect_node_sets_owner(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'src' );
 		$n->connect_node( 'dst' );
 		$this->assertSame( 'dst', $n->target() );
 	}
 
 	public function test_disconnect_node_clears_owner(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'src' );
 		$n->connect_node( 'dst' );
 		$n->disconnect_node();
@@ -318,9 +318,9 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_remove_node_unregisters_and_clears_state(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'alice' );
-		$dst = new CaptureSink();
+		$dst = new Capture_Sink_Node();
 		$n->sink( $dst );
 		$n->connect_node( 'someone' );
 
@@ -333,16 +333,16 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_dump_config_emits_make_node(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'alice' );
 		$out = $n->dump_config();
-		$this->assertStringContainsString( "make_node CaptureSink alice", $out );
+		$this->assertStringContainsString( "make_node Capture_Sink alice", $out );
 	}
 
 	public function test_dump_config_suppresses_set_sink_for_default_command_interpreter_sink(): void {
-		$ci = new CaptureSink();
+		$ci = new Capture_Sink_Node();
 		$ci->name( '_command_interpreter' );
-		$n  = new CaptureSink();
+		$n  = new Capture_Sink_Node();
 		$n->name( 'alice' );
 		$n->sink( $ci );
 
@@ -351,9 +351,9 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_dump_config_emits_set_sink_when_sink_overridden(): void {
-		$other = new CaptureSink();
+		$other = new Capture_Sink_Node();
 		$other->name( 'other' );
-		$n     = new CaptureSink();
+		$n     = new Capture_Sink_Node();
 		$n->name( 'alice' );
 		$n->sink( $other );
 
@@ -362,7 +362,7 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_dump_config_emits_connect_node(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'alice' );
 		$n->connect_node( 'bob' );
 		$out = $n->dump_config();
@@ -372,7 +372,7 @@ class NodeTest extends TestCase {
 	// ── A1: sibling-CI plumbing ──────────────────────────────
 
 	public function test_attach_interpreter_keeps_sibling_synced_with_patron_name(): void {
-		$patron = new CaptureSink();
+		$patron = new Capture_Sink_Node();
 		$sibling = new \Newspack_Nodes\Command_Interpreter_Node();
 		$sibling->patron( $patron );
 		$patron->attach_interpreter( $sibling );
@@ -385,14 +385,14 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_node_without_interpreter_name_unaffected(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'bob' );
 		$this->assertSame( 'bob', $n->name() );
 		$this->assertNull( $n->interpreter() );
 	}
 
 	public function test_attach_interpreter_named_after_already_named_patron(): void {
-		$patron = new CaptureSink();
+		$patron = new Capture_Sink_Node();
 		$patron->name( 'preset' );
 		$sibling = new \Newspack_Nodes\Command_Interpreter_Node();
 		$sibling->patron( $patron );
@@ -416,7 +416,7 @@ class NodeTest extends TestCase {
 	// ── A1: invoked_verbs round-trip via dump_config ─────────
 
 	public function test_dump_config_emits_cmd_lines_for_invoked_verbs(): void {
-		$patron = new CaptureSink();
+		$patron = new Capture_Sink_Node();
 		$patron->name( 'alice' );
 
 		// Sibling pretends to exist (don't actually attach one — the
@@ -432,7 +432,7 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_dump_config_without_invoked_verbs_emits_no_cmd_lines(): void {
-		$patron = new CaptureSink();
+		$patron = new Capture_Sink_Node();
 		$patron->name( 'bob' );
 
 		$out = $patron->dump_config();
@@ -440,7 +440,7 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_remove_node_cascades_sibling_unregistration(): void {
-		$patron = new CaptureSink();
+		$patron = new Capture_Sink_Node();
 		$sibling = new \Newspack_Nodes\Command_Interpreter_Node();
 		$sibling->patron( $patron );
 		$patron->attach_interpreter( $sibling );
@@ -461,7 +461,7 @@ class NodeTest extends TestCase {
 		// Logic nodes (Tee, Hook, app subclasses) leave bytes_read at 0;
 		// only I/O nodes (Partition, Consumer) populate it. Accessor must
 		// surface the protected slot value.
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$this->assertSame( 0, $n->bytes_read() );
 	}
 
@@ -469,7 +469,7 @@ class NodeTest extends TestCase {
 		// Inject a non-zero bytes_read via reflection (mimicking what a
 		// Partition / Consumer would do internally) and verify the public
 		// accessor reads back through.
-		$n   = new CaptureSink();
+		$n   = new Capture_Sink_Node();
 		$ref = new \ReflectionProperty( \Newspack_Nodes\Node::class, 'bytes_read' );
 		$ref->setAccessible( true );
 		$ref->setValue( $n, 12345 );
@@ -477,12 +477,12 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_bytes_written_defaults_to_zero(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$this->assertSame( 0, $n->bytes_written() );
 	}
 
 	public function test_bytes_written_reflects_protected_property(): void {
-		$n   = new CaptureSink();
+		$n   = new Capture_Sink_Node();
 		$ref = new \ReflectionProperty( \Newspack_Nodes\Node::class, 'bytes_written' );
 		$ref->setAccessible( true );
 		$ref->setValue( $n, 98765 );
@@ -493,7 +493,7 @@ class NodeTest extends TestCase {
 		// arguments() with no arg returns the stored value; with an arg sets
 		// and returns the new value. dump_config() reads this field to emit
 		// the `make_node Foo bar <args>` line.
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$this->assertSame( '', $n->arguments(), 'default is empty' );
 		$this->assertSame( '/path/to/foo 2', $n->arguments( '/path/to/foo 2' ) );
 		$this->assertSame( '/path/to/foo 2', $n->arguments(), 'value persists after set' );
@@ -502,18 +502,18 @@ class NodeTest extends TestCase {
 	public function test_dump_config_includes_stored_arguments(): void {
 		// dump_config emits `make_node Class name <arguments>` — verifying
 		// arguments() is round-trippable through the config snippet.
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'mynode' );
 		$n->arguments( '/var/log /partition 0' );
 
 		$out = $n->dump_config();
-		$this->assertStringContainsString( 'make_node CaptureSink mynode /var/log /partition 0', $out );
+		$this->assertStringContainsString( 'make_node Capture_Sink mynode /var/log /partition 0', $out );
 	}
 
 	// ── patron() getter/setter ───────────────────────────────────────────
 
 	public function test_patron_returns_null_by_default(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$this->assertNull( $n->patron(), 'patron defaults to null' );
 	}
 
@@ -522,8 +522,8 @@ class NodeTest extends TestCase {
 		// heartbeat helpers Partition creates inside a running event loop.
 		// dump_metadata filters any node with patron() !== null from the
 		// canvas feed.
-		$plumbing = new CaptureSink();
-		$primary  = new CaptureSink();
+		$plumbing = new Capture_Sink_Node();
+		$primary  = new Capture_Sink_Node();
 		$plumbing->patron( $primary );
 
 		$this->assertSame( $primary, $plumbing->patron() );
@@ -533,8 +533,8 @@ class NodeTest extends TestCase {
 		// Calling patron() with no arg (or explicit null) returns current
 		// value without overwriting. Same pattern as sink() and target()
 		// accessors.
-		$plumbing = new CaptureSink();
-		$primary  = new CaptureSink();
+		$plumbing = new Capture_Sink_Node();
+		$primary  = new Capture_Sink_Node();
 		$plumbing->patron( $primary );
 
 		// Re-call with null → must NOT clear the patron.
@@ -546,7 +546,7 @@ class NodeTest extends TestCase {
 
 	public function test_interpreter_returns_null_when_unattached(): void {
 		// Nodes without sibling-CI plumbing return null from interpreter().
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$this->assertNull( $n->interpreter() );
 	}
 
@@ -560,7 +560,7 @@ class NodeTest extends TestCase {
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
 
-		$n   = new CaptureSink();
+		$n   = new Capture_Sink_Node();
 		$msg = Message::new_message();
 		$msg[ Message::FROM ] = 'preexisting';
 
@@ -574,7 +574,7 @@ class NodeTest extends TestCase {
 	public function test_dump_node_includes_declared_properties(): void {
 		// dump_node() reflects every initialized property; default Node
 		// fields (name, target, counter, …) must appear in the snapshot.
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'snapshot-test' );
 		$n->target( 'somewhere' );
 
@@ -592,9 +592,9 @@ class NodeTest extends TestCase {
 	public function test_dump_node_includes_the_runtime_class_name(): void {
 		// The snapshot carries the node's own (runtime) class short name so
 		// cmd_dump_node can head the dump with it.
-		$snap = ( new CaptureSink() )->dump_node();
+		$snap = ( new Capture_Sink_Node() )->dump_node();
 		$this->assertArrayHasKey( 'class', $snap );
-		$this->assertSame( 'CaptureSink', $snap['class'] );
+		$this->assertSame( 'Capture_Sink_Node', $snap['class'] );
 	}
 
 	public function test_dump_node_collapses_sink_to_node_name_string(): void {
@@ -602,8 +602,8 @@ class NodeTest extends TestCase {
 		// name() string — the special-cased branch right before the generic
 		// object-to-class-name fallback. Without this, the sink would
 		// render as `(CaptureSink)` losing the relationship info.
-		$src = new CaptureSink();
-		$dst = new CaptureSink();
+		$src = new Capture_Sink_Node();
+		$dst = new Capture_Sink_Node();
 		$dst->name( 'sink-name' );
 		$src->sink( $dst );
 
@@ -664,7 +664,7 @@ class NodeTest extends TestCase {
 		Core::$now = 100.0;
 
 		try {
-			$n   = new CaptureSink();
+			$n   = new Capture_Sink_Node();
 			$n->name( 'boot' );
 			$msg                  = Message::new_message();
 			$msg[ Message::TYPE ] = Message::TM_INFO;
@@ -695,7 +695,7 @@ class NodeTest extends TestCase {
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
 
-		$n   = new CaptureSink();
+		$n   = new Capture_Sink_Node();
 		$n->name( 'q' );
 		$msg                  = Message::new_message();
 		$msg[ Message::TYPE ] = Message::TM_BYTESTREAM;
@@ -714,7 +714,7 @@ class NodeTest extends TestCase {
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
 
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'q' );
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -733,7 +733,7 @@ class NodeTest extends TestCase {
 	public function test_notify_on_unregistered_event_is_silent_noop(): void {
 		// notify() on an event with no listeners (and no pre-declared
 		// registration) must return without throwing. The `! isset` guard.
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		$n->name( 'p' );
 
 		// No expectation other than no exception.
@@ -752,7 +752,7 @@ class NodeTest extends TestCase {
 			}
 		};
 		$producer->name( 'producer' );
-		$listener = new CaptureSink();
+		$listener = new Capture_Sink_Node();
 		$listener->name( 'listener' );
 
 		$producer->register( 'EVT', 'listener' );
@@ -789,7 +789,7 @@ class NodeTest extends TestCase {
 	// ── target() getter when no arg ──────────────────────────────────────
 
 	public function test_target_getter_returns_current_value_when_called_without_arg(): void {
-		$n = new CaptureSink();
+		$n = new Capture_Sink_Node();
 		// Default value is '' (empty string).
 		$this->assertSame( '', $n->target() );
 		$n->target( 'somewhere' );

@@ -3,7 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\HTTP_Filter_Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -15,7 +15,7 @@ class HTTPFilterTest extends TestCase {
 		// matches the head segment against its pid, strips it, and forwards the
 		// remainder so the browser receives TO=`_output` (its Dumper).
 		$f = new HTTP_Filter_Node( 12345 );
-		$f->sink( $sink = new CaptureSink() );
+		$f->sink( $sink = new Capture_Sink_Node() );
 		$msg                   = Message::new_message();
 		$msg[ Message::TO ]    = '_sse:12345/_output';
 		$msg[ Message::VALUE ] = 'reply';
@@ -27,7 +27,7 @@ class HTTPFilterTest extends TestCase {
 
 	public function test_fill_strips_to_empty_when_pid_has_no_reply_node_suffix(): void {
 		$f = new HTTP_Filter_Node( 12345 );
-		$f->sink( $sink = new CaptureSink() );
+		$f->sink( $sink = new Capture_Sink_Node() );
 		$msg                = Message::new_message();
 		$msg[ Message::TO ] = '_sse:12345';  // Bare pid, no reply-node — strips to ''.
 		$f->fill( $msg );
@@ -37,7 +37,7 @@ class HTTPFilterTest extends TestCase {
 
 	public function test_fill_drops_when_to_is_for_a_different_session(): void {
 		$f = new HTTP_Filter_Node( 12345 );
-		$f->sink( $sink = new CaptureSink() );
+		$f->sink( $sink = new Capture_Sink_Node() );
 		$msg                = Message::new_message();
 		$msg[ Message::TO ] = '_sse:99999/_output';  // Some other browser tab's reply.
 		$f->fill( $msg );
@@ -46,7 +46,7 @@ class HTTPFilterTest extends TestCase {
 
 	public function test_counter_increments_even_when_message_is_dropped(): void {
 		$f = new HTTP_Filter_Node( 12345 );
-		$f->sink( $sink = new CaptureSink() );
+		$f->sink( $sink = new Capture_Sink_Node() );
 		$msg                = Message::new_message();
 		$msg[ Message::TO ] = '_sse:99999/_output';  // Different session.
 		$f->fill( $msg );
