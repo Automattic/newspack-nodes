@@ -83,10 +83,11 @@ export default function ReplFooter( {
 	// a reply is consumed.
 	const pendingToken = useRef( null );
 	const lastAppliedSeq = useRef( null );
-	// The token that produced an ambiguous (no-extension) completion on the
-	// previous Tab. readline lists candidates only on a SECOND consecutive Tab,
-	// so the first ambiguous press just arms this; typing/extension clears it.
-	const ambiguousToken = useRef( null );
+	// Count of consecutive Tab presses (reset by any other key / typing).
+	// readline lists ambiguous candidates only when the previous command was
+	// also a Tab — i.e. on the 2nd+ press of a run — whether or not the first
+	// press extended the token.
+	const tabStreak = useRef( 0 );
 	const setExpanded = ( next ) => {
 		if ( onExpandedChange ) {
 			onExpandedChange(
@@ -243,31 +244,31 @@ export default function ReplFooter( {
 		// Unique match: complete the token and append a space (readline behavior),
 		// even when the token already equals the candidate.
 		if ( 1 === matches.length ) {
-			ambiguousToken.current = null;
 			setValue( head + matches[ 0 ] + ' ' );
 			return;
 		}
 		const lcp = longestCommonPrefix( matches );
 		if ( lcp.length > token.length ) {
-			ambiguousToken.current = null;
 			setValue( head + lcp );
 			return;
 		}
-		// LCP can't extend the token (ambiguous). readline lists only on the
-		// SECOND consecutive Tab: the first press arms ambiguousToken, the next
-		// (same token) lists. Typing or any extension clears the arm.
-		if ( ambiguousToken.current === token ) {
-			ambiguousToken.current = null;
-			if ( onShowCandidates ) {
-				onShowCandidates( matches );
-			}
-		} else {
-			ambiguousToken.current = token;
+		// LCP can't extend the token (ambiguous). readline lists candidates only
+		// on the 2nd+ Tab of a consecutive run — the first press just bells.
+		if ( tabStreak.current >= 2 && onShowCandidates ) {
+			onShowCandidates( matches );
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ completion ] );
 
 	function handleKeyDown( ev ) {
+		// Any key other than Tab (modifiers excepted) breaks a Tab run, so the
+		// next Tab starts a fresh single press.
+		if (
+			ev.key !== 'Tab' &&
+			! [ 'Shift', 'Control', 'Alt', 'Meta' ].includes( ev.key )
+		) {
+			tabStreak.current = 0;
+		}
 		// Ctrl/Cmd+L clears the transcript, terminal-style.
 		if (
 			( ev.ctrlKey || ev.metaKey ) &&
@@ -286,6 +287,7 @@ export default function ReplFooter( {
 			if ( ! onComplete ) {
 				return;
 			}
+			tabStreak.current += 1;
 			const { token } = splitTrailingToken( value );
 			pendingToken.current = token;
 			onComplete( value );
@@ -425,7 +427,7 @@ export default function ReplFooter( {
 					placeholder={ canSend ? '' : 'Connecting…' }
 					value={ value }
 					onChange={ ( ev ) => {
-						ambiguousToken.current = null;
+						tabStreak.current = 0;
 						setValue( ev.target.value );
 					} }
 					onKeyDown={ handleKeyDown }
