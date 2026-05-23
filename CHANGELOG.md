@@ -7,7 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The browser Shell and CommandInterpreter reach 1:1 parity with the PHP
+  reference.** The JS Shell gains the full builtin set (`pwd`, `var`/`<var>`
+  interpolation, `echo`, `show_parse`, `status`, …); the JS CommandInterpreter
+  gains the full verb table (`make_node`, `connect_node`, `set_sink`,
+  `remove_node`, `dump_node`/`dump_config`/`dump_metadata`, `ls`/`list_nodes`,
+  `log`, `dmesg`, `stats`, `uptime`, `debug_state`, `help`) operating on the
+  in-browser node graph. (Browser gaps where the runtime lacks a primitive —
+  `make_node` class registry, `disconnect_node`/`remove_node` lifecycle,
+  `dmesg`/`uptime` Core buffers — degrade gracefully rather than crash.)
+
 ### Changed
+
+- **Per-node logging on `Node`.** `Node` now owns `stderr()` / `print_less_often()`
+  / `print_least_often()` with a real `log_midfix()` (a `<name>: ` tag, ported
+  from Tachikoma `Node.pm`); node-context callers use `$this->…`, and `Core`
+  remains the no-`$this` fallback (process-global, untagged).
+- **Dropped the "forbidden verb" list.** Control-flow keywords (`if`/`while`/…)
+  are no longer special-cased; they flow through as ordinary commands and the
+  target CommandInterpreter answers `unknown command: <verb>`. `Shell::validate_line`
+  now only flags a structural error (unterminated backslash continuation).
 
 - **Single path menu in the console header.** The Topology + Partition selectors
   are replaced by one "Path" menu listing `/`, `/_sse`, and `/_sse/{topology}.p{N}`
