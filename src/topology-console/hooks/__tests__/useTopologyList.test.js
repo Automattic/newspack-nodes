@@ -109,7 +109,7 @@ describe( 'useTopology', () => {
 		expect( send ).toHaveBeenCalledWith( {
 			to: 'topologies',
 			verb: 'get',
-			payload: { name: 'demo' },
+			args: 'demo',
 		} );
 		expect( payload ).toEqual( {
 			name: 'demo',

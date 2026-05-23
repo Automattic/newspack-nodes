@@ -73,6 +73,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Scalar REST service-CI verbs read positional `arguments`, not `payload`.**
+  `Topologies get`/`delete`, `Layouts get`, `Raw_Logs firehose_status`, and
+  `Workers heartbeat` now take their single/scalar args from the command's
+  `arguments` string, so they're typeable from the REPL (e.g. `command_node
+  topologies get Home`). The JS callers were updated to match. The genuinely
+  structured verbs (`Topologies save`'s TSL, `Layouts save`'s position map,
+  `Workers restart`'s type array) still use `payload`.
 - **Per-node logging on `Node`.** `Node` now owns `stderr()` / `print_less_often()`
   / `print_least_often()` with a real `log_midfix()` (a `<name>: ` tag, ported
   from Tachikoma `Node.pm`); node-context callers use `$this->…`, and `Core`

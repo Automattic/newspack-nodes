@@ -251,7 +251,7 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 0, $slot, 'first acquire claims slot 0' );
 
 		$ci     = new Workers_CI( $this->stub_cli(), \Newspack_Nodes\Core::$memd );
-		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', [ 'slot' => $slot ] );
+		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', null, (string) $slot );
 
 		$this->assertSame( [ 'success' => true, 'slot' => 0 ], $result );
 		\Newspack_Nodes\Core::$memd = null;
@@ -269,7 +269,7 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Core::$memd = null;
 		$ci = new Workers_CI( $this->stub_cli() );
 
-		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', [ 'slot' => 7 ] );
+		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', null, '7' );
 
 		$this->assertSame( 'cache not configured', $result );
 	}
@@ -281,7 +281,7 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
 		$ci = new Workers_CI( $this->stub_cli(), \Newspack_Nodes\Core::$memd );
 
-		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', [] );  // no slot
+		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', null, '' );  // no slot
 
 		$this->assertSame( 'slot required', $result );
 		\Newspack_Nodes\Core::$memd = null;

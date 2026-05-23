@@ -144,17 +144,17 @@ class Workers_CI extends Service_CI {
 				}
 				return [ 'restarted' => $restarted ];
 			},
-			'heartbeat' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
+			'heartbeat' => static function ( CommandInterpreter $self, string $args ): array {
 				if ( null === Core::$memd ) {
 					throw new \RuntimeException( 'cache not configured' );
 				}
-				$decoded = \is_array( $payload ) ? $payload : [];
-				$slot    = (int) ( $decoded['slot'] ?? -1 );
+				$parts = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY );
+				$slot  = isset( $parts[0] ) ? (int) $parts[0] : -1;
 				if ( $slot < 0 ) {
 					throw new \RuntimeException( 'slot required' );
 				}
-				$ttl       = (int) ( $decoded['ttl']       ?? 10 );
-				$partition = (int) ( $decoded['partition'] ?? -1 );
+				$ttl       = isset( $parts[1] ) ? (int) $parts[1] : 10;
+				$partition = isset( $parts[2] ) ? (int) $parts[2] : -1;
 				$success   = Sse_Slot_Pool::touch( Sse_Slot_Pool::user_id(), Sse_Slot_Pool::ip_hash(), $slot, $ttl, $partition );
 				return [ 'success' => $success, 'slot' => $slot ];
 			},

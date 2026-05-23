@@ -101,7 +101,8 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI(),
 			'raw-logs',
 			'firehose_status',
-			[ 'log' => 'firehose' ]
+			null,
+			'firehose'
 		);
 
 		$this->assertIsArray( $result );
@@ -124,7 +125,8 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI(),
 			'raw-logs',
 			'firehose_status',
-			[ 'log' => 'firehose.log' ]
+			null,
+			'firehose.log'
 		);
 
 		$this->assertIsArray( $result );
@@ -140,7 +142,8 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI(),
 			'raw-logs',
 			'firehose_status',
-			[ 'log' => 'bogus-log-name' ]
+			null,
+			'bogus-log-name'
 		);
 
 		$this->assertIsArray( $result );
@@ -157,7 +160,8 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI(),
 			'raw-logs',
 			'firehose_status',
-			[ 'log' => 'firehose' ]
+			null,
+			'firehose'
 		);
 
 		$this->assertSame( 128, $result['total_size'] );
@@ -173,7 +177,8 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI(),
 			'raw-logs',
 			'firehose_status',
-			[ 'log' => 'firehose' ]
+			null,
+			'firehose'
 		);
 
 		$this->assertIsString( $result );

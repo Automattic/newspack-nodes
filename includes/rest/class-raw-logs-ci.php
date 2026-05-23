@@ -58,10 +58,9 @@ class Raw_Logs_CI extends Service_CI {
 					}
 					return $result;
 				},
-				'firehose_status' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
+				'firehose_status' => static function ( CommandInterpreter $self, string $args ): array {
 					self::require_manage_options();
-					$decoded = \is_array( $payload ) ? $payload : [];
-					$log_key = self::resolve_log_key( (string) ( $decoded['log'] ?? '' ) );
+					$log_key = self::resolve_log_key( \trim( $args ) );
 
 					$config         = RuntimeConfig::load_config();
 					$base_dir       = (string) ( $config['base_directory'] ?? '/tmp/newspack-nodes' );

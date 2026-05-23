@@ -41,7 +41,7 @@ describe( 'useDeleteTopology', () => {
 		expect( send ).toHaveBeenCalledWith( {
 			to: 'topologies',
 			verb: 'delete',
-			payload: { name: 'demo' },
+			args: 'demo',
 		} );
 	} );
 

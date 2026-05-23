@@ -157,7 +157,7 @@ export function useConsoleGraph( {
 						.send( {
 							to: 'workers',
 							verb: 'heartbeat',
-							payload: { slot, ttl: SLOT_TTL_S, partition },
+							args: `${ slot } ${ SLOT_TTL_S } ${ partition }`,
 						} )
 						.catch( () => {} );
 				}, SLOT_HEARTBEAT_MS );

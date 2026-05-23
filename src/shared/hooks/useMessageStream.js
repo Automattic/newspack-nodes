@@ -150,7 +150,7 @@ export default function useMessageStream( {
 							.send( {
 								to: 'workers',
 								verb: 'heartbeat',
-								payload: { slot, ttl: SLOT_TTL_S },
+								args: `${ slot } ${ SLOT_TTL_S }`,
 							} )
 							.catch( () => {
 								// Best-effort; TTL grace absorbs transient failures.
