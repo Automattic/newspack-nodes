@@ -1748,13 +1748,15 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 // ── Modal (ConfirmModal + PromptModal) ──────────────────────────────────────
-// Brutalist paper-themed dialogs used by the edit-mode flow. No drop
-// shadows; backdrop is a translucent ink wash. Header inverts to the
-// stencil display family so the eye lands on the action label.
+// Brutalist paper-themed dialogs used by the edit-mode flow. No drop shadows.
+// Backdrop is a fixed dark wash (NOT var(--ink) — which flips light in dark
+// skins and would brighten the screen); header stays on the theme surface with
+// a stencil label + accent underline (no full ink/paper inversion, which became
+// a blinding bright strip in dark skins).
 .topology-modal-backdrop {
 	position: fixed;
 	inset: 0;
-	background: color-mix(in srgb, var(--ink) 55%, transparent);
+	background: rgba(8, 10, 14, 0.62);
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -1771,8 +1773,9 @@ body[class*="_page_newspack-nodes-topology"] {
 }
 
 .topology-modal__header {
-	background: var(--ink);
-	color: var(--paper);
+	background: var(--paper-3);
+	color: var(--ink);
+	border-bottom: 2px solid var(--oxide);
 	padding: 8px 14px;
 	font-family: var(--font-display-stencil);
 	letter-spacing: 0.05em;

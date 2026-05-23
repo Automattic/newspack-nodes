@@ -130,6 +130,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Path menu listed inactive topologies.** The console's Path menu now lists
+  worker entries only for ACTIVE topologies (inactive ones have no live workers
+  to reach); an off-menu cwd is still surfaced separately. Matches the active
+  state the edit-mode Open modal already shows.
+- **Modals were blinding in dark skins.** The modal backdrop used `var(--ink)`,
+  which flips to a light color in dark skins and *brightened* the screen instead
+  of dimming it; it's now a fixed dark wash. The modal header fully inverted
+  (`--ink` background), becoming a bright strip in dark skins; it now sits on the
+  theme surface (`--paper-3`) with an accent underline. Both read correctly in
+  every skin.
 - **Topology Console reconnected to `/messages/stream` every ~minute.** The console
   subscribes to a worker partition (60s aggregator slot TTL) but never poked
   `workers/heartbeat`, so its SSE slot lapsed and `check_slot` tore the stream down.
