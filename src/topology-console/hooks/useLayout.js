@@ -12,7 +12,7 @@ export function useLayout() {
 		const message = await getCommandClient().send( {
 			to: 'layouts',
 			verb: 'get',
-			payload: { name },
+			args: name,
 		} );
 		return unwrapCommandResponse( message );
 	}, [] );

@@ -149,10 +149,7 @@ describe( 'useConsoleGraph — connection state', () => {
 				expect.objectContaining( {
 					to: 'workers',
 					verb: 'heartbeat',
-					payload: expect.objectContaining( {
-						slot: 1,
-						partition: 0,
-					} ),
+					args: '1 10 0',
 				} )
 			);
 		} finally {

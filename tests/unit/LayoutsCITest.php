@@ -69,7 +69,8 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			[ 'name' => 'never-saved' ]
+			null,
+			'never-saved'
 		);
 
 		$this->assertIsArray( $result );
@@ -90,7 +91,8 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			[ 'name' => 'saved' ]
+			null,
+			'saved'
 		);
 
 		$this->assertSame( 'saved', $result['name'] );
@@ -108,7 +110,8 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			[ 'name' => 'garbage' ]
+			null,
+			'garbage'
 		);
 
 		$this->assertSame( 'garbage', $result['name'] );
@@ -126,7 +129,8 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			[ 'name' => 'no-positions' ]
+			null,
+			'no-positions'
 		);
 
 		$this->assertNull( $result['positions'] );
@@ -150,7 +154,8 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			[ 'name' => 'extra' ]
+			null,
+			'extra'
 		);
 
 		$this->assertArrayHasKey( 'positions', $result );
@@ -166,7 +171,8 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			[ 'name' => 'bad name!' ]
+			null,
+			'bad name!'
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'invalid name', $result );
@@ -177,7 +183,8 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			[ 'name' => 'a/b' ]
+			null,
+			'a/b'
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'invalid name', $result );
@@ -189,7 +196,8 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			[ 'name' => 'anything' ]
+			null,
+			'anything'
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
@@ -268,7 +276,8 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI(),
 			'layouts',
 			'get',
-			[ 'name' => 'roundtrip' ]
+			null,
+			'roundtrip'
 		);
 
 		$this->assertSame(

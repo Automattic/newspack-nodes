@@ -60,11 +60,10 @@ class Layouts_CI extends Service_CI {
 
 	private function verb_table(): array {
 		return [
-			'get'  => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
+			'get'  => static function ( CommandInterpreter $self, string $args ): array {
 				self::require_manage_options();
-				$decoded = \is_array( $payload ) ? $payload : [];
-				$name    = self::require_valid_name( $decoded );
-				$path    = self::layout_path( $name );
+				$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
+				$path = self::layout_path( $name );
 
 				$positions = null;
 				if ( \is_file( $path ) ) {

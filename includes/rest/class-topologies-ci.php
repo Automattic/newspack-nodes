@@ -110,9 +110,8 @@ class Topologies_CI extends Service_CI {
 				Bootstrap::register_worker_partition( \trim( $args ), Bootstrap::base_dir() );
 				return '';
 			},
-			'get'    => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
-				$decoded = \is_array( $payload ) ? $payload : [];
-				$name    = self::require_valid_name( $decoded );
+			'get'    => static function ( CommandInterpreter $self, string $args ): array {
+				$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
 
 				$path = Topology_Registry::resolve( $name );
 				if ( null === $path ) {
@@ -217,10 +216,9 @@ class Topologies_CI extends Service_CI {
 					'restarted_fleets' => $restarted,
 				];
 			},
-			'delete' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
+			'delete' => static function ( CommandInterpreter $self, string $args ): array {
 				self::require_manage_options();
-				$decoded = \is_array( $payload ) ? $payload : [];
-				$name    = self::require_valid_name( $decoded );
+				$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
 
 				$user_dir = Topology_Registry::user_dir();
 				if ( '' === $user_dir ) {

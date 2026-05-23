@@ -34,7 +34,7 @@ describe( 'useLayout', () => {
 			expect( send ).toHaveBeenCalledWith( {
 				to: 'layouts',
 				verb: 'get',
-				payload: { name: 'demo' },
+				args: 'demo',
 			} );
 		} );
 

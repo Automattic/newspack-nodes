@@ -217,7 +217,8 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'get',
-			[ 'name' => 'some-topology' ]
+			null,
+			'some-topology'
 		);
 
 		$this->assertSame( 'some-topology', $result['name'] );
@@ -233,7 +234,8 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'get',
-			[ 'name' => 'dual' ]
+			null,
+			'dual'
 		);
 
 		$this->assertSame( 'both', $result['source'] );
@@ -245,7 +247,8 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'get',
-			[ 'name' => 'does-not-exist' ]
+			null,
+			'does-not-exist'
 		);
 
 		$this->assertIsString( $result );
@@ -258,7 +261,8 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'get',
-			[ 'name' => '../etc/passwd' ]
+			null,
+			'../etc/passwd'
 		);
 
 		$this->assertIsString( $result );
@@ -304,7 +308,8 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'get',
-			[ 'name' => 'roundtrip' ]
+			null,
+			'roundtrip'
 		);
 
 		$this->assertSame( 'user', $result['source'] );
@@ -496,7 +501,8 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'delete',
-			[ 'name' => 'to-delete' ]
+			null,
+			'to-delete'
 		);
 
 		$this->assertSame( 'to-delete', $result['name'] );
@@ -513,7 +519,8 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'delete',
-			[ 'name' => 'shadowed' ]
+			null,
+			'shadowed'
 		);
 
 		$this->assertTrue( $result['stock_fallback'] );
@@ -528,7 +535,8 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'delete',
-			[ 'name' => 'stock-only' ]
+			null,
+			'stock-only'
 		);
 
 		$this->assertIsString( $result );
@@ -540,7 +548,8 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'delete',
-			[ 'name' => '../bad' ]
+			null,
+			'../bad'
 		);
 
 		$this->assertIsString( $result );
@@ -555,7 +564,8 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI(),
 			'topologies',
 			'delete',
-			[ 'name' => 'locked' ]
+			null,
+			'locked'
 		);
 
 		$this->assertIsString( $result );

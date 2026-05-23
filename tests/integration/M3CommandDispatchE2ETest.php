@@ -68,11 +68,11 @@ class M3CommandDispatchE2ETest extends TestCase {
 	/**
 	 * @dataProvider verb_provider
 	 */
-	public function test_each_substrate_ci_responds_to_a_representative_verb( string $to, string $verb, mixed $payload ): void {
+	public function test_each_substrate_ci_responds_to_a_representative_verb( string $to, string $verb, mixed $payload, string $args = '' ): void {
 		$ctrl = new HTTP_In();
 		$ctrl->set_test_mode( true );
 		\ob_start();
-		$ctrl->dispatch( $this->build_request( $to, $verb, $payload ) );
+		$ctrl->dispatch( $this->build_request( $to, $verb, $payload, $args ) );
 		$body = (string) \ob_get_clean();
 
 		$this->assertNotEmpty( $body, "verb '{$verb}' on '{$to}' produced no response" );
@@ -97,7 +97,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 	 * get_body() / set_body() / set_header(), so unlike M2 (event-logger-
 	 * nodes) no anonymous-class subclass is needed here.
 	 */
-	private function build_request( string $to, string $verb, mixed $payload ): \WP_REST_Request {
+	private function build_request( string $to, string $verb, mixed $payload, string $args = '' ): \WP_REST_Request {
 		// The controller requires a packed 7-element positional Message
 		// (`Message::unpacked()`), so build one rather than a keyed object.
 		$msg                   = Message::new_message();
@@ -108,7 +108,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 		// VALUE is the command struct as a live PHP array — Message::packed
 		// JSON-encodes the whole envelope (the wire), and the controller's
 		// messages_from_body() decodes it back, restoring VALUE as a nested array.
-		$msg[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => '', 'payload' => $payload ];
+		$msg[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args, 'payload' => $payload ];
 
 		$req = new \WP_REST_Request();
 		$req->set_body( Message::packed( $msg ) );
@@ -130,7 +130,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 	public static function verb_provider(): array {
 		return [
 			'classes.list'    => [ 'classes',    'list', null ],
-			'layouts.get'     => [ 'layouts',    'get',  [ 'name' => 'fresh' ] ],
+			'layouts.get'     => [ 'layouts',    'get',  null, 'fresh' ],
 			'topologies.list' => [ 'topologies', 'list', null ],
 		];
 	}

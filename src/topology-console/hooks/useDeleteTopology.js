@@ -12,7 +12,7 @@ export function useDeleteTopology() {
 		const message = await getCommandClient().send( {
 			to: 'topologies',
 			verb: 'delete',
-			payload: { name },
+			args: name,
 		} );
 		return unwrapCommandResponse( message );
 	}, [] );

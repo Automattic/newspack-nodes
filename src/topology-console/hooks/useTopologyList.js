@@ -44,7 +44,7 @@ export function useTopology() {
 		const message = await getCommandClient().send( {
 			to: 'topologies',
 			verb: 'get',
-			payload: { name },
+			args: name,
 		} );
 		return unwrapCommandResponse( message );
 	}, [] );

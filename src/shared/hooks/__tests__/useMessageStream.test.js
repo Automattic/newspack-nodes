@@ -165,7 +165,7 @@ describe( 'useMessageStream', () => {
 		expect( sendMock ).toHaveBeenCalledWith( {
 			to: 'workers',
 			verb: 'heartbeat',
-			payload: { slot: 3, ttl: 10 },
+			args: '3 10',
 		} );
 	} );
 
@@ -323,7 +323,7 @@ describe( 'useMessageStream', () => {
 		);
 		act( () => jest.advanceTimersByTime( 5000 ) );
 		const lastCall = sendMock.mock.calls.at( -1 )[ 0 ];
-		expect( lastCall.payload.slot ).toBe( 2 );
+		expect( lastCall.args ).toBe( '2 10' );
 	} );
 
 	it( 'ignores a connected envelope with a non-integer slot', () => {
