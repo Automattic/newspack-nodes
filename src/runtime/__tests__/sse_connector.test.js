@@ -28,20 +28,18 @@ beforeEach( () => {
 test( 'start opens an EventSource with the right URL', () => {
 	const s = new SseConnector( {
 		subscribe: [ 'firehose', 'errors' ],
-		interval: 250,
 		baseUrl: 'https://example.test/wp-json/',
 		nonce: 'NONCE',
 	} );
 	s.start();
 	expect( FakeEventSource.last.url ).toBe(
-		'https://example.test/wp-json/newspack-nodes/v1/messages/stream?subscribe=firehose%2Cerrors&interval=250&_wpnonce=NONCE'
+		'https://example.test/wp-json/newspack-nodes/v1/messages/stream?subscribe=firehose%2Cerrors&_wpnonce=NONCE'
 	);
 } );
 
 test( 'msg event with TM_INFO + KEY=connected stores pid via setState', () => {
 	const s = new SseConnector( {
 		subscribe: [ 'x' ],
-		interval: 1,
 		baseUrl: '/',
 		nonce: 'n',
 	} );
@@ -61,7 +59,6 @@ test( 'msg event forwards parsed message into sink', () => {
 
 	const s = new SseConnector( {
 		subscribe: [ 'x' ],
-		interval: 1,
 		baseUrl: '/',
 		nonce: 'n',
 	} );
@@ -79,7 +76,6 @@ test( 'msg event forwards parsed message into sink', () => {
 test( 'close() closes the EventSource', () => {
 	const s = new SseConnector( {
 		subscribe: [ 'x' ],
-		interval: 1,
 		baseUrl: '/',
 		nonce: 'n',
 	} );
@@ -91,7 +87,6 @@ test( 'close() closes the EventSource', () => {
 test( 'start() called twice closes the first EventSource before opening the second', () => {
 	const s = new SseConnector( {
 		subscribe: [ 'x' ],
-		interval: 1,
 		baseUrl: '/',
 		nonce: 'n',
 	} );

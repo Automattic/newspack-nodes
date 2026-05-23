@@ -246,9 +246,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect( batch[ 1 ][ TO ] ).toBe( 'demo.p0' );
 		expect( batch[ 1 ][ VALUE ].name ).toBe( 'ls' );
 		// `_sse` wrapped the bare `_output` FROM into the private reply pivot.
-		expect( batch[ 1 ][ FROM ] ).toBe(
-			`_http/${ names.SSE }:4242/_output`
-		);
+		expect( batch[ 1 ][ FROM ] ).toBe( `${ names.SSE }:4242/_output` );
 	} );
 
 	it( 'ls at the local root (cd /) lists the in-browser nodes in the transcript', () => {

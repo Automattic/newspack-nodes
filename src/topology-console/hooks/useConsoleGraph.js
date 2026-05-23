@@ -20,9 +20,6 @@ import { Shell } from '../nodes/shell';
 import { getCommandClient } from '../utils/commandClient';
 import names from '../../runtime/reserved-node-names.json';
 
-// SSE cadence query param (server fixes its own; SseIn needs a value).
-const STREAM_INTERVAL_MS = 5000;
-
 // Slot keep-alive: poke `workers/heartbeat` to refresh this session's SSE slot
 // TTL. The slot is refreshed EXCLUSIVELY by the client (the server's check_slot
 // never refreshes); without this poke the slot TTLs out and the browser
@@ -123,7 +120,6 @@ export function useConsoleGraph( {
 		// SSE in: each parsed Message flows to the Router (NOT the Dumper).
 		const sse = new SseIn( {
 			subscribe: [ reader ],
-			interval: STREAM_INTERVAL_MS,
 			baseUrl: data.restUrl || '/wp-json/',
 			nonce: data.nonce || '',
 		} );

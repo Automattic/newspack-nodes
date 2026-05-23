@@ -45,7 +45,6 @@ beforeEach( () => {
 function makeSseIn() {
 	const sse = new SseIn( {
 		subscribe: [ 'demo.p0' ],
-		interval: 5000,
 		baseUrl: '/wp-json/',
 		nonce: 'NONCE',
 	} );
@@ -104,7 +103,7 @@ describe( 'SseIn', () => {
 		m[ TO ] = 'firehose-workers.p0';
 		sse.fill( m );
 		expect( routed[ 0 ][ FROM ] ).toBe(
-			`${ names.HTTP }/${ names.SSE }:4242/${ names.OUTPUT }`
+			`${ names.SSE }:4242/${ names.OUTPUT }`
 		);
 		expect( routed[ 0 ][ TO ] ).toBe(
 			`${ names.HTTP }/firehose-workers.p0`

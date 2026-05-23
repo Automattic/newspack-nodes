@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The `_http` boundary stamps incoming messages server-side.** `HTTP_In` now
+  `stamp_message`s every incoming `/command` message with `_http` (I/O-boundary
+  stamping), instead of the client hardcoding the `_http` prefix. Clients send a
+  bare reply path (`_output`, `_sse:{pid}/…`, or '') — `SseIn` and `CommandClient`
+  no longer prepend `_http` to FROM. A side effect: a bare-FROM command (e.g.
+  `cd /_http`) now gets `_http/_output` stamped on, so its reply routes back.
+- **Dropped the dead `interval` SSE query param.** The stream server fixes its own
+  cadence (`HEARTBEAT_MS`) and never read `interval`; removed it from the
+  `SseConnector` URL/ctor and `useConsoleGraph`.
+
 ### Fixed
 
 - **Topology Console reconnected to `/messages/stream` every ~minute.** The console

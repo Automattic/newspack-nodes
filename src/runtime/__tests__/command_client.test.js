@@ -27,7 +27,7 @@ beforeEach( () => {
 	} );
 } );
 
-test( 'send defaults FROM=_http for local commands', async () => {
+test( 'send leaves FROM empty — the server HTTP_In stamps the _http boundary', async () => {
 	const client = new CommandClient( {
 		baseUrl: 'https://test/wp-json/',
 		nonce: 'NONCE',
@@ -52,7 +52,7 @@ test( 'send defaults FROM=_http for local commands', async () => {
 	expect( msg ).toHaveLength( 7 );
 	expect( msg[ TYPE ] ).toBe( TM_COMMAND );
 	expect( msg[ TO ] ).toBe( 'performance' );
-	expect( msg[ FROM ] ).toBe( '_http' );
+	expect( msg[ FROM ] ).toBe( '' );
 	// VALUE is the structured command object directly (no separate stringify).
 	const value = msg[ VALUE ];
 	expect( value.name ).toBe( 'overview' );
@@ -61,7 +61,7 @@ test( 'send defaults FROM=_http for local commands', async () => {
 	expect( value.payload ).toEqual( { range: '1h' } );
 } );
 
-test( 'send carries the KEY field through (FROM stays the bare _http boundary)', async () => {
+test( 'send carries the KEY field through (FROM left empty for the server to stamp)', async () => {
 	const client = new CommandClient( { baseUrl: '/', nonce: 'N' } );
 	await client.send( {
 		to: 'firehose-workers.p0/_command_interpreter',
@@ -69,7 +69,7 @@ test( 'send carries the KEY field through (FROM stays the bare _http boundary)',
 		key: 'gui:typed',
 	} );
 	const msg = JSON.parse( global.fetch.mock.calls[ 0 ][ 1 ].body );
-	expect( msg[ FROM ] ).toBe( '_http' );
+	expect( msg[ FROM ] ).toBe( '' );
 	expect( msg[ KEY ] ).toBe( 'gui:typed' );
 } );
 
@@ -89,7 +89,7 @@ test( 'buildMessage returns a positional 7-element TM_COMMAND Message', () => {
 	expect( msg ).toHaveLength( 7 );
 	expect( msg[ TYPE ] ).toBe( TM_COMMAND );
 	expect( msg[ TO ] ).toBe( 'demo.p0' );
-	expect( msg[ FROM ] ).toBe( '_http' );
+	expect( msg[ FROM ] ).toBe( '' );
 	// VALUE is the command object directly (no inner JSON).
 	expect( msg[ VALUE ].name ).toBe( 'dump_metadata' );
 } );

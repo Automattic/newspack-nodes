@@ -109,7 +109,6 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				// pid; routing `_sse/{reader}` peels here before `_http`.
 				const sse = new SseIn( {
 					subscribe: [ reader ],
-					interval: 5000,
 					baseUrl: '/',
 					nonce: '',
 				} );
@@ -528,10 +527,10 @@ describe( 'TopologyConsole boot', () => {
 			expect( uptimes().length ).toBeGreaterThanOrEqual( 1 );
 			// `_sse` wrapped each poll's bare reply-node FROM into the private pivot.
 			expect( fromOf( dumps()[ 0 ] ) ).toBe(
-				`${ names.HTTP }/${ names.SSE }:1234/${ names.METADATA }`
+				`${ names.SSE }:1234/${ names.METADATA }`
 			);
 			expect( fromOf( uptimes()[ 0 ] ) ).toBe(
-				`${ names.HTTP }/${ names.SSE }:1234/${ names.UPTIME }`
+				`${ names.SSE }:1234/${ names.UPTIME }`
 			);
 			// The Router peeled _http before delivering to HttpOut, so the
 			// captured TO is the bare reader.
@@ -1521,7 +1520,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( posted[ TO ] ).toBe( 'demo.p0' );
 		// `_sse` wrapped the bare `_output` FROM into the private reply pivot.
 		expect( posted[ FROM ] ).toBe(
-			`${ names.HTTP }/${ names.SSE }:1234/${ names.OUTPUT }`
+			`${ names.SSE }:1234/${ names.OUTPUT }`
 		);
 	} );
 

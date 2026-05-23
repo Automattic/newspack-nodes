@@ -1,13 +1,4 @@
-import {
-	newMessage,
-	pack,
-	TYPE,
-	FROM,
-	TO,
-	KEY,
-	VALUE,
-	TM_COMMAND,
-} from './message';
+import { newMessage, pack, TYPE, TO, KEY, VALUE, TM_COMMAND } from './message';
 
 // JSONL body, so NOT application/json (see #post for why).
 const COMMAND_CONTENT_TYPE = 'text/plain; charset=UTF-8';
@@ -19,9 +10,10 @@ export class CommandClient {
 	}
 
 	/**
-	 * Build a TM_COMMAND as a 7-element positional Message array. FROM=`_http`
-	 * (the HTTP boundary); the per-session reply pivot is applied downstream by
-	 * the `_sse` session node, not here.
+	 * Build a TM_COMMAND as a 7-element positional Message array. FROM is left
+	 * empty: the server's HTTP_In stamps the `_http` boundary onto every incoming
+	 * message, and the per-session reply pivot is applied by the `_sse` node — the
+	 * client never hardcodes the `_http` prefix.
 	 *
 	 * @param {Object} params
 	 * @param {string} params.to        Target node path.
@@ -34,7 +26,6 @@ export class CommandClient {
 	buildMessage( { to, verb, args = '', payload = null, key = '' } ) {
 		const msg = newMessage();
 		msg[ TYPE ] = TM_COMMAND;
-		msg[ FROM ] = '_http';
 		msg[ TO ] = to;
 		msg[ KEY ] = key;
 		msg[ VALUE ] = {
