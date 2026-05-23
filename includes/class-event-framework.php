@@ -11,7 +11,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class EventFramework {
+class Event_Framework {
 	private static ?self $instance = null;
 
 	/** @var array<int,array{node:object,interval_ms:int,oneshot:bool,next_fire:float}> */

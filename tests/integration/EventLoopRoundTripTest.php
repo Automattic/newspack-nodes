@@ -1,36 +1,36 @@
 <?php
 namespace Newspack_Nodes\Tests\Integration;
 
-use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
-use Newspack_Nodes\EventFramework;
+use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Router;
+use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
-use Newspack_Nodes\Timer;
+use Newspack_Nodes\Timer_Node;
 
 class EventLoopRoundTripTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
-		EventFramework::reset();
+		Event_Framework::reset();
 	}
 
 	public function test_eventframework_driven_timer_fires_during_drain(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$ci->sink( $router );
 
-		$timer = new Timer();
+		$timer = new Timer_Node();
 		$timer->name( 'tick' );
 		$capture = new CaptureSink();
 		$timer->sink( $capture );
 		$timer->set_timer( 30 );
 
 		$start = \microtime( true );
-		EventFramework::instance()->drain( function () use ( $start ): bool {
+		Event_Framework::instance()->drain( function () use ( $start ): bool {
 			Core::$now = \microtime(true);
 			return ( \microtime( true ) - $start ) < 0.2;
 		} );
@@ -40,10 +40,10 @@ class EventLoopRoundTripTest extends TestCase {
 	}
 
 	public function test_router_hitchhike_timer_fires_when_router_ticks(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$piggy   = new Timer();
+		$piggy   = new Timer_Node();
 		$piggy->name( 'piggy' );
 		$capture = new CaptureSink();
 		$piggy->sink( $capture );

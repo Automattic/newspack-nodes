@@ -2,23 +2,23 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
-use Newspack_Nodes\EventFramework;
-use Newspack_Nodes\Router;
+use Newspack_Nodes\Event_Framework;
+use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tests\TestCase;
-use Newspack_Nodes\Timer;
+use Newspack_Nodes\Timer_Node;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( Router::class )]
+#[CoversClass( Router_Node::class )]
 class RouterTimerTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
-		EventFramework::reset();
+		Event_Framework::reset();
 	}
 
 	public function test_router_pre_declares_TIMER_event(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
-		$listener = new Timer();
+		$listener = new Timer_Node();
 		$listener->name( 't1' );
 
 		$router->register( 'TIMER', 't1' );
@@ -26,7 +26,7 @@ class RouterTimerTest extends TestCase {
 	}
 
 	public function test_router_fires_TIMER_to_registrants_on_each_tick(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
 		$received = 0;
@@ -40,10 +40,10 @@ class RouterTimerTest extends TestCase {
 	}
 
 	public function test_timer_with_no_args_registers_with_router_TIMER_event(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$timer = new Timer();
+		$timer = new Timer_Node();
 		$timer->name( 'piggyback' );
 		$timer->set_timer();
 
@@ -58,10 +58,10 @@ class RouterTimerTest extends TestCase {
 	 * listener after tick 1. Node-name dispatch keeps the registration alive across ticks.
 	 */
 	public function test_hitchhiked_timer_fires_on_every_tick_not_just_first(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$timer = new Timer();
+		$timer = new Timer_Node();
 		$timer->name( 'persistent' );
 		$timer->set_timer();
 
@@ -75,10 +75,10 @@ class RouterTimerTest extends TestCase {
 	}
 
 	public function test_set_timer_no_args_throws_when_timer_has_no_name(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$timer = new Timer(); // no name() call
+		$timer = new Timer_Node(); // no name() call
 
 		$this->expectException( \RuntimeException::class );
 		$timer->set_timer();
@@ -90,10 +90,10 @@ class RouterTimerTest extends TestCase {
 	 * the registration in Router's TIMER list, so the Timer kept firing forever.
 	 */
 	public function test_stop_timer_unregisters_from_router_when_hitchhiked(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$timer = new Timer();
+		$timer = new Timer_Node();
 		$timer->name( 'pulse' );
 		$timer->set_timer();
 
@@ -116,10 +116,10 @@ class RouterTimerTest extends TestCase {
 	 * stop_timer call happens before run_closing() drains the queue.
 	 */
 	public function test_stop_timer_is_deferred_until_run_closing(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$timer = new Timer();
+		$timer = new Timer_Node();
 		$timer->name( 'deferred' );
 		$timer->set_timer();
 

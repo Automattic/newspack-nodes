@@ -9,7 +9,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Tail extends Timer {
+class Tail_Node extends Timer_Node {
 	public const READ_CHUNK = 65536;
 
 	/** Hard cap on cross-poll trailing-line buffer (20MB); DoS guard against a no-newline file ballooning line_remainder until OOM. */

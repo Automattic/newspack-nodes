@@ -4,8 +4,8 @@ namespace Newspack_Nodes\Tests;
 use PHPUnit\Framework\TestCase as PHPUnitTestCase;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Partition;
-use Newspack_Nodes\Topic;
+use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Topic_Node;
 
 abstract class TestCase extends PHPUnitTestCase {
 	protected function setUp(): void {
@@ -40,8 +40,8 @@ abstract class TestCase extends PHPUnitTestCase {
 
 		// Authorization policy is static process state; clear it so a verifier
 		// installed by one test (HTTP_In/worker bootstrap) doesn't gate the next.
-		if ( \class_exists( '\Newspack_Nodes\CommandInterpreter' ) ) {
-			\Newspack_Nodes\CommandInterpreter::$default_authorize = null;
+		if ( \class_exists( '\Newspack_Nodes\Command_Interpreter_Node' ) ) {
+			\Newspack_Nodes\Command_Interpreter_Node::$default_authorize = null;
 		}
 	}
 
@@ -145,7 +145,7 @@ abstract class TestCase extends PHPUnitTestCase {
 	 *
 	 * @return array<int,mixed>
 	 */
-	protected function read_partition_values( Partition $p, int $segment_id = 0 ): array {
+	protected function read_partition_values( Partition_Node $p, int $segment_id = 0 ): array {
 		// Tests typically write via `$p->fill()` or `produce_into()` and then
 		// immediately read the segment file. Flush any pending batch first so
 		// the read picks up the data — Partition::fill batches in memory and

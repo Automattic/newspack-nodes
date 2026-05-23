@@ -1,17 +1,17 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Rest\HTTP_In;
+use Newspack_Nodes\Rest\HTTP_In_Node;
 use Newspack_Nodes\Core;
-use Newspack_Nodes\CommandInterpreter;
-use Newspack_Nodes\Consumer;
+use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Partition;
-use Newspack_Nodes\Router;
+use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( HTTP_In::class )]
+#[CoversClass( HTTP_In_Node::class )]
 class HTTPInTest extends TestCase {
 
 	/** @var array<int,int> status_header codes captured by HTTP_In's seam */
@@ -31,15 +31,15 @@ class HTTPInTest extends TestCase {
 	 * Production-shaped graph: Router + base CI sinking into Router +
 	 * HTTP_In registered at _http with a status_header recorder seam.
 	 */
-	private function build_graph(): CommandInterpreter {
-		$router = new Router();
+	private function build_graph(): Command_Interpreter_Node {
+		$router = new Router_Node();
 		$router->name( '_router' );
-		$base_ci = new CommandInterpreter();
+		$base_ci = new Command_Interpreter_Node();
 		$base_ci->name( '_command_interpreter' );
 		$base_ci->sink( $router );
 
 		$self     = $this;
-		$http_out = new HTTP_In(
+		$http_out = new HTTP_In_Node(
 			static function ( int $code ) use ( $self ): void {
 				$self->status_codes[] = $code;
 			}
@@ -104,7 +104,7 @@ class HTTPInTest extends TestCase {
 
 	public function test_local_command_writes_packed_response_to_http_body(): void {
 		$base_ci = $this->build_graph();
-		$echo    = new CommandInterpreter();
+		$echo    = new Command_Interpreter_Node();
 		$echo->name( 'echo_service' );
 		$echo->sink( $base_ci );
 		$echo->commands(
@@ -123,7 +123,7 @@ class HTTPInTest extends TestCase {
 			]
 		);
 
-		$ctrl = new HTTP_In();
+		$ctrl = new HTTP_In_Node();
 		$ctrl->set_test_mode( true );
 
 		\ob_start();
@@ -157,7 +157,7 @@ class HTTPInTest extends TestCase {
 			]
 		);
 
-		$ctrl = new HTTP_In();
+		$ctrl = new HTTP_In_Node();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
@@ -176,7 +176,7 @@ class HTTPInTest extends TestCase {
 		// lets the topology dashboard send `connect_worker_input` immediately
 		// before its real pivoted command in the SAME request.
 		$base_ci = $this->build_graph();
-		$echo    = new CommandInterpreter();
+		$echo    = new Command_Interpreter_Node();
 		$echo->name( 'echo_service' );
 		$echo->sink( $base_ci );
 		$calls = [];
@@ -196,7 +196,7 @@ class HTTPInTest extends TestCase {
 			]
 		);
 
-		$ctrl = new HTTP_In();
+		$ctrl = new HTTP_In_Node();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
@@ -217,7 +217,7 @@ class HTTPInTest extends TestCase {
 			]
 		);
 
-		$ctrl = new HTTP_In();
+		$ctrl = new HTTP_In_Node();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
@@ -231,7 +231,7 @@ class HTTPInTest extends TestCase {
 
 	public function test_blank_from_defaults_to_underscore_http(): void {
 		$base_ci = $this->build_graph();
-		$echo    = new CommandInterpreter();
+		$echo    = new Command_Interpreter_Node();
 		$echo->name( 'echo_service' );
 		$echo->sink( $base_ci );
 		$echo->commands( [ 'echo' => static fn( $self, $args ): string => 'ok' ] );
@@ -245,7 +245,7 @@ class HTTPInTest extends TestCase {
 			]
 		);
 
-		$ctrl = new HTTP_In();
+		$ctrl = new HTTP_In_Node();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
@@ -274,7 +274,7 @@ class HTTPInTest extends TestCase {
 				$fires[] = $base_ci;
 				// Application code mounts its CIs here. Use a tiny echo CI
 				// to prove dispatch can route through a hook-mounted CI.
-				$echo = new CommandInterpreter();
+				$echo = new Command_Interpreter_Node();
 				$echo->name( 'hook_echo' );
 				$echo->sink( $base_ci );
 				$echo->commands(
@@ -293,7 +293,7 @@ class HTTPInTest extends TestCase {
 			]
 		);
 
-		$ctrl = new HTTP_In();
+		$ctrl = new HTTP_In_Node();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
@@ -301,7 +301,7 @@ class HTTPInTest extends TestCase {
 
 		// Hook fired exactly once with the base CI as the argument.
 		$this->assertCount( 1, $fires, 'request_graph_ready hook must fire exactly once' );
-		$this->assertInstanceOf( CommandInterpreter::class, $fires[0] );
+		$this->assertInstanceOf( Command_Interpreter_Node::class, $fires[0] );
 		$this->assertSame( '_command_interpreter', $fires[0]->name() );
 
 		// Dispatch produced a TM_COMMAND|TM_RESPONSE (not the "graph not
@@ -325,7 +325,7 @@ class HTTPInTest extends TestCase {
 		// points) and prove that the second dispatch doesn't double-create
 		// or re-fire the hook.
 		$base_ci = $this->build_graph();
-		$echo    = new CommandInterpreter();
+		$echo    = new Command_Interpreter_Node();
 		$echo->name( 'idem_echo' );
 		$echo->sink( $base_ci );
 		$echo->commands( [ 'echo' => static fn( $self, $args ): string => 'ok' ] );
@@ -351,7 +351,7 @@ class HTTPInTest extends TestCase {
 				'value' => [ 'name' => 'echo', 'arguments' => '', 'payload' => '' ],
 			]
 		);
-		$ctrl = new HTTP_In();
+		$ctrl = new HTTP_In_Node();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
@@ -403,7 +403,7 @@ class HTTPInTest extends TestCase {
 
 		// Mount a Partition under the worker's name — same as production
 		// bootstrap after scanning the locks/ dir.
-		$worker_partition = new Partition( $input_dir, 0 );
+		$worker_partition = new Partition_Node( $input_dir, 0 );
 		$worker_partition->name( 'firehose-workers.p0' );
 
 		$req = $this->make_request(
@@ -416,7 +416,7 @@ class HTTPInTest extends TestCase {
 			]
 		);
 
-		$ctrl = new HTTP_In();
+		$ctrl = new HTTP_In_Node();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $req );
@@ -433,7 +433,7 @@ class HTTPInTest extends TestCase {
 		// manually before reading via Consumer.
 		$worker_partition->flush();
 
-		$consumer = new Consumer( $input_dir, 0, '' );
+		$consumer = new Consumer_Node( $input_dir, 0, '' );
 		$consumer->next_offset( 'start' );
 		$consumer->sink( $got = new \Newspack_Nodes\Tests\CaptureSink() );
 		$consumer->poll();
@@ -451,7 +451,7 @@ class HTTPInTest extends TestCase {
 	public function test_register_routes_registers_command_post_route(): void {
 		$GLOBALS['_wp_test_registered_routes'] = [];
 
-		( new HTTP_In() )->register_routes();
+		( new HTTP_In_Node() )->register_routes();
 
 		$this->assertCount( 1, $GLOBALS['_wp_test_registered_routes'] );
 		$route = $GLOBALS['_wp_test_registered_routes'][0];
@@ -478,7 +478,7 @@ class HTTPInTest extends TestCase {
 				// Replace _router with something that is NOT a Router instance.
 				// A bare CommandInterpreter is a Node but not a Router, so the
 				// instanceof check fails.
-				Core::register_node( '_router', new CommandInterpreter() );
+				Core::register_node( '_router', new Command_Interpreter_Node() );
 			}
 		);
 
@@ -494,7 +494,7 @@ class HTTPInTest extends TestCase {
 			]
 		);
 
-		$ctrl = new HTTP_In();
+		$ctrl = new HTTP_In_Node();
 		$ctrl->set_test_mode( true );
 
 		\ob_start();
@@ -518,7 +518,7 @@ class HTTPInTest extends TestCase {
 
 	public function test_first_fill_sends_status_200_and_echoes_packed_message(): void {
 		$headers = [];
-		$writer  = new HTTP_In(
+		$writer  = new HTTP_In_Node(
 			static function ( int $code ) use ( &$headers ): void {
 				$headers[] = $code;
 			}
@@ -540,7 +540,7 @@ class HTTPInTest extends TestCase {
 
 	public function test_subsequent_fills_dont_re_send_headers_but_still_echo(): void {
 		$headers = [];
-		$writer  = new HTTP_In(
+		$writer  = new HTTP_In_Node(
 			static function ( int $code ) use ( &$headers ): void {
 				$headers[] = $code;
 			}
@@ -568,7 +568,7 @@ class HTTPInTest extends TestCase {
 		// $GLOBALS['_wp_test_status_headers'] so we can assert the default
 		// closure actually called it.
 		$GLOBALS['_wp_test_status_headers'] = [];
-		$writer                             = new HTTP_In();
+		$writer                             = new HTTP_In_Node();
 
 		\ob_start();
 		$m = Message::new_message();
@@ -584,7 +584,7 @@ class HTTPInTest extends TestCase {
 		// HTTP_In is bootstrap-instantiated at request scope only — never via
 		// `make_node` from a topology. Hidden category + empty ctor/verbs
 		// locks that contract.
-		$schema = HTTP_In::node_schema();
+		$schema = HTTP_In_Node::node_schema();
 		$this->assertSame( 'Hidden', $schema['category'] );
 		$this->assertSame( [], $schema['ctor'] );
 		$this->assertSame( [], $schema['verbs'] );
@@ -593,7 +593,7 @@ class HTTPInTest extends TestCase {
 
 	public function test_reset_allows_fresh_status_header_on_next_fill(): void {
 		$headers = [];
-		$writer  = new HTTP_In(
+		$writer  = new HTTP_In_Node(
 			static function ( int $code ) use ( &$headers ): void {
 				$headers[] = $code;
 			}

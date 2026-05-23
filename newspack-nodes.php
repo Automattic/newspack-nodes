@@ -45,8 +45,8 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	// instance per subcommand. PHPStan's strict callable check requires this
 	// form too; the old class-string-plus-method array form is no longer a
 	// valid callable type. Instance reuse keeps registration cost flat.
-	$nodes_worker_cli = new \Newspack_Nodes\WorkerCliCommand();
-	\WP_CLI::add_command( 'nodes',           '\\Newspack_Nodes\\Cli_Command' );
+	$nodes_worker_cli = new \Newspack_Nodes\Worker_CLI_Command();
+	\WP_CLI::add_command( 'nodes',           '\\Newspack_Nodes\\CLI_Command' );
 	\WP_CLI::add_command( 'nodes types',   [ $nodes_worker_cli, 'types' ]   );
 	\WP_CLI::add_command( 'nodes run',     [ $nodes_worker_cli, 'run' ]     );
 	\WP_CLI::add_command( 'nodes restart', [ $nodes_worker_cli, 'restart' ] );
@@ -57,21 +57,21 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 // shell `make_node` verb and the topology-side `$interpreter->make_node()`
 // instance API can construct them by short name. Plugins extending the
 // runtime add their own subclasses via additional `register_class()` calls.
-\Newspack_Nodes\CommandInterpreter::register_class( 'Callback',           \Newspack_Nodes\Callback::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'CommandInterpreter', \Newspack_Nodes\CommandInterpreter::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Consumer',           \Newspack_Nodes\Consumer::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Dumper',             \Newspack_Nodes\Dumper::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Echo',               \Newspack_Nodes\Echo_Node::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Hook',               \Newspack_Nodes\Hook::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Lock',               \Newspack_Nodes\Lock::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Log',                \Newspack_Nodes\Log::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Partition',          \Newspack_Nodes\Partition::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Router',             \Newspack_Nodes\Router::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Shell',              \Newspack_Nodes\Shell::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Tail',               \Newspack_Nodes\Tail::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Tee',                \Newspack_Nodes\Tee::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Timer',              \Newspack_Nodes\Timer::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Topic',              \Newspack_Nodes\Topic::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Callback',           \Newspack_Nodes\Callback_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'CommandInterpreter', \Newspack_Nodes\Command_Interpreter_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Consumer',           \Newspack_Nodes\Consumer_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Dumper',             \Newspack_Nodes\Dumper_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Echo',               \Newspack_Nodes\Echo_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Hook',               \Newspack_Nodes\Hook_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Lock',               \Newspack_Nodes\Lock_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Log',                \Newspack_Nodes\Log_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Partition',          \Newspack_Nodes\Partition_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Router',             \Newspack_Nodes\Router_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Shell',              \Newspack_Nodes\Shell_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Tail',               \Newspack_Nodes\Tail_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Tee',                \Newspack_Nodes\Tee_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Timer',              \Newspack_Nodes\Timer_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Topic',              \Newspack_Nodes\Topic_Node::class );
 
 // Substrate service CIs — discoverable to `$base_ci->make_node(...)`,
 // which constructs + names + sinks each in one step from the
@@ -79,11 +79,11 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 // app-side `_CI`-suffix convention (newspack-event-logger-nodes.php)
 // so `Classes_CI.list` returns a consistent shell-name catalog across
 // substrate + application CIs.
-\Newspack_Nodes\CommandInterpreter::register_class( 'Classes_CI',    \Newspack_Nodes\Rest\Classes_CI::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Layouts_CI',    \Newspack_Nodes\Rest\Layouts_CI::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Raw_Logs_CI',   \Newspack_Nodes\Rest\Raw_Logs_CI::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Topologies_CI', \Newspack_Nodes\Rest\Topologies_CI::class );
-\Newspack_Nodes\CommandInterpreter::register_class( 'Workers_CI',    \Newspack_Nodes\Rest\Workers_CI::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Classes_CI',    \Newspack_Nodes\Rest\Classes_CI_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Layouts_CI',    \Newspack_Nodes\Rest\Layouts_CI_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Raw_Logs_CI',   \Newspack_Nodes\Rest\Raw_Logs_CI_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Topologies_CI', \Newspack_Nodes\Rest\Topologies_CI_Node::class );
+\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Workers_CI',    \Newspack_Nodes\Rest\Workers_CI_Node::class );
 
 /**
  * Service-CommandInterpreter (CI) mounting.
@@ -104,7 +104,7 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
  * `$GLOBALS['_wp_actions']` for isolation can re-attach the same
  * callback without duplicating the mount logic.
  */
-function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\CommandInterpreter $base_ci ): void {
+function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter_Node $base_ci ): void {
 	// Idempotency guard. The `newspack_nodes/request_graph_ready` action
 	// has been observed firing twice in the same PHP request in production —
 	// without this guard the second invocation throws "node name collision:
@@ -125,7 +125,7 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\CommandInterpreter 
 	// application to provide one (event-logger-nodes hands over the shared
 	// `Core::$memd`). Null cache means live-position falls back to on-disk
 	// offsetlog and the `heartbeat` verb throws "cache not configured".
-	$cli   = new \Newspack_Nodes\Cli( \Newspack_Nodes\Bootstrap::base_dir() );
+	$cli   = new \Newspack_Nodes\CLI( \Newspack_Nodes\Bootstrap::base_dir() );
 	$cache = \function_exists( 'apply_filters' )
 		? \apply_filters( 'newspack_nodes/workers_cache', null )
 		: null;
@@ -137,7 +137,7 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\CommandInterpreter 
 if ( \function_exists( 'add_action' ) ) {
 	\add_action( 'rest_api_init', [ '\\Newspack_Nodes\\Bootstrap', 'register_rest_routes' ] );
 	\add_action( 'newspack_nodes/supervisor', [ '\\Newspack_Nodes\\Bootstrap', 'run_supervisor_tick' ] );
-	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\WorkerCliCommand', 'restart_fleet_by_name' ] );
+	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\Worker_CLI_Command', 'restart_fleet_by_name' ] );
 	\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
 	// Long-lived workers that survive a config reload need their on-disk
 	// log view invalidated so newly-created log dirs become visible AND

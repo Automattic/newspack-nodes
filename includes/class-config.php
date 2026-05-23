@@ -306,7 +306,7 @@ class Config {
 			}
 
 			try {
-				( new Lock( $path ) )->request_restart();
+				( new Lock_Node( $path ) )->request_restart();
 			} catch ( \Throwable $e ) {
 				continue;
 			}

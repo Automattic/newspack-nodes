@@ -2,27 +2,27 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
-use Newspack_Nodes\EventFramework;
+use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
-use Newspack_Nodes\Timer;
+use Newspack_Nodes\Timer_Node;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( Timer::class )]
+#[CoversClass( Timer_Node::class )]
 class TimerTest extends TestCase {
 	protected function setUp(): void {
 		parent::setUp();
-		EventFramework::reset();
+		Event_Framework::reset();
 	}
 
 	public function test_set_timer_with_ms_registers_with_event_framework(): void {
-		$timer = new Timer();
+		$timer = new Timer_Node();
 		$timer->name( 't1' );
 		$timer->set_timer( 50 );
 
 		$start = \microtime( true );
-		EventFramework::instance()->drain( function () use ( $start ) {
+		Event_Framework::instance()->drain( function () use ( $start ) {
 			Core::$now = \microtime(true);
 			return ( \microtime( true ) - $start ) < 0.15;
 		} );
@@ -30,7 +30,7 @@ class TimerTest extends TestCase {
 	}
 
 	public function test_fire_cb_dispatches_FIRE_event(): void {
-		$timer = new Timer();
+		$timer = new Timer_Node();
 		$timer->name( 't1' );
 
 		$received = null;
@@ -43,7 +43,7 @@ class TimerTest extends TestCase {
 	}
 
 	public function test_fire_cb_sends_TM_BYTESTREAM_to_sink(): void {
-		$timer = new Timer();
+		$timer = new Timer_Node();
 		$timer->name( 't1' );
 		$sink = new CaptureSink();
 		$timer->sink( $sink );
@@ -54,12 +54,12 @@ class TimerTest extends TestCase {
 	}
 
 	public function test_oneshot_clears_active_state(): void {
-		$timer = new Timer();
+		$timer = new Timer_Node();
 		$timer->name( 't1' );
 		$timer->set_timer( 10, true );
 
 		$start = \microtime( true );
-		EventFramework::instance()->drain( function () use ( $start ) {
+		Event_Framework::instance()->drain( function () use ( $start ) {
 			Core::$now = \microtime(true);
 			return ( \microtime( true ) - $start ) < 0.1;
 		} );

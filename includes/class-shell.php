@@ -9,7 +9,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Shell extends Node {
+class Shell_Node extends Node {
 	public string $prompt = '/> ';
 
 	/** Current cwd — the node-path non-builtin commands route to by default; empty = local CI. */
@@ -264,7 +264,7 @@ class Shell extends Node {
 
 		if ( 'debug_level' === $verb ) {
 			$dumper = Core::node( Node_Names::OUTPUT );
-			if ( $dumper instanceof Dumper ) {
+			if ( $dumper instanceof Dumper_Node ) {
 				$current = $dumper->debug_level();
 				$next    = ! empty( $args )
 					? (int) $args[0]

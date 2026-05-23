@@ -2,12 +2,12 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Tail;
+use Newspack_Nodes\Tail_Node;
 use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( Tail::class )]
+#[CoversClass( Tail_Node::class )]
 class TailTest extends TestCase {
 	private string $tmp;
 
@@ -22,13 +22,13 @@ class TailTest extends TestCase {
 	}
 
 	public function test_constructor_does_not_open_file(): void {
-		new Tail( "{$this->tmp}/notyet.log" );
+		new Tail_Node( "{$this->tmp}/notyet.log" );
 		$this->assertFalse( file_exists( "{$this->tmp}/notyet.log" ) );
 	}
 
 	public function test_poll_emits_one_message_per_line_in_default_line_buffered_mode(): void {
 		file_put_contents( "{$this->tmp}/data.log", "first\nsecond\nthird\n" );
-		$t = new Tail( "{$this->tmp}/data.log" );
+		$t = new Tail_Node( "{$this->tmp}/data.log" );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 		$t->poll();
@@ -44,7 +44,7 @@ class TailTest extends TestCase {
 		// the parent::fill() route the emitted message had TO='' and the
 		// Router had no destination to dispatch to — silent black hole.
 		file_put_contents( "{$this->tmp}/data.log", "hello\n" );
-		$t = new Tail( "{$this->tmp}/data.log" );
+		$t = new Tail_Node( "{$this->tmp}/data.log" );
 		$t->connect_node( 'mysession' );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
@@ -56,7 +56,7 @@ class TailTest extends TestCase {
 
 	public function test_poll_does_not_re_emit_old_data(): void {
 		file_put_contents( "{$this->tmp}/data.log", "first\n" );
-		$t = new Tail( "{$this->tmp}/data.log" );
+		$t = new Tail_Node( "{$this->tmp}/data.log" );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 		$t->poll();
@@ -69,7 +69,7 @@ class TailTest extends TestCase {
 
 	public function test_buffer_mode_block_buffered_emits_one_message_per_read_chunk(): void {
 		file_put_contents( "{$this->tmp}/data.log", "first\nsecond\n" );
-		$t = new Tail( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
+		$t = new Tail_Node( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 		$t->poll();
@@ -79,7 +79,7 @@ class TailTest extends TestCase {
 
 	public function test_buffer_mode_binary_emits_chunk(): void {
 		file_put_contents( "{$this->tmp}/data.log", "raw bytes" );
-		$t = new Tail( "{$this->tmp}/data.log", buffer_mode: 'binary' );
+		$t = new Tail_Node( "{$this->tmp}/data.log", buffer_mode: 'binary' );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 		$t->poll();
@@ -91,7 +91,7 @@ class TailTest extends TestCase {
 		// Block-buffered must accumulate a trailing partial line so a chunk
 		// boundary never splits a line — matches Tachikoma drain_buffer_blocks.
 		file_put_contents( "{$this->tmp}/data.log", "first\nseco" );
-		$t = new Tail( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
+		$t = new Tail_Node( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 
@@ -112,7 +112,7 @@ class TailTest extends TestCase {
 		// No newline at all in the chunk: the entire payload accumulates in
 		// line_remainder; nothing is emitted.
 		file_put_contents( "{$this->tmp}/data.log", "no newline yet" );
-		$t = new Tail( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
+		$t = new Tail_Node( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 
@@ -128,7 +128,7 @@ class TailTest extends TestCase {
 	public function test_buffer_mode_binary_does_not_accumulate_partial_lines(): void {
 		// Binary mode emits each fread as-is, even if it ends mid-line.
 		file_put_contents( "{$this->tmp}/data.log", "first\nseco" );
-		$t = new Tail( "{$this->tmp}/data.log", buffer_mode: 'binary' );
+		$t = new Tail_Node( "{$this->tmp}/data.log", buffer_mode: 'binary' );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 
@@ -143,7 +143,7 @@ class TailTest extends TestCase {
 	}
 
 	public function test_missing_file_does_not_throw(): void {
-		$t = new Tail( "{$this->tmp}/missing.log" );
+		$t = new Tail_Node( "{$this->tmp}/missing.log" );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 		$t->poll(); // Should not throw.
@@ -153,12 +153,12 @@ class TailTest extends TestCase {
 	public function test_poll_bounds_per_call_read_to_READ_CHUNK(): void {
 		// File larger than READ_CHUNK should require multiple polls to drain.
 		// Using binary mode (one message per fread) makes the chunk count assertable.
-		$chunk_size  = Tail::READ_CHUNK;
+		$chunk_size  = Tail_Node::READ_CHUNK;
 		$total_bytes = ( $chunk_size * 2 ) + 100;          // 2.5 chunks
 		$payload     = \str_repeat( 'x', $total_bytes );
 		\file_put_contents( "{$this->tmp}/big.log", $payload );
 
-		$t   = new Tail( "{$this->tmp}/big.log", buffer_mode: 'binary' );
+		$t   = new Tail_Node( "{$this->tmp}/big.log", buffer_mode: 'binary' );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 
@@ -187,18 +187,18 @@ class TailTest extends TestCase {
 	// ============================================================================
 
 	public function test_MAX_LINE_BUFFER_SIZE_constant_defined(): void {
-		$this->assertSame( 20971520, Tail::MAX_LINE_BUFFER_SIZE );
+		$this->assertSame( 20971520, Tail_Node::MAX_LINE_BUFFER_SIZE );
 	}
 
 	public function test_oversized_line_remainder_is_discarded(): void {
 		// Use reflection to push the line_remainder past the MAX threshold without
 		// having to fabricate 20MB of disk content.
-		$t = new Tail( "{$this->tmp}/data.log" );
+		$t = new Tail_Node( "{$this->tmp}/data.log" );
 		$ref = new \ReflectionClass( $t );
 		$prop = $ref->getProperty( 'line_remainder' );
 		$prop->setAccessible( true );
 		// Pre-populate the remainder near the cap.
-		$prop->setValue( $t, str_repeat( 'x', Tail::MAX_LINE_BUFFER_SIZE - 10 ) );
+		$prop->setValue( $t, str_repeat( 'x', Tail_Node::MAX_LINE_BUFFER_SIZE - 10 ) );
 
 		$cap = new CaptureSink();
 		$t->sink( $cap );
@@ -215,12 +215,12 @@ class TailTest extends TestCase {
 	}
 
 	public function test_oversized_line_remainder_recovers_at_next_newline(): void {
-		$t = new Tail( "{$this->tmp}/data.log" );
+		$t = new Tail_Node( "{$this->tmp}/data.log" );
 		$ref = new \ReflectionClass( $t );
 		$prop = $ref->getProperty( 'line_remainder' );
 		$prop->setAccessible( true );
 		// Push remainder near the cap.
-		$prop->setValue( $t, str_repeat( 'x', Tail::MAX_LINE_BUFFER_SIZE - 10 ) );
+		$prop->setValue( $t, str_repeat( 'x', Tail_Node::MAX_LINE_BUFFER_SIZE - 10 ) );
 
 		$cap = new CaptureSink();
 		$t->sink( $cap );
@@ -238,11 +238,11 @@ class TailTest extends TestCase {
 
 	public function test_oversized_line_remainder_in_block_buffered_mode_is_discarded(): void {
 		// Block-buffered DoS guard: same recovery semantics as line-buffered.
-		$t = new Tail( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
+		$t = new Tail_Node( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
 		$ref = new \ReflectionClass( $t );
 		$prop = $ref->getProperty( 'line_remainder' );
 		$prop->setAccessible( true );
-		$prop->setValue( $t, str_repeat( 'x', Tail::MAX_LINE_BUFFER_SIZE - 10 ) );
+		$prop->setValue( $t, str_repeat( 'x', Tail_Node::MAX_LINE_BUFFER_SIZE - 10 ) );
 
 		$cap = new CaptureSink();
 		$t->sink( $cap );
@@ -258,11 +258,11 @@ class TailTest extends TestCase {
 	public function test_oversized_line_remainder_in_block_buffered_no_newline_clears(): void {
 		// Block-buffered DoS guard with no newline in the new bytes: line_remainder
 		// is fully discarded with nothing to recover.
-		$t = new Tail( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
+		$t = new Tail_Node( "{$this->tmp}/data.log", buffer_mode: 'block-buffered' );
 		$ref  = new \ReflectionClass( $t );
 		$prop = $ref->getProperty( 'line_remainder' );
 		$prop->setAccessible( true );
-		$prop->setValue( $t, str_repeat( 'x', Tail::MAX_LINE_BUFFER_SIZE - 10 ) );
+		$prop->setValue( $t, str_repeat( 'x', Tail_Node::MAX_LINE_BUFFER_SIZE - 10 ) );
 
 		$cap = new CaptureSink();
 		$t->sink( $cap );
@@ -281,7 +281,7 @@ class TailTest extends TestCase {
 		// even though the original-path file is now larger than what we'd read after
 		// reset — the inode-change detection path is what we're verifying.
 		\file_put_contents( "{$this->tmp}/data.log", "first\n" );
-		$t   = new Tail( "{$this->tmp}/data.log" );
+		$t   = new Tail_Node( "{$this->tmp}/data.log" );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 		$t->poll();
@@ -301,7 +301,7 @@ class TailTest extends TestCase {
 		// File truncation: size shrinks below current position. Tail must reset to 0
 		// (preserving the same inode) so subsequent reads start from the new top.
 		\file_put_contents( "{$this->tmp}/data.log", "first\nsecond\nthird\n" );
-		$t   = new Tail( "{$this->tmp}/data.log" );
+		$t   = new Tail_Node( "{$this->tmp}/data.log" );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 		$t->poll();
@@ -319,7 +319,7 @@ class TailTest extends TestCase {
 	public function test_poll_returns_silently_when_size_equals_position(): void {
 		// File hasn't grown — at_eof path. No new emissions.
 		\file_put_contents( "{$this->tmp}/data.log", "first\n" );
-		$t   = new Tail( "{$this->tmp}/data.log" );
+		$t   = new Tail_Node( "{$this->tmp}/data.log" );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 		$t->poll();
@@ -334,16 +334,16 @@ class TailTest extends TestCase {
 		// Force more than READ_CHUNK so that one poll leaves at_eof=false.
 		// fire() must re-arm with POLL_INTERVAL_BUSY_MS so the event loop
 		// re-fires immediately on the next iteration.
-		$total = Tail::READ_CHUNK + 1024;
+		$total = Tail_Node::READ_CHUNK + 1024;
 		\file_put_contents( "{$this->tmp}/big.log", \str_repeat( 'x', $total ) );
 
-		$t   = new Tail( "{$this->tmp}/big.log", buffer_mode: 'binary' );
+		$t   = new Tail_Node( "{$this->tmp}/big.log", buffer_mode: 'binary' );
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 
 		// Drive fire() via reflection (it's protected — Timer's set_timer/event-loop
 		// call it). One fire() = one poll().
-		$ref  = new \ReflectionMethod( Tail::class, 'fire' );
+		$ref  = new \ReflectionMethod( Tail_Node::class, 'fire' );
 		$ref->setAccessible( true );
 		$ref->invoke( $t );
 
@@ -357,12 +357,12 @@ class TailTest extends TestCase {
 	public function test_fire_rearms_idle_when_at_eof(): void {
 		// File completely drained → at_eof=true → re-arm with POLL_INTERVAL_EOF_MS.
 		\file_put_contents( "{$this->tmp}/small.log", "one\n" );
-		$t = new Tail( "{$this->tmp}/small.log", buffer_mode: 'line-buffered' );
+		$t = new Tail_Node( "{$this->tmp}/small.log", buffer_mode: 'line-buffered' );
 
 		$cap = new CaptureSink();
 		$t->sink( $cap );
 
-		$ref = new \ReflectionMethod( Tail::class, 'fire' );
+		$ref = new \ReflectionMethod( Tail_Node::class, 'fire' );
 		$ref->setAccessible( true );
 		$ref->invoke( $t );
 

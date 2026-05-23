@@ -11,7 +11,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Partition extends Timer {
+class Partition_Node extends Timer_Node {
 	public const DEFAULT_SEGMENT_SIZE = 67108864;
 	public const DEFAULT_NUM_SEGMENTS = 4;
 	public const DEFAULT_MAX_LIFESPAN = 86400;
@@ -50,8 +50,8 @@ class Partition extends Timer {
 	protected float $segments_cache_time = 0.0;
 
 	protected bool $allow_large_writes = false;
-	protected ?Lock $write_lock = null;
-	protected ?Timer $heartbeat_timer = null;
+	protected ?Lock_Node $write_lock = null;
+	protected ?Timer_Node $heartbeat_timer = null;
 	protected int $lock_stale_timeout = 0;
 	protected float $last_lock_heartbeat = 0.0;
 
@@ -82,7 +82,7 @@ class Partition extends Timer {
 		$this->partition_dir = "{$this->base_dir}/p{$partition}";
 		$this->arguments     = "{$this->base_dir} {$this->partition} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}";
 
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->patron( $this );
 		$ci->commands( self::config_verbs() );
 		$this->attach_interpreter( $ci );
@@ -357,10 +357,10 @@ class Partition extends Timer {
 	 */
 	public function allow_large_writes( int $max_wait_ms = 65000 ): self {
 		$stale_timeout = 60;
-		$lock          = new Lock( "{$this->partition_dir}/write.lock.d", $stale_timeout );
+		$lock          = new Lock_Node( "{$this->partition_dir}/write.lock.d", $stale_timeout );
 
 		// Drain active: wire Lock + heartbeat Timer. Request-scope: drive heartbeat from fill().
-		$ef_running = EventFramework::instance()->is_running();
+		$ef_running = Event_Framework::instance()->is_running();
 		if ( $ef_running ) {
 			$lock->name( "{$this->name}:lock" );
 			$lock->sink( $this->sink );
@@ -385,7 +385,7 @@ class Partition extends Timer {
 
 		if ( $ef_running ) {
 			// Heartbeat cadence = stale_timeout/3 ms; three ticks per stale window.
-			$this->heartbeat_timer = new Timer();
+			$this->heartbeat_timer = new Timer_Node();
 			$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
 			$this->heartbeat_timer->sink( $this->write_lock );
 			$this->heartbeat_timer->set_key( 'heartbeat' );
@@ -784,14 +784,14 @@ class Partition extends Timer {
 		static $verbs = null;
 		if ( null === $verbs ) {
 			$verbs = [
-				'allow_large_writes' => static function ( CommandInterpreter $ci, string $args ): string {
+				'allow_large_writes' => static function ( Command_Interpreter_Node $ci, string $args ): string {
 					/** @var self $patron */
 					$patron = $ci->patron();
 					$patron->allow_large_writes();
 					$patron->mark_verb_invoked( 'allow_large_writes', '' );
 					return 'ok';
 				},
-				'with_index'         => static function ( CommandInterpreter $ci, string $args ): string {
+				'with_index'         => static function ( Command_Interpreter_Node $ci, string $args ): string {
 					$args = \trim( $args );
 					if ( '' === $args ) {
 						return 'usage: with_index <formatter_name>';

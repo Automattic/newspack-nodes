@@ -11,7 +11,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Log extends Node {
+class Log_Node extends Node {
 	public const MODE_APPEND    = 'append';
 	public const MODE_OVERWRITE = 'overwrite';
 

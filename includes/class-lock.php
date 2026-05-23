@@ -14,7 +14,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Lock extends Node {
+class Lock_Node extends Node {
 	public const STALE_TIMEOUT  = 60;
 	public const RESTART_FLAG   = 'restart';
 	public const HEARTBEAT_FILE = 'heartbeat';

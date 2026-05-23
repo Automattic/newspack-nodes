@@ -1,11 +1,11 @@
 <?php
 namespace Newspack_Nodes\Tests\Integration;
 
-use Newspack_Nodes\Callback;
-use Newspack_Nodes\Hook;
+use Newspack_Nodes\Callback_Node;
+use Newspack_Nodes\Hook_Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Router;
-use Newspack_Nodes\Tee;
+use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\Tee_Node;
 use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
 
@@ -16,14 +16,14 @@ class LegoBricksRoundTripTest extends TestCase {
 	}
 
 	public function test_tee_fans_to_hook_then_capture(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$tee = new Tee();
+		$tee = new Tee_Node();
 		$tee->name( 'fanout' );
 		$tee->sink( $router );
 
-		$hook = new Hook( 'newspack_nodes/test_event' );
+		$hook = new Hook_Node( 'newspack_nodes/test_event' );
 		$hook->name( 'on-event' );
 		$hook_sink = new CaptureSink();
 		$hook->sink( $hook_sink );
@@ -52,12 +52,12 @@ class LegoBricksRoundTripTest extends TestCase {
 
 	public function test_callback_can_filter_in_a_chain(): void {
 		$capture = new CaptureSink();
-		$transformer = new Callback( function ( array &$m ) {
+		$transformer = new Callback_Node( function ( array &$m ) {
 			$m[ Message::VALUE ] = 'X-' . $m[ Message::VALUE ];
 		} );
 		$transformer->sink( $capture );
 
-		$chain = new Callback( function ( array &$m ) use ( $transformer ) {
+		$chain = new Callback_Node( function ( array &$m ) use ( $transformer ) {
 			$transformer->fill( $m );
 			$transformer->sink()->fill( $m );
 		} );

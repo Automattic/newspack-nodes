@@ -22,25 +22,25 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Callback;
-use Newspack_Nodes\CommandInterpreter;
-use Newspack_Nodes\Consumer;
+use Newspack_Nodes\Callback_Node;
+use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
-use Newspack_Nodes\Dumper;
+use Newspack_Nodes\Dumper_Node;
 use Newspack_Nodes\Echo_Node;
-use Newspack_Nodes\Hook;
-use Newspack_Nodes\Lock;
-use Newspack_Nodes\Log;
+use Newspack_Nodes\Hook_Node;
+use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\Log_Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Partition;
-use Newspack_Nodes\Router;
-use Newspack_Nodes\Shell;
-use Newspack_Nodes\Tail;
-use Newspack_Nodes\Tee;
+use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\Shell_Node;
+use Newspack_Nodes\Tail_Node;
+use Newspack_Nodes\Tee_Node;
 use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
-use Newspack_Nodes\Timer;
-use Newspack_Nodes\Topic;
+use Newspack_Nodes\Timer_Node;
+use Newspack_Nodes\Topic_Node;
 use PHPUnit\Framework\Attributes\DataProvider;
 
 class NodeLifecycleTest extends TestCase {
@@ -59,21 +59,21 @@ class NodeLifecycleTest extends TestCase {
 		\file_put_contents( "{$base}/tail.log", '' );
 
 		return [
-			'Callback'           => [ static fn () => new Callback( static fn () => true ) ],
-			'CommandInterpreter' => [ static fn () => new CommandInterpreter() ],
-			'Consumer'           => [ static fn () => new Consumer( "{$base}/cdata", 0, "{$base}/coff" ) ],
-			'Dumper'             => [ static fn () => new Dumper() ],
+			'Callback'           => [ static fn () => new Callback_Node( static fn () => true ) ],
+			'CommandInterpreter' => [ static fn () => new Command_Interpreter_Node() ],
+			'Consumer'           => [ static fn () => new Consumer_Node( "{$base}/cdata", 0, "{$base}/coff" ) ],
+			'Dumper'             => [ static fn () => new Dumper_Node() ],
 			'Echo_Node'          => [ static fn () => new Echo_Node() ],
-			'Hook'               => [ static fn () => new Hook( 'the_content' ) ],
-			'Lock'               => [ static fn () => new Lock( "{$base}/lock.d", 5 ) ],
-			'Log'                => [ static fn () => new Log( "{$base}/out.log" ) ],
-			'Partition'          => [ static fn () => new Partition( "{$base}/part", 0 ) ],
-			'Router'             => [ static fn () => new Router() ],
-			'Shell'              => [ static fn () => new Shell() ],
-			'Tail'               => [ static fn () => new Tail( "{$base}/tail.log" ) ],
-			'Tee'                => [ static fn () => new Tee() ],
-			'Timer'              => [ static fn () => new Timer() ],
-			'Topic'              => [ static fn () => new Topic( "{$base}/topic", 2 ) ],
+			'Hook'               => [ static fn () => new Hook_Node( 'the_content' ) ],
+			'Lock'               => [ static fn () => new Lock_Node( "{$base}/lock.d", 5 ) ],
+			'Log'                => [ static fn () => new Log_Node( "{$base}/out.log" ) ],
+			'Partition'          => [ static fn () => new Partition_Node( "{$base}/part", 0 ) ],
+			'Router'             => [ static fn () => new Router_Node() ],
+			'Shell'              => [ static fn () => new Shell_Node() ],
+			'Tail'               => [ static fn () => new Tail_Node( "{$base}/tail.log" ) ],
+			'Tee'                => [ static fn () => new Tee_Node() ],
+			'Timer'              => [ static fn () => new Timer_Node() ],
+			'Topic'              => [ static fn () => new Topic_Node( "{$base}/topic", 2 ) ],
 		];
 	}
 
@@ -128,7 +128,7 @@ class NodeLifecycleTest extends TestCase {
 		$msg[ Message::VALUE ]     = "NOT_AVAILABLE\n";
 		// The Router has no sink — it routes by TO, so address the named capture;
 		// other transit nodes forward to their sink regardless of TO.
-		if ( $node instanceof Router ) {
+		if ( $node instanceof Router_Node ) {
 			$msg[ Message::TO ] = 'lifecycle_capture';
 		} else {
 			$node->sink( $capture );
@@ -174,7 +174,7 @@ class NodeLifecycleTest extends TestCase {
 		$msg[ Message::VALUE ]     = '';
 		// The Router has no sink — it routes by TO, so address the named capture;
 		// other transit nodes forward to their sink regardless of TO.
-		if ( $node instanceof Router ) {
+		if ( $node instanceof Router_Node ) {
 			$msg[ Message::TO ] = 'lifecycle_capture';
 		} else {
 			$node->sink( $capture );
@@ -205,6 +205,6 @@ class NodeLifecycleTest extends TestCase {
 	 * this test was written for — skip rather than assert on a no-op.
 	 */
 	private function is_transit_node( object $node ): bool {
-		return ! ( $node instanceof Tail || $node instanceof Lock || $node instanceof Dumper );
+		return ! ( $node instanceof Tail_Node || $node instanceof Lock_Node || $node instanceof Dumper_Node );
 	}
 }

@@ -11,7 +11,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Timer extends Node {
+class Timer_Node extends Node {
 	protected int $fire_count = 0;
 	protected bool $active = false;
 	protected bool $oneshot = false;
@@ -50,7 +50,7 @@ class Timer extends Node {
 			$this->mode = 'router';
 			return;
 		}
-		EventFramework::instance()->set_timer( $this, $ms, $oneshot );
+		Event_Framework::instance()->set_timer( $this, $ms, $oneshot );
 		$this->mode = 'event_framework';
 	}
 
@@ -70,7 +70,7 @@ class Timer extends Node {
 				return;
 			}
 			if ( 'event_framework' === $mode ) {
-				EventFramework::instance()->stop_timer( $self );
+				Event_Framework::instance()->stop_timer( $self );
 			}
 		} );
 	}

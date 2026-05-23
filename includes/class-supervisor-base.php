@@ -11,7 +11,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class SupervisorBase {
+class Supervisor_Base {
 	/** Min interval between spawning the same worker; updated after every attempt (success or fail). */
 	public const MIN_SPAWN_INTERVAL_S = 15;
 
@@ -41,7 +41,7 @@ class SupervisorBase {
 	public function worker_needs_spawn( array $worker, float $now ): bool {
 		$type      = $worker['type'];
 		$partition = $worker['partition'];
-		$stale     = $worker['stale_timeout'] ?? Lock::STALE_TIMEOUT;
+		$stale     = $worker['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT;
 
 		$dir = $this->lock_path( $type, $partition );
 		if ( ! \is_dir( $dir ) ) {

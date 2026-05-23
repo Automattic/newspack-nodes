@@ -14,11 +14,11 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Service_CI;
+use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( Service_CI::class )]
+#[CoversClass( Service_CI_Node::class )]
 class ServiceCITest extends TestCase {
 
 	protected function setUp(): void {
@@ -100,7 +100,7 @@ class ServiceCITest extends TestCase {
  * to invoke them in isolation. Constructing the probe is not required —
  * the helpers are static.
  */
-class ServiceCITestProbe extends Service_CI {
+class ServiceCITestProbe extends Service_CI_Node {
 
 	public static function require_manage_options_probe(): void {
 		self::require_manage_options();

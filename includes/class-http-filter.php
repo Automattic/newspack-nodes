@@ -19,7 +19,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class HTTP_Filter extends Node {
+class HTTP_Filter_Node extends Node {
 	private int $own_pid;
 
 	public function __construct( int $own_pid ) {

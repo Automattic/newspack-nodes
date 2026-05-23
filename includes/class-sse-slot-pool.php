@@ -18,11 +18,11 @@
 
 namespace Newspack_Nodes;
 
-use Newspack_Nodes\Rest\SSE_Out;
+use Newspack_Nodes\Rest\SSE_Out_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Sse_Slot_Pool {
+class SSE_Slot_Pool {
 
 	/** Maximum concurrent SSE streams per user/IP per pool. */
 	public static int $max_slots = 8;
@@ -38,14 +38,14 @@ class Sse_Slot_Pool {
 	 * application bootstrap once `Core::$memd` is set.
 	 */
 	public static function wire(): void {
-		SSE_Out::$acquire_slot = static function ( int $partition ): int|false {
+		SSE_Out_Node::$acquire_slot = static function ( int $partition ): int|false {
 			$ttl = $partition >= 0 ? self::$ttl_aggregator : self::$ttl_browser;
 			return self::acquire( self::user_id(), self::ip_hash(), self::$max_slots, $ttl, $partition );
 		};
-		SSE_Out::$release_slot = static function ( int $slot, int $partition ): void {
+		SSE_Out_Node::$release_slot = static function ( int $slot, int $partition ): void {
 			self::release( self::user_id(), self::ip_hash(), $slot, $partition );
 		};
-		SSE_Out::$check_slot = static function ( int $slot, int $partition ): bool {
+		SSE_Out_Node::$check_slot = static function ( int $slot, int $partition ): bool {
 			// Check-only — NEVER refresh the TTL here. The slot TTL is refreshed
 			// EXCLUSIVELY by the client's periodic `workers/heartbeat` poke
 			// (Workers_CI -> Sse_Slot_Pool::touch). A stream draining is not proof

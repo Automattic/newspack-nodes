@@ -2,10 +2,10 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Tests\TestCase;
-use Newspack_Nodes\WorkerBase;
+use Newspack_Nodes\Worker_Base;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( WorkerBase::class )]
+#[CoversClass( Worker_Base::class )]
 class WorkerBaseTest extends TestCase {
 	private string $tmp;
 
@@ -133,7 +133,7 @@ class WorkerBaseTest extends TestCase {
 
 		$first_mtime = \filemtime( $hb_path );
 		// Backdate last_heartbeat past the heartbeat interval.
-		$w->set_last_heartbeat_for_test( \microtime( true ) - WorkerBase::HEARTBEAT_INTERVAL_S - 1 );
+		$w->set_last_heartbeat_for_test( \microtime( true ) - Worker_Base::HEARTBEAT_INTERVAL_S - 1 );
 		// Backdate the heartbeat file mtime so we can detect a refresh.
 		\touch( $hb_path, \time() - 60 );
 
@@ -169,7 +169,7 @@ class WorkerBaseTest extends TestCase {
 		// memory_get_usage path indirectly: check that the result is a sane
 		// integer matching what ini_get reports.
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
-		$ref = new \ReflectionMethod( WorkerBase::class, 'memory_limit_bytes' );
+		$ref = new \ReflectionMethod( Worker_Base::class, 'memory_limit_bytes' );
 		$ref->setAccessible( true );
 
 		$result = $ref->invoke( $w );
@@ -190,7 +190,7 @@ class WorkerBaseTest extends TestCase {
 		// directly verify the unlimited-memory path via subclass override.
 		$w = new UnlimitedMemoryWorker( $this->tmp, 'test-worker', 0 );
 		$w->acquire();
-		$ref = new \ReflectionMethod( WorkerBase::class, 'memory_over_watermark' );
+		$ref = new \ReflectionMethod( Worker_Base::class, 'memory_over_watermark' );
 		$ref->setAccessible( true );
 		$this->assertFalse( $ref->invoke( $w ) );
 	}
@@ -199,7 +199,7 @@ class WorkerBaseTest extends TestCase {
 		// Default base implementation always passes — subclasses override to do
 		// real liveness checks.
 		$w = new TestableWorker( $this->tmp, 'test-worker', 0 );
-		$ref = new \ReflectionMethod( WorkerBase::class, 'db_check_passes' );
+		$ref = new \ReflectionMethod( Worker_Base::class, 'db_check_passes' );
 		$ref->setAccessible( true );
 		$this->assertTrue( $ref->invoke( $w ) );
 	}
@@ -247,7 +247,7 @@ class WorkerBaseTest extends TestCase {
 		$topology = function ( $ci, $partition ) use ( $topology_lock_path ): void {
 			// Drop the restart flag inside the topology closure so the first
 			// drain iteration exits cleanly.
-			\Newspack_Nodes\Lock::request_restart_at( $topology_lock_path );
+			\Newspack_Nodes\Lock_Node::request_restart_at( $topology_lock_path );
 		};
 
 		$result = $worker->execute( $topology, 'http://example/spawn', 'token-abc' );
@@ -266,7 +266,7 @@ class WorkerBaseTest extends TestCase {
 	}
 }
 
-class TestableWorker extends WorkerBase {
+class TestableWorker extends Worker_Base {
 	public function set_start_time_for_test( float $t ): void {
 		$this->start_time = $t;
 	}
@@ -275,13 +275,13 @@ class TestableWorker extends WorkerBase {
 	}
 }
 
-class UnlimitedMemoryWorker extends WorkerBase {
+class UnlimitedMemoryWorker extends Worker_Base {
 	protected function memory_limit_bytes(): int {
 		return -1;
 	}
 }
 
-class DbCheckWorker extends WorkerBase {
+class DbCheckWorker extends Worker_Base {
 	private bool $db_pass = true;
 
 	public function set_db_check_result( bool $pass ): void {

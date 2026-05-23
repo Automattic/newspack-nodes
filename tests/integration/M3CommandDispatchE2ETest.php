@@ -32,7 +32,7 @@ namespace Newspack_Nodes\Tests\Integration;
 
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Rest\HTTP_In;
+use Newspack_Nodes\Rest\HTTP_In_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 class M3CommandDispatchE2ETest extends TestCase {
@@ -69,7 +69,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 	 * @dataProvider verb_provider
 	 */
 	public function test_each_substrate_ci_responds_to_a_representative_verb( string $to, string $verb, mixed $payload, string $args = '' ): void {
-		$ctrl = new HTTP_In();
+		$ctrl = new HTTP_In_Node();
 		$ctrl->set_test_mode( true );
 		\ob_start();
 		$ctrl->dispatch( $this->build_request( $to, $verb, $payload, $args ) );

@@ -16,21 +16,21 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
-use Newspack_Nodes\Callback;
-use Newspack_Nodes\Cli;
+use Newspack_Nodes\Callback_Node;
+use Newspack_Nodes\CLI;
 use Newspack_Nodes\Config;
-use Newspack_Nodes\Consumer;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
-use Newspack_Nodes\EventFramework;
-use Newspack_Nodes\HTTP_Filter;
+use Newspack_Nodes\Event_Framework;
+use Newspack_Nodes\HTTP_Filter_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
-use Newspack_Nodes\Router;
+use Newspack_Nodes\Router_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
-class SSE_Out extends Node {
+class SSE_Out_Node extends Node {
 	use SSE_Stream_Trait;
 
 	public const REST_NAMESPACE = 'newspack-nodes/v1';
@@ -143,7 +143,7 @@ class SSE_Out extends Node {
 	 * @param string                $sub       Subscription name.
 	 * @param array<int,mixed>|null $positions Saved positions, indexed by partition.
 	 *
-	 * @return array<int,Consumer>
+	 * @return array<int,Consumer_Node>
 	 *
 	 * @throws \InvalidArgumentException When `$sub` matches no allowed shape.
 	 */
@@ -152,12 +152,12 @@ class SSE_Out extends Node {
 
 		if ( \preg_match( '/^([a-z0-9_-]+)\.p(\d+)$/', $sub, $m ) ) {
 			$attach = self::$attach_to_worker ?? static function ( string $worker_id, string $base_dir ): array {
-				return ( new Cli( $base_dir ) )->attach_to_worker( $worker_id );
+				return ( new CLI( $base_dir ) )->attach_to_worker( $worker_id );
 			};
 			try {
 				$ipc = $attach( $sub, $base );
 				// Empty offsetlog_base_dir disables checkpointing — ephemeral sessions tail-seek.
-				$consumer = new Consumer( $ipc['output'], 0, '' );
+				$consumer = new Consumer_Node( $ipc['output'], 0, '' );
 				$consumer->next_offset( 'end' );
 				$consumer->set_stamp_as( $sub );
 				return [ $consumer ];
@@ -167,7 +167,7 @@ class SSE_Out extends Node {
 				$log_name  = $m[1];
 				$partition = (int) $m[2];
 				$log_base  = "{$base}/logs/{$log_name}.log";
-				$consumer  = new Consumer( $log_base, $partition, '' );
+				$consumer  = new Consumer_Node( $log_base, $partition, '' );
 				if ( isset( $positions[ $partition ] ) ) {
 					$consumer->next_offset( $positions[ $partition ] );
 				} else {
@@ -183,7 +183,7 @@ class SSE_Out extends Node {
 			$partitions = $this->num_partitions ?? (int) ( Config::load_config()['num_partitions'] ?? 1 );
 			$consumers  = [];
 			for ( $p = 0; $p < $partitions; $p++ ) {
-				$consumer = new Consumer( $log_base, $p, '' );
+				$consumer = new Consumer_Node( $log_base, $p, '' );
 				if ( isset( $positions[ $p ] ) ) {
 					$consumer->next_offset( $positions[ $p ] );
 				} else {
@@ -283,15 +283,15 @@ class SSE_Out extends Node {
 		try {
 			// Build INSIDE the try so finally cleans up even when open_subscription
 			// throws — otherwise the next request hits a `_router already registered` collision.
-			( new Router() )->name( Node_Names::ROUTER );
+			( new Router_Node() )->name( Node_Names::ROUTER );
 			// This controller IS the SSE egress Node; HTTP_Filter sinks into it.
-			$http_filter = new HTTP_Filter( (int) \getmypid() );
+			$http_filter = new HTTP_Filter_Node( (int) \getmypid() );
 			$http_filter->name( Node_Names::HTTP );
 			$http_filter->sink( $this );
 
 			// Empty TO → emit directly via this Node's fill(). Non-empty TO → route
 			// through _router so HTTP_Filter can gate per-session pivoted replies.
-			$direct_sink = new Callback(
+			$direct_sink = new Callback_Node(
 				function ( array &$m ): void {
 					if ( '' === $m[ Message::TO ] ) {
 						$this->fill( $m );
@@ -318,7 +318,7 @@ class SSE_Out extends Node {
 			$heartbeat_interval = \max( 0.1, $interval / 1000.0 );
 			$last_heartbeat     = \microtime( true );
 			$iterations         = 0;
-			EventFramework::instance()->drain(
+			Event_Framework::instance()->drain(
 				function () use ( &$iterations, &$last_heartbeat, $heartbeat_interval, $slot, $partition ): bool {
 					if ( $this->test_mode && ++$iterations > $this->test_iterations ) {
 						return false;
@@ -351,11 +351,11 @@ class SSE_Out extends Node {
 				$direct_sink->remove_node();
 			}
 			$http = Core::node( Node_Names::HTTP );
-			if ( $http instanceof HTTP_Filter ) {
+			if ( $http instanceof HTTP_Filter_Node ) {
 				$http->remove_node();
 			}
 			$router = Core::node( Node_Names::ROUTER );
-			if ( $router instanceof Router ) {
+			if ( $router instanceof Router_Node ) {
 				$router->remove_node();
 			}
 			$release = self::$release_slot;

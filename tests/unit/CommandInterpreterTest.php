@@ -1,18 +1,19 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Echo_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( CommandInterpreter::class )]
+#[CoversClass( Command_Interpreter_Node::class )]
 class CommandInterpreterTest extends TestCase {
 	protected function tearDown(): void {
 		// $default_authorize is static process state — reset so tests don't bleed.
-		CommandInterpreter::$default_authorize = null;
+		Command_Interpreter_Node::$default_authorize = null;
 		parent::tearDown();
 	}
 
@@ -29,8 +30,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_interpret_refuses_command_without_local_provenance(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci   = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci   = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$sink = new CaptureSink();
 		$ci->sink( $sink );
@@ -48,8 +49,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_interpret_allows_command_with_local_provenance(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$msg = $this->command_message( 'make_node', 'CaptureSink real', true ); // LOCAL
@@ -59,8 +60,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_instance_authorize_overrides_default_local_check(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$ci->authorize = static fn ( array $m ): bool => true;
 
@@ -71,9 +72,9 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_static_default_authorize_can_refuse_even_with_local(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		CommandInterpreter::$default_authorize = static fn ( array $m ): bool => false;
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		Command_Interpreter_Node::$default_authorize = static fn ( array $m ): bool => false;
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$msg = $this->command_message( 'make_node', 'CaptureSink nope', true ); // LOCAL set
@@ -90,8 +91,8 @@ class CommandInterpreterTest extends TestCase {
 	public function test_dispatch_is_not_gated_for_programmatic_callers(): void {
 		// The gate lives in interpret() (message path); direct dispatch() stays open
 		// for topology/setup code.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$ci->dispatch( 'make_node', 'CaptureSink direct' );
 		$this->assertInstanceOf( CaptureSink::class, Core::node( 'direct' ) );
@@ -99,9 +100,9 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_make_node_creates_named_node_in_registry(): void {
 		// Register CaptureSink in the class table so `make_node CaptureSink ...` works.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
 
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -112,9 +113,9 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_make_node_auto_sinks_new_node_into_command_interpreter(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
 
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink bob' );
@@ -124,8 +125,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_make_node_returns_ok_string(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$result = $ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -133,7 +134,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_dispatch_throws_on_unknown_command(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$this->expectException( \InvalidArgumentException::class );
@@ -142,7 +143,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_debug_state_no_args_toggles_self(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$this->assertSame( 0, $ci->debug_state() );
 
@@ -154,7 +155,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_debug_state_numeric_arg_sets_self_to_level(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$this->assertSame( '_command_interpreter debug_state: 2', $ci->dispatch( 'debug_state', '2' ) );
@@ -162,8 +163,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_debug_state_with_node_name_toggles_that_node(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
 
@@ -178,8 +179,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_debug_state_with_node_name_and_level_sets_explicitly(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
 
@@ -188,7 +189,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_debug_state_unknown_node_returns_error(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$this->assertSame( 'unknown node: nonexistent', $ci->dispatch( 'debug_state', 'nonexistent' ) );
@@ -201,8 +202,8 @@ class CommandInterpreterTest extends TestCase {
 		//   debug_state 1
 		//   make_node Foo bar
 		//   make_node Foo baz  ← also at level 1
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'debug_state', '1' );
@@ -216,8 +217,8 @@ class CommandInterpreterTest extends TestCase {
 		// Inverse: nodes constructed while the CI is at default level 0
 		// stay at level 0. No "inherit zero" pun intended — the test guards
 		// against accidental writebacks if the propagation logic is sloppy.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -226,7 +227,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_command_interpreter_forwards_non_commands_to_sink(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$downstream = new CaptureSink();
@@ -240,9 +241,9 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_command_interpreter_executes_TM_COMMAND(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
 
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$msg                   = Message::new_message();
@@ -261,8 +262,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_set_sink_wires_one_node_to_another(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -273,8 +274,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_connect_node_sets_target(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -285,8 +286,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_disconnect_node_clears_target(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -298,8 +299,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_remove_node_removes_single_node(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -311,8 +312,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_remove_node_aliases_remove_and_rm_match(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -325,8 +326,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_remove_node_accepts_multiple_names(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -344,8 +345,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_remove_node_glob_matches_anchored_regex(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink worker-0' );
@@ -361,8 +362,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_remove_node_glob_no_matches_reports_no_matches(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'remove_node', '-a will-never-match' );
@@ -370,7 +371,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_remove_node_unknown_name_reports_error(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'remove_node', 'ghost' );
@@ -381,7 +382,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_remove_node_refuses_to_destroy_interpreter(): void {
 		// Removing _command_interpreter would crash subsequent dispatch.
 		// remove_node must refuse, both via name match and via $node===$self.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'remove_node', '_command_interpreter' );
@@ -393,10 +394,10 @@ class CommandInterpreterTest extends TestCase {
 	public function test_remove_node_refuses_baseline_scaffolding_by_name(): void {
 		// _router and _output are also baseline; even an outsider CI shouldn't
 		// be able to delete them via this command.
-		$router = new \Newspack_Nodes\Router();
+		$router = new \Newspack_Nodes\Router_Node();
 		$router->name( '_router' );
 
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( 'helper-ci' );
 
 		$out = $ci->dispatch( 'remove_node', '_router' );
@@ -405,7 +406,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_remove_node_empty_args_returns_usage(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'remove_node' );
@@ -413,7 +414,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_remove_node_a_flag_with_no_pattern_returns_usage(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'remove_node', '-a' );
@@ -425,10 +426,10 @@ class CommandInterpreterTest extends TestCase {
 		// through `help <verb>` — either directly via $H or through the
 		// alias→canonical map. A regression that adds a verb without help
 		// would land here as a failed assertion telling us which key.
-		$ref = new \ReflectionClass( CommandInterpreter::class );
+		$ref = new \ReflectionClass( Command_Interpreter_Node::class );
 
 		// Force initialization of $C and $H (init_C is private and lazy).
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$ci->dispatch( 'help' );
 
@@ -450,7 +451,7 @@ class CommandInterpreterTest extends TestCase {
 		// Shell builtins never reach $C (Shell intercepts them before sending),
 		// but they're user-typeable so help must still cover them. Mirrors the
 		// list in Shell::parse + the prefix-aware verb cases.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$shell_builtins = [
@@ -479,14 +480,14 @@ class CommandInterpreterTest extends TestCase {
 		// confirm the override fires. After remove, the file handles close —
 		// the simplest observable side effect is that the node is no longer
 		// in the registry.
-		CommandInterpreter::register_class( 'Partition', \Newspack_Nodes\Partition::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'Partition', \Newspack_Nodes\Partition_Node::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$tmp = $this->make_temp_dir();
 		try {
 			$ci->dispatch( 'make_node', "Partition mypart {$tmp} 0" );
-			$this->assertInstanceOf( \Newspack_Nodes\Partition::class, Core::node( 'mypart' ) );
+			$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, Core::node( 'mypart' ) );
 
 			$ci->dispatch( 'remove_node', 'mypart' );
 			$this->assertNull( Core::node( 'mypart' ) );
@@ -496,8 +497,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_ls_returns_node_table(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -510,8 +511,8 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_ls_default_mode_shows_only_siblings(): void {
 		// Default mode = nodes whose sink IS this CI.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		// alice + bob auto-sink to _command_interpreter via make_node.
@@ -527,8 +528,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_ls_dash_a_shows_all_nodes(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -542,8 +543,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_ls_dash_a_with_glob_filters_by_regex(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -557,8 +558,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_ls_with_node_name_shows_nodes_sinking_into_it(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink hub' );
@@ -574,7 +575,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_ls_with_unknown_name_returns_error(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'ls', 'nonexistent' );
@@ -582,8 +583,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_ls_dash_c_shows_count_column(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -597,7 +598,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_help_no_args_lists_commands(): void {
 		// Listing uses canonical names per Tachikoma convention — aliases like
 		// `ls` and `dump` are documented in their canonical entry's help text.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'help' );
@@ -610,7 +611,7 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_help_alias_resolves_to_canonical_topic(): void {
 		// `help ls` should return list_nodes' help text.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'help', 'dump' );
@@ -619,7 +620,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_help_topic_returns_help_text(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'help', 'ls' );
@@ -628,7 +629,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_help_unknown_topic_returns_error(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'help', 'nonsense' );
@@ -643,7 +644,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_help_completion_returns_bare_sorted_verb_names(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out   = $ci->dispatch( 'help', '', null, $this->completion_envelope() );
@@ -667,7 +668,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_help_without_completion_key_is_unchanged(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'help' );
@@ -676,7 +677,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_custom_command_table_gets_default_help_listing_its_verbs(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( 'svc' );
 		// A subclass-style custom table WITHOUT its own help verb.
 		$ci->commands(
@@ -693,7 +694,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_default_help_does_not_override_a_custom_help_verb(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( 'svc' );
 		$ci->commands(
 			[
@@ -706,8 +707,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_ls_completion_returns_bare_node_names_no_columns(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -726,8 +727,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_ls_completion_dash_a_returns_all_bare_names(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -741,8 +742,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_ls_without_completion_key_is_unchanged(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -753,8 +754,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_dump_node_shows_internal_state(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -769,8 +770,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_dump_alias_works(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -781,8 +782,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_dump_node_with_keys_filters_output(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -797,8 +798,8 @@ class CommandInterpreterTest extends TestCase {
 	public function test_dump_node_class_key_is_not_an_error(): void {
 		// `class` heads the dump, so requesting it as a key is a no-op, not a
 		// "can't find key" error.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
 
@@ -809,7 +810,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_dump_node_unknown_node_returns_error(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'dump_node', 'nonexistent' );
@@ -817,8 +818,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_dump_node_unknown_key_returns_error(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -832,7 +833,7 @@ class CommandInterpreterTest extends TestCase {
 		// TM_PING with empty TO (i.e., addressed to itself after _router peeled),
 		// it sets TO=FROM and forwards via sink so the message walks the
 		// breadcrumb trail back to the originator.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$downstream = new CaptureSink();
@@ -857,7 +858,7 @@ class CommandInterpreterTest extends TestCase {
 		// back so the cli knows all preceding output has been drained from
 		// the IPC partitions before exiting. Same TO=FROM pattern as
 		// TM_PING.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$downstream = new CaptureSink();
@@ -877,7 +878,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_TM_EOF_with_non_empty_TO_does_not_bounce(): void {
 		// TM_EOF in transit toward another node: forward as-is. Only the
 		// destination CI (where TO arrives empty after _router peels) bounces.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$downstream = new CaptureSink();
@@ -897,7 +898,7 @@ class CommandInterpreterTest extends TestCase {
 		// TM_PING with TO set (e.g., transiting through this CI on the way to
 		// somewhere else) just forwards normally — only the destination CI
 		// (where TO arrives empty after _router peels) does the bounce.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$downstream = new CaptureSink();
@@ -915,8 +916,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_stats_renders_tachikoma_columns(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		// alice is a sibling (sinks into _command_interpreter via make_node).
@@ -949,7 +950,7 @@ class CommandInterpreterTest extends TestCase {
 		// CaptureSink overrides fill() to track packed-Message size — base
 		// Node intentionally doesn't, so we use a tracking subclass here
 		// to exercise the dump_metadata field surface.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$alice = new CaptureSink();
@@ -977,7 +978,7 @@ class CommandInterpreterTest extends TestCase {
 		// (what the GUI renders), never the fully-qualified
 		// `Newspack_Nodes\Tests\CaptureSink`. This pins the contract so the
 		// allocation-free basename computation can't regress to the FQCN.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$alice = new CaptureSink();
@@ -990,8 +991,26 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 'CaptureSink', $decoded['alice']['class'] );
 	}
 
+	public function test_dump_metadata_class_is_the_registered_shell_name(): void {
+		// The `class` field is the SHELL name the GUI catalog keys on, which
+		// differs from the class short-name when they diverge (Echo_Node → 'Echo').
+		// The JS Inspector does `catalog.find( c => c.shell_name === node.class )`
+		// and `node.class === 'Tee'`, so reporting the short-name 'Echo_Node'
+		// would break schema lookup + Tee detection on the canvas.
+		Command_Interpreter_Node::register_class( 'Echo', Echo_Node::class );
+		$ci = new Command_Interpreter_Node();
+		$ci->name( '_command_interpreter' );
+
+		$node = new Echo_Node();
+		$node->name( 'e1' );
+
+		$decoded = $ci->dispatch( 'dump_metadata' );
+
+		$this->assertSame( 'Echo', $decoded['e1']['class'] );
+	}
+
 	public function test_uptime_under_one_minute_shows_seconds_only(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		Core::$init_time = 1_700_000_000.0;
 		Core::$now       = 1_700_000_000.0 + 42;
@@ -999,7 +1018,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_uptime_under_one_minute_pads_single_digit_seconds(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		Core::$init_time = 1_700_000_000.0;
 		Core::$now       = 1_700_000_000.0 + 7;
@@ -1007,7 +1026,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_uptime_under_one_hour_pads_single_digit_seconds(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		Core::$init_time = 1_700_000_000.0;
 		Core::$now       = 1_700_000_000.0 + ( 4 * 60 ) + 7;
@@ -1015,7 +1034,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_uptime_under_one_hour_shows_minutes_and_seconds(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		Core::$init_time = 1_700_000_000.0;
 		Core::$now       = 1_700_000_000.0 + ( 4 * 60 ) + 12;
@@ -1023,7 +1042,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_uptime_under_one_day_pads_single_digit_minutes(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		Core::$init_time = 1_700_000_000.0;
 		Core::$now       = 1_700_000_000.0 + ( 2 * 3_600 ) + ( 5 * 60 );
@@ -1031,7 +1050,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_uptime_under_one_day_shows_hours_and_minutes(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		Core::$init_time = 1_700_000_000.0;
 		Core::$now       = 1_700_000_000.0 + ( 2 * 3_600 ) + ( 35 * 60 );
@@ -1039,7 +1058,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_uptime_over_one_day_shows_days_and_hms(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		Core::$init_time = 1_700_000_000.0;
 		Core::$now       = 1_700_000_000.0 + ( 3 * 86_400 ) + ( 4 * 3_600 ) + ( 5 * 60 ) + 6;
@@ -1047,8 +1066,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_dump_config_round_trips_full_graph(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -1066,19 +1085,19 @@ class CommandInterpreterTest extends TestCase {
 	// ── A1: instance verb table + patron pointer ─────────────────
 
 	public function test_patron_accessor_round_trips(): void {
-		$ci   = new CommandInterpreter();
-		$node = new \Newspack_Nodes\Callback( static fn () => null );
+		$ci   = new Command_Interpreter_Node();
+		$node = new \Newspack_Nodes\Callback_Node( static fn () => null );
 		$this->assertNull( $ci->patron() );
 		$ci->patron( $node );
 		$this->assertSame( $node, $ci->patron() );
 	}
 
 	public function test_commands_accessor_replaces_verb_table(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( 'test_ci' );
 		$ci->commands(
 			[
-				'echo_args' => static fn ( CommandInterpreter $self, string $args ) => "got: $args",
+				'echo_args' => static fn ( Command_Interpreter_Node $self, string $args ) => "got: $args",
 			]
 		);
 		$result = $ci->dispatch( 'echo_args', 'hello world' );
@@ -1088,7 +1107,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_default_ci_still_has_default_verbs_after_refactor(): void {
 		// Regression: moving $C from class-level static to instance must
 		// not break the bare `_command_interpreter`'s built-in verbs.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$result = $ci->dispatch( 'ls' );
 		$this->assertStringNotContainsString( 'unknown command', $result );
@@ -1096,8 +1115,8 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_dump_metadata_skips_any_patron_linked_node(): void {
 		// Patron data node — visible.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$ci->dispatch( 'make_node', 'CaptureSink patron_node' );
 		$patron = \Newspack_Nodes\Core::node( 'patron_node' );
@@ -1120,14 +1139,14 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_dump_metadata_skips_patron_linked_sibling_cis(): void {
 		// Patron data node — visible to the canvas.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$ci->dispatch( 'make_node', 'CaptureSink patron_node' );
 		$patron = \Newspack_Nodes\Core::node( 'patron_node' );
 
 		// Sibling CI — should be filtered out of dump_metadata.
-		$sibling = new CommandInterpreter();
+		$sibling = new Command_Interpreter_Node();
 		$sibling->patron( $patron );
 		$sibling->name( 'patron_node:config' );
 
@@ -1145,7 +1164,7 @@ class CommandInterpreterTest extends TestCase {
 		// rather than throw. Tachikoma CI contract: validation errors fall
 		// out as plain strings, only handler exceptions go through the
 		// TM_ERROR wrap in interpret().
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'make_node' );
@@ -1154,8 +1173,8 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_make_node_with_only_type_returns_usage(): void {
 		// `make_node CaptureSink` (no name) — still under the 2-token bar.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'make_node', 'CaptureSink' );
@@ -1165,7 +1184,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_make_node_unknown_class_returns_error(): void {
 		// Class shell-name not in `register_class` table — the cmd should
 		// surface `unknown class: <type>` and NOT auto-create anything.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'make_node', 'NotARegisteredClass alice' );
@@ -1176,8 +1195,8 @@ class CommandInterpreterTest extends TestCase {
 	// ── cmd_set_sink error paths ──────────────────────────────────
 
 	public function test_set_sink_missing_target_returns_usage(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -1186,7 +1205,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_set_sink_empty_args_returns_usage(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'set_sink' );
@@ -1194,8 +1213,8 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_set_sink_unknown_node_returns_error(): void {
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -1212,7 +1231,7 @@ class CommandInterpreterTest extends TestCase {
 	// ── cmd_connect_node error paths + envelope FROM defaulting ──
 
 	public function test_connect_node_empty_args_returns_usage(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'connect_node' );
@@ -1222,7 +1241,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_connect_node_unknown_node_returns_error(): void {
 		// `connect_node` with a name not in the registry: must surface
 		// the not-found message rather than touch any node state.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'connect_node', 'ghost bob' );
@@ -1233,8 +1252,8 @@ class CommandInterpreterTest extends TestCase {
 		// `connect_node alice` with no envelope FROM — should fall through
 		// to the second usage branch (line 325): no target supplied, no
 		// FROM to default to, so the verb has nothing to bind alice to.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -1249,8 +1268,8 @@ class CommandInterpreterTest extends TestCase {
 		// the node back to the cli/SSE session that issued the command
 		// (the message's FROM). This is the "tail this node into my
 		// session" shortcut.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -1267,7 +1286,7 @@ class CommandInterpreterTest extends TestCase {
 	// ── cmd_disconnect_node error paths + Tee envelope behavior ──
 
 	public function test_disconnect_node_empty_args_returns_usage(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'disconnect_node' );
@@ -1275,7 +1294,7 @@ class CommandInterpreterTest extends TestCase {
 	}
 
 	public function test_disconnect_node_unknown_node_returns_error(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'disconnect_node', 'ghost' );
@@ -1287,8 +1306,8 @@ class CommandInterpreterTest extends TestCase {
 		// FROM to default to: hits the second usage branch (line 350).
 		// Tees have array target(); we need the array branch to be
 		// taken for this guard to fire.
-		CommandInterpreter::register_class( 'Tee', \Newspack_Nodes\Tee::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'Tee', \Newspack_Nodes\Tee_Node::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'Tee fanout' );
@@ -1303,8 +1322,8 @@ class CommandInterpreterTest extends TestCase {
 		// Mirror of connect_node's default-to-FROM behavior for the
 		// symmetric undo path: `disconnect_node <tee>` with no explicit
 		// target should peel the issuing FROM out of the Tee's fan-out.
-		CommandInterpreter::register_class( 'Tee', \Newspack_Nodes\Tee::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'Tee', \Newspack_Nodes\Tee_Node::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'Tee fanout' );
@@ -1327,7 +1346,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_pwd_renders_cwd_arrow_from(): void {
 		// `pwd` reports the cwd token (from $args) and the issuing
 		// envelope's FROM in `  <cwd> -> <from>` form.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$envelope                  = Message::new_message();
@@ -1340,7 +1359,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_pwd_empty_cwd_shows_slash(): void {
 		// `pwd` with no args defaults to `/` (the root scope marker that
 		// the Shell uses when cwd is empty).
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$envelope                  = Message::new_message();
@@ -1365,7 +1384,7 @@ class CommandInterpreterTest extends TestCase {
 		);
 
 		try {
-			$ci = new CommandInterpreter();
+			$ci = new Command_Interpreter_Node();
 			$ci->name( '_command_interpreter' );
 
 			$out = $ci->dispatch( 'log', 'hello from log verb' );
@@ -1386,7 +1405,7 @@ class CommandInterpreterTest extends TestCase {
 	// ── cmd_dump_node misuses ─────────────────────────────────────
 
 	public function test_dump_node_with_empty_args_says_no_node_specified(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'dump_node' );
@@ -1399,7 +1418,7 @@ class CommandInterpreterTest extends TestCase {
 		// The output is `HH:MM:SS  up <elapsed>` — covers the gmdate()
 		// clock-segment branch that wasn't asserted on by the existing
 		// uptime suite (which only checked the elapsed portion).
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		// 2023-11-14T22:13:20+00:00.
 		Core::$init_time = 1_700_000_000.0;
@@ -1415,8 +1434,8 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_ls_dash_s_shows_sink_column(): void {
 		// -s flag enables the SINK column in the tabulated output.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -1428,8 +1447,8 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_ls_dash_t_shows_target_column(): void {
 		// -t flag enables the TARGET column.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -1443,8 +1462,8 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_ls_dash_l_implies_count_and_target(): void {
 		// -l == -ct: count column AND target column rendered together.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -1462,7 +1481,7 @@ class CommandInterpreterTest extends TestCase {
 		// surface a `no matches` row in the output. Tabulated output goes
 		// through the column-flag path even though no flags were given —
 		// the no-matches branch happens regardless.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'ls', '-a never-going-to-match-anything' );
@@ -1471,8 +1490,8 @@ class CommandInterpreterTest extends TestCase {
 
 	public function test_ls_with_target_column_for_tee_renders_comma_separated(): void {
 		// Tee target() returns an array; ls -t implodes with ', '.
-		CommandInterpreter::register_class( 'Tee', \Newspack_Nodes\Tee::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'Tee', \Newspack_Nodes\Tee_Node::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'Tee fanout' );
@@ -1489,8 +1508,8 @@ class CommandInterpreterTest extends TestCase {
 		// `-a` flag short-circuits the sibling filter and lists every
 		// node regardless of sink. Forces the `$list_matches` branch
 		// in cmd_stats.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -1507,8 +1526,8 @@ class CommandInterpreterTest extends TestCase {
 		// Regex glob with `-a`: only nodes whose name matches the glob
 		// pattern should appear. Covers the @preg_match branch inside
 		// the $list_matches arm.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
@@ -1524,8 +1543,8 @@ class CommandInterpreterTest extends TestCase {
 	public function test_stats_with_explicit_sink_name_treats_as_glob(): void {
 		// `stats <name>` — no -a — should restrict rows to nodes whose
 		// sink IS the named node. Covers the `$expected = $glob` branch.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$ci->dispatch( 'make_node', 'CaptureSink hub' );
@@ -1546,7 +1565,7 @@ class CommandInterpreterTest extends TestCase {
 		// second token, so the "numeric-only first arg" branch is bypassed
 		// and the cmd treats `1` as a node name. Since there's no node
 		// named `1`, it falls into the `unknown node` arm.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$out = $ci->dispatch( 'debug_state', '1 2' );
@@ -1559,7 +1578,7 @@ class CommandInterpreterTest extends TestCase {
 		// TM_COMMAND with a malformed JSON VALUE — `interpret()` should
 		// drop_message() rather than emit a response. The sink must not
 		// see any new envelopes after the drop.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$downstream = new CaptureSink();
@@ -1578,7 +1597,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_interpret_drops_command_without_name_key(): void {
 		// JSON decodes fine but no `name` key in the dict — same drop path
 		// as the not-an-array case. Covers `! isset( $cmd['name'] )` arm.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$downstream = new CaptureSink();
@@ -1598,7 +1617,7 @@ class CommandInterpreterTest extends TestCase {
 		// back along the FROM trail, instead of crashing the worker.
 		// This is the central contract for "verb handlers throw freely;
 		// interpret() wraps as TM_ERROR".
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$downstream = new CaptureSink();
@@ -1639,7 +1658,7 @@ class CommandInterpreterTest extends TestCase {
 		// live structure, not json-encoded. And an EMPTY array result must
 		// still produce a response (the `'' !== $result` suppression only
 		// catches the empty-STRING case, e.g. `log`).
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$downstream = new CaptureSink();
@@ -1680,7 +1699,7 @@ class CommandInterpreterTest extends TestCase {
 		// An unknown verb makes dispatch() throw InvalidArgumentException;
 		// interpret() catches it and wraps the message as TM_COMMAND|TM_ERROR
 		// so the cli renders it as an error.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$downstream = new CaptureSink();
@@ -1709,8 +1728,8 @@ class CommandInterpreterTest extends TestCase {
 		// and expect them mirrored on the response. Make sure interpret()
 		// copies both fields (not just FROM/TO) — that's the documented
 		// "application-defined correlation metadata" contract.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
-		$ci = new CommandInterpreter();
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$downstream = new CaptureSink();
@@ -1741,7 +1760,7 @@ class CommandInterpreterTest extends TestCase {
 		// path-routed graph would eat commands meant for downstream peers
 		// (see AGENTS.md "CommandInterpreter only handles TM_COMMAND
 		// with empty TO").
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$downstream = new CaptureSink();
@@ -1763,7 +1782,7 @@ class CommandInterpreterTest extends TestCase {
 		// re-interpreted — otherwise the response payload would round-
 		// trip into the verb table and crash. Covers the
 		// `! ( $type & TM_RESPONSE )` guard in fill().
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$downstream = new CaptureSink();
@@ -1786,7 +1805,7 @@ class CommandInterpreterTest extends TestCase {
 		// implicitly as a sibling of patron nodes. Locks the description
 		// down so future "fix" attempts that flip it to a draggable
 		// category trip this test.
-		$schema = CommandInterpreter::node_schema();
+		$schema = Command_Interpreter_Node::node_schema();
 		$this->assertSame( 'Hidden', $schema['category'] );
 		$this->assertArrayHasKey( 'description', $schema );
 		$this->assertSame( [], $schema['ctor'] );
@@ -1799,7 +1818,7 @@ class CommandInterpreterTest extends TestCase {
 		// The cmd_make_node verb returns "unknown class: <type>"; the
 		// underlying instance API returns null. Direct unit test, since
 		// the verb wraps null into the string.
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$this->assertNull( $ci->make_node( 'NotARegisteredClassEver', 'wont_exist' ) );
@@ -1811,7 +1830,7 @@ class CommandInterpreterTest extends TestCase {
 		// Tachikoma's dmesg (join of @RECENT_LOG). Each entry already carries
 		// its trailing newline.
 		Core::$recent_log = [ "alpha\n", "beta\n" ];
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$this->assertSame( "alpha\nbeta\n", $ci->dispatch( 'dmesg' ) );
 	}

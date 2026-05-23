@@ -13,7 +13,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class WorkerCliCommand {
+class Worker_CLI_Command {
 
 	private function base_dir(): string {
 		return (string) ( Config::load_config()['base_directory'] ?? '/tmp/newspack-nodes' );
@@ -23,8 +23,8 @@ class WorkerCliCommand {
 	 * Helper for command implementations to reach the same Cli helper without
 	 * recreating it every time.
 	 */
-	private function cli(): Cli {
-		return new Cli( $this->base_dir() );
+	private function cli(): CLI {
+		return new CLI( $this->base_dir() );
 	}
 
 	/**
@@ -67,7 +67,7 @@ class WorkerCliCommand {
 		\WP_CLI::log( 'Active topology groups:' );
 		foreach ( $topologies as $name => $config ) {
 			$partitions = (int) ( $config['num_partitions'] ?? 1 );
-			$stale      = (int) ( $config['stale_timeout'] ?? Lock::STALE_TIMEOUT );
+			$stale      = (int) ( $config['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT );
 			$path       = (string) ( $config['topology'] ?? '' );
 			$plural     = 1 === $partitions ? 'partition' : 'partitions';
 			\WP_CLI::log( "  - {$name} ({$partitions} {$plural}, stale_timeout={$stale}s)" );
@@ -148,7 +148,7 @@ class WorkerCliCommand {
 			$config['offsets_dir'] = \rtrim( (string) $config['base_directory'], '/' ) . '/offsets';
 		}
 		$topology = static function (
-			CommandInterpreter $ci,
+			Command_Interpreter_Node $ci,
 			int $partition_arg
 		) use ( $topology_name, $config ): void {
 			Topology_Loader::load( $topology_name, $partition_arg, $ci, $config );
@@ -162,11 +162,11 @@ class WorkerCliCommand {
 		// CLI-launched respawns are accepted by the real spawn endpoint.
 		$supervisor = Bootstrap::supervisor();
 
-		$wb = new WorkerBase(
+		$wb = new Worker_Base(
 			$this->base_dir(),
 			$type,
 			$partition,
-			stale_timeout: (int) ( $descriptor['stale_timeout'] ?? Lock::STALE_TIMEOUT )
+			stale_timeout: (int) ( $descriptor['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT )
 		);
 
 		$spawn_url = \function_exists( 'rest_url' )
@@ -243,7 +243,7 @@ class WorkerCliCommand {
 			return;
 		}
 		$base_dir = (string) ( Config::load_config()['base_directory'] ?? '/tmp/newspack-nodes' );
-		( new Cli( $base_dir ) )->restart_workers( $workers, [ $name => true ], -1 );
+		( new CLI( $base_dir ) )->restart_workers( $workers, [ $name => true ], -1 );
 	}
 
 	/**
@@ -283,7 +283,7 @@ class WorkerCliCommand {
 			$lock_dir = "{$base_dir}/locks/{$type}.p{$p}.lock.d";
 
 			$status        = 'dead';
-			$stale_timeout = (int) ( $w['stale_timeout'] ?? Lock::STALE_TIMEOUT );
+			$stale_timeout = (int) ( $w['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT );
 			$hb            = "{$lock_dir}/heartbeat";
 			\clearstatcache( true, $hb );
 			$mtime = \file_exists( $hb ) ? @\filemtime( $hb ) : false;
@@ -291,8 +291,8 @@ class WorkerCliCommand {
 				$status = 'running';
 			}
 
-			$started_at = Lock::get_started_time( $lock_dir );
-			$uptime     = $started_at ? Cli::format_duration( $now - $started_at ) : '-';
+			$started_at = Lock_Node::get_started_time( $lock_dir );
+			$uptime     = $started_at ? CLI::format_duration( $now - $started_at ) : '-';
 
 			$position = $cli->live_position( $cache, $type, $p ) ?? $cli->saved_position( $type, $p );
 			$behind   = '-';
@@ -302,12 +302,12 @@ class WorkerCliCommand {
 				$logs_dir      = "{$base_dir}/logs";
 				$partition_dir = "{$logs_dir}/firehose.log/p{$p}";
 				if ( \is_dir( $partition_dir ) ) {
-					$bytes  = Cli::calculate_behind( $partition_dir, (int) $position['seg'], (int) $position['off'] );
-					$behind = Cli::format_bytes( $bytes );
+					$bytes  = CLI::calculate_behind( $partition_dir, (int) $position['seg'], (int) $position['off'] );
+					$behind = CLI::format_bytes( $bytes );
 				}
 			}
 
-			$restart = Lock::is_restart_pending( $lock_dir ) ? 'yes' : 'no';
+			$restart = Lock_Node::is_restart_pending( $lock_dir ) ? 'yes' : 'no';
 
 			$rows[] = [
 				'Type'      => $type,

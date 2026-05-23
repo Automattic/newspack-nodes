@@ -9,7 +9,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Tee extends Node {
+class Tee_Node extends Node {
 	public function __construct() {
 		$this->target = [];
 	}

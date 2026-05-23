@@ -1,11 +1,11 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\SupervisorBase;
+use Newspack_Nodes\Supervisor_Base;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( SupervisorBase::class )]
+#[CoversClass( Supervisor_Base::class )]
 class SupervisorBaseTest extends TestCase {
 	private string $tmp;
 
@@ -24,13 +24,13 @@ class SupervisorBaseTest extends TestCase {
 	// ── worker_needs_spawn ────────────────────────────────────────────────
 
 	public function test_worker_needs_spawn_when_no_lock(): void {
-		$s      = new SupervisorBase( $this->tmp );
+		$s      = new Supervisor_Base( $this->tmp );
 		$worker = [ 'type' => 'foo', 'partition' => 0, 'stale_timeout' => 60 ];
 		$this->assertTrue( $s->worker_needs_spawn( $worker, microtime( true ) ) );
 	}
 
 	public function test_worker_does_not_need_spawn_when_lock_fresh(): void {
-		$s = new SupervisorBase( $this->tmp );
+		$s = new Supervisor_Base( $this->tmp );
 		mkdir( "{$this->tmp}/locks/foo.p0.lock.d", 0755, true );
 		touch( "{$this->tmp}/locks/foo.p0.lock.d/heartbeat" );
 		$worker = [ 'type' => 'foo', 'partition' => 0, 'stale_timeout' => 60 ];
@@ -38,7 +38,7 @@ class SupervisorBaseTest extends TestCase {
 	}
 
 	public function test_worker_needs_spawn_when_heartbeat_stale(): void {
-		$s = new SupervisorBase( $this->tmp );
+		$s = new Supervisor_Base( $this->tmp );
 		mkdir( "{$this->tmp}/locks/foo.p0.lock.d", 0755, true );
 		touch( "{$this->tmp}/locks/foo.p0.lock.d/heartbeat", time() - 3600 );
 		$worker = [ 'type' => 'foo', 'partition' => 0, 'stale_timeout' => 60 ];
@@ -48,7 +48,7 @@ class SupervisorBaseTest extends TestCase {
 	// ── is_recently_spawned ───────────────────────────────────────────────
 
 	public function test_spawn_rate_limit_skips_recent_spawns(): void {
-		$s   = new SupervisorBase( $this->tmp );
+		$s   = new Supervisor_Base( $this->tmp );
 		$now = microtime( true );
 		$s->record_spawn( 'foo', 0, $now - 5 );
 		$this->assertTrue( $s->is_recently_spawned( 'foo', 0, $now ) );
@@ -61,11 +61,11 @@ class SupervisorBaseTest extends TestCase {
 		// honors the 15s rate limit instead of re-spawning the same worker.
 		$now = microtime( true );
 
-		$first = new SupervisorBase( $this->tmp );
+		$first = new Supervisor_Base( $this->tmp );
 		$first->record_spawn( 'firehose-workers', 0, $now );
 
 		// Fresh instance — empty in-memory map; relies on persistence.
-		$second = new SupervisorBase( $this->tmp );
+		$second = new Supervisor_Base( $this->tmp );
 		$this->assertTrue(
 			$second->is_recently_spawned( 'firehose-workers', 0, $now + 5 ),
 			'cross-instance persistence must be honored'
@@ -77,7 +77,7 @@ class SupervisorBaseTest extends TestCase {
 	}
 
 	public function test_is_recently_spawned_returns_false_when_never_spawned(): void {
-		$s = new SupervisorBase( $this->tmp );
+		$s = new Supervisor_Base( $this->tmp );
 		$this->assertFalse( $s->is_recently_spawned( 'never-seen', 0, microtime( true ) ) );
 	}
 
@@ -90,7 +90,7 @@ class SupervisorBaseTest extends TestCase {
 		mkdir( "{$inside}/sub" );
 		file_put_contents( "{$inside}/sub/b.log", 'world' );
 
-		SupervisorBase::delete_directory_recursive( $inside, $this->tmp );
+		Supervisor_Base::delete_directory_recursive( $inside, $this->tmp );
 
 		$this->assertFalse( is_dir( $inside ), 'inner tree must be removed' );
 		$this->assertTrue( is_dir( "{$this->tmp}/data" ), 'parent must remain' );
@@ -101,7 +101,7 @@ class SupervisorBaseTest extends TestCase {
 		$sibling = $this->make_temp_dir( 'siblling-' );
 		file_put_contents( "{$sibling}/keep.log", 'survive' );
 
-		SupervisorBase::delete_directory_recursive( $sibling, $this->tmp );
+		Supervisor_Base::delete_directory_recursive( $sibling, $this->tmp );
 
 		$this->assertTrue( is_dir( $sibling ), 'sibling tree must NOT be deleted' );
 		$this->assertTrue( is_file( "{$sibling}/keep.log" ) );
@@ -116,7 +116,7 @@ class SupervisorBaseTest extends TestCase {
 		mkdir( $inside, 0755, true );
 		file_put_contents( "{$inside}/safe.log", 'guard' );
 
-		SupervisorBase::delete_directory_recursive( "{$this->tmp}/data/..", $this->tmp );
+		Supervisor_Base::delete_directory_recursive( "{$this->tmp}/data/..", $this->tmp );
 
 		$this->assertTrue( is_dir( $this->tmp ), 'base must remain' );
 		$this->assertTrue( is_file( "{$inside}/safe.log" ) );
@@ -124,7 +124,7 @@ class SupervisorBaseTest extends TestCase {
 
 	public function test_delete_directory_recursive_skips_missing_path(): void {
 		// Should be a no-op if the candidate doesn't exist — not an error.
-		SupervisorBase::delete_directory_recursive( "{$this->tmp}/nope", $this->tmp );
+		Supervisor_Base::delete_directory_recursive( "{$this->tmp}/nope", $this->tmp );
 		$this->assertTrue( is_dir( $this->tmp ) );
 	}
 
@@ -136,7 +136,7 @@ class SupervisorBaseTest extends TestCase {
 		mkdir( "{$base}/l1/l2/l3/l4", 0755, true );
 		file_put_contents( "{$base}/l1/l2/l3/l4/leaf.log", 'leaf' );
 
-		SupervisorBase::delete_directory_recursive( $base, $this->tmp, $cap );
+		Supervisor_Base::delete_directory_recursive( $base, $this->tmp, $cap );
 
 		// At depth 2 the recursion must stop — the dir at depth 2 is not
 		// recursed into, so the leaf survives.
@@ -155,7 +155,7 @@ class SupervisorBaseTest extends TestCase {
 		mkdir( "{$this->tmp}/data", 0755, true );
 		@symlink( $outside, "{$this->tmp}/data/link" );
 
-		SupervisorBase::delete_directory_recursive( "{$this->tmp}/data", $this->tmp );
+		Supervisor_Base::delete_directory_recursive( "{$this->tmp}/data", $this->tmp );
 
 		$this->assertTrue( is_dir( $outside ), 'symlinked target must survive' );
 		$this->assertTrue( is_file( "{$outside}/protected.log" ) );
@@ -167,21 +167,21 @@ class SupervisorBaseTest extends TestCase {
 
 	public function test_is_within_accepts_path_under_base(): void {
 		mkdir( "{$this->tmp}/a/b", 0755, true );
-		$this->assertTrue( SupervisorBase::is_within( "{$this->tmp}/a/b", $this->tmp ) );
+		$this->assertTrue( Supervisor_Base::is_within( "{$this->tmp}/a/b", $this->tmp ) );
 	}
 
 	public function test_is_within_accepts_base_itself(): void {
-		$this->assertTrue( SupervisorBase::is_within( $this->tmp, $this->tmp ) );
+		$this->assertTrue( Supervisor_Base::is_within( $this->tmp, $this->tmp ) );
 	}
 
 	public function test_is_within_rejects_sibling(): void {
 		$other = $this->make_temp_dir( 'other-' );
-		$this->assertFalse( SupervisorBase::is_within( $other, $this->tmp ) );
+		$this->assertFalse( Supervisor_Base::is_within( $other, $this->tmp ) );
 		$this->rmdir_recursive( $other );
 	}
 
 	public function test_is_within_rejects_unresolvable_path(): void {
-		$this->assertFalse( SupervisorBase::is_within( '/nonexistent/path', $this->tmp ) );
+		$this->assertFalse( Supervisor_Base::is_within( '/nonexistent/path', $this->tmp ) );
 	}
 
 	// ── remove_stale_directory threshold ──────────────────────────────────
@@ -193,7 +193,7 @@ class SupervisorBaseTest extends TestCase {
 		// Backdate file mtime well past the threshold.
 		touch( "{$dir}/file.log", time() - 7200 );
 
-		$s = new SupervisorBase( $this->tmp );
+		$s = new Supervisor_Base( $this->tmp );
 		$s->remove_stale_directory( $dir, 3600 );
 
 		$this->assertFalse( is_dir( $dir ), 'stale dir must be removed' );
@@ -205,14 +205,14 @@ class SupervisorBaseTest extends TestCase {
 		file_put_contents( "{$dir}/file.log", 'recent' );
 		// Default mtime — recent.
 
-		$s = new SupervisorBase( $this->tmp );
+		$s = new Supervisor_Base( $this->tmp );
 		$s->remove_stale_directory( $dir, 3600 );
 
 		$this->assertTrue( is_dir( $dir ), 'fresh dir must NOT be removed' );
 	}
 
 	public function test_remove_stale_directory_no_op_when_missing(): void {
-		$s = new SupervisorBase( $this->tmp );
+		$s = new Supervisor_Base( $this->tmp );
 		$s->remove_stale_directory( "{$this->tmp}/no-such-dir", 3600 );
 		// No exception, no side effect.
 		$this->assertTrue( is_dir( $this->tmp ) );
@@ -224,7 +224,7 @@ class SupervisorBaseTest extends TestCase {
 		$dir = "{$this->tmp}/empty";
 		mkdir( $dir );
 
-		$s = new SupervisorBase( $this->tmp );
+		$s = new Supervisor_Base( $this->tmp );
 		$s->remove_stale_directory( $dir, 3600 );
 
 		$this->assertTrue( is_dir( $dir ) );
@@ -241,7 +241,7 @@ class SupervisorBaseTest extends TestCase {
 		$link = "{$this->tmp}/link";
 		@symlink( $target, $link );
 
-		$s = new SupervisorBase( $this->tmp );
+		$s = new Supervisor_Base( $this->tmp );
 		$s->remove_stale_directory( $link, 3600 );
 
 		$this->assertTrue( is_dir( $target ), 'symlink target must survive' );
@@ -253,9 +253,9 @@ class SupervisorBaseTest extends TestCase {
 	// ── Constants ─────────────────────────────────────────────────────────
 
 	public function test_constants_match_spec(): void {
-		$this->assertSame( 15, SupervisorBase::MIN_SPAWN_INTERVAL_S );
-		$this->assertSame( 16, SupervisorBase::MAX_PARTITIONS );
-		$this->assertSame( 3600, SupervisorBase::STALE_PARTITION_AGE_S );
+		$this->assertSame( 15, Supervisor_Base::MIN_SPAWN_INTERVAL_S );
+		$this->assertSame( 16, Supervisor_Base::MAX_PARTITIONS );
+		$this->assertSame( 3600, Supervisor_Base::STALE_PARTITION_AGE_S );
 	}
 
 	// ── worker_needs_spawn: heartbeat-missing-but-dir-exists ─────────────
@@ -269,7 +269,7 @@ class SupervisorBaseTest extends TestCase {
 	 * and "stale heartbeat" (test_worker_needs_spawn_when_heartbeat_stale).
 	 */
 	public function test_worker_needs_spawn_when_heartbeat_file_missing(): void {
-		$s = new SupervisorBase( $this->tmp );
+		$s = new Supervisor_Base( $this->tmp );
 		// Lock dir exists but heartbeat file is absent.
 		mkdir( "{$this->tmp}/locks/foo.p0.lock.d", 0755, true );
 
@@ -285,7 +285,7 @@ class SupervisorBaseTest extends TestCase {
 	 * when the worker descriptor omits it. Verifies the ?? fallback.
 	 */
 	public function test_worker_needs_spawn_uses_default_stale_timeout(): void {
-		$s = new SupervisorBase( $this->tmp );
+		$s = new Supervisor_Base( $this->tmp );
 		mkdir( "{$this->tmp}/locks/foo.p0.lock.d", 0755, true );
 		// Heartbeat older than default Lock::STALE_TIMEOUT (60s) but younger
 		// than 90s — this asserts the default is in fact ~60.
@@ -312,7 +312,7 @@ class SupervisorBaseTest extends TestCase {
 		file_put_contents( $file, 'preserve' );
 
 		// Should be a no-op.
-		SupervisorBase::delete_directory_recursive( $file, $this->tmp );
+		Supervisor_Base::delete_directory_recursive( $file, $this->tmp );
 
 		$this->assertFileExists( $file, 'regular files must NOT be unlinked' );
 	}
@@ -334,7 +334,7 @@ class SupervisorBaseTest extends TestCase {
 		$link = "{$this->tmp}/symlink-to-target";
 		@symlink( $target, $link );
 
-		SupervisorBase::delete_directory_recursive( $link, $this->tmp );
+		Supervisor_Base::delete_directory_recursive( $link, $this->tmp );
 
 		$this->assertTrue( is_dir( $target ), 'symlink target must survive' );
 		$this->assertTrue( is_file( "{$target}/preserved.log" ) );
@@ -366,7 +366,7 @@ class SupervisorBaseTest extends TestCase {
 		file_put_contents( "{$external}/fresh.log", 'now' );
 		@symlink( "{$external}/fresh.log", "{$dir}/symlink-to-fresh" );
 
-		$s = new SupervisorBase( $this->tmp );
+		$s = new Supervisor_Base( $this->tmp );
 		$s->remove_stale_directory( $dir, 3600 );
 
 		// The dir's only "real" file is old → stale → removed despite
@@ -387,11 +387,11 @@ class SupervisorBaseTest extends TestCase {
 	 * types. Verifies the TTL computation by checking the transient store.
 	 */
 	public function test_persist_spawn_ts_writes_with_bounded_ttl(): void {
-		$s   = new SupervisorBase( $this->tmp );
+		$s   = new Supervisor_Base( $this->tmp );
 		$now = microtime( true );
 		$s->record_spawn( 'firehose-workers', 0, $now );
 
-		$key = SupervisorBase::SPAWN_TS_CACHE_KEY . 'firehose-workers|0';
+		$key = Supervisor_Base::SPAWN_TS_CACHE_KEY . 'firehose-workers|0';
 		// Bootstrap stores transients as [value, expires_at]. Inspect the raw
 		// store to verify expiry was bounded.
 		$entry = $GLOBALS['_wp_test_transients'][ $key ] ?? null;
@@ -412,8 +412,8 @@ class SupervisorBaseTest extends TestCase {
 	 */
 	public function test_load_spawn_ts_returns_null_on_miss(): void {
 		// No record_spawn called — no persisted state.
-		$s = new SupervisorBase( $this->tmp );
-		$method = new \ReflectionMethod( SupervisorBase::class, 'load_spawn_ts' );
+		$s = new Supervisor_Base( $this->tmp );
+		$method = new \ReflectionMethod( Supervisor_Base::class, 'load_spawn_ts' );
 		$method->setAccessible( true );
 
 		$result = $method->invoke( $s, 'never-recorded|0' );
@@ -432,11 +432,11 @@ class SupervisorBaseTest extends TestCase {
 		$now = microtime( true );
 
 		// First instance: persist via record_spawn.
-		$first = new SupervisorBase( $this->tmp );
+		$first = new Supervisor_Base( $this->tmp );
 		$first->record_spawn( 'foo', 0, $now );
 
 		// Second instance: triggers load_spawn_ts internally.
-		$second = new SupervisorBase( $this->tmp );
+		$second = new Supervisor_Base( $this->tmp );
 		$this->assertTrue( $second->is_recently_spawned( 'foo', 0, $now + 5 ) );
 
 		// Clear the transient store. If is_recently_spawned were re-fetching,

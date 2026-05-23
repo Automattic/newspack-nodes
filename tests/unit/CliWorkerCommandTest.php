@@ -10,17 +10,17 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Cli;
-use Newspack_Nodes\Lock;
+use Newspack_Nodes\CLI;
+use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
-use Newspack_Nodes\WorkerCliCommand;
+use Newspack_Nodes\Worker_CLI_Command;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 require_once \dirname( __DIR__, 2 ) . '/includes/cli/class-worker-cli-command.php';
 require_once \dirname( __DIR__ ) . '/Helpers/WPCLIStub.php';
 
-#[CoversClass( WorkerCliCommand::class )]
+#[CoversClass( Worker_CLI_Command::class )]
 class CliWorkerCommandTest extends TestCase {
 	private string $tmp;
 
@@ -68,7 +68,7 @@ class CliWorkerCommandTest extends TestCase {
 	// -------------------------------------------------------------------------
 
 	public function test_types_warns_when_no_topologies(): void {
-		( new WorkerCliCommand() )->types( [], [] );
+		( new Worker_CLI_Command() )->types( [], [] );
 		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_warns'] );
 		$this->assertStringContainsString( 'No active topologies', $GLOBALS['_test_wp_cli_warns'][0] );
 	}
@@ -77,7 +77,7 @@ class CliWorkerCommandTest extends TestCase {
 		$this->register_topology( 'firehose-workers', 4 );
 		$this->register_topology( 'aggregator', 1 );
 
-		( new WorkerCliCommand() )->types( [], [] );
+		( new Worker_CLI_Command() )->types( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( 'firehose-workers', $haystack );
@@ -92,20 +92,20 @@ class CliWorkerCommandTest extends TestCase {
 
 	public function test_restart_requires_type_arg(): void {
 		$this->expectException( \RuntimeException::class );
-		( new WorkerCliCommand() )->restart( [], [] );
+		( new Worker_CLI_Command() )->restart( [], [] );
 	}
 
 	public function test_restart_rejects_invalid_type(): void {
 		$this->register_topology( 'firehose-workers', 2 );
 		$this->expectException( \RuntimeException::class );
-		( new WorkerCliCommand() )->restart( [ 'no-such-type' ], [ 'partition' => 0 ] );
+		( new Worker_CLI_Command() )->restart( [ 'no-such-type' ], [ 'partition' => 0 ] );
 	}
 
 	public function test_restart_requires_partition_or_all_partitions(): void {
 		$this->register_topology( 'firehose-workers', 2 );
 		$this->expectException( \RuntimeException::class );
 		// No --partition, no --all-partitions => error.
-		( new WorkerCliCommand() )->restart( [ 'firehose-workers' ], [] );
+		( new Worker_CLI_Command() )->restart( [ 'firehose-workers' ], [] );
 	}
 
 	public function test_restart_writes_flag_for_specific_partition(): void {
@@ -116,13 +116,13 @@ class CliWorkerCommandTest extends TestCase {
 		\mkdir( $lock_dir_p0, 0755, true );
 		\mkdir( $lock_dir_p1, 0755, true );
 
-		( new WorkerCliCommand() )->restart(
+		( new Worker_CLI_Command() )->restart(
 			[ 'firehose-workers' ],
 			[ 'partition' => 1 ]
 		);
 
-		$this->assertTrue( Lock::is_restart_pending( $lock_dir_p1 ), 'p1 flag should be written' );
-		$this->assertFalse( Lock::is_restart_pending( $lock_dir_p0 ), 'p0 flag should not be written' );
+		$this->assertTrue( Lock_Node::is_restart_pending( $lock_dir_p1 ), 'p1 flag should be written' );
+		$this->assertFalse( Lock_Node::is_restart_pending( $lock_dir_p0 ), 'p0 flag should not be written' );
 		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_success'] );
 	}
 
@@ -132,14 +132,14 @@ class CliWorkerCommandTest extends TestCase {
 			\mkdir( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d", 0755, true );
 		}
 
-		( new WorkerCliCommand() )->restart(
+		( new Worker_CLI_Command() )->restart(
 			[ 'firehose-workers' ],
 			[ 'all-partitions' => true ]
 		);
 
 		for ( $p = 0; $p < 3; $p++ ) {
 			$lock_dir = "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d";
-			$this->assertTrue( Lock::is_restart_pending( $lock_dir ), "p{$p} flag should be set" );
+			$this->assertTrue( Lock_Node::is_restart_pending( $lock_dir ), "p{$p} flag should be set" );
 		}
 	}
 
@@ -149,10 +149,10 @@ class CliWorkerCommandTest extends TestCase {
 		\mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
 		\mkdir( "{$this->tmp}/locks/aggregator.p0.lock.d", 0755, true );
 
-		( new WorkerCliCommand() )->restart( [ 'all' ], [ 'all-partitions' => true ] );
+		( new Worker_CLI_Command() )->restart( [ 'all' ], [ 'all-partitions' => true ] );
 
-		$this->assertTrue( Lock::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p0.lock.d" ) );
-		$this->assertTrue( Lock::is_restart_pending( "{$this->tmp}/locks/aggregator.p0.lock.d" ) );
+		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p0.lock.d" ) );
+		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/locks/aggregator.p0.lock.d" ) );
 	}
 
 	// -------------------------------------------------------------------------
@@ -160,7 +160,7 @@ class CliWorkerCommandTest extends TestCase {
 	// -------------------------------------------------------------------------
 
 	public function test_status_warns_when_no_workers_registered(): void {
-		( new WorkerCliCommand() )->status( [], [] );
+		( new Worker_CLI_Command() )->status( [], [] );
 		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_warns'] );
 	}
 
@@ -174,7 +174,7 @@ class CliWorkerCommandTest extends TestCase {
 		\file_put_contents( "{$lock_p0}/started", (string) ( \time() - 30 ) );
 		// p1 has no lock dir at all => 'dead' with '-' uptime.
 
-		( new WorkerCliCommand() )->status( [], [] );
+		( new Worker_CLI_Command() )->status( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( 'firehose-workers', $haystack );
@@ -187,9 +187,9 @@ class CliWorkerCommandTest extends TestCase {
 		$lock = "{$this->tmp}/locks/aggregator.p0.lock.d";
 		\mkdir( $lock, 0755, true );
 		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
-		Lock::request_restart_at( $lock );
+		Lock_Node::request_restart_at( $lock );
 
-		( new WorkerCliCommand() )->status( [], [] );
+		( new Worker_CLI_Command() )->status( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( 'restart=yes', $haystack );
@@ -201,20 +201,20 @@ class CliWorkerCommandTest extends TestCase {
 
 	public function test_run_requires_type(): void {
 		$this->expectException( \RuntimeException::class );
-		( new WorkerCliCommand() )->run( [], [] );
+		( new Worker_CLI_Command() )->run( [], [] );
 	}
 
 	public function test_run_rejects_unknown_type(): void {
 		$this->register_topology( 'firehose-workers', 1 );
 		$this->expectException( \RuntimeException::class );
-		( new WorkerCliCommand() )->run( [ 'unknown' ], [] );
+		( new Worker_CLI_Command() )->run( [ 'unknown' ], [] );
 	}
 
 	public function test_run_errors_on_missing_topology_file(): void {
 		// Topology registered but the path doesn't exist.
 		$this->register_topology( 'firehose-workers', 1, '/nonexistent/topology.php' );
 		$this->expectException( \RuntimeException::class );
-		( new WorkerCliCommand() )->run( [ 'firehose-workers' ], [] );
+		( new Worker_CLI_Command() )->run( [ 'firehose-workers' ], [] );
 	}
 
 	public function test_run_errors_when_topology_name_not_in_registry(): void {
@@ -224,7 +224,7 @@ class CliWorkerCommandTest extends TestCase {
 		$this->register_topology( 'bogus-topology', 1, 'bogus-topology' );
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessageMatches( '/Topology not found in registry/' );
-		( new WorkerCliCommand() )->run( [ 'bogus-topology' ], [] );
+		( new Worker_CLI_Command() )->run( [ 'bogus-topology' ], [] );
 	}
 
 	// Integration coverage of "WorkerCliCommand runs a TSL topology to
@@ -257,11 +257,11 @@ class CliWorkerCommandTest extends TestCase {
 			\mkdir( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d", 0755, true );
 		}
 
-		WorkerCliCommand::restart_fleet_by_name( 'firehose-workers' );
+		Worker_CLI_Command::restart_fleet_by_name( 'firehose-workers' );
 
 		for ( $p = 0; $p < 3; $p++ ) {
 			$this->assertTrue(
-				Lock::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d" ),
+				Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d" ),
 				"partition p{$p} must have restart flag written"
 			);
 		}
@@ -273,7 +273,7 @@ class CliWorkerCommandTest extends TestCase {
 		// entries → no work to do. Must not throw, must not touch disk.
 		\mkdir( "{$this->tmp}/locks", 0755, true );
 
-		WorkerCliCommand::restart_fleet_by_name( 'never-registered' );
+		Worker_CLI_Command::restart_fleet_by_name( 'never-registered' );
 
 		// No restart flag files were written.
 		$entries = \scandir( "{$this->tmp}/locks" );
@@ -289,11 +289,11 @@ class CliWorkerCommandTest extends TestCase {
 		\mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
 		\mkdir( "{$this->tmp}/locks/aggregator.p0.lock.d", 0755, true );
 
-		WorkerCliCommand::restart_fleet_by_name( 'firehose-workers' );
+		Worker_CLI_Command::restart_fleet_by_name( 'firehose-workers' );
 
-		$this->assertTrue( Lock::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p0.lock.d" ) );
+		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p0.lock.d" ) );
 		$this->assertFalse(
-			Lock::is_restart_pending( "{$this->tmp}/locks/aggregator.p0.lock.d" ),
+			Lock_Node::is_restart_pending( "{$this->tmp}/locks/aggregator.p0.lock.d" ),
 			'aggregator must not be restarted when the named fleet is firehose-workers'
 		);
 	}
@@ -309,7 +309,7 @@ class CliWorkerCommandTest extends TestCase {
 		$this->register_topology( 'firehose-workers', 1 );
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessageMatches( '/No worker registered for firehose-workers partition 5/' );
-		( new WorkerCliCommand() )->run(
+		( new Worker_CLI_Command() )->run(
 			[ 'firehose-workers' ],
 			[ 'partition' => 5 ]
 		);
@@ -324,7 +324,7 @@ class CliWorkerCommandTest extends TestCase {
 		// covered by test_types_lists_registered_groups.
 		$this->register_topology( 'aggregator', 1 );
 
-		( new WorkerCliCommand() )->types( [], [] );
+		( new Worker_CLI_Command() )->types( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( '1 partition', $haystack );
@@ -337,7 +337,7 @@ class CliWorkerCommandTest extends TestCase {
 		// line when set; verifies the secondary log statement.
 		$this->register_topology( 'firehose-workers', 2, '/some/explicit/path.tsl' );
 
-		( new WorkerCliCommand() )->types( [], [] );
+		( new Worker_CLI_Command() )->types( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( '/some/explicit/path.tsl', $haystack );
@@ -356,7 +356,7 @@ class CliWorkerCommandTest extends TestCase {
 		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
 		\file_put_contents( "{$lock}/started", (string) ( \time() - 120 ) );
 
-		( new WorkerCliCommand() )->status( [], [] );
+		( new Worker_CLI_Command() )->status( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		// 120 seconds → format_duration emits "2m" or similar minute-grain.
@@ -389,7 +389,7 @@ class CliWorkerCommandTest extends TestCase {
 		// 300 bytes total → 200 bytes behind (300 - 100).
 		\file_put_contents( "{$partition_dir}/0.log", \str_repeat( 'a', 300 ) );
 
-		( new WorkerCliCommand() )->status( [], [] );
+		( new Worker_CLI_Command() )->status( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		// 200B → format_bytes → "200B". At minimum verify the column
@@ -422,7 +422,7 @@ class CliWorkerCommandTest extends TestCase {
 			return $cache;
 		} );
 
-		( new WorkerCliCommand() )->status( [], [] );
+		( new Worker_CLI_Command() )->status( [], [] );
 
 		$this->assertNotEmpty( $cache->hits, 'cache must be consulted via live_position' );
 		$this->assertStringContainsString( 'newspack_nodes:cursor:firehose-workers.p0', $cache->hits[0] );
@@ -442,7 +442,7 @@ class CliWorkerCommandTest extends TestCase {
 			return 'not-an-object';
 		} );
 
-		( new WorkerCliCommand() )->status( [], [] );
+		( new Worker_CLI_Command() )->status( [], [] );
 
 		// No exception, output produced.
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
@@ -458,7 +458,7 @@ class CliWorkerCommandTest extends TestCase {
 		\mkdir( $lock, 0755, true );
 		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
 
-		( new WorkerCliCommand() )->status( [], [] );
+		( new Worker_CLI_Command() )->status( [], [] );
 
 		// Plain-text fallback emits one log line per row.
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
@@ -491,7 +491,7 @@ class CliWorkerCommandTest extends TestCase {
 		);
 		// Deliberately DO NOT create logs/firehose.log/p0 — that's the branch.
 
-		( new WorkerCliCommand() )->status( [], [] );
+		( new Worker_CLI_Command() )->status( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( 'firehose-workers', $haystack );
@@ -532,7 +532,7 @@ class CliWorkerCommandTest extends TestCase {
 		\mkdir( $lock_dir, 0755, true );
 		\file_put_contents( "{$lock_dir}/heartbeat", (string) ( \getmypid() + 99999 ) );
 
-		( new WorkerCliCommand() )->run( [ 'run-test-topology' ], [ 'partition' => 0 ] );
+		( new Worker_CLI_Command() )->run( [ 'run-test-topology' ], [ 'partition' => 0 ] );
 
 		// Non-quiet: a 'Starting…' log line and a 'Worker exited with status:'
 		// success line both fire. The success line carries the skipped status.
@@ -560,7 +560,7 @@ class CliWorkerCommandTest extends TestCase {
 		\mkdir( $lock_dir, 0755, true );
 		\file_put_contents( "{$lock_dir}/heartbeat", (string) ( \getmypid() + 99999 ) );
 
-		( new WorkerCliCommand() )->run(
+		( new Worker_CLI_Command() )->run(
 			[ 'run-quiet-test' ],
 			[ 'partition' => 0, 'quiet' => true ]
 		);

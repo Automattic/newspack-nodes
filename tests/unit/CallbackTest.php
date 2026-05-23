@@ -1,21 +1,21 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Callback;
+use Newspack_Nodes\Callback_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( Callback::class )]
+#[CoversClass( Callback_Node::class )]
 class CallbackTest extends TestCase {
 	public function test_constructor_takes_closure(): void {
-		$cb = new Callback( fn ( array &$m ) => null );
-		$this->assertInstanceOf( Callback::class, $cb );
+		$cb = new Callback_Node( fn ( array &$m ) => null );
+		$this->assertInstanceOf( Callback_Node::class, $cb );
 	}
 
 	public function test_fill_invokes_closure_with_message_reference(): void {
 		$received = null;
-		$cb = new Callback( function ( array &$m ) use ( &$received ) {
+		$cb = new Callback_Node( function ( array &$m ) use ( &$received ) {
 			$received = $m[ Message::VALUE ];
 		} );
 		$msg = Message::new_message();
@@ -25,7 +25,7 @@ class CallbackTest extends TestCase {
 	}
 
 	public function test_closure_can_mutate_message_in_place(): void {
-		$cb = new Callback( function ( array &$m ) {
+		$cb = new Callback_Node( function ( array &$m ) {
 			$m[ Message::VALUE ] = 'transformed';
 		} );
 		$msg = Message::new_message();
@@ -35,7 +35,7 @@ class CallbackTest extends TestCase {
 	}
 
 	public function test_counter_increments_per_fill(): void {
-		$cb = new Callback( fn ( array &$m ) => null );
+		$cb = new Callback_Node( fn ( array &$m ) => null );
 		$msg = Message::new_message();
 		$cb->fill( $msg );
 		$cb->fill( $msg );
