@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from '@wordpress/element';
 
-function ModalShell( { title, onDismiss, children } ) {
+export function ModalShell( { title, onDismiss, children } ) {
 	const ref = useRef( null );
 
 	useEffect( () => {

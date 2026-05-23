@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Invoke a node's verbs from the live-mode Inspector.** The Inspector now
+  renders every schema verb (both TM_COMMAND `verbs` and TM_REQUEST `requests`)
+  as a button. Argless verbs fire immediately; verbs with arguments open a modal
+  whose fields reuse the same widgets as edit mode (`CtorField` — text, int,
+  enum/`formatter_name`/`node_name` selects). Run delivers the args both ways —
+  a positional `arguments` string AND a by-name `payload` map — so substrate
+  node-verbs and REST service-CI verbs are both reachable. The invocation echoes
+  in the transcript and the reply streams back like a typed command.
 - **REST service CIs declare their own `node_schema()`.** `Topologies_CI`,
   `Layouts_CI`, `Raw_Logs_CI`, `Workers_CI`, and `Classes_CI` now publish a
   `Service`-category schema with each verb's name, description, and argument spec

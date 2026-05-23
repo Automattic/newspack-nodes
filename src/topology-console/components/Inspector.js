@@ -3,6 +3,7 @@
  */
 
 import { useEffect, useState } from '@wordpress/element';
+import { ModalShell } from './Modal';
 
 function FieldRow( { k, v, vClass } ) {
 	return (
@@ -820,6 +821,146 @@ function EditForm( {
 	);
 }
 
+// Modal collecting a verb's args via the same CtorField widgets edit mode uses,
+// then firing onAction('invoke', …) with positional + by-name argument forms.
+function VerbArgModal( {
+	nodeId,
+	verb,
+	kind,
+	args,
+	formatters,
+	nodeNames,
+	onAction,
+	onDismiss,
+} ) {
+	const [ values, setValues ] = useState( () =>
+		args.map( ( arg ) => arg.default ?? '' )
+	);
+
+	const missingRequired = args.some(
+		( arg, i ) => arg.required && '' === String( values[ i ] ?? '' ).trim()
+	);
+
+	const run = () => {
+		if ( missingRequired ) {
+			return;
+		}
+		const filled = [];
+		const byName = {};
+		args.forEach( ( arg, i ) => {
+			const v = values[ i ];
+			if ( v === undefined || '' === String( v ) ) {
+				return;
+			}
+			filled.push( String( v ) );
+			byName[ arg.name ] = v;
+		} );
+		onAction( 'invoke', nodeId, {
+			verb,
+			kind,
+			positional: filled.join( ' ' ).trim(),
+			byName,
+		} );
+		onDismiss();
+	};
+
+	return (
+		<ModalShell title={ verb } onDismiss={ onDismiss }>
+			<div className="topology-modal__body">
+				{ args.map( ( arg, i ) => (
+					<CtorField
+						key={ arg.name }
+						spec={ arg }
+						value={ values[ i ] }
+						nodeNames={ nodeNames }
+						formatters={ formatters }
+						onChange={ ( v ) =>
+							setValues( ( prev ) => {
+								const next = prev.slice();
+								next[ i ] = v;
+								return next;
+							} )
+						}
+					/>
+				) ) }
+			</div>
+			<div className="topology-modal__actions">
+				<button
+					type="button"
+					className="topology-modal__btn"
+					onClick={ onDismiss }
+				>
+					Cancel
+				</button>
+				<button
+					type="button"
+					className="topology-modal__btn topology-modal__btn--primary"
+					onClick={ run }
+					disabled={ missingRequired }
+				>
+					Run
+				</button>
+			</div>
+		</ModalShell>
+	);
+}
+
+// One schema verb button. Argless verbs fire immediately; verbs with args open
+// the VerbArgModal. `kind` is 'command' (TM_COMMAND) or 'request' (TM_REQUEST).
+function VerbButton( {
+	nodeId,
+	spec,
+	kind,
+	live,
+	formatters,
+	nodeNames,
+	onAction,
+} ) {
+	const [ open, setOpen ] = useState( false );
+	const hasArgs = spec.args && spec.args.length > 0;
+	const verbLabel =
+		'request' === kind ? `TM_REQUEST ${ spec.name }` : spec.name;
+	return (
+		<>
+			<button
+				type="button"
+				className="topology-insp__actions-full"
+				onClick={ () => {
+					if ( ! onAction ) {
+						return;
+					}
+					if ( hasArgs ) {
+						setOpen( true );
+						return;
+					}
+					onAction( 'invoke', nodeId, {
+						verb: spec.name,
+						kind,
+						positional: '',
+						byName: {},
+					} );
+				} }
+				disabled={ ! live }
+				title={ spec.description || `Send ${ verbLabel }` }
+			>
+				{ spec.name }
+			</button>
+			{ open && (
+				<VerbArgModal
+					nodeId={ nodeId }
+					verb={ spec.name }
+					kind={ kind }
+					args={ spec.args }
+					formatters={ formatters }
+					nodeNames={ nodeNames }
+					onAction={ onAction }
+					onDismiss={ () => setOpen( false ) }
+				/>
+			) }
+		</>
+	);
+}
+
 export default function Inspector( {
 	selectedId,
 	parsed,
@@ -1086,31 +1227,40 @@ export default function Inspector( {
 						{ tailOn ? 'Disconnect' : 'Connect' }
 					</button>
 				) }
-				{ /* TM_REQUEST verbs from this class's node_schema. */ }
+				{ /* TM_COMMAND verbs + TM_REQUEST verbs from this class's node_schema. */ }
 				{ ( () => {
 					const schema = catalog.find(
 						( c ) => c.shell_name === type
 					);
+					const verbs = schema && schema.verbs ? schema.verbs : [];
 					const requests =
 						schema && schema.requests ? schema.requests : [];
-					return requests.map( ( req ) => (
-						<button
-							key={ req.name }
-							type="button"
-							className="topology-insp__actions-full"
-							onClick={ () =>
-								onAction &&
-								onAction( 'request', node.id, req.name )
-							}
-							disabled={ ! live }
-							title={
-								req.description ||
-								`Send TM_REQUEST ${ req.name }`
-							}
-						>
-							{ req.name }
-						</button>
-					) );
+					return [
+						...verbs.map( ( spec ) => (
+							<VerbButton
+								key={ `cmd-${ spec.name }` }
+								nodeId={ node.id }
+								spec={ spec }
+								kind="command"
+								live={ live }
+								formatters={ formatters }
+								nodeNames={ [] }
+								onAction={ onAction }
+							/>
+						) ),
+						...requests.map( ( spec ) => (
+							<VerbButton
+								key={ `req-${ spec.name }` }
+								nodeId={ node.id }
+								spec={ spec }
+								kind="request"
+								live={ live }
+								formatters={ formatters }
+								nodeNames={ [] }
+								onAction={ onAction }
+							/>
+						) ),
+					];
 				} )() }
 			</div>
 		</aside>
