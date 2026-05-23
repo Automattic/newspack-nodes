@@ -22,6 +22,17 @@ class Classes_CI extends CommandInterpreter {
 		$this->commands( $this->verb_table() );
 	}
 
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Service',
+			'description' => 'Class catalog: enumerate every registered node class with its inlined node_schema, plus the formatter registry.',
+			'ctor'        => [],
+			'verbs'       => [
+				[ 'name' => 'list', 'description' => 'List registered classes (with schemas) and formatters.', 'args' => [] ],
+			],
+		];
+	}
+
 	private function verb_table(): array {
 		return [
 			'list' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): array {

@@ -56,6 +56,14 @@ class LayoutsCITest extends TestCase {
 
 	// ── get verb ──────────────────────────────────────────────────────────
 
+	public function test_node_schema_declares_its_verbs(): void {
+		$schema = Layouts_CI::node_schema();
+		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['verbs'] );
+		\sort( $names );
+		$this->assertSame( [ 'get', 'save' ], $names );
+		$this->assertNotEmpty( $schema['description'] );
+	}
+
 	public function test_get_returns_null_positions_when_file_missing(): void {
 		$result = VerbHarness::fire(
 			new Layouts_CI(),

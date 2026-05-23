@@ -28,6 +28,22 @@ class Raw_Logs_CI extends Service_CI {
 	/** Fallback log key when the operator's `log` arg is missing or unknown. */
 	private const DEFAULT_LOG_KEY = 'firehose';
 
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Service',
+			'description' => 'Firehose log inspection: catalog on-disk logs and report a log\'s partition/segment status.',
+			'ctor'        => [],
+			'verbs'       => [
+				[ 'name' => 'firehose_logs', 'description' => 'List the on-disk firehose log keys.', 'args' => [] ],
+				[
+					'name'        => 'firehose_status',
+					'description' => 'Per-partition segment counts and sizes for a log (defaults to firehose).',
+					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => false ] ],
+				],
+			],
+		];
+	}
+
 	public function __construct() {
 		$this->commands(
 			[

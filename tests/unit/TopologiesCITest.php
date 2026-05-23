@@ -81,6 +81,17 @@ class TopologiesCITest extends TestCase {
 
 	// ── connect_worker_input verb ──────────────────────────────────────────────
 
+	public function test_node_schema_declares_its_verbs(): void {
+		$schema = Topologies_CI::node_schema();
+		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['verbs'] );
+		\sort( $names );
+		$this->assertSame(
+			[ 'connect_worker_input', 'delete', 'get', 'list', 'save' ],
+			$names
+		);
+		$this->assertNotEmpty( $schema['description'] );
+	}
+
 	public function test_connect_worker_input_mounts_only_the_named_worker(): void {
 		// Two live workers (lock dir + ipc input dir); we connect only one.
 		\mkdir( "{$this->base_dir}/locks/firehose-workers.p0.lock.d", 0755, true );

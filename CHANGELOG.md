@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **REST service CIs declare their own `node_schema()`.** `Topologies_CI`,
+  `Layouts_CI`, `Raw_Logs_CI`, `Workers_CI`, and `Classes_CI` now publish a
+  `Service`-category schema with each verb's name, description, and argument spec
+  (instead of inheriting the generic Hidden/empty CommandInterpreter schema) — so
+  their verbs are introspectable by the console.
 - **Every CommandInterpreter answers `help` by default.** A CI that installs a
   custom verb table (the REST service CIs) previously had no `help`; the base now
   injects one that lists the CI's own verb names (sorted, newline-separated). CIs
