@@ -126,34 +126,6 @@ export class CommandInterpreter extends Node {
 		return verb( this, args, envelope );
 	}
 
-	// Register a Node subclass under its shell name for make_node.
-	static registerClass( shellName, ctor ) {
-		CommandInterpreter.classMap[ shellName ] = ctor;
-	}
-
-	/**
-	 * Construct a registered Node subclass, name it, sink it to this CI.
-	 *
-	 * @param {string} type     Shell name registered via registerClass.
-	 * @param {string} name     Unique name for the new node.
-	 * @param {...*}   ctorArgs Positional constructor arguments.
-	 * @return {?Node} Null when the shell-name isn't registered.
-	 */
-	makeNode( type, name, ...ctorArgs ) {
-		const Ctor = CommandInterpreter.classMap[ type ];
-		if ( typeof Ctor !== 'function' ) {
-			return null;
-		}
-		const node = new Ctor( ...ctorArgs );
-		node.setName( name );
-		node.sink = this;
-		const level = this.debugState ?? 0;
-		if ( level > 0 ) {
-			node.debugState = level;
-		}
-		return node;
-	}
-
 	fill( message ) {
 		this.counter += 1;
 		const type = message[ TYPE ];
@@ -277,16 +249,11 @@ export class CommandInterpreter extends Node {
 		};
 	}
 
-	// `make_node <type> <name> [<ctor_args>...]`.
-	_cmdMakeNode( args ) {
-		const parts = splitArgs( args );
-		if ( parts.length < 2 ) {
-			return 'usage: make_node <type> <name> [<ctor_args>...]';
-		}
-		const type = parts.shift();
-		const name = parts.shift();
-		const node = this.makeNode( type, name, ...parts );
-		return null === node ? `unknown class: ${ type }` : 'ok';
+	// `make_node` — the browser has no class registry / autoload, so node
+	// construction is server-side: at a worker path the command routes to that
+	// worker's PHP CI; at a local path there's nothing to build here.
+	_cmdMakeNode() {
+		return 'make_node runs on a worker — cd to a worker path (e.g. /_sse/<topology>.p0) first';
 	}
 
 	// `pwd` to ` <cwd> -> <envelope.from>`.
@@ -913,9 +880,6 @@ export class CommandInterpreter extends Node {
 		return `${ d }d ${ clock }`;
 	}
 }
-
-// shell-name to constructor registry for make_node.
-CommandInterpreter.classMap = {};
 
 // Process-wide default authorization policy. The browser leaves it null (the
 // built-in LOCAL check applies). Same shape as PHP CommandInterpreter::$default_authorize.

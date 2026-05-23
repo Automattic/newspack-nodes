@@ -31,9 +31,9 @@ Substrate-appropriate examples: a generic Filter node, a new TYPE flag, a Tail b
 
 For a new Node subclass:
 
-1. Create `includes/class-{name}.php` with `class Foo extends Node`. Override `fill( array &$message ): void` — that's the contract. Bump `$this->counter` and forward via `$this->sink?->fill( $msg )` unless you have a specific reason not to.
-2. If the node needs constructor arguments, declare them on the constructor with PHP types. CommandInterpreter's `make_node` passes shell tokens through; PHP coerces typed parameters from strings.
-3. Add `require_once` to `newspack-nodes.php` AND register with `CommandInterpreter::register_class( 'Foo', \Newspack_Nodes\Foo::class )` so topology PHP and the shell `make_node` verb can both construct it.
+1. Create `includes/class-{name}.php` with `class Foo_Node extends Node` — every node class ends in `_Node` (the shell-name is the class minus `_Node`, so this is `make_node Foo`). Override `fill( array &$message ): void` — that's the contract. Bump `$this->counter` and forward via `$this->sink?->fill( $msg )` unless you have a specific reason not to.
+2. If the node needs constructor arguments, declare them on the constructor with PHP types. `make_node` passes shell tokens through; PHP coerces typed parameters from strings.
+3. **No registration needed** — `make_node Foo` resolves `\Newspack_Nodes\Foo_Node` via the registered namespace prefix (composer classmap autoloads it), and the palette catalog scans the classmap for `*_Node` Node subclasses with a `node_schema()` category. Just put the class under `Newspack_Nodes\` (the prefix the plugin registers via `Command_Interpreter_Node::register_namespace`) and run `composer dump-autoload -o`.
 4. Add a row to AGENTS.md's "Node primitives" / "Storage primitives" / "Lifecycle" table describing what the node does.
 
 For a new CommandInterpreter verb:

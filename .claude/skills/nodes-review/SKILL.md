@@ -99,7 +99,7 @@ The test bootstrap shims a few WP functions (`wp_json_encode`, `wp_remote_post`,
 ## Common review nits that aren't bugs
 
 - Tachikoma-isms in comments are fine; we're explicitly inspired by it. The comments help reviewers who know Tachikoma. Don't ask for them to be stripped.
-- "Dead code" that's actually a registered class with reflection / dynamic-construct callers (CommandInterpreter::register_class consumers, REST endpoint controllers) is fine. Don't flag a class as unused without grepping for its short name AND its FQN.
+- "Dead code" that's actually a `*_Node` class resolved dynamically by `make_node` (namespace-prefix + `_Node`) or scanned into the palette catalog, or a REST endpoint controller, is fine. A `*_Node` class has no explicit registration call to grep for — its only "caller" is `make_node`/the classmap scan. Don't flag a `Node` subclass as unused.
 
 ## Related Skills
 
