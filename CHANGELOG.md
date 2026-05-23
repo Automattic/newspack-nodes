@@ -48,10 +48,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   complete, not just canonicals); `ls` in completion mode lists ALL nodes (like
   `-a`, so `cd <tab>` reaches `_`-prefixed nodes). The browser REPL appends a
   trailing space after a unique completion, matching readline.
-- **Browser REPL needs two Tab presses to list ambiguous candidates** (matching
-  readline's default). The first Tab on a token with no further common prefix is
-  silent; a second consecutive Tab lists the options. Typing or any extension
-  resets the count.
+- **Browser REPL lists ambiguous candidates on the second consecutive Tab**
+  (matching readline's default). The first Tab extends to the common prefix (or
+  bells if it can't); a second consecutive Tab — whether or not the first
+  extended — lists the options. Typing or cursor movement resets the run.
 
 ### Changed
 

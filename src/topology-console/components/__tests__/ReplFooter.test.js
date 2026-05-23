@@ -388,6 +388,49 @@ describe( 'ReplFooter', () => {
 			expect( findInput( container ).value ).toBe( 'dump_node echo' );
 		} );
 
+		it( 'extends on the first Tab then lists on the second when still ambiguous', () => {
+			const onShowCandidates = jest.fn();
+			const { container, rerender, onComplete } = renderWithCompletion( {
+				onShowCandidates,
+			} );
+			const input = findInput( container );
+			fireEvent.change( input, { target: { value: 'dum' } } );
+			// First Tab extends 'dum' → 'dump' (the common prefix); no list yet.
+			fireEvent.keyDown( input, { key: 'Tab' } );
+			rerender(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					onShowCandidates={ onShowCandidates }
+					completion={ {
+						candidates: [ 'dump', 'dump_node', 'dump_metadata' ],
+						seq: 1,
+					} }
+				/>
+			);
+			expect( findInput( container ).value ).toBe( 'dump' );
+			expect( onShowCandidates ).not.toHaveBeenCalled();
+			// Second consecutive Tab on 'dump' (still ambiguous) lists — two presses
+			// total, even though the first one extended.
+			fireEvent.keyDown( findInput( container ), { key: 'Tab' } );
+			rerender(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					onShowCandidates={ onShowCandidates }
+					completion={ {
+						candidates: [ 'dump', 'dump_node', 'dump_metadata' ],
+						seq: 2,
+					} }
+				/>
+			);
+			expect( onShowCandidates ).toHaveBeenCalledWith( [
+				'dump',
+				'dump_node',
+				'dump_metadata',
+			] );
+		} );
+
 		it( 'requires two Tab presses to list candidates when the LCP cannot extend (readline)', () => {
 			const onShowCandidates = jest.fn();
 			const { container, rerender, onComplete } = renderWithCompletion( {
