@@ -130,6 +130,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Canvas polls targeted a deep sub-node instead of the worker.** `dump_metadata`
+  / `uptime` are worker-level polls; they now target the LCP (the longest worker
+  menu item that prefixes the cwd — the path the menu selects) rather than
+  `shell.path`, so `cd`-ing into a worker's sub-node keeps the canvas/uptime
+  polling the worker CI. Non-worker cwds (local, `_sse`, `_http`) poll themselves.
 - **`cd` didn't echo in the console transcript.** `cd` parses to `null` (it only
   moves the cwd), so the transcript echo — which sat after the null-return — was
   skipped, unlike every other builtin. The echo now happens before the return
