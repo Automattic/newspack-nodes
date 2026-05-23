@@ -26,8 +26,26 @@ require_once \dirname( __DIR__ ) . '/Helpers/WPCLIStub.php';
 
 #[CoversClass( Cli_Command::class )]
 #[CoversClass( Cli_Stdin_Reader::class )]
+#[CoversClass( \Newspack_Nodes\Dumper::class )]
 class CliCommandTest extends TestCase {
 	private string $tmp;
+
+	/**
+	 * Captured messages minus the readline-mode constructor's cache-seeding
+	 * completion queries (KEY='completion'), so dispatch-count assertions stay
+	 * focused on the lines actually typed.
+	 *
+	 * @param array<int,array<int,mixed>> $captured
+	 * @return array<int,array<int,mixed>>
+	 */
+	private static function non_completion( array $captured ): array {
+		return \array_values(
+			\array_filter(
+				$captured,
+				static fn ( $m ) => 'completion' !== ( $m[ \Newspack_Nodes\Message::KEY ] ?? '' )
+			)
+		);
+	}
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -713,7 +731,7 @@ class CliCommandTest extends TestCase {
 			$reader->fire();
 
 			$this->assertFalse( $reader->exit );
-			$this->assertCount( 0, $sink->captured );
+			$this->assertCount( 0, self::non_completion( $sink->captured ) );
 		} finally {
 			@\readline_callback_handler_remove();
 			\fclose( $stream );
@@ -944,17 +962,309 @@ class CliCommandTest extends TestCase {
 
 			$reader->fire();
 
-			// Sink got the dispatched message.
-			$this->assertCount( 1, $sink->captured, 'queued line must be dispatched on fire()' );
+			// Sink got the dispatched message (ignore the constructor's seed queries).
+			$dispatched = self::non_completion( $sink->captured );
+			$this->assertCount( 1, $dispatched, 'queued line must be dispatched on fire()' );
 			$this->assertSame(
 				\Newspack_Nodes\Message::TM_COMMAND,
-				$sink->captured[0][ \Newspack_Nodes\Message::TYPE ]
+				$dispatched[0][ \Newspack_Nodes\Message::TYPE ]
 			);
 			// Handler re-installed after the dispatch (so the next prompt renders).
 			$this->assertSame( 2, $install_calls, 'fire() re-installs handler after delivered line' );
 		} finally {
 			\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = $saved_install;
 			\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char       = $saved_read;
+			\fclose( $stream );
+		}
+	}
+
+	// ── tab-completion candidate cache ────────────────────────────────────────
+
+	public function test_build_completion_query_help_targets_pivot_with_completion_key(): void {
+		// A completion query for the FIRST token is a `help` command with
+		// KEY='completion', FROM=_output/$pid, TO=the shell pivot path, LOCAL set.
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$shell->path = 'firehose-workers.p0';
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+
+		$msg = $reader->build_completion_query( 'help' );
+
+		$this->assertSame( \Newspack_Nodes\Message::TM_COMMAND, $msg[ \Newspack_Nodes\Message::TYPE ] );
+		$this->assertSame( 'completion', $msg[ \Newspack_Nodes\Message::KEY ] );
+		$this->assertSame( 'firehose-workers.p0', $msg[ \Newspack_Nodes\Message::TO ] );
+		$this->assertStringContainsString( '_output/' . \getmypid(), $msg[ \Newspack_Nodes\Message::FROM ] );
+		$this->assertTrue( $msg[ \Newspack_Nodes\Message::LOCAL ] ?? false );
+		$this->assertSame( 'help', $msg[ \Newspack_Nodes\Message::VALUE ]['name'] );
+	}
+
+	public function test_build_completion_query_ls_uses_list_nodes_verb(): void {
+		// The node-name query uses the `ls` verb (CommandInterpreter aliases it
+		// to list_nodes, which honors KEY='completion' for bare names).
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+
+		$msg = $reader->build_completion_query( 'ls' );
+
+		$this->assertSame( 'ls', $msg[ \Newspack_Nodes\Message::VALUE ]['name'] );
+		$this->assertSame( 'completion', $msg[ \Newspack_Nodes\Message::KEY ] );
+		// Bare mode: empty pivot path → empty TO (local CI).
+		$this->assertSame( '', $msg[ \Newspack_Nodes\Message::TO ] );
+	}
+
+	public function test_ingest_completion_reply_fills_command_cache_from_help(): void {
+		// A help-completion reply (bare newline list) populates the command
+		// candidate cache and is consumed (returns true → Dumper won't print).
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+
+		$reply                                   = \Newspack_Nodes\Message::new_message();
+		$reply[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
+		$reply[ \Newspack_Nodes\Message::KEY ]   = 'completion';
+		$reply[ \Newspack_Nodes\Message::VALUE ] = [
+			'name'    => 'help',
+			'payload' => "cd\nhelp\nlist_nodes\nmake_node",
+		];
+
+		$consumed = $reader->ingest_completion_reply( $reply );
+
+		$this->assertTrue( $consumed );
+		$this->assertSame( [ 'cd', 'help', 'list_nodes', 'make_node' ], $reader->command_candidates() );
+		$this->assertSame( [], $reader->node_candidates(), 'node cache untouched by a help reply' );
+	}
+
+	public function test_ingest_completion_reply_fills_node_cache_from_ls(): void {
+		// An ls-completion reply populates the node candidate cache.
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+
+		$reply                                   = \Newspack_Nodes\Message::new_message();
+		$reply[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
+		$reply[ \Newspack_Nodes\Message::KEY ]   = 'completion';
+		$reply[ \Newspack_Nodes\Message::VALUE ] = [
+			'name'    => 'ls',
+			'payload' => "_router\nfirehose-in\nrequest-builder",
+		];
+
+		$consumed = $reader->ingest_completion_reply( $reply );
+
+		$this->assertTrue( $consumed );
+		$this->assertSame( [ '_router', 'firehose-in', 'request-builder' ], $reader->node_candidates() );
+	}
+
+	public function test_ingest_completion_reply_replaces_cache_on_refresh(): void {
+		// A second reply for the same verb replaces (not appends to) the cache —
+		// nodes come and go.
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+
+		$make = function ( string $payload ): array {
+			$m                                   = \Newspack_Nodes\Message::new_message();
+			$m[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
+			$m[ \Newspack_Nodes\Message::KEY ]   = 'completion';
+			$m[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'ls', 'payload' => $payload ];
+			return $m;
+		};
+
+		$reader->ingest_completion_reply( $make( "a\nb" ) );
+		$reader->ingest_completion_reply( $make( "c\nd\ne" ) );
+
+		$this->assertSame( [ 'c', 'd', 'e' ], $reader->node_candidates() );
+	}
+
+	public function test_ingest_completion_reply_ignores_non_completion_messages(): void {
+		// A normal command reply (no KEY='completion') is NOT consumed — the
+		// Dumper must still render it.
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+
+		$reply                                   = \Newspack_Nodes\Message::new_message();
+		$reply[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
+		$reply[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'ls', 'payload' => "n1\nn2" ];
+
+		$this->assertFalse( $reader->ingest_completion_reply( $reply ) );
+		$this->assertSame( [], $reader->node_candidates() );
+	}
+
+	public function test_complete_first_token_filters_command_candidates(): void {
+		// At index 0 (first word on the line), completion offers command names
+		// whose prefix matches the typed word.
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+
+		$help                                   = \Newspack_Nodes\Message::new_message();
+		$help[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
+		$help[ \Newspack_Nodes\Message::KEY ]   = 'completion';
+		$help[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'help', 'payload' => "cd\ndump_node\ndump_config\nmake_node" ];
+		$reader->ingest_completion_reply( $help );
+
+		$this->assertSame( [ 'dump_node', 'dump_config' ], $reader->complete( 'dump', 0 ) );
+	}
+
+	public function test_complete_later_token_filters_node_candidates(): void {
+		// At index > 0 (an argument), completion offers node names.
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+
+		$ls                                   = \Newspack_Nodes\Message::new_message();
+		$ls[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
+		$ls[ \Newspack_Nodes\Message::KEY ]   = 'completion';
+		$ls[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'ls', 'payload' => "firehose-in\nfirehose-fanout\nrequest-builder" ];
+		$reader->ingest_completion_reply( $ls );
+
+		$this->assertSame( [ 'firehose-in', 'firehose-fanout' ], $reader->complete( 'fire', 1 ) );
+	}
+
+	public function test_complete_empty_word_returns_all_candidates_for_position(): void {
+		// An empty word (Tab on a fresh prompt) returns the full command list.
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+
+		$help                                   = \Newspack_Nodes\Message::new_message();
+		$help[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
+		$help[ \Newspack_Nodes\Message::KEY ]   = 'completion';
+		$help[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'help', 'payload' => "cd\nhelp" ];
+		$reader->ingest_completion_reply( $help );
+
+		$this->assertSame( [ 'cd', 'help' ], $reader->complete( '', 0 ) );
+	}
+
+	public function test_send_completion_queries_emits_help_and_ls_through_shell(): void {
+		// Refresh sends BOTH a help and an ls completion query through the Shell
+		// (so they ride the same Command_Signer/CI path as any other command).
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$shell->sink( $sink );
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+
+		$reader->send_completion_queries();
+
+		$verbs = \array_map(
+			static fn ( $m ) => $m[ \Newspack_Nodes\Message::VALUE ]['name'],
+			$sink->captured
+		);
+		$this->assertContains( 'help', $verbs );
+		$this->assertContains( 'ls', $verbs );
+		foreach ( $sink->captured as $m ) {
+			$this->assertSame( 'completion', $m[ \Newspack_Nodes\Message::KEY ] );
+		}
+	}
+
+	public function test_dumper_completion_sink_intercepts_reply_before_render(): void {
+		// The Dumper routes a KEY='completion' reply to its completion_sink (the
+		// reader's ingester) and renders NOTHING for it.
+		$out_stream = \fopen( 'php://memory', 'w+' );
+		$dumper     = new \Newspack_Nodes\Dumper( $out_stream );
+		$seen       = null;
+		$dumper->set_completion_sink( function ( array $m ) use ( &$seen ): bool {
+			$seen = $m;
+			return true;
+		} );
+
+		$reply                                   = \Newspack_Nodes\Message::new_message();
+		$reply[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
+		$reply[ \Newspack_Nodes\Message::KEY ]   = 'completion';
+		$reply[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'help', 'payload' => "cd\nhelp" ];
+		$dumper->fill( $reply );
+
+		$this->assertNotNull( $seen, 'completion_sink received the reply' );
+		\rewind( $out_stream );
+		$this->assertSame( '', \stream_get_contents( $out_stream ), 'consumed completion reply renders nothing' );
+	}
+
+	public function test_readline_mode_constructor_registers_completion_and_seeds_cache(): void {
+		// Readline mode wires the Dumper's completion sink, registers the
+		// completion callback (captured via the seam), and seeds the cache by
+		// sending the initial help+ls queries through the Shell.
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
+		$shell->sink( $sink );
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$stream = \fopen( 'php://memory', 'r+' );
+
+		$registered    = null;
+		$saved_install = \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install;
+		$saved_reg     = \Newspack_Nodes\Cli_Stdin_Reader::$readline_completion_register;
+		\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = static function ( string $prompt, callable $cb ): void {};
+		\Newspack_Nodes\Cli_Stdin_Reader::$readline_completion_register = static function ( callable $cb ) use ( &$registered ): void {
+			$registered = $cb;
+		};
+
+		try {
+			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+
+			$this->assertIsCallable( $registered, 'completion callback registered' );
+
+			// Initial queries seeded the cache (help + ls).
+			$verbs = \array_map(
+				static fn ( $m ) => $m[ \Newspack_Nodes\Message::VALUE ]['name'],
+				$sink->captured
+			);
+			$this->assertContains( 'help', $verbs );
+			$this->assertContains( 'ls', $verbs );
+
+			// The Dumper now feeds completion replies into the reader's cache.
+			$reply                                   = \Newspack_Nodes\Message::new_message();
+			$reply[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
+			$reply[ \Newspack_Nodes\Message::KEY ]   = 'completion';
+			$reply[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'help', 'payload' => "cd\nhelp" ];
+			$dumper->fill( $reply );
+			$this->assertSame( [ 'cd', 'help' ], $reader->command_candidates() );
+
+			// The registered callback returns prefix-matched candidates.
+			$this->assertSame( [ 'cd' ], $registered( 'c', 0 ) );
+		} finally {
+			\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install     = $saved_install;
+			\Newspack_Nodes\Cli_Stdin_Reader::$readline_completion_register = $saved_reg;
+			\fclose( $stream );
+		}
+	}
+
+	public function test_default_completion_register_closure_calls_real_libreadline(): void {
+		// bootstrap no-ops the registration seam. Drop it to null to drive the
+		// default closure (the real readline_completion_function call), then
+		// restore — mirrors the read_char/handler default-closure coverage tests.
+		if ( ! \function_exists( 'readline_completion_function' ) ) {
+			$this->markTestSkipped( 'readline extension not available' );
+		}
+		$cmd    = new Cli_Command();
+		$shell  = new \Newspack_Nodes\Shell();
+		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$stream = \fopen( 'php://memory', 'r+' );
+
+		$saved_install = \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install;
+		$saved_reg     = \Newspack_Nodes\Cli_Stdin_Reader::$readline_completion_register;
+		\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install     = static function ( string $prompt, callable $cb ): void {};
+		\Newspack_Nodes\Cli_Stdin_Reader::$readline_completion_register = null;
+
+		try {
+			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+			// Default closure ran without throwing; that's the line under test.
+			$this->assertFalse( $reader->exit );
+		} finally {
+			@\readline_callback_handler_remove();
+			\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install     = $saved_install;
+			\Newspack_Nodes\Cli_Stdin_Reader::$readline_completion_register = $saved_reg;
 			\fclose( $stream );
 		}
 	}
@@ -988,10 +1298,11 @@ class CliCommandTest extends TestCase {
 			// notices readline_eof=true → send_eof_marker.
 			$reader->fire();
 
-			$this->assertCount( 1, $sink->captured, 'fire() with readline_eof must emit TM_EOF via Shell' );
+			$dispatched = self::non_completion( $sink->captured );
+			$this->assertCount( 1, $dispatched, 'fire() with readline_eof must emit TM_EOF via Shell' );
 			$this->assertSame(
 				\Newspack_Nodes\Message::TM_EOF,
-				$sink->captured[0][ \Newspack_Nodes\Message::TYPE ]
+				$dispatched[0][ \Newspack_Nodes\Message::TYPE ]
 			);
 			// eof_sent should now be true.
 			$prop = new \ReflectionProperty( $reader, 'eof_sent' );

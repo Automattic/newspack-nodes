@@ -235,6 +235,24 @@ class Cli_Stdin_Reader extends Timer {
 	 */
 	public static ?\Closure $readline_read_char = null;
 
+	/**
+	 * `readline_completion_function` seam. Lazily-defaulted to a closure that
+	 * wraps the real libreadline call. Tests reassign in bootstrap to capture the
+	 * registration without invoking libreadline (which needs a real TTY) — that
+	 * lets the suite still cover install_completion()'s surrounding logic.
+	 *
+	 * Signature: `function ( callable $completion_cb ): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $readline_completion_register = null;
+
+	/** @var array<int,string> Cached command-verb candidates (from `help` KEY=completion). */
+	private array $command_candidates = [];
+
+	/** @var array<int,string> Cached node-name candidates (from `ls` KEY=completion). */
+	private array $node_candidates = [];
+
 	/** @var resource */
 	public $stream;
 	public bool $exit = false;
@@ -271,6 +289,9 @@ class Cli_Stdin_Reader extends Timer {
 
 		if ( $has_readline ) {
 			$this->install_handler();
+			$this->install_completion();
+			// Seed the cache so the very first Tab has candidates (the reply lands async).
+			$this->send_completion_queries();
 		} else {
 			@\stream_set_blocking( $this->stream, false );
 			if ( $show_prompts ) {
@@ -312,6 +333,33 @@ class Cli_Stdin_Reader extends Timer {
 	}
 
 	/**
+	 * Wire tab-completion: register the readline completion callback against the
+	 * live candidate cache, and route the Dumper's completion replies into the
+	 * cache. readline's completion function receives the word + its character
+	 * offset; offset 0 = first token (command verbs), else an argument (nodes).
+	 * readline performs the LCP + listing from the array we return.
+	 *
+	 * Gated by the caller behind the same TTY / function_exists checks as the
+	 * readline handler; the seam lets tests capture the registration without a TTY.
+	 */
+	private function install_completion(): void {
+		$this->dumper->set_completion_sink(
+			fn ( array $message ): bool => $this->ingest_completion_reply( $message )
+		);
+		$register = self::$readline_completion_register ?? static function ( callable $cb ): void {
+			\readline_completion_function( $cb );
+		};
+		$register(
+			function ( string $word, int $index ): array {
+				// Refresh the cache for the NEXT Tab (the reply lands async, so this
+				// keystroke completes against the previous snapshot — one-Tab-stale).
+				$this->send_completion_queries();
+				return $this->complete( $word, $index );
+			}
+		);
+	}
+
+	/**
 	 * Body of the readline-callback closure (public for tests): null → EOF, else queue the line.
 	 */
 	public function handle_readline_line( ?string $line ): void {
@@ -324,6 +372,106 @@ class Cli_Stdin_Reader extends Timer {
 		}
 		$this->queue[] = $line;
 		$this->dumper->prompt_displayed = false;
+	}
+
+	/**
+	 * Build a completion-query Message (`help` for verbs, `ls` for node names),
+	 * routed to the current pivot (cwd) so candidates come from the right graph.
+	 *
+	 * KEY='completion' makes the CI's help / list_nodes verbs emit a bare
+	 * newline-separated candidate list (no headers, no column flags). FROM is the
+	 * cli's reply path so the answer lands on this session's Dumper; LOCAL marks
+	 * it in-process (Command_Signer re-signs it for the IPC wire in pivoted mode).
+	 *
+	 * @param string $verb Either 'help' (command candidates) or 'ls' (node candidates).
+	 * @return array<int,mixed> The TM_COMMAND Message.
+	 */
+	public function build_completion_query( string $verb ): array {
+		$msg                    = Message::new_message();
+		$msg[ Message::TYPE ]   = Message::TM_COMMAND;
+		$msg[ Message::FROM ]   = Node_Names::OUTPUT . '/' . \getmypid();
+		$msg[ Message::TO ]     = $this->shell->path;
+		$msg[ Message::KEY ]    = 'completion';
+		$msg[ Message::LOCAL ]  = true;
+		$msg[ Message::VALUE ]  = [
+			'name'      => $verb,
+			'arguments' => '',
+			'payload'   => '',
+		];
+		return $msg;
+	}
+
+	/**
+	 * Send both completion queries through the Shell so they ride the same
+	 * Command_Signer / CommandInterpreter path as any typed command. The replies
+	 * land asynchronously and update the cache for the NEXT Tab — completion is
+	 * thus one keystroke stale, which is acceptable for an interactive REPL.
+	 */
+	public function send_completion_queries(): void {
+		$help = $this->build_completion_query( 'help' );
+		$this->shell->fill( $help );
+		$ls = $this->build_completion_query( 'ls' );
+		$this->shell->fill( $ls );
+	}
+
+	/**
+	 * Ingest a completion reply into the cache. Returns true (consumed) only for
+	 * KEY='completion' command responses; the Dumper drops consumed replies so
+	 * they don't print. `help` fills the command cache; `ls`/`list_nodes` the
+	 * node cache. Each ingest REPLACES the relevant list (nodes come and go).
+	 *
+	 * @param array<int,mixed> $message Inbound reply.
+	 * @return bool True if this was a completion reply (consume; don't render).
+	 */
+	public function ingest_completion_reply( array $message ): bool {
+		if ( 'completion' !== ( $message[ Message::KEY ] ?? '' ) ) {
+			return false;
+		}
+		$value = $message[ Message::VALUE ] ?? null;
+		if ( ! \is_array( $value ) ) {
+			return false;
+		}
+		$name    = (string) ( $value['name'] ?? '' );
+		$payload = (string) ( $value['payload'] ?? '' );
+		$list    = '' === $payload ? [] : \explode( "\n", $payload );
+
+		if ( 'help' === $name ) {
+			$this->command_candidates = $list;
+		} else {
+			// `ls` and its canonical `list_nodes` both fill the node cache.
+			$this->node_candidates = $list;
+		}
+		return true;
+	}
+
+	/**
+	 * Return cached candidates whose prefix matches $word. The FIRST token on the
+	 * line (index 0) completes against command verbs; later tokens (arguments)
+	 * complete against node names. readline does the LCP + listing from the array
+	 * we return here.
+	 *
+	 * @param string $word  The word being completed.
+	 * @param int    $index Token position on the line (0 = first token).
+	 * @return array<int,string>
+	 */
+	public function complete( string $word, int $index ): array {
+		$pool = ( 0 === $index ) ? $this->command_candidates : $this->node_candidates;
+		if ( '' === $word ) {
+			return \array_values( $pool );
+		}
+		return \array_values(
+			\array_filter( $pool, static fn ( string $c ): bool => \str_starts_with( $c, $word ) )
+		);
+	}
+
+	/** @return array<int,string> Test/inspection accessor for the command-verb cache. */
+	public function command_candidates(): array {
+		return $this->command_candidates;
+	}
+
+	/** @return array<int,string> Test/inspection accessor for the node-name cache. */
+	public function node_candidates(): array {
+		return $this->node_candidates;
 	}
 
 	private function show_prompt_fallback(): void {
