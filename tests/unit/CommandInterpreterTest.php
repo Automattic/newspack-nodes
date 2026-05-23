@@ -642,14 +642,13 @@ class CommandInterpreterTest extends TestCase {
 
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
 
-		// dump_node returns the snapshot as a live PHP structure now; the
-		// REPL Dumper pretty-prints it at the render boundary.
+		// dump_node stringifies here (display-only payload): the class name heads
+		// the dump, then the pretty snapshot.
 		$out = $ci->dispatch( 'dump_node', 'alice' );
-		$this->assertIsArray( $out );
-		$this->assertArrayHasKey( 'name', $out );
-		$this->assertSame( 'alice', $out['name'] );
-		$this->assertArrayHasKey( 'sink', $out );
-		$this->assertSame( '_command_interpreter', $out['sink'] );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'CaptureSink', $out );
+		$this->assertStringContainsString( '"name": "alice"', $out );
+		$this->assertStringContainsString( '"sink": "_command_interpreter"', $out );
 	}
 
 	public function test_dump_alias_works(): void {
@@ -660,8 +659,8 @@ class CommandInterpreterTest extends TestCase {
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
 
 		$out = $ci->dispatch( 'dump', 'alice' );
-		$this->assertIsArray( $out );
-		$this->assertSame( 'alice', $out['name'] );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( '"name": "alice"', $out );
 	}
 
 	public function test_dump_node_with_keys_filters_output(): void {
@@ -672,10 +671,24 @@ class CommandInterpreterTest extends TestCase {
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
 
 		$out = $ci->dispatch( 'dump_node', 'alice name' );
-		$this->assertIsArray( $out );
-		$this->assertArrayHasKey( 'name', $out );
-		$this->assertSame( 'alice', $out['name'] );
-		$this->assertArrayNotHasKey( 'sink', $out, 'unrequested keys are filtered out' );
+		$this->assertIsString( $out );
+		$this->assertStringContainsString( 'CaptureSink', $out ); // class header always shown
+		$this->assertStringContainsString( '"name": "alice"', $out );
+		$this->assertStringNotContainsString( '"sink"', $out, 'unrequested keys are filtered out' );
+	}
+
+	public function test_dump_node_class_key_is_not_an_error(): void {
+		// `class` heads the dump, so requesting it as a key is a no-op, not a
+		// "can't find key" error.
+		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		$ci = new CommandInterpreter();
+		$ci->name( '_command_interpreter' );
+		$ci->dispatch( 'make_node', 'CaptureSink alice' );
+
+		$out = $ci->dispatch( 'dump_node', 'alice class' );
+		$this->assertIsString( $out );
+		$this->assertStringNotContainsString( "can't find key", $out );
+		$this->assertStringContainsString( 'CaptureSink', $out );
 	}
 
 	public function test_dump_node_unknown_node_returns_error(): void {

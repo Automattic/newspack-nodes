@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Single path menu in the console header.** The Topology + Partition selectors
+  are replaced by one "Path" menu listing `/`, `/_sse`, and `/_sse/{topology}.p{N}`
+  for each worker. Selecting a worker re-subscribes the SSE and `cd`s there; `/`
+  and `/_sse` just move the cwd. The menu also surfaces an off-menu cwd (set by a
+  REPL `cd`) as its own option so the control always reflects the real location.
+- **The EDIT button is hidden unless the cwd is a worker** (`_sse/{worker}`); the
+  local (`/`) and request-scope (`/_sse`) graphs aren't editable.
+- **`dump_node` leads with the node's class name.** `Node::dump_node()` now
+  carries the runtime class (subclass-aware); `cmd_dump_node` heads the dump with
+  it and returns a display string (no longer a structured array). `_http` stays a
+  real, routable node — it's just not listed in the path menu.
 - **The `_http` boundary stamps incoming messages server-side.** `HTTP_In` now
   `stamp_message`s every incoming `/command` message with `_http` (I/O-boundary
   stamping), instead of the client hardcoding the `_http` prefix. Clients send a

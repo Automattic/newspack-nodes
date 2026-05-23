@@ -1,22 +1,21 @@
 /**
- * Header — top bar with topology/partition selectors and the view/edit
- * mode toggle. Edit-only buttons appear conditionally; LIVE LED pulses
- * when streamStatus === 'open'.
+ * Header — top bar with a single cwd "Path" selector and the view/edit
+ * mode toggle. Edit-only buttons appear conditionally; the EDIT button
+ * shows only when canEdit (cwd names a worker); LIVE LED pulses when
+ * streamStatus === 'open'.
  */
 
 import { render, fireEvent } from '@testing-library/react';
 import Header from '../Header';
 
 const baseProps = {
-	topologies: [ 't1', 't2' ],
-	topology: 't1',
-	onTopologyChange: () => {},
-	partitions: [ 0, 1 ],
-	partition: 0,
-	onPartitionChange: () => {},
+	pathOptions: [ '', '_sse', '_sse/demo.p0', '_sse/demo.p1' ],
+	path: '',
+	onPathChange: () => {},
 	streamStatus: 'connecting',
 	uptime: '',
 	mode: 'view',
+	canEdit: true,
 	theme: 'current',
 	onThemeChange: () => {},
 	themes: [
@@ -26,38 +25,69 @@ const baseProps = {
 };
 
 describe( 'Header', () => {
-	it( 'renders topology and partition selectors in view mode', () => {
+	it( 'renders the path selector and the skin picker in view mode', () => {
 		const { container } = render( <Header { ...baseProps } /> );
 		const selects = container.querySelectorAll( 'select' );
-		expect( selects ).toHaveLength( 3 );
-		expect( selects[ 0 ].value ).toBe( 't1' );
-		expect( selects[ 1 ].value ).toBe( '0' );
-		expect( selects[ 2 ].value ).toBe( 'current' );
+		expect( selects ).toHaveLength( 2 );
+		// Path select is selected to the current cwd ('' renders as value '').
+		expect( selects[ 0 ].value ).toBe( '' );
+		expect( selects[ 1 ].value ).toBe( 'current' );
 	} );
 
-	it( 'calls onTopologyChange when the topology select changes', () => {
-		const onTopologyChange = jest.fn();
+	it( 'renders each pathOption with a /-prefixed label', () => {
+		const { container } = render( <Header { ...baseProps } /> );
+		const options = container
+			.querySelectorAll( 'select' )[ 0 ]
+			.querySelectorAll( 'option' );
+		expect( Array.from( options ).map( ( o ) => o.value ) ).toEqual( [
+			'',
+			'_sse',
+			'_sse/demo.p0',
+			'_sse/demo.p1',
+		] );
+		expect( Array.from( options ).map( ( o ) => o.textContent ) ).toEqual( [
+			'/',
+			'/_sse',
+			'/_sse/demo.p0',
+			'/_sse/demo.p1',
+		] );
+	} );
+
+	it( 'reflects the current path as the selected value', () => {
 		const { container } = render(
-			<Header { ...baseProps } onTopologyChange={ onTopologyChange } />
+			<Header { ...baseProps } path="_sse/demo.p1" />
+		);
+		expect( container.querySelectorAll( 'select' )[ 0 ].value ).toBe(
+			'_sse/demo.p1'
+		);
+	} );
+
+	it( 'surfaces an off-menu cwd (e.g. a REPL `cd`) as its own option so the select matches', () => {
+		const { container } = render(
+			<Header { ...baseProps } path="_sse/demo.p0/firehose-in" />
+		);
+		const select = container.querySelectorAll( 'select' )[ 0 ];
+		// The select reflects the real cwd rather than snapping to the first option.
+		expect( select.value ).toBe( '_sse/demo.p0/firehose-in' );
+		expect(
+			Array.from( select.querySelectorAll( 'option' ) ).map(
+				( o ) => o.value
+			)
+		).toContain( '_sse/demo.p0/firehose-in' );
+	} );
+
+	it( 'calls onPathChange with the chosen cwd string', () => {
+		const onPathChange = jest.fn();
+		const { container } = render(
+			<Header { ...baseProps } onPathChange={ onPathChange } />
 		);
 		fireEvent.change( container.querySelectorAll( 'select' )[ 0 ], {
-			target: { value: 't2' },
+			target: { value: '_sse/demo.p0' },
 		} );
-		expect( onTopologyChange ).toHaveBeenCalledWith( 't2' );
+		expect( onPathChange ).toHaveBeenCalledWith( '_sse/demo.p0' );
 	} );
 
-	it( 'calls onPartitionChange with parsed integer', () => {
-		const onPartitionChange = jest.fn();
-		const { container } = render(
-			<Header { ...baseProps } onPartitionChange={ onPartitionChange } />
-		);
-		fireEvent.change( container.querySelectorAll( 'select' )[ 1 ], {
-			target: { value: '1' },
-		} );
-		expect( onPartitionChange ).toHaveBeenCalledWith( 1 );
-	} );
-
-	it( 'hides feed selects in edit mode but keeps the skin picker', () => {
+	it( 'hides the path select in edit mode but keeps the skin picker', () => {
 		const { container, getByLabelText } = render(
 			<Header { ...baseProps } mode="edit" />
 		);
@@ -121,10 +151,26 @@ describe( 'Header', () => {
 		expect( queryByText( 'DELETE' ) ).toBeNull();
 	} );
 
+	it( 'shows the EDIT button when canEdit is true and hides it otherwise', () => {
+		const { getByText, queryByText, rerender } = render(
+			<Header { ...baseProps } canEdit />
+		);
+		expect( getByText( 'EDIT' ) ).not.toBeNull();
+		rerender( <Header { ...baseProps } canEdit={ false } /> );
+		expect( queryByText( 'EDIT' ) ).toBeNull();
+	} );
+
+	it( 'keeps the LIVE button visible regardless of canEdit', () => {
+		const { getByText } = render(
+			<Header { ...baseProps } canEdit={ false } />
+		);
+		expect( getByText( 'LIVE' ) ).not.toBeNull();
+	} );
+
 	it( 'invokes onModeChange with view/edit on the mode toggle buttons', () => {
 		const onModeChange = jest.fn();
 		const { getByText } = render(
-			<Header { ...baseProps } onModeChange={ onModeChange } />
+			<Header { ...baseProps } canEdit onModeChange={ onModeChange } />
 		);
 		fireEvent.click( getByText( 'EDIT' ) );
 		fireEvent.click( getByText( 'LIVE' ) );

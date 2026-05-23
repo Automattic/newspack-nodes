@@ -1,5 +1,5 @@
 /**
- * Top header — brand, subtitle, topology+partition selectors, mode toggle.
+ * Top header — brand, subtitle, cwd path selector, mode toggle.
  */
 
 const VERSION =
@@ -7,15 +7,13 @@ const VERSION =
 const HOST = window.location.hostname;
 
 export default function Header( {
-	topologies,
-	topology,
-	onTopologyChange,
-	partitions,
-	partition,
-	onPartitionChange,
+	pathOptions = [],
+	path = '',
+	onPathChange,
 	streamStatus,
 	uptime,
 	mode = 'view',
+	canEdit,
 	onModeChange,
 	onSave,
 	onOpen,
@@ -38,36 +36,27 @@ export default function Header( {
 				{ HOST }
 			</div>
 			<div className="topology-header__controls">
-				{ /* Selectors apply only to the live feed, not edit mode. */ }
+				{ /* Path selector applies only to the live feed, not edit mode. */ }
 				{ mode !== 'edit' && (
 					<>
-						<span className="topology-ctl-label">Topology</span>
+						<span className="topology-ctl-label">Path</span>
 						<select
 							className="topology-select"
-							value={ topology }
+							value={ path }
 							onChange={ ( e ) =>
-								onTopologyChange( e.target.value )
+								onPathChange && onPathChange( e.target.value )
 							}
 						>
-							{ topologies.map( ( t ) => (
-								<option key={ t } value={ t }>
-									{ t }
-								</option>
-							) ) }
-						</select>
-						<span className="topology-ctl-label">Partition</span>
-						<select
-							className="topology-select"
-							value={ String( partition ) }
-							onChange={ ( e ) =>
-								onPartitionChange(
-									parseInt( e.target.value, 10 )
-								)
-							}
-						>
-							{ partitions.map( ( p ) => (
-								<option key={ p } value={ String( p ) }>
-									p{ p }
+							{ /* The cwd can be moved by the REPL `cd` to a path not in
+							     the menu (a deeper node, `_http/…`, etc.). Surface it as
+							     an extra option so the control reflects the real cwd
+							     instead of silently snapping to the first entry. */ }
+							{ ( pathOptions.includes( path )
+								? pathOptions
+								: [ ...pathOptions, path ]
+							).map( ( cwd ) => (
+								<option key={ cwd } value={ cwd }>
+									/{ cwd }
 								</option>
 							) ) }
 						</select>
@@ -127,15 +116,19 @@ export default function Header( {
 							DELETE
 						</button>
 					) }
-					<button
-						type="button"
-						className={ `topology-mode__btn${
-							mode === 'edit' ? ' is-active' : ''
-						}` }
-						onClick={ () => onModeChange && onModeChange( 'edit' ) }
-					>
-						EDIT
-					</button>
+					{ canEdit && (
+						<button
+							type="button"
+							className={ `topology-mode__btn${
+								mode === 'edit' ? ' is-active' : ''
+							}` }
+							onClick={ () =>
+								onModeChange && onModeChange( 'edit' )
+							}
+						>
+							EDIT
+						</button>
+					) }
 					<button
 						type="button"
 						className={ `topology-mode__btn topology-mode__btn--live${

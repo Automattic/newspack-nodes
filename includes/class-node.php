@@ -280,11 +280,12 @@ class Node {
 		$snapshot = [];
 		foreach ( $ref->getProperties() as $prop ) {
 			$prop->setAccessible( true );
-			if ( ! $prop->isInitialized( $this ) ) {
-				continue;
-			}
 			$key   = $prop->getName();
-			$value = $prop->getValue( $this );
+			if ( $prop->isInitialized( $this ) ) {
+				$value = $prop->getValue( $this );
+			} else {
+				$value = 'null';
+			}
 			if ( 'sink' === $key && $value instanceof Node ) {
 				$value = $value->name();
 			}
@@ -297,6 +298,10 @@ class Node {
 			}
 			$snapshot[ $key ] = $value;
 		}
+		// The node's own class (subclass-aware via ReflectionObject). cmd_dump_node
+		// surfaces this as the dump header; overrides that build their own snapshot
+		// should include it too.
+		$snapshot['class'] = $ref->getShortName();
 		return $snapshot;
 	}
 
