@@ -26,6 +26,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`dmesg`/`uptime` work in the browser CI.** Added the JS `Core` `recentLog`
   ring (fed by `Core.stderr`, capped at 100) and `initTime`, matching PHP `Core`,
   so the verbs report the recent stderr tail and session uptime.
+- **Command history in the console REPL.** Up/Down arrows recall submitted
+  commands (clamp at the oldest; Down past the newest restores the in-progress
+  draft); empty lines and immediate duplicates are skipped — standard shell behavior.
 
 ### Changed
 

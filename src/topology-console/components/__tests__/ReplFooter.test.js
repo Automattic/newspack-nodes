@@ -290,4 +290,116 @@ describe( 'ReplFooter', () => {
 		expect( document.activeElement ).not.toBe( input );
 		window.getSelection = origGet;
 	} );
+
+	describe( 'command history', () => {
+		const submit = ( input, line ) => {
+			fireEvent.change( input, { target: { value: line } } );
+			fireEvent.keyDown( input, { key: 'Enter' } );
+		};
+
+		it( 'Up recalls the previous submitted command', () => {
+			const { container } = render( <ReplFooter { ...baseProps } /> );
+			const input = findInput( container );
+			submit( input, 'a' );
+			submit( input, 'b' );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			expect( input.value ).toBe( 'b' );
+		} );
+
+		it( 'repeated Up walks further back through history', () => {
+			const { container } = render( <ReplFooter { ...baseProps } /> );
+			const input = findInput( container );
+			submit( input, 'a' );
+			submit( input, 'b' );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			expect( input.value ).toBe( 'a' );
+		} );
+
+		it( 'Up clamps at the oldest entry', () => {
+			const { container } = render( <ReplFooter { ...baseProps } /> );
+			const input = findInput( container );
+			submit( input, 'a' );
+			submit( input, 'b' );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			expect( input.value ).toBe( 'a' );
+		} );
+
+		it( 'Down walks toward newer entries', () => {
+			const { container } = render( <ReplFooter { ...baseProps } /> );
+			const input = findInput( container );
+			submit( input, 'a' );
+			submit( input, 'b' );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			fireEvent.keyDown( input, { key: 'ArrowDown' } );
+			expect( input.value ).toBe( 'b' );
+		} );
+
+		it( 'Down past the newest restores the in-progress draft', () => {
+			const { container } = render( <ReplFooter { ...baseProps } /> );
+			const input = findInput( container );
+			submit( input, 'a' );
+			submit( input, 'b' );
+			// Type a draft, then navigate history and come back.
+			fireEvent.change( input, { target: { value: 'draft' } } );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			expect( input.value ).toBe( 'b' );
+			fireEvent.keyDown( input, { key: 'ArrowDown' } );
+			expect( input.value ).toBe( 'draft' );
+		} );
+
+		it( 'does not record empty submits', () => {
+			const { container } = render( <ReplFooter { ...baseProps } /> );
+			const input = findInput( container );
+			submit( input, 'a' );
+			// Empty submit (whitespace-only) should be ignored.
+			fireEvent.change( input, { target: { value: '   ' } } );
+			fireEvent.keyDown( input, { key: 'Enter' } );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			expect( input.value ).toBe( 'a' );
+		} );
+
+		it( 'collapses an immediate duplicate of the most-recent entry', () => {
+			const { container } = render( <ReplFooter { ...baseProps } /> );
+			const input = findInput( container );
+			submit( input, 'a' );
+			submit( input, 'a' );
+			submit( input, 'b' );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			expect( input.value ).toBe( 'b' );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			// Only one 'a' recorded; this is the oldest.
+			expect( input.value ).toBe( 'a' );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			expect( input.value ).toBe( 'a' );
+		} );
+
+		it( 'submitting resets the history cursor and clears the draft', () => {
+			const { container } = render( <ReplFooter { ...baseProps } /> );
+			const input = findInput( container );
+			submit( input, 'a' );
+			submit( input, 'b' );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			// Submit the recalled line; cursor should reset past-the-end.
+			fireEvent.keyDown( input, { key: 'Enter' } );
+			expect( input.value ).toBe( '' );
+			fireEvent.keyDown( input, { key: 'ArrowUp' } );
+			expect( input.value ).toBe( 'b' );
+		} );
+
+		it( 'does not hijack arrows when the event target is not the prompt', () => {
+			const { container } = render( <ReplFooter { ...baseProps } /> );
+			const input = findInput( container );
+			submit( input, 'a' );
+			const other = document.createElement( 'input' );
+			document.body.appendChild( other );
+			fireEvent.keyDown( other, { key: 'ArrowUp' } );
+			// The prompt input value is untouched.
+			expect( input.value ).toBe( '' );
+			document.body.removeChild( other );
+		} );
+	} );
 } );
