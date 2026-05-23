@@ -1003,22 +1003,35 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
 
-	it( 'Header onTopologyChange updates the URL', () => {
+	it( 'Header receives pathOptions built from topologies + partitions', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
-		act( () => {
-			lastHeaderProps.onTopologyChange( 'demo' );
-		} );
-		expect( window.location.search ).toMatch( /topology=demo/ );
+		// demo has 2 partitions → '', '_sse', '_sse/demo.p0', '_sse/demo.p1'.
+		expect( lastHeaderProps.pathOptions ).toEqual( [
+			'',
+			'_sse',
+			'_sse/demo.p0',
+			'_sse/demo.p1',
+		] );
 	} );
 
-	it( 'Header onPartitionChange writes the partition to URL when > 0', () => {
+	it( 'Header onPathChange to a different worker re-keys the graph (URL follows)', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
-			lastHeaderProps.onPartitionChange( 1 );
+			lastHeaderProps.onPathChange( '_sse/demo.p1' );
 		} );
 		expect( window.location.search ).toMatch( /partition=1/ );
+	} );
+
+	it( 'Header onPathChange to a root path just moves the cwd (no partition URL)', () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastHeaderProps.onPathChange( '_sse' );
+		} );
+		expect( lastHeaderProps.path ).toBe( '_sse' );
+		expect( window.location.search ).not.toMatch( /partition=/ );
 	} );
 
 	it( 'mounts the receive graph in view mode (Dumper registered as _output)', () => {
@@ -1393,6 +1406,22 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'open' ) );
 		} );
 		expect( hooks.fetchTopology ).toHaveBeenCalled();
+	} );
+
+	it( 'canEdit is true when the cwd names a worker', () => {
+		// Default mount lands cwd at _sse/{reader} (a worker).
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		expect( lastHeaderProps.canEdit ).toBe( true );
+	} );
+
+	it( 'canEdit is false when the cwd is a root path', () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastHeaderProps.onPathChange( '_sse' );
+		} );
+		expect( lastHeaderProps.canEdit ).toBe( false );
 	} );
 
 	it( 'canDeleteCurrent: returns false when no user-saved topology', () => {
@@ -1829,7 +1858,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( result ).toBe( false );
 	} );
 
-	it( 'changing partition resets selection + transcript + parsed', async () => {
+	it( 'switching worker via onPathChange resets selection + transcript + parsed', async () => {
 		window.NewspackNodesData.topologyPartitions = { demo: 2 };
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { container } = render( <TopologyConsole /> );
@@ -1839,7 +1868,7 @@ describe( 'TopologyConsole boot', () => {
 				.length
 		).toBeGreaterThan( 0 );
 		await act( async () => {
-			lastHeaderProps.onPartitionChange( 1 );
+			lastHeaderProps.onPathChange( '_sse/demo.p1' );
 		} );
 		expect(
 			container.querySelectorAll( '[data-testid="repl-transcript"] li' )

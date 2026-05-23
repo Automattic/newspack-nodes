@@ -132,7 +132,7 @@ class CommandInterpreter extends Node {
 	 * @param string                  $args     Literal arguments tail.
 	 * @param mixed                   $payload  Optional structured data.
 	 * @param array<int,mixed>        $envelope Inbound TM_COMMAND message, or [] for inline calls.
-	 * @return mixed Verb result (string for most verbs; array for dump_node/dump_metadata).
+	 * @return mixed Verb result (string for most verbs; array for dump_metadata).
 	 */
 	public function dispatch( string $name, string $args = '', mixed $payload = null, array $envelope = [] ): mixed {
 		$commands = $this->commands();
@@ -579,11 +579,10 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
-	 * Snapshot a node's state via Node::dump_node(), optionally key-filtered. Sorted for stability.
-	 *
-	 * @return array<string,mixed>|string
+	 * Snapshot a node's state via Node::dump_node(), optionally key-filtered and
+	 * sorted for stability, stringified with a class-name header (display-only).
 	 */
-	private static function cmd_dump_node( string $args ): mixed {
+	private static function cmd_dump_node( string $args ): string {
 		$parts = \preg_split( '/\s+/', \trim( $args ) );
 		$name  = $parts[0] ?? '';
 		if ( '' === $name ) {
@@ -595,6 +594,14 @@ class CommandInterpreter extends Node {
 		}
 		$wanted   = \array_slice( $parts, 1 );
 		$snapshot = $node->dump_node();
+
+		// The class heads the dump (first line, before the body); the rest is the
+		// node's state. Pulled out so it isn't also a body key / a filter target.
+		$class = (string) ( $snapshot['class'] ?? '' );
+		unset( $snapshot['class'] );
+		// `class` is always shown in the header, so requesting it as a key is a
+		// no-op rather than a "can't find key" error.
+		$wanted = \array_values( \array_filter( $wanted, static fn ( $k ): bool => 'class' !== $k ) );
 
 		// Alphabetical so output is stable across nodes with different ancestors.
 		\ksort( $snapshot );
@@ -608,7 +615,9 @@ class CommandInterpreter extends Node {
 			$snapshot = \array_intersect_key( $snapshot, \array_flip( $wanted ) );
 		}
 
-		return $snapshot;
+		// Stringify here (the result rides as a display-only string payload — not
+		// json_decode'd downstream): the class name, then the pretty snapshot.
+		return $class . ' ' . (string) \wp_json_encode( $snapshot, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
 	}
 
 	private static function cmd_dump_config(): string {

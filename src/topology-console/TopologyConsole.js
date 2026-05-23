@@ -78,7 +78,7 @@ function activeTopologySet() {
 }
 
 // Active topologies sort to the top of the dropdown, then alphabetical.
-const TOPOLOGIES = ( () => {
+function sortedTopologies() {
 	const all = Object.keys( topologyMap() );
 	const active = activeTopologySet();
 	return [ ...all ].sort( ( a, b ) => {
@@ -86,11 +86,19 @@ const TOPOLOGIES = ( () => {
 		const bd = active.has( b ) ? 0 : 1;
 		return ad !== bd ? ad - bd : a.localeCompare( b );
 	} );
-} )();
+}
+
+const TOPOLOGIES = sortedTopologies();
 
 function partitionList( topology ) {
 	const n = topologyMap()[ topology ] || 1;
 	return Array.from( { length: n }, ( _, i ) => i );
+}
+
+// '_sse/{topology}.p{N}' → { topology, partition }; any other cwd → null.
+function parseWorker( cwd ) {
+	const m = String( cwd ).match( /^_sse\/(.+)\.p(\d+)$/ );
+	return m ? { topology: m[ 1 ], partition: Number( m[ 2 ] ) } : null;
 }
 
 function readUrlParam( key ) {
@@ -439,6 +447,40 @@ export default function TopologyConsole() {
 	const layoutDirty = ! layoutsEqualSaved;
 
 	const partitions = useMemo( () => partitionList( topology ), [ topology ] );
+
+	// Every cwd the Path menu can select: the local graph, the request scope,
+	// then one entry per worker across all topologies.
+	const pathOptions = useMemo(
+		() => [
+			'',
+			'_sse',
+			...sortedTopologies().flatMap( ( t ) =>
+				partitionList( t ).map( ( p ) => `_sse/${ t }.p${ p }` )
+			),
+		],
+		[]
+	);
+
+	// A different worker re-keys the graph (the rebuilt shell remounts at
+	// _sse/{worker} and the [shell] effect syncs cwd). A root path or the same
+	// worker just moves the cwd.
+	const handlePathChange = useCallback(
+		( nextPath ) => {
+			const worker = parseWorker( nextPath );
+			if (
+				worker &&
+				( worker.topology !== topology ||
+					worker.partition !== partition )
+			) {
+				setTopology( worker.topology );
+				setPartition( worker.partition );
+			} else if ( shell ) {
+				shell.path = nextPath;
+				setCwd( nextPath );
+			}
+		},
+		[ topology, partition, shell ]
+	);
 
 	// Reset to p0 when switching to a topology with fewer partitions.
 	useEffect( () => {
@@ -1292,12 +1334,10 @@ export default function TopologyConsole() {
 			}${ mode === 'edit' ? ' is-edit-mode' : '' }` }
 		>
 			<Header
-				topologies={ TOPOLOGIES }
-				topology={ topology }
-				onTopologyChange={ setTopology }
-				partitions={ partitions }
-				partition={ partition }
-				onPartitionChange={ setPartition }
+				pathOptions={ pathOptions }
+				path={ cwd }
+				onPathChange={ handlePathChange }
+				canEdit={ cwd.startsWith( '_sse/' ) }
 				streamStatus={ status }
 				uptime={ uptime }
 				mode={ mode }

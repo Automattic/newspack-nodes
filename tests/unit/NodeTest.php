@@ -589,6 +589,14 @@ class NodeTest extends TestCase {
 		$this->assertSame( 0, $snap['counter'] );
 	}
 
+	public function test_dump_node_includes_the_runtime_class_name(): void {
+		// The snapshot carries the node's own (runtime) class short name so
+		// cmd_dump_node can head the dump with it.
+		$snap = ( new CaptureSink() )->dump_node();
+		$this->assertArrayHasKey( 'class', $snap );
+		$this->assertSame( 'CaptureSink', $snap['class'] );
+	}
+
 	public function test_dump_node_collapses_sink_to_node_name_string(): void {
 		// dump_node() replaces the sink object reference with the sink's
 		// name() string — the special-cased branch right before the generic
