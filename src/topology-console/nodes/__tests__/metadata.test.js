@@ -10,6 +10,8 @@ import { Node } from '../../../runtime/node';
 import {
 	newMessage,
 	TYPE,
+	FROM,
+	TO,
 	VALUE,
 	TM_STRUCT,
 	TM_COMMAND,
@@ -24,6 +26,11 @@ function msg( type, value ) {
 }
 
 describe( 'Metadata node', () => {
+	afterEach( () => {
+		const { Core } = require( '../../../runtime/core' );
+		Core.reset();
+	} );
+
 	it( 'parses a bare dump_metadata struct VALUE into the metadata state', () => {
 		const node = new Metadata();
 		node.fill(
@@ -76,5 +83,38 @@ describe( 'Metadata node', () => {
 		node.fill( msg( TM_STRUCT, { n1: { class: 'Echo' } } ) );
 		node.fill( msg( TM_STRUCT, { n1: { class: 'Echo' } } ) );
 		expect( node.counter ).toBe( 2 );
+	} );
+
+	describe( 'onTimer poll emission', () => {
+		it( 'emits a dump_metadata TM_COMMAND through the sink when pollTo is set', () => {
+			const node = new Metadata();
+			node.setName( '_metadata' );
+			const sent = [];
+			node.sink = { fill: ( m ) => sent.push( m ) };
+			node.pollTo = 'demo.p0';
+			node.onTimer();
+			expect( sent ).toHaveLength( 1 );
+			const m = sent[ 0 ];
+			expect( m[ TYPE ] ).toBe( TM_COMMAND );
+			expect( m[ VALUE ].name ).toBe( 'dump_metadata' );
+			expect( m[ TO ] ).toBe( 'demo.p0' );
+			expect( m[ FROM ] ).toBe( '_metadata' );
+		} );
+
+		it( 'emits nothing when pollTo is null', () => {
+			const node = new Metadata();
+			node.setName( '_metadata' );
+			const sent = [];
+			node.sink = { fill: ( m ) => sent.push( m ) };
+			node.pollTo = null;
+			node.onTimer();
+			expect( sent ).toHaveLength( 0 );
+		} );
+
+		it( 'emits nothing when there is no sink', () => {
+			const node = new Metadata();
+			node.pollTo = 'demo.p0';
+			expect( () => node.onTimer() ).not.toThrow();
+		} );
 	} );
 } );

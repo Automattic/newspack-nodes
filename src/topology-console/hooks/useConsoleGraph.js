@@ -165,10 +165,26 @@ export function useConsoleGraph( {
 			return true;
 		} );
 
+		// Live-canvas poll on a single Router TIMER (1s). Each tick locks HttpOut,
+		// notifies subscribers (Metadata every tick, Uptime on its 5s throttle) —
+		// which emit their poll commands through the CI — then flushes HttpOut so
+		// the whole tick's emissions ride in ONE POST. pollTo gates emission; the
+		// TopologyConsole gating effect sets it (null = suppressed → empty flush).
+		metadata.sink = ci;
+		uptime.sink = ci;
+		metadata.pollTo = consoleShell.path;
+		uptime.pollTo = consoleShell.path;
+		router.beforeTimerNotify = () => httpOut.lock();
+		router.afterTimerNotify = () => httpOut.flush();
+		router.register( 'TIMER', names.METADATA, () => metadata.onTimer() );
+		router.register( 'TIMER', names.UPTIME, () => uptime.onTimer() );
+
 		setShell( consoleShell );
 		sse.start();
+		router.startTimer( 1000 );
 
 		return () => {
+			router.stopTimer();
 			if ( slotPoke ) {
 				clearInterval( slotPoke );
 			}

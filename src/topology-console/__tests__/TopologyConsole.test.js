@@ -69,6 +69,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 		reserved.SSE,
 	];
 	const teardown = () => {
+		Core.node( reserved.ROUTER )?.stopTimer();
 		for ( const n of NAMES ) {
 			Core.unregisterNode( n );
 		}
@@ -97,8 +98,10 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				ci.sink = router;
 				const dumper = new Dumper( { debugLevelRef } );
 				dumper.setName( reserved.OUTPUT );
-				new Metadata().setName( reserved.METADATA );
-				new Uptime().setName( reserved.UPTIME );
+				const metadata = new Metadata();
+				metadata.setName( reserved.METADATA );
+				const uptime = new Uptime();
+				uptime.setName( reserved.UPTIME );
 				new Completion().setName( reserved.COMPLETION );
 				// Fake HttpOut: capture the routed message instead of POSTing.
 				const httpOut = new HttpOut( {
@@ -125,6 +128,21 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				const shell = new Shell();
 				shell.path = `${ reserved.SSE }/${ reader }`;
 				shell.sink = ci;
+				// Mirror the real timer wiring so the cadence test exercises the
+				// Router TIMER → Metadata/Uptime onTimer → CI → … → HttpOut path.
+				metadata.sink = ci;
+				uptime.sink = ci;
+				metadata.pollTo = shell.path;
+				uptime.pollTo = shell.path;
+				router.beforeTimerNotify = () => httpOut.lock();
+				router.afterTimerNotify = () => httpOut.flush();
+				router.register( 'TIMER', reserved.METADATA, () =>
+					metadata.onTimer()
+				);
+				router.register( 'TIMER', reserved.UPTIME, () =>
+					uptime.onTimer()
+				);
+				router.startTimer( 1000 );
 				globalThis.__shell = shell;
 				globalThis.__graphKey = key;
 			}

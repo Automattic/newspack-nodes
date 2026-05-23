@@ -14,10 +14,45 @@ import {
 export class Router extends Node {
 	constructor() {
 		super();
-		// TIMER hitchhike slot (not fired browser-side yet) so future ticks can subscribe.
+		// TIMER hitchhike slot — fired once per `startTimer` interval.
 		this.registrations.TIMER = {};
 		// Pre-declared so setState('NOT_AVAILABLE', ...) doesn't throw.
 		this.registrations.NOT_AVAILABLE = {};
+		// setInterval handle for the periodic TIMER fire.
+		this._timerHandle = null;
+		// Optional hooks injected by the console to bracket each TIMER notify (e.g.
+		// HttpOut lock/flush so one tick's emissions batch into ONE POST). Kept here
+		// so the substrate Router stays decoupled from any console node.
+		this.beforeTimerNotify = null;
+		this.afterTimerNotify = null;
+	}
+
+	// Fire TIMER once immediately, then every `ms`. Mirrors PHP Router notifying
+	// TIMER on its periodic fire; the lock hooks are injected by the console.
+	startTimer( ms ) {
+		this.stopTimer();
+		this._tick();
+		this._timerHandle = setInterval( () => this._tick(), ms );
+	}
+
+	_tick() {
+		if ( this.beforeTimerNotify ) {
+			this.beforeTimerNotify();
+		}
+		try {
+			this.notify( 'TIMER', { now: Core.now() } );
+		} finally {
+			if ( this.afterTimerNotify ) {
+				this.afterTimerNotify();
+			}
+		}
+	}
+
+	stopTimer() {
+		if ( null !== this._timerHandle ) {
+			clearInterval( this._timerHandle );
+			this._timerHandle = null;
+		}
 	}
 
 	// The Router has no sink: it routes by peeling TO and drops what it cannot
