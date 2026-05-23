@@ -5,7 +5,7 @@ use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Worker_Base;
 
@@ -28,9 +28,8 @@ class A5RoundTripTest extends TestCase {
 
 		$ci = $w->build_scaffolding();
 
-		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
 		$topology = function ( $ci, int $partition ) {
-			$ci->dispatch( 'make_node', 'CaptureSink target' );
+			$ci->dispatch( 'make_node', 'Capture_Sink target' );
 		};
 		$w->run_topology( $topology, $ci );
 

@@ -4,7 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topic_Node;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -267,7 +267,7 @@ class TopicTest extends TestCase {
 
 		// Now wire a sink AFTER partition materialization — it must propagate to
 		// every partition currently held so their persist responses still flow.
-		$new_sink = new CaptureSink();
+		$new_sink = new Capture_Sink_Node();
 		$t->sink( $new_sink );
 
 		// Verify the partition's sink was updated by routing a response back from it.

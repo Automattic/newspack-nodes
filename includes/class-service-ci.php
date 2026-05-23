@@ -19,9 +19,9 @@
  * non-REST callers can inherit. Mirrors `class-command-interpreter.php`'s
  * location.
  *
- * Service_CI is inheritance-only. It has no verbs of its own and is NOT
- * registered with `CommandInterpreter::register_class()` — make_node-ing
- * a no-op base is useless and would clutter the editor's class palette.
+ * Service_CI is inheritance-only. It has no verbs of its own; as an abstract
+ * base it is never make_node'd, and its inherited Hidden category keeps it out
+ * of the editor's class palette.
  *
  * @package Newspack_Nodes
  */

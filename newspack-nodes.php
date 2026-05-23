@@ -53,37 +53,16 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	\WP_CLI::add_command( 'nodes status',  [ $nodes_worker_cli, 'status' ]  );
 }
 
-// Register substrate node types with CommandInterpreter::$class_map so the
-// shell `make_node` verb and the topology-side `$interpreter->make_node()`
-// instance API can construct them by short name. Plugins extending the
-// runtime add their own subclasses via additional `register_class()` calls.
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Callback',           \Newspack_Nodes\Callback_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'CommandInterpreter', \Newspack_Nodes\Command_Interpreter_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Consumer',           \Newspack_Nodes\Consumer_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Dumper',             \Newspack_Nodes\Dumper_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Echo',               \Newspack_Nodes\Echo_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Hook',               \Newspack_Nodes\Hook_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Lock',               \Newspack_Nodes\Lock_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Log',                \Newspack_Nodes\Log_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Partition',          \Newspack_Nodes\Partition_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Router',             \Newspack_Nodes\Router_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Shell',              \Newspack_Nodes\Shell_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Tail',               \Newspack_Nodes\Tail_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Tee',                \Newspack_Nodes\Tee_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Timer',              \Newspack_Nodes\Timer_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Topic',              \Newspack_Nodes\Topic_Node::class );
-
-// Substrate service CIs — discoverable to `$base_ci->make_node(...)`,
-// which constructs + names + sinks each in one step from the
-// `newspack_nodes/request_graph_ready` hook mounted below. Matches the
-// app-side `_CI`-suffix convention (newspack-event-logger-nodes.php)
-// so `Classes_CI.list` returns a consistent shell-name catalog across
-// substrate + application CIs.
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Classes_CI',    \Newspack_Nodes\Rest\Classes_CI_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Layouts_CI',    \Newspack_Nodes\Rest\Layouts_CI_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Raw_Logs_CI',   \Newspack_Nodes\Rest\Raw_Logs_CI_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Topologies_CI', \Newspack_Nodes\Rest\Topologies_CI_Node::class );
-\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Workers_CI',    \Newspack_Nodes\Rest\Workers_CI_Node::class );
+// Register the substrate class namespaces so the shell `make_node` verb and the
+// topology-side `$interpreter->make_node()` API resolve node types by short
+// name: `make_node('Tee')` constructs the first `{$prefix}Tee_Node` that exists.
+// Plugins extending the runtime register their own prefix(es). The catalog
+// (Classes_CI) scans the composer classmap under these prefixes; the top-level
+// prefix already string-matches sub-namespaces, but the `\Rest\` prefix is
+// registered too so `make_node('Classes_CI')` resolves the service CIs that the
+// `request_graph_ready` mount constructs by short name.
+\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
+\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
 
 /**
  * Service-CommandInterpreter (CI) mounting.

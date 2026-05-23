@@ -3,7 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Hook_Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -31,7 +31,7 @@ class HookTest extends TestCase {
 
 	public function test_action_mode_forwards_to_sink_unchanged(): void {
 		$hook = new Hook_Node( 'newspack_nodes/test_action' );
-		$capture = new CaptureSink();
+		$capture = new Capture_Sink_Node();
 		$hook->sink( $capture );
 
 		$msg = Message::new_message();
@@ -49,7 +49,7 @@ class HookTest extends TestCase {
 		} );
 
 		$hook = new Hook_Node( 'newspack_nodes/test_filter', filter: true );
-		$capture = new CaptureSink();
+		$capture = new Capture_Sink_Node();
 		$hook->sink( $capture );
 
 		$msg = Message::new_message();

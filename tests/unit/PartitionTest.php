@@ -222,7 +222,7 @@ class PartitionTest extends TestCase {
 		// Force a rotation by filling small segments, capture the trace via a
 		// _router CaptureSink (the address Node::emit_debug_state_trace routes
 		// through). Asserts the SEGMENT state fires with the just-rotated id.
-		$router = new \Newspack_Nodes\Tests\CaptureSink();
+		$router = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$router->name( '_router' );
 
 		$p = new Partition_Node( $this->tmp, 0, 256, 4, 86400 );
@@ -249,7 +249,7 @@ class PartitionTest extends TestCase {
 
 	public function test_cleanup_emits_CLEANUP_state_only_when_deletions_happen(): void {
 		// max_lifespan=0 → cleanup always deletes once count > num_segments.
-		$router = new \Newspack_Nodes\Tests\CaptureSink();
+		$router = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$router->name( '_router' );
 
 		$p = new Partition_Node( $this->tmp, 0, 256, 2, 0 );
@@ -1193,7 +1193,7 @@ class PartitionTest extends TestCase {
 	// ============================================================================
 
 	public function test_fill_emits_DROPPED_state_when_oversized(): void {
-		$router = new \Newspack_Nodes\Tests\CaptureSink();
+		$router = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$router->name( '_router' );
 
 		$p = new Partition_Node( $this->tmp, 0, 64 * 1024, 4, 86400 );

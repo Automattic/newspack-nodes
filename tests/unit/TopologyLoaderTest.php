@@ -7,7 +7,7 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Topology_Loader;
 use Newspack_Nodes\Topology_Registry;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 class TopologyLoaderTest extends TestCase {
@@ -19,7 +19,6 @@ class TopologyLoaderTest extends TestCase {
 		Topology_Registry::reset();
 		$this->stock = $this->make_temp_dir( 'tsl-load-' );
 		Topology_Registry::register_stock_dir( $this->stock );
-		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
 	}
 
 	protected function tearDown(): void {
@@ -35,7 +34,7 @@ class TopologyLoaderTest extends TestCase {
 	public function test_load_builds_graph_from_tsl_script(): void {
 		$this->write_tsl(
 			'two-nodes',
-			"make_node CaptureSink alice\nmake_node CaptureSink bob\nconnect_node alice bob\n"
+			"make_node Capture_Sink alice\nmake_node Capture_Sink bob\nconnect_node alice bob\n"
 		);
 
 		$ci = new Command_Interpreter_Node();
@@ -55,7 +54,7 @@ class TopologyLoaderTest extends TestCase {
 		\Newspack_Nodes\Command_Interpreter_Node::$default_authorize = \Newspack_Nodes\Command_Auth::verifier();
 		$this->write_tsl(
 			'verified',
-			"make_node CaptureSink alice\nmake_node CaptureSink bob\nconnect_node alice bob\n"
+			"make_node Capture_Sink alice\nmake_node Capture_Sink bob\nconnect_node alice bob\n"
 		);
 
 		$ci = new Command_Interpreter_Node();
@@ -70,7 +69,7 @@ class TopologyLoaderTest extends TestCase {
 	public function test_load_interpolates_partition_via_angle_bracket(): void {
 		$this->write_tsl(
 			'parted',
-			"make_node CaptureSink consumer-p<partition>\n"
+			"make_node Capture_Sink consumer-p<partition>\n"
 		);
 
 		$ci = new Command_Interpreter_Node();
@@ -84,7 +83,7 @@ class TopologyLoaderTest extends TestCase {
 	public function test_load_interpolates_config_namespace(): void {
 		$this->write_tsl(
 			'configed',
-			"make_node CaptureSink node-<config:env_label>\n"
+			"make_node Capture_Sink node-<config:env_label>\n"
 		);
 
 		$ci = new Command_Interpreter_Node();
@@ -98,7 +97,7 @@ class TopologyLoaderTest extends TestCase {
 	public function test_load_unknown_config_key_expands_to_empty_string(): void {
 		// Shell's interpolate-then-expand-empty policy applies — unknown
 		// `<config:foo>` becomes ''. The loader doesn't pre-validate.
-		$this->write_tsl( 'unknown', "make_node CaptureSink node-<config:nope>\n" );
+		$this->write_tsl( 'unknown', "make_node Capture_Sink node-<config:nope>\n" );
 
 		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
@@ -110,7 +109,7 @@ class TopologyLoaderTest extends TestCase {
 	public function test_load_skips_blank_lines_and_comments(): void {
 		$this->write_tsl(
 			'comments',
-			"# header comment\n\nmake_node CaptureSink alice\n\n# trailing comment\n"
+			"# header comment\n\nmake_node Capture_Sink alice\n\n# trailing comment\n"
 		);
 
 		$ci = new Command_Interpreter_Node();
@@ -127,7 +126,7 @@ class TopologyLoaderTest extends TestCase {
 		// them up. Semicolons separate statements on a single line.
 		$this->write_tsl(
 			'frontmatter',
-			"var num_partitions = 4; var stale_timeout = 60\nmake_node CaptureSink leader-p<partition>"
+			"var num_partitions = 4; var stale_timeout = 60\nmake_node Capture_Sink leader-p<partition>"
 		);
 
 		$ci = new Command_Interpreter_Node();

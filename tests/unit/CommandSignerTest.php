@@ -4,7 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Command_Signer_Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -12,7 +12,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 class CommandSignerTest extends TestCase {
 	public function test_signs_command_then_forwards_to_sink(): void {
 		$signer = new Command_Signer_Node();
-		$sink   = new CaptureSink();
+		$sink   = new Capture_Sink_Node();
 		$signer->sink( $sink );
 
 		$m                   = Message::new_message();
@@ -28,7 +28,7 @@ class CommandSignerTest extends TestCase {
 
 	public function test_passes_non_command_through_unsigned(): void {
 		$signer = new Command_Signer_Node();
-		$sink   = new CaptureSink();
+		$sink   = new Capture_Sink_Node();
 		$signer->sink( $sink );
 
 		$m                   = Message::new_message();
@@ -42,7 +42,7 @@ class CommandSignerTest extends TestCase {
 
 	public function test_does_not_sign_a_response_command(): void {
 		$signer = new Command_Signer_Node();
-		$sink   = new CaptureSink();
+		$sink   = new Capture_Sink_Node();
 		$signer->sink( $sink );
 
 		$m                   = Message::new_message();

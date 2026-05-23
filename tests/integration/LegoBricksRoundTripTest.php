@@ -6,7 +6,7 @@ use Newspack_Nodes\Hook_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tee_Node;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 class LegoBricksRoundTripTest extends TestCase {
@@ -25,10 +25,10 @@ class LegoBricksRoundTripTest extends TestCase {
 
 		$hook = new Hook_Node( 'newspack_nodes/test_event' );
 		$hook->name( 'on-event' );
-		$hook_sink = new CaptureSink();
+		$hook_sink = new Capture_Sink_Node();
 		$hook->sink( $hook_sink );
 
-		$direct = new CaptureSink();
+		$direct = new Capture_Sink_Node();
 		$direct->name( 'direct' );
 
 		$tee->connect_node( 'on-event' );
@@ -51,7 +51,7 @@ class LegoBricksRoundTripTest extends TestCase {
 	}
 
 	public function test_callback_can_filter_in_a_chain(): void {
-		$capture = new CaptureSink();
+		$capture = new Capture_Sink_Node();
 		$transformer = new Callback_Node( function ( array &$m ) {
 			$m[ Message::VALUE ] = 'X-' . $m[ Message::VALUE ];
 		} );

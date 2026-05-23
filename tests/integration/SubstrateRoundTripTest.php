@@ -5,7 +5,7 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Router_Node;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 class SubstrateRoundTripTest extends TestCase {
@@ -19,9 +19,8 @@ class SubstrateRoundTripTest extends TestCase {
 		$ci->sink( $router );
 
 		// Build app graph via shell verbs.
-		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
-		$this->assertSame( 'ok', $ci->dispatch( 'make_node', 'CaptureSink alice' ) );
-		$this->assertSame( 'ok', $ci->dispatch( 'make_node', 'CaptureSink bob' ) );
+		$this->assertSame( 'ok', $ci->dispatch( 'make_node', 'Capture_Sink alice' ) );
+		$this->assertSame( 'ok', $ci->dispatch( 'make_node', 'Capture_Sink bob' ) );
 		$this->assertSame( 'ok', $ci->dispatch( 'connect_node', 'alice bob' ) );
 
 		// Send addressed message: TO=alice, expects router → alice (capture).
@@ -43,7 +42,7 @@ class SubstrateRoundTripTest extends TestCase {
 
 		// Producer captures the error: the NOT_AVAILABLE bounce routes back via
 		// TO=FROM='producer' (the Router has no sink — the producer is reached by name).
-		$producer = new CaptureSink();
+		$producer = new Capture_Sink_Node();
 		$producer->name( 'producer' );
 
 		$msg                  = Message::new_message();

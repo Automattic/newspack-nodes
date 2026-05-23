@@ -3,27 +3,48 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Command_Interpreter_Node;
+use Composer\Autoload\ClassLoader;
+use Newspack_Nodes\Node;
 use Newspack_Nodes\Tests\TestCase;
 
 class NodeSchemaCoverageTest extends TestCase {
-	public function test_every_registered_class_returns_schema_with_category(): void {
+	public function test_every_substrate_node_class_returns_schema_with_category(): void {
 		$missing = [];
-		foreach ( Command_Interpreter_Node::class_map() as $shell_name => $fqcn ) {
-			if ( ! \method_exists( $fqcn, 'node_schema' ) ) {
-				$missing[ $shell_name ] = 'no node_schema() method';
-				continue;
-			}
-			$schema = $fqcn::node_schema();
-			$cat    = $schema['category'] ?? '';
-			if ( ! \is_array( $schema ) || '' === $cat ) {
-				$missing[ $shell_name ] = 'schema missing non-empty category';
+		$checked = 0;
+		foreach ( ClassLoader::getRegisteredLoaders() as $loader ) {
+			foreach ( \array_keys( $loader->getClassMap() ) as $fqcn ) {
+				// Substrate `*_Node` classes only — not the `Tests\` doubles.
+				if ( ! \str_starts_with( $fqcn, 'Newspack_Nodes\\' ) ) {
+					continue;
+				}
+				if ( \str_starts_with( $fqcn, 'Newspack_Nodes\\Tests\\' ) ) {
+					continue;
+				}
+				$short = \substr( (string) \strrchr( '\\' . $fqcn, '\\' ), 1 );
+				if ( ! \str_ends_with( $short, '_Node' ) || ! \is_subclass_of( $fqcn, Node::class ) ) {
+					continue;
+				}
+				// Only classes that DECLARE their own node_schema() opt into the
+				// catalog; ones inheriting Node's empty-category default (e.g.
+				// SSE_Out_Node, a pure HTTP response writer) aren't cataloged.
+				$method = new \ReflectionMethod( $fqcn, 'node_schema' );
+				if ( Node::class === $method->getDeclaringClass()->getName() ) {
+					continue;
+				}
+				++$checked;
+				$shell  = \substr( $short, 0, -\strlen( '_Node' ) );
+				$schema = $fqcn::node_schema();
+				$cat    = $schema['category'] ?? '';
+				if ( ! \is_array( $schema ) || '' === $cat ) {
+					$missing[ $shell ] = 'schema missing non-empty category';
+				}
 			}
 		}
+		$this->assertGreaterThan( 0, $checked, 'expected to scan at least one substrate Node class' );
 		$this->assertSame(
 			[],
 			$missing,
-			"Classes without node_schema()/category: " . \print_r( $missing, true )
+			'Classes without node_schema()/category: ' . \print_r( $missing, true )
 		);
 	}
 

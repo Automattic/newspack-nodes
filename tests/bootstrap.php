@@ -397,10 +397,15 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
 	}
 }
 
-// Load the plugin (which require_once's the class files).
+// Load the plugin (which require_once's the class files and calls
+// register_namespace('Newspack_Nodes\\')).
 require_once \dirname( __DIR__ ) . '/newspack-nodes.php';
 
-// Load test helpers.
+// Register the test namespace so `make_node('Capture_Sink')` resolves
+// `Newspack_Nodes\Tests\Capture_Sink_Node` (require'd below; class_exists true).
+\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\' );
+
+// Load test helpers. (CaptureSink.php defines Capture_Sink_Node.)
 require_once __DIR__ . '/Helpers/TestCase.php';
 require_once __DIR__ . '/Helpers/CaptureSink.php';
 require_once __DIR__ . '/Helpers/BoundedTicks.php';

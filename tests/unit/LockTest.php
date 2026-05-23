@@ -3,7 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Medium;
@@ -345,7 +345,7 @@ class LockTest extends TestCase {
 		// branch — Lock is registered as a Node, so generic data messages
 		// shouldn't be eaten by it.
 		$lock = new Lock_Node( "{$this->tmp}/test.lock.d" );
-		$sink = new CaptureSink();
+		$sink = new Capture_Sink_Node();
 		$lock->sink( $sink );
 
 		$message                       = Message::new_message();

@@ -5,7 +5,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tee_Node;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -22,9 +22,9 @@ class TeeTest extends TestCase {
 		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$a = new CaptureSink();
+		$a = new Capture_Sink_Node();
 		$a->name( 'a' );
-		$b = new CaptureSink();
+		$b = new Capture_Sink_Node();
 		$b->name( 'b' );
 
 		$tee = new Tee_Node();
@@ -55,7 +55,7 @@ class TeeTest extends TestCase {
 		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$alive = new CaptureSink();
+		$alive = new Capture_Sink_Node();
 		$alive->name( 'alive' );
 
 		$tee = new Tee_Node();
@@ -122,7 +122,7 @@ class TeeTest extends TestCase {
 		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$alive = new CaptureSink();
+		$alive = new Capture_Sink_Node();
 		$alive->name( 'alive' );
 
 		$throwing = new class() extends \Newspack_Nodes\Node {
@@ -158,12 +158,12 @@ class TeeTest extends TestCase {
 	public function test_fill_routes_TM_REQUEST_to_handle_request(): void {
 		// fill() must detect TM_REQUEST (without TM_RESPONSE) and reply with
 		// GET_TARGETS data instead of fanning out. Spec lines 53-57.
-		$alive_a = new CaptureSink();
+		$alive_a = new Capture_Sink_Node();
 		$alive_a->name( 'alive-a' );
-		$alive_b = new CaptureSink();
+		$alive_b = new Capture_Sink_Node();
 		$alive_b->name( 'alive-b' );
 
-		$reply_sink = new CaptureSink();
+		$reply_sink = new Capture_Sink_Node();
 		$tee        = new Tee_Node();
 		$tee->name( 'tee' );
 		$tee->sink( $reply_sink );
@@ -203,7 +203,7 @@ class TeeTest extends TestCase {
 	public function test_fill_TM_REQUEST_GET_TARGETS_empty_target_list(): void {
 		// Tee with no targets — GET_TARGETS still replies, with count=0
 		// and targets=[].
-		$reply_sink = new CaptureSink();
+		$reply_sink = new Capture_Sink_Node();
 
 		$tee = new Tee_Node();
 		$tee->name( 'tee' );
@@ -223,7 +223,7 @@ class TeeTest extends TestCase {
 
 	public function test_fill_TM_REQUEST_unknown_verb_returns_error_payload(): void {
 		// Unknown verbs reply with `[ 'error' => "unknown request verb: $VERB" ]`.
-		$reply_sink = new CaptureSink();
+		$reply_sink = new Capture_Sink_Node();
 		$tee        = new Tee_Node();
 		$tee->name( 'tee' );
 		$tee->sink( $reply_sink );
@@ -245,7 +245,7 @@ class TeeTest extends TestCase {
 	public function test_fill_TM_REQUEST_verb_is_case_insensitive_and_strips_args(): void {
 		// Verb extraction is strtoupper(explode(' ', trim($value), 2)[0]).
 		// "  get_targets  trailing  " → GET_TARGETS.
-		$reply_sink = new CaptureSink();
+		$reply_sink = new Capture_Sink_Node();
 		$tee        = new Tee_Node();
 		$tee->name( 'tee' );
 		$tee->sink( $reply_sink );

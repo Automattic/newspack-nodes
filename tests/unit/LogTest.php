@@ -226,7 +226,6 @@ class LogTest extends TestCase {
 		// ctor args fall through to defaults via cmd_make_node's variadic
 		// spread. Pin the contract end-to-end through the same dispatch
 		// path the shell uses.
-		\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Log', Log_Node::class );
 		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
@@ -245,7 +244,6 @@ class LogTest extends TestCase {
 
 	public function test_make_node_through_REPL_works_with_filename_and_mode(): void {
 		// `make Log mylog /path overwrite` — max_size omitted, defaults to 0.
-		\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Log', Log_Node::class );
 		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
@@ -272,7 +270,6 @@ class LogTest extends TestCase {
 		// Shell tokens are always strings; without strict_types the int
 		// parameter accepts the coerced value. Verify max_size works
 		// end-to-end through cmd_make_node.
-		\Newspack_Nodes\Command_Interpreter_Node::register_class( 'Log', Log_Node::class );
 		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 

@@ -5,7 +5,7 @@ use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topic_Node;
 
@@ -35,7 +35,7 @@ class StorageRoundTripTest extends TestCase {
 
 		// Consumer reads that partition.
 		$c1   = new Consumer_Node( "{$this->tmp}/firehose.log", $pid, "{$this->tmp}/offsets/reader/p{$pid}" );
-		$cap1 = new CaptureSink();
+		$cap1 = new Capture_Sink_Node();
 		$c1->sink( $cap1 );
 		$c1->poll();
 		$c1->checkpoint();
@@ -48,7 +48,7 @@ class StorageRoundTripTest extends TestCase {
 		unset( $c1 );
 
 		$c2   = new Consumer_Node( "{$this->tmp}/firehose.log", $pid, "{$this->tmp}/offsets/reader/p{$pid}" );
-		$cap2 = new CaptureSink();
+		$cap2 = new Capture_Sink_Node();
 		$c2->sink( $cap2 );
 		$c2->poll();
 

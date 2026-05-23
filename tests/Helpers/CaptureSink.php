@@ -4,7 +4,7 @@ namespace Newspack_Nodes\Tests;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 
-class CaptureSink extends Node {
+class Capture_Sink_Node extends Node {
 	/** @var array<int,array> */
 	public array $captured = [];
 

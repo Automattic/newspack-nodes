@@ -4,7 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Tests\CaptureSink;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Timer_Node;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -45,7 +45,7 @@ class TimerTest extends TestCase {
 	public function test_fire_cb_sends_TM_BYTESTREAM_to_sink(): void {
 		$timer = new Timer_Node();
 		$timer->name( 't1' );
-		$sink = new CaptureSink();
+		$sink = new Capture_Sink_Node();
 		$timer->sink( $sink );
 
 		$timer->fire_cb();
