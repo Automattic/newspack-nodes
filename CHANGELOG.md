@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **REPL `cd` mounts a worker exactly like a Path-menu pick.** `cd` keeps its
+  free-navigation behavior (any path, including a worker's sub-nodes), but now
+  routes through the same handler the menu uses: the cwd resolves to the largest
+  worker menu item that is a prefix of the path, and mounting a *different* worker
+  re-keys the graph and re-subscribes `_sse` to its output. `cd` within the
+  current worker (or onto a non-worker/root path) is a pure cwd move with no
+  rebuild — so you can `cd` into the current worker's sub-nodes freely. (Crossing
+  to another worker rebuilds and lands at that worker's root.)
+
 - **The browser Shell and CommandInterpreter reach 1:1 parity with the PHP
   reference.** The JS Shell gains the full builtin set (`pwd`, `var`/`<var>`
   interpolation, `echo`, `show_parse`, `status`, …); the JS CommandInterpreter
