@@ -425,6 +425,9 @@ require_once __DIR__ . '/Helpers/InMemoryMemcached.php';
 // production and are no-op'd here for the test process.
 \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = static function ( string $prompt, callable $cb ): void {};
 \Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char       = static function (): void {};
+// Tab-completion registration would call readline_completion_function (needs a
+// real TTY); no-op it for the test process.
+\Newspack_Nodes\Cli_Stdin_Reader::$readline_completion_register = static function ( callable $cb ): void {};
 
 \Newspack_Nodes\Supervisor::$curl_exec = static function ( $ch, array $body ) {
 	$url  = (string) \curl_getinfo( $ch, \CURLINFO_EFFECTIVE_URL );

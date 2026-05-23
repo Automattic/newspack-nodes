@@ -66,6 +66,21 @@ class Dumper extends Node {
 		$this->on_eof = $cb;
 	}
 
+	/**
+	 * Tab-completion intercept. Gets first crack at every inbound message; if it
+	 * returns true the message is consumed (a completion reply) and rendered as
+	 * nothing. Null → no interception.
+	 *
+	 * Signature: `function ( array $message ): bool` (true = consumed).
+	 *
+	 * @var callable|null
+	 */
+	private $completion_sink = null;
+
+	public function set_completion_sink( ?callable $cb ): void {
+		$this->completion_sink = $cb;
+	}
+
 	public function set_to_filter( string $pid ): void {
 		$this->to_filter = $pid;
 	}
@@ -216,6 +231,12 @@ class Dumper extends Node {
 			) {
 				return;
 			}
+		}
+
+		// Tab-completion replies are consumed before render — they feed the cli's
+		// candidate cache, not the terminal.
+		if ( null !== $this->completion_sink && ( $this->completion_sink )( $message ) ) {
+			return;
 		}
 
 		$type = $message[ Message::TYPE ];
