@@ -113,10 +113,21 @@ if [[ -n "$php_changed" ]]; then
 
 		step "phpunit in container"
 		out=/tmp/pre-push-phpunit.out
-		docker exec -u bend "$CONTAINER" bash -c "cd ${TEST_DIR_IN_CONTAINER} && phpunit 2>&1" >"$out" || true
+		# Use the composer-installed binary, NOT the system `phpunit` (a newer
+		# major that crashes on our bootstrap). Capture the real exit code:
+		# `|| true` would swallow a non-zero status, and grepping only for
+		# FAILURES/ERRORS lets a `command not found` (or any error whose output
+		# lacks those words) pass vacuously.
+		if docker exec -u bend "$CONTAINER" bash -c \
+			"cd ${TEST_DIR_IN_CONTAINER} && ../vendor/bin/phpunit --enforce-time-limit 2>&1" \
+			>"$out"; then
+			phpunit_rc=0
+		else
+			phpunit_rc=$?
+		fi
 		tail -3 "$out" >&2
-		if grep -qE 'FAILURES|ERRORS' "$out"; then
-			fail "phpunit failed — full output at ${out}"
+		if [[ "$phpunit_rc" -ne 0 ]] || grep -qE 'FAILURES|ERRORS' "$out"; then
+			fail "phpunit failed (exit ${phpunit_rc}) — full output at ${out}"
 		fi
 		ok "phpunit clean"
 	fi
