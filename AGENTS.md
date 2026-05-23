@@ -106,17 +106,19 @@ These are intentional. Don't "fix" them.
 
 9. **Two-tier safety net.** Workers self-respawn; supervisor catches stale-locked workers (heartbeat > stale_timeout) and force-spawns. Supervisor self-respawns; WP-Cron catches a dead supervisor at minute cadence.
 
+10. **Class names are `Word_Word` with ALL-CAPS acronyms; Node subclasses carry a `_Node` suffix; `make_node` resolves by namespace prefix.** Every PHP class is `Word_Word` (acronyms `HTTP`/`SSE`/`CLI`/`LRU`/`CI` stay all-caps). Node subclasses end `_Node` (`Tee_Node`, `Router_Node`, `Command_Interpreter_Node`, `HTTP_In_Node`, `SSE_Out_Node`, the `*_CI_Node`s); non-node helpers are normalized without it (`Event_Framework`, `Worker_Base`, `Supervisor_Base`, `Spawn_Controller`, `SSE_Slot_Pool`, `CLI`). The *shell name* a topology line / `make_node` uses is the short-name minus `_Node` (`Tee_Node` → `Tee`). There is **no** `register_class` / `class_map`: plugins call `Command_Interpreter_Node::register_namespace( 'My_Prefix\\' )` once, and `make_node($type)` constructs the first `{$prefix}{$type}_Node` that's a concrete Node subclass (abstract ones like `Service_CI_Node` resolve to `null`, not fatal). The palette catalog (`Classes_CI` `list`) scans the composer classmap for `*_Node` Node subclasses with a non-Hidden/non-empty `node_schema()` category — so after adding/renaming a class you MUST `composer dump-autoload -o`. Test infra stays PascalCase (Newspack convention); the one exception is the `Capture_Sink_Node` test double, which is a real `make_node`'d Node.
+
 ## Layout
 
 | Path | What |
 |------|------|
-| `newspack-nodes.php` | Plugin entry point + class registry for `make_node` |
+| `newspack-nodes.php` | Plugin entry point; registers the substrate namespace prefixes via `Command_Interpreter_Node::register_namespace()` so `make_node($type)` resolves `{$prefix}{$type}_Node` |
 | `includes/class-core.php` | Per-process registries, clock (`Core::$now`), shutdown flag, deferred-cleanup queue, rate-limited stderr |
 | `includes/class-config.php` | Substrate option storage + per-option-group worker-restart dispatch |
 | `includes/class-message.php` | 7-field array constants, type flags, positional `packed()` / `unpacked()` JSON wire |
 | `includes/class-node.php` | Base contract: `fill()`, `sink` (physical next node) + `target` (logical TO path), `stamp_message()`, `register()` / `notify()` / `set_state()` |
 | `includes/class-router.php` | Path-based dispatch by TO; Timer-hitchhike on each tick |
-| `includes/class-event-framework.php` | Drain loop singleton (`curl_multi_select` or `usleep` + timers; no FD machinery) |
+| `includes/class-event-framework.php` | `Event_Framework` — drain loop singleton (`curl_multi_select` or `usleep` + timers; no FD machinery) |
 | `includes/class-{tee,tail,log,echo,callback,hook,timer}.php` | Generic node primitives |
 | `includes/class-{partition,topic,consumer}.php` | Storage + log-tailing primitives |
 | `includes/class-{lock,worker-base,supervisor,supervisor-base,bootstrap}.php` | Lifecycle |
@@ -135,16 +137,16 @@ These are mistakes that have actually happened. Pay attention.
 - **Messages are arrays, not hashes.** Use `Message::TYPE` etc. constants for indexing. `$message['type']` silently fails (PHP coerces string to int 0 → corrupted TYPE).
 - **FROM stamping at I/O boundaries only.** Tail and Consumer stamp; internal nodes (Tee, Hook, application nodes) don't. A message flowing `firehose-in → firehose-fanout → request-builder` carries `FROM=firehose-in`, NOT `firehose-fanout/firehose-in`.
 - **`stamp_message` empty-name guard.** A node with no name (mid-construction or post-rename) emitting `/from` paths breaks Router. Drop with `print_less_often` instead.
-- **Class-API must be event-loop-free.** Constructor for Topic / Partition runs in request scope where there's no EventFramework. See decision 5.
+- **Class-API must be event-loop-free.** Constructor for Topic / Partition runs in request scope where there's no `Event_Framework`. See decision 5.
 - **`hash_to_partition` is canonical.** Diverging hash families silently misroute the same key. See decision 6.
 - **`MAX_FROM_SIZE = 1024`.** `stamp_message` returns false and drops if FROM exceeds 1024 bytes. Prevents path explosion on cycles.
-- **Worker lock release before spawn.** `WorkerBase::execute()`'s `finally` block does `release()` THEN `self_respawn()`. Don't reorder; the reverse leaves a 15-second slot gap.
+- **Worker lock release before spawn.** `Worker_Base::execute()`'s `finally` block does `release()` THEN `self_respawn()`. Don't reorder; the reverse leaves a 15-second slot gap.
 - **HMAC spawn token has TWO accepted windows.** Validates current AND previous 10-second window. Don't tighten to one — race tolerance is intentional.
 - **Partition and Topic pack ALL message types** — including TM_REQUEST, TM_ERROR, TM_EOF. The earlier "drop control messages" rule broke `request_node`, `send_eof`, pivoted-mode error responses (TM_COMMAND|TM_ERROR), and the cli's TM_EOF round-trip drain. Data partitions only see TM_BYTESTREAM / TM_STRUCT in practice; allowing other types through is a no-op there and makes IPC work.
 - **TM_EOF round-trip drains the cli on stdin close.** Cli emits TM_EOF (FROM=`_output/$pid`); the CI it lands on (local in bare mode, the worker's in pivoted mode) bounces TO=FROM; the cli's Dumper sees the echo and flips the exit flag. Mirrors Tachikoma `FileHandle::handle_EOF` → `send_EOF`. There's a 5s deadline fallback so a dead worker doesn't hang the cli.
 - **Don't reintroduce TM_PERSIST.** The removal is intentional. See decision 3.
 - **Skip readline when STDIN isn't a TTY.** `readline_callback_read_char()` reads from the TTY layer, not the stream descriptor; piping into `wp nodes cli` without the gate burns 100% CPU. Already gated; don't remove.
-- **CommandInterpreter only handles TM_COMMAND with empty TO.** Non-empty TO means the message is in transit toward another node — CI forwards to Router. If you "fix" CI to also dispatch on non-empty TO, every CI in a path-routed graph eats commands intended for downstream peers.
+- **Command_Interpreter_Node only handles TM_COMMAND with empty TO.** Non-empty TO means the message is in transit toward another node — CI forwards to Router. If you "fix" CI to also dispatch on non-empty TO, every CI in a path-routed graph eats commands intended for downstream peers.
 - **Verb handlers throw freely; `interpret()` wraps as TM_COMMAND|TM_ERROR.** Don't add per-verb `try/catch` — the central catch is the contract. Keep `return 'error: ...'` only for canonical-OK-shaped argument-validation paths where you want to return without error semantics.
 - **Constructors set `$this->arguments` directly.** No `dump_config()` override per class. `dump_config()` reads the field to emit a round-trippable `make_node <type> <name> <args>` line; if you forget to set it, `dump_config` emits without args and the round-trip silently produces a different node.
 - **`Log`'s `prune_rotated()` reserves the `{filename}-` prefix.** Sibling discovery uses `glob({filename}-*)`; storing unrelated files under the same prefix (e.g. `out.log-keep_forever`) makes them eligible for pruning. Document and don't co-locate other artifacts.

@@ -44,19 +44,20 @@ To get workers running, install an application plugin (e.g., `newspack-event-log
 - **Callback** — closure-as-Node adapter for inline transforms.
 - **Hook** — WordPress action / filter as a node. Plugin-extensibility surface.
 - **Timer** — base class for time-driven nodes (Router extends it).
-- **Shell** + **CommandInterpreter** + **Dumper** — REPL components. `make_node` is callable as both a shell verb and a PHP method.
+- **Shell** + **Command_Interpreter** + **Dumper** — REPL components. `make_node` (resolves a node type by namespace prefix + `_Node` suffix) is callable as both a shell verb and a PHP method.
 
 For the full mental model, see [ARCHITECTURE.md](ARCHITECTURE.md). For the substrate's contracts and invariants, see [AGENTS.md](AGENTS.md).
 
 ## REST API
 
-The runtime ships exactly one REST endpoint — the worker spawn handler. Application plugins register their own endpoints (status, dashboards, SSE streams, etc.) on top.
+The runtime ships two REST endpoints — the worker spawn handler and a unified command-dispatch endpoint (`HTTP_In_Node`, which routes a posted command envelope through the request-scope graph to a service CI). Application plugins register their own endpoints (status, dashboards, SSE streams, etc.) on top.
 
 ```
 POST  /wp-json/newspack-nodes/v1/workers/spawn
+POST  /wp-json/newspack-nodes/v1/command
 ```
 
-See [API.md](API.md) for the request/response shape.
+See [API.md](API.md) for the request/response shapes.
 
 ## License
 
