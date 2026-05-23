@@ -7,10 +7,9 @@ import { TYPE, KEY, VALUE, TM_INFO, unpack } from './message';
  * local graph. Snoops the `connected` envelope so `pid()` can read it back.
  */
 export class SseConnector extends Node {
-	constructor( { subscribe, interval, baseUrl, nonce } ) {
+	constructor( { subscribe, baseUrl, nonce } ) {
 		super();
 		this.subscribe = subscribe;
-		this.interval = interval;
 		this.baseUrl = baseUrl;
 		this.nonce = nonce;
 		this._es = null;
@@ -26,7 +25,6 @@ export class SseConnector extends Node {
 		const url =
 			`${ this.baseUrl }newspack-nodes/v1/messages/stream` +
 			`?subscribe=${ encodeURIComponent( this.subscribe.join( ',' ) ) }` +
-			`&interval=${ this.interval }` +
 			`&_wpnonce=${ this.nonce }`;
 		this._es = new EventSource( url, { withCredentials: true } );
 		this._es.addEventListener( 'msg', ( e ) => {

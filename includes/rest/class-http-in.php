@@ -13,8 +13,11 @@
  *   - sent_headers true  → response already on the wire; exit().
  *   - sent_headers false → async/IPC; emit a 202 ack (real replies arrive
  *                          via the browser's open SSE stream).
- * Pivoted IPC commands set FROM=`_http/<ssePid>` so the reply walks to the
- * SSE process (this Node bypassed). test_mode returns instead of exit().
+ * Every incoming message is stamped with the `_http` boundary name (the client
+ * sends a bare reply path — `_output`, `_sse:{pid}/…`, or '' — and never
+ * hardcodes `_http`), so a reply's TO=FROM walks `_http/…` back here; a
+ * pivoted `_sse:{pid}` reply is demuxed to the SSE process by HTTP_Filter.
+ * test_mode returns instead of exit().
  *
  * The `$send_header` constructor argument is a test seam — production passes a
  * closure wrapping `\status_header(...)`; tests inject a recorder so PHPUnit
@@ -125,11 +128,14 @@ class HTTP_In extends Node {
 		// non-empty TO on to _router. (_router has no sink and would drop empty TO.)
 		$out->reset();
 		foreach ( $messages as $msg ) {
-			// Default FROM=`_http` so the CI's TO=FROM response routes back to this
-			// Node. Pivoted IPC commands supply their own FROM — leave it alone.
-			if ( '' === $msg[ Message::FROM ] ) {
-				$msg[ Message::FROM ] = Node_Names::HTTP;
-			}
+			// The HTTP boundary stamps its own name onto every incoming message
+			// (I/O-boundary stamping), so a reply's TO=FROM walks `_http/…` back
+			// here. The client sends a bare reply path (`_output`, `_sse:{pid}/…`,
+			// or '') and does NOT hardcode the `_http` prefix; we add it. An empty
+			// FROM stamps to just `_http`. Stamp with the constant, not $this->name:
+			// when the graph was pre-built, the registered `_http` node is a DIFFERENT
+			// instance and $this is unnamed.
+			$this->stamp_message( $msg, Node_Names::HTTP );
 			// WP already authenticated this request (permission_callback:
 			// manage_options). Sign command provenance on the browser's behalf so
 			// downstream verifier CIs (request-scope + worker) accept it; the

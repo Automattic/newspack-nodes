@@ -7,15 +7,15 @@
  *
  *  - Outgoing — a command routed in via TO=`_sse/…` (so `_router` peeled the
  *    `_sse` head). If FROM is a browser reply node (`_output`/`_metadata`/
- *    `_uptime`) it's wrapped into the private reply pivot
- *    `_http/_sse:{pid}/{from}` and `_http` is prepended to TO, so it routes on to
- *    the HTTP boundary and the server's HTTP_Filter can demux the reply back to
- *    THIS session. (`cd /_http/…` skips `_sse`, so its FROM stays bare and
- *    replies broadcast.)
- *  - Incoming — an SSE reply/broadcast (or the EventSource ingress): FROM is the
- *    responder, never a reply node, so it falls through to the default Node fill
- *    (`TO ||= target` = `_output` so broadcasts reach the transcript), routing
- *    by TO.
+ *    `_uptime`) it's wrapped into the private reply pivot `_sse:{pid}/{from}`
+ *    (the server's HTTP_In stamps the `_http/` boundary prefix on arrival), and
+ *    `_http` is prepended to TO so it routes on to the `_http` node (HttpOut →
+ *    POST) and the server's HTTP_Filter can demux the reply back to THIS session.
+ *  - Incoming — an SSE reply/broadcast, the EventSource ingress, or a synchronous
+ *    POST-body reply HttpOut feeds back in: strip our own `_sse:{pid}` head if
+ *    present (the client-side mirror of HTTP_Filter), stamp the `_sse/…`
+ *    provenance breadcrumb, and route by TO (`TO ||= target` = `_output` so
+ *    broadcasts reach the transcript). FROM is the responder, never a reply node.
  *
  * The pid lives only in the wrapped FROM (for HTTP_Filter), not in the node name
  * or the path — so the cwd is the static `/_sse/{reader}`.
@@ -31,7 +31,9 @@ export class SseIn extends SseConnector {
 	fill( message ) {
 		if ( REPLY_NODES.includes( message[ FROM ] ) ) {
 			this.counter += 1;
-			message[ FROM ] = `${ names.HTTP }/${ names.SSE }:${ this.pid() }/${
+			// Private reply pivot: `_sse:{pid}/{reply-node}`. The server's HTTP_In
+			// stamps the `_http/` boundary prefix on arrival, so we don't hardcode it.
+			message[ FROM ] = `${ names.SSE }:${ this.pid() }/${
 				message[ FROM ]
 			}`;
 			message[ TO ] =
