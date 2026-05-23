@@ -140,9 +140,6 @@ function initialPartitionFromUrl() {
 	return Number.isInteger( p ) && p >= 0 ? p : 0;
 }
 
-const STATS_INTERVAL_MS = 1000;
-const UPTIME_INTERVAL_MS = 5000;
-
 // 60 samples at 1s poll = ~1 minute of trailing rate history.
 const RATE_HISTORY_MAX = 60;
 
@@ -717,51 +714,22 @@ export default function TopologyConsole() {
 		[ shell, ssePid, appendTranscript, clearTranscript, handlePathChange ]
 	);
 
-	// Live-canvas poll (WIRING-PLAN §4/§5). Each poll is a positional TM_COMMAND
-	// whose FROM pivots the reply to a dedicated node (`_metadata` / `_uptime`)
-	// so the Router keeps the silent refresh OUT of the transcript. Filled into
-	// the CommandInterpreter; paused in edit mode and pre-pid.
+	// Live-canvas poll gating (WIRING-PLAN §4/§5). The Router TIMER in
+	// useConsoleGraph drives emission; here we just point the poll nodes at the
+	// shell's CURRENT path (cwd) and gate it — null pollTo makes onTimer a no-op,
+	// so edit mode / pre-pid emit nothing and HttpOut.flush() posts an empty
+	// buffer = no request.
 	useEffect( () => {
-		// Poll the nodes at the shell's CURRENT path (cwd) — every level: '' (local
-		// browser CI), `_sse`/`_http` (request-scope, reply via POST-body intake),
-		// `_sse/{worker}` (worker, reply via SSE).
-		if ( mode === 'edit' || ! ssePid ) {
-			return undefined;
+		const to = mode !== 'edit' && ssePid ? cwd : null;
+		const meta = Core.node( names.METADATA );
+		const up = Core.node( names.UPTIME );
+		if ( meta ) {
+			meta.pollTo = to;
 		}
-		const pollMessage = ( verb, replyNode ) => {
-			const m = newMessage();
-			m[ TYPE ] = TM_COMMAND;
-			// Bare reply node; the `_sse` session node on the cwd wraps it into the
-			// private reply pivot. TO=cwd routes through that session node.
-			m[ FROM ] = replyNode;
-			m[ TO ] = cwd;
-			m[ VALUE ] = { name: verb, arguments: '', payload: '' };
-			// In-process command (minted by the browser for itself) → LOCAL, so the
-			// browser CI authorizes it when interpreted locally (cwd=''). Stripped at
-			// the wire for remote cwds.
-			m[ LOCAL ] = true;
-			return m;
-		};
-		const pollMetadata = () =>
-			fillCommandInterpreter(
-				pollMessage( 'dump_metadata', names.METADATA )
-			);
-		const pollUptime = () =>
-			fillCommandInterpreter( pollMessage( 'uptime', names.UPTIME ) );
-
-		pollMetadata();
-		pollUptime();
-		let sinceUptime = 0;
-		const id = setInterval( () => {
-			sinceUptime += STATS_INTERVAL_MS;
-			pollMetadata();
-			if ( sinceUptime >= UPTIME_INTERVAL_MS ) {
-				sinceUptime = 0;
-				pollUptime();
-			}
-		}, STATS_INTERVAL_MS );
-		return () => clearInterval( id );
-	}, [ mode, ssePid, cwd, fillCommandInterpreter ] );
+		if ( up ) {
+			up.pollTo = to;
+		}
+	}, [ mode, ssePid, cwd ] );
 
 	// Tab-completion query (WIRING-PLAN §5 sibling of the canvas poll). The verb
 	// depends on cursor context: completing the FIRST token (the command word) →

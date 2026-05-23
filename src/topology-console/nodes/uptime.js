@@ -4,12 +4,50 @@
  */
 
 import { Node } from '../../runtime/node';
-import { VALUE } from '../../runtime/message';
+import { Core } from '../../runtime/core';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	TO,
+	VALUE,
+	LOCAL,
+	TM_COMMAND,
+} from '../../runtime/message';
 
 export class Uptime extends Node {
 	constructor() {
 		super();
 		this.registrations.uptime = {};
+		// Poll target (cwd); null disables polling. Set by the gating effect.
+		this.pollTo = null;
+		// Last emit time (seconds) — uptime polls at most every 5s.
+		this.lastFired = 0;
+	}
+
+	// Build a poll TM_COMMAND. FROM = own name is the reply pivot (the reply comes
+	// back here); LOCAL taints it so the browser CI authorizes a local poll.
+	_pollMessage( verb ) {
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = this.name;
+		m[ TO ] = this.pollTo;
+		m[ VALUE ] = { name: verb, arguments: '', payload: '' };
+		m[ LOCAL ] = true;
+		return m;
+	}
+
+	// Router TIMER subscriber: emit an uptime poll at most every 5s (when enabled).
+	onTimer() {
+		if ( null === this.pollTo || ! this.sink ) {
+			return;
+		}
+		const now = Core.now();
+		if ( now - this.lastFired < 5 ) {
+			return;
+		}
+		this.lastFired = now;
+		this.sink.fill( this._pollMessage( 'uptime' ) );
 	}
 
 	fill( message ) {

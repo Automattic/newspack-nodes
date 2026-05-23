@@ -97,11 +97,12 @@ describe( 'HttpOut', () => {
 		expect( batch[ 1 ][ VALUE ] ).toBe( 1700000000.5 );
 	} );
 
-	it( 'returns the postBatch promise', async () => {
+	it( 'fill() is fire-and-forget (returns nothing) and still POSTs', () => {
 		const { node, postBatch } = makeNode();
 		postBatch.mockResolvedValueOnce( null );
-		const out = await node.fill( routed( { to: 'demo.p0' } ) );
-		expect( out ).toBeNull();
+		const out = node.fill( routed( { to: 'demo.p0' } ) );
+		expect( out ).toBeUndefined();
+		expect( postBatch ).toHaveBeenCalledTimes( 1 );
 	} );
 
 	it( 'increments the base Node counter on each fill', () => {
@@ -150,6 +151,36 @@ describe( 'HttpOut', () => {
 		await Promise.resolve();
 
 		expect( got ).toHaveLength( 0 );
+	} );
+
+	it( 'when locked, fill() does NOT POST and buffers the entries', () => {
+		const { node, postBatch } = makeNode();
+		node.lock();
+		node.fill( routed( { to: '' } ) ); // bare → 1 entry
+		node.fill( routed( { to: 'demo.p0' } ) ); // worker → 2 entries
+		expect( postBatch ).not.toHaveBeenCalled();
+		expect( node.locked ).toBe( true );
+		expect( node.buffer ).toHaveLength( 3 );
+	} );
+
+	it( 'flush() POSTs the whole buffer ONCE and clears locked/buffer', () => {
+		const { node, postBatch } = makeNode();
+		node.lock();
+		node.fill( routed( { to: '' } ) );
+		node.fill( routed( { to: 'demo.p0' } ) );
+		node.flush();
+		const batch = batchOf( postBatch );
+		expect( batch ).toHaveLength( 3 );
+		expect( node.locked ).toBe( false );
+		expect( node.buffer ).toHaveLength( 0 );
+	} );
+
+	it( 'flush() with an empty buffer POSTs nothing', () => {
+		const { node, postBatch } = makeNode();
+		node.lock();
+		node.flush();
+		expect( postBatch ).not.toHaveBeenCalled();
+		expect( node.locked ).toBe( false );
 	} );
 
 	it( 'POSTs the bare command (no connect) when addressed to _http itself (cd /_http)', () => {

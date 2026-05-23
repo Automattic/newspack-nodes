@@ -81,6 +81,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Live-canvas polling runs on a single Router TIMER, batched into one request.**
+  The browser `Router` now fires a `TIMER` notification once per second (matching
+  PHP Router). Each tick locks `HttpOut` before notifying subscribers and flushes
+  it after, so everything emitted during the tick rides in ONE `postBatch`. The
+  `_metadata` and `_uptime` nodes register as TIMER subscribers and emit their own
+  poll commands (`_metadata` every tick; `_uptime` self-throttled to 5s), removing
+  the timer drift between them — `uptime` now always goes out in the same HTTP
+  request as `dump_metadata` on the 5s tick. Replaces the two `setInterval` polls
+  in `TopologyConsole`; emission is gated via the nodes' `pollTo` (null in edit
+  mode / before the SSE pid).
 - **Scalar REST service-CI verbs read positional `arguments`, not `payload`.**
   `Topologies get`/`delete`, `Layouts get`, `Raw_Logs firehose_status`, and
   `Workers heartbeat` now take their single/scalar args from the command's

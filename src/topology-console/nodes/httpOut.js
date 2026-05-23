@@ -26,34 +26,40 @@ export class HttpOut extends Node {
 	constructor( { client } ) {
 		super();
 		this.client = client;
+		// When locked, fill() buffers its entries instead of POSTing; flush()
+		// drains the buffer as ONE postBatch so a Router TIMER tick's emissions
+		// (dump_metadata every tick + uptime on the 5s tick) ride in one request.
+		this.locked = false;
+		this.buffer = [];
 	}
 
-	/**
-	 * POST the routed Message; feed any synchronous reply back into `_sse`.
-	 *
-	 * @param {Array} message Positional Message; TO={reader} or {reader}/{node}.
-	 * @return {Promise} The postBatch promise.
-	 */
-	fill( message ) {
-		this.counter += 1;
+	// Build the postBatch entries for a routed Message: a worker target gets a
+	// leading connect_worker_input; an `_http`-level address (empty reader) is bare.
+	_entriesFor( message ) {
 		const to = message[ TO ] || '';
 		const slash = to.indexOf( '/' );
 		const reader = -1 === slash ? to : to.slice( 0, slash );
 		// `_http`-level (empty reader): bare command for the request-scope CI.
 		// Worker target: prepend connect_worker_input to mount its input Partition.
-		const batch =
-			'' === reader
-				? [ message ]
-				: [
-						this.client.buildMessage( {
-							to: 'topologies',
-							verb: 'connect_worker_input',
-							args: reader,
-						} ),
-						message,
-				  ];
-		const result = this.client.postBatch( batch );
-		Promise.resolve( result )
+		return '' === reader
+			? [ message ]
+			: [
+					this.client.buildMessage( {
+						to: 'topologies',
+						verb: 'connect_worker_input',
+						args: reader,
+					} ),
+					message,
+			  ];
+	}
+
+	lock() {
+		this.locked = true;
+	}
+
+	// POST the entries; feed any synchronous reply back into `_sse`.
+	_post( entries ) {
+		Promise.resolve( this.client.postBatch( entries ) )
 			.then( ( response ) => {
 				// A synchronous reply is a packed Message; route it via _sse. A
 				// routed-onward command resolves to null (bare 202) — nothing to do;
@@ -63,6 +69,33 @@ export class HttpOut extends Node {
 				}
 			} )
 			.catch( () => {} );
-		return result;
+	}
+
+	/**
+	 * POST the routed Message (or buffer it while locked); feed any synchronous
+	 * reply back into `_sse`.
+	 *
+	 * @param {Array} message Positional Message; TO={reader} or {reader}/{node}.
+	 */
+	fill( message ) {
+		this.counter += 1;
+		const entries = this._entriesFor( message );
+		if ( this.locked ) {
+			this.buffer.push( ...entries );
+			return;
+		}
+		this._post( entries );
+	}
+
+	// Release the lock and POST everything buffered during the locked window as
+	// ONE batch. An empty buffer posts nothing.
+	flush() {
+		this.locked = false;
+		if ( 0 === this.buffer.length ) {
+			return;
+		}
+		const batch = this.buffer;
+		this.buffer = [];
+		this._post( batch );
 	}
 }

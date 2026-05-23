@@ -109,3 +109,110 @@ test( 'NOT_AVAILABLE bounce with empty FROM is silently dropped (no throw, no lo
 	m[ TO ] = 'missing/path';
 	expect( () => r.fill( m ) ).not.toThrow();
 } );
+
+describe( 'Router TIMER', () => {
+	test( 'startTimer notifies TIMER immediately and then once per interval', () => {
+		jest.useFakeTimers();
+		try {
+			const r = new Router();
+			r.setName( '_router' );
+			const fires = [];
+			r.register( 'TIMER', 'sub', ( payload ) => {
+				fires.push( payload );
+				return true;
+			} );
+			r.startTimer( 1000 );
+			// Fires once immediately on startTimer.
+			expect( fires ).toHaveLength( 1 );
+			expect( typeof fires[ 0 ].now ).toBe( 'number' );
+			jest.advanceTimersByTime( 1000 );
+			expect( fires ).toHaveLength( 2 );
+			jest.advanceTimersByTime( 2000 );
+			expect( fires ).toHaveLength( 4 );
+			r.stopTimer();
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'beforeTimerNotify runs before, afterTimerNotify after the notify', () => {
+		jest.useFakeTimers();
+		try {
+			const r = new Router();
+			r.setName( '_router' );
+			const log = [];
+			r.beforeTimerNotify = () => log.push( 'before' );
+			r.afterTimerNotify = () => log.push( 'after' );
+			r.register( 'TIMER', 'sub', () => {
+				log.push( 'notify' );
+				return true;
+			} );
+			r.startTimer( 1000 );
+			expect( log ).toEqual( [ 'before', 'notify', 'after' ] );
+			r.stopTimer();
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'afterTimerNotify runs even when a subscriber throws', () => {
+		jest.useFakeTimers();
+		try {
+			const r = new Router();
+			r.setName( '_router' );
+			const log = [];
+			r.beforeTimerNotify = () => log.push( 'before' );
+			r.afterTimerNotify = () => log.push( 'after' );
+			// notify() swallows nothing; force a throw by stubbing notify.
+			r.notify = () => {
+				throw new Error( 'boom' );
+			};
+			expect( () => r.startTimer( 1000 ) ).toThrow( /boom/ );
+			expect( log ).toEqual( [ 'before', 'after' ] );
+			r.stopTimer();
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'stopTimer halts further ticks', () => {
+		jest.useFakeTimers();
+		try {
+			const r = new Router();
+			r.setName( '_router' );
+			let count = 0;
+			r.register( 'TIMER', 'sub', () => {
+				count += 1;
+				return true;
+			} );
+			r.startTimer( 1000 );
+			expect( count ).toBe( 1 );
+			r.stopTimer();
+			jest.advanceTimersByTime( 5000 );
+			expect( count ).toBe( 1 );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	test( 'startTimer restarts cleanly (no duplicate intervals)', () => {
+		jest.useFakeTimers();
+		try {
+			const r = new Router();
+			r.setName( '_router' );
+			let count = 0;
+			r.register( 'TIMER', 'sub', () => {
+				count += 1;
+				return true;
+			} );
+			r.startTimer( 1000 ); // count=1 (immediate)
+			r.startTimer( 1000 ); // stops old, count=2 (immediate)
+			count = 0;
+			jest.advanceTimersByTime( 1000 );
+			expect( count ).toBe( 1 ); // exactly one interval, not two
+			r.stopTimer();
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+} );

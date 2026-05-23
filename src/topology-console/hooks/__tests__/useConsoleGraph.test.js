@@ -287,6 +287,68 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 	} );
 } );
 
+describe( 'useConsoleGraph — TIMER batching', () => {
+	// Pull every verb out of a single postBatch call's entries.
+	const { VALUE } = require( '../../../runtime/message' );
+	const verbsIn = ( entries ) =>
+		entries
+			.map( ( m ) => m && m[ VALUE ] && m[ VALUE ].name )
+			.filter( Boolean );
+
+	it( 'batches dump_metadata + uptime into ONE postBatch on the 5s tick', () => {
+		jest.useFakeTimers();
+		try {
+			const { getCommandClient } = require( '../../utils/commandClient' );
+			const calls = [];
+			getCommandClient().postBatch = jest.fn( ( entries ) => {
+				calls.push( entries );
+				return Promise.resolve( null );
+			} );
+			renderGraph( { topology: 'demo', partition: 0 } );
+			act( () => lastConnector.emitConnected( 4242 ) );
+			// Drain calls accumulated up to the connected paint.
+			calls.length = 0;
+			// Advance to the 5s tick (Core.now advances with fake timers, so the
+			// uptime 5s throttle releases).
+			act( () => jest.advanceTimersByTime( 5000 ) );
+			// Exactly one tick batched BOTH verbs into a single postBatch.
+			const batched = calls.filter( ( entries ) => {
+				const verbs = verbsIn( entries );
+				return (
+					verbs.includes( 'dump_metadata' ) &&
+					verbs.includes( 'uptime' )
+				);
+			} );
+			expect( batched ).toHaveLength( 1 );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	it( 'a non-5s tick posts only dump_metadata (no uptime)', () => {
+		jest.useFakeTimers();
+		try {
+			const { getCommandClient } = require( '../../utils/commandClient' );
+			const calls = [];
+			getCommandClient().postBatch = jest.fn( ( entries ) => {
+				calls.push( entries );
+				return Promise.resolve( null );
+			} );
+			renderGraph( { topology: 'demo', partition: 0 } );
+			act( () => lastConnector.emitConnected( 4242 ) );
+			calls.length = 0;
+			// One 1s tick (well short of the 5s uptime cadence).
+			act( () => jest.advanceTimersByTime( 1000 ) );
+			expect( calls ).toHaveLength( 1 );
+			const verbs = verbsIn( calls[ 0 ] );
+			expect( verbs ).toContain( 'dump_metadata' );
+			expect( verbs ).not.toContain( 'uptime' );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+} );
+
 describe( 'useConsoleGraph — lifecycle', () => {
 	it( 'short-circuits when enabled=false: no nodes, status closed', () => {
 		const { result } = renderGraph( { enabled: false } );
