@@ -53,10 +53,10 @@ class Shell extends Node {
 		$this->show_parse = $on;
 	}
 
-	private const FORBIDDEN = [ 'if', 'while', 'for', 'func', 'eval', 'unless', 'until' ];
-
 	/**
-	 * Syntax-check a single TSL statement; throws on forbidden verbs, bad continuation, or quote errors.
+	 * Syntax-check a single TSL statement; throws on an unterminated backslash
+	 * continuation. Unknown verbs are NOT rejected here — they flow through and
+	 * the target CommandInterpreter answers `unknown command: <verb>`.
 	 */
 	public function validate_line( string $line ): void {
 		$line = \trim( $line );
@@ -65,16 +65,6 @@ class Shell extends Node {
 		}
 		if ( \str_ends_with( $line, '\\' ) ) {
 			throw new \RuntimeException( 'unterminated backslash continuation' );
-		}
-		$tokens = $this->tokenize( $this->interpolate( $line ) );
-		if ( empty( $tokens ) ) {
-			return;
-		}
-		$verb = $tokens[0];
-		if ( \in_array( $verb, self::FORBIDDEN, true ) ) {
-			$safe = \function_exists( 'esc_html' ) ? \esc_html( $verb ) : $verb;
-			// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $safe already escaped.
-			throw new \RuntimeException( "forbidden verb '" . $safe . "'" );
 		}
 	}
 
@@ -216,7 +206,7 @@ class Shell extends Node {
 	}
 
 	/**
-	 * Parse one line into a Message; null on empty/comment, held continuation, or forbidden verb.
+	 * Parse one line into a Message; null on empty/comment or held continuation.
 	 */
 	public function parse( string $line ): ?array {
 		// Backslash continuation: accumulate and return null (caller reads next line).
@@ -323,11 +313,6 @@ class Shell extends Node {
 				return null;
 			}
 			Core::$var[ $name ] = \implode( ' ', \array_slice( $args, 2 ) );
-			return null;
-		}
-
-		if ( \in_array( $verb, self::FORBIDDEN, true ) ) {
-			Core::print_less_often( "Shell: '$verb' not supported in v1" );
 			return null;
 		}
 
@@ -447,14 +432,14 @@ class Shell extends Node {
 	 */
 	private function include_file( string $file ): void {
 		if ( '' === $file || ! \is_file( $file ) ) {
-			Core::print_less_often( "Shell: include: file not found: $file" );
+			$this->print_less_often( "Shell: include: file not found: $file" );
 			return;
 		}
 		// Topology files live alongside the plugin, not in WP-managed storage.
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
 		$fh = @\fopen( $file, 'r' );
 		if ( false === $fh ) {
-			Core::print_less_often( "Shell: include: cannot open: $file" );
+			$this->print_less_often( "Shell: include: cannot open: $file" );
 			return;
 		}
 		while ( ( $line = \fgets( $fh ) ) !== false ) {

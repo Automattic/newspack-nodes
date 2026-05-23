@@ -340,6 +340,107 @@ class CoreTest extends TestCase {
 		$this->assertStringContainsString( 'second-direct', $log_text );
 	}
 
+	// ── log_prefix / log_midfix / stderr formatting ──────────────────────
+
+	public function test_log_prefix_no_args_returns_dated_identity_prefix(): void {
+		// Mirrors Tachikoma Node::log_prefix root/job branch:
+		// "%F %T %Z <hostname> <$0>[<pid>]: ". With no args it returns just
+		// the prefix (no trailing newline).
+		$prefix = Core::log_prefix();
+		$this->assertMatchesRegularExpression(
+			'/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d .+\[\d+\]: $/',
+			$prefix
+		);
+	}
+
+	public function test_log_prefix_prepends_prefix_and_appends_newline(): void {
+		$line = Core::log_prefix( 'hello world' );
+		// Begins with a date, ends with the message + single newline.
+		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d/', $line );
+		$this->assertStringEndsWith( "hello world\n", $line );
+		$this->assertSame( 1, \substr_count( $line, "\n" ) );
+	}
+
+	public function test_log_prefix_prefixes_every_line_of_multiline_message(): void {
+		$line  = Core::log_prefix( "line one\nline two" );
+		$parts = \explode( "\n", \rtrim( $line, "\n" ) );
+		$this->assertCount( 2, $parts );
+		foreach ( $parts as $part ) {
+			$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d.*\]: line (one|two)$/', $part );
+		}
+	}
+
+	public function test_log_prefix_chomps_trailing_newline_before_prefixing(): void {
+		// A pre-newlined message must not yield a blank prefixed line at the end.
+		$line = Core::log_prefix( "trailing\n" );
+		$this->assertSame( 1, \substr_count( $line, "\n" ) );
+		$this->assertStringEndsWith( "trailing\n", $line );
+	}
+
+	public function test_log_midfix_no_name_returns_empty_prefix(): void {
+		// Core is process-global with no node name, so the midfix is empty
+		// (Tachikoma Node::log_midfix returns "" when $self->{name} is unset).
+		$this->assertSame( '', Core::log_midfix() );
+	}
+
+	public function test_log_midfix_no_name_returns_message_unchanged_with_newline(): void {
+		$out = Core::log_midfix( 'no tag here' );
+		$this->assertSame( "no tag here\n", $out );
+	}
+
+	public function test_stderr_writes_prefixed_line(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::stderr( 'a warning' );
+		// The handler receives the fully-prefixed line.
+		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d.*\]: a warning\n$/', $buf );
+	}
+
+	public function test_stderr_passes_through_already_dated_message(): void {
+		// Tachikoma: if a message already begins with YYYY-MM-DD it is assumed
+		// pre-prefixed and written verbatim (no double prefix). Otherwise it
+		// would prefix twice on re-log paths (cleanup_all_nodes → stderr).
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::stderr( '2026-05-22 00:00:00 UTC host /x[1]: already prefixed' );
+		// Exactly one date at the very start — not prefixed again.
+		$this->assertSame( 1, \preg_match( '/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC host/', $buf ) );
+		$this->assertStringEndsWith( "already prefixed\n", $buf );
+		$this->assertStringNotContainsString( '[1]: 2026', $buf );
+	}
+
+	public function test_print_less_often_routes_through_stderr_prefix(): void {
+		// The rate-limited helper must emit a prefixed line, proving it routes
+		// through stderr()'s formatting rather than the raw text.
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::print_less_often( 'rate limited msg' );
+		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d.*\]: rate limited msg\n$/', $buf );
+	}
+
+	public function test_print_least_often_routes_through_stderr_prefix(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		for ( $i = 0; $i < 10; ++$i ) {
+			Core::print_least_often( 'rare prefixed' );
+		}
+		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d.*\]: rare prefixed\n$/', $buf );
+	}
+
+	public function test_print_less_often_keys_by_log_midfix(): void {
+		// Core and a named Node share Core::$recent_log_timers. Core keys by
+		// its own (un-tagged) log_midfix while Node keys by "<name>: text", so
+		// the same raw text from each does not collide — both emit.
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		$node = new \Newspack_Nodes\Node();
+		$node->name( 'alice' );
+		Core::print_less_often( 'same text' );
+		$node->print_less_often( 'same text' );
+		$this->assertSame( 2, \substr_count( $buf, 'same text' ) );
+		$this->assertStringContainsString( 'alice: same text', $buf );
+	}
+
 	// ── push_closing / run_closing edge cases ────────────────────────────
 
 	public function test_run_closing_handles_callbacks_pushed_during_drain(): void {

@@ -139,7 +139,10 @@ class Core {
 
 	/** Emit once at the 10th identical occurrence; suppress otherwise (re-windowed by prune_logs). */
 	public static function print_least_often( string $text ): void {
-		$row = self::$recent_log_timers[ $text ] ?? null;
+		// Key by log_midfix so Core and named Nodes share recent_log_timers
+		// without colliding on identical raw text (Tachikoma keys on the midfix).
+		$key = self::log_midfix( $text );
+		$row = self::$recent_log_timers[ $key ] ?? null;
 		if ( null !== $row ) {
 			++$row['count'];
 			if ( 10 === $row['count'] ) {
@@ -148,19 +151,63 @@ class Core {
 		} else {
 			$row = [ 'timestamp' => self::$now, 'count' => 1, ];
 		}
-		self::$recent_log_timers[ $text ] = $row;
+		self::$recent_log_timers[ $key ] = $row;
 	}
 
 	/** Emit text on first sight; suppress identical text thereafter (re-windowed by prune_logs). */
 	public static function print_less_often( string $text ): void {
-		$row = self::$recent_log_timers[ $text ] ?? null;
+		$key = self::log_midfix( $text );
+		$row = self::$recent_log_timers[ $key ] ?? null;
 		if ( null !== $row ) {
 			++$row['count'];
 		} else {
 			self::stderr( $text );
 			$row = [ 'timestamp' => self::$now, 'count' => 1, ];
 		}
-		self::$recent_log_timers[ $text ] = $row;
+		self::$recent_log_timers[ $key ] = $row;
+	}
+
+	/**
+	 * Per-line timestamp + process-identity prefix (Tachikoma Node::log_prefix,
+	 * root/job branch): "%Y-%m-%d %H:%M:%S %Z <hostname> <argv0>[<pid>]: ".
+	 *
+	 * With no message, returns the bare prefix. With a message, chomps a
+	 * trailing newline, prepends the prefix to every line, and appends one
+	 * trailing newline — matching Perl's `s{^}{$prefix}mg` multiline substitute.
+	 */
+	public static function log_prefix( ?string $msg = null ): string {
+		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC '
+			. ( \gethostname() ?: 'unknown' ) . ' '
+			. self::argv0() . '[' . \getmypid() . ']: ';
+		if ( null === $msg ) {
+			return $prefix;
+		}
+		$msg = \rtrim( $msg, "\n" );
+		// Prepend the prefix to the start of every line (Perl m///mg).
+		$msg = $prefix . \str_replace( "\n", "\n" . $prefix, $msg );
+		return $msg . "\n";
+	}
+
+	/**
+	 * Per-node mid-line tag (Tachikoma Node::log_midfix). Core is
+	 * process-global with no node name, so the midfix is always empty — it
+	 * returns "" with no args, or the message unchanged (chomped + one newline)
+	 * with a message. The per-node tag lives on Node, which has a name.
+	 */
+	public static function log_midfix( ?string $msg = null ): string {
+		if ( null === $msg ) {
+			return '';
+		}
+		return \rtrim( $msg, "\n" ) . "\n";
+	}
+
+	/** Process identity for log_prefix (Perl $0): worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
+	public static function argv0(): string {
+		if ( isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && '' !== $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) {
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
+			return \sanitize_text_field( \wp_unslash( (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) );
+		}
+		return \PHP_SAPI;
 	}
 
 	public static function stderr( string $text ): void {
@@ -175,7 +222,14 @@ class Core {
 		}
 		self::$in_stderr = true;
 		try {
-			$line               = \rtrim( $text ) . "\n";
+			// Already-dated lines are assumed pre-prefixed (Tachikoma's
+			// /^\d{4}-\d\d-\d\d/ guard) — write verbatim to avoid double
+			// prefixing on re-log paths. Otherwise apply prefix + midfix.
+			if ( 1 === \preg_match( '/^\d{4}-\d\d-\d\d/', $text ) ) {
+				$line = \rtrim( $text, "\n" ) . "\n";
+			} else {
+				$line = self::log_prefix( self::log_midfix( $text ) );
+			}
 			self::$recent_log[] = $line;
 			// Bounded tail for the REPL (Tachikoma caps @RECENT_LOG at 100).
 			while ( \count( self::$recent_log ) > 100 ) {

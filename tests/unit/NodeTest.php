@@ -796,4 +796,114 @@ class NodeTest extends TestCase {
 		// Calling again with no arg returns the stored value.
 		$this->assertSame( 'somewhere', $n->target() );
 	}
+
+	// ── log_midfix / stderr / print_*_often (per-node) ───────────────────
+
+	public function test_log_midfix_adds_node_name_tag(): void {
+		// A named node tags every emitted line with "<name>: " (Tachikoma
+		// Node::log_midfix). With a message it chomps, prepends the midfix
+		// to every line, and returns the result + a single trailing newline.
+		$n = new \Newspack_Nodes\Node();
+		$n->name( 'alice' );
+		$this->assertSame( "alice: hello\n", $n->log_midfix( 'hello' ) );
+	}
+
+	public function test_log_midfix_no_args_returns_bare_tag(): void {
+		$n = new \Newspack_Nodes\Node();
+		$n->name( 'alice' );
+		$this->assertSame( 'alice: ', $n->log_midfix() );
+	}
+
+	public function test_log_midfix_unnamed_node_is_empty(): void {
+		// An unnamed node has no tag (Tachikoma guards on $self->{name}).
+		$n = new \Newspack_Nodes\Node();
+		$this->assertSame( '', $n->log_midfix() );
+		$this->assertSame( "hello\n", $n->log_midfix( 'hello' ) );
+	}
+
+	public function test_log_midfix_empty_when_argv0_starts_with_name(): void {
+		// Tachikoma suppresses the midfix when $0 (process identity) already
+		// begins with the node name, so the prefix wouldn't be redundant.
+		$old = $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? null;
+		$_SERVER['NEWSPACK_NODES_WORKER_TYPE'] = 'alice-worker';
+		try {
+			$n = new \Newspack_Nodes\Node();
+			$n->name( 'alice' );
+			$this->assertSame( '', $n->log_midfix() );
+			$this->assertSame( "hello\n", $n->log_midfix( 'hello' ) );
+		} finally {
+			if ( null === $old ) {
+				unset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] );
+			} else {
+				$_SERVER['NEWSPACK_NODES_WORKER_TYPE'] = $old;
+			}
+		}
+	}
+
+	public function test_log_midfix_prepends_tag_to_every_line(): void {
+		$n = new \Newspack_Nodes\Node();
+		$n->name( 'alice' );
+		$this->assertSame( "alice: one\nalice: two\n", $n->log_midfix( "one\ntwo" ) );
+	}
+
+	public function test_stderr_emits_dateprefix_name_message_through_core_seam(): void {
+		// Node::stderr routes through Core::stderr, which applies the dated
+		// process prefix; Node::log_midfix supplies the "<name>: " tag.
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		$n = new \Newspack_Nodes\Node();
+		$n->name( 'alice' );
+		$n->stderr( 'a warning' );
+		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d.*\]: alice: a warning\n$/', $buf );
+	}
+
+	public function test_stderr_empty_message_emits_nothing(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		$n = new \Newspack_Nodes\Node();
+		$n->name( 'alice' );
+		$n->stderr( '' );
+		$this->assertSame( '', $buf );
+	}
+
+	public function test_print_less_often_emits_once_per_node(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		$n = new \Newspack_Nodes\Node();
+		$n->name( 'alice' );
+		$n->print_less_often( 'repeated' );
+		$n->print_less_often( 'repeated' );
+		$this->assertSame( 1, \substr_count( $buf, 'repeated' ) );
+		// The emitted line carries the node's midfix tag.
+		$this->assertStringContainsString( 'alice: repeated', $buf );
+	}
+
+	public function test_print_least_often_emits_at_tenth_call_per_node(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		$n = new \Newspack_Nodes\Node();
+		$n->name( 'alice' );
+		for ( $i = 0; $i < 9; ++$i ) {
+			$n->print_least_often( 'rare' );
+		}
+		$this->assertStringNotContainsString( 'rare', $buf );
+		$n->print_least_often( 'rare' ); // 10th
+		$this->assertStringContainsString( 'alice: rare', $buf );
+	}
+
+	public function test_print_less_often_keyed_per_node_not_shared(): void {
+		// Two differently-named nodes logging the same text must NOT collide
+		// on the shared rate-limiter: the midfixed KEY differs, so both emit.
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		$alice = new \Newspack_Nodes\Node();
+		$alice->name( 'alice' );
+		$bob = new \Newspack_Nodes\Node();
+		$bob->name( 'bob' );
+		$alice->print_less_often( 'same text' );
+		$bob->print_less_often( 'same text' );
+		$this->assertStringContainsString( 'alice: same text', $buf );
+		$this->assertStringContainsString( 'bob: same text', $buf );
+		$this->assertSame( 2, \substr_count( $buf, 'same text' ) );
+	}
 }

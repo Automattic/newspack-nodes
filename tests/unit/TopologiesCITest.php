@@ -317,10 +317,11 @@ class TopologiesCITest extends TestCase {
 	}
 
 	public function test_save_rejects_invalid_tsl_with_line_number(): void {
-		// Line 3 is `if foo` — a forbidden verb. Shell::validate_line throws,
-		// and the CI must report the line index (1-based) so the editor can
-		// position the cursor.
-		$tsl = "make_node Echo e\nmake_node Tee t\nif foo\n";
+		// Line 3 ends with a trailing backslash — a structural error
+		// Shell::validate_line throws on. The CI must report the line index
+		// (1-based) so the editor can position the cursor. (Unknown verbs are NOT
+		// a save-time error — they surface at runtime as `unknown command`.)
+		$tsl = "make_node Echo e\nmake_node Tee t\nmake_node Echo x\\\n";
 
 		$result = VerbHarness::fire(
 			new Topologies_CI(),
@@ -335,7 +336,7 @@ class TopologiesCITest extends TestCase {
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'validation failed', $result );
 		$this->assertStringContainsString( 'line 3', $result );
-		$this->assertStringContainsString( "forbidden verb 'if'", $result );
+		$this->assertStringContainsString( 'backslash continuation', $result );
 	}
 
 	public function test_save_rejects_body_too_large(): void {
