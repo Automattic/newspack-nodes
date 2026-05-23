@@ -430,6 +430,18 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 			expect( dispatch( ci, 'disconnect_node', 't dest' ) ).toBe( 'ok' );
 			expect( tee.target ).not.toContain( 'dest' );
 		} );
+		it( 'disconnect calls the node disconnectNode lifecycle method', () => {
+			const ci = makeCi();
+			const n = new Node();
+			n.setName( 'plain' );
+			n.target = 'dest';
+			const spy = jest.spyOn( n, 'disconnectNode' );
+			expect( dispatch( ci, 'disconnect_node', 'plain dest' ) ).toBe(
+				'ok'
+			);
+			expect( spy ).toHaveBeenCalledWith( 'dest' );
+			expect( n.target ).toBe( '' );
+		} );
 	} );
 
 	describe( 'remove_node', () => {
@@ -439,6 +451,19 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 			expect( dispatch( ci, 'remove_node', 'gone' ) ).toBe(
 				'removed gone'
 			);
+			expect( Core.node( 'gone' ) ).toBeNull();
+		} );
+		it( 'calls the node removeNode lifecycle method (full teardown, not bare unregister)', () => {
+			const ci = makeCi();
+			const n = new Node();
+			n.setName( 'gone' );
+			n.sink = new Node();
+			const spy = jest.spyOn( n, 'removeNode' );
+			expect( dispatch( ci, 'remove_node', 'gone' ) ).toBe(
+				'removed gone'
+			);
+			expect( spy ).toHaveBeenCalledTimes( 1 );
+			expect( n.sink ).toBeNull();
 			expect( Core.node( 'gone' ) ).toBeNull();
 		} );
 		it( 'refuses to destroy the interpreter', () => {

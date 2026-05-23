@@ -252,3 +252,74 @@ test( 'notify prunes a node-name listener whose target was removed', () => {
 	expect( n.registrations.EVT.listener ).toBeUndefined();
 	spy.mockRestore();
 } );
+
+test( 'removeNode clears refs, unregisters from Core, and clears its name', () => {
+	const n = new Node();
+	n.setName( 'doomed' );
+	n.target = 'somewhere';
+	n.sink = new Node();
+	n.registrations.EVT = { l1: () => {} };
+	n.setStateCache.EVT = 'cached';
+
+	n.removeNode();
+
+	expect( Core.node( 'doomed' ) ).toBeNull();
+	expect( n.registrations ).toEqual( {} );
+	expect( n.setStateCache ).toEqual( {} );
+	expect( n.sink ).toBeNull();
+	expect( n.target ).toBe( '' );
+	expect( n.name ).toBe( '' );
+} );
+
+test( 'removeNode cascade-unregisters the sibling interpreter and clears it', () => {
+	const n = new Node();
+	n.setName( 'parent' );
+	const ci = new Node();
+	ci.setName( 'parent:config' );
+	n.interpreter = ci;
+
+	n.removeNode();
+
+	expect( Core.node( 'parent:config' ) ).toBeNull();
+	expect( n.interpreter ).toBeNull();
+} );
+
+test( 'removeNode unregisters its OWN name LAST (Core.node sees null, not a half-torn-down self)', () => {
+	const n = new Node();
+	n.setName( 'self-last' );
+	const ci = new Node();
+	ci.setName( 'self-last:config' );
+	n.interpreter = ci;
+
+	let selfWhenInterpreterGone = 'unset';
+	// At the moment the interpreter is removed, the parent must still be looked
+	// up by name — proving the parent's own unregister happens after the cascade.
+	const orig = Core.unregisterNode.bind( Core );
+	const spy = jest
+		.spyOn( Core, 'unregisterNode' )
+		.mockImplementation( ( name ) => {
+			if ( 'self-last:config' === name ) {
+				selfWhenInterpreterGone = Core.node( 'self-last' );
+			}
+			return orig( name );
+		} );
+
+	n.removeNode();
+
+	expect( selfWhenInterpreterGone ).toBe( n );
+	spy.mockRestore();
+} );
+
+test( 'disconnectNode clears the base node target', () => {
+	const n = new Node();
+	n.target = 'somewhere';
+	n.disconnectNode();
+	expect( n.target ).toBe( '' );
+} );
+
+test( 'disconnectNode with an explicit target still clears the base node target', () => {
+	const n = new Node();
+	n.target = 'somewhere';
+	n.disconnectNode( 'somewhere' );
+	expect( n.target ).toBe( '' );
+} );

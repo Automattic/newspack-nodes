@@ -358,10 +358,11 @@ export class CommandInterpreter extends Node {
 			}
 		}
 		if ( 'function' === typeof src.disconnectNode ) {
+			// Primary path: base Node + Tee both implement disconnectNode now.
 			src.disconnectNode( target );
 		} else if ( Array.isArray( src.target ) ) {
-			// No disconnectNode() on the node (Tee lacks it): remove the target
-			// from the fan-out array directly, matching PHP Node::disconnect_node.
+			// Defensive fallback for any node missing disconnectNode: remove the
+			// target from the fan-out array directly (PHP Node::disconnect_node).
 			src.target = src.target.filter( ( t ) => t !== target );
 		} else if ( src.target === target ) {
 			src.target = '';
@@ -427,7 +428,9 @@ export class CommandInterpreter extends Node {
 				);
 				continue;
 			}
-			Core.unregisterNode( name );
+			// Full lifecycle teardown (clears refs, cascades the sibling CI,
+			// unregisters its own name LAST) — matches PHP Node::remove_node.
+			node.removeNode();
 			removed.push( `removed ${ name }` );
 		}
 
