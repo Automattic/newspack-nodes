@@ -5,7 +5,45 @@
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
-import { ConfirmModal, PromptModal } from '../Modal';
+import { ConfirmModal, PromptModal, ModalShell } from '../Modal';
+
+describe( 'ModalShell', () => {
+	it( 'renders its title + children', () => {
+		const { getByText } = render(
+			<ModalShell title="My Verb" onDismiss={ () => {} }>
+				<div>inner content</div>
+			</ModalShell>
+		);
+		expect( getByText( 'My Verb' ) ).not.toBeNull();
+		expect( getByText( 'inner content' ) ).not.toBeNull();
+	} );
+
+	it( 'invokes onDismiss on ESC keydown', () => {
+		const onDismiss = jest.fn();
+		render(
+			<ModalShell title="" onDismiss={ onDismiss }>
+				<div />
+			</ModalShell>
+		);
+		fireEvent.keyDown( document, { key: 'Escape' } );
+		expect( onDismiss ).toHaveBeenCalled();
+	} );
+
+	it( 'invokes onDismiss on backdrop click but not on inner dialog click', () => {
+		const onDismiss = jest.fn();
+		const { container } = render(
+			<ModalShell title="" onDismiss={ onDismiss }>
+				<div />
+			</ModalShell>
+		);
+		const backdrop = container.querySelector( '.topology-modal-backdrop' );
+		const dialog = container.querySelector( '.topology-modal' );
+		fireEvent.mouseDown( dialog );
+		expect( onDismiss ).not.toHaveBeenCalled();
+		fireEvent.mouseDown( backdrop );
+		expect( onDismiss ).toHaveBeenCalled();
+	} );
+} );
 
 describe( 'ConfirmModal', () => {
 	it( 'renders title + body + both action buttons', () => {

@@ -23,6 +23,7 @@ import {
 	TM_ERROR,
 	TM_INFO,
 	TM_PING,
+	TM_REQUEST,
 	TM_RESPONSE,
 	TM_STRUCT,
 } from '../../runtime/message';
@@ -286,7 +287,12 @@ jest.mock( '../components/Inspector', () => ( props ) => {
 			<button
 				onClick={ () =>
 					props.onAction &&
-					props.onAction( 'request', 'n1', 'GET_LAG' )
+					props.onAction( 'invoke', 'n1', {
+						verb: 'GET_LAG',
+						kind: 'request',
+						positional: '',
+						byName: {},
+					} )
 				}
 			>
 				action-request
@@ -1669,6 +1675,50 @@ describe( 'TopologyConsole boot', () => {
 		expect( posted[ FROM ] ).toBe(
 			`${ names.SSE }:1234/${ names.OUTPUT }`
 		);
+	} );
+
+	it( 'handleInspectorAction invoke (command) routes a TM_COMMAND to HttpOut', async () => {
+		globalThis.__httpPosts = [];
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'select-n1' ) );
+		} );
+		await act( async () => {
+			lastInspectorProps.onAction( 'invoke', 'request-builder', {
+				verb: 'GET_LAG',
+				kind: 'command',
+				positional: '',
+				byName: {},
+			} );
+		} );
+		const posted = globalThis.__httpPosts.find(
+			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_LAG'
+		);
+		expect( posted ).not.toBeUndefined();
+		expect( posted[ TO ] ).toBe( 'demo.p0/request-builder' );
+	} );
+
+	it( 'handleInspectorAction invoke (request) routes a TM_REQUEST string to HttpOut', async () => {
+		globalThis.__httpPosts = [];
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'select-n1' ) );
+		} );
+		await act( async () => {
+			lastInspectorProps.onAction( 'invoke', 'request-builder', {
+				verb: 'GET_LAG',
+				kind: 'request',
+				positional: '',
+				byName: {},
+			} );
+		} );
+		const posted = globalThis.__httpPosts.find(
+			( m ) => m[ TYPE ] === TM_REQUEST && m[ VALUE ] === 'GET_LAG'
+		);
+		expect( posted ).not.toBeUndefined();
+		expect( posted[ TO ] ).toBe( 'demo.p0/request-builder' );
 	} );
 
 	it( 'handleSave: PromptModal mounts in edit mode; confirm triggers saveTopology', async () => {

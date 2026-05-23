@@ -232,6 +232,73 @@ describe( 'Inspector (view mode)', () => {
 		];
 		const { getByText } = renderNode( { catalog, onAction } );
 		fireEvent.click( getByText( 'inspect' ) );
-		expect( onAction ).toHaveBeenCalledWith( 'request', 'echo', 'inspect' );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'inspect',
+			kind: 'request',
+			positional: '',
+			byName: {},
+		} );
+	} );
+
+	it( 'renders argless TM_COMMAND verb buttons and fires invoke', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				verbs: [ { name: 'GET_LAG', description: 'Lag' } ],
+			},
+		];
+		const { getByText } = renderNode( { catalog, onAction } );
+		fireEvent.click( getByText( 'GET_LAG' ) );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'GET_LAG',
+			kind: 'command',
+			positional: '',
+			byName: {},
+		} );
+	} );
+
+	it( 'opens an arg modal for a verb with args; Run fires invoke; Cancel closes silently', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				verbs: [
+					{
+						name: 'with_index',
+						args: [
+							{
+								name: 'formatter',
+								type: 'string',
+								required: true,
+							},
+						],
+					},
+				],
+			},
+		];
+		const { getByText, getByLabelText, queryByText } = renderNode( {
+			catalog,
+			onAction,
+		} );
+
+		// Cancel path: open, then dismiss without firing.
+		fireEvent.click( getByText( 'with_index' ) );
+		expect( queryByText( 'Run' ) ).not.toBeNull();
+		fireEvent.click( getByText( 'Cancel' ) );
+		expect( onAction ).not.toHaveBeenCalled();
+		expect( queryByText( 'Run' ) ).toBeNull();
+
+		// Run path: open, fill the arg, Run.
+		fireEvent.click( getByText( 'with_index' ) );
+		const field = getByLabelText( /formatter/ );
+		fireEvent.change( field, { target: { value: 'json' } } );
+		fireEvent.click( getByText( 'Run' ) );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'with_index',
+			kind: 'command',
+			positional: 'json',
+			byName: { formatter: 'json' },
+		} );
 	} );
 } );

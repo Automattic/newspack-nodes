@@ -58,6 +58,7 @@ import {
 	VALUE,
 	LOCAL,
 	TM_COMMAND,
+	TM_REQUEST,
 } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import { THEMES, DEFAULT_THEME, isValidTheme } from './themes';
@@ -823,15 +824,58 @@ export default function TopologyConsole() {
 				// payload is the target debug level (0 disable, 1 enable).
 				const level = typeof payload === 'number' ? payload : 1;
 				sendLine( `debug_state ${ nodeId } ${ level }` );
-			} else if ( action === 'request' ) {
-				// payload is the request verb (e.g. GET_LAG).
-				sendLine( `request_node ${ nodeId } ${ payload }` );
+			} else if ( action === 'invoke' ) {
+				// Unified verb invocation: TM_COMMAND (kind 'command') or
+				// TM_REQUEST (kind 'request'), with args delivered both as a
+				// positional string and a by-name payload map.
+				if ( ! shell ) {
+					return;
+				}
+				if ( ! ssePid ) {
+					appendTranscript( {
+						kind: 'error',
+						text: '[no sse_pid yet] retry once CONNECTED',
+					} );
+					return;
+				}
+				const { verb, kind, positional, byName } = payload;
+				const to = shell.prefix( nodeId );
+				const m = newMessage();
+				m[ TO ] = to;
+				m[ FROM ] = shell.replyFrom( names.OUTPUT );
+				m[ LOCAL ] = true;
+				let echo;
+				if ( 'request' === kind ) {
+					m[ TYPE ] = TM_REQUEST;
+					m[ VALUE ] = positional
+						? `${ verb } ${ positional }`
+						: verb;
+					echo = `request_node ${ nodeId } ${ verb }${
+						positional ? ' ' + positional : ''
+					}`;
+				} else {
+					m[ TYPE ] = TM_COMMAND;
+					m[ VALUE ] = {
+						name: verb,
+						arguments: positional,
+						payload: byName,
+					};
+					echo = `command_node ${ nodeId } ${ verb }${
+						positional ? ' ' + positional : ''
+					}`;
+				}
+				appendTranscript( {
+					kind: 'sent',
+					text: echo,
+					prompt: `/${ shell.path }`,
+				} );
+				shell.sink?.fill( m );
 			}
 			// Pop the transcript + focus the prompt to show the worker's reply.
 			setReplExpanded( true );
 			window.requestAnimationFrame( () => replInputRef.current?.focus() );
 		},
-		[ sendLine ]
+		[ sendLine, shell, ssePid, appendTranscript ]
 	);
 
 	// Synthesize virtual edges from node_name verb args so autoLayout places
