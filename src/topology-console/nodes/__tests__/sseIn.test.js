@@ -110,6 +110,23 @@ describe( 'SseIn', () => {
 		);
 	} );
 
+	it( 'wraps an outgoing _completion FROM into the private pivot (tab-completion query)', () => {
+		const { sse, routed } = makeSseIn();
+		sse.start();
+		sse.setState( 'connected', { pid: 4242, slot: 1 } );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = names.COMPLETION;
+		m[ TO ] = 'firehose-workers.p0';
+		sse.fill( m );
+		expect( routed[ 0 ][ FROM ] ).toBe(
+			`${ names.SSE }:4242/${ names.COMPLETION }`
+		);
+		expect( routed[ 0 ][ TO ] ).toBe(
+			`${ names.HTTP }/firehose-workers.p0`
+		);
+	} );
+
 	it( 'routes an incoming reply by TO and stamps the _sse provenance breadcrumb', () => {
 		const { sse, routed } = makeSseIn();
 		const m = newMessage();

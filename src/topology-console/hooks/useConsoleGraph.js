@@ -16,6 +16,7 @@ import { HttpOut } from '../nodes/httpOut';
 import { Dumper } from '../nodes/dumper';
 import { Metadata } from '../nodes/metadata';
 import { Uptime } from '../nodes/uptime';
+import { Completion } from '../nodes/completion';
 import { Shell } from '../nodes/shell';
 import { getCommandClient } from '../utils/commandClient';
 import names from '../../runtime/reserved-node-names.json';
@@ -34,6 +35,7 @@ const GRAPH_NODE_NAMES = [
 	names.OUTPUT,
 	names.METADATA,
 	names.UPTIME,
+	names.COMPLETION,
 	names.HTTP,
 	names.SSE,
 ];
@@ -102,6 +104,8 @@ export function useConsoleGraph( {
 		metadata.setName( names.METADATA );
 		const uptime = new Uptime();
 		uptime.setName( names.UPTIME );
+		const completion = new Completion();
+		completion.setName( names.COMPLETION );
 
 		// HTTP boundary: Router peels _http and delivers here (TO={reader}).
 		const httpOut = new HttpOut( { client: getCommandClient() } );

@@ -6,5 +6,6 @@
 	"REPL": "_repl",
 	"SSE": "_sse",
 	"METADATA": "_metadata",
-	"UPTIME": "_uptime"
+	"UPTIME": "_uptime",
+	"COMPLETION": "_completion"
 }

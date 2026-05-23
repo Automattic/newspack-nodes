@@ -14,7 +14,9 @@ import {
 	TYPE,
 	FROM,
 	TO,
+	KEY,
 	VALUE,
+	LOCAL,
 	TM_BYTESTREAM,
 	TM_COMMAND,
 	TM_EOF,
@@ -50,6 +52,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 	const { Dumper } = require( '../nodes/dumper' );
 	const { Metadata } = require( '../nodes/metadata' );
 	const { Uptime } = require( '../nodes/uptime' );
+	const { Completion } = require( '../nodes/completion' );
 	const { HttpOut } = require( '../nodes/httpOut' );
 	const { SseIn } = require( '../nodes/sseIn' );
 	const { Shell } = require( '../nodes/shell' );
@@ -60,6 +63,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 		reserved.OUTPUT,
 		reserved.METADATA,
 		reserved.UPTIME,
+		reserved.COMPLETION,
 		reserved.HTTP,
 		reserved.SSE,
 	];
@@ -94,6 +98,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				dumper.setName( reserved.OUTPUT );
 				new Metadata().setName( reserved.METADATA );
 				new Uptime().setName( reserved.UPTIME );
+				new Completion().setName( reserved.COMPLETION );
 				// Fake HttpOut: capture the routed message instead of POSTing.
 				const httpOut = new HttpOut( {
 					client: {
@@ -363,6 +368,26 @@ jest.mock( '../components/ReplFooter', () => ( props ) => (
 			submit
 		</button>
 		<button
+			onClick={ () => props.onComplete && props.onComplete( 'conn' ) }
+		>
+			complete-verb
+		</button>
+		<button
+			onClick={ () =>
+				props.onComplete && props.onComplete( 'dump_node ec' )
+			}
+		>
+			complete-arg
+		</button>
+		<button
+			onClick={ () =>
+				props.onShowCandidates &&
+				props.onShowCandidates( [ 'connect', 'connect_node' ] )
+			}
+		>
+			show-candidates
+		</button>
+		<button
 			onClick={ () =>
 				props.onSubmit && props.onSubmit( 'clear; debug_level 1' )
 			}
@@ -551,6 +576,54 @@ describe( 'TopologyConsole boot', () => {
 		} finally {
 			jest.useRealTimers();
 		}
+	} );
+
+	it( 'onComplete on the FIRST token dispatches a `help` completion query (KEY=completion, FROM pivots to _completion)', () => {
+		globalThis.__httpPosts = [];
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		act( () => {
+			fireEvent.click( getByText( 'complete-verb' ) );
+		} );
+		const completions = globalThis.__httpPosts.filter(
+			( m ) => m[ KEY ] === 'completion'
+		);
+		expect( completions.length ).toBe( 1 );
+		const m = completions[ 0 ];
+		expect( m[ VALUE ].name ).toBe( 'help' );
+		// `_sse` wrapped the bare _completion reply-node FROM into the private pivot.
+		expect( m[ FROM ] ).toBe( `${ names.SSE }:1234/${ names.COMPLETION }` );
+		expect( m[ TO ] ).toBe( 'demo.p0' );
+		// Minted in-process → LOCAL taint set (the wire pack() strips it later).
+		expect( m[ LOCAL ] ).toBe( true );
+	} );
+
+	it( 'onComplete on a LATER token dispatches an `ls` completion query', () => {
+		globalThis.__httpPosts = [];
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		act( () => {
+			fireEvent.click( getByText( 'complete-arg' ) );
+		} );
+		const completions = globalThis.__httpPosts.filter(
+			( m ) => m[ KEY ] === 'completion'
+		);
+		expect( completions.length ).toBe( 1 );
+		expect( completions[ 0 ][ VALUE ].name ).toBe( 'ls' );
+	} );
+
+	it( 'onShowCandidates renders the candidate list into the transcript', () => {
+		const { getByText, container } = render( <TopologyConsole /> );
+		act( () => {
+			fireEvent.click( getByText( 'show-candidates' ) );
+		} );
+		const items = Array.from(
+			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
+		);
+		const listed = items.find( ( i ) =>
+			i.textContent.includes( 'connect_node' )
+		);
+		expect( listed ).not.toBeUndefined();
 	} );
 
 	it( 'switching to edit mode flips header + canvas + reveals palette', () => {

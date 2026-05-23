@@ -25,7 +25,12 @@ import { SseConnector } from '../../runtime/sse_connector';
 import { FROM, TO } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
 
-const REPLY_NODES = [ names.OUTPUT, names.METADATA, names.UPTIME ];
+const REPLY_NODES = [
+	names.OUTPUT,
+	names.METADATA,
+	names.UPTIME,
+	names.COMPLETION,
+];
 
 export class SseIn extends SseConnector {
 	fill( message ) {
