@@ -1116,6 +1116,30 @@ describe( 'TopologyConsole boot', () => {
 		] );
 	} );
 
+	it( 'pathOptions lists only ACTIVE topologies (excludes inactive ones)', () => {
+		const prev = window.NewspackNodesData;
+		window.NewspackNodesData = {
+			...prev,
+			topologyPartitions: { demo: 2, idle: 1 },
+			activeTopologies: [ 'demo' ],
+		};
+		try {
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			render( <TopologyConsole /> );
+			expect( lastHeaderProps.pathOptions ).toEqual( [
+				'',
+				'_sse',
+				'_sse/demo.p0',
+				'_sse/demo.p1',
+			] );
+			expect( lastHeaderProps.pathOptions ).not.toContain(
+				'_sse/idle.p0'
+			);
+		} finally {
+			window.NewspackNodesData = prev;
+		}
+	} );
+
 	it( 'Header onPathChange to a different worker re-keys the graph (URL follows)', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );

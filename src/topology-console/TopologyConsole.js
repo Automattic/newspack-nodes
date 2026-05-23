@@ -469,17 +469,20 @@ export default function TopologyConsole() {
 	const partitions = useMemo( () => partitionList( topology ), [ topology ] );
 
 	// Every cwd the Path menu can select: the local graph, the request scope,
-	// then one entry per worker across all topologies.
-	const pathOptions = useMemo(
-		() => [
+	// then one entry per worker — only for ACTIVE topologies (inactive ones have
+	// no live workers to reach). An off-menu cwd is still surfaced by the Header.
+	const pathOptions = useMemo( () => {
+		const active = activeTopologySet();
+		return [
 			'',
 			'_sse',
-			...sortedTopologies().flatMap( ( t ) =>
-				partitionList( t ).map( ( p ) => `_sse/${ t }.p${ p }` )
-			),
-		],
-		[]
-	);
+			...sortedTopologies()
+				.filter( ( t ) => active.has( t ) )
+				.flatMap( ( t ) =>
+					partitionList( t ).map( ( p ) => `_sse/${ t }.p${ p }` )
+				),
+		];
+	}, [] );
 
 	// Path selection — shared by the Path menu and REPL `cd`. Sets the cwd to the
 	// path verbatim (free navigation: ANY path is allowed), then mounts the
