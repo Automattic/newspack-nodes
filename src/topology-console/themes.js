@@ -6,7 +6,7 @@
 export const DEFAULT_THEME = 'current';
 
 export const THEMES = [
-	{ slug: 'current', label: 'Current — Drafting Plotter' },
+	{ slug: 'current', label: 'Drafting Plotter' },
 	{ slug: 'blueprint', label: 'Cyanotype Blueprint' },
 	{ slug: 'crt', label: 'CRT Phosphor Terminal' },
 	{ slug: 'swiss', label: 'Swiss Brutalist' },
