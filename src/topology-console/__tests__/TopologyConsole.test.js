@@ -358,51 +358,55 @@ jest.mock( '../components/Header', () => ( props ) => {
 jest.mock( '../components/Palette', () => () => (
 	<aside data-testid="palette" />
 ) );
-jest.mock( '../components/ReplFooter', () => ( props ) => (
-	<footer
-		data-testid="repl"
-		data-expanded={ props.expanded ? '1' : '0' }
-		data-can-send={ props.canSend ? '1' : '0' }
-	>
-		<button onClick={ () => props.onSubmit && props.onSubmit( 'ls' ) }>
-			submit
-		</button>
-		<button
-			onClick={ () => props.onComplete && props.onComplete( 'conn' ) }
+let lastReplProps = null;
+jest.mock( '../components/ReplFooter', () => ( props ) => {
+	lastReplProps = props;
+	return (
+		<footer
+			data-testid="repl"
+			data-expanded={ props.expanded ? '1' : '0' }
+			data-can-send={ props.canSend ? '1' : '0' }
 		>
-			complete-verb
-		</button>
-		<button
-			onClick={ () =>
-				props.onComplete && props.onComplete( 'dump_node ec' )
-			}
-		>
-			complete-arg
-		</button>
-		<button
-			onClick={ () =>
-				props.onShowCandidates &&
-				props.onShowCandidates( [ 'connect', 'connect_node' ] )
-			}
-		>
-			show-candidates
-		</button>
-		<button
-			onClick={ () =>
-				props.onSubmit && props.onSubmit( 'clear; debug_level 1' )
-			}
-		>
-			submit-multi
-		</button>
-		<ul data-testid="repl-transcript">
-			{ ( props.transcript || [] ).map( ( t ) => (
-				<li key={ t.key } data-kind={ t.kind } data-text={ t.text }>
-					{ t.text }
-				</li>
-			) ) }
-		</ul>
-	</footer>
-) );
+			<button onClick={ () => props.onSubmit && props.onSubmit( 'ls' ) }>
+				submit
+			</button>
+			<button
+				onClick={ () => props.onComplete && props.onComplete( 'conn' ) }
+			>
+				complete-verb
+			</button>
+			<button
+				onClick={ () =>
+					props.onComplete && props.onComplete( 'dump_node ec' )
+				}
+			>
+				complete-arg
+			</button>
+			<button
+				onClick={ () =>
+					props.onShowCandidates &&
+					props.onShowCandidates( [ 'connect', 'connect_node' ] )
+				}
+			>
+				show-candidates
+			</button>
+			<button
+				onClick={ () =>
+					props.onSubmit && props.onSubmit( 'clear; debug_level 1' )
+				}
+			>
+				submit-multi
+			</button>
+			<ul data-testid="repl-transcript">
+				{ ( props.transcript || [] ).map( ( t ) => (
+					<li key={ t.key } data-kind={ t.kind } data-text={ t.text }>
+						{ t.text }
+					</li>
+				) ) }
+			</ul>
+		</footer>
+	);
+} );
 // eslint-disable-next-line no-unused-vars
 let lastCanvasFrameProps = null;
 jest.mock( '../components/CanvasFrame', () => ( props ) => {
@@ -1104,6 +1108,47 @@ describe( 'TopologyConsole boot', () => {
 			lastHeaderProps.onPathChange( '_sse' );
 		} );
 		expect( lastHeaderProps.path ).toBe( '_sse' );
+		expect( window.location.search ).not.toMatch( /partition=/ );
+	} );
+
+	it( 'REPL cd to a different worker re-keys the graph like the menu', () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /_sse/demo.p1' );
+		} );
+		expect( window.location.search ).toMatch( /partition=1/ );
+		expect( lastHeaderProps.path ).toBe( '_sse/demo.p1' );
+	} );
+
+	it( 'REPL cd into a sub-node of the CURRENT worker is free navigation (no re-key)', () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /_sse/demo.p0/firehose-in' );
+		} );
+		// cwd follows the deep path; same worker → no rebuild, no partition URL.
+		expect( lastHeaderProps.path ).toBe( '_sse/demo.p0/firehose-in' );
+		expect( window.location.search ).not.toMatch( /partition=/ );
+	} );
+
+	it( 'REPL cd into a sub-node of a DIFFERENT worker mounts that worker (largest prefix)', () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /_sse/demo.p1/firehose-in' );
+		} );
+		// Longest menu prefix is _sse/demo.p1 → mount p1.
+		expect( window.location.search ).toMatch( /partition=1/ );
+	} );
+
+	it( 'REPL cd to a non-menu path is free navigation, not clobbered to root', () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /_http/demo.p0' );
+		} );
+		expect( lastHeaderProps.path ).toBe( '_http/demo.p0' );
 		expect( window.location.search ).not.toMatch( /partition=/ );
 	} );
 

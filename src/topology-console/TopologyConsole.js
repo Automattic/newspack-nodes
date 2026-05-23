@@ -102,6 +102,25 @@ function parseWorker( cwd ) {
 	return m ? { topology: m[ 1 ], partition: Number( m[ 2 ] ) } : null;
 }
 
+// The longest worker menu item (`_sse/{topology}.p{N}`) that is a path-prefix of
+// `path` — the worker whose subtree contains it. `cd`-ing onto a worker OR into
+// any node beneath it resolves to that worker's mount; non-worker paths (roots,
+// `_http`, …) resolve to null. Returns { topology, partition } | null.
+function longestWorkerPrefix( path, options ) {
+	let best = null;
+	for ( const opt of options ) {
+		if ( ! parseWorker( opt ) ) {
+			continue;
+		}
+		if ( path === opt || path.startsWith( opt + '/' ) ) {
+			if ( null === best || opt.length > best.length ) {
+				best = opt;
+			}
+		}
+	}
+	return best ? parseWorker( best ) : null;
+}
+
 function readUrlParam( key ) {
 	try {
 		return new URLSearchParams( window.location.search ).get( key );
@@ -464,12 +483,20 @@ export default function TopologyConsole() {
 		[]
 	);
 
-	// A different worker re-keys the graph (the rebuilt shell remounts at
-	// _sse/{worker} and the [shell] effect syncs cwd). A root path or the same
-	// worker just moves the cwd.
+	// Path selection — shared by the Path menu and REPL `cd`. Sets the cwd to the
+	// path verbatim (free navigation: ANY path is allowed), then mounts the
+	// deepest worker whose subtree contains it (the largest worker-prefix among
+	// menu items). Mounting a DIFFERENT worker re-keys the graph and re-subscribes
+	// `_sse` to its output (the rebuilt shell remounts at _sse/{worker}; the
+	// [shell] effect syncs cwd). Staying within the current worker — or any
+	// non-worker path — is a pure cwd move with no rebuild.
 	const handlePathChange = useCallback(
 		( nextPath ) => {
-			const worker = parseWorker( nextPath );
+			if ( shell ) {
+				shell.path = nextPath;
+			}
+			setCwd( nextPath );
+			const worker = longestWorkerPrefix( nextPath, pathOptions );
 			if (
 				worker &&
 				( worker.topology !== topology ||
@@ -477,12 +504,9 @@ export default function TopologyConsole() {
 			) {
 				setTopology( worker.topology );
 				setPartition( worker.partition );
-			} else if ( shell ) {
-				shell.path = nextPath;
-				setCwd( nextPath );
 			}
 		},
-		[ topology, partition, shell ]
+		[ topology, partition, shell, pathOptions ]
 	);
 
 	// Reset to p0 when switching to a topology with fewer partitions.
@@ -626,9 +650,11 @@ export default function TopologyConsole() {
 			// the echoed entry keeps its own prompt instead of re-rendering on cd.
 			const promptAtSend = `/${ shell.path }`;
 			const parsedLine = shell.parse( statement );
-			// `cd` mutates shell.path and returns null; mirror it so the prompt +
-			// canvas poll follow the new cwd.
-			setCwd( shell.path );
+			// `cd` mutates shell.path and returns null; route the new path through
+			// the same handler the Path menu uses so a `cd` onto (or into) a worker
+			// mounts it exactly like a menu pick — prompt, canvas poll, and `_sse`
+			// subscription all follow.
+			handlePathChange( shell.path );
 			if ( null === parsedLine ) {
 				return;
 			}
@@ -687,7 +713,7 @@ export default function TopologyConsole() {
 				}
 			}
 		},
-		[ shell, ssePid, appendTranscript, clearTranscript ]
+		[ shell, ssePid, appendTranscript, clearTranscript, handlePathChange ]
 	);
 
 	// Live-canvas poll (WIRING-PLAN §4/§5). Each poll is a positional TM_COMMAND
