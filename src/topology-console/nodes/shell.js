@@ -83,6 +83,34 @@ export class Shell extends Node {
 		super();
 		// cwd: the node-path bare verbs route to by default. Settable by the host.
 		this.path = '';
+		// `var`-set values, read back by <name> interpolation (PHP Core::$var).
+		this.vars = {};
+		// Read-only namespace exposed via <config:foo> interpolation (PHP Core::$config).
+		this.config = {};
+		// Lines emitted by the local `status` builtin; host-populated.
+		this.statusLines = [];
+		// When true, parsed lines are reported back to the host for echoing.
+		this.showParse = false;
+	}
+
+	/**
+	 * Single-tier interpolation: `<name>` → vars, `<config:foo>` → config, unknown → ''.
+	 * Mirrors PHP Shell::interpolate (runs before tokenizing).
+	 *
+	 * @param {string} line Raw line.
+	 * @return {string} Interpolated line.
+	 */
+	interpolate( line ) {
+		return line.replace(
+			/<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/g,
+			( _match, key ) => {
+				if ( key.startsWith( 'config:' ) ) {
+					const cfgKey = key.slice( 7 );
+					return String( this.config[ cfgKey ] ?? '' );
+				}
+				return String( this.vars[ key ] ?? '' );
+			}
+		);
 	}
 
 	// Slash-join cwd with an extra path arg, dropping empty pieces (PHP prefix()).
@@ -136,17 +164,61 @@ export class Shell extends Node {
 	 * @return {Object|Array|null} `{ kind: 'local'|'error', … }`, a Message, or null.
 	 */
 	parse( line ) {
-		const trimmed = ( line || '' ).trim();
-		if ( ! trimmed ) {
+		// Interpolate first so `<var>` can expand into leading whitespace (PHP order).
+		const trimmed = this.interpolate( line || '' ).trim();
+		if ( ! trimmed || '#' === trimmed[ 0 ] ) {
 			return null;
 		}
 		const parts = splitFirst( trimmed );
 		const verb = parts[ 0 ];
+		const rest = parts[ 1 ];
+
+		// `include` reads a topology file from disk in PHP — impossible in the browser.
+		if ( 'include' === verb ) {
+			return {
+				kind: 'error',
+				text: 'include is not supported in the browser shell',
+			};
+		}
 
 		if ( 'clear' === verb ) {
 			return { kind: 'local', name: 'clear' };
 		}
-		const rest = parts[ 1 ];
+
+		if ( 'echo' === verb ) {
+			return { kind: 'local', name: 'echo', text: rest };
+		}
+
+		if ( 'show_parse' === verb ) {
+			this.showParse = ! this.showParse;
+			return { kind: 'local', name: 'show_parse', on: this.showParse };
+		}
+
+		if ( 'status' === verb ) {
+			return {
+				kind: 'local',
+				name: 'status',
+				lines: this.statusLines.slice(),
+			};
+		}
+
+		// `var <name> = <value>`: reject `:` names (reserved for read-only namespaces).
+		if ( 'var' === verb ) {
+			const [ name, after ] = splitFirst( rest );
+			const [ eq, value ] = splitFirst( after );
+			if ( '' === name || '=' !== eq ) {
+				return null;
+			}
+			if ( name.includes( ':' ) ) {
+				return {
+					kind: 'error',
+					text: `var: invalid name '${ name }' (':' is reserved for read-only namespaces like config:)`,
+				};
+			}
+			this.vars[ name ] = value;
+			return null;
+		}
+
 		if ( 'debug_level' === verb ) {
 			const level = '' === rest ? null : parseInt( rest, 10 );
 			if (
@@ -230,6 +302,18 @@ export class Shell extends Node {
 			msg[ TYPE ] = TM_COMMAND;
 			msg[ TO ] = this.prefix( to );
 			msg[ VALUE ] = { name, arguments: args, payload: '' };
+			return msg;
+		}
+
+		if ( 'pwd' === verb ) {
+			// TO is the bare cwd (not prefixed); arguments echo the cwd.
+			msg[ TYPE ] = TM_COMMAND;
+			msg[ TO ] = this.path;
+			msg[ VALUE ] = {
+				name: 'pwd',
+				arguments: this.path,
+				payload: '',
+			};
 			return msg;
 		}
 

@@ -289,6 +289,138 @@ describe( 'Shell node — anonymity', () => {
 	} );
 } );
 
+describe( 'Shell node — pwd', () => {
+	it( 'pwd → TM_COMMAND name=pwd targeting the bare cwd (not prefixed)', () => {
+		const { shell, filled } = makeShell( { path: '_http/demo.p0' } );
+		shell.fill( 'pwd' );
+		const m = filled[ 0 ];
+		expect( m[ TYPE ] ).toBe( TM_COMMAND );
+		expect( m[ TO ] ).toBe( '_http/demo.p0' );
+		expect( m[ VALUE ] ).toEqual( {
+			name: 'pwd',
+			arguments: '_http/demo.p0',
+			payload: '',
+		} );
+	} );
+
+	it( 'pwd at the local root → TO empty, arguments empty', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.fill( 'pwd' );
+		const m = filled[ 0 ];
+		expect( m[ TO ] ).toBe( '' );
+		expect( m[ VALUE ] ).toEqual( {
+			name: 'pwd',
+			arguments: '',
+			payload: '',
+		} );
+	} );
+} );
+
+describe( 'Shell node — var + interpolation', () => {
+	it( 'var <name> = <value> sets a variable and returns null (no fill)', () => {
+		const { shell, filled } = makeShell();
+		expect( shell.parse( 'var greeting = hello world' ) ).toBeNull();
+		expect( shell.vars.greeting ).toBe( 'hello world' );
+		expect( filled ).toHaveLength( 0 );
+	} );
+
+	it( 'var with a `:` name is rejected with an error signal', () => {
+		const { shell } = makeShell();
+		const sig = shell.parse( 'var config:x = 1' );
+		expect( sig.kind ).toBe( 'error' );
+		expect( sig.text ).toContain( 'config:x' );
+		expect( shell.vars[ 'config:x' ] ).toBeUndefined();
+	} );
+
+	it( 'var with no `=` is a silent no-op (null)', () => {
+		const { shell } = makeShell();
+		expect( shell.parse( 'var greeting hello' ) ).toBeNull();
+		expect( shell.vars.greeting ).toBeUndefined();
+	} );
+
+	it( 'interpolates <var> into a later command line', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.parse( 'var node = my_node' );
+		shell.fill( 'tell <node> hi there' );
+		const m = filled[ 0 ];
+		expect( m[ TO ] ).toBe( 'my_node' );
+		expect( m[ VALUE ] ).toBe( 'hi there' );
+	} );
+
+	it( 'interpolates <config:foo> from the config map', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.config = { base: 'firehose-in' };
+		shell.fill( 'ping <config:base>' );
+		expect( filled[ 0 ][ TO ] ).toBe( 'firehose-in' );
+	} );
+
+	it( 'unknown <var> interpolates to empty', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.fill( 'tell <missing>node hi' );
+		// `<missing>` → '' so the token is `node`.
+		expect( filled[ 0 ][ TO ] ).toBe( 'node' );
+	} );
+} );
+
+describe( 'Shell node — echo / status / show_parse', () => {
+	it( 'echo <args> → a local echo signal carrying the joined text', () => {
+		const { shell, filled } = makeShell();
+		expect( shell.parse( 'echo hello world' ) ).toEqual( {
+			kind: 'local',
+			name: 'echo',
+			text: 'hello world',
+		} );
+		expect( filled ).toHaveLength( 0 );
+	} );
+
+	it( 'show_parse toggles and reports its new state via a local signal', () => {
+		const { shell } = makeShell();
+		expect( shell.parse( 'show_parse' ) ).toEqual( {
+			kind: 'local',
+			name: 'show_parse',
+			on: true,
+		} );
+		expect( shell.parse( 'show_parse' ) ).toEqual( {
+			kind: 'local',
+			name: 'show_parse',
+			on: false,
+		} );
+	} );
+
+	it( 'status → a local signal carrying the configured status lines', () => {
+		const { shell } = makeShell();
+		shell.statusLines = [ 'one', 'two' ];
+		expect( shell.parse( 'status' ) ).toEqual( {
+			kind: 'local',
+			name: 'status',
+			lines: [ 'one', 'two' ],
+		} );
+	} );
+} );
+
+describe( 'Shell node — control-flow verbs flow through as commands (no forbidden list)', () => {
+	it.each( [ 'if', 'while', 'for', 'func', 'eval', 'unless', 'until' ] )(
+		'%s → a TM_COMMAND (the target CI answers "unknown command")',
+		( verb ) => {
+			const { shell } = makeShell();
+			const msg = shell.parse( `${ verb } x` );
+			expect( Array.isArray( msg ) ).toBe( true );
+			expect( msg[ TYPE ] ).toBe( TM_COMMAND );
+			expect( msg[ VALUE ].name ).toBe( verb );
+		}
+	);
+} );
+
+describe( 'Shell node — include (browser-adapted)', () => {
+	it( 'include → an error signal noting it is unsupported in the browser', () => {
+		const { shell, filled } = makeShell();
+		const sig = shell.parse( 'include /some/file' );
+		expect( sig.kind ).toBe( 'error' );
+		expect( sig.text ).toContain( 'include' );
+		expect( filled ).toHaveLength( 0 );
+	} );
+} );
+
 describe( 'splitStatements (unquoted `;` splitter)', () => {
 	it( 'returns single statement when no semicolons', () => {
 		expect( splitStatements( 'help' ) ).toEqual( [ 'help' ] );

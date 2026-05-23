@@ -670,6 +670,17 @@ export default function TopologyConsole() {
 						kind: 'info',
 						text: `debug_level: ${ debugLevelRef.current }`,
 					} );
+				} else if ( parsedLine.name === 'echo' ) {
+					appendTranscript( { kind: 'recv', text: parsedLine.text } );
+				} else if ( parsedLine.name === 'status' ) {
+					for ( const line of parsedLine.lines ) {
+						appendTranscript( { kind: 'recv', text: line } );
+					}
+				} else if ( parsedLine.name === 'show_parse' ) {
+					appendTranscript( {
+						kind: 'info',
+						text: `show_parse: ${ parsedLine.on ? 'on' : 'off' }`,
+					} );
 				}
 			}
 		},
