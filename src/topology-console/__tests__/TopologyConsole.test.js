@@ -1200,6 +1200,18 @@ describe( 'TopologyConsole boot', () => {
 		expect( window.location.search ).not.toMatch( /partition=/ );
 	} );
 
+	it( 'REPL cd echoes into the transcript like other builtins', () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /_sse' );
+		} );
+		const sent = ( lastReplProps.transcript || [] ).filter(
+			( t ) => t.kind === 'sent'
+		);
+		expect( sent.map( ( t ) => t.text ) ).toContain( 'cd /_sse' );
+	} );
+
 	it( 'mounts the receive graph in view mode (Dumper registered as _output)', () => {
 		render( <TopologyConsole /> );
 		const { Dumper } = require( '../nodes/dumper' );

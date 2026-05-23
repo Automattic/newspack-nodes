@@ -656,15 +656,19 @@ export default function TopologyConsole() {
 			// mounts it exactly like a menu pick — prompt, canvas poll, and `_sse`
 			// subscription all follow.
 			handlePathChange( shell.path );
+			// Echo the user's input verbatim, tagged with the prompt at send time.
+			// Before the null-return so `cd` (which parses to null) still shows in
+			// the transcript like every other builtin; blank lines stay silent.
+			if ( '' !== statement.trim() ) {
+				appendTranscript( {
+					kind: 'sent',
+					text: statement,
+					prompt: promptAtSend,
+				} );
+			}
 			if ( null === parsedLine ) {
 				return;
 			}
-			// Echo the user's input verbatim, tagged with the prompt at send time.
-			appendTranscript( {
-				kind: 'sent',
-				text: statement,
-				prompt: promptAtSend,
-			} );
 
 			if ( Array.isArray( parsedLine ) ) {
 				// A worker-bound Message; the reply arrives async over SSE.
