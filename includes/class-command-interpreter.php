@@ -172,7 +172,26 @@ class CommandInterpreter extends Node {
 			self::init_C();
 			$this->commands = self::$C ?? [];
 		}
+		// Every CI answers `help`. A subclass that installs a custom verb table
+		// (e.g. the REST service CIs) gets a default that lists its own verbs;
+		// the base table ships its own richer `help`, so this never overrides one.
+		if ( ! isset( $this->commands['help'] ) ) {
+			$this->commands['help'] = static fn ( CommandInterpreter $self, string $args = '', array $envelope = [] ): string => $self->default_help();
+		}
 		return $this->commands;
+	}
+
+	/**
+	 * Default `help` for a CI with a custom verb table: its verb names, sorted,
+	 * one per line (includes `help` itself). The base CI overrides this with the
+	 * richer sectioned help via its own `help` verb in self::$C.
+	 *
+	 * @return string Newline-separated sorted verb names.
+	 */
+	protected function default_help(): string {
+		$names = \array_keys( $this->commands() );
+		\sort( $names );
+		return \implode( "\n", $names );
 	}
 
 	private static function init_C(): void {

@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Every CommandInterpreter answers `help` by default.** A CI that installs a
+  custom verb table (the REST service CIs) previously had no `help`; the base now
+  injects one that lists the CI's own verb names (sorted, newline-separated). CIs
+  shipping their own richer `help` (the base table) are untouched.
 - **REPL `cd` mounts a worker exactly like a Path-menu pick.** `cd` keeps its
   free-navigation behavior (any path, including a worker's sub-nodes), but now
   routes through the same handler the menu uses: the cwd resolves to the largest
