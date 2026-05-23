@@ -746,6 +746,70 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 		} );
 	} );
 
+	describe( 'completion (KEY=completion bare-list mode)', () => {
+		const completionEnv = () => {
+			const env = newMessage();
+			env[ KEY ] = 'completion';
+			return env;
+		};
+
+		it( 'help with KEY=completion returns bare sorted verb names, no help text', () => {
+			const ci = makeCi();
+			const out = dispatch( ci, 'help', '', completionEnv() );
+			const lines = out.split( '\n' );
+			// Bare verb names, one per line — sorted, no section headers.
+			expect( lines ).toContain( 'list_nodes' );
+			expect( lines ).toContain( 'make_node' );
+			expect( lines ).toContain( 'help' );
+			expect( out ).not.toContain( '###' );
+			expect( out ).not.toContain( 'SERVER COMMANDS' );
+			expect( out ).not.toContain( 'TM_PING' );
+			// Sorted.
+			expect( [ ...lines ].sort() ).toEqual( lines );
+		} );
+
+		it( 'help WITHOUT the completion key is unchanged (full tabulated help)', () => {
+			const ci = makeCi();
+			const out = dispatch( ci, 'help', '' );
+			expect( out ).toContain( '### SERVER COMMANDS ###' );
+			expect( out ).toContain( '### SHELL BUILTINS ###' );
+		} );
+
+		it( 'ls with KEY=completion returns bare sibling node names, no columns', () => {
+			const ci = makeCi();
+			const a = new Node();
+			a.setName( 'a' );
+			a.sink = ci;
+			const b = new Node();
+			b.setName( 'b' );
+			b.sink = ci;
+			const out = dispatch( ci, 'ls', '-c', completionEnv() );
+			expect( out.split( '\n' ).sort() ).toEqual( [ 'a', 'b' ] );
+			expect( out ).not.toContain( 'COUNT' );
+			expect( out ).not.toContain( 'NAME' );
+		} );
+
+		it( 'ls -a with KEY=completion returns all bare node names', () => {
+			const ci = makeCi();
+			new Node().setName( 'x' );
+			const out = dispatch( ci, 'ls', '-a', completionEnv() );
+			const lines = out.split( '\n' );
+			expect( lines ).toContain( 'x' );
+			expect( lines ).toContain( '_command_interpreter' );
+			expect( out ).not.toContain( 'NAME' );
+		} );
+
+		it( 'ls WITHOUT the completion key is unchanged', () => {
+			const ci = makeCi();
+			const a = new Node();
+			a.setName( 'a' );
+			a.sink = ci;
+			const out = dispatch( ci, 'ls', '-c' );
+			expect( out ).toContain( 'COUNT' );
+			expect( out ).toContain( 'NAME' );
+		} );
+	} );
+
 	describe( 'make_node', () => {
 		afterEach( () => {
 			CommandInterpreter.classMap = {};

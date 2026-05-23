@@ -260,8 +260,8 @@ export class CommandInterpreter extends Node {
 			remove_node: ( self, args ) => self._cmdRemove( args ),
 			remove: ( self, args ) => self._cmdRemove( args ),
 			rm: ( self, args ) => self._cmdRemove( args ),
-			list_nodes: ( self, args ) => self._cmdList( args ),
-			ls: ( self, args ) => self._cmdList( args ),
+			list_nodes: ( self, args, env ) => self._cmdList( args, env ),
+			ls: ( self, args, env ) => self._cmdList( args, env ),
 			log: ( self, args ) => CommandInterpreter._cmdLog( args ),
 			dmesg: () => CommandInterpreter._cmdDmesg(),
 			dump_node: ( self, args ) =>
@@ -272,7 +272,8 @@ export class CommandInterpreter extends Node {
 			stats: ( self, args ) => self._cmdStats( args ),
 			uptime: () => CommandInterpreter._cmdUptime(),
 			debug_state: ( self, args ) => self._cmdDebugState( args ),
-			help: ( self, args ) => CommandInterpreter._cmdHelp( args ),
+			help: ( self, args, env ) =>
+				CommandInterpreter._cmdHelp( args, env ),
 		};
 	}
 
@@ -442,7 +443,10 @@ export class CommandInterpreter extends Node {
 	}
 
 	// `list_nodes` (alias `ls`): default=siblings, `-a [glob]`=all, `<name>`=that sink's children.
-	_cmdList( args ) {
+	_cmdList( args, env = {} ) {
+		// Completion mode: emit bare node names only, ignoring all -clst column
+		// flags so the tab-completion parser gets clean candidates.
+		const isCompletion = env && env[ KEY ] === 'completion';
 		let listMatches = false;
 		let showCount = false;
 		let showSink = false;
@@ -473,6 +477,13 @@ export class CommandInterpreter extends Node {
 				continue;
 			}
 			argv.push( tok );
+		}
+
+		// Completion mode shows bare names only: drop any column flags.
+		if ( isCompletion ) {
+			showCount = false;
+			showSink = false;
+			showTarget = false;
 		}
 
 		const dirs = [];
@@ -739,7 +750,12 @@ export class CommandInterpreter extends Node {
 	}
 
 	// help — no args lists command names tabulated; a topic returns that command's help.
-	static _cmdHelp( args ) {
+	static _cmdHelp( args, env = {} ) {
+		// Completion mode: bare sorted verb names, newline-separated — no headers,
+		// no per-topic help text — so the tab-completion parser gets clean candidates.
+		if ( env && env[ KEY ] === 'completion' ) {
+			return Object.keys( HELP ).sort().join( '\n' );
+		}
 		const topic = String( args ?? '' ).trim();
 		if ( '' === topic ) {
 			const names = Object.keys( HELP ).sort();

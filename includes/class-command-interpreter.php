@@ -240,8 +240,8 @@ class CommandInterpreter extends Node {
 			'remove_node'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
 			'remove'          => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
 			'rm'              => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
-			'list_nodes'      => fn ( CommandInterpreter $self, string $args ): string => self::cmd_list_nodes( $self, $args ),
-			'ls'              => fn ( CommandInterpreter $self, string $args ): string => self::cmd_list_nodes( $self, $args ),
+			'list_nodes'      => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, $args, $envelope ),
+			'ls'              => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, $args, $envelope ),
 			'log'             => fn ( CommandInterpreter $self, string $args ): string => self::cmd_log( $args ),
 			'dmesg'           => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dmesg(),
 			'dump_node'       => fn ( CommandInterpreter $self, string $args ): mixed => self::cmd_dump_node( $args ),
@@ -251,7 +251,7 @@ class CommandInterpreter extends Node {
 			'stats'           => fn ( CommandInterpreter $self, string $args ): string => self::cmd_stats( $self, $args ),
 			'uptime'          => fn ( CommandInterpreter $self, string $args ): string => self::cmd_uptime(),
 			'debug_state'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_debug_state( $self, $args ),
-			'help'            => fn ( CommandInterpreter $self, string $args ): string => self::cmd_help( $args ),
+			'help'            => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_help( $args, $envelope ),
 		];
 	}
 
@@ -455,12 +455,15 @@ class CommandInterpreter extends Node {
 	 *
 	 * Flags: `-c` count, `-s` sink, `-t` target, `-l` = -ct.
 	 */
-	private static function cmd_list_nodes( CommandInterpreter $self, string $args ): string {
-		$list_matches = false;
-		$show_count   = false;
-		$show_sink    = false;
-		$show_target  = false;
-		$argv         = [];
+	private static function cmd_list_nodes( CommandInterpreter $self, string $args, array $envelope = [] ): string {
+		// Completion mode: emit bare node names only, ignoring all -clst column
+		// flags so the tab-completion parser gets clean candidates.
+		$is_completion = 'completion' === ( $envelope[ Message::KEY ] ?? '' );
+		$list_matches  = false;
+		$show_count    = false;
+		$show_sink     = false;
+		$show_target   = false;
+		$argv          = [];
 
 		foreach ( \preg_split( '/\s+/', \trim( $args ) ) as $tok ) {
 			if ( '' === $tok ) {
@@ -479,6 +482,13 @@ class CommandInterpreter extends Node {
 				continue;
 			}
 			$argv[] = $tok;
+		}
+
+		// Completion mode shows bare names only: drop any column flags.
+		if ( $is_completion ) {
+			$show_count  = false;
+			$show_sink   = false;
+			$show_target = false;
 		}
 
 		$dirs   = [];
@@ -743,7 +753,15 @@ class CommandInterpreter extends Node {
 	/**
 	 * `help` — no args lists all command names tabulated; a topic returns that command's help.
 	 */
-	private static function cmd_help( string $args ): string {
+	private static function cmd_help( string $args, array $envelope = [] ): string {
+		// Completion mode: bare sorted verb names, newline-separated — no section
+		// headers, no per-topic help text — so the tab-completion parser gets clean
+		// candidates.
+		if ( 'completion' === ( $envelope[ Message::KEY ] ?? '' ) ) {
+			$names = \array_keys( self::$H );
+			\sort( $names );
+			return \implode( "\n", $names );
+		}
 		$topic = \trim( $args );
 		if ( '' === $topic ) {
 			$names = \array_keys( self::$H );
