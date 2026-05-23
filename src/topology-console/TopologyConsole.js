@@ -727,7 +727,15 @@ export default function TopologyConsole() {
 	// so edit mode / pre-pid emit nothing and HttpOut.flush() posts an empty
 	// buffer = no request.
 	useEffect( () => {
-		const to = mode !== 'edit' && ssePid ? cwd : null;
+		// dump_metadata / uptime are worker-level polls, so they target the LCP —
+		// the longest worker menu item that prefixes the cwd (the path the menu
+		// selects), NOT a deep sub-node cwd (which would route past the worker CI).
+		// Non-worker cwds (local '', `_sse`, `_http`) poll themselves.
+		const worker = longestWorkerPrefix( cwd, pathOptions );
+		const pollPath = worker
+			? `_sse/${ worker.topology }.p${ worker.partition }`
+			: cwd;
+		const to = mode !== 'edit' && ssePid ? pollPath : null;
 		const meta = Core.node( names.METADATA );
 		const up = Core.node( names.UPTIME );
 		if ( meta ) {
@@ -736,7 +744,7 @@ export default function TopologyConsole() {
 		if ( up ) {
 			up.pollTo = to;
 		}
-	}, [ mode, ssePid, cwd ] );
+	}, [ mode, ssePid, cwd, pathOptions ] );
 
 	// Tab-completion query (WIRING-PLAN §5 sibling of the canvas poll). The verb
 	// depends on cursor context: completing the FIRST token (the command word) →

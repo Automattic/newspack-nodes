@@ -1200,6 +1200,17 @@ describe( 'TopologyConsole boot', () => {
 		expect( window.location.search ).not.toMatch( /partition=/ );
 	} );
 
+	it( 'poll target follows the LCP worker, not a deep sub-node cwd', () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /_sse/demo.p0/firehose-in' );
+		} );
+		// cwd is the deep node, but dump_metadata/uptime poll the worker root.
+		expect( Core.node( names.METADATA ).pollTo ).toBe( '_sse/demo.p0' );
+		expect( Core.node( names.UPTIME ).pollTo ).toBe( '_sse/demo.p0' );
+	} );
+
 	it( 'REPL cd echoes into the transcript like other builtins', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
