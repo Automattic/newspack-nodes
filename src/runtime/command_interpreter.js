@@ -479,11 +479,13 @@ export class CommandInterpreter extends Node {
 			argv.push( tok );
 		}
 
-		// Completion mode shows bare names only: drop any column flags.
+		// Completion mode shows bare names only: drop any column flags, and list
+		// ALL nodes (like `-a`) so `cd <tab>` can reach _-prefixed nodes too.
 		if ( isCompletion ) {
 			showCount = false;
 			showSink = false;
 			showTarget = false;
+			listMatches = true;
 		}
 
 		const dirs = [];
@@ -754,7 +756,11 @@ export class CommandInterpreter extends Node {
 		// Completion mode: bare sorted verb names, newline-separated — no headers,
 		// no per-topic help text — so the tab-completion parser gets clean candidates.
 		if ( env && env[ KEY ] === 'completion' ) {
-			return Object.keys( HELP ).sort().join( '\n' );
+			// Source from the verb dispatch table, not the help-topic table, so
+			// aliases (ls, rm, make, ...) are offered alongside the canonicals.
+			return Object.keys( CommandInterpreter._defaultCommands() )
+				.sort()
+				.join( '\n' );
 		}
 		const topic = String( args ?? '' ).trim();
 		if ( '' === topic ) {

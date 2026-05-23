@@ -652,6 +652,10 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertContains( 'list_nodes', $lines );
 		$this->assertContains( 'make_node', $lines );
 		$this->assertContains( 'help', $lines );
+		// Aliases are typeable too, so completion offers them alongside canonicals.
+		$this->assertContains( 'ls', $lines );
+		$this->assertContains( 'rm', $lines );
+		$this->assertContains( 'make', $lines );
 		// No section headers, no per-topic help text.
 		$this->assertStringNotContainsString( '###', $out );
 		$this->assertStringNotContainsString( 'SERVER COMMANDS', $out );
@@ -679,12 +683,14 @@ class CommandInterpreterTest extends TestCase {
 		$ci->dispatch( 'make_node', 'CaptureSink alice' );
 		$ci->dispatch( 'make_node', 'CaptureSink bob' );
 
-		// -c column flag must be ignored under completion.
+		// -c column flag must be ignored under completion. Completion lists ALL
+		// nodes (like `ls -a`), not just siblings, so `cd <tab>` can reach _-nodes.
 		$out   = $ci->dispatch( 'ls', '-c', null, $this->completion_envelope() );
 		$lines = \explode( "\n", $out );
-		\sort( $lines );
 
-		$this->assertSame( [ 'alice', 'bob' ], $lines );
+		$this->assertContains( 'alice', $lines );
+		$this->assertContains( 'bob', $lines );
+		$this->assertContains( '_command_interpreter', $lines );
 		$this->assertStringNotContainsString( 'COUNT', $out );
 		$this->assertStringNotContainsString( 'NAME', $out );
 	}

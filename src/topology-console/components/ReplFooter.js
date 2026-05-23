@@ -236,13 +236,19 @@ export default function ReplFooter( {
 		if ( 0 === matches.length ) {
 			return;
 		}
+		// Unique match: complete the token and append a space (readline behavior),
+		// even when the token already equals the candidate.
+		if ( 1 === matches.length ) {
+			setValue( head + matches[ 0 ] + ' ' );
+			return;
+		}
 		const lcp = longestCommonPrefix( matches );
 		if ( lcp.length > token.length ) {
 			setValue( head + lcp );
 			return;
 		}
 		// LCP can't extend the token: list the options (standard readline).
-		if ( matches.length >= 2 && onShowCandidates ) {
+		if ( onShowCandidates ) {
 			onShowCandidates( matches );
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps

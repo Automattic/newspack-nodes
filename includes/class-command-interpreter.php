@@ -484,11 +484,13 @@ class CommandInterpreter extends Node {
 			$argv[] = $tok;
 		}
 
-		// Completion mode shows bare names only: drop any column flags.
+		// Completion mode shows bare names only: drop any column flags, and list
+		// ALL nodes (like `-a`) so `cd <tab>` can reach _-prefixed nodes too.
 		if ( $is_completion ) {
-			$show_count  = false;
-			$show_sink   = false;
-			$show_target = false;
+			$show_count   = false;
+			$show_sink    = false;
+			$show_target  = false;
+			$list_matches = true;
 		}
 
 		$dirs   = [];
@@ -758,7 +760,9 @@ class CommandInterpreter extends Node {
 		// headers, no per-topic help text — so the tab-completion parser gets clean
 		// candidates.
 		if ( 'completion' === ( $envelope[ Message::KEY ] ?? '' ) ) {
-			$names = \array_keys( self::$H );
+			// Source from the verb dispatch table, not the help-topic table, so
+			// aliases (ls, rm, make, ...) are offered alongside the canonicals.
+			$names = \array_keys( self::$C );
 			\sort( $names );
 			return \implode( "\n", $names );
 		}
