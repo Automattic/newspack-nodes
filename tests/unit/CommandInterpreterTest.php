@@ -675,6 +675,36 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( '### SHELL BUILTINS ###', $out );
 	}
 
+	public function test_custom_command_table_gets_default_help_listing_its_verbs(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( 'svc' );
+		// A subclass-style custom table WITHOUT its own help verb.
+		$ci->commands(
+			[
+				'beta'  => static fn (): string => 'b',
+				'alpha' => static fn (): string => 'a',
+			]
+		);
+
+		$out   = $ci->dispatch( 'help' );
+		$lines = \explode( "\n", $out );
+		// Sorted verb names, including the injected `help` itself.
+		$this->assertSame( [ 'alpha', 'beta', 'help' ], $lines );
+	}
+
+	public function test_default_help_does_not_override_a_custom_help_verb(): void {
+		$ci = new CommandInterpreter();
+		$ci->name( 'svc' );
+		$ci->commands(
+			[
+				'alpha' => static fn (): string => 'a',
+				'help'  => static fn (): string => 'my own help',
+			]
+		);
+
+		$this->assertSame( 'my own help', $ci->dispatch( 'help' ) );
+	}
+
 	public function test_ls_completion_returns_bare_node_names_no_columns(): void {
 		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
 		$ci = new CommandInterpreter();
