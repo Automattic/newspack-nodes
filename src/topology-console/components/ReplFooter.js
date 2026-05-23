@@ -53,6 +53,12 @@ export default function ReplFooter( {
 	inputRef: externalInputRef,
 } ) {
 	const [ value, setValue ] = useState( '' );
+	// Command history (oldest→newest). `historyCursor` points at the recalled
+	// entry; `history.length` means "past the end" (the live draft). The draft
+	// typed before navigation began is stashed so Down can restore it.
+	const history = useRef( [] );
+	const historyCursor = useRef( 0 );
+	const historyDraft = useRef( '' );
 	const setExpanded = ( next ) => {
 		if ( onExpandedChange ) {
 			onExpandedChange(
@@ -193,6 +199,39 @@ export default function ReplFooter( {
 			}
 			return;
 		}
+		// Up/Down recall history, but only from the prompt input itself.
+		if (
+			( ev.key === 'ArrowUp' || ev.key === 'ArrowDown' ) &&
+			ev.target === inputRef.current
+		) {
+			const entries = history.current;
+			if ( ev.key === 'ArrowUp' ) {
+				if ( historyCursor.current >= entries.length ) {
+					// Entering history: stash the in-progress draft.
+					historyDraft.current = value;
+				}
+				if ( historyCursor.current > 0 ) {
+					ev.preventDefault();
+					historyCursor.current -= 1;
+					setValue( entries[ historyCursor.current ] );
+				} else if ( entries.length > 0 ) {
+					// Already at oldest — clamp without moving.
+					ev.preventDefault();
+				}
+				return;
+			}
+			// ArrowDown: walk toward newer; past the end restores the draft.
+			if ( historyCursor.current < entries.length ) {
+				ev.preventDefault();
+				historyCursor.current += 1;
+				setValue(
+					historyCursor.current >= entries.length
+						? historyDraft.current
+						: entries[ historyCursor.current ]
+				);
+			}
+			return;
+		}
 		if ( ev.key !== 'Enter' ) {
 			return;
 		}
@@ -201,6 +240,14 @@ export default function ReplFooter( {
 		if ( ! trimmed ) {
 			return;
 		}
+		// Record in history, collapsing an immediate duplicate of the last entry.
+		const entries = history.current;
+		if ( entries[ entries.length - 1 ] !== trimmed ) {
+			entries.push( trimmed );
+		}
+		// Reset the cursor past-the-end and drop the stashed draft.
+		historyCursor.current = entries.length;
+		historyDraft.current = '';
 		// Pass the raw line up; the parent runs it through shell.
 		onSubmit( trimmed );
 		setValue( '' );
