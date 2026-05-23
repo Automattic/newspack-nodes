@@ -291,6 +291,183 @@ describe( 'ReplFooter', () => {
 		window.getSelection = origGet;
 	} );
 
+	describe( 'tab completion', () => {
+		// Render once, then push a new `completion` prop to simulate the async
+		// reply arriving after Tab fired the query.
+		const renderWithCompletion = ( extra = {} ) => {
+			const onComplete = jest.fn();
+			const utils = render(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					completion={ null }
+					{ ...extra }
+				/>
+			);
+			return { onComplete, ...utils };
+		};
+
+		it( 'Tab fires onComplete with the current input and prevents default', () => {
+			const { container, onComplete } = renderWithCompletion();
+			const input = findInput( container );
+			fireEvent.change( input, { target: { value: 'conn' } } );
+			// fireEvent returns false when the handler called preventDefault.
+			const notPrevented = fireEvent.keyDown( input, { key: 'Tab' } );
+			expect( onComplete ).toHaveBeenCalledWith( 'conn' );
+			expect( notPrevented ).toBe( false );
+		} );
+
+		it( 'a single matching candidate completes the token fully', () => {
+			const { container, rerender, onComplete } = renderWithCompletion();
+			const input = findInput( container );
+			fireEvent.change( input, { target: { value: 'dump_n' } } );
+			fireEvent.keyDown( input, { key: 'Tab' } );
+			rerender(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					completion={ {
+						candidates: [ 'dump_node', 'dump_metadata' ],
+						seq: 1,
+					} }
+				/>
+			);
+			expect( findInput( container ).value ).toBe( 'dump_node' );
+		} );
+
+		it( 'multiple matches with a common prefix extend the token to the LCP', () => {
+			const { container, rerender, onComplete } = renderWithCompletion();
+			const input = findInput( container );
+			fireEvent.change( input, { target: { value: 'co' } } );
+			fireEvent.keyDown( input, { key: 'Tab' } );
+			rerender(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					completion={ {
+						candidates: [ 'connect', 'connect_node', 'echo' ],
+						seq: 1,
+					} }
+				/>
+			);
+			// 'co' filters to connect*/connect_node; LCP is 'connect'.
+			expect( findInput( container ).value ).toBe( 'connect' );
+		} );
+
+		it( 'extends only the trailing token, preserving the leading command', () => {
+			const { container, rerender, onComplete } = renderWithCompletion();
+			const input = findInput( container );
+			fireEvent.change( input, { target: { value: 'dump_node ec' } } );
+			fireEvent.keyDown( input, { key: 'Tab' } );
+			rerender(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					completion={ {
+						candidates: [ 'echo1', 'echo2' ],
+						seq: 1,
+					} }
+				/>
+			);
+			expect( findInput( container ).value ).toBe( 'dump_node echo' );
+		} );
+
+		it( 'renders the candidate list when the LCP cannot extend the token', () => {
+			const onShowCandidates = jest.fn();
+			const { container, rerender, onComplete } = renderWithCompletion( {
+				onShowCandidates,
+			} );
+			const input = findInput( container );
+			fireEvent.change( input, { target: { value: 'connect' } } );
+			fireEvent.keyDown( input, { key: 'Tab' } );
+			rerender(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					onShowCandidates={ onShowCandidates }
+					completion={ {
+						candidates: [ 'connect', 'connect_node' ],
+						seq: 1,
+					} }
+				/>
+			);
+			// LCP 'connect' === token, ≥2 matches → list the options; input unchanged.
+			expect( onShowCandidates ).toHaveBeenCalledWith( [
+				'connect',
+				'connect_node',
+			] );
+			expect( findInput( container ).value ).toBe( 'connect' );
+		} );
+
+		it( 'does not apply a stale reply when the input no longer ends with the token', () => {
+			const { container, rerender, onComplete } = renderWithCompletion();
+			const input = findInput( container );
+			fireEvent.change( input, { target: { value: 'co' } } );
+			fireEvent.keyDown( input, { key: 'Tab' } );
+			// User keeps typing before the reply lands; input no longer ends with 'co'.
+			fireEvent.change( input, { target: { value: 'connect_node x' } } );
+			rerender(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					completion={ {
+						candidates: [ 'connect', 'connect_node' ],
+						seq: 1,
+					} }
+				/>
+			);
+			expect( findInput( container ).value ).toBe( 'connect_node x' );
+		} );
+
+		it( 'does nothing when no candidate matches the token', () => {
+			const onShowCandidates = jest.fn();
+			const { container, rerender, onComplete } = renderWithCompletion( {
+				onShowCandidates,
+			} );
+			const input = findInput( container );
+			fireEvent.change( input, { target: { value: 'zzz' } } );
+			fireEvent.keyDown( input, { key: 'Tab' } );
+			rerender(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					onShowCandidates={ onShowCandidates }
+					completion={ { candidates: [ 'echo', 'ping' ], seq: 1 } }
+				/>
+			);
+			expect( findInput( container ).value ).toBe( 'zzz' );
+			expect( onShowCandidates ).not.toHaveBeenCalled();
+		} );
+
+		it( 'completes an empty trailing token (after a space) to the LCP', () => {
+			const { container, rerender, onComplete } = renderWithCompletion();
+			const input = findInput( container );
+			fireEvent.change( input, { target: { value: 'dump_node ' } } );
+			fireEvent.keyDown( input, { key: 'Tab' } );
+			rerender(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					completion={ {
+						candidates: [ 'echo1', 'echo2' ],
+						seq: 1,
+					} }
+				/>
+			);
+			// Empty token matches all; LCP 'echo' extends past ''.
+			expect( findInput( container ).value ).toBe( 'dump_node echo' );
+		} );
+
+		it( 'Tab is a no-op when no onComplete is supplied', () => {
+			const { container } = render( <ReplFooter { ...baseProps } /> );
+			const input = findInput( container );
+			fireEvent.change( input, { target: { value: 'x' } } );
+			expect( () =>
+				fireEvent.keyDown( input, { key: 'Tab' } )
+			).not.toThrow();
+		} );
+	} );
+
 	describe( 'command history', () => {
 		const submit = ( input, line ) => {
 			fireEvent.change( input, { target: { value: line } } );

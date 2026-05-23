@@ -3,6 +3,19 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import { longestCommonPrefix } from '../nodes/completion';
+
+// The whitespace-delimited token under the cursor — the last token of the
+// input, or '' after a trailing space. Returns the token + the prefix before it.
+function splitTrailingToken( value ) {
+	const lastSpace = value.search( /\s\S*$/ );
+	if ( -1 === lastSpace ) {
+		// No whitespace: the whole value is the token (head is empty).
+		return { head: '', token: value };
+	}
+	const head = value.slice( 0, lastSpace + 1 );
+	return { head, token: value.slice( lastSpace + 1 ) };
+}
 
 const STATUS_LABELS = {
 	connecting: 'CONNECTING',
@@ -51,6 +64,12 @@ export default function ReplFooter( {
 	onExpandedChange,
 	// Optional external ref so the parent can blur / re-focus the prompt.
 	inputRef: externalInputRef,
+	// Tab-completion: `onComplete(line)` fires the completion query; the reply
+	// arrives back as the `completion` prop ( { candidates, seq } ); when ≥2
+	// matches share no extending prefix, `onShowCandidates(list)` lists them.
+	onComplete,
+	completion = null,
+	onShowCandidates,
 } ) {
 	const [ value, setValue ] = useState( '' );
 	// Command history (oldest→newest). `historyCursor` points at the recalled
@@ -59,6 +78,11 @@ export default function ReplFooter( {
 	const history = useRef( [] );
 	const historyCursor = useRef( 0 );
 	const historyDraft = useRef( '' );
+	// The token being completed when the last Tab fired, plus the last applied
+	// completion seq so a re-render doesn't re-apply the same reply. Cleared once
+	// a reply is consumed.
+	const pendingToken = useRef( null );
+	const lastAppliedSeq = useRef( null );
 	const setExpanded = ( next ) => {
 		if ( onExpandedChange ) {
 			onExpandedChange(
@@ -187,6 +211,43 @@ export default function ReplFooter( {
 		}
 	}, [ height ] );
 
+	// Apply a completion reply (readline two-stage): filter candidates to the
+	// remembered token, compute the LCP; extend the input to the LCP if it grows
+	// the token, else list the options. Guarded against stale replies (the input
+	// must still end with the token that fired the query) and re-renders (seq).
+	useEffect( () => {
+		if ( ! completion || pendingToken.current === null ) {
+			return;
+		}
+		if ( completion.seq === lastAppliedSeq.current ) {
+			return;
+		}
+		lastAppliedSeq.current = completion.seq;
+		const token = pendingToken.current;
+		pendingToken.current = null;
+		// Stale guard: the input must still end with the token we asked about.
+		const { head, token: liveToken } = splitTrailingToken( value );
+		if ( liveToken !== token ) {
+			return;
+		}
+		const matches = ( completion.candidates || [] ).filter( ( c ) =>
+			c.startsWith( token )
+		);
+		if ( 0 === matches.length ) {
+			return;
+		}
+		const lcp = longestCommonPrefix( matches );
+		if ( lcp.length > token.length ) {
+			setValue( head + lcp );
+			return;
+		}
+		// LCP can't extend the token: list the options (standard readline).
+		if ( matches.length >= 2 && onShowCandidates ) {
+			onShowCandidates( matches );
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ completion ] );
+
 	function handleKeyDown( ev ) {
 		// Ctrl/Cmd+L clears the transcript, terminal-style.
 		if (
@@ -197,6 +258,18 @@ export default function ReplFooter( {
 			if ( onClear ) {
 				onClear();
 			}
+			return;
+		}
+		// Tab requests completion for the trailing token; the reply lands via the
+		// `completion` prop and the effect above applies the LCP.
+		if ( ev.key === 'Tab' && ev.target === inputRef.current ) {
+			ev.preventDefault();
+			if ( ! onComplete ) {
+				return;
+			}
+			const { token } = splitTrailingToken( value );
+			pendingToken.current = token;
+			onComplete( value );
 			return;
 		}
 		// Up/Down recall history, but only from the prompt input itself.

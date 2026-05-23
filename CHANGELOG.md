@@ -34,6 +34,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no help text or columns) instead of the elaborate output — the foundation for
   REPL tab-completion. Implemented in both the JS and PHP CIs (identical
   candidates), mirroring Tachikoma's TM_COMPLETION via a KEY flag.
+- **Tab-completion in the console REPL (browser).** Tab completes the longest
+  common prefix of the candidates — verb names (`help`) when on the command word,
+  node names (`ls`) on an argument — routed through a new `_completion` node (a
+  peer of `_metadata`/`_uptime`, wrapped by `_sse` so worker replies pivot back to
+  the session). Multiple candidates with no further common prefix are listed.
+- **Tab-completion in `wp nodes cli`.** readline completion backed by a candidate
+  cache refreshed via the same `KEY='completion'` queries; readline does the LCP +
+  listing. (Cache is one-keystroke-stale by design; the live-terminal behavior
+  needs interactive verification.)
 
 ### Changed
 

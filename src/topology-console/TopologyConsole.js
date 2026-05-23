@@ -54,6 +54,7 @@ import {
 	TYPE,
 	FROM,
 	TO,
+	KEY,
 	VALUE,
 	LOCAL,
 	TM_COMMAND,
@@ -207,6 +208,8 @@ export default function TopologyConsole() {
 	// silent-poll replies the Router routes to them.
 	const parsed = useNodeState( names.METADATA, 'metadata' ) ?? EMPTY_GRAPH;
 	const uptime = useNodeState( names.UPTIME, 'uptime' ) ?? null;
+	// Tab-completion candidates from the `_completion` node ( { candidates, seq } ).
+	const completion = useNodeState( names.COMPLETION, 'candidates' ) ?? null;
 	const transcript =
 		useNodeState( names.OUTPUT, 'transcript' ) ?? EMPTY_TRANSCRIPT;
 
@@ -732,6 +735,42 @@ export default function TopologyConsole() {
 		}, STATS_INTERVAL_MS );
 		return () => clearInterval( id );
 	}, [ mode, ssePid, cwd, fillCommandInterpreter ] );
+
+	// Tab-completion query (WIRING-PLAN §5 sibling of the canvas poll). The verb
+	// depends on cursor context: completing the FIRST token (the command word) →
+	// `help` (verb names); completing a LATER token (a node-name arg) → `ls`
+	// (node names). KEY='completion' tells the worker's CI to emit a bare
+	// candidate list; FROM pivots the reply to the silent `_completion` node.
+	const requestCompletion = useCallback(
+		( line ) => {
+			if ( ! ssePid ) {
+				return;
+			}
+			// First token iff there's no whitespace before the trailing token.
+			const onFirstToken = ! /\s/.test( String( line ).trimStart() );
+			const verb = onFirstToken ? 'help' : 'ls';
+			const m = newMessage();
+			m[ TYPE ] = TM_COMMAND;
+			m[ FROM ] = names.COMPLETION;
+			m[ TO ] = cwd;
+			m[ KEY ] = 'completion';
+			m[ VALUE ] = { name: verb, arguments: '', payload: '' };
+			m[ LOCAL ] = true;
+			fillCommandInterpreter( m );
+		},
+		[ ssePid, cwd, fillCommandInterpreter ]
+	);
+
+	// List completion candidates into the transcript (readline two-stage).
+	const handleShowCandidates = useCallback(
+		( candidates ) => {
+			appendTranscript( {
+				kind: 'recv',
+				text: ( candidates || [] ).join( '  ' ),
+			} );
+		},
+		[ appendTranscript ]
+	);
 
 	// Split on unquoted `;` so `help; ls` dispatches as two commands.
 	const sendLine = useCallback(
@@ -1440,6 +1479,9 @@ export default function TopologyConsole() {
 					expanded={ replExpanded }
 					onExpandedChange={ setReplExpanded }
 					inputRef={ replInputRef }
+					completion={ completion }
+					onComplete={ requestCompletion }
+					onShowCandidates={ handleShowCandidates }
 				/>
 			) }
 			{ discardModal && (

@@ -12,6 +12,7 @@ import { CommandInterpreter } from '../../../runtime/command_interpreter';
 import { Dumper } from '../../nodes/dumper';
 import { Metadata } from '../../nodes/metadata';
 import { Uptime } from '../../nodes/uptime';
+import { Completion } from '../../nodes/completion';
 import { HttpOut } from '../../nodes/httpOut';
 import { Shell } from '../../nodes/shell';
 import names from '../../../runtime/reserved-node-names.json';
@@ -80,6 +81,7 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( Core.node( names.OUTPUT ) ).toBeInstanceOf( Dumper );
 		expect( Core.node( names.METADATA ) ).toBeInstanceOf( Metadata );
 		expect( Core.node( names.UPTIME ) ).toBeInstanceOf( Uptime );
+		expect( Core.node( names.COMPLETION ) ).toBeInstanceOf( Completion );
 		expect( Core.node( names.HTTP ) ).toBeInstanceOf( HttpOut );
 		expect( Core.node( names.SSE ) ).toBe( lastConnector );
 	} );
@@ -224,6 +226,32 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect(
 			Core.node( names.METADATA ).setStateCache.metadata.nodes
 		).toHaveLength( 1 );
+		expect(
+			Core.node( names.OUTPUT ).setStateCache.transcript ?? []
+		).toHaveLength( 0 );
+	} );
+
+	it( 'an SSE reply with TO=_completion lands in the Completion node (not the transcript)', () => {
+		renderGraph();
+		const {
+			newMessage,
+			TYPE,
+			TO,
+			KEY,
+			VALUE,
+			TM_COMMAND,
+			TM_RESPONSE,
+		} = require( '../../../runtime/message' );
+		const m = newMessage();
+		// eslint-disable-next-line no-bitwise
+		m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+		m[ TO ] = names.COMPLETION;
+		m[ KEY ] = 'completion';
+		m[ VALUE ] = { name: 'help', payload: 'connect\nconnect_node' };
+		act( () => lastConnector.fill( m ) );
+		expect(
+			Core.node( names.COMPLETION ).setStateCache.candidates.candidates
+		).toEqual( [ 'connect', 'connect_node' ] );
 		expect(
 			Core.node( names.OUTPUT ).setStateCache.transcript ?? []
 		).toHaveLength( 0 );
