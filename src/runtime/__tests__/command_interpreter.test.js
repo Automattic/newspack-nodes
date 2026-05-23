@@ -761,6 +761,10 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 			expect( lines ).toContain( 'list_nodes' );
 			expect( lines ).toContain( 'make_node' );
 			expect( lines ).toContain( 'help' );
+			// Aliases are typeable too, so completion offers them.
+			expect( lines ).toContain( 'ls' );
+			expect( lines ).toContain( 'rm' );
+			expect( lines ).toContain( 'make' );
 			expect( out ).not.toContain( '###' );
 			expect( out ).not.toContain( 'SERVER COMMANDS' );
 			expect( out ).not.toContain( 'TM_PING' );
@@ -775,7 +779,7 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 			expect( out ).toContain( '### SHELL BUILTINS ###' );
 		} );
 
-		it( 'ls with KEY=completion returns bare sibling node names, no columns', () => {
+		it( 'ls with KEY=completion returns all bare node names (like -a), no columns', () => {
 			const ci = makeCi();
 			const a = new Node();
 			a.setName( 'a' );
@@ -784,7 +788,10 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 			b.setName( 'b' );
 			b.sink = ci;
 			const out = dispatch( ci, 'ls', '-c', completionEnv() );
-			expect( out.split( '\n' ).sort() ).toEqual( [ 'a', 'b' ] );
+			const lines = out.split( '\n' );
+			expect( lines ).toContain( 'a' );
+			expect( lines ).toContain( 'b' );
+			expect( lines ).toContain( '_command_interpreter' );
 			expect( out ).not.toContain( 'COUNT' );
 			expect( out ).not.toContain( 'NAME' );
 		} );

@@ -317,7 +317,7 @@ describe( 'ReplFooter', () => {
 			expect( notPrevented ).toBe( false );
 		} );
 
-		it( 'a single matching candidate completes the token fully', () => {
+		it( 'a single matching candidate completes the token fully with a trailing space', () => {
 			const { container, rerender, onComplete } = renderWithCompletion();
 			const input = findInput( container );
 			fireEvent.change( input, { target: { value: 'dump_n' } } );
@@ -332,7 +332,23 @@ describe( 'ReplFooter', () => {
 					} }
 				/>
 			);
-			expect( findInput( container ).value ).toBe( 'dump_node' );
+			// readline appends a space after a unique completion so the next token starts clean.
+			expect( findInput( container ).value ).toBe( 'dump_node ' );
+		} );
+
+		it( 'Tab on an already-complete unique token appends the trailing space', () => {
+			const { container, rerender, onComplete } = renderWithCompletion();
+			const input = findInput( container );
+			fireEvent.change( input, { target: { value: 'uptime' } } );
+			fireEvent.keyDown( input, { key: 'Tab' } );
+			rerender(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					completion={ { candidates: [ 'uptime' ], seq: 1 } }
+				/>
+			);
+			expect( findInput( container ).value ).toBe( 'uptime ' );
 		} );
 
 		it( 'multiple matches with a common prefix extend the token to the LCP', () => {

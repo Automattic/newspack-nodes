@@ -43,6 +43,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cache refreshed via the same `KEY='completion'` queries; readline does the LCP +
   listing. (Cache is one-keystroke-stale by design; the live-terminal behavior
   needs interactive verification.)
+- **Completion candidates now include aliases and all nodes.** `help` in
+  completion mode sources the verb dispatch table (so aliases `ls`/`rm`/`make`/…
+  complete, not just canonicals); `ls` in completion mode lists ALL nodes (like
+  `-a`, so `cd <tab>` reaches `_`-prefixed nodes). The browser REPL appends a
+  trailing space after a unique completion, matching readline.
 
 ### Changed
 
