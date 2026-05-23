@@ -13,7 +13,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class CommandInterpreter extends Node {
+class Command_Interpreter_Node extends Node {
 	/**
 	 * Shared default verb table the bare `_command_interpreter` starts from.
 	 *
@@ -159,6 +159,25 @@ class CommandInterpreter extends Node {
 	}
 
 	/**
+	 * Registered shell name for a node instance (inverse of `$class_map`).
+	 *
+	 * `make_node`/topology lines use the registered shell name (e.g. `Log`,
+	 * `Tee`), which can differ from the PHP class short name (e.g. `Log_Node`,
+	 * `Tee_Node`). Callers that need a round-trippable shell name MUST use this
+	 * rather than `ReflectionClass::getShortName()`, which returns the class
+	 * identifier. Falls back to the class short name for unregistered classes
+	 * (e.g. ad-hoc test sinks).
+	 */
+	public static function shell_name_for( object $node ): string {
+		$fqcn  = \get_class( $node );
+		$shell = \array_search( $fqcn, self::$class_map, true );
+		if ( false !== $shell ) {
+			return $shell;
+		}
+		return ( new \ReflectionClass( $node ) )->getShortName();
+	}
+
+	/**
 	 * Per-instance verb-table accessor; falls back to self::$C.
 	 *
 	 * @param array<string,callable>|null $table Replacement verb table.
@@ -176,7 +195,7 @@ class CommandInterpreter extends Node {
 		// (e.g. the REST service CIs) gets a default that lists its own verbs;
 		// the base table ships its own richer `help`, so this never overrides one.
 		if ( ! isset( $this->commands['help'] ) ) {
-			$this->commands['help'] = static fn ( CommandInterpreter $self, string $args = '', array $envelope = [] ): string => $self->default_help();
+			$this->commands['help'] = static fn ( Command_Interpreter_Node $self, string $args = '', array $envelope = [] ): string => $self->default_help();
 		}
 		return $this->commands;
 	}
@@ -248,29 +267,29 @@ class CommandInterpreter extends Node {
 			'stats' => "stats [-a] [<regex>]\n    columns: NAME COUNT LGST_MSG READ WRITTEN. Default: sibling nodes of this CI; -a: all nodes.\n",
 		];
 		self::$C = [
-			'make_node'       => fn ( CommandInterpreter $self, string $args ): string => self::cmd_make_node( $self, $args ),
-			'make'            => fn ( CommandInterpreter $self, string $args ): string => self::cmd_make_node( $self, $args ),
-			'pwd'             => fn ( CommandInterpreter $self, string $args, array $message ): string => self::cmd_pwd( $args, $message ),
-			'set_sink'        => fn ( CommandInterpreter $self, string $args ): string => self::cmd_set_sink( $args ),
-			'connect_node'    => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_connect_node( $args, $envelope ),
-			'connect'         => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_connect_node( $args, $envelope ),
-			'disconnect_node' => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_disconnect_node( $args, $envelope ),
-			'disconnect'      => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_disconnect_node( $args, $envelope ),
-			'remove_node'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
-			'remove'          => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
-			'rm'              => fn ( CommandInterpreter $self, string $args ): string => self::cmd_remove_node( $self, $args ),
-			'list_nodes'      => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, $args, $envelope ),
-			'ls'              => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, $args, $envelope ),
-			'log'             => fn ( CommandInterpreter $self, string $args ): string => self::cmd_log( $args ),
-			'dmesg'           => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dmesg(),
-			'dump_node'       => fn ( CommandInterpreter $self, string $args ): mixed => self::cmd_dump_node( $args ),
-			'dump'            => fn ( CommandInterpreter $self, string $args ): mixed => self::cmd_dump_node( $args ),
-			'dump_config'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_dump_config(),
-			'dump_metadata'   => fn ( CommandInterpreter $self, string $args ): mixed => self::cmd_dump_metadata(),
-			'stats'           => fn ( CommandInterpreter $self, string $args ): string => self::cmd_stats( $self, $args ),
-			'uptime'          => fn ( CommandInterpreter $self, string $args ): string => self::cmd_uptime(),
-			'debug_state'     => fn ( CommandInterpreter $self, string $args ): string => self::cmd_debug_state( $self, $args ),
-			'help'            => fn ( CommandInterpreter $self, string $args, array $envelope = [] ): string => self::cmd_help( $args, $envelope ),
+			'make_node'       => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_make_node( $self, $args ),
+			'make'            => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_make_node( $self, $args ),
+			'pwd'             => fn ( Command_Interpreter_Node $self, string $args, array $message ): string => self::cmd_pwd( $args, $message ),
+			'set_sink'        => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_set_sink( $args ),
+			'connect_node'    => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_connect_node( $args, $envelope ),
+			'connect'         => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_connect_node( $args, $envelope ),
+			'disconnect_node' => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_disconnect_node( $args, $envelope ),
+			'disconnect'      => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_disconnect_node( $args, $envelope ),
+			'remove_node'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_remove_node( $self, $args ),
+			'remove'          => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_remove_node( $self, $args ),
+			'rm'              => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_remove_node( $self, $args ),
+			'list_nodes'      => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, $args, $envelope ),
+			'ls'              => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, $args, $envelope ),
+			'log'             => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_log( $args ),
+			'dmesg'           => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_dmesg(),
+			'dump_node'       => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_node( $args ),
+			'dump'            => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_node( $args ),
+			'dump_config'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_dump_config(),
+			'dump_metadata'   => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_metadata(),
+			'stats'           => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_stats( $self, $args ),
+			'uptime'          => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_uptime(),
+			'debug_state'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_debug_state( $self, $args ),
+			'help'            => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_help( $args, $envelope ),
 		];
 	}
 
@@ -310,7 +329,7 @@ class CommandInterpreter extends Node {
 	 *
 	 * No strict_types, so string tokens coerce to the ctor's typed params.
 	 */
-	private static function cmd_make_node( CommandInterpreter $self, string $args ): string {
+	private static function cmd_make_node( Command_Interpreter_Node $self, string $args ): string {
 		$parts = \preg_split( '/\s+/', \trim( $args ) );
 		if ( \count( $parts ) < 2 ) {
 			return 'usage: make_node <type> <name> [<ctor_args>...]';
@@ -410,7 +429,7 @@ class CommandInterpreter extends Node {
 	/**
 	 * `remove_node <name>...` or `remove_node -a <regex>`. Refuses to destroy baseline scaffolding.
 	 */
-	private static function cmd_remove_node( CommandInterpreter $self, string $args ): string {
+	private static function cmd_remove_node( Command_Interpreter_Node $self, string $args ): string {
 		$args = \trim( $args );
 		if ( '' === $args ) {
 			return 'usage: remove_node <node name>';
@@ -474,7 +493,7 @@ class CommandInterpreter extends Node {
 	 *
 	 * Flags: `-c` count, `-s` sink, `-t` target, `-l` = -ct.
 	 */
-	private static function cmd_list_nodes( CommandInterpreter $self, string $args, array $envelope = [] ): string {
+	private static function cmd_list_nodes( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string {
 		// Completion mode: emit bare node names only, ignoring all -clst column
 		// flags so the tab-completion parser gets clean candidates.
 		$is_completion = 'completion' === ( $envelope[ Message::KEY ] ?? '' );
@@ -674,9 +693,10 @@ class CommandInterpreter extends Node {
 			if ( null !== $node->patron() ) {
 				continue;
 			}
-			// Strip the namespace by hand to avoid a ReflectionClass per node per poll.
-			$fqcn  = \get_class( $node );
-			$class = ( false !== ( $p = \strrpos( $fqcn, '\\' ) ) ) ? \substr( $fqcn, $p + 1 ) : $fqcn;
+			// SHELL name (what the GUI catalog keys on), not the class short-name
+			// — the two diverge under the _Node convention (Echo_Node → 'Echo'),
+			// and the JS Inspector matches catalog.shell_name against this field.
+			$class = self::shell_name_for( $node );
 			$sink  = $node->sink();
 			$out[ $name ] = [
 				'class'         => $class,
@@ -698,7 +718,7 @@ class CommandInterpreter extends Node {
 	 *
 	 * Scope matches `cmd_list_nodes`: default=siblings, `-a`=all, `<name>`=that sink's children.
 	 */
-	private static function cmd_stats( CommandInterpreter $self, string $args ): string {
+	private static function cmd_stats( Command_Interpreter_Node $self, string $args ): string {
 		$list_matches = false;
 		$argv         = [];
 		foreach ( \preg_split( '/\s+/', \trim( $args ) ) as $tok ) {
@@ -746,7 +766,7 @@ class CommandInterpreter extends Node {
 	 *
 	 * No args toggles this CI; numeric arg sets this CI; a name targets that node.
 	 */
-	private static function cmd_debug_state( CommandInterpreter $self, string $args ): string {
+	private static function cmd_debug_state( Command_Interpreter_Node $self, string $args ): string {
 		[ $first, $second ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
 
 		if ( '' === $first ) {

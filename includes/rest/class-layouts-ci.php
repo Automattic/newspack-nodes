@@ -19,14 +19,14 @@
 
 namespace Newspack_Nodes\Rest;
 
-use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Service_CI;
+use Newspack_Nodes\Service_CI_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Layouts_CI extends Service_CI {
+class Layouts_CI_Node extends Service_CI_Node {
 
 	private const ID_PATTERN      = '/^[a-zA-Z0-9_:.-]+$/';
 	private const MAX_BODY_BYTES  = 65536;
@@ -60,7 +60,7 @@ class Layouts_CI extends Service_CI {
 
 	private function verb_table(): array {
 		return [
-			'get'  => static function ( CommandInterpreter $self, string $args ): array {
+			'get'  => static function ( Command_Interpreter_Node $self, string $args ): array {
 				self::require_manage_options();
 				$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
 				$path = self::layout_path( $name );
@@ -82,7 +82,7 @@ class Layouts_CI extends Service_CI {
 					'positions' => $positions,
 				];
 			},
-			'save' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
+			'save' => static function ( Command_Interpreter_Node $self, string $args, array $envelope, mixed $payload ): array {
 				self::require_manage_options();
 				if ( Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 					throw new \RuntimeException(

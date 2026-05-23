@@ -3,13 +3,13 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Partition;
+use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
-use Newspack_Nodes\Topic;
+use Newspack_Nodes\Topic_Node;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( Topic::class )]
+#[CoversClass( Topic_Node::class )]
 class TopicTest extends TestCase {
 	private string $tmp;
 
@@ -24,12 +24,12 @@ class TopicTest extends TestCase {
 	}
 
 	public function test_constructor_does_not_create_partitions(): void {
-		new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+		new Topic_Node( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
 		$this->assertFalse( is_dir( "{$this->tmp}/firehose.log/p0" ) );
 	}
 
 	public function test_fill_routes_by_key(): void {
-		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
 		$this->produce_into( $t, 'data', '/url1' );
 
 		// Key routing is deterministic; whichever partition got it contains the
@@ -49,7 +49,7 @@ class TopicTest extends TestCase {
 	}
 
 	public function test_same_key_routes_to_same_partition(): void {
-		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
 		$this->produce_into( $t, 'first', '/url1' );
 		$this->produce_into( $t, 'second', '/url1' );
 
@@ -68,7 +68,7 @@ class TopicTest extends TestCase {
 	}
 
 	public function test_node_fill_TM_BYTESTREAM_routes_by_KEY(): void {
-		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
 
 		$msg = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -77,7 +77,7 @@ class TopicTest extends TestCase {
 		$t->fill( $msg );
 		$t->flush();
 
-		$expected_partition = Partition::hash_to_partition( '/some/url', 4 );
+		$expected_partition = Partition_Node::hash_to_partition( '/some/url', 4 );
 		$path = "{$this->tmp}/firehose.log/p{$expected_partition}/0.log";
 		$decoded = Message::unpacked( rtrim( file_get_contents( $path ), "\n" ) );
 		$this->assertSame( 'fill-data', $decoded[ Message::VALUE ] );
@@ -85,7 +85,7 @@ class TopicTest extends TestCase {
 	}
 
 	public function test_pre_declares_READY_event(): void {
-		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
 		$t->name( 'firehose' );
 		// Should not throw — event is pre-declared.
 		$t->register( 'READY', 'cb', function () {} );
@@ -93,7 +93,7 @@ class TopicTest extends TestCase {
 	}
 
 	public function test_READY_fires_after_first_partition_materialized(): void {
-		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
 		$t->name( 'firehose' );
 
 		$fired = [];
@@ -112,7 +112,7 @@ class TopicTest extends TestCase {
 	}
 
 	public function test_READY_replays_to_late_registrants(): void {
-		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
 		$t->name( 'firehose' );
 
 		// Materialize first partition before any listener registers.
@@ -128,7 +128,7 @@ class TopicTest extends TestCase {
 	}
 
 	public function test_READY_fires_only_once_across_subsequent_partitions(): void {
-		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
 		$t->name( 'firehose' );
 
 		$count = 0;
@@ -147,17 +147,17 @@ class TopicTest extends TestCase {
 	}
 
 	public function test_num_partitions_returns_constructor_value(): void {
-		$t = new Topic( "{$this->tmp}/firehose.log", 7, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 7, 64*1024, 4, 86400 );
 		$this->assertSame( 7, $t->num_partitions() );
 	}
 
 	public function test_constructor_clamps_num_partitions_to_minimum_one(): void {
 		// max(1, $n) clamps zero/negative to 1 — callers that pass bad config don't
 		// trip a divide-by-zero in hash_to_partition.
-		$t = new Topic( "{$this->tmp}/firehose.log", 0, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 0, 64*1024, 4, 86400 );
 		$this->assertSame( 1, $t->num_partitions() );
 
-		$t2 = new Topic( "{$this->tmp}/firehose.log", -3, 64*1024, 4, 86400 );
+		$t2 = new Topic_Node( "{$this->tmp}/firehose.log", -3, 64*1024, 4, 86400 );
 		$this->assertSame( 1, $t2->num_partitions() );
 	}
 
@@ -166,7 +166,7 @@ class TopicTest extends TestCase {
 		// multi-Partition wrapper. Control messages (TM_REQUEST, TM_ERROR,
 		// TM_EOF) round-trip through Topic-as-transport in IPC scenarios,
 		// so Topic packs them like any other type instead of dropping.
-		$t = new Topic( "{$this->tmp}/firehose.log", 2, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 2, 64*1024, 4, 86400 );
 
 		$types = [
 			Message::TM_REQUEST,
@@ -183,7 +183,7 @@ class TopicTest extends TestCase {
 		$t->flush(); // Force the in-memory batch to land on disk synchronously.
 
 		// All three packed onto the partition (3 lines on disk).
-		$idx     = Partition::hash_to_partition( '/url', 2 );
+		$idx     = Partition_Node::hash_to_partition( '/url', 2 );
 		$lines   = \array_values( \array_filter(
 			\explode( "\n", \file_get_contents( "{$this->tmp}/firehose.log/p{$idx}/0.log" ) )
 		) );
@@ -195,7 +195,7 @@ class TopicTest extends TestCase {
 	}
 
 	public function test_fill_pre_pinned_TO_routes_to_specified_partition(): void {
-		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
 
 		// TO=p2/... pins partition 2 regardless of KEY.
 		$msg                   = Message::new_message();
@@ -215,7 +215,7 @@ class TopicTest extends TestCase {
 
 	public function test_fill_pre_pinned_TO_out_of_range_falls_through_to_key_routing(): void {
 		// TO=p99/... where 99 >= num_partitions(2) → falls through to KEY routing.
-		$t = new Topic( "{$this->tmp}/firehose.log", 2, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 2, 64*1024, 4, 86400 );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -227,13 +227,13 @@ class TopicTest extends TestCase {
 
 		// Whichever partition the key hashes to is materialized; the out-of-range
 		// pin was ignored.
-		$idx = \Newspack_Nodes\Partition::hash_to_partition( 'k', 2 );
+		$idx = \Newspack_Nodes\Partition_Node::hash_to_partition( 'k', 2 );
 		$this->assertFileExists( "{$this->tmp}/firehose.log/p{$idx}/0.log" );
 	}
 
 	public function test_fill_empty_key_uses_round_robin(): void {
 		// Round-robin counter is static — clear by getting baseline first.
-		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
 
 		// Empty KEY → round-robin. Send 8 messages and confirm at least 2 partitions
 		// got data (deterministic round-robin, but counter is shared across tests).
@@ -257,13 +257,13 @@ class TopicTest extends TestCase {
 	}
 
 	public function test_sink_propagates_to_existing_partitions(): void {
-		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
 
 		// Materialize a partition first.
 		$this->produce_into( $t, 'data', 'k1' );
 
 		// Find which partition got materialized.
-		$partition_idx = Partition::hash_to_partition( 'k1', 4 );
+		$partition_idx = Partition_Node::hash_to_partition( 'k1', 4 );
 
 		// Now wire a sink AFTER partition materialization — it must propagate to
 		// every partition currently held so their persist responses still flow.
@@ -274,7 +274,7 @@ class TopicTest extends TestCase {
 		// A partition's sink is exercised when it emits. Force one to emit by sending
 		// a TM_REQUEST through Topic — Topic itself answers, but if we use the
 		// reflection on Topic to peek at its partitions array we can verify directly.
-		$ref      = new \ReflectionClass( Topic::class );
+		$ref      = new \ReflectionClass( Topic_Node::class );
 		$prop     = $ref->getProperty( 'partitions' );
 		$prop->setAccessible( true );
 		$partitions = $prop->getValue( $t );
@@ -283,7 +283,7 @@ class TopicTest extends TestCase {
 	}
 
 	public function test_remove_node_tears_down_partitions(): void {
-		$t = new Topic( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
+		$t = new Topic_Node( "{$this->tmp}/firehose.log", 4, 64*1024, 4, 86400 );
 
 		// Materialize two partitions.
 		$this->produce_into( $t, 'a', 'k1' );

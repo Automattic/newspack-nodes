@@ -11,12 +11,12 @@
 
 namespace Newspack_Nodes\Rest;
 
-use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Formatters;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Classes_CI extends CommandInterpreter {
+class Classes_CI_Node extends Command_Interpreter_Node {
 
 	public function __construct() {
 		$this->commands( $this->verb_table() );
@@ -35,9 +35,9 @@ class Classes_CI extends CommandInterpreter {
 
 	private function verb_table(): array {
 		return [
-			'list' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): array {
+			'list' => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
 				$classes = [];
-				foreach ( CommandInterpreter::class_map() as $shell_name => $fqcn ) {
+				foreach ( Command_Interpreter_Node::class_map() as $shell_name => $fqcn ) {
 					if ( ! \method_exists( $fqcn, 'node_schema' ) ) {
 						continue;
 					}

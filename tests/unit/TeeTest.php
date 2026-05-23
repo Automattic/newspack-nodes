@@ -3,23 +3,23 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Router;
-use Newspack_Nodes\Tee;
+use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\Tee_Node;
 use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( Tee::class )]
+#[CoversClass( Tee_Node::class )]
 class TeeTest extends TestCase {
 	public function test_connect_node_appends_to_target_list(): void {
-		$tee = new Tee();
+		$tee = new Tee_Node();
 		$tee->connect_node( 'a' );
 		$tee->connect_node( 'b' );
 		$this->assertSame( [ 'a', 'b' ], $tee->target() );
 	}
 
 	public function test_fill_dispatches_to_each_target(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
 		$a = new CaptureSink();
@@ -27,7 +27,7 @@ class TeeTest extends TestCase {
 		$b = new CaptureSink();
 		$b->name( 'b' );
 
-		$tee = new Tee();
+		$tee = new Tee_Node();
 		$tee->name( 'tee' );
 		$tee->sink( $router );
 		$tee->connect_node( 'a' );
@@ -44,7 +44,7 @@ class TeeTest extends TestCase {
 	}
 
 	public function test_disconnect_node_removes_one_target(): void {
-		$tee = new Tee();
+		$tee = new Tee_Node();
 		$tee->connect_node( 'a' );
 		$tee->connect_node( 'b' );
 		$tee->disconnect_node( 'a' );
@@ -52,13 +52,13 @@ class TeeTest extends TestCase {
 	}
 
 	public function test_dead_target_pruned_silently(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
 		$alive = new CaptureSink();
 		$alive->name( 'alive' );
 
-		$tee = new Tee();
+		$tee = new Tee_Node();
 		$tee->name( 'tee' );
 		$tee->sink( $router );
 		$tee->connect_node( 'alive' );
@@ -76,7 +76,7 @@ class TeeTest extends TestCase {
 		// Defense-in-depth path: if a Node was assigned a single-target string before
 		// being promoted to a Tee (e.g., subclass swap), connect_node must convert
 		// the existing target to an array, not lose it.
-		$tee = new Tee();
+		$tee = new Tee_Node();
 		$ref = new \ReflectionProperty( $tee, 'target' );
 		$ref->setAccessible( true );
 		$ref->setValue( $tee, 'preexisting' );
@@ -88,7 +88,7 @@ class TeeTest extends TestCase {
 	public function test_connect_node_with_empty_string_target_resets_to_empty_array(): void {
 		// Empty-string target represents "no target" in Node — Tee should treat it
 		// as an empty list rather than including '' in the list.
-		$tee = new Tee();
+		$tee = new Tee_Node();
 		$ref = new \ReflectionProperty( $tee, 'target' );
 		$ref->setAccessible( true );
 		$ref->setValue( $tee, '' );
@@ -99,7 +99,7 @@ class TeeTest extends TestCase {
 
 	public function test_connect_node_is_idempotent(): void {
 		// Adding a target twice must not duplicate.
-		$tee = new Tee();
+		$tee = new Tee_Node();
 		$tee->connect_node( 'a' );
 		$tee->connect_node( 'a' );
 		$this->assertSame( [ 'a' ], $tee->target() );
@@ -107,7 +107,7 @@ class TeeTest extends TestCase {
 
 	public function test_disconnect_node_resets_string_target_to_empty(): void {
 		// String target → disconnect → empty array (and nothing else happens).
-		$tee = new Tee();
+		$tee = new Tee_Node();
 		$ref = new \ReflectionProperty( $tee, 'target' );
 		$ref->setAccessible( true );
 		$ref->setValue( $tee, 'string-target' );
@@ -119,7 +119,7 @@ class TeeTest extends TestCase {
 	public function test_fill_isolates_per_target_exceptions(): void {
 		// One target throws during dispatch; sibling target must still receive the
 		// message. Wires a router → Lock-style sink that throws on a specific name.
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
 		$alive = new CaptureSink();
@@ -132,7 +132,7 @@ class TeeTest extends TestCase {
 		};
 		$throwing->name( 'throwing' );
 
-		$tee = new Tee();
+		$tee = new Tee_Node();
 		$tee->name( 'tee' );
 		$tee->sink( $router );
 		$tee->connect_node( 'throwing' );
@@ -164,7 +164,7 @@ class TeeTest extends TestCase {
 		$alive_b->name( 'alive-b' );
 
 		$reply_sink = new CaptureSink();
-		$tee        = new Tee();
+		$tee        = new Tee_Node();
 		$tee->name( 'tee' );
 		$tee->sink( $reply_sink );
 		$tee->connect_node( 'alive-a' );
@@ -205,7 +205,7 @@ class TeeTest extends TestCase {
 		// and targets=[].
 		$reply_sink = new CaptureSink();
 
-		$tee = new Tee();
+		$tee = new Tee_Node();
 		$tee->name( 'tee' );
 		$tee->sink( $reply_sink );
 
@@ -224,7 +224,7 @@ class TeeTest extends TestCase {
 	public function test_fill_TM_REQUEST_unknown_verb_returns_error_payload(): void {
 		// Unknown verbs reply with `[ 'error' => "unknown request verb: $VERB" ]`.
 		$reply_sink = new CaptureSink();
-		$tee        = new Tee();
+		$tee        = new Tee_Node();
 		$tee->name( 'tee' );
 		$tee->sink( $reply_sink );
 		$tee->connect_node( 'whatever' );
@@ -246,7 +246,7 @@ class TeeTest extends TestCase {
 		// Verb extraction is strtoupper(explode(' ', trim($value), 2)[0]).
 		// "  get_targets  trailing  " → GET_TARGETS.
 		$reply_sink = new CaptureSink();
-		$tee        = new Tee();
+		$tee        = new Tee_Node();
 		$tee->name( 'tee' );
 		$tee->sink( $reply_sink );
 
@@ -272,7 +272,7 @@ class TeeTest extends TestCase {
 		// disconnect is a no-op (target isn't in the list), no state event
 		// should fire. Verified by watching that no TARGETS event reaches a
 		// registered listener.
-		$tee = new Tee();
+		$tee = new Tee_Node();
 		$tee->name( 'tee' );
 
 		$tee->connect_node( 'a' );
@@ -308,7 +308,7 @@ class TeeTest extends TestCase {
 	public function test_connect_node_emits_TARGETS_state_event(): void {
 		// connect_node caches a TARGETS event so debug_state subscribers see
 		// the current target list without replaying every connect.
-		$tee = new Tee();
+		$tee = new Tee_Node();
 		$tee->name( 'tee' );
 
 		// Register listener BEFORE connecting; observe that each connect fires.

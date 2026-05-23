@@ -4,7 +4,7 @@ namespace Newspack_Nodes\Tests\Integration;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\TestCase;
-use Newspack_Nodes\WorkerBase;
+use Newspack_Nodes\Worker_Base;
 
 class WorkerLifecycleTest extends TestCase {
 	private string $tmp;
@@ -20,13 +20,13 @@ class WorkerLifecycleTest extends TestCase {
 	}
 
 	public function test_acquire_build_scaffolding_run_topology(): void {
-		$w = new WorkerBase( $this->tmp, 'echo-test', 0 );
+		$w = new Worker_Base( $this->tmp, 'echo-test', 0 );
 		$this->assertTrue( $w->acquire() );
 
 		$interpreter = $w->build_scaffolding();
 
 		$topology = function ( $ci, int $partition ) {
-			\Newspack_Nodes\CommandInterpreter::register_class( 'CaptureSink', \Newspack_Nodes\Tests\CaptureSink::class );
+			\Newspack_Nodes\Command_Interpreter_Node::register_class( 'CaptureSink', \Newspack_Nodes\Tests\CaptureSink::class );
 			$ci->dispatch( 'make_node', 'CaptureSink echo' );
 		};
 		$w->run_topology( $topology, $interpreter );

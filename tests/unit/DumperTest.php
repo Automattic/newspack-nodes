@@ -2,19 +2,19 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
-use Newspack_Nodes\Dumper;
+use Newspack_Nodes\Dumper_Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Shell;
+use Newspack_Nodes\Shell_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( Dumper::class )]
+#[CoversClass( Dumper_Node::class )]
 class DumperTest extends TestCase {
 
-	/** @return array{0:Dumper, 1:resource} */
+	/** @return array{0:Dumper_Node, 1:resource} */
 	private function fresh(): array {
 		$out    = \fopen( 'php://memory', 'w+' );
-		$dumper = new Dumper( $out );
+		$dumper = new Dumper_Node( $out );
 		return [ $dumper, $out ];
 	}
 
@@ -102,7 +102,7 @@ class DumperTest extends TestCase {
 	public function test_TM_COMMAND_TM_RESPONSE_with_name_prompt_updates_shell_prompt(): void {
 		[ $dumper, $out ] = $this->fresh();
 
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$dumper->set_shell( $shell );
 
 		$msg                   = Message::new_message();
@@ -185,11 +185,11 @@ class DumperTest extends TestCase {
 
 	// ── Async prompt-below dance ────────────────────────────────────────────────
 
-	/** @return array{0:Dumper, 1:resource, 2:Shell} */
+	/** @return array{0:Dumper_Node, 1:resource, 2:Shell_Node} */
 	private function fresh_tty(): array {
 		$out    = \fopen( 'php://memory', 'w+' );
-		$dumper = new Dumper( $out, true ); // force_tty=true
-		$shell  = new Shell();
+		$dumper = new Dumper_Node( $out, true ); // force_tty=true
+		$shell  = new Shell_Node();
 		$shell->prompt = 'newspack> ';
 		$dumper->set_shell( $shell );
 		return [ $dumper, $out, $shell ];
@@ -228,7 +228,7 @@ class DumperTest extends TestCase {
 		// Default $force_tty=null on a memory stream → posix_isatty=false →
 		// non-TTY mode. Even with prompt_displayed=true, we must NOT emit ANSI.
 		[ $dumper, $out ] = $this->fresh();
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$dumper->set_shell( $shell );
 		$dumper->mark_prompt_displayed();
 

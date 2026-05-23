@@ -17,13 +17,13 @@ namespace Newspack_Nodes\Tests\Integration;
 
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Partition;
-use Newspack_Nodes\Rest\SSE_Out;
+use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Rest\SSE_Out_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Medium;
 
-#[CoversClass( SSE_Out::class )]
+#[CoversClass( SSE_Out_Node::class )]
 #[Medium]
 class SSEOutTest extends TestCase {
 
@@ -31,7 +31,7 @@ class SSEOutTest extends TestCase {
 		// SSE_Out is double-duty: as a Node, fill() emits the Message as a
 		// single `msg` SSE event and bumps the counter (the egress writer
 		// HTTP_Filter sinks into).
-		$ctrl                  = new SSE_Out();
+		$ctrl                  = new SSE_Out_Node();
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$msg[ Message::TO ]    = '_output';
@@ -57,7 +57,7 @@ class SSEOutTest extends TestCase {
 		// Pre-populate the firehose log with two TM_BYTESTREAM lines so the
 		// Consumer has something to drain. Use Partition::fill directly with
 		// a constructed Message (matches how Partition writes data on disk).
-		$p     = new Partition( "{$base}/logs/firehose.log", 0 );
+		$p     = new Partition_Node( "{$base}/logs/firehose.log", 0 );
 		$line1 = Message::new_message();
 		$line1[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$line1[ Message::VALUE ] = "line-one\n";
@@ -68,7 +68,7 @@ class SSEOutTest extends TestCase {
 		$p->fill( $line2 );
 		$p->flush();
 
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );
@@ -123,14 +123,14 @@ class SSEOutTest extends TestCase {
 		$base = $this->make_temp_dir( 'msg-stream-flush-' );
 		\mkdir( "{$base}/logs/firehose.log", 0755, true );
 
-		$p    = new Partition( "{$base}/logs/firehose.log", 0 );
+		$p    = new Partition_Node( "{$base}/logs/firehose.log", 0 );
 		$line = Message::new_message();
 		$line[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$line[ Message::VALUE ] = "payload\n";
 		$p->fill( $line );
 		$p->flush();
 
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );
@@ -157,7 +157,7 @@ class SSEOutTest extends TestCase {
 	 * subsequent stream blows up until the process recycles.
 	 */
 	public function test_invalid_subscription_does_not_leak_substrate_nodes(): void {
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-stream-leak-' ) );
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );
@@ -185,7 +185,7 @@ class SSEOutTest extends TestCase {
 		$base = $this->make_temp_dir( 'msg-stream-heartbeat-' );
 		\mkdir( "{$base}/logs/firehose.log", 0755, true );
 
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 1 );
 		$ctrl->set_test_mode( true );

@@ -14,11 +14,11 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Supervisor;
-use Newspack_Nodes\SupervisorBase;
+use Newspack_Nodes\Supervisor_Base;
 
 \defined( 'ABSPATH' ) || exit;
 
-class SpawnController {
+class Spawn_Controller {
 	/** WordPress nonce action name for external spawn requests. */
 	public const NONCE_ACTION = 'newspack_nodes_spawn_worker';
 
@@ -103,7 +103,7 @@ class SpawnController {
 		if ( $partition < 0 ) {
 			return false;
 		}
-		if ( $partition >= SupervisorBase::MAX_PARTITIONS ) {
+		if ( $partition >= Supervisor_Base::MAX_PARTITIONS ) {
 			return false;
 		}
 

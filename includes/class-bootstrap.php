@@ -10,9 +10,9 @@
 
 namespace Newspack_Nodes;
 
-use Newspack_Nodes\Rest\HTTP_In;
-use Newspack_Nodes\Rest\SSE_Out;
-use Newspack_Nodes\Rest\SpawnController;
+use Newspack_Nodes\Rest\HTTP_In_Node;
+use Newspack_Nodes\Rest\SSE_Out_Node;
+use Newspack_Nodes\Rest\Spawn_Controller;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -43,7 +43,7 @@ class Bootstrap {
 				$active[ $name ] = $catalog[ $name ];
 				continue;
 			}
-			$synthesized = Topology_Registry::synthesize_entry( $name, $default_np, Lock::STALE_TIMEOUT );
+			$synthesized = Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
 			if ( null !== $synthesized ) {
 				$active[ $name ] = $synthesized;
 			}
@@ -62,13 +62,13 @@ class Bootstrap {
 		$workers    = [];
 		foreach ( $topologies as $type => $config ) {
 			$count = (int) ( $config['num_partitions'] ?? 1 );
-			$count = \min( SupervisorBase::MAX_PARTITIONS, \max( 1, $count ) );
+			$count = \min( Supervisor_Base::MAX_PARTITIONS, \max( 1, $count ) );
 			for ( $p = 0; $p < $count; ++$p ) {
 				$workers[] = [
 					'type'          => $type,
 					'partition'     => $p,
 					'topology'      => $config['topology'] ?? '',
-					'stale_timeout' => $config['stale_timeout'] ?? Lock::STALE_TIMEOUT,
+					'stale_timeout' => $config['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT,
 				];
 			}
 		}
@@ -93,9 +93,9 @@ class Bootstrap {
 
 	/** Register substrate REST routes — wired to `rest_api_init`. */
 	public static function register_rest_routes(): void {
-		( new SpawnController( self::supervisor() ) )->register_routes();
-		( new SSE_Out() )->register_routes();
-		( new HTTP_In() )->register_routes();
+		( new Spawn_Controller( self::supervisor() ) )->register_routes();
+		( new SSE_Out_Node() )->register_routes();
+		( new HTTP_In_Node() )->register_routes();
 	}
 
 	/** Supervisor cron tick: run Supervisor::run() (595s loop). Cron is the cold-start backstop. */
@@ -129,7 +129,7 @@ class Bootstrap {
 		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/', $worker_id ) ) {
 			return false;
 		}
-		if ( Core::node( $worker_id ) instanceof Partition ) {
+		if ( Core::node( $worker_id ) instanceof Partition_Node ) {
 			return true;
 		}
 		// A live worker holds a lock dir; its input dir is what we mount.
@@ -140,7 +140,7 @@ class Bootstrap {
 		if ( ! \is_dir( $input_dir ) ) {
 			return false;
 		}
-		( new Partition( $input_dir, 0 ) )->name( $worker_id );
+		( new Partition_Node( $input_dir, 0 ) )->name( $worker_id );
 		return true;
 	}
 

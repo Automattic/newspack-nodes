@@ -13,7 +13,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class WorkerBase {
+class Worker_Base {
 	public const DEFAULT_MAX_RUNTIME    = 595;
 	public const MEMORY_WATERMARK_PCT   = 0.80;
 	public const HEARTBEAT_INTERVAL_S   = 10;
@@ -26,7 +26,7 @@ class WorkerBase {
 	protected int $partition;
 	protected int $max_runtime;
 	protected int $stale_timeout;
-	protected ?Lock $lock = null;
+	protected ?Lock_Node $lock = null;
 	protected float $start_time = 0.0;
 	protected float $last_heartbeat = 0.0;
 	protected float $last_db_check = 0.0;
@@ -57,7 +57,7 @@ class WorkerBase {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
-		$this->lock = new Lock( $this->lock_path(), $this->stale_timeout );
+		$this->lock = new Lock_Node( $this->lock_path(), $this->stale_timeout );
 		if ( ! $this->lock->acquire() ) {
 			return false;
 		}
@@ -147,23 +147,23 @@ class WorkerBase {
 	/**
 	 * Build the standard scaffolding (_router, _command_interpreter, _repl, input Consumer).
 	 *
-	 * @return CommandInterpreter So topology closures can drive graph construction.
+	 * @return Command_Interpreter_Node So topology closures can drive graph construction.
 	 */
-	public function build_scaffolding(): CommandInterpreter {
+	public function build_scaffolding(): Command_Interpreter_Node {
 		// This worker process is a command VERIFIER: every CI it builds — the main
 		// _command_interpreter plus the patron CIs embedded in Partitions — must
 		// HMAC-check commands arriving over IPC (which strips the LOCAL taint). Set
 		// the process-wide authorization policy once, before any CI is constructed.
-		CommandInterpreter::$default_authorize = Command_Auth::verifier();
+		Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
 
 		$ipc_dir = "{$this->base_dir}/ipc/{$this->worker_type}.p{$this->partition}";
 
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( Node_Names::ROUTER );
 		// Active timer so the Router fires TIMER for the hitchhike pattern (keepalives etc.).
-		$router->set_timer( Router::DEFAULT_TICK_MS );
+		$router->set_timer( Router_Node::DEFAULT_TICK_MS );
 
-		$interpreter = new CommandInterpreter();
+		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
 		$interpreter->sink( $router );
 
@@ -172,7 +172,7 @@ class WorkerBase {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
-		$repl = new Partition( "{$ipc_dir}/output", 0 );
+		$repl = new Partition_Node( "{$ipc_dir}/output", 0 );
 		$repl->name( Node_Names::REPL );
 		$repl->sink( $interpreter );
 		// allow_large_writes keys its Lock/heartbeat off name + sink, so set those first.
@@ -184,7 +184,7 @@ class WorkerBase {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $input_dir, 0755, true );
 		}
-		$repl_in = new Consumer( $input_dir, 0, '' );
+		$repl_in = new Consumer_Node( $input_dir, 0, '' );
 		$repl_in->next_offset( 'end' );
 		$repl_in->set_stamp_as( Node_Names::REPL );
 		$repl_in->sink( $interpreter );
@@ -193,7 +193,7 @@ class WorkerBase {
 	}
 
 	/** Invoke the topology closure (receives the CI + this worker's partition number). */
-	public function run_topology( callable $topology, CommandInterpreter $ci ): void {
+	public function run_topology( callable $topology, Command_Interpreter_Node $ci ): void {
 		$topology( $ci, $this->partition );
 	}
 
@@ -252,7 +252,7 @@ class WorkerBase {
 			$ci = $this->build_scaffolding();
 			$this->run_topology( $topology, $ci );
 
-			$ef = EventFramework::instance();
+			$ef = Event_Framework::instance();
 			$ef->install_signal_handlers();
 			$ef->drain( fn() => $this->should_continue() );
 		} finally {

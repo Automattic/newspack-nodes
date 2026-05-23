@@ -81,6 +81,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Internal: node/helper class names normalized (newspack-nodes).** Every class
+  is now `Word_Word` with ALL-CAPS acronyms; Node subclasses carry a `_Node`
+  suffix (`CommandInterpreter` → `Command_Interpreter_Node`, `Tee` → `Tee_Node`,
+  helpers like `EventFramework` → `Event_Framework`). Behavior-neutral this stage:
+  `register_class` shell-names and `.tsl` topologies are unchanged (the canvas /
+  `dump_metadata` `class` field still reports the shell-name via `shell_name_for`).
+  First stage of the `register_class`→namespace-prefix refactor.
 - **Live-canvas polling runs on a single Router TIMER, batched into one request.**
   The browser `Router` now fires a `TIMER` notification once per second (matching
   PHP Router). Each tick locks `HttpOut` before notifying subscribers and flushes

@@ -20,20 +20,20 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
-use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Core;
-use Newspack_Nodes\Lock;
-use Newspack_Nodes\Sse_Slot_Pool;
+use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\SSE_Slot_Pool;
 use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Partition;
-use Newspack_Nodes\Service_CI;
+use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Topology_Registry;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Workers_CI extends Service_CI {
+class Workers_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Build a Workers_CI bound to the supplied Cli + Cache.
@@ -79,7 +79,7 @@ class Workers_CI extends Service_CI {
 
 	private function verb_table( object $cli, ?object $cache ): array {
 		return [
-			'list' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ) use ( $cli, $cache ): array {
+			'list' => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ) use ( $cli, $cache ): array {
 				$workers = $cli->ls_workers();
 				foreach ( $workers as &$w ) {
 					$w['position'] = $cli->live_position( $cache, $w['type'], $w['partition'] );
@@ -87,11 +87,11 @@ class Workers_CI extends Service_CI {
 				unset( $w );
 				return $workers;
 			},
-			'dump_metadata' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ) use ( $cache ): array {
+			'dump_metadata' => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ) use ( $cache ): array {
 				self::require_manage_options();
 				return self::collect_dump_metadata( $cache );
 			},
-			'cleanup_status' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): array {
+			'cleanup_status' => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
 				// Diagnostic: surface what Log_Cleaner reads when deciding which
 				// log dirs to delete, so operators can debug orphan-log sweeps.
 				self::require_manage_options();
@@ -123,7 +123,7 @@ class Workers_CI extends Service_CI {
 					'orphans'                  => $orphans,
 				];
 			},
-			'restart' => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ) use ( $cli ): array {
+			'restart' => static function ( Command_Interpreter_Node $self, string $args, array $envelope, mixed $payload ) use ( $cli ): array {
 				$decoded   = \is_array( $payload ) ? $payload : [];
 				$types     = (array) ( $decoded['types']     ?? [] );
 				$partition = (int)   ( $decoded['partition'] ?? -1 );
@@ -144,7 +144,7 @@ class Workers_CI extends Service_CI {
 				}
 				return [ 'restarted' => $restarted ];
 			},
-			'heartbeat' => static function ( CommandInterpreter $self, string $args ): array {
+			'heartbeat' => static function ( Command_Interpreter_Node $self, string $args ): array {
 				if ( null === Core::$memd ) {
 					throw new \RuntimeException( 'cache not configured' );
 				}
@@ -155,7 +155,7 @@ class Workers_CI extends Service_CI {
 				}
 				$ttl       = isset( $parts[1] ) ? (int) $parts[1] : 10;
 				$partition = isset( $parts[2] ) ? (int) $parts[2] : -1;
-				$success   = Sse_Slot_Pool::touch( Sse_Slot_Pool::user_id(), Sse_Slot_Pool::ip_hash(), $slot, $ttl, $partition );
+				$success   = SSE_Slot_Pool::touch( SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $ttl, $partition );
 				return [ 'success' => $success, 'slot' => $slot ];
 			},
 		];
@@ -211,7 +211,7 @@ class Workers_CI extends Service_CI {
 		foreach ( $descriptors as $w ) {
 			$type      = (string) ( $w['type'] ?? '' );
 			$partition = (int) ( $w['partition'] ?? 0 );
-			$stale_to  = (int) ( $w['stale_timeout'] ?? Lock::STALE_TIMEOUT );
+			$stale_to  = (int) ( $w['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT );
 			if ( '' === $type ) {
 				continue;
 			}
@@ -349,7 +349,7 @@ class Workers_CI extends Service_CI {
 			$cursor_offset = 0;
 			$behind        = 0;
 		} else {
-			$partition_obj = new Partition( "{$log_base}/{$input_log}", $partition );
+			$partition_obj = new Partition_Node( "{$log_base}/{$input_log}", $partition );
 			$segments      = $partition_obj->get_segments();
 			$total_size    = (int) \array_sum( \array_column( $segments, 'size' ) );
 
@@ -401,12 +401,12 @@ class Workers_CI extends Service_CI {
 			'input_log'       => $input_log,
 			'output_log'      => $output_log,
 			'status'          => $status,
-			'started_at'      => Lock::get_started_time( $lock_dir ),
+			'started_at'      => Lock_Node::get_started_time( $lock_dir ),
 			'heartbeat_age'   => $heartbeat_age,
 			'heartbeat_at'    => $heartbeat_at,
 			'live'            => $live,
 			'stale'           => $stale,
-			'restart_pending' => Lock::is_restart_pending( $lock_dir ),
+			'restart_pending' => Lock_Node::is_restart_pending( $lock_dir ),
 			'segments'        => $segments,
 			'total_size'      => $total_size,
 			'cursor_seg'      => $cursor_seg,
@@ -428,7 +428,7 @@ class Workers_CI extends Service_CI {
 			$mtime = @\filemtime( $hb_file );
 			if ( false !== $mtime ) {
 				$heartbeat_age = $now - (int) $mtime;
-				if ( $heartbeat_age < Lock::STALE_TIMEOUT ) {
+				if ( $heartbeat_age < Lock_Node::STALE_TIMEOUT ) {
 					$status = 'running';
 				}
 			}
@@ -437,9 +437,9 @@ class Workers_CI extends Service_CI {
 		return [
 			'type'            => 'supervisor',
 			'status'          => $status,
-			'started_at'      => Lock::get_started_time( $lock_dir ),
+			'started_at'      => Lock_Node::get_started_time( $lock_dir ),
 			'heartbeat_age'   => $heartbeat_age,
-			'restart_pending' => Lock::is_restart_pending( $lock_dir ),
+			'restart_pending' => Lock_Node::is_restart_pending( $lock_dir ),
 		];
 	}
 
@@ -671,7 +671,7 @@ class Workers_CI extends Service_CI {
 	 */
 	private static function read_offsetlog_latest_entry( string $offsetlog_dir ): ?array {
 		try {
-			$offsetlog = new Partition( $offsetlog_dir, 0 );
+			$offsetlog = new Partition_Node( $offsetlog_dir, 0 );
 			$segments  = $offsetlog->get_segments( true );
 			if ( empty( $segments ) ) {
 				return null;

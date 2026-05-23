@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Topology_Loader;
 use Newspack_Nodes\Topology_Registry;
@@ -19,7 +19,7 @@ class TopologyLoaderTest extends TestCase {
 		Topology_Registry::reset();
 		$this->stock = $this->make_temp_dir( 'tsl-load-' );
 		Topology_Registry::register_stock_dir( $this->stock );
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
 	}
 
 	protected function tearDown(): void {
@@ -38,7 +38,7 @@ class TopologyLoaderTest extends TestCase {
 			"make_node CaptureSink alice\nmake_node CaptureSink bob\nconnect_node alice bob\n"
 		);
 
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		Topology_Loader::load( 'two-nodes', 0, $ci );
@@ -52,13 +52,13 @@ class TopologyLoaderTest extends TestCase {
 		// authorize policy, THEN loads its topology in-process via Shell. The
 		// Shell stamps LOCAL (no HMAC); the verifier must accept LOCAL-tainted
 		// in-process commands or the worker boots with an empty graph.
-		\Newspack_Nodes\CommandInterpreter::$default_authorize = \Newspack_Nodes\Command_Auth::verifier();
+		\Newspack_Nodes\Command_Interpreter_Node::$default_authorize = \Newspack_Nodes\Command_Auth::verifier();
 		$this->write_tsl(
 			'verified',
 			"make_node CaptureSink alice\nmake_node CaptureSink bob\nconnect_node alice bob\n"
 		);
 
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		Topology_Loader::load( 'verified', 0, $ci );
@@ -73,7 +73,7 @@ class TopologyLoaderTest extends TestCase {
 			"make_node CaptureSink consumer-p<partition>\n"
 		);
 
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		Topology_Loader::load( 'parted', 7, $ci );
@@ -87,7 +87,7 @@ class TopologyLoaderTest extends TestCase {
 			"make_node CaptureSink node-<config:env_label>\n"
 		);
 
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		Topology_Loader::load( 'configed', 0, $ci, [ 'env_label' => 'prod' ] );
@@ -100,7 +100,7 @@ class TopologyLoaderTest extends TestCase {
 		// `<config:foo>` becomes ''. The loader doesn't pre-validate.
 		$this->write_tsl( 'unknown', "make_node CaptureSink node-<config:nope>\n" );
 
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		Topology_Loader::load( 'unknown', 0, $ci, [] );
@@ -113,7 +113,7 @@ class TopologyLoaderTest extends TestCase {
 			"# header comment\n\nmake_node CaptureSink alice\n\n# trailing comment\n"
 		);
 
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		Topology_Loader::load( 'comments', 0, $ci );
@@ -130,7 +130,7 @@ class TopologyLoaderTest extends TestCase {
 			"var num_partitions = 4; var stale_timeout = 60\nmake_node CaptureSink leader-p<partition>"
 		);
 
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		Topology_Loader::load( 'frontmatter', 0, $ci );
@@ -141,7 +141,7 @@ class TopologyLoaderTest extends TestCase {
 	}
 
 	public function test_load_throws_when_topology_not_found(): void {
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
 		$this->expectException( \RuntimeException::class );

@@ -9,7 +9,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Dumper extends Node {
+class Dumper_Node extends Node {
 	private const ANSI_SAVE_CURSOR    = "\033[s";
 	private const ANSI_RESTORE_CURSOR = "\033[u";
 	private const ANSI_CR_CLEAR_LINE  = "\r\033[2K";
@@ -17,7 +17,7 @@ class Dumper extends Node {
 	/** @var resource */
 	private $stdout;
 
-	private ?Shell $shell = null;
+	private ?Shell_Node $shell = null;
 
 	/** Whether a prompt is on screen; public so the Cli readline loop can flip it per iteration. */
 	public bool $prompt_displayed = false;
@@ -44,7 +44,7 @@ class Dumper extends Node {
 		}
 	}
 
-	public function set_shell( Shell $shell ): void {
+	public function set_shell( Shell_Node $shell ): void {
 		$this->shell = $shell;
 	}
 

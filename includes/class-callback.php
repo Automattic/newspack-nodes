@@ -9,7 +9,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Callback extends Node {
+class Callback_Node extends Node {
 	/** @var callable */
 	private $cb;
 

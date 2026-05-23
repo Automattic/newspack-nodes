@@ -21,12 +21,12 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Rest\Layouts_CI;
+use Newspack_Nodes\Rest\Layouts_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( Layouts_CI::class )]
+#[CoversClass( Layouts_CI_Node::class )]
 class LayoutsCITest extends TestCase {
 
 	private string $base_dir;
@@ -57,7 +57,7 @@ class LayoutsCITest extends TestCase {
 	// ── get verb ──────────────────────────────────────────────────────────
 
 	public function test_node_schema_declares_its_verbs(): void {
-		$schema = Layouts_CI::node_schema();
+		$schema = Layouts_CI_Node::node_schema();
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['verbs'] );
 		\sort( $names );
 		$this->assertSame( [ 'get', 'save' ], $names );
@@ -66,7 +66,7 @@ class LayoutsCITest extends TestCase {
 
 	public function test_get_returns_null_positions_when_file_missing(): void {
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'get',
 			null,
@@ -88,7 +88,7 @@ class LayoutsCITest extends TestCase {
 		);
 
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'get',
 			null,
@@ -107,7 +107,7 @@ class LayoutsCITest extends TestCase {
 		\file_put_contents( "{$this->base_dir}/layouts/garbage.layout", '{not json}' );
 
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'get',
 			null,
@@ -126,7 +126,7 @@ class LayoutsCITest extends TestCase {
 		);
 
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'get',
 			null,
@@ -151,7 +151,7 @@ class LayoutsCITest extends TestCase {
 		);
 
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'get',
 			null,
@@ -168,7 +168,7 @@ class LayoutsCITest extends TestCase {
 		// message string as a TM_COMMAND|TM_ERROR payload. VerbHarness
 		// returns the raw string (the message isn't valid JSON).
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'get',
 			null,
@@ -180,7 +180,7 @@ class LayoutsCITest extends TestCase {
 
 	public function test_get_rejects_name_with_slash(): void {
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'get',
 			null,
@@ -193,7 +193,7 @@ class LayoutsCITest extends TestCase {
 	public function test_get_rejects_without_manage_options(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'get',
 			null,
@@ -207,7 +207,7 @@ class LayoutsCITest extends TestCase {
 
 	public function test_save_writes_clean_positions_and_returns_payload(): void {
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'save',
 			[
@@ -244,7 +244,7 @@ class LayoutsCITest extends TestCase {
 		$this->assertDirectoryDoesNotExist( "{$this->base_dir}/layouts" );
 
 		VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'save',
 			[
@@ -257,7 +257,7 @@ class LayoutsCITest extends TestCase {
 	}
 
 	public function test_save_then_get_round_trips_positions(): void {
-		$ci = new Layouts_CI();
+		$ci = new Layouts_CI_Node();
 		VerbHarness::fire(
 			$ci,
 			'layouts',
@@ -273,7 +273,7 @@ class LayoutsCITest extends TestCase {
 		VerbHarness::reset();
 
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'get',
 			null,
@@ -306,7 +306,7 @@ class LayoutsCITest extends TestCase {
 			],
 		];
 
-		$result = VerbHarness::fire( new Layouts_CI(), 'layouts', 'save', $body );
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', $body );
 
 		$clean = $result['positions'];
 		$this->assertArrayHasKey( 'keep_me', $clean );
@@ -321,7 +321,7 @@ class LayoutsCITest extends TestCase {
 
 	public function test_save_accepts_dotted_and_colon_node_ids(): void {
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'save',
 			[
@@ -340,7 +340,7 @@ class LayoutsCITest extends TestCase {
 
 	public function test_save_accepts_empty_positions(): void {
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'save',
 			[ 'name' => 'empty', 'positions' => [] ]
@@ -351,7 +351,7 @@ class LayoutsCITest extends TestCase {
 
 	public function test_save_rejects_invalid_name(): void {
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'save',
 			[
@@ -365,7 +365,7 @@ class LayoutsCITest extends TestCase {
 
 	public function test_save_rejects_missing_positions(): void {
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'save',
 			[ 'name' => 'foo' ]
@@ -376,7 +376,7 @@ class LayoutsCITest extends TestCase {
 
 	public function test_save_rejects_positions_not_array(): void {
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'save',
 			[
@@ -397,7 +397,7 @@ class LayoutsCITest extends TestCase {
 		$body   = $prefix . $pad . $suffix;
 		$this->assertSame( 65537, \strlen( $body ) );
 
-		$result = VerbHarness::fire( new Layouts_CI(), 'layouts', 'save', $body );
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', $body );
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'too large', $result );
 	}
@@ -405,7 +405,7 @@ class LayoutsCITest extends TestCase {
 	public function test_save_rejects_without_manage_options(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$result = VerbHarness::fire(
-			new Layouts_CI(),
+			new Layouts_CI_Node(),
 			'layouts',
 			'save',
 			[

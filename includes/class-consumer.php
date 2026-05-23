@@ -11,7 +11,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Consumer extends Timer {
+class Consumer_Node extends Timer_Node {
 	public const DEFAULT_OFFSETLOG_SEGMENT_SIZE = 65536;
 
 	public const MAX_LINE_BUFFER_SIZE = 20971520;
@@ -37,9 +37,9 @@ class Consumer extends Timer {
 	protected string $source_base_dir;
 	protected int $source_partition;
 	protected string $offsetlog_dir;
-	protected Partition $source;
+	protected Partition_Node $source;
 	/** Null when constructed with empty $offsetlog_base_dir (ephemeral readers skip durable cursors). */
-	protected ?Partition $offsetlog = null;
+	protected ?Partition_Node $offsetlog = null;
 
 	/** FROM-stamp override; defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
 	private string $stamp_override = '';
@@ -73,10 +73,10 @@ class Consumer extends Timer {
 		$this->source_partition = $source_partition;
 		$this->offsetlog_dir    = \rtrim( $offsetlog_base_dir, '/' );
 
-		$this->source = new Partition( $this->source_base_dir, $this->source_partition );
+		$this->source = new Partition_Node( $this->source_base_dir, $this->source_partition );
 
 		if ( '' !== $this->offsetlog_dir ) {
-			$this->offsetlog = new Partition( $this->offsetlog_dir, 0, self::DEFAULT_OFFSETLOG_SEGMENT_SIZE );
+			$this->offsetlog = new Partition_Node( $this->offsetlog_dir, 0, self::DEFAULT_OFFSETLOG_SEGMENT_SIZE );
 			$this->load_offsetlog();
 		}
 
@@ -427,7 +427,7 @@ class Consumer extends Timer {
 			// Not yet registered or removed; surface the name without a class.
 			return [ [ 'name' => $this->target, 'class' => '' ] ];
 		}
-		$class = ( new \ReflectionClass( $node ) )->getShortName();
+		$class = Command_Interpreter_Node::shell_name_for( $node );
 		if ( 'Tee' !== $class ) {
 			return [ [ 'name' => $this->target, 'class' => $class ] ];
 		}
@@ -441,7 +441,7 @@ class Consumer extends Timer {
 				continue;
 			}
 			$tn = Core::node( $t );
-			$tc = null === $tn ? '' : ( new \ReflectionClass( $tn ) )->getShortName();
+			$tc = null === $tn ? '' : Command_Interpreter_Node::shell_name_for( $tn );
 			$out[] = [ 'name' => $t, 'class' => $tc ];
 		}
 		return $out;

@@ -155,7 +155,7 @@ class Topology_Registry {
 	public static function synthesize_entry(
 		string $name,
 		int $default_num_partitions = 1,
-		int $default_stale_timeout = Lock::STALE_TIMEOUT
+		int $default_stale_timeout = Lock_Node::STALE_TIMEOUT
 	): ?array {
 		if ( null === self::resolve( $name ) ) {
 			return null;

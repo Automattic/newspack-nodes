@@ -26,15 +26,15 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
-use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Service_CI;
-use Newspack_Nodes\Shell;
+use Newspack_Nodes\Service_CI_Node;
+use Newspack_Nodes\Shell_Node;
 use Newspack_Nodes\Topology_Registry;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Topologies_CI extends Service_CI {
+class Topologies_CI_Node extends Service_CI_Node {
 
 	private const MAX_BODY_BYTES = 65536;
 
@@ -78,7 +78,7 @@ class Topologies_CI extends Service_CI {
 
 	private function verb_table(): array {
 		return [
-			'list'   => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): array {
+			'list'   => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
 				// Active = whatever the supervisor would spawn (merged catalog + operator overlay).
 				$resolved = Bootstrap::get_topologies();
 				$active   = [];
@@ -104,13 +104,13 @@ class Topologies_CI extends Service_CI {
 					'user_dir'   => Topology_Registry::user_dir(),
 				];
 			},
-			'connect_worker_input' => static function ( CommandInterpreter $self, string $args ): string {
+			'connect_worker_input' => static function ( Command_Interpreter_Node $self, string $args ): string {
 				// Mount the named worker's input Partition into THIS request's graph so a
 				// pivoted command in the same batch can route TO={reader}.pN. Returns '' (no reply).
 				Bootstrap::register_worker_partition( \trim( $args ), Bootstrap::base_dir() );
 				return '';
 			},
-			'get'    => static function ( CommandInterpreter $self, string $args ): array {
+			'get'    => static function ( Command_Interpreter_Node $self, string $args ): array {
 				$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
 
 				$path = Topology_Registry::resolve( $name );
@@ -138,7 +138,7 @@ class Topologies_CI extends Service_CI {
 					'tsl'    => $tsl,
 				];
 			},
-			'save'   => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {
+			'save'   => static function ( Command_Interpreter_Node $self, string $args, array $envelope, mixed $payload ): array {
 				self::require_manage_options();
 				if ( Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 					throw new \RuntimeException(
@@ -154,7 +154,7 @@ class Topologies_CI extends Service_CI {
 
 				// Dry-run validation: each statement passes Shell's syntax check.
 				// Report the 1-based offending line so the editor can position its cursor.
-				$shell = new Shell();
+				$shell = new Shell_Node();
 				foreach ( $shell->split_statements( $tsl ) as $i => $stmt ) {
 					try {
 						$shell->validate_line( $stmt );
@@ -216,7 +216,7 @@ class Topologies_CI extends Service_CI {
 					'restarted_fleets' => $restarted,
 				];
 			},
-			'delete' => static function ( CommandInterpreter $self, string $args ): array {
+			'delete' => static function ( Command_Interpreter_Node $self, string $args ): array {
 				self::require_manage_options();
 				$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
 

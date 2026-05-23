@@ -15,7 +15,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Command_Signer extends Node {
+class Command_Signer_Node extends Node {
 	public function fill( array &$message ): void {
 		++$this->counter;
 		if ( ( $message[ Message::TYPE ] & Message::TM_COMMAND ) && ! ( $message[ Message::TYPE ] & Message::TM_RESPONSE ) ) {

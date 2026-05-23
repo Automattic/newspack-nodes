@@ -40,7 +40,7 @@ class Topology_Loader {
 		Core::$var['partition'] = (string) $partition;
 		Core::$config           = $config;
 
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$shell->sink( $sink );
 
 		// TSL file content is local-disk only — phpcs's remote-fetch rule doesn't apply.

@@ -1,12 +1,12 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
-use Newspack_Nodes\Partition;
-use Newspack_Nodes\Router;
+use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tests\TestCase;
-use Newspack_Nodes\WorkerBase;
+use Newspack_Nodes\Worker_Base;
 
 class WorkerScaffoldingTest extends TestCase {
 	private string $tmp;
@@ -22,7 +22,7 @@ class WorkerScaffoldingTest extends TestCase {
 	}
 
 	public function test_build_scaffolding_creates_router_and_interpreter(): void {
-		$w = new WorkerBase( $this->tmp, 'test', 0 );
+		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$ci = $w->build_scaffolding();
 		$this->assertSame( $ci, Core::node( '_command_interpreter' ) );
 		$this->assertNotNull( Core::node( '_router' ) );
@@ -31,10 +31,10 @@ class WorkerScaffoldingTest extends TestCase {
 	public function test_build_scaffolding_installs_command_verifier(): void {
 		// The worker process must verify command provenance; an unsigned IPC
 		// command is refused, a signed one runs.
-		CommandInterpreter::register_class( 'CaptureSink', \Newspack_Nodes\Tests\CaptureSink::class );
-		$w  = new WorkerBase( $this->tmp, 'test', 0 );
+		Command_Interpreter_Node::register_class( 'CaptureSink', \Newspack_Nodes\Tests\CaptureSink::class );
+		$w  = new Worker_Base( $this->tmp, 'test', 0 );
 		$ci = $w->build_scaffolding();
-		$this->assertNotNull( CommandInterpreter::$default_authorize );
+		$this->assertNotNull( Command_Interpreter_Node::$default_authorize );
 
 		// Unsigned command (no LOCAL, no auth) — refused.
 		$unsigned                   = \Newspack_Nodes\Message::new_message();
@@ -61,8 +61,8 @@ class WorkerScaffoldingTest extends TestCase {
 		// (packed strips index 7; unpacked rejects 8-field lines), so the verifier
 		// must still trust LOCAL-tainted in-process commands — otherwise the worker
 		// refuses its own topology and boots with an empty graph.
-		CommandInterpreter::register_class( 'CaptureSink', \Newspack_Nodes\Tests\CaptureSink::class );
-		$w  = new WorkerBase( $this->tmp, 'test', 0 );
+		Command_Interpreter_Node::register_class( 'CaptureSink', \Newspack_Nodes\Tests\CaptureSink::class );
+		$w  = new Worker_Base( $this->tmp, 'test', 0 );
 		$ci = $w->build_scaffolding();
 
 		$local                   = \Newspack_Nodes\Message::new_message();
@@ -79,15 +79,15 @@ class WorkerScaffoldingTest extends TestCase {
 		// auto-packs any non-control message via Message::packed). Anything
 		// addressed to TO=`_repl` after _router peels lands here and gets
 		// serialized to disk.
-		$w = new WorkerBase( $this->tmp, 'test', 0 );
+		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$w->build_scaffolding();
 		$repl = Core::node( '_repl' );
 		$this->assertNotNull( $repl );
-		$this->assertInstanceOf( Partition::class, $repl );
+		$this->assertInstanceOf( Partition_Node::class, $repl );
 	}
 
 	public function test_interpreter_sinks_into_router(): void {
-		$w = new WorkerBase( $this->tmp, 'test', 0 );
+		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$ci = $w->build_scaffolding();
 		$this->assertSame( Core::node( '_router' ), $ci->sink() );
 	}

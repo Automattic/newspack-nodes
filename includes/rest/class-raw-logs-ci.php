@@ -15,15 +15,15 @@
 
 namespace Newspack_Nodes\Rest;
 
-use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Log_Discovery;
-use Newspack_Nodes\Partition;
-use Newspack_Nodes\Service_CI;
+use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Service_CI_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Raw_Logs_CI extends Service_CI {
+class Raw_Logs_CI_Node extends Service_CI_Node {
 
 	/** Fallback log key when the operator's `log` arg is missing or unknown. */
 	private const DEFAULT_LOG_KEY = 'firehose';
@@ -47,7 +47,7 @@ class Raw_Logs_CI extends Service_CI {
 	public function __construct() {
 		$this->commands(
 			[
-				'firehose_logs'   => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): array {
+				'firehose_logs'   => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
 					self::require_manage_options();
 					$result = [];
 					foreach ( Log_Discovery::on_disk() as $key ) {
@@ -58,7 +58,7 @@ class Raw_Logs_CI extends Service_CI {
 					}
 					return $result;
 				},
-				'firehose_status' => static function ( CommandInterpreter $self, string $args ): array {
+				'firehose_status' => static function ( Command_Interpreter_Node $self, string $args ): array {
 					self::require_manage_options();
 					$log_key = self::resolve_log_key( \trim( $args ) );
 
@@ -72,7 +72,7 @@ class Raw_Logs_CI extends Service_CI {
 					$total_size     = 0;
 					$total_segments = 0;
 					for ( $p = 0; $p < $num_partitions; $p++ ) {
-						$partition        = new Partition( "{$log_base}/{$log_file}", $p );
+						$partition        = new Partition_Node( "{$log_base}/{$log_file}", $p );
 						$segments         = $partition->get_segments( true );
 						$size             = (int) \array_sum( \array_column( $segments, 'size' ) );
 						$partitions[ $p ] = [

@@ -52,7 +52,7 @@ class Log_Cleaner {
 		};
 
 		foreach ( self::orphan_dirs( $base_dir, $is_orphan ) as $dir ) {
-			SupervisorBase::delete_directory_recursive( $dir, $base_dir );
+			Supervisor_Base::delete_directory_recursive( $dir, $base_dir );
 			if ( \is_dir( $dir ) ) {
 				$blocked = true;
 				continue;
@@ -71,7 +71,7 @@ class Log_Cleaner {
 				if ( isset( $expected_set[ $m[1] ] ) ) {
 					continue;
 				}
-				SupervisorBase::delete_directory_recursive( $log_dir, $base_dir );
+				Supervisor_Base::delete_directory_recursive( $log_dir, $base_dir );
 				if ( \is_dir( $log_dir ) ) {
 					$blocked = true;
 					continue;
@@ -104,7 +104,7 @@ class Log_Cleaner {
 			}
 		}
 		try {
-			foreach ( ( new Cli( $base_dir ) )->ls_workers() as $worker ) {
+			foreach ( ( new CLI( $base_dir ) )->ls_workers() as $worker ) {
 				if ( empty( $worker['stale'] ) ) {
 					$topology_names[ (string) $worker['type'] ] = true;
 				}

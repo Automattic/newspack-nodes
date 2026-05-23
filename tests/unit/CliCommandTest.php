@@ -15,8 +15,8 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Cli_Command;
-use Newspack_Nodes\Cli_Stdin_Reader;
+use Newspack_Nodes\CLI_Command;
+use Newspack_Nodes\CLI_Stdin_Reader_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -24,9 +24,9 @@ use PHPUnit\Framework\Attributes\CoversClass;
 require_once \dirname( __DIR__, 2 ) . '/includes/class-cli-command.php';
 require_once \dirname( __DIR__ ) . '/Helpers/WPCLIStub.php';
 
-#[CoversClass( Cli_Command::class )]
-#[CoversClass( Cli_Stdin_Reader::class )]
-#[CoversClass( \Newspack_Nodes\Dumper::class )]
+#[CoversClass( CLI_Command::class )]
+#[CoversClass( CLI_Stdin_Reader_Node::class )]
+#[CoversClass( \Newspack_Nodes\Dumper_Node::class )]
 class CliCommandTest extends TestCase {
 	private string $tmp;
 
@@ -71,7 +71,7 @@ class CliCommandTest extends TestCase {
 	// ── ls ────────────────────────────────────────────────────────────────────
 
 	public function test_ls_logs_no_workers_when_empty(): void {
-		( new Cli_Command() )->ls( [], [] );
+		( new CLI_Command() )->ls( [], [] );
 
 		$this->assertNotEmpty( $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( 'No workers running', $GLOBALS['_test_wp_cli_logs'][0] );
@@ -81,7 +81,7 @@ class CliCommandTest extends TestCase {
 		\mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
 		\touch( "{$this->tmp}/locks/firehose-workers.p0.lock.d/heartbeat" );
 
-		( new Cli_Command() )->ls( [], [] );
+		( new CLI_Command() )->ls( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( '[live]', $haystack );
@@ -94,7 +94,7 @@ class CliCommandTest extends TestCase {
 		// Heartbeat older than STALE_TIMEOUT (60s) → marked stale.
 		\touch( "{$this->tmp}/locks/jobs.p0.lock.d/heartbeat", \time() - 3600 );
 
-		( new Cli_Command() )->ls( [], [] );
+		( new CLI_Command() )->ls( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( '[stale]', $haystack );
@@ -105,7 +105,7 @@ class CliCommandTest extends TestCase {
 		// Lock dir present but heartbeat file never touched.
 		\mkdir( "{$this->tmp}/locks/aggregator.p0.lock.d", 0755, true );
 
-		( new Cli_Command() )->ls( [], [] );
+		( new CLI_Command() )->ls( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( 'never', $haystack );
@@ -123,7 +123,7 @@ class CliCommandTest extends TestCase {
 		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
 			$this->expectException( \RuntimeException::class );
 			$this->expectExceptionMessageMatches( '/must run as the same user/' );
-			( new Cli_Command() )->cli( [], [] );
+			( new CLI_Command() )->cli( [], [] );
 			return;
 		}
 		// Non-root path: the function will try to construct the REPL graph. We
@@ -142,7 +142,7 @@ class CliCommandTest extends TestCase {
 		\mkdir( "{$this->tmp}/locks/test-worker.p0.lock.d", 0755, true );
 		\touch( "{$this->tmp}/locks/test-worker.p0.lock.d/heartbeat" );
 
-		( new Cli_Command() )->ls( [], [] );
+		( new CLI_Command() )->ls( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
 		$this->assertStringContainsString( 'test-worker.p0', $haystack );
@@ -154,13 +154,13 @@ class CliCommandTest extends TestCase {
 		// Bare mode: _shell → _command_interpreter → _router → _output (Dumper).
 		// We invoke the private method via reflection to verify the graph shape
 		// without entering the run_repl event loop.
-		$ref = new \ReflectionMethod( Cli_Command::class, 'build_repl_graph' );
+		$ref = new \ReflectionMethod( CLI_Command::class, 'build_repl_graph' );
 		$ref->setAccessible( true );
 
-		[ $shell, $dumper ] = $ref->invoke( new Cli_Command(), false, null );
+		[ $shell, $dumper ] = $ref->invoke( new CLI_Command(), false, null );
 
-		$this->assertInstanceOf( \Newspack_Nodes\Shell::class, $shell );
-		$this->assertInstanceOf( \Newspack_Nodes\Dumper::class, $dumper );
+		$this->assertInstanceOf( \Newspack_Nodes\Shell_Node::class, $shell );
+		$this->assertInstanceOf( \Newspack_Nodes\Dumper_Node::class, $dumper );
 
 		// Verify registry: _command_interpreter, _router, _output should all be present.
 		$nodes = Core::$nodes_by_name;
@@ -187,22 +187,22 @@ class CliCommandTest extends TestCase {
 		\mkdir( $ipc['input'], 0755, true );
 		\mkdir( $ipc['output'], 0755, true );
 
-		$ref = new \ReflectionMethod( Cli_Command::class, 'build_repl_graph' );
+		$ref = new \ReflectionMethod( CLI_Command::class, 'build_repl_graph' );
 		$ref->setAccessible( true );
 
-		[ $shell, $dumper ] = $ref->invoke( new Cli_Command(), true, $ipc );
+		[ $shell, $dumper ] = $ref->invoke( new CLI_Command(), true, $ipc );
 
 		$nodes = Core::$nodes_by_name;
 		// The IPC input Partition is named after the worker, so `cd <worker>` routes to it.
 		$this->assertArrayHasKey( 'firehose-workers.p0', $nodes );
-		$this->assertInstanceOf( \Newspack_Nodes\Partition::class, $nodes['firehose-workers.p0'] );
+		$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, $nodes['firehose-workers.p0'] );
 		// Prompt + cwd reflect the worker path.
 		$this->assertSame( '/firehose-workers.p0> ', $shell->prompt );
 		$this->assertSame( 'firehose-workers.p0', $shell->path );
 
 		// Shell → Command_Signer → CommandInterpreter: pivoted commands are HMAC-signed,
 		// then routed by TO (the Router peels the worker id to the mounted Partition).
-		$this->assertInstanceOf( \Newspack_Nodes\Command_Signer::class, $shell->sink() );
+		$this->assertInstanceOf( \Newspack_Nodes\Command_Signer_Node::class, $shell->sink() );
 		$this->assertSame(
 			Core::node( \Newspack_Nodes\Node_Names::COMMAND_INTERPRETER ),
 			$shell->sink()->sink()
@@ -225,10 +225,10 @@ class CliCommandTest extends TestCase {
 		\mkdir( $ipc['input'], 0755, true );
 		\mkdir( $ipc['output'], 0755, true );
 
-		$ref = new \ReflectionMethod( Cli_Command::class, 'build_repl_graph' );
+		$ref = new \ReflectionMethod( CLI_Command::class, 'build_repl_graph' );
 		$ref->setAccessible( true );
 
-		[ , $dumper ] = $ref->invoke( new Cli_Command(), true, $ipc );
+		[ , $dumper ] = $ref->invoke( new CLI_Command(), true, $ipc );
 
 		// Reflect on the private field to confirm the filter is the current pid.
 		$pid_prop = new \ReflectionProperty( $dumper, 'to_filter' );
@@ -245,10 +245,10 @@ class CliCommandTest extends TestCase {
 			$this->markTestSkipped( 'prepare_repl WP_CLI::errors on root before reaching the bare-mode path' );
 		}
 
-		[ $shell, $dumper ] = ( new Cli_Command() )->prepare_repl( [] );
+		[ $shell, $dumper ] = ( new CLI_Command() )->prepare_repl( [] );
 
-		$this->assertInstanceOf( \Newspack_Nodes\Shell::class, $shell );
-		$this->assertInstanceOf( \Newspack_Nodes\Dumper::class, $dumper );
+		$this->assertInstanceOf( \Newspack_Nodes\Shell_Node::class, $shell );
+		$this->assertInstanceOf( \Newspack_Nodes\Dumper_Node::class, $dumper );
 		// Bare mode emits exactly one status line — the "local nodes only"
 		// banner. Pivoted mode emits three.
 		$this->assertCount( 1, $shell->status_lines );
@@ -266,7 +266,7 @@ class CliCommandTest extends TestCase {
 		// Mirror the on-disk shape `wp nodes ls` discovers.
 		\mkdir( "{$this->tmp}/locks/jobs.p0.lock.d", 0755, true );
 
-		[ $shell, $dumper ] = ( new Cli_Command() )->prepare_repl( [ 'jobs.p0' ] );
+		[ $shell, $dumper ] = ( new CLI_Command() )->prepare_repl( [ 'jobs.p0' ] );
 
 		// Pivoted mode banner: three lines including the input/output IPC paths.
 		$this->assertCount( 3, $shell->status_lines );
@@ -290,7 +290,7 @@ class CliCommandTest extends TestCase {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessageMatches( "/no worker &#039;nope\\.p0&#039;/" );
 
-		( new Cli_Command() )->prepare_repl( [ 'nope.p0' ] );
+		( new CLI_Command() )->prepare_repl( [ 'nope.p0' ] );
 	}
 
 	// ── dispatch_line ─────────────────────────────
@@ -298,8 +298,8 @@ class CliCommandTest extends TestCase {
 	public function test_dispatch_line_returns_false_for_empty_or_comment_lines(): void {
 		// Lines that the Shell parser drops (empty, comments) report false
 		// so the loop driver knows nothing was emitted.
-		$cmd   = new Cli_Command();
-		$shell = new \Newspack_Nodes\Shell();
+		$cmd   = new CLI_Command();
+		$shell = new \Newspack_Nodes\Shell_Node();
 		$sink  = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 
@@ -312,8 +312,8 @@ class CliCommandTest extends TestCase {
 	public function test_dispatch_line_strips_trailing_newline_then_dispatches(): void {
 		// fgets() leaves the trailing "\n" in the line. dispatch_line strips
 		// it and forwards through the Shell. Sink sees one TM_COMMAND.
-		$cmd   = new Cli_Command();
-		$shell = new \Newspack_Nodes\Shell();
+		$cmd   = new CLI_Command();
+		$shell = new \Newspack_Nodes\Shell_Node();
 		$sink  = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 
@@ -326,8 +326,8 @@ class CliCommandTest extends TestCase {
 
 	public function test_dispatch_line_handles_crlf(): void {
 		// Windows-style line endings get stripped just like LF.
-		$cmd   = new Cli_Command();
-		$shell = new \Newspack_Nodes\Shell();
+		$cmd   = new CLI_Command();
+		$shell = new \Newspack_Nodes\Shell_Node();
 		$sink  = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 
@@ -343,9 +343,9 @@ class CliCommandTest extends TestCase {
 		// Inject a memory stream pre-loaded with two complete lines + EOF.
 		// Drain ticks consume one line each; after both are gone, the next
 		// drain hits EOF and flips $exit.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 
@@ -354,7 +354,7 @@ class CliCommandTest extends TestCase {
 		\fwrite( $stream, "tell foo hi\n" );
 		\rewind( $stream );
 
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, $stream );
 
 		// Tick 1 → line "ls\n".
 		$reader->fire();
@@ -384,14 +384,14 @@ class CliCommandTest extends TestCase {
 		// user sees something before typing the first line. The write is
 		// routed through Dumper::write_prompt, so a memory-stream Dumper
 		// captures it and phpunit's real STDOUT stays clean.
-		$cmd        = new Cli_Command();
-		$shell      = new \Newspack_Nodes\Shell();
+		$cmd        = new CLI_Command();
+		$shell      = new \Newspack_Nodes\Shell_Node();
 		$shell->prompt = 'test-prompt> ';
 		$out_stream = \fopen( 'php://memory', 'w+' );
-		$dumper     = new \Newspack_Nodes\Dumper( $out_stream );
+		$dumper     = new \Newspack_Nodes\Dumper_Node( $out_stream );
 		$stream     = \fopen( 'php://memory', 'r+' );
 
-		new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream );
+		new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, $stream );
 
 		$prop = new \ReflectionProperty( $dumper, 'prompt_displayed' );
 		$prop->setAccessible( true );
@@ -409,11 +409,11 @@ class CliCommandTest extends TestCase {
 		// output. The 6th constructor arg gates prompt display: false skips
 		// both the initial prompt at construction time AND the per-line
 		// prompt redraw in drain_fh's non-readline branch.
-		$cmd        = new Cli_Command();
-		$shell      = new \Newspack_Nodes\Shell();
+		$cmd        = new CLI_Command();
+		$shell      = new \Newspack_Nodes\Shell_Node();
 		$shell->prompt = 'should-not-appear> ';
 		$out_stream = \fopen( 'php://memory', 'w+' );
-		$dumper     = new \Newspack_Nodes\Dumper( $out_stream );
+		$dumper     = new \Newspack_Nodes\Dumper_Node( $out_stream );
 		$sink       = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 
@@ -422,7 +422,7 @@ class CliCommandTest extends TestCase {
 		\rewind( $stream );
 
 		// 6th arg: show_prompts=false.
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, $stream, false );
 
 		// Constructor must NOT have set the dumper's prompt-displayed flag
 		// (no prompt was rendered).
@@ -446,15 +446,15 @@ class CliCommandTest extends TestCase {
 		// partition has been read off. Without this, scripted cli sessions
 		// race: stdin closes, cli exits, and pending replies never get
 		// rendered.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' ); // empty -> immediate EOF
 
 		// show_prompts=false (we're simulating a piped session).
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, $stream, false );
 		$reader->fire();
 
 		$this->assertCount( 1, $sink->captured, 'stdin EOF emits exactly one TM_EOF Message' );
@@ -476,13 +476,13 @@ class CliCommandTest extends TestCase {
 		// stdin EOF (the reader has emitted TM_EOF and is waiting), the echo
 		// arrives, Dumper fires the callback, and the next drain loop tick
 		// terminates.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
 		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, $stream, false );
 		$dumper->on_eof( function () use ( $reader ) { $reader->exit = true; } );
 
 		$reader->fire(); // hit stdin EOF, emit TM_EOF, wait
@@ -504,15 +504,15 @@ class CliCommandTest extends TestCase {
 		// within $eof_deadline_s, the reader gives up and exits anyway.
 		// Tests verify the deadline-based exit; production wires a 5s
 		// deadline (configurable per session).
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
 		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
 		// 0-second deadline → drain_fh sees stdin EOF, emits TM_EOF, then
 		// the next tick notices "deadline elapsed" and exits.
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false, 0.0 );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, $stream, false, 0.0 );
 
 		$reader->fire(); // emit TM_EOF
 		$this->assertFalse( $reader->exit );
@@ -533,15 +533,15 @@ class CliCommandTest extends TestCase {
 		if ( ! \function_exists( 'readline_callback_handler_install' ) ) {
 			$this->markTestSkipped( 'readline extension not available' );
 		}
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
-		$saved = \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install;
-		\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = null;
+		$saved = \Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install;
+		\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install = null;
 		try {
-			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+			$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, true, $stream );
 
 			// Defensive: real readline write went to fd 1; we only need to
 			// know the default closure ran (no exception, prompt_displayed
@@ -552,7 +552,7 @@ class CliCommandTest extends TestCase {
 			$this->assertFalse( $reader->exit );
 		} finally {
 			@\readline_callback_handler_remove();
-			\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = $saved;
+			\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install = $saved;
 			\fclose( $stream );
 		}
 	}
@@ -566,22 +566,22 @@ class CliCommandTest extends TestCase {
 		if ( ! \function_exists( 'readline_callback_read_char' ) ) {
 			$this->markTestSkipped( 'readline extension not available' );
 		}
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
-		\Newspack_Nodes\EventFramework::reset();
+		\Newspack_Nodes\Event_Framework::reset();
 
-		$saved_install = \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install;
-		$saved_read    = \Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char;
+		$saved_install = \Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install;
+		$saved_read    = \Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_read_char;
 		// install_handler stays stubbed (real one writes to fd 1); only
 		// read_char goes back to the real libreadline.
-		\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = static function ( string $prompt, callable $cb ): void {};
-		\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char       = null;
+		\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install = static function ( string $prompt, callable $cb ): void {};
+		\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_read_char       = null;
 
 		try {
-			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+			$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, true, $stream );
 
 			// fire() will reach the default read_char closure if stream_select
 			// reports any readiness on the memory stream. Even when stream_select
@@ -594,8 +594,8 @@ class CliCommandTest extends TestCase {
 			// proving works end-to-end.
 			$this->assertFalse( $reader->exit );
 		} finally {
-			\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = $saved_install;
-			\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char       = $saved_read;
+			\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install = $saved_install;
+			\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_read_char       = $saved_read;
 			\fclose( $stream );
 		}
 	}
@@ -608,13 +608,13 @@ class CliCommandTest extends TestCase {
 		if ( ! \function_exists( 'readline_callback_handler_install' ) ) {
 			$this->markTestSkipped( 'readline extension not available' );
 		}
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
 		try {
-			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+			$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, true, $stream );
 
 			$prop = new \ReflectionProperty( $dumper, 'prompt_displayed' );
 			$prop->setAccessible( true );
@@ -632,16 +632,16 @@ class CliCommandTest extends TestCase {
 		// After the first line is processed, drain_fh re-shows the prompt.
 		// Calling show_prompt_fallback again is a no-op (prompt_displayed
 		// already true) — that's the ~1-line early-return branch.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 		$stream = \fopen( 'php://memory', 'r+' );
 		\fwrite( $stream, "ls\n" );
 		\rewind( $stream );
 
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, $stream );
 
 		// Reach into the reader and verify the prompt-displayed flag flips
 		// off when fgets returns a line, then back on after show_prompt_
@@ -663,10 +663,10 @@ class CliCommandTest extends TestCase {
 	public function test_stdin_reader_handle_readline_line_with_null_sets_eof(): void {
 		// readline delivers null on Ctrl-D / EOF. The callback flips the
 		// reader's internal eof flag so the next drain tick exits.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$reader->handle_readline_line( null );
 
@@ -679,11 +679,11 @@ class CliCommandTest extends TestCase {
 		// Non-null line → goes into the queue, clears the dumper's
 		// prompt_displayed flag so subsequent synchronous output writes
 		// plainly rather than doing the async wipe-and-redisplay dance.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$dumper->mark_prompt_displayed();
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$reader->handle_readline_line( 'ls -al' );
 
@@ -701,10 +701,10 @@ class CliCommandTest extends TestCase {
 		// only adds non-empty lines to history. Verify the queue still
 		// receives the empty string (so the loop sees the user's bare-
 		// enter as a "no command" signal it can drop).
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$reader->handle_readline_line( '' );
 
@@ -719,15 +719,15 @@ class CliCommandTest extends TestCase {
 		if ( ! \function_exists( 'readline_callback_handler_install' ) ) {
 			$this->markTestSkipped( 'readline extension not available' );
 		}
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 		$stream = \fopen( 'php://memory', 'r+' );
 
 		try {
-			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+			$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, true, $stream );
 			$reader->fire();
 
 			$this->assertFalse( $reader->exit );
@@ -749,11 +749,11 @@ class CliCommandTest extends TestCase {
 		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
 			$this->markTestSkipped( 'prepare_repl bare branch only reachable when test user is non-root' );
 		}
-		$cmd = new Cli_Command();
+		$cmd = new CLI_Command();
 		[ $shell, $dumper ] = $cmd->prepare_repl( [] );
 
-		$this->assertInstanceOf( \Newspack_Nodes\Shell::class, $shell );
-		$this->assertInstanceOf( \Newspack_Nodes\Dumper::class, $dumper );
+		$this->assertInstanceOf( \Newspack_Nodes\Shell_Node::class, $shell );
+		$this->assertInstanceOf( \Newspack_Nodes\Dumper_Node::class, $dumper );
 		$this->assertSame( [ 'Bare cli mode (local nodes only).' ], $shell->status_lines );
 		// Banner is no longer auto-logged.
 		$this->assertNotContains( 'Bare cli mode (local nodes only).', $GLOBALS['_test_wp_cli_logs'] );
@@ -775,7 +775,7 @@ class CliCommandTest extends TestCase {
 		\mkdir( "{$this->tmp}/ipc/firehose-workers.p0/input", 0755, true );
 		\mkdir( "{$this->tmp}/ipc/firehose-workers.p0/output", 0755, true );
 
-		$cmd = new Cli_Command();
+		$cmd = new CLI_Command();
 		[ $shell, $dumper ] = $cmd->prepare_repl( [ 'firehose-workers.p0' ] );
 
 		$this->assertCount( 3, $shell->status_lines );
@@ -798,7 +798,7 @@ class CliCommandTest extends TestCase {
 		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
 			$this->markTestSkipped( 'reader-id branch only reachable when test user is non-root' );
 		}
-		$cmd = new Cli_Command();
+		$cmd = new CLI_Command();
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessageMatches( '/invalid reader id/' );
 		$cmd->prepare_repl( [ 'no-partition-suffix' ] );
@@ -812,7 +812,7 @@ class CliCommandTest extends TestCase {
 		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
 			$this->markTestSkipped( 'unknown-worker branch only reachable when test user is non-root' );
 		}
-		$cmd = new Cli_Command();
+		$cmd = new CLI_Command();
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessageMatches( '/no worker.*typo\.p0/' );
 		$cmd->prepare_repl( [ 'typo.p0' ] );
@@ -822,21 +822,21 @@ class CliCommandTest extends TestCase {
 		// Spec: after fire() emits TM_EOF (stdin closed), subsequent fire()
 		// ticks re-arm at EOF_POLL_MS=10 — tight enough to notice deadline /
 		// echo, light enough to leave CPU for other timers in the meantime.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
 		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
-		\Newspack_Nodes\EventFramework::reset();
+		\Newspack_Nodes\Event_Framework::reset();
 
 		// Generous deadline so the deadline-elapsed branch doesn't flip exit
 		// in this single fire(); we're isolating the EOF_POLL_MS re-arm.
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false, 60.0 );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, $stream, false, 60.0 );
 
 		$reader->fire(); // empty memory stream → feof=true → send_eof_marker
 
-		$ef       = \Newspack_Nodes\EventFramework::instance();
+		$ef       = \Newspack_Nodes\Event_Framework::instance();
 		$ef_ref   = new \ReflectionClass( $ef );
 		$timers_p = $ef_ref->getProperty( 'timers' );
 		$timers_p->setAccessible( true );
@@ -856,9 +856,9 @@ class CliCommandTest extends TestCase {
 		// Spec: fire() with a delivered line re-arms at BUSY_POLL_MS=0 so the
 		// next event-loop iteration drains the next line ASAP — critical for
 		// piped-stdin throughput where the kernel has many lines buffered.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 
@@ -866,12 +866,12 @@ class CliCommandTest extends TestCase {
 		\fwrite( $stream, "ls\n" );
 		\rewind( $stream );
 
-		\Newspack_Nodes\EventFramework::reset();
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false );
+		\Newspack_Nodes\Event_Framework::reset();
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, $stream, false );
 
 		$reader->fire();
 
-		$ef       = \Newspack_Nodes\EventFramework::instance();
+		$ef       = \Newspack_Nodes\Event_Framework::instance();
 		$ef_ref   = new \ReflectionClass( $ef );
 		$timers_p = $ef_ref->getProperty( 'timers' );
 		$timers_p->setAccessible( true );
@@ -889,14 +889,14 @@ class CliCommandTest extends TestCase {
 		// AND has its exit flipped (deadline elapsed, or echo received) MUST
 		// NOT re-arm the timer. Otherwise the drain loop would spin one more
 		// iteration after exit conditions met.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
 		$shell->sink( new \Newspack_Nodes\Tests\CaptureSink() );
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
 		// 0s deadline → fire() emits TM_EOF, then next fire() flips exit.
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, $stream, false, 0.0 );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, $stream, false, 0.0 );
 
 		$reader->fire(); // emit TM_EOF, sets eof_deadline_at = now (0s deadline)
 		\usleep( 1000 );  // advance clock past deadline
@@ -904,13 +904,13 @@ class CliCommandTest extends TestCase {
 		// Reset EventFramework right before fire #2 so any timer it registers
 		// is the ONLY one we'd see. The deadline-elapsed branch should return
 		// before set_timer() — so the registry must remain empty.
-		\Newspack_Nodes\EventFramework::reset();
+		\Newspack_Nodes\Event_Framework::reset();
 
 		$reader->fire(); // deadline check fires, $exit=true, early return
 
 		$this->assertTrue( $reader->exit );
 
-		$ef       = \Newspack_Nodes\EventFramework::instance();
+		$ef       = \Newspack_Nodes\Event_Framework::instance();
 		$ef_ref   = new \ReflectionClass( $ef );
 		$timers_p = $ef_ref->getProperty( 'timers' );
 		$timers_p->setAccessible( true );
@@ -932,26 +932,26 @@ class CliCommandTest extends TestCase {
 		//   1. The line goes through dispatch_line (sink sees a Message).
 		//   2. install_handler is re-called after delivery — verified by
 		//      hooking the closure to count invocations.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 		$stream = \fopen( 'php://memory', 'r+' );
 
-		\Newspack_Nodes\EventFramework::reset();
+		\Newspack_Nodes\Event_Framework::reset();
 
 		$install_calls = 0;
-		$saved_install = \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install;
-		$saved_read    = \Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char;
-		\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = static function ( string $prompt, callable $cb ) use ( &$install_calls ): void {
+		$saved_install = \Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install;
+		$saved_read    = \Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_read_char;
+		\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install = static function ( string $prompt, callable $cb ) use ( &$install_calls ): void {
 			++$install_calls;
 		};
 		// read_char is no-op (no line consumed). We pre-seed the queue.
-		\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char = static function (): void {};
+		\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_read_char = static function (): void {};
 
 		try {
-			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+			$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, true, $stream );
 
 			$this->assertSame( 1, $install_calls, 'constructor installs the handler once' );
 
@@ -972,8 +972,8 @@ class CliCommandTest extends TestCase {
 			// Handler re-installed after the dispatch (so the next prompt renders).
 			$this->assertSame( 2, $install_calls, 'fire() re-installs handler after delivered line' );
 		} finally {
-			\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = $saved_install;
-			\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char       = $saved_read;
+			\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install = $saved_install;
+			\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_read_char       = $saved_read;
 			\fclose( $stream );
 		}
 	}
@@ -983,11 +983,11 @@ class CliCommandTest extends TestCase {
 	public function test_build_completion_query_help_targets_pivot_with_completion_key(): void {
 		// A completion query for the FIRST token is a `help` command with
 		// KEY='completion', FROM=_output/$pid, TO=the shell pivot path, LOCAL set.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
 		$shell->path = 'firehose-workers.p0';
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$msg = $reader->build_completion_query( 'help' );
 
@@ -1002,10 +1002,10 @@ class CliCommandTest extends TestCase {
 	public function test_build_completion_query_ls_uses_list_nodes_verb(): void {
 		// The node-name query uses the `ls` verb (CommandInterpreter aliases it
 		// to list_nodes, which honors KEY='completion' for bare names).
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$msg = $reader->build_completion_query( 'ls' );
 
@@ -1018,10 +1018,10 @@ class CliCommandTest extends TestCase {
 	public function test_ingest_completion_reply_fills_command_cache_from_help(): void {
 		// A help-completion reply (bare newline list) populates the command
 		// candidate cache and is consumed (returns true → Dumper won't print).
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$reply                                   = \Newspack_Nodes\Message::new_message();
 		$reply[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
@@ -1040,10 +1040,10 @@ class CliCommandTest extends TestCase {
 
 	public function test_ingest_completion_reply_fills_node_cache_from_ls(): void {
 		// An ls-completion reply populates the node candidate cache.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$reply                                   = \Newspack_Nodes\Message::new_message();
 		$reply[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
@@ -1062,10 +1062,10 @@ class CliCommandTest extends TestCase {
 	public function test_ingest_completion_reply_replaces_cache_on_refresh(): void {
 		// A second reply for the same verb replaces (not appends to) the cache —
 		// nodes come and go.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$make = function ( string $payload ): array {
 			$m                                   = \Newspack_Nodes\Message::new_message();
@@ -1084,10 +1084,10 @@ class CliCommandTest extends TestCase {
 	public function test_ingest_completion_reply_ignores_non_completion_messages(): void {
 		// A normal command reply (no KEY='completion') is NOT consumed — the
 		// Dumper must still render it.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$reply                                   = \Newspack_Nodes\Message::new_message();
 		$reply[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
@@ -1100,10 +1100,10 @@ class CliCommandTest extends TestCase {
 	public function test_complete_first_token_filters_command_candidates(): void {
 		// At index 0 (first word on the line), completion offers command names
 		// whose prefix matches the typed word.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$help                                   = \Newspack_Nodes\Message::new_message();
 		$help[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
@@ -1116,10 +1116,10 @@ class CliCommandTest extends TestCase {
 
 	public function test_complete_later_token_filters_node_candidates(): void {
 		// At index > 0 (an argument), completion offers node names.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$ls                                   = \Newspack_Nodes\Message::new_message();
 		$ls[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
@@ -1132,10 +1132,10 @@ class CliCommandTest extends TestCase {
 
 	public function test_complete_empty_word_returns_all_candidates_for_position(): void {
 		// An empty word (Tab on a fresh prompt) returns the full command list.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$help                                   = \Newspack_Nodes\Message::new_message();
 		$help[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_RESPONSE;
@@ -1149,12 +1149,12 @@ class CliCommandTest extends TestCase {
 	public function test_send_completion_queries_emits_help_and_ls_through_shell(): void {
 		// Refresh sends BOTH a help and an ls completion query through the Shell
 		// (so they ride the same Command_Signer/CI path as any other command).
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
-		$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
 		$reader->send_completion_queries();
 
@@ -1173,7 +1173,7 @@ class CliCommandTest extends TestCase {
 		// The Dumper routes a KEY='completion' reply to its completion_sink (the
 		// reader's ingester) and renders NOTHING for it.
 		$out_stream = \fopen( 'php://memory', 'w+' );
-		$dumper     = new \Newspack_Nodes\Dumper( $out_stream );
+		$dumper     = new \Newspack_Nodes\Dumper_Node( $out_stream );
 		$seen       = null;
 		$dumper->set_completion_sink( function ( array $m ) use ( &$seen ): bool {
 			$seen = $m;
@@ -1195,23 +1195,23 @@ class CliCommandTest extends TestCase {
 		// Readline mode wires the Dumper's completion sink, registers the
 		// completion callback (captured via the seam), and seeds the cache by
 		// sending the initial help+ls queries through the Shell.
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
 		$registered    = null;
-		$saved_install = \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install;
-		$saved_reg     = \Newspack_Nodes\Cli_Stdin_Reader::$readline_completion_register;
-		\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = static function ( string $prompt, callable $cb ): void {};
-		\Newspack_Nodes\Cli_Stdin_Reader::$readline_completion_register = static function ( callable $cb ) use ( &$registered ): void {
+		$saved_install = \Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install;
+		$saved_reg     = \Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_completion_register;
+		\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install = static function ( string $prompt, callable $cb ): void {};
+		\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_completion_register = static function ( callable $cb ) use ( &$registered ): void {
 			$registered = $cb;
 		};
 
 		try {
-			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+			$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, true, $stream );
 
 			$this->assertIsCallable( $registered, 'completion callback registered' );
 
@@ -1234,8 +1234,8 @@ class CliCommandTest extends TestCase {
 			// The registered callback returns prefix-matched candidates.
 			$this->assertSame( [ 'cd' ], $registered( 'c', 0 ) );
 		} finally {
-			\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install     = $saved_install;
-			\Newspack_Nodes\Cli_Stdin_Reader::$readline_completion_register = $saved_reg;
+			\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install     = $saved_install;
+			\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_completion_register = $saved_reg;
 			\fclose( $stream );
 		}
 	}
@@ -1247,24 +1247,24 @@ class CliCommandTest extends TestCase {
 		if ( ! \function_exists( 'readline_completion_function' ) ) {
 			$this->markTestSkipped( 'readline extension not available' );
 		}
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$stream = \fopen( 'php://memory', 'r+' );
 
-		$saved_install = \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install;
-		$saved_reg     = \Newspack_Nodes\Cli_Stdin_Reader::$readline_completion_register;
-		\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install     = static function ( string $prompt, callable $cb ): void {};
-		\Newspack_Nodes\Cli_Stdin_Reader::$readline_completion_register = null;
+		$saved_install = \Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install;
+		$saved_reg     = \Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_completion_register;
+		\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install     = static function ( string $prompt, callable $cb ): void {};
+		\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_completion_register = null;
 
 		try {
-			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+			$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, true, $stream );
 			// Default closure ran without throwing; that's the line under test.
 			$this->assertFalse( $reader->exit );
 		} finally {
 			@\readline_callback_handler_remove();
-			\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install     = $saved_install;
-			\Newspack_Nodes\Cli_Stdin_Reader::$readline_completion_register = $saved_reg;
+			\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install     = $saved_install;
+			\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_completion_register = $saved_reg;
 			\fclose( $stream );
 		}
 	}
@@ -1273,22 +1273,22 @@ class CliCommandTest extends TestCase {
 		// Readline mode: when readline_callback_read_char calls back with
 		// null, the handle_readline_line flips $readline_eof. The NEXT
 		// fire() sees the flag and emits TM_EOF (via send_eof_marker).
-		$cmd    = new Cli_Command();
-		$shell  = new \Newspack_Nodes\Shell();
-		$dumper = new \Newspack_Nodes\Dumper( \fopen( 'php://memory', 'w+' ) );
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$sink   = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 		$stream = \fopen( 'php://memory', 'r+' );
 
-		\Newspack_Nodes\EventFramework::reset();
+		\Newspack_Nodes\Event_Framework::reset();
 
-		$saved_install = \Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install;
-		$saved_read    = \Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char;
-		\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = static function ( string $prompt, callable $cb ): void {};
-		\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char       = static function (): void {};
+		$saved_install = \Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install;
+		$saved_read    = \Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_read_char;
+		\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install = static function ( string $prompt, callable $cb ): void {};
+		\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_read_char       = static function (): void {};
 
 		try {
-			$reader = new \Newspack_Nodes\Cli_Stdin_Reader( $cmd, $shell, $dumper, true, $stream );
+			$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, true, $stream );
 
 			// Simulate readline delivering null (Ctrl-D / EOF).
 			$reader->handle_readline_line( null );
@@ -1309,8 +1309,8 @@ class CliCommandTest extends TestCase {
 			$prop->setAccessible( true );
 			$this->assertTrue( $prop->getValue( $reader ) );
 		} finally {
-			\Newspack_Nodes\Cli_Stdin_Reader::$readline_handler_install = $saved_install;
-			\Newspack_Nodes\Cli_Stdin_Reader::$readline_read_char       = $saved_read;
+			\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_handler_install = $saved_install;
+			\Newspack_Nodes\CLI_Stdin_Reader_Node::$readline_read_char       = $saved_read;
 			\fclose( $stream );
 		}
 	}

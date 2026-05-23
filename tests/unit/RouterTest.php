@@ -3,15 +3,15 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Router;
+use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( Router::class )]
+#[CoversClass( Router_Node::class )]
 class RouterTest extends TestCase {
 	public function test_routes_to_named_target_and_strips_first_segment(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
 		$dst = new CaptureSink();
@@ -28,7 +28,7 @@ class RouterTest extends TestCase {
 
 	public function test_empty_TO_with_FROM_sends_NOT_AVAILABLE_back_to_FROM(): void {
 		// No empty-TO->sink shortcut: empty TO -> NOT_AVAILABLE; with FROM set the error walks back to that node.
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 		$producer = new CaptureSink();
 		$producer->name( 'producer' );
@@ -44,7 +44,7 @@ class RouterTest extends TestCase {
 	}
 
 	public function test_unknown_target_sends_NOT_AVAILABLE_error(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 		$producer = new CaptureSink();
 		$producer->name( 'producer' );
@@ -71,7 +71,7 @@ class RouterTest extends TestCase {
 		// Don't bounce errors-on-errors: a TM_ERROR to an unknown target is dropped,
 		// not walked back to FROM. (Verified via the FROM node, since the Router
 		// has no sink.)
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 		$origin = new CaptureSink();
 		$origin->name( 'someone' );
@@ -86,7 +86,7 @@ class RouterTest extends TestCase {
 	}
 
 	public function test_router_getter_returns_null_sink(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 		$this->assertNull( $router->sink() );
 	}
@@ -94,7 +94,7 @@ class RouterTest extends TestCase {
 	public function test_setting_a_sink_throws(): void {
 		// The Router routes by peeling TO and drops what it cannot peel — it must
 		// never have a sink.
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 		$this->expectException( \InvalidArgumentException::class );
 		$router->sink( new CaptureSink() );

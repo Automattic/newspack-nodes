@@ -3,8 +3,8 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Consumer;
-use Newspack_Nodes\Rest\SSE_Out;
+use Newspack_Nodes\Consumer_Node;
+use Newspack_Nodes\Rest\SSE_Out_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -18,7 +18,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
  * surface signature regressions — the drain-loop body itself lands in
  * Task 18.
  */
-#[CoversClass( SSE_Out::class )]
+#[CoversClass( SSE_Out_Node::class )]
 class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 	private string $tmp;
@@ -32,7 +32,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// Reset the static seam so a test that reassigns it can't leak into
 		// later tests (today no other test touches it, but Task 18 will add
 		// more tests against this controller).
-		SSE_Out::$attach_to_worker = null;
+		SSE_Out_Node::$attach_to_worker = null;
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
@@ -43,14 +43,14 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// base log dir is enough to mirror the production layout
 		// `{base}/logs/{name}.log/p{N}/`.
 		\mkdir( "{$this->tmp}/logs/firehose.log", 0755, true );
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 		$ctrl->set_num_partitions( 3 );
 
 		$consumers = $ctrl->open_subscription( 'firehose', null );
 
 		$this->assertCount( 3, $consumers );
-		$this->assertContainsOnlyInstancesOf( Consumer::class, $consumers );
+		$this->assertContainsOnlyInstancesOf( Consumer_Node::class, $consumers );
 	}
 
 	public function test_log_subscription_stamps_partition_into_from(): void {
@@ -62,13 +62,13 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// stream emits FROM=`firehose` and the dashboard loses the per-row
 		// partition column.
 		\mkdir( "{$this->tmp}/logs/firehose.log", 0755, true );
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 		$ctrl->set_num_partitions( 3 );
 
 		$consumers = $ctrl->open_subscription( 'firehose', null );
 
-		$ref    = new \ReflectionProperty( Consumer::class, 'stamp_override' );
+		$ref    = new \ReflectionProperty( Consumer_Node::class, 'stamp_override' );
 		$stamps = [];
 		foreach ( $consumers as $c ) {
 			$stamps[] = $ref->getValue( $c );
@@ -83,13 +83,13 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		\mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
 		\mkdir( "{$this->tmp}/ipc/firehose-workers.p0/output", 0755, true );
 
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 
 		$consumers = $ctrl->open_subscription( 'firehose-workers.p0', null );
 
 		$this->assertCount( 1, $consumers );
-		$this->assertContainsOnlyInstancesOf( Consumer::class, $consumers );
+		$this->assertContainsOnlyInstancesOf( Consumer_Node::class, $consumers );
 	}
 
 	public function test_ipc_subscription_uses_attach_to_worker_seam_when_set(): void {
@@ -99,7 +99,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// dead to coverage. Set the seam to a recording closure and verify
 		// it gets invoked with the right args.
 		$recorded = [];
-		SSE_Out::$attach_to_worker = static function ( string $reader_id, string $base_dir ) use ( &$recorded ): array {
+		SSE_Out_Node::$attach_to_worker = static function ( string $reader_id, string $base_dir ) use ( &$recorded ): array {
 			$recorded[] = [
 				'reader_id' => $reader_id,
 				'base_dir'  => $base_dir,
@@ -114,12 +114,12 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		\mkdir( "{$this->tmp}/ipc/firehose-workers.p0/output", 0755, true );
 
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 		$consumers = $ctrl->open_subscription( 'firehose-workers.p0', null );
 
 		$this->assertCount( 1, $consumers );
-		$this->assertContainsOnlyInstancesOf( Consumer::class, $consumers );
+		$this->assertContainsOnlyInstancesOf( Consumer_Node::class, $consumers );
 		$this->assertCount( 1, $recorded );
 		$this->assertSame( 'firehose-workers.p0', $recorded[0]['reader_id'] );
 		$this->assertSame( $this->tmp, $recorded[0]['base_dir'] );
@@ -133,17 +133,17 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// Resolver must catch and fall through to log-name + partition.
 		\mkdir( "{$this->tmp}/logs/firehose.log/p0", 0755, true );
 
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 
 		$consumers = $ctrl->open_subscription( 'firehose.p0', null );
 
 		$this->assertCount( 1, $consumers );
-		$this->assertContainsOnlyInstancesOf( Consumer::class, $consumers );
+		$this->assertContainsOnlyInstancesOf( Consumer_Node::class, $consumers );
 	}
 
 	public function test_invalid_subscription_throws(): void {
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 
 		$this->expectException( \InvalidArgumentException::class );
@@ -151,7 +151,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 	}
 
 	public function test_parse_subscriptions_splits_csv_and_trims(): void {
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$this->assertSame(
 			[ 'firehose', 'errors', 'completed' ],
 			$ctrl->parse_subscriptions( ' firehose, errors , completed' )
@@ -159,7 +159,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 	}
 
 	public function test_parse_subscriptions_empty_returns_empty(): void {
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$this->assertSame( [], $ctrl->parse_subscriptions( '' ) );
 	}
 
@@ -168,7 +168,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 	public function test_register_routes_registers_stream_get_route(): void {
 		$GLOBALS['_wp_test_registered_routes'] = [];
 
-		( new SSE_Out() )->register_routes();
+		( new SSE_Out_Node() )->register_routes();
 
 		$this->assertCount( 1, $GLOBALS['_wp_test_registered_routes'] );
 		$route = $GLOBALS['_wp_test_registered_routes'][0];
@@ -187,12 +187,12 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 	// ── parse_positions ─────────────────────────────────────────────────────
 
 	public function test_parse_positions_returns_null_on_empty_string(): void {
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$this->assertNull( $ctrl->parse_positions( '' ) );
 	}
 
 	public function test_parse_positions_decodes_valid_json_object(): void {
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		// Browser sends `{"0":"3:1024","1":"7:0"}` — partition→position map.
 		// Returned as an associative array; the consumer-walker uses the
 		// partition index as key.
@@ -203,7 +203,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 	}
 
 	public function test_parse_positions_returns_null_when_json_is_not_an_array(): void {
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		// A bare JSON string / int / bool decodes successfully but isn't an
 		// array. Resolver must reject so a poisoned `positions` param doesn't
 		// later break Consumer::next_offset's positions[$partition] lookup.
@@ -225,7 +225,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// is_array($position) branch (cursor_seg/cursor_off direct seed).
 		\mkdir( "{$this->tmp}/logs/firehose.log/p0", 0755, true );
 
-		$ctrl = new SSE_Out();
+		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 
 		$consumers = $ctrl->open_subscription(

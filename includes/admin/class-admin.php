@@ -13,7 +13,7 @@ namespace Newspack_Nodes\Admin;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Config;
-use Newspack_Nodes\Lock;
+use Newspack_Nodes\Lock_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -227,7 +227,7 @@ class Admin {
 				$topology_partitions[ $name ] = (int) $catalog[ $name ]['num_partitions'];
 				continue;
 			}
-			$synth = \Newspack_Nodes\Topology_Registry::synthesize_entry( $name, $default_np, Lock::STALE_TIMEOUT );
+			$synth = \Newspack_Nodes\Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
 			if ( null !== $synth && isset( $synth['num_partitions'] ) ) {
 				$topology_partitions[ $name ] = (int) $synth['num_partitions'];
 			}
@@ -809,7 +809,7 @@ class Admin {
 		for ( $p = 0; $p < $num_partitions; $p++ ) {
 			foreach ( $worker_groups as $group ) {
 				$lock_dir = "{$locks_dir}/{$group}.p{$p}.lock.d";
-				Lock::request_restart_at( $lock_dir );
+				Lock_Node::request_restart_at( $lock_dir );
 			}
 		}
 	}

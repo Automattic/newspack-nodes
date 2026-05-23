@@ -1,15 +1,15 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Rest\SpawnController;
+use Newspack_Nodes\Rest\Spawn_Controller;
 use Newspack_Nodes\Supervisor;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( SpawnController::class )]
+#[CoversClass( Spawn_Controller::class )]
 class SpawnControllerTest extends TestCase {
 	private Supervisor $supervisor;
-	private SpawnController $controller;
+	private Spawn_Controller $controller;
 
 	protected function setUp(): void {
 		parent::setUp();
@@ -20,7 +20,7 @@ class SpawnControllerTest extends TestCase {
 		$GLOBALS['_wp_test_valid_nonces']      = [];
 		$GLOBALS['_wp_test_current_user_id']   = 0;
 		$this->supervisor = new Supervisor( '/tmp', 'NONCE_SALT_FOR_TEST' );
-		$this->controller = new SpawnController( $this->supervisor );
+		$this->controller = new Spawn_Controller( $this->supervisor );
 	}
 
 	protected function tearDown(): void {
@@ -102,7 +102,7 @@ class SpawnControllerTest extends TestCase {
 	public function test_check_permission_accepts_capability_plus_wp_nonce(): void {
 		// Stub: user has manage_options AND a valid wp_nonce for our action.
 		$GLOBALS['_wp_test_current_user_can']['manage_options']                      = true;
-		$GLOBALS['_wp_test_valid_nonces'][ SpawnController::NONCE_ACTION ]            = 'wp-nonce-abc';
+		$GLOBALS['_wp_test_valid_nonces'][ Spawn_Controller::NONCE_ACTION ]            = 'wp-nonce-abc';
 
 		$req    = $this->make_request( [ 'nonce' => 'wp-nonce-abc' ] );
 		$result = $this->controller->check_permission( $req );
@@ -118,7 +118,7 @@ class SpawnControllerTest extends TestCase {
 	}
 
 	public function test_check_permission_rejects_nonce_without_capability(): void {
-		$GLOBALS['_wp_test_valid_nonces'][ SpawnController::NONCE_ACTION ] = 'wp-nonce-abc';
+		$GLOBALS['_wp_test_valid_nonces'][ Spawn_Controller::NONCE_ACTION ] = 'wp-nonce-abc';
 		$GLOBALS['_wp_test_current_user_can']['manage_options']            = false;
 		$req    = $this->make_request( [ 'nonce' => 'wp-nonce-abc' ] );
 		$result = $this->controller->check_permission( $req );
@@ -128,7 +128,7 @@ class SpawnControllerTest extends TestCase {
 	public function test_check_permission_rate_limits_rapid_external_calls(): void {
 		// Two rapid valid external calls — second one must be rate-limited.
 		$GLOBALS['_wp_test_current_user_can']['manage_options']            = true;
-		$GLOBALS['_wp_test_valid_nonces'][ SpawnController::NONCE_ACTION ] = 'wp-nonce-abc';
+		$GLOBALS['_wp_test_valid_nonces'][ Spawn_Controller::NONCE_ACTION ] = 'wp-nonce-abc';
 
 		$req = $this->make_request( [ 'nonce' => 'wp-nonce-abc' ] );
 

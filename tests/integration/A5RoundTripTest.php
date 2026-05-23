@@ -1,13 +1,13 @@
 <?php
 namespace Newspack_Nodes\Tests\Integration;
 
-use Newspack_Nodes\Cli;
-use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\CLI;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
-use Newspack_Nodes\WorkerBase;
+use Newspack_Nodes\Worker_Base;
 
 class A5RoundTripTest extends TestCase {
 	private string $tmp;
@@ -23,12 +23,12 @@ class A5RoundTripTest extends TestCase {
 	}
 
 	public function test_full_lifecycle_acquire_topology_message_release(): void {
-		$w = new WorkerBase( $this->tmp, 'integration-test', 0 );
+		$w = new Worker_Base( $this->tmp, 'integration-test', 0 );
 		$this->assertTrue( $w->acquire() );
 
 		$ci = $w->build_scaffolding();
 
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
 		$topology = function ( $ci, int $partition ) {
 			$ci->dispatch( 'make_node', 'CaptureSink target' );
 		};
@@ -47,7 +47,7 @@ class A5RoundTripTest extends TestCase {
 		$this->assertSame( 'lifecycle-data', $target->captured[0][ Message::VALUE ] );
 
 		// Cli can list us as a live worker.
-		$cli = new Cli( $this->tmp );
+		$cli = new CLI( $this->tmp );
 		$workers = $cli->ls_workers();
 		$this->assertCount( 1, $workers );
 		$this->assertSame( 'integration-test', $workers[0]['type'] );

@@ -13,12 +13,12 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Log_Discovery;
-use Newspack_Nodes\Rest\Raw_Logs_CI;
+use Newspack_Nodes\Rest\Raw_Logs_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( Raw_Logs_CI::class )]
+#[CoversClass( Raw_Logs_CI_Node::class )]
 class RawLogsCITest extends TestCase {
 
 	private string $tmp;
@@ -49,7 +49,7 @@ class RawLogsCITest extends TestCase {
 	// -------------------------------------------------------------------------
 
 	public function test_node_schema_declares_its_verbs(): void {
-		$schema = Raw_Logs_CI::node_schema();
+		$schema = Raw_Logs_CI_Node::node_schema();
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['verbs'] );
 		\sort( $names );
 		$this->assertSame( [ 'firehose_logs', 'firehose_status' ], $names );
@@ -64,7 +64,7 @@ class RawLogsCITest extends TestCase {
 		\mkdir( $this->tmp . '/logs/jobs.log',     0755, true );
 		\mkdir( $this->tmp . '/logs/requests.log', 0755, true );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI(), 'raw-logs', 'firehose_logs' );
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'firehose_logs' );
 
 		$this->assertSame(
 			[
@@ -79,13 +79,13 @@ class RawLogsCITest extends TestCase {
 	public function test_firehose_logs_verb_returns_empty_when_no_logs_dir(): void {
 		// No logs/ dir means no glob matches — the picker shows an empty
 		// list and the dashboard renders a "no logs" affordance.
-		$result = VerbHarness::fire( new Raw_Logs_CI(), 'raw-logs', 'firehose_logs' );
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'firehose_logs' );
 		$this->assertSame( [], $result );
 	}
 
 	public function test_firehose_logs_verb_rejects_unauthorized(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		$result = VerbHarness::fire( new Raw_Logs_CI(), 'raw-logs', 'firehose_logs' );
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'firehose_logs' );
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
 	}
@@ -98,7 +98,7 @@ class RawLogsCITest extends TestCase {
 		\mkdir( $this->tmp . '/logs/firehose.log', 0755, true );
 
 		$result = VerbHarness::fire(
-			new Raw_Logs_CI(),
+			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'firehose_status',
 			null,
@@ -122,7 +122,7 @@ class RawLogsCITest extends TestCase {
 		\mkdir( $this->tmp . '/logs/firehose.log', 0755, true );
 
 		$result = VerbHarness::fire(
-			new Raw_Logs_CI(),
+			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'firehose_status',
 			null,
@@ -139,7 +139,7 @@ class RawLogsCITest extends TestCase {
 		\mkdir( $this->tmp . '/logs/firehose.log', 0755, true );
 
 		$result = VerbHarness::fire(
-			new Raw_Logs_CI(),
+			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'firehose_status',
 			null,
@@ -157,7 +157,7 @@ class RawLogsCITest extends TestCase {
 		\file_put_contents( "{$seg_dir}/0.log", \str_repeat( 'x', 128 ) );
 
 		$result = VerbHarness::fire(
-			new Raw_Logs_CI(),
+			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'firehose_status',
 			null,
@@ -174,7 +174,7 @@ class RawLogsCITest extends TestCase {
 	public function test_firehose_status_verb_rejects_unauthorized(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$result = VerbHarness::fire(
-			new Raw_Logs_CI(),
+			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'firehose_status',
 			null,

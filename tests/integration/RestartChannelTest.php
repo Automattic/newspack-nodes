@@ -1,9 +1,9 @@
 <?php
 namespace Newspack_Nodes\Tests\Integration;
 
-use Newspack_Nodes\Lock;
+use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Tests\TestCase;
-use Newspack_Nodes\WorkerBase;
+use Newspack_Nodes\Worker_Base;
 
 /**
  * Lock::request_restart → WorkerBase::should_continue=false integration test.
@@ -26,14 +26,14 @@ class RestartChannelTest extends TestCase {
 	}
 
 	public function test_worker_should_continue_returns_false_after_request_restart(): void {
-		$worker = new WorkerBase( $this->tmp, 'restart-test', 0 );
+		$worker = new Worker_Base( $this->tmp, 'restart-test', 0 );
 		$this->assertTrue( $worker->acquire() );
 
 		// Healthy state: should_continue passes.
 		$this->assertTrue( $worker->should_continue() );
 
 		// External requester drops the flag (e.g., a REST endpoint or admin action).
-		$external = new Lock( "{$this->tmp}/locks/restart-test.p0.lock.d" );
+		$external = new Lock_Node( "{$this->tmp}/locks/restart-test.p0.lock.d" );
 		$this->assertTrue( $external->request_restart() );
 
 		// Worker's next drain-loop tick exits cleanly.
@@ -43,10 +43,10 @@ class RestartChannelTest extends TestCase {
 	}
 
 	public function test_worker_release_after_restart_signal_cleans_up_flag(): void {
-		$worker = new WorkerBase( $this->tmp, 'restart-test', 0 );
+		$worker = new Worker_Base( $this->tmp, 'restart-test', 0 );
 		$worker->acquire();
 
-		$external = new Lock( "{$this->tmp}/locks/restart-test.p0.lock.d" );
+		$external = new Lock_Node( "{$this->tmp}/locks/restart-test.p0.lock.d" );
 		$external->request_restart();
 
 		$this->assertFalse( $worker->should_continue() );
@@ -56,7 +56,7 @@ class RestartChannelTest extends TestCase {
 		$this->assertFalse( is_dir( "{$this->tmp}/locks/restart-test.p0.lock.d" ) );
 
 		// A fresh worker can acquire and starts in a non-restart state.
-		$next = new WorkerBase( $this->tmp, 'restart-test', 0 );
+		$next = new Worker_Base( $this->tmp, 'restart-test', 0 );
 		$this->assertTrue( $next->acquire() );
 		$this->assertTrue( $next->should_continue(), 'fresh worker must not inherit prior restart signal' );
 		$next->release();

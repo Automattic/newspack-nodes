@@ -3,7 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Supervisor;
-use Newspack_Nodes\SupervisorBase;
+use Newspack_Nodes\Supervisor_Base;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -90,7 +90,7 @@ class BootstrapTest extends TestCase {
 			$result = Bootstrap::get_topologies();
 			$this->assertArrayHasKey( 'quiet', $result );
 			$this->assertSame( 1, $result['quiet']['num_partitions'] );
-			$this->assertSame( \Newspack_Nodes\Lock::STALE_TIMEOUT, $result['quiet']['stale_timeout'] );
+			$this->assertSame( \Newspack_Nodes\Lock_Node::STALE_TIMEOUT, $result['quiet']['stale_timeout'] );
 		} finally {
 			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
 			\Newspack_Nodes\Topology_Registry::reset();
@@ -196,9 +196,9 @@ class BootstrapTest extends TestCase {
 		} );
 
 		$workers = Bootstrap::expand_workers();
-		$this->assertCount( SupervisorBase::MAX_PARTITIONS, $workers );
+		$this->assertCount( Supervisor_Base::MAX_PARTITIONS, $workers );
 		// Last partition index is MAX_PARTITIONS-1.
-		$this->assertSame( SupervisorBase::MAX_PARTITIONS - 1, $workers[ SupervisorBase::MAX_PARTITIONS - 1 ]['partition'] );
+		$this->assertSame( Supervisor_Base::MAX_PARTITIONS - 1, $workers[ Supervisor_Base::MAX_PARTITIONS - 1 ]['partition'] );
 	}
 
 	public function test_expand_workers_clamps_zero_partitions_to_one(): void {

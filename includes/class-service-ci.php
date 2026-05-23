@@ -30,7 +30,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-abstract class Service_CI extends CommandInterpreter {
+abstract class Service_CI_Node extends Command_Interpreter_Node {
 
 	/**
 	 * Authorisation gate. Throws a RuntimeException when the current user

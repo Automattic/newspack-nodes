@@ -9,7 +9,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Cli_Command {
+class CLI_Command {
 
 	private function base_dir(): string {
 		return (string) ( Config::load_config()['base_directory'] ?? '/tmp/newspack-nodes' );
@@ -23,7 +23,7 @@ class Cli_Command {
 	 *     wp nodes ls
 	 */
 	public function ls( array $args, array $assoc_args ): void {
-		$cli     = new Cli( $this->base_dir() );
+		$cli     = new CLI( $this->base_dir() );
 		$workers = $cli->ls_workers();
 		if ( empty( $workers ) ) {
 			\WP_CLI::log( 'No workers running. base_dir=' . $this->base_dir() );
@@ -60,7 +60,7 @@ class Cli_Command {
 	 * Build the REPL graph + log the mode line, returning [$shell, $dumper] for run_repl.
 	 *
 	 * @param array $args WP_CLI positional arguments. Empty = bare mode; else $args[0] is the worker id.
-	 * @return array{0:Shell,1:Dumper}
+	 * @return array{0:Shell_Node,1:Dumper_Node}
 	 */
 	public function prepare_repl( array $args ): array {
 		// Refuse root: a root cli would create the IPC dirs root-owned, so non-root clis lose writes.
@@ -68,7 +68,7 @@ class Cli_Command {
 			\WP_CLI::error( 'wp nodes cli must run as the same user as the workers, not root.' );
 		}
 
-		$cli = new Cli( $this->base_dir() );
+		$cli = new CLI( $this->base_dir() );
 
 		$pivoted = ! empty( $args );
 		$ipc     = null;
@@ -104,24 +104,24 @@ class Cli_Command {
 	 * Build the REPL node graph (bare: _shell → CI → _router → _output; pivoted adds IPC nodes).
 	 *
 	 * @param array{input:string,output:string,type:string,partition:int}|null $ipc
-	 * @return array{0:Shell,1:Dumper}
+	 * @return array{0:Shell_Node,1:Dumper_Node}
 	 */
 	private function build_repl_graph( bool $pivoted, ?array $ipc ): array {
 		$pid = (string) \getmypid();
 
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( Node_Names::ROUTER );
 
-		$interpreter = new CommandInterpreter();
+		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
 		$interpreter->sink( $router );
 
 		// `_output`: Shell stamps FROM=_output/$pid, so replies route back here.
-		$dumper = new Dumper();
+		$dumper = new Dumper_Node();
 		$dumper->name( Node_Names::OUTPUT );
 
 		// Shell stays anonymous (Shell::name would throw); `ls` filters by sink anyway.
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$shell->sink( $interpreter );
 		// Defined unconditionally (empty in bare mode) so it's in scope for both
 		// pivoted blocks below; the blocks themselves are guarded.
@@ -137,19 +137,19 @@ class Cli_Command {
 
 		if ( $pivoted && null !== $ipc ) {
 			// IPC topics are single-partition; skip allow_large_writes so sessions append concurrently.
-			$ipc_out = new Partition( $ipc['input'], 0 );
+			$ipc_out = new Partition_Node( $ipc['input'], 0 );
 			$ipc_out->name( $worker_id );
 			$ipc_out->sink( $interpreter );
 			// Sign commands on the way to the worker: the cli is a local
 			// secret-holding issuer, and the worker verifies provenance (the LOCAL
 			// taint is stripped at the IPC boundary). Shell → Command_Signer → cmd-out.
-			$signer = new Command_Signer();
+			$signer = new Command_Signer_Node();
 			$signer->sink( $interpreter );
 			$shell->sink( $signer );
 			$shell->path = $worker_id;
 
 			// reply-in: ephemeral, so empty offsetlog_base_dir (no durable cursor).
-			$reply_in = new Consumer( $ipc['output'], 0 );
+			$reply_in = new Consumer_Node( $ipc['output'], 0 );
 			$reply_in->next_offset( 'end' );
 			$reply_in->sink( $router );
 			$reply_in->target( Node_Names::OUTPUT );
@@ -164,7 +164,7 @@ class Cli_Command {
 	/**
 	 * Drive the REPL via the event loop until STDIN EOF. Readline on a TTY, fgets otherwise.
 	 */
-	private function run_repl( Shell $shell, Dumper $dumper ): void {
+	private function run_repl( Shell_Node $shell, Dumper_Node $dumper ): void {
 		// readline only on a real TTY; pipes fall through to fgets (EOF-terminating).
 		$is_tty       = \function_exists( 'posix_isatty' ) && @\posix_isatty( \STDIN );
 		$has_readline = $is_tty && \function_exists( 'readline_callback_handler_install' );
@@ -173,7 +173,7 @@ class Cli_Command {
 		$shell->output_stream = \STDOUT;
 
 		// Skip prompts when stdin is piped — they break `... | grep` consumers.
-		$reader = new Cli_Stdin_Reader( $this, $shell, $dumper, $has_readline, null, $is_tty );
+		$reader = new CLI_Stdin_Reader_Node( $this, $shell, $dumper, $has_readline, null, $is_tty );
 
 		// On the worker's TM_EOF echo, flip the exit flag so scripted sessions don't orphan replies.
 		$dumper->on_eof( static function () use ( $reader ): void {
@@ -182,7 +182,7 @@ class Cli_Command {
 
 		// Schedule the first fire; subsequent fires self-schedule.
 		$reader->set_timer( 0, true );
-		EventFramework::instance()->drain( static fn () => ! $reader->exit );
+		Event_Framework::instance()->drain( static fn () => ! $reader->exit );
 
 		if ( $has_readline ) {
 			\readline_callback_handler_remove();
@@ -196,7 +196,7 @@ class Cli_Command {
 	/**
 	 * Parse one input line through the Shell graph (split into statements). True if any Message emitted.
 	 */
-	public function dispatch_line( Shell $shell, string $line ): bool {
+	public function dispatch_line( Shell_Node $shell, string $line ): bool {
 		$line     = \rtrim( $line, "\r\n" );
 		$dispatched = false;
 		foreach ( $shell->split_statements( $line ) as $statement ) {
@@ -216,7 +216,7 @@ class Cli_Command {
  *
  * @package Newspack_Nodes
  */
-class Cli_Stdin_Reader extends Timer {
+class CLI_Stdin_Reader_Node extends Timer_Node {
 	/**
 	 * `readline_callback_handler_install` seam. Tests reassign to a no-op.
 	 *
@@ -256,9 +256,9 @@ class Cli_Stdin_Reader extends Timer {
 	/** @var resource */
 	public $stream;
 	public bool $exit = false;
-	private Cli_Command $cmd;
-	private Shell $shell;
-	private Dumper $dumper;
+	private CLI_Command $cmd;
+	private Shell_Node $shell;
+	private Dumper_Node $dumper;
 	private bool $has_readline;
 	private bool $show_prompts;
 	private float $eof_deadline_s;
@@ -277,7 +277,7 @@ class Cli_Stdin_Reader extends Timer {
 	 * @param bool          $show_prompts   Render the prompt before each read; false when piped.
 	 * @param float         $eof_deadline_s Cap on waiting for the TM_EOF echo after stdin closes.
 	 */
-	public function __construct( Cli_Command $cmd, Shell $shell, Dumper $dumper, bool $has_readline, $stream = null, bool $show_prompts = true, float $eof_deadline_s = 5.0 ) {
+	public function __construct( CLI_Command $cmd, Shell_Node $shell, Dumper_Node $dumper, bool $has_readline, $stream = null, bool $show_prompts = true, float $eof_deadline_s = 5.0 ) {
 		parent::__construct();
 		$this->stream         = $stream ?? \STDIN;
 		$this->cmd            = $cmd;

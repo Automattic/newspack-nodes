@@ -2,59 +2,59 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
-use Newspack_Nodes\Dumper;
+use Newspack_Nodes\Dumper_Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Shell;
+use Newspack_Nodes\Shell_Node;
 use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
-#[CoversClass( Shell::class )]
+#[CoversClass( Shell_Node::class )]
 class ShellTest extends TestCase {
 
 	public function test_tokenize_plain_words(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame( [ 'tell', 'foo', 'bar' ], $shell->tokenize( 'tell foo bar' ) );
 	}
 
 	public function test_tokenize_collapses_repeated_whitespace(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame( [ 'a', 'b', 'c' ], $shell->tokenize( "a   b\tc" ) );
 	}
 
 	public function test_tokenize_double_quoted_string_is_one_token(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame( [ 'send', 'node', 'hello world' ], $shell->tokenize( 'send node "hello world"' ) );
 	}
 
 	public function test_tokenize_single_quoted_string_is_one_token(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame( [ 'send', "two words" ], $shell->tokenize( "send 'two words'" ) );
 	}
 
 	public function test_tokenize_backtick_quoted_string_is_one_token(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame( [ 'cmd', 'literal $foo' ], $shell->tokenize( 'cmd `literal $foo`' ) );
 	}
 
 	public function test_tokenize_empty_quoted_string_is_a_token(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame( [ 'send', '', 'after' ], $shell->tokenize( "send '' after" ) );
 	}
 
 	public function test_interpolate_replaces_known_variable(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$shell->set_variable( 'name', 'alice' );
 		$this->assertSame( 'tell alice hello', $shell->interpolate( 'tell <name> hello' ) );
 	}
 
 	public function test_interpolate_unknown_variable_yields_empty(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame( 'tell  hello', $shell->interpolate( 'tell <ghost> hello' ) );
 	}
 
 	public function test_parse_tell_yields_TM_INFO(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'tell node msg');
 
 		$this->assertNotNull( $msg );
@@ -65,7 +65,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_parse_send_yields_TM_BYTESTREAM(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'send node bytes');
 
 		$this->assertSame( Message::TM_BYTESTREAM, $msg[ Message::TYPE ] );
@@ -74,7 +74,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_parse_send_eof_yields_TM_EOF(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'send_eof node');
 
 		$this->assertSame( Message::TM_EOF, $msg[ Message::TYPE ] );
@@ -85,7 +85,7 @@ class ShellTest extends TestCase {
 		// Tachikoma Shell3 ping builtin: build TM_PING addressed at the path,
 		// payload = current timestamp; receiver's CI bounces TO=FROM.
 		Core::$now = 1234567890.123456;
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'ping _command_interpreter');
 
 		$this->assertNotNull( $msg );
@@ -96,7 +96,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_parse_default_verb_yields_TM_COMMAND(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'ls');
 
 		$this->assertSame( Message::TM_COMMAND, $msg[ Message::TYPE ] );
@@ -107,7 +107,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_parse_default_verb_with_args(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'make_node CaptureSink alice');
 
 		$cmd = $msg[ Message::VALUE ];
@@ -123,7 +123,7 @@ class ShellTest extends TestCase {
 		// on demand instead of auto-printing them at startup, so scripted
 		// callers can capture clean output.
 		$out_stream = \fopen( 'php://memory', 'w+' );
-		$shell      = new Shell();
+		$shell      = new Shell_Node();
 		$shell->output_stream = $out_stream;
 		$shell->status_lines  = [
 			'Pivoted-cli mode for firehose-workers.p0',
@@ -143,12 +143,12 @@ class ShellTest extends TestCase {
 
 	public function test_parse_debug_level_no_args_toggles_dumper_state(): void {
 		// `debug_level` with no args toggles between 0 and 1.
-		$dumper = new Dumper();
+		$dumper = new Dumper_Node();
 		$dumper->name( '_output' );
 		$this->assertSame( 0, $dumper->debug_level(), 'default off' );
 
 		$out_stream = \fopen( 'php://memory', 'w+' );
-		$shell      = new Shell();
+		$shell      = new Shell_Node();
 		$shell->output_stream = $out_stream;
 
 		$this->assertNull( $shell->parse( 'debug_level' ) );
@@ -165,11 +165,11 @@ class ShellTest extends TestCase {
 
 	public function test_parse_debug_level_with_explicit_argument_sets(): void {
 		// `debug_level 2` explicitly sets to 2 (max).
-		$dumper = new Dumper();
+		$dumper = new Dumper_Node();
 		$dumper->name( '_output' );
 
 		$out_stream = \fopen( 'php://memory', 'w+' );
-		$shell      = new Shell();
+		$shell      = new Shell_Node();
 		$shell->output_stream = $out_stream;
 
 		$this->assertNull( $shell->parse( 'debug_level 2' ) );
@@ -185,7 +185,7 @@ class ShellTest extends TestCase {
 		// on, every parse() emits the post-interpolation line and tokens to
 		// $output_stream BEFORE the actual command dispatches.
 		$out_stream = \fopen( 'php://memory', 'w+' );
-		$shell      = new Shell();
+		$shell      = new Shell_Node();
 		$shell->output_stream = $out_stream;
 		$this->assertFalse( $shell->show_parse(), 'default off' );
 
@@ -214,7 +214,7 @@ class ShellTest extends TestCase {
 		// Empty $status_lines (e.g. shell wasn't configured by the cli) →
 		// status is a no-op; no garbage output, no errors.
 		$out_stream = \fopen( 'php://memory', 'w+' );
-		$shell      = new Shell();
+		$shell      = new Shell_Node();
 		$shell->output_stream = $out_stream;
 
 		$this->assertNull( $shell->parse( 'status' ) );
@@ -228,7 +228,7 @@ class ShellTest extends TestCase {
 		// No special "forbidden verb" list: control-flow keywords are just unknown
 		// verbs that parse to a TM_COMMAND and flow through — the target
 		// CommandInterpreter answers `unknown command: <verb>`.
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		foreach ( [ 'eval foo', 'if true', 'while x', 'for x', 'func name' ] as $line ) {
 			$msg = $shell->parse( $line );
 			$this->assertIsArray( $msg, "'$line' should parse to a Message" );
@@ -240,14 +240,14 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_parse_empty_or_comment_returns_null(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertNull( $shell->parse( '') );
 		$this->assertNull( $shell->parse( '   ') );
 		$this->assertNull( $shell->parse( '# a comment') );
 	}
 
 	public function test_parse_with_interpolation(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$shell->set_variable( 'who', 'bob' );
 
 		$msg = $shell->parse( 'tell <who> hi');
@@ -256,7 +256,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_backslash_continuation_yields_null_until_terminating_line(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		// First line ends with '\' → continuation.
 		$msg1 = $shell->parse( 'tell node "hello\\');
 		$this->assertNull( $msg1, 'backslash continuation must defer message emission' );
@@ -267,7 +267,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_fill_forwards_to_sink(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$sink  = new CaptureSink();
 		$shell->sink( $sink );
 
@@ -279,7 +279,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_msg_ids_are_unique_within_a_session(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$m1 = $shell->parse( 'ls');
 		$m2 = $shell->parse( 'ls');
 		$this->assertNotSame( $m1[ Message::ID ], $m2[ Message::ID ] );
@@ -291,7 +291,7 @@ class ShellTest extends TestCase {
 		\file_put_contents( $file, "tell alpha first\ntell beta second\n# comment\n" );
 
 		// include is processed inline; each parsed line goes through fill() → sink.
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$sink  = new CaptureSink();
 		$shell->sink( $sink );
 
@@ -303,7 +303,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_include_missing_file_is_silent_warning(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertNull(
 			$shell->parse( 'include /no/such/file'),
 			'missing include must not throw — only warn'
@@ -322,7 +322,7 @@ class ShellTest extends TestCase {
 		// with TO=_output/$pid, and the cli's reply-in Consumer reads it
 		// where Dumper's regex filter (`(?:_output/)?$pid`) matches.
 		// Multi-session: other clis' replies use a different $pid → drop.
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'ls');
 
 		$this->assertNotNull( $msg );
@@ -330,26 +330,26 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_parse_from_is_pid_for_tell(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'tell node msg');
 		$this->assertSame( '_output/' . \getmypid(), $msg[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_pid_for_send(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'send node bytes');
 		$this->assertSame( '_output/' . \getmypid(), $msg[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_pid_for_send_eof(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'send_eof node');
 		$this->assertSame( '_output/' . \getmypid(), $msg[ Message::FROM ] );
 	}
 
 	public function test_parse_from_is_stable_within_a_process(): void {
 		// All messages from a single Shell instance must carry the same FROM.
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$m1    = $shell->parse( 'ls');
 		$m2    = $shell->parse( 'tell node hi');
 		$m3    = $shell->parse( 'send node bytes');
@@ -361,7 +361,7 @@ class ShellTest extends TestCase {
 	// ── name (refusal) ─────────────────────────────────────────────────────
 
 	public function test_name_refuses_to_register_under_a_name(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessageMatches( '/named Shell nodes are not allowed/' );
 		$shell->name( 'attempted-name' );
@@ -370,7 +370,7 @@ class ShellTest extends TestCase {
 	public function test_name_returns_empty_string_when_not_set(): void {
 		// Shells stay anonymous so they don't appear in `ls` or get addressed
 		// via TO. Calling name() with no arg returns the unset value.
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame( '', $shell->name() );
 	}
 
@@ -378,21 +378,21 @@ class ShellTest extends TestCase {
 
 	public function test_cd_absolute_path_replaces_cwd(): void {
 		// `cd /foo/bar` resolves to "foo/bar" (leading slash stripped).
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$shell->path = 'old/cwd';
 		$this->assertNull( $shell->parse( 'cd /firehose-workers.p0' ) );
 		$this->assertSame( 'firehose-workers.p0', $shell->path );
 	}
 
 	public function test_cd_relative_path_appends_to_cwd(): void {
-		$shell       = new Shell();
+		$shell       = new Shell_Node();
 		$shell->path = 'jobs:partition';
 		$shell->parse( 'cd subnode' );
 		$this->assertSame( 'jobs:partition/subnode', $shell->path );
 	}
 
 	public function test_cd_dotdot_walks_up_one_segment(): void {
-		$shell       = new Shell();
+		$shell       = new Shell_Node();
 		$shell->path = 'a/b/c';
 		$shell->parse( 'cd ..' );
 		$this->assertSame( 'a/b', $shell->path );
@@ -400,7 +400,7 @@ class ShellTest extends TestCase {
 
 	public function test_cd_dotdot_chain_walks_up_multiple_segments(): void {
 		// `../../foo` walks up two segments then descends.
-		$shell       = new Shell();
+		$shell       = new Shell_Node();
 		$shell->path = 'a/b/c';
 		$shell->parse( 'cd ../../foo' );
 		$this->assertSame( 'a/foo', $shell->path );
@@ -409,7 +409,7 @@ class ShellTest extends TestCase {
 	public function test_cd_with_no_arg_keeps_cwd(): void {
 		// Empty path is a no-op (Tachikoma Shell.pm semantics) — `cd` alone
 		// is "redraw prompt"; use `cd /` to reset.
-		$shell       = new Shell();
+		$shell       = new Shell_Node();
 		$shell->path = 'somewhere/deep';
 		$shell->parse( 'cd' );
 		$this->assertSame( 'somewhere/deep', $shell->path );
@@ -417,14 +417,14 @@ class ShellTest extends TestCase {
 
 	public function test_cd_slash_resets_to_root(): void {
 		// `cd /` returns to the local interpreter (cwd='').
-		$shell       = new Shell();
+		$shell       = new Shell_Node();
 		$shell->path = 'somewhere/deep';
 		$shell->parse( 'cd /' );
 		$this->assertSame( '', $shell->path );
 	}
 
 	public function test_chdir_alias_acts_like_cd(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$shell->parse( 'chdir /target' );
 		$this->assertSame( 'target', $shell->path );
 	}
@@ -432,23 +432,23 @@ class ShellTest extends TestCase {
 	// ── prefix() composition ───────────────────────────────────────────────
 
 	public function test_prefix_with_empty_path_and_arg_returns_empty(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame( '', $shell->prefix( '' ) );
 	}
 
 	public function test_prefix_with_path_only_returns_path(): void {
-		$shell       = new Shell();
+		$shell       = new Shell_Node();
 		$shell->path = 'firehose-workers.p0';
 		$this->assertSame( 'firehose-workers.p0', $shell->prefix( '' ) );
 	}
 
 	public function test_prefix_with_arg_only_returns_arg(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame( 'node', $shell->prefix( 'node' ) );
 	}
 
 	public function test_prefix_combines_path_and_arg_with_slash(): void {
-		$shell       = new Shell();
+		$shell       = new Shell_Node();
 		$shell->path = 'firehose-workers.p0';
 		$this->assertSame( 'firehose-workers.p0/firehose:tee', $shell->prefix( 'firehose:tee' ) );
 	}
@@ -459,7 +459,7 @@ class ShellTest extends TestCase {
 		// After `cd firehose-workers.p0`, an unbuiltin verb like `ls` should
 		// emit TM_COMMAND with TO=firehose-workers.p0 so the worker's CI
 		// (not the local one) handles it.
-		$shell       = new Shell();
+		$shell       = new Shell_Node();
 		$shell->path = 'firehose-workers.p0';
 		$msg         = $shell->parse( 'ls -al' );
 		$this->assertSame( 'firehose-workers.p0', $msg[ Message::TO ] );
@@ -471,7 +471,7 @@ class ShellTest extends TestCase {
 	// ── new verbs: tell_node / send_node / command_node / request_node ────
 
 	public function test_tell_node_canonical_emits_TM_INFO_at_prefix(): void {
-		$shell       = new Shell();
+		$shell       = new Shell_Node();
 		$shell->path = 'cwd';
 		$msg         = $shell->parse( 'tell_node target hello world' );
 		$this->assertSame( Message::TM_INFO, $msg[ Message::TYPE ] );
@@ -480,7 +480,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_send_node_canonical_emits_TM_BYTESTREAM_at_prefix_with_lf_terminator(): void {
-		$shell       = new Shell();
+		$shell       = new Shell_Node();
 		$shell->path = 'cwd';
 		$msg         = $shell->parse( 'send_node target hello world' );
 		$this->assertSame( Message::TM_BYTESTREAM, $msg[ Message::TYPE ] );
@@ -489,7 +489,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_send_alias_works_like_send_node(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'send target payload' );
 		$this->assertSame( Message::TM_BYTESTREAM, $msg[ Message::TYPE ] );
 		$this->assertSame( 'target', $msg[ Message::TO ] );
@@ -497,7 +497,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_command_node_canonical_emits_TM_COMMAND_at_prefix(): void {
-		$shell       = new Shell();
+		$shell       = new Shell_Node();
 		$shell->path = 'jobs:partition';
 		$msg         = $shell->parse( 'command_node helper-node ls -al' );
 		$this->assertSame( Message::TM_COMMAND, $msg[ Message::TYPE ] );
@@ -508,21 +508,21 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_command_alias_works_like_command_node(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'command target ping' );
 		$this->assertSame( Message::TM_COMMAND, $msg[ Message::TYPE ] );
 		$this->assertSame( 'target', $msg[ Message::TO ] );
 	}
 
 	public function test_cmd_alias_works_like_command_node(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'cmd target ping' );
 		$this->assertSame( Message::TM_COMMAND, $msg[ Message::TYPE ] );
 		$this->assertSame( 'target', $msg[ Message::TO ] );
 	}
 
 	public function test_request_node_emits_TM_REQUEST_at_prefix(): void {
-		$shell       = new Shell();
+		$shell       = new Shell_Node();
 		$shell->path = 'cwd';
 		$msg         = $shell->parse( 'request_node target whatever' );
 		$this->assertSame( Message::TM_REQUEST, $msg[ Message::TYPE ] );
@@ -531,7 +531,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_request_alias_works_like_request_node(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'request target arg' );
 		$this->assertSame( Message::TM_REQUEST, $msg[ Message::TYPE ] );
 		$this->assertSame( 'target', $msg[ Message::TO ] );
@@ -540,7 +540,7 @@ class ShellTest extends TestCase {
 	public function test_pwd_builtin_emits_pwd_TM_COMMAND_with_cwd_as_arg(): void {
 		// pwd sends `pwd` to current cwd with cwd as the argument so receiver's
 		// CI can render ` <cwd> -> <from>`.
-		$shell       = new Shell();
+		$shell       = new Shell_Node();
 		$shell->path = 'firehose-workers.p0';
 		$msg         = $shell->parse( 'pwd' );
 		$this->assertSame( Message::TM_COMMAND, $msg[ Message::TYPE ] );
@@ -552,7 +552,7 @@ class ShellTest extends TestCase {
 
 	public function test_pwd_at_root_emits_with_empty_TO(): void {
 		// `pwd` at empty cwd targets the local CI (TO='').
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'pwd' );
 		$this->assertSame( '', $msg[ Message::TO ] );
 		$decoded = $msg[ Message::VALUE ];
@@ -569,7 +569,7 @@ class ShellTest extends TestCase {
 			$captured[] = $msg;
 		} );
 
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertNull( $shell->parse( 'include /nonexistent/path.txt' ) );
 		$this->assertNotEmpty( $captured );
 		$this->assertStringContainsString( 'file not found', \implode( "\n", $captured ) );
@@ -583,7 +583,7 @@ class ShellTest extends TestCase {
 			$script = "{$tmp}/cmds.txt";
 			\file_put_contents( $script, "ls\ntell node hi\n" );
 
-			$shell = new Shell();
+			$shell = new Shell_Node();
 			$sink  = new CaptureSink();
 			$shell->sink( $sink );
 
@@ -603,7 +603,7 @@ class ShellTest extends TestCase {
 
 	public function test_set_variable_writes_to_core_var(): void {
 		\Newspack_Nodes\Core::$var = [];
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$shell->set_variable( 'partition', '7' );
 		$this->assertSame( '7', \Newspack_Nodes\Core::$var['partition'] );
 	}
@@ -611,7 +611,7 @@ class ShellTest extends TestCase {
 	public function test_interpolate_reads_config_namespace_from_core_config(): void {
 		\Newspack_Nodes\Core::$config = [ 'base_directory' => '/tmp/foo' ];
 		\Newspack_Nodes\Core::$var    = [ 'partition' => '0' ];
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame(
 			'make_node Partition p /tmp/foo/p0',
 			$shell->interpolate( 'make_node Partition p <config:base_directory>/p<partition>' )
@@ -620,7 +620,7 @@ class ShellTest extends TestCase {
 
 	public function test_var_builtin_writes_core_var(): void {
 		\Newspack_Nodes\Core::$var = [];
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$shell->parse( 'var num_partitions = 4' );
 		$this->assertSame( '4', \Newspack_Nodes\Core::$var['num_partitions'] );
 	}
@@ -628,14 +628,14 @@ class ShellTest extends TestCase {
 	public function test_var_builtin_rejects_colon_namespaced_name(): void {
 		\Newspack_Nodes\Core::$var    = [];
 		\Newspack_Nodes\Core::$config = [];
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$shell->parse( 'var config:foo = 1' );
 		$this->assertArrayNotHasKey( 'config:foo', \Newspack_Nodes\Core::$var );
 		$this->assertArrayNotHasKey( 'foo', \Newspack_Nodes\Core::$config );
 	}
 
 	public function test_split_statements_on_semicolons_and_newlines(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame(
 			[ 'var foo = 1', 'var bar = 2', 'tell node hi' ],
 			$shell->split_statements( "var foo = 1; var bar = 2\ntell node hi" )
@@ -645,7 +645,7 @@ class ShellTest extends TestCase {
 	public function test_split_statements_does_not_split_semicolons_inside_comments(): void {
 		// Bug regression: a `;` in a `# comment` line was treated as a
 		// statement separator, breaking the second half off as a verb.
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame(
 			[ '# warning; jobs can be slow', 'var foo = 1' ],
 			$shell->split_statements( "# warning; jobs can be slow\nvar foo = 1" )
@@ -653,7 +653,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_split_statements_preserves_semicolons_inside_quotes(): void {
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$this->assertSame(
 			[ "tell node 'a;b;c'", 'var foo = 1' ],
 			$shell->split_statements( "tell node 'a;b;c'; var foo = 1" )
@@ -662,7 +662,7 @@ class ShellTest extends TestCase {
 
 	public function test_eval_script_dispatches_each_statement(): void {
 		\Newspack_Nodes\Core::reset();
-		$shell = new Shell();
+		$shell = new Shell_Node();
 		$sink  = new \Newspack_Nodes\Tests\CaptureSink();
 		$shell->sink( $sink );
 		$shell->eval_script( "var partition = 3; tell foo hello; tell bar <partition>" );

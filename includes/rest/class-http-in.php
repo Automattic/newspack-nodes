@@ -29,16 +29,16 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Command_Auth;
-use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
-use Newspack_Nodes\Router;
+use Newspack_Nodes\Router_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
-class HTTP_In extends Node {
+class HTTP_In_Node extends Node {
 	public const REST_NAMESPACE = 'newspack-nodes/v1';
 	public const ROUTE          = '/command';
 
@@ -106,7 +106,7 @@ class HTTP_In extends Node {
 
 		$router = Core::node( Node_Names::ROUTER );
 		$out    = Core::node( Node_Names::HTTP );
-		if ( ! $router instanceof Router || ! $out instanceof self ) {
+		if ( ! $router instanceof Router_Node || ! $out instanceof self ) {
 			$this->emit_error(
 				$messages[ \array_key_last( $messages ) ] ?? Message::new_message(),
 				'request-scope graph not initialized (missing _router or _http)'
@@ -118,7 +118,7 @@ class HTTP_In extends Node {
 		// This request process is a command VERIFIER: the request-scope base_ci
 		// (and any patron CIs it mounts) must HMAC-check every command. Set the
 		// process-wide policy once before routing.
-		CommandInterpreter::$default_authorize = Command_Auth::verifier();
+		Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
 
 		// Route messages in order through the one request graph: a batch runs
 		// serially, so an earlier command's side effect is visible to a later one.
@@ -184,15 +184,15 @@ class HTTP_In extends Node {
 	 * `newspack_nodes/request_graph_ready` hook. This controller instance IS
 	 * the `_http` response-writer Node.
 	 */
-	private function ensure_request_graph(): CommandInterpreter {
+	private function ensure_request_graph(): Command_Interpreter_Node {
 		$router = Core::node( Node_Names::ROUTER );
-		if ( ! $router instanceof Router ) {
-			$router = new Router();
+		if ( ! $router instanceof Router_Node ) {
+			$router = new Router_Node();
 			$router->name( Node_Names::ROUTER );
 		}
 		$base_ci = Core::node( Node_Names::COMMAND_INTERPRETER );
-		if ( ! $base_ci instanceof CommandInterpreter ) {
-			$base_ci = new CommandInterpreter();
+		if ( ! $base_ci instanceof Command_Interpreter_Node ) {
+			$base_ci = new Command_Interpreter_Node();
 			$base_ci->name( Node_Names::COMMAND_INTERPRETER );
 			$base_ci->sink( $router );
 		}

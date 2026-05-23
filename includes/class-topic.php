@@ -11,14 +11,14 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Topic extends Node {
+class Topic_Node extends Node {
 	protected string $base_dir;
 	protected int $num_partitions;
 	protected int $segment_size;
 	protected int $num_segments;
 	protected int $max_lifespan;
 
-	/** @var array<int,Partition> Lazy. */
+	/** @var array<int,Partition_Node> Lazy. */
 	protected array $partitions = [];
 
 	protected static int $rr_counter = 0;
@@ -26,9 +26,9 @@ class Topic extends Node {
 	public function __construct(
 		string $base_dir,
 		int $num_partitions,
-		int $segment_size = Partition::DEFAULT_SEGMENT_SIZE,
-		int $num_segments = Partition::DEFAULT_NUM_SEGMENTS,
-		int $max_lifespan = Partition::DEFAULT_MAX_LIFESPAN
+		int $segment_size = Partition_Node::DEFAULT_SEGMENT_SIZE,
+		int $num_segments = Partition_Node::DEFAULT_NUM_SEGMENTS,
+		int $max_lifespan = Partition_Node::DEFAULT_MAX_LIFESPAN
 	) {
 		$this->base_dir       = \rtrim( $base_dir, '/' );
 		$this->num_partitions = \max( 1, $num_partitions );
@@ -55,10 +55,10 @@ class Topic extends Node {
 		return $result;
 	}
 
-	protected function partition( int $i ): Partition {
+	protected function partition( int $i ): Partition_Node {
 		$first = empty( $this->partitions );
 		if ( ! isset( $this->partitions[ $i ] ) ) {
-			$this->partitions[ $i ] = new Partition(
+			$this->partitions[ $i ] = new Partition_Node(
 				$this->base_dir, $i,
 				$this->segment_size, $this->num_segments, $this->max_lifespan
 			);
@@ -97,7 +97,7 @@ class Topic extends Node {
 		// KEY-routed (or round-robin if KEY empty).
 		$key = $message[ Message::KEY ];
 		if ( '' !== $key ) {
-			$idx = Partition::hash_to_partition( $key, $this->num_partitions );
+			$idx = Partition_Node::hash_to_partition( $key, $this->num_partitions );
 		} else {
 			$idx = ( self::$rr_counter++ ) % $this->num_partitions;
 		}

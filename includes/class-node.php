@@ -35,20 +35,20 @@ class Node {
 	protected int $debug_state = 0;
 
 	/** Sibling CommandInterpreter (`:config`) for nodes with runtime config verbs; else null. */
-	protected ?CommandInterpreter $interpreter = null;
+	protected ?Command_Interpreter_Node $interpreter = null;
 
 	/** Non-null marks this node as plumbing for the patron; dump_metadata hides it from the canvas. */
 	protected ?Node $patron = null;
 
 	/** Attach a sibling CommandInterpreter, adopting `{patron_name}:config`. */
-	public function attach_interpreter( CommandInterpreter $ci ): void {
+	public function attach_interpreter( Command_Interpreter_Node $ci ): void {
 		$this->interpreter = $ci;
 		if ( '' !== $this->name ) {
 			$this->interpreter->name( $this->name . ':config' );
 		}
 	}
 
-	public function interpreter(): ?CommandInterpreter {
+	public function interpreter(): ?Command_Interpreter_Node {
 		return $this->interpreter;
 	}
 
@@ -307,7 +307,7 @@ class Node {
 
 	/** Round-trippable graph snippet: make_node + optional set_sink + connect_node lines (suppresses set_sink for the default _command_interpreter). */
 	public function dump_config(): string {
-		$short = ( new \ReflectionClass( $this ) )->getShortName();
+		$short = Command_Interpreter_Node::shell_name_for( $this );
 		$out   = "make_node $short {$this->name}";
 		if ( '' !== $this->arguments ) {
 			$out .= " {$this->arguments}";

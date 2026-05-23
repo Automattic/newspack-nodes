@@ -9,7 +9,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Cli {
+class CLI {
 	public const STALE_TIMEOUT = 60;
 
 	/** Default memcache key prefix for worker-cursor positions. */
@@ -120,7 +120,7 @@ class Cli {
 			if ( $partition >= 0 && $p !== $partition ) {
 				continue;
 			}
-			if ( Lock::request_restart_at( "{$this->base_dir}/locks/{$type}.p{$p}.lock.d" ) ) {
+			if ( Lock_Node::request_restart_at( "{$this->base_dir}/locks/{$type}.p{$p}.lock.d" ) ) {
 				++$restarted;
 			}
 		}
@@ -133,7 +133,7 @@ class Cli {
 	 * @return bool True when the flag was written.
 	 */
 	public function restart_supervisor(): bool {
-		return Lock::request_restart_at( "{$this->base_dir}/locks/supervisor.lock.d" );
+		return Lock_Node::request_restart_at( "{$this->base_dir}/locks/supervisor.lock.d" );
 	}
 
 	/**

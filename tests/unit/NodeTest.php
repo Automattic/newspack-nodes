@@ -373,7 +373,7 @@ class NodeTest extends TestCase {
 
 	public function test_attach_interpreter_keeps_sibling_synced_with_patron_name(): void {
 		$patron = new CaptureSink();
-		$sibling = new \Newspack_Nodes\CommandInterpreter();
+		$sibling = new \Newspack_Nodes\Command_Interpreter_Node();
 		$sibling->patron( $patron );
 		$patron->attach_interpreter( $sibling );
 
@@ -394,7 +394,7 @@ class NodeTest extends TestCase {
 	public function test_attach_interpreter_named_after_already_named_patron(): void {
 		$patron = new CaptureSink();
 		$patron->name( 'preset' );
-		$sibling = new \Newspack_Nodes\CommandInterpreter();
+		$sibling = new \Newspack_Nodes\Command_Interpreter_Node();
 		$sibling->patron( $patron );
 		$patron->attach_interpreter( $sibling );
 
@@ -441,7 +441,7 @@ class NodeTest extends TestCase {
 
 	public function test_remove_node_cascades_sibling_unregistration(): void {
 		$patron = new CaptureSink();
-		$sibling = new \Newspack_Nodes\CommandInterpreter();
+		$sibling = new \Newspack_Nodes\Command_Interpreter_Node();
 		$sibling->patron( $patron );
 		$patron->attach_interpreter( $sibling );
 		$patron->name( 'alice' );

@@ -13,7 +13,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-class Supervisor extends SupervisorBase {
+class Supervisor extends Supervisor_Base {
 	/** Endpoint accepts current + previous for race tolerance. */
 	public const TOKEN_WINDOW_S = 10;
 
@@ -30,8 +30,8 @@ class Supervisor extends SupervisorBase {
 
 	private string $nonce_salt;
 
-	/** @var Lock|null Supervisor's own lock; singleton-globally per host. */
-	private ?Lock $own_lock = null;
+	/** @var Lock_Node|null Supervisor's own lock; singleton-globally per host. */
+	private ?Lock_Node $own_lock = null;
 
 	private float $start_time = 0.0;
 
@@ -92,7 +92,7 @@ class Supervisor extends SupervisorBase {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
-		$this->own_lock = new Lock( $lock_dir, self::SUPERVISOR_STALE_TIMEOUT );
+		$this->own_lock = new Lock_Node( $lock_dir, self::SUPERVISOR_STALE_TIMEOUT );
 		if ( ! $this->own_lock->acquire() ) {
 			return;
 		}
@@ -276,10 +276,10 @@ class Supervisor extends SupervisorBase {
 				// In fleet — leave alone.
 				continue;
 			}
-			$this->remove_stale_directory( $path, Lock::STALE_TIMEOUT );
-			if ( \is_dir( $path ) && ! \file_exists( $path . '/' . Lock::RESTART_FLAG ) ) {
+			$this->remove_stale_directory( $path, Lock_Node::STALE_TIMEOUT );
+			if ( \is_dir( $path ) && ! \file_exists( $path . '/' . Lock_Node::RESTART_FLAG ) ) {
 				// Skip if a restart flag is already dropped (avoids per-tick disk churn).
-				Lock::request_restart_at( $path );
+				Lock_Node::request_restart_at( $path );
 			}
 		}
 	}
@@ -305,7 +305,7 @@ class Supervisor extends SupervisorBase {
 				$lock_path = "{$locks_dir}/{$name}.p{$p}.lock.d";
 				if ( \is_dir( $lock_path ) ) {
 					// Restart channel, not force_release (which a worker reads as a stolen lock).
-					Lock::request_restart_at( $lock_path );
+					Lock_Node::request_restart_at( $lock_path );
 				}
 			}
 		}
@@ -431,7 +431,7 @@ class Supervisor extends SupervisorBase {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
-		$this->own_lock = new Lock( "{$this->base_dir}/locks/supervisor.lock.d", self::SUPERVISOR_STALE_TIMEOUT );
+		$this->own_lock = new Lock_Node( "{$this->base_dir}/locks/supervisor.lock.d", self::SUPERVISOR_STALE_TIMEOUT );
 		return $this->own_lock->acquire();
 	}
 

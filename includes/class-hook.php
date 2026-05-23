@@ -9,7 +9,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Hook extends Node {
+class Hook_Node extends Node {
 	private string $hook_name;
 	private bool $filter;
 

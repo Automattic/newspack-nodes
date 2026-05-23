@@ -1,25 +1,25 @@
 <?php
 namespace Newspack_Nodes\Tests\Integration;
 
-use Newspack_Nodes\CommandInterpreter;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Router;
+use Newspack_Nodes\Router_Node;
 use Newspack_Nodes\Tests\CaptureSink;
 use Newspack_Nodes\Tests\TestCase;
 
 class SubstrateRoundTripTest extends TestCase {
 	public function test_full_graph_construction_and_message_routing(): void {
 		// Standard worker scaffolding.
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$ci = new CommandInterpreter();
+		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 		$ci->sink( $router );
 
 		// Build app graph via shell verbs.
-		CommandInterpreter::register_class( 'CaptureSink', CaptureSink::class );
+		Command_Interpreter_Node::register_class( 'CaptureSink', CaptureSink::class );
 		$this->assertSame( 'ok', $ci->dispatch( 'make_node', 'CaptureSink alice' ) );
 		$this->assertSame( 'ok', $ci->dispatch( 'make_node', 'CaptureSink bob' ) );
 		$this->assertSame( 'ok', $ci->dispatch( 'connect_node', 'alice bob' ) );
@@ -38,7 +38,7 @@ class SubstrateRoundTripTest extends TestCase {
 	}
 
 	public function test_unknown_target_produces_NOT_AVAILABLE(): void {
-		$router = new Router();
+		$router = new Router_Node();
 		$router->name( '_router' );
 
 		// Producer captures the error: the NOT_AVAILABLE bounce routes back via

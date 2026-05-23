@@ -1,10 +1,10 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Lock;
+use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Supervisor;
-use Newspack_Nodes\SupervisorBase;
+use Newspack_Nodes\Supervisor_Base;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Medium;
@@ -261,7 +261,7 @@ class SupervisorTest extends TestCase {
 
 		$s->check_config( microtime( true ) );
 
-		$this->assertSame( SupervisorBase::MAX_PARTITIONS, $s->num_partitions_for_test() );
+		$this->assertSame( Supervisor_Base::MAX_PARTITIONS, $s->num_partitions_for_test() );
 	}
 
 	public function test_check_config_picks_up_added_topology_on_subsequent_call(): void {
@@ -307,12 +307,12 @@ class SupervisorTest extends TestCase {
 		\mkdir( $locks_dir, 0755, true );
 		\mkdir( "{$locks_dir}/aggregator.p0.lock.d" );
 		\file_put_contents( "{$locks_dir}/aggregator.p0.lock.d/heartbeat", '0' );
-		\touch( "{$locks_dir}/aggregator.p0.lock.d/heartbeat", time() - Lock::STALE_TIMEOUT - 1 );
+		\touch( "{$locks_dir}/aggregator.p0.lock.d/heartbeat", time() - Lock_Node::STALE_TIMEOUT - 1 );
 		\mkdir( "{$locks_dir}/firehose-workers.p0.lock.d" );
 		\file_put_contents( "{$locks_dir}/firehose-workers.p0.lock.d/heartbeat", '0' );
 		\mkdir( "{$locks_dir}/supervisor.lock.d" );
 		\file_put_contents( "{$locks_dir}/supervisor.lock.d/heartbeat", '0' );
-		\touch( "{$locks_dir}/supervisor.lock.d/heartbeat", time() - Lock::STALE_TIMEOUT - 1 );
+		\touch( "{$locks_dir}/supervisor.lock.d/heartbeat", time() - Lock_Node::STALE_TIMEOUT - 1 );
 
 		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 		$s->check_config( microtime( true ) );
@@ -568,7 +568,7 @@ class SupervisorTest extends TestCase {
 		] );
 		$lock_dir = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
 		mkdir( $lock_dir, 0755, true );
-		touch( "{$lock_dir}/heartbeat", time() - Lock::STALE_TIMEOUT - 5 );
+		touch( "{$lock_dir}/heartbeat", time() - Lock_Node::STALE_TIMEOUT - 5 );
 
 		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 		$s->check_config( microtime( true ) );
@@ -687,7 +687,7 @@ class SupervisorTest extends TestCase {
 	public function test_run_returns_when_another_supervisor_holds_lock(): void {
 		// Pre-acquire the lock externally — run() should bail without
 		// firing any spawns.
-		$external_lock = new Lock( "{$this->tmp}/locks/supervisor.lock.d", 60 );
+		$external_lock = new Lock_Node( "{$this->tmp}/locks/supervisor.lock.d", 60 );
 		mkdir( "{$this->tmp}/locks", 0755, true );
 		$this->assertTrue( $external_lock->acquire() );
 
@@ -785,7 +785,7 @@ class SupervisorTest extends TestCase {
 		// Each partition's lock dir now has the restart flag.
 		foreach ( [ 0, 1, 2 ] as $p ) {
 			$this->assertTrue(
-				Lock::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d" ),
+				Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p{$p}.lock.d" ),
 				"partition p{$p} must have restart flag dropped"
 			);
 		}
@@ -818,7 +818,7 @@ class SupervisorTest extends TestCase {
 		$s->kill_readers( [ 'firehose-workers' ] );
 
 		// p0 has the flag.
-		$this->assertTrue( Lock::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p0.lock.d" ) );
+		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/locks/firehose-workers.p0.lock.d" ) );
 		// p1, p2 don't — they didn't exist.
 		$this->assertFalse( is_dir( "{$this->tmp}/locks/firehose-workers.p1.lock.d" ) );
 		$this->assertFalse( is_dir( "{$this->tmp}/locks/firehose-workers.p2.lock.d" ) );
@@ -839,7 +839,7 @@ class SupervisorTest extends TestCase {
 		$this->seed_loop_state( $s, microtime( true ) );
 
 		// Drop a restart flag inside our own lock dir → tick_loop must break.
-		Lock::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
+		Lock_Node::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
 
 		$started = microtime( true );
 		$this->invoke_tick_loop( $s );
@@ -873,7 +873,7 @@ class SupervisorTest extends TestCase {
 
 		// Drop restart flag — tick_loop checks should_restart BEFORE the
 		// worker iteration, so this exit-first contract means NO spawns.
-		Lock::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
+		Lock_Node::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
 
 		$this->invoke_tick_loop( $s );
 
@@ -910,7 +910,7 @@ class SupervisorTest extends TestCase {
 			function () use ( &$fired, $tmp ) {
 				++$fired;
 				// Drop restart flag so iter 2 breaks before sleeping again.
-				Lock::request_restart_at( "{$tmp}/locks/supervisor.lock.d" );
+				Lock_Node::request_restart_at( "{$tmp}/locks/supervisor.lock.d" );
 			}
 		);
 
@@ -957,7 +957,7 @@ class SupervisorTest extends TestCase {
 		\add_action(
 			'newspack_nodes/supervisor_periodic',
 			function () use ( $tmp ) {
-				Lock::request_restart_at( "{$tmp}/locks/supervisor.lock.d" );
+				Lock_Node::request_restart_at( "{$tmp}/locks/supervisor.lock.d" );
 			}
 		);
 
@@ -992,7 +992,7 @@ class SupervisorTest extends TestCase {
 		\add_action(
 			'newspack_nodes/supervisor_periodic',
 			function () use ( $tmp ) {
-				Lock::request_restart_at( "{$tmp}/locks/supervisor.lock.d" );
+				Lock_Node::request_restart_at( "{$tmp}/locks/supervisor.lock.d" );
 			}
 		);
 
@@ -1050,7 +1050,7 @@ class SupervisorTest extends TestCase {
 
 		// Drop the restart flag — tick_for_test should detect it after the
 		// worker iteration and return false.
-		Lock::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
+		Lock_Node::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
 
 		$now    = microtime( true );
 		$result = $s->tick_for_test( $now, $s->generate_spawn_token( (int) $now ) );
@@ -1294,7 +1294,7 @@ class SupervisorTest extends TestCase {
 		$this->assertTrue( is_dir( "{$this->tmp}/locks/supervisor.lock.d" ) );
 
 		// Pre-arm: tick_loop will exit immediately on this restart flag.
-		Lock::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
+		Lock_Node::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
 
 		$this->seed_loop_state( $s, microtime( true ) );
 
@@ -1374,7 +1374,7 @@ class SupervisorTest extends TestCase {
 		// tick exits immediately.
 		$GLOBALS['_wp_test_remote_post_response'] = function ( $url, $args ) use ( $tmp ) {
 			if ( ( $args['body']['type'] ?? '' ) === 'firehose-workers' ) {
-				Lock::request_restart_at( "{$tmp}/locks/supervisor.lock.d" );
+				Lock_Node::request_restart_at( "{$tmp}/locks/supervisor.lock.d" );
 			}
 			return [ 'response' => [ 'code' => 200 ] ];
 		};
@@ -1451,7 +1451,7 @@ class SupervisorTest extends TestCase {
 
 		// Drop restart flag so tick_loop exits after the first iteration's
 		// heartbeat refresh — before sleep().
-		Lock::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
+		Lock_Node::request_restart_at( "{$this->tmp}/locks/supervisor.lock.d" );
 
 		$this->invoke_tick_loop( $s );
 
@@ -1554,7 +1554,7 @@ class SupervisorTest extends TestCase {
 
 		// Both existing partitions get the restart flag — kill_readers
 		// fell back to MAX_PARTITIONS so even p3 is reached.
-		$this->assertTrue( Lock::is_restart_pending( "{$locks_dir}/orphan-type.p0.lock.d" ) );
-		$this->assertTrue( Lock::is_restart_pending( "{$locks_dir}/orphan-type.p3.lock.d" ) );
+		$this->assertTrue( Lock_Node::is_restart_pending( "{$locks_dir}/orphan-type.p0.lock.d" ) );
+		$this->assertTrue( Lock_Node::is_restart_pending( "{$locks_dir}/orphan-type.p3.lock.d" ) );
 	}
 }

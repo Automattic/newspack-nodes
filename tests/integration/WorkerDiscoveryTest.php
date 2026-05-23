@@ -2,11 +2,11 @@
 namespace Newspack_Nodes\Tests\Integration;
 
 use Newspack_Nodes\Bootstrap;
-use Newspack_Nodes\Consumer;
-use Newspack_Nodes\Callback;
+use Newspack_Nodes\Consumer_Node;
+use Newspack_Nodes\Callback_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Partition;
+use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 class WorkerDiscoveryTest extends TestCase {
@@ -23,9 +23,9 @@ class WorkerDiscoveryTest extends TestCase {
 		$count = Bootstrap::register_worker_partitions( $base );
 
 		$this->assertSame( 3, $count );
-		$this->assertInstanceOf( Partition::class, Core::node( 'firehose-workers.p0' ) );
-		$this->assertInstanceOf( Partition::class, Core::node( 'firehose-workers.p1' ) );
-		$this->assertInstanceOf( Partition::class, Core::node( 'job-workers.p0' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'firehose-workers.p0' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'firehose-workers.p1' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'job-workers.p0' ) );
 	}
 
 	public function test_filling_a_registered_worker_partition_writes_to_disk(): void {
@@ -52,10 +52,10 @@ class WorkerDiscoveryTest extends TestCase {
 		// — same as TestCase::produce_into().
 		Core::node( 'firehose-workers.p0' )->flush();
 
-		$consumer = new Consumer( $input_dir, 0, '' );
+		$consumer = new Consumer_Node( $input_dir, 0, '' );
 		$consumer->next_offset( 'start' );
 		$got = [];
-		$consumer->sink( new Callback( static function ( array &$m ) use ( &$got ): void {
+		$consumer->sink( new Callback_Node( static function ( array &$m ) use ( &$got ): void {
 			$got[] = $m;
 		} ) );
 		$consumer->poll();
@@ -88,7 +88,7 @@ class WorkerDiscoveryTest extends TestCase {
 
 		$this->assertTrue( Bootstrap::register_worker_partition( 'firehose-workers.p0', $base ) );
 
-		$this->assertInstanceOf( Partition::class, Core::node( 'firehose-workers.p0' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'firehose-workers.p0' ) );
 		// The other live worker is NOT mounted — we mount only what we're told.
 		$this->assertNull( Core::node( 'firehose-workers.p1' ) );
 	}
@@ -101,7 +101,7 @@ class WorkerDiscoveryTest extends TestCase {
 		$this->assertTrue( Bootstrap::register_worker_partition( 'firehose-workers.p0', $base ) );
 		// Second call must not throw a node-name collision.
 		$this->assertTrue( Bootstrap::register_worker_partition( 'firehose-workers.p0', $base ) );
-		$this->assertInstanceOf( Partition::class, Core::node( 'firehose-workers.p0' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'firehose-workers.p0' ) );
 	}
 
 	public function test_register_worker_partition_rejects_invalid_reader_id(): void {
