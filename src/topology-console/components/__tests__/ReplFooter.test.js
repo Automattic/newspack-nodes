@@ -388,13 +388,14 @@ describe( 'ReplFooter', () => {
 			expect( findInput( container ).value ).toBe( 'dump_node echo' );
 		} );
 
-		it( 'renders the candidate list when the LCP cannot extend the token', () => {
+		it( 'requires two Tab presses to list candidates when the LCP cannot extend (readline)', () => {
 			const onShowCandidates = jest.fn();
 			const { container, rerender, onComplete } = renderWithCompletion( {
 				onShowCandidates,
 			} );
 			const input = findInput( container );
 			fireEvent.change( input, { target: { value: 'connect' } } );
+			// First Tab on an ambiguous token: silent (no extension, no list).
 			fireEvent.keyDown( input, { key: 'Tab' } );
 			rerender(
 				<ReplFooter
@@ -407,12 +408,68 @@ describe( 'ReplFooter', () => {
 					} }
 				/>
 			);
-			// LCP 'connect' === token, ≥2 matches → list the options; input unchanged.
+			expect( onShowCandidates ).not.toHaveBeenCalled();
+			expect( findInput( container ).value ).toBe( 'connect' );
+			// Second consecutive Tab on the same ambiguous token → list the options.
+			fireEvent.keyDown( findInput( container ), { key: 'Tab' } );
+			rerender(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					onShowCandidates={ onShowCandidates }
+					completion={ {
+						candidates: [ 'connect', 'connect_node' ],
+						seq: 2,
+					} }
+				/>
+			);
 			expect( onShowCandidates ).toHaveBeenCalledWith( [
 				'connect',
 				'connect_node',
 			] );
 			expect( findInput( container ).value ).toBe( 'connect' );
+		} );
+
+		it( 'typing between Tabs resets the two-press count', () => {
+			const onShowCandidates = jest.fn();
+			const { container, rerender, onComplete } = renderWithCompletion( {
+				onShowCandidates,
+			} );
+			const input = findInput( container );
+			fireEvent.change( input, { target: { value: 'connect' } } );
+			fireEvent.keyDown( input, { key: 'Tab' } ); // first press: armed
+			rerender(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					onShowCandidates={ onShowCandidates }
+					completion={ {
+						candidates: [ 'connect', 'connect_node' ],
+						seq: 1,
+					} }
+				/>
+			);
+			// User edits the line (type then delete back to the same token); the
+			// next Tab must behave as a fresh first press.
+			fireEvent.change( findInput( container ), {
+				target: { value: 'connectx' },
+			} );
+			fireEvent.change( findInput( container ), {
+				target: { value: 'connect' },
+			} );
+			fireEvent.keyDown( findInput( container ), { key: 'Tab' } );
+			rerender(
+				<ReplFooter
+					{ ...baseProps }
+					onComplete={ onComplete }
+					onShowCandidates={ onShowCandidates }
+					completion={ {
+						candidates: [ 'connect', 'connect_node' ],
+						seq: 2,
+					} }
+				/>
+			);
+			expect( onShowCandidates ).not.toHaveBeenCalled();
 		} );
 
 		it( 'does not apply a stale reply when the input no longer ends with the token', () => {
