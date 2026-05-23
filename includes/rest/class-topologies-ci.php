@@ -42,6 +42,40 @@ class Topologies_CI extends Service_CI {
 		$this->commands( $this->verb_table() );
 	}
 
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Service',
+			'description' => 'Topology (.tsl) management: list / get / save / delete user topology files, and mount a worker input partition.',
+			'ctor'        => [],
+			'verbs'       => [
+				[ 'name' => 'list', 'description' => 'List topologies with source (user/stock/both) and active state.', 'args' => [] ],
+				[
+					'name'        => 'get',
+					'description' => 'Read a topology .tsl by name.',
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+				],
+				[
+					'name'        => 'save',
+					'description' => 'Write a user topology .tsl (validated; restarts the active fleet). 64 KiB cap.',
+					'args'        => [
+						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'tsl', 'type' => 'text', 'required' => true ],
+					],
+				],
+				[
+					'name'        => 'delete',
+					'description' => 'Delete a user topology (stock copies are protected).',
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+				],
+				[
+					'name'        => 'connect_worker_input',
+					'description' => "Mount the named worker's input partition into this request's graph.",
+					'args'        => [ [ 'name' => 'reader', 'type' => 'string', 'required' => true ] ],
+				],
+			],
+		];
+	}
+
 	private function verb_table(): array {
 		return [
 			'list'   => static function ( CommandInterpreter $self, string $args, array $envelope = [] ): array {

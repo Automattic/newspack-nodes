@@ -35,6 +35,29 @@ class Layouts_CI extends Service_CI {
 		$this->commands( $this->verb_table() );
 	}
 
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Service',
+			'description' => 'Per-topology canvas layout: get / save node positions.',
+			'ctor'        => [],
+			'verbs'       => [
+				[
+					'name'        => 'get',
+					'description' => 'Read saved node positions for a layout name.',
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+				],
+				[
+					'name'        => 'save',
+					'description' => 'Persist node positions for a layout name. 64 KiB cap.',
+					'args'        => [
+						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
+						[ 'name' => 'positions', 'type' => 'json', 'required' => true ],
+					],
+				],
+			],
+		];
+	}
+
 	private function verb_table(): array {
 		return [
 			'get'  => static function ( CommandInterpreter $self, string $args, array $envelope, mixed $payload ): array {

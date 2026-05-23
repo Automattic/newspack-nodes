@@ -48,6 +48,14 @@ class RawLogsCITest extends TestCase {
 	// firehose_logs verb — disk-discovered catalog.
 	// -------------------------------------------------------------------------
 
+	public function test_node_schema_declares_its_verbs(): void {
+		$schema = Raw_Logs_CI::node_schema();
+		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['verbs'] );
+		\sort( $names );
+		$this->assertSame( [ 'firehose_logs', 'firehose_status' ], $names );
+		$this->assertNotEmpty( $schema['description'] );
+	}
+
 	public function test_firehose_logs_verb_returns_sorted_disk_catalog(): void {
 		// Three logs on disk; the verb returns a sorted catalog of
 		// {key, label} pairs with `.log`-stripped keys and `.log`-suffixed

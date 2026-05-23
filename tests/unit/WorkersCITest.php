@@ -146,6 +146,17 @@ class WorkersCITest extends TestCase {
 		\file_put_contents( "{$dir}/{$segment_id}.log", \str_repeat( 'x', $size ) );
 	}
 
+	public function test_node_schema_declares_its_verbs(): void {
+		$schema = Workers_CI::node_schema();
+		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['verbs'] );
+		\sort( $names );
+		$this->assertSame(
+			[ 'cleanup_status', 'dump_metadata', 'heartbeat', 'list', 'restart' ],
+			$names
+		);
+		$this->assertNotEmpty( $schema['description'] );
+	}
+
 	public function test_list_verb_returns_workers_from_cli(): void {
 		$fake_cli = new class {
 			public function ls_workers(): array {

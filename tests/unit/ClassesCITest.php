@@ -26,6 +26,14 @@ class ClassesCITest extends TestCase {
 		parent::tearDown();
 	}
 
+	public function test_node_schema_declares_its_verbs(): void {
+		$schema = Classes_CI::node_schema();
+		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['verbs'] );
+		\sort( $names );
+		$this->assertSame( [ 'list' ], $names );
+		$this->assertNotEmpty( $schema['description'] );
+	}
+
 	public function test_list_verb_returns_classes_and_formatters(): void {
 		$result = VerbHarness::fire( new Classes_CI(), 'classes', 'list' );
 

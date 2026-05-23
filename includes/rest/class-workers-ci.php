@@ -47,6 +47,36 @@ class Workers_CI extends Service_CI {
 		$this->commands( $this->verb_table( $cli, $cache ) );
 	}
 
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Service',
+			'description' => 'Worker fleet control: list workers, dump operator metadata, audit/cleanup orphans, restart, and refresh SSE slot heartbeats.',
+			'ctor'        => [],
+			'verbs'       => [
+				[ 'name' => 'list', 'description' => 'List workers with live positions.', 'args' => [] ],
+				[ 'name' => 'dump_metadata', 'description' => 'Full operator-grade fleet/supervisor/log metadata.', 'args' => [] ],
+				[ 'name' => 'cleanup_status', 'description' => 'Report orphaned worker artifacts vs the expected fleet.', 'args' => [] ],
+				[
+					'name'        => 'restart',
+					'description' => 'Restart matching workers (and/or the supervisor).',
+					'args'        => [
+						[ 'name' => 'types', 'type' => 'json', 'required' => false ],
+						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],
+					],
+				],
+				[
+					'name'        => 'heartbeat',
+					'description' => "Refresh this session's SSE slot TTL.",
+					'args'        => [
+						[ 'name' => 'slot', 'type' => 'int', 'required' => true ],
+						[ 'name' => 'ttl', 'type' => 'int', 'required' => false, 'default' => 10 ],
+						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],
+					],
+				],
+			],
+		];
+	}
+
 	private function verb_table( object $cli, ?object $cache ): array {
 		return [
 			'list' => static function ( CommandInterpreter $self, string $args, array $envelope = [] ) use ( $cli, $cache ): array {
