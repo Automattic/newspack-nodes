@@ -1254,7 +1254,12 @@ class CommandInterpreterTest extends TestCase {
 			$out = $ci->dispatch( 'log', 'hello from log verb' );
 			$this->assertSame( '', $out, 'log returns empty string — caller suppresses response' );
 			$this->assertCount( 1, $captured );
-			$this->assertSame( "hello from log verb\n", $captured[0] );
+			// stderr() now applies the Tachikoma log_prefix (timestamp + identity)
+			// to non-pre-dated lines, so the captured value is the prefixed line.
+			$this->assertMatchesRegularExpression(
+				'/^\d{4}-\d\d-\d\d.*\]: hello from log verb\n$/',
+				$captured[0]
+			);
 		} finally {
 			// Restore the bootstrap default so subsequent tests don't leak.
 			Core::reset();

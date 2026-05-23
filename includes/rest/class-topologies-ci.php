@@ -126,11 +126,12 @@ class Topologies_CI extends Service_CI {
 					try {
 						$shell->validate_line( $stmt );
 					} catch ( \RuntimeException $e ) {
-						// Don't re-esc_html(): $msg is already Shell-sanitized; re-escaping would
-						// HTML-encode the quotes Shell added around the verb, worsening the UX.
+						// validate_line throws only a fixed-string structural error
+						// (unterminated backslash continuation) — no user text, so no
+						// escaping needed.
 						$line_no = $i + 1;
 						$msg     = $e->getMessage();
-						// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $line_no is int; $msg is pre-sanitized by Shell::validate_line.
+						// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $line_no is int; $msg is a fixed Shell::validate_line string.
 						throw new \RuntimeException( "validation failed at line $line_no: $msg" );
 					}
 				}

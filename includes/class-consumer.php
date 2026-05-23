@@ -109,7 +109,7 @@ class Consumer extends Timer {
 			$msg = Message::unpacked( (string) \end( $lines ) );
 		} catch ( \InvalidArgumentException $e ) {
 			// Unparseable entry: start from the default cursor rather than failing construction.
-			Core::print_less_often( "Consumer: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
+			$this->print_less_often( "Consumer: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
 			return;
 		}
 		$entry = $msg[ Message::VALUE ];
@@ -343,7 +343,7 @@ class Consumer extends Timer {
 
 			// DoS guard: reject if buffer would exceed MAX_LINE_BUFFER_SIZE.
 			if ( $remainder_len + \strlen( $bytes ) > self::MAX_LINE_BUFFER_SIZE ) {
-				Core::print_less_often(
+				$this->print_less_often(
 					\sprintf(
 						'Consumer: line buffer exceeded %d bytes at seg %d off %d - discarding',
 						self::MAX_LINE_BUFFER_SIZE,
@@ -389,7 +389,7 @@ class Consumer extends Timer {
 					$msg = Message::unpacked( $line );
 				} catch ( \InvalidArgumentException $e ) {
 					// Skip corrupt lines (cursor already advanced) and keep draining.
-					Core::print_less_often( "Consumer: skipping unparseable line: {$e->getMessage()}" );
+					$this->print_less_often( "Consumer: skipping unparseable line: {$e->getMessage()}" );
 					continue;
 				}
 				$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;

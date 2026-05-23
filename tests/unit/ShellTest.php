@@ -224,13 +224,19 @@ class ShellTest extends TestCase {
 		\fclose( $out_stream );
 	}
 
-	public function test_parse_forbidden_verb_returns_null(): void {
+	public function test_parse_control_flow_verbs_flow_through_as_commands(): void {
+		// No special "forbidden verb" list: control-flow keywords are just unknown
+		// verbs that parse to a TM_COMMAND and flow through — the target
+		// CommandInterpreter answers `unknown command: <verb>`.
 		$shell = new Shell();
-		$this->assertNull( $shell->parse( 'eval foo') );
-		$this->assertNull( $shell->parse( 'if true') );
-		$this->assertNull( $shell->parse( 'while x') );
-		$this->assertNull( $shell->parse( 'for x') );
-		$this->assertNull( $shell->parse( 'func name') );
+		foreach ( [ 'eval foo', 'if true', 'while x', 'for x', 'func name' ] as $line ) {
+			$msg = $shell->parse( $line );
+			$this->assertIsArray( $msg, "'$line' should parse to a Message" );
+			$this->assertSame(
+				Message::TM_COMMAND,
+				$msg[ Message::TYPE ] & Message::TM_COMMAND
+			);
+		}
 	}
 
 	public function test_parse_empty_or_comment_returns_null(): void {

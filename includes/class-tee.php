@@ -62,7 +62,8 @@ class Tee extends Node {
 				$copy[ Message::TO ] = $t;
 				$this->sink?->fill( $copy );
 			} catch ( \Throwable $e ) {
-				Core::print_less_often( "Tee {$this->name}: target $t threw: " . $e->getMessage() );
+				// log_midfix prepends the node name; keep only the class label here.
+				$this->print_less_often( "Tee: target $t threw: " . $e->getMessage() );
 			}
 		}
 	}

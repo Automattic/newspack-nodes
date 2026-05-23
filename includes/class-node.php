@@ -142,13 +142,13 @@ class Node {
 	/** Prepend $name to message FROM. Returns false if FROM would exceed MAX_FROM_SIZE. */
 	public function stamp_message( array &$message, string $name ): bool {
 		if ( '' === $name ) {
-			Core::print_less_often( 'ERROR: ' . static::class . ' stamp_message() called with empty name' );
+			$this->print_less_often( 'ERROR: ' . static::class . ' stamp_message() called with empty name' );
 			return false;
 		}
 		$from = $message[ Message::FROM ];
 		$new  = '' === $from ? $name : ( $name . '/' . $from );
 		if ( \strlen( $new ) > self::MAX_FROM_SIZE ) {
-			Core::print_less_often( 'ERROR: path exceeded ' . self::MAX_FROM_SIZE . " bytes; dropping from: $new" );
+			$this->print_less_often( 'ERROR: path exceeded ' . self::MAX_FROM_SIZE . " bytes; dropping from: $new" );
 			return false;
 		}
 		$message[ Message::FROM ] = $new;
@@ -201,7 +201,7 @@ class Node {
 		}
 		$target = Core::node( $listener );
 		if ( null === $target ) {
-			Core::print_less_often( "WARNING: $listener forgot to unregister from $event on " . $this->name );
+			$this->print_less_often( "WARNING: $listener forgot to unregister from $event on " . $this->name );
 			return false; // Drop the dead registration.
 		}
 		$msg                   = Message::new_message();
@@ -395,10 +395,76 @@ class Node {
 		$line = \implode( ' ', $parts );
 
 		if ( 'NOT_AVAILABLE' === $error && Core::$now < 300.0 ) {
-			Core::print_least_often( $line );
+			$this->print_least_often( $line );
 			return;
 		}
-		Core::print_less_often( $line );
+		$this->print_less_often( $line );
+	}
+
+	/**
+	 * Per-node mid-line tag (Tachikoma Node::log_midfix): "<name>: " prepended
+	 * to every line. Empty when the node is unnamed, or when the process
+	 * identity ($0 / Core::argv0()) already starts with the node name (so the
+	 * tag would be redundant). With a message, chomps a trailing newline,
+	 * prepends the tag to every line, and appends one trailing newline.
+	 */
+	public function log_midfix( ?string $msg = null ): string {
+		$midfix = '';
+		if ( '' !== $this->name
+			&& 1 !== \preg_match( '/^' . \preg_quote( $this->name, '/' ) . '\b/', Core::argv0() ) ) {
+			$midfix = $this->name . ': ';
+		}
+		if ( null === $msg ) {
+			return $midfix;
+		}
+		$msg = \rtrim( $msg, "\n" );
+		$msg = $midfix . \str_replace( "\n", "\n" . $midfix, $msg );
+		return $msg . "\n";
+	}
+
+	/**
+	 * Emit a stderr line tagged with this node's midfix, via Core's stderr
+	 * pipeline. Already-dated lines pass through Core verbatim (its
+	 * /^\d{4}-\d\d-\d\d/ guard), so the line this method midfixes isn't
+	 * double-prefixed. Empty text is a no-op (Tachikoma Node::stderr).
+	 */
+	public function stderr( string $text ): void {
+		if ( '' === $text ) {
+			return;
+		}
+		if ( 1 === \preg_match( '/^\d{4}-\d\d-\d\d/', $text ) ) {
+			Core::stderr( $text );
+			return;
+		}
+		Core::stderr( Core::log_prefix( $this->log_midfix( $text ) ) );
+	}
+
+	/** Emit text on first sight; suppress identical text thereafter. Keyed per-node via log_midfix (shares Core::$recent_log_timers). */
+	public function print_less_often( string $text ): void {
+		$key = $this->log_midfix( $text );
+		$row = Core::$recent_log_timers[ $key ] ?? null;
+		if ( null !== $row ) {
+			++$row['count'];
+		} else {
+			$this->stderr( $text );
+			$row = [ 'timestamp' => Core::$now, 'count' => 1, ];
+		}
+		Core::$recent_log_timers[ $key ] = $row;
+	}
+
+	/** Emit once at the 10th identical occurrence; suppress otherwise. Keyed per-node via log_midfix (shares Core::$recent_log_timers). */
+	public function print_least_often( string $text ): void {
+		$key = $this->log_midfix( $text );
+		$row = Core::$recent_log_timers[ $key ] ?? null;
+		if ( null !== $row ) {
+			++$row['count'];
+			if ( 10 === $row['count'] ) {
+				$this->stderr( $text );
+			}
+		} else {
+			$row = [ 'timestamp' => Core::$now, 'count' => 1, ];
+		}
+		Core::$recent_log_timers[ $key ] = $row;
 	}
 
 	/** Topology console manifest: palette entry + node configuration form. Subclasses override to declare ctor params, verbs, category, description. */

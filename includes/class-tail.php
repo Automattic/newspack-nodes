@@ -107,7 +107,7 @@ class Tail extends Timer {
 			case 'block-buffered':
 				// DoS guard: bound line_remainder.
 				if ( \strlen( $this->line_remainder ) + \strlen( $bytes ) > self::MAX_LINE_BUFFER_SIZE ) {
-					Core::print_less_often(
+					$this->print_less_often(
 						\sprintf(
 							'Tail: line buffer exceeded %d bytes for %s - discarding',
 							self::MAX_LINE_BUFFER_SIZE,
@@ -135,7 +135,7 @@ class Tail extends Timer {
 			default:
 				// DoS guard: over-cap means a corrupt no-newline source; discard remainder and resync at the next newline.
 				if ( \strlen( $this->line_remainder ) + \strlen( $bytes ) > self::MAX_LINE_BUFFER_SIZE ) {
-					Core::print_less_often(
+					$this->print_less_often(
 						\sprintf(
 							'Tail: line buffer exceeded %d bytes for %s - discarding',
 							self::MAX_LINE_BUFFER_SIZE,

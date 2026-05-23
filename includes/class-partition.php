@@ -245,7 +245,7 @@ class Partition extends Timer {
 					@\fwrite( $this->idx_fh, $entry . "\n" );
 				}
 			} catch ( \Throwable $e ) {
-				Core::print_less_often( 'Partition: index callback threw: ' . $e->getMessage() );
+				$this->print_less_often( 'Partition: index callback threw: ' . $e->getMessage() );
 			}
 			return;
 		}
@@ -461,7 +461,7 @@ class Partition extends Timer {
 			if ( false === $written || 0 === $written ) {
 				++$attempts;
 				if ( $attempts >= self::MAX_PARTIAL_WRITE_ATTEMPTS ) {
-					Core::print_less_often( 'Partition: fwrite stalled (' . $attempts . " attempts) for {$this->current_log_path}" );
+					$this->print_less_often( 'Partition: fwrite stalled (' . $attempts . " attempts) for {$this->current_log_path}" );
 					return false;
 				}
 				continue;
@@ -588,7 +588,7 @@ class Partition extends Timer {
 		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_touch, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_touch
 		if ( ! @\touch( $this->current_log_path ) ) {
-			Core::print_less_often( "Partition: touch() failed for {$this->current_log_path}" );
+			$this->print_less_often( "Partition: touch() failed for {$this->current_log_path}" );
 		}
 
 		$this->cleanup_segments();
