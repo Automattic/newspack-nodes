@@ -75,3 +75,29 @@ test( 'fill does not mutate caller TO when fanning out', () => {
 	t.fill( m );
 	expect( m[ TO ] ).toBe( 'caller-set' );
 } );
+
+test( 'disconnectNode removes one target from the fan-out array', () => {
+	const t = new Tee();
+	t.connectNode( 'a' );
+	t.connectNode( 'b' );
+	t.disconnectNode( 'a' );
+	expect( t.target ).toEqual( [ 'b' ] );
+} );
+
+test( 'disconnectNode with a bare target is a value-filter no-op (matches PHP)', () => {
+	// PHP Tee::disconnect_node('') filters out '' entries — on a normal fan-out
+	// that removes nothing. (The verb resolves a bare target to FROM first.)
+	const t = new Tee();
+	t.connectNode( 'a' );
+	t.connectNode( 'b' );
+	t.disconnectNode();
+	expect( t.target ).toEqual( [ 'a', 'b' ] );
+} );
+
+test( 'disconnectNode for a missing target leaves the array untouched', () => {
+	const t = new Tee();
+	t.connectNode( 'a' );
+	t.connectNode( 'b' );
+	t.disconnectNode( 'missing' );
+	expect( t.target ).toEqual( [ 'a', 'b' ] );
+} );

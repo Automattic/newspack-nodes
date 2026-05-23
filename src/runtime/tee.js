@@ -21,6 +21,18 @@ export class Tee extends Node {
 		this.target.push( owner );
 	}
 
+	// Remove the matching target from the fan-out array — a value-filter, NOT a
+	// clear-all (matches PHP Tee::disconnect_node). The disconnect_node verb
+	// resolves a bare target to the issuing FROM before calling, so '' never
+	// reaches here in practice (and filtering '' is a harmless no-op anyway).
+	disconnectNode( target = '' ) {
+		if ( ! Array.isArray( this.target ) ) {
+			this.target = [];
+			return;
+		}
+		this.target = this.target.filter( ( t ) => t !== target );
+	}
+
 	fill( message ) {
 		this.counter += 1;
 		const size = valueSize( message );

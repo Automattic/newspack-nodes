@@ -124,6 +124,32 @@ export class Node {
 		this.notify( event, payload );
 	}
 
+	// Clear target (matches PHP Node::disconnect_node). Tee overrides to prune
+	// one entry from its fan-out array.
+	// eslint-disable-next-line no-unused-vars
+	disconnectNode( target = '' ) {
+		this.target = '';
+	}
+
+	// Teardown. Order matters: own name LAST, so in-flight Core.node() lookups
+	// see null not a half-torn-down self. Mirrors PHP Node::remove_node.
+	removeNode() {
+		this.registrations = {};
+		this.setStateCache = {};
+		this.sink = null;
+		this.target = '';
+		// Cascade-unregister the sibling CI so a name-recycle doesn't collide
+		// with an orphan.
+		if ( this.interpreter && '' !== this.interpreter.name ) {
+			Core.unregisterNode( this.interpreter.name );
+		}
+		this.interpreter = null;
+		if ( '' !== this.name ) {
+			Core.unregisterNode( this.name );
+			this.name = '';
+		}
+	}
+
 	_dispatchListener( event, listener, payload ) {
 		const cb = this.registrations[ event ]?.[ listener ];
 		if ( 'function' === typeof cb ) {
