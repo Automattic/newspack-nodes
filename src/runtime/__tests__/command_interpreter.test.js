@@ -817,30 +817,14 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 		} );
 	} );
 
-	describe( 'make_node', () => {
-		afterEach( () => {
-			CommandInterpreter.classMap = {};
-		} );
-		it( 'reports unknown class when nothing is registered', () => {
+	describe( 'make_node (browser defers to workers)', () => {
+		// The browser console has no class registry / autoload; node construction
+		// happens server-side. make_node at a worker path routes to that worker's
+		// PHP CI; at a local path it returns a hint rather than constructing.
+		it( 'returns a worker-path hint instead of constructing locally', () => {
 			const ci = makeCi();
-			expect( dispatch( ci, 'make_node', 'Widget w' ) ).toBe(
-				'unknown class: Widget'
-			);
-		} );
-		it( 'constructs and sinks a registered class', () => {
-			class Widget extends Node {}
-			CommandInterpreter.registerClass( 'Widget', Widget );
-			const ci = makeCi();
-			expect( dispatch( ci, 'make_node', 'Widget w' ) ).toBe( 'ok' );
-			const w = Core.node( 'w' );
-			expect( w ).toBeInstanceOf( Widget );
-			expect( w.sink ).toBe( ci );
-		} );
-		it( 'usage when name is missing', () => {
-			const ci = makeCi();
-			expect( dispatch( ci, 'make_node', 'Widget' ) ).toBe(
-				'usage: make_node <type> <name> [<ctor_args>...]'
-			);
+			const out = dispatch( ci, 'make_node', 'Widget w' );
+			expect( out ).toMatch( /worker/i );
 		} );
 	} );
 } );

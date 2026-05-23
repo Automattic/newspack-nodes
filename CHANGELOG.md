@@ -81,6 +81,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **JS `CommandInterpreter` drops `classMap`/`registerClass`.** The browser has no
+  class registry or autoload — node construction is server-side. `classMap`,
+  `registerClass`, and the browser-local `makeNode` are removed; the `make_node`
+  verb now returns a "cd to a worker path" hint (at a worker path the command
+  routes to that worker's PHP CI). The palette already comes from the server
+  catalog (`useClassCatalog` → `classes.list`).
 - **`make_node` resolves classes by namespace prefix + `_Node`; `register_class`
   removed.** Plugins now call `Command_Interpreter_Node::register_namespace()`
   (one call per namespace) instead of ~36 per-class `register_class()` calls.
