@@ -421,6 +421,84 @@ describe( 'Shell node — include (browser-adapted)', () => {
 	} );
 } );
 
+describe( 'Shell node — quote-aware tokenization (PHP parity)', () => {
+	it( 'var x = "a b" stores the quoted value with quotes stripped', () => {
+		const { shell } = makeShell();
+		expect( shell.parse( 'var x = "a b"' ) ).toBeNull();
+		expect( shell.vars.x ).toBe( 'a b' );
+	} );
+
+	it( 'var joins trailing tokens with single spaces (runs collapsed)', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var x = a   b    c' );
+		expect( shell.vars.x ).toBe( 'a b c' );
+	} );
+
+	it( 'bare verb args collapse whitespace runs and strip quotes', () => {
+		const { shell } = makeShell( { path: '' } );
+		const m = shell.parse( 'foo a   "b c"' );
+		expect( m[ VALUE ] ).toEqual( {
+			name: 'foo',
+			arguments: 'a b c',
+			payload: '',
+		} );
+	} );
+
+	it( 'send <node> "hello world" → body has quotes stripped, runs collapsed', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.fill( 'send demo.p0 "hello world"' );
+		expect( filled[ 0 ][ TO ] ).toBe( 'demo.p0' );
+		expect( filled[ 0 ][ VALUE ] ).toBe( 'hello world\n' );
+	} );
+
+	it( 'tell quoted body strips quotes; spaces inside the quotes are kept', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.fill( "tell n 'a    b'" );
+		expect( filled[ 0 ][ VALUE ] ).toBe( 'a    b' );
+	} );
+
+	it( 'tell collapses runs of UNquoted whitespace between tokens', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.fill( 'tell n hello   world' );
+		expect( filled[ 0 ][ VALUE ] ).toBe( 'hello world' );
+	} );
+
+	it( 'cmd args join slice(2) with single spaces', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.fill( 'cmd n verb a   "b c"' );
+		expect( filled[ 0 ][ VALUE ] ).toEqual( {
+			name: 'verb',
+			arguments: 'a b c',
+			payload: '',
+		} );
+	} );
+
+	it( 'echo collapses whitespace runs and strips quotes', () => {
+		const { shell } = makeShell();
+		expect( shell.parse( 'echo a   "b c"' ) ).toEqual( {
+			kind: 'local',
+			name: 'echo',
+			text: 'a b c',
+		} );
+	} );
+
+	it( 'request args join slice(1) with single spaces', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.fill( 'request n a   b' );
+		expect( filled[ 0 ][ VALUE ] ).toBe( 'a b' );
+	} );
+
+	it( 'tokenize exposes the PHP quote-aware tokenizer', () => {
+		const { shell } = makeShell();
+		expect( shell.tokenize( 'a   "b c" d' ) ).toEqual( [
+			'a',
+			'b c',
+			'd',
+		] );
+		expect( shell.tokenize( 'x ""' ) ).toEqual( [ 'x', '' ] );
+	} );
+} );
+
 describe( 'splitStatements (unquoted `;` splitter)', () => {
 	it( 'returns single statement when no semicolons', () => {
 		expect( splitStatements( 'help' ) ).toEqual( [ 'help' ] );

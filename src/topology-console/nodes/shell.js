@@ -27,13 +27,49 @@ import {
 } from '../../runtime/message';
 import names from '../../runtime/reserved-node-names.json';
 
-// First whitespace split: [head, trimmed-rest].
-function splitFirst( s ) {
-	const idx = s.search( /\s/ );
-	if ( -1 === idx ) {
-		return [ s, '' ];
+/**
+ * Quote-aware tokenizer ('/"/`): splits on unquoted whitespace, strips the
+ * quote chars; an empty quoted string still counts as a token. Mirrors PHP
+ * Shell::tokenize so verb/arg slicing matches byte-for-byte.
+ *
+ * @param {string} line Interpolated, trimmed line.
+ * @return {string[]} Tokens with quote chars removed and runs collapsed.
+ */
+export function tokenize( line ) {
+	const tokens = [];
+	let buf = '';
+	let inQuote = null;
+	let inToken = false;
+	for ( let i = 0; i < line.length; i++ ) {
+		const ch = line[ i ];
+		if ( null !== inQuote ) {
+			if ( ch === inQuote ) {
+				inQuote = null;
+			} else {
+				buf += ch;
+			}
+			continue;
+		}
+		if ( '"' === ch || "'" === ch || '`' === ch ) {
+			inQuote = ch;
+			inToken = true; // empty quoted string still counts as a token.
+			continue;
+		}
+		if ( ' ' === ch || '\t' === ch ) {
+			if ( inToken ) {
+				tokens.push( buf );
+				buf = '';
+				inToken = false;
+			}
+			continue;
+		}
+		buf += ch;
+		inToken = true;
 	}
-	return [ s.slice( 0, idx ), s.slice( idx + 1 ).trim() ];
+	if ( inToken ) {
+		tokens.push( buf );
+	}
+	return tokens;
 }
 
 /**
@@ -113,6 +149,11 @@ export class Shell extends Node {
 		);
 	}
 
+	// Instance accessor for the quote-aware tokenizer (PHP Shell::tokenize).
+	tokenize( line ) {
+		return tokenize( line );
+	}
+
 	// Slash-join cwd with an extra path arg, dropping empty pieces (PHP prefix()).
 	prefix( path ) {
 		const parts = [];
@@ -169,9 +210,14 @@ export class Shell extends Node {
 		if ( ! trimmed || '#' === trimmed[ 0 ] ) {
 			return null;
 		}
-		const parts = splitFirst( trimmed );
-		const verb = parts[ 0 ];
-		const rest = parts[ 1 ];
+		const tokens = tokenize( trimmed );
+		if ( 0 === tokens.length ) {
+			return null;
+		}
+		const verb = tokens[ 0 ];
+		const args = tokens.slice( 1 );
+		// args[n] joined with single spaces, mirroring PHP implode(' ', slice).
+		const join = ( from ) => args.slice( from ).join( ' ' );
 
 		// `include` reads a topology file from disk in PHP — impossible in the browser.
 		if ( 'include' === verb ) {
@@ -186,7 +232,7 @@ export class Shell extends Node {
 		}
 
 		if ( 'echo' === verb ) {
-			return { kind: 'local', name: 'echo', text: rest };
+			return { kind: 'local', name: 'echo', text: join( 0 ) };
 		}
 
 		if ( 'show_parse' === verb ) {
@@ -204,8 +250,8 @@ export class Shell extends Node {
 
 		// `var <name> = <value>`: reject `:` names (reserved for read-only namespaces).
 		if ( 'var' === verb ) {
-			const [ name, after ] = splitFirst( rest );
-			const [ eq, value ] = splitFirst( after );
+			const name = args[ 0 ] ?? '';
+			const eq = args[ 1 ] ?? '';
 			if ( '' === name || '=' !== eq ) {
 				return null;
 			}
@@ -215,12 +261,13 @@ export class Shell extends Node {
 					text: `var: invalid name '${ name }' (':' is reserved for read-only namespaces like config:)`,
 				};
 			}
-			this.vars[ name ] = value;
+			this.vars[ name ] = join( 2 );
 			return null;
 		}
 
 		if ( 'debug_level' === verb ) {
-			const level = '' === rest ? null : parseInt( rest, 10 );
+			const arg = args[ 0 ] ?? '';
+			const level = '' === arg ? null : parseInt( arg, 10 );
 			if (
 				null !== level &&
 				( Number.isNaN( level ) || level < 0 || level > 2 )
@@ -234,7 +281,7 @@ export class Shell extends Node {
 		// graph; `/_http` = the HTTP boundary (HttpOut → /command → PHP HTTP_In);
 		// `/_http/<worker>` = a worker; `..` walks up. Mirrors the cli's cd.
 		if ( 'cd' === verb || 'chdir' === verb ) {
-			this.path = this.cd( this.path, rest );
+			this.path = this.cd( this.path, args[ 0 ] ?? '' );
 			return null;
 		}
 
@@ -246,53 +293,54 @@ export class Shell extends Node {
 
 		if ( 'ping' === verb ) {
 			msg[ TYPE ] = TM_PING;
-			msg[ TO ] = this.prefix( rest );
+			msg[ TO ] = this.prefix( args[ 0 ] ?? '' );
 			// Receiver bounces TO=FROM; VALUE is the send timestamp for RTT.
 			msg[ VALUE ] = Date.now() / 1000;
 			return msg;
 		}
 		if ( 'tell' === verb || 'tell_node' === verb ) {
-			const [ to, body ] = splitFirst( rest );
+			const to = args[ 0 ] ?? '';
 			if ( ! to ) {
 				return { kind: 'error', text: 'usage: tell <path> <bytes>' };
 			}
 			msg[ TYPE ] = TM_INFO;
 			msg[ TO ] = this.prefix( to );
-			msg[ VALUE ] = body;
+			msg[ VALUE ] = join( 1 );
 			return msg;
 		}
 		if ( 'send' === verb || 'send_node' === verb ) {
-			const [ to, body ] = splitFirst( rest );
+			const to = args[ 0 ] ?? '';
 			if ( ! to ) {
 				return { kind: 'error', text: 'usage: send <path> <bytes>' };
 			}
 			msg[ TYPE ] = TM_BYTESTREAM;
 			msg[ TO ] = this.prefix( to );
 			// Line-terminate so line-oriented nodes don't merge sends.
-			msg[ VALUE ] = `${ body }\n`;
+			msg[ VALUE ] = `${ join( 1 ) }\n`;
 			return msg;
 		}
 		if ( 'send_eof' === verb ) {
-			if ( ! rest ) {
+			const to = args[ 0 ] ?? '';
+			if ( ! to ) {
 				return { kind: 'error', text: 'usage: send_eof <path>' };
 			}
 			msg[ TYPE ] = TM_EOF;
-			msg[ TO ] = this.prefix( rest );
+			msg[ TO ] = this.prefix( to );
 			return msg;
 		}
 		if ( 'request' === verb || 'request_node' === verb ) {
-			const [ to, body ] = splitFirst( rest );
+			const to = args[ 0 ] ?? '';
 			if ( ! to ) {
 				return { kind: 'error', text: 'usage: request <path> <args>' };
 			}
 			msg[ TYPE ] = TM_REQUEST;
 			msg[ TO ] = this.prefix( to );
-			msg[ VALUE ] = body;
+			msg[ VALUE ] = join( 1 );
 			return msg;
 		}
 		if ( 'cmd' === verb || 'command' === verb || 'command_node' === verb ) {
-			const [ to, after ] = splitFirst( rest );
-			const [ name, args ] = splitFirst( after );
+			const to = args[ 0 ] ?? '';
+			const name = args[ 1 ] ?? '';
 			if ( ! to || ! name ) {
 				return {
 					kind: 'error',
@@ -301,7 +349,7 @@ export class Shell extends Node {
 			}
 			msg[ TYPE ] = TM_COMMAND;
 			msg[ TO ] = this.prefix( to );
-			msg[ VALUE ] = { name, arguments: args, payload: '' };
+			msg[ VALUE ] = { name, arguments: join( 2 ), payload: '' };
 			return msg;
 		}
 
@@ -320,7 +368,7 @@ export class Shell extends Node {
 		// Bare verb: TM_COMMAND at the cwd (path).
 		msg[ TYPE ] = TM_COMMAND;
 		msg[ TO ] = this.prefix( '' );
-		msg[ VALUE ] = { name: verb, arguments: rest, payload: '' };
+		msg[ VALUE ] = { name: verb, arguments: join( 0 ), payload: '' };
 		return msg;
 	}
 

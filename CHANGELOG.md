@@ -15,9 +15,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   gains the full verb table (`make_node`, `connect_node`, `set_sink`,
   `remove_node`, `dump_node`/`dump_config`/`dump_metadata`, `ls`/`list_nodes`,
   `log`, `dmesg`, `stats`, `uptime`, `debug_state`, `help`) operating on the
-  in-browser node graph. (Browser gaps where the runtime lacks a primitive —
-  `make_node` class registry, `disconnect_node`/`remove_node` lifecycle,
-  `dmesg`/`uptime` Core buffers — degrade gracefully rather than crash.)
+  in-browser node graph. (Browser-local `make_node` still needs a class registry —
+  tracked separately; `make_node` itself works on workers.)
+- **Node lifecycle + quote-aware shell args.** `Node.removeNode()` /
+  `Node.disconnectNode()` and `Tee.disconnectNode()` give the `remove_node` /
+  `disconnect_node` verbs real teardown (clear registrations/sink/target, cascade
+  the sibling interpreter, unregister last), matching PHP. The JS Shell now
+  tokenizes arguments quote-aware — `var x = "a b"` stores `a b`, quoted bodies
+  keep interior spaces — matching PHP `Shell::tokenize`.
 
 ### Changed
 
