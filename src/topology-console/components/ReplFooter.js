@@ -83,6 +83,10 @@ export default function ReplFooter( {
 	// a reply is consumed.
 	const pendingToken = useRef( null );
 	const lastAppliedSeq = useRef( null );
+	// The token that produced an ambiguous (no-extension) completion on the
+	// previous Tab. readline lists candidates only on a SECOND consecutive Tab,
+	// so the first ambiguous press just arms this; typing/extension clears it.
+	const ambiguousToken = useRef( null );
 	const setExpanded = ( next ) => {
 		if ( onExpandedChange ) {
 			onExpandedChange(
@@ -239,17 +243,26 @@ export default function ReplFooter( {
 		// Unique match: complete the token and append a space (readline behavior),
 		// even when the token already equals the candidate.
 		if ( 1 === matches.length ) {
+			ambiguousToken.current = null;
 			setValue( head + matches[ 0 ] + ' ' );
 			return;
 		}
 		const lcp = longestCommonPrefix( matches );
 		if ( lcp.length > token.length ) {
+			ambiguousToken.current = null;
 			setValue( head + lcp );
 			return;
 		}
-		// LCP can't extend the token: list the options (standard readline).
-		if ( onShowCandidates ) {
-			onShowCandidates( matches );
+		// LCP can't extend the token (ambiguous). readline lists only on the
+		// SECOND consecutive Tab: the first press arms ambiguousToken, the next
+		// (same token) lists. Typing or any extension clears the arm.
+		if ( ambiguousToken.current === token ) {
+			ambiguousToken.current = null;
+			if ( onShowCandidates ) {
+				onShowCandidates( matches );
+			}
+		} else {
+			ambiguousToken.current = token;
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ completion ] );
@@ -411,7 +424,10 @@ export default function ReplFooter( {
 					className="topology-repl__input"
 					placeholder={ canSend ? '' : 'Connecting…' }
 					value={ value }
-					onChange={ ( ev ) => setValue( ev.target.value ) }
+					onChange={ ( ev ) => {
+						ambiguousToken.current = null;
+						setValue( ev.target.value );
+					} }
 					onKeyDown={ handleKeyDown }
 					// Focus → show transcript; blur→hide is handled elsewhere
 					// (onBlur here would fire on node/Inspector clicks too).
