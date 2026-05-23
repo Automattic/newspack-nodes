@@ -1,5 +1,7 @@
 const PRINT_LESS_OFTEN_WINDOW_MS = 60_000;
 const PRINT_LEAST_OFTEN_THRESHOLD = 10;
+// Bounded stderr tail for the dmesg verb (Tachikoma caps @RECENT_LOG at 100).
+const RECENT_LOG_MAX = 100;
 
 class CoreImpl {
 	constructor() {
@@ -11,6 +13,8 @@ class CoreImpl {
 		this._msgCounter = 0;
 		this._lastPrint = new Map(); // message → last-printed ms timestamp
 		this._countSince = new Map(); // message → count since last print
+		this.recentLog = []; // bounded stderr tail for the dmesg verb
+		this.initTime = this.now(); // uptime baseline (mirrors PHP Core::$init_time)
 	}
 
 	registerNode( name, node ) {
@@ -40,7 +44,12 @@ class CoreImpl {
 	}
 
 	// stderr = the JS console; warn (not error) to skip devtools' error counter.
+	// Also append to the bounded recentLog tail the dmesg verb reads.
 	stderr( msg ) {
+		this.recentLog.push( msg );
+		while ( this.recentLog.length > RECENT_LOG_MAX ) {
+			this.recentLog.shift();
+		}
 		// eslint-disable-next-line no-console
 		console.warn( msg );
 	}

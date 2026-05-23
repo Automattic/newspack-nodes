@@ -554,6 +554,16 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 			const ci = makeCi();
 			expect( typeof dispatch( ci, 'dmesg', '' ) ).toBe( 'string' );
 		} );
+		it( 'dmesg returns the buffered Core.recentLog tail joined', () => {
+			const ci = makeCi();
+			const spy = jest
+				.spyOn( console, 'warn' )
+				.mockImplementation( () => {} );
+			Core.stderr( 'one\n' );
+			Core.stderr( 'two\n' );
+			expect( dispatch( ci, 'dmesg', '' ) ).toBe( 'one\ntwo\n' );
+			spy.mockRestore();
+		} );
 	} );
 
 	describe( 'dump_node / dump', () => {
@@ -664,6 +674,23 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 			const ci = makeCi();
 			const out = dispatch( ci, 'uptime', '' );
 			expect( out ).toMatch( /up/ );
+		} );
+		it( 'reports elapsed time since initTime that grows with the clock', () => {
+			const ci = makeCi();
+			const nowSpy = jest.spyOn( Core, 'now' );
+
+			// reset() captures initTime at 1000; advance the clock to 1090.
+			nowSpy.mockReturnValue( 1000 );
+			Core.reset();
+			nowSpy.mockReturnValue( 1090 );
+
+			expect( dispatch( ci, 'uptime', '' ) ).toMatch( /up 1m 30s/ );
+
+			// Advance further; elapsed must grow.
+			nowSpy.mockReturnValue( 1000 + 3661 );
+			expect( dispatch( ci, 'uptime', '' ) ).toMatch( /up 1h 01m/ );
+
+			nowSpy.mockRestore();
 		} );
 	} );
 

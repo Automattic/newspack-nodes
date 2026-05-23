@@ -61,3 +61,41 @@ test( 'printLeastOften prints only after threshold count, routes via stderr', ()
 	expect( spy ).toHaveBeenCalledTimes( 1 );
 	spy.mockRestore();
 } );
+
+test( 'recentLog is an array that reset() clears', () => {
+	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	expect( Array.isArray( Core.recentLog ) ).toBe( true );
+	expect( Core.recentLog ).toHaveLength( 0 );
+	Core.stderr( 'a line' );
+	expect( Core.recentLog.length ).toBeGreaterThan( 0 );
+	Core.reset();
+	expect( Core.recentLog ).toHaveLength( 0 );
+	spy.mockRestore();
+} );
+
+test( 'stderr appends each emitted line to recentLog', () => {
+	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	Core.stderr( 'first' );
+	Core.stderr( 'second' );
+	expect( Core.recentLog ).toEqual( [ 'first', 'second' ] );
+	spy.mockRestore();
+} );
+
+test( 'recentLog is bounded to the last 100 lines', () => {
+	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	for ( let i = 0; i < 150; i++ ) {
+		Core.stderr( `line ${ i }` );
+	}
+	expect( Core.recentLog ).toHaveLength( 100 );
+	expect( Core.recentLog[ 0 ] ).toBe( 'line 50' );
+	expect( Core.recentLog[ 99 ] ).toBe( 'line 149' );
+	spy.mockRestore();
+} );
+
+test( 'initTime is a number set at construction and re-set by reset()', () => {
+	expect( typeof Core.initTime ).toBe( 'number' );
+	const nowSpy = jest.spyOn( Core, 'now' ).mockReturnValue( 5_000 );
+	Core.reset();
+	expect( Core.initTime ).toBe( 5_000 );
+	nowSpy.mockRestore();
+} );

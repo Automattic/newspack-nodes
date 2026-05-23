@@ -23,6 +23,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the sibling interpreter, unregister last), matching PHP. The JS Shell now
   tokenizes arguments quote-aware — `var x = "a b"` stores `a b`, quoted bodies
   keep interior spaces — matching PHP `Shell::tokenize`.
+- **`dmesg`/`uptime` work in the browser CI.** Added the JS `Core` `recentLog`
+  ring (fed by `Core.stderr`, capped at 100) and `initTime`, matching PHP `Core`,
+  so the verbs report the recent stderr tail and session uptime.
 
 ### Changed
 
