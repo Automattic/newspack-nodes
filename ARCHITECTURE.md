@@ -13,7 +13,7 @@ Node-graph runtime for PHP. This document describes the substrate; application-l
 - [Other Node Primitives](#other-node-primitives)
 - [Backpressure (none)](#backpressure-none)
 - [TO=FROM Convention](#tofrom-convention)
-- [EventFramework](#eventframework)
+- [Event_Framework](#event_framework)
 - [Worker Lifecycle](#worker-lifecycle)
 - [Supervisor Lifecycle](#supervisor-lifecycle)
 - [Lock](#lock)
@@ -26,11 +26,11 @@ Three core ideas:
 
 1. **Nodes** — processing units. Every node has `fill( array &$message )` as its only entry point.
 2. **Messages** — 7-field arrays carrying a type bitmask, a routable path (TO/FROM), an ID, a KEY, and a VALUE.
-3. **Drain loop** — EventFramework picks the soonest pending timer's deadline as its wait timeout, then sleeps on `curl_multi_select` (when cURL handles are registered) or `usleep` (otherwise), fires expired timers, and runs deferred cleanup.
+3. **Drain loop** — Event_Framework picks the soonest pending timer's deadline as its wait timeout, then sleeps on `curl_multi_select` (when cURL handles are registered) or `usleep` (otherwise), fires expired timers, and runs deferred cleanup.
 
 ```
 ┌───────────────────────────────────────────────────────────┐
-│                      EventFramework                       │
+│                      Event_Framework                       │
 │  drain():                                                 │
 │   - compute timeout = next-timer deadline                 │
 │   - if cURL handles: curl_multi_select(timeout) ->        │
@@ -188,7 +188,7 @@ Returns false (drops) if FROM would exceed `MAX_FROM_SIZE = 1024` — prevents p
 
 ## Router
 
-`Router` extends `Timer`. PHP's `fire()` notifies all TIMER registrants and calls `Core::prune_logs()` on each tick (default 5s) — the **Router-hitchhike pattern** for cheap periodic work without per-node EventFramework slots. (The worker scaffolding arms this via `$router->set_timer( Router::DEFAULT_TICK_MS )`; without that the TIMER channel never fires.)
+`Router` extends `Timer`. PHP's `fire()` notifies all TIMER registrants and calls `Core::prune_logs()` on each tick (default 5s) — the **Router-hitchhike pattern** for cheap periodic work without per-node Event_Framework slots. (The worker scaffolding arms this via `$router->set_timer( Router::DEFAULT_TICK_MS )`; without that the TIMER channel never fires.)
 
 `Router::fill()` (PHP) peels the head segment unconditionally and dispatches:
 
@@ -220,7 +220,9 @@ Routing is path-based (`a/b/c` → "find node `a`, pass remaining path `b/c`"), 
 
 **First-300s NOT_AVAILABLE rule lives in `Node::drop_message`, not Router.** Router builds the NOT_AVAILABLE error inline (it does NOT call `drop_message` for that path; it only calls `drop_message` for the FROM-too-long case). The 300s rule applies wherever `drop_message` IS called: a NOT_AVAILABLE drop while `Core::$now < 300.0` logs via `print_least_often` (silences boot-race noise); otherwise `print_less_often`.
 
-**TIMER hitchhike is PHP-only.** JS Router pre-declares the `TIMER` and `NOT_AVAILABLE` slots but never fires TIMER (no browser-side drain loop yet).
+**TIMER hitchhike, both ports.** PHP's Router fires TIMER on its Event_Framework-driven tick. The JS Router (`src/runtime/router.js`) has no drain loop, so it fires TIMER from a `setInterval`: `startTimer( ms )` fires once immediately then every `ms`, and each `_tick()` calls `notify('TIMER', { now })`. The console arms it at one-second cadence and injects `beforeTimerNotify` / `afterTimerNotify` hooks that bracket the notify — locking `HttpOut` before and flushing after — so every emission a tick produces (each subscriber's poll) batches into ONE `/command` POST. `stopTimer()` clears the interval on teardown / edit-mode. This replaces the two independent `setInterval` polls the console used to run, eliminating the drift between the metadata and uptime polls.
+
+**TIMER subscribers batch.** Both `_metadata` and `_uptime` register against the Router's TIMER channel rather than running their own intervals: `_metadata` emits a `dump_metadata` poll every tick; `_uptime` self-throttles to a 5s `uptime` poll. Because both fire inside the same locked tick, the 5s uptime poll always rides in the same POST as that tick's `dump_metadata`. The substrate Router stays decoupled from any console node — the lock/flush logic lives in the injected hooks, not the Router.
 
 ## Storage: Topic + Partition
 
@@ -244,12 +246,12 @@ $p->with_index( $formatter );                           // custom .idx line form
 
 **Class-API contract**:
 
-`new Partition()` and `new Topic()` MUST be safe to call from request-scope code without an EventFramework running. Specifically:
+`new Partition()` and `new Topic()` MUST be safe to call from request-scope code without an Event_Framework running. Specifically:
 
-- No `set_timer` from constructor (silent leak: registers in EventFramework, never fires).
+- No `set_timer` from constructor (silent leak: registers in Event_Framework, never fires).
 - No `Core::node()` lookup during construct.
 - No `scandir` in constructor (eager scandir × N partitions × every request burns syscalls).
-- No `$this->name()` from constructor (CommandInterpreter's `make_node` owns naming).
+- No `$this->name()` from constructor (`Command_Interpreter_Node::make_node` owns naming).
 - File handles open lazily on first `write()` / `fill()` / `read_at()`.
 
 **`hash_to_partition`** is the canonical partition-routing function:
@@ -338,7 +340,7 @@ Inode + size-shrink rotation detection on every poll (`clearstatcache(true, $pat
 
 **Log** is the file-writer counterpart to Tail. Constructor: `(string $filename, string $mode = 'append', int $max_size = 0, int $max_rotations = 0)`. `fill()` writes the message VALUE (not the packed envelope) to the file — designed for human-readable structured-text logs (audit trails, application logs) where the on-disk shape is the producer's payload. `max_size > 0` triggers auto-rotation after the write that crossed the threshold; `max_rotations > 0` mtime-prunes older rotated siblings (sibling discovery uses `glob({filename}-*)`, so the prefix is reserved). Overwrite mode is single-shot: the node `remove_node`s itself on TM_EOF; append mode keeps the FD open for additional data. A TM_REQUEST with VALUE starting `rotate` triggers rotation on demand.
 
-**Timer** (and its subclass **Router**) is the time-driven base. `set_timer( $interval_ms, $oneshot )` registers with EventFramework; `fire_cb` is the EventFramework-side hook; `fire()` is the override point for subclasses. Default `fire()` emits a TM_BYTESTREAM with the current timestamp at `target` and notifies `FIRE` listeners.
+**Timer** (and its subclass **Router**) is the time-driven base. `set_timer( $interval_ms, $oneshot )` registers with Event_Framework; `fire_cb` is the Event_Framework-side hook; `fire()` is the override point for subclasses. Default `fire()` emits a TM_BYTESTREAM with the current timestamp at `target` and notifies `FIRE` listeners.
 
 ## Backpressure (none)
 
@@ -355,13 +357,13 @@ Forward direction uses `TO=$this->target` (the path `connect_node` put there). R
 | Forward | Producer / forwarder pass-through | `$this->target` |
 | Reverse | Forwarder dropping / terminal acking | `$message[FROM]` |
 | Reverse | TM_REQUEST handler responding | `$message[FROM]` |
-| Reverse | CommandInterpreter responding to TM_COMMAND | `$message[FROM]` |
+| Reverse | Command_Interpreter_Node responding to TM_COMMAND | `$message[FROM]` |
 
 Path-based routing via `_router` does the rest. Nodes don't track sockets or addresses; they just stamp FROM at I/O boundaries on the way in, and reverse direction follows the trail back out.
 
 **FROM stamping at I/O boundaries only**: the substrate's source nodes — **Tail** (`emit_message` sets FROM directly) and **Consumer** (`stamp_message`, using `stamp_override` when set — the worker IPC input Consumer stamps `_repl`) — stamp FROM as messages enter the graph. Internal nodes (Tee, Hook, and any application Node subclass) do NOT stamp. A message flowing `tail -> tee -> request-builder` carries `FROM=tail`, NOT `tee/tail`. (There are no `Job` / `Connector` node classes in this substrate; those Tachikoma concepts were not ported.)
 
-## EventFramework
+## Event_Framework
 
 Per-process drain-loop singleton. Manages timers, cURL multi handles, and deferred-cleanup integration. There is no FD-registration path: local file polling (Tail, Consumer, the cli's stdin reader) is driven by `set_timer`, so the loop always has exactly one blocking waiter regardless of which I/O sources are active.
 
@@ -450,7 +452,7 @@ Note the two distinct releases: instance `force_release()` is **conditional** (r
 Each worker is a cron-style PHP process spawned via HTTP POST, going zombie via `ignore_user_abort(true) + fastcgi_finish_request()`. Lifetime ~595s (just under 10 min, sized for Atomic's 15-min cap with margin).
 
 ```php
-// WorkerBase::execute( callable $topology, string $spawn_url, string $token )
+// Worker_Base::execute( callable $topology, string $spawn_url, string $token )
 if ( ! $this->acquire() ) return [ 'status' => 'skipped', 'reason' => 'lock_held' ];
 
 register_shutdown_function( /* cleanup_all_nodes + release + self_respawn */ );
@@ -459,7 +461,7 @@ usleep( LOCK_CHECK_GRACE_S * 1e6 );             // 250ms grace: let predecessor 
 try {
     $ci = $this->build_scaffolding();
     $this->run_topology( $topology, $ci );
-    $ef = EventFramework::instance();
+    $ef = Event_Framework::instance();
     $ef->install_signal_handlers();
     $ef->drain( fn () => $this->should_continue() );
 } finally {
@@ -549,7 +551,7 @@ newspack-nodes> ^D
 _shell  ->  _command_interpreter  ->  _router  ->  _output (Dumper)
 ```
 
-`_router` is a `Router`, `_command_interpreter` a `CommandInterpreter` sinking into it, `_output` a `Dumper`. The `Shell` is anonymous (Shell3 refuses a name) and sinks into `_command_interpreter`.
+`_router` is a `Router_Node`, `_command_interpreter` a `Command_Interpreter_Node` sinking into it, `_output` a `Dumper_Node`. The `Shell_Node` is anonymous (Shell refuses a name) and sinks into `_command_interpreter`. (Topology lines and `make_node` refer to these by their *shell name* — the class short-name minus `_Node`: `Router`, `Command_Interpreter`, `Dumper`, `Shell`.)
 
 **Pivoted mode** (`wp nodes cli firehose-workers.p0`) — the SAME local nodes, but with two additions and one re-wire: a `cmd-out` Partition (at the worker's input IPC dir, sink = `_command_interpreter`), a `reply-in` Consumer (at the worker's output IPC dir, sink = `_router`, `target = '_output'`, `next_offset('end')`), and crucially **`$shell->sink` is re-pointed from `_command_interpreter` to `cmd-out`** so typed lines cross the IPC boundary instead of running locally.
 
@@ -567,13 +569,13 @@ IPC layout (always single-partition):
 
 Reader id form: `{type}.p{N}`, e.g. `firehose-workers.p3`. Dot-and-`p` keeps it a single path segment — `firehose-workers/3` would route as "find node `firehose-workers`, pass remaining path `3`," which is wrong.
 
-**No cryptographic handshake** — filesystem permissions on `/tmp/newspack-nodes/ipc/` gate access. `Cli::attach_to_worker( $reader_id )` resolves the IPC paths: it parses `{type}.p{N}`, checks the worker is registered by `is_dir( {base}/locks/{reader_id}.lock.d )`, and throws `InvalidArgumentException` with `"no worker '{reader_id}' (run \`wp nodes ls\` to list active workers)"` if the lock dir is absent (staleness is NOT checked — a mid-restart worker still attaches). It returns `{input, output, type, partition}`. `build_repl_graph()` then constructs the IPC pair directly with `new Partition( $ipc['input'], 0 )` (named `cmd-out`) and `new Consumer( $ipc['output'], 0 )` (unnamed `reply-in`) — not via `make_node`.
+**No cryptographic handshake** — filesystem permissions on `/tmp/newspack-nodes/ipc/` gate access. `CLI::attach_to_worker( $reader_id )` resolves the IPC paths: it parses `{type}.p{N}`, checks the worker is registered by `is_dir( {base}/locks/{reader_id}.lock.d )`, and throws `InvalidArgumentException` with `"no worker '{reader_id}' (run \`wp nodes ls\` to list active workers)"` if the lock dir is absent (staleness is NOT checked — a mid-restart worker still attaches). It returns `{input, output, type, partition}`. `build_repl_graph()` then constructs the IPC pair directly with `new Partition( $ipc['input'], 0 )` (named `cmd-out`) and `new Consumer( $ipc['output'], 0 )` (unnamed `reply-in`) — not via `make_node`.
 
 **Wire / dispatch specifics**:
 
-- **IPC messages use TM_COMMAND**: replies route via the FROM/TO breadcrumb — Shell stamps FROM=`_output/$pid`, the worker's CommandInterpreter sets TO=`$message[FROM]` when responding, and Router dispatches the reply by name. No ID-correlation table; the path itself is the addressing.
+- **IPC messages use TM_COMMAND**: replies route via the FROM/TO breadcrumb — Shell stamps FROM=`_output/$pid`, the worker's Command_Interpreter_Node sets TO=`$message[FROM]` when responding, and Router dispatches the reply by name. No ID-correlation table; the path itself is the addressing.
 - **`Command` struct in VALUE is a LIVE PHP array, NOT JSON-encoded.** Inbound TM_COMMAND VALUE is `['name'=>, 'arguments'=>, 'payload'=>]`; the response VALUE is `['name'=>, 'payload'=>]`. The struct rides through `packed()`/`unpacked()` as a nested object inside the whole-message envelope — the envelope (and the SSE/REST body) is the ONLY place JSON serialization happens. Verb results are likewise live structures; the cli Dumper json-encodes array payloads only at the render boundary. No `signature` field — single-host filesystem-gated IPC; signing is dead weight.
-- **TO at the root prompt is empty.** CommandInterpreter dispatches a TM_COMMAND only when TO is empty; non-empty TO routes through Router as a normal addressed message.
+- **TO at the root prompt is empty.** Command_Interpreter_Node dispatches a TM_COMMAND only when TO is empty; non-empty TO routes through Router as a normal addressed message.
 - **`pwd` reply via the `prompt` intercept**: the Shell `pwd` builtin sends a TM_COMMAND `name=pwd`; `cd` is purely local (no message). When a response carries `name === 'prompt'`, Dumper sets `$shell->prompt` and renders nothing. (The Shell does not emit a `name=prompt` command itself; that path is a convention for a worker that wants to drive the cli's prompt.)
 
 **Shell** supports quote-aware tokenization (single, double, backtick), single-tier `<varname>` interpolation, backslash line-continuation, and an `include` builtin. Conditionals, loops, function definitions, pipes, and `eval` all reject with "syntax not supported in v1". Quote-aware tokenization + line-continuation are *required* for `include topology.tch foo=bar` to parse topology files.
@@ -584,7 +586,13 @@ Shell also intercepts the **path-composing builtins** before they reach the mess
 
 **`list_nodes` (alias `ls`) flags are `-a c l s t`** (matched by `^-([aclst]+)$`), NOT `-celos`: `-a` all-nodes (optional regex glob), `-c` counters, `-s` sinks, `-t` targets, `-l` = `-ct`. Without `-a`, a bare name lists nodes whose sink IS that node; no arg lists this CI's siblings.
 
-**CommandInterpreter** dispatches by verb. Aliases share the same `cmd_foo` static; e.g. `make` → `cmd_make_node`, `rm`/`remove` → `cmd_remove_node`, `dump` → `cmd_dump_node`, `ls` → `cmd_list_nodes`. CI dispatches a TM_COMMAND (not TM_RESPONSE) only when TO is empty — non-empty TO means the command is mid-route toward a downstream node, so CI forwards to its sink (Router). Verbs may throw freely; `interpret()` catches `\Throwable` and builds the response as `TM_COMMAND|TM_ERROR`. CI also bounces TM_PING and TM_EOF with empty TO back along FROM — the latter is the cli's stdin-close drain marker (cli emits TM_EOF when stdin EOFs, waits for the bounce so all preceding output has been drained off the reply partition before the cli exits).
+**Completion-query mode (`KEY='completion'`).** Both `help` and `ls` short-circuit when the inbound message carries `KEY='completion'`: they return a bare newline-separated candidate list (sorted verb names for `help`; bare node names for `ls`, honoring the same `-a`/glob/siblings selection but dropping all `-clst` columns) instead of the tabulated human output. This is the substrate's analogue of Tachikoma's `TM_COMPLETION`, implemented identically in PHP and JS (same set, same ordering) so tab-completion works against the browser-local graph and live workers alike. Tab-completion is built on top: `wp nodes cli` (readline-backed) and the browser REPL both fire a `help`/`ls` command with `KEY='completion'` through a `_completion` node, complete to the longest common prefix on the first Tab, and list the ambiguous candidates on a second consecutive Tab. The REPL also keeps a command history (up/down recall).
+
+**`make_node` resolves by namespace prefix, not a class registry.** There is no `register_class` / `class_map`: plugins call `Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' )` once at boot (the substrate also registers the `Newspack_Nodes\Rest\` sub-namespace so the service CIs resolve by short name). `make_node( $type, $name, ...$ctor_args )` loops the registered prefixes and constructs the first `{$prefix}{$type}_Node` that exists and is a concrete `Node` subclass — abstract subclasses (e.g. `Service_CI_Node`) and unknown types resolve to `null` rather than fatal. So `make_node('Tee')` → `Newspack_Nodes\Tee_Node`. The inverse, `shell_name_for( $node )`, is just the class short-name minus the `_Node` suffix (`Tee_Node` → `Tee`); a short name without `_Node` (ad-hoc test classes) is returned unchanged. `dump_metadata`'s `class` field and `dump_config`'s `make_node` line both emit this shell name, so the GUI/topology round-trip is stable across the rename.
+
+The palette catalog (`Classes_CI`'s `list` verb) no longer reads a registry — it scans the composer classmap (`\Composer\Autoload\ClassLoader::getRegisteredLoaders()`) for FQCNs under a registered prefix whose short name ends `_Node`, are concrete `Node` subclasses, and whose `node_schema()` declares a non-`Hidden`, non-empty category. (A class that inherits `Node`'s empty-category default — e.g. `SSE_Out_Node`, a pure HTTP response writer — is not a palette participant.) This requires `composer dump-autoload -o` after adding/renaming a class so the classmap is complete.
+
+**Command_Interpreter_Node** dispatches by verb. Aliases share the same `cmd_foo` static; e.g. `make` → `cmd_make_node`, `rm`/`remove` → `cmd_remove_node`, `dump` → `cmd_dump_node`, `ls` → `cmd_list_nodes`. A subclass that installs a custom verb table without a `help` verb gets a default `help` injected by `commands()` (returns the sorted verb names) — that's how the REST service CIs get a working `help`. CI dispatches a TM_COMMAND (not TM_RESPONSE) only when TO is empty — non-empty TO means the command is mid-route toward a downstream node, so CI forwards to its sink (Router). Verbs may throw freely; `interpret()` catches `\Throwable` and builds the response as `TM_COMMAND|TM_ERROR`. CI also bounces TM_PING and TM_EOF with empty TO back along FROM — the latter is the cli's stdin-close drain marker (cli emits TM_EOF when stdin EOFs, waits for the bounce so all preceding output has been drained off the reply partition before the cli exits).
 
 The response envelope: `TYPE = TM_COMMAND|TM_RESPONSE` (or `|TM_ERROR` on throw), `TO = $message[FROM]`, `FROM = $this->name` (self), `ID`/`KEY` copied from the inbound message, and `VALUE = ['name' => $cmd_name, 'payload' => $result]` as a **live array** (never separately json-encoded). An empty-string result emits no response.
 
@@ -606,6 +614,17 @@ Stdout writes go through a prompt-aware async path that wipes-and-redraws when a
 
 **Multi-session via FROM-trail**: each cli stamps `FROM=_output/$pid` (its wp-cli process PID). The worker's input-Consumer prepends `_repl`, so by the time the interpreter sees the message, `FROM=_repl/_output/$pid`. Replies follow `TO=$message[FROM]`, carrying `TO=_repl/_output/$pid`. The worker's `_router` splits TO on `/`, looks up `_repl` (a Partition), updates TO to `_output/$pid` (the post-strip remainder) and writes the envelope to disk. The cli's local `_router` reads the entry, splits again, looks up `_output` (the cli's Dumper), and forwards with `TO=$pid`. All cli sessions read the output Partition; each cli's Dumper filters: render iff TO matches its own `$pid` (or the pre-peel form `_output/$pid`), OR TO is empty (async broadcasts). No lock, no EBUSY; concurrent shells just work.
 
+### Browser topology-console (`src/topology-console/`, `src/runtime/`)
+
+The same Shell + Command_Interpreter_Node + Router + Dumper graph runs in the browser, ported to JS (`src/runtime/`) with full Shell-builtin and CI-verb parity with PHP (same verbs, same `commands()`-merge-vs-replace caveat aside). On top of that the console adds:
+
+- **`cd` navigation** across `/`, `/_sse`, and `/_sse/{worker}`. `cd /_sse/{worker}` mounts that worker exactly like picking it from the Path menu — it resolves the worker by longest worker-prefix match so a partial path still lands on the right reader. A single **Path menu** lists only the currently-active topologies. `cd` echoes into the transcript like the other builtins.
+- **Tab-completion** identical to the cli: longest-common-prefix extend on the first Tab via a `_completion` node firing `KEY='completion'`, list the candidates on a second consecutive Tab. Plus command history (up/down recall).
+- **Live-mode Inspector verb modals**: a node's `node_schema()` verbs are surfaced as forms in the Inspector so an operator can invoke a verb (with its declared arg fields) against a live node.
+- **`dmesg` / `uptime` / per-node logging** in the browser CI (via `Core.recentLog()` + `Core.initTime()`), matching the cli surface.
+
+The JS side has **no** `classMap` / `registerClass` / browser-`makeNode` registry — those were removed with the PHP `register_class` refactor. The browser `make_node` verb returns a "cd to a worker path" hint instead of constructing a node, because node construction is a server-side / worker concern.
+
 ## Substrate Lifecycle Events vs WordPress Hooks
 
 Two distinct extensibility mechanisms, both first-class:
@@ -615,7 +634,7 @@ Two distinct extensibility mechanisms, both first-class:
 | `register` / `notify` / `set_state` on Node | Per-node-instance. Events are pre-declared in the subclass constructor (e.g., `$this->registrations['FIRE'] = []`); listeners can only register for declared events. Late subscribers get the cached `set_state` payload immediately at registration time. Two listener-dispatch modes (closure, or Node name -> fill TM_INFO). | Substrate-internal lifecycle: Topic `READY`, Timer `FIRE`, Router `TIMER` (the hitchhike channel Timer subclasses register against). Per-instance, events as a contract surface. |
 | WordPress hooks via `Hook` node | Global by name. Anyone can `add_action` / `apply_filters`; no pre-declaration. No payload cache. | Plugin extensibility points. Transformation filters, observation listeners, "let other plugins react to this." |
 
-Shipped substrate events in v0.1.0: Topic `READY` (set_state on first partition materialization), Timer `FIRE` (notify after each `fire()`), Router `TIMER` (notify on every Router tick — Timer subclasses hitchhike here to avoid per-node EventFramework slots). Subclasses pre-declare what they emit; listeners register against the declared channels. `register()` throws on undeclared events — that's the contract surface.
+Shipped substrate events in v0.1.0: Topic `READY` (set_state on first partition materialization), Timer `FIRE` (notify after each `fire()`), Router `TIMER` (notify on every Router tick — Timer subclasses hitchhike here to avoid per-node Event_Framework slots). Subclasses pre-declare what they emit; listeners register against the declared channels. `register()` throws on undeclared events — that's the contract surface.
 
 **Multi-modal listener dispatch.** A registered listener identity is one of two things:
 

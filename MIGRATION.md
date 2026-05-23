@@ -6,7 +6,7 @@ Reference for in-flight migrations within the `newspack-nodes` substrate. Each s
 
 ### Overview
 
-M3 introduces three substrate-side `CommandInterpreter` (CI) subclasses that replace the legacy per-controller REST endpoints with a uniform command-dispatch surface:
+M3 introduces three substrate-side `Command_Interpreter_Node` (CI) subclasses that replace the legacy per-controller REST endpoints with a uniform command-dispatch surface:
 
 | CI | Verbs | Replaces |
 |----|-------|----------|
@@ -22,7 +22,7 @@ Browsers reach every CI through the same endpoint:
 POST /wp-json/newspack-nodes/v1/command
 ```
 
-with a `{type, to, from, id, value}` envelope where `to` is the CI shell-name (`classes`, `layouts`, `topologies`) and `value` is the JSON-encoded inner command `{name, arguments, payload}`. The substrate's `Router` peels `to`'s head, delivers the message to the named CI, and the CI's reply walks back via `TO=FROM` to `_http` (the per-request `HTTP_Out` node) which writes the packed Message directly to the HTTP response body.
+with a `{type, to, from, id, value}` envelope where `to` is the CI shell-name (`classes`, `layouts`, `topologies`) and `value` is the JSON-encoded inner command `{name, arguments, payload}`. The substrate's `Router` peels `to`'s head, delivers the message to the named CI, and the CI's reply walks back via `TO=FROM` to `_http` (the per-request `HTTP_In_Node` egress) which writes the packed Message directly to the HTTP response body.
 
 This mirrors the M2 pattern used by `newspack-event-logger-nodes` for its nine application-side service CIs. Same endpoint, same envelope, same routing — only the `to` field differs.
 
@@ -33,7 +33,7 @@ All three substrate CIs mount via the existing `newspack_nodes/request_graph_rea
 The substrate registers exactly one mount callback in `newspack-nodes.php`:
 
 ```php
-function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\CommandInterpreter $base_ci ): void {
+function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter_Node $base_ci ): void {
     $base_ci->make_node( 'Classes_CI',    'classes' );
     $base_ci->make_node( 'Layouts_CI',    'layouts' );
     $base_ci->make_node( 'Topologies_CI', 'topologies' );
@@ -41,21 +41,21 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\CommandInterpreter 
 \add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
 ```
 
-`make_node( $shell_name, $node_name, ...$ctor_args )` does three things atomically: instantiate the FQCN registered under `$shell_name`, name the node, and sink it back into the base CI so verb responses route through `_router → _http`. Skipping the sink leaves the CI unwired and replies silently drop on the floor.
+`make_node( $type, $node_name, ...$ctor_args )` does three things atomically: resolve and instantiate the first `{$prefix}{$type}_Node` under a registered namespace prefix (`make_node('Classes_CI', ...)` → `Newspack_Nodes\Rest\Classes_CI_Node`), name the node, and sink it back into the base CI so verb responses route through `_router → _http`. Skipping the sink leaves the CI unwired and replies silently drop on the floor.
 
 ### Verb reference
 
-Every verb takes its arguments as a JSON-encoded object in the request's `value.arguments` field. Every successful response is a JSON-encoded object in the response Message's `VALUE` field, wrapped in the standard CI envelope `{name, payload}` where `payload` is the verb's return string. Errors throw `\RuntimeException`; the substrate's `CommandInterpreter::interpret()` catches the throw and returns a `TM_COMMAND | TM_ERROR` Message with the exception message in `VALUE`'s `payload` slot (see [Error contract](#error-contract) below).
+Every verb takes its arguments as a JSON-encoded object in the request's `value.arguments` field. Every successful response is a JSON-encoded object in the response Message's `VALUE` field, wrapped in the standard CI envelope `{name, payload}` where `payload` is the verb's return string. Errors throw `\RuntimeException`; the substrate's `Command_Interpreter_Node::interpret()` catches the throw and returns a `TM_COMMAND | TM_ERROR` Message with the exception message in `VALUE`'s `payload` slot (see [Error contract](#error-contract) below).
 
 #### `classes.list`
 
-Enumerate every Node class registered via `CommandInterpreter::register_class()`. Inlines each class's `node_schema()`, filters out the `Hidden` category (plumbing: `CommandInterpreter`, `Router`, `Shell`, `Dumper`, `Callback`, `Lock`), and bundles the `Formatters` registry alongside so the topology-editor palette can populate both its class catalog and its `formatter_name` arg dropdown in one round-trip.
+Enumerate every catalog-eligible Node class. The verb scans the composer classmap (`\Composer\Autoload\ClassLoader::getRegisteredLoaders()`) for concrete `*_Node` Node subclasses under a registered namespace prefix (there is no `register_class` registry — see [API.md → Service CIs](API.md#service-cis)), inlines each class's `node_schema()`, filters out the `Hidden` and empty categories (plumbing: `Command_Interpreter_Node`, `Router_Node`, `Shell_Node`, `Dumper_Node`, `Callback_Node`, `Lock_Node`, the pure-egress `SSE_Out_Node`), and bundles the `Formatters` registry alongside so the topology-editor palette can populate both its class catalog and its `formatter_name` arg dropdown in one round-trip.
 
 | | |
 |---|---|
 | **Args** | `{}` |
 | **Returns** | `{classes: [{shell_name, fqcn, category, description, ctor, verbs, requests, accepts_fill, has_target}], formatters: [string]}` |
-| **Auth** | `manage_options` (namespace-level, via `Command_Controller`) |
+| **Auth** | `manage_options` (namespace-level, via `HTTP_In_Node`) |
 | **Sort** | `classes` sorted by `[category, shell_name]`; `formatters` sorted alphabetically |
 | **Source** | `includes/rest/class-classes-ci.php` |
 
@@ -137,7 +137,7 @@ Remove a topology's user-saved copy from `{user_dir}/{name}.tsl`. Stock copies s
 
 ### Error contract
 
-Verbs signal failure by throwing `\RuntimeException` with a human-readable message. The substrate's `CommandInterpreter::interpret()` (see `includes/class-command-interpreter.php`) wraps the throw uniformly:
+Verbs signal failure by throwing `\RuntimeException` with a human-readable message. The substrate's `Command_Interpreter_Node::interpret()` (see `includes/class-command-interpreter.php`) wraps the throw uniformly:
 
 ```php
 try {
@@ -157,7 +157,7 @@ Application-level CIs (M2) follow the same contract — do not add per-verb `try
 
 There are two layers:
 
-1. **Namespace-level** (`Command_Controller::register_routes()`): `permission_callback` requires `current_user_can( 'manage_options' )`. Applied uniformly to every `/command` request before any CI dispatch. No way around it from the substrate side.
+1. **Namespace-level** (`HTTP_In_Node::register_routes()`): `permission_callback` requires `current_user_can( 'manage_options' )`. Applied uniformly to every `/command` request before any CI dispatch. No way around it from the substrate side.
 2. **Per-verb** (verb-handler closures): four verbs — both `layouts.*` and the two mutating `topologies.*` — also call `self::require_manage_options()` inside the handler. This is defense-in-depth: the namespace gate already rejects unauthenticated callers, but per-verb checks ensure a future relaxation of the namespace gate (e.g. a read-only role) still keeps these surfaces locked down.
 
 Per-verb gating, by verb:
@@ -227,7 +227,7 @@ Deleted:
 - 7 PHPUnit suites: `tests/unit/{Layouts,Topologies}ControllerTest.php`, `tests/integration/{Classes,TopologiesGet,TopologiesGetOne,TopologiesPost}ControllerTest.php`.
 
 Deleted (M4 follow-up):
-- `includes/rest/class-topology-stream-controller.php` + its unit/integration tests — fully redundant. The Topology Console now subscribes to the worker's broadcast IPC partition through the generic `/messages/stream` (`subscribe={topology}.p{N}`, resolved by `open_subscription` → `Cli::attach_to_worker`) and sends commands through the generic `/command` (pivoted via `FROM=_http/<ssePid>`, where the pid comes from messages-stream's `connected` envelope). The 1s/5s `dump_metadata`/`uptime` poll moved client-side into `TopologyConsole.js`.
+- `includes/rest/class-topology-stream-controller.php` + its unit/integration tests — fully redundant. The Topology Console now subscribes to the worker's broadcast IPC partition through the generic `/messages/stream` (`subscribe={topology}.p{N}`, resolved by `open_subscription` → `CLI::attach_to_worker`) and sends commands through the generic `/command` (pivoted via `FROM=_http/<ssePid>`, where the pid comes from messages-stream's `connected` envelope). The 1s/5s `dump_metadata`/`uptime` poll moved client-side into `TopologyConsole.js`.
 
 Kept:
 - `includes/rest/class-spawn-controller.php` — HMAC-gated worker spawn endpoint; orthogonal to the command-dispatch surface.
@@ -244,4 +244,4 @@ The application-side cutover log in `newspack-event-logger-nodes/MIGRATION.md` t
 |---|-----------|----------------|-----------------|----------------------------|
 | 7 | `topology-console` | `05403b1` | `895ab89` | `class-classes-controller.php`, `class-layouts-controller.php`, `class-topologies-controller.php` |
 
-This is the final M4 cutover. With it M4 is COMPLETE — all 7 dashboards across both repos have migrated to the unified `POST /command` endpoint via `CommandClient`. ~30 `apiFetch` calls cut over; 14 legacy REST controllers deleted (3 here + 11 in the app). Reusable helpers (`getCommandClient()` singleton + `unwrapCommandResponse()` peeler) live in `src/shared/utils/` in both repos. Pivoted-REPL POST + 5 SSE controllers stay — `CommandInterpreter` dispatch is request/response only.
+This is the final M4 cutover. With it M4 is COMPLETE — all 7 dashboards across both repos have migrated to the unified `POST /command` endpoint via `CommandClient`. ~30 `apiFetch` calls cut over; 14 legacy REST controllers deleted (3 here + 11 in the app). Reusable helpers (`getCommandClient()` singleton + `unwrapCommandResponse()` peeler) live in `src/shared/utils/` in both repos. Pivoted-REPL POST + 5 SSE controllers stay — `Command_Interpreter_Node` dispatch is request/response only.
