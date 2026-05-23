@@ -78,29 +78,19 @@ export function useConsoleGraph( {
 		const ci = new CommandInterpreter();
 		ci.setName( names.COMMAND_INTERPRETER );
 		ci.sink = router;
-		// Local verbs for the browser-internal graph (cwd `/`). At a worker/`_http`
-		// cwd the command has a non-empty TO and forwards out instead of interpreting
-		// here; these only run when interpreted locally (empty TO).
+		// The CI ships the full PHP verb set as built-ins (make_node, dump_node,
+		// dump_metadata, stats, uptime, …) — those need no local override here.
+		// `ls`/`list_nodes` ARE overridden: the built-in defaults to siblings (nodes
+		// whose sink IS the CI), but this session's nodes sink into `_router`, so at
+		// the local root (cwd `/`) we want a flat dump of every in-browser node.
+		// At a worker/`_http` cwd the command carries a non-empty TO and forwards out
+		// instead of interpreting here; this override only runs when interpreted
+		// locally (empty TO).
 		const listLocalNodes = () =>
 			[ ...Core.nodes.keys() ].sort().join( '\n' );
-		const dumpLocalMetadata = () => {
-			const out = {};
-			for ( const [ name, node ] of Core.nodes ) {
-				out[ name ] = {
-					class: node.constructor?.name ?? 'Node',
-					counter: node.counter ?? 0,
-					sink: node.sink?.name ?? '',
-					target: typeof node.target === 'string' ? node.target : '',
-				};
-			}
-			return out;
-		};
 		ci.commands( {
 			ls: listLocalNodes,
 			list_nodes: listLocalNodes,
-			dump_metadata: dumpLocalMetadata,
-			// No meaningful local uptime; '' is suppressed by _respond (no reply).
-			uptime: () => '',
 		} );
 
 		// Receive-side reply nodes (Router peels TO and delivers to these).
