@@ -167,7 +167,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   glow suppressed, matching the header. The remaining blue-focus holdouts — the
   "+ add target…" chip select (`.topology-edit-add-chip`) and the Send-message
   modal input (`.topology-modal__input`) — get the same `--oxide` ring too, so
-  every focusable control in the console is consistent.
+  every focusable control in the console is consistent. The header Path/Skin
+  selects also suppress WP's focus glow (it rendered as white edges around the
+  oxide ring).
 - **Canvas polls targeted a deep sub-node instead of the worker.** `dump_metadata`
   / `uptime` are worker-level polls; they now target the LCP (the longest worker
   menu item that prefixes the cwd — the path the menu selects) rather than
