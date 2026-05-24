@@ -26,6 +26,20 @@ class Topology_Registry {
 	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides by topology name. */
 	private static array $segment_size_overrides_cache = [];
 
+	/** @var array<string,bool> Guards register_plugin against double-wiring (a second call would double-spawn). */
+	private static array $registered_plugins = [];
+
+	/**
+	 * Worker-spawn seam for register_plugin's default handler. Lazily defaulted
+	 * to a closure that builds + executes the real Worker_Base. Tests reassign in
+	 * setUp to capture the spawn intent without forking a worker process — that
+	 * leaves the guard + expand_workers lookup running as real production code.
+	 * Signature: `function ( string $type, int $partition, string $topology_name, int $stale_timeout ): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $spawn_runner = null;
+
 	public static function register_stock_dir( string $path ): void {
 		$path = \rtrim( $path, '/' );
 		if ( '' === $path ) {
@@ -241,6 +255,89 @@ class Topology_Registry {
 		return self::$segment_size_overrides_cache[ $name ] = $overrides;
 	}
 
+	/**
+	 * One-call registration for a plugin whose topologies live in $topologies_dir.
+	 *
+	 * Wires the four things a topology-running plugin otherwise hand-rolls:
+	 * namespace resolution, the stock dir, a `newspack_nodes/topologies` catalog
+	 * contribution per owned topology, and a `spawn_worker` handler GUARDED to the
+	 * owned names (so it never collides with another plugin's handler).
+	 * `$names = null` publishes every `*.tsl` in $topologies_dir.
+	 */
+	public static function register_plugin(
+		string $namespace_prefix,
+		string $topologies_dir,
+		?array $names = null,
+		int $num_partitions = 1,
+		int $stale_timeout = 60
+	): void {
+		// Idempotent: a repeat call (same prefix+dir) would double-wire the spawn handler → double worker spawn.
+		$key = $namespace_prefix . '|' . \rtrim( $topologies_dir, '/' );
+		if ( isset( self::$registered_plugins[ $key ] ) ) {
+			return;
+		}
+		self::$registered_plugins[ $key ] = true;
+
+		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( $namespace_prefix );
+		self::register_stock_dir( $topologies_dir );
+
+		// Owned topology names = the explicit subset, or every *.tsl basename in THIS dir.
+		$own = $names;
+		if ( null === $own ) {
+			$own = [];
+			foreach ( \glob( \rtrim( $topologies_dir, '/' ) . '/*.tsl' ) ?: [] as $path ) {
+				$own[] = \basename( $path, '.tsl' );
+			}
+		}
+
+		// Publish catalog entries for owned topologies (don't clobber an existing key).
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ) use ( $own, $num_partitions, $stale_timeout ): array {
+				foreach ( $own as $name ) {
+					if ( isset( $topologies[ $name ] ) ) {
+						continue;
+					}
+					$entry = self::synthesize_entry( $name, $num_partitions, $stale_timeout );
+					if ( null !== $entry ) {
+						$topologies[ $name ] = $entry;
+					}
+				}
+				return $topologies;
+			}
+		);
+
+		// Default spawn handler — GUARDED to owned names.
+		\add_action(
+			'newspack_nodes/spawn_worker',
+			static function ( string $type, int $partition ) use ( $own ): void {
+				if ( ! \in_array( $type, $own, true ) ) {
+					return; // Not ours — let the owning plugin handle it.
+				}
+				foreach ( \Newspack_Nodes\Bootstrap::expand_workers() as $w ) {
+					if ( $w['type'] !== $type || (int) $w['partition'] !== $partition ) {
+						continue;
+					}
+					$runner = self::$spawn_runner ?? static function ( string $t, int $p, string $topology_name, int $stale ): void {
+						$base_dir   = \Newspack_Nodes\Bootstrap::base_dir();
+						$nonce_salt = \defined( 'NONCE_SALT' ) ? \NONCE_SALT : '';
+						$supervisor = new \Newspack_Nodes\Supervisor( $base_dir, $nonce_salt );
+						$wb         = new \Newspack_Nodes\Worker_Base( $base_dir, $t, $p, stale_timeout: $stale );
+						$config     = \Newspack_Nodes\Config::load_config();
+						$topology   = static function ( \Newspack_Nodes\Command_Interpreter_Node $ci, int $partition_arg ) use ( $topology_name, $config ): void {
+							\Newspack_Nodes\Topology_Loader::load( $topology_name, $partition_arg, $ci, $config );
+						};
+						$wb->execute( $topology, \rest_url( 'newspack-nodes/v1/workers/spawn' ), $supervisor->generate_spawn_token( \time() ) );
+					};
+					$runner( (string) $w['type'], (int) $w['partition'], (string) $w['topology'], (int) $w['stale_timeout'] );
+					break;
+				}
+			},
+			10,
+			2
+		);
+	}
+
 	/** Drop only the parsed caches, keeping the dir registrations (wired to Config::RESET_ACTION). */
 	public static function reset_basename_cache(): void {
 		self::$basename_cache               = [];
@@ -248,8 +345,9 @@ class Topology_Registry {
 	}
 
 	public static function reset(): void {
-		self::$stock_dirs = [];
-		self::$user_dir   = '';
+		self::$stock_dirs         = [];
+		self::$user_dir           = '';
+		self::$registered_plugins = [];
 		self::reset_basename_cache();
 	}
 }
