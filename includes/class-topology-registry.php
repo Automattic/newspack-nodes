@@ -323,9 +323,8 @@ class Topology_Registry {
 						$nonce_salt = \defined( 'NONCE_SALT' ) ? \NONCE_SALT : '';
 						$supervisor = new \Newspack_Nodes\Supervisor( $base_dir, $nonce_salt );
 						$wb         = new \Newspack_Nodes\Worker_Base( $base_dir, $t, $p, stale_timeout: $stale );
-						$config     = \Newspack_Nodes\Config::load_config();
-						$topology   = static function ( \Newspack_Nodes\Command_Interpreter_Node $ci, int $partition_arg ) use ( $topology_name, $config ): void {
-							\Newspack_Nodes\Topology_Loader::load( $topology_name, $partition_arg, $ci, $config );
+						$topology   = static function ( \Newspack_Nodes\Command_Interpreter_Node $ci, int $partition_arg ) use ( $topology_name ): void {
+							\Newspack_Nodes\Topology_Loader::load( $topology_name, $partition_arg, $ci );
 						};
 						$wb->execute( $topology, \rest_url( 'newspack-nodes/v1/workers/spawn' ), $supervisor->generate_spawn_token( \time() ) );
 					};

@@ -2,8 +2,9 @@
 /**
  * Topology_Loader — reads a TSL topology file and runs it through a Shell instance.
  *
- * Predefined bindings populated before parsing: Core::$var['partition'] and Core::$config[...]
- * (referenced in the TSL as `<partition>` and `<config:foo>`).
+ * `<partition>` is bound here via Core::$var['partition']. `<ns:key>` tokens
+ * (e.g. `<config:foo>`) resolve through their namespace's registered resolver
+ * — see Core::register_config_namespace() / Config::register_token_namespace().
  *
  * @package Newspack_Nodes
  */
@@ -15,19 +16,20 @@ namespace Newspack_Nodes;
 class Topology_Loader {
 
 	/**
-	 * Load `<name>.tsl`, install pre-defined Shell bindings, and execute every statement against $sink.
+	 * Load `<name>.tsl`, bind `<partition>`, and execute every statement against $sink.
 	 *
-	 * @param string              $name      Topology name (no .tsl suffix).
-	 * @param int                 $partition Partition number for `<partition>`.
-	 * @param Node                $sink      Where dispatched Messages flow.
-	 * @param array<string,mixed> $config    Map for `<config:foo>` lookups.
+	 * `<ns:key>` tokens resolve through their namespace's registered resolver
+	 * (Core::register_config_namespace); the loader installs no config itself.
+	 *
+	 * @param string $name      Topology name (no .tsl suffix).
+	 * @param int    $partition Partition number for `<partition>`.
+	 * @param Node   $sink      Where dispatched Messages flow.
 	 * @throws \RuntimeException If the topology is unknown.
 	 */
 	public static function load(
 		string $name,
 		int $partition,
-		Node $sink,
-		array $config = []
+		Node $sink
 	): void {
 		$path = Topology_Registry::resolve( $name );
 		if ( null === $path ) {
@@ -36,9 +38,8 @@ class Topology_Loader {
 			);
 		}
 
-		// Pre-populate the global maps the Shell reads from for `<partition>` / `<config:foo>`.
+		// Bind `<partition>`; `<ns:key>` tokens resolve via registered namespace resolvers.
 		Core::$var['partition'] = (string) $partition;
-		Core::$config           = $config;
 
 		$shell = new Shell_Node();
 		$shell->sink( $sink );

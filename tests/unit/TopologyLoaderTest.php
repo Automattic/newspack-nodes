@@ -89,21 +89,34 @@ class TopologyLoaderTest extends TestCase {
 		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
-		Topology_Loader::load( 'configed', 0, $ci, [ 'env_label' => 'prod' ] );
-
-		$this->assertNotNull( Core::node( 'node-prod' ) );
+		// `<config:env_label>` resolves through the registered `config` namespace
+		// resolver, not a per-call array. Snapshot/restore around a custom one.
+		$saved = Core::$config_resolvers;
+		Core::register_config_namespace( 'config', static fn ( string $k ) => 'env_label' === $k ? 'prod' : null );
+		try {
+			Topology_Loader::load( 'configed', 0, $ci );
+			$this->assertNotNull( Core::node( 'node-prod' ) );
+		} finally {
+			Core::$config_resolvers = $saved;
+		}
 	}
 
 	public function test_load_unknown_config_key_expands_to_empty_string(): void {
-		// Shell's interpolate-then-expand-empty policy applies — unknown
-		// `<config:foo>` becomes ''. The loader doesn't pre-validate.
+		// Shell's interpolate-then-expand-empty policy applies — an unknown
+		// `<config:foo>` resolves to ''. The loader doesn't pre-validate.
 		$this->write_tsl( 'unknown', "make_node Capture_Sink node-<config:nope>\n" );
 
 		$ci = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );
 
-		Topology_Loader::load( 'unknown', 0, $ci, [] );
-		$this->assertNotNull( Core::node( 'node-' ) );
+		$saved = Core::$config_resolvers;
+		Core::register_config_namespace( 'config', static fn ( string $k ) => null );
+		try {
+			Topology_Loader::load( 'unknown', 0, $ci );
+			$this->assertNotNull( Core::node( 'node-' ) );
+		} finally {
+			Core::$config_resolvers = $saved;
+		}
 	}
 
 	public function test_load_skips_blank_lines_and_comments(): void {

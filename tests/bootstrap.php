@@ -405,6 +405,9 @@ require_once \dirname( __DIR__ ) . '/newspack-nodes.php';
 // `Newspack_Nodes\Tests\Capture_Sink_Node` (require'd below; class_exists true).
 \Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\' );
 
+// Register the substrate `config` token namespace so `<config:…>` resolves in tests.
+\Newspack_Nodes\Config::register_token_namespace();
+
 // Load test helpers. (CaptureSink.php defines Capture_Sink_Node.)
 require_once __DIR__ . '/Helpers/TestCase.php';
 require_once __DIR__ . '/Helpers/CaptureSink.php';

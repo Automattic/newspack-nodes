@@ -139,19 +139,12 @@ class Worker_CLI_Command {
 		if ( '' === $topology_name || null === Topology_Registry::resolve( $topology_name ) ) {
 			\WP_CLI::error( 'Topology not found in registry: ' . $topology_name );
 		}
-		// CLI-side runs use the substrate's own Config.
-		$config = \Newspack_Nodes\Config::load_config();
-		if ( ! isset( $config['logs_dir'] ) && isset( $config['base_directory'] ) ) {
-			$config['logs_dir'] = \rtrim( (string) $config['base_directory'], '/' ) . '/logs';
-		}
-		if ( ! isset( $config['offsets_dir'] ) && isset( $config['base_directory'] ) ) {
-			$config['offsets_dir'] = \rtrim( (string) $config['base_directory'], '/' ) . '/offsets';
-		}
+		// `<config:…>` tokens resolve via the substrate's registered namespace resolver.
 		$topology = static function (
 			Command_Interpreter_Node $ci,
 			int $partition_arg
-		) use ( $topology_name, $config ): void {
-			Topology_Loader::load( $topology_name, $partition_arg, $ci, $config );
+		) use ( $topology_name ): void {
+			Topology_Loader::load( $topology_name, $partition_arg, $ci );
 		};
 
 		if ( ! $quiet ) {

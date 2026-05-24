@@ -32,6 +32,29 @@ class Config {
 		\update_option( self::AUTOLOAD_FIXED_OPTION, '1', false );
 	}
 
+	/**
+	 * Register the substrate's `config` topology-token namespace.
+	 *
+	 * Resolves `<config:logs_dir>` / `<config:offsets_dir>` (derived from the
+	 * base directory) and every other key straight off load_config(). Called
+	 * once at boot; the app registers its own namespaces for its own keys.
+	 */
+	public static function register_token_namespace(): void {
+		Core::register_config_namespace(
+			'config',
+			static function ( string $key ) {
+				if ( 'logs_dir' === $key ) {
+					return \rtrim( self::get_base_directory(), '/' ) . '/logs';
+				}
+				if ( 'offsets_dir' === $key ) {
+					return \rtrim( self::get_base_directory(), '/' ) . '/offsets';
+				}
+				$cfg = self::load_config();
+				return $cfg[ $key ] ?? null;
+			}
+		);
+	}
+
 	/** @var array|null Cached config (file defaults + WordPress options). */
 	private static $config = null;
 

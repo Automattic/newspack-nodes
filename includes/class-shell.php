@@ -117,16 +117,17 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * Single-tier interpolation: `<var>` → Core::$var, `<config:foo>` → Core::$config; unknown → ''.
+	 * Single-tier interpolation: `<ns:key>` → that namespace's registered
+	 * resolver (Core::resolve_config_token); bare `<var>` → Core::$var; unknown → ''.
 	 */
 	public function interpolate( string $line ): string {
 		return (string) \preg_replace_callback(
 			'/<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/',
 			static function ( array $m ): string {
-				$key = $m[1];
-				if ( \str_starts_with( $key, 'config:' ) ) {
-					$cfg_key = \substr( $key, 7 );
-					return (string) ( Core::$config[ $cfg_key ] ?? '' );
+				$key   = $m[1];
+				$colon = \strpos( $key, ':' );
+				if ( false !== $colon ) {
+					return Core::resolve_config_token( \substr( $key, 0, $colon ), \substr( $key, $colon + 1 ) );
 				}
 				return (string) ( Core::$var[ $key ] ?? '' );
 			},

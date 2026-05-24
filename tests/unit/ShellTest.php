@@ -599,7 +599,7 @@ class ShellTest extends TestCase {
 		}
 	}
 
-	// ── A3: Core::$var / Core::$config interpolation + var builtin ─────
+	// ── A3: Core::$var / namespaced-token interpolation + var builtin ─────
 
 	public function test_set_variable_writes_to_core_var(): void {
 		\Newspack_Nodes\Core::$var = [];
@@ -608,14 +608,22 @@ class ShellTest extends TestCase {
 		$this->assertSame( '7', \Newspack_Nodes\Core::$var['partition'] );
 	}
 
-	public function test_interpolate_reads_config_namespace_from_core_config(): void {
-		\Newspack_Nodes\Core::$config = [ 'base_directory' => '/tmp/foo' ];
-		\Newspack_Nodes\Core::$var    = [ 'partition' => '0' ];
-		$shell = new Shell_Node();
-		$this->assertSame(
-			'make_node Partition p /tmp/foo/p0',
-			$shell->interpolate( 'make_node Partition p <config:base_directory>/p<partition>' )
+	public function test_interpolate_reads_namespaced_token_from_registered_resolver(): void {
+		$saved = \Newspack_Nodes\Core::$config_resolvers;
+		\Newspack_Nodes\Core::register_config_namespace(
+			'config',
+			static fn ( string $k ) => 'base_directory' === $k ? '/tmp/foo' : null
 		);
+		\Newspack_Nodes\Core::$var = [ 'partition' => '0' ];
+		$shell                     = new Shell_Node();
+		try {
+			$this->assertSame(
+				'make_node Partition p /tmp/foo/p0',
+				$shell->interpolate( 'make_node Partition p <config:base_directory>/p<partition>' )
+			);
+		} finally {
+			\Newspack_Nodes\Core::$config_resolvers = $saved;
+		}
 	}
 
 	public function test_var_builtin_writes_core_var(): void {
@@ -626,12 +634,10 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_var_builtin_rejects_colon_namespaced_name(): void {
-		\Newspack_Nodes\Core::$var    = [];
-		\Newspack_Nodes\Core::$config = [];
-		$shell = new Shell_Node();
+		\Newspack_Nodes\Core::$var = [];
+		$shell                     = new Shell_Node();
 		$shell->parse( 'var config:foo = 1' );
 		$this->assertArrayNotHasKey( 'config:foo', \Newspack_Nodes\Core::$var );
-		$this->assertArrayNotHasKey( 'foo', \Newspack_Nodes\Core::$config );
 	}
 
 	public function test_split_statements_on_semicolons_and_newlines(): void {
