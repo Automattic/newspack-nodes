@@ -263,12 +263,19 @@ class Topology_Registry {
 	 * contribution per owned topology, and a `spawn_worker` handler GUARDED to the
 	 * owned names (so it never collides with another plugin's handler).
 	 * `$names = null` publishes every `*.tsl` in $topologies_dir.
+	 *
+	 * The spawn handler fires `newspack_nodes/before_worker_spawn` ($type, $partition)
+	 * right before building an owned worker, so a listener can run runtime init
+	 * (autoload, filter registration) before Topology_Loader::load parses the TSL.
+	 * `$num_partitions = null` resolves the operator-overridable substrate option
+	 * (`newspack_nodes_num_partitions`); any value (option- or arg-derived) is
+	 * clamped to 1..16.
 	 */
 	public static function register_plugin(
 		string $namespace_prefix,
 		string $topologies_dir,
 		?array $names = null,
-		int $num_partitions = 1,
+		?int $num_partitions = null,
 		int $stale_timeout = 60
 	): void {
 		// Idempotent: a repeat call (same prefix+dir) would double-wire the spawn handler → double worker spawn.
@@ -277,6 +284,13 @@ class Topology_Registry {
 			return;
 		}
 		self::$registered_plugins[ $key ] = true;
+
+		// Null → inherit the operator-overridable substrate partition count; clamp 1..16 either way.
+		if ( null === $num_partitions ) {
+			$cfg            = \Newspack_Nodes\Config::load_config();
+			$num_partitions = (int) ( $cfg['num_partitions'] ?? 1 );
+		}
+		$num_partitions = \max( 1, \min( 16, $num_partitions ) );
 
 		\Newspack_Nodes\Command_Interpreter_Node::register_namespace( $namespace_prefix );
 		self::register_stock_dir( $topologies_dir );
@@ -328,6 +342,8 @@ class Topology_Registry {
 						};
 						$wb->execute( $topology, \rest_url( 'newspack-nodes/v1/workers/spawn' ), $supervisor->generate_spawn_token( \time() ) );
 					};
+					// App runtime init (autoload, filters) before Topology_Loader::load parses the TSL — fires once, only when we actually spawn.
+					\do_action( 'newspack_nodes/before_worker_spawn', $type, $partition );
 					$runner( (string) $w['type'], (int) $w['partition'], (string) $w['topology'], (int) $w['stale_timeout'] );
 					break;
 				}
