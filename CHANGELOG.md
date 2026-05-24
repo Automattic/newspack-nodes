@@ -164,7 +164,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now strips `appearance` + pins `-webkit-text-fill-color` + supplies a chevron,
   matching the header select. Its focus ring was also WordPress-admin blue (a
   `box-shadow` glow) — now a themed `--oxide` `:focus-visible` outline with the WP
-  glow suppressed, matching the header.
+  glow suppressed, matching the header. The remaining blue-focus holdouts — the
+  "+ add target…" chip select (`.topology-edit-add-chip`) and the Send-message
+  modal input (`.topology-modal__input`) — get the same `--oxide` ring too, so
+  every focusable control in the console is consistent.
 - **Canvas polls targeted a deep sub-node instead of the worker.** `dump_metadata`
   / `uptime` are worker-level polls; they now target the LCP (the longest worker
   menu item that prefixes the cwd — the path the menu selects) rather than

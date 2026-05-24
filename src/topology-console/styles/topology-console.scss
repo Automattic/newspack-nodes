@@ -1676,6 +1676,17 @@ body[class*="_page_newspack-nodes-topology"] {
 	color: var(--ink);
 }
 
+// Themed focus ring instead of WP admin's blue dashed glow.
+.topology-app .topology-edit-add-chip:focus {
+	outline: none;
+	box-shadow: none;
+}
+
+.topology-app .topology-edit-add-chip:focus-visible {
+	outline: 2px solid var(--oxide);
+	outline-offset: -1px;
+}
+
 .topology-edit-verb {
 	border-bottom: 1px dotted var(--paper-shadow);
 	padding: 2px 0;
@@ -1840,6 +1851,14 @@ body[class*="_page_newspack-nodes-topology"] {
 	outline: none;
 	border-color: var(--ink);
 	background: var(--paper);
+	// Kill WordPress admin's blue focus glow; the themed ring is on :focus-visible.
+	box-shadow: none;
+}
+
+// Themed focus ring (matches the header `.topology-select`) instead of WP's blue.
+.topology-app .topology-modal__input:focus-visible {
+	outline: 2px solid var(--oxide);
+	outline-offset: -1px;
 }
 
 .topology-modal__hint {
