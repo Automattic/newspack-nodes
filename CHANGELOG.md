@@ -32,9 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   collides with another plugin's handler, and registration is **idempotent** (a repeat
   call with the same prefix+dir no-ops, preventing a double worker spawn). The default
   worker-spawn path sits behind a `\Closure` seam (`$spawn_runner`) so it's testable
-  without forking a process. Applications needing operator-overlay config, custom
-  descriptors, or a job-context-wrapped spawn (e.g. newspack-event-logger-nodes) still
-  hand-wire the underlying hooks.
+  without forking a process. Before building a worker it fires a
+  `newspack_nodes/before_worker_spawn` action (so a plugin can run worker-runtime init
+  before its topology loads), and `num_partitions` defaults to the substrate
+  `num_partitions` option (clamped 1–16) when not given. Applications needing
+  operator-overlay config, custom descriptors, or a job-context-wrapped spawn (e.g.
+  newspack-event-logger-nodes) still hand-wire the underlying hooks.
 
 ## [0.4.0] - 2026-05-23
 
