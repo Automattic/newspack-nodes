@@ -1235,6 +1235,11 @@ export default function Inspector( {
 					const verbs = schema && schema.verbs ? schema.verbs : [];
 					const requests =
 						schema && schema.requests ? schema.requests : [];
+					// node_name verb args pick from the live graph (parsed = the
+					// dump_metadata snapshot), minus the inspected node itself.
+					const liveNodeNames = ( parsed?.nodes || [] )
+						.map( ( n ) => n.name || n.id )
+						.filter( ( n ) => n && n !== node.id );
 					return [
 						...verbs.map( ( spec ) => (
 							<VerbButton
@@ -1244,7 +1249,7 @@ export default function Inspector( {
 								kind="command"
 								live={ live }
 								formatters={ formatters }
-								nodeNames={ [] }
+								nodeNames={ liveNodeNames }
 								onAction={ onAction }
 							/>
 						) ),
@@ -1256,7 +1261,7 @@ export default function Inspector( {
 								kind="request"
 								live={ live }
 								formatters={ formatters }
-								nodeNames={ [] }
+								nodeNames={ liveNodeNames }
 								onAction={ onAction }
 							/>
 						) ),

@@ -222,6 +222,32 @@ describe( 'Inspector (view mode)', () => {
 		expect( getByText( 'Disconnect' ) ).not.toBeNull();
 	} );
 
+	it( 'live verb modal node_name select is populated from the live graph', () => {
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				verbs: [
+					{
+						name: 'set_target',
+						args: [
+							{
+								name: 'target',
+								type: 'node_name',
+								required: true,
+							},
+						],
+					},
+				],
+			},
+		];
+		const { getByText, container } = renderNode( { catalog } );
+		fireEvent.click( getByText( 'set_target' ) ); // opens the arg modal
+		const select = container.querySelector( '.topology-modal select' );
+		const opts = [ ...select.options ].map( ( o ) => o.value );
+		expect( opts ).toContain( 'tee_a' ); // a live node from parsed.nodes
+		expect( opts ).not.toContain( 'echo' ); // self excluded
+	} );
+
 	it( 'renders TM_REQUEST buttons from the catalog and wires onAction', () => {
 		const onAction = jest.fn();
 		const catalog = [
