@@ -152,6 +152,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Live-mode Inspector verb modal: empty node picker + blacked-out dropdowns in
+  dark skins.** The `node_name` arg `<select>` in the live verb modal was wired to
+  an empty list — it now draws from the live graph (`parsed.nodes`, minus the
+  inspected node), so worker-target pickers populate. And native `<option>`
+  popups had no theming, so in dark skins the dropdown rendered dark-on-dark when
+  opened; `.topology-app select option` now follows `--paper-2`/`--ink` (fixes the
+  verb-modal selects and the header Path/Skin menus).
 - **Canvas polls targeted a deep sub-node instead of the worker.** `dump_metadata`
   / `uptime` are worker-level polls; they now target the LCP (the longest worker
   menu item that prefixes the cwd — the path the menu selects) rather than

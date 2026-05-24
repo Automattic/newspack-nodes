@@ -1563,6 +1563,15 @@ body[class*="_page_newspack-nodes-topology"] {
 	background: var(--paper);
 }
 
+// Native <select> option popups don't inherit the select's colors, so in dark
+// skins (where --paper is near-black) the dropdown rendered dark-on-dark when
+// focused/open. Theme the options explicitly so the list follows --paper/--ink
+// in every skin. Covers the Path/Skin header menus AND the verb-modal selects.
+.topology-app select option {
+	background-color: var(--paper-2);
+	color: var(--ink);
+}
+
 .topology-edit-row__hint {
 	font-size: 10px;
 	color: var(--oxide-dark);
