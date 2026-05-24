@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Topology_Registry::register_plugin()` — one-call topology+worker registration.** A
+  plugin whose `.tsl` files live in a topologies dir can register everything it needs
+  with a single call (namespace resolution, the stock dir, a `newspack_nodes/topologies`
+  catalog contribution per topology, and a default `newspack_nodes/spawn_worker` handler),
+  instead of hand-wiring those four hooks. `$names = null` publishes every `*.tsl` in the
+  dir. The spawn handler is **guarded to the plugin's own topology names** so it never
+  collides with another plugin's handler, and registration is **idempotent** (a repeat
+  call with the same prefix+dir no-ops, preventing a double worker spawn). The default
+  worker-spawn path sits behind a `\Closure` seam (`$spawn_runner`) so it's testable
+  without forking a process. Applications needing operator-overlay config, custom
+  descriptors, or a job-context-wrapped spawn (e.g. newspack-event-logger-nodes) still
+  hand-wire the underlying hooks.
+
 ## [0.4.0] - 2026-05-23
 
 ### Added
