@@ -158,7 +158,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inspected node), so worker-target pickers populate. And native `<option>`
   popups had no theming, so in dark skins the dropdown rendered dark-on-dark when
   opened; `.topology-app select option` now follows `--paper-2`/`--ink` (fixes the
-  verb-modal selects and the header Path/Skin menus).
+  verb-modal selects and the header Path/Skin menus). The modal `<select>` *field*
+  itself also blacked out on focus in Safari (WebKit paints native selects via
+  `-webkit-text-fill-color` and ignores the themed background) — `select.topology-edit-row__input`
+  now strips `appearance` + pins `-webkit-text-fill-color` + supplies a chevron,
+  matching the header select.
 - **Canvas polls targeted a deep sub-node instead of the worker.** `dump_metadata`
   / `uptime` are worker-level polls; they now target the LCP (the longest worker
   menu item that prefixes the cwd — the path the menu selects) rather than

@@ -1560,7 +1560,9 @@ body[class*="_page_newspack-nodes-topology"] {
 .topology-app .topology-edit-row__input:focus {
 	outline: none;
 	border-color: var(--ink);
-	background: var(--paper);
+	// background-color (not the `background` shorthand) so the <select> chevron
+	// background-image below survives focus.
+	background-color: var(--paper);
 }
 
 // Native <select> option popups don't inherit the select's colors, so in dark
@@ -1570,6 +1572,22 @@ body[class*="_page_newspack-nodes-topology"] {
 .topology-app select option {
 	background-color: var(--paper-2);
 	color: var(--ink);
+}
+
+// <select> variant of the edit/modal field. WebKit renders native selects with
+// its own appearance and paints the value via -webkit-text-fill-color — without
+// stripping appearance + pinning that fill, the field blacks out on focus in
+// Safari (same fix as `.topology-select`). appearance:none drops the native
+// chevron, so supply a neutral-gray one that reads on light and dark skins.
+.topology-app select.topology-edit-row__input {
+	appearance: none;
+	-webkit-appearance: none;
+	-webkit-text-fill-color: var(--ink);
+	padding-right: 22px;
+	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%23999999'/%3E%3C/svg%3E");
+	background-repeat: no-repeat;
+	background-position: right 8px center;
+	background-size: 8px;
 }
 
 .topology-edit-row__hint {
