@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Topology `<ns:key>` tokens resolve via per-namespace resolvers — no merged config.**
+  `<config:foo>` was resolved from a single `Core::$config` array that callers had to
+  populate, forcing apps to merge substrate + app config into one blob to feed
+  `Topology_Loader::load($config)`. That array is gone: `Core` now holds a
+  `register_config_namespace( $ns, $resolver )` registry, `Shell::interpolate` resolves
+  ANY `<ns:key>` through the namespace's resolver, and the substrate registers its own
+  `config` namespace (`Config::register_token_namespace()` — `logs_dir`/`offsets_dir`
+  derived, other keys off `Config::load_config()`). `Topology_Loader::load()` dropped its
+  `$config` parameter. Each config owner now answers only for its own keys; nothing
+  merges. (Apps with their own topology tokens register their own namespace — e.g.
+  `<eln:…>`; see newspack-event-logger-nodes.)
+
 ### Added
 
 - **`Topology_Registry::register_plugin()` — one-call topology+worker registration.** A

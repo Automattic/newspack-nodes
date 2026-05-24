@@ -35,8 +35,16 @@ class Core {
 	/** @var array<string,string> Process-global Shell variable map. */
 	public static array $var = [];
 
-	/** @var array<string,mixed> Process-global runtime-config map; read-only from TSL. */
-	public static array $config = [];
+	/**
+	 * Topology `<ns:key>` token resolvers, registered at boot.
+	 *
+	 * Each namespace owner registers its own resolver; there is no merged
+	 * config array. Process-lifetime (NOT cleared by reset(), like namespace
+	 * registrations).
+	 *
+	 * @var array<string,callable> ns => callable(string $key): mixed
+	 */
+	public static array $config_resolvers = [];
 
 	/** Process-global shared Memcached handle; set once by the application bootstrap, null when unconfigured. */
 	public static ?\Memcached $memd = null;
@@ -70,7 +78,7 @@ class Core {
 		self::$msg_counter       = 0;
 		self::$in_stderr         = false;
 		self::$var               = [];
-		self::$config            = [];
+		// $config_resolvers is process-lifetime (like namespace registrations) — not cleared.
 		self::$memd              = null;
 		// Default handler: route through `_repl` if wired, else error_log.
 		self::$stderr_handler = static function ( string $msg ): void {
@@ -93,6 +101,20 @@ class Core {
 	/** Pre-increment monotonic message-id counter. */
 	public static function msg_counter(): int {
 		return ++self::$msg_counter;
+	}
+
+	/** Register a topology `<ns:key>` token resolver for namespace $ns (last writer wins). */
+	public static function register_config_namespace( string $ns, callable $resolver ): void {
+		self::$config_resolvers[ $ns ] = $resolver;
+	}
+
+	/** Resolve a `<ns:key>` topology token via its namespace resolver; '' if the ns isn't registered or returns null. */
+	public static function resolve_config_token( string $ns, string $key ): string {
+		$resolver = self::$config_resolvers[ $ns ] ?? null;
+		if ( null === $resolver ) {
+			return '';
+		}
+		return (string) ( $resolver( $key ) ?? '' );
 	}
 
 	public static function register_node( string $name, object $node ): void {

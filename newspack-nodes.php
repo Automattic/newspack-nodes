@@ -64,6 +64,10 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 \Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
 \Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
 
+// Register the substrate's `config` topology-token namespace so TSL `<config:key>`
+// tokens resolve against substrate config. Apps register their own namespaces.
+\Newspack_Nodes\Config::register_token_namespace();
+
 /**
  * Service-CommandInterpreter (CI) mounting.
  *
