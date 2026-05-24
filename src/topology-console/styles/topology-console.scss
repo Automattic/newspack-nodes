@@ -1563,6 +1563,14 @@ body[class*="_page_newspack-nodes-topology"] {
 	// background-color (not the `background` shorthand) so the <select> chevron
 	// background-image below survives focus.
 	background-color: var(--paper);
+	// Kill WordPress admin's blue focus glow; the themed ring is on :focus-visible.
+	box-shadow: none;
+}
+
+// Themed focus ring (matches the header `.topology-select`) instead of WP's blue.
+.topology-app .topology-edit-row__input:focus-visible {
+	outline: 2px solid var(--oxide);
+	outline-offset: -1px;
 }
 
 // Native <select> option popups don't inherit the select's colors, so in dark

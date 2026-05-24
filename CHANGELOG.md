@@ -162,7 +162,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   itself also blacked out on focus in Safari (WebKit paints native selects via
   `-webkit-text-fill-color` and ignores the themed background) — `select.topology-edit-row__input`
   now strips `appearance` + pins `-webkit-text-fill-color` + supplies a chevron,
-  matching the header select.
+  matching the header select. Its focus ring was also WordPress-admin blue (a
+  `box-shadow` glow) — now a themed `--oxide` `:focus-visible` outline with the WP
+  glow suppressed, matching the header.
 - **Canvas polls targeted a deep sub-node instead of the worker.** `dump_metadata`
   / `uptime` are worker-level polls; they now target the LCP (the longest worker
   menu item that prefixes the cwd — the path the menu selects) rather than
