@@ -4,7 +4,7 @@
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
-import WorkerStatus from '../WorkerStatus';
+import WorkerStatus, { initialRefresh } from '../WorkerStatus';
 
 jest.mock( '../../shared/utils/commandClient', () => ( {
 	getCommandClient: jest.fn(),
@@ -18,7 +18,7 @@ jest.mock( '../../shared/hooks/usePageVisibility', () => ( {
 const { getCommandClient } = require( '../../shared/utils/commandClient' );
 const unwrapCommandResponse = require( '../../shared/utils/unwrapCommandResponse' );
 
-const REFRESH_KEY = 'newspack-event-logger-nodes-worker-refresh';
+const REFRESH_KEY = 'newspack-nodes-worker-refresh';
 
 describe( 'WorkerStatus', () => {
 	let sendMock;
@@ -858,5 +858,36 @@ describe( 'WorkerStatus', () => {
 		await act( async () => {} );
 		// stripped key. Empty stats → "0 B/s".
 		expect( container.textContent ).toMatch( /W 0 B\/s/ );
+	} );
+} );
+
+describe( 'initialRefresh (localStorage key migration)', () => {
+	test( 'migrates a saved refresh pref from the legacy key', () => {
+		window.localStorage.clear();
+		window.localStorage.setItem(
+			'newspack-event-logger-nodes-worker-refresh',
+			'10000'
+		);
+		expect( initialRefresh( '2000' ) ).toBe( '10000' ); // legacy honored
+		expect(
+			window.localStorage.getItem( 'newspack-nodes-worker-refresh' )
+		).toBe( '10000' ); // written forward
+	} );
+
+	test( 'prefers the new key when both exist', () => {
+		window.localStorage.clear();
+		window.localStorage.setItem(
+			'newspack-event-logger-nodes-worker-refresh',
+			'10000'
+		);
+		window.localStorage.setItem( 'newspack-nodes-worker-refresh', '5000' );
+		expect( initialRefresh( '2000' ) ).toBe( '5000' );
+	} );
+
+	test( 'falls back to the default when neither key is set or the value is invalid', () => {
+		window.localStorage.clear();
+		expect( initialRefresh( '2000' ) ).toBe( '2000' );
+		window.localStorage.setItem( 'newspack-nodes-worker-refresh', 'bogus' ); // not in REFRESH_OPTIONS
+		expect( initialRefresh( '2000' ) ).toBe( '2000' );
 	} );
 } );
