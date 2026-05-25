@@ -169,11 +169,11 @@ class RawLogsStreamNode extends Node {
 		} );
 	}
 
+	// Tear the connection down. Unconditional so teardown closes a never-yet-
+	// subscribed stream too (the connector's close is idempotent/null-guarded).
 	close() {
-		if ( this._subscribed ) {
-			this._connector.close();
-			this._subscribed = false;
-		}
+		this._connector.close();
+		this._subscribed = false;
 	}
 }
 
