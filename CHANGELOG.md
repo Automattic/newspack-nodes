@@ -50,8 +50,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of being split across a `node_schema()` descriptor and a separate
   `verb_table()`. `Classes_CI` strips the non-serializable `handler` when it serializes
   the catalog (inlining only `{name, description, args}` for the editor palette).
-  `Topologies_CI` is migrated to the new mechanism (its `verb_table()` + constructor are
-  gone); the other service CIs follow in a later pass. A named verb with no callable
+  All four substrate service CIs (`Topologies_CI`, `Raw_Logs_CI`, `Layouts_CI`,
+  `Workers_CI`) are migrated to the mechanism — their `verb_table()`s/constructors
+  removed. (`Workers_CI` keeps a constructor only to receive its injected `cli`/`cache`,
+  which its handlers now read off the dispatched instance via `$self->` since a static
+  `node_schema()` can't capture them.) The application service CIs in
+  newspack-event-logger-nodes follow. A named verb with no callable
   handler is a schema bug — it now emits one rate-limited warning and is skipped (rather
   than silently showing in the palette yet dispatching to "unknown command"), and a
   malformed verb entry is skipped from the catalog rather than fatal-ing the whole `list`

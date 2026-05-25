@@ -34,67 +34,64 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 			'description' => 'Firehose log inspection: catalog on-disk logs and report a log\'s partition/segment status.',
 			'ctor'        => [],
 			'verbs'       => [
-				[ 'name' => 'firehose_logs', 'description' => 'List the on-disk firehose log keys.', 'args' => [] ],
+				[
+					'name'        => 'firehose_logs',
+					'description' => 'List the on-disk firehose log keys.',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
+						self::require_manage_options();
+						$result = [];
+						foreach ( Log_Discovery::on_disk() as $key ) {
+							$result[] = [
+								'key'   => $key,
+								'label' => "{$key}.log",
+							];
+						}
+						return $result;
+					},
+				],
 				[
 					'name'        => 'firehose_status',
 					'description' => 'Per-partition segment counts and sizes for a log (defaults to firehose).',
 					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => false ] ],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
+						self::require_manage_options();
+						$log_key = self::resolve_log_key( \trim( $args ) );
+
+						$config         = RuntimeConfig::load_config();
+						$base_dir       = (string) ( $config['base_directory'] ?? '/tmp/newspack-nodes' );
+						$num_partitions = (int) ( $config['num_partitions'] ?? 1 );
+						$log_file       = "{$log_key}.log";
+						$log_base       = $base_dir . '/logs';
+
+						$partitions     = [];
+						$total_size     = 0;
+						$total_segments = 0;
+						for ( $p = 0; $p < $num_partitions; $p++ ) {
+							$partition        = new Partition_Node( "{$log_base}/{$log_file}", $p );
+							$segments         = $partition->get_segments( true );
+							$size             = (int) \array_sum( \array_column( $segments, 'size' ) );
+							$partitions[ $p ] = [
+								'segments'      => $segments,
+								'segment_count' => \count( $segments ),
+								'size'          => $size,
+							];
+							$total_size      += $size;
+							$total_segments  += \count( $segments );
+						}
+
+						return [
+							'log_id'         => $log_key,
+							'log_file'       => $log_file,
+							'num_partitions' => $num_partitions,
+							'partitions'     => $partitions,
+							'total_segments' => $total_segments,
+							'total_size'     => $total_size,
+						];
+					},
 				],
 			],
 		];
-	}
-
-	public function __construct() {
-		$this->commands(
-			[
-				'firehose_logs'   => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
-					self::require_manage_options();
-					$result = [];
-					foreach ( Log_Discovery::on_disk() as $key ) {
-						$result[] = [
-							'key'   => $key,
-							'label' => "{$key}.log",
-						];
-					}
-					return $result;
-				},
-				'firehose_status' => static function ( Command_Interpreter_Node $self, string $args ): array {
-					self::require_manage_options();
-					$log_key = self::resolve_log_key( \trim( $args ) );
-
-					$config         = RuntimeConfig::load_config();
-					$base_dir       = (string) ( $config['base_directory'] ?? '/tmp/newspack-nodes' );
-					$num_partitions = (int) ( $config['num_partitions'] ?? 1 );
-					$log_file       = "{$log_key}.log";
-					$log_base       = $base_dir . '/logs';
-
-					$partitions     = [];
-					$total_size     = 0;
-					$total_segments = 0;
-					for ( $p = 0; $p < $num_partitions; $p++ ) {
-						$partition        = new Partition_Node( "{$log_base}/{$log_file}", $p );
-						$segments         = $partition->get_segments( true );
-						$size             = (int) \array_sum( \array_column( $segments, 'size' ) );
-						$partitions[ $p ] = [
-							'segments'      => $segments,
-							'segment_count' => \count( $segments ),
-							'size'          => $size,
-						];
-						$total_size      += $size;
-						$total_segments  += \count( $segments );
-					}
-
-					return [
-						'log_id'         => $log_key,
-						'log_file'       => $log_file,
-						'num_partitions' => $num_partitions,
-						'partitions'     => $partitions,
-						'total_segments' => $total_segments,
-						'total_size'     => $total_size,
-					];
-				},
-			]
-		);
 	}
 
 	/**

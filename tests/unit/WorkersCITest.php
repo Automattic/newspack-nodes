@@ -241,6 +241,37 @@ class WorkersCITest extends TestCase {
 		$this->assertNull( $fake_cli->restart_called_with );
 	}
 
+	public function test_list_verb_threads_constructor_cache_into_cli(): void {
+		// Stateful-migration guard: node_schema() is static and cannot `use`
+		// the ctor-injected $cli/$cache, so the migrated handler must reach
+		// them via instance access on the dispatched $self (`$self->cli` /
+		// `$self->cache`). This pins that both arrive intact: the fake Cli
+		// records the exact $cache object the handler passed into
+		// live_position(); we assert it is the SAME instance we constructed
+		// the CI with (not null, not some other handle).
+		$sentinel_cache = new \stdClass();
+		$fake_cli       = new class {
+			public mixed $seen_cache = 'unset';
+			public int   $list_calls = 0;
+			public function ls_workers(): array {
+				return [ [ 'type' => 'firehose-workers-and-jobs', 'partition' => 0 ] ];
+			}
+			public function live_position( $cache, string $type, int $partition ): ?array {
+				++$this->list_calls;
+				$this->seen_cache = $cache;
+				return [ 'seg' => 0, 'off' => 7 ];
+			}
+			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
+		};
+		$ci = new Workers_CI_Node( $fake_cli, $sentinel_cache );
+
+		$result = VerbHarness::fire( $ci, 'workers', 'list' );
+
+		$this->assertSame( 1, $fake_cli->list_calls, 'handler must reach $self->cli->live_position' );
+		$this->assertSame( $sentinel_cache, $fake_cli->seen_cache, 'handler must thread $self->cache into the cli call' );
+		$this->assertSame( [ 'seg' => 0, 'off' => 7 ], $result[0]['position'] );
+	}
+
 	public function test_heartbeat_verb_refreshes_slot_via_pool(): void {
 		// Heartbeat refreshes the SSE slot through Sse_Slot_Pool::touch, keyed
 		// off the shared Core::$memd handle. Seed a held slot then heartbeat it.
