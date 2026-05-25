@@ -49,6 +49,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `firehose`, a soft preference: used when present, else the first-discovered log). Generic
   log inspection for any plugin's logs; the substrate stops naming these after ELN's
   firehose. (`RawLogs.js` updated to call the new verb name.)
+- **Worker Status refresh-interval storage key renamed** `newspack-event-logger-nodes-worker-refresh`
+  → `newspack-nodes-worker-refresh`, with a one-time read-with-fallback migration (the
+  extracted `initialRefresh()` reads the new key, falls back to the legacy key and writes
+  it forward) so an operator's saved refresh preference isn't dropped.
 - **Topology `<ns:key>` tokens resolve via per-namespace resolvers — no merged config.**
   `<config:foo>` was resolved from a single `Core::$config` array that callers had to
   populate, forcing apps to merge substrate + app config into one blob to feed

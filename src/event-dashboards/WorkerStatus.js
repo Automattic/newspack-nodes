@@ -23,6 +23,32 @@ const REFRESH_OPTIONS = [
 	{ label: '10s', value: '10000' },
 ];
 
+const REFRESH_KEY = 'newspack-nodes-worker-refresh';
+const LEGACY_REFRESH_KEY = 'newspack-event-logger-nodes-worker-refresh';
+
+/**
+ * Resolve the initial refresh interval, migrating the legacy localStorage key.
+ *
+ * @param {number|string} defaultMs Fallback interval when nothing valid is stored.
+ * @return {string} A valid REFRESH_OPTIONS value, or String( defaultMs ).
+ */
+export function initialRefresh( defaultMs ) {
+	const validValues = REFRESH_OPTIONS.map( ( opt ) => opt.value );
+	let saved = localStorage.getItem( REFRESH_KEY );
+	if ( ! saved ) {
+		const legacy = localStorage.getItem( LEGACY_REFRESH_KEY );
+		if ( legacy ) {
+			saved = legacy;
+			try {
+				localStorage.setItem( REFRESH_KEY, legacy );
+			} catch ( e ) {
+				// localStorage disabled/quota'd; in-session only.
+			}
+		}
+	}
+	return saved && validValues.includes( saved ) ? saved : String( defaultMs );
+}
+
 /**
  * Format bytes to human readable string.
  *
@@ -787,17 +813,9 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 	const [ logsCatalog, setLogsCatalog ] = useState( [] );
 	const [ loading, setLoading ] = useState( true );
 	const [ error, setError ] = useState( null );
-	const [ refreshInterval, setRefreshInterval ] = useState( () => {
-		// Validate the saved value against allowed dropdown options.
-		const validValues = REFRESH_OPTIONS.map( ( opt ) => opt.value );
-		const saved = localStorage.getItem(
-			'newspack-event-logger-nodes-worker-refresh'
-		);
-		if ( saved && validValues.includes( saved ) ) {
-			return saved;
-		}
-		return String( refreshMs );
-	} );
+	const [ refreshInterval, setRefreshInterval ] = useState( () =>
+		initialRefresh( refreshMs )
+	);
 	const [ byteRates, setByteRates ] = useState( {} );
 	const [ writeRates, setWriteRates ] = useState( {} );
 	const [ segmentSize, setSegmentSize ] = useState( 64 * 1024 * 1024 );
@@ -836,10 +854,7 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 
 	// Save refresh interval to localStorage.
 	useEffect( () => {
-		localStorage.setItem(
-			'newspack-event-logger-nodes-worker-refresh',
-			refreshInterval
-		);
+		localStorage.setItem( REFRESH_KEY, refreshInterval );
 	}, [ refreshInterval ] );
 
 	const fetchWorkers = useCallback( async () => {
