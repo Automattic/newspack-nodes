@@ -39,7 +39,8 @@ class Community_Source_Node extends Node {
 			$msg[ Message::TYPE ]  = Message::TM_STRUCT;
 			$msg[ Message::FROM ]  = $this->name;
 			$msg[ Message::VALUE ] = [ 'source' => 'community' ] + $item;
-			$this->sink?->fill( $msg );
+			// parent::fill stamps TO from a connect_node-set target, then forwards to sink.
+			parent::fill( $msg );
 			++$count;
 		}
 		return "emitted $count item(s)";

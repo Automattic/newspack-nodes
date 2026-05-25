@@ -18,10 +18,11 @@ namespace Newspack_AI_Newsletter;
 		if ( ! \class_exists( '\Newspack_Nodes\Topology_Registry' ) ) {
 			return;
 		}
-		require_once __DIR__ . '/includes/class-releases-source.php';
-		require_once __DIR__ . '/includes/class-community-source.php';
-		require_once __DIR__ . '/includes/class-summarizer.php';
-		require_once __DIR__ . '/includes/class-digest-builder.php';
+		// Composer classmap autoload (run `composer dump-autoload -o` after
+		// adding/renaming a node). This is also what puts the node classes in
+		// the classmap that Classes_CI scans, so their node_schema() verbs show
+		// up in the topology-console palette + per-node Inspector.
+		require_once __DIR__ . '/vendor/autoload.php';
 
 		// One call wires it all: the Newspack_AI_Newsletter\ namespace (so
 		// make_node resolves *_Node classes), the topologies/ stock dir, a
