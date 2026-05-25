@@ -52,6 +52,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   stream-pause and the brief "Loading…" status are not carried into the component — stream
   lifecycle is the graph layer's concern, and folding visibility-pause into the user's
   explicit pause would corrupt it.)
+- **Worker Status dashboard reimplemented as a JS-Node graph + thin React view.** Following
+  the Raw Logs reference, the poll-based data flow moved out of React effects into a
+  `Core`-registered graph — `workerstatus/poll` (the `dump_metadata` transport + `restart`,
+  behind an injectable command seam), `workerstatus/transform` (snapshot → enriched model:
+  per-worker read rates, per-log write rates, segment add/remove tracking — all ported
+  verbatim), `workerstatus/view` (the published view model) — wired by `useWorkerStatusGraph`,
+  which owns the page-visibility-gated poll interval (Worker Status has no SSE; the repeated
+  poll IS the live data). `WorkerStatus.js` is now a thin view: `useNodeState('workerstatus/view',
+  'view')` for the model + control callbacks (restart, refresh interval); the pure render
+  helpers (`buildRenderPlan`, `SegmentBar`, `LogSection`, `WorkerConnector`, `SupervisorStatus`)
+  are unchanged. Behavior + appearance are identical, and the dashboard is now introspectable
+  via `Core.nodes`. Because Worker Status has no rAF to mask it, the hook adds an explicit
+  re-render trigger so `useNodeState` re-subscribes to the freshly-mounted view node (mirrors
+  `useConsoleGraph`'s `setShell`).
 - **The `/workers/spawn` response sanitizer projects by value TYPE, not an ELN field
   whitelist.** It previously surfaced `status` plus only five hardcoded ELN counter names
   (`entries_processed`/`requests_complete`/…), stripping any other plugin's worker
