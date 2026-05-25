@@ -32,8 +32,8 @@ class Summarizer_Node extends Node {
 		$out[ Message::TYPE ]  = Message::TM_STRUCT;
 		$out[ Message::FROM ]  = $this->name;
 		$out[ Message::VALUE ] = $item;
-		++$this->counter;
-		$this->sink?->fill( $out );
+		// parent::fill (base, not $this — would recurse) stamps TO from target, increments the counter, and forwards to sink.
+		parent::fill( $out );
 	}
 
 	public static function node_schema(): array {

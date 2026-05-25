@@ -29,4 +29,18 @@ final class CommunitySourceTest extends TestCase {
 	public function test_items_seam_is_overridable(): void {
 		$this->assertTrue( method_exists( Community_Source_Node::class, 'items' ) );
 	}
+
+	public function test_emitted_message_carries_TO_from_target(): void {
+		$sink   = new Capture_Sink_Node();
+		$source = new Community_Source_Node();
+		$source->sink( $sink );
+		$source->connect_node( 'summarizer' );
+
+		$source->cmd_tick();
+
+		$this->assertNotEmpty( $sink->captured );
+		foreach ( $sink->captured as $m ) {
+			$this->assertSame( 'summarizer', $m[ Message::TO ] );
+		}
+	}
 }

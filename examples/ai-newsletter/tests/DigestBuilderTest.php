@@ -55,4 +55,20 @@ final class DigestBuilderTest extends TestCase {
 		// Only the (empty) draft from flush; the noise was not accumulated.
 		$this->assertStringNotContainsString( 'noise', $sink->captured[0][ Message::VALUE ] );
 	}
+
+	public function test_emitted_draft_carries_TO_from_target(): void {
+		$sink = new Capture_Sink_Node();
+		$node = new Digest_Builder_Node();
+		$node->sink( $sink );
+		$node->connect_node( 'out' );
+
+		$msg = $this->summary( 'a' );
+		$node->fill( $msg );
+		$node->cmd_flush();
+
+		$this->assertNotEmpty( $sink->captured );
+		foreach ( $sink->captured as $m ) {
+			$this->assertSame( 'out', $m[ Message::TO ] );
+		}
+	}
 }

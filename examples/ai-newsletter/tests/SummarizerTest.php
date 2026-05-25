@@ -49,4 +49,19 @@ final class SummarizerTest extends TestCase {
 	public function test_summarize_seam_is_overridable(): void {
 		$this->assertTrue( method_exists( Summarizer_Node::class, 'summarize' ) );
 	}
+
+	public function test_emitted_message_carries_TO_from_target(): void {
+		$sink = new Capture_Sink_Node();
+		$node = new Summarizer_Node();
+		$node->sink( $sink );
+		$node->connect_node( 'digest' );
+
+		$msg = $this->struct( [ 'source' => 'releases', 'title' => 'T', 'url' => 'u', 'body' => 'B' ] );
+		$node->fill( $msg );
+
+		$this->assertNotEmpty( $sink->captured );
+		foreach ( $sink->captured as $m ) {
+			$this->assertSame( 'digest', $m[ Message::TO ] );
+		}
+	}
 }

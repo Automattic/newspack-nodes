@@ -45,7 +45,8 @@ class Digest_Builder_Node extends Node {
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$msg[ Message::FROM ]  = $this->name;
 		$msg[ Message::VALUE ] = $draft;
-		$this->sink?->fill( $msg );
+		// parent::fill stamps TO from a connect_node-set target, then forwards to sink.
+		parent::fill( $msg );
 
 		$n           = \count( $this->items );
 		$this->items = [];
