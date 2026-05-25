@@ -1,40 +1,68 @@
 /**
- * RawLogs UI-surface tests; useMessageStream + getCommandClient are mocked.
+ * RawLogs UI-surface tests — the thin view over the rawlogs node graph.
+ *
+ * The graph is owned by useRawLogsGraph (tested separately); here we mock it to
+ * hand back spy control callbacks, and we register a fixture `rawlogs/view` node
+ * in Core so the view can read its low-frequency model via useNodeState and its
+ * high-frequency buffer (lines/lps) directly off the node in the rAF.
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
+import { Core } from '../../runtime/core';
 import RawLogs from '../RawLogs';
 
-jest.mock( '../../shared/utils/commandClient', () => ( {
-	getCommandClient: jest.fn(),
-} ) );
-jest.mock( '../../shared/utils/unwrapCommandResponse', () => jest.fn() );
-jest.mock( '../../shared/hooks/useMessageStream', () => ( {
-	__esModule: true,
-	default: jest.fn(),
-} ) );
-jest.mock( '../../shared/hooks/usePageVisibility', () => ( {
-	__esModule: true,
-	default: () => true,
+// The graph hook is exercised by its own suite; mock it to spy on the control
+// callbacks the thin view wires to the dropdown / pause button. It's also called
+// exactly once per RawLogs render, so the idle-frames test counts its calls as a
+// render probe — no reaching into React internals.
+jest.mock( '../hooks/useRawLogsGraph', () => ( {
+	useRawLogsGraph: jest.fn(),
 } ) );
 
-const { getCommandClient } = require( '../../shared/utils/commandClient' );
-const unwrapCommandResponse = require( '../../shared/utils/unwrapCommandResponse' );
-const useMessageStream =
-	require( '../../shared/hooks/useMessageStream' ).default;
+const { useRawLogsGraph } = require( '../hooks/useRawLogsGraph' );
 
-const installMessageStreamMock = ( overrides = {} ) => {
-	useMessageStream.mockReturnValue( {
-		error: null,
-		connect: jest.fn(),
-		close: jest.fn(),
-		lastEventTime: null,
-		...overrides,
-	} );
-};
+// A minimal stand-in for the rawlogs/view node: the low-frequency model lives in
+// setStateCache.view (what useNodeState subscribes to) and the high-frequency
+// buffer/LPS live directly on the instance (what the rAF reads). setState here
+// notifies subscribers exactly like the real Node.setState.
+function registerViewFixture( {
+	logs = [],
+	selected = '',
+	paused = false,
+	lines = [],
+	lps = 0,
+} = {} ) {
+	const node = {
+		registrations: { view: {} },
+		setStateCache: {},
+		lines,
+		lps,
+		register( event, listener, cb ) {
+			this.registrations[ event ][ listener ] = cb;
+			if ( event in this.setStateCache ) {
+				cb( this.setStateCache[ event ] );
+			}
+		},
+		unregister( event, listener ) {
+			delete this.registrations[ event ]?.[ listener ];
+		},
+		setState( event, payload ) {
+			this.setStateCache[ event ] = payload;
+			Object.values( this.registrations[ event ] || {} ).forEach(
+				( cb ) => cb( payload )
+			);
+		},
+	};
+	node.setState( 'view', { logs, selected, paused } );
+	Core.nodes.set( 'rawlogs/view', node );
+	return node;
+}
 
 describe( 'RawLogs', () => {
-	let sendMock;
+	let selectLog;
+	let setPaused;
+	let rafCbs;
+
 	beforeAll( () => {
 		// Stub the Canvas 2D context (jsdom lacks it).
 		window.HTMLCanvasElement.prototype.getContext = function () {
@@ -65,33 +93,39 @@ describe( 'RawLogs', () => {
 	} );
 
 	beforeEach( () => {
-		sendMock = jest.fn();
-		getCommandClient.mockReturnValue( { send: sendMock } );
-		installMessageStreamMock();
+		Core.reset();
+		selectLog = jest.fn();
+		setPaused = jest.fn();
+		useRawLogsGraph.mockClear();
+		useRawLogsGraph.mockReturnValue( { selectLog, setPaused } );
+
+		// Capture rAF callbacks so a test can drive exactly one frame (the rAF
+		// reads node.lines / node.lps and pushes them into React state). We do
+		// NOT auto-loop — the component re-schedules inside the callback.
+		rafCbs = [];
+		global.requestAnimationFrame = ( cb ) => {
+			rafCbs.push( cb );
+			return rafCbs.length;
+		};
+		global.cancelAnimationFrame = () => {};
 	} );
 
-	it( 'shows the Loading status while the list_logs request is in flight', () => {
-		sendMock.mockReturnValue( new Promise( () => {} ) );
-		const { container } = render( <RawLogs /> );
-		expect( container.textContent ).toMatch( /Loading/ );
-	} );
+	// Run a single queued animation frame.
+	const tickFrame = () => {
+		const cbs = rafCbs;
+		rafCbs = [];
+		act( () => cbs.forEach( ( cb ) => cb( performance.now() ) ) );
+	};
 
-	it( 'shows "No logs available" when the catalog is empty', async () => {
-		sendMock.mockResolvedValue( [] );
-		unwrapCommandResponse.mockReturnValue( [] );
+	it( 'renders a select populated from the view model', () => {
+		registerViewFixture( {
+			logs: [
+				{ key: 'firehose', label: 'Firehose' },
+				{ key: 'errors', label: 'Errors' },
+			],
+			selected: 'firehose',
+		} );
 		const { container } = render( <RawLogs /> );
-		await act( async () => {} );
-		expect( container.textContent ).toMatch( /No logs available/ );
-	} );
-
-	it( 'renders a select populated from the list_logs catalog', async () => {
-		sendMock.mockResolvedValue( [] );
-		unwrapCommandResponse.mockReturnValue( [
-			{ key: 'firehose', label: 'Firehose' },
-			{ key: 'errors', label: 'Errors' },
-		] );
-		const { container } = render( <RawLogs /> );
-		await act( async () => {} );
 		const select = container.querySelector(
 			'.newspack-nodes-raw-logs-select'
 		);
@@ -100,26 +134,39 @@ describe( 'RawLogs', () => {
 		expect( select.value ).toBe( 'firehose' );
 	} );
 
-	it( 'selecting a log calls onChange and updates state', async () => {
-		sendMock.mockResolvedValue( [] );
-		unwrapCommandResponse.mockReturnValue( [
-			{ key: 'firehose', label: 'Firehose' },
-			{ key: 'errors', label: 'Errors' },
-		] );
+	it( 'shows "No logs available" when the view model has no logs', () => {
+		registerViewFixture( { logs: [] } );
 		const { container } = render( <RawLogs /> );
-		await act( async () => {} );
+		expect( container.textContent ).toMatch( /No logs available/ );
+	} );
+
+	it( 'selecting a log calls the graph selectLog callback', () => {
+		registerViewFixture( {
+			logs: [
+				{ key: 'firehose', label: 'Firehose' },
+				{ key: 'errors', label: 'Errors' },
+			],
+			selected: 'firehose',
+		} );
+		const { container } = render( <RawLogs /> );
 		const select = container.querySelector(
 			'.newspack-nodes-raw-logs-select'
 		);
 		fireEvent.change( select, { target: { value: 'errors' } } );
-		expect( select.value ).toBe( 'errors' );
+		expect( selectLog ).toHaveBeenCalledWith( 'errors' );
 	} );
 
-	it( 'renders the filter input + line count', async () => {
-		sendMock.mockResolvedValue( [] );
-		unwrapCommandResponse.mockReturnValue( [] );
+	it( 'renders the filter input + line count from the node buffer', () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			lines: [
+				{ id: 1, partition: 0, content: 'one', isEven: false },
+				{ id: 2, partition: 0, content: 'two', isEven: true },
+			],
+		} );
 		const { container } = render( <RawLogs /> );
-		await act( async () => {} );
+		tickFrame();
 		const filter = container.querySelector(
 			'.newspack-nodes-raw-logs-search'
 		);
@@ -127,49 +174,67 @@ describe( 'RawLogs', () => {
 		const count = container.querySelector(
 			'.newspack-nodes-raw-logs-count'
 		);
-		expect( count.textContent ).toMatch( /0.*lines/ );
+		expect( count.textContent ).toMatch( /2.*lines/ );
 	} );
 
-	it( 'pause button toggles label between ▶ and ⏸', async () => {
-		sendMock.mockResolvedValue( [] );
-		unwrapCommandResponse.mockReturnValue( [] );
+	it( 'pause button reflects the view model and calls setPaused on click', () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			paused: false,
+		} );
 		const { container } = render( <RawLogs /> );
-		await act( async () => {} );
-		const buttons = container.querySelectorAll(
+		const pause = container.querySelectorAll(
 			'.newspack-nodes-raw-logs-btn'
-		);
-		const pause = buttons[ 0 ];
+		)[ 0 ];
 		expect( pause.textContent ).toBe( '⏸' );
 		fireEvent.click( pause );
-		expect( pause.textContent ).toBe( '▶' );
+		expect( setPaused ).toHaveBeenCalledWith( true );
 	} );
 
-	it( 'Clear button is rendered', async () => {
-		sendMock.mockResolvedValue( [] );
-		unwrapCommandResponse.mockReturnValue( [] );
+	it( 'pause button shows ▶ when the view model is paused', () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			paused: true,
+		} );
 		const { container } = render( <RawLogs /> );
-		await act( async () => {} );
+		const pause = container.querySelectorAll(
+			'.newspack-nodes-raw-logs-btn'
+		)[ 0 ];
+		expect( pause.textContent ).toBe( '▶' );
+		fireEvent.click( pause );
+		expect( setPaused ).toHaveBeenCalledWith( false );
+	} );
+
+	it( 'Clear button is rendered and clears the rendered count', () => {
+		const node = registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			lines: [ { id: 1, partition: 0, content: 'one', isEven: false } ],
+		} );
+		const { container } = render( <RawLogs /> );
+		tickFrame();
+		let count = container.querySelector( '.newspack-nodes-raw-logs-count' );
+		expect( count.textContent ).toMatch( /1.*lines/ );
 		const clear = Array.from(
 			container.querySelectorAll( '.newspack-nodes-raw-logs-btn' )
 		).find( ( b ) => b.textContent === 'Clear' );
 		expect( clear ).not.toBeUndefined();
+		// Clear empties the node buffer; the next frame reflects 0 lines.
 		fireEvent.click( clear );
+		node.lines = [];
+		tickFrame();
+		count = container.querySelector( '.newspack-nodes-raw-logs-count' );
+		expect( count.textContent ).toMatch( /0.*lines/ );
 	} );
 
-	it( 'renders error banner when useMessageStream surfaces error', async () => {
-		installMessageStreamMock( { error: 'Reconnecting in 5s...' } );
-		sendMock.mockResolvedValue( [] );
-		unwrapCommandResponse.mockReturnValue( [] );
+	it( 'updates filter state on typing', () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
 		const { container } = render( <RawLogs /> );
-		await act( async () => {} );
-		expect( container.textContent ).toMatch( /Reconnecting/ );
-	} );
-
-	it( 'updates filter state on typing', async () => {
-		sendMock.mockResolvedValue( [] );
-		unwrapCommandResponse.mockReturnValue( [] );
-		const { container } = render( <RawLogs /> );
-		await act( async () => {} );
 		const filter = container.querySelector(
 			'.newspack-nodes-raw-logs-search'
 		);
@@ -177,103 +242,43 @@ describe( 'RawLogs', () => {
 		expect( filter.value ).toBe( 'foo' );
 	} );
 
-	it( 'tolerates a list_logs send rejection without crashing', async () => {
-		sendMock.mockRejectedValue( new Error( 'boom' ) );
+	it( 'displays the lines/second read from the node in the rAF', () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			lines: [ { id: 1, partition: 0, content: 'x', isEven: false } ],
+			lps: 4.2,
+		} );
 		const { container } = render( <RawLogs /> );
-		await act( async () => {} );
-		// The catch lands us in the "No logs available" state.
-		expect( container.textContent ).toMatch( /No logs available/ );
+		tickFrame();
+		const rps = container.querySelector( '.newspack-nodes-raw-logs-rps' );
+		expect( rps ).not.toBeNull();
+		expect( rps.textContent ).toMatch( /4\.2 lines\/s/ );
 	} );
 
-	it( 'wires useMessageStream with the selected log and ms cadence', async () => {
-		sendMock.mockResolvedValue( [] );
-		unwrapCommandResponse.mockReturnValue( [
-			{ key: 'firehose', label: 'Firehose' },
-		] );
+	it( 'does not re-render React on idle frames (no new rows)', () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			lines: [ { id: 1, partition: 0, content: 'one', isEven: false } ],
+			lps: 0,
+		} );
 		render( <RawLogs /> );
-		await act( async () => {} );
-		const lastCallProps = useMessageStream.mock.calls.at( -1 )[ 0 ];
-		expect( lastCallProps.subscriptions ).toEqual( [ 'firehose' ] );
+		tickFrame(); // first frame: paints the one line + settles state
+		// useRawLogsGraph runs once per RawLogs render — use it as a render
+		// probe. Idle frames (buffer + lps unchanged) must push no new state
+		// refs, so RawLogs must NOT re-render. A per-frame setLines(newArray)
+		// would re-render every frame and bump this count.
+		const rendersAfterSettle = useRawLogsGraph.mock.calls.length;
+		tickFrame();
+		tickFrame();
+		expect( useRawLogsGraph.mock.calls.length ).toBe( rendersAfterSettle );
 	} );
 
-	it( 'onMessage handler appends parsed log lines to the internal buffer', async () => {
-		jest.useFakeTimers();
-		try {
-			sendMock.mockResolvedValue( [] );
-			unwrapCommandResponse.mockReturnValue( [
-				{ key: 'firehose', label: 'Firehose' },
-			] );
-			const { container } = render( <RawLogs /> );
-			await act( async () => {} );
-			// Drive the component's onMessage callback directly.
-			const onMessage =
-				useMessageStream.mock.calls.at( -1 )[ 0 ].onMessage;
-			// Need FROM=`{sub}.pN` and VALUE=text for transformLogLine.
-			act( () => {
-				onMessage(
-					[ 1, 1234, 'firehose.p0', '', '1:1', '', 'a log line' ],
-					{
-						type: 1,
-					}
-				);
-			} );
-			act( () => {
-				jest.advanceTimersByTime( 200 );
-			} );
-			const count = container.querySelector(
-				'.newspack-nodes-raw-logs-count'
-			);
-			expect( count.textContent ).toMatch( /1.*lines/ );
-		} finally {
-			jest.useRealTimers();
-		}
-	} );
-
-	it( 'clicking Clear empties the line buffer and counter', async () => {
-		jest.useFakeTimers();
-		try {
-			sendMock.mockResolvedValue( [] );
-			unwrapCommandResponse.mockReturnValue( [
-				{ key: 'firehose', label: 'Firehose' },
-			] );
-			const { container } = render( <RawLogs /> );
-			await act( async () => {} );
-			const onMessage =
-				useMessageStream.mock.calls.at( -1 )[ 0 ].onMessage;
-			act( () => {
-				onMessage( [ 1, 0, 'firehose.p0', '', '1:1', '', 'one' ], {
-					type: 1,
-				} );
-			} );
-			act( () => {
-				jest.advanceTimersByTime( 200 );
-			} );
-			const clear = Array.from(
-				container.querySelectorAll( '.newspack-nodes-raw-logs-btn' )
-			).find( ( b ) => b.textContent === 'Clear' );
-			act( () => fireEvent.click( clear ) );
-			const count = container.querySelector(
-				'.newspack-nodes-raw-logs-count'
-			);
-			expect( count.textContent ).toMatch( /0.*lines/ );
-		} finally {
-			jest.useRealTimers();
-		}
-	} );
-
-	it( 'switching log resets the buffer and selectedLog state', async () => {
-		sendMock.mockResolvedValue( [] );
-		unwrapCommandResponse.mockReturnValue( [
-			{ key: 'firehose', label: 'Firehose' },
-			{ key: 'errors', label: 'Errors' },
-		] );
+	it( 'falls back to an empty model when the view node is absent', () => {
+		// No fixture registered — useNodeState yields undefined; the view must
+		// still render (No logs available) without throwing.
 		const { container } = render( <RawLogs /> );
-		await act( async () => {} );
-		const select = container.querySelector(
-			'.newspack-nodes-raw-logs-select'
-		);
-		fireEvent.change( select, { target: { value: 'errors' } } );
-		const lastCallProps = useMessageStream.mock.calls.at( -1 )[ 0 ];
-		expect( lastCallProps.subscriptions ).toEqual( [ 'errors' ] );
+		expect( container.textContent ).toMatch( /No logs available/ );
 	} );
 } );

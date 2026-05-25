@@ -1,27 +1,30 @@
 /* global requestAnimationFrame, cancelAnimationFrame */
 /**
- * Raw Logs Component — canvas-rendered real-time SSE stream of log lines.
+ * Raw Logs Component — canvas-rendered real-time stream of log lines.
+ *
+ * This is a THIN view over the `rawlogs/*` node graph (mounted by
+ * `useRawLogsGraph`). The graph owns all data: `rawlogs/stream` holds the SSE
+ * connection, `rawlogs/transform` turns envelopes into rows, and `rawlogs/view`
+ * holds the buffer + view model. This component only renders.
+ *
+ * Two read paths, matching the view node's two cadences:
+ * - LOW frequency: `useNodeState('rawlogs/view','view')` for `{ logs, selected,
+ *   paused }` (the dropdown, pause button, selected value).
+ * - HIGH frequency: the canvas rAF reads `Core.node('rawlogs/view').lines` and
+ *   `.lps` directly every frame — a busy stream never re-renders React per line.
  */
 
-import {
-	useState,
-	useEffect,
-	useRef,
-	useCallback,
-	useMemo,
-} from '@wordpress/element';
+import { useState, useEffect, useRef, useMemo } from '@wordpress/element';
 
-import { getCommandClient } from '../shared/utils/commandClient';
-import unwrapCommandResponse from '../shared/utils/unwrapCommandResponse';
-import usePageVisibility from '../shared/hooks/usePageVisibility';
-import useMessageStream from '../shared/hooks/useMessageStream';
-import transformLogLine from './transformLogLine';
+import { Core } from '../runtime/core';
+import { useNodeState } from '../runtime/react';
+import { useRawLogsGraph } from './hooks/useRawLogsGraph';
 import './styles/raw-logs.scss';
 
 const ROW_HEIGHT = 18;
-const MAX_LINES = 100000;
 const PARTITION_WIDTH = 36;
 const FONT = '12px monospace';
+const VIEW_NODE = 'rawlogs/view';
 
 // Dark theme colors (match base.scss).
 const COLOR_BG_ODD = '#2a2a2a';
@@ -30,39 +33,32 @@ const COLOR_TEXT = '#e0e0e0';
 const COLOR_PARTITION = '#666';
 const COLOR_BORDER = '#444';
 
+const EMPTY_VIEW = { logs: [], selected: '', paused: false };
+
 /**
  * Raw Logs Component.
  *
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function RawLogs() {
-	const [ availableLogs, setAvailableLogs ] = useState( [] );
-	const [ selectedLog, setSelectedLog ] = useState( '' );
-	const [ lines, setLines ] = useState( [] );
+	// Mount the node graph; it returns the thin control callbacks.
+	const { selectLog, setPaused } = useRawLogsGraph();
+
+	// Low-frequency view model (dropdown + pause button + selected value).
+	const view = useNodeState( VIEW_NODE, 'view' ) ?? EMPTY_VIEW;
+	const {
+		logs: availableLogs,
+		selected: selectedLog,
+		paused: isPaused,
+	} = view;
+
 	const [ filter, setFilter ] = useState( '' );
-	const [ isPaused, setIsPaused ] = useState( false );
+	// LPS + the rendered line buffer, both fed from the rAF at frame rate (the
+	// original re-rendered LPS per frame and the count per batch; per-frame for
+	// both is visually identical and keeps everything in one cheap state push).
 	const [ linesPerSecond, setLinesPerSecond ] = useState( 0 );
-	const [ isLoadingLogs, setIsLoadingLogs ] = useState( true );
+	const [ lines, setLines ] = useState( [] );
 
-	const isPageVisible = usePageVisibility();
-
-	// Fetch available logs on mount; returns `[{key, label}]`.
-	useEffect( () => {
-		getCommandClient()
-			.send( { to: 'raw-logs', verb: 'list_logs' } )
-			.then( ( message ) => {
-				const logs = unwrapCommandResponse( message ) || [];
-				setAvailableLogs( logs );
-				// Select first available log by default.
-				if ( logs.length > 0 && ! selectedLog ) {
-					setSelectedLog( logs[ 0 ].key );
-				}
-				setIsLoadingLogs( false );
-			} )
-			.catch( () => {
-				setIsLoadingLogs( false );
-			} );
-	}, [] ); // eslint-disable-line react-hooks/exhaustive-deps
 	const containerRef = useRef( null );
 	const canvasRef = useRef( null );
 	const scrollRef = useRef( null );
@@ -71,73 +67,19 @@ export default function RawLogs() {
 	const scrollTopRef = useRef( 0 );
 	const isAdjustingScrollRef = useRef( false );
 	const rafRef = useRef( null );
-	const linesBufferRef = useRef( [] );
-	const lineCounterRef = useRef( 0 );
-	const lastProcessedCountRef = useRef( 0 );
-	const lineHistoryRef = useRef( [] );
-	const smoothedLPS = useRef( 0 );
 	const filteredLinesRef = useRef( [] );
-
-	// Calculate lines per second over 10-second window.
-	const updateLinesPerSecond = useCallback( ( newCount ) => {
-		const now = Date.now();
-		const windowMs = 10000;
-
-		if ( newCount > 0 ) {
-			lineHistoryRef.current.push( { time: now, count: newCount } );
-		}
-
-		lineHistoryRef.current = lineHistoryRef.current.filter(
-			( entry ) => now - entry.time < windowMs
-		);
-
-		const totalInWindow = lineHistoryRef.current.reduce(
-			( sum, entry ) => sum + entry.count,
-			0
-		);
-
-		const LPS = totalInWindow / ( windowMs / 1000 );
-		smoothedLPS.current += ( LPS - smoothedLPS.current ) * 0.1;
-		setLinesPerSecond( smoothedLPS.current );
-	}, [] );
-
-	// Each Message envelope becomes one buffer row; skip the `connected` one.
-	const handleMessage = useCallback( ( envelope ) => {
-		if ( envelope[ 5 ] === 'connected' ) {
-			return;
-		}
-		const row = transformLogLine( envelope );
-		if ( ! row ) {
-			return;
-		}
-		lineCounterRef.current += 1;
-		linesBufferRef.current.unshift( {
-			id: lineCounterRef.current,
-			partition: row.p,
-			content: row.line,
-			isEven: lineCounterRef.current % 2 === 0,
-		} );
-		if ( linesBufferRef.current.length > MAX_LINES ) {
-			linesBufferRef.current.length = MAX_LINES;
-		}
-	}, [] );
-
-	// Reset state on reconnect.
-	const handleBeforeConnect = useCallback( () => {
-		lineHistoryRef.current = [];
-	}, [] );
-
-	// Use unified message-stream connection hook.
-	const {
-		error,
-		connect,
-		close: closeSource,
-		lastEventTime,
-	} = useMessageStream( {
-		subscriptions: selectedLog ? [ selectedLog ] : [],
-		onMessage: handleMessage,
-		onBeforeConnect: handleBeforeConnect,
-	} );
+	// Last rendered buffer length — drives the smooth/virtual scroll math each
+	// frame (replaces the old per-batch newCount the SSE handler tracked).
+	const lastRenderedCountRef = useRef( 0 );
+	// Last state we pushed to React — so idle frames (nothing changed) push no
+	// new refs and don't re-render. The original only setLines() on new rows.
+	const pushedRef = useRef( { count: -1, filter: null, lps: -1 } );
+	// Filter kept in a ref so the rAF reads the latest without re-subscribing.
+	const filterRef = useRef( filter );
+	filterRef.current = filter;
+	// Last time the node buffer grew — drives the "Xs ago" staleness display
+	// (a row arriving is one `msg` event, matching the old lastEventTime touch).
+	const lastEventTimeRef = useRef( null );
 
 	// Ticking "Xs ago" display.
 	const [ now, setNow ] = useState( Date.now() );
@@ -145,33 +87,12 @@ export default function RawLogs() {
 		const id = setInterval( () => setNow( Date.now() ), 1000 );
 		return () => clearInterval( id );
 	}, [] );
-	const staleSec = lastEventTime
-		? Math.max( 0, Math.floor( ( now - lastEventTime ) / 1000 ) )
+	const staleSec = lastEventTimeRef.current
+		? Math.max( 0, Math.floor( ( now - lastEventTimeRef.current ) / 1000 ) )
 		: null;
 
-	// Handle log selection change.
-	const handleLogChange = useCallback( ( e ) => {
-		const newLog = e.target.value;
-		setSelectedLog( newLog );
-		linesBufferRef.current = [];
-		lineCounterRef.current = 0;
-		lastProcessedCountRef.current = 0;
-		// Clear the canvas snapshot too (ticker only refreshes on newCount>0).
-		filteredLinesRef.current = [];
-		setLines( [] );
-		offsetRef.current = 0;
-		scrollTopRef.current = 0;
-		if ( spacerRef.current ) {
-			spacerRef.current.style.height = '0px';
-		}
-		if ( scrollRef.current ) {
-			scrollRef.current.scrollTop = 0;
-		}
-		lineHistoryRef.current = [];
-		setLinesPerSecond( 0 );
-	}, [] );
-
-	// Canvas rendering loop.
+	// Canvas rendering loop. Reads the high-volume buffer (node.lines) directly
+	// every frame and pushes the cheap derived state (count + LPS) to React.
 	useEffect( () => {
 		const canvas = canvasRef.current;
 		const container = containerRef.current;
@@ -200,6 +121,80 @@ export default function RawLogs() {
 		window.addEventListener( 'resize', resize );
 
 		const draw = () => {
+			// Read the high-volume buffer + LPS straight off the node each frame.
+			const node = Core.node( VIEW_NODE );
+			const buffer = node?.lines ?? [];
+			const lps = node?.lps ?? 0;
+			const filterLower = filterRef.current.toLowerCase();
+
+			// New rows since last frame → drive scroll + staleness.
+			const newCount = Math.max(
+				0,
+				buffer.length - lastRenderedCountRef.current
+			);
+			if ( newCount > 0 ) {
+				lastEventTimeRef.current = Date.now();
+			}
+
+			// Snapshot (and filter) the buffer so a mid-frame append can't mutate
+			// what we draw / count.
+			const snapshot = filterRef.current
+				? buffer.filter( ( l ) =>
+						l.content.toLowerCase().includes( filterLower )
+				  )
+				: buffer.slice();
+
+			// Visible-count delta in the filtered view, for scroll compensation.
+			const visibleNewCount =
+				snapshot.length - filteredLinesRef.current.length;
+			const isAtTop = scrollTopRef.current < ROW_HEIGHT;
+
+			filteredLinesRef.current = snapshot;
+
+			if ( visibleNewCount > 0 ) {
+				// Update spacer height before scroll adjust so scrollTop isn't clamped.
+				if ( spacerRef.current ) {
+					spacerRef.current.style.height =
+						snapshot.length * ROW_HEIGHT + 'px';
+				}
+				if ( isAtTop ) {
+					// Compensate offset — decay will smooth-scroll to 0.
+					offsetRef.current -= visibleNewCount * ROW_HEIGHT;
+				} else if ( scrollRef.current ) {
+					// Maintain scroll position when scrolled down.
+					isAdjustingScrollRef.current = true;
+					const newScrollTop =
+						scrollRef.current.scrollTop +
+						visibleNewCount * ROW_HEIGHT;
+					scrollRef.current.scrollTop = newScrollTop;
+					scrollTopRef.current = newScrollTop;
+				}
+			} else if ( visibleNewCount < 0 && spacerRef.current ) {
+				// Buffer shrank (Clear / log switch) — collapse the spacer too.
+				spacerRef.current.style.height =
+					snapshot.length * ROW_HEIGHT + 'px';
+			}
+
+			lastRenderedCountRef.current = buffer.length;
+
+			// Push the cheap derived state ONLY when it changed — count rides
+			// `lines`, plus LPS. Skipping unchanged frames keeps idle (and steady-
+			// LPS) frames from re-rendering React, matching the original's
+			// new-rows-only setLines() + settling smoothed LPS.
+			const pushed = pushedRef.current;
+			if (
+				snapshot.length !== pushed.count ||
+				filterRef.current !== pushed.filter
+			) {
+				setLines( snapshot );
+				pushed.count = snapshot.length;
+				pushed.filter = filterRef.current;
+			}
+			if ( lps !== pushed.lps ) {
+				setLinesPerSecond( lps );
+				pushed.lps = lps;
+			}
+
 			// Decay offset toward 0 (smooth scroll).
 			if ( Math.abs( offsetRef.current ) > 0.5 ) {
 				offsetRef.current += ( 0 - offsetRef.current ) * 0.01;
@@ -277,78 +272,8 @@ export default function RawLogs() {
 			cancelAnimationFrame( rafRef.current );
 			window.removeEventListener( 'resize', resize );
 		};
+		// isPaused is read inside draw for the empty-state label; re-bind on change.
 	}, [ isPaused ] );
-
-	// Batch UI updates - lines are newest-first.
-	useEffect( () => {
-		const timer = setInterval( () => {
-			const newCount =
-				lineCounterRef.current - lastProcessedCountRef.current;
-
-			if ( newCount > 0 ) {
-				const buffer = linesBufferRef.current;
-				const newLines = buffer.slice( 0, newCount );
-				const filterLower = filter.toLowerCase();
-
-				const visibleNewCount = filter
-					? newLines.filter( ( l ) =>
-							l.content.toLowerCase().includes( filterLower )
-					  ).length
-					: newCount;
-
-				const isAtTop = scrollTopRef.current < ROW_HEIGHT;
-
-				// Snapshot the buffer so SSE can't mutate what draw() sees.
-				if ( filter ) {
-					filteredLinesRef.current = buffer.filter( ( l ) =>
-						l.content.toLowerCase().includes( filterLower )
-					);
-				} else {
-					filteredLinesRef.current = buffer.slice();
-				}
-
-				if ( visibleNewCount > 0 ) {
-					// Update spacer height before scroll adjust so scrollTop isn't clamped.
-					if ( spacerRef.current ) {
-						spacerRef.current.style.height =
-							filteredLinesRef.current.length * ROW_HEIGHT + 'px';
-					}
-
-					if ( isAtTop ) {
-						// Compensate offset — decay will smooth-scroll to 0.
-						offsetRef.current -= visibleNewCount * ROW_HEIGHT;
-					} else if ( scrollRef.current ) {
-						// Maintain scroll position when scrolled down.
-						isAdjustingScrollRef.current = true;
-						const newScrollTop =
-							scrollRef.current.scrollTop +
-							visibleNewCount * ROW_HEIGHT;
-						scrollRef.current.scrollTop = newScrollTop;
-						scrollTopRef.current = newScrollTop;
-					}
-				}
-
-				// Update state for UI counts.
-				setLines( buffer );
-
-				lastProcessedCountRef.current = lineCounterRef.current;
-			}
-
-			updateLinesPerSecond( newCount );
-		}, 100 );
-
-		return () => clearInterval( timer );
-	}, [ filter, updateLinesPerSecond ] );
-
-	// Handle page visibility and log changes.
-	useEffect( () => {
-		if ( isPageVisible && ! isPaused && selectedLog ) {
-			connect();
-		} else {
-			closeSource();
-		}
-		return () => closeSource();
-	}, [ isPageVisible, isPaused, selectedLog, connect, closeSource ] );
 
 	// Filtered lines for React UI; canvas reads filteredLinesRef separately.
 	const filteredLines = useMemo( () => {
@@ -364,13 +289,15 @@ export default function RawLogs() {
 	// Total height for scroll container.
 	const totalHeight = filteredLines.length * ROW_HEIGHT;
 
-	// Clear all lines.
+	// Clear all lines — clears the node buffer; the next frame reflects 0 lines.
 	const handleClear = () => {
-		linesBufferRef.current = [];
-		lineCounterRef.current = 0;
-		lastProcessedCountRef.current = 0;
-		// Clear the canvas snapshot too (ticker only refreshes on newCount>0).
+		const node = Core.node( VIEW_NODE );
+		if ( node ) {
+			node.lines = [];
+		}
 		filteredLinesRef.current = [];
+		lastRenderedCountRef.current = 0;
+		pushedRef.current = { count: 0, filter: filterRef.current, lps: 0 };
 		setLines( [] );
 		offsetRef.current = 0;
 		scrollTopRef.current = 0;
@@ -391,21 +318,16 @@ export default function RawLogs() {
 			<div className="newspack-nodes-raw-logs-header">
 				<h3>Raw Logs</h3>
 				<div className="newspack-nodes-raw-logs-controls">
-					{ isLoadingLogs && (
-						<span className="newspack-nodes-raw-logs-status">
-							Loading...
-						</span>
-					) }
-					{ ! isLoadingLogs && availableLogs.length === 0 && (
+					{ availableLogs.length === 0 && (
 						<span className="newspack-nodes-raw-logs-status">
 							No logs available
 						</span>
 					) }
-					{ ! isLoadingLogs && availableLogs.length > 0 && (
+					{ availableLogs.length > 0 && (
 						<select
 							className="newspack-nodes-raw-logs-select"
 							value={ selectedLog }
-							onChange={ handleLogChange }
+							onChange={ ( e ) => selectLog( e.target.value ) }
 						>
 							{ availableLogs.map( ( log ) => (
 								<option key={ log.key } value={ log.key }>
@@ -451,7 +373,7 @@ export default function RawLogs() {
 						className={ `newspack-nodes-raw-logs-btn ${
 							isPaused ? 'paused' : ''
 						}` }
-						onClick={ () => setIsPaused( ! isPaused ) }
+						onClick={ () => setPaused( ! isPaused ) }
 						title={
 							isPaused ? 'Resume streaming' : 'Pause streaming'
 						}
@@ -468,10 +390,6 @@ export default function RawLogs() {
 					</button>
 				</div>
 			</div>
-
-			{ error && (
-				<div className="newspack-nodes-raw-logs-error">{ error }</div>
-			) }
 
 			<div
 				className="newspack-nodes-raw-logs-canvas-container"
