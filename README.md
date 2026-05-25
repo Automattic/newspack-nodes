@@ -12,6 +12,10 @@ The runtime is independent of any application. It owns the substrate (Node, Mess
 
 This is an early implementation of an idea pitched at the team meetup: the Lego-bricks architecture, brought to PHP/WordPress, without giving up production fitness on Atomic / WP-Cloud.
 
+## Learn it
+
+New to Nodes? Start with **[GETTING-STARTED.md](GETTING-STARTED.md)** — run the bundled example pipeline in about five minutes — then **[WRITING-A-PLUGIN.md](WRITING-A-PLUGIN.md)** builds that example from an empty directory, one node at a time, and shows why the shape pays off. The complete code lives in [`examples/ai-newsletter/`](examples/ai-newsletter/).
+
 ## Quick Start
 
 Install as a standard WordPress plugin, then:
@@ -27,7 +31,7 @@ wp nodes ls
 wp nodes cli
 ```
 
-To get workers running, install an application plugin (e.g., `newspack-event-logger-nodes`) that registers via the `newspack_nodes/topologies` filter.
+To get workers running, install an application plugin that registers a topology — one call, `Topology_Registry::register_plugin( 'My_Namespace\\', __DIR__ . '/topologies' )`. The bundled [`examples/ai-newsletter/`](examples/ai-newsletter/) is the smallest complete example; `newspack-event-logger-nodes` is the production one.
 
 ## Concepts
 
