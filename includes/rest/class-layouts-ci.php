@@ -31,10 +31,6 @@ class Layouts_CI_Node extends Service_CI_Node {
 	private const ID_PATTERN      = '/^[a-zA-Z0-9_:.-]+$/';
 	private const MAX_BODY_BYTES  = 65536;
 
-	public function __construct() {
-		$this->commands( $this->verb_table() );
-	}
-
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Service',
@@ -45,6 +41,28 @@ class Layouts_CI_Node extends Service_CI_Node {
 					'name'        => 'get',
 					'description' => 'Read saved node positions for a layout name.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
+						self::require_manage_options();
+						$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
+						$path = self::layout_path( $name );
+
+						$positions = null;
+						if ( \is_file( $path ) ) {
+							// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_get_contents,WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Path is always a local .layout file under base_directory.
+							$body = @\file_get_contents( $path );
+							if ( false !== $body ) {
+								$parsed = \json_decode( $body, true );
+								if ( \is_array( $parsed ) && isset( $parsed['positions'] ) ) {
+									$positions = $parsed['positions'];
+								}
+							}
+						}
+
+						return [
+							'name'      => $name,
+							'positions' => $positions,
+						];
+					},
 				],
 				[
 					'name'        => 'save',
@@ -53,76 +71,49 @@ class Layouts_CI_Node extends Service_CI_Node {
 						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'positions', 'type' => 'json', 'required' => true ],
 					],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope, mixed $payload ): array {
+						self::require_manage_options();
+						if ( Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
+							throw new \RuntimeException(
+								\esc_html( 'body too large: layout payload exceeds 64 KiB' )
+							);
+						}
+						$decoded = \is_array( $payload ) ? $payload : [];
+						$name    = self::require_valid_name( $decoded );
+						if ( ! isset( $decoded['positions'] ) || ! \is_array( $decoded['positions'] ) ) {
+							throw new \RuntimeException( 'invalid arguments: positions must be an object' );
+						}
+
+						$clean = self::sanitize_positions( $decoded['positions'] );
+						$dir   = self::layouts_dir();
+						if ( ! \is_dir( $dir ) ) {
+							// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+							$made = @\mkdir( $dir, 0700, true );
+							if ( ! $made && ! \is_dir( $dir ) ) {
+								throw new \RuntimeException(
+									\esc_html( "failed to create layouts directory: $dir" )
+								);
+							}
+						}
+
+						$path  = self::layout_path( $name );
+						$json  = (string) \wp_json_encode( [ 'positions' => $clean ] );
+						// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
+						$bytes = @\file_put_contents( $path, $json );
+						if ( false === $bytes ) {
+							throw new \RuntimeException(
+								\esc_html( "failed to write layout file: $path" )
+							);
+						}
+
+						return [
+							'name'      => $name,
+							'path'      => $path,
+							'positions' => $clean,
+						];
+					},
 				],
 			],
-		];
-	}
-
-	private function verb_table(): array {
-		return [
-			'get'  => static function ( Command_Interpreter_Node $self, string $args ): array {
-				self::require_manage_options();
-				$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
-				$path = self::layout_path( $name );
-
-				$positions = null;
-				if ( \is_file( $path ) ) {
-					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_get_contents,WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Path is always a local .layout file under base_directory.
-					$body = @\file_get_contents( $path );
-					if ( false !== $body ) {
-						$parsed = \json_decode( $body, true );
-						if ( \is_array( $parsed ) && isset( $parsed['positions'] ) ) {
-							$positions = $parsed['positions'];
-						}
-					}
-				}
-
-				return [
-					'name'      => $name,
-					'positions' => $positions,
-				];
-			},
-			'save' => static function ( Command_Interpreter_Node $self, string $args, array $envelope, mixed $payload ): array {
-				self::require_manage_options();
-				if ( Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
-					throw new \RuntimeException(
-						\esc_html( 'body too large: layout payload exceeds 64 KiB' )
-					);
-				}
-				$decoded = \is_array( $payload ) ? $payload : [];
-				$name    = self::require_valid_name( $decoded );
-				if ( ! isset( $decoded['positions'] ) || ! \is_array( $decoded['positions'] ) ) {
-					throw new \RuntimeException( 'invalid arguments: positions must be an object' );
-				}
-
-				$clean = self::sanitize_positions( $decoded['positions'] );
-				$dir   = self::layouts_dir();
-				if ( ! \is_dir( $dir ) ) {
-					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-					$made = @\mkdir( $dir, 0700, true );
-					if ( ! $made && ! \is_dir( $dir ) ) {
-						throw new \RuntimeException(
-							\esc_html( "failed to create layouts directory: $dir" )
-						);
-					}
-				}
-
-				$path  = self::layout_path( $name );
-				$json  = (string) \wp_json_encode( [ 'positions' => $clean ] );
-				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
-				$bytes = @\file_put_contents( $path, $json );
-				if ( false === $bytes ) {
-					throw new \RuntimeException(
-						\esc_html( "failed to write layout file: $path" )
-					);
-				}
-
-				return [
-					'name'      => $name,
-					'path'      => $path,
-					'positions' => $clean,
-				];
-			},
 		];
 	}
 
