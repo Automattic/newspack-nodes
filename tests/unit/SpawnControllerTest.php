@@ -316,9 +316,9 @@ class SpawnControllerTest extends TestCase {
 		$this->assertArrayHasKey( 'result', $data );
 	}
 
-	// ── sanitize_worker_result whitelist ──────────────────────────────────
+	// ── sanitize_worker_result (type-based projection) ────────────────────
 
-	public function test_sanitize_worker_result_keeps_safe_numeric_fields(): void {
+	public function test_sanitize_worker_result_keeps_status_and_numeric_fields(): void {
 		$result = [
 			'status'             => 'completed',
 			'entries_processed'  => 1234,
@@ -326,10 +326,10 @@ class SpawnControllerTest extends TestCase {
 			'requests_pending'   => 2,
 			'flames_written'     => 11,
 			'jobs_processed'     => 89,
-			// fields that must NOT propagate:
+			'memory_usage'       => 999, // arbitrary numeric counter now surfaces (type-based, not name-whitelisted)
+			// non-numeric / nested fields that must NOT propagate:
 			'stack_trace'        => 'Fatal at /var/www/secret.php:99',
 			'error'              => 'database creds invalid',
-			'memory_usage'       => 999,
 			'_internal_state'    => [ 'private' => 'data' ],
 		];
 
@@ -341,11 +341,40 @@ class SpawnControllerTest extends TestCase {
 		$this->assertSame( 2, $safe['requests_pending'] );
 		$this->assertSame( 11, $safe['flames_written'] );
 		$this->assertSame( 89, $safe['jobs_processed'] );
+		$this->assertSame( 999, $safe['memory_usage'] );
 
 		$this->assertArrayNotHasKey( 'stack_trace', $safe );
 		$this->assertArrayNotHasKey( 'error', $safe );
-		$this->assertArrayNotHasKey( 'memory_usage', $safe );
 		$this->assertArrayNotHasKey( '_internal_state', $safe );
+	}
+
+	public function test_sanitize_worker_result_surfaces_arbitrary_numeric_counter(): void {
+		// A non-ELN plugin's worker counter must survive — this was stripped by
+		// the old SAFE_RESULT_FIELDS name whitelist.
+		$safe = $this->controller->sanitize_worker_result(
+			[ 'status' => 'done', 'custom_counter' => '7', 'entries_processed' => 3 ]
+		);
+		$this->assertSame( 'done', $safe['status'] );
+		$this->assertSame( 7, $safe['custom_counter'] );
+		$this->assertSame( 3, $safe['entries_processed'] );
+	}
+
+	public function test_sanitize_worker_result_drops_non_numeric_and_bad_keys(): void {
+		$safe = $this->controller->sanitize_worker_result(
+			[ 'status' => 'ok', 'trace' => '/var/secret/path', 'nested' => [ 1, 2 ], 'bad key!' => 5 ]
+		);
+		$this->assertArrayNotHasKey( 'trace', $safe );
+		$this->assertArrayNotHasKey( 'nested', $safe );
+		$this->assertArrayNotHasKey( 'bad key!', $safe );
+	}
+
+	public function test_sanitize_worker_result_caps_field_count(): void {
+		$big = [ 'status' => 'ok' ];
+		for ( $i = 0; $i < 100; $i++ ) {
+			$big[ "f{$i}" ] = $i;
+		}
+		// status + at most 32 numeric counters.
+		$this->assertLessThanOrEqual( 33, \count( $this->controller->sanitize_worker_result( $big ) ) );
 	}
 
 	public function test_sanitize_worker_result_skips_non_numeric_fields(): void {
