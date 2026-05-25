@@ -1,7 +1,7 @@
 <?php
 /**
  * RawLogsCITest: unit tests for the substrate Raw_Logs_CI, which owns the
- * `firehose_logs` (catalog) + `firehose_status` (per-partition metadata)
+ * `list_logs` (catalog) + `log_status` (per-partition metadata)
  * verbs the Raw Logs admin dashboard subscribes to.
  *
  * Replaces the verbs' previous home on the application's Performance_CI;
@@ -45,18 +45,18 @@ class RawLogsCITest extends TestCase {
 	}
 
 	// -------------------------------------------------------------------------
-	// firehose_logs verb — disk-discovered catalog.
+	// list_logs verb — disk-discovered catalog.
 	// -------------------------------------------------------------------------
 
 	public function test_node_schema_declares_its_verbs(): void {
 		$schema = Raw_Logs_CI_Node::node_schema();
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['verbs'] );
 		\sort( $names );
-		$this->assertSame( [ 'firehose_logs', 'firehose_status' ], $names );
+		$this->assertSame( [ 'list_logs', 'log_status' ], $names );
 		$this->assertNotEmpty( $schema['description'] );
 	}
 
-	public function test_firehose_logs_verb_returns_sorted_disk_catalog(): void {
+	public function test_list_logs_verb_returns_sorted_disk_catalog(): void {
 		// Three logs on disk; the verb returns a sorted catalog of
 		// {key, label} pairs with `.log`-stripped keys and `.log`-suffixed
 		// labels — the shape the React picker mounts on.
@@ -64,7 +64,7 @@ class RawLogsCITest extends TestCase {
 		\mkdir( $this->tmp . '/logs/jobs.log',     0755, true );
 		\mkdir( $this->tmp . '/logs/requests.log', 0755, true );
 
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'firehose_logs' );
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 
 		$this->assertSame(
 			[
@@ -76,31 +76,31 @@ class RawLogsCITest extends TestCase {
 		);
 	}
 
-	public function test_firehose_logs_verb_returns_empty_when_no_logs_dir(): void {
+	public function test_list_logs_verb_returns_empty_when_no_logs_dir(): void {
 		// No logs/ dir means no glob matches — the picker shows an empty
 		// list and the dashboard renders a "no logs" affordance.
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'firehose_logs' );
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 		$this->assertSame( [], $result );
 	}
 
-	public function test_firehose_logs_verb_rejects_unauthorized(): void {
+	public function test_list_logs_verb_rejects_unauthorized(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'firehose_logs' );
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'list_logs' );
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
 	}
 
 	// -------------------------------------------------------------------------
-	// firehose_status verb — per-partition segment metadata.
+	// log_status verb — per-partition segment metadata.
 	// -------------------------------------------------------------------------
 
-	public function test_firehose_status_verb_returns_partition_summary(): void {
+	public function test_log_status_verb_returns_partition_summary(): void {
 		\mkdir( $this->tmp . '/logs/firehose.log', 0755, true );
 
 		$result = VerbHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
-			'firehose_status',
+			'log_status',
 			null,
 			'firehose'
 		);
@@ -115,7 +115,7 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( 1, $result['num_partitions'] );
 	}
 
-	public function test_firehose_status_verb_accepts_log_with_dot_log_suffix(): void {
+	public function test_log_status_verb_accepts_log_with_dot_log_suffix(): void {
 		// Mirrors legacy FirehoseController::sanitize_log_param — strips
 		// the suffix so dashboards passing either `firehose` or
 		// `firehose.log` get the same answer.
@@ -124,7 +124,7 @@ class RawLogsCITest extends TestCase {
 		$result = VerbHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
-			'firehose_status',
+			'log_status',
 			null,
 			'firehose.log'
 		);
@@ -133,15 +133,15 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( 'firehose', $result['log_id'] );
 	}
 
-	public function test_firehose_status_verb_falls_back_on_unknown_log(): void {
-		// Bogus key falls through to DEFAULT_LOG_KEY = 'firehose' (or the
+	public function test_log_status_verb_falls_back_on_unknown_log(): void {
+		// Bogus key falls through to PREFERRED_LOG_KEY = 'firehose' (or the
 		// first discovered log if `firehose.log` isn't on disk).
 		\mkdir( $this->tmp . '/logs/firehose.log', 0755, true );
 
 		$result = VerbHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
-			'firehose_status',
+			'log_status',
 			null,
 			'bogus-log-name'
 		);
@@ -150,7 +150,20 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( 'firehose', $result['log_id'] );
 	}
 
-	public function test_firehose_status_verb_reflects_seeded_segments(): void {
+	public function test_log_status_default_resolves_first_discovered_without_firehose(): void {
+		// De-coupled default guard: logs present but no firehose.log, so a
+		// no-arg log_status resolves to the first-discovered key (sorted:
+		// `jobs`), proving the default isn't hardwired to firehose.
+		\mkdir( $this->tmp . '/logs/jobs.log',     0755, true );
+		\mkdir( $this->tmp . '/logs/requests.log', 0755, true );
+
+		$result = VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'log_status' );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'jobs', $result['log_id'] );
+	}
+
+	public function test_log_status_verb_reflects_seeded_segments(): void {
 		// Seed a 128-byte segment on disk so the verb reports non-zero size.
 		$seg_dir = $this->tmp . '/logs/firehose.log/p0';
 		\mkdir( $seg_dir, 0755, true );
@@ -159,7 +172,7 @@ class RawLogsCITest extends TestCase {
 		$result = VerbHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
-			'firehose_status',
+			'log_status',
 			null,
 			'firehose'
 		);
@@ -171,12 +184,12 @@ class RawLogsCITest extends TestCase {
 		$this->assertSame( 1, $result['partitions'][0]['segment_count'] );
 	}
 
-	public function test_firehose_status_verb_rejects_unauthorized(): void {
+	public function test_log_status_verb_rejects_unauthorized(): void {
 		$GLOBALS['_wp_test_current_user_can'] = [];
 		$result = VerbHarness::fire(
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
-			'firehose_status',
+			'log_status',
 			null,
 			'firehose'
 		);

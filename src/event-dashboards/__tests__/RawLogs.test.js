@@ -70,7 +70,7 @@ describe( 'RawLogs', () => {
 		installMessageStreamMock();
 	} );
 
-	it( 'shows the Loading status while the firehose_logs request is in flight', () => {
+	it( 'shows the Loading status while the list_logs request is in flight', () => {
 		sendMock.mockReturnValue( new Promise( () => {} ) );
 		const { container } = render( <RawLogs /> );
 		expect( container.textContent ).toMatch( /Loading/ );
@@ -84,7 +84,7 @@ describe( 'RawLogs', () => {
 		expect( container.textContent ).toMatch( /No logs available/ );
 	} );
 
-	it( 'renders a select populated from the firehose_logs catalog', async () => {
+	it( 'renders a select populated from the list_logs catalog', async () => {
 		sendMock.mockResolvedValue( [] );
 		unwrapCommandResponse.mockReturnValue( [
 			{ key: 'firehose', label: 'Firehose' },
@@ -175,7 +175,7 @@ describe( 'RawLogs', () => {
 		expect( filter.value ).toBe( 'foo' );
 	} );
 
-	it( 'tolerates a firehose_logs send rejection without crashing', async () => {
+	it( 'tolerates a list_logs send rejection without crashing', async () => {
 		sendMock.mockRejectedValue( new Error( 'boom' ) );
 		const { container } = render( <RawLogs /> );
 		await act( async () => {} );
