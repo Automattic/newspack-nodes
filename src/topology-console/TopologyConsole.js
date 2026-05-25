@@ -103,6 +103,31 @@ function parseWorker( cwd ) {
 	return m ? { topology: m[ 1 ], partition: Number( m[ 2 ] ) } : null;
 }
 
+// The display/storage scope for a cwd: a worker (its topology+partition), the
+// request scope (`_sse`), or the local in-browser graph (''). Worker sub-nodes
+// resolve to their worker. Drives the canvas header + the viewport/positions
+// storage keys so `/` and `/_sse` don't inherit the last worker's.
+export function scopeFromCwd( cwd ) {
+	const m = String( cwd ).match( /^_sse\/(.+?)\.p(\d+)(?:\/|$)/ );
+	if ( m ) {
+		return {
+			key: `${ m[ 1 ] }.p${ m[ 2 ] }`,
+			label: m[ 1 ],
+			partition: Number( m[ 2 ] ),
+			isWorker: true,
+		};
+	}
+	if ( '_sse' === cwd ) {
+		return {
+			key: '_sse',
+			label: 'request scope',
+			partition: null,
+			isWorker: false,
+		};
+	}
+	return { key: 'local', label: 'local', partition: null, isWorker: false };
+}
+
 // The longest worker menu item (`_sse/{topology}.p{N}`) that is a path-prefix of
 // `path` — the worker whose subtree contains it. `cd`-ing onto a worker OR into
 // any node beneath it resolves to that worker's mount; non-worker paths (roots,
@@ -243,8 +268,15 @@ export default function TopologyConsole() {
 		}
 	}, [ shell ] );
 
-	// Scoped per topology.partition so positions don't bleed between workers.
-	const positionStorageKey = `newspack-nodes:topology:${ topology }.p${ partition }:positions`;
+	// Derive the display/storage scope from the cwd, not the stale topology/
+	// partition state (which only tracks worker paths). `/` → local, `/_sse` →
+	// request scope, a worker (or sub-node) → that worker's `${topology}.p${N}`.
+	const scope = scopeFromCwd( cwd );
+
+	// Scoped per scope.key so positions don't bleed between workers/roots. For a
+	// worker cwd scope.key === `${topology}.p${partition}`, so persisted worker
+	// layouts still load; `/` and `/_sse` get their own independent keys.
+	const positionStorageKey = `newspack-nodes:topology:${ scope.key }:positions`;
 	// Entries: { x, y, user?: boolean }. Only user-tagged drags persist and
 	// toggle "Reset Layout"; auto-seeded positions stay in-memory only.
 	const [ positionOverrides, setPositionOverrides ] = useState( {} );
@@ -290,7 +322,7 @@ export default function TopologyConsole() {
 	);
 	// Null means "no override" → canvas autofits. Writes debounce 200ms so
 	// a pan-drag's 60 setState/sec doesn't hammer localStorage.
-	const viewportStorageKey = `newspack-nodes:topology:${ topology }.p${ partition }:viewport`;
+	const viewportStorageKey = `newspack-nodes:topology:${ scope.key }:viewport`;
 	const [ viewport, setViewport ] = useState( null );
 	useEffect( () => {
 		try {
@@ -1466,9 +1498,10 @@ export default function TopologyConsole() {
 			) }
 			<CanvasFrame
 				topology={
-					mode === 'edit' ? editingName || 'untitled' : topology
+					mode === 'edit' ? editingName || 'untitled' : scope.label
 				}
-				partition={ mode === 'edit' ? null : partition }
+				partition={ mode === 'edit' ? null : scope.partition }
+				isWorker={ mode === 'edit' ? true : scope.isWorker }
 				onResetLayout={ hasOverrides ? handleResetLayout : null }
 				onSaveLayout={ layoutDirty ? handleSaveLayout : null }
 				editMode={ mode === 'edit' }

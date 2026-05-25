@@ -12,6 +12,7 @@ function todayISO() {
 export default function CanvasFrame( {
 	topology,
 	partition,
+	isWorker,
 	children,
 	onResetLayout,
 	onSaveLayout,
@@ -21,12 +22,14 @@ export default function CanvasFrame( {
 		<div className="topology-canvas">
 			<div className="topology-canvas__meta">
 				{ topology }
-				{ partition !== null && partition !== undefined
+				{ isWorker && partition !== null && partition !== undefined
 					? ` · Partition ${ partition }`
 					: '' }
-				<div className="topology-canvas__topology-name">
-					topologies/{ topology }.tsl
-				</div>
+				{ isWorker && (
+					<div className="topology-canvas__topology-name">
+						topologies/{ topology }.tsl
+					</div>
+				) }
 			</div>
 
 			<div className="topology-reticle topology-reticle--tl" />
@@ -76,7 +79,9 @@ export default function CanvasFrame( {
 				<div className="topology-title-block__row">
 					<div className="topology-title-block__k">Sheet</div>
 					<div className="topology-title-block__v">
-						{ topology }.p{ partition }
+						{ isWorker
+							? `${ topology }.p${ partition }`
+							: topology }
 					</div>
 				</div>
 				<div className="topology-title-block__row">

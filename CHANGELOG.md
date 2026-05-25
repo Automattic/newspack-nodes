@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`/` and `/_sse` reused the last worker topology's header + auto-fit/layout.** The
+  canvas header (title / `.tsl` / sheet) and the viewport + node-position localStorage
+  keys were driven by the stale `topology`/`partition` state, which only updates on
+  worker paths — so the local and request-scope views inherited the last worker's
+  identity and shared its saved layout. They now derive from the cwd scope: a worker →
+  `{topology}.p{N}` (unchanged keys), `/` → `local`, `/_sse` → `request scope` — each with
+  its own header (no `.tsl` line for the non-worker scopes) and its own viewport/layout.
 - **`Log`'s `rotate` was mis-categorized as a command `verb`.** `Log::fill()` handles
   `rotate` in its `TM_REQUEST` branch (the node services it itself; `Log` has no
   `{name}:config` sibling CI), but `node_schema()` listed it under `verbs` — so the
