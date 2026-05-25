@@ -1,53 +1,42 @@
-/* global localStorage */
 /**
  * Worker Status Component — log readers as a linear producer→consumer pipeline.
+ *
+ * THIN view over the `workerstatus/*` node graph (mounted by
+ * `useWorkerStatusGraph`). The graph owns all data: `workerstatus/poll` runs the
+ * dump_metadata poll, `workerstatus/transform` computes the read/write rates and
+ * segment add/remove tracking, and `workerstatus/view` holds the render model.
+ * This component only reads that model (via `useNodeState`) and renders — the
+ * pure presentation helpers below (SegmentBar / LogSection / WorkerConnector /
+ * SupervisorStatus / buildRenderPlan) are unchanged.
  */
 
+import { memo, useMemo } from '@wordpress/element';
+import { useNodeState } from '../runtime/react';
 import {
-	useState,
-	useEffect,
-	useRef,
-	useCallback,
-	useMemo,
-	memo,
-} from '@wordpress/element';
-import { getCommandClient } from '../shared/utils/commandClient';
-import unwrapCommandResponse from '../shared/utils/unwrapCommandResponse';
-import usePageVisibility from '../shared/hooks/usePageVisibility';
+	useWorkerStatusGraph,
+	initialRefresh,
+	REFRESH_OPTIONS,
+} from './hooks/useWorkerStatusGraph';
 import './styles/worker-status.scss';
 
-const REFRESH_OPTIONS = [
-	{ label: '1s', value: '1000' },
-	{ label: '2s', value: '2000' },
-	{ label: '5s', value: '5000' },
-	{ label: '10s', value: '10000' },
-];
+// Re-exported for backwards-compat (the localStorage migration helper moved into
+// the graph hook, which owns the refresh interval).
+export { initialRefresh };
 
-const REFRESH_KEY = 'newspack-nodes-worker-refresh';
-const LEGACY_REFRESH_KEY = 'newspack-event-logger-nodes-worker-refresh';
-
-/**
- * Resolve the initial refresh interval, migrating the legacy localStorage key.
- *
- * @param {number|string} defaultMs Fallback interval when nothing valid is stored.
- * @return {string} A valid REFRESH_OPTIONS value, or String( defaultMs ).
- */
-export function initialRefresh( defaultMs ) {
-	const validValues = REFRESH_OPTIONS.map( ( opt ) => opt.value );
-	let saved = localStorage.getItem( REFRESH_KEY );
-	if ( ! saved ) {
-		const legacy = localStorage.getItem( LEGACY_REFRESH_KEY );
-		if ( legacy ) {
-			saved = legacy;
-			try {
-				localStorage.setItem( REFRESH_KEY, legacy );
-			} catch ( e ) {
-				// localStorage disabled/quota'd; in-session only.
-			}
-		}
-	}
-	return saved && validValues.includes( saved ) ? saved : String( defaultMs );
-}
+// The view model before the first poll publishes one — drives the loading gate.
+const EMPTY_MODEL = {
+	workers: [],
+	supervisor: null,
+	logs: [],
+	byteRates: {},
+	writeRates: {},
+	segmentSize: 64 * 1024 * 1024,
+	currentTime: Math.floor( Date.now() / 1000 ),
+	prevSegments: {},
+	removingSegments: {},
+	error: null,
+	loading: true,
+};
 
 /**
  * Format bytes to human readable string.
@@ -808,257 +797,29 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
-	const [ workers, setWorkers ] = useState( [] );
-	const [ supervisor, setSupervisor ] = useState( null );
-	const [ logsCatalog, setLogsCatalog ] = useState( [] );
-	const [ loading, setLoading ] = useState( true );
-	const [ error, setError ] = useState( null );
-	const [ refreshInterval, setRefreshInterval ] = useState( () =>
-		initialRefresh( refreshMs )
-	);
-	const [ byteRates, setByteRates ] = useState( {} );
-	const [ writeRates, setWriteRates ] = useState( {} );
-	const [ segmentSize, setSegmentSize ] = useState( 64 * 1024 * 1024 );
-	const [ currentTime, setCurrentTime ] = useState( () =>
-		Math.floor( Date.now() / 1000 )
-	);
-	const prevSegmentsRef = useRef( {} );
-	const prevSegmentDataRef = useRef( {} );
-	const prevPositionsRef = useRef( {} );
-	const prevTotalSizesRef = useRef( {} );
-	const lastFetchTimeRef = useRef( null );
-	const animationTimersRef = useRef( [] );
-	const [ removingSegments, setRemovingSegments ] = useState( {} );
-	const isPageVisible = usePageVisibility();
+	// Mount the node graph; it owns the poll, the rate/segment math, and the
+	// interval. It returns the thin control callbacks + the current interval.
+	const {
+		restart,
+		setRefreshInterval,
+		refreshMs: refreshInterval,
+	} = useWorkerStatusGraph( { refreshMs } );
 
-	/**
-	 * Request restart for workers of a given type via `workers.restart`.
-	 *
-	 * @param {string} workerType Worker group name (e.g., 'firehose-workers').
-	 */
-	const handleRestart = useCallback( async ( workerType ) => {
-		try {
-			const message = await getCommandClient().send( {
-				to: 'workers',
-				verb: 'restart',
-				payload: {
-					types: [ workerType ],
-					partition: -1,
-				},
-			} );
-			unwrapCommandResponse( message );
-		} catch ( err ) {
-			setError( `Failed to request restart: ${ err.message }` );
-		}
-	}, [] );
-
-	// Save refresh interval to localStorage.
-	useEffect( () => {
-		localStorage.setItem( REFRESH_KEY, refreshInterval );
-	}, [ refreshInterval ] );
-
-	const fetchWorkers = useCallback( async () => {
-		try {
-			const now = Date.now();
-			// dump_metadata returns the rich per-worker envelope the dashboard
-			// needs (workers.list is the minimal CLI/topology projection).
-			const message = await getCommandClient().send( {
-				to: 'workers',
-				verb: 'dump_metadata',
-			} );
-			const data = unwrapCommandResponse( message ) || {};
-
-			// Track segment changes for animation.
-			const newPrevSegments = {};
-			const newPrevSegmentData = {};
-			const newPositions = {};
-			const newByteRates = {};
-			const newWriteRates = {};
-			const newTotalSizes = {};
-			const newRemoving = {};
-
-			// Calculate time delta for rate calculation.
-			const timeDelta = lastFetchTimeRef.current
-				? ( now - lastFetchTimeRef.current ) / 1000
-				: 0;
-
-			// Per-worker read rates, keyed by (handler, partition, source) so
-			// multi-Consumer handlers don't collapse into one slot.
-			( data.workers || [] ).forEach( ( worker ) => {
-				const workerKey = `${ worker.handler || worker.type }-${
-					worker.partition
-				}-${ worker.source || '' }`;
-
-				// Sum processed bytes across every input (workers tail many logs).
-				let totalProcessed = 0;
-				( worker.inputs_status || [] ).forEach( ( input ) => {
-					if (
-						input.cursor_seg === undefined ||
-						input.cursor_offset === undefined
-					) {
-						return;
-					}
-					( input.segments || [] ).forEach( ( seg ) => {
-						if ( seg.id < input.cursor_seg ) {
-							totalProcessed += seg.size;
-						} else if ( seg.id === input.cursor_seg ) {
-							totalProcessed += input.cursor_offset;
-						}
-					} );
-				} );
-				newPositions[ workerKey ] = totalProcessed;
-
-				if (
-					timeDelta > 0 &&
-					prevPositionsRef.current[ workerKey ] !== undefined
-				) {
-					const bytesDelta =
-						totalProcessed - prevPositionsRef.current[ workerKey ];
-					newByteRates[ workerKey ] =
-						bytesDelta >= 0 ? bytesDelta / timeDelta : 0;
-				}
-			} );
-
-			// Per-log write rates + segment tracking by (logName, partition);
-			// max total_size and segment union so a stale snapshot can't shrink it.
-			const logSnapshots = new Map();
-			const recordLog = ( log, partition ) => {
-				if ( ! log || ! log.name ) {
-					return;
-				}
-				const logKey = `${ log.name.replace(
-					/\.log$/,
-					''
-				) }-${ partition }`;
-				const prior = logSnapshots.get( logKey ) || {
-					total_size: 0,
-					segments: new Map(),
-				};
-				prior.total_size = Math.max(
-					prior.total_size,
-					log.total_size || 0
-				);
-				( log.segments || [] ).forEach( ( seg ) => {
-					prior.segments.set( seg.id, seg );
-				} );
-				logSnapshots.set( logKey, prior );
-			};
-			( data.workers || [] ).forEach( ( w ) => {
-				( w.inputs_status || [] ).forEach( ( log ) =>
-					recordLog( log, w.partition )
-				);
-				( w.outputs_status || [] ).forEach( ( log ) =>
-					recordLog( log, w.partition )
-				);
-			} );
-
-			logSnapshots.forEach( ( snap, logKey ) => {
-				newTotalSizes[ logKey ] = snap.total_size;
-				if (
-					timeDelta > 0 &&
-					prevTotalSizesRef.current[ logKey ] !== undefined
-				) {
-					const sizeDelta =
-						snap.total_size - prevTotalSizesRef.current[ logKey ];
-					newWriteRates[ logKey ] =
-						sizeDelta >= 0 ? sizeDelta / timeDelta : 0;
-				}
-				const currentIds = new Set( snap.segments.keys() );
-				newPrevSegments[ logKey ] = currentIds;
-				newPrevSegmentData[ logKey ] = snap.segments;
-
-				const prevIds = prevSegmentsRef.current[ logKey ];
-				const prevData = prevSegmentDataRef.current[ logKey ];
-				if ( prevIds && prevData ) {
-					const removed = [];
-					for ( const id of prevIds ) {
-						if ( ! currentIds.has( id ) ) {
-							const segData = prevData.get( id );
-							if ( segData ) {
-								removed.push( segData );
-							}
-						}
-					}
-					if ( removed.length > 0 ) {
-						newRemoving[ logKey ] = removed;
-					}
-				}
-			} );
-
-			// Skip the state update (and buildRenderPlan re-run) when the
-			// payload is structurally identical — common in steady state.
-			const replaceIfChanged = ( prev, next ) =>
-				JSON.stringify( prev ) === JSON.stringify( next ) ? prev : next;
-			setWorkers( ( prev ) =>
-				replaceIfChanged( prev, data.workers || [] )
-			);
-			setSupervisor( ( prev ) =>
-				replaceIfChanged( prev, data.supervisor ?? null )
-			);
-			setLogsCatalog( ( prev ) =>
-				replaceIfChanged( prev, data.logs || [] )
-			);
-			setByteRates( newByteRates );
-			setWriteRates( newWriteRates );
-			if ( data.segment_size ) {
-				setSegmentSize( data.segment_size );
-			}
-			if ( data.timestamp ) {
-				setCurrentTime( data.timestamp );
-			}
-			setError( null );
-
-			// Update refs.
-			lastFetchTimeRef.current = now;
-			prevPositionsRef.current = newPositions;
-			prevTotalSizesRef.current = newTotalSizes;
-
-			// Clear previous animation timers.
-			animationTimersRef.current.forEach( clearTimeout );
-			animationTimersRef.current = [];
-
-			// Set removing segments for animation.
-			if ( Object.keys( newRemoving ).length > 0 ) {
-				setRemovingSegments( newRemoving );
-				animationTimersRef.current.push(
-					setTimeout( () => {
-						setRemovingSegments( {} );
-					}, 400 )
-				);
-			}
-
-			// Clear "new" status after animation completes.
-			animationTimersRef.current.push(
-				setTimeout( () => {
-					prevSegmentsRef.current = newPrevSegments;
-					prevSegmentDataRef.current = newPrevSegmentData;
-				}, 500 )
-			);
-		} catch ( err ) {
-			setError( 'Server disconnected. Reconnecting...' );
-		} finally {
-			setLoading( false );
-		}
-	}, [] );
-
-	// Fetch on mount.
-	useEffect( () => {
-		fetchWorkers();
-	}, [ fetchWorkers ] );
-
-	// Auto-refresh only when page is visible.
-	useEffect( () => {
-		if ( ! isPageVisible ) {
-			return;
-		}
-		const intervalMs = parseInt( refreshInterval, 10 );
-		const interval = setInterval( fetchWorkers, intervalMs );
-		return () => {
-			clearInterval( interval );
-			animationTimersRef.current.forEach( clearTimeout );
-			animationTimersRef.current = [];
-		};
-	}, [ fetchWorkers, refreshInterval, isPageVisible ] );
+	// The single read surface: the enriched render model the graph publishes.
+	const model = useNodeState( 'workerstatus/view', 'view' ) ?? EMPTY_MODEL;
+	const {
+		workers,
+		supervisor,
+		logs: logsCatalog,
+		byteRates,
+		writeRates,
+		segmentSize,
+		currentTime,
+		prevSegments,
+		removingSegments,
+		error,
+		loading,
+	} = model;
 
 	// Build the linear render plan from the current worker list.
 	const renderPlan = useMemo(
@@ -1147,7 +908,7 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 				<SupervisorStatus
 					supervisor={ supervisor }
 					currentTime={ currentTime }
-					onRestart={ handleRestart }
+					onRestart={ restart }
 				/>
 			) }
 
@@ -1182,7 +943,7 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 								partitions={ item.partitions }
 								writeRates={ writeRates }
 								maxSize={ item.segment_size || segmentSize }
-								prevSegments={ prevSegmentsRef.current }
+								prevSegments={ prevSegments }
 								cursorData={ cursorData }
 								removingSegments={ removingSegments }
 							/>
@@ -1197,7 +958,7 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 							workers={ step.workers }
 							readRates={ byteRates }
 							currentTime={ currentTime }
-							onRestart={ handleRestart }
+							onRestart={ restart }
 							showArrows={ showArrows }
 						/>
 					);
