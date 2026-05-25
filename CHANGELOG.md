@@ -63,6 +63,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Onboarding docs + a runnable example.** `GETTING-STARTED.md` (one screen of concept,
+  then run the bundled example in ~5 minutes) and `WRITING-A-PLUGIN.md` (build that example
+  from an empty directory, one node at a time, ending with a live worker graph in the
+  topology console). Both center on `examples/ai-newsletter/`, a dependency-free digest
+  pipeline (two sources → summarizer → builder → `Log`). `README.md` links both.
 - **`Topology_Registry::register_plugin()` — one-call topology+worker registration.** A
   plugin whose `.tsl` files live in a topologies dir can register everything it needs
   with a single call (namespace resolution, the stock dir, a `newspack_nodes/topologies`

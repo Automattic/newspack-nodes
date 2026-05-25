@@ -1,0 +1,437 @@
+# Writing a Nodes Plugin
+
+This walkthrough builds a real pipeline from an empty directory: an AI-newsletter digest that pulls items from independent sources, summarizes each, and assembles a markdown draft. You'll run it after every step and end with a live worker graph you can watch and drive in the topology console.
+
+The finished code is in [`examples/ai-newsletter/`](examples/ai-newsletter/) — read along, or build it yourself and diff.
+
+> **The one thing to hold onto:** every node has a single entry point, `fill( array &$message ): void`. A node does its job and forwards the message to its **sink**. Nodes never call each other's methods; they pass messages. Keep that contract and your node drops into any graph.
+
+If you haven't run the example yet, do [GETTING-STARTED.md](GETTING-STARTED.md) first — it's the same pipeline, five minutes, no building.
+
+---
+
+## 0. What we're building
+
+```
+releases ─┐
+          ├─> summarizer ─> digest ─> out (Log)
+community ┘
+```
+
+Two **sources** emit items. One **summarizer** condenses each item to a line. One **builder** accumulates the lines and, on command, writes a draft. `out` is the substrate's built-in `Log`. Sources emit on a `tick`; the digest writes on a `flush` — both typeable in the REPL, so you can drive the whole thing by hand.
+
+We'll write it in the order you'd actually discover it: one node, run it, wire the next, run it again.
+
+---
+
+## 1. Scaffold — one call to register the plugin
+
+A Nodes plugin is an ordinary WordPress plugin. It needs two things: a Composer **classmap** (so `make_node` can find your node classes — and so the topology console's palette can read their schemas), and one registration call.
+
+`composer.json`:
+
+```json
+{
+	"name": "newspack/ai-newsletter-example",
+	"description": "Nodes walkthrough example — deterministic digest pipeline.",
+	"require": { "php": ">=8.0" },
+	"autoload": { "classmap": [ "includes/" ] }
+}
+```
+
+`newspack-ai-newsletter.php`:
+
+```php
+<?php
+/**
+ * Plugin Name: Newspack AI Newsletter (Nodes example)
+ */
+namespace Newspack_AI_Newsletter;
+
+\defined( 'ABSPATH' ) || exit;
+
+add_action(
+	'plugins_loaded',
+	static function (): void {
+		if ( ! \class_exists( '\Newspack_Nodes\Topology_Registry' ) ) {
+			return; // substrate not active
+		}
+		require_once __DIR__ . '/vendor/autoload.php';
+
+		// One call wires everything: the namespace (so make_node resolves your
+		// *_Node classes), the topologies/ dir, a catalog entry per *.tsl in it,
+		// and a guarded worker-spawn handler.
+		\Newspack_Nodes\Topology_Registry::register_plugin(
+			'Newspack_AI_Newsletter\\',
+			__DIR__ . '/topologies'
+		);
+	},
+	12
+);
+```
+
+That's the whole "register a Nodes plugin" story — one call. (It used to be four separate hook registrations; collapsing them into `register_plugin` was a substrate refinement that fell out of writing *this* walkthrough — when a step feels like boilerplate, the fix belongs in the substrate, not the tutorial.)
+
+Run `composer dump-autoload -o` now, and again whenever you add or rename a node — the classmap is what `make_node` and the console palette read.
+
+There are no nodes yet. Let's write one.
+
+---
+
+## 2. The first node — a source *(Ana's story)*
+
+Ana is asked to add release-notes ingestion. She doesn't know — and doesn't need to know — what happens to the items afterward. Her job: **emit each item as a message to my sink.** That's the contract; whatever consumes it is someone else's node.
+
+`includes/class-releases-source.php`:
+
+```php
+namespace Newspack_AI_Newsletter;
+
+use Newspack_Nodes\Node;
+use Newspack_Nodes\Message;
+use Newspack_Nodes\Command_Interpreter_Node;
+
+class Releases_Source_Node extends Node {
+
+	/** The ONE seam a real source replaces: return ingest items. Toy = canned. */
+	protected function items(): array {
+		return [
+			[ 'title' => 'Roundup Block ships', 'url' => 'https://example.test/r1', 'body' => 'AI summarizes selected posts into a draft.' ],
+			[ 'title' => 'Editorial Assistant GA', 'url' => 'https://example.test/r2', 'body' => 'Inline AI assistance in the editor.' ],
+		];
+	}
+
+	/** `tick` handler: emit each item as a TM_STRUCT message, tagged with this source. */
+	public function cmd_tick(): string {
+		$count = 0;
+		foreach ( $this->items() as $item ) {
+			$msg                   = Message::new_message();
+			$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+			$msg[ Message::FROM ]  = $this->name;
+			$msg[ Message::VALUE ] = [ 'source' => 'releases' ] + $item;
+			parent::fill( $msg );   // <-- see "the emit pattern" below
+			++$count;
+		}
+		return "emitted $count item(s)";
+	}
+}
+```
+
+**The emit pattern (important).** A node that *generates* a message sends it with `parent::fill( $msg )`, not `$this->fill( $msg )`. The base `Node::fill()` does two things: it stamps `TO` from this node's `target` (whatever `connect_node` wired downstream) and forwards to the `sink`. Calling `$this->fill()` would re-enter *your own* `fill()` and recurse. So: build the message, `parent::fill()`. (Generator nodes across the substrate follow this exact pattern — see `Tail`.)
+
+**Where does `tick` come from?** A plain node is for *data* (via `fill()`); operator *verbs* like `tick` live on a small sibling `Command_Interpreter_Node`. Wire one up in the constructor:
+
+```php
+	public function __construct() {
+		$ci = new Command_Interpreter_Node();
+		$ci->patron( $this );                 // the CI acts on behalf of this node
+		$ci->commands( $this->config_verbs() );
+		$this->attach_interpreter( $ci );      // reachable at  {node}:config
+	}
+
+	/** @return array<string,callable> */
+	private function config_verbs(): array {
+		return [
+			'tick' => function ( Command_Interpreter_Node $self, string $args ) {
+				return $this->cmd_tick();
+			},
+		];
+	}
+```
+
+That's why you address the verb as `releases:config` — the sibling CI is named `{node}:config`.
+
+Finally, a `node_schema()` so the node shows up in the console palette and its `tick` button appears in the Inspector:
+
+```php
+	public static function node_schema(): array {
+		return [
+			'category'     => 'Source',
+			'description'  => 'Emits canned release-notes items on tick.',
+			'ctor'         => [],
+			'verbs'        => [ [ 'name' => 'tick', 'description' => 'Emit the current batch of items.', 'args' => [] ] ],
+			'accepts_fill' => false,
+			'has_target'   => true,
+		];
+	}
+```
+
+**Run it — standalone, in the bare REPL.** No topology, no wiring yet: just make the node and fire its verb.
+
+```bash
+composer dump-autoload -o
+wp nodes cli            # bare REPL: local nodes only
+```
+```
+> make_node Releases_Source releases
+> command_node releases:config tick
+emitted 2 item(s)
+```
+
+It lives. Ana is done — she never wrote a line about summaries or drafts.
+
+---
+
+## 3. The summarizer — a transform that knows nothing about sources
+
+The summarizer's contract: **receive one item, emit the item plus a one-line summary.** It does not know what a "release" or a "community post" is — only that a `TM_STRUCT` message arrived with an item in `VALUE`.
+
+`includes/class-summarizer.php`:
+
+```php
+class Summarizer_Node extends Node {
+
+	/** The ONE seam a real summarizer replaces: item -> one-line summary. Toy = template. */
+	protected function summarize( array $item ): string {
+		$title = $item['title'] ?? '(untitled)';
+		$body  = $item['body'] ?? '';
+		return $title . ' — ' . \mb_substr( $body, 0, 80 );
+	}
+
+	public function fill( array &$message ): void {
+		if ( 0 === ( $message[ Message::TYPE ] & Message::TM_STRUCT ) ) {
+			return;   // only handle struct items
+		}
+		$item            = $message[ Message::VALUE ];
+		$item['summary'] = $this->summarize( $item );
+
+		$out                   = Message::new_message();
+		$out[ Message::TYPE ]  = Message::TM_STRUCT;
+		$out[ Message::FROM ]  = $this->name;
+		$out[ Message::VALUE ] = $item;
+		parent::fill( $out );   // stamp TO from target, forward to sink
+	}
+}
+```
+
+It's a pure transform — no verbs, just `fill()`. Wire a source to it and watch an item flow through:
+
+```
+> make_node Summarizer summarizer
+> connect_node releases summarizer          # releases' target = summarizer
+> command_node releases:config tick
+emitted 2 item(s)
+```
+
+`connect_node releases summarizer` set the releases node's `target` to `summarizer`; now each emitted item is stamped `TO=summarizer` and the router delivers it. The summarizer adds a `summary` and forwards. (Add a `Log` after the summarizer if you want to eyeball the struct — or just trust the counts in step 5.)
+
+---
+
+## 4. The digest builder — accumulate, then `flush`. And reuse `Log`.
+
+The builder collects summarized items as they arrive, and on a `flush` verb renders them to markdown and emits the draft as a `TM_BYTESTREAM` string.
+
+`includes/class-digest-builder.php` (same sibling-CI shape as the source, plus an accumulating `fill()`):
+
+```php
+class Digest_Builder_Node extends Node {
+
+	/** @var array<int,array<string,mixed>> */
+	private array $items = [];
+
+	public function __construct() {
+		$ci = new Command_Interpreter_Node();
+		$ci->patron( $this );
+		$ci->commands( [ 'flush' => function ( $self, $args ) { return $this->cmd_flush(); } ] );
+		$this->attach_interpreter( $ci );
+	}
+
+	public function fill( array &$message ): void {
+		if ( 0 === ( $message[ Message::TYPE ] & Message::TM_STRUCT ) ) {
+			return;
+		}
+		$this->items[] = $message[ Message::VALUE ];   // accumulate
+		++$this->counter;
+	}
+
+	public function cmd_flush(): string {
+		$lines = [ '# Newsletter draft', '' ];
+		foreach ( $this->items as $item ) {
+			$lines[] = '- ' . ( $item['summary'] ?? '' );
+		}
+		$draft = \implode( "\n", $lines ) . "\n";
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;   // a string payload, not a struct
+		$msg[ Message::FROM ]  = $this->name;
+		$msg[ Message::VALUE ] = $draft;
+		parent::fill( $msg );
+
+		$n           = \count( $this->items );
+		$this->items = [];
+		return "flushed $n summary(ies)";
+	}
+}
+```
+
+The draft has to land somewhere. You don't write a file-writer node — the substrate ships one. **`Log`** appends whatever it receives to a file. Wire the digest into it:
+
+```
+> make_node Digest_Builder digest
+> make_node Log out /tmp/newspack-ai-newsletter/digest.md
+> connect_node summarizer digest
+> connect_node digest out
+> command_node releases:config tick
+> command_node digest:config flush
+flushed 2 summary(ies)
+```
+```bash
+cat /tmp/newspack-ai-newsletter/digest.md
+# # Newsletter draft
+#
+# - Roundup Block ships — AI summarizes selected posts into a draft.
+# - Editorial Assistant GA — Inline AI assistance in the editor.
+```
+
+Four nodes, a working pipeline. You wrote three; `Log` you reused.
+
+---
+
+## 5. Make it a topology — and get a debugger for free
+
+Typing `make_node`/`connect_node` by hand is how you explore. To run it as a real, persistent worker, write the same lines to a topology file.
+
+`topologies/digest.tsl`:
+
+```
+make_node Releases_Source   releases
+make_node Community_Source  community      # (coming in step 6 — leave it out for now, or add it)
+make_node Summarizer        summarizer
+make_node Digest_Builder    digest
+make_node Log               out  /tmp/newspack-ai-newsletter/digest.md
+connect_node releases   summarizer
+connect_node summarizer digest
+connect_node digest     out
+```
+
+`register_plugin` (step 1) already pointed at `topologies/`, so this file is now a catalog entry. Activate the plugin, make sure `digest` is in the active set (full catalog is active by default, or enable it under **Settings → Nodes Runtime → Topologies**), and the supervisor spawns it:
+
+```bash
+composer dump-autoload -o
+wp nodes ls
+#   digest.p0   [live]
+```
+
+Open the **topology console**. There's your graph — the same boxes and arrows you drew above — now live, with a message count on every edge. This is the payoff of the uniform contract: because every node speaks `fill()` and announces itself via `node_schema()`, the dashboard can render and drive a graph it has never seen. You didn't build any of this observability.
+
+`cd` into the worker and drive it from the console's REPL — or pivot a terminal in:
+
+```bash
+wp nodes cli digest.p0
+```
+```
+> command_node releases:config tick
+> command_node digest:config flush
+```
+
+Watch the counts climb on `releases → summarizer → digest`, and `digest.md` fill. Click the `tick` and `flush` buttons in the Inspector and the same thing happens — the buttons come straight from each node's `node_schema()`.
+
+---
+
+## 6. The reveal — a second source *(Ben's story)*
+
+Months later, Ben is asked to add the publisher-community feed to the newsletter. Ben has not read Ana's code. He has never seen the summarizer or the digest builder. He is told one thing: **a source emits a `TM_STRUCT` item — `{ source, title, url, body }` — to its sink.**
+
+So he writes the only thing he can: a source.
+
+`includes/class-community-source.php`:
+
+```php
+class Community_Source_Node extends Node {
+
+	public function __construct() {
+		$ci = new Command_Interpreter_Node();
+		$ci->patron( $this );
+		$ci->commands( [ 'tick' => function ( $self, $args ) { return $this->cmd_tick(); } ] );
+		$this->attach_interpreter( $ci );
+	}
+
+	protected function items(): array {
+		return [
+			[ 'title' => 'Reader forum hits 10k members', 'url' => 'https://example.test/c1', 'body' => 'The publisher community forum crossed ten thousand members this week.' ],
+			[ 'title' => 'Local meetup recap', 'url' => 'https://example.test/c2', 'body' => 'Highlights from the latest in-person reader meetup downtown.' ],
+		];
+	}
+
+	public function cmd_tick(): string {
+		$count = 0;
+		foreach ( $this->items() as $item ) {
+			$msg                   = Message::new_message();
+			$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+			$msg[ Message::FROM ]  = $this->name;
+			$msg[ Message::VALUE ] = [ 'source' => 'community' ] + $item;
+			parent::fill( $msg );
+			++$count;
+		}
+		return "emitted $count item(s)";
+	}
+
+	// node_schema(): same shape as Releases_Source, category 'Source'.
+}
+```
+
+Then he adds his node to the topology and points it at the summarizer — **one line**:
+
+```diff
+  make_node Releases_Source   releases
++ make_node Community_Source  community
+  make_node Summarizer        summarizer
+  ...
+  connect_node releases   summarizer
++ connect_node community  summarizer
+```
+
+```bash
+composer dump-autoload -o
+wp nodes restart digest --all-partitions    # reload the topology
+wp nodes cli digest.p0
+```
+```
+> command_node releases:config  tick
+emitted 2 item(s)
+> command_node community:config tick
+emitted 3 item(s)
+> command_node digest:config flush
+flushed 5 summary(ies)
+```
+
+Five items in the draft, from two sources. **Ben changed nothing in the summarizer, the digest, the Log, or Ana's source.** He added a node and one wire.
+
+Notice what `connect_node community summarizer` is: just another node pointing its `target` at the same downstream. That's **fan-in**, and it needs no special node — it's a direct consequence of the contract. (Fan-*out* — one source to many destinations — is the one case that needs a node: `Tee`.)
+
+---
+
+## 7. Make it real — the short hop
+
+The example is deterministic on purpose, but every external touchpoint is a single seam:
+
+- **Sources** — the toy `items()` returns a canned array. The real one returns ingest results: a `context-a8c` GitHub/Linear query, an RSS pull, a DB read. Nothing downstream changes — the summarizer and digest never knew the items were canned.
+- **Summarizer** — the toy `summarize()` returns a template string. The real one calls your AI model. The graph is identical; one method body changes.
+
+```php
+// toy
+protected function items(): array { return [ /* canned */ ]; }
+// real (sketch)
+protected function items(): array { return My_Github_Source::recent_releases(); }
+```
+
+Two method bodies stand between this walkthrough and a production newsletter pipeline. That's the short hop.
+
+---
+
+## 8. Recap — what you wrote vs. what you never touched
+
+You wrote four small classes, each with one `fill()` (or one verb), and a topology file. You **reused** `Log`, the `Command_Interpreter`, the router, the worker lifecycle, and the entire topology console — none of which you wrote or configured.
+
+And here's the thing worth sitting with: **Ana and Ben never met.** Ana wrote the releases source knowing nothing about summaries. The author of the summarizer never knew either source would exist. Ben added the community feed without reading a line of any of it. Nobody scheduled an integration meeting, because there was nothing to integrate — every node already agreed on the only thing that matters: a message arrives at `fill()`, you do your work, you forward it to your sink.
+
+That's the bet of Nodes. You add capability by wiring a node, not by editing a system. Uphold the contract, and your piece drops into a graph full of pieces you've never seen — and theirs drop into yours.
+
+---
+
+## Where to go next
+
+- **[GETTING-STARTED.md](GETTING-STARTED.md)** — the five-minute tour (if you skipped it).
+- **[ARCHITECTURE.md](ARCHITECTURE.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
+- **[API.md](API.md)** — the REST endpoints.
+- **[`examples/ai-newsletter/`](examples/ai-newsletter/)** — the complete, tested code for this walkthrough.
