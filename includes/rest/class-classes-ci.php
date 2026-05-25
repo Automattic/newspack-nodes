@@ -89,7 +89,13 @@ class Classes_CI_Node extends Command_Interpreter_Node {
 							'category'     => $cat,
 							'description'  => $schema['description'] ?? '',
 							'ctor'         => $schema['ctor']     ?? [],
-							'verbs'        => $schema['verbs']    ?? [],
+							// Strip the non-serializable `handler` closure: each verb is
+							// declared once in node_schema (carrying its handler for the
+							// base CI's dispatch derivation); the catalog inlines only the
+							// serializable fields the editor palette consumes. Skip any
+							// malformed verb (non-array, or no name) rather than fatal the
+							// whole list (which scans every registered class) on a TypeError.
+							'verbs'        => self::strip_verbs( $schema['verbs'] ?? [] ),
 							'requests'     => $schema['requests'] ?? [],
 							'accepts_fill' => (bool) ( $schema['accepts_fill'] ?? true ),
 							'has_target'   => (bool) ( $schema['has_target']   ?? true ),
@@ -110,5 +116,32 @@ class Classes_CI_Node extends Command_Interpreter_Node {
 				];
 			},
 		];
+	}
+
+	/**
+	 * Strip a node_schema's verbs[] to the serializable palette shape
+	 * `{name, description, args}`, dropping the non-serializable `handler`.
+	 *
+	 * Fail-soft: a malformed verb (non-array entry, or one with no/empty name)
+	 * is skipped rather than throwing — a single bad class must not fatal the
+	 * whole catalog `list`, which scans every registered class. Returns a
+	 * sequential list (JSON array) so the editor palette consumes it as-is.
+	 *
+	 * @param array<int|string,mixed> $verbs Raw verbs[] from a node_schema.
+	 * @return array<int,array{name:string,description:string,args:mixed}>
+	 */
+	private static function strip_verbs( array $verbs ): array {
+		$stripped = [];
+		foreach ( $verbs as $verb ) {
+			if ( ! \is_array( $verb ) || '' === (string) ( $verb['name'] ?? '' ) ) {
+				continue;
+			}
+			$stripped[] = [
+				'name'        => $verb['name'] ?? '',
+				'description' => $verb['description'] ?? '',
+				'args'        => $verb['args'] ?? [],
+			];
+		}
+		return $stripped;
 	}
 }

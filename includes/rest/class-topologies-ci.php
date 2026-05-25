@@ -38,21 +38,75 @@ class Topologies_CI_Node extends Service_CI_Node {
 
 	private const MAX_BODY_BYTES = 65536;
 
-	public function __construct() {
-		$this->commands( $this->verb_table() );
-	}
-
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Service',
 			'description' => 'Topology (.tsl) management: list / get / save / delete user topology files, and mount a worker input partition.',
 			'ctor'        => [],
 			'verbs'       => [
-				[ 'name' => 'list', 'description' => 'List topologies with source (user/stock/both) and active state.', 'args' => [] ],
+				[
+					'name'        => 'list',
+					'description' => 'List topologies with source (user/stock/both) and active state.',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
+						// Active = whatever the supervisor would spawn (merged catalog + operator overlay).
+						$resolved = Bootstrap::get_topologies();
+						$active   = [];
+						foreach ( $resolved as $name => $_def ) {
+							if ( \is_string( $name ) && '' !== $name ) {
+								$active[ $name ] = true;
+							}
+						}
+
+						$out = [];
+						foreach ( Topology_Registry::describe() as $name => $sources ) {
+							$out[] = [
+								'name'        => $name,
+								'source'      => self::source_of( $sources ),
+								'active'      => isset( $active[ $name ] ),
+								'frontmatter' => Topology_Registry::frontmatter( $name ),
+							];
+						}
+						\usort( $out, static fn ( $a, $b ) => $a['name'] <=> $b['name'] );
+
+						return [
+							'topologies' => $out,
+							'user_dir'   => Topology_Registry::user_dir(),
+						];
+					},
+				],
 				[
 					'name'        => 'get',
 					'description' => 'Read a topology .tsl by name.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
+						$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
+
+						$path = Topology_Registry::resolve( $name );
+						if ( null === $path ) {
+							throw new \RuntimeException(
+								\esc_html( "no topology named: $name" )
+							);
+						}
+						// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_get_contents,WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Path is always a local .tsl file resolved via Topology_Registry; never a URL.
+						$tsl = @\file_get_contents( $path );
+						if ( false === $tsl ) {
+							throw new \RuntimeException(
+								\esc_html( "failed to read topology file: $path" )
+							);
+						}
+
+						$sources = Topology_Registry::describe()[ $name ] ?? [
+							'user'  => null,
+							'stock' => [],
+						];
+
+						return [
+							'name'   => $name,
+							'source' => self::source_of( $sources ),
+							'tsl'    => $tsl,
+						];
+					},
 				],
 				[
 					'name'        => 'save',
@@ -61,192 +115,133 @@ class Topologies_CI_Node extends Service_CI_Node {
 						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'tsl', 'type' => 'text', 'required' => true ],
 					],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope, mixed $payload ): array {
+						self::require_manage_options();
+						if ( Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
+							throw new \RuntimeException(
+								\esc_html( 'body too large: topology payload exceeds 64 KiB' )
+							);
+						}
+						$decoded = \is_array( $payload ) ? $payload : [];
+						$name    = self::require_valid_name( $decoded );
+						if ( ! isset( $decoded['tsl'] ) || ! \is_string( $decoded['tsl'] ) ) {
+							throw new \RuntimeException( 'invalid arguments: tsl must be a string' );
+						}
+						$tsl = $decoded['tsl'];
+
+						// Dry-run validation: each statement passes Shell's syntax check.
+						// Report the 1-based offending line so the editor can position its cursor.
+						$shell = new Shell_Node();
+						foreach ( $shell->split_statements( $tsl ) as $i => $stmt ) {
+							try {
+								$shell->validate_line( $stmt );
+							} catch ( \RuntimeException $e ) {
+								// validate_line throws only a fixed-string structural error
+								// (unterminated backslash continuation) — no user text, so no
+								// escaping needed.
+								$line_no = $i + 1;
+								$msg     = $e->getMessage();
+								// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $line_no is int; $msg is a fixed Shell::validate_line string.
+								throw new \RuntimeException( "validation failed at line $line_no: $msg" );
+							}
+						}
+
+						$user_dir = Topology_Registry::user_dir();
+						if ( '' === $user_dir ) {
+							throw new \RuntimeException(
+								'Topology_Registry has no writable user dir'
+							);
+						}
+						if ( ! \is_dir( $user_dir ) ) {
+							// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+							$made = @\mkdir( $user_dir, 0700, true );
+							if ( ! $made && ! \is_dir( $user_dir ) ) {
+								throw new \RuntimeException(
+									\esc_html( "failed to create user dir: $user_dir" )
+								);
+							}
+						}
+
+						// shadows_stock determined BEFORE writing so it reflects pre-existing stock state.
+						$pre_sources = Topology_Registry::describe()[ $name ] ?? [ 'stock' => [] ];
+						$shadows     = ! empty( $pre_sources['stock'] );
+
+						$path = $user_dir . '/' . $name . '.tsl';
+						// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
+						$bytes = @\file_put_contents( $path, $tsl );
+						if ( false === $bytes ) {
+							throw new \RuntimeException(
+								\esc_html( "failed to write topology file: $path" )
+							);
+						}
+
+						// Restart any active fleet running this topology, keyed off the raw
+						// catalog filter (what might be running) not the operator overlay.
+						$resolved  = \function_exists( 'apply_filters' )
+							? (array) \apply_filters( 'newspack_nodes/topologies', [] )
+							: [];
+						$restarted = [];
+						if ( isset( $resolved[ $name ] ) ) {
+							\do_action( 'newspack_nodes/restart_fleet', $name );
+							$restarted[] = $name;
+						}
+
+						return [
+							'name'             => $name,
+							'path'             => $path,
+							'shadows_stock'    => $shadows,
+							'restarted_fleets' => $restarted,
+						];
+					},
 				],
 				[
 					'name'        => 'delete',
 					'description' => 'Delete a user topology (stock copies are protected).',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
+						self::require_manage_options();
+						$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
+
+						$user_dir = Topology_Registry::user_dir();
+						if ( '' === $user_dir ) {
+							throw new \RuntimeException(
+								'Topology_Registry has no user dir configured'
+							);
+						}
+						$path = $user_dir . '/' . $name . '.tsl';
+						if ( ! \is_file( $path ) ) {
+							throw new \RuntimeException(
+								\esc_html( "no user-saved topology named: $name (stock copies are protected)" )
+							);
+						}
+						// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink,WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+						if ( ! @\unlink( $path ) ) {
+							throw new \RuntimeException(
+								\esc_html( "failed to unlink topology file: $path" )
+							);
+						}
+						// After unlink, resolve() returns the stock copy iff one exists — the fallback signal.
+						$has_stock_fallback = null !== Topology_Registry::resolve( $name );
+
+						return [
+							'name'           => $name,
+							'deleted'        => $path,
+							'stock_fallback' => $has_stock_fallback,
+						];
+					},
 				],
 				[
 					'name'        => 'connect_worker_input',
 					'description' => "Mount the named worker's input partition into this request's graph.",
 					'args'        => [ [ 'name' => 'reader', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): string {
+						// Mount the named worker's input Partition into THIS request's graph so a
+						// pivoted command in the same batch can route TO={reader}.pN. Returns '' (no reply).
+						Bootstrap::register_worker_partition( \trim( $args ), Bootstrap::base_dir() );
+						return '';
+					},
 				],
 			],
-		];
-	}
-
-	private function verb_table(): array {
-		return [
-			'list'   => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
-				// Active = whatever the supervisor would spawn (merged catalog + operator overlay).
-				$resolved = Bootstrap::get_topologies();
-				$active   = [];
-				foreach ( $resolved as $name => $_def ) {
-					if ( \is_string( $name ) && '' !== $name ) {
-						$active[ $name ] = true;
-					}
-				}
-
-				$out = [];
-				foreach ( Topology_Registry::describe() as $name => $sources ) {
-					$out[] = [
-						'name'        => $name,
-						'source'      => self::source_of( $sources ),
-						'active'      => isset( $active[ $name ] ),
-						'frontmatter' => Topology_Registry::frontmatter( $name ),
-					];
-				}
-				\usort( $out, static fn ( $a, $b ) => $a['name'] <=> $b['name'] );
-
-				return [
-					'topologies' => $out,
-					'user_dir'   => Topology_Registry::user_dir(),
-				];
-			},
-			'connect_worker_input' => static function ( Command_Interpreter_Node $self, string $args ): string {
-				// Mount the named worker's input Partition into THIS request's graph so a
-				// pivoted command in the same batch can route TO={reader}.pN. Returns '' (no reply).
-				Bootstrap::register_worker_partition( \trim( $args ), Bootstrap::base_dir() );
-				return '';
-			},
-			'get'    => static function ( Command_Interpreter_Node $self, string $args ): array {
-				$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
-
-				$path = Topology_Registry::resolve( $name );
-				if ( null === $path ) {
-					throw new \RuntimeException(
-						\esc_html( "no topology named: $name" )
-					);
-				}
-				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_get_contents,WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown -- Path is always a local .tsl file resolved via Topology_Registry; never a URL.
-				$tsl = @\file_get_contents( $path );
-				if ( false === $tsl ) {
-					throw new \RuntimeException(
-						\esc_html( "failed to read topology file: $path" )
-					);
-				}
-
-				$sources = Topology_Registry::describe()[ $name ] ?? [
-					'user'  => null,
-					'stock' => [],
-				];
-
-				return [
-					'name'   => $name,
-					'source' => self::source_of( $sources ),
-					'tsl'    => $tsl,
-				];
-			},
-			'save'   => static function ( Command_Interpreter_Node $self, string $args, array $envelope, mixed $payload ): array {
-				self::require_manage_options();
-				if ( Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
-					throw new \RuntimeException(
-						\esc_html( 'body too large: topology payload exceeds 64 KiB' )
-					);
-				}
-				$decoded = \is_array( $payload ) ? $payload : [];
-				$name    = self::require_valid_name( $decoded );
-				if ( ! isset( $decoded['tsl'] ) || ! \is_string( $decoded['tsl'] ) ) {
-					throw new \RuntimeException( 'invalid arguments: tsl must be a string' );
-				}
-				$tsl = $decoded['tsl'];
-
-				// Dry-run validation: each statement passes Shell's syntax check.
-				// Report the 1-based offending line so the editor can position its cursor.
-				$shell = new Shell_Node();
-				foreach ( $shell->split_statements( $tsl ) as $i => $stmt ) {
-					try {
-						$shell->validate_line( $stmt );
-					} catch ( \RuntimeException $e ) {
-						// validate_line throws only a fixed-string structural error
-						// (unterminated backslash continuation) — no user text, so no
-						// escaping needed.
-						$line_no = $i + 1;
-						$msg     = $e->getMessage();
-						// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $line_no is int; $msg is a fixed Shell::validate_line string.
-						throw new \RuntimeException( "validation failed at line $line_no: $msg" );
-					}
-				}
-
-				$user_dir = Topology_Registry::user_dir();
-				if ( '' === $user_dir ) {
-					throw new \RuntimeException(
-						'Topology_Registry has no writable user dir'
-					);
-				}
-				if ( ! \is_dir( $user_dir ) ) {
-					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-					$made = @\mkdir( $user_dir, 0700, true );
-					if ( ! $made && ! \is_dir( $user_dir ) ) {
-						throw new \RuntimeException(
-							\esc_html( "failed to create user dir: $user_dir" )
-						);
-					}
-				}
-
-				// shadows_stock determined BEFORE writing so it reflects pre-existing stock state.
-				$pre_sources = Topology_Registry::describe()[ $name ] ?? [ 'stock' => [] ];
-				$shadows     = ! empty( $pre_sources['stock'] );
-
-				$path = $user_dir . '/' . $name . '.tsl';
-				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_file_put_contents
-				$bytes = @\file_put_contents( $path, $tsl );
-				if ( false === $bytes ) {
-					throw new \RuntimeException(
-						\esc_html( "failed to write topology file: $path" )
-					);
-				}
-
-				// Restart any active fleet running this topology, keyed off the raw
-				// catalog filter (what might be running) not the operator overlay.
-				$resolved  = \function_exists( 'apply_filters' )
-					? (array) \apply_filters( 'newspack_nodes/topologies', [] )
-					: [];
-				$restarted = [];
-				if ( isset( $resolved[ $name ] ) ) {
-					\do_action( 'newspack_nodes/restart_fleet', $name );
-					$restarted[] = $name;
-				}
-
-				return [
-					'name'             => $name,
-					'path'             => $path,
-					'shadows_stock'    => $shadows,
-					'restarted_fleets' => $restarted,
-				];
-			},
-			'delete' => static function ( Command_Interpreter_Node $self, string $args ): array {
-				self::require_manage_options();
-				$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
-
-				$user_dir = Topology_Registry::user_dir();
-				if ( '' === $user_dir ) {
-					throw new \RuntimeException(
-						'Topology_Registry has no user dir configured'
-					);
-				}
-				$path = $user_dir . '/' . $name . '.tsl';
-				if ( ! \is_file( $path ) ) {
-					throw new \RuntimeException(
-						\esc_html( "no user-saved topology named: $name (stock copies are protected)" )
-					);
-				}
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.unlink_unlink,WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-				if ( ! @\unlink( $path ) ) {
-					throw new \RuntimeException(
-						\esc_html( "failed to unlink topology file: $path" )
-					);
-				}
-				// After unlink, resolve() returns the stock copy iff one exists — the fallback signal.
-				$has_stock_fallback = null !== Topology_Registry::resolve( $name );
-
-				return [
-					'name'           => $name,
-					'deleted'        => $path,
-					'stock_fallback' => $has_stock_fallback,
-				];
-			},
 		];
 	}
 

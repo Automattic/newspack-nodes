@@ -43,6 +43,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `$config` parameter. Each config owner now answers only for its own keys; nothing
   merges. (Apps with their own topology tokens register their own namespace — e.g.
   `<eln:…>`; see newspack-event-logger-nodes.)
+- **Service CIs derive their command table from `node_schema()` — each verb declared
+  ONCE.** `Service_CI_Node` now has a constructor that builds its `commands()` dispatch
+  table from `static::node_schema()['verbs']`, where each verb entry carries its own
+  `handler` closure. The verb's name, description, args, AND handler live in one place
+  instead of being split across a `node_schema()` descriptor and a separate
+  `verb_table()`. `Classes_CI` strips the non-serializable `handler` when it serializes
+  the catalog (inlining only `{name, description, args}` for the editor palette).
+  `Topologies_CI` is migrated to the new mechanism (its `verb_table()` + constructor are
+  gone); the other service CIs follow in a later pass. A named verb with no callable
+  handler is a schema bug — it now emits one rate-limited warning and is skipped (rather
+  than silently showing in the palette yet dispatching to "unknown command"), and a
+  malformed verb entry is skipped from the catalog rather than fatal-ing the whole `list`
+  scan.
 
 ### Added
 
