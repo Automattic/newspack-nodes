@@ -22,21 +22,31 @@ function controlMsg( payload ) {
 	return m;
 }
 
-test( 'appends rows newest-first and caps the buffer', () => {
+// The high-frequency buffer (rows) and LPS now live on the node instance
+// directly — _appendRow does NOT publish, so the React view reads node.lines /
+// node.lps at frame rate via the rAF, not per-row through setState.
+test( 'appends rows newest-first and caps the buffer (node.lines, no publish)', () => {
 	const v = createRawLogsView( 'rawlogs/view' );
 	v.fill( rowMsg( 'line 0' ) );
 	v.fill( rowMsg( 'line 1' ) );
 	v.fill( rowMsg( 'line 2' ) );
-	const { lines } = v.setStateCache.view;
-	expect( lines[ 0 ].content ).toBe( 'line 2' ); // newest first (unshift)
-	expect( lines ).toHaveLength( 3 );
+	expect( v.lines[ 0 ].content ).toBe( 'line 2' ); // newest first (unshift)
+	expect( v.lines ).toHaveLength( 3 );
+} );
+
+test( 'appending rows does NOT publish setState (no per-row React re-render)', () => {
+	const v = createRawLogsView( 'rawlogs/view' );
+	const spy = jest.spyOn( v, 'setState' );
+	v.fill( rowMsg( 'line 0' ) );
+	v.fill( rowMsg( 'line 1' ) );
+	expect( spy ).not.toHaveBeenCalled();
 } );
 
 test( 'pause stops appends; the model reflects paused', () => {
 	const v = createRawLogsView( 'rawlogs/view' );
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );
 	v.fill( rowMsg( 'ignored' ) );
-	expect( v.setStateCache.view.lines ).toHaveLength( 0 );
+	expect( v.lines ).toHaveLength( 0 );
 	expect( v.setStateCache.view.paused ).toBe( true );
 } );
 
@@ -44,8 +54,23 @@ test( 'select sets the log and clears the buffer', () => {
 	const v = createRawLogsView( 'rawlogs/view' );
 	v.fill( rowMsg( 'old' ) );
 	v.fill( controlMsg( { action: 'select', log: 'errors' } ) );
-	expect( v.setStateCache.view.lines ).toHaveLength( 0 );
+	expect( v.lines ).toHaveLength( 0 );
 	expect( v.setStateCache.view.selected ).toBe( 'errors' );
+} );
+
+test( 'the published model carries only { logs, selected, paused }', () => {
+	const v = createRawLogsView( 'rawlogs/view' );
+	v.fill(
+		controlMsg( {
+			action: 'logs',
+			logs: [ { key: 'firehose', label: 'firehose.log' } ],
+		} )
+	);
+	expect( Object.keys( v.setStateCache.view ).sort() ).toEqual( [
+		'logs',
+		'paused',
+		'selected',
+	] );
 } );
 
 test( 'logs action populates availableLogs and defaults the selection', () => {
@@ -79,40 +104,39 @@ test( 'resume after pause lets rows through again', () => {
 	v.fill( controlMsg( { action: 'pause', paused: false } ) );
 	v.fill( rowMsg( 'kept' ) );
 	expect( v.setStateCache.view.paused ).toBe( false );
-	expect( v.setStateCache.view.lines ).toHaveLength( 1 );
-	expect( v.setStateCache.view.lines[ 0 ].content ).toBe( 'kept' );
+	expect( v.lines ).toHaveLength( 1 );
+	expect( v.lines[ 0 ].content ).toBe( 'kept' );
 } );
 
 test( 'rows carry the partition and an even/odd flag keyed off the counter', () => {
 	const v = createRawLogsView( 'rawlogs/view' );
 	v.fill( rowMsg( 'first', 2 ) ); // counter 1 → odd
 	v.fill( rowMsg( 'second', 3 ) ); // counter 2 → even
-	const { lines } = v.setStateCache.view;
-	expect( lines[ 0 ] ).toMatchObject( {
+	expect( v.lines[ 0 ] ).toMatchObject( {
 		partition: 3,
 		content: 'second',
 		isEven: true,
 	} );
-	expect( lines[ 1 ] ).toMatchObject( {
+	expect( v.lines[ 1 ] ).toMatchObject( {
 		partition: 2,
 		content: 'first',
 		isEven: false,
 	} );
 } );
 
-test( 'publishes a numeric lps in the view model', () => {
+test( 'exposes a numeric lps on the node instance', () => {
 	const v = createRawLogsView( 'rawlogs/view' );
 	v.fill( rowMsg( 'a row' ) );
-	expect( typeof v.setStateCache.view.lps ).toBe( 'number' );
+	expect( typeof v.lps ).toBe( 'number' );
 } );
 
-test( 'select clears the lps back to zero', () => {
+test( 'select clears node.lps back to zero', () => {
 	const v = createRawLogsView( 'rawlogs/view' );
 	for ( let i = 0; i < 50; i++ ) {
 		v.fill( rowMsg( `row ${ i }` ) );
 	}
 	v.fill( controlMsg( { action: 'select', log: 'errors' } ) );
-	expect( v.setStateCache.view.lps ).toBe( 0 );
+	expect( v.lps ).toBe( 0 );
 } );
 
 test( 'names the node', () => {

@@ -5,8 +5,16 @@ const MAX_LINES = 100000;
 const LPS_WINDOW_MS = 10000;
 
 /**
- * `rawlogs/view` — owns the Raw Logs view model and publishes it via
- * `setState('view', …)` for the React view (`useNodeState('rawlogs/view','view')`).
+ * `rawlogs/view` — owns the Raw Logs view model.
+ *
+ * Two cadences, deliberately split for performance:
+ * - HIGH frequency (the log stream): `_appendRow` pushes each row onto `this.lines`
+ *   and recomputes `this.lps`, but does NOT publish. The React view reads these
+ *   directly off the node each animation frame (`Core.node('rawlogs/view').lines`
+ *   / `.lps`) so a high-volume stream never re-renders React per line.
+ * - LOW frequency (control + catalog): only `_control` publishes the small view
+ *   model via `setState('view', { logs, selected, paused })` — the dropdown +
+ *   pause button + selected value, consumed by `useNodeState('rawlogs/view','view')`.
  *
  * `fill()` accepts two TM_STRUCT shapes:
  * - a row (`VALUE = { p, line }` from `rawlogs/transform`): appended newest-first
@@ -31,11 +39,16 @@ class RawLogsViewNode extends Node {
 	fill( message ) {
 		const value = message[ VALUE ];
 		if ( value && value.action ) {
+			// Control + catalog changes are the LOW-frequency path — publish so
+			// the dropdown / pause button / selected value re-render.
 			this._control( value );
+			this._publish();
 		} else if ( value ) {
+			// A log row is the HIGH-frequency path — update node.lines / node.lps
+			// only; the rAF reads them directly. Publishing here would re-render
+			// React per line and defeat the whole point.
 			this._appendRow( value );
 		}
-		this._publish();
 	}
 
 	// A row from rawlogs/transform: { p, line }. Newest-first, capped.
@@ -97,12 +110,13 @@ class RawLogsViewNode extends Node {
 		this.lps = this.smoothedLPS;
 	}
 
+	// Publish ONLY the low-frequency view model. `lines` and `lps` are the
+	// high-frequency buffer the rAF reads off the node directly — keeping them
+	// out of setState is what stops a busy stream re-rendering React per row.
 	_publish() {
 		this.setState( 'view', {
-			lines: this.lines,
 			logs: this.logs,
 			selected: this.selected,
-			lps: this.lps,
 			paused: this.paused,
 		} );
 	}

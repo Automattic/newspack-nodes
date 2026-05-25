@@ -38,6 +38,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Raw Logs dashboard reimplemented as a JS-Node graph + thin React view.** The data
+  flow moved out of React effects into a `Core`-registered graph — `rawlogs/stream`
+  (SSE-in, owning the connection + slot heartbeat + reconnect), `rawlogs/transform`
+  (envelope → row), `rawlogs/view` (the ring buffer + lines/sec view model) — wired by
+  `useRawLogsGraph`. `RawLogs.js` is now a thin view: `useNodeState`/control callbacks
+  drive the chrome, and the canvas rAF reads the high-volume buffer (`node.lines`/`.lps`)
+  directly each frame (no per-line React re-render — preserving the original's
+  performance, with an idle-frame re-render guard). Behavior + appearance are identical
+  (dropdown, canvas, smooth/virtual scroll, filter, pause, LPS, "Xs ago", Clear), and the
+  dashboard is now introspectable via `Core.nodes`. This is the reference for the
+  "every dashboard is a JS-Node graph" conversion. (Two intentional deltas: the hidden-tab
+  stream-pause and the brief "Loading…" status are not carried into the component — stream
+  lifecycle is the graph layer's concern, and folding visibility-pause into the user's
+  explicit pause would corrupt it.)
 - **The `/workers/spawn` response sanitizer projects by value TYPE, not an ELN field
   whitelist.** It previously surfaced `status` plus only five hardcoded ELN counter names
   (`entries_processed`/`requests_complete`/…), stripping any other plugin's worker
