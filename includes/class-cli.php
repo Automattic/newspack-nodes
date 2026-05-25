@@ -213,6 +213,47 @@ class CLI {
 	}
 
 	/**
+	 * The input-log basename a worker drains, read from its offsetlog's latest
+	 * checkpoint (`source_basename`). Empty string if no offsetlog yet — lets
+	 * callers locate the worker's partition dir without assuming `firehose.log`.
+	 *
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition index.
+	 */
+	public function input_basename( string $type, int $partition ): string {
+		$offset_dir = "{$this->base_dir}/offsets/{$type}.p{$partition}/p0";
+		if ( ! \is_dir( $offset_dir ) ) {
+			return '';
+		}
+		$files = @\scandir( $offset_dir );
+		if ( false === $files ) {
+			return '';
+		}
+		$segments = [];
+		foreach ( $files as $f ) {
+			if ( \preg_match( '/^(\d+)\.log$/', $f, $m ) ) {
+				$segments[] = (int) $m[1];
+			}
+		}
+		if ( empty( $segments ) ) {
+			return '';
+		}
+		\sort( $segments );
+		$path = "{$offset_dir}/" . (int) \end( $segments ) . '.log';
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		$bytes = @\file_get_contents( $path );
+		if ( false === $bytes || '' === $bytes ) {
+			return '';
+		}
+		$lines = \array_filter( \explode( "\n", \rtrim( $bytes, "\n" ) ), static fn ( $l ) => '' !== $l );
+		if ( empty( $lines ) ) {
+			return '';
+		}
+		$last = \json_decode( (string) \end( $lines ), true );
+		return \is_array( $last ) && isset( $last['source_basename'] ) ? (string) $last['source_basename'] : '';
+	}
+
+	/**
 	 * Sum bytes still ahead of a cursor across a partition's segments (the "Behind" column).
 	 *
 	 * @param string $partition_dir Absolute path to the partition directory.

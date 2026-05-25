@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`wp nodes status` "Behind" column assumed every worker drains `firehose.log`.** It
+  hardcoded `{logs_dir}/firehose.log/p{N}`, so a worker with a different input log (any
+  non-ELN topology — e.g. the ai-newsletter `digest`) showed `-`. It now resolves each
+  worker's real input basename from its offsetlog's `source_basename` (a new
+  `CLI::input_basename()`, mirroring how the web console already computes Behind), falling
+  back to the `firehose` convention only when no basename is recorded.
 - **`/` and `/_sse` reused the last worker topology's header + auto-fit/layout.** The
   canvas header (title / `.tsl` / sheet) and the viewport + node-position localStorage
   keys were driven by the stale `topology`/`partition` state, which only updates on
