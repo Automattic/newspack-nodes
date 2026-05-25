@@ -33,6 +33,50 @@ namespace Newspack_Nodes;
 abstract class Service_CI_Node extends Command_Interpreter_Node {
 
 	/**
+	 * Derive the dispatch table from the concrete subclass's node_schema() so each
+	 * verb is declared ONCE. Late static binding reads the subclass schema; the base
+	 * Command_Interpreter_Node has no ctor, so there's nothing to chain.
+	 */
+	public function __construct() {
+		$this->commands( self::commands_from_schema( static::node_schema() ) );
+	}
+
+	/**
+	 * Build the CI dispatch table (verb name => handler closure) from a node_schema.
+	 * Only `verbs[]` entries carry handlers (commands); `requests[]` are answered by
+	 * the node's own fill(), so they contribute no dispatch entry.
+	 *
+	 * A named verb without a callable handler is a schema bug: it would show in the
+	 * catalog yet dispatch to nothing ("unknown command" at runtime). We emit ONE
+	 * rate-limited warning naming the verb + concrete class, then skip it — keeping
+	 * the table to verbs that are actually dispatchable. `is_callable` (not Closure)
+	 * is intentional: string/array callables are legitimately dispatchable.
+	 *
+	 * @param array<string,mixed> $schema
+	 * @return array<string,callable>
+	 */
+	private static function commands_from_schema( array $schema ): array {
+		$table = [];
+		foreach ( $schema['verbs'] ?? [] as $verb ) {
+			if ( ! \is_array( $verb ) ) {
+				continue;
+			}
+			$name = (string) ( $verb['name'] ?? '' );
+			if ( '' === $name ) {
+				continue;
+			}
+			if ( ! isset( $verb['handler'] ) || ! \is_callable( $verb['handler'] ) ) {
+				Core::print_less_often(
+					'Service_CI: verb "' . $name . '" on ' . static::class . ' has no callable handler; skipping'
+				);
+				continue;
+			}
+			$table[ $name ] = $verb['handler'];
+		}
+		return $table;
+	}
+
+	/**
 	 * Authorisation gate. Throws a RuntimeException when the current user
 	 * lacks the `manage_options` capability; CommandInterpreter::interpret()
 	 * catches and wraps as TM_COMMAND|TM_ERROR.
