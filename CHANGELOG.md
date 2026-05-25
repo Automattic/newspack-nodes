@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Live-mode Inspector verb buttons targeted the bare node, not its `{name}:config`
+  sibling CI.** Command verbs (`node_schema` `verbs` — e.g. `tick`/`flush`/`set_*`) live on
+  the node's sibling CommandInterpreter (`Node::dump_config()` emits `cmd {node}:config
+  {verb}`; `.tsl` topologies use the same form), but the topology-console Inspector sent
+  `TM_COMMAND` to the bare node — a no-op, since a plain Node doesn't interpret commands.
+  So clicking a verb did nothing. Command verbs now route to `prefix({node}:config)`;
+  requests (`TM_REQUEST`) still target the node, which answers them.
+
 ### Changed
 
 - **Topology `<ns:key>` tokens resolve via per-namespace resolvers — no merged config.**

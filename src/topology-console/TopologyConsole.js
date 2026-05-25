@@ -822,7 +822,11 @@ export default function TopologyConsole() {
 					return;
 				}
 				const { verb, kind, positional, byName } = payload;
-				const to = shell.prefix( nodeId );
+				// Command verbs live on the node's `{name}:config` sibling CI;
+				// requests are answered by the node itself.
+				const to = shell.prefix(
+					'request' === kind ? nodeId : `${ nodeId }:config`
+				);
 				const m = newMessage();
 				m[ TO ] = to;
 				m[ FROM ] = shell.replyFrom( names.OUTPUT );
@@ -843,7 +847,7 @@ export default function TopologyConsole() {
 						arguments: positional,
 						payload: byName,
 					};
-					echo = `command_node ${ nodeId } ${ verb }${
+					echo = `command_node ${ nodeId }:config ${ verb }${
 						positional ? ' ' + positional : ''
 					}`;
 				}

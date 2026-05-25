@@ -1742,10 +1742,13 @@ describe( 'TopologyConsole boot', () => {
 		);
 	} );
 
-	it( 'handleInspectorAction invoke (command) routes a TM_COMMAND to HttpOut', async () => {
+	it( 'handleInspectorAction invoke (command) routes a TM_COMMAND to the {node}:config sibling CI', async () => {
+		// Command verbs live on the node's `{name}:config` CommandInterpreter
+		// sibling, not the bare node (a plain Node ignores TM_COMMAND). Both
+		// the routed TO and the echoed transcript line must carry `:config`.
 		globalThis.__httpPosts = [];
 		window.history.replaceState( {}, '', '/?topology=demo' );
-		const { getByText } = render( <TopologyConsole /> );
+		const { container, getByText } = render( <TopologyConsole /> );
 		await act( async () => {
 			fireEvent.click( getByText( 'select-n1' ) );
 		} );
@@ -1761,13 +1764,21 @@ describe( 'TopologyConsole boot', () => {
 			( m ) => m[ VALUE ] && m[ VALUE ].name === 'GET_LAG'
 		);
 		expect( posted ).not.toBeUndefined();
-		expect( posted[ TO ] ).toBe( 'demo.p0/request-builder' );
+		expect( posted[ TO ] ).toBe( 'demo.p0/request-builder:config' );
+		const sent = Array.from(
+			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
+		).find( ( i ) => i.dataset.kind === 'sent' );
+		expect( sent.textContent ).toMatch(
+			/command_node request-builder:config GET_LAG/
+		);
 	} );
 
-	it( 'handleInspectorAction invoke (request) routes a TM_REQUEST string to HttpOut', async () => {
+	it( 'handleInspectorAction invoke (request) routes a TM_REQUEST string to the bare node (no :config)', async () => {
+		// Requests are answered by the node itself, so they target the bare
+		// nodeId — never the `:config` sibling.
 		globalThis.__httpPosts = [];
 		window.history.replaceState( {}, '', '/?topology=demo' );
-		const { getByText } = render( <TopologyConsole /> );
+		const { container, getByText } = render( <TopologyConsole /> );
 		await act( async () => {
 			fireEvent.click( getByText( 'select-n1' ) );
 		} );
@@ -1784,6 +1795,12 @@ describe( 'TopologyConsole boot', () => {
 		);
 		expect( posted ).not.toBeUndefined();
 		expect( posted[ TO ] ).toBe( 'demo.p0/request-builder' );
+		const sent = Array.from(
+			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
+		).find( ( i ) => i.dataset.kind === 'sent' );
+		expect( sent.textContent ).toMatch(
+			/request_node request-builder GET_LAG/
+		);
 	} );
 
 	it( 'handleSave: PromptModal mounts in edit mode; confirm triggers saveTopology', async () => {
