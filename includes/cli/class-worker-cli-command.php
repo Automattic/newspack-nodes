@@ -290,10 +290,12 @@ class Worker_CLI_Command {
 			$position = $cli->live_position( $cache, $type, $p ) ?? $cli->saved_position( $type, $p );
 			$behind   = '-';
 			if ( null !== $position ) {
-				// The drained input log is topology-specific; default to the conventional
-				// firehose.log partition dir so convention-following apps get useful numbers.
+				// Resolve the worker's actual input-log basename from its offsetlog
+				// (the web console does the same); fall back to the conventional
+				// `firehose.log` when no basename is recorded yet.
 				$logs_dir      = "{$base_dir}/logs";
-				$partition_dir = "{$logs_dir}/firehose.log/p{$p}";
+				$basename      = $cli->input_basename( $type, $p ) ?: 'firehose';
+				$partition_dir = "{$logs_dir}/{$basename}.log/p{$p}";
 				if ( \is_dir( $partition_dir ) ) {
 					$bytes  = CLI::calculate_behind( $partition_dir, (int) $position['seg'], (int) $position['off'] );
 					$behind = CLI::format_bytes( $bytes );

@@ -397,6 +397,37 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertStringContainsString( '200B', $haystack );
 	}
 
+	public function test_status_renders_behind_for_non_firehose_input_log(): void {
+		// A worker whose input log isn't `firehose.log` (e.g. the ai-newsletter
+		// `digest` worker) must still get a real Behind: status() resolves the
+		// basename from the offsetlog's `source_basename` instead of hardcoding
+		// firehose.log.
+		$this->register_topology( 'digest', 1 );
+		$lock = "{$this->tmp}/locks/digest.p0.lock.d";
+		\mkdir( $lock, 0755, true );
+		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
+
+		// Offsetlog declares the worker's real input-log basename.
+		$offset_dir = "{$this->tmp}/offsets/digest.p0/p0";
+		\mkdir( $offset_dir, 0755, true );
+		\file_put_contents(
+			"{$offset_dir}/0.log",
+			\json_encode( [ 'seg' => 0, 'off' => 100, 'ts' => \time(), 'source_basename' => 'digest-in' ] ) . "\n"
+		);
+
+		// The matching partition dir is logs/digest-in.log/p0 — NOT firehose.log.
+		$partition_dir = "{$this->tmp}/logs/digest-in.log/p0";
+		\mkdir( $partition_dir, 0755, true );
+		\file_put_contents( "{$partition_dir}/0.log", \str_repeat( 'a', 300 ) );
+
+		// There is deliberately no logs/firehose.log/p0 — the old hardcoded path
+		// would leave Behind at '-'.
+		( new Worker_CLI_Command() )->status( [], [] );
+
+		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( '200B', $haystack );
+	}
+
 	public function test_status_uses_filtered_cache_when_provided(): void {
 		// Live-position memcache is hooked via newspack_nodes/worker_cli_cache.
 		// Apps providing a `\Memcached`-compatible object see their cached
