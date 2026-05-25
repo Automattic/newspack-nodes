@@ -302,6 +302,22 @@ class LogTest extends TestCase {
 		$this->assertStringContainsString( '4096', $out );
 	}
 
+	public function test_node_schema_categorizes_rotate_as_request_not_verb(): void {
+		// `rotate` is handled by Log::fill()'s TM_REQUEST branch — i.e. a request
+		// the node serves directly, NOT a command verb on a `{name}:config`
+		// sibling CI (Log has none). The Inspector routes verbs to `{node}:config`
+		// (→ NOT_AVAILABLE for Log) but routes requests to the node itself, which
+		// is how rotate actually works. So rotate must live under 'requests'.
+		$schema = Log_Node::node_schema();
+
+		$request_names = \array_column( $schema['requests'] ?? [], 'name' );
+		$this->assertContains( 'rotate', $request_names );
+
+		$verb_names = \array_column( $schema['verbs'] ?? [], 'name' );
+		$this->assertNotContains( 'rotate', $verb_names );
+		$this->assertSame( [], $schema['verbs'] );
+	}
+
 	private function bytestream( string $value ): array {
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;

@@ -142,11 +142,11 @@ class Log_Node extends Node {
 				[ 'name' => 'max_size',      'type' => 'int',    'default' => 0 ],
 				[ 'name' => 'max_rotations', 'type' => 'int',    'default' => 0 ],
 			],
-			'verbs'       => [
+			'verbs'       => [],
+			'requests'    => [
 				[
 					'name'        => 'rotate',
 					'description' => 'Rotate the log file: close current, rename to {filename}-{ts}, reopen.',
-					'args'        => [],
 				],
 			],
 			'has_target'  => false,
