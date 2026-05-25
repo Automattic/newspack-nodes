@@ -53,6 +53,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   → `newspack-nodes-worker-refresh`, with a one-time read-with-fallback migration (the
   extracted `initialRefresh()` reads the new key, falls back to the legacy key and writes
   it forward) so an operator's saved refresh preference isn't dropped.
+- **Internal `event-logger-*` identifiers renamed to `newspack-nodes-*`.** The substrate was
+  extracted from the event-logger plugin and still named internal identifiers after it: ~64
+  CSS class names + their `className` references (across the Raw Logs + Worker Status admin
+  dashboards), the three admin mount DOM ids (`…-workers`/`…-rawlogs`/`…-topology-console`),
+  and the topology-console root id. All renamed to the `newspack-nodes-*` prefix. Purely
+  internal (no user-visible change); a substrate-agnostic runtime no longer carries its
+  progenitor's name. (Legitimate references to the `newspack-event-logger-nodes` plugin by
+  name are unchanged.)
 - **Topology `<ns:key>` tokens resolve via per-namespace resolvers — no merged config.**
   `<config:foo>` was resolved from a single `Core::$config` array that callers had to
   populate, forcing apps to merge substrate + app config into one blob to feed

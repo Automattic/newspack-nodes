@@ -6,7 +6,7 @@
 
 @use "base";
 
-.event-logger-raw-logs {
+.newspack-nodes-raw-logs {
 	background: base.$dark-bg;
 	color: base.$dark-text;
 	padding: 20px 16px 16px;
@@ -16,7 +16,7 @@
 	font-family: base.$system-font;
 }
 
-.event-logger-raw-logs-header {
+.newspack-nodes-raw-logs-header {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
@@ -34,14 +34,14 @@
 	}
 }
 
-.event-logger-raw-logs-controls {
+.newspack-nodes-raw-logs-controls {
 	display: flex;
 	align-items: center;
 	gap: 12px;
 	flex-wrap: wrap;
 }
 
-select.event-logger-raw-logs-select {
+select.newspack-nodes-raw-logs-select {
 	-webkit-appearance: none;
 	-moz-appearance: none;
 	appearance: none;
@@ -72,28 +72,28 @@ select.event-logger-raw-logs-select {
 	}
 }
 
-input.event-logger-raw-logs-search {
+input.newspack-nodes-raw-logs-search {
 	@include base.dark-search-input;
 	width: 160px;
 }
 
-.event-logger-raw-logs-stats {
+.newspack-nodes-raw-logs-stats {
 	@include base.dark-stats;
 	min-width: 80px;
 }
 
-.event-logger-raw-logs-count {
+.newspack-nodes-raw-logs-count {
 	@include base.dark-stats-count;
 }
 
-.event-logger-raw-logs-rps {
+.newspack-nodes-raw-logs-rps {
 	font-family: base.$mono-font;
 	font-size: 11px;
 	color: base.$dark-text-dim;
 	margin-left: 8px;
 }
 
-.event-logger-raw-logs-btn {
+.newspack-nodes-raw-logs-btn {
 	@include base.dark-button;
 
 	&.active {
@@ -114,19 +114,19 @@ input.event-logger-raw-logs-search {
 	}
 }
 
-.event-logger-raw-logs-error {
+.newspack-nodes-raw-logs-error {
 	@include base.dark-error-banner;
 }
 
 // Canvas-based rendering container.
-.event-logger-raw-logs-canvas-container {
+.newspack-nodes-raw-logs-canvas-container {
 	flex: 1;
 	position: relative;
 	overflow: hidden;
 	border-radius: base.$border-radius;
 }
 
-.event-logger-raw-logs-canvas {
+.newspack-nodes-raw-logs-canvas {
 	position: absolute;
 	top: 0;
 	left: 0;
@@ -136,7 +136,7 @@ input.event-logger-raw-logs-search {
 	pointer-events: none;
 }
 
-.event-logger-raw-logs-scroll {
+.newspack-nodes-raw-logs-scroll {
 	position: absolute;
 	top: 0;
 	left: 0;
@@ -166,7 +166,7 @@ input.event-logger-raw-logs-search {
 	}
 }
 
-.event-logger-raw-logs-empty {
+.newspack-nodes-raw-logs-empty {
 	display: flex;
 	align-items: center;
 	justify-content: center;
@@ -176,7 +176,7 @@ input.event-logger-raw-logs-search {
 	font-style: italic;
 }
 
-.event-logger-raw-logs-pre {
+.newspack-nodes-raw-logs-pre {
 	margin: 0;
 	padding: 0;
 	font-family: base.$mono-font;
@@ -222,21 +222,21 @@ input.event-logger-raw-logs-search {
 
 // Responsive adjustments.
 @media (max-width: 1200px) {
-	.event-logger-raw-logs-controls {
+	.newspack-nodes-raw-logs-controls {
 		gap: 8px;
 	}
 
-	input.event-logger-raw-logs-search {
+	input.newspack-nodes-raw-logs-search {
 		width: 120px !important;
 	}
 }
 
 @media (max-width: 800px) {
-	input.event-logger-raw-logs-search {
+	input.newspack-nodes-raw-logs-search {
 		width: 100px !important;
 	}
 
-	.event-logger-raw-logs-controls {
+	.newspack-nodes-raw-logs-controls {
 		flex-wrap: wrap;
 	}
 }

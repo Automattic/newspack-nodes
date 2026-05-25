@@ -120,7 +120,7 @@ class Admin {
 			\__( 'Workers', 'newspack-nodes' ),
 			'manage_options',
 			self::WORKERS_MENU_SLUG,
-			static fn () => print( '<div id="event-logger-workers" class="event-logger-workers-page"></div>' )
+			static fn () => print( '<div id="newspack-nodes-workers" class="newspack-nodes-workers-page"></div>' )
 		);
 		\add_submenu_page(
 			self::TOPOLOGY_MENU_SLUG,
@@ -128,7 +128,7 @@ class Admin {
 			\__( 'Raw Logs', 'newspack-nodes' ),
 			'manage_options',
 			self::RAWLOGS_MENU_SLUG,
-			static fn () => print( '<div id="event-logger-rawlogs" class="event-logger-rawlogs-page"></div>' )
+			static fn () => print( '<div id="newspack-nodes-rawlogs" class="newspack-nodes-rawlogs-page"></div>' )
 		);
 	}
 
@@ -183,7 +183,7 @@ class Admin {
 		if ( ! self::current_user_allowed() ) {
 			\wp_die( \esc_html__( 'You do not have permission to access this page.', 'newspack-nodes' ) );
 		}
-		echo '<div id="event-logger-topology-console" class="event-logger-topology-console-page"></div>';
+		echo '<div id="newspack-nodes-topology-console" class="newspack-nodes-topology-console-page"></div>';
 	}
 
 	/**
