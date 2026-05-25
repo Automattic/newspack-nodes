@@ -1127,7 +1127,7 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 					</div>
 					<div className="worker-status-controls">
 						<select
-							className="event-logger-refresh-select"
+							className="newspack-nodes-refresh-select"
 							value={ refreshInterval }
 							onChange={ ( e ) =>
 								setRefreshInterval( e.target.value )

@@ -7,7 +7,7 @@ import { createRoot } from '@wordpress/element';
 import TopologyConsole from './TopologyConsole';
 import './styles/topology-console.scss';
 
-const ROOT_ID = 'event-logger-topology-console';
+const ROOT_ID = 'newspack-nodes-topology-console';
 
 function mount() {
 	const root = document.getElementById( ROOT_ID );

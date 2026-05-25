@@ -24,18 +24,18 @@ describe( 'event-dashboards/index', () => {
 		}
 	} );
 
-	it( 'mounts WorkerStatusPage on #event-logger-workers when present', () => {
+	it( 'mounts WorkerStatusPage on #newspack-nodes-workers when present', () => {
 		const mount = document.createElement( 'div' );
-		mount.id = 'event-logger-workers';
+		mount.id = 'newspack-nodes-workers';
 		document.body.appendChild( mount );
 		require( '../index' );
 		expect( createRootMock ).toHaveBeenCalledWith( mount );
 		expect( renderMock ).toHaveBeenCalled();
 	} );
 
-	it( 'mounts RawLogsPage on #event-logger-rawlogs when present', () => {
+	it( 'mounts RawLogsPage on #newspack-nodes-rawlogs when present', () => {
 		const mount = document.createElement( 'div' );
-		mount.id = 'event-logger-rawlogs';
+		mount.id = 'newspack-nodes-rawlogs';
 		document.body.appendChild( mount );
 		require( '../index' );
 		expect( createRootMock ).toHaveBeenCalledWith( mount );

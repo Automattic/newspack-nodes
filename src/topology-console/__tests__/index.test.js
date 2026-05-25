@@ -1,6 +1,6 @@
 /**
  * topology-console/index — mounts TopologyConsole on the admin page's
- * #event-logger-topology-console root once the DOM is ready.
+ * #newspack-nodes-topology-console root once the DOM is ready.
  */
 
 jest.mock( '../TopologyConsole', () => () => null );
@@ -22,13 +22,13 @@ describe( 'topology-console/index', () => {
 		}
 	} );
 
-	it( 'mounts TopologyConsole on #event-logger-topology-console when present', () => {
+	it( 'mounts TopologyConsole on #newspack-nodes-topology-console when present', () => {
 		Object.defineProperty( document, 'readyState', {
 			configurable: true,
 			get: () => 'complete',
 		} );
 		const root = document.createElement( 'div' );
-		root.id = 'event-logger-topology-console';
+		root.id = 'newspack-nodes-topology-console';
 		document.body.appendChild( root );
 		require( '../index' );
 		expect( createRootMock ).toHaveBeenCalledWith( root );
@@ -50,7 +50,7 @@ describe( 'topology-console/index', () => {
 			get: () => 'loading',
 		} );
 		const root = document.createElement( 'div' );
-		root.id = 'event-logger-topology-console';
+		root.id = 'newspack-nodes-topology-console';
 		document.body.appendChild( root );
 		require( '../index' );
 		// Nothing mounted yet; firing DOMContentLoaded triggers mount.

@@ -384,26 +384,26 @@ export default function RawLogs() {
 
 	return (
 		<div
-			className="event-logger-raw-logs"
+			className="newspack-nodes-raw-logs"
 			role="region"
 			aria-label="Raw logs"
 		>
-			<div className="event-logger-raw-logs-header">
+			<div className="newspack-nodes-raw-logs-header">
 				<h3>Raw Logs</h3>
-				<div className="event-logger-raw-logs-controls">
+				<div className="newspack-nodes-raw-logs-controls">
 					{ isLoadingLogs && (
-						<span className="event-logger-raw-logs-status">
+						<span className="newspack-nodes-raw-logs-status">
 							Loading...
 						</span>
 					) }
 					{ ! isLoadingLogs && availableLogs.length === 0 && (
-						<span className="event-logger-raw-logs-status">
+						<span className="newspack-nodes-raw-logs-status">
 							No logs available
 						</span>
 					) }
 					{ ! isLoadingLogs && availableLogs.length > 0 && (
 						<select
-							className="event-logger-raw-logs-select"
+							className="newspack-nodes-raw-logs-select"
 							value={ selectedLog }
 							onChange={ handleLogChange }
 						>
@@ -417,19 +417,19 @@ export default function RawLogs() {
 
 					<input
 						type="text"
-						className="event-logger-raw-logs-search"
+						className="newspack-nodes-raw-logs-search"
 						placeholder="Filter..."
 						value={ filter }
 						onChange={ ( e ) => setFilter( e.target.value ) }
 					/>
 
-					<span className="event-logger-raw-logs-stats">
-						<span className="event-logger-raw-logs-count">
+					<span className="newspack-nodes-raw-logs-stats">
+						<span className="newspack-nodes-raw-logs-count">
 							{ filteredLines.length }
 							{ filter && ` / ${ lines.length }` } lines
 						</span>
 						{ linesPerSecond > 0 && (
-							<span className="event-logger-raw-logs-rps">
+							<span className="newspack-nodes-raw-logs-rps">
 								{ linesPerSecond.toFixed( 1 ) } lines/s
 							</span>
 						) }
@@ -448,7 +448,7 @@ export default function RawLogs() {
 					</span>
 
 					<button
-						className={ `event-logger-raw-logs-btn ${
+						className={ `newspack-nodes-raw-logs-btn ${
 							isPaused ? 'paused' : ''
 						}` }
 						onClick={ () => setIsPaused( ! isPaused ) }
@@ -460,7 +460,7 @@ export default function RawLogs() {
 					</button>
 
 					<button
-						className="event-logger-raw-logs-btn"
+						className="newspack-nodes-raw-logs-btn"
 						onClick={ handleClear }
 						title="Clear all lines"
 					>
@@ -470,19 +470,19 @@ export default function RawLogs() {
 			</div>
 
 			{ error && (
-				<div className="event-logger-raw-logs-error">{ error }</div>
+				<div className="newspack-nodes-raw-logs-error">{ error }</div>
 			) }
 
 			<div
-				className="event-logger-raw-logs-canvas-container"
+				className="newspack-nodes-raw-logs-canvas-container"
 				ref={ containerRef }
 			>
 				<canvas
 					ref={ canvasRef }
-					className="event-logger-raw-logs-canvas"
+					className="newspack-nodes-raw-logs-canvas"
 				/>
 				<div
-					className="event-logger-raw-logs-scroll"
+					className="newspack-nodes-raw-logs-scroll"
 					ref={ scrollRef }
 					onScroll={ ( e ) => {
 						if ( isAdjustingScrollRef.current ) {

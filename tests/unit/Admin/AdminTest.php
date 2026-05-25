@@ -1060,8 +1060,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$html = \ob_get_clean();
 
 		// React tree mounts on this id; production class hook lives in admin CSS.
-		$this->assertStringContainsString( 'id="event-logger-topology-console"', $html );
-		$this->assertStringContainsString( 'class="event-logger-topology-console-page"', $html );
+		$this->assertStringContainsString( 'id="newspack-nodes-topology-console"', $html );
+		$this->assertStringContainsString( 'class="newspack-nodes-topology-console-page"', $html );
 	}
 
 	public function test_render_topology_page_blocks_unauthorized_user(): void {
@@ -1454,12 +1454,12 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$workers_cb = $GLOBALS['_admin_submenu_pages'][ Admin::WORKERS_MENU_SLUG ]['callback'];
 		\ob_start();
 		$workers_cb();
-		$this->assertSame( '<div id="event-logger-workers" class="event-logger-workers-page"></div>', \ob_get_clean() );
+		$this->assertSame( '<div id="newspack-nodes-workers" class="newspack-nodes-workers-page"></div>', \ob_get_clean() );
 
 		$rawlogs_cb = $GLOBALS['_admin_submenu_pages'][ Admin::RAWLOGS_MENU_SLUG ]['callback'];
 		\ob_start();
 		$rawlogs_cb();
-		$this->assertSame( '<div id="event-logger-rawlogs" class="event-logger-rawlogs-page"></div>', \ob_get_clean() );
+		$this->assertSame( '<div id="newspack-nodes-rawlogs" class="newspack-nodes-rawlogs-page"></div>', \ob_get_clean() );
 	}
 
 	public function test_register_event_dashboard_pages_skips_unauthorized_user(): void {

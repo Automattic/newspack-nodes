@@ -60,7 +60,7 @@ describe( 'WorkerStatus', () => {
 		const { container } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
 		const select = container.querySelector(
-			'.event-logger-refresh-select'
+			'.newspack-nodes-refresh-select'
 		);
 		expect( select ).not.toBeNull();
 		expect( select.options.length ).toBe( 4 ); // 1s/2s/5s/10s
@@ -76,7 +76,7 @@ describe( 'WorkerStatus', () => {
 		const { container } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
 		const select = container.querySelector(
-			'.event-logger-refresh-select'
+			'.newspack-nodes-refresh-select'
 		);
 		fireEvent.change( select, { target: { value: '5000' } } );
 		expect( window.localStorage.getItem( REFRESH_KEY ) ).toBe( '5000' );
@@ -93,7 +93,7 @@ describe( 'WorkerStatus', () => {
 		const { container } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
 		const select = container.querySelector(
-			'.event-logger-refresh-select'
+			'.newspack-nodes-refresh-select'
 		);
 		expect( select.value ).toBe( '10000' );
 	} );
@@ -111,7 +111,7 @@ describe( 'WorkerStatus', () => {
 		);
 		await act( async () => {} );
 		const select = container.querySelector(
-			'.event-logger-refresh-select'
+			'.newspack-nodes-refresh-select'
 		);
 		expect( select.value ).toBe( '2000' );
 	} );

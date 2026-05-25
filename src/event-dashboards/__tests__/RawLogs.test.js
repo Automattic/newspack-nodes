@@ -93,7 +93,7 @@ describe( 'RawLogs', () => {
 		const { container } = render( <RawLogs /> );
 		await act( async () => {} );
 		const select = container.querySelector(
-			'.event-logger-raw-logs-select'
+			'.newspack-nodes-raw-logs-select'
 		);
 		expect( select ).not.toBeNull();
 		expect( select.options.length ).toBe( 2 );
@@ -109,7 +109,7 @@ describe( 'RawLogs', () => {
 		const { container } = render( <RawLogs /> );
 		await act( async () => {} );
 		const select = container.querySelector(
-			'.event-logger-raw-logs-select'
+			'.newspack-nodes-raw-logs-select'
 		);
 		fireEvent.change( select, { target: { value: 'errors' } } );
 		expect( select.value ).toBe( 'errors' );
@@ -121,10 +121,12 @@ describe( 'RawLogs', () => {
 		const { container } = render( <RawLogs /> );
 		await act( async () => {} );
 		const filter = container.querySelector(
-			'.event-logger-raw-logs-search'
+			'.newspack-nodes-raw-logs-search'
 		);
 		expect( filter ).not.toBeNull();
-		const count = container.querySelector( '.event-logger-raw-logs-count' );
+		const count = container.querySelector(
+			'.newspack-nodes-raw-logs-count'
+		);
 		expect( count.textContent ).toMatch( /0.*lines/ );
 	} );
 
@@ -134,7 +136,7 @@ describe( 'RawLogs', () => {
 		const { container } = render( <RawLogs /> );
 		await act( async () => {} );
 		const buttons = container.querySelectorAll(
-			'.event-logger-raw-logs-btn'
+			'.newspack-nodes-raw-logs-btn'
 		);
 		const pause = buttons[ 0 ];
 		expect( pause.textContent ).toBe( '⏸' );
@@ -148,7 +150,7 @@ describe( 'RawLogs', () => {
 		const { container } = render( <RawLogs /> );
 		await act( async () => {} );
 		const clear = Array.from(
-			container.querySelectorAll( '.event-logger-raw-logs-btn' )
+			container.querySelectorAll( '.newspack-nodes-raw-logs-btn' )
 		).find( ( b ) => b.textContent === 'Clear' );
 		expect( clear ).not.toBeUndefined();
 		fireEvent.click( clear );
@@ -169,7 +171,7 @@ describe( 'RawLogs', () => {
 		const { container } = render( <RawLogs /> );
 		await act( async () => {} );
 		const filter = container.querySelector(
-			'.event-logger-raw-logs-search'
+			'.newspack-nodes-raw-logs-search'
 		);
 		fireEvent.change( filter, { target: { value: 'foo' } } );
 		expect( filter.value ).toBe( 'foo' );
@@ -219,7 +221,7 @@ describe( 'RawLogs', () => {
 				jest.advanceTimersByTime( 200 );
 			} );
 			const count = container.querySelector(
-				'.event-logger-raw-logs-count'
+				'.newspack-nodes-raw-logs-count'
 			);
 			expect( count.textContent ).toMatch( /1.*lines/ );
 		} finally {
@@ -247,11 +249,11 @@ describe( 'RawLogs', () => {
 				jest.advanceTimersByTime( 200 );
 			} );
 			const clear = Array.from(
-				container.querySelectorAll( '.event-logger-raw-logs-btn' )
+				container.querySelectorAll( '.newspack-nodes-raw-logs-btn' )
 			).find( ( b ) => b.textContent === 'Clear' );
 			act( () => fireEvent.click( clear ) );
 			const count = container.querySelector(
-				'.event-logger-raw-logs-count'
+				'.newspack-nodes-raw-logs-count'
 			);
 			expect( count.textContent ).toMatch( /0.*lines/ );
 		} finally {
@@ -268,7 +270,7 @@ describe( 'RawLogs', () => {
 		const { container } = render( <RawLogs /> );
 		await act( async () => {} );
 		const select = container.querySelector(
-			'.event-logger-raw-logs-select'
+			'.newspack-nodes-raw-logs-select'
 		);
 		fireEvent.change( select, { target: { value: 'errors' } } );
 		const lastCallProps = useMessageStream.mock.calls.at( -1 )[ 0 ];

@@ -232,7 +232,7 @@ $focus-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 // =============================================================================
 
 // Loading container
-.event-logger-performance-loading {
+.newspack-nodes-performance-loading {
 	display: flex;
 	flex-direction: column;
 	align-items: center;
@@ -252,7 +252,7 @@ $focus-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 	}
 }
 
-.event-logger-skeleton {
+.newspack-nodes-skeleton {
 	background: linear-gradient(
 		90deg,
 		$light-surface 25%,
@@ -264,26 +264,26 @@ $focus-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 	border-radius: $border-radius-sm;
 }
 
-.event-logger-skeleton--text {
+.newspack-nodes-skeleton--text {
 	height: 16px;
 	width: 100%;
 	max-width: 200px;
 }
 
-.event-logger-skeleton--card {
+.newspack-nodes-skeleton--card {
 	height: 100px;
 	width: 100%;
 }
 
-.event-logger-skeleton--circle {
+.newspack-nodes-skeleton--circle {
 	width: 40px;
 	height: 40px;
 	border-radius: 50%;
 }
 
 // Empty states
-.event-logger-empty-state,
-.event-logger-no-selection {
+.newspack-nodes-empty-state,
+.newspack-nodes-no-selection {
 	color: $light-text-secondary;
 	text-align: center;
 	padding: $space-xl $space-lg;
@@ -305,27 +305,27 @@ $focus-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 }
 
 // Stats grid
-.event-logger-stats-grid {
+.newspack-nodes-stats-grid {
 	display: grid;
 	grid-template-columns: repeat(4, 1fr);
 	gap: $space-lg;
 }
 
-.event-logger-stat {
-	.event-logger-stat-value {
+.newspack-nodes-stat {
+	.newspack-nodes-stat-value {
 		font-size: 28px;
 		font-weight: 600;
 		color: $light-text;
 	}
 
-	.event-logger-stat-label {
+	.newspack-nodes-stat-label {
 		color: $light-text-secondary;
 		font-size: 14px;
 	}
 }
 
 // Interactive card link
-.event-logger-card-link {
+.newspack-nodes-card-link {
 	display: flex;
 	justify-content: space-between;
 	align-items: center;
@@ -359,12 +359,12 @@ $focus-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 		outline-offset: 2px;
 	}
 
-	.event-logger-card-link-name {
+	.newspack-nodes-card-link-name {
 		font-weight: 500;
 		color: $light-text;
 	}
 
-	.event-logger-card-link-count {
+	.newspack-nodes-card-link-count {
 		color: $light-text-secondary;
 		font-size: 12px;
 		margin-left: $space-sm;
@@ -372,16 +372,16 @@ $focus-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 }
 
 // Admin wrapper
-.event-logger-admin-wrap {
+.newspack-nodes-admin-wrap {
 	max-width: 95vw;
 }
 
-.event-logger-admin-app {
+.newspack-nodes-admin-app {
 	margin-top: 16px;
 }
 
 // Shared error banner style (dark theme)
-.event-logger-error-banner {
+.newspack-nodes-error-banner {
 	@include dark-error-banner;
 }
 
@@ -469,7 +469,7 @@ $focus-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 // =============================================================================
 
 // Shared refresh select (used on Gyroscope, Worker Status, Request Log)
-select.event-logger-refresh-select {
+select.newspack-nodes-refresh-select {
 	-webkit-appearance: none;
 	-moz-appearance: none;
 	appearance: none;
@@ -501,8 +501,8 @@ select.event-logger-refresh-select {
 }
 
 // Shared header styles (dark theme)
-.event-logger-inflight-header,
-.event-logger-request-stream-header,
+.newspack-nodes-inflight-header,
+.newspack-nodes-request-stream-header,
 .worker-status-full .worker-status-header {
 	display: flex;
 	justify-content: space-between;
@@ -615,6 +615,6 @@ select.event-logger-refresh-select {
 }
 
 // Shared search input (dark theme)
-input.event-logger-search-input {
+input.newspack-nodes-search-input {
 	@include dark-search-input;
 }
