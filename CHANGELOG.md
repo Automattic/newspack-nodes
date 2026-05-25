@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Log`'s `rotate` was mis-categorized as a command `verb`.** `Log::fill()` handles
+  `rotate` in its `TM_REQUEST` branch (the node services it itself; `Log` has no
+  `{name}:config` sibling CI), but `node_schema()` listed it under `verbs` — so the
+  console Inspector routed it to `{node}:config` and got `NOT_AVAILABLE`. Moved to
+  `requests`; the Inspector now sends `request_node {node} rotate` to the node, which
+  rotates. (Verified live.)
 - **Live-mode Inspector verb buttons targeted the bare node, not its `{name}:config`
   sibling CI.** Command verbs (`node_schema` `verbs` — e.g. `tick`/`flush`/`set_*`) live on
   the node's sibling CommandInterpreter (`Node::dump_config()` emits `cmd {node}:config
