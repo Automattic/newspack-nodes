@@ -7,15 +7,49 @@ import { render, fireEvent } from '@testing-library/react';
 import CanvasFrame from '../CanvasFrame';
 
 describe( 'CanvasFrame', () => {
-	it( 'renders the topology label + sheet pad in the title block', () => {
+	it( 'renders the topology label + sheet pad in the title block (worker scope)', () => {
 		const { container } = render(
-			<CanvasFrame topology="demo" partition={ 0 }>
+			<CanvasFrame topology="demo" partition={ 0 } isWorker>
 				<svg data-testid="canvas-svg" />
 			</CanvasFrame>
 		);
 		expect( container.textContent ).toContain( 'topologies/demo.tsl' );
 		// Title block ends with `topology.pN`.
 		expect( container.textContent ).toContain( 'demo.p0' );
+	} );
+
+	it( 'a worker scope shows the .tsl filename and `· Partition N`', () => {
+		const { container } = render(
+			<CanvasFrame topology="digest" partition={ 0 } isWorker />
+		);
+		expect( container.textContent ).toContain( 'topologies/digest.tsl' );
+		expect( container.textContent ).toMatch( /· Partition 0/ );
+	} );
+
+	it( 'a non-worker scope (request scope) shows only the label, no .tsl line', () => {
+		const { container } = render(
+			<CanvasFrame
+				topology="request scope"
+				partition={ null }
+				isWorker={ false }
+			/>
+		);
+		expect( container.textContent ).toContain( 'request scope' );
+		expect( container.textContent ).not.toMatch( /\.tsl/ );
+		expect( container.textContent ).not.toMatch( /topologies\// );
+		expect( container.textContent ).not.toMatch( /Partition/ );
+	} );
+
+	it( 'a non-worker scope sets the Sheet pad to the label, not `{topology}.p{partition}`', () => {
+		const { container } = render(
+			<CanvasFrame
+				topology="local"
+				partition={ null }
+				isWorker={ false }
+			/>
+		);
+		expect( container.textContent ).toContain( 'local' );
+		expect( container.textContent ).not.toMatch( /\.p/ );
 	} );
 
 	it( 'omits the partition suffix when partition is null', () => {
@@ -25,9 +59,9 @@ describe( 'CanvasFrame', () => {
 		expect( container.textContent ).not.toMatch( /Partition/ );
 	} );
 
-	it( 'shows the partition suffix when partition is set', () => {
+	it( 'shows the partition suffix when partition is set (worker scope)', () => {
 		const { container } = render(
-			<CanvasFrame topology="demo" partition={ 2 } />
+			<CanvasFrame topology="demo" partition={ 2 } isWorker />
 		);
 		expect( container.textContent ).toMatch( /Partition 2/ );
 	} );
