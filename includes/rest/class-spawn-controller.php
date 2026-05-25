@@ -25,15 +25,6 @@ class Spawn_Controller {
 	/** Per-user rate limit window for external spawn requests. */
 	public const RATE_LIMIT_S = 2;
 
-	/** Whitelist of numeric fields surfaced in the JSON response. */
-	public const SAFE_RESULT_FIELDS = [
-		'entries_processed',
-		'requests_complete',
-		'requests_pending',
-		'flames_written',
-		'jobs_processed',
-	];
-
 	private Supervisor $supervisor;
 
 	public function __construct( Supervisor $supervisor ) {
@@ -273,7 +264,11 @@ class Spawn_Controller {
 	}
 
 	/**
-	 * Whitelist response fields so no internal paths/traces/arbitrary keys leak.
+	 * Project a worker result to a safe response by VALUE TYPE, not by field name
+	 * (project-agnostic): keep the string `status`, then surface any field with a
+	 * numeric value (cast to int) under a safe `[a-zA-Z0-9_]` key. Strings, arrays,
+	 * paths and traces are dropped, so no internal paths/keys leak; capped so a
+	 * misbehaving worker can't flood the response.
 	 *
 	 * @param mixed $result Worker-reported result (unsanitized from the wire).
 	 * @return array Sanitized projection.
@@ -285,9 +280,16 @@ class Spawn_Controller {
 		$safe = [
 			'status' => isset( $result['status'] ) && \is_string( $result['status'] ) ? $result['status'] : 'unknown',
 		];
-		foreach ( self::SAFE_RESULT_FIELDS as $field ) {
-			if ( isset( $result[ $field ] ) && \is_numeric( $result[ $field ] ) ) {
-				$safe[ $field ] = (int) $result[ $field ];
+		$count = 0;
+		foreach ( $result as $key => $value ) {
+			if ( 'status' === $key || ! \is_string( $key ) || ! \preg_match( '/^[a-zA-Z0-9_]{1,40}$/', $key ) ) {
+				continue;
+			}
+			if ( \is_numeric( $value ) ) {
+				$safe[ $key ] = (int) $value;
+				if ( ++$count >= 32 ) {
+					break;
+				}
 			}
 		}
 		return $safe;

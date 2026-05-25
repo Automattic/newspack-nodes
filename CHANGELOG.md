@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The `/workers/spawn` response sanitizer projects by value TYPE, not an ELN field
+  whitelist.** It previously surfaced `status` plus only five hardcoded ELN counter names
+  (`entries_processed`/`requests_complete`/…), stripping any other plugin's worker
+  counters. It now keeps `status` and surfaces any field with a numeric value (cast to int)
+  under a safe `[a-zA-Z0-9_]` key, capped at 32 — so any plugin's counters come through
+  while strings/arrays/paths/traces are still dropped (the no-leak posture is unchanged).
 - **Topology `<ns:key>` tokens resolve via per-namespace resolvers — no merged config.**
   `<config:foo>` was resolved from a single `Core::$config` array that callers had to
   populate, forcing apps to merge substrate + app config into one blob to feed
