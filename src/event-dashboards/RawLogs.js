@@ -49,7 +49,7 @@ export default function RawLogs() {
 	// Fetch available logs on mount; returns `[{key, label}]`.
 	useEffect( () => {
 		getCommandClient()
-			.send( { to: 'raw-logs', verb: 'firehose_logs' } )
+			.send( { to: 'raw-logs', verb: 'list_logs' } )
 			.then( ( message ) => {
 				const logs = unwrapCommandResponse( message ) || [];
 				setAvailableLogs( logs );

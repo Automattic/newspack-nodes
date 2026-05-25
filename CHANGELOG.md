@@ -44,6 +44,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   counters. It now keeps `status` and surfaces any field with a numeric value (cast to int)
   under a safe `[a-zA-Z0-9_]` key, capped at 32 — so any plugin's counters come through
   while strings/arrays/paths/traces are still dropped (the no-leak posture is unchanged).
+- **Raw Logs CI verbs de-firehose'd.** `firehose_logs` → `list_logs`, `firehose_status` →
+  `log_status`, and the fallback const `DEFAULT_LOG_KEY` → `PREFERRED_LOG_KEY` (value still
+  `firehose`, a soft preference: used when present, else the first-discovered log). Generic
+  log inspection for any plugin's logs; the substrate stops naming these after ELN's
+  firehose. (`RawLogs.js` updated to call the new verb name.)
 - **Topology `<ns:key>` tokens resolve via per-namespace resolvers — no merged config.**
   `<config:foo>` was resolved from a single `Core::$config` array that callers had to
   populate, forcing apps to merge substrate + app config into one blob to feed
