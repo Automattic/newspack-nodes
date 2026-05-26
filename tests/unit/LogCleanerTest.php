@@ -15,6 +15,9 @@ class LogCleanerTest extends TestCase {
 		// through the parent's option-only reset; wipe them so each test
 		// sees a clean expected_log_basenames chain.
 		$GLOBALS['_wp_actions'] = [];
+		// Config caches the topologies overlay statically; reset so a prior
+		// test's active set doesn't leak past the parent's option-only wipe.
+		\Newspack_Nodes\Config::reset();
 		$this->tmp = $this->make_temp_dir();
 		\mkdir( "{$this->tmp}/logs", 0755, true );
 		\mkdir( "{$this->tmp}/offsets", 0755, true );
@@ -270,6 +273,7 @@ class LogCleanerTest extends TestCase {
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'job-workers' ];
+		\Newspack_Nodes\Config::reset();
 
 		\add_filter(
 			'newspack_nodes/expected_log_basenames',

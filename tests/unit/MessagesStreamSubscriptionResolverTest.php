@@ -129,7 +129,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// Aggregator hub path: RemoteSource subscribes as `firehose.p0` to
 		// tail the spoke's firehose.log partition 0. There's NO worker
 		// named `firehose.p0` on the spoke (workers live at e.g.
-		// `firehose-workers-and-jobs.p0`), so the IPC-attach throws.
+		// `demo-workers.p0`), so the IPC-attach throws.
 		// Resolver must catch and fall through to log-name + partition.
 		\mkdir( "{$this->tmp}/logs/firehose.log/p0", 0755, true );
 

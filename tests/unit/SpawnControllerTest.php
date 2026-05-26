@@ -19,6 +19,8 @@ class SpawnControllerTest extends TestCase {
 		$GLOBALS['_wp_test_current_user_can']  = [];
 		$GLOBALS['_wp_test_valid_nonces']      = [];
 		$GLOBALS['_wp_test_current_user_id']   = 0;
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		\Newspack_Nodes\Config::reset();
 		$this->supervisor = new Supervisor( '/tmp', 'NONCE_SALT_FOR_TEST' );
 		$this->controller = new Spawn_Controller( $this->supervisor );
 	}
@@ -29,6 +31,8 @@ class SpawnControllerTest extends TestCase {
 		$GLOBALS['_wp_test_transients']        = [];
 		$GLOBALS['_wp_test_current_user_can']  = [];
 		$GLOBALS['_wp_test_valid_nonces']      = [];
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		\Newspack_Nodes\Config::reset();
 		unset(
 			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],
 			$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']
@@ -48,6 +52,11 @@ class SpawnControllerTest extends TestCase {
 		\add_filter( 'newspack_nodes/topologies', function () use ( $topologies ) {
 			return $topologies;
 		} );
+		// Catalog registration no longer activates a topology; declare the
+		// catalogued names as the active operator overlay so validation/spawn
+		// (which gate on get_topologies()) honor them.
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = \array_keys( $topologies );
+		\Newspack_Nodes\Config::reset();
 	}
 
 	// ── register_routes ────────────────────────────────────────────────────

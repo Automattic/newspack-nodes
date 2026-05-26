@@ -3,10 +3,20 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Tests\TestCase;
 
+/**
+ * Topologies are NOT plugin-owned. `register_plugin` only registers a
+ * namespace + a stock dir; the catalog is built from `Topology_Registry::list()`
+ * (user dir ∪ every stock dir) by `publish_catalog`, and `spawn_worker` spawns
+ * anything in the active set (`expand_workers`) regardless of which plugin — if
+ * any — shipped it. A user-authored topology saved by the editor into the user
+ * dir is a first-class citizen: catalogued, activatable, spawnable.
+ */
 class TopologyRegistryRegisterPluginTest extends TestCase {
 
 	protected function setUp(): void {
@@ -17,18 +27,33 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 		$GLOBALS['_wp_actions'] = [];
 		Topology_Registry::reset();
 		Topology_Registry::$spawn_runner = null;
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		\Newspack_Nodes\Config::reset();
+		// Mirror production wiring (newspack-nodes.php): the substrate populates
+		// the catalog from list() via this one filter.
+		\add_filter( 'newspack_nodes/topologies', [ Topology_Registry::class, 'publish_catalog' ] );
 	}
 
 	protected function tearDown(): void {
 		Topology_Registry::reset();
 		Topology_Registry::$spawn_runner = null;
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		\Newspack_Nodes\Config::reset();
 		parent::tearDown();
 	}
 
-	/** Write a trivial $name.tsl into $dir and return $dir. */
+	/** Declare the active topology set (the operator overlay); spawn is gated on it. */
+	private function activate( array $names ): void {
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = $names;
+		\Newspack_Nodes\Config::reset();
+	}
+
+	/** Write a trivial $name.tsl into $dir. */
 	private function seed_topology( string $dir, string $name ): void {
 		\file_put_contents( "{$dir}/{$name}.tsl", "make_node Echo e\n" );
 	}
+
+	// ── register_plugin: namespace + stock dir only ───────────────────────
 
 	public function test_register_plugin_registers_namespace(): void {
 		$dir = $this->make_temp_dir();
@@ -43,88 +68,119 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 		$this->assertSame( "{$dir}/widget.tsl", Topology_Registry::resolve( 'widget' ) );
 	}
 
-	public function test_register_plugin_publishes_catalog_entry(): void {
+	public function test_register_plugin_is_idempotent(): void {
 		$dir = $this->make_temp_dir();
 		$this->seed_topology( $dir, 'widget' );
 		Topology_Registry::register_plugin( 'Acme\\', $dir );
-		$catalog = \apply_filters( 'newspack_nodes/topologies', [] );
-		$this->assertArrayHasKey( 'widget', $catalog );
+		Topology_Registry::register_plugin( 'Acme\\', $dir );
+		// list() dedups by name; one stock-dir registration, no duplicate.
+		$this->assertSame( [ 'widget' ], Topology_Registry::list() );
 	}
 
-	public function test_register_plugin_explicit_names_subset(): void {
+	// ── publish_catalog: catalog is list(), NOT plugin-curated ────────────
+
+	public function test_catalog_includes_every_stock_tsl_no_curation(): void {
 		$dir = $this->make_temp_dir();
 		$this->seed_topology( $dir, 'a' );
 		$this->seed_topology( $dir, 'b' );
-		Topology_Registry::register_plugin( 'Acme\\', $dir, [ 'a' ] );
+		Topology_Registry::register_plugin( 'Acme\\', $dir );
+
 		$catalog = \apply_filters( 'newspack_nodes/topologies', [] );
-		$this->assertArrayHasKey( 'a', $catalog );
-		$this->assertArrayNotHasKey( 'b', $catalog );
+
+		$this->assertArrayHasKey( 'a', $catalog, 'every stock .tsl is catalogued' );
+		$this->assertArrayHasKey( 'b', $catalog, 'no per-plugin allowlist drops one' );
 	}
 
-	public function test_spawn_handler_invokes_seam_for_owned_type(): void {
+	public function test_catalog_includes_user_dir_topologies(): void {
+		// The editor's "New" writes a .tsl into the user dir, owned by no plugin.
+		$user_dir = $this->make_temp_dir();
+		Topology_Registry::set_user_dir( $user_dir );
+		$this->seed_topology( $user_dir, 'my-custom' );
+
+		$catalog = \apply_filters( 'newspack_nodes/topologies', [] );
+
+		$this->assertArrayHasKey( 'my-custom', $catalog, 'a user-authored topology must be catalogued' );
+	}
+
+	public function test_catalog_num_partitions_defaults_to_substrate_option(): void {
+		$dir = $this->make_temp_dir();
+		$this->seed_topology( $dir, 'widget' );
+		\update_option( 'newspack_nodes_num_partitions', 4 );
+		\Newspack_Nodes\Config::reset();
+		Topology_Registry::register_plugin( 'Acme\\', $dir );
+
+		$catalog = \apply_filters( 'newspack_nodes/topologies', [] );
+
+		$this->assertSame( 4, $catalog['widget']['num_partitions'], 'omitted num_partitions resolves to the substrate option' );
+	}
+
+	public function test_catalog_num_partitions_clamps_to_16(): void {
+		$dir = $this->make_temp_dir();
+		$this->seed_topology( $dir, 'widget' );
+		\update_option( 'newspack_nodes_num_partitions', 99 );
+		\Newspack_Nodes\Config::reset();
+		Topology_Registry::register_plugin( 'Acme\\', $dir );
+
+		$catalog = \apply_filters( 'newspack_nodes/topologies', [] );
+
+		$this->assertSame( 16, $catalog['widget']['num_partitions'], 'num_partitions clamps to 16' );
+	}
+
+	// ── spawn_worker: ungated, driven by the active set ───────────────────
+
+	public function test_spawn_worker_runs_seam_for_a_plugin_topology(): void {
 		$dir = $this->make_temp_dir();
 		$this->seed_topology( $dir, 'widget' );
 
-		$captured = [];
-		Topology_Registry::$spawn_runner = static function (
-			string $type,
-			int $partition,
-			string $topology_name,
-			int $stale_timeout
-		) use ( &$captured ): void {
-			$captured[] = [ $type, $partition, $topology_name, $stale_timeout ];
+		$captured                        = [];
+		Topology_Registry::$spawn_runner = static function ( string $t, int $p, string $name, int $stale ) use ( &$captured ): void {
+			$captured[] = [ $t, $p, $name, $stale ];
 		};
 
-		Topology_Registry::register_plugin( 'Acme\\', $dir, null, 1, 77 );
+		Topology_Registry::register_plugin( 'Acme\\', $dir );
+		$this->activate( [ 'widget' ] );
 
-		\do_action( 'newspack_nodes/spawn_worker', 'widget', 0 );
+		Topology_Registry::spawn_worker( 'widget', 0 );
 
 		$this->assertCount( 1, $captured );
-		$this->assertSame( [ 'widget', 0, 'widget', 77 ], $captured[0] );
+		$this->assertSame( [ 'widget', 0, 'widget', Lock_Node::STALE_TIMEOUT ], $captured[0] );
 	}
 
-	public function test_spawn_handler_ignores_foreign_type(): void {
+	public function test_spawn_worker_runs_for_a_user_created_topology(): void {
+		// No plugin owns it — proves spawn is gated on the active set, not ownership.
+		$user_dir = $this->make_temp_dir();
+		Topology_Registry::set_user_dir( $user_dir );
+		$this->seed_topology( $user_dir, 'hand-rolled' );
+
+		$captured                        = [];
+		Topology_Registry::$spawn_runner = static function ( string $t, int $p, string $name, int $stale ) use ( &$captured ): void {
+			$captured[] = [ $t, $p, $name, $stale ];
+		};
+
+		$this->activate( [ 'hand-rolled' ] );
+		Topology_Registry::spawn_worker( 'hand-rolled', 0 );
+
+		$this->assertCount( 1, $captured, 'a user-created topology with no owning plugin still spawns' );
+		$this->assertSame( 'hand-rolled', $captured[0][2] );
+	}
+
+	public function test_spawn_worker_noops_for_a_type_not_in_the_active_set(): void {
 		$dir = $this->make_temp_dir();
 		$this->seed_topology( $dir, 'widget' );
 
-		$captured = [];
-		Topology_Registry::$spawn_runner = static function (
-			string $type,
-			int $partition,
-			string $topology_name,
-			int $stale_timeout
-		) use ( &$captured ): void {
-			$captured[] = [ $type, $partition, $topology_name, $stale_timeout ];
+		$captured                        = [];
+		Topology_Registry::$spawn_runner = static function ( string $t, int $p, string $name, int $stale ) use ( &$captured ): void {
+			$captured[] = [ $t, $p, $name, $stale ];
 		};
 
 		Topology_Registry::register_plugin( 'Acme\\', $dir );
 
-		\do_action( 'newspack_nodes/spawn_worker', 'not-ours', 0 );
+		Topology_Registry::spawn_worker( 'nonexistent', 0 );
 
-		$this->assertSame( [], $captured );
+		$this->assertSame( [], $captured, 'a type with no resolvable topology is a no-op' );
 	}
 
-	public function test_register_plugin_is_idempotent_no_double_spawn(): void {
-		$dir = $this->make_temp_dir();
-		\file_put_contents( $dir . '/widget.tsl', "make_node Echo e\n" );
-
-		$spawns = [];
-		Topology_Registry::$spawn_runner = static function ( string $t, int $p, string $name, int $stale ) use ( &$spawns ): void {
-			$spawns[] = [ $t, $p, $name ];
-		};
-
-		// Two calls (e.g. a double plugins_loaded, or a plugin + a test re-register).
-		Topology_Registry::register_plugin( 'Acme\\', $dir );
-		Topology_Registry::register_plugin( 'Acme\\', $dir );
-
-		\do_action( 'newspack_nodes/spawn_worker', 'widget', 0 );
-
-		$this->assertCount( 1, $spawns, 'a second register_plugin must not register a second spawn handler' );
-	}
-
-	// ── Change A: before_worker_spawn action ───────────────────────────────
-
-	public function test_before_worker_spawn_fires_before_spawn_runner_for_owned_type(): void {
+	public function test_before_worker_spawn_fires_before_the_spawn_runner(): void {
 		$dir = $this->make_temp_dir();
 		$this->seed_topology( $dir, 'widget' );
 
@@ -137,24 +193,19 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 			10,
 			2
 		);
-		Topology_Registry::$spawn_runner = static function (
-			string $type,
-			int $partition,
-			string $topology_name,
-			int $stale_timeout
-		) use ( &$order ): void {
-			$order[] = "runner:{$type}:{$partition}";
+		Topology_Registry::$spawn_runner = static function ( string $t, int $p, string $name, int $stale ) use ( &$order ): void {
+			$order[] = "runner:{$t}:{$p}";
 		};
 
 		Topology_Registry::register_plugin( 'Acme\\', $dir );
+		$this->activate( [ 'widget' ] );
 
-		\do_action( 'newspack_nodes/spawn_worker', 'widget', 0 );
+		Topology_Registry::spawn_worker( 'widget', 0 );
 
-		// Both ran, and the action fired BEFORE the spawn runner seam.
 		$this->assertSame( [ 'before:widget:0', 'runner:widget:0' ], $order );
 	}
 
-	public function test_before_worker_spawn_does_not_fire_for_foreign_type(): void {
+	public function test_before_worker_spawn_does_not_fire_for_an_inactive_type(): void {
 		$dir = $this->make_temp_dir();
 		$this->seed_topology( $dir, 'widget' );
 
@@ -170,64 +221,8 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 
 		Topology_Registry::register_plugin( 'Acme\\', $dir );
 
-		\do_action( 'newspack_nodes/spawn_worker', 'not-ours', 0 );
+		Topology_Registry::spawn_worker( 'nonexistent', 0 );
 
-		$this->assertSame( [], $fired, 'before_worker_spawn must not fire for a type the plugin does not own' );
-	}
-
-	// ── Change B: num_partitions defaults to the substrate option ──────────
-
-	public function test_register_plugin_num_partitions_defaults_to_substrate_option(): void {
-		$dir = $this->make_temp_dir();
-		$this->seed_topology( $dir, 'widget' );
-
-		// Operator-overridable partition count; reset Config so it re-reads.
-		\update_option( 'newspack_nodes_num_partitions', 4 );
-		\Newspack_Nodes\Config::reset();
-
-		// Omit num_partitions entirely — it should resolve from the option.
-		Topology_Registry::register_plugin( 'Acme\\', $dir );
-
-		$catalog = \apply_filters( 'newspack_nodes/topologies', [] );
-		$this->assertSame( 4, $catalog['widget']['num_partitions'], 'omitted num_partitions must resolve to the substrate option' );
-
-		// And expand_workers must emit one descriptor per resolved partition.
-		$workers = \Newspack_Nodes\Bootstrap::expand_workers();
-		$widget  = \array_values( \array_filter( $workers, static fn ( $w ) => 'widget' === $w['type'] ) );
-		$this->assertCount( 4, $widget, 'widget must spawn p0..p3' );
-	}
-
-	public function test_register_plugin_explicit_num_partitions_honored_over_option(): void {
-		$dir = $this->make_temp_dir();
-		$this->seed_topology( $dir, 'widget' );
-
-		\update_option( 'newspack_nodes_num_partitions', 4 );
-		\Newspack_Nodes\Config::reset();
-
-		// Explicit arg wins over the substrate option.
-		Topology_Registry::register_plugin( 'Acme\\', $dir, null, 2 );
-
-		$catalog = \apply_filters( 'newspack_nodes/topologies', [] );
-		$this->assertSame( 2, $catalog['widget']['num_partitions'] );
-	}
-
-	public function test_register_plugin_clamps_num_partitions_to_max_16(): void {
-		$dir = $this->make_temp_dir();
-		$this->seed_topology( $dir, 'widget' );
-
-		Topology_Registry::register_plugin( 'Acme\\', $dir, null, 99 );
-
-		$catalog = \apply_filters( 'newspack_nodes/topologies', [] );
-		$this->assertSame( 16, $catalog['widget']['num_partitions'], 'num_partitions must clamp to 16' );
-	}
-
-	public function test_register_plugin_clamps_num_partitions_to_min_1(): void {
-		$dir = $this->make_temp_dir();
-		$this->seed_topology( $dir, 'widget' );
-
-		Topology_Registry::register_plugin( 'Acme\\', $dir, null, 0 );
-
-		$catalog = \apply_filters( 'newspack_nodes/topologies', [] );
-		$this->assertSame( 1, $catalog['widget']['num_partitions'], 'num_partitions must clamp up to 1' );
+		$this->assertSame( [], $fired, 'before_worker_spawn must not fire for a type not in the active set' );
 	}
 }

@@ -41,10 +41,14 @@ class CliWorkerCommandTest extends TestCase {
 
 		$this->use_base_dir( $this->tmp );
 		Topology_Registry::reset();
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		\Newspack_Nodes\Config::reset();
 	}
 
 	protected function tearDown(): void {
 		Topology_Registry::reset();
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		\Newspack_Nodes\Config::reset();
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
@@ -61,6 +65,12 @@ class CliWorkerCommandTest extends TestCase {
 				return $topologies;
 			}
 		);
+		// Catalog registration alone no longer activates a topology; declare it
+		// in the operator overlay so get_topologies()/expand_workers() honor it.
+		$active                                                = $GLOBALS['_wp_options']['newspack_nodes_topologies'] ?? [];
+		$active[]                                              = $type;
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = \array_values( \array_unique( $active ) );
+		\Newspack_Nodes\Config::reset();
 	}
 
 	// -------------------------------------------------------------------------
