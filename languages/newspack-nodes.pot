@@ -1,0 +1,891 @@
+# Copyright (C) 2026 Automattic
+# This file is distributed under the GPL-2.0-or-later.
+msgid ""
+msgstr ""
+"Project-Id-Version: Newspack Nodes 0.4.0\n"
+"Report-Msgid-Bugs-To: https://wordpress.org/support/plugin/newspack-nodes\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"POT-Creation-Date: 2026-05-26T16:43:18+00:00\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"X-Generator: WP-CLI 2.12.0\n"
+"X-Domain: newspack-nodes\n"
+
+#. Plugin Name of the plugin
+#: newspack-nodes.php
+#: includes/admin/class-admin.php:97
+msgid "Newspack Nodes"
+msgstr ""
+
+#. Description of the plugin
+#: newspack-nodes.php
+msgid "Node-graph runtime for composable PHP services."
+msgstr ""
+
+#. Author of the plugin
+#: newspack-nodes.php
+msgid "Automattic"
+msgstr ""
+
+#: includes/admin/class-admin.php:98
+msgid "Nodes"
+msgstr ""
+
+#: includes/admin/class-admin.php:119
+#: includes/admin/class-admin.php:120
+msgid "Workers"
+msgstr ""
+
+#: includes/admin/class-admin.php:127
+#: includes/admin/class-admin.php:128
+#: src/event-dashboards/RawLogs.js:329
+msgid "Raw Logs"
+msgstr ""
+
+#: includes/admin/class-admin.php:184
+#: includes/admin/class-admin.php:282
+msgid "You do not have permission to access this page."
+msgstr ""
+
+#: includes/admin/class-admin.php:269
+#: includes/admin/class-admin.php:289
+msgid "Nodes Runtime Settings"
+msgstr ""
+
+#: includes/admin/class-admin.php:270
+msgid "Nodes Runtime"
+msgstr ""
+
+#: includes/admin/class-admin.php:296
+msgid "Save Settings"
+msgstr ""
+
+#: includes/admin/class-admin.php:299
+msgid "Reset to Defaults"
+msgstr ""
+
+#: includes/admin/class-admin.php:300
+msgid "Are you sure you want to reset all substrate settings to defaults? This cannot be undone."
+msgstr ""
+
+#: includes/admin/class-admin.php:384
+msgid "Storage Settings"
+msgstr ""
+
+#: includes/admin/class-admin.php:390
+msgid "Num Partitions"
+msgstr ""
+
+#: includes/admin/class-admin.php:397
+msgid "Num Segments"
+msgstr ""
+
+#: includes/admin/class-admin.php:404
+msgid "Segment Size"
+msgstr ""
+
+#: includes/admin/class-admin.php:411
+msgid "Minimum Retention"
+msgstr ""
+
+#: includes/admin/class-admin.php:418
+msgid "Total Log Storage"
+msgstr ""
+
+#: includes/admin/class-admin.php:425
+msgid "Base Directory"
+msgstr ""
+
+#: includes/admin/class-admin.php:432
+msgid "Memcache Servers"
+msgstr ""
+
+#: includes/admin/class-admin.php:441
+msgid "Topologies"
+msgstr ""
+
+#: includes/admin/class-admin.php:447
+msgid "Active Topologies"
+msgstr ""
+
+#: includes/admin/class-admin.php:518
+msgid "Configure log storage and memcache infrastructure. Changing storage layout (base directory, segment size, retention) restarts every worker."
+msgstr ""
+
+#: includes/admin/class-admin.php:522
+msgid "Pick which TSL topologies the supervisor spawns workers for. Each entry runs as its own worker fleet, named after the topology."
+msgstr ""
+
+#: includes/admin/class-admin.php:539
+msgid "No topologies registered. Application plugins must call Newspack_Nodes\\Topology_Registry::register_stock_dir() at load time."
+msgstr ""
+
+#: includes/admin/class-admin.php:554
+msgid "Each checked topology becomes one worker fleet. The supervisor picks up changes on its next loop (~1 minute). Click ↺ to restore the application-shipped defaults, then Save Settings to commit."
+msgstr ""
+
+#: includes/admin/class-admin.php:558
+msgid "Load defaults from config file"
+msgstr ""
+
+#: includes/admin/class-admin.php:583
+msgid "Base directory for logs, locks, and offsets."
+msgstr ""
+
+#: includes/admin/class-admin.php:594
+msgid "Number of log partitions for parallel processing."
+msgstr ""
+
+#: includes/admin/class-admin.php:605
+msgid "Number of segments to retain per partition."
+msgstr ""
+
+#: includes/admin/class-admin.php:616
+msgid "Maximum segment size in bytes."
+msgstr ""
+
+#: includes/admin/class-admin.php:627
+msgid "Minimum retention in seconds. 0 = disabled (pure count-based)."
+msgstr ""
+
+#: includes/admin/class-admin.php:648
+msgid "Memcache servers (one per line, format: host:port). Used for stats aggregation and SSE."
+msgstr ""
+
+#: includes/admin/class-admin.php:649
+msgid "Default:"
+msgstr ""
+
+#: includes/admin/class-admin.php:654
+#: includes/admin/class-admin.php:836
+msgid "Reset to default"
+msgstr ""
+
+#. translators: 1: segment size in MB, 2: number of segments, 3: number of partitions, 4: number of logs
+#: includes/admin/class-admin.php:693
+#, php-format
+msgid "Calculated as: %1$s MB segment × %2$s segments × %3$s partitions × %4$s logs"
+msgstr ""
+
+#: includes/admin/class-admin.php:711
+msgid "Security check failed."
+msgstr ""
+
+#: includes/admin/class-admin.php:714
+msgid "You do not have permission to perform this action."
+msgstr ""
+
+#: includes/admin/class-admin.php:831
+msgid "default"
+msgstr ""
+
+#: includes/admin/class-admin.php:860
+msgid "Clear (use default from config file)"
+msgstr ""
+
+#: src/event-dashboards/RawLogs.js:225
+msgid "Paused"
+msgstr ""
+
+#: src/event-dashboards/RawLogs.js:226
+msgid "Waiting for log lines…"
+msgstr ""
+
+#: src/event-dashboards/RawLogs.js:326
+msgid "Raw logs"
+msgstr ""
+
+#: src/event-dashboards/RawLogs.js:333
+msgid "No logs available"
+msgstr ""
+
+#: src/event-dashboards/RawLogs.js:353
+msgid "Filter…"
+msgstr ""
+
+#. translators: 1: number of matching lines, 2: total number of lines.
+#: src/event-dashboards/RawLogs.js:363
+#, js-format
+msgid "%1$d / %2$d line"
+msgid_plural "%1$d / %2$d lines"
+msgstr[0] ""
+msgstr[1] ""
+
+#. translators: %d: number of lines.
+#: src/event-dashboards/RawLogs.js:374
+#, js-format
+msgid "%d line"
+msgid_plural "%d lines"
+msgstr[0] ""
+msgstr[1] ""
+
+#. translators: %s: lines-per-second rate (one decimal place).
+#: src/event-dashboards/RawLogs.js:387
+#, js-format
+msgid "%s lines/s"
+msgstr ""
+
+#. translators: %d: number of seconds since the last log line.
+#: src/event-dashboards/RawLogs.js:403
+#, js-format
+msgid "%ds ago"
+msgstr ""
+
+#: src/event-dashboards/RawLogs.js:417
+msgid "Resume streaming"
+msgstr ""
+
+#: src/event-dashboards/RawLogs.js:418
+msgid "Pause streaming"
+msgstr ""
+
+#: src/event-dashboards/RawLogs.js:427
+msgid "Clear all lines"
+msgstr ""
+
+#: src/event-dashboards/RawLogs.js:429
+msgid "Clear"
+msgstr ""
+
+#: src/event-dashboards/RawLogs.js:436
+msgid "Connection lost. Reconnecting…"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:119
+msgid "stalled"
+msgstr ""
+
+#. translators: 1: segment id, 2: formatted segment size.
+#: src/event-dashboards/WorkerStatus.js:183
+#, js-format
+msgid "Segment %1$s: %2$s"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:300
+msgid "No segments"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:362
+msgid "Worker age"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:374
+#: src/event-dashboards/WorkerStatus.js:522
+msgid "Heartbeat age"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:404
+msgid "Estimated time to catch up"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:415
+msgid "Restart pending"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:429
+msgid "ALL RUN"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:434
+msgid "ALL DEAD"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:442
+#: src/event-dashboards/WorkerStatus.js:547
+msgid "Request graceful restart"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:486
+#: src/event-dashboards/WorkerStatus.js:492
+msgid "Supervisor"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:499
+msgid "RUN"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:500
+msgid "DEAD"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:504
+msgid "Uptime"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:557
+msgid "restarting…"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:883
+msgid "Loading worker status…"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:905
+#: src/event-dashboards/WorkerStatus.js:909
+msgid "Worker Status"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:920
+msgid "W"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:929
+msgid "R"
+msgstr ""
+
+#: src/event-dashboards/WorkerStatus.js:943
+msgid "Refresh interval"
+msgstr ""
+
+#: src/topology-console/components/CanvasFrame.js:49
+msgid "Save current node positions as this topology's default layout"
+msgstr ""
+
+#: src/topology-console/components/CanvasFrame.js:54
+msgid "Save layout"
+msgstr ""
+
+#: src/topology-console/components/CanvasFrame.js:62
+msgid "Revert to this topology's saved layout (or auto-layout if none)"
+msgstr ""
+
+#: src/topology-console/components/CanvasFrame.js:67
+msgid "Reset layout"
+msgstr ""
+
+#: src/topology-console/components/CanvasFrame.js:77
+msgid "Project"
+msgstr ""
+
+#: src/topology-console/components/CanvasFrame.js:85
+msgid "Drawn"
+msgstr ""
+
+#: src/topology-console/components/CanvasFrame.js:93
+msgid "Sheet"
+msgstr ""
+
+#: src/topology-console/components/CanvasFrame.js:103
+msgid "Scale"
+msgstr ""
+
+#: src/topology-console/components/CanvasFrame.js:106
+msgid "do not detail"
+msgstr ""
+
+#: src/topology-console/components/Header.js:35
+msgid "Topology Console"
+msgstr ""
+
+#: src/topology-console/components/Header.js:45
+msgid "Path"
+msgstr ""
+
+#: src/topology-console/components/Header.js:71
+#: src/topology-console/components/Header.js:75
+msgid "Skin"
+msgstr ""
+
+#: src/topology-console/components/Header.js:94
+msgid "NEW"
+msgstr ""
+
+#: src/topology-console/components/Header.js:103
+msgid "OPEN"
+msgstr ""
+
+#: src/topology-console/components/Header.js:112
+msgid "SAVE"
+msgstr ""
+
+#: src/topology-console/components/Header.js:120
+msgid "Delete this user-saved topology (stock copies are protected)"
+msgstr ""
+
+#: src/topology-console/components/Header.js:125
+msgid "DELETE"
+msgstr ""
+
+#: src/topology-console/components/Header.js:138
+#: src/topology-console/components/Inspector.js:750
+msgid "EDIT"
+msgstr ""
+
+#: src/topology-console/components/Header.js:157
+#: src/topology-console/components/Inspector.js:1107
+msgid "LIVE"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:162
+msgid "peak"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:203
+msgid "streaming"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:207
+msgid "just now"
+msgstr ""
+
+#. translators: %s: seconds since last activity.
+#: src/topology-console/components/Inspector.js:212
+#, js-format
+msgid "%ss ago"
+msgstr ""
+
+#. translators: %d: minutes since last activity.
+#: src/topology-console/components/Inspector.js:219
+#, js-format
+msgid "%dm ago"
+msgstr ""
+
+#. translators: %d: hours since last activity.
+#: src/topology-console/components/Inspector.js:225
+#, js-format
+msgid "%dh ago"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:289
+msgid "Name cannot be empty."
+msgstr ""
+
+#. translators: %s: the node name the user tried to use.
+#: src/topology-console/components/Inspector.js:297
+#, js-format
+msgid "Name '%s' already in use."
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:302
+msgid "Letters, digits, dash, underscore, colon only."
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:325
+msgid "Rename refused — name already taken."
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:390
+msgid "(no formatters registered)"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:412
+msgid "(pick a formatter)"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:438
+msgid "(pick a node)"
+msgstr ""
+
+#. translators: %s: constructor-argument name.
+#: src/topology-console/components/Inspector.js:486
+#, js-format
+msgid "Clear %s"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:610
+msgid "+ add target…"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:621
+msgid "No other nodes to wire to yet."
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:679
+msgid "(none)"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:688
+msgid "Plus virtual edge(s) from verb args — manage in Verbs."
+msgstr ""
+
+#. translators: %s: target node name to remove.
+#: src/topology-console/components/Inspector.js:712
+#, js-format
+msgid "Remove %s"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:759
+msgid "Delete node"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:763
+msgid "Identity"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:777
+#: src/topology-console/components/Inspector.js:1111
+msgid "Routing"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:789
+msgid "Constructor"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:792
+msgid "No constructor arguments."
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:813
+msgid "Verbs"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:816
+msgid "No verbs registered."
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:938
+#: src/topology-console/components/Modal.js:51
+#: src/topology-console/components/Modal.js:94
+#: src/topology-console/components/OpenTopologyModal.js:129
+#: src/topology-console/TopologyConsole.js:1682
+msgid "Cancel"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:946
+msgid "Run"
+msgstr ""
+
+#. translators: %s: verb name (prefixed with TM_REQUEST for request verbs).
+#: src/topology-console/components/Inspector.js:993
+#, js-format
+msgid "Send %s"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1040
+msgid "Select a node to inspect"
+msgstr ""
+
+#. translators: %s: the node id that is no longer present.
+#: src/topology-console/components/Inspector.js:1053
+#, js-format
+msgid "%s no longer present"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1139
+msgid "Activity"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1140
+msgid "last ~60s"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1144
+msgid "messages /s"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1152
+msgid "bytes read /s"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1160
+msgid "bytes written /s"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1170
+msgid "Throughput"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1171
+msgid "cumulative"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1234
+msgid "Send `dump_node <name>` to the worker"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1239
+msgid "Dump"
+msgstr ""
+
+#. translators: %s: the node id to send bytes to.
+#: src/topology-console/components/Inspector.js:1249
+#, js-format
+msgid "Send bytes to %s:"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1261
+msgid "Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1266
+msgid "Send"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1280
+msgid "Stop tracing — `debug_state <name> 0`"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1284
+msgid "Start tracing — `debug_state <name> 1`"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1291
+msgid "Stop Trace"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1292
+msgid "Trace"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1307
+msgid "Disconnect this session from the Tee — `disconnect_node <name>`"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1311
+msgid "Connect this session to the Tee — `connect_node <name>` (its output then flows into the transcript)"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1318
+msgid "Disconnect"
+msgstr ""
+
+#: src/topology-console/components/Inspector.js:1319
+msgid "Connect"
+msgstr ""
+
+#: src/topology-console/components/Modal.js:50
+msgid "Confirm"
+msgstr ""
+
+#: src/topology-console/components/Modal.js:93
+#: src/topology-console/TopologyConsole.js:1669
+msgid "Save"
+msgstr ""
+
+#. translators: %s: the regular expression the input must match.
+#: src/topology-console/components/Modal.js:136
+#, js-format
+msgid "Invalid: must match %s"
+msgstr ""
+
+#: src/topology-console/components/OpenTopologyModal.js:63
+msgid "Open topology"
+msgstr ""
+
+#: src/topology-console/components/OpenTopologyModal.js:69
+msgid "Loading…"
+msgstr ""
+
+#: src/topology-console/components/OpenTopologyModal.js:74
+msgid "Failed to load list."
+msgstr ""
+
+#: src/topology-console/components/OpenTopologyModal.js:79
+msgid "No topologies registered."
+msgstr ""
+
+#: src/topology-console/components/OpenTopologyModal.js:108
+msgid "active"
+msgstr ""
+
+#: src/topology-console/components/ReplFooter.js:22
+msgid "CONNECTING"
+msgstr ""
+
+#: src/topology-console/components/ReplFooter.js:23
+msgid "CONNECTED"
+msgstr ""
+
+#: src/topology-console/components/ReplFooter.js:24
+msgid "DISCONNECTED"
+msgstr ""
+
+#: src/topology-console/components/ReplFooter.js:25
+msgid "CLOSED"
+msgstr ""
+
+#: src/topology-console/components/ReplFooter.js:366
+msgid "Drag to resize transcript"
+msgstr ""
+
+#: src/topology-console/components/ReplFooter.js:370
+msgid "Resize transcript"
+msgstr ""
+
+#: src/topology-console/components/ReplFooter.js:391
+#: src/topology-console/components/ReplFooter.js:395
+msgid "Minimize transcript"
+msgstr ""
+
+#: src/topology-console/components/ReplFooter.js:411
+msgid "Clear and minimize transcript (Ctrl+L clears only)"
+msgstr ""
+
+#: src/topology-console/components/ReplFooter.js:415
+msgid "Clear and minimize transcript"
+msgstr ""
+
+#: src/topology-console/components/ReplFooter.js:447
+msgid "Connecting…"
+msgstr ""
+
+#: src/topology-console/components/ReplFooter.js:475
+#: src/topology-console/components/ReplFooter.js:476
+msgid "Restore transcript"
+msgstr ""
+
+#: src/topology-console/themes.js:11
+msgid "Drafting Plotter"
+msgstr ""
+
+#: src/topology-console/themes.js:14
+msgid "Cyanotype Blueprint"
+msgstr ""
+
+#: src/topology-console/themes.js:16
+msgid "CRT Phosphor Terminal"
+msgstr ""
+
+#: src/topology-console/themes.js:17
+msgid "Swiss Brutalist"
+msgstr ""
+
+#: src/topology-console/themes.js:18
+msgid "Synthwave Outrun"
+msgstr ""
+
+#: src/topology-console/themes.js:19
+msgid "Nord Frost"
+msgstr ""
+
+#: src/topology-console/themes.js:20
+msgid "Aurora Glass"
+msgstr ""
+
+#: src/topology-console/themes.js:23
+msgid "Solarized Workshop"
+msgstr ""
+
+#: src/topology-console/themes.js:27
+msgid "Botanical Naturalist"
+msgstr ""
+
+#: src/topology-console/themes.js:31
+msgid "Bauhaus Constructivist"
+msgstr ""
+
+#: src/topology-console/themes.js:33
+msgid "Neo-Tokyo HUD"
+msgstr ""
+
+#: src/topology-console/themes.js:34
+msgid "Pastel Toy"
+msgstr ""
+
+#: src/topology-console/themes.js:35
+msgid "Control-Room SCADA"
+msgstr ""
+
+#. translators: %s: topology name.
+#: src/topology-console/TopologyConsole.js:466
+#, js-format
+msgid "Saved layout for %s."
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:474
+msgid "Save layout failed"
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:715
+#: src/topology-console/TopologyConsole.js:860
+msgid "[no sse_pid yet] retry once CONNECTED"
+msgstr ""
+
+#. translators: %s: topology name.
+#: src/topology-console/TopologyConsole.js:1270
+#, js-format
+msgid "Delete user-saved topology \"%s\"? Stock copy (if any) will become the active version."
+msgstr ""
+
+#. translators: %s: topology name.
+#: src/topology-console/TopologyConsole.js:1287
+#, js-format
+msgid "Deleted user copy of %s; stock copy now active."
+msgstr ""
+
+#. translators: %s: topology name.
+#: src/topology-console/TopologyConsole.js:1295
+#, js-format
+msgid "Deleted %s."
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:1307
+msgid "Delete failed"
+msgstr ""
+
+#. translators: 1: topology name, 2: source (stock/user/both).
+#: src/topology-console/TopologyConsole.js:1333
+#, js-format
+msgid "Loaded %1$s (%2$s)."
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:1342
+msgid "Open failed"
+msgstr ""
+
+#. translators: %d: number of restarted fleets.
+#: src/topology-console/TopologyConsole.js:1368
+#, js-format
+msgid "Restarted %d fleet."
+msgid_plural "Restarted %d fleets."
+msgstr[0] ""
+msgstr[1] ""
+
+#. translators: 1: topology name, 2: "Restarted N fleet(s)." phrase.
+#: src/topology-console/TopologyConsole.js:1380
+#, js-format
+msgid "Saved %1$s. %2$s"
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:1393
+msgid "Save failed"
+msgstr ""
+
+#. translators: %d: line number in the topology source.
+#: src/topology-console/TopologyConsole.js:1399
+#, js-format
+msgid "(line %d)"
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:1646
+msgid "Discard unsaved changes?"
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:1647
+msgid "Leaving edit mode drops the draft topology. This cannot be undone."
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:1651
+msgid "Discard"
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:1652
+msgid "Keep editing"
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:1660
+msgid "Save topology"
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:1661
+msgid "Choose a name. Letters, numbers, dash, underscore."
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:1665
+msgid "my-topology"
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:1676
+msgid "Reset to saved layout?"
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:1677
+msgid "This replaces your current customizations with the last saved layout (or auto-layout if none). You'll need to Save Layout to make changes permanent."
+msgstr ""
+
+#: src/topology-console/TopologyConsole.js:1681
+msgid "Reset"
+msgstr ""
