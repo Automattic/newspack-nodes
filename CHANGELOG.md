@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Removed the silent `?? '/tmp/newspack-nodes'` `base_directory` fallbacks across the substrate's own readers (`Bootstrap`, `Log_Discovery`, the CLI commands, `Layouts_CI`, `Raw_Logs_CI`, `Workers_CI`). They now resolve through the strict `Config::get_base_directory()`, which throws when `base_directory` is unconfigured — failing loudly instead of silently reading an empty `/tmp/newspack-nodes` while the writer uses the real dir. (The admin settings field falls back to empty string, not `/tmp`, so the page where you'd fix the config never throws.)
+
 ### Fixed
 
 - **Topology console assumed every CI verb targets `<node>:config`.** Command verbs were unconditionally routed to the `<name>:config` sibling interpreter, so a verb on a node that IS a `Command_Interpreter` subclass (the `*_CI_Node` service CIs) hit a non-existent `<name>:config` → `NOT_AVAILABLE`. `Classes_CI` now exposes `is_interpreter` (`is_subclass_of( Command_Interpreter_Node )`); the live invoke + `serializeTsl` + `Node::dump_config()` target the bare node for interpreters and `<name>:config` otherwise, and `parseTsl` round-trips the bare form.

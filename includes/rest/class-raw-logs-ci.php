@@ -60,7 +60,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 						$log_key = self::resolve_log_key( \trim( $args ) );
 
 						$config         = RuntimeConfig::load_config();
-						$base_dir       = (string) ( $config['base_directory'] ?? '/tmp/newspack-nodes' );
+						$base_dir       = RuntimeConfig::get_base_directory();
 						$num_partitions = (int) ( $config['num_partitions'] ?? 1 );
 						$log_file       = "{$log_key}.log";
 						$log_base       = $base_dir . '/logs';

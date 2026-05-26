@@ -82,7 +82,7 @@ class Bootstrap {
 
 	/** Configured base directory for runtime state (locks/, ipc/). */
 	public static function base_dir(): string {
-		return (string) ( Config::load_config()['base_directory'] ?? '/tmp/newspack-nodes' );
+		return Config::get_base_directory();
 	}
 
 	/** Build a Supervisor using NONCE_SALT for HMAC (placeholder fallback only in tests). */

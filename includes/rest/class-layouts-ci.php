@@ -145,7 +145,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 	}
 
 	private static function layouts_dir(): string {
-		$base = (string) ( Config::load_config()['base_directory'] ?? '/tmp/newspack-nodes' );
+		$base = Config::get_base_directory();
 		return \rtrim( $base, '/' ) . '/layouts';
 	}
 

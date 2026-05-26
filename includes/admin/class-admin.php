@@ -579,7 +579,7 @@ class Admin {
 		$defaults = Config::load_config_defaults();
 		$this->render_directory_field(
 			'base_directory',
-			(string) ( $defaults['base_directory'] ?? '/tmp/newspack-nodes' ),
+			(string) ( $defaults['base_directory'] ?? '' ),
 			\__( 'Base directory for logs, locks, and offsets.', 'newspack-nodes' )
 		);
 	}

@@ -23,8 +23,7 @@ final class Log_Discovery {
 		if ( null !== self::$cached ) {
 			return self::$cached;
 		}
-		$config   = Config::load_config();
-		$base_dir = (string) ( $config['base_directory'] ?? '/tmp/newspack-nodes' );
+		$base_dir = Config::get_base_directory();
 		$matches  = \glob( "{$base_dir}/logs/*.log", \GLOB_ONLYDIR );
 		if ( false === $matches ) {
 			return self::$cached = [];

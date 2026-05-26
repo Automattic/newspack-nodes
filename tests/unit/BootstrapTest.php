@@ -464,6 +464,35 @@ class BootstrapTest extends TestCase {
 		$this->assertNotSame( '', $dir );
 	}
 
+	public function test_base_dir_propagates_throw_when_unconfigured(): void {
+		// No silent `/tmp/newspack-nodes` fallback: base_dir() must propagate
+		// Config::get_base_directory()'s RuntimeException when base_directory
+		// is unconfigured, so the supervisor fails loud instead of running
+		// against a phantom default tree.
+		$prev_env = \getenv( 'LOCAL_NEWSPACK_NODES_CONF' );
+		$tmp      = $this->make_temp_dir( 'bootstrap-no-base-' );
+		try {
+			$conf = "{$tmp}/empty-base.php";
+			\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => '' ];\n" );
+			$ref  = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'allowed_config_dirs' );
+			$ref->setAccessible( true );
+			$dirs   = $ref->getValue();
+			$dirs[] = $tmp;
+			$ref->setValue( null, $dirs );
+			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
+			\update_option( 'newspack_nodes_base_directory', '' );
+			\Newspack_Nodes\Config::reset();
+
+			$this->expectException( \RuntimeException::class );
+			$this->expectExceptionMessageMatches( '/base_directory not configured/' );
+			Bootstrap::base_dir();
+		} finally {
+			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . ( false === $prev_env ? '' : $prev_env ) );
+			\Newspack_Nodes\Config::reset();
+			$this->rmdir_recursive( $tmp );
+		}
+	}
+
 	// ── register_rest_routes ──────────────────────────────────────────────
 
 	public function test_register_rest_routes_registers_all_substrate_routes(): void {
