@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Added a shared `ConnectionBanner` component (`src/shared/components/`, mirrored into newspack-event-logger-nodes by `sync-shared.sh`) and wired it into the **Raw Logs** SSE dashboard (a new `onStatus`→`controlSink`→`connectionError` reconnect surface, mirroring Error Log) and the **Worker Status** dashboard (replacing its bespoke `worker-status-error-inline` markup) — so every dashboard's connection/reconnect banner is identical.
 - Removed the silent `?? '/tmp/newspack-nodes'` `base_directory` fallbacks across the substrate's own readers (`Bootstrap`, `Log_Discovery`, the CLI commands, `Layouts_CI`, `Raw_Logs_CI`, `Workers_CI`). They now resolve through the strict `Config::get_base_directory()`, which throws when `base_directory` is unconfigured — failing loudly instead of silently reading an empty `/tmp/newspack-nodes` while the writer uses the real dir. (The admin settings field falls back to empty string, not `/tmp`, so the page where you'd fix the config never throws.)
+- **i18n infrastructure** (foundation for translating the dashboard UI): declared `@wordpress/i18n` as a dependency, enabled the `@wordpress/eslint-plugin` i18n ruleset (pinned to the `newspack-nodes` text domain), and added the `Text Domain` / `Domain Path` plugin headers plus a `make-pot` script + `languages/` dir. (`build.mjs` already externalized `@wordpress/i18n → wp.i18n`.) No UI strings are wrapped yet — that lands per-dashboard in follow-up changes.
 
 ### Fixed
 

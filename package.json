@@ -19,12 +19,14 @@
 		"lint:php": "phpcs",
 		"lint:phpstan": "vendor/bin/phpstan analyse --memory-limit=1G --no-progress",
 		"lint:scss": "stylelint --customSyntax postcss-scss 'src/**/*.scss'",
+		"make-pot": "wp i18n make-pot . languages/newspack-nodes.pot --domain=newspack-nodes --exclude=node_modules,build,vendor,tests,release",
 		"test:js": "jest --passWithNoTests",
 		"test:js:coverage": "jest --passWithNoTests --coverage --collectCoverageFrom='src/**/*.{js,jsx}' --coverageReporters=json-summary --coverageReporters=text"
 	},
 	"dependencies": {
 		"@wordpress/api-fetch": "^7.0.0",
-		"@wordpress/element": "^6.0.0"
+		"@wordpress/element": "^6.0.0",
+		"@wordpress/i18n": "^6.18.0"
 	},
 	"devDependencies": {
 		"@babel/preset-env": "^7.29.5",
