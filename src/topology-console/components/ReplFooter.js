@@ -3,6 +3,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 import { longestCommonPrefix } from '../nodes/completion';
 
 // The whitespace-delimited token under the cursor — the last token of the
@@ -18,10 +19,10 @@ function splitTrailingToken( value ) {
 }
 
 const STATUS_LABELS = {
-	connecting: 'CONNECTING',
-	open: 'CONNECTED',
-	error: 'DISCONNECTED',
-	closed: 'CLOSED',
+	connecting: __( 'CONNECTING', 'newspack-nodes' ),
+	open: __( 'CONNECTED', 'newspack-nodes' ),
+	error: __( 'DISCONNECTED', 'newspack-nodes' ),
+	closed: __( 'CLOSED', 'newspack-nodes' ),
 };
 
 // Transcript pane sizing; default 20% of canvas, drag-resizable, persisted.
@@ -362,8 +363,14 @@ export default function ReplFooter( {
 					<div
 						className="topology-repl__resize-handle"
 						onMouseDown={ handleResizeStart }
-						title="Drag to resize transcript"
-						aria-label="Resize transcript"
+						title={ __(
+							'Drag to resize transcript',
+							'newspack-nodes'
+						) }
+						aria-label={ __(
+							'Resize transcript',
+							'newspack-nodes'
+						) }
 						role="separator"
 						aria-orientation="horizontal"
 						// Sibling of the transcript so it stays anchored to the top edge.
@@ -381,8 +388,14 @@ export default function ReplFooter( {
 								type="button"
 								className="topology-repl__toggle"
 								onClick={ () => setExpanded( false ) }
-								title="Minimize transcript"
-								aria-label="Minimize transcript"
+								title={ __(
+									'Minimize transcript',
+									'newspack-nodes'
+								) }
+								aria-label={ __(
+									'Minimize transcript',
+									'newspack-nodes'
+								) }
 							>
 								▼
 							</button>
@@ -395,8 +408,14 @@ export default function ReplFooter( {
 									}
 									setExpanded( false );
 								} }
-								title="Clear and minimize transcript (Ctrl+L clears only)"
-								aria-label="Clear and minimize transcript"
+								title={ __(
+									'Clear and minimize transcript (Ctrl+L clears only)',
+									'newspack-nodes'
+								) }
+								aria-label={ __(
+									'Clear and minimize transcript',
+									'newspack-nodes'
+								) }
 							>
 								✕
 							</button>
@@ -424,7 +443,9 @@ export default function ReplFooter( {
 					ref={ inputRef }
 					type="text"
 					className="topology-repl__input"
-					placeholder={ canSend ? '' : 'Connecting…' }
+					placeholder={
+						canSend ? '' : __( 'Connecting…', 'newspack-nodes' )
+					}
 					value={ value }
 					onChange={ ( ev ) => {
 						tabStreak.current = 0;
@@ -451,8 +472,11 @@ export default function ReplFooter( {
 						type="button"
 						className="topology-repl__toggle"
 						onClick={ () => setExpanded( true ) }
-						title="Restore transcript"
-						aria-label="Restore transcript"
+						title={ __( 'Restore transcript', 'newspack-nodes' ) }
+						aria-label={ __(
+							'Restore transcript',
+							'newspack-nodes'
+						) }
 					>
 						▲
 					</button>

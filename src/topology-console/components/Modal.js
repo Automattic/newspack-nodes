@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
+import { __, sprintf } from '@wordpress/i18n';
 
 export function ModalShell( { title, onDismiss, children } ) {
 	const ref = useRef( null );
@@ -46,8 +47,8 @@ export function ModalShell( { title, onDismiss, children } ) {
 export function ConfirmModal( {
 	title,
 	body,
-	confirmLabel = 'Confirm',
-	cancelLabel = 'Cancel',
+	confirmLabel = __( 'Confirm', 'newspack-nodes' ),
+	cancelLabel = __( 'Cancel', 'newspack-nodes' ),
 	danger = false,
 	onConfirm,
 	onCancel,
@@ -89,8 +90,8 @@ export function PromptModal( {
 	initialValue = '',
 	placeholder = '',
 	pattern,
-	confirmLabel = 'Save',
-	cancelLabel = 'Cancel',
+	confirmLabel = __( 'Save', 'newspack-nodes' ),
+	cancelLabel = __( 'Cancel', 'newspack-nodes' ),
 	onConfirm,
 	onCancel,
 } ) {
@@ -130,7 +131,11 @@ export function PromptModal( {
 				/>
 				{ pattern && ! valid && '' !== value && (
 					<div className="topology-modal__hint">
-						Invalid: must match { String( pattern ) }
+						{ sprintf(
+							// translators: %s: the regular expression the input must match.
+							__( 'Invalid: must match %s', 'newspack-nodes' ),
+							String( pattern )
+						) }
 					</div>
 				) }
 			</div>
