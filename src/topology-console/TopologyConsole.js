@@ -203,6 +203,10 @@ export default function TopologyConsole() {
 	const [ draft, setDraft ] = useState( { nodes: [], edges: [] } );
 	const [ baseline, setBaseline ] = useState( { nodes: [], edges: [] } );
 	const [ editingName, setEditingName ] = useState( '' );
+	// Source ('stock' | 'user' | 'both' | '') of the topology currently loaded
+	// for editing — from the get/save response. Drives the DELETE button without
+	// needing the Open-modal topology list (which isn't loaded until Open shows).
+	const [ editingSource, setEditingSource ] = useState( '' );
 	const [ discardModal, setDiscardModal ] = useState( null );
 	const [ saveModal, setSaveModal ] = useState( null );
 	const [ openModalShown, setOpenModalShown ] = useState( false );
@@ -1046,6 +1050,7 @@ export default function TopologyConsole() {
 				// Auto-load the currently-live topology; blank canvas if none.
 				setMode( 'edit' );
 				setEditingName( '' );
+				setEditingSource( '' );
 				rateRef.current = new Map();
 				setRateVersion( ( v ) => v + 1 );
 				// Preserve overrides + viewport from a prior edit session.
@@ -1059,6 +1064,7 @@ export default function TopologyConsole() {
 							setDraft( loaded );
 							setBaseline( loaded );
 							setEditingName( resp.name );
+							setEditingSource( resp.source || '' );
 							// Initial seed; the catalog-load effect re-seeds.
 							seedOverridesFromLayout();
 						} )
@@ -1238,6 +1244,7 @@ export default function TopologyConsole() {
 		setDraft( blank );
 		setBaseline( blank );
 		setEditingName( '' );
+		setEditingSource( '' );
 		setSelectedId( null );
 		setSelectedEdge( null );
 		setPositionOverrides( {} );
@@ -1247,17 +1254,15 @@ export default function TopologyConsole() {
 	}, [] );
 
 	// DELETE shows only for a topology with a user-saved copy (stock is protected).
-	const canDeleteCurrent = useMemo( () => {
-		if ( mode !== 'edit' || ! editingName ) {
-			return false;
-		}
-		const entry = ( topologyList.topologies || [] ).find(
-			( t ) => t.name === editingName
-		);
-		return (
-			!! entry && ( entry.source === 'user' || entry.source === 'both' )
-		);
-	}, [ mode, editingName, topologyList.topologies ] );
+	// Keyed off the source of the loaded topology (from the get/save response),
+	// so it appears on edit/after-save without first opening the Open modal.
+	const canDeleteCurrent = useMemo(
+		() =>
+			mode === 'edit' &&
+			!! editingName &&
+			( editingSource === 'user' || editingSource === 'both' ),
+		[ mode, editingName, editingSource ]
+	);
 
 	const handleDelete = useCallback( async () => {
 		if ( ! editingName ) {
@@ -1300,6 +1305,7 @@ export default function TopologyConsole() {
 			// Drop back to view mode; the file no longer exists.
 			setMode( 'view' );
 			setEditingName( '' );
+			setEditingSource( '' );
 		} catch ( e ) {
 			const msg =
 				( e && e.data && e.data.message ) ||
@@ -1319,6 +1325,7 @@ export default function TopologyConsole() {
 				setDraft( next );
 				setBaseline( next );
 				setEditingName( resp.name );
+				setEditingSource( resp.source || '' );
 				setSelectedId( null );
 				setSelectedEdge( null );
 				// Seed from the loaded graph so later drops don't reshuffle it.
@@ -1383,6 +1390,10 @@ export default function TopologyConsole() {
 					),
 				} );
 				setEditingName( resp.name );
+				// Just-written user copy is now deletable: 'both' when it shadows
+				// a stock copy, else 'user'. Keeps the DELETE button correct after
+				// save without waiting for an Open-modal list refresh.
+				setEditingSource( resp.shadows_stock ? 'both' : 'user' );
 				// Refresh the picker so the next Open sees the new topology.
 				topologyList.reload();
 				setMode( 'view' );

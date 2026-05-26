@@ -534,6 +534,64 @@ class TopologiesCITest extends TestCase {
 		$this->assertTrue( $result['stock_fallback'] );
 	}
 
+	public function test_delete_fires_restart_fleet_for_active_topology(): void {
+		// Symmetry with save: deleting a user override that shadows a stock copy
+		// must restart the fleet so the worker reloads the stock version.
+		\file_put_contents( "{$this->stock}/shadowed.tsl", "make_node Echo s\n" );
+		\file_put_contents( "{$this->user}/shadowed.tsl",  "make_node Echo u\n" );
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ): array {
+				$topologies['shadowed'] = [
+					'topology'       => 'shadowed',
+					'num_partitions' => 1,
+					'stale_timeout'  => 60,
+				];
+				return $topologies;
+			}
+		);
+		$fired = [];
+		\add_action(
+			'newspack_nodes/restart_fleet',
+			static function ( string $name ) use ( &$fired ): void {
+				$fired[] = $name;
+			}
+		);
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'delete',
+			null,
+			'shadowed'
+		);
+
+		$this->assertSame( [ 'shadowed' ], $result['restarted_fleets'] );
+		$this->assertSame( [ 'shadowed' ], $fired );
+	}
+
+	public function test_delete_does_not_fire_restart_for_inactive_topology(): void {
+		\file_put_contents( "{$this->user}/dormant.tsl", "make_node Echo e\n" );
+		$fired = [];
+		\add_action(
+			'newspack_nodes/restart_fleet',
+			static function ( string $name ) use ( &$fired ): void {
+				$fired[] = $name;
+			}
+		);
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'delete',
+			null,
+			'dormant'
+		);
+
+		$this->assertSame( [], $result['restarted_fleets'] );
+		$this->assertSame( [], $fired );
+	}
+
 	public function test_delete_rejects_when_no_user_file_exists(): void {
 		// Stock copy present, but no user file — delete is illegal because
 		// stock topologies are immutable.
