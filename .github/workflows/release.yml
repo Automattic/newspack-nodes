@@ -47,14 +47,9 @@ jobs:
 
       - name: Build release archive
         if: steps.validate.outputs.is_release == 'true'
-        # `npm install` (not `npm ci`): the fork's lockfile drifts from
-        # package.json and strict-lockfile mode fails on a fresh clone.
-        # `release:archive` (build-release.sh) is the single source of truth for
-        # what ships — the same script developers run locally. It builds assets
-        # (incl. sync-shared), rsyncs via .distignore, installs production-only
-        # vendor, and zips.
+        # npm ci: reproducible install from the committed lock; release:archive (build-release.sh) is the single source of truth for what ships.
         run: |
-          npm install
+          npm ci --prefer-offline --no-audit --no-fund
           npm run release:archive
 
       - name: Extract changelog notes
