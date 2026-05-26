@@ -15,6 +15,7 @@
  */
 
 import { useState, useEffect, useRef, useMemo } from '@wordpress/element';
+import { __, _n, sprintf } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
 import { useNodeState } from '../runtime/react';
@@ -220,7 +221,9 @@ export default function RawLogs() {
 				ctx.fillStyle = COLOR_PARTITION;
 				ctx.textAlign = 'center';
 				ctx.fillText(
-					isPaused ? 'Paused' : 'Waiting for log lines...',
+					isPaused
+						? __( 'Paused', 'newspack-nodes' )
+						: __( 'Waiting for log lines…', 'newspack-nodes' ),
 					width / 2,
 					height / 2
 				);
@@ -320,14 +323,14 @@ export default function RawLogs() {
 		<div
 			className="newspack-nodes-raw-logs"
 			role="region"
-			aria-label="Raw logs"
+			aria-label={ __( 'Raw logs', 'newspack-nodes' ) }
 		>
 			<div className="newspack-nodes-raw-logs-header">
-				<h3>Raw Logs</h3>
+				<h3>{ __( 'Raw Logs', 'newspack-nodes' ) }</h3>
 				<div className="newspack-nodes-raw-logs-controls">
 					{ availableLogs.length === 0 && (
 						<span className="newspack-nodes-raw-logs-status">
-							No logs available
+							{ __( 'No logs available', 'newspack-nodes' ) }
 						</span>
 					) }
 					{ availableLogs.length > 0 && (
@@ -347,19 +350,43 @@ export default function RawLogs() {
 					<input
 						type="text"
 						className="newspack-nodes-raw-logs-search"
-						placeholder="Filter..."
+						placeholder={ __( 'Filter…', 'newspack-nodes' ) }
 						value={ filter }
 						onChange={ ( e ) => setFilter( e.target.value ) }
 					/>
 
 					<span className="newspack-nodes-raw-logs-stats">
 						<span className="newspack-nodes-raw-logs-count">
-							{ filteredLines.length }
-							{ filter && ` / ${ lines.length }` } lines
+							{ filter
+								? sprintf(
+										// translators: 1: number of matching lines, 2: total number of lines.
+										_n(
+											'%1$d / %2$d line',
+											'%1$d / %2$d lines',
+											lines.length,
+											'newspack-nodes'
+										),
+										filteredLines.length,
+										lines.length
+								  )
+								: sprintf(
+										// translators: %d: number of lines.
+										_n(
+											'%d line',
+											'%d lines',
+											filteredLines.length,
+											'newspack-nodes'
+										),
+										filteredLines.length
+								  ) }
 						</span>
 						{ linesPerSecond > 0 && (
 							<span className="newspack-nodes-raw-logs-rps">
-								{ linesPerSecond.toFixed( 1 ) } lines/s
+								{ sprintf(
+									// translators: %s: lines-per-second rate (one decimal place).
+									__( '%s lines/s', 'newspack-nodes' ),
+									linesPerSecond.toFixed( 1 )
+								) }
 							</span>
 						) }
 						{ staleSec !== null && (
@@ -371,7 +398,11 @@ export default function RawLogs() {
 									marginLeft: '8px',
 								} }
 							>
-								{ staleSec }s ago
+								{ sprintf(
+									// translators: %d: number of seconds since the last log line.
+									__( '%ds ago', 'newspack-nodes' ),
+									staleSec
+								) }
 							</span>
 						) }
 					</span>
@@ -382,7 +413,9 @@ export default function RawLogs() {
 						}` }
 						onClick={ () => setPaused( ! isPaused ) }
 						title={
-							isPaused ? 'Resume streaming' : 'Pause streaming'
+							isPaused
+								? __( 'Resume streaming', 'newspack-nodes' )
+								: __( 'Pause streaming', 'newspack-nodes' )
 						}
 					>
 						{ isPaused ? '▶' : '⏸' }
@@ -391,14 +424,20 @@ export default function RawLogs() {
 					<button
 						className="newspack-nodes-raw-logs-btn"
 						onClick={ handleClear }
-						title="Clear all lines"
+						title={ __( 'Clear all lines', 'newspack-nodes' ) }
 					>
-						Clear
+						{ __( 'Clear', 'newspack-nodes' ) }
 					</button>
 				</div>
 			</div>
 
-			<ConnectionBanner connectionError={ connectionError } />
+			<ConnectionBanner
+				connectionError={ connectionError }
+				message={ __(
+					'Connection lost. Reconnecting…',
+					'newspack-nodes'
+				) }
+			/>
 
 			<div
 				className="newspack-nodes-raw-logs-canvas-container"

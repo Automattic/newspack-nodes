@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useRef } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 
 function ModalShell( { title, onDismiss, children } ) {
 	useEffect( () => {
@@ -58,19 +59,24 @@ export default function OpenTopologyModal( {
 	}
 
 	return (
-		<ModalShell title="Open topology" onDismiss={ onCancel }>
+		<ModalShell
+			title={ __( 'Open topology', 'newspack-nodes' ) }
+			onDismiss={ onCancel }
+		>
 			<div className="topology-modal__body">
 				{ loading && (
-					<div className="topology-edit-empty">Loading…</div>
+					<div className="topology-edit-empty">
+						{ __( 'Loading…', 'newspack-nodes' ) }
+					</div>
 				) }
 				{ error && (
 					<div className="topology-edit-empty topology-edit-empty--error">
-						Failed to load list.
+						{ __( 'Failed to load list.', 'newspack-nodes' ) }
 					</div>
 				) }
 				{ ! loading && ! error && ! topologies.length && (
 					<div className="topology-edit-empty">
-						No topologies registered.
+						{ __( 'No topologies registered.', 'newspack-nodes' ) }
 					</div>
 				) }
 
@@ -99,7 +105,10 @@ export default function OpenTopologyModal( {
 											</span>
 											{ t.active && (
 												<span className="topology-open-item__badge">
-													active
+													{ __(
+														'active',
+														'newspack-nodes'
+													) }
 												</span>
 											) }
 										</button>
@@ -117,7 +126,7 @@ export default function OpenTopologyModal( {
 					className="topology-modal__btn"
 					onClick={ onCancel }
 				>
-					Cancel
+					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 			</div>
 		</ModalShell>

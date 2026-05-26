@@ -2,6 +2,8 @@
  * Top header — brand, subtitle, cwd path selector, mode toggle.
  */
 
+import { __ } from '@wordpress/i18n';
+
 const VERSION =
 	( window.NewspackNodesData && window.NewspackNodesData.version ) || '';
 const HOST = window.location.hostname;
@@ -30,7 +32,7 @@ export default function Header( {
 				NEWSPACK<span className="topology-brand__colon">::</span>NODES
 			</div>
 			<div className="topology-subtitle">
-				Topology Console
+				{ __( 'Topology Console', 'newspack-nodes' ) }
 				{ VERSION ? ` · v${ VERSION }` : '' }
 				{ ' · ' }
 				{ HOST }
@@ -39,7 +41,9 @@ export default function Header( {
 				{ /* Path selector applies only to the live feed, not edit mode. */ }
 				{ mode !== 'edit' && (
 					<>
-						<span className="topology-ctl-label">Path</span>
+						<span className="topology-ctl-label">
+							{ __( 'Path', 'newspack-nodes' ) }
+						</span>
 						<select
 							className="topology-select"
 							value={ path }
@@ -63,10 +67,12 @@ export default function Header( {
 					</>
 				) }
 				{ /* Skin picker — global preference, shown in every mode. */ }
-				<span className="topology-ctl-label">Skin</span>
+				<span className="topology-ctl-label">
+					{ __( 'Skin', 'newspack-nodes' ) }
+				</span>
 				<select
 					className="topology-select topology-select--skin"
-					aria-label="Skin"
+					aria-label={ __( 'Skin', 'newspack-nodes' ) }
 					value={ theme }
 					onChange={ ( e ) =>
 						onThemeChange && onThemeChange( e.target.value )
@@ -85,7 +91,7 @@ export default function Header( {
 							className="topology-mode__btn topology-mode__btn--new"
 							onClick={ () => onNew && onNew() }
 						>
-							NEW
+							{ __( 'NEW', 'newspack-nodes' ) }
 						</button>
 					) }
 					{ mode === 'edit' && (
@@ -94,7 +100,7 @@ export default function Header( {
 							className="topology-mode__btn topology-mode__btn--open"
 							onClick={ () => onOpen && onOpen() }
 						>
-							OPEN
+							{ __( 'OPEN', 'newspack-nodes' ) }
 						</button>
 					) }
 					{ mode === 'edit' && (
@@ -103,7 +109,7 @@ export default function Header( {
 							className="topology-mode__btn topology-mode__btn--save"
 							onClick={ () => onSave && onSave() }
 						>
-							SAVE
+							{ __( 'SAVE', 'newspack-nodes' ) }
 						</button>
 					) }
 					{ mode === 'edit' && canDelete && (
@@ -111,9 +117,12 @@ export default function Header( {
 							type="button"
 							className="topology-mode__btn topology-mode__btn--delete"
 							onClick={ () => onDelete && onDelete() }
-							title="Delete this user-saved topology (stock copies are protected)"
+							title={ __(
+								'Delete this user-saved topology (stock copies are protected)',
+								'newspack-nodes'
+							) }
 						>
-							DELETE
+							{ __( 'DELETE', 'newspack-nodes' ) }
 						</button>
 					) }
 					{ canEdit && (
@@ -126,7 +135,7 @@ export default function Header( {
 								onModeChange && onModeChange( 'edit' )
 							}
 						>
-							EDIT
+							{ __( 'EDIT', 'newspack-nodes' ) }
 						</button>
 					) }
 					<button
@@ -145,7 +154,7 @@ export default function Header( {
 									: ''
 							}` }
 						/>
-						LIVE
+						{ __( 'LIVE', 'newspack-nodes' ) }
 						{ /* Always-rendered slot (em-dash until first uptime) so the button width is stable. */ }
 						<span className="topology-uptime">
 							{ uptime || '—' }

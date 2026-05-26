@@ -2,6 +2,8 @@
  * Decorative frame around the SVG canvas — engineering plotter chrome.
  */
 
+import { __ } from '@wordpress/i18n';
+
 const DRAWN_BY =
 	( window.NewspackNodesData && window.NewspackNodesData.userLogin ) || '—';
 
@@ -44,9 +46,12 @@ export default function CanvasFrame( {
 						type="button"
 						className="topology-canvas__layout-chip"
 						onClick={ onSaveLayout }
-						title="Save current node positions as this topology's default layout"
+						title={ __(
+							"Save current node positions as this topology's default layout",
+							'newspack-nodes'
+						) }
 					>
-						💾 Save layout
+						💾 { __( 'Save layout', 'newspack-nodes' ) }
 					</button>
 				) }
 				{ onResetLayout && (
@@ -54,9 +59,12 @@ export default function CanvasFrame( {
 						type="button"
 						className="topology-canvas__layout-chip"
 						onClick={ onResetLayout }
-						title="Revert to this topology's saved layout (or auto-layout if none)"
+						title={ __(
+							"Revert to this topology's saved layout (or auto-layout if none)",
+							'newspack-nodes'
+						) }
 					>
-						↺ Reset layout
+						↺ { __( 'Reset layout', 'newspack-nodes' ) }
 					</button>
 				) }
 			</div>
@@ -65,19 +73,25 @@ export default function CanvasFrame( {
 
 			<div className="topology-title-block">
 				<div className="topology-title-block__row">
-					<div className="topology-title-block__k">Project</div>
+					<div className="topology-title-block__k">
+						{ __( 'Project', 'newspack-nodes' ) }
+					</div>
 					<div className="topology-title-block__v topology-title-block__v--proj">
 						EVENT LOG/NODES
 					</div>
 				</div>
 				<div className="topology-title-block__row">
-					<div className="topology-title-block__k">Drawn</div>
+					<div className="topology-title-block__k">
+						{ __( 'Drawn', 'newspack-nodes' ) }
+					</div>
 					<div className="topology-title-block__v">
 						{ DRAWN_BY } · { todayISO() }
 					</div>
 				</div>
 				<div className="topology-title-block__row">
-					<div className="topology-title-block__k">Sheet</div>
+					<div className="topology-title-block__k">
+						{ __( 'Sheet', 'newspack-nodes' ) }
+					</div>
 					<div className="topology-title-block__v">
 						{ isWorker
 							? `${ topology }.p${ partition }`
@@ -85,9 +99,11 @@ export default function CanvasFrame( {
 					</div>
 				</div>
 				<div className="topology-title-block__row">
-					<div className="topology-title-block__k">Scale</div>
+					<div className="topology-title-block__k">
+						{ __( 'Scale', 'newspack-nodes' ) }
+					</div>
 					<div className="topology-title-block__v">
-						1:1 · do not detail
+						1:1 · { __( 'do not detail', 'newspack-nodes' ) }
 					</div>
 				</div>
 			</div>

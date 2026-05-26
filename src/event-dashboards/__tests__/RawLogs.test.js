@@ -217,7 +217,8 @@ describe( 'RawLogs', () => {
 		const { container } = render( <RawLogs /> );
 		tickFrame();
 		let count = container.querySelector( '.newspack-nodes-raw-logs-count' );
-		expect( count.textContent ).toMatch( /1.*lines/ );
+		// Singular: one line renders "1 line" (the count is wrapped in `_n`).
+		expect( count.textContent.trim() ).toBe( '1 line' );
 		const clear = Array.from(
 			container.querySelectorAll( '.newspack-nodes-raw-logs-btn' )
 		).find( ( b ) => b.textContent === 'Clear' );
