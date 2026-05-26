@@ -3,6 +3,7 @@
  */
 
 import { useEffect, useState } from '@wordpress/element';
+import { __, sprintf } from '@wordpress/i18n';
 import { ModalShell } from './Modal';
 
 function FieldRow( { k, v, vClass } ) {
@@ -158,7 +159,7 @@ function SparklineRow( { label, history, currentValue, format } ) {
 						{ format( currentValue ) }
 					</span>
 					<span className="topology-insp__spark-peak">
-						peak { format( peak ) }
+						{ __( 'peak', 'newspack-nodes' ) } { format( peak ) }
 					</span>
 				</span>
 			</div>
@@ -199,19 +200,31 @@ function formatBytes( n ) {
 
 function formatLastSeen( ts, live ) {
 	if ( ts === undefined || ts === null ) {
-		return live ? 'streaming' : '—';
+		return live ? __( 'streaming', 'newspack-nodes' ) : '—';
 	}
 	const ago = Date.now() / 1000 - ts;
 	if ( ago < 1 ) {
-		return 'just now';
+		return __( 'just now', 'newspack-nodes' );
 	}
 	if ( ago < 60 ) {
-		return `${ ago.toFixed( 1 ) }s ago`;
+		return sprintf(
+			// translators: %s: seconds since last activity.
+			__( '%ss ago', 'newspack-nodes' ),
+			ago.toFixed( 1 )
+		);
 	}
 	if ( ago < 3600 ) {
-		return `${ Math.round( ago / 60 ) }m ago`;
+		return sprintf(
+			// translators: %d: minutes since last activity.
+			__( '%dm ago', 'newspack-nodes' ),
+			Math.round( ago / 60 )
+		);
 	}
-	return `${ Math.round( ago / 3600 ) }h ago`;
+	return sprintf(
+		// translators: %d: hours since last activity.
+		__( '%dh ago', 'newspack-nodes' ),
+		Math.round( ago / 3600 )
+	);
 }
 
 // Edit-mode form: schema-driven Constructor + Verbs sections for the draft node.
@@ -273,16 +286,23 @@ function NameField( { node, takenNames, onRenameNode } ) {
 	const validate = ( raw ) => {
 		const trimmed = String( raw || '' ).trim();
 		if ( ! trimmed ) {
-			return 'Name cannot be empty.';
+			return __( 'Name cannot be empty.', 'newspack-nodes' );
 		}
 		if ( trimmed === node.id ) {
 			return '';
 		}
 		if ( takenNames.has( trimmed ) ) {
-			return `Name '${ trimmed }' already in use.`;
+			return sprintf(
+				// translators: %s: the node name the user tried to use.
+				__( "Name '%s' already in use.", 'newspack-nodes' ),
+				trimmed
+			);
 		}
 		if ( ! /^[a-zA-Z0-9_:-]+$/.test( trimmed ) ) {
-			return 'Letters, digits, dash, underscore, colon only.';
+			return __(
+				'Letters, digits, dash, underscore, colon only.',
+				'newspack-nodes'
+			);
 		}
 		return '';
 	};
@@ -301,7 +321,9 @@ function NameField( { node, takenNames, onRenameNode } ) {
 		if ( ! ok ) {
 			// Caller refused (collision raced in) — snap back and explain.
 			setValue( node.id );
-			setError( 'Rename refused — name already taken.' );
+			setError(
+				__( 'Rename refused — name already taken.', 'newspack-nodes' )
+			);
 		}
 	};
 
@@ -365,7 +387,10 @@ function CtorField( {
 						type="text"
 						className="topology-edit-row__input"
 						value={ value ?? '' }
-						placeholder="(no formatters registered)"
+						placeholder={ __(
+							'(no formatters registered)',
+							'newspack-nodes'
+						) }
 						onChange={ ( e ) => onChange( e.target.value ) }
 					/>
 				</div>
@@ -383,7 +408,9 @@ function CtorField( {
 					value={ value ?? '' }
 					onChange={ ( e ) => onChange( e.target.value ) }
 				>
-					<option value="">(pick a formatter)</option>
+					<option value="">
+						{ __( '(pick a formatter)', 'newspack-nodes' ) }
+					</option>
 					{ formatters.map( ( name ) => (
 						<option key={ name } value={ name }>
 							{ name }
@@ -407,7 +434,9 @@ function CtorField( {
 					value={ value ?? '' }
 					onChange={ ( e ) => onChange( e.target.value ) }
 				>
-					<option value="">(pick a node)</option>
+					<option value="">
+						{ __( '(pick a node)', 'newspack-nodes' ) }
+					</option>
 					{ nodeNames.map( ( name ) => (
 						<option key={ name } value={ name }>
 							{ name }
@@ -452,7 +481,11 @@ function CtorField( {
 					<button
 						type="button"
 						className="topology-edit-row__clear"
-						aria-label={ `Clear ${ spec.name }` }
+						aria-label={ sprintf(
+							// translators: %s: constructor-argument name.
+							__( 'Clear %s', 'newspack-nodes' ),
+							spec.name
+						) }
 						onClick={ () => onChange( '' ) }
 					>
 						×
@@ -573,7 +606,9 @@ function TeeTargetsField( {
 							onConnect( node.id, e.target.value );
 						} }
 					>
-						<option value="">+ add target…</option>
+						<option value="">
+							{ __( '+ add target…', 'newspack-nodes' ) }
+						</option>
 						{ available.map( ( n ) => (
 							<option key={ n } value={ n }>
 								{ n }
@@ -583,7 +618,10 @@ function TeeTargetsField( {
 				) }
 				{ available.length === 0 && targets.length === 0 && (
 					<span className="topology-edit-row__hint">
-						No other nodes to wire to yet.
+						{ __(
+							'No other nodes to wire to yet.',
+							'newspack-nodes'
+						) }
 					</span>
 				) }
 			</div>
@@ -638,7 +676,7 @@ function SingleTargetField( {
 				value={ currentTarget }
 				onChange={ ( e ) => handleChange( e.target.value ) }
 			>
-				<option value="">(none)</option>
+				<option value="">{ __( '(none)', 'newspack-nodes' ) }</option>
 				{ options.map( ( n ) => (
 					<option key={ n } value={ n }>
 						{ n }
@@ -647,7 +685,10 @@ function SingleTargetField( {
 			</select>
 			{ targets.some( ( e ) => e.virtual ) && (
 				<span className="topology-edit-row__hint">
-					Plus virtual edge(s) from verb args — manage in Verbs.
+					{ __(
+						'Plus virtual edge(s) from verb args — manage in Verbs.',
+						'newspack-nodes'
+					) }
 				</span>
 			) }
 		</div>
@@ -666,7 +707,11 @@ function RoutingChip( { label, virtual, onClear } ) {
 				<button
 					type="button"
 					className="topology-edit-chip__clear"
-					aria-label={ `Remove ${ label }` }
+					aria-label={ sprintf(
+						// translators: %s: target node name to remove.
+						__( 'Remove %s', 'newspack-nodes' ),
+						label
+					) }
 					onClick={ onClear }
 				>
 					×
@@ -702,7 +747,7 @@ function EditForm( {
 		<aside className="topology-inspector">
 			<h2 className="topology-insp__title">{ node.id }</h2>
 			<div className="topology-insp__type">
-				{ node.class || '?' } · EDIT
+				{ node.class || '?' } · { __( 'EDIT', 'newspack-nodes' ) }
 			</div>
 
 			{ onRemoveNode && (
@@ -711,11 +756,11 @@ function EditForm( {
 					className="topology-edit-delete"
 					onClick={ () => onRemoveNode( node.id ) }
 				>
-					Delete node
+					{ __( 'Delete node', 'newspack-nodes' ) }
 				</button>
 			) }
 
-			<Section title="Identity">
+			<Section title={ __( 'Identity', 'newspack-nodes' ) }>
 				<NameField
 					node={ node }
 					takenNames={
@@ -729,7 +774,7 @@ function EditForm( {
 				/>
 			</Section>
 
-			<Section title="Routing">
+			<Section title={ __( 'Routing', 'newspack-nodes' ) }>
 				<TargetsField
 					node={ node }
 					nodeNames={ nodeNames }
@@ -741,10 +786,10 @@ function EditForm( {
 				/>
 			</Section>
 
-			<Section title="Constructor">
+			<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
 				{ ctorSpecs.length === 0 && (
 					<div className="topology-edit-empty">
-						No constructor arguments.
+						{ __( 'No constructor arguments.', 'newspack-nodes' ) }
 					</div>
 				) }
 				{ ctorSpecs.map( ( spec, i ) => (
@@ -765,10 +810,10 @@ function EditForm( {
 				) ) }
 			</Section>
 
-			<Section title="Verbs">
+			<Section title={ __( 'Verbs', 'newspack-nodes' ) }>
 				{ verbSpecs.length === 0 && (
 					<div className="topology-edit-empty">
-						No verbs registered.
+						{ __( 'No verbs registered.', 'newspack-nodes' ) }
 					</div>
 				) }
 				{ verbSpecs.map( ( vspec ) => {
@@ -890,7 +935,7 @@ function VerbArgModal( {
 					className="topology-modal__btn"
 					onClick={ onDismiss }
 				>
-					Cancel
+					{ __( 'Cancel', 'newspack-nodes' ) }
 				</button>
 				<button
 					type="button"
@@ -898,7 +943,7 @@ function VerbArgModal( {
 					onClick={ run }
 					disabled={ missingRequired }
 				>
-					Run
+					{ __( 'Run', 'newspack-nodes' ) }
 				</button>
 			</div>
 		</ModalShell>
@@ -941,7 +986,14 @@ function VerbButton( {
 					} );
 				} }
 				disabled={ ! live }
-				title={ spec.description || `Send ${ verbLabel }` }
+				title={
+					spec.description ||
+					sprintf(
+						// translators: %s: verb name (prefixed with TM_REQUEST for request verbs).
+						__( 'Send %s', 'newspack-nodes' ),
+						verbLabel
+					)
+				}
 			>
 				{ spec.name }
 			</button>
@@ -985,7 +1037,7 @@ export default function Inspector( {
 		return (
 			<aside className="topology-inspector">
 				<div className="topology-insp__empty">
-					Select a node to inspect
+					{ __( 'Select a node to inspect', 'newspack-nodes' ) }
 				</div>
 			</aside>
 		);
@@ -996,7 +1048,11 @@ export default function Inspector( {
 		return (
 			<aside className="topology-inspector">
 				<div className="topology-insp__empty">
-					{ selectedId } no longer present
+					{ sprintf(
+						// translators: %s: the node id that is no longer present.
+						__( '%s no longer present', 'newspack-nodes' ),
+						selectedId
+					) }
 				</div>
 			</aside>
 		);
@@ -1046,10 +1102,13 @@ export default function Inspector( {
 						live ? ' is-pulsing' : ''
 					}` }
 				/>
-				{ type } · { live ? 'LIVE' : streamStatus.toUpperCase() }
+				{ type } ·{ ' ' }
+				{ live
+					? __( 'LIVE', 'newspack-nodes' )
+					: streamStatus.toUpperCase() }
 			</div>
 
-			<Section title="Routing">
+			<Section title={ __( 'Routing', 'newspack-nodes' ) }>
 				<div className="topology-field-row">
 					<span className="topology-field-row__key">target →</span>
 					<NodeLinks
@@ -1076,10 +1135,13 @@ export default function Inspector( {
 			{ ( rateInfo?.hasMessages ||
 				rateInfo?.hasRead ||
 				rateInfo?.hasWritten ) && (
-				<Section title="Activity" meta="last ~60s">
+				<Section
+					title={ __( 'Activity', 'newspack-nodes' ) }
+					meta={ __( 'last ~60s', 'newspack-nodes' ) }
+				>
 					{ rateInfo.hasMessages && (
 						<SparklineRow
-							label="messages /s"
+							label={ __( 'messages /s', 'newspack-nodes' ) }
 							history={ rateInfo.history }
 							currentValue={ rateInfo.rate || 0 }
 							format={ formatRate }
@@ -1087,7 +1149,7 @@ export default function Inspector( {
 					) }
 					{ rateInfo.hasRead && (
 						<SparklineRow
-							label="bytes read /s"
+							label={ __( 'bytes read /s', 'newspack-nodes' ) }
 							history={ rateInfo.readHistory }
 							currentValue={ rateInfo.readRate || 0 }
 							format={ formatByteRate }
@@ -1095,7 +1157,7 @@ export default function Inspector( {
 					) }
 					{ rateInfo.hasWritten && (
 						<SparklineRow
-							label="bytes written /s"
+							label={ __( 'bytes written /s', 'newspack-nodes' ) }
 							history={ rateInfo.writtenHistory }
 							currentValue={ rateInfo.writtenRate || 0 }
 							format={ formatByteRate }
@@ -1104,7 +1166,10 @@ export default function Inspector( {
 				</Section>
 			) }
 
-			<Section title="Throughput" meta="cumulative">
+			<Section
+				title={ __( 'Throughput', 'newspack-nodes' ) }
+				meta={ __( 'cumulative', 'newspack-nodes' ) }
+			>
 				<FieldRow
 					k="counter"
 					v={
@@ -1166,18 +1231,26 @@ export default function Inspector( {
 					type="button"
 					onClick={ () => onAction && onAction( 'dump', node.id ) }
 					disabled={ ! live }
-					title="Send `dump_node <name>` to the worker"
+					title={ __(
+						'Send `dump_node <name>` to the worker',
+						'newspack-nodes'
+					) }
 				>
-					Dump
+					{ __( 'Dump', 'newspack-nodes' ) }
 				</button>
 				<button
 					type="button"
 					onClick={ () => {
-						// eslint-disable-next-line no-alert
-						const payload = window.prompt(
-							`Send bytes to ${ node.id }:`,
-							''
-						);
+						const payload =
+							// eslint-disable-next-line no-alert
+							window.prompt(
+								sprintf(
+									// translators: %s: the node id to send bytes to.
+									__( 'Send bytes to %s:', 'newspack-nodes' ),
+									node.id
+								),
+								''
+							);
 						if ( payload !== null && payload !== '' ) {
 							if ( onAction ) {
 								onAction( 'send', node.id, payload );
@@ -1185,9 +1258,12 @@ export default function Inspector( {
 						}
 					} }
 					disabled={ ! live }
-					title="Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`"
+					title={ __(
+						'Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`',
+						'newspack-nodes'
+					) }
 				>
-					Send
+					{ __( 'Send', 'newspack-nodes' ) }
 				</button>
 				<button
 					type="button"
@@ -1201,11 +1277,19 @@ export default function Inspector( {
 					disabled={ ! live }
 					title={
 						traceOn
-							? 'Stop tracing — `debug_state <name> 0`'
-							: 'Start tracing — `debug_state <name> 1`'
+							? __(
+									'Stop tracing — `debug_state <name> 0`',
+									'newspack-nodes'
+							  )
+							: __(
+									'Start tracing — `debug_state <name> 1`',
+									'newspack-nodes'
+							  )
 					}
 				>
-					{ traceOn ? 'Stop Trace' : 'Trace' }
+					{ traceOn
+						? __( 'Stop Trace', 'newspack-nodes' )
+						: __( 'Trace', 'newspack-nodes' ) }
 				</button>
 				{ type === 'Tee' && (
 					<button
@@ -1220,11 +1304,19 @@ export default function Inspector( {
 						disabled={ ! live }
 						title={
 							tailOn
-								? 'Disconnect this session from the Tee — `disconnect_node <name>`'
-								: 'Connect this session to the Tee — `connect_node <name>` (its output then flows into the transcript)'
+								? __(
+										'Disconnect this session from the Tee — `disconnect_node <name>`',
+										'newspack-nodes'
+								  )
+								: __(
+										'Connect this session to the Tee — `connect_node <name>` (its output then flows into the transcript)',
+										'newspack-nodes'
+								  )
 						}
 					>
-						{ tailOn ? 'Disconnect' : 'Connect' }
+						{ tailOn
+							? __( 'Disconnect', 'newspack-nodes' )
+							: __( 'Connect', 'newspack-nodes' ) }
 					</button>
 				) }
 				{ /* TM_COMMAND verbs + TM_REQUEST verbs from this class's node_schema. */ }
