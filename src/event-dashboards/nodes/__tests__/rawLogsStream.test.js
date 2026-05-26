@@ -18,6 +18,7 @@ import {
 	KEY,
 	VALUE,
 	TM_INFO,
+	TM_STRUCT,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { createRawLogsStream } from '../rawLogsStream';
@@ -34,16 +35,19 @@ const { getCommandClient } = require( '../../../shared/utils/commandClient' );
 beforeEach( () => Core.reset() );
 
 // A fake connector matching the seam the node depends on: connect( subscription,
-// onEnvelope ) opens a source (recording the subscription + handler), close()
-// tears it down. deliverMessage() invokes the recorded handler as the wire would.
+// onEnvelope, onStatus ) opens a source (recording the subscription + handlers),
+// close() tears it down. deliverMessage() invokes the recorded envelope handler as
+// the wire would; emitStatus() invokes the recorded status handler (open/error).
 function makeFakeConnector() {
 	const fake = {
 		closeCount: 0,
 		lastSubscription: null,
 		_onEnvelope: null,
-		connect( subscription, onEnvelope ) {
+		_onStatus: null,
+		connect( subscription, onEnvelope, onStatus ) {
 			this.lastSubscription = subscription;
 			this._onEnvelope = onEnvelope;
+			this._onStatus = onStatus;
 		},
 		close() {
 			this.closeCount += 1;
@@ -52,6 +56,11 @@ function makeFakeConnector() {
 		deliverMessage( envelope ) {
 			if ( this._onEnvelope ) {
 				this._onEnvelope( envelope );
+			}
+		},
+		emitStatus( status ) {
+			if ( this._onStatus ) {
+				this._onStatus( status );
 			}
 		},
 	};
@@ -104,6 +113,63 @@ describe( 'rawlogs/stream', () => {
 		s.sink = { fill: ( m ) => got.push( m ) };
 		fake.deliverMessage( newMessage() );
 		expect( got ).toHaveLength( 0 );
+	} );
+
+	test( 'routes a connection-error status to controlSink as a control', () => {
+		const controls = [];
+		const fake = makeFakeConnector();
+		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
+		s.controlSink = { fill: ( m ) => controls.push( m ) };
+		s.subscribe( 'firehose' );
+		fake.emitStatus( { connectionError: true } );
+		expect( controls ).toHaveLength( 1 );
+		expect( controls[ 0 ][ TYPE ] ).toBe( TM_STRUCT );
+		expect( controls[ 0 ][ VALUE ] ).toEqual( {
+			action: 'connection',
+			connectionError: true,
+		} );
+	} );
+
+	test( 'routes a connection-restored status to controlSink', () => {
+		const controls = [];
+		const fake = makeFakeConnector();
+		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
+		s.controlSink = { fill: ( m ) => controls.push( m[ VALUE ] ) };
+		s.subscribe( 'firehose' );
+		fake.emitStatus( { connectionError: false } );
+		expect( controls[ 0 ] ).toEqual( {
+			action: 'connection',
+			connectionError: false,
+		} );
+	} );
+
+	test( 'connection status goes to controlSink, not the data sink', () => {
+		const data = [];
+		const controls = [];
+		const fake = makeFakeConnector();
+		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
+		s.sink = { fill: ( m ) => data.push( m ) };
+		s.controlSink = { fill: ( m ) => controls.push( m ) };
+		s.subscribe( 'firehose' );
+		// An envelope still routes to the data sink.
+		const env = newMessage();
+		env[ VALUE ] = 'a log line';
+		fake.deliverMessage( env );
+		// A status routes only to controlSink.
+		fake.emitStatus( { connectionError: true } );
+		expect( data ).toHaveLength( 1 );
+		expect( data[ 0 ][ VALUE ] ).toBe( 'a log line' );
+		expect( controls ).toHaveLength( 1 );
+		expect( controls[ 0 ][ VALUE ].action ).toBe( 'connection' );
+	} );
+
+	test( 'a status with no controlSink set is dropped (no throw)', () => {
+		const fake = makeFakeConnector();
+		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
+		s.subscribe( 'firehose' );
+		expect( () =>
+			fake.emitStatus( { connectionError: true } )
+		).not.toThrow();
 	} );
 
 	test( 'names the node', () => {
@@ -223,6 +289,41 @@ describe( 'rawlogs/stream default connector', () => {
 		expect( first.closed ).toBe( true );
 		jest.advanceTimersByTime( 2000 );
 		expect( FakeEventSource.instances.length ).toBeGreaterThan( 1 );
+	} );
+
+	test( 'reports connectionError:true to controlSink on the first error', () => {
+		const controls = [];
+		const s = createRawLogsStream( 'rawlogs/stream' );
+		s.controlSink = { fill: ( m ) => controls.push( m[ VALUE ] ) };
+		s.subscribe( 'firehose' );
+		FakeEventSource.last().onerror();
+		expect( controls ).toEqual( [
+			{ action: 'connection', connectionError: true },
+		] );
+	} );
+
+	test( 'reports connectionError:false to controlSink on open', () => {
+		const controls = [];
+		const s = createRawLogsStream( 'rawlogs/stream' );
+		s.controlSink = { fill: ( m ) => controls.push( m[ VALUE ] ) };
+		s.subscribe( 'firehose' );
+		FakeEventSource.last().onopen();
+		expect( controls ).toEqual( [
+			{ action: 'connection', connectionError: false },
+		] );
+	} );
+
+	test( 'reports connectionError exactly once per disconnect (reconnect-stack guard)', () => {
+		const controls = [];
+		const s = createRawLogsStream( 'rawlogs/stream' );
+		s.controlSink = { fill: ( m ) => controls.push( m[ VALUE ] ) };
+		s.subscribe( 'firehose' );
+		const first = FakeEventSource.last();
+		first.onerror(); // schedules a reconnect timer
+		first.onerror(); // re-fires before reconnect: must be swallowed by the guard
+		expect(
+			controls.filter( ( c ) => c.connectionError === true )
+		).toHaveLength( 1 );
 	} );
 
 	test( 'close() stops the heartbeat poke and the reconnect timer', () => {

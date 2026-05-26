@@ -158,12 +158,28 @@ describe( 'WorkerStatus', () => {
 		expect( select.value ).toBe( '10000' );
 	} );
 
-	it( 'surfaces a disconnect error from the model', () => {
+	it( 'surfaces a disconnect error through the shared ConnectionBanner', () => {
 		registerViewFixture(
 			viewModel( { error: 'Server disconnected. Reconnecting...' } )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
-		expect( container.textContent ).toMatch( /Server disconnected/ );
+		const banner = container.querySelector(
+			'.newspack-nodes-connection-banner'
+		);
+		expect( banner ).not.toBeNull();
+		expect( banner.textContent ).toMatch( /Server disconnected/ );
+		// The bespoke inline banner is gone in favor of the shared component.
+		expect(
+			container.querySelector( '.worker-status-error-inline' )
+		).toBeNull();
+	} );
+
+	it( 'renders no ConnectionBanner when the model has no error', () => {
+		registerViewFixture( viewModel( { error: null } ) );
+		const { container } = render( <WorkerStatus fullPage /> );
+		expect(
+			container.querySelector( '.newspack-nodes-connection-banner' )
+		).toBeNull();
 	} );
 
 	it( 'renders a non-fullPage variant without the header chrome', () => {

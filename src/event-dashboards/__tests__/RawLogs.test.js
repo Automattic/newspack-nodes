@@ -29,6 +29,7 @@ function registerViewFixture( {
 	logs = [],
 	selected = '',
 	paused = false,
+	connectionError = false,
 	lines = [],
 	lps = 0,
 } = {} ) {
@@ -53,7 +54,7 @@ function registerViewFixture( {
 			);
 		},
 	};
-	node.setState( 'view', { logs, selected, paused } );
+	node.setState( 'view', { logs, selected, paused, connectionError } );
 	Core.nodes.set( 'rawlogs/view', node );
 	return node;
 }
@@ -273,6 +274,32 @@ describe( 'RawLogs', () => {
 		tickFrame();
 		tickFrame();
 		expect( useRawLogsGraph.mock.calls.length ).toBe( rendersAfterSettle );
+	} );
+
+	it( 'shows the connection banner when the view model has connectionError', () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			connectionError: true,
+		} );
+		const { container } = render( <RawLogs /> );
+		const banner = container.querySelector(
+			'.newspack-nodes-connection-banner'
+		);
+		expect( banner ).not.toBeNull();
+		expect( banner.textContent ).toBe( 'Connection lost. Reconnecting…' );
+	} );
+
+	it( 'hides the connection banner when connectionError is false', () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			connectionError: false,
+		} );
+		const { container } = render( <RawLogs /> );
+		expect(
+			container.querySelector( '.newspack-nodes-connection-banner' )
+		).toBeNull();
 	} );
 
 	it( 'falls back to an empty model when the view node is absent', () => {

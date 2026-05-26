@@ -58,7 +58,7 @@ test( 'select sets the log and clears the buffer', () => {
 	expect( v.setStateCache.view.selected ).toBe( 'errors' );
 } );
 
-test( 'the published model carries only { logs, selected, paused }', () => {
+test( 'the published model carries only { connectionError, logs, selected, paused }', () => {
 	const v = createRawLogsView( 'rawlogs/view' );
 	v.fill(
 		controlMsg( {
@@ -67,6 +67,7 @@ test( 'the published model carries only { logs, selected, paused }', () => {
 		} )
 	);
 	expect( Object.keys( v.setStateCache.view ).sort() ).toEqual( [
+		'connectionError',
 		'logs',
 		'paused',
 		'selected',
@@ -137,6 +138,33 @@ test( 'select clears node.lps back to zero', () => {
 	}
 	v.fill( controlMsg( { action: 'select', log: 'errors' } ) );
 	expect( v.lps ).toBe( 0 );
+} );
+
+test( 'defaults connectionError to false in the published model', () => {
+	const v = createRawLogsView( 'rawlogs/view' );
+	// A control publishes the model; connectionError starts false.
+	v.fill( controlMsg( { action: 'pause', paused: false } ) );
+	expect( v.setStateCache.view.connectionError ).toBe( false );
+} );
+
+test( 'a connection control sets connectionError true then false', () => {
+	const v = createRawLogsView( 'rawlogs/view' );
+	v.fill( controlMsg( { action: 'connection', connectionError: true } ) );
+	expect( v.connectionError ).toBe( true );
+	expect( v.setStateCache.view.connectionError ).toBe( true );
+	v.fill( controlMsg( { action: 'connection', connectionError: false } ) );
+	expect( v.connectionError ).toBe( false );
+	expect( v.setStateCache.view.connectionError ).toBe( false );
+} );
+
+test( 'an unrelated control does not change connectionError', () => {
+	const v = createRawLogsView( 'rawlogs/view' );
+	v.fill( controlMsg( { action: 'connection', connectionError: true } ) );
+	// A pause control + a log row must leave connectionError untouched.
+	v.fill( controlMsg( { action: 'pause', paused: true } ) );
+	v.fill( rowMsg( 'ignored while paused' ) );
+	expect( v.connectionError ).toBe( true );
+	expect( v.setStateCache.view.connectionError ).toBe( true );
 } );
 
 test( 'names the node', () => {

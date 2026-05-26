@@ -46,15 +46,6 @@
 		align-items: center;
 		gap: 8px;
 	}
-
-	.worker-status-error-inline {
-		background: base.$error-bg;
-		color: base.$white;
-		padding: 4px 12px;
-		border-radius: 3px;
-		font-size: 11px;
-		margin-left: 12px;
-	}
 }
 
 // Worker Status Component - Embedded

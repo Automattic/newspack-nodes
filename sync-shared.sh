@@ -17,6 +17,7 @@ cd "$(dirname "$0")"
 
 HOOKS=src/shared/hooks
 UTILS=src/shared/utils
+COMPONENTS=src/shared/components
 
 HEADER="// Synced from src/shared/ by sync-shared.sh — edit the canonical source, not this copy."
 
@@ -60,5 +61,13 @@ sync "$UTILS/formatUtils.js" \
 
 sync "$UTILS/fnv1a.js" \
 	../newspack-event-logger-nodes/src/shared/utils/
+
+# --- Components ---
+
+sync "$COMPONENTS/ConnectionBanner.js" \
+	../newspack-event-logger-nodes/src/shared/components/
+
+sync "$COMPONENTS/ConnectionBanner.scss" \
+	../newspack-event-logger-nodes/src/shared/components/
 
 echo "Shared files synced."

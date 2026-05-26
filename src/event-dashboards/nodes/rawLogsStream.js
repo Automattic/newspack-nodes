@@ -17,7 +17,14 @@
  */
 
 import { Node } from '../../runtime/node';
-import { KEY, VALUE, unpack } from '../../runtime/message';
+import {
+	KEY,
+	VALUE,
+	TYPE,
+	TM_STRUCT,
+	newMessage,
+	unpack,
+} from '../../runtime/message';
 import { getCommandClient } from '../../shared/utils/commandClient';
 
 // Client keep-alive cadence; the slot TTL keys off this poke (not the server
@@ -37,10 +44,12 @@ const backoffDelay = ( retries ) =>
 /**
  * The default connector — the real-EventSource transport for `rawlogs/stream`.
  *
- * `connect( subscription, onEnvelope )` opens an EventSource at `/messages/stream`
- * for the subscription, parses each `msg` into a Message envelope and hands it to
- * `onEnvelope`, starts the slot-heartbeat poke once the `connected` envelope
- * arrives, and reconnects with backoff on error. `close()` tears all three down.
+ * `connect( subscription, onEnvelope, onStatus )` opens an EventSource at
+ * `/messages/stream` for the subscription, parses each `msg` into a Message
+ * envelope and hands it to `onEnvelope`, reports connection-status changes via
+ * `onStatus` (`{ connectionError }` — true on the first `error`, false on `open`),
+ * starts the slot-heartbeat poke once the `connected` envelope arrives, and
+ * reconnects with backoff on error. `close()` tears all three down.
  *
  * Faked in tests by swapping `global.EventSource`; the node-level tests inject
  * their own connector entirely.
@@ -52,6 +61,7 @@ function makeDefaultConnector() {
 	let retries = 0;
 	let current = null;
 	let handler = null;
+	let statusHandler = null;
 
 	const clearReconnect = () => {
 		if ( reconnectTimer ) {
@@ -123,6 +133,10 @@ function makeDefaultConnector() {
 			if ( reconnectTimer ) {
 				return;
 			}
+			// Past the guard → this is a fresh disconnect; report it ONCE.
+			if ( statusHandler ) {
+				statusHandler( { connectionError: true } );
+			}
 			source.close();
 			source = null;
 			retries += 1;
@@ -134,13 +148,17 @@ function makeDefaultConnector() {
 
 		source.onopen = () => {
 			retries = 0;
+			if ( statusHandler ) {
+				statusHandler( { connectionError: false } );
+			}
 		};
 	};
 
 	return {
-		connect( subscription, onEnvelope ) {
+		connect( subscription, onEnvelope, onStatus ) {
 			current = subscription;
 			handler = onEnvelope;
+			statusHandler = onStatus;
 			retries = 0;
 			open();
 		},
@@ -153,20 +171,39 @@ class RawLogsStreamNode extends Node {
 		super();
 		this._connector = connector;
 		this._subscribed = false;
+		// The connection-status surface (→ rawlogs/view); distinct from `sink`
+		// (→ rawlogs/transform) because the transform would drop a control.
+		this.controlSink = null;
 	}
 
 	// (Re)connect the live source for `logKey`. Switching logs closes the old
-	// source first, then opens the new one; each inbound envelope goes to sink.
+	// source first, then opens the new one; each inbound envelope goes to sink,
+	// while connection-status changes go to controlSink as a control.
 	subscribe( logKey ) {
 		if ( this._subscribed ) {
 			this._connector.close();
 		}
 		this._subscribed = true;
-		this._connector.connect( logKey, ( envelope ) => {
-			if ( this.sink ) {
-				this.sink.fill( envelope );
+		this._connector.connect(
+			logKey,
+			( envelope ) => {
+				if ( this.sink ) {
+					this.sink.fill( envelope );
+				}
+			},
+			( status ) => {
+				if ( ! this.controlSink ) {
+					return;
+				}
+				const m = newMessage();
+				m[ TYPE ] = TM_STRUCT;
+				m[ VALUE ] = {
+					action: 'connection',
+					connectionError: status.connectionError,
+				};
+				this.controlSink.fill( m );
 			}
-		} );
+		);
 	}
 
 	// Tear the connection down. Unconditional so teardown closes a never-yet-
