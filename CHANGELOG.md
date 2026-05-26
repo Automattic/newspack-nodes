@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Topology console assumed every CI verb targets `<node>:config`.** Command verbs were unconditionally routed to the `<name>:config` sibling interpreter, so a verb on a node that IS a `Command_Interpreter` subclass (the `*_CI_Node` service CIs) hit a non-existent `<name>:config` → `NOT_AVAILABLE`. `Classes_CI` now exposes `is_interpreter` (`is_subclass_of( Command_Interpreter_Node )`); the live invoke + `serializeTsl` + `Node::dump_config()` target the bare node for interpreters and `<name>:config` otherwise, and `parseTsl` round-trips the bare form.
+
 - **`wp nodes status` "Behind" column assumed every worker drains `firehose.log`.** It
   hardcoded `{logs_dir}/firehose.log/p{N}`, so a worker with a different input log (any
   non-ELN topology — e.g. the ai-newsletter `digest`) showed `-`. It now resolves each

@@ -170,10 +170,13 @@ jest.mock( '../hooks/useTopologyList', () => ( {
 	} ),
 	useTopology: () => globalThis.__hooks.fetchTopology,
 } ) );
+// Mutable catalog the hoisted mock reads at call time; tests seed
+// classes (with is_interpreter) before rendering to exercise verb routing.
+globalThis.__catalog = { classes: [], formatters: [] };
 jest.mock( '../hooks/useClassCatalog', () => ( {
 	useClassCatalog: () => ( {
-		classes: [],
-		formatters: [],
+		classes: globalThis.__catalog.classes,
+		formatters: globalThis.__catalog.formatters,
 		loading: false,
 		error: null,
 	} ),
@@ -314,6 +317,19 @@ jest.mock( '../components/Inspector', () => ( props ) => {
 				}
 			>
 				action-request
+			</button>
+			<button
+				onClick={ () =>
+					props.onAction &&
+					props.onAction( 'invoke', 'n1', {
+						verb: 'set_is_hub',
+						kind: 'command',
+						positional: '',
+						byName: {},
+					} )
+				}
+			>
+				action-command
 			</button>
 			<button
 				onClick={ () =>
@@ -533,6 +549,7 @@ describe( 'TopologyConsole boot', () => {
 		hooks.saveLayout.mockReset();
 		hooks.saveLayout.mockResolvedValue( null );
 		hooks.topologies = [];
+		globalThis.__catalog = { classes: [], formatters: [] };
 	} );
 
 	// Simulate an SSE reply: the Router routes a positional Message by TO.
@@ -1031,6 +1048,68 @@ describe( 'TopologyConsole boot', () => {
 			( i ) => i.dataset.kind === 'sent'
 		);
 		expect( sent.textContent ).toMatch( /request_node n1 GET_LAG/ );
+	} );
+
+	it( 'Inspector command invoke on an INTERPRETER node targets the bare node (no :config)', async () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		globalThis.__catalog = {
+			classes: [ { shell_name: 'Performance_CI', is_interpreter: true } ],
+			formatters: [],
+		};
+		const { container, getByText } = render( <TopologyConsole /> );
+		// Seed the live graph so n1's class resolves to the interpreter class.
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: { n1: { class: 'Performance_CI', counter: 1 } },
+		} );
+		// Capture the routed command so we can assert its TO.
+		const captured = [];
+		globalThis.__shell.sink = { fill: ( m ) => captured.push( m ) };
+
+		fireEvent.click( getByText( 'select-n1' ) );
+		fireEvent.click( getByText( 'action-command' ) );
+
+		// Echo: bare node, NO :config.
+		const items = container.querySelectorAll(
+			'[data-testid="repl-transcript"] li'
+		);
+		const sent = Array.from( items ).find(
+			( i ) => i.dataset.kind === 'sent'
+		);
+		expect( sent.textContent ).toBe( 'command_node n1 set_is_hub' );
+		// TO routes to the bare node (prefix(cwd, 'n1')), not n1:config.
+		expect( captured ).toHaveLength( 1 );
+		expect( captured[ 0 ][ TO ] ).toBe( '_sse/demo.p0/n1' );
+	} );
+
+	it( 'Inspector command invoke on a NON-interpreter node targets <name>:config', async () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		globalThis.__catalog = {
+			classes: [ { shell_name: 'Partition', is_interpreter: false } ],
+			formatters: [],
+		};
+		const { container, getByText } = render( <TopologyConsole /> );
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: { n1: { class: 'Partition', counter: 1 } },
+		} );
+		const captured = [];
+		globalThis.__shell.sink = { fill: ( m ) => captured.push( m ) };
+
+		fireEvent.click( getByText( 'select-n1' ) );
+		fireEvent.click( getByText( 'action-command' ) );
+
+		const items = container.querySelectorAll(
+			'[data-testid="repl-transcript"] li'
+		);
+		const sent = Array.from( items ).find(
+			( i ) => i.dataset.kind === 'sent'
+		);
+		expect( sent.textContent ).toBe( 'command_node n1:config set_is_hub' );
+		expect( captured ).toHaveLength( 1 );
+		expect( captured[ 0 ][ TO ] ).toBe( '_sse/demo.p0/n1:config' );
 	} );
 
 	it( 'Inspector disconnect action emits disconnect_node', () => {

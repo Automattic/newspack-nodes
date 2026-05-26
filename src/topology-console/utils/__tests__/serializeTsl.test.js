@@ -334,4 +334,105 @@ describe( 'serializeTsl', () => {
 			);
 		} );
 	} );
+
+	describe( 'interpreter verb-target distinction', () => {
+		const schemas = {
+			Performance_CI: {
+				is_interpreter: true,
+				ctor: [],
+				verbs: [ { name: 'set_is_hub', args: [] } ],
+			},
+			Partition: {
+				is_interpreter: false,
+				ctor: [],
+				verbs: [ { name: 'allow_large_writes', args: [] } ],
+			},
+		};
+
+		it( 'serializes an interpreter node verb to a bare `cmd <name> <verb>`', () => {
+			// A Command_Interpreter_Node subclass handles its verbs directly —
+			// there is no `<name>:config` sibling, so the verb targets the bare node.
+			const g = {
+				nodes: [
+					{
+						id: 'perf',
+						name: 'perf',
+						class: 'Performance_CI',
+						ctorArgs: [],
+						verbInvocations: [ { verb: 'set_is_hub', args: [] } ],
+					},
+				],
+				edges: [],
+			};
+			expect( serializeTsl( g, schemas ) ).toBe(
+				'make_node Performance_CI perf\n' + 'cmd perf set_is_hub\n'
+			);
+		} );
+
+		it( 'serializes a non-interpreter node verb to `cmd <name>:config <verb>`', () => {
+			const g = {
+				nodes: [
+					{
+						id: 'p',
+						name: 'p',
+						class: 'Partition',
+						ctorArgs: [],
+						verbInvocations: [
+							{ verb: 'allow_large_writes', args: [] },
+						],
+					},
+				],
+				edges: [],
+			};
+			expect( serializeTsl( g, schemas ) ).toBe(
+				'make_node Partition p\n' + 'cmd p:config allow_large_writes\n'
+			);
+		} );
+
+		it( 'round-trips an interpreter verb through parseTsl (bare form)', () => {
+			// eslint-disable-next-line global-require
+			const { parseTsl } = require( '../parseTsl' );
+			const original = {
+				nodes: [
+					{
+						id: 'perf',
+						name: 'perf',
+						class: 'Performance_CI',
+						ctorArgs: [],
+						verbInvocations: [ { verb: 'set_is_hub', args: [] } ],
+					},
+				],
+				edges: [],
+			};
+			const tsl = serializeTsl( original, schemas );
+			const reparsed = parseTsl( tsl );
+			expect( reparsed.nodes[ 0 ].verbInvocations ).toEqual( [
+				{ verb: 'set_is_hub', args: [] },
+			] );
+		} );
+
+		it( 'round-trips a non-interpreter verb through parseTsl (:config form)', () => {
+			// eslint-disable-next-line global-require
+			const { parseTsl } = require( '../parseTsl' );
+			const original = {
+				nodes: [
+					{
+						id: 'p',
+						name: 'p',
+						class: 'Partition',
+						ctorArgs: [],
+						verbInvocations: [
+							{ verb: 'allow_large_writes', args: [] },
+						],
+					},
+				],
+				edges: [],
+			};
+			const tsl = serializeTsl( original, schemas );
+			const reparsed = parseTsl( tsl );
+			expect( reparsed.nodes[ 0 ].verbInvocations ).toEqual( [
+				{ verb: 'allow_large_writes', args: [] },
+			] );
+		} );
+	} );
 } );

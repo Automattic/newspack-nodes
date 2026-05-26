@@ -854,13 +854,26 @@ export default function TopologyConsole() {
 					return;
 				}
 				const { verb, kind, positional, byName } = payload;
-				// Command verbs live on the node's `{name}:config` sibling CI;
-				// requests are answered by the node itself.
-				const to = shell.prefix(
-					'request' === kind ? nodeId : `${ nodeId }:config`
-				);
+				// A command verb targets the node's `{name}:config` sibling CI —
+				// UNLESS the node IS itself a Command_Interpreter_Node, which
+				// handles its verbs directly (no sibling). The catalog's
+				// per-class `is_interpreter` flag is the source of truth: map
+				// nodeId → its node's class (shell_name) → that flag. Requests
+				// are always answered by the node itself.
+				const node = parsed.nodes.find( ( n ) => n.id === nodeId );
+				const cls =
+					node && catalog.classes
+						? catalog.classes.find(
+								( c ) => c.shell_name === node.class
+						  )
+						: null;
+				const isInterpreter = !! ( cls && cls.is_interpreter );
+				const commandTarget =
+					'request' === kind || isInterpreter
+						? nodeId
+						: `${ nodeId }:config`;
 				const m = newMessage();
-				m[ TO ] = to;
+				m[ TO ] = shell.prefix( commandTarget );
 				m[ FROM ] = shell.replyFrom( names.OUTPUT );
 				m[ LOCAL ] = true;
 				let echo;
@@ -879,7 +892,7 @@ export default function TopologyConsole() {
 						arguments: positional,
 						payload: byName,
 					};
-					echo = `command_node ${ nodeId }:config ${ verb }${
+					echo = `command_node ${ commandTarget } ${ verb }${
 						positional ? ' ' + positional : ''
 					}`;
 				}
@@ -894,7 +907,7 @@ export default function TopologyConsole() {
 			setReplExpanded( true );
 			window.requestAnimationFrame( () => replInputRef.current?.focus() );
 		},
-		[ sendLine, shell, ssePid, appendTranscript ]
+		[ sendLine, shell, ssePid, appendTranscript, parsed, catalog.classes ]
 	);
 
 	// Synthesize virtual edges from node_name verb args so autoLayout places

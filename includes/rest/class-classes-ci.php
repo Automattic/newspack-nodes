@@ -99,6 +99,10 @@ class Classes_CI_Node extends Command_Interpreter_Node {
 							'requests'     => $schema['requests'] ?? [],
 							'accepts_fill' => (bool) ( $schema['accepts_fill'] ?? true ),
 							'has_target'   => (bool) ( $schema['has_target']   ?? true ),
+							// A node that IS a Command_Interpreter_Node handles its
+							// verbs directly (no `<name>:config` sibling), so the
+							// console targets the bare node; otherwise `<name>:config`.
+							'is_interpreter' => \is_subclass_of( $fqcn, Command_Interpreter_Node::class ),
 						];
 					}
 				}

@@ -329,10 +329,13 @@ class Node {
 			$out .= "connect_node {$this->name} {$this->target}\n";
 		}
 
-		// One cmd line per recorded sibling-CI verb invocation; the loader replays them.
+		// One cmd line per recorded verb invocation; the loader replays them.
+		// An interpreter node handles verbs directly (no `:config` sibling), so its
+		// verbs target the bare node; a non-interpreter targets its sibling CI.
+		$verb_target = $this instanceof Command_Interpreter_Node ? $this->name : "{$this->name}:config";
 		foreach ( $this->invoked_verbs as $verb => $args ) {
 			$args_suffix = '' === $args ? '' : ' ' . $args;
-			$out        .= "cmd {$this->name}:config {$verb}{$args_suffix}\n";
+			$out        .= "cmd {$verb_target} {$verb}{$args_suffix}\n";
 		}
 
 		return $out;
