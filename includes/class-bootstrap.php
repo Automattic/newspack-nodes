@@ -24,18 +24,19 @@ class Bootstrap {
 	 */
 	public static function get_topologies(): array {
 		$catalog = (array) \apply_filters( 'newspack_nodes/topologies', [] );
-		$option  = \function_exists( 'get_option' )
-			? \get_option( 'newspack_nodes_topologies', false )
-			: false;
-		if ( false === $option ) {
-			return $catalog;
+		// Active set = the substrate `topologies` config key. Config::load_config()
+		// resolves the precedence: the operator overlay (wp option
+		// `newspack_nodes_topologies`) when set, else the config-file default.
+		// Empty (the shipped default) means NOTHING is active — deployments
+		// declare their active topologies in config; nothing spawns by surprise.
+		$config       = Config::load_config();
+		$active_names = $config['topologies'] ?? [];
+		if ( ! \is_array( $active_names ) ) {
+			$active_names = [];
 		}
-		if ( ! \is_array( $option ) ) {
-			return $catalog;
-		}
-		$default_np = (int) ( Config::load_config()['num_partitions'] ?? 1 );
-		$active = [];
-		foreach ( $option as $name ) {
+		$default_np = (int) ( $config['num_partitions'] ?? 1 );
+		$active     = [];
+		foreach ( $active_names as $name ) {
 			if ( ! \is_string( $name ) || '' === $name ) {
 				continue;
 			}

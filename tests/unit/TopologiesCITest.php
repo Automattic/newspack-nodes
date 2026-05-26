@@ -186,12 +186,20 @@ class TopologiesCITest extends TestCase {
 				return $topologies;
 			}
 		);
+		// `active` is derived from the operator overlay, not catalog membership.
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'active-one' ];
+		Config::reset();
 
-		$result  = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
-		$by_name = \array_column( $result['topologies'], null, 'name' );
+		try {
+			$result  = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
+			$by_name = \array_column( $result['topologies'], null, 'name' );
 
-		$this->assertTrue( $by_name['active-one']['active'] );
-		$this->assertFalse( $by_name['inactive']['active'] );
+			$this->assertTrue( $by_name['active-one']['active'] );
+			$this->assertFalse( $by_name['inactive']['active'] );
+		} finally {
+			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+			Config::reset();
+		}
 	}
 
 	public function test_list_includes_frontmatter_from_tsl(): void {

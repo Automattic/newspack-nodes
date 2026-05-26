@@ -26,6 +26,7 @@ class BootstrapTest extends TestCase {
 
 	protected function tearDown(): void {
 		$GLOBALS['_wp_actions'] = [];
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
 		\Newspack_Nodes\Config::reset();
 		parent::tearDown();
 	}
@@ -37,10 +38,18 @@ class BootstrapTest extends TestCase {
 			$topologies['my-group'] = [ 'num_partitions' => 2, 'topology' => '/path/to/file.php' ];
 			return $topologies;
 		} );
+		// Catalog membership no longer implies active; declare my-group active.
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'my-group' ];
+		\Newspack_Nodes\Config::reset();
 
-		$result = Bootstrap::get_topologies();
-		$this->assertArrayHasKey( 'my-group', $result );
-		$this->assertSame( 2, $result['my-group']['num_partitions'] );
+		try {
+			$result = Bootstrap::get_topologies();
+			$this->assertArrayHasKey( 'my-group', $result );
+			$this->assertSame( 2, $result['my-group']['num_partitions'] );
+		} finally {
+			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+			\Newspack_Nodes\Config::reset();
+		}
 	}
 
 	public function test_get_topologies_returns_empty_array_when_no_filter(): void {
@@ -172,6 +181,71 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	public function test_get_topologies_uses_config_file_topologies_when_wp_option_unset(): void {
+		// `topologies` is a substrate Config key: the file default is the active
+		// set when no operator overlay (`newspack_nodes_topologies`) is set.
+		\Newspack_Nodes\Topology_Registry::reset();
+		$stock = $this->make_temp_dir();
+		\file_put_contents( "{$stock}/widget.tsl", "make_node Echo e\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+
+		$conf_dir = $this->make_temp_dir();
+		$override = "{$conf_dir}/np-override.php";
+		\file_put_contents( $override, "<?php return [ 'topologies' => [ 'widget' ] ];\n" );
+		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'allowed_config_dirs' );
+		$ref->setAccessible( true );
+		$orig_allowed = $ref->getValue();
+		$ref->setValue( null, \array_merge( $orig_allowed, [ $conf_dir ] ) );
+
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $override );
+		\Newspack_Nodes\Config::reset();
+
+		try {
+			$result = Bootstrap::get_topologies();
+			$this->assertArrayHasKey( 'widget', $result, 'config-file topologies is the active set when no wp-option overlay' );
+		} finally {
+			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' );
+			$ref->setValue( null, $orig_allowed );
+			\Newspack_Nodes\Config::reset();
+			\Newspack_Nodes\Topology_Registry::reset();
+		}
+	}
+
+	public function test_get_topologies_wp_option_overrides_config_file_topologies(): void {
+		// The operator overlay wins; the config-file default is used ONLY when
+		// the wp-option is unset.
+		\Newspack_Nodes\Topology_Registry::reset();
+		$stock = $this->make_temp_dir();
+		\file_put_contents( "{$stock}/widget.tsl", "make_node Echo e\n" );
+		\file_put_contents( "{$stock}/other.tsl", "make_node Echo e\n" );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+
+		$conf_dir = $this->make_temp_dir();
+		$override = "{$conf_dir}/np-override.php";
+		\file_put_contents( $override, "<?php return [ 'topologies' => [ 'widget' ] ];\n" );
+		$ref = new \ReflectionProperty( \Newspack_Nodes\Config::class, 'allowed_config_dirs' );
+		$ref->setAccessible( true );
+		$orig_allowed = $ref->getValue();
+		$ref->setValue( null, \array_merge( $orig_allowed, [ $conf_dir ] ) );
+
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'other' ];
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $override );
+		\Newspack_Nodes\Config::reset();
+
+		try {
+			$result = Bootstrap::get_topologies();
+			$this->assertArrayHasKey( 'other', $result, 'wp-option overlay selects the active set' );
+			$this->assertArrayNotHasKey( 'widget', $result, 'config-file default is ignored once the wp-option is set' );
+		} finally {
+			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+			\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' );
+			$ref->setValue( null, $orig_allowed );
+			\Newspack_Nodes\Config::reset();
+			\Newspack_Nodes\Topology_Registry::reset();
+		}
+	}
+
 	// ── expand_workers ────────────────────────────────────────────────────
 
 	public function test_expand_topologies_yields_one_entry_per_partition(): void {
@@ -180,6 +254,8 @@ class BootstrapTest extends TestCase {
 			$topologies['job-workers']      = [ 'num_partitions' => 2, 'topology' => '/y.php' ];
 			return $topologies;
 		} );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'firehose-workers', 'job-workers' ];
+		\Newspack_Nodes\Config::reset();
 
 		$workers = Bootstrap::expand_workers();
 		$this->assertCount( 6, $workers );
@@ -194,6 +270,8 @@ class BootstrapTest extends TestCase {
 			$topologies['huge'] = [ 'num_partitions' => 9999, 'topology' => '/x.php' ];
 			return $topologies;
 		} );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'huge' ];
+		\Newspack_Nodes\Config::reset();
 
 		$workers = Bootstrap::expand_workers();
 		$this->assertCount( Supervisor_Base::MAX_PARTITIONS, $workers );
@@ -207,6 +285,8 @@ class BootstrapTest extends TestCase {
 			$topologies['zero'] = [ 'num_partitions' => 0, 'topology' => '/x.php' ];
 			return $topologies;
 		} );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'zero' ];
+		\Newspack_Nodes\Config::reset();
 
 		$workers = Bootstrap::expand_workers();
 		$this->assertCount( 1, $workers );
@@ -218,6 +298,8 @@ class BootstrapTest extends TestCase {
 			$topologies['neg'] = [ 'num_partitions' => -5, 'topology' => '/x.php' ];
 			return $topologies;
 		} );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'neg' ];
+		\Newspack_Nodes\Config::reset();
 
 		$workers = Bootstrap::expand_workers();
 		$this->assertCount( 1, $workers );
@@ -343,6 +425,8 @@ class BootstrapTest extends TestCase {
 			$topologies['my-fleet'] = [ 'num_partitions' => 1, 'topology' => '/x.php' ];
 			return $topologies;
 		} );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'my-fleet' ];
+		\Newspack_Nodes\Config::reset();
 		$GLOBALS['_wp_test_next_scheduled'] = false;
 
 		Bootstrap::self_heal_supervisor_cron();
@@ -541,6 +625,8 @@ class BootstrapTest extends TestCase {
 				'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
 			];
 		} );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'firehose-workers' ];
+		\Newspack_Nodes\Config::reset();
 		// Disable logging from inside the supervisor so run() bails after the
 		// $_SERVER tag + before-action fire but before tick_loop hits sleep(1).
 		// This keeps the test fast (<1s) while still proving the wrapper code
@@ -586,6 +672,8 @@ class BootstrapTest extends TestCase {
 		\add_filter( 'newspack_nodes/topologies', function () {
 			return [ 'noop' => [ 'num_partitions' => 1, 'topology' => '/x.php' ] ];
 		} );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'noop' ];
+		\Newspack_Nodes\Config::reset();
 		// First call (run_supervisor_tick guard) → true; later (Supervisor)
 		// throws synthetically before sleeping.
 		\add_filter( 'newspack_nodes/enable_logging', function ( $allowed ) {

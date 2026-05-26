@@ -124,6 +124,9 @@ if ( \function_exists( 'add_action' ) ) {
 	\add_action( 'newspack_nodes/supervisor', [ '\\Newspack_Nodes\\Bootstrap', 'run_supervisor_tick' ] );
 	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\Worker_CLI_Command', 'restart_fleet_by_name' ] );
 	\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
+	// Substrate-owned default spawn handler: spawns any worker in the active set
+	// (expand_workers), ungated by plugin ownership — topologies aren't owned.
+	\add_action( 'newspack_nodes/spawn_worker', [ '\\Newspack_Nodes\\Topology_Registry', 'spawn_worker' ], 10, 2 );
 	// Long-lived workers that survive a config reload need their on-disk
 	// log view invalidated so newly-created log dirs become visible AND
 	// their per-topology basename cache cleared so newly-edited TSLs are
@@ -143,6 +146,9 @@ if ( \function_exists( 'add_action' ) ) {
 if ( \function_exists( 'add_filter' ) ) {
 	// phpcs:ignore WordPress.WP.CronInterval.ChangeDetected -- The 60s interval registered by the callback is intentional (substrate supervisor tick); rule can't see into array-callable targets.
 	\add_filter( 'cron_schedules', [ '\\Newspack_Nodes\\Bootstrap', 'register_cron_schedules' ] );
+	// Substrate-owned topology catalog: every .tsl in list() (user dir + all
+	// stock dirs), not a per-plugin allowlist.
+	\add_filter( 'newspack_nodes/topologies', [ '\\Newspack_Nodes\\Topology_Registry', 'publish_catalog' ] );
 }
 if ( \function_exists( 'register_activation_hook' ) ) {
 	\register_activation_hook( NEWSPACK_NODES_FILE, [ '\\Newspack_Nodes\\Bootstrap', 'activate' ] );

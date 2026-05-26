@@ -72,7 +72,7 @@ class WorkersCITest extends TestCase {
 			static function ( array $topologies ): array {
 				foreach (
 					[
-						'firehose-workers-and-jobs',
+						'demo-workers',
 						'request-workers',
 						'job-workers',
 						'aggregator',
@@ -87,6 +87,15 @@ class WorkersCITest extends TestCase {
 				return $topologies;
 			}
 		);
+		// Catalog registration no longer activates; declare the active set so
+		// get_topologies()/the dump_metadata enumerate path sees these fleets.
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [
+			'demo-workers',
+			'request-workers',
+			'job-workers',
+			'aggregator',
+		];
+		\Newspack_Nodes\Config::reset();
 		return $this->tmp;
 	}
 
@@ -161,7 +170,7 @@ class WorkersCITest extends TestCase {
 		$fake_cli = new class {
 			public function ls_workers(): array {
 				return [
-					[ 'type' => 'firehose-workers-and-jobs', 'partition' => 0, 'live' => true ],
+					[ 'type' => 'demo-workers', 'partition' => 0, 'live' => true ],
 				];
 			}
 			public function live_position( $cache, string $type, int $partition ): ?array {
@@ -175,7 +184,7 @@ class WorkersCITest extends TestCase {
 
 		$this->assertIsArray( $result );
 		$this->assertCount( 1, $result );
-		$this->assertSame( 'firehose-workers-and-jobs', $result[0]['type'] );
+		$this->assertSame( 'demo-workers', $result[0]['type'] );
 	}
 
 	public function test_restart_verb_calls_cli_and_returns_count(): void {
@@ -183,7 +192,7 @@ class WorkersCITest extends TestCase {
 			public ?array $called_with = null;
 			public function ls_workers(): array {
 				return [
-					[ 'type' => 'firehose-workers-and-jobs', 'partition' => 0 ],
+					[ 'type' => 'demo-workers', 'partition' => 0 ],
 					[ 'type' => 'job-workers',                'partition' => 0 ],
 				];
 			}
@@ -202,10 +211,10 @@ class WorkersCITest extends TestCase {
 		};
 		$ci = new Workers_CI_Node( $fake_cli );
 
-		$result = VerbHarness::fire( $ci, 'workers', 'restart', [ 'types' => [ 'firehose-workers-and-jobs' ] ] );
+		$result = VerbHarness::fire( $ci, 'workers', 'restart', [ 'types' => [ 'demo-workers' ] ] );
 
 		$this->assertSame( [ 'restarted' => 1 ], $result );
-		$this->assertSame( [ 'firehose-workers-and-jobs' => true ], $fake_cli->called_with['filter'] );
+		$this->assertSame( [ 'demo-workers' => true ], $fake_cli->called_with['filter'] );
 	}
 
 	public function test_restart_verb_routes_supervisor_through_restart_supervisor(): void {
@@ -254,7 +263,7 @@ class WorkersCITest extends TestCase {
 			public mixed $seen_cache = 'unset';
 			public int   $list_calls = 0;
 			public function ls_workers(): array {
-				return [ [ 'type' => 'firehose-workers-and-jobs', 'partition' => 0 ] ];
+				return [ [ 'type' => 'demo-workers', 'partition' => 0 ] ];
 			}
 			public function live_position( $cache, string $type, int $partition ): ?array {
 				++$this->list_calls;
@@ -335,7 +344,7 @@ class WorkersCITest extends TestCase {
 		\update_option( \Newspack_Nodes\Log_Cleaner::LOGS_DIRTY_OPTION, 1 );
 		\update_option(
 			\Newspack_Nodes\Log_Cleaner::FLEET_DESCRIPTORS_OPTION,
-			[ 'firehose-workers-and-jobs' => 1 ]
+			[ 'demo-workers' => 1 ]
 		);
 
 		// Application bootstrap publishes the canonical expected-basenames
@@ -350,7 +359,7 @@ class WorkersCITest extends TestCase {
 		$result = VerbHarness::fire( $ci, 'workers', 'cleanup_status' );
 
 		$this->assertSame( 1, $result['logs_dirty_option'] );
-		$this->assertSame( [ 'firehose-workers-and-jobs' => 1 ], $result['fleet_descriptors_option'] );
+		$this->assertSame( [ 'demo-workers' => 1 ], $result['fleet_descriptors_option'] );
 		$this->assertSame( $logs, $result['logs_dir'] );
 		$this->assertSame( [ 'firehose', 'orphan' ], $result['on_disk_basenames'] );
 		$this->assertSame( [ 'firehose' ], $result['expected_basenames'] );
@@ -446,10 +455,10 @@ class WorkersCITest extends TestCase {
 				'name'        => 'firehose:consumer',
 				'target'      => 'firehose:tee',
 				'targets'     => [ [ 'name' => 'request-builder' ] ],
-				'worker_type' => 'firehose-workers-and-jobs',
+				'worker_type' => 'demo-workers',
 			]
 		);
-		$this->seed_heartbeat( $base, 'firehose-workers-and-jobs', 0 );
+		$this->seed_heartbeat( $base, 'demo-workers', 0 );
 
 		$cache  = new FakeMemcached();
 		$ci     = new Workers_CI_Node( $this->stub_cli(), $cache );
@@ -457,9 +466,9 @@ class WorkersCITest extends TestCase {
 
 		$rows = \array_values( \array_filter(
 			$result['workers'],
-			static fn ( $w ) => 'firehose-workers-and-jobs' === ( $w['type'] ?? '' )
+			static fn ( $w ) => 'demo-workers' === ( $w['type'] ?? '' )
 		) );
-		$this->assertNotEmpty( $rows, 'expected a firehose-workers-and-jobs row' );
+		$this->assertNotEmpty( $rows, 'expected a demo-workers row' );
 		$row = $rows[0];
 
 		foreach (
@@ -488,7 +497,7 @@ class WorkersCITest extends TestCase {
 		) {
 			$this->assertArrayHasKey( $field, $row, "worker missing field: $field" );
 		}
-		$this->assertSame( 'firehose-workers-and-jobs', $row['type'] );
+		$this->assertSame( 'demo-workers', $row['type'] );
 		$this->assertSame( 0, $row['partition'] );
 		$this->assertSame( 'request-builder', $row['handler'] );
 		$this->assertSame( 'firehose:consumer', $row['source'] );
@@ -605,12 +614,12 @@ class WorkersCITest extends TestCase {
 				'name'        => 'firehose:consumer',
 				'target'      => 'request-builder',
 				'targets'     => [ [ 'name' => 'request-builder' ] ],
-				'worker_type' => 'firehose-workers-and-jobs',
+				'worker_type' => 'demo-workers',
 				'seg'         => 0,
 				'off'         => 50,
 			]
 		);
-		$this->seed_heartbeat( $base, 'firehose-workers-and-jobs', 0 );
+		$this->seed_heartbeat( $base, 'demo-workers', 0 );
 		$this->seed_log_segment( $base, 'firehose', 0, 0, 200 );
 
 		$ci     = new Workers_CI_Node( $this->stub_cli(), new FakeMemcached() );
@@ -618,7 +627,7 @@ class WorkersCITest extends TestCase {
 
 		$rows = \array_values( \array_filter(
 			$result['workers'],
-			static fn ( $w ) => 'firehose-workers-and-jobs' === ( $w['type'] ?? '' )
+			static fn ( $w ) => 'demo-workers' === ( $w['type'] ?? '' )
 		) );
 		$this->assertNotEmpty( $rows );
 		$row    = $rows[0];
@@ -686,12 +695,12 @@ class WorkersCITest extends TestCase {
 				'name'        => 'firehose:consumer',
 				'target'      => 'request-builder',
 				'targets'     => [ [ 'name' => 'request-builder' ] ],
-				'worker_type' => 'firehose-workers-and-jobs',
+				'worker_type' => 'demo-workers',
 				'seg'         => 0,
 				'off'         => 0,
 			]
 		);
-		$this->seed_heartbeat( $base, 'firehose-workers-and-jobs', 0 );
+		$this->seed_heartbeat( $base, 'demo-workers', 0 );
 		$this->seed_log_segment( $base, 'firehose', 0, 0, 1000 );
 
 		$cache       = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
@@ -708,7 +717,7 @@ class WorkersCITest extends TestCase {
 
 		$rows = \array_values( \array_filter(
 			$result['workers'],
-			static fn ( $w ) => 'firehose-workers-and-jobs' === ( $w['type'] ?? '' )
+			static fn ( $w ) => 'demo-workers' === ( $w['type'] ?? '' )
 		) );
 		$this->assertNotEmpty( $rows );
 		$this->assertSame( 0, $rows[0]['cursor_seg'] );

@@ -1122,6 +1122,9 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 				];
 			}
 		);
+		// activeTopologies is the operator overlay, not catalog membership.
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'catalog-only' ];
+		\Newspack_Nodes\Config::reset();
 
 		$admin = new Admin();
 		$admin->enqueue_topology_console_assets();
@@ -1174,6 +1177,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		\unlink( "{$tmp}/synthetic.tsl" );
 		\rmdir( $tmp );
 		\Newspack_Nodes\Topology_Registry::reset();
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		\Newspack_Nodes\Config::reset();
 	}
 
 	public function test_enqueue_topology_console_assets_uses_catalog_partition_count_when_available(): void {

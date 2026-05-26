@@ -46,8 +46,8 @@ describe( 'scopeFromCwd', () => {
 	it( 'a worker key equals `${topology}.p${partition}` (back-compat with persisted worker layouts)', () => {
 		// The OLD storage key was `${topology}.p${partition}`. For a worker cwd
 		// the new scope.key must match it so existing viewports/layouts load.
-		const scope = scopeFromCwd( '_sse/firehose-workers-and-jobs.p3' );
-		expect( scope.key ).toBe( 'firehose-workers-and-jobs.p3' );
+		const scope = scopeFromCwd( '_sse/demo-workers.p3' );
+		expect( scope.key ).toBe( 'demo-workers.p3' );
 		expect( scope.partition ).toBe( 3 );
 		expect( scope.isWorker ).toBe( true );
 	} );

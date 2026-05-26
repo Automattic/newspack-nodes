@@ -21,6 +21,24 @@ class SupervisorTest extends TestCase {
 		$GLOBALS['_test_outbound_posts']     = [];
 		$GLOBALS['_wp_test_transients']       = [];
 		$this->use_base_dir( $this->tmp );
+		// Catalog registration alone no longer activates a topology — the active
+		// set comes from the `topologies` config overlay. These tests drive the
+		// active set purely through the catalog filter (none registers a stock
+		// dir), so declare every type name they use as active; get_topologies()
+		// then resolves to (catalog ∩ active), and a name dropped from the
+		// catalog still drops from the active set (synthesize_entry returns null
+		// for an unresolvable name). This preserves the add/remove-topology and
+		// dropped-partition assertions verbatim.
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [
+			'firehose-workers',
+			'job-workers',
+			'request-workers',
+			'huge',
+			'type-a',
+			'type-b',
+			'noop',
+		];
+		\Newspack_Nodes\Config::reset();
 	}
 
 	protected function tearDown(): void {
@@ -28,6 +46,8 @@ class SupervisorTest extends TestCase {
 		$GLOBALS['_wp_actions']           = [];
 		$GLOBALS['_test_outbound_posts'] = [];
 		$GLOBALS['_wp_test_transients']   = [];
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		\Newspack_Nodes\Config::reset();
 		unset(
 			$_SERVER['NEWSPACK_NODES_WORKER_TYPE'],
 			$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'],
