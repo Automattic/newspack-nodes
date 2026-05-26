@@ -9,6 +9,7 @@ import {
 	useRef,
 	useState,
 } from '@wordpress/element';
+import { __, _n, sprintf } from '@wordpress/i18n';
 
 import CanvasFrame from './components/CanvasFrame';
 import Header from './components/Header';
@@ -460,13 +461,17 @@ export default function TopologyConsole() {
 			setSavedLayout( { positions: resp.positions || null } );
 			setToast( {
 				kind: 'success',
-				text: `Saved layout for ${ resp.name }.`,
+				text: sprintf(
+					// translators: %s: topology name.
+					__( 'Saved layout for %s.', 'newspack-nodes' ),
+					resp.name
+				),
 			} );
 		} catch ( e ) {
 			const msg =
 				( e && e.data && e.data.message ) ||
 				( e && e.message ) ||
-				'Save layout failed';
+				__( 'Save layout failed', 'newspack-nodes' );
 			setToast( { kind: 'error', text: msg } );
 		}
 	}, [ effectiveTopologyName, positionOverrides, saveLayout ] );
@@ -707,7 +712,10 @@ export default function TopologyConsole() {
 				if ( ! ssePid ) {
 					appendTranscript( {
 						kind: 'error',
-						text: '[no sse_pid yet] retry once CONNECTED',
+						text: __(
+							'[no sse_pid yet] retry once CONNECTED',
+							'newspack-nodes'
+						),
 					} );
 					return;
 				}
@@ -849,7 +857,10 @@ export default function TopologyConsole() {
 				if ( ! ssePid ) {
 					appendTranscript( {
 						kind: 'error',
-						text: '[no sse_pid yet] retry once CONNECTED',
+						text: __(
+							'[no sse_pid yet] retry once CONNECTED',
+							'newspack-nodes'
+						),
 					} );
 					return;
 				}
@@ -1254,7 +1265,14 @@ export default function TopologyConsole() {
 		}
 		// eslint-disable-next-line no-alert -- intentional confirm; this is a destructive action.
 		const ok = window.confirm(
-			`Delete user-saved topology "${ editingName }"? Stock copy (if any) will become the active version.`
+			sprintf(
+				// translators: %s: topology name.
+				__(
+					'Delete user-saved topology "%s"? Stock copy (if any) will become the active version.',
+					'newspack-nodes'
+				),
+				editingName
+			)
 		);
 		if ( ! ok ) {
 			return;
@@ -1264,8 +1282,19 @@ export default function TopologyConsole() {
 			setToast( {
 				kind: 'success',
 				text: resp.stock_fallback
-					? `Deleted user copy of ${ editingName }; stock copy now active.`
-					: `Deleted ${ editingName }.`,
+					? sprintf(
+							// translators: %s: topology name.
+							__(
+								'Deleted user copy of %s; stock copy now active.',
+								'newspack-nodes'
+							),
+							editingName
+					  )
+					: sprintf(
+							// translators: %s: topology name.
+							__( 'Deleted %s.', 'newspack-nodes' ),
+							editingName
+					  ),
 			} );
 			topologyList.reload();
 			// Drop back to view mode; the file no longer exists.
@@ -1275,7 +1304,7 @@ export default function TopologyConsole() {
 			const msg =
 				( e && e.data && e.data.message ) ||
 				( e && e.message ) ||
-				'Delete failed';
+				__( 'Delete failed', 'newspack-nodes' );
 			setToast( { kind: 'error', text: msg } );
 		}
 	}, [ editingName, deleteTopology, topologyList ] );
@@ -1299,13 +1328,18 @@ export default function TopologyConsole() {
 				setRateVersion( ( v ) => v + 1 );
 				setToast( {
 					kind: 'success',
-					text: `Loaded ${ resp.name } (${ resp.source }).`,
+					text: sprintf(
+						// translators: 1: topology name, 2: source (stock/user/both).
+						__( 'Loaded %1$s (%2$s).', 'newspack-nodes' ),
+						resp.name,
+						resp.source
+					),
 				} );
 			} catch ( e ) {
 				const msg =
 					( e && e.data && e.data.message ) ||
 					( e && e.message ) ||
-					'Open failed';
+					__( 'Open failed', 'newspack-nodes' );
 				setToast( { kind: 'error', text: msg } );
 			}
 		},
@@ -1329,9 +1363,24 @@ export default function TopologyConsole() {
 				const tsl = serializeTsl( draft, schemasByShellName );
 				const resp = await saveTopology( { name, tsl } );
 				const restartedCount = ( resp.restarted_fleets || [] ).length;
+				const fleetsPhrase = sprintf(
+					// translators: %d: number of restarted fleets.
+					_n(
+						'Restarted %d fleet.',
+						'Restarted %d fleets.',
+						restartedCount,
+						'newspack-nodes'
+					),
+					restartedCount
+				);
 				setToast( {
 					kind: 'success',
-					text: `Saved ${ resp.name }. Restarted ${ restartedCount } fleet(s).`,
+					text: sprintf(
+						// translators: 1: topology name, 2: "Restarted N fleet(s)." phrase.
+						__( 'Saved %1$s. %2$s', 'newspack-nodes' ),
+						resp.name,
+						fleetsPhrase
+					),
 				} );
 				setEditingName( resp.name );
 				// Refresh the picker so the next Open sees the new topology.
@@ -1341,10 +1390,15 @@ export default function TopologyConsole() {
 				const msg =
 					( e && e.data && e.data.message ) ||
 					( e && e.message ) ||
-					'Save failed';
+					__( 'Save failed', 'newspack-nodes' );
 				const lineHint =
 					e && e.data && e.data.line_number
-						? ` (line ${ e.data.line_number })`
+						? ' ' +
+						  sprintf(
+								// translators: %d: line number in the topology source.
+								__( '(line %d)', 'newspack-nodes' ),
+								e.data.line_number
+						  )
 						: '';
 				setToast( { kind: 'error', text: `${ msg }${ lineHint }` } );
 			}
@@ -1589,10 +1643,13 @@ export default function TopologyConsole() {
 			) }
 			{ discardModal && (
 				<ConfirmModal
-					title="Discard unsaved changes?"
-					body="Leaving edit mode drops the draft topology. This cannot be undone."
-					confirmLabel="Discard"
-					cancelLabel="Keep editing"
+					title={ __( 'Discard unsaved changes?', 'newspack-nodes' ) }
+					body={ __(
+						'Leaving edit mode drops the draft topology. This cannot be undone.',
+						'newspack-nodes'
+					) }
+					confirmLabel={ __( 'Discard', 'newspack-nodes' ) }
+					cancelLabel={ __( 'Keep editing', 'newspack-nodes' ) }
 					danger
 					onConfirm={ discardModal.onConfirm }
 					onCancel={ discardModal.onCancel }
@@ -1600,23 +1657,29 @@ export default function TopologyConsole() {
 			) }
 			{ saveModal && (
 				<PromptModal
-					title="Save topology"
-					body="Choose a name. Letters, numbers, dash, underscore."
-					placeholder="my-topology"
+					title={ __( 'Save topology', 'newspack-nodes' ) }
+					body={ __(
+						'Choose a name. Letters, numbers, dash, underscore.',
+						'newspack-nodes'
+					) }
+					placeholder={ __( 'my-topology', 'newspack-nodes' ) }
 					// Pre-fill the current name; save-over-same-name is the common case.
 					initialValue={ topology || '' }
 					pattern={ /^[a-zA-Z0-9_-]+$/ }
-					confirmLabel="Save"
+					confirmLabel={ __( 'Save', 'newspack-nodes' ) }
 					onConfirm={ handleSaveConfirm }
 					onCancel={ () => setSaveModal( null ) }
 				/>
 			) }
 			{ resetConfirm && (
 				<ConfirmModal
-					title="Reset to saved layout?"
-					body="This replaces your current customizations with the last saved layout (or auto-layout if none). You'll need to Save Layout to make changes permanent."
-					confirmLabel="Reset"
-					cancelLabel="Cancel"
+					title={ __( 'Reset to saved layout?', 'newspack-nodes' ) }
+					body={ __(
+						"This replaces your current customizations with the last saved layout (or auto-layout if none). You'll need to Save Layout to make changes permanent.",
+						'newspack-nodes'
+					) }
+					confirmLabel={ __( 'Reset', 'newspack-nodes' ) }
+					cancelLabel={ __( 'Cancel', 'newspack-nodes' ) }
 					danger
 					onConfirm={ resetConfirm.onConfirm }
 					onCancel={ resetConfirm.onCancel }

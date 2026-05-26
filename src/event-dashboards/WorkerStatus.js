@@ -11,6 +11,7 @@
  */
 
 import { memo, useMemo } from '@wordpress/element';
+import { __, sprintf } from '@wordpress/i18n';
 import { useNodeState } from '../runtime/react';
 import ConnectionBanner from '../shared/components/ConnectionBanner';
 import {
@@ -115,7 +116,7 @@ function formatEta( bytesBehind, readRate ) {
 		return '';
 	}
 	if ( ! readRate || readRate <= 0 ) {
-		return 'stalled';
+		return __( 'stalled', 'newspack-nodes' );
 	}
 	const seconds = Math.ceil( bytesBehind / readRate );
 	if ( seconds < 60 ) {
@@ -177,9 +178,12 @@ const SegmentBar = memo( function SegmentBar( {
 	return (
 		<div
 			className={ classNames }
-			title={ `Segment ${ segment.id }: ${ formatBytes(
-				segment.size
-			) }` }
+			title={ sprintf(
+				// translators: 1: segment id, 2: formatted segment size.
+				__( 'Segment %1$s: %2$s', 'newspack-nodes' ),
+				segment.id,
+				formatBytes( segment.size )
+			) }
 		>
 			<div className="segment-label-h">{ segment.id }</div>
 			<div className="segment-bar-h">
@@ -293,7 +297,10 @@ const LogSection = memo( function LogSection( {
 								) ) }
 								{ allSegments.length === 0 && (
 									<div className="no-segments-h">
-										No segments
+										{ __(
+											'No segments',
+											'newspack-nodes'
+										) }
 									</div>
 								) }
 							</div>
@@ -350,7 +357,10 @@ const WorkerConnector = memo( function WorkerConnector( {
 							>
 								P{ w.partition }
 							</span>
-							<span className="connector-age" title="Worker age">
+							<span
+								className="connector-age"
+								title={ __( 'Worker age', 'newspack-nodes' ) }
+							>
 								{ w.started_at && w.status === 'running'
 									? formatAge( w.started_at, currentTime )
 									: '' }
@@ -361,7 +371,10 @@ const WorkerConnector = memo( function WorkerConnector( {
 										className={ `connector-heartbeat ${
 											w.heartbeat_age > 30 ? 'stale' : ''
 										}` }
-										title="Heartbeat age"
+										title={ __(
+											'Heartbeat age',
+											'newspack-nodes'
+										) }
 									>
 										{ w.heartbeat_age }s
 									</span>
@@ -388,7 +401,10 @@ const WorkerConnector = memo( function WorkerConnector( {
 											? 'stalled'
 											: ''
 									}` }
-									title="Estimated time to catch up"
+									title={ __(
+										'Estimated time to catch up',
+										'newspack-nodes'
+									) }
 								>
 									{ formatEta( w.behind, readRates[ key ] ) }
 								</span>
@@ -396,7 +412,10 @@ const WorkerConnector = memo( function WorkerConnector( {
 							{ w.restart_pending && (
 								<span
 									className="connector-restart-pending"
-									title="Restart pending"
+									title={ __(
+										'Restart pending',
+										'newspack-nodes'
+									) }
 								>
 									⟳
 								</span>
@@ -407,12 +426,12 @@ const WorkerConnector = memo( function WorkerConnector( {
 				<span className="connector-trailing">
 					{ allRunning && (
 						<span className="worker-status-badge running small">
-							ALL RUN
+							{ __( 'ALL RUN', 'newspack-nodes' ) }
 						</span>
 					) }
 					{ allDead && (
 						<span className="worker-status-badge dead small">
-							ALL DEAD
+							{ __( 'ALL DEAD', 'newspack-nodes' ) }
 						</span>
 					) }
 					{ onRestart && ! allDead && ! anyPendingRestart && (
@@ -420,7 +439,10 @@ const WorkerConnector = memo( function WorkerConnector( {
 							type="button"
 							className="worker-restart-btn"
 							onClick={ () => onRestart( workerType ) }
-							title="Request graceful restart"
+							title={ __(
+								'Request graceful restart',
+								'newspack-nodes'
+							) }
 						>
 							↻
 						</button>
@@ -460,18 +482,27 @@ const SupervisorStatus = memo( function SupervisorStatus( {
 	return (
 		<div className="supervisor-section">
 			<div className="supervisor-header">
-				<span className="supervisor-title">Supervisor</span>
+				<span className="supervisor-title">
+					{ __( 'Supervisor', 'newspack-nodes' ) }
+				</span>
 			</div>
 			<div className="supervisor-list">
 				<div className={ `supervisor-row ${ isDead ? 'dead' : '' }` }>
-					<span className="supervisor-name">Supervisor</span>
+					<span className="supervisor-name">
+						{ __( 'Supervisor', 'newspack-nodes' ) }
+					</span>
 					<div className="supervisor-instance">
 						<span
 							className={ `worker-status-badge compact ${ supervisor.status }` }
 						>
-							{ supervisor.status === 'running' ? 'RUN' : 'DEAD' }
+							{ supervisor.status === 'running'
+								? __( 'RUN', 'newspack-nodes' )
+								: __( 'DEAD', 'newspack-nodes' ) }
 						</span>
-						<span className="supervisor-age" title="Uptime">
+						<span
+							className="supervisor-age"
+							title={ __( 'Uptime', 'newspack-nodes' ) }
+						>
 							{ supervisor.started_at &&
 							supervisor.status === 'running'
 								? formatAge(
@@ -488,7 +519,10 @@ const SupervisorStatus = memo( function SupervisorStatus( {
 											? 'stale'
 											: ''
 									}` }
-									title="Heartbeat age"
+									title={ __(
+										'Heartbeat age',
+										'newspack-nodes'
+									) }
 								>
 									{ supervisor.heartbeat_age }s
 								</span>
@@ -510,14 +544,17 @@ const SupervisorStatus = memo( function SupervisorStatus( {
 									type="button"
 									className="worker-restart-btn"
 									onClick={ () => onRestart( 'supervisor' ) }
-									title="Request graceful restart"
+									title={ __(
+										'Request graceful restart',
+										'newspack-nodes'
+									) }
 								>
 									↻
 								</button>
 							) }
 						{ supervisor.restart_pending && (
 							<span className="worker-restart-pending-label">
-								restarting...
+								{ __( 'restarting…', 'newspack-nodes' ) }
 							</span>
 						) }
 					</span>
@@ -843,7 +880,7 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 	if ( loading && workers.length === 0 ) {
 		return (
 			<div className="worker-status-loading">
-				Loading worker status...
+				{ __( 'Loading worker status…', 'newspack-nodes' ) }
 			</div>
 		);
 	}
@@ -864,10 +901,12 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 
 	return (
 		<div className={ containerClass }>
-			{ ! fullPage && <h3>Worker Status</h3> }
+			{ ! fullPage && (
+				<h3>{ __( 'Worker Status', 'newspack-nodes' ) }</h3>
+			) }
 			{ fullPage && (
 				<div className="worker-status-header">
-					<h2>Worker Status</h2>
+					<h2>{ __( 'Worker Status', 'newspack-nodes' ) }</h2>
 					{ error && (
 						<ConnectionBanner
 							connectionError={ !! error }
@@ -876,13 +915,19 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 					) }
 					<div className="worker-status-total-rate">
 						<span className="total-rate-write">
-							<span className="total-rate-label">W</span>
+							<span className="total-rate-label">
+								{ /* translators: abbreviation for "write rate". */ }
+								{ __( 'W', 'newspack-nodes' ) }
+							</span>
 							<span className="total-rate-value">
 								{ formatByteRate( totalWriteRate ) }
 							</span>
 						</span>
 						<span className="total-rate-read">
-							<span className="total-rate-label">R</span>
+							<span className="total-rate-label">
+								{ /* translators: abbreviation for "read rate". */ }
+								{ __( 'R', 'newspack-nodes' ) }
+							</span>
 							<span className="total-rate-value">
 								{ formatByteRate( totalReadRate ) }
 							</span>
@@ -895,7 +940,7 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 							onChange={ ( e ) =>
 								setRefreshInterval( e.target.value )
 							}
-							title="Refresh interval"
+							title={ __( 'Refresh interval', 'newspack-nodes' ) }
 						>
 							{ REFRESH_OPTIONS.map( ( opt ) => (
 								<option key={ opt.value } value={ opt.value }>
