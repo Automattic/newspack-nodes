@@ -110,8 +110,7 @@ class Workers_CI_Node extends Service_CI_Node {
 						// Diagnostic: surface what Log_Cleaner reads when deciding which
 						// log dirs to delete, so operators can debug orphan-log sweeps.
 						self::require_manage_options();
-						$config        = RuntimeConfig::load_config();
-						$base_dir      = (string) ( $config['base_directory'] ?? '/tmp/newspack-nodes' );
+						$base_dir      = RuntimeConfig::get_base_directory();
 						$logs_dir      = $base_dir . '/logs';
 						$dirty_flag    = \get_option( Log_Cleaner::LOGS_DIRTY_OPTION, null );
 						$prior_fleet   = \get_option( Log_Cleaner::FLEET_DESCRIPTORS_OPTION, null );
@@ -215,7 +214,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		$num_partitions = (int) ( $config['num_partitions'] ?? 1 );
 		$num_segments   = (int) ( $config['num_segments']   ?? 8 );
 		$segment_size   = (int) ( $config['segment_size']   ?? ( 16 * 1024 * 1024 ) );
-		$base_dir       = (string) ( $config['base_directory'] ?? '/tmp/newspack-nodes' );
+		$base_dir       = RuntimeConfig::get_base_directory();
 		$log_base       = $base_dir . '/logs';
 		$locks_base     = $base_dir . '/locks';
 

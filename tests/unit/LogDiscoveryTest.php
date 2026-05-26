@@ -104,4 +104,20 @@ class LogDiscoveryTest extends TestCase {
 
 		$this->assertSame( [ 'firehose', 'late' ], Log_Discovery::on_disk() );
 	}
+
+	public function test_on_disk_propagates_throw_when_base_directory_unconfigured(): void {
+		// No silent `/tmp/newspack-nodes` fallback: when base_directory is
+		// unconfigured, on_disk() must propagate Config::get_base_directory()'s
+		// RuntimeException rather than globbing a phantom default tree.
+		$conf = "{$this->tmp}/empty-base.php";
+		\file_put_contents( $conf, "<?php\nreturn [ 'base_directory' => '' ];\n" );
+		\putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . $conf );
+		\update_option( 'newspack_nodes_base_directory', '' );
+		Config::reset();
+		Log_Discovery::reset();
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessageMatches( '/base_directory not configured/' );
+		Log_Discovery::on_disk();
+	}
 }

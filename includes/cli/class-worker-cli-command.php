@@ -16,7 +16,7 @@ namespace Newspack_Nodes;
 class Worker_CLI_Command {
 
 	private function base_dir(): string {
-		return (string) ( Config::load_config()['base_directory'] ?? '/tmp/newspack-nodes' );
+		return Config::get_base_directory();
 	}
 
 	/**
@@ -235,7 +235,7 @@ class Worker_CLI_Command {
 		if ( empty( $workers ) ) {
 			return;
 		}
-		$base_dir = (string) ( Config::load_config()['base_directory'] ?? '/tmp/newspack-nodes' );
+		$base_dir = Config::get_base_directory();
 		( new CLI( $base_dir ) )->restart_workers( $workers, [ $name => true ], -1 );
 	}
 

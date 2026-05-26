@@ -12,7 +12,7 @@ namespace Newspack_Nodes;
 class CLI_Command {
 
 	private function base_dir(): string {
-		return (string) ( Config::load_config()['base_directory'] ?? '/tmp/newspack-nodes' );
+		return Config::get_base_directory();
 	}
 
 	/**
