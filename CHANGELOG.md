@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Restored read-time type coercion in the WP-option overlay (`Config::load_config`).** A prior simplification removed the per-key coercion, so a `memcache_servers`/`array_strings` option stored as a newline string overlaid the config as a raw string (breaking the `foreach`/`implode` consumers that need a list) and an `int` option stored as a numeric string overlaid as a string. A minimal `coerce_option_value()` now splits the array types into a trimmed list and casts `int` (non-numeric → falls back to the file default), restoring the shape consumers expect. Per-element `sanitize_text_field` was deliberately NOT restored — it moved to the write-time `register_setting` callbacks, off the per-request read path.
 - **Topology console assumed every CI verb targets `<node>:config`.** Command verbs were unconditionally routed to the `<name>:config` sibling interpreter, so a verb on a node that IS a `Command_Interpreter` subclass (the `*_CI_Node` service CIs) hit a non-existent `<name>:config` → `NOT_AVAILABLE`. `Classes_CI` now exposes `is_interpreter` (`is_subclass_of( Command_Interpreter_Node )`); the live invoke + `serializeTsl` + `Node::dump_config()` target the bare node for interpreters and `<name>:config` otherwise, and `parseTsl` round-trips the bare form.
 
 - **`wp nodes status` "Behind" column assumed every worker drains `firehose.log`.** It
