@@ -108,9 +108,8 @@ class Config {
 				if ( false === $value || '' === $value ) {
 					continue;
 				}
-				$sanitized = Config_Utils::sanitize_option( $value, $type );
-				if ( null !== $sanitized ) {
-					$config[ $key ] = $sanitized;
+				if ( null !== $value ) {
+					$config[ $key ] = $value;
 				}
 			}
 		}
