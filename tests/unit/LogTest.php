@@ -33,6 +33,19 @@ class LogTest extends TestCase {
 		$this->assertSame( "hello\n", \file_get_contents( "{$this->tmp}/out.log" ) );
 	}
 
+	public function test_creates_missing_parent_directory(): void {
+		// A configured path whose parent dir does not exist must be created
+		// (mkdir -p) so the first write lands — not silently dropped on a failed
+		// fopen until someone hand-creates the dir.
+		$path = "{$this->tmp}/nested/sub/out.log";
+		$log  = new Log_Node( $path );
+		$log->fill( $this->bytestream( "x\n" ) );
+		$log->remove_node();
+
+		$this->assertFileExists( $path );
+		$this->assertSame( "x\n", \file_get_contents( $path ) );
+	}
+
 	public function test_fill_accumulates_multiple_values(): void {
 		// Subsequent fills append, not overwrite.
 		$log   = new Log_Node( "{$this->tmp}/out.log" );

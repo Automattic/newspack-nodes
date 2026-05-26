@@ -13,8 +13,9 @@
  *   save   — args `{name, tsl}`. Returns `{name, path, shadows_stock,
  *            restarted_fleets}`. 64 KiB cap; dry-run validation via
  *            Shell::validate_line; restarts the matching active fleet.
- *   delete — args `{name}`. Returns `{name, deleted, stock_fallback}`. User
- *            copy only (stock immutable).
+ *   delete — args `{name}`. Returns `{name, deleted, stock_fallback,
+ *            restarted_fleets}`. User copy only (stock immutable); restarts
+ *            the matching active fleet (symmetry with save).
  *
  * Verb-level auth is capability-only (manage_options); errors throw
  * RuntimeException, which CommandInterpreter::interpret() wraps as TM_ERROR.
@@ -223,10 +224,24 @@ class Topologies_CI_Node extends Service_CI_Node {
 						// After unlink, resolve() returns the stock copy iff one exists — the fallback signal.
 						$has_stock_fallback = null !== Topology_Registry::resolve( $name );
 
+						// Restart any active fleet running this topology (symmetry with save)
+						// so the worker reloads the stock copy now shadowed-no-more — keyed
+						// off the catalog filter (what might be running), evaluated AFTER the
+						// unlink so a now-orphaned user-only name doesn't spuriously restart.
+						$resolved  = \function_exists( 'apply_filters' )
+							? (array) \apply_filters( 'newspack_nodes/topologies', [] )
+							: [];
+						$restarted = [];
+						if ( isset( $resolved[ $name ] ) ) {
+							\do_action( 'newspack_nodes/restart_fleet', $name );
+							$restarted[] = $name;
+						}
+
 						return [
-							'name'           => $name,
-							'deleted'        => $path,
-							'stock_fallback' => $has_stock_fallback,
+							'name'             => $name,
+							'deleted'          => $path,
+							'stock_fallback'   => $has_stock_fallback,
+							'restarted_fleets' => $restarted,
 						];
 					},
 				],

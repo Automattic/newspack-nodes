@@ -681,6 +681,39 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByTestId( 'header' ) ).not.toBeNull();
 	} );
 
+	it( 'edit shows the delete button when the loaded topology has a user copy (no Open needed)', async () => {
+		// canDelete must derive from the get response `source`, NOT the
+		// Open-modal topology list (which is empty until Open is shown). Empty
+		// list + source:user => delete button still appears on edit.
+		globalThis.__hooks.topologies = [];
+		globalThis.__hooks.fetchTopology.mockResolvedValue( {
+			name: 'demo',
+			source: 'user',
+			tsl: 'make_node Echo e\n',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		expect( lastHeaderProps.canDelete ).toBe( true );
+	} );
+
+	it( 'edit hides the delete button when the loaded topology is stock-only', async () => {
+		globalThis.__hooks.topologies = [];
+		globalThis.__hooks.fetchTopology.mockResolvedValue( {
+			name: 'demo',
+			source: 'stock',
+			tsl: 'make_node Echo e\n',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		expect( lastHeaderProps.canDelete ).toBe( false );
+	} );
+
 	it( 'ReplFooter onSubmit dispatches without throwing', async () => {
 		const { getByText, getByTestId } = render( <TopologyConsole /> );
 		await act( async () => {

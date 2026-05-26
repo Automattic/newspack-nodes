@@ -33,7 +33,15 @@ class Log_Node extends Node {
 		$this->mode          = $mode;
 		$this->max_size      = \max( 0, $max_size );
 		$this->max_rotations = \max( 0, $max_rotations );
-		// Operator-configured paths, not WP-managed storage.
+		// Operator-configured paths, not WP-managed storage. Create the parent
+		// dir so a configured path under a not-yet-existing directory writes
+		// instead of silently failing on a bad fopen (e.g. an example topology's
+		// /tmp/<plugin>/out.log before anything else has made the dir).
+		$dir = \dirname( $filename );
+		if ( '' !== $dir && '.' !== $dir && ! \is_dir( $dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+			@\mkdir( $dir, 0755, true );
+		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
 		$this->fh            = \fopen( $filename, self::MODE_OVERWRITE === $mode ? 'wb' : 'ab' );
 		// Track size so max_size triggers auto-rotate; append-mode reopens may start non-zero.
@@ -63,6 +71,12 @@ class Log_Node extends Node {
 			if ( 'rotate' === $value || 0 === \strpos( $value, 'rotate ' ) ) {
 				$this->rotate();
 			}
+			return;
+		}
+		// No open handle (mkdir/fopen failed — bad path or permissions). Warn
+		// once per window instead of fatally fwrite()-ing to a non-resource.
+		if ( ! \is_resource( $this->fh ) ) {
+			Core::print_less_often( "Log: cannot write to {$this->filename} (no open file handle)" );
 			return;
 		}
 		$value                = (string) $message[ Message::VALUE ];
