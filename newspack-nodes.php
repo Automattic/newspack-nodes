@@ -5,6 +5,8 @@
  * Version: 0.4.0
  * Author: Automattic
  * License: GPL-2.0-or-later
+ * Text Domain: newspack-nodes
+ * Domain Path: /languages
  *
  * @package Newspack_Nodes
  */
