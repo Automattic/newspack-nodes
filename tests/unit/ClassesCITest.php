@@ -220,4 +220,44 @@ class ClassesCITest extends TestCase {
 			}
 		);
 	}
+
+	public function test_list_flags_interpreter_classes_with_is_interpreter(): void {
+		// The console routes a node's command verbs to the bare node iff the node
+		// IS a Command_Interpreter_Node (it handles verbs directly); otherwise to
+		// `<name>:config` (a sibling CI). The catalog is the single source of
+		// truth for that distinction, exposed per class as `is_interpreter`.
+		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
+
+		$by_name = [];
+		foreach ( $result['classes'] as $entry ) {
+			$by_name[ $entry['shell_name'] ] = $entry;
+		}
+
+		// A *_CI_Node (Command_Interpreter_Node subclass) → true.
+		$this->assertArrayHasKey(
+			'Topologies_CI',
+			$by_name,
+			'Topologies_CI absent from catalog — class discovery broken (run composer dump-autoload -o)'
+		);
+		$this->assertArrayHasKey(
+			'is_interpreter',
+			$by_name['Topologies_CI'],
+			'each catalog entry must carry an is_interpreter flag'
+		);
+		$this->assertTrue(
+			$by_name['Topologies_CI']['is_interpreter'],
+			'an interpreter (Command_Interpreter_Node subclass) must report is_interpreter === true'
+		);
+
+		// A plain data/processing node (Tee, not an interpreter) → false.
+		$this->assertArrayHasKey(
+			'Tee',
+			$by_name,
+			'Tee absent from catalog — class discovery broken (run composer dump-autoload -o)'
+		);
+		$this->assertFalse(
+			$by_name['Tee']['is_interpreter'],
+			'a non-interpreter data node must report is_interpreter === false'
+		);
+	}
 }

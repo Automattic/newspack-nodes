@@ -64,13 +64,14 @@ export function parseTsl( text ) {
 			nodesByName.set( name, node );
 			nodes.push( node );
 		} else if ( verb === 'cmd' && tokens.length >= 3 ) {
-			// `cmd <name>:config <verb> [<args>]` — strip :config, find the owner.
+			// Two target shapes: `cmd <name>:config <verb>` (non-interpreter, a
+			// `:config` sibling CI) and `cmd <name> <verb>` (interpreter node,
+			// which handles verbs directly). Strip a trailing `:config` if present;
+			// otherwise the bare token is the owner.
 			const target = tokens[ 1 ];
 			const colonIdx = target.indexOf( ':config' );
-			if ( colonIdx <= 0 ) {
-				continue;
-			}
-			const ownerName = target.slice( 0, colonIdx );
+			const ownerName =
+				colonIdx > 0 ? target.slice( 0, colonIdx ) : target;
 			const owner = nodesByName.get( ownerName );
 			if ( ! owner ) {
 				continue;

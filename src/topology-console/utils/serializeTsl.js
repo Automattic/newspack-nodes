@@ -86,11 +86,24 @@ function emitMakeNode( node, schemas ) {
 	return args.length ? `${ head } ${ args.join( ' ' ) }` : head;
 }
 
+// True iff the class's catalog entry marks it a Command_Interpreter_Node.
+function isInterpreterClass( schemas, className ) {
+	if ( ! schemas ) {
+		return false;
+	}
+	const entry = schemas[ className ];
+	return !! ( entry && entry.is_interpreter );
+}
+
 function emitVerb( name, invocation, schemas, className ) {
 	const spec = verbArgSpecFor( schemas, className, invocation.verb );
 	const filled = applyDefaults( invocation.args || [], spec );
 	const args = trimTrailingEmpties( filled ).map( serializeArg );
-	const head = `cmd ${ name }:config ${ invocation.verb }`;
+	// Interpreter nodes handle verbs directly (no `:config` sibling) → bare target.
+	const target = isInterpreterClass( schemas, className )
+		? name
+		: `${ name }:config`;
+	const head = `cmd ${ target } ${ invocation.verb }`;
 	return args.length ? `${ head } ${ args.join( ' ' ) }` : head;
 }
 
