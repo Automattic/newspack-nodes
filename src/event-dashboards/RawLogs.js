@@ -19,6 +19,7 @@ import { useState, useEffect, useRef, useMemo } from '@wordpress/element';
 import { Core } from '../runtime/core';
 import { useNodeState } from '../runtime/react';
 import { useRawLogsGraph } from './hooks/useRawLogsGraph';
+import ConnectionBanner from '../shared/components/ConnectionBanner';
 import './styles/raw-logs.scss';
 
 const ROW_HEIGHT = 18;
@@ -33,7 +34,12 @@ const COLOR_TEXT = '#e0e0e0';
 const COLOR_PARTITION = '#666';
 const COLOR_BORDER = '#444';
 
-const EMPTY_VIEW = { logs: [], selected: '', paused: false };
+const EMPTY_VIEW = {
+	logs: [],
+	selected: '',
+	paused: false,
+	connectionError: false,
+};
 
 /**
  * Raw Logs Component.
@@ -50,6 +56,7 @@ export default function RawLogs() {
 		logs: availableLogs,
 		selected: selectedLog,
 		paused: isPaused,
+		connectionError,
 	} = view;
 
 	const [ filter, setFilter ] = useState( '' );
@@ -390,6 +397,8 @@ export default function RawLogs() {
 					</button>
 				</div>
 			</div>
+
+			<ConnectionBanner connectionError={ connectionError } />
 
 			<div
 				className="newspack-nodes-raw-logs-canvas-container"

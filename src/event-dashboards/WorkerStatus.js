@@ -12,6 +12,7 @@
 
 import { memo, useMemo } from '@wordpress/element';
 import { useNodeState } from '../runtime/react';
+import ConnectionBanner from '../shared/components/ConnectionBanner';
 import {
 	useWorkerStatusGraph,
 	initialRefresh,
@@ -868,9 +869,10 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 				<div className="worker-status-header">
 					<h2>Worker Status</h2>
 					{ error && (
-						<div className="worker-status-error-inline">
-							{ error }
-						</div>
+						<ConnectionBanner
+							connectionError={ !! error }
+							message={ error }
+						/>
 					) }
 					<div className="worker-status-total-rate">
 						<span className="total-rate-write">

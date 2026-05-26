@@ -69,6 +69,18 @@ describe( 'useRawLogsGraph — mount + wiring', () => {
 		).toHaveLength( 1 );
 	} );
 
+	test( 'wires the stream controlSink to the view (connection-status surface)', async () => {
+		const fakeClient = { send: async () => oneLogReply() };
+		const fake = makeFakeConnector();
+		renderHook( () =>
+			useRawLogsGraph( { connector: fake, commandClient: fakeClient } )
+		);
+		await act( async () => {} );
+		expect( Core.node( 'rawlogs/stream' ).controlSink ).toBe(
+			Core.node( 'rawlogs/view' )
+		);
+	} );
+
 	test( 'subscribes the stream to the default-selected log after list_logs', async () => {
 		const fakeClient = { send: async () => oneLogReply() };
 		const fake = makeFakeConnector();

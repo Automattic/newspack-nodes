@@ -13,13 +13,15 @@ const LPS_WINDOW_MS = 10000;
  *   directly off the node each animation frame (`Core.node('rawlogs/view').lines`
  *   / `.lps`) so a high-volume stream never re-renders React per line.
  * - LOW frequency (control + catalog): only `_control` publishes the small view
- *   model via `setState('view', { logs, selected, paused })` — the dropdown +
- *   pause button + selected value, consumed by `useNodeState('rawlogs/view','view')`.
+ *   model via `setState('view', { logs, selected, paused, connectionError })` —
+ *   the dropdown + pause button + selected value + reconnect banner, consumed by
+ *   `useNodeState('rawlogs/view','view')`.
  *
  * `fill()` accepts two TM_STRUCT shapes:
  * - a row (`VALUE = { p, line }` from `rawlogs/transform`): appended newest-first
  *   to a capped buffer (unless paused), updating lines/second.
- * - a control (`VALUE = { action, … }`): `select` (set + clear), `pause`, `logs`.
+ * - a control (`VALUE = { action, … }`): `select` (set + clear), `pause`, `logs`,
+ *   `connection` (the SSE connection-status surface from `rawlogs/stream`).
  *
  * Buffer + LPS logic migrated verbatim from `RawLogs.js`.
  */
@@ -34,6 +36,7 @@ class RawLogsViewNode extends Node {
 		this.logs = [];
 		this.selected = '';
 		this.paused = false;
+		this.connectionError = false;
 	}
 
 	fill( message ) {
@@ -80,6 +83,8 @@ class RawLogsViewNode extends Node {
 			if ( ! this.selected && value.logs.length > 0 ) {
 				this.selected = value.logs[ 0 ].key;
 			}
+		} else if ( 'connection' === value.action ) {
+			this.connectionError = !! value.connectionError;
 		}
 	}
 
@@ -113,11 +118,14 @@ class RawLogsViewNode extends Node {
 	// Publish ONLY the low-frequency view model. `lines` and `lps` are the
 	// high-frequency buffer the rAF reads off the node directly — keeping them
 	// out of setState is what stops a busy stream re-rendering React per row.
+	// `connectionError` rides here so the reconnect banner re-renders at low
+	// frequency (off the stream's connection controls).
 	_publish() {
 		this.setState( 'view', {
 			logs: this.logs,
 			selected: this.selected,
 			paused: this.paused,
+			connectionError: this.connectionError,
 		} );
 	}
 }

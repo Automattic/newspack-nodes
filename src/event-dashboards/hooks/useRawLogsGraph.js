@@ -2,8 +2,10 @@
  * useRawLogsGraph — mounts the Raw Logs dashboard node graph (the JS-Node
  * conversion of the old RawLogs component). On mount it builds three nodes —
  * `rawlogs/stream` (SSE-in), `rawlogs/transform` (envelope → row), `rawlogs/view`
- * (view model) — wires the data path stream → transform → view, fires the
- * `list_logs` command and feeds the result into the view (which defaults the
+ * (view model) — wires the data path stream → transform → view (plus
+ * `stream.controlSink = view` so connection-status controls reach the view
+ * directly, since the transform would drop them), fires the `list_logs` command
+ * and feeds the result into the view (which defaults the
  * selection to the first log), then subscribes the stream to that log. The view
  * publishes its state via `setState('view', …)`; the React view reads it
  * separately with `useNodeState('rawlogs/view','view')`.
@@ -69,6 +71,8 @@ export function useRawLogsGraph( opts = {} ) {
 		const view = createRawLogsView( VIEW );
 		stream.sink = transform;
 		transform.sink = view;
+		// Connection-status controls bypass the transform (which would drop them).
+		stream.controlSink = view;
 		streamRef.current = stream;
 		viewRef.current = view;
 
