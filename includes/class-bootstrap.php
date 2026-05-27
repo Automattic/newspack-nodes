@@ -141,7 +141,12 @@ class Bootstrap {
 		if ( ! \is_dir( $input_dir ) ) {
 			return false;
 		}
-		( new Partition_Node( $input_dir, 0, Worker_Base::IPC_SEGMENT_SIZE ) )->name( $worker_id );
+		( new Partition_Node(
+			$input_dir,
+			0,
+			Worker_Base::IPC_SEGMENT_SIZE,
+			Worker_Base::IPC_NUM_SEGMENTS
+		) )->name( $worker_id );
 		return true;
 	}
 
