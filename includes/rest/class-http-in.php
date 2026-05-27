@@ -63,8 +63,13 @@ class HTTP_In_Node extends Node {
 			( $this->send_header )( 200 );
 			$this->sent_headers = true;
 		}
+		// JSONL: one packed Message per line. A command can emit MORE than one
+		// message into the body (e.g. a `log`/stderr line plus the verb response),
+		// so the client splits on newlines and unpacks each line — never JSON.parse
+		// the whole body. packed() is single-line JSON (newlines in values are
+		// escaped), so `\n` is an unambiguous record separator.
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-		echo Message::packed( $message );
+		echo Message::packed( $message ) . "\n";
 	}
 
 	public function reset(): void {

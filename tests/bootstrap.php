@@ -18,6 +18,10 @@
 \putenv( 'LOCAL_NEWSPACK_NODES_CONF=' . __DIR__ . '/newspack-nodes-test-config.php' );
 
 \define( 'ABSPATH', '/' );
+// Production WP always defines NONCE_SALT; mirror it so command signing doesn't
+// emit the forgeable-fallback warning into every /command response body.
+// (CommandAuthTest's no-salt case self-skips when this is set.)
+\define( 'NONCE_SALT', 'newspack-nodes-test-nonce-salt' );
 
 // Minimal WP stubs needed for the plugin file.
 function plugin_dir_path( string $file ): string {

@@ -1,4 +1,13 @@
-import { newMessage, pack, TYPE, TO, KEY, VALUE, TM_COMMAND } from './message';
+import {
+	newMessage,
+	pack,
+	unpack,
+	TYPE,
+	TO,
+	KEY,
+	VALUE,
+	TM_COMMAND,
+} from './message';
 
 // JSONL body, so NOT application/json (see #post for why).
 const COMMAND_CONTENT_TYPE = 'text/plain; charset=UTF-8';
@@ -43,14 +52,19 @@ export class CommandClient {
 	 * @return {Promise<Array>} Parsed response.
 	 */
 	async send( params ) {
-		return this.#post( pack( this.buildMessage( params ) ) );
+		// The body is JSONL (a verb may emit a stderr/log line AND its response);
+		// the verb response is emitted last, so return the final message. Callers
+		// (dashboards, unwrapCommandResponse) want the single response Message.
+		const msgs = await this.#post( pack( this.buildMessage( params ) ) );
+		return msgs.length ? msgs[ msgs.length - 1 ] : null;
 	}
 
 	/**
 	 * POST a batch as JSONL (one packed Message per line, routed in order).
 	 *
 	 * @param {Array<Array>} messages Positional Messages, in dispatch order.
-	 * @return {Promise<Array>} Parsed response (202 ack keyed off the last).
+	 * @return {Promise<Array<Array>>} Every reply Message in the JSONL body (each
+	 *   routed onward by the caller); empty when the command was routed onward (202).
 	 */
 	async postBatch( messages ) {
 		return this.#post( messages.map( ( m ) => pack( m ) ).join( '\n' ) );
@@ -67,9 +81,15 @@ export class CommandClient {
 			},
 			body,
 		} );
-		// A synchronous reply is a packed Message (JSON); a routed-onward command
-		// gets a bare 202 with no body → resolve to null (don't reject the promise).
+		// JSONL: zero or more packed Messages, one per line (a routed-onward command
+		// gets a bare 202 with no body). Split + unpack each — NEVER JSON.parse the
+		// whole body, since a command can emit multiple messages (stderr/log + reply).
 		const text = await r.text();
-		return text ? JSON.parse( text ) : null;
+		return text
+			? text
+					.split( '\n' )
+					.filter( ( line ) => '' !== line.trim() )
+					.map( ( line ) => unpack( line ) )
+			: [];
 	}
 }

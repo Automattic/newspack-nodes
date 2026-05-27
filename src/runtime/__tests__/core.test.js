@@ -1,6 +1,30 @@
 import { Core } from '../core';
+import { TYPE, VALUE, TM_BYTESTREAM } from '../message';
 
 beforeEach( () => Core.reset() );
+
+test( 'stderr routes the formatted line to a registered _output sink', () => {
+	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	const captured = [];
+	Core.registerNode( '_output', { fill: ( m ) => captured.push( m ) } );
+	Core.stderr( 'hello sink' );
+	expect( captured ).toHaveLength( 1 );
+	expect( captured[ 0 ][ TYPE ] ).toBe( TM_BYTESTREAM );
+	expect( captured[ 0 ][ VALUE ] ).toMatch( /hello sink/ );
+	spy.mockRestore();
+} );
+
+test( 'stderr prefers a _repl sink over _output', () => {
+	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	const repl = [];
+	const out = [];
+	Core.registerNode( '_repl', { fill: ( m ) => repl.push( m ) } );
+	Core.registerNode( '_output', { fill: ( m ) => out.push( m ) } );
+	Core.stderr( 'only repl' );
+	expect( repl ).toHaveLength( 1 );
+	expect( out ).toHaveLength( 0 );
+	spy.mockRestore();
+} );
 
 test( 'registerNode and node lookup', () => {
 	const obj = { name: 'x' };

@@ -80,15 +80,24 @@ class Core {
 		self::$var               = [];
 		// $config_resolvers is process-lifetime (like namespace registrations) — not cleared.
 		self::$memd              = null;
-		// Default handler: route through `_repl` if wired, else error_log.
+		// Default handler: stderr is a BROADCAST. Route it to whichever reply sink
+		// THIS process wired — the worker's `_repl` output partition, a REPL
+		// `_output` Dumper, the SSE-stream `_sse` egress, or the `_http` response
+		// writer (POST /command, where it rides back in the JSONL body) — so the
+		// line surfaces at the session. Each process registers exactly one, so a
+		// line never doubles. Else error_log.
 		self::$stderr_handler = static function ( string $msg ): void {
-			$repl = self::$nodes_by_name[ Node_Names::REPL ] ?? null;
-			if ( null !== $repl ) {
+			$sink = self::$nodes_by_name[ Node_Names::REPL ]
+				?? self::$nodes_by_name[ Node_Names::OUTPUT ]
+				?? self::$nodes_by_name[ Node_Names::SSE ]
+				?? self::$nodes_by_name[ Node_Names::HTTP ]
+				?? null;
+			if ( null !== $sink ) {
 				$m                       = Message::new_message();
 				$m[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 				$m[ Message::TIMESTAMP ] = self::$now;
 				$m[ Message::VALUE ]     = $msg;
-				$repl->fill( $m );
+				$sink->fill( $m );
 				return;
 			}
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
