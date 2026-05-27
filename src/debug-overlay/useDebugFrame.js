@@ -27,16 +27,52 @@ function defaultFrame() {
 	};
 }
 
-// Strict in-bounds: the entire panel stays inside the viewport. If the panel
-// is larger than the viewport (e.g. user shrunk the window), shrink it to
-// fit; min-size still applies (the panel can't shrink below MIN_W x MIN_H).
+// The usable area on the page: viewport minus WP admin bar (top), admin
+// menu (left), and the vertical scrollbar (right). Falls back to the raw
+// viewport when the WP chrome isn't present (non-WP host). Used by BOTH
+// the strict in-bounds clamp and the maximize so dragging and maximizing
+// agree on what "inside" means.
+function getAvailableBounds() {
+	const adminBar = document.getElementById( 'wpadminbar' );
+	const adminMenu = document.getElementById( 'adminmenuwrap' );
+	const top = adminBar ? adminBar.offsetHeight : 0;
+	const left = adminMenu ? adminMenu.offsetWidth : 0;
+	// innerWidth - clientWidth = vertical-scrollbar width (0 when none).
+	// Guard against jsdom where clientWidth can be 0 — that would compute a
+	// scrollbar of the full window width and collapse the bounds to zero.
+	// Anything larger than 40px is obviously not a real scrollbar; ignore.
+	const clientW = document.documentElement.clientWidth;
+	const rawScrollbar = window.innerWidth - clientW;
+	const scrollbarW =
+		clientW > 0 && rawScrollbar >= 0 && rawScrollbar <= 40
+			? rawScrollbar
+			: 0;
+	return {
+		left,
+		top,
+		right: window.innerWidth - scrollbarW,
+		bottom: window.innerHeight,
+	};
+}
+
+// Strict in-bounds: the entire panel stays inside the AVAILABLE area
+// (viewport minus admin chrome + scrollbar). If the panel is larger
+// than that area (e.g. user shrunk the window), shrink it to fit;
+// min-size still applies (the panel can't shrink below MIN_W x MIN_H).
 function clampFrame( { x, y, w, h } ) {
-	const W = window.innerWidth;
-	const H = window.innerHeight;
-	const cw = Math.max( MIN_W, Math.min( w, W ) );
-	const ch = Math.max( MIN_H, Math.min( h, H ) );
-	const cx = Math.min( Math.max( 0, x ), Math.max( 0, W - cw ) );
-	const cy = Math.min( Math.max( 0, y ), Math.max( 0, H - ch ) );
+	const b = getAvailableBounds();
+	const availW = b.right - b.left;
+	const availH = b.bottom - b.top;
+	const cw = Math.max( MIN_W, Math.min( w, availW ) );
+	const ch = Math.max( MIN_H, Math.min( h, availH ) );
+	const cx = Math.min(
+		Math.max( b.left, x ),
+		Math.max( b.left, b.right - cw )
+	);
+	const cy = Math.min(
+		Math.max( b.top, y ),
+		Math.max( b.top, b.bottom - ch )
+	);
 	return { x: cx, y: cy, w: cw, h: ch };
 }
 
@@ -47,10 +83,11 @@ function clampFrame( { x, y, w, h } ) {
  * on pointerdown, release on pointerup) so the consumer just spreads the
  * returned handlers onto the header + 8 handle divs.
  *
- * @param {string} storageKey localStorage key (panel layout is keyed per dashboard).
+ * @param {string}  storageKey localStorage key (panel layout is keyed per dashboard).
+ * @param {boolean} [visible]  Whether the panel is currently shown. When false while maximized, the page scrollbar is restored.
  * @return {{ frame: Object, style: Object, onHeaderPointerDown: Function, getResizeHandlers: Function, toggleMaximize: Function }} Frame state, an inline style for the panel, the header drag handler, a factory returning the 8 edge/corner handlers, and a toggleMaximize() that flips between the saved frame and a fullscreen frame.
  */
-export function useDebugFrame( storageKey ) {
+export function useDebugFrame( storageKey, visible = true ) {
 	const [ frame, setFrame ] = useState( () => {
 		try {
 			const raw = window.localStorage.getItem( storageKey );
@@ -76,27 +113,23 @@ export function useDebugFrame( storageKey ) {
 			return;
 		}
 		preMaximizeRef.current = frame;
-		// Max to the WP admin CONTENT area, not the viewport — leave the
-		// admin bar (top) and menu (left) visible. Measure both at click
-		// time so a folded/unfolded menu is honored. Falls back to 0 if
-		// the chrome isn't present (non-WP host).
-		const adminBar = document.getElementById( 'wpadminbar' );
-		const adminMenu = document.getElementById( 'adminmenuwrap' );
-		const top = adminBar ? adminBar.offsetHeight : 0;
-		const left = adminMenu ? adminMenu.offsetWidth : 0;
+		const b = getAvailableBounds();
 		setFrame( {
-			x: left,
-			y: top,
-			w: Math.max( MIN_W, window.innerWidth - left ),
-			h: Math.max( MIN_H, window.innerHeight - top ),
+			x: b.left,
+			y: b.top,
+			w: Math.max( MIN_W, b.right - b.left ),
+			h: Math.max( MIN_H, b.bottom - b.top ),
 		} );
 		setMaximized( true );
 	}, [ frame ] );
 
-	// While maximized, suppress the page's vertical scrollbar so it doesn't
-	// eat the panel's right edge. Restored on un-maximize and on unmount.
+	// While maximized AND visible, suppress the page's vertical scrollbar
+	// so it doesn't eat the panel's right edge. Restored when the panel
+	// is un-maximized, hidden, or unmounted. The `visible` flag lets the
+	// consumer (DebugOverlay) reflect open/close so the scrollbar comes
+	// back the moment the X is clicked, even if the panel was maximized.
 	useEffect( () => {
-		if ( ! maximized ) {
+		if ( ! maximized || ! visible ) {
 			return undefined;
 		}
 		const prev = document.body.style.overflow;
@@ -104,7 +137,7 @@ export function useDebugFrame( storageKey ) {
 		return () => {
 			document.body.style.overflow = prev;
 		};
-	}, [ maximized ] );
+	}, [ maximized, visible ] );
 
 	// Re-clamp on viewport shrink so a previously-fitting panel stays inside.
 	useEffect( () => {
