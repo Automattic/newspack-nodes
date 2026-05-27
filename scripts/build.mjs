@@ -69,6 +69,9 @@ const WP_EXTERNALS = {
 /**
  * esbuild plugin: rewrites WP/React imports to read from window globals
  * and records which handles were actually used (for *.asset.php).
+ *
+ * @param {Set<string>} usedHandles Records the WordPress enqueue handles each entry actually imports, so the emitted *.asset.php dependency list is minimal.
+ * @return {Object} An esbuild plugin object.
  */
 function wpExternalsPlugin( usedHandles ) {
 	return {
@@ -136,6 +139,11 @@ async function buildEntry( entry, outDir ) {
 		entryPoints: [ path.resolve( ROOT, entry ) ],
 		bundle: true,
 		minify: true,
+		// dump_metadata reads node.constructor.name to label the class on the
+		// canvas — minification mangles it to two-letter ids (Heartbeat→PT,
+		// Metadata→OT, …). keepNames preserves the original identifiers in
+		// the minified output without disabling minification.
+		keepNames: true,
 		format: 'iife',
 		target: [ 'es2020' ],
 		jsx: 'automatic',
@@ -206,13 +214,17 @@ async function main() {
 		ENTRIES.map( ( e ) => buildEntry( e.entry, e.outDir ) )
 	);
 	for ( const r of results ) {
+		// eslint-disable-next-line no-console -- build script log line.
 		console.log(
-			`✓ ${ r.entry } → ${ path.relative( ROOT, r.outDir ) } [deps: ${ r.handles.join( ', ' ) || '(none)' }] [v${ r.version }]`
+			`✓ ${ r.entry } → ${ path.relative( ROOT, r.outDir ) } [deps: ${
+				r.handles.join( ', ' ) || '(none)'
+			}] [v${ r.version }]`
 		);
 	}
 }
 
 main().catch( ( err ) => {
+	// eslint-disable-next-line no-console -- build script failure log.
 	console.error( err );
 	process.exit( 1 );
 } );
