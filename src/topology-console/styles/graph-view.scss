@@ -80,6 +80,23 @@
 			"header  header header"
 			"palette canvas inspector";
 	}
+
+	// `.is-palette-collapsed` shrinks the palette column to a 28px rail (just
+	// wide enough for the expand-chevron button). Overrides land after the
+	// base + .is-edit-mode / .is-inspector-open variants so the column count
+	// matches whichever combination is active.
+	&.is-palette-collapsed {
+		grid-template-columns: 28px 1fr;
+	}
+	&.is-palette-collapsed.is-inspector-open {
+		grid-template-columns: 28px 1fr 380px;
+	}
+	&.is-palette-collapsed.is-edit-mode {
+		grid-template-columns: 28px 1fr;
+	}
+	&.is-palette-collapsed.is-edit-mode.is-inspector-open {
+		grid-template-columns: 28px 1fr 380px;
+	}
 	font-family: var(--font-mono);
 	font-size: 13px;
 	line-height: 1.45;
@@ -143,6 +160,44 @@
 	position: relative;
 	display: flex;
 	flex-direction: column;
+
+	// Slim collapsed rail: room for the expand-chevron and nothing else.
+	&--collapsed {
+		padding: 0;
+		overflow: hidden;
+		align-items: center;
+		justify-content: flex-start;
+	}
+
+	// Chevron button — collapse (open palette) or expand (collapsed rail).
+	&__toggle {
+		position: sticky;
+		top: 0;
+		align-self: flex-end;
+		margin: 4px 6px 0;
+		width: 18px;
+		height: 18px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: var(--paper-3);
+		color: var(--ink);
+		border: 1px solid var(--ink-4);
+		border-radius: 2px;
+		cursor: pointer;
+		font: 700 12px/1 var(--font-mono);
+		padding: 0;
+		z-index: 1;
+
+		&:hover {
+			background: var(--paper);
+		}
+
+		&--collapsed {
+			align-self: center;
+			margin: 8px 0 0;
+		}
+	}
 
 	&__group {
 		margin: 14px 16px 8px;

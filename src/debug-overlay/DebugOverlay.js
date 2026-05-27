@@ -49,7 +49,30 @@ export default function DebugOverlay( {
 	const [ replExpanded, setReplExpanded ] = useState( false );
 	const replInputRef = useRef( null );
 	const themeKey = `${ storageKey }:theme`;
+	const paletteKey = `${ storageKey }:palette-collapsed`;
 	const [ theme, setTheme ] = useState( () => readStoredTheme( themeKey ) );
+	const [ paletteCollapsed, setPaletteCollapsed ] = useState( () => {
+		try {
+			return window.localStorage.getItem( paletteKey ) === '1';
+		} catch ( _err ) {
+			return false;
+		}
+	} );
+	const togglePaletteCollapsed = () => {
+		setPaletteCollapsed( ( prev ) => {
+			const next = ! prev;
+			try {
+				if ( next ) {
+					window.localStorage.setItem( paletteKey, '1' );
+				} else {
+					window.localStorage.removeItem( paletteKey );
+				}
+			} catch ( _err ) {
+				// localStorage disabled — in-session only.
+			}
+			return next;
+		} );
+	};
 	const onThemeChange = ( slug ) => {
 		const next = isValidTheme( slug ) ? slug : DEFAULT_THEME;
 		setTheme( next );
@@ -126,7 +149,7 @@ export default function DebugOverlay( {
 					<div
 						className={ `topology-app theme-${ theme }${
 							selected ? ' is-inspector-open' : ''
-						}` }
+						}${ paletteCollapsed ? ' is-palette-collapsed' : '' }` }
 					>
 						<GraphView
 							graph={ graph }
@@ -136,6 +159,8 @@ export default function DebugOverlay( {
 							editMode={ false }
 							showPalette
 							paletteLoading={ catalog.loading }
+							paletteCollapsed={ paletteCollapsed }
+							onPaletteToggle={ togglePaletteCollapsed }
 							classCatalog={ schemasByShellName }
 							catalog={ catalog.classes }
 							formatters={ catalog.formatters }

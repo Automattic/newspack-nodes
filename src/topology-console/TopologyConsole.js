@@ -211,6 +211,16 @@ const EMPTY_GRAPH = { nodes: [], edges: [] };
 const EMPTY_TRANSCRIPT = [];
 
 const THEME_STORAGE_KEY = 'newspack-nodes:topology:theme';
+const PALETTE_COLLAPSED_KEY = 'newspack-nodes:topology:palette-collapsed';
+
+// Read the persisted palette-collapsed flag; default to open.
+function readStoredPaletteCollapsed() {
+	try {
+		return window.localStorage.getItem( PALETTE_COLLAPSED_KEY ) === '1';
+	} catch ( _err ) {
+		return false;
+	}
+}
 
 // Read the persisted skin; unknown/absent/disabled storage falls back to default.
 function readStoredTheme() {
@@ -257,6 +267,24 @@ export default function TopologyConsole() {
 		} catch ( _err ) {
 			// localStorage disabled/quota'd; in-session only.
 		}
+	}, [] );
+	const [ paletteCollapsed, setPaletteCollapsedState ] = useState(
+		readStoredPaletteCollapsed
+	);
+	const togglePaletteCollapsed = useCallback( () => {
+		setPaletteCollapsedState( ( prev ) => {
+			const next = ! prev;
+			try {
+				if ( next ) {
+					window.localStorage.setItem( PALETTE_COLLAPSED_KEY, '1' );
+				} else {
+					window.localStorage.removeItem( PALETTE_COLLAPSED_KEY );
+				}
+			} catch ( _err ) {
+				// localStorage disabled/quota'd; in-session only.
+			}
+			return next;
+		} );
 	}, [] );
 	const saveTopology = useSaveTopology();
 	const deleteTopology = useDeleteTopology();
@@ -1470,7 +1498,9 @@ export default function TopologyConsole() {
 		<div
 			className={ `topology-app theme-${ theme }${
 				selectedId ? ' is-inspector-open' : ''
-			}${ mode === 'edit' ? ' is-edit-mode' : '' }` }
+			}${ mode === 'edit' ? ' is-edit-mode' : '' }${
+				paletteCollapsed ? ' is-palette-collapsed' : ''
+			}` }
 		>
 			<Header
 				pathOptions={ pathOptions }
@@ -1517,6 +1547,8 @@ export default function TopologyConsole() {
 				editMode={ mode === 'edit' }
 				showPalette={ true }
 				paletteLoading={ catalog.loading }
+				paletteCollapsed={ paletteCollapsed }
+				onPaletteToggle={ togglePaletteCollapsed }
 				classCatalog={ schemasByShellName }
 				catalog={ catalog.classes }
 				formatters={ catalog.formatters }

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from '@wordpress/element';
 import { Core } from '../runtime/core';
 import { coreToGraph } from '../topology-console/utils/coreToGraph';
 import { dispatchLocal } from '../topology-console/utils/localCommand';
+import { generateNodeName } from '../topology-console/utils/draftGraph';
 import names from '../runtime/reserved-node-names.json';
 
 // 1s redraw cadence (matches the console's dump_metadata poll feel).
@@ -35,12 +36,14 @@ export function useDebugGraph( active = true ) {
 			onConnect: ( from, to ) =>
 				dispatchLocal( ci(), 'connect_node', `${ from } ${ to }` ),
 			onRemoveNode: ( id ) => dispatchLocal( ci(), 'remove_node', id ),
-			onDropNode: ( shellName ) =>
-				dispatchLocal(
-					ci(),
-					'make_node',
-					`${ shellName } ${ shellName.toLowerCase() }-${ Date.now() }`
-				),
+			onDropNode: ( { shellName } ) => {
+				// SchematicCanvas passes {shellName, x, y} — destructure to match.
+				// generateNodeName uniques against the live graph (read off Core,
+				// the source of truth) so the new id won't collide with an existing
+				// node. Position is cosmetic and not sent — poll-reflect lays out.
+				const name = generateNodeName( coreToGraph(), shellName );
+				dispatchLocal( ci(), 'make_node', `${ shellName } ${ name }` );
+			},
 			onInspectorAction: ( action, nodeId, payload ) => {
 				// Parity with TopologyConsole.handleInspectorAction: dump, tail
 				// (connect_node with no target), disconnect, send, trace, invoke.

@@ -73,6 +73,14 @@
 				"palette canvas inspector"
 				"palette repl   inspector";
 		}
+
+		// 28px collapsed-palette rail (same as the console).
+		&.is-palette-collapsed {
+			grid-template-columns: 28px 1fr 0;
+		}
+		&.is-palette-collapsed.is-inspector-open {
+			grid-template-columns: 28px 1fr 360px;
+		}
 	}
 }
 

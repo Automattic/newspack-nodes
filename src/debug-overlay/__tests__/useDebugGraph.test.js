@@ -110,4 +110,26 @@ describe( 'useDebugGraph', () => {
 		expect( Core.node( 'a' ).debugState ).toBe( 0 );
 		teardown();
 	} );
+
+	it( 'onDropNode accepts the SchematicCanvas {shellName,x,y} envelope and dispatches make_node', () => {
+		// SchematicCanvas.handleDrop calls onDropNode({shellName, x, y}) — a
+		// single OBJECT, not (shellName, pos). The console's handleDropNode
+		// destructures it. The overlay must too; the previous positional
+		// implementation got `[object Object]` as the shellName.
+		const { teardown } = mountExospine();
+		const { result } = renderHook( () => useDebugGraph() );
+		act( () =>
+			result.current.handlers.onDropNode( {
+				shellName: 'Tee',
+				x: 0,
+				y: 0,
+			} )
+		);
+		// Make_node creates a node whose id starts with 'tee' (generateNodeName
+		// lowercases the shell name). The earlier `[object Object]` would have
+		// produced a parse error and no node at all.
+		const live = [ ...Core.nodes.keys() ];
+		expect( live.some( ( n ) => n.startsWith( 'tee' ) ) ).toBe( true );
+		teardown();
+	} );
 } );
