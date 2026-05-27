@@ -1,9 +1,12 @@
 /**
- * useWorkerStatusGraph tests — the Worker Status dashboard graph. The three
- * nodes (`workerstatus/poll`, `workerstatus/transform`, `workerstatus/view`) are
+ * useWorkerStatusGraph tests — the Worker Status dashboard graph clipped onto the
+ * exospine (`mountExospine`: _command_interpreter → _router). The three graph
+ * nodes (`workerstatus:poll`, `workerstatus:transform`, `workerstatus:view`) are
  * REAL (their factories register them in Core); only the poll node's command
- * client is injected so the hook never touches the network. The hook owns the
- * poll interval (page-visible only) and the control callbacks. Mirrors
+ * client is injected so the hook never touches the network. EVERY node sinks into
+ * the CI and steers via `target`; an end-to-end poll reply routes
+ * poll → transform → view through the real router. The hook owns the poll
+ * interval (page-visible only) and the control callbacks. Mirrors
  * useRawLogsGraph's tests (real graph, faked I/O boundary).
  *
  * usePageVisibility is mocked to `true` so the interval runs under jsdom (matches
@@ -22,6 +25,7 @@ jest.mock( '../../../shared/hooks/usePageVisibility', () => ( {
 import { useWorkerStatusGraph } from '../useWorkerStatusGraph';
 
 const REFRESH_KEY = 'newspack-nodes-worker-refresh';
+const CI = '_command_interpreter';
 
 beforeEach( () => {
 	Core.reset();
@@ -44,19 +48,34 @@ function makeFakeClient( payload = { workers: [], logs: [] } ) {
 
 const verbsOf = ( client ) => client.calls.map( ( c ) => c.verb );
 
-describe( 'useWorkerStatusGraph — mount + wiring', () => {
-	test( 'mounts the three nodes wired poll→transform→view', async () => {
+describe( 'useWorkerStatusGraph — exospine wiring', () => {
+	test( 'mounts the backbone + three nodes, each sinking into the CI', async () => {
 		const client = makeFakeClient();
 		renderHook( () => useWorkerStatusGraph( { commandClient: client } ) );
 		await act( async () => {} );
-		expect( Core.node( 'workerstatus/poll' ) ).toBeTruthy();
-		expect( Core.node( 'workerstatus/transform' ) ).toBeTruthy();
-		expect( Core.node( 'workerstatus/view' ) ).toBeTruthy();
-		expect( Core.node( 'workerstatus/poll' ).sink ).toBe(
-			Core.node( 'workerstatus/transform' )
+
+		const ci = Core.node( CI );
+		expect( ci ).toBeTruthy();
+		expect( Core.node( '_router' ) ).toBeTruthy();
+		for ( const n of [
+			'workerstatus:poll',
+			'workerstatus:transform',
+			'workerstatus:view',
+		] ) {
+			expect( Core.node( n ) ).toBeTruthy();
+			expect( Core.node( n ).sink ).toBe( ci );
+		}
+	} );
+
+	test( 'steers flow with targets, not bespoke sinks', async () => {
+		const client = makeFakeClient();
+		renderHook( () => useWorkerStatusGraph( { commandClient: client } ) );
+		await act( async () => {} );
+		expect( Core.node( 'workerstatus:poll' ).target ).toBe(
+			'workerstatus:transform'
 		);
-		expect( Core.node( 'workerstatus/transform' ).sink ).toBe(
-			Core.node( 'workerstatus/view' )
+		expect( Core.node( 'workerstatus:transform' ).target ).toBe(
+			'workerstatus:view'
 		);
 	} );
 
@@ -65,10 +84,35 @@ describe( 'useWorkerStatusGraph — mount + wiring', () => {
 		renderHook( () => useWorkerStatusGraph( { commandClient: client } ) );
 		await act( async () => {} );
 		expect( verbsOf( client ) ).toContain( 'dump_metadata' );
-		// The metadata flowed poll→transform→view and published a model.
+		// The metadata routed poll→transform→view through the router and published.
 		expect(
-			Core.node( 'workerstatus/view' ).setStateCache.view.loading
+			Core.node( 'workerstatus:view' ).setStateCache.view.loading
 		).toBe( false );
+	} );
+} );
+
+describe( 'useWorkerStatusGraph — end-to-end routing through the exospine', () => {
+	test( 'an immediate poll reply routes poll → transform → view and lands in the view model', async () => {
+		const meta = {
+			workers: [
+				{
+					type: 'firehose-workers',
+					handler: 'firehose-workers',
+					partition: 0,
+				},
+			],
+			logs: [ { name: 'firehose.log', partitions: [] } ],
+		};
+		const client = makeFakeClient( meta );
+		renderHook( () => useWorkerStatusGraph( { commandClient: client } ) );
+		await act( async () => {} );
+
+		// The metadata actually routed all the way to the view via the real router:
+		// the published model carries the snapshot's workers + logs.
+		const view = Core.node( 'workerstatus:view' );
+		expect( view.setStateCache.view.workers ).toEqual( meta.workers );
+		expect( view.setStateCache.view.logs ).toEqual( meta.logs );
+		expect( view.setStateCache.view.error ).toBeNull();
 	} );
 } );
 
@@ -148,16 +192,22 @@ describe( 'useWorkerStatusGraph — control callbacks', () => {
 } );
 
 describe( 'useWorkerStatusGraph — teardown', () => {
-	test( 'unmount unregisters all three nodes', async () => {
+	test( 'unmount unregisters the graph + the backbone', async () => {
 		const client = makeFakeClient();
 		const { unmount } = renderHook( () =>
 			useWorkerStatusGraph( { commandClient: client } )
 		);
 		await act( async () => {} );
 		unmount();
-		expect( Core.node( 'workerstatus/poll' ) ).toBeNull();
-		expect( Core.node( 'workerstatus/transform' ) ).toBeNull();
-		expect( Core.node( 'workerstatus/view' ) ).toBeNull();
+		for ( const n of [
+			'workerstatus:poll',
+			'workerstatus:transform',
+			'workerstatus:view',
+			'_command_interpreter',
+			'_router',
+		] ) {
+			expect( Core.node( n ) ).toBeNull();
+		}
 	} );
 
 	test( 'unmount closes the poll and view nodes before unregistering', async () => {
@@ -167,11 +217,11 @@ describe( 'useWorkerStatusGraph — teardown', () => {
 		);
 		await act( async () => {} );
 		const pollClose = jest.spyOn(
-			Core.node( 'workerstatus/poll' ),
+			Core.node( 'workerstatus:poll' ),
 			'close'
 		);
 		const viewClose = jest.spyOn(
-			Core.node( 'workerstatus/view' ),
+			Core.node( 'workerstatus:view' ),
 			'close'
 		);
 		unmount();
@@ -202,7 +252,7 @@ describe( 'useWorkerStatusGraph — teardown', () => {
 		const { unmount } = renderHook( () =>
 			useWorkerStatusGraph( { commandClient: client } )
 		);
-		const view = Core.node( 'workerstatus/view' );
+		const view = Core.node( 'workerstatus:view' );
 		const setStateSpy = jest.spyOn( view, 'setState' );
 		// Unmount with the mount poll still pending, then let it resolve.
 		unmount();

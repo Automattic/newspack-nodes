@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **The Raw Logs dashboard graph is wired onto the exospine (rule #2).** Every node (`rawlogs:stream`, the new `rawlogs:route` classifier, `rawlogs:transform`, `rawlogs:view`) now sinks into the `_command_interpreter` and steers flow purely with `target`/`TO` through `_router` — no bespoke `stream.sink = transform` chain, no `controlSink` side-channel. The data/control split is a first-class, inspectable node (`rawlogs:route`) that classifies on the stream-set `KEY='connection'` marker (not VALUE content, so a streamed structured log line carrying its own `action` field can't be mistaken for a control). Node names moved from `rawlogs/X` to `rawlogs:X` because `_router` peels TO on `/`. The dashboard renders identically; this is a substrate-conformance refactor.
+- **The Worker Status dashboard graph is wired onto the exospine (rule #2).** `workerstatus:poll`, `workerstatus:transform`, and `workerstatus:view` now sink into the `_command_interpreter` and steer flow with `target`/`TO` through `_router` — the `poll.sink = transform` chain is gone. Poll-driven with no data/control split (the transform converts `metadata` snapshots to the render model and forwards `error` controls through), so no route node. Node names moved `workerstatus/X` → `workerstatus:X`. Renders identically.
 
 ## [0.5.2] - 2026-05-27
 
