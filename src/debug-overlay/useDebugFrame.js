@@ -66,11 +66,13 @@ export function useDebugFrame( storageKey ) {
 
 	// Saved frame for un-maximize. `null` = not currently maximized.
 	const preMaximizeRef = useRef( null );
+	const [ maximized, setMaximized ] = useState( false );
 
 	const toggleMaximize = useCallback( () => {
 		if ( preMaximizeRef.current ) {
 			setFrame( clampFrame( preMaximizeRef.current ) );
 			preMaximizeRef.current = null;
+			setMaximized( false );
 			return;
 		}
 		preMaximizeRef.current = frame;
@@ -88,7 +90,21 @@ export function useDebugFrame( storageKey ) {
 			w: Math.max( MIN_W, window.innerWidth - left ),
 			h: Math.max( MIN_H, window.innerHeight - top ),
 		} );
+		setMaximized( true );
 	}, [ frame ] );
+
+	// While maximized, suppress the page's vertical scrollbar so it doesn't
+	// eat the panel's right edge. Restored on un-maximize and on unmount.
+	useEffect( () => {
+		if ( ! maximized ) {
+			return undefined;
+		}
+		const prev = document.body.style.overflow;
+		document.body.style.overflow = 'hidden';
+		return () => {
+			document.body.style.overflow = prev;
+		};
+	}, [ maximized ] );
 
 	// Re-clamp on viewport shrink so a previously-fitting panel stays inside.
 	useEffect( () => {
