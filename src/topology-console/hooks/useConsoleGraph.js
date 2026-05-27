@@ -81,19 +81,9 @@ export function useConsoleGraph( {
 		ci.setName( names.COMMAND_INTERPRETER );
 		ci.sink = router;
 		// The CI ships the full PHP verb set as built-ins (make_node, dump_node,
-		// dump_metadata, stats, uptime, …) — those need no local override here.
-		// `ls`/`list_nodes` ARE overridden: the built-in defaults to siblings (nodes
-		// whose sink IS the CI), but this session's nodes sink into `_router`, so at
-		// the local root (cwd `/`) we want a flat dump of every in-browser node.
-		// At a worker/`_http` cwd the command carries a non-empty TO and forwards out
-		// instead of interpreting here; this override only runs when interpreted
-		// locally (empty TO).
-		const listLocalNodes = () =>
-			[ ...Core.nodes.keys() ].sort().join( '\n' );
-		ci.commands( {
-			ls: listLocalNodes,
-			list_nodes: listLocalNodes,
-		} );
+		// dump_metadata, stats, uptime, list_nodes/ls, …) — no local overrides. `ls`
+		// defaults to CI siblings (Tachikoma); `ls -a` lists every node, and the
+		// column flags (-c/-s/-t) work because the full `_cmdList` runs.
 
 		// Receive-side reply nodes (Router peels TO and delivers to these).
 		const dumper = new Dumper( {
