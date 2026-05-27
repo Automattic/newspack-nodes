@@ -142,6 +142,29 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		$this->assertContainsOnlyInstancesOf( Consumer_Node::class, $consumers );
 	}
 
+	public function test_ipc_subscription_tails_output_dir_when_worker_offline_but_ipc_exists(): void {
+		// Worker mid-restart (e.g. a fleet restart): no lock dir, so the real
+		// Cli::attach_to_worker throws — but the worker's IPC output dir persists.
+		// The session must tail THAT (so it re-binds when the worker respawns and
+		// appends replies) instead of stranding on the log feed. A reload/topology
+		// switch is no longer required to recover the live view.
+		\mkdir( "{$this->tmp}/ipc/demo-workers.p0/output", 0755, true );
+		// A same-named log dir exists too — IPC output must win over the log fallback.
+		\mkdir( "{$this->tmp}/logs/demo-workers.log/p0", 0755, true );
+
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $this->tmp );
+
+		$consumers = $ctrl->open_subscription( 'demo-workers.p0', null );
+
+		$this->assertCount( 1, $consumers );
+		$this->assertStringStartsWith(
+			"{$this->tmp}/ipc/demo-workers.p0/output",
+			$consumers[0]->arguments(),
+			'must tail the persisting IPC output dir, not fall back to the log feed'
+		);
+	}
+
 	public function test_invalid_subscription_throws(): void {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );

@@ -172,6 +172,30 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 'second', $cap2->captured[0][ Message::VALUE ] );
 	}
 
+	public function test_has_checkpoint_false_without_offsetlog(): void {
+		$c = new Consumer_Node( "{$this->tmp}/data", 0, '' );
+		$this->assertFalse( $c->has_checkpoint() );
+	}
+
+	public function test_has_checkpoint_false_when_offsetlog_has_no_prior_entry(): void {
+		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$this->assertFalse( $c->has_checkpoint() );
+	}
+
+	public function test_has_checkpoint_true_after_resuming_from_offsetlog(): void {
+		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$this->produce_line( $source, 'first' );
+
+		$c1 = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$c1->sink( new Capture_Sink_Node() );
+		$c1->poll();
+		$c1->checkpoint();
+		unset( $c1 );
+
+		$c2 = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
+		$this->assertTrue( $c2->has_checkpoint() );
+	}
+
 	// ============================================================================
 	// Hardening: cross-poll partial-line accumulation.
 	// ============================================================================

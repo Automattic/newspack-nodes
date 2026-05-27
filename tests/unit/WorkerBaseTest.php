@@ -264,14 +264,33 @@ class WorkerBaseTest extends TestCase {
 		$this->assertSame( 'happy-path', $post['args']['body']['type'] );
 		$this->assertSame( 'token-abc', $post['args']['body']['nonce'] );
 	}
+
+	public function test_execute_checkpoints_ipc_input_at_shutdown(): void {
+		// The clean-recycle shutdown path must checkpoint the IPC input so the
+		// respawned worker resumes past consumed commands (no replay).
+		$worker = new TestableWorker( $this->tmp, 'ckpt-exec', 0 );
+		$lock   = "{$this->tmp}/locks/ckpt-exec.p0.lock.d";
+		$topology = function ( $ci, $partition ) use ( $lock ): void {
+			\Newspack_Nodes\Lock_Node::request_restart_at( $lock );
+		};
+
+		$worker->execute( $topology, 'http://example/spawn', 'tok' );
+
+		$this->assertSame( 1, $worker->ipc_checkpoint_calls, 'execute shutdown must checkpoint the IPC input' );
+	}
 }
 
 class TestableWorker extends Worker_Base {
+	public int $ipc_checkpoint_calls = 0;
 	public function set_start_time_for_test( float $t ): void {
 		$this->start_time = $t;
 	}
 	public function set_last_heartbeat_for_test( float $t ): void {
 		$this->last_heartbeat = $t;
+	}
+	public function checkpoint_ipc_input(): void {
+		++$this->ipc_checkpoint_calls;
+		parent::checkpoint_ipc_input();
 	}
 }
 

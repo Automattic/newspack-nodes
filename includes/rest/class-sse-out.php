@@ -162,7 +162,18 @@ class SSE_Out_Node extends Node {
 				$consumer->set_stamp_as( $sub );
 				return [ $consumer ];
 			} catch ( \InvalidArgumentException $e ) {
-				// No worker by that name — fall through to the log-file path. This is the
+				// No live worker (no lock dir). If its IPC output dir still exists, the
+				// worker is down-but-restarting (e.g. mid fleet-restart): tail THAT so
+				// the session re-binds when the worker respawns and appends replies —
+				// the live console recovers without a page reload / topology switch.
+				$ipc_output = "{$base}/ipc/{$sub}/output";
+				if ( \is_dir( $ipc_output ) ) {
+					$consumer = new Consumer_Node( $ipc_output, 0, '' );
+					$consumer->next_offset( 'end' );
+					$consumer->set_stamp_as( $sub );
+					return [ $consumer ];
+				}
+				// Genuinely no worker IPC — fall through to the log-file path. This is the
 				// aggregator hub's path: `firehose.p0` has no worker but a log dir exists.
 				$log_name  = $m[1];
 				$partition = (int) $m[2];

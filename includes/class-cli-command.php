@@ -137,7 +137,8 @@ class CLI_Command {
 
 		if ( $pivoted && null !== $ipc ) {
 			// IPC topics are single-partition; skip allow_large_writes so sessions append concurrently.
-			$ipc_out = new Partition_Node( $ipc['input'], 0 );
+			// 1 MiB segment_size — matches the worker/server IPC mounts (Worker_Base::IPC_SEGMENT_SIZE).
+			$ipc_out = new Partition_Node( $ipc['input'], 0, Worker_Base::IPC_SEGMENT_SIZE );
 			$ipc_out->name( $worker_id );
 			$ipc_out->sink( $interpreter );
 			// Sign commands on the way to the worker: the cli is a local
