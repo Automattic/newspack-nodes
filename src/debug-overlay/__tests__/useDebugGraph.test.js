@@ -87,11 +87,14 @@ describe( 'useDebugGraph', () => {
 		const a = new Node();
 		a.setName( 'a' );
 		const { result } = renderHook( () => useDebugGraph() );
-		// tail = `connect_node a` with NO target — sets a.target = '' (tail mode).
+		// tail = `connect_node a` with NO target — connect_node defaults to the
+		// issuing message's FROM, which the overlay stamps as '_output' (the
+		// transcript Dumper). So a.target becomes '_output' and a's emissions
+		// flow into the transcript, which is the whole point of Tail.
 		act( () =>
 			result.current.handlers.onInspectorAction( 'tail', 'a', null )
 		);
-		expect( Core.node( 'a' ).target ).toBe( '' );
+		expect( Core.node( 'a' ).target ).toBe( '_output' );
 		// Set a.target so disconnect has something to clear.
 		Core.node( 'a' ).target = 'somewhere';
 		act( () =>
