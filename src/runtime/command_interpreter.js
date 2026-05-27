@@ -2,6 +2,7 @@ import { Node } from './node';
 import { Tee } from './tee';
 import { Timer } from './timer';
 import { Core } from './core';
+import { dumpMetadataPayload } from './metadata';
 import {
 	TYPE,
 	TIMESTAMP,
@@ -667,25 +668,7 @@ export class CommandInterpreter extends Node {
 
 	// dump_metadata — single-round-trip per-node stats snapshot for the GUI canvas.
 	static _cmdDumpMetadata() {
-		const out = {};
-		for ( const [ name, node ] of Core.nodes ) {
-			// Patron-linked nodes are plumbing; the canvas shouldn't render them.
-			if ( node.patron !== null && node.patron !== undefined ) {
-				continue;
-			}
-			out[ name ] = {
-				class: node.constructor?.name ?? 'Node',
-				counter: node.counter ?? 0,
-				sink: node.sink && node.sink.name ? node.sink.name : '',
-				target: node.target ?? '',
-				debug_state: node.debugState ?? 0,
-				arguments: node.arguments ?? '',
-				lgst_msg: node.largestMsgSent ?? 0,
-				bytes_read: node.bytesRead ?? 0,
-				bytes_written: node.bytesWritten ?? 0,
-			};
-		}
-		return out;
+		return dumpMetadataPayload();
 	}
 
 	// stats [-a] [<regex>] — tabular per-node counters.
