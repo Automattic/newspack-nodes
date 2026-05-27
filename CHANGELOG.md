@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Active Topologies "restore defaults" (↺) loads the config-file `topologies`, not the full catalog.** It was sourcing defaults from `Bootstrap::get_topology_catalog()` (every registered `.tsl`), so ↺ — and the unset-option initial render — checked EVERYTHING, spawning every fleet (wrong for role-specific deployments like docker-admin / docker-render). It now reads `Config::load_config_defaults()['topologies']` (the curated set declared in `newspack-nodes-config.php` or a `LOCAL_NEWSPACK_NODES_CONF` override), matching `Bootstrap::get_topologies()`'s own precedence. The available checkbox list still comes from the full registry — only the default selection changed.
 - **The REPL can send commands at the local graph (`cd /`) and request scope (`cd /_sse`).** 0.5.0 re-enabled the prompt off the worker stream, but the three send gates (typed line, tab-completion, Inspector verb-invoke) still rejected EVERY send when there was no session pid — so `cd /` then `ls` returned "[no sse_pid yet] retry once CONNECTED". Only a worker pivot (`_sse/{topology}.pN`) routes its reply async over the stream and needs the pid; a local-root command interprets in-browser and a request-scope command replies synchronously in the POST body. The gates now key on a new `toNeedsSseSession()` test of the message's TO instead of the bare `ssePid` presence.
 
 ## [0.5.0] - 2026-05-27
