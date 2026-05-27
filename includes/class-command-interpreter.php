@@ -265,6 +265,7 @@ class Command_Interpreter_Node extends Node {
 			'send_eof' => "send_eof <path>\n    note: emits TM_EOF at prefix(<path>).\n",
 			'command_node' => "command_node <path> <verb> [<arguments>]\n    aliases: command, cmd\n    note: dispatches a TM_COMMAND at prefix(<path>) without changing cwd.\n",
 			'request_node' => "request_node <path> [<value>]\n    alias: request\n    note: emits TM_REQUEST at prefix(<path>); receiver replies via TO=FROM.\n",
+			'reply_to' => "reply_to <node path> <command>\n    note: runs <command> HERE but routes its reply to <node path> (inverse of command_node). Lets a worker drive a remote CI's output to one session.\n",
 			'ping' => "ping <path>\n    note: round-trips a TM_PING; receiver bounces TO=FROM. Output shows RTT.\n",
 			'include' => "include <file>\n    note: read commands from <file>, parse each line as if typed.\n",
 			'uptime' => "uptime\n    note: clock-time, plus days+HH:MM:SS since Core::reset() (worker spawn).\n",
@@ -294,6 +295,7 @@ class Command_Interpreter_Node extends Node {
 			'uptime'          => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_uptime(),
 			'debug_state'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_debug_state( $self, $args ),
 			'help'            => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_help( $args, $envelope ),
+			'reply_to'        => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_reply_to( $self, $args ),
 		];
 	}
 
@@ -637,6 +639,36 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_log( Command_Interpreter_Node $self, string $args ): string {
 		$self->stderr( $args );
+		return '';
+	}
+
+	/**
+	 * `reply_to <node path> <command>` — run `<command>` in THIS interpreter but
+	 * route its reply to `<node path>` (the inverse of `command_node`, which runs
+	 * it AT the path). Mints the sub-command stamped FROM=<path> — interpret()
+	 * replies TO=FROM — and re-enters via fill(). The LOCAL taint authorizes the
+	 * in-process mint (the `reply_to` command itself already passed the auth gate).
+	 * `reply_to` itself returns nothing; the output went to <path>.
+	 */
+	private static function cmd_reply_to( Command_Interpreter_Node $self, string $args ): string {
+		[ $path, $rest ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
+		[ $verb, $verb_args ] = \array_pad( \preg_split( '/\s+/', $rest, 2 ), 2, '' );
+		if ( '' === $path || '' === $verb ) {
+			return 'usage: reply_to <node path> <command>';
+		}
+		// reply_to is the only verb that re-enters interpret() with a fresh
+		// sub-command, so refuse to nest it — otherwise `reply_to p reply_to p
+		// reply_to p ... <verb>` recurses synchronously (FROM is set raw, never
+		// stamped, so MAX_FROM_SIZE can't bound it) until the stack blows.
+		if ( 'reply_to' === $verb ) {
+			return 'reply_to cannot invoke reply_to';
+		}
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_COMMAND;
+		$m[ Message::FROM ]  = $path;
+		$m[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $verb_args, 'payload' => '' ];
+		$m[ Message::LOCAL ] = true;
+		$self->fill( $m );
 		return '';
 	}
 

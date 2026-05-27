@@ -68,6 +68,8 @@ const HELP = {
 	command_node:
 		'command_node <path> <verb> [<arguments>]\n    aliases: command, cmd\n',
 	request_node: 'request_node <path> [<value>]\n    alias: request\n',
+	reply_to:
+		'reply_to <node path> <command>\n    note: runs <command> here but routes its reply to <node path> (inverse of command_node).\n',
 	ping: 'ping <path>\n',
 	include: 'include <file>\n',
 	uptime: 'uptime\n',
@@ -248,7 +250,38 @@ export class CommandInterpreter extends Node {
 			debug_state: ( self, args ) => self._cmdDebugState( args ),
 			help: ( self, args, env ) =>
 				CommandInterpreter._cmdHelp( args, env ),
+			reply_to: ( self, args ) => self._cmdReplyTo( args ),
 		};
+	}
+
+	// `reply_to <node path> <command>` — run <command> HERE but route its reply to
+	// <node path> (inverse of command_node). Mints the sub-command stamped
+	// FROM=<path> (interpret replies TO=FROM) + re-enters fill(); LOCAL authorizes
+	// the in-process mint. Returns nothing — the output went to <path>.
+	_cmdReplyTo( args ) {
+		const t = String( args ?? '' ).trim();
+		const i1 = t.search( /\s/ );
+		const path = -1 === i1 ? t : t.slice( 0, i1 );
+		const rest = -1 === i1 ? '' : t.slice( i1 ).trim();
+		const i2 = rest.search( /\s/ );
+		const verb = -1 === i2 ? rest : rest.slice( 0, i2 );
+		const verbArgs = -1 === i2 ? '' : rest.slice( i2 ).trim();
+		if ( '' === path || '' === verb ) {
+			return 'usage: reply_to <node path> <command>';
+		}
+		// reply_to is the only verb that re-enters interpret() with a fresh
+		// sub-command; refuse to nest it so `reply_to p reply_to p ... <verb>`
+		// can't recurse synchronously until the stack blows.
+		if ( 'reply_to' === verb ) {
+			return 'reply_to cannot invoke reply_to';
+		}
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = path;
+		m[ VALUE ] = { name: verb, arguments: verbArgs, payload: '' };
+		m[ LOCAL ] = true;
+		this.fill( m );
+		return '';
 	}
 
 	// `make_node` — the browser has no class registry / autoload, so node
