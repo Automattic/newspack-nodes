@@ -31,8 +31,10 @@ function defaultFrame() {
 // menu (left), and the vertical scrollbar (right). Falls back to the raw
 // viewport when the WP chrome isn't present (non-WP host). Used by BOTH
 // the strict in-bounds clamp and the maximize so dragging and maximizing
-// agree on what "inside" means.
-function getAvailableBounds() {
+// agree on what "inside" means. Pass { ignoreScrollbar: true } for the
+// maximize path — we hide the body scrollbar there, so the panel can
+// claim that strip too.
+function getAvailableBounds( { ignoreScrollbar = false } = {} ) {
 	const adminBar = document.getElementById( 'wpadminbar' );
 	const adminMenu = document.getElementById( 'adminmenuwrap' );
 	const top = adminBar ? adminBar.offsetHeight : 0;
@@ -41,12 +43,15 @@ function getAvailableBounds() {
 	// Guard against jsdom where clientWidth can be 0 — that would compute a
 	// scrollbar of the full window width and collapse the bounds to zero.
 	// Anything larger than 40px is obviously not a real scrollbar; ignore.
-	const clientW = document.documentElement.clientWidth;
-	const rawScrollbar = window.innerWidth - clientW;
-	const scrollbarW =
-		clientW > 0 && rawScrollbar >= 0 && rawScrollbar <= 40
-			? rawScrollbar
-			: 0;
+	let scrollbarW = 0;
+	if ( ! ignoreScrollbar ) {
+		const clientW = document.documentElement.clientWidth;
+		const rawScrollbar = window.innerWidth - clientW;
+		scrollbarW =
+			clientW > 0 && rawScrollbar >= 0 && rawScrollbar <= 40
+				? rawScrollbar
+				: 0;
+	}
 	return {
 		left,
 		top,
@@ -59,8 +64,8 @@ function getAvailableBounds() {
 // (viewport minus admin chrome + scrollbar). If the panel is larger
 // than that area (e.g. user shrunk the window), shrink it to fit;
 // min-size still applies (the panel can't shrink below MIN_W x MIN_H).
-function clampFrame( { x, y, w, h } ) {
-	const b = getAvailableBounds();
+function clampFrame( { x, y, w, h }, opts = {} ) {
+	const b = getAvailableBounds( opts );
 	const availW = b.right - b.left;
 	const availH = b.bottom - b.top;
 	const cw = Math.max( MIN_W, Math.min( w, availW ) );
@@ -113,7 +118,9 @@ export function useDebugFrame( storageKey, visible = true ) {
 			return;
 		}
 		preMaximizeRef.current = frame;
-		const b = getAvailableBounds();
+		// Maximize claims the scrollbar strip too — the body-overflow:hidden
+		// effect below hides the scrollbar, freeing that space.
+		const b = getAvailableBounds( { ignoreScrollbar: true } );
 		setFrame( {
 			x: b.left,
 			y: b.top,
@@ -140,11 +147,16 @@ export function useDebugFrame( storageKey, visible = true ) {
 	}, [ maximized, visible ] );
 
 	// Re-clamp on viewport shrink so a previously-fitting panel stays inside.
+	// While maximized, ignore the scrollbar (we've hidden it) so the panel
+	// keeps claiming the full width.
 	useEffect( () => {
-		const onResize = () => setFrame( ( prev ) => clampFrame( prev ) );
+		const onResize = () =>
+			setFrame( ( prev ) =>
+				clampFrame( prev, { ignoreScrollbar: maximized } )
+			);
 		window.addEventListener( 'resize', onResize );
 		return () => window.removeEventListener( 'resize', onResize );
-	}, [] );
+	}, [ maximized ] );
 
 	const saveTimer = useRef( null );
 	useEffect( () => {
