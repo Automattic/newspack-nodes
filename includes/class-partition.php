@@ -73,6 +73,9 @@ class Partition_Node extends Timer_Node {
 		int $num_segments = self::DEFAULT_NUM_SEGMENTS,
 		int $max_lifespan = self::DEFAULT_MAX_LIFESPAN
 	) {
+		// Chains Timer_Node → Node; the base ctor auto-wires the sibling :config
+		// CI from node_schema()['verbs'] (handlers are static + read $ci->patron()
+		// lazily, so running before the props below is fine).
 		parent::__construct();
 		$this->base_dir      = \rtrim( $base_dir, '/' );
 		$this->partition     = $partition;
@@ -81,11 +84,6 @@ class Partition_Node extends Timer_Node {
 		$this->max_lifespan  = \max( 0, $max_lifespan );
 		$this->partition_dir = "{$this->base_dir}/p{$partition}";
 		$this->arguments     = "{$this->base_dir} {$this->partition} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}";
-
-		$ci = new Command_Interpreter_Node();
-		$ci->patron( $this );
-		$ci->commands( self::config_verbs() );
-		$this->attach_interpreter( $ci );
 	}
 
 	/** Timer fire: drain the batch at the end of the current event-loop iteration. */
@@ -775,42 +773,6 @@ class Partition_Node extends Timer_Node {
 		return $this->fh;
 	}
 
-	/**
-	 * Per-class verb table for the sibling `:config` CI (memoized).
-	 *
-	 * @return array<string,callable>
-	 */
-	private static function config_verbs(): array {
-		static $verbs = null;
-		if ( null === $verbs ) {
-			$verbs = [
-				'allow_large_writes' => static function ( Command_Interpreter_Node $ci, string $args ): string {
-					/** @var self $patron */
-					$patron = $ci->patron();
-					$patron->allow_large_writes();
-					$patron->mark_verb_invoked( 'allow_large_writes', '' );
-					return 'ok';
-				},
-				'with_index'         => static function ( Command_Interpreter_Node $ci, string $args ): string {
-					$args = \trim( $args );
-					if ( '' === $args ) {
-						return 'usage: with_index <formatter_name>';
-					}
-					$callable = Formatters::resolve( $args );
-					if ( null === $callable ) {
-						return "unknown formatter: $args";
-					}
-					/** @var self $patron */
-					$patron = $ci->patron();
-					$patron->with_index( $callable );
-					$patron->mark_verb_invoked( 'with_index', $args );
-					return 'ok';
-				},
-			];
-		}
-		return $verbs;
-	}
-
 	/** Topology console manifest: palette entry + ctor form + verb forms. */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
@@ -828,6 +790,13 @@ class Partition_Node extends Timer_Node {
 					'name'        => 'allow_large_writes',
 					'description' => 'Lift the 4KB PIPE_BUF cap; acquire per-partition write lock.',
 					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $ci, string $args ): string {
+						/** @var self $patron */
+						$patron = $ci->patron();
+						$patron->allow_large_writes();
+						$patron->mark_verb_invoked( 'allow_large_writes', '' );
+						return 'ok';
+					},
 				],
 				[
 					'name'        => 'with_index',
@@ -835,6 +804,21 @@ class Partition_Node extends Timer_Node {
 					'args'        => [
 						[ 'name' => 'formatter', 'type' => 'formatter_name', 'required' => true ],
 					],
+					'handler'     => static function ( Command_Interpreter_Node $ci, string $args ): string {
+						$args = \trim( $args );
+						if ( '' === $args ) {
+							return 'usage: with_index <formatter_name>';
+						}
+						$callable = Formatters::resolve( $args );
+						if ( null === $callable ) {
+							return "unknown formatter: $args";
+						}
+						/** @var self $patron */
+						$patron = $ci->patron();
+						$patron->with_index( $callable );
+						$patron->mark_verb_invoked( 'with_index', $args );
+						return 'ok';
+					},
 				],
 			],
 			'has_target'  => false,

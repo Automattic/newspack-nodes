@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **A node's sibling `:config` CI is auto-wired from `node_schema()`.** Declare a verb's handler inline in `node_schema()['verbs'][n]['handler']` and the base `Node::__construct()` builds the `{node}:config` Command_Interpreter from every handler-bearing verb — no per-node `config_verbs()` + `new Command_Interpreter_Node()` / `patron()` / `commands()` / `attach_interpreter()` boilerplate, and no declaring each verb twice (table + manifest). A verb without a `handler` stays palette-only; a CI never gets a sibling (it dispatches its own verbs); a node with its own constructor calls `parent::__construct()` after setting properties. Because `node_schema()` is static, handlers reach the node via `$ci->patron()`. The auto-wire is idempotent — a double `parent::__construct()` or a manually-attached interpreter is preserved, never duplicated. Migrated `Partition` to the new shape; `Timer_Node` / `Topic_Node` / `HTTP_In_Node` now chain `parent::__construct()`. `WRITING-A-PLUGIN.md` updated to teach the single-declaration pattern.
+
 ## [0.5.1] - 2026-05-27
 
 ### Fixed

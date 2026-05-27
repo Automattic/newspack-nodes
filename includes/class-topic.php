@@ -38,6 +38,9 @@ class Topic_Node extends Node {
 		$this->registrations  = [ 'READY' => [] ];
 		// Round-trip ctor args so dump_config can re-create this instance.
 		$this->arguments = "{$this->base_dir} {$this->num_partitions} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}";
+		// Chain to the base ctor (no-op today — no handler-bearing node_schema
+		// verbs — but keeps the :config auto-wire available if any are added).
+		parent::__construct();
 	}
 
 	public function num_partitions(): int {

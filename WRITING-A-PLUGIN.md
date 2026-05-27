@@ -119,42 +119,35 @@ class Releases_Source_Node extends Node {
 
 **The emit pattern (important).** A node that *generates* a message sends it with `parent::fill( $msg )`, not `$this->fill( $msg )`. The base `Node::fill()` does two things: it stamps `TO` from this node's `target` (whatever `connect_node` wired downstream) and forwards to the `sink`. Calling `$this->fill()` would re-enter *your own* `fill()` and recurse. So: build the message, `parent::fill()`. (Generator nodes across the substrate follow this exact pattern — see `Tail`.)
 
-**Where does `tick` come from?** A plain node is for *data* (via `fill()`); operator *verbs* like `tick` live on a small sibling `Command_Interpreter_Node`. Wire one up in the constructor:
-
-```php
-	public function __construct() {
-		$ci = new Command_Interpreter_Node();
-		$ci->patron( $this );                 // the CI acts on behalf of this node
-		$ci->commands( $this->config_verbs() );
-		$this->attach_interpreter( $ci );      // reachable at  {node}:config
-	}
-
-	/** @return array<string,callable> */
-	private function config_verbs(): array {
-		return [
-			'tick' => function ( Command_Interpreter_Node $self, string $args ) {
-				return $this->cmd_tick();
-			},
-		];
-	}
-```
-
-That's why you address the verb as `releases:config` — the sibling CI is named `{node}:config`.
-
-Finally, a `node_schema()` so the node shows up in the console palette and its `tick` button appears in the Inspector:
+**Where does `tick` come from?** A plain node is for *data* (via `fill()`); operator *verbs* like `tick` live on a small sibling `Command_Interpreter_Node`. You don't wire that by hand — **declare the verb, with its handler, in `node_schema()`**, and the base `Node` constructor auto-attaches a sibling CI named `{node}:config` from every verb that carries a `handler`. So `node_schema()` does double duty: it's both the console-palette manifest *and* the source of the `:config` verb table.
 
 ```php
 	public static function node_schema(): array {
-		return [
+		return \array_merge( parent::node_schema(), [
 			'category'     => 'Source',
 			'description'  => 'Emits canned release-notes items on tick.',
 			'ctor'         => [],
-			'verbs'        => [ [ 'name' => 'tick', 'description' => 'Emit the current batch of items.', 'args' => [] ] ],
+			'verbs'        => [
+				[
+					'name'        => 'tick',
+					'description' => 'Emit the current batch of items.',
+					'args'        => [],
+					// The handler is the {node}:config dispatch for `tick`.
+					'handler'     => static fn ( Command_Interpreter_Node $ci, string $args ): string => $ci->patron()->cmd_tick(),
+				],
+			],
 			'accepts_fill' => false,
 			'has_target'   => true,
-		];
+		] );
 	}
 ```
+
+Two things to internalize:
+
+- **No constructor.** The base `Node::__construct()` reads `node_schema()` and builds the `{node}:config` CI from the handler-bearing verbs. A verb *without* a `handler` is palette-only (description/args for the Inspector, nothing to dispatch). A node that needs its own constructor — say it takes ctor args — sets its properties and then calls `parent::__construct()` so the auto-wire still runs.
+- **`$ci->patron()`, not `$this`.** `node_schema()` is `static`, so its handler closures can't capture `$this`. Each handler receives the sibling CI and reaches the node through `$ci->patron()` — the node the CI "acts on behalf of." That's the seam: the handler is a thin adapter that calls a real method on the node.
+
+That's also why you address the verb as `releases:config` — the sibling CI is named `{node}:config`.
 
 **Run it — standalone, in the bare REPL.** No topology, no wiring yet: just make the node and fire its verb.
 
@@ -229,11 +222,19 @@ class Digest_Builder_Node extends Node {
 	/** @var array<int,array<string,mixed>> */
 	private array $items = [];
 
-	public function __construct() {
-		$ci = new Command_Interpreter_Node();
-		$ci->patron( $this );
-		$ci->commands( [ 'flush' => function ( $self, $args ) { return $this->cmd_flush(); } ] );
-		$this->attach_interpreter( $ci );
+	public static function node_schema(): array {
+		return \array_merge( parent::node_schema(), [
+			'category'    => 'Sink',
+			'description' => 'Accumulates summarized items; flush renders a markdown draft.',
+			'verbs'       => [
+				[
+					'name'        => 'flush',
+					'description' => 'Render the accumulated items to a markdown draft and emit it.',
+					'args'        => [],
+					'handler'     => static fn ( Command_Interpreter_Node $ci, string $args ): string => $ci->patron()->cmd_flush(),
+				],
+			],
+		] );
 	}
 
 	public function fill( array &$message ): void {
@@ -339,13 +340,6 @@ So he writes the only thing he can: a source.
 ```php
 class Community_Source_Node extends Node {
 
-	public function __construct() {
-		$ci = new Command_Interpreter_Node();
-		$ci->patron( $this );
-		$ci->commands( [ 'tick' => function ( $self, $args ) { return $this->cmd_tick(); } ] );
-		$this->attach_interpreter( $ci );
-	}
-
 	protected function items(): array {
 		return [
 			[ 'title' => 'Reader forum hits 10k members', 'url' => 'https://example.test/c1', 'body' => 'The publisher community forum crossed ten thousand members this week.' ],
@@ -366,7 +360,8 @@ class Community_Source_Node extends Node {
 		return "emitted $count item(s)";
 	}
 
-	// node_schema(): same shape as Releases_Source, category 'Source'.
+	// node_schema(): same shape as Releases_Source — category 'Source', a `tick`
+	// verb whose `handler` calls $ci->patron()->cmd_tick(). No constructor.
 }
 ```
 

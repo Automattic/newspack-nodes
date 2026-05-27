@@ -32,6 +32,8 @@ class Timer_Node extends Node {
 
 	public function __construct() {
 		$this->registrations = [ 'FIRE' => [] ];
+		// Chain so the base ctor can auto-wire a sibling :config CI from node_schema.
+		parent::__construct();
 	}
 
 	public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
