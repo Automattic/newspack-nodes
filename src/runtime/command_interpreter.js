@@ -17,7 +17,7 @@ import {
 	newMessage,
 } from './message';
 
-// Baseline scaffolding `remove_node` / `dump_config` refuse to touch. Mirrors
+// Baseline scaffolding `remove_node` refuses to touch. Mirrors
 // PHP Node_Names::{COMMAND_INTERPRETER,ROUTER,OUTPUT}.
 const PROTECTED_NODES = [ '_command_interpreter', '_router', '_output' ];
 
@@ -52,7 +52,6 @@ const HELP = {
 	list_nodes:
 		'list_nodes [ -clst ] [ <node name> ]\nlist_nodes -a [ -clst ] [ <regex glob> ]\n    -c show message counters\n    -l show counters and targets\n    -s show sinks\n    -t show targets\n    -a show all nodes matching regex glob\n    alias: ls\n',
 	dump_node: 'dump_node <node name> [<keys>]\n    alias: dump\n',
-	dump_config: 'dump_config\n',
 	dump_metadata:
 		'dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments`.\n',
 	debug_state:
@@ -243,7 +242,6 @@ export class CommandInterpreter extends Node {
 			dump_node: ( self, args ) =>
 				CommandInterpreter._cmdDumpNode( args ),
 			dump: ( self, args ) => CommandInterpreter._cmdDumpNode( args ),
-			dump_config: () => CommandInterpreter._cmdDumpConfig(),
 			dump_metadata: () => CommandInterpreter._cmdDumpMetadata(),
 			stats: ( self, args ) => self._cmdStats( args ),
 			uptime: () => CommandInterpreter._cmdUptime(),
@@ -630,19 +628,6 @@ export class CommandInterpreter extends Node {
 		}
 
 		return `${ klass } ${ JSON.stringify( body, null, 4 ) }`;
-	}
-
-	static _cmdDumpConfig() {
-		let out = '';
-		for ( const [ name, node ] of Core.nodes ) {
-			if ( PROTECTED_NODES.includes( name ) ) {
-				continue;
-			}
-			if ( 'function' === typeof node.dumpConfig ) {
-				out += node.dumpConfig();
-			}
-		}
-		return out;
 	}
 
 	// dump_metadata — single-round-trip per-node stats snapshot for the GUI canvas.

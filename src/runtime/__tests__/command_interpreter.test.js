@@ -326,7 +326,6 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 			'dmesg',
 			'dump_node',
 			'dump',
-			'dump_config',
 			'dump_metadata',
 			'stats',
 			'uptime',
@@ -677,12 +676,15 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 	} );
 
 	describe( 'dump_config', () => {
-		it( 'returns a string excluding baseline scaffolding', () => {
+		it( 'is not a verb (browser nodes are not make_node-authored)', () => {
 			const ci = makeCi();
-			new Node().setName( '_router' );
-			const out = dispatch( ci, 'dump_config', '' );
-			expect( typeof out ).toBe( 'string' );
-			expect( out ).not.toContain( '_router' );
+			expect( ci.commands().dump_config ).toBeUndefined();
+		} );
+		it( 'is not offered as a help topic', () => {
+			const ci = makeCi();
+			expect( dispatch( ci, 'help', 'dump_config' ) ).toBe(
+				'no such topic: "dump_config"'
+			);
 		} );
 	} );
 
