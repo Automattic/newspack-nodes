@@ -88,9 +88,13 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( Core.node( names.SSE ) ).toBe( lastConnector );
 	} );
 
-	it( 'wires _sse.sink → _router', () => {
+	it( 'wires _sse.sink → _command_interpreter (rule #2: everything sinks into the CI)', () => {
 		renderGraph();
-		expect( lastConnector.sink ).toBe( Core.node( names.ROUTER ) );
+		// The CI forwards non-command / non-empty-TO SSE traffic to the router;
+		// steering stays the SSE node's target (_output), not a direct router sink.
+		expect( lastConnector.sink ).toBe(
+			Core.node( names.COMMAND_INTERPRETER )
+		);
 		expect( lastConnector.started ).toBe( true );
 	} );
 

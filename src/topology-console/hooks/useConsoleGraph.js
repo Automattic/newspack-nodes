@@ -11,8 +11,7 @@
 
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
-import { Router } from '../../runtime/router';
-import { CommandInterpreter } from '../../runtime/command_interpreter';
+import { mountExospine } from '../../runtime/exospine';
 import { SseIn } from '../nodes/sseIn';
 import { HttpOut } from '../nodes/httpOut';
 import { Dumper } from '../nodes/dumper';
@@ -24,10 +23,10 @@ import { Shell } from '../nodes/shell';
 import { getCommandClient } from '../utils/commandClient';
 import names from '../../runtime/reserved-node-names.json';
 
-// Every named node this graph mounts — unregistered on teardown.
+// The reply/poll nodes this graph mounts atop the exospine — unregistered on
+// teardown. The backbone (`_command_interpreter` + `_router`) is owned and torn
+// down by mountExospine's teardown(), so it is NOT listed here.
 const GRAPH_NODE_NAMES = [
-	names.ROUTER,
-	names.COMMAND_INTERPRETER,
 	names.OUTPUT,
 	names.METADATA,
 	names.UPTIME,
@@ -75,13 +74,8 @@ export function useConsoleGraph( {
 			( typeof window !== 'undefined' && window.NewspackNodesData ) || {};
 		const reader = `${ topology }.p${ partition }`;
 
-		// Shared spine: Router + CommandInterpreter.
-		const router = new Router();
-		router.setName( names.ROUTER );
-
-		const ci = new CommandInterpreter();
-		ci.setName( names.COMMAND_INTERPRETER );
-		ci.sink = router;
+		// The shared rule-#2 backbone: _command_interpreter → _router.
+		const { ci, router, teardown: teardownSpine } = mountExospine();
 		// The CI ships the full PHP verb set as built-ins (make_node, dump_node,
 		// dump_metadata, stats, uptime, list_nodes/ls, …) — no local overrides. `ls`
 		// defaults to CI siblings (Tachikoma); `ls -a` lists every node, and the
@@ -115,7 +109,9 @@ export function useConsoleGraph( {
 			nonce: data.nonce || '',
 		} );
 		sse.setName( names.SSE );
-		sse.sink = router;
+		// Rule #2: the SSE node sinks into the CI (which forwards non-command /
+		// non-empty-TO traffic to the router); steering is the SSE node's target.
+		sse.sink = ci;
 		// `_sse` is the session boundary: incoming replies/broadcasts route by TO
 		// (target=_output so broadcasts reach the transcript); an outgoing
 		// `cd /_sse/…` command gets its reply-node FROM wrapped with the live pid.
@@ -174,13 +170,14 @@ export function useConsoleGraph( {
 		router.startTimer( 1000 );
 
 		return () => {
-			router.stopTimer();
 			heartbeat.clearSlot();
 			sse.unregister( 'connected', 'useConsoleGraph' );
 			sse.close();
 			for ( const name of GRAPH_NODE_NAMES ) {
 				Core.unregisterNode( name );
 			}
+			// The backbone last: stops the router TIMER and removes CI + router.
+			teardownSpine();
 			setSsePid( null );
 			setShell( null );
 		};
