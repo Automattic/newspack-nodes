@@ -10,6 +10,7 @@ import {
 	isValidTheme,
 } from '../topology-console/themes';
 import { isDebugEnabled } from './isDebugEnabled';
+import { useDebugFrame } from './useDebugFrame';
 import { useDebugGraph } from './useDebugGraph';
 import { useDebugLayout } from './useDebugLayout';
 import { useDebugRepl } from './useDebugRepl';
@@ -99,6 +100,11 @@ export default function DebugOverlay( {
 	);
 	const { positions, viewport, onPositionChange, onViewportChange } =
 		useDebugLayout( storageKey );
+	const {
+		style: frameStyle,
+		onHeaderPointerDown,
+		getResizeHandlers,
+	} = useDebugFrame( `${ storageKey }:frame` );
 
 	// Ctrl+` toggles the panel while enabled.
 	useEffect( () => {
@@ -130,20 +136,32 @@ export default function DebugOverlay( {
 				{ '◉' }
 			</button>
 			{ open && (
-				<div className="nodes-debug__panel" data-testid="debug-panel">
+				<div
+					className="nodes-debug__panel"
+					data-testid="debug-panel"
+					style={ frameStyle }
+				>
 					<div
 						className={ `topology-app theme-${ theme }${
 							selected ? ' is-inspector-open' : ''
 						}${ paletteCollapsed ? ' is-palette-collapsed' : '' }` }
 					>
-						<Header
-							theme={ theme }
-							onThemeChange={ onThemeChange }
-							themes={ THEMES }
-							mode="view"
-							pathOptions={ [] }
-							path=""
-						/>
+						{ /* display:contents wrapper so the inner <header> stays
+						     a direct grid child (preserving grid-area: header)
+						     while the pointerdown handler still bubbles up. */ }
+						<div
+							className="nodes-debug__header-drag"
+							onPointerDown={ onHeaderPointerDown }
+						>
+							<Header
+								theme={ theme }
+								onThemeChange={ onThemeChange }
+								themes={ THEMES }
+								mode="view"
+								pathOptions={ [] }
+								path=""
+							/>
+						</div>
 						<GraphView
 							graph={ graph }
 							frame={ PlainFrame }
@@ -178,6 +196,15 @@ export default function DebugOverlay( {
 							inputRef={ replInputRef }
 						/>
 					</div>
+					{ Object.entries( getResizeHandlers() ).map(
+						( [ key, h ] ) => (
+							<div
+								key={ key }
+								className={ `nodes-debug__resize nodes-debug__resize--${ key }` }
+								onPointerDown={ h.onPointerDown }
+							/>
+						)
+					) }
 				</div>
 			) }
 		</div>
