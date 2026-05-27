@@ -37,6 +37,7 @@ import {
 	renameNode,
 	updateNodeArgs,
 	updateNodeVerbs,
+	withReplAnchor,
 } from './utils/draftGraph';
 import {
 	NODE_H,
@@ -1117,13 +1118,17 @@ export default function TopologyConsole() {
 				rateRef.current = new Map();
 				setRateVersion( ( v ) => v + 1 );
 				// Preserve overrides + viewport from a prior edit session.
-				const blank = { nodes: [], edges: [] };
+				// Seed the reserved `_repl` anchor into both draft and baseline
+				// so it's present from the start and its presence isn't dirty.
+				const blank = withReplAnchor( { nodes: [], edges: [] } );
 				setDraft( blank );
 				setBaseline( blank );
 				if ( topology ) {
 					fetchTopology( topology )
 						.then( ( resp ) => {
-							const loaded = parseTsl( resp.tsl || '' );
+							const loaded = withReplAnchor(
+								parseTsl( resp.tsl || '' )
+							);
 							setDraft( loaded );
 							setBaseline( loaded );
 							setEditingName( resp.name );

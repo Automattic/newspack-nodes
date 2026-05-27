@@ -750,7 +750,7 @@ function EditForm( {
 				{ node.class || '?' } · { __( 'EDIT', 'newspack-nodes' ) }
 			</div>
 
-			{ onRemoveNode && (
+			{ onRemoveNode && ! node.reserved && (
 				<button
 					type="button"
 					className="topology-edit-delete"
@@ -760,19 +760,22 @@ function EditForm( {
 				</button>
 			) }
 
-			<Section title={ __( 'Identity', 'newspack-nodes' ) }>
-				<NameField
-					node={ node }
-					takenNames={
-						new Set(
-							( parsed?.nodes || [] )
-								.map( ( n ) => n.id )
-								.filter( ( id ) => id !== node.id )
-						)
-					}
-					onRenameNode={ onRenameNode }
-				/>
-			</Section>
+			{ /* Reserved anchors (e.g. _repl) are auto-mounted and fixed: no rename. */ }
+			{ ! node.reserved && (
+				<Section title={ __( 'Identity', 'newspack-nodes' ) }>
+					<NameField
+						node={ node }
+						takenNames={
+							new Set(
+								( parsed?.nodes || [] )
+									.map( ( n ) => n.id )
+									.filter( ( id ) => id !== node.id )
+							)
+						}
+						onRenameNode={ onRenameNode }
+					/>
+				</Section>
+			) }
 
 			<Section title={ __( 'Routing', 'newspack-nodes' ) }>
 				<TargetsField

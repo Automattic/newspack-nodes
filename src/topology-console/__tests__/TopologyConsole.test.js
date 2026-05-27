@@ -2118,6 +2118,43 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByTestId( 'open-modal' ) ).toBeNull();
 	} );
 
+	it( 'entering edit on a blank canvas seeds the reserved _repl anchor', async () => {
+		// No topology query → blank seed path.
+		window.history.replaceState( {}, '', '/' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		const repl = lastCanvasProps.parsed.nodes.find(
+			( n ) => n.id === '_repl'
+		);
+		expect( repl ).toBeDefined();
+		expect( repl.reserved ).toBe( true );
+	} );
+
+	it( 'entering edit on a loaded topology seeds _repl without marking the draft dirty', async () => {
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'make_node Echo n1\n',
+			name: 'demo',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText, queryByTestId } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		// _repl is present in the loaded draft.
+		expect(
+			lastCanvasProps.parsed.nodes.find( ( n ) => n.id === '_repl' )
+		).toBeDefined();
+		// Leaving without edits must NOT prompt the discard modal — _repl is in
+		// the baseline too, so its presence doesn't read as a change.
+		await act( async () => {
+			fireEvent.click( getByText( 'view' ) );
+		} );
+		expect( queryByTestId( 'confirm-modal' ) ).toBeNull();
+		expect( lastHeaderProps.mode ).toBe( 'view' );
+	} );
+
 	it( 'edit mode: dirty draft → leaving prompts ConfirmModal; discard exits to view', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: 'make_node Echo n1\n',

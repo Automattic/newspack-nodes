@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A reserved `_repl` connection-anchor in edit mode.** The topology editor now shows `_repl` (the worker's auto-mounted REPL command-interpreter — the broadcast handle) as a fixed anchor you can draw `connect_node <node> _repl` edges to (e.g. to observe `log`/`tell` broadcasts). It can't be renamed or deleted, and it's never serialized as a `make_node` line (the worker mounts it) — only edges *to* it are emitted. `withReplAnchor()` seeds it into the draft + baseline on edit entry, so its presence doesn't mark the draft dirty.
+
 ### Fixed
 
 - **The canvas draws an edge to the head node of a path target.** A node whose `target` is a path (e.g. `_heartbeat`'s `_sse/workers`) now draws its edge to the head segment the router actually delivers to (`_sse`), instead of to the non-existent full-path string (which drew no edge). `parseMetadata` peels the head.
