@@ -13,6 +13,7 @@ import { Dumper } from '../../nodes/dumper';
 import { Metadata } from '../../nodes/metadata';
 import { Uptime } from '../../nodes/uptime';
 import { Completion } from '../../nodes/completion';
+import { Heartbeat } from '../../nodes/heartbeat';
 import { HttpOut } from '../../nodes/httpOut';
 import { Shell } from '../../nodes/shell';
 import names from '../../../runtime/reserved-node-names.json';
@@ -82,6 +83,7 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( Core.node( names.METADATA ) ).toBeInstanceOf( Metadata );
 		expect( Core.node( names.UPTIME ) ).toBeInstanceOf( Uptime );
 		expect( Core.node( names.COMPLETION ) ).toBeInstanceOf( Completion );
+		expect( Core.node( names.HEARTBEAT ) ).toBeInstanceOf( Heartbeat );
 		expect( Core.node( names.HTTP ) ).toBeInstanceOf( HttpOut );
 		expect( Core.node( names.SSE ) ).toBe( lastConnector );
 	} );
@@ -136,22 +138,52 @@ describe( 'useConsoleGraph — connection state', () => {
 		expect( lastConnector.pid() ).toBe( 777 );
 	} );
 
-	it( 'pokes workers/heartbeat (with this partition) to keep the SSE slot alive', () => {
+	it( 'pokes workers/heartbeat (with this partition) on the TIMER once a slot is held', () => {
 		jest.useFakeTimers();
 		try {
-			renderGraph( { topology: 'demo', partition: 0 } );
 			const { getCommandClient } = require( '../../utils/commandClient' );
-			const send = jest.fn().mockResolvedValue( null );
-			getCommandClient().send = send;
+			const calls = [];
+			getCommandClient().postBatch = jest.fn( ( entries ) => {
+				calls.push( entries );
+				return Promise.resolve( null );
+			} );
+			renderGraph( { topology: 'demo', partition: 0 } );
 			act( () => lastConnector.emitConnected( 777 ) ); // payload { pid, slot: 1 }
+			calls.length = 0;
 			act( () => jest.advanceTimersByTime( 5000 ) );
-			expect( send ).toHaveBeenCalledWith(
-				expect.objectContaining( {
-					to: 'workers',
-					verb: 'heartbeat',
-					args: '1 10 0',
-				} )
-			);
+			const { TO, VALUE } = require( '../../../runtime/message' );
+			const poke = calls
+				.flat()
+				.find(
+					( m ) => m && m[ VALUE ] && 'heartbeat' === m[ VALUE ].name
+				);
+			expect( poke ).toBeTruthy();
+			expect( poke[ VALUE ].arguments ).toBe( '1 10 0' );
+			expect( poke[ TO ] ).toBe( 'workers' );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	it( 'does not poke heartbeat before a slot is acquired', () => {
+		jest.useFakeTimers();
+		try {
+			const { getCommandClient } = require( '../../utils/commandClient' );
+			const calls = [];
+			getCommandClient().postBatch = jest.fn( ( entries ) => {
+				calls.push( entries );
+				return Promise.resolve( null );
+			} );
+			renderGraph( { topology: 'demo', partition: 0 } );
+			// No emitConnected → no slot.
+			act( () => jest.advanceTimersByTime( 5000 ) );
+			const { VALUE } = require( '../../../runtime/message' );
+			const poke = calls
+				.flat()
+				.find(
+					( m ) => m && m[ VALUE ] && 'heartbeat' === m[ VALUE ].name
+				);
+			expect( poke ).toBeUndefined();
 		} finally {
 			jest.useRealTimers();
 		}

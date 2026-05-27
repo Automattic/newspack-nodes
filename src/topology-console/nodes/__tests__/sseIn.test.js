@@ -127,6 +127,21 @@ describe( 'SseIn', () => {
 		);
 	} );
 
+	it( 'wraps an outgoing _heartbeat FROM into the private pivot (slot poke)', () => {
+		const { sse, routed } = makeSseIn();
+		sse.start();
+		sse.setState( 'connected', { pid: 4242, slot: 1 } );
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = names.HEARTBEAT;
+		m[ TO ] = 'workers';
+		sse.fill( m );
+		expect( routed[ 0 ][ FROM ] ).toBe(
+			`${ names.SSE }:4242/${ names.HEARTBEAT }`
+		);
+		expect( routed[ 0 ][ TO ] ).toBe( `${ names.HTTP }/workers` );
+	} );
+
 	it( 'routes an incoming reply by TO and stamps the _sse provenance breadcrumb', () => {
 		const { sse, routed } = makeSseIn();
 		const m = newMessage();
