@@ -84,30 +84,24 @@ describe( 'Uptime node', () => {
 			return { node, sent };
 		};
 
-		it( 'emits an uptime TM_COMMAND through the sink when pollTo is set', () => {
+		it( 'emits an uptime TM_COMMAND addressed to this.target (the _cwd indirection)', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent } = build();
-			node.pollTo = 'demo.p0';
+			node.target = '_cwd';
 			node.onTimer();
 			expect( sent ).toHaveLength( 1 );
 			const m = sent[ 0 ];
 			expect( m[ TYPE ] ).toBe( TM_COMMAND );
 			expect( m[ VALUE ].name ).toBe( 'uptime' );
-			expect( m[ TO ] ).toBe( 'demo.p0' );
+			expect( m[ TO ] ).toBe( '_cwd' );
 			expect( m[ FROM ] ).toBe( '_uptime' );
-		} );
-
-		it( 'emits nothing when pollTo is null', () => {
-			const { node, sent } = build();
-			node.pollTo = null;
-			node.onTimer();
-			expect( sent ).toHaveLength( 0 );
+			expect( node.pollTo ).toBeUndefined();
 		} );
 
 		it( 'throttles: two onTimer calls <5s apart emit once', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
-			node.pollTo = 'demo.p0';
+			node.target = '_cwd';
 			nowSpy.mockReturnValue( 100 );
 			node.onTimer();
 			nowSpy.mockReturnValue( 103 ); // 3s later
@@ -118,7 +112,7 @@ describe( 'Uptime node', () => {
 		it( 'emits twice when calls are >=5s apart', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
-			node.pollTo = 'demo.p0';
+			node.target = '_cwd';
 			nowSpy.mockReturnValue( 100 );
 			node.onTimer();
 			nowSpy.mockReturnValue( 105 ); // 5s later
@@ -128,7 +122,7 @@ describe( 'Uptime node', () => {
 
 		it( 'emits nothing when there is no sink', () => {
 			const node = new Uptime();
-			node.pollTo = 'demo.p0';
+			node.target = '_cwd';
 			expect( () => node.onTimer() ).not.toThrow();
 		} );
 	} );

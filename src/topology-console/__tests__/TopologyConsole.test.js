@@ -50,6 +50,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 	const {
 		CommandInterpreter,
 	} = require( '../../runtime/command_interpreter' );
+	const { Node } = require( '../../runtime/node' );
 	const { Dumper } = require( '../nodes/dumper' );
 	const { Metadata } = require( '../nodes/metadata' );
 	const { Uptime } = require( '../nodes/uptime' );
@@ -67,6 +68,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 		reserved.COMPLETION,
 		reserved.HTTP,
 		reserved.SSE,
+		reserved.CWD,
 	];
 	const teardown = () => {
 		Core.node( reserved.ROUTER )?.stopTimer();
@@ -128,12 +130,17 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				const shell = new Shell();
 				shell.path = `${ reserved.SSE }/${ reader }`;
 				shell.sink = ci;
+				// `_cwd` indirection node: a plain Node whose target IS the cwd.
+				const cwdNode = new Node();
+				cwdNode.setName( reserved.CWD );
+				cwdNode.sink = ci;
+				cwdNode.target = shell.path;
 				// Mirror the real timer wiring so the cadence test exercises the
 				// Router TIMER → Metadata/Uptime onTimer → CI → … → HttpOut path.
 				metadata.sink = ci;
 				uptime.sink = ci;
-				metadata.pollTo = shell.path;
-				uptime.pollTo = shell.path;
+				metadata.target = reserved.CWD;
+				uptime.target = reserved.CWD;
 				router.beforeTimerNotify = () => httpOut.lock();
 				router.afterTimerNotify = () => httpOut.flush();
 				router.register( 'TIMER', reserved.METADATA, () =>
@@ -1312,37 +1319,43 @@ describe( 'TopologyConsole boot', () => {
 		expect( window.location.search ).not.toMatch( /partition=/ );
 	} );
 
-	it( 'poll target follows the LCP worker, not a deep sub-node cwd', () => {
+	it( 'cd into a worker sub-node sets _cwd.target to the cwd verbatim', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /_sse/demo.p0/firehose-in' );
 		} );
-		// cwd is the deep node, but dump_metadata/uptime poll the worker root.
-		expect( Core.node( names.METADATA ).pollTo ).toBe( '_sse/demo.p0' );
-		expect( Core.node( names.UPTIME ).pollTo ).toBe( '_sse/demo.p0' );
+		// The poll nodes target `_cwd`; the cwd is re-stamped from `_cwd.target`.
+		expect( Core.node( names.CWD ).target ).toBe(
+			'_sse/demo.p0/firehose-in'
+		);
 	} );
 
-	it( 'request scope (cd /_sse) keeps polling the canvas (synchronous POST)', () => {
+	it( 'request scope (cd /_sse) sets _cwd.target to _sse', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /_sse' );
 		} );
-		// Canvas keeps polling request scope; the heartbeat (worker-only) is
-		// covered by pollTargetFor's own tests.
-		expect( Core.node( names.METADATA ).pollTo ).toBe( '_sse' );
-		expect( Core.node( names.UPTIME ).pollTo ).toBe( '_sse' );
+		expect( Core.node( names.CWD ).target ).toBe( '_sse' );
 	} );
 
-	it( 'local graph (cd /) keeps polling the canvas in-browser', () => {
+	it( 'local graph (cd /) sets _cwd.target to the empty local-root path', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
-		expect( Core.node( names.METADATA ).pollTo ).toBe( '' );
-		expect( Core.node( names.UPTIME ).pollTo ).toBe( '' );
+		expect( Core.node( names.CWD ).target ).toBe( '' );
+	} );
+
+	it( 'cd onto a worker sets _cwd.target to that worker', () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /_sse/demo.p1' );
+		} );
+		expect( Core.node( names.CWD ).target ).toBe( '_sse/demo.p1' );
 	} );
 
 	it( 'REPL cd echoes into the transcript like other builtins', () => {

@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
+import { Node } from '../../runtime/node';
 import { mountExospine } from '../../runtime/exospine';
 import { SseIn } from '../nodes/sseIn';
 import { HttpOut } from '../nodes/httpOut';
@@ -34,6 +35,7 @@ const GRAPH_NODE_NAMES = [
 	names.HEARTBEAT,
 	names.HTTP,
 	names.SSE,
+	names.CWD,
 ];
 
 /**
@@ -104,6 +106,19 @@ export function useConsoleGraph( {
 		const heartbeat = new Heartbeat();
 		heartbeat.setName( names.HEARTBEAT );
 
+		// `_cwd` is a plain Node whose `target` IS the current working directory.
+		// The poll nodes address `_cwd`; Router peels it, the base Node.fill
+		// re-stamps the live cwd into TO (or leaves TO empty for the local root),
+		// then forwards to the CI. One indirection routes every scope: cd / the
+		// Path menu just set `_cwd.target`.
+		const cwdNode = new Node();
+		cwdNode.setName( names.CWD );
+		cwdNode.sink = ci;
+		// Seed the cwd to the session's default path (its own worker, the same path
+		// the Shell mounts at below) so the polls route before the TopologyConsole
+		// gating effect first runs; that effect keeps `_cwd.target` in sync on cd.
+		cwdNode.target = `${ names.SSE }/${ reader }`;
+
 		// HTTP boundary: Router peels _http and delivers here (TO={reader}).
 		const httpOut = new HttpOut( { client: getCommandClient() } );
 		httpOut.setName( names.HTTP );
@@ -156,14 +171,15 @@ export function useConsoleGraph( {
 		// Live-canvas poll on a single Router TIMER (1s). Each tick locks HttpOut,
 		// notifies subscribers (Metadata every tick, Uptime on its 5s throttle) —
 		// which emit their poll commands through the CI — then flushes HttpOut so
-		// the whole tick's emissions ride in ONE POST. pollTo gates emission; the
-		// TopologyConsole gating effect sets it (null = suppressed → empty flush).
+		// the whole tick's emissions ride in ONE POST. The canvas polls target
+		// `_cwd` (which re-stamps the live cwd, routing every scope through one
+		// indirection); the heartbeat pokes the REST `workers` CI via `_sse`.
 		metadata.sink = ci;
 		uptime.sink = ci;
 		heartbeat.sink = ci;
-		metadata.pollTo = consoleShell.path;
-		uptime.pollTo = consoleShell.path;
-		heartbeat.pollTo = consoleShell.path;
+		metadata.target = names.CWD;
+		uptime.target = names.CWD;
+		heartbeat.target = `${ names.SSE }/workers`;
 		router.beforeTimerNotify = () => httpOut.lock();
 		router.afterTimerNotify = () => httpOut.flush();
 		router.register( 'TIMER', names.METADATA, () => metadata.onTimer() );

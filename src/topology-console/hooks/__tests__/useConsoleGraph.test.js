@@ -88,6 +88,25 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( Core.node( names.SSE ) ).toBe( lastConnector );
 	} );
 
+	it( 'mounts the _cwd indirection node sinking into the CI', () => {
+		renderGraph();
+		const cwd = Core.node( names.CWD );
+		expect( cwd ).not.toBeNull();
+		expect( cwd.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
+	} );
+
+	it( 'points the canvas poll nodes at _cwd and the heartbeat at _sse/workers (no pollTo)', () => {
+		renderGraph();
+		expect( Core.node( names.METADATA ).target ).toBe( names.CWD );
+		expect( Core.node( names.UPTIME ).target ).toBe( names.CWD );
+		expect( Core.node( names.HEARTBEAT ).target ).toBe(
+			`${ names.SSE }/workers`
+		);
+		expect( Core.node( names.METADATA ).pollTo ).toBeUndefined();
+		expect( Core.node( names.UPTIME ).pollTo ).toBeUndefined();
+		expect( Core.node( names.HEARTBEAT ).pollTo ).toBeUndefined();
+	} );
+
 	it( 'wires _sse.sink → _command_interpreter (rule #2: everything sinks into the CI)', () => {
 		renderGraph();
 		// The CI forwards non-command / non-empty-TO SSE traffic to the router;
@@ -369,6 +388,76 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect( recv.text ).toContain( names.OUTPUT );
 		// _router is the ONLY node with no sink → never a CI sibling.
 		expect( recv.text.split( '\n' ) ).not.toContain( names.ROUTER );
+	} );
+} );
+
+describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
+	const {
+		newMessage,
+		TYPE,
+		FROM,
+		TO,
+		VALUE,
+		LOCAL,
+		TM_COMMAND,
+	} = require( '../../../runtime/message' );
+
+	// A poll addressed to `_cwd` (FROM=_metadata), the way the poll nodes emit it.
+	const cwdPoll = () => {
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = names.METADATA;
+		m[ TO ] = names.CWD;
+		m[ VALUE ] = { name: 'dump_metadata', arguments: '', payload: '' };
+		m[ LOCAL ] = true;
+		return m;
+	};
+
+	it( 'a worker cwd re-stamps the poll TO out to the worker and POSTs (reply rides the stream)', () => {
+		renderGraph();
+		act( () => lastConnector.emitConnected( 4242 ) );
+		const postBatch = jest.fn().mockResolvedValue( null );
+		Core.node( names.HTTP ).client.postBatch = postBatch;
+		// cd onto a worker: the gating effect sets `_cwd.target` to the worker path.
+		Core.node( names.CWD ).target = '_sse/demo.p0';
+		act( () => {
+			Core.node( names.HTTP ).lock();
+			Core.node( names.COMMAND_INTERPRETER ).fill( cwdPoll() );
+			Core.node( names.HTTP ).flush();
+		} );
+		expect( postBatch ).toHaveBeenCalledTimes( 1 );
+		const batch = postBatch.mock.calls[ 0 ][ 0 ];
+		const routed = batch.find(
+			( m ) => m && m[ VALUE ] && 'dump_metadata' === m[ VALUE ].name
+		);
+		expect( routed ).toBeTruthy();
+		// `_sse` peeled, leaving the worker reader as TO.
+		expect( routed[ TO ] ).toBe( 'demo.p0' );
+		// FROM survived the `_cwd` hop (a plain Node doesn't stamp FROM); `_sse`
+		// wrapped the reply pivot with the live pid.
+		expect( routed[ FROM ] ).toBe(
+			`${ names.SSE }:4242/${ names.METADATA }`
+		);
+	} );
+
+	it( 'the local root (_cwd.target = "") interprets the poll in-browser (no POST)', () => {
+		renderGraph();
+		act( () => lastConnector.emitConnected( 4242 ) );
+		const postBatch = jest.fn().mockResolvedValue( null );
+		Core.node( names.HTTP ).client.postBatch = postBatch;
+		// cd /: the gating effect leaves `_cwd.target` empty (local root).
+		Core.node( names.CWD ).target = '';
+		act( () => {
+			Core.node( names.HTTP ).lock();
+			Core.node( names.COMMAND_INTERPRETER ).fill( cwdPoll() );
+			Core.node( names.HTTP ).flush();
+		} );
+		// Empty TO → the local CI interprets the poll; the reply routes back to
+		// _metadata (in-browser), never out over HTTP.
+		expect( postBatch ).not.toHaveBeenCalled();
+		expect(
+			Core.node( names.METADATA ).setStateCache.metadata
+		).toBeDefined();
 	} );
 } );
 
