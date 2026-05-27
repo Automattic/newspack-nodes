@@ -12,8 +12,6 @@
 // through to the final CSS without trying to inline it.
 @import url(https://fonts.googleapis.com/css2?family=Anonymous+Pro:wght@400;700&family=Archivo:wght@500;700&family=Archivo+Black&family=Barlow+Semi+Condensed:wght@500;700&family=Bitter:wght@500;700&family=Chakra+Petch:wght@400;600&family=DM+Mono:wght@400;500&family=Fira+Code:wght@400;600&family=Fraunces:wght@500;700&family=Fredoka:wght@400;600&family=IBM+Plex+Mono:wght@400;500;600&family=JetBrains+Mono:wght@300;400;500;700&family=Josefin+Sans:wght@500;700&family=Major+Mono+Display&family=Monoton&family=Noto+Sans+JP:wght@500;700&family=Orbitron:wght@500;700&family=Quicksand:wght@500;700&family=Rajdhani:wght@500;600&family=Saira+Condensed:wght@500;700&family=Saira+Stencil+One&family=Share+Tech+Mono&family=Sora:wght@500;700&family=Space+Mono:wght@400;700&family=Spectral:wght@400;600&family=Spline+Sans+Mono:wght@400;500;700&family=Syne:wght@600;800&family=Teko:wght@500;600&family=VT323&family=Workbench&display=swap);
 
-
-
 // Hide WP admin gunk so we own the viewport. The actual body class
 // is `{parent}_page_newspack-nodes-topology` — the parent slug varies
 // (toplevel vs submenu, slug rename, etc.), so match any class that
@@ -477,10 +475,14 @@ body[class*="_page_newspack-nodes-topology"] {
 
 	&__item--timer &__glyph {
 		background:
-			radial-gradient(circle at center, var(--ink-2) 1px, transparent 1.5px)
+			radial-gradient(
+					circle at center,
+					var(--ink-2) 1px,
+					transparent 1.5px
+				)
 				center / 4px 4px no-repeat,
-			conic-gradient(from -90deg, var(--ink-2) 90deg, transparent 90deg) center /
-				12px 12px no-repeat;
+			conic-gradient(from -90deg, var(--ink-2) 90deg, transparent 90deg)
+				center / 12px 12px no-repeat;
 
 		&::before,
 		&::after {
@@ -1351,8 +1353,10 @@ body[class*="_page_newspack-nodes-topology"] {
 		// you're reading command output.
 		background: color-mix(in srgb, var(--repl-bg) 85%, transparent);
 		backdrop-filter: blur(2px);
-		border-top: 1px solid color-mix(in srgb, var(--repl-fg) 18%, transparent);
-		border-bottom: 1px solid color-mix(in srgb, var(--repl-fg) 18%, transparent);
+		border-top: 1px solid
+			color-mix(in srgb, var(--repl-fg) 18%, transparent);
+		border-bottom: 1px solid
+			color-mix(in srgb, var(--repl-fg) 18%, transparent);
 		// Right padding leaves a corridor wide enough for the sticky
 		// [✕ ▼] actions row to sit on top of without ever overlapping
 		// transcript text. Bottom padding gives the last line clearance
@@ -1920,7 +1924,6 @@ body[class*="_page_newspack-nodes-topology"] {
 .topology-modal__btn--danger:hover {
 	background: var(--oxide-dark);
 }
-
 
 // =====================================================================
 // Alternative skins — token overrides + signature flourishes.
