@@ -28,6 +28,84 @@ class WorkerScaffoldingTest extends TestCase {
 		$this->assertNotNull( Core::node( '_router' ) );
 	}
 
+	public function test_ipc_input_consumer_resumes_from_prior_offsetlog(): void {
+		// Durable IPC-input offsetlog: a prior worker checkpointed its read offset;
+		// the respawned worker resumes from it, so commands queued during the
+		// ~10-min restart aren't dropped (the live console keeps getting replies).
+		$ipc_dir = "{$this->tmp}/ipc/test.p0";
+		\mkdir( "{$ipc_dir}/input", 0755, true );
+		$seed = new \Newspack_Nodes\Consumer_Node( "{$ipc_dir}/input", 0, "{$ipc_dir}/input.offsets" );
+		$seed->checkpoint();
+		unset( $seed );
+
+		$w  = new Worker_Base( $this->tmp, 'test', 0 );
+		$in = $w->build_ipc_input_consumer( $ipc_dir );
+
+		$this->assertTrue( $in->has_checkpoint(), 'respawn must resume from the durable IPC-input offsetlog' );
+	}
+
+	public function test_ipc_input_consumer_first_spawn_skips_preexisting_commands(): void {
+		// First spawn (no checkpoint) tail-seeks to end so it does not replay the
+		// input partition's retained command history.
+		$ipc_dir = "{$this->tmp}/ipc/test.p0";
+		$input   = new Partition_Node( "{$ipc_dir}/input", 0 );
+		$msg                                  = \Newspack_Nodes\Message::new_message();
+		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
+		$msg[ \Newspack_Nodes\Message::VALUE ] = "old-command\n";
+		$input->fill( $msg );
+
+		$w   = new Worker_Base( $this->tmp, 'test', 0 );
+		$in  = $w->build_ipc_input_consumer( $ipc_dir );
+		$cap = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+		$in->sink( $cap );
+		$in->poll();
+
+		$this->assertEmpty( $cap->captured, 'first spawn must not replay pre-existing IPC input' );
+	}
+
+	public function test_ipc_output_partition_uses_1mb_segment_size(): void {
+		// All IPC logs (input + output) use a 1 MiB segment_size.
+		$w = new Worker_Base( $this->tmp, 'test', 0 );
+		$w->build_scaffolding();
+		$parts = \explode( ' ', Core::node( '_repl' )->arguments() );
+		$this->assertSame( (string) ( 1024 * 1024 ), $parts[2], 'IPC output Partition segment_size must be 1 MiB' );
+	}
+
+	private function write_ipc_line( Partition_Node $partition, string $value ): void {
+		$msg                                  = \Newspack_Nodes\Message::new_message();
+		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
+		$msg[ \Newspack_Nodes\Message::VALUE ] = $value;
+		$partition->fill( $msg );
+		$partition->flush();
+	}
+
+	public function test_checkpoint_ipc_input_persists_consumed_offset(): void {
+		// A clean recycle checkpoints the IPC input: a command consumed before
+		// shutdown is NOT replayed on respawn, while one that arrived during the
+		// downtime IS delivered. (Without the shutdown checkpoint, the respawn's
+		// tail-seek would skip both.)
+		$ipc_dir = "{$this->tmp}/ipc/ckpt.p0";
+		\mkdir( "{$ipc_dir}/input", 0755, true );
+		$w  = new Worker_Base( $this->tmp, 'ckpt', 0 );
+		$in = $w->build_ipc_input_consumer( $ipc_dir );
+		$in->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+
+		$input = new Partition_Node( "{$ipc_dir}/input", 0 );
+		$this->write_ipc_line( $input, 'cmd1' );
+		$in->poll();                 // consume cmd1 before the recycle
+		$w->checkpoint_ipc_input();  // clean-recycle shutdown checkpoint
+
+		$this->write_ipc_line( $input, 'cmd2' );   // queued during the downtime
+
+		$in2 = ( new Worker_Base( $this->tmp, 'ckpt', 0 ) )->build_ipc_input_consumer( $ipc_dir );
+		$cap = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+		$in2->sink( $cap );
+		$in2->poll();
+
+		$this->assertCount( 1, $cap->captured, 'respawn delivers the queued command, not the already-consumed one' );
+		$this->assertSame( 'cmd2', $cap->captured[0][ \Newspack_Nodes\Message::VALUE ] );
+	}
+
 	public function test_build_scaffolding_installs_command_verifier(): void {
 		// The worker process must verify command provenance; an unsigned IPC
 		// command is refused, a signed one runs.

@@ -21,6 +21,9 @@ class Worker_Base {
 	public const DB_CHECK_MAX_FAILURES  = 3;
 	public const LOCK_CHECK_GRACE_S     = 0.25;
 
+	/** Segment size (bytes) for the IPC input + output Partitions — small, frequently-rotated logs. */
+	public const IPC_SEGMENT_SIZE       = 1024 * 1024;
+
 	protected string $base_dir;
 	protected string $worker_type;
 	protected int $partition;
@@ -32,6 +35,8 @@ class Worker_Base {
 	protected float $last_db_check = 0.0;
 	protected int $db_failures = 0;
 	protected bool $shutdown_handled = false;
+	/** This worker's IPC-input Consumer — checkpointed at shutdown so a clean recycle doesn't replay consumed commands. */
+	protected ?Consumer_Node $ipc_input_consumer = null;
 
 	public function __construct(
 		string $base_dir,
@@ -172,24 +177,50 @@ class Worker_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
-		$repl = new Partition_Node( "{$ipc_dir}/output", 0 );
+		$repl = new Partition_Node( "{$ipc_dir}/output", 0, self::IPC_SEGMENT_SIZE );
 		$repl->name( Node_Names::REPL );
 		$repl->sink( $interpreter );
 		// allow_large_writes keys its Lock/heartbeat off name + sink, so set those first.
 		$repl->allow_large_writes();
 
-		// IPC input Consumer: ephemeral (empty offsetlog + tail-seek) so respawns don't replay commands.
+		$repl_in = $this->build_ipc_input_consumer( $ipc_dir );
+		$repl_in->sink( $interpreter );
+
+		return $interpreter;
+	}
+
+	/**
+	 * Build this worker's IPC-input Consumer with a DURABLE offsetlog so a
+	 * respawned worker resumes from its last read offset — commands queued while
+	 * it was down (fleets recycle ~10 min) aren't dropped, so a live console
+	 * reconnecting through a restart keeps getting replies. First spawn (no
+	 * checkpoint) tail-seeks to end so it doesn't replay the input partition's
+	 * retained command history. Anonymous (a pure source — never a routed TO).
+	 *
+	 * @param string $ipc_dir This worker's IPC dir (`{base}/ipc/{type}.p{N}`).
+	 */
+	public function build_ipc_input_consumer( string $ipc_dir ): Consumer_Node {
 		$input_dir = "{$ipc_dir}/input";
 		if ( ! \is_dir( $input_dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $input_dir, 0755, true );
 		}
-		$repl_in = new Consumer_Node( $input_dir, 0, '' );
-		$repl_in->next_offset( 'end' );
-		$repl_in->set_stamp_as( Node_Names::REPL );
-		$repl_in->sink( $interpreter );
+		$consumer = new Consumer_Node( $input_dir, 0, "{$ipc_dir}/input.offsets" );
+		if ( ! $consumer->has_checkpoint() ) {
+			$consumer->next_offset( 'end' );
+		}
+		$consumer->set_stamp_as( Node_Names::REPL );
+		$this->ipc_input_consumer = $consumer;
+		return $consumer;
+	}
 
-		return $interpreter;
+	/**
+	 * Persist the IPC-input read cursor. Called at worker shutdown so a clean
+	 * recycle never replays already-consumed commands (the Consumer otherwise
+	 * only checkpoints on a periodic cadence; the final <1s would re-deliver).
+	 */
+	public function checkpoint_ipc_input(): void {
+		$this->ipc_input_consumer?->checkpoint();
 	}
 
 	/** Invoke the topology closure (receives the CI + this worker's partition number). */
@@ -238,6 +269,8 @@ class Worker_Base {
 		\register_shutdown_function( function () use ( $spawn_url, $token ): void {
 			if ( ! $this->shutdown_handled ) {
 				$this->shutdown_handled = true;
+				// Persist the IPC-input cursor before teardown so a clean recycle doesn't replay consumed commands.
+				$this->checkpoint_ipc_input();
 				// Tear down nodes first so Partitions release their locks before the next spawn.
 				Core::cleanup_all_nodes();
 				$this->release();
@@ -258,6 +291,7 @@ class Worker_Base {
 		} finally {
 			if ( ! $this->shutdown_handled ) {
 				$this->shutdown_handled = true;
+				$this->checkpoint_ipc_input();
 				Core::cleanup_all_nodes();
 				$this->release();
 				$this->self_respawn( $spawn_url, $token );

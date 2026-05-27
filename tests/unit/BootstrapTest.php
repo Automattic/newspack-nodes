@@ -246,6 +246,19 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	public function test_register_worker_partition_mounts_input_with_1mb_segment_size(): void {
+		// All IPC logs (input + output) use a 1 MiB segment_size; the server-side
+		// input mount must match the worker's output side.
+		$base = $this->make_temp_dir();
+		\mkdir( "{$base}/locks/demo.p0.lock.d", 0755, true );
+		\mkdir( "{$base}/ipc/demo.p0/input", 0755, true );
+
+		$this->assertTrue( Bootstrap::register_worker_partition( 'demo.p0', $base ) );
+
+		$parts = \explode( ' ', \Newspack_Nodes\Core::node( 'demo.p0' )->arguments() );
+		$this->assertSame( (string) ( 1024 * 1024 ), $parts[2], 'mounted IPC input Partition segment_size must be 1 MiB' );
+	}
+
 	// ── expand_workers ────────────────────────────────────────────────────
 
 	public function test_expand_topologies_yields_one_entry_per_partition(): void {

@@ -485,6 +485,15 @@ class Consumer_Node extends Timer_Node {
 		$this->set_state( 'CHECKPOINT', [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off ] );
 	}
 
+	/**
+	 * True if this Consumer resumed from a durable offsetlog checkpoint (seg/off
+	 * default to -1; load_offsetlog seeds them ≥0). Lets a caller distinguish a
+	 * respawn (resume from cursor) from a first spawn (seek 'end' to skip history).
+	 */
+	public function has_checkpoint(): bool {
+		return -1 !== $this->checkpoint_seg || -1 !== $this->checkpoint_off;
+	}
+
 	/** Timer-driven: poll, publish position, periodically checkpoint, then re-arm (busy/EOF cadence). */
 	protected function fire(): void {
 		$this->poll();
