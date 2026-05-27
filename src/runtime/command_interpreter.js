@@ -1,4 +1,6 @@
 import { Node } from './node';
+import { Tee } from './tee';
+import { Timer } from './timer';
 import { Core } from './core';
 import {
 	TYPE,
@@ -282,11 +284,35 @@ export class CommandInterpreter extends Node {
 		return '';
 	}
 
-	// `make_node` — the browser has no class registry / autoload, so node
-	// construction is server-side: at a worker path the command routes to that
-	// worker's PHP CI; at a local path there's nothing to build here.
-	_cmdMakeNode() {
-		return 'make_node runs on a worker — cd to a worker path (e.g. /_sse/<topology>.p0) first';
+	// `make_node <type> <name> [<ctor_args>...]` — mirrors PHP
+	// Command_Interpreter_Node::make_node: split the args on whitespace, the
+	// remaining tokens spread straight into the constructor as positional args,
+	// then name() + sink($self). The browser builds it locally (no deferring to a
+	// worker) so the console graph is live + hackable. A bad/short arg list
+	// throws in the constructor — that's fine, breaking is how you learn.
+	_cmdMakeNode( args ) {
+		const parts = String( args ?? '' )
+			.trim()
+			.split( /\s+/ )
+			.filter( Boolean );
+		if ( parts.length < 2 ) {
+			return 'usage: make_node <type> <name> [<ctor_args>...]';
+		}
+		const type = parts.shift();
+		const NodeClass = CommandInterpreter.includeNodes[ type ];
+		if ( ! NodeClass ) {
+			return `unknown class: ${ type }`;
+		}
+		const name = parts.shift();
+		// new Class(...parts): positional ctor args, the PHP newInstanceArgs hack.
+		// name() throws on collision (no pre-check) — interpret() wraps it.
+		const node = new NodeClass( ...parts );
+		node.setName( name );
+		node.sink = this;
+		if ( ( this.debugState ?? 0 ) > 0 ) {
+			node.debugState = this.debugState;
+		}
+		return 'ok';
 	}
 
 	// `pwd` to ` <cwd> -> <envelope.from>`.
@@ -900,3 +926,11 @@ export class CommandInterpreter extends Node {
 // Process-wide default authorization policy. The browser leaves it null (the
 // built-in LOCAL check applies). Same shape as PHP CommandInterpreter::$default_authorize.
 CommandInterpreter.defaultAuthorize = null;
+
+// The `make_node` type→class lookup. Tachikoma resolves `$prefix::$type` by
+// require-ing the .pm off @INC ( include_nodes + the default Tachikoma::Nodes );
+// the browser has no require-by-name, so this flat table IS that namespace.
+// The console extends it with its own node classes (Tachikoma's include_nodes).
+// Hook / Router / Callback are intentionally absent — nobody makes a second
+// router, or a predicate/closure node, from the shell.
+CommandInterpreter.includeNodes = { Node, Tee, Timer, CommandInterpreter };

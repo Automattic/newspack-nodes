@@ -850,14 +850,58 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 		} );
 	} );
 
-	describe( 'make_node (browser defers to workers)', () => {
-		// The browser console has no class registry / autoload; node construction
-		// happens server-side. make_node at a worker path routes to that worker's
-		// PHP CI; at a local path it returns a hint rather than constructing.
-		it( 'returns a worker-path hint instead of constructing locally', () => {
+	describe( 'make_node (constructs in-browser, mirrors PHP)', () => {
+		// Mirrors PHP Command_Interpreter_Node::make_node: split args on
+		// whitespace, spread the trailing tokens into the constructor as
+		// positional args, name(), sink($self). includeNodes (a flat name→class
+		// table) stands in for PHP's namespace-prefix resolution.
+		it( 'constructs a registered type, names it, and sinks it into the CI', () => {
 			const ci = makeCi();
-			const out = dispatch( ci, 'make_node', 'Widget w' );
-			expect( out ).toMatch( /worker/i );
+			expect( dispatch( ci, 'make_node', 'Tee mytee' ) ).toBe( 'ok' );
+			const node = Core.node( 'mytee' );
+			expect( node ).toBeInstanceOf( Tee );
+			expect( node.sink ).toBe( ci );
+		} );
+
+		it( 'resolves the base Node type', () => {
+			const ci = makeCi();
+			dispatch( ci, 'make_node', 'Node n' );
+			expect( Core.node( 'n' ) ).toBeInstanceOf( Node );
+		} );
+
+		it( 'requires both a type and a name (PHP needs ≥2 parts)', () => {
+			const ci = makeCi();
+			expect( dispatch( ci, 'make_node', 'Tee' ) ).toMatch( /usage/i );
+			expect( Core.node( 'Tee' ) ).toBeNull();
+		} );
+
+		it( 'spreads trailing tokens as positional constructor args', () => {
+			// A type whose ctor records its positional args proves the spread.
+			const ci = makeCi();
+			CommandInterpreter.includeNodes.ArgSpy = class extends Node {
+				constructor( ...ctorArgs ) {
+					super();
+					this.ctorArgs = ctorArgs;
+				}
+			};
+			dispatch( ci, 'make_node', 'ArgSpy s alpha beta' );
+			expect( Core.node( 's' ).ctorArgs ).toEqual( [ 'alpha', 'beta' ] );
+			delete CommandInterpreter.includeNodes.ArgSpy;
+		} );
+
+		it( 'returns "unknown class" for an unregistered type and builds nothing', () => {
+			const ci = makeCi();
+			const out = dispatch( ci, 'make_node', 'Nope x' );
+			expect( out ).toMatch( /unknown class/i );
+			expect( Core.node( 'x' ) ).toBeNull();
+		} );
+
+		it( 'lets a name collision throw (no pre-check; interpret() wraps it)', () => {
+			const ci = makeCi();
+			dispatch( ci, 'make_node', 'Tee dup' );
+			expect( () => dispatch( ci, 'make_node', 'Node dup' ) ).toThrow(
+				/collision/i
+			);
 		} );
 	} );
 } );
