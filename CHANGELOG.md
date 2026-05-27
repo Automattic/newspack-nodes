@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`make_node` constructs nodes in the browser** instead of refusing ("runs on a worker"). Mirrors PHP `Command_Interpreter_Node::make_node`: split the args on whitespace, spread the trailing tokens into the constructor as positional args, `name()`, `sink($self)` (the new node auto-sinks into the CI, rule #2). Types resolve through `CommandInterpreter.includeNodes` — a flat name→class table standing in for PHP's namespace-prefix resolution (no `register_namespace`); the console extends it with its own node classes. `Hook`/`Router`/`Callback` are intentionally absent (you don't make a second router, or a predicate/closure node, from the shell). The console graph is now a live, hackable thing.
 - **`mountExospine()` runtime helper.** Constructs + registers the canonical rule-#2 backbone every browser node graph clips onto — `_command_interpreter` (sink → `_router`) and a bare `_router` — and returns `{ ci, router, teardown }`. `teardown()` fully removes both (clearing the sink edge and any caller-registered TIMER listeners). Exported from `@newspack-nodes/runtime` so dashboards in both this plugin and consumers (ELN) wire the same backbone one way instead of hand-rolling a Router/CI per graph.
 
 ### Changed
