@@ -65,15 +65,42 @@ describe( 'DebugOverlay', () => {
 		expect(
 			container.querySelector( '.topology-app.theme-current' )
 		).not.toBeNull();
-		// Theme picker is a <select> inside the panel chrome.
-		const themeSelect = container.querySelector(
-			'[data-testid="debug-theme-select"]'
-		);
+		// Theme picker is the shared Header's skin <select>.
+		const themeSelect = container.querySelector( '.topology-select--skin' );
 		expect( themeSelect ).not.toBeNull();
 		// Picking another registered theme flips the class.
 		fireEvent.change( themeSelect, { target: { value: 'blueprint' } } );
 		expect(
 			container.querySelector( '.topology-app.theme-blueprint' )
+		).not.toBeNull();
+	} );
+
+	it( 'mounts the topology Header above the themed app shell', () => {
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// Header's brand element marks the shared Header is in place.
+		expect(
+			container.querySelector( '.topology-header .topology-brand' )
+		).not.toBeNull();
+		// Hidden in view mode: Open/Save/Delete/New + EDIT button (canEdit=false).
+		expect(
+			container.querySelector( '.topology-mode__btn--open' )
+		).toBeNull();
+		expect(
+			container.querySelector( '.topology-mode__btn--save' )
+		).toBeNull();
+		expect(
+			container.querySelector( '.topology-mode__btn--new' )
+		).toBeNull();
+		expect(
+			container.querySelector( '.topology-mode__btn--delete' )
+		).toBeNull();
+		// LIVE button is always rendered.
+		expect(
+			container.querySelector( '.topology-mode__btn--live' )
 		).not.toBeNull();
 	} );
 } );
