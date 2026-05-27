@@ -101,6 +101,7 @@ export default function DebugOverlay( {
 	const { positions, viewport, onPositionChange, onViewportChange } =
 		useDebugLayout( storageKey );
 	const {
+		frame,
 		style: frameStyle,
 		onHeaderPointerDown,
 		getResizeHandlers,
@@ -124,6 +125,10 @@ export default function DebugOverlay( {
 	if ( ! enabled ) {
 		return null;
 	}
+
+	// Cap the transcript so it can't grow taller than the panel: panel height
+	// minus the 64px header row minus a 60px floor for canvas visibility.
+	const replMaxHeightPx = Math.max( 80, frame.h - 64 - 60 );
 
 	return (
 		<div className="nodes-debug">
@@ -204,6 +209,7 @@ export default function DebugOverlay( {
 							expanded={ replExpanded }
 							onExpandedChange={ setReplExpanded }
 							inputRef={ replInputRef }
+							maxHeightPx={ replMaxHeightPx }
 						/>
 					</div>
 					{ Object.entries( getResizeHandlers() ).map(

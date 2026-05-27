@@ -101,17 +101,19 @@
 
 // Eight resize handles around the panel edges. Each is a thin invisible
 // strip with the cursor for its direction; pointerdown starts the resize.
+// z-index above .topology-app's interior chrome (the canvas frame's grid
+// border decorations sit at z 4-5 to overlay nodes — so 10 wins).
 .nodes-debug__resize {
 	position: absolute;
-	z-index: 1;
+	z-index: 10;
 	background: transparent;
 
-	&--n { top: 0; left: 8px; right: 8px; height: 6px; cursor: ns-resize; }
-	&--s { bottom: 0; left: 8px; right: 8px; height: 6px; cursor: ns-resize; }
-	&--w { top: 8px; bottom: 8px; left: 0; width: 6px; cursor: ew-resize; }
-	&--e { top: 8px; bottom: 8px; right: 0; width: 6px; cursor: ew-resize; }
-	&--nw { top: 0; left: 0; width: 12px; height: 12px; cursor: nwse-resize; }
-	&--ne { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; }
-	&--sw { bottom: 0; left: 0; width: 12px; height: 12px; cursor: nesw-resize; }
-	&--se { bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+	&--n { top: 0; left: 12px; right: 12px; height: 8px; cursor: ns-resize; }
+	&--s { bottom: 0; left: 12px; right: 12px; height: 8px; cursor: ns-resize; }
+	&--w { top: 12px; bottom: 12px; left: 0; width: 8px; cursor: ew-resize; }
+	&--e { top: 12px; bottom: 12px; right: 0; width: 8px; cursor: ew-resize; }
+	&--nw { top: 0; left: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+	&--ne { top: 0; right: 0; width: 14px; height: 14px; cursor: nesw-resize; }
+	&--sw { bottom: 0; left: 0; width: 14px; height: 14px; cursor: nesw-resize; }
+	&--se { bottom: 0; right: 0; width: 14px; height: 14px; cursor: nwse-resize; }
 }
