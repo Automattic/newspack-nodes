@@ -274,16 +274,41 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect( batch[ 1 ][ FROM ] ).toBe( `${ names.SSE }:4242/_output` );
 	} );
 
-	it( 'ls at the local root (cd /) lists the in-browser nodes in the transcript', () => {
+	it( 'ls -a at the local root (cd /) lists EVERY in-browser node in the transcript', () => {
 		const { result } = renderGraph();
 		act( () => result.current.shell.fill( 'cd /' ) ); // empty cwd → local CI
-		act( () => result.current.shell.fill( 'ls' ) );
+		act( () => result.current.shell.fill( 'ls -a' ) );
 		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
 		const recv = transcript.find( ( e ) => e.kind === 'recv' );
 		expect( recv ).toBeTruthy();
 		expect( recv.text ).toContain( names.COMMAND_INTERPRETER );
 		expect( recv.text ).toContain( names.OUTPUT );
 		expect( recv.text ).toContain( names.SSE );
+	} );
+
+	it( 'ls -c at the local root renders the full _cmdList COUNT column (not a flat name dump)', () => {
+		const { result } = renderGraph();
+		act( () => result.current.shell.fill( 'cd /' ) );
+		act( () => result.current.shell.fill( 'ls -c' ) );
+		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
+		const recv = transcript.find( ( e ) => e.kind === 'recv' );
+		expect( recv ).toBeTruthy();
+		expect( recv.text ).toContain( 'COUNT' );
+		expect( recv.text ).toContain( 'NAME' );
+	} );
+
+	it( 'bare ls at the local root lists the CI siblings (poll nodes), not every node', () => {
+		const { result } = renderGraph();
+		act( () => result.current.shell.fill( 'cd /' ) );
+		act( () => result.current.shell.fill( 'ls' ) );
+		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
+		const recv = transcript.find( ( e ) => e.kind === 'recv' );
+		expect( recv ).toBeTruthy();
+		// Default = siblings (sink IS the CI): the _metadata/_uptime poll nodes.
+		expect( recv.text ).toContain( names.METADATA );
+		expect( recv.text ).toContain( names.UPTIME );
+		// _output (a terminal Dumper) does NOT sink into the CI → not a sibling.
+		expect( recv.text.split( '\n' ) ).not.toContain( names.OUTPUT );
 	} );
 } );
 
