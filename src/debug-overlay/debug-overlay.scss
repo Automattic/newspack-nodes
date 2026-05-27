@@ -49,6 +49,7 @@
 	box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
 	overflow: hidden;
 	display: flex;
+	flex-direction: column;
 
 	// Re-shape the shared graph app for the overlay: drop the console's
 	// header / palette rows and lay out canvas + REPL footer (+ inspector
@@ -57,6 +58,7 @@
 	.topology-app {
 		flex: 1;
 		height: 100%;
+		min-height: 0;
 		grid-template-rows: 1fr auto;
 		grid-template-columns: 1fr 0;
 		grid-template-areas:
@@ -70,6 +72,24 @@
 				"repl   repl";
 		}
 	}
+}
+
+// Top chrome row above the themed .topology-app — only the theme picker for now.
+.nodes-debug__chrome {
+	display: flex;
+	justify-content: flex-end;
+	padding: 6px 8px;
+	background: #18222e;
+	border-bottom: 1px solid #0d1117;
+}
+
+.nodes-debug__theme {
+	background: #18222e;
+	color: #f0e7d6;
+	border: 1px solid #5a6f7f;
+	padding: 2px 6px;
+	font-size: 12px;
+	cursor: pointer;
 }
 
 // PlainFrame canvas wrapper — fill the canvas grid area.

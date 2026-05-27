@@ -77,4 +77,37 @@ describe( 'useDebugGraph', () => {
 		expect( Core.node( 'a' ).target ).toBe( 'b' );
 		teardown();
 	} );
+
+	it( 'onInspectorAction handles tail / disconnect / trace (parity with the console)', () => {
+		// The console's handleInspectorAction routes five non-invoke actions:
+		// dump → dump_node, tail → connect_node <id> (no target = tail), disconnect
+		// → disconnect_node, send → send_node, trace → debug_state. The overlay
+		// previously handled only dump + invoke, silently dropping the rest.
+		const { teardown } = mountExospine();
+		const a = new Node();
+		a.setName( 'a' );
+		const { result } = renderHook( () => useDebugGraph() );
+		// tail = `connect_node a` with NO target — sets a.target = '' (tail mode).
+		act( () =>
+			result.current.handlers.onInspectorAction( 'tail', 'a', null )
+		);
+		expect( Core.node( 'a' ).target ).toBe( '' );
+		// Set a.target so disconnect has something to clear.
+		Core.node( 'a' ).target = 'somewhere';
+		act( () =>
+			result.current.handlers.onInspectorAction( 'disconnect', 'a', null )
+		);
+		// disconnect_node clears target (a string '').
+		expect( Core.node( 'a' ).target ).toBe( '' );
+		// trace sets debug_state; payload is the target level (0 or 1).
+		act( () =>
+			result.current.handlers.onInspectorAction( 'trace', 'a', 1 )
+		);
+		expect( Core.node( 'a' ).debugState ).toBe( 1 );
+		act( () =>
+			result.current.handlers.onInspectorAction( 'trace', 'a', 0 )
+		);
+		expect( Core.node( 'a' ).debugState ).toBe( 0 );
+		teardown();
+	} );
 } );
