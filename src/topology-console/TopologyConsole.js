@@ -1515,7 +1515,7 @@ export default function TopologyConsole() {
 				resetKey={ `${ scope.key }|${ mode }|${ editingName }` }
 				interactive={ true }
 				editMode={ mode === 'edit' }
-				showPalette={ mode === 'edit' }
+				showPalette={ true }
 				paletteLoading={ catalog.loading }
 				classCatalog={ schemasByShellName }
 				catalog={ catalog.classes }
