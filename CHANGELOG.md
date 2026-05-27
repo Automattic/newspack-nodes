@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-05-27
+
 ### Added
 
 - **`make_node Node <name>` resolves the base `Node` class.** The base `Node` carries no `_Node` suffix, so it was unreachable through `make_node` (which appends `_Node` and resolved `{prefix}{type}_Node`); resolution now special-cases `Node` to the bare class and accepts it via `is_a(…, true)` instead of `is_subclass_of`. This makes the base `Node` a first-class type — a bare routing/fan-in primitive whose default `fill()` stamps `TO=target` and forwards to `sink` (e.g. the SSE-stream process's `_default_route`) — and round-trips through `dump_config` (its shell name is `Node`). Added the matching `Node_Names::HEARTBEAT` const so the JS↔PHP reserved-name parity guard passes.
