@@ -153,7 +153,15 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				globalThis.__shell = shell;
 				globalThis.__graphKey = key;
 			}
-			return { status: 'open', ssePid: 1234, shell: globalThis.__shell };
+			// `__connecting` simulates the pre-connect window: enabled (worker cwd)
+			// but no pid yet, so the cwd guard can be exercised.
+			return globalThis.__connecting
+				? {
+						status: 'connecting',
+						ssePid: null,
+						shell: globalThis.__shell,
+				  }
+				: { status: 'open', ssePid: 1234, shell: globalThis.__shell };
 		},
 	};
 } );
@@ -1329,6 +1337,23 @@ describe( 'TopologyConsole boot', () => {
 		expect( Core.node( names.CWD ).target ).toBe(
 			'_sse/demo.p0/firehose-in'
 		);
+	} );
+
+	it( 'a worker cwd during the connecting window (no pid) routes _cwd to the local CI', () => {
+		// Until the stream connects, a worker poll has no session to receive its
+		// reply — so the guard points _cwd at the local CI ('') instead of POSTing
+		// replies the server can't demux. (Once the pid lands, it flips to the cwd.)
+		globalThis.__connecting = true;
+		try {
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			render( <TopologyConsole /> );
+			act( () => {
+				lastReplProps.onSubmit( 'cd /_sse/demo.p0' );
+			} );
+			expect( Core.node( names.CWD ).target ).toBe( '' );
+		} finally {
+			globalThis.__connecting = false;
+		}
 	} );
 
 	it( 'request scope (cd /_sse) sets _cwd.target to _sse', () => {

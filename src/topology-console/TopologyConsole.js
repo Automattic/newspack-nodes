@@ -830,7 +830,13 @@ export default function TopologyConsole() {
 	useEffect( () => {
 		const cwdNode = Core.node( names.CWD );
 		if ( cwdNode ) {
-			cwdNode.target = cwd;
+			// A worker poll needs the SSE session to receive its reply; until the
+			// stream connects (pid arrives), route polls to the local CI ('')
+			// instead of POSTing replies the server can't demux. Off-worker /
+			// once connected, point at the real cwd.
+			const connecting =
+				null !== workerPollPath( cwd, pathOptions ) && null === ssePid;
+			cwdNode.target = connecting ? '' : cwd;
 		}
 		// Keep the Shell's `status` builtin lines current with the session/cwd so
 		// the carrier it slices at parse time reflects live state (PHP stashes a

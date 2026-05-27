@@ -44,15 +44,21 @@ export function parseMetadata( payload ) {
 				typeof meta.bytes_written === 'number' ? meta.bytes_written : 0,
 		} );
 
+		// An edge connects to the HEAD of the target path — `_router` peels the
+		// first `/`-segment and delivers there (`_sse/workers` → the `_sse` node).
+		const headOf = ( t ) => {
+			const slash = t.indexOf( '/' );
+			return -1 === slash ? t : t.slice( 0, slash );
+		};
 		const target = meta.target;
 		if ( Array.isArray( target ) ) {
 			for ( const t of target ) {
 				if ( typeof t === 'string' && t !== '' ) {
-					edges.push( { from: name, to: t } );
+					edges.push( { from: name, to: headOf( t ) } );
 				}
 			}
 		} else if ( typeof target === 'string' && target !== '' ) {
-			edges.push( { from: name, to: target } );
+			edges.push( { from: name, to: headOf( target ) } );
 		}
 	}
 	return { nodes, edges };
