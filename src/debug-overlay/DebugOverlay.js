@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
+import { Core } from '../runtime/core';
 import { __ } from '@wordpress/i18n';
 import CanvasFrame from '../topology-console/components/CanvasFrame';
 import GraphView from '../topology-console/components/GraphView';
@@ -114,27 +115,40 @@ export default function DebugOverlay( {
 		toggleMaximize,
 	} = useDebugFrame( `${ storageKey }:frame` );
 
-	// "Reset graph" in the overlay = wipe ALL of this overlay's persisted
-	// state (frame, theme, palette-collapsed, layout, transcript height) and
-	// reload — restoring overlay defaults. Doesn't touch the dashboard's own
-	// nodes (that would break the dashboard).
-	const resetOverlayState = () => {
-		const keys = [
-			`${ storageKey }:frame`,
-			themeKey,
-			paletteKey,
-			`${ storageKey }:positions`,
-			`${ storageKey }:viewport`,
-			'newspack-nodes:topology-console:repl-height',
-		];
-		try {
-			for ( const k of keys ) {
-				window.localStorage.removeItem( k );
-			}
-		} catch ( _e ) {
-			// localStorage disabled — nothing to do.
+	// "Reset graph" in the overlay = remove every node the user added via the
+	// overlay since the panel first opened, leaving the dashboard's own nodes
+	// (and the overlay's spine: _output, _command_interpreter, _router, etc.)
+	// in place. Mirrors the console's resetLocalGraph (Core.unregisterNode
+	// everything outside a protected set) — except the "protected" set is
+	// computed dynamically at first-open since the dashboard's node names
+	// vary per page.
+	const baselineNamesRef = useRef( null );
+	useEffect( () => {
+		if ( ! ( enabled && open ) ) {
+			return;
 		}
-		window.location.reload();
+		if ( baselineNamesRef.current ) {
+			return;
+		}
+		// Capture after a tick so useDebugGraph + useDebugRepl have registered
+		// their nodes (exospine CI/router, _output Dumper). Anything in Core
+		// at this point is considered "original" and won't be removed by reset.
+		const id = setTimeout( () => {
+			baselineNamesRef.current = new Set( Core.nodes.keys() );
+		}, 0 );
+		return () => clearTimeout( id );
+	}, [ enabled, open ] );
+
+	const resetGraph = () => {
+		const baseline = baselineNamesRef.current;
+		if ( ! baseline ) {
+			return;
+		}
+		for ( const name of [ ...Core.nodes.keys() ] ) {
+			if ( ! baseline.has( name ) ) {
+				Core.unregisterNode( name );
+			}
+		}
 	};
 
 	// Ctrl+` toggles the panel while enabled.
@@ -239,7 +253,7 @@ export default function DebugOverlay( {
 								isWorker: false,
 								editMode: false,
 								onResetLayout: resetLayout,
-								onResetGraph: resetOverlayState,
+								onResetGraph: resetGraph,
 							} }
 							resetKey={ storageKey }
 							interactive
