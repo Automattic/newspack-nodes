@@ -2,9 +2,11 @@
  * useConsoleGraph — mounts the per-session in-browser node graph (WIRING-PLAN
  * §2/§4 spine). Send: Shell → _command_interpreter → _router ─[peel _http]→
  * _http (HttpOut → POST /command). Receive: _sse (SseIn) → _router ─[peel
- * reply-node]→ _output (Dumper) | _metadata | _uptime. Mounted while `enabled`;
- * torn down on unmount or edit mode. Node names come from the shared-canonical
- * reserved-node-names.json.
+ * reply-node]→ _output (Dumper) | _metadata | _uptime | _heartbeat. The
+ * _metadata / _uptime / _heartbeat poll nodes emit on the Router TIMER (batched
+ * into one POST per tick); _heartbeat keeps the SSE slot alive. Mounted while
+ * `enabled`; torn down on unmount or edit mode. Node names come from the
+ * shared-canonical reserved-node-names.json.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
@@ -17,16 +19,10 @@ import { Dumper } from '../nodes/dumper';
 import { Metadata } from '../nodes/metadata';
 import { Uptime } from '../nodes/uptime';
 import { Completion } from '../nodes/completion';
+import { Heartbeat } from '../nodes/heartbeat';
 import { Shell } from '../nodes/shell';
 import { getCommandClient } from '../utils/commandClient';
 import names from '../../runtime/reserved-node-names.json';
-
-// Slot keep-alive: poke `workers/heartbeat` to refresh this session's SSE slot
-// TTL. The slot is refreshed EXCLUSIVELY by the client (the server's check_slot
-// never refreshes); without this poke the slot TTLs out and the browser
-// reconnects every ~minute. Poke at half the TTL so one missed poke survives.
-const SLOT_TTL_S = 10;
-const SLOT_HEARTBEAT_MS = 5000;
 
 // Every named node this graph mounts — unregistered on teardown.
 const GRAPH_NODE_NAMES = [
@@ -36,6 +32,7 @@ const GRAPH_NODE_NAMES = [
 	names.METADATA,
 	names.UPTIME,
 	names.COMPLETION,
+	names.HEARTBEAT,
 	names.HTTP,
 	names.SSE,
 ];
@@ -96,6 +93,11 @@ export function useConsoleGraph( {
 		uptime.setName( names.UPTIME );
 		const completion = new Completion();
 		completion.setName( names.COMPLETION );
+		// Slot keep-alive: a silent poll node that pokes `workers/heartbeat` on the
+		// Router TIMER (batched into the canvas poll's POST) to refresh this
+		// session's SSE slot TTL — the slot is refreshed EXCLUSIVELY by the client.
+		const heartbeat = new Heartbeat();
+		heartbeat.setName( names.HEARTBEAT );
 
 		// HTTP boundary: Router peels _http and delivers here (TO={reader}).
 		const httpOut = new HttpOut( { client: getCommandClient() } );
@@ -123,34 +125,22 @@ export function useConsoleGraph( {
 		consoleShell.sink = ci;
 
 		setSsePid( sse.pid() );
-		let slotPoke = null;
 		sse.register( 'connected', 'useConsoleGraph', ( payload ) => {
 			const pid =
 				payload && 'number' === typeof payload.pid ? payload.pid : null;
 			setSsePid( pid );
-			// Keep this session's SSE slot alive. The slot was acquired at THIS
-			// partition (the subscription resolves to it), so the poke must carry
-			// `partition` — without it the worker-partition slot TTLs out and the
-			// browser reconnects every ~minute. (check_slot never refreshes; only
-			// the client's poke does.)
+			// Hand the Heartbeat node the slot it must keep alive. The slot was
+			// acquired at THIS partition (the subscription resolves to it), so the
+			// poke carries `partition` — without it the worker-partition slot TTLs
+			// out and the browser reconnects every ~minute. No slot → clear it.
 			const slot =
 				payload && Number.isInteger( payload.slot )
 					? payload.slot
 					: null;
-			if ( slotPoke ) {
-				clearInterval( slotPoke );
-				slotPoke = null;
-			}
 			if ( null !== slot && slot >= 0 ) {
-				slotPoke = setInterval( () => {
-					getCommandClient()
-						.send( {
-							to: 'workers',
-							verb: 'heartbeat',
-							args: `${ slot } ${ SLOT_TTL_S } ${ partition }`,
-						} )
-						.catch( () => {} );
-				}, SLOT_HEARTBEAT_MS );
+				heartbeat.setSlot( slot, partition );
+			} else {
+				heartbeat.clearSlot();
 			}
 			return true;
 		} );
@@ -162,12 +152,15 @@ export function useConsoleGraph( {
 		// TopologyConsole gating effect sets it (null = suppressed → empty flush).
 		metadata.sink = ci;
 		uptime.sink = ci;
+		heartbeat.sink = ci;
 		metadata.pollTo = consoleShell.path;
 		uptime.pollTo = consoleShell.path;
+		heartbeat.pollTo = consoleShell.path;
 		router.beforeTimerNotify = () => httpOut.lock();
 		router.afterTimerNotify = () => httpOut.flush();
 		router.register( 'TIMER', names.METADATA, () => metadata.onTimer() );
 		router.register( 'TIMER', names.UPTIME, () => uptime.onTimer() );
+		router.register( 'TIMER', names.HEARTBEAT, () => heartbeat.onTimer() );
 
 		setShell( consoleShell );
 		sse.start();
@@ -175,9 +168,7 @@ export function useConsoleGraph( {
 
 		return () => {
 			router.stopTimer();
-			if ( slotPoke ) {
-				clearInterval( slotPoke );
-			}
+			heartbeat.clearSlot();
 			sse.unregister( 'connected', 'useConsoleGraph' );
 			sse.close();
 			for ( const name of GRAPH_NODE_NAMES ) {

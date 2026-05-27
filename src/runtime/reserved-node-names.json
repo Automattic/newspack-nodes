@@ -7,5 +7,6 @@
 	"SSE": "_sse",
 	"METADATA": "_metadata",
 	"UPTIME": "_uptime",
-	"COMPLETION": "_completion"
+	"COMPLETION": "_completion",
+	"HEARTBEAT": "_heartbeat"
 }

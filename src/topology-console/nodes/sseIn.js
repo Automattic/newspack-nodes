@@ -7,7 +7,8 @@
  *
  *  - Outgoing — a command routed in via TO=`_sse/…` (so `_router` peeled the
  *    `_sse` head). If FROM is a browser reply node (`_output`/`_metadata`/
- *    `_uptime`) it's wrapped into the private reply pivot `_sse:{pid}/{from}`
+ *    `_uptime`/`_completion`/`_heartbeat`) it's wrapped into the private reply
+ *    pivot `_sse:{pid}/{from}`
  *    (the server's HTTP_In stamps the `_http/` boundary prefix on arrival), and
  *    `_http` is prepended to TO so it routes on to the `_http` node (HttpOut →
  *    POST) and the server's HTTP_Filter can demux the reply back to THIS session.
@@ -30,6 +31,7 @@ const REPLY_NODES = [
 	names.METADATA,
 	names.UPTIME,
 	names.COMPLETION,
+	names.HEARTBEAT,
 ];
 
 export class SseIn extends SseConnector {

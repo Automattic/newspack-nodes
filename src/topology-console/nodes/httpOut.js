@@ -2,9 +2,10 @@
  * HttpOut — the `_http` console node (the HTTP boundary on the browser side;
  * WIRING-PLAN §1 names it `HttpOut ← was CommandOut`). `_router` peels `_http`
  * and delivers ONE positional Message with TO={reader} (or {reader}/{node});
- * `fill()` POSTs it to /command. A worker target prepends a `connect_worker_input`
- * (de-bake deferred — WIRING-PLAN §8); an `_http`-level address (empty reader)
- * POSTs the bare command for the request-scope CI.
+ * `fill()` POSTs it to /command. A worker target ({topology}.p{N}) prepends a
+ * `connect_worker_input` (de-bake deferred — WIRING-PLAN §8); an `_http`-level
+ * address (empty reader) or a server-CI target (`workers`, …) POSTs the bare
+ * command for the request-scope CI.
  *
  * Intake: a synchronous reply comes back as a packed Message in the POST body
  * (request-scope-interpreted commands). It's fed back into `_sse` — the receive
@@ -33,24 +34,24 @@ export class HttpOut extends Node {
 		this.buffer = [];
 	}
 
-	// Build the postBatch entries for a routed Message: a worker target gets a
-	// leading connect_worker_input; an `_http`-level address (empty reader) is bare.
+	// Build the postBatch entries for a routed Message. ONLY a worker reader
+	// (`{topology}.p{N}`) needs its input Partition mounted, so prepend a
+	// connect_worker_input for it; an `_http`-level address (empty reader) or a
+	// server-CI target (`workers`, `topologies`, …) rides bare.
 	_entriesFor( message ) {
 		const to = message[ TO ] || '';
 		const slash = to.indexOf( '/' );
 		const reader = -1 === slash ? to : to.slice( 0, slash );
-		// `_http`-level (empty reader): bare command for the request-scope CI.
-		// Worker target: prepend connect_worker_input to mount its input Partition.
-		return '' === reader
-			? [ message ]
-			: [
+		return /\.p\d+$/.test( reader )
+			? [
 					this.client.buildMessage( {
 						to: 'topologies',
 						verb: 'connect_worker_input',
 						args: reader,
 					} ),
 					message,
-			  ];
+			  ]
+			: [ message ];
 	}
 
 	lock() {

@@ -72,6 +72,21 @@ describe( 'HttpOut', () => {
 		expect( batch[ 1 ][ VALUE ].name ).toBe( 'ls' );
 	} );
 
+	it( 'rides a server-CI target (workers) bare — no connect_worker_input', () => {
+		const { node, postBatch } = makeNode();
+		node.fill(
+			routed( {
+				to: 'workers',
+				from: '_http/_sse:9/_heartbeat',
+				value: { name: 'heartbeat', arguments: '1 10 0', payload: '' },
+			} )
+		);
+		const batch = batchOf( postBatch );
+		expect( batch ).toHaveLength( 1 );
+		expect( batch[ 0 ][ TO ] ).toBe( 'workers' );
+		expect( batch[ 0 ][ VALUE ].name ).toBe( 'heartbeat' );
+	} );
+
 	it( 'derives the reader from the head of TO when a node path follows', () => {
 		const { node, postBatch } = makeNode();
 		node.fill( routed( { to: 'demo.p0/firehose-in' } ) );
