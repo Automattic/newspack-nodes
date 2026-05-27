@@ -19,10 +19,6 @@ import {
 	newMessage,
 } from './message';
 
-// Baseline scaffolding `remove_node` refuses to touch. Mirrors
-// PHP Node_Names::{COMMAND_INTERPRETER,ROUTER,OUTPUT}.
-const PROTECTED_NODES = [ '_command_interpreter', '_router', '_output' ];
-
 // Alias to canonical, kept in lockstep with the verb table + Shell builtins so
 // `help <alias>` resolves to the same topic PHP cmd_help does.
 const ALIAS_TO_CANONICAL = {
@@ -451,16 +447,6 @@ export class CommandInterpreter extends Node {
 				errors.push( `can't find node "${ name }"` );
 				continue;
 			}
-			if ( node === this ) {
-				errors.push( 'refusing to destroy interpreter' );
-				continue;
-			}
-			if ( PROTECTED_NODES.includes( name ) ) {
-				errors.push(
-					`refusing to destroy baseline scaffolding: ${ name }`
-				);
-				continue;
-			}
 			// Full lifecycle teardown (clears refs, cascades the sibling CI,
 			// unregisters its own name LAST) — matches PHP Node::remove_node.
 			node.removeNode();
@@ -667,8 +653,9 @@ export class CommandInterpreter extends Node {
 	static _cmdDumpConfig() {
 		let out = '';
 		for ( const [ name, node ] of Core.nodes ) {
-			// Skip the baseline scaffolding (the backbone + the transcript sink).
-			if ( PROTECTED_NODES.includes( name ) ) {
+			// Skip only the backbone (literals avoid the `names` shadow); _output
+			// is a real node now, shown on the canvas and dumpable.
+			if ( '_command_interpreter' === name || '_router' === name ) {
 				continue;
 			}
 			if ( 'function' === typeof node.dumpConfig ) {

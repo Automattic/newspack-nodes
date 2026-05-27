@@ -952,15 +952,7 @@ function VerbArgModal( {
 
 // One schema verb button. Argless verbs fire immediately; verbs with args open
 // the VerbArgModal. `kind` is 'command' (TM_COMMAND) or 'request' (TM_REQUEST).
-function VerbButton( {
-	nodeId,
-	spec,
-	kind,
-	live,
-	formatters,
-	nodeNames,
-	onAction,
-} ) {
+function VerbButton( { nodeId, spec, kind, formatters, nodeNames, onAction } ) {
 	const [ open, setOpen ] = useState( false );
 	const hasArgs = spec.args && spec.args.length > 0;
 	const verbLabel =
@@ -985,7 +977,6 @@ function VerbButton( {
 						byName: {},
 					} );
 				} }
-				disabled={ ! live }
 				title={
 					spec.description ||
 					sprintf(
@@ -1230,7 +1221,6 @@ export default function Inspector( {
 				<button
 					type="button"
 					onClick={ () => onAction && onAction( 'dump', node.id ) }
-					disabled={ ! live }
 					title={ __(
 						'Send `dump_node <name>` to the worker',
 						'newspack-nodes'
@@ -1257,7 +1247,6 @@ export default function Inspector( {
 							}
 						}
 					} }
-					disabled={ ! live }
 					title={ __(
 						'Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`',
 						'newspack-nodes'
@@ -1274,7 +1263,6 @@ export default function Inspector( {
 						onAction &&
 						onAction( 'trace', node.id, traceOn ? 0 : 1 )
 					}
-					disabled={ ! live }
 					title={
 						traceOn
 							? __(
@@ -1301,7 +1289,6 @@ export default function Inspector( {
 							onAction &&
 							onAction( tailOn ? 'disconnect' : 'tail', node.id )
 						}
-						disabled={ ! live }
 						title={
 							tailOn
 								? __(
@@ -1339,7 +1326,6 @@ export default function Inspector( {
 								nodeId={ node.id }
 								spec={ spec }
 								kind="command"
-								live={ live }
 								formatters={ formatters }
 								nodeNames={ liveNodeNames }
 								onAction={ onAction }
@@ -1351,7 +1337,6 @@ export default function Inspector( {
 								nodeId={ node.id }
 								spec={ spec }
 								kind="request"
-								live={ live }
 								formatters={ formatters }
 								nodeNames={ liveNodeNames }
 								onAction={ onAction }

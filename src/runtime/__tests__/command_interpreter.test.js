@@ -465,18 +465,25 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 			expect( n.sink ).toBeNull();
 			expect( Core.node( 'gone' ) ).toBeNull();
 		} );
-		it( 'refuses to destroy the interpreter', () => {
+		it( 'removes the interpreter itself (no safety rails — breaking the graph is a lesson)', () => {
 			const ci = makeCi();
 			expect(
 				dispatch( ci, 'remove_node', '_command_interpreter' )
-			).toBe( 'refusing to destroy interpreter' );
+			).toBe( 'removed _command_interpreter' );
+			expect( Core.node( '_command_interpreter' ) ).toBeNull();
 		} );
-		it( 'refuses baseline scaffolding (_router/_output)', () => {
+		it( 'removes formerly-protected scaffolding (_router/_output)', () => {
 			const ci = makeCi();
 			new Node().setName( '_router' );
+			new Node().setName( '_output' );
 			expect( dispatch( ci, 'remove_node', '_router' ) ).toBe(
-				'refusing to destroy baseline scaffolding: _router'
+				'removed _router'
 			);
+			expect( Core.node( '_router' ) ).toBeNull();
+			expect( dispatch( ci, 'remove_node', '_output' ) ).toBe(
+				'removed _output'
+			);
+			expect( Core.node( '_output' ) ).toBeNull();
 		} );
 		it( 'reports an unknown node', () => {
 			const ci = makeCi();
@@ -921,11 +928,18 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 			);
 		} );
 
-		it( 'skips the backbone (_command_interpreter)', () => {
+		it( 'skips only the backbone (_command_interpreter / _router)', () => {
 			const ci = makeCi();
-			expect( dispatch( ci, 'dump_config' ) ).not.toContain(
-				'_command_interpreter'
-			);
+			new Node().setName( '_router' );
+			const out = dispatch( ci, 'dump_config' );
+			expect( out ).not.toContain( '_command_interpreter' );
+			expect( out ).not.toContain( '_router' );
+		} );
+
+		it( 'dumps _output (a real node, no longer skipped scaffolding)', () => {
+			const ci = makeCi();
+			new Node().setName( '_output' );
+			expect( dispatch( ci, 'dump_config' ) ).toContain( '_output' );
 		} );
 	} );
 } );
