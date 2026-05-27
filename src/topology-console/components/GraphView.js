@@ -3,6 +3,7 @@ import SchematicCanvas from './SchematicCanvas';
 import Inspector from './Inspector';
 import Palette from './Palette';
 import { useGraphRates } from '../hooks/useGraphRates';
+import '../styles/graph-view.scss';
 
 /**
  * The reusable graph-editing surface, shared by the topology console and the

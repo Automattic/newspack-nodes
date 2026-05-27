@@ -3,6 +3,7 @@ import { __ } from '@wordpress/i18n';
 import GraphView from '../topology-console/components/GraphView';
 import { isDebugEnabled } from './isDebugEnabled';
 import { useDebugGraph } from './useDebugGraph';
+import './debug-overlay.scss';
 
 // Minimal canvas frame for the overlay — no topology/layout chrome.
 const PlainFrame = ( { children } ) => (
@@ -25,6 +26,7 @@ export default function DebugOverlay( {
 } ) {
 	const enabled = isDebugEnabled( search );
 	const [ open, setOpen ] = useState( false );
+	const [ selected, setSelected ] = useState( null );
 	const { graph, handlers } = useDebugGraph( enabled && open );
 
 	// Ctrl+` toggles the panel while enabled.
@@ -61,18 +63,25 @@ export default function DebugOverlay( {
 			</button>
 			{ open && (
 				<div className="nodes-debug__panel" data-testid="debug-panel">
-					<GraphView
-						graph={ graph }
-						frame={ PlainFrame }
-						resetKey={ storageKey }
-						interactive
-						editMode={ false }
-						showPalette={ false }
-						onConnect={ handlers.onConnect }
-						onRemoveNode={ handlers.onRemoveNode }
-						onInspectorAction={ handlers.onInspectorAction }
-						onPositionChange={ onPositionChange }
-					/>
+					<div
+						className={ `topology-app theme-current${
+							selected ? ' is-inspector-open' : ''
+						}` }
+					>
+						<GraphView
+							graph={ graph }
+							frame={ PlainFrame }
+							resetKey={ storageKey }
+							interactive
+							editMode={ false }
+							showPalette={ false }
+							onConnect={ handlers.onConnect }
+							onRemoveNode={ handlers.onRemoveNode }
+							onInspectorAction={ handlers.onInspectorAction }
+							onPositionChange={ onPositionChange }
+							onSelectionChange={ setSelected }
+						/>
+					</div>
 				</div>
 			) }
 		</div>

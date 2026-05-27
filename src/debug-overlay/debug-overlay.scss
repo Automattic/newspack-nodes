@@ -1,0 +1,76 @@
+/**
+ * Debug overlay chrome — the floating FAB + panel that hosts <GraphView> on any
+ * dashboard page. The graph-surface styles (tokens, themes, node/edge/inspector)
+ * come from graph-view.scss via GraphView.js; this file only adds the overlay's
+ * own chrome and re-shapes the .topology-app grid so it lays out canvas +
+ * inspector ONLY (no header / palette / repl rows, which the overlay never
+ * renders).
+ */
+
+// Floating action button — bottom-right, above WP admin chrome.
+.nodes-debug__fab {
+	position: fixed;
+	right: 24px;
+	bottom: 24px;
+	z-index: 99999;
+	width: 48px;
+	height: 48px;
+	border-radius: 50%;
+	border: 1px solid #0d1117;
+	background: #18222e;
+	color: #f0e7d6;
+	font-size: 20px;
+	line-height: 1;
+	cursor: pointer;
+	box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	transition: transform 100ms ease;
+
+	&:hover {
+		transform: scale(1.06);
+	}
+}
+
+// Floating panel container — fixed, right-anchored, sized to a comfortable
+// working area without covering the whole admin screen. overflow:hidden +
+// flex so the themed .topology-app child fills it edge-to-edge.
+.nodes-debug__panel {
+	position: fixed;
+	right: 24px;
+	bottom: 84px;
+	z-index: 99998;
+	width: 70vw;
+	max-width: 1100px;
+	height: 70vh;
+	background: #f0e7d6;
+	border: 1px solid #18222e;
+	box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
+	overflow: hidden;
+	display: flex;
+
+	// Re-shape the shared graph app for the overlay: drop the console's
+	// header / palette / repl rows and lay out only canvas (+ inspector when
+	// a node is selected). Reuses the real grid-area names from
+	// .topology-app (`canvas`, `inspector`).
+	.topology-app {
+		flex: 1;
+		height: 100%;
+		grid-template-rows: 1fr;
+		grid-template-columns: 1fr 0;
+		grid-template-areas: "canvas inspector";
+
+		&.is-inspector-open {
+			grid-template-columns: 1fr 360px;
+			grid-template-areas: "canvas inspector";
+		}
+	}
+}
+
+// PlainFrame canvas wrapper — fill the canvas grid area.
+.nodes-debug__canvas {
+	grid-area: canvas;
+	min-height: 0;
+	height: 100%;
+}
