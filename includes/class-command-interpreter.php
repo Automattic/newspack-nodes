@@ -375,6 +375,12 @@ class Command_Interpreter_Node extends Node {
 			}
 			$node = $ref->newInstanceArgs( $ctor_args );
 			$node->name( $name );
+			// Set arguments() HERE — uniformly, from the tokens make_node was
+			// given — not downstream in each node's ctor (which left it canonical
+			// for some, unset for others). dump_config round-trips this string.
+			// XXX: Only scalar tokens count: programmatic make_node (service CIs) is
+			// called with object dependencies, which aren't round-trippable config.
+			$node->arguments( \implode( ' ', \array_filter( $ctor_args, '\is_scalar' ) ) );
 			$node->sink( $this );
 			// Inherit debug_state so new nodes trace from birth.
 			if ( $this->debug_state() > 0 ) {
