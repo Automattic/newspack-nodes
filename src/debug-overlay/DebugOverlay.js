@@ -152,11 +152,12 @@ export default function DebugOverlay( {
 	};
 
 	// Hide the reset chips when there's nothing to undo. The layout chip
-	// only matters when the user has dragged a node or panned the canvas;
-	// the graph chip only matters when the user has added a node beyond
-	// the baseline snapshot.
-	const hasLayoutToReset =
-		Object.keys( positions ).length > 0 || viewport !== null;
+	// keys on positions only — the canvas's autofit-on-mount effect commits
+	// a viewport back to the parent immediately after we set it to null,
+	// so `viewport !== null` is true for an auto-committed value just like
+	// for a real user pan/zoom; we can't tell them apart. Trust positions
+	// as the user-intent signal.
+	const hasLayoutToReset = Object.keys( positions ).length > 0;
 	const baseline = baselineNamesRef.current;
 	const hasUserNodes =
 		baseline !== null &&
