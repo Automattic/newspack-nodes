@@ -1679,7 +1679,12 @@ export default function TopologyConsole() {
 				onResetLayout={ hasOverrides ? handleResetLayout : null }
 				onSaveLayout={ layoutDirty ? handleSaveLayout : null }
 				onResetGraph={
-					mode === 'edit' ? null : () => setResetKey( ( k ) => k + 1 )
+					// Only the local in-browser graph (cwd root) is ephemeral;
+					// any pivoted view — a worker over _sse OR the _http broadcast
+					// boundary — self-heals on respawn, so a reset is meaningless.
+					mode === 'edit' || '' !== cwd
+						? null
+						: () => setResetKey( ( k ) => k + 1 )
 				}
 				editMode={ mode === 'edit' }
 			>

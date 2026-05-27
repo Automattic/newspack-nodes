@@ -1482,9 +1482,34 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'live canvas: reset-graph control re-mounts the graph without throwing', () => {
 		const { getByText } = render( <TopologyConsole /> );
+		// The console boots viewing a worker; cd to the local graph (the only
+		// scope where the reset chip shows) before exercising it.
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
 		expect( () =>
 			fireEvent.click( getByText( 'reset-graph' ) )
 		).not.toThrow();
+	} );
+
+	it( 'reset-graph control shows only on the local graph (worker graphs self-heal)', () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { queryByText } = render( <TopologyConsole /> );
+		// Boots into a worker view (_sse/demo.p0); a worker graph self-heals on
+		// respawn, so resetting the local console graph is meaningless → no chip.
+		expect( queryByText( 'reset-graph' ) ).toBeNull();
+		// cd to the local browser graph — the only ephemeral one → chip appears.
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		expect( queryByText( 'reset-graph' ) ).not.toBeNull();
+		// The _http broadcast boundary is also a pivoted (worker) view, not the
+		// local graph — even though scopeFromCwd buckets it as 'local' — so the
+		// chip stays hidden there too.
+		act( () => {
+			lastReplProps.onSubmit( 'cd /_http/demo.p0' );
+		} );
+		expect( queryByText( 'reset-graph' ) ).toBeNull();
 	} );
 
 	it( 'edit mode: dropNode adds a node + persists its position', async () => {

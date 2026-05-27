@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The "⟳ Reset graph" chip shows only on the local in-browser graph.** It re-mounts the browser console graph, which is meaningless on any pivoted view — a worker over `_sse` or the `_http` broadcast boundary self-heals on respawn. Since the console boots into a worker view, the chip previously showed everywhere; it's now gated to the cwd root (`'' === cwd`).
 - **The canvas draws an edge to the head node of a path target.** A node whose `target` is a path (e.g. `_heartbeat`'s `_sse/workers`) now draws its edge to the head segment the router actually delivers to (`_sse`), instead of to the non-existent full-path string (which drew no edge). `parseMetadata` peels the head.
 - **The `_cwd` connecting-window guard.** At a worker cwd, while the SSE stream is still connecting (no pid), the poll target routes to the local CI (`_cwd.target = ''`) instead of POSTing worker polls whose replies the server can't demux. Once the pid lands (or off-worker), it points at the real cwd.
 
