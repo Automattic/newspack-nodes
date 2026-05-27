@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-05-27
+
 ### Fixed
 
 - **The canvas keeps polling `dump_metadata`/`uptime` at the local graph (`cd /`) and request scope (`cd /_sse`).** #12 gated ALL polling to worker cwds, so the canvas froze (stale counts) the moment you left a worker. But those contexts are pollable without the worker stream: the local graph interprets `dump_metadata` in-browser, and request scope replies synchronously in the POST body. The metadata/uptime poll target now follows a new `canvasPollTargetFor()` (worker LCP for a worker cwd, else the cwd itself); only the slot `_heartbeat` stays worker-only (`pollTargetFor`), since its poke keeps a worker-stream slot alive.
