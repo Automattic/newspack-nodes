@@ -46,23 +46,23 @@
 	height: calc(100vh - 32px); // leave WP admin bar visible.
 	display: grid;
 	grid-template-rows: 64px 1fr 38px;
-	// Default layout (view mode, no inspector open): canvas spans the
-	// full width. Inspector is only mounted when a node is selected;
-	// `.is-inspector-open` brings back the 308px right column. Edit
-	// mode adds a 232px palette column on the left, mounted only when
-	// `.is-edit-mode` is set so view mode never pays the column cost.
-	grid-template-columns: 1fr;
+	// Palette is always-on (per the interactive-live-canvas spec: a drop in
+	// view mode issues `make_node`, a drop in edit mode adds to the draft).
+	// All four layouts reserve the 232px left palette column; edit mode drops
+	// the 38px REPL row (no REPL in edit), `.is-inspector-open` brings back
+	// the 380px right column.
+	grid-template-columns: 232px 1fr;
 	grid-template-areas:
-		"header"
-		"canvas"
-		"repl";
+		"header  header"
+		"palette canvas"
+		"palette repl";
 
 	&.is-inspector-open {
-		grid-template-columns: 1fr 380px;
+		grid-template-columns: 232px 1fr 380px;
 		grid-template-areas:
-			"header header"
-			"canvas inspector"
-			"repl   inspector";
+			"header  header header"
+			"palette canvas inspector"
+			"palette repl   inspector";
 	}
 
 	&.is-edit-mode {

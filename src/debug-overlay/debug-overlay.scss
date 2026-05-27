@@ -52,24 +52,26 @@
 	flex-direction: column;
 
 	// Re-shape the shared graph app for the overlay: drop the console's
-	// header / palette rows and lay out canvas + REPL footer (+ inspector
-	// when a node is selected). Reuses the real grid-area names from
-	// .topology-app (`canvas`, `inspector`, `repl`).
+	// header row and lay out palette + canvas + REPL (+ inspector when a node
+	// is selected). Reuses the real .topology-app grid-area names — palette /
+	// canvas / repl / inspector — so the shared graph-view.scss rules attach
+	// directly. Note: palette is on the left like the console, NOT on the
+	// right where CSS-grid auto-placement was landing it.
 	.topology-app {
 		flex: 1;
 		height: 100%;
 		min-height: 0;
 		grid-template-rows: 1fr auto;
-		grid-template-columns: 1fr 0;
+		grid-template-columns: 200px 1fr 0;
 		grid-template-areas:
-			"canvas inspector"
-			"repl   repl";
+			"palette canvas inspector"
+			"palette repl   inspector";
 
 		&.is-inspector-open {
-			grid-template-columns: 1fr 360px;
+			grid-template-columns: 200px 1fr 360px;
 			grid-template-areas:
-				"canvas inspector"
-				"repl   repl";
+				"palette canvas inspector"
+				"palette repl   inspector";
 		}
 	}
 }
