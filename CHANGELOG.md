@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`make_node` sets `arguments()` itself**, uniformly, from the scalar tokens it was given — instead of relying on each node's constructor to set `$this->arguments` downstream (which some did and some, like Partition, didn't, leaving `dump_config` unreliable). Object dependencies passed to programmatic `make_node` (the service CIs) are filtered out — they aren't round-trippable config. Every made node now round-trips through `dump_config` from one place.
+
 ### Added
 
 - **`make_node` constructs nodes in the browser** instead of refusing ("runs on a worker"). Mirrors PHP `Command_Interpreter_Node::make_node`: split the args on whitespace, spread the trailing tokens into the constructor as positional args, `name()`, `sink($self)` (the new node auto-sinks into the CI, rule #2). Types resolve through `CommandInterpreter.includeNodes` — a flat name→class table standing in for PHP's namespace-prefix resolution (no `register_namespace`); the console extends it with its own node classes. `Hook`/`Router`/`Callback` are intentionally absent (you don't make a second router, or a predicate/closure node, from the shell). The console graph is now a live, hackable thing.

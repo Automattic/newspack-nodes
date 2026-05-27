@@ -171,6 +171,27 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 'ok', $result );
 	}
 
+	public function test_make_node_sets_arguments_from_trailing_tokens(): void {
+		// arguments() is set IN make_node (from the trailing tokens), not
+		// downstream in the node ctor — so every node, uniformly, round-trips
+		// through dump_config.
+		$ci = new Command_Interpreter_Node();
+		$ci->name( '_command_interpreter' );
+
+		$ci->dispatch( 'make_node', 'Capture_Sink alice some args here' );
+
+		$this->assertSame( 'some args here', Core::node( 'alice' )->arguments() );
+	}
+
+	public function test_make_node_sets_empty_arguments_with_no_trailing_tokens(): void {
+		$ci = new Command_Interpreter_Node();
+		$ci->name( '_command_interpreter' );
+
+		$ci->dispatch( 'make_node', 'Capture_Sink alice' );
+
+		$this->assertSame( '', Core::node( 'alice' )->arguments() );
+	}
+
 	public function test_make_node_resolves_the_base_Node_class(): void {
 		// The base Node has no `_Node` suffix, so `make_node Node` resolves it
 		// directly (under any registered namespace). Its default fill() stamps
