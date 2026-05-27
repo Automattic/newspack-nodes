@@ -23,6 +23,8 @@ class Worker_Base {
 
 	/** Segment size (bytes) for the IPC input + output Partitions — small, frequently-rotated logs. */
 	public const IPC_SEGMENT_SIZE       = 1024 * 1024;
+	/** Segment count for the IPC input + output Partitions — 2 segments rotate fast and keep IPC dirs tiny. */
+	public const IPC_NUM_SEGMENTS       = 2;
 
 	protected string $base_dir;
 	protected string $worker_type;
@@ -177,7 +179,12 @@ class Worker_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
-		$repl = new Partition_Node( "{$ipc_dir}/output", 0, self::IPC_SEGMENT_SIZE );
+		$repl = new Partition_Node(
+			"{$ipc_dir}/output",
+			0,
+			self::IPC_SEGMENT_SIZE,
+			self::IPC_NUM_SEGMENTS
+		);
 		$repl->name( Node_Names::REPL );
 		$repl->sink( $interpreter );
 		// allow_large_writes keys its Lock/heartbeat off name + sink, so set those first.
