@@ -29,6 +29,51 @@ class CommandInterpreterTest extends TestCase {
 		return $m;
 	}
 
+	public function test_reply_to_runs_the_verb_locally_and_routes_its_reply_to_the_path(): void {
+		// reply_to <path> <verb> [<args>]: run <verb> HERE, but route its reply to
+		// <path> (the inverse of command_node, which runs it AT <path>). This is the
+		// primitive that lets a worker drive a remote CI's output to one session,
+		// e.g. `cmd _repl reply_to _http/_sse:411/_output ls -als`.
+		$ci   = new Command_Interpreter_Node();
+		$sink = new Capture_Sink_Node();
+		$ci->sink( $sink );
+		$msg = $this->command_message( 'reply_to', 'some/target uptime', true );
+		$ci->fill( $msg );
+		// reply_to itself replies with nothing; the sub-verb's reply rode to <path>.
+		$this->assertCount( 1, $sink->captured );
+		$this->assertSame( 'some/target', $sink->captured[0][ Message::TO ] );
+		$this->assertSame( 'uptime', $sink->captured[0][ Message::VALUE ]['name'] );
+	}
+
+	public function test_reply_to_without_a_command_returns_usage(): void {
+		$ci   = new Command_Interpreter_Node();
+		$sink = new Capture_Sink_Node();
+		$ci->sink( $sink );
+		$msg = $this->command_message( 'reply_to', 'some/target', true );
+		$ci->fill( $msg );
+		$this->assertCount( 1, $sink->captured );
+		$this->assertStringContainsString(
+			'usage: reply_to',
+			(string) $sink->captured[0][ Message::VALUE ]['payload']
+		);
+	}
+
+	public function test_reply_to_refuses_to_nest(): void {
+		// Nesting reply_to would recurse synchronously (interpret → cmd_reply_to →
+		// fill → interpret …) with no FROM growth to bound it; refuse it. The test
+		// completing at all proves there's no unbounded recursion.
+		$ci   = new Command_Interpreter_Node();
+		$sink = new Capture_Sink_Node();
+		$ci->sink( $sink );
+		$msg = $this->command_message( 'reply_to', 'a reply_to a uptime', true );
+		$ci->fill( $msg );
+		$this->assertCount( 1, $sink->captured );
+		$this->assertStringContainsString(
+			'reply_to cannot invoke reply_to',
+			(string) $sink->captured[0][ Message::VALUE ]['payload']
+		);
+	}
+
 	public function test_interpret_refuses_command_without_local_provenance(): void {
 		$ci   = new Command_Interpreter_Node();
 		$ci->name( '_command_interpreter' );

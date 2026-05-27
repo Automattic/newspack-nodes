@@ -540,6 +540,32 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 		} );
 	} );
 
+	describe( 'reply_to', () => {
+		it( 'runs the verb locally and routes its reply to the path', () => {
+			const ci = makeCi();
+			const sink = new Node();
+			const got = [];
+			sink.fill = ( m ) => got.push( [ ...m ] );
+			ci.sink = sink;
+			dispatch( ci, 'reply_to', 'some/target uptime' );
+			expect( got ).toHaveLength( 1 );
+			expect( got[ 0 ][ TO ] ).toBe( 'some/target' );
+			expect( got[ 0 ][ VALUE ].name ).toBe( 'uptime' );
+		} );
+		it( 'returns usage when no command is given', () => {
+			const ci = makeCi();
+			expect( dispatch( ci, 'reply_to', 'some/target' ) ).toBe(
+				'usage: reply_to <node path> <command>'
+			);
+		} );
+		it( 'refuses to nest reply_to (no unbounded recursion)', () => {
+			const ci = makeCi();
+			expect( dispatch( ci, 'reply_to', 'a reply_to a uptime' ) ).toBe(
+				'reply_to cannot invoke reply_to'
+			);
+		} );
+	} );
+
 	describe( 'log / dmesg', () => {
 		it( 'log emits a prefixed, node-tagged line via the CI node stderr and returns empty', () => {
 			const ci = makeCi();

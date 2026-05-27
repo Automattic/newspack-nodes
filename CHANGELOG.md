@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`reply_to <node path> <command>` CI verb** (PHP + JS) — runs `<command>` in the interpreter that receives it but routes the reply to `<node path>` (the inverse of `command_node`, which runs it *at* the path). Mints the sub-command stamped `FROM=<path>` (so `interpret()` replies `TO=FROM`) and re-enters `fill()`; `LOCAL` authorizes the in-process mint. Enables driving a remote CI's output to one session — e.g. from a worker, `cmd _repl reply_to _http/_sse:411/_output ls -als` runs `ls -als` in the SSE process and lands the result in that one client's transcript.
+
 ### Changed
 
 - **`stderr` is a broadcast that now surfaces at the REPL in every context.** `Core::stderr` (PHP + JS) routes the formatted line to whichever reply sink the process wired — the worker's `_repl` output partition, a REPL `_output` Dumper, the SSE-stream `_sse` egress, or (PHP) the `_http` POST-`/command` response writer — in addition to the `dmesg` ring + console. So `log`/`dmesg` (and any node's stderr) now echo at the prompt in the browser console, `wp nodes cli` bare mode, the ephemeral `/command` request, and the SSE stream — not just inside a worker. The SSE controller's egress node is now named `_sse` (symmetric with its `_stream_sink` callback) so its process's stderr reaches the client instead of dead-ending in `HTTP_Filter`. Each process registers exactly one sink, so a line never doubles. `log` stays a broadcast (it returns nothing — that's what distinguishes it from `echo`).
