@@ -23,4 +23,5 @@ final class Node_Names {
 	public const METADATA            = '_metadata';
 	public const UPTIME              = '_uptime';
 	public const COMPLETION          = '_completion';
+	public const HEARTBEAT           = '_heartbeat';
 }

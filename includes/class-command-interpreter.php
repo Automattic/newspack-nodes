@@ -349,15 +349,19 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * Construct a registered Node subclass, name it, sink it to this CI, and return it.
 	 *
-	 * @param string $type      Shell name (resolved as `{$prefix}{$type}_Node`).
+	 * @param string $type      Shell name (resolved as `{$prefix}{$type}_Node`, or the bare base `Node`).
 	 * @param string $name      Unique name for the new node (registered with Core).
 	 * @param mixed  ...$ctor_args Positional constructor arguments.
 	 * @return Node|null Null when no registered namespace yields a matching Node.
 	 */
 	public function make_node( string $type, string $name, ...$ctor_args ): ?Node {
 		foreach ( self::registered_namespaces() as $prefix ) {
-			$fqcn = $prefix . $type . '_Node';
-			if ( ! \class_exists( $fqcn ) || ! \is_subclass_of( $fqcn, Node::class ) ) {
+			// The base Node carries no `_Node` suffix; `make_node Node` resolves it
+			// directly (its default fill() stamps TO=target and forwards to sink — a
+			// bare routing/fan-in primitive, e.g. the SSE-stream `_default_route`).
+			// `is_a(..., true)` accepts Node itself as well as its subclasses.
+			$fqcn = ( 'Node' === $type ) ? $prefix . 'Node' : $prefix . $type . '_Node';
+			if ( ! \class_exists( $fqcn ) || ! \is_a( $fqcn, Node::class, true ) ) {
 				continue;
 			}
 			// Reflection instantiation (vs `new $fqcn`) keeps the variadic ctor-arg
