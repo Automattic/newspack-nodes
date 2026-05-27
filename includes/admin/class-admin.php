@@ -528,9 +528,15 @@ class Admin {
 	public function topologies_callback(): void {
 		$available = \Newspack_Nodes\Topology_Registry::list();
 		\sort( $available );
-		// Operator overlay: false → all file-defaults; [] → none; array → exact.
-		$defaults = \array_keys( Bootstrap::get_topology_catalog() );
+		// "Defaults" = the config-file `topologies` value (newspack-nodes-config.php,
+		// or a LOCAL_NEWSPACK_NODES_CONF override) — NOT the full catalog of every
+		// registered .tsl. A deployment (docker-admin, docker-render, …) declares the
+		// curated set it wants active; the ↺ button and the unset-option render must
+		// honour that, not check everything.
+		$defaults = (array) ( Config::load_config_defaults()['topologies'] ?? [] );
 		\sort( $defaults );
+		// Operator overlay precedence (mirrors Config::load_config): option false/unset
+		// → config-file default; [] → none; array → exact.
 		$option = \get_option( 'newspack_nodes_topologies', false );
 		$active = false === $option
 			? $defaults
