@@ -84,13 +84,17 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 			partition,
 			enabled,
 			debugLevelRef,
+			resetKey,
 		} ) => {
 			if ( ! enabled ) {
 				teardown();
 				return { status: 'closed', ssePid: null, shell: null };
 			}
 			const reader = `${ topology }.p${ partition }`;
-			const key = reader;
+			// Mirror the real useConsoleGraph effect deps: tearing down + rebuilding
+			// on resetKey change too. Without resetKey here the mock would never
+			// re-mount on a reset-graph click, masking cwd-preservation bugs.
+			const key = `${ reader }|${ resetKey || 0 }`;
 			if ( globalThis.__graphKey !== key ) {
 				teardown();
 				const router = new Router();
@@ -1505,6 +1509,79 @@ describe( 'TopologyConsole boot', () => {
 		expect( () =>
 			fireEvent.click( getByText( 'reset-graph' ) )
 		).not.toThrow();
+	} );
+
+	it( 'reset-graph preserves cwd (rebuild rehomes Shell.path to default; reset must restore the user cwd)', () => {
+		// Boot into a worker, navigate to '/' (local), then reset-graph.
+		// Previously the rebuild snapped Shell.path back to _sse/{reader} and
+		// the [shell] sync effect dragged cwd along, taking the user off '/'.
+		// Reset must rebuild AND keep cwd at '/'.
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		expect( lastHeaderProps.path ).toBe( '' );
+		act( () => {
+			fireEvent.click( getByText( 'reset-graph' ) );
+		} );
+		expect( lastHeaderProps.path ).toBe( '' );
+	} );
+
+	it( 'reset-graph wipes user-added nodes (and leaves the canonical spine + console graph)', () => {
+		// User-`make_node`'d local nodes survived the canonical-only unregister
+		// loop, so the "reset" didn't feel like a reset. Now any node not in
+		// the canonical console-graph set (or the backbone) is removed.
+		const { Node } = require( '../../runtime/node' );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		// Simulate user `make_node Tee my-tee` having survived from a prior session.
+		const userNode = new Node();
+		userNode.setName( 'my-user-tee' );
+		expect( Core.node( 'my-user-tee' ) ).toBeTruthy();
+		// Reset must remove it.
+		act( () => {
+			fireEvent.click( getByText( 'reset-graph' ) );
+		} );
+		expect( Core.node( 'my-user-tee' ) ).toBeFalsy();
+		// And the canonical backbone must STILL be present after the rebuild.
+		expect( Core.node( '_command_interpreter' ) ).toBeTruthy();
+		expect( Core.node( '_router' ) ).toBeTruthy();
+	} );
+
+	it( 'reset-graph clears the local-scope position overrides + viewport persistence', () => {
+		// Reset means RESET — pan/zoom state for the local scope is wiped so the
+		// canvas re-autofits cleanly. Previously the spine rebuilt but layout
+		// state lingered, masking the reset.
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		window.localStorage.setItem(
+			'newspack-nodes:topology:local:viewport',
+			JSON.stringify( { x: 0, y: 0, w: 100, h: 100 } )
+		);
+		window.localStorage.setItem(
+			'newspack-nodes:topology:local:positions',
+			JSON.stringify( { my: { x: 1, y: 1 } } )
+		);
+		act( () => {
+			fireEvent.click( getByText( 'reset-graph' ) );
+		} );
+		expect(
+			window.localStorage.getItem(
+				'newspack-nodes:topology:local:viewport'
+			)
+		).toBeNull();
+		expect(
+			window.localStorage.getItem(
+				'newspack-nodes:topology:local:positions'
+			)
+		).toBeNull();
 	} );
 
 	it( 'reset-graph control shows only on the local graph (worker graphs self-heal)', () => {
