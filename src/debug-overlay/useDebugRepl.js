@@ -38,12 +38,16 @@ export function useDebugRepl( active = true ) {
 			return undefined;
 		}
 		// Dumper accumulates entries + publishes `transcript` for React subscribers.
+		const ci = Core.node( names.COMMAND_INTERPRETER );
 		const dumper = new Dumper( { debugLevelRef } );
 		dumper.setName( names.OUTPUT );
+		// Rule #2: every node sinks into the CI. The Dumper's own emissions
+		// (e.g. forwarded onward) need a CI to forward through.
+		dumper.sink = ci;
 		// Shell parses typed lines into Messages and fills them into the local CI.
 		const shell = new Shell();
 		shell.path = '';
-		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		shell.sink = ci;
 		dumperRef.current = dumper;
 		shellRef.current = shell;
 		const listenerId = 'useDebugRepl/transcript';
