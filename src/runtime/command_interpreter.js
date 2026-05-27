@@ -54,6 +54,8 @@ const HELP = {
 	list_nodes:
 		'list_nodes [ -clst ] [ <node name> ]\nlist_nodes -a [ -clst ] [ <regex glob> ]\n    -c show message counters\n    -l show counters and targets\n    -s show sinks\n    -t show targets\n    -a show all nodes matching regex glob\n    alias: ls\n',
 	dump_node: 'dump_node <node name> [<keys>]\n    alias: dump\n',
+	dump_config:
+		'dump_config\n    note: emits every node as round-trippable make_node / set_sink / connect_node lines.\n',
 	dump_metadata:
 		'dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments`.\n',
 	debug_state:
@@ -245,6 +247,7 @@ export class CommandInterpreter extends Node {
 				CommandInterpreter._cmdDumpNode( args ),
 			dump: ( self, args ) => CommandInterpreter._cmdDumpNode( args ),
 			dump_metadata: () => CommandInterpreter._cmdDumpMetadata(),
+			dump_config: () => CommandInterpreter._cmdDumpConfig(),
 			stats: ( self, args ) => self._cmdStats( args ),
 			uptime: () => CommandInterpreter._cmdUptime(),
 			debug_state: ( self, args ) => self._cmdDebugState( args ),
@@ -308,6 +311,9 @@ export class CommandInterpreter extends Node {
 		// name() throws on collision (no pre-check) — interpret() wraps it.
 		const node = new NodeClass( ...parts );
 		node.setName( name );
+		// Set arguments HERE (from the trailing tokens), like PHP make_node — not
+		// downstream — so dump_config round-trips every node from one place.
+		node.arguments = parts.join( ' ' );
 		node.sink = this;
 		if ( ( this.debugState ?? 0 ) > 0 ) {
 			node.debugState = this.debugState;
@@ -654,6 +660,22 @@ export class CommandInterpreter extends Node {
 		}
 
 		return `${ klass } ${ JSON.stringify( body, null, 4 ) }`;
+	}
+
+	// dump_config — every node's round-trippable make_node/set_sink/connect_node
+	// lines, skipping the baseline scaffolding. Mirrors PHP cmd_dump_config.
+	static _cmdDumpConfig() {
+		let out = '';
+		for ( const [ name, node ] of Core.nodes ) {
+			// Skip the baseline scaffolding (the backbone + the transcript sink).
+			if ( PROTECTED_NODES.includes( name ) ) {
+				continue;
+			}
+			if ( 'function' === typeof node.dumpConfig ) {
+				out += node.dumpConfig();
+			}
+		}
+		return out;
 	}
 
 	// dump_metadata — single-round-trip per-node stats snapshot for the GUI canvas.
