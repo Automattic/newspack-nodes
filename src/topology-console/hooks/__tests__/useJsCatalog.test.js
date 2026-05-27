@@ -1,6 +1,6 @@
 import { renderHook } from '@testing-library/react';
 import { useJsCatalog } from '../useJsCatalog';
-import { CommandInterpreter } from '../../runtime/command_interpreter';
+import { CommandInterpreter } from '../../../runtime/command_interpreter';
 
 describe( 'useJsCatalog', () => {
 	it( 'returns classes from CommandInterpreter.includeNodes (the JS make_node table)', () => {

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import GraphView from '../topology-console/components/GraphView';
 import ReplFooter from '../topology-console/components/ReplFooter';
-import { useJsCatalog } from './useJsCatalog';
+import { useJsCatalog } from '../topology-console/hooks/useJsCatalog';
 import {
 	THEMES,
 	DEFAULT_THEME,
