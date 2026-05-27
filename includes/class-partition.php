@@ -50,6 +50,8 @@ class Partition_Node extends Timer_Node {
 	protected float $segments_cache_time = 0.0;
 
 	protected bool $allow_large_writes = false;
+	/** Formatter name set via the `with_index` verb — the round-trippable form of the index callback (which itself can't be dumped). */
+	protected ?string $index_formatter_name = null;
 	protected ?Lock_Node $write_lock = null;
 	protected ?Timer_Node $heartbeat_timer = null;
 	protected int $lock_stale_timeout = 0;
@@ -403,6 +405,22 @@ class Partition_Node extends Timer_Node {
 	public function with_index( callable $callback ): self {
 		$this->index_callback = $callback;
 		return $this;
+	}
+
+	/**
+	 * Emit the base config plus this Partition's verb-config, from STATE — the
+	 * `allow_large_writes` flag and the `with_index` formatter name. (The index
+	 * callback itself can't be dumped; the formatter name is its round-trip form.)
+	 */
+	public function dump_config(): string {
+		$out = parent::dump_config();
+		if ( $this->allow_large_writes ) {
+			$out .= "cmd {$this->name}:config allow_large_writes\n";
+		}
+		if ( null !== $this->index_formatter_name ) {
+			$out .= "cmd {$this->name}:config with_index {$this->index_formatter_name}\n";
+		}
+		return $out;
 	}
 
 	/**
@@ -794,7 +812,6 @@ class Partition_Node extends Timer_Node {
 						/** @var self $patron */
 						$patron = $ci->patron();
 						$patron->allow_large_writes();
-						$patron->mark_verb_invoked( 'allow_large_writes', '' );
 						return 'ok';
 					},
 				],
@@ -816,7 +833,7 @@ class Partition_Node extends Timer_Node {
 						/** @var self $patron */
 						$patron = $ci->patron();
 						$patron->with_index( $callable );
-						$patron->mark_verb_invoked( 'with_index', $args );
+						$patron->index_formatter_name = $args;
 						return 'ok';
 					},
 				],

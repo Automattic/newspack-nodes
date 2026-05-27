@@ -413,46 +413,6 @@ class NodeTest extends TestCase {
 		$this->assertSame( [], $schema['verbs'] );
 	}
 
-	// ── A1: invoked_verbs round-trip via dump_config ─────────
-
-	public function test_dump_config_emits_cmd_lines_for_invoked_verbs(): void {
-		$patron = new Capture_Sink_Node();
-		$patron->name( 'alice' );
-
-		// Sibling pretends to exist (don't actually attach one — the
-		// invoked-verb recording happens patron-side; dump_config
-		// emits cmd lines regardless of whether the sibling is
-		// attached, because the patron carries the record).
-		$patron->mark_verb_invoked( 'enable_thing', '' );
-		$patron->mark_verb_invoked( 'set_target', 'errors:partition' );
-
-		$out = $patron->dump_config();
-		$this->assertStringContainsString( 'cmd alice:config enable_thing', $out );
-		$this->assertStringContainsString( 'cmd alice:config set_target errors:partition', $out );
-	}
-
-	public function test_dump_config_without_invoked_verbs_emits_no_cmd_lines(): void {
-		$patron = new Capture_Sink_Node();
-		$patron->name( 'bob' );
-
-		$out = $patron->dump_config();
-		$this->assertStringNotContainsString( ':config ', $out );
-	}
-
-	public function test_dump_config_emits_bare_cmd_lines_for_an_interpreter_node(): void {
-		// A node that IS a Command_Interpreter_Node handles its verbs directly —
-		// there's no `<name>:config` sibling. dump_config must emit `cmd <name>
-		// <verb>` (bare), NOT `cmd <name>:config <verb>`, so the round-trip
-		// targets the same node the live console does.
-		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
-		$ci->name( 'perf' );
-		$ci->mark_verb_invoked( 'set_is_hub', '1' );
-
-		$out = $ci->dump_config();
-		$this->assertStringContainsString( 'cmd perf set_is_hub 1', $out );
-		$this->assertStringNotContainsString( 'perf:config', $out );
-	}
-
 	public function test_remove_node_cascades_sibling_unregistration(): void {
 		$patron = new Capture_Sink_Node();
 		$sibling = new \Newspack_Nodes\Command_Interpreter_Node();

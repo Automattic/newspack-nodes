@@ -384,27 +384,10 @@ class Node {
 			$out .= "connect_node {$this->name} {$this->target}\n";
 		}
 
-		// One cmd line per recorded verb invocation; the loader replays them.
-		// An interpreter node handles verbs directly (no `:config` sibling), so its
-		// verbs target the bare node; a non-interpreter targets its sibling CI.
-		$verb_target = $this instanceof Command_Interpreter_Node ? $this->name : "{$this->name}:config";
-		foreach ( $this->invoked_verbs as $verb => $args ) {
-			$args_suffix = '' === $args ? '' : ' ' . $args;
-			$out        .= "cmd {$verb_target} {$verb}{$args_suffix}\n";
-		}
-
+		// Verb-configured nodes (e.g. Partition) override dump_config() to emit
+		// their own `cmd {name}:config <verb>` lines from their STATE — no generic
+		// invoked-verb recording.
 		return $out;
-	}
-
-	/**
-	 * Recorded sibling-CI verb invocations (verb => args) for dump_config round-trip. Last value wins.
-	 *
-	 * @var array<string,string>
-	 */
-	protected array $invoked_verbs = [];
-
-	public function mark_verb_invoked( string $verb, string $args ): void {
-		$this->invoked_verbs[ $verb ] = $args;
 	}
 
 	/** Human-readable message-type labels. */

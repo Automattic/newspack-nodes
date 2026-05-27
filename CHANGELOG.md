@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`make_node` sets `arguments()` itself**, uniformly, from the scalar tokens it was given — instead of relying on each node's constructor to set `$this->arguments` downstream (which some did and some, like Partition, didn't, leaving `dump_config` unreliable). Object dependencies passed to programmatic `make_node` (the service CIs) are filtered out — they aren't round-trippable config. Every made node now round-trips through `dump_config` from one place. (Both PHP and the JS runtime.)
 
+### Removed
+
+- **The generic `mark_verb_invoked()` / `$invoked_verbs` recorder.** `dump_config` no longer replays a recorded list of `cmd {node}:config <verb>` lines. Instead, a node with runtime-configurable state overrides `dump_config()` to emit those lines **from its own state** (`Partition` now does this for `allow_large_writes` and the `with_index` formatter name). Configuration lives in the node, not in a side-channel ledger; one-shot *actions* (which aren't config) don't belong in `dump_config` at all.
+
 ### Added
 
 - **`dump_config` restored to the JS CI** (it had been dropped). Mirrors PHP: `Node.dumpConfig()` emits `make_node <Type> <name> [<arguments>]` + a `set_sink` line when the sink isn't the default CI + a `connect_node` per target; the `dump_config` verb concatenates every node's, skipping the baseline scaffolding. With `make_node` now setting `arguments`, the browser graph dumps back as a runnable build script.

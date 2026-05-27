@@ -139,6 +139,19 @@ class PartitionTest extends TestCase {
 		$this->assertSame( [ str_repeat( 'x', 5000 ) ], $this->read_partition_values( $p ) );
 	}
 
+	public function test_dump_config_reflects_allow_large_writes_state(): void {
+		// dump_config emits the config from the node's own STATE — not from a
+		// generically-recorded verb invocation. Setting the flag (however) shows
+		// up; no invoked_verbs bookkeeping required.
+		$p = new Partition_Node( $this->tmp, 0, 64 * 1024, 4, 86400 );
+		$p->name( 'p' );
+		$p->allow_large_writes();
+		$this->assertStringContainsString(
+			'cmd p:config allow_large_writes',
+			$p->dump_config()
+		);
+	}
+
 	public function test_allow_large_writes_throws_if_already_held(): void {
 		// allow_large_writes is a single-writer claim: only one Partition can
 		// hold the lock for a given partition_dir at a time. A second writer
