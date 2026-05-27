@@ -43,15 +43,55 @@ class CoreImpl {
 		return this._msgCounter;
 	}
 
-	// stderr = the JS console; warn (not error) to skip devtools' error counter.
-	// Also append to the bounded recentLog tail the dmesg verb reads.
-	stderr( msg ) {
-		this.recentLog.push( msg );
+	// Per-process identity for log_prefix (Perl $0 / PHP SAPI). The browser has
+	// no SAPI; a fixed label keeps dmesg lines attributable.
+	argv0() {
+		return 'newspack-nodes';
+	}
+
+	// Core mid-line tag (Tachikoma Node::log_midfix). Core is process-global with
+	// no node name, so the tag is empty: null → '', else the message chomped + one
+	// trailing newline. (The per-node `{name}: ` tag lives on Node, which has a name.)
+	log_midfix( msg = null ) {
+		if ( null === msg || undefined === msg ) {
+			return '';
+		}
+		return msg.replace( /\n+$/, '' ) + '\n';
+	}
+
+	// Prepend a `YYYY-MM-DD HH:MM:SS UTC <argv0>: ` prefix to every line — mirrors
+	// PHP Core::log_prefix minus hostname + pid (neither is available in-browser).
+	// null → the bare prefix; a message → each line prefixed, chomped, + one newline.
+	log_prefix( msg = null ) {
+		const ts = new Date( this.now() * 1000 )
+			.toISOString()
+			.slice( 0, 19 )
+			.replace( 'T', ' ' );
+		const prefix = `${ ts } UTC ${ this.argv0() }: `;
+		if ( null === msg || undefined === msg ) {
+			return prefix;
+		}
+		const chomped = msg.replace( /\n+$/, '' );
+		return prefix + chomped.split( '\n' ).join( '\n' + prefix ) + '\n';
+	}
+
+	// stderr = the JS console (warn, not error, to skip devtools' error counter) +
+	// the bounded recentLog tail the dmesg verb reads. A line already starting with
+	// a date is passed through verbatim (no double-prefix on a re-log); otherwise
+	// apply prefix + midfix like PHP Core::stderr.
+	stderr( text ) {
+		if ( '' === text || null === text || undefined === text ) {
+			return;
+		}
+		const line = /^\d{4}-\d\d-\d\d/.test( text )
+			? text.replace( /\n+$/, '' ) + '\n'
+			: this.log_prefix( this.log_midfix( text ) );
+		this.recentLog.push( line );
 		while ( this.recentLog.length > RECENT_LOG_MAX ) {
 			this.recentLog.shift();
 		}
 		// eslint-disable-next-line no-console
-		console.warn( msg );
+		console.warn( line.replace( /\n$/, '' ) );
 	}
 
 	// At most one print per identical message per 60s window.

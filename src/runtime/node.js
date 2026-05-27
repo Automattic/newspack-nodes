@@ -59,7 +59,7 @@ export class Node {
 	stampMessage( message, name ) {
 		if ( '' === name ) {
 			// Programming error — unlikely to spam, won't recover.
-			Core.stderr(
+			this.stderr(
 				`ERROR: ${ this.constructor.name } stampMessage() called with empty name`
 			);
 			return false;
@@ -68,13 +68,56 @@ export class Node {
 		const next = '' === from ? name : `${ name }/${ from }`;
 		if ( next.length > MAX_FROM_SIZE ) {
 			// Rate-limit: a routing cycle could trigger this per-message.
-			Core.printLessOften(
+			this.print_less_often(
 				`ERROR: path exceeded ${ MAX_FROM_SIZE } bytes; dropping from: ${ next }`
 			);
 			return false;
 		}
 		message[ FROM ] = next;
 		return true;
+	}
+
+	// Per-node mid-line tag (Tachikoma Node::log_midfix): `{name}: ` on each line,
+	// unless argv0 already starts with this node's name. null → the bare tag; a
+	// message → tagged, chomped, + one trailing newline.
+	log_midfix( msg = null ) {
+		let midfix = '';
+		if (
+			'' !== this.name &&
+			! new RegExp(
+				'^' + this.name.replace( /[.*+?^${}()|[\]\\]/g, '\\$&' ) + '\\b'
+			).test( Core.argv0() )
+		) {
+			midfix = `${ this.name }: `;
+		}
+		if ( null === msg || undefined === msg ) {
+			return midfix;
+		}
+		const chomped = msg.replace( /\n+$/, '' );
+		return midfix + chomped.split( '\n' ).join( '\n' + midfix ) + '\n';
+	}
+
+	// Emit a stderr line tagged with this node's midfix, via Core's stderr sink.
+	// An already-dated line passes through Core verbatim (no double prefix).
+	stderr( text ) {
+		if ( '' === text || null === text || undefined === text ) {
+			return;
+		}
+		if ( /^\d{4}-\d\d-\d\d/.test( text ) ) {
+			Core.stderr( text );
+			return;
+		}
+		Core.stderr( Core.log_prefix( this.log_midfix( text ) ) );
+	}
+
+	// Node-keyed rate-limited logging (per-node via log_midfix), routed through
+	// Core's limiters so the dedup key + emitted line both carry this node's tag.
+	print_less_often( text ) {
+		Core.printLessOften( this.log_midfix( text ) );
+	}
+
+	print_least_often( text ) {
+		Core.printLeastOften( this.log_midfix( text ) );
 	}
 
 	/**

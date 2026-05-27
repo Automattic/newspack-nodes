@@ -39,7 +39,8 @@ class LogTest extends TestCase {
 		// fopen until someone hand-creates the dir.
 		$path = "{$this->tmp}/nested/sub/out.log";
 		$log  = new Log_Node( $path );
-		$log->fill( $this->bytestream( "x\n" ) );
+		$msg  = $this->bytestream( "x\n" );
+		$log->fill( $msg );
 		$log->remove_node();
 
 		$this->assertFileExists( $path );

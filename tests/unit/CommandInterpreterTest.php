@@ -1341,10 +1341,11 @@ class CommandInterpreterTest extends TestCase {
 			$out = $ci->dispatch( 'log', 'hello from log verb' );
 			$this->assertSame( '', $out, 'log returns empty string — caller suppresses response' );
 			$this->assertCount( 1, $captured );
-			// stderr() now applies the Tachikoma log_prefix (timestamp + identity)
-			// to non-pre-dated lines, so the captured value is the prefixed line.
+			// log routes through the CI NODE's stderr (per "$this->stderr() when a
+			// $this is handy"), so the captured line carries the log_prefix
+			// (timestamp + identity) AND the node's log_midfix tag.
 			$this->assertMatchesRegularExpression(
-				'/^\d{4}-\d\d-\d\d.*\]: hello from log verb\n$/',
+				'/^\d{4}-\d\d-\d\d.*\]: _command_interpreter: hello from log verb\n$/',
 				$captured[0]
 			);
 		} finally {

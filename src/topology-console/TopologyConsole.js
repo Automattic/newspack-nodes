@@ -129,6 +129,23 @@ export function scopeFromCwd( cwd ) {
 	return { key: 'local', label: 'local', partition: null, isWorker: false };
 }
 
+// The browser console's `status` builtin summary — the JS analogue of the PHP
+// cli's `$shell->status_lines`. Reports the SSE session, the cwd, and which
+// worker (if any) the cwd is pivoted into. `worker` is a longestWorkerPrefix()
+// result ({ topology, partition } | null).
+export function statusLines( { ssePid, cwd, worker } ) {
+	if ( ! ssePid ) {
+		return [ 'Browser console — no SSE session (not connected).' ];
+	}
+	return [
+		`Browser console — SSE session ${ ssePid }`,
+		`  cwd: ${ cwd || '/' }`,
+		worker
+			? `  worker pivot: ${ worker.topology }.p${ worker.partition }`
+			: '  no worker pivot (local graph).',
+	];
+}
+
 // The longest worker menu item (`_sse/{topology}.p{N}`) that is a path-prefix of
 // `path` — the worker whose subtree contains it. `cd`-ing onto a worker OR into
 // any node beneath it resolves to that worker's mount; non-worker paths (roots,
@@ -788,7 +805,13 @@ export default function TopologyConsole() {
 		if ( up ) {
 			up.pollTo = to;
 		}
-	}, [ mode, ssePid, cwd, pathOptions ] );
+		// Keep the Shell's `status` builtin lines current with the session/cwd so
+		// the carrier it slices at parse time reflects live state (PHP stashes a
+		// static mode summary; the browser cwd moves, so we refresh here).
+		if ( shell ) {
+			shell.statusLines = statusLines( { ssePid, cwd, worker } );
+		}
+	}, [ shell, mode, ssePid, cwd, pathOptions ] );
 
 	// Tab-completion query (WIRING-PLAN §5 sibling of the canvas poll). The verb
 	// depends on cursor context: completing the FIRST token (the command word) →
