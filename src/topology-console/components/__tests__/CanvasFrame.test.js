@@ -105,6 +105,21 @@ describe( 'CanvasFrame', () => {
 		expect( queryByText( /Reset layout/i ) ).toBeNull();
 	} );
 
+	it( 'renders Reset Graph when onResetGraph is provided and fires it', () => {
+		const onResetGraph = jest.fn();
+		const { getByText, queryByText, rerender } = render(
+			<CanvasFrame
+				topology="demo"
+				partition={ 0 }
+				onResetGraph={ onResetGraph }
+			/>
+		);
+		fireEvent.click( getByText( /Reset graph/i ) );
+		expect( onResetGraph ).toHaveBeenCalled();
+		rerender( <CanvasFrame topology="demo" partition={ 0 } /> );
+		expect( queryByText( /Reset graph/i ) ).toBeNull();
+	} );
+
 	it( 'renders children inside the frame', () => {
 		const { getByTestId } = render(
 			<CanvasFrame topology="demo" partition={ 0 }>

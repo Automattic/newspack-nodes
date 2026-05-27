@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The live canvas is directly editable — gestures issue live commands.** Always-on: in view mode, dragging an out-port to an in-port runs `connect_node`, selecting a node + Delete runs `remove_node`, dragging a palette chip runs `make_node <Shell> <name>` (auto-named, collision-free against the live graph). Each is dispatched through the same `sendLine` path as a typed command, so it works on the local graph and a worker cwd alike; the next `dump_metadata` tick redraws (poll-reflect). The topology editor's draft gestures are unchanged (the handlers branch on mode). `SchematicCanvas` gained an `interactive` prop decoupling "gestures on" from edit-mode draft styling. A view-mode "⟳ Reset graph" chip re-mounts the browser graph (state-bump remount, not a page reload) to recover from a self-inflicted break.
 - **A reserved `_repl` connection-anchor in edit mode.** The topology editor now shows `_repl` (the worker's auto-mounted REPL command-interpreter — the broadcast handle) as a fixed anchor you can draw `connect_node <node> _repl` edges to (e.g. to observe `log`/`tell` broadcasts). It can't be renamed or deleted, and it's never serialized as a `make_node` line (the worker mounts it) — only edges *to* it are emitted. `withReplAnchor()` seeds it into the draft + baseline on edit entry, so its presence doesn't mark the draft dirty.
 
 ### Fixed
