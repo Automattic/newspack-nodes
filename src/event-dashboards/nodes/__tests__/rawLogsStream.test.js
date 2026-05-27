@@ -1,12 +1,14 @@
 /**
- * rawlogs/stream tests — the SSE-in node that owns the live connection for the
- * selected log. `subscribe(logKey)` (re)connects, each inbound `msg` envelope is
- * emitted to the sink, switching logs closes the old source and opens a new one.
+ * rawlogs:stream tests — the SSE-in node that owns the live connection for the
+ * selected log. `subscribe(logKey)` (re)connects; each inbound `msg` envelope
+ * AND each connection-status change is emitted through the node's `sink` (the
+ * exospine CI) stamped `TO = target` (the route). There is NO controlSink — the
+ * route node does the data/control split (see rawLogsRoute.test). Switching logs
+ * closes the old source and opens a new one.
  *
  * Two seams are exercised:
  *  - The INJECTED connector (`opts.connector`): a fake whose `connect()` records
- *    the subscription + the envelope handler so a test can deliver envelopes and
- *    assert close/open bookkeeping. Mirrors the sse_connector.test double.
+ *    the subscription + the envelope/status handlers so a test can deliver them.
  *  - The DEFAULT connector (no `opts.connector`): built on `global.EventSource`
  *    with the slot-heartbeat poke + reconnect backoff migrated from
  *    useMessageStream. Faked the same way useMessageStream.test fakes them.
@@ -15,6 +17,7 @@
 import {
 	newMessage,
 	TYPE,
+	TO,
 	KEY,
 	VALUE,
 	TM_INFO,
@@ -67,23 +70,32 @@ function makeFakeConnector() {
 	return fake;
 }
 
-describe( 'rawlogs/stream', () => {
-	test( 'emits one message envelope per SSE msg event to its sink', () => {
-		const got = [];
+// Build a stream wired the way the exospine hook wires it: sink captures emitted
+// messages, target points at the route. Returns { s, got }.
+function streamWithCapture( fake ) {
+	const got = [];
+	const s = createRawLogsStream( 'rawlogs:stream', { connector: fake } );
+	s.sink = { fill: ( m ) => got.push( m ) };
+	s.target = 'rawlogs:route';
+	return { s, got };
+}
+
+describe( 'rawlogs:stream', () => {
+	test( 'emits one envelope per SSE msg event to its sink, stamped TO the route', () => {
 		const fake = makeFakeConnector();
-		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
-		s.sink = { fill: ( m ) => got.push( m ) };
+		const { s, got } = streamWithCapture( fake );
 		s.subscribe( 'firehose' );
 		const env = newMessage();
 		env[ VALUE ] = 'a log line';
 		fake.deliverMessage( env );
 		expect( got ).toHaveLength( 1 );
 		expect( got[ 0 ][ VALUE ] ).toBe( 'a log line' );
+		expect( got[ 0 ][ TO ] ).toBe( 'rawlogs:route' );
 	} );
 
 	test( 'subscribing to a new log closes the old source and opens a new one', () => {
 		const fake = makeFakeConnector();
-		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
+		const s = createRawLogsStream( 'rawlogs:stream', { connector: fake } );
 		s.subscribe( 'firehose' );
 		s.subscribe( 'errors' );
 		expect( fake.closeCount ).toBe( 1 ); // old closed
@@ -92,7 +104,7 @@ describe( 'rawlogs/stream', () => {
 
 	test( 'the first subscribe does not close anything (nothing open yet)', () => {
 		const fake = makeFakeConnector();
-		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
+		const s = createRawLogsStream( 'rawlogs:stream', { connector: fake } );
 		s.subscribe( 'firehose' );
 		expect( fake.closeCount ).toBe( 0 );
 		expect( fake.lastSubscription ).toBe( 'firehose' );
@@ -100,72 +112,66 @@ describe( 'rawlogs/stream', () => {
 
 	test( 'close() tears down the connector', () => {
 		const fake = makeFakeConnector();
-		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
+		const s = createRawLogsStream( 'rawlogs:stream', { connector: fake } );
 		s.subscribe( 'firehose' );
 		s.close();
 		expect( fake.closeCount ).toBe( 1 );
 	} );
 
 	test( 'envelopes delivered before any subscribe are not emitted', () => {
-		const got = [];
 		const fake = makeFakeConnector();
-		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
-		s.sink = { fill: ( m ) => got.push( m ) };
+		const { got } = streamWithCapture( fake );
 		fake.deliverMessage( newMessage() );
 		expect( got ).toHaveLength( 0 );
 	} );
 
-	test( 'routes a connection-error status to controlSink as a control', () => {
-		const controls = [];
+	test( 'a connection-error status is emitted to the sink as a control, stamped TO the route', () => {
 		const fake = makeFakeConnector();
-		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
-		s.controlSink = { fill: ( m ) => controls.push( m ) };
+		const { s, got } = streamWithCapture( fake );
 		s.subscribe( 'firehose' );
 		fake.emitStatus( { connectionError: true } );
-		expect( controls ).toHaveLength( 1 );
-		expect( controls[ 0 ][ TYPE ] ).toBe( TM_STRUCT );
-		expect( controls[ 0 ][ VALUE ] ).toEqual( {
+		expect( got ).toHaveLength( 1 );
+		expect( got[ 0 ][ TYPE ] ).toBe( TM_STRUCT );
+		expect( got[ 0 ][ TO ] ).toBe( 'rawlogs:route' );
+		// The route classifies on this stream-set KEY, never on VALUE content.
+		expect( got[ 0 ][ KEY ] ).toBe( 'connection' );
+		expect( got[ 0 ][ VALUE ] ).toEqual( {
 			action: 'connection',
 			connectionError: true,
 		} );
 	} );
 
-	test( 'routes a connection-restored status to controlSink', () => {
-		const controls = [];
+	test( 'a connection-restored status is emitted to the sink as a control', () => {
 		const fake = makeFakeConnector();
-		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
-		s.controlSink = { fill: ( m ) => controls.push( m[ VALUE ] ) };
+		const { s, got } = streamWithCapture( fake );
 		s.subscribe( 'firehose' );
 		fake.emitStatus( { connectionError: false } );
-		expect( controls[ 0 ] ).toEqual( {
+		expect( got[ 0 ][ VALUE ] ).toEqual( {
 			action: 'connection',
 			connectionError: false,
 		} );
 	} );
 
-	test( 'connection status goes to controlSink, not the data sink', () => {
-		const data = [];
-		const controls = [];
+	test( 'data envelopes and status both go to the one sink (the route splits them)', () => {
 		const fake = makeFakeConnector();
-		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
-		s.sink = { fill: ( m ) => data.push( m ) };
-		s.controlSink = { fill: ( m ) => controls.push( m ) };
+		const { s, got } = streamWithCapture( fake );
 		s.subscribe( 'firehose' );
-		// An envelope still routes to the data sink.
 		const env = newMessage();
 		env[ VALUE ] = 'a log line';
 		fake.deliverMessage( env );
-		// A status routes only to controlSink.
 		fake.emitStatus( { connectionError: true } );
-		expect( data ).toHaveLength( 1 );
-		expect( data[ 0 ][ VALUE ] ).toBe( 'a log line' );
-		expect( controls ).toHaveLength( 1 );
-		expect( controls[ 0 ][ VALUE ].action ).toBe( 'connection' );
+		expect( got ).toHaveLength( 2 );
+		expect( got[ 0 ][ VALUE ] ).toBe( 'a log line' );
+		expect( got[ 1 ][ VALUE ].action ).toBe( 'connection' );
+		// Both stamped TO the route; the route node does the classification.
+		expect( got.every( ( m ) => m[ TO ] === 'rawlogs:route' ) ).toBe(
+			true
+		);
 	} );
 
-	test( 'a status with no controlSink set is dropped (no throw)', () => {
+	test( 'a status with no sink set is dropped (no throw)', () => {
 		const fake = makeFakeConnector();
-		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
+		const s = createRawLogsStream( 'rawlogs:stream', { connector: fake } );
 		s.subscribe( 'firehose' );
 		expect( () =>
 			fake.emitStatus( { connectionError: true } )
@@ -174,13 +180,13 @@ describe( 'rawlogs/stream', () => {
 
 	test( 'names the node', () => {
 		const fake = makeFakeConnector();
-		const s = createRawLogsStream( 'rawlogs/stream', { connector: fake } );
-		expect( s.name ).toBe( 'rawlogs/stream' );
+		const s = createRawLogsStream( 'rawlogs:stream', { connector: fake } );
+		expect( s.name ).toBe( 'rawlogs:stream' );
 	} );
 } );
 
 // The DEFAULT connector (no injected connector): EventSource + heartbeat + backoff.
-describe( 'rawlogs/stream default connector', () => {
+describe( 'rawlogs:stream default connector', () => {
 	class FakeEventSource {
 		constructor( url ) {
 			this.url = url;
@@ -229,7 +235,7 @@ describe( 'rawlogs/stream default connector', () => {
 	} );
 
 	test( 'opens a real EventSource at /messages/stream for the subscription', () => {
-		const s = createRawLogsStream( 'rawlogs/stream' );
+		const s = createRawLogsStream( 'rawlogs:stream' );
 		s.subscribe( 'firehose' );
 		const es = FakeEventSource.last();
 		expect( es.url ).toContain( 'newspack-nodes/v1/messages/stream' );
@@ -237,10 +243,11 @@ describe( 'rawlogs/stream default connector', () => {
 		expect( es.url ).toContain( '_wpnonce=N' );
 	} );
 
-	test( 'forwards each parsed msg envelope to the sink', () => {
+	test( 'forwards each parsed msg envelope to the sink stamped TO the route', () => {
 		const got = [];
-		const s = createRawLogsStream( 'rawlogs/stream' );
+		const s = createRawLogsStream( 'rawlogs:stream' );
 		s.sink = { fill: ( m ) => got.push( m ) };
+		s.target = 'rawlogs:route';
 		s.subscribe( 'firehose' );
 		FakeEventSource.last().dispatch( 'msg', [
 			1,
@@ -253,10 +260,11 @@ describe( 'rawlogs/stream default connector', () => {
 		] );
 		expect( got ).toHaveLength( 1 );
 		expect( got[ 0 ][ VALUE ] ).toBe( 'data' );
+		expect( got[ 0 ][ TO ] ).toBe( 'rawlogs:route' );
 	} );
 
 	test( 'switching logs closes the old EventSource and opens a new one', () => {
-		const s = createRawLogsStream( 'rawlogs/stream' );
+		const s = createRawLogsStream( 'rawlogs:stream' );
 		s.subscribe( 'firehose' );
 		const first = FakeEventSource.last();
 		s.subscribe( 'errors' );
@@ -266,7 +274,7 @@ describe( 'rawlogs/stream default connector', () => {
 	} );
 
 	test( 'pokes the slot heartbeat after the connected envelope', () => {
-		const s = createRawLogsStream( 'rawlogs/stream' );
+		const s = createRawLogsStream( 'rawlogs:stream' );
 		s.subscribe( 'firehose' );
 		const m = newMessage();
 		m[ TYPE ] = TM_INFO;
@@ -282,7 +290,7 @@ describe( 'rawlogs/stream default connector', () => {
 	} );
 
 	test( 'reconnects with exponential backoff on error', () => {
-		const s = createRawLogsStream( 'rawlogs/stream' );
+		const s = createRawLogsStream( 'rawlogs:stream' );
 		s.subscribe( 'firehose' );
 		const first = FakeEventSource.last();
 		first.onerror();
@@ -291,10 +299,11 @@ describe( 'rawlogs/stream default connector', () => {
 		expect( FakeEventSource.instances.length ).toBeGreaterThan( 1 );
 	} );
 
-	test( 'reports connectionError:true to controlSink on the first error', () => {
+	test( 'reports connectionError:true to the sink on the first error', () => {
 		const controls = [];
-		const s = createRawLogsStream( 'rawlogs/stream' );
-		s.controlSink = { fill: ( m ) => controls.push( m[ VALUE ] ) };
+		const s = createRawLogsStream( 'rawlogs:stream' );
+		s.sink = { fill: ( m ) => controls.push( m[ VALUE ] ) };
+		s.target = 'rawlogs:route';
 		s.subscribe( 'firehose' );
 		FakeEventSource.last().onerror();
 		expect( controls ).toEqual( [
@@ -302,10 +311,11 @@ describe( 'rawlogs/stream default connector', () => {
 		] );
 	} );
 
-	test( 'reports connectionError:false to controlSink on open', () => {
+	test( 'reports connectionError:false to the sink on open', () => {
 		const controls = [];
-		const s = createRawLogsStream( 'rawlogs/stream' );
-		s.controlSink = { fill: ( m ) => controls.push( m[ VALUE ] ) };
+		const s = createRawLogsStream( 'rawlogs:stream' );
+		s.sink = { fill: ( m ) => controls.push( m[ VALUE ] ) };
+		s.target = 'rawlogs:route';
 		s.subscribe( 'firehose' );
 		FakeEventSource.last().onopen();
 		expect( controls ).toEqual( [
@@ -315,8 +325,9 @@ describe( 'rawlogs/stream default connector', () => {
 
 	test( 'reports connectionError exactly once per disconnect (reconnect-stack guard)', () => {
 		const controls = [];
-		const s = createRawLogsStream( 'rawlogs/stream' );
-		s.controlSink = { fill: ( m ) => controls.push( m[ VALUE ] ) };
+		const s = createRawLogsStream( 'rawlogs:stream' );
+		s.sink = { fill: ( m ) => controls.push( m[ VALUE ] ) };
+		s.target = 'rawlogs:route';
 		s.subscribe( 'firehose' );
 		const first = FakeEventSource.last();
 		first.onerror(); // schedules a reconnect timer
@@ -327,7 +338,7 @@ describe( 'rawlogs/stream default connector', () => {
 	} );
 
 	test( 'close() stops the heartbeat poke and the reconnect timer', () => {
-		const s = createRawLogsStream( 'rawlogs/stream' );
+		const s = createRawLogsStream( 'rawlogs:stream' );
 		s.subscribe( 'firehose' );
 		const m = newMessage();
 		m[ TYPE ] = TM_INFO;

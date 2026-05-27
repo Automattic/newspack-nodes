@@ -2,15 +2,15 @@
 /**
  * Raw Logs Component — canvas-rendered real-time stream of log lines.
  *
- * This is a THIN view over the `rawlogs/*` node graph (mounted by
- * `useRawLogsGraph`). The graph owns all data: `rawlogs/stream` holds the SSE
- * connection, `rawlogs/transform` turns envelopes into rows, and `rawlogs/view`
+ * This is a THIN view over the `rawlogs:*` node graph (mounted by
+ * `useRawLogsGraph`). The graph owns all data: `rawlogs:stream` holds the SSE
+ * connection, `rawlogs:transform` turns envelopes into rows, and `rawlogs:view`
  * holds the buffer + view model. This component only renders.
  *
  * Two read paths, matching the view node's two cadences:
- * - LOW frequency: `useNodeState('rawlogs/view','view')` for `{ logs, selected,
+ * - LOW frequency: `useNodeState('rawlogs:view','view')` for `{ logs, selected,
  *   paused }` (the dropdown, pause button, selected value).
- * - HIGH frequency: the canvas rAF reads `Core.node('rawlogs/view').lines` and
+ * - HIGH frequency: the canvas rAF reads `Core.node('rawlogs:view').lines` and
  *   `.lps` directly every frame — a busy stream never re-renders React per line.
  */
 
@@ -26,7 +26,7 @@ import './styles/raw-logs.scss';
 const ROW_HEIGHT = 18;
 const PARTITION_WIDTH = 36;
 const FONT = '12px monospace';
-const VIEW_NODE = 'rawlogs/view';
+const VIEW_NODE = 'rawlogs:view';
 
 // Dark theme colors (match base.scss).
 const COLOR_BG_ODD = '#2a2a2a';

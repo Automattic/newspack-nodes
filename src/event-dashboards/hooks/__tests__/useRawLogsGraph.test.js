@@ -1,41 +1,63 @@
 /**
- * useRawLogsGraph tests — the Raw Logs dashboard graph (Task 4 of the JS-Node
- * conversion). The three nodes (`rawlogs/stream`, `rawlogs/transform`,
- * `rawlogs/view`) are REAL (their factories register them in Core); only the
- * stream's connector and the `list_logs` command client are injected so the
- * hook never touches a real EventSource or the network. Mirrors the seam
- * useConsoleGraph's tests use (real graph, faked I/O boundaries).
+ * useRawLogsGraph tests — the Raw Logs dashboard graph clipped onto the
+ * exospine (`mountExospine`: _command_interpreter → _router). The four graph
+ * nodes (`rawlogs:stream`, `rawlogs:route`, `rawlogs:transform`, `rawlogs:view`)
+ * are REAL; only the stream's connector and the `list_logs` command client are
+ * injected so the hook never touches a real EventSource or the network. The
+ * canonical-wiring tests assert every node sinks into the CI and steers via
+ * target; the end-to-end tests deliver an envelope through the fake connector
+ * and assert it actually routes stream → route → transform → view through the
+ * real router.
  */
 
 import { renderHook, act } from '@testing-library/react';
-import { newMessage, VALUE } from '../../../runtime/message';
+import {
+	newMessage,
+	TYPE,
+	KEY,
+	VALUE,
+	TM_BYTESTREAM,
+} from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { useRawLogsGraph } from '../useRawLogsGraph';
 
 beforeEach( () => Core.reset() );
 
+const CI = '_command_interpreter';
+
 // A fake connector matching the stream node's seam (connect/close); records the
-// last subscription so a test can assert the stream re-connects. Mirrors the
-// rawLogsStream.test double, plus closeCount for the teardown assertion.
+// subscription + the envelope/status handlers so a test can deliver them, plus
+// closeCount for the teardown assertion.
 function makeFakeConnector() {
 	return {
 		closeCount: 0,
 		lastSubscription: null,
 		_onEnvelope: null,
-		connect( subscription, onEnvelope ) {
+		_onStatus: null,
+		connect( subscription, onEnvelope, onStatus ) {
 			this.lastSubscription = subscription;
 			this._onEnvelope = onEnvelope;
+			this._onStatus = onStatus;
 		},
 		close() {
 			this.closeCount += 1;
 			this._onEnvelope = null;
 		},
+		deliverMessage( envelope ) {
+			if ( this._onEnvelope ) {
+				this._onEnvelope( envelope );
+			}
+		},
+		emitStatus( status ) {
+			if ( this._onStatus ) {
+				this._onStatus( status );
+			}
+		},
 	};
 }
 
-// A command reply Message: VALUE rides as the { name, payload } object that
-// unwrapCommandResponse reads (message[VALUE].payload). `payload` is the verb's
-// return — here the `list_logs` `[{key,label}]` array.
+// A command reply Message: VALUE rides as { name, payload }; payload is the
+// list_logs [{key,label}] array.
 function commandReply( payload ) {
 	const m = newMessage();
 	m[ VALUE ] = { name: 'list_logs', payload };
@@ -45,67 +67,113 @@ const emptyReply = () => commandReply( [] );
 const oneLogReply = () =>
 	commandReply( [ { key: 'firehose', label: 'firehose.log' } ] );
 
-describe( 'useRawLogsGraph — mount + wiring', () => {
-	test( 'mounts the three nodes wired stream→transform→view', async () => {
-		const fakeClient = { send: async () => oneLogReply() };
-		const fake = makeFakeConnector();
-		renderHook( () =>
-			useRawLogsGraph( { connector: fake, commandClient: fakeClient } )
-		);
-		await act( async () => {} ); // let list_logs resolve
+function mountGraph( fake, client ) {
+	return renderHook( () =>
+		useRawLogsGraph( { connector: fake, commandClient: client } )
+	);
+}
 
-		expect( Core.node( 'rawlogs/stream' ) ).toBeTruthy();
-		expect( Core.node( 'rawlogs/transform' ) ).toBeTruthy();
-		expect( Core.node( 'rawlogs/view' ) ).toBeTruthy();
-		expect( Core.node( 'rawlogs/stream' ).sink ).toBe(
-			Core.node( 'rawlogs/transform' )
-		);
-		expect( Core.node( 'rawlogs/transform' ).sink ).toBe(
-			Core.node( 'rawlogs/view' )
-		);
-		// list_logs flowed in: the view cached one log.
-		expect(
-			Core.node( 'rawlogs/view' ).setStateCache.view.logs
-		).toHaveLength( 1 );
+describe( 'useRawLogsGraph — exospine wiring', () => {
+	test( 'mounts the backbone + four nodes, each sinking into the CI', async () => {
+		const fake = makeFakeConnector();
+		mountGraph( fake, { send: async () => oneLogReply() } );
+		await act( async () => {} );
+
+		const ci = Core.node( CI );
+		expect( ci ).toBeTruthy();
+		expect( Core.node( '_router' ) ).toBeTruthy();
+		for ( const n of [
+			'rawlogs:stream',
+			'rawlogs:route',
+			'rawlogs:transform',
+			'rawlogs:view',
+		] ) {
+			expect( Core.node( n ) ).toBeTruthy();
+			expect( Core.node( n ).sink ).toBe( ci );
+		}
 	} );
 
-	test( 'wires the stream controlSink to the view (connection-status surface)', async () => {
-		const fakeClient = { send: async () => oneLogReply() };
+	test( 'steers flow with targets, not bespoke sinks (no controlSink)', async () => {
 		const fake = makeFakeConnector();
-		renderHook( () =>
-			useRawLogsGraph( { connector: fake, commandClient: fakeClient } )
-		);
+		mountGraph( fake, { send: async () => oneLogReply() } );
 		await act( async () => {} );
-		expect( Core.node( 'rawlogs/stream' ).controlSink ).toBe(
-			Core.node( 'rawlogs/view' )
+
+		expect( Core.node( 'rawlogs:stream' ).target ).toBe( 'rawlogs:route' );
+		expect( Core.node( 'rawlogs:route' ).target ).toBe(
+			'rawlogs:transform'
 		);
+		expect( Core.node( 'rawlogs:transform' ).target ).toBe(
+			'rawlogs:view'
+		);
+		expect( Core.node( 'rawlogs:stream' ).controlSink ).toBeUndefined();
 	} );
 
 	test( 'subscribes the stream to the default-selected log after list_logs', async () => {
-		const fakeClient = { send: async () => oneLogReply() };
 		const fake = makeFakeConnector();
-		renderHook( () =>
-			useRawLogsGraph( { connector: fake, commandClient: fakeClient } )
-		);
+		mountGraph( fake, { send: async () => oneLogReply() } );
 		await act( async () => {} );
-		// The view defaults selection to logs[0].key; the stream subscribes to it.
 		expect( fake.lastSubscription ).toBe( 'firehose' );
 	} );
 } );
 
-describe( 'useRawLogsGraph — teardown', () => {
-	test( 'unmount unregisters all three and closes the stream', () => {
+describe( 'useRawLogsGraph — end-to-end routing through the exospine', () => {
+	test( 'a delivered log envelope routes stream → route → transform → view', async () => {
 		const fake = makeFakeConnector();
-		const { unmount } = renderHook( () =>
-			useRawLogsGraph( {
-				connector: fake,
-				commandClient: { send: async () => emptyReply() },
-			} )
-		);
+		mountGraph( fake, { send: async () => oneLogReply() } );
+		await act( async () => {} );
+
+		const env = newMessage();
+		env[ TYPE ] = TM_BYTESTREAM;
+		env[ KEY ] = 'p0';
+		env[ VALUE ] = 'a real log line';
+		act( () => fake.deliverMessage( env ) );
+
+		const view = Core.node( 'rawlogs:view' );
+		expect( view.lines ).toHaveLength( 1 );
+		expect( view.lines[ 0 ].content ).toBe( 'p0: a real log line' );
+	} );
+
+	test( 'a connection-status control routes stream → route → view (skips transform)', async () => {
+		const fake = makeFakeConnector();
+		mountGraph( fake, { send: async () => oneLogReply() } );
+		await act( async () => {} );
+
+		act( () => fake.emitStatus( { connectionError: true } ) );
+
+		expect(
+			Core.node( 'rawlogs:view' ).setStateCache.view.connectionError
+		).toBe( true );
+		// A control is NOT a log row — the buffer stays empty.
+		expect( Core.node( 'rawlogs:view' ).lines ).toHaveLength( 0 );
+	} );
+
+	test( 'list_logs flows into the view (the dropdown catalog)', async () => {
+		const fake = makeFakeConnector();
+		mountGraph( fake, { send: async () => oneLogReply() } );
+		await act( async () => {} );
+		expect(
+			Core.node( 'rawlogs:view' ).setStateCache.view.logs
+		).toHaveLength( 1 );
+	} );
+} );
+
+describe( 'useRawLogsGraph — teardown', () => {
+	test( 'unmount unregisters the graph + the backbone and closes the stream', () => {
+		const fake = makeFakeConnector();
+		const { unmount } = mountGraph( fake, {
+			send: async () => emptyReply(),
+		} );
 		unmount();
-		expect( Core.node( 'rawlogs/stream' ) ).toBeNull();
-		expect( Core.node( 'rawlogs/view' ) ).toBeNull();
-		expect( Core.node( 'rawlogs/transform' ) ).toBeNull();
+		for ( const n of [
+			'rawlogs:stream',
+			'rawlogs:route',
+			'rawlogs:transform',
+			'rawlogs:view',
+			'_command_interpreter',
+			'_router',
+		] ) {
+			expect( Core.node( n ) ).toBeNull();
+		}
 		expect( fake.closeCount ).toBeGreaterThanOrEqual( 1 );
 	} );
 } );
@@ -113,31 +181,25 @@ describe( 'useRawLogsGraph — teardown', () => {
 describe( 'useRawLogsGraph — control callbacks', () => {
 	test( 'selectLog re-subscribes the stream and selects in the view', async () => {
 		const fake = makeFakeConnector();
-		const { result } = renderHook( () =>
-			useRawLogsGraph( {
-				connector: fake,
-				commandClient: { send: async () => oneLogReply() },
-			} )
-		);
+		const { result } = mountGraph( fake, {
+			send: async () => oneLogReply(),
+		} );
 		await act( async () => {} );
 		act( () => result.current.selectLog( 'errors' ) );
 		expect( fake.lastSubscription ).toBe( 'errors' );
-		expect( Core.node( 'rawlogs/view' ).setStateCache.view.selected ).toBe(
+		expect( Core.node( 'rawlogs:view' ).setStateCache.view.selected ).toBe(
 			'errors'
 		);
 	} );
 
 	test( 'setPaused toggles the view paused flag', async () => {
 		const fake = makeFakeConnector();
-		const { result } = renderHook( () =>
-			useRawLogsGraph( {
-				connector: fake,
-				commandClient: { send: async () => emptyReply() },
-			} )
-		);
+		const { result } = mountGraph( fake, {
+			send: async () => emptyReply(),
+		} );
 		await act( async () => {} );
 		act( () => result.current.setPaused( true ) );
-		expect( Core.node( 'rawlogs/view' ).setStateCache.view.paused ).toBe(
+		expect( Core.node( 'rawlogs:view' ).setStateCache.view.paused ).toBe(
 			true
 		);
 	} );

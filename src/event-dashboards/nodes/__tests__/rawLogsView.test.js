@@ -6,7 +6,7 @@ import { createRawLogsView } from '../rawLogsView';
 // so re-creating the same-named node doesn't collide (matches node.test.js).
 beforeEach( () => Core.reset() );
 
-// A row message from rawlogs/transform: TM_STRUCT carrying { p, line }.
+// A row message from rawlogs:transform: TM_STRUCT carrying { p, line }.
 function rowMsg( line, p = 0 ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -26,7 +26,7 @@ function controlMsg( payload ) {
 // directly — _appendRow does NOT publish, so the React view reads node.lines /
 // node.lps at frame rate via the rAF, not per-row through setState.
 test( 'appends rows newest-first and caps the buffer (node.lines, no publish)', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill( rowMsg( 'line 0' ) );
 	v.fill( rowMsg( 'line 1' ) );
 	v.fill( rowMsg( 'line 2' ) );
@@ -35,7 +35,7 @@ test( 'appends rows newest-first and caps the buffer (node.lines, no publish)', 
 } );
 
 test( 'appending rows does NOT publish setState (no per-row React re-render)', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	const spy = jest.spyOn( v, 'setState' );
 	v.fill( rowMsg( 'line 0' ) );
 	v.fill( rowMsg( 'line 1' ) );
@@ -43,7 +43,7 @@ test( 'appending rows does NOT publish setState (no per-row React re-render)', (
 } );
 
 test( 'pause stops appends; the model reflects paused', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );
 	v.fill( rowMsg( 'ignored' ) );
 	expect( v.lines ).toHaveLength( 0 );
@@ -51,7 +51,7 @@ test( 'pause stops appends; the model reflects paused', () => {
 } );
 
 test( 'select sets the log and clears the buffer', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill( rowMsg( 'old' ) );
 	v.fill( controlMsg( { action: 'select', log: 'errors' } ) );
 	expect( v.lines ).toHaveLength( 0 );
@@ -59,7 +59,7 @@ test( 'select sets the log and clears the buffer', () => {
 } );
 
 test( 'the published model carries only { connectionError, logs, selected, paused }', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill(
 		controlMsg( {
 			action: 'logs',
@@ -75,7 +75,7 @@ test( 'the published model carries only { connectionError, logs, selected, pause
 } );
 
 test( 'logs action populates availableLogs and defaults the selection', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill(
 		controlMsg( {
 			action: 'logs',
@@ -87,7 +87,7 @@ test( 'logs action populates availableLogs and defaults the selection', () => {
 } );
 
 test( 'logs action does NOT override an already-selected log', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill( controlMsg( { action: 'select', log: 'errors' } ) );
 	v.fill(
 		controlMsg( {
@@ -99,7 +99,7 @@ test( 'logs action does NOT override an already-selected log', () => {
 } );
 
 test( 'resume after pause lets rows through again', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );
 	v.fill( rowMsg( 'dropped' ) );
 	v.fill( controlMsg( { action: 'pause', paused: false } ) );
@@ -110,7 +110,7 @@ test( 'resume after pause lets rows through again', () => {
 } );
 
 test( 'rows carry the partition and an even/odd flag keyed off the counter', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill( rowMsg( 'first', 2 ) ); // counter 1 → odd
 	v.fill( rowMsg( 'second', 3 ) ); // counter 2 → even
 	expect( v.lines[ 0 ] ).toMatchObject( {
@@ -126,13 +126,13 @@ test( 'rows carry the partition and an even/odd flag keyed off the counter', () 
 } );
 
 test( 'exposes a numeric lps on the node instance', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill( rowMsg( 'a row' ) );
 	expect( typeof v.lps ).toBe( 'number' );
 } );
 
 test( 'select clears node.lps back to zero', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	for ( let i = 0; i < 50; i++ ) {
 		v.fill( rowMsg( `row ${ i }` ) );
 	}
@@ -141,14 +141,14 @@ test( 'select clears node.lps back to zero', () => {
 } );
 
 test( 'defaults connectionError to false in the published model', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	// A control publishes the model; connectionError starts false.
 	v.fill( controlMsg( { action: 'pause', paused: false } ) );
 	expect( v.setStateCache.view.connectionError ).toBe( false );
 } );
 
 test( 'a connection control sets connectionError true then false', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill( controlMsg( { action: 'connection', connectionError: true } ) );
 	expect( v.connectionError ).toBe( true );
 	expect( v.setStateCache.view.connectionError ).toBe( true );
@@ -158,7 +158,7 @@ test( 'a connection control sets connectionError true then false', () => {
 } );
 
 test( 'an unrelated control does not change connectionError', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill( controlMsg( { action: 'connection', connectionError: true } ) );
 	// A pause control + a log row must leave connectionError untouched.
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );
@@ -168,6 +168,6 @@ test( 'an unrelated control does not change connectionError', () => {
 } );
 
 test( 'names the node', () => {
-	const v = createRawLogsView( 'rawlogs/view' );
-	expect( v.name ).toBe( 'rawlogs/view' );
+	const v = createRawLogsView( 'rawlogs:view' );
+	expect( v.name ).toBe( 'rawlogs:view' );
 } );

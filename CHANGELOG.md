@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`mountExospine()` runtime helper.** Constructs + registers the canonical rule-#2 backbone every browser node graph clips onto — `_command_interpreter` (sink → `_router`) and a bare `_router` — and returns `{ ci, router, teardown }`. `teardown()` fully removes both (clearing the sink edge and any caller-registered TIMER listeners). Exported from `@newspack-nodes/runtime` so dashboards in both this plugin and consumers (ELN) wire the same backbone one way instead of hand-rolling a Router/CI per graph.
 
+### Changed
+
+- **The Raw Logs dashboard graph is wired onto the exospine (rule #2).** Every node (`rawlogs:stream`, the new `rawlogs:route` classifier, `rawlogs:transform`, `rawlogs:view`) now sinks into the `_command_interpreter` and steers flow purely with `target`/`TO` through `_router` — no bespoke `stream.sink = transform` chain, no `controlSink` side-channel. The data/control split is a first-class, inspectable node (`rawlogs:route`) that classifies on the stream-set `KEY='connection'` marker (not VALUE content, so a streamed structured log line carrying its own `action` field can't be mistaken for a control). Node names moved from `rawlogs/X` to `rawlogs:X` because `_router` peels TO on `/`. The dashboard renders identically; this is a substrate-conformance refactor.
+
 ## [0.5.2] - 2026-05-27
 
 ### Changed
