@@ -41,7 +41,8 @@ class Tee_Node extends Node {
 		++$this->counter;
 
 		$type = $message[ Message::TYPE ];
-		if ( $type & Message::TM_REQUEST ) {
+		$to   = $message[ Message::TO ];
+		if ( '' === $to && $type & Message::TM_REQUEST ) {
 			$this->handle_request( $message );
 			return;
 		}
@@ -59,7 +60,7 @@ class Tee_Node extends Node {
 		foreach ( $alive as $t ) {
 			try {
 				$copy                = $message;
-				$copy[ Message::TO ] = $t;
+				$copy[ Message::TO ] = '' === $to ? $t : ( $t . '/' . $to );
 				$this->sink?->fill( $copy );
 			} catch ( \Throwable $e ) {
 				// log_midfix prepends the node name; keep only the class label here.

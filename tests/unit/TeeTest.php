@@ -43,6 +43,62 @@ class TeeTest extends TestCase {
 		$this->assertSame( 'fanout', $a->captured[0][ Message::VALUE ] );
 	}
 
+	public function test_fill_prepends_subpath_to_each_target_for_nonempty_TO(): void {
+		// A message in transit toward a sub-path (non-empty TO) fans out as
+		// `<target>/<TO>` — mirrors OG Tachikoma `join '/', grep length, owner, TO`.
+		// The Router peels the target head, so each delivered node sees the sub-path.
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$a = new Capture_Sink_Node();
+		$a->name( 'a' );
+		$b = new Capture_Sink_Node();
+		$b->name( 'b' );
+
+		$tee = new Tee_Node();
+		$tee->name( 'tee' );
+		$tee->sink( $router );
+		$tee->connect_node( 'a' );
+		$tee->connect_node( 'b' );
+
+		$msg = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::TO ]    = 'sub';
+		$msg[ Message::VALUE ] = 'fanout';
+		$tee->fill( $msg );
+
+		$this->assertCount( 1, $a->captured );
+		$this->assertCount( 1, $b->captured );
+		$this->assertSame( 'sub', $a->captured[0][ Message::TO ] );
+		$this->assertSame( 'sub', $b->captured[0][ Message::TO ] );
+	}
+
+	public function test_fill_fans_out_a_nonempty_TO_request_instead_of_handling_it(): void {
+		// A TM_REQUEST is only the Tee's own GET_TARGETS request when TO is empty.
+		// With a non-empty TO it's in transit toward a sub-path, so it fans out
+		// (TO=<target>/<TO>) rather than being consumed by handle_request.
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$a = new Capture_Sink_Node();
+		$a->name( 'a' );
+
+		$tee = new Tee_Node();
+		$tee->name( 'tee' );
+		$tee->sink( $router );
+		$tee->connect_node( 'a' );
+
+		$req = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::TO ]    = 'sub';
+		$req[ Message::VALUE ] = 'GET_TARGETS';
+		$tee->fill( $req );
+
+		// Fanned out to a/sub (Router peels 'a' → TO='sub'), still a TM_REQUEST —
+		// NOT turned into a GET_TARGETS reply.
+		$this->assertCount( 1, $a->captured );
+		$this->assertSame( 'sub', $a->captured[0][ Message::TO ] );
+		$this->assertSame( Message::TM_REQUEST, $a->captured[0][ Message::TYPE ] );
+	}
+
 	public function test_disconnect_node_removes_one_target(): void {
 		$tee = new Tee_Node();
 		$tee->connect_node( 'a' );
