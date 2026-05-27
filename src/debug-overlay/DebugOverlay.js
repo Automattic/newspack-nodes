@@ -151,6 +151,17 @@ export default function DebugOverlay( {
 		}
 	};
 
+	// Hide the reset chips when there's nothing to undo. The layout chip
+	// only matters when the user has dragged a node or panned the canvas;
+	// the graph chip only matters when the user has added a node beyond
+	// the baseline snapshot.
+	const hasLayoutToReset =
+		Object.keys( positions ).length > 0 || viewport !== null;
+	const baseline = baselineNamesRef.current;
+	const hasUserNodes =
+		baseline !== null &&
+		graph.nodes.some( ( n ) => ! baseline.has( n.id ) );
+
 	// Ctrl+` toggles the panel while enabled.
 	useEffect( () => {
 		if ( ! enabled ) {
@@ -252,8 +263,12 @@ export default function DebugOverlay( {
 								partition: null,
 								isWorker: false,
 								editMode: false,
-								onResetLayout: resetLayout,
-								onResetGraph: resetGraph,
+								// Hide the chips when there's nothing to reset:
+								// passing null tells CanvasFrame to skip them.
+								onResetLayout: hasLayoutToReset
+									? resetLayout
+									: null,
+								onResetGraph: hasUserNodes ? resetGraph : null,
 							} }
 							resetKey={ storageKey }
 							interactive
@@ -298,7 +313,6 @@ export default function DebugOverlay( {
 							onExpandedChange={ setReplExpanded }
 							inputRef={ replInputRef }
 							maxHeightPx={ replMaxHeightPx }
-							onResizeHandleDoubleClick={ toggleMaximize }
 						/>
 					</div>
 					{ Object.entries( getResizeHandlers() ).map(

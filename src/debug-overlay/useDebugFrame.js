@@ -74,11 +74,19 @@ export function useDebugFrame( storageKey ) {
 			return;
 		}
 		preMaximizeRef.current = frame;
+		// Max to the WP admin CONTENT area, not the viewport — leave the
+		// admin bar (top) and menu (left) visible. Measure both at click
+		// time so a folded/unfolded menu is honored. Falls back to 0 if
+		// the chrome isn't present (non-WP host).
+		const adminBar = document.getElementById( 'wpadminbar' );
+		const adminMenu = document.getElementById( 'adminmenuwrap' );
+		const top = adminBar ? adminBar.offsetHeight : 0;
+		const left = adminMenu ? adminMenu.offsetWidth : 0;
 		setFrame( {
-			x: 0,
-			y: 0,
-			w: window.innerWidth,
-			h: window.innerHeight,
+			x: left,
+			y: top,
+			w: Math.max( MIN_W, window.innerWidth - left ),
+			h: Math.max( MIN_H, window.innerHeight - top ),
 		} );
 	}, [ frame ] );
 
