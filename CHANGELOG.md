@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`mountExospine()` runtime helper.** Constructs + registers the canonical rule-#2 backbone every browser node graph clips onto — `_command_interpreter` (sink → `_router`) and a bare `_router` — and returns `{ ci, router, teardown }`. `teardown()` fully removes both (clearing the sink edge and any caller-registered TIMER listeners). Exported from `@newspack-nodes/runtime` so dashboards in both this plugin and consumers (ELN) wire the same backbone one way instead of hand-rolling a Router/CI per graph.
+
 ## [0.5.2] - 2026-05-27
 
 ### Changed
