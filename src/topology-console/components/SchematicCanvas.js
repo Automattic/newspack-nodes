@@ -100,7 +100,7 @@ const SPARK_X = 11;
 const SPARK_Y = 48;
 const SPARK_W = 174; // NODE_W (196) - 11 - 11
 const SPARK_H = 16;
-// Must equal TopologyConsole's RATE_HISTORY_MAX — drives the per-sample step.
+// Must equal useGraphRates.js's RATE_HISTORY_MAX — drives the per-sample step.
 const SPARK_HISTORY_MAX = 60;
 function sparklinePath( history ) {
 	if ( ! history || history.length < 2 ) {

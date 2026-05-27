@@ -22,6 +22,7 @@ import SchematicCanvas from './components/SchematicCanvas';
 import OpenTopologyModal from './components/OpenTopologyModal';
 
 import { useClassCatalog } from './hooks/useClassCatalog';
+import { useGraphRates } from './hooks/useGraphRates';
 import { useLayout } from './hooks/useLayout';
 import { useSaveTopology } from './hooks/useSaveTopology';
 import { useDeleteTopology } from './hooks/useDeleteTopology';
@@ -208,9 +209,6 @@ function initialPartitionFromUrl() {
 	return Number.isInteger( p ) && p >= 0 ? p : 0;
 }
 
-// 60 samples at 1s poll = ~1 minute of trailing rate history.
-const RATE_HISTORY_MAX = 60;
-
 // Stable empty defaults so unpopulated state keeps a constant reference.
 const EMPTY_GRAPH = { nodes: [], edges: [] };
 const EMPTY_TRANSCRIPT = [];
@@ -275,10 +273,6 @@ export default function TopologyConsole() {
 			window.requestAnimationFrame( () => replInputRef.current?.focus() );
 		}
 	}, [ replExpanded ] );
-
-	// Per-node rate tracking, keyed by node id; rate = Δcount/Δs across ticks.
-	const rateRef = useRef( new Map() );
-	const [ rateVersion, setRateVersion ] = useState( 0 );
 
 	// Dumper verbosity dial (0/1/2), mirroring the substrate Dumper. A ref
 	// so the Dumper reads it per-frame without re-binding the graph.
@@ -650,93 +644,6 @@ export default function TopologyConsole() {
 	useEffect( () => {
 		setSelectedId( null );
 	}, [ topology, partition ] );
-
-	// Per-node msg/s + byte/s rate tracking; one tick per published metadata
-	// object. Negatives (worker respawn resets the counters) clamp to zero.
-	useEffect( () => {
-		const now = Date.now() / 1000;
-		let touched = false;
-		for ( const n of parsed.nodes ) {
-			const prevEntry = rateRef.current.get( n.id );
-			const bytesRead = n.bytesRead || 0;
-			const bytesWritten = n.bytesWritten || 0;
-			// Sticky "has ever been non-zero" flags so a counter reset
-			// (worker respawn) doesn't blink the Inspector sparkline out.
-			const hasMessages =
-				( prevEntry && prevEntry.hasMessages ) || n.count > 0;
-			const hasRead = ( prevEntry && prevEntry.hasRead ) || bytesRead > 0;
-			const hasWritten =
-				( prevEntry && prevEntry.hasWritten ) || bytesWritten > 0;
-			if ( prevEntry && prevEntry.ts < now ) {
-				// Negative delta = worker respawn; treat as rate unknown (0).
-				const rawDCount = n.count - prevEntry.count;
-				const dCount = rawDCount < 0 ? 0 : rawDCount;
-				const rawDRead = bytesRead - ( prevEntry.bytesRead || 0 );
-				const dRead = rawDRead < 0 ? 0 : rawDRead;
-				const rawDWritten =
-					bytesWritten - ( prevEntry.bytesWritten || 0 );
-				const dWritten = rawDWritten < 0 ? 0 : rawDWritten;
-				// Clamp dt to >=1s so bunched-up responses don't report a spike.
-				const dTime = Math.max( 1, now - prevEntry.ts );
-				const rate = dCount / dTime;
-				const readRate = dRead / dTime;
-				const writtenRate = dWritten / dTime;
-				const history = prevEntry.history || [];
-				const readHistory = prevEntry.readHistory || [];
-				const writtenHistory = prevEntry.writtenHistory || [];
-				history.push( rate );
-				readHistory.push( readRate );
-				writtenHistory.push( writtenRate );
-				if ( history.length > RATE_HISTORY_MAX ) {
-					history.shift();
-				}
-				if ( readHistory.length > RATE_HISTORY_MAX ) {
-					readHistory.shift();
-				}
-				if ( writtenHistory.length > RATE_HISTORY_MAX ) {
-					writtenHistory.shift();
-				}
-				rateRef.current.set( n.id, {
-					count: n.count,
-					bytesRead,
-					bytesWritten,
-					ts: now,
-					rate,
-					readRate,
-					writtenRate,
-					lastChangedTs: dCount > 0 ? now : prevEntry.lastChangedTs,
-					history,
-					readHistory,
-					writtenHistory,
-					hasMessages,
-					hasRead,
-					hasWritten,
-				} );
-				touched = true;
-			} else if ( ! prevEntry ) {
-				rateRef.current.set( n.id, {
-					count: n.count,
-					bytesRead,
-					bytesWritten,
-					ts: now,
-					rate: 0,
-					readRate: 0,
-					writtenRate: 0,
-					lastChangedTs: now,
-					history: [],
-					readHistory: [],
-					writtenHistory: [],
-					hasMessages,
-					hasRead,
-					hasWritten,
-				} );
-				touched = true;
-			}
-		}
-		if ( touched ) {
-			setRateVersion( ( v ) => v + 1 );
-		}
-	}, [ parsed ] );
 
 	const dispatchStatement = useCallback(
 		( statement ) => {
@@ -1120,8 +1027,6 @@ export default function TopologyConsole() {
 				setMode( 'edit' );
 				setEditingName( '' );
 				setEditingSource( '' );
-				rateRef.current = new Map();
-				setRateVersion( ( v ) => v + 1 );
 				// Preserve overrides + viewport from a prior edit session.
 				// Seed the reserved `_repl` anchor into both draft and baseline
 				// so it's present from the start and its presence isn't dirty.
@@ -1203,6 +1108,11 @@ export default function TopologyConsole() {
 		}
 		return augmentWithVirtualEdges( baseCanvasGraph );
 	}, [ baseCanvasGraph, mode, augmentWithVirtualEdges ] );
+
+	const { rateRef, rateVersion } = useGraphRates(
+		canvasGraph,
+		`${ scope.key }|${ mode }|${ editingName }`
+	);
 
 	const handleConnect = useCallback(
 		( from, to ) => {
@@ -1337,8 +1247,6 @@ export default function TopologyConsole() {
 		setSelectedEdge( null );
 		setPositionOverrides( {} );
 		setViewport( null );
-		rateRef.current = new Map();
-		setRateVersion( ( v ) => v + 1 );
 	}, [] );
 
 	// DELETE shows only for a topology with a user-saved copy (stock is protected).
@@ -1419,8 +1327,6 @@ export default function TopologyConsole() {
 				// Seed from the loaded graph so later drops don't reshuffle it.
 				seedOverridesFromLayout();
 				setViewport( null );
-				rateRef.current = new Map();
-				setRateVersion( ( v ) => v + 1 );
 				setToast( {
 					kind: 'success',
 					text: sprintf(
