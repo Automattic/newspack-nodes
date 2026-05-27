@@ -62,7 +62,6 @@ const HELP = {
 	dmesg: 'dmesg\n    note: print the recent server-side stderr tail (last 100 lines).\n',
 	help: 'help [ <topic> ]\n',
 	cd: 'cd [ <path> ]\n    alias: chdir\n',
-	status: 'status\n',
 	tell_node: 'tell_node <path> <info>\n    alias: tell\n',
 	send_node: 'send_node <path> <bytes>\n    alias: send\n',
 	send_eof: 'send_eof <path>\n',
@@ -155,7 +154,7 @@ export class CommandInterpreter extends Node {
 		// VALUE is the structured command object directly (no parse needed).
 		const cmd = message[ VALUE ];
 		if ( ! cmd || typeof cmd !== 'object' || ! cmd.name ) {
-			Core.stderr( `invalid command struct on ${ this.name }` );
+			this.stderr( 'invalid command struct' );
 			return;
 		}
 
@@ -234,7 +233,10 @@ export class CommandInterpreter extends Node {
 			rm: ( self, args ) => self._cmdRemove( args ),
 			list_nodes: ( self, args, env ) => self._cmdList( args, env ),
 			ls: ( self, args, env ) => self._cmdList( args, env ),
-			log: ( self, args ) => CommandInterpreter._cmdLog( args ),
+			log: ( self, args ) => {
+				self.stderr( args );
+				return '';
+			},
 			dmesg: () => CommandInterpreter._cmdDmesg(),
 			dump_node: ( self, args ) =>
 				CommandInterpreter._cmdDumpNode( args ),
@@ -550,11 +552,6 @@ export class CommandInterpreter extends Node {
 		return CommandInterpreter._tabulate( dirs, header, rows );
 	}
 
-	static _cmdLog( args ) {
-		Core.stderr( args );
-		return '';
-	}
-
 	static _cmdDmesg() {
 		const recent = Core.recentLog;
 		return Array.isArray( recent ) ? recent.join( '' ) : '';
@@ -753,6 +750,7 @@ export class CommandInterpreter extends Node {
 				'  send_eof <path>                — TM_EOF',
 				'  request <path> <args>          — TM_REQUEST',
 				'  cmd <path> <verb> [<args>]     — TM_COMMAND at <path>',
+				'  status                         — local cli mode summary (no command sent)',
 				'### SERVER COMMANDS ###',
 				CommandInterpreter._tabulate(
 					[ 'left', 'left', 'left', 'left' ],

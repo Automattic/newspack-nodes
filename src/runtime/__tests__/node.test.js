@@ -18,6 +18,39 @@ test( 'rename moves the registry slot', () => {
 	expect( Core.node( 'bob' ) ).toBe( n );
 } );
 
+test( 'log_midfix tags each line with the node name', () => {
+	const n = new Node();
+	n.setName( 'mynode' );
+	expect( n.log_midfix() ).toBe( 'mynode: ' );
+	expect( n.log_midfix( 'a\nb' ) ).toBe( 'mynode: a\nmynode: b\n' );
+} );
+
+test( 'log_midfix is the empty tag for an unnamed node', () => {
+	const n = new Node();
+	expect( n.log_midfix() ).toBe( '' );
+	expect( n.log_midfix( 'x\n\n' ) ).toBe( 'x\n' );
+} );
+
+test( 'stderr emits a prefixed, node-tagged line to recentLog', () => {
+	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	const n = new Node();
+	n.setName( 'logger' );
+	n.stderr( 'hello' );
+	expect( Core.recentLog ).toHaveLength( 1 );
+	expect( Core.recentLog[ 0 ] ).toMatch(
+		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC newspack-nodes: logger: hello\n$/
+	);
+	spy.mockRestore();
+} );
+
+test( 'stderr on an unnamed node carries no node tag', () => {
+	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	const n = new Node();
+	n.stderr( 'plain' );
+	expect( Core.recentLog[ 0 ] ).toMatch( /UTC newspack-nodes: plain\n$/ );
+	spy.mockRestore();
+} );
+
 test( 'rename collision throws', () => {
 	const a = new Node();
 	a.setName( 'alice' );

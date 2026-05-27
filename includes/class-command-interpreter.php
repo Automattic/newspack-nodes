@@ -260,7 +260,6 @@ class Command_Interpreter_Node extends Node {
 
 			// Shell-level builtins — Shell intercepts these; listed here so `help` is complete.
 			'cd' => "cd [ <path> ]\n    alias: chdir\n    note: empty path resets cwd to the local interpreter.\n",
-			'status' => "status\n    note: print local cli mode summary (no command sent to worker).\n",
 			'tell_node' => "tell_node <path> <info>\n    alias: tell\n    note: emits TM_INFO at prefix(<path>); fire-and-forget broadcast.\n",
 			'send_node' => "send_node <path> <bytes>\n    alias: send\n    note: emits TM_BYTESTREAM at prefix(<path>).\n",
 			'send_eof' => "send_eof <path>\n    note: emits TM_EOF at prefix(<path>).\n",
@@ -285,7 +284,7 @@ class Command_Interpreter_Node extends Node {
 			'rm'              => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_remove_node( $self, $args ),
 			'list_nodes'      => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, $args, $envelope ),
 			'ls'              => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_list_nodes( $self, $args, $envelope ),
-			'log'             => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_log( $args ),
+			'log'             => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_log( $self, $args ),
 			'dmesg'           => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_dmesg(),
 			'dump_node'       => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_node( $args ),
 			'dump'            => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_node( $args ),
@@ -633,8 +632,8 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * `log <message>` builtin — emit `$args` through Core's stderr pipeline.
 	 */
-	private static function cmd_log( string $args ): string {
-		Core::stderr( $args );
+	private static function cmd_log( Command_Interpreter_Node $self, string $args ): string {
+		$self->stderr( $args );
 		return '';
 	}
 
@@ -847,6 +846,7 @@ class Command_Interpreter_Node extends Node {
 				'  send_eof <path>                — TM_EOF',
 				'  request <path> <args>          — TM_REQUEST',
 				'  cmd <path> <verb> [<args>]     — TM_COMMAND at <path>',
+				'  status                         — local cli mode summary (no command sent)',
 				"### SERVER COMMANDS ###",
 				self::tabulate( [ 'left', 'left', 'left', 'left' ], null, $rows )
 			] );

@@ -541,27 +541,32 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 	} );
 
 	describe( 'log / dmesg', () => {
-		it( 'log emits to Core.stderr and returns empty', () => {
+		it( 'log emits a prefixed, node-tagged line via the CI node stderr and returns empty', () => {
 			const ci = makeCi();
 			const spy = jest
 				.spyOn( console, 'warn' )
 				.mockImplementation( () => {} );
 			expect( dispatch( ci, 'log', 'hello' ) ).toBe( '' );
-			expect( spy ).toHaveBeenCalledWith( 'hello' );
+			expect( spy ).toHaveBeenCalled();
+			expect( spy.mock.calls.at( -1 )[ 0 ] ).toMatch(
+				/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC newspack-nodes: .*hello$/
+			);
 			spy.mockRestore();
 		} );
 		it( 'dmesg returns a string', () => {
 			const ci = makeCi();
 			expect( typeof dispatch( ci, 'dmesg', '' ) ).toBe( 'string' );
 		} );
-		it( 'dmesg returns the buffered Core.recentLog tail joined', () => {
+		it( 'dmesg returns the buffered, prefixed recentLog tail joined (line-separated)', () => {
 			const ci = makeCi();
 			const spy = jest
 				.spyOn( console, 'warn' )
 				.mockImplementation( () => {} );
-			Core.stderr( 'one\n' );
-			Core.stderr( 'two\n' );
-			expect( dispatch( ci, 'dmesg', '' ) ).toBe( 'one\ntwo\n' );
+			Core.stderr( 'one' );
+			Core.stderr( 'two' );
+			expect( dispatch( ci, 'dmesg', '' ) ).toMatch(
+				/UTC newspack-nodes: one\n.*UTC newspack-nodes: two\n$/s
+			);
 			spy.mockRestore();
 		} );
 	} );

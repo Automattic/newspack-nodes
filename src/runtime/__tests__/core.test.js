@@ -35,10 +35,41 @@ test( 'now() returns a numeric timestamp in seconds', () => {
 	expect( t ).toBeGreaterThan( 1_000_000_000 );
 } );
 
-test( 'stderr forwards to console.warn', () => {
+test( 'stderr forwards a prefixed line to console.warn', () => {
 	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
 	Core.stderr( 'hello' );
-	expect( spy ).toHaveBeenCalledWith( 'hello' );
+	expect( spy ).toHaveBeenCalledTimes( 1 );
+	expect( spy.mock.calls[ 0 ][ 0 ] ).toMatch(
+		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC newspack-nodes: hello$/
+	);
+	spy.mockRestore();
+} );
+
+test( 'log_midfix is the empty Core tag: null → "", message → chomped + one newline', () => {
+	expect( Core.log_midfix() ).toBe( '' );
+	expect( Core.log_midfix( 'x' ) ).toBe( 'x\n' );
+	expect( Core.log_midfix( 'x\n\n' ) ).toBe( 'x\n' );
+} );
+
+test( 'log_prefix prepends a UTC timestamp + identity to every line, with a trailing newline', () => {
+	const out = Core.log_prefix( 'a\nb' );
+	const lines = out.replace( /\n$/, '' ).split( '\n' );
+	expect( lines[ 0 ] ).toMatch(
+		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC newspack-nodes: a$/
+	);
+	expect( lines[ 1 ] ).toMatch(
+		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC newspack-nodes: b$/
+	);
+	expect( out.endsWith( '\n' ) ).toBe( true );
+} );
+
+test( 'stderr passes an already-date-prefixed line through verbatim (no double prefix)', () => {
+	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	Core.reset();
+	Core.stderr( '2026-01-02 03:04:05 UTC host proc[7]: already' );
+	expect( Core.recentLog[ 0 ] ).toBe(
+		'2026-01-02 03:04:05 UTC host proc[7]: already\n'
+	);
 	spy.mockRestore();
 } );
 
@@ -73,22 +104,28 @@ test( 'recentLog is an array that reset() clears', () => {
 	spy.mockRestore();
 } );
 
-test( 'stderr appends each emitted line to recentLog', () => {
+test( 'stderr appends a prefixed, newline-terminated line per call (dmesg is line-separated)', () => {
 	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	Core.reset();
 	Core.stderr( 'first' );
 	Core.stderr( 'second' );
-	expect( Core.recentLog ).toEqual( [ 'first', 'second' ] );
+	expect( Core.recentLog ).toHaveLength( 2 );
+	expect( Core.recentLog[ 0 ] ).toMatch( /: first\n$/ );
+	expect( Core.recentLog[ 1 ] ).toMatch( /: second\n$/ );
+	// dmesg = recentLog.join('') — newline-separated lines, not "firstsecond".
+	expect( Core.recentLog.join( '' ) ).toMatch( /: first\n.+: second\n$/ );
 	spy.mockRestore();
 } );
 
 test( 'recentLog is bounded to the last 100 lines', () => {
 	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
+	Core.reset();
 	for ( let i = 0; i < 150; i++ ) {
 		Core.stderr( `line ${ i }` );
 	}
 	expect( Core.recentLog ).toHaveLength( 100 );
-	expect( Core.recentLog[ 0 ] ).toBe( 'line 50' );
-	expect( Core.recentLog[ 99 ] ).toBe( 'line 149' );
+	expect( Core.recentLog[ 0 ] ).toMatch( /: line 50\n$/ );
+	expect( Core.recentLog[ 99 ] ).toMatch( /: line 149\n$/ );
 	spy.mockRestore();
 } );
 
