@@ -1503,19 +1503,28 @@ describe( 'TopologyConsole boot', () => {
 		expect( lastCanvasProps.interactive ).toBe( true );
 	} );
 
-	it( 'live canvas: reset-graph control re-mounts the graph without throwing', () => {
+	it( 'live canvas: reset-graph control re-mounts the graph without throwing', async () => {
 		const { getByText } = render( <TopologyConsole /> );
 		// The console boots viewing a worker; cd to the local graph (the only
 		// scope where the reset chip shows) before exercising it.
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
+		// Chip only shows when there's a user-added node beyond the canonical
+		// console graph — inject one via the METADATA payload.
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: {
+				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
+			},
+		} );
 		expect( () =>
 			fireEvent.click( getByText( 'reset-graph' ) )
 		).not.toThrow();
 	} );
 
-	it( 'reset-graph preserves cwd (rebuild rehomes Shell.path to default; reset must restore the user cwd)', () => {
+	it( 'reset-graph preserves cwd (rebuild rehomes Shell.path to default; reset must restore the user cwd)', async () => {
 		// Boot into a worker, navigate to '/' (local), then reset-graph.
 		// Previously the rebuild snapped Shell.path back to _sse/{reader} and
 		// the [shell] sync effect dragged cwd along, taking the user off '/'.
@@ -1526,13 +1535,20 @@ describe( 'TopologyConsole boot', () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
 		expect( lastHeaderProps.path ).toBe( '' );
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: {
+				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
+			},
+		} );
 		act( () => {
 			fireEvent.click( getByText( 'reset-graph' ) );
 		} );
 		expect( lastHeaderProps.path ).toBe( '' );
 	} );
 
-	it( 'reset-graph wipes user-added nodes (and leaves the canonical spine + console graph)', () => {
+	it( 'reset-graph wipes user-added nodes (and leaves the canonical spine + console graph)', async () => {
 		// User-`make_node`'d local nodes survived the canonical-only unregister
 		// loop, so the "reset" didn't feel like a reset. Now any node not in
 		// the canonical console-graph set (or the backbone) is removed.
@@ -1546,6 +1562,20 @@ describe( 'TopologyConsole boot', () => {
 		const userNode = new Node();
 		userNode.setName( 'my-user-tee' );
 		expect( Core.node( 'my-user-tee' ) ).toBeTruthy();
+		// Surface it in the metadata payload so the chip is visible (the chip
+		// gating reads parsed.nodes, not Core directly).
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: {
+				'my-user-tee': {
+					class: 'Node',
+					counter: 0,
+					sink: '',
+					target: '',
+				},
+			},
+		} );
 		// Reset must remove it.
 		act( () => {
 			fireEvent.click( getByText( 'reset-graph' ) );
@@ -1556,7 +1586,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( Core.node( '_router' ) ).toBeTruthy();
 	} );
 
-	it( 'reset-graph clears the local-scope position overrides + viewport persistence', () => {
+	it( 'reset-graph clears the local-scope position overrides + viewport persistence', async () => {
 		// Reset means RESET — pan/zoom state for the local scope is wiped so the
 		// canvas re-autofits cleanly. Previously the spine rebuilt but layout
 		// state lingered, masking the reset.
@@ -1564,6 +1594,14 @@ describe( 'TopologyConsole boot', () => {
 		const { getByText } = render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
+		} );
+		// Inject a user-added node so the chip is visible to click.
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: {
+				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
+			},
 		} );
 		window.localStorage.setItem(
 			'newspack-nodes:topology:local:viewport',
@@ -1628,15 +1666,25 @@ describe( 'TopologyConsole boot', () => {
 		expect( paletteNames ).toContain( 'PHP_Only_Class' );
 	} );
 
-	it( 'reset-graph control shows only on the local graph (worker graphs self-heal)', () => {
+	it( 'reset-graph control shows only on the local graph with user-added nodes', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { queryByText } = render( <TopologyConsole /> );
 		// Boots into a worker view (_sse/demo.p0); a worker graph self-heals on
 		// respawn, so resetting the local console graph is meaningless → no chip.
 		expect( queryByText( 'reset-graph' ) ).toBeNull();
-		// cd to the local browser graph — the only ephemeral one → chip appears.
+		// cd to the local browser graph; without user-added nodes the chip is
+		// also hidden (nothing to reset — only the canonical console graph).
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
+		} );
+		expect( queryByText( 'reset-graph' ) ).toBeNull();
+		// Add a user node via the metadata payload → chip appears.
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: {
+				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
+			},
 		} );
 		expect( queryByText( 'reset-graph' ) ).not.toBeNull();
 		// The _http broadcast boundary is also a pivoted (worker) view, not the

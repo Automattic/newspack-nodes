@@ -1281,6 +1281,12 @@ export default function TopologyConsole() {
 		setResetKey( ( k ) => k + 1 );
 	}, [ cwd, PROTECTED_NODE_NAMES ] );
 
+	// Hide the Reset Graph chip when there's nothing to reset (only the
+	// canonical console graph remains). Mirrors the overlay's gating.
+	const hasUserAddedLocalNodes = parsed.nodes.some(
+		( n ) => ! PROTECTED_NODE_NAMES.has( n.id )
+	);
+
 	// DELETE shows only for a topology with a user-saved copy (stock is protected).
 	// Keyed off the source of the loaded topology (from the get/save response),
 	// so it appears on edit/after-save without first opening the Open modal.
@@ -1613,7 +1619,11 @@ export default function TopologyConsole() {
 					// broadcast boundary — self-heals on respawn, so a reset is
 					// meaningless.
 					onResetGraph:
-						mode === 'edit' || '' !== cwd ? null : resetLocalGraph,
+						mode === 'edit' ||
+						'' !== cwd ||
+						! hasUserAddedLocalNodes
+							? null
+							: resetLocalGraph,
 					editMode: mode === 'edit',
 				} }
 				resetKey={ `${ scope.key }|${ mode }|${ editingName }` }
