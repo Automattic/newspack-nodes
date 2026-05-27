@@ -1,40 +1,46 @@
 /**
- * useRawLogsGraph — mounts the Raw Logs dashboard node graph (the JS-Node
- * conversion of the old RawLogs component). On mount it builds three nodes —
- * `rawlogs/stream` (SSE-in), `rawlogs/transform` (envelope → row), `rawlogs/view`
- * (view model) — wires the data path stream → transform → view (plus
- * `stream.controlSink = view` so connection-status controls reach the view
- * directly, since the transform would drop them), fires the `list_logs` command
- * and feeds the result into the view (which defaults the
- * selection to the first log), then subscribes the stream to that log. The view
- * publishes its state via `setState('view', …)`; the React view reads it
- * separately with `useNodeState('rawlogs/view','view')`.
+ * useRawLogsGraph — mounts the Raw Logs dashboard node graph clipped onto the
+ * exospine (the canonical rule-#2 backbone `_command_interpreter → _router`).
+ *
+ * Graph: `rawlogs:stream` (SSE-in) → `rawlogs:route` (classifier) →
+ * `rawlogs:transform` (envelope → row) and/or `rawlogs:view` (view model).
+ * EVERY node sinks into the CI; flow is steered ONLY by each node's `target`
+ * (the router peels TO and delivers): the stream targets the route; the route
+ * stamps data → the transform and connection-status control → the view; the
+ * transform targets the view. There is no bespoke `sink`/`controlSink` wiring.
+ *
+ * On mount it fires the `list_logs` command and feeds the result into the view
+ * (which defaults the selection to the first log), then subscribes the stream
+ * to that log. The view publishes its state via `setState('view', …)`; the
+ * React view reads it with `useNodeState('rawlogs:view','view')`.
  *
  * Returns the thin control callbacks the view calls — `selectLog` (clear+select
  * in the view AND re-connect the stream) and `setPaused`. Torn down on unmount:
- * the stream is closed, then all three nodes are unregistered from Core.
+ * the stream is closed, the graph nodes are unregistered, then the exospine.
  *
  * I/O boundaries are injectable: tests pass `opts.connector` (the stream's
- * transport seam, mirroring rawLogsStream) and `opts.commandClient` (the
- * `list_logs` sender) so the hook never touches a real EventSource or the
- * network. Production lazily defaults the client to the shared singleton and the
- * connector to the real-EventSource transport inside `createRawLogsStream`.
+ * transport seam) and `opts.commandClient` (the `list_logs` sender) so the hook
+ * never touches a real EventSource or the network.
  */
 
 import { useEffect, useRef } from '@wordpress/element';
 import { Core } from '../../runtime/core';
+import { mountExospine } from '../../runtime/exospine';
 import { createRawLogsStream } from '../nodes/rawLogsStream';
+import { createRawLogsRoute } from '../nodes/rawLogsRoute';
 import { createRawLogsTransform } from '../nodes/rawLogsTransform';
 import { createRawLogsView } from '../nodes/rawLogsView';
 import { TYPE, VALUE, TM_STRUCT, newMessage } from '../../runtime/message';
 import { getCommandClient } from '../../shared/utils/commandClient';
 import unwrapCommandResponse from '../../shared/utils/unwrapCommandResponse';
 
-// Every named node this graph mounts — unregistered on teardown.
-const STREAM = 'rawlogs/stream';
-const TRANSFORM = 'rawlogs/transform';
-const VIEW = 'rawlogs/view';
-const GRAPH_NODE_NAMES = [ STREAM, TRANSFORM, VIEW ];
+// Every named node this graph mounts — unregistered on teardown (the exospine
+// nodes are removed separately by its own teardown()).
+const STREAM = 'rawlogs:stream';
+const ROUTE = 'rawlogs:route';
+const TRANSFORM = 'rawlogs:transform';
+const VIEW = 'rawlogs:view';
+const GRAPH_NODE_NAMES = [ STREAM, ROUTE, TRANSFORM, VIEW ];
 
 // Build a TM_STRUCT control message the view's fill() routes on its `action`.
 const controlMsg = ( value ) => {
@@ -65,14 +71,26 @@ export function useRawLogsGraph( opts = {} ) {
 	useEffect( () => {
 		const { connector, commandClient } = optsRef.current;
 
-		// Data path: stream → transform → view (the factories register them).
+		// The canonical backbone every node clips onto: everything → CI → router.
+		const { ci, teardown: teardownSpine } = mountExospine();
+
+		// Build the graph nodes (the factories register them in Core).
 		const stream = createRawLogsStream( STREAM, { connector } );
+		const route = createRawLogsRoute( ROUTE, {
+			dataTarget: TRANSFORM,
+			controlTarget: VIEW,
+		} );
 		const transform = createRawLogsTransform( TRANSFORM );
 		const view = createRawLogsView( VIEW );
-		stream.sink = transform;
-		transform.sink = view;
-		// Connection-status controls bypass the transform (which would drop them).
-		stream.controlSink = view;
+
+		// Rule #2: every node sinks into the CI; flow is steered by `target`.
+		stream.sink = ci;
+		stream.target = ROUTE;
+		route.sink = ci;
+		transform.sink = ci;
+		transform.target = VIEW;
+		view.sink = ci;
+
 		streamRef.current = stream;
 		viewRef.current = view;
 
@@ -102,6 +120,7 @@ export function useRawLogsGraph( opts = {} ) {
 			for ( const name of GRAPH_NODE_NAMES ) {
 				Core.unregisterNode( name );
 			}
+			teardownSpine();
 			streamRef.current = null;
 			viewRef.current = null;
 		};

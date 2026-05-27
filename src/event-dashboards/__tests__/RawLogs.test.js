@@ -2,7 +2,7 @@
  * RawLogs UI-surface tests — the thin view over the rawlogs node graph.
  *
  * The graph is owned by useRawLogsGraph (tested separately); here we mock it to
- * hand back spy control callbacks, and we register a fixture `rawlogs/view` node
+ * hand back spy control callbacks, and we register a fixture `rawlogs:view` node
  * in Core so the view can read its low-frequency model via useNodeState and its
  * high-frequency buffer (lines/lps) directly off the node in the rAF.
  */
@@ -21,7 +21,7 @@ jest.mock( '../hooks/useRawLogsGraph', () => ( {
 
 const { useRawLogsGraph } = require( '../hooks/useRawLogsGraph' );
 
-// A minimal stand-in for the rawlogs/view node: the low-frequency model lives in
+// A minimal stand-in for the rawlogs:view node: the low-frequency model lives in
 // setStateCache.view (what useNodeState subscribes to) and the high-frequency
 // buffer/LPS live directly on the instance (what the rAF reads). setState here
 // notifies subscribers exactly like the real Node.setState.
@@ -55,7 +55,7 @@ function registerViewFixture( {
 		},
 	};
 	node.setState( 'view', { logs, selected, paused, connectionError } );
-	Core.nodes.set( 'rawlogs/view', node );
+	Core.nodes.set( 'rawlogs:view', node );
 	return node;
 }
 
