@@ -33,45 +33,87 @@ export function useDebugGraph( active = true ) {
 
 	const handlers = useMemo(
 		() => ( {
+			// Every overlay dispatch stamps FROM = _output so verb replies (and
+			// `connect_node <id>` with no target — `tail` mode, defaulting to
+			// FROM) route into the transcript Dumper. Without it, replies fall
+			// off the end of the graph (no return address) and the Inspector
+			// buttons appear to do nothing.
 			onConnect: ( from, to ) =>
-				dispatchLocal( ci(), 'connect_node', `${ from } ${ to }` ),
-			onRemoveNode: ( id ) => dispatchLocal( ci(), 'remove_node', id ),
+				dispatchLocal(
+					ci(),
+					'connect_node',
+					`${ from } ${ to }`,
+					{},
+					names.OUTPUT
+				),
+			onRemoveNode: ( id ) =>
+				dispatchLocal( ci(), 'remove_node', id, {}, names.OUTPUT ),
 			onDropNode: ( { shellName } ) => {
 				// SchematicCanvas passes {shellName, x, y} — destructure to match.
 				// generateNodeName uniques against the live graph (read off Core,
 				// the source of truth) so the new id won't collide with an existing
 				// node. Position is cosmetic and not sent — poll-reflect lays out.
 				const name = generateNodeName( coreToGraph(), shellName );
-				dispatchLocal( ci(), 'make_node', `${ shellName } ${ name }` );
+				dispatchLocal(
+					ci(),
+					'make_node',
+					`${ shellName } ${ name }`,
+					{},
+					names.OUTPUT
+				);
 			},
 			onInspectorAction: ( action, nodeId, payload ) => {
 				// Parity with TopologyConsole.handleInspectorAction: dump, tail
 				// (connect_node with no target), disconnect, send, trace, invoke.
 				if ( action === 'dump' ) {
-					dispatchLocal( ci(), 'dump_node', nodeId );
+					dispatchLocal(
+						ci(),
+						'dump_node',
+						nodeId,
+						{},
+						names.OUTPUT
+					);
 				} else if ( action === 'tail' ) {
-					dispatchLocal( ci(), 'connect_node', nodeId );
+					dispatchLocal(
+						ci(),
+						'connect_node',
+						nodeId,
+						{},
+						names.OUTPUT
+					);
 				} else if ( action === 'disconnect' ) {
-					dispatchLocal( ci(), 'disconnect_node', nodeId );
+					dispatchLocal(
+						ci(),
+						'disconnect_node',
+						nodeId,
+						{},
+						names.OUTPUT
+					);
 				} else if ( action === 'send' ) {
 					dispatchLocal(
 						ci(),
 						'send_node',
-						`${ nodeId } ${ payload }`
+						`${ nodeId } ${ payload }`,
+						{},
+						names.OUTPUT
 					);
 				} else if ( action === 'trace' ) {
 					const level = typeof payload === 'number' ? payload : 1;
 					dispatchLocal(
 						ci(),
 						'debug_state',
-						`${ nodeId } ${ level }`
+						`${ nodeId } ${ level }`,
+						{},
+						names.OUTPUT
 					);
 				} else if ( action === 'invoke' && payload ) {
 					const { verb, positional } = payload;
 					dispatchLocal(
 						Core.node( `${ nodeId }:config` ) || ci(),
 						verb,
-						positional || ''
+						positional || '',
+						{},
+						names.OUTPUT
 					);
 				}
 			},
