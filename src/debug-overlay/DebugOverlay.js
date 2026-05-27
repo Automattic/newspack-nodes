@@ -127,9 +127,10 @@ export default function DebugOverlay( {
 		return null;
 	}
 
-	// Cap the transcript so it can't grow taller than the panel: panel height
-	// minus the 64px header row minus a 60px floor for canvas visibility.
-	const replMaxHeightPx = Math.max( 80, frame.h - 64 - 60 );
+	// Cap the transcript at panel-height minus the 64px header row. The canvas
+	// can shrink to nothing — that's fine, drag the transcript back down to
+	// recover it.
+	const replMaxHeightPx = Math.max( 80, frame.h - 64 );
 	// Shared canvas-background-click dismiss pattern (mirrors the console).
 	const onCanvasBackgroundClick = makeReplDismissHandler( {
 		replExpanded,
