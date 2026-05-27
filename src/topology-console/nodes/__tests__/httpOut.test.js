@@ -222,6 +222,66 @@ describe( 'HttpOut', () => {
 		expect( node.locked ).toBe( false );
 	} );
 
+	it( 'dedups connect_worker_input for the SAME worker within one locked batch', () => {
+		const { node, postBatch } = makeNode();
+		node.lock();
+		// dump_metadata + uptime both pivot to aggregator.p0 in one tick.
+		node.fill(
+			routed( { to: 'aggregator.p0', from: '_http/9/_metadata' } )
+		);
+		node.fill( routed( { to: 'aggregator.p0', from: '_http/9/_uptime' } ) );
+		node.flush();
+		const batch = batchOf( postBatch );
+		// One connect, then the two commands — not connect/cmd/connect/cmd.
+		expect( batch ).toHaveLength( 3 );
+		expect( batch[ 0 ][ VALUE ].name ).toBe( 'connect_worker_input' );
+		expect( batch[ 0 ][ VALUE ].arguments ).toBe( 'aggregator.p0' );
+		expect(
+			batch.filter( ( m ) => m[ VALUE ].name === 'connect_worker_input' )
+		).toHaveLength( 1 );
+	} );
+
+	it( 'keeps a separate connect for each DISTINCT worker in one locked batch', () => {
+		const { node, postBatch } = makeNode();
+		node.lock();
+		node.fill( routed( { to: 'aggregator.p0' } ) );
+		node.fill( routed( { to: 'firehose.p1' } ) );
+		node.flush();
+		const batch = batchOf( postBatch );
+		// connect(aggregator.p0), cmd, connect(firehose.p1), cmd.
+		expect( batch ).toHaveLength( 4 );
+		const connects = batch
+			.filter( ( m ) => m[ VALUE ].name === 'connect_worker_input' )
+			.map( ( m ) => m[ VALUE ].arguments );
+		expect( connects ).toEqual( [ 'aggregator.p0', 'firehose.p1' ] );
+	} );
+
+	it( 'matches on the reader head so {reader}/{node} dedups against bare {reader}', () => {
+		const { node, postBatch } = makeNode();
+		node.lock();
+		node.fill( routed( { to: 'demo.p0' } ) );
+		node.fill( routed( { to: 'demo.p0/firehose-in' } ) );
+		node.flush();
+		const batch = batchOf( postBatch );
+		expect(
+			batch.filter( ( m ) => m[ VALUE ].name === 'connect_worker_input' )
+		).toHaveLength( 1 );
+	} );
+
+	it( 'flush() resets dedup state so the next locked batch re-prepends connect', () => {
+		const { node, postBatch } = makeNode();
+		node.lock();
+		node.fill( routed( { to: 'aggregator.p0' } ) );
+		node.flush();
+		postBatch.mockClear();
+		node.lock();
+		node.fill( routed( { to: 'aggregator.p0' } ) );
+		node.flush();
+		const batch = batchOf( postBatch );
+		expect( batch ).toHaveLength( 2 );
+		expect( batch[ 0 ][ VALUE ].name ).toBe( 'connect_worker_input' );
+	} );
+
 	it( 'POSTs the bare command (no connect) when addressed to _http itself (cd /_http)', () => {
 		const { node, postBatch } = makeNode();
 		const m = newMessage();
