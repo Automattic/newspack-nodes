@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useState } from '@wordpress/element';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import GraphView from '../topology-console/components/GraphView';
+import ReplFooter from '../topology-console/components/ReplFooter';
 import { isDebugEnabled } from './isDebugEnabled';
 import { useDebugGraph } from './useDebugGraph';
+import { useDebugRepl } from './useDebugRepl';
 import './debug-overlay.scss';
 
 // Minimal canvas frame for the overlay — no topology/layout chrome.
@@ -27,7 +29,10 @@ export default function DebugOverlay( {
 	const enabled = isDebugEnabled( search );
 	const [ open, setOpen ] = useState( false );
 	const [ selected, setSelected ] = useState( null );
+	const [ replExpanded, setReplExpanded ] = useState( false );
+	const replInputRef = useRef( null );
 	const { graph, handlers } = useDebugGraph( enabled && open );
+	const { transcript, sendLine, clear } = useDebugRepl( enabled && open );
 
 	// Ctrl+` toggles the panel while enabled.
 	useEffect( () => {
@@ -80,6 +85,16 @@ export default function DebugOverlay( {
 							onInspectorAction={ handlers.onInspectorAction }
 							onPositionChange={ onPositionChange }
 							onSelectionChange={ setSelected }
+						/>
+						<ReplFooter
+							prompt="/"
+							canSend={ true }
+							onSubmit={ sendLine }
+							onClear={ clear }
+							transcript={ transcript }
+							expanded={ replExpanded }
+							onExpandedChange={ setReplExpanded }
+							inputRef={ replInputRef }
 						/>
 					</div>
 				</div>

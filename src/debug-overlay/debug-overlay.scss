@@ -51,19 +51,23 @@
 	display: flex;
 
 	// Re-shape the shared graph app for the overlay: drop the console's
-	// header / palette / repl rows and lay out only canvas (+ inspector when
-	// a node is selected). Reuses the real grid-area names from
-	// .topology-app (`canvas`, `inspector`).
+	// header / palette rows and lay out canvas + REPL footer (+ inspector
+	// when a node is selected). Reuses the real grid-area names from
+	// .topology-app (`canvas`, `inspector`, `repl`).
 	.topology-app {
 		flex: 1;
 		height: 100%;
-		grid-template-rows: 1fr;
+		grid-template-rows: 1fr auto;
 		grid-template-columns: 1fr 0;
-		grid-template-areas: "canvas inspector";
+		grid-template-areas:
+			"canvas inspector"
+			"repl   repl";
 
 		&.is-inspector-open {
 			grid-template-columns: 1fr 360px;
-			grid-template-areas: "canvas inspector";
+			grid-template-areas:
+				"canvas inspector"
+				"repl   repl";
 		}
 	}
 }
