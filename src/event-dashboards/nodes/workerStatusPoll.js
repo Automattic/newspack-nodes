@@ -1,16 +1,16 @@
 import { Node } from '../../runtime/node';
-import { VALUE, TYPE, TM_STRUCT, newMessage } from '../../runtime/message';
+import { VALUE, TO, TYPE, TM_STRUCT, newMessage } from '../../runtime/message';
 import { getCommandClient } from '../../shared/utils/commandClient';
 import unwrapCommandResponse from '../../shared/utils/unwrapCommandResponse';
 
 /**
- * `workerstatus/poll` — the ingest node that owns the worker-status command
+ * `workerstatus:poll` — the ingest node that owns the worker-status command
  * traffic, behind an injectable command-client seam.
  *
  * `poll()` sends `dump_metadata` to `workers` (the rich per-worker envelope the
  * dashboard needs; `workers.list` is the minimal CLI/topology projection),
  * unwraps the reply, and emits it as a TM_STRUCT `{ action:'metadata', metadata }`
- * to its sink (→ `workerstatus/transform`). `restart(type)` sends a graceful
+ * to its sink (→ `workerstatus:transform`). `restart(type)` sends a graceful
  * `restart` for that worker type across all partitions. Both surface failures as
  * a TM_STRUCT `{ action:'error', error }` control so the view can show them.
  *
@@ -78,6 +78,8 @@ class WorkerStatusPollNode extends Node {
 		}
 		const out = newMessage();
 		out[ TYPE ] = TM_STRUCT;
+		// Rule #2: stamp TO=target so the exospine router routes it (→ transform).
+		out[ TO ] = this.target;
 		out[ VALUE ] = value;
 		this.sink.fill( out );
 	}

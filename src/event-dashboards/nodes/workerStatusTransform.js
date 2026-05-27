@@ -1,8 +1,8 @@
 import { Node } from '../../runtime/node';
-import { VALUE, TYPE, TM_STRUCT, newMessage } from '../../runtime/message';
+import { VALUE, TO, TYPE, TM_STRUCT, newMessage } from '../../runtime/message';
 
 /**
- * `workerstatus/transform` — turn a `dump_metadata` snapshot into the enriched
+ * `workerstatus:transform` — turn a `dump_metadata` snapshot into the enriched
  * render model.
  *
  * Stateful: it holds the PREVIOUS snapshot's per-worker positions, per-log
@@ -42,8 +42,10 @@ class WorkerStatusTransformNode extends Node {
 			return;
 		}
 		if ( 'metadata' !== value.action ) {
-			// Control pass-through (error, etc.) — forward unchanged.
+			// Control pass-through (error, etc.) — forward unchanged, but stamp
+			// TO=target so the exospine router routes it (→ view). Rule #2.
 			if ( this.sink ) {
+				message[ TO ] = this.target;
 				this.sink.fill( message );
 			}
 			return;
@@ -213,6 +215,8 @@ class WorkerStatusTransformNode extends Node {
 		}
 		const out = newMessage();
 		out[ TYPE ] = TM_STRUCT;
+		// Rule #2: stamp TO=target so the exospine router routes it (→ view).
+		out[ TO ] = this.target;
 		out[ VALUE ] = { action: 'model', model };
 		this.sink.fill( out );
 	}

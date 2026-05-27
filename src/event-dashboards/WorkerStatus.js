@@ -1,10 +1,10 @@
 /**
  * Worker Status Component — log readers as a linear producer→consumer pipeline.
  *
- * THIN view over the `workerstatus/*` node graph (mounted by
- * `useWorkerStatusGraph`). The graph owns all data: `workerstatus/poll` runs the
- * dump_metadata poll, `workerstatus/transform` computes the read/write rates and
- * segment add/remove tracking, and `workerstatus/view` holds the render model.
+ * THIN view over the `workerstatus:*` node graph (mounted by
+ * `useWorkerStatusGraph`). The graph owns all data: `workerstatus:poll` runs the
+ * dump_metadata poll, `workerstatus:transform` computes the read/write rates and
+ * segment add/remove tracking, and `workerstatus:view` holds the render model.
  * This component only reads that model (via `useNodeState`) and renders — the
  * pure presentation helpers below (SegmentBar / LogSection / WorkerConnector /
  * SupervisorStatus / buildRenderPlan) are unchanged.
@@ -844,7 +844,7 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 	} = useWorkerStatusGraph( { refreshMs } );
 
 	// The single read surface: the enriched render model the graph publishes.
-	const model = useNodeState( 'workerstatus/view', 'view' ) ?? EMPTY_MODEL;
+	const model = useNodeState( 'workerstatus:view', 'view' ) ?? EMPTY_MODEL;
 	const {
 		workers,
 		supervisor,
