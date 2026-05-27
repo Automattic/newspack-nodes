@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import GraphView from '../topology-console/components/GraphView';
+import Header from '../topology-console/components/Header';
 import ReplFooter from '../topology-console/components/ReplFooter';
 import { useJsCatalog } from '../topology-console/hooks/useJsCatalog';
 import {
@@ -130,26 +131,14 @@ export default function DebugOverlay( {
 			</button>
 			{ open && (
 				<div className="nodes-debug__panel" data-testid="debug-panel">
-					<div className="nodes-debug__chrome">
-						<select
-							data-testid="debug-theme-select"
-							className="nodes-debug__theme"
-							value={ theme }
-							onChange={ ( e ) =>
-								onThemeChange( e.target.value )
-							}
-							aria-label={ __(
-								'Overlay theme',
-								'newspack-nodes'
-							) }
-						>
-							{ THEMES.map( ( t ) => (
-								<option key={ t.slug } value={ t.slug }>
-									{ t.label }
-								</option>
-							) ) }
-						</select>
-					</div>
+					<Header
+						theme={ theme }
+						onThemeChange={ onThemeChange }
+						themes={ THEMES }
+						mode="view"
+						pathOptions={ [] }
+						path=""
+					/>
 					<div
 						className={ `topology-app theme-${ theme }${
 							selected ? ' is-inspector-open' : ''

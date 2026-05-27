@@ -1,10 +1,10 @@
 /**
- * Debug overlay chrome — the floating FAB + panel that hosts <GraphView> on any
- * dashboard page. The graph-surface styles (tokens, themes, node/edge/inspector)
- * come from graph-view.scss via GraphView.js; this file only adds the overlay's
- * own chrome and re-shapes the .topology-app grid so it lays out canvas +
- * inspector ONLY (no header / palette / repl rows, which the overlay never
- * renders).
+ * Debug overlay chrome — the floating FAB + panel that hosts the shared
+ * topology <Header> + <GraphView> on any dashboard page. The graph-surface
+ * styles (tokens, themes, node/edge/inspector) and the header styles come from
+ * graph-view.scss via GraphView.js; this file only adds the overlay's own
+ * shell + re-shapes the .topology-app grid so it lays out palette + canvas +
+ * repl + inspector under the shared Header.
  */
 
 // Floating action button — bottom-right, above WP admin chrome.
@@ -82,24 +82,6 @@
 			grid-template-columns: 28px 1fr 360px;
 		}
 	}
-}
-
-// Top chrome row above the themed .topology-app — only the theme picker for now.
-.nodes-debug__chrome {
-	display: flex;
-	justify-content: flex-end;
-	padding: 6px 8px;
-	background: #18222e;
-	border-bottom: 1px solid #0d1117;
-}
-
-.nodes-debug__theme {
-	background: #18222e;
-	color: #f0e7d6;
-	border: 1px solid #5a6f7f;
-	padding: 2px 6px;
-	font-size: 12px;
-	cursor: pointer;
 }
 
 // PlainFrame canvas wrapper — fill the canvas grid area.
