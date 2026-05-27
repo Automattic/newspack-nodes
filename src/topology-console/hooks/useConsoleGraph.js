@@ -42,6 +42,10 @@ const GRAPH_NODE_NAMES = [
  * @param {string}  params.topology      Topology name.
  * @param {number}  params.partition     Partition number.
  * @param {boolean} params.enabled       Mount the graph (false = edit mode).
+ * @param {boolean} params.streamEnabled Open the SSE stream (cwd is a worker).
+ *                                       The graph (nodes) stays mounted regardless; this only gates the EventSource,
+ *                                       so cd-ing off a worker stops streaming without rebuilding the graph. Default
+ *                                       true (the initial cwd is the session's own worker).
  * @param {Object}  params.debugLevelRef React ref holding the Dumper verbosity dial.
  * @return {{status: string, ssePid: ?number, shell: ?Shell}} Connection state +
  *   the anonymous Shell (the console drives typed input through it).
@@ -50,6 +54,7 @@ export function useConsoleGraph( {
 	topology,
 	partition,
 	enabled,
+	streamEnabled = true,
 	debugLevelRef,
 } ) {
 	const [ ssePid, setSsePid ] = useState( null );
@@ -163,7 +168,9 @@ export function useConsoleGraph( {
 		router.register( 'TIMER', names.HEARTBEAT, () => heartbeat.onTimer() );
 
 		setShell( consoleShell );
-		sse.start();
+		// The EventSource is opened/closed by the stream-gating effect below (it
+		// depends on `streamEnabled`, which the graph build must not), so cd-ing off
+		// a worker can quiet the stream without tearing the whole graph down.
 		router.startTimer( 1000 );
 
 		return () => {
@@ -178,6 +185,28 @@ export function useConsoleGraph( {
 			setShell( null );
 		};
 	}, [ topology, partition, enabled ] );
+
+	// SSE stream gating: open the EventSource only while the graph is mounted AND
+	// the cwd is a worker (streamEnabled). Closing on cd-off-worker drops the pid
+	// and the heartbeat slot (the keepalive goes quiet, so the server reclaims the
+	// slot at TTL); cd-ing back reopens and re-acquires via the `connected` event.
+	useEffect( () => {
+		if ( ! enabled ) {
+			return undefined;
+		}
+		const sse = Core.node( names.SSE );
+		if ( ! sse ) {
+			return undefined;
+		}
+		if ( streamEnabled ) {
+			sse.start();
+		} else {
+			sse.close();
+			Core.node( names.HEARTBEAT )?.clearSlot();
+			setSsePid( null );
+		}
+		return undefined;
+	}, [ streamEnabled, topology, partition, enabled ] );
 
 	let status = 'open';
 	if ( ! enabled ) {
