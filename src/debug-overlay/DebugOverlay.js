@@ -113,7 +113,7 @@ export default function DebugOverlay( {
 		onHeaderPointerDown,
 		getResizeHandlers,
 		toggleMaximize,
-	} = useDebugFrame( `${ storageKey }:frame` );
+	} = useDebugFrame( `${ storageKey }:frame`, enabled && open );
 
 	// "Reset graph" in the overlay = remove every node the user added via the
 	// overlay since the panel first opened, leaving the dashboard's own nodes
