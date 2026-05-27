@@ -463,3 +463,42 @@ describe( 'useConsoleGraph — lifecycle', () => {
 		expect( Core.node( names.HTTP ) ).toBeNull();
 	} );
 } );
+
+describe( 'useConsoleGraph — SSE stream gating (cwd is a worker)', () => {
+	const rerenderProps = ( streamEnabled ) => ( {
+		topology: 'demo',
+		partition: 0,
+		enabled: true,
+		debugLevelRef: { current: 0 },
+		streamEnabled,
+	} );
+
+	it( 'does NOT open the stream when streamEnabled is false (cwd not a worker)', () => {
+		renderGraph( { streamEnabled: false } );
+		expect( lastConnector.started ).toBe( false );
+	} );
+
+	it( 'opens the stream when streamEnabled flips true (cd back onto a worker)', () => {
+		const { rerender } = renderGraph( { streamEnabled: false } );
+		expect( lastConnector.started ).toBe( false );
+		act( () => rerender( rerenderProps( true ) ) );
+		expect( lastConnector.started ).toBe( true );
+	} );
+
+	it( 'closes the stream and resets the pid when streamEnabled flips false', () => {
+		const { result, rerender } = renderGraph( { streamEnabled: true } );
+		act( () => lastConnector.emitConnected( 4242 ) );
+		expect( result.current.ssePid ).toBe( 4242 );
+		act( () => rerender( rerenderProps( false ) ) );
+		expect( lastConnector.closed ).toBe( true );
+		expect( result.current.ssePid ).toBeNull();
+	} );
+
+	it( 'clears the heartbeat slot when the stream is gated off', () => {
+		const { rerender } = renderGraph( { streamEnabled: true } );
+		act( () => lastConnector.emitConnected( 4242 ) ); // sets slot 1
+		expect( Core.node( names.HEARTBEAT ).slot ).toBe( 1 );
+		act( () => rerender( rerenderProps( false ) ) );
+		expect( Core.node( names.HEARTBEAT ).slot ).toBeNull();
+	} );
+} );

@@ -84,6 +84,25 @@ test( 'close() closes the EventSource', () => {
 	expect( FakeEventSource.last.closed ).toBe( true );
 } );
 
+test( 'close() forgets the session pid so a reopen does not report a stale one', () => {
+	const s = new SseConnector( {
+		subscribe: [ 'x' ],
+		baseUrl: '/',
+		nonce: 'n',
+	} );
+	s.start();
+	const m = newMessage();
+	m[ TYPE ] = TM_INFO;
+	m[ KEY ] = 'connected';
+	m[ VALUE ] = { pid: 4242, slot: 1 };
+	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+	expect( s.pid() ).toBe( 4242 );
+	s.close();
+	// After the stream closes (e.g. cd off a worker), the old session is gone —
+	// a reopen must NOT report the prior pid until a fresh `connected` arrives.
+	expect( s.pid() ).toBeNull();
+} );
+
 test( 'start() called twice closes the first EventSource before opening the second', () => {
 	const s = new SseConnector( {
 		subscribe: [ 'x' ],

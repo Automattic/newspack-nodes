@@ -165,6 +165,29 @@ function longestWorkerPrefix( path, options ) {
 	return best ? parseWorker( best ) : null;
 }
 
+// The `_sse/{topology}.p{N}` path the cwd resolves to — the longest ACTIVE worker
+// menu item that prefixes it — or null when the cwd isn't (under) a live worker.
+// Active-set aware: a worker-SHAPED path for an inactive topology has no menu
+// entry, so it returns null. This is the SINGLE worker-detection both gates share
+// — the canvas poll target AND the SSE stream gate — so they never disagree (a
+// pure-regex stream gate once opened the EventSource for a path the poll gate
+// couldn't reach, stranding a slot with no keepalive).
+export function workerPollPath( cwd, pathOptions ) {
+	const worker = longestWorkerPrefix( cwd, pathOptions );
+	return worker ? `_sse/${ worker.topology }.p${ worker.partition }` : null;
+}
+
+// The poll path the silent poll nodes (`_metadata` / `_uptime` / `_heartbeat`)
+// should poke, or null to suppress polling. Polling additionally requires a live
+// connection (`ssePid`) and not edit mode; the stream gate uses workerPollPath
+// directly (it can't wait on ssePid — the stream is what produces it).
+export function pollTargetFor( { cwd, mode, ssePid, pathOptions } ) {
+	if ( 'edit' === mode || ! ssePid ) {
+		return null;
+	}
+	return workerPollPath( cwd, pathOptions );
+}
+
 function readUrlParam( key ) {
 	try {
 		return new URLSearchParams( window.location.search ).get( key );
@@ -259,11 +282,40 @@ export default function TopologyConsole() {
 	// so the Dumper reads it per-frame without re-binding the graph.
 	const debugLevelRef = useRef( 0 );
 
-	// SSE off in edit mode so offline authoring doesn't poke the live worker.
+	// Shell cwd mirrored into React so the prompt + the canvas poll follow `cd`.
+	// `shell.path` is the source of truth; a graph swap (topology/partition change)
+	// remounts the Shell with a fresh path, so re-sync whenever `shell` changes
+	// (synced by the effect below, after `shell` exists). Declared here so the SSE
+	// stream gate can read it.
+	const [ cwd, setCwd ] = useState( '' );
+
+	// Every cwd the Path menu can select: the local graph, the request scope, then
+	// one entry per worker — only for ACTIVE topologies (inactive ones have no live
+	// workers to reach). Declared here (above useConsoleGraph) so the SSE stream
+	// gate can resolve the cwd against it. An off-menu cwd is surfaced by the Header.
+	const pathOptions = useMemo( () => {
+		const active = activeTopologySet();
+		return [
+			'',
+			'_sse',
+			...sortedTopologies()
+				.filter( ( t ) => active.has( t ) )
+				.flatMap( ( t ) =>
+					partitionList( t ).map( ( p ) => `_sse/${ t }.p${ p }` )
+				),
+		];
+	}, [] );
+
+	// SSE off in edit mode so offline authoring doesn't poke the live worker; the
+	// stream also goes quiet when the cwd isn't a (live) worker (nothing to stream),
+	// so a `cd /` or `cd /_sse` drops the EventSource without tearing the graph down.
+	// Uses the SAME worker detection as the poll gate (workerPollPath), so the
+	// stream never opens for a path the poll/heartbeat gate can't reach.
 	const { status, ssePid, shell } = useConsoleGraph( {
 		topology,
 		partition,
 		enabled: mode !== 'edit',
+		streamEnabled: null !== workerPollPath( cwd, pathOptions ),
 		debugLevelRef,
 	} );
 
@@ -280,10 +332,8 @@ export default function TopologyConsole() {
 	// The silent canvas polls fill the CommandInterpreter directly (§5).
 	const fillCommandInterpreter = useNodeFill( names.COMMAND_INTERPRETER );
 
-	// Shell cwd mirrored into React so the prompt + the canvas poll follow `cd`.
-	// `shell.path` is the source of truth; a graph swap (topology/partition change)
-	// remounts the Shell with a fresh path, so re-sync whenever `shell` changes.
-	const [ cwd, setCwd ] = useState( '' );
+	// Re-sync the mirrored cwd whenever `shell` changes (a graph swap remounts the
+	// Shell with a fresh path). The state itself is declared above useConsoleGraph.
 	useEffect( () => {
 		if ( shell ) {
 			setCwd( shell.path );
@@ -525,22 +575,6 @@ export default function TopologyConsole() {
 	const layoutDirty = ! layoutsEqualSaved;
 
 	const partitions = useMemo( () => partitionList( topology ), [ topology ] );
-
-	// Every cwd the Path menu can select: the local graph, the request scope,
-	// then one entry per worker — only for ACTIVE topologies (inactive ones have
-	// no live workers to reach). An off-menu cwd is still surfaced by the Header.
-	const pathOptions = useMemo( () => {
-		const active = activeTopologySet();
-		return [
-			'',
-			'_sse',
-			...sortedTopologies()
-				.filter( ( t ) => active.has( t ) )
-				.flatMap( ( t ) =>
-					partitionList( t ).map( ( p ) => `_sse/${ t }.p${ p }` )
-				),
-		];
-	}, [] );
 
 	// Path selection — shared by the Path menu and REPL `cd`. Sets the cwd to the
 	// path verbatim (free navigation: ANY path is allowed), then mounts the
@@ -788,28 +822,30 @@ export default function TopologyConsole() {
 	// so edit mode / pre-pid emit nothing and HttpOut.flush() posts an empty
 	// buffer = no request.
 	useEffect( () => {
-		// dump_metadata / uptime are worker-level polls, so they target the LCP —
-		// the longest worker menu item that prefixes the cwd (the path the menu
-		// selects), NOT a deep sub-node cwd (which would route past the worker CI).
-		// Non-worker cwds (local '', `_sse`, `_http`) poll themselves.
-		const worker = longestWorkerPrefix( cwd, pathOptions );
-		const pollPath = worker
-			? `_sse/${ worker.topology }.p${ worker.partition }`
-			: cwd;
-		const to = mode !== 'edit' && ssePid ? pollPath : null;
-		const meta = Core.node( names.METADATA );
-		const up = Core.node( names.UPTIME );
-		if ( meta ) {
-			meta.pollTo = to;
-		}
-		if ( up ) {
-			up.pollTo = to;
+		// All three poll nodes target the worker LCP (the longest worker menu item
+		// that prefixes the cwd) — NOT a deep sub-node cwd (which would route past
+		// the worker CI). A non-worker cwd (local '', `_sse`, `_http`) has no worker
+		// CI to poll, so pollTargetFor returns null and all three go quiet.
+		const to = pollTargetFor( { cwd, mode, ssePid, pathOptions } );
+		for ( const name of [
+			names.METADATA,
+			names.UPTIME,
+			names.HEARTBEAT,
+		] ) {
+			const node = Core.node( name );
+			if ( node ) {
+				node.pollTo = to;
+			}
 		}
 		// Keep the Shell's `status` builtin lines current with the session/cwd so
 		// the carrier it slices at parse time reflects live state (PHP stashes a
 		// static mode summary; the browser cwd moves, so we refresh here).
 		if ( shell ) {
-			shell.statusLines = statusLines( { ssePid, cwd, worker } );
+			shell.statusLines = statusLines( {
+				ssePid,
+				cwd,
+				worker: longestWorkerPrefix( cwd, pathOptions ),
+			} );
 		}
 	}, [ shell, mode, ssePid, cwd, pathOptions ] );
 

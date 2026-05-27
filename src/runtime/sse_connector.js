@@ -49,5 +49,9 @@ export class SseConnector extends Node {
 			this._es.close();
 		}
 		this._es = null;
+		// Forget the session identity so pid() doesn't report a stale pid after a
+		// reopen (the stream can be closed/reopened on cd off/onto a worker); a
+		// fresh `connected` envelope repopulates it.
+		this.setStateCache.connected = undefined;
 	}
 }
