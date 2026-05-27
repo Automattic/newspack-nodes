@@ -9,6 +9,7 @@ import {
 	newMessage,
 	valueSize,
 } from './message';
+import names from './reserved-node-names.json';
 
 export const MAX_FROM_SIZE = 1024;
 
@@ -172,6 +173,35 @@ export class Node {
 	// eslint-disable-next-line no-unused-vars
 	disconnectNode( target = '' ) {
 		this.target = '';
+	}
+
+	// Emit the round-trippable config for this node — `make_node <Type> <name>
+	// [<arguments>]`, a `set_sink` line when the sink isn't the default CI, and a
+	// `connect_node` per target. Mirrors PHP Node::dump_config (the JS runtime
+	// doesn't track invoked verbs, so there's no `cmd` replay line).
+	dumpConfig() {
+		let out = `make_node ${ this.constructor.name } ${ this.name }`;
+		if ( this.arguments ) {
+			out += ` ${ this.arguments }`;
+		}
+		out += '\n';
+
+		const sinkName = this.sink && this.sink.name ? this.sink.name : '';
+		if ( '' !== sinkName && names.COMMAND_INTERPRETER !== sinkName ) {
+			out += `set_sink ${ this.name } ${ sinkName }\n`;
+		}
+
+		if ( Array.isArray( this.target ) ) {
+			for ( const owner of this.target ) {
+				if ( owner ) {
+					out += `connect_node ${ this.name } ${ owner }\n`;
+				}
+			}
+		} else if ( 'string' === typeof this.target && '' !== this.target ) {
+			out += `connect_node ${ this.name } ${ this.target }\n`;
+		}
+
+		return out;
 	}
 
 	// Teardown. Order matters: own name LAST, so in-flight Core.node() lookups

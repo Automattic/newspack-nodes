@@ -675,19 +675,6 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 		} );
 	} );
 
-	describe( 'dump_config', () => {
-		it( 'is not a verb (browser nodes are not make_node-authored)', () => {
-			const ci = makeCi();
-			expect( ci.commands().dump_config ).toBeUndefined();
-		} );
-		it( 'is not offered as a help topic', () => {
-			const ci = makeCi();
-			expect( dispatch( ci, 'help', 'dump_config' ) ).toBe(
-				'no such topic: "dump_config"'
-			);
-		} );
-	} );
-
 	describe( 'stats', () => {
 		it( 'tabulates sibling counters with the canonical header', () => {
 			const ci = makeCi();
@@ -901,6 +888,43 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 			dispatch( ci, 'make_node', 'Tee dup' );
 			expect( () => dispatch( ci, 'make_node', 'Node dup' ) ).toThrow(
 				/collision/i
+			);
+		} );
+	} );
+
+	describe( 'dump_config (mirrors PHP)', () => {
+		it( 'emits a make_node line carrying the arguments', () => {
+			const ci = makeCi();
+			dispatch( ci, 'make_node', 'Tee t a b' );
+			expect( dispatch( ci, 'dump_config' ) ).toContain(
+				'make_node Tee t a b'
+			);
+		} );
+
+		it( 'emits set_sink only when the sink is not the CI', () => {
+			const ci = makeCi();
+			dispatch( ci, 'make_node', 'Tee a' );
+			dispatch( ci, 'make_node', 'Node b' );
+			dispatch( ci, 'set_sink', 'a b' );
+			const out = dispatch( ci, 'dump_config' );
+			expect( out ).toContain( 'set_sink a b' );
+			// `b` sinks into the CI by default → no set_sink line for it.
+			expect( out ).not.toContain( 'set_sink b' );
+		} );
+
+		it( 'emits connect_node for a target', () => {
+			const ci = makeCi();
+			dispatch( ci, 'make_node', 'Tee a' );
+			dispatch( ci, 'connect_node', 'a dest' );
+			expect( dispatch( ci, 'dump_config' ) ).toContain(
+				'connect_node a dest'
+			);
+		} );
+
+		it( 'skips the backbone (_command_interpreter)', () => {
+			const ci = makeCi();
+			expect( dispatch( ci, 'dump_config' ) ).not.toContain(
+				'_command_interpreter'
 			);
 		} );
 	} );
