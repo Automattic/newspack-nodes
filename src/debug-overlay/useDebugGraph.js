@@ -42,8 +42,27 @@ export function useDebugGraph( active = true ) {
 					`${ shellName } ${ shellName.toLowerCase() }-${ Date.now() }`
 				),
 			onInspectorAction: ( action, nodeId, payload ) => {
+				// Parity with TopologyConsole.handleInspectorAction: dump, tail
+				// (connect_node with no target), disconnect, send, trace, invoke.
 				if ( action === 'dump' ) {
 					dispatchLocal( ci(), 'dump_node', nodeId );
+				} else if ( action === 'tail' ) {
+					dispatchLocal( ci(), 'connect_node', nodeId );
+				} else if ( action === 'disconnect' ) {
+					dispatchLocal( ci(), 'disconnect_node', nodeId );
+				} else if ( action === 'send' ) {
+					dispatchLocal(
+						ci(),
+						'send_node',
+						`${ nodeId } ${ payload }`
+					);
+				} else if ( action === 'trace' ) {
+					const level = typeof payload === 'number' ? payload : 1;
+					dispatchLocal(
+						ci(),
+						'debug_state',
+						`${ nodeId } ${ level }`
+					);
 				} else if ( action === 'invoke' && payload ) {
 					const { verb, positional } = payload;
 					dispatchLocal(
