@@ -307,6 +307,12 @@ export default function TopologyConsole() {
 	// (teardown + rebuild) after a self-inflicted live edit, without reloading.
 	const [ resetKey, setResetKey ] = useState( 0 );
 
+	// resetLocalGraph stashes the cwd here so the [shell] sync effect can restore
+	// it after useConsoleGraph rehomes Shell.path to the default `_sse/{reader}`.
+	// Without this, "reset graph" would yank the user off `/` (or wherever they
+	// were) every time. Null = no restore pending.
+	const cwdRestoreRef = useRef( null );
+
 	// Shell cwd mirrored into React so the prompt + the canvas poll follow `cd`.
 	// `shell.path` is the source of truth; a graph swap (topology/partition change)
 	// remounts the Shell with a fresh path, so re-sync whenever `shell` changes
@@ -359,9 +365,14 @@ export default function TopologyConsole() {
 	const fillCommandInterpreter = useNodeFill( names.COMMAND_INTERPRETER );
 
 	// Re-sync the mirrored cwd whenever `shell` changes (a graph swap remounts the
-	// Shell with a fresh path). The state itself is declared above useConsoleGraph.
+	// Shell with a fresh path). If a reset was the cause of the remount, restore
+	// the pre-reset cwd onto the shell instead of inheriting its default path.
 	useEffect( () => {
 		if ( shell ) {
+			if ( cwdRestoreRef.current !== null ) {
+				shell.path = cwdRestoreRef.current;
+				cwdRestoreRef.current = null;
+			}
 			setCwd( shell.path );
 		}
 	}, [ shell ] );
@@ -1205,6 +1216,50 @@ export default function TopologyConsole() {
 		setViewport( null );
 	}, [] );
 
+	// "Reset graph" — a real reset of the local browser graph. Wipes every Core
+	// node that isn't part of the canonical console graph (i.e. user `make_node`s
+	// that survived a self-inflicted break), clears local-scope layout state so
+	// the canvas re-autofits cleanly, then bumps resetKey to rebuild the spine.
+	// cwdRestoreRef carries the user's cwd through the remount (otherwise the
+	// rebuilt Shell snaps path back to `_sse/{reader}` and drags cwd along).
+	const PROTECTED_NODE_NAMES = useMemo(
+		() =>
+			new Set( [
+				names.COMMAND_INTERPRETER,
+				names.ROUTER,
+				names.OUTPUT,
+				names.METADATA,
+				names.UPTIME,
+				names.COMPLETION,
+				names.HEARTBEAT,
+				names.HTTP,
+				names.SSE,
+				names.CWD,
+			] ),
+		[]
+	);
+	const resetLocalGraph = useCallback( () => {
+		cwdRestoreRef.current = cwd;
+		for ( const name of [ ...Core.nodes.keys() ] ) {
+			if ( ! PROTECTED_NODE_NAMES.has( name ) ) {
+				Core.unregisterNode( name );
+			}
+		}
+		setPositionOverrides( {} );
+		setViewport( null );
+		try {
+			window.localStorage.removeItem(
+				'newspack-nodes:topology:local:positions'
+			);
+			window.localStorage.removeItem(
+				'newspack-nodes:topology:local:viewport'
+			);
+		} catch ( _err ) {
+			// localStorage disabled — in-session only.
+		}
+		setResetKey( ( k ) => k + 1 );
+	}, [ cwd, PROTECTED_NODE_NAMES ] );
+
 	// DELETE shows only for a topology with a user-saved copy (stock is protected).
 	// Keyed off the source of the loaded topology (from the get/save response),
 	// so it appears on edit/after-save without first opening the Open modal.
@@ -1537,9 +1592,7 @@ export default function TopologyConsole() {
 					// broadcast boundary — self-heals on respawn, so a reset is
 					// meaningless.
 					onResetGraph:
-						mode === 'edit' || '' !== cwd
-							? null
-							: () => setResetKey( ( k ) => k + 1 ),
+						mode === 'edit' || '' !== cwd ? null : resetLocalGraph,
 					editMode: mode === 'edit',
 				} }
 				resetKey={ `${ scope.key }|${ mode }|${ editingName }` }
