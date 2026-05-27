@@ -284,6 +284,10 @@ export default function TopologyConsole() {
 	// so the Dumper reads it per-frame without re-binding the graph.
 	const debugLevelRef = useRef( 0 );
 
+	// Bumped by the "reset graph" control to remount the browser console graph
+	// (teardown + rebuild) after a self-inflicted live edit, without reloading.
+	const [ resetKey, setResetKey ] = useState( 0 );
+
 	// Shell cwd mirrored into React so the prompt + the canvas poll follow `cd`.
 	// `shell.path` is the source of truth; a graph swap (topology/partition change)
 	// remounts the Shell with a fresh path, so re-sync whenever `shell` changes
@@ -319,6 +323,7 @@ export default function TopologyConsole() {
 		enabled: mode !== 'edit',
 		streamEnabled: null !== workerPollPath( cwd, pathOptions ),
 		debugLevelRef,
+		resetKey,
 	} );
 
 	// Canvas/transcript state lives on dedicated nodes (WIRING-PLAN §4): the
@@ -1199,31 +1204,47 @@ export default function TopologyConsole() {
 		return augmentWithVirtualEdges( baseCanvasGraph );
 	}, [ baseCanvasGraph, mode, augmentWithVirtualEdges ] );
 
-	const handleConnect = useCallback( ( from, to ) => {
-		setDraft( ( g ) => {
-			// Non-Tee nodes have a single target slot; Tees fan out.
-			const fromNode = g.nodes.find( ( n ) => n.id === from );
-			if ( fromNode && fromNode.class !== 'Tee' ) {
-				let cleared = { nodes: g.nodes, edges: g.edges };
-				for ( const e of g.edges ) {
-					if ( e.from === from ) {
-						cleared = removeEdge( cleared, e.from, e.to );
-					}
-				}
-				return addEdge( cleared, { from, to } );
+	const handleConnect = useCallback(
+		( from, to ) => {
+			// Live canvas: the gesture is a live command at the current cwd.
+			if ( mode !== 'edit' ) {
+				sendLine( `connect_node ${ from } ${ to }` );
+				return;
 			}
-			return addEdge( g, { from, to } );
-		} );
-	}, [] );
+			setDraft( ( g ) => {
+				// Non-Tee nodes have a single target slot; Tees fan out.
+				const fromNode = g.nodes.find( ( n ) => n.id === from );
+				if ( fromNode && fromNode.class !== 'Tee' ) {
+					let cleared = { nodes: g.nodes, edges: g.edges };
+					for ( const e of g.edges ) {
+						if ( e.from === from ) {
+							cleared = removeEdge( cleared, e.from, e.to );
+						}
+					}
+					return addEdge( cleared, { from, to } );
+				}
+				return addEdge( g, { from, to } );
+			} );
+		},
+		[ mode, sendLine ]
+	);
 
 	const handleRemoveNode = useCallback(
 		( id ) => {
+			// Live canvas: the gesture is a live command at the current cwd.
+			if ( mode !== 'edit' ) {
+				sendLine( `remove_node ${ id }` );
+				if ( selectedId === id ) {
+					setSelectedId( null );
+				}
+				return;
+			}
 			setDraft( ( g ) => removeNode( g, id ) );
 			if ( selectedId === id ) {
 				setSelectedId( null );
 			}
 		},
-		[ selectedId ]
+		[ mode, sendLine, selectedId ]
 	);
 
 	const handleRemoveEdge = useCallback(
@@ -1270,11 +1291,10 @@ export default function TopologyConsole() {
 		return true;
 	}, [ replExpanded ] );
 
-	// Edit-mode Delete/Backspace removes the selection (skipped in form fields).
+	// Delete/Backspace removes the selection (skipped in form fields). Active in
+	// both modes: edit mutates the draft, live dispatches a live command (via
+	// handleRemoveNode's branch). Edge-delete is draft-only (no live edge id).
 	useEffect( () => {
-		if ( mode !== 'edit' ) {
-			return undefined;
-		}
 		const onKey = ( e ) => {
 			if ( e.key !== 'Delete' && e.key !== 'Backspace' ) {
 				return;
@@ -1290,7 +1310,7 @@ export default function TopologyConsole() {
 			if ( selectedId ) {
 				e.preventDefault();
 				handleRemoveNode( selectedId );
-			} else if ( selectedEdge ) {
+			} else if ( mode === 'edit' && selectedEdge ) {
 				e.preventDefault();
 				handleRemoveEdge( selectedEdge.from, selectedEdge.to );
 			}
@@ -1589,6 +1609,14 @@ export default function TopologyConsole() {
 
 	const handleDropNode = useCallback(
 		( { shellName, x, y } ) => {
+			// Live canvas: dispatch a live make_node; position is cosmetic and
+			// not sent (poll-reflect lays it out). Name uniqued against the
+			// live graph so it won't collide with an existing node.
+			if ( mode !== 'edit' ) {
+				const name = generateNodeName( parsed, shellName );
+				sendLine( `make_node ${ shellName } ${ name }` );
+				return;
+			}
 			// Snap to the grid so dropped nodes line up and don't drift.
 			const snapped = snapToGrid( x, y );
 			setDraft( ( g ) => {
@@ -1602,7 +1630,7 @@ export default function TopologyConsole() {
 				} );
 			} );
 		},
-		[ handlePositionChange, snapToGrid ]
+		[ mode, parsed, sendLine, handlePositionChange, snapToGrid ]
 	);
 
 	// rateVersion is the recompute signal; the data lives in mutable rateRef.
@@ -1650,6 +1678,9 @@ export default function TopologyConsole() {
 				isWorker={ mode === 'edit' ? true : scope.isWorker }
 				onResetLayout={ hasOverrides ? handleResetLayout : null }
 				onSaveLayout={ layoutDirty ? handleSaveLayout : null }
+				onResetGraph={
+					mode === 'edit' ? null : () => setResetKey( ( k ) => k + 1 )
+				}
 				editMode={ mode === 'edit' }
 			>
 				<SchematicCanvas
@@ -1671,6 +1702,7 @@ export default function TopologyConsole() {
 					rateVersion={ rateVersion }
 					viewport={ viewport }
 					onViewportChange={ handleViewportChange }
+					interactive={ true }
 					editMode={ mode === 'edit' }
 					onDropNode={ handleDropNode }
 					onConnect={ handleConnect }

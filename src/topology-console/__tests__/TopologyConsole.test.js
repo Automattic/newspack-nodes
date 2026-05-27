@@ -478,6 +478,11 @@ jest.mock( '../components/CanvasFrame', () => ( props ) => {
 					reset-layout
 				</button>
 			) }
+			{ props.onResetGraph && (
+				<button onClick={ () => props.onResetGraph() }>
+					reset-graph
+				</button>
+			) }
 			{ props.children }
 		</div>
 	);
@@ -1428,6 +1433,58 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'connect-a-b' ) );
 		} );
 		expect( lastCanvasProps ).not.toBeNull();
+	} );
+
+	it( 'live canvas: connect gesture dispatches connect_node via sendLine', () => {
+		const { container, getByText } = render( <TopologyConsole /> );
+		fireEvent.click( getByText( 'connect-a-b' ) );
+		const items = container.querySelectorAll(
+			'[data-testid="repl-transcript"] li'
+		);
+		const sent = Array.from( items ).find(
+			( i ) => i.dataset.kind === 'sent'
+		);
+		expect( sent ).not.toBeUndefined();
+		expect( sent.textContent ).toMatch( /^connect_node a b$/ );
+	} );
+
+	it( 'live canvas: palette drop dispatches make_node via sendLine', () => {
+		const { container, getByText } = render( <TopologyConsole /> );
+		fireEvent.click( getByText( 'drop-echo' ) );
+		const items = container.querySelectorAll(
+			'[data-testid="repl-transcript"] li'
+		);
+		const sent = Array.from( items ).find(
+			( i ) => i.dataset.kind === 'sent'
+		);
+		expect( sent ).not.toBeUndefined();
+		expect( sent.textContent ).toMatch( /^make_node Echo \S+$/ );
+	} );
+
+	it( 'live canvas: delete selected node dispatches remove_node via sendLine', () => {
+		const { container, getByText } = render( <TopologyConsole /> );
+		fireEvent.click( getByText( 'select-n1' ) );
+		fireEvent.click( getByText( 'remove-n1' ) );
+		const items = container.querySelectorAll(
+			'[data-testid="repl-transcript"] li'
+		);
+		const sent = Array.from( items ).find(
+			( i ) => i.dataset.kind === 'sent'
+		);
+		expect( sent ).not.toBeUndefined();
+		expect( sent.textContent ).toMatch( /^remove_node n1$/ );
+	} );
+
+	it( 'live canvas: SchematicCanvas receives interactive=true in view mode', () => {
+		render( <TopologyConsole /> );
+		expect( lastCanvasProps.interactive ).toBe( true );
+	} );
+
+	it( 'live canvas: reset-graph control re-mounts the graph without throwing', () => {
+		const { getByText } = render( <TopologyConsole /> );
+		expect( () =>
+			fireEvent.click( getByText( 'reset-graph' ) )
+		).not.toThrow();
 	} );
 
 	it( 'edit mode: dropNode adds a node + persists its position', async () => {

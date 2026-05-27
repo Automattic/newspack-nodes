@@ -153,10 +153,13 @@ export default function SchematicCanvas( {
 	rateVersion,
 	viewport,
 	onViewportChange,
-	// Edit-mode affordances; no-ops in view mode. onDropNode receives
-	// SVG-space coords; onConnect fires on OUT-port → IN-port drag.
+	// Gesture handlers. onDropNode receives SVG-space coords; onConnect fires
+	// on OUT-port → IN-port drag. `interactive` gates the gesture machinery
+	// (true in both live + edit); `editMode` gates only draft-specific
+	// affordances (edge-select hit target, out-port styling).
 	onDropNode,
 	onConnect,
+	interactive = true,
 	editMode = false,
 	selectedEdge = null,
 	onSelectEdge,
@@ -229,7 +232,7 @@ export default function SchematicCanvas( {
 
 	const handlePortPointerDown = useCallback(
 		( nodeId, e ) => {
-			if ( ! editMode || ! onConnect || e.button !== 0 ) {
+			if ( ! interactive || ! onConnect || e.button !== 0 ) {
 				return;
 			}
 			if ( portDownGuardRef.current ) {
@@ -273,7 +276,7 @@ export default function SchematicCanvas( {
 		},
 		// handleWindowWireMove/Up close over wireDragRef + nodes; not deps.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[ editMode, onConnect, nodes, updateWireDrag ]
+		[ interactive, onConnect, nodes, updateWireDrag ]
 	);
 
 	function handleWindowWireMove( e ) {
@@ -325,19 +328,19 @@ export default function SchematicCanvas( {
 
 	const handleDragOver = useCallback(
 		( e ) => {
-			if ( ! editMode ) {
+			if ( ! interactive ) {
 				return;
 			}
 			// preventDefault marks the surface as a valid drop target.
 			e.preventDefault();
 			e.dataTransfer.dropEffect = 'copy';
 		},
-		[ editMode ]
+		[ interactive ]
 	);
 
 	const handleDrop = useCallback(
 		( e ) => {
-			if ( ! editMode || ! onDropNode || ! svgRef.current ) {
+			if ( ! interactive || ! onDropNode || ! svgRef.current ) {
 				return;
 			}
 			const shellName = e.dataTransfer.getData(
@@ -365,7 +368,7 @@ export default function SchematicCanvas( {
 				active.blur();
 			}
 		},
-		[ editMode, onDropNode ]
+		[ interactive, onDropNode ]
 	);
 
 	const defaultViewBox = useMemo(

@@ -48,6 +48,7 @@ const GRAPH_NODE_NAMES = [
  *                                       so cd-ing off a worker stops streaming without rebuilding the graph. Default
  *                                       true (the initial cwd is the session's own worker).
  * @param {Object}  params.debugLevelRef React ref holding the Dumper verbosity dial.
+ * @param {number}  params.resetKey      Bump to tear down + rebuild the graph.
  * @return {{status: string, ssePid: ?number, shell: ?Shell}} Connection state +
  *   the anonymous Shell (the console drives typed input through it).
  */
@@ -57,6 +58,10 @@ export function useConsoleGraph( {
 	enabled,
 	streamEnabled = true,
 	debugLevelRef,
+	// Bumping this re-runs the graph effect: cleanup tears down the spine, the
+	// effect rebuilds it fresh. Lets the "reset" control recover a self-broken
+	// browser graph without a full page reload.
+	resetKey = 0,
 } ) {
 	const [ ssePid, setSsePid ] = useState( null );
 	const [ shell, setShell ] = useState( null );
@@ -204,7 +209,8 @@ export function useConsoleGraph( {
 			setSsePid( null );
 			setShell( null );
 		};
-	}, [ topology, partition, enabled ] );
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ topology, partition, enabled, resetKey ] );
 
 	// SSE stream gating: open the EventSource only while the graph is mounted AND
 	// the cwd is a worker (streamEnabled). Closing on cd-off-worker drops the pid
