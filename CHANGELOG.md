@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The REPL can send commands at the local graph (`cd /`) and request scope (`cd /_sse`).** 0.5.0 re-enabled the prompt off the worker stream, but the three send gates (typed line, tab-completion, Inspector verb-invoke) still rejected EVERY send when there was no session pid — so `cd /` then `ls` returned "[no sse_pid yet] retry once CONNECTED". Only a worker pivot (`_sse/{topology}.pN`) routes its reply async over the stream and needs the pid; a local-root command interprets in-browser and a request-scope command replies synchronously in the POST body. The gates now key on a new `toNeedsSseSession()` test of the message's TO instead of the bare `ssePid` presence.
+
 ## [0.5.0] - 2026-05-27
 
 ### Added
