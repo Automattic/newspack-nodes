@@ -40,6 +40,61 @@ class Node {
 	/** Non-null marks this node as plumbing for the patron; dump_metadata hides it from the canvas. */
 	protected ?Node $patron = null;
 
+	/**
+	 * Auto-wire the sibling `:config` CI from the concrete subclass's node_schema().
+	 * A node declares its runtime config verbs ONCE — in `node_schema()['verbs']`,
+	 * each carrying a `handler` — and the base ctor builds the `{node}:config`
+	 * CI from the handler-bearing entries (late static binding reads the subclass
+	 * schema). No verbs with handlers → no sibling. A CI dispatches its own verbs,
+	 * so it never gets one (and Command_Interpreter_Node / Service_CI_Node build
+	 * their own table in their own ctors). Subclasses with a constructor of their
+	 * own must call `parent::__construct()` (PHP doesn't auto-chain); set props
+	 * first if the handler closures capture them.
+	 */
+	public function __construct() {
+		if ( $this instanceof Command_Interpreter_Node ) {
+			return;
+		}
+		// Idempotent: a subclass that chains parent::__construct() more than once,
+		// or one that manually attached its own interpreter, keeps the existing CI.
+		if ( null !== $this->interpreter ) {
+			return;
+		}
+		$verbs = self::verbs_with_handlers( static::node_schema() );
+		if ( empty( $verbs ) ) {
+			return;
+		}
+		$ci = new Command_Interpreter_Node();
+		$ci->patron( $this );
+		$ci->commands( $verbs );
+		$this->attach_interpreter( $ci );
+	}
+
+	/**
+	 * Collect the node_schema verbs[] that carry a callable handler — the
+	 * `{node}:config` dispatch table. Silent: catalog-only verbs (no handler)
+	 * are skipped, not flagged, because a plain node legitimately declares
+	 * description-only verbs for the palette. (Service_CI_Node, where every verb
+	 * MUST dispatch, keeps its own warn-on-missing-handler builder.)
+	 *
+	 * @param array<string,mixed> $schema
+	 * @return array<string,callable>
+	 */
+	private static function verbs_with_handlers( array $schema ): array {
+		$table = [];
+		foreach ( $schema['verbs'] ?? [] as $verb ) {
+			if ( ! \is_array( $verb ) ) {
+				continue;
+			}
+			$name = (string) ( $verb['name'] ?? '' );
+			if ( '' === $name || ! isset( $verb['handler'] ) || ! \is_callable( $verb['handler'] ) ) {
+				continue;
+			}
+			$table[ $name ] = $verb['handler'];
+		}
+		return $table;
+	}
+
 	/** Attach a sibling CommandInterpreter, adopting `{patron_name}:config`. */
 	public function attach_interpreter( Command_Interpreter_Node $ci ): void {
 		$this->interpreter = $ci;

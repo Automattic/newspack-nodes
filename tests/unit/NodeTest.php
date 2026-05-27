@@ -920,4 +920,78 @@ class NodeTest extends TestCase {
 		$this->assertStringContainsString( 'bob: same text', $buf );
 		$this->assertSame( 2, \substr_count( $buf, 'same text' ) );
 	}
+
+	// ---- base ctor auto-wires the sibling :config CI from node_schema -----
+
+	public function test_node_with_schema_handlers_auto_wires_config_interpreter(): void {
+		$node = new class() extends Node {
+			public static function node_schema(): array {
+				return \array_merge( parent::node_schema(), [
+					'verbs' => [
+						[
+							'name'    => 'ping_back',
+							'handler' => static fn ( $ci, string $args ): string => 'pong:' . $args,
+						],
+					],
+				] );
+			}
+		};
+		$node->name( 'demo-node' );
+
+		$ci = $node->interpreter();
+		$this->assertInstanceOf( \Newspack_Nodes\Command_Interpreter_Node::class, $ci );
+		$this->assertSame( 'demo-node:config', $ci->name() );
+		$this->assertSame( $node, $ci->patron() );
+		$this->assertArrayHasKey( 'ping_back', $ci->commands() );
+	}
+
+	public function test_node_without_schema_handlers_has_no_config_interpreter(): void {
+		// Base node_schema declares no verbs → no sibling CI.
+		$n = new Node();
+		$this->assertNull( $n->interpreter() );
+	}
+
+	public function test_schema_verb_without_handler_does_not_wire_a_ci(): void {
+		// A catalog-only verb (no handler) must not spawn a sibling CI.
+		$node = new class() extends Node {
+			public static function node_schema(): array {
+				return \array_merge( parent::node_schema(), [
+					'verbs' => [ [ 'name' => 'doc_only' ] ],
+				] );
+			}
+		};
+		$this->assertNull( $node->interpreter() );
+	}
+
+	public function test_command_interpreter_does_not_get_a_sibling_interpreter(): void {
+		// A CI dispatches its own verbs; it must never attach a sibling :config CI.
+		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
+		$this->assertNull( $ci->interpreter() );
+	}
+
+	public function test_auto_wire_is_idempotent_across_a_double_parent_call(): void {
+		// A subclass that chains parent::__construct() more than once (e.g. one at
+		// the top for base registrations, one at the end) must NOT build a second
+		// sibling CI — the auto-wire skips when an interpreter is already attached.
+		$node = new class() extends Node {
+			public function __construct() {
+				parent::__construct();
+				parent::__construct();
+			}
+			public static function node_schema(): array {
+				return \array_merge( parent::node_schema(), [
+					'verbs' => [
+						[
+							'name'    => 'noop',
+							'handler' => static fn ( $ci, string $args ): string => 'ok',
+						],
+					],
+				] );
+			}
+		};
+		$first = $node->interpreter();
+		$this->assertInstanceOf( \Newspack_Nodes\Command_Interpreter_Node::class, $first );
+		// Second parent call must not have replaced the first CI.
+		$this->assertSame( $first, $node->interpreter() );
+	}
 }

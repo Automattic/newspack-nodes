@@ -50,10 +50,12 @@ class HTTP_In_Node extends Node {
 	private bool $test_mode = false;
 
 	public function __construct( ?\Closure $send_header = null ) {
-		// Node has no __construct; skip parent call (matches Callback pattern).
 		$this->send_header = $send_header ?? static function ( int $code ): void {
 			\status_header( $code );
 		};
+		// Chain to the base ctor (no-op today — no handler-bearing node_schema
+		// verbs — but keeps the :config auto-wire available if any are added).
+		parent::__construct();
 	}
 
 	/** Node egress (terminal, not forwarded): writes the `/command` HTTP response. */
