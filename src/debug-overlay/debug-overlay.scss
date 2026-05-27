@@ -38,12 +38,10 @@
 // flex so the themed .topology-app child fills it edge-to-edge.
 .nodes-debug__panel {
 	position: fixed;
-	right: 24px;
-	bottom: 84px;
+	// left/top/width/height come from useDebugFrame as inline styles so the
+	// panel can be dragged + resized; the right/bottom-anchored defaults the
+	// hook initializes on first mount sit it in the bottom-right corner.
 	z-index: 99998;
-	width: 70vw;
-	max-width: 1100px;
-	height: 70vh;
 	background: #f0e7d6;
 	border: 1px solid #18222e;
 	box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
@@ -91,4 +89,29 @@
 	grid-area: canvas;
 	min-height: 0;
 	height: 100%;
+}
+
+// display:contents so the wrapper is invisible to CSS Grid — the inner
+// .topology-header stays a direct grid child of .topology-app (preserving
+// grid-area: header) while the pointerdown handler still bubbles up.
+.nodes-debug__header-drag {
+	display: contents;
+	cursor: move;
+}
+
+// Eight resize handles around the panel edges. Each is a thin invisible
+// strip with the cursor for its direction; pointerdown starts the resize.
+.nodes-debug__resize {
+	position: absolute;
+	z-index: 1;
+	background: transparent;
+
+	&--n { top: 0; left: 8px; right: 8px; height: 6px; cursor: ns-resize; }
+	&--s { bottom: 0; left: 8px; right: 8px; height: 6px; cursor: ns-resize; }
+	&--w { top: 8px; bottom: 8px; left: 0; width: 6px; cursor: ew-resize; }
+	&--e { top: 8px; bottom: 8px; right: 0; width: 6px; cursor: ew-resize; }
+	&--nw { top: 0; left: 0; width: 12px; height: 12px; cursor: nwse-resize; }
+	&--ne { top: 0; right: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+	&--sw { bottom: 0; left: 0; width: 12px; height: 12px; cursor: nesw-resize; }
+	&--se { bottom: 0; right: 0; width: 12px; height: 12px; cursor: nwse-resize; }
 }
