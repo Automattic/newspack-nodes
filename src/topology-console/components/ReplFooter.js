@@ -76,10 +76,6 @@ export default function ReplFooter( {
 	// inner height minus header height so the transcript can't grow past
 	// the overlay's bounds (default maxHeight assumes a full-page console).
 	maxHeightPx = null,
-	// Optional: fires when the user double-clicks the resize handle.
-	// The debug overlay uses it to toggle the panel between maximized and
-	// the saved frame size (mirrors the header double-click).
-	onResizeHandleDoubleClick,
 } ) {
 	const [ value, setValue ] = useState( '' );
 	// Command history (oldest→newest). `historyCursor` points at the recalled
@@ -183,6 +179,22 @@ export default function ReplFooter( {
 		return () => document.removeEventListener( 'keydown', handler );
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [] );
+
+	// Double-click the resize handle toggles the transcript between its
+	// max ceiling (visually like dragging it to the top) and the default
+	// starting height. A small ref tracks whether the LAST toggle maximized
+	// so the next dbl-click goes the other way.
+	const lastWasMaxRef = useRef( false );
+	const handleResizeDoubleClick = useCallback( () => {
+		const ceiling = maxHeightPx ?? maxHeight();
+		if ( lastWasMaxRef.current ) {
+			setHeight( defaultHeight() );
+			lastWasMaxRef.current = false;
+		} else {
+			setHeight( Math.max( HEIGHT_MIN_PX, ceiling ) );
+			lastWasMaxRef.current = true;
+		}
+	}, [ maxHeightPx ] );
 
 	// Drag the top edge to resize, clamped to [HEIGHT_MIN_PX, maxHeight()].
 	const handleResizeStart = useCallback(
@@ -399,7 +411,7 @@ export default function ReplFooter( {
 					<div
 						className="topology-repl__resize-handle"
 						onMouseDown={ handleResizeStart }
-						onDoubleClick={ onResizeHandleDoubleClick }
+						onDoubleClick={ handleResizeDoubleClick }
 						title={ __(
 							'Drag to resize transcript',
 							'newspack-nodes'
