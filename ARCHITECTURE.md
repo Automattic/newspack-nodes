@@ -30,7 +30,7 @@ Three core ideas:
 
 ```
 ┌───────────────────────────────────────────────────────────┐
-│                      Event_Framework                       │
+│                      Event_Framework                      │
 │  drain():                                                 │
 │   - compute timeout = next-timer deadline                 │
 │   - if cURL handles: curl_multi_select(timeout) ->        │
