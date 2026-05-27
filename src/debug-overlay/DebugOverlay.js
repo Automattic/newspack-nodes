@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import GraphView from '../topology-console/components/GraphView';
 import ReplFooter from '../topology-console/components/ReplFooter';
-import { useClassCatalog } from '../topology-console/hooks/useClassCatalog';
+import { useJsCatalog } from './useJsCatalog';
 import {
 	THEMES,
 	DEFAULT_THEME,
@@ -84,7 +84,11 @@ export default function DebugOverlay( {
 	};
 	const { graph, handlers } = useDebugGraph( enabled && open );
 	const { transcript, sendLine, clear } = useDebugRepl( enabled && open );
-	const catalog = useClassCatalog( { enabled: enabled && open } );
+	// The overlay's palette must source from the JS-side CommandInterpreter
+	// .includeNodes (the only set make_node can instantiate in this realm),
+	// NOT the HTTP `classes.list` catalog which returns the PHP substrate's
+	// node registry.
+	const catalog = useJsCatalog();
 	const schemasByShellName = useMemo(
 		() =>
 			Object.fromEntries(
