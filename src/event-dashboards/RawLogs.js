@@ -21,6 +21,7 @@ import { Core } from '../runtime/core';
 import { useNodeState } from '../runtime/react';
 import { useRawLogsGraph } from './hooks/useRawLogsGraph';
 import ConnectionBanner from '../shared/components/ConnectionBanner';
+import DebugOverlay from '../debug-overlay/DebugOverlay';
 import './styles/raw-logs.scss';
 
 const ROW_HEIGHT = 18;
@@ -461,6 +462,8 @@ export default function RawLogs() {
 					<div ref={ spacerRef } style={ { height: totalHeight } } />
 				</div>
 			</div>
+
+			<DebugOverlay storageKey="newspack-nodes:debug:rawlogs" />
 		</div>
 	);
 }
