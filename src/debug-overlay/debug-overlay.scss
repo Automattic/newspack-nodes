@@ -84,13 +84,6 @@
 	}
 }
 
-// PlainFrame canvas wrapper — fill the canvas grid area.
-.nodes-debug__canvas {
-	grid-area: canvas;
-	min-height: 0;
-	height: 100%;
-}
-
 // display:contents so the wrapper is invisible to CSS Grid — the inner
 // .topology-header stays a direct grid child of .topology-app (preserving
 // grid-area: header) while the pointerdown handler still bubbles up.

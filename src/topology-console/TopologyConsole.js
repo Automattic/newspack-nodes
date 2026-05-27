@@ -47,6 +47,7 @@ import {
 	Y_STEP,
 } from './utils/autoLayout';
 import { parseTsl } from './utils/parseTsl';
+import { makeReplDismissHandler } from './utils/replDismissHandler';
 import { serializeTsl } from './utils/serializeTsl';
 import { splitStatements } from './nodes/shell';
 import { Core } from '../runtime/core';
@@ -1210,16 +1211,12 @@ export default function TopologyConsole() {
 		setDraft( ( g ) => removeEdge( g, from, to ) );
 	}, [] );
 
-	// First background click dismisses the prompt; return true so the canvas
-	// skips its own deselect/autofit for this click.
-	const handleCanvasBackgroundClickConsumed = useCallback( () => {
-		if ( ! replExpanded ) {
-			return false;
-		}
-		setReplExpanded( false );
-		replInputRef.current?.blur();
-		return true;
-	}, [ replExpanded ] );
+	// Shared canvas-background-click dismiss pattern (mirrored in the overlay).
+	const handleCanvasBackgroundClickConsumed = makeReplDismissHandler( {
+		replExpanded,
+		setReplExpanded,
+		inputRef: replInputRef,
+	} );
 
 	const handleSave = useCallback( () => {
 		setSaveModal( {} );

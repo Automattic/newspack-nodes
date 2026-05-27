@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
+import CanvasFrame from '../topology-console/components/CanvasFrame';
 import GraphView from '../topology-console/components/GraphView';
+import { makeReplDismissHandler } from '../topology-console/utils/replDismissHandler';
 import Header from '../topology-console/components/Header';
 import ReplFooter from '../topology-console/components/ReplFooter';
 import { useJsCatalog } from '../topology-console/hooks/useJsCatalog';
@@ -16,10 +18,9 @@ import { useDebugLayout } from './useDebugLayout';
 import { useDebugRepl } from './useDebugRepl';
 import './debug-overlay.scss';
 
-// Minimal canvas frame for the overlay — no topology/layout chrome.
-const PlainFrame = ( { children } ) => (
-	<div className="nodes-debug__canvas">{ children }</div>
-);
+// (We reuse the topology console's CanvasFrame directly for visual parity —
+// reticles, paper background, "kissing the header" border seal — and pass
+// only the minimal props it needs. No PlainFrame.)
 
 // Read the persisted theme; unknown/disabled storage falls back to default.
 function readStoredTheme( key ) {
@@ -129,6 +130,12 @@ export default function DebugOverlay( {
 	// Cap the transcript so it can't grow taller than the panel: panel height
 	// minus the 64px header row minus a 60px floor for canvas visibility.
 	const replMaxHeightPx = Math.max( 80, frame.h - 64 - 60 );
+	// Shared canvas-background-click dismiss pattern (mirrors the console).
+	const onCanvasBackgroundClick = makeReplDismissHandler( {
+		replExpanded,
+		setReplExpanded,
+		inputRef: replInputRef,
+	} );
 
 	return (
 		<div className="nodes-debug">
@@ -169,7 +176,13 @@ export default function DebugOverlay( {
 						</div>
 						<GraphView
 							graph={ graph }
-							frame={ PlainFrame }
+							frame={ CanvasFrame }
+							frameProps={ {
+								topology: 'debug',
+								partition: null,
+								isWorker: false,
+								editMode: false,
+							} }
 							resetKey={ storageKey }
 							interactive
 							editMode={ false }
@@ -199,6 +212,9 @@ export default function DebugOverlay( {
 								);
 							} }
 							onSelectionChange={ setSelected }
+							onBackgroundClickConsumed={
+								onCanvasBackgroundClick
+							}
 						/>
 						<ReplFooter
 							prompt="/"
