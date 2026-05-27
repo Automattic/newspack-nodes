@@ -182,7 +182,17 @@ export default function DebugOverlay( {
 							onConnect={ handlers.onConnect }
 							onRemoveNode={ handlers.onRemoveNode }
 							onDropNode={ handlers.onDropNode }
-							onInspectorAction={ handlers.onInspectorAction }
+							onInspectorAction={ ( action, nodeId, payload ) => {
+								// Pop the transcript footer when the user fires an
+								// inspector action — matches the console's UX (the
+								// reply lands in _output and the user should see it).
+								setReplExpanded( true );
+								handlers.onInspectorAction(
+									action,
+									nodeId,
+									payload
+								);
+							} }
 							onSelectionChange={ setSelected }
 						/>
 						<ReplFooter
