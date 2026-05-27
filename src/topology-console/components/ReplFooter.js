@@ -118,8 +118,12 @@ export default function ReplFooter( {
 		inputRef.current?.focus();
 	};
 
-	const statusLabel =
-		STATUS_LABELS[ streamStatus ] || streamStatus.toUpperCase();
+	// `streamStatus` is undefined for local-only callers (the debug overlay reads
+	// Core synchronously — no stream). Treat absent as LIVE so the LED reads as
+	// connected without exploding on the missing `.toUpperCase()`.
+	const statusLabel = streamStatus
+		? STATUS_LABELS[ streamStatus ] || streamStatus.toUpperCase()
+		: __( 'LIVE', 'newspack-nodes' );
 
 	// Auto-scroll to the newest entry when the open transcript grows.
 	useEffect( () => {

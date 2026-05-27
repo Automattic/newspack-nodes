@@ -23,4 +23,14 @@ describe( 'DebugOverlay', () => {
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		expect( queryByTestId( 'debug-panel' ) ).not.toBeNull();
 	} );
+
+	it( 'mounts a REPL prompt inside the opened panel', () => {
+		mountExospine();
+		const { getByRole, queryByRole } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		expect( queryByRole( 'textbox' ) ).toBeNull();
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		expect( queryByRole( 'textbox' ) ).not.toBeNull();
+	} );
 } );
