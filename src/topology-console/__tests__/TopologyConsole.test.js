@@ -579,10 +579,13 @@ describe( 'TopologyConsole boot', () => {
 		} );
 	};
 
-	it( 'renders Header, Canvas, and ReplFooter on mount (Inspector is selection-only)', () => {
+	it( 'renders Header, Palette, Canvas, and ReplFooter on mount (Inspector is selection-only)', () => {
+		// Palette is always-on per the interactive-live-canvas spec: a drop in
+		// view mode issues `make_node` via sendLine; a drop in edit adds to the
+		// draft. Edit-only gating was a stale Task 3 regression.
 		const { getByTestId, queryByTestId } = render( <TopologyConsole /> );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
-		expect( queryByTestId( 'palette' ) ).toBeNull();
+		expect( getByTestId( 'palette' ) ).not.toBeNull();
 		expect( getByTestId( 'canvas' ) ).not.toBeNull();
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
 		expect( getByTestId( 'repl' ) ).not.toBeNull();
