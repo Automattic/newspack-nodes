@@ -138,9 +138,11 @@
 	grid-area: palette;
 	border-right: 1px solid var(--ink);
 	background: var(--paper-2);
-	padding: 14px 0 60px;
+	padding: 14px 0 0;
 	overflow-y: auto;
 	position: relative;
+	display: flex;
+	flex-direction: column;
 
 	&__group {
 		margin: 14px 16px 8px;
@@ -271,10 +273,13 @@
 	}
 
 	&__footer {
-		position: absolute;
+		// position:sticky anchors to the SCROLLPORT (palette container with
+		// overflow-y:auto), not the scrolling content; margin-top:auto pushes
+		// it to the bottom inside the flex column. Was position:absolute which
+		// anchored to the content and scrolled with the list.
+		position: sticky;
 		bottom: 0;
-		left: 0;
-		right: 0;
+		margin-top: auto;
 		// Match the REPL bar's 38px so the bottom edge of palette,
 		// canvas (bar), and inspector all share a clean horizontal
 		// baseline.
