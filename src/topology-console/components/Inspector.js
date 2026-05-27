@@ -1071,7 +1071,9 @@ export default function Inspector( {
 
 	const targets = parsed.edges.filter( ( e ) => e.from === selectedId );
 	const type = node.class;
-	const live = streamStatus === 'open';
+	// Absent streamStatus = no SSE stream to report (the debug overlay reads
+	// the page's OWN Core synchronously, so the graph is literally always live).
+	const live = ! streamStatus || streamStatus === 'open';
 
 	// Button state derived from server metadata, not client bookkeeping.
 	const traceOn = node.debugState > 0;
