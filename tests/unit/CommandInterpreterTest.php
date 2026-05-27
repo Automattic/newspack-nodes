@@ -5,6 +5,7 @@ use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Echo_Node;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -168,6 +169,34 @@ class CommandInterpreterTest extends TestCase {
 
 		$result = $ci->dispatch( 'make_node', 'Capture_Sink alice' );
 		$this->assertSame( 'ok', $result );
+	}
+
+	public function test_make_node_resolves_the_base_Node_class(): void {
+		// The base Node has no `_Node` suffix, so `make_node Node` resolves it
+		// directly (under any registered namespace). Its default fill() stamps
+		// TO=target and forwards to sink — a bare routing/fan-in primitive (e.g.
+		// the SSE-stream process's `_default_route`).
+		$ci = new Command_Interpreter_Node();
+		$ci->name( '_command_interpreter' );
+
+		$result = $ci->dispatch( 'make_node', 'Node router' );
+
+		$this->assertSame( 'ok', $result );
+		$node = Core::node( 'router' );
+		$this->assertNotNull( $node );
+		$this->assertSame( Node::class, \get_class( $node ) );
+		$this->assertSame( $ci, $node->sink() );
+	}
+
+	public function test_make_node_Node_round_trips_through_shell_name(): void {
+		// dump_config emits `make_node <shell_name> <name>`; the base Node's shell
+		// name is `Node` (no `_Node` suffix to strip), so the emitted line feeds
+		// straight back into make_node.
+		$node = new Node();
+		$this->assertSame(
+			'Node',
+			Command_Interpreter_Node::shell_name_for( $node )
+		);
 	}
 
 	public function test_dispatch_throws_on_unknown_command(): void {
