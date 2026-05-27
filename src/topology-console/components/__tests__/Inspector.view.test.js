@@ -139,9 +139,11 @@ describe( 'Inspector (view mode)', () => {
 		expect( getByText( 'Trace' ) ).not.toBeNull();
 	} );
 
-	it( 'disables action buttons when not live', () => {
+	it( 'keeps action buttons enabled even when not live (live graph is hackable)', () => {
 		const { getByText } = renderNode( { streamStatus: 'closed' } );
-		expect( getByText( 'Dump' ).disabled ).toBe( true );
+		expect( getByText( 'Dump' ).disabled ).toBe( false );
+		expect( getByText( 'Send' ).disabled ).toBe( false );
+		expect( getByText( 'Trace' ).disabled ).toBe( false );
 	} );
 
 	it( 'flips Trace label when node.debugState > 0', () => {
