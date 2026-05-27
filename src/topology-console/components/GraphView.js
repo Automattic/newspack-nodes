@@ -38,6 +38,8 @@ import '../styles/graph-view.scss';
  * @param {Function} props.onRenameNode              (id, next)
  * @param {Function} props.onUpdateArgs              (id, args)
  * @param {Function} props.onUpdateVerbs             (id, verbs)
+ * @param {boolean}  props.paletteCollapsed          When true, the palette renders as a slim expand-handle rail (consumer-owned state so the choice can persist across mounts).
+ * @param {Function} props.onPaletteToggle           () — fires when the user clicks the collapse/expand chevron; consumer toggles its `paletteCollapsed` state.
  * @param {Function} props.onSelectionChange         (selectedId) — optional side-effect.
  * @param {string}   props.selection                 Optional controlled selection; when its value changes the internal selection re-syncs to it (lets a consumer re-point selection after a rename or clear it on reset). `undefined` leaves GraphView fully self-controlled.
  * @param {Function} props.onBackgroundClickConsumed — optional; truthy skips canvas deselect.
@@ -52,6 +54,8 @@ export default function GraphView( {
 	editMode = false,
 	showPalette = false,
 	paletteLoading = false,
+	paletteCollapsed = false,
+	onPaletteToggle,
 	classCatalog = {},
 	catalog = [],
 	formatters = [],
@@ -170,7 +174,12 @@ export default function GraphView( {
 	return (
 		<>
 			{ showPalette && (
-				<Palette classes={ catalog } loading={ paletteLoading } />
+				<Palette
+					classes={ catalog }
+					loading={ paletteLoading }
+					collapsed={ paletteCollapsed }
+					onToggle={ onPaletteToggle }
+				/>
 			) }
 			<Frame { ...frameProps }>
 				<SchematicCanvas
