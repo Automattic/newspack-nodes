@@ -71,6 +71,11 @@ export default function ReplFooter( {
 	onComplete,
 	completion = null,
 	onShowCandidates,
+	// Optional ceiling override — when set, takes precedence over the
+	// viewport-based maxHeight(). The debug overlay passes its panel's
+	// inner height minus header height so the transcript can't grow past
+	// the overlay's bounds (default maxHeight assumes a full-page console).
+	maxHeightPx = null,
 } ) {
 	const [ value, setValue ] = useState( '' );
 	// Command history (oldest→newest). `historyCursor` points at the recalled
@@ -188,8 +193,9 @@ export default function ReplFooter( {
 					return;
 				}
 				const dy = dragState.current.startY - e.clientY;
+				const ceiling = maxHeightPx ?? maxHeight();
 				const next = Math.min(
-					maxHeight(),
+					ceiling,
 					Math.max(
 						HEIGHT_MIN_PX,
 						dragState.current.startHeight + dy
@@ -210,8 +216,30 @@ export default function ReplFooter( {
 			document.addEventListener( 'mousemove', onMove );
 			document.addEventListener( 'mouseup', onUp );
 		},
-		[ height ]
+		[ height, maxHeightPx ]
 	);
+
+	// Clamp existing height down if the ceiling shrinks (panel resized smaller).
+	useEffect( () => {
+		if ( maxHeightPx !== null && height > maxHeightPx ) {
+			setHeight( Math.max( HEIGHT_MIN_PX, maxHeightPx ) );
+		}
+	}, [ maxHeightPx, height ] );
+
+	// Re-clamp when the WINDOW shrinks too — without an explicit ceiling, the
+	// console's viewport-based maxHeight() would drop but `height` wouldn't,
+	// leaving the transcript overflowing past the top of the page and burying
+	// its drag handle out of reach. Listen for resize and clamp on the fly.
+	useEffect( () => {
+		const onResize = () => {
+			const ceiling = maxHeightPx ?? maxHeight();
+			setHeight( ( h ) =>
+				Math.min( h, Math.max( HEIGHT_MIN_PX, ceiling ) )
+			);
+		};
+		window.addEventListener( 'resize', onResize );
+		return () => window.removeEventListener( 'resize', onResize );
+	}, [ maxHeightPx ] );
 
 	useEffect( () => {
 		try {
