@@ -131,19 +131,19 @@ export default function DebugOverlay( {
 			</button>
 			{ open && (
 				<div className="nodes-debug__panel" data-testid="debug-panel">
-					<Header
-						theme={ theme }
-						onThemeChange={ onThemeChange }
-						themes={ THEMES }
-						mode="view"
-						pathOptions={ [] }
-						path=""
-					/>
 					<div
 						className={ `topology-app theme-${ theme }${
 							selected ? ' is-inspector-open' : ''
 						}${ paletteCollapsed ? ' is-palette-collapsed' : '' }` }
 					>
+						<Header
+							theme={ theme }
+							onThemeChange={ onThemeChange }
+							themes={ THEMES }
+							mode="view"
+							pathOptions={ [] }
+							path=""
+						/>
 						<GraphView
 							graph={ graph }
 							frame={ PlainFrame }
