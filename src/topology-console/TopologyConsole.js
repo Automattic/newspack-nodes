@@ -188,6 +188,24 @@ export function pollTargetFor( { cwd, mode, ssePid, pathOptions } ) {
 	return workerPollPath( cwd, pathOptions );
 }
 
+// The dump_metadata/uptime poll target that keeps the CANVAS live. Unlike the
+// slot heartbeat (worker-only — see pollTargetFor), the canvas is pollable in
+// every non-edit context: a worker pivot polls the worker CI (reply async over
+// the stream → needs a session pid), the local graph ('') polls the in-browser
+// CI, and request scope ('_sse') polls via a synchronous POST. So the target is
+// the worker LCP for a worker cwd, else the cwd itself. (#12 gated ALL polling to
+// workers, freezing the canvas at `cd /` and `cd /_sse`.)
+export function canvasPollTargetFor( { cwd, mode, ssePid, pathOptions } ) {
+	if ( 'edit' === mode ) {
+		return null;
+	}
+	const worker = workerPollPath( cwd, pathOptions );
+	if ( null !== worker ) {
+		return ssePid ? worker : null;
+	}
+	return cwd;
+}
+
 // Whether the REPL prompt accepts input for the current cwd. A non-worker cwd
 // (local graph '', request scope `_sse`) sends local builtins or synchronous
 // `_http` POSTs that never use the SSE stream, so the prompt stays usable even
@@ -854,15 +872,25 @@ export default function TopologyConsole() {
 		// that prefixes the cwd) — NOT a deep sub-node cwd (which would route past
 		// the worker CI). A non-worker cwd (local '', `_sse`, `_http`) has no worker
 		// CI to poll, so pollTargetFor returns null and all three go quiet.
-		const to = pollTargetFor( { cwd, mode, ssePid, pathOptions } );
-		for ( const name of [
-			names.METADATA,
-			names.UPTIME,
-			names.HEARTBEAT,
-		] ) {
+		// Canvas polls (metadata/uptime) run in every non-edit context; the slot
+		// heartbeat only while pivoted into a worker (its poke keeps a worker-stream
+		// slot alive — meaningless off a worker).
+		const canvasTo = canvasPollTargetFor( {
+			cwd,
+			mode,
+			ssePid,
+			pathOptions,
+		} );
+		const heartbeatTo = pollTargetFor( { cwd, mode, ssePid, pathOptions } );
+		const pollTargets = {
+			[ names.METADATA ]: canvasTo,
+			[ names.UPTIME ]: canvasTo,
+			[ names.HEARTBEAT ]: heartbeatTo,
+		};
+		for ( const [ name, target ] of Object.entries( pollTargets ) ) {
 			const node = Core.node( name );
 			if ( node ) {
-				node.pollTo = to;
+				node.pollTo = target;
 			}
 		}
 		// Keep the Shell's `status` builtin lines current with the session/cwd so

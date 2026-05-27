@@ -1323,6 +1323,28 @@ describe( 'TopologyConsole boot', () => {
 		expect( Core.node( names.UPTIME ).pollTo ).toBe( '_sse/demo.p0' );
 	} );
 
+	it( 'request scope (cd /_sse) keeps polling the canvas (synchronous POST)', () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /_sse' );
+		} );
+		// Canvas keeps polling request scope; the heartbeat (worker-only) is
+		// covered by pollTargetFor's own tests.
+		expect( Core.node( names.METADATA ).pollTo ).toBe( '_sse' );
+		expect( Core.node( names.UPTIME ).pollTo ).toBe( '_sse' );
+	} );
+
+	it( 'local graph (cd /) keeps polling the canvas in-browser', () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		expect( Core.node( names.METADATA ).pollTo ).toBe( '' );
+		expect( Core.node( names.UPTIME ).pollTo ).toBe( '' );
+	} );
+
 	it( 'REPL cd echoes into the transcript like other builtins', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
