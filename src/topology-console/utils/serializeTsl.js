@@ -116,14 +116,29 @@ export function serializeTsl( graph, schemas = null ) {
 		return '';
 	}
 	const lines = [];
+	// Reserved anchors (e.g. `_repl`) are auto-mounted by the worker — the
+	// editor never emits their make_node or any wiring FROM them. They remain
+	// valid edge TARGETS.
+	const reserved = new Set(
+		graph.nodes.filter( ( n ) => n.reserved ).map( ( n ) => n.id )
+	);
 	for ( const n of graph.nodes ) {
+		if ( n.reserved ) {
+			continue;
+		}
 		lines.push( emitMakeNode( n, schemas ) );
 		for ( const inv of n.verbInvocations || [] ) {
 			lines.push( emitVerb( n.name, inv, schemas, n.class ) );
 		}
 	}
 	for ( const e of graph.edges || [] ) {
+		if ( reserved.has( e.from ) ) {
+			continue;
+		}
 		lines.push( `connect_node ${ e.from } ${ e.to }` );
+	}
+	if ( lines.length === 0 ) {
+		return '';
 	}
 	return lines.join( '\n' ) + '\n';
 }

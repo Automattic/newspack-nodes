@@ -103,6 +103,49 @@ describe( 'Inspector (edit mode)', () => {
 		expect( event ).toBe( false );
 	} );
 
+	describe( 'reserved anchor (_repl)', () => {
+		const reservedProps = {
+			...baseProps,
+			selectedId: '_repl',
+			parsed: {
+				nodes: [
+					{
+						id: '_repl',
+						class: 'CommandInterpreter',
+						reserved: true,
+					},
+					{ id: 'echo', class: 'Echo' },
+				],
+				edges: [],
+			},
+			catalog: [
+				{ shell_name: 'CommandInterpreter', ctor: [], verbs: [] },
+				{ shell_name: 'Echo', ctor: [], verbs: [] },
+			],
+		};
+
+		it( 'hides the Delete node button for a reserved node', () => {
+			const { queryByText } = render(
+				<Inspector { ...reservedProps } onRemoveNode={ jest.fn() } />
+			);
+			expect( queryByText( 'Delete node' ) ).toBeNull();
+		} );
+
+		it( 'hides the rename input for a reserved node', () => {
+			const { container } = render(
+				<Inspector { ...reservedProps } onRenameNode={ jest.fn() } />
+			);
+			expect(
+				container.querySelector( '#topology-name-field' )
+			).toBeNull();
+		} );
+
+		it( 'still renders the reserved node title', () => {
+			const { container } = render( <Inspector { ...reservedProps } /> );
+			expect( container.textContent ).toMatch( /_repl/ );
+		} );
+	} );
+
 	it( 'Empty Constructor section: surfaces a placeholder', () => {
 		const { container } = render( <Inspector { ...baseProps } /> );
 		expect( container.textContent ).toMatch( /No constructor arguments/ );
