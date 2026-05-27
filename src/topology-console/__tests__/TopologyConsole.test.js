@@ -1363,10 +1363,12 @@ describe( 'TopologyConsole boot', () => {
 		);
 	} );
 
-	it( 'a worker cwd during the connecting window (no pid) routes _cwd to the local CI', () => {
-		// Until the stream connects, a worker poll has no session to receive its
-		// reply — so the guard points _cwd at the local CI ('') instead of POSTing
-		// replies the server can't demux. (Once the pid lands, it flips to the cwd.)
+	it( 'a worker cwd during the connecting window keeps _cwd pointed at the worker (not local)', () => {
+		// Previously the guard pointed _cwd at '' (the local CI) during the
+		// connecting window, which made the canvas DISPLAY the local graph at
+		// a worker cwd — misleading. Now _cwd tracks the cwd verbatim; the
+		// POST will fail to round-trip without a pid but is cheap and silent,
+		// and the canvas just holds its last state until the stream connects.
 		globalThis.__connecting = true;
 		try {
 			window.history.replaceState( {}, '', '/?topology=demo' );
@@ -1374,7 +1376,7 @@ describe( 'TopologyConsole boot', () => {
 			act( () => {
 				lastReplProps.onSubmit( 'cd /_sse/demo.p0' );
 			} );
-			expect( Core.node( names.CWD ).target ).toBe( '' );
+			expect( Core.node( names.CWD ).target ).toBe( '_sse/demo.p0' );
 		} finally {
 			globalThis.__connecting = false;
 		}

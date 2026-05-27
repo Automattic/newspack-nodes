@@ -681,6 +681,17 @@ export default function TopologyConsole() {
 		setSelectedId( null );
 	}, [ topology, partition ] );
 
+	// Clear the METADATA set_state cache on scope change so the canvas doesn't
+	// briefly render the previous scope's nodes (which the canvas's autofit
+	// effect would then lock in via setViewport, causing the "zoom out / bleed"
+	// reported on /_sse → / transitions). With the cache cleared, parsed.nodes
+	// is empty until the next poll arrives for the new scope; the autofit only
+	// commits against FRESH data.
+	useEffect( () => {
+		Core.node( names.METADATA )?.setState( 'metadata', null );
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ scope.key ] );
+
 	const dispatchStatement = useCallback(
 		( statement ) => {
 			if ( ! shell ) {
@@ -779,13 +790,13 @@ export default function TopologyConsole() {
 	useEffect( () => {
 		const cwdNode = Core.node( names.CWD );
 		if ( cwdNode ) {
-			// A worker poll needs the SSE session to receive its reply; until the
-			// stream connects (pid arrives), route polls to the local CI ('')
-			// instead of POSTing replies the server can't demux. Off-worker /
-			// once connected, point at the real cwd.
-			const connecting =
-				null !== workerPollPath( cwd, pathOptions ) && null === ssePid;
-			cwdNode.target = connecting ? '' : cwd;
+			// Track the cwd verbatim. At a worker cwd without a pid, the POST
+			// will fail to round-trip (server has no SSE to demux the reply),
+			// but the request is cheap and silent; the canvas just holds its
+			// last state until the stream connects. The previous "route locally
+			// while connecting" fallback misleadingly displayed the LOCAL graph
+			// at a worker cwd, which is what the user calls out as unintuitive.
+			cwdNode.target = cwd;
 		}
 		// Keep the Shell's `status` builtin lines current with the session/cwd so
 		// the carrier it slices at parse time reflects live state (PHP stashes a
