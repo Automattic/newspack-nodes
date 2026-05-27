@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **The console working directory is a node (`_cwd`).** A plain `Node` named `_cwd` (sink → CI, shown on the canvas) holds the cwd in its `target`; `cd` and the Path menu set `_cwd.target`. The canvas poll nodes (`_metadata`/`_uptime`) just `target = '_cwd'` and emit unconditionally — the poll routes `_metadata → CI → router →(peel _cwd)→ _cwd →(re-stamps the cwd)→ CI → router → destination`, so one indirection handles every scope (local root interprets in-browser when `_cwd.target` is empty; a worker/request cwd routes out). `_heartbeat` targets `_sse/workers` directly. This replaced the per-cwd poll-gating helpers `pollTargetFor`/`canvasPollTargetFor`/`replInputEnabled` (deleted); `workerPollPath` (SSE-stream gate) and `toNeedsSseSession` (send gates) stay. The REPL input is always enabled now.
 - **`make_node` sets `arguments()` itself**, uniformly, from the scalar tokens it was given — instead of relying on each node's constructor to set `$this->arguments` downstream (which some did and some, like Partition, didn't, leaving `dump_config` unreliable). Object dependencies passed to programmatic `make_node` (the service CIs) are filtered out — they aren't round-trippable config. Every made node now round-trips through `dump_config` from one place. (Both PHP and the JS runtime.)
 
 ### Removed

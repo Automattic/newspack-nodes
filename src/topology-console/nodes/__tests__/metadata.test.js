@@ -86,34 +86,36 @@ describe( 'Metadata node', () => {
 	} );
 
 	describe( 'onTimer poll emission', () => {
-		it( 'emits a dump_metadata TM_COMMAND through the sink when pollTo is set', () => {
+		it( 'emits a dump_metadata TM_COMMAND addressed to this.target (the _cwd indirection)', () => {
 			const node = new Metadata();
 			node.setName( '_metadata' );
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
-			node.pollTo = 'demo.p0';
+			node.target = '_cwd';
 			node.onTimer();
 			expect( sent ).toHaveLength( 1 );
 			const m = sent[ 0 ];
 			expect( m[ TYPE ] ).toBe( TM_COMMAND );
 			expect( m[ VALUE ].name ).toBe( 'dump_metadata' );
-			expect( m[ TO ] ).toBe( 'demo.p0' );
+			expect( m[ TO ] ).toBe( '_cwd' );
 			expect( m[ FROM ] ).toBe( '_metadata' );
 		} );
 
-		it( 'emits nothing when pollTo is null', () => {
+		it( 'always emits while a sink exists (no pollTo gate; _cwd handles every scope)', () => {
 			const node = new Metadata();
 			node.setName( '_metadata' );
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
-			node.pollTo = null;
+			node.target = '_cwd';
 			node.onTimer();
-			expect( sent ).toHaveLength( 0 );
+			node.onTimer();
+			expect( sent ).toHaveLength( 2 );
+			expect( node.pollTo ).toBeUndefined();
 		} );
 
 		it( 'emits nothing when there is no sink', () => {
 			const node = new Metadata();
-			node.pollTo = 'demo.p0';
+			node.target = '_cwd';
 			expect( () => node.onTimer() ).not.toThrow();
 		} );
 	} );

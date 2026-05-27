@@ -177,49 +177,6 @@ export function workerPollPath( cwd, pathOptions ) {
 	return worker ? `_sse/${ worker.topology }.p${ worker.partition }` : null;
 }
 
-// The poll path the silent poll nodes (`_metadata` / `_uptime` / `_heartbeat`)
-// should poke, or null to suppress polling. Polling additionally requires a live
-// connection (`ssePid`) and not edit mode; the stream gate uses workerPollPath
-// directly (it can't wait on ssePid — the stream is what produces it).
-export function pollTargetFor( { cwd, mode, ssePid, pathOptions } ) {
-	if ( 'edit' === mode || ! ssePid ) {
-		return null;
-	}
-	return workerPollPath( cwd, pathOptions );
-}
-
-// The dump_metadata/uptime poll target that keeps the CANVAS live. Unlike the
-// slot heartbeat (worker-only — see pollTargetFor), the canvas is pollable in
-// every non-edit context: a worker pivot polls the worker CI (reply async over
-// the stream → needs a session pid), the local graph ('') polls the in-browser
-// CI, and request scope ('_sse') polls via a synchronous POST. So the target is
-// the worker LCP for a worker cwd, else the cwd itself. (#12 gated ALL polling to
-// workers, freezing the canvas at `cd /` and `cd /_sse`.)
-export function canvasPollTargetFor( { cwd, mode, ssePid, pathOptions } ) {
-	if ( 'edit' === mode ) {
-		return null;
-	}
-	const worker = workerPollPath( cwd, pathOptions );
-	if ( null !== worker ) {
-		return ssePid ? worker : null;
-	}
-	return cwd;
-}
-
-// Whether the REPL prompt accepts input for the current cwd. A non-worker cwd
-// (local graph '', request scope `_sse`) sends local builtins or synchronous
-// `_http` POSTs that never use the SSE stream, so the prompt stays usable even
-// with no session — otherwise a `cd /` (which closes the stream + nulls the pid)
-// would disable the prompt and strand the user with no way to `cd` back onto a
-// worker. Only while pivoted into a worker does the prompt wait on the stream
-// (open + a pid), since a worker's replies arrive async over SSE.
-export function replInputEnabled( { status, ssePid, cwd, pathOptions } ) {
-	if ( null === workerPollPath( cwd, pathOptions ) ) {
-		return true;
-	}
-	return 'open' === status && !! ssePid;
-}
-
 // Whether a send TO requires a live SSE session (pid). ONLY a worker pivot
 // (`_sse/{topology}.pN[/…]`) does: SseIn wraps its reply FROM with `_sse:{pid}`
 // so the server's HTTP_Filter can demux the worker's ASYNC reply back to this
@@ -863,35 +820,17 @@ export default function TopologyConsole() {
 	);
 
 	// Live-canvas poll gating (WIRING-PLAN §4/§5). The Router TIMER in
-	// useConsoleGraph drives emission; here we just point the poll nodes at the
-	// shell's CURRENT path (cwd) and gate it — null pollTo makes onTimer a no-op,
-	// so edit mode / pre-pid emit nothing and HttpOut.flush() posts an empty
-	// buffer = no request.
+	// useConsoleGraph drives emission; the poll nodes address `_cwd` (a plain Node
+	// whose `target` IS the cwd), so all the per-scope routing collapses to one
+	// line: point `_cwd.target` at the current cwd. Router peels `_cwd`, the base
+	// Node.fill re-stamps the live cwd into TO (empty TO for the local root → the
+	// CI interprets locally), then forwards to the CI. One indirection routes a
+	// worker pivot (reply async over the stream), the local graph (in-browser CI),
+	// and request scope (synchronous POST) alike.
 	useEffect( () => {
-		// All three poll nodes target the worker LCP (the longest worker menu item
-		// that prefixes the cwd) — NOT a deep sub-node cwd (which would route past
-		// the worker CI). A non-worker cwd (local '', `_sse`, `_http`) has no worker
-		// CI to poll, so pollTargetFor returns null and all three go quiet.
-		// Canvas polls (metadata/uptime) run in every non-edit context; the slot
-		// heartbeat only while pivoted into a worker (its poke keeps a worker-stream
-		// slot alive — meaningless off a worker).
-		const canvasTo = canvasPollTargetFor( {
-			cwd,
-			mode,
-			ssePid,
-			pathOptions,
-		} );
-		const heartbeatTo = pollTargetFor( { cwd, mode, ssePid, pathOptions } );
-		const pollTargets = {
-			[ names.METADATA ]: canvasTo,
-			[ names.UPTIME ]: canvasTo,
-			[ names.HEARTBEAT ]: heartbeatTo,
-		};
-		for ( const [ name, target ] of Object.entries( pollTargets ) ) {
-			const node = Core.node( name );
-			if ( node ) {
-				node.pollTo = target;
-			}
+		const cwdNode = Core.node( names.CWD );
+		if ( cwdNode ) {
+			cwdNode.target = cwd;
 		}
 		// Keep the Shell's `status` builtin lines current with the session/cwd so
 		// the carrier it slices at parse time reflects live state (PHP stashes a
@@ -1758,12 +1697,9 @@ export default function TopologyConsole() {
 				<ReplFooter
 					prompt={ `/${ cwd }` }
 					streamStatus={ status }
-					canSend={ replInputEnabled( {
-						status,
-						ssePid,
-						cwd,
-						pathOptions,
-					} ) }
+					// Input is always enabled: a poll/command for any scope routes
+					// through `_cwd`, so there is no scope where the prompt must wait.
+					canSend={ true }
 					onSubmit={ sendLine }
 					onClear={ clearTranscript }
 					transcript={ transcript }
