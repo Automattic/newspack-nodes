@@ -85,5 +85,22 @@ export function useDebugLayout( storageKey ) {
 		};
 	}, [] );
 
-	return { positions, viewport, onPositionChange, onViewportChange };
+	const resetLayout = useCallback( () => {
+		setPositions( {} );
+		setViewport( null );
+		try {
+			window.localStorage.removeItem( positionsKey );
+			window.localStorage.removeItem( viewportKey );
+		} catch ( _e ) {
+			// localStorage disabled — in-session only.
+		}
+	}, [ positionsKey, viewportKey ] );
+
+	return {
+		positions,
+		viewport,
+		onPositionChange,
+		onViewportChange,
+		resetLayout,
+	};
 }

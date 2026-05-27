@@ -98,9 +98,12 @@ describe( 'DebugOverlay', () => {
 		expect(
 			container.querySelector( '.topology-mode__btn--delete' )
 		).toBeNull();
-		// LIVE button is always rendered.
+		// In the overlay, the LIVE button is replaced by an X close button.
+		expect(
+			container.querySelector( '.topology-mode__btn--close' )
+		).not.toBeNull();
 		expect(
 			container.querySelector( '.topology-mode__btn--live' )
-		).not.toBeNull();
+		).toBeNull();
 	} );
 } );

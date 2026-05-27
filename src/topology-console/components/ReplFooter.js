@@ -76,6 +76,10 @@ export default function ReplFooter( {
 	// inner height minus header height so the transcript can't grow past
 	// the overlay's bounds (default maxHeight assumes a full-page console).
 	maxHeightPx = null,
+	// Optional: fires when the user double-clicks the resize handle.
+	// The debug overlay uses it to toggle the panel between maximized and
+	// the saved frame size (mirrors the header double-click).
+	onResizeHandleDoubleClick,
 } ) {
 	const [ value, setValue ] = useState( '' );
 	// Command history (oldest→newest). `historyCursor` points at the recalled
@@ -395,6 +399,7 @@ export default function ReplFooter( {
 					<div
 						className="topology-repl__resize-handle"
 						onMouseDown={ handleResizeStart }
+						onDoubleClick={ onResizeHandleDoubleClick }
 						title={ __(
 							'Drag to resize transcript',
 							'newspack-nodes'
