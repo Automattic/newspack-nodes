@@ -202,6 +202,18 @@ export function replInputEnabled( { status, ssePid, cwd, pathOptions } ) {
 	return 'open' === status && !! ssePid;
 }
 
+// Whether a send TO requires a live SSE session (pid). ONLY a worker pivot
+// (`_sse/{topology}.pN[/…]`) does: SseIn wraps its reply FROM with `_sse:{pid}`
+// so the server's HTTP_Filter can demux the worker's ASYNC reply back to this
+// client's stream. A local-root command (empty TO) interprets in-browser; a
+// request-scope command (`_sse`) and the direct `_http/{worker}` boundary form
+// reply synchronously in the POST body — none of those wait on the stream. The
+// send gates use this so a `cd /` (stream closed, pid null) doesn't block local
+// commands with "[no sse_pid yet]".
+export function toNeedsSseSession( to ) {
+	return /^_sse\/[a-z0-9_-]+\.p\d+(?:\/|$)/.test( to || '' );
+}
+
 function readUrlParam( key ) {
 	try {
 		return new URLSearchParams( window.location.search ).get( key );
@@ -777,8 +789,10 @@ export default function TopologyConsole() {
 			}
 
 			if ( Array.isArray( parsedLine ) ) {
-				// A worker-bound Message; the reply arrives async over SSE.
-				if ( ! ssePid ) {
+				// Only a worker pivot's reply arrives async over the SSE stream, so
+				// only that send waits on a session pid; local/request-scope sends
+				// reply in-browser or synchronously in the POST body.
+				if ( toNeedsSseSession( parsedLine[ TO ] ) && ! ssePid ) {
 					appendTranscript( {
 						kind: 'error',
 						text: __(
@@ -870,7 +884,8 @@ export default function TopologyConsole() {
 	// candidate list; FROM pivots the reply to the silent `_completion` node.
 	const requestCompletion = useCallback(
 		( line ) => {
-			if ( ! ssePid ) {
+			// Completion targets the cwd; only a worker-pivot cwd needs the session.
+			if ( toNeedsSseSession( cwd ) && ! ssePid ) {
 				return;
 			}
 			// First token iff there's no whitespace before the trailing token.
@@ -931,16 +946,6 @@ export default function TopologyConsole() {
 				if ( ! shell ) {
 					return;
 				}
-				if ( ! ssePid ) {
-					appendTranscript( {
-						kind: 'error',
-						text: __(
-							'[no sse_pid yet] retry once CONNECTED',
-							'newspack-nodes'
-						),
-					} );
-					return;
-				}
 				const { verb, kind, positional, byName } = payload;
 				// A command verb targets the node's `{name}:config` sibling CI —
 				// UNLESS the node IS itself a Command_Interpreter_Node, which
@@ -964,6 +969,18 @@ export default function TopologyConsole() {
 				m[ TO ] = shell.prefix( commandTarget );
 				m[ FROM ] = shell.replyFrom( names.OUTPUT );
 				m[ LOCAL ] = true;
+				// Only a worker-pivot target's reply rides the async stream; a
+				// local-graph node invocation interprets in-browser without a pid.
+				if ( toNeedsSseSession( m[ TO ] ) && ! ssePid ) {
+					appendTranscript( {
+						kind: 'error',
+						text: __(
+							'[no sse_pid yet] retry once CONNECTED',
+							'newspack-nodes'
+						),
+					} );
+					return;
+				}
 				let echo;
 				if ( 'request' === kind ) {
 					m[ TYPE ] = TM_REQUEST;
