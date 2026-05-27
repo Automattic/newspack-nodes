@@ -1,15 +1,11 @@
 /**
  * Parse a `dump_metadata` payload (object keyed by node name) into
- * { nodes, edges }. `target` is a string or array (Tee fan-out);
- * scaffolding nodes are excluded.
+ * { nodes, edges }. `target` is a string or array (Tee fan-out); the backbone
+ * (`_command_interpreter` + `_router`) is hidden — it's the rule-#2 plumbing
+ * every node sinks through — and everything else is shown.
  */
 
-const SCAFFOLDING = new Set( [
-	'_command_interpreter',
-	'_router',
-	'_output',
-	'_repl',
-] );
+const SCAFFOLDING = new Set( [ '_command_interpreter', '_router' ] );
 
 export function parseMetadata( payload ) {
 	let raw;

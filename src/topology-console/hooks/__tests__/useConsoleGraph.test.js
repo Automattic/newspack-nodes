@@ -98,6 +98,27 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( lastConnector.started ).toBe( true );
 	} );
 
+	it( 'sinks every node into the CI — _router is the only node with no sink (rule #2)', () => {
+		renderGraph();
+		const ci = Core.node( names.COMMAND_INTERPRETER );
+		// The reply/boundary nodes are terminal (they render or POST in fill, never
+		// forwarding through sink), but rule #2 still wires their sink to the CI so
+		// the declared topology is uniform — only _router is bare.
+		for ( const name of [
+			names.OUTPUT,
+			names.COMPLETION,
+			names.HTTP,
+			names.SSE,
+			names.METADATA,
+			names.UPTIME,
+			names.HEARTBEAT,
+		] ) {
+			expect( Core.node( name ).sink ).toBe( ci );
+		}
+		expect( Core.node( names.ROUTER ).sink ).toBeNull();
+		expect( ci.sink ).toBe( Core.node( names.ROUTER ) );
+	} );
+
 	it( 'wires Shell.sink → _command_interpreter → _router', () => {
 		const { result } = renderGraph();
 		const shell = result.current.shell;
@@ -333,18 +354,21 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect( recv.text ).toContain( 'NAME' );
 	} );
 
-	it( 'bare ls at the local root lists the CI siblings (poll nodes), not every node', () => {
+	it( 'bare ls at the local root lists the CI siblings (everything that sinks into the CI), not _router', () => {
 		const { result } = renderGraph();
 		act( () => result.current.shell.fill( 'cd /' ) );
 		act( () => result.current.shell.fill( 'ls' ) );
 		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
 		const recv = transcript.find( ( e ) => e.kind === 'recv' );
 		expect( recv ).toBeTruthy();
-		// Default = siblings (sink IS the CI): the _metadata/_uptime poll nodes.
+		// Default = siblings (sink IS the CI). Per rule #2 every node sinks into
+		// the CI, so the poll nodes AND the terminal reply/boundary nodes are all
+		// siblings now (_output included).
 		expect( recv.text ).toContain( names.METADATA );
 		expect( recv.text ).toContain( names.UPTIME );
-		// _output (a terminal Dumper) does NOT sink into the CI → not a sibling.
-		expect( recv.text.split( '\n' ) ).not.toContain( names.OUTPUT );
+		expect( recv.text ).toContain( names.OUTPUT );
+		// _router is the ONLY node with no sink → never a CI sibling.
+		expect( recv.text.split( '\n' ) ).not.toContain( names.ROUTER );
 	} );
 } );
 

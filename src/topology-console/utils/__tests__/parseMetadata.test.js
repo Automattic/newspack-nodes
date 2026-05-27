@@ -56,12 +56,20 @@ describe( 'parseMetadata', () => {
 		] );
 	} );
 
-	it( 'excludes scaffolding nodes (_command_interpreter, _router, _output, _repl)', () => {
+	it( 'hides ONLY the backbone (_command_interpreter, _router); shows everything else incl. _output/_repl', () => {
 		const { nodes } = parseMetadata( {
 			_command_interpreter: { class: 'CommandInterpreter', counter: 1 },
 			_router: { class: 'Router', counter: 1 },
-			_output: { class: 'Partition', counter: 1 },
-			_repl: { class: 'Partition', counter: 1 },
+			_output: {
+				class: 'Dumper',
+				counter: 1,
+				sink: '_command_interpreter',
+			},
+			_repl: {
+				class: 'CommandInterpreter',
+				counter: 1,
+				sink: '_router',
+			},
 			'firehose:tee': {
 				class: 'Tee',
 				counter: 99,
@@ -71,7 +79,13 @@ describe( 'parseMetadata', () => {
 				arguments: '',
 			},
 		} );
-		expect( nodes.map( ( n ) => n.id ) ).toEqual( [ 'firehose:tee' ] );
+		// The backbone is plumbing; the canvas shows the rest of the graph,
+		// including the transcript sink (_output) and a mounted _repl.
+		expect( nodes.map( ( n ) => n.id ) ).toEqual( [
+			'_output',
+			'_repl',
+			'firehose:tee',
+		] );
 	} );
 
 	it( 'preserves debugState for downstream inspector use', () => {
