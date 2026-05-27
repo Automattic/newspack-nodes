@@ -69,6 +69,15 @@ describe( 'Inspector (view mode)', () => {
 		expect( container.textContent ).toMatch( /CONNECTING/ );
 	} );
 
+	it( 'renders LIVE without crashing when streamStatus is undefined (overlay case)', () => {
+		// The debug overlay reads the page's own Core synchronously — there is no
+		// SSE stream to report, so it omits streamStatus. The Inspector used to
+		// crash on `streamStatus.toUpperCase()`; now it treats absent status as
+		// live (the graph it is showing literally is the local in-realm graph).
+		const { container } = renderNode( { streamStatus: undefined } );
+		expect( container.textContent ).toMatch( /LIVE/ );
+	} );
+
 	it( 'lists first target under "target →" and the rest under "also →"', () => {
 		const { container } = renderNode();
 		const rows = container.querySelectorAll( '.topology-field-row__key' );
