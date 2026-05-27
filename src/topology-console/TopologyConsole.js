@@ -20,6 +20,7 @@ import ReplFooter from './components/ReplFooter';
 import OpenTopologyModal from './components/OpenTopologyModal';
 
 import { useClassCatalog } from './hooks/useClassCatalog';
+import { useJsCatalog } from './hooks/useJsCatalog';
 import { useLayout } from './hooks/useLayout';
 import { useSaveTopology } from './hooks/useSaveTopology';
 import { useDeleteTopology } from './hooks/useDeleteTopology';
@@ -290,7 +291,12 @@ export default function TopologyConsole() {
 	const deleteTopology = useDeleteTopology();
 	const fetchTopology = useTopology();
 	const topologyList = useTopologyList( { enabled: openModalShown } );
-	const catalog = useClassCatalog( { enabled: true } );
+	// Two catalogs in play: the PHP one (fetched lazily over HTTP — used when
+	// editing a topology or interacting with a worker) and the JS one (the
+	// browser-side make_node registry, used at cwd '/' where commands run in
+	// this realm). The choice is made below once `scope` is known.
+	const phpCatalog = useClassCatalog( { enabled: true } );
+	const jsCatalog = useJsCatalog();
 	const [ replExpanded, setReplExpanded ] = useState( false );
 	const replInputRef = useRef( null );
 	const refocusReplIfExpanded = useCallback( () => {
@@ -381,6 +387,13 @@ export default function TopologyConsole() {
 	// partition state (which only tracks worker paths). `/` → local, `/_sse` →
 	// request scope, a worker (or sub-node) → that worker's `${topology}.p${N}`.
 	const scope = scopeFromCwd( cwd );
+
+	// Pick the catalog that matches where make_node will actually run: the JS
+	// `includeNodes` set at cwd '/' (browser-side Core), the PHP one
+	// otherwise (worker SSE or topology editing — both PHP-side). Edit mode
+	// always uses PHP because the topology file configures PHP workers.
+	const catalog =
+		mode !== 'edit' && scope.key === 'local' ? jsCatalog : phpCatalog;
 
 	// Scoped per scope.key so positions don't bleed between workers/roots. For a
 	// worker cwd scope.key === `${topology}.p${partition}`, so persisted worker

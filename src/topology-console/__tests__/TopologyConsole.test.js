@@ -414,9 +414,11 @@ jest.mock( '../components/Header', () => ( props ) => {
 		</header>
 	);
 } );
-jest.mock( '../components/Palette', () => () => (
-	<aside data-testid="palette" />
-) );
+let lastPaletteProps = null;
+jest.mock( '../components/Palette', () => ( props ) => {
+	lastPaletteProps = props;
+	return <aside data-testid="palette" />;
+} );
 let lastReplProps = null;
 jest.mock( '../components/ReplFooter', () => ( props ) => {
 	lastReplProps = props;
@@ -1584,6 +1586,46 @@ describe( 'TopologyConsole boot', () => {
 				'newspack-nodes:topology:local:positions'
 			)
 		).toBeNull();
+	} );
+
+	it( 'the palette shows JS classes at the local scope (NOT the PHP catalog)', () => {
+		// At cwd '/', make_node runs against the browser's Core, so the palette
+		// must list the JS-side CommandInterpreter.includeNodes (Tee, Timer,
+		// Node, CommandInterpreter). The PHP `classes.list` catalog (which the
+		// console fetches via useClassCatalog) is for workers/topology-editing.
+		globalThis.__catalog = {
+			classes: [ { shell_name: 'PHP_Only_Class', category: 'PHP' } ],
+			formatters: [],
+		};
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		const paletteNames = ( lastPaletteProps?.classes || [] ).map(
+			( c ) => c.shell_name
+		);
+		expect( paletteNames ).toEqual(
+			expect.arrayContaining( [ 'Tee', 'Timer' ] )
+		);
+		expect( paletteNames ).not.toContain( 'PHP_Only_Class' );
+	} );
+
+	it( 'the palette shows the PHP catalog when at a worker (or editing a topology)', () => {
+		// At a worker cwd, make_node runs against the PHP worker via SSE, so
+		// the PHP catalog is what's accurate. Edit mode is the same — the
+		// topology file is a PHP-worker configuration.
+		globalThis.__catalog = {
+			classes: [ { shell_name: 'PHP_Only_Class', category: 'PHP' } ],
+			formatters: [],
+		};
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		// Default boot is /_sse/demo.p0 (a worker) — assert PHP catalog flows.
+		const paletteNames = ( lastPaletteProps?.classes || [] ).map(
+			( c ) => c.shell_name
+		);
+		expect( paletteNames ).toContain( 'PHP_Only_Class' );
 	} );
 
 	it( 'reset-graph control shows only on the local graph (worker graphs self-heal)', () => {
