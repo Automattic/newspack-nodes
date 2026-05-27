@@ -15,8 +15,10 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Integration;
 
+use Newspack_Nodes\Command_Auth;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Rest\SSE_Out_Node;
 use Newspack_Nodes\Tests\TestCase;
@@ -151,11 +153,48 @@ class SSEOutTest extends TestCase {
 
 	/**
 	 * A subscription that throws (e.g. path-traversal `../etc/passwd`) MUST
-	 * NOT leave `_router`, `_http`, or `_stream_sink` registered in the
-	 * substrate. If it does, the next SSE request hits `node name collision:
-	 * _router already registered` on `Router->name('_router')` and every
-	 * subsequent stream blows up until the process recycles.
+	 * NOT leave `_router`, `_http`, `_command_interpreter`, or `_default_route`
+	 * registered in the substrate. If it does, the next SSE request hits `node
+	 * name collision: _router already registered` on `Router->name('_router')`
+	 * and every subsequent stream blows up until the process recycles.
 	 */
+	public function test_stream_command_to_ci_is_interpreted_and_reply_routed(): void {
+		// The payoff path: a command arriving over the stream (TO=_command_interpreter,
+		// i.e. what a worker's `cmd _repl/_command_interpreter …` becomes after the
+		// worker peels `_repl`) is interpreted IN the SSE process and its reply routed.
+		// `reply_to _sse uptime` runs `uptime` here and routes the reply to `_sse` →
+		// the client. Signed, since LOCAL is stripped at the wire and the SSE CI uses
+		// the HMAC verifier. (Driven through a log subscription because that Consumer
+		// honors `positions=start`; worker-IPC Consumers tail-seek to 'end'. Both sink
+		// into `_default_route` → CI, so the interpret+route path under test is shared.)
+		$base = $this->make_temp_dir( 'msg-stream-cmd-' );
+		\mkdir( "{$base}/logs/firehose.log", 0755, true );
+		$p   = new Partition_Node( "{$base}/logs/firehose.log", 0 );
+		$cmd = Message::new_message();
+		$cmd[ Message::TYPE ]  = Message::TM_COMMAND;
+		$cmd[ Message::TO ]    = Node_Names::COMMAND_INTERPRETER;
+		$cmd[ Message::VALUE ] = [ 'name' => 'reply_to', 'arguments' => '_sse uptime', 'payload' => '' ];
+		Command_Auth::sign( $cmd );
+		$p->fill( $cmd );
+		$p->flush();
+
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$ctrl->set_num_partitions( 1 );
+		$ctrl->set_test_mode( true );
+		$ctrl->set_test_iterations( 20 );
+		\ob_start();
+		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose' => [ 0 => 'start' ] ], 500 );
+		$out = \ob_get_clean();
+
+		// reply_to routed the uptime reply to _sse → the client sees it; auth passed.
+		// Assert both the verb name (reply routed) AND ` up ` from uptime's actual
+		// payload ("{clock}  up {elapsed}") so a name-echo on error wouldn't pass.
+		$this->assertStringContainsString( 'uptime', $out );
+		$this->assertStringContainsString( ' up ', $out );
+		$this->assertStringNotContainsString( 'unauthorized', $out );
+	}
+
 	public function test_invalid_subscription_does_not_leak_substrate_nodes(): void {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-stream-leak-' ) );
@@ -175,7 +214,8 @@ class SSEOutTest extends TestCase {
 
 		$this->assertNull( Core::node( '_router' ) );
 		$this->assertNull( Core::node( '_http' ) );
-		$this->assertNull( Core::node( '_stream_sink' ) );
+		$this->assertNull( Core::node( '_command_interpreter' ) );
+		$this->assertNull( Core::node( '_default_route' ) );
 	}
 
 	public function test_stream_emits_heartbeat_events_during_idle(): void {

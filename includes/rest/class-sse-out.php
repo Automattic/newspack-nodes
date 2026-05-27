@@ -16,8 +16,9 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
-use Newspack_Nodes\Callback_Node;
 use Newspack_Nodes\CLI;
+use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
@@ -289,41 +290,50 @@ class SSE_Out_Node extends Node {
 		// A bare flush() doesn't clear fastcgi/nginx buffers; the FLUSH_SIZE padding does.
 		$this->flush_if_needed();
 
-		$consumers   = [];
-		$direct_sink = null;
+		$consumers = [];
 		try {
 			// Build INSIDE the try so finally cleans up even when open_subscription
 			// throws — otherwise the next request hits a `_router already registered` collision.
 			( new Router_Node() )->name( Node_Names::ROUTER );
-			// This controller IS the SSE egress Node; HTTP_Filter sinks into it.
-			// Name it `_sse` (symmetric with the named `_stream_sink` callback) so
-			// stderr broadcasts in this process reach the client through it (the
-			// Core::stderr `_sse` sink) instead of dead-ending in HTTP_Filter.
+			// This controller IS the SSE egress Node; reached by TO=`_sse`. Named so
+			// broadcasts (and this process's stderr) route to the client through it.
 			$this->name( Node_Names::SSE );
 			$http_filter = new HTTP_Filter_Node( (int) \getmypid() );
 			$http_filter->name( Node_Names::HTTP );
 			$http_filter->sink( $this );
 
-			// Empty TO → emit directly via this Node's fill(). Non-empty TO → route
-			// through _router so HTTP_Filter can gate per-session pivoted replies.
-			$direct_sink = new Callback_Node(
-				function ( array &$m ): void {
-					if ( '' === $m[ Message::TO ] ) {
-						$this->fill( $m );
-						return;
-					}
-					$router = Core::node( Node_Names::ROUTER );
-					if ( null !== $router ) {
-						$router->fill( $m );
-					}
-				}
-			);
-			$direct_sink->name( '_stream_sink' );
+			// SSE-process CI (Tachikoma rule #2: things sink into _command_interpreter
+			// → _router). A worker can drive it (`cmd _repl/_command_interpreter …`);
+			// such stream commands are HMAC-signed (the cli signed them; LOCAL is
+			// stripped at the wire), so authorize with the verifier like the worker.
+			Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
+			$ci = new Command_Interpreter_Node();
+			$ci->name( Node_Names::COMMAND_INTERPRETER );
+			$ci->sink( Core::node( Node_Names::ROUTER ) );
+
+			// The ONE exceptional non-CI sink: Consumers sink HERE, not straight into
+			// the CI, because a Consumer would FORCE TO=target() on EVERY message if it
+			// had a target (it does that to keep commands/requests from leaking out of
+			// non-IPC partitions) — which would clobber reply breadcrumbs. A plain Node
+			// uses the DEFAULT fill(): it stamps TO=`_sse` only when TO is EMPTY, else
+			// leaves TO and forwards. So: empty-TO worker broadcasts (stderr/events) →
+			// TO=`_sse` → egress; non-empty-TO replies keep their breadcrumb → `_http`.
+			// A command addressed `_command_interpreter` (TO non-empty here) is NOT
+			// stamped; the CI forwards it to `_router`, which peels `_command_interpreter`
+			// and re-delivers it to the CI with TO now empty — THEN it interprets. So the
+			// _router round-trip is load-bearing; don't "simplify" it away.
+			$default_route = new Node();
+			$default_route->name( '_default_route' );
+			$default_route->sink( $ci );
+			$default_route->target( Node_Names::SSE );
 
 			foreach ( $subs as $sub ) {
 				$pos = $positions[ $sub ] ?? null;
 				foreach ( $this->open_subscription( $sub, $pos ) as $c ) {
-					$c->sink( $direct_sink );
+					// A log sub yields one Consumer per partition, so suffix the index
+					// to keep names unique (Node::name throws on collision).
+					$c->name( $sub . ':consumer:' . \count( $consumers ) );
+					$c->sink( $default_route );
 					$consumers[] = $c;
 				}
 			}
@@ -362,8 +372,13 @@ class SSE_Out_Node extends Node {
 			foreach ( $consumers as $c ) {
 				$c->remove_node();
 			}
-			if ( null !== $direct_sink ) {
-				$direct_sink->remove_node();
+			$default_route = Core::node( '_default_route' );
+			if ( $default_route instanceof Node ) {
+				$default_route->remove_node();
+			}
+			$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
+			if ( $ci instanceof Command_Interpreter_Node ) {
+				$ci->remove_node();
 			}
 			$http = Core::node( Node_Names::HTTP );
 			if ( $http instanceof HTTP_Filter_Node ) {
