@@ -2,7 +2,6 @@ import { renderHook, act } from '@testing-library/react';
 import { useDebugFrame } from '../useDebugFrame';
 
 const KEY = 'newspack-nodes:debug:test-frame';
-const MIN_VISIBLE = 40;
 
 // Build a pointerdown / move / up sequence on the header drag handler.
 // `e.preventDefault` is a no-op so the hook can call it freely.
@@ -73,6 +72,12 @@ describe( 'useDebugFrame', () => {
 	} );
 
 	it( 'header pointerdown→move→up shifts the frame by the delta', () => {
+		// Start from a small frame in the center so a +50/+30 shift stays
+		// inside the strict viewport bounds (otherwise the clamp eats it).
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( { x: 100, y: 100, w: 400, h: 300 } )
+		);
 		const { result } = renderHook( () => useDebugFrame( KEY ) );
 		const { frame: initial } = result.current;
 		fireDrag(
@@ -116,7 +121,7 @@ describe( 'useDebugFrame', () => {
 		} );
 	} );
 
-	it( 'keeps at least 40px of the header visible — clamps a drag that would hide it', () => {
+	it( 'clamps a drag so the entire panel stays inside the viewport (strict)', () => {
 		// Start near the right edge; try to drag the panel off-screen.
 		window.localStorage.setItem(
 			KEY,
@@ -128,11 +133,32 @@ describe( 'useDebugFrame', () => {
 			{ x: 0, y: 0 },
 			{ x: 2000, y: 0 }
 		);
-		// Right edge of panel must not go past innerWidth - 40 from its OWN
-		// left edge — i.e. at least 40px stays visible.
-		expect( result.current.frame.x ).toBeLessThanOrEqual(
-			window.innerWidth - MIN_VISIBLE
+		// Panel's right edge must not go past the viewport's right edge.
+		const f = result.current.frame;
+		expect( f.x + f.w ).toBeLessThanOrEqual( window.innerWidth );
+		expect( f.x ).toBeGreaterThanOrEqual( 0 );
+	} );
+
+	it( 'toggleMaximize flips to fullscreen and restores the prior frame', () => {
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( { x: 100, y: 80, w: 600, h: 400 } )
 		);
+		const { result } = renderHook( () => useDebugFrame( KEY ) );
+		act( () => result.current.toggleMaximize() );
+		expect( result.current.frame ).toEqual( {
+			x: 0,
+			y: 0,
+			w: window.innerWidth,
+			h: window.innerHeight,
+		} );
+		act( () => result.current.toggleMaximize() );
+		expect( result.current.frame ).toEqual( {
+			x: 100,
+			y: 80,
+			w: 600,
+			h: 400,
+		} );
 	} );
 
 	it( 'resize from the SE corner adjusts width + height', () => {

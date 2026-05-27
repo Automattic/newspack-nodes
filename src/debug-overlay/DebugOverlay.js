@@ -99,14 +99,43 @@ export default function DebugOverlay( {
 			),
 		[ catalog.classes ]
 	);
-	const { positions, viewport, onPositionChange, onViewportChange } =
-		useDebugLayout( storageKey );
+	const {
+		positions,
+		viewport,
+		onPositionChange,
+		onViewportChange,
+		resetLayout,
+	} = useDebugLayout( storageKey );
 	const {
 		frame,
 		style: frameStyle,
 		onHeaderPointerDown,
 		getResizeHandlers,
+		toggleMaximize,
 	} = useDebugFrame( `${ storageKey }:frame` );
+
+	// "Reset graph" in the overlay = wipe ALL of this overlay's persisted
+	// state (frame, theme, palette-collapsed, layout, transcript height) and
+	// reload — restoring overlay defaults. Doesn't touch the dashboard's own
+	// nodes (that would break the dashboard).
+	const resetOverlayState = () => {
+		const keys = [
+			`${ storageKey }:frame`,
+			themeKey,
+			paletteKey,
+			`${ storageKey }:positions`,
+			`${ storageKey }:viewport`,
+			'newspack-nodes:topology-console:repl-height',
+		];
+		try {
+			for ( const k of keys ) {
+				window.localStorage.removeItem( k );
+			}
+		} catch ( _e ) {
+			// localStorage disabled — nothing to do.
+		}
+		window.location.reload();
+	};
 
 	// Ctrl+` toggles the panel while enabled.
 	useEffect( () => {
@@ -142,14 +171,19 @@ export default function DebugOverlay( {
 
 	return (
 		<div className="nodes-debug">
-			<button
-				type="button"
-				className="nodes-debug__fab"
-				aria-label={ __( 'Toggle node debugger', 'newspack-nodes' ) }
-				onClick={ () => setOpen( ( v ) => ! v ) }
-			>
-				{ '◉' }
-			</button>
+			{ ! open && (
+				<button
+					type="button"
+					className="nodes-debug__fab"
+					aria-label={ __(
+						'Toggle node debugger',
+						'newspack-nodes'
+					) }
+					onClick={ () => setOpen( ( v ) => ! v ) }
+				>
+					{ '◉' }
+				</button>
+			) }
 			{ open && (
 				<div
 					className="nodes-debug__panel"
@@ -167,6 +201,24 @@ export default function DebugOverlay( {
 						<div
 							className="nodes-debug__header-drag"
 							onPointerDown={ onHeaderPointerDown }
+							onDoubleClick={ ( e ) => {
+								// Skip dbl-click maximize when it lands on a
+								// header control (select, button) — those have
+								// their own behavior.
+								const tag = e.target?.tagName;
+								if (
+									tag === 'SELECT' ||
+									tag === 'BUTTON' ||
+									tag === 'INPUT' ||
+									tag === 'OPTION' ||
+									e.target?.closest?.(
+										'select, button, input'
+									)
+								) {
+									return;
+								}
+								toggleMaximize();
+							} }
 						>
 							<Header
 								theme={ theme }
@@ -175,6 +227,7 @@ export default function DebugOverlay( {
 								mode="view"
 								pathOptions={ [] }
 								path=""
+								onClose={ () => setOpen( false ) }
 							/>
 						</div>
 						<GraphView
@@ -185,6 +238,8 @@ export default function DebugOverlay( {
 								partition: null,
 								isWorker: false,
 								editMode: false,
+								onResetLayout: resetLayout,
+								onResetGraph: resetOverlayState,
 							} }
 							resetKey={ storageKey }
 							interactive
@@ -229,6 +284,7 @@ export default function DebugOverlay( {
 							onExpandedChange={ setReplExpanded }
 							inputRef={ replInputRef }
 							maxHeightPx={ replMaxHeightPx }
+							onResizeHandleDoubleClick={ toggleMaximize }
 						/>
 					</div>
 					{ Object.entries( getResizeHandlers() ).map(

@@ -1406,6 +1406,18 @@
 			color: var(--paper);
 		}
 
+		&--close {
+			font-size: 18px;
+			line-height: 1;
+			padding: 4px 12px;
+			color: var(--ink);
+
+			&:hover {
+				background: var(--oxide);
+				color: var(--paper);
+			}
+		}
+
 		&--save {
 			background: var(--sage);
 			color: var(--paper);
