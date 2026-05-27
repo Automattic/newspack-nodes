@@ -57,15 +57,17 @@ export class HttpOut extends Node {
 		this.locked = true;
 	}
 
-	// POST the entries; feed any synchronous reply back into `_sse`.
+	// POST the entries; feed every synchronous reply back into `_sse`.
 	_post( entries ) {
 		Promise.resolve( this.client.postBatch( entries ) )
-			.then( ( response ) => {
-				// A synchronous reply is a packed Message; route it via _sse. A
-				// routed-onward command resolves to null (bare 202) — nothing to do;
-				// its reply arrives over the SSE stream.
-				if ( response ) {
-					Core.node( names.SSE )?.fill( response );
+			.then( ( messages ) => {
+				// JSONL body → zero or more reply Messages (verb response plus any
+				// stderr/log lines the command emitted); route each via _sse. A
+				// routed-onward command yields [] (bare 202) — its reply arrives
+				// over the SSE stream.
+				const sse = Core.node( names.SSE );
+				for ( const message of messages ) {
+					sse?.fill( message );
 				}
 			} )
 			.catch( () => {} );

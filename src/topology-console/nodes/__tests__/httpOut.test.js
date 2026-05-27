@@ -99,7 +99,7 @@ describe( 'HttpOut', () => {
 
 	it( 'fill() is fire-and-forget (returns nothing) and still POSTs', () => {
 		const { node, postBatch } = makeNode();
-		postBatch.mockResolvedValueOnce( null );
+		postBatch.mockResolvedValueOnce( [] ); // bare 202 → no reply Messages
 		const out = node.fill( routed( { to: 'demo.p0' } ) );
 		expect( out ).toBeUndefined();
 		expect( postBatch ).toHaveBeenCalledTimes( 1 );
@@ -128,13 +128,37 @@ describe( 'HttpOut', () => {
 
 		const reply = newMessage();
 		reply[ VALUE ] = 'sync-reply';
-		postBatch.mockResolvedValueOnce( reply ); // a packed Message (array)
+		postBatch.mockResolvedValueOnce( [ reply ] ); // JSONL → array of Messages
 
 		await node.fill( routed( { to: '' } ) ); // _http-level → bare POST
 		await Promise.resolve(); // flush the intake microtask
 
 		expect( got ).toHaveLength( 1 );
 		expect( got[ 0 ][ VALUE ] ).toBe( 'sync-reply' );
+	} );
+
+	it( 'feeds EVERY reply Message from a JSONL body into _sse (e.g. stderr line + response)', async () => {
+		const { Node } = require( '../../../runtime/node' );
+		const names = require( '../../../runtime/reserved-node-names.json' );
+		const { node, postBatch } = makeNode();
+		const sse = new Node();
+		const got = [];
+		sse.fill = ( m ) => got.push( m );
+		sse.setName( names.SSE );
+
+		const a = newMessage();
+		a[ VALUE ] = 'log line';
+		const b = newMessage();
+		b[ VALUE ] = 'response';
+		postBatch.mockResolvedValueOnce( [ a, b ] );
+
+		await node.fill( routed( { to: '' } ) );
+		await Promise.resolve();
+
+		expect( got.map( ( m ) => m[ VALUE ] ) ).toEqual( [
+			'log line',
+			'response',
+		] );
 	} );
 
 	it( 'ignores a null response (bare 202 — routed onward, reply via SSE)', async () => {

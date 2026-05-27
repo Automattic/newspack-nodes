@@ -1,3 +1,6 @@
+import { newMessage, TYPE, TIMESTAMP, VALUE, TM_BYTESTREAM } from './message';
+import names from './reserved-node-names.json';
+
 const PRINT_LESS_OFTEN_WINDOW_MS = 60_000;
 const PRINT_LEAST_OFTEN_THRESHOLD = 10;
 // Bounded stderr tail for the dmesg verb (Tachikoma caps @RECENT_LOG at 100).
@@ -14,6 +17,7 @@ class CoreImpl {
 		this._lastPrint = new Map(); // message → last-printed ms timestamp
 		this._countSince = new Map(); // message → count since last print
 		this.recentLog = []; // bounded stderr tail for the dmesg verb
+		this._inStderr = false; // re-entry guard for the stderr reply-sink emit
 		this.initTime = this.now(); // uptime baseline (mirrors PHP Core::$init_time)
 	}
 
@@ -92,6 +96,24 @@ class CoreImpl {
 		}
 		// eslint-disable-next-line no-console
 		console.warn( line.replace( /\n$/, '' ) );
+		// Also surface at the REPL: fan the formatted line to whichever reply sink
+		// this graph wired — `_repl` (worker output partition) else `_output` (the
+		// Dumper). Guarded so a fault inside the sink's fill can't recurse forever.
+		if ( ! this._inStderr ) {
+			const sink = this.node( names.REPL ) ?? this.node( names.OUTPUT );
+			if ( sink ) {
+				this._inStderr = true;
+				try {
+					const m = newMessage();
+					m[ TYPE ] = TM_BYTESTREAM;
+					m[ TIMESTAMP ] = this.now();
+					m[ VALUE ] = line;
+					sink.fill( m );
+				} finally {
+					this._inStderr = false;
+				}
+			}
+		}
 	}
 
 	// At most one print per identical message per 60s window.

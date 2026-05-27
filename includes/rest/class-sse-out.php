@@ -296,6 +296,10 @@ class SSE_Out_Node extends Node {
 			// throws — otherwise the next request hits a `_router already registered` collision.
 			( new Router_Node() )->name( Node_Names::ROUTER );
 			// This controller IS the SSE egress Node; HTTP_Filter sinks into it.
+			// Name it `_sse` (symmetric with the named `_stream_sink` callback) so
+			// stderr broadcasts in this process reach the client through it (the
+			// Core::stderr `_sse` sink) instead of dead-ending in HTTP_Filter.
+			$this->name( Node_Names::SSE );
 			$http_filter = new HTTP_Filter_Node( (int) \getmypid() );
 			$http_filter->name( Node_Names::HTTP );
 			$http_filter->sink( $this );
@@ -369,6 +373,8 @@ class SSE_Out_Node extends Node {
 			if ( $router instanceof Router_Node ) {
 				$router->remove_node();
 			}
+			// Drop the `_sse` egress name mapping (the controller instance persists).
+			Core::unregister_node( Node_Names::SSE );
 			$release = self::$release_slot;
 			if ( null !== $release ) {
 				$release( $slot, $partition );

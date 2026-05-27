@@ -2,6 +2,9 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
+use Newspack_Nodes\Message;
+use Newspack_Nodes\Node_Names;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -164,6 +167,45 @@ class CoreTest extends TestCase {
 		// proving the in_stderr flag was reset by the finally block.
 		Core::print_less_often( 'second' );
 		$this->assertSame( 2, $call );
+	}
+
+	// ── default stderr handler: reply-sink routing ───────────────────────
+
+	public function test_stderr_default_handler_routes_to_output_when_no_repl(): void {
+		// No _repl (worker) registered, but a REPL Dumper (_output) is — the line
+		// must surface there as a TM_BYTESTREAM, not fall to error_log.
+		Core::reset();
+		$out = new Capture_Sink_Node();
+		Core::register_node( Node_Names::OUTPUT, $out );
+		Core::stderr( 'hi there' );
+		$this->assertCount( 1, $out->captured );
+		$this->assertSame( Message::TM_BYTESTREAM, $out->captured[0][ Message::TYPE ] );
+		$this->assertStringContainsString( 'hi there', (string) $out->captured[0][ Message::VALUE ] );
+	}
+
+	public function test_stderr_default_handler_prefers_repl_over_output(): void {
+		// Worker context: both could be registered; _repl (the output partition)
+		// wins so the line isn't double-rendered.
+		Core::reset();
+		$repl = new Capture_Sink_Node();
+		$out  = new Capture_Sink_Node();
+		Core::register_node( Node_Names::REPL, $repl );
+		Core::register_node( Node_Names::OUTPUT, $out );
+		Core::stderr( 'only repl' );
+		$this->assertCount( 1, $repl->captured );
+		$this->assertCount( 0, $out->captured );
+	}
+
+	public function test_stderr_default_handler_falls_back_to_http(): void {
+		// Ephemeral POST /command process: only the _http response writer exists.
+		// stderr is a broadcast, so the line rides back through _http (the JSONL
+		// body), not error_log.
+		Core::reset();
+		$http = new Capture_Sink_Node();
+		Core::register_node( Node_Names::HTTP, $http );
+		Core::stderr( 'to http' );
+		$this->assertCount( 1, $http->captured );
+		$this->assertStringContainsString( 'to http', (string) $http->captured[0][ Message::VALUE ] );
 	}
 
 	// ── msg_counter ──────────────────────────────────────────────────────

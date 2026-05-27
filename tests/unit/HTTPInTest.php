@@ -140,6 +140,37 @@ class HTTPInTest extends TestCase {
 		$this->assertSame( 'got: hi', $payload['payload'] );
 	}
 
+	public function test_log_verb_broadcasts_its_stderr_line_into_the_jsonl_body(): void {
+		// `log` is a BROADCAST verb (unlike `echo`, which replies): it writes a
+		// stderr line and returns nothing. In the ephemeral /command process the
+		// wired stderr sink is `_http`, so the line rides back as a JSONL body
+		// record (a bare TM_BYTESTREAM, not a command response). This is how `log`
+		// at cwd /_sse · /_http surfaces in the browser console.
+		$this->build_graph();
+		$req = $this->make_request(
+			[
+				'type'  => Message::TM_COMMAND,
+				'to'    => '',
+				'from'  => '_http',
+				'id'    => 'cmd-log',
+				'value' => [ 'name' => 'log', 'arguments' => 'hello world', 'payload' => '' ],
+			]
+		);
+
+		$ctrl = new HTTP_In_Node();
+		$ctrl->set_test_mode( true );
+		\ob_start();
+		$ctrl->dispatch( $req );
+		$body = \ob_get_clean();
+
+		$lines = \array_values( \array_filter( \explode( "\n", $body ), static fn( $l ) => '' !== $l ) );
+		$this->assertCount( 1, $lines, 'log broadcasts one stderr line and returns no response' );
+		$msg = Message::unpacked( $lines[0] );
+		$this->assertSame( Message::TM_BYTESTREAM, $msg[ Message::TYPE ] );
+		$this->assertStringContainsString( 'hello world', (string) $msg[ Message::VALUE ] );
+		$this->assertStringContainsString( '_command_interpreter:', (string) $msg[ Message::VALUE ] );
+	}
+
 	public function test_empty_to_command_is_interpreted_by_the_request_scope_ci(): void {
 		// A command addressed to the request scope itself (TO='') — e.g. the browser
 		// `cd /_sse; <verb>` — must be interpreted by the base CommandInterpreter,
@@ -534,7 +565,8 @@ class HTTPInTest extends TestCase {
 		$out = \ob_get_clean();
 
 		$this->assertSame( [ 200 ], $headers );
-		$this->assertSame( Message::packed( $m ), $out );
+		// JSONL: one packed Message per line.
+		$this->assertSame( Message::packed( $m ) . "\n", $out );
 		$this->assertTrue( $writer->sent_headers );
 	}
 
@@ -557,7 +589,11 @@ class HTTPInTest extends TestCase {
 		$out = \ob_get_clean();
 
 		$this->assertSame( [ 200 ], $headers );
-		$this->assertSame( Message::packed( $a ) . Message::packed( $b ), $out );
+		// JSONL: one packed Message per line (newline-delimited).
+		$this->assertSame(
+			Message::packed( $a ) . "\n" . Message::packed( $b ) . "\n",
+			$out
+		);
 	}
 
 	public function test_default_send_header_closure_invokes_status_header_when_none_supplied(): void {
@@ -576,7 +612,8 @@ class HTTPInTest extends TestCase {
 		$out = \ob_get_clean();
 
 		$this->assertTrue( $writer->sent_headers );
-		$this->assertSame( Message::packed( $m ), $out );
+		// JSONL: one packed Message per line.
+		$this->assertSame( Message::packed( $m ) . "\n", $out );
 		$this->assertSame( [ 200 ], $GLOBALS['_wp_test_status_headers'] );
 	}
 
