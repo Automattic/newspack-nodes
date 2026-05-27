@@ -82,16 +82,22 @@ export function useConsoleGraph( {
 		// column flags (-c/-s/-t) work because the full `_cmdList` runs.
 
 		// Receive-side reply nodes (Router peels TO and delivers to these).
+		// Reply/boundary nodes are terminal (they render or POST in fill(), never
+		// forwarding through sink) — but rule #2 still wires their sink to the CI
+		// so the declared topology is uniform: every node sinks into the CI, and
+		// _router is the only node left bare.
 		const dumper = new Dumper( {
 			debugLevelRef: debugLevelRefRef.current,
 		} );
 		dumper.setName( names.OUTPUT );
+		dumper.sink = ci;
 		const metadata = new Metadata();
 		metadata.setName( names.METADATA );
 		const uptime = new Uptime();
 		uptime.setName( names.UPTIME );
 		const completion = new Completion();
 		completion.setName( names.COMPLETION );
+		completion.sink = ci;
 		// Slot keep-alive: a silent poll node that pokes `workers/heartbeat` on the
 		// Router TIMER (batched into the canvas poll's POST) to refresh this
 		// session's SSE slot TTL — the slot is refreshed EXCLUSIVELY by the client.
@@ -101,6 +107,7 @@ export function useConsoleGraph( {
 		// HTTP boundary: Router peels _http and delivers here (TO={reader}).
 		const httpOut = new HttpOut( { client: getCommandClient() } );
 		httpOut.setName( names.HTTP );
+		httpOut.sink = ci;
 
 		// SSE in: each parsed Message flows to the Router (NOT the Dumper).
 		const sse = new SseIn( {
