@@ -12,17 +12,14 @@ import {
 import { __, _n, sprintf } from '@wordpress/i18n';
 
 import CanvasFrame from './components/CanvasFrame';
+import GraphView from './components/GraphView';
 import Header from './components/Header';
-import Inspector from './components/Inspector';
 import { ConfirmModal, PromptModal } from './components/Modal';
-import Palette from './components/Palette';
 import ReplFooter from './components/ReplFooter';
-import SchematicCanvas from './components/SchematicCanvas';
 
 import OpenTopologyModal from './components/OpenTopologyModal';
 
 import { useClassCatalog } from './hooks/useClassCatalog';
-import { useGraphRates } from './hooks/useGraphRates';
 import { useLayout } from './hooks/useLayout';
 import { useSaveTopology } from './hooks/useSaveTopology';
 import { useDeleteTopology } from './hooks/useDeleteTopology';
@@ -232,10 +229,10 @@ export default function TopologyConsole() {
 	const [ partition, setPartition ] = useState( () =>
 		initialPartitionFromUrl()
 	);
+	// Display-only mirror of GraphView's authoritative selection, set via
+	// onSelectionChange. Used ONLY for the `is-inspector-open` wrapper class
+	// (and handleInspectorAction's transcript focus side-effect).
 	const [ selectedId, setSelectedId ] = useState( null );
-	// Mutually exclusive with selectedId — clicking either clears the other.
-	const [ selectedEdge, setSelectedEdge ] = useState( null );
-	const [ hoveredId, setHoveredId ] = useState( null );
 	// `edit` freezes a draft snapshot so SSE pushes can't clobber it;
 	// `baseline` is the draft at edit-entry, so the dirty check compares
 	// against real edits rather than live SSE counter churn.
@@ -1109,11 +1106,6 @@ export default function TopologyConsole() {
 		return augmentWithVirtualEdges( baseCanvasGraph );
 	}, [ baseCanvasGraph, mode, augmentWithVirtualEdges ] );
 
-	const { rateRef, rateVersion } = useGraphRates(
-		canvasGraph,
-		`${ scope.key }|${ mode }|${ editingName }`
-	);
-
 	const handleConnect = useCallback(
 		( from, to ) => {
 			// Live canvas: the gesture is a live command at the current cwd.
@@ -1144,51 +1136,16 @@ export default function TopologyConsole() {
 			// Live canvas: the gesture is a live command at the current cwd.
 			if ( mode !== 'edit' ) {
 				sendLine( `remove_node ${ id }` );
-				if ( selectedId === id ) {
-					setSelectedId( null );
-				}
 				return;
 			}
 			setDraft( ( g ) => removeNode( g, id ) );
-			if ( selectedId === id ) {
-				setSelectedId( null );
-			}
 		},
-		[ mode, sendLine, selectedId ]
+		[ mode, sendLine ]
 	);
 
-	const handleRemoveEdge = useCallback(
-		( from, to ) => {
-			setDraft( ( g ) => removeEdge( g, from, to ) );
-			if (
-				selectedEdge &&
-				selectedEdge.from === from &&
-				selectedEdge.to === to
-			) {
-				setSelectedEdge( null );
-			}
-		},
-		[ selectedEdge ]
-	);
-
-	// Node and edge selection are mutually exclusive (unambiguous Delete).
-	const handleSelectNode = useCallback(
-		( id ) => {
-			setSelectedId( id );
-			setSelectedEdge( null );
-			refocusReplIfExpanded();
-		},
-		[ refocusReplIfExpanded ]
-	);
-
-	const handleSelectEdge = useCallback(
-		( edge ) => {
-			setSelectedEdge( edge );
-			setSelectedId( null );
-			refocusReplIfExpanded();
-		},
-		[ refocusReplIfExpanded ]
-	);
+	const handleRemoveEdge = useCallback( ( from, to ) => {
+		setDraft( ( g ) => removeEdge( g, from, to ) );
+	}, [] );
 
 	// First background click dismisses the prompt; return true so the canvas
 	// skips its own deselect/autofit for this click.
@@ -1200,34 +1157,6 @@ export default function TopologyConsole() {
 		replInputRef.current?.blur();
 		return true;
 	}, [ replExpanded ] );
-
-	// Delete/Backspace removes the selection (skipped in form fields). Active in
-	// both modes: edit mutates the draft, live dispatches a live command (via
-	// handleRemoveNode's branch). Edge-delete is draft-only (no live edge id).
-	useEffect( () => {
-		const onKey = ( e ) => {
-			if ( e.key !== 'Delete' && e.key !== 'Backspace' ) {
-				return;
-			}
-			const target = e.target;
-			const tag = target && target.tagName;
-			if ( tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ) {
-				return;
-			}
-			if ( target && target.isContentEditable ) {
-				return;
-			}
-			if ( selectedId ) {
-				e.preventDefault();
-				handleRemoveNode( selectedId );
-			} else if ( mode === 'edit' && selectedEdge ) {
-				e.preventDefault();
-				handleRemoveEdge( selectedEdge.from, selectedEdge.to );
-			}
-		};
-		document.addEventListener( 'keydown', onKey );
-		return () => document.removeEventListener( 'keydown', onKey );
-	}, [ mode, selectedId, selectedEdge, handleRemoveNode, handleRemoveEdge ] );
 
 	const handleSave = useCallback( () => {
 		setSaveModal( {} );
@@ -1244,7 +1173,6 @@ export default function TopologyConsole() {
 		setEditingName( '' );
 		setEditingSource( '' );
 		setSelectedId( null );
-		setSelectedEdge( null );
 		setPositionOverrides( {} );
 		setViewport( null );
 	}, [] );
@@ -1323,7 +1251,6 @@ export default function TopologyConsole() {
 				setEditingName( resp.name );
 				setEditingSource( resp.source || '' );
 				setSelectedId( null );
-				setSelectedEdge( null );
 				// Seed from the loaded graph so later drops don't reshuffle it.
 				seedOverridesFromLayout();
 				setViewport( null );
@@ -1539,13 +1466,6 @@ export default function TopologyConsole() {
 		[ mode, parsed, sendLine, handlePositionChange, snapToGrid ]
 	);
 
-	// rateVersion is the recompute signal; the data lives in mutable rateRef.
-	const selectedRateInfo = useMemo(
-		() => ( selectedId ? rateRef.current.get( selectedId ) : null ),
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[ selectedId, rateVersion ]
-	);
-
 	return (
 		<div
 			className={ `topology-app theme-${ theme }${
@@ -1570,83 +1490,59 @@ export default function TopologyConsole() {
 				onThemeChange={ setTheme }
 				themes={ THEMES }
 			/>
-			{ mode === 'edit' && (
-				<Palette
-					classes={ catalog.classes }
-					loading={ catalog.loading }
-				/>
-			) }
-			<CanvasFrame
-				topology={
-					mode === 'edit' ? editingName || 'untitled' : scope.label
-				}
-				partition={ mode === 'edit' ? null : scope.partition }
-				isWorker={ mode === 'edit' ? true : scope.isWorker }
-				onResetLayout={ hasOverrides ? handleResetLayout : null }
-				onSaveLayout={ layoutDirty ? handleSaveLayout : null }
-				onResetGraph={
+			<GraphView
+				graph={ canvasGraph }
+				frame={ CanvasFrame }
+				frameProps={ {
+					topology:
+						mode === 'edit'
+							? editingName || 'untitled'
+							: scope.label,
+					partition: mode === 'edit' ? null : scope.partition,
+					isWorker: mode === 'edit' ? true : scope.isWorker,
+					onResetLayout: hasOverrides ? handleResetLayout : null,
+					onSaveLayout: layoutDirty ? handleSaveLayout : null,
 					// Only the local in-browser graph (cwd root) is ephemeral;
-					// any pivoted view — a worker over _sse OR the _http broadcast
-					// boundary — self-heals on respawn, so a reset is meaningless.
-					mode === 'edit' || '' !== cwd
-						? null
-						: () => setResetKey( ( k ) => k + 1 )
-				}
+					// any pivoted view — a worker over _sse OR the _http
+					// broadcast boundary — self-heals on respawn, so a reset is
+					// meaningless.
+					onResetGraph:
+						mode === 'edit' || '' !== cwd
+							? null
+							: () => setResetKey( ( k ) => k + 1 ),
+					editMode: mode === 'edit',
+				} }
+				resetKey={ `${ scope.key }|${ mode }|${ editingName }` }
+				interactive={ true }
 				editMode={ mode === 'edit' }
-			>
-				<SchematicCanvas
-					parsed={ canvasGraph }
-					selectedId={ selectedId }
-					onSelect={ handleSelectNode }
-					positionOverrides={ positionOverrides }
-					onPositionChange={ handlePositionChange }
-					onDeselect={ () => {
-						setSelectedId( null );
-						setSelectedEdge( null );
-					} }
-					onBackgroundClickConsumed={
-						handleCanvasBackgroundClickConsumed
-					}
-					hoveredId={ hoveredId }
-					onHover={ setHoveredId }
-					rateRef={ rateRef }
-					rateVersion={ rateVersion }
-					viewport={ viewport }
-					onViewportChange={ handleViewportChange }
-					interactive={ true }
-					editMode={ mode === 'edit' }
-					onDropNode={ handleDropNode }
-					onConnect={ handleConnect }
-					selectedEdge={ selectedEdge }
-					onSelectEdge={ handleSelectEdge }
-					classCatalog={ schemasByShellName }
-				/>
-			</CanvasFrame>
-			{ /* Inspector mounts only when a node is selected. */ }
-			{ selectedId && (
-				<Inspector
-					selectedId={ selectedId }
-					parsed={ canvasGraph }
-					streamStatus={ status }
-					rateInfo={ selectedRateInfo }
-					onAction={ handleInspectorAction }
-					onSelect={ handleSelectNode }
-					onHover={ setHoveredId }
-					nodeIds={
-						new Set( canvasGraph.nodes.map( ( n ) => n.id ) )
-					}
-					ssePid={ ssePid }
-					editMode={ mode === 'edit' }
-					catalog={ catalog.classes }
-					formatters={ catalog.formatters }
-					onUpdateArgs={ handleUpdateArgs }
-					onUpdateVerbs={ handleUpdateVerbs }
-					onRemoveNode={ handleRemoveNode }
-					onRenameNode={ handleRenameNode }
-					onRemoveEdge={ handleRemoveEdge }
-					onConnect={ handleConnect }
-				/>
-			) }
+				showPalette={ mode === 'edit' }
+				paletteLoading={ catalog.loading }
+				classCatalog={ schemasByShellName }
+				catalog={ catalog.classes }
+				formatters={ catalog.formatters }
+				streamStatus={ status }
+				ssePid={ ssePid }
+				positionOverrides={ positionOverrides }
+				onPositionChange={ handlePositionChange }
+				viewport={ viewport }
+				onViewportChange={ handleViewportChange }
+				onConnect={ handleConnect }
+				onRemoveNode={ handleRemoveNode }
+				onRemoveEdge={ handleRemoveEdge }
+				onDropNode={ handleDropNode }
+				onInspectorAction={ handleInspectorAction }
+				onRenameNode={ handleRenameNode }
+				onUpdateArgs={ handleUpdateArgs }
+				onUpdateVerbs={ handleUpdateVerbs }
+				onSelectionChange={ ( id ) => {
+					setSelectedId( id );
+					refocusReplIfExpanded();
+				} }
+				selection={ selectedId }
+				onBackgroundClickConsumed={
+					handleCanvasBackgroundClickConsumed
+				}
+			/>
 			{ mode !== 'edit' && (
 				<ReplFooter
 					prompt={ `/${ cwd }` }

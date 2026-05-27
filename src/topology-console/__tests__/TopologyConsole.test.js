@@ -1029,6 +1029,18 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
 	} );
 
+	it( 'deselect removes the is-inspector-open grid column', () => {
+		const { getByText, container } = render( <TopologyConsole /> );
+		fireEvent.click( getByText( 'select-n1' ) );
+		expect(
+			container.querySelector( '.topology-app' ).className
+		).toContain( 'is-inspector-open' );
+		fireEvent.click( getByText( 'deselect' ) );
+		expect(
+			container.querySelector( '.topology-app' ).className
+		).not.toContain( 'is-inspector-open' );
+	} );
+
 	it( 'select edge clears any selected node', () => {
 		const { getByText, queryByTestId } = render( <TopologyConsole /> );
 		fireEvent.click( getByText( 'select-n1' ) );
