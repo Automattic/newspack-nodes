@@ -38,6 +38,20 @@ describe( 'parseMetadata', () => {
 		expect( edges ).toEqual( [ { from: 'alpha', to: 'beta' } ] );
 	} );
 
+	it( 'draws an edge to the head node of a path target (router peels the head)', () => {
+		// `_heartbeat` targets the PATH `_sse/workers`; the router peels `_sse`
+		// and delivers there, so the canvas edge connects to `_sse`, not the
+		// non-existent `_sse/workers`.
+		const { edges } = parseMetadata( {
+			_heartbeat: {
+				class: 'Heartbeat',
+				counter: 1,
+				target: '_sse/workers',
+			},
+		} );
+		expect( edges ).toEqual( [ { from: '_heartbeat', to: '_sse' } ] );
+	} );
+
 	it( 'parses an array target (Tee) into multiple edges', () => {
 		const { edges } = parseMetadata( {
 			tee: {
