@@ -188,6 +188,20 @@ export function pollTargetFor( { cwd, mode, ssePid, pathOptions } ) {
 	return workerPollPath( cwd, pathOptions );
 }
 
+// Whether the REPL prompt accepts input for the current cwd. A non-worker cwd
+// (local graph '', request scope `_sse`) sends local builtins or synchronous
+// `_http` POSTs that never use the SSE stream, so the prompt stays usable even
+// with no session — otherwise a `cd /` (which closes the stream + nulls the pid)
+// would disable the prompt and strand the user with no way to `cd` back onto a
+// worker. Only while pivoted into a worker does the prompt wait on the stream
+// (open + a pid), since a worker's replies arrive async over SSE.
+export function replInputEnabled( { status, ssePid, cwd, pathOptions } ) {
+	if ( null === workerPollPath( cwd, pathOptions ) ) {
+		return true;
+	}
+	return 'open' === status && !! ssePid;
+}
+
 function readUrlParam( key ) {
 	try {
 		return new URLSearchParams( window.location.search ).get( key );
@@ -1699,7 +1713,12 @@ export default function TopologyConsole() {
 				<ReplFooter
 					prompt={ `/${ cwd }` }
 					streamStatus={ status }
-					canSend={ status === 'open' && !! ssePid }
+					canSend={ replInputEnabled( {
+						status,
+						ssePid,
+						cwd,
+						pathOptions,
+					} ) }
 					onSubmit={ sendLine }
 					onClear={ clearTranscript }
 					transcript={ transcript }
