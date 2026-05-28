@@ -1141,6 +1141,45 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringNotContainsString( 'set_sink alice', $dump );
 	}
 
+	public function test_dump_config_round_trips_idempotently_through_make_node(): void {
+		// Tachikoma round-trip contract: dump_config -> parse + dispatch ->
+		// dump_config' must be byte-identical. The schema-driven arguments()
+		// setter populates each node from the dumped string, dump_config
+		// re-emits the canonical raw arguments, and the second dump matches
+		// the first. Uses Tee + Echo + Hook to avoid auto-wired `:config`
+		// siblings (which would need cascade-cleanup outside this test's scope).
+		$ci = new Command_Interpreter_Node();
+		$ci->name( '_command_interpreter' );
+
+		$ci->dispatch( 'make_node', 'Tee fanout' );
+		$ci->dispatch( 'make_node', 'Echo sink-a' );
+		$ci->dispatch( 'make_node', 'Echo sink-b' );
+		$ci->dispatch( 'make_node', 'Hook on-save save_post true' );
+		$ci->dispatch( 'connect_node', 'fanout sink-a' );
+		$ci->dispatch( 'connect_node', 'fanout sink-b' );
+		$ci->dispatch( 'connect_node', 'on-save fanout' );
+
+		$dump1 = $ci->dispatch( 'dump_config' );
+
+		foreach ( [ 'fanout', 'sink-a', 'sink-b', 'on-save' ] as $name ) {
+			$ci->dispatch( 'remove_node', $name );
+		}
+
+		foreach ( \explode( "\n", $dump1 ) as $line ) {
+			$line = \trim( $line );
+			if ( '' === $line ) {
+				continue;
+			}
+			$parts = \preg_split( '/\s+/', $line, 2 );
+			$verb  = $parts[0];
+			$args  = $parts[1] ?? '';
+			$ci->dispatch( $verb, $args );
+		}
+
+		$dump2 = $ci->dispatch( 'dump_config' );
+		$this->assertSame( $dump1, $dump2, 'dump_config round-trip must be byte-identical' );
+	}
+
 	// ── A1: instance verb table + patron pointer ─────────────────
 
 	public function test_patron_accessor_round_trips(): void {
