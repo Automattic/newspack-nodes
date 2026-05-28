@@ -1,5 +1,4 @@
 import { useMemo } from '@wordpress/element';
-import { Core } from '../runtime/core';
 import { useNodeState } from '../runtime/react';
 import { coreToGraph } from '../topology-console/utils/coreToGraph';
 import { generateNodeName } from '../topology-console/utils/draftGraph';
@@ -16,14 +15,17 @@ const EMPTY_GRAPH = { nodes: [], edges: [] };
  * Before the first poll lands (or while no Metadata is mounted), falls back
  * to `coreToGraph()` so the canvas isn't empty on first paint.
  *
- * @param {boolean} [active] Currently unused; kept for API parity (the
- *                           subscription is naturally inert when no _metadata).
- * @param {Object}  shell    Shell instance owned by DebugOverlay; sink wired
- *                           to the local CI.
+ * @param {boolean} [active]         Currently unused; kept for API parity (the
+ *                                   subscription is naturally inert when no _metadata).
+ * @param {Object}  shell            Shell instance owned by DebugOverlay; sink wired
+ *                                   to the local CI.
+ * @param {Array}   [catalogClasses] Class catalog entries (shell_name + is_interpreter);
+ *                                   the Inspector uses it to decide whether to target
+ *                                   a node's `:config` sibling or the node itself.
  * @return {{ graph: { nodes: Array, edges: Array }, handlers: Object }} The live graph and gesture handlers.
  */
 // eslint-disable-next-line no-unused-vars
-export function useDebugGraph( active = true, shell ) {
+export function useDebugGraph( active = true, shell, catalogClasses = [] ) {
 	const metadataGraph = useNodeState( names.METADATA, 'metadata' );
 	// Evaluate the fallback live every render — useMemo would freeze on the
 	// first render's coreToGraph(), which can fire BEFORE the page's exospine
@@ -46,10 +48,12 @@ export function useDebugGraph( active = true, shell ) {
 			onRemoveNode: ( id ) => shell.sendCommand( '', 'remove_node', id ),
 			onDropNode: ( { shellName } ) => {
 				// SchematicCanvas passes {shellName, x, y} — destructure to match.
-				// generateNodeName uniques against the live graph (read off Core,
-				// the source of truth) so the new id won't collide with an existing
-				// node. Position is cosmetic and not sent — poll-reflect lays out.
-				const name = generateNodeName( coreToGraph(), shellName );
+				// Unique the new id against the DISPLAYED graph (which is the
+				// remote dump_metadata when cwd is remote, otherwise the local
+				// Core) so the make_node we dispatch doesn't collide with a node
+				// that already exists in the target realm. Position is cosmetic
+				// and not sent — poll-reflect lays out.
+				const name = generateNodeName( graph, shellName );
 				shell.sendCommand(
 					'',
 					'make_node',
@@ -80,21 +84,28 @@ export function useDebugGraph( active = true, shell ) {
 					);
 				} else if ( action === 'invoke' && payload ) {
 					const { verb, positional } = payload;
-					// Interpreter-class nodes have no `${nodeId}:config` sibling —
-					// they handle verbs themselves via their own verb table. Mirror
-					// TopologyConsole's `is_interpreter` handling: fall back to
-					// nodeId when the `:config` sibling isn't registered. The
-					// old dispatchLocal code's `|| ci()` fallback lost the node-
-					// specific verb table; targeting nodeId preserves it.
-					const configPath = `${ nodeId }:config`;
-					const target = Core.node( configPath )
-						? configPath
-						: nodeId;
+					// Mirror TopologyConsole: key on the catalog's
+					// is_interpreter flag (the node's class metadata), NOT a
+					// Core.node lookup — in remote scope the browser's Core
+					// never holds server-side `:config` siblings, so a Core
+					// check ALWAYS falls back to nodeId and misroutes verbs
+					// on non-interpreter PHP nodes.
+					const node = graph.nodes.find( ( n ) => n.id === nodeId );
+					const cls =
+						node && catalogClasses
+							? catalogClasses.find(
+									( c ) => c.shell_name === node.class
+							  )
+							: null;
+					const isInterpreter = !! ( cls && cls.is_interpreter );
+					const target = isInterpreter
+						? nodeId
+						: `${ nodeId }:config`;
 					shell.sendCommand( target, verb, positional || '' );
 				}
 			},
 		} ),
-		[ shell ]
+		[ shell, graph, catalogClasses ]
 	);
 
 	return { graph, handlers };
