@@ -33,7 +33,8 @@ class ConsumerTest extends TestCase {
 		// its own bytes_read (sourced from read_at calls), but the Consumer
 		// is the node operators see in `stats` so it needs to surface the
 		// volume too.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$msg_a  = $this->produce( 'first' );
 		$source->fill( $msg_a );
 		$source->flush();
@@ -47,7 +48,8 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_poll_emits_line_for_each_new_log_entry(): void {
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'first' );
 		$this->produce_line( $source, 'second' );
 
@@ -79,7 +81,8 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_poll_does_not_re_emit_old_lines_on_second_call(): void {
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'first' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -102,7 +105,8 @@ class ConsumerTest extends TestCase {
 		// like "worker X · consumer Y · target Z" instead of the static
 		// hardcoded WORKER_INPUTS map. Worker_type comes from the env
 		// var the supervisor sets; target is what Node::target() holds.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'hello' );
 
 		$_SERVER['NEWSPACK_NODES_WORKER_TYPE'] = 'firehose-workers';
@@ -132,7 +136,8 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_checkpoint_writes_offsetlog_entry(): void {
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -151,7 +156,8 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_restart_resumes_from_last_checkpoint(): void {
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'first' );
 
 		$c1 = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -183,7 +189,8 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_has_checkpoint_true_after_resuming_from_offsetlog(): void {
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'first' );
 
 		$c1 = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -328,7 +335,8 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_is_caught_up_false_when_unread_data(): void {
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -341,7 +349,8 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_is_caught_up_true_after_polling_to_end(): void {
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'a' );
 		$this->produce_line( $source, 'b' );
 
@@ -395,7 +404,8 @@ class ConsumerTest extends TestCase {
 
 	public function test_open_jumps_to_oldest_when_cursor_segment_deleted(): void {
 		// Set up a source with multiple segments, position cursor past the oldest, then delete it.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 32, 2, 0 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 32 2 0" );
 		// Force several rotations.
 		for ( $i = 0; $i < 6; $i++ ) {
 			$this->produce_line( $source, str_repeat( chr( 97 + $i ), 30 ) );
@@ -428,7 +438,8 @@ class ConsumerTest extends TestCase {
 	// ============================================================================
 
 	public function test_next_offset_end_seeks_to_tail(): void {
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'old1' );
 		$this->produce_line( $source, 'old2' );
 
@@ -447,7 +458,8 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_next_offset_start_resets_to_zero(): void {
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'alpha' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -464,7 +476,8 @@ class ConsumerTest extends TestCase {
 
 	public function test_next_offset_recent_picks_second_to_last_segment(): void {
 		// Force several segments.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 32 4 86400" );
 		$this->produce_line( $source, str_repeat( 'a', 30 ) );
 		$this->produce_line( $source, str_repeat( 'b', 30 ) );
 		$this->produce_line( $source, str_repeat( 'c', 30 ) );
@@ -487,7 +500,8 @@ class ConsumerTest extends TestCase {
 		// cli sessions and other ephemeral readers pass '' for offsetlog dir
 		// to skip the offsetlog entirely — no per-session directories under
 		// offsets/, no checkpoint persistence, just tail.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'hello' );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, '' );
@@ -541,7 +555,8 @@ class ConsumerTest extends TestCase {
 	public function test_next_segment_stays_when_current_segment_is_fresh(): void {
 		// Writer is still active on the current segment (mtime within
 		// STALE_SEGMENT_SECONDS): next_segment must not advance the cursor.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 32 4 86400" );
 		// 3 writes guaranteed to produce >=2 segments (matches pattern in
 		// test_next_offset_recent_picks_second_to_last_segment).
 		$this->produce_line( $source, str_repeat( 'a', 30 ) );
@@ -571,7 +586,8 @@ class ConsumerTest extends TestCase {
 
 	public function test_next_segment_advances_when_current_is_stale_and_next_exists(): void {
 		// Force >=2 segments. Touch the current one to look stale, then verify advance.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 32 4 86400" );
 		$this->produce_line( $source, str_repeat( 'a', 30 ) );
 		$this->produce_line( $source, str_repeat( 'b', 30 ) );
 		$this->produce_line( $source, str_repeat( 'c', 30 ) );
@@ -618,7 +634,8 @@ class ConsumerTest extends TestCase {
 	public function test_next_segment_returns_null_when_current_stale_but_no_next(): void {
 		// Single segment, stale. There's no "next id" to advance to → return null.
 		// Distinct from the firehose-wiped branch (has_curr=true, has_next=false).
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'only' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -640,7 +657,8 @@ class ConsumerTest extends TestCase {
 
 	public function test_next_segment_resets_when_firehose_was_wiped(): void {
 		// has_curr=false AND has_next=false → "firehose was reset", jump to oldest.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'a' );
 
 		$segments = $source->get_segments( true );
@@ -678,7 +696,8 @@ class ConsumerTest extends TestCase {
 	public function test_poll_recovers_when_cursor_segment_was_deleted(): void {
 		// Cursor parked on a segment id that no longer exists — poll() must
 		// recover by rewinding to the oldest available segment and reading from 0.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 32 4 86400" );
 		$this->produce_line( $source, str_repeat( 'a', 30 ) );
 		$this->produce_line( $source, str_repeat( 'b', 30 ) );
 		$this->produce_line( $source, str_repeat( 'c', 30 ) );
@@ -713,7 +732,8 @@ class ConsumerTest extends TestCase {
 	public function test_poll_advances_across_segment_boundary(): void {
 		// Multi-segment drain: a single poll spanning into a new segment must
 		// reset cursor_off to 0 when it crosses the boundary.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 32 4 86400" );
 		$this->produce_line( $source, str_repeat( 'a', 30 ) );
 		$this->produce_line( $source, str_repeat( 'b', 30 ) );
 		$this->produce_line( $source, str_repeat( 'c', 30 ) );
@@ -746,7 +766,8 @@ class ConsumerTest extends TestCase {
 		// FROM-stamping is a load-bearing convention — every emitted message must
 		// have the Consumer's name stamped onto FROM so downstream nodes can
 		// reply via TO=FROM.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'hi' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -763,7 +784,8 @@ class ConsumerTest extends TestCase {
 	public function test_poll_stamp_override_replaces_name_in_FROM(): void {
 		// set_stamp_as overrides the FROM stamp — used by the worker's IPC
 		// input Consumer to stamp as the OUTPUT partition's name (`_repl`).
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'data' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -783,7 +805,8 @@ class ConsumerTest extends TestCase {
 		// uses this to checkpoint by segment+offset. ID (not KEY) because KEY
 		// is the producer's routing key (rid for firehose, handler for
 		// jobintake) and Consumer must preserve it for downstream routing.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'first' );
 		$this->produce_line( $source, 'second' );
 
@@ -806,7 +829,8 @@ class ConsumerTest extends TestCase {
 		// key — rid for firehose entries, handler for jobintake. Overwriting
 		// it to seg:offset (as Consumer used to do) breaks RequestBuilder's
 		// rid grouping and any multi-partition queue keyed on handler.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 		$msg[ Message::TIMESTAMP ] = 1234567890.0;
@@ -892,7 +916,8 @@ class ConsumerTest extends TestCase {
 	public function test_is_caught_up_false_when_cursor_segment_is_older_than_newest(): void {
 		// Multiple segments. Park the cursor on an older one — caught up must be
 		// false even if at_eof was set on the OLD segment.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 32 4 86400" );
 		$this->produce_line( $source, str_repeat( 'a', 30 ) );
 		$this->produce_line( $source, str_repeat( 'b', 30 ) );
 		$this->produce_line( $source, str_repeat( 'c', 30 ) );
@@ -921,7 +946,8 @@ class ConsumerTest extends TestCase {
 	public function test_checkpoint_skips_when_cursor_has_not_advanced(): void {
 		// Spec: "Skip if cursor hasn't advanced since the last commit — the
 		// saved entry is still the truth, no point appending a duplicate every tick."
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'first' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -941,7 +967,8 @@ class ConsumerTest extends TestCase {
 
 	public function test_checkpoint_appends_when_cursor_has_advanced(): void {
 		// Inverse of the skip test: when cursor advances, a new entry MUST land.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'first' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -967,7 +994,8 @@ class ConsumerTest extends TestCase {
 
 	public function test_fire_polls_source_and_emits_messages(): void {
 		// fire() is the Timer hook. It must call poll() so new bytes get drained.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'fired' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -987,7 +1015,8 @@ class ConsumerTest extends TestCase {
 	public function test_fire_writes_first_checkpoint_on_initial_call(): void {
 		// On the FIRST fire(), last_checkpoint=0 so (now - 0) >= 1 always
 		// holds — checkpoint() must run (provided the cursor advanced).
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'cp' );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -1014,7 +1043,8 @@ class ConsumerTest extends TestCase {
 		// Spec: "Persist cursor every CHECKPOINT_INTERVAL_S so a respawning
 		// worker resumes from the last commit." Within that interval, fire()
 		// must NOT call checkpoint() — even if data was polled.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'a' );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -1050,7 +1080,8 @@ class ConsumerTest extends TestCase {
 	public function test_fire_does_not_invoke_checkpoint_when_offsetlog_disabled(): void {
 		// Consumer constructed with empty offsetlog_base_dir → no offsetlog
 		// directory ever created, even after fire().
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'a' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, '' );
@@ -1070,7 +1101,8 @@ class ConsumerTest extends TestCase {
 	public function test_fire_rearms_timer_with_eof_interval_when_caught_up(): void {
 		// After draining all available data, fire() must re-arm with
 		// POLL_INTERVAL_EOF_MS (=100) so we back off to 100ms idle ticks.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'a' );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -1193,7 +1225,9 @@ class ConsumerTest extends TestCase {
 		// view (poll continues past publish_position to checkpoint).
 		\Newspack_Nodes\Config::reset();
 
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64*1024, 4, 86400 );
+		$source = new Partition_Node();
+
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'a' );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -1221,7 +1255,8 @@ class ConsumerTest extends TestCase {
 		// fill() must detect TM_REQUEST (without TM_RESPONSE) and dispatch to
 		// handle_request() — NOT forward to sink. This is the introspection
 		// path that powers GET_LAG / GET_OFFSET verbs.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'one' );
 		$this->produce_line( $source, 'two' );
 
@@ -1257,7 +1292,8 @@ class ConsumerTest extends TestCase {
 	public function test_handle_request_GET_OFFSET_returns_cursor_and_checkpoint(): void {
 		// Spec: GET_OFFSET reply payload is
 		// { cursor_seg, cursor_off, checkpoint_seg, checkpoint_off, last_checkpoint_ts }.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -1311,7 +1347,8 @@ class ConsumerTest extends TestCase {
 		// With pending bytes on the source partition, GET_LAG must report
 		// bytes_behind > 0 and caught_up=false. line_remainder bytes don't
 		// inflate the count (they're already "fetched", just not emitted yet).
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'pending' );
 
 		$c   = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -1334,7 +1371,8 @@ class ConsumerTest extends TestCase {
 	public function test_handle_request_GET_LAG_counts_segments_behind(): void {
 		// Multi-segment: a consumer parked on segment 0 with newer segments
 		// available must report segments_behind > 0.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 32 4 86400" );
 		$this->produce_line( $source, \str_repeat( 'a', 30 ) );
 		$this->produce_line( $source, \str_repeat( 'b', 30 ) );
 		$this->produce_line( $source, \str_repeat( 'c', 30 ) );
@@ -1372,7 +1410,8 @@ class ConsumerTest extends TestCase {
 		// must subtract from bytes_behind so the report reflects bytes-still-
 		// to-fetch, not bytes-still-to-emit. (Without the subtraction, a
 		// partial-line accumulator would double-count.)
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -1479,7 +1518,9 @@ class ConsumerTest extends TestCase {
 		$tee->connect_node( 'processor-a' );
 		$tee->connect_node( 'processor-b' );
 
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'data' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -1510,7 +1551,9 @@ class ConsumerTest extends TestCase {
 		$tee->name( 'firehose:tee' );
 		$tee->connect_node( 'ghost' ); // no Core::node('ghost') registered.
 
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'data' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -1543,7 +1586,9 @@ class ConsumerTest extends TestCase {
 		$real = new Capture_Sink_Node();
 		$real->name( 'real' );
 
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'data' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -1572,7 +1617,9 @@ class ConsumerTest extends TestCase {
 		$ref->setAccessible( true );
 		$ref->setValue( $tee, 'unexpected-string' );
 
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'data' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -1609,7 +1656,9 @@ class ConsumerTest extends TestCase {
 		$processor = new Capture_Sink_Node();
 		$processor->name( 'just-a-processor' );
 
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'data' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -1635,7 +1684,8 @@ class ConsumerTest extends TestCase {
 	public function test_set_stamp_as_changes_FROM_stamp_on_emit(): void {
 		// Standalone coverage of set_stamp_as(): empty default falls back to
 		// $this->name, but once set it replaces it on every poll-emitted msg.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'one' );
 		$this->produce_line( $source, 'two' );
 
@@ -1666,7 +1716,8 @@ class ConsumerTest extends TestCase {
 		// — set_state('CAUGHT_UP', $bool) fires ONLY when the boolean flips.
 		// Subscribers can register on the event and see false→true→false
 		// without per-poll churn.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
 
@@ -1803,7 +1854,8 @@ class ConsumerTest extends TestCase {
 		// 'recent' fallback: when there's only ONE segment, pick the oldest
 		// (which is also the newest in that case). Distinct from the
 		// already-tested multi-segment 'recent' path.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'only' );
 
 		$segments = $source->get_segments( true );
@@ -1860,7 +1912,8 @@ class ConsumerTest extends TestCase {
 	public function test_open_returns_segment_metadata_when_cursor_matches_existing(): void {
 		// open() with a cursor that matches an existing segment id returns
 		// that segment's metadata without resetting cursor_off.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'hello' );
 
 		$c = new Consumer_Node( "{$this->tmp}/data", 0, "{$this->tmp}/offsets/r/p0" );
@@ -1933,7 +1986,8 @@ class ConsumerTest extends TestCase {
 	public function test_poll_skips_segments_older_than_cursor(): void {
 		// Cursor parked on a newer segment must skip older segments in the
 		// poll loop. The `$s['id'] < $this->cursor_seg → continue` branch.
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 32, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 32 4 86400" );
 		$this->produce_line( $source, \str_repeat( 'a', 30 ) );
 		$this->produce_line( $source, \str_repeat( 'b', 30 ) );
 		$this->produce_line( $source, \str_repeat( 'c', 30 ) );
@@ -1991,7 +2045,8 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_construct_ignores_unparseable_offsetlog_entry(): void {
-		$source = new Partition_Node( "{$this->tmp}/data", 0, 64 * 1024, 4, 86400 );
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'hello' );
 
 		// Write a real checkpoint, then corrupt that entry in place at the same

@@ -73,10 +73,12 @@ class Consumer_Node extends Timer_Node {
 		$this->source_partition = $source_partition;
 		$this->offsetlog_dir    = \rtrim( $offsetlog_base_dir, '/' );
 
-		$this->source = new Partition_Node( $this->source_base_dir, $this->source_partition );
+		$this->source = new Partition_Node();
+		$this->source->arguments( "{$this->source_base_dir} {$this->source_partition}" );
 
 		if ( '' !== $this->offsetlog_dir ) {
-			$this->offsetlog = new Partition_Node( $this->offsetlog_dir, 0, self::DEFAULT_OFFSETLOG_SEGMENT_SIZE );
+			$this->offsetlog = new Partition_Node();
+			$this->offsetlog->arguments( "{$this->offsetlog_dir} 0 " . self::DEFAULT_OFFSETLOG_SEGMENT_SIZE );
 			$this->load_offsetlog();
 		}
 

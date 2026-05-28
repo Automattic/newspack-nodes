@@ -59,7 +59,8 @@ class SSEOutTest extends TestCase {
 		// Pre-populate the firehose log with two TM_BYTESTREAM lines so the
 		// Consumer has something to drain. Use Partition::fill directly with
 		// a constructed Message (matches how Partition writes data on disk).
-		$p     = new Partition_Node( "{$base}/logs/firehose.log", 0 );
+		$p = new Partition_Node();
+		$p->arguments( "{$base}/logs/firehose.log 0" );
 		$line1 = Message::new_message();
 		$line1[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$line1[ Message::VALUE ] = "line-one\n";
@@ -125,7 +126,9 @@ class SSEOutTest extends TestCase {
 		$base = $this->make_temp_dir( 'msg-stream-flush-' );
 		\mkdir( "{$base}/logs/firehose.log", 0755, true );
 
-		$p    = new Partition_Node( "{$base}/logs/firehose.log", 0 );
+		$p = new Partition_Node();
+
+		$p->arguments( "{$base}/logs/firehose.log 0" );
 		$line = Message::new_message();
 		$line[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$line[ Message::VALUE ] = "payload\n";
@@ -169,7 +172,8 @@ class SSEOutTest extends TestCase {
 		// into `_default_route` → CI, so the interpret+route path under test is shared.)
 		$base = $this->make_temp_dir( 'msg-stream-cmd-' );
 		\mkdir( "{$base}/logs/firehose.log", 0755, true );
-		$p   = new Partition_Node( "{$base}/logs/firehose.log", 0 );
+		$p = new Partition_Node();
+		$p->arguments( "{$base}/logs/firehose.log 0" );
 		$cmd = Message::new_message();
 		$cmd[ Message::TYPE ]  = Message::TM_COMMAND;
 		$cmd[ Message::TO ]    = Node_Names::COMMAND_INTERPRETER;

@@ -67,7 +67,13 @@ class NodeLifecycleTest extends TestCase {
 			'Hook'               => [ static fn () => new Hook_Node( 'the_content' ) ],
 			'Lock'               => [ static fn () => new Lock_Node( "{$base}/lock.d", 5 ) ],
 			'Log'                => [ static fn () => new Log_Node( "{$base}/out.log" ) ],
-			'Partition'          => [ static fn () => new Partition_Node( "{$base}/part", 0 ) ],
+			'Partition'          => [
+				static function () use ( $base ) {
+					$p = new Partition_Node();
+					$p->arguments( "{$base}/part 0" );
+					return $p;
+				},
+			],
 			'Router'             => [ static fn () => new Router_Node() ],
 			'Shell'              => [ static fn () => new Shell_Node() ],
 			'Tail'               => [ static fn () => new Tail_Node( "{$base}/tail.log" ) ],

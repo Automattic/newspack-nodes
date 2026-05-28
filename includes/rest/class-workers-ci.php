@@ -382,7 +382,8 @@ class Workers_CI_Node extends Service_CI_Node {
 			$cursor_offset = 0;
 			$behind        = 0;
 		} else {
-			$partition_obj = new Partition_Node( "{$log_base}/{$input_log}", $partition );
+			$partition_obj = new Partition_Node();
+			$partition_obj->arguments( "{$log_base}/{$input_log} {$partition}" );
 			$segments      = $partition_obj->get_segments();
 			$total_size    = (int) \array_sum( \array_column( $segments, 'size' ) );
 
@@ -704,7 +705,8 @@ class Workers_CI_Node extends Service_CI_Node {
 	 */
 	private static function read_offsetlog_latest_entry( string $offsetlog_dir ): ?array {
 		try {
-			$offsetlog = new Partition_Node( $offsetlog_dir, 0 );
+			$offsetlog = new Partition_Node();
+			$offsetlog->arguments( "{$offsetlog_dir} 0" );
 			$segments  = $offsetlog->get_segments( true );
 			if ( empty( $segments ) ) {
 				return null;

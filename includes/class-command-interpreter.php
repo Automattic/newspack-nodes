@@ -373,7 +373,17 @@ class Command_Interpreter_Node extends Node {
 			if ( $ref->isAbstract() ) {
 				continue;
 			}
-			$node = $ref->newInstanceArgs( $ctor_args );
+			// Tachikoma-parity migration in progress (Tasks 7-10): migrated nodes
+			// declare a no-arg ctor and receive positional config through the
+			// uniform $node->arguments() call below; un-migrated nodes still take
+			// ctor params and need newInstanceArgs(...). Once Tasks 8-10 finish,
+			// the conditional becomes unreachable for the legacy branch and Task 11
+			// simplifies this back to `$node = new $fqcn();`.
+			$ctor                = $ref->getConstructor();
+			$has_positional_ctor = $ctor && $ctor->getNumberOfParameters() > 0;
+			$node                = $has_positional_ctor
+				? $ref->newInstanceArgs( $ctor_args )
+				: new $fqcn();
 			$node->name( $name );
 			// Set arguments() HERE — uniformly, from the tokens make_node was
 			// given — not downstream in each node's ctor (which left it canonical

@@ -179,12 +179,8 @@ class Worker_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
-		$repl = new Partition_Node(
-			"{$ipc_dir}/output",
-			0,
-			self::IPC_SEGMENT_SIZE,
-			self::IPC_NUM_SEGMENTS
-		);
+		$repl = new Partition_Node();
+		$repl->arguments( "{$ipc_dir}/output 0 " . self::IPC_SEGMENT_SIZE . ' ' . self::IPC_NUM_SEGMENTS );
 		$repl->name( Node_Names::REPL );
 		$repl->sink( $interpreter );
 		// allow_large_writes keys its Lock/heartbeat off name + sink, so set those first.

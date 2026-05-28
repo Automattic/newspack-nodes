@@ -61,10 +61,9 @@ class Topic_Node extends Node {
 	protected function partition( int $i ): Partition_Node {
 		$first = empty( $this->partitions );
 		if ( ! isset( $this->partitions[ $i ] ) ) {
-			$this->partitions[ $i ] = new Partition_Node(
-				$this->base_dir, $i,
-				$this->segment_size, $this->num_segments, $this->max_lifespan
-			);
+			$p = new Partition_Node();
+			$p->arguments( "{$this->base_dir} {$i} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}" );
+			$this->partitions[ $i ] = $p;
 			$this->partitions[ $i ]->sink( $this->sink );
 		}
 		if ( $first ) {
