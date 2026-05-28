@@ -258,7 +258,13 @@ export default function DebugOverlay( {
 	// as the user-intent signal.
 	const hasLayoutToReset = Object.keys( positions ).length > 0;
 	const baseline = baselineNamesRef.current;
+	// Only meaningful in the local scope — `graph` is remote (server's
+	// dump_metadata payload) when cwd is `/_http` etc., and every remote
+	// name looks "new" against the local baseline. Reset_graph removes
+	// nodes from the LOCAL Core, which can't be done from a remote view.
+	const isLocalScope = ! cwd;
 	const hasUserNodes =
+		isLocalScope &&
 		baseline !== null &&
 		graph.nodes.some( ( n ) => ! baseline.has( n.id ) );
 
