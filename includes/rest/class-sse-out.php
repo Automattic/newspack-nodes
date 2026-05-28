@@ -312,6 +312,8 @@ class SSE_Out_Node extends Node {
 			// This controller IS the SSE egress Node; reached by TO=`_sse`. Named so
 			// broadcasts (and this process's stderr) route to the client through it.
 			$this->name( Node_Names::SSE );
+			$this->sink( $interpreter );
+
 			$http_filter = new HTTP_Filter_Node( (int) \getmypid() );
 			$http_filter->name( Node_Names::HTTP );
 			$http_filter->sink( $this );
