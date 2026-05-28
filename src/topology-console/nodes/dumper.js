@@ -146,15 +146,28 @@ export function renderMessage( message ) {
 
 export class Dumper extends Node {
 	/**
-	 * @param {Object} params
-	 * @param {Object} [params.debugLevelRef] Ref holding the verbosity dial (0/1/2).
+	 * Tachikoma-parity: no-arg ctor. The `debugLevelRef` is a programmatic
+	 * dependency (a React useRef object) — callers assign it as a public
+	 * property after construction: `const d = new Dumper(); d.debugLevelRef = ref;`
 	 */
-	constructor( { debugLevelRef } = {} ) {
+	constructor() {
 		super();
-		this.debugLevelRef = debugLevelRef || { current: 0 };
+		// Safe default — a fresh ref reading as `verbosity 0`. Callers assign
+		// their own ref after construction to wire up the live debug-level dial.
+		this.debugLevelRef = { current: 0 };
 		this._transcript = [];
 		// React subscribes to this via useNodeState( '_output', 'transcript' ).
 		this.registrations.transcript = {};
+	}
+
+	// Programmatic-deps node: no positional config to round-trip via arguments=.
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description: 'REPL transcript renderer (the `_output` node).',
+			arguments: [],
+			commands: [],
+		};
 	}
 
 	fill( message ) {

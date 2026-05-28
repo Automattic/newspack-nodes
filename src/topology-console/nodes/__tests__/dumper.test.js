@@ -46,7 +46,9 @@ function msg( type, value, from = 'worker' ) {
 
 function makeDumper( debugLevel = 0 ) {
 	const debugLevelRef = { current: debugLevel };
-	return { dumper: new Dumper( { debugLevelRef } ), debugLevelRef };
+	const dumper = new Dumper();
+	dumper.debugLevelRef = debugLevelRef;
+	return { dumper, debugLevelRef };
 }
 
 describe( 'renderMessage', () => {
@@ -330,5 +332,37 @@ describe( 'Dumper node — append / clear', () => {
 		dumper.append( { kind: 'sent', text: 'a' } );
 		dumper.clear();
 		expect( dumper.setStateCache.transcript ).toEqual( [] );
+	} );
+} );
+
+describe( 'Dumper — no-arg ctor + public-property dep', () => {
+	it( 'constructs with no args; debugLevelRef defaults to a safe ref', () => {
+		const dumper = new Dumper();
+		expect( dumper.debugLevelRef ).toBeDefined();
+		expect( dumper.debugLevelRef.current ).toBe( 0 );
+	} );
+
+	it( 'has an empty arguments schema (deps are programmatic, not config)', () => {
+		const schema = Dumper.nodeSchema();
+		expect( schema.arguments ).toEqual( [] );
+	} );
+
+	it( 'accepts the debugLevelRef as a public property after construction', () => {
+		const dumper = new Dumper();
+		const debugLevelRef = { current: 2 };
+		dumper.debugLevelRef = debugLevelRef;
+		// Level 2 replaces the curated render with the full envelope dump.
+		dumper.fill( msg( TM_BYTESTREAM, 'hi' ) );
+		const t = dumper.setStateCache.transcript;
+		expect( t ).toHaveLength( 1 );
+		expect( t[ 0 ].text ).toMatch( /^Message \{/ );
+	} );
+
+	it( 'still renders the transcript when no debugLevelRef is supplied', () => {
+		const dumper = new Dumper();
+		dumper.fill( msg( TM_BYTESTREAM, 'hello' ) );
+		expect( dumper.setStateCache.transcript[ 0 ] ).toEqual(
+			expect.objectContaining( { kind: 'recv', text: 'hello' } )
+		);
 	} );
 } );

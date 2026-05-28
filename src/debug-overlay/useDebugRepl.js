@@ -41,7 +41,8 @@ export function useDebugRepl( active = true, shell ) {
 		}
 		// Dumper accumulates entries + publishes `transcript` for React subscribers.
 		const ci = Core.node( names.COMMAND_INTERPRETER );
-		const dumper = new Dumper( { debugLevelRef } );
+		const dumper = new Dumper();
+		dumper.debugLevelRef = debugLevelRef;
 		dumper.setName( names.OUTPUT );
 		// Rule #2: every node sinks into the CI. The Dumper's own emissions
 		// (e.g. forwarded onward) need a CI to forward through.

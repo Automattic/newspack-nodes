@@ -22,17 +22,27 @@ let lastConnector = null;
 
 jest.mock( '../../nodes/sseIn', () => {
 	// Extend the REAL SseIn so the session wrap/routing logic is exercised; only
-	// the EventSource bits (start/close/pid) are stubbed.
+	// the EventSource bits (start/close/pid) are stubbed. Task 10 moved deps from
+	// the ctor to public properties (subscribe/baseUrl/nonce via arguments=); the
+	// fake exposes an `opts`-shaped read-back from those public properties so the
+	// existing tests can keep asserting against `lastConnector.opts.…`.
 	const { SseIn: RealSseIn } = jest.requireActual( '../../nodes/sseIn' );
 	class FakeSseIn extends RealSseIn {
-		constructor( opts ) {
-			super( opts );
-			this.opts = opts;
+		constructor() {
+			super();
 			this.started = false;
 			this.closed = false;
 			this._pid = null;
 			// eslint-disable-next-line no-undef
 			lastConnector = this;
+		}
+		// Read-back of the ctor-time config now living as public properties.
+		get opts() {
+			return {
+				subscribe: this.subscribe,
+				baseUrl: this.baseUrl,
+				nonce: this.nonce,
+			};
 		}
 		start() {
 			this.started = true;

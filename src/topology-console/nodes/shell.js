@@ -129,6 +129,15 @@ export class Shell extends Node {
 		this.showParse = false;
 	}
 
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description: 'Anonymous, React-driven REPL parser.',
+			arguments: [],
+			commands: [],
+		};
+	}
+
 	/**
 	 * Single-tier interpolation: `<name>` → vars, `<config:foo>` → config, unknown → ''.
 	 * Mirrors PHP Shell::interpolate (runs before tokenizing).

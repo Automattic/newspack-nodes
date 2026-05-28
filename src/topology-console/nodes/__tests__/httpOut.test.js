@@ -27,7 +27,8 @@ function makeNode() {
 		buildMessage: real.buildMessage.bind( real ),
 		postBatch,
 	};
-	const node = new HttpOut( { client } );
+	const node = new HttpOut();
+	node.client = client;
 	node.setName( '_http' );
 	return { node, postBatch };
 }
@@ -294,5 +295,36 @@ describe( 'HttpOut', () => {
 		expect( batch ).toHaveLength( 1 );
 		expect( batch[ 0 ][ VALUE ].name ).toBe( 'ls' );
 		expect( batch[ 0 ][ TO ] ).toBe( '' );
+	} );
+
+	describe( 'no-arg ctor + public-property dep', () => {
+		it( 'constructs with no args; client defaults to null', () => {
+			const node = new HttpOut();
+			expect( node.client ).toBeNull();
+			expect( node.locked ).toBe( false );
+			expect( node.buffer ).toEqual( [] );
+		} );
+
+		it( 'has an empty arguments schema (client is programmatic, not config)', () => {
+			const schema = HttpOut.nodeSchema();
+			expect( schema.arguments ).toEqual( [] );
+		} );
+
+		it( 'accepts the client as a public property and POSTs through it', () => {
+			const postBatch = jest.fn().mockResolvedValue( [] );
+			const real = new CommandClient( {
+				baseUrl: '/wp-json/',
+				nonce: 'NONCE',
+			} );
+			const client = {
+				buildMessage: real.buildMessage.bind( real ),
+				postBatch,
+			};
+			const node = new HttpOut();
+			node.client = client;
+			node.setName( '_http' );
+			node.fill( routed( { to: 'demo.p0' } ) );
+			expect( postBatch ).toHaveBeenCalledTimes( 1 );
+		} );
 	} );
 } );
