@@ -5,10 +5,10 @@
  */
 
 import { CommandInterpreter } from '../runtime/command_interpreter';
-import { Dumper } from './nodes/dumper';
+import { Dumper } from '../runtime/dumper';
 import { Metadata } from './nodes/metadata';
-import { Uptime } from './nodes/uptime';
-import { Completion } from './nodes/completion';
+import { Uptime } from '../runtime/uptime';
+import { Completion } from '../runtime/completion';
 import { Heartbeat } from '../runtime/heartbeat';
 import { HttpOut } from '../runtime/httpOut';
 import { SseIn } from '../runtime/sseIn';

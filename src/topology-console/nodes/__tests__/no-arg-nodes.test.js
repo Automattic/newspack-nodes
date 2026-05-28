@@ -7,8 +7,8 @@
  */
 
 import { Metadata } from '../metadata';
-import { Uptime } from '../uptime';
-import { Completion } from '../completion';
+import { Uptime } from '../../../runtime/uptime';
+import { Completion } from '../../../runtime/completion';
 import { Heartbeat } from '../../../runtime/heartbeat';
 import { Shell } from '../shell';
 

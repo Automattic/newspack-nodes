@@ -51,10 +51,10 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 		CommandInterpreter,
 	} = require( '../../runtime/command_interpreter' );
 	const { Node } = require( '../../runtime/node' );
-	const { Dumper } = require( '../nodes/dumper' );
+	const { Dumper } = require( '../../runtime/dumper' );
 	const { Metadata } = require( '../nodes/metadata' );
-	const { Uptime } = require( '../nodes/uptime' );
-	const { Completion } = require( '../nodes/completion' );
+	const { Uptime } = require( '../../runtime/uptime' );
+	const { Completion } = require( '../../runtime/completion' );
 	const { HttpOut } = require( '../../runtime/httpOut' );
 	const { SseIn } = require( '../../runtime/sseIn' );
 	const { Shell } = require( '../nodes/shell' );
@@ -1422,7 +1422,7 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'mounts the receive graph in view mode (Dumper registered as _output)', () => {
 		render( <TopologyConsole /> );
-		const { Dumper } = require( '../nodes/dumper' );
+		const { Dumper } = require( '../../runtime/dumper' );
 		expect( Core.node( names.OUTPUT ) ).toBeInstanceOf( Dumper );
 	} );
 
