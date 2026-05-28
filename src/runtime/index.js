@@ -6,6 +6,7 @@ export { Tee } from './tee';
 export { Hook } from './hook';
 export { Callback } from './callback';
 export { Timer } from './timer';
+export { Heartbeat } from './heartbeat';
 export { CommandInterpreter } from './command_interpreter';
 export { mountExospine } from './exospine';
 export { SseConnector } from './sse_connector';
