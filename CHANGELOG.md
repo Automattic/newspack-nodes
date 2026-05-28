@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-05-28
+
+### Changed
+
+- **`useWorkerStatusGraph` migrated to the substrate `_http` pattern.** Drops the bespoke `workerStatusPoll` Node. The hook now mounts the runtime spine + `_http` (HttpOut) + `workerstatus:transform` + `workerstatus:view`. The hook owns the `setInterval` that fills `dump_metadata` TM_COMMANDs into the CI (FROM=`workerstatus:transform`, TO=`_http/workers`) so the transform owns its prev-snapshot diff math; `restart` uses FROM=view so the awaited Promise resolves via the view's pending Map. The transform forwards TM_ERROR replies to the view so the disconnect banner still surfaces via the un-correlated-error path.
+- **`useRawLogsGraph` migrated to the substrate `_sse` pattern.** Drops the bespoke `rawLogsStream` Node. The hook mounts spine + `_sse` (SseIn) + `_http` (HttpOut) + `_heartbeat` (Heartbeat) + `rawlogs:route`/`transform`/`view`. `_sse` subscribes to the raw-logs stream; `_heartbeat.target = '_http/workers'`; the slot bridge mirrors `useRequestLogGraph`. `list_logs` rides through `_http` and the resolved payload is fed back as a `{action:'logs', logs}` control — keeping the pending-Map gate uniform across both dashboards.
+- **Both views adopt the canonical contract from `servers:view`** (`newspack-event-logger-nodes` v0.8.0): pending-matched TM_ERROR rejects the Promise without polluting global view.error (per-call surface is the caller's catch); `_errorMessage()` helper handles string and structured `{ message }` TM_ERROR payloads. `rawLogsView`'s pending-Map gate guards on `'name' in value` so a row's VALUE (`{p, line}`) can never accidentally settle a Promise.
+
 ## [0.7.0] - 2026-05-28
 
 ### Added
