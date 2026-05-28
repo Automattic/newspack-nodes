@@ -185,7 +185,7 @@ export function useConsoleGraph( {
 		heartbeat.sink = ci;
 		metadata.target = names.CWD;
 		uptime.target = names.CWD;
-		heartbeat.target = `${ names.SSE }/workers`;
+		heartbeat.target = `${ names.HTTP }/workers`;
 		router.beforeTimerNotify = () => httpOut.lock();
 		router.afterTimerNotify = () => httpOut.flush();
 		router.register( 'TIMER', names.METADATA, () => metadata.onTimer() );

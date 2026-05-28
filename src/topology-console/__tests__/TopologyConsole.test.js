@@ -1257,10 +1257,10 @@ describe( 'TopologyConsole boot', () => {
 	it( 'Header receives pathOptions built from topologies + partitions', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
-		// demo has 2 partitions → '', '_sse', '_sse/demo.p0', '_sse/demo.p1'.
+		// demo has 2 partitions → '', '_http', '_sse/demo.p0', '_sse/demo.p1'.
 		expect( lastHeaderProps.pathOptions ).toEqual( [
 			'',
-			'_sse',
+			'_http',
 			'_sse/demo.p0',
 			'_sse/demo.p1',
 		] );
@@ -1278,7 +1278,7 @@ describe( 'TopologyConsole boot', () => {
 			render( <TopologyConsole /> );
 			expect( lastHeaderProps.pathOptions ).toEqual( [
 				'',
-				'_sse',
+				'_http',
 				'_sse/demo.p0',
 				'_sse/demo.p1',
 			] );

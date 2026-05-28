@@ -123,12 +123,12 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( cwd.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
 	} );
 
-	it( 'points the canvas poll nodes at _cwd and the heartbeat at _sse/workers (no pollTo)', () => {
+	it( 'points the canvas poll nodes at _cwd and the heartbeat at _http/workers (no pollTo)', () => {
 		renderGraph();
 		expect( Core.node( names.METADATA ).target ).toBe( names.CWD );
 		expect( Core.node( names.UPTIME ).target ).toBe( names.CWD );
 		expect( Core.node( names.HEARTBEAT ).target ).toBe(
-			`${ names.SSE }/workers`
+			`${ names.HTTP }/workers`
 		);
 		expect( Core.node( names.METADATA ).pollTo ).toBeUndefined();
 		expect( Core.node( names.UPTIME ).pollTo ).toBeUndefined();

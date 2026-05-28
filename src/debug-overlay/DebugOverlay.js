@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import { Core } from '../runtime/core';
 import { __ } from '@wordpress/i18n';
 import CanvasFrame from '../topology-console/components/CanvasFrame';
@@ -8,6 +14,17 @@ import Header from '../topology-console/components/Header';
 import ReplFooter from '../topology-console/components/ReplFooter';
 import { useJsCatalog } from '../topology-console/hooks/useJsCatalog';
 import { Shell } from '../topology-console/nodes/shell';
+import { useNodeState } from '../runtime/react';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	TO,
+	KEY,
+	VALUE,
+	LOCAL,
+	TM_COMMAND,
+} from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import {
 	THEMES,
@@ -111,8 +128,11 @@ export default function DebugOverlay( {
 
 	// Reachable path scopes — every top-level substrate-node-name in the
 	// current Core registry that's a legitimate `cd` target (peel-and-route).
-	// Filter out internal-only names; include `''` (local root) so the user
-	// always has a way back. The menu hides when length <= 1 (Header gates it).
+	// Filter out internal-only names AND bare `_sse` (its reply-pivot routing
+	// is for `_sse/{worker.partition}` IPC paths; bare `cd /_sse` would POST
+	// with TO='' to /command's request-scope, where replies don't make it
+	// back through the log-tail SSE channel). Service-CI verbs (workers,
+	// performance, etc.) go via `_http`. Worker pivots can be typed by hand.
 	const NON_NAVIGABLE = useMemo(
 		() =>
 			new Set( [
@@ -124,6 +144,7 @@ export default function DebugOverlay( {
 				names.COMPLETION,
 				names.HEARTBEAT,
 				names.OUTPUT,
+				names.SSE,
 			] ),
 		[]
 	);
@@ -136,6 +157,27 @@ export default function DebugOverlay( {
 		}
 		return opts;
 	}, [ graph.nodes, NON_NAVIGABLE ] );
+
+	// Tab-completion: subscribe to _completion's published candidates and
+	// expose a requestCompletion(line) that builds the `help` (first token)
+	// or `ls` (later tokens) query addressed at the cwd. Mirrors
+	// TopologyConsole.requestCompletion (Rule #4).
+	const completion = useNodeState( names.COMPLETION, 'candidates' ) ?? null;
+	const requestCompletion = useCallback(
+		( line ) => {
+			const onFirstToken = ! /\s/.test( String( line ).trimStart() );
+			const verb = onFirstToken ? 'help' : 'ls';
+			const m = newMessage();
+			m[ TYPE ] = TM_COMMAND;
+			m[ FROM ] = names.COMPLETION;
+			m[ TO ] = cwd;
+			m[ KEY ] = 'completion';
+			m[ VALUE ] = { name: verb, arguments: '', payload: '' };
+			m[ LOCAL ] = true;
+			Core.node( names.COMMAND_INTERPRETER )?.fill( m );
+		},
+		[ cwd ]
+	);
 	// The overlay's palette must source from the JS-side CommandInterpreter
 	// .includeNodes (the only set make_node can instantiate in this realm),
 	// NOT the HTTP `classes.list` catalog which returns the PHP substrate's
@@ -359,6 +401,8 @@ export default function DebugOverlay( {
 							onSubmit={ sendLine }
 							onClear={ clear }
 							transcript={ transcript }
+							completion={ completion }
+							onComplete={ requestCompletion }
 							expanded={ replExpanded }
 							onExpandedChange={ setReplExpanded }
 							inputRef={ replInputRef }

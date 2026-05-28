@@ -335,7 +335,7 @@ export default function TopologyConsole() {
 		const active = activeTopologySet();
 		return [
 			'',
-			'_sse',
+			'_http',
 			...sortedTopologies()
 				.filter( ( t ) => active.has( t ) )
 				.flatMap( ( t ) =>
