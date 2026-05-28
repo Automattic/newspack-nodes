@@ -409,7 +409,7 @@ class NodeTest extends TestCase {
 		$this->assertIsArray( $schema );
 		$this->assertSame( '', $schema['category'] );
 		$this->assertSame( '', $schema['description'] );
-		$this->assertSame( [], $schema['ctor'] );
+		$this->assertSame( [], $schema['arguments'] );
 		$this->assertSame( [], $schema['commands'] );
 	}
 

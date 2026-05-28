@@ -127,7 +127,7 @@ describe( 'serializeTsl', () => {
 	describe( 'schema-default expansion', () => {
 		const schemas = {
 			Partition: {
-				ctor: [
+				arguments: [
 					{ name: 'base_dir', type: 'string', required: true },
 					{
 						name: 'partition',
@@ -165,7 +165,7 @@ describe( 'serializeTsl', () => {
 				],
 			},
 			FlameBuilder: {
-				ctor: [],
+				arguments: [],
 				commands: [
 					{
 						name: 'set_is_hub',
@@ -311,7 +311,7 @@ describe( 'serializeTsl', () => {
 		it( 'empty default in spec is treated as no-default (slot stays empty)', () => {
 			const local = {
 				Foo: {
-					ctor: [
+					arguments: [
 						{ name: 'a', type: 'string', required: true },
 						{ name: 'b', type: 'string', default: '' },
 					],
@@ -339,12 +339,12 @@ describe( 'serializeTsl', () => {
 		const schemas = {
 			Performance_CI: {
 				is_interpreter: true,
-				ctor: [],
+				arguments: [],
 				commands: [ { name: 'set_is_hub', args: [] } ],
 			},
 			Partition: {
 				is_interpreter: false,
-				ctor: [],
+				arguments: [],
 				commands: [ { name: 'allow_large_writes', args: [] } ],
 			},
 		};

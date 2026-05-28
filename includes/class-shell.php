@@ -485,7 +485,7 @@ class Shell_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'TSL parser/REPL — used in cli sessions, not part of topology graphs.',
-			'ctor'        => [],
+			'arguments'        => [],
 			'commands'       => [],
 		];
 	}

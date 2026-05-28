@@ -29,7 +29,7 @@ class Classes_CI_Node extends Command_Interpreter_Node {
 		return [
 			'category'    => 'Service',
 			'description' => 'Class catalog: enumerate every registered node class with its inlined node_schema, plus the formatter registry.',
-			'ctor'        => [],
+			'arguments'        => [],
 			'commands'       => [
 				[ 'name' => 'list', 'description' => 'List registered classes (with schemas) and formatters.', 'args' => [] ],
 			],
@@ -88,7 +88,7 @@ class Classes_CI_Node extends Command_Interpreter_Node {
 							'fqcn'         => $fqcn,
 							'category'     => $cat,
 							'description'  => $schema['description'] ?? '',
-							'ctor'         => $schema['ctor']     ?? [],
+							'arguments'         => $schema['arguments']     ?? [],
 							// Strip the non-serializable `handler` closure: each command
 							// is declared once in node_schema (carrying its handler for the
 							// base CI's dispatch derivation); the catalog inlines only the

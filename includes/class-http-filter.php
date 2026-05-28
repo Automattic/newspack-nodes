@@ -43,7 +43,7 @@ class HTTP_Filter_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'Per-session pivoted-reply gate; SSE-process equivalent of SSE_Out.',
-			'ctor'        => [],
+			'arguments'        => [],
 			'commands'       => [],
 		];
 	}

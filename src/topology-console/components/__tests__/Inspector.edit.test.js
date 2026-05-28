@@ -27,7 +27,7 @@ const baseProps = {
 	catalog: [
 		{
 			shell_name: 'Echo',
-			ctor: [],
+			arguments: [],
 			commands: [],
 		},
 	],
@@ -119,8 +119,12 @@ describe( 'Inspector (edit mode)', () => {
 				edges: [],
 			},
 			catalog: [
-				{ shell_name: 'CommandInterpreter', ctor: [], commands: [] },
-				{ shell_name: 'Echo', ctor: [], commands: [] },
+				{
+					shell_name: 'CommandInterpreter',
+					arguments: [],
+					commands: [],
+				},
+				{ shell_name: 'Echo', arguments: [], commands: [] },
 			],
 		};
 
@@ -156,7 +160,7 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [ { name: 'name', type: 'string', required: true } ],
+				arguments: [ { name: 'name', type: 'string', required: true } ],
 				commands: [],
 			},
 		];
@@ -177,7 +181,7 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [ { name: 'name', type: 'string' } ],
+				arguments: [ { name: 'name', type: 'string' } ],
 				commands: [],
 			},
 		];
@@ -208,7 +212,7 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [ { name: 'format', type: 'formatter_name' } ],
+				arguments: [ { name: 'format', type: 'formatter_name' } ],
 				commands: [],
 			},
 		];
@@ -228,7 +232,7 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [ { name: 'format', type: 'formatter_name' } ],
+				arguments: [ { name: 'format', type: 'formatter_name' } ],
 				commands: [],
 			},
 		];
@@ -243,7 +247,7 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [ { name: 'route', type: 'node_name' } ],
+				arguments: [ { name: 'route', type: 'node_name' } ],
 				commands: [],
 			},
 		];
@@ -266,7 +270,7 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [],
+				arguments: [],
 				commands: [ { name: 'reset', args: [] } ],
 			},
 		];
@@ -289,7 +293,7 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [],
+				arguments: [],
 				commands: [ { name: 'reset', args: [] } ],
 			},
 		];
@@ -369,7 +373,9 @@ describe( 'Inspector (edit mode)', () => {
 					],
 					edges: [ { from: 'tee_a', to: 'a' } ],
 				} }
-				catalog={ [ { shell_name: 'Tee', ctor: [], commands: [] } ] }
+				catalog={ [
+					{ shell_name: 'Tee', arguments: [], commands: [] },
+				] }
 				onConnect={ onConnect }
 			/>
 		);
@@ -395,7 +401,9 @@ describe( 'Inspector (edit mode)', () => {
 					],
 					edges: [ { from: 'tee_a', to: 'a' } ],
 				} }
-				catalog={ [ { shell_name: 'Tee', ctor: [], commands: [] } ] }
+				catalog={ [
+					{ shell_name: 'Tee', arguments: [], commands: [] },
+				] }
 				onRemoveEdge={ onRemoveEdge }
 			/>
 		);

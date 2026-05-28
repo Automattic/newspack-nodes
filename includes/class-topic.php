@@ -127,7 +127,7 @@ class Topic_Node extends Node {
 		return [
 			'category'    => 'Storage',
 			'description' => 'Multi-partition log abstraction; routes by hash to one of N Partitions.',
-			'ctor'        => [
+			'arguments'        => [
 				[ 'name' => 'base_dir',       'type' => 'string', 'required' => true ],
 				[ 'name' => 'num_partitions', 'type' => 'int',    'required' => true, 'default' => '<config:num_partitions>' ],
 				[ 'name' => 'segment_size',   'type' => 'int',    'default' => '<config:segment_size>' ],

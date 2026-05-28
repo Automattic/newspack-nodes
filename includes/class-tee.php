@@ -91,7 +91,7 @@ class Tee_Node extends Node {
 		return [
 			'category'    => 'Routing',
 			'description' => 'Fan-out: copies each message to multiple targets via Router.',
-			'ctor'        => [],
+			'arguments'        => [],
 			'commands'       => [],
 			'requests'    => [
 				[

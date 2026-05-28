@@ -635,7 +635,7 @@ class Consumer_Node extends Timer_Node {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'I/O',
 			'description' => 'Tails a Partition; emits each appended message to its sink.',
-			'ctor'        => [
+			'arguments'        => [
 				[ 'name' => 'source_base_dir',    'type' => 'string', 'required' => true ],
 				[ 'name' => 'source_partition',   'type' => 'int',    'required' => true, 'default' => '<partition>' ],
 				[ 'name' => 'offsetlog_base_dir', 'type' => 'string', 'default' => '' ],

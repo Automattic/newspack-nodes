@@ -27,7 +27,7 @@ class Callback_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'Inline PHP closure as a node — invokes a callable on each message.',
-			'ctor'        => [],
+			'arguments'        => [],
 			'commands'       => [],
 		];
 	}

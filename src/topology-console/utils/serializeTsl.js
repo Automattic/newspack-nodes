@@ -58,12 +58,12 @@ function applyDefaults( args, spec ) {
 	return out;
 }
 
-function ctorSpecFor( schemas, className ) {
+function argumentsSpecFor( schemas, className ) {
 	if ( ! schemas ) {
 		return [];
 	}
 	const entry = schemas[ className ];
-	return entry && Array.isArray( entry.ctor ) ? entry.ctor : [];
+	return entry && Array.isArray( entry.arguments ) ? entry.arguments : [];
 }
 
 function commandArgSpecFor( schemas, className, commandName ) {
@@ -79,7 +79,7 @@ function commandArgSpecFor( schemas, className, commandName ) {
 }
 
 function emitMakeNode( node, schemas ) {
-	const spec = ctorSpecFor( schemas, node.class );
+	const spec = argumentsSpecFor( schemas, node.class );
 	const filled = applyDefaults( node.ctorArgs || [], spec );
 	const args = trimTrailingEmpties( filled ).map( serializeArg );
 	const head = `make_node ${ node.class } ${ node.name }`;

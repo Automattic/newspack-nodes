@@ -60,7 +60,7 @@ class HTTPFilterTest extends TestCase {
 		// category list or expose user-facing verbs.
 		$schema = HTTP_Filter_Node::node_schema();
 		$this->assertSame( 'Hidden', $schema['category'] );
-		$this->assertSame( [], $schema['ctor'] );
+		$this->assertSame( [], $schema['arguments'] );
 		$this->assertSame( [], $schema['commands'] );
 		$this->assertNotEmpty( $schema['description'] );
 	}

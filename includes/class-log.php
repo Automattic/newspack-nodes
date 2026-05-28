@@ -150,7 +150,7 @@ class Log_Node extends Node {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'I/O',
 			'description' => 'Append-only file writer with rotation by line count.',
-			'ctor'        => [
+			'arguments'        => [
 				[ 'name' => 'filename',      'type' => 'string', 'required' => true ],
 				[ 'name' => 'mode',          'type' => 'string', 'default' => self::MODE_APPEND, 'enum' => [ self::MODE_APPEND, self::MODE_OVERWRITE ] ],
 				[ 'name' => 'max_size',      'type' => 'int',    'default' => 0 ],
