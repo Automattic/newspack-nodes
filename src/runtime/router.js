@@ -25,6 +25,9 @@ export class Router extends Node {
 		// so the substrate Router stays decoupled from any console node.
 		this.beforeTimerNotify = null;
 		this.afterTimerNotify = null;
+		// Router self-starts its 1s TIMER (Tachikoma fidelity: the Router IS
+		// timer-driven). Tests that don't want it running can stopTimer().
+		this.startTimer( 1000 );
 	}
 
 	// Fire TIMER once immediately, then every `ms`. Mirrors PHP Router notifying

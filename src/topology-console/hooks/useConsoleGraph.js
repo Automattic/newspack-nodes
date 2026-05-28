@@ -196,7 +196,6 @@ export function useConsoleGraph( {
 		// The EventSource is opened/closed by the stream-gating effect below (it
 		// depends on `streamEnabled`, which the graph build must not), so cd-ing off
 		// a worker can quiet the stream without tearing the whole graph down.
-		router.startTimer( 1000 );
 
 		return () => {
 			heartbeat.clearSlot();
