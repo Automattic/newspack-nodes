@@ -1593,7 +1593,37 @@ export default function TopologyConsole() {
 			// live graph so it won't collide with an existing node.
 			if ( mode !== 'edit' ) {
 				const name = generateNodeName( parsed, shellName );
-				sendLine( `make_node ${ shellName } ${ name }` );
+				// Prompt for declared positional args before dispatching.
+				const cls = ( catalog?.classes || [] ).find(
+					( c ) => c.shell_name === shellName
+				);
+				const declared = cls?.arguments || [];
+				let argString = '';
+				if ( declared.length > 0 ) {
+					const tmpl = declared
+						.map(
+							( a ) =>
+								`${ a.name }${ a.required ? '*' : '' }${
+									a.default !== undefined
+										? `=${ a.default }`
+										: ''
+								}`
+						)
+						.join( ' ' );
+					// eslint-disable-next-line no-alert
+					const input = window.prompt(
+						`Arguments for ${ shellName } ${ name }\n(${ tmpl })`,
+						''
+					);
+					if ( null === input ) {
+						return;
+					}
+					argString = input.trim();
+				}
+				const args = argString
+					? `make_node ${ shellName } ${ name } ${ argString }`
+					: `make_node ${ shellName } ${ name }`;
+				sendLine( args );
 				return;
 			}
 			// Snap to the grid so dropped nodes line up and don't drift.
@@ -1609,7 +1639,14 @@ export default function TopologyConsole() {
 				} );
 			} );
 		},
-		[ mode, parsed, sendLine, handlePositionChange, snapToGrid ]
+		[
+			mode,
+			parsed,
+			sendLine,
+			handlePositionChange,
+			snapToGrid,
+			catalog?.classes,
+		]
 	);
 
 	return (

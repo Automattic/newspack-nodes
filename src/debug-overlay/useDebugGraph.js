@@ -47,18 +47,40 @@ export function useDebugGraph( active = true, shell, catalogClasses = [] ) {
 				shell.sendCommand( '', 'connect_node', `${ from } ${ to }` ),
 			onRemoveNode: ( id ) => shell.sendCommand( '', 'remove_node', id ),
 			onDropNode: ( { shellName } ) => {
-				// SchematicCanvas passes {shellName, x, y} — destructure to match.
-				// Unique the new id against the DISPLAYED graph (which is the
-				// remote dump_metadata when cwd is remote, otherwise the local
-				// Core) so the make_node we dispatch doesn't collide with a node
-				// that already exists in the target realm. Position is cosmetic
-				// and not sent — poll-reflect lays out.
 				const name = generateNodeName( graph, shellName );
-				shell.sendCommand(
-					'',
-					'make_node',
-					`${ shellName } ${ name }`
+				// If the class declares positional args, prompt the user.
+				// Nodes with no args (Tee, Echo) drop instantly. The asterisk
+				// flags required fields; `=default` shows where applicable.
+				const cls = catalogClasses?.find(
+					( c ) => c.shell_name === shellName
 				);
+				const declared = cls?.arguments || [];
+				let argString = '';
+				if ( declared.length > 0 ) {
+					const tmpl = declared
+						.map(
+							( a ) =>
+								`${ a.name }${ a.required ? '*' : '' }${
+									a.default !== undefined
+										? `=${ a.default }`
+										: ''
+								}`
+						)
+						.join( ' ' );
+					// eslint-disable-next-line no-alert
+					const input = window.prompt(
+						`Arguments for ${ shellName } ${ name }\n(${ tmpl })`,
+						''
+					);
+					if ( null === input ) {
+						return; // User cancelled.
+					}
+					argString = input.trim();
+				}
+				const args = argString
+					? `${ shellName } ${ name } ${ argString }`
+					: `${ shellName } ${ name }`;
+				shell.sendCommand( '', 'make_node', args );
 			},
 			onInspectorAction: ( action, nodeId, payload ) => {
 				// Parity with TopologyConsole.handleInspectorAction: dump, tail

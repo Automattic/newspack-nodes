@@ -1,5 +1,6 @@
 import { Node } from './node';
 import { Tee } from './tee';
+import { Echo } from './echo';
 import { Timer } from './timer';
 import { Core } from './core';
 import { dumpMetadataPayload } from './metadata';
@@ -948,4 +949,10 @@ CommandInterpreter.defaultAuthorize = null;
 // The console extends it with its own node classes (Tachikoma's include_nodes).
 // Hook / Router / Callback are intentionally absent — nobody makes a second
 // router, or a predicate/closure node, from the shell.
-CommandInterpreter.includeNodes = { Node, Tee, Timer, CommandInterpreter };
+CommandInterpreter.includeNodes = {
+	Node,
+	Tee,
+	Echo,
+	Timer,
+	CommandInterpreter,
+};
