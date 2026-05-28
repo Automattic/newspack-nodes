@@ -2751,19 +2751,13 @@ describe( 'TopologyConsole boot', () => {
 		} );
 
 		it( 'applies a valid stored skin on mount', () => {
-			window.localStorage.setItem(
-				'newspack-nodes:topology:theme',
-				'blueprint'
-			);
+			window.localStorage.setItem( 'newspack-nodes:theme', 'blueprint' );
 			const { container } = render( <TopologyConsole /> );
 			expect( rootClass( container ) ).toContain( 'theme-blueprint' );
 		} );
 
 		it( 'falls back to theme-current for an unknown stored skin', () => {
-			window.localStorage.setItem(
-				'newspack-nodes:topology:theme',
-				'bogus'
-			);
+			window.localStorage.setItem( 'newspack-nodes:theme', 'bogus' );
 			const { container } = render( <TopologyConsole /> );
 			expect( rootClass( container ) ).toContain( 'theme-current' );
 			expect( rootClass( container ) ).not.toContain( 'theme-bogus' );
@@ -2782,7 +2776,7 @@ describe( 'TopologyConsole boot', () => {
 			} );
 			expect( rootClass( container ) ).toContain( 'theme-crt' );
 			expect(
-				window.localStorage.getItem( 'newspack-nodes:topology:theme' )
+				window.localStorage.getItem( 'newspack-nodes:theme' )
 			).toBe( 'crt' );
 		} );
 	} );

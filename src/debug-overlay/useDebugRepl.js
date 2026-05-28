@@ -39,7 +39,11 @@ export function useDebugRepl( active = true, shell ) {
 	const [ transcript, setTranscript ] = useState( EMPTY_TRANSCRIPT );
 	// cwd reflects the live Shell.path; re-rendered after every dispatch so the
 	// Header path selector + _cwd.target both follow REPL `cd` commands.
-	const [ cwd, setCwd ] = useState( '' );
+	// Initial null (not '') so the post-mount setCwd(shell.path) always
+	// transitions out of init — that re-render is the chance for siblings'
+	// useNodeState subscriptions (e.g. canvas reading _metadata) to bind to
+	// nodes mounted in this hook's useEffect.
+	const [ cwd, setCwd ] = useState( null );
 
 	useEffect( () => {
 		if ( ! active ) {

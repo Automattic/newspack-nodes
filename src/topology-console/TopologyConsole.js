@@ -63,7 +63,12 @@ import {
 	TM_REQUEST,
 } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
-import { THEMES, DEFAULT_THEME, isValidTheme } from './themes';
+import {
+	THEMES,
+	DEFAULT_THEME,
+	isValidTheme,
+	THEME_STORAGE_KEY,
+} from './themes';
 
 function topologyMap() {
 	return (
@@ -222,7 +227,6 @@ function initialPartitionFromUrl() {
 const EMPTY_GRAPH = { nodes: [], edges: [] };
 const EMPTY_TRANSCRIPT = [];
 
-const THEME_STORAGE_KEY = 'newspack-nodes:topology:theme';
 const PALETTE_COLLAPSED_KEY = 'newspack-nodes:topology:palette-collapsed';
 
 // Read the persisted palette-collapsed flag; default to open.

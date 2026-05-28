@@ -30,6 +30,7 @@ import {
 	THEMES,
 	DEFAULT_THEME,
 	isValidTheme,
+	THEME_STORAGE_KEY,
 } from '../topology-console/themes';
 import { isDebugEnabled } from './isDebugEnabled';
 import { useDebugFrame } from './useDebugFrame';
@@ -71,9 +72,12 @@ export default function DebugOverlay( {
 	const [ selected, setSelected ] = useState( null );
 	const [ replExpanded, setReplExpanded ] = useState( false );
 	const replInputRef = useRef( null );
-	const themeKey = `${ storageKey }:theme`;
+	// Theme key is global (THEME_STORAGE_KEY) — shared with the topology
+	// console so a theme picked in either place applies in both.
 	const paletteKey = `${ storageKey }:palette-collapsed`;
-	const [ theme, setTheme ] = useState( () => readStoredTheme( themeKey ) );
+	const [ theme, setTheme ] = useState( () =>
+		readStoredTheme( THEME_STORAGE_KEY )
+	);
 	const [ paletteCollapsed, setPaletteCollapsed ] = useState( () => {
 		try {
 			return window.localStorage.getItem( paletteKey ) === '1';
@@ -100,7 +104,7 @@ export default function DebugOverlay( {
 		const next = isValidTheme( slug ) ? slug : DEFAULT_THEME;
 		setTheme( next );
 		try {
-			window.localStorage.setItem( themeKey, next );
+			window.localStorage.setItem( THEME_STORAGE_KEY, next );
 		} catch ( _err ) {
 			// localStorage disabled — in-session only.
 		}
@@ -190,13 +194,17 @@ export default function DebugOverlay( {
 			),
 		[ catalog.classes ]
 	);
+	// Scope layout storage by cwd so each scope (/, /_http, etc.) gets its
+	// own canvas positions + viewport. Empty/initial cwd maps to ':local'
+	// for back-compat-friendly keys.
+	const cwdScope = cwd || 'local';
 	const {
 		positions,
 		viewport,
 		onPositionChange,
 		onViewportChange,
 		resetLayout,
-	} = useDebugLayout( storageKey );
+	} = useDebugLayout( `${ storageKey }:${ cwdScope }` );
 	const {
 		frame,
 		style: frameStyle,
