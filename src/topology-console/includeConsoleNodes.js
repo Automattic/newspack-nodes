@@ -11,7 +11,7 @@ import { Uptime } from './nodes/uptime';
 import { Completion } from './nodes/completion';
 import { Heartbeat } from '../runtime/heartbeat';
 import { HttpOut } from '../runtime/httpOut';
-import { SseIn } from './nodes/sseIn';
+import { SseIn } from '../runtime/sseIn';
 
 Object.assign( CommandInterpreter.includeNodes, {
 	Dumper,

@@ -20,13 +20,13 @@ import names from '../../../runtime/reserved-node-names.json';
 
 let lastConnector = null;
 
-jest.mock( '../../nodes/sseIn', () => {
+jest.mock( '../../../runtime/sseIn', () => {
 	// Extend the REAL SseIn so the session wrap/routing logic is exercised; only
 	// the EventSource bits (start/close/pid) are stubbed. Task 10 moved deps from
 	// the ctor to public properties (subscribe/baseUrl/nonce via arguments=); the
 	// fake exposes an `opts`-shaped read-back from those public properties so the
 	// existing tests can keep asserting against `lastConnector.opts.…`.
-	const { SseIn: RealSseIn } = jest.requireActual( '../../nodes/sseIn' );
+	const { SseIn: RealSseIn } = jest.requireActual( '../../../runtime/sseIn' );
 	class FakeSseIn extends RealSseIn {
 		constructor() {
 			super();

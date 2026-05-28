@@ -7,8 +7,8 @@
  */
 
 import { SseIn } from '../sseIn';
-import { SseConnector } from '../../../runtime/sse_connector';
-import { Node } from '../../../runtime/node';
+import { SseConnector } from '../sse_connector';
+import { Node } from '../node';
 import {
 	newMessage,
 	TYPE,
@@ -18,8 +18,8 @@ import {
 	VALUE,
 	TM_INFO,
 	TM_COMMAND,
-} from '../../../runtime/message';
-import names from '../../../runtime/reserved-node-names.json';
+} from '../message';
+import names from '../reserved-node-names.json';
 
 class FakeEventSource {
 	constructor( url ) {
