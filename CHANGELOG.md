@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-05-27
+
 ### Added
 
 - **`Shell::send_command( path, name, args )` / `Shell.sendCommand( path, name, args )`** — thin wrapper that builds a TM_COMMAND via the inherited `Node::command()` helper, stamps the Shell session's FROM/LOCAL provenance (PHP: `_output/<pid>` + ID; JS: `_output`) and target TO (verbatim — no cwd prefix; the typed-line `cmd ...` layer in `parse()` is what applies `prefix()`), and fills it through `$this->sink`. Lets overlay/programmatic callers issue commands as method calls instead of building Messages by hand or piggy-backing on `parse()`. Mirrors `Tachikoma::Nodes::Shell::send_command`.
