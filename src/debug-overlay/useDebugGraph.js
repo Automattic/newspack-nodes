@@ -25,12 +25,14 @@ const EMPTY_GRAPH = { nodes: [], edges: [] };
 // eslint-disable-next-line no-unused-vars
 export function useDebugGraph( active = true, shell ) {
 	const metadataGraph = useNodeState( names.METADATA, 'metadata' );
-	const graph = useMemo( () => {
-		if ( metadataGraph && Array.isArray( metadataGraph.nodes ) ) {
-			return metadataGraph;
-		}
-		return coreToGraph() ?? EMPTY_GRAPH;
-	}, [ metadataGraph ] );
+	// Evaluate the fallback live every render — useMemo would freeze on the
+	// first render's coreToGraph(), which can fire BEFORE the page's exospine
+	// mounts (DebugOverlay is a sibling of the dashboard graph; both run
+	// useEffect after their first render).
+	const graph =
+		metadataGraph && Array.isArray( metadataGraph.nodes )
+			? metadataGraph
+			: coreToGraph() ?? EMPTY_GRAPH;
 
 	const handlers = useMemo(
 		() => ( {
