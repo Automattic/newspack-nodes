@@ -7,6 +7,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-05-28
+
+### Added
+
+- **Three I/O primitives promoted to shared runtime.** `Heartbeat`, `HttpOut`, `SseIn` moved from `src/topology-console/nodes/` to `src/runtime/` and exported from `@newspack-nodes/runtime` so any dashboard can mount them without reaching into topology-console internals. `Completion`, `Dumper`, `Uptime`, and `Metadata` + `parseMetadata` promoted the same way. Sets up `newspack-event-logger-nodes` dashboards (starting with Request Log + Event Aggregator) to drop bespoke `*Command` / `*Stream` Nodes and ride the substrate's `_http` + `_sse` + `_heartbeat` triad.
+- **`Echo` Node ported from Perl Tachikoma.** Bounces messages back to their FROM path; drops `TM_ERROR` with empty FROM (no return path). Exported from runtime, registered in `Command_Interpreter_Node.includeNodes` so `make_node Echo …` works browser-side. Closes the parity gap with Tachikoma's `Echo.pm`.
+- **`Timer` ports Tachikoma `fire()`.** Each tick emits a `TM_INFO` with the current timestamp into `target`, increments `counter`, and notifies the `FIRE` subscriber set. `make_node Timer t 1000; connect t /_output` now streams timestamps into the transcript; the JS Router pivots on it for its 1s self-tick. Subscribers can `timer.register('FIRE', name, cb)` for per-tick work.
+- **Debug overlay reaches parity with the topology console for live cwd-aware operation.** REPL prompt reflects cwd; path-menu enumerates reachable scopes (filtered to navigable substrate names); Inspector buttons honor the live cwd via `shell.sendCommand` prefixing; verb-routing keys on the catalog's `is_interpreter` flag (not a `Core.node` `:config` presence check, which silently misroutes in remote scopes); `_completion` mounted for tab-completion; `_metadata` drives the canvas (`dump_metadata` poll routes through `_cwd`); per-cwd canvas layout; global theme + palette state shared with the topology console; reset-graph chip gated to local scope.
+- **`debug_state *` wildcard verb.** Sets every node's `debugState` in one shot (matches the PHP cli convention).
+- **Argument prompt on drop.** Dragging a palette chip onto the live canvas (in topology console + debug overlay) opens a `window.prompt` for declared schema args; the prompt shows a template with `*` flagging required fields and `=default` shown where applicable. Nodes with no declared args (Tee, Echo, Hook) drop instantly. Cancel aborts the `make_node`.
+- **Auto-layout grid fallback.** When a graph has zero edges (e.g. a request-scope service-CI set), `autoLayout` switches from depth-driven to an alpha-sorted column-major grid (rows = `ceil(sqrt(n))`). The previous depth path stacked every edgeless node in column 0.
+
+### Fixed
+
+- **`Router` self-starts its 1s TIMER in the constructor.** Tachikoma fidelity — the Router IS timer-driven. `Router.removeNode` overrides to call `stopTimer()` so the self-started `setInterval` doesn't leak when `Core.unregisterNode` is called outside `mountExospine`'s teardown.
+- **`HttpOut._post` routes synchronous POST-body replies through `this.sink`.** Was a direct `Core.node('_sse').fill(reply)`; the documented `httpOut.sink = interpreter` wiring was dead code. Reply routing through `interpreter → router → resolved-by-TO` is unchanged for the topology console (server-side `HTTP_Filter` already strips the `_sse:{pid}` head), and dashboards that mount `HttpOut` without a paired `_sse` now route replies correctly.
+- **`HttpOut._post` surfaces POST rejections via `print_less_often`.** Was a silent `.catch(() => {})` that masked 5xx + network drops as "Inspector click did nothing."
+- **Out-of-band emitters bump their counter.** Heartbeat / Metadata / Uptime / HttpOut emit through `sink.fill(...)` without going through the standard `fill → counter` plumbing, so the debug overlay showed `0` activity on nodes that were clearly active. Bump explicitly per emission.
+- **`Node.arguments` setter applies schema defaults on empty args.** Previously early-returned, so `make_node X y` (no positional) skipped optional fields with `default` in the schema.
+- **`Timer.interval_ms` predeclared as own field.** The Tachikoma schema walker gates on `name in this`; without predeclaration the schema arg was parsed but not assigned, and `make_node Timer t 1000` silently failed to start.
+- **Per-cwd scope key in topology console + debug overlay.** `scopeFromCwd` used to lump every non-`_sse` non-worker cwd into `key='local'`, so `/` and `/_http` overwrote each other's canvas-layout localStorage. Each top-level cwd now gets its own key; label strips the leading underscore so `CanvasFrame` doesn't render `topologies/_http.tsl` as a phantom file.
+- **`useDebugLayout` debounce-timer cleared on key change.** A pan in scope A can no longer write to scope B's key after `cd`.
+- **`useClassCatalog` gated on `enabled && open && !!cwd`** in the overlay. Was firing the `classes.list` HTTP fetch unconditionally on every page mount.
+- **`useDebugGraph.onDropNode` uniques against the displayed graph.** Uses remote `dump_metadata` when cwd is remote, local `Core` otherwise — so `make_node` doesn't collide with a remote node the local `Core` doesn't know about.
+- **`useDebugRepl` cwd init `''` + separate `mounted` flag.** Was `null`, which leaked through `prompt={\`/${cwd}\`}` as the literal string `/null` for one render frame after the panel opened.
+
+### Changed
+
+- **Service-CI verbs target `_http/<ci>` instead of `_sse/<ci>`.** Request-scope replies ride the POST body; the pid-pivot through `_sse` is dead weight, and for log-tail SSE channels (like the request log's `completed` subscription) the demux isn't available for ad-hoc commands anyway. Worker IPC paths (`_sse/{topology}.p{N}`) still require the pivot and stay unchanged. The bare `_sse` entry was dropped from the topology-console path menu; the debug overlay's path menu picks reachable substrate nodes (excluding internals + bare `_sse`).
+- **`Heartbeat.target` now `_http/workers`** for both consoles. Same rationale — request-scope reply is discarded by `Heartbeat.fill`.
+- **Debug overlay canvas reads from `useNodeState(_metadata, 'metadata')`** instead of `setInterval(coreToGraph, 1000)`. `cd /_http` swaps the canvas to the server's request-scope graph; `cd /` returns to local.
+- **Frame dimensions + theme + palette state are global across surfaces** (`newspack-nodes:debug:frame`, `newspack-nodes:theme`, `newspack-nodes:palette-collapsed:{live,edit}`) so a setting picked anywhere applies everywhere. Palette defaults to collapsed in live mode (not useful while watching), open in edit mode (you drop from it).
+
 ## [0.6.0] - 2026-05-27
 
 ### Added
