@@ -299,6 +299,16 @@ class SSE_Out_Node extends Node {
 			// Build INSIDE the try so finally cleans up even when open_subscription
 			// throws — otherwise the next request hits a `_router already registered` collision.
 			( new Router_Node() )->name( Node_Names::ROUTER );
+
+			// SSE-process interpreter (Tachikoma rule #2: things sink into _command_interpreter
+			// → _router). A worker can drive it (`cmd _repl/_command_interpreter …`);
+			// such stream commands are HMAC-signed (the cli signed them; LOCAL is
+			// stripped at the wire), so authorize with the verifier like the worker.
+			Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
+			$interpreter = new Command_Interpreter_Node();
+			$interpreter->name( Node_Names::COMMAND_INTERPRETER );
+			$interpreter->sink( Core::node( Node_Names::ROUTER ) );
+
 			// This controller IS the SSE egress Node; reached by TO=`_sse`. Named so
 			// broadcasts (and this process's stderr) route to the client through it.
 			$this->name( Node_Names::SSE );
@@ -306,37 +316,27 @@ class SSE_Out_Node extends Node {
 			$http_filter->name( Node_Names::HTTP );
 			$http_filter->sink( $this );
 
-			// SSE-process CI (Tachikoma rule #2: things sink into _command_interpreter
-			// → _router). A worker can drive it (`cmd _repl/_command_interpreter …`);
-			// such stream commands are HMAC-signed (the cli signed them; LOCAL is
-			// stripped at the wire), so authorize with the verifier like the worker.
-			Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
-			$ci = new Command_Interpreter_Node();
-			$ci->name( Node_Names::COMMAND_INTERPRETER );
-			$ci->sink( Core::node( Node_Names::ROUTER ) );
-
-			// The ONE exceptional non-CI sink: Consumers sink HERE, not straight into
-			// the CI, because a Consumer would FORCE TO=target() on EVERY message if it
-			// had a target (it does that to keep commands/requests from leaking out of
-			// non-IPC partitions) — which would clobber reply breadcrumbs. A plain Node
-			// uses the DEFAULT fill(): it stamps TO=`_sse` only when TO is EMPTY, else
-			// leaves TO and forwards. So: empty-TO worker broadcasts (stderr/events) →
-			// TO=`_sse` → egress; non-empty-TO replies keep their breadcrumb → `_http`.
-			// A command addressed `_command_interpreter` (TO non-empty here) is NOT
-			// stamped; the CI forwards it to `_router`, which peels `_command_interpreter`
-			// and re-delivers it to the CI with TO now empty — THEN it interprets. So the
-			// _router round-trip is load-bearing; don't "simplify" it away.
+			// The ONE exceptional non-interpreter sink: Consumers sink HERE, not
+			// straight into the interpreter, because a Consumer would FORCE TO=target()
+			// on EVERY message if it had a target (it does that to keep commands/requests
+			// from leaking out of non-IPC partitions) — which would clobber reply
+			// breadcrumbs. A plain Node uses the DEFAULT fill(): it stamps TO=`_sse` only
+			// when TO is EMPTY, else leaves TO and forwards. So: empty-TO worker
+			// broadcasts (stderr/events) → TO=`_sse` → egress; non-empty-TO replies keep
+			// their breadcrumb → `_http`. A command addressed `_command_interpreter`
+			// (TO non-empty here) is NOT stamped; the interpreter forwards it to
+			// `_router`, which peels `_command_interpreter` and re-delivers it to the
+			// interpreter with TO now empty — THEN it interprets. So the _router
+			// round-trip is load-bearing; don't "simplify" it away.
 			$default_route = new Node();
 			$default_route->name( '_default_route' );
-			$default_route->sink( $ci );
+			$default_route->sink( $interpreter );
 			$default_route->target( Node_Names::SSE );
 
 			foreach ( $subs as $sub ) {
 				$pos = $positions[ $sub ] ?? null;
 				foreach ( $this->open_subscription( $sub, $pos ) as $c ) {
-					// A log sub yields one Consumer per partition, so suffix the index
-					// to keep names unique (Node::name throws on collision).
-					$c->name( $sub . ':consumer:' . \count( $consumers ) );
+					$c->name( $sub );
 					$c->sink( $default_route );
 					$consumers[] = $c;
 				}
@@ -380,9 +380,9 @@ class SSE_Out_Node extends Node {
 			if ( $default_route instanceof Node ) {
 				$default_route->remove_node();
 			}
-			$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
-			if ( $ci instanceof Command_Interpreter_Node ) {
-				$ci->remove_node();
+			$interpreter = Core::node( Node_Names::COMMAND_INTERPRETER );
+			if ( $interpreter instanceof Command_Interpreter_Node ) {
+				$interpreter->remove_node();
 			}
 			$http = Core::node( Node_Names::HTTP );
 			if ( $http instanceof HTTP_Filter_Node ) {
