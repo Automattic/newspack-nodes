@@ -64,16 +64,46 @@ class NodeLifecycleTest extends TestCase {
 			'Consumer'           => [ static fn () => new Consumer_Node( "{$base}/cdata", 0, "{$base}/coff" ) ],
 			'Dumper'             => [ static fn () => new Dumper_Node() ],
 			'Echo_Node'          => [ static fn () => new Echo_Node() ],
-			'Hook'               => [ static fn () => new Hook_Node( 'the_content' ) ],
+			'Hook'               => [
+				static function () {
+					$h = new Hook_Node();
+					$h->arguments( 'the_content' );
+					return $h;
+				},
+			],
 			'Lock'               => [ static fn () => new Lock_Node( "{$base}/lock.d", 5 ) ],
-			'Log'                => [ static fn () => new Log_Node( "{$base}/out.log" ) ],
-			'Partition'          => [ static fn () => new Partition_Node( "{$base}/part", 0 ) ],
+			'Log'                => [
+				static function () use ( $base ) {
+					$l = new Log_Node();
+					$l->arguments( "{$base}/out.log" );
+					return $l;
+				},
+			],
+			'Partition'          => [
+				static function () use ( $base ) {
+					$p = new Partition_Node();
+					$p->arguments( "{$base}/part 0" );
+					return $p;
+				},
+			],
 			'Router'             => [ static fn () => new Router_Node() ],
 			'Shell'              => [ static fn () => new Shell_Node() ],
-			'Tail'               => [ static fn () => new Tail_Node( "{$base}/tail.log" ) ],
+			'Tail'               => [
+				static function () use ( $base ) {
+					$t = new Tail_Node();
+					$t->arguments( "{$base}/tail.log" );
+					return $t;
+				},
+			],
 			'Tee'                => [ static fn () => new Tee_Node() ],
 			'Timer'              => [ static fn () => new Timer_Node() ],
-			'Topic'              => [ static fn () => new Topic_Node( "{$base}/topic", 2 ) ],
+			'Topic'              => [
+				static function () use ( $base ) {
+					$t = new Topic_Node();
+					$t->arguments( "{$base}/topic 2" );
+					return $t;
+				},
+			],
 		];
 	}
 

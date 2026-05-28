@@ -50,6 +50,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 	const {
 		CommandInterpreter,
 	} = require( '../../runtime/command_interpreter' );
+	const { Node } = require( '../../runtime/node' );
 	const { Dumper } = require( '../nodes/dumper' );
 	const { Metadata } = require( '../nodes/metadata' );
 	const { Uptime } = require( '../nodes/uptime' );
@@ -67,6 +68,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 		reserved.COMPLETION,
 		reserved.HTTP,
 		reserved.SSE,
+		reserved.CWD,
 	];
 	const teardown = () => {
 		Core.node( reserved.ROUTER )?.stopTimer();
@@ -82,13 +84,17 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 			partition,
 			enabled,
 			debugLevelRef,
+			resetKey,
 		} ) => {
 			if ( ! enabled ) {
 				teardown();
 				return { status: 'closed', ssePid: null, shell: null };
 			}
 			const reader = `${ topology }.p${ partition }`;
-			const key = reader;
+			// Mirror the real useConsoleGraph effect deps: tearing down + rebuilding
+			// on resetKey change too. Without resetKey here the mock would never
+			// re-mount on a reset-graph click, masking cwd-preservation bugs.
+			const key = `${ reader }|${ resetKey || 0 }`;
 			if ( globalThis.__graphKey !== key ) {
 				teardown();
 				const router = new Router();
@@ -96,7 +102,8 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				const ci = new CommandInterpreter();
 				ci.setName( reserved.COMMAND_INTERPRETER );
 				ci.sink = router;
-				const dumper = new Dumper( { debugLevelRef } );
+				const dumper = new Dumper();
+				dumper.debugLevelRef = debugLevelRef;
 				dumper.setName( reserved.OUTPUT );
 				const metadata = new Metadata();
 				metadata.setName( reserved.METADATA );
@@ -104,23 +111,19 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				uptime.setName( reserved.UPTIME );
 				new Completion().setName( reserved.COMPLETION );
 				// Fake HttpOut: capture the routed message instead of POSTing.
-				const httpOut = new HttpOut( {
-					client: {
-						buildMessage: () => null,
-						postBatch: () => Promise.resolve( null ),
-					},
-				} );
+				const httpOut = new HttpOut();
+				httpOut.client = {
+					buildMessage: () => null,
+					postBatch: () => Promise.resolve( null ),
+				};
 				httpOut.fill = ( message ) => {
 					globalThis.__httpPosts.push( message );
 				};
 				httpOut.setName( reserved.HTTP );
 				// `_sse` session node: wraps an outgoing reply-node FROM with the
 				// pid; routing `_sse/{reader}` peels here before `_http`.
-				const sse = new SseIn( {
-					subscribe: [ reader ],
-					baseUrl: '/',
-					nonce: '',
-				} );
+				const sse = new SseIn();
+				sse.arguments = `${ reader } / `;
 				sse.setName( reserved.SSE );
 				sse.sink = router;
 				sse.target = reserved.OUTPUT;
@@ -128,12 +131,17 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				const shell = new Shell();
 				shell.path = `${ reserved.SSE }/${ reader }`;
 				shell.sink = ci;
+				// `_cwd` indirection node: a plain Node whose target IS the cwd.
+				const cwdNode = new Node();
+				cwdNode.setName( reserved.CWD );
+				cwdNode.sink = ci;
+				cwdNode.target = shell.path;
 				// Mirror the real timer wiring so the cadence test exercises the
 				// Router TIMER → Metadata/Uptime onTimer → CI → … → HttpOut path.
 				metadata.sink = ci;
 				uptime.sink = ci;
-				metadata.pollTo = shell.path;
-				uptime.pollTo = shell.path;
+				metadata.target = reserved.CWD;
+				uptime.target = reserved.CWD;
 				router.beforeTimerNotify = () => httpOut.lock();
 				router.afterTimerNotify = () => httpOut.flush();
 				router.register( 'TIMER', reserved.METADATA, () =>
@@ -146,7 +154,15 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				globalThis.__shell = shell;
 				globalThis.__graphKey = key;
 			}
-			return { status: 'open', ssePid: 1234, shell: globalThis.__shell };
+			// `__connecting` simulates the pre-connect window: enabled (worker cwd)
+			// but no pid yet, so the cwd guard can be exercised.
+			return globalThis.__connecting
+				? {
+						status: 'connecting',
+						ssePid: null,
+						shell: globalThis.__shell,
+				  }
+				: { status: 'open', ssePid: 1234, shell: globalThis.__shell };
 		},
 	};
 } );
@@ -395,9 +411,11 @@ jest.mock( '../components/Header', () => ( props ) => {
 		</header>
 	);
 } );
-jest.mock( '../components/Palette', () => () => (
-	<aside data-testid="palette" />
-) );
+let lastPaletteProps = null;
+jest.mock( '../components/Palette', () => ( props ) => {
+	lastPaletteProps = props;
+	return <aside data-testid="palette" />;
+} );
 let lastReplProps = null;
 jest.mock( '../components/ReplFooter', () => ( props ) => {
 	lastReplProps = props;
@@ -461,6 +479,11 @@ jest.mock( '../components/CanvasFrame', () => ( props ) => {
 			{ props.onResetLayout && (
 				<button onClick={ () => props.onResetLayout() }>
 					reset-layout
+				</button>
+			) }
+			{ props.onResetGraph && (
+				<button onClick={ () => props.onResetGraph() }>
+					reset-graph
 				</button>
 			) }
 			{ props.children }
@@ -559,10 +582,13 @@ describe( 'TopologyConsole boot', () => {
 		} );
 	};
 
-	it( 'renders Header, Canvas, and ReplFooter on mount (Inspector is selection-only)', () => {
+	it( 'renders Header, Palette, Canvas, and ReplFooter on mount (Inspector is selection-only)', () => {
+		// Palette is always-on per the interactive-live-canvas spec: a drop in
+		// view mode issues `make_node` via sendLine; a drop in edit adds to the
+		// draft. Edit-only gating was a stale Task 3 regression.
 		const { getByTestId, queryByTestId } = render( <TopologyConsole /> );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
-		expect( queryByTestId( 'palette' ) ).toBeNull();
+		expect( getByTestId( 'palette' ) ).not.toBeNull();
 		expect( getByTestId( 'canvas' ) ).not.toBeNull();
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
 		expect( getByTestId( 'repl' ) ).not.toBeNull();
@@ -1009,6 +1035,18 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByTestId( 'inspector' ) ).toBeNull();
 	} );
 
+	it( 'deselect removes the is-inspector-open grid column', () => {
+		const { getByText, container } = render( <TopologyConsole /> );
+		fireEvent.click( getByText( 'select-n1' ) );
+		expect(
+			container.querySelector( '.topology-app' ).className
+		).toContain( 'is-inspector-open' );
+		fireEvent.click( getByText( 'deselect' ) );
+		expect(
+			container.querySelector( '.topology-app' ).className
+		).not.toContain( 'is-inspector-open' );
+	} );
+
 	it( 'select edge clears any selected node', () => {
 		const { getByText, queryByTestId } = render( <TopologyConsole /> );
 		fireEvent.click( getByText( 'select-n1' ) );
@@ -1312,37 +1350,62 @@ describe( 'TopologyConsole boot', () => {
 		expect( window.location.search ).not.toMatch( /partition=/ );
 	} );
 
-	it( 'poll target follows the LCP worker, not a deep sub-node cwd', () => {
+	it( 'cd into a worker sub-node sets _cwd.target to the cwd verbatim', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /_sse/demo.p0/firehose-in' );
 		} );
-		// cwd is the deep node, but dump_metadata/uptime poll the worker root.
-		expect( Core.node( names.METADATA ).pollTo ).toBe( '_sse/demo.p0' );
-		expect( Core.node( names.UPTIME ).pollTo ).toBe( '_sse/demo.p0' );
+		// The poll nodes target `_cwd`; the cwd is re-stamped from `_cwd.target`.
+		expect( Core.node( names.CWD ).target ).toBe(
+			'_sse/demo.p0/firehose-in'
+		);
 	} );
 
-	it( 'request scope (cd /_sse) keeps polling the canvas (synchronous POST)', () => {
+	it( 'a worker cwd during the connecting window keeps _cwd pointed at the worker (not local)', () => {
+		// Previously the guard pointed _cwd at '' (the local CI) during the
+		// connecting window, which made the canvas DISPLAY the local graph at
+		// a worker cwd — misleading. Now _cwd tracks the cwd verbatim; the
+		// POST will fail to round-trip without a pid but is cheap and silent,
+		// and the canvas just holds its last state until the stream connects.
+		globalThis.__connecting = true;
+		try {
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			render( <TopologyConsole /> );
+			act( () => {
+				lastReplProps.onSubmit( 'cd /_sse/demo.p0' );
+			} );
+			expect( Core.node( names.CWD ).target ).toBe( '_sse/demo.p0' );
+		} finally {
+			globalThis.__connecting = false;
+		}
+	} );
+
+	it( 'request scope (cd /_sse) sets _cwd.target to _sse', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /_sse' );
 		} );
-		// Canvas keeps polling request scope; the heartbeat (worker-only) is
-		// covered by pollTargetFor's own tests.
-		expect( Core.node( names.METADATA ).pollTo ).toBe( '_sse' );
-		expect( Core.node( names.UPTIME ).pollTo ).toBe( '_sse' );
+		expect( Core.node( names.CWD ).target ).toBe( '_sse' );
 	} );
 
-	it( 'local graph (cd /) keeps polling the canvas in-browser', () => {
+	it( 'local graph (cd /) sets _cwd.target to the empty local-root path', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
-		expect( Core.node( names.METADATA ).pollTo ).toBe( '' );
-		expect( Core.node( names.UPTIME ).pollTo ).toBe( '' );
+		expect( Core.node( names.CWD ).target ).toBe( '' );
+	} );
+
+	it( 'cd onto a worker sets _cwd.target to that worker', () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /_sse/demo.p1' );
+		} );
+		expect( Core.node( names.CWD ).target ).toBe( '_sse/demo.p1' );
 	} );
 
 	it( 'REPL cd echoes into the transcript like other builtins', () => {
@@ -1390,6 +1453,244 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'connect-a-b' ) );
 		} );
 		expect( lastCanvasProps ).not.toBeNull();
+	} );
+
+	it( 'live canvas: connect gesture dispatches connect_node via sendLine', () => {
+		const { container, getByText } = render( <TopologyConsole /> );
+		fireEvent.click( getByText( 'connect-a-b' ) );
+		const items = container.querySelectorAll(
+			'[data-testid="repl-transcript"] li'
+		);
+		const sent = Array.from( items ).find(
+			( i ) => i.dataset.kind === 'sent'
+		);
+		expect( sent ).not.toBeUndefined();
+		expect( sent.textContent ).toMatch( /^connect_node a b$/ );
+	} );
+
+	it( 'live canvas: palette drop dispatches make_node via sendLine', () => {
+		const { container, getByText } = render( <TopologyConsole /> );
+		fireEvent.click( getByText( 'drop-echo' ) );
+		const items = container.querySelectorAll(
+			'[data-testid="repl-transcript"] li'
+		);
+		const sent = Array.from( items ).find(
+			( i ) => i.dataset.kind === 'sent'
+		);
+		expect( sent ).not.toBeUndefined();
+		expect( sent.textContent ).toMatch( /^make_node Echo \S+$/ );
+	} );
+
+	it( 'live canvas: delete selected node dispatches remove_node via sendLine', () => {
+		const { container, getByText } = render( <TopologyConsole /> );
+		fireEvent.click( getByText( 'select-n1' ) );
+		fireEvent.click( getByText( 'remove-n1' ) );
+		const items = container.querySelectorAll(
+			'[data-testid="repl-transcript"] li'
+		);
+		const sent = Array.from( items ).find(
+			( i ) => i.dataset.kind === 'sent'
+		);
+		expect( sent ).not.toBeUndefined();
+		expect( sent.textContent ).toMatch( /^remove_node n1$/ );
+	} );
+
+	it( 'live canvas: SchematicCanvas receives interactive=true in view mode', () => {
+		render( <TopologyConsole /> );
+		expect( lastCanvasProps.interactive ).toBe( true );
+	} );
+
+	it( 'live canvas: reset-graph control re-mounts the graph without throwing', async () => {
+		const { getByText } = render( <TopologyConsole /> );
+		// The console boots viewing a worker; cd to the local graph (the only
+		// scope where the reset chip shows) before exercising it.
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		// Chip only shows when there's a user-added node beyond the canonical
+		// console graph — inject one via the METADATA payload.
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: {
+				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
+			},
+		} );
+		expect( () =>
+			fireEvent.click( getByText( 'reset-graph' ) )
+		).not.toThrow();
+	} );
+
+	it( 'reset-graph preserves cwd (rebuild rehomes Shell.path to default; reset must restore the user cwd)', async () => {
+		// Boot into a worker, navigate to '/' (local), then reset-graph.
+		// Previously the rebuild snapped Shell.path back to _sse/{reader} and
+		// the [shell] sync effect dragged cwd along, taking the user off '/'.
+		// Reset must rebuild AND keep cwd at '/'.
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		expect( lastHeaderProps.path ).toBe( '' );
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: {
+				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
+			},
+		} );
+		act( () => {
+			fireEvent.click( getByText( 'reset-graph' ) );
+		} );
+		expect( lastHeaderProps.path ).toBe( '' );
+	} );
+
+	it( 'reset-graph wipes user-added nodes (and leaves the canonical spine + console graph)', async () => {
+		// User-`make_node`'d local nodes survived the canonical-only unregister
+		// loop, so the "reset" didn't feel like a reset. Now any node not in
+		// the canonical console-graph set (or the backbone) is removed.
+		const { Node } = require( '../../runtime/node' );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		// Simulate user `make_node Tee my-tee` having survived from a prior session.
+		const userNode = new Node();
+		userNode.setName( 'my-user-tee' );
+		expect( Core.node( 'my-user-tee' ) ).toBeTruthy();
+		// Surface it in the metadata payload so the chip is visible (the chip
+		// gating reads parsed.nodes, not Core directly).
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: {
+				'my-user-tee': {
+					class: 'Node',
+					counter: 0,
+					sink: '',
+					target: '',
+				},
+			},
+		} );
+		// Reset must remove it.
+		act( () => {
+			fireEvent.click( getByText( 'reset-graph' ) );
+		} );
+		expect( Core.node( 'my-user-tee' ) ).toBeFalsy();
+		// And the canonical backbone must STILL be present after the rebuild.
+		expect( Core.node( '_command_interpreter' ) ).toBeTruthy();
+		expect( Core.node( '_router' ) ).toBeTruthy();
+	} );
+
+	it( 'reset-graph clears the local-scope position overrides + viewport persistence', async () => {
+		// Reset means RESET — pan/zoom state for the local scope is wiped so the
+		// canvas re-autofits cleanly. Previously the spine rebuilt but layout
+		// state lingered, masking the reset.
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		// Inject a user-added node so the chip is visible to click.
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: {
+				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
+			},
+		} );
+		window.localStorage.setItem(
+			'newspack-nodes:topology:local:viewport',
+			JSON.stringify( { x: 0, y: 0, w: 100, h: 100 } )
+		);
+		window.localStorage.setItem(
+			'newspack-nodes:topology:local:positions',
+			JSON.stringify( { my: { x: 1, y: 1 } } )
+		);
+		act( () => {
+			fireEvent.click( getByText( 'reset-graph' ) );
+		} );
+		expect(
+			window.localStorage.getItem(
+				'newspack-nodes:topology:local:viewport'
+			)
+		).toBeNull();
+		expect(
+			window.localStorage.getItem(
+				'newspack-nodes:topology:local:positions'
+			)
+		).toBeNull();
+	} );
+
+	it( 'the palette shows JS classes at the local scope (NOT the PHP catalog)', () => {
+		// At cwd '/', make_node runs against the browser's Core, so the palette
+		// must list the JS-side CommandInterpreter.includeNodes (Tee, Timer,
+		// Node, CommandInterpreter). The PHP `classes.list` catalog (which the
+		// console fetches via useClassCatalog) is for workers/topology-editing.
+		globalThis.__catalog = {
+			classes: [ { shell_name: 'PHP_Only_Class', category: 'PHP' } ],
+			formatters: [],
+		};
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		const paletteNames = ( lastPaletteProps?.classes || [] ).map(
+			( c ) => c.shell_name
+		);
+		expect( paletteNames ).toEqual(
+			expect.arrayContaining( [ 'Tee', 'Timer' ] )
+		);
+		expect( paletteNames ).not.toContain( 'PHP_Only_Class' );
+	} );
+
+	it( 'the palette shows the PHP catalog when at a worker (or editing a topology)', () => {
+		// At a worker cwd, make_node runs against the PHP worker via SSE, so
+		// the PHP catalog is what's accurate. Edit mode is the same — the
+		// topology file is a PHP-worker configuration.
+		globalThis.__catalog = {
+			classes: [ { shell_name: 'PHP_Only_Class', category: 'PHP' } ],
+			formatters: [],
+		};
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		// Default boot is /_sse/demo.p0 (a worker) — assert PHP catalog flows.
+		const paletteNames = ( lastPaletteProps?.classes || [] ).map(
+			( c ) => c.shell_name
+		);
+		expect( paletteNames ).toContain( 'PHP_Only_Class' );
+	} );
+
+	it( 'reset-graph control shows only on the local graph with user-added nodes', async () => {
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { queryByText } = render( <TopologyConsole /> );
+		// Boots into a worker view (_sse/demo.p0); a worker graph self-heals on
+		// respawn, so resetting the local console graph is meaningless → no chip.
+		expect( queryByText( 'reset-graph' ) ).toBeNull();
+		// cd to the local browser graph; without user-added nodes the chip is
+		// also hidden (nothing to reset — only the canonical console graph).
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		expect( queryByText( 'reset-graph' ) ).toBeNull();
+		// Add a user node via the metadata payload → chip appears.
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: {
+				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
+			},
+		} );
+		expect( queryByText( 'reset-graph' ) ).not.toBeNull();
+		// The _http broadcast boundary is also a pivoted (worker) view, not the
+		// local graph — even though scopeFromCwd buckets it as 'local' — so the
+		// chip stays hidden there too.
+		act( () => {
+			lastReplProps.onSubmit( 'cd /_http/demo.p0' );
+		} );
+		expect( queryByText( 'reset-graph' ) ).toBeNull();
 	} );
 
 	it( 'edit mode: dropNode adds a node + persists its position', async () => {
@@ -2078,6 +2379,43 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'cancel-open' ) );
 		} );
 		expect( queryByTestId( 'open-modal' ) ).toBeNull();
+	} );
+
+	it( 'entering edit on a blank canvas seeds the reserved _repl anchor', async () => {
+		// No topology query → blank seed path.
+		window.history.replaceState( {}, '', '/' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		const repl = lastCanvasProps.parsed.nodes.find(
+			( n ) => n.id === '_repl'
+		);
+		expect( repl ).toBeDefined();
+		expect( repl.reserved ).toBe( true );
+	} );
+
+	it( 'entering edit on a loaded topology seeds _repl without marking the draft dirty', async () => {
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'make_node Echo n1\n',
+			name: 'demo',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText, queryByTestId } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		// _repl is present in the loaded draft.
+		expect(
+			lastCanvasProps.parsed.nodes.find( ( n ) => n.id === '_repl' )
+		).toBeDefined();
+		// Leaving without edits must NOT prompt the discard modal — _repl is in
+		// the baseline too, so its presence doesn't read as a change.
+		await act( async () => {
+			fireEvent.click( getByText( 'view' ) );
+		} );
+		expect( queryByTestId( 'confirm-modal' ) ).toBeNull();
+		expect( lastHeaderProps.mode ).toBe( 'view' );
 	} );
 
 	it( 'edit mode: dirty draft → leaving prompts ConfirmModal; discard exits to view', async () => {

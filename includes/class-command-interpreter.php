@@ -373,8 +373,19 @@ class Command_Interpreter_Node extends Node {
 			if ( $ref->isAbstract() ) {
 				continue;
 			}
-			$node = $ref->newInstanceArgs( $ctor_args );
+			// Tachikoma sequence — uniform across every Node subclass. The
+			// no-arg ctor returns a Node in declaration-default state; arguments()
+			// walks node_schema()['arguments'] and assigns each declared
+			// positional arg from the trailing tokens. Service CIs that depend
+			// on programmatic objects (cli, registry, etc.) expose them as
+			// public properties set by the bootstrap AFTER construction —
+			// not through arguments() (which only handles scalar config).
+			$node = new $fqcn();
 			$node->name( $name );
+			// Only scalar tokens count: programmatic make_node calls may pass
+			// object deps positionally for compatibility, but those aren't
+			// round-trippable through arguments() and dump_config skips them.
+			$node->arguments( \implode( ' ', \array_filter( $ctor_args, '\is_scalar' ) ) );
 			$node->sink( $this );
 			// Inherit debug_state so new nodes trace from birth.
 			if ( $this->debug_state() > 0 ) {
@@ -968,8 +979,8 @@ class Command_Interpreter_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'Command dispatch — placed implicitly as sibling of patron nodes; not draggable.',
-			'ctor'        => [],
-			'verbs'       => [],
+			'arguments'        => [],
+			'commands'       => [],
 		];
 	}
 }

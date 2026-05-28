@@ -127,7 +127,7 @@ describe( 'serializeTsl', () => {
 	describe( 'schema-default expansion', () => {
 		const schemas = {
 			Partition: {
-				ctor: [
+				arguments: [
 					{ name: 'base_dir', type: 'string', required: true },
 					{
 						name: 'partition',
@@ -151,7 +151,7 @@ describe( 'serializeTsl', () => {
 						default: '<config:max_lifespan>',
 					},
 				],
-				verbs: [
+				commands: [
 					{
 						name: 'with_index',
 						args: [
@@ -165,8 +165,8 @@ describe( 'serializeTsl', () => {
 				],
 			},
 			FlameBuilder: {
-				ctor: [],
-				verbs: [
+				arguments: [],
+				commands: [
 					{
 						name: 'set_is_hub',
 						args: [
@@ -311,7 +311,7 @@ describe( 'serializeTsl', () => {
 		it( 'empty default in spec is treated as no-default (slot stays empty)', () => {
 			const local = {
 				Foo: {
-					ctor: [
+					arguments: [
 						{ name: 'a', type: 'string', required: true },
 						{ name: 'b', type: 'string', default: '' },
 					],
@@ -339,13 +339,13 @@ describe( 'serializeTsl', () => {
 		const schemas = {
 			Performance_CI: {
 				is_interpreter: true,
-				ctor: [],
-				verbs: [ { name: 'set_is_hub', args: [] } ],
+				arguments: [],
+				commands: [ { name: 'set_is_hub', args: [] } ],
 			},
 			Partition: {
 				is_interpreter: false,
-				ctor: [],
-				verbs: [ { name: 'allow_large_writes', args: [] } ],
+				arguments: [],
+				commands: [ { name: 'allow_large_writes', args: [] } ],
 			},
 		};
 
@@ -433,6 +433,111 @@ describe( 'serializeTsl', () => {
 			expect( reparsed.nodes[ 0 ].verbInvocations ).toEqual( [
 				{ verb: 'allow_large_writes', args: [] },
 			] );
+		} );
+	} );
+
+	describe( 'reserved anchor (_repl)', () => {
+		// eslint-disable-next-line global-require
+		const { parseTsl } = require( '../parseTsl' );
+		// eslint-disable-next-line global-require
+		const { withReplAnchor } = require( '../draftGraph' );
+
+		it( 'emits no make_node for a reserved node', () => {
+			const g = {
+				nodes: [
+					{
+						id: '_repl',
+						name: '_repl',
+						class: 'CommandInterpreter',
+						reserved: true,
+						ctorArgs: [],
+						verbInvocations: [],
+					},
+				],
+				edges: [],
+			};
+			expect( serializeTsl( g ) ).toBe( '' );
+		} );
+
+		it( 'emits no outgoing wiring from a reserved node', () => {
+			const g = {
+				nodes: [
+					{
+						id: '_repl',
+						name: '_repl',
+						class: 'CommandInterpreter',
+						reserved: true,
+						ctorArgs: [],
+						verbInvocations: [],
+					},
+					{
+						id: 'x',
+						name: 'x',
+						class: 'Echo',
+						ctorArgs: [],
+						verbInvocations: [],
+					},
+				],
+				// Reserved node as edge SOURCE must be dropped.
+				edges: [ { from: '_repl', to: 'x' } ],
+			};
+			expect( serializeTsl( g ) ).toBe( 'make_node Echo x\n' );
+		} );
+
+		it( 'emits connect_node for an edge TO a reserved node', () => {
+			const g = {
+				nodes: [
+					{
+						id: '_repl',
+						name: '_repl',
+						class: 'CommandInterpreter',
+						reserved: true,
+						ctorArgs: [],
+						verbInvocations: [],
+					},
+					{
+						id: 'x',
+						name: 'x',
+						class: 'Echo',
+						ctorArgs: [],
+						verbInvocations: [],
+					},
+				],
+				edges: [ { from: 'x', to: '_repl' } ],
+			};
+			expect( serializeTsl( g ) ).toBe(
+				'make_node Echo x\nconnect_node x _repl\n'
+			);
+		} );
+
+		it( 'round-trips a normal node → _repl edge', () => {
+			const original = withReplAnchor( {
+				nodes: [
+					{
+						id: 'my-tee',
+						name: 'my-tee',
+						class: 'Tee',
+						ctorArgs: [],
+						verbInvocations: [],
+					},
+				],
+				edges: [ { from: 'my-tee', to: '_repl' } ],
+			} );
+			const tsl = serializeTsl( original );
+			expect( tsl ).toBe(
+				'make_node Tee my-tee\nconnect_node my-tee _repl\n'
+			);
+			const reparsed = withReplAnchor( parseTsl( tsl ) );
+			expect(
+				reparsed.nodes.find( ( n ) => n.id === 'my-tee' )
+			).toBeDefined();
+			const repl = reparsed.nodes.find( ( n ) => n.id === '_repl' );
+			expect( repl ).toBeDefined();
+			expect( repl.reserved ).toBe( true );
+			expect( reparsed.edges ).toContainEqual( {
+				from: 'my-tee',
+				to: '_repl',
+			} );
 		} );
 	} );
 } );

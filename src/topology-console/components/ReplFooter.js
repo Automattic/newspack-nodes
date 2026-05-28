@@ -71,6 +71,11 @@ export default function ReplFooter( {
 	onComplete,
 	completion = null,
 	onShowCandidates,
+	// Optional ceiling override — when set, takes precedence over the
+	// viewport-based maxHeight(). The debug overlay passes its panel's
+	// inner height minus header height so the transcript can't grow past
+	// the overlay's bounds (default maxHeight assumes a full-page console).
+	maxHeightPx = null,
 } ) {
 	const [ value, setValue ] = useState( '' );
 	// Command history (oldest→newest). `historyCursor` points at the recalled
@@ -118,8 +123,12 @@ export default function ReplFooter( {
 		inputRef.current?.focus();
 	};
 
-	const statusLabel =
-		STATUS_LABELS[ streamStatus ] || streamStatus.toUpperCase();
+	// `streamStatus` is undefined for local-only callers (the debug overlay reads
+	// Core synchronously — no stream). Treat absent as LIVE so the LED reads as
+	// connected without exploding on the missing `.toUpperCase()`.
+	const statusLabel = streamStatus
+		? STATUS_LABELS[ streamStatus ] || streamStatus.toUpperCase()
+		: __( 'LIVE', 'newspack-nodes' );
 
 	// Auto-scroll to the newest entry when the open transcript grows.
 	useEffect( () => {
@@ -171,6 +180,22 @@ export default function ReplFooter( {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [] );
 
+	// Double-click the resize handle toggles the transcript between its
+	// max ceiling (visually like dragging it to the top) and the default
+	// starting height. A small ref tracks whether the LAST toggle maximized
+	// so the next dbl-click goes the other way.
+	const lastWasMaxRef = useRef( false );
+	const handleResizeDoubleClick = useCallback( () => {
+		const ceiling = maxHeightPx ?? maxHeight();
+		if ( lastWasMaxRef.current ) {
+			setHeight( defaultHeight() );
+			lastWasMaxRef.current = false;
+		} else {
+			setHeight( Math.max( HEIGHT_MIN_PX, ceiling ) );
+			lastWasMaxRef.current = true;
+		}
+	}, [ maxHeightPx ] );
+
 	// Drag the top edge to resize, clamped to [HEIGHT_MIN_PX, maxHeight()].
 	const handleResizeStart = useCallback(
 		( ev ) => {
@@ -184,8 +209,9 @@ export default function ReplFooter( {
 					return;
 				}
 				const dy = dragState.current.startY - e.clientY;
+				const ceiling = maxHeightPx ?? maxHeight();
 				const next = Math.min(
-					maxHeight(),
+					ceiling,
 					Math.max(
 						HEIGHT_MIN_PX,
 						dragState.current.startHeight + dy
@@ -206,8 +232,30 @@ export default function ReplFooter( {
 			document.addEventListener( 'mousemove', onMove );
 			document.addEventListener( 'mouseup', onUp );
 		},
-		[ height ]
+		[ height, maxHeightPx ]
 	);
+
+	// Clamp existing height down if the ceiling shrinks (panel resized smaller).
+	useEffect( () => {
+		if ( maxHeightPx !== null && height > maxHeightPx ) {
+			setHeight( Math.max( HEIGHT_MIN_PX, maxHeightPx ) );
+		}
+	}, [ maxHeightPx, height ] );
+
+	// Re-clamp when the WINDOW shrinks too — without an explicit ceiling, the
+	// console's viewport-based maxHeight() would drop but `height` wouldn't,
+	// leaving the transcript overflowing past the top of the page and burying
+	// its drag handle out of reach. Listen for resize and clamp on the fly.
+	useEffect( () => {
+		const onResize = () => {
+			const ceiling = maxHeightPx ?? maxHeight();
+			setHeight( ( h ) =>
+				Math.min( h, Math.max( HEIGHT_MIN_PX, ceiling ) )
+			);
+		};
+		window.addEventListener( 'resize', onResize );
+		return () => window.removeEventListener( 'resize', onResize );
+	}, [ maxHeightPx ] );
 
 	useEffect( () => {
 		try {
@@ -363,6 +411,7 @@ export default function ReplFooter( {
 					<div
 						className="topology-repl__resize-handle"
 						onMouseDown={ handleResizeStart }
+						onDoubleClick={ handleResizeDoubleClick }
 						title={ __(
 							'Drag to resize transcript',
 							'newspack-nodes'

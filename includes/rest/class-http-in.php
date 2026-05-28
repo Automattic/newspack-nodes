@@ -82,8 +82,8 @@ class HTTP_In_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => '/command response-writer Node (registered as `_http` at request scope).',
-			'ctor'        => [],
-			'verbs'       => [],
+			'arguments'        => [],
+			'commands'       => [],
 		];
 	}
 

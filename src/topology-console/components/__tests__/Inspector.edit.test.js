@@ -27,8 +27,8 @@ const baseProps = {
 	catalog: [
 		{
 			shell_name: 'Echo',
-			ctor: [],
-			verbs: [],
+			arguments: [],
+			commands: [],
 		},
 	],
 	formatters: [],
@@ -103,6 +103,53 @@ describe( 'Inspector (edit mode)', () => {
 		expect( event ).toBe( false );
 	} );
 
+	describe( 'reserved anchor (_repl)', () => {
+		const reservedProps = {
+			...baseProps,
+			selectedId: '_repl',
+			parsed: {
+				nodes: [
+					{
+						id: '_repl',
+						class: 'CommandInterpreter',
+						reserved: true,
+					},
+					{ id: 'echo', class: 'Echo' },
+				],
+				edges: [],
+			},
+			catalog: [
+				{
+					shell_name: 'CommandInterpreter',
+					arguments: [],
+					commands: [],
+				},
+				{ shell_name: 'Echo', arguments: [], commands: [] },
+			],
+		};
+
+		it( 'hides the Delete node button for a reserved node', () => {
+			const { queryByText } = render(
+				<Inspector { ...reservedProps } onRemoveNode={ jest.fn() } />
+			);
+			expect( queryByText( 'Delete node' ) ).toBeNull();
+		} );
+
+		it( 'hides the rename input for a reserved node', () => {
+			const { container } = render(
+				<Inspector { ...reservedProps } onRenameNode={ jest.fn() } />
+			);
+			expect(
+				container.querySelector( '#topology-name-field' )
+			).toBeNull();
+		} );
+
+		it( 'still renders the reserved node title', () => {
+			const { container } = render( <Inspector { ...reservedProps } /> );
+			expect( container.textContent ).toMatch( /_repl/ );
+		} );
+	} );
+
 	it( 'Empty Constructor section: surfaces a placeholder', () => {
 		const { container } = render( <Inspector { ...baseProps } /> );
 		expect( container.textContent ).toMatch( /No constructor arguments/ );
@@ -113,8 +160,8 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [ { name: 'name', type: 'string', required: true } ],
-				verbs: [],
+				arguments: [ { name: 'name', type: 'string', required: true } ],
+				commands: [],
 			},
 		];
 		const { container } = render(
@@ -134,8 +181,8 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [ { name: 'name', type: 'string' } ],
-				verbs: [],
+				arguments: [ { name: 'name', type: 'string' } ],
+				commands: [],
 			},
 		];
 		const parsed = {
@@ -165,8 +212,8 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [ { name: 'format', type: 'formatter_name' } ],
-				verbs: [],
+				arguments: [ { name: 'format', type: 'formatter_name' } ],
+				commands: [],
 			},
 		];
 		const { container } = render(
@@ -185,8 +232,8 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [ { name: 'format', type: 'formatter_name' } ],
-				verbs: [],
+				arguments: [ { name: 'format', type: 'formatter_name' } ],
+				commands: [],
 			},
 		];
 		const { container } = render(
@@ -200,8 +247,8 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [ { name: 'route', type: 'node_name' } ],
-				verbs: [],
+				arguments: [ { name: 'route', type: 'node_name' } ],
+				commands: [],
 			},
 		];
 		const { container } = render(
@@ -223,8 +270,8 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [],
-				verbs: [ { name: 'reset', args: [] } ],
+				arguments: [],
+				commands: [ { name: 'reset', args: [] } ],
 			},
 		];
 		const { container } = render(
@@ -246,8 +293,8 @@ describe( 'Inspector (edit mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				ctor: [],
-				verbs: [ { name: 'reset', args: [] } ],
+				arguments: [],
+				commands: [ { name: 'reset', args: [] } ],
 			},
 		];
 		const parsed = {
@@ -326,7 +373,9 @@ describe( 'Inspector (edit mode)', () => {
 					],
 					edges: [ { from: 'tee_a', to: 'a' } ],
 				} }
-				catalog={ [ { shell_name: 'Tee', ctor: [], verbs: [] } ] }
+				catalog={ [
+					{ shell_name: 'Tee', arguments: [], commands: [] },
+				] }
 				onConnect={ onConnect }
 			/>
 		);
@@ -352,7 +401,9 @@ describe( 'Inspector (edit mode)', () => {
 					],
 					edges: [ { from: 'tee_a', to: 'a' } ],
 				} }
-				catalog={ [ { shell_name: 'Tee', ctor: [], verbs: [] } ] }
+				catalog={ [
+					{ shell_name: 'Tee', arguments: [], commands: [] },
+				] }
 				onRemoveEdge={ onRemoveEdge }
 			/>
 		);

@@ -5,23 +5,23 @@ const MAX_LINES = 100000;
 const LPS_WINDOW_MS = 10000;
 
 /**
- * `rawlogs/view` — owns the Raw Logs view model.
+ * `rawlogs:view` — owns the Raw Logs view model.
  *
  * Two cadences, deliberately split for performance:
  * - HIGH frequency (the log stream): `_appendRow` pushes each row onto `this.lines`
  *   and recomputes `this.lps`, but does NOT publish. The React view reads these
- *   directly off the node each animation frame (`Core.node('rawlogs/view').lines`
+ *   directly off the node each animation frame (`Core.node('rawlogs:view').lines`
  *   / `.lps`) so a high-volume stream never re-renders React per line.
  * - LOW frequency (control + catalog): only `_control` publishes the small view
  *   model via `setState('view', { logs, selected, paused, connectionError })` —
  *   the dropdown + pause button + selected value + reconnect banner, consumed by
- *   `useNodeState('rawlogs/view','view')`.
+ *   `useNodeState('rawlogs:view','view')`.
  *
  * `fill()` accepts two TM_STRUCT shapes:
- * - a row (`VALUE = { p, line }` from `rawlogs/transform`): appended newest-first
+ * - a row (`VALUE = { p, line }` from `rawlogs:transform`): appended newest-first
  *   to a capped buffer (unless paused), updating lines/second.
  * - a control (`VALUE = { action, … }`): `select` (set + clear), `pause`, `logs`,
- *   `connection` (the SSE connection-status surface from `rawlogs/stream`).
+ *   `connection` (the SSE connection-status surface from `rawlogs:stream`).
  *
  * Buffer + LPS logic migrated verbatim from `RawLogs.js`.
  */
@@ -54,7 +54,7 @@ class RawLogsViewNode extends Node {
 		}
 	}
 
-	// A row from rawlogs/transform: { p, line }. Newest-first, capped.
+	// A row from rawlogs:transform: { p, line }. Newest-first, capped.
 	_appendRow( row ) {
 		if ( this.paused ) {
 			return;

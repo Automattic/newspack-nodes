@@ -468,7 +468,7 @@ class LockTest extends TestCase {
 		$schema = Lock_Node::node_schema();
 		$this->assertSame( 'Hidden', $schema['category'] );
 		$this->assertNotEmpty( $schema['description'] );
-		$this->assertSame( [], $schema['ctor'] );
-		$this->assertSame( [], $schema['verbs'] );
+		$this->assertSame( [], $schema['arguments'] );
+		$this->assertSame( [], $schema['commands'] );
 	}
 }

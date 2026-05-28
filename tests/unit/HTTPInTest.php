@@ -434,7 +434,8 @@ class HTTPInTest extends TestCase {
 
 		// Mount a Partition under the worker's name — same as production
 		// bootstrap after scanning the locks/ dir.
-		$worker_partition = new Partition_Node( $input_dir, 0 );
+		$worker_partition = new Partition_Node();
+		$worker_partition->arguments( "{$input_dir} 0" );
 		$worker_partition->name( 'firehose-workers.p0' );
 
 		$req = $this->make_request(
@@ -464,7 +465,8 @@ class HTTPInTest extends TestCase {
 		// manually before reading via Consumer.
 		$worker_partition->flush();
 
-		$consumer = new Consumer_Node( $input_dir, 0, '' );
+		$consumer = new Consumer_Node();
+		$consumer->arguments( "{$input_dir} 0 " );
 		$consumer->next_offset( 'start' );
 		$consumer->sink( $got = new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$consumer->poll();
@@ -623,8 +625,8 @@ class HTTPInTest extends TestCase {
 		// locks that contract.
 		$schema = HTTP_In_Node::node_schema();
 		$this->assertSame( 'Hidden', $schema['category'] );
-		$this->assertSame( [], $schema['ctor'] );
-		$this->assertSame( [], $schema['verbs'] );
+		$this->assertSame( [], $schema['arguments'] );
+		$this->assertSame( [], $schema['commands'] );
 		$this->assertNotEmpty( $schema['description'] );
 	}
 

@@ -1,0 +1,106 @@
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
+
+/**
+ * Per-dashboard layout state for the overlay: node-position overrides + the
+ * canvas viewport, both localStorage-backed. Without it the canvas can't pan,
+ * zoom, or remember a node drag — the SchematicCanvas is controlled-state, so
+ * a no-op `onPositionChange`/missing `onViewportChange` makes every render
+ * snap layout back to defaults. Viewport writes debounce 200ms (a pan-drag
+ * fires onViewportChange at ~60fps).
+ *
+ * @param {string} storageKey Persistence key (the overlay's storageKey prop).
+ * @return {Object} { positions, viewport, onPositionChange, onViewportChange }.
+ */
+export function useDebugLayout( storageKey ) {
+	const positionsKey = `${ storageKey }:positions`;
+	const viewportKey = `${ storageKey }:viewport`;
+
+	const [ positions, setPositions ] = useState( () => {
+		try {
+			const raw = window.localStorage.getItem( positionsKey );
+			return raw ? JSON.parse( raw ) : {};
+		} catch ( _e ) {
+			return {};
+		}
+	} );
+
+	const [ viewport, setViewport ] = useState( () => {
+		try {
+			const raw = window.localStorage.getItem( viewportKey );
+			return raw ? JSON.parse( raw ) : null;
+		} catch ( _e ) {
+			return null;
+		}
+	} );
+
+	const onPositionChange = useCallback(
+		( nodeId, pos ) => {
+			setPositions( ( prev ) => {
+				const next = { ...prev, [ nodeId ]: { x: pos.x, y: pos.y } };
+				try {
+					window.localStorage.setItem(
+						positionsKey,
+						JSON.stringify( next )
+					);
+				} catch ( _e ) {
+					// localStorage disabled — in-session only.
+				}
+				return next;
+			} );
+		},
+		[ positionsKey ]
+	);
+
+	const viewportSaveTimer = useRef( null );
+	const onViewportChange = useCallback(
+		( next ) => {
+			setViewport( next );
+			if ( viewportSaveTimer.current ) {
+				clearTimeout( viewportSaveTimer.current );
+			}
+			viewportSaveTimer.current = setTimeout( () => {
+				try {
+					if ( next === null ) {
+						window.localStorage.removeItem( viewportKey );
+					} else {
+						window.localStorage.setItem(
+							viewportKey,
+							JSON.stringify( next )
+						);
+					}
+				} catch ( _e ) {
+					// localStorage disabled — in-session only.
+				}
+			}, 200 );
+		},
+		[ viewportKey ]
+	);
+
+	// Clear the debounce timer on unmount so a pending write doesn't fire late.
+	useEffect( () => {
+		return () => {
+			if ( viewportSaveTimer.current ) {
+				clearTimeout( viewportSaveTimer.current );
+			}
+		};
+	}, [] );
+
+	const resetLayout = useCallback( () => {
+		setPositions( {} );
+		setViewport( null );
+		try {
+			window.localStorage.removeItem( positionsKey );
+			window.localStorage.removeItem( viewportKey );
+		} catch ( _e ) {
+			// localStorage disabled — in-session only.
+		}
+	}, [ positionsKey, viewportKey ] );
+
+	return {
+		positions,
+		viewport,
+		onPositionChange,
+		onViewportChange,
+		resetLayout,
+	};
+}

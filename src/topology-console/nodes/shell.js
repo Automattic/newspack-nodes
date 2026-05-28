@@ -129,6 +129,15 @@ export class Shell extends Node {
 		this.showParse = false;
 	}
 
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description: 'Anonymous, React-driven REPL parser.',
+			arguments: [],
+			commands: [],
+		};
+	}
+
 	/**
 	 * Single-tier interpolation: `<name>` → vars, `<config:foo>` → config, unknown → ''.
 	 * Mirrors PHP Shell::interpolate (runs before tokenizing).
@@ -370,6 +379,25 @@ export class Shell extends Node {
 		msg[ TO ] = this.prefix( '' );
 		msg[ VALUE ] = { name: verb, arguments: join( 0 ), payload: '' };
 		return msg;
+	}
+
+	/**
+	 * Build a TM_COMMAND via this.command(...) (inherited from Node), stamp the
+	 * Shell session's FROM/LOCAL provenance + the target TO (path), and fill
+	 * it through this.sink. Mirrors Tachikoma::Nodes::Shell::send_command —
+	 * callers issue commands as method calls instead of via parse().
+	 *
+	 * @param {string} path Routing target (TO). Empty = local CI.
+	 * @param {string} name Command verb (e.g. 'connect_node').
+	 * @param {string} args Positional argument string.
+	 * @return {void}
+	 */
+	sendCommand( path, name, args = '' ) {
+		const m = this.command( name, args );
+		m[ FROM ] = this.replyFrom( names.OUTPUT );
+		m[ TO ] = path;
+		m[ LOCAL ] = true;
+		this.sink?.fill( m );
 	}
 
 	/**

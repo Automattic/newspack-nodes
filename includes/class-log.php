@@ -15,41 +15,57 @@ class Log_Node extends Node {
 	public const MODE_APPEND    = 'append';
 	public const MODE_OVERWRITE = 'overwrite';
 
-	protected string $filename;
-	protected string $mode;
-	protected int $max_size;
-	protected int $max_rotations;
-	protected int $size = 0;
+	protected string $filename      = '';
+	protected string $mode          = self::MODE_APPEND;
+	protected int $max_size         = 0;
+	protected int $max_rotations    = 0;
+	protected int $size             = 0;
 	/** @var resource|null */
 	protected $fh = null;
 
-	public function __construct(
-		string $filename,
-		string $mode = self::MODE_APPEND,
-		int $max_size = 0,
-		int $max_rotations = 0
-	) {
-		$this->filename      = $filename;
-		$this->mode          = $mode;
-		$this->max_size      = \max( 0, $max_size );
-		$this->max_rotations = \max( 0, $max_rotations );
+	/**
+	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
+	 * which the base setter parses against `node_schema()['arguments']`. The
+	 * override opens the file handle once the path is known.
+	 */
+	public function __construct() {
+		parent::__construct();
+	}
+
+	/**
+	 * Setter chains through the base schema walker (which assigns filename /
+	 * mode / max_size / max_rotations from positional tokens), then normalizes,
+	 * creates the parent dir if missing, and opens the write handle.
+	 *
+	 * @param string|null $args
+	 * @return string
+	 */
+	public function arguments( ?string $args = null ): string {
+		if ( null === $args ) {
+			return parent::arguments();
+		}
+		$result = parent::arguments( $args );
+		if ( '' === $args ) {
+			return $result;
+		}
+		$this->max_size      = \max( 0, $this->max_size );
+		$this->max_rotations = \max( 0, $this->max_rotations );
 		// Operator-configured paths, not WP-managed storage. Create the parent
 		// dir so a configured path under a not-yet-existing directory writes
 		// instead of silently failing on a bad fopen (e.g. an example topology's
 		// /tmp/<plugin>/out.log before anything else has made the dir).
-		$dir = \dirname( $filename );
+		$dir = \dirname( $this->filename );
 		if ( '' !== $dir && '.' !== $dir && ! \is_dir( $dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $dir, 0755, true );
 		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
-		$this->fh            = \fopen( $filename, self::MODE_OVERWRITE === $mode ? 'wb' : 'ab' );
+		$this->fh = \fopen( $this->filename, self::MODE_OVERWRITE === $this->mode ? 'wb' : 'ab' );
 		// Track size so max_size triggers auto-rotate; append-mode reopens may start non-zero.
-		$this->size = ( self::MODE_APPEND === $mode && \is_resource( $this->fh ) )
+		$this->size = ( self::MODE_APPEND === $this->mode && \is_resource( $this->fh ) )
 			? (int) \ftell( $this->fh )
 			: 0;
-		// Round-trip ctor args via Node::$arguments for dump_config.
-		$this->arguments = "{$this->filename} {$this->mode} {$this->max_size} {$this->max_rotations}";
+		return $result;
 	}
 
 	public function fill( array &$message ): void {
@@ -150,13 +166,13 @@ class Log_Node extends Node {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'I/O',
 			'description' => 'Append-only file writer with rotation by line count.',
-			'ctor'        => [
+			'arguments'        => [
 				[ 'name' => 'filename',      'type' => 'string', 'required' => true ],
 				[ 'name' => 'mode',          'type' => 'string', 'default' => self::MODE_APPEND, 'enum' => [ self::MODE_APPEND, self::MODE_OVERWRITE ] ],
 				[ 'name' => 'max_size',      'type' => 'int',    'default' => 0 ],
 				[ 'name' => 'max_rotations', 'type' => 'int',    'default' => 0 ],
 			],
-			'verbs'       => [],
+			'commands'       => [],
 			'requests'    => [
 				[
 					'name'        => 'rotate',

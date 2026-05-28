@@ -12,35 +12,46 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Topic_Node extends Node {
-	protected string $base_dir;
-	protected int $num_partitions;
-	protected int $segment_size;
-	protected int $num_segments;
-	protected int $max_lifespan;
+	protected string $base_dir      = '';
+	protected int $num_partitions   = 1;
+	protected int $segment_size     = Partition_Node::DEFAULT_SEGMENT_SIZE;
+	protected int $num_segments     = Partition_Node::DEFAULT_NUM_SEGMENTS;
+	protected int $max_lifespan     = Partition_Node::DEFAULT_MAX_LIFESPAN;
 
 	/** @var array<int,Partition_Node> Lazy. */
 	protected array $partitions = [];
 
 	protected static int $rr_counter = 0;
 
-	public function __construct(
-		string $base_dir,
-		int $num_partitions,
-		int $segment_size = Partition_Node::DEFAULT_SEGMENT_SIZE,
-		int $num_segments = Partition_Node::DEFAULT_NUM_SEGMENTS,
-		int $max_lifespan = Partition_Node::DEFAULT_MAX_LIFESPAN
-	) {
-		$this->base_dir       = \rtrim( $base_dir, '/' );
-		$this->num_partitions = \max( 1, $num_partitions );
-		$this->segment_size   = $segment_size;
-		$this->num_segments   = $num_segments;
-		$this->max_lifespan   = $max_lifespan;
-		$this->registrations  = [ 'READY' => [] ];
-		// Round-trip ctor args so dump_config can re-create this instance.
-		$this->arguments = "{$this->base_dir} {$this->num_partitions} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}";
+	/**
+	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
+	 * which the base setter parses against `node_schema()['arguments']`.
+	 */
+	public function __construct() {
+		$this->registrations = [ 'READY' => [] ];
 		// Chain to the base ctor (no-op today — no handler-bearing node_schema
 		// verbs — but keeps the :config auto-wire available if any are added).
 		parent::__construct();
+	}
+
+	/**
+	 * Setter chains through the base schema walker, then normalizes the
+	 * assigned values (rtrim base_dir, clamp num_partitions to ≥1).
+	 *
+	 * @param string|null $args
+	 * @return string
+	 */
+	public function arguments( ?string $args = null ): string {
+		if ( null === $args ) {
+			return parent::arguments();
+		}
+		$result = parent::arguments( $args );
+		if ( '' === $args ) {
+			return $result;
+		}
+		$this->base_dir       = \rtrim( $this->base_dir, '/' );
+		$this->num_partitions = \max( 1, $this->num_partitions );
+		return $result;
 	}
 
 	public function num_partitions(): int {
@@ -61,10 +72,9 @@ class Topic_Node extends Node {
 	protected function partition( int $i ): Partition_Node {
 		$first = empty( $this->partitions );
 		if ( ! isset( $this->partitions[ $i ] ) ) {
-			$this->partitions[ $i ] = new Partition_Node(
-				$this->base_dir, $i,
-				$this->segment_size, $this->num_segments, $this->max_lifespan
-			);
+			$p = new Partition_Node();
+			$p->arguments( "{$this->base_dir} {$i} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}" );
+			$this->partitions[ $i ] = $p;
 			$this->partitions[ $i ]->sink( $this->sink );
 		}
 		if ( $first ) {
@@ -127,14 +137,14 @@ class Topic_Node extends Node {
 		return [
 			'category'    => 'Storage',
 			'description' => 'Multi-partition log abstraction; routes by hash to one of N Partitions.',
-			'ctor'        => [
+			'arguments'        => [
 				[ 'name' => 'base_dir',       'type' => 'string', 'required' => true ],
-				[ 'name' => 'num_partitions', 'type' => 'int',    'required' => true, 'default' => '<config:num_partitions>' ],
-				[ 'name' => 'segment_size',   'type' => 'int',    'default' => '<config:segment_size>' ],
-				[ 'name' => 'num_segments',   'type' => 'int',    'default' => '<config:num_segments>' ],
-				[ 'name' => 'max_lifespan',   'type' => 'int',    'default' => '<config:max_lifespan>' ],
+				[ 'name' => 'num_partitions', 'type' => 'int',    'required' => true ],
+				[ 'name' => 'segment_size',   'type' => 'int',    'default' => Partition_Node::DEFAULT_SEGMENT_SIZE ],
+				[ 'name' => 'num_segments',   'type' => 'int',    'default' => Partition_Node::DEFAULT_NUM_SEGMENTS ],
+				[ 'name' => 'max_lifespan',   'type' => 'int',    'default' => Partition_Node::DEFAULT_MAX_LIFESPAN ],
 			],
-			'verbs'       => [],
+			'commands'       => [],
 			'has_target'  => false,
 		];
 	}

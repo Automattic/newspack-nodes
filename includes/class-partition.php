@@ -27,13 +27,13 @@ class Partition_Node extends Timer_Node {
 
 	public const DRIFT_RESCAN_INTERVAL_SECONDS = 1.0;
 
-	protected string $base_dir;
-	protected int $partition;
-	protected int $segment_size;
-	protected int $num_segments;
-	protected int $max_lifespan;
+	protected string $base_dir      = '';
+	protected int $partition        = 0;
+	protected int $segment_size     = self::DEFAULT_SEGMENT_SIZE;
+	protected int $num_segments     = self::DEFAULT_NUM_SEGMENTS;
+	protected int $max_lifespan     = self::DEFAULT_MAX_LIFESPAN;
 
-	protected string $partition_dir;
+	protected string $partition_dir = '';
 
 	protected ?int $current_segment_id = null;
 	protected int $current_size = 0;
@@ -50,6 +50,8 @@ class Partition_Node extends Timer_Node {
 	protected float $segments_cache_time = 0.0;
 
 	protected bool $allow_large_writes = false;
+	/** Formatter name set via the `with_index` verb — the round-trippable form of the index callback (which itself can't be dumped). */
+	protected ?string $index_formatter_name = null;
 	protected ?Lock_Node $write_lock = null;
 	protected ?Timer_Node $heartbeat_timer = null;
 	protected int $lock_stale_timeout = 0;
@@ -66,24 +68,44 @@ class Partition_Node extends Timer_Node {
 	/** @var list<array{packed:string,len:int,data:mixed}> Flushed in lockstep with $batch. */
 	protected array $batch_index_args = [];
 
-	public function __construct(
-		string $base_dir,
-		int $partition,
-		int $segment_size = self::DEFAULT_SEGMENT_SIZE,
-		int $num_segments = self::DEFAULT_NUM_SEGMENTS,
-		int $max_lifespan = self::DEFAULT_MAX_LIFESPAN
-	) {
+	/**
+	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
+	 * which the base setter parses against `node_schema()['arguments']`. The
+	 * override below re-normalizes after that walk and re-derives partition_dir.
+	 */
+	public function __construct() {
 		// Chains Timer_Node → Node; the base ctor auto-wires the sibling :config
-		// CI from node_schema()['verbs'] (handlers are static + read $ci->patron()
-		// lazily, so running before the props below is fine).
+		// CI from node_schema()['commands'] (handlers are static + read $ci->patron()
+		// lazily, so running before arguments() populates the props below is fine).
 		parent::__construct();
-		$this->base_dir      = \rtrim( $base_dir, '/' );
-		$this->partition     = $partition;
-		$this->segment_size  = \max( 1, $segment_size );
-		$this->num_segments  = \max( 2, $num_segments );
-		$this->max_lifespan  = \max( 0, $max_lifespan );
-		$this->partition_dir = "{$this->base_dir}/p{$partition}";
-		$this->arguments     = "{$this->base_dir} {$this->partition} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}";
+	}
+
+	/**
+	 * Setter chains through the base schema walker (which assigns base_dir,
+	 * partition, segment_size, num_segments, max_lifespan from positional
+	 * tokens or schema defaults), then normalizes the assigned values and
+	 * re-derives partition_dir. Getter returns the last-set raw string.
+	 *
+	 * @param string|null $args
+	 * @return string
+	 */
+	public function arguments( ?string $args = null ): string {
+		if ( null === $args ) {
+			return parent::arguments();
+		}
+		$result = parent::arguments( $args );
+		// Empty-string args mirrors the base setter's no-op (no schema walk,
+		// no token-driven assignment): don't re-derive partition_dir from
+		// declaration-default props (would yield '/p0' at filesystem root).
+		if ( '' === $args ) {
+			return $result;
+		}
+		$this->base_dir      = \rtrim( $this->base_dir, '/' );
+		$this->segment_size  = \max( 1, $this->segment_size );
+		$this->num_segments  = \max( 2, $this->num_segments );
+		$this->max_lifespan  = \max( 0, $this->max_lifespan );
+		$this->partition_dir = "{$this->base_dir}/p{$this->partition}";
+		return $result;
 	}
 
 	/** Timer fire: drain the batch at the end of the current event-loop iteration. */
@@ -403,6 +425,22 @@ class Partition_Node extends Timer_Node {
 	public function with_index( callable $callback ): self {
 		$this->index_callback = $callback;
 		return $this;
+	}
+
+	/**
+	 * Emit the base config plus this Partition's verb-config, from STATE — the
+	 * `allow_large_writes` flag and the `with_index` formatter name. (The index
+	 * callback itself can't be dumped; the formatter name is its round-trip form.)
+	 */
+	public function dump_config(): string {
+		$out = parent::dump_config();
+		if ( $this->allow_large_writes ) {
+			$out .= "cmd {$this->name}:config allow_large_writes\n";
+		}
+		if ( null !== $this->index_formatter_name ) {
+			$out .= "cmd {$this->name}:config with_index {$this->index_formatter_name}\n";
+		}
+		return $out;
 	}
 
 	/**
@@ -778,14 +816,14 @@ class Partition_Node extends Timer_Node {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Storage',
 			'description' => 'Append-only segmented log; data file + offset index per partition.',
-			'ctor'        => [
+			'arguments'        => [
 				[ 'name' => 'base_dir',     'type' => 'string', 'required' => true ],
-				[ 'name' => 'partition',    'type' => 'int',    'required' => true, 'default' => '<partition>' ],
-				[ 'name' => 'segment_size', 'type' => 'int',    'default' => '<config:segment_size>' ],
-				[ 'name' => 'num_segments', 'type' => 'int',    'default' => '<config:num_segments>' ],
-				[ 'name' => 'max_lifespan', 'type' => 'int',    'default' => '<config:max_lifespan>' ],
+				[ 'name' => 'partition',    'type' => 'int',    'required' => true ],
+				[ 'name' => 'segment_size', 'type' => 'int',    'default' => self::DEFAULT_SEGMENT_SIZE ],
+				[ 'name' => 'num_segments', 'type' => 'int',    'default' => self::DEFAULT_NUM_SEGMENTS ],
+				[ 'name' => 'max_lifespan', 'type' => 'int',    'default' => self::DEFAULT_MAX_LIFESPAN ],
 			],
-			'verbs'       => [
+			'commands'       => [
 				[
 					'name'        => 'allow_large_writes',
 					'description' => 'Lift the 4KB PIPE_BUF cap; acquire per-partition write lock.',
@@ -794,7 +832,6 @@ class Partition_Node extends Timer_Node {
 						/** @var self $patron */
 						$patron = $ci->patron();
 						$patron->allow_large_writes();
-						$patron->mark_verb_invoked( 'allow_large_writes', '' );
 						return 'ok';
 					},
 				],
@@ -816,7 +853,7 @@ class Partition_Node extends Timer_Node {
 						/** @var self $patron */
 						$patron = $ci->patron();
 						$patron->with_index( $callable );
-						$patron->mark_verb_invoked( 'with_index', $args );
+						$patron->index_formatter_name = $args;
 						return 'ok';
 					},
 				],

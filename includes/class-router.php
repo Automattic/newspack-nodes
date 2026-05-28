@@ -81,8 +81,8 @@ class Router_Node extends Timer_Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'Path-based message routing — placed automatically as `_router`.',
-			'ctor'        => [],
-			'verbs'       => [],
+			'arguments'        => [],
+			'commands'       => [],
 		];
 	}
 }

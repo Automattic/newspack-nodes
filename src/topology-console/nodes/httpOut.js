@@ -21,12 +21,16 @@ import names from '../../runtime/reserved-node-names.json';
 
 export class HttpOut extends Node {
 	/**
-	 * @param {Object} params
-	 * @param {Object} params.client CommandClient — `buildMessage` / `postBatch`.
+	 * Tachikoma-parity: no-arg ctor. The `client` (CommandClient with
+	 * `buildMessage` / `postBatch`) is a programmatic dependency — callers
+	 * assign it as a public property after construction:
+	 * `const h = new HttpOut(); h.client = client;`
 	 */
-	constructor( { client } ) {
+	constructor() {
 		super();
-		this.client = client;
+		// Safe default — callers MUST assign before fill(); a no-client fill()
+		// throws when buildMessage is invoked, surfacing the wiring bug loudly.
+		this.client = null;
 		// When locked, fill() buffers its entries instead of POSTing; flush()
 		// drains the buffer as ONE postBatch so a Router TIMER tick's emissions
 		// (dump_metadata every tick + uptime on the 5s tick) ride in one request.
@@ -36,6 +40,16 @@ export class HttpOut extends Node {
 		// locked batch — register_worker_partition is idempotent, so a second
 		// connect for the same worker is pure wire/parse waste. Cleared by flush().
 		this.connectedReaders = new Set();
+	}
+
+	// Programmatic-deps node: no positional config to round-trip via arguments=.
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description: 'Browser → /command HTTP boundary (the `_http` node).',
+			arguments: [],
+			commands: [],
+		};
 	}
 
 	// The worker reader (`{topology}.p{N}`) a routed Message targets, or null for

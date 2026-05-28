@@ -21,7 +21,6 @@ import {
 	LOCAL,
 	TM_COMMAND,
 } from '../../runtime/message';
-import names from '../../runtime/reserved-node-names.json';
 
 // Slot TTL (s) requested in each poke, and the throttle (half the TTL) so a
 // single missed tick still leaves the slot alive.
@@ -31,16 +30,22 @@ const POKE_INTERVAL_S = 5;
 export class Heartbeat extends Node {
 	constructor() {
 		super();
-		// Poll gate: a non-null path enables the poke, null disables it. The host
-		// sets it while the graph is mounted; it's the same gate the other poll
-		// nodes use (so a future gating pass can suppress all three uniformly).
-		this.pollTo = null;
 		// The SSE slot to refresh + the partition it was acquired at; null until
 		// the SSE stream connects (and cleared when it closes).
 		this.slot = null;
 		this.partition = -1;
 		// Last emit time (s) — poke at most every POKE_INTERVAL_S.
 		this.lastFired = 0;
+	}
+
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description:
+				'Pokes `workers/heartbeat` to refresh the SSE slot TTL.',
+			arguments: [],
+			commands: [],
+		};
 	}
 
 	// Record the slot acquired by the live SSE stream (from its `connected`
@@ -55,15 +60,16 @@ export class Heartbeat extends Node {
 		this.slot = null;
 	}
 
-	// Build the poke TM_COMMAND, addressed to the REST `workers` CI via the session
-	// boundary (`_sse` wraps FROM into the private reply pivot; the slot pool's
-	// heartbeat verb lives on `workers`, not on the per-worker IPC CI). FROM = own
-	// name is the reply pivot; LOCAL taints it so the browser CI authorizes it.
+	// Build the poke TM_COMMAND, addressed to this.target — the REST `workers` CI
+	// via the session boundary (`_sse` wraps FROM into the private reply pivot;
+	// the slot pool's heartbeat verb lives on `workers`, not on the per-worker IPC
+	// CI). FROM = own name is the reply pivot; LOCAL taints it so the browser CI
+	// authorizes it.
 	_pollMessage() {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = this.name;
-		m[ TO ] = `${ names.SSE }/workers`;
+		m[ TO ] = this.target;
 		m[ VALUE ] = {
 			name: 'heartbeat',
 			arguments: `${ this.slot } ${ SLOT_TTL_S } ${ this.partition }`,
@@ -74,9 +80,9 @@ export class Heartbeat extends Node {
 	}
 
 	// Router TIMER subscriber: poke the slot at most every POKE_INTERVAL_S, only
-	// while enabled (pollTo set) and a slot is held.
+	// while a worker stream slot is held (the poke is meaningless without one).
 	onTimer() {
-		if ( null === this.pollTo || null === this.slot || ! this.sink ) {
+		if ( null === this.slot || ! this.sink ) {
 			return;
 		}
 		const now = Core.now();

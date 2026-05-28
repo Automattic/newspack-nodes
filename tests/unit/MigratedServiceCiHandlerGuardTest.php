@@ -2,7 +2,7 @@
 /**
  * MigratedServiceCiHandlerGuardTest: cross-CI guards for the three substrate
  * service CIs migrated off bespoke `__construct`/`verb_table` command setup
- * onto the schema-driven mechanism (handlers live in node_schema()['verbs'][]).
+ * onto the schema-driven mechanism (handlers live in node_schema()['commands'][]).
  *
  * Two contracts, asserted for Raw_Logs_CI, Layouts_CI, and Workers_CI:
  *
@@ -47,11 +47,13 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 			public function live_position( $cache, string $type, int $partition ): ?array { return null; }
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
 		};
-		return new Workers_CI_Node( $cli );
+		$ci      = new Workers_CI_Node();
+		$ci->cli = $cli;
+		return $ci;
 	}
 
 	public function test_raw_logs_schema_verbs_all_carry_callable_handlers(): void {
-		foreach ( Raw_Logs_CI_Node::node_schema()['verbs'] as $verb ) {
+		foreach ( Raw_Logs_CI_Node::node_schema()['commands'] as $verb ) {
 			$this->assertTrue(
 				isset( $verb['handler'] ) && \is_callable( $verb['handler'] ),
 				"Raw_Logs verb '{$verb['name']}' must carry a callable handler in node_schema()"
@@ -60,7 +62,7 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 	}
 
 	public function test_layouts_schema_verbs_all_carry_callable_handlers(): void {
-		foreach ( Layouts_CI_Node::node_schema()['verbs'] as $verb ) {
+		foreach ( Layouts_CI_Node::node_schema()['commands'] as $verb ) {
 			$this->assertTrue(
 				isset( $verb['handler'] ) && \is_callable( $verb['handler'] ),
 				"Layouts verb '{$verb['name']}' must carry a callable handler in node_schema()"
@@ -69,7 +71,7 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 	}
 
 	public function test_workers_schema_verbs_all_carry_callable_handlers(): void {
-		foreach ( Workers_CI_Node::node_schema()['verbs'] as $verb ) {
+		foreach ( Workers_CI_Node::node_schema()['commands'] as $verb ) {
 			$this->assertTrue(
 				isset( $verb['handler'] ) && \is_callable( $verb['handler'] ),
 				"Workers verb '{$verb['name']}' must carry a callable handler in node_schema()"
@@ -115,7 +117,7 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 
 		foreach ( $cases as $label => [ $ci, $schema ] ) {
 			$commands = $ci->commands();
-			foreach ( $schema['verbs'] as $verb ) {
+			foreach ( $schema['commands'] as $verb ) {
 				$this->assertArrayHasKey(
 					$verb['name'],
 					$commands,

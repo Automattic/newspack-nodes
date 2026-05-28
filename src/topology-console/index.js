@@ -4,6 +4,7 @@
 
 import { createRoot } from '@wordpress/element';
 
+import './includeConsoleNodes';
 import TopologyConsole from './TopologyConsole';
 import './styles/topology-console.scss';
 

@@ -59,8 +59,8 @@ class Community_Source_Node extends Node {
 		return [
 			'category'     => 'Source',
 			'description'  => 'Emits canned publisher-community news items on tick.',
-			'ctor'         => [],
-			'verbs'        => [
+			'arguments'         => [],
+			'commands'        => [
 				[ 'name' => 'tick', 'description' => 'Emit the current batch of items.', 'args' => [] ],
 			],
 			'accepts_fill' => false,

@@ -6,9 +6,11 @@ import {
 	KEY,
 	VALUE,
 	TM_INFO,
+	TM_COMMAND,
 	newMessage,
 	valueSize,
 } from './message';
+import names from './reserved-node-names.json';
 
 export const MAX_FROM_SIZE = 1024;
 
@@ -23,6 +25,62 @@ export class Node {
 		this.setStateCache = {};
 		this.patron = null;
 		this.interpreter = null;
+		this._arguments = '';
+	}
+
+	/**
+	 * Get/set the node's raw argument string. The setter ALSO parses the
+	 * value against `this.constructor.nodeSchema().arguments` (an array of
+	 * `{ name, type, default?, required? }`) and assigns each declared
+	 * positional argument to `this[name]`. Tokens beyond the declared
+	 * positions are ignored; missing optional tokens use schema-declared
+	 * defaults. Mirrors Tachikoma::Node::arguments and the PHP setter.
+	 *
+	 * Subclasses override the whole accessor pair when the default schema
+	 * walk isn't enough (multi-token args, derived state, validation).
+	 *
+	 * @return {string} Last-set raw arguments string.
+	 */
+	get arguments() {
+		return this._arguments ?? '';
+	}
+
+	set arguments( value ) {
+		const args = String( value ?? '' );
+		this._arguments = args;
+		const schema = this.constructor.nodeSchema?.() || {};
+		const declared = schema.arguments || [];
+		if ( declared.length === 0 || args === '' ) {
+			return;
+		}
+		const tokens = args.trim().split( /\s+/ );
+		for ( let i = 0; i < declared.length; i++ ) {
+			const spec = declared[ i ];
+			const { name, type = 'string' } = spec;
+			if ( ! ( name in this ) ) {
+				continue;
+			}
+			if ( i < tokens.length ) {
+				this[ name ] = Node._coerceArgument( tokens[ i ], type );
+			} else if ( 'default' in spec ) {
+				this[ name ] = spec.default;
+			}
+		}
+	}
+
+	static _coerceArgument( token, type ) {
+		switch ( type ) {
+			case 'int':
+				return parseInt( token, 10 );
+			case 'float':
+				return parseFloat( token );
+			case 'bool':
+				return [ '1', 'true', 'yes', 'on' ].includes(
+					token.toLowerCase()
+				);
+			default:
+				return token;
+		}
 	}
 
 	setName( name ) {
@@ -167,11 +225,57 @@ export class Node {
 		this.notify( event, payload );
 	}
 
+	/**
+	 * Build a TM_COMMAND message envelope. Mirrors Tachikoma::Node::command —
+	 * available on every Node so Shell.sendCommand and overlay callers can
+	 * issue commands without hand-building messages.
+	 *
+	 * @param {string} name      Command verb (e.g. 'connect_node').
+	 * @param {string} args      Positional argument string.
+	 * @param {*}      [payload] Optional by-name payload.
+	 * @return {Array} A TM_COMMAND Message (the 7-field positional array).
+	 */
+	command( name, args = '', payload = null ) {
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ VALUE ] = { name, arguments: args, payload };
+		return m;
+	}
+
 	// Clear target (matches PHP Node::disconnect_node). Tee overrides to prune
 	// one entry from its fan-out array.
 	// eslint-disable-next-line no-unused-vars
 	disconnectNode( target = '' ) {
 		this.target = '';
+	}
+
+	// Emit the round-trippable config for this node — `make_node <Type> <name>
+	// [<arguments>]`, a `set_sink` line when the sink isn't the default CI, and a
+	// `connect_node` per target. Mirrors PHP Node::dump_config (the JS runtime
+	// doesn't track invoked verbs, so there's no `cmd` replay line).
+	dumpConfig() {
+		let out = `make_node ${ this.constructor.name } ${ this.name }`;
+		if ( this.arguments ) {
+			out += ` ${ this.arguments }`;
+		}
+		out += '\n';
+
+		const sinkName = this.sink && this.sink.name ? this.sink.name : '';
+		if ( '' !== sinkName && names.COMMAND_INTERPRETER !== sinkName ) {
+			out += `set_sink ${ this.name } ${ sinkName }\n`;
+		}
+
+		if ( Array.isArray( this.target ) ) {
+			for ( const owner of this.target ) {
+				if ( owner ) {
+					out += `connect_node ${ this.name } ${ owner }\n`;
+				}
+			}
+		} else if ( 'string' === typeof this.target && '' !== this.target ) {
+			out += `connect_node ${ this.name } ${ this.target }\n`;
+		}
+
+		return out;
 	}
 
 	// Teardown. Order matters: own name LAST, so in-flight Core.node() lookups

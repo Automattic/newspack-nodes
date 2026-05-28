@@ -21,8 +21,8 @@ class Capture_Sink_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'Test fixture — captures messages in-memory for assertions.',
-			'ctor'        => [],
-			'verbs'       => [],
+			'arguments'        => [],
+			'commands'       => [],
 		];
 	}
 }

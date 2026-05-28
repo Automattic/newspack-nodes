@@ -1,6 +1,6 @@
 /**
- * workerstatus/view tests — the render-state node React reads via
- * useNodeState('workerstatus/view','view').
+ * workerstatus:view tests — the render-state node React reads via
+ * useNodeState('workerstatus:view','view').
  *
  * Worker Status updates per-poll (no high-frequency rAF), so EVERYTHING goes
  * through the low-frequency setState('view', model) path. The node also owns the
@@ -17,7 +17,7 @@ import { createWorkerStatusView } from '../workerStatusView';
 // re-creating the same-named node doesn't collide (matches the sibling tests).
 beforeEach( () => Core.reset() );
 
-// A model envelope from workerstatus/transform.
+// A model envelope from workerstatus:transform.
 function modelMsg( model ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -48,9 +48,9 @@ const baseModel = ( overrides = {} ) => ( {
 	...overrides,
 } );
 
-describe( 'workerstatus/view — model publish', () => {
+describe( 'workerstatus:view — model publish', () => {
 	test( 'a model message publishes setState("view", model)', () => {
-		const v = createWorkerStatusView( 'workerstatus/view' );
+		const v = createWorkerStatusView( 'workerstatus:view' );
 		const model = baseModel( {
 			workers: [ { type: 'firehose-workers' } ],
 		} );
@@ -59,16 +59,16 @@ describe( 'workerstatus/view — model publish', () => {
 	} );
 
 	test( 'a later model replaces the published view', () => {
-		const v = createWorkerStatusView( 'workerstatus/view' );
+		const v = createWorkerStatusView( 'workerstatus:view' );
 		v.fill( modelMsg( baseModel( { currentTime: 1 } ) ) );
 		v.fill( modelMsg( baseModel( { currentTime: 2 } ) ) );
 		expect( v.setStateCache.view.currentTime ).toBe( 2 );
 	} );
 } );
 
-describe( 'workerstatus/view — error control', () => {
+describe( 'workerstatus:view — error control', () => {
 	test( 'an error control sets error on the published model', () => {
-		const v = createWorkerStatusView( 'workerstatus/view' );
+		const v = createWorkerStatusView( 'workerstatus:view' );
 		v.fill( modelMsg( baseModel() ) );
 		v.fill(
 			controlMsg( { action: 'error', error: 'Server disconnected' } )
@@ -77,25 +77,25 @@ describe( 'workerstatus/view — error control', () => {
 	} );
 
 	test( 'a fresh model clears a previously-set error', () => {
-		const v = createWorkerStatusView( 'workerstatus/view' );
+		const v = createWorkerStatusView( 'workerstatus:view' );
 		v.fill( controlMsg( { action: 'error', error: 'boom' } ) );
 		v.fill( modelMsg( baseModel( { error: null } ) ) );
 		expect( v.setStateCache.view.error ).toBeNull();
 	} );
 
 	test( 'an error before any model still publishes a loading-cleared view', () => {
-		const v = createWorkerStatusView( 'workerstatus/view' );
+		const v = createWorkerStatusView( 'workerstatus:view' );
 		v.fill( controlMsg( { action: 'error', error: 'down' } ) );
 		expect( v.setStateCache.view.error ).toBe( 'down' );
 		expect( v.setStateCache.view.loading ).toBe( false );
 	} );
 } );
 
-describe( 'workerstatus/view — removing-segment animation', () => {
+describe( 'workerstatus:view — removing-segment animation', () => {
 	test( 'a model with removingSegments schedules a 400ms clear that blanks them', () => {
 		jest.useFakeTimers();
 		try {
-			const v = createWorkerStatusView( 'workerstatus/view' );
+			const v = createWorkerStatusView( 'workerstatus:view' );
 			v.fill(
 				modelMsg(
 					baseModel( {
@@ -118,7 +118,7 @@ describe( 'workerstatus/view — removing-segment animation', () => {
 	} );
 
 	test( 'a clear-removing control blanks removingSegments and republishes', () => {
-		const v = createWorkerStatusView( 'workerstatus/view' );
+		const v = createWorkerStatusView( 'workerstatus:view' );
 		v.fill(
 			modelMsg(
 				baseModel( {
@@ -133,7 +133,7 @@ describe( 'workerstatus/view — removing-segment animation', () => {
 	test( 'a model with no removals schedules no clear timer', () => {
 		jest.useFakeTimers();
 		try {
-			const v = createWorkerStatusView( 'workerstatus/view' );
+			const v = createWorkerStatusView( 'workerstatus:view' );
 			const spy = jest.spyOn( v, 'setState' );
 			v.fill( modelMsg( baseModel() ) );
 			spy.mockClear();
@@ -145,11 +145,11 @@ describe( 'workerstatus/view — removing-segment animation', () => {
 	} );
 } );
 
-describe( 'workerstatus/view — teardown', () => {
+describe( 'workerstatus:view — teardown', () => {
 	test( 'close() clears a pending removing-clear timer (no later setState)', () => {
 		jest.useFakeTimers();
 		try {
-			const v = createWorkerStatusView( 'workerstatus/view' );
+			const v = createWorkerStatusView( 'workerstatus:view' );
 			v.fill(
 				modelMsg(
 					baseModel( {
@@ -170,14 +170,14 @@ describe( 'workerstatus/view — teardown', () => {
 	} );
 
 	test( 'close() is safe when no timer is pending', () => {
-		const v = createWorkerStatusView( 'workerstatus/view' );
+		const v = createWorkerStatusView( 'workerstatus:view' );
 		expect( () => v.close() ).not.toThrow();
 	} );
 } );
 
-describe( 'workerstatus/view — node wiring', () => {
+describe( 'workerstatus:view — node wiring', () => {
 	test( 'names the node', () => {
-		const v = createWorkerStatusView( 'workerstatus/view' );
-		expect( v.name ).toBe( 'workerstatus/view' );
+		const v = createWorkerStatusView( 'workerstatus:view' );
+		expect( v.name ).toBe( 'workerstatus:view' );
 	} );
 } );

@@ -195,6 +195,26 @@ class Shell_Node extends Node {
 	}
 
 	/**
+	 * Build a TM_COMMAND via $this->command(...) (inherited from Node), stamp the
+	 * Shell session's FROM/LOCAL provenance + the target TO ($path), and fill
+	 * it through $this->sink. Mirrors Tachikoma::Nodes::Shell::send_command —
+	 * callers issue commands as method calls instead of via parse().
+	 *
+	 * @param string $path      Routing target (TO). Empty = local CI.
+	 * @param string $name      Command verb (e.g. 'connect_node').
+	 * @param string $arguments Positional argument string.
+	 * @return void
+	 */
+	public function send_command( string $path, string $name, string $arguments = '' ): void {
+		$msg                   = $this->command( $name, $arguments );
+		$msg[ Message::ID ]    = $this->generate_id();
+		$msg[ Message::FROM ]  = Node_Names::OUTPUT . '/' . \getmypid();
+		$msg[ Message::TO ]    = $path;
+		$msg[ Message::LOCAL ] = true;
+		$this->sink?->fill( $msg );
+	}
+
+	/**
 	 * Parse a multi-statement script and dispatch each resulting Message via the sink.
 	 */
 	public function eval_script( string $script ): void {
@@ -465,8 +485,8 @@ class Shell_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'TSL parser/REPL — used in cli sessions, not part of topology graphs.',
-			'ctor'        => [],
-			'verbs'       => [],
+			'arguments'        => [],
+			'commands'       => [],
 		];
 	}
 }

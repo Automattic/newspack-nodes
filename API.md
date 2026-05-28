@@ -161,7 +161,7 @@ Every CI also answers a default `help` (sorted list of its own verbs) — inject
 
 Application plugins layer additional CIs onto the same endpoint (the first being `newspack-event-logger-nodes` with its application-side CIs). The `to` field on the dispatch envelope distinguishes targets — there is no substrate-vs-application namespacing at the endpoint layer.
 
-**`node_schema()` shape.** Each CI's `node_schema()` returns a `Service`-category schema: `{ category, description, ctor, verbs }`, where `verbs` is a list of `{ name, description, args }` and each arg is `{ name, type, required }`. This is what `Classes_CI`'s `list` verb inlines for the topology-editor palette, and what the live-mode Inspector reads to build verb-invocation forms.
+**`node_schema()` shape.** Each CI's `node_schema()` returns a `Service`-category schema: `{ category, description, arguments, commands }`, where `commands` is a list of `{ name, description, args }` and each arg is `{ name, type, required }`. This is what `Classes_CI`'s `list` verb inlines for the topology-editor palette, and what the live-mode Inspector reads to build verb-invocation forms.
 
 **Scalar verbs read positional `arguments`, not `payload`.** Verbs that take a single scalar — `topologies get`/`delete` (a topology name), `layouts get` (a name), `raw-logs firehose_status` (a log key), `workers heartbeat` (an SSE slot) — read it from the inner envelope's positional `arguments` string so they're typeable straight in the REPL (e.g. `command_node topologies get Home`). Structured verbs (`topologies save` with TSL, `layouts save` with positions, `workers restart` with a `types[]` array) still take their data from `payload`.
 

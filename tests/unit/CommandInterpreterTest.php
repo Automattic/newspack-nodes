@@ -171,6 +171,27 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 'ok', $result );
 	}
 
+	public function test_make_node_sets_arguments_from_trailing_tokens(): void {
+		// arguments() is set IN make_node (from the trailing tokens), not
+		// downstream in the node ctor — so every node, uniformly, round-trips
+		// through dump_config.
+		$ci = new Command_Interpreter_Node();
+		$ci->name( '_command_interpreter' );
+
+		$ci->dispatch( 'make_node', 'Capture_Sink alice some args here' );
+
+		$this->assertSame( 'some args here', Core::node( 'alice' )->arguments() );
+	}
+
+	public function test_make_node_sets_empty_arguments_with_no_trailing_tokens(): void {
+		$ci = new Command_Interpreter_Node();
+		$ci->name( '_command_interpreter' );
+
+		$ci->dispatch( 'make_node', 'Capture_Sink alice' );
+
+		$this->assertSame( '', Core::node( 'alice' )->arguments() );
+	}
+
 	public function test_make_node_resolves_the_base_Node_class(): void {
 		// The base Node has no `_Node` suffix, so `make_node Node` resolves it
 		// directly (under any registered namespace). Its default fill() stamps
@@ -538,6 +559,10 @@ class CommandInterpreterTest extends TestCase {
 
 		$tmp = $this->make_temp_dir();
 		try {
+			// Only the required args (base_dir, partition); the base arguments()
+			// setter now leaves segment_size/num_segments/max_lifespan at their
+			// real schema defaults instead of overwriting them with placeholder
+			// strings — so this short form constructs successfully.
 			$ci->dispatch( 'make_node', "Partition mypart {$tmp} 0" );
 			$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, Core::node( 'mypart' ) );
 
@@ -1114,6 +1139,45 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertStringContainsString( 'connect_node alice bob', $dump );
 		// alice's sink is _command_interpreter (auto-default) — should NOT be emitted.
 		$this->assertStringNotContainsString( 'set_sink alice', $dump );
+	}
+
+	public function test_dump_config_round_trips_idempotently_through_make_node(): void {
+		// Tachikoma round-trip contract: dump_config -> parse + dispatch ->
+		// dump_config' must be byte-identical. The schema-driven arguments()
+		// setter populates each node from the dumped string, dump_config
+		// re-emits the canonical raw arguments, and the second dump matches
+		// the first. Uses Tee + Echo + Hook to avoid auto-wired `:config`
+		// siblings (which would need cascade-cleanup outside this test's scope).
+		$ci = new Command_Interpreter_Node();
+		$ci->name( '_command_interpreter' );
+
+		$ci->dispatch( 'make_node', 'Tee fanout' );
+		$ci->dispatch( 'make_node', 'Echo sink-a' );
+		$ci->dispatch( 'make_node', 'Echo sink-b' );
+		$ci->dispatch( 'make_node', 'Hook on-save save_post true' );
+		$ci->dispatch( 'connect_node', 'fanout sink-a' );
+		$ci->dispatch( 'connect_node', 'fanout sink-b' );
+		$ci->dispatch( 'connect_node', 'on-save fanout' );
+
+		$dump1 = $ci->dispatch( 'dump_config' );
+
+		foreach ( [ 'fanout', 'sink-a', 'sink-b', 'on-save' ] as $name ) {
+			$ci->dispatch( 'remove_node', $name );
+		}
+
+		foreach ( \explode( "\n", $dump1 ) as $line ) {
+			$line = \trim( $line );
+			if ( '' === $line ) {
+				continue;
+			}
+			$parts = \preg_split( '/\s+/', $line, 2 );
+			$verb  = $parts[0];
+			$args  = $parts[1] ?? '';
+			$ci->dispatch( $verb, $args );
+		}
+
+		$dump2 = $ci->dispatch( 'dump_config' );
+		$this->assertSame( $dump1, $dump2, 'dump_config round-trip must be byte-identical' );
 	}
 
 	// ── A1: instance verb table + patron pointer ─────────────────
@@ -1826,8 +1890,8 @@ class CommandInterpreterTest extends TestCase {
 		$schema = Command_Interpreter_Node::node_schema();
 		$this->assertSame( 'Hidden', $schema['category'] );
 		$this->assertArrayHasKey( 'description', $schema );
-		$this->assertSame( [], $schema['ctor'] );
-		$this->assertSame( [], $schema['verbs'] );
+		$this->assertSame( [], $schema['arguments'] );
+		$this->assertSame( [], $schema['commands'] );
 	}
 
 	// ── make_node instance API: null when class not registered ───

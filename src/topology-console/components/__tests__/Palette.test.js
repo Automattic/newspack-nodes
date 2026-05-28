@@ -80,4 +80,32 @@ describe( 'Palette', () => {
 		const count = container.querySelector( '.topology-palette__count' );
 		expect( count.textContent ).toBe( '3' );
 	} );
+
+	it( 'renders a collapse toggle button when onToggle is provided', () => {
+		const onToggle = jest.fn();
+		const { getByRole } = render(
+			<Palette classes={ sampleClasses } onToggle={ onToggle } />
+		);
+		const btn = getByRole( 'button', { name: /collapse palette/i } );
+		btn.click();
+		expect( onToggle ).toHaveBeenCalled();
+	} );
+
+	it( 'collapses to a slim expand handle when `collapsed` is true', () => {
+		const onToggle = jest.fn();
+		const { getByRole, container } = render(
+			<Palette
+				classes={ sampleClasses }
+				collapsed
+				onToggle={ onToggle }
+			/>
+		);
+		// Class list is hidden; expand-handle button is visible and clickable.
+		expect(
+			container.querySelectorAll( '.topology-palette__item' ).length
+		).toBe( 0 );
+		const btn = getByRole( 'button', { name: /expand palette/i } );
+		btn.click();
+		expect( onToggle ).toHaveBeenCalled();
+	} );
 } );

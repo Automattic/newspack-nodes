@@ -8,6 +8,7 @@ import {
 	updateNodeVerbs,
 	draftIsDirty,
 	generateNodeName,
+	withReplAnchor,
 } from '../draftGraph';
 
 describe( 'draftGraph', () => {
@@ -235,6 +236,74 @@ describe( 'draftGraph', () => {
 				y: 0,
 			} );
 			expect( draftIsDirty( draft, baseline ) ).toBe( true );
+		} );
+	} );
+
+	describe( 'withReplAnchor', () => {
+		it( 'adds a reserved _repl CommandInterpreter node to a blank graph', () => {
+			const next = withReplAnchor( empty );
+			const repl = next.nodes.find( ( n ) => n.id === '_repl' );
+			expect( repl ).toBeDefined();
+			expect( repl ).toMatchObject( {
+				id: '_repl',
+				name: '_repl',
+				class: 'CommandInterpreter',
+				reserved: true,
+			} );
+			expect( typeof repl.x ).toBe( 'number' );
+			expect( typeof repl.y ).toBe( 'number' );
+		} );
+
+		it( 'is idempotent — does not duplicate _repl', () => {
+			const once = withReplAnchor( empty );
+			const twice = withReplAnchor( once );
+			expect(
+				twice.nodes.filter( ( n ) => n.id === '_repl' )
+			).toHaveLength( 1 );
+		} );
+
+		it( 'preserves existing nodes and edges', () => {
+			let g = addNode( empty, {
+				shellName: 'Tee',
+				name: 'my-tee',
+				x: 10,
+				y: 20,
+			} );
+			g = addEdge( g, { from: 'my-tee', to: '_repl' } );
+			const next = withReplAnchor( g );
+			expect(
+				next.nodes.find( ( n ) => n.id === 'my-tee' )
+			).toBeDefined();
+			expect( next.edges ).toEqual( [ { from: 'my-tee', to: '_repl' } ] );
+		} );
+	} );
+
+	describe( 'reserved-node refusal', () => {
+		it( 'renameNode is a no-op for a reserved node', () => {
+			const g = withReplAnchor( empty );
+			expect( renameNode( g, '_repl', 'something' ) ).toBe( g );
+		} );
+
+		it( 'removeNode is a no-op for a reserved node', () => {
+			const g = withReplAnchor( empty );
+			expect( removeNode( g, '_repl' ) ).toBe( g );
+		} );
+
+		it( 'removeNode still drops a non-reserved node', () => {
+			let g = withReplAnchor( empty );
+			g = addNode( g, {
+				shellName: 'Echo',
+				name: 'echo',
+				x: 0,
+				y: 0,
+			} );
+			const next = removeNode( g, 'echo' );
+			expect(
+				next.nodes.find( ( n ) => n.id === 'echo' )
+			).toBeUndefined();
+			expect(
+				next.nodes.find( ( n ) => n.id === '_repl' )
+			).toBeDefined();
 		} );
 	} );
 

@@ -14,13 +14,34 @@ class HookTest extends TestCase {
 		$GLOBALS['_wp_actions'] = [];
 	}
 
+	/**
+	 * Tachikoma-parity constructible: no-arg ctor + arguments() setter walks
+	 * the node_schema and assigns hook_name / filter (bool).
+	 */
+	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
+		$hook = new Hook_Node();
+		$hook->arguments( 'newspack_nodes/test_event true' );
+		$ref = new \ReflectionClass( $hook );
+		$this->assertSame( 'newspack_nodes/test_event', $ref->getProperty( 'hook_name' )->getValue( $hook ) );
+		$this->assertTrue( $ref->getProperty( 'filter' )->getValue( $hook ) );
+	}
+
+	public function test_arguments_setter_applies_default_filter_false(): void {
+		$hook = new Hook_Node();
+		$hook->arguments( 'newspack_nodes/test_event' );
+		$ref = new \ReflectionClass( $hook );
+		$this->assertSame( 'newspack_nodes/test_event', $ref->getProperty( 'hook_name' )->getValue( $hook ) );
+		$this->assertFalse( $ref->getProperty( 'filter' )->getValue( $hook ) );
+	}
+
 	public function test_action_mode_fires_do_action(): void {
 		$received = null;
 		\add_action( 'newspack_nodes/test_action', function ( $msg ) use ( &$received ) {
 			$received = $msg;
 		} );
 
-		$hook = new Hook_Node( 'newspack_nodes/test_action' );
+		$hook = new Hook_Node();
+		$hook->arguments( 'newspack_nodes/test_action' );
 		$msg = Message::new_message();
 		$msg[ Message::VALUE ] = 'data';
 		$hook->fill( $msg );
@@ -30,7 +51,8 @@ class HookTest extends TestCase {
 	}
 
 	public function test_action_mode_forwards_to_sink_unchanged(): void {
-		$hook = new Hook_Node( 'newspack_nodes/test_action' );
+		$hook = new Hook_Node();
+		$hook->arguments( 'newspack_nodes/test_action' );
 		$capture = new Capture_Sink_Node();
 		$hook->sink( $capture );
 
@@ -48,7 +70,8 @@ class HookTest extends TestCase {
 			return $msg;
 		} );
 
-		$hook = new Hook_Node( 'newspack_nodes/test_filter', filter: true );
+		$hook = new Hook_Node();
+		$hook->arguments( 'newspack_nodes/test_filter true' );
 		$capture = new Capture_Sink_Node();
 		$hook->sink( $capture );
 

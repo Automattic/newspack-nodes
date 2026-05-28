@@ -1,12 +1,15 @@
 /* global localStorage */
 /**
- * useWorkerStatusGraph — mounts the Worker Status dashboard node graph (the
- * JS-Node conversion of the old WorkerStatus component). On mount it builds three
- * nodes — `workerstatus/poll` (dump_metadata transport), `workerstatus/transform`
- * (snapshot → enriched render model), `workerstatus/view` (the view model React
- * reads) — wires the data path poll → transform → view, and fires one immediate
- * `poll()`. The view publishes its state via `setState('view', …)`; the React
- * view reads it separately with `useNodeState('workerstatus/view','view')`.
+ * useWorkerStatusGraph — mounts the Worker Status dashboard node graph clipped
+ * onto the exospine (the canonical rule-#2 backbone `_command_interpreter →
+ * _router`). On mount it builds three nodes — `workerstatus:poll` (dump_metadata
+ * transport), `workerstatus:transform` (snapshot → enriched render model),
+ * `workerstatus:view` (the view model React reads). EVERY node sinks into the CI;
+ * flow is steered ONLY by each node's `target` (the router peels TO and delivers):
+ * the poll targets the transform, the transform targets the view. There is no
+ * bespoke `poll.sink=transform` wiring. It fires one immediate `poll()`. The view
+ * publishes its state via `setState('view', …)`; the React view reads it
+ * separately with `useNodeState('workerstatus:view','view')`.
  *
  * The hook OWNS the poll interval: a setInterval at the current refresh ms that
  * fires `poll.poll()`, running only while the page is visible (Worker Status has
@@ -18,7 +21,7 @@
  * `setRefreshInterval` (persists to localStorage + re-times the interval), and
  * the current `refreshMs`. Torn down on unmount: the interval is cleared, the
  * poll + view nodes are closed (cancel any in-flight poll / pending slide-out
- * timer), then all three nodes are unregistered from Core.
+ * timer), then the three graph nodes are unregistered, then the exospine.
  *
  * The command boundary is injectable: tests pass `opts.commandClient` (threaded
  * to the poll node) so the hook never touches the network. Production lazily
@@ -27,6 +30,7 @@
 
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
+import { mountExospine } from '../../runtime/exospine';
 import { createWorkerStatusPoll } from '../nodes/workerStatusPoll';
 import { createWorkerStatusTransform } from '../nodes/workerStatusTransform';
 import { createWorkerStatusView } from '../nodes/workerStatusView';
@@ -43,10 +47,11 @@ export const REFRESH_OPTIONS = [
 const REFRESH_KEY = 'newspack-nodes-worker-refresh';
 const LEGACY_REFRESH_KEY = 'newspack-event-logger-nodes-worker-refresh';
 
-// Every named node this graph mounts — unregistered on teardown.
-const POLL = 'workerstatus/poll';
-const TRANSFORM = 'workerstatus/transform';
-const VIEW = 'workerstatus/view';
+// Every named node this graph mounts — unregistered on teardown (the exospine
+// nodes are removed separately by its own teardown()).
+const POLL = 'workerstatus:poll';
+const TRANSFORM = 'workerstatus:transform';
+const VIEW = 'workerstatus:view';
 const GRAPH_NODE_NAMES = [ POLL, TRANSFORM, VIEW ];
 
 /**
@@ -106,15 +111,23 @@ export function useWorkerStatusGraph( opts = {} ) {
 	// gap, unlike Raw Logs). Mirrors useConsoleGraph's setShell re-render.
 	const [ , setViewReady ] = useState( false );
 
-	// Mount the graph once: poll → transform → view, then fire one immediate poll.
+	// Mount the graph once: clip it onto the exospine, then fire one immediate poll.
 	useEffect( () => {
+		// The canonical backbone every node clips onto: everything → CI → router.
+		const { ci, teardown: teardownSpine } = mountExospine();
+
 		const poll = createWorkerStatusPoll( POLL, {
 			commandClient: commandClientRef.current,
 		} );
 		const transform = createWorkerStatusTransform( TRANSFORM );
 		const view = createWorkerStatusView( VIEW );
-		poll.sink = transform;
-		transform.sink = view;
+
+		// Rule #2: every node sinks into the CI; flow is steered by `target`.
+		poll.sink = ci;
+		poll.target = TRANSFORM;
+		transform.sink = ci;
+		transform.target = VIEW;
+		view.sink = ci;
 		pollRef.current = poll;
 
 		// Re-render so useNodeState re-subscribes to the freshly-mounted view node.
@@ -130,6 +143,7 @@ export function useWorkerStatusGraph( opts = {} ) {
 			for ( const name of GRAPH_NODE_NAMES ) {
 				Core.unregisterNode( name );
 			}
+			teardownSpine();
 			pollRef.current = null;
 			setViewReady( false );
 		};
