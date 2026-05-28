@@ -9,7 +9,7 @@
 import { Metadata } from '../metadata';
 import { Uptime } from '../uptime';
 import { Completion } from '../completion';
-import { Heartbeat } from '../heartbeat';
+import { Heartbeat } from '../../../runtime/heartbeat';
 import { Shell } from '../shell';
 
 describe.each( [

@@ -19,7 +19,7 @@ import { Dumper } from '../nodes/dumper';
 import { Metadata } from '../nodes/metadata';
 import { Uptime } from '../nodes/uptime';
 import { Completion } from '../nodes/completion';
-import { Heartbeat } from '../nodes/heartbeat';
+import { Heartbeat } from '../../runtime/heartbeat';
 import { Shell } from '../nodes/shell';
 import { getCommandClient } from '../utils/commandClient';
 import names from '../../runtime/reserved-node-names.json';
