@@ -6,7 +6,7 @@
 
 import { CommandInterpreter } from '../runtime/command_interpreter';
 import { Dumper } from '../runtime/dumper';
-import { Metadata } from './nodes/metadata';
+import { Metadata } from '../runtime/metadata';
 import { Uptime } from '../runtime/uptime';
 import { Completion } from '../runtime/completion';
 import { Heartbeat } from '../runtime/heartbeat';

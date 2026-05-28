@@ -1,4 +1,4 @@
-import { parseMetadata } from '../parseMetadata';
+import { parseMetadata } from '../metadata';
 
 describe( 'parseMetadata', () => {
 	it( 'returns empty graph for malformed input', () => {

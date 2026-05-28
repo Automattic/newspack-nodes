@@ -10,6 +10,8 @@ import { Node } from '../runtime/node';
 import { splitStatements } from '../topology-console/nodes/shell';
 import { Dumper } from '../runtime/dumper';
 import { Completion } from '../runtime/completion';
+import { Metadata } from '../runtime/metadata';
+import { Uptime } from '../runtime/uptime';
 import { LOCAL, FROM, TO } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 
@@ -46,16 +48,27 @@ export function useDebugRepl( active = true, shell ) {
 		}
 		// Dumper accumulates entries + publishes `transcript` for React subscribers.
 		const ci = Core.node( names.COMMAND_INTERPRETER );
+		const router = Core.node( names.ROUTER );
 		const dumper = new Dumper();
 		dumper.debugLevelRef = debugLevelRef;
 		dumper.setName( names.OUTPUT );
-		// Rule #2: every node sinks into the CI. The Dumper's own emissions
-		// (e.g. forwarded onward) need a CI to forward through.
 		dumper.sink = ci;
-		// Tab completion: `_completion` answers ?-suggest queries off Core.nodes.
+		// Tab completion: `_completion` answers help/ls queries off the cwd.
 		const completion = new Completion();
 		completion.setName( names.COMPLETION );
 		completion.sink = ci;
+		// Canvas-poll: Metadata fires dump_metadata at _cwd each TIMER tick,
+		// publishes the parsed graph via setState('metadata') for the canvas.
+		const metadata = new Metadata();
+		metadata.setName( names.METADATA );
+		metadata.sink = ci;
+		metadata.target = names.CWD;
+		router?.register( 'TIMER', names.METADATA, () => metadata.onTimer() );
+		const uptime = new Uptime();
+		uptime.setName( names.UPTIME );
+		uptime.sink = ci;
+		uptime.target = names.CWD;
+		router?.register( 'TIMER', names.UPTIME, () => uptime.onTimer() );
 		// `_cwd` is the routing indirection — every scope-relative command's TO
 		// stamps through this node, which re-stamps the live cwd. Path menu /
 		// REPL `cd` just sets `_cwd.target`.
@@ -78,6 +91,8 @@ export function useDebugRepl( active = true, shell ) {
 			dumper.unregister( 'transcript', listenerId );
 			dumper.removeNode();
 			completion.removeNode();
+			metadata.removeNode();
+			uptime.removeNode();
 			cwdNode.removeNode();
 			dumperRef.current = null;
 			shellRef.current = null;
