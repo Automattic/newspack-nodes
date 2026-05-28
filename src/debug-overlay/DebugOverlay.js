@@ -31,6 +31,7 @@ import {
 	DEFAULT_THEME,
 	isValidTheme,
 	THEME_STORAGE_KEY,
+	PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
 } from '../topology-console/themes';
 import { isDebugEnabled } from './isDebugEnabled';
 import { useDebugFrame } from './useDebugFrame';
@@ -72,28 +73,33 @@ export default function DebugOverlay( {
 	const [ selected, setSelected ] = useState( null );
 	const [ replExpanded, setReplExpanded ] = useState( false );
 	const replInputRef = useRef( null );
-	// Theme key is global (THEME_STORAGE_KEY) — shared with the topology
-	// console so a theme picked in either place applies in both.
-	const paletteKey = `${ storageKey }:palette-collapsed`;
+	// Theme + palette keys are global — shared with the topology console
+	// so a preference picked in either surface applies in both. Palette
+	// defaults to collapsed; storage='0' means the user explicitly opened it.
 	const [ theme, setTheme ] = useState( () =>
 		readStoredTheme( THEME_STORAGE_KEY )
 	);
+	// The overlay is always a live view (no edit mode), so it uses the
+	// live key. Defaults to collapsed; '0' = user opened it.
 	const [ paletteCollapsed, setPaletteCollapsed ] = useState( () => {
 		try {
-			return window.localStorage.getItem( paletteKey ) === '1';
+			return (
+				window.localStorage.getItem(
+					PALETTE_COLLAPSED_STORAGE_KEY_LIVE
+				) !== '0'
+			);
 		} catch ( _err ) {
-			return false;
+			return true;
 		}
 	} );
 	const togglePaletteCollapsed = () => {
 		setPaletteCollapsed( ( prev ) => {
 			const next = ! prev;
 			try {
-				if ( next ) {
-					window.localStorage.setItem( paletteKey, '1' );
-				} else {
-					window.localStorage.removeItem( paletteKey );
-				}
+				window.localStorage.setItem(
+					PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
+					next ? '1' : '0'
+				);
 			} catch ( _err ) {
 				// localStorage disabled — in-session only.
 			}
