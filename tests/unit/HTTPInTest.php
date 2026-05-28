@@ -434,7 +434,8 @@ class HTTPInTest extends TestCase {
 
 		// Mount a Partition under the worker's name — same as production
 		// bootstrap after scanning the locks/ dir.
-		$worker_partition = new Partition_Node( $input_dir, 0 );
+		$worker_partition = new Partition_Node();
+		$worker_partition->arguments( "{$input_dir} 0" );
 		$worker_partition->name( 'firehose-workers.p0' );
 
 		$req = $this->make_request(
