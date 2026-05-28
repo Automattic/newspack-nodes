@@ -50,74 +50,35 @@ export function useDebugRepl( active = true, shell ) {
 			setTranscript( EMPTY_TRANSCRIPT );
 			return undefined;
 		}
-		// The host page (a dashboard hook like useAggregatorAdminGraph) may have
-		// already mounted some of these I/O nodes onto the same Core registry —
-		// there's only one Core per process, so a second `setName('_output')`
-		// throws "node name collision". For each node the REPL needs, BORROW
-		// the existing one if Core already has it (the dashboard's Dumper /
-		// Completion / etc. are functionally identical to ours); only mount +
-		// own a node when the slot is empty. Teardown only removes ones we
-		// minted; borrowed nodes outlive the overlay.
+		// Dumper accumulates entries + publishes `transcript` for React subscribers.
 		const ci = Core.node( names.COMMAND_INTERPRETER );
 		const router = Core.node( names.ROUTER );
-		const owned = [];
-		const acquire = ( name, factory ) => {
-			const existing = Core.node( name );
-			if ( existing ) {
-				return existing;
-			}
-			const node = factory();
-			node.setName( name );
-			owned.push( node );
-			return node;
-		};
-		// Dumper accumulates entries + publishes `transcript` for React subscribers.
-		const dumper = acquire( names.OUTPUT, () => {
-			const d = new Dumper();
-			d.debugLevelRef = debugLevelRef;
-			d.sink = ci;
-			return d;
-		} );
+		const dumper = new Dumper();
+		dumper.debugLevelRef = debugLevelRef;
+		dumper.setName( names.OUTPUT );
+		dumper.sink = ci;
 		// Tab completion: `_completion` answers help/ls queries off the cwd.
-		acquire( names.COMPLETION, () => {
-			const c = new Completion();
-			c.sink = ci;
-			return c;
-		} );
+		const completion = new Completion();
+		completion.setName( names.COMPLETION );
+		completion.sink = ci;
 		// Canvas-poll: Metadata fires dump_metadata at _cwd each TIMER tick,
 		// publishes the parsed graph via setState('metadata') for the canvas.
-		// If a Metadata is already mounted by the host page it already has its
-		// TIMER registration; only register the timer for one we mint.
-		const metadata = acquire( names.METADATA, () => {
-			const m = new Metadata();
-			m.sink = ci;
-			m.target = names.CWD;
-			return m;
-		} );
-		if ( owned.includes( metadata ) ) {
-			router?.register( 'TIMER', names.METADATA, () =>
-				metadata.onTimer()
-			);
-		}
-		const uptime = acquire( names.UPTIME, () => {
-			const u = new Uptime();
-			u.sink = ci;
-			u.target = names.CWD;
-			return u;
-		} );
-		if ( owned.includes( uptime ) ) {
-			router?.register( 'TIMER', names.UPTIME, () => uptime.onTimer() );
-		}
+		const metadata = new Metadata();
+		metadata.setName( names.METADATA );
+		metadata.sink = ci;
+		metadata.target = names.CWD;
+		router?.register( 'TIMER', names.METADATA, () => metadata.onTimer() );
+		const uptime = new Uptime();
+		uptime.setName( names.UPTIME );
+		uptime.sink = ci;
+		uptime.target = names.CWD;
+		router?.register( 'TIMER', names.UPTIME, () => uptime.onTimer() );
 		// `_cwd` is the routing indirection — every scope-relative command's TO
 		// stamps through this node, which re-stamps the live cwd. Path menu /
 		// REPL `cd` just sets `_cwd.target`.
-		const cwdNode = acquire( names.CWD, () => {
-			const n = new Node();
-			n.sink = ci;
-			n.target = shell.path;
-			return n;
-		} );
-		// Whether we minted _cwd or borrowed it, the REPL drives its target.
+		const cwdNode = new Node();
+		cwdNode.setName( names.CWD );
+		cwdNode.sink = ci;
 		cwdNode.target = shell.path;
 		// Shell is owned by DebugOverlay; we just adopt the passed-in instance
 		// (its path + sink are already configured) and store it on the ref so
@@ -133,11 +94,11 @@ export function useDebugRepl( active = true, shell ) {
 		} );
 		return () => {
 			dumper.unregister( 'transcript', listenerId );
-			// Only remove nodes we minted; borrowed nodes (already in Core when
-			// we acquired them) belong to the host page and must outlive us.
-			for ( const node of owned ) {
-				node.removeNode();
-			}
+			dumper.removeNode();
+			completion.removeNode();
+			metadata.removeNode();
+			uptime.removeNode();
+			cwdNode.removeNode();
 			dumperRef.current = null;
 			shellRef.current = null;
 			setTranscript( EMPTY_TRANSCRIPT );
