@@ -1,8 +1,26 @@
+/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 import { Node } from '../../runtime/node';
-import { VALUE } from '../../runtime/message';
+import { ID, TYPE, VALUE, TM_ERROR } from '../../runtime/message';
 
 const MAX_LINES = 100000;
 const LPS_WINDOW_MS = 10000;
+
+// Coerce a TM_ERROR payload (string / { message } / anything else) to a
+// human-readable string for the Error / view-model error field.
+function _errorMessage( payload ) {
+	if ( 'string' === typeof payload && payload.length > 0 ) {
+		return payload;
+	}
+	if (
+		payload &&
+		'object' === typeof payload &&
+		'string' === typeof payload.message &&
+		payload.message.length > 0
+	) {
+		return payload.message;
+	}
+	return 'Operation failed';
+}
 
 /**
  * `rawlogs:view` — owns the Raw Logs view model.
@@ -17,11 +35,19 @@ const LPS_WINDOW_MS = 10000;
  *   the dropdown + pause button + selected value + reconnect banner, consumed by
  *   `useNodeState('rawlogs:view','view')`.
  *
- * `fill()` accepts two TM_STRUCT shapes:
+ * Post-migration to substrate `_http`, `fill()` ALSO handles the canonical
+ * command-reply shape (VALUE = `{ name, payload }`) using a pending-Map gate
+ * (mirrors serversView): the hook stashes `{ resolve, reject }` keyed by
+ * `message[ID]` to await a verb's reply (list_logs / future CRUD). A
+ * pending-matched TM_ERROR rejects the Promise but does NOT pollute the
+ * view-model's global state.
+ *
+ * `fill()` accepts three message shapes:
+ * - a TM_COMMAND|TM_RESPONSE reply (VALUE.name): settled via the pending Map.
  * - a row (`VALUE = { p, line }` from `rawlogs:transform`): appended newest-first
  *   to a capped buffer (unless paused), updating lines/second.
  * - a control (`VALUE = { action, … }`): `select` (set + clear), `pause`, `logs`,
- *   `connection` (the SSE connection-status surface from `rawlogs:stream`).
+ *   `connection` (the SSE connection-status surface from the route).
  *
  * Buffer + LPS logic migrated verbatim from `RawLogs.js`.
  */
@@ -37,10 +63,38 @@ class RawLogsViewNode extends Node {
 		this.selected = '';
 		this.paused = false;
 		this.connectionError = false;
+		// Hook-stamped ID → { resolve, reject }; resolved/rejected when the
+		// matching reply lands here. Cleared on resolution.
+		this.pending = new Map();
 	}
 
 	fill( message ) {
 		const value = message[ VALUE ];
+		const type = message[ TYPE ] || 0;
+		const id = message[ ID ];
+
+		// Pending-Map gating (canonical): settle any Promise the hook stashed
+		// under this ID. A pending-matched reply is the caller's surface — we
+		// don't ALSO act on it locally (so a list_logs reply doesn't accidentally
+		// land in the row buffer below). NOTE: a command reply's VALUE has a
+		// `name` field; the row/control shapes do not.
+		if (
+			id &&
+			this.pending.has( id ) &&
+			value &&
+			'object' === typeof value &&
+			'name' in value
+		) {
+			const { resolve, reject } = this.pending.get( id );
+			this.pending.delete( id );
+			if ( 0 !== ( type & TM_ERROR ) ) {
+				reject( new Error( _errorMessage( value.payload ) ) );
+			} else {
+				resolve( value.payload );
+			}
+			return;
+		}
+
 		if ( value && value.action ) {
 			// Control + catalog changes are the LOW-frequency path — publish so
 			// the dropdown / pause button / selected value re-render.

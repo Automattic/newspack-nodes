@@ -1,20 +1,31 @@
+/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
- * useWorkerStatusGraph tests — the Worker Status dashboard graph clipped onto the
- * exospine (`mountExospine`: _command_interpreter → _router). The three graph
- * nodes (`workerstatus:poll`, `workerstatus:transform`, `workerstatus:view`) are
- * REAL (their factories register them in Core); only the poll node's command
- * client is injected so the hook never touches the network. EVERY node sinks into
- * the CI and steers via `target`; an end-to-end poll reply routes
- * poll → transform → view through the real router. The hook owns the poll
- * interval (page-visible only) and the control callbacks. Mirrors
- * useRawLogsGraph's tests (real graph, faked I/O boundary).
+ * useWorkerStatusGraph tests — the Worker Status dashboard graph clipped onto
+ * the substrate's I/O boundary nodes (exospine + `_http`) plus the
+ * `workerstatus:transform` and `workerstatus:view` chain. Migrated from the
+ * bespoke `workerstatus:poll` Node to the substrate's HttpOut: the hook owns a
+ * setInterval that fires a TM_COMMAND (FROM=`workerstatus:transform` for
+ * fire-and-forget poll, FROM=`workerstatus:view` for awaited restart) through
+ * the CI. _http.client is injected so the hook never touches the network.
  *
- * usePageVisibility is mocked to `true` so the interval runs under jsdom (matches
- * the WorkerStatus component test).
+ * The view follows the canonical pending-Map pattern: `restart()` returns a
+ * Promise the view resolves/rejects by matching `message[ID]` against
+ * `pending`. Mirrors useAggregatorAdminGraph.
  */
 
 import { renderHook, act } from '@testing-library/react';
-import { newMessage, VALUE } from '../../../runtime/message';
+import {
+	newMessage,
+	TIMESTAMP,
+	ID,
+	TO,
+	FROM,
+	VALUE,
+	TYPE,
+	TM_COMMAND,
+	TM_RESPONSE,
+	TM_ERROR,
+} from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 
 jest.mock( '../../../shared/hooks/usePageVisibility', () => ( {
@@ -26,73 +37,111 @@ import { useWorkerStatusGraph } from '../useWorkerStatusGraph';
 
 const REFRESH_KEY = 'newspack-nodes-worker-refresh';
 const CI = '_command_interpreter';
+const ROUTER = '_router';
+const HTTP = '_http';
+const TRANSFORM = 'workerstatus:transform';
+const VIEW = 'workerstatus:view';
+const ALL_GRAPH_NAMES = [ HTTP, TRANSFORM, VIEW ];
 
 beforeEach( () => {
 	Core.reset();
 	window.localStorage.clear();
 } );
 
-// A fake command client: records each send() and resolves a { name, payload }
-// Message so the real unwrapCommandResponse extracts the payload.
-function makeFakeClient( payload = { workers: [], logs: [] } ) {
-	return {
-		calls: [],
-		send( req ) {
-			this.calls.push( req );
+// A fake CommandClient matching HttpOut's seam: postBatch returns reply
+// Messages addressed back along FROM (the server's reply pivot). Reply
+// payload is keyed by verb so dump_metadata yields the metadata snapshot and
+// restart yields a no-op ack. opts.errorVerbs marks verbs whose replies carry
+// TM_ERROR (caller is responsible for the pending-Map rejection path).
+function makeFakeClient( payloadByVerb = {}, opts = {} ) {
+	const client = {
+		batches: [],
+		buildMessage( { to, verb, args = '', payload = null } ) {
 			const m = newMessage();
-			m[ VALUE ] = { name: req.verb, payload };
-			return Promise.resolve( m );
+			m[ TYPE ] = TM_COMMAND;
+			m[ TO ] = to;
+			m[ VALUE ] = { name: verb, arguments: args, payload };
+			return m;
+		},
+		postBatch( messages ) {
+			client.batches.push( messages );
+			const replies = messages.map( ( m ) => {
+				const reply = newMessage();
+				reply[ TYPE ] =
+					opts.errorVerbs &&
+					opts.errorVerbs.includes( m[ VALUE ]?.name )
+						? TM_COMMAND | TM_RESPONSE | TM_ERROR
+						: TM_COMMAND | TM_RESPONSE;
+				reply[ TO ] = m[ FROM ];
+				reply[ ID ] = m[ ID ];
+				reply[ VALUE ] = {
+					name: m[ VALUE ]?.name,
+					payload:
+						payloadByVerb[ m[ VALUE ]?.name ] ??
+						payloadByVerb._default ??
+						null,
+				};
+				if ( opts.now ) {
+					reply[ TIMESTAMP ] = opts.now;
+				}
+				return reply;
+			} );
+			return Promise.resolve( replies );
 		},
 	};
+	return client;
 }
 
-const verbsOf = ( client ) => client.calls.map( ( c ) => c.verb );
+// Iterate every batched message and pull out its verb name (each batch is one
+// router-tick worth of TM_COMMANDs).
+const verbsOf = ( client ) =>
+	client.batches.flat().map( ( m ) => m[ VALUE ]?.name );
 
-describe( 'useWorkerStatusGraph — exospine wiring', () => {
-	test( 'mounts the backbone + three nodes, each sinking into the CI', async () => {
+describe( 'useWorkerStatusGraph — exospine + I/O boundary wiring', () => {
+	test( 'mounts the backbone + the I/O boundary node + transform + view, each sinking into the CI', async () => {
 		const client = makeFakeClient();
 		renderHook( () => useWorkerStatusGraph( { commandClient: client } ) );
 		await act( async () => {} );
 
 		const ci = Core.node( CI );
 		expect( ci ).toBeTruthy();
-		expect( Core.node( '_router' ) ).toBeTruthy();
-		for ( const n of [
-			'workerstatus:poll',
-			'workerstatus:transform',
-			'workerstatus:view',
-		] ) {
-			expect( Core.node( n ) ).toBeTruthy();
-			expect( Core.node( n ).sink ).toBe( ci );
+		expect( Core.node( ROUTER ) ).toBeTruthy();
+		for ( const name of ALL_GRAPH_NAMES ) {
+			const node = Core.node( name );
+			expect( node ).toBeTruthy();
+			expect( node.sink ).toBe( ci );
 		}
 	} );
 
-	test( 'steers flow with targets, not bespoke sinks', async () => {
+	test( '_http has the injected CommandClient as its client', async () => {
 		const client = makeFakeClient();
 		renderHook( () => useWorkerStatusGraph( { commandClient: client } ) );
 		await act( async () => {} );
-		expect( Core.node( 'workerstatus:poll' ).target ).toBe(
-			'workerstatus:transform'
-		);
-		expect( Core.node( 'workerstatus:transform' ).target ).toBe(
-			'workerstatus:view'
-		);
+		expect( Core.node( HTTP ).client ).toBe( client );
 	} );
 
-	test( 'fires one immediate poll on mount (the view ends up with a model)', async () => {
-		const client = makeFakeClient( { workers: [], logs: [] } );
+	test( 'transform targets the view (so the model routes through _router)', async () => {
+		const client = makeFakeClient();
 		renderHook( () => useWorkerStatusGraph( { commandClient: client } ) );
 		await act( async () => {} );
-		expect( verbsOf( client ) ).toContain( 'dump_metadata' );
-		// The metadata routed poll→transform→view through the router and published.
-		expect(
-			Core.node( 'workerstatus:view' ).setStateCache.view.loading
-		).toBe( false );
+		expect( Core.node( TRANSFORM ).target ).toBe( VIEW );
+	} );
+
+	test( 'fires one immediate dump_metadata on mount addressed to _http/workers', async () => {
+		const client = makeFakeClient( { dump_metadata: { workers: [] } } );
+		renderHook( () => useWorkerStatusGraph( { commandClient: client } ) );
+		await act( async () => {} );
+		expect( client.batches.length ).toBeGreaterThanOrEqual( 1 );
+		const msg = client.batches[ 0 ][ 0 ];
+		// HttpOut strips `_http/` so it's `workers` at postBatch time.
+		expect( msg[ TO ] ).toBe( 'workers' );
+		expect( msg[ FROM ] ).toBe( TRANSFORM );
+		expect( msg[ VALUE ].name ).toBe( 'dump_metadata' );
 	} );
 } );
 
 describe( 'useWorkerStatusGraph — end-to-end routing through the exospine', () => {
-	test( 'an immediate poll reply routes poll → transform → view and lands in the view model', async () => {
+	test( 'an immediate poll reply routes _http → transform → view and lands in the view model', async () => {
 		const meta = {
 			workers: [
 				{
@@ -103,16 +152,15 @@ describe( 'useWorkerStatusGraph — end-to-end routing through the exospine', ()
 			],
 			logs: [ { name: 'firehose.log', partitions: [] } ],
 		};
-		const client = makeFakeClient( meta );
+		const client = makeFakeClient( { dump_metadata: meta } );
 		renderHook( () => useWorkerStatusGraph( { commandClient: client } ) );
 		await act( async () => {} );
 
-		// The metadata actually routed all the way to the view via the real router:
-		// the published model carries the snapshot's workers + logs.
-		const view = Core.node( 'workerstatus:view' );
+		const view = Core.node( VIEW );
 		expect( view.setStateCache.view.workers ).toEqual( meta.workers );
 		expect( view.setStateCache.view.logs ).toEqual( meta.logs );
 		expect( view.setStateCache.view.error ).toBeNull();
+		expect( view.setStateCache.view.loading ).toBe( false );
 	} );
 } );
 
@@ -120,22 +168,25 @@ describe( 'useWorkerStatusGraph — poll interval', () => {
 	test( 'polls again on each interval tick while page-visible', async () => {
 		jest.useFakeTimers();
 		try {
-			const client = makeFakeClient();
+			const client = makeFakeClient( { dump_metadata: { workers: [] } } );
 			renderHook( () =>
 				useWorkerStatusGraph( {
 					commandClient: client,
 					refreshMs: 2000,
 				} )
 			);
-			// Immediate mount poll.
 			await act( async () => {} );
-			const afterMount = client.calls.length;
+			const afterMount = verbsOf( client ).filter(
+				( v ) => 'dump_metadata' === v
+			).length;
 			expect( afterMount ).toBeGreaterThanOrEqual( 1 );
-			// One interval tick → one more dump_metadata.
 			await act( async () => {
 				jest.advanceTimersByTime( 2000 );
 			} );
-			expect( client.calls.length ).toBe( afterMount + 1 );
+			const afterTick = verbsOf( client ).filter(
+				( v ) => 'dump_metadata' === v
+			).length;
+			expect( afterTick ).toBe( afterMount + 1 );
 		} finally {
 			jest.useRealTimers();
 		}
@@ -143,25 +194,90 @@ describe( 'useWorkerStatusGraph — poll interval', () => {
 } );
 
 describe( 'useWorkerStatusGraph — control callbacks', () => {
-	test( 'restart(type) sends a restart command for that type', async () => {
-		const client = makeFakeClient();
+	test( 'restart(type) sends a restart command (FROM=view) with the type and partition -1', async () => {
+		const client = makeFakeClient( {
+			dump_metadata: { workers: [] },
+			restart: { ok: true },
+		} );
 		const { result } = renderHook( () =>
 			useWorkerStatusGraph( { commandClient: client } )
 		);
 		await act( async () => {} );
-		client.calls.length = 0;
+		client.batches.length = 0;
 		await act( async () => {
 			await result.current.restart( 'firehose-workers' );
 		} );
-		expect( client.calls ).toContainEqual( {
-			to: 'workers',
-			verb: 'restart',
-			payload: { types: [ 'firehose-workers' ], partition: -1 },
+		const restartMsg = client.batches
+			.flat()
+			.find( ( m ) => 'restart' === m[ VALUE ]?.name );
+		expect( restartMsg ).toBeTruthy();
+		expect( restartMsg[ TO ] ).toBe( 'workers' );
+		expect( restartMsg[ FROM ] ).toBe( VIEW );
+		expect( restartMsg[ VALUE ].payload ).toEqual( {
+			types: [ 'firehose-workers' ],
+			partition: -1,
 		} );
 	} );
 
+	test( 'restart(type) resolves the Promise via the view pending Map on success', async () => {
+		const client = makeFakeClient( {
+			dump_metadata: { workers: [] },
+			restart: { restarted: 3 },
+		} );
+		const { result } = renderHook( () =>
+			useWorkerStatusGraph( { commandClient: client } )
+		);
+		await act( async () => {} );
+		let resolved;
+		await act( async () => {
+			resolved = await result.current.restart( 'firehose-workers' );
+		} );
+		expect( resolved ).toEqual( { restarted: 3 } );
+	} );
+
+	test( 'restart(type) rejects when the reply carries TM_ERROR', async () => {
+		const client = makeFakeClient(
+			{
+				dump_metadata: { workers: [] },
+				restart: 'permission denied',
+			},
+			{ errorVerbs: [ 'restart' ] }
+		);
+		const { result } = renderHook( () =>
+			useWorkerStatusGraph( { commandClient: client } )
+		);
+		await act( async () => {} );
+		await act( async () => {
+			await expect(
+				result.current.restart( 'firehose-workers' )
+			).rejects.toThrow( /permission denied/i );
+		} );
+	} );
+
+	test( 'a pending-matched restart error does NOT pollute the global view.error', async () => {
+		const client = makeFakeClient(
+			{
+				dump_metadata: { workers: [] },
+				restart: 'permission denied',
+			},
+			{ errorVerbs: [ 'restart' ] }
+		);
+		const { result } = renderHook( () =>
+			useWorkerStatusGraph( { commandClient: client } )
+		);
+		await act( async () => {} );
+		await act( async () => {
+			await result.current
+				.restart( 'firehose-workers' )
+				.catch( () => {} );
+		} );
+		// Pending-matched errors are owned by the caller's catch; the view
+		// model's global error stays null.
+		expect( Core.node( VIEW ).setStateCache.view.error ).toBeNull();
+	} );
+
 	test( 'setRefreshInterval persists the choice to localStorage', async () => {
-		const client = makeFakeClient();
+		const client = makeFakeClient( { dump_metadata: { workers: [] } } );
 		const { result } = renderHook( () =>
 			useWorkerStatusGraph( { commandClient: client } )
 		);
@@ -171,7 +287,7 @@ describe( 'useWorkerStatusGraph — control callbacks', () => {
 	} );
 
 	test( 'refreshMs reflects the persisted/selected interval', async () => {
-		const client = makeFakeClient();
+		const client = makeFakeClient( { dump_metadata: { workers: [] } } );
 		const { result } = renderHook( () =>
 			useWorkerStatusGraph( { commandClient: client } )
 		);
@@ -182,7 +298,7 @@ describe( 'useWorkerStatusGraph — control callbacks', () => {
 
 	test( 'restores the persisted refresh interval on mount', async () => {
 		window.localStorage.setItem( REFRESH_KEY, '10000' );
-		const client = makeFakeClient();
+		const client = makeFakeClient( { dump_metadata: { workers: [] } } );
 		const { result } = renderHook( () =>
 			useWorkerStatusGraph( { commandClient: client } )
 		);
@@ -193,79 +309,21 @@ describe( 'useWorkerStatusGraph — control callbacks', () => {
 
 describe( 'useWorkerStatusGraph — teardown', () => {
 	test( 'unmount unregisters the graph + the backbone', async () => {
-		const client = makeFakeClient();
+		const client = makeFakeClient( { dump_metadata: { workers: [] } } );
 		const { unmount } = renderHook( () =>
 			useWorkerStatusGraph( { commandClient: client } )
 		);
 		await act( async () => {} );
 		unmount();
-		for ( const n of [
-			'workerstatus:poll',
-			'workerstatus:transform',
-			'workerstatus:view',
-			'_command_interpreter',
-			'_router',
-		] ) {
-			expect( Core.node( n ) ).toBeNull();
+		for ( const name of [ ...ALL_GRAPH_NAMES, CI, ROUTER ] ) {
+			expect( Core.node( name ) ).toBeNull();
 		}
-	} );
-
-	test( 'unmount closes the poll and view nodes before unregistering', async () => {
-		const client = makeFakeClient();
-		const { unmount } = renderHook( () =>
-			useWorkerStatusGraph( { commandClient: client } )
-		);
-		await act( async () => {} );
-		const pollClose = jest.spyOn(
-			Core.node( 'workerstatus:poll' ),
-			'close'
-		);
-		const viewClose = jest.spyOn(
-			Core.node( 'workerstatus:view' ),
-			'close'
-		);
-		unmount();
-		expect( pollClose ).toHaveBeenCalledTimes( 1 );
-		expect( viewClose ).toHaveBeenCalledTimes( 1 );
-	} );
-
-	test( 'no emit after unmount when an in-flight poll resolves late', async () => {
-		// Deferred client: the mount poll stays in flight until we resolve it,
-		// letting us unmount mid-poll and confirm nothing lands in the view.
-		let resolveSend;
-		const client = {
-			calls: [],
-			send( req ) {
-				this.calls.push( req );
-				return new Promise( ( resolve ) => {
-					resolveSend = () => {
-						const m = newMessage();
-						m[ VALUE ] = {
-							name: req.verb,
-							payload: { workers: [] },
-						};
-						resolve( m );
-					};
-				} );
-			},
-		};
-		const { unmount } = renderHook( () =>
-			useWorkerStatusGraph( { commandClient: client } )
-		);
-		const view = Core.node( 'workerstatus:view' );
-		const setStateSpy = jest.spyOn( view, 'setState' );
-		// Unmount with the mount poll still pending, then let it resolve.
-		unmount();
-		await act( async () => {
-			resolveSend();
-		} );
-		expect( setStateSpy ).not.toHaveBeenCalled();
 	} );
 
 	test( 'no further polls after unmount (interval cleared)', async () => {
 		jest.useFakeTimers();
 		try {
-			const client = makeFakeClient();
+			const client = makeFakeClient( { dump_metadata: { workers: [] } } );
 			const { unmount } = renderHook( () =>
 				useWorkerStatusGraph( {
 					commandClient: client,
@@ -274,11 +332,11 @@ describe( 'useWorkerStatusGraph — teardown', () => {
 			);
 			await act( async () => {} );
 			unmount();
-			const after = client.calls.length;
+			const after = client.batches.length;
 			await act( async () => {
 				jest.advanceTimersByTime( 10000 );
 			} );
-			expect( client.calls.length ).toBe( after );
+			expect( client.batches.length ).toBe( after );
 		} finally {
 			jest.useRealTimers();
 		}
