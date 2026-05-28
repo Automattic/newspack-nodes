@@ -869,17 +869,35 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 			expect( Core.node( 'Tee' ) ).toBeNull();
 		} );
 
-		it( 'spreads trailing tokens as positional constructor args', () => {
-			// A type whose ctor records its positional args proves the spread.
+		it( 'routes trailing tokens through the arguments setter (Tachikoma sequence)', () => {
+			// Post Tachikoma-parity refactor (Task 11), make_node uses the
+			// uniform `new NodeClass()` no-arg ctor and feeds the trailing
+			// tokens through `node.arguments = parts.join(' ')`. The schema
+			// walker assigns each declared positional arg from those tokens.
 			const ci = makeCi();
 			CommandInterpreter.includeNodes.ArgSpy = class extends Node {
-				constructor( ...ctorArgs ) {
+				constructor() {
 					super();
-					this.ctorArgs = ctorArgs;
+					// Predeclared so the schema walker's `name in this` gate
+					// passes and the tokens get assigned.
+					this.alpha_field = '';
+					this.beta_field = '';
+				}
+				static nodeSchema() {
+					return {
+						arguments: [
+							{ name: 'alpha_field', type: 'string' },
+							{ name: 'beta_field', type: 'string' },
+						],
+						commands: [],
+					};
 				}
 			};
 			dispatch( ci, 'make_node', 'ArgSpy s alpha beta' );
-			expect( Core.node( 's' ).ctorArgs ).toEqual( [ 'alpha', 'beta' ] );
+			const node = Core.node( 's' );
+			expect( node.arguments ).toBe( 'alpha beta' );
+			expect( node.alpha_field ).toBe( 'alpha' );
+			expect( node.beta_field ).toBe( 'beta' );
 			delete CommandInterpreter.includeNodes.ArgSpy;
 		} );
 
