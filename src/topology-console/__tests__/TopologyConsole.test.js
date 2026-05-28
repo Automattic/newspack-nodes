@@ -576,10 +576,16 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	// Simulate an SSE reply: the Router routes a positional Message by TO.
+	// Followed by a second empty act() to drain React's deferred-batch queue —
+	// under `run-coverage`'s parallel fan-out (3 jest --coverage processes
+	// competing for CPU) the post-fill re-render can slip past a single act
+	// boundary, causing `getByText`/`queryByText` assertions to see a stale
+	// pre-render DOM. The second act flushes the next batch deterministically.
 	const fireMsg = async ( opts ) => {
 		await act( async () => {
 			Core.node( names.ROUTER ).fill( posMsg( opts ) );
 		} );
+		await act( async () => {} );
 	};
 
 	it( 'renders Header, Palette, Canvas, and ReplFooter on mount (Inspector is selection-only)', () => {
