@@ -41,11 +41,11 @@ class Node {
 	protected ?Node $patron = null;
 
 	/**
-	 * Auto-wire the sibling `:config` CI from the concrete subclass's node_schema().
+	 * Auto-wire the sibling `:config` interpreter from the concrete subclass's node_schema().
 	 * A node declares its runtime config verbs ONCE — in `node_schema()['commands']`,
 	 * each carrying a `handler` — and the base ctor builds the `{node}:config`
-	 * CI from the handler-bearing entries (late static binding reads the subclass
-	 * schema). No verbs with handlers → no sibling. A CI dispatches its own verbs,
+	 * interpreter from the handler-bearing entries (late static binding reads the subclass
+	 * schema). No verbs with handlers → no sibling. A interpreter dispatches its own verbs,
 	 * so it never gets one (and Command_Interpreter_Node / Service_CI_Node build
 	 * their own table in their own ctors). Subclasses with a constructor of their
 	 * own must call `parent::__construct()` (PHP doesn't auto-chain); set props
@@ -56,7 +56,7 @@ class Node {
 			return;
 		}
 		// Idempotent: a subclass that chains parent::__construct() more than once,
-		// or one that manually attached its own interpreter, keeps the existing CI.
+		// or one that manually attached its own interpreter, keeps the existing interpreter.
 		if ( null !== $this->interpreter ) {
 			return;
 		}
@@ -64,10 +64,10 @@ class Node {
 		if ( empty( $verbs ) ) {
 			return;
 		}
-		$ci = new Command_Interpreter_Node();
-		$ci->patron( $this );
-		$ci->commands( $verbs );
-		$this->attach_interpreter( $ci );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->patron( $this );
+		$interpreter->commands( $verbs );
+		$this->attach_interpreter( $interpreter );
 	}
 
 	/**
@@ -96,8 +96,8 @@ class Node {
 	}
 
 	/** Attach a sibling CommandInterpreter, adopting `{patron_name}:config`. */
-	public function attach_interpreter( Command_Interpreter_Node $ci ): void {
-		$this->interpreter = $ci;
+	public function attach_interpreter( Command_Interpreter_Node $interpreter ): void {
+		$this->interpreter = $interpreter;
 		if ( '' !== $this->name ) {
 			$this->interpreter->name( $this->name . ':config' );
 		}
@@ -145,7 +145,7 @@ class Node {
 			}
 			$this->name = $name;
 			Core::register_node( $name, $this );
-			// Keep the sibling CI named `{name}:config` on every rename.
+			// Keep the sibling interpreter named `{name}:config` on every rename.
 			if ( null !== $this->interpreter ) {
 				$this->interpreter->name( $name . ':config' );
 			}
@@ -156,6 +156,9 @@ class Node {
 	public function sink( ?Node $node = null ): ?Node {
 		if ( \func_num_args() > 0 ) {
 			$this->sink = $node;
+			if ( null !== $this->interpreter ) {
+				$this->interpreter->sink( $node );
+			}
 		}
 		return $this->sink;
 	}
@@ -383,7 +386,7 @@ class Node {
 		$this->set_state     = [];
 		$this->sink          = null;
 		$this->target        = '';
-		// Cascade-unregister the sibling CI so a name-recycle doesn't collide with an orphan.
+		// Cascade-unregister the sibling interpreter so a name-recycle doesn't collide with an orphan.
 		if ( null !== $this->interpreter && '' !== $this->interpreter->name() ) {
 			Core::unregister_node( $this->interpreter->name() );
 		}
