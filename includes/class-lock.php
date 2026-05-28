@@ -313,7 +313,7 @@ class Lock_Node extends Node {
 			'category'    => 'Hidden',
 			'description' => 'Advisory cooperative file lock with heartbeat; blocks until acquired.',
 			'ctor'        => [],
-			'verbs'       => [],
+			'commands'       => [],
 		];
 	}
 }

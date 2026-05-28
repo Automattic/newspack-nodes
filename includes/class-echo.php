@@ -31,7 +31,7 @@ class Echo_Node extends Node {
 			'category'    => 'Routing',
 			'description' => 'Re-addresses messages: target/TO, bounce, or pass-through.',
 			'ctor'        => [],
-			'verbs'       => [],
+			'commands'       => [],
 		];
 	}
 }

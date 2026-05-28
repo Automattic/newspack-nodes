@@ -156,7 +156,7 @@ class Log_Node extends Node {
 				[ 'name' => 'max_size',      'type' => 'int',    'default' => 0 ],
 				[ 'name' => 'max_rotations', 'type' => 'int',    'default' => 0 ],
 			],
-			'verbs'       => [],
+			'commands'       => [],
 			'requests'    => [
 				[
 					'name'        => 'rotate',

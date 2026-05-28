@@ -469,6 +469,6 @@ class LockTest extends TestCase {
 		$this->assertSame( 'Hidden', $schema['category'] );
 		$this->assertNotEmpty( $schema['description'] );
 		$this->assertSame( [], $schema['ctor'] );
-		$this->assertSame( [], $schema['verbs'] );
+		$this->assertSame( [], $schema['commands'] );
 	}
 }

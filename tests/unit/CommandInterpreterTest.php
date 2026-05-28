@@ -1848,7 +1848,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 'Hidden', $schema['category'] );
 		$this->assertArrayHasKey( 'description', $schema );
 		$this->assertSame( [], $schema['ctor'] );
-		$this->assertSame( [], $schema['verbs'] );
+		$this->assertSame( [], $schema['commands'] );
 	}
 
 	// ── make_node instance API: null when class not registered ───

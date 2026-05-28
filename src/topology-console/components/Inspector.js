@@ -735,7 +735,7 @@ function EditForm( {
 } ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
 	const ctorSpecs = schema?.ctor || [];
-	const verbSpecs = schema?.verbs || [];
+	const commandSpecs = schema?.commands || [];
 	const ctorArgs = node.ctorArgs || [];
 	const verbInvocations = node.verbInvocations || [];
 	// Names of every other draft node, for node_name verb-arg selects.
@@ -814,14 +814,14 @@ function EditForm( {
 			</Section>
 
 			<Section title={ __( 'Verbs', 'newspack-nodes' ) }>
-				{ verbSpecs.length === 0 && (
+				{ commandSpecs.length === 0 && (
 					<div className="topology-edit-empty">
 						{ __( 'No verbs registered.', 'newspack-nodes' ) }
 					</div>
 				) }
-				{ verbSpecs.map( ( vspec ) => {
+				{ commandSpecs.map( ( cspec ) => {
 					const idx = verbInvocations.findIndex(
-						( inv ) => inv.verb === vspec.name
+						( inv ) => inv.verb === cspec.name
 					);
 					const invocation = idx >= 0 ? verbInvocations[ idx ] : null;
 					const handleToggle = ( on ) => {
@@ -832,8 +832,8 @@ function EditForm( {
 							onUpdateVerbs( node.id, [
 								...verbInvocations,
 								{
-									verb: vspec.name,
-									args: ( vspec.args || [] ).map( () => '' ),
+									verb: cspec.name,
+									args: ( cspec.args || [] ).map( () => '' ),
 								},
 							] );
 						} else if ( ! on && idx >= 0 ) {
@@ -854,8 +854,8 @@ function EditForm( {
 					};
 					return (
 						<VerbRow
-							key={ vspec.name }
-							spec={ vspec }
+							key={ cspec.name }
+							spec={ cspec }
 							invocation={ invocation }
 							nodeNames={ nodeNames }
 							formatters={ formatters }
@@ -1316,7 +1316,8 @@ export default function Inspector( {
 					const schema = catalog.find(
 						( c ) => c.shell_name === type
 					);
-					const verbs = schema && schema.verbs ? schema.verbs : [];
+					const commands =
+						schema && schema.commands ? schema.commands : [];
 					const requests =
 						schema && schema.requests ? schema.requests : [];
 					// node_name verb args pick from the live graph (parsed = the
@@ -1325,7 +1326,7 @@ export default function Inspector( {
 						.map( ( n ) => n.name || n.id )
 						.filter( ( n ) => n && n !== node.id );
 					return [
-						...verbs.map( ( spec ) => (
+						...commands.map( ( spec ) => (
 							<VerbButton
 								key={ `cmd-${ spec.name }` }
 								nodeId={ node.id }

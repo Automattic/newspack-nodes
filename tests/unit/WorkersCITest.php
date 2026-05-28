@@ -157,7 +157,7 @@ class WorkersCITest extends TestCase {
 
 	public function test_node_schema_declares_its_verbs(): void {
 		$schema = Workers_CI_Node::node_schema();
-		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['verbs'] );
+		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
 		$this->assertSame(
 			[ 'cleanup_status', 'dump_metadata', 'heartbeat', 'list', 'restart' ],

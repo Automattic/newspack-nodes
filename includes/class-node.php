@@ -42,7 +42,7 @@ class Node {
 
 	/**
 	 * Auto-wire the sibling `:config` CI from the concrete subclass's node_schema().
-	 * A node declares its runtime config verbs ONCE — in `node_schema()['verbs']`,
+	 * A node declares its runtime config verbs ONCE — in `node_schema()['commands']`,
 	 * each carrying a `handler` — and the base ctor builds the `{node}:config`
 	 * CI from the handler-bearing entries (late static binding reads the subclass
 	 * schema). No verbs with handlers → no sibling. A CI dispatches its own verbs,
@@ -82,7 +82,7 @@ class Node {
 	 */
 	private static function verbs_with_handlers( array $schema ): array {
 		$table = [];
-		foreach ( $schema['verbs'] ?? [] as $verb ) {
+		foreach ( $schema['commands'] ?? [] as $verb ) {
 			if ( ! \is_array( $verb ) ) {
 				continue;
 			}
@@ -535,7 +535,7 @@ class Node {
 			'category'    => '',
 			'description' => '',
 			'ctor'        => [],
-			'verbs'       => [],
+			'commands'       => [],
 			// Pure-producers override accepts_fill=false; pure-sinks override has_target=false.
 			'accepts_fill' => true,
 			'has_target'   => true,

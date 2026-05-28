@@ -410,7 +410,7 @@ class NodeTest extends TestCase {
 		$this->assertSame( '', $schema['category'] );
 		$this->assertSame( '', $schema['description'] );
 		$this->assertSame( [], $schema['ctor'] );
-		$this->assertSame( [], $schema['verbs'] );
+		$this->assertSame( [], $schema['commands'] );
 	}
 
 	public function test_remove_node_cascades_sibling_unregistration(): void {
@@ -887,7 +887,7 @@ class NodeTest extends TestCase {
 		$node = new class() extends Node {
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [
-					'verbs' => [
+					'commands' => [
 						[
 							'name'    => 'ping_back',
 							'handler' => static fn ( $ci, string $args ): string => 'pong:' . $args,
@@ -916,7 +916,7 @@ class NodeTest extends TestCase {
 		$node = new class() extends Node {
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [
-					'verbs' => [ [ 'name' => 'doc_only' ] ],
+					'commands' => [ [ 'name' => 'doc_only' ] ],
 				] );
 			}
 		};
@@ -940,7 +940,7 @@ class NodeTest extends TestCase {
 			}
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [
-					'verbs' => [
+					'commands' => [
 						[
 							'name'    => 'noop',
 							'handler' => static fn ( $ci, string $args ): string => 'ok',

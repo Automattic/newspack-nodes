@@ -83,7 +83,7 @@ class CommandInterpreterNamespaceTest extends TestCase {
 			$this->assertArrayHasKey( 'category', $row );
 			$this->assertNotSame( 'Hidden', $row['category'] );
 			$this->assertNotSame( '', $row['category'] );
-			$this->assertArrayHasKey( 'verbs', $row );
+			$this->assertArrayHasKey( 'commands', $row );
 		}
 	}
 }

@@ -83,7 +83,7 @@ class TopologiesCITest extends TestCase {
 
 	public function test_node_schema_declares_its_verbs(): void {
 		$schema = Topologies_CI_Node::node_schema();
-		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['verbs'] );
+		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
 		$this->assertSame(
 			[ 'connect_worker_input', 'delete', 'get', 'list', 'save' ],

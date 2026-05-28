@@ -36,7 +36,7 @@ class Hook_Node extends Node {
 				[ 'name' => 'hook_name', 'type' => 'string', 'required' => true ],
 				[ 'name' => 'filter',    'type' => 'bool',   'default' => false ],
 			],
-			'verbs'       => [],
+			'commands'       => [],
 		];
 	}
 }

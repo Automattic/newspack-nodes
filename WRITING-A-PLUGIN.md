@@ -127,7 +127,7 @@ class Releases_Source_Node extends Node {
 			'category'     => 'Source',
 			'description'  => 'Emits canned release-notes items on tick.',
 			'ctor'         => [],
-			'verbs'        => [
+			'commands'     => [
 				[
 					'name'        => 'tick',
 					'description' => 'Emit the current batch of items.',
@@ -226,7 +226,7 @@ class Digest_Builder_Node extends Node {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Sink',
 			'description' => 'Accumulates summarized items; flush renders a markdown draft.',
-			'verbs'       => [
+			'commands'    => [
 				[
 					'name'        => 'flush',
 					'description' => 'Render the accumulated items to a markdown draft and emit it.',
