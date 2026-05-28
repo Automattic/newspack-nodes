@@ -422,7 +422,7 @@ export default function DebugOverlay( {
 							}
 						/>
 						<ReplFooter
-							prompt="/"
+							prompt={ `/${ cwd }` }
 							canSend={ true }
 							onSubmit={ sendLine }
 							onClear={ clear }
