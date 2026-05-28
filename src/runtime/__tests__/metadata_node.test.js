@@ -6,7 +6,7 @@
  */
 
 import { Metadata } from '../metadata';
-import { Node } from '../../../runtime/node';
+import { Node } from '../node';
 import {
 	newMessage,
 	TYPE,
@@ -16,7 +16,7 @@ import {
 	TM_STRUCT,
 	TM_COMMAND,
 	TM_RESPONSE,
-} from '../../../runtime/message';
+} from '../message';
 
 function msg( type, value ) {
 	const m = newMessage();
@@ -27,7 +27,7 @@ function msg( type, value ) {
 
 describe( 'Metadata node', () => {
 	afterEach( () => {
-		const { Core } = require( '../../../runtime/core' );
+		const { Core } = require( '../core' );
 		Core.reset();
 	} );
 

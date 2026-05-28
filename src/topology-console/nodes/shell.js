@@ -395,7 +395,10 @@ export class Shell extends Node {
 	sendCommand( path, name, args = '' ) {
 		const m = this.command( name, args );
 		m[ FROM ] = this.replyFrom( names.OUTPUT );
-		m[ TO ] = path;
+		// `path` is RELATIVE to the cwd — prefix() joins them. This matches the
+		// REPL's bare-verb dispatch (which uses prefix() too) and ensures
+		// debug-overlay Inspector clicks honor the live cwd.
+		m[ TO ] = this.prefix( path );
 		m[ LOCAL ] = true;
 		this.sink?.fill( m );
 	}

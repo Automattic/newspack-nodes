@@ -51,12 +51,12 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 		CommandInterpreter,
 	} = require( '../../runtime/command_interpreter' );
 	const { Node } = require( '../../runtime/node' );
-	const { Dumper } = require( '../nodes/dumper' );
-	const { Metadata } = require( '../nodes/metadata' );
-	const { Uptime } = require( '../nodes/uptime' );
-	const { Completion } = require( '../nodes/completion' );
-	const { HttpOut } = require( '../nodes/httpOut' );
-	const { SseIn } = require( '../nodes/sseIn' );
+	const { Dumper } = require( '../../runtime/dumper' );
+	const { Metadata } = require( '../../runtime/metadata' );
+	const { Uptime } = require( '../../runtime/uptime' );
+	const { Completion } = require( '../../runtime/completion' );
+	const { HttpOut } = require( '../../runtime/httpOut' );
+	const { SseIn } = require( '../../runtime/sseIn' );
 	const { Shell } = require( '../nodes/shell' );
 	const reserved = require( '../../runtime/reserved-node-names.json' );
 	const NAMES = [
@@ -1257,10 +1257,10 @@ describe( 'TopologyConsole boot', () => {
 	it( 'Header receives pathOptions built from topologies + partitions', () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
-		// demo has 2 partitions → '', '_sse', '_sse/demo.p0', '_sse/demo.p1'.
+		// demo has 2 partitions → '', '_http', '_sse/demo.p0', '_sse/demo.p1'.
 		expect( lastHeaderProps.pathOptions ).toEqual( [
 			'',
-			'_sse',
+			'_http',
 			'_sse/demo.p0',
 			'_sse/demo.p1',
 		] );
@@ -1278,7 +1278,7 @@ describe( 'TopologyConsole boot', () => {
 			render( <TopologyConsole /> );
 			expect( lastHeaderProps.pathOptions ).toEqual( [
 				'',
-				'_sse',
+				'_http',
 				'_sse/demo.p0',
 				'_sse/demo.p1',
 			] );
@@ -1422,7 +1422,7 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'mounts the receive graph in view mode (Dumper registered as _output)', () => {
 		render( <TopologyConsole /> );
-		const { Dumper } = require( '../nodes/dumper' );
+		const { Dumper } = require( '../../runtime/dumper' );
 		expect( Core.node( names.OUTPUT ) ).toBeInstanceOf( Dumper );
 	} );
 
@@ -2751,19 +2751,13 @@ describe( 'TopologyConsole boot', () => {
 		} );
 
 		it( 'applies a valid stored skin on mount', () => {
-			window.localStorage.setItem(
-				'newspack-nodes:topology:theme',
-				'blueprint'
-			);
+			window.localStorage.setItem( 'newspack-nodes:theme', 'blueprint' );
 			const { container } = render( <TopologyConsole /> );
 			expect( rootClass( container ) ).toContain( 'theme-blueprint' );
 		} );
 
 		it( 'falls back to theme-current for an unknown stored skin', () => {
-			window.localStorage.setItem(
-				'newspack-nodes:topology:theme',
-				'bogus'
-			);
+			window.localStorage.setItem( 'newspack-nodes:theme', 'bogus' );
 			const { container } = render( <TopologyConsole /> );
 			expect( rootClass( container ) ).toContain( 'theme-current' );
 			expect( rootClass( container ) ).not.toContain( 'theme-bogus' );
@@ -2782,7 +2776,7 @@ describe( 'TopologyConsole boot', () => {
 			} );
 			expect( rootClass( container ) ).toContain( 'theme-crt' );
 			expect(
-				window.localStorage.getItem( 'newspack-nodes:topology:theme' )
+				window.localStorage.getItem( 'newspack-nodes:theme' )
 			).toBe( 'crt' );
 		} );
 	} );

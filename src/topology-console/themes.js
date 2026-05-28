@@ -5,6 +5,19 @@
  */
 import { __ } from '@wordpress/i18n';
 
+// Global storage keys shared by topology-console + debug-overlay so a
+// preference picked in either surface applies in both.
+export const THEME_STORAGE_KEY = 'newspack-nodes:theme';
+// Palette collapse state is stored per-mode (live vs edit) because the
+// two surfaces want different defaults: live defaults to collapsed
+// (the palette isn't needed when watching), edit defaults to open (you
+// drop nodes from it onto the canvas). The DebugOverlay only ever runs
+// in live mode and so reads/writes the live key.
+export const PALETTE_COLLAPSED_STORAGE_KEY_LIVE =
+	'newspack-nodes:palette-collapsed:live';
+export const PALETTE_COLLAPSED_STORAGE_KEY_EDIT =
+	'newspack-nodes:palette-collapsed:edit';
+
 export const DEFAULT_THEME = 'current';
 
 export const THEMES = [

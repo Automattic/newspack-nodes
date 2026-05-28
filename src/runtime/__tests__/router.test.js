@@ -215,4 +215,17 @@ describe( 'Router TIMER', () => {
 			jest.useRealTimers();
 		}
 	} );
+
+	test( 'removeNode clears _timerHandle (no setInterval leak)', () => {
+		jest.useFakeTimers();
+		try {
+			const r = new Router();
+			r.setName( '_router' );
+			expect( r._timerHandle ).not.toBeNull();
+			r.removeNode();
+			expect( r._timerHandle ).toBeNull();
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
 } );

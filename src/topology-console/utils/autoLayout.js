@@ -18,6 +18,25 @@ export function autoLayout( parsed ) {
 	const nodes = parsed?.nodes ?? [];
 	const edges = parsed?.edges ?? [];
 
+	// No edges → alpha-sorted column-major grid. The depth-driven layout
+	// would stack every node in column 0 (all depth=0 without predecessors),
+	// which makes a request-scope service-CI graph (independent CIs with no
+	// targets) read as one long column.
+	if ( edges.length === 0 && nodes.length > 0 ) {
+		const sorted = [ ...nodes ].sort( ( a, b ) =>
+			a.id.localeCompare( b.id )
+		);
+		const rowCount = Math.max( 1, Math.ceil( Math.sqrt( sorted.length ) ) );
+		const positioned = sorted.map( ( n, i ) => ( {
+			...n,
+			position: {
+				x: X_PAD + Math.floor( i / rowCount ) * X_STEP,
+				y: Y_PAD + ( i % rowCount ) * Y_STEP,
+			},
+		} ) );
+		return { nodes: positioned, edges };
+	}
+
 	const incoming = new Map();
 	const outgoing = new Map();
 	for ( const e of edges ) {

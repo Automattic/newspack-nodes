@@ -63,7 +63,14 @@ import {
 	TM_REQUEST,
 } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
-import { THEMES, DEFAULT_THEME, isValidTheme } from './themes';
+import {
+	THEMES,
+	DEFAULT_THEME,
+	isValidTheme,
+	THEME_STORAGE_KEY,
+	PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
+	PALETTE_COLLAPSED_STORAGE_KEY_EDIT,
+} from './themes';
 
 function topologyMap() {
 	return (
@@ -106,9 +113,9 @@ function parseWorker( cwd ) {
 }
 
 // The display/storage scope for a cwd: a worker (its topology+partition), the
-// request scope (`_sse`), or the local in-browser graph (''). Worker sub-nodes
-// resolve to their worker. Drives the canvas header + the viewport/positions
-// storage keys so `/` and `/_sse` don't inherit the last worker's.
+// request scope (`_sse`), or any other top-level cwd. Worker sub-nodes resolve
+// to their worker. Each unique cwd gets its own storage key so canvas layouts
+// don't bleed across scopes (`/`, `/_http`, `/_sse`, workers all distinct).
 export function scopeFromCwd( cwd ) {
 	const m = String( cwd ).match( /^_sse\/(.+?)\.p(\d+)(?:\/|$)/ );
 	if ( m ) {
@@ -119,6 +126,14 @@ export function scopeFromCwd( cwd ) {
 			isWorker: true,
 		};
 	}
+	if ( '' === cwd ) {
+		return {
+			key: 'local',
+			label: 'local',
+			partition: null,
+			isWorker: false,
+		};
+	}
 	if ( '_sse' === cwd ) {
 		return {
 			key: '_sse',
@@ -127,7 +142,12 @@ export function scopeFromCwd( cwd ) {
 			isWorker: false,
 		};
 	}
-	return { key: 'local', label: 'local', partition: null, isWorker: false };
+	// Any other top-level cwd (`_http`, `_completion`, etc.) gets its own
+	// storage key so its canvas layout doesn't fight with `/`. Strip the
+	// leading underscore for display since CanvasFrame interpolates label
+	// as `topologies/${label}.tsl` and `_http.tsl` is a misleading non-file.
+	const label = cwd.startsWith( '_' ) ? cwd.slice( 1 ) : cwd;
+	return { key: cwd, label, partition: null, isWorker: false };
 }
 
 // The browser console's `status` builtin summary — the JS analogue of the PHP
@@ -212,15 +232,27 @@ function initialPartitionFromUrl() {
 const EMPTY_GRAPH = { nodes: [], edges: [] };
 const EMPTY_TRANSCRIPT = [];
 
-const THEME_STORAGE_KEY = 'newspack-nodes:topology:theme';
-const PALETTE_COLLAPSED_KEY = 'newspack-nodes:topology:palette-collapsed';
-
-// Read the persisted palette-collapsed flag; default to open.
-function readStoredPaletteCollapsed() {
+// Per-mode palette-collapsed: live defaults to collapsed (storage '0' =
+// user opened it); edit defaults to OPEN (storage '1' = user closed it).
+function paletteKeyFor( mode ) {
+	return 'edit' === mode
+		? PALETTE_COLLAPSED_STORAGE_KEY_EDIT
+		: PALETTE_COLLAPSED_STORAGE_KEY_LIVE;
+}
+function readStoredPaletteCollapsed( mode ) {
+	const key = paletteKeyFor( mode );
+	const def = 'edit' !== mode; // live default: collapsed; edit default: open
 	try {
-		return window.localStorage.getItem( PALETTE_COLLAPSED_KEY ) === '1';
+		const stored = window.localStorage.getItem( key );
+		if ( stored === '0' ) {
+			return false;
+		}
+		if ( stored === '1' ) {
+			return true;
+		}
+		return def;
 	} catch ( _err ) {
-		return false;
+		return def;
 	}
 }
 
@@ -270,24 +302,28 @@ export default function TopologyConsole() {
 			// localStorage disabled/quota'd; in-session only.
 		}
 	}, [] );
-	const [ paletteCollapsed, setPaletteCollapsedState ] = useState(
-		readStoredPaletteCollapsed
+	const [ paletteCollapsed, setPaletteCollapsedState ] = useState( () =>
+		readStoredPaletteCollapsed( mode )
 	);
 	const togglePaletteCollapsed = useCallback( () => {
 		setPaletteCollapsedState( ( prev ) => {
 			const next = ! prev;
 			try {
-				if ( next ) {
-					window.localStorage.setItem( PALETTE_COLLAPSED_KEY, '1' );
-				} else {
-					window.localStorage.removeItem( PALETTE_COLLAPSED_KEY );
-				}
+				window.localStorage.setItem(
+					paletteKeyFor( mode ),
+					next ? '1' : '0'
+				);
 			} catch ( _err ) {
 				// localStorage disabled/quota'd; in-session only.
 			}
 			return next;
 		} );
-	}, [] );
+	}, [ mode ] );
+	// Switch modes → reload the persisted state for the new mode (each mode
+	// has its own key + default).
+	useEffect( () => {
+		setPaletteCollapsedState( readStoredPaletteCollapsed( mode ) );
+	}, [ mode ] );
 	const saveTopology = useSaveTopology();
 	const deleteTopology = useDeleteTopology();
 	const fetchTopology = useTopology();
@@ -335,7 +371,7 @@ export default function TopologyConsole() {
 		const active = activeTopologySet();
 		return [
 			'',
-			'_sse',
+			'_http',
 			...sortedTopologies()
 				.filter( ( t ) => active.has( t ) )
 				.flatMap( ( t ) =>
@@ -1557,7 +1593,37 @@ export default function TopologyConsole() {
 			// live graph so it won't collide with an existing node.
 			if ( mode !== 'edit' ) {
 				const name = generateNodeName( parsed, shellName );
-				sendLine( `make_node ${ shellName } ${ name }` );
+				// Prompt for declared positional args before dispatching.
+				const cls = ( catalog?.classes || [] ).find(
+					( c ) => c.shell_name === shellName
+				);
+				const declared = cls?.arguments || [];
+				let argString = '';
+				if ( declared.length > 0 ) {
+					const tmpl = declared
+						.map(
+							( a ) =>
+								`${ a.name }${ a.required ? '*' : '' }${
+									a.default !== undefined
+										? `=${ a.default }`
+										: ''
+								}`
+						)
+						.join( ' ' );
+					// eslint-disable-next-line no-alert
+					const input = window.prompt(
+						`Arguments for ${ shellName } ${ name }\n(${ tmpl })`,
+						''
+					);
+					if ( null === input ) {
+						return;
+					}
+					argString = input.trim();
+				}
+				const args = argString
+					? `make_node ${ shellName } ${ name } ${ argString }`
+					: `make_node ${ shellName } ${ name }`;
+				sendLine( args );
 				return;
 			}
 			// Snap to the grid so dropped nodes line up and don't drift.
@@ -1573,7 +1639,14 @@ export default function TopologyConsole() {
 				} );
 			} );
 		},
-		[ mode, parsed, sendLine, handlePositionChange, snapToGrid ]
+		[
+			mode,
+			parsed,
+			sendLine,
+			handlePositionChange,
+			snapToGrid,
+			catalog?.classes,
+		]
 	);
 
 	return (

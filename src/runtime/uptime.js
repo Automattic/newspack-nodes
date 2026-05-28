@@ -3,8 +3,8 @@
  * it publishes the trimmed uptime string ( useNodeState( '_uptime', 'uptime' ) ).
  */
 
-import { Node } from '../../runtime/node';
-import { Core } from '../../runtime/core';
+import { Node } from './node';
+import { Core } from './core';
 import {
 	newMessage,
 	TYPE,
@@ -13,7 +13,7 @@ import {
 	VALUE,
 	LOCAL,
 	TM_COMMAND,
-} from '../../runtime/message';
+} from './message';
 
 export class Uptime extends Node {
 	constructor() {
@@ -58,6 +58,7 @@ export class Uptime extends Node {
 			return;
 		}
 		this.lastFired = now;
+		this.counter += 1;
 		this.sink.fill( this._pollMessage( 'uptime' ) );
 	}
 
