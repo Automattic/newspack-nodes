@@ -6,7 +6,7 @@
  * machinery has a uniform contract to query.
  */
 
-import { Metadata } from '../metadata';
+import { Metadata } from '../../../runtime/metadata';
 import { Uptime } from '../../../runtime/uptime';
 import { Completion } from '../../../runtime/completion';
 import { Heartbeat } from '../../../runtime/heartbeat';

@@ -1,33 +1,36 @@
-import { useEffect, useMemo, useState } from '@wordpress/element';
+import { useMemo } from '@wordpress/element';
 import { Core } from '../runtime/core';
+import { useNodeState } from '../runtime/react';
 import { coreToGraph } from '../topology-console/utils/coreToGraph';
 import { generateNodeName } from '../topology-console/utils/draftGraph';
+import names from '../runtime/reserved-node-names.json';
 
-// 1s redraw cadence (matches the console's dump_metadata poll feel).
-const TICK_MS = 1000;
+const EMPTY_GRAPH = { nodes: [], edges: [] };
 
 /**
- * The page's own live graph + the command handlers that mutate it. Reads
- * `coreToGraph()` on a 1s tick (counters animate) and dispatches gestures as
- * commands through the passed-in Shell — shell.sendCommand(path, name, args)
- * stamps FROM = _output and fills into the Shell's sink (the local CI).
+ * The page's own live graph + the command handlers that mutate it. The
+ * canvas reads `_metadata`'s published `metadata` state (Metadata polls
+ * dump_metadata at the live cwd each Router TIMER tick and parses the reply
+ * via parseMetadata) — the same data source the topology console uses.
  *
- * @param {boolean} [active] When false, the 1s poll is gated off (no interval). Pass `enabled && open` so the timer only runs while the overlay is visible.
- * @param {Object}  shell    Shell instance owned by DebugOverlay; sink wired to the local CI.
+ * Before the first poll lands (or while no Metadata is mounted), falls back
+ * to `coreToGraph()` so the canvas isn't empty on first paint.
+ *
+ * @param {boolean} [active] Currently unused; kept for API parity (the
+ *                           subscription is naturally inert when no _metadata).
+ * @param {Object}  shell    Shell instance owned by DebugOverlay; sink wired
+ *                           to the local CI.
  * @return {{ graph: { nodes: Array, edges: Array }, handlers: Object }} The live graph and gesture handlers.
  */
+// eslint-disable-next-line no-unused-vars
 export function useDebugGraph( active = true, shell ) {
-	const [ graph, setGraph ] = useState( () => coreToGraph() );
-
-	useEffect( () => {
-		if ( ! active ) {
-			return undefined;
+	const metadataGraph = useNodeState( names.METADATA, 'metadata' );
+	const graph = useMemo( () => {
+		if ( metadataGraph && Array.isArray( metadataGraph.nodes ) ) {
+			return metadataGraph;
 		}
-		// Refresh once on activation so the panel shows the current graph instantly.
-		setGraph( coreToGraph() );
-		const id = setInterval( () => setGraph( coreToGraph() ), TICK_MS );
-		return () => clearInterval( id );
-	}, [ active ] );
+		return coreToGraph() ?? EMPTY_GRAPH;
+	}, [ metadataGraph ] );
 
 	const handlers = useMemo(
 		() => ( {

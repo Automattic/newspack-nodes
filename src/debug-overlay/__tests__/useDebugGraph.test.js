@@ -13,7 +13,9 @@ describe( 'useDebugGraph', () => {
 	} );
 	afterEach( () => jest.useRealTimers() );
 
-	it( 'reads the live Core graph and re-reads on the tick', () => {
+	it( 'falls back to coreToGraph() when _metadata has not published yet', () => {
+		// Without a mounted Metadata, useNodeState returns undefined and the
+		// hook falls back to a single coreToGraph() read on first render.
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.setName( 'a' );
@@ -21,47 +23,26 @@ describe( 'useDebugGraph', () => {
 		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).toContain(
 			'a'
 		);
-		const b = new Node();
-		b.setName( 'b' );
-		act( () => jest.advanceTimersByTime( 1000 ) );
-		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).toContain(
-			'b'
-		);
 		teardown();
 	} );
 
-	it( 'does not poll when inactive', () => {
+	it( 'consumes _metadata.setState(metadata) when published', () => {
+		// With Metadata mounted, the hook reads the parsed graph from
+		// useNodeState(_metadata, 'metadata').
 		const { teardown } = mountExospine();
-		const a = new Node();
-		a.setName( 'a' );
-		const { result } = renderHook( () => useDebugGraph( false ) );
-		const b = new Node();
-		b.setName( 'b' );
-		act( () => jest.advanceTimersByTime( 5000 ) );
-		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).not.toContain(
-			'b'
-		);
-		teardown();
-	} );
-
-	it( 'refreshes immediately when activated', () => {
-		const { teardown } = mountExospine();
-		const a = new Node();
-		a.setName( 'a' );
-		const { result, rerender } = renderHook(
-			( { active } ) => useDebugGraph( active ),
-			{ initialProps: { active: false } }
-		);
-		const b = new Node();
-		b.setName( 'b' );
-		// Still inactive: b not seen.
-		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).not.toContain(
-			'b'
-		);
-		// Flip to active: immediate refresh, no timer advance.
-		act( () => rerender( { active: true } ) );
+		// eslint-disable-next-line no-unused-vars
+		const { Metadata } = require( '../../runtime/metadata' );
+		const metadata = new Metadata();
+		metadata.setName( names.METADATA );
+		const { result } = renderHook( () => useDebugGraph() );
+		act( () => {
+			metadata.setState( 'metadata', {
+				nodes: [ { id: 'fromMeta', count: 1 } ],
+				edges: [],
+			} );
+		} );
 		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).toContain(
-			'b'
+			'fromMeta'
 		);
 		teardown();
 	} );
