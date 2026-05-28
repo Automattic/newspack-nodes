@@ -737,6 +737,21 @@ export class CommandInterpreter extends Node {
 			return `_command_interpreter debug_state: ${ this.debugState }`;
 		}
 
+		if ( '*' === first ) {
+			let next;
+			if ( '' === second ) {
+				next = ( this.debugState ?? 0 ) > 0 ? 0 : 1;
+			} else {
+				// Match PHP (int) coercion + max(0,…): non-numeric → 0, never negative.
+				next = Math.max( 0, parseInt( second, 10 ) || 0 );
+			}
+			const allNames = [ ...Core.nodes.keys() ].sort();
+			for ( const name of allNames ) {
+				const node = Core.node( name );
+				node.debugState = next;
+			}
+			return `* debug_state: ${ next }`;
+		}
 		const node = Core.node( first );
 		if ( null === node ) {
 			return `unknown node: ${ first }`;
@@ -749,7 +764,7 @@ export class CommandInterpreter extends Node {
 			next = Math.max( 0, parseInt( second, 10 ) || 0 );
 		}
 		node.debugState = next;
-		return `${ first } debug_state: ${ node.debugState }`;
+		return `${ first } debug_state: ${ next }`;
 	}
 
 	// help — no args lists command names tabulated; a topic returns that command's help.

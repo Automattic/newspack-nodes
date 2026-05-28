@@ -94,7 +94,14 @@ export class HttpOut extends Node {
 					this.sink?.fill( message );
 				}
 			} )
-			.catch( () => {} );
+			.catch( ( err ) => {
+				// Surface so the user gets feedback when /command fails
+				// (network drop, 5xx, HMAC mismatch). Rate-limited so a
+				// degraded server doesn't flood the console.
+				this.print_less_often(
+					`HttpOut POST failed: ${ err?.message ?? err }`
+				);
+			} );
 	}
 
 	/**
