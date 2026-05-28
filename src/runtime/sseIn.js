@@ -22,9 +22,9 @@
  * or the path — so the cwd is the static `/_sse/{reader}`.
  */
 
-import { SseConnector } from '../../runtime/sse_connector';
-import { FROM, TO } from '../../runtime/message';
-import names from '../../runtime/reserved-node-names.json';
+import { SseConnector } from './sse_connector';
+import { FROM, TO } from './message';
+import names from './reserved-node-names.json';
 
 const REPLY_NODES = [
 	names.OUTPUT,

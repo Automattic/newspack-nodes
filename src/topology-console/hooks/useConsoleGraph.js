@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { Node } from '../../runtime/node';
 import { mountExospine } from '../../runtime/exospine';
-import { SseIn } from '../nodes/sseIn';
+import { SseIn } from '../../runtime/sseIn';
 import { HttpOut } from '../../runtime/httpOut';
 import { Dumper } from '../nodes/dumper';
 import { Metadata } from '../nodes/metadata';
