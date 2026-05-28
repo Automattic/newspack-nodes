@@ -68,7 +68,7 @@ class ClassesCITest extends TestCase {
 
 	public function test_node_schema_declares_its_verbs(): void {
 		$schema = Classes_CI_Node::node_schema();
-		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['verbs'] );
+		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
 		$this->assertSame( [ 'list' ], $names );
 		$this->assertNotEmpty( $schema['description'] );
@@ -133,9 +133,9 @@ class ClassesCITest extends TestCase {
 			}
 		}
 		$this->assertNotNull( $topologies, 'Topologies must appear in the class catalog' );
-		$this->assertNotEmpty( $topologies['verbs'] );
+		$this->assertNotEmpty( $topologies['commands'] );
 
-		foreach ( $topologies['verbs'] as $verb ) {
+		foreach ( $topologies['commands'] as $verb ) {
 			$this->assertSame(
 				[ 'name', 'description', 'args' ],
 				\array_keys( $verb ),
@@ -168,16 +168,16 @@ class ClassesCITest extends TestCase {
 
 		// Exactly the well-formed verb survives, stripped to {name,description,args};
 		// the bare-string entry is omitted (no TypeError, no malformed leftover).
-		$this->assertCount( 1, $fixture['verbs'], 'only the well-formed verb may survive the strip' );
-		$this->assertSame( 'good', $fixture['verbs'][0]['name'] );
+		$this->assertCount( 1, $fixture['commands'], 'only the well-formed verb may survive the strip' );
+		$this->assertSame( 'good', $fixture['commands'][0]['name'] );
 		$this->assertSame(
 			[ 'name', 'description', 'args' ],
-			\array_keys( $fixture['verbs'][0] ),
+			\array_keys( $fixture['commands'][0] ),
 			'surviving verb must expose only name/description/args'
 		);
 		// List shape: a sequential (JSON-array) list, no string leftover.
-		$this->assertSame( \array_values( $fixture['verbs'] ), $fixture['verbs'] );
-		foreach ( $fixture['verbs'] as $verb ) {
+		$this->assertSame( \array_values( $fixture['commands'] ), $fixture['commands'] );
+		foreach ( $fixture['commands'] as $verb ) {
 			$this->assertIsArray( $verb, 'no non-array (string) verb may leak through the strip' );
 		}
 	}

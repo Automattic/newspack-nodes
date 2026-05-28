@@ -327,9 +327,9 @@ class LogTest extends TestCase {
 		$request_names = \array_column( $schema['requests'] ?? [], 'name' );
 		$this->assertContains( 'rotate', $request_names );
 
-		$verb_names = \array_column( $schema['verbs'] ?? [], 'name' );
+		$verb_names = \array_column( $schema['commands'] ?? [], 'name' );
 		$this->assertNotContains( 'rotate', $verb_names );
-		$this->assertSame( [], $schema['verbs'] );
+		$this->assertSame( [], $schema['commands'] );
 	}
 
 	private function bytestream( string $value ): array {

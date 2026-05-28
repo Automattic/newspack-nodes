@@ -44,7 +44,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 			'category'    => 'Service',
 			'description' => 'Topology (.tsl) management: list / get / save / delete user topology files, and mount a worker input partition.',
 			'ctor'        => [],
-			'verbs'       => [
+			'commands'       => [
 				[
 					'name'        => 'list',
 					'description' => 'List topologies with source (user/stock/both) and active state.',

@@ -28,7 +28,7 @@ const baseProps = {
 		{
 			shell_name: 'Echo',
 			ctor: [],
-			verbs: [],
+			commands: [],
 		},
 	],
 	formatters: [],
@@ -119,8 +119,8 @@ describe( 'Inspector (edit mode)', () => {
 				edges: [],
 			},
 			catalog: [
-				{ shell_name: 'CommandInterpreter', ctor: [], verbs: [] },
-				{ shell_name: 'Echo', ctor: [], verbs: [] },
+				{ shell_name: 'CommandInterpreter', ctor: [], commands: [] },
+				{ shell_name: 'Echo', ctor: [], commands: [] },
 			],
 		};
 
@@ -157,7 +157,7 @@ describe( 'Inspector (edit mode)', () => {
 			{
 				shell_name: 'Echo',
 				ctor: [ { name: 'name', type: 'string', required: true } ],
-				verbs: [],
+				commands: [],
 			},
 		];
 		const { container } = render(
@@ -178,7 +178,7 @@ describe( 'Inspector (edit mode)', () => {
 			{
 				shell_name: 'Echo',
 				ctor: [ { name: 'name', type: 'string' } ],
-				verbs: [],
+				commands: [],
 			},
 		];
 		const parsed = {
@@ -209,7 +209,7 @@ describe( 'Inspector (edit mode)', () => {
 			{
 				shell_name: 'Echo',
 				ctor: [ { name: 'format', type: 'formatter_name' } ],
-				verbs: [],
+				commands: [],
 			},
 		];
 		const { container } = render(
@@ -229,7 +229,7 @@ describe( 'Inspector (edit mode)', () => {
 			{
 				shell_name: 'Echo',
 				ctor: [ { name: 'format', type: 'formatter_name' } ],
-				verbs: [],
+				commands: [],
 			},
 		];
 		const { container } = render(
@@ -244,7 +244,7 @@ describe( 'Inspector (edit mode)', () => {
 			{
 				shell_name: 'Echo',
 				ctor: [ { name: 'route', type: 'node_name' } ],
-				verbs: [],
+				commands: [],
 			},
 		];
 		const { container } = render(
@@ -267,7 +267,7 @@ describe( 'Inspector (edit mode)', () => {
 			{
 				shell_name: 'Echo',
 				ctor: [],
-				verbs: [ { name: 'reset', args: [] } ],
+				commands: [ { name: 'reset', args: [] } ],
 			},
 		];
 		const { container } = render(
@@ -290,7 +290,7 @@ describe( 'Inspector (edit mode)', () => {
 			{
 				shell_name: 'Echo',
 				ctor: [],
-				verbs: [ { name: 'reset', args: [] } ],
+				commands: [ { name: 'reset', args: [] } ],
 			},
 		];
 		const parsed = {
@@ -369,7 +369,7 @@ describe( 'Inspector (edit mode)', () => {
 					],
 					edges: [ { from: 'tee_a', to: 'a' } ],
 				} }
-				catalog={ [ { shell_name: 'Tee', ctor: [], verbs: [] } ] }
+				catalog={ [ { shell_name: 'Tee', ctor: [], commands: [] } ] }
 				onConnect={ onConnect }
 			/>
 		);
@@ -395,7 +395,7 @@ describe( 'Inspector (edit mode)', () => {
 					],
 					edges: [ { from: 'tee_a', to: 'a' } ],
 				} }
-				catalog={ [ { shell_name: 'Tee', ctor: [], verbs: [] } ] }
+				catalog={ [ { shell_name: 'Tee', ctor: [], commands: [] } ] }
 				onRemoveEdge={ onRemoveEdge }
 			/>
 		);

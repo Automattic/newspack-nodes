@@ -29,7 +29,7 @@ class Command_Signer_Node extends Node {
 			'category'    => 'Hidden',
 			'description' => 'Signs TM_COMMAND provenance (HMAC) before the IPC wire — pivoted-cli issuer.',
 			'ctor'        => [],
-			'verbs'       => [],
+			'commands'       => [],
 		];
 	}
 }

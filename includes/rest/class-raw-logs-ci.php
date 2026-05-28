@@ -34,7 +34,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 			'category'    => 'Service',
 			'description' => 'Log inspection: catalog on-disk logs and report a log\'s partition/segment status.',
 			'ctor'        => [],
-			'verbs'       => [
+			'commands'       => [
 				[
 					'name'        => 'list_logs',
 					'description' => 'List the on-disk log keys.',

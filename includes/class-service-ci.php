@@ -57,7 +57,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 */
 	private static function commands_from_schema( array $schema ): array {
 		$table = [];
-		foreach ( $schema['verbs'] ?? [] as $verb ) {
+		foreach ( $schema['commands'] ?? [] as $verb ) {
 			if ( ! \is_array( $verb ) ) {
 				continue;
 			}

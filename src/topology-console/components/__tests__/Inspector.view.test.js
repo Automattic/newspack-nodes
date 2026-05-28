@@ -237,7 +237,7 @@ describe( 'Inspector (view mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				verbs: [
+				commands: [
 					{
 						name: 'set_target',
 						args: [
@@ -282,7 +282,7 @@ describe( 'Inspector (view mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				verbs: [ { name: 'GET_LAG', description: 'Lag' } ],
+				commands: [ { name: 'GET_LAG', description: 'Lag' } ],
 			},
 		];
 		const { getByText } = renderNode( { catalog, onAction } );
@@ -300,7 +300,7 @@ describe( 'Inspector (view mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				verbs: [
+				commands: [
 					{
 						name: 'with_index',
 						args: [

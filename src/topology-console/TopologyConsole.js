@@ -973,17 +973,17 @@ export default function TopologyConsole() {
 			const virtualEdges = [];
 			for ( const node of graph.nodes ) {
 				const schema = classByName.get( node.class );
-				if ( ! schema || ! schema.verbs ) {
+				if ( ! schema || ! schema.commands ) {
 					continue;
 				}
 				for ( const inv of node.verbInvocations || [] ) {
-					const vspec = schema.verbs.find(
+					const cspec = schema.commands.find(
 						( v ) => v.name === inv.verb
 					);
-					if ( ! vspec || ! vspec.args ) {
+					if ( ! cspec || ! cspec.args ) {
 						continue;
 					}
-					vspec.args.forEach( ( argSpec, i ) => {
+					cspec.args.forEach( ( argSpec, i ) => {
 						if ( argSpec.type !== 'node_name' ) {
 							return;
 						}
@@ -1482,19 +1482,19 @@ export default function TopologyConsole() {
 						return n;
 					}
 					const schema = classByName.get( n.class );
-					if ( ! schema || ! schema.verbs ) {
+					if ( ! schema || ! schema.commands ) {
 						return n;
 					}
 					const nextInvs = n.verbInvocations.map( ( inv ) => {
-						const vspec = schema.verbs.find(
+						const cspec = schema.commands.find(
 							( v ) => v.name === inv.verb
 						);
-						if ( ! vspec || ! vspec.args ) {
+						if ( ! cspec || ! cspec.args ) {
 							return inv;
 						}
 						let touched = false;
 						const args = inv.args.slice();
-						vspec.args.forEach( ( a, i ) => {
+						cspec.args.forEach( ( a, i ) => {
 							if (
 								a.type === 'node_name' &&
 								args[ i ] === oldId

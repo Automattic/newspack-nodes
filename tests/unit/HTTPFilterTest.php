@@ -61,7 +61,7 @@ class HTTPFilterTest extends TestCase {
 		$schema = HTTP_Filter_Node::node_schema();
 		$this->assertSame( 'Hidden', $schema['category'] );
 		$this->assertSame( [], $schema['ctor'] );
-		$this->assertSame( [], $schema['verbs'] );
+		$this->assertSame( [], $schema['commands'] );
 		$this->assertNotEmpty( $schema['description'] );
 	}
 }

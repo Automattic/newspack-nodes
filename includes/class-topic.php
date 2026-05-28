@@ -134,7 +134,7 @@ class Topic_Node extends Node {
 				[ 'name' => 'num_segments',   'type' => 'int',    'default' => '<config:num_segments>' ],
 				[ 'name' => 'max_lifespan',   'type' => 'int',    'default' => '<config:max_lifespan>' ],
 			],
-			'verbs'       => [],
+			'commands'       => [],
 			'has_target'  => false,
 		];
 	}

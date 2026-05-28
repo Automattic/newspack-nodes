@@ -59,7 +59,7 @@ class Releases_Source_Node extends Node {
 			'category'     => 'Source',
 			'description'  => 'Emits canned release-notes items on tick.',
 			'ctor'         => [],
-			'verbs'        => [
+			'commands'        => [
 				[ 'name' => 'tick', 'description' => 'Emit the current batch of items.', 'args' => [] ],
 			],
 			'accepts_fill' => false,

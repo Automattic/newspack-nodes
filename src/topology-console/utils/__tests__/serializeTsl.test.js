@@ -151,7 +151,7 @@ describe( 'serializeTsl', () => {
 						default: '<config:max_lifespan>',
 					},
 				],
-				verbs: [
+				commands: [
 					{
 						name: 'with_index',
 						args: [
@@ -166,7 +166,7 @@ describe( 'serializeTsl', () => {
 			},
 			FlameBuilder: {
 				ctor: [],
-				verbs: [
+				commands: [
 					{
 						name: 'set_is_hub',
 						args: [
@@ -340,12 +340,12 @@ describe( 'serializeTsl', () => {
 			Performance_CI: {
 				is_interpreter: true,
 				ctor: [],
-				verbs: [ { name: 'set_is_hub', args: [] } ],
+				commands: [ { name: 'set_is_hub', args: [] } ],
 			},
 			Partition: {
 				is_interpreter: false,
 				ctor: [],
-				verbs: [ { name: 'allow_large_writes', args: [] } ],
+				commands: [ { name: 'allow_large_writes', args: [] } ],
 			},
 		};
 

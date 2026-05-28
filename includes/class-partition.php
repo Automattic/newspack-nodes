@@ -76,7 +76,7 @@ class Partition_Node extends Timer_Node {
 		int $max_lifespan = self::DEFAULT_MAX_LIFESPAN
 	) {
 		// Chains Timer_Node → Node; the base ctor auto-wires the sibling :config
-		// CI from node_schema()['verbs'] (handlers are static + read $ci->patron()
+		// CI from node_schema()['commands'] (handlers are static + read $ci->patron()
 		// lazily, so running before the props below is fine).
 		parent::__construct();
 		$this->base_dir      = \rtrim( $base_dir, '/' );
@@ -803,7 +803,7 @@ class Partition_Node extends Timer_Node {
 				[ 'name' => 'num_segments', 'type' => 'int',    'default' => '<config:num_segments>' ],
 				[ 'name' => 'max_lifespan', 'type' => 'int',    'default' => '<config:max_lifespan>' ],
 			],
-			'verbs'       => [
+			'commands'       => [
 				[
 					'name'        => 'allow_large_writes',
 					'description' => 'Lift the 4KB PIPE_BUF cap; acquire per-partition write lock.',

@@ -788,7 +788,7 @@ class PartitionTest extends TestCase {
 		$schema = Partition_Node::node_schema();
 		$this->assertSame( 'Storage', $schema['category'] );
 		$this->assertSame( 5, \count( $schema['ctor'] ) );
-		$verb_names = \array_column( $schema['verbs'], 'name' );
+		$verb_names = \array_column( $schema['commands'], 'name' );
 		$this->assertContains( 'allow_large_writes', $verb_names );
 		$this->assertContains( 'with_index', $verb_names );
 	}

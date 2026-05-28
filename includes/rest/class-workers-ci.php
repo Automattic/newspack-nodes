@@ -76,7 +76,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			'category'    => 'Service',
 			'description' => 'Worker fleet control: list workers, dump operator metadata, audit/cleanup orphans, restart, and refresh SSE slot heartbeats.',
 			'ctor'        => [],
-			'verbs'       => [
+			'commands'       => [
 				[
 					'name'        => 'list',
 					'description' => 'List workers with live positions.',

@@ -50,7 +50,7 @@ class RawLogsCITest extends TestCase {
 
 	public function test_node_schema_declares_its_verbs(): void {
 		$schema = Raw_Logs_CI_Node::node_schema();
-		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['verbs'] );
+		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
 		$this->assertSame( [ 'list_logs', 'log_status' ], $names );
 		$this->assertNotEmpty( $schema['description'] );

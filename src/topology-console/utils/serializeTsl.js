@@ -66,15 +66,15 @@ function ctorSpecFor( schemas, className ) {
 	return entry && Array.isArray( entry.ctor ) ? entry.ctor : [];
 }
 
-function verbArgSpecFor( schemas, className, verbName ) {
+function commandArgSpecFor( schemas, className, commandName ) {
 	if ( ! schemas ) {
 		return [];
 	}
 	const entry = schemas[ className ];
-	if ( ! entry || ! Array.isArray( entry.verbs ) ) {
+	if ( ! entry || ! Array.isArray( entry.commands ) ) {
 		return [];
 	}
-	const v = entry.verbs.find( ( x ) => x.name === verbName );
+	const v = entry.commands.find( ( x ) => x.name === commandName );
 	return v && Array.isArray( v.args ) ? v.args : [];
 }
 
@@ -96,7 +96,7 @@ function isInterpreterClass( schemas, className ) {
 }
 
 function emitVerb( name, invocation, schemas, className ) {
-	const spec = verbArgSpecFor( schemas, className, invocation.verb );
+	const spec = commandArgSpecFor( schemas, className, invocation.verb );
 	const filled = applyDefaults( invocation.args || [], spec );
 	const args = trimTrailingEmpties( filled ).map( serializeArg );
 	// Interpreter nodes handle verbs directly (no `:config` sibling) → bare target.
