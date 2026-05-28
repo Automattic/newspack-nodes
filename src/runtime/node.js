@@ -25,6 +25,62 @@ export class Node {
 		this.setStateCache = {};
 		this.patron = null;
 		this.interpreter = null;
+		this._arguments = '';
+	}
+
+	/**
+	 * Get/set the node's raw argument string. The setter ALSO parses the
+	 * value against `this.constructor.nodeSchema().arguments` (an array of
+	 * `{ name, type, default?, required? }`) and assigns each declared
+	 * positional argument to `this[name]`. Tokens beyond the declared
+	 * positions are ignored; missing optional tokens use schema-declared
+	 * defaults. Mirrors Tachikoma::Node::arguments and the PHP setter.
+	 *
+	 * Subclasses override the whole accessor pair when the default schema
+	 * walk isn't enough (multi-token args, derived state, validation).
+	 *
+	 * @return {string} Last-set raw arguments string.
+	 */
+	get arguments() {
+		return this._arguments ?? '';
+	}
+
+	set arguments( value ) {
+		const args = String( value ?? '' );
+		this._arguments = args;
+		const schema = this.constructor.nodeSchema?.() || {};
+		const declared = schema.arguments || [];
+		if ( declared.length === 0 || args === '' ) {
+			return;
+		}
+		const tokens = args.trim().split( /\s+/ );
+		for ( let i = 0; i < declared.length; i++ ) {
+			const spec = declared[ i ];
+			const { name, type = 'string' } = spec;
+			if ( ! ( name in this ) ) {
+				continue;
+			}
+			if ( i < tokens.length ) {
+				this[ name ] = Node._coerceArgument( tokens[ i ], type );
+			} else if ( 'default' in spec ) {
+				this[ name ] = spec.default;
+			}
+		}
+	}
+
+	static _coerceArgument( token, type ) {
+		switch ( type ) {
+			case 'int':
+				return parseInt( token, 10 );
+			case 'float':
+				return parseFloat( token );
+			case 'bool':
+				return [ '1', 'true', 'yes', 'on' ].includes(
+					token.toLowerCase()
+				);
+			default:
+				return token;
+		}
 	}
 
 	setName( name ) {

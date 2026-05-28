@@ -184,12 +184,60 @@ class Node {
 		return $this->bytes_written;
 	}
 
-	/** Get/set the node's argument string. Subclasses override to parse it into typed slots. */
+	/**
+	 * Get/set the node's argument string. The setter ALSO parses the string
+	 * against node_schema()['arguments'] and assigns each declared positional
+	 * argument to the matching $this->{$name} property. Tokens beyond the
+	 * declared positions are ignored; missing optional tokens use their
+	 * schema-declared defaults. Mirrors Tachikoma::Node::arguments.
+	 *
+	 * Subclasses override the whole method when the default schema walk isn't
+	 * enough (multi-token args, derived state, validation).
+	 *
+	 * @param string|null $args New raw arguments string (null = pure getter).
+	 * @return string Last-set raw arguments string.
+	 */
 	public function arguments( ?string $args = null ): string {
-		if ( null !== $args ) {
-			$this->arguments = $args;
+		if ( null === $args ) {
+			return $this->arguments;
+		}
+		$this->arguments = $args;
+		$schema   = static::node_schema();
+		$declared = $schema['arguments'] ?? [];
+		if ( empty( $declared ) || '' === $args ) {
+			return $this->arguments;
+		}
+		$tokens = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY );
+		foreach ( $declared as $i => $arg_spec ) {
+			$name = $arg_spec['name'];
+			$type = $arg_spec['type'] ?? 'string';
+			if ( ! \property_exists( $this, $name ) ) {
+				continue;
+			}
+			if ( isset( $tokens[ $i ] ) ) {
+				$this->{$name} = self::coerce_argument( $tokens[ $i ], $type );
+			} elseif ( \array_key_exists( 'default', $arg_spec ) ) {
+				$this->{$name} = $arg_spec['default'];
+			}
 		}
 		return $this->arguments;
+	}
+
+	/**
+	 * Coerce a raw string token to the declared schema type. Unknown types
+	 * fall through as string.
+	 *
+	 * @param string $token Raw token from the arguments string.
+	 * @param string $type  Schema-declared type ('string'|'int'|'bool'|'float').
+	 * @return mixed
+	 */
+	private static function coerce_argument( string $token, string $type ): mixed {
+		return match ( $type ) {
+			'int'   => (int) $token,
+			'float' => (float) $token,
+			'bool'  => \in_array( \strtolower( $token ), [ '1', 'true', 'yes', 'on' ], true ),
+			default => $token,
+		};
 	}
 
 	/**
