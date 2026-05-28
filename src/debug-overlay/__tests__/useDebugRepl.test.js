@@ -2,7 +2,17 @@ import { renderHook, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import names from '../../runtime/reserved-node-names.json';
+import { Shell } from '../../topology-console/nodes/shell';
 import { useDebugRepl } from '../useDebugRepl';
+
+// Build a Shell configured the same way DebugOverlay does — empty cwd, sinks
+// into the page's CommandInterpreter. Shared by every test that mounts the hook.
+function makeShell() {
+	const shell = new Shell();
+	shell.path = '';
+	shell.sink = Core.node( names.COMMAND_INTERPRETER );
+	return shell;
+}
 
 describe( 'useDebugRepl', () => {
 	beforeEach( () => {
@@ -11,7 +21,8 @@ describe( 'useDebugRepl', () => {
 
 	it( 'registers a transcript node on mount and unregisters on unmount', () => {
 		const { teardown } = mountExospine();
-		const { unmount } = renderHook( () => useDebugRepl( true ) );
+		const shell = makeShell();
+		const { unmount } = renderHook( () => useDebugRepl( true, shell ) );
 		expect( Core.node( names.OUTPUT ) ).not.toBeNull();
 		unmount();
 		expect( Core.node( names.OUTPUT ) ).toBeNull();
@@ -20,14 +31,16 @@ describe( 'useDebugRepl', () => {
 
 	it( 'does not register a transcript node when inactive', () => {
 		const { teardown } = mountExospine();
-		renderHook( () => useDebugRepl( false ) );
+		const shell = makeShell();
+		renderHook( () => useDebugRepl( false, shell ) );
 		expect( Core.node( names.OUTPUT ) ).toBeNull();
 		teardown();
 	} );
 
 	it( 'sendLine echoes a non-empty input into the transcript', () => {
 		const { teardown } = mountExospine();
-		const { result } = renderHook( () => useDebugRepl( true ) );
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		act( () => result.current.sendLine( 'help' ) );
 		const transcript = result.current.transcript;
 		const sentEntry = transcript.find( ( e ) => e.kind === 'sent' );
@@ -38,7 +51,8 @@ describe( 'useDebugRepl', () => {
 
 	it( 'sendLine on an empty input is silent (no transcript entry)', () => {
 		const { teardown } = mountExospine();
-		const { result } = renderHook( () => useDebugRepl( true ) );
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		act( () => result.current.sendLine( '' ) );
 		expect( result.current.transcript ).toEqual( [] );
 		teardown();
@@ -46,7 +60,8 @@ describe( 'useDebugRepl', () => {
 
 	it( 'sendLine `clear` empties the transcript', () => {
 		const { teardown } = mountExospine();
-		const { result } = renderHook( () => useDebugRepl( true ) );
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		act( () => result.current.sendLine( 'help' ) );
 		expect( result.current.transcript.length ).toBeGreaterThan( 0 );
 		act( () => result.current.sendLine( 'clear' ) );
@@ -56,7 +71,8 @@ describe( 'useDebugRepl', () => {
 
 	it( 'sendLine `echo hello world` appends a recv entry with that text', () => {
 		const { teardown } = mountExospine();
-		const { result } = renderHook( () => useDebugRepl( true ) );
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		act( () => result.current.sendLine( 'echo hello world' ) );
 		const recv = result.current.transcript.find(
 			( e ) => e.kind === 'recv'
@@ -68,8 +84,9 @@ describe( 'useDebugRepl', () => {
 
 	it( 'sendLine dispatches a Message into the local CI', () => {
 		const { ci, teardown } = mountExospine();
+		const shell = makeShell();
 		const spy = jest.spyOn( ci, 'fill' );
-		const { result } = renderHook( () => useDebugRepl( true ) );
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		// `help` is a bare verb; Shell.parse returns a TM_COMMAND Message.
 		act( () => result.current.sendLine( 'help' ) );
 		expect( spy ).toHaveBeenCalled();

@@ -7,6 +7,8 @@ import { makeReplDismissHandler } from '../topology-console/utils/replDismissHan
 import Header from '../topology-console/components/Header';
 import ReplFooter from '../topology-console/components/ReplFooter';
 import { useJsCatalog } from '../topology-console/hooks/useJsCatalog';
+import { Shell } from '../topology-console/nodes/shell';
+import names from '../runtime/reserved-node-names.json';
 import {
 	THEMES,
 	DEFAULT_THEME,
@@ -86,8 +88,26 @@ export default function DebugOverlay( {
 			// localStorage disabled — in-session only.
 		}
 	};
-	const { graph, handlers } = useDebugGraph( enabled && open );
-	const { transcript, sendLine, clear } = useDebugRepl( enabled && open );
+	// One Shell instance per overlay mount, shared by useDebugGraph (handler
+	// dispatch) and useDebugRepl (typed-line dispatch). cwd is empty: the
+	// overlay is local-only. Sink resolution is deferred to useEffect because
+	// sibling components (e.g. useWorkerStatusGraph) mount the exospine in
+	// their own useEffect — Core.node(COMMAND_INTERPRETER) returns null in the
+	// render phase, before any sibling's commit-phase effect has run. Reading
+	// it in useMemo would freeze sink=null for the lifetime of the overlay.
+	const shell = useMemo( () => {
+		const s = new Shell();
+		s.path = '';
+		return s;
+	}, [] );
+	useEffect( () => {
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+	}, [ shell ] );
+	const { graph, handlers } = useDebugGraph( enabled && open, shell );
+	const { transcript, sendLine, clear } = useDebugRepl(
+		enabled && open,
+		shell
+	);
 	// The overlay's palette must source from the JS-side CommandInterpreter
 	// .includeNodes (the only set make_node can instantiate in this realm),
 	// NOT the HTTP `classes.list` catalog which returns the PHP substrate's

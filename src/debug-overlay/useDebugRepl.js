@@ -6,7 +6,7 @@ import {
 	useState,
 } from '@wordpress/element';
 import { Core } from '../runtime/core';
-import { Shell, splitStatements } from '../topology-console/nodes/shell';
+import { splitStatements } from '../topology-console/nodes/shell';
 import { Dumper } from '../topology-console/nodes/dumper';
 import { LOCAL, FROM, TO } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
@@ -14,15 +14,17 @@ import names from '../runtime/reserved-node-names.json';
 const EMPTY_TRANSCRIPT = [];
 
 /**
- * Construct a Shell + Dumper pair clipped onto the page's own CommandInterpreter
- * so the debug overlay can dispatch arbitrary REPL lines into the local realm.
+ * Mount a Dumper at `_output` for the page's CommandInterpreter, and use the
+ * passed-in Shell (owned by DebugOverlay) to parse + dispatch typed REPL lines
+ * into the local realm.
  *
- * @param {boolean} active When false the Shell/Dumper are torn down (no transcript).
+ * @param {boolean} active When false the Dumper is torn down (no transcript).
+ * @param {Object}  shell  Shell instance owned by DebugOverlay; sink wired to the local CI.
  * @return {{ transcript: Array, sendLine: Function, clear: Function }} Reactive
  *   transcript + a `sendLine( line )` that runs the line through Shell and the
  *   matching subset of TopologyConsole's local-scope dispatch.
  */
-export function useDebugRepl( active = true ) {
+export function useDebugRepl( active = true, shell ) {
 	// Stable refs so re-renders don't rebuild the Shell or remap the Dumper.
 	const shellRef = useRef( null );
 	const dumperRef = useRef( null );
@@ -44,10 +46,9 @@ export function useDebugRepl( active = true ) {
 		// Rule #2: every node sinks into the CI. The Dumper's own emissions
 		// (e.g. forwarded onward) need a CI to forward through.
 		dumper.sink = ci;
-		// Shell parses typed lines into Messages and fills them into the local CI.
-		const shell = new Shell();
-		shell.path = '';
-		shell.sink = ci;
+		// Shell is owned by DebugOverlay; we just adopt the passed-in instance
+		// (its path + sink are already configured) and store it on the ref so
+		// dispatchStatement can reach it.
 		dumperRef.current = dumper;
 		shellRef.current = shell;
 		const listenerId = 'useDebugRepl/transcript';
@@ -62,7 +63,7 @@ export function useDebugRepl( active = true ) {
 			shellRef.current = null;
 			setTranscript( EMPTY_TRANSCRIPT );
 		};
-	}, [ active ] );
+	}, [ active, shell ] );
 
 	const append = useCallback( ( entry ) => {
 		dumperRef.current?.append( entry );
@@ -75,12 +76,12 @@ export function useDebugRepl( active = true ) {
 	// Run one statement through the Shell and act on the three return shapes the
 	// console's local-scope dispatch handles (no worker pivot, no SSE).
 	const dispatchStatement = useCallback( ( statement ) => {
-		const shell = shellRef.current;
+		const s = shellRef.current;
 		const dumper = dumperRef.current;
-		if ( ! shell || ! dumper ) {
+		if ( ! s || ! dumper ) {
 			return;
 		}
-		const parsed = shell.parse( statement );
+		const parsed = s.parse( statement );
 		if ( '' !== statement.trim() ) {
 			dumper.append( {
 				kind: 'sent',
@@ -103,7 +104,7 @@ export function useDebugRepl( active = true ) {
 			if ( undefined === parsed[ TO ] ) {
 				parsed[ TO ] = '';
 			}
-			shell.sink?.fill( parsed );
+			s.sink?.fill( parsed );
 			return;
 		}
 		if ( 'error' === parsed.kind ) {
