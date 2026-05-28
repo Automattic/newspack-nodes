@@ -192,6 +192,27 @@ class Node {
 		return $this->arguments;
 	}
 
+	/**
+	 * Build a TM_COMMAND message envelope. Mirrors Tachikoma::Node::command —
+	 * available on every Node so Shell::send_command and overlay callers can
+	 * issue commands without hand-building messages.
+	 *
+	 * @param string $name      Command verb (e.g. 'connect_node').
+	 * @param string $arguments Positional argument string.
+	 * @param mixed  $payload   Optional by-name payload.
+	 * @return array A TM_COMMAND Message (the 7-field positional array).
+	 */
+	public function command( string $name, string $arguments = '', mixed $payload = null ): array {
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$msg[ Message::VALUE ] = [
+			'name'      => $name,
+			'arguments' => $arguments,
+			'payload'   => $payload,
+		];
+		return $msg;
+	}
+
 	public const MAX_FROM_SIZE = 1024;
 
 	/** Prepend $name to message FROM. Returns false if FROM would exceed MAX_FROM_SIZE. */
