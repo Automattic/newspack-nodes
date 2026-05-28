@@ -538,8 +538,12 @@ describe( 'useConsoleGraph — TIMER batching', () => {
 			} );
 			renderGraph( { topology: 'demo', partition: 0 } );
 			act( () => lastConnector.emitConnected( 4242 ) );
+			// First tick after subscriber registration cold-fires every
+			// throttled subscriber (their lastFired=0); drain past it before
+			// asserting throttle behavior.
+			act( () => jest.advanceTimersByTime( 1000 ) );
 			calls.length = 0;
-			// One 1s tick (well short of the 5s uptime cadence).
+			// Second 1s tick — well short of the 5s uptime cadence.
 			act( () => jest.advanceTimersByTime( 1000 ) );
 			expect( calls ).toHaveLength( 1 );
 			const verbs = verbsIn( calls[ 0 ] );
