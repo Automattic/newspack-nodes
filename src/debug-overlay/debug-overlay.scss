@@ -7,12 +7,15 @@
  * repl + inspector under the shared Header.
  */
 
-// Floating action button — bottom-right, above WP admin chrome.
+// Floating action button — bottom-right, above WP admin chrome, dashboard
+// modals (@wordpress/components dialogs at ~100000), and the flame-graph
+// tooltip in newspack-event-logger-nodes (100001 !important). Six 9s leaves
+// headroom above anything reasonable a host page might raise.
 .nodes-debug__fab {
 	position: fixed;
 	right: 24px;
 	bottom: 24px;
-	z-index: 99999;
+	z-index: 999999;
 	width: 48px;
 	height: 48px;
 	border-radius: 50%;
@@ -41,7 +44,8 @@
 	// left/top/width/height come from useDebugFrame as inline styles so the
 	// panel can be dragged + resized; the right/bottom-anchored defaults the
 	// hook initializes on first mount sit it in the bottom-right corner.
-	z-index: 99998;
+	// One below the FAB; both above dashboard modals + flame tooltip.
+	z-index: 999998;
 	background: #f0e7d6;
 	border: 1px solid #18222e;
 	box-shadow: 0 8px 40px rgba(0, 0, 0, 0.45);
