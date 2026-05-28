@@ -6,6 +6,7 @@ import {
 	KEY,
 	VALUE,
 	TM_INFO,
+	TM_COMMAND,
 	newMessage,
 	valueSize,
 } from './message';
@@ -166,6 +167,23 @@ export class Node {
 	setState( event, payload = null ) {
 		this.setStateCache[ event ] = payload;
 		this.notify( event, payload );
+	}
+
+	/**
+	 * Build a TM_COMMAND message envelope. Mirrors Tachikoma::Node::command —
+	 * available on every Node so Shell.sendCommand and overlay callers can
+	 * issue commands without hand-building messages.
+	 *
+	 * @param {string} name      Command verb (e.g. 'connect_node').
+	 * @param {string} args      Positional argument string.
+	 * @param {*}      [payload] Optional by-name payload.
+	 * @return {Array} A TM_COMMAND Message (the 7-field positional array).
+	 */
+	command( name, args = '', payload = null ) {
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ VALUE ] = { name, arguments: args, payload };
+		return m;
 	}
 
 	// Clear target (matches PHP Node::disconnect_node). Tee overrides to prune
