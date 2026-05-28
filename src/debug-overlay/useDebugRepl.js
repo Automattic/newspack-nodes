@@ -7,7 +7,7 @@ import {
 } from '@wordpress/element';
 import { Core } from '../runtime/core';
 import { splitStatements } from '../topology-console/nodes/shell';
-import { Dumper } from '../topology-console/nodes/dumper';
+import { Dumper } from '../runtime/dumper';
 import { LOCAL, FROM, TO } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 

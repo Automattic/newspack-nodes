@@ -15,7 +15,7 @@ import {
 	buildDebugHeader1,
 	buildDebugHeader2,
 } from '../dumper';
-import { Node } from '../../../runtime/node';
+import { Node } from '../node';
 import {
 	newMessage,
 	TYPE,
@@ -33,7 +33,7 @@ import {
 	TM_PING,
 	TM_RESPONSE,
 	TM_STRUCT,
-} from '../../../runtime/message';
+} from '../message';
 
 // Build a positional Message with the given type/value (+ optional from).
 function msg( type, value, from = 'worker' ) {
