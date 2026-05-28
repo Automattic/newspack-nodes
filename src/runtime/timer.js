@@ -10,7 +10,9 @@ export class Timer extends Node {
 		super();
 		this.fireCb = () => {};
 		this._handle = null;
-		this._intervalMs = 0;
+		// Predeclared so the Tachikoma schema setter walker (gated on
+		// `name in this`) actually assigns it from `arguments=`.
+		this.interval_ms = 0;
 	}
 
 	static nodeSchema() {
@@ -47,7 +49,7 @@ export class Timer extends Node {
 
 	setInterval( ms ) {
 		this.stop();
-		this._intervalMs = ms;
+		this.interval_ms = ms;
 		this._handle = setInterval( () => this.fireCb(), ms );
 	}
 
