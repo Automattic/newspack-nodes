@@ -20,9 +20,38 @@ class LogTest extends TestCase {
 		parent::tearDown();
 	}
 
+	/**
+	 * Tachikoma-parity constructible: no-arg ctor + arguments() setter walks
+	 * the node_schema and assigns filename / mode / max_size / max_rotations.
+	 * Defaults: mode='append', max_size=0, max_rotations=0.
+	 */
+	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log overwrite 1024 3" );
+		$ref = new \ReflectionClass( $log );
+		$this->assertSame( "{$this->tmp}/out.log", $ref->getProperty( 'filename' )->getValue( $log ) );
+		$this->assertSame( 'overwrite',            $ref->getProperty( 'mode' )->getValue( $log ) );
+		$this->assertSame( 1024,                   $ref->getProperty( 'max_size' )->getValue( $log ) );
+		$this->assertSame( 3,                      $ref->getProperty( 'max_rotations' )->getValue( $log ) );
+		// File handle opens immediately so the first fill() lands without delay.
+		$this->assertTrue( \is_resource( $ref->getProperty( 'fh' )->getValue( $log ) ) );
+		$log->remove_node();
+	}
+
+	public function test_arguments_setter_applies_schema_defaults_for_missing_optional_tokens(): void {
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log" );
+		$ref = new \ReflectionClass( $log );
+		$this->assertSame( Log_Node::MODE_APPEND, $ref->getProperty( 'mode' )->getValue( $log ) );
+		$this->assertSame( 0,                     $ref->getProperty( 'max_size' )->getValue( $log ) );
+		$this->assertSame( 0,                     $ref->getProperty( 'max_rotations' )->getValue( $log ) );
+		$log->remove_node();
+	}
+
 	public function test_fill_appends_value_to_file(): void {
 		// Plain TM_BYTESTREAM: fill writes VALUE to the configured file.
-		$log = new Log_Node( "{$this->tmp}/out.log" );
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log" );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -38,7 +67,8 @@ class LogTest extends TestCase {
 		// (mkdir -p) so the first write lands — not silently dropped on a failed
 		// fopen until someone hand-creates the dir.
 		$path = "{$this->tmp}/nested/sub/out.log";
-		$log  = new Log_Node( $path );
+		$log  = new Log_Node();
+		$log->arguments( "{$path}" );
 		$msg  = $this->bytestream( "x\n" );
 		$log->fill( $msg );
 		$log->remove_node();
@@ -49,7 +79,8 @@ class LogTest extends TestCase {
 
 	public function test_fill_accumulates_multiple_values(): void {
 		// Subsequent fills append, not overwrite.
-		$log   = new Log_Node( "{$this->tmp}/out.log" );
+		$log   = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log" );
 		$one   = $this->bytestream( "first\n" );
 		$two   = $this->bytestream( "second\n" );
 		$log->fill( $one );
@@ -63,7 +94,8 @@ class LogTest extends TestCase {
 		// EOF is a producer-shutdown signal; an append-mode log expects MORE
 		// data later (e.g., a daily log file shared across processes), so it
 		// must NOT close the file or remove the node.
-		$log = new Log_Node( "{$this->tmp}/out.log" );
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log" );
 		$one = $this->bytestream( "before-eof\n" );
 		$log->fill( $one );
 
@@ -86,7 +118,8 @@ class LogTest extends TestCase {
 		// Overwrite mode is single-shot (e.g., capture one report to a file).
 		// EOF marks "producer is done" — close the file via remove_node so
 		// the FD doesn't linger past the capture.
-		$log = new Log_Node( "{$this->tmp}/out.log", 'overwrite' );
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log overwrite" );
 		$log->name( 'mylog' );
 		$one = $this->bytestream( "single shot\n" );
 		$log->fill( $one );
@@ -105,7 +138,8 @@ class LogTest extends TestCase {
 		// second triggers a rotate. Cumulative bytes track *total ever
 		// written through this node*; once it crosses the threshold,
 		// rotate() fires and the size counter resets.
-		$log = new Log_Node( "{$this->tmp}/out.log", Log_Node::MODE_APPEND, 10 );
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log append 10" );
 
 		// 11 bytes — already over threshold but rotate fires *after* the
 		// write so the bytes are preserved in the rotated file.
@@ -138,7 +172,8 @@ class LogTest extends TestCase {
 		\file_put_contents( "{$this->tmp}/out.log-old3", 'old3' );
 		\touch( "{$this->tmp}/out.log-old3", 3000 );
 
-		$log = new Log_Node( "{$this->tmp}/out.log", Log_Node::MODE_APPEND, 0, 2 );
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log append 0 2" );
 		$log->rotate();
 		$log->remove_node();
 
@@ -157,7 +192,8 @@ class LogTest extends TestCase {
 	public function test_max_rotations_zero_keeps_all_rotated_files(): void {
 		// Default / 0 = unlimited (matches Tachikoma's behavior — leave
 		// cleanup to the operator).
-		$log = new Log_Node( "{$this->tmp}/out.log", Log_Node::MODE_APPEND, 0, 0 );
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log append 0 0" );
 		$log->rotate();
 		$log->rotate();
 		$log->rotate();
@@ -172,7 +208,8 @@ class LogTest extends TestCase {
 		\file_put_contents( "{$this->tmp}/out.log-b", 'b' );
 		\file_put_contents( "{$this->tmp}/out.log-c", 'c' );
 
-		$log = new Log_Node( "{$this->tmp}/out.log", Log_Node::MODE_APPEND, 0, 10 );
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log append 0 10" );
 		$log->rotate();
 		$log->remove_node();
 
@@ -182,7 +219,8 @@ class LogTest extends TestCase {
 	public function test_max_size_zero_disables_auto_rotation(): void {
 		// Zero / unset max_size means "never auto-rotate" — operator must
 		// drive rotation explicitly via TM_REQUEST.
-		$log = new Log_Node( "{$this->tmp}/out.log", Log_Node::MODE_APPEND, 0 );
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log append 0" );
 		$xs  = $this->bytestream( \str_repeat( 'x', 1000 ) );
 		$ys  = $this->bytestream( \str_repeat( 'y', 1000 ) );
 		$log->fill( $xs );
@@ -199,7 +237,8 @@ class LogTest extends TestCase {
 		// nightly via a Scheduler node). Renames the current file and opens
 		// a fresh one with the same path. Subsequent writes land in the new
 		// file; the old file keeps its bytes intact under the new name.
-		$log = new Log_Node( "{$this->tmp}/out.log" );
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log" );
 		$one = $this->bytestream( "before-rotate\n" );
 		$log->fill( $one );
 
@@ -224,7 +263,8 @@ class LogTest extends TestCase {
 	public function test_TM_ERROR_is_dropped(): void {
 		// Error messages are control plane, not data — must not pollute the
 		// log file with caller-side error text. Mirrors Tachikoma Log.pm:69.
-		$log                 = new Log_Node( "{$this->tmp}/out.log" );
+		$log                 = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log" );
 		$msg                 = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_ERROR;
 		$msg[ Message::VALUE ] = 'this should NOT land in the log';
@@ -306,7 +346,8 @@ class LogTest extends TestCase {
 		// in the constructor so Node::dump_config emits a `make_node Log
 		// <name> <filename> <mode> <max_size>` line that re-creates this
 		// instance verbatim.
-		$log = new Log_Node( "{$this->tmp}/out.log", Log_Node::MODE_OVERWRITE, 4096 );
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log overwrite 4096" );
 		$log->name( 'mylog' );
 
 		$out = $log->dump_config();

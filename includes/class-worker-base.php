@@ -208,7 +208,8 @@ class Worker_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $input_dir, 0755, true );
 		}
-		$consumer = new Consumer_Node( $input_dir, 0, "{$ipc_dir}/input.offsets" );
+		$consumer = new Consumer_Node();
+		$consumer->arguments( "{$input_dir} 0 {$ipc_dir}/input.offsets" );
 		if ( ! $consumer->has_checkpoint() ) {
 			$consumer->next_offset( 'end' );
 		}

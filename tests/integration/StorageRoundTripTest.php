@@ -24,7 +24,8 @@ class StorageRoundTripTest extends TestCase {
 
 	public function test_topic_fill_then_consumer_read_with_restart_replay(): void {
 		// Topic with 4 partitions.
-		$topic = new Topic_Node( "{$this->tmp}/firehose.log", 4 );
+		$topic = new Topic_Node();
+		$topic->arguments( "{$this->tmp}/firehose.log 4" );
 
 		// Two fills with the same KEY land in the same partition.
 		$this->produce_into( $topic, '{"k":"start","id":1}', '/url1'  );
@@ -34,7 +35,8 @@ class StorageRoundTripTest extends TestCase {
 		$pid = Partition_Node::hash_to_partition( '/url1', 4 );
 
 		// Consumer reads that partition.
-		$c1   = new Consumer_Node( "{$this->tmp}/firehose.log", $pid, "{$this->tmp}/offsets/reader/p{$pid}" );
+		$c1   = new Consumer_Node();
+		$c1->arguments( "{$this->tmp}/firehose.log {$pid} {$this->tmp}/offsets/reader/p{$pid}" );
 		$cap1 = new Capture_Sink_Node();
 		$c1->sink( $cap1 );
 		$c1->poll();
@@ -47,7 +49,8 @@ class StorageRoundTripTest extends TestCase {
 
 		unset( $c1 );
 
-		$c2   = new Consumer_Node( "{$this->tmp}/firehose.log", $pid, "{$this->tmp}/offsets/reader/p{$pid}" );
+		$c2   = new Consumer_Node();
+		$c2->arguments( "{$this->tmp}/firehose.log {$pid} {$this->tmp}/offsets/reader/p{$pid}" );
 		$cap2 = new Capture_Sink_Node();
 		$c2->sink( $cap2 );
 		$c2->poll();

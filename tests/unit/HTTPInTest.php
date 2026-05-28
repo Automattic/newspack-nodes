@@ -465,7 +465,8 @@ class HTTPInTest extends TestCase {
 		// manually before reading via Consumer.
 		$worker_partition->flush();
 
-		$consumer = new Consumer_Node( $input_dir, 0, '' );
+		$consumer = new Consumer_Node();
+		$consumer->arguments( "{$input_dir} 0 " );
 		$consumer->next_offset( 'start' );
 		$consumer->sink( $got = new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$consumer->poll();

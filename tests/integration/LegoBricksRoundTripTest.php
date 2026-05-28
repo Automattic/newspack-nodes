@@ -23,7 +23,8 @@ class LegoBricksRoundTripTest extends TestCase {
 		$tee->name( 'fanout' );
 		$tee->sink( $router );
 
-		$hook = new Hook_Node( 'newspack_nodes/test_event' );
+		$hook = new Hook_Node();
+		$hook->arguments( 'newspack_nodes/test_event' );
 		$hook->name( 'on-event' );
 		$hook_sink = new Capture_Sink_Node();
 		$hook->sink( $hook_sink );
