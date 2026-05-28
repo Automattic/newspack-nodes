@@ -104,10 +104,38 @@ export default function DebugOverlay( {
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 	}, [ shell ] );
 	const { graph, handlers } = useDebugGraph( enabled && open, shell );
-	const { transcript, sendLine, clear } = useDebugRepl(
+	const { transcript, sendLine, clear, cwd, setPath } = useDebugRepl(
 		enabled && open,
 		shell
 	);
+
+	// Reachable path scopes — every top-level substrate-node-name in the
+	// current Core registry that's a legitimate `cd` target (peel-and-route).
+	// Filter out internal-only names; include `''` (local root) so the user
+	// always has a way back. The menu hides when length <= 1 (Header gates it).
+	const NON_NAVIGABLE = useMemo(
+		() =>
+			new Set( [
+				names.COMMAND_INTERPRETER,
+				names.ROUTER,
+				names.CWD,
+				names.METADATA,
+				names.UPTIME,
+				names.COMPLETION,
+				names.HEARTBEAT,
+				names.OUTPUT,
+			] ),
+		[]
+	);
+	const pathOptions = useMemo( () => {
+		const opts = [ '' ];
+		for ( const { id } of graph.nodes ) {
+			if ( id.startsWith( '_' ) && ! NON_NAVIGABLE.has( id ) ) {
+				opts.push( id );
+			}
+		}
+		return opts;
+	}, [ graph.nodes, NON_NAVIGABLE ] );
 	// The overlay's palette must source from the JS-side CommandInterpreter
 	// .includeNodes (the only set make_node can instantiate in this realm),
 	// NOT the HTTP `classes.list` catalog which returns the PHP substrate's
@@ -271,8 +299,9 @@ export default function DebugOverlay( {
 								onThemeChange={ onThemeChange }
 								themes={ THEMES }
 								mode="view"
-								pathOptions={ [] }
-								path=""
+								pathOptions={ pathOptions }
+								path={ cwd }
+								onPathChange={ setPath }
 								onClose={ () => setOpen( false ) }
 							/>
 						</div>

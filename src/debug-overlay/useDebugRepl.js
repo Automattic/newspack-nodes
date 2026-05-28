@@ -6,8 +6,10 @@ import {
 	useState,
 } from '@wordpress/element';
 import { Core } from '../runtime/core';
+import { Node } from '../runtime/node';
 import { splitStatements } from '../topology-console/nodes/shell';
 import { Dumper } from '../runtime/dumper';
+import { Completion } from '../runtime/completion';
 import { LOCAL, FROM, TO } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 
@@ -33,6 +35,9 @@ export function useDebugRepl( active = true, shell ) {
 	// every append/clear re-renders the prompt subscribers. Defaults to empty so
 	// the first render before the effect runs shows a stable empty list.
 	const [ transcript, setTranscript ] = useState( EMPTY_TRANSCRIPT );
+	// cwd reflects the live Shell.path; re-rendered after every dispatch so the
+	// Header path selector + _cwd.target both follow REPL `cd` commands.
+	const [ cwd, setCwd ] = useState( '' );
 
 	useEffect( () => {
 		if ( ! active ) {
@@ -47,11 +52,23 @@ export function useDebugRepl( active = true, shell ) {
 		// Rule #2: every node sinks into the CI. The Dumper's own emissions
 		// (e.g. forwarded onward) need a CI to forward through.
 		dumper.sink = ci;
+		// Tab completion: `_completion` answers ?-suggest queries off Core.nodes.
+		const completion = new Completion();
+		completion.setName( names.COMPLETION );
+		completion.sink = ci;
+		// `_cwd` is the routing indirection — every scope-relative command's TO
+		// stamps through this node, which re-stamps the live cwd. Path menu /
+		// REPL `cd` just sets `_cwd.target`.
+		const cwdNode = new Node();
+		cwdNode.setName( names.CWD );
+		cwdNode.sink = ci;
+		cwdNode.target = shell.path;
 		// Shell is owned by DebugOverlay; we just adopt the passed-in instance
 		// (its path + sink are already configured) and store it on the ref so
 		// dispatchStatement can reach it.
 		dumperRef.current = dumper;
 		shellRef.current = shell;
+		setCwd( shell.path );
 		const listenerId = 'useDebugRepl/transcript';
 		dumper.register( 'transcript', listenerId, ( next ) => {
 			setTranscript( next || EMPTY_TRANSCRIPT );
@@ -60,6 +77,8 @@ export function useDebugRepl( active = true, shell ) {
 		return () => {
 			dumper.unregister( 'transcript', listenerId );
 			dumper.removeNode();
+			completion.removeNode();
+			cwdNode.removeNode();
 			dumperRef.current = null;
 			shellRef.current = null;
 			setTranscript( EMPTY_TRANSCRIPT );
@@ -157,12 +176,31 @@ export function useDebugRepl( active = true, shell ) {
 			for ( const stmt of splitStatements( line ) ) {
 				dispatchStatement( stmt );
 			}
+			// Pick up any shell.path change from `cd` and mirror it to _cwd.target
+			// and our reactive cwd state. (Shell.parse mutates path in place.)
+			const s = shellRef.current;
+			if ( s && s.path !== cwd ) {
+				const cwdNode = Core.node( names.CWD );
+				if ( cwdNode ) {
+					cwdNode.target = s.path;
+				}
+				setCwd( s.path );
+			}
 		},
-		[ dispatchStatement ]
+		[ dispatchStatement, cwd ]
+	);
+
+	// Programmatic path change (e.g. from the Header path menu) — equivalent
+	// to typing `cd /<path>` at the prompt.
+	const setPath = useCallback(
+		( path ) => {
+			sendLine( `cd /${ path }` );
+		},
+		[ sendLine ]
 	);
 
 	return useMemo(
-		() => ( { transcript, sendLine, append, clear } ),
-		[ transcript, sendLine, append, clear ]
+		() => ( { transcript, sendLine, append, clear, cwd, setPath } ),
+		[ transcript, sendLine, append, clear, cwd, setPath ]
 	);
 }
