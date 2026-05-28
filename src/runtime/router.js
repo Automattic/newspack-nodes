@@ -58,6 +58,12 @@ export class Router extends Node {
 		}
 	}
 
+	// Ensure the self-started setInterval doesn't leak past Core.unregisterNode.
+	removeNode() {
+		this.stopTimer();
+		super.removeNode();
+	}
+
 	// The Router has no sink: it routes by peeling TO and drops what it cannot
 	// peel (an empty or unknown head → NOT_AVAILABLE). Reject any attempt to set
 	// one; the getter always returns null. (The base constructor's `this.sink =

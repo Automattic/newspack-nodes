@@ -43,10 +43,35 @@ describe( 'Node arguments accessor', () => {
 		expect( n.flag ).toBe( false );
 	} );
 
-	it( 'empty arguments string is a no-op for assignment', () => {
+	it( 'empty arguments string leaves required fields at ctor defaults', () => {
 		const n = new TestArgsNode();
 		n.arguments = '';
 		expect( n.name_field ).toBe( '' );
+	} );
+
+	it( 'empty arguments string applies schema defaults for optional fields', () => {
+		class CustomNode extends Node {
+			constructor() {
+				super();
+				// Ctor defaults intentionally DIFFER from schema defaults so
+				// we can tell which one won.
+				this.x = 99;
+				this.y = 'ctor';
+			}
+			static nodeSchema() {
+				return {
+					arguments: [
+						{ name: 'x', type: 'int', default: 5 },
+						{ name: 'y', type: 'string', default: 'schema' },
+					],
+					commands: [],
+				};
+			}
+		}
+		const n = new CustomNode();
+		n.arguments = '';
+		expect( n.x ).toBe( 5 );
+		expect( n.y ).toBe( 'schema' );
 	} );
 
 	it( 'bool coercion accepts truthy/falsy strings', () => {

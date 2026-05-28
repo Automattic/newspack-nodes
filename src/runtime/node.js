@@ -50,10 +50,12 @@ export class Node {
 		this._arguments = args;
 		const schema = this.constructor.nodeSchema?.() || {};
 		const declared = schema.arguments || [];
-		if ( declared.length === 0 || args === '' ) {
+		if ( declared.length === 0 ) {
 			return;
 		}
-		const tokens = args.trim().split( /\s+/ );
+		// Empty args still walks declared so schema defaults are applied for
+		// optional fields. Required fields (no default) stay at ctor values.
+		const tokens = args === '' ? [] : args.trim().split( /\s+/ );
 		for ( let i = 0; i < declared.length; i++ ) {
 			const spec = declared[ i ];
 			const { name, type = 'string' } = spec;

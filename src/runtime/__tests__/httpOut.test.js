@@ -360,5 +360,23 @@ describe( 'HttpOut', () => {
 			node.fill( routed( { to: 'demo.p0' } ) );
 			expect( postBatch ).toHaveBeenCalledTimes( 1 );
 		} );
+
+		it( 'surfaces a postBatch rejection via print_less_often (no silent swallow)', async () => {
+			const node = new HttpOut();
+			node.setName( '_http' );
+			node.client = {
+				buildMessage: () => newMessage(),
+				postBatch: () =>
+					Promise.reject( new Error( 'boom 502 from /command' ) ),
+			};
+			const spy = jest
+				.spyOn( node, 'print_less_often' )
+				.mockImplementation( () => {} );
+			node.fill( routed( { to: 'demo.p0' } ) );
+			await new Promise( ( r ) => setTimeout( r, 0 ) );
+			expect( spy ).toHaveBeenCalled();
+			expect( spy.mock.calls[ 0 ][ 0 ] ).toMatch( /boom 502/ );
+			spy.mockRestore();
+		} );
 	} );
 } );
