@@ -34,10 +34,16 @@ class Consumer_Node extends Timer_Node {
 	protected int $checkpoint_seg = -1;
 	protected int $checkpoint_off = -1;
 
-	protected string $source_base_dir;
-	protected int $source_partition;
-	protected string $offsetlog_dir;
-	protected Partition_Node $source;
+	protected string $source_base_dir = '';
+	protected int $source_partition   = 0;
+	/**
+	 * Raw token written by the base schema walker — kept as documentation
+	 * of the input shape. The override normalizes it (rtrim '/') into the
+	 * derived $offsetlog_dir below.
+	 */
+	protected string $offsetlog_base_dir = '';
+	protected string $offsetlog_dir      = '';
+	protected ?Partition_Node $source    = null;
 	/** Null when constructed with empty $offsetlog_base_dir (ephemeral readers skip durable cursors). */
 	protected ?Partition_Node $offsetlog = null;
 
@@ -59,19 +65,36 @@ class Consumer_Node extends Timer_Node {
 	private int $last_caught_up_emit = -1;
 
 	/**
-	 * @param string $source_base_dir    Source partition's base dir.
-	 * @param int    $source_partition   Partition index within source.
-	 * @param string $offsetlog_base_dir Cursor checkpoint dir; '' skips the offsetlog entirely.
+	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
+	 * which the base setter parses against `node_schema()['arguments']`. The
+	 * override below normalizes the assigned values and materializes the
+	 * source / offsetlog Partitions + seeds the cursor from disk.
 	 */
-	public function __construct(
-		string $source_base_dir,
-		int $source_partition,
-		string $offsetlog_base_dir = ''
-	) {
+	public function __construct() {
 		parent::__construct();
-		$this->source_base_dir  = \rtrim( $source_base_dir, '/' );
-		$this->source_partition = $source_partition;
-		$this->offsetlog_dir    = \rtrim( $offsetlog_base_dir, '/' );
+	}
+
+	/**
+	 * Setter chains through the base schema walker (which assigns
+	 * source_base_dir / source_partition / offsetlog_base_dir from positional
+	 * tokens or schema defaults), then normalizes the assigned values, derives
+	 * the final offsetlog_dir, materializes the source / offsetlog Partitions
+	 * and seeds the in-memory cursor from any existing offsetlog entries.
+	 *
+	 * @param string|null $args
+	 * @return string
+	 */
+	public function arguments( ?string $args = null ): string {
+		if ( null === $args ) {
+			return parent::arguments();
+		}
+		$result = parent::arguments( $args );
+		// Empty-string args mirrors the base setter's no-op (no schema walk).
+		if ( '' === $args ) {
+			return $result;
+		}
+		$this->source_base_dir = \rtrim( $this->source_base_dir, '/' );
+		$this->offsetlog_dir   = \rtrim( $this->offsetlog_base_dir, '/' );
 
 		$this->source = new Partition_Node();
 		$this->source->arguments( "{$this->source_base_dir} {$this->source_partition}" );
@@ -80,11 +103,13 @@ class Consumer_Node extends Timer_Node {
 			$this->offsetlog = new Partition_Node();
 			$this->offsetlog->arguments( "{$this->offsetlog_dir} 0 " . self::DEFAULT_OFFSETLOG_SEGMENT_SIZE );
 			$this->load_offsetlog();
+		} else {
+			$this->offsetlog = null;
 		}
 
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
 
-		$this->arguments = "{$this->source_base_dir} {$this->source_partition} {$this->offsetlog_dir}";
+		return $result;
 	}
 
 	/** Override the FROM-stamp used when emitting messages; '' falls back to $this->name. */
@@ -639,7 +664,7 @@ class Consumer_Node extends Timer_Node {
 			'description' => 'Tails a Partition; emits each appended message to its sink.',
 			'arguments'        => [
 				[ 'name' => 'source_base_dir',    'type' => 'string', 'required' => true ],
-				[ 'name' => 'source_partition',   'type' => 'int',    'required' => true, 'default' => '<partition>' ],
+				[ 'name' => 'source_partition',   'type' => 'int',    'required' => true ],
 				[ 'name' => 'offsetlog_base_dir', 'type' => 'string', 'default' => '' ],
 			],
 			'requests'    => [

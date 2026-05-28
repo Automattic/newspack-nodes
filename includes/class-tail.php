@@ -21,25 +21,42 @@ class Tail_Node extends Timer_Node {
 	/** Re-arm interval when the file has unread bytes. 0 = next event-loop iteration. */
 	public const POLL_INTERVAL_BUSY_MS = 0;
 
-	private string $filename;
-	private string $buffer_mode;
-	private int $position = 0;
-	private ?int $inode = null;
+	protected string $filename     = '';
+	protected string $buffer_mode  = 'line-buffered';
+	private int $position          = 0;
+	private ?int $inode            = null;
 	private string $line_remainder = '';
 
 	/** True once the last poll consumed everything available. */
 	protected bool $at_eof = true;
 
-	public function __construct( string $filename, string $buffer_mode = 'line-buffered' ) {
+	/**
+	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
+	 * which the base setter parses against `node_schema()['arguments']`. The
+	 * override below kicks off the EOF-cadence poll timer.
+	 */
+	public function __construct() {
 		parent::__construct();
-		$this->filename    = $filename;
-		$this->buffer_mode = $buffer_mode;
+	}
 
+	/**
+	 * Setter chains through the base schema walker (which assigns filename /
+	 * buffer_mode from positional tokens), then arms the poll timer.
+	 *
+	 * @param string|null $args
+	 * @return string
+	 */
+	public function arguments( ?string $args = null ): string {
+		if ( null === $args ) {
+			return parent::arguments();
+		}
+		$result = parent::arguments( $args );
+		if ( '' === $args ) {
+			return $result;
+		}
 		// fire() re-arms with set_timer(0)/(100) based on bytes available.
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
-
-		// Round-trip ctor args via Node::$arguments for dump_config.
-		$this->arguments = "{$this->filename} {$this->buffer_mode}";
+		return $result;
 	}
 
 	public function poll(): void {

@@ -151,7 +151,8 @@ class CLI_Command {
 			$shell->path = $worker_id;
 
 			// reply-in: ephemeral, so empty offsetlog_base_dir (no durable cursor).
-			$reply_in = new Consumer_Node( $ipc['output'], 0 );
+			$reply_in = new Consumer_Node();
+			$reply_in->arguments( "{$ipc['output']} 0" );
 			$reply_in->next_offset( 'end' );
 			$reply_in->sink( $router );
 			$reply_in->target( Node_Names::OUTPUT );
