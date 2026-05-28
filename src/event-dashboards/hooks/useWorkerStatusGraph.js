@@ -1,37 +1,44 @@
 /* global localStorage */
+/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
- * useWorkerStatusGraph — mounts the Worker Status dashboard node graph clipped
- * onto the exospine (the canonical rule-#2 backbone `_command_interpreter →
- * _router`). On mount it builds three nodes — `workerstatus:poll` (dump_metadata
- * transport), `workerstatus:transform` (snapshot → enriched render model),
- * `workerstatus:view` (the view model React reads). EVERY node sinks into the CI;
- * flow is steered ONLY by each node's `target` (the router peels TO and delivers):
- * the poll targets the transform, the transform targets the view. There is no
- * bespoke `poll.sink=transform` wiring. It fires one immediate `poll()`. The view
- * publishes its state via `setState('view', …)`; the React view reads it
- * separately with `useNodeState('workerstatus:view','view')`.
+ * useWorkerStatusGraph — mounts the Worker Status dashboard graph clipped onto
+ * the canonical rule-#2 backbone (`_command_interpreter → _router`) using the
+ * substrate's `_http` I/O boundary node, plus the application's transform +
+ * view-model nodes:
  *
- * The hook OWNS the poll interval: a setInterval at the current refresh ms that
- * fires `poll.poll()`, running only while the page is visible (Worker Status has
- * NO SSE — the live data is the repeated poll). It pauses/resumes when the
- * interval changes or visibility flips, and clears on unmount. This mirrors how
- * Raw Logs' hook owned the list_logs fire while the node owned transport.
+ *   _http                   (HttpOut — POST /command boundary; .client = CommandClient)
+ *   workerstatus:transform  (snapshot → enriched render model)
+ *   workerstatus:view       (the view-model node React reads + pending-Promise registry)
  *
- * Returns the thin control callbacks the view calls — `restart` (→ poll.restart),
- * `setRefreshInterval` (persists to localStorage + re-times the interval), and
- * the current `refreshMs`. Torn down on unmount: the interval is cleared, the
- * poll + view nodes are closed (cancel any in-flight poll / pending slide-out
- * timer), then the three graph nodes are unregistered, then the exospine.
+ * EVERY node sinks into the CI; flow is steered ONLY by each node's `target`.
+ * The bespoke `workerstatus:poll` Node is gone — `_http` owns the network call.
  *
- * The command boundary is injectable: tests pass `opts.commandClient` (threaded
- * to the poll node) so the hook never touches the network. Production lazily
- * defaults to the shared CommandClient singleton inside the poll node.
+ * The hook OWNS the poll interval: a setInterval at the current refresh ms
+ * fires a TM_COMMAND for `dump_metadata` (FROM=`workerstatus:transform` so the
+ * reply pivot lands at the transform, which computes the model and emits it to
+ * the view). Running only while the page is visible. `restart(type)` builds a
+ * TM_COMMAND with FROM=`workerstatus:view` so the reply lands at the view and
+ * settles the Promise via the canonical pending-Map gating.
+ *
+ * The command boundary is injectable: tests pass `opts.commandClient` assigned
+ * to `_http.client` so the hook never touches the network. Production lazily
+ * defaults to the shared CommandClient singleton.
  */
 
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
-import { createWorkerStatusPoll } from '../nodes/workerStatusPoll';
+import { HttpOut } from '../../runtime/httpOut';
+import { CommandClient } from '../../runtime/command_client';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	TO,
+	ID,
+	VALUE,
+	TM_COMMAND,
+} from '../../runtime/message';
 import { createWorkerStatusTransform } from '../nodes/workerStatusTransform';
 import { createWorkerStatusView } from '../nodes/workerStatusView';
 import usePageVisibility from '../../shared/hooks/usePageVisibility';
@@ -47,12 +54,40 @@ export const REFRESH_OPTIONS = [
 const REFRESH_KEY = 'newspack-nodes-worker-refresh';
 const LEGACY_REFRESH_KEY = 'newspack-event-logger-nodes-worker-refresh';
 
-// Every named node this graph mounts — unregistered on teardown (the exospine
-// nodes are removed separately by its own teardown()).
-const POLL = 'workerstatus:poll';
+const HTTP = '_http';
 const TRANSFORM = 'workerstatus:transform';
 const VIEW = 'workerstatus:view';
-const GRAPH_NODE_NAMES = [ POLL, TRANSFORM, VIEW ];
+const GRAPH_NODE_NAMES = [ HTTP, TRANSFORM, VIEW ];
+
+// Monotonic per-hook-instance ID counter — message[ID] is what the view uses
+// to match a reply back to a pending Promise resolver.
+let nextOpId = 0;
+function makeOpId() {
+	nextOpId += 1;
+	return `workerstatus-op-${ Date.now() }-${ nextOpId }`;
+}
+
+/**
+ * Build a TM_COMMAND addressed at the `workers` CI: TO=`_http/workers` so the
+ * router peels `_http` and HttpOut POSTs the bare command. `from` is the reply
+ * pivot — `workerstatus:transform` for dump_metadata (reply computes the
+ * model), `workerstatus:view` for restart (reply settles a pending Promise).
+ *
+ * @param {string} verb    Verb name.
+ * @param {*}      payload Verb payload.
+ * @param {string} from    Reply-pivot FROM (which node the reply lands at).
+ * @param {string} id      Correlator stamped into message[ID].
+ * @return {Array} A 7-field positional Message.
+ */
+function buildCommand( verb, payload, from, id ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ FROM ] = from;
+	m[ TO ] = `${ HTTP }/workers`;
+	m[ ID ] = id;
+	m[ VALUE ] = { name: verb, arguments: '', payload };
+	return m;
+}
 
 /**
  * Resolve the initial refresh interval, migrating the legacy localStorage key.
@@ -79,73 +114,71 @@ export function initialRefresh( defaultMs ) {
 
 /**
  * @param {Object} [opts]               Options (testing seams).
- * @param {Object} [opts.commandClient] Command-client seam threaded to the poll
- *                                      node; defaults to the shared singleton.
+ * @param {Object} [opts.commandClient] CommandClient seam assigned to `_http.client`;
+ *                                      defaults to a freshly-constructed CommandClient.
  * @param {number} [opts.refreshMs]     Fallback interval if nothing is persisted.
  * @return {{ restart: Function, setRefreshInterval: Function, refreshMs: string }}
  *   Control callbacks for the thin React view (the model is read via useNodeState).
  */
 export function useWorkerStatusGraph( opts = {} ) {
-	const { commandClient, refreshMs = 2000 } = opts;
+	const { refreshMs = 2000 } = opts;
+	const optsRef = useRef( opts );
+	optsRef.current = opts;
 
 	// The persisted refresh interval (string ms); seeds from localStorage.
 	const [ refreshInterval, setRefreshIntervalState ] = useState( () =>
 		initialRefresh( refreshMs )
 	);
 
-	// Stash the latest command client so the mount effect reads it without
-	// re-subscribing (it only runs once).
-	const commandClientRef = useRef( commandClient );
-	commandClientRef.current = commandClient;
-
-	// Live poll-node handle for the interval effect + control callbacks.
-	const pollRef = useRef( null );
+	// Live CI handle for the interval effect + control callbacks.
+	const ciRef = useRef( null );
 	const isPageVisible = usePageVisibility();
 
-	// Flipped true once the graph (and its view node) is mounted. The mount
-	// effect runs AFTER the first render, by which point useNodeState has already
-	// captured a null view node and bailed; setting this state forces the
-	// consumer to re-render so useNodeState re-subscribes to the now-registered
-	// view node and reads the published model. Without it the dashboard stays
-	// stuck on the loading placeholder (Worker Status has no rAF to mask the
-	// gap, unlike Raw Logs). Mirrors useConsoleGraph's setShell re-render.
+	// Flipped true once the graph (and its view node) is mounted, so the
+	// consumer's useNodeState re-subscribes to the now-registered view node.
 	const [ , setViewReady ] = useState( false );
 
 	// Mount the graph once: clip it onto the exospine, then fire one immediate poll.
 	useEffect( () => {
+		const data =
+			( typeof window !== 'undefined' && window.NewspackNodesData ) || {};
+
 		// The canonical backbone every node clips onto: everything → CI → router.
 		const { ci, teardown: teardownSpine } = mountExospine();
 
-		const poll = createWorkerStatusPoll( POLL, {
-			commandClient: commandClientRef.current,
-		} );
+		// I/O boundary — the substrate's HttpOut.
+		const http = new HttpOut();
+		http.client =
+			optsRef.current.commandClient ||
+			new CommandClient( {
+				baseUrl: data.restUrl || '/wp-json/',
+				nonce: data.nonce || '',
+			} );
+		http.setName( HTTP );
+		http.sink = ci;
+
+		// Application chain.
 		const transform = createWorkerStatusTransform( TRANSFORM );
 		const view = createWorkerStatusView( VIEW );
-
-		// Rule #2: every node sinks into the CI; flow is steered by `target`.
-		poll.sink = ci;
-		poll.target = TRANSFORM;
 		transform.sink = ci;
 		transform.target = VIEW;
 		view.sink = ci;
-		pollRef.current = poll;
+
+		ciRef.current = ci;
 
 		// Re-render so useNodeState re-subscribes to the freshly-mounted view node.
 		setViewReady( true );
-		poll.poll();
+
+		// Fire one immediate dump_metadata (the canonical mount-time poll).
+		ci.fill( buildCommand( 'dump_metadata', null, TRANSFORM, makeOpId() ) );
 
 		return () => {
-			// Close the I/O + timer-owning nodes first (poll's in-flight cancel
-			// guard, view's slide-out timer) BEFORE unregistering — mirrors
-			// useRawLogsGraph calling stream.close() before unregister.
-			poll.close();
 			view.close();
 			for ( const name of GRAPH_NODE_NAMES ) {
 				Core.unregisterNode( name );
 			}
 			teardownSpine();
-			pollRef.current = null;
-			setViewReady( false );
+			ciRef.current = null;
 		};
 	}, [] );
 
@@ -162,25 +195,47 @@ export function useWorkerStatusGraph( opts = {} ) {
 		}
 		const intervalMs = parseInt( refreshInterval, 10 );
 		const id = setInterval( () => {
-			if ( pollRef.current ) {
-				pollRef.current.poll();
+			const ci = ciRef.current;
+			if ( ! ci ) {
+				return;
 			}
+			ci.fill(
+				buildCommand( 'dump_metadata', null, TRANSFORM, makeOpId() )
+			);
 		}, intervalMs );
 		return () => clearInterval( id );
 	}, [ refreshInterval, isPageVisible ] );
 
-	// Request a graceful restart for a worker type (or 'supervisor').
-	const restart = ( type ) => {
-		if ( pollRef.current ) {
-			return pollRef.current.restart( type );
+	// Request a graceful restart for a worker type. Returns a Promise the view
+	// settles via the pending-Map (resolve on success, reject on TM_ERROR).
+	const restart = useCallback( ( type ) => {
+		const ci = ciRef.current;
+		if ( ! ci ) {
+			return Promise.reject( new Error( 'graph not mounted' ) );
 		}
-		return undefined;
-	};
+		const view = Core.node( VIEW );
+		if ( ! view ) {
+			return Promise.reject( new Error( 'view not mounted' ) );
+		}
+		const id = makeOpId();
+		const promise = new Promise( ( resolve, reject ) => {
+			view.pending.set( id, { resolve, reject } );
+		} );
+		ci.fill(
+			buildCommand(
+				'restart',
+				{ types: [ type ], partition: -1 },
+				VIEW,
+				id
+			)
+		);
+		return promise;
+	}, [] );
 
 	// Change + persist the refresh interval; the interval effect re-times.
-	const setRefreshInterval = ( value ) => {
+	const setRefreshInterval = useCallback( ( value ) => {
 		setRefreshIntervalState( value );
-	};
+	}, [] );
 
 	return { restart, setRefreshInterval, refreshMs: refreshInterval };
 }

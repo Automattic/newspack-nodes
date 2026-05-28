@@ -1,25 +1,36 @@
+/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 import { Node } from '../../runtime/node';
-import { VALUE, TO, TYPE, TM_STRUCT, newMessage } from '../../runtime/message';
+import {
+	VALUE,
+	TO,
+	TYPE,
+	TM_STRUCT,
+	TM_ERROR,
+	newMessage,
+} from '../../runtime/message';
 
 /**
- * `workerstatus:transform` — turn a `dump_metadata` snapshot into the enriched
+ * `workerstatus:transform` — turn a `dump_metadata` reply into the enriched
  * render model.
+ *
+ * Post-migration to substrate `_http`, the transform receives the reply
+ * directly from HttpOut (TO=transform, FROM=workers): VALUE = `{ name, payload }`
+ * where `payload` is the workers/logs metadata snapshot. Anything other than a
+ * `dump_metadata` reply is ignored — the view is the receiver for restart /
+ * error replies (FROM=view).
  *
  * Stateful: it holds the PREVIOUS snapshot's per-worker positions, per-log
  * total sizes, segment ids/data, and a last-receive time on the node instance.
- * On each `{ action:'metadata', metadata }` it computes the delta vs that
- * previous snapshot (read rate per worker, write rate per log, segment add /
- * remove) using `Date.now()` for the time delta — exactly the math the old
+ * On each dump_metadata reply it computes the delta vs that previous snapshot
+ * (read rate per worker, write rate per log, segment add/remove) using
+ * `Date.now()` for the time delta — exactly the math the old
  * `WorkerStatus.fetchWorkers` ran against its refs — then emits
- * `{ action:'model', model }` to its sink.
+ * `{ action:'model', model }` to its sink, stamped TO=target (→ view).
  *
  * The model's `prevSegments` is the PRIOR snapshot's segment ids (so the render
  * path can flag genuinely-new segments for the slide-in animation); the node's
  * own `_prevSegments` is advanced synchronously for the NEXT delta. Across the
  * 1s–10s poll cadence this matches the old 500ms-delayed ref update.
- *
- * Any non-`metadata` control (e.g. `{ action:'error' }` from the poll node) is
- * forwarded straight through to the sink unchanged.
  */
 class WorkerStatusTransformNode extends Node {
 	constructor() {
@@ -38,19 +49,27 @@ class WorkerStatusTransformNode extends Node {
 
 	fill( message ) {
 		const value = message[ VALUE ];
-		if ( ! value || ! value.action ) {
+		if ( ! value || 'object' !== typeof value ) {
 			return;
 		}
-		if ( 'metadata' !== value.action ) {
-			// Control pass-through (error, etc.) — forward unchanged, but stamp
-			// TO=target so the exospine router routes it (→ view). Rule #2.
+		const type = message[ TYPE ] || 0;
+		// A TM_ERROR reply for our verb (poll failure) re-routes straight to
+		// the view — the view's un-correlated-error path surfaces the disconnect
+		// banner globally. The pending-Map path is irrelevant here (the hook
+		// doesn't stash a resolver for the fire-and-forget poll).
+		if ( 0 !== ( type & TM_ERROR ) ) {
 			if ( this.sink ) {
 				message[ TO ] = this.target;
 				this.sink.fill( message );
 			}
 			return;
 		}
-		this._emitModel( value.metadata || {} );
+		// Only act on dump_metadata replies — the view is the receiver for
+		// restart / error replies (FROM=view).
+		if ( 'dump_metadata' !== value.name ) {
+			return;
+		}
+		this._emitModel( value.payload || {} );
 	}
 
 	// Compute the enriched model from `data` (vs the held previous snapshot),

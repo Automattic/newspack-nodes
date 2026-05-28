@@ -1,46 +1,70 @@
+/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
- * useRawLogsGraph — mounts the Raw Logs dashboard node graph clipped onto the
- * exospine (the canonical rule-#2 backbone `_command_interpreter → _router`).
+ * useRawLogsGraph — mounts the Raw Logs dashboard node graph onto the canonical
+ * rule-#2 backbone (`_command_interpreter → _router`) using the substrate's
+ * I/O boundary nodes — the same ones the topology console uses:
  *
- * Graph: `rawlogs:stream` (SSE-in) → `rawlogs:route` (classifier) →
- * `rawlogs:transform` (envelope → row) and/or `rawlogs:view` (view model).
- * EVERY node sinks into the CI; flow is steered ONLY by each node's `target`
- * (the router peels TO and delivers): the stream targets the route; the route
- * stamps data → the transform and connection-status control → the view; the
- * transform targets the view. There is no bespoke `sink`/`controlSink` wiring.
+ *   _sse        (SseIn — EventSource ingress, args `'{log-key} {restUrl} {nonce}'`)
+ *   _http       (HttpOut — POST /command boundary; .client = CommandClient)
+ *   _heartbeat  (Heartbeat — slot keep-alive; target = `_http/workers`)
  *
- * On mount it fires the `list_logs` command and feeds the result into the view
- * (which defaults the selection to the first log), then subscribes the stream
- * to that log. The view publishes its state via `setState('view', …)`; the
- * React view reads it with `useNodeState('rawlogs:view','view')`.
+ * Plus the existing dashboard chain (unchanged factories, only retargeted):
  *
- * Returns the thin control callbacks the view calls — `selectLog` (clear+select
- * in the view AND re-connect the stream) and `setPaused`. Torn down on unmount:
- * the stream is closed, the graph nodes are unregistered, then the exospine.
+ *   rawlogs:route       (data → transform, control → view)
+ *   rawlogs:transform   (envelope → row, target = view)
+ *   rawlogs:view        (the view-model node React reads)
  *
- * I/O boundaries are injectable: tests pass `opts.connector` (the stream's
- * transport seam) and `opts.commandClient` (the `list_logs` sender) so the hook
- * never touches a real EventSource or the network.
+ * EVERY node sinks into the CI; flow is steered ONLY by each node's `target`.
+ * The bespoke `rawlogs:stream` Node and inlined slot-heartbeat loop are gone —
+ * `_sse` owns the EventSource, `_heartbeat` owns the slot poke.
+ *
+ * On mount the hook fires `list_logs` through `_http` to populate the dropdown,
+ * then (re)opens the EventSource against the default-selected log. `selectLog`
+ * closes the current source, reassigns `_sse.subscribe`, and reopens.
+ *
+ * The slot bridge mirrors useRequestLogGraph: a `connected`-event subscriber on
+ * `_sse` reads `payload.slot` / `.partition` and pushes them into `_heartbeat`.
  */
 
-import { useEffect, useRef } from '@wordpress/element';
+import { useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
-import { createRawLogsStream } from '../nodes/rawLogsStream';
+import { SseIn } from '../../runtime/sseIn';
+import { HttpOut } from '../../runtime/httpOut';
+import { Heartbeat } from '../../runtime/heartbeat';
+import { CommandClient } from '../../runtime/command_client';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	TO,
+	ID,
+	VALUE,
+	TM_COMMAND,
+	TM_STRUCT,
+} from '../../runtime/message';
 import { createRawLogsRoute } from '../nodes/rawLogsRoute';
 import { createRawLogsTransform } from '../nodes/rawLogsTransform';
 import { createRawLogsView } from '../nodes/rawLogsView';
-import { TYPE, VALUE, TM_STRUCT, newMessage } from '../../runtime/message';
-import { getCommandClient } from '../../shared/utils/commandClient';
-import unwrapCommandResponse from '../../shared/utils/unwrapCommandResponse';
 
-// Every named node this graph mounts — unregistered on teardown (the exospine
-// nodes are removed separately by its own teardown()).
-const STREAM = 'rawlogs:stream';
+// The I/O boundary nodes mounted from the substrate runtime.
+const SSE = '_sse';
+const HTTP = '_http';
+const HEARTBEAT = '_heartbeat';
+// The dashboard chain.
 const ROUTE = 'rawlogs:route';
 const TRANSFORM = 'rawlogs:transform';
 const VIEW = 'rawlogs:view';
-const GRAPH_NODE_NAMES = [ STREAM, ROUTE, TRANSFORM, VIEW ];
+// Every named node this graph mounts — unregistered on teardown (exospine
+// nodes are removed separately by `teardownSpine()`).
+const GRAPH_NODE_NAMES = [ SSE, HTTP, HEARTBEAT, ROUTE, TRANSFORM, VIEW ];
+
+// Monotonic per-hook-instance ID counter for the list_logs correlator.
+let nextOpId = 0;
+function makeOpId() {
+	nextOpId += 1;
+	return `rawlogs-op-${ Date.now() }-${ nextOpId }`;
+}
 
 // Build a TM_STRUCT control message the view's fill() routes on its `action`.
 const controlMsg = ( value ) => {
@@ -50,89 +74,171 @@ const controlMsg = ( value ) => {
 	return m;
 };
 
+// Build the list_logs TM_COMMAND, FROM=`rawlogs:view` so the reply lands at the
+// view (we feed it via a TM_STRUCT `{ action:'logs', logs }` control after a
+// short fill-driven hop — see the postBatch handler below).
+function buildListCommand( id ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ FROM ] = VIEW;
+	m[ TO ] = `${ HTTP }/raw-logs`;
+	m[ ID ] = id;
+	m[ VALUE ] = { name: 'list_logs', arguments: '', payload: null };
+	return m;
+}
+
 /**
  * @param {Object} [opts]               Options (testing seams).
- * @param {Object} [opts.connector]     Stream transport seam (connect/close);
- *                                      defaults to the real-EventSource connector.
- * @param {Object} [opts.commandClient] `list_logs` sender; defaults to the
- *                                      shared CommandClient singleton.
+ * @param {Object} [opts.commandClient] CommandClient seam assigned to `_http.client`;
+ *                                      defaults to a freshly-constructed CommandClient.
  * @return {{ selectLog: Function, setPaused: Function }} Control callbacks for
  *   the thin React view (the view's own state is read via useNodeState).
  */
 export function useRawLogsGraph( opts = {} ) {
-	// Stash the latest opts so the effect reads them without re-subscribing.
 	const optsRef = useRef( opts );
 	optsRef.current = opts;
 
 	// Live node handles for the control callbacks (stable across renders).
-	const streamRef = useRef( null );
+	const sseRef = useRef( null );
 	const viewRef = useRef( null );
 
+	// Flipped true once the graph (and its view node) is mounted, so a consumer
+	// using useNodeState re-subscribes to the now-registered view node.
+	const [ , setViewReady ] = useState( false );
+
 	useEffect( () => {
-		const { connector, commandClient } = optsRef.current;
+		const data =
+			( typeof window !== 'undefined' && window.NewspackNodesData ) || {};
 
 		// The canonical backbone every node clips onto: everything → CI → router.
 		const { ci, teardown: teardownSpine } = mountExospine();
 
-		// Build the graph nodes (the factories register them in Core).
-		const stream = createRawLogsStream( STREAM, { connector } );
+		// I/O boundary nodes — the same ones useRequestLogGraph mounts.
+		// SseIn (SseConnector) requires baseUrl/nonce/subscribe; we assign the
+		// substrate-required fields directly instead of going through the
+		// positional `arguments=` setter, since there's no log selected yet.
+		// The list_logs reply (or selectLog) sets the real subscribe + start()s.
+		const sse = new SseIn();
+		sse.baseUrl = data.restUrl || '/wp-json/';
+		sse.nonce = data.nonce || '';
+		sse.subscribe = [];
+		sse.setName( SSE );
+		sse.sink = ci;
+		sse.target = ROUTE;
+
+		const http = new HttpOut();
+		http.client =
+			optsRef.current.commandClient ||
+			new CommandClient( {
+				baseUrl: data.restUrl || '/wp-json/',
+				nonce: data.nonce || '',
+			} );
+		http.setName( HTTP );
+		http.sink = ci;
+
+		const heartbeat = new Heartbeat();
+		heartbeat.setName( HEARTBEAT );
+		heartbeat.sink = ci;
+		// `_http/workers` — the SSE_Slot_Pool's `heartbeat` verb lives on the
+		// request-scope `workers` CI. Bypass the _sse pid-pivot: the reply is
+		// discarded by Heartbeat.fill anyway.
+		heartbeat.target = `${ HTTP }/workers`;
+
+		// Dashboard chain — unchanged factories.
 		const route = createRawLogsRoute( ROUTE, {
 			dataTarget: TRANSFORM,
 			controlTarget: VIEW,
 		} );
 		const transform = createRawLogsTransform( TRANSFORM );
 		const view = createRawLogsView( VIEW );
-
-		// Rule #2: every node sinks into the CI; flow is steered by `target`.
-		stream.sink = ci;
-		stream.target = ROUTE;
 		route.sink = ci;
 		transform.sink = ci;
 		transform.target = VIEW;
 		view.sink = ci;
 
-		streamRef.current = stream;
+		// Slot bridge: a `connected`-event subscriber on `_sse` pushes the live
+		// slot into `_heartbeat`. Mirrors useRequestLogGraph.
+		sse.register( 'connected', 'useRawLogsGraph', ( payload ) => {
+			const slot =
+				payload && Number.isInteger( payload.slot )
+					? payload.slot
+					: null;
+			const partition =
+				payload && Number.isInteger( payload.partition )
+					? payload.partition
+					: -1;
+			if ( null !== slot && slot >= 0 ) {
+				heartbeat.setSlot( slot, partition );
+			} else {
+				heartbeat.clearSlot();
+			}
+			return true;
+		} );
+
+		sseRef.current = sse;
 		viewRef.current = view;
 
-		// Fire list_logs; on reply push the logs into the view (which defaults the
-		// selection to logs[0].key) and subscribe the stream to the selected log.
-		// `cancelled` guards a reply that lands after an immediate unmount.
-		let cancelled = false;
-		const client = commandClient || getCommandClient();
-		client
-			.send( { to: 'raw-logs', verb: 'list_logs' } )
-			.then( ( message ) => {
-				if ( cancelled ) {
+		// Re-render so useNodeState re-subscribes to the freshly-mounted view node.
+		setViewReady( true );
+
+		// Fire list_logs through _http. The view receives the reply (FROM=VIEW),
+		// but only acts on TM_STRUCT controls — so we listen for the reply on
+		// the client side and feed it into the view as `{action:'logs',logs}`.
+		const listId = makeOpId();
+		const listPromise = optsRef.current.commandClient
+			? Promise.resolve( null ) // tests don't need the lazy default branch
+			: null;
+		void listPromise;
+		// Stash a resolver in the view's pending Map so the list_logs reply is
+		// captured into a Promise we can chain off.
+		const listFuture = new Promise( ( resolve, reject ) => {
+			view.pending.set( listId, { resolve, reject } );
+		} );
+		ci.fill( buildListCommand( listId ) );
+		listFuture
+			.then( ( logs ) => {
+				if ( ! Array.isArray( logs ) || 0 === logs.length ) {
 					return;
 				}
-				const logs = unwrapCommandResponse( message ) || [];
+				// Push the catalog into the view (sets the dropdown + defaults
+				// `selected` to logs[0].key).
 				view.fill( controlMsg( { action: 'logs', logs } ) );
-				const selected = view.setStateCache.view.selected;
+				const selected = view.setStateCache?.view?.selected;
 				if ( selected ) {
-					stream.subscribe( selected );
+					sse.close();
+					sse.subscribe = [ selected ];
+					sse.start();
 				}
 			} )
-			.catch( () => {} );
+			.catch( () => {
+				// list_logs failure is silent — the dropdown stays empty; the
+				// reconnect banner / per-request error surface handles the rest.
+			} );
 
 		return () => {
-			cancelled = true;
-			stream.close();
+			heartbeat.clearSlot();
+			sse.unregister( 'connected', 'useRawLogsGraph' );
+			sse.close();
 			for ( const name of GRAPH_NODE_NAMES ) {
 				Core.unregisterNode( name );
 			}
 			teardownSpine();
-			streamRef.current = null;
+			sseRef.current = null;
 			viewRef.current = null;
 		};
 	}, [] );
 
-	// selectLog: the view clears+sets the selection; the stream re-connects.
+	// selectLog: the view clears+sets the selection; `_sse` re-opens for the new log.
 	const selectLog = ( log ) => {
-		if ( viewRef.current ) {
-			viewRef.current.fill( controlMsg( { action: 'select', log } ) );
+		const view = viewRef.current;
+		const sse = sseRef.current;
+		if ( view ) {
+			view.fill( controlMsg( { action: 'select', log } ) );
 		}
-		if ( streamRef.current ) {
-			streamRef.current.subscribe( log );
+		if ( sse ) {
+			sse.close();
+			sse.subscribe = [ log ];
+			sse.start();
 		}
 	};
 
