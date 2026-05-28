@@ -13,6 +13,7 @@ import { makeReplDismissHandler } from '../topology-console/utils/replDismissHan
 import Header from '../topology-console/components/Header';
 import ReplFooter from '../topology-console/components/ReplFooter';
 import { useJsCatalog } from '../topology-console/hooks/useJsCatalog';
+import { useClassCatalog } from '../topology-console/hooks/useClassCatalog';
 import { Shell } from '../topology-console/nodes/shell';
 import { useNodeState } from '../runtime/react';
 import {
@@ -188,11 +189,15 @@ export default function DebugOverlay( {
 		},
 		[ cwd ]
 	);
-	// The overlay's palette must source from the JS-side CommandInterpreter
-	// .includeNodes (the only set make_node can instantiate in this realm),
-	// NOT the HTTP `classes.list` catalog which returns the PHP substrate's
-	// node registry.
-	const catalog = useJsCatalog();
+	// Catalog source follows the cwd: in the local scope the palette must
+	// source from the JS-side CommandInterpreter.includeNodes (the only set
+	// make_node can instantiate in this realm); remote scopes (cwd=/_http,
+	// etc.) use the PHP `classes.list` catalog so the Inspector sees the
+	// server-side classes' full verb list (workers.heartbeat/restart/etc.,
+	// performance.* — base Node verbs DUMP/SEND/TRACE alone aren't enough).
+	const jsCatalog = useJsCatalog();
+	const phpCatalog = useClassCatalog( { enabled: true } );
+	const catalog = cwd ? phpCatalog : jsCatalog;
 	const schemasByShellName = useMemo(
 		() =>
 			Object.fromEntries(
