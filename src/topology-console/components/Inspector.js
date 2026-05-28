@@ -734,7 +734,7 @@ function EditForm( {
 	onConnect,
 } ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
-	const ctorSpecs = schema?.ctor || [];
+	const argumentSpecs = schema?.arguments || [];
 	const commandSpecs = schema?.commands || [];
 	const ctorArgs = node.ctorArgs || [];
 	const verbInvocations = node.verbInvocations || [];
@@ -790,12 +790,12 @@ function EditForm( {
 			</Section>
 
 			<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
-				{ ctorSpecs.length === 0 && (
+				{ argumentSpecs.length === 0 && (
 					<div className="topology-edit-empty">
 						{ __( 'No constructor arguments.', 'newspack-nodes' ) }
 					</div>
 				) }
-				{ ctorSpecs.map( ( spec, i ) => (
+				{ argumentSpecs.map( ( spec, i ) => (
 					<CtorField
 						key={ spec.name }
 						spec={ spec }

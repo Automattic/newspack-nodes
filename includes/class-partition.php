@@ -796,7 +796,7 @@ class Partition_Node extends Timer_Node {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Storage',
 			'description' => 'Append-only segmented log; data file + offset index per partition.',
-			'ctor'        => [
+			'arguments'        => [
 				[ 'name' => 'base_dir',     'type' => 'string', 'required' => true ],
 				[ 'name' => 'partition',    'type' => 'int',    'required' => true, 'default' => '<partition>' ],
 				[ 'name' => 'segment_size', 'type' => 'int',    'default' => '<config:segment_size>' ],

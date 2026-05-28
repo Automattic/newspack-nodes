@@ -126,7 +126,7 @@ class Releases_Source_Node extends Node {
 		return \array_merge( parent::node_schema(), [
 			'category'     => 'Source',
 			'description'  => 'Emits canned release-notes items on tick.',
-			'ctor'         => [],
+			'arguments'    => [],
 			'commands'     => [
 				[
 					'name'        => 'tick',

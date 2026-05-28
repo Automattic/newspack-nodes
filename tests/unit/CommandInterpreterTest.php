@@ -1847,7 +1847,7 @@ class CommandInterpreterTest extends TestCase {
 		$schema = Command_Interpreter_Node::node_schema();
 		$this->assertSame( 'Hidden', $schema['category'] );
 		$this->assertArrayHasKey( 'description', $schema );
-		$this->assertSame( [], $schema['ctor'] );
+		$this->assertSame( [], $schema['arguments'] );
 		$this->assertSame( [], $schema['commands'] );
 	}
 

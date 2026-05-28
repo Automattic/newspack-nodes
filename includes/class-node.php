@@ -534,7 +534,7 @@ class Node {
 		return [
 			'category'    => '',
 			'description' => '',
-			'ctor'        => [],
+			'arguments'        => [],
 			'commands'       => [],
 			// Pure-producers override accepts_fill=false; pure-sinks override has_target=false.
 			'accepts_fill' => true,

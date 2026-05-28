@@ -974,7 +974,7 @@ class Command_Interpreter_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'Command dispatch — placed implicitly as sibling of patron nodes; not draggable.',
-			'ctor'        => [],
+			'arguments'        => [],
 			'commands'       => [],
 		];
 	}

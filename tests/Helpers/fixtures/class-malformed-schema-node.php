@@ -25,7 +25,7 @@ class Malformed_Schema_Node extends Node {
 		return [
 			'category'    => 'Service',
 			'description' => 'Fixture: a malformed verb entry coexists with a well-formed one.',
-			'ctor'        => [],
+			'arguments'        => [],
 			'commands'       => [
 				[ 'name' => 'good', 'description' => 'Well-formed verb.', 'args' => [] ],
 				'i-am-not-an-array',

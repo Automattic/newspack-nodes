@@ -32,7 +32,7 @@ class Schema_Driven_CI_Node extends Service_CI_Node {
 		return [
 			'category'    => 'Service',
 			'description' => 'Fixture CI: proves commands() is derived from node_schema().',
-			'ctor'        => [],
+			'arguments'        => [],
 			'commands'       => [
 				[
 					'name'        => 'greet',
@@ -62,7 +62,7 @@ class Malformed_Verbs_CI_Node extends Service_CI_Node {
 		return [
 			'category'    => 'Service',
 			'description' => 'Fixture CI: malformed verbs are skipped, well-formed ones install.',
-			'ctor'        => [],
+			'arguments'        => [],
 			'commands'       => [
 				[
 					'name'        => 'good',

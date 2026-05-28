@@ -180,7 +180,7 @@ class Tail_Node extends Timer_Node {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'I/O',
 			'description' => 'Polls a file for appended bytes; emits each line to its sink.',
-			'ctor'        => [
+			'arguments'        => [
 				[ 'name' => 'filename',    'type' => 'string', 'required' => true ],
 				[
 					'name'    => 'buffer_mode',
