@@ -20,25 +20,36 @@ export class Metadata extends Node {
 	constructor() {
 		super();
 		this.registrations.metadata = {};
-		// Poll target (cwd); null disables polling. Set by the gating effect.
-		this.pollTo = null;
 	}
 
-	// Build a poll TM_COMMAND. FROM = own name is the reply pivot (the reply comes
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description:
+				'Receives `dump_metadata` poll reply; publishes for the canvas.',
+			arguments: [],
+			commands: [],
+		};
+	}
+
+	// Build a poll TM_COMMAND addressed to this.target (the `_cwd` node, which
+	// re-stamps the live cwd). FROM = own name is the reply pivot (the reply comes
 	// back here); LOCAL taints it so the browser CI authorizes a local poll.
 	_pollMessage( verb ) {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = this.name;
-		m[ TO ] = this.pollTo;
+		m[ TO ] = this.target;
 		m[ VALUE ] = { name: verb, arguments: '', payload: '' };
 		m[ LOCAL ] = true;
 		return m;
 	}
 
-	// Router TIMER subscriber: emit a dump_metadata poll each tick (when enabled).
+	// Router TIMER subscriber: emit a dump_metadata poll each tick. The timer only
+	// runs while the graph is mounted, and `_cwd` handles every scope, so there's
+	// no per-scope gate — emit whenever a sink exists.
 	onTimer() {
-		if ( null === this.pollTo || ! this.sink ) {
+		if ( ! this.sink ) {
 			return;
 		}
 		this.sink.fill( this._pollMessage( 'dump_metadata' ) );

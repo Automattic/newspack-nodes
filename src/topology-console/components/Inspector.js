@@ -734,8 +734,8 @@ function EditForm( {
 	onConnect,
 } ) {
 	const schema = catalog.find( ( c ) => c.shell_name === node.class ) || null;
-	const ctorSpecs = schema?.ctor || [];
-	const verbSpecs = schema?.verbs || [];
+	const argumentSpecs = schema?.arguments || [];
+	const commandSpecs = schema?.commands || [];
 	const ctorArgs = node.ctorArgs || [];
 	const verbInvocations = node.verbInvocations || [];
 	// Names of every other draft node, for node_name verb-arg selects.
@@ -750,7 +750,7 @@ function EditForm( {
 				{ node.class || '?' } · { __( 'EDIT', 'newspack-nodes' ) }
 			</div>
 
-			{ onRemoveNode && (
+			{ onRemoveNode && ! node.reserved && (
 				<button
 					type="button"
 					className="topology-edit-delete"
@@ -760,19 +760,22 @@ function EditForm( {
 				</button>
 			) }
 
-			<Section title={ __( 'Identity', 'newspack-nodes' ) }>
-				<NameField
-					node={ node }
-					takenNames={
-						new Set(
-							( parsed?.nodes || [] )
-								.map( ( n ) => n.id )
-								.filter( ( id ) => id !== node.id )
-						)
-					}
-					onRenameNode={ onRenameNode }
-				/>
-			</Section>
+			{ /* Reserved anchors (e.g. _repl) are auto-mounted and fixed: no rename. */ }
+			{ ! node.reserved && (
+				<Section title={ __( 'Identity', 'newspack-nodes' ) }>
+					<NameField
+						node={ node }
+						takenNames={
+							new Set(
+								( parsed?.nodes || [] )
+									.map( ( n ) => n.id )
+									.filter( ( id ) => id !== node.id )
+							)
+						}
+						onRenameNode={ onRenameNode }
+					/>
+				</Section>
+			) }
 
 			<Section title={ __( 'Routing', 'newspack-nodes' ) }>
 				<TargetsField
@@ -787,12 +790,12 @@ function EditForm( {
 			</Section>
 
 			<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
-				{ ctorSpecs.length === 0 && (
+				{ argumentSpecs.length === 0 && (
 					<div className="topology-edit-empty">
 						{ __( 'No constructor arguments.', 'newspack-nodes' ) }
 					</div>
 				) }
-				{ ctorSpecs.map( ( spec, i ) => (
+				{ argumentSpecs.map( ( spec, i ) => (
 					<CtorField
 						key={ spec.name }
 						spec={ spec }
@@ -811,14 +814,14 @@ function EditForm( {
 			</Section>
 
 			<Section title={ __( 'Verbs', 'newspack-nodes' ) }>
-				{ verbSpecs.length === 0 && (
+				{ commandSpecs.length === 0 && (
 					<div className="topology-edit-empty">
 						{ __( 'No verbs registered.', 'newspack-nodes' ) }
 					</div>
 				) }
-				{ verbSpecs.map( ( vspec ) => {
+				{ commandSpecs.map( ( cspec ) => {
 					const idx = verbInvocations.findIndex(
-						( inv ) => inv.verb === vspec.name
+						( inv ) => inv.verb === cspec.name
 					);
 					const invocation = idx >= 0 ? verbInvocations[ idx ] : null;
 					const handleToggle = ( on ) => {
@@ -829,8 +832,8 @@ function EditForm( {
 							onUpdateVerbs( node.id, [
 								...verbInvocations,
 								{
-									verb: vspec.name,
-									args: ( vspec.args || [] ).map( () => '' ),
+									verb: cspec.name,
+									args: ( cspec.args || [] ).map( () => '' ),
 								},
 							] );
 						} else if ( ! on && idx >= 0 ) {
@@ -851,8 +854,8 @@ function EditForm( {
 					};
 					return (
 						<VerbRow
-							key={ vspec.name }
-							spec={ vspec }
+							key={ cspec.name }
+							spec={ cspec }
 							invocation={ invocation }
 							nodeNames={ nodeNames }
 							formatters={ formatters }
@@ -952,15 +955,7 @@ function VerbArgModal( {
 
 // One schema verb button. Argless verbs fire immediately; verbs with args open
 // the VerbArgModal. `kind` is 'command' (TM_COMMAND) or 'request' (TM_REQUEST).
-function VerbButton( {
-	nodeId,
-	spec,
-	kind,
-	live,
-	formatters,
-	nodeNames,
-	onAction,
-} ) {
+function VerbButton( { nodeId, spec, kind, formatters, nodeNames, onAction } ) {
 	const [ open, setOpen ] = useState( false );
 	const hasArgs = spec.args && spec.args.length > 0;
 	const verbLabel =
@@ -985,7 +980,6 @@ function VerbButton( {
 						byName: {},
 					} );
 				} }
-				disabled={ ! live }
 				title={
 					spec.description ||
 					sprintf(
@@ -1077,7 +1071,9 @@ export default function Inspector( {
 
 	const targets = parsed.edges.filter( ( e ) => e.from === selectedId );
 	const type = node.class;
-	const live = streamStatus === 'open';
+	// Absent streamStatus = no SSE stream to report (the debug overlay reads
+	// the page's OWN Core synchronously, so the graph is literally always live).
+	const live = ! streamStatus || streamStatus === 'open';
 
 	// Button state derived from server metadata, not client bookkeeping.
 	const traceOn = node.debugState > 0;
@@ -1230,7 +1226,6 @@ export default function Inspector( {
 				<button
 					type="button"
 					onClick={ () => onAction && onAction( 'dump', node.id ) }
-					disabled={ ! live }
 					title={ __(
 						'Send `dump_node <name>` to the worker',
 						'newspack-nodes'
@@ -1257,7 +1252,6 @@ export default function Inspector( {
 							}
 						}
 					} }
-					disabled={ ! live }
 					title={ __(
 						'Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`',
 						'newspack-nodes'
@@ -1274,7 +1268,6 @@ export default function Inspector( {
 						onAction &&
 						onAction( 'trace', node.id, traceOn ? 0 : 1 )
 					}
-					disabled={ ! live }
 					title={
 						traceOn
 							? __(
@@ -1301,7 +1294,6 @@ export default function Inspector( {
 							onAction &&
 							onAction( tailOn ? 'disconnect' : 'tail', node.id )
 						}
-						disabled={ ! live }
 						title={
 							tailOn
 								? __(
@@ -1324,7 +1316,8 @@ export default function Inspector( {
 					const schema = catalog.find(
 						( c ) => c.shell_name === type
 					);
-					const verbs = schema && schema.verbs ? schema.verbs : [];
+					const commands =
+						schema && schema.commands ? schema.commands : [];
 					const requests =
 						schema && schema.requests ? schema.requests : [];
 					// node_name verb args pick from the live graph (parsed = the
@@ -1333,13 +1326,12 @@ export default function Inspector( {
 						.map( ( n ) => n.name || n.id )
 						.filter( ( n ) => n && n !== node.id );
 					return [
-						...verbs.map( ( spec ) => (
+						...commands.map( ( spec ) => (
 							<VerbButton
 								key={ `cmd-${ spec.name }` }
 								nodeId={ node.id }
 								spec={ spec }
 								kind="command"
-								live={ live }
 								formatters={ formatters }
 								nodeNames={ liveNodeNames }
 								onAction={ onAction }
@@ -1351,7 +1343,6 @@ export default function Inspector( {
 								nodeId={ node.id }
 								spec={ spec }
 								kind="request"
-								live={ live }
 								formatters={ formatters }
 								nodeNames={ liveNodeNames }
 								onAction={ onAction }

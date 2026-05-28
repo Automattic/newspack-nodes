@@ -4,7 +4,7 @@
  * The graph (poll → transform → view) is owned by useWorkerStatusGraph and tested
  * by its own suite (and the node suites cover the rate/segment math, the poll, and
  * the restart command). Here we mock the hook to hand back spy control callbacks,
- * and register a fixture `workerstatus/view` node in Core seeded with a render
+ * and register a fixture `workerstatus:view` node in Core seeded with a render
  * model so the view can read it via useNodeState — mirroring RawLogs.test.js.
  *
  * Every DOM assertion that used to drive the component through a mocked
@@ -32,9 +32,9 @@ jest.mock( '../hooks/useWorkerStatusGraph', () => {
 
 const { useWorkerStatusGraph } = require( '../hooks/useWorkerStatusGraph' );
 
-const VIEW_NODE = 'workerstatus/view';
+const VIEW_NODE = 'workerstatus:view';
 
-// A minimal stand-in for the workerstatus/view node: the model lives in
+// A minimal stand-in for the workerstatus:view node: the model lives in
 // setStateCache.view (what useNodeState subscribes to). setState here notifies
 // subscribers exactly like the real Node.setState. Seeding BEFORE render lets
 // useNodeState find the node on the first render and read the model immediately.

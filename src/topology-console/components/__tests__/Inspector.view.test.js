@@ -69,6 +69,15 @@ describe( 'Inspector (view mode)', () => {
 		expect( container.textContent ).toMatch( /CONNECTING/ );
 	} );
 
+	it( 'renders LIVE without crashing when streamStatus is undefined (overlay case)', () => {
+		// The debug overlay reads the page's own Core synchronously — there is no
+		// SSE stream to report, so it omits streamStatus. The Inspector used to
+		// crash on `streamStatus.toUpperCase()`; now it treats absent status as
+		// live (the graph it is showing literally is the local in-realm graph).
+		const { container } = renderNode( { streamStatus: undefined } );
+		expect( container.textContent ).toMatch( /LIVE/ );
+	} );
+
 	it( 'lists first target under "target →" and the rest under "also →"', () => {
 		const { container } = renderNode();
 		const rows = container.querySelectorAll( '.topology-field-row__key' );
@@ -139,9 +148,11 @@ describe( 'Inspector (view mode)', () => {
 		expect( getByText( 'Trace' ) ).not.toBeNull();
 	} );
 
-	it( 'disables action buttons when not live', () => {
+	it( 'keeps action buttons enabled even when not live (live graph is hackable)', () => {
 		const { getByText } = renderNode( { streamStatus: 'closed' } );
-		expect( getByText( 'Dump' ).disabled ).toBe( true );
+		expect( getByText( 'Dump' ).disabled ).toBe( false );
+		expect( getByText( 'Send' ).disabled ).toBe( false );
+		expect( getByText( 'Trace' ).disabled ).toBe( false );
 	} );
 
 	it( 'flips Trace label when node.debugState > 0', () => {
@@ -226,7 +237,7 @@ describe( 'Inspector (view mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				verbs: [
+				commands: [
 					{
 						name: 'set_target',
 						args: [
@@ -271,7 +282,7 @@ describe( 'Inspector (view mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				verbs: [ { name: 'GET_LAG', description: 'Lag' } ],
+				commands: [ { name: 'GET_LAG', description: 'Lag' } ],
 			},
 		];
 		const { getByText } = renderNode( { catalog, onAction } );
@@ -289,7 +300,7 @@ describe( 'Inspector (view mode)', () => {
 		const catalog = [
 			{
 				shell_name: 'Echo',
-				verbs: [
+				commands: [
 					{
 						name: 'with_index',
 						args: [

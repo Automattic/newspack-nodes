@@ -1,15 +1,11 @@
 /**
  * Parse a `dump_metadata` payload (object keyed by node name) into
- * { nodes, edges }. `target` is a string or array (Tee fan-out);
- * scaffolding nodes are excluded.
+ * { nodes, edges }. `target` is a string or array (Tee fan-out); the backbone
+ * (`_command_interpreter` + `_router`) is hidden — it's the rule-#2 plumbing
+ * every node sinks through — and everything else is shown.
  */
 
-const SCAFFOLDING = new Set( [
-	'_command_interpreter',
-	'_router',
-	'_output',
-	'_repl',
-] );
+const SCAFFOLDING = new Set( [ '_command_interpreter', '_router' ] );
 
 export function parseMetadata( payload ) {
 	let raw;
@@ -48,15 +44,21 @@ export function parseMetadata( payload ) {
 				typeof meta.bytes_written === 'number' ? meta.bytes_written : 0,
 		} );
 
+		// An edge connects to the HEAD of the target path — `_router` peels the
+		// first `/`-segment and delivers there (`_sse/workers` → the `_sse` node).
+		const headOf = ( t ) => {
+			const slash = t.indexOf( '/' );
+			return -1 === slash ? t : t.slice( 0, slash );
+		};
 		const target = meta.target;
 		if ( Array.isArray( target ) ) {
 			for ( const t of target ) {
 				if ( typeof t === 'string' && t !== '' ) {
-					edges.push( { from: name, to: t } );
+					edges.push( { from: name, to: headOf( t ) } );
 				}
 			}
 		} else if ( typeof target === 'string' && target !== '' ) {
-			edges.push( { from: name, to: target } );
+			edges.push( { from: name, to: headOf( target ) } );
 		}
 	}
 	return { nodes, edges };

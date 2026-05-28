@@ -6,6 +6,7 @@
 
 import WorkerStatus from './WorkerStatus';
 import useAdminMenuWidth from '../shared/hooks/useAdminMenuWidth';
+import DebugOverlay from '../debug-overlay/DebugOverlay';
 
 /**
  * Worker Status page - dedicated view for worker monitoring.
@@ -34,6 +35,7 @@ export default function WorkerStatusPage() {
 			} }
 		>
 			<WorkerStatus refreshMs={ 2000 } fullPage />
+			<DebugOverlay storageKey="newspack-nodes:debug:workers" />
 		</div>
 	);
 }

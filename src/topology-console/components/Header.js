@@ -25,6 +25,8 @@ export default function Header( {
 	theme,
 	onThemeChange,
 	themes = [],
+	// When set, the LIVE button is replaced by an X close button (debug overlay).
+	onClose,
 } ) {
 	return (
 		<header className="topology-header">
@@ -38,8 +40,10 @@ export default function Header( {
 				{ HOST }
 			</div>
 			<div className="topology-header__controls">
-				{ /* Path selector applies only to the live feed, not edit mode. */ }
-				{ mode !== 'edit' && (
+				{ /* Path selector applies only to the live feed, not edit mode.
+				     Also hidden when there's only one option to pick (the debug
+				     overlay's local-only scope). */ }
+				{ mode !== 'edit' && pathOptions.length > 1 && (
 					<>
 						<span className="topology-ctl-label">
 							{ __( 'Path', 'newspack-nodes' ) }
@@ -138,28 +142,42 @@ export default function Header( {
 							{ __( 'EDIT', 'newspack-nodes' ) }
 						</button>
 					) }
-					<button
-						type="button"
-						className={ `topology-mode__btn topology-mode__btn--live${
-							mode === 'view' && streamStatus === 'open'
-								? ' is-active'
-								: ''
-						}` }
-						onClick={ () => onModeChange && onModeChange( 'view' ) }
-					>
-						<span
-							className={ `topology-live-led${
+					{ onClose ? (
+						<button
+							type="button"
+							className="topology-mode__btn topology-mode__btn--close"
+							onClick={ onClose }
+							aria-label={ __( 'Close', 'newspack-nodes' ) }
+							title={ __( 'Close', 'newspack-nodes' ) }
+						>
+							{ '×' }
+						</button>
+					) : (
+						<button
+							type="button"
+							className={ `topology-mode__btn topology-mode__btn--live${
 								mode === 'view' && streamStatus === 'open'
-									? ' is-pulsing'
+									? ' is-active'
 									: ''
 							}` }
-						/>
-						{ __( 'LIVE', 'newspack-nodes' ) }
-						{ /* Always-rendered slot (em-dash until first uptime) so the button width is stable. */ }
-						<span className="topology-uptime">
-							{ uptime || '—' }
-						</span>
-					</button>
+							onClick={ () =>
+								onModeChange && onModeChange( 'view' )
+							}
+						>
+							<span
+								className={ `topology-live-led${
+									mode === 'view' && streamStatus === 'open'
+										? ' is-pulsing'
+										: ''
+								}` }
+							/>
+							{ __( 'LIVE', 'newspack-nodes' ) }
+							{ /* Always-rendered slot (em-dash until first uptime) so the button width is stable. */ }
+							<span className="topology-uptime">
+								{ uptime || '—' }
+							</span>
+						</button>
+					) }
 				</div>
 			</div>
 		</header>

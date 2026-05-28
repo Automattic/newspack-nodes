@@ -44,7 +44,45 @@ export function addEdge( graph, { from, to } ) {
 	return { nodes, edges: [ ...graph.edges, { from, to } ] };
 }
 
+/**
+ * Default canvas position for the auto-mounted `_repl` anchor when it's first
+ * seeded. Off to the side so it doesn't overlap auto-laid app nodes.
+ */
+const REPL_ANCHOR = { x: 40, y: 40 };
+
+/**
+ * Ensure the reserved `_repl` connection-anchor is present. `_repl` is the
+ * worker's auto-mounted REPL command-interpreter (the `log`/`tell` broadcast
+ * handle); it lives in no topology .tsl, so the editor seeds it as a fixed
+ * anchor you can wire TO but cannot rename or delete. Idempotent.
+ *
+ * @param {Object} graph Current graph.
+ * @return {Object} A graph guaranteed to contain the `_repl` anchor.
+ */
+export function withReplAnchor( graph ) {
+	if ( graph.nodes.some( ( n ) => n.id === '_repl' ) ) {
+		return graph;
+	}
+	const node = {
+		id: '_repl',
+		name: '_repl',
+		class: 'CommandInterpreter',
+		x: REPL_ANCHOR.x,
+		y: REPL_ANCHOR.y,
+		target: '',
+		also: [],
+		ctorArgs: [],
+		verbInvocations: [],
+		reserved: true,
+	};
+	return { nodes: [ ...graph.nodes, node ], edges: graph.edges };
+}
+
 export function removeNode( graph, id ) {
+	const target = graph.nodes.find( ( n ) => n.id === id );
+	if ( target && target.reserved ) {
+		return graph;
+	}
 	const nodes = graph.nodes.filter( ( n ) => n.id !== id );
 	const edges = graph.edges.filter( ( e ) => e.from !== id && e.to !== id );
 	return { nodes, edges };
@@ -60,6 +98,10 @@ export function removeNode( graph, id ) {
  * @return {Object} New graph reference, or the original on a no-op.
  */
 export function renameNode( graph, oldId, newName ) {
+	const target = graph.nodes.find( ( n ) => n.id === oldId );
+	if ( target && target.reserved ) {
+		return graph;
+	}
 	const trimmed = String( newName || '' ).trim();
 	if ( ! trimmed || trimmed === oldId ) {
 		return graph;

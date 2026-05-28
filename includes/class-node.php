@@ -42,7 +42,7 @@ class Node {
 
 	/**
 	 * Auto-wire the sibling `:config` CI from the concrete subclass's node_schema().
-	 * A node declares its runtime config verbs ONCE — in `node_schema()['verbs']`,
+	 * A node declares its runtime config verbs ONCE — in `node_schema()['commands']`,
 	 * each carrying a `handler` — and the base ctor builds the `{node}:config`
 	 * CI from the handler-bearing entries (late static binding reads the subclass
 	 * schema). No verbs with handlers → no sibling. A CI dispatches its own verbs,
@@ -82,7 +82,7 @@ class Node {
 	 */
 	private static function verbs_with_handlers( array $schema ): array {
 		$table = [];
-		foreach ( $schema['verbs'] ?? [] as $verb ) {
+		foreach ( $schema['commands'] ?? [] as $verb ) {
 			if ( ! \is_array( $verb ) ) {
 				continue;
 			}
@@ -184,12 +184,81 @@ class Node {
 		return $this->bytes_written;
 	}
 
-	/** Get/set the node's argument string. Subclasses override to parse it into typed slots. */
+	/**
+	 * Get/set the node's argument string. The setter ALSO parses the string
+	 * against node_schema()['arguments'] and assigns each declared positional
+	 * argument to the matching $this->{$name} property. Tokens beyond the
+	 * declared positions are ignored; missing optional tokens use their
+	 * schema-declared defaults. Mirrors Tachikoma::Node::arguments.
+	 *
+	 * Subclasses override the whole method when the default schema walk isn't
+	 * enough (multi-token args, derived state, validation).
+	 *
+	 * @param string|null $args New raw arguments string (null = pure getter).
+	 * @return string Last-set raw arguments string.
+	 */
 	public function arguments( ?string $args = null ): string {
-		if ( null !== $args ) {
-			$this->arguments = $args;
+		if ( null === $args ) {
+			return $this->arguments;
+		}
+		$this->arguments = $args;
+		$schema   = static::node_schema();
+		$declared = $schema['arguments'] ?? [];
+		if ( empty( $declared ) || '' === $args ) {
+			return $this->arguments;
+		}
+		$tokens = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY );
+		foreach ( $declared as $i => $arg_spec ) {
+			$name = $arg_spec['name'];
+			$type = $arg_spec['type'] ?? 'string';
+			if ( ! \property_exists( $this, $name ) ) {
+				continue;
+			}
+			if ( isset( $tokens[ $i ] ) ) {
+				$this->{$name} = self::coerce_argument( $tokens[ $i ], $type );
+			} elseif ( \array_key_exists( 'default', $arg_spec ) ) {
+				$this->{$name} = $arg_spec['default'];
+			}
 		}
 		return $this->arguments;
+	}
+
+	/**
+	 * Coerce a raw string token to the declared schema type. Unknown types
+	 * fall through as string.
+	 *
+	 * @param string $token Raw token from the arguments string.
+	 * @param string $type  Schema-declared type ('string'|'int'|'bool'|'float').
+	 * @return mixed
+	 */
+	private static function coerce_argument( string $token, string $type ): mixed {
+		return match ( $type ) {
+			'int'   => (int) $token,
+			'float' => (float) $token,
+			'bool'  => \in_array( \strtolower( $token ), [ '1', 'true', 'yes', 'on' ], true ),
+			default => $token,
+		};
+	}
+
+	/**
+	 * Build a TM_COMMAND message envelope. Mirrors Tachikoma::Node::command —
+	 * available on every Node so Shell::send_command and overlay callers can
+	 * issue commands without hand-building messages.
+	 *
+	 * @param string $name      Command verb (e.g. 'connect_node').
+	 * @param string $arguments Positional argument string.
+	 * @param mixed  $payload   Optional by-name payload.
+	 * @return array A TM_COMMAND Message (the 7-field positional array).
+	 */
+	public function command( string $name, string $arguments = '', mixed $payload = null ): array {
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$msg[ Message::VALUE ] = [
+			'name'      => $name,
+			'arguments' => $arguments,
+			'payload'   => $payload,
+		];
+		return $msg;
 	}
 
 	public const MAX_FROM_SIZE = 1024;
@@ -384,27 +453,10 @@ class Node {
 			$out .= "connect_node {$this->name} {$this->target}\n";
 		}
 
-		// One cmd line per recorded verb invocation; the loader replays them.
-		// An interpreter node handles verbs directly (no `:config` sibling), so its
-		// verbs target the bare node; a non-interpreter targets its sibling CI.
-		$verb_target = $this instanceof Command_Interpreter_Node ? $this->name : "{$this->name}:config";
-		foreach ( $this->invoked_verbs as $verb => $args ) {
-			$args_suffix = '' === $args ? '' : ' ' . $args;
-			$out        .= "cmd {$verb_target} {$verb}{$args_suffix}\n";
-		}
-
+		// Verb-configured nodes (e.g. Partition) override dump_config() to emit
+		// their own `cmd {name}:config <verb>` lines from their STATE — no generic
+		// invoked-verb recording.
 		return $out;
-	}
-
-	/**
-	 * Recorded sibling-CI verb invocations (verb => args) for dump_config round-trip. Last value wins.
-	 *
-	 * @var array<string,string>
-	 */
-	protected array $invoked_verbs = [];
-
-	public function mark_verb_invoked( string $verb, string $args ): void {
-		$this->invoked_verbs[ $verb ] = $args;
 	}
 
 	/** Human-readable message-type labels. */
@@ -530,8 +582,8 @@ class Node {
 		return [
 			'category'    => '',
 			'description' => '',
-			'ctor'        => [],
-			'verbs'       => [],
+			'arguments'        => [],
+			'commands'       => [],
 			// Pure-producers override accepts_fill=false; pure-sinks override has_target=false.
 			'accepts_fill' => true,
 			'has_target'   => true,

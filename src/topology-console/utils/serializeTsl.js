@@ -58,28 +58,28 @@ function applyDefaults( args, spec ) {
 	return out;
 }
 
-function ctorSpecFor( schemas, className ) {
+function argumentsSpecFor( schemas, className ) {
 	if ( ! schemas ) {
 		return [];
 	}
 	const entry = schemas[ className ];
-	return entry && Array.isArray( entry.ctor ) ? entry.ctor : [];
+	return entry && Array.isArray( entry.arguments ) ? entry.arguments : [];
 }
 
-function verbArgSpecFor( schemas, className, verbName ) {
+function commandArgSpecFor( schemas, className, commandName ) {
 	if ( ! schemas ) {
 		return [];
 	}
 	const entry = schemas[ className ];
-	if ( ! entry || ! Array.isArray( entry.verbs ) ) {
+	if ( ! entry || ! Array.isArray( entry.commands ) ) {
 		return [];
 	}
-	const v = entry.verbs.find( ( x ) => x.name === verbName );
+	const v = entry.commands.find( ( x ) => x.name === commandName );
 	return v && Array.isArray( v.args ) ? v.args : [];
 }
 
 function emitMakeNode( node, schemas ) {
-	const spec = ctorSpecFor( schemas, node.class );
+	const spec = argumentsSpecFor( schemas, node.class );
 	const filled = applyDefaults( node.ctorArgs || [], spec );
 	const args = trimTrailingEmpties( filled ).map( serializeArg );
 	const head = `make_node ${ node.class } ${ node.name }`;
@@ -96,7 +96,7 @@ function isInterpreterClass( schemas, className ) {
 }
 
 function emitVerb( name, invocation, schemas, className ) {
-	const spec = verbArgSpecFor( schemas, className, invocation.verb );
+	const spec = commandArgSpecFor( schemas, className, invocation.verb );
 	const filled = applyDefaults( invocation.args || [], spec );
 	const args = trimTrailingEmpties( filled ).map( serializeArg );
 	// Interpreter nodes handle verbs directly (no `:config` sibling) → bare target.
@@ -116,14 +116,29 @@ export function serializeTsl( graph, schemas = null ) {
 		return '';
 	}
 	const lines = [];
+	// Reserved anchors (e.g. `_repl`) are auto-mounted by the worker — the
+	// editor never emits their make_node or any wiring FROM them. They remain
+	// valid edge TARGETS.
+	const reserved = new Set(
+		graph.nodes.filter( ( n ) => n.reserved ).map( ( n ) => n.id )
+	);
 	for ( const n of graph.nodes ) {
+		if ( n.reserved ) {
+			continue;
+		}
 		lines.push( emitMakeNode( n, schemas ) );
 		for ( const inv of n.verbInvocations || [] ) {
 			lines.push( emitVerb( n.name, inv, schemas, n.class ) );
 		}
 	}
 	for ( const e of graph.edges || [] ) {
+		if ( reserved.has( e.from ) ) {
+			continue;
+		}
 		lines.push( `connect_node ${ e.from } ${ e.to }` );
+	}
+	if ( lines.length === 0 ) {
+		return '';
 	}
 	return lines.join( '\n' ) + '\n';
 }

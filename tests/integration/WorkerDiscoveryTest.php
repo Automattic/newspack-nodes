@@ -52,7 +52,8 @@ class WorkerDiscoveryTest extends TestCase {
 		// — same as TestCase::produce_into().
 		Core::node( 'firehose-workers.p0' )->flush();
 
-		$consumer = new Consumer_Node( $input_dir, 0, '' );
+		$consumer = new Consumer_Node();
+		$consumer->arguments( "{$input_dir} 0 " );
 		$consumer->next_offset( 'start' );
 		$got = [];
 		$consumer->sink( new Callback_Node( static function ( array &$m ) use ( &$got ): void {

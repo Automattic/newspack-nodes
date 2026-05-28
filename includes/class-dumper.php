@@ -351,8 +351,8 @@ class Dumper_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'REPL output — printed to stream, not user-placeable in topology graphs.',
-			'ctor'        => [],
-			'verbs'       => [],
+			'arguments'        => [],
+			'commands'       => [],
 		];
 	}
 }

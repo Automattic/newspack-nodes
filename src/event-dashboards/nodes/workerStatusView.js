@@ -21,8 +21,8 @@ const emptyModel = () => ( {
 } );
 
 /**
- * `workerstatus/view` — owns the Worker Status view model, the single surface
- * React reads via useNodeState('workerstatus/view','view').
+ * `workerstatus:view` — owns the Worker Status view model, the single surface
+ * React reads via useNodeState('workerstatus:view','view').
  *
  * Worker Status updates per-poll, not per-frame, so there is no high-frequency
  * rAF path (unlike Raw Logs): every change publishes through the low-frequency

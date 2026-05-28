@@ -66,8 +66,8 @@ class Digest_Builder_Node extends Node {
 		return [
 			'category'     => 'Transform',
 			'description'  => 'Accumulates summaries; flush emits a markdown newsletter draft.',
-			'ctor'         => [],
-			'verbs'        => [
+			'arguments'         => [],
+			'commands'        => [
 				[ 'name' => 'flush', 'description' => 'Emit the accumulated draft and clear.', 'args' => [] ],
 			],
 			'accepts_fill' => true,

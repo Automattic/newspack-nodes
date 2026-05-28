@@ -10,12 +10,15 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Hook_Node extends Node {
-	private string $hook_name;
-	private bool $filter;
+	protected string $hook_name = '';
+	protected bool $filter      = false;
 
-	public function __construct( string $hook_name, bool $filter = false ) {
-		$this->hook_name = $hook_name;
-		$this->filter    = $filter;
+	/**
+	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
+	 * which the base setter parses against `node_schema()['arguments']`.
+	 */
+	public function __construct() {
+		parent::__construct();
 	}
 
 	public function fill( array &$message ): void {
@@ -32,11 +35,11 @@ class Hook_Node extends Node {
 		return [
 			'category'    => 'Control',
 			'description' => 'WordPress hook adapter — fires do_action/apply_filters on each message.',
-			'ctor'        => [
+			'arguments'        => [
 				[ 'name' => 'hook_name', 'type' => 'string', 'required' => true ],
 				[ 'name' => 'filter',    'type' => 'bool',   'default' => false ],
 			],
-			'verbs'       => [],
+			'commands'       => [],
 		];
 	}
 }

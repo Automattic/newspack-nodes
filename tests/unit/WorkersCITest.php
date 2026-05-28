@@ -157,7 +157,7 @@ class WorkersCITest extends TestCase {
 
 	public function test_node_schema_declares_its_verbs(): void {
 		$schema = Workers_CI_Node::node_schema();
-		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['verbs'] );
+		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
 		$this->assertSame(
 			[ 'cleanup_status', 'dump_metadata', 'heartbeat', 'list', 'restart' ],
@@ -178,7 +178,8 @@ class WorkersCITest extends TestCase {
 			}
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
 		};
-		$ci = new Workers_CI_Node( $fake_cli );
+		$ci = new Workers_CI_Node();
+		$ci->cli = $fake_cli;
 
 		$result = VerbHarness::fire( $ci, 'workers', 'list' );
 
@@ -209,7 +210,8 @@ class WorkersCITest extends TestCase {
 				return $matched;
 			}
 		};
-		$ci = new Workers_CI_Node( $fake_cli );
+		$ci = new Workers_CI_Node();
+		$ci->cli = $fake_cli;
 
 		$result = VerbHarness::fire( $ci, 'workers', 'restart', [ 'types' => [ 'demo-workers' ] ] );
 
@@ -238,7 +240,8 @@ class WorkersCITest extends TestCase {
 				return 0;
 			}
 		};
-		$ci = new Workers_CI_Node( $fake_cli );
+		$ci = new Workers_CI_Node();
+		$ci->cli = $fake_cli;
 
 		$result = VerbHarness::fire( $ci, 'workers', 'restart', [ 'types' => [ 'supervisor' ] ] );
 
@@ -272,7 +275,9 @@ class WorkersCITest extends TestCase {
 			}
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
 		};
-		$ci = new Workers_CI_Node( $fake_cli, $sentinel_cache );
+		$ci = new Workers_CI_Node();
+		$ci->cli   = $fake_cli;
+		$ci->cache = $sentinel_cache;
 
 		$result = VerbHarness::fire( $ci, 'workers', 'list' );
 
@@ -290,7 +295,9 @@ class WorkersCITest extends TestCase {
 		$slot    = \Newspack_Nodes\SSE_Slot_Pool::acquire( $user_id, $ip_hash, 8, 30, -1 );
 		$this->assertSame( 0, $slot, 'first acquire claims slot 0' );
 
-		$ci     = new Workers_CI_Node( $this->stub_cli(), \Newspack_Nodes\Core::$memd );
+		$ci     = new Workers_CI_Node();
+		$ci->cli   = $this->stub_cli();
+		$ci->cache = \Newspack_Nodes\Core::$memd;
 		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', null, (string) $slot );
 
 		$this->assertSame( [ 'success' => true, 'slot' => 0 ], $result );
@@ -307,7 +314,8 @@ class WorkersCITest extends TestCase {
 		// TM_COMMAND|TM_ERROR with the message in VALUE, so the payload IS the
 		// error string.
 		\Newspack_Nodes\Core::$memd = null;
-		$ci = new Workers_CI_Node( $this->stub_cli() );
+		$ci = new Workers_CI_Node();
+		$ci->cli = $this->stub_cli();
 
 		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', null, '7' );
 
@@ -319,7 +327,9 @@ class WorkersCITest extends TestCase {
 		// per-(user,ip,slot), so a -1 slot would silently collide across
 		// browser sessions. Guard fires before the touch.
 		\Newspack_Nodes\Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
-		$ci = new Workers_CI_Node( $this->stub_cli(), \Newspack_Nodes\Core::$memd );
+		$ci = new Workers_CI_Node();
+		$ci->cli   = $this->stub_cli();
+		$ci->cache = \Newspack_Nodes\Core::$memd;
 
 		$result = VerbHarness::fire( $ci, 'workers', 'heartbeat', null, '' );  // no slot
 
@@ -355,7 +365,8 @@ class WorkersCITest extends TestCase {
 			static fn ( array $basenames ): array => [ 'firehose' ]
 		);
 
-		$ci     = new Workers_CI_Node( $this->stub_cli() );
+		$ci     = new Workers_CI_Node();
+		$ci->cli = $this->stub_cli();
 		$result = VerbHarness::fire( $ci, 'workers', 'cleanup_status' );
 
 		$this->assertSame( 1, $result['logs_dirty_option'] );
@@ -380,7 +391,8 @@ class WorkersCITest extends TestCase {
 			static fn (): mixed => 'not an array'
 		);
 
-		$ci     = new Workers_CI_Node( $this->stub_cli() );
+		$ci     = new Workers_CI_Node();
+		$ci->cli = $this->stub_cli();
 		$result = VerbHarness::fire( $ci, 'workers', 'cleanup_status' );
 
 		$this->assertNull( $result['logs_dirty_option'] );
@@ -412,7 +424,9 @@ class WorkersCITest extends TestCase {
 		// the dashboard can fan out from a stable shape.
 		$this->arrange_base_dir();
 		$cache = new FakeMemcached();
-		$ci    = new Workers_CI_Node( $this->stub_cli(), $cache );
+		$ci    = new Workers_CI_Node();
+		$ci->cli   = $this->stub_cli();
+		$ci->cache = $cache;
 
 		$result = VerbHarness::fire( $ci, 'workers', 'dump_metadata' );
 
@@ -461,7 +475,9 @@ class WorkersCITest extends TestCase {
 		$this->seed_heartbeat( $base, 'demo-workers', 0 );
 
 		$cache  = new FakeMemcached();
-		$ci     = new Workers_CI_Node( $this->stub_cli(), $cache );
+		$ci     = new Workers_CI_Node();
+		$ci->cli   = $this->stub_cli();
+		$ci->cache = $cache;
 		$result = VerbHarness::fire( $ci, 'workers', 'dump_metadata' );
 
 		$rows = \array_values( \array_filter(
@@ -518,7 +534,9 @@ class WorkersCITest extends TestCase {
 		$this->seed_log_segment( $base, 'firehose', 0, 1, 256 );
 		$this->seed_log_segment( $base, 'requests', 0, 0, 64 );
 
-		$ci     = new Workers_CI_Node( $this->stub_cli(), new FakeMemcached() );
+		$ci     = new Workers_CI_Node();
+		$ci->cli   = $this->stub_cli();
+		$ci->cache = new FakeMemcached();
 		$result = VerbHarness::fire( $ci, 'workers', 'dump_metadata' );
 
 		$this->assertIsArray( $result['logs'] );
@@ -564,7 +582,9 @@ class WorkersCITest extends TestCase {
 		$this->seed_log_segment( $base, 'completed', 0, 0, 32 );
 		$this->seed_log_segment( $base, 'requests',  0, 0, 64 );
 
-		$ci     = new Workers_CI_Node( $this->stub_cli(), new FakeMemcached() );
+		$ci     = new Workers_CI_Node();
+		$ci->cli   = $this->stub_cli();
+		$ci->cache = new FakeMemcached();
 		$result = VerbHarness::fire( $ci, 'workers', 'dump_metadata' );
 
 		$by_name = [];
@@ -588,7 +608,9 @@ class WorkersCITest extends TestCase {
 		// at the un-suffixed lock dir `supervisor.lock.d`. No `partition`
 		// field (it doesn't run as a partition fleet).
 		$base = $this->arrange_base_dir();
-		$ci     = new Workers_CI_Node( $this->stub_cli(), new FakeMemcached() );
+		$ci     = new Workers_CI_Node();
+		$ci->cli   = $this->stub_cli();
+		$ci->cache = new FakeMemcached();
 		$result = VerbHarness::fire( $ci, 'workers', 'dump_metadata' );
 
 		$this->assertIsArray( $result['supervisor'] );
@@ -622,7 +644,9 @@ class WorkersCITest extends TestCase {
 		$this->seed_heartbeat( $base, 'demo-workers', 0 );
 		$this->seed_log_segment( $base, 'firehose', 0, 0, 200 );
 
-		$ci     = new Workers_CI_Node( $this->stub_cli(), new FakeMemcached() );
+		$ci     = new Workers_CI_Node();
+		$ci->cli   = $this->stub_cli();
+		$ci->cache = new FakeMemcached();
 		$result = VerbHarness::fire( $ci, 'workers', 'dump_metadata' );
 
 		$rows = \array_values( \array_filter(
@@ -654,7 +678,9 @@ class WorkersCITest extends TestCase {
 		$base = $this->arrange_base_dir();
 		$this->seed_heartbeat( $base, 'request-workers', 0 );
 
-		$ci     = new Workers_CI_Node( $this->stub_cli(), new FakeMemcached() );
+		$ci     = new Workers_CI_Node();
+		$ci->cli   = $this->stub_cli();
+		$ci->cache = new FakeMemcached();
 		$result = VerbHarness::fire( $ci, 'workers', 'dump_metadata' );
 
 		$rows = \array_values( \array_filter(
@@ -676,7 +702,9 @@ class WorkersCITest extends TestCase {
 		// REST -> CI swap is a no-op for callers.
 		$this->arrange_base_dir();
 		$GLOBALS['_wp_test_current_user_can'] = [];
-		$ci     = new Workers_CI_Node( $this->stub_cli(), new FakeMemcached() );
+		$ci     = new Workers_CI_Node();
+		$ci->cli   = $this->stub_cli();
+		$ci->cache = new FakeMemcached();
 		$result = VerbHarness::fire( $ci, 'workers', 'dump_metadata' );
 
 		$this->assertIsString( $result );
@@ -712,7 +740,9 @@ class WorkersCITest extends TestCase {
 			60
 		);
 
-		$ci     = new Workers_CI_Node( $this->stub_cli(), $cache );
+		$ci     = new Workers_CI_Node();
+		$ci->cli   = $this->stub_cli();
+		$ci->cache = $cache;
 		$result = VerbHarness::fire( $ci, 'workers', 'dump_metadata' );
 
 		$rows = \array_values( \array_filter(
@@ -723,5 +753,42 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( 0, $rows[0]['cursor_seg'] );
 		$this->assertSame( 600, $rows[0]['cursor_offset'] );
 		$this->assertSame( 400, $rows[0]['behind'] );
+	}
+
+	/**
+	 * Tachikoma uniform-construction parity: the substrate `make_node` no
+	 * longer forwards positional ctor args (it filters to scalar-only and
+	 * the simplified path calls `new $fqcn()` then `arguments()`). Programmatic
+	 * dependencies — Cli, cache — must therefore reach the CI via public
+	 * property assignment AFTER construction, not through the ctor.
+	 *
+	 * This pins that contract: a bare `new Workers_CI_Node()` succeeds, and
+	 * `$ci->cli = ...; $ci->cache = ...` plus a verb dispatch threads the
+	 * assigned deps into the handler exactly as the ctor used to.
+	 */
+	public function test_constructible_via_no_arg_ctor_and_public_property_assignment(): void {
+		$sentinel_cache = new \stdClass();
+		$fake_cli       = new class {
+			public mixed $seen_cache = 'unset';
+			public function ls_workers(): array {
+				return [ [ 'type' => 'demo-workers', 'partition' => 0 ] ];
+			}
+			public function live_position( $cache, string $type, int $partition ): ?array {
+				$this->seen_cache = $cache;
+				return [ 'seg' => 0, 'off' => 42 ];
+			}
+			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
+		};
+
+		$ci        = new Workers_CI_Node();
+		$ci->cli   = $fake_cli;
+		$ci->cache = $sentinel_cache;
+
+		$this->assertSame( $fake_cli, $ci->cli );
+		$this->assertSame( $sentinel_cache, $ci->cache );
+
+		$result = VerbHarness::fire( $ci, 'workers', 'list' );
+		$this->assertSame( 'demo-workers', $result[0]['type'] );
+		$this->assertSame( $sentinel_cache, $fake_cli->seen_cache );
 	}
 }

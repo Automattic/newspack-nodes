@@ -1,5 +1,5 @@
 /**
- * workerstatus/transform tests — the stateful transform that turns a
+ * workerstatus:transform tests — the stateful transform that turns a
  * `{ action:'metadata', metadata }` snapshot into an enriched `{ action:'model',
  * model }`. Rate + segment math is ported verbatim from WorkerStatus.fetchWorkers,
  * so the tests feed two consecutive snapshots and assert the computed deltas.
@@ -9,7 +9,13 @@
  * delta exactly like the old lastFetchTimeRef logic.
  */
 
-import { VALUE, TYPE, TM_STRUCT, newMessage } from '../../../runtime/message';
+import {
+	VALUE,
+	TO,
+	TYPE,
+	TM_STRUCT,
+	newMessage,
+} from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { createWorkerStatusTransform } from '../workerStatusTransform';
 
@@ -23,7 +29,7 @@ function capture() {
 	return { node: { fill: ( m ) => got.push( m ) }, got };
 }
 
-// A metadata control message from workerstatus/poll.
+// A metadata control message from workerstatus:poll.
 function metadataMsg( metadata ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -93,20 +99,23 @@ const consumerSnapshot = ( cursorOffset ) => ( {
 	logs: [],
 } );
 
-describe( 'workerstatus/transform — model envelope', () => {
+describe( 'workerstatus:transform — model envelope', () => {
 	test( 'emits a TM_STRUCT { action:"model", model } for a metadata snapshot', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus/transform' );
+		const t = createWorkerStatusTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
+		t.target = 'workerstatus:view';
 		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
 		expect( sink.got ).toHaveLength( 1 );
 		expect( sink.got[ 0 ][ TYPE ] ).toBe( TM_STRUCT );
+		// Rule #2: the model emit stamps TO=target for router delivery.
+		expect( sink.got[ 0 ][ TO ] ).toBe( 'workerstatus:view' );
 		expect( sink.got[ 0 ][ VALUE ].action ).toBe( 'model' );
 	} );
 
 	test( 'the model carries the canonical shape', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus/transform' );
+		const t = createWorkerStatusTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
@@ -129,7 +138,7 @@ describe( 'workerstatus/transform — model envelope', () => {
 
 	test( 'forwards the workers / supervisor / logs straight through', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus/transform' );
+		const t = createWorkerStatusTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		const snap = producerSnapshot( 100 );
 		snap.supervisor = { type: 'supervisor', status: 'running' };
@@ -143,7 +152,7 @@ describe( 'workerstatus/transform — model envelope', () => {
 
 	test( 'passes segment_size and timestamp through to the model', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus/transform' );
+		const t = createWorkerStatusTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		const snap = producerSnapshot( 100 );
 		snap.segment_size = 1048576;
@@ -156,7 +165,7 @@ describe( 'workerstatus/transform — model envelope', () => {
 
 	test( 'retains the last segment_size when a later poll omits it', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus/transform' );
+		const t = createWorkerStatusTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		// Poll 1 carries a segment_size; poll 2 omits it.
 		const withSize = producerSnapshot( 100 );
@@ -170,7 +179,7 @@ describe( 'workerstatus/transform — model envelope', () => {
 
 	test( 'retains the last timestamp when a later poll omits it', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus/transform' );
+		const t = createWorkerStatusTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		// Poll 1 carries a timestamp; poll 2 omits it.
 		const withTs = producerSnapshot( 100 );
@@ -184,7 +193,7 @@ describe( 'workerstatus/transform — model envelope', () => {
 
 	test( 'first snapshot reports loading=false and a null error', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus/transform' );
+		const t = createWorkerStatusTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
@@ -193,10 +202,10 @@ describe( 'workerstatus/transform — model envelope', () => {
 	} );
 } );
 
-describe( 'workerstatus/transform — rate math from two snapshots', () => {
+describe( 'workerstatus:transform — rate math from two snapshots', () => {
 	test( 'first snapshot yields no rates (no previous to delta against)', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus/transform' );
+		const t = createWorkerStatusTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
@@ -207,7 +216,7 @@ describe( 'workerstatus/transform — rate math from two snapshots', () => {
 	test( 'second snapshot computes write rate from total_size delta / time', () => {
 		withClock( ( advance ) => {
 			const sink = capture();
-			const t = createWorkerStatusTransform( 'workerstatus/transform' );
+			const t = createWorkerStatusTransform( 'workerstatus:transform' );
 			t.sink = sink.node;
 			t.fill( metadataMsg( producerSnapshot( 100 ) ) );
 			advance( 2000 ); // 2s between snapshots
@@ -221,7 +230,7 @@ describe( 'workerstatus/transform — rate math from two snapshots', () => {
 	test( 'second snapshot computes per-worker read rate from cursor delta', () => {
 		withClock( ( advance ) => {
 			const sink = capture();
-			const t = createWorkerStatusTransform( 'workerstatus/transform' );
+			const t = createWorkerStatusTransform( 'workerstatus:transform' );
 			t.sink = sink.node;
 			t.fill( metadataMsg( consumerSnapshot( 0 ) ) );
 			advance( 1000 ); // 1s
@@ -235,7 +244,7 @@ describe( 'workerstatus/transform — rate math from two snapshots', () => {
 	test( 'a shrinking total_size clamps the write rate to zero (stale snapshot)', () => {
 		withClock( ( advance ) => {
 			const sink = capture();
-			const t = createWorkerStatusTransform( 'workerstatus/transform' );
+			const t = createWorkerStatusTransform( 'workerstatus:transform' );
 			t.sink = sink.node;
 			t.fill( metadataMsg( producerSnapshot( 1100 ) ) );
 			advance( 2000 );
@@ -246,11 +255,11 @@ describe( 'workerstatus/transform — rate math from two snapshots', () => {
 	} );
 } );
 
-describe( 'workerstatus/transform — segment tracking', () => {
+describe( 'workerstatus:transform — segment tracking', () => {
 	test( 'a removed segment shows up in removingSegments on the next snapshot', () => {
 		withClock( ( advance ) => {
 			const sink = capture();
-			const t = createWorkerStatusTransform( 'workerstatus/transform' );
+			const t = createWorkerStatusTransform( 'workerstatus:transform' );
 			t.sink = sink.node;
 			// Snapshot 1: two segments.
 			const two = producerSnapshot( 200 );
@@ -276,7 +285,7 @@ describe( 'workerstatus/transform — segment tracking', () => {
 	test( 'prevSegments reflects the PRIOR snapshot ids so new segments animate in', () => {
 		withClock( ( advance ) => {
 			const sink = capture();
-			const t = createWorkerStatusTransform( 'workerstatus/transform' );
+			const t = createWorkerStatusTransform( 'workerstatus:transform' );
 			t.sink = sink.node;
 			// Snapshot 1: one segment.
 			t.fill( metadataMsg( producerSnapshot( 100 ) ) );
@@ -300,7 +309,7 @@ describe( 'workerstatus/transform — segment tracking', () => {
 	test( 'no removals → removingSegments is empty', () => {
 		withClock( ( advance ) => {
 			const sink = capture();
-			const t = createWorkerStatusTransform( 'workerstatus/transform' );
+			const t = createWorkerStatusTransform( 'workerstatus:transform' );
 			t.sink = sink.node;
 			t.fill( metadataMsg( producerSnapshot( 100 ) ) );
 			advance( 2000 );
@@ -311,16 +320,19 @@ describe( 'workerstatus/transform — segment tracking', () => {
 	} );
 } );
 
-describe( 'workerstatus/transform — control pass-through', () => {
-	test( 'forwards a non-metadata control action straight to the sink', () => {
+describe( 'workerstatus:transform — control pass-through', () => {
+	test( 'forwards a non-metadata control action straight to the sink, stamped to target', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus/transform' );
+		const t = createWorkerStatusTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
+		t.target = 'workerstatus:view';
 		const err = newMessage();
 		err[ TYPE ] = TM_STRUCT;
 		err[ VALUE ] = { action: 'error', error: 'boom' };
 		t.fill( err );
 		expect( sink.got ).toHaveLength( 1 );
+		// Rule #2: the pass-through is stamped TO=target so the router routes it.
+		expect( sink.got[ 0 ][ TO ] ).toBe( 'workerstatus:view' );
 		expect( sink.got[ 0 ][ VALUE ] ).toEqual( {
 			action: 'error',
 			error: 'boom',
@@ -328,14 +340,14 @@ describe( 'workerstatus/transform — control pass-through', () => {
 	} );
 } );
 
-describe( 'workerstatus/transform — node wiring', () => {
+describe( 'workerstatus:transform — node wiring', () => {
 	test( 'names the node', () => {
-		const t = createWorkerStatusTransform( 'workerstatus/transform' );
-		expect( t.name ).toBe( 'workerstatus/transform' );
+		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		expect( t.name ).toBe( 'workerstatus:transform' );
 	} );
 
 	test( 'does nothing without a sink', () => {
-		const t = createWorkerStatusTransform( 'workerstatus/transform' );
+		const t = createWorkerStatusTransform( 'workerstatus:transform' );
 		expect( () =>
 			t.fill( metadataMsg( producerSnapshot( 100 ) ) )
 		).not.toThrow();

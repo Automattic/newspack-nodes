@@ -18,10 +18,45 @@ function groupByCategory( classes ) {
 	return out;
 }
 
-export default function Palette( { classes = [], loading = false } ) {
+export default function Palette( {
+	classes = [],
+	loading = false,
+	collapsed = false,
+	onToggle,
+} ) {
+	// Collapsed view: a slim vertical rail with just the expand button,
+	// so the user can always bring the palette back without reloading.
+	if ( collapsed ) {
+		return (
+			<aside className="topology-palette topology-palette--collapsed">
+				{ onToggle && (
+					<button
+						type="button"
+						className="topology-palette__toggle topology-palette__toggle--collapsed"
+						onClick={ onToggle }
+						aria-label="Expand palette"
+						title="Expand palette"
+					>
+						{ '›' }
+					</button>
+				) }
+			</aside>
+		);
+	}
 	if ( loading && ! classes.length ) {
 		return (
 			<aside className="topology-palette">
+				{ onToggle && (
+					<button
+						type="button"
+						className="topology-palette__toggle"
+						onClick={ onToggle }
+						aria-label="Collapse palette"
+						title="Collapse palette"
+					>
+						{ '‹' }
+					</button>
+				) }
 				<div className="topology-palette__footer">Loading…</div>
 			</aside>
 		);
@@ -31,6 +66,17 @@ export default function Palette( { classes = [], loading = false } ) {
 
 	return (
 		<aside className="topology-palette">
+			{ onToggle && (
+				<button
+					type="button"
+					className="topology-palette__toggle"
+					onClick={ onToggle }
+					aria-label="Collapse palette"
+					title="Collapse palette"
+				>
+					{ '‹' }
+				</button>
+			) }
 			{ Object.entries( grouped ).map( ( [ group, items ] ) => (
 				<div key={ group }>
 					<h3 className="topology-palette__group">{ group }</h3>

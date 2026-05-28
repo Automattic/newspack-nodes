@@ -18,6 +18,7 @@ export default function CanvasFrame( {
 	children,
 	onResetLayout,
 	onSaveLayout,
+	onResetGraph,
 	editMode,
 } ) {
 	return (
@@ -65,6 +66,19 @@ export default function CanvasFrame( {
 						) }
 					>
 						↺ { __( 'Reset layout', 'newspack-nodes' ) }
+					</button>
+				) }
+				{ onResetGraph && (
+					<button
+						type="button"
+						className="topology-canvas__layout-chip"
+						onClick={ onResetGraph }
+						title={ __(
+							'Tear down + rebuild the browser console graph (recover from a self-inflicted edit) — does not reload the page',
+							'newspack-nodes'
+						) }
+					>
+						⟳ { __( 'Reset graph', 'newspack-nodes' ) }
 					</button>
 				) }
 			</div>

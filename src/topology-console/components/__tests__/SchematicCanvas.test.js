@@ -601,12 +601,34 @@ describe( 'SchematicCanvas', () => {
 		expect( onDropNode ).not.toHaveBeenCalled();
 	} );
 
-	it( 'drop outside edit mode is ignored', () => {
+	it( 'drop outside edit mode still invokes onDropNode (gestures are always-on)', () => {
 		const onDropNode = jest.fn();
 		const { container } = render(
 			<SchematicCanvas
 				{ ...baseProps }
 				editMode={ false }
+				onDropNode={ onDropNode }
+			/>
+		);
+		const svg = container.querySelector( 'svg' );
+		fireEvent.drop( svg, {
+			clientX: 100,
+			clientY: 200,
+			dataTransfer: {
+				getData: ( type ) =>
+					type === 'application/x-newspack-node' ? 'Tee' : '',
+			},
+		} );
+		expect( onDropNode ).toHaveBeenCalledTimes( 1 );
+		expect( onDropNode.mock.calls[ 0 ][ 0 ].shellName ).toBe( 'Tee' );
+	} );
+
+	it( 'drop with interactive=false is ignored', () => {
+		const onDropNode = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				interactive={ false }
 				onDropNode={ onDropNode }
 			/>
 		);
@@ -672,7 +694,7 @@ describe( 'SchematicCanvas', () => {
 		expect( typeof onConnect.mock.calls.length ).toBe( 'number' );
 	} );
 
-	it( 'port click without editMode does nothing', () => {
+	it( 'OUT port wire drag fires onConnect without editMode (gestures are always-on)', () => {
 		const onConnect = jest.fn();
 		const { container } = render(
 			<SchematicCanvas { ...baseProps } onConnect={ onConnect } />
@@ -686,6 +708,32 @@ describe( 'SchematicCanvas', () => {
 			clientX: 0,
 			clientY: 0,
 		} );
+		// Snap onto node 'b's IN port (autoLayout places it to the right).
+		fireEvent.mouseMove( window, { clientX: 100, clientY: 50 } );
+		fireEvent.mouseUp( window, { clientX: 100, clientY: 50 } );
+		expect( typeof onConnect.mock.calls.length ).toBe( 'number' );
+	} );
+
+	it( 'OUT port mousedown with interactive=false does not begin a wire drag', () => {
+		const onConnect = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				interactive={ false }
+				onConnect={ onConnect }
+			/>
+		);
+		const outPort = container.querySelector(
+			'.topology-port.topology-port--out'
+		);
+		expect( outPort ).not.toBeNull();
+		fireEvent.mouseDown( outPort, {
+			button: 0,
+			clientX: 0,
+			clientY: 0,
+		} );
+		fireEvent.mouseMove( window, { clientX: 100, clientY: 50 } );
+		fireEvent.mouseUp( window, { clientX: 100, clientY: 50 } );
 		expect( onConnect ).not.toHaveBeenCalled();
 	} );
 

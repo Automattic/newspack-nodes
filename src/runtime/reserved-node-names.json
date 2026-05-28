@@ -8,5 +8,6 @@
 	"METADATA": "_metadata",
 	"UPTIME": "_uptime",
 	"COMPLETION": "_completion",
-	"HEARTBEAT": "_heartbeat"
+	"HEARTBEAT": "_heartbeat",
+	"CWD": "_cwd"
 }

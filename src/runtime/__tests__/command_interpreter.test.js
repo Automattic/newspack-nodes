@@ -465,18 +465,25 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 			expect( n.sink ).toBeNull();
 			expect( Core.node( 'gone' ) ).toBeNull();
 		} );
-		it( 'refuses to destroy the interpreter', () => {
+		it( 'removes the interpreter itself (no safety rails — breaking the graph is a lesson)', () => {
 			const ci = makeCi();
 			expect(
 				dispatch( ci, 'remove_node', '_command_interpreter' )
-			).toBe( 'refusing to destroy interpreter' );
+			).toBe( 'removed _command_interpreter' );
+			expect( Core.node( '_command_interpreter' ) ).toBeNull();
 		} );
-		it( 'refuses baseline scaffolding (_router/_output)', () => {
+		it( 'removes formerly-protected scaffolding (_router/_output)', () => {
 			const ci = makeCi();
 			new Node().setName( '_router' );
+			new Node().setName( '_output' );
 			expect( dispatch( ci, 'remove_node', '_router' ) ).toBe(
-				'refusing to destroy baseline scaffolding: _router'
+				'removed _router'
 			);
+			expect( Core.node( '_router' ) ).toBeNull();
+			expect( dispatch( ci, 'remove_node', '_output' ) ).toBe(
+				'removed _output'
+			);
+			expect( Core.node( '_output' ) ).toBeNull();
 		} );
 		it( 'reports an unknown node', () => {
 			const ci = makeCi();
@@ -675,19 +682,6 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 		} );
 	} );
 
-	describe( 'dump_config', () => {
-		it( 'is not a verb (browser nodes are not make_node-authored)', () => {
-			const ci = makeCi();
-			expect( ci.commands().dump_config ).toBeUndefined();
-		} );
-		it( 'is not offered as a help topic', () => {
-			const ci = makeCi();
-			expect( dispatch( ci, 'help', 'dump_config' ) ).toBe(
-				'no such topic: "dump_config"'
-			);
-		} );
-	} );
-
 	describe( 'stats', () => {
 		it( 'tabulates sibling counters with the canonical header', () => {
 			const ci = makeCi();
@@ -850,14 +844,102 @@ describe( 'built-in verbs — defaults installed on every CI', () => {
 		} );
 	} );
 
-	describe( 'make_node (browser defers to workers)', () => {
-		// The browser console has no class registry / autoload; node construction
-		// happens server-side. make_node at a worker path routes to that worker's
-		// PHP CI; at a local path it returns a hint rather than constructing.
-		it( 'returns a worker-path hint instead of constructing locally', () => {
+	describe( 'make_node (constructs in-browser, mirrors PHP)', () => {
+		// Mirrors PHP Command_Interpreter_Node::make_node: split args on
+		// whitespace, spread the trailing tokens into the constructor as
+		// positional args, name(), sink($self). includeNodes (a flat name→class
+		// table) stands in for PHP's namespace-prefix resolution.
+		it( 'constructs a registered type, names it, and sinks it into the CI', () => {
 			const ci = makeCi();
-			const out = dispatch( ci, 'make_node', 'Widget w' );
-			expect( out ).toMatch( /worker/i );
+			expect( dispatch( ci, 'make_node', 'Tee mytee' ) ).toBe( 'ok' );
+			const node = Core.node( 'mytee' );
+			expect( node ).toBeInstanceOf( Tee );
+			expect( node.sink ).toBe( ci );
+		} );
+
+		it( 'resolves the base Node type', () => {
+			const ci = makeCi();
+			dispatch( ci, 'make_node', 'Node n' );
+			expect( Core.node( 'n' ) ).toBeInstanceOf( Node );
+		} );
+
+		it( 'requires both a type and a name (PHP needs ≥2 parts)', () => {
+			const ci = makeCi();
+			expect( dispatch( ci, 'make_node', 'Tee' ) ).toMatch( /usage/i );
+			expect( Core.node( 'Tee' ) ).toBeNull();
+		} );
+
+		it( 'spreads trailing tokens as positional constructor args', () => {
+			// A type whose ctor records its positional args proves the spread.
+			const ci = makeCi();
+			CommandInterpreter.includeNodes.ArgSpy = class extends Node {
+				constructor( ...ctorArgs ) {
+					super();
+					this.ctorArgs = ctorArgs;
+				}
+			};
+			dispatch( ci, 'make_node', 'ArgSpy s alpha beta' );
+			expect( Core.node( 's' ).ctorArgs ).toEqual( [ 'alpha', 'beta' ] );
+			delete CommandInterpreter.includeNodes.ArgSpy;
+		} );
+
+		it( 'returns "unknown class" for an unregistered type and builds nothing', () => {
+			const ci = makeCi();
+			const out = dispatch( ci, 'make_node', 'Nope x' );
+			expect( out ).toMatch( /unknown class/i );
+			expect( Core.node( 'x' ) ).toBeNull();
+		} );
+
+		it( 'lets a name collision throw (no pre-check; interpret() wraps it)', () => {
+			const ci = makeCi();
+			dispatch( ci, 'make_node', 'Tee dup' );
+			expect( () => dispatch( ci, 'make_node', 'Node dup' ) ).toThrow(
+				/collision/i
+			);
+		} );
+	} );
+
+	describe( 'dump_config (mirrors PHP)', () => {
+		it( 'emits a make_node line carrying the arguments', () => {
+			const ci = makeCi();
+			dispatch( ci, 'make_node', 'Tee t a b' );
+			expect( dispatch( ci, 'dump_config' ) ).toContain(
+				'make_node Tee t a b'
+			);
+		} );
+
+		it( 'emits set_sink only when the sink is not the CI', () => {
+			const ci = makeCi();
+			dispatch( ci, 'make_node', 'Tee a' );
+			dispatch( ci, 'make_node', 'Node b' );
+			dispatch( ci, 'set_sink', 'a b' );
+			const out = dispatch( ci, 'dump_config' );
+			expect( out ).toContain( 'set_sink a b' );
+			// `b` sinks into the CI by default → no set_sink line for it.
+			expect( out ).not.toContain( 'set_sink b' );
+		} );
+
+		it( 'emits connect_node for a target', () => {
+			const ci = makeCi();
+			dispatch( ci, 'make_node', 'Tee a' );
+			dispatch( ci, 'connect_node', 'a dest' );
+			expect( dispatch( ci, 'dump_config' ) ).toContain(
+				'connect_node a dest'
+			);
+		} );
+
+		it( 'skips only the backbone (_command_interpreter / _router)', () => {
+			const ci = makeCi();
+			new Node().setName( '_router' );
+			const out = dispatch( ci, 'dump_config' );
+			expect( out ).not.toContain( '_command_interpreter' );
+			expect( out ).not.toContain( '_router' );
+		} );
+
+		it( 'dumps _output (a real node, no longer skipped scaffolding)', () => {
+			const ci = makeCi();
+			new Node().setName( '_output' );
+			expect( dispatch( ci, 'dump_config' ) ).toContain( '_output' );
 		} );
 	} );
 } );

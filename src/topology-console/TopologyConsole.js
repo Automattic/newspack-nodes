@@ -12,16 +12,15 @@ import {
 import { __, _n, sprintf } from '@wordpress/i18n';
 
 import CanvasFrame from './components/CanvasFrame';
+import GraphView from './components/GraphView';
 import Header from './components/Header';
-import Inspector from './components/Inspector';
 import { ConfirmModal, PromptModal } from './components/Modal';
-import Palette from './components/Palette';
 import ReplFooter from './components/ReplFooter';
-import SchematicCanvas from './components/SchematicCanvas';
 
 import OpenTopologyModal from './components/OpenTopologyModal';
 
 import { useClassCatalog } from './hooks/useClassCatalog';
+import { useJsCatalog } from './hooks/useJsCatalog';
 import { useLayout } from './hooks/useLayout';
 import { useSaveTopology } from './hooks/useSaveTopology';
 import { useDeleteTopology } from './hooks/useDeleteTopology';
@@ -37,6 +36,7 @@ import {
 	renameNode,
 	updateNodeArgs,
 	updateNodeVerbs,
+	withReplAnchor,
 } from './utils/draftGraph';
 import {
 	NODE_H,
@@ -47,6 +47,7 @@ import {
 	Y_STEP,
 } from './utils/autoLayout';
 import { parseTsl } from './utils/parseTsl';
+import { makeReplDismissHandler } from './utils/replDismissHandler';
 import { serializeTsl } from './utils/serializeTsl';
 import { splitStatements } from './nodes/shell';
 import { Core } from '../runtime/core';
@@ -177,49 +178,6 @@ export function workerPollPath( cwd, pathOptions ) {
 	return worker ? `_sse/${ worker.topology }.p${ worker.partition }` : null;
 }
 
-// The poll path the silent poll nodes (`_metadata` / `_uptime` / `_heartbeat`)
-// should poke, or null to suppress polling. Polling additionally requires a live
-// connection (`ssePid`) and not edit mode; the stream gate uses workerPollPath
-// directly (it can't wait on ssePid — the stream is what produces it).
-export function pollTargetFor( { cwd, mode, ssePid, pathOptions } ) {
-	if ( 'edit' === mode || ! ssePid ) {
-		return null;
-	}
-	return workerPollPath( cwd, pathOptions );
-}
-
-// The dump_metadata/uptime poll target that keeps the CANVAS live. Unlike the
-// slot heartbeat (worker-only — see pollTargetFor), the canvas is pollable in
-// every non-edit context: a worker pivot polls the worker CI (reply async over
-// the stream → needs a session pid), the local graph ('') polls the in-browser
-// CI, and request scope ('_sse') polls via a synchronous POST. So the target is
-// the worker LCP for a worker cwd, else the cwd itself. (#12 gated ALL polling to
-// workers, freezing the canvas at `cd /` and `cd /_sse`.)
-export function canvasPollTargetFor( { cwd, mode, ssePid, pathOptions } ) {
-	if ( 'edit' === mode ) {
-		return null;
-	}
-	const worker = workerPollPath( cwd, pathOptions );
-	if ( null !== worker ) {
-		return ssePid ? worker : null;
-	}
-	return cwd;
-}
-
-// Whether the REPL prompt accepts input for the current cwd. A non-worker cwd
-// (local graph '', request scope `_sse`) sends local builtins or synchronous
-// `_http` POSTs that never use the SSE stream, so the prompt stays usable even
-// with no session — otherwise a `cd /` (which closes the stream + nulls the pid)
-// would disable the prompt and strand the user with no way to `cd` back onto a
-// worker. Only while pivoted into a worker does the prompt wait on the stream
-// (open + a pid), since a worker's replies arrive async over SSE.
-export function replInputEnabled( { status, ssePid, cwd, pathOptions } ) {
-	if ( null === workerPollPath( cwd, pathOptions ) ) {
-		return true;
-	}
-	return 'open' === status && !! ssePid;
-}
-
 // Whether a send TO requires a live SSE session (pid). ONLY a worker pivot
 // (`_sse/{topology}.pN[/…]`) does: SseIn wraps its reply FROM with `_sse:{pid}`
 // so the server's HTTP_Filter can demux the worker's ASYNC reply back to this
@@ -250,14 +208,21 @@ function initialPartitionFromUrl() {
 	return Number.isInteger( p ) && p >= 0 ? p : 0;
 }
 
-// 60 samples at 1s poll = ~1 minute of trailing rate history.
-const RATE_HISTORY_MAX = 60;
-
 // Stable empty defaults so unpopulated state keeps a constant reference.
 const EMPTY_GRAPH = { nodes: [], edges: [] };
 const EMPTY_TRANSCRIPT = [];
 
 const THEME_STORAGE_KEY = 'newspack-nodes:topology:theme';
+const PALETTE_COLLAPSED_KEY = 'newspack-nodes:topology:palette-collapsed';
+
+// Read the persisted palette-collapsed flag; default to open.
+function readStoredPaletteCollapsed() {
+	try {
+		return window.localStorage.getItem( PALETTE_COLLAPSED_KEY ) === '1';
+	} catch ( _err ) {
+		return false;
+	}
+}
 
 // Read the persisted skin; unknown/absent/disabled storage falls back to default.
 function readStoredTheme() {
@@ -276,10 +241,10 @@ export default function TopologyConsole() {
 	const [ partition, setPartition ] = useState( () =>
 		initialPartitionFromUrl()
 	);
+	// Display-only mirror of GraphView's authoritative selection, set via
+	// onSelectionChange. Used ONLY for the `is-inspector-open` wrapper class
+	// (and handleInspectorAction's transcript focus side-effect).
 	const [ selectedId, setSelectedId ] = useState( null );
-	// Mutually exclusive with selectedId — clicking either clears the other.
-	const [ selectedEdge, setSelectedEdge ] = useState( null );
-	const [ hoveredId, setHoveredId ] = useState( null );
 	// `edit` freezes a draft snapshot so SSE pushes can't clobber it;
 	// `baseline` is the draft at edit-entry, so the dirty check compares
 	// against real edits rather than live SSE counter churn.
@@ -305,11 +270,34 @@ export default function TopologyConsole() {
 			// localStorage disabled/quota'd; in-session only.
 		}
 	}, [] );
+	const [ paletteCollapsed, setPaletteCollapsedState ] = useState(
+		readStoredPaletteCollapsed
+	);
+	const togglePaletteCollapsed = useCallback( () => {
+		setPaletteCollapsedState( ( prev ) => {
+			const next = ! prev;
+			try {
+				if ( next ) {
+					window.localStorage.setItem( PALETTE_COLLAPSED_KEY, '1' );
+				} else {
+					window.localStorage.removeItem( PALETTE_COLLAPSED_KEY );
+				}
+			} catch ( _err ) {
+				// localStorage disabled/quota'd; in-session only.
+			}
+			return next;
+		} );
+	}, [] );
 	const saveTopology = useSaveTopology();
 	const deleteTopology = useDeleteTopology();
 	const fetchTopology = useTopology();
 	const topologyList = useTopologyList( { enabled: openModalShown } );
-	const catalog = useClassCatalog( { enabled: true } );
+	// Two catalogs in play: the PHP one (fetched lazily over HTTP — used when
+	// editing a topology or interacting with a worker) and the JS one (the
+	// browser-side make_node registry, used at cwd '/' where commands run in
+	// this realm). The choice is made below once `scope` is known.
+	const phpCatalog = useClassCatalog( { enabled: true } );
+	const jsCatalog = useJsCatalog();
 	const [ replExpanded, setReplExpanded ] = useState( false );
 	const replInputRef = useRef( null );
 	const refocusReplIfExpanded = useCallback( () => {
@@ -318,13 +306,19 @@ export default function TopologyConsole() {
 		}
 	}, [ replExpanded ] );
 
-	// Per-node rate tracking, keyed by node id; rate = Δcount/Δs across ticks.
-	const rateRef = useRef( new Map() );
-	const [ rateVersion, setRateVersion ] = useState( 0 );
-
 	// Dumper verbosity dial (0/1/2), mirroring the substrate Dumper. A ref
 	// so the Dumper reads it per-frame without re-binding the graph.
 	const debugLevelRef = useRef( 0 );
+
+	// Bumped by the "reset graph" control to remount the browser console graph
+	// (teardown + rebuild) after a self-inflicted live edit, without reloading.
+	const [ resetKey, setResetKey ] = useState( 0 );
+
+	// resetLocalGraph stashes the cwd here so the [shell] sync effect can restore
+	// it after useConsoleGraph rehomes Shell.path to the default `_sse/{reader}`.
+	// Without this, "reset graph" would yank the user off `/` (or wherever they
+	// were) every time. Null = no restore pending.
+	const cwdRestoreRef = useRef( null );
 
 	// Shell cwd mirrored into React so the prompt + the canvas poll follow `cd`.
 	// `shell.path` is the source of truth; a graph swap (topology/partition change)
@@ -361,6 +355,7 @@ export default function TopologyConsole() {
 		enabled: mode !== 'edit',
 		streamEnabled: null !== workerPollPath( cwd, pathOptions ),
 		debugLevelRef,
+		resetKey,
 	} );
 
 	// Canvas/transcript state lives on dedicated nodes (WIRING-PLAN §4): the
@@ -377,9 +372,14 @@ export default function TopologyConsole() {
 	const fillCommandInterpreter = useNodeFill( names.COMMAND_INTERPRETER );
 
 	// Re-sync the mirrored cwd whenever `shell` changes (a graph swap remounts the
-	// Shell with a fresh path). The state itself is declared above useConsoleGraph.
+	// Shell with a fresh path). If a reset was the cause of the remount, restore
+	// the pre-reset cwd onto the shell instead of inheriting its default path.
 	useEffect( () => {
 		if ( shell ) {
+			if ( cwdRestoreRef.current !== null ) {
+				shell.path = cwdRestoreRef.current;
+				cwdRestoreRef.current = null;
+			}
 			setCwd( shell.path );
 		}
 	}, [ shell ] );
@@ -388,6 +388,13 @@ export default function TopologyConsole() {
 	// partition state (which only tracks worker paths). `/` → local, `/_sse` →
 	// request scope, a worker (or sub-node) → that worker's `${topology}.p${N}`.
 	const scope = scopeFromCwd( cwd );
+
+	// Pick the catalog that matches where make_node will actually run: the JS
+	// `includeNodes` set at cwd '/' (browser-side Core), the PHP one
+	// otherwise (worker SSE or topology editing — both PHP-side). Edit mode
+	// always uses PHP because the topology file configures PHP workers.
+	const catalog =
+		mode !== 'edit' && scope.key === 'local' ? jsCatalog : phpCatalog;
 
 	// Scoped per scope.key so positions don't bleed between workers/roots. For a
 	// worker cwd scope.key === `${topology}.p${partition}`, so persisted worker
@@ -688,92 +695,16 @@ export default function TopologyConsole() {
 		setSelectedId( null );
 	}, [ topology, partition ] );
 
-	// Per-node msg/s + byte/s rate tracking; one tick per published metadata
-	// object. Negatives (worker respawn resets the counters) clamp to zero.
+	// Clear the METADATA set_state cache on scope change so the canvas doesn't
+	// briefly render the previous scope's nodes (which the canvas's autofit
+	// effect would then lock in via setViewport, causing the "zoom out / bleed"
+	// reported on /_sse → / transitions). With the cache cleared, parsed.nodes
+	// is empty until the next poll arrives for the new scope; the autofit only
+	// commits against FRESH data.
 	useEffect( () => {
-		const now = Date.now() / 1000;
-		let touched = false;
-		for ( const n of parsed.nodes ) {
-			const prevEntry = rateRef.current.get( n.id );
-			const bytesRead = n.bytesRead || 0;
-			const bytesWritten = n.bytesWritten || 0;
-			// Sticky "has ever been non-zero" flags so a counter reset
-			// (worker respawn) doesn't blink the Inspector sparkline out.
-			const hasMessages =
-				( prevEntry && prevEntry.hasMessages ) || n.count > 0;
-			const hasRead = ( prevEntry && prevEntry.hasRead ) || bytesRead > 0;
-			const hasWritten =
-				( prevEntry && prevEntry.hasWritten ) || bytesWritten > 0;
-			if ( prevEntry && prevEntry.ts < now ) {
-				// Negative delta = worker respawn; treat as rate unknown (0).
-				const rawDCount = n.count - prevEntry.count;
-				const dCount = rawDCount < 0 ? 0 : rawDCount;
-				const rawDRead = bytesRead - ( prevEntry.bytesRead || 0 );
-				const dRead = rawDRead < 0 ? 0 : rawDRead;
-				const rawDWritten =
-					bytesWritten - ( prevEntry.bytesWritten || 0 );
-				const dWritten = rawDWritten < 0 ? 0 : rawDWritten;
-				// Clamp dt to >=1s so bunched-up responses don't report a spike.
-				const dTime = Math.max( 1, now - prevEntry.ts );
-				const rate = dCount / dTime;
-				const readRate = dRead / dTime;
-				const writtenRate = dWritten / dTime;
-				const history = prevEntry.history || [];
-				const readHistory = prevEntry.readHistory || [];
-				const writtenHistory = prevEntry.writtenHistory || [];
-				history.push( rate );
-				readHistory.push( readRate );
-				writtenHistory.push( writtenRate );
-				if ( history.length > RATE_HISTORY_MAX ) {
-					history.shift();
-				}
-				if ( readHistory.length > RATE_HISTORY_MAX ) {
-					readHistory.shift();
-				}
-				if ( writtenHistory.length > RATE_HISTORY_MAX ) {
-					writtenHistory.shift();
-				}
-				rateRef.current.set( n.id, {
-					count: n.count,
-					bytesRead,
-					bytesWritten,
-					ts: now,
-					rate,
-					readRate,
-					writtenRate,
-					lastChangedTs: dCount > 0 ? now : prevEntry.lastChangedTs,
-					history,
-					readHistory,
-					writtenHistory,
-					hasMessages,
-					hasRead,
-					hasWritten,
-				} );
-				touched = true;
-			} else if ( ! prevEntry ) {
-				rateRef.current.set( n.id, {
-					count: n.count,
-					bytesRead,
-					bytesWritten,
-					ts: now,
-					rate: 0,
-					readRate: 0,
-					writtenRate: 0,
-					lastChangedTs: now,
-					history: [],
-					readHistory: [],
-					writtenHistory: [],
-					hasMessages,
-					hasRead,
-					hasWritten,
-				} );
-				touched = true;
-			}
-		}
-		if ( touched ) {
-			setRateVersion( ( v ) => v + 1 );
-		}
-	}, [ parsed ] );
+		Core.node( names.METADATA )?.setState( 'metadata', null );
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ scope.key ] );
 
 	const dispatchStatement = useCallback(
 		( statement ) => {
@@ -863,35 +794,23 @@ export default function TopologyConsole() {
 	);
 
 	// Live-canvas poll gating (WIRING-PLAN §4/§5). The Router TIMER in
-	// useConsoleGraph drives emission; here we just point the poll nodes at the
-	// shell's CURRENT path (cwd) and gate it — null pollTo makes onTimer a no-op,
-	// so edit mode / pre-pid emit nothing and HttpOut.flush() posts an empty
-	// buffer = no request.
+	// useConsoleGraph drives emission; the poll nodes address `_cwd` (a plain Node
+	// whose `target` IS the cwd), so all the per-scope routing collapses to one
+	// line: point `_cwd.target` at the current cwd. Router peels `_cwd`, the base
+	// Node.fill re-stamps the live cwd into TO (empty TO for the local root → the
+	// CI interprets locally), then forwards to the CI. One indirection routes a
+	// worker pivot (reply async over the stream), the local graph (in-browser CI),
+	// and request scope (synchronous POST) alike.
 	useEffect( () => {
-		// All three poll nodes target the worker LCP (the longest worker menu item
-		// that prefixes the cwd) — NOT a deep sub-node cwd (which would route past
-		// the worker CI). A non-worker cwd (local '', `_sse`, `_http`) has no worker
-		// CI to poll, so pollTargetFor returns null and all three go quiet.
-		// Canvas polls (metadata/uptime) run in every non-edit context; the slot
-		// heartbeat only while pivoted into a worker (its poke keeps a worker-stream
-		// slot alive — meaningless off a worker).
-		const canvasTo = canvasPollTargetFor( {
-			cwd,
-			mode,
-			ssePid,
-			pathOptions,
-		} );
-		const heartbeatTo = pollTargetFor( { cwd, mode, ssePid, pathOptions } );
-		const pollTargets = {
-			[ names.METADATA ]: canvasTo,
-			[ names.UPTIME ]: canvasTo,
-			[ names.HEARTBEAT ]: heartbeatTo,
-		};
-		for ( const [ name, target ] of Object.entries( pollTargets ) ) {
-			const node = Core.node( name );
-			if ( node ) {
-				node.pollTo = target;
-			}
+		const cwdNode = Core.node( names.CWD );
+		if ( cwdNode ) {
+			// Track the cwd verbatim. At a worker cwd without a pid, the POST
+			// will fail to round-trip (server has no SSE to demux the reply),
+			// but the request is cheap and silent; the canvas just holds its
+			// last state until the stream connects. The previous "route locally
+			// while connecting" fallback misleadingly displayed the LOCAL graph
+			// at a worker cwd, which is what the user calls out as unintuitive.
+			cwdNode.target = cwd;
 		}
 		// Keep the Shell's `status` builtin lines current with the session/cwd so
 		// the carrier it slices at parse time reflects live state (PHP stashes a
@@ -1054,17 +973,17 @@ export default function TopologyConsole() {
 			const virtualEdges = [];
 			for ( const node of graph.nodes ) {
 				const schema = classByName.get( node.class );
-				if ( ! schema || ! schema.verbs ) {
+				if ( ! schema || ! schema.commands ) {
 					continue;
 				}
 				for ( const inv of node.verbInvocations || [] ) {
-					const vspec = schema.verbs.find(
+					const cspec = schema.commands.find(
 						( v ) => v.name === inv.verb
 					);
-					if ( ! vspec || ! vspec.args ) {
+					if ( ! cspec || ! cspec.args ) {
 						continue;
 					}
-					vspec.args.forEach( ( argSpec, i ) => {
+					cspec.args.forEach( ( argSpec, i ) => {
 						if ( argSpec.type !== 'node_name' ) {
 							return;
 						}
@@ -1169,16 +1088,18 @@ export default function TopologyConsole() {
 				setMode( 'edit' );
 				setEditingName( '' );
 				setEditingSource( '' );
-				rateRef.current = new Map();
-				setRateVersion( ( v ) => v + 1 );
 				// Preserve overrides + viewport from a prior edit session.
-				const blank = { nodes: [], edges: [] };
+				// Seed the reserved `_repl` anchor into both draft and baseline
+				// so it's present from the start and its presence isn't dirty.
+				const blank = withReplAnchor( { nodes: [], edges: [] } );
 				setDraft( blank );
 				setBaseline( blank );
 				if ( topology ) {
 					fetchTopology( topology )
 						.then( ( resp ) => {
-							const loaded = parseTsl( resp.tsl || '' );
+							const loaded = withReplAnchor(
+								parseTsl( resp.tsl || '' )
+							);
 							setDraft( loaded );
 							setBaseline( loaded );
 							setEditingName( resp.name );
@@ -1249,105 +1170,53 @@ export default function TopologyConsole() {
 		return augmentWithVirtualEdges( baseCanvasGraph );
 	}, [ baseCanvasGraph, mode, augmentWithVirtualEdges ] );
 
-	const handleConnect = useCallback( ( from, to ) => {
-		setDraft( ( g ) => {
-			// Non-Tee nodes have a single target slot; Tees fan out.
-			const fromNode = g.nodes.find( ( n ) => n.id === from );
-			if ( fromNode && fromNode.class !== 'Tee' ) {
-				let cleared = { nodes: g.nodes, edges: g.edges };
-				for ( const e of g.edges ) {
-					if ( e.from === from ) {
-						cleared = removeEdge( cleared, e.from, e.to );
-					}
-				}
-				return addEdge( cleared, { from, to } );
+	const handleConnect = useCallback(
+		( from, to ) => {
+			// Live canvas: the gesture is a live command at the current cwd.
+			if ( mode !== 'edit' ) {
+				sendLine( `connect_node ${ from } ${ to }` );
+				return;
 			}
-			return addEdge( g, { from, to } );
-		} );
-	}, [] );
+			setDraft( ( g ) => {
+				// Non-Tee nodes have a single target slot; Tees fan out.
+				const fromNode = g.nodes.find( ( n ) => n.id === from );
+				if ( fromNode && fromNode.class !== 'Tee' ) {
+					let cleared = { nodes: g.nodes, edges: g.edges };
+					for ( const e of g.edges ) {
+						if ( e.from === from ) {
+							cleared = removeEdge( cleared, e.from, e.to );
+						}
+					}
+					return addEdge( cleared, { from, to } );
+				}
+				return addEdge( g, { from, to } );
+			} );
+		},
+		[ mode, sendLine ]
+	);
 
 	const handleRemoveNode = useCallback(
 		( id ) => {
+			// Live canvas: the gesture is a live command at the current cwd.
+			if ( mode !== 'edit' ) {
+				sendLine( `remove_node ${ id }` );
+				return;
+			}
 			setDraft( ( g ) => removeNode( g, id ) );
-			if ( selectedId === id ) {
-				setSelectedId( null );
-			}
 		},
-		[ selectedId ]
+		[ mode, sendLine ]
 	);
 
-	const handleRemoveEdge = useCallback(
-		( from, to ) => {
-			setDraft( ( g ) => removeEdge( g, from, to ) );
-			if (
-				selectedEdge &&
-				selectedEdge.from === from &&
-				selectedEdge.to === to
-			) {
-				setSelectedEdge( null );
-			}
-		},
-		[ selectedEdge ]
-	);
+	const handleRemoveEdge = useCallback( ( from, to ) => {
+		setDraft( ( g ) => removeEdge( g, from, to ) );
+	}, [] );
 
-	// Node and edge selection are mutually exclusive (unambiguous Delete).
-	const handleSelectNode = useCallback(
-		( id ) => {
-			setSelectedId( id );
-			setSelectedEdge( null );
-			refocusReplIfExpanded();
-		},
-		[ refocusReplIfExpanded ]
-	);
-
-	const handleSelectEdge = useCallback(
-		( edge ) => {
-			setSelectedEdge( edge );
-			setSelectedId( null );
-			refocusReplIfExpanded();
-		},
-		[ refocusReplIfExpanded ]
-	);
-
-	// First background click dismisses the prompt; return true so the canvas
-	// skips its own deselect/autofit for this click.
-	const handleCanvasBackgroundClickConsumed = useCallback( () => {
-		if ( ! replExpanded ) {
-			return false;
-		}
-		setReplExpanded( false );
-		replInputRef.current?.blur();
-		return true;
-	}, [ replExpanded ] );
-
-	// Edit-mode Delete/Backspace removes the selection (skipped in form fields).
-	useEffect( () => {
-		if ( mode !== 'edit' ) {
-			return undefined;
-		}
-		const onKey = ( e ) => {
-			if ( e.key !== 'Delete' && e.key !== 'Backspace' ) {
-				return;
-			}
-			const target = e.target;
-			const tag = target && target.tagName;
-			if ( tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' ) {
-				return;
-			}
-			if ( target && target.isContentEditable ) {
-				return;
-			}
-			if ( selectedId ) {
-				e.preventDefault();
-				handleRemoveNode( selectedId );
-			} else if ( selectedEdge ) {
-				e.preventDefault();
-				handleRemoveEdge( selectedEdge.from, selectedEdge.to );
-			}
-		};
-		document.addEventListener( 'keydown', onKey );
-		return () => document.removeEventListener( 'keydown', onKey );
-	}, [ mode, selectedId, selectedEdge, handleRemoveNode, handleRemoveEdge ] );
+	// Shared canvas-background-click dismiss pattern (mirrored in the overlay).
+	const handleCanvasBackgroundClickConsumed = makeReplDismissHandler( {
+		replExpanded,
+		setReplExpanded,
+		inputRef: replInputRef,
+	} );
 
 	const handleSave = useCallback( () => {
 		setSaveModal( {} );
@@ -1364,12 +1233,59 @@ export default function TopologyConsole() {
 		setEditingName( '' );
 		setEditingSource( '' );
 		setSelectedId( null );
-		setSelectedEdge( null );
 		setPositionOverrides( {} );
 		setViewport( null );
-		rateRef.current = new Map();
-		setRateVersion( ( v ) => v + 1 );
 	}, [] );
+
+	// "Reset graph" — a real reset of the local browser graph. Wipes every Core
+	// node that isn't part of the canonical console graph (i.e. user `make_node`s
+	// that survived a self-inflicted break), clears local-scope layout state so
+	// the canvas re-autofits cleanly, then bumps resetKey to rebuild the spine.
+	// cwdRestoreRef carries the user's cwd through the remount (otherwise the
+	// rebuilt Shell snaps path back to `_sse/{reader}` and drags cwd along).
+	const PROTECTED_NODE_NAMES = useMemo(
+		() =>
+			new Set( [
+				names.COMMAND_INTERPRETER,
+				names.ROUTER,
+				names.OUTPUT,
+				names.METADATA,
+				names.UPTIME,
+				names.COMPLETION,
+				names.HEARTBEAT,
+				names.HTTP,
+				names.SSE,
+				names.CWD,
+			] ),
+		[]
+	);
+	const resetLocalGraph = useCallback( () => {
+		cwdRestoreRef.current = cwd;
+		for ( const name of [ ...Core.nodes.keys() ] ) {
+			if ( ! PROTECTED_NODE_NAMES.has( name ) ) {
+				Core.unregisterNode( name );
+			}
+		}
+		setPositionOverrides( {} );
+		setViewport( null );
+		try {
+			window.localStorage.removeItem(
+				'newspack-nodes:topology:local:positions'
+			);
+			window.localStorage.removeItem(
+				'newspack-nodes:topology:local:viewport'
+			);
+		} catch ( _err ) {
+			// localStorage disabled — in-session only.
+		}
+		setResetKey( ( k ) => k + 1 );
+	}, [ cwd, PROTECTED_NODE_NAMES ] );
+
+	// Hide the Reset Graph chip when there's nothing to reset (only the
+	// canonical console graph remains). Mirrors the overlay's gating.
+	const hasUserAddedLocalNodes = parsed.nodes.some(
+		( n ) => ! PROTECTED_NODE_NAMES.has( n.id )
+	);
 
 	// DELETE shows only for a topology with a user-saved copy (stock is protected).
 	// Keyed off the source of the loaded topology (from the get/save response),
@@ -1445,12 +1361,9 @@ export default function TopologyConsole() {
 				setEditingName( resp.name );
 				setEditingSource( resp.source || '' );
 				setSelectedId( null );
-				setSelectedEdge( null );
 				// Seed from the loaded graph so later drops don't reshuffle it.
 				seedOverridesFromLayout();
 				setViewport( null );
-				rateRef.current = new Map();
-				setRateVersion( ( v ) => v + 1 );
 				setToast( {
 					kind: 'success',
 					text: sprintf(
@@ -1569,19 +1482,19 @@ export default function TopologyConsole() {
 						return n;
 					}
 					const schema = classByName.get( n.class );
-					if ( ! schema || ! schema.verbs ) {
+					if ( ! schema || ! schema.commands ) {
 						return n;
 					}
 					const nextInvs = n.verbInvocations.map( ( inv ) => {
-						const vspec = schema.verbs.find(
+						const cspec = schema.commands.find(
 							( v ) => v.name === inv.verb
 						);
-						if ( ! vspec || ! vspec.args ) {
+						if ( ! cspec || ! cspec.args ) {
 							return inv;
 						}
 						let touched = false;
 						const args = inv.args.slice();
-						vspec.args.forEach( ( a, i ) => {
+						cspec.args.forEach( ( a, i ) => {
 							if (
 								a.type === 'node_name' &&
 								args[ i ] === oldId
@@ -1639,6 +1552,14 @@ export default function TopologyConsole() {
 
 	const handleDropNode = useCallback(
 		( { shellName, x, y } ) => {
+			// Live canvas: dispatch a live make_node; position is cosmetic and
+			// not sent (poll-reflect lays it out). Name uniqued against the
+			// live graph so it won't collide with an existing node.
+			if ( mode !== 'edit' ) {
+				const name = generateNodeName( parsed, shellName );
+				sendLine( `make_node ${ shellName } ${ name }` );
+				return;
+			}
 			// Snap to the grid so dropped nodes line up and don't drift.
 			const snapped = snapToGrid( x, y );
 			setDraft( ( g ) => {
@@ -1652,21 +1573,16 @@ export default function TopologyConsole() {
 				} );
 			} );
 		},
-		[ handlePositionChange, snapToGrid ]
-	);
-
-	// rateVersion is the recompute signal; the data lives in mutable rateRef.
-	const selectedRateInfo = useMemo(
-		() => ( selectedId ? rateRef.current.get( selectedId ) : null ),
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[ selectedId, rateVersion ]
+		[ mode, parsed, sendLine, handlePositionChange, snapToGrid ]
 	);
 
 	return (
 		<div
 			className={ `topology-app theme-${ theme }${
 				selectedId ? ' is-inspector-open' : ''
-			}${ mode === 'edit' ? ' is-edit-mode' : '' }` }
+			}${ mode === 'edit' ? ' is-edit-mode' : '' }${
+				paletteCollapsed ? ' is-palette-collapsed' : ''
+			}` }
 		>
 			<Header
 				pathOptions={ pathOptions }
@@ -1686,84 +1602,70 @@ export default function TopologyConsole() {
 				onThemeChange={ setTheme }
 				themes={ THEMES }
 			/>
-			{ mode === 'edit' && (
-				<Palette
-					classes={ catalog.classes }
-					loading={ catalog.loading }
-				/>
-			) }
-			<CanvasFrame
-				topology={
-					mode === 'edit' ? editingName || 'untitled' : scope.label
-				}
-				partition={ mode === 'edit' ? null : scope.partition }
-				isWorker={ mode === 'edit' ? true : scope.isWorker }
-				onResetLayout={ hasOverrides ? handleResetLayout : null }
-				onSaveLayout={ layoutDirty ? handleSaveLayout : null }
+			<GraphView
+				graph={ canvasGraph }
+				frame={ CanvasFrame }
+				frameProps={ {
+					topology:
+						mode === 'edit'
+							? editingName || 'untitled'
+							: scope.label,
+					partition: mode === 'edit' ? null : scope.partition,
+					isWorker: mode === 'edit' ? true : scope.isWorker,
+					onResetLayout: hasOverrides ? handleResetLayout : null,
+					onSaveLayout: layoutDirty ? handleSaveLayout : null,
+					// Only the local in-browser graph (cwd root) is ephemeral;
+					// any pivoted view — a worker over _sse OR the _http
+					// broadcast boundary — self-heals on respawn, so a reset is
+					// meaningless.
+					onResetGraph:
+						mode === 'edit' ||
+						'' !== cwd ||
+						! hasUserAddedLocalNodes
+							? null
+							: resetLocalGraph,
+					editMode: mode === 'edit',
+				} }
+				resetKey={ `${ scope.key }|${ mode }|${ editingName }` }
+				interactive={ true }
 				editMode={ mode === 'edit' }
-			>
-				<SchematicCanvas
-					parsed={ canvasGraph }
-					selectedId={ selectedId }
-					onSelect={ handleSelectNode }
-					positionOverrides={ positionOverrides }
-					onPositionChange={ handlePositionChange }
-					onDeselect={ () => {
-						setSelectedId( null );
-						setSelectedEdge( null );
-					} }
-					onBackgroundClickConsumed={
-						handleCanvasBackgroundClickConsumed
-					}
-					hoveredId={ hoveredId }
-					onHover={ setHoveredId }
-					rateRef={ rateRef }
-					rateVersion={ rateVersion }
-					viewport={ viewport }
-					onViewportChange={ handleViewportChange }
-					editMode={ mode === 'edit' }
-					onDropNode={ handleDropNode }
-					onConnect={ handleConnect }
-					selectedEdge={ selectedEdge }
-					onSelectEdge={ handleSelectEdge }
-					classCatalog={ schemasByShellName }
-				/>
-			</CanvasFrame>
-			{ /* Inspector mounts only when a node is selected. */ }
-			{ selectedId && (
-				<Inspector
-					selectedId={ selectedId }
-					parsed={ canvasGraph }
-					streamStatus={ status }
-					rateInfo={ selectedRateInfo }
-					onAction={ handleInspectorAction }
-					onSelect={ handleSelectNode }
-					onHover={ setHoveredId }
-					nodeIds={
-						new Set( canvasGraph.nodes.map( ( n ) => n.id ) )
-					}
-					ssePid={ ssePid }
-					editMode={ mode === 'edit' }
-					catalog={ catalog.classes }
-					formatters={ catalog.formatters }
-					onUpdateArgs={ handleUpdateArgs }
-					onUpdateVerbs={ handleUpdateVerbs }
-					onRemoveNode={ handleRemoveNode }
-					onRenameNode={ handleRenameNode }
-					onRemoveEdge={ handleRemoveEdge }
-					onConnect={ handleConnect }
-				/>
-			) }
+				showPalette={ true }
+				paletteLoading={ catalog.loading }
+				paletteCollapsed={ paletteCollapsed }
+				onPaletteToggle={ togglePaletteCollapsed }
+				classCatalog={ schemasByShellName }
+				catalog={ catalog.classes }
+				formatters={ catalog.formatters }
+				streamStatus={ status }
+				ssePid={ ssePid }
+				positionOverrides={ positionOverrides }
+				onPositionChange={ handlePositionChange }
+				viewport={ viewport }
+				onViewportChange={ handleViewportChange }
+				onConnect={ handleConnect }
+				onRemoveNode={ handleRemoveNode }
+				onRemoveEdge={ handleRemoveEdge }
+				onDropNode={ handleDropNode }
+				onInspectorAction={ handleInspectorAction }
+				onRenameNode={ handleRenameNode }
+				onUpdateArgs={ handleUpdateArgs }
+				onUpdateVerbs={ handleUpdateVerbs }
+				onSelectionChange={ ( id ) => {
+					setSelectedId( id );
+					refocusReplIfExpanded();
+				} }
+				selection={ selectedId }
+				onBackgroundClickConsumed={
+					handleCanvasBackgroundClickConsumed
+				}
+			/>
 			{ mode !== 'edit' && (
 				<ReplFooter
 					prompt={ `/${ cwd }` }
 					streamStatus={ status }
-					canSend={ replInputEnabled( {
-						status,
-						ssePid,
-						cwd,
-						pathOptions,
-					} ) }
+					// Input is always enabled: a poll/command for any scope routes
+					// through `_cwd`, so there is no scope where the prompt must wait.
+					canSend={ true }
 					onSubmit={ sendLine }
 					onClear={ clearTranscript }
 					transcript={ transcript }

@@ -53,11 +53,17 @@ function edgePath( a, b ) {
 // Padded tight bbox of every node. The width/height floor caps the
 // effective zoom so small graphs don't autofit to giant nodes.
 const CENTER_PAD = 80;
-const AUTOFIT_MIN_W = 1280;
-const AUTOFIT_MIN_H = 720;
-function tightViewBoxFor( nodes ) {
+// Fallback (only used when the canvas hasn't been measured yet) — picked to
+// match a roughly desktop-sized panel. Once we know the actual canvas pixel
+// size we use THAT as the minimum, so the autofit never zooms the graph
+// smaller than 1:1 (a 1-node graph stays node-sized regardless of panel size).
+const AUTOFIT_FALLBACK_W = 1280;
+const AUTOFIT_FALLBACK_H = 720;
+function tightViewBoxFor( nodes, canvasSize = null ) {
+	const minW = canvasSize?.w || AUTOFIT_FALLBACK_W;
+	const minH = canvasSize?.h || AUTOFIT_FALLBACK_H;
 	if ( ! nodes.length ) {
-		return `0 0 ${ AUTOFIT_MIN_W } ${ AUTOFIT_MIN_H }`;
+		return `0 0 ${ minW } ${ minH }`;
 	}
 	let minX = Infinity;
 	let minY = Infinity;
@@ -71,8 +77,11 @@ function tightViewBoxFor( nodes ) {
 	}
 	const bboxW = maxX - minX + CENTER_PAD * 2;
 	const bboxH = maxY - minY + CENTER_PAD * 2;
-	const w = Math.max( AUTOFIT_MIN_W, bboxW );
-	const h = Math.max( AUTOFIT_MIN_H, bboxH );
+	// minW/H is the canvas pixel size — using it as the floor pins the autofit
+	// at native zoom (1 SVG unit = 1 canvas px) for small graphs. Larger graphs
+	// stretch the viewBox past the canvas, zooming out as before.
+	const w = Math.max( minW, bboxW );
+	const h = Math.max( minH, bboxH );
 	// Center the (possibly enlarged) viewBox on the bbox center.
 	const centerX = ( minX + maxX ) / 2;
 	const centerY = ( minY + maxY ) / 2;
@@ -100,7 +109,7 @@ const SPARK_X = 11;
 const SPARK_Y = 48;
 const SPARK_W = 174; // NODE_W (196) - 11 - 11
 const SPARK_H = 16;
-// Must equal TopologyConsole's RATE_HISTORY_MAX — drives the per-sample step.
+// Must equal useGraphRates.js's RATE_HISTORY_MAX — drives the per-sample step.
 const SPARK_HISTORY_MAX = 60;
 function sparklinePath( history ) {
 	if ( ! history || history.length < 2 ) {
@@ -153,10 +162,13 @@ export default function SchematicCanvas( {
 	rateVersion,
 	viewport,
 	onViewportChange,
-	// Edit-mode affordances; no-ops in view mode. onDropNode receives
-	// SVG-space coords; onConnect fires on OUT-port → IN-port drag.
+	// Gesture handlers. onDropNode receives SVG-space coords; onConnect fires
+	// on OUT-port → IN-port drag. `interactive` gates the gesture machinery
+	// (true in both live + edit); `editMode` gates only draft-specific
+	// affordances (edge-select hit target, out-port styling).
 	onDropNode,
 	onConnect,
+	interactive = true,
 	editMode = false,
 	selectedEdge = null,
 	onSelectEdge,
@@ -229,7 +241,7 @@ export default function SchematicCanvas( {
 
 	const handlePortPointerDown = useCallback(
 		( nodeId, e ) => {
-			if ( ! editMode || ! onConnect || e.button !== 0 ) {
+			if ( ! interactive || ! onConnect || e.button !== 0 ) {
 				return;
 			}
 			if ( portDownGuardRef.current ) {
@@ -273,7 +285,7 @@ export default function SchematicCanvas( {
 		},
 		// handleWindowWireMove/Up close over wireDragRef + nodes; not deps.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[ editMode, onConnect, nodes, updateWireDrag ]
+		[ interactive, onConnect, nodes, updateWireDrag ]
 	);
 
 	function handleWindowWireMove( e ) {
@@ -325,19 +337,19 @@ export default function SchematicCanvas( {
 
 	const handleDragOver = useCallback(
 		( e ) => {
-			if ( ! editMode ) {
+			if ( ! interactive ) {
 				return;
 			}
 			// preventDefault marks the surface as a valid drop target.
 			e.preventDefault();
 			e.dataTransfer.dropEffect = 'copy';
 		},
-		[ editMode ]
+		[ interactive ]
 	);
 
 	const handleDrop = useCallback(
 		( e ) => {
-			if ( ! editMode || ! onDropNode || ! svgRef.current ) {
+			if ( ! interactive || ! onDropNode || ! svgRef.current ) {
 				return;
 			}
 			const shellName = e.dataTransfer.getData(
@@ -365,11 +377,23 @@ export default function SchematicCanvas( {
 				active.blur();
 			}
 		},
-		[ editMode, onDropNode ]
+		[ interactive, onDropNode ]
 	);
 
+	// SVG pixel size — used as the autofit minimum so a small graph in a
+	// small canvas stays at native zoom (instead of using a hardcoded 1280
+	// fallback that makes nodes appear shrunken in narrow panels).
+	const canvasSize = () => {
+		const el = svgRef.current;
+		if ( ! el ) {
+			return null;
+		}
+		return { w: el.clientWidth, h: el.clientHeight };
+	};
+
 	const defaultViewBox = useMemo(
-		() => tightViewBoxFor( displayNodes ),
+		() => tightViewBoxFor( displayNodes, canvasSize() ),
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[ displayNodes ]
 	);
 	const viewBox = viewport
@@ -379,7 +403,9 @@ export default function SchematicCanvas( {
 	// the whole canvas (viewport=null otherwise re-fits every render).
 	useEffect( () => {
 		if ( ! viewport && nodes.length > 0 ) {
-			setViewport( parseViewBox( tightViewBoxFor( nodes ) ) );
+			setViewport(
+				parseViewBox( tightViewBoxFor( nodes, canvasSize() ) )
+			);
 		}
 		// nodes (not displayNodes) so an in-flight drag doesn't commit.
 		// eslint-disable-next-line react-hooks/exhaustive-deps
@@ -483,7 +509,11 @@ export default function SchematicCanvas( {
 					onDeselect();
 				}
 			} else {
-				setViewport( parseViewBox( tightViewBoxFor( displayNodes ) ) );
+				setViewport(
+					parseViewBox(
+						tightViewBoxFor( displayNodes, canvasSize() )
+					)
+				);
 			}
 		}
 	};

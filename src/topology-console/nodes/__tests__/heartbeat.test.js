@@ -35,15 +35,15 @@ describe( 'Heartbeat node', () => {
 
 	it( 'pre-declares no transcript subscription (it is consume-only)', () => {
 		const node = new Heartbeat();
-		expect( node.pollTo ).toBeNull();
+		expect( node.pollTo ).toBeUndefined();
 		expect( node.slot ).toBeNull();
 	} );
 
 	describe( 'onTimer poll emission', () => {
-		it( 'emits a workers/heartbeat command via the session boundary when enabled', () => {
+		it( 'emits a heartbeat command addressed to this.target when a slot is held', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent } = build();
-			node.pollTo = '_sse/demo.p0';
+			node.target = '_sse/workers';
 			node.setSlot( 3, 0 );
 			node.onTimer();
 			expect( sent ).toHaveLength( 1 );
@@ -56,19 +56,10 @@ describe( 'Heartbeat node', () => {
 			expect( m[ LOCAL ] ).toBe( true );
 		} );
 
-		it( 'emits nothing when pollTo is null (cwd is not a worker)', () => {
-			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
-			const { node, sent } = build();
-			node.setSlot( 3, 0 );
-			node.pollTo = null;
-			node.onTimer();
-			expect( sent ).toHaveLength( 0 );
-		} );
-
 		it( 'emits nothing when no slot has been acquired', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent } = build();
-			node.pollTo = '_sse/demo.p0';
+			node.target = '_sse/workers';
 			node.onTimer();
 			expect( sent ).toHaveLength( 0 );
 		} );
@@ -76,7 +67,7 @@ describe( 'Heartbeat node', () => {
 		it( 'throttles: two onTimer calls <5s apart emit once', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
-			node.pollTo = '_sse/demo.p0';
+			node.target = '_sse/workers';
 			node.setSlot( 1, 0 );
 			nowSpy.mockReturnValue( 100 );
 			node.onTimer();
@@ -88,7 +79,7 @@ describe( 'Heartbeat node', () => {
 		it( 'emits twice when calls are >=5s apart', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
-			node.pollTo = '_sse/demo.p0';
+			node.target = '_sse/workers';
 			node.setSlot( 1, 0 );
 			nowSpy.mockReturnValue( 100 );
 			node.onTimer();
@@ -100,7 +91,7 @@ describe( 'Heartbeat node', () => {
 		it( 'clearSlot() disables emission (SSE stream closed)', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent } = build();
-			node.pollTo = '_sse/demo.p0';
+			node.target = '_sse/workers';
 			node.setSlot( 1, 0 );
 			node.clearSlot();
 			node.onTimer();
@@ -109,7 +100,7 @@ describe( 'Heartbeat node', () => {
 
 		it( 'does not throw when there is no sink', () => {
 			const node = new Heartbeat();
-			node.pollTo = '_sse/demo.p0';
+			node.target = '_sse/workers';
 			node.setSlot( 1, 0 );
 			expect( () => node.onTimer() ).not.toThrow();
 		} );

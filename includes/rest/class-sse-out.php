@@ -158,7 +158,8 @@ class SSE_Out_Node extends Node {
 			try {
 				$ipc = $attach( $sub, $base );
 				// Empty offsetlog_base_dir disables checkpointing — ephemeral sessions tail-seek.
-				$consumer = new Consumer_Node( $ipc['output'], 0, '' );
+				$consumer = new Consumer_Node();
+				$consumer->arguments( "{$ipc['output']} 0 " );
 				$consumer->next_offset( 'end' );
 				$consumer->set_stamp_as( $sub );
 				return [ $consumer ];
@@ -169,7 +170,8 @@ class SSE_Out_Node extends Node {
 				// the live console recovers without a page reload / topology switch.
 				$ipc_output = "{$base}/ipc/{$sub}/output";
 				if ( \is_dir( $ipc_output ) ) {
-					$consumer = new Consumer_Node( $ipc_output, 0, '' );
+					$consumer = new Consumer_Node();
+					$consumer->arguments( "{$ipc_output} 0 " );
 					$consumer->next_offset( 'end' );
 					$consumer->set_stamp_as( $sub );
 					return [ $consumer ];
@@ -179,7 +181,8 @@ class SSE_Out_Node extends Node {
 				$log_name  = $m[1];
 				$partition = (int) $m[2];
 				$log_base  = "{$base}/logs/{$log_name}.log";
-				$consumer  = new Consumer_Node( $log_base, $partition, '' );
+				$consumer  = new Consumer_Node();
+				$consumer->arguments( "{$log_base} {$partition} " );
 				if ( isset( $positions[ $partition ] ) ) {
 					$consumer->next_offset( $positions[ $partition ] );
 				} else {
@@ -195,7 +198,8 @@ class SSE_Out_Node extends Node {
 			$partitions = $this->num_partitions ?? (int) ( Config::load_config()['num_partitions'] ?? 1 );
 			$consumers  = [];
 			for ( $p = 0; $p < $partitions; $p++ ) {
-				$consumer = new Consumer_Node( $log_base, $p, '' );
+				$consumer = new Consumer_Node();
+				$consumer->arguments( "{$log_base} {$p} " );
 				if ( isset( $positions[ $p ] ) ) {
 					$consumer->next_offset( $positions[ $p ] );
 				} else {

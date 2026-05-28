@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Router_Node;
@@ -34,7 +35,8 @@ class WorkerScaffoldingTest extends TestCase {
 		// ~10-min restart aren't dropped (the live console keeps getting replies).
 		$ipc_dir = "{$this->tmp}/ipc/test.p0";
 		\mkdir( "{$ipc_dir}/input", 0755, true );
-		$seed = new \Newspack_Nodes\Consumer_Node( "{$ipc_dir}/input", 0, "{$ipc_dir}/input.offsets" );
+		$seed = new Consumer_Node();
+		$seed->arguments( "{$ipc_dir}/input 0 {$ipc_dir}/input.offsets" );
 		$seed->checkpoint();
 		unset( $seed );
 
@@ -48,7 +50,8 @@ class WorkerScaffoldingTest extends TestCase {
 		// First spawn (no checkpoint) tail-seeks to end so it does not replay the
 		// input partition's retained command history.
 		$ipc_dir = "{$this->tmp}/ipc/test.p0";
-		$input   = new Partition_Node( "{$ipc_dir}/input", 0 );
+		$input = new Partition_Node();
+		$input->arguments( "{$ipc_dir}/input 0" );
 		$msg                                  = \Newspack_Nodes\Message::new_message();
 		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
 		$msg[ \Newspack_Nodes\Message::VALUE ] = "old-command\n";
@@ -90,7 +93,9 @@ class WorkerScaffoldingTest extends TestCase {
 		$in = $w->build_ipc_input_consumer( $ipc_dir );
 		$in->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 
-		$input = new Partition_Node( "{$ipc_dir}/input", 0 );
+		$input = new Partition_Node();
+
+		$input->arguments( "{$ipc_dir}/input 0" );
 		$this->write_ipc_line( $input, 'cmd1' );
 		$in->poll();                 // consume cmd1 before the recycle
 		$w->checkpoint_ipc_input();  // clean-recycle shutdown checkpoint

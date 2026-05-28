@@ -33,8 +33,8 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 		return [
 			'category'    => 'Service',
 			'description' => 'Log inspection: catalog on-disk logs and report a log\'s partition/segment status.',
-			'ctor'        => [],
-			'verbs'       => [
+			'arguments'        => [],
+			'commands'       => [
 				[
 					'name'        => 'list_logs',
 					'description' => 'List the on-disk log keys.',
@@ -69,7 +69,8 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 						$total_size     = 0;
 						$total_segments = 0;
 						for ( $p = 0; $p < $num_partitions; $p++ ) {
-							$partition        = new Partition_Node( "{$log_base}/{$log_file}", $p );
+							$partition        = new Partition_Node();
+							$partition->arguments( "{$log_base}/{$log_file} {$p}" );
 							$segments         = $partition->get_segments( true );
 							$size             = (int) \array_sum( \array_column( $segments, 'size' ) );
 							$partitions[ $p ] = [

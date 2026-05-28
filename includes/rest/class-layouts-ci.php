@@ -35,8 +35,8 @@ class Layouts_CI_Node extends Service_CI_Node {
 		return [
 			'category'    => 'Service',
 			'description' => 'Per-topology canvas layout: get / save node positions.',
-			'ctor'        => [],
-			'verbs'       => [
+			'arguments'        => [],
+			'commands'       => [
 				[
 					'name'        => 'get',
 					'description' => 'Read saved node positions for a layout name.',

@@ -43,11 +43,8 @@ beforeEach( () => {
 } );
 
 function makeSseIn() {
-	const sse = new SseIn( {
-		subscribe: [ 'demo.p0' ],
-		baseUrl: '/wp-json/',
-		nonce: 'NONCE',
-	} );
+	const sse = new SseIn();
+	sse.arguments = 'demo.p0 /wp-json/ NONCE';
 	sse.name = '_sse'; // needed so the incoming-stamp breadcrumb has a name
 	const router = new Node();
 	const routed = [];
@@ -163,5 +160,48 @@ describe( 'SseIn', () => {
 		m[ TO ] = `${ names.SSE }:4242/${ names.METADATA }`; // unstripped (synchronous POST)
 		sse.fill( m );
 		expect( routed[ 0 ][ TO ] ).toBe( names.METADATA );
+	} );
+
+	describe( 'no-arg ctor + schema-driven arguments', () => {
+		it( 'constructs with no args (deps come via arguments=)', () => {
+			const sse = new SseIn();
+			expect( sse.subscribe ).toEqual( [] );
+			expect( sse.baseUrl ).toBe( '' );
+			expect( sse.nonce ).toBe( '' );
+		} );
+
+		it( 'inherits the SseConnector schema (subscribe/baseUrl/nonce)', () => {
+			const schema = SseIn.nodeSchema();
+			expect( schema.arguments.map( ( a ) => a.name ) ).toEqual( [
+				'subscribe',
+				'baseUrl',
+				'nonce',
+			] );
+		} );
+
+		it( 'arguments= parses three tokens; subscribe becomes the comma-split array', () => {
+			const sse = new SseIn();
+			sse.arguments = 'demo.p0,demo.p1 /wp-json/ NONCE';
+			expect( sse.subscribe ).toEqual( [ 'demo.p0', 'demo.p1' ] );
+			expect( sse.baseUrl ).toBe( '/wp-json/' );
+			expect( sse.nonce ).toBe( 'NONCE' );
+		} );
+
+		it( 'arguments getter returns the raw string (dump_config round-trip)', () => {
+			const sse = new SseIn();
+			sse.arguments = 'demo.p0 /wp-json/ NONCE';
+			expect( sse.arguments ).toBe( 'demo.p0 /wp-json/ NONCE' );
+		} );
+
+		it( 'opens the EventSource using arguments-assigned config', () => {
+			const sse = new SseIn();
+			sse.arguments = 'demo.p0 /wp-json/ NONCE';
+			sse.setName( '_sse' );
+			sse.start();
+			expect( FakeEventSource.last.url ).toContain(
+				'newspack-nodes/v1/messages/stream'
+			);
+			expect( FakeEventSource.last.url ).toContain( 'subscribe=demo.p0' );
+		} );
 	} );
 } );

@@ -1,5 +1,8 @@
 import { Node } from './node';
+import { Tee } from './tee';
+import { Timer } from './timer';
 import { Core } from './core';
+import { dumpMetadataPayload } from './metadata';
 import {
 	TYPE,
 	TIMESTAMP,
@@ -16,10 +19,6 @@ import {
 	TM_EOF,
 	newMessage,
 } from './message';
-
-// Baseline scaffolding `remove_node` refuses to touch. Mirrors
-// PHP Node_Names::{COMMAND_INTERPRETER,ROUTER,OUTPUT}.
-const PROTECTED_NODES = [ '_command_interpreter', '_router', '_output' ];
 
 // Alias to canonical, kept in lockstep with the verb table + Shell builtins so
 // `help <alias>` resolves to the same topic PHP cmd_help does.
@@ -52,6 +51,8 @@ const HELP = {
 	list_nodes:
 		'list_nodes [ -clst ] [ <node name> ]\nlist_nodes -a [ -clst ] [ <regex glob> ]\n    -c show message counters\n    -l show counters and targets\n    -s show sinks\n    -t show targets\n    -a show all nodes matching regex glob\n    alias: ls\n',
 	dump_node: 'dump_node <node name> [<keys>]\n    alias: dump\n',
+	dump_config:
+		'dump_config\n    note: emits every node as round-trippable make_node / set_sink / connect_node lines.\n',
 	dump_metadata:
 		'dump_metadata\n    note: returns a JSON object keyed by node name with `class`, `counter`, `sink`, `target`, `debug_state`, `arguments`.\n',
 	debug_state:
@@ -243,6 +244,7 @@ export class CommandInterpreter extends Node {
 				CommandInterpreter._cmdDumpNode( args ),
 			dump: ( self, args ) => CommandInterpreter._cmdDumpNode( args ),
 			dump_metadata: () => CommandInterpreter._cmdDumpMetadata(),
+			dump_config: () => CommandInterpreter._cmdDumpConfig(),
 			stats: ( self, args ) => self._cmdStats( args ),
 			uptime: () => CommandInterpreter._cmdUptime(),
 			debug_state: ( self, args ) => self._cmdDebugState( args ),
@@ -282,11 +284,39 @@ export class CommandInterpreter extends Node {
 		return '';
 	}
 
-	// `make_node` — the browser has no class registry / autoload, so node
-	// construction is server-side: at a worker path the command routes to that
-	// worker's PHP CI; at a local path there's nothing to build here.
-	_cmdMakeNode() {
-		return 'make_node runs on a worker — cd to a worker path (e.g. /_sse/<topology>.p0) first';
+	// `make_node <type> <name> [<ctor_args>...]` — mirrors PHP
+	// Command_Interpreter_Node::make_node: split the args on whitespace, the
+	// remaining tokens spread straight into the constructor as positional args,
+	// then name() + sink($self). The browser builds it locally (no deferring to a
+	// worker) so the console graph is live + hackable. A bad/short arg list
+	// throws in the constructor — that's fine, breaking is how you learn.
+	_cmdMakeNode( args ) {
+		const parts = String( args ?? '' )
+			.trim()
+			.split( /\s+/ )
+			.filter( Boolean );
+		if ( parts.length < 2 ) {
+			return 'usage: make_node <type> <name> [<ctor_args>...]';
+		}
+		const type = parts.shift();
+		const NodeClass = CommandInterpreter.includeNodes[ type ];
+		if ( ! NodeClass ) {
+			return `unknown class: ${ type }`;
+		}
+		const name = parts.shift();
+		// Tachikoma sequence: no-arg ctor, then setName + arguments + sink. Every
+		// config-bearing Node subclass reads its positional config through the
+		// arguments setter (the schema walker assigns each declared arg from the
+		// trailing tokens). name() throws on collision (no pre-check) —
+		// interpret() wraps it.
+		const node = new NodeClass();
+		node.setName( name );
+		node.arguments = parts.join( ' ' );
+		node.sink = this;
+		if ( ( this.debugState ?? 0 ) > 0 ) {
+			node.debugState = this.debugState;
+		}
+		return 'ok';
 	}
 
 	// `pwd` to ` <cwd> -> <envelope.from>`.
@@ -417,16 +447,6 @@ export class CommandInterpreter extends Node {
 			const node = Core.node( name );
 			if ( null === node ) {
 				errors.push( `can't find node "${ name }"` );
-				continue;
-			}
-			if ( node === this ) {
-				errors.push( 'refusing to destroy interpreter' );
-				continue;
-			}
-			if ( PROTECTED_NODES.includes( name ) ) {
-				errors.push(
-					`refusing to destroy baseline scaffolding: ${ name }`
-				);
 				continue;
 			}
 			// Full lifecycle teardown (clears refs, cascades the sibling CI,
@@ -630,27 +650,26 @@ export class CommandInterpreter extends Node {
 		return `${ klass } ${ JSON.stringify( body, null, 4 ) }`;
 	}
 
-	// dump_metadata — single-round-trip per-node stats snapshot for the GUI canvas.
-	static _cmdDumpMetadata() {
-		const out = {};
+	// dump_config — every node's round-trippable make_node/set_sink/connect_node
+	// lines, skipping the baseline scaffolding. Mirrors PHP cmd_dump_config.
+	static _cmdDumpConfig() {
+		let out = '';
 		for ( const [ name, node ] of Core.nodes ) {
-			// Patron-linked nodes are plumbing; the canvas shouldn't render them.
-			if ( node.patron !== null && node.patron !== undefined ) {
+			// Skip only the backbone (literals avoid the `names` shadow); _output
+			// is a real node now, shown on the canvas and dumpable.
+			if ( '_command_interpreter' === name || '_router' === name ) {
 				continue;
 			}
-			out[ name ] = {
-				class: node.constructor?.name ?? 'Node',
-				counter: node.counter ?? 0,
-				sink: node.sink && node.sink.name ? node.sink.name : '',
-				target: node.target ?? '',
-				debug_state: node.debugState ?? 0,
-				arguments: node.arguments ?? '',
-				lgst_msg: node.largestMsgSent ?? 0,
-				bytes_read: node.bytesRead ?? 0,
-				bytes_written: node.bytesWritten ?? 0,
-			};
+			if ( 'function' === typeof node.dumpConfig ) {
+				out += node.dumpConfig();
+			}
 		}
 		return out;
+	}
+
+	// dump_metadata — single-round-trip per-node stats snapshot for the GUI canvas.
+	static _cmdDumpMetadata() {
+		return dumpMetadataPayload();
 	}
 
 	// stats [-a] [<regex>] — tabular per-node counters.
@@ -794,6 +813,13 @@ export class CommandInterpreter extends Node {
 				snapshot.sink = val && val.name ? val.name : '';
 				continue;
 			}
+			// `arguments` is a prototype accessor backed by `_arguments` (the
+			// own field); rename in the snapshot so the public surface keeps
+			// emitting `arguments` instead of leaking the private backing name.
+			if ( '_arguments' === key ) {
+				snapshot.arguments = val;
+				continue;
+			}
 			// Skip live node references and internal structures — display-only scalars.
 			if (
 				'patron' === key ||
@@ -900,3 +926,11 @@ export class CommandInterpreter extends Node {
 // Process-wide default authorization policy. The browser leaves it null (the
 // built-in LOCAL check applies). Same shape as PHP CommandInterpreter::$default_authorize.
 CommandInterpreter.defaultAuthorize = null;
+
+// The `make_node` type→class lookup. Tachikoma resolves `$prefix::$type` by
+// require-ing the .pm off @INC ( include_nodes + the default Tachikoma::Nodes );
+// the browser has no require-by-name, so this flat table IS that namespace.
+// The console extends it with its own node classes (Tachikoma's include_nodes).
+// Hook / Router / Callback are intentionally absent — nobody makes a second
+// router, or a predicate/closure node, from the shell.
+CommandInterpreter.includeNodes = { Node, Tee, Timer, CommandInterpreter };
