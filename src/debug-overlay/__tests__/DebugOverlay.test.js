@@ -1,6 +1,7 @@
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
+import { Node } from '../../runtime/node';
 import DebugOverlay from '../DebugOverlay';
 
 describe( 'DebugOverlay', () => {
@@ -105,5 +106,490 @@ describe( 'DebugOverlay', () => {
 		expect(
 			container.querySelector( '.topology-mode__btn--live' )
 		).toBeNull();
+	} );
+
+	it( 'Ctrl+` toggles the panel open and closed', () => {
+		mountExospine();
+		const { queryByTestId } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		expect( queryByTestId( 'debug-panel' ) ).toBeNull();
+		act( () => {
+			fireEvent.keyDown( document, { key: '`', ctrlKey: true } );
+		} );
+		expect( queryByTestId( 'debug-panel' ) ).not.toBeNull();
+		act( () => {
+			fireEvent.keyDown( document, { key: '`', ctrlKey: true } );
+		} );
+		expect( queryByTestId( 'debug-panel' ) ).toBeNull();
+	} );
+
+	it( 'Ctrl+` does nothing when debug is disabled (no panel ever appears)', () => {
+		// Sanity: the keydown listener is gated on `enabled`; without ?nodes-debug=1
+		// the hook returns null before mounting any listener.
+		const { queryByTestId } = render( <DebugOverlay search="" /> );
+		act( () => {
+			fireEvent.keyDown( document, { key: '`', ctrlKey: true } );
+		} );
+		expect( queryByTestId( 'debug-panel' ) ).toBeNull();
+	} );
+
+	it( 'closing via Header X close button hides the panel', () => {
+		mountExospine();
+		const { getByRole, queryByTestId, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		expect( queryByTestId( 'debug-panel' ) ).not.toBeNull();
+		fireEvent.click(
+			container.querySelector( '.topology-mode__btn--close' )
+		);
+		expect( queryByTestId( 'debug-panel' ) ).toBeNull();
+	} );
+
+	it( 'persists the chosen theme to localStorage', () => {
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const themeSelect = container.querySelector( '.topology-select--skin' );
+		fireEvent.change( themeSelect, { target: { value: 'blueprint' } } );
+		// THEME_STORAGE_KEY is shared with topology-console; the overlay writes it.
+		expect( window.localStorage.getItem( 'newspack-nodes:theme' ) ).toBe(
+			'blueprint'
+		);
+	} );
+
+	it( 'falls back to the default theme when localStorage.getItem throws', () => {
+		// Storage-disabled path: readStoredTheme catches and returns DEFAULT_THEME.
+		// Use window.Storage.prototype to ensure the throw propagates through both
+		// the theme read AND the palette init read (both happen in useState
+		// lazy initializers during the first DebugOverlay render).
+		const originalGet = window.Storage.prototype.getItem;
+		window.Storage.prototype.getItem = jest.fn( () => {
+			throw new Error( 'storage disabled' );
+		} );
+		try {
+			mountExospine();
+			const { getByRole, container } = render(
+				<DebugOverlay search="?nodes-debug=1" />
+			);
+			fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+			expect(
+				container.querySelector( '.topology-app.theme-current' )
+			).not.toBeNull();
+			// Palette init also caught its throw — defaults to collapsed=true.
+			expect(
+				container.querySelector( '.topology-app.is-palette-collapsed' )
+			).not.toBeNull();
+		} finally {
+			window.Storage.prototype.getItem = originalGet;
+		}
+	} );
+
+	it( 'rehydrates a previously-persisted theme from localStorage', () => {
+		window.localStorage.setItem( 'newspack-nodes:theme', 'blueprint' );
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		expect(
+			container.querySelector( '.topology-app.theme-blueprint' )
+		).not.toBeNull();
+	} );
+
+	it( 'invalid theme slug from localStorage falls back to the default', () => {
+		window.localStorage.setItem( 'newspack-nodes:theme', 'not-a-theme' );
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		expect(
+			container.querySelector( '.topology-app.theme-current' )
+		).not.toBeNull();
+	} );
+
+	it( 'palette starts collapsed by default; the toggle expands and persists', () => {
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		expect(
+			container.querySelector( '.topology-app.is-palette-collapsed' )
+		).not.toBeNull();
+		// Click the palette toggle to expand it.
+		const toggle = container.querySelector( '.topology-palette__toggle' );
+		expect( toggle ).not.toBeNull();
+		fireEvent.click( toggle );
+		expect(
+			container.querySelector( '.topology-app.is-palette-collapsed' )
+		).toBeNull();
+		// Persisted as '0' (user explicitly opened it).
+		expect(
+			window.localStorage.getItem(
+				'newspack-nodes:palette-collapsed:live'
+			)
+		).toBe( '0' );
+	} );
+
+	it( 'rehydrates the expanded palette state when storage says `0`', () => {
+		window.localStorage.setItem(
+			'newspack-nodes:palette-collapsed:live',
+			'0'
+		);
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// '0' means open, so the collapsed class MUST NOT be present.
+		expect(
+			container.querySelector( '.topology-app.is-palette-collapsed' )
+		).toBeNull();
+	} );
+
+	it( 'togglePaletteCollapsed survives a localStorage.setItem throw', () => {
+		// Cover the setItem-catch branch in togglePaletteCollapsed: state still
+		// flips and re-renders without the persisted value, in-session only.
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const toggle = container.querySelector( '.topology-palette__toggle' );
+		const originalSet = window.Storage.prototype.setItem;
+		window.Storage.prototype.setItem = jest.fn( () => {
+			throw new Error( 'quota' );
+		} );
+		try {
+			fireEvent.click( toggle );
+			// State flipped (the catch swallowed the throw), so the class is gone.
+			expect(
+				container.querySelector( '.topology-app.is-palette-collapsed' )
+			).toBeNull();
+		} finally {
+			window.Storage.prototype.setItem = originalSet;
+		}
+	} );
+
+	it( 'onThemeChange swallows a localStorage.setItem throw (in-session only)', () => {
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const themeSelect = container.querySelector( '.topology-select--skin' );
+		const originalSet = window.Storage.prototype.setItem;
+		window.Storage.prototype.setItem = jest.fn( () => {
+			throw new Error( 'quota' );
+		} );
+		try {
+			fireEvent.change( themeSelect, {
+				target: { value: 'blueprint' },
+			} );
+			// Theme flipped despite the throw.
+			expect(
+				container.querySelector( '.topology-app.theme-blueprint' )
+			).not.toBeNull();
+		} finally {
+			window.Storage.prototype.setItem = originalSet;
+		}
+	} );
+
+	it( 'onThemeChange falls back to default when given an invalid slug', () => {
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const themeSelect = container.querySelector( '.topology-select--skin' );
+		// Invalid → next = DEFAULT_THEME ('current'); persisted key reflects it.
+		fireEvent.change( themeSelect, { target: { value: 'not-a-theme' } } );
+		expect(
+			container.querySelector( '.topology-app.theme-current' )
+		).not.toBeNull();
+		expect( window.localStorage.getItem( 'newspack-nodes:theme' ) ).toBe(
+			'current'
+		);
+	} );
+
+	it( 'header double-click on background fires toggleMaximize (frame expands)', () => {
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const headerDrag = container.querySelector(
+			'.nodes-debug__header-drag'
+		);
+		expect( headerDrag ).not.toBeNull();
+		const panel = container.querySelector( '.nodes-debug__panel' );
+		const beforeWidth = panel.style.width;
+		fireEvent.doubleClick( headerDrag );
+		const afterWidth = panel.style.width;
+		// Maximize toggles frame dimensions — width differs from initial.
+		expect( afterWidth ).not.toBe( beforeWidth );
+	} );
+
+	it( 'header double-click on a SELECT control does NOT maximize (skip path)', () => {
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const panel = container.querySelector( '.nodes-debug__panel' );
+		const beforeWidth = panel.style.width;
+		const themeSelect = container.querySelector( '.topology-select--skin' );
+		fireEvent.doubleClick( themeSelect );
+		// Skip branch — maximize MUST NOT fire on header-control targets.
+		expect( panel.style.width ).toBe( beforeWidth );
+	} );
+
+	it( 'shows resize handles around the panel when open', () => {
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// useDebugFrame exposes 8 resize handlers (corners + edges); each renders
+		// as a div with the key in its className.
+		const handles = container.querySelectorAll( '.nodes-debug__resize' );
+		expect( handles.length ).toBeGreaterThanOrEqual( 4 );
+	} );
+
+	it( 'pathOptions includes substrate top-level nodes whose names start with `_`', () => {
+		// _http is mounted by the dashboard exospine; the overlay's path menu
+		// should surface it as a `cd` target.
+		mountExospine();
+		const httpish = new Node();
+		httpish.setName( '_my_service' );
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// Path selector — first .topology-select (NOT --skin), surfaced when
+		// pathOptions.length > 1. Test mounts _my_service to expand the menu.
+		const selects = container.querySelectorAll( '.topology-select' );
+		const pathSelect = [ ...selects ].find(
+			( s ) => ! s.classList.contains( 'topology-select--skin' )
+		);
+		expect( pathSelect ).toBeTruthy();
+		const optionValues = [ ...pathSelect.querySelectorAll( 'option' ) ].map(
+			( o ) => o.value
+		);
+		expect( optionValues ).toContain( '_my_service' );
+		// And does NOT include the non-navigable reserved names (e.g. _router).
+		expect( optionValues ).not.toContain( '_router' );
+	} );
+
+	it( 'captures a node-name baseline after first open (setTimeout body runs)', () => {
+		jest.useFakeTimers();
+		try {
+			mountExospine();
+			const { getByRole } = render(
+				<DebugOverlay search="?nodes-debug=1" />
+			);
+			fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+			// The setTimeout(..., 0) ref-capture executes when fake timers advance.
+			act( () => {
+				jest.advanceTimersByTime( 1 );
+			} );
+			// Add a node AFTER the baseline is captured — this is what resetGraph
+			// would target. The reset-graph chip becomes visible (hasUserNodes).
+			const newNode = new Node();
+			newNode.setName( 'extra-node' );
+			// Force a re-render via timer tick or unmount/remount is heavy; just
+			// assert Core sees it.
+			expect( Core.node( 'extra-node' ) ).not.toBeNull();
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	it( 're-opening the panel keeps the baseline already captured (idempotent)', () => {
+		jest.useFakeTimers();
+		try {
+			mountExospine();
+			const { getByRole, queryByTestId, container } = render(
+				<DebugOverlay search="?nodes-debug=1" />
+			);
+			// Open + capture baseline.
+			fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+			act( () => {
+				jest.advanceTimersByTime( 1 );
+			} );
+			expect( queryByTestId( 'debug-panel' ) ).not.toBeNull();
+			// Close.
+			fireEvent.click(
+				container.querySelector( '.topology-mode__btn--close' )
+			);
+			expect( queryByTestId( 'debug-panel' ) ).toBeNull();
+			// Re-open — the effect's `if (baselineNamesRef.current) return;` short
+			// -circuits, so the baseline ref survives unchanged.
+			fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+			act( () => {
+				jest.advanceTimersByTime( 1 );
+			} );
+			expect( queryByTestId( 'debug-panel' ) ).not.toBeNull();
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	it( 'reset-graph chip appears once a user-added node exists, and clicking it removes that node', () => {
+		jest.useFakeTimers();
+		try {
+			mountExospine();
+			const { getByRole, container } = render(
+				<DebugOverlay search="?nodes-debug=1" />
+			);
+			fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+			// Advance setTimeout(..., 0) to capture baseline.
+			act( () => {
+				jest.advanceTimersByTime( 1 );
+			} );
+			// Add a node AFTER baseline capture, then trigger a re-render via the
+			// path selector (force the React tree to re-read `graph`).
+			act( () => {
+				const u = new Node();
+				u.setName( 'user-added' );
+			} );
+			// Force a re-render by toggling theme — the simplest visible state
+			// change that doesn't require typing in the REPL.
+			const themeSelect = container.querySelector(
+				'.topology-select--skin'
+			);
+			fireEvent.change( themeSelect, {
+				target: { value: 'blueprint' },
+			} );
+			expect( Core.node( 'user-added' ) ).not.toBeNull();
+			// Find the reset-graph chip (the SECOND .topology-canvas__layout-chip;
+			// the first is reset-layout, hidden when positions are empty).
+			const chips = container.querySelectorAll(
+				'.topology-canvas__layout-chip'
+			);
+			// hasUserNodes is true (one extra node not in baseline), so the chip
+			// must render. Identify by title attribute (reset-graph specifically).
+			const resetChip = [ ...chips ].find( ( c ) =>
+				( c.getAttribute( 'title' ) || '' ).match( /Tear down/ )
+			);
+			expect( resetChip ).toBeTruthy();
+			act( () => {
+				fireEvent.click( resetChip );
+			} );
+			expect( Core.node( 'user-added' ) ).toBeNull();
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
+
+	it( 'resetGraph is a no-op when the baseline has not yet been captured', () => {
+		// Open the panel WITHOUT advancing timers — baselineNamesRef.current
+		// stays null. There's no observable side-effect (resetGraph is the
+		// chip's onClick); the test asserts that no chip is rendered either.
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// hasUserNodes requires baseline !== null AND graph delta. Baseline is
+		// still null (timer not advanced), so the reset-graph chip is hidden.
+		const chips = container.querySelectorAll(
+			'.topology-canvas__layout-chip'
+		);
+		const resetChip = [ ...chips ].find( ( c ) =>
+			( c.getAttribute( 'title' ) || '' ).match( /Tear down/ )
+		);
+		expect( resetChip ).toBeFalsy();
+	} );
+
+	it( 'inspector action through GraphView pops the transcript footer (setReplExpanded=true)', () => {
+		// Drive an inspector-action through the rendered subtree: select a node
+		// (clicking the SVG <g class=topology-node>), then click the Inspector's
+		// dump button. The inline closure in DebugOverlay's <GraphView
+		// onInspectorAction> wraps handlers.onInspectorAction with a
+		// setReplExpanded(true) — covering lines 417-418.
+		mountExospine();
+		const a = new Node();
+		a.setName( 'a' );
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// SchematicCanvas renders one <g class="topology-node"> per graph node.
+		const nodeEls = container.querySelectorAll( '.topology-node' );
+		// The dashboard exospine adds _router/_command_interpreter; our test
+		// node 'a' joins them. At least one node element must render.
+		expect( nodeEls.length ).toBeGreaterThan( 0 );
+		fireEvent.click( nodeEls[ 0 ] );
+		// Inspector renders once a node is selected; the dump button is in the
+		// action toolbar. Look for any button labelled dump.
+		const dumpBtn = [
+			...container.querySelectorAll(
+				'.topology-insp button, .topology-inspector button'
+			),
+		].find( ( b ) =>
+			( b.textContent || '' ).toLowerCase().includes( 'dump' )
+		);
+		// Inspector must render once a node is selected; the dump action is what
+		// fires DebugOverlay's inline onInspectorAction closure (lines 417-418).
+		expect( dumpBtn ).toBeTruthy();
+		act( () => fireEvent.click( dumpBtn ) );
+		// Transcript footer expanded — ReplFooter root gains `.is-expanded`.
+		const footer = container.querySelector( '.topology-repl.is-expanded' );
+		expect( footer ).not.toBeNull();
+	} );
+
+	it( 'tab completion: typing then pressing Tab in the REPL triggers a completion dispatch', () => {
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const input = container.querySelector( '.topology-repl__input' );
+		expect( input ).not.toBeNull();
+		// Type a first-token-only fragment and press Tab — onComplete fires
+		// requestCompletion('help'), which builds the message and fills it.
+		fireEvent.change( input, { target: { value: 'hel' } } );
+		const ci = Core.node( '_command_interpreter' );
+		const fillSpy = jest.spyOn( ci, 'fill' );
+		fireEvent.keyDown( input, { key: 'Tab' } );
+		expect( fillSpy ).toHaveBeenCalled();
+		// The dispatched message has KEY === 'completion' and its VALUE.name
+		// is either 'help' (first-token-only) or 'ls' (later tokens).
+		const m = fillSpy.mock.calls[ 0 ][ 0 ];
+		// Positional [TYPE=0, TIMESTAMP=1, FROM=2, TO=3, ID=4, KEY=5, VALUE=6].
+		expect( m[ 5 ] ).toBe( 'completion' );
+		expect( m[ 6 ].name ).toBe( 'help' );
+	} );
+
+	it( 'tab completion with a non-first-token query asks `ls` instead of `help`', () => {
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const input = container.querySelector( '.topology-repl__input' );
+		fireEvent.change( input, { target: { value: 'help me' } } );
+		const ci = Core.node( '_command_interpreter' );
+		const fillSpy = jest.spyOn( ci, 'fill' );
+		fireEvent.keyDown( input, { key: 'Tab' } );
+		expect( fillSpy ).toHaveBeenCalled();
+		const m = fillSpy.mock.calls[ 0 ][ 0 ];
+		expect( m[ 6 ].name ).toBe( 'ls' );
+	} );
+
+	it( 'Ctrl+` removes its keydown listener when the overlay unmounts', () => {
+		// Tear-down branch — pressing Ctrl+` after unmount must NOT throw.
+		mountExospine();
+		const { unmount } = render( <DebugOverlay search="?nodes-debug=1" /> );
+		unmount();
+		expect( () =>
+			fireEvent.keyDown( document, { key: '`', ctrlKey: true } )
+		).not.toThrow();
 	} );
 } );

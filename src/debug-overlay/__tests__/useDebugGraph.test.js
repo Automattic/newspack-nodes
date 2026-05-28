@@ -177,6 +177,172 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
+	it( 'onRemoveNode dispatches remove_node with the node id', () => {
+		const { teardown } = mountExospine();
+		const a = new Node();
+		a.setName( 'a' );
+		const shell = new Shell();
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		const spy = jest.spyOn( shell, 'sendCommand' );
+		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		act( () => result.current.handlers.onRemoveNode( 'a' ) );
+		expect( spy ).toHaveBeenCalledWith( '', 'remove_node', 'a' );
+		// Side-effect of remove_node verb: node leaves Core.
+		expect( Core.node( 'a' ) ).toBeNull();
+		teardown();
+	} );
+
+	it( 'onInspectorAction `dump` dispatches dump_node for the target id', () => {
+		const { teardown } = mountExospine();
+		const a = new Node();
+		a.setName( 'a' );
+		const shell = new Shell();
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		const spy = jest.spyOn( shell, 'sendCommand' );
+		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		act( () =>
+			result.current.handlers.onInspectorAction( 'dump', 'a', null )
+		);
+		expect( spy ).toHaveBeenCalledWith( '', 'dump_node', 'a' );
+		teardown();
+	} );
+
+	it( 'onInspectorAction `send` dispatches send_node with id + payload', () => {
+		const { teardown } = mountExospine();
+		const a = new Node();
+		a.setName( 'a' );
+		const shell = new Shell();
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		const spy = jest.spyOn( shell, 'sendCommand' );
+		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		act( () =>
+			result.current.handlers.onInspectorAction( 'send', 'a', 'hello' )
+		);
+		expect( spy ).toHaveBeenCalledWith( '', 'send_node', 'a hello' );
+		teardown();
+	} );
+
+	it( 'onInspectorAction `trace` defaults level to 1 when payload is not numeric', () => {
+		const { teardown } = mountExospine();
+		const a = new Node();
+		a.setName( 'a' );
+		const shell = new Shell();
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		const spy = jest.spyOn( shell, 'sendCommand' );
+		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		// Non-numeric payload triggers the `level = 1` default branch.
+		act( () =>
+			result.current.handlers.onInspectorAction( 'trace', 'a', undefined )
+		);
+		expect( spy ).toHaveBeenCalledWith( '', 'debug_state', 'a 1' );
+		teardown();
+	} );
+
+	it( 'onDropNode prompts for arguments when the class declares them, then dispatches make_node with the user input', () => {
+		const { teardown } = mountExospine();
+		const shell = new Shell();
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		const spy = jest.spyOn( shell, 'sendCommand' );
+		const classes = [
+			{
+				shell_name: 'Partition',
+				arguments: [
+					{ name: 'topic', required: true },
+					{ name: 'segment_size', default: '4096' },
+				],
+			},
+		];
+		const promptSpy = jest
+			.spyOn( window, 'prompt' )
+			.mockReturnValue( 'mytopic 8192' );
+		const { result } = renderHook( () =>
+			useDebugGraph( true, shell, classes )
+		);
+		act( () =>
+			result.current.handlers.onDropNode( {
+				shellName: 'Partition',
+				x: 0,
+				y: 0,
+			} )
+		);
+		// Prompt template surfaces required asterisk + default-marker syntax.
+		expect( promptSpy ).toHaveBeenCalledTimes( 1 );
+		expect( promptSpy.mock.calls[ 0 ][ 0 ] ).toMatch( /topic\*/ );
+		expect( promptSpy.mock.calls[ 0 ][ 0 ] ).toMatch( /segment_size=4096/ );
+		// make_node is dispatched with the prompted argString appended.
+		const calls = spy.mock.calls.filter( ( c ) => c[ 1 ] === 'make_node' );
+		expect( calls ).toHaveLength( 1 );
+		expect( calls[ 0 ][ 2 ] ).toMatch(
+			/^Partition partition\d* mytopic 8192$/
+		);
+		promptSpy.mockRestore();
+		teardown();
+	} );
+
+	it( 'onDropNode aborts when the user cancels the args prompt (no make_node)', () => {
+		const { teardown } = mountExospine();
+		const shell = new Shell();
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		const spy = jest.spyOn( shell, 'sendCommand' );
+		const classes = [
+			{
+				shell_name: 'Partition',
+				arguments: [ { name: 'topic', required: true } ],
+			},
+		];
+		const promptSpy = jest
+			.spyOn( window, 'prompt' )
+			.mockReturnValue( null );
+		const { result } = renderHook( () =>
+			useDebugGraph( true, shell, classes )
+		);
+		act( () =>
+			result.current.handlers.onDropNode( {
+				shellName: 'Partition',
+				x: 0,
+				y: 0,
+			} )
+		);
+		expect( promptSpy ).toHaveBeenCalledTimes( 1 );
+		// User cancel → make_node MUST NOT be dispatched.
+		const calls = spy.mock.calls.filter( ( c ) => c[ 1 ] === 'make_node' );
+		expect( calls ).toHaveLength( 0 );
+		promptSpy.mockRestore();
+		teardown();
+	} );
+
+	it( 'onDropNode treats an empty-trimmed prompt as "no args" and dispatches without an arg string', () => {
+		const { teardown } = mountExospine();
+		const shell = new Shell();
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		const spy = jest.spyOn( shell, 'sendCommand' );
+		const classes = [
+			{
+				shell_name: 'Partition',
+				arguments: [ { name: 'topic' } ],
+			},
+		];
+		const promptSpy = jest
+			.spyOn( window, 'prompt' )
+			.mockReturnValue( '   ' );
+		const { result } = renderHook( () =>
+			useDebugGraph( true, shell, classes )
+		);
+		act( () =>
+			result.current.handlers.onDropNode( {
+				shellName: 'Partition',
+				x: 0,
+				y: 0,
+			} )
+		);
+		const calls = spy.mock.calls.filter( ( c ) => c[ 1 ] === 'make_node' );
+		expect( calls ).toHaveLength( 1 );
+		// argString trimmed to '' → no trailing args portion.
+		expect( calls[ 0 ][ 2 ] ).toMatch( /^Partition partition\d*$/ );
+		promptSpy.mockRestore();
+		teardown();
+	} );
+
 	it( 'dispatches via the passed-in Shell.sendCommand (not via dispatchLocal)', () => {
 		// Task 3: useDebugGraph accepts a Shell as its second argument and
 		// routes every gesture through shell.sendCommand(path, name, args).

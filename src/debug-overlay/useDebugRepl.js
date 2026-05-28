@@ -11,7 +11,6 @@ import { splitStatements } from '../topology-console/nodes/shell';
 import { Dumper } from '../runtime/dumper';
 import { Completion } from '../runtime/completion';
 import { Metadata } from '../runtime/metadata';
-import { Uptime } from '../runtime/uptime';
 import { LOCAL, FROM, TO } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 
@@ -68,11 +67,6 @@ export function useDebugRepl( active = true, shell ) {
 		metadata.sink = ci;
 		metadata.target = names.CWD;
 		router?.register( 'TIMER', names.METADATA, () => metadata.onTimer() );
-		const uptime = new Uptime();
-		uptime.setName( names.UPTIME );
-		uptime.sink = ci;
-		uptime.target = names.CWD;
-		router?.register( 'TIMER', names.UPTIME, () => uptime.onTimer() );
 		// `_cwd` is the routing indirection — every scope-relative command's TO
 		// stamps through this node, which re-stamps the live cwd. Path menu /
 		// REPL `cd` just sets `_cwd.target`.
@@ -97,7 +91,6 @@ export function useDebugRepl( active = true, shell ) {
 			dumper.removeNode();
 			completion.removeNode();
 			metadata.removeNode();
-			uptime.removeNode();
 			cwdNode.removeNode();
 			dumperRef.current = null;
 			shellRef.current = null;

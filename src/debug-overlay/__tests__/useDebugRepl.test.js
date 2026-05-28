@@ -92,4 +92,117 @@ describe( 'useDebugRepl', () => {
 		expect( spy ).toHaveBeenCalled();
 		teardown();
 	} );
+
+	it( 'invalid `debug_level` arg emits an error transcript entry', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		// Shell rejects out-of-range with `{kind:'error', text:'usage: ...'}`,
+		// which the hook appends as an `error` transcript entry.
+		act( () => result.current.sendLine( 'debug_level 9' ) );
+		const errEntry = result.current.transcript.find(
+			( e ) => e.kind === 'error'
+		);
+		expect( errEntry ).toBeTruthy();
+		expect( errEntry.text ).toMatch( /debug_level/ );
+		teardown();
+	} );
+
+	it( 'sendLine `debug_level 2` clamps to the valid range and appends an info entry', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		act( () => result.current.sendLine( 'debug_level 2' ) );
+		const info = result.current.transcript.find(
+			( e ) => e.kind === 'info'
+		);
+		expect( info ).toBeTruthy();
+		expect( info.text ).toBe( 'debug_level: 2' );
+		teardown();
+	} );
+
+	it( 'bare `debug_level` toggles 0 ↔ 1', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		act( () => result.current.sendLine( 'debug_level' ) );
+		let info = result.current.transcript
+			.filter( ( e ) => e.kind === 'info' )
+			.at( -1 );
+		expect( info.text ).toBe( 'debug_level: 1' );
+		act( () => result.current.sendLine( 'debug_level' ) );
+		info = result.current.transcript
+			.filter( ( e ) => e.kind === 'info' )
+			.at( -1 );
+		expect( info.text ).toBe( 'debug_level: 0' );
+		teardown();
+	} );
+
+	it( 'sendLine `status` appends each status line as recv entries', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		shell.statusLines = [ 'connected', 'last seen 5s ago' ];
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		act( () => result.current.sendLine( 'status' ) );
+		const recvs = result.current.transcript.filter(
+			( e ) => e.kind === 'recv'
+		);
+		const texts = recvs.map( ( r ) => r.text );
+		expect( texts ).toContain( 'connected' );
+		expect( texts ).toContain( 'last seen 5s ago' );
+		teardown();
+	} );
+
+	it( 'sendLine `show_parse` appends an info entry with the current setting', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		act( () => result.current.sendLine( 'show_parse' ) );
+		const info = result.current.transcript.find(
+			( e ) => e.kind === 'info'
+		);
+		expect( info ).toBeTruthy();
+		expect( info.text ).toMatch( /show_parse: (on|off)/ );
+		teardown();
+	} );
+
+	it( 'setPath() programmatically sends a `cd` line and updates the cwd', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		expect( result.current.cwd ).toBe( '' );
+		act( () => result.current.setPath( '_http' ) );
+		expect( result.current.cwd ).toBe( '_http' );
+		// _cwd indirection node's target should follow.
+		expect( Core.node( names.CWD ).target ).toBe( '_http' );
+		teardown();
+	} );
+
+	it( 'sendLine of multiple semicolon-separated statements dispatches each', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		act( () => result.current.sendLine( 'echo one; echo two' ) );
+		const recvs = result.current.transcript
+			.filter( ( e ) => e.kind === 'recv' )
+			.map( ( e ) => e.text );
+		expect( recvs ).toContain( 'one' );
+		expect( recvs ).toContain( 'two' );
+		teardown();
+	} );
+
+	it( 'when active flips to false, the hook tears down _output and the transcript empties', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result, rerender } = renderHook(
+			( { active } ) => useDebugRepl( active, shell ),
+			{ initialProps: { active: true } }
+		);
+		act( () => result.current.sendLine( 'help' ) );
+		expect( result.current.transcript.length ).toBeGreaterThan( 0 );
+		rerender( { active: false } );
+		expect( Core.node( names.OUTPUT ) ).toBeNull();
+		expect( result.current.transcript ).toEqual( [] );
+		teardown();
+	} );
 } );
