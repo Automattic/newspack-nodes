@@ -39,11 +39,11 @@ export function useDebugRepl( active = true, shell ) {
 	const [ transcript, setTranscript ] = useState( EMPTY_TRANSCRIPT );
 	// cwd reflects the live Shell.path; re-rendered after every dispatch so the
 	// Header path selector + _cwd.target both follow REPL `cd` commands.
-	// Initial null (not '') so the post-mount setCwd(shell.path) always
-	// transitions out of init — that re-render is the chance for siblings'
-	// useNodeState subscriptions (e.g. canvas reading _metadata) to bind to
-	// nodes mounted in this hook's useEffect.
-	const [ cwd, setCwd ] = useState( null );
+	// String-typed init (consumers concatenate it into `/${cwd}`); a separate
+	// `mounted` flag forces the post-mount re-render so sibling useNodeState
+	// subscriptions bind to nodes registered in this hook's useEffect.
+	const [ cwd, setCwd ] = useState( '' );
+	const [ , setMounted ] = useState( false );
 
 	useEffect( () => {
 		if ( ! active ) {
@@ -86,6 +86,7 @@ export function useDebugRepl( active = true, shell ) {
 		dumperRef.current = dumper;
 		shellRef.current = shell;
 		setCwd( shell.path );
+		setMounted( true );
 		const listenerId = 'useDebugRepl/transcript';
 		dumper.register( 'transcript', listenerId, ( next ) => {
 			setTranscript( next || EMPTY_TRANSCRIPT );
@@ -101,6 +102,7 @@ export function useDebugRepl( active = true, shell ) {
 			dumperRef.current = null;
 			shellRef.current = null;
 			setTranscript( EMPTY_TRANSCRIPT );
+			setMounted( false );
 		};
 	}, [ active, shell ] );
 

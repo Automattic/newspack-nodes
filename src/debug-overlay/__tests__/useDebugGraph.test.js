@@ -125,39 +125,33 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'invoke on an interpreter-class node (no :config sibling) routes to the node itself', () => {
-		// The Inspector's invoke action used to be:
-		//   dispatchLocal( Core.node(`${nodeId}:config`) || ci(), ... )
-		// The `|| ci()` fallback meant verbs invoked on interpreter-class
-		// nodes (no `:config` sibling) dispatched on the local CI. The new
-		// shell.sendCommand path routes via the router; without a fallback,
-		// interpreter-class nodes get NOT_AVAILABLE because no
-		// `<nodeId>:config` exists. Restore the fallback by targeting
-		// nodeId itself (which has its own verb table) when the `:config`
-		// sibling isn't registered.
+	it( 'invoke keys on catalog is_interpreter (interpreter → nodeId)', () => {
+		// New contract: the Inspector consults the catalog's per-class
+		// is_interpreter flag (NOT a Core.node(`:config`) presence check —
+		// in remote scope the browser's Core never holds server-side
+		// `:config` siblings, so the old check always fell back to nodeId
+		// and misrouted verbs on non-interpreter PHP nodes).
 		const { teardown } = mountExospine();
 		const interpreter = new Node();
 		interpreter.setName( 'my-ci' );
 		const fillSpy = jest.spyOn( interpreter, 'fill' );
 		const shell = new Shell();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		const classes = [ { shell_name: 'Node', is_interpreter: true } ];
+		const { result } = renderHook( () =>
+			useDebugGraph( true, shell, classes )
+		);
 		act( () =>
 			result.current.handlers.onInspectorAction( 'invoke', 'my-ci', {
 				verb: 'help',
 				positional: '',
 			} )
 		);
-		// With the fix: router peels TO=`my-ci` and calls interpreter.fill.
-		// Without it: router NOT_AVAILABLEs on `my-ci:config` and fillSpy is never called.
 		expect( fillSpy ).toHaveBeenCalled();
 		teardown();
 	} );
 
-	it( 'invoke on a regular node (with :config sibling) routes to the :config sibling', () => {
-		// Counterpart to the interpreter-class test: when the `:config`
-		// sibling IS registered, the dispatch must target it (not the
-		// bare nodeId). This is the standard inspector contract.
+	it( 'invoke on a non-interpreter class targets the `:config` sibling', () => {
 		const { teardown } = mountExospine();
 		const node = new Node();
 		node.setName( 'my-node' );
@@ -167,14 +161,17 @@ describe( 'useDebugGraph', () => {
 		const configFillSpy = jest.spyOn( config, 'fill' );
 		const shell = new Shell();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		// No catalog entry (or is_interpreter:false) ⇒ target :config sibling.
+		const classes = [ { shell_name: 'Node', is_interpreter: false } ];
+		const { result } = renderHook( () =>
+			useDebugGraph( true, shell, classes )
+		);
 		act( () =>
 			result.current.handlers.onInspectorAction( 'invoke', 'my-node', {
 				verb: 'configure',
 				positional: 'foo bar',
 			} )
 		);
-		// :config sibling is the target; bare node is NOT.
 		expect( configFillSpy ).toHaveBeenCalled();
 		expect( nodeFillSpy ).not.toHaveBeenCalled();
 		teardown();

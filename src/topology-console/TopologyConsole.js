@@ -143,8 +143,11 @@ export function scopeFromCwd( cwd ) {
 		};
 	}
 	// Any other top-level cwd (`_http`, `_completion`, etc.) gets its own
-	// storage key so its canvas layout doesn't fight with `/`.
-	return { key: cwd, label: cwd, partition: null, isWorker: false };
+	// storage key so its canvas layout doesn't fight with `/`. Strip the
+	// leading underscore for display since CanvasFrame interpolates label
+	// as `topologies/${label}.tsl` and `_http.tsl` is a misleading non-file.
+	const label = cwd.startsWith( '_' ) ? cwd.slice( 1 ) : cwd;
+	return { key: cwd, label, partition: null, isWorker: false };
 }
 
 // The browser console's `status` builtin summary — the JS analogue of the PHP

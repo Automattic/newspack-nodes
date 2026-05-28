@@ -131,10 +131,21 @@ export default function DebugOverlay( {
 	useEffect( () => {
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 	}, [ shell ] );
-	const { graph, handlers } = useDebugGraph( enabled && open, shell );
 	const { transcript, sendLine, clear, cwd, setPath } = useDebugRepl(
 		enabled && open,
 		shell
+	);
+	// Catalog must be resolved before useDebugGraph so the Inspector handler
+	// can look up `is_interpreter` for non-local-scope nodes.
+	const jsCatalog = useJsCatalog();
+	const phpCatalog = useClassCatalog( {
+		enabled: enabled && open && !! cwd,
+	} );
+	const catalog = cwd ? phpCatalog : jsCatalog;
+	const { graph, handlers } = useDebugGraph(
+		enabled && open,
+		shell,
+		catalog.classes || []
 	);
 
 	// Reachable path scopes — every top-level substrate-node-name in the
@@ -189,15 +200,9 @@ export default function DebugOverlay( {
 		},
 		[ cwd ]
 	);
-	// Catalog source follows the cwd: in the local scope the palette must
-	// source from the JS-side CommandInterpreter.includeNodes (the only set
-	// make_node can instantiate in this realm); remote scopes (cwd=/_http,
-	// etc.) use the PHP `classes.list` catalog so the Inspector sees the
-	// server-side classes' full verb list (workers.heartbeat/restart/etc.,
-	// performance.* — base Node verbs DUMP/SEND/TRACE alone aren't enough).
-	const jsCatalog = useJsCatalog();
-	const phpCatalog = useClassCatalog( { enabled: true } );
-	const catalog = cwd ? phpCatalog : jsCatalog;
+	// Catalog is resolved above (just below useDebugRepl). schemasByShellName
+	// drops the array form into a lookup map for the Inspector's class
+	// metadata reads.
 	const schemasByShellName = useMemo(
 		() =>
 			Object.fromEntries(

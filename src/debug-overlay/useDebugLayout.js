@@ -43,11 +43,18 @@ export function useDebugLayout( storageKey ) {
 	const [ viewport, setViewport ] = useState( () =>
 		loadViewport( viewportKey )
 	);
+	const viewportSaveTimer = useRef( null );
 
 	// Re-load on storageKey change (cwd switch) — useState's lazy init only
 	// fires once, so a key change otherwise leaves us with stale state from
-	// the prior scope.
+	// the prior scope. Also clear any pending viewport debounce so a panA
+	// scheduled at t=0 in scope A doesn't fire (cancelled or write-to-old-key)
+	// after a t=100 cd to scope B.
 	useEffect( () => {
+		if ( viewportSaveTimer.current ) {
+			clearTimeout( viewportSaveTimer.current );
+			viewportSaveTimer.current = null;
+		}
 		setPositions( loadPositions( positionsKey ) );
 		setViewport( loadViewport( viewportKey ) );
 	}, [ positionsKey, viewportKey ] );
@@ -70,7 +77,6 @@ export function useDebugLayout( storageKey ) {
 		[ positionsKey ]
 	);
 
-	const viewportSaveTimer = useRef( null );
 	const onViewportChange = useCallback(
 		( next ) => {
 			setViewport( next );
