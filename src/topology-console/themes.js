@@ -5,6 +5,10 @@
  */
 import { __ } from '@wordpress/i18n';
 
+// Global theme-storage key shared by topology-console + debug-overlay so a
+// theme picked anywhere applies everywhere.
+export const THEME_STORAGE_KEY = 'newspack-nodes:theme';
+
 export const DEFAULT_THEME = 'current';
 
 export const THEMES = [
