@@ -10,8 +10,8 @@
  * reconnects every ~minute. Poke at half the TTL so one missed poke survives.
  */
 
-import { Node } from '../../runtime/node';
-import { Core } from '../../runtime/core';
+import { Node } from './node';
+import { Core } from './core';
 import {
 	newMessage,
 	TYPE,
@@ -20,7 +20,7 @@ import {
 	VALUE,
 	LOCAL,
 	TM_COMMAND,
-} from '../../runtime/message';
+} from './message';
 
 // Slot TTL (s) requested in each poke, and the throttle (half the TTL) so a
 // single missed tick still leaves the slot alive.
@@ -90,6 +90,7 @@ export class Heartbeat extends Node {
 			return;
 		}
 		this.lastFired = now;
+		this.counter += 1;
 		this.sink.fill( this._pollMessage() );
 	}
 

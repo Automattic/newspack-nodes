@@ -1,8 +1,7 @@
 import { Core } from '../../../runtime/core';
 import { Node } from '../../../runtime/node';
 import { coreToGraph } from '../coreToGraph';
-import { parseMetadata } from '../parseMetadata';
-import { dumpMetadataPayload } from '../../../runtime/metadata';
+import { parseMetadata, dumpMetadataPayload } from '../../../runtime/metadata';
 
 describe( 'coreToGraph', () => {
 	beforeEach( () => Core.reset() );

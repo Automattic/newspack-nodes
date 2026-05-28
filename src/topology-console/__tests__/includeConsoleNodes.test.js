@@ -6,7 +6,7 @@
 import '../includeConsoleNodes';
 import { CommandInterpreter } from '../../runtime/command_interpreter';
 import { Core } from '../../runtime/core';
-import { Metadata } from '../nodes/metadata';
+import { Metadata } from '../../runtime/metadata';
 
 beforeEach( () => Core.reset() );
 

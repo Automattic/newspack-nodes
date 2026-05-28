@@ -1,5 +1,4 @@
-import { dumpMetadataPayload } from '../../runtime/metadata';
-import { parseMetadata } from './parseMetadata';
+import { dumpMetadataPayload, parseMetadata } from '../../runtime/metadata';
 
 /**
  * The page's own live node graph, read straight off Core.nodes (no

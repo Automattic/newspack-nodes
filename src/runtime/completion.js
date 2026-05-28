@@ -7,8 +7,8 @@
  * notifies the subscriber (the ReplFooter must re-apply LCP per Tab).
  */
 
-import { Node } from '../../runtime/node';
-import { VALUE } from '../../runtime/message';
+import { Node } from './node';
+import { VALUE } from './message';
 
 /**
  * Longest common prefix of a list of strings. Pure helper.

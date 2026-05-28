@@ -7,7 +7,7 @@
  */
 
 import { HttpOut } from '../httpOut';
-import { CommandClient } from '../../../runtime/command_client';
+import { CommandClient } from '../command_client';
 import {
 	newMessage,
 	TYPE,
@@ -16,7 +16,7 @@ import {
 	VALUE,
 	TM_COMMAND,
 	TM_PING,
-} from '../../../runtime/message';
+} from '../message';
 
 function makeNode() {
 	const real = new CommandClient( { baseUrl: '/wp-json/', nonce: 'NONCE' } );
@@ -55,7 +55,7 @@ function routed( {
 
 describe( 'HttpOut', () => {
 	afterEach( () => {
-		const { Core } = require( '../../../runtime/core' );
+		const { Core } = require( '../core' );
 		Core.reset();
 	} );
 
@@ -133,14 +133,13 @@ describe( 'HttpOut', () => {
 		expect( node.name ).toBe( '_http' );
 	} );
 
-	it( 'feeds a synchronous reply Message from the POST body into _sse', async () => {
-		const { Node } = require( '../../../runtime/node' );
-		const names = require( '../../../runtime/reserved-node-names.json' );
+	it( 'feeds a synchronous reply Message from the POST body into sink', async () => {
+		const { Node } = require( '../node' );
 		const { node, postBatch } = makeNode();
-		const sse = new Node();
 		const got = [];
-		sse.fill = ( m ) => got.push( m );
-		sse.setName( names.SSE );
+		const sink = new Node();
+		sink.fill = ( m ) => got.push( m );
+		node.sink = sink;
 
 		const reply = newMessage();
 		reply[ VALUE ] = 'sync-reply';
@@ -153,14 +152,13 @@ describe( 'HttpOut', () => {
 		expect( got[ 0 ][ VALUE ] ).toBe( 'sync-reply' );
 	} );
 
-	it( 'feeds EVERY reply Message from a JSONL body into _sse (e.g. stderr line + response)', async () => {
-		const { Node } = require( '../../../runtime/node' );
-		const names = require( '../../../runtime/reserved-node-names.json' );
+	it( 'feeds EVERY reply Message from a JSONL body into sink (e.g. stderr line + response)', async () => {
+		const { Node } = require( '../node' );
 		const { node, postBatch } = makeNode();
-		const sse = new Node();
 		const got = [];
-		sse.fill = ( m ) => got.push( m );
-		sse.setName( names.SSE );
+		const sink = new Node();
+		sink.fill = ( m ) => got.push( m );
+		node.sink = sink;
 
 		const a = newMessage();
 		a[ VALUE ] = 'log line';
@@ -178,13 +176,12 @@ describe( 'HttpOut', () => {
 	} );
 
 	it( 'ignores a null response (bare 202 — routed onward, reply via SSE)', async () => {
-		const { Node } = require( '../../../runtime/node' );
-		const names = require( '../../../runtime/reserved-node-names.json' );
+		const { Node } = require( '../node' );
 		const { node, postBatch } = makeNode();
-		const sse = new Node();
 		const got = [];
-		sse.fill = ( m ) => got.push( m );
-		sse.setName( names.SSE );
+		const sink = new Node();
+		sink.fill = ( m ) => got.push( m );
+		node.sink = sink;
 
 		postBatch.mockResolvedValueOnce( null );
 		await node.fill( routed( { to: 'demo.p0' } ) );
@@ -297,6 +294,43 @@ describe( 'HttpOut', () => {
 		expect( batch[ 0 ][ TO ] ).toBe( '' );
 	} );
 
+	describe( '_post — reply intake (sink, not Core.node)', () => {
+		it( 'fills POST-body replies into this.sink', async () => {
+			const { Node } = require( '../node' );
+			const { node, postBatch } = makeNode();
+			const seen = [];
+			const sink = new Node();
+			sink.fill = ( m ) => seen.push( m );
+			node.sink = sink;
+
+			const reply = newMessage();
+			reply[ VALUE ] = 'sync-reply';
+			postBatch.mockResolvedValueOnce( [ reply ] );
+
+			await node.fill( routed( { to: '' } ) );
+			await Promise.resolve();
+
+			expect( seen ).toHaveLength( 1 );
+			expect( seen[ 0 ][ VALUE ] ).toBe( 'sync-reply' );
+		} );
+
+		it( 'drops POST-body replies silently when sink is null', async () => {
+			const { node, postBatch } = makeNode();
+			node.sink = null;
+			const reply = newMessage();
+			reply[ VALUE ] = 'sync-reply';
+			postBatch.mockResolvedValueOnce( [ reply ] );
+
+			await expect(
+				( async () => {
+					node.fill( routed( { to: '' } ) );
+					await Promise.resolve();
+					await Promise.resolve();
+				} )()
+			).resolves.toBeUndefined();
+		} );
+	} );
+
 	describe( 'no-arg ctor + public-property dep', () => {
 		it( 'constructs with no args; client defaults to null', () => {
 			const node = new HttpOut();
@@ -325,6 +359,24 @@ describe( 'HttpOut', () => {
 			node.setName( '_http' );
 			node.fill( routed( { to: 'demo.p0' } ) );
 			expect( postBatch ).toHaveBeenCalledTimes( 1 );
+		} );
+
+		it( 'surfaces a postBatch rejection via print_less_often (no silent swallow)', async () => {
+			const node = new HttpOut();
+			node.setName( '_http' );
+			node.client = {
+				buildMessage: () => newMessage(),
+				postBatch: () =>
+					Promise.reject( new Error( 'boom 502 from /command' ) ),
+			};
+			const spy = jest
+				.spyOn( node, 'print_less_often' )
+				.mockImplementation( () => {} );
+			node.fill( routed( { to: 'demo.p0' } ) );
+			await new Promise( ( r ) => setTimeout( r, 0 ) );
+			expect( spy ).toHaveBeenCalled();
+			expect( spy.mock.calls[ 0 ][ 0 ] ).toMatch( /boom 502/ );
+			spy.mockRestore();
 		} );
 	} );
 } );

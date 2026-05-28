@@ -9,24 +9,24 @@ import { renderHook, act } from '@testing-library/react';
 import { Core } from '../../../runtime/core';
 import { Router } from '../../../runtime/router';
 import { CommandInterpreter } from '../../../runtime/command_interpreter';
-import { Dumper } from '../../nodes/dumper';
-import { Metadata } from '../../nodes/metadata';
-import { Uptime } from '../../nodes/uptime';
-import { Completion } from '../../nodes/completion';
-import { Heartbeat } from '../../nodes/heartbeat';
-import { HttpOut } from '../../nodes/httpOut';
+import { Dumper } from '../../../runtime/dumper';
+import { Metadata } from '../../../runtime/metadata';
+import { Uptime } from '../../../runtime/uptime';
+import { Completion } from '../../../runtime/completion';
+import { Heartbeat } from '../../../runtime/heartbeat';
+import { HttpOut } from '../../../runtime/httpOut';
 import { Shell } from '../../nodes/shell';
 import names from '../../../runtime/reserved-node-names.json';
 
 let lastConnector = null;
 
-jest.mock( '../../nodes/sseIn', () => {
+jest.mock( '../../../runtime/sseIn', () => {
 	// Extend the REAL SseIn so the session wrap/routing logic is exercised; only
 	// the EventSource bits (start/close/pid) are stubbed. Task 10 moved deps from
 	// the ctor to public properties (subscribe/baseUrl/nonce via arguments=); the
 	// fake exposes an `opts`-shaped read-back from those public properties so the
 	// existing tests can keep asserting against `lastConnector.opts.…`.
-	const { SseIn: RealSseIn } = jest.requireActual( '../../nodes/sseIn' );
+	const { SseIn: RealSseIn } = jest.requireActual( '../../../runtime/sseIn' );
 	class FakeSseIn extends RealSseIn {
 		constructor() {
 			super();
@@ -123,12 +123,12 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( cwd.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
 	} );
 
-	it( 'points the canvas poll nodes at _cwd and the heartbeat at _sse/workers (no pollTo)', () => {
+	it( 'points the canvas poll nodes at _cwd and the heartbeat at _http/workers (no pollTo)', () => {
 		renderGraph();
 		expect( Core.node( names.METADATA ).target ).toBe( names.CWD );
 		expect( Core.node( names.UPTIME ).target ).toBe( names.CWD );
 		expect( Core.node( names.HEARTBEAT ).target ).toBe(
-			`${ names.SSE }/workers`
+			`${ names.HTTP }/workers`
 		);
 		expect( Core.node( names.METADATA ).pollTo ).toBeUndefined();
 		expect( Core.node( names.UPTIME ).pollTo ).toBeUndefined();
@@ -538,8 +538,12 @@ describe( 'useConsoleGraph — TIMER batching', () => {
 			} );
 			renderGraph( { topology: 'demo', partition: 0 } );
 			act( () => lastConnector.emitConnected( 4242 ) );
+			// First tick after subscriber registration cold-fires every
+			// throttled subscriber (their lastFired=0); drain past it before
+			// asserting throttle behavior.
+			act( () => jest.advanceTimersByTime( 1000 ) );
 			calls.length = 0;
-			// One 1s tick (well short of the 5s uptime cadence).
+			// Second 1s tick — well short of the 5s uptime cadence.
 			act( () => jest.advanceTimersByTime( 1000 ) );
 			expect( calls ).toHaveLength( 1 );
 			const verbs = verbsIn( calls[ 0 ] );

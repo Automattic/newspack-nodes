@@ -8,7 +8,7 @@
  */
 
 import { Completion, longestCommonPrefix } from '../completion';
-import { Node } from '../../../runtime/node';
+import { Node } from '../node';
 import {
 	newMessage,
 	TYPE,
@@ -17,7 +17,7 @@ import {
 	TM_BYTESTREAM,
 	TM_COMMAND,
 	TM_RESPONSE,
-} from '../../../runtime/message';
+} from '../message';
 
 function msg( type, value, key = 'completion' ) {
 	const m = newMessage();

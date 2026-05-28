@@ -1,33 +1,40 @@
-import { useEffect, useMemo, useState } from '@wordpress/element';
-import { Core } from '../runtime/core';
+import { useMemo } from '@wordpress/element';
+import { useNodeState } from '../runtime/react';
 import { coreToGraph } from '../topology-console/utils/coreToGraph';
 import { generateNodeName } from '../topology-console/utils/draftGraph';
+import names from '../runtime/reserved-node-names.json';
 
-// 1s redraw cadence (matches the console's dump_metadata poll feel).
-const TICK_MS = 1000;
+const EMPTY_GRAPH = { nodes: [], edges: [] };
 
 /**
- * The page's own live graph + the command handlers that mutate it. Reads
- * `coreToGraph()` on a 1s tick (counters animate) and dispatches gestures as
- * commands through the passed-in Shell — shell.sendCommand(path, name, args)
- * stamps FROM = _output and fills into the Shell's sink (the local CI).
+ * The page's own live graph + the command handlers that mutate it. The
+ * canvas reads `_metadata`'s published `metadata` state (Metadata polls
+ * dump_metadata at the live cwd each Router TIMER tick and parses the reply
+ * via parseMetadata) — the same data source the topology console uses.
  *
- * @param {boolean} [active] When false, the 1s poll is gated off (no interval). Pass `enabled && open` so the timer only runs while the overlay is visible.
- * @param {Object}  shell    Shell instance owned by DebugOverlay; sink wired to the local CI.
+ * Before the first poll lands (or while no Metadata is mounted), falls back
+ * to `coreToGraph()` so the canvas isn't empty on first paint.
+ *
+ * @param {boolean} [active]         Currently unused; kept for API parity (the
+ *                                   subscription is naturally inert when no _metadata).
+ * @param {Object}  shell            Shell instance owned by DebugOverlay; sink wired
+ *                                   to the local CI.
+ * @param {Array}   [catalogClasses] Class catalog entries (shell_name + is_interpreter);
+ *                                   the Inspector uses it to decide whether to target
+ *                                   a node's `:config` sibling or the node itself.
  * @return {{ graph: { nodes: Array, edges: Array }, handlers: Object }} The live graph and gesture handlers.
  */
-export function useDebugGraph( active = true, shell ) {
-	const [ graph, setGraph ] = useState( () => coreToGraph() );
-
-	useEffect( () => {
-		if ( ! active ) {
-			return undefined;
-		}
-		// Refresh once on activation so the panel shows the current graph instantly.
-		setGraph( coreToGraph() );
-		const id = setInterval( () => setGraph( coreToGraph() ), TICK_MS );
-		return () => clearInterval( id );
-	}, [ active ] );
+// eslint-disable-next-line no-unused-vars
+export function useDebugGraph( active = true, shell, catalogClasses = [] ) {
+	const metadataGraph = useNodeState( names.METADATA, 'metadata' );
+	// Evaluate the fallback live every render — useMemo would freeze on the
+	// first render's coreToGraph(), which can fire BEFORE the page's exospine
+	// mounts (DebugOverlay is a sibling of the dashboard graph; both run
+	// useEffect after their first render).
+	const graph =
+		metadataGraph && Array.isArray( metadataGraph.nodes )
+			? metadataGraph
+			: coreToGraph() ?? EMPTY_GRAPH;
 
 	const handlers = useMemo(
 		() => ( {
@@ -40,16 +47,40 @@ export function useDebugGraph( active = true, shell ) {
 				shell.sendCommand( '', 'connect_node', `${ from } ${ to }` ),
 			onRemoveNode: ( id ) => shell.sendCommand( '', 'remove_node', id ),
 			onDropNode: ( { shellName } ) => {
-				// SchematicCanvas passes {shellName, x, y} — destructure to match.
-				// generateNodeName uniques against the live graph (read off Core,
-				// the source of truth) so the new id won't collide with an existing
-				// node. Position is cosmetic and not sent — poll-reflect lays out.
-				const name = generateNodeName( coreToGraph(), shellName );
-				shell.sendCommand(
-					'',
-					'make_node',
-					`${ shellName } ${ name }`
+				const name = generateNodeName( graph, shellName );
+				// If the class declares positional args, prompt the user.
+				// Nodes with no args (Tee, Echo) drop instantly. The asterisk
+				// flags required fields; `=default` shows where applicable.
+				const cls = catalogClasses?.find(
+					( c ) => c.shell_name === shellName
 				);
+				const declared = cls?.arguments || [];
+				let argString = '';
+				if ( declared.length > 0 ) {
+					const tmpl = declared
+						.map(
+							( a ) =>
+								`${ a.name }${ a.required ? '*' : '' }${
+									a.default !== undefined
+										? `=${ a.default }`
+										: ''
+								}`
+						)
+						.join( ' ' );
+					// eslint-disable-next-line no-alert
+					const input = window.prompt(
+						`Arguments for ${ shellName } ${ name }\n(${ tmpl })`,
+						''
+					);
+					if ( null === input ) {
+						return; // User cancelled.
+					}
+					argString = input.trim();
+				}
+				const args = argString
+					? `${ shellName } ${ name } ${ argString }`
+					: `${ shellName } ${ name }`;
+				shell.sendCommand( '', 'make_node', args );
 			},
 			onInspectorAction: ( action, nodeId, payload ) => {
 				// Parity with TopologyConsole.handleInspectorAction: dump, tail
@@ -75,21 +106,28 @@ export function useDebugGraph( active = true, shell ) {
 					);
 				} else if ( action === 'invoke' && payload ) {
 					const { verb, positional } = payload;
-					// Interpreter-class nodes have no `${nodeId}:config` sibling —
-					// they handle verbs themselves via their own verb table. Mirror
-					// TopologyConsole's `is_interpreter` handling: fall back to
-					// nodeId when the `:config` sibling isn't registered. The
-					// old dispatchLocal code's `|| ci()` fallback lost the node-
-					// specific verb table; targeting nodeId preserves it.
-					const configPath = `${ nodeId }:config`;
-					const target = Core.node( configPath )
-						? configPath
-						: nodeId;
+					// Mirror TopologyConsole: key on the catalog's
+					// is_interpreter flag (the node's class metadata), NOT a
+					// Core.node lookup — in remote scope the browser's Core
+					// never holds server-side `:config` siblings, so a Core
+					// check ALWAYS falls back to nodeId and misroutes verbs
+					// on non-interpreter PHP nodes.
+					const node = graph.nodes.find( ( n ) => n.id === nodeId );
+					const cls =
+						node && catalogClasses
+							? catalogClasses.find(
+									( c ) => c.shell_name === node.class
+							  )
+							: null;
+					const isInterpreter = !! ( cls && cls.is_interpreter );
+					const target = isInterpreter
+						? nodeId
+						: `${ nodeId }:config`;
 					shell.sendCommand( target, verb, positional || '' );
 				}
 			},
 		} ),
-		[ shell ]
+		[ shell, graph, catalogClasses ]
 	);
 
 	return { graph, handlers };

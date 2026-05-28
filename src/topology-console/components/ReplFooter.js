@@ -4,7 +4,7 @@
 
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { longestCommonPrefix } from '../nodes/completion';
+import { longestCommonPrefix } from '../../runtime/completion';
 
 // The whitespace-delimited token under the cursor — the last token of the
 // input, or '' after a trailing space. Returns the token + the prefix before it.

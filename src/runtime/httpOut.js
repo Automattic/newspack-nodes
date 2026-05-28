@@ -14,10 +14,8 @@
  * reply arrives over the SSE stream.
  */
 
-import { Node } from '../../runtime/node';
-import { Core } from '../../runtime/core';
-import { TO } from '../../runtime/message';
-import names from '../../runtime/reserved-node-names.json';
+import { Node } from './node';
+import { TO } from './message';
 
 export class HttpOut extends Node {
 	/**
@@ -84,20 +82,26 @@ export class HttpOut extends Node {
 		this.locked = true;
 	}
 
-	// POST the entries; feed every synchronous reply back into `_sse`.
+	// POST the entries; feed every synchronous reply back into `sink` (the CI),
+	// which routes via _router by TO. JSONL body → zero or more reply Messages
+	// (verb response plus any stderr/log lines the command emitted); a routed-
+	// onward command yields [] (bare 202) — its reply arrives over the SSE stream.
 	_post( entries ) {
 		Promise.resolve( this.client.postBatch( entries ) )
 			.then( ( messages ) => {
-				// JSONL body → zero or more reply Messages (verb response plus any
-				// stderr/log lines the command emitted); route each via _sse. A
-				// routed-onward command yields [] (bare 202) — its reply arrives
-				// over the SSE stream.
-				const sse = Core.node( names.SSE );
 				for ( const message of messages ) {
-					sse?.fill( message );
+					this.counter += 1;
+					this.sink?.fill( message );
 				}
 			} )
-			.catch( () => {} );
+			.catch( ( err ) => {
+				// Surface so the user gets feedback when /command fails
+				// (network drop, 5xx, HMAC mismatch). Rate-limited so a
+				// degraded server doesn't flood the console.
+				this.print_less_often(
+					`HttpOut POST failed: ${ err?.message ?? err }`
+				);
+			} );
 	}
 
 	/**

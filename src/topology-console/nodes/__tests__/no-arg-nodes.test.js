@@ -6,10 +6,10 @@
  * machinery has a uniform contract to query.
  */
 
-import { Metadata } from '../metadata';
-import { Uptime } from '../uptime';
-import { Completion } from '../completion';
-import { Heartbeat } from '../heartbeat';
+import { Metadata } from '../../../runtime/metadata';
+import { Uptime } from '../../../runtime/uptime';
+import { Completion } from '../../../runtime/completion';
+import { Heartbeat } from '../../../runtime/heartbeat';
 import { Shell } from '../shell';
 
 describe.each( [

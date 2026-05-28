@@ -1,4 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from '@wordpress/element';
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import { Core } from '../runtime/core';
 import { __ } from '@wordpress/i18n';
 import CanvasFrame from '../topology-console/components/CanvasFrame';
@@ -7,12 +13,26 @@ import { makeReplDismissHandler } from '../topology-console/utils/replDismissHan
 import Header from '../topology-console/components/Header';
 import ReplFooter from '../topology-console/components/ReplFooter';
 import { useJsCatalog } from '../topology-console/hooks/useJsCatalog';
+import { useClassCatalog } from '../topology-console/hooks/useClassCatalog';
 import { Shell } from '../topology-console/nodes/shell';
+import { useNodeState } from '../runtime/react';
+import {
+	newMessage,
+	TYPE,
+	FROM,
+	TO,
+	KEY,
+	VALUE,
+	LOCAL,
+	TM_COMMAND,
+} from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import {
 	THEMES,
 	DEFAULT_THEME,
 	isValidTheme,
+	THEME_STORAGE_KEY,
+	PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
 } from '../topology-console/themes';
 import { isDebugEnabled } from './isDebugEnabled';
 import { useDebugFrame } from './useDebugFrame';
@@ -54,25 +74,33 @@ export default function DebugOverlay( {
 	const [ selected, setSelected ] = useState( null );
 	const [ replExpanded, setReplExpanded ] = useState( false );
 	const replInputRef = useRef( null );
-	const themeKey = `${ storageKey }:theme`;
-	const paletteKey = `${ storageKey }:palette-collapsed`;
-	const [ theme, setTheme ] = useState( () => readStoredTheme( themeKey ) );
+	// Theme + palette keys are global — shared with the topology console
+	// so a preference picked in either surface applies in both. Palette
+	// defaults to collapsed; storage='0' means the user explicitly opened it.
+	const [ theme, setTheme ] = useState( () =>
+		readStoredTheme( THEME_STORAGE_KEY )
+	);
+	// The overlay is always a live view (no edit mode), so it uses the
+	// live key. Defaults to collapsed; '0' = user opened it.
 	const [ paletteCollapsed, setPaletteCollapsed ] = useState( () => {
 		try {
-			return window.localStorage.getItem( paletteKey ) === '1';
+			return (
+				window.localStorage.getItem(
+					PALETTE_COLLAPSED_STORAGE_KEY_LIVE
+				) !== '0'
+			);
 		} catch ( _err ) {
-			return false;
+			return true;
 		}
 	} );
 	const togglePaletteCollapsed = () => {
 		setPaletteCollapsed( ( prev ) => {
 			const next = ! prev;
 			try {
-				if ( next ) {
-					window.localStorage.setItem( paletteKey, '1' );
-				} else {
-					window.localStorage.removeItem( paletteKey );
-				}
+				window.localStorage.setItem(
+					PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
+					next ? '1' : '0'
+				);
 			} catch ( _err ) {
 				// localStorage disabled — in-session only.
 			}
@@ -83,7 +111,7 @@ export default function DebugOverlay( {
 		const next = isValidTheme( slug ) ? slug : DEFAULT_THEME;
 		setTheme( next );
 		try {
-			window.localStorage.setItem( themeKey, next );
+			window.localStorage.setItem( THEME_STORAGE_KEY, next );
 		} catch ( _err ) {
 			// localStorage disabled — in-session only.
 		}
@@ -103,16 +131,78 @@ export default function DebugOverlay( {
 	useEffect( () => {
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 	}, [ shell ] );
-	const { graph, handlers } = useDebugGraph( enabled && open, shell );
-	const { transcript, sendLine, clear } = useDebugRepl(
+	const { transcript, sendLine, clear, cwd, setPath } = useDebugRepl(
 		enabled && open,
 		shell
 	);
-	// The overlay's palette must source from the JS-side CommandInterpreter
-	// .includeNodes (the only set make_node can instantiate in this realm),
-	// NOT the HTTP `classes.list` catalog which returns the PHP substrate's
-	// node registry.
-	const catalog = useJsCatalog();
+	// Catalog must be resolved before useDebugGraph so the Inspector handler
+	// can look up `is_interpreter` for non-local-scope nodes.
+	const jsCatalog = useJsCatalog();
+	const phpCatalog = useClassCatalog( {
+		enabled: enabled && open && !! cwd,
+	} );
+	const catalog = cwd ? phpCatalog : jsCatalog;
+	const { graph, handlers } = useDebugGraph(
+		enabled && open,
+		shell,
+		catalog.classes || []
+	);
+
+	// Reachable path scopes — every top-level substrate-node-name in the
+	// current Core registry that's a legitimate `cd` target (peel-and-route).
+	// Filter out internal-only names AND bare `_sse` (its reply-pivot routing
+	// is for `_sse/{worker.partition}` IPC paths; bare `cd /_sse` would POST
+	// with TO='' to /command's request-scope, where replies don't make it
+	// back through the log-tail SSE channel). Service-CI verbs (workers,
+	// performance, etc.) go via `_http`. Worker pivots can be typed by hand.
+	const NON_NAVIGABLE = useMemo(
+		() =>
+			new Set( [
+				names.COMMAND_INTERPRETER,
+				names.ROUTER,
+				names.CWD,
+				names.METADATA,
+				names.UPTIME,
+				names.COMPLETION,
+				names.HEARTBEAT,
+				names.OUTPUT,
+				names.SSE,
+			] ),
+		[]
+	);
+	const pathOptions = useMemo( () => {
+		const opts = [ '' ];
+		for ( const { id } of graph.nodes ) {
+			if ( id.startsWith( '_' ) && ! NON_NAVIGABLE.has( id ) ) {
+				opts.push( id );
+			}
+		}
+		return opts;
+	}, [ graph.nodes, NON_NAVIGABLE ] );
+
+	// Tab-completion: subscribe to _completion's published candidates and
+	// expose a requestCompletion(line) that builds the `help` (first token)
+	// or `ls` (later tokens) query addressed at the cwd. Mirrors
+	// TopologyConsole.requestCompletion (Rule #4).
+	const completion = useNodeState( names.COMPLETION, 'candidates' ) ?? null;
+	const requestCompletion = useCallback(
+		( line ) => {
+			const onFirstToken = ! /\s/.test( String( line ).trimStart() );
+			const verb = onFirstToken ? 'help' : 'ls';
+			const m = newMessage();
+			m[ TYPE ] = TM_COMMAND;
+			m[ FROM ] = names.COMPLETION;
+			m[ TO ] = cwd;
+			m[ KEY ] = 'completion';
+			m[ VALUE ] = { name: verb, arguments: '', payload: '' };
+			m[ LOCAL ] = true;
+			Core.node( names.COMMAND_INTERPRETER )?.fill( m );
+		},
+		[ cwd ]
+	);
+	// Catalog is resolved above (just below useDebugRepl). schemasByShellName
+	// drops the array form into a lookup map for the Inspector's class
+	// metadata reads.
 	const schemasByShellName = useMemo(
 		() =>
 			Object.fromEntries(
@@ -120,20 +210,25 @@ export default function DebugOverlay( {
 			),
 		[ catalog.classes ]
 	);
+	// Scope layout storage by cwd so each scope (/, /_http, etc.) gets its
+	// own canvas positions + viewport. Empty/initial cwd maps to ':local'
+	// for back-compat-friendly keys.
+	const cwdScope = cwd || 'local';
 	const {
 		positions,
 		viewport,
 		onPositionChange,
 		onViewportChange,
 		resetLayout,
-	} = useDebugLayout( storageKey );
+	} = useDebugLayout( `${ storageKey }:${ cwdScope }` );
 	const {
 		frame,
 		style: frameStyle,
 		onHeaderPointerDown,
 		getResizeHandlers,
 		toggleMaximize,
-	} = useDebugFrame( `${ storageKey }:frame`, enabled && open );
+		// Global frame key — same overlay dimensions across every dashboard.
+	} = useDebugFrame( 'newspack-nodes:debug:frame', enabled && open );
 
 	// "Reset graph" in the overlay = remove every node the user added via the
 	// overlay since the panel first opened, leaving the dashboard's own nodes
@@ -179,7 +274,13 @@ export default function DebugOverlay( {
 	// as the user-intent signal.
 	const hasLayoutToReset = Object.keys( positions ).length > 0;
 	const baseline = baselineNamesRef.current;
+	// Only meaningful in the local scope — `graph` is remote (server's
+	// dump_metadata payload) when cwd is `/_http` etc., and every remote
+	// name looks "new" against the local baseline. Reset_graph removes
+	// nodes from the LOCAL Core, which can't be done from a remote view.
+	const isLocalScope = ! cwd;
 	const hasUserNodes =
+		isLocalScope &&
 		baseline !== null &&
 		graph.nodes.some( ( n ) => ! baseline.has( n.id ) );
 
@@ -271,8 +372,9 @@ export default function DebugOverlay( {
 								onThemeChange={ onThemeChange }
 								themes={ THEMES }
 								mode="view"
-								pathOptions={ [] }
-								path=""
+								pathOptions={ pathOptions }
+								path={ cwd }
+								onPathChange={ setPath }
 								onClose={ () => setOpen( false ) }
 							/>
 						</div>
@@ -325,11 +427,13 @@ export default function DebugOverlay( {
 							}
 						/>
 						<ReplFooter
-							prompt="/"
+							prompt={ `/${ cwd }` }
 							canSend={ true }
 							onSubmit={ sendLine }
 							onClear={ clear }
 							transcript={ transcript }
+							completion={ completion }
+							onComplete={ requestCompletion }
 							expanded={ replExpanded }
 							onExpandedChange={ setReplExpanded }
 							inputRef={ replInputRef }

@@ -5,7 +5,7 @@
  * their own nodes (`_metadata` / `_uptime`).
  */
 
-import { Node } from '../../runtime/node';
+import { Node } from './node';
 import {
 	TYPE,
 	TIMESTAMP,
@@ -22,7 +22,7 @@ import {
 	TM_ERROR,
 	TM_INFO,
 	TM_STRUCT,
-} from '../../runtime/message';
+} from './message';
 
 export const TRANSCRIPT_MAX = 200;
 

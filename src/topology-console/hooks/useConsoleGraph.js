@@ -13,13 +13,13 @@ import { useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { Node } from '../../runtime/node';
 import { mountExospine } from '../../runtime/exospine';
-import { SseIn } from '../nodes/sseIn';
-import { HttpOut } from '../nodes/httpOut';
-import { Dumper } from '../nodes/dumper';
-import { Metadata } from '../nodes/metadata';
-import { Uptime } from '../nodes/uptime';
-import { Completion } from '../nodes/completion';
-import { Heartbeat } from '../nodes/heartbeat';
+import { SseIn } from '../../runtime/sseIn';
+import { HttpOut } from '../../runtime/httpOut';
+import { Dumper } from '../../runtime/dumper';
+import { Metadata } from '../../runtime/metadata';
+import { Uptime } from '../../runtime/uptime';
+import { Completion } from '../../runtime/completion';
+import { Heartbeat } from '../../runtime/heartbeat';
 import { Shell } from '../nodes/shell';
 import { getCommandClient } from '../utils/commandClient';
 import names from '../../runtime/reserved-node-names.json';
@@ -185,7 +185,7 @@ export function useConsoleGraph( {
 		heartbeat.sink = ci;
 		metadata.target = names.CWD;
 		uptime.target = names.CWD;
-		heartbeat.target = `${ names.SSE }/workers`;
+		heartbeat.target = `${ names.HTTP }/workers`;
 		router.beforeTimerNotify = () => httpOut.lock();
 		router.afterTimerNotify = () => httpOut.flush();
 		router.register( 'TIMER', names.METADATA, () => metadata.onTimer() );
@@ -196,7 +196,6 @@ export function useConsoleGraph( {
 		// The EventSource is opened/closed by the stream-gating effect below (it
 		// depends on `streamEnabled`, which the graph build must not), so cd-ing off
 		// a worker can quiet the stream without tearing the whole graph down.
-		router.startTimer( 1000 );
 
 		return () => {
 			heartbeat.clearSlot();

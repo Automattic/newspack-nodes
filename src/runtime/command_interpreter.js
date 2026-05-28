@@ -1,5 +1,6 @@
 import { Node } from './node';
 import { Tee } from './tee';
+import { Echo } from './echo';
 import { Timer } from './timer';
 import { Core } from './core';
 import { dumpMetadataPayload } from './metadata';
@@ -737,6 +738,21 @@ export class CommandInterpreter extends Node {
 			return `_command_interpreter debug_state: ${ this.debugState }`;
 		}
 
+		if ( '*' === first ) {
+			let next;
+			if ( '' === second ) {
+				next = ( this.debugState ?? 0 ) > 0 ? 0 : 1;
+			} else {
+				// Match PHP (int) coercion + max(0,…): non-numeric → 0, never negative.
+				next = Math.max( 0, parseInt( second, 10 ) || 0 );
+			}
+			const allNames = [ ...Core.nodes.keys() ].sort();
+			for ( const name of allNames ) {
+				const node = Core.node( name );
+				node.debugState = next;
+			}
+			return `* debug_state: ${ next }`;
+		}
 		const node = Core.node( first );
 		if ( null === node ) {
 			return `unknown node: ${ first }`;
@@ -749,7 +765,7 @@ export class CommandInterpreter extends Node {
 			next = Math.max( 0, parseInt( second, 10 ) || 0 );
 		}
 		node.debugState = next;
-		return `${ first } debug_state: ${ node.debugState }`;
+		return `${ first } debug_state: ${ next }`;
 	}
 
 	// help — no args lists command names tabulated; a topic returns that command's help.
@@ -933,4 +949,10 @@ CommandInterpreter.defaultAuthorize = null;
 // The console extends it with its own node classes (Tachikoma's include_nodes).
 // Hook / Router / Callback are intentionally absent — nobody makes a second
 // router, or a predicate/closure node, from the shell.
-CommandInterpreter.includeNodes = { Node, Tee, Timer, CommandInterpreter };
+CommandInterpreter.includeNodes = {
+	Node,
+	Tee,
+	Echo,
+	Timer,
+	CommandInterpreter,
+};
