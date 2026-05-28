@@ -373,6 +373,25 @@ export class Shell extends Node {
 	}
 
 	/**
+	 * Build a TM_COMMAND via this.command(...) (inherited from Node), stamp the
+	 * Shell session's FROM/LOCAL provenance + the target TO (path), and fill
+	 * it through this.sink. Mirrors Tachikoma::Nodes::Shell::send_command —
+	 * callers issue commands as method calls instead of via parse().
+	 *
+	 * @param {string} path Routing target (TO). Empty = local CI.
+	 * @param {string} name Command verb (e.g. 'connect_node').
+	 * @param {string} args Positional argument string.
+	 * @return {void}
+	 */
+	sendCommand( path, name, args = '' ) {
+		const m = this.command( name, args );
+		m[ FROM ] = this.replyFrom( names.OUTPUT );
+		m[ TO ] = path;
+		m[ LOCAL ] = true;
+		this.sink?.fill( m );
+	}
+
+	/**
 	 * Parse + dispatch one line. Returns the local/error signal for the host to
 	 * act on, or null when a Message was filled into the sink (or input empty).
 	 *
