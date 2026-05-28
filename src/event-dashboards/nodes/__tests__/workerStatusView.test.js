@@ -1,20 +1,35 @@
+/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
  * workerstatus:view tests — the render-state node React reads via
  * useNodeState('workerstatus:view','view').
  *
- * Worker Status updates per-poll (no high-frequency rAF), so EVERYTHING goes
- * through the low-frequency setState('view', model) path. The node also owns the
- * segment slide-out animation timer: storing a model with non-empty
- * removingSegments schedules a 400ms self-fill of `clear-removing` that blanks
- * them and republishes.
+ * Post-migration to substrate `_http`, the view follows the canonical
+ * serversView pattern:
+ *   - awaited verbs (restart) stash a `{ resolve, reject }` in the view's
+ *     `pending` Map keyed by `message[ID]`; the reply lands at the view
+ *     (FROM=view → reply pivots TO=view) and the view settles the Promise.
+ *   - pending-matched TM_ERROR rejects the Promise but does NOT pollute the
+ *     view-model's global `error` field — that surface is for un-correlated
+ *     errors (e.g. broadcasts).
+ *   - TM_STRUCT `{ action:'model', model }` from the transform stores + publishes
+ *     the model (the dump_metadata reply path: HttpOut → transform → view).
+ *   - A model with non-empty removingSegments schedules a 400ms self-fill of
+ *     `clear-removing` so the slide-out animation completes.
  */
 
-import { VALUE, TYPE, TM_STRUCT, newMessage } from '../../../runtime/message';
+import {
+	VALUE,
+	TYPE,
+	ID,
+	TM_STRUCT,
+	TM_COMMAND,
+	TM_RESPONSE,
+	TM_ERROR,
+	newMessage,
+} from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { createWorkerStatusView } from '../workerStatusView';
 
-// setName registers in the per-process Core registry; clear it between tests so
-// re-creating the same-named node doesn't collide (matches the sibling tests).
 beforeEach( () => Core.reset() );
 
 // A model envelope from workerstatus:transform.
@@ -30,6 +45,24 @@ function controlMsg( payload ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
 	m[ VALUE ] = payload;
+	return m;
+}
+
+// A successful restart reply from `_http`: VALUE = { name, payload }.
+function restartReply( id, payload ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+	m[ ID ] = id;
+	m[ VALUE ] = { name: 'restart', payload };
+	return m;
+}
+
+// A failed restart reply: TM_ERROR set.
+function restartErrorReply( id, payload ) {
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
+	m[ ID ] = id;
+	m[ VALUE ] = { name: 'restart', payload };
 	return m;
 }
 
@@ -66,27 +99,71 @@ describe( 'workerstatus:view — model publish', () => {
 	} );
 } );
 
-describe( 'workerstatus:view — error control', () => {
-	test( 'an error control sets error on the published model', () => {
+describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
+	test( 'resolves a pending Promise on a successful reply matching message[ID]', async () => {
 		const v = createWorkerStatusView( 'workerstatus:view' );
-		v.fill( modelMsg( baseModel() ) );
-		v.fill(
-			controlMsg( { action: 'error', error: 'Server disconnected' } )
-		);
-		expect( v.setStateCache.view.error ).toBe( 'Server disconnected' );
+		const id = 'restart-1';
+		const promise = new Promise( ( resolve, reject ) => {
+			v.pending.set( id, { resolve, reject } );
+		} );
+		v.fill( restartReply( id, { restarted: 2 } ) );
+		await expect( promise ).resolves.toEqual( { restarted: 2 } );
 	} );
 
-	test( 'a fresh model clears a previously-set error', () => {
+	test( 'rejects a pending Promise on a TM_ERROR reply matching message[ID]', async () => {
 		const v = createWorkerStatusView( 'workerstatus:view' );
-		v.fill( controlMsg( { action: 'error', error: 'boom' } ) );
-		v.fill( modelMsg( baseModel( { error: null } ) ) );
+		const id = 'restart-2';
+		const promise = new Promise( ( resolve, reject ) => {
+			v.pending.set( id, { resolve, reject } );
+		} );
+		v.fill( restartErrorReply( id, 'permission denied' ) );
+		await expect( promise ).rejects.toThrow( /permission denied/i );
+	} );
+
+	test( 'pending-matched TM_ERROR does NOT pollute global view.error', () => {
+		const v = createWorkerStatusView( 'workerstatus:view' );
+		v.fill( modelMsg( baseModel() ) ); // seed a published model
+		const id = 'restart-3';
+		// Stash + immediately catch so the rejection doesn't escape.
+		const promise = new Promise( ( resolve, reject ) => {
+			v.pending.set( id, { resolve, reject } );
+		} );
+		promise.catch( () => {} );
+		v.fill( restartErrorReply( id, 'boom' ) );
 		expect( v.setStateCache.view.error ).toBeNull();
 	} );
 
-	test( 'an error before any model still publishes a loading-cleared view', () => {
+	test( 'extracts message from a { message } structured TM_ERROR payload', async () => {
 		const v = createWorkerStatusView( 'workerstatus:view' );
-		v.fill( controlMsg( { action: 'error', error: 'down' } ) );
-		expect( v.setStateCache.view.error ).toBe( 'down' );
+		const id = 'restart-4';
+		const promise = new Promise( ( resolve, reject ) => {
+			v.pending.set( id, { resolve, reject } );
+		} );
+		v.fill(
+			restartErrorReply( id, { message: 'structured error description' } )
+		);
+		await expect( promise ).rejects.toThrow(
+			/structured error description/i
+		);
+	} );
+
+	test( 'deletes the pending entry after settling', () => {
+		const v = createWorkerStatusView( 'workerstatus:view' );
+		const id = 'restart-5';
+		// eslint-disable-next-line no-empty-function -- noop resolvers; the test only inspects pending.has().
+		v.pending.set( id, { resolve: () => {}, reject: () => {} } );
+		v.fill( restartReply( id, null ) );
+		expect( v.pending.has( id ) ).toBe( false );
+	} );
+} );
+
+describe( 'workerstatus:view — un-correlated TM_ERROR (global error)', () => {
+	test( 'an un-correlated TM_ERROR (no matching pending) surfaces into view.error', () => {
+		const v = createWorkerStatusView( 'workerstatus:view' );
+		v.fill( modelMsg( baseModel() ) );
+		// No pending entry for this id → falls through to the global error path.
+		v.fill( restartErrorReply( 'never-stashed', 'broadcast failure' ) );
+		expect( v.setStateCache.view.error ).toBe( 'broadcast failure' );
 		expect( v.setStateCache.view.loading ).toBe( false );
 	} );
 } );
@@ -105,12 +182,10 @@ describe( 'workerstatus:view — removing-segment animation', () => {
 					} )
 				)
 			);
-			// Present immediately for the slide-out animation.
 			expect( v.setStateCache.view.removingSegments ).toEqual( {
 				'firehose-0': [ { id: 1, size: 9 } ],
 			} );
 			jest.advanceTimersByTime( 400 );
-			// Blanked after the animation window.
 			expect( v.setStateCache.view.removingSegments ).toEqual( {} );
 		} finally {
 			jest.useRealTimers();
@@ -160,7 +235,6 @@ describe( 'workerstatus:view — teardown', () => {
 				)
 			);
 			const spy = jest.spyOn( v, 'setState' );
-			// Teardown before the 400ms window elapses.
 			v.close();
 			jest.advanceTimersByTime( 400 );
 			expect( spy ).not.toHaveBeenCalled();
@@ -179,5 +253,10 @@ describe( 'workerstatus:view — node wiring', () => {
 	test( 'names the node', () => {
 		const v = createWorkerStatusView( 'workerstatus:view' );
 		expect( v.name ).toBe( 'workerstatus:view' );
+	} );
+
+	test( 'exposes the pending Map for the hook to stash resolvers', () => {
+		const v = createWorkerStatusView( 'workerstatus:view' );
+		expect( v.pending ).toBeInstanceOf( Map );
 	} );
 } );
