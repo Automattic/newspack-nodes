@@ -559,7 +559,10 @@ class CommandInterpreterTest extends TestCase {
 
 		$tmp = $this->make_temp_dir();
 		try {
-			$ci->dispatch( 'make_node', "Partition mypart {$tmp} 0" );
+			// Pass all 5 positional args; the base arguments() setter walks the
+			// Partition_Node schema and will overwrite ctor-set ints with the
+			// schema's placeholder string defaults if optional tokens are missing.
+			$ci->dispatch( 'make_node', "Partition mypart {$tmp} 0 67108864 4 86400" );
 			$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, Core::node( 'mypart' ) );
 
 			$ci->dispatch( 'remove_node', 'mypart' );

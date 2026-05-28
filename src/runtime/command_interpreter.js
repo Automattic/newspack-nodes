@@ -812,6 +812,13 @@ export class CommandInterpreter extends Node {
 				snapshot.sink = val && val.name ? val.name : '';
 				continue;
 			}
+			// `arguments` is a prototype accessor backed by `_arguments` (the
+			// own field); rename in the snapshot so the public surface keeps
+			// emitting `arguments` instead of leaking the private backing name.
+			if ( '_arguments' === key ) {
+				snapshot.arguments = val;
+				continue;
+			}
 			// Skip live node references and internal structures — display-only scalars.
 			if (
 				'patron' === key ||
