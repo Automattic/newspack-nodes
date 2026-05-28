@@ -68,6 +68,8 @@ import {
 	DEFAULT_THEME,
 	isValidTheme,
 	THEME_STORAGE_KEY,
+	PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
+	PALETTE_COLLAPSED_STORAGE_KEY_EDIT,
 } from './themes';
 
 function topologyMap() {
@@ -227,14 +229,27 @@ function initialPartitionFromUrl() {
 const EMPTY_GRAPH = { nodes: [], edges: [] };
 const EMPTY_TRANSCRIPT = [];
 
-const PALETTE_COLLAPSED_KEY = 'newspack-nodes:topology:palette-collapsed';
-
-// Read the persisted palette-collapsed flag; default to open.
-function readStoredPaletteCollapsed() {
+// Per-mode palette-collapsed: live defaults to collapsed (storage '0' =
+// user opened it); edit defaults to OPEN (storage '1' = user closed it).
+function paletteKeyFor( mode ) {
+	return 'edit' === mode
+		? PALETTE_COLLAPSED_STORAGE_KEY_EDIT
+		: PALETTE_COLLAPSED_STORAGE_KEY_LIVE;
+}
+function readStoredPaletteCollapsed( mode ) {
+	const key = paletteKeyFor( mode );
+	const def = 'edit' !== mode; // live default: collapsed; edit default: open
 	try {
-		return window.localStorage.getItem( PALETTE_COLLAPSED_KEY ) === '1';
+		const stored = window.localStorage.getItem( key );
+		if ( stored === '0' ) {
+			return false;
+		}
+		if ( stored === '1' ) {
+			return true;
+		}
+		return def;
 	} catch ( _err ) {
-		return false;
+		return def;
 	}
 }
 
@@ -284,24 +299,28 @@ export default function TopologyConsole() {
 			// localStorage disabled/quota'd; in-session only.
 		}
 	}, [] );
-	const [ paletteCollapsed, setPaletteCollapsedState ] = useState(
-		readStoredPaletteCollapsed
+	const [ paletteCollapsed, setPaletteCollapsedState ] = useState( () =>
+		readStoredPaletteCollapsed( mode )
 	);
 	const togglePaletteCollapsed = useCallback( () => {
 		setPaletteCollapsedState( ( prev ) => {
 			const next = ! prev;
 			try {
-				if ( next ) {
-					window.localStorage.setItem( PALETTE_COLLAPSED_KEY, '1' );
-				} else {
-					window.localStorage.removeItem( PALETTE_COLLAPSED_KEY );
-				}
+				window.localStorage.setItem(
+					paletteKeyFor( mode ),
+					next ? '1' : '0'
+				);
 			} catch ( _err ) {
 				// localStorage disabled/quota'd; in-session only.
 			}
 			return next;
 		} );
-	}, [] );
+	}, [ mode ] );
+	// Switch modes → reload the persisted state for the new mode (each mode
+	// has its own key + default).
+	useEffect( () => {
+		setPaletteCollapsedState( readStoredPaletteCollapsed( mode ) );
+	}, [ mode ] );
 	const saveTopology = useSaveTopology();
 	const deleteTopology = useDeleteTopology();
 	const fetchTopology = useTopology();
