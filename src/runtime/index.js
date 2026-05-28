@@ -10,5 +10,6 @@ export { Heartbeat } from './heartbeat';
 export { CommandInterpreter } from './command_interpreter';
 export { mountExospine } from './exospine';
 export { SseConnector } from './sse_connector';
+export { HttpOut } from './httpOut';
 export { CommandClient } from './command_client';
 export { useNodeState, useNodeFill } from './react';

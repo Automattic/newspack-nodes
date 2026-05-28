@@ -14,7 +14,7 @@ import { Core } from '../../runtime/core';
 import { Node } from '../../runtime/node';
 import { mountExospine } from '../../runtime/exospine';
 import { SseIn } from '../nodes/sseIn';
-import { HttpOut } from '../nodes/httpOut';
+import { HttpOut } from '../../runtime/httpOut';
 import { Dumper } from '../nodes/dumper';
 import { Metadata } from '../nodes/metadata';
 import { Uptime } from '../nodes/uptime';

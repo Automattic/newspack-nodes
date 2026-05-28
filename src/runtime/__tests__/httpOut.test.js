@@ -7,7 +7,7 @@
  */
 
 import { HttpOut } from '../httpOut';
-import { CommandClient } from '../../../runtime/command_client';
+import { CommandClient } from '../command_client';
 import {
 	newMessage,
 	TYPE,
@@ -16,7 +16,7 @@ import {
 	VALUE,
 	TM_COMMAND,
 	TM_PING,
-} from '../../../runtime/message';
+} from '../message';
 
 function makeNode() {
 	const real = new CommandClient( { baseUrl: '/wp-json/', nonce: 'NONCE' } );
@@ -55,7 +55,7 @@ function routed( {
 
 describe( 'HttpOut', () => {
 	afterEach( () => {
-		const { Core } = require( '../../../runtime/core' );
+		const { Core } = require( '../core' );
 		Core.reset();
 	} );
 
@@ -134,8 +134,8 @@ describe( 'HttpOut', () => {
 	} );
 
 	it( 'feeds a synchronous reply Message from the POST body into _sse', async () => {
-		const { Node } = require( '../../../runtime/node' );
-		const names = require( '../../../runtime/reserved-node-names.json' );
+		const { Node } = require( '../node' );
+		const names = require( '../reserved-node-names.json' );
 		const { node, postBatch } = makeNode();
 		const sse = new Node();
 		const got = [];
@@ -154,8 +154,8 @@ describe( 'HttpOut', () => {
 	} );
 
 	it( 'feeds EVERY reply Message from a JSONL body into _sse (e.g. stderr line + response)', async () => {
-		const { Node } = require( '../../../runtime/node' );
-		const names = require( '../../../runtime/reserved-node-names.json' );
+		const { Node } = require( '../node' );
+		const names = require( '../reserved-node-names.json' );
 		const { node, postBatch } = makeNode();
 		const sse = new Node();
 		const got = [];
@@ -178,8 +178,8 @@ describe( 'HttpOut', () => {
 	} );
 
 	it( 'ignores a null response (bare 202 — routed onward, reply via SSE)', async () => {
-		const { Node } = require( '../../../runtime/node' );
-		const names = require( '../../../runtime/reserved-node-names.json' );
+		const { Node } = require( '../node' );
+		const names = require( '../reserved-node-names.json' );
 		const { node, postBatch } = makeNode();
 		const sse = new Node();
 		const got = [];
