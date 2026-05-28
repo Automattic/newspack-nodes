@@ -37,39 +37,33 @@ class Workers_CI_Node extends Service_CI_Node {
 
 	/**
 	 * Cli helper the `list`/`dump_metadata`/`restart` handlers reach via
-	 * `$self->cli`. node_schema() is static and can't `use` a ctor arg, so the
-	 * handlers read it off the dispatched instance instead (legal: they're
-	 * defined inside this class and so may touch its private props on any
-	 * instance — same shape Topologies_CI uses for `self::` statics).
+	 * `$self->cli`. Public so the bootstrap (or test) assigns it AFTER
+	 * `new Workers_CI_Node()` — the Tachikoma uniform-construction pattern
+	 * (`make_node` calls a no-arg ctor; programmatic deps come in via public
+	 * properties, not constructor args, since `arguments()` only handles
+	 * scalar config). node_schema() is static and can't `use` an instance
+	 * field, so handlers read the assigned value off `$self` at dispatch
+	 * time (legal: they're defined inside this class and so may touch its
+	 * props on any instance).
 	 *
-	 * @var object
-	 */
-	private object $cli;
-
-	/**
-	 * `\Memcached`-shaped live-cursor handle (or null) the `list`/`dump_metadata`
-	 * handlers thread through via `$self->cache`.
+	 * Nullable + default null so a freshly-constructed CI is in a known,
+	 * type-safe state until the bootstrap wires up the dep; verb handlers
+	 * that dereference `$self->cli` will fail loud if the bootstrap forgot
+	 * to assign it, rather than constructing into uninitialised-property UB.
 	 *
 	 * @var object|null
 	 */
-	private ?object $cache;
+	public ?object $cli = null;
 
 	/**
-	 * Build a Workers_CI bound to the supplied Cli + Cache.
+	 * `\Memcached`-shaped live-cursor handle (or null) the `list`/`dump_metadata`
+	 * handlers thread through via `$self->cache`. Public for the same
+	 * reason as `$cli`; defaults to null because null is a legitimate
+	 * cache argument (forces offsetlog-only reads).
 	 *
-	 * @param object      $cli   Duck-types Cli: `ls_workers()`, `live_position()`, `restart_workers()`.
-	 * @param object|null $cache `\Memcached`-shaped (`get`) for live cursor reads; null forces
-	 *                           offsetlog-only reads. The `heartbeat` verb refreshes SSE slots via
-	 *                           `Sse_Slot_Pool::touch` against `Core::$memd`, independent of this arg.
+	 * @var object|null
 	 */
-	public function __construct( object $cli, ?object $cache = null ) {
-		// Props set before parent builds commands from node_schema(). Handlers
-		// are closures (not invoked until dispatch), so prop-set order doesn't
-		// affect correctness; props-first keeps intent obvious.
-		$this->cli   = $cli;
-		$this->cache = $cache;
-		parent::__construct();
-	}
+	public ?object $cache = null;
 
 	public static function node_schema(): array {
 		return [

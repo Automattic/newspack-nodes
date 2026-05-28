@@ -373,23 +373,18 @@ class Command_Interpreter_Node extends Node {
 			if ( $ref->isAbstract() ) {
 				continue;
 			}
-			// Tachikoma-parity migration in progress (Tasks 7-10): migrated nodes
-			// declare a no-arg ctor and receive positional config through the
-			// uniform $node->arguments() call below; un-migrated nodes still take
-			// ctor params and need newInstanceArgs(...). Once Tasks 8-10 finish,
-			// the conditional becomes unreachable for the legacy branch and Task 11
-			// simplifies this back to `$node = new $fqcn();`.
-			$ctor                = $ref->getConstructor();
-			$has_positional_ctor = $ctor && $ctor->getNumberOfParameters() > 0;
-			$node                = $has_positional_ctor
-				? $ref->newInstanceArgs( $ctor_args )
-				: new $fqcn();
+			// Tachikoma sequence — uniform across every Node subclass. The
+			// no-arg ctor returns a Node in declaration-default state; arguments()
+			// walks node_schema()['arguments'] and assigns each declared
+			// positional arg from the trailing tokens. Service CIs that depend
+			// on programmatic objects (cli, registry, etc.) expose them as
+			// public properties set by the bootstrap AFTER construction —
+			// not through arguments() (which only handles scalar config).
+			$node = new $fqcn();
 			$node->name( $name );
-			// Set arguments() HERE — uniformly, from the tokens make_node was
-			// given — not downstream in each node's ctor (which left it canonical
-			// for some, unset for others). dump_config round-trips this string.
-			// XXX: Only scalar tokens count: programmatic make_node (service CIs) is
-			// called with object dependencies, which aren't round-trippable config.
+			// Only scalar tokens count: programmatic make_node calls may pass
+			// object deps positionally for compatibility, but those aren't
+			// round-trippable through arguments() and dump_config skips them.
 			$node->arguments( \implode( ' ', \array_filter( $ctor_args, '\is_scalar' ) ) );
 			$node->sink( $this );
 			// Inherit debug_state so new nodes trace from birth.

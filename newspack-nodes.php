@@ -110,11 +110,20 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 	// application to provide one (event-logger-nodes hands over the shared
 	// `Core::$memd`). Null cache means live-position falls back to on-disk
 	// offsetlog and the `heartbeat` verb throws "cache not configured".
+	//
+	// Construction follows the Tachikoma uniform pattern: `make_node` calls a
+	// no-arg ctor + `arguments()` for scalar config; programmatic deps (Cli,
+	// cache) come in via public-property assignment immediately after, since
+	// `arguments()` only handles round-trippable scalar tokens.
 	$cli   = new \Newspack_Nodes\CLI( \Newspack_Nodes\Bootstrap::base_dir() );
 	$cache = \function_exists( 'apply_filters' )
 		? \apply_filters( 'newspack_nodes/workers_cache', null )
 		: null;
-	$base_ci->make_node( 'Workers_CI', 'workers', $cli, $cache );
+	$workers_ci = $base_ci->make_node( 'Workers_CI', 'workers' );
+	if ( $workers_ci instanceof \Newspack_Nodes\Rest\Workers_CI_Node ) {
+		$workers_ci->cli   = $cli;
+		$workers_ci->cache = $cache;
+	}
 }
 
 // Wire WordPress integration: REST routes, cron-driven supervisor tick, activation/deactivation.

@@ -47,7 +47,9 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 			public function live_position( $cache, string $type, int $partition ): ?array { return null; }
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
 		};
-		return new Workers_CI_Node( $cli );
+		$ci      = new Workers_CI_Node();
+		$ci->cli = $cli;
+		return $ci;
 	}
 
 	public function test_raw_logs_schema_verbs_all_carry_callable_handlers(): void {
