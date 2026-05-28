@@ -304,12 +304,13 @@ export class CommandInterpreter extends Node {
 			return `unknown class: ${ type }`;
 		}
 		const name = parts.shift();
-		// new Class(...parts): positional ctor args, the PHP newInstanceArgs hack.
-		// name() throws on collision (no pre-check) — interpret() wraps it.
-		const node = new NodeClass( ...parts );
+		// Tachikoma sequence: no-arg ctor, then setName + arguments + sink. Every
+		// config-bearing Node subclass reads its positional config through the
+		// arguments setter (the schema walker assigns each declared arg from the
+		// trailing tokens). name() throws on collision (no pre-check) —
+		// interpret() wraps it.
+		const node = new NodeClass();
 		node.setName( name );
-		// Set arguments HERE (from the trailing tokens), like PHP make_node — not
-		// downstream — so dump_config round-trips every node from one place.
 		node.arguments = parts.join( ' ' );
 		node.sink = this;
 		if ( ( this.debugState ?? 0 ) > 0 ) {
