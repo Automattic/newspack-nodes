@@ -26,8 +26,15 @@ sync() {
 	local name; name=$(basename "$src")
 	for dest in "$@"; do
 		mkdir -p "$dest"
-		printf '%s\n' "$HEADER" > "$dest/$name"
-		cat "$src" >> "$dest/$name"
+		# Write to a per-process tmp file then atomic-rename into place. The
+		# old two-step (printf > then cat >>) raced with sibling-plugin jest
+		# coverage runs reading the same path — Jest would hit a half-written
+		# file under `run-coverage` (parallel mode) and fail with parse errors.
+		# `mv` is atomic for same-filesystem renames, so concurrent readers
+		# see either the old contents or the new ones, never a torn write.
+		local tmp="$dest/.$name.$$.tmp"
+		{ printf '%s\n' "$HEADER"; cat "$src"; } > "$tmp"
+		mv "$tmp" "$dest/$name"
 	done
 }
 
