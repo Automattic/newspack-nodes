@@ -24,4 +24,5 @@ final class Node_Names {
 	public const UPTIME              = '_uptime';
 	public const COMPLETION          = '_completion';
 	public const HEARTBEAT           = '_heartbeat';
+	public const CWD                 = '_cwd';
 }
