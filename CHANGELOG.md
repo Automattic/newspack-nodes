@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-05-28
+
+### Fixed
+
+- **`sync-shared.sh` writes atomically** so parallel `~/Documents/DN/bin/run-coverage` (3 plugins fanned out through `partty`) doesn't race: nodes' `npm run build` writes into `../newspack-event-logger-nodes/src/shared/` while ELN's `npm run test:js:coverage` reads the same path. The old two-step `printf > file` + `cat >> file` exposed a torn-write window — switched to a per-process `.$name.$$.tmp` + `mv` so concurrent readers see either the old contents or the new ones, never a half-written file.
+- **Debug overlay z-index** bumped to `999999` (FAB) / `999998` (panel) so it sits above `@wordpress/components` modals (~`100000`) and ELN's flame-graph tooltip (`100001 !important`). The old `99999`/`99998` let dashboard modals eat overlay clicks.
+- **`fireMsg` test helper drains React's deferred-batch queue** with a trailing empty `act()` so the 3 `reset-graph` chip tests don't flake under parallel-coverage CPU pressure (the post-fill re-render was slipping past a single `act` boundary; isolated runs were green, only the 3-jest-parallel `run-coverage` fanned out enough contention to surface the race).
+
+### Changed
+
+- **Debug overlay drops the dead `_uptime` Uptime mount.** Same architectural mistake as the v0.8.0 dashboard cleanup — copy-pasted from the topology console template, but the overlay never renders an uptime surface (no `useNodeState('_uptime', 'uptime')` consumer). The topology console DOES render its uptime in the Header (legitimate); the overlay doesn't. `NON_NAVIGABLE` keeps the filter entry defensively (cheap; covers a future host page that mounts uptime).
+
+### Tests
+
+- **Five debug-overlay / topology-utils files lifted above the 80% coverage floor.** `replDismissHandler.js` (50% → 100%), `DebugOverlay.js` (65.8% → 99.1%), `useDebugRepl.js` (74.6% → 92.1%), `useDebugGraph.js` (76.2% → 100%), `useDebugLayout.js` (76.6% → 100%). +47 tests; JS total 91.0% → 92.7%; zero files under 80%. Two defensive dead-code branches left uncovered with one-line rationales (DebugOverlay resetGraph pre-baseline guard; useDebugRepl dumperRef-null guards after teardown).
+
 ## [0.8.0] - 2026-05-28
 
 ### Changed
