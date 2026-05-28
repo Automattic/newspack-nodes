@@ -90,6 +90,7 @@ export class HttpOut extends Node {
 		Promise.resolve( this.client.postBatch( entries ) )
 			.then( ( messages ) => {
 				for ( const message of messages ) {
+					this.counter += 1;
 					this.sink?.fill( message );
 				}
 			} )

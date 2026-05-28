@@ -52,6 +52,7 @@ export class Metadata extends Node {
 		if ( ! this.sink ) {
 			return;
 		}
+		this.counter += 1;
 		this.sink.fill( this._pollMessage( 'dump_metadata' ) );
 	}
 

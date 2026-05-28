@@ -90,6 +90,7 @@ export class Heartbeat extends Node {
 			return;
 		}
 		this.lastFired = now;
+		this.counter += 1;
 		this.sink.fill( this._pollMessage() );
 	}
 
