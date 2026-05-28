@@ -1,8 +1,12 @@
+/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
- * workerstatus:transform tests — the stateful transform that turns a
- * `{ action:'metadata', metadata }` snapshot into an enriched `{ action:'model',
- * model }`. Rate + segment math is ported verbatim from WorkerStatus.fetchWorkers,
- * so the tests feed two consecutive snapshots and assert the computed deltas.
+ * workerstatus:transform tests — the stateful transform that turns a raw
+ * `dump_metadata` reply (VALUE=`{ name, payload }`, payload=the snapshot) into
+ * an enriched `{ action:'model', model }`. Post-migration to substrate `_http`,
+ * the transform receives the reply directly from HttpOut (TO=transform,
+ * FROM=workers); the payload is the metadata. Rate + segment math is ported
+ * verbatim from WorkerStatus.fetchWorkers, so the tests feed two consecutive
+ * snapshots and assert the computed deltas.
  *
  * Date.now() is faked (not jest fake timers) so the time-delta between the two
  * snapshots is deterministic — the node reads Date.now() for its receive-time
@@ -14,6 +18,9 @@ import {
 	TO,
 	TYPE,
 	TM_STRUCT,
+	TM_COMMAND,
+	TM_RESPONSE,
+	TM_ERROR,
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
@@ -29,11 +36,12 @@ function capture() {
 	return { node: { fill: ( m ) => got.push( m ) }, got };
 }
 
-// A metadata control message from workerstatus:poll.
+// A dump_metadata reply Message as HttpOut delivers it: VALUE = { name, payload }
+// where `payload` is the workers/logs metadata snapshot.
 function metadataMsg( metadata ) {
 	const m = newMessage();
-	m[ TYPE ] = TM_STRUCT;
-	m[ VALUE ] = { action: 'metadata', metadata };
+	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+	m[ VALUE ] = { name: 'dump_metadata', payload: metadata };
 	return m;
 }
 
@@ -320,23 +328,40 @@ describe( 'workerstatus:transform — segment tracking', () => {
 	} );
 } );
 
-describe( 'workerstatus:transform — control pass-through', () => {
-	test( 'forwards a non-metadata control action straight to the sink, stamped to target', () => {
+describe( 'workerstatus:transform — non-metadata replies', () => {
+	test( 'ignores a reply for a verb other than dump_metadata', () => {
+		const sink = capture();
+		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		t.target = 'workerstatus:view';
+		const reply = newMessage();
+		reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+		reply[ VALUE ] = { name: 'something_else', payload: {} };
+		t.fill( reply );
+		// Transform only acts on dump_metadata replies; anything else is a no-op
+		// (the view is the receiver for restart/error replies).
+		expect( sink.got ).toHaveLength( 0 );
+		// Suppress unused-var lint on TM_STRUCT now that the control-pass-through
+		// test is gone — TM_STRUCT is still used for the emit assertion above.
+		void TM_STRUCT;
+	} );
+
+	test( 'forwards a TM_ERROR reply to the view (un-correlated poll failure)', () => {
 		const sink = capture();
 		const t = createWorkerStatusTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		t.target = 'workerstatus:view';
 		const err = newMessage();
-		err[ TYPE ] = TM_STRUCT;
-		err[ VALUE ] = { action: 'error', error: 'boom' };
+		err[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
+		err[ VALUE ] = {
+			name: 'dump_metadata',
+			payload: 'Server disconnected',
+		};
 		t.fill( err );
+		// Transform forwards (rather than dropping) so the view's
+		// un-correlated-error path can surface the disconnect banner.
 		expect( sink.got ).toHaveLength( 1 );
-		// Rule #2: the pass-through is stamped TO=target so the router routes it.
 		expect( sink.got[ 0 ][ TO ] ).toBe( 'workerstatus:view' );
-		expect( sink.got[ 0 ][ VALUE ] ).toEqual( {
-			action: 'error',
-			error: 'boom',
-		} );
 	} );
 } );
 

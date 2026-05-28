@@ -1,5 +1,6 @@
+/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 import { Node } from '../../runtime/node';
-import { VALUE } from '../../runtime/message';
+import { ID, TYPE, VALUE, TM_ERROR } from '../../runtime/message';
 
 // Segment slide-out animation window — matches the old WorkerStatus 400ms timer.
 const REMOVING_CLEAR_MS = 400;
@@ -20,42 +21,95 @@ const emptyModel = () => ( {
 	loading: false,
 } );
 
+// Coerce a TM_ERROR payload (string / { message } / anything else) to a
+// human-readable string for the Error / view-model error field.
+function _errorMessage( payload ) {
+	if ( 'string' === typeof payload && payload.length > 0 ) {
+		return payload;
+	}
+	if (
+		payload &&
+		'object' === typeof payload &&
+		'string' === typeof payload.message &&
+		payload.message.length > 0
+	) {
+		return payload.message;
+	}
+	return 'Operation failed';
+}
+
 /**
  * `workerstatus:view` — owns the Worker Status view model, the single surface
  * React reads via useNodeState('workerstatus:view','view').
  *
- * Worker Status updates per-poll, not per-frame, so there is no high-frequency
- * rAF path (unlike Raw Logs): every change publishes through the low-frequency
- * setState('view', model). It accepts:
- * - `{ action:'model', model }` — store + publish the enriched model. If the
- *   model carries removingSegments, schedule a 400ms self-fill of
- *   `clear-removing` so the slide-out animation completes (timer lives here, in
- *   the graph, not in the React view).
- * - `{ action:'error', error }` — set error on the current (or empty) model and
- *   republish; surfaces poll / restart failures.
- * - `{ action:'clear-removing' }` — blank removingSegments and republish.
- *
- * `close()` cancels any pending slide-out clear so the timer can't fire a
- * setState into a detached node after teardown.
+ * Post-migration to substrate `_http`, the view follows the canonical
+ * serversView pattern:
+ *  - awaited verbs (restart) stash a `{ resolve, reject }` in `pending` keyed
+ *    by message[ID]; the matching reply (TO=view) settles the Promise.
+ *  - pending-matched TM_ERROR rejects the Promise but does NOT pollute the
+ *    view-model's global `error` field — that surface is for un-correlated
+ *    errors (broadcasts, the initial poll).
+ *  - TM_STRUCT `{ action:'model', model }` from the transform stores + publishes
+ *    the model (the dump_metadata reply path: HttpOut → transform → view).
+ *  - TM_STRUCT `{ action:'clear-removing' }` blanks removingSegments.
+ *  - A model with non-empty removingSegments schedules a 400ms self-fill of
+ *    `clear-removing` so the slide-out animation completes (timer lives here,
+ *    in the graph, not in the React view).
  */
 class WorkerStatusViewNode extends Node {
 	constructor() {
 		super();
 		this.model = emptyModel();
 		this._clearTimer = null;
+		// Hook-stamped ID → { resolve, reject }; resolved/rejected when the
+		// matching reply lands here. Cleared on resolution.
+		this.pending = new Map();
 	}
 
 	fill( message ) {
 		const value = message[ VALUE ];
-		if ( ! value || ! value.action ) {
+		if ( ! value || 'object' !== typeof value ) {
 			return;
 		}
+		const type = message[ TYPE ] || 0;
+		const isError = 0 !== ( type & TM_ERROR );
+		const id = message[ ID ];
+
+		// Pending-Map gating: settle any Promise the hook stashed under this ID.
+		// pendingMatched gates the global-error path below — caller owns the
+		// error surface for awaited verbs (per-row restart, etc.).
+		let pendingMatched = false;
+		if ( id && this.pending.has( id ) ) {
+			const { resolve, reject } = this.pending.get( id );
+			this.pending.delete( id );
+			pendingMatched = true;
+			if ( isError ) {
+				reject( new Error( _errorMessage( value.payload ) ) );
+			} else {
+				resolve( value.payload );
+			}
+		}
+
+		// Un-correlated errors (broadcasts, initial poll) surface globally;
+		// pending-matched ones are owned by the caller's catch.
+		if ( isError && ! pendingMatched ) {
+			this.model = {
+				...this.model,
+				error: _errorMessage( value.payload ),
+				loading: false,
+			};
+			this._publish();
+			return;
+		}
+
+		// Model updates from the transform: the enriched dump_metadata snapshot.
 		if ( 'model' === value.action ) {
 			this._setModel( value.model );
-		} else if ( 'error' === value.action ) {
-			this.model = { ...this.model, error: value.error };
-			this._publish();
-		} else if ( 'clear-removing' === value.action ) {
+			return;
+		}
+
+		// Slide-out animation clear (self-fill from _setModel's setTimeout).
+		if ( 'clear-removing' === value.action ) {
 			this.model = { ...this.model, removingSegments: {} };
 			this._publish();
 		}
