@@ -14,10 +14,10 @@
  * reply arrives over the SSE stream.
  */
 
-import { Node } from '../../runtime/node';
-import { Core } from '../../runtime/core';
-import { TO } from '../../runtime/message';
-import names from '../../runtime/reserved-node-names.json';
+import { Node } from './node';
+import { Core } from './core';
+import { TO } from './message';
+import names from './reserved-node-names.json';
 
 export class HttpOut extends Node {
 	/**

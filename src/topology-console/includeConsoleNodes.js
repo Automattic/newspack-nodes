@@ -10,7 +10,7 @@ import { Metadata } from './nodes/metadata';
 import { Uptime } from './nodes/uptime';
 import { Completion } from './nodes/completion';
 import { Heartbeat } from '../runtime/heartbeat';
-import { HttpOut } from './nodes/httpOut';
+import { HttpOut } from '../runtime/httpOut';
 import { SseIn } from './nodes/sseIn';
 
 Object.assign( CommandInterpreter.includeNodes, {
