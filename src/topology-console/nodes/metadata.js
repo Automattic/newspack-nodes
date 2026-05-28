@@ -22,6 +22,16 @@ export class Metadata extends Node {
 		this.registrations.metadata = {};
 	}
 
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description:
+				'Receives `dump_metadata` poll reply; publishes for the canvas.',
+			arguments: [],
+			commands: [],
+		};
+	}
+
 	// Build a poll TM_COMMAND addressed to this.target (the `_cwd` node, which
 	// re-stamps the live cwd). FROM = own name is the reply pivot (the reply comes
 	// back here); LOCAL taints it so the browser CI authorizes a local poll.

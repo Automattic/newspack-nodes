@@ -42,6 +42,15 @@ export class Completion extends Node {
 		this._seq = 0;
 	}
 
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description: 'Receives tab-completion reply; publishes candidates.',
+			arguments: [],
+			commands: [],
+		};
+	}
+
 	fill( message ) {
 		this.counter += 1;
 		const value = message[ VALUE ];

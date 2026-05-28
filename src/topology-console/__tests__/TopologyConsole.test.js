@@ -102,7 +102,8 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				const ci = new CommandInterpreter();
 				ci.setName( reserved.COMMAND_INTERPRETER );
 				ci.sink = router;
-				const dumper = new Dumper( { debugLevelRef } );
+				const dumper = new Dumper();
+				dumper.debugLevelRef = debugLevelRef;
 				dumper.setName( reserved.OUTPUT );
 				const metadata = new Metadata();
 				metadata.setName( reserved.METADATA );
@@ -110,23 +111,19 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				uptime.setName( reserved.UPTIME );
 				new Completion().setName( reserved.COMPLETION );
 				// Fake HttpOut: capture the routed message instead of POSTing.
-				const httpOut = new HttpOut( {
-					client: {
-						buildMessage: () => null,
-						postBatch: () => Promise.resolve( null ),
-					},
-				} );
+				const httpOut = new HttpOut();
+				httpOut.client = {
+					buildMessage: () => null,
+					postBatch: () => Promise.resolve( null ),
+				};
 				httpOut.fill = ( message ) => {
 					globalThis.__httpPosts.push( message );
 				};
 				httpOut.setName( reserved.HTTP );
 				// `_sse` session node: wraps an outgoing reply-node FROM with the
 				// pid; routing `_sse/{reader}` peels here before `_http`.
-				const sse = new SseIn( {
-					subscribe: [ reader ],
-					baseUrl: '/',
-					nonce: '',
-				} );
+				const sse = new SseIn();
+				sse.arguments = `${ reader } / `;
 				sse.setName( reserved.SSE );
 				sse.sink = router;
 				sse.target = reserved.OUTPUT;

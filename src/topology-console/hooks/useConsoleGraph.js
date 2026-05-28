@@ -93,9 +93,8 @@ export function useConsoleGraph( {
 		// forwarding through sink) — but rule #2 still wires their sink to the CI
 		// so the declared topology is uniform: every node sinks into the CI, and
 		// _router is the only node left bare.
-		const dumper = new Dumper( {
-			debugLevelRef: debugLevelRefRef.current,
-		} );
+		const dumper = new Dumper();
+		dumper.debugLevelRef = debugLevelRefRef.current;
 		dumper.setName( names.OUTPUT );
 		dumper.sink = ci;
 		const metadata = new Metadata();
@@ -125,16 +124,18 @@ export function useConsoleGraph( {
 		cwdNode.target = `${ names.SSE }/${ reader }`;
 
 		// HTTP boundary: Router peels _http and delivers here (TO={reader}).
-		const httpOut = new HttpOut( { client: getCommandClient() } );
+		const httpOut = new HttpOut();
+		httpOut.client = getCommandClient();
 		httpOut.setName( names.HTTP );
 		httpOut.sink = ci;
 
 		// SSE in: each parsed Message flows to the Router (NOT the Dumper).
-		const sse = new SseIn( {
-			subscribe: [ reader ],
-			baseUrl: data.restUrl || '/wp-json/',
-			nonce: data.nonce || '',
-		} );
+		// Three-token positional config: `{subscribe} {baseUrl} {nonce}` —
+		// subscribe is comma-joined; SseConnector's arguments= setter splits it.
+		const sse = new SseIn();
+		sse.arguments = `${ reader } ${ data.restUrl || '/wp-json/' } ${
+			data.nonce || ''
+		}`;
 		sse.setName( names.SSE );
 		// Rule #2: the SSE node sinks into the CI (which forwards non-command /
 		// non-empty-TO traffic to the router); steering is the SSE node's target.

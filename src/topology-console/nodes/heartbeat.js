@@ -38,6 +38,16 @@ export class Heartbeat extends Node {
 		this.lastFired = 0;
 	}
 
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description:
+				'Pokes `workers/heartbeat` to refresh the SSE slot TTL.',
+			arguments: [],
+			commands: [],
+		};
+	}
+
 	// Record the slot acquired by the live SSE stream (from its `connected`
 	// payload). `partition` is where the subscription resolved.
 	setSlot( slot, partition ) {
