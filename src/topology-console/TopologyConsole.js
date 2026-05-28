@@ -106,9 +106,9 @@ function parseWorker( cwd ) {
 }
 
 // The display/storage scope for a cwd: a worker (its topology+partition), the
-// request scope (`_sse`), or the local in-browser graph (''). Worker sub-nodes
-// resolve to their worker. Drives the canvas header + the viewport/positions
-// storage keys so `/` and `/_sse` don't inherit the last worker's.
+// request scope (`_sse`), or any other top-level cwd. Worker sub-nodes resolve
+// to their worker. Each unique cwd gets its own storage key so canvas layouts
+// don't bleed across scopes (`/`, `/_http`, `/_sse`, workers all distinct).
 export function scopeFromCwd( cwd ) {
 	const m = String( cwd ).match( /^_sse\/(.+?)\.p(\d+)(?:\/|$)/ );
 	if ( m ) {
@@ -119,6 +119,14 @@ export function scopeFromCwd( cwd ) {
 			isWorker: true,
 		};
 	}
+	if ( '' === cwd ) {
+		return {
+			key: 'local',
+			label: 'local',
+			partition: null,
+			isWorker: false,
+		};
+	}
 	if ( '_sse' === cwd ) {
 		return {
 			key: '_sse',
@@ -127,7 +135,9 @@ export function scopeFromCwd( cwd ) {
 			isWorker: false,
 		};
 	}
-	return { key: 'local', label: 'local', partition: null, isWorker: false };
+	// Any other top-level cwd (`_http`, `_completion`, etc.) gets its own
+	// storage key so its canvas layout doesn't fight with `/`.
+	return { key: cwd, label: cwd, partition: null, isWorker: false };
 }
 
 // The browser console's `status` builtin summary — the JS analogue of the PHP
