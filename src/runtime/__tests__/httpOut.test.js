@@ -133,14 +133,13 @@ describe( 'HttpOut', () => {
 		expect( node.name ).toBe( '_http' );
 	} );
 
-	it( 'feeds a synchronous reply Message from the POST body into _sse', async () => {
+	it( 'feeds a synchronous reply Message from the POST body into sink', async () => {
 		const { Node } = require( '../node' );
-		const names = require( '../reserved-node-names.json' );
 		const { node, postBatch } = makeNode();
-		const sse = new Node();
 		const got = [];
-		sse.fill = ( m ) => got.push( m );
-		sse.setName( names.SSE );
+		const sink = new Node();
+		sink.fill = ( m ) => got.push( m );
+		node.sink = sink;
 
 		const reply = newMessage();
 		reply[ VALUE ] = 'sync-reply';
@@ -153,14 +152,13 @@ describe( 'HttpOut', () => {
 		expect( got[ 0 ][ VALUE ] ).toBe( 'sync-reply' );
 	} );
 
-	it( 'feeds EVERY reply Message from a JSONL body into _sse (e.g. stderr line + response)', async () => {
+	it( 'feeds EVERY reply Message from a JSONL body into sink (e.g. stderr line + response)', async () => {
 		const { Node } = require( '../node' );
-		const names = require( '../reserved-node-names.json' );
 		const { node, postBatch } = makeNode();
-		const sse = new Node();
 		const got = [];
-		sse.fill = ( m ) => got.push( m );
-		sse.setName( names.SSE );
+		const sink = new Node();
+		sink.fill = ( m ) => got.push( m );
+		node.sink = sink;
 
 		const a = newMessage();
 		a[ VALUE ] = 'log line';
@@ -179,12 +177,11 @@ describe( 'HttpOut', () => {
 
 	it( 'ignores a null response (bare 202 — routed onward, reply via SSE)', async () => {
 		const { Node } = require( '../node' );
-		const names = require( '../reserved-node-names.json' );
 		const { node, postBatch } = makeNode();
-		const sse = new Node();
 		const got = [];
-		sse.fill = ( m ) => got.push( m );
-		sse.setName( names.SSE );
+		const sink = new Node();
+		sink.fill = ( m ) => got.push( m );
+		node.sink = sink;
 
 		postBatch.mockResolvedValueOnce( null );
 		await node.fill( routed( { to: 'demo.p0' } ) );
@@ -295,6 +292,43 @@ describe( 'HttpOut', () => {
 		expect( batch ).toHaveLength( 1 );
 		expect( batch[ 0 ][ VALUE ].name ).toBe( 'ls' );
 		expect( batch[ 0 ][ TO ] ).toBe( '' );
+	} );
+
+	describe( '_post — reply intake (sink, not Core.node)', () => {
+		it( 'fills POST-body replies into this.sink', async () => {
+			const { Node } = require( '../node' );
+			const { node, postBatch } = makeNode();
+			const seen = [];
+			const sink = new Node();
+			sink.fill = ( m ) => seen.push( m );
+			node.sink = sink;
+
+			const reply = newMessage();
+			reply[ VALUE ] = 'sync-reply';
+			postBatch.mockResolvedValueOnce( [ reply ] );
+
+			await node.fill( routed( { to: '' } ) );
+			await Promise.resolve();
+
+			expect( seen ).toHaveLength( 1 );
+			expect( seen[ 0 ][ VALUE ] ).toBe( 'sync-reply' );
+		} );
+
+		it( 'drops POST-body replies silently when sink is null', async () => {
+			const { node, postBatch } = makeNode();
+			node.sink = null;
+			const reply = newMessage();
+			reply[ VALUE ] = 'sync-reply';
+			postBatch.mockResolvedValueOnce( [ reply ] );
+
+			await expect(
+				( async () => {
+					node.fill( routed( { to: '' } ) );
+					await Promise.resolve();
+					await Promise.resolve();
+				} )()
+			).resolves.toBeUndefined();
+		} );
 	} );
 
 	describe( 'no-arg ctor + public-property dep', () => {

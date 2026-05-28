@@ -15,9 +15,7 @@
  */
 
 import { Node } from './node';
-import { Core } from './core';
 import { TO } from './message';
-import names from './reserved-node-names.json';
 
 export class HttpOut extends Node {
 	/**
@@ -84,17 +82,15 @@ export class HttpOut extends Node {
 		this.locked = true;
 	}
 
-	// POST the entries; feed every synchronous reply back into `_sse`.
+	// POST the entries; feed every synchronous reply back into `sink` (the CI),
+	// which routes via _router by TO. JSONL body → zero or more reply Messages
+	// (verb response plus any stderr/log lines the command emitted); a routed-
+	// onward command yields [] (bare 202) — its reply arrives over the SSE stream.
 	_post( entries ) {
 		Promise.resolve( this.client.postBatch( entries ) )
 			.then( ( messages ) => {
-				// JSONL body → zero or more reply Messages (verb response plus any
-				// stderr/log lines the command emitted); route each via _sse. A
-				// routed-onward command yields [] (bare 202) — its reply arrives
-				// over the SSE stream.
-				const sse = Core.node( names.SSE );
 				for ( const message of messages ) {
-					sse?.fill( message );
+					this.sink?.fill( message );
 				}
 			} )
 			.catch( () => {} );
