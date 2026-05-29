@@ -15,13 +15,6 @@ use Newspack_Nodes\Command_Interpreter_Node;
 
 class Community_Source_Node extends Node {
 
-	public function __construct() {
-		$ci = new Command_Interpreter_Node();
-		$ci->patron( $this );
-		$ci->commands( $this->config_verbs() );
-		$this->attach_interpreter( $ci );
-	}
-
 	/** The ONE seam a real source replaces: return ingest items. Toy = canned. */
 	protected function items(): array {
 		return [
@@ -46,25 +39,22 @@ class Community_Source_Node extends Node {
 		return "emitted $count item(s)";
 	}
 
-	/** @return array<string,callable> */
-	private function config_verbs(): array {
-		return [
-			'tick' => function ( Command_Interpreter_Node $self, string $args ) {
-				return $this->cmd_tick();
-			},
-		];
-	}
-
 	public static function node_schema(): array {
-		return [
+		return \array_merge( parent::node_schema(), [
 			'category'     => 'Source',
 			'description'  => 'Emits canned publisher-community news items on tick.',
-			'arguments'         => [],
-			'commands'        => [
-				[ 'name' => 'tick', 'description' => 'Emit the current batch of items.', 'args' => [] ],
+			'arguments'    => [],
+			'commands'     => [
+				[
+					'name'        => 'tick',
+					'description' => 'Emit the current batch of items.',
+					'args'        => [],
+					// Auto-wired into the sibling `{node}:config` CI by Node::__construct().
+					'handler'     => static fn ( Command_Interpreter_Node $ci, string $args ): string => $ci->patron()->cmd_tick(),
+				],
 			],
 			'accepts_fill' => false,
 			'has_target'   => true,
-		];
+		] );
 	}
 }

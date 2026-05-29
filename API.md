@@ -167,7 +167,7 @@ Application plugins layer additional CIs onto the same endpoint (the first being
 
 **`KEY='completion'` mode.** A `help` or `ls` command carrying `KEY='completion'` returns a bare newline-separated candidate list (sorted verb names / bare node names) instead of the tabulated output — the substrate's `TM_COMPLETION` analogue, used by REPL tab-completion. See [ARCHITECTURE.md → Completion-query mode](ARCHITECTURE.md#repl-wp-nodes-cli).
 
-Per-verb args, return shapes, error semantics, and auth gating are documented in [MIGRATION.md → M3 substrate service CIs](MIGRATION.md#m3-substrate-service-cis--verb-reference).
+Per-verb args, return shapes, and error semantics are declared on each CI's `node_schema()` (`commands[]`) in `includes/rest/class-{classes,layouts,topologies,raw-logs,workers}-ci.php`; the topology-editor palette and live-mode Inspector consume the same schema. Auth gating is uniform: the `/command` endpoint requires `manage_options` (see "Permission callback" above), and per-verb application-side caps are an application concern.
 
 ### Test mode
 
@@ -205,4 +205,4 @@ Skipping `make_node()` — by constructing and `name()`-ing the node by hand —
 
 The hook fires on every `/command` request after lazy-build; it's idempotent on the CI side because `make_node()` overwrites prior registrations under the same name. Applications can re-mount the same CI on every request without leaking state across requests as long as their CIs aren't holding stateful per-request data (the typical pattern: CIs are pure verb dispatchers, dependencies injected via constructor).
 
-See `newspack-event-logger-nodes/MIGRATION.md` ("M2 service CIs — verb reference") for the application-side build-out of all nine service CIs.
+For the application-side build-out, see the per-CI `node_schema()` declarations under `newspack-event-logger-nodes/includes/rest/` (the `*_CI_Node` classes mounted via `newspack_nodes/request_graph_ready`).

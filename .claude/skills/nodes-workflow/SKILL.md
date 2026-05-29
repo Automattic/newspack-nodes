@@ -32,9 +32,11 @@ Substrate-appropriate examples: a generic Filter node, a new TYPE flag, a Tail b
 For a new Node subclass:
 
 1. Create `includes/class-{name}.php` with `class Foo_Node extends Node` — every node class ends in `_Node` (the shell-name is the class minus `_Node`, so this is `make_node Foo`). Override `fill( array &$message ): void` — that's the contract. Bump `$this->counter` and forward via `$this->sink?->fill( $msg )` unless you have a specific reason not to.
-2. If the node needs constructor arguments, declare them on the constructor with PHP types. `make_node` passes shell tokens through; PHP coerces typed parameters from strings.
-3. **No registration needed** — `make_node Foo` resolves `\Newspack_Nodes\Foo_Node` via the registered namespace prefix (composer classmap autoloads it), and the palette catalog scans the classmap for `*_Node` Node subclasses with a `node_schema()` category. Just put the class under `Newspack_Nodes\` (the prefix the plugin registers via `Command_Interpreter_Node::register_namespace`) and run `composer dump-autoload -o`.
-4. Add a row to AGENTS.md's "Node primitives" / "Storage primitives" / "Lifecycle" table describing what the node does.
+2. **v0.6.0 Tachikoma sequence**: ctor must be parameter-less. Declare positional config in `node_schema()['arguments']` as `[{name, type, default?, required?}]` — `make_node` will instantiate with `new $fqcn()`, then call `name()`, then `arguments( implode( ' ', array_filter( $args, '\is_scalar' ) ) )`, then `sink( $this )`. The default `arguments()` walks the schema and assigns each positional arg onto `$this->{$name}`, so config round-trips through `dump_config()`.
+3. Override `arguments()` only when you need derived state (e.g. `Partition_Node`'s `partition_dir`). The override MUST short-circuit on empty args: `if ( '' === $args ) return $result;` — otherwise `make_node Foo` (no args) re-derives against declaration-default props and writes filesystem-root junk like `/p0`. Side effects (`set_timer`, `mkdir`, `fopen`) belong in the override gated on non-empty args, NOT in the ctor (substrate Decision #5: ctor must be event-loop-free).
+4. Programmatic dependencies (objects, callables, streams) are public properties the caller assigns AFTER `make_node` returns — NOT ctor params. Object args passed positionally to `make_node` are silently filtered out by `is_scalar` because they aren't round-trippable. Reference: `Workers_CI_Node::$cli` / `$cache`.
+5. **No registration needed** — `make_node Foo` resolves `\Newspack_Nodes\Foo_Node` via the registered namespace prefix (composer classmap autoloads it), and the palette catalog scans the classmap for `*_Node` Node subclasses with a `node_schema()` category. Just put the class under `Newspack_Nodes\` (the prefix the plugin registers via `Command_Interpreter_Node::register_namespace`) and run `composer dump-autoload -o`.
+6. Add a row to AGENTS.md's "Node primitives" / "Storage primitives" / "Lifecycle" table describing what the node does.
 
 For a new CommandInterpreter verb:
 
@@ -46,12 +48,16 @@ For a new CommandInterpreter verb:
 ### Phase 3: Test, restart, verify
 
 ```bash
-# Run unit + integration tests inline.
-cd tests && phpunit
+# Run unit + integration tests inline. --enforce-time-limit aborts a hung
+# test (readline without a TTY, infinite drain loop) at the per-test budget
+# instead of stalling the whole suite.
+cd tests && ../vendor/bin/phpunit --enforce-time-limit
 
 # Restart workers so they pick up the new code (otherwise the old class lives
-# in the running PHP process for ~10 more minutes).
-wp nodes restart firehose-workers --all-partitions
+# in the running PHP process for ~10 more minutes). Run `wp nodes types`
+# first to see what topologies are actually live; the default substrate
+# topology with firehose + jobs is `firehose-workers-and-jobs`.
+wp nodes restart firehose-workers-and-jobs --all-partitions
 
 # Verify workers came back.
 wp nodes ls

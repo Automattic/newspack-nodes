@@ -18,13 +18,6 @@ class Digest_Builder_Node extends Node {
 	/** @var array<int,array<string,mixed>> Accumulated summarized items. */
 	private array $items = [];
 
-	public function __construct() {
-		$ci = new Command_Interpreter_Node();
-		$ci->patron( $this );
-		$ci->commands( $this->config_verbs() );
-		$this->attach_interpreter( $ci );
-	}
-
 	public function fill( array &$message ): void {
 		if ( 0 === ( $message[ Message::TYPE ] & Message::TM_STRUCT ) ) {
 			return;
@@ -53,25 +46,22 @@ class Digest_Builder_Node extends Node {
 		return "flushed $n summary(ies)";
 	}
 
-	/** @return array<string,callable> */
-	private function config_verbs(): array {
-		return [
-			'flush' => function ( Command_Interpreter_Node $self, string $args ) {
-				return $this->cmd_flush();
-			},
-		];
-	}
-
 	public static function node_schema(): array {
-		return [
+		return \array_merge( parent::node_schema(), [
 			'category'     => 'Transform',
 			'description'  => 'Accumulates summaries; flush emits a markdown newsletter draft.',
-			'arguments'         => [],
-			'commands'        => [
-				[ 'name' => 'flush', 'description' => 'Emit the accumulated draft and clear.', 'args' => [] ],
+			'arguments'    => [],
+			'commands'     => [
+				[
+					'name'        => 'flush',
+					'description' => 'Emit the accumulated draft and clear.',
+					'args'        => [],
+					// Auto-wired into the sibling `{node}:config` CI by Node::__construct().
+					'handler'     => static fn ( Command_Interpreter_Node $ci, string $args ): string => $ci->patron()->cmd_flush(),
+				],
 			],
 			'accepts_fill' => true,
 			'has_target'   => true,
-		];
+		] );
 	}
 }
