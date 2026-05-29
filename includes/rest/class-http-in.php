@@ -64,6 +64,16 @@ class HTTP_In_Node extends Node {
 	public bool $sent_headers = false;
 
 	/**
+	 * Clock seam for the rate limit. The PHPUnit suite assigns a fake
+	 * timestamp here so a test can simulate a 1 req/sec stream across many
+	 * seconds without sleeping. Production leaves it null and reads
+	 * `microtime( true )` live.
+	 *
+	 * @var float|null
+	 */
+	public static ?float $clock_now_seam = null;
+
+	/**
 	 * Test-mode bypass for the rate limit. The PHPUnit suite sets this to
 	 * true so a test run that fires >RATE_LIMIT_BURST `/command` calls in
 	 * one second isn't throttled mid-suite. Production never flips it.
@@ -172,7 +182,14 @@ class HTTP_In_Node extends Node {
 		}
 
 		$user_id = \function_exists( 'get_current_user_id' ) ? (int) \get_current_user_id() : 0;
-		$key     = 'newspack_nodes_cmd_rl:' . $user_id;
+		// Bucket by floor(microtime) — each clock-second is an independent
+		// counter, so a steady stream at <BURST/sec stays at count=1 in each
+		// bucket forever instead of accumulating in a single transient that
+		// the old code kept refreshing on every write (the implementation
+		// before this gave a 429 to a 1 req/sec client after ~30 seconds).
+		$now     = self::$clock_now_seam ?? \microtime( true );
+		$bucket  = (int) \floor( $now );
+		$key     = "newspack_nodes_cmd_rl:{$user_id}:{$bucket}";
 		$count   = (int) \get_transient( $key );
 		if ( $count >= $burst ) {
 			return new \WP_Error(
@@ -181,10 +198,10 @@ class HTTP_In_Node extends Node {
 				[ 'status' => 429 ]
 			);
 		}
-		// Reseed the TTL on every write — a steady stream keeps the counter
-		// in the same bucket; once the stream pauses for RATE_LIMIT_WINDOW_S
-		// the transient lapses and the counter resets.
-		\set_transient( $key, $count + 1, self::RATE_LIMIT_WINDOW_S );
+		// TTL is 2x the window: long enough to outlive the bucket so an in-
+		// flight check still sees a stale count, short enough that abandoned
+		// buckets get GC'd by the transient store without manual cleanup.
+		\set_transient( $key, $count + 1, self::RATE_LIMIT_WINDOW_S * 2 );
 		return true;
 	}
 
