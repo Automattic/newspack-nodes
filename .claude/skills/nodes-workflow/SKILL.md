@@ -31,12 +31,12 @@ Substrate-appropriate examples: a generic Filter node, a new TYPE flag, a Tail b
 
 For a new Node subclass:
 
-1. Create `includes/class-{name}.php` with `class Foo_Node extends Node` — every node class ends in `_Node` (the shell-name is the class minus `_Node`, so this is `make_node Foo`). Override `fill( array &$message ): void` — that's the contract. Bump `$this->counter` and forward via `$this->sink?->fill( $msg )` unless you have a specific reason not to.
+1. Create `includes/class-{name}.php` with `class Foo_Node extends Node` — every node class ends in `_Node` (the shell-name in `make_node <type> <name>` is the class minus `_Node`, so callers type `make_node Foo my_foo`). Override `fill( array &$message ): void` — that's the contract. Bump `$this->counter` and forward via `$this->sink?->fill( $msg )` unless you have a specific reason not to.
 2. **v0.6.0 Tachikoma sequence**: ctor must be parameter-less. Declare positional config in `node_schema()['arguments']` as `[{name, type, default?, required?}]` — `make_node` will instantiate with `new $fqcn()`, then call `name()`, then `arguments( implode( ' ', array_filter( $args, '\is_scalar' ) ) )`, then `sink( $this )`. The default `arguments()` walks the schema and assigns each positional arg onto `$this->{$name}`, so config round-trips through `dump_config()`.
 3. Override `arguments()` only when you need derived state (e.g. `Partition_Node`'s `partition_dir`). The override MUST short-circuit on empty args: `if ( '' === $args ) return $result;` — otherwise `make_node Foo` (no args) re-derives against declaration-default props and writes filesystem-root junk like `/p0`. Side effects (`set_timer`, `mkdir`, `fopen`) belong in the override gated on non-empty args, NOT in the ctor (substrate Decision #5: ctor must be event-loop-free).
 4. Programmatic dependencies (objects, callables, streams) are public properties the caller assigns AFTER `make_node` returns — NOT ctor params. Object args passed positionally to `make_node` are silently filtered out by `is_scalar` because they aren't round-trippable. Reference: `Workers_CI_Node::$cli` / `$cache`.
 5. **No registration needed** — `make_node Foo` resolves `\Newspack_Nodes\Foo_Node` via the registered namespace prefix (composer classmap autoloads it), and the palette catalog scans the classmap for `*_Node` Node subclasses with a `node_schema()` category. Just put the class under `Newspack_Nodes\` (the prefix the plugin registers via `Command_Interpreter_Node::register_namespace`) and run `composer dump-autoload -o`.
-6. Add a row to AGENTS.md's "Node primitives" / "Storage primitives" / "Lifecycle" table describing what the node does.
+6. Add a row to AGENTS.md's `## Layout` table for the new file. If the change shifts an architecture decision (e.g. new lifecycle ordering, new ctor restriction), add or amend a decision under `## Architecture Decisions`.
 
 For a new CommandInterpreter verb:
 
@@ -55,9 +55,10 @@ cd tests && ../vendor/bin/phpunit --enforce-time-limit
 
 # Restart workers so they pick up the new code (otherwise the old class lives
 # in the running PHP process for ~10 more minutes). Run `wp nodes types`
-# first to see what topologies are actually live; the default substrate
-# topology with firehose + jobs is `firehose-workers-and-jobs`.
-wp nodes restart firehose-workers-and-jobs --all-partitions
+# first to see what topologies are actually live — the substrate itself ships
+# no topologies; topologies come from application plugins (ELN ships
+# `firehose-workers-and-jobs`, `job-workers`, `request-workers`, etc.).
+wp nodes restart all --all-partitions   # or a specific type from `wp nodes types`
 
 # Verify workers came back.
 wp nodes ls
@@ -67,11 +68,11 @@ If the change requires an application plugin to also update (e.g., a substrate c
 
 ### Phase 4: Live-verify
 
-For changes affecting the firehose pipeline, hit the dashboard or a real URL:
+For changes affecting the firehose pipeline, hit the dashboard or a real URL. The substrate itself ships `wp nodes ls` / `wp nodes cli`; the application-side filter `wp nodes reqgrep` lives in `newspack-event-logger-nodes` and is only available if that plugin is also installed in your environment (it is, in dndocker):
 
 ```bash
 curl -sk "<site>/" -o /dev/null
-wp nodes reqgrep --recent | head -10
+wp nodes reqgrep --recent | head -10   # ELN-side; falls back to wp nodes cli for substrate-only envs
 ```
 
 Match what you see against your expectations. If something's off, the `nodes-debugging` skill walks through `wp nodes cli` for live introspection.
@@ -79,7 +80,7 @@ Match what you see against your expectations. If something's off, the `nodes-deb
 ## Patterns That Trip People Up
 
 - **Constructors must be event-loop-free** for Topic and Partition (and anything with a similar "instantiated per request" lifecycle). No `set_timer`, no `Core::node()` lookup, no `scandir`. The reason is in AGENTS.md decision 5 — the constructor runs in request scope where there's no event loop to fire timers, and the EF hasn't drained anything yet so `Core::node()` returns null.
-- **FROM stamping is for I/O boundaries only.** Tail and Consumer stamp; internal nodes don't. If you find yourself adding `stamp_message()` to a Tee or a Hook, you're probably wrong.
+- **FROM stamping is for I/O boundaries only.** Consumer and HTTP_In stamp; internal nodes (including Tail) don't. If you find yourself adding `stamp_message()` to a Tee, a Hook, or even Tail itself, you're probably wrong.
 - **Use `Message::new_message()`, not `[]`.** It pre-populates the 7 indices with safe defaults; leaving a slot uninitialized produces null-coalesce errors deep in Router or Dumper.
 - **Don't reintroduce TM_PERSIST.** It was deliberately removed (see AGENTS decision 3). If you think you need ack/cancel, you almost certainly don't — synchronous I/O at every boundary handles backpressure naturally.
 

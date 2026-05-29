@@ -54,11 +54,12 @@ For the full mental model, see [ARCHITECTURE.md](ARCHITECTURE.md). For the subst
 
 ## REST API
 
-The runtime ships two REST endpoints — the worker spawn handler and a unified command-dispatch endpoint (`HTTP_In_Node`, which routes a posted command envelope through the request-scope graph to a service CI). Application plugins register their own endpoints (status, dashboards, SSE streams, etc.) on top.
+The runtime ships three REST endpoints — the worker spawn handler, a unified command-dispatch endpoint (`HTTP_In_Node`, which routes a posted command envelope through the request-scope graph to a service CI), and a server-sent-events stream (`SSE_Out_Node`, drains log/IPC partitions to dashboards). Application plugins register their own endpoints (status, dashboards, additional streams, etc.) on top.
 
 ```
 POST  /wp-json/newspack-nodes/v1/workers/spawn
 POST  /wp-json/newspack-nodes/v1/command
+GET   /wp-json/newspack-nodes/v1/messages/stream
 ```
 
 See [API.md](API.md) for the request/response shapes.

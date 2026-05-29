@@ -330,7 +330,7 @@ Inode + size-shrink rotation detection on every poll (`clearstatcache(true, $pat
 
 ## Other Node Primitives
 
-**Tee** is the fan-out node. Targets are an array; each `fill()` snapshots a live-target list, copies the message per target with `TO=target`, and forwards through `sink` (typically `_router`) under a per-target try/catch that isolates one failing target from the rest. Pruning is by a liveness check on every fill, not "after a failed dispatch": a **bare-name** target (no `/`) whose node has disappeared is dropped; a **path-shaped** target (has a `/`, e.g. `_repl/_output/12345`) is always kept and handed to the sink to route. A `request <tee> GET_TARGETS` (TM_REQUEST) replies with the current list inline.
+**Tee** is the fan-out node. Targets are an array; each `fill()` snapshots a live-target list, copies the message per target with `TO=target` (if TO was empty) or `TO=target/originalTO` (path-prepend if TO carried subpath), and forwards through `sink` (typically `_router`) under a per-target try/catch that isolates one failing target from the rest. Pruning is by a liveness check on every fill, not "after a failed dispatch": a **bare-name** target (no `/`) whose node has disappeared is dropped; a **path-shaped** target (has a `/`, e.g. `_repl/_output/12345`) is always kept and handed to the sink to route. A `request <tee> GET_TARGETS` (TM_REQUEST) replies through the sink (`TO=FROM`) with a TM_STRUCT|TM_RESPONSE message whose VALUE is `{ verb, data: { count, targets } }`.
 
 **Hook** is the WordPress-extensibility bridge. Action mode forwards the message unchanged after firing `do_action`; filter mode passes the message through `apply_filters` and forwards the result. Plugins observe completed requests, transform job payloads before routing, etc., without touching topology files.
 
@@ -553,11 +553,11 @@ _shell  ->  _command_interpreter  ->  _router  ->  _output (Dumper)
 
 `_router` is a `Router_Node`, `_command_interpreter` a `Command_Interpreter_Node` sinking into it, `_output` a `Dumper_Node`. The `Shell_Node` is anonymous (Shell refuses a name) and sinks into `_command_interpreter`. (Topology lines and `make_node` refer to these by their *shell name* — the class short-name minus `_Node`: `Router`, `Command_Interpreter`, `Dumper`, `Shell`.)
 
-**Pivoted mode** (`wp nodes cli firehose-workers.p0`) — the SAME local nodes, but with two additions and one re-wire: a `cmd-out` Partition (at the worker's input IPC dir, sink = `_command_interpreter`), a `reply-in` Consumer (at the worker's output IPC dir, sink = `_router`, `target = '_output'`, `next_offset('end')`), and crucially **`$shell->sink` is re-pointed from `_command_interpreter` to `cmd-out`** so typed lines cross the IPC boundary instead of running locally.
+**Pivoted mode** (`wp nodes cli firehose-workers.p0`) — the SAME local nodes, but with three additions and one re-wire: a `Partition_Node` named after the worker (e.g. `firehose-workers.p0`) sinks at the worker's input IPC dir (sink = `_command_interpreter`); a `Command_Signer_Node` sits between the Shell and that partition so locally-minted commands carry the HMAC envelope verifier CIs require; an unnamed `Consumer_Node` (the `reply-in`) tails the worker's output IPC dir (sink = `_router`, `target = '_output'`, `next_offset('end')`). Crucially **`$shell->sink` is re-pointed from `_command_interpreter` to the `Command_Signer_Node`**, so typed lines flow `Shell → Command_Signer → {worker-id Partition} → on-disk → worker input` instead of running locally.
 
 ```
-local _shell  ->  cmd-out (Partition, on-disk)  ->  worker input
-worker output  ->  reply-in (Consumer, on-disk)  ->  local _router  ->  _output (Dumper)
+local _shell  ->  Command_Signer  ->  worker-id Partition (on-disk)  ->  worker input
+worker output  ->  reply-in Consumer (on-disk)  ->  local _router  ->  _output (Dumper)
 ```
 
 IPC layout (always single-partition):
@@ -569,7 +569,7 @@ IPC layout (always single-partition):
 
 Reader id form: `{type}.p{N}`, e.g. `firehose-workers.p3`. Dot-and-`p` keeps it a single path segment — `firehose-workers/3` would route as "find node `firehose-workers`, pass remaining path `3`," which is wrong.
 
-**No cryptographic handshake** — filesystem permissions on `/tmp/newspack-nodes/ipc/` gate access. `CLI::attach_to_worker( $reader_id )` resolves the IPC paths: it parses `{type}.p{N}`, checks the worker is registered by `is_dir( {base}/locks/{reader_id}.lock.d )`, and throws `InvalidArgumentException` with `"no worker '{reader_id}' (run \`wp nodes ls\` to list active workers)"` if the lock dir is absent (staleness is NOT checked — a mid-restart worker still attaches). It returns `{input, output, type, partition}`. `build_repl_graph()` then constructs the IPC pair directly with `new Partition( $ipc['input'], 0 )` (named `cmd-out`) and `new Consumer( $ipc['output'], 0 )` (unnamed `reply-in`) — not via `make_node`.
+**No cryptographic handshake** — filesystem permissions on `/tmp/newspack-nodes/ipc/` gate access. `CLI::attach_to_worker( $reader_id )` resolves the IPC paths: it parses `{type}.p{N}`, checks the worker is registered by `is_dir( {base}/locks/{reader_id}.lock.d )`, and throws `InvalidArgumentException` with `"no worker '{reader_id}' (run \`wp nodes ls\` to list active workers)"` if the lock dir is absent (staleness is NOT checked — a mid-restart worker still attaches). It returns `{input, output, type, partition}`. `build_repl_graph()` then constructs the IPC pair directly with `new Partition_Node()` (named `cmd-out`, configured via `arguments( "{$ipc['input']} 0" )`) and `new Consumer_Node()` (unnamed `reply-in`, configured the same way against `$ipc['output']`) — not via `make_node`.
 
 **Wire / dispatch specifics**:
 
