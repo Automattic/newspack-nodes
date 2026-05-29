@@ -227,8 +227,41 @@ let lastCanvasProps = null;
 // eslint-disable-next-line no-unused-vars
 let lastInspectorProps = null;
 let lastHeaderProps = null;
-jest.mock( '../components/SchematicCanvas', () => ( props ) => {
-	lastCanvasProps = props;
+jest.mock( '../components/SchematicCanvas', () => {
+	// eslint-disable-next-line global-require
+	const { useEffect } = require( '@wordpress/element' );
+	return ( props ) => {
+		lastCanvasProps = props;
+		// Mirror the real canvas's seed-on-mount-when-overrides-empty effect so
+		// post-reset tests can observe the autoLayout path. We don't run a real
+		// autoLayout — just hand back a deterministic single-column placement
+		// per parsed node (X_PAD=60, Y_PAD=80, Y_STEP=110) which matches what
+		// the real autoLayout produces for a linear graph.
+		const { parsed, positionOverrides, onSeedLayout } = props;
+		useEffect( () => {
+			if ( ! onSeedLayout ) {
+				return;
+			}
+			if (
+				positionOverrides &&
+				Object.keys( positionOverrides ).length > 0
+			) {
+				return;
+			}
+			const nodes = parsed?.nodes || [];
+			if ( ! nodes.length ) {
+				return;
+			}
+			const seed = {};
+			nodes.forEach( ( n, i ) => {
+				seed[ n.id ] = { x: 60, y: 80 + i * 110 };
+			} );
+			onSeedLayout( seed );
+		}, [ parsed, positionOverrides, onSeedLayout ] );
+		return mockCanvasMarkup( props );
+	};
+} );
+function mockCanvasMarkup( props ) {
 	return (
 		<div
 			data-testid="canvas"
@@ -297,7 +330,7 @@ jest.mock( '../components/SchematicCanvas', () => ( props ) => {
 			</button>
 		</div>
 	);
-} );
+}
 jest.mock( '../components/Inspector', () => ( props ) => {
 	lastInspectorProps = props;
 	return (
@@ -546,6 +579,27 @@ jest.mock( '../components/Modal', () => ( {
 				</button>
 				<button onClick={ () => props.onCancel && props.onCancel() }>
 					prompt-cancel
+				</button>
+			</div>
+		);
+	},
+	NewNodeModal: ( props ) => {
+		globalThis.__lastNewNodeModal = props;
+		return (
+			<div data-testid="newnode-modal">
+				<button
+					onClick={ () =>
+						props.onConfirm &&
+						props.onConfirm( {
+							name: props.defaultName,
+							args: '',
+						} )
+					}
+				>
+					Add
+				</button>
+				<button onClick={ () => props.onCancel && props.onCancel() }>
+					newnode-cancel
 				</button>
 			</div>
 		);
@@ -1221,39 +1275,51 @@ describe( 'TopologyConsole boot', () => {
 		expect( sent.textContent ).toMatch( /disconnect_node n1/ );
 	} );
 
-	it( 'position change persists to localStorage with user flag', () => {
+	// useDebugLayout stores the whole layout under one key per scope shaped
+	// `{ positions, viewport, dirty }`. The user-flag tagging is gone — the
+	// hook's `dirty` boolean is the single signal "user touched this".
+	it( 'position change persists into the single layout entry, flipping dirty', () => {
 		const { getByText } = render( <TopologyConsole /> );
 		fireEvent.click( getByText( 'move-n1' ) );
 		const keys = Object.keys( window.localStorage ).filter( ( k ) =>
-			k.endsWith( ':positions' )
+			k.startsWith( 'newspack-nodes:topology:' )
 		);
 		expect( keys.length ).toBeGreaterThan( 0 );
 		const stored = JSON.parse(
 			window.localStorage.getItem( keys[ 0 ] ) || '{}'
 		);
-		expect( stored.n1 ).toEqual( { x: 100, y: 200 } );
+		expect( stored.positions.n1 ).toEqual( { x: 100, y: 200 } );
+		expect( stored.dirty ).toBe( true );
 	} );
 
-	it( 'viewport change debounces to localStorage', () => {
+	it( 'viewport change debounces into the single layout entry without flipping dirty', () => {
 		jest.useFakeTimers();
 		try {
 			const { getByText } = render( <TopologyConsole /> );
 			fireEvent.click( getByText( 'vp-change' ) );
+			// Pre-debounce, no write has landed.
 			const beforeKeys = Object.keys( window.localStorage ).filter(
-				( k ) => k.endsWith( ':viewport' )
+				( k ) => k.startsWith( 'newspack-nodes:topology:' )
 			);
 			expect( beforeKeys.length ).toBe( 0 );
 			act( () => {
 				jest.advanceTimersByTime( 250 );
 			} );
 			const keys = Object.keys( window.localStorage ).filter( ( k ) =>
-				k.endsWith( ':viewport' )
+				k.startsWith( 'newspack-nodes:topology:' )
 			);
 			expect( keys.length ).toBeGreaterThan( 0 );
 			const stored = JSON.parse(
 				window.localStorage.getItem( keys[ 0 ] ) || '{}'
 			);
-			expect( stored ).toEqual( { x: 10, y: 20, w: 800, h: 600 } );
+			expect( stored.viewport ).toEqual( {
+				x: 10,
+				y: 20,
+				w: 800,
+				h: 600,
+			} );
+			// Pan/zoom is not a layout modification — dirty stays false.
+			expect( stored.dirty ).toBe( false );
 		} finally {
 			jest.useRealTimers();
 		}
@@ -1493,9 +1559,17 @@ describe( 'TopologyConsole boot', () => {
 		expect( sent.textContent ).toMatch( /^connect_node a b$/ );
 	} );
 
-	it( 'live canvas: palette drop dispatches make_node via sendLine', () => {
+	it( 'live canvas: palette drop opens NewNodeModal; clicking Add dispatches make_node', () => {
 		const { container, getByText } = render( <TopologyConsole /> );
 		fireEvent.click( getByText( 'drop-echo' ) );
+		// Pre-confirm: no make_node yet — the NewNodeModal renders first so
+		// the user can override the auto-generated name.
+		const before = Array.from(
+			container.querySelectorAll( '[data-testid="repl-transcript"] li' )
+		).find( ( i ) => i.dataset.kind === 'sent' );
+		expect( before ).toBeUndefined();
+		// Confirm: clicking Add dispatches make_node via sendLine.
+		fireEvent.click( getByText( 'Add' ) );
 		const items = container.querySelectorAll(
 			'[data-testid="repl-transcript"] li'
 		);
@@ -1611,10 +1685,9 @@ describe( 'TopologyConsole boot', () => {
 		expect( Core.node( '_router' ) ).toBeTruthy();
 	} );
 
-	it( 'reset-graph clears the local-scope position overrides + viewport persistence', async () => {
-		// Reset means RESET — pan/zoom state for the local scope is wiped so the
-		// canvas re-autofits cleanly. Previously the spine rebuilt but layout
-		// state lingered, masking the reset.
+	it( 'reset-graph clears the local-scope layout entry (single key)', async () => {
+		// Reset means RESET — the local-scope layout entry (positions + viewport
+		// + dirty under ONE key) is wiped so the canvas re-autofits cleanly.
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { findByText } = render( <TopologyConsole /> );
 		act( () => {
@@ -1629,27 +1702,27 @@ describe( 'TopologyConsole boot', () => {
 			},
 		} );
 		window.localStorage.setItem(
-			'newspack-nodes:topology:local:viewport',
-			JSON.stringify( { x: 0, y: 0, w: 100, h: 100 } )
-		);
-		window.localStorage.setItem(
-			'newspack-nodes:topology:local:positions',
-			JSON.stringify( { my: { x: 1, y: 1 } } )
+			'newspack-nodes:topology:local',
+			JSON.stringify( {
+				positions: { my: { x: 1, y: 1 } },
+				viewport: { x: 0, y: 0, w: 100, h: 100 },
+				dirty: true,
+			} )
 		);
 		const chip = await findByText( 'reset-graph' );
 		act( () => {
 			fireEvent.click( chip );
 		} );
-		expect(
-			window.localStorage.getItem(
-				'newspack-nodes:topology:local:viewport'
-			)
-		).toBeNull();
-		expect(
-			window.localStorage.getItem(
-				'newspack-nodes:topology:local:positions'
-			)
-		).toBeNull();
+		// After reset: the stale `my` entry must be gone (the reset re-seeds
+		// with the current graph, so positions MAY repopulate with current
+		// ids — but never with the pre-reset stale ones). dirty=false because
+		// the immediate re-seed is autoLayout, not user input.
+		const stored = JSON.parse(
+			window.localStorage.getItem( 'newspack-nodes:topology:local' ) ||
+				'{"positions":{},"dirty":false}'
+		);
+		expect( stored.positions ).not.toHaveProperty( 'my' );
+		expect( stored.dirty ).toBe( false );
 	} );
 
 	it( 'the palette shows JS classes at the local scope (NOT the PHP catalog)', () => {
@@ -1738,9 +1811,16 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'drop-echo' ) );
 		} );
 		const keys = Object.keys( window.localStorage ).filter( ( k ) =>
-			k.endsWith( ':positions' )
+			k.startsWith( 'newspack-nodes:topology:' )
 		);
 		expect( keys.length ).toBeGreaterThan( 0 );
+		const stored = JSON.parse(
+			window.localStorage.getItem( keys[ 0 ] ) || '{}'
+		);
+		// Position is persisted under the new single-key layout entry.
+		expect( Object.keys( stored.positions || {} ).length ).toBeGreaterThan(
+			0
+		);
 	} );
 
 	it( 'edit mode: header Save opens the prompt modal (gated by mode)', async () => {
@@ -2412,8 +2492,43 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByTestId( 'open-modal' ) ).toBeNull();
 	} );
 
-	it( 'entering edit on a blank canvas seeds the reserved _repl anchor', async () => {
-		// No topology query → blank seed path.
+	it( 'edit mode reads positions from the SAME storage key as view mode (no separate :edit: suffix)', async () => {
+		// User saved a layout in a prior session at this scope. Entering edit
+		// mode must rehydrate those positions — NOT fall through to autoLayout
+		// because a separate `:edit:topology` suffix put the load somewhere
+		// else. The mock useConsoleGraph spawns Shell at `_sse/demo.p0`, so
+		// scope.key === 'demo.p0' (worker scope for the active topology).
+		window.localStorage.setItem(
+			'newspack-nodes:topology:demo.p0',
+			JSON.stringify( {
+				positions: { n1: { x: 700, y: 900 } },
+				viewport: null,
+				dirty: true,
+			} )
+		);
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'make_node Echo n1\n',
+			name: 'demo',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 10 ) );
+		} );
+		expect( lastCanvasProps.positionOverrides.n1 ).toEqual( {
+			x: 700,
+			y: 900,
+		} );
+	} );
+
+	it( 'entering edit on a blank canvas anchors _repl as a Partition (reserved)', async () => {
+		// `_repl` is the worker's auto-mounted substrate spine — not in any
+		// topology .tsl, but the editor renders it on the canvas so users can
+		// draw edges TO it. It's reserved (no rename/delete) and tagged as
+		// Partition (the class the worker actually mounts at that name).
 		window.history.replaceState( {}, '', '/' );
 		const { getByText } = render( <TopologyConsole /> );
 		await act( async () => {
@@ -2423,10 +2538,11 @@ describe( 'TopologyConsole boot', () => {
 			( n ) => n.id === '_repl'
 		);
 		expect( repl ).toBeDefined();
+		expect( repl.class ).toBe( 'Partition' );
 		expect( repl.reserved ).toBe( true );
 	} );
 
-	it( 'entering edit on a loaded topology seeds _repl without marking the draft dirty', async () => {
+	it( 'entering edit on a loaded topology anchors _repl AND keeps the TSL-declared nodes', async () => {
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: 'make_node Echo n1\n',
 			name: 'demo',
@@ -2436,12 +2552,19 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( getByText( 'edit' ) );
 		} );
-		// _repl is present in the loaded draft.
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 10 ) );
+		} );
+		const repl = lastCanvasProps.parsed.nodes.find(
+			( n ) => n.id === '_repl'
+		);
+		expect( repl ).toBeDefined();
+		expect( repl.class ).toBe( 'Partition' );
 		expect(
-			lastCanvasProps.parsed.nodes.find( ( n ) => n.id === '_repl' )
+			lastCanvasProps.parsed.nodes.find( ( n ) => n.id === 'n1' )
 		).toBeDefined();
-		// Leaving without edits must NOT prompt the discard modal — _repl is in
-		// the baseline too, so its presence doesn't read as a change.
+		// Leaving without edits must NOT prompt the discard modal — _repl is
+		// in the baseline too, so its presence isn't a change.
 		await act( async () => {
 			fireEvent.click( getByText( 'view' ) );
 		} );
@@ -2674,15 +2797,58 @@ describe( 'TopologyConsole boot', () => {
 		expect( toast.textContent ).toMatch( /forbidden/ );
 	} );
 
-	it( 'handleResetLayout: live mode reverts to saved layout (no confirm)', async () => {
-		hooks.fetchLayout.mockResolvedValueOnce( {
+	it( 'server-saved layout does NOT seed positions at cwd="/" (local Shell ≠ topology worker)', async () => {
+		// fetchLayout returns the SERVER-saved layout for the chosen topology
+		// — those are the worker's nodes (e.g. `completed:tee`, `jobs:partition`).
+		// At cwd="/" the canvas renders the local browser Shell's spine, which
+		// is unrelated to the topology. Seeding the server layout here would
+		// dump worker positions into the local scope's localStorage entry,
+		// which is the bug Chris reported.
+		hooks.fetchLayout.mockResolvedValue( {
+			positions: {
+				'completed:tee': [ 780, 25 ],
+				'jobs:partition': [ 1020, 410 ],
+				jobrouter: [ 300, -140 ],
+			},
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 10 ) );
+		} );
+		const stored = JSON.parse(
+			window.localStorage.getItem( 'newspack-nodes:topology:local' ) ||
+				'null'
+		);
+		// If the entry exists, it MUST NOT contain the server's worker-shape
+		// node ids. (The canvas's own autoLayout seed of any local Shell
+		// nodes is fine; those are unrelated.)
+		const positions = ( stored && stored.positions ) || {};
+		expect( positions ).not.toHaveProperty( 'completed:tee' );
+		expect( positions ).not.toHaveProperty( 'jobs:partition' );
+		expect( positions ).not.toHaveProperty( 'jobrouter' );
+	} );
+
+	it( 'handleResetLayout at a topology worker cwd reverts to the saved layout (re-seeds from server, dirty=false)', async () => {
+		// Server-saved layout applies at WORKER scopes (where the canvas
+		// shows the topology's nodes), not at cwd="/" (local Shell).
+		hooks.fetchLayout.mockResolvedValue( {
 			positions: { n1: [ 50, 60 ] },
 		} );
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText, queryByText } = render( <TopologyConsole /> );
+		// Pivot to the topology's worker — scope.key = `demo.p0`, which is
+		// what the server-saved layout is for.
+		act( () => {
+			lastReplProps.onSubmit( 'cd /_sse/demo.p0' );
+		} );
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 10 ) );
 		} );
+		// User drags a node — dirty flips true, Reset Layout chip appears.
 		await act( async () => {
 			fireEvent.click( getByText( 'move-n1' ) );
 		} );
@@ -2691,10 +2857,154 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			fireEvent.click( resetBtn );
 		} );
-		const positionsKey = Object.keys( window.localStorage ).find( ( k ) =>
-			k.endsWith( ':positions' )
+		const stored = JSON.parse(
+			window.localStorage.getItem( 'newspack-nodes:topology:demo.p0' )
 		);
-		expect( window.localStorage.getItem( positionsKey ) ).toBeNull();
+		expect( stored.positions ).toEqual( { n1: { x: 50, y: 60 } } );
+		expect( stored.dirty ).toBe( false );
+	} );
+
+	it( 'live mode shows reset-layout when positions diverge from the server-saved layout (e.g. after edit-mode Reset + exit-without-Save)', async () => {
+		// Repro: user enters edit, clicks Reset Layout (now positions =
+		// autoLayout, dirty=false), exits edit without Save Topology. Back
+		// in live mode at the same worker scope, the canvas has autoLayout
+		// positions but the server still has its OWN saved layout. The
+		// Reset Layout chip should show — clicking it restores the server
+		// layout.
+		hooks.fetchLayout.mockResolvedValue( {
+			positions: { n1: [ 500, 600 ] },
+		} );
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'make_node Echo n1\n',
+			name: 'demo',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText, queryByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 10 ) );
+		} );
+		fireEvent.click( queryByText( 'reset-layout' ) );
+		await act( async () => {
+			fireEvent.click( getByText( 'confirm' ) );
+		} );
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 10 ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'view' ) );
+		} );
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 10 ) );
+		} );
+		// Live view at the worker scope: positions are autoLayout but server
+		// has saved 500,600 — they diverge, chip MUST show.
+		expect( queryByText( 'reset-layout' ) ).not.toBeNull();
+	} );
+
+	it( 'edit mode hides the reset-layout chip after Reset (the layout is now autoLayout — chip would be a no-op)', async () => {
+		// Post-reset, serverSeedBlocked=true and the canvas's autoLayout
+		// re-seeds positions. Clicking Reset again would just re-trigger the
+		// same autoLayout → no-op. Hide the chip until the user drags a node
+		// (dirty=true) or changes scope/topology (serverSeedBlocked clears).
+		hooks.fetchLayout.mockResolvedValue( {
+			positions: { n1: [ 500, 600 ] },
+		} );
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'make_node Echo n1\n',
+			name: 'demo',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText, queryByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 10 ) );
+		} );
+		expect( queryByText( 'reset-layout' ) ).not.toBeNull();
+		fireEvent.click( queryByText( 'reset-layout' ) );
+		await act( async () => {
+			fireEvent.click( getByText( 'confirm' ) );
+		} );
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 10 ) );
+		} );
+		expect( queryByText( 'reset-layout' ) ).toBeNull();
+	} );
+
+	it( 'edit mode shows the reset-layout chip as soon as the server-saved layout is seeded (dirty=false)', async () => {
+		// In edit mode, "Reset Layout" means "blow away the saved layout and
+		// go to autoLayout". It must be available even when dirty=false (just
+		// loaded the topology) — otherwise the user has no way to discard the
+		// server layout without first dragging a node.
+		hooks.fetchLayout.mockResolvedValue( {
+			positions: { n1: [ 500, 600 ] },
+		} );
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'make_node Echo n1\n',
+			name: 'demo',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText, queryByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 10 ) );
+		} );
+		expect( queryByText( 'reset-layout' ) ).not.toBeNull();
+	} );
+
+	it( 'handleResetLayout in edit mode reseeds from autoLayout, NOT the server-saved layout', async () => {
+		// Initial edit-mode load auto-seeds from the server-saved layout (so
+		// the user sees the topology where it was last saved). But Reset
+		// Layout in edit mode is the explicit "blow it away" — it should
+		// fall back to autoLayout (X_PAD=60, Y_PAD=80 for a single Echo at
+		// column 0, row 0), NOT replay the server seed.
+		hooks.fetchLayout.mockResolvedValue( {
+			positions: { n1: [ 500, 600 ] },
+		} );
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'make_node Echo n1\n',
+			name: 'demo',
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText, queryByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 10 ) );
+		} );
+		// Drag n1 so dirty=true and Reset Layout appears.
+		await act( async () => {
+			fireEvent.click( getByText( 'move-n1' ) );
+		} );
+		const resetBtn = queryByText( 'reset-layout' );
+		expect( resetBtn ).not.toBeNull();
+		await act( async () => {
+			fireEvent.click( resetBtn );
+		} );
+		// Confirm the edit-mode dialog.
+		await act( async () => {
+			fireEvent.click( getByText( 'confirm' ) );
+		} );
+		await act( async () => {
+			await new Promise( ( r ) => setTimeout( r, 10 ) );
+		} );
+		// localStorage now holds autoLayout's position for n1 (column 0 row 0)
+		// — NOT the server's 500/600. Edit + view at this scope share the
+		// same key (scope.key === 'demo.p0' from the mock Shell path).
+		const stored = JSON.parse(
+			window.localStorage.getItem( 'newspack-nodes:topology:demo.p0' ) ||
+				'null'
+		);
+		expect( stored ).not.toBeNull();
+		expect( stored.positions.n1 ).toEqual( { x: 60, y: 80 } );
+		expect( stored.dirty ).toBe( false );
 	} );
 
 	it( 'handleResetLayout: edit mode pops the confirm modal', async () => {

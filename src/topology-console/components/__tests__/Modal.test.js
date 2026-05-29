@@ -5,7 +5,7 @@
  */
 
 import { render, fireEvent, act } from '@testing-library/react';
-import { ConfirmModal, PromptModal, ModalShell } from '../Modal';
+import { ConfirmModal, PromptModal, ModalShell, NewNodeModal } from '../Modal';
 
 describe( 'ModalShell', () => {
 	it( 'renders its title + children', () => {
@@ -246,5 +246,88 @@ describe( 'PromptModal', () => {
 		act( () => unmount() );
 		fireEvent.keyDown( document, { key: 'Escape' } );
 		expect( onCancel ).not.toHaveBeenCalled();
+	} );
+} );
+
+describe( 'NewNodeModal', () => {
+	const baseProps = {
+		shellName: 'Partition',
+		defaultName: 'partition1',
+		argSchema: [
+			{ name: 'topic', required: true },
+			{ name: 'segment_size', default: '4096' },
+		],
+		onConfirm: () => {},
+		onCancel: () => {},
+	};
+
+	it( 'renders a name input pre-filled with the default and an args input', () => {
+		const { container } = render( <NewNodeModal { ...baseProps } /> );
+		const inputs = container.querySelectorAll( 'input' );
+		expect( inputs ).toHaveLength( 2 );
+		expect( inputs[ 0 ].value ).toBe( 'partition1' );
+		expect( inputs[ 1 ].value ).toBe( '' );
+	} );
+
+	it( 'shows the argSchema template as a placeholder/hint on the args input', () => {
+		const { container } = render( <NewNodeModal { ...baseProps } /> );
+		// Template should expose required asterisk + default-marker syntax so
+		// the user knows what the field expects.
+		expect( container.textContent ).toMatch( /topic\*/ );
+		expect( container.textContent ).toMatch( /segment_size=4096/ );
+	} );
+
+	it( 'submits { name, args } on Save click', () => {
+		const onConfirm = jest.fn();
+		const { container, getByText } = render(
+			<NewNodeModal { ...baseProps } onConfirm={ onConfirm } />
+		);
+		const [ nameInput, argsInput ] = container.querySelectorAll( 'input' );
+		fireEvent.change( nameInput, { target: { value: 'mypart' } } );
+		fireEvent.change( argsInput, {
+			target: { value: 'mytopic 8192' },
+		} );
+		fireEvent.click( getByText( 'Add' ) );
+		expect( onConfirm ).toHaveBeenCalledWith( {
+			name: 'mypart',
+			args: 'mytopic 8192',
+		} );
+	} );
+
+	it( 'submits on Enter inside either input', () => {
+		const onConfirm = jest.fn();
+		const { container } = render(
+			<NewNodeModal { ...baseProps } onConfirm={ onConfirm } />
+		);
+		const [ nameInput, argsInput ] = container.querySelectorAll( 'input' );
+		fireEvent.change( argsInput, { target: { value: 'x' } } );
+		fireEvent.keyDown( nameInput, { key: 'Enter' } );
+		expect( onConfirm ).toHaveBeenCalledTimes( 1 );
+		fireEvent.keyDown( argsInput, { key: 'Enter' } );
+		expect( onConfirm ).toHaveBeenCalledTimes( 2 );
+	} );
+
+	it( 'disables Add when name is empty (args can be empty)', () => {
+		const { getByText, container } = render(
+			<NewNodeModal { ...baseProps } />
+		);
+		const [ nameInput ] = container.querySelectorAll( 'input' );
+		fireEvent.change( nameInput, { target: { value: '' } } );
+		expect( getByText( 'Add' ).disabled ).toBe( true );
+	} );
+
+	it( 'cancels on Cancel button click', () => {
+		const onCancel = jest.fn();
+		const { getByText } = render(
+			<NewNodeModal { ...baseProps } onCancel={ onCancel } />
+		);
+		fireEvent.click( getByText( 'Cancel' ) );
+		expect( onCancel ).toHaveBeenCalled();
+	} );
+
+	it( 'focuses the name input on mount (user can rename immediately)', () => {
+		const { container } = render( <NewNodeModal { ...baseProps } /> );
+		const [ nameInput ] = container.querySelectorAll( 'input' );
+		expect( document.activeElement ).toBe( nameInput );
 	} );
 } );

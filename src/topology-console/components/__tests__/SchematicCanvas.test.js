@@ -127,6 +127,102 @@ describe( 'SchematicCanvas', () => {
 		expect( nodeA ).not.toBeUndefined();
 	} );
 
+	it( 'fires onSeedLayout with autoLayout positions when overrides are empty', () => {
+		const calls = [];
+		render(
+			<SchematicCanvas
+				{ ...baseProps }
+				positionOverrides={ {} }
+				onSeedLayout={ ( map ) => calls.push( map ) }
+			/>
+		);
+		// Single seed call with one entry per parsed node, top-left coords.
+		expect( calls ).toHaveLength( 1 );
+		expect( Object.keys( calls[ 0 ] ).sort() ).toEqual( [ 'a', 'b' ] );
+		expect( calls[ 0 ].a ).toEqual(
+			expect.objectContaining( {
+				x: expect.any( Number ),
+				y: expect.any( Number ),
+			} )
+		);
+	} );
+
+	it( 'does not fire onSeedLayout when positionOverrides already covers nodes', () => {
+		const calls = [];
+		render(
+			<SchematicCanvas
+				{ ...baseProps }
+				positionOverrides={ {
+					a: { x: 60, y: 80 },
+					b: { x: 300, y: 80 },
+				} }
+				onSeedLayout={ ( map ) => calls.push( map ) }
+			/>
+		);
+		expect( calls ).toHaveLength( 0 );
+	} );
+
+	it( 'does not fire onSeedLayout when the graph is empty', () => {
+		const calls = [];
+		render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ { nodes: [], edges: [] } }
+				positionOverrides={ {} }
+				onSeedLayout={ ( map ) => calls.push( map ) }
+			/>
+		);
+		expect( calls ).toHaveLength( 0 );
+	} );
+
+	// The OUT port is a wire-drag source whenever `interactive` + `onConnect`
+	// are both provided — independent of editMode. The CSS pins `cursor:
+	// crosshair` to the `is-wire-source` modifier so live mode + debug overlay
+	// hovers show the "+" too, not just edit mode.
+	it( 'OUT port carries is-wire-source when interactive + onConnect (non-edit)', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				editMode={ false }
+				onConnect={ () => {} }
+			/>
+		);
+		const out = container.querySelector( '.topology-port--out' );
+		expect( out.classList.contains( 'is-wire-source' ) ).toBe( true );
+	} );
+
+	it( 'OUT port carries is-wire-source in edit mode (still draggable)', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				editMode={ true }
+				onConnect={ () => {} }
+			/>
+		);
+		const out = container.querySelector( '.topology-port--out' );
+		expect( out.classList.contains( 'is-wire-source' ) ).toBe( true );
+	} );
+
+	it( 'OUT port lacks is-wire-source when onConnect is missing (not draggable)', () => {
+		const { container } = render(
+			<SchematicCanvas { ...baseProps } onConnect={ undefined } />
+		);
+		const out = container.querySelector( '.topology-port--out' );
+		expect( out.classList.contains( 'is-wire-source' ) ).toBe( false );
+	} );
+
+	it( 'OUT port lacks is-wire-source when interactive=false (read-only canvas)', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				interactive={ false }
+				onConnect={ () => {} }
+			/>
+		);
+		const out = container.querySelector( '.topology-port--out' );
+		expect( out.classList.contains( 'is-wire-source' ) ).toBe( false );
+	} );
+
 	it( 'honors the parent-provided viewport as the SVG viewBox', () => {
 		const { container } = render(
 			<SchematicCanvas

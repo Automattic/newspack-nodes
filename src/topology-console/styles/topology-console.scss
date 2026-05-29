@@ -183,6 +183,21 @@ body[class*="_page_newspack-nodes-topology"] {
 	line-height: 1.5;
 }
 
+// NewNodeModal stacks two labeled inputs ("name" above "arguments").
+// The label sits as a small mono caption above its input; baseline-aligned.
+.topology-modal__label {
+	display: block;
+	margin-top: 8px;
+	font-family: var(--font-mono);
+	font-size: 11px;
+	color: var(--ink-2);
+	letter-spacing: 0.04em;
+	text-transform: lowercase;
+}
+.topology-modal__label:first-child {
+	margin-top: 0;
+}
+
 .topology-app .topology-modal__input {
 	display: block;
 	width: 100%;

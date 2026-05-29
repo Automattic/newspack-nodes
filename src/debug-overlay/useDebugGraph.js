@@ -1,7 +1,8 @@
-import { useMemo } from '@wordpress/element';
+import { useCallback, useMemo, useRef, useState } from '@wordpress/element';
 import { useNodeState } from '../runtime/react';
 import { coreToGraph } from '../topology-console/utils/coreToGraph';
 import { generateNodeName } from '../topology-console/utils/draftGraph';
+import { snapToGrid } from '../topology-console/utils/autoLayout';
 import names from '../runtime/reserved-node-names.json';
 
 const EMPTY_GRAPH = { nodes: [], edges: [] };
@@ -15,18 +16,36 @@ const EMPTY_GRAPH = { nodes: [], edges: [] };
  * Before the first poll lands (or while no Metadata is mounted), falls back
  * to `coreToGraph()` so the canvas isn't empty on first paint.
  *
- * @param {boolean} [active]         Currently unused; kept for API parity (the
- *                                   subscription is naturally inert when no _metadata).
- * @param {Object}  shell            Shell instance owned by DebugOverlay; sink wired
- *                                   to the local CI.
- * @param {Array}   [catalogClasses] Class catalog entries (shell_name + is_interpreter);
- *                                   the Inspector uses it to decide whether to target
- *                                   a node's `:config` sibling or the node itself.
+ * @param {boolean}  [_active]          Currently unused; kept for API parity (the
+ *                                      subscription is naturally inert when no _metadata).
+ * @param {Object}   shell              Shell instance owned by DebugOverlay; sink wired
+ *                                      to the local CI.
+ * @param {Array}    [catalogClasses]   Class catalog entries (shell_name + is_interpreter);
+ *                                      the Inspector uses it to decide whether to target
+ *                                      a node's `:config` sibling or the node itself.
+ * @param {Function} [onPositionChange] (id, {x, y}) — invoked on a palette drop so the
+ *                                      dropped node renders at the drop site (snapped to
+ *                                      the grid) when the metadata poll surfaces it,
+ *                                      instead of autoLayout's choice.
  * @return {{ graph: { nodes: Array, edges: Array }, handlers: Object }} The live graph and gesture handlers.
  */
-// eslint-disable-next-line no-unused-vars
-export function useDebugGraph( active = true, shell, catalogClasses = [] ) {
+export function useDebugGraph(
+	// eslint-disable-next-line no-unused-vars -- API parity (subscription is naturally inert when no _metadata)
+	_active = true,
+	shell,
+	catalogClasses = [],
+	onPositionChange = null
+) {
 	const metadataGraph = useNodeState( names.METADATA, 'metadata' );
+
+	// A drop on a class with declared positional args stages here; the
+	// parent renders the NewNodeModal until commitDrop / cancelDrop. The
+	// ref-mirror lets commitDrop run side effects (sendCommand,
+	// onPositionChange) without putting them inside a setState callback,
+	// which React.StrictMode would invoke twice.
+	const [ pendingDrop, setPendingDrop ] = useState( null );
+	const pendingDropRef = useRef( null );
+	pendingDropRef.current = pendingDrop;
 	// Evaluate the fallback live every render — useMemo would freeze on the
 	// first render's coreToGraph(), which can fire BEFORE the page's exospine
 	// mounts (DebugOverlay is a sibling of the dashboard graph; both run
@@ -46,41 +65,17 @@ export function useDebugGraph( active = true, shell, catalogClasses = [] ) {
 			onConnect: ( from, to ) =>
 				shell.sendCommand( '', 'connect_node', `${ from } ${ to }` ),
 			onRemoveNode: ( id ) => shell.sendCommand( '', 'remove_node', id ),
-			onDropNode: ( { shellName } ) => {
-				const name = generateNodeName( graph, shellName );
-				// If the class declares positional args, prompt the user.
-				// Nodes with no args (Tee, Echo) drop instantly. The asterisk
-				// flags required fields; `=default` shows where applicable.
+			onDropNode: ( { shellName, x, y } ) => {
+				// Every palette drop in live mode goes through the NewNodeModal
+				// so the user can override the auto-generated name (and add
+				// args if the class declares them). commitDrop dispatches
+				// make_node + records the drop position.
+				const defaultName = generateNodeName( graph, shellName );
 				const cls = catalogClasses?.find(
 					( c ) => c.shell_name === shellName
 				);
-				const declared = cls?.arguments || [];
-				let argString = '';
-				if ( declared.length > 0 ) {
-					const tmpl = declared
-						.map(
-							( a ) =>
-								`${ a.name }${ a.required ? '*' : '' }${
-									a.default !== undefined
-										? `=${ a.default }`
-										: ''
-								}`
-						)
-						.join( ' ' );
-					// eslint-disable-next-line no-alert
-					const input = window.prompt(
-						`Arguments for ${ shellName } ${ name }\n(${ tmpl })`,
-						''
-					);
-					if ( null === input ) {
-						return; // User cancelled.
-					}
-					argString = input.trim();
-				}
-				const args = argString
-					? `${ shellName } ${ name } ${ argString }`
-					: `${ shellName } ${ name }`;
-				shell.sendCommand( '', 'make_node', args );
+				const argSchema = cls?.arguments || [];
+				setPendingDrop( { shellName, defaultName, argSchema, x, y } );
 			},
 			onInspectorAction: ( action, nodeId, payload ) => {
 				// Parity with TopologyConsole.handleInspectorAction: dump, tail
@@ -127,8 +122,39 @@ export function useDebugGraph( active = true, shell, catalogClasses = [] ) {
 				}
 			},
 		} ),
+		// onPositionChange is consumed by commitDrop (below), not by any
+		// handler in this useMemo — onDropNode just stages pendingDrop.
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[ shell, graph, catalogClasses ]
 	);
 
-	return { graph, handlers };
+	// Modal "OK" — dispatch make_node with the user-edited name + args, then
+	// record the drop position so the canvas renders the new node at the
+	// drop site once the metadata poll surfaces it.
+	const commitDrop = useCallback(
+		( { name, args } ) => {
+			const current = pendingDropRef.current;
+			if ( ! current ) {
+				return;
+			}
+			const trimmed = ( args || '' ).trim();
+			const line = trimmed
+				? `${ current.shellName } ${ name } ${ trimmed }`
+				: `${ current.shellName } ${ name }`;
+			shell.sendCommand( '', 'make_node', line );
+			if (
+				onPositionChange &&
+				'number' === typeof current.x &&
+				'number' === typeof current.y
+			) {
+				onPositionChange( name, snapToGrid( current.x, current.y ) );
+			}
+			setPendingDrop( null );
+		},
+		[ shell, onPositionChange ]
+	);
+
+	const cancelDrop = useCallback( () => setPendingDrop( null ), [] );
+
+	return { graph, handlers, pendingDrop, commitDrop, cancelDrop };
 }

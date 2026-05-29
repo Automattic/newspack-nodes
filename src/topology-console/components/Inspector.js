@@ -5,6 +5,19 @@
 import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { ModalShell } from './Modal';
+import reservedNodeNames from '../../runtime/reserved-node-names.json';
+
+// Worker-owned spine nodes — the Inspector hides config edit affordances for
+// these. Live mode (`parseMetadata` payload) doesn't tag `reserved: true`, so
+// we recognize them by id; edit-mode drafts use the explicit `node.reserved`
+// flag (set by `withReplAnchor`). Either signal counts.
+const RESERVED_SPINE_IDS = new Set( Object.values( reservedNodeNames ) );
+function isReserved( node ) {
+	return !! (
+		node &&
+		( node.reserved || RESERVED_SPINE_IDS.has( node.id ) )
+	);
+}
 
 function FieldRow( { k, v, vClass } ) {
 	return (
@@ -750,7 +763,7 @@ function EditForm( {
 				{ node.class || '?' } · { __( 'EDIT', 'newspack-nodes' ) }
 			</div>
 
-			{ onRemoveNode && ! node.reserved && (
+			{ onRemoveNode && ! isReserved( node ) && (
 				<button
 					type="button"
 					className="topology-edit-delete"
@@ -761,7 +774,7 @@ function EditForm( {
 			) }
 
 			{ /* Reserved anchors (e.g. _repl) are auto-mounted and fixed: no rename. */ }
-			{ ! node.reserved && (
+			{ ! isReserved( node ) && (
 				<Section title={ __( 'Identity', 'newspack-nodes' ) }>
 					<NameField
 						node={ node }
@@ -777,94 +790,106 @@ function EditForm( {
 				</Section>
 			) }
 
-			<Section title={ __( 'Routing', 'newspack-nodes' ) }>
-				<TargetsField
-					node={ node }
-					nodeNames={ nodeNames }
-					targets={ ( parsed?.edges || [] ).filter(
-						( e ) => e.from === node.id
-					) }
-					onConnect={ onConnect }
-					onRemoveEdge={ onRemoveEdge }
-				/>
-			</Section>
-
-			<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
-				{ argumentSpecs.length === 0 && (
-					<div className="topology-edit-empty">
-						{ __( 'No constructor arguments.', 'newspack-nodes' ) }
-					</div>
-				) }
-				{ argumentSpecs.map( ( spec, i ) => (
-					<CtorField
-						key={ spec.name }
-						spec={ spec }
-						value={ ctorArgs[ i ] }
+			{ ! isReserved( node ) && (
+				<Section title={ __( 'Routing', 'newspack-nodes' ) }>
+					<TargetsField
+						node={ node }
 						nodeNames={ nodeNames }
-						formatters={ formatters }
-						onChange={ ( v ) => {
-							const next = ctorArgs.slice();
-							next[ i ] = v;
-							if ( onUpdateArgs ) {
-								onUpdateArgs( node.id, next );
-							}
-						} }
+						targets={ ( parsed?.edges || [] ).filter(
+							( e ) => e.from === node.id
+						) }
+						onConnect={ onConnect }
+						onRemoveEdge={ onRemoveEdge }
 					/>
-				) ) }
-			</Section>
+				</Section>
+			) }
 
-			<Section title={ __( 'Verbs', 'newspack-nodes' ) }>
-				{ commandSpecs.length === 0 && (
-					<div className="topology-edit-empty">
-						{ __( 'No verbs registered.', 'newspack-nodes' ) }
-					</div>
-				) }
-				{ commandSpecs.map( ( cspec ) => {
-					const idx = verbInvocations.findIndex(
-						( inv ) => inv.verb === cspec.name
-					);
-					const invocation = idx >= 0 ? verbInvocations[ idx ] : null;
-					const handleToggle = ( on ) => {
-						if ( ! onUpdateVerbs ) {
-							return;
-						}
-						if ( on && idx < 0 ) {
-							onUpdateVerbs( node.id, [
-								...verbInvocations,
-								{
-									verb: cspec.name,
-									args: ( cspec.args || [] ).map( () => '' ),
-								},
-							] );
-						} else if ( ! on && idx >= 0 ) {
-							const next = verbInvocations.slice();
-							next.splice( idx, 1 );
-							onUpdateVerbs( node.id, next );
-						}
-					};
-					const handleArgChange = ( argIdx, value ) => {
-						if ( ! onUpdateVerbs || idx < 0 ) {
-							return;
-						}
-						const next = verbInvocations.slice();
-						const args = next[ idx ].args.slice();
-						args[ argIdx ] = value;
-						next[ idx ] = { ...next[ idx ], args };
-						onUpdateVerbs( node.id, next );
-					};
-					return (
-						<VerbRow
-							key={ cspec.name }
-							spec={ cspec }
-							invocation={ invocation }
+			{ ! isReserved( node ) && (
+				<Section title={ __( 'Constructor', 'newspack-nodes' ) }>
+					{ argumentSpecs.length === 0 && (
+						<div className="topology-edit-empty">
+							{ __(
+								'No constructor arguments.',
+								'newspack-nodes'
+							) }
+						</div>
+					) }
+					{ argumentSpecs.map( ( spec, i ) => (
+						<CtorField
+							key={ spec.name }
+							spec={ spec }
+							value={ ctorArgs[ i ] }
 							nodeNames={ nodeNames }
 							formatters={ formatters }
-							onToggle={ handleToggle }
-							onArgChange={ handleArgChange }
+							onChange={ ( v ) => {
+								const next = ctorArgs.slice();
+								next[ i ] = v;
+								if ( onUpdateArgs ) {
+									onUpdateArgs( node.id, next );
+								}
+							} }
 						/>
-					);
-				} ) }
-			</Section>
+					) ) }
+				</Section>
+			) }
+
+			{ ! isReserved( node ) && (
+				<Section title={ __( 'Verbs', 'newspack-nodes' ) }>
+					{ commandSpecs.length === 0 && (
+						<div className="topology-edit-empty">
+							{ __( 'No verbs registered.', 'newspack-nodes' ) }
+						</div>
+					) }
+					{ commandSpecs.map( ( cspec ) => {
+						const idx = verbInvocations.findIndex(
+							( inv ) => inv.verb === cspec.name
+						);
+						const invocation =
+							idx >= 0 ? verbInvocations[ idx ] : null;
+						const handleToggle = ( on ) => {
+							if ( ! onUpdateVerbs ) {
+								return;
+							}
+							if ( on && idx < 0 ) {
+								onUpdateVerbs( node.id, [
+									...verbInvocations,
+									{
+										verb: cspec.name,
+										args: ( cspec.args || [] ).map(
+											() => ''
+										),
+									},
+								] );
+							} else if ( ! on && idx >= 0 ) {
+								const next = verbInvocations.slice();
+								next.splice( idx, 1 );
+								onUpdateVerbs( node.id, next );
+							}
+						};
+						const handleArgChange = ( argIdx, value ) => {
+							if ( ! onUpdateVerbs || idx < 0 ) {
+								return;
+							}
+							const next = verbInvocations.slice();
+							const args = next[ idx ].args.slice();
+							args[ argIdx ] = value;
+							next[ idx ] = { ...next[ idx ], args };
+							onUpdateVerbs( node.id, next );
+						};
+						return (
+							<VerbRow
+								key={ cspec.name }
+								spec={ cspec }
+								invocation={ invocation }
+								nodeNames={ nodeNames }
+								formatters={ formatters }
+								onToggle={ handleToggle }
+								onArgChange={ handleArgChange }
+							/>
+						);
+					} ) }
+				</Section>
+			) }
 		</aside>
 	);
 }
@@ -1312,44 +1337,47 @@ export default function Inspector( {
 					</button>
 				) }
 				{ /* TM_COMMAND verbs + TM_REQUEST verbs from this class's node_schema. */ }
-				{ ( () => {
-					const schema = catalog.find(
-						( c ) => c.shell_name === type
-					);
-					const commands =
-						schema && schema.commands ? schema.commands : [];
-					const requests =
-						schema && schema.requests ? schema.requests : [];
-					// node_name verb args pick from the live graph (parsed = the
-					// dump_metadata snapshot), minus the inspected node itself.
-					const liveNodeNames = ( parsed?.nodes || [] )
-						.map( ( n ) => n.name || n.id )
-						.filter( ( n ) => n && n !== node.id );
-					return [
-						...commands.map( ( spec ) => (
-							<VerbButton
-								key={ `cmd-${ spec.name }` }
-								nodeId={ node.id }
-								spec={ spec }
-								kind="command"
-								formatters={ formatters }
-								nodeNames={ liveNodeNames }
-								onAction={ onAction }
-							/>
-						) ),
-						...requests.map( ( spec ) => (
-							<VerbButton
-								key={ `req-${ spec.name }` }
-								nodeId={ node.id }
-								spec={ spec }
-								kind="request"
-								formatters={ formatters }
-								nodeNames={ liveNodeNames }
-								onAction={ onAction }
-							/>
-						) ),
-					];
-				} )() }
+				{ /* Reserved spine nodes (e.g. _repl) skip these — the user doesn't own their configuration. */ }
+				{ ! isReserved( node ) &&
+					( () => {
+						const schema = catalog.find(
+							( c ) => c.shell_name === type
+						);
+						const commands =
+							schema && schema.commands ? schema.commands : [];
+						const requests =
+							schema && schema.requests ? schema.requests : [];
+						// node_name verb args pick from the live graph
+						// (parsed = the dump_metadata snapshot), minus the
+						// inspected node itself.
+						const liveNodeNames = ( parsed?.nodes || [] )
+							.map( ( n ) => n.name || n.id )
+							.filter( ( n ) => n && n !== node.id );
+						return [
+							...commands.map( ( spec ) => (
+								<VerbButton
+									key={ `cmd-${ spec.name }` }
+									nodeId={ node.id }
+									spec={ spec }
+									kind="command"
+									formatters={ formatters }
+									nodeNames={ liveNodeNames }
+									onAction={ onAction }
+								/>
+							) ),
+							...requests.map( ( spec ) => (
+								<VerbButton
+									key={ `req-${ spec.name }` }
+									nodeId={ node.id }
+									spec={ spec }
+									kind="request"
+									formatters={ formatters }
+									nodeNames={ liveNodeNames }
+									onAction={ onAction }
+								/>
+							) ),
+						];
+					} )() }
 			</div>
 		</aside>
 	);

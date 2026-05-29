@@ -646,10 +646,18 @@
 	stroke: var(--ink);
 	stroke-width: 1;
 
-	&--out.is-edit {
-		// Edit-mode OUT port: cursor changes to crosshair so the user
-		// knows it's draggable; fill flips to brass to draw the eye.
+	&--out.is-wire-source {
+		// OUT port is wire-draggable in BOTH live mode and edit mode (the
+		// only gate is interactive + onConnect, not editMode). Surface the
+		// affordance to the user as a crosshair cursor everywhere it works.
 		cursor: crosshair;
+	}
+
+	&--out.is-edit {
+		// Edit-mode visual emphasis: fill flips to brass to draw the eye
+		// in the topology-editor's "wire things together" mode. Live mode
+		// keeps the default ink-on-paper styling — cursor is the only
+		// affordance the user needs there.
 		fill: var(--brass);
 		stroke: var(--brass-dark);
 	}
