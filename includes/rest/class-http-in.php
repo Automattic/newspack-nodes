@@ -42,7 +42,33 @@ class HTTP_In_Node extends Node {
 	public const REST_NAMESPACE = 'newspack-nodes/v1';
 	public const ROUTE          = '/command';
 
+	/**
+	 * Rate-limit window for the `/command` endpoint, in seconds. One-second
+	 * buckets are tight enough to bound a runaway script and generous enough
+	 * that a normal dashboard burst (mount-time fan-out + a few user clicks)
+	 * never grazes the cap.
+	 */
+	public const RATE_LIMIT_WINDOW_S = 1;
+
+	/**
+	 * Default per-user burst budget per RATE_LIMIT_WINDOW_S. The topology
+	 * console fans out a handful of `list` requests on mount (classes,
+	 * topologies, layouts, ...) and dispatches commands at the speed the
+	 * operator types — well under 30/s in practice. The cap exists to bound
+	 * a buggy script hammering the endpoint, not to throttle normal use.
+	 * High-throughput sites can tune via the
+	 * `newspack_nodes/command_rate_limit` filter.
+	 */
+	public const RATE_LIMIT_BURST = 30;
+
 	public bool $sent_headers = false;
+
+	/**
+	 * Test-mode bypass for the rate limit. The PHPUnit suite sets this to
+	 * true so a test run that fires >RATE_LIMIT_BURST `/command` calls in
+	 * one second isn't throttled mid-suite. Production never flips it.
+	 */
+	public static bool $rate_limit_disabled = false;
 
 	/** @var \Closure status-header seam */
 	private \Closure $send_header;
@@ -98,9 +124,68 @@ class HTTP_In_Node extends Node {
 			[
 				'methods'             => 'POST',
 				'callback'            => [ $this, 'dispatch' ],
-				'permission_callback' => static fn() => \current_user_can( 'manage_options' ),
+				'permission_callback' => [ $this, 'check_permission' ],
 			]
 		);
+	}
+
+	/**
+	 * Permission check: manage_options THEN per-user rate limit. Capability
+	 * is verified first so an unauthenticated burst can't poison the
+	 * transient table (same ordering Spawn_Controller uses).
+	 *
+	 * @param \WP_REST_Request $req Request.
+	 * @return bool|\WP_Error
+	 */
+	public function check_permission( \WP_REST_Request $req ) {
+		if ( ! \function_exists( 'current_user_can' ) || ! \current_user_can( 'manage_options' ) ) {
+			return false;
+		}
+		return $this->check_rate_limit();
+	}
+
+	/**
+	 * Per-user rolling-window rate limit. Increments a transient counter
+	 * keyed by user id; returns WP_Error('rate_limited', 429) when the
+	 * window's budget is exhausted. No-op without the transient API (test
+	 * contexts that skip stubbing) or when `$rate_limit_disabled` is set.
+	 *
+	 * @return true|\WP_Error
+	 */
+	protected function check_rate_limit() {
+		if ( self::$rate_limit_disabled ) {
+			return true;
+		}
+		if ( ! \function_exists( 'get_transient' ) || ! \function_exists( 'set_transient' ) ) {
+			return true;
+		}
+
+		/**
+		 * Tunable burst budget per RATE_LIMIT_WINDOW_S. Defaults to
+		 * RATE_LIMIT_BURST; high-throughput sites raise it.
+		 *
+		 * @param int $burst Max `/command` POSTs per user per window.
+		 */
+		$burst = (int) \apply_filters( 'newspack_nodes/command_rate_limit', self::RATE_LIMIT_BURST );
+		if ( $burst < 1 ) {
+			$burst = 1;
+		}
+
+		$user_id = \function_exists( 'get_current_user_id' ) ? (int) \get_current_user_id() : 0;
+		$key     = 'newspack_nodes_cmd_rl:' . $user_id;
+		$count   = (int) \get_transient( $key );
+		if ( $count >= $burst ) {
+			return new \WP_Error(
+				'rate_limited',
+				'Too many /command requests; please slow down.',
+				[ 'status' => 429 ]
+			);
+		}
+		// Reseed the TTL on every write — a steady stream keeps the counter
+		// in the same bucket; once the stream pauses for RATE_LIMIT_WINDOW_S
+		// the transient lapses and the counter resets.
+		\set_transient( $key, $count + 1, self::RATE_LIMIT_WINDOW_S );
+		return true;
 	}
 
 	public function dispatch( \WP_REST_Request $request ): void {

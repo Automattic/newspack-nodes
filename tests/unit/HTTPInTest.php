@@ -495,6 +495,176 @@ class HTTPInTest extends TestCase {
 		$this->assertIsCallable( $route['args']['permission_callback'] );
 	}
 
+	// ── check_permission: capability + rate limit ─────────────────────────
+
+	/**
+	 * Reset rate-limit state between assertions. The rate-limit reads from /
+	 * writes to the transient store and reads `get_current_user_id()` —
+	 * clearing both keeps test cases independent.
+	 */
+	private function reset_rl_state(): void {
+		$GLOBALS['_wp_test_transients']       = [];
+		$GLOBALS['_wp_test_current_user_can'] = [];
+		$GLOBALS['_wp_test_current_user_id']  = 0;
+		$GLOBALS['_wp_actions']               = [];
+		HTTP_In_Node::$rate_limit_disabled    = false;
+	}
+
+	public function test_check_permission_rejects_when_user_lacks_manage_options(): void {
+		$this->reset_rl_state();
+		// No capability granted.
+		$ctrl = new HTTP_In_Node();
+		$req  = new \WP_REST_Request( 'POST' );
+
+		$result = $ctrl->check_permission( $req );
+
+		$this->assertNotTrue( $result, 'lacking manage_options must NOT pass permission' );
+	}
+
+	public function test_check_permission_accepts_under_the_cap(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_test_current_user_id']                    = 7;
+
+		$ctrl = new HTTP_In_Node();
+		$req  = new \WP_REST_Request( 'POST' );
+
+		$this->assertTrue( $ctrl->check_permission( $req ) );
+	}
+
+	public function test_check_permission_returns_429_after_burst_exceeded(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_test_current_user_id']                    = 7;
+
+		$ctrl = new HTTP_In_Node();
+		$req  = new \WP_REST_Request( 'POST' );
+
+		// Burn through the burst budget. Every one of these must pass.
+		for ( $i = 0; $i < HTTP_In_Node::RATE_LIMIT_BURST; $i++ ) {
+			$this->assertTrue(
+				$ctrl->check_permission( $req ),
+				"request #{$i} (under cap) must pass"
+			);
+		}
+
+		// One more in the same window must trip the limit.
+		$result = $ctrl->check_permission( $req );
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'rate_limited', $result->get_error_code() );
+		$data = $result->get_error_data();
+		$this->assertSame( 429, $data['status'] );
+	}
+
+	public function test_rate_limit_counter_resets_after_window_expires(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_test_current_user_id']                    = 7;
+
+		$ctrl = new HTTP_In_Node();
+		$req  = new \WP_REST_Request( 'POST' );
+
+		// Saturate the window.
+		for ( $i = 0; $i < HTTP_In_Node::RATE_LIMIT_BURST; $i++ ) {
+			$ctrl->check_permission( $req );
+		}
+		$this->assertInstanceOf( \WP_Error::class, $ctrl->check_permission( $req ) );
+
+		// Simulate window expiry by purging the per-user transient (the
+		// bootstrap's transient store is keyed by name; deleting it is
+		// observationally identical to the entry having timed out).
+		$GLOBALS['_wp_test_transients'] = [];
+
+		$this->assertTrue(
+			$ctrl->check_permission( $req ),
+			'after the window expires the counter must reset and pass again'
+		);
+	}
+
+	public function test_rate_limit_is_per_user(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+
+		$ctrl = new HTTP_In_Node();
+		$req  = new \WP_REST_Request( 'POST' );
+
+		// User 7 saturates their bucket.
+		$GLOBALS['_wp_test_current_user_id'] = 7;
+		for ( $i = 0; $i < HTTP_In_Node::RATE_LIMIT_BURST; $i++ ) {
+			$ctrl->check_permission( $req );
+		}
+		$this->assertInstanceOf( \WP_Error::class, $ctrl->check_permission( $req ) );
+
+		// User 9 — separate counter — is still under the cap.
+		$GLOBALS['_wp_test_current_user_id'] = 9;
+		$this->assertTrue( $ctrl->check_permission( $req ) );
+	}
+
+	public function test_rate_limit_filter_overrides_the_burst_cap(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_test_current_user_id']                    = 7;
+
+		// Filter raises the cap to 100.
+		\add_filter(
+			'newspack_nodes/command_rate_limit',
+			static fn() => 100
+		);
+
+		$ctrl = new HTTP_In_Node();
+		$req  = new \WP_REST_Request( 'POST' );
+
+		// The default burst (30) should still pass; we should reach 100 too.
+		for ( $i = 0; $i < 100; $i++ ) {
+			$this->assertTrue(
+				$ctrl->check_permission( $req ),
+				"request #{$i} (under filter-raised cap of 100) must pass"
+			);
+		}
+
+		// 101st must trip.
+		$result = $ctrl->check_permission( $req );
+		$this->assertInstanceOf( \WP_Error::class, $result );
+		$this->assertSame( 'rate_limited', $result->get_error_code() );
+	}
+
+	public function test_rate_limit_disabled_static_bypasses_the_limit(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_test_current_user_id']                    = 7;
+
+		HTTP_In_Node::$rate_limit_disabled = true;
+
+		$ctrl = new HTTP_In_Node();
+		$req  = new \WP_REST_Request( 'POST' );
+
+		// Far past the burst cap — bypass means every call passes.
+		for ( $i = 0; $i < HTTP_In_Node::RATE_LIMIT_BURST * 5; $i++ ) {
+			$this->assertTrue(
+				$ctrl->check_permission( $req ),
+				"request #{$i} must pass while rate_limit_disabled is true"
+			);
+		}
+
+		// Restore to keep other tests honest.
+		HTTP_In_Node::$rate_limit_disabled = false;
+	}
+
+	public function test_register_routes_wires_check_permission_as_permission_callback(): void {
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_registered_routes'] = [];
+
+		( new HTTP_In_Node() )->register_routes();
+
+		$route = $GLOBALS['_wp_test_registered_routes'][0];
+		// The permission callback must be the controller's check_permission
+		// method (so it can rate-limit), not a bare manage_options closure.
+		$cb = $route['args']['permission_callback'];
+		$this->assertIsArray( $cb );
+		$this->assertInstanceOf( HTTP_In_Node::class, $cb[0] );
+		$this->assertSame( 'check_permission', $cb[1] );
+	}
+
 	// ── emit_error: graph not initialized ──────────────────────────────────
 
 	public function test_dispatch_emits_500_when_router_is_replaced_by_non_Router_via_hook(): void {
