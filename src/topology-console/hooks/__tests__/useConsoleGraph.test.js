@@ -33,7 +33,6 @@ jest.mock( '../../../runtime/sseIn', () => {
 			this.started = false;
 			this.closed = false;
 			this._pid = null;
-			// eslint-disable-next-line no-undef
 			lastConnector = this;
 		}
 		// Read-back of the ctor-time config now living as public properties.
@@ -344,7 +343,6 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 			TM_RESPONSE,
 		} = require( '../../../runtime/message' );
 		const m = newMessage();
-		// eslint-disable-next-line no-bitwise
 		m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
 		m[ TO ] = names.COMPLETION;
 		m[ KEY ] = 'completion';

@@ -4,7 +4,7 @@
 
 import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
-import { ModalShell } from './Modal';
+import { ModalShell, PromptModal } from './Modal';
 
 // The Inspector hides config-edit affordances (Routing/Constructor/Verbs/
 // rename/Delete/class-catalog verb buttons) for the worker-auto-mounted
@@ -518,8 +518,11 @@ function VerbRow( {
 	const id = `topology-verb-${ spec.name }`;
 	return (
 		<div className="topology-edit-verb">
-			{ /* eslint-disable-next-line jsx-a11y/label-has-associated-control -- the input IS the associated control (nested child); the rule's required-htmlFor pattern is also satisfied. */ }
-			<label className="topology-edit-row" htmlFor={ id }>
+			<label
+				className="topology-edit-row"
+				htmlFor={ id }
+				aria-label={ spec.name }
+			>
 				<input
 					id={ id }
 					type="checkbox"
@@ -1049,6 +1052,9 @@ export default function Inspector( {
 	onRemoveEdge,
 	onConnect,
 } ) {
+	// Pending `send_node` payload prompt (replaces window.prompt).
+	const [ sendOpen, setSendOpen ] = useState( false );
+
 	if ( ! selectedId ) {
 		return (
 			<aside className="topology-inspector">
@@ -1257,23 +1263,7 @@ export default function Inspector( {
 				</button>
 				<button
 					type="button"
-					onClick={ () => {
-						const payload =
-							// eslint-disable-next-line no-alert
-							window.prompt(
-								sprintf(
-									// translators: %s: the node id to send bytes to.
-									__( 'Send bytes to %s:', 'newspack-nodes' ),
-									node.id
-								),
-								''
-							);
-						if ( payload !== null && payload !== '' ) {
-							if ( onAction ) {
-								onAction( 'send', node.id, payload );
-							}
-						}
-					} }
+					onClick={ () => setSendOpen( true ) }
 					title={ __(
 						'Send a TM_BYTESTREAM payload to this node via `send_node <name> <bytes>`',
 						'newspack-nodes'
@@ -1376,6 +1366,24 @@ export default function Inspector( {
 						];
 					} )() }
 			</div>
+			{ sendOpen && (
+				<PromptModal
+					title={ __( 'Send bytes', 'newspack-nodes' ) }
+					body={ sprintf(
+						// translators: %s: the node id to send bytes to.
+						__( 'Send bytes to %s:', 'newspack-nodes' ),
+						node.id
+					) }
+					confirmLabel={ __( 'Send', 'newspack-nodes' ) }
+					onConfirm={ ( payload ) => {
+						setSendOpen( false );
+						if ( onAction ) {
+							onAction( 'send', node.id, payload );
+						}
+					} }
+					onCancel={ () => setSendOpen( false ) }
+				/>
+			) }
 		</aside>
 	);
 }

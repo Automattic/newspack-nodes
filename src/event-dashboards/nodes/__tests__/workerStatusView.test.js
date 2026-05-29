@@ -1,4 +1,3 @@
-/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
  * workerstatus:view tests — the render-state node React reads via
  * useNodeState('workerstatus:view','view').
@@ -150,7 +149,6 @@ describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
 	test( 'deletes the pending entry after settling', () => {
 		const v = createWorkerStatusView( 'workerstatus:view' );
 		const id = 'restart-5';
-		// eslint-disable-next-line no-empty-function -- noop resolvers; the test only inspects pending.has().
 		v.pending.set( id, { resolve: () => {}, reject: () => {} } );
 		v.fill( restartReply( id, null ) );
 		expect( v.pending.has( id ) ).toBe( false );

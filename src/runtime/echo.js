@@ -22,7 +22,6 @@ export class Echo extends Node {
 
 	fill( message ) {
 		this.counter += 1;
-		// eslint-disable-next-line no-bitwise
 		if ( message[ TYPE ] & TM_ERROR && '' === message[ FROM ] ) {
 			return;
 		}

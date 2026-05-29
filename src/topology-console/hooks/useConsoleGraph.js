@@ -209,7 +209,6 @@ export function useConsoleGraph( {
 			setSsePid( null );
 			setShell( null );
 		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ topology, partition, enabled, resetKey ] );
 
 	// SSE stream gating: open the EventSource only while the graph is mounted AND

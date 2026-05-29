@@ -5,7 +5,6 @@ describe( 'Node.command', () => {
 	it( 'returns a TM_COMMAND message carrying the command envelope', () => {
 		const node = new Node();
 		const msg = node.command( 'connect_node', 'a b' );
-		// eslint-disable-next-line no-bitwise
 		expect( msg[ TYPE ] & TM_COMMAND ).toBe( TM_COMMAND );
 		expect( msg[ VALUE ] ).toEqual( {
 			name: 'connect_node',

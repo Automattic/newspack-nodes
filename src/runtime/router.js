@@ -97,7 +97,6 @@ export class Router extends Node {
 				node: head,
 				from: message[ FROM ],
 			} );
-			// eslint-disable-next-line no-bitwise
 			if ( message[ TYPE ] & TM_ERROR ) {
 				return;
 			}

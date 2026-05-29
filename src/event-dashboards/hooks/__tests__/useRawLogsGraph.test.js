@@ -1,4 +1,3 @@
-/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
  * useRawLogsGraph tests — the Raw Logs dashboard graph clipped onto the
  * substrate's I/O boundary nodes (exospine + `_sse` + `_http` + `_heartbeat`)

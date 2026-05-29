@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Removed every `eslint-disable` directive from the JS; the code now lints clean without suppressions.** Most were stale (no-ops under the current `@wordpress/eslint-plugin` test-unit override) and were deleted outright. `no-bitwise` is turned off in `.eslintrc.js` — the 7-field Message `TYPE` is a bitmask (Tachikoma convention), so `&`/`|` on it are idiomatic, not a smell. `no-console` now allows `warn`/`error` (the runtime's stderr sink is the browser console) while still flagging stray `console.log`; `no-unused-vars` honors the `^_` unused-arg convention; a `scripts/**/*.mjs` override gives build scripts Node globals + console.
+
+### Fixed
+
+- **Accessibility: dropped the `jsx-a11y` suppressions by making the elements genuinely accessible.** Modal/OpenTopologyModal backdrops are `role="presentation"` (decorative; ESC still dismisses). The REPL transcript resize handle is now a keyboard-operable `role="slider"` — ArrowUp/ArrowDown resize, `aria-orientation="vertical"` + `aria-valuemin/max/now` — instead of a non-interactive `separator` carrying mouse-only handlers; the transcript pane is `role="presentation"` (it delegates clicks to its children). The Inspector verb-checkbox label carries an `aria-label` so its accessible text is detectable.
+- **React dependency arrays are now honest (no `react-hooks/exhaustive-deps` suppressions).** `ReplFooter`'s `setExpanded` is wrapped in `useCallback` (it was an unstable `onExpandedChange` wrapper, not a state setter); its document-listener and Tab-completion effects declare their real deps (the completion effect's new `value` dep fixes a latent stale read, guarded against re-fire by `pendingToken`/`seq`). `SchematicCanvas`'s window wire-drag listeners are `useCallback`s, `setViewport` is memoized, and the autofit-freeze effect reads a `nodes` ref so it stays keyed on `nodes.length`.
+- **Destructive / data-entry actions use in-app modals instead of native dialogs (no `no-alert` suppressions).** `TopologyConsole`'s topology-delete now uses the existing `ConfirmModal`; the Inspector's "Send bytes" uses `PromptModal`. Confirm-to-proceed, cancel-aborts, and empty-input-doesn't-submit behavior is preserved.
+
 ## [0.9.1] - 2026-05-29
 
 ### Fixed

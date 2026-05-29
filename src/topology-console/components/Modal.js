@@ -21,9 +21,9 @@ export function ModalShell( { title, onDismiss, children } ) {
 	}, [ onDismiss ] );
 
 	return (
-		// eslint-disable-next-line jsx-a11y/no-static-element-interactions -- backdrop is a click-to-dismiss target; ESC keyboard path is handled via document listener above.
 		<div
 			className="topology-modal-backdrop"
+			role="presentation"
 			onMouseDown={ ( e ) => {
 				if ( e.target === e.currentTarget ) {
 					onDismiss();

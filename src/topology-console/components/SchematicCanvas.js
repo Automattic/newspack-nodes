@@ -156,10 +156,7 @@ export default function SchematicCanvas( {
 	positionOverrides,
 	onPositionChange,
 	rateRef,
-	// rateVersion is consumed implicitly: a parent bump forces a re-render
-	// that re-reads rateRef.current. Listed so React knows about it.
-	// eslint-disable-next-line no-unused-vars
-	rateVersion,
+	// (parent bumps a changing prop to force a re-render; not read here)
 	viewport,
 	onViewportChange,
 	// Gesture handlers. onDropNode receives SVG-space coords; onConnect fires
@@ -198,6 +195,10 @@ export default function SchematicCanvas( {
 				: n
 		);
 	}, [ laidOutNodes, positionOverrides ] );
+
+	// Mirror of `nodes` for the freeze effect (keyed on length, reads identity).
+	const nodesRef = useRef( nodes );
+	nodesRef.current = nodes;
 
 	// Seed the parent's saved layout once: when there are no overrides yet
 	// and autoLayout has produced a non-empty set, ship the positions up.
@@ -243,7 +244,12 @@ export default function SchematicCanvas( {
 		return map;
 	}, [ displayNodes ] );
 	// Parent-controlled viewport; `null` = autofit to the tight bbox.
-	const setViewport = onViewportChange || ( () => {} );
+	// Memoized so it's a stable dep for the freeze effect (a no-op when the
+	// parent doesn't supply onViewportChange).
+	const setViewport = useMemo(
+		() => onViewportChange || ( () => {} ),
+		[ onViewportChange ]
+	);
 	// Active pan drag on the empty canvas (stable start origin per move).
 	const panRef = useRef( null );
 
@@ -264,6 +270,58 @@ export default function SchematicCanvas( {
 
 	// Port hit radius (SVG units); well under node spacing.
 	const PORT_HIT_R = 24;
+
+	// Window-level wire-drag listeners. useCallback keeps their closures fresh
+	// over nodes/onConnect so the attached listeners never read stale values.
+	const handleWindowWireMove = useCallback(
+		( e ) => {
+			const current = wireDragRef.current;
+			if ( ! current ) {
+				return;
+			}
+			const svg = svgRef.current;
+			if ( ! svg ) {
+				return;
+			}
+			const local = screenToSvg( svg, e.clientX, e.clientY );
+			// Snap to the nearest IN port within PORT_HIT_R (never the source node).
+			let snapTargetId = null;
+			let bestDist = PORT_HIT_R;
+			for ( const n of nodes ) {
+				if ( n.id === current.fromId ) {
+					continue;
+				}
+				const px = n.position.x;
+				const py = n.position.y + NODE_H / 2;
+				const dx = local.x - px;
+				const dy = local.y - py;
+				const d = Math.sqrt( dx * dx + dy * dy );
+				if ( d <= bestDist ) {
+					bestDist = d;
+					snapTargetId = n.id;
+				}
+			}
+			updateWireDrag( {
+				...current,
+				x2: local.x,
+				y2: local.y,
+				hoveredId: snapTargetId,
+			} );
+		},
+		[ nodes, updateWireDrag ]
+	);
+
+	const handleWindowWireUp = useCallback( () => {
+		const current = wireDragRef.current;
+		if ( ! current ) {
+			return;
+		}
+		const { fromId, hoveredId: snapId } = current;
+		updateWireDrag( null );
+		if ( snapId && onConnect ) {
+			onConnect( fromId, snapId );
+		}
+	}, [ onConnect, updateWireDrag ] );
 
 	// Same pointerdown/mousedown dedupe as beginDrag (Safari post-drop).
 	const portDownGuardRef = useRef( false );
@@ -312,57 +370,15 @@ export default function SchematicCanvas( {
 				hoveredId: null,
 			} );
 		},
-		// handleWindowWireMove/Up close over wireDragRef + nodes; not deps.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-		[ interactive, onConnect, nodes, updateWireDrag ]
+		[
+			interactive,
+			onConnect,
+			nodes,
+			updateWireDrag,
+			handleWindowWireMove,
+			handleWindowWireUp,
+		]
 	);
-
-	function handleWindowWireMove( e ) {
-		const current = wireDragRef.current;
-		if ( ! current ) {
-			return;
-		}
-		const svg = svgRef.current;
-		if ( ! svg ) {
-			return;
-		}
-		const local = screenToSvg( svg, e.clientX, e.clientY );
-		// Snap to the nearest IN port within PORT_HIT_R (never the source node).
-		let snapTargetId = null;
-		let bestDist = PORT_HIT_R;
-		for ( const n of nodes ) {
-			if ( n.id === current.fromId ) {
-				continue;
-			}
-			const px = n.position.x;
-			const py = n.position.y + NODE_H / 2;
-			const dx = local.x - px;
-			const dy = local.y - py;
-			const d = Math.sqrt( dx * dx + dy * dy );
-			if ( d <= bestDist ) {
-				bestDist = d;
-				snapTargetId = n.id;
-			}
-		}
-		updateWireDrag( {
-			...current,
-			x2: local.x,
-			y2: local.y,
-			hoveredId: snapTargetId,
-		} );
-	}
-
-	function handleWindowWireUp() {
-		const current = wireDragRef.current;
-		if ( ! current ) {
-			return;
-		}
-		const { fromId, hoveredId: snapId } = current;
-		updateWireDrag( null );
-		if ( snapId && onConnect ) {
-			onConnect( fromId, snapId );
-		}
-	}
 
 	const handleDragOver = useCallback(
 		( e ) => {
@@ -422,7 +438,6 @@ export default function SchematicCanvas( {
 
 	const defaultViewBox = useMemo(
 		() => tightViewBoxFor( displayNodes, canvasSize() ),
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[ displayNodes ]
 	);
 	const viewBox = viewport
@@ -430,15 +445,16 @@ export default function SchematicCanvas( {
 		: defaultViewBox;
 	// Freeze the autofit on first render so node drags don't live-shift
 	// the whole canvas (viewport=null otherwise re-fits every render).
+	// Keyed on nodes.length, reading nodesRef (not displayNodes) so an
+	// in-flight drag doesn't commit and identity churn doesn't re-fit.
 	useEffect( () => {
-		if ( ! viewport && nodes.length > 0 ) {
+		const currentNodes = nodesRef.current;
+		if ( ! viewport && currentNodes.length > 0 ) {
 			setViewport(
-				parseViewBox( tightViewBoxFor( nodes, canvasSize() ) )
+				parseViewBox( tightViewBoxFor( currentNodes, canvasSize() ) )
 			);
 		}
-		// nodes (not displayNodes) so an in-flight drag doesn't commit.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ viewport, nodes.length ] );
+	}, [ viewport, nodes.length, setViewport ] );
 
 	// hoveredId is lifted so the Inspector can drive the same highlight.
 	const setHovered = ( id ) => {

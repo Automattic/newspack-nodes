@@ -31,7 +31,6 @@ import {
 // Fluent chain mock — every d3 method returns the same object.
 const makeFluent = () => {
 	const obj = {};
-	const fluent = ( ...args ) => obj; // eslint-disable-line no-unused-vars
 	obj.append = jest.fn( () => obj );
 	obj.attr = jest.fn( () => obj );
 	obj.text = jest.fn( () => obj );

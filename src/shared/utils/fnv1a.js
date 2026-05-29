@@ -1,4 +1,3 @@
-/* eslint-disable no-bitwise */
 /**
  * FNV-1a hash implementation. Must match PHP's fnv1a().
  */

@@ -245,9 +245,8 @@ export class Node {
 	}
 
 	// Clear target (matches PHP Node::disconnect_node). Tee overrides to prune
-	// one entry from its fan-out array.
-	// eslint-disable-next-line no-unused-vars
-	disconnectNode( target = '' ) {
+	// one entry from its fan-out array (hence the parity param the base ignores).
+	disconnectNode( _target = '' ) {
 		this.target = '';
 	}
 

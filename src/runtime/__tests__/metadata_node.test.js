@@ -47,7 +47,6 @@ describe( 'Metadata node', () => {
 	it( 'unwraps a {name,payload} command-response envelope', () => {
 		const node = new Metadata();
 		node.fill(
-			// eslint-disable-next-line no-bitwise
 			msg( TM_COMMAND | TM_RESPONSE, {
 				name: 'dump_metadata',
 				payload: { n1: { class: 'Echo', counter: 7, target: '' } },

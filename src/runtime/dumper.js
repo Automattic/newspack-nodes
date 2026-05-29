@@ -26,7 +26,6 @@ import {
 
 export const TRANSCRIPT_MAX = 200;
 
-// eslint-disable-next-line no-bitwise
 const has = ( type, flag ) => ( type & flag ) !== 0;
 
 const TM_LABELS = [

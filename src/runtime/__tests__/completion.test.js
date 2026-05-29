@@ -59,7 +59,6 @@ describe( 'Completion node', () => {
 	it( 'splits a newline-separated payload into a candidates array', () => {
 		const node = new Completion();
 		node.fill(
-			// eslint-disable-next-line no-bitwise
 			msg( TM_COMMAND | TM_RESPONSE, {
 				name: 'help',
 				payload: 'connect\nconnect_node\ndump_node',

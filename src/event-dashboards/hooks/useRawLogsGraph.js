@@ -1,4 +1,3 @@
-/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
  * useRawLogsGraph — mounts the Raw Logs dashboard node graph onto the canonical
  * rule-#2 backbone (`_command_interpreter → _router`) using the substrate's

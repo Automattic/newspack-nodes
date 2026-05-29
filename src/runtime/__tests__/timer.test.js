@@ -13,7 +13,6 @@ test( 'setInterval schedules fire() at the configured interval', () => {
 	jest.advanceTimersByTime( 350 );
 	expect( sent ).toHaveLength( 3 );
 	for ( const m of sent ) {
-		// eslint-disable-next-line no-bitwise
 		expect( m[ TYPE ] & TM_INFO ).toBeTruthy();
 		expect( typeof m[ VALUE ] ).toBe( 'number' );
 	}

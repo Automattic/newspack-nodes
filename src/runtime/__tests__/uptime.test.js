@@ -35,7 +35,6 @@ describe( 'Uptime node', () => {
 	it( 'unwraps a {name,payload} command-response envelope', () => {
 		const node = new Uptime();
 		node.fill(
-			// eslint-disable-next-line no-bitwise
 			msg( TM_COMMAND | TM_RESPONSE, {
 				name: 'uptime',
 				payload: '12:00:00  up 5 days, 02:03:04',

@@ -45,7 +45,6 @@ test( 'empty TO is not forwarded to a sink — it yields NOT_AVAILABLE', () => {
 	r.fill( m );
 
 	expect( got ).toHaveLength( 1 );
-	// eslint-disable-next-line no-bitwise
 	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
 	expect( got[ 0 ][ VALUE ] ).toMatch( /NOT_AVAILABLE/ );
 } );
@@ -66,7 +65,6 @@ test( 'unknown TO head yields NOT_AVAILABLE error walked back to FROM', () => {
 	r.fill( m );
 
 	expect( got ).toHaveLength( 1 );
-	// eslint-disable-next-line no-bitwise
 	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
 	expect( got[ 0 ][ ID ] ).toBe( 'cmd-42' );
 	expect( got[ 0 ][ VALUE ] ).toMatch( /NOT_AVAILABLE/ );

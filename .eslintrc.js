@@ -21,11 +21,31 @@ module.exports = {
 			'error',
 			{ allowedTextDomain: [ 'newspack-nodes' ] },
 		],
+		// The 7-field Message TYPE is a bitmask (Tachikoma convention:
+		// TM_BYTESTREAM, TM_EOF, …); `&`/`|` on it are idiomatic, not a smell.
+		'no-bitwise': 'off',
+		// warn/error are legitimate logging (the runtime's stderr sink is the
+		// browser console); still flag stray console.log/debug/info.
+		'no-console': [ 'error', { allow: [ 'warn', 'error' ] } ],
+		// `_`-prefixed args are intentionally unused (signature/override parity).
+		'no-unused-vars': [
+			'error',
+			{ ignoreRestSiblings: true, argsIgnorePattern: '^_' },
+		],
 	},
 	overrides: [
 		{
 			files: [ '**/@(test|__tests__)/**/*.js', '**/?(*.)test.js' ],
 			extends: [ 'plugin:@wordpress/eslint-plugin/test-unit' ],
+		},
+		{
+			// Build/CLI scripts run under Node and legitimately log to the console.
+			files: [ 'scripts/**/*.mjs' ],
+			env: { node: true },
+			rules: {
+				'no-console': 'off',
+				'jsdoc/require-param': 'off',
+			},
 		},
 	],
 	settings: {

@@ -57,7 +57,6 @@ describe( 'renderMessage', () => {
 	} );
 
 	it( 'unwraps TM_COMMAND|TM_RESPONSE payload as recv', () => {
-		// eslint-disable-next-line no-bitwise
 		const t = TM_COMMAND | TM_RESPONSE;
 		expect(
 			renderMessage( msg( t, { name: 'ls', payload: 'ls result' } ) )
@@ -65,14 +64,12 @@ describe( 'renderMessage', () => {
 	} );
 
 	it( 'drops TM_COMMAND|TM_RESPONSE with empty payload', () => {
-		// eslint-disable-next-line no-bitwise
 		const t = TM_COMMAND | TM_RESPONSE;
 		expect( renderMessage( msg( t, { payload: '' } ) ) ).toBeNull();
 		expect( renderMessage( msg( t, null ) ) ).toBeNull();
 	} );
 
 	it( 'unwraps TM_COMMAND|TM_ERROR as error', () => {
-		// eslint-disable-next-line no-bitwise
 		const t = TM_COMMAND | TM_ERROR;
 		expect(
 			renderMessage( msg( t, { name: 'x', payload: 'bad arg' } ) )
@@ -129,7 +126,6 @@ describe( 'renderMessage', () => {
 	it( 'renders a structured TM_COMMAND|TM_RESPONSE payload as JSON (not dropped)', () => {
 		// dump_node's reply payload is a structure (de-double-encoded verbs), so
 		// it must render as JSON, not get dropped for being non-string.
-		// eslint-disable-next-line no-bitwise
 		const t = TM_COMMAND | TM_RESPONSE;
 		const out = renderMessage(
 			msg( t, { name: 'dump_node', payload: { sink: 'x', counter: 3 } } )
@@ -152,7 +148,6 @@ describe( 'renderMessage', () => {
 
 describe( 'formatTypeLabel + stringifyValue', () => {
 	it( 'pipe-joins combined flags', () => {
-		// eslint-disable-next-line no-bitwise
 		expect( formatTypeLabel( TM_COMMAND | TM_RESPONSE ) ).toBe(
 			'TM_COMMAND | TM_RESPONSE'
 		);
@@ -211,7 +206,6 @@ describe( 'Dumper node — transcript', () => {
 
 	it( 'renders a dump_node structured reply as JSON, not [object Object]', () => {
 		const { dumper } = makeDumper();
-		// eslint-disable-next-line no-bitwise
 		const t = TM_COMMAND | TM_RESPONSE;
 		dumper.fill(
 			msg( t, { name: 'dump_node', payload: { sink: 'x', counter: 3 } } )

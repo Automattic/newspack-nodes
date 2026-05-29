@@ -1,4 +1,3 @@
-/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
  * WorkerStatus integration test — the REAL workerstatus graph driving the REAL
  * thin view. Only the I/O boundary is faked (a CommandClient double assigned to

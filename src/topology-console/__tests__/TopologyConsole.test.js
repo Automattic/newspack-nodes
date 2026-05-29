@@ -222,13 +222,10 @@ jest.mock( '../hooks/useDeleteTopology', () => ( {
 	useDeleteTopology: () => globalThis.__hooks.deleteTopology,
 } ) );
 // Capture canvas + inspector props so tests can invoke any threaded handler.
-// eslint-disable-next-line no-unused-vars
 let lastCanvasProps = null;
-// eslint-disable-next-line no-unused-vars
 let lastInspectorProps = null;
 let lastHeaderProps = null;
 jest.mock( '../components/SchematicCanvas', () => {
-	// eslint-disable-next-line global-require
 	const { useEffect } = require( '@wordpress/element' );
 	return ( props ) => {
 		lastCanvasProps = props;
@@ -510,10 +507,7 @@ jest.mock( '../components/ReplFooter', () => ( props ) => {
 		</footer>
 	);
 } );
-// eslint-disable-next-line no-unused-vars
-let lastCanvasFrameProps = null;
 jest.mock( '../components/CanvasFrame', () => ( props ) => {
-	lastCanvasFrameProps = props;
 	return (
 		<div data-testid="canvas-frame">
 			{ props.onSaveLayout && (
@@ -878,7 +872,6 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'Dumper: TM_COMMAND|TM_RESPONSE unwraps payload', async () => {
 		const { container } = render( <TopologyConsole /> );
-		// eslint-disable-next-line no-bitwise
 		const t = TM_COMMAND | TM_RESPONSE;
 		await fireMsg( {
 			type: t,
@@ -896,7 +889,6 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'Dumper: TM_COMMAND|TM_RESPONSE with empty payload is dropped', async () => {
 		const { container } = render( <TopologyConsole /> );
-		// eslint-disable-next-line no-bitwise
 		const t = TM_COMMAND | TM_RESPONSE;
 		await fireMsg( { type: t, value: { payload: '' } } );
 		await fireMsg( { type: t, value: null } );
@@ -908,7 +900,6 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'Dumper: a structured dump_node reply renders as JSON, not [object Object]', async () => {
 		const { container } = render( <TopologyConsole /> );
-		// eslint-disable-next-line no-bitwise
 		const t = TM_COMMAND | TM_RESPONSE;
 		await fireMsg( {
 			type: t,
@@ -927,7 +918,6 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'Dumper: TM_COMMAND|TM_ERROR unwraps as error', async () => {
 		const { container } = render( <TopologyConsole /> );
-		// eslint-disable-next-line no-bitwise
 		const t = TM_COMMAND | TM_ERROR;
 		await fireMsg( { type: t, value: { name: 'x', payload: 'bad arg' } } );
 		const items = container.querySelectorAll(
@@ -1005,7 +995,6 @@ describe( 'TopologyConsole boot', () => {
 	it( 'reply TO=_metadata with a {name,payload} envelope feeds the canvas', async () => {
 		const { getByTestId } = render( <TopologyConsole /> );
 		await fireMsg( {
-			// eslint-disable-next-line no-bitwise
 			type: TM_COMMAND | TM_RESPONSE,
 			to: names.METADATA,
 			value: {
@@ -2619,7 +2608,32 @@ describe( 'TopologyConsole boot', () => {
 		expect( lastHeaderProps.mode ).toBe( 'edit' );
 	} );
 
-	it( 'handleDelete: confirmed delete removes via deleteTopology', async () => {
+	it( 'handleDelete: opens a ConfirmModal naming the topology (no immediate delete)', async () => {
+		hooks.topologies = [ { name: 'demo', source: 'user' } ];
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: '',
+			name: 'demo',
+		} );
+		hooks.deleteTopology.mockClear();
+		try {
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			const { getByText, queryByTestId } = render( <TopologyConsole /> );
+			await act( async () => {
+				fireEvent.click( getByText( 'edit' ) );
+			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'delete' ) );
+			} );
+			// Modal mounts; delete is deferred until the user confirms.
+			expect( queryByTestId( 'confirm-modal' ) ).not.toBeNull();
+			expect( globalThis.__lastConfirmModal.body ).toContain( 'demo' );
+			expect( hooks.deleteTopology ).not.toHaveBeenCalled();
+		} finally {
+			hooks.topologies = [];
+		}
+	} );
+
+	it( 'handleDelete: confirming the modal removes via deleteTopology + toasts', async () => {
 		hooks.topologies = [ { name: 'demo', source: 'user' } ];
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: '',
@@ -2628,46 +2642,53 @@ describe( 'TopologyConsole boot', () => {
 		hooks.deleteTopology.mockResolvedValueOnce( {
 			stock_fallback: false,
 		} );
-		const originalConfirm = window.confirm;
-		window.confirm = () => true;
 		try {
 			window.history.replaceState( {}, '', '/?topology=demo' );
-			const { container, getByText } = render( <TopologyConsole /> );
+			const { container, getByText, queryByTestId } = render(
+				<TopologyConsole />
+			);
 			await act( async () => {
 				fireEvent.click( getByText( 'edit' ) );
 			} );
 			await act( async () => {
 				fireEvent.click( getByText( 'delete' ) );
 			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'confirm' ) );
+			} );
+			expect( hooks.deleteTopology ).toHaveBeenCalledWith( {
+				name: 'demo',
+			} );
+			expect( queryByTestId( 'confirm-modal' ) ).toBeNull();
 			const toast = container.querySelector( '.topology-toast--success' );
 			expect( toast ).not.toBeNull();
 		} finally {
-			window.confirm = originalConfirm;
 			hooks.topologies = [];
 		}
 	} );
 
-	it( 'handleDelete: window.confirm cancel skips delete', async () => {
+	it( 'handleDelete: cancelling the modal skips delete + closes the modal', async () => {
 		hooks.topologies = [ { name: 'demo', source: 'user' } ];
 		hooks.fetchTopology.mockResolvedValueOnce( {
 			tsl: '',
 			name: 'demo',
 		} );
 		hooks.deleteTopology.mockClear();
-		const originalConfirm = window.confirm;
-		window.confirm = () => false;
 		try {
 			window.history.replaceState( {}, '', '/?topology=demo' );
-			const { getByText } = render( <TopologyConsole /> );
+			const { getByText, queryByTestId } = render( <TopologyConsole /> );
 			await act( async () => {
 				fireEvent.click( getByText( 'edit' ) );
 			} );
 			await act( async () => {
 				fireEvent.click( getByText( 'delete' ) );
 			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'cancel-confirm' ) );
+			} );
 			expect( hooks.deleteTopology ).not.toHaveBeenCalled();
+			expect( queryByTestId( 'confirm-modal' ) ).toBeNull();
 		} finally {
-			window.confirm = originalConfirm;
 			hooks.topologies = [];
 		}
 	} );
@@ -2681,8 +2702,6 @@ describe( 'TopologyConsole boot', () => {
 		hooks.deleteTopology.mockRejectedValueOnce( {
 			message: 'denied',
 		} );
-		const originalConfirm = window.confirm;
-		window.confirm = () => true;
 		try {
 			window.history.replaceState( {}, '', '/?topology=demo' );
 			const { container, getByText } = render( <TopologyConsole /> );
@@ -2692,10 +2711,12 @@ describe( 'TopologyConsole boot', () => {
 			await act( async () => {
 				fireEvent.click( getByText( 'delete' ) );
 			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'confirm' ) );
+			} );
 			const toast = container.querySelector( '.topology-toast--error' );
 			expect( toast ).not.toBeNull();
 		} finally {
-			window.confirm = originalConfirm;
 			hooks.topologies = [];
 		}
 	} );

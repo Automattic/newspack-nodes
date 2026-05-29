@@ -214,7 +214,6 @@ async function main() {
 		ENTRIES.map( ( e ) => buildEntry( e.entry, e.outDir ) )
 	);
 	for ( const r of results ) {
-		// eslint-disable-next-line no-console -- build script log line.
 		console.log(
 			`✓ ${ r.entry } → ${ path.relative( ROOT, r.outDir ) } [deps: ${
 				r.handles.join( ', ' ) || '(none)'
@@ -224,7 +223,6 @@ async function main() {
 }
 
 main().catch( ( err ) => {
-	// eslint-disable-next-line no-console -- build script failure log.
 	console.error( err );
 	process.exit( 1 );
 } );
