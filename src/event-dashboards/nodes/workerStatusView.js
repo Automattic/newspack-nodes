@@ -1,4 +1,3 @@
-/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 import { Node } from '../../runtime/node';
 import { ID, TYPE, VALUE, TM_ERROR } from '../../runtime/message';
 

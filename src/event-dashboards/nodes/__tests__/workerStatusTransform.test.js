@@ -1,4 +1,3 @@
-/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
  * workerstatus:transform tests — the stateful transform that turns a raw
  * `dump_metadata` reply (VALUE=`{ name, payload }`, payload=the snapshot) into

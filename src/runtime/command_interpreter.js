@@ -133,7 +133,6 @@ export class CommandInterpreter extends Node {
 		const type = message[ TYPE ];
 
 		// TM_PING / TM_EOF with empty TO bounce back along FROM (RTT / drain).
-		// eslint-disable-next-line no-bitwise
 		if ( type & ( TM_PING | TM_EOF ) && message[ TO ] === '' ) {
 			message[ TO ] = message[ FROM ];
 			if ( this.sink ) {
@@ -142,7 +141,6 @@ export class CommandInterpreter extends Node {
 			return;
 		}
 
-		// eslint-disable-next-line no-bitwise
 		const isCommand = type & TM_COMMAND && ! ( type & TM_RESPONSE );
 		if ( ! isCommand || message[ TO ] !== '' ) {
 			if ( this.sink ) {
@@ -201,7 +199,6 @@ export class CommandInterpreter extends Node {
 			return;
 		}
 		const resp = newMessage();
-		// eslint-disable-next-line no-bitwise
 		resp[ TYPE ] = TM_COMMAND | kind;
 		resp[ TIMESTAMP ] = Core.now();
 		resp[ FROM ] = this.name;

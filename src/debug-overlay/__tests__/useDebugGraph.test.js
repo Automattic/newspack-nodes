@@ -30,7 +30,6 @@ describe( 'useDebugGraph', () => {
 		// With Metadata mounted, the hook reads the parsed graph from
 		// useNodeState(_metadata, 'metadata').
 		const { teardown } = mountExospine();
-		// eslint-disable-next-line no-unused-vars
 		const { Metadata } = require( '../../runtime/metadata' );
 		const metadata = new Metadata();
 		metadata.setName( names.METADATA );

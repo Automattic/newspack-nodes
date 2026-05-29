@@ -287,6 +287,9 @@ export default function TopologyConsole() {
 	// NewNodeModal renders until commit/cancel.
 	const [ pendingDrop, setPendingDrop ] = useState( null );
 	const [ saveModal, setSaveModal ] = useState( null );
+	// Pending topology-delete confirmation: `{ name }` while the ConfirmModal
+	// is up, null otherwise. The actual delete runs in the modal's onConfirm.
+	const [ deleteModal, setDeleteModal ] = useState( null );
 	const [ openModalShown, setOpenModalShown ] = useState( false );
 	const [ toast, setToast ] = useState( null );
 	const [ theme, setThemeState ] = useState( readStoredTheme );
@@ -737,7 +740,6 @@ export default function TopologyConsole() {
 	// commits against FRESH data.
 	useEffect( () => {
 		Core.node( names.METADATA )?.setState( 'metadata', null );
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [ scope.key ] );
 
 	const dispatchStatement = useCallback(
@@ -1230,26 +1232,22 @@ export default function TopologyConsole() {
 		[ mode, editingName, editingSource ]
 	);
 
-	const handleDelete = useCallback( async () => {
+	// Stage the delete; the ConfirmModal's onConfirm does the real work.
+	const handleDelete = useCallback( () => {
 		if ( ! editingName ) {
 			return;
 		}
-		// eslint-disable-next-line no-alert -- intentional confirm; this is a destructive action.
-		const ok = window.confirm(
-			sprintf(
-				// translators: %s: topology name.
-				__(
-					'Delete user-saved topology "%s"? Stock copy (if any) will become the active version.',
-					'newspack-nodes'
-				),
-				editingName
-			)
-		);
-		if ( ! ok ) {
+		setDeleteModal( { name: editingName } );
+	}, [ editingName ] );
+
+	const confirmDelete = useCallback( async () => {
+		const name = deleteModal?.name;
+		setDeleteModal( null );
+		if ( ! name ) {
 			return;
 		}
 		try {
-			const resp = await deleteTopology( { name: editingName } );
+			const resp = await deleteTopology( { name } );
 			setToast( {
 				kind: 'success',
 				text: resp.stock_fallback
@@ -1259,12 +1257,12 @@ export default function TopologyConsole() {
 								'Deleted user copy of %s; stock copy now active.',
 								'newspack-nodes'
 							),
-							editingName
+							name
 					  )
 					: sprintf(
 							// translators: %s: topology name.
 							__( 'Deleted %s.', 'newspack-nodes' ),
-							editingName
+							name
 					  ),
 			} );
 			topologyList.reload();
@@ -1279,7 +1277,7 @@ export default function TopologyConsole() {
 				__( 'Delete failed', 'newspack-nodes' );
 			setToast( { kind: 'error', text: msg } );
 		}
-	}, [ editingName, deleteTopology, topologyList ] );
+	}, [ deleteModal, deleteTopology, topologyList ] );
 
 	const handleOpenPick = useCallback(
 		async ( name ) => {
@@ -1496,7 +1494,6 @@ export default function TopologyConsole() {
 		},
 		// sendLine is consumed by commitPendingDrop (below), not this callback —
 		// live-mode drop just stages pendingDrop now.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[ mode, parsed, handlePositionChange, catalog?.classes ]
 	);
 
@@ -1637,6 +1634,24 @@ export default function TopologyConsole() {
 					danger
 					onConfirm={ discardModal.onConfirm }
 					onCancel={ discardModal.onCancel }
+				/>
+			) }
+			{ deleteModal && (
+				<ConfirmModal
+					title={ __( 'Delete topology?', 'newspack-nodes' ) }
+					body={ sprintf(
+						// translators: %s: topology name.
+						__(
+							'Delete user-saved topology "%s"? Stock copy (if any) will become the active version.',
+							'newspack-nodes'
+						),
+						deleteModal.name
+					) }
+					confirmLabel={ __( 'Delete', 'newspack-nodes' ) }
+					cancelLabel={ __( 'Cancel', 'newspack-nodes' ) }
+					danger
+					onConfirm={ confirmDelete }
+					onCancel={ () => setDeleteModal( null ) }
 				/>
 			) }
 			{ saveModal && (

@@ -275,6 +275,38 @@ describe( 'ReplFooter', () => {
 		expect( transcript.style.height ).toBe( '250px' );
 	} );
 
+	it( 'ArrowUp/ArrowDown on the resize handle grows/shrinks the transcript', () => {
+		window.localStorage.setItem(
+			'newspack-nodes:topology-console:repl-height',
+			'250'
+		);
+		const { container } = render(
+			<ReplFooter { ...baseProps } expanded />
+		);
+		const handle = container.querySelector(
+			'.topology-repl__resize-handle'
+		);
+		const transcript = container.querySelector(
+			'.topology-repl__transcript'
+		);
+		// ArrowUp grows the pane by one step (20px).
+		fireEvent.keyDown( handle, { key: 'ArrowUp' } );
+		expect( transcript.style.height ).toBe( '270px' );
+		// ArrowDown shrinks it back.
+		fireEvent.keyDown( handle, { key: 'ArrowDown' } );
+		expect( transcript.style.height ).toBe( '250px' );
+	} );
+
+	it( 'the resize handle is keyboard-focusable', () => {
+		const { container } = render(
+			<ReplFooter { ...baseProps } expanded />
+		);
+		const handle = container.querySelector(
+			'.topology-repl__resize-handle'
+		);
+		expect( handle.tabIndex ).toBe( 0 );
+	} );
+
 	it( 'transcript click does not re-focus when there is an active text selection', () => {
 		const transcript = [ { key: 1, kind: 'recv', text: 'output' } ];
 		const { container } = render(

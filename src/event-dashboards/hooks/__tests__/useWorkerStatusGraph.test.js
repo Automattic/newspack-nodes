@@ -1,4 +1,3 @@
-/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
  * useWorkerStatusGraph tests — the Worker Status dashboard graph clipped onto
  * the substrate's I/O boundary nodes (exospine + `_http`) plus the

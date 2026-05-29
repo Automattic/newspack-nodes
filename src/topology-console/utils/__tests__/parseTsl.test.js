@@ -61,7 +61,6 @@ describe( 'parseTsl', () => {
 	} );
 
 	it( 'round-trips with serializeTsl for a non-trivial graph', () => {
-		// eslint-disable-next-line global-require
 		const { serializeTsl } = require( '../serializeTsl' );
 		const original = {
 			nodes: [

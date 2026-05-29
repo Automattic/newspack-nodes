@@ -28,7 +28,6 @@ describe( 'Shell.sendCommand', () => {
 
 		expect( captured.length ).toBe( 1 );
 		const m = captured[ 0 ];
-		// eslint-disable-next-line no-bitwise
 		expect( m[ TYPE ] & TM_COMMAND ).toBe( TM_COMMAND );
 		expect( m[ TO ] ).toBe( 'some/path' );
 		expect( m[ FROM ] ).toBe( names.OUTPUT );

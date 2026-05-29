@@ -110,7 +110,6 @@ describe( 'Heartbeat node', () => {
 		it( 'consumes a heartbeat reply without publishing to any transcript', () => {
 			const node = new Heartbeat();
 			const m = newMessage();
-			// eslint-disable-next-line no-bitwise
 			m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
 			m[ VALUE ] = {
 				name: 'heartbeat',

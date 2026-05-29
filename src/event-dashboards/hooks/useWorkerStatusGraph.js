@@ -1,5 +1,4 @@
 /* global localStorage */
-/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
  * useWorkerStatusGraph — mounts the Worker Status dashboard graph clipped onto
  * the canonical rule-#2 backbone (`_command_interpreter → _router`) using the

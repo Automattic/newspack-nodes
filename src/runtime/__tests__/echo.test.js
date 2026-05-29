@@ -26,7 +26,6 @@ test( 'drops TM_ERROR with empty TO (no return path)', () => {
 	const sent = [];
 	e.sink = { fill: ( m ) => sent.push( m ) };
 	const m = newMessage();
-	// eslint-disable-next-line no-bitwise
 	m[ TYPE ] = TM_ERROR;
 	m[ FROM ] = '';
 	m[ TO ] = '';
@@ -39,7 +38,6 @@ test( 'TM_ERROR with non-empty FROM still bounces (the error has a return path)'
 	const sent = [];
 	e.sink = { fill: ( m ) => sent.push( m ) };
 	const m = newMessage();
-	// eslint-disable-next-line no-bitwise
 	m[ TYPE ] = TM_ERROR;
 	m[ FROM ] = 'alpha';
 	m[ TO ] = '';

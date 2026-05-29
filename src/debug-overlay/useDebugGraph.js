@@ -30,7 +30,6 @@ const EMPTY_GRAPH = { nodes: [], edges: [] };
  * @return {{ graph: { nodes: Array, edges: Array }, handlers: Object }} The live graph and gesture handlers.
  */
 export function useDebugGraph(
-	// eslint-disable-next-line no-unused-vars -- API parity (subscription is naturally inert when no _metadata)
 	_active = true,
 	shell,
 	catalogClasses = [],
@@ -124,7 +123,6 @@ export function useDebugGraph(
 		} ),
 		// onPositionChange is consumed by commitDrop (below), not by any
 		// handler in this useMemo — onDropNode just stages pendingDrop.
-		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[ shell, graph, catalogClasses ]
 	);
 

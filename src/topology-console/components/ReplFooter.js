@@ -28,6 +28,7 @@ const STATUS_LABELS = {
 // Transcript pane sizing; default 20% of canvas, drag-resizable, persisted.
 const HEIGHT_STORAGE_KEY = 'newspack-nodes:topology-console:repl-height';
 const HEIGHT_MIN_PX = 80;
+const RESIZE_STEP_PX = 20; // Keyboard ArrowUp/ArrowDown nudge for the resize handle.
 const FIXED_CHROME_PX = 134; // 32 (WP admin bar) + 64 (header) + 38 (bar)
 function defaultHeight() {
 	if ( typeof window === 'undefined' ) {
@@ -94,13 +95,16 @@ export default function ReplFooter( {
 	// also a Tab — i.e. on the 2nd+ press of a run — whether or not the first
 	// press extended the token.
 	const tabStreak = useRef( 0 );
-	const setExpanded = ( next ) => {
-		if ( onExpandedChange ) {
-			onExpandedChange(
-				typeof next === 'function' ? next( expanded ) : next
-			);
-		}
-	};
+	const setExpanded = useCallback(
+		( next ) => {
+			if ( onExpandedChange ) {
+				onExpandedChange(
+					typeof next === 'function' ? next( expanded ) : next
+				);
+			}
+		},
+		[ onExpandedChange, expanded ]
+	);
 	const logRef = useRef( null );
 	const internalInputRef = useRef( null );
 	const inputRef = externalInputRef ?? internalInputRef;
@@ -152,8 +156,7 @@ export default function ReplFooter( {
 		};
 		document.addEventListener( 'keydown', handler );
 		return () => document.removeEventListener( 'keydown', handler );
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ expanded ] );
+	}, [ expanded, setExpanded, inputRef ] );
 
 	// `/` focuses the REPL input (skipped while typing in an editable element).
 	useEffect( () => {
@@ -177,8 +180,7 @@ export default function ReplFooter( {
 		};
 		document.addEventListener( 'keydown', handler );
 		return () => document.removeEventListener( 'keydown', handler );
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [] );
+	}, [ setExpanded, inputRef ] );
 
 	// Double-click the resize handle toggles the transcript between its
 	// max ceiling (visually like dragging it to the top) and the default
@@ -233,6 +235,27 @@ export default function ReplFooter( {
 			document.addEventListener( 'mouseup', onUp );
 		},
 		[ height, maxHeightPx ]
+	);
+
+	// Keyboard resize: ArrowUp/ArrowDown nudge the pane by RESIZE_STEP_PX,
+	// clamped to the same [HEIGHT_MIN_PX, ceiling] bounds as the drag.
+	const handleResizeKeyDown = useCallback(
+		( ev ) => {
+			if ( ev.key !== 'ArrowUp' && ev.key !== 'ArrowDown' ) {
+				return;
+			}
+			ev.preventDefault();
+			const ceiling = maxHeightPx ?? maxHeight();
+			const delta =
+				ev.key === 'ArrowUp' ? RESIZE_STEP_PX : -RESIZE_STEP_PX;
+			setHeight( ( h ) =>
+				Math.min(
+					Math.max( HEIGHT_MIN_PX, ceiling ),
+					Math.max( HEIGHT_MIN_PX, h + delta )
+				)
+			);
+		},
+		[ maxHeightPx ]
 	);
 
 	// Clamp existing height down if the ceiling shrinks (panel resized smaller).
@@ -306,8 +329,7 @@ export default function ReplFooter( {
 		if ( tabStreak.current >= 2 && onShowCandidates ) {
 			onShowCandidates( matches );
 		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ completion ] );
+	}, [ completion, value, onShowCandidates ] );
 
 	function handleKeyDown( ev ) {
 		// Any key other than Tab (modifiers excepted) breaks a Tab run, so the
@@ -407,11 +429,12 @@ export default function ReplFooter( {
 		>
 			{ showTranscript && (
 				<>
-					{ /* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions */ }
 					<div
 						className="topology-repl__resize-handle"
 						onMouseDown={ handleResizeStart }
 						onDoubleClick={ handleResizeDoubleClick }
+						onKeyDown={ handleResizeKeyDown }
+						tabIndex={ 0 }
 						title={ __(
 							'Drag to resize transcript',
 							'newspack-nodes'
@@ -420,16 +443,24 @@ export default function ReplFooter( {
 							'Resize transcript',
 							'newspack-nodes'
 						) }
-						role="separator"
-						aria-orientation="horizontal"
+						// A draggable, Arrow-key-operable splitter is a one-axis slider;
+						// ArrowUp/ArrowDown adjust height, so the axis is vertical.
+						role="slider"
+						aria-orientation="vertical"
+						aria-valuemin={ HEIGHT_MIN_PX }
+						aria-valuemax={ Math.max(
+							HEIGHT_MIN_PX,
+							maxHeightPx ?? maxHeight()
+						) }
+						aria-valuenow={ height }
 						// Sibling of the transcript so it stays anchored to the top edge.
 						style={ { bottom: `${ height + 38 - 3 }px` } }
 					/>
-					{ /* eslint-disable-next-line jsx-a11y/no-static-element-interactions, jsx-a11y/click-events-have-key-events */ }
 					<div
 						className="topology-repl__transcript"
 						ref={ logRef }
 						onClick={ handleTranscriptClick }
+						role="presentation"
 						style={ { height: `${ height }px` } }
 					>
 						<div className="topology-repl__actions">

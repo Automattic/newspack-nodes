@@ -1,4 +1,3 @@
-/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
  * Tests for unwrapCommandResponse — extracts the verb payload from the
  * raw 7-field Message array (VALUE is already the `{ name, payload }` object).

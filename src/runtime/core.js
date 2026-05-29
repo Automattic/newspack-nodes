@@ -94,7 +94,6 @@ class CoreImpl {
 		while ( this.recentLog.length > RECENT_LOG_MAX ) {
 			this.recentLog.shift();
 		}
-		// eslint-disable-next-line no-console
 		console.warn( line.replace( /\n$/, '' ) );
 		// Also surface at the REPL: fan the formatted line to whichever reply sink
 		// this graph wired — `_repl` (worker output partition) else `_output` (the

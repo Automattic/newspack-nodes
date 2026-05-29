@@ -177,24 +177,34 @@ describe( 'Inspector (view mode)', () => {
 		expect( onAction ).toHaveBeenCalledWith( 'dump', 'echo' );
 	} );
 
-	it( 'fires onAction("send", id, payload) when Send prompt is confirmed', () => {
+	it( 'opens a send modal and fires onAction("send", id, payload) when confirmed', () => {
 		const onAction = jest.fn();
-		const origPrompt = window.prompt;
-		window.prompt = () => 'hello';
-		const { getByText } = renderNode( { onAction } );
+		const { getByText, getByDisplayValue, container } = renderNode( {
+			onAction,
+		} );
 		fireEvent.click( getByText( 'Send' ) );
+		// A prompt modal appears with a text input.
+		const input = container.querySelector( '.topology-modal__input' );
+		expect( input ).not.toBeNull();
+		fireEvent.change( input, { target: { value: 'hello' } } );
+		fireEvent.click(
+			getByDisplayValue( 'hello' )
+				.closest( '.topology-modal' )
+				.querySelector( '.topology-modal__btn--primary' )
+		);
 		expect( onAction ).toHaveBeenCalledWith( 'send', 'echo', 'hello' );
-		window.prompt = origPrompt;
+		// Modal closes after confirm.
+		expect( container.querySelector( '.topology-modal' ) ).toBeNull();
 	} );
 
-	it( 'does not fire onAction when Send prompt is cancelled', () => {
+	it( 'does not fire onAction when the send modal is cancelled', () => {
 		const onAction = jest.fn();
-		const origPrompt = window.prompt;
-		window.prompt = () => null;
-		const { getByText } = renderNode( { onAction } );
+		const { getByText, container } = renderNode( { onAction } );
 		fireEvent.click( getByText( 'Send' ) );
+		expect( container.querySelector( '.topology-modal' ) ).not.toBeNull();
+		fireEvent.click( getByText( 'Cancel' ) );
 		expect( onAction ).not.toHaveBeenCalled();
-		window.prompt = origPrompt;
+		expect( container.querySelector( '.topology-modal' ) ).toBeNull();
 	} );
 
 	it( 'renders a Connect button on Tee nodes', () => {

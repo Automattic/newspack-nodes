@@ -1,4 +1,3 @@
-/* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 /**
  * Unwrap the raw Message array from CommandClient.send() into the verb's
  * payload. VALUE is already the structured `{ name, payload }` object (no parse).

@@ -77,7 +77,6 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	ci.fill( m );
 
 	expect( got ).toHaveLength( 1 );
-	// eslint-disable-next-line no-bitwise
 	expect( got[ 0 ][ TYPE ] & TM_RESPONSE ).toBeTruthy();
 	expect( got[ 0 ][ TO ] ).toBe( 'caller' );
 	expect( got[ 0 ][ ID ] ).toBe( 'cmd-1' );
@@ -116,7 +115,6 @@ test( 'verb throwing returns TM_COMMAND|TM_ERROR with the message', () => {
 	ci.fill( m );
 
 	expect( got ).toHaveLength( 1 );
-	// eslint-disable-next-line no-bitwise
 	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
 	expect( got[ 0 ][ VALUE ].payload ).toBe( 'boom' );
 } );
@@ -146,7 +144,6 @@ test( 'command without LOCAL provenance is refused (unauthorized), verb not run'
 
 	expect( ran ).toBe( false );
 	expect( got ).toHaveLength( 1 );
-	// eslint-disable-next-line no-bitwise
 	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
 	expect( got[ 0 ][ VALUE ].payload ).toContain( 'unauthorized' );
 } );
@@ -167,7 +164,6 @@ test( 'instance authorize override allows a command without LOCAL', () => {
 	m[ VALUE ] = { name: 'echo', arguments: '', payload: '' };
 	ci.fill( m );
 
-	// eslint-disable-next-line no-bitwise
 	expect( got[ 0 ][ TYPE ] & TM_RESPONSE ).toBeTruthy();
 	expect( got[ 0 ][ VALUE ].payload ).toBe( 'ok' );
 } );
@@ -196,7 +192,6 @@ test( 'static defaultAuthorize can refuse even with LOCAL set', () => {
 		m[ LOCAL ] = true;
 		ci.fill( m );
 		expect( ran ).toBe( false );
-		// eslint-disable-next-line no-bitwise
 		expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
 	} finally {
 		CommandInterpreter.defaultAuthorize = null;

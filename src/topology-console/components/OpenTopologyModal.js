@@ -19,9 +19,9 @@ function ModalShell( { title, onDismiss, children } ) {
 	}, [ onDismiss ] );
 
 	return (
-		// eslint-disable-next-line jsx-a11y/no-static-element-interactions -- backdrop click-to-dismiss; ESC handler attached above.
 		<div
 			className="topology-modal-backdrop"
+			role="presentation"
 			onMouseDown={ ( e ) => {
 				if ( e.target === e.currentTarget ) {
 					onDismiss();

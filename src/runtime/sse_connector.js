@@ -61,11 +61,7 @@ export class SseConnector extends Node {
 		this._es = new EventSource( url, { withCredentials: true } );
 		this._es.addEventListener( 'msg', ( e ) => {
 			const msg = unpack( e.data );
-			if (
-				// eslint-disable-next-line no-bitwise
-				msg[ TYPE ] & TM_INFO &&
-				'connected' === msg[ KEY ]
-			) {
+			if ( msg[ TYPE ] & TM_INFO && 'connected' === msg[ KEY ] ) {
 				// Snoop-only: the envelope drives pid()/the `connected` event; it is
 				// metadata, not a graph message — don't route it (it would land in
 				// the transcript).

@@ -390,7 +390,6 @@ describe( 'serializeTsl', () => {
 		} );
 
 		it( 'round-trips an interpreter verb through parseTsl (bare form)', () => {
-			// eslint-disable-next-line global-require
 			const { parseTsl } = require( '../parseTsl' );
 			const original = {
 				nodes: [
@@ -412,7 +411,6 @@ describe( 'serializeTsl', () => {
 		} );
 
 		it( 'round-trips a non-interpreter verb through parseTsl (:config form)', () => {
-			// eslint-disable-next-line global-require
 			const { parseTsl } = require( '../parseTsl' );
 			const original = {
 				nodes: [
@@ -437,9 +435,7 @@ describe( 'serializeTsl', () => {
 	} );
 
 	describe( 'reserved anchor (_repl)', () => {
-		// eslint-disable-next-line global-require
 		const { parseTsl } = require( '../parseTsl' );
-		// eslint-disable-next-line global-require
 		const { withReplAnchor } = require( '../draftGraph' );
 
 		it( 'emits no make_node for a reserved node', () => {
