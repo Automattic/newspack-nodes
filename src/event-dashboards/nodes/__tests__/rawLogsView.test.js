@@ -1,4 +1,12 @@
-import { VALUE, TYPE, TM_STRUCT, newMessage } from '../../../runtime/message';
+import {
+	FROM,
+	KEY,
+	VALUE,
+	TYPE,
+	TM_BYTESTREAM,
+	TM_STRUCT,
+	newMessage,
+} from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { createRawLogsView } from '../rawLogsView';
 
@@ -6,15 +14,20 @@ import { createRawLogsView } from '../rawLogsView';
 // so re-creating the same-named node doesn't collide (matches node.test.js).
 beforeEach( () => Core.reset() );
 
-// A row message from rawlogs:transform: TM_STRUCT carrying { p, line }.
-function rowMsg( line, p = 0 ) {
+// A raw SSE log envelope as it arrives at the view from `_sse` after the
+// route+transform chain was collapsed: the view itself shapes
+// envelope → `{ p, line }` row inline.
+function envelopeMsg( { from = 'firehose.p0', key = '', value = '' } = {} ) {
 	const m = newMessage();
-	m[ TYPE ] = TM_STRUCT;
-	m[ VALUE ] = { p, line };
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ FROM ] = from;
+	m[ KEY ] = key;
+	m[ VALUE ] = value;
 	return m;
 }
 
-// A control message: TM_STRUCT carrying { action, ... }.
+// A control message: TM_STRUCT carrying { action, ... }. Hook-minted; no
+// envelope metadata (no FROM/KEY).
 function controlMsg( payload ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_STRUCT;
@@ -22,37 +35,94 @@ function controlMsg( payload ) {
 	return m;
 }
 
-// The high-frequency buffer (rows) and LPS now live on the node instance
-// directly — _appendRow does NOT publish, so the React view reads node.lines /
-// node.lps at frame rate via the rAF, not per-row through setState.
+// --- Envelope-shaping branches inlined from the deleted rawlogs:transform. ---
+
+test( 'string VALUE passes through verbatim as the line content', () => {
+	const v = createRawLogsView( 'rawlogs:view' );
+	v.fill( envelopeMsg( { value: 'plain text' } ) );
+	expect( v.lines ).toHaveLength( 1 );
+	expect( v.lines[ 0 ].content ).toBe( 'plain text' );
+} );
+
+test( 'object VALUE is JSON-stringified into the line content', () => {
+	const v = createRawLogsView( 'rawlogs:view' );
+	v.fill( envelopeMsg( { value: { rid: 'abc', dur: 12.3 } } ) );
+	expect( v.lines[ 0 ].content ).toBe( '{"rid":"abc","dur":12.3}' );
+} );
+
+test( 'KEY is prepended to the line when non-empty', () => {
+	const v = createRawLogsView( 'rawlogs:view' );
+	v.fill( envelopeMsg( { key: 'abc-rid', value: { dur: 1 } } ) );
+	expect( v.lines[ 0 ].content ).toBe( 'abc-rid: {"dur":1}' );
+} );
+
+test( 'KEY prefix is omitted when KEY is empty', () => {
+	const v = createRawLogsView( 'rawlogs:view' );
+	v.fill( envelopeMsg( { key: '', value: { dur: 1 } } ) );
+	expect( v.lines[ 0 ].content ).toBe( '{"dur":1}' );
+} );
+
+test( 'lines longer than 1000 chars are clipped with a trailing ellipsis', () => {
+	const v = createRawLogsView( 'rawlogs:view' );
+	v.fill( envelopeMsg( { value: 'x'.repeat( 2000 ) } ) );
+	expect( v.lines[ 0 ].content.length ).toBe( 1003 );
+	expect( v.lines[ 0 ].content.endsWith( '...' ) ).toBe( true );
+} );
+
+test( 'partition is extracted from FROM stamp (`{sub}.pN`)', () => {
+	const v = createRawLogsView( 'rawlogs:view' );
+	v.fill( envelopeMsg( { from: 'firehose.p3', value: 'line' } ) );
+	expect( v.lines[ 0 ].partition ).toBe( 3 );
+} );
+
+test( 'partition defaults to 0 when FROM does not match `{sub}.pN`', () => {
+	const v = createRawLogsView( 'rawlogs:view' );
+	v.fill( envelopeMsg( { from: 'firehose', value: 'line' } ) );
+	expect( v.lines[ 0 ].partition ).toBe( 0 );
+} );
+
+test( 'an envelope with empty VALUE is dropped (no row appended)', () => {
+	const v = createRawLogsView( 'rawlogs:view' );
+	v.fill( envelopeMsg( { value: '' } ) );
+	expect( v.lines ).toHaveLength( 0 );
+} );
+
+test( 'an envelope with null VALUE is dropped', () => {
+	const v = createRawLogsView( 'rawlogs:view' );
+	v.fill( envelopeMsg( { value: null } ) );
+	expect( v.lines ).toHaveLength( 0 );
+} );
+
+// --- Existing buffer / control behavior, fed by raw envelopes now. ---
+
 test( 'appends rows newest-first and caps the buffer (node.lines, no publish)', () => {
 	const v = createRawLogsView( 'rawlogs:view' );
-	v.fill( rowMsg( 'line 0' ) );
-	v.fill( rowMsg( 'line 1' ) );
-	v.fill( rowMsg( 'line 2' ) );
-	expect( v.lines[ 0 ].content ).toBe( 'line 2' ); // newest first (unshift)
+	v.fill( envelopeMsg( { value: 'line 0' } ) );
+	v.fill( envelopeMsg( { value: 'line 1' } ) );
+	v.fill( envelopeMsg( { value: 'line 2' } ) );
+	expect( v.lines[ 0 ].content ).toBe( 'line 2' );
 	expect( v.lines ).toHaveLength( 3 );
 } );
 
 test( 'appending rows does NOT publish setState (no per-row React re-render)', () => {
 	const v = createRawLogsView( 'rawlogs:view' );
 	const spy = jest.spyOn( v, 'setState' );
-	v.fill( rowMsg( 'line 0' ) );
-	v.fill( rowMsg( 'line 1' ) );
+	v.fill( envelopeMsg( { value: 'line 0' } ) );
+	v.fill( envelopeMsg( { value: 'line 1' } ) );
 	expect( spy ).not.toHaveBeenCalled();
 } );
 
 test( 'pause stops appends; the model reflects paused', () => {
 	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );
-	v.fill( rowMsg( 'ignored' ) );
+	v.fill( envelopeMsg( { value: 'ignored' } ) );
 	expect( v.lines ).toHaveLength( 0 );
 	expect( v.setStateCache.view.paused ).toBe( true );
 } );
 
 test( 'select sets the log and clears the buffer', () => {
 	const v = createRawLogsView( 'rawlogs:view' );
-	v.fill( rowMsg( 'old' ) );
+	v.fill( envelopeMsg( { value: 'old' } ) );
 	v.fill( controlMsg( { action: 'select', log: 'errors' } ) );
 	expect( v.lines ).toHaveLength( 0 );
 	expect( v.setStateCache.view.selected ).toBe( 'errors' );
@@ -101,18 +171,18 @@ test( 'logs action does NOT override an already-selected log', () => {
 test( 'resume after pause lets rows through again', () => {
 	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );
-	v.fill( rowMsg( 'dropped' ) );
+	v.fill( envelopeMsg( { value: 'dropped' } ) );
 	v.fill( controlMsg( { action: 'pause', paused: false } ) );
-	v.fill( rowMsg( 'kept' ) );
+	v.fill( envelopeMsg( { value: 'kept' } ) );
 	expect( v.setStateCache.view.paused ).toBe( false );
 	expect( v.lines ).toHaveLength( 1 );
 	expect( v.lines[ 0 ].content ).toBe( 'kept' );
 } );
 
-test( 'rows carry the partition and an even/odd flag keyed off the counter', () => {
+test( 'rows carry the partition (from FROM) and an even/odd flag keyed off the counter', () => {
 	const v = createRawLogsView( 'rawlogs:view' );
-	v.fill( rowMsg( 'first', 2 ) ); // counter 1 → odd
-	v.fill( rowMsg( 'second', 3 ) ); // counter 2 → even
+	v.fill( envelopeMsg( { from: 'firehose.p2', value: 'first' } ) );
+	v.fill( envelopeMsg( { from: 'firehose.p3', value: 'second' } ) );
 	expect( v.lines[ 0 ] ).toMatchObject( {
 		partition: 3,
 		content: 'second',
@@ -127,14 +197,14 @@ test( 'rows carry the partition and an even/odd flag keyed off the counter', () 
 
 test( 'exposes a numeric lps on the node instance', () => {
 	const v = createRawLogsView( 'rawlogs:view' );
-	v.fill( rowMsg( 'a row' ) );
+	v.fill( envelopeMsg( { value: 'a row' } ) );
 	expect( typeof v.lps ).toBe( 'number' );
 } );
 
 test( 'select clears node.lps back to zero', () => {
 	const v = createRawLogsView( 'rawlogs:view' );
 	for ( let i = 0; i < 50; i++ ) {
-		v.fill( rowMsg( `row ${ i }` ) );
+		v.fill( envelopeMsg( { value: `row ${ i }` } ) );
 	}
 	v.fill( controlMsg( { action: 'select', log: 'errors' } ) );
 	expect( v.lps ).toBe( 0 );
@@ -142,7 +212,6 @@ test( 'select clears node.lps back to zero', () => {
 
 test( 'defaults connectionError to false in the published model', () => {
 	const v = createRawLogsView( 'rawlogs:view' );
-	// A control publishes the model; connectionError starts false.
 	v.fill( controlMsg( { action: 'pause', paused: false } ) );
 	expect( v.setStateCache.view.connectionError ).toBe( false );
 } );
@@ -160,9 +229,8 @@ test( 'a connection control sets connectionError true then false', () => {
 test( 'an unrelated control does not change connectionError', () => {
 	const v = createRawLogsView( 'rawlogs:view' );
 	v.fill( controlMsg( { action: 'connection', connectionError: true } ) );
-	// A pause control + a log row must leave connectionError untouched.
 	v.fill( controlMsg( { action: 'pause', paused: true } ) );
-	v.fill( rowMsg( 'ignored while paused' ) );
+	v.fill( envelopeMsg( { value: 'ignored while paused' } ) );
 	expect( v.connectionError ).toBe( true );
 	expect( v.setStateCache.view.connectionError ).toBe( true );
 } );

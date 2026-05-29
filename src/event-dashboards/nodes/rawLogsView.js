@@ -1,9 +1,11 @@
 /* eslint-disable no-bitwise -- TYPE field uses bitmask flags (Tachikoma convention). */
 import { Node } from '../../runtime/node';
-import { ID, TYPE, VALUE, TM_ERROR } from '../../runtime/message';
+import { FROM, ID, KEY, TYPE, VALUE, TM_ERROR } from '../../runtime/message';
 
 const MAX_LINES = 100000;
 const LPS_WINDOW_MS = 10000;
+const MAX_LINE_LENGTH = 1000;
+const PARTITION_RE = /\.p(\d+)$/;
 
 // Coerce a TM_ERROR payload (string / { message } / anything else) to a
 // human-readable string for the Error / view-model error field.
@@ -44,10 +46,11 @@ function _errorMessage( payload ) {
  *
  * `fill()` accepts three message shapes:
  * - a TM_COMMAND|TM_RESPONSE reply (VALUE.name): settled via the pending Map.
- * - a row (`VALUE = { p, line }` from `rawlogs:transform`): appended newest-first
- *   to a capped buffer (unless paused), updating lines/second.
  * - a control (`VALUE = { action, … }`): `select` (set + clear), `pause`, `logs`,
- *   `connection` (the SSE connection-status surface from the route).
+ *   `connection` (the SSE connection-status surface, hook-minted).
+ * - a raw SSE log envelope (anything else): shaped inline into `{ p, line }`
+ *   (logic inlined from the deleted `rawlogs:transform`) and appended newest-first
+ *   to a capped buffer (unless paused), updating lines/second.
  *
  * Buffer + LPS logic migrated verbatim from `RawLogs.js`.
  */
@@ -95,29 +98,57 @@ class RawLogsViewNode extends Node {
 			return;
 		}
 
-		if ( value && value.action ) {
-			// Control + catalog changes are the LOW-frequency path — publish so
-			// the dropdown / pause button / selected value re-render.
+		if ( value && 'object' === typeof value && value.action ) {
+			// Hook-minted control + catalog changes are the LOW-frequency path
+			// — publish so the dropdown / pause button / selected value re-render.
 			this._control( value );
 			this._publish();
-		} else if ( value ) {
-			// A log row is the HIGH-frequency path — update node.lines / node.lps
-			// only; the rAF reads them directly. Publishing here would re-render
-			// React per line and defeat the whole point.
-			this._appendRow( value );
+			return;
 		}
+
+		// Otherwise: a raw SSE log envelope. Shape envelope → `{ p, line }`
+		// inline (the work the deleted `rawlogs:transform` used to do) and
+		// append to the HIGH-frequency buffer the rAF reads off the node.
+		this._appendEnvelope( message );
 	}
 
-	// A row from rawlogs:transform: { p, line }. Newest-first, capped.
-	_appendRow( row ) {
+	// Shape a raw SSE log envelope into a row and append. Branches inlined
+	// verbatim from the deleted `transformLogLine` helper:
+	//   - empty/null/undefined VALUE → drop.
+	//   - object VALUE → JSON-stringify; string VALUE passes through.
+	//   - non-empty string KEY → prepend `${KEY}: `.
+	//   - clip to MAX_LINE_LENGTH + '...'.
+	//   - partition extracted from FROM stamp (`{sub}.pN`), default 0.
+	_appendEnvelope( message ) {
+		const value = message[ VALUE ];
+		if ( value === '' || value === null || value === undefined ) {
+			return;
+		}
+		let line = 'string' === typeof value ? value : JSON.stringify( value );
+		const key = message[ KEY ];
+		if ( 'string' === typeof key && '' !== key ) {
+			line = `${ key }: ${ line }`;
+		}
+		if ( line.length > MAX_LINE_LENGTH ) {
+			line = line.substring( 0, MAX_LINE_LENGTH ) + '...';
+		}
+		const from = String( message[ FROM ] || '' );
+		const match = from.match( PARTITION_RE );
+		const partition = match ? parseInt( match[ 1 ], 10 ) : 0;
+		this._appendRow( partition, line );
+	}
+
+	// Append a shaped row newest-first; capped. The rAF reads this off the
+	// node directly — no setState on the HIGH-frequency path.
+	_appendRow( partition, line ) {
 		if ( this.paused ) {
 			return;
 		}
 		this.lineCounter += 1;
 		this.lines.unshift( {
 			id: this.lineCounter,
-			partition: row.p,
-			content: row.line,
+			partition,
+			content: line,
 			isEven: this.lineCounter % 2 === 0,
 		} );
 		if ( this.lines.length > MAX_LINES ) {
