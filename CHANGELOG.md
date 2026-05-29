@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-05-29
+
+### Fixed
+
+- **`CLI::live_position()` was reading a cache key nothing writes.** Promoted the cursor-cache key format to a shared `Consumer_Node::POSITION_KEY_PREFIX` + a `position_key($host, $source_base_dir, $partition)` helper. All three callers — Consumer's writer, Workers_CI's dashboard reader, and CLI's `wp nodes status` reader — now use the helper. Previously `wp nodes status` always missed the cache and fell through to the on-disk offsetlog, showing a stale "Behind" column for live workers while the dashboard's Workers_CI showed fresh values.
+- **`Core::resolve_config_token` no longer silently returns `''`** for an unknown namespace OR a null/missing key. A typo in `<config:base_dir>` (vs `base_directory`) yielded empty string with zero diagnostic, silently corrupting paths. Now warns via `Core::stderr` for both cases; still returns `''` for back-compat.
+- **`make_node` no longer silently drops object args.** `array_filter( $ctor_args, '\is_scalar' )` is correct (object deps aren't round-trippable through `arguments()`), but a caller who passes `$cli` positionally instead of as a public property got no diagnostic. Now emits a rate-limited stderr warning naming the node type + name when objects are filtered out.
+- **Debug overlay REPL silently dropped wire commands on dashboards.** `DebugOverlay`'s `shell.sink` `useEffect` resolved `Core.node(COMMAND_INTERPRETER)` once with `[shell]` deps; if the dashboard's mount effect ordered after the overlay's first render, the lookup captured null and `shell.sink` stayed null forever. The `s.sink?.fill(parsed)` optional-chain in `useDebugRepl.dispatchStatement` then dropped every wire command without diagnostic — local builtins (echo, cd, status) worked but `ls`, `dump_node`, `connect_node`, etc. produced zero `/command` POSTs and zero feedback. Fix is two-part: (1) include the interpreter resolution in the effect deps so the bind re-fires when it appears later; (2) when `shell.sink` is null at dispatch the Array-branch surfaces a `Core.stderr` warning naming the dropped verb — `Core.stderr` (not `print_less_often`) so every occurrence is visible (this is a programmer-error class, not noise).
+
+### Added
+
+- **`/command` rate-limit per user** in `HTTP_In_Node`. `RATE_LIMIT_WINDOW_S = 1`, `RATE_LIMIT_BURST = 30` — ~6× the realistic dashboard peak (mount-time list fan-outs across classes/topologies/layouts/raw-logs/workers + REPL keystrokes). Configurable via `apply_filters( 'newspack_nodes/command_rate_limit', int $burst )` (floored at 1). Test-mode bypass via `public static HTTP_In_Node::$rate_limit_disabled` (closure-property test-seam pattern). Wired through a new `check_permission()` callback that runs `manage_options` FIRST, then rate-limit (so an unauthorized request gets a clean 401 vs. a 429). Mirrors `Spawn_Controller::check_rate_limit` shape with a counter-based rolling window instead of a single-timestamp cooldown.
+
+### Changed
+
+- **Raw Logs SSE chain collapsed to `_sse → rawlogs:view`.** The dashboard's `:route` was dead — it checked `KEY === 'connection'` but the substrate's `SseConnector` uses `KEY === 'connected'` AND snoops it off before routing, so the control-target branch was unreachable. The `:transform` did real shaping (extract partition from FROM, JSON-stringify object VALUE, prepend KEY, clip at 1000 chars), but the info was all in the envelope and could be inlined into the view's `fill()`. Both Nodes deleted (`rawLogsRoute.js`, `rawLogsTransform.js`, `transformLogLine.js` + tests). `useRawLogsGraph` now mounts just `_sse + _http + _heartbeat + rawlogs:view`. Same architectural mistake I made (not "inherited from a template") and that landed in v0.7.0/v0.8.0 — three sibling SSE dashboards in `newspack-event-logger-nodes` collapsed in lockstep.
+
+### Tests
+
+- **TopologyConsole de-flaked under parallel coverage.** `~/Documents/DN/bin/run-coverage`'s 3-way `partty` fan-out surfaced 2 flaky `reset-graph` tests and 25 act warnings per run. Three independent root causes fixed: (1) the auto-started Router 1s real-timer raced slow tests by replacing test-injected metadata with a fresh `dump_metadata` reply; the `useConsoleGraph` mock now stops the timer after the ctor's initial `_tick()`. (2) `fetchLayout`'s `.then` read `resp.positions` on a null mock-resolved response, threw, and the `.catch` fired `setSavedLayout({positions:null})` outside any test's `act()` — 25 warnings per run; production now optional-chains (`resp?.positions || null`) and the global mock returns a never-resolving Promise. (3) `getByText('reset-graph')` raced multiple state settlements; upgraded 5 affected tests to `findByText`. Verified under 5× 3-way + 3× 4-way consecutive parallel coverage runs: 1306/1306 each, 0 warnings each.
+
+### Removed
+
+- **Dead code deleted** (zero production callers; only their own tests referenced them; verified across both this repo and `newspack-event-logger-nodes`):
+  - `Supervisor_Base::STALE_PARTITION_AGE_S` (unused constant)
+  - `Core::$nodes_by_fd` and `Core::$nodes_by_id` (declared + reset; never written to — Tachikoma FD-machinery vestiges)
+  - `Lock_Node::force_release()` (instance method) — static `force_release_at()` remains
+  - `Lock_Node::clear_restart()` — `write_acquire_files()` already clears the restart flag inline
+  - `Consumer_Node::mark_eof()` and `Consumer_Node::update_offset()` — only ConsumerTest's direct-`fgets()` path used them
+  - `Partition_Node::get_current_position()` — same data via `get_segments()`
+- **Stale doc-comments fixed**: `class-service-ci.php` no longer references the nonexistent `decode_args` helper (refactored into `require_valid_name`); the malformed-schema-node test fixture comment uses `'commands'` instead of the v0.6.0-renamed `'verbs'`.
+
+### Docs
+
+- **Three rounds of doc audit** against the v0.6 → v0.8 substrate refactor (Tachikoma `arguments()` parity, schema field renames, dashboard substrate-I/O backbone, dead REPL-mount cleanup). AGENTS.md / API.md / ARCHITECTURE.md / README.md / GETTING-STARTED.md / WRITING-A-PLUGIN.md and all three `.claude/skills/*/SKILL.md` files audited against current code, with factual errors corrected (TM_STRUCT bit value was wrong in nodes-review skill; "Tail and Consumer stamp FROM" was wrong — Tail does not call `stamp_message`; IPC path layout; verb table additions; etc.) and the `ai-newsletter` example PHP migrated from the pre-0.5.2 manual `Command_Interpreter_Node` + `attach_interpreter()` pattern to the v0.5.2+ inline `'handler' => static fn ...` auto-wire pattern that the walkthrough text already taught.
+
 ## [0.8.1] - 2026-05-28
 
 ### Fixed
