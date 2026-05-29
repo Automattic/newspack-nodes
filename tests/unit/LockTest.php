@@ -81,28 +81,6 @@ class LockTest extends TestCase {
 		$this->assertGreaterThan( $old, filemtime( $hb ) );
 	}
 
-	public function test_force_release_breaks_stale_lock(): void {
-		// Instance form: only releases if heartbeat is stale.
-		$dir = "{$this->tmp}/test.lock.d";
-		mkdir( $dir, 0755, true );
-		touch( "$dir/heartbeat", time() - 3600 );
-
-		$new = new Lock_Node( $dir, 60 );
-		$this->assertTrue( $new->force_release() );
-		$this->assertTrue( $new->acquire() );
-	}
-
-	public function test_force_release_skips_fresh_lock(): void {
-		// Instance force_release MUST NOT steal a fresh lock.
-		$dir = "{$this->tmp}/test.lock.d";
-		mkdir( $dir, 0755, true );
-		touch( "$dir/heartbeat", time() );
-
-		$lock = new Lock_Node( $dir, 60 );
-		$this->assertFalse( $lock->force_release() );
-		$this->assertTrue( is_dir( $dir ) );
-	}
-
 	public function test_force_release_at_unconditionally_clears(): void {
 		// Static form: clears regardless of staleness.
 		$dir = "{$this->tmp}/test.lock.d";
@@ -171,24 +149,6 @@ class LockTest extends TestCase {
 		$this->assertFalse( Lock_Node::is_restart_pending( "{$this->tmp}/test.lock.d" ) );
 		$holder->request_restart();
 		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/test.lock.d" ) );
-	}
-
-	public function test_clear_restart_removes_flag(): void {
-		$lock = new Lock_Node( "{$this->tmp}/test.lock.d" );
-		$lock->acquire();
-		$lock->request_restart();
-		$this->assertTrue( $lock->should_restart() );
-
-		$lock->clear_restart();
-		$this->assertFalse( $lock->should_restart() );
-		$this->assertFileDoesNotExist( "{$this->tmp}/test.lock.d/" . Lock_Node::RESTART_FLAG );
-	}
-
-	public function test_clear_restart_idempotent_when_no_flag_present(): void {
-		$lock = new Lock_Node( "{$this->tmp}/test.lock.d" );
-		$lock->acquire();
-		$lock->clear_restart();
-		$this->assertFalse( $lock->should_restart() );
 	}
 
 	public function test_release_implicitly_removes_restart_flag(): void {

@@ -159,6 +159,8 @@ The substrate plugin mounts 5 service CIs via `newspack_nodes/request_graph_read
 
 Every CI also answers a default `help` (sorted list of its own verbs) — injected by `Command_Interpreter_Node::commands()` when a subclass installs a custom verb table without its own `help`.
 
+**Two `dump_metadata` verbs, same name, different CIs.** The `workers` CI's `dump_metadata` returns the dashboard payload (`{ workers[], supervisor, logs, num_partitions, num_segments, segment_size, timestamp }` — one row per `(worker_type, partition, consumer)`). Every `Command_Interpreter_Node` ALSO exposes its own `dump_metadata` for the per-graph node-snapshot the topology console renders (`{ class, counter, sink, target, debug_state, arguments, lgst_msg, bytes_read, bytes_written }`, keyed by node name, patron-linked `:config` CIs filtered out). The dispatching CI is what disambiguates — addressing `dump_metadata` to `workers` gets the dashboard shape; addressing it with empty TO (root CI) gets the per-graph shape.
+
 Application plugins layer additional CIs onto the same endpoint (the first being `newspack-event-logger-nodes` with its application-side CIs). The `to` field on the dispatch envelope distinguishes targets — there is no substrate-vs-application namespacing at the endpoint layer.
 
 **`node_schema()` shape.** Each CI's `node_schema()` returns a `Service`-category schema: `{ category, description, arguments, commands }`, where `commands` is a list of `{ name, description, args }` and each arg is `{ name, type, required }`. This is what `Classes_CI`'s `list` verb inlines for the topology-editor palette, and what the live-mode Inspector reads to build verb-invocation forms.
@@ -187,8 +189,8 @@ Server-sent-events drain endpoint backed by `SSE_Out_Node` (which is both the `_
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `subscribe` | string | yes | CSV of subscription names. Two shapes are accepted per name: `{type}.p{N}` (worker IPC reader, resolved via `CLI::attach_to_worker`) or a bare log-feed identifier (one Consumer per partition). Blank entries between commas are dropped. |
-| `positions` | string | no | Optional resume positions, format documented inline in `SSE_Out_Node`. Omit to start at `end` (live tail). |
+| `subscribe` | string | yes | CSV of subscription names. Two shapes per name: `{type}.p{N}` (worker IPC reader, resolved via `CLI::attach_to_worker`) or a bare `[a-z0-9_-]+` log-feed identifier (one Consumer per partition under `{base}/logs/{name}.log`). The `{type}.p{N}` form has two cascading fallbacks if there's no live lock dir: (a) tail the IPC `output/` dir if it still exists on disk (down-but-restarting worker — recovers when it respawns); (b) fall through to `logs/{type}.log/p{N}` (the aggregator-hub case: a name like `firehose.p0` with no worker but a log dir). Anything else throws `InvalidArgumentException` (path-traversal guard). Blank entries between commas are dropped. |
+| `positions` | string | no | Optional resume positions. JSON object keyed by subscription name (one entry per name in `subscribe`); each value is a `{seg, off}` cursor (or one of the `start`/`recent`/`end` string forms `Consumer::next_offset` accepts). Decoded by `SSE_Out_Node::parse_positions()`; malformed JSON / non-object → treated as omitted (tail-seek all). Omit to start at `end` (live tail). |
 
 ### Response
 

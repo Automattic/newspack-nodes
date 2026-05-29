@@ -760,7 +760,7 @@ class SupervisorTest extends TestCase {
 
 		$this->assertTrue(
 			is_dir( $fresh_orphan ),
-			'fresh orphans within STALE_PARTITION_AGE_S grace period must survive'
+			'fresh orphans within the cleanup grace period must survive'
 		);
 	}
 

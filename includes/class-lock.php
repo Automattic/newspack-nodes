@@ -186,24 +186,6 @@ class Lock_Node extends Node {
 	}
 
 	/**
-	 * Release only if the heartbeat is stale/missing.
-	 *
-	 * @return bool True if released; false if the holder is still alive.
-	 */
-	public function force_release(): bool {
-		$hb = $this->lock_path . '/' . self::HEARTBEAT_FILE;
-		if ( ! \is_dir( $this->lock_path ) ) {
-			return false;
-		}
-		$mtime = @\filemtime( $hb );
-		if ( false === $mtime || ( \time() - $mtime ) >= $this->stale_timeout ) {
-			self::force_release_at( $this->lock_path );
-			return true;
-		}
-		return false;
-	}
-
-	/**
 	 * Static unconditional release: clear a lock dir regardless of staleness.
 	 *
 	 * @param string $lock_dir The lock directory path.
@@ -301,11 +283,6 @@ class Lock_Node extends Node {
 		return false !== $content ? (int) $content : null;
 	}
 
-	/** Remove a pending restart flag so the next holder doesn't exit on inherited state. */
-	public function clear_restart(): void {
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-		@\unlink( $this->lock_path . '/' . self::RESTART_FLAG );
-	}
 
 	public static function node_schema(): array {
 		// Hidden: internal primitive, not a standalone graph node.

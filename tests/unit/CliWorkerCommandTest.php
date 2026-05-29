@@ -466,7 +466,9 @@ class CliWorkerCommandTest extends TestCase {
 		( new Worker_CLI_Command() )->status( [], [] );
 
 		$this->assertNotEmpty( $cache->hits, 'cache must be consulted via live_position' );
-		$this->assertStringContainsString( 'newspack_nodes:cursor:firehose-workers.p0', $cache->hits[0] );
+		// CLI hits the same Consumer_Node::position_key shape (np:pos:{host}:{source_base_dir}:p{N}).
+		$this->assertStringStartsWith( 'np:pos:', $cache->hits[0] );
+		$this->assertStringContainsString( ':p0', $cache->hits[0] );
 	}
 
 	public function test_status_ignores_filter_value_that_is_not_object(): void {

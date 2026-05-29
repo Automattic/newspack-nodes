@@ -18,9 +18,6 @@ class Supervisor_Base {
 	/** Cleanup walks num_partitions..MAX_PARTITIONS. */
 	public const MAX_PARTITIONS = 16;
 
-	/** Grace (s) before purging retired partition dirs — lets old-count workers finish. */
-	public const STALE_PARTITION_AGE_S = 3600;
-
 	/** Symlink-loop defense. */
 	public const MAX_DEPTH = 5;
 

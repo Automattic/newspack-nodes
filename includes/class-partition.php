@@ -444,21 +444,6 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Current write position (segment_id + tail offset of the active segment).
-	 *
-	 * @return array{segment_id:int, offset:int}
-	 */
-	public function get_current_position(): array {
-		if ( null === $this->current_segment_id ) {
-			$this->init_current_segment();
-		}
-		return [
-			'segment_id' => (int) $this->current_segment_id,
-			'offset'     => $this->current_size,
-		];
-	}
-
-	/**
 	 * Drift / TOCTOU recovery: rescan and follow the newest segment if a peer rotated.
 	 */
 	protected function maybe_rescan_segments(): void {

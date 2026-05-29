@@ -18,6 +18,14 @@ class Consumer_Node extends Timer_Node {
 
 	public const MAX_POLL_BYTES = 10485760;
 
+	/** Memcache key prefix Consumer_Node uses to publish its live cursor (read by Workers_CI + CLI). */
+	public const POSITION_KEY_PREFIX = 'np:pos:';
+
+	/** Canonical `np:pos:{host}:{source_base_dir}:p{N}` cursor cache key. */
+	public static function position_key( string $host, string $source_base_dir, int $partition ): string {
+		return self::POSITION_KEY_PREFIX . "{$host}:{$source_base_dir}:p{$partition}";
+	}
+
 	/** Skip corrupt unread bytes only after this many seconds. */
 	public const STALE_SEGMENT_SECONDS = 5;
 
@@ -194,11 +202,6 @@ class Consumer_Node extends Timer_Node {
 		}
 	}
 
-	/** Force-mark caught up. Used by callers driving fgets() directly instead of poll(). */
-	public function mark_eof(): void {
-		$this->at_eof = true;
-	}
-
 	/** True if the last poll ran the newest segment to its end. */
 	public function is_caught_up(): bool {
 		$result = $this->compute_is_caught_up();
@@ -227,18 +230,6 @@ class Consumer_Node extends Timer_Node {
 		}
 		$tail = $this->cursor_off + \strlen( $this->line_remainder );
 		return $tail >= $newest['size'];
-	}
-
-	/**
-	 * Sync the in-memory cursor offset from a caller's external (fgets-direct) read.
-	 *
-	 * @param int $bytes_consumed Bytes consumed beyond the current cursor_off.
-	 */
-	public function update_offset( int $bytes_consumed ): void {
-		if ( $bytes_consumed < 0 ) {
-			return;
-		}
-		$this->cursor_off += $bytes_consumed;
 	}
 
 	/**
@@ -569,7 +560,7 @@ class Consumer_Node extends Timer_Node {
 		}
 		$host = \gethostname() ?: 'unknown';
 		$memd->set(
-			"np:pos:{$host}:{$this->source_base_dir}:p{$this->source_partition}",
+			self::position_key( $host, $this->source_base_dir, $this->source_partition ),
 			[
 				'seg'         => $this->cursor_seg,
 				'off'         => $this->cursor_off,

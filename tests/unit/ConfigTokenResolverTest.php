@@ -75,4 +75,28 @@ class ConfigTokenResolverTest extends TestCase {
 		Core::reset();
 		$this->assertSame( 'persisted', Core::resolve_config_token( 'acme', 'foo' ) );
 	}
+
+	public function test_resolve_unknown_namespace_warns_on_stderr(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+
+		// Unknown namespace returns '' for back-compat but must surface a
+		// rate-limited warning so a typo in `<unknown:key>` is diagnosable.
+		$this->assertSame( '', Core::resolve_config_token( 'no-such-ns', 'foo' ) );
+
+		$this->assertStringContainsString( 'no-such-ns', $buf );
+	}
+
+	public function test_resolve_null_value_warns_on_stderr(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+
+		Core::register_config_namespace( 'acme', static fn ( string $key ) => null );
+		// Null result returns '' for back-compat but must surface a
+		// rate-limited warning so a typo in `<acme:missing>` is diagnosable.
+		$this->assertSame( '', Core::resolve_config_token( 'acme', 'missing' ) );
+
+		$this->assertStringContainsString( 'acme', $buf );
+		$this->assertStringContainsString( 'missing', $buf );
+	}
 }

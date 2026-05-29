@@ -131,12 +131,16 @@ These are intentional. Don't "fix" them.
 | `includes/rest/class-spawn-controller.php` | `POST /newspack-nodes/v1/workers/spawn` (HMAC-validated) |
 | `includes/rest/class-http-in.php` | `POST /newspack-nodes/v1/command` controller + the `_http` egress Node (double-duty) |
 | `includes/rest/class-sse-out.php` | `GET /newspack-nodes/v1/messages/stream` controller + the `_sse` egress Node (double-duty) |
-| `includes/rest/class-http-filter.php` | `_http` filter Node used inside SSE-stream processes (forwards `dump_metadata`/`uptime` replies back to the browser) |
+| `includes/class-http-filter.php` | `_http` filter Node used inside SSE-stream processes (forwards `dump_metadata`/`uptime` replies back to the browser) |
 | `includes/rest/class-{classes,layouts,topologies,raw-logs,workers}-ci.php` | Substrate service `*_CI_Node`s mounted via `newspack_nodes/request_graph_ready` |
 | `includes/rest/trait-sse-stream.php` | `SSE_Stream_Trait` — shared SSE wire helpers used by `SSE_Out_Node` |
 | `includes/class-service-ci.php` | `Service_CI_Node` — abstract base that builds a CI's verb table from its `node_schema()` |
+| `includes/class-command-auth.php` | HMAC envelope sign/verify (`Command_Auth::sign()` / `Command_Auth::verifier()`); the server-tier `authorize` closure that gates wire-arrived commands |
+| `includes/class-command-signer.php` | `Command_Signer_Node` — Shell-side wrapper that stashes the HMAC envelope into VALUE['auth'] on the way out to a remote CI (pivoted cli, hub→spoke) |
+| `includes/class-{topology-loader,topology-registry}.php` | Topology TSL parser + per-plugin `register_plugin()` entry-point |
+| `includes/class-{log-cleaner,log-discovery,node-names,sse-slot-pool,config-utils,formatters}.php` | Internal helpers — log retention sweep, log-name discovery, reserved-name registry, SSE slot pool, config schema utils, formatter registry |
 | `includes/admin/class-admin.php` | Substrate settings UI |
-| `tests/` | PHPUnit suite (unit + integration) |
+| `tests/` | PHPUnit suite (`tests/unit/`, `tests/integration/`, plus `Helpers/`) |
 
 ## Common Pitfalls
 

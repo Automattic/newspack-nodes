@@ -12,9 +12,6 @@ namespace Newspack_Nodes;
 class CLI {
 	public const STALE_TIMEOUT = 60;
 
-	/** Default memcache key prefix for worker-cursor positions. */
-	public const POSITION_KEY_PREFIX = 'newspack_nodes:cursor:';
-
 	private string $base_dir;
 
 	public function __construct( string $base_dir ) {
@@ -139,6 +136,10 @@ class CLI {
 	/**
 	 * Read a live worker-cursor position from memcache.
 	 *
+	 * Hits the same `np:pos:{host}:{source_base_dir}:p{N}` key Consumer_Node
+	 * publishes — derives source_base_dir from the worker's recorded input
+	 * basename, falling back to the conventional `firehose.log` when none yet.
+	 *
 	 * @param object $cache    Anything with a `get(string)` method; null to skip.
 	 * @param string $type     Worker type.
 	 * @param int    $partition Partition index.
@@ -148,8 +149,11 @@ class CLI {
 		if ( null === $cache || ! \method_exists( $cache, 'get' ) ) {
 			return null;
 		}
+		$basename        = $this->input_basename( $type, $partition ) ?: 'firehose';
+		$source_base_dir = "{$this->base_dir}/logs/{$basename}.log";
+		$host            = \gethostname() ?: 'unknown';
 		try {
-			$value = $cache->get( self::POSITION_KEY_PREFIX . "{$type}.p{$partition}" );
+			$value = $cache->get( Consumer_Node::position_key( $host, $source_base_dir, $partition ) );
 		} catch ( \Throwable $e ) {
 			return null;
 		}
