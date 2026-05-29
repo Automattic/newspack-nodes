@@ -34,7 +34,7 @@ If you see any of those in a constructor, push the work to first-use (first `fil
 
 ### 3. FROM stamping at I/O boundaries only
 
-Tail and Consumer stamp FROM. Internal nodes don't. If the diff adds `stamp_message()` to a Tee, Hook, Callback, or any application-style forwarder, that's almost certainly a bug — it pollutes the breadcrumb trail and breaks reverse-direction routing.
+Consumer and HTTP_In stamp FROM — those are the substrate's I/O boundaries (data entering the graph from a producer Partition, or from an HTTP request). Internal nodes don't stamp; Tail doesn't either (it's a generic file follower, and applications that need stamped-line-from-file build a downstream stamping layer). If the diff adds `stamp_message()` to a Tee, Hook, Callback, Tail, or any application-style forwarder, that's almost certainly a bug — it pollutes the breadcrumb trail and breaks reverse-direction routing.
 
 The `MAX_FROM_SIZE = 1024` guard on `stamp_message` is load-bearing — don't remove it. Cycle scenarios will explode FROM otherwise.
 
@@ -66,10 +66,29 @@ If a diff seems to need ack/cancel for a real reason, the right move is to build
 ### 8. Type flag semantics
 
 - `TM_BYTESTREAM` (1): VALUE is a string (raw bytes / JSONL line / text)
-- `TM_STRUCT` (256): VALUE is structured (array)
+- `TM_STRUCT` (16): VALUE is structured (array)
 - They're mutually exclusive in our convention — pick one based on what VALUE actually is
 
-A consumer that reads `$entry = $message[Message::VALUE]` as an array MUST gate on `TM_STRUCT`. Mixing TM_BYTESTREAM with array VALUE is the bug we just fixed; don't regress.
+Full type-flag bitmask from `includes/class-message.php`: `TM_BYTESTREAM=1`, `TM_EOF=2`, `TM_PING=4`, `TM_COMMAND=8`, `TM_STRUCT=16`, `TM_ERROR=32`, `TM_INFO=64`, `TM_REQUEST=128`, `TM_RESPONSE=256`. A consumer that reads `$entry = $message[Message::VALUE]` as an array MUST gate on `TM_STRUCT` (16). Don't conflate with `TM_RESPONSE` (256) — they're different bits.
+
+### 8b. `arguments()` Tachikoma-parity (v0.6.0)
+
+- Ctor must be parameter-less for `make_node`-buildable nodes; positional config is declared in `node_schema()['arguments']` as `[{name, type, default?, required?}]`.
+- Schema `default` must be a real typed value (real ints, floats, class constants). Placeholder strings (`'<config:foo>'`) against typed properties crash the schema walker.
+- `arguments()` overrides MUST short-circuit on `'' === $args` — otherwise `make_node Foo` (no args) re-derives against declaration-default props and writes filesystem-root junk like `/p0`. `Partition_Node` is the reference template.
+- Side effects (`set_timer`, `mkdir`, `fopen`, `Partition_Node` materialization) belong in the `arguments()` override gated on non-empty args, not in the constructor (AGENTS decision 5).
+- Programmatic dependencies (objects, callables, streams) are public properties the caller sets after construction, NOT ctor params. `Workers_CI_Node::$cli` / `$cache` is the reference.
+- Schema field names are `'arguments'` and `'commands'`. A diff that reads or writes `'ctor'` or `'verbs'` is a regression (renamed in v0.6.0).
+
+### 8c. `dump_config` round-trip
+
+- A Node with runtime-mutable config overrides `dump_config()` to emit replay verbs from its own state. Reference: `Partition_Node`'s emission of `allow_large_writes` + `with_index` formatter name.
+- A diff that reintroduces `mark_verb_invoked()` / `$invoked_verbs` is wrong — the recorder was deleted in v0.6.0; config lives in the node, not a side-channel ledger.
+
+### 8d. Tachikoma rule #2 — everything sinks into CI
+
+- JS dashboards mount onto `mountExospine()` (returns `{ ci, router, teardown }`); every node has `sink = ci`, and flow is steered via `target` / `TO` through `_router`.
+- A diff that adds bespoke `nodeA.sink = nodeB` chains, `controlSink` side-channels, or skips the CI is a substrate-conformance regression.
 
 ### 9. Dumper rendering
 

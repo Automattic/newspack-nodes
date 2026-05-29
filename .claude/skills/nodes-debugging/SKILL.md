@@ -40,6 +40,11 @@ list_nodes [-clst] [<node>]         # nodes sinking INTO <node>; -c count -l cou
 list_nodes -a [-clst] [<glob>]      # all nodes filtered by anchored regex
 dump_node <node> [<keys>]           # config + state of one node (alias: dump)
 dump_config                         # full topology as round-trippable shell verbs
+dump_metadata                       # JSON object keyed by node name; class/counter/sink/target/debug_state/arguments — one round-trip gives a visualizer the graph
+debug_state [<node>] [<level>]      # toggle/set node's debug_state level (0/1/N). No args toggles the CI's own.
+uptime                              # clock-time + days+HH:MM:SS since Core::reset() (worker spawn)
+stats [-a] [<regex>]                # NAME COUNT LGST_MSG READ WRITTEN columns; default scope is siblings, -a all
+reply_to <node path> <command>      # run <command> HERE but route reply to <node path> (inverse of command_node)
 set_sink <node> <target>            # rewrite a node's sink at runtime
 connect_node <node> <target>        # set or add a target on <node> (alias: connect)
 disconnect_node <node> [<target>]   # alias: disconnect; <target> required for multi-target nodes (Tee)
@@ -84,8 +89,10 @@ wp nodes ls
 # Status (formats: table, json).
 wp nodes status --format=json
 
-# Force-restart by type (sends a restart flag-file via Lock).
-wp nodes restart firehose-workers --all-partitions
+# Force-restart by type (sends a restart flag-file via Lock). Run
+# `wp nodes types` first to discover what's live; the default substrate
+# topology with firehose + jobs is `firehose-workers-and-jobs`.
+wp nodes restart firehose-workers-and-jobs --all-partitions
 ```
 
 A worker reports as `[live]` if its heartbeat file (under `{base}/locks/{type}.p{N}.lock.d/heartbeat`) was touched within `stale_timeout`. `[stale]` means the supervisor will respawn it on the next minute-cron tick.
