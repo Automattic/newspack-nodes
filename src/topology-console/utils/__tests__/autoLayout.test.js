@@ -198,6 +198,276 @@ describe( 'autoLayout', () => {
 		expect( byId.b.position.y ).not.toBe( byId.c.position.y );
 	} );
 
+	it( 'pairs each source with its target on the same row when col 0 fans into col 1', () => {
+		// Local-Shell topology repro: 5 sources in col 0, 3 targets in col 1.
+		// Two sources share a target (_metadata + _uptime → _cwd); two have
+		// their own target; one source has no target. The desired layout
+		// places each source on the SAME ROW as its (first) target, so the
+		// dashed edge runs horizontally between adjacent columns. Sources
+		// without a target (or that share a target already paired) fall to
+		// the next available row.
+		const out = autoLayout( {
+			nodes: [
+				{ id: '_metadata' },
+				{ id: '_uptime' },
+				{ id: '_completion' },
+				{ id: '_heartbeat' },
+				{ id: '_sse' },
+				{ id: '_cwd' },
+				{ id: '_http' },
+				{ id: '_output' },
+			],
+			edges: [
+				{ from: '_metadata', to: '_cwd' },
+				{ from: '_uptime', to: '_cwd' },
+				{ from: '_heartbeat', to: '_http' },
+				{ from: '_sse', to: '_output' },
+			],
+		} );
+		const rowOf = ( id ) =>
+			( out.nodes.find( ( n ) => n.id === id ).position.y - Y_PAD ) /
+			Y_STEP;
+		// Pairs: each source on its target's row.
+		expect( rowOf( '_metadata' ) ).toBe( rowOf( '_cwd' ) );
+		expect( rowOf( '_heartbeat' ) ).toBe( rowOf( '_http' ) );
+		expect( rowOf( '_sse' ) ).toBe( rowOf( '_output' ) );
+		// _uptime shares _cwd but loses the pair to _metadata — it takes a
+		// nearby free row instead of pushing the pair off.
+		expect( rowOf( '_uptime' ) ).not.toBe( rowOf( '_cwd' ) );
+	} );
+
+	it( 'pushes every sink (no outgoing) AND every isolated node (no edges) to the max-depth column', () => {
+		// Worker pattern: a fan-out from request-builder reaches some leaf
+		// partitions at depth 3 and some at depth 4 (via completed:tee). The
+		// shallower-depth sinks should cluster in the rightmost column with
+		// the natural-max-depth sinks so all partitions line up. An isolated
+		// node (no edges anywhere — `_repl` in the live worker graph) joins
+		// them at the right rather than sitting lonely on the left.
+		const out = autoLayout( {
+			nodes: [
+				{ id: 'consumer' },
+				{ id: 'tee' },
+				{ id: 'request_builder' },
+				{ id: 'completed_tee' },
+				{ id: 'errors' },
+				{ id: 'completed' },
+				{ id: 'gyroscope' },
+				{ id: '_repl' }, // isolated
+			],
+			edges: [
+				{ from: 'consumer', to: 'tee' },
+				{ from: 'tee', to: 'request_builder' },
+				{ from: 'request_builder', to: 'completed_tee' },
+				{ from: 'request_builder', to: 'errors' }, // sink at depth 3
+				{ from: 'completed_tee', to: 'completed' }, // sink at depth 4
+				{ from: 'completed_tee', to: 'gyroscope' }, // sink at depth 4
+			],
+		} );
+		const colOf = ( id ) =>
+			( out.nodes.find( ( n ) => n.id === id ).position.x - X_PAD ) /
+			X_STEP;
+		// All sinks (errors, completed, gyroscope) and the isolated _repl
+		// land in the rightmost column.
+		const maxCol = Math.max(
+			...out.nodes.map( ( n ) => ( n.position.x - X_PAD ) / X_STEP )
+		);
+		expect( colOf( 'errors' ) ).toBe( maxCol );
+		expect( colOf( 'completed' ) ).toBe( maxCol );
+		expect( colOf( 'gyroscope' ) ).toBe( maxCol );
+		expect( colOf( '_repl' ) ).toBe( maxCol );
+		// Internal nodes stay at their topological depth.
+		expect( colOf( 'consumer' ) ).toBe( 0 );
+		expect( colOf( 'tee' ) ).toBe( 1 );
+		expect( colOf( 'request_builder' ) ).toBe( 2 );
+		expect( colOf( 'completed_tee' ) ).toBeLessThan( maxCol );
+	} );
+
+	it( 'source-only nodes (no incoming edges) stay anchored at column 0 (left edge)', () => {
+		// Worker pattern: jobintake:consumer → job-router → jobs:partition
+		// alongside a longer chain that makes jobs:partition depth 3. The
+		// forward-pull pass slides job-router right (toward jobs:partition's
+		// depth 3), which would then drag jobintake:consumer with it.
+		// Source-only nodes ignore the forward pull — they have nowhere to
+		// come from, so they belong on the left edge.
+		const out = autoLayout( {
+			nodes: [
+				{ id: 'jobintake_consumer' },
+				{ id: 'job_router' },
+				{ id: 'jobs_partition' },
+				{ id: 'chain1' },
+				{ id: 'chain2' },
+				{ id: 'longer_source' },
+			],
+			edges: [
+				{ from: 'jobintake_consumer', to: 'job_router' },
+				{ from: 'job_router', to: 'jobs_partition' },
+				{ from: 'longer_source', to: 'chain1' },
+				{ from: 'chain1', to: 'chain2' },
+				{ from: 'chain2', to: 'jobs_partition' },
+			],
+		} );
+		const colOf = ( id ) =>
+			( out.nodes.find( ( n ) => n.id === id ).position.x - X_PAD ) /
+			X_STEP;
+		expect( colOf( 'jobintake_consumer' ) ).toBe( 0 );
+		expect( colOf( 'longer_source' ) ).toBe( 0 );
+	} );
+
+	it( 'a middle node with a fan-out sits near the midpoint of its targets (not pulled to its predecessor row)', () => {
+		// Worker pattern: request-builder fans out to 4 targets across rows
+		// 0..3. Its single predecessor (firehose:tee) sits on row 0. The
+		// midpoint of the targets is row 1.5 — request-builder should land
+		// near that, not on row 0 with its predecessor.
+		const out = autoLayout( {
+			nodes: [
+				{ id: 'firehose_tee' },
+				{ id: 'request_builder' },
+				{ id: 't1' },
+				{ id: 't2' },
+				{ id: 't3' },
+				{ id: 't4' },
+			],
+			edges: [
+				{ from: 'firehose_tee', to: 'request_builder' },
+				{ from: 'request_builder', to: 't1' },
+				{ from: 'request_builder', to: 't2' },
+				{ from: 'request_builder', to: 't3' },
+				{ from: 'request_builder', to: 't4' },
+			],
+		} );
+		const rowOf = ( id ) =>
+			( out.nodes.find( ( n ) => n.id === id ).position.y - Y_PAD ) /
+			Y_STEP;
+		const tRows = [
+			rowOf( 't1' ),
+			rowOf( 't2' ),
+			rowOf( 't3' ),
+			rowOf( 't4' ),
+		];
+		const midpoint = tRows.reduce( ( a, b ) => a + b, 0 ) / tRows.length;
+		// Within 1 row of the midpoint (deconflict bumps can shift it some).
+		expect(
+			Math.abs( rowOf( 'request_builder' ) - midpoint )
+		).toBeLessThanOrEqual( 1 );
+	} );
+
+	it( 'a fan-out source lands on a HALF-row at the exact midpoint of its targets (e.g. targets at 1+2 → source at 1.5)', () => {
+		// User-requested precision: snap to nearest 0.5 (not 1) so a source
+		// fanning to 2 targets at rows 1 and 2 sits exactly between them at
+		// row 1.5 — the dashed edges then run symmetrically up-right and
+		// down-right at the same angle.
+		const out = autoLayout( {
+			nodes: [ { id: 'src' }, { id: 't_upper' }, { id: 't_lower' } ],
+			edges: [
+				{ from: 'src', to: 't_upper' },
+				{ from: 'src', to: 't_lower' },
+			],
+		} );
+		const rowOf = ( id ) =>
+			( out.nodes.find( ( n ) => n.id === id ).position.y - Y_PAD ) /
+			Y_STEP;
+		// Targets at integer rows 0 and 1 (alpha order), source midpoint 0.5.
+		expect( rowOf( 't_lower' ) ).toBe( 0 );
+		expect( rowOf( 't_upper' ) ).toBe( 1 );
+		expect( rowOf( 'src' ) ).toBe( 0.5 );
+	} );
+
+	it( 'completed:tee in the worker topology lands at the half-row midpoint of its 2 leaf targets', () => {
+		// Full worker repro of the screenshot Chris flagged. completed:tee
+		// has two outgoing edges (→ completed:partition, → gyroscope:partition)
+		// in a graph where col 4 contains both targets at non-adjacent rows.
+		// The half-row snap should put completed:tee at the exact midpoint of
+		// the two target rows — NOT at the same row as one of them.
+		const out = autoLayout( {
+			nodes: [
+				{ id: 'firehose:consumer' },
+				{ id: 'firehose:tee' },
+				{ id: 'request-builder' },
+				{ id: 'completed:tee' },
+				{ id: 'jobintake:consumer' },
+				{ id: 'job-router' },
+				{ id: 'errors:partition' },
+				{ id: 'requests:partition' },
+				{ id: 'jobs:partition' },
+				{ id: 'completed:partition' },
+				{ id: 'gyroscope:partition' },
+				{ id: '_repl' },
+			],
+			edges: [
+				{ from: 'firehose:consumer', to: 'firehose:tee' },
+				{ from: 'firehose:tee', to: 'request-builder' },
+				{ from: 'request-builder', to: 'completed:tee' },
+				{ from: 'request-builder', to: 'errors:partition' },
+				{ from: 'request-builder', to: 'requests:partition' },
+				{ from: 'completed:tee', to: 'completed:partition' },
+				{ from: 'completed:tee', to: 'gyroscope:partition' },
+				{ from: 'jobintake:consumer', to: 'job-router' },
+				{ from: 'job-router', to: 'jobs:partition' },
+			],
+		} );
+		const rowOf = ( id ) =>
+			( out.nodes.find( ( n ) => n.id === id ).position.y - Y_PAD ) /
+			Y_STEP;
+		const ctRow = rowOf( 'completed:tee' );
+		const cpRow = rowOf( 'completed:partition' );
+		const gyroRow = rowOf( 'gyroscope:partition' );
+		// completed:tee must NOT share a row with either of its targets —
+		// it sits strictly between them.
+		expect( ctRow ).not.toBe( cpRow );
+		expect( ctRow ).not.toBe( gyroRow );
+		// And specifically at the exact midpoint.
+		expect( ctRow ).toBe( ( cpRow + gyroRow ) / 2 );
+	} );
+
+	it( 'middle nodes re-snap to FINAL target rows after deconflict (not stale Pass-1 rows)', () => {
+		// Worker repro of the firehose-workers-and-jobs topology with virtual
+		// edges (the augmentWithVirtualEdges output): request-builder fans
+		// out to errors, completed:tee, gyroscope, requests. completed:tee
+		// fans to completed:partition and gyroscope. The col 4 deconflict
+		// pulls gyroscope from Pass-1 row 2 → row 1; without a second snap
+		// pass, completed:tee stays at Pass-2 row 1 (mean of row 0 and the
+		// STALE row 2) and ends up sharing gyroscope's row. The final
+		// re-snap should put it at the actual midpoint of its FINAL targets:
+		// (0 + 1) / 2 = 0.5.
+		const out = autoLayout( {
+			nodes: [
+				{ id: 'firehose:consumer' },
+				{ id: 'firehose:tee' },
+				{ id: 'request-builder' },
+				{ id: 'completed:tee' },
+				{ id: 'jobintake:consumer' },
+				{ id: 'job-router' },
+				{ id: 'errors:partition' },
+				{ id: 'requests:partition' },
+				{ id: 'jobs:partition' },
+				{ id: 'completed:partition' },
+				{ id: 'gyroscope:partition' },
+				{ id: '_repl' },
+			],
+			edges: [
+				{ from: 'firehose:consumer', to: 'firehose:tee' },
+				{ from: 'firehose:tee', to: 'request-builder' },
+				{ from: 'firehose:tee', to: 'job-router' },
+				{ from: 'request-builder', to: 'requests:partition' },
+				{ from: 'request-builder', to: 'errors:partition' },
+				{ from: 'request-builder', to: 'completed:tee' },
+				{ from: 'request-builder', to: 'gyroscope:partition' },
+				{ from: 'completed:tee', to: 'completed:partition' },
+				{ from: 'completed:tee', to: 'gyroscope:partition' },
+				{ from: 'jobintake:consumer', to: 'job-router' },
+				{ from: 'job-router', to: 'jobs:partition' },
+			],
+		} );
+		const rowOf = ( id ) =>
+			( out.nodes.find( ( n ) => n.id === id ).position.y - Y_PAD ) /
+			Y_STEP;
+		const ctRow = rowOf( 'completed:tee' );
+		const cpRow = rowOf( 'completed:partition' );
+		const gyroRow = rowOf( 'gyroscope:partition' );
+		expect( ctRow ).not.toBe( gyroRow );
+		expect( ctRow ).toBe( ( cpRow + gyroRow ) / 2 );
+	} );
+
 	it( 'falls back to alphabetical when barycenter ties', () => {
 		// Tied barycenter -> alphabetical id sort.
 		const out = autoLayout( {
