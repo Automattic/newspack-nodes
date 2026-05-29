@@ -135,7 +135,7 @@ class Topic_Node extends Node {
 
 	public static function node_schema(): array {
 		return [
-			'category'    => 'Storage',
+			'category'    => 'I/O',
 			'description' => 'Multi-partition log abstraction; routes by hash to one of N Partitions.',
 			'arguments'        => [
 				[ 'name' => 'base_dir',       'type' => 'string', 'required' => true ],

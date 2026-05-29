@@ -12,10 +12,9 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Consumer_Node extends Timer_Node {
-	public const DEFAULT_OFFSETLOG_SEGMENT_SIZE = 65536;
-
+	public const OFFSETLOG_SEGMENT_SIZE = 65536;
+	public const OFFSETLOG_NUM_SEGMENTS = 2;
 	public const MAX_LINE_BUFFER_SIZE = 20971520;
-
 	public const MAX_POLL_BYTES = 10485760;
 
 	/** Memcache key prefix Consumer_Node uses to publish its live cursor (read by Workers_CI + CLI). */
@@ -26,8 +25,8 @@ class Consumer_Node extends Timer_Node {
 		return self::POSITION_KEY_PREFIX . "{$host}:{$source_base_dir}:p{$partition}";
 	}
 
-	/** Skip corrupt unread bytes only after this many seconds. */
-	public const STALE_SEGMENT_SECONDS = 5;
+	/** Wait this long for late contributors */
+	public const LINGER_SEGMENT_SECONDS = 5;
 
 	public const POLL_INTERVAL_EOF_MS = 100;
 
@@ -109,7 +108,7 @@ class Consumer_Node extends Timer_Node {
 
 		if ( '' !== $this->offsetlog_dir ) {
 			$this->offsetlog = new Partition_Node();
-			$this->offsetlog->arguments( "{$this->offsetlog_dir} 0 " . self::DEFAULT_OFFSETLOG_SEGMENT_SIZE );
+			$this->offsetlog->arguments( implode( ' ', [ "{$this->offsetlog_dir}", 0, self::OFFSETLOG_SEGMENT_SIZE, self::OFFSETLOG_NUM_SEGMENTS ] ) );
 			$this->load_offsetlog();
 		} else {
 			$this->offsetlog = null;
@@ -261,7 +260,7 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * Move past the current segment when its writer has gone stale (STALE_SEGMENT_SECONDS).
+	 * Move past the current segment after grace period (LINGER_SEGMENT_SECONDS).
 	 *
 	 * @return int|null New cursor segment id, or null if there's nothing to advance to.
 	 */
@@ -290,7 +289,7 @@ class Consumer_Node extends Timer_Node {
 			\clearstatcache( true, $current_path );
 			$mtime = @\filemtime( $current_path );
 			$stale = $mtime ? ( \time() - $mtime ) : PHP_INT_MAX;
-			if ( $stale < self::STALE_SEGMENT_SECONDS ) {
+			if ( $stale < self::LINGER_SEGMENT_SECONDS ) {
 				return null; // Writer still active on this segment.
 			}
 		}

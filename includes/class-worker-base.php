@@ -20,10 +20,7 @@ class Worker_Base {
 	public const DB_CHECK_INTERVAL_S    = 30;
 	public const DB_CHECK_MAX_FAILURES  = 3;
 	public const LOCK_CHECK_GRACE_S     = 0.25;
-
-	/** Segment size (bytes) for the IPC input + output Partitions — small, frequently-rotated logs. */
-	public const IPC_SEGMENT_SIZE       = 1024 * 1024;
-	/** Segment count for the IPC input + output Partitions — 2 segments rotate fast and keep IPC dirs tiny. */
+	public const IPC_SEGMENT_SIZE       = 1048576;
 	public const IPC_NUM_SEGMENTS       = 2;
 
 	protected string $base_dir;
@@ -180,7 +177,7 @@ class Worker_Base {
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
 		$repl = new Partition_Node();
-		$repl->arguments( "{$ipc_dir}/output 0 " . self::IPC_SEGMENT_SIZE . ' ' . self::IPC_NUM_SEGMENTS );
+		$repl->arguments( implode( ' ', [ "{$ipc_dir}/output", 0, self::IPC_SEGMENT_SIZE, self::IPC_NUM_SEGMENTS ] ) );
 		$repl->name( Node_Names::REPL );
 		$repl->sink( $interpreter );
 		// allow_large_writes keys its Lock/heartbeat off name + sink, so set those first.
