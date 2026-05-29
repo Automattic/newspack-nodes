@@ -11,7 +11,7 @@ import { splitStatements } from '../topology-console/nodes/shell';
 import { Dumper } from '../runtime/dumper';
 import { Completion } from '../runtime/completion';
 import { Metadata } from '../runtime/metadata';
-import { LOCAL, FROM, TO } from '../runtime/message';
+import { LOCAL, FROM, TO, VALUE } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 
 const EMPTY_TRANSCRIPT = [];
@@ -138,7 +138,22 @@ export function useDebugRepl( active = true, shell ) {
 			if ( undefined === parsed[ TO ] ) {
 				parsed[ TO ] = '';
 			}
-			s.sink?.fill( parsed );
+			// A null shell.sink swallows the dispatch via the `?.` below — the
+			// production bug it masked: DebugOverlay's shell.sink useEffect ran
+			// while the dashboard's interpreter was still null in Core, the
+			// lookup stayed null forever, and every wire command (`ls` /
+			// `dump_node` / …) silently produced zero /command POSTs and zero
+			// diagnostic. Surface it on Core.stderr so the next time this fires
+			// the operator sees what dropped. The fix is upstream (re-bind in
+			// DebugOverlay's effect deps); this is the visible canary.
+			if ( ! s.sink ) {
+				const verb = parsed[ VALUE ]?.name || '?';
+				Core.stderr(
+					`useDebugRepl: shell.sink is null — REPL command dropped (${ verb })\n`
+				);
+				return;
+			}
+			s.sink.fill( parsed );
 			return;
 		}
 		if ( 'error' === parsed.kind ) {

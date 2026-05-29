@@ -82,15 +82,36 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
-	it( 'sendLine dispatches a Message into the local CI', () => {
-		const { ci, teardown } = mountExospine();
+	it( 'sendLine dispatches a Message into the local interpreter', () => {
+		const { ci: interpreter, teardown } = mountExospine();
 		const shell = makeShell();
-		const spy = jest.spyOn( ci, 'fill' );
+		const spy = jest.spyOn( interpreter, 'fill' );
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		// `help` is a bare verb; Shell.parse returns a TM_COMMAND Message.
 		act( () => result.current.sendLine( 'help' ) );
 		expect( spy ).toHaveBeenCalled();
 		teardown();
+	} );
+
+	it( 'sendLine of a wire command with shell.sink=null surfaces a stderr warning naming the dropped verb', () => {
+		// Bug witnessed in production: DebugOverlay's shell.sink useEffect ran
+		// while the dashboard's interpreter was still null in Core, the lookup
+		// stayed null forever, and every wire-command dispatch via
+		// `s.sink?.fill(parsed)` silently dropped — local builtins (echo, cd)
+		// worked but `ls` / `dump_node` / etc. produced zero /command POSTs and
+		// zero diagnostic. The optional-chain itself is the trap; surface the
+		// drop via Core.stderr so the next operator sees what happened.
+		mountExospine();
+		const shell = new Shell();
+		shell.path = '';
+		shell.sink = null; // simulate the captured-null condition
+		const stderrSpy = jest.spyOn( Core, 'stderr' ).mockImplementation();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		act( () => result.current.sendLine( 'ls' ) );
+		expect( stderrSpy ).toHaveBeenCalledTimes( 1 );
+		expect( stderrSpy.mock.calls[ 0 ][ 0 ] ).toMatch( /shell\.sink/i );
+		expect( stderrSpy.mock.calls[ 0 ][ 0 ] ).toMatch( /\bls\b/ );
+		stderrSpy.mockRestore();
 	} );
 
 	it( 'invalid `debug_level` arg emits an error transcript entry', () => {

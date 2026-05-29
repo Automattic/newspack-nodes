@@ -128,9 +128,15 @@ export default function DebugOverlay( {
 		s.path = '';
 		return s;
 	}, [] );
+	// Resolve the interpreter at every render and include it in the effect deps:
+	// if the dashboard's mount effect ran AFTER the overlay's first render — or
+	// the interpreter was unregistered + re-registered — the effect re-fires on
+	// the next render and rebinds shell.sink so the REPL doesn't silently drop
+	// wire commands (a stale-null shell.sink is what `s.sink?.fill(...)` masks).
+	const interpreter = Core.node( names.COMMAND_INTERPRETER );
 	useEffect( () => {
-		shell.sink = Core.node( names.COMMAND_INTERPRETER );
-	}, [ shell ] );
+		shell.sink = interpreter;
+	}, [ shell, interpreter ] );
 	const { transcript, sendLine, clear, cwd, setPath } = useDebugRepl(
 		enabled && open,
 		shell
