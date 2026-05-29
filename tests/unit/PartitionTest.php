@@ -880,7 +880,7 @@ class PartitionTest extends TestCase {
 
 	public function test_partition_node_schema_declares_ctor_and_verbs(): void {
 		$schema = Partition_Node::node_schema();
-		$this->assertSame( 'Storage', $schema['category'] );
+		$this->assertSame( 'I/O', $schema['category'] );
 		$this->assertSame( 5, \count( $schema['arguments'] ) );
 		$verb_names = \array_column( $schema['commands'], 'name' );
 		$this->assertContains( 'allow_large_writes', $verb_names );
