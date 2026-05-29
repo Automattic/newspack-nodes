@@ -240,18 +240,15 @@ describe( 'draftGraph', () => {
 	} );
 
 	describe( 'withReplAnchor', () => {
-		it( 'adds a reserved _repl CommandInterpreter node to a blank graph', () => {
+		it( 'adds a reserved _repl Partition node to a blank graph', () => {
 			const next = withReplAnchor( empty );
 			const repl = next.nodes.find( ( n ) => n.id === '_repl' );
-			expect( repl ).toBeDefined();
-			expect( repl ).toMatchObject( {
+			expect( repl ).toEqual( {
 				id: '_repl',
 				name: '_repl',
-				class: 'CommandInterpreter',
+				class: 'Partition',
 				reserved: true,
 			} );
-			expect( typeof repl.x ).toBe( 'number' );
-			expect( typeof repl.y ).toBe( 'number' );
 		} );
 
 		it( 'is idempotent — does not duplicate _repl', () => {

@@ -1,107 +1,182 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 
-function loadPositions( key ) {
+const DEFAULT_STATE = { positions: {}, viewport: null, dirty: false };
+
+function loadLayout( key ) {
 	try {
 		const raw = window.localStorage.getItem( key );
-		return raw ? JSON.parse( raw ) : {};
+		if ( ! raw ) {
+			return { ...DEFAULT_STATE };
+		}
+		const parsed = JSON.parse( raw );
+		// Tolerate older / partial entries — coerce missing fields to defaults.
+		return {
+			positions:
+				parsed &&
+				typeof parsed.positions === 'object' &&
+				parsed.positions
+					? parsed.positions
+					: {},
+			viewport:
+				parsed && parsed.viewport !== undefined
+					? parsed.viewport
+					: null,
+			dirty: !! ( parsed && parsed.dirty ),
+		};
 	} catch ( _e ) {
-		return {};
+		return { ...DEFAULT_STATE };
 	}
 }
 
-function loadViewport( key ) {
+function persist( key, state ) {
 	try {
-		const raw = window.localStorage.getItem( key );
-		return raw ? JSON.parse( raw ) : null;
+		window.localStorage.setItem( key, JSON.stringify( state ) );
 	} catch ( _e ) {
-		return null;
+		// localStorage disabled / quota exceeded — in-session only.
 	}
 }
 
 /**
- * Per-dashboard layout state for the overlay: node-position overrides + the
- * canvas viewport, both localStorage-backed. Without it the canvas can't pan,
- * zoom, or remember a node drag — the SchematicCanvas is controlled-state, so
- * a no-op `onPositionChange`/missing `onViewportChange` makes every render
- * snap layout back to defaults. Viewport writes debounce 200ms (a pan-drag
- * fires onViewportChange at ~60fps).
+ * Per-dashboard layout state for the overlay/console — single localStorage
+ * entry at `storageKey` shaped `{ positions, viewport, dirty }`.
  *
- * Reloads positions + viewport when `storageKey` changes — callers scope it
- * to the current cwd (e.g. `newspack-nodes:debug:_http`) so / and /_http
- * don't fight over canvas coordinates.
+ * - If localStorage has an entry: use it.
+ * - If not: the canvas computes a layout via autoLayout and calls
+ *   `onSeedLayout(positionsMap)`; the hook persists it with `dirty: false`.
+ * - Any user modification (`onPositionChange`, `onViewportChange`) flips
+ *   `dirty: true`. `isDirty` is what the UI gates the "Reset Layout" button on.
+ * - `resetLayout()` removes the entry; the next paint re-seeds via the canvas.
+ *
+ * Viewport writes debounce 200ms (a pan-drag fires onViewportChange at ~60fps).
+ * Reloads on `storageKey` change — callers scope it to the current cwd (e.g.
+ * `newspack-nodes:debug:_http`) so / and /_http don't share canvas coordinates.
  *
  * @param {string} storageKey Persistence key (the overlay's storageKey prop).
- * @return {Object} { positions, viewport, onPositionChange, onViewportChange }.
+ * @return {Object} { positions, viewport, isDirty, onPositionChange,
+ *                    onViewportChange, onSeedLayout, resetLayout }.
  */
 export function useDebugLayout( storageKey ) {
-	const positionsKey = `${ storageKey }:positions`;
-	const viewportKey = `${ storageKey }:viewport`;
-
-	const [ positions, setPositions ] = useState( () =>
-		loadPositions( positionsKey )
-	);
-	const [ viewport, setViewport ] = useState( () =>
-		loadViewport( viewportKey )
-	);
+	const [ state, setState ] = useState( () => loadLayout( storageKey ) );
 	const viewportSaveTimer = useRef( null );
+	// Mirror of `state` for the debounced viewport write — setState's prev-arg
+	// is unavailable inside a setTimeout, and we need the current positions
+	// and dirty flag to land in the persisted entry alongside the viewport.
+	const stateRef = useRef( state );
+	stateRef.current = state;
 
-	// Re-load on storageKey change (cwd switch) — useState's lazy init only
-	// fires once, so a key change otherwise leaves us with stale state from
-	// the prior scope. Also clear any pending viewport debounce so a panA
-	// scheduled at t=0 in scope A doesn't fire (cancelled or write-to-old-key)
-	// after a t=100 cd to scope B.
+	// Re-load on storageKey change (cwd switch). useState's lazy init only
+	// fires once; without this, a key change leaves stale state from the
+	// prior scope. Also cancel any pending viewport debounce so a write
+	// scheduled in scope A doesn't land in scope B.
 	useEffect( () => {
 		if ( viewportSaveTimer.current ) {
 			clearTimeout( viewportSaveTimer.current );
 			viewportSaveTimer.current = null;
 		}
-		setPositions( loadPositions( positionsKey ) );
-		setViewport( loadViewport( viewportKey ) );
-	}, [ positionsKey, viewportKey ] );
+		setState( loadLayout( storageKey ) );
+	}, [ storageKey ] );
 
 	const onPositionChange = useCallback(
 		( nodeId, pos ) => {
-			setPositions( ( prev ) => {
-				const next = { ...prev, [ nodeId ]: { x: pos.x, y: pos.y } };
-				try {
-					window.localStorage.setItem(
-						positionsKey,
-						JSON.stringify( next )
-					);
-				} catch ( _e ) {
-					// localStorage disabled — in-session only.
-				}
+			setState( ( prev ) => {
+				const next = {
+					positions: {
+						...prev.positions,
+						[ nodeId ]: { x: pos.x, y: pos.y },
+					},
+					viewport: prev.viewport,
+					dirty: true,
+				};
+				persist( storageKey, next );
 				return next;
 			} );
 		},
-		[ positionsKey ]
+		[ storageKey ]
 	);
 
+	// Pan/zoom is NOT a layout modification — dirty stays whatever it was.
+	// (Only `onPositionChange` flips dirty.) The canvas's autofit-on-mount
+	// effect commits a viewport back to the parent immediately after we set
+	// it to null; if that flipped dirty, "Reset Layout" would reappear right
+	// after the user clicked it.
 	const onViewportChange = useCallback(
 		( next ) => {
-			setViewport( next );
+			setState( ( prev ) => ( {
+				positions: prev.positions,
+				viewport: next,
+				dirty: prev.dirty,
+			} ) );
 			if ( viewportSaveTimer.current ) {
 				clearTimeout( viewportSaveTimer.current );
 			}
 			viewportSaveTimer.current = setTimeout( () => {
-				try {
-					if ( next === null ) {
-						window.localStorage.removeItem( viewportKey );
-					} else {
-						window.localStorage.setItem(
-							viewportKey,
-							JSON.stringify( next )
-						);
-					}
-				} catch ( _e ) {
-					// localStorage disabled — in-session only.
-				}
+				persist( storageKey, stateRef.current );
 			}, 200 );
 		},
-		[ viewportKey ]
+		[ storageKey ]
 	);
 
-	// Clear the debounce timer on unmount so a pending write doesn't fire late.
+	// Seeded layout sticks (dirty=false) — re-rendering the canvas re-fires
+	// the seed effect, so this must be idempotent. Skip when the user has
+	// already touched anything (dirty), when positions is already populated
+	// (already seeded), or when the seed itself is empty (no graph yet).
+	const onSeedLayout = useCallback(
+		( positionsMap ) => {
+			setState( ( prev ) => {
+				if ( prev.dirty ) {
+					return prev;
+				}
+				if ( Object.keys( prev.positions ).length > 0 ) {
+					return prev;
+				}
+				if (
+					! positionsMap ||
+					Object.keys( positionsMap ).length === 0
+				) {
+					return prev;
+				}
+				// Force the canvas to re-autofit to the just-seeded positions:
+				// after a reset → reseed, the canvas's autofit-on-mount effect
+				// may have already committed a viewport based on the pre-seed
+				// (intermediate autoLayout) positions. Clearing viewport here
+				// re-fires that effect with the seeded nodes.
+				const next = {
+					positions: { ...positionsMap },
+					viewport: null,
+					dirty: false,
+				};
+				persist( storageKey, next );
+				return next;
+			} );
+		},
+		[ storageKey ]
+	);
+
+	// Move an entry from oldId to newId — for rename flows where the underlying
+	// node identity is preserved. Dirty-neutral: a rename isn't a user-driven
+	// position change.
+	const renamePosition = useCallback(
+		( oldId, newId ) => {
+			setState( ( prev ) => {
+				if ( ! prev.positions[ oldId ] ) {
+					return prev;
+				}
+				const positions = { ...prev.positions };
+				positions[ newId ] = positions[ oldId ];
+				delete positions[ oldId ];
+				const next = {
+					positions,
+					viewport: prev.viewport,
+					dirty: prev.dirty,
+				};
+				persist( storageKey, next );
+				return next;
+			} );
+		},
+		[ storageKey ]
+	);
+
+	// Cancel the debounce on unmount so a pending write doesn't fire late.
 	useEffect( () => {
 		return () => {
 			if ( viewportSaveTimer.current ) {
@@ -111,21 +186,26 @@ export function useDebugLayout( storageKey ) {
 	}, [] );
 
 	const resetLayout = useCallback( () => {
-		setPositions( {} );
-		setViewport( null );
+		if ( viewportSaveTimer.current ) {
+			clearTimeout( viewportSaveTimer.current );
+			viewportSaveTimer.current = null;
+		}
+		setState( { ...DEFAULT_STATE } );
 		try {
-			window.localStorage.removeItem( positionsKey );
-			window.localStorage.removeItem( viewportKey );
+			window.localStorage.removeItem( storageKey );
 		} catch ( _e ) {
 			// localStorage disabled — in-session only.
 		}
-	}, [ positionsKey, viewportKey ] );
+	}, [ storageKey ] );
 
 	return {
-		positions,
-		viewport,
+		positions: state.positions,
+		viewport: state.viewport,
+		isDirty: state.dirty,
 		onPositionChange,
 		onViewportChange,
+		onSeedLayout,
+		renamePosition,
 		resetLayout,
 	};
 }

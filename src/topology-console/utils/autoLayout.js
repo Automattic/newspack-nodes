@@ -14,6 +14,24 @@ export const Y_PAD = 80;
 export const NODE_W = 196;
 export const NODE_H = 84;
 
+// Snap a drop point (SVG-space, presumed near a node center) to the nearest
+// grid intersection and return the corresponding top-left position the
+// renderer stores. Shared by the topology console (live + edit drop) and the
+// debug overlay so a fresh drop lands on the same grid the existing nodes
+// already snap to.
+export function snapToGrid( x, y ) {
+	const sx = X_STEP / 2;
+	const sy = Y_STEP / 2;
+	const ox = X_PAD + NODE_W / 2;
+	const oy = Y_PAD + NODE_H / 2;
+	const centerX = Math.round( ( x - ox ) / sx ) * sx + ox;
+	const centerY = Math.round( ( y - oy ) / sy ) * sy + oy;
+	return {
+		x: centerX - NODE_W / 2,
+		y: centerY - NODE_H / 2,
+	};
+}
+
 export function autoLayout( parsed ) {
 	const nodes = parsed?.nodes ?? [];
 	const edges = parsed?.edges ?? [];

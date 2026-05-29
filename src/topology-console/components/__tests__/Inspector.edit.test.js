@@ -111,7 +111,7 @@ describe( 'Inspector (edit mode)', () => {
 				nodes: [
 					{
 						id: '_repl',
-						class: 'CommandInterpreter',
+						class: 'Partition',
 						reserved: true,
 					},
 					{ id: 'echo', class: 'Echo' },
@@ -120,9 +120,12 @@ describe( 'Inspector (edit mode)', () => {
 			},
 			catalog: [
 				{
-					shell_name: 'CommandInterpreter',
-					arguments: [],
-					commands: [],
+					shell_name: 'Partition',
+					arguments: [
+						{ name: 'base_dir', required: true },
+						{ name: 'partition', required: true },
+					],
+					commands: [ { name: 'allow_large_writes', args: [] } ],
 				},
 				{ shell_name: 'Echo', arguments: [], commands: [] },
 			],
@@ -147,6 +150,23 @@ describe( 'Inspector (edit mode)', () => {
 		it( 'still renders the reserved node title', () => {
 			const { container } = render( <Inspector { ...reservedProps } /> );
 			expect( container.textContent ).toMatch( /_repl/ );
+		} );
+
+		it( 'hides Routing, Constructor, and Verbs sections (no settings on a reserved node)', () => {
+			// The worker owns the auto-mounted spine — its routing, args,
+			// and verbs are fixed. Showing settings here invites the user to
+			// edit values that won't round-trip through TSL (serializeTsl
+			// already skips reserved nodes).
+			const { container, queryByText } = render(
+				<Inspector { ...reservedProps } />
+			);
+			expect( queryByText( 'Routing' ) ).toBeNull();
+			expect( queryByText( 'Constructor' ) ).toBeNull();
+			expect( queryByText( 'Verbs' ) ).toBeNull();
+			// And the Partition's catalog fields must not slip through.
+			expect( container.textContent ).not.toMatch( /base_dir/ );
+			expect( container.textContent ).not.toMatch( /segment_size/ );
+			expect( container.textContent ).not.toMatch( /allow_large_writes/ );
 		} );
 	} );
 

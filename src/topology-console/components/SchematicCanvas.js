@@ -176,6 +176,11 @@ export default function SchematicCanvas( {
 	onBackgroundClickConsumed,
 	// shell_name → schema; drives port visibility (accepts_fill/has_target).
 	classCatalog = {},
+	// One-shot persistence callback. When defined and `positionOverrides`
+	// is empty, the canvas ships autoLayout's positions up so the parent
+	// can save them. The receiving hook is idempotent (it no-ops if state
+	// is already populated or the user has touched anything).
+	onSeedLayout = null,
 } ) {
 	// User-pinned overrides win over autoLayout output (keyed by node name
 	// so they survive restarts that re-seed counters).
@@ -193,6 +198,30 @@ export default function SchematicCanvas( {
 				: n
 		);
 	}, [ laidOutNodes, positionOverrides ] );
+
+	// Seed the parent's saved layout once: when there are no overrides yet
+	// and autoLayout has produced a non-empty set, ship the positions up.
+	// The receiving hook is idempotent; this fires on every render where
+	// the conditions hold, which is harmless (no-op after the first save).
+	useEffect( () => {
+		if ( ! onSeedLayout ) {
+			return;
+		}
+		if (
+			positionOverrides &&
+			Object.keys( positionOverrides ).length > 0
+		) {
+			return;
+		}
+		if ( ! laidOutNodes || laidOutNodes.length === 0 ) {
+			return;
+		}
+		const seed = {};
+		for ( const n of laidOutNodes ) {
+			seed[ n.id ] = n.position;
+		}
+		onSeedLayout( seed );
+	}, [ laidOutNodes, positionOverrides, onSeedLayout ] );
 
 	// Active-drag state; snap + commit happen on pointerup.
 	const [ drag, setDrag ] = useState( null );
@@ -856,6 +885,10 @@ export default function SchematicCanvas( {
 								<circle
 									className={ `topology-port topology-port--out${
 										editMode ? ' is-edit' : ''
+									}${
+										interactive && onConnect
+											? ' is-wire-source'
+											: ''
 									}` }
 									cx={ NODE_W }
 									cy={ NODE_H / 2 }

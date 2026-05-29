@@ -338,4 +338,43 @@ describe( 'Inspector (view mode)', () => {
 			byName: { formatter: 'json' },
 		} );
 	} );
+
+	it( 'hides verb buttons (allow_large_writes, with_index, …) for a reserved spine node', () => {
+		// `_repl` is the worker's auto-mounted Partition spine. In live mode,
+		// `parseMetadata` doesn't tag spine nodes — the Inspector recognizes
+		// them by id (matching the reserved-node-names set). The user's
+		// inspection actions (Dump/Send/Trace) still work; only TM_COMMAND /
+		// TM_REQUEST verbs on the worker's owned node are blocked.
+		const catalog = [
+			{
+				shell_name: 'Partition',
+				commands: [ { name: 'allow_large_writes', args: [] } ],
+				requests: [ { name: 'with_index', args: [] } ],
+			},
+		];
+		const { queryByText, getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="_repl"
+				parsed={ {
+					nodes: [
+						{
+							id: '_repl',
+							class: 'Partition',
+							count: 1,
+						},
+					],
+					edges: [],
+				} }
+				nodeIds={ new Set( [ '_repl' ] ) }
+				catalog={ catalog }
+			/>
+		);
+		expect( queryByText( 'allow_large_writes' ) ).toBeNull();
+		expect( queryByText( 'with_index' ) ).toBeNull();
+		// Dump / Send / Trace stay — they're the user's inspection commands.
+		expect( getByText( 'Dump' ) ).not.toBeNull();
+		expect( getByText( 'Send' ) ).not.toBeNull();
+		expect( getByText( 'Trace' ) ).not.toBeNull();
+	} );
 } );

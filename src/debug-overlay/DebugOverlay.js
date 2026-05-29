@@ -9,6 +9,7 @@ import { Core } from '../runtime/core';
 import { __ } from '@wordpress/i18n';
 import CanvasFrame from '../topology-console/components/CanvasFrame';
 import GraphView from '../topology-console/components/GraphView';
+import { NewNodeModal } from '../topology-console/components/Modal';
 import { makeReplDismissHandler } from '../topology-console/utils/replDismissHandler';
 import Header from '../topology-console/components/Header';
 import ReplFooter from '../topology-console/components/ReplFooter';
@@ -141,6 +142,19 @@ export default function DebugOverlay( {
 		enabled && open,
 		shell
 	);
+	// Layout storage scoped by cwd. Resolved BEFORE useDebugGraph so its
+	// `onPositionChange` callback is in scope when a palette drop records the
+	// position. Same JS hoisting reason as schemasByShellName lower down.
+	const cwdScope = cwd || 'local';
+	const {
+		positions,
+		viewport,
+		isDirty: isLayoutDirty,
+		onPositionChange,
+		onViewportChange,
+		onSeedLayout,
+		resetLayout,
+	} = useDebugLayout( `${ storageKey }:${ cwdScope }` );
 	// Catalog must be resolved before useDebugGraph so the Inspector handler
 	// can look up `is_interpreter` for non-local-scope nodes.
 	const jsCatalog = useJsCatalog();
@@ -148,11 +162,13 @@ export default function DebugOverlay( {
 		enabled: enabled && open && !! cwd,
 	} );
 	const catalog = cwd ? phpCatalog : jsCatalog;
-	const { graph, handlers } = useDebugGraph(
-		enabled && open,
-		shell,
-		catalog.classes || []
-	);
+	const { graph, handlers, pendingDrop, commitDrop, cancelDrop } =
+		useDebugGraph(
+			enabled && open,
+			shell,
+			catalog.classes || [],
+			onPositionChange
+		);
 
 	// Reachable path scopes — every top-level substrate-node-name in the
 	// current Core registry that's a legitimate `cd` target (peel-and-route).
@@ -216,17 +232,6 @@ export default function DebugOverlay( {
 			),
 		[ catalog.classes ]
 	);
-	// Scope layout storage by cwd so each scope (/, /_http, etc.) gets its
-	// own canvas positions + viewport. Empty/initial cwd maps to ':local'
-	// for back-compat-friendly keys.
-	const cwdScope = cwd || 'local';
-	const {
-		positions,
-		viewport,
-		onPositionChange,
-		onViewportChange,
-		resetLayout,
-	} = useDebugLayout( `${ storageKey }:${ cwdScope }` );
 	const {
 		frame,
 		style: frameStyle,
@@ -272,13 +277,11 @@ export default function DebugOverlay( {
 		}
 	};
 
-	// Hide the reset chips when there's nothing to undo. The layout chip
-	// keys on positions only — the canvas's autofit-on-mount effect commits
-	// a viewport back to the parent immediately after we set it to null,
-	// so `viewport !== null` is true for an auto-committed value just like
-	// for a real user pan/zoom; we can't tell them apart. Trust positions
-	// as the user-intent signal.
-	const hasLayoutToReset = Object.keys( positions ).length > 0;
+	// "Reset Layout" appears only when the user has modified the layout.
+	// `isLayoutDirty` is the single source of truth — set by onPositionChange
+	// or onViewportChange in useDebugLayout, cleared by resetLayout (and by
+	// the initial autoLayout seed via onSeedLayout, which writes dirty=false).
+	const hasLayoutToReset = isLayoutDirty;
 	const baseline = baselineNamesRef.current;
 	// Only meaningful in the local scope — `graph` is remote (server's
 	// dump_metadata payload) when cwd is `/_http` etc., and every remote
@@ -411,6 +414,7 @@ export default function DebugOverlay( {
 							formatters={ catalog.formatters }
 							positionOverrides={ positions }
 							onPositionChange={ onPositionChange }
+							onSeedLayout={ onSeedLayout }
 							viewport={ viewport }
 							onViewportChange={ onViewportChange }
 							onConnect={ handlers.onConnect }
@@ -456,6 +460,15 @@ export default function DebugOverlay( {
 						)
 					) }
 				</div>
+			) }
+			{ pendingDrop && (
+				<NewNodeModal
+					shellName={ pendingDrop.shellName }
+					defaultName={ pendingDrop.defaultName }
+					argSchema={ pendingDrop.argSchema }
+					onConfirm={ commitDrop }
+					onCancel={ cancelDrop }
+				/>
 			) }
 		</div>
 	);

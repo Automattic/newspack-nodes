@@ -4,6 +4,7 @@
 
 import {
 	autoLayout,
+	snapToGrid,
 	X_PAD,
 	X_STEP,
 	Y_PAD,
@@ -210,5 +211,29 @@ describe( 'autoLayout', () => {
 			out.nodes.map( ( n ) => [ n.id, n ] )
 		);
 		expect( byId.b.position.y ).not.toBe( byId.y.position.y );
+	} );
+} );
+
+describe( 'snapToGrid', () => {
+	// Drop point lands AT (or near) a node's center; snapToGrid returns the
+	// top-left corner of a node whose center sits on the nearest grid
+	// intersection. That keeps a fresh drop on the same grid the renderer
+	// uses for the existing nodes, so connections + drag-snaps line up.
+	it( 'snaps the canonical first-cell drop to (X_PAD, Y_PAD)', () => {
+		// (X_PAD + NODE_W/2, Y_PAD + NODE_H/2) is the first cell's center;
+		// snapping that returns the top-left = (X_PAD, Y_PAD).
+		expect( snapToGrid( X_PAD + NODE_W / 2, Y_PAD + NODE_H / 2 ) ).toEqual(
+			{ x: X_PAD, y: Y_PAD }
+		);
+	} );
+
+	it( 'rounds an off-grid drop to the nearest intersection', () => {
+		// A drop one cell to the right + a hair below — round to (col 2, row 2).
+		const cx = X_PAD + NODE_W / 2 + X_STEP + 4;
+		const cy = Y_PAD + NODE_H / 2 + Y_STEP + 3;
+		expect( snapToGrid( cx, cy ) ).toEqual( {
+			x: X_PAD + X_STEP,
+			y: Y_PAD + Y_STEP,
+		} );
 	} );
 } );

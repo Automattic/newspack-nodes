@@ -44,38 +44,22 @@ export function addEdge( graph, { from, to } ) {
 	return { nodes, edges: [ ...graph.edges, { from, to } ] };
 }
 
-/**
- * Default canvas position for the auto-mounted `_repl` anchor when it's first
- * seeded. Off to the side so it doesn't overlap auto-laid app nodes.
- */
-const REPL_ANCHOR = { x: 40, y: 40 };
-
-/**
- * Ensure the reserved `_repl` connection-anchor is present. `_repl` is the
- * worker's auto-mounted REPL command-interpreter (the `log`/`tell` broadcast
- * handle); it lives in no topology .tsl, so the editor seeds it as a fixed
- * anchor you can wire TO but cannot rename or delete. Idempotent.
- *
- * @param {Object} graph Current graph.
- * @return {Object} A graph guaranteed to contain the `_repl` anchor.
- */
+// `_repl` is the worker's auto-mounted Partition — `log`/`tell` broadcast
+// handle. Not part of any topology .tsl, but the editor anchors it on the
+// canvas so the user can draw edges TO it. Reserved → no rename/no delete
+// (the refusal lives in renameNode/removeNode here, and `serializeTsl`
+// already skips reserved nodes so it never round-trips into the .tsl).
+const REPL_ANCHOR = {
+	id: '_repl',
+	name: '_repl',
+	class: 'Partition',
+	reserved: true,
+};
 export function withReplAnchor( graph ) {
 	if ( graph.nodes.some( ( n ) => n.id === '_repl' ) ) {
 		return graph;
 	}
-	const node = {
-		id: '_repl',
-		name: '_repl',
-		class: 'CommandInterpreter',
-		x: REPL_ANCHOR.x,
-		y: REPL_ANCHOR.y,
-		target: '',
-		also: [],
-		ctorArgs: [],
-		verbInvocations: [],
-		reserved: true,
-	};
-	return { nodes: [ ...graph.nodes, node ], edges: graph.edges };
+	return { ...graph, nodes: [ ...graph.nodes, REPL_ANCHOR ] };
 }
 
 export function removeNode( graph, id ) {
