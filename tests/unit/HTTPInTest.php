@@ -556,6 +556,36 @@ class HTTPInTest extends TestCase {
 		$this->assertSame( 429, $data['status'] );
 	}
 
+	public function test_steady_one_request_per_second_never_trips_the_limit(): void {
+		// Repro of the production complaint: a single client polling /command
+		// at 1 req/sec eventually got a 429. The old bucket implementation
+		// re-set the transient TTL on every write, so a steady stream NEVER
+		// let the window expire — the counter just grew until it hit BURST
+		// (after ~30 seconds at 1/s). The fix is per-second buckets: each
+		// floor(microtime) gets its own counter, so 1 req/sec stays at
+		// count=1 per bucket forever.
+		$this->reset_rl_state();
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_test_current_user_id']                    = 7;
+
+		$ctrl = new HTTP_In_Node();
+		$req  = new \WP_REST_Request( 'POST' );
+
+		// Run 5 * BURST one-per-second iterations. None may 429.
+		$base = 1700000000.0;
+		for ( $i = 0; $i < HTTP_In_Node::RATE_LIMIT_BURST * 5; $i++ ) {
+			HTTP_In_Node::$clock_now_seam = $base + $i; // each iteration is a fresh second
+			$result                       = $ctrl->check_permission( $req );
+			$this->assertTrue(
+				$result,
+				"steady 1 req/sec iteration #{$i} must pass (got "
+					. ( $result instanceof \WP_Error ? $result->get_error_code() : 'non-WP_Error' )
+					. ')'
+			);
+		}
+		HTTP_In_Node::$clock_now_seam = null;
+	}
+
 	public function test_rate_limit_counter_resets_after_window_expires(): void {
 		$this->reset_rl_state();
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
