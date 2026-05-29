@@ -5,18 +5,15 @@
 import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { ModalShell } from './Modal';
-import reservedNodeNames from '../../runtime/reserved-node-names.json';
 
-// Worker-owned spine nodes — the Inspector hides config edit affordances for
-// these. Live mode (`parseMetadata` payload) doesn't tag `reserved: true`, so
-// we recognize them by id; edit-mode drafts use the explicit `node.reserved`
-// flag (set by `withReplAnchor`). Either signal counts.
-const RESERVED_SPINE_IDS = new Set( Object.values( reservedNodeNames ) );
+// The Inspector hides config-edit affordances (Routing/Constructor/Verbs/
+// rename/Delete/class-catalog verb buttons) for the worker-auto-mounted
+// `_repl` anchor only. Edit-mode draft nodes carry `reserved: true` (set by
+// `withReplAnchor`); live-mode `parseMetadata` doesn't tag, so the id check
+// catches `_repl` there. Every OTHER node — including other spine names
+// (_metadata, _http, _output, …) — stays freely inspectable.
 function isReserved( node ) {
-	return !! (
-		node &&
-		( node.reserved || RESERVED_SPINE_IDS.has( node.id ) )
-	);
+	return !! ( node && ( node.reserved || '_repl' === node.id ) );
 }
 
 function FieldRow( { k, v, vClass } ) {

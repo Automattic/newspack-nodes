@@ -89,11 +89,18 @@ export function autoLayout( parsed ) {
 	nodes.forEach( ( n ) => visit( n.id ) );
 
 	// Push each node right to `min(target depths) - 1` to shorten long
-	// forward edges. Walk in decreasing-depth order so targets settle first.
+	// forward edges — BUT skip source-only nodes (no incoming). Sources
+	// anchor the left edge; pulling them right just to be closer to a
+	// faraway target marrons col 0 visually empty. Walk in decreasing-
+	// depth order so targets settle first.
 	const sortedByDepthDesc = [ ...nodes ].sort(
 		( a, b ) => depth.get( b.id ) - depth.get( a.id )
 	);
 	for ( const n of sortedByDepthDesc ) {
+		const preds = incoming.get( n.id ) || [];
+		if ( preds.length === 0 ) {
+			continue; // source-only: stays at col 0
+		}
 		const targets = outgoing.get( n.id ) || [];
 		if ( targets.length === 0 ) {
 			continue;
@@ -107,6 +114,28 @@ export function autoLayout( parsed ) {
 		const minTargetDepth = Math.min( ...targetDepths );
 		if ( minTargetDepth - 1 > depth.get( n.id ) ) {
 			depth.set( n.id, minTargetDepth - 1 );
+		}
+	}
+
+	// Align sinks (no outgoing) and isolated nodes (no edges) to the max-depth
+	// column. Without this, a fan-out that reaches sinks at uneven natural
+	// depths leaves them scattered across columns — e.g. a request-builder
+	// → completed:tee → partition chain puts some partitions at depth 3 and
+	// some at depth 4. Pushing every leaf right makes them stack cleanly in
+	// the rightmost column, and an isolated node (`_repl` in the live worker
+	// graph) joins them instead of marooning the left edge.
+	let maxDepth = 0;
+	for ( const d of depth.values() ) {
+		if ( d > maxDepth ) {
+			maxDepth = d;
+		}
+	}
+	if ( maxDepth > 0 ) {
+		for ( const n of nodes ) {
+			const outs = outgoing.get( n.id ) || [];
+			if ( outs.length === 0 ) {
+				depth.set( n.id, maxDepth );
+			}
 		}
 	}
 
@@ -152,6 +181,10 @@ export function autoLayout( parsed ) {
 
 	// Pass 2: snap each producer's row to the mean of its target rows,
 	// right-to-left. Mean (not min) sits a producer between split targets.
+	// Snap precision: HALF-row for multi-target fan-outs (so 4 targets at
+	// rows 0,1,2,3 put the source at 1.5 — the visual midpoint between
+	// rows 1 and 2). Single-target snap takes the exact target row so
+	// straight pairs stay on the same row.
 	for ( let i = depthsAscending.length - 1; i >= 0; i-- ) {
 		const d = depthsAscending[ i ];
 		for ( const n of byDepth.get( d ) ) {
@@ -159,17 +192,29 @@ export function autoLayout( parsed ) {
 			const targetRows = targets
 				.map( ( t ) => row.get( t ) )
 				.filter( ( r ) => r !== undefined );
-			if ( targetRows.length ) {
+			if ( targetRows.length === 1 ) {
+				row.set( n.id, targetRows[ 0 ] );
+			} else if ( targetRows.length > 1 ) {
 				const mean =
 					targetRows.reduce( ( a, b ) => a + b, 0 ) /
 					targetRows.length;
-				row.set( n.id, Math.round( mean ) );
+				row.set( n.id, Math.round( mean * 2 ) / 2 );
 			}
 		}
 	}
 
-	// Pass 3: deconflict same-row column-mates. Tiebreaker = "straightness"
-	// (more edges whose other endpoint shares the row keeps it), then alpha.
+	// Pass 3: per-column resnap + deconflict, left-to-right.
+	//
+	// For columns beyond 0, re-snap each node to FLOOR(mean of finalized
+	// predecessor rows) before deconfliction. Pass 1 placed columns by
+	// barycenter using col 0's input-order rows, but Pass 2 + same-column
+	// deconflict have since moved col 0 around — without this resnap,
+	// targets stay at their stale Pass-1 rows and the dashed edges run
+	// diagonally instead of horizontally. Floor (vs round) biases a target
+	// toward its FIRST predecessor, which is the natural pair partner.
+	//
+	// Deconflict tiebreak = "straightness" (more edges whose other endpoint
+	// shares the row keeps it), then alpha.
 	const straightnessAt = ( nodeId, targetRow ) => {
 		let count = 0;
 		for ( const p of incoming.get( nodeId ) || [] ) {
@@ -186,6 +231,39 @@ export function autoLayout( parsed ) {
 	};
 	for ( const d of depthsAscending ) {
 		const columnNodes = byDepth.get( d ).slice();
+		if ( d > 0 ) {
+			for ( const n of columnNodes ) {
+				// Re-snap LEAVES only — middle nodes keep Pass 2's
+				// target-snap row (= midpoint of fan-out). Re-snapping a
+				// middle node to its predecessor's row would pull it AWAY
+				// from the midpoint of its targets.
+				const outs = outgoing.get( n.id ) || [];
+				if ( outs.length > 0 ) {
+					continue;
+				}
+				const preds = incoming.get( n.id ) || [];
+				// Fan-out leaves (single pred, sibling count > 1) keep the
+				// Pass 1 barycenter row — pulling all siblings to the pred's
+				// row collapses them, then deconflict bumps them DOWNWARD,
+				// shifting the midpoint off the pred. Pass 1's alpha-spread
+				// already centers them around the pred.
+				if ( preds.length === 1 ) {
+					const siblings = outgoing.get( preds[ 0 ] ) || [];
+					if ( siblings.length > 1 ) {
+						continue;
+					}
+				}
+				const predRows = preds
+					.map( ( p ) => row.get( p ) )
+					.filter( ( r ) => r !== undefined );
+				if ( predRows.length ) {
+					const mean =
+						predRows.reduce( ( a, b ) => a + b, 0 ) /
+						predRows.length;
+					row.set( n.id, Math.floor( mean ) );
+				}
+			}
+		}
 		columnNodes.sort( ( a, b ) => {
 			const ra = row.get( a.id );
 			const rb = row.get( b.id );
@@ -196,6 +274,65 @@ export function autoLayout( parsed ) {
 			const sb = straightnessAt( b.id, rb );
 			if ( sa !== sb ) {
 				return sb - sa; // higher straightness wins the row
+			}
+			return a.id.localeCompare( b.id );
+		} );
+		const seen = new Set();
+		for ( const n of columnNodes ) {
+			let r = row.get( n.id );
+			while ( seen.has( r ) ) {
+				r++;
+			}
+			row.set( n.id, r );
+			seen.add( r );
+		}
+	}
+
+	// Pass 3b: right-to-left re-snap of MIDDLE nodes (nodes with outgoing
+	// edges) to mean of FINAL target rows. After Pass 3's per-column
+	// deconflict, leaves may have shifted (e.g. gyroscope moved from row 2
+	// → row 1 because it now wins the row-1 slot via straightness over an
+	// errors-partition sibling). Pass 2 set middle nodes using the
+	// pre-deconflict rows, so completed:tee at row 1 (mean of completed:
+	// partition row 0 and gyroscope row 2) is stale once gyroscope sits at
+	// row 1. Re-snapping middle nodes here with finalized target rows puts
+	// each middle node at the actual midpoint of its targets.
+	//
+	// Single target → exact target row (preserves straight pairs).
+	// Multi target → round-to-half-row for visual midpoint precision.
+	for ( let i = depthsAscending.length - 1; i >= 0; i-- ) {
+		const d = depthsAscending[ i ];
+		const columnNodes = byDepth.get( d ).slice();
+		for ( const n of columnNodes ) {
+			const outs = outgoing.get( n.id ) || [];
+			if ( outs.length === 0 ) {
+				continue; // leaves stay put
+			}
+			const targetRows = outs
+				.map( ( t ) => row.get( t ) )
+				.filter( ( r ) => r !== undefined );
+			if ( targetRows.length === 1 ) {
+				row.set( n.id, targetRows[ 0 ] );
+			} else if ( targetRows.length > 1 ) {
+				const mean =
+					targetRows.reduce( ( a, b ) => a + b, 0 ) /
+					targetRows.length;
+				row.set( n.id, Math.round( mean * 2 ) / 2 );
+			}
+		}
+		// Deconflict middle nodes against each other in this column. Bumps
+		// are integer-row, which can push a half-row node onto an integer
+		// row — accepted, since the alternative is overlap.
+		columnNodes.sort( ( a, b ) => {
+			const ra = row.get( a.id );
+			const rb = row.get( b.id );
+			if ( ra !== rb ) {
+				return ra - rb;
+			}
+			const sa = straightnessAt( a.id, ra );
+			const sb = straightnessAt( b.id, rb );
+			if ( sa !== sb ) {
+				return sb - sa;
 			}
 			return a.id.localeCompare( b.id );
 		} );
