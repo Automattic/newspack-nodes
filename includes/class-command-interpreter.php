@@ -382,10 +382,14 @@ class Command_Interpreter_Node extends Node {
 			// not through arguments() (which only handles scalar config).
 			$node = new $fqcn();
 			$node->name( $name );
-			// Only scalar tokens count: programmatic make_node calls may pass
-			// object deps positionally for compatibility, but those aren't
-			// round-trippable through arguments() and dump_config skips them.
-			$node->arguments( \implode( ' ', \array_filter( $ctor_args, '\is_scalar' ) ) );
+			// Only scalar tokens round-trip through arguments(); object deps belong on public properties (warn so a forgotten assignment isn't silently dropped).
+			$scalar_args = \array_filter( $ctor_args, '\is_scalar' );
+			if ( \count( $scalar_args ) !== \count( $ctor_args ) ) {
+				Core::print_less_often(
+					"make_node {$type} {$name}: non-scalar positional arg filtered (assign object deps as public properties)"
+				);
+			}
+			$node->arguments( \implode( ' ', $scalar_args ) );
 			$node->sink( $this );
 			// Inherit debug_state so new nodes trace from birth.
 			if ( $this->debug_state() > 0 ) {

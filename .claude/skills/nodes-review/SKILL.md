@@ -79,6 +79,7 @@ Full type-flag bitmask from `includes/class-message.php`: `TM_BYTESTREAM=1`, `TM
 - Side effects (`set_timer`, `mkdir`, `fopen`, `Partition_Node` materialization) belong in the `arguments()` override gated on non-empty args, not in the constructor (AGENTS decision 5).
 - Programmatic dependencies (objects, callables, streams) are public properties the caller sets after construction, NOT ctor params. `Workers_CI_Node::$cli` / `$cache` is the reference.
 - Schema field names are `'arguments'` and `'commands'`. A diff that reads or writes `'ctor'` or `'verbs'` is a regression (renamed in v0.6.0).
+- Schema `default`s are applied **only per-position when token list runs short**, NOT on `'' === $args` (the empty-args short-circuit returns before the schema walk). If you want a default that's visible both via `make_node Foo bar baz` *and* `make_node Foo` (no args), set it as the class property default too — not only on the schema entry.
 
 ### 8c. `dump_config` round-trip
 

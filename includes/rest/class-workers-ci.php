@@ -22,6 +22,7 @@ namespace Newspack_Nodes\Rest;
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\SSE_Slot_Pool;
@@ -628,7 +629,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	private static function get_live_position( string $type, int $partition, string $input_log, ?object $cache, string $base_dir ): ?array {
 		$source_path = "{$base_dir}/logs/{$input_log}";
 		$host        = \gethostname() ?: 'unknown';
-		$cache_key   = "np:pos:{$host}:{$source_path}:p{$partition}";
+		$cache_key   = Consumer_Node::position_key( $host, $source_path, $partition );
 
 		// Null cache skips to the offsetlog; a raw \Memcached has get(), no is_available().
 		if ( null !== $cache && \method_exists( $cache, 'get' ) ) {

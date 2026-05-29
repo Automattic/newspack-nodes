@@ -1,9 +1,10 @@
 <?php
 /**
- * Malformed_Schema_Node: a discoverable fixture whose node_schema()'s verbs[]
- * mixes a non-array entry (a bare string) with a well-formed verb. Used by
- * ClassesCITest to prove the catalog `list` strip tolerates a malformed verb
- * (skips it) instead of fatal-ing the whole palette with a TypeError.
+ * Malformed_Schema_Node: a discoverable fixture whose node_schema()'s
+ * commands[] mixes a non-array entry (a bare string) with a well-formed verb.
+ * Used by ClassesCITest to prove the catalog `list` strip tolerates a
+ * malformed verb (skips it) instead of fatal-ing the whole palette with a
+ * TypeError.
  *
  * It lives in a separate file (not inline in the test) so the suite can register
  * it into the active composer classmap and exercise Classes_CI's real scan path.

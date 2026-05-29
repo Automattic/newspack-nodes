@@ -2,6 +2,7 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\CLI;
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -317,7 +318,14 @@ class CliTest extends TestCase {
 	}
 
 	public function test_live_position_returns_normalized_position(): void {
-		$cli   = new CLI( $this->tmp );
+		// Worker's offsetlog records source_basename so live_position can derive
+		// the same key Consumer_Node::publish_position() wrote.
+		$this->seed_offsetlog( 'firehose-workers', 3, 'firehose' );
+
+		$cli      = new CLI( $this->tmp );
+		$host     = \gethostname() ?: 'unknown';
+		$expected = Consumer_Node::position_key( $host, "{$this->tmp}/logs/firehose.log", 3 );
+
 		$cache = new class() {
 			public string $last_key = '';
 			public function get( $key ) {
@@ -327,13 +335,68 @@ class CliTest extends TestCase {
 		};
 		$pos = $cli->live_position( $cache, 'firehose-workers', 3 );
 
-		// Verify cache key built from POSITION_KEY_PREFIX + type + .p{partition}.
-		$this->assertSame( CLI::POSITION_KEY_PREFIX . 'firehose-workers.p3', $cache->last_key );
+		// CLI must hit the SAME key Workers_CI reads and Consumer writes.
+		$this->assertSame( $expected, $cache->last_key );
 
 		// Values cast to int.
 		$this->assertSame( 12, $pos['seg'] );
 		$this->assertSame( 345, $pos['off'] );
 		$this->assertSame( 1700000000, $pos['ts'] );
+	}
+
+	public function test_live_position_key_matches_consumer_publish_key(): void {
+		// The on-disk shape the cli reads from is Consumer_Node's: a
+		// `np:pos:{host}:{source_base_dir}:p{N}` key. Pin the contract via
+		// Consumer_Node::position_key() so reader and writer can't drift.
+		$this->seed_offsetlog( 'jobs', 2, 'jobintake' );
+
+		$cli      = new CLI( $this->tmp );
+		$host     = \gethostname() ?: 'unknown';
+		$expected = Consumer_Node::position_key( $host, "{$this->tmp}/logs/jobintake.log", 2 );
+
+		$cache = new class() {
+			public string $last_key = '';
+			public function get( $key ) {
+				$this->last_key = $key;
+				return [ 'seg' => 0, 'off' => 0 ];
+			}
+		};
+		$cli->live_position( $cache, 'jobs', 2 );
+
+		$this->assertSame( $expected, $cache->last_key );
+	}
+
+	public function test_live_position_falls_back_to_firehose_when_no_offsetlog(): void {
+		// No offsetlog yet → CLI assumes the conventional `firehose.log` source.
+		$cli      = new CLI( $this->tmp );
+		$host     = \gethostname() ?: 'unknown';
+		$expected = Consumer_Node::position_key( $host, "{$this->tmp}/logs/firehose.log", 0 );
+
+		$cache = new class() {
+			public string $last_key = '';
+			public function get( $key ) {
+				$this->last_key = $key;
+				return [ 'seg' => 0, 'off' => 0 ];
+			}
+		};
+		$cli->live_position( $cache, 'fresh-worker', 0 );
+
+		$this->assertSame( $expected, $cache->last_key );
+	}
+
+	/** Seed an offsetlog with one checkpoint that records $source_basename. */
+	private function seed_offsetlog( string $type, int $partition, string $source_basename ): void {
+		$dir = "{$this->tmp}/offsets/{$type}.p{$partition}/p0";
+		mkdir( $dir, 0755, true );
+		file_put_contents(
+			"{$dir}/0.log",
+			json_encode( [
+				'seg'             => 0,
+				'off'             => 0,
+				'ts'              => 1700000000,
+				'source_basename' => $source_basename,
+			] ) . "\n"
+		);
 	}
 
 	public function test_live_position_defaults_ts_to_zero_when_missing(): void {

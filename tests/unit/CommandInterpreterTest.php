@@ -1907,6 +1907,23 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertNull( Core::node( 'wont_exist' ) );
 	}
 
+	public function test_make_node_warns_when_object_arg_filtered_out(): void {
+		// Catching the silent is_scalar-filter footgun: someone passing a
+		// programmatic object positionally to make_node (e.g. forgot to assign
+		// $cli via a public property) gets the arg silently dropped. Surface
+		// a rate-limited stderr warning that names the node type.
+		$buf = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+
+		$ci = new Command_Interpreter_Node();
+		$ci->name( '_command_interpreter' );
+
+		// Capture_Sink is a real Node subclass registered by bootstrap.
+		$ci->make_node( 'Capture_Sink', 'dropped_obj', new \stdClass(), 'scalar-arg' );
+
+		$this->assertStringContainsString( 'Capture_Sink', $buf );
+	}
+
 	public function test_dmesg_returns_recent_log_tail(): void {
 		// `dmesg` dumps Core's recent stderr tail — the PHP port of Perl
 		// Tachikoma's dmesg (join of @RECENT_LOG). Each entry already carries

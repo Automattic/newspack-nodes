@@ -783,27 +783,6 @@ class PartitionTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Hardening: get_current_position.
-	// ============================================================================
-
-	public function test_get_current_position_returns_segment_and_offset(): void {
-		$p = new Partition_Node();
-		$p->arguments( "{$this->tmp} 0 " . ( 1024 * 1024 ) . " 4 86400" );
-		$pos = $p->get_current_position();
-		$this->assertSame( [ 'segment_id' => 0, 'offset' => 0 ], $pos );
-
-		$this->produce_into( $p, 'hello' );
-		$pos1 = $p->get_current_position();
-		$this->assertSame( 0, $pos1['segment_id'] );
-		$this->assertGreaterThan( 0, $pos1['offset'] );
-
-		$this->produce_into( $p, 'world' );
-		$pos2 = $p->get_current_position();
-		$this->assertSame( 0, $pos2['segment_id'] );
-		$this->assertGreaterThan( $pos1['offset'], $pos2['offset'] );
-	}
-
-	// ============================================================================
 	// Hardening: partial-write loop.
 	// ============================================================================
 

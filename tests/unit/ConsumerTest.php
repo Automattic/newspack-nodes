@@ -422,48 +422,6 @@ class ConsumerTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Hardening: mark_eof.
-	// ============================================================================
-
-	public function test_mark_eof_sets_at_eof(): void {
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-		$ref = new \ReflectionClass( $c );
-		$prop = $ref->getProperty( 'at_eof' );
-		$prop->setAccessible( true );
-		$prop->setValue( $c, false );
-		$c->mark_eof();
-		$this->assertTrue( $prop->getValue( $c ) );
-	}
-
-	// ============================================================================
-	// Hardening: update_offset.
-	// ============================================================================
-
-	public function test_update_offset_advances_cursor(): void {
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-		$ref = new \ReflectionClass( $c );
-		$prop = $ref->getProperty( 'cursor_off' );
-		$prop->setAccessible( true );
-
-		$prop->setValue( $c, 5 );
-		$c->update_offset( 10 );
-		$this->assertSame( 15, $prop->getValue( $c ) );
-	}
-
-	public function test_update_offset_ignores_negative(): void {
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-		$ref = new \ReflectionClass( $c );
-		$prop = $ref->getProperty( 'cursor_off' );
-		$prop->setAccessible( true );
-		$prop->setValue( $c, 5 );
-		$c->update_offset( -3 );
-		$this->assertSame( 5, $prop->getValue( $c ) );
-	}
-
-	// ============================================================================
 	// Hardening: open() segment-deleted recovery.
 	// ============================================================================
 

@@ -12,10 +12,6 @@ namespace Newspack_Nodes;
 class Core {
 	/** @var array<string,object> */
 	public static array $nodes_by_name = [];
-	/** @var array<int,object> */
-	public static array $nodes_by_fd = [];
-	/** @var array<int,object> */
-	public static array $nodes_by_id = [];
 
 	/** @var float Microsecond-resolution timestamp; updated by the event loop or in tests. */
 	public static float $now = 0.0;
@@ -69,8 +65,6 @@ class Core {
 
 	public static function reset(): void {
 		self::$nodes_by_name     = [];
-		self::$nodes_by_fd       = [];
-		self::$nodes_by_id       = [];
 		self::$shutting_down     = false;
 		self::$closing           = [];
 		self::$recent_log        = [];
@@ -117,13 +111,19 @@ class Core {
 		self::$config_resolvers[ $ns ] = $resolver;
 	}
 
-	/** Resolve a `<ns:key>` topology token via its namespace resolver; '' if the ns isn't registered or returns null. */
+	/** Resolve a `<ns:key>` topology token via its namespace resolver; '' (with a rate-limited warning) if the ns isn't registered or returns null. */
 	public static function resolve_config_token( string $ns, string $key ): string {
 		$resolver = self::$config_resolvers[ $ns ] ?? null;
 		if ( null === $resolver ) {
+			self::print_less_often( "resolve_config_token: unknown namespace <{$ns}:{$key}>" );
 			return '';
 		}
-		return (string) ( $resolver( $key ) ?? '' );
+		$value = $resolver( $key );
+		if ( null === $value ) {
+			self::print_less_often( "resolve_config_token: <{$ns}:{$key}> resolver returned null" );
+			return '';
+		}
+		return (string) $value;
 	}
 
 	public static function register_node( string $name, object $node ): void {

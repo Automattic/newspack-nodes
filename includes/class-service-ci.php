@@ -2,11 +2,11 @@
 /**
  * Service_CI: base class for substrate + application service CIs.
  *
- * Hoists the three verb-helper seams that every CI built on the M3 +
- * M2 dispatch path duplicates verbatim — `require_manage_options`,
- * `decode_args`, `require_valid_name`. Subclasses extend Service_CI
- * instead of CommandInterpreter and reach for the helpers via `self::`
- * inside their verb closures.
+ * Hoists the two verb-helper seams that every CI built on the M3 +
+ * M2 dispatch path duplicates verbatim — `require_manage_options` and
+ * `require_valid_name`. Subclasses extend Service_CI instead of
+ * CommandInterpreter and reach for the helpers via `self::` inside
+ * their verb closures.
  *
  * The helpers are `protected static`. The legitimate callers are
  * subclass verb-table closures using `self::method()` — `self::` resolves

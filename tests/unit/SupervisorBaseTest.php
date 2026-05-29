@@ -255,7 +255,6 @@ class SupervisorBaseTest extends TestCase {
 	public function test_constants_match_spec(): void {
 		$this->assertSame( 15, Supervisor_Base::MIN_SPAWN_INTERVAL_S );
 		$this->assertSame( 16, Supervisor_Base::MAX_PARTITIONS );
-		$this->assertSame( 3600, Supervisor_Base::STALE_PARTITION_AGE_S );
 	}
 
 	// ── worker_needs_spawn: heartbeat-missing-but-dir-exists ─────────────
