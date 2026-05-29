@@ -532,7 +532,7 @@ export default function TopologyConsole() {
 		fetchLayout( effectiveTopologyName )
 			.then( ( resp ) => {
 				setSavedLayout( {
-					positions: resp.positions || null,
+					positions: resp?.positions || null,
 				} );
 			} )
 			.catch( () => {
