@@ -8,11 +8,11 @@
  *   _http       (HttpOut — POST /command boundary; .client = CommandClient)
  *   _heartbeat  (Heartbeat — slot keep-alive; target = `_http/workers`)
  *
- * Plus the existing dashboard chain (unchanged factories, only retargeted):
+ * Plus the single dashboard view-model node:
  *
- *   rawlogs:route       (data → transform, control → view)
- *   rawlogs:transform   (envelope → row, target = view)
- *   rawlogs:view        (the view-model node React reads)
+ *   rawlogs:view        (the view-model node React reads; envelope→row shaping
+ *                        is inlined here — the former `rawlogs:route` and
+ *                        `rawlogs:transform` chain is gone)
  *
  * EVERY node sinks into the CI; flow is steered ONLY by each node's `target`.
  * The bespoke `rawlogs:stream` Node and inlined slot-heartbeat loop are gone —
@@ -43,21 +43,17 @@ import {
 	TM_COMMAND,
 	TM_STRUCT,
 } from '../../runtime/message';
-import { createRawLogsRoute } from '../nodes/rawLogsRoute';
-import { createRawLogsTransform } from '../nodes/rawLogsTransform';
 import { createRawLogsView } from '../nodes/rawLogsView';
 
 // The I/O boundary nodes mounted from the substrate runtime.
 const SSE = '_sse';
 const HTTP = '_http';
 const HEARTBEAT = '_heartbeat';
-// The dashboard chain.
-const ROUTE = 'rawlogs:route';
-const TRANSFORM = 'rawlogs:transform';
+// The dashboard view-model node.
 const VIEW = 'rawlogs:view';
 // Every named node this graph mounts — unregistered on teardown (exospine
 // nodes are removed separately by `teardownSpine()`).
-const GRAPH_NODE_NAMES = [ SSE, HTTP, HEARTBEAT, ROUTE, TRANSFORM, VIEW ];
+const GRAPH_NODE_NAMES = [ SSE, HTTP, HEARTBEAT, VIEW ];
 
 // Monotonic per-hook-instance ID counter for the list_logs correlator.
 let nextOpId = 0;
@@ -124,7 +120,7 @@ export function useRawLogsGraph( opts = {} ) {
 		sse.subscribe = [];
 		sse.setName( SSE );
 		sse.sink = ci;
-		sse.target = ROUTE;
+		sse.target = VIEW;
 
 		const http = new HttpOut();
 		http.client =
@@ -144,16 +140,8 @@ export function useRawLogsGraph( opts = {} ) {
 		// discarded by Heartbeat.fill anyway.
 		heartbeat.target = `${ HTTP }/workers`;
 
-		// Dashboard chain — unchanged factories.
-		const route = createRawLogsRoute( ROUTE, {
-			dataTarget: TRANSFORM,
-			controlTarget: VIEW,
-		} );
-		const transform = createRawLogsTransform( TRANSFORM );
+		// View-model node — envelope→row shaping is inlined into its fill().
 		const view = createRawLogsView( VIEW );
-		route.sink = ci;
-		transform.sink = ci;
-		transform.target = VIEW;
 		view.sink = ci;
 
 		// Slot bridge: a `connected`-event subscriber on `_sse` pushes the live

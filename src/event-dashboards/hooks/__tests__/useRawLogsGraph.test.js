@@ -2,15 +2,15 @@
 /**
  * useRawLogsGraph tests — the Raw Logs dashboard graph clipped onto the
  * substrate's I/O boundary nodes (exospine + `_sse` + `_http` + `_heartbeat`)
- * plus the existing `rawlogs:route` / `rawlogs:transform` / `rawlogs:view`
- * chain, all on the canonical rule-#2 backbone (`_command_interpreter →
- * _router`). The bespoke `rawlogs:stream` Node and its inlined slot-heartbeat
- * loop are gone — `_sse` owns the EventSource, `_heartbeat` owns the slot poke.
+ * plus the single `rawlogs:view` view-model node, all on the canonical rule-#2
+ * backbone (`_command_interpreter → _router`). The bespoke `rawlogs:route` and
+ * `rawlogs:transform` nodes are gone — envelope→row shaping is inlined into
+ * the view itself.
  *
  * EventSource is faked via `global.EventSource`; SseIn's connection logic
  * (already covered by the substrate's `sse_connector.test.js`) is unmocked
  * here — we drive a `msg` event through the fake EventSource and assert it
- * actually routes _sse → route → transform → view.
+ * actually routes _sse → view.
  */
 
 import { renderHook, act } from '@testing-library/react';
@@ -65,10 +65,8 @@ const ROUTER = '_router';
 const SSE = '_sse';
 const HTTP = '_http';
 const HEARTBEAT = '_heartbeat';
-const ROUTE = 'rawlogs:route';
-const TRANSFORM = 'rawlogs:transform';
 const VIEW = 'rawlogs:view';
-const ALL_GRAPH_NAMES = [ SSE, HTTP, HEARTBEAT, ROUTE, TRANSFORM, VIEW ];
+const ALL_GRAPH_NAMES = [ SSE, HTTP, HEARTBEAT, VIEW ];
 
 // CommandClient double mirroring HttpOut's seam: postBatch returns reply
 // Messages addressed back along FROM. Used for `list_logs` (initial dropdown)
@@ -122,7 +120,7 @@ function mountGraph( client ) {
 const oneLogReply = () => [ { key: 'firehose', label: 'firehose.log' } ];
 
 describe( 'useRawLogsGraph — exospine + I/O boundary wiring', () => {
-	test( 'mounts the backbone + the six graph nodes, each sinking into the CI', async () => {
+	test( 'mounts the backbone + the four graph nodes, each sinking into the CI', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
 		const ci = Core.node( CI );
@@ -135,12 +133,18 @@ describe( 'useRawLogsGraph — exospine + I/O boundary wiring', () => {
 		}
 	} );
 
-	test( 'steers flow with targets: _sse → route → transform → view; heartbeat → _http/workers', async () => {
+	test( 'steers flow with targets: _sse → view; heartbeat → _http/workers', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
-		expect( Core.node( SSE ).target ).toBe( ROUTE );
-		expect( Core.node( TRANSFORM ).target ).toBe( VIEW );
+		expect( Core.node( SSE ).target ).toBe( VIEW );
 		expect( Core.node( HEARTBEAT ).target ).toBe( `${ HTTP }/workers` );
+	} );
+
+	test( 'does NOT mount rawlogs:route or rawlogs:transform (chain collapsed into view)', async () => {
+		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		await act( async () => {} );
+		expect( Core.node( 'rawlogs:route' ) ).toBeNull();
+		expect( Core.node( 'rawlogs:transform' ) ).toBeNull();
 	} );
 
 	test( '_http has the injected CommandClient as its client', async () => {
@@ -182,7 +186,7 @@ describe( 'useRawLogsGraph — exospine + I/O boundary wiring', () => {
 } );
 
 describe( 'useRawLogsGraph — end-to-end routing through the exospine', () => {
-	test( 'a delivered log envelope routes _sse → route → transform → view', async () => {
+	test( 'a delivered log envelope routes _sse → view (shaped inline)', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
 		// Drive a `connected` envelope so the heartbeat has a slot to poke.
