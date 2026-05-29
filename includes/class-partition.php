@@ -799,7 +799,7 @@ class Partition_Node extends Timer_Node {
 	/** Topology console manifest: palette entry + ctor form + verb forms. */
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'category'    => 'Storage',
+			'category'    => 'I/O',
 			'description' => 'Append-only segmented log; data file + offset index per partition.',
 			'arguments'        => [
 				[ 'name' => 'base_dir',     'type' => 'string', 'required' => true ],
