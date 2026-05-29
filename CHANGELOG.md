@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-05-29
+
+### Fixed
+
+- **`/command` rate-limit gave a 429 to a steady 1 req/sec client after ~30s.** `HTTP_In_Node::check_rate_limit` kept a single per-user transient and re-set its 1-second TTL on every successful write, so a steady stream never let the bucket expire and the counter grew monotonically until it hit `RATE_LIMIT_BURST` (30) — even though no individual second contained more than one request. Switched to per-second buckets keyed by `${user_id}:${floor(microtime)}`: each clock-second is an independent counter, so a 1 req/sec client stays at count=1 in every bucket forever. Test-only `HTTP_In_Node::$clock_now_seam` lets the suite simulate 5× BURST seconds at 1 req/sec without sleeping.
+- **`Inspector` reserved-node gating was too wide.** Live-mode + edit-mode hid Routing/Constructor/Verbs/rename/Delete/class-catalog verb buttons for every name in `reserved-node-names.json` (`_metadata`, `_http`, `_output`, `_uptime`, `_completion`, `_heartbeat`, `_cwd`, …). The original goal was just `_repl`, which is auto-mounted by the worker and not user-owned; the other spine nodes are inspectable / configurable. Narrowed `isReserved` to `node.reserved || node.id === '_repl'` and dropped the `reserved-node-names.json` import.
+
+### Changed
+
+- **`autoLayout` rewritten for fan-out symmetry.** Five-part overhaul that turns the layout from a column-shoved chain into a properly-paired graph for typical worker topologies:
+  - **Source-only nodes pinned at col 0** — the existing forward-pull pass now skips nodes with no incoming edges, so `firehose:consumer` / `jobintake:consumer` don't drift right just because their downstream targets do.
+  - **Sinks + isolated nodes cluster at maxDepth** — every node with no outgoing edges (terminal partitions AND the worker's auto-mounted `_repl` anchor) gets pushed to the rightmost column, eliminating the "scattered partitions" look when a fan-out reaches leaves at uneven natural depths.
+  - **Pass 2 snap is HALF-row precision for fan-outs** — `Math.round(mean * 2) / 2`, so a source fanning to targets at rows 0+1 lands at 1.5 (the visual midpoint) instead of being forced onto an integer row. Single-target snap takes the exact target row to preserve straight pairs.
+  - **Pass 3a re-snap is leaves-only** — middle nodes keep Pass 2's target-snap row; re-snapping them to predecessor rows pulled them AWAY from the midpoint of their fan-out. Fan-out leaves (single pred whose pred has multiple children) keep their Pass 1 alpha spread so they don't collapse onto the pred and cascade.
+  - **Pass 3b (new) is right-to-left middle-node re-snap to FINAL target rows** — after Pass 3a's deconflict moved leaves around, Pass 2's pre-deconflict middle-node rows were stale. The actual repro: `completed:tee` in `firehose-workers-and-jobs` stayed at row 1 (mean of `completed:partition` row 0 and the STALE Pass-1 `gyroscope:partition` row 2), then `gyroscope:partition` shifted to row 1 via straightness, leaving the two on the same row. Re-snapping with finalized target rows puts `completed:tee` at the actual midpoint (row 0.5).
+
+### Tests
+
+- **5 new `autoLayout` cases**: local-Shell pairing (`_metadata-_cwd`, `_heartbeat-_http`, `_sse-_output`); sink + isolated cluster at maxDepth; source-only at col 0; multi-target fan-out near midpoint; exact-half-row precision for 2-target fan-outs; full `firehose-workers-and-jobs` repro asserting `completed:tee` sits at `(completed:partition + gyroscope:partition) / 2`.
+- **2 new `HTTP_In_Node` cases**: steady 1 req/sec across 5× BURST seconds never 429s (the production complaint), plus a smoke test that the clock seam doesn't leak between tests.
+
 ## [0.9.0] - 2026-05-29
 
 ### Fixed
