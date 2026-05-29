@@ -1,6 +1,6 @@
 # Newspack Nodes REST API
 
-The runtime ships two REST endpoints — the worker spawn handler and a unified command-dispatch endpoint. Application plugins register their own endpoints (dashboards, SSE streams, etc.) on top, plus mount service `Command_Interpreter_Node`s into the dispatch endpoint's graph via the `newspack_nodes/request_graph_ready` hook.
+The runtime ships three REST endpoints — the worker spawn handler, the unified command-dispatch endpoint, and a server-sent-events stream. Application plugins register their own endpoints (dashboards, additional streams, etc.) on top, plus mount service `Command_Interpreter_Node`s into the dispatch endpoint's graph via the `newspack_nodes/request_graph_ready` hook.
 
 For the full architecture and rationale, see [ARCHITECTURE.md](ARCHITECTURE.md).
 
@@ -34,7 +34,7 @@ Body: form-encoded (`application/x-www-form-urlencoded`) or JSON (`application/j
 }
 ```
 
-For `type=supervisor`, the response additionally includes a sanitized `result` payload (whitelist `entries_processed`, `requests_complete`, `requests_pending`, `flames_written`, `jobs_processed`) drawn from the supervisor's synchronous `run()` return.
+For `type=supervisor`, the response additionally includes a sanitized `result` payload drawn from the supervisor's synchronous `run()` return. Sanitization is generic, not a fixed whitelist: `Spawn_Controller::sanitize_worker_result()` keeps a string `status` field and surfaces every other key matching `[a-zA-Z0-9_]{1,40}` whose value is numeric (cast to int), capped at 32 fields. Strings, arrays, paths, and traces are dropped so no internal paths leak.
 
 The endpoint acknowledges synchronously, then detaches from FPM via `fastcgi_finish_request()` (or proceeds inline if not in FPM context, e.g. CLI tests). After detach:
 
@@ -105,17 +105,21 @@ Permission callback: `current_user_can('manage_options')`. Application CIs may l
 
 ### Request
 
-JSON body (the substrate's 7-slot `Message` array, named):
+The body is **JSONL** — one packed Message per line, where each line is the JSON of the substrate's 7-slot positional array `[TYPE, TIMESTAMP, FROM, TO, ID, KEY, VALUE]` (the wire form emitted by `Message::packed()`). Multiple lines in one POST batch through the request-scope graph serially, so an earlier command's side effect is visible to a later one. Blank lines are skipped. The controller throws if no line parses to a Message.
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `type` | int | Bitmask. `8` = `TM_COMMAND`. |
-| `to` | string | CI shell-name (e.g. `performance`, `workers`). Router peels the head off; subpaths flow through. |
-| `from` | string | Reply path. Defaults to `_http` when empty. Pivoted IPC commands set `_http/<ssePid>` so the reply walks back to an SSE process instead of HTTP. |
-| `id` | string | Caller-chosen correlation id. The CI's reply carries the same `id`. |
-| `value` | string | Inner Command_Interpreter_Node envelope: JSON-encoded `{name, arguments, payload}`. `name` is the verb. |
+Per-slot semantics (named here for documentation only — the wire is positional):
 
-Alternatively, the browser may POST the raw 7-slot array directly. The controller detects array-shaped bodies via `array_is_list($body) && count($body) >= 7` and uses it as the Message.
+| Slot | Type | Description |
+|------|------|-------------|
+| `TYPE` (index 0) | int | Bitmask. `TM_COMMAND` (`8`) for a dispatch. |
+| `TIMESTAMP` (index 1) | float | Microsecond unix timestamp; the controller does not require it. |
+| `FROM` (index 2) | string | Reply path. The `HTTP_In_Node` stamps `_http` onto it on the way in, so a bare reply path (`_output`, `_sse:{pid}/…`, or empty) walks back to this endpoint. |
+| `TO` (index 3) | string | CI shell-name (e.g. `topologies`, `workers`). Router peels the head off; subpaths flow through. Empty TO is dispatched by the base CI in-place. |
+| `ID` (index 4) | string | Caller-chosen correlation id. The CI's reply carries the same `id`. |
+| `KEY` (index 5) | string | Routing/correlation metadata (e.g. `'completion'` triggers REPL completion-list mode on `help`/`ls`). |
+| `VALUE` (index 6) | array | The inner Command_Interpreter envelope `{name, arguments, payload}` as a live JSON array. `name` is the verb. Verbs that take a single scalar read it from `arguments`; structured verbs read from `payload`. |
+
+The browser's `CommandClient` and the pivoted `wp nodes cli` both produce this exact wire shape via `Message::packed()`.
 
 ### Response
 
@@ -133,17 +137,13 @@ Returned when `Router_Node::fill()` returned without the `HTTP_In_Node` egress s
 
 #### 500 Internal Server Error
 
+Sent as a packed positional Message (the same wire shape as the request). Example body:
+
 ```json
-{
-  "type": 48,  // TM_RESPONSE | TM_ERROR
-  "from": "_command",
-  "to": "<request from>",
-  "id": "<request id>",
-  "value": "request-scope graph not initialized (missing _router or _http)"
-}
+[288, 0, "_command", "<request from>", "<request id>", "", "request-scope graph not initialized (missing _router or _http)"]
 ```
 
-Sent (as a packed Message) when `ensure_request_graph()` couldn't build the graph — typically a bootstrap-misconfiguration condition. Operational application errors don't reach this path; they come back as `TM_COMMAND|TM_ERROR` replies through the normal sync path with the verb's exception message in `VALUE`.
+`TYPE = 288 = TM_RESPONSE | TM_ERROR` (`256 | 32`). `Content-Type: application/json`. Emitted by `HTTP_In_Node::emit_error()` when `ensure_request_graph()` couldn't build the graph — typically a bootstrap-misconfiguration condition. Operational application errors don't reach this path; they come back as `TM_COMMAND|TM_ERROR` replies (`TYPE = 40`) through the normal sync path with the verb's exception message in `VALUE`.
 
 ### Service CIs
 
@@ -153,9 +153,9 @@ The substrate plugin mounts 5 service CIs via `newspack_nodes/request_graph_read
 |---------------|-------|-------|
 | `classes` | `Classes_CI_Node` | `list` |
 | `layouts` | `Layouts_CI_Node` | `get`, `save` |
-| `topologies` | `Topologies_CI_Node` | `list`, `get`, `save`, `delete` |
-| `raw-logs` | `Raw_Logs_CI_Node` | `firehose_logs`, `firehose_status` |
-| `workers` | `Workers_CI_Node` | `list`, `dump_metadata`, `audit`, `cleanup`, `restart`, `heartbeat` |
+| `topologies` | `Topologies_CI_Node` | `list`, `get`, `save`, `delete`, `connect_worker_input` |
+| `raw-logs` | `Raw_Logs_CI_Node` | `list_logs`, `log_status` |
+| `workers` | `Workers_CI_Node` | `list`, `dump_metadata`, `cleanup_status`, `restart`, `heartbeat` |
 
 Every CI also answers a default `help` (sorted list of its own verbs) — injected by `Command_Interpreter_Node::commands()` when a subclass installs a custom verb table without its own `help`.
 
@@ -163,7 +163,7 @@ Application plugins layer additional CIs onto the same endpoint (the first being
 
 **`node_schema()` shape.** Each CI's `node_schema()` returns a `Service`-category schema: `{ category, description, arguments, commands }`, where `commands` is a list of `{ name, description, args }` and each arg is `{ name, type, required }`. This is what `Classes_CI`'s `list` verb inlines for the topology-editor palette, and what the live-mode Inspector reads to build verb-invocation forms.
 
-**Scalar verbs read positional `arguments`, not `payload`.** Verbs that take a single scalar — `topologies get`/`delete` (a topology name), `layouts get` (a name), `raw-logs firehose_status` (a log key), `workers heartbeat` (an SSE slot) — read it from the inner envelope's positional `arguments` string so they're typeable straight in the REPL (e.g. `command_node topologies get Home`). Structured verbs (`topologies save` with TSL, `layouts save` with positions, `workers restart` with a `types[]` array) still take their data from `payload`.
+**Scalar verbs read positional `arguments`, not `payload`.** Verbs that take a single scalar — `topologies get`/`delete`/`connect_worker_input` (a name or reader id), `layouts get` (a name), `raw-logs log_status` (a log key), `workers heartbeat` (an SSE slot) — read it from the inner envelope's positional `arguments` string so they're typeable straight in the REPL (e.g. `command_node topologies get Home`). Structured verbs (`topologies save` with TSL, `layouts save` with positions, `workers restart` with a `types[]` array) still take their data from `payload`.
 
 **`KEY='completion'` mode.** A `help` or `ls` command carrying `KEY='completion'` returns a bare newline-separated candidate list (sorted verb names / bare node names) instead of the tabulated output — the substrate's `TM_COMPLETION` analogue, used by REPL tab-completion. See [ARCHITECTURE.md → Completion-query mode](ARCHITECTURE.md#repl-wp-nodes-cli).
 
@@ -172,6 +172,27 @@ Per-verb args, return shapes, and error semantics are declared on each CI's `nod
 ### Test mode
 
 `HTTP_In_Node::set_test_mode(true)` makes `dispatch()` return instead of `exit()`, so PHPUnit can capture stdout via `ob_start()`.
+
+## SSE Stream
+
+```
+GET   /wp-json/newspack-nodes/v1/messages/stream
+```
+
+Server-sent-events drain endpoint backed by `SSE_Out_Node` (which is both the `_sse` egress Node and the REST controller, mirroring `HTTP_In_Node`'s double-duty pattern). One endpoint covers every subscription dashboards need — log partitions and worker IPC partitions both surface as `Consumer_Node` instances drained in the same loop. Each Message that lands at the `_sse` egress is emitted as an SSE `msg` event carrying the packed Message; idle keepalives fire every `HEARTBEAT_MS = 2000`ms.
+
+**Permission**: `current_user_can( 'manage_options' )`. No nonce check — that would break cross-server SSE pulls.
+
+### Query parameters
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `subscribe` | string | yes | CSV of subscription names. Two shapes are accepted per name: `{type}.p{N}` (worker IPC reader, resolved via `CLI::attach_to_worker`) or a bare log-feed identifier (one Consumer per partition). Blank entries between commas are dropped. |
+| `positions` | string | no | Optional resume positions, format documented inline in `SSE_Out_Node`. Omit to start at `end` (live tail). |
+
+### Response
+
+Standard SSE stream (`Content-Type: text/event-stream`). The application controls slot gating via three optional Closure seams on `SSE_Out_Node` (`$acquire_slot`, `$release_slot`, `$check_slot`); unwired the endpoint allows a single shared slot. When the application's `$acquire_slot` returns `false`, the controller responds `429 Too Many Requests` before sending any SSE headers.
 
 ## Extensibility hooks
 

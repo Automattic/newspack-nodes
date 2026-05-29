@@ -126,9 +126,15 @@ These are intentional. Don't "fix" them.
 | `includes/class-{lock,worker-base,supervisor,supervisor-base,bootstrap}.php` | Lifecycle |
 | `includes/class-{shell,command-interpreter,dumper}.php` | REPL components |
 | `includes/class-cli.php` | Worker-discovery + pivoted-cli IPC helpers (used by both `wp nodes ls` and `wp nodes cli`) |
-| `includes/class-cli-command.php` | `wp nodes cli` (bare + pivoted modes); `Cli_Stdin_Reader` extends `Timer` and self-schedules each fire (0ms busy / 10ms post-EOF / 100ms idle) to drain stdin via readline or fgets — no FD registration |
+| `includes/class-cli-command.php` | `wp nodes {ls,cli}` (bare + pivoted modes); `CLI_Stdin_Reader_Node` extends `Timer_Node` and self-schedules each fire (0ms busy / 10ms post-EOF / 100ms idle) to drain stdin via readline or fgets — no FD registration |
 | `includes/cli/class-worker-cli-command.php` | `wp nodes {types,run,restart,status}` |
 | `includes/rest/class-spawn-controller.php` | `POST /newspack-nodes/v1/workers/spawn` (HMAC-validated) |
+| `includes/rest/class-http-in.php` | `POST /newspack-nodes/v1/command` controller + the `_http` egress Node (double-duty) |
+| `includes/rest/class-sse-out.php` | `GET /newspack-nodes/v1/messages/stream` controller + the `_sse` egress Node (double-duty) |
+| `includes/rest/class-http-filter.php` | `_http` filter Node used inside SSE-stream processes (forwards `dump_metadata`/`uptime` replies back to the browser) |
+| `includes/rest/class-{classes,layouts,topologies,raw-logs,workers}-ci.php` | Substrate service `*_CI_Node`s mounted via `newspack_nodes/request_graph_ready` |
+| `includes/rest/trait-sse-stream.php` | `SSE_Stream_Trait` — shared SSE wire helpers used by `SSE_Out_Node` |
+| `includes/class-service-ci.php` | `Service_CI_Node` — abstract base that builds a CI's verb table from its `node_schema()` |
 | `includes/admin/class-admin.php` | Substrate settings UI |
 | `tests/` | PHPUnit suite (unit + integration) |
 

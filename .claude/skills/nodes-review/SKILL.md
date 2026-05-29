@@ -111,7 +111,7 @@ Aliases share the same `cmd_foo`. When you add or remove a verb, audit `$C` for 
 
 ## Tests
 
-Substrate tests live in `tests/{unit,integration}/`. Coverage is good (~466 tests). When you add a Node subclass, add a test that exercises its `fill()` with a CaptureSink to assert what gets forwarded. When you add a CommandInterpreter verb, add a CommandInterpreterTest case.
+Substrate tests live in `tests/{unit,integration}/` (77 test classes, ~1600 test methods). When you add a Node subclass, add a test that exercises its `fill()` with a `Capture_Sink_Node` to assert what gets forwarded. When you add a CommandInterpreter verb, add a CommandInterpreterTest case.
 
 The test bootstrap shims a few WP functions (`wp_json_encode`, `wp_remote_post`, etc.) — check `tests/bootstrap.php` before adding a new global function call.
 

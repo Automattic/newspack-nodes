@@ -46,8 +46,8 @@ uptime                              # clock-time + days+HH:MM:SS since Core::res
 stats [-a] [<regex>]                # NAME COUNT LGST_MSG READ WRITTEN columns; default scope is siblings, -a all
 reply_to <node path> <command>      # run <command> HERE but route reply to <node path> (inverse of command_node)
 set_sink <node> <target>            # rewrite a node's sink at runtime
-connect_node <node> <target>        # set or add a target on <node> (alias: connect)
-disconnect_node <node> [<target>]   # alias: disconnect; <target> required for multi-target nodes (Tee)
+connect_node <node> [<target>]      # set or add a target on <node>; <target> defaults to issuer FROM (alias: connect)
+disconnect_node <node> [<target>]   # remove a target; defaults to issuer FROM — undoes a self-connect (alias: disconnect)
 cd [<path>]                         # change cwd; empty resets to local interpreter (alias: chdir)
 status                              # print local cli mode summary (no message sent to worker)
 pwd                                 # print cwd; reply shows ` <args> -> <from>`
@@ -58,6 +58,8 @@ command_node <path> <verb> [<args>] # TM_COMMAND at prefix(<path>) without chang
 request_node <path> [<value>]       # TM_REQUEST at prefix(<path>); receiver replies via TO=FROM (alias: request)
 ping <path>                         # round-trip latency probe
 include <file>                      # read commands from <file>, parse each line
+log <message>                       # write <message> to the worker's stderr (server-side debug log)
+dmesg                               # print the recent server-side stderr tail (last 100 lines)
 help [<topic>]                      # full help; per-verb if <topic> given
 ```
 
@@ -83,43 +85,50 @@ For the round-trip to work, Partition and Topic pack ALL message types (TM_REQUE
 ## Worker health
 
 ```bash
-# List all worker types + last heartbeat age.
+# List worker types discoverable from topology files (no liveness info).
+wp nodes types
+
+# List active workers + last heartbeat age (live vs stale).
 wp nodes ls
 
 # Status (formats: table, json).
 wp nodes status --format=json
 
 # Force-restart by type (sends a restart flag-file via Lock). Run
-# `wp nodes types` first to discover what's live; the default substrate
-# topology with firehose + jobs is `firehose-workers-and-jobs`.
-wp nodes restart firehose-workers-and-jobs --all-partitions
+# `wp nodes types` first to discover what's live — the substrate itself
+# ships no topologies; topologies come from application plugins (ELN ships
+# `firehose-workers-and-jobs`, `job-workers`, `request-workers`).
+wp nodes restart all --all-partitions   # or a specific type from `wp nodes types`
 ```
 
 A worker reports as `[live]` if its heartbeat file (under `{base}/locks/{type}.p{N}.lock.d/heartbeat`) was touched within `stale_timeout`. `[stale]` means the supervisor will respawn it on the next minute-cron tick.
 
 ## Log layout
 
-Per the topology under `{base_directory}/`:
+Substrate-side layout under `{base_directory}/`:
 
-- `logs/firehose.log/p{N}/{seg}.log` — packed Message envelopes from LogManager
-- `logs/jobintake.log/p{N}/{seg}.log` — large jobs that bypass the firehose
 - `locks/{worker-type}.p{N}.lock.d/heartbeat` — worker liveness; `restart` flag triggers shutdown
-- `offsets/{reader}.p{N}/p0/{seg}.log` — Consumer checkpoint history
+- `offsets/{reader}.p{N}/p0/{seg}.log` — Consumer checkpoint history (offsetlog)
 - `ipc/{worker-type}.p{N}/{input,output}/p0/{seg}.log` — bidirectional IPC for `wp nodes cli`
+
+Application-side log dirs (created by whatever Partition/Log a topology constructs):
+
+- `logs/firehose.log/p{N}/{seg}.log` — packed Message envelopes from ELN's LogManager
+- `logs/jobintake.log/p{N}/{seg}.log` — large jobs that bypass the firehose
 
 `base_directory` is `/tmp/newspack-nodes` by default; override via `Newspack_Nodes\Config`. (Don't confuse with the legacy event-logger path under `/volumes/pyrobase/tmp/event-logger` — different runtime.)
 
 ## Common failure modes
 
-**Worker spawns but immediately exits.** Check the heartbeat file and the supervisor log. Most common cause: spawning as root via `--allow-root` + `LogManager` short-circuiting (it refuses root to avoid leaving www-data unable to write later). The fix is to run wp-cron as the web user.
+**Worker spawns but immediately exits.** Check the heartbeat file and the supervisor log. Most common substrate-side cause: the spawn HTTP request hit a `/spawn` controller that couldn't acquire the Lock (another worker is already holding it; that's idempotent and harmless). Application-side: ELN's `LogManager` refuses to run as root to avoid leaving the web user unable to write later — so if you ran `wp-cron --allow-root`, the worker noisily aborts. Either way, run wp-cron as the web user.
 
-**Messages enter Topic but don't reach the Tail downstream.** The Tail reads what Partition wrote. If the Partition didn't fsync the segment, the Tail won't see it on poll. Check the segment file's mtime/size with `ls -la`. If the segment is empty after a write, the Partition's batch is still pending — `set_timer(0, true)` flushes at the end of the event-loop iteration, so a synchronous write-then-read (no event loop tick between them) will see nothing.
+**Messages enter Topic but don't reach the Consumer downstream.** The Consumer (or Tail, for a non-partitioned file) reads what Partition wrote. If the Partition didn't flush the batch, the reader won't see it on poll. Check the segment file's mtime/size with `ls -la`. If the segment is empty after a write, the Partition's batch is still pending — `set_timer(0, true)` flushes at the end of the event-loop iteration, so a synchronous write-then-read (no event loop tick between them) will see nothing.
 
 **`wp nodes cli` runs at 100% CPU.** Means readline got installed in a non-TTY context. The fix is in place (gate on `posix_isatty(STDIN)`), so this should be impossible — but if it recurs, check that `cli-command.php`'s `$is_tty` flag is being computed before `set_readline_mode`.
 
 **`Core::node('foo')` returns null inside a constructor.** Constructor ran during request scope before the EventFramework drain started. Either move the lookup to a `READY`-event listener, or rewrite the caller to be lazy.
 
-**Tee has dead targets and the Router log fills with NOT_AVAILABLE.** Tee prunes dead targets at fill time, but only after the first failed dispatch. Either restart the worker after a topology change, or use `wp nodes cli ... disconnect_node tee dead-target`.
+**Tee has dead targets and the Router log fills with NOT_AVAILABLE.** Tee prunes dead bare-name targets at the top of every `fill()` (path-shaped targets with a `/` pass through to the sink), so a Tee with stale config self-heals as soon as it sees traffic. If you still see `NOT_AVAILABLE` after the first message flows, the target is path-shaped (it routes via Router) and Router itself is logging — fix the topology with `wp nodes cli ... disconnect_node tee dead-target`.
 
 ## Inspecting wire format on disk
 
