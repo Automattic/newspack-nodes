@@ -104,11 +104,21 @@ class Consumer_Node extends Timer_Node {
 		$this->offsetlog_dir   = \rtrim( $this->offsetlog_base_dir, '/' );
 
 		$this->source = new Partition_Node();
+		if ( '' !== $this->name ) {
+			$this->source->name( "{$this->name}:source" );
+		}
 		$this->source->arguments( "{$this->source_base_dir} {$this->source_partition}" );
+		$this->source->sink( $this->sink );
+		$this->source->patron( $this );
 
 		if ( '' !== $this->offsetlog_dir ) {
 			$this->offsetlog = new Partition_Node();
+			if ( '' !== $this->name ) {
+				$this->offsetlog->name( "{$this->name}:offsetlog" );
+			}
 			$this->offsetlog->arguments( implode( ' ', [ "{$this->offsetlog_dir}", 0, self::OFFSETLOG_SEGMENT_SIZE, self::OFFSETLOG_NUM_SEGMENTS ] ) );
+			$this->offsetlog->sink( $this->sink );
+			$this->offsetlog->patron( $this );
 			$this->load_offsetlog();
 		} else {
 			$this->offsetlog = null;
@@ -646,6 +656,45 @@ class Consumer_Node extends Timer_Node {
 			'segments_behind' => $segments_behind,
 			'caught_up'       => 0 === $bytes_behind,
 		];
+	}
+
+	protected function check_name_availability( string $name ): void {
+		if ( null !== $this->source && null !== Core::node( "{$name}:source" ) ) {
+			throw new \RuntimeException( \esc_html( "node name collision: {$name}:source already registered" ) );
+		}
+		if ( null !== $this->offsetlog && null !== Core::node( "{$name}:offsetlog" ) ) {
+			throw new \RuntimeException( \esc_html( "node name collision: {$name}:offsetlog already registered" ) );
+		}
+		parent::check_name_availability( $name );
+	}
+
+	protected function set_sibling_names( ?string $name = null ): void {
+		$this->source?->name( "{$name}:source" );
+		$this->offsetlog?->name( "{$name}:offsetlog" );
+		parent::set_sibling_names( $name );
+	}
+
+	public function sink( ?Node $node = null ): ?Node {
+		if ( \func_num_args() > 0 ) {
+			if ( null !== $this->source ) {
+				$this->source->sink( $node );
+			}
+			if ( null !== $this->offsetlog ) {
+				$this->offsetlog->sink( $node );
+			}
+			return parent::sink( $node );
+		}
+		return parent::sink();
+	}
+
+	public function remove_node(): void {
+		if ( null !== $this->source ) {
+			$this->source->remove_node();
+		}
+		if ( null !== $this->offsetlog ) {
+			$this->offsetlog->remove_node();
+		}
+		parent::remove_node();
 	}
 
 	public static function node_schema(): array {

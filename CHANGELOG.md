@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `Node::name()` now requires a non-empty name: `name(null)` / `name('')` throw (`use remove_node()` to unregister). A node is committed to its name until removal; renames are still allowed and a same-name call is an idempotent no-op. Sibling naming and collision checks moved to the protected `check_name_availability()` / `set_sibling_names()` template-method hooks; `has_value()` centralizes the Perl `length()` presence test (false on null/`''`, true on `'0'`). `Consumer_Node::arguments()` tears down its prior partition children before rebuilding, so reconfigure-in-place no longer collides on the `:source` / `:offsetlog` slots.
 - Node subclasses now carry a `_Node` suffix with matching `class-*-node.php` / `*-node.js` filenames (shell / `make_node` names unchanged).
 - The command interpreter is spelled `interpreter` throughout (variables, node-name literals, comments, docs); service-CI `*_CI_Node` identifiers keep `CI`. `mountExospine()` now returns `{ interpreter, router, teardown }`.
 - JS nodes declare `accepts_fill` / `has_target` in `nodeSchema()` and `useJsCatalog` propagates them to the palette (and filters `CommandInterpreter` out of the overlay palette); PHP `Dumper_Node` / `HTTP_In_Node` declare `has_target: false`.

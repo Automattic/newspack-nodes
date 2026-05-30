@@ -135,22 +135,52 @@ class Node {
 		$this->sink?->fill( $message );
 	}
 
+	/** Perl length()-style presence: false for null and '', true for '0'. */
+	protected static function has_value( ?string $s ): bool {
+		return null !== $s && '' !== $s;
+	}
+
 	public function name( ?string $name = null ): string {
-		if ( null !== $name ) {
+		if ( \func_num_args() > 0 ) {
+			// A node is committed to a name once set: name(null)/name('') is not
+			// an unregister path — use remove_node() for that. This also turns the
+			// classic getter-passthrough mistake (an override doing
+			// `parent::name( $name )` with a null default) into a loud failure
+			// instead of a silent unregister.
+			if ( ! self::has_value( $name ) ) {
+				throw new \RuntimeException( 'name() requires a non-empty name; use remove_node() to unregister' );
+			}
+			if ( $name === $this->name ) {
+				return $this->name;
+			}
+			$this->check_name_availability( $name );
 			if ( '' !== $this->name ) {
 				Core::unregister_node( $this->name );
 			}
-			if ( Core::node( $name ) !== null ) {
-				throw new \RuntimeException( \esc_html( "node name collision: $name already registered" ) );
-			}
 			$this->name = $name;
 			Core::register_node( $name, $this );
-			// Keep the sibling interpreter named `{name}:config` on every rename.
-			if ( null !== $this->interpreter ) {
-				$this->interpreter->name( $name . ':config' );
-			}
+			$this->set_sibling_names( $name );
 		}
 		return $this->name;
+	}
+
+	protected function check_name_availability( string $name ): void {
+		if ( Core::node( $name ) !== null ) {
+			throw new \RuntimeException( \esc_html( "node name collision: {$name} already registered" ) );
+		}
+		if ( null !== $this->interpreter && Core::node( "{$name}:config" ) !== null ) {
+			throw new \RuntimeException( \esc_html( "node name collision: {$name}:config already registered" ) );
+		}
+	}
+
+	/**
+	 * Cascade the node's name to owned siblings. Only ever called from name()
+	 * with a non-empty $name (name() throws on null/''), so overrides can use
+	 * the bare "{$name}:suffix" form without a presence guard. Sibling teardown
+	 * lives in remove_node(), not here.
+	 */
+	protected function set_sibling_names( ?string $name = null ): void {
+		$this->interpreter?->name( "{$name}:config" );
 	}
 
 	public function sink( ?Node $node = null ): ?Node {

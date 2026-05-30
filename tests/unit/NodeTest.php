@@ -954,4 +954,118 @@ class NodeTest extends TestCase {
 		// Second parent call must not have replaced the first interpreter.
 		$this->assertSame( $first, $node->interpreter() );
 	}
+
+	// ── func_num_args getter/setter split + Perl length() presence ───────
+
+	public function test_name_no_args_is_pure_getter(): void {
+		// name() with NO args is a pure getter: it must not touch the registry.
+		$n = new Capture_Sink_Node();
+		$n->name( 'kept' );
+		$this->assertSame( 'kept', $n->name() );
+		$this->assertSame( $n, Core::node( 'kept' ) );
+	}
+
+	public function test_name_setter_registers_and_returns_new_name(): void {
+		$n = new Capture_Sink_Node();
+		$this->assertSame( 'x', $n->name( 'x' ) );
+		$this->assertSame( $n, Core::node( 'x' ) );
+	}
+
+	public function test_name_zero_string_registers_node_named_zero(): void {
+		// Headline length()-test guarantee: '0' IS a value, so `make_node Echo 0`
+		// must register a node literally named "0". Plain truthiness would drop it.
+		$n = new Capture_Sink_Node();
+		$n->name( '0' );
+		$this->assertSame( '0', $n->name() );
+		$this->assertSame( $n, Core::node( '0' ) );
+	}
+
+	public function test_name_empty_string_throws(): void {
+		// A named node is committed to a name until remove_node(); name('')
+		// is not an unregister path — it throws.
+		$n = new Capture_Sink_Node();
+		$n->name( 'gone' );
+		$this->expectException( \RuntimeException::class );
+		$n->name( '' );
+	}
+
+	public function test_name_null_throws(): void {
+		// null is the other "no value" input — name(null) throws too.
+		$n = new Capture_Sink_Node();
+		$n->name( 'gone' );
+		$this->expectException( \RuntimeException::class );
+		$n->name( null );
+	}
+
+	public function test_name_throw_leaves_existing_name_intact(): void {
+		// A rejected name('') must not have unregistered the node first.
+		$n = new Capture_Sink_Node();
+		$n->name( 'keep' );
+		try {
+			$n->name( '' );
+		} catch ( \RuntimeException $e ) {
+			// expected
+		}
+		$this->assertSame( 'keep', $n->name() );
+		$this->assertSame( $n, Core::node( 'keep' ) );
+	}
+
+	public function test_rename_cascades_config_sibling(): void {
+		// Renaming renames the :config sibling to {new}:config and unregisters the old.
+		$node = new Capture_Sink_Node();
+		$node->attach_interpreter( new \Newspack_Nodes\Command_Interpreter_Node() );
+		$node->name( 'first' );
+		$this->assertSame( 'first:config', $node->interpreter()->name() );
+		$this->assertSame( $node->interpreter(), Core::node( 'first:config' ) );
+
+		$node->name( 'second' );
+		$this->assertSame( 'second:config', $node->interpreter()->name() );
+		$this->assertSame( $node->interpreter(), Core::node( 'second:config' ) );
+		$this->assertNull( Core::node( 'first:config' ) );
+	}
+
+	public function test_remove_node_clears_config_sibling(): void {
+		// remove_node() (not name(null)) is the teardown path; it unregisters
+		// the node and cascades to its :config sibling.
+		$node = new Capture_Sink_Node();
+		$node->attach_interpreter( new \Newspack_Nodes\Command_Interpreter_Node() );
+		$node->name( 'host' );
+		$this->assertSame( $node->interpreter(), Core::node( 'host:config' ) );
+
+		$node->remove_node();
+		$this->assertNull( Core::node( 'host' ) );
+		$this->assertNull( Core::node( 'host:config' ) );
+	}
+
+	public function test_name_collision_throws(): void {
+		$first = new Capture_Sink_Node();
+		$first->name( 'dup' );
+		$second = new Capture_Sink_Node();
+		$this->expectException( \RuntimeException::class );
+		$second->name( 'dup' );
+	}
+
+	public function test_name_config_sibling_collision_throws(): void {
+		// An interpreter-bearing node naming against an occupied {name}:config throws.
+		$squatter = new Capture_Sink_Node();
+		$squatter->name( 'taken:config' );
+
+		$node = new Capture_Sink_Node();
+		$node->attach_interpreter( new \Newspack_Nodes\Command_Interpreter_Node() );
+		$this->expectException( \RuntimeException::class );
+		$node->name( 'taken' );
+	}
+
+	public function test_has_value_truth_table(): void {
+		// Perl length()-style presence: null/'' are absent; '0' and 'x' are present.
+		$probe = new class() extends Node {
+			public static function probe( ?string $s ): bool {
+				return self::has_value( $s );
+			}
+		};
+		$this->assertFalse( $probe::probe( null ) );
+		$this->assertFalse( $probe::probe( '' ) );
+		$this->assertTrue( $probe::probe( '0' ) );
+		$this->assertTrue( $probe::probe( 'x' ) );
+	}
 }
