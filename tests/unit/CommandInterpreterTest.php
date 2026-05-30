@@ -1933,4 +1933,31 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		$this->assertSame( "alpha\nbeta\n", $interpreter->dispatch( 'dmesg' ) );
 	}
+
+	public function test_dump_metadata_emits_per_node_port_flags_from_schema(): void {
+		// Dumper_Node declares has_target=false (pure sink) and omits accepts_fill,
+		// so accepts_fill must default true. The canvas reads these per-node.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$dumper = new \Newspack_Nodes\Dumper_Node();
+		$dumper->name( '_output' );
+
+		$decoded = $interpreter->dispatch( 'dump_metadata' );
+		$this->assertFalse( $decoded['_output']['has_target'] );
+		$this->assertTrue( $decoded['_output']['accepts_fill'] );
+	}
+
+	public function test_dump_metadata_defaults_port_flags_true_for_plain_node(): void {
+		// Echo_Node inherits the base schema, which declares both flags true.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$echo = new Echo_Node();
+		$echo->name( 'probe' );
+
+		$decoded = $interpreter->dispatch( 'dump_metadata' );
+		$this->assertTrue( $decoded['probe']['accepts_fill'] );
+		$this->assertTrue( $decoded['probe']['has_target'] );
+	}
 }

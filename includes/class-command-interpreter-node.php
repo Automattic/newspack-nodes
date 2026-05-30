@@ -768,6 +768,9 @@ class Command_Interpreter_Node extends Node {
 			// and the JS Inspector matches catalog.shell_name against this field.
 			$class = self::shell_name_for( $node );
 			$sink  = $node->sink();
+			// Per-node port flags from the node's own schema; default true so the
+			// canvas draws both ports when a subclass omits them (base declares both).
+			$schema       = $node::node_schema();
 			$out[ $name ] = [
 				'class'         => $class,
 				'counter'       => $node->counter(),
@@ -778,6 +781,8 @@ class Command_Interpreter_Node extends Node {
 				'lgst_msg'      => $node->largest_msg_sent(),
 				'bytes_read'    => $node->bytes_read(),
 				'bytes_written' => $node->bytes_written(),
+				'accepts_fill'  => $schema['accepts_fill'] ?? true,
+				'has_target'    => $schema['has_target'] ?? true,
 			];
 		}
 		return $out;

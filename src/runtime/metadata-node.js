@@ -29,6 +29,9 @@ export function dumpMetadataPayload() {
 		if ( node.patron !== null && node.patron !== undefined ) {
 			continue;
 		}
+		// Per-node port flags from the node's own schema; default true so the
+		// canvas draws both ports when the class declares no static schema.
+		const schema = node.constructor?.nodeSchema?.() ?? null;
 		out[ name ] = {
 			class: node.constructor?.name ?? 'Node',
 			counter: node.counter ?? 0,
@@ -39,6 +42,8 @@ export function dumpMetadataPayload() {
 			lgst_msg: node.largestMsgSent ?? 0,
 			bytes_read: node.bytesRead ?? 0,
 			bytes_written: node.bytesWritten ?? 0,
+			accepts_fill: schema?.accepts_fill ?? true,
+			has_target: schema?.has_target ?? true,
 		};
 	}
 	return out;
@@ -88,6 +93,14 @@ export function parseMetadata( payload ) {
 				typeof meta.bytes_read === 'number' ? meta.bytes_read : 0,
 			bytesWritten:
 				typeof meta.bytes_written === 'number' ? meta.bytes_written : 0,
+			// Per-node port flags; default true so the canvas draws both ports
+			// when the payload omits them (drafts, legacy workers).
+			accepts_fill:
+				typeof meta.accepts_fill === 'boolean'
+					? meta.accepts_fill
+					: true,
+			has_target:
+				typeof meta.has_target === 'boolean' ? meta.has_target : true,
 		} );
 		// An edge connects to the HEAD of the target path — `_router` peels the
 		// first `/`-segment and delivers there (`_sse/workers` → `_sse`).

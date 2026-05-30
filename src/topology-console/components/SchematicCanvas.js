@@ -883,7 +883,8 @@ export default function SchematicCanvas( {
 							>
 								{ compactCount( n.count ) }
 							</text>
-							{ ( classCatalog[ n.class ]?.accepts_fill ??
+							{ ( n.accepts_fill ??
+								classCatalog[ n.class ]?.accepts_fill ??
 								true ) && (
 								<circle
 									className={ `topology-port topology-port--in${
@@ -896,7 +897,8 @@ export default function SchematicCanvas( {
 									r={ PORT_R }
 								/>
 							) }
-							{ ( classCatalog[ n.class ]?.has_target ??
+							{ ( n.has_target ??
+								classCatalog[ n.class ]?.has_target ??
 								true ) && (
 								<circle
 									className={ `topology-port topology-port--out${
