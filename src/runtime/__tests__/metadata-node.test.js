@@ -5,8 +5,16 @@
  * Never touches the transcript.
  */
 
-import { MetadataNode } from '../metadata-node';
+import {
+	MetadataNode,
+	dumpMetadataPayload,
+	parseMetadata,
+} from '../metadata-node';
 import { Node } from '../node';
+import { Core } from '../core';
+import { DumperNode } from '../dumper-node';
+import { SseConnectorNode } from '../sse-connector-node';
+import { EchoNode } from '../echo-node';
 import {
 	newMessage,
 	TYPE,
@@ -27,7 +35,6 @@ function msg( type, value ) {
 
 describe( 'Metadata node', () => {
 	afterEach( () => {
-		const { Core } = require( '../core' );
 		Core.reset();
 	} );
 
@@ -116,6 +123,54 @@ describe( 'Metadata node', () => {
 			const node = new MetadataNode();
 			node.target = '_cwd';
 			expect( () => node.onTimer() ).not.toThrow();
+		} );
+	} );
+
+	describe( 'dumpMetadataPayload port flags', () => {
+		afterEach( () => Core.reset() );
+
+		it( 'emits has_target:false for a node whose schema declares it (Dumper)', () => {
+			const node = new DumperNode();
+			node.setName( '_output' );
+			const meta = dumpMetadataPayload()._output;
+			expect( meta.has_target ).toBe( false );
+			// Dumper omits accepts_fill, so it defaults true.
+			expect( meta.accepts_fill ).toBe( true );
+		} );
+
+		it( 'emits accepts_fill:false for a node whose schema declares it (SseConnector)', () => {
+			const node = new SseConnectorNode();
+			node.setName( '_sse' );
+			const meta = dumpMetadataPayload()._sse;
+			expect( meta.accepts_fill ).toBe( false );
+			// SseConnector omits has_target, so it defaults true.
+			expect( meta.has_target ).toBe( true );
+		} );
+
+		it( 'defaults both flags to true for a plain node with no static schema (Echo)', () => {
+			const node = new EchoNode();
+			node.setName( 'probe' );
+			const meta = dumpMetadataPayload().probe;
+			expect( meta.accepts_fill ).toBe( true );
+			expect( meta.has_target ).toBe( true );
+		} );
+	} );
+
+	describe( 'parseMetadata port flags', () => {
+		it( 'carries accepts_fill / has_target onto the graph node', () => {
+			const { nodes } = parseMetadata( {
+				src: { class: 'Source', accepts_fill: false, has_target: true },
+			} );
+			expect( nodes[ 0 ].accepts_fill ).toBe( false );
+			expect( nodes[ 0 ].has_target ).toBe( true );
+		} );
+
+		it( 'defaults both flags to true when the meta omits them', () => {
+			const { nodes } = parseMetadata( {
+				plain: { class: 'Echo' },
+			} );
+			expect( nodes[ 0 ].accepts_fill ).toBe( true );
+			expect( nodes[ 0 ].has_target ).toBe( true );
 		} );
 	} );
 } );

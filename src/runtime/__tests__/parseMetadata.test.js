@@ -33,6 +33,8 @@ describe( 'parseMetadata', () => {
 				lgstMsg: 0,
 				bytesRead: 0,
 				bytesWritten: 0,
+				accepts_fill: true,
+				has_target: true,
 			},
 		] );
 		expect( edges ).toEqual( [ { from: 'alpha', to: 'beta' } ] );

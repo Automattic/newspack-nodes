@@ -871,6 +871,61 @@ describe( 'SchematicCanvas', () => {
 		).toBe( 0 );
 	} );
 
+	// === Per-node flags gate port visibility (no catalog entry needed) ===
+
+	it( 'per-node accepts_fill=false hides IN port even with no catalog match', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [
+						{ id: 'a', class: 'Source', accepts_fill: false },
+					],
+					edges: [],
+				} }
+				classCatalog={ {} }
+			/>
+		);
+		expect(
+			container.querySelectorAll( '.topology-port--in' ).length
+		).toBe( 0 );
+	} );
+
+	it( 'per-node has_target=false hides OUT port even with no catalog match', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [ { id: 'a', class: 'Sink', has_target: false } ],
+					edges: [],
+				} }
+				classCatalog={ {} }
+			/>
+		);
+		expect(
+			container.querySelectorAll( '.topology-port--out' ).length
+		).toBe( 0 );
+	} );
+
+	it( 'a node with neither flag set still draws both ports (default true)', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [ { id: 'a', class: 'Echo' } ],
+					edges: [],
+				} }
+				classCatalog={ {} }
+			/>
+		);
+		expect(
+			container.querySelectorAll( '.topology-port--in' ).length
+		).toBe( 1 );
+		expect(
+			container.querySelectorAll( '.topology-port--out' ).length
+		).toBe( 1 );
+	} );
+
 	// === Rate sparkline path ===
 
 	it( 'renders sparkline path when rateRef has history', () => {
