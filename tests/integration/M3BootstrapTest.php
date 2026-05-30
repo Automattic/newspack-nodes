@@ -1,15 +1,15 @@
 <?php
 /**
  * M3BootstrapTest: end-to-end integration check that the substrate
- * plugin file registers the three M3 service-CIs (Classes_CI, Layouts_CI,
+ * plugin file registers the three M3 service-interpreters (Classes_CI, Layouts_CI,
  * Topologies_CI) AND attaches a `newspack_nodes/request_graph_ready`
- * callback that constructs each one through `$base_ci->make_node(...)`.
+ * callback that constructs each one through `$base_interpreter->make_node(...)`.
  *
  * Mirrors the application-side mount pattern in
  * newspack-event-logger-nodes.php where `newspack_event_logger_nodes_mount_service_cis`
  * builds Workers_CI / Discovery_CI / etc. on the same hook. The
  * substrate uses its OWN hook for symmetry so app-side and substrate-side
- * CIs land in the request-scope graph by the same mechanism, and either
+ * interpreters land in the request-scope graph by the same mechanism, and either
  * side's mount function can be replaced via add/remove_action without
  * touching plugin code.
  *
@@ -41,7 +41,7 @@ class M3BootstrapTest extends TestCase {
 		parent::tearDown();
 	}
 
-	public function test_request_graph_ready_mounts_three_substrate_cis(): void {
+	public function test_request_graph_ready_mounts_three_substrate_interpreters(): void {
 		// Build the request-scope graph manually (mirrors what
 		// HTTP_In::dispatch() does in production).
 		$router = new Router_Node();
@@ -55,7 +55,7 @@ class M3BootstrapTest extends TestCase {
 		\do_action( 'newspack_nodes/request_graph_ready', $base );
 
 		foreach ( [ 'classes', 'layouts', 'topologies' ] as $name ) {
-			$this->assertNotNull( Core::node( $name ), "CI '{$name}' must be registered" );
+			$this->assertNotNull( Core::node( $name ), "interpreter '{$name}' must be registered" );
 		}
 	}
 

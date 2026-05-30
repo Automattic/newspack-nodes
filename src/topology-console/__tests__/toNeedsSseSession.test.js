@@ -1,7 +1,7 @@
 /**
  * toNeedsSseSession — the send gate's "needs a live SSE session (pid)" test.
  * Only a command pivoted to a worker partition via `_sse/{topology}.pN` gets its
- * reply demuxed back ASYNC over the SSE stream (SseIn wraps FROM with the pid for
+ * reply demuxed back ASYNC over the SSE stream (SseInNode wraps FROM with the pid for
  * the server's HTTP_Filter), so only that form must wait on a connected session.
  * A local-root command (`''`) interprets in-browser; a request-scope command
  * (`_sse`) and the direct `_http/{worker}` boundary form reply synchronously in
@@ -40,12 +40,12 @@ describe( 'toNeedsSseSession', () => {
 	} );
 
 	it( 'the direct _http/{worker} boundary form does not need a session', () => {
-		// Routed straight to the HTTP boundary (not through SseIn's pid-wrap), so
+		// Routed straight to the HTTP boundary (not through SseInNode's pid-wrap), so
 		// there is no async stream demux to wait on.
 		expect( toNeedsSseSession( '_http/demo.p0' ) ).toBe( false );
 	} );
 
-	it( 'a local CI target (no _sse head) does not need a session', () => {
+	it( 'a local interpreter target (no _sse head) does not need a session', () => {
 		expect( toNeedsSseSession( 'some-node:config' ) ).toBe( false );
 	} );
 

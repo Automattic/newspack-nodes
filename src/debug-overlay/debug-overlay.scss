@@ -88,6 +88,15 @@
 	}
 }
 
+// The overlay's own NewNodeModal (palette-drop prompt) renders as a sibling of
+// the panel, so its console-default backdrop z-index (9000) sits BELOW the
+// panel (999998) and is invisible. Lift it above the FAB + panel so the
+// drop-prompt actually surfaces. (Inspector modals render inside the panel's
+// own stacking context, so this just repositions the sibling drop-prompt.)
+.nodes-debug .topology-modal-backdrop {
+	z-index: 1000000;
+}
+
 // display:contents so the wrapper is invisible to CSS Grid — the inner
 // .topology-header stays a direct grid child of .topology-app (preserving
 // grid-area: header) while the pointerdown handler still bubbles up.
@@ -105,12 +114,60 @@
 	z-index: 10;
 	background: transparent;
 
-	&--n { top: 0; left: 12px; right: 12px; height: 8px; cursor: ns-resize; }
-	&--s { bottom: 0; left: 12px; right: 12px; height: 8px; cursor: ns-resize; }
-	&--w { top: 12px; bottom: 12px; left: 0; width: 8px; cursor: ew-resize; }
-	&--e { top: 12px; bottom: 12px; right: 0; width: 8px; cursor: ew-resize; }
-	&--nw { top: 0; left: 0; width: 14px; height: 14px; cursor: nwse-resize; }
-	&--ne { top: 0; right: 0; width: 14px; height: 14px; cursor: nesw-resize; }
-	&--sw { bottom: 0; left: 0; width: 14px; height: 14px; cursor: nesw-resize; }
-	&--se { bottom: 0; right: 0; width: 14px; height: 14px; cursor: nwse-resize; }
+	&--n {
+		top: 0;
+		left: 12px;
+		right: 12px;
+		height: 8px;
+		cursor: ns-resize;
+	}
+	&--s {
+		bottom: 0;
+		left: 12px;
+		right: 12px;
+		height: 8px;
+		cursor: ns-resize;
+	}
+	&--w {
+		top: 12px;
+		bottom: 12px;
+		left: 0;
+		width: 8px;
+		cursor: ew-resize;
+	}
+	&--e {
+		top: 12px;
+		bottom: 12px;
+		right: 0;
+		width: 8px;
+		cursor: ew-resize;
+	}
+	&--nw {
+		top: 0;
+		left: 0;
+		width: 14px;
+		height: 14px;
+		cursor: nwse-resize;
+	}
+	&--ne {
+		top: 0;
+		right: 0;
+		width: 14px;
+		height: 14px;
+		cursor: nesw-resize;
+	}
+	&--sw {
+		bottom: 0;
+		left: 0;
+		width: 14px;
+		height: 14px;
+		cursor: nesw-resize;
+	}
+	&--se {
+		bottom: 0;
+		right: 0;
+		width: 14px;
+		height: 14px;
+		cursor: nwse-resize;
+	}
 }

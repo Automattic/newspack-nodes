@@ -555,8 +555,8 @@ describe( 'DebugOverlay', () => {
 		// Type a first-token-only fragment and press Tab — onComplete fires
 		// requestCompletion('help'), which builds the message and fills it.
 		fireEvent.change( input, { target: { value: 'hel' } } );
-		const ci = Core.node( '_command_interpreter' );
-		const fillSpy = jest.spyOn( ci, 'fill' );
+		const interpreter = Core.node( '_command_interpreter' );
+		const fillSpy = jest.spyOn( interpreter, 'fill' );
 		fireEvent.keyDown( input, { key: 'Tab' } );
 		expect( fillSpy ).toHaveBeenCalled();
 		// The dispatched message has KEY === 'completion' and its VALUE.name
@@ -575,8 +575,8 @@ describe( 'DebugOverlay', () => {
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		const input = container.querySelector( '.topology-repl__input' );
 		fireEvent.change( input, { target: { value: 'help me' } } );
-		const ci = Core.node( '_command_interpreter' );
-		const fillSpy = jest.spyOn( ci, 'fill' );
+		const interpreter = Core.node( '_command_interpreter' );
+		const fillSpy = jest.spyOn( interpreter, 'fill' );
 		fireEvent.keyDown( input, { key: 'Tab' } );
 		expect( fillSpy ).toHaveBeenCalled();
 		const m = fillSpy.mock.calls[ 0 ][ 0 ];

@@ -193,7 +193,7 @@ export function workerPollPath( cwd, pathOptions ) {
 }
 
 // Whether a send TO requires a live SSE session (pid). ONLY a worker pivot
-// (`_sse/{topology}.pN[/…]`) does: SseIn wraps its reply FROM with `_sse:{pid}`
+// (`_sse/{topology}.pN[/…]`) does: SseInNode wraps its reply FROM with `_sse:{pid}`
 // so the server's HTTP_Filter can demux the worker's ASYNC reply back to this
 // client's stream. A local-root command (empty TO) interprets in-browser; a
 // request-scope command (`_sse`) and the direct `_http/{worker}` boundary form
@@ -834,8 +834,8 @@ export default function TopologyConsole() {
 	// whose `target` IS the cwd), so all the per-scope routing collapses to one
 	// line: point `_cwd.target` at the current cwd. Router peels `_cwd`, the base
 	// Node.fill re-stamps the live cwd into TO (empty TO for the local root → the
-	// CI interprets locally), then forwards to the CI. One indirection routes a
-	// worker pivot (reply async over the stream), the local graph (in-browser CI),
+	// interpreter interprets locally), then forwards to the interpreter. One indirection routes a
+	// worker pivot (reply async over the stream), the local graph (in-browser interpreter),
 	// and request scope (synchronous POST) alike.
 	useEffect( () => {
 		const cwdNode = Core.node( names.CWD );
@@ -863,7 +863,7 @@ export default function TopologyConsole() {
 	// Tab-completion query (WIRING-PLAN §5 sibling of the canvas poll). The verb
 	// depends on cursor context: completing the FIRST token (the command word) →
 	// `help` (verb names); completing a LATER token (a node-name arg) → `ls`
-	// (node names). KEY='completion' tells the worker's CI to emit a bare
+	// (node names). KEY='completion' tells the worker's interpreter to emit a bare
 	// candidate list; FROM pivots the reply to the silent `_completion` node.
 	const requestCompletion = useCallback(
 		( line ) => {
@@ -930,7 +930,7 @@ export default function TopologyConsole() {
 					return;
 				}
 				const { verb, kind, positional, byName } = payload;
-				// A command verb targets the node's `{name}:config` sibling CI —
+				// A command verb targets the node's `{name}:config` sibling interpreter —
 				// UNLESS the node IS itself a Command_Interpreter_Node, which
 				// handles its verbs directly (no sibling). The catalog's
 				// per-class `is_interpreter` flag is the source of truth: map

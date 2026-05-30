@@ -83,7 +83,7 @@ describe( 'useDebugRepl', () => {
 	} );
 
 	it( 'sendLine dispatches a Message into the local interpreter', () => {
-		const { ci: interpreter, teardown } = mountExospine();
+		const { interpreter, teardown } = mountExospine();
 		const shell = makeShell();
 		const spy = jest.spyOn( interpreter, 'fill' );
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );

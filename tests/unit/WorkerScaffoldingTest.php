@@ -24,8 +24,8 @@ class WorkerScaffoldingTest extends TestCase {
 
 	public function test_build_scaffolding_creates_router_and_interpreter(): void {
 		$w = new Worker_Base( $this->tmp, 'test', 0 );
-		$ci = $w->build_scaffolding();
-		$this->assertSame( $ci, Core::node( '_command_interpreter' ) );
+		$interpreter = $w->build_scaffolding();
+		$this->assertSame( $interpreter, Core::node( '_command_interpreter' ) );
 		$this->assertNotNull( Core::node( '_router' ) );
 	}
 
@@ -115,14 +115,14 @@ class WorkerScaffoldingTest extends TestCase {
 		// The worker process must verify command provenance; an unsigned IPC
 		// command is refused, a signed one runs.
 		$w  = new Worker_Base( $this->tmp, 'test', 0 );
-		$ci = $w->build_scaffolding();
+		$interpreter = $w->build_scaffolding();
 		$this->assertNotNull( Command_Interpreter_Node::$default_authorize );
 
 		// Unsigned command (no LOCAL, no auth) — refused.
 		$unsigned                   = \Newspack_Nodes\Message::new_message();
 		$unsigned[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND;
 		$unsigned[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink unsigned' ];
-		$ci->fill( $unsigned );
+		$interpreter->fill( $unsigned );
 		$this->assertNull( Core::node( 'unsigned' ), 'unsigned command must be refused by the worker verifier' );
 
 		// Signed command, round-tripped through the IPC wire (packed/unpacked) so
@@ -133,7 +133,7 @@ class WorkerScaffoldingTest extends TestCase {
 		$signed[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink signed', 'payload' => '' ];
 		\Newspack_Nodes\Command_Auth::sign( $signed );
 		$wire = \Newspack_Nodes\Message::unpacked( \Newspack_Nodes\Message::packed( $signed ) );
-		$ci->fill( $wire );
+		$interpreter->fill( $wire );
 		$this->assertInstanceOf( \Newspack_Nodes\Tests\Capture_Sink_Node::class, Core::node( 'signed' ) );
 	}
 
@@ -144,13 +144,13 @@ class WorkerScaffoldingTest extends TestCase {
 		// must still trust LOCAL-tainted in-process commands — otherwise the worker
 		// refuses its own topology and boots with an empty graph.
 		$w  = new Worker_Base( $this->tmp, 'test', 0 );
-		$ci = $w->build_scaffolding();
+		$interpreter = $w->build_scaffolding();
 
 		$local                   = \Newspack_Nodes\Message::new_message();
 		$local[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_COMMAND;
 		$local[ \Newspack_Nodes\Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink topo', 'payload' => '' ];
 		$local[ \Newspack_Nodes\Message::LOCAL ] = true;
-		$ci->fill( $local );
+		$interpreter->fill( $local );
 
 		$this->assertInstanceOf( \Newspack_Nodes\Tests\Capture_Sink_Node::class, Core::node( 'topo' ), 'worker must accept its own LOCAL topology commands' );
 	}
@@ -169,7 +169,7 @@ class WorkerScaffoldingTest extends TestCase {
 
 	public function test_interpreter_sinks_into_router(): void {
 		$w = new Worker_Base( $this->tmp, 'test', 0 );
-		$ci = $w->build_scaffolding();
-		$this->assertSame( Core::node( '_router' ), $ci->sink() );
+		$interpreter = $w->build_scaffolding();
+		$this->assertSame( Core::node( '_router' ), $interpreter->sink() );
 	}
 }

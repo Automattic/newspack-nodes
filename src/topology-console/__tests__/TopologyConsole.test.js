@@ -46,17 +46,17 @@ globalThis.__graphKey = null;
 globalThis.__shell = null;
 jest.mock( '../hooks/useConsoleGraph', () => {
 	const { Core } = require( '../../runtime/core' );
-	const { Router } = require( '../../runtime/router' );
+	const { RouterNode } = require( '../../runtime/router-node' );
 	const {
-		CommandInterpreter,
-	} = require( '../../runtime/command_interpreter' );
+		CommandInterpreterNode,
+	} = require( '../../runtime/command-interpreter-node' );
 	const { Node } = require( '../../runtime/node' );
-	const { Dumper } = require( '../../runtime/dumper' );
-	const { Metadata } = require( '../../runtime/metadata' );
-	const { Uptime } = require( '../../runtime/uptime' );
-	const { Completion } = require( '../../runtime/completion' );
-	const { HttpOut } = require( '../../runtime/httpOut' );
-	const { SseIn } = require( '../../runtime/sseIn' );
+	const { DumperNode } = require( '../../runtime/dumper-node' );
+	const { MetadataNode } = require( '../../runtime/metadata-node' );
+	const { UptimeNode } = require( '../../runtime/uptime-node' );
+	const { CompletionNode } = require( '../../runtime/completion-node' );
+	const { HttpOutNode } = require( '../../runtime/http-out-node' );
+	const { SseInNode } = require( '../../runtime/sse-in-node' );
 	const { Shell } = require( '../nodes/shell' );
 	const reserved = require( '../../runtime/reserved-node-names.json' );
 	const NAMES = [
@@ -97,21 +97,21 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 			const key = `${ reader }|${ resetKey || 0 }`;
 			if ( globalThis.__graphKey !== key ) {
 				teardown();
-				const router = new Router();
+				const router = new RouterNode();
 				router.setName( reserved.ROUTER );
-				const ci = new CommandInterpreter();
-				ci.setName( reserved.COMMAND_INTERPRETER );
-				ci.sink = router;
-				const dumper = new Dumper();
+				const interpreter = new CommandInterpreterNode();
+				interpreter.setName( reserved.COMMAND_INTERPRETER );
+				interpreter.sink = router;
+				const dumper = new DumperNode();
 				dumper.debugLevelRef = debugLevelRef;
 				dumper.setName( reserved.OUTPUT );
-				const metadata = new Metadata();
+				const metadata = new MetadataNode();
 				metadata.setName( reserved.METADATA );
-				const uptime = new Uptime();
+				const uptime = new UptimeNode();
 				uptime.setName( reserved.UPTIME );
-				new Completion().setName( reserved.COMPLETION );
+				new CompletionNode().setName( reserved.COMPLETION );
 				// Fake HttpOut: capture the routed message instead of POSTing.
-				const httpOut = new HttpOut();
+				const httpOut = new HttpOutNode();
 				httpOut.client = {
 					buildMessage: () => null,
 					postBatch: () => Promise.resolve( null ),
@@ -122,7 +122,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				httpOut.setName( reserved.HTTP );
 				// `_sse` session node: wraps an outgoing reply-node FROM with the
 				// pid; routing `_sse/{reader}` peels here before `_http`.
-				const sse = new SseIn();
+				const sse = new SseInNode();
 				sse.arguments = `${ reader } / `;
 				sse.setName( reserved.SSE );
 				sse.sink = router;
@@ -130,16 +130,16 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				sse.pid = () => 1234;
 				const shell = new Shell();
 				shell.path = `${ reserved.SSE }/${ reader }`;
-				shell.sink = ci;
+				shell.sink = interpreter;
 				// `_cwd` indirection node: a plain Node whose target IS the cwd.
 				const cwdNode = new Node();
 				cwdNode.setName( reserved.CWD );
-				cwdNode.sink = ci;
+				cwdNode.sink = interpreter;
 				cwdNode.target = shell.path;
 				// Mirror the real timer wiring so the cadence test exercises the
-				// Router TIMER → Metadata/Uptime onTimer → CI → … → HttpOut path.
-				metadata.sink = ci;
-				uptime.sink = ci;
+				// Router TIMER → Metadata/Uptime onTimer → interpreter → … → HttpOut path.
+				metadata.sink = interpreter;
+				uptime.sink = interpreter;
 				metadata.target = reserved.CWD;
 				uptime.target = reserved.CWD;
 				router.beforeTimerNotify = () => httpOut.lock();
@@ -1443,7 +1443,7 @@ describe( 'TopologyConsole boot', () => {
 	} );
 
 	it( 'a worker cwd during the connecting window keeps _cwd pointed at the worker (not local)', () => {
-		// Previously the guard pointed _cwd at '' (the local CI) during the
+		// Previously the guard pointed _cwd at '' (the local interpreter) during the
 		// connecting window, which made the canvas DISPLAY the local graph at
 		// a worker cwd — misleading. Now _cwd tracks the cwd verbatim; the
 		// POST will fail to round-trip without a pid but is cheap and silent,
@@ -1502,8 +1502,8 @@ describe( 'TopologyConsole boot', () => {
 
 	it( 'mounts the receive graph in view mode (Dumper registered as _output)', () => {
 		render( <TopologyConsole /> );
-		const { Dumper } = require( '../../runtime/dumper' );
-		expect( Core.node( names.OUTPUT ) ).toBeInstanceOf( Dumper );
+		const { DumperNode } = require( '../../runtime/dumper-node' );
+		expect( Core.node( names.OUTPUT ) ).toBeInstanceOf( DumperNode );
 	} );
 
 	it( 'edit mode: entering shows the Palette', async () => {
@@ -2257,7 +2257,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( sent.textContent ).toBe( 'ls' );
 	} );
 
-	it( 'sendLine: a typed command flows Shell → CI → Router → HttpOut (captured)', async () => {
+	it( 'sendLine: a typed command flows Shell → interpreter → Router → HttpOut (captured)', async () => {
 		globalThis.__httpPosts = [];
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText } = render( <TopologyConsole /> );
@@ -2277,7 +2277,7 @@ describe( 'TopologyConsole boot', () => {
 		);
 	} );
 
-	it( 'handleInspectorAction invoke (command) routes a TM_COMMAND to the {node}:config sibling CI', async () => {
+	it( 'handleInspectorAction invoke (command) routes a TM_COMMAND to the {node}:config sibling interpreter', async () => {
 		// Command verbs live on the node's `{name}:config` CommandInterpreter
 		// sibling, not the bare node (a plain Node ignores TM_COMMAND). Both
 		// the routed TO and the echoed transcript line must carry `:config`.

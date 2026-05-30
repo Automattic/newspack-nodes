@@ -1,5 +1,5 @@
 import { useEffect, useState } from '@wordpress/element';
-import { CommandInterpreter } from '../../runtime/command_interpreter';
+import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
 
 /**
  * Build a class catalog from the JS-side `CommandInterpreter.includeNodes`
@@ -12,21 +12,36 @@ import { CommandInterpreter } from '../../runtime/command_interpreter';
  *
  * Returns the same shape `useClassCatalog` does so GraphView / Palette
  * consume them interchangeably: `{ classes, formatters, loading, error }`,
- * with each class an `{ shell_name, category, description }`.
+ * with each class an `{ shell_name, category, description, accepts_fill,
+ * has_target }`. The port flags are read from each node's `nodeSchema()`
+ * (the JS port of PHP `node_schema()`); SchematicCanvas draws the in/out
+ * ports from them. Both default to `true` when the schema omits them —
+ * matching PHP `Node::node_schema()`'s base default and the canvas's own
+ * `?? true` fallback.
  *
  * @return {{ classes: Array, formatters: Array, loading: boolean, error: null }} The JS catalog in the same shape useClassCatalog produces.
  */
 export function useJsCatalog() {
 	const [ classes ] = useState( () => {
-		const table = CommandInterpreter.includeNodes || {};
+		const table = CommandInterpreterNode.includeNodes || {};
 		return Object.keys( table )
-			.filter( ( name ) => name !== 'Hook' && name !== 'Router' )
+			.filter(
+				( name ) =>
+					name !== 'Hook' &&
+					name !== 'Router' &&
+					name !== 'CommandInterpreter'
+			)
 			.sort()
-			.map( ( name ) => ( {
-				shell_name: name,
-				category: 'Available',
-				description: '',
-			} ) );
+			.map( ( name ) => {
+				const schema = table[ name ]?.nodeSchema?.() || {};
+				return {
+					shell_name: name,
+					category: 'Available',
+					description: '',
+					accepts_fill: schema.accepts_fill ?? true,
+					has_target: schema.has_target ?? true,
+				};
+			} );
 	} );
 	// Stable identity for the React tree on re-renders.
 	useEffect( () => {}, [] );

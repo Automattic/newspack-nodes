@@ -73,10 +73,10 @@ describe( 'Shell node — cd navigation', () => {
 		const { shell } = makeShell( { path: '_http/demo.p0' } );
 		shell.parse( 'cd /_http' );
 		const msg = shell.parse( 'ls' );
-		expect( msg[ TO ] ).toBe( '_http' ); // → HttpOut → request-scope CI
+		expect( msg[ TO ] ).toBe( '_http' ); // → HttpOut → request-scope interpreter
 		shell.parse( 'cd /' );
 		const local = shell.parse( 'ls' );
-		expect( local[ TO ] ).toBe( '' ); // → browser-internal CI
+		expect( local[ TO ] ).toBe( '' ); // → browser-internal interpreter
 	} );
 } );
 
@@ -400,7 +400,7 @@ describe( 'Shell node — echo / status / show_parse', () => {
 
 describe( 'Shell node — control-flow verbs flow through as commands (no forbidden list)', () => {
 	it.each( [ 'if', 'while', 'for', 'func', 'eval', 'unless', 'until' ] )(
-		'%s → a TM_COMMAND (the target CI answers "unknown command")',
+		'%s → a TM_COMMAND (the target interpreter answers "unknown command")',
 		( verb ) => {
 			const { shell } = makeShell();
 			const msg = shell.parse( `${ verb } x` );

@@ -83,7 +83,7 @@ class ShellTest extends TestCase {
 
 	public function test_parse_ping_yields_TM_PING_with_timestamp_payload(): void {
 		// Tachikoma Shell3 ping builtin: build TM_PING addressed at the path,
-		// payload = current timestamp; receiver's CI bounces TO=FROM.
+		// payload = current timestamp; receiver's interpreter bounces TO=FROM.
 		Core::$now = 1234567890.123456;
 		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'ping _command_interpreter');
@@ -314,7 +314,7 @@ class ShellTest extends TestCase {
 
 	public function test_parse_from_is_pid(): void {
 		// Shell stamps FROM=`_output/$pid` so replies route uniformly in
-		// both bare and pivoted modes (CI's response uses TO=$message->from,
+		// both bare and pivoted modes (interpreter's response uses TO=$message->from,
 		// _router peels _output, _output dispatches by ID through the
 		// shell-callback registry). In pivoted mode the worker's input-Consumer
 		// prepends stamp_as=_repl, so server-side FROM=_repl/_output/$pid;
@@ -457,7 +457,7 @@ class ShellTest extends TestCase {
 
 	public function test_default_verb_uses_cwd_as_TO(): void {
 		// After `cd firehose-workers.p0`, an unbuiltin verb like `ls` should
-		// emit TM_COMMAND with TO=firehose-workers.p0 so the worker's CI
+		// emit TM_COMMAND with TO=firehose-workers.p0 so the worker's interpreter
 		// (not the local one) handles it.
 		$shell       = new Shell_Node();
 		$shell->path = 'firehose-workers.p0';
@@ -539,7 +539,7 @@ class ShellTest extends TestCase {
 
 	public function test_pwd_builtin_emits_pwd_TM_COMMAND_with_cwd_as_arg(): void {
 		// pwd sends `pwd` to current cwd with cwd as the argument so receiver's
-		// CI can render ` <cwd> -> <from>`.
+		// interpreter can render ` <cwd> -> <from>`.
 		$shell       = new Shell_Node();
 		$shell->path = 'firehose-workers.p0';
 		$msg         = $shell->parse( 'pwd' );
@@ -551,7 +551,7 @@ class ShellTest extends TestCase {
 	}
 
 	public function test_pwd_at_root_emits_with_empty_TO(): void {
-		// `pwd` at empty cwd targets the local CI (TO='').
+		// `pwd` at empty cwd targets the local interpreter (TO='').
 		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'pwd' );
 		$this->assertSame( '', $msg[ Message::TO ] );

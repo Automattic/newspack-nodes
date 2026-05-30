@@ -166,10 +166,10 @@ class SSEOutTest extends TestCase {
 		// i.e. what a worker's `cmd _repl/_command_interpreter …` becomes after the
 		// worker peels `_repl`) is interpreted IN the SSE process and its reply routed.
 		// `reply_to _sse uptime` runs `uptime` here and routes the reply to `_sse` →
-		// the client. Signed, since LOCAL is stripped at the wire and the SSE CI uses
+		// the client. Signed, since LOCAL is stripped at the wire and the SSE interpreter uses
 		// the HMAC verifier. (Driven through a log subscription because that Consumer
 		// honors `positions=start`; worker-IPC Consumers tail-seek to 'end'. Both sink
-		// into `_default_route` → CI, so the interpret+route path under test is shared.)
+		// into `_default_route` → interpreter, so the interpret+route path under test is shared.)
 		$base = $this->make_temp_dir( 'msg-stream-cmd-' );
 		\mkdir( "{$base}/logs/firehose.log", 0755, true );
 		$p = new Partition_Node();

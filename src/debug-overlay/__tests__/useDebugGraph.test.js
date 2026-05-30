@@ -30,8 +30,8 @@ describe( 'useDebugGraph', () => {
 		// With Metadata mounted, the hook reads the parsed graph from
 		// useNodeState(_metadata, 'metadata').
 		const { teardown } = mountExospine();
-		const { Metadata } = require( '../../runtime/metadata' );
-		const metadata = new Metadata();
+		const { MetadataNode } = require( '../../runtime/metadata-node' );
+		const metadata = new MetadataNode();
 		metadata.setName( names.METADATA );
 		const { result } = renderHook( () => useDebugGraph() );
 		act( () => {
@@ -46,7 +46,7 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'onConnect dispatches connect_node into the local CI', () => {
+	it( 'onConnect dispatches connect_node into the local interpreter', () => {
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.setName( 'a' );
@@ -201,7 +201,7 @@ describe( 'useDebugGraph', () => {
 		// and misrouted verbs on non-interpreter PHP nodes).
 		const { teardown } = mountExospine();
 		const interpreter = new Node();
-		interpreter.setName( 'my-ci' );
+		interpreter.setName( 'my-interpreter' );
 		const fillSpy = jest.spyOn( interpreter, 'fill' );
 		const shell = new Shell();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
@@ -210,10 +210,14 @@ describe( 'useDebugGraph', () => {
 			useDebugGraph( true, shell, classes )
 		);
 		act( () =>
-			result.current.handlers.onInspectorAction( 'invoke', 'my-ci', {
-				verb: 'help',
-				positional: '',
-			} )
+			result.current.handlers.onInspectorAction(
+				'invoke',
+				'my-interpreter',
+				{
+					verb: 'help',
+					positional: '',
+				}
+			)
 		);
 		expect( fillSpy ).toHaveBeenCalled();
 		teardown();
@@ -482,7 +486,7 @@ describe( 'useDebugGraph', () => {
 		// Task 3: useDebugGraph accepts a Shell as its second argument and
 		// routes every gesture through shell.sendCommand(path, name, args).
 		// Spying on the shell proves the new wiring; the side-effect on
-		// Core.node('a').target proves the dispatch still reaches the CI.
+		// Core.node('a').target proves the dispatch still reaches the interpreter.
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.setName( 'a' );

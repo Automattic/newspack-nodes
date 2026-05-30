@@ -280,10 +280,10 @@ class LogTest extends TestCase {
 		// ctor args fall through to defaults via cmd_make_node's variadic
 		// spread. Pin the contract end-to-end through the same dispatch
 		// path the shell uses.
-		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
 
-		$ci->dispatch( 'make', "Log mylog {$this->tmp}/out.log" );
+		$interpreter->dispatch( 'make', "Log mylog {$this->tmp}/out.log" );
 		$node = \Newspack_Nodes\Core::node( 'mylog' );
 		$this->assertInstanceOf( Log_Node::class, $node );
 
@@ -298,17 +298,17 @@ class LogTest extends TestCase {
 
 	public function test_make_node_through_REPL_works_with_filename_and_mode(): void {
 		// `make Log mylog /path overwrite` — max_size omitted, defaults to 0.
-		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
 
-		$ci->dispatch( 'make', "Log mylog {$this->tmp}/out.log overwrite" );
+		$interpreter->dispatch( 'make', "Log mylog {$this->tmp}/out.log overwrite" );
 
 		// Pre-existing file content should be wiped by overwrite mode.
 		\file_put_contents( "{$this->tmp}/out.log", "PRE-EXISTING\n" );
 
 		// Re-create through the REPL after seeding (overwrite mode opens 'wb').
-		$ci->dispatch( 'remove', 'mylog' );
-		$ci->dispatch( 'make', "Log mylog {$this->tmp}/out.log overwrite" );
+		$interpreter->dispatch( 'remove', 'mylog' );
+		$interpreter->dispatch( 'make', "Log mylog {$this->tmp}/out.log overwrite" );
 
 		$node = \Newspack_Nodes\Core::node( 'mylog' );
 		$msg                   = Message::new_message();
@@ -324,10 +324,10 @@ class LogTest extends TestCase {
 		// Shell tokens are always strings; without strict_types the int
 		// parameter accepts the coerced value. Verify max_size works
 		// end-to-end through cmd_make_node.
-		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
 
-		$ci->dispatch( 'make', "Log mylog {$this->tmp}/out.log append 10" );
+		$interpreter->dispatch( 'make', "Log mylog {$this->tmp}/out.log append 10" );
 
 		$node = \Newspack_Nodes\Core::node( 'mylog' );
 		// 11 bytes — auto-rotate fires post-write because 11 > 10.
@@ -360,7 +360,7 @@ class LogTest extends TestCase {
 	public function test_node_schema_categorizes_rotate_as_request_not_verb(): void {
 		// `rotate` is handled by Log::fill()'s TM_REQUEST branch — i.e. a request
 		// the node serves directly, NOT a command verb on a `{name}:config`
-		// sibling CI (Log has none). The Inspector routes verbs to `{node}:config`
+		// sibling interpreter (Log has none). The Inspector routes verbs to `{node}:config`
 		// (→ NOT_AVAILABLE for Log) but routes requests to the node itself, which
 		// is how rotate actually works. So rotate must live under 'requests'.
 		$schema = Log_Node::node_schema();

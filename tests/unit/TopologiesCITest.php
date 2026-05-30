@@ -1,12 +1,12 @@
 <?php
 /**
- * TopologiesCITest: unit tests for Topologies_CI, the M3 service-CI that
+ * TopologiesCITest: unit tests for Topologies_CI, the M3 service-interpreter that
  * replaces the legacy TopologiesController. Mirrors LayoutsCITest's
  * VerbHarness pattern and TopologiesControllerTest's per-test stock/user
  * directory fixture (Topology_Registry::register_stock_dir() +
  * set_user_dir() on temp dirs created in setUp).
  *
- * The CI returns raw payloads (decoded JSON) rather than the legacy
+ * The interpreter returns raw payloads (decoded JSON) rather than the legacy
  * {code, message, status} envelopes. Errors bubble as RuntimeException;
  * CommandInterpreter::interpret() catches them and emits TM_COMMAND |
  * TM_ERROR. VerbHarness::fire() unwraps the success payload and
@@ -44,12 +44,12 @@ class TopologiesCITest extends TestCase {
 		parent::setUp();
 		$this->base_dir = $this->make_temp_dir( 'topologies-ci-' );
 		// use_base_dir sets Config::load_config()['base_directory'] to
-		// $base_dir so any CI default behavior referencing config picks
+		// $base_dir so any interpreter default behavior referencing config picks
 		// up the per-test sandbox.
 		$this->use_base_dir( $this->base_dir );
 
 		// Per-test stock + user dirs registered with Topology_Registry. The
-		// CI reads through the registry; tests drop .tsl files into these
+		// interpreter reads through the registry; tests drop .tsl files into these
 		// dirs to drive list/get/delete fixtures.
 		$this->stock = $this->make_temp_dir( 'topologies-ci-stock-' );
 		$this->user  = $this->make_temp_dir( 'topologies-ci-user-' );
@@ -342,7 +342,7 @@ class TopologiesCITest extends TestCase {
 
 	public function test_save_rejects_invalid_tsl_with_line_number(): void {
 		// Line 3 ends with a trailing backslash — a structural error
-		// Shell::validate_line throws on. The CI must report the line index
+		// Shell::validate_line throws on. The interpreter must report the line index
 		// (1-based) so the editor can position the cursor. (Unknown verbs are NOT
 		// a save-time error — they surface at runtime as `unknown command`.)
 		$tsl = "make_node Echo e\nmake_node Tee t\nmake_node Echo x\\\n";

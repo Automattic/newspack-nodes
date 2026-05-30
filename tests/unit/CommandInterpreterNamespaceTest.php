@@ -25,27 +25,27 @@ class CommandInterpreterNamespaceTest extends TestCase {
 
 	public function test_make_node_resolves_substrate_node_via_prefix(): void {
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
 
-		$node = $ci->make_node( 'Tee', 't' );
+		$node = $interpreter->make_node( 'Tee', 't' );
 		$this->assertInstanceOf( Tee_Node::class, $node );
 	}
 
 	public function test_make_node_resolves_test_double_via_tests_prefix(): void {
 		// Registered in tests/bootstrap.php — `Newspack_Nodes\Tests\` prefix +
 		// `Capture_Sink` + `_Node` = `Newspack_Nodes\Tests\Capture_Sink_Node`.
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
 
-		$node = $ci->make_node( 'Capture_Sink', 'alice' );
+		$node = $interpreter->make_node( 'Capture_Sink', 'alice' );
 		$this->assertInstanceOf( Capture_Sink_Node::class, $node );
 	}
 
 	public function test_make_node_unknown_type_returns_null(): void {
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
-		$this->assertNull( $ci->make_node( 'No_Such_Type', 'x' ) );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$this->assertNull( $interpreter->make_node( 'No_Such_Type', 'x' ) );
 	}
 
 	public function test_make_node_abstract_node_subclass_returns_null_not_fatal(): void {
@@ -53,9 +53,9 @@ class CommandInterpreterNamespaceTest extends TestCase {
 		// Newspack_Nodes\ prefix; make_node must return null, not fatal trying
 		// to instantiate the abstract class.
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
-		$this->assertNull( $ci->make_node( 'Service_CI', 'x' ) );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$this->assertNull( $interpreter->make_node( 'Service_CI', 'x' ) );
 	}
 
 	public function test_shell_name_for_strips_node_suffix(): void {

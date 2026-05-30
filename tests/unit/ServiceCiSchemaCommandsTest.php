@@ -1,12 +1,12 @@
 <?php
 /**
  * ServiceCiSchemaCommandsTest: the DRY mechanism — Service_CI_Node derives its
- * dispatch table (commands) from its own node_schema(), so a service CI declares
+ * dispatch table (commands) from its own node_schema(), so a service interpreter declares
  * each verb ONCE (in node_schema's verbs[], carrying a `handler` closure) instead
  * of twice (a verb_table + a verbs[] list).
  *
  * A `verbs[]` entry with a `handler` becomes a command; a `requests[]` entry
- * (answered by the node's own fill(), never CI-dispatched) contributes NO command.
+ * (answered by the node's own fill(), never interpreter-dispatched) contributes NO command.
  *
  * @package Newspack_Nodes
  */
@@ -31,7 +31,7 @@ class Schema_Driven_CI_Node extends Service_CI_Node {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Service',
-			'description' => 'Fixture CI: proves commands() is derived from node_schema().',
+			'description' => 'Fixture interpreter: proves commands() is derived from node_schema().',
 			'arguments'        => [],
 			'commands'       => [
 				[
@@ -44,7 +44,7 @@ class Schema_Driven_CI_Node extends Service_CI_Node {
 			'requests'    => [
 				[
 					'name'        => 'status',
-					'description' => 'Answered by fill(), not CI-dispatched — contributes no command.',
+					'description' => 'Answered by fill(), not interpreter-dispatched — contributes no command.',
 				],
 			],
 		];
@@ -61,7 +61,7 @@ class Malformed_Verbs_CI_Node extends Service_CI_Node {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Service',
-			'description' => 'Fixture CI: malformed verbs are skipped, well-formed ones install.',
+			'description' => 'Fixture interpreter: malformed verbs are skipped, well-formed ones install.',
 			'arguments'        => [],
 			'commands'       => [
 				[

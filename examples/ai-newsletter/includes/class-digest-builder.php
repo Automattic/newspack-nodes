@@ -56,8 +56,8 @@ class Digest_Builder_Node extends Node {
 					'name'        => 'flush',
 					'description' => 'Emit the accumulated draft and clear.',
 					'args'        => [],
-					// Auto-wired into the sibling `{node}:config` CI by Node::__construct().
-					'handler'     => static fn ( Command_Interpreter_Node $ci, string $args ): string => $ci->patron()->cmd_flush(),
+					// Auto-wired into the sibling `{node}:config` interpreter by Node::__construct().
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => $interpreter->patron()->cmd_flush(),
 				],
 			],
 			'accepts_fill' => true,

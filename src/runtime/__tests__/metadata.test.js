@@ -1,6 +1,6 @@
 import { Core } from '../core';
 import { Node } from '../node';
-import { dumpMetadataPayload } from '../metadata';
+import { dumpMetadataPayload } from '../metadata-node';
 
 describe( 'dumpMetadataPayload', () => {
 	beforeEach( () => Core.reset() );

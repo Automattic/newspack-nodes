@@ -1,32 +1,34 @@
 /**
  * useConsoleGraph tests — the in-browser node graph (WIRING-PLAN §2/§4 spine).
- * SseIn is mocked with a fake connector; Router, CommandInterpreter, Dumper,
+ * SseInNode is mocked with a fake connector; Router, CommandInterpreter, Dumper,
  * Metadata, Uptime, HttpOut, and the anonymous Shell are real. Reserved node
  * names come from runtime/reserved-node-names.json.
  */
 
 import { renderHook, act } from '@testing-library/react';
 import { Core } from '../../../runtime/core';
-import { Router } from '../../../runtime/router';
-import { CommandInterpreter } from '../../../runtime/command_interpreter';
-import { Dumper } from '../../../runtime/dumper';
-import { Metadata } from '../../../runtime/metadata';
-import { Uptime } from '../../../runtime/uptime';
-import { Completion } from '../../../runtime/completion';
-import { Heartbeat } from '../../../runtime/heartbeat';
-import { HttpOut } from '../../../runtime/httpOut';
+import { RouterNode } from '../../../runtime/router-node';
+import { CommandInterpreterNode } from '../../../runtime/command-interpreter-node';
+import { DumperNode } from '../../../runtime/dumper-node';
+import { MetadataNode } from '../../../runtime/metadata-node';
+import { UptimeNode } from '../../../runtime/uptime-node';
+import { CompletionNode } from '../../../runtime/completion-node';
+import { HeartbeatNode } from '../../../runtime/heartbeat-node';
+import { HttpOutNode } from '../../../runtime/http-out-node';
 import { Shell } from '../../nodes/shell';
 import names from '../../../runtime/reserved-node-names.json';
 
 let lastConnector = null;
 
-jest.mock( '../../../runtime/sseIn', () => {
-	// Extend the REAL SseIn so the session wrap/routing logic is exercised; only
+jest.mock( '../../../runtime/sse-in-node', () => {
+	// Extend the REAL SseInNode so the session wrap/routing logic is exercised; only
 	// the EventSource bits (start/close/pid) are stubbed. Task 10 moved deps from
 	// the ctor to public properties (subscribe/baseUrl/nonce via arguments=); the
 	// fake exposes an `opts`-shaped read-back from those public properties so the
 	// existing tests can keep asserting against `lastConnector.opts.…`.
-	const { SseIn: RealSseIn } = jest.requireActual( '../../../runtime/sseIn' );
+	const { SseInNode: RealSseIn } = jest.requireActual(
+		'../../../runtime/sse-in-node'
+	);
 	class FakeSseIn extends RealSseIn {
 		constructor() {
 			super();
@@ -57,7 +59,7 @@ jest.mock( '../../../runtime/sseIn', () => {
 			this.setState( 'connected', { pid, slot: 1 } );
 		}
 	}
-	return { SseIn: FakeSseIn };
+	return { SseInNode: FakeSseIn };
 } );
 
 import { useConsoleGraph } from '../useConsoleGraph';
@@ -84,23 +86,25 @@ const renderGraph = ( props = {} ) =>
 describe( 'useConsoleGraph — graph topology', () => {
 	it( 'mounts the full spine under the reserved node names', () => {
 		renderGraph();
-		expect( Core.node( names.ROUTER ) ).toBeInstanceOf( Router );
+		expect( Core.node( names.ROUTER ) ).toBeInstanceOf( RouterNode );
 		expect( Core.node( names.COMMAND_INTERPRETER ) ).toBeInstanceOf(
-			CommandInterpreter
+			CommandInterpreterNode
 		);
-		expect( Core.node( names.OUTPUT ) ).toBeInstanceOf( Dumper );
-		expect( Core.node( names.METADATA ) ).toBeInstanceOf( Metadata );
-		expect( Core.node( names.UPTIME ) ).toBeInstanceOf( Uptime );
-		expect( Core.node( names.COMPLETION ) ).toBeInstanceOf( Completion );
-		expect( Core.node( names.HEARTBEAT ) ).toBeInstanceOf( Heartbeat );
-		expect( Core.node( names.HTTP ) ).toBeInstanceOf( HttpOut );
+		expect( Core.node( names.OUTPUT ) ).toBeInstanceOf( DumperNode );
+		expect( Core.node( names.METADATA ) ).toBeInstanceOf( MetadataNode );
+		expect( Core.node( names.UPTIME ) ).toBeInstanceOf( UptimeNode );
+		expect( Core.node( names.COMPLETION ) ).toBeInstanceOf(
+			CompletionNode
+		);
+		expect( Core.node( names.HEARTBEAT ) ).toBeInstanceOf( HeartbeatNode );
+		expect( Core.node( names.HTTP ) ).toBeInstanceOf( HttpOutNode );
 		expect( Core.node( names.SSE ) ).toBe( lastConnector );
 	} );
 
 	it( 'bumping resetKey tears down + rebuilds the graph (fresh Router)', () => {
 		const { rerender } = renderGraph( { resetKey: 0 } );
 		const first = Core.node( names.ROUTER );
-		expect( first ).toBeInstanceOf( Router );
+		expect( first ).toBeInstanceOf( RouterNode );
 		act( () => {
 			rerender( {
 				topology: 'demo',
@@ -111,11 +115,11 @@ describe( 'useConsoleGraph — graph topology', () => {
 			} );
 		} );
 		const second = Core.node( names.ROUTER );
-		expect( second ).toBeInstanceOf( Router );
+		expect( second ).toBeInstanceOf( RouterNode );
 		expect( second ).not.toBe( first );
 	} );
 
-	it( 'mounts the _cwd indirection node sinking into the CI', () => {
+	it( 'mounts the _cwd indirection node sinking into the interpreter', () => {
 		renderGraph();
 		const cwd = Core.node( names.CWD );
 		expect( cwd ).not.toBeNull();
@@ -134,9 +138,9 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( Core.node( names.HEARTBEAT ).pollTo ).toBeUndefined();
 	} );
 
-	it( 'wires _sse.sink → _command_interpreter (rule #2: everything sinks into the CI)', () => {
+	it( 'wires _sse.sink → _command_interpreter (rule #2: everything sinks into the interpreter)', () => {
 		renderGraph();
-		// The CI forwards non-command / non-empty-TO SSE traffic to the router;
+		// The interpreter forwards non-command / non-empty-TO SSE traffic to the router;
 		// steering stays the SSE node's target (_output), not a direct router sink.
 		expect( lastConnector.sink ).toBe(
 			Core.node( names.COMMAND_INTERPRETER )
@@ -144,11 +148,11 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( lastConnector.started ).toBe( true );
 	} );
 
-	it( 'sinks every node into the CI — _router is the only node with no sink (rule #2)', () => {
+	it( 'sinks every node into the interpreter — _router is the only node with no sink (rule #2)', () => {
 		renderGraph();
-		const ci = Core.node( names.COMMAND_INTERPRETER );
+		const interpreter = Core.node( names.COMMAND_INTERPRETER );
 		// The reply/boundary nodes are terminal (they render or POST in fill, never
-		// forwarding through sink), but rule #2 still wires their sink to the CI so
+		// forwarding through sink), but rule #2 still wires their sink to the interpreter so
 		// the declared topology is uniform — only _router is bare.
 		for ( const name of [
 			names.OUTPUT,
@@ -159,10 +163,10 @@ describe( 'useConsoleGraph — graph topology', () => {
 			names.UPTIME,
 			names.HEARTBEAT,
 		] ) {
-			expect( Core.node( name ).sink ).toBe( ci );
+			expect( Core.node( name ).sink ).toBe( interpreter );
 		}
 		expect( Core.node( names.ROUTER ).sink ).toBeNull();
-		expect( ci.sink ).toBe( Core.node( names.ROUTER ) );
+		expect( interpreter.sink ).toBe( Core.node( names.ROUTER ) );
 	} );
 
 	it( 'wires Shell.sink → _command_interpreter → _router', () => {
@@ -356,7 +360,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		).toHaveLength( 0 );
 	} );
 
-	it( 'a typed Shell command flows Shell → CI → Router → HttpOut → POST', () => {
+	it( 'a typed Shell command flows Shell → interpreter → Router → HttpOut → POST', () => {
 		const { result } = renderGraph();
 		act( () => lastConnector.emitConnected( 4242 ) );
 		const postBatch = jest.fn().mockResolvedValue( null );
@@ -378,7 +382,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 
 	it( 'ls -a at the local root (cd /) lists EVERY in-browser node in the transcript', () => {
 		const { result } = renderGraph();
-		act( () => result.current.shell.fill( 'cd /' ) ); // empty cwd → local CI
+		act( () => result.current.shell.fill( 'cd /' ) ); // empty cwd → local interpreter
 		act( () => result.current.shell.fill( 'ls -a' ) );
 		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
 		const recv = transcript.find( ( e ) => e.kind === 'recv' );
@@ -399,20 +403,20 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 		expect( recv.text ).toContain( 'NAME' );
 	} );
 
-	it( 'bare ls at the local root lists the CI siblings (everything that sinks into the CI), not _router', () => {
+	it( 'bare ls at the local root lists the interpreter siblings (everything that sinks into the interpreter), not _router', () => {
 		const { result } = renderGraph();
 		act( () => result.current.shell.fill( 'cd /' ) );
 		act( () => result.current.shell.fill( 'ls' ) );
 		const transcript = Core.node( names.OUTPUT ).setStateCache.transcript;
 		const recv = transcript.find( ( e ) => e.kind === 'recv' );
 		expect( recv ).toBeTruthy();
-		// Default = siblings (sink IS the CI). Per rule #2 every node sinks into
-		// the CI, so the poll nodes AND the terminal reply/boundary nodes are all
+		// Default = siblings (sink IS the interpreter). Per rule #2 every node sinks into
+		// the interpreter, so the poll nodes AND the terminal reply/boundary nodes are all
 		// siblings now (_output included).
 		expect( recv.text ).toContain( names.METADATA );
 		expect( recv.text ).toContain( names.UPTIME );
 		expect( recv.text ).toContain( names.OUTPUT );
-		// _router is the ONLY node with no sink → never a CI sibling.
+		// _router is the ONLY node with no sink → never a interpreter sibling.
 		expect( recv.text.split( '\n' ) ).not.toContain( names.ROUTER );
 	} );
 } );
@@ -478,7 +482,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 			Core.node( names.COMMAND_INTERPRETER ).fill( cwdPoll() );
 			Core.node( names.HTTP ).flush();
 		} );
-		// Empty TO → the local CI interprets the poll; the reply routes back to
+		// Empty TO → the local interpreter interprets the poll; the reply routes back to
 		// _metadata (in-browser), never out over HTTP.
 		expect( postBatch ).not.toHaveBeenCalled();
 		expect(
@@ -591,7 +595,7 @@ describe( 'useConsoleGraph — lifecycle', () => {
 		expect( first.closed ).toBe( true );
 		expect( lastConnector ).not.toBe( first );
 		expect( lastConnector.opts.subscribe ).toEqual( [ 'demo.p1' ] );
-		expect( Core.node( names.OUTPUT ) ).toBeInstanceOf( Dumper );
+		expect( Core.node( names.OUTPUT ) ).toBeInstanceOf( DumperNode );
 	} );
 
 	it( 'tearing down on enabled→false unregisters nodes + closes the stream', () => {

@@ -65,7 +65,7 @@ export function parseTsl( text ) {
 			nodes.push( node );
 		} else if ( verb === 'cmd' && tokens.length >= 3 ) {
 			// Two target shapes: `cmd <name>:config <verb>` (non-interpreter, a
-			// `:config` sibling CI) and `cmd <name> <verb>` (interpreter node,
+			// `:config` sibling interpreter) and `cmd <name> <verb>` (interpreter node,
 			// which handles verbs directly). Strip a trailing `:config` if present;
 			// otherwise the bare token is the owner.
 			const target = tokens[ 1 ];

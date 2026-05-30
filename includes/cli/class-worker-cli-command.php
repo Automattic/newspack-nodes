@@ -141,10 +141,10 @@ class Worker_CLI_Command {
 		}
 		// `<config:…>` tokens resolve via the substrate's registered namespace resolver.
 		$topology = static function (
-			Command_Interpreter_Node $ci,
+			Command_Interpreter_Node $interpreter,
 			int $partition_arg
 		) use ( $topology_name ): void {
-			Topology_Loader::load( $topology_name, $partition_arg, $ci );
+			Topology_Loader::load( $topology_name, $partition_arg, $interpreter );
 		};
 
 		if ( ! $quiet ) {

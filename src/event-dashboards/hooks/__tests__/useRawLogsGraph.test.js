@@ -6,7 +6,7 @@
  * `rawlogs:transform` nodes are gone — envelope→row shaping is inlined into
  * the view itself.
  *
- * EventSource is faked via `global.EventSource`; SseIn's connection logic
+ * EventSource is faked via `global.EventSource`; SseInNode's connection logic
  * (already covered by the substrate's `sse_connector.test.js`) is unmocked
  * here — we drive a `msg` event through the fake EventSource and assert it
  * actually routes _sse → view.
@@ -59,7 +59,7 @@ beforeEach( () => {
 
 import { useRawLogsGraph } from '../useRawLogsGraph';
 
-const CI = '_command_interpreter';
+const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const SSE = '_sse';
 const HTTP = '_http';
@@ -119,16 +119,16 @@ function mountGraph( client ) {
 const oneLogReply = () => [ { key: 'firehose', label: 'firehose.log' } ];
 
 describe( 'useRawLogsGraph — exospine + I/O boundary wiring', () => {
-	test( 'mounts the backbone + the four graph nodes, each sinking into the CI', async () => {
+	test( 'mounts the backbone + the four graph nodes, each sinking into the interpreter', async () => {
 		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
 		await act( async () => {} );
-		const ci = Core.node( CI );
-		expect( ci ).toBeTruthy();
+		const interpreter = Core.node( INTERPRETER );
+		expect( interpreter ).toBeTruthy();
 		expect( Core.node( ROUTER ) ).toBeTruthy();
 		for ( const name of ALL_GRAPH_NAMES ) {
 			const node = Core.node( name );
 			expect( node ).toBeTruthy();
-			expect( node.sink ).toBe( ci );
+			expect( node.sink ).toBe( interpreter );
 		}
 	} );
 
@@ -234,7 +234,7 @@ describe( 'useRawLogsGraph — teardown', () => {
 		const es = FakeEventSource.last;
 		unmount();
 		expect( es.closed ).toBe( true );
-		for ( const name of [ ...ALL_GRAPH_NAMES, CI, ROUTER ] ) {
+		for ( const name of [ ...ALL_GRAPH_NAMES, INTERPRETER, ROUTER ] ) {
 			expect( Core.node( name ) ).toBeNull();
 		}
 	} );

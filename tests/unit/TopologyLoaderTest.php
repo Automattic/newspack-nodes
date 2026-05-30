@@ -37,10 +37,10 @@ class TopologyLoaderTest extends TestCase {
 			"make_node Capture_Sink alice\nmake_node Capture_Sink bob\nconnect_node alice bob\n"
 		);
 
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
 
-		Topology_Loader::load( 'two-nodes', 0, $ci );
+		Topology_Loader::load( 'two-nodes', 0, $interpreter );
 
 		$this->assertNotNull( Core::node( 'alice' ) );
 		$this->assertNotNull( Core::node( 'bob' ) );
@@ -57,10 +57,10 @@ class TopologyLoaderTest extends TestCase {
 			"make_node Capture_Sink alice\nmake_node Capture_Sink bob\nconnect_node alice bob\n"
 		);
 
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
 
-		Topology_Loader::load( 'verified', 0, $ci );
+		Topology_Loader::load( 'verified', 0, $interpreter );
 
 		$this->assertNotNull( Core::node( 'alice' ), 'verifier process must build its own topology' );
 		$this->assertNotNull( Core::node( 'bob' ) );
@@ -72,10 +72,10 @@ class TopologyLoaderTest extends TestCase {
 			"make_node Capture_Sink consumer-p<partition>\n"
 		);
 
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
 
-		Topology_Loader::load( 'parted', 7, $ci );
+		Topology_Loader::load( 'parted', 7, $interpreter );
 
 		$this->assertNotNull( Core::node( 'consumer-p7' ) );
 	}
@@ -86,15 +86,15 @@ class TopologyLoaderTest extends TestCase {
 			"make_node Capture_Sink node-<config:env_label>\n"
 		);
 
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
 
 		// `<config:env_label>` resolves through the registered `config` namespace
 		// resolver, not a per-call array. Snapshot/restore around a custom one.
 		$saved = Core::$config_resolvers;
 		Core::register_config_namespace( 'config', static fn ( string $k ) => 'env_label' === $k ? 'prod' : null );
 		try {
-			Topology_Loader::load( 'configed', 0, $ci );
+			Topology_Loader::load( 'configed', 0, $interpreter );
 			$this->assertNotNull( Core::node( 'node-prod' ) );
 		} finally {
 			Core::$config_resolvers = $saved;
@@ -106,13 +106,13 @@ class TopologyLoaderTest extends TestCase {
 		// `<config:foo>` resolves to ''. The loader doesn't pre-validate.
 		$this->write_tsl( 'unknown', "make_node Capture_Sink node-<config:nope>\n" );
 
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
 
 		$saved = Core::$config_resolvers;
 		Core::register_config_namespace( 'config', static fn ( string $k ) => null );
 		try {
-			Topology_Loader::load( 'unknown', 0, $ci );
+			Topology_Loader::load( 'unknown', 0, $interpreter );
 			$this->assertNotNull( Core::node( 'node-' ) );
 		} finally {
 			Core::$config_resolvers = $saved;
@@ -125,10 +125,10 @@ class TopologyLoaderTest extends TestCase {
 			"# header comment\n\nmake_node Capture_Sink alice\n\n# trailing comment\n"
 		);
 
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
 
-		Topology_Loader::load( 'comments', 0, $ci );
+		Topology_Loader::load( 'comments', 0, $interpreter );
 
 		$this->assertNotNull( Core::node( 'alice' ) );
 	}
@@ -142,10 +142,10 @@ class TopologyLoaderTest extends TestCase {
 			"var num_partitions = 4; var stale_timeout = 60\nmake_node Capture_Sink leader-p<partition>"
 		);
 
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
 
-		Topology_Loader::load( 'frontmatter', 0, $ci );
+		Topology_Loader::load( 'frontmatter', 0, $interpreter );
 
 		$this->assertSame( '4', Core::$var['num_partitions'] );
 		$this->assertSame( '60', Core::$var['stale_timeout'] );
@@ -153,11 +153,11 @@ class TopologyLoaderTest extends TestCase {
 	}
 
 	public function test_load_throws_when_topology_not_found(): void {
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'no-such-topology' );
-		Topology_Loader::load( 'no-such-topology', 0, $ci );
+		Topology_Loader::load( 'no-such-topology', 0, $interpreter );
 	}
 }

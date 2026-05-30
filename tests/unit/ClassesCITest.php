@@ -1,9 +1,9 @@
 <?php
 /**
- * ClassesCITest: unit tests for Classes_CI, the M3 service-CI that
+ * ClassesCITest: unit tests for Classes_CI, the M3 service-interpreter that
  * replaces the legacy ClassesController. Sets the substrate pattern
- * every other M3 CI test (Layouts_CI, Topologies_CI) will follow:
- * instantiate the CI (no ctor args — substrate state is global),
+ * every other M3 interpreter test (Layouts_CI, Topologies_CI) will follow:
+ * instantiate the interpreter (no ctor args — substrate state is global),
  * fire a verb through VerbHarness, assert on the decoded payload.
  *
  * @package Newspack_Nodes
@@ -224,7 +224,7 @@ class ClassesCITest extends TestCase {
 	public function test_list_flags_interpreter_classes_with_is_interpreter(): void {
 		// The console routes a node's command verbs to the bare node iff the node
 		// IS a Command_Interpreter_Node (it handles verbs directly); otherwise to
-		// `<name>:config` (a sibling CI). The catalog is the single source of
+		// `<name>:config` (a sibling interpreter). The catalog is the single source of
 		// truth for that distinction, exposed per class as `is_interpreter`.
 		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
 

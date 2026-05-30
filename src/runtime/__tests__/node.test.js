@@ -307,9 +307,9 @@ test( 'removeNode clears refs, unregisters from Core, and clears its name', () =
 test( 'removeNode cascade-unregisters the sibling interpreter and clears it', () => {
 	const n = new Node();
 	n.setName( 'parent' );
-	const ci = new Node();
-	ci.setName( 'parent:config' );
-	n.interpreter = ci;
+	const interpreter = new Node();
+	interpreter.setName( 'parent:config' );
+	n.interpreter = interpreter;
 
 	n.removeNode();
 
@@ -320,9 +320,9 @@ test( 'removeNode cascade-unregisters the sibling interpreter and clears it', ()
 test( 'removeNode unregisters its OWN name LAST (Core.node sees null, not a half-torn-down self)', () => {
 	const n = new Node();
 	n.setName( 'self-last' );
-	const ci = new Node();
-	ci.setName( 'self-last:config' );
-	n.interpreter = ci;
+	const interpreter = new Node();
+	interpreter.setName( 'self-last:config' );
+	n.interpreter = interpreter;
 
 	let selfWhenInterpreterGone = 'unset';
 	// At the moment the interpreter is removed, the parent must still be looked

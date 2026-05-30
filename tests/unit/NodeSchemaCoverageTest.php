@@ -87,4 +87,16 @@ class NodeSchemaCoverageTest extends TestCase {
 		$this->assertTrue( $schema['accepts_fill'] ?? false );
 		$this->assertFalse( $schema['has_target'] ?? true );
 	}
+
+	public function test_dumper_has_no_target(): void {
+		// Dumper is the REPL `_output` terminal — writes to its stream, never forwards.
+		$schema = \Newspack_Nodes\Dumper_Node::node_schema();
+		$this->assertFalse( $schema['has_target'] );
+	}
+
+	public function test_http_in_has_no_target(): void {
+		// HTTP_In is the `_http` egress terminal — writes the response, never forwards.
+		$schema = \Newspack_Nodes\Rest\HTTP_In_Node::node_schema();
+		$this->assertFalse( $schema['has_target'] );
+	}
 }

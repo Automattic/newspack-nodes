@@ -251,11 +251,15 @@ export class Node {
 	}
 
 	// Emit the round-trippable config for this node — `make_node <Type> <name>
-	// [<arguments>]`, a `set_sink` line when the sink isn't the default CI, and a
+	// [<arguments>]`, a `set_sink` line when the sink isn't the default interpreter, and a
 	// `connect_node` per target. Mirrors PHP Node::dump_config (the JS runtime
 	// doesn't track invoked verbs, so there's no `cmd` replay line).
 	dumpConfig() {
-		let out = `make_node ${ this.constructor.name } ${ this.name }`;
+		// Subclasses carry a `Node` suffix; the shell name strips it.
+		const shellName =
+			this.constructor.name.replace( /Node$/, '' ) ||
+			this.constructor.name;
+		let out = `make_node ${ shellName } ${ this.name }`;
 		if ( this.arguments ) {
 			out += ` ${ this.arguments }`;
 		}
@@ -286,7 +290,7 @@ export class Node {
 		this.setStateCache = {};
 		this.sink = null;
 		this.target = '';
-		// Cascade-unregister the sibling CI so a name-recycle doesn't collide
+		// Cascade-unregister the sibling interpreter so a name-recycle doesn't collide
 		// with an orphan.
 		if ( this.interpreter && '' !== this.interpreter.name ) {
 			Core.unregisterNode( this.interpreter.name );

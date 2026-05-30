@@ -257,7 +257,7 @@ export default function DebugOverlay( {
 			return;
 		}
 		// Capture after a tick so useDebugGraph + useDebugRepl have registered
-		// their nodes (exospine CI/router, _output Dumper). Anything in Core
+		// their nodes (exospine interpreter/router, _output Dumper). Anything in Core
 		// at this point is considered "original" and won't be removed by reset.
 		const id = setTimeout( () => {
 			baselineNamesRef.current = new Set( Core.nodes.keys() );
@@ -462,13 +462,19 @@ export default function DebugOverlay( {
 				</div>
 			) }
 			{ pendingDrop && (
-				<NewNodeModal
-					shellName={ pendingDrop.shellName }
-					defaultName={ pendingDrop.defaultName }
-					argSchema={ pendingDrop.argSchema }
-					onConfirm={ commitDrop }
-					onCancel={ cancelDrop }
-				/>
+				// display:contents themed host so the sibling-rendered modal inherits .topology-app's --paper/--ink tokens (else the dialog is an invisible transparent box).
+				<div
+					className={ `topology-app theme-${ theme }` }
+					style={ { display: 'contents' } }
+				>
+					<NewNodeModal
+						shellName={ pendingDrop.shellName }
+						defaultName={ pendingDrop.defaultName }
+						argSchema={ pendingDrop.argSchema }
+						onConfirm={ commitDrop }
+						onCancel={ cancelDrop }
+					/>
+				</div>
 			) }
 		</div>
 	);

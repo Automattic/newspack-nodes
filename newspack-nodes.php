@@ -76,7 +76,7 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
  * `HTTP_In::dispatch` lazy-builds the request-scope graph
  * (`_router` / `_command_interpreter` / `_http`) then fires
  * `newspack_nodes/request_graph_ready` so anything that wants to mount
- * a CI can do so via `$base_ci->make_node(...)` — which constructs,
+ * a CI can do so via `$base_interpreter->make_node(...)` — which constructs,
  * names, and sinks each node in one atomic step. Without the sink, verb
  * responses (which walk back via TO=FROM) would have no path to the
  * HTTP_In response-writer and silently drop.
@@ -89,7 +89,7 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
  * `$GLOBALS['_wp_actions']` for isolation can re-attach the same
  * callback without duplicating the mount logic.
  */
-function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter_Node $base_ci ): void {
+function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter_Node $base_interpreter ): void {
 	// Idempotency guard. The `newspack_nodes/request_graph_ready` action
 	// has been observed firing twice in the same PHP request in production —
 	// without this guard the second invocation throws "node name collision:
@@ -99,10 +99,10 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 		return;
 	}
 
-	$base_ci->make_node( 'Classes_CI',    'classes' );
-	$base_ci->make_node( 'Layouts_CI',    'layouts' );
-	$base_ci->make_node( 'Topologies_CI', 'topologies' );
-	$base_ci->make_node( 'Raw_Logs_CI',   'raw-logs' );
+	$base_interpreter->make_node( 'Classes_CI',    'classes' );
+	$base_interpreter->make_node( 'Layouts_CI',    'layouts' );
+	$base_interpreter->make_node( 'Topologies_CI', 'topologies' );
+	$base_interpreter->make_node( 'Raw_Logs_CI',   'raw-logs' );
 
 	// Workers_CI needs the substrate Cli plus an optional `\Memcached`-shaped
 	// cache (or null) for live-position memcache reads + SSE-slot heartbeats.
@@ -119,7 +119,7 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 	$cache = \function_exists( 'apply_filters' )
 		? \apply_filters( 'newspack_nodes/workers_cache', null )
 		: null;
-	$workers_ci = $base_ci->make_node( 'Workers_CI', 'workers' );
+	$workers_ci = $base_interpreter->make_node( 'Workers_CI', 'workers' );
 	if ( $workers_ci instanceof \Newspack_Nodes\Rest\Workers_CI_Node ) {
 		$workers_ci->cli   = $cli;
 		$workers_ci->cache = $cache;

@@ -1,7 +1,10 @@
 import { Core } from '../../../runtime/core';
 import { Node } from '../../../runtime/node';
 import { coreToGraph } from '../coreToGraph';
-import { parseMetadata, dumpMetadataPayload } from '../../../runtime/metadata';
+import {
+	parseMetadata,
+	dumpMetadataPayload,
+} from '../../../runtime/metadata-node';
 
 describe( 'coreToGraph', () => {
 	beforeEach( () => Core.reset() );
@@ -19,8 +22,8 @@ describe( 'coreToGraph', () => {
 	} );
 
 	it( 'draws an edge from a node target and hides the backbone', () => {
-		const ci = new Node();
-		ci.setName( '_command_interpreter' );
+		const interpreter = new Node();
+		interpreter.setName( '_command_interpreter' );
 		const a = new Node();
 		a.setName( 'a' );
 		a.target = 'b';

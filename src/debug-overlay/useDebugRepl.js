@@ -8,9 +8,9 @@ import {
 import { Core } from '../runtime/core';
 import { Node } from '../runtime/node';
 import { splitStatements } from '../topology-console/nodes/shell';
-import { Dumper } from '../runtime/dumper';
-import { Completion } from '../runtime/completion';
-import { Metadata } from '../runtime/metadata';
+import { DumperNode } from '../runtime/dumper-node';
+import { CompletionNode } from '../runtime/completion-node';
+import { MetadataNode } from '../runtime/metadata-node';
 import { LOCAL, FROM, TO, VALUE } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 
@@ -22,7 +22,7 @@ const EMPTY_TRANSCRIPT = [];
  * into the local realm.
  *
  * @param {boolean} active When false the Dumper is torn down (no transcript).
- * @param {Object}  shell  Shell instance owned by DebugOverlay; sink wired to the local CI.
+ * @param {Object}  shell  Shell instance owned by DebugOverlay; sink wired to the local interpreter.
  * @return {{ transcript: Array, sendLine: Function, clear: Function }} Reactive
  *   transcript + a `sendLine( line )` that runs the line through Shell and the
  *   matching subset of TopologyConsole's local-scope dispatch.
@@ -50,21 +50,21 @@ export function useDebugRepl( active = true, shell ) {
 			return undefined;
 		}
 		// Dumper accumulates entries + publishes `transcript` for React subscribers.
-		const ci = Core.node( names.COMMAND_INTERPRETER );
+		const interpreter = Core.node( names.COMMAND_INTERPRETER );
 		const router = Core.node( names.ROUTER );
-		const dumper = new Dumper();
+		const dumper = new DumperNode();
 		dumper.debugLevelRef = debugLevelRef;
 		dumper.setName( names.OUTPUT );
-		dumper.sink = ci;
+		dumper.sink = interpreter;
 		// Tab completion: `_completion` answers help/ls queries off the cwd.
-		const completion = new Completion();
+		const completion = new CompletionNode();
 		completion.setName( names.COMPLETION );
-		completion.sink = ci;
+		completion.sink = interpreter;
 		// Canvas-poll: Metadata fires dump_metadata at _cwd each TIMER tick,
 		// publishes the parsed graph via setState('metadata') for the canvas.
-		const metadata = new Metadata();
+		const metadata = new MetadataNode();
 		metadata.setName( names.METADATA );
-		metadata.sink = ci;
+		metadata.sink = interpreter;
 		metadata.target = names.CWD;
 		router?.register( 'TIMER', names.METADATA, () => metadata.onTimer() );
 		// `_cwd` is the routing indirection — every scope-relative command's TO
@@ -72,7 +72,7 @@ export function useDebugRepl( active = true, shell ) {
 		// REPL `cd` just sets `_cwd.target`.
 		const cwdNode = new Node();
 		cwdNode.setName( names.CWD );
-		cwdNode.sink = ci;
+		cwdNode.sink = interpreter;
 		cwdNode.target = shell.path;
 		// Shell is owned by DebugOverlay; we just adopt the passed-in instance
 		// (its path + sink are already configured) and store it on the ref so

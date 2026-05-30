@@ -19,9 +19,9 @@ class EventLoopRoundTripTest extends TestCase {
 	public function test_eventframework_driven_timer_fires_during_drain(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
-		$ci->sink( $router );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( $router );
 
 		$timer = new Timer_Node();
 		$timer->name( 'tick' );

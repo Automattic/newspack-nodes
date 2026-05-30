@@ -48,8 +48,8 @@ class Releases_Source_Node extends Node {
 					'name'        => 'tick',
 					'description' => 'Emit the current batch of items.',
 					'args'        => [],
-					// Auto-wired into the sibling `{node}:config` CI by Node::__construct().
-					'handler'     => static fn ( Command_Interpreter_Node $ci, string $args ): string => $ci->patron()->cmd_tick(),
+					// Auto-wired into the sibling `{node}:config` interpreter by Node::__construct().
+					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => $interpreter->patron()->cmd_tick(),
 				],
 			],
 			'accepts_fill' => false,

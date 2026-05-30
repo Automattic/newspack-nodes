@@ -9,10 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Node subclasses now carry a `_Node` suffix with matching `class-*-node.php` / `*-node.js` filenames (shell / `make_node` names unchanged).
+- The command interpreter is spelled `interpreter` throughout (variables, node-name literals, comments, docs); service-CI `*_CI_Node` identifiers keep `CI`. `mountExospine()` now returns `{ interpreter, router, teardown }`.
+- JS nodes declare `accepts_fill` / `has_target` in `nodeSchema()` and `useJsCatalog` propagates them to the palette (and filters `CommandInterpreter` out of the overlay palette); PHP `Dumper_Node` / `HTTP_In_Node` declare `has_target: false`.
+- Inlined `SSE_Stream_Trait` into `SSE_Out_Node` and deleted `includes/rest/trait-sse-stream.php`; the trait had a single remaining consumer. Removed the dead `stream_permissions_check()` (the route uses an inline `permission_callback`).
 - **Removed every `eslint-disable` directive from the JS; the code now lints clean without suppressions.** Most were stale (no-ops under the current `@wordpress/eslint-plugin` test-unit override) and were deleted outright. `no-bitwise` is turned off in `.eslintrc.js` — the 7-field Message `TYPE` is a bitmask (Tachikoma convention), so `&`/`|` on it are idiomatic, not a smell. `no-console` now allows `warn`/`error` (the runtime's stderr sink is the browser console) while still flagging stray `console.log`; `no-unused-vars` honors the `^_` unused-arg convention; a `scripts/**/*.mjs` override gives build scripts Node globals + console.
 
 ### Fixed
 
+- Timer JS runtime gained the Router-hitchhike mode (no-arg `setTimer()` registers `TIMER` on `_router`) the PHP `Timer_Node` already had; `fire()` emits a `TM_BYTESTREAM` timestamp tick matching PHP.
+- Timer JS `fire()` no longer double-counts `counter` (a divergence from PHP that inflated hitchhike-mode ticks 2×), and `setTimer()` re-arm now guards on `mode` + clears any live `setInterval` handle (fixes a leaked interval on same-mode re-arm).
 - **Accessibility: dropped the `jsx-a11y` suppressions by making the elements genuinely accessible.** Modal/OpenTopologyModal backdrops are `role="presentation"` (decorative; ESC still dismisses). The REPL transcript resize handle is now a keyboard-operable `role="slider"` — ArrowUp/ArrowDown resize, `aria-orientation="vertical"` + `aria-valuemin/max/now` — instead of a non-interactive `separator` carrying mouse-only handlers; the transcript pane is `role="presentation"` (it delegates clicks to its children). The Inspector verb-checkbox label carries an `aria-label` so its accessible text is detectable.
 - **React dependency arrays are now honest (no `react-hooks/exhaustive-deps` suppressions).** `ReplFooter`'s `setExpanded` is wrapped in `useCallback` (it was an unstable `onExpandedChange` wrapper, not a state setter); its document-listener and Tab-completion effects declare their real deps (the completion effect's new `value` dep fixes a latent stale read, guarded against re-fire by `pendingToken`/`seq`). `SchematicCanvas`'s window wire-drag listeners are `useCallback`s, `setViewport` is memoized, and the autofit-freeze effect reads a `nodes` ref so it stays keyed on `nodes.length`.
 - **Destructive / data-entry actions use in-app modals instead of native dialogs (no `no-alert` suppressions).** `TopologyConsole`'s topology-delete now uses the existing `ConfirmModal`; the Inspector's "Send bytes" uses `PromptModal`. Confirm-to-proceed, cancel-aborts, and empty-input-doesn't-submit behavior is preserved.
@@ -94,7 +100,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **`useWorkerStatusGraph` migrated to the substrate `_http` pattern.** Drops the bespoke `workerStatusPoll` Node. The hook now mounts the runtime spine + `_http` (HttpOut) + `workerstatus:transform` + `workerstatus:view`. The hook owns the `setInterval` that fills `dump_metadata` TM_COMMANDs into the CI (FROM=`workerstatus:transform`, TO=`_http/workers`) so the transform owns its prev-snapshot diff math; `restart` uses FROM=view so the awaited Promise resolves via the view's pending Map. The transform forwards TM_ERROR replies to the view so the disconnect banner still surfaces via the un-correlated-error path.
+- **`useWorkerStatusGraph` migrated to the substrate `_http` pattern.** Drops the bespoke `workerStatusPoll` Node. The hook now mounts the runtime spine + `_http` (HttpOut) + `workerstatus:transform` + `workerstatus:view`. The hook owns the `setInterval` that fills `dump_metadata` TM_COMMANDs into the interpreter (FROM=`workerstatus:transform`, TO=`_http/workers`) so the transform owns its prev-snapshot diff math; `restart` uses FROM=view so the awaited Promise resolves via the view's pending Map. The transform forwards TM_ERROR replies to the view so the disconnect banner still surfaces via the un-correlated-error path.
 - **`useRawLogsGraph` migrated to the substrate `_sse` pattern.** Drops the bespoke `rawLogsStream` Node. The hook mounts spine + `_sse` (SseIn) + `_http` (HttpOut) + `_heartbeat` (Heartbeat) + `rawlogs:route`/`transform`/`view`. `_sse` subscribes to the raw-logs stream; `_heartbeat.target = '_http/workers'`; the slot bridge mirrors `useRequestLogGraph`. `list_logs` rides through `_http` and the resolved payload is fed back as a `{action:'logs', logs}` control — keeping the pending-Map gate uniform across both dashboards.
 - **Both views adopt the canonical contract from `servers:view`** (`newspack-event-logger-nodes` v0.8.0): pending-matched TM_ERROR rejects the Promise without polluting global view.error (per-call surface is the caller's catch); `_errorMessage()` helper handles string and structured `{ message }` TM_ERROR payloads. `rawLogsView`'s pending-Map gate guards on `'name' in value` so a row's VALUE (`{p, line}`) can never accidentally settle a Promise.
 
@@ -144,7 +150,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **The "⟳ Reset graph" chip shows only on the local in-browser graph.** It re-mounts the browser console graph, which is meaningless on any pivoted view — a worker over `_sse` or the `_http` broadcast boundary self-heals on respawn. Since the console boots into a worker view, the chip previously showed everywhere; it's now gated to the cwd root (`'' === cwd`).
 - **The canvas draws an edge to the head node of a path target.** A node whose `target` is a path (e.g. `_heartbeat`'s `_sse/workers`) now draws its edge to the head segment the router actually delivers to (`_sse`), instead of to the non-existent full-path string (which drew no edge). `parseMetadata` peels the head.
-- **The `_cwd` connecting-window guard.** At a worker cwd, while the SSE stream is still connecting (no pid), the poll target routes to the local CI (`_cwd.target = ''`) instead of POSTing worker polls whose replies the server can't demux. Once the pid lands (or off-worker), it points at the real cwd.
+- **The `_cwd` connecting-window guard.** At a worker cwd, while the SSE stream is still connecting (no pid), the poll target routes to the local interpreter (`_cwd.target = ''`) instead of POSTing worker polls whose replies the server can't demux. Once the pid lands (or off-worker), it points at the real cwd.
 
 ### Changed
 
@@ -156,10 +162,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Base `Node::arguments()` is the setter-that-parses-and-applies (PHP + JS).** The setter now walks `node_schema()['arguments']` — an array of `{ name, type, default?, required? }` declarations — splits the raw string by whitespace, coerces each token to the declared type (`string`/`int`/`float`/`bool`), and assigns each declared positional argument to `$this->{$name}` (PHP) / `this[name]` (JS). Tokens beyond declared positions are ignored; missing optional tokens use the schema's `default`. Subclasses override the whole method when the default schema walk isn't enough (multi-token args, derived state, validation). Mirrors `Tachikoma::Node::arguments`. JS uses a `get`/`set` accessor pair backed by a `_arguments` own field; `_nodeSnapshot` renames `_arguments` → `arguments` in dump_node output so the public surface keeps emitting `arguments`. One existing test (`CommandInterpreterTest::test_remove_node_calls_node_remove_node_method`) adapted to pass all 5 positional `Partition_Node` args explicitly — its schema's `default` values are UI placeholder strings (`'<config:segment_size>'`) against int-typed properties; Task 7's Partition migration replaces those with real int defaults (`DEFAULT_SEGMENT_SIZE` etc.).
 - **`node_schema()` field renamed `'ctor'` → `'arguments'`** across PHP + JS, both repos. Mirrors Tachikoma — `arguments` is the canonical name for the positional-args contract on a Node. Schema declarations, schema reads, the wire-format field in `classes.list`, the JS `schema.arguments` accessor in `Inspector`/`serializeTsl`, fixtures, and docs all use the new name. Schema-bound locals renamed in lockstep (`ctorSpecs` → `argumentSpecs`, not bare `arguments` to avoid shadowing the function-implicit `arguments` object); locals naming the data concept (`ctorArgs`, `CtorField`, DOM ids) stay untouched. Precondition for the schema-driven `arguments()` setter coming next — the setter reads `node_schema()['arguments']`, parses the raw string positionally, and assigns to instance properties. Same wire shape, same behavior — just the name changes.
 - **`node_schema()` field renamed `'verbs'` → `'commands'`** across PHP + JS, both repos. Tachikoma calls them commands; the codebase was using "verbs" — a misnomer that conflated the schema-field name with the verb-as-action-name sense. The `:config` CI surface declarations, the wire-format field in the `classes.list` HTTP response, the JS `schema.commands` accessor in `Inspector`/`TopologyConsole`/`serializeTsl`, and the cognate method `Classes_CI_Node::strip_commands` all use the new name. Local variables that existed solely to hold the schema array (`verbSpecs`/`vspec`/`verbName`) renamed to match (`commandSpecs`/`cspec`/`commandName`); locals in the verb-as-action-name sense (e.g. per-invocation records, UI section titles, `inv.verb`) stay untouched. Test fixtures + docs updated. Same wire shape, same behavior — just the name changes.
-- **The debug overlay dispatches through `Shell.sendCommand`, not a free-standing `dispatchLocal` helper.** `DebugOverlay` constructs one `Shell` per mount (sink = the page's `_command_interpreter`) and shares it between `useDebugGraph` (canvas gestures + Inspector actions) and `useDebugRepl` (typed REPL lines). Every gesture is now `shell.sendCommand('', verb, args)` (empty TO = local CI) — handlers compose the same primitive the REPL uses, no parallel dispatch path. The shell's sink is resolved in a `useEffect` (commit phase) so siblings that mount the exospine in their own `useEffect` (e.g. `useWorkerStatusGraph`) get a chance to register `_command_interpreter` first; resolving in `useMemo` (render phase) would freeze sink=null and silently swallow every dispatch. Inspector "invoke" falls back to the node itself when the `${nodeId}:config` sibling isn't registered (mirrors `TopologyConsole`'s `is_interpreter` branch — interpreter-class nodes carry their own verb table). `src/topology-console/utils/localCommand.js` and its test deleted.
+- **The debug overlay dispatches through `Shell.sendCommand`, not a free-standing `dispatchLocal` helper.** `DebugOverlay` constructs one `Shell` per mount (sink = the page's `_command_interpreter`) and shares it between `useDebugGraph` (canvas gestures + Inspector actions) and `useDebugRepl` (typed REPL lines). Every gesture is now `shell.sendCommand('', verb, args)` (empty TO = local interpreter) — handlers compose the same primitive the REPL uses, no parallel dispatch path. The shell's sink is resolved in a `useEffect` (commit phase) so siblings that mount the exospine in their own `useEffect` (e.g. `useWorkerStatusGraph`) get a chance to register `_command_interpreter` first; resolving in `useMemo` (render phase) would freeze sink=null and silently swallow every dispatch. Inspector "invoke" falls back to the node itself when the `${nodeId}:config` sibling isn't registered (mirrors `TopologyConsole`'s `is_interpreter` branch — interpreter-class nodes carry their own verb table). `src/topology-console/utils/localCommand.js` and its test deleted.
 - **The console allows every interaction — the safety rails are gone.** Removed `PROTECTED_NODES` and the `node === this` guard from `remove_node`: `rm` now removes ANY node, including the backbone (`_command_interpreter`/`_router`/`_output`). The Inspector's verb/action buttons no longer gate on `live` (`streamStatus === 'open'`) — they're always clickable (form-validation `disabled` and the streaming display indicator stay). You can break the graph; reload resets it. People learn by breaking things.
 - **The console node classes are registered for `make_node`.** A side-effect module (`includeConsoleNodes`) `Object.assign`s `Dumper`/`Metadata`/`Uptime`/`Completion`/`Heartbeat`/`HttpOut`/`SseIn` onto `CommandInterpreter.includeNodes` (Tachikoma's `include_nodes` — the runtime can't import the console nodes, so the console includes them). `make Metadata mymeta` now builds in the browser; the arg-needing ones (Dumper/HttpOut/SseIn) throw on a bare `make` until the arguments() chainsaw.
-- **The console working directory is a node (`_cwd`).** A plain `Node` named `_cwd` (sink → CI, shown on the canvas) holds the cwd in its `target`; `cd` and the Path menu set `_cwd.target`. The canvas poll nodes (`_metadata`/`_uptime`) just `target = '_cwd'` and emit unconditionally — the poll routes `_metadata → CI → router →(peel _cwd)→ _cwd →(re-stamps the cwd)→ CI → router → destination`, so one indirection handles every scope (local root interprets in-browser when `_cwd.target` is empty; a worker/request cwd routes out). `_heartbeat` targets `_sse/workers` directly. This replaced the per-cwd poll-gating helpers `pollTargetFor`/`canvasPollTargetFor`/`replInputEnabled` (deleted); `workerPollPath` (SSE-stream gate) and `toNeedsSseSession` (send gates) stay. The REPL input is always enabled now.
+- **The console working directory is a node (`_cwd`).** A plain `Node` named `_cwd` (sink → interpreter, shown on the canvas) holds the cwd in its `target`; `cd` and the Path menu set `_cwd.target`. The canvas poll nodes (`_metadata`/`_uptime`) just `target = '_cwd'` and emit unconditionally — the poll routes `_metadata → interpreter → router →(peel _cwd)→ _cwd →(re-stamps the cwd)→ interpreter → router → destination`, so one indirection handles every scope (local root interprets in-browser when `_cwd.target` is empty; a worker/request cwd routes out). `_heartbeat` targets `_sse/workers` directly. This replaced the per-cwd poll-gating helpers `pollTargetFor`/`canvasPollTargetFor`/`replInputEnabled` (deleted); `workerPollPath` (SSE-stream gate) and `toNeedsSseSession` (send gates) stay. The REPL input is always enabled now.
 - **`make_node` sets `arguments()` itself**, uniformly, from the scalar tokens it was given — instead of relying on each node's constructor to set `$this->arguments` downstream (which some did and some, like Partition, didn't, leaving `dump_config` unreliable). Object dependencies passed to programmatic `make_node` (the service CIs) are filtered out — they aren't round-trippable config. Every made node now round-trips through `dump_config` from one place. (Both PHP and the JS runtime.)
 
 ### Removed
@@ -168,9 +174,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **`dump_config` restored to the JS CI** (it had been dropped). Mirrors PHP: `Node.dumpConfig()` emits `make_node <Type> <name> [<arguments>]` + a `set_sink` line when the sink isn't the default CI + a `connect_node` per target; the `dump_config` verb concatenates every node's, skipping the baseline scaffolding. With `make_node` now setting `arguments`, the browser graph dumps back as a runnable build script.
+- **`dump_config` restored to the JS interpreter** (it had been dropped). Mirrors PHP: `Node.dumpConfig()` emits `make_node <Type> <name> [<arguments>]` + a `set_sink` line when the sink isn't the default interpreter + a `connect_node` per target; the `dump_config` verb concatenates every node's, skipping the baseline scaffolding. With `make_node` now setting `arguments`, the browser graph dumps back as a runnable build script.
 - **`make_node` constructs nodes in the browser** instead of refusing ("runs on a worker"). Mirrors PHP `Command_Interpreter_Node::make_node`: split the args on whitespace, spread the trailing tokens into the constructor as positional args, `name()`, `sink($self)` (the new node auto-sinks into the CI, rule #2). Types resolve through `CommandInterpreter.includeNodes` — a flat name→class table standing in for PHP's namespace-prefix resolution (no `register_namespace`); the console extends it with its own node classes. `Hook`/`Router`/`Callback` are intentionally absent (you don't make a second router, or a predicate/closure node, from the shell). The console graph is now a live, hackable thing.
-- **`mountExospine()` runtime helper.** Constructs + registers the canonical rule-#2 backbone every browser node graph clips onto — `_command_interpreter` (sink → `_router`) and a bare `_router` — and returns `{ ci, router, teardown }`. `teardown()` fully removes both (clearing the sink edge and any caller-registered TIMER listeners). Exported from `@newspack-nodes/runtime` so dashboards in both this plugin and consumers (ELN) wire the same backbone one way instead of hand-rolling a Router/CI per graph.
+- **`mountExospine()` runtime helper.** Constructs + registers the canonical rule-#2 backbone every browser node graph clips onto — `_command_interpreter` (sink → `_router`) and a bare `_router` — and returns `{ interpreter, router, teardown }`. `teardown()` fully removes both (clearing the sink edge and any caller-registered TIMER listeners). Exported from `@newspack-nodes/runtime` so dashboards in both this plugin and consumers (ELN) wire the same backbone one way instead of hand-rolling a Router/interpreter per graph.
 
 ### Changed
 
@@ -198,7 +204,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`make_node Node <name>` resolves the base `Node` class.** The base `Node` carries no `_Node` suffix, so it was unreachable through `make_node` (which appends `_Node` and resolved `{prefix}{type}_Node`); resolution now special-cases `Node` to the bare class and accepts it via `is_a(…, true)` instead of `is_subclass_of`. This makes the base `Node` a first-class type — a bare routing/fan-in primitive whose default `fill()` stamps `TO=target` and forwards to `sink` (e.g. the SSE-stream process's `_default_route`) — and round-trips through `dump_config` (its shell name is `Node`). Added the matching `Node_Names::HEARTBEAT` const so the JS↔PHP reserved-name parity guard passes.
 - **A `_heartbeat` slot-keepalive poll node** in the topology console (JS) — the SSE slot keep-alive moved off its own `setInterval` onto the Router TIMER, so the `workers/heartbeat` poke now rides in the SAME batched POST as the canvas polls (`dump_metadata`/`uptime`) — one request per tick instead of two. `_heartbeat` is a silent poll node (like `_metadata`/`_uptime`): it holds the slot acquired by the live SSE stream, pokes at most every 5 s (half the 10 s TTL), and consumes its reply rather than transcripting it. `HttpOut` now only prepends a `connect_worker_input` for an actual worker reader (`{topology}.p{N}`); a server-CI target (`workers`, …) rides bare, so the poke routes through `_sse`→`_http`→`workers` without spuriously mounting an input partition.
-- **`reply_to <node path> <command>` CI verb** (PHP + JS) — runs `<command>` in the interpreter that receives it but routes the reply to `<node path>` (the inverse of `command_node`, which runs it *at* the path). Mints the sub-command stamped `FROM=<path>` (so `interpret()` replies `TO=FROM`) and re-enters `fill()`; `LOCAL` authorizes the in-process mint. Enables driving a remote CI's output to one session.
+- **`reply_to <node path> <command>` interpreter verb** (PHP + JS) — runs `<command>` in the interpreter that receives it but routes the reply to `<node path>` (the inverse of `command_node`, which runs it *at* the path). Mints the sub-command stamped `FROM=<path>` (so `interpret()` replies `TO=FROM`) and re-enters `fill()`; `LOCAL` authorizes the in-process mint. Enables driving a remote interpreter's output to one session.
 - **A `_command_interpreter` in the SSE-stream process** — the otherwise egress-only `/messages/stream` process now interprets commands that arrive over the stream, so a worker can introspect/drive it: `cmd _repl/_command_interpreter reply_to _http/_sse:411/_output ls -als` runs `ls -als` in the SSE process and lands the result in that one client's transcript. Wired canonically (Tachikoma rule #2): the bespoke `_stream_sink` Callback is replaced by a plain `Node` `_default_route` (whose default `fill()` stamps `TO=_sse` only when TO is empty — Consumers can't carry that target since they force `TO=target()` on every message); Consumers sink into `_default_route`, which sinks into `_command_interpreter` → `_router`. Empty-TO worker broadcasts (stderr/events) route to the `_sse` egress; non-empty-TO replies route by their breadcrumb through `_http`; a command addressed `_command_interpreter` (TO empty after the worker peels `_repl` from `_repl/_command_interpreter`) is interpreted in-process. Authorized with the HMAC verifier (the cli already signed the command; the signature survives the partition).
 
 ### Changed
@@ -222,14 +228,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- **The topology console's `ls`/`list_nodes` now run the full `_cmdList`** instead of a flat name-dump. The console wired a `listLocalNodes` override that ignored all arguments, so `ls -a`, `ls -c`, `ls -s`, `ls -t`, and name globs did nothing in the browser. Dropping the override restores the full verb: bare `ls` lists the CI's siblings (Tachikoma default), `ls -a` lists every node, and the column flags work.
-- **`status` is a Shell builtin, not a server command, so `help` now lists it under `### SHELL BUILTINS ###`** (both the PHP cli and the JS console) instead of `### SERVER COMMANDS ###` — it was carried in the CI help-topic map, which feeds the server-command table. The JS console's `status` builtin also now reports a live summary (SSE session + cwd + worker pivot) via a new exported `statusLines()` helper kept current by the host; its `statusLines` carrier was previously never populated, so `status` printed nothing.
+- **The topology console's `ls`/`list_nodes` now run the full `_cmdList`** instead of a flat name-dump. The console wired a `listLocalNodes` override that ignored all arguments, so `ls -a`, `ls -c`, `ls -s`, `ls -t`, and name globs did nothing in the browser. Dropping the override restores the full verb: bare `ls` lists the interpreter's siblings (Tachikoma default), `ls -a` lists every node, and the column flags work.
+- **`status` is a Shell builtin, not a server command, so `help` now lists it under `### SHELL BUILTINS ###`** (both the PHP cli and the JS console) instead of `### SERVER COMMANDS ###` — it was carried in the interpreter help-topic map, which feeds the server-command table. The JS console's `status` builtin also now reports a live summary (SSE session + cwd + worker pivot) via a new exported `statusLines()` helper kept current by the host; its `statusLines` carrier was previously never populated, so `status` printed nothing.
 - **Topology console LIVE mode now recovers from a worker restart** without a page reload or topology switch. When the worker is momentarily offline (mid fleet-restart) at subscribe time, `open_subscription` tails the worker's persisting IPC `output` dir instead of stranding on the (often-absent) log feed — so the session re-binds and resumes once the worker respawns. (Pairs with the durable IPC-input offsetlog above, so the queued poll commands the reconnected session needs are still processed.)
 - **`Log` now creates its parent directory** (`mkdir -p`) on construction, and `fill()` warns once (rate-limited) instead of silently dropping writes when no file handle is open. A configured log path under a not-yet-existing dir (e.g. an example topology writing `/tmp/<plugin>/out.log`) previously failed silently until the dir was hand-created.
 - **Topology editor: the DELETE button now appears on edit (and after save) for a user-saved topology, not only after opening it via the Open modal.** It's driven by the `source` field the `get`/`save` responses already return (a new `editingSource`), rather than the Open-modal topology list (which isn't loaded until Open is shown) — so editing a user/shadowing topology no longer looks like the stock copy.
 - **Deleting a user topology now restarts the active fleet** (symmetry with save), so the worker reloads the stock copy it falls back to.
 - **Restored read-time type coercion in the WP-option overlay (`Config::load_config`).** A prior simplification removed the per-key coercion, so a `memcache_servers`/`array_strings` option stored as a newline string overlaid the config as a raw string (breaking the `foreach`/`implode` consumers that need a list) and an `int` option stored as a numeric string overlaid as a string. A minimal `coerce_option_value()` now splits the array types into a trimmed list and casts `int` (non-numeric → falls back to the file default), restoring the shape consumers expect. Per-element `sanitize_text_field` was deliberately NOT restored — it moved to the write-time `register_setting` callbacks, off the per-request read path.
-- **Topology console assumed every CI verb targets `<node>:config`.** Command verbs were unconditionally routed to the `<name>:config` sibling interpreter, so a verb on a node that IS a `Command_Interpreter` subclass (the `*_CI_Node` service CIs) hit a non-existent `<name>:config` → `NOT_AVAILABLE`. `Classes_CI` now exposes `is_interpreter` (`is_subclass_of( Command_Interpreter_Node )`); the live invoke + `serializeTsl` + `Node::dump_config()` target the bare node for interpreters and `<name>:config` otherwise, and `parseTsl` round-trips the bare form.
+- **Topology console assumed every interpreter verb targets `<node>:config`.** Command verbs were unconditionally routed to the `<name>:config` sibling interpreter, so a verb on a node that IS a `Command_Interpreter` subclass (the `*_CI_Node` service CIs) hit a non-existent `<name>:config` → `NOT_AVAILABLE`. `Classes_CI` now exposes `is_interpreter` (`is_subclass_of( Command_Interpreter_Node )`); the live invoke + `serializeTsl` + `Node::dump_config()` target the bare node for interpreters and `<name>:config` otherwise, and `parseTsl` round-trips the bare form.
 
 - **`wp nodes status` "Behind" column assumed every worker drains `firehose.log`.** It
   hardcoded `{logs_dir}/firehose.log/p{N}`, so a worker with a different input log (any
@@ -246,12 +252,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   its own header (no `.tsl` line for the non-worker scopes) and its own viewport/layout.
 - **`Log`'s `rotate` was mis-categorized as a command `verb`.** `Log::fill()` handles
   `rotate` in its `TM_REQUEST` branch (the node services it itself; `Log` has no
-  `{name}:config` sibling CI), but `node_schema()` listed it under `verbs` — so the
+  `{name}:config` sibling interpreter), but `node_schema()` listed it under `verbs` — so the
   console Inspector routed it to `{node}:config` and got `NOT_AVAILABLE`. Moved to
   `requests`; the Inspector now sends `request_node {node} rotate` to the node, which
   rotates. (Verified live.)
 - **Live-mode Inspector verb buttons targeted the bare node, not its `{name}:config`
-  sibling CI.** Command verbs (`node_schema` `verbs` — e.g. `tick`/`flush`/`set_*`) live on
+  sibling interpreter.** Command verbs (`node_schema` `verbs` — e.g. `tick`/`flush`/`set_*`) live on
   the node's sibling CommandInterpreter (`Node::dump_config()` emits `cmd {node}:config
   {verb}`; `.tsl` topologies use the same form), but the topology-console Inspector sent
   `TM_COMMAND` to the bare node — a no-op, since a plain Node doesn't interpret commands.
@@ -294,7 +300,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   counters. It now keeps `status` and surfaces any field with a numeric value (cast to int)
   under a safe `[a-zA-Z0-9_]` key, capped at 32 — so any plugin's counters come through
   while strings/arrays/paths/traces are still dropped (the no-leak posture is unchanged).
-- **Raw Logs CI verbs de-firehose'd.** `firehose_logs` → `list_logs`, `firehose_status` →
+- **Raw Logs interpreter verbs de-firehose'd.** `firehose_logs` → `list_logs`, `firehose_status` →
   `log_status`, and the fallback const `DEFAULT_LOG_KEY` → `PREFERRED_LOG_KEY` (value still
   `firehose`, a soft preference: used when present, else the first-discovered log). Generic
   log inspection for any plugin's logs; the substrate stops naming these after ELN's
@@ -380,9 +386,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Service`-category schema with each verb's name, description, and argument spec
   (instead of inheriting the generic Hidden/empty CommandInterpreter schema) — so
   their verbs are introspectable by the console.
-- **Every CommandInterpreter answers `help` by default.** A CI that installs a
+- **Every CommandInterpreter answers `help` by default.** An interpreter that installs a
   custom verb table (the REST service CIs) previously had no `help`; the base now
-  injects one that lists the CI's own verb names (sorted, newline-separated). CIs
+  injects one that lists the interpreter's own verb names (sorted, newline-separated). Interpreters
   shipping their own richer `help` (the base table) are untouched.
 - **REPL `cd` mounts a worker exactly like a Path-menu pick.** `cd` keeps its
   free-navigation behavior (any path, including a worker's sub-nodes), but now
@@ -407,7 +413,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the sibling interpreter, unregister last), matching PHP. The JS Shell now
   tokenizes arguments quote-aware — `var x = "a b"` stores `a b`, quoted bodies
   keep interior spaces — matching PHP `Shell::tokenize`.
-- **`dmesg`/`uptime` work in the browser CI.** Added the JS `Core` `recentLog`
+- **`dmesg`/`uptime` work in the browser interpreter.** Added the JS `Core` `recentLog`
   ring (fed by `Core.stderr`, capped at 100) and `initTime`, matching PHP `Core`,
   so the verbs report the recent stderr tail and session uptime.
 - **Command history in the console REPL.** Up/Down arrows recall submitted
@@ -443,7 +449,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   class registry or autoload — node construction is server-side. `classMap`,
   `registerClass`, and the browser-local `makeNode` are removed; the `make_node`
   verb now returns a "cd to a worker path" hint (at a worker path the command
-  routes to that worker's PHP CI). The palette already comes from the server
+  routes to that worker's PHP interpreter). The palette already comes from the server
   catalog (`useClassCatalog` → `classes.list`).
 - **`make_node` resolves classes by namespace prefix + `_Node`; `register_class`
   removed.** Plugins now call `Command_Interpreter_Node::register_namespace()`
@@ -532,7 +538,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   / `uptime` are worker-level polls; they now target the LCP (the longest worker
   menu item that prefixes the cwd — the path the menu selects) rather than
   `shell.path`, so `cd`-ing into a worker's sub-node keeps the canvas/uptime
-  polling the worker CI. Non-worker cwds (local, `_sse`, `_http`) poll themselves.
+  polling the worker interpreter. Non-worker cwds (local, `_sse`, `_http`) poll themselves.
 - **`cd` didn't echo in the console transcript.** `cd` parses to `null` (it only
   moves the cwd), so the transcript echo — which sat after the null-return — was
   skipped, unlike every other builtin. The echo now happens before the return
@@ -588,7 +594,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the worker mounts as a named node). The prompt reflects the cwd (per-transcript
   entry, so history doesn't rewrite on `cd`), and the canvas + `ls`/`dump_metadata`
   show the nodes at the current path — local graph, request-scope graph, or worker
-  graph. The browser CI gained local `ls`/`list_nodes`/`dump_metadata` verbs.
+  graph. The browser interpreter gained local `ls`/`list_nodes`/`dump_metadata` verbs.
 - **`_sse` is the bidirectional session node; replies are per-session private.** A
   console command's reply pivots through `_sse:{pid}` (`HTTP_Filter` matches that
   head) so only the originating session sees it; the synchronous `/command`
@@ -598,7 +604,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cannot peel (empty/unknown head → `NOT_AVAILABLE`); setting a sink on it now
   throws. `HTTP_In` routes incoming `/command` messages through the base
   `_command_interpreter` (which interprets an empty-`TO` command and forwards the
-  rest to `_router`), mirroring the client's `Shell → CI → _router` spine.
+  rest to `_router`), mirroring the client's `Shell → interpreter → _router` spine.
 
 ## [0.3.0] - 2026-05-22
 
@@ -1089,7 +1095,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`dump_metadata` verb** — single JSON-encoded snapshot of every registered node's GUI-relevant state: `{ class, counter, sink, target, debug_state, arguments, lgst_msg, bytes_read, bytes_written }` per node. Designed for the topology console's per-tick poll (replaces the older `ls -als` + `ls -ct` pair); KEY-correlation through `Message::KEY` lets the controller distinguish auto-polls from user-typed commands silently. Inspired by Perl Tachikoma's `JSONvisualizer` node, but as a verb so it composes with the rest of the cli surface and skips the visualizer's caching layer (our poll cadence is already coarse).
 
-- **`stats [-a] [<regex>]` verb** — Tachikoma-style tabular per-node counters with columns `NAME | COUNT | LGST_MSG | READ | WRITTEN`. Scope rules match `ls`: default shows siblings of this CI; `-a` shows every node; optional regex narrows by name. Dropped Tachikoma's `BUF_SIZE` and `HIGH_WATER` columns since we have no in-memory message buffers (Partition and Topic flush every fill into a per-node line buffer that drains synchronously).
+- **`stats [-a] [<regex>]` verb** — Tachikoma-style tabular per-node counters with columns `NAME | COUNT | LGST_MSG | READ | WRITTEN`. Scope rules match `ls`: default shows siblings of this interpreter; `-a` shows every node; optional regex narrows by name. Dropped Tachikoma's `BUF_SIZE` and `HIGH_WATER` columns since we have no in-memory message buffers (Partition and Topic flush every fill into a per-node line buffer that drains synchronously).
 
 - **`uptime` verb** — clock time on the left, time-since-`Core::reset()` on the right. Scale-aware compact format suited to our short-lived workers (~10 min lifespan): `up 42s` → `up 4m 07s` → `up 2h 35m` → `up 3d 04:05:06`. Trailing components zero-pad to two digits so the value width stays steady tick-to-tick.
 
@@ -1177,10 +1183,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **`debug_state [ <node name> [ <level> ] ]` CommandInterpreter verb.** Mirrors Perl Tachikoma:
     - `debug_state` (no args) — toggle this CommandInterpreter's own debug_state.
-    - `debug_state 1` (numeric arg only) — set this CI to level 1.
+    - `debug_state 1` (numeric arg only) — set this interpreter to level 1.
     - `debug_state foo` (name only) — toggle node `foo`'s debug_state.
     - `debug_state foo 2` (name + level) — set node `foo`'s debug_state to level 2.
-- **`CommandInterpreter::make_node()` propagates the CI's `debug_state` to newly-created children.** Lets the operator turn tracing on for an entire topology in one command: `debug_state 1` then `make_node` for each node — every constructed node inherits level 1 from birth. Mirrors Perl Tachikoma CommandInterpreter.pm which assigns `$node->debug_state( $self->debug_state )` after every node creation.
+- **`CommandInterpreter::make_node()` propagates the interpreter's `debug_state` to newly-created children.** Lets the operator turn tracing on for an entire topology in one command: `debug_state 1` then `make_node` for each node — every constructed node inherits level 1 from birth. Mirrors Perl Tachikoma CommandInterpreter.pm which assigns `$node->debug_state( $self->debug_state )` after every node creation.
 
   Combined with 0.1.8's `show_sse` and 0.1.10's `debug_level` cleanup, a cli session can now narrate the worker's internals at multiple levels of detail and addressing:
 

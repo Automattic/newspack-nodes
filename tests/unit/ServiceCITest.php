@@ -2,10 +2,10 @@
 /**
  * ServiceCITest: unit tests for the Service_CI base class — three shared
  * verb-helper seams (require_manage_options, decode_args, require_valid_name)
- * that substrate + application CIs both reach for. Tests exercise each
+ * that substrate + application interpreters both reach for. Tests exercise each
  * helper via a transparent subclass that exposes them publicly so the
  * helpers can be asserted in isolation, without dragging in VerbHarness +
- * the request-scope CI graph.
+ * the request-scope interpreter graph.
  *
  * @package Newspack_Nodes
  */
