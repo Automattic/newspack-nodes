@@ -139,15 +139,12 @@ class PartitionTest extends TestCase {
 		$this->assertSame( [ 'first', 'second' ], $this->read_partition_values( $p ) );
 	}
 
-	public function test_fill_writes_index_entry(): void {
+	public function test_fill_writes_no_index_without_with_index(): void {
+		// Default mode (no with_index formatter) writes no .idx companion at all.
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp} 0 " . ( 64*1024 ) . " 4 86400" );
 		$this->produce_into( $p, 'hello' );
-		$idx = file_get_contents( "{$this->tmp}/p0/0.idx" );
-		$this->assertSame( 8, strlen( $idx ) );
-		[ , $seg, $off ] = unpack( 'N2', $idx );
-		$this->assertSame( 0, $seg );
-		$this->assertSame( 0, $off );
+		$this->assertFalse( file_exists( "{$this->tmp}/p0/0.idx" ), 'no .idx should be written without with_index()' );
 	}
 
 	public function test_fill_tracks_largest_msg_sent(): void {
@@ -261,25 +258,6 @@ class PartitionTest extends TestCase {
 		$first_line_bytes = $p->read_at( 0, 0, $first_line_size );
 		$first            = \Newspack_Nodes\Message::unpacked( rtrim( $first_line_bytes, "\n" ) );
 		$this->assertSame( 'hello', $first[ \Newspack_Nodes\Message::VALUE ] );
-	}
-
-	public function test_scan_index_visits_each_entry(): void {
-		$p = new Partition_Node();
-		$p->arguments( "{$this->tmp} 0 " . ( 64*1024 ) . " 4 86400" );
-		$this->produce_into( $p, 'a' );
-		$this->produce_into( $p, 'bb' );
-		$this->produce_into( $p, 'ccc' );
-
-		$entries = [];
-		$p->scan_index( function ( int $seg, int $off ) use ( &$entries ) {
-			$entries[] = [ $seg, $off ];
-			return null;
-		} );
-
-		$this->assertCount( 3, $entries );
-		$this->assertSame( [ 0, 0 ], $entries[0], 'first entry is at segment 0, offset 0' );
-		$this->assertGreaterThan( $entries[0][1], $entries[1][1], 'offsets advance' );
-		$this->assertGreaterThan( $entries[1][1], $entries[2][1] );
 	}
 
 	public function test_rotation_when_segment_size_exceeded(): void {
@@ -433,6 +411,9 @@ class PartitionTest extends TestCase {
 	public function test_remove_node_closes_file_handles(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp} 0 " . ( 64*1024 ) . " 4 86400" );
+		// with_index() so the .idx companion handle actually opens (default mode
+		// never opens idx_fh, leaving the is_resource(idx_fh) assert false).
+		$p->with_index( fn ( $l, $pos, &$d = null ) => 'entry' );
 		$this->produce_into( $p, 'hello' );
 
 		// File handle is open after write. Use lsof to verify, but more portably,
@@ -729,41 +710,6 @@ class PartitionTest extends TestCase {
 	// ============================================================================
 	// Hardening: scan_index reverse + early termination.
 	// ============================================================================
-
-	public function test_scan_index_reverse_order_binary(): void {
-		$p = new Partition_Node();
-		$p->arguments( "{$this->tmp} 0 " . ( 1024 * 1024 ) . " 4 86400" );
-		$this->produce_into( $p, 'one' );
-		$this->produce_into( $p, 'two' );
-		$this->produce_into( $p, 'three' );
-
-		$collected = [];
-		$p->scan_index( function ( int $seg, int $off ) use ( &$collected ) {
-			$collected[] = $off;
-		}, true );
-
-		// Default order is ascending offsets; reverse must be descending.
-		$this->assertCount( 3, $collected );
-		$this->assertGreaterThan( $collected[1], $collected[0] );
-		$this->assertGreaterThan( $collected[2], $collected[1] );
-		$this->assertSame( 0, $collected[2], 'last (in reverse) is offset 0' );
-	}
-
-	public function test_scan_index_early_termination_via_false_return(): void {
-		$p = new Partition_Node();
-		$p->arguments( "{$this->tmp} 0 " . ( 1024 * 1024 ) . " 4 86400" );
-		$this->produce_into( $p, 'a' );
-		$this->produce_into( $p, 'b' );
-		$this->produce_into( $p, 'c' );
-
-		$count = 0;
-		$p->scan_index( function ( int $seg, int $off ) use ( &$count ) {
-			++$count;
-			return ( $count >= 2 ) ? false : null;
-		} );
-
-		$this->assertSame( 2, $count, 'callback returning false must terminate the scan' );
-	}
 
 	public function test_scan_index_early_termination_jsonl(): void {
 		$p = new Partition_Node();
@@ -1364,34 +1310,15 @@ class PartitionTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Coverage: scan_index handles truncated/corrupt binary entries.
+	// Coverage: scan_index skips segments whose .idx is missing.
 	// ============================================================================
 
-	public function test_scan_index_default_skips_truncated_trailing_entry(): void {
-		// Each binary entry is 8 bytes. A trailing partial entry (3 bytes) at
-		// the tail of the file must `break` the loop without invoking the
-		// callback for that fragment.
-		$p = new Partition_Node();
-		$p->arguments( "{$this->tmp} 0 " . ( 1024 * 1024 ) . " 4 86400" );
-		$this->produce_into( $p, 'a' );
-		$this->produce_into( $p, 'b' );
-
-		// Append 3 garbage bytes to the .idx — simulating a torn write.
-		\file_put_contents( "{$this->tmp}/p0/0.idx", 'xyz', \FILE_APPEND );
-
-		$entries = [];
-		$p->scan_index( function ( int $seg, int $off ) use ( &$entries ) {
-			$entries[] = [ $seg, $off ];
-		} );
-
-		$this->assertCount( 2, $entries, 'truncated trailing entry must be skipped' );
-	}
-
 	public function test_scan_index_continues_when_idx_file_missing_for_a_segment(): void {
-		// Force two segments where the second segment has a .log but no .idx
-		// (callable-with-index disabled, so the default binary path runs).
+		// Force two segments where the second segment has a .log but no .idx.
+		// with_index is on (JSONL path), so each segment normally gets an .idx.
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp} 0 64 4 86400" );
+		$p->with_index( fn ( $l, $pos, &$d = null ) => 'entry' );
 		$this->produce_into( $p, \str_repeat( 'a', 40 ) ); // seg 0.
 		$this->produce_into( $p, \str_repeat( 'b', 40 ) ); // forces rotate.
 
@@ -1405,7 +1332,7 @@ class PartitionTest extends TestCase {
 		}
 
 		$count = 0;
-		$p->scan_index( function () use ( &$count ) {
+		$p->scan_index( function ( string $line, int $seg ) use ( &$count ) {
 			++$count;
 		} );
 
@@ -1518,12 +1445,12 @@ class PartitionTest extends TestCase {
 	// ============================================================================
 
 	public function test_scan_index_handles_completely_empty_idx_file(): void {
-		// Stub a 0-byte .idx — file_exists is true, filesize is 0, so the read
-		// path yields a zero-length string and the for-loop's first iteration
-		// breaks immediately (binary mode).
+		// Stub a 0-byte .idx — file_exists is true, but rtrim+explode of an
+		// empty string yields no entries, so the segment contributes nothing.
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp} 0 " . ( 64 * 1024 ) . " 4 86400" );
-		$this->produce_into( $p, 'seed' ); // creates p0/.
+		$p->with_index( fn ( $l, $pos, &$d = null ) => 'entry' );
+		$this->produce_into( $p, 'seed' ); // creates p0/ + 0.idx with one entry.
 
 		// Pre-create segment 5 with an empty .idx + a corresponding .log so
 		// get_segments includes it.
@@ -1531,7 +1458,7 @@ class PartitionTest extends TestCase {
 		\file_put_contents( "{$this->tmp}/p0/5.idx", '' );
 
 		$count = 0;
-		$p->scan_index( function () use ( &$count ) {
+		$p->scan_index( function ( string $line, int $seg ) use ( &$count ) {
 			++$count;
 		} );
 
@@ -2114,29 +2041,4 @@ class PartitionTest extends TestCase {
 		}
 	}
 
-	// ============================================================================
-	// Coverage: scan_index binary reverse — early termination via false return.
-	// ============================================================================
-
-	public function test_scan_index_binary_reverse_early_termination_via_false_return(): void {
-		// Reverse-mode equivalent of the existing forward-mode early-termination
-		// test — exercises the `if ( false === $cb(...) ) { return; }` at
-		// line 914.
-		$p = new Partition_Node();
-		$p->arguments( "{$this->tmp} 0 " . ( 1024 * 1024 ) . " 4 86400" );
-		$this->produce_into( $p, 'a' );
-		$this->produce_into( $p, 'b' );
-		$this->produce_into( $p, 'c' );
-
-		$count = 0;
-		$p->scan_index(
-			function ( int $seg, int $off ) use ( &$count ) {
-				++$count;
-				return ( $count >= 2 ) ? false : null;
-			},
-			true
-		);
-
-		$this->assertSame( 2, $count, 'reverse-walk callback returning false must terminate the scan' );
-	}
 }

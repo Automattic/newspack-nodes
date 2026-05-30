@@ -14,7 +14,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 class Partition_Node extends Timer_Node {
 	public const DEFAULT_SEGMENT_SIZE = 67108864;
 	public const DEFAULT_NUM_SEGMENTS = 4;
-	public const DEFAULT_MAX_LIFESPAN = 86400;
+	public const DEFAULT_MAX_LIFESPAN = 0;
 	public const MAX_LINE_SIZE        = 4096;
 	public const MAX_LARGE_LINE_SIZE  = 10485760;
 	public const SEGMENT_CACHE_TTL    = 0.25;
@@ -187,7 +187,9 @@ class Partition_Node extends Timer_Node {
 			if ( ! $this->loop_fwrite( $fh, $packed ) ) {
 				return;
 			}
-			$this->write_index_entry( $packed, $offset, $len, $data );
+			if ( null !== $this->index_callback ) {
+				$this->write_index_entry( $packed, $offset, $len, $data );
+			}
 			$this->touch_segments_cache();
 			return;
 		}
@@ -241,38 +243,32 @@ class Partition_Node extends Timer_Node {
 			return;
 		}
 
-		$offset = $start_offset;
-		foreach ( $batch_args as $item ) {
-			$this->write_index_entry( $item['packed'], $offset, $item['len'], $item['data'] );
-			$offset += $item['len'];
+		if ( null !== $this->index_callback ) {
+			$offset = $start_offset;
+			foreach ( $batch_args as $item ) {
+				$this->write_index_entry( $item['packed'], $offset, $item['len'], $item['data'] );
+				$offset += $item['len'];
+			}
 		}
 
 		$this->touch_segments_cache();
 	}
 
-	/** Write one companion-index entry for a packed message at $offset. */
+	/** Write one companion-index entry for a packed message at $offset. Caller guards on $index_callback. */
 	private function write_index_entry( string $packed, int $offset, int $len, $data ): void {
-		if ( null !== $this->index_callback ) {
-			$position = [
-				'segment_id' => $this->current_segment_id,
-				'offset'     => $offset,
-				'length'     => $len,
-			];
-			try {
-				$entry = ( $this->index_callback )( $packed, $position, $data );
-				if ( null !== $entry && '' !== $entry && \is_resource( $this->idx_fh ) ) {
-					// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-					@\fwrite( $this->idx_fh, $entry . "\n" );
-				}
-			} catch ( \Throwable $e ) {
-				$this->print_less_often( 'Partition: index callback threw: ' . $e->getMessage() );
+		$position = [
+			'segment_id' => $this->current_segment_id,
+			'offset'     => $offset,
+			'length'     => $len,
+		];
+		try {
+			$entry = ( $this->index_callback )( $packed, $position, $data );
+			if ( null !== $entry && '' !== $entry && \is_resource( $this->idx_fh ) ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+				@\fwrite( $this->idx_fh, $entry . "\n" );
 			}
-			return;
-		}
-		if ( \is_resource( $this->idx_fh ) ) {
-			// Default binary 8-byte format: <segment_id, offset> as two big-endian uint32s.
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-			@\fwrite( $this->idx_fh, \pack( 'NN', $this->current_segment_id, $offset ) );
+		} catch ( \Throwable $e ) {
+			$this->print_less_often( 'Partition: index callback threw: ' . $e->getMessage() );
 		}
 	}
 
@@ -687,16 +683,20 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Walk every .idx entry across all segments and invoke the callback per entry.
+	 * Walk every JSONL .idx entry across all segments and invoke the callback per entry.
 	 *
-	 * Callback signature depends on with_index(): default binary →
-	 * fn(int $segment_id, int $offset); custom JSONL → fn(string $line, int $segment_id).
-	 * Return false from the callback to terminate the scan early.
+	 * Only meaningful when a with_index() formatter is installed — without it no
+	 * .idx is written, so this early-returns. Callback signature: fn(string $line,
+	 * int $segment_id). Return false from the callback to terminate the scan early.
 	 *
 	 * @param callable $cb           Per-entry callback.
 	 * @param bool     $newest_first Iterate newest segment first when true.
 	 */
 	public function scan_index( callable $cb, bool $newest_first = false ): void {
+		if ( null === $this->index_callback ) {
+			return;
+		}
+
 		$segments = $this->get_segments();
 		if ( $newest_first ) {
 			$segments = \array_reverse( $segments );
@@ -714,45 +714,17 @@ class Partition_Node extends Timer_Node {
 				continue;
 			}
 
-			if ( null !== $this->index_callback ) {
-				$lines = \explode( "\n", \rtrim( $idx, "\n" ) );
-				if ( $newest_first ) {
-					$lines = \array_reverse( $lines );
-				}
-				foreach ( $lines as $line ) {
-					if ( '' === $line ) {
-						continue;
-					}
-					$result = $cb( $line, $s['id'] );
-					if ( false === $result ) {
-						return;
-					}
-				}
-				continue;
-			}
-
-			$len = \strlen( $idx );
+			$lines = \explode( "\n", \rtrim( $idx, "\n" ) );
 			if ( $newest_first ) {
-				for ( $i = $len - 8; $i >= 0; $i -= 8 ) {
-					$entry = \substr( $idx, $i, 8 );
-					if ( \strlen( $entry ) !== 8 ) {
-						continue;
-					}
-					[ , $seg, $off ] = \unpack( 'N2', $entry );
-					if ( false === $cb( $seg, $off ) ) {
-						return;
-					}
+				$lines = \array_reverse( $lines );
+			}
+			foreach ( $lines as $line ) {
+				if ( '' === $line ) {
+					continue;
 				}
-			} else {
-				for ( $i = 0; $i < $len; $i += 8 ) {
-					$entry = \substr( $idx, $i, 8 );
-					if ( \strlen( $entry ) !== 8 ) {
-						break;
-					}
-					[ , $seg, $off ] = \unpack( 'N2', $entry );
-					if ( false === $cb( $seg, $off ) ) {
-						return;
-					}
+				$result = $cb( $line, $s['id'] );
+				if ( false === $result ) {
+					return;
 				}
 			}
 		}
@@ -789,9 +761,13 @@ class Partition_Node extends Timer_Node {
 				\stream_set_write_buffer( $this->fh, 0 );
 			}
 
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-			$idx_fh       = @\fopen( $this->current_idx_path, 'a' );
-			$this->idx_fh = ( false === $idx_fh ) ? null : $idx_fh;
+			// Only open the .idx companion when a with_index() formatter is set —
+			// default mode writes no index, so no empty .idx should materialize.
+			if ( null !== $this->index_callback ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+				$idx_fh       = @\fopen( $this->current_idx_path, 'a' );
+				$this->idx_fh = ( false === $idx_fh ) ? null : $idx_fh;
+			}
 		}
 		return $this->fh;
 	}

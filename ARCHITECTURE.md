@@ -228,7 +228,7 @@ Routing is path-based (`a/b/c` → "find node `a`, pass remaining path `b/c`"), 
 
 ### Partition
 
-One file-segmented append-only log, plus a `.idx` companion. Storage primitive AND Node. Lift-adapt of event-logger's `Firehose`.
+One file-segmented append-only log, with an optional `.idx` companion. Storage primitive AND Node. Lift-adapt of event-logger's `Firehose`.
 
 ```php
 $p = new Partition( $base_dir, $partition_id, $segment_size, $num_segments, $max_lifespan );
@@ -239,8 +239,10 @@ $p->scan_index( fn ( $line, $seg ) => ..., $newest_first );
 $p->get_segments( $force_refresh );                     // [{id,size}, ...] sorted by id
 $p->get_current_position();                             // ['segment_id'=>, 'offset'=>]
 $p->allow_large_writes();                               // 4KB -> 10MB; acquires a Lock
-$p->with_index( $formatter );                           // custom .idx line formatter
+$p->with_index( $formatter );                           // opt in: JSONL .idx line formatter
 ```
+
+**Indexing is opt-in via `with_index( $formatter )`.** Without a formatter no `.idx` file is created or written at all — the `.log` segments stand alone. `with_index()` installs a per-line formatter `fn(string $line, array $position, ?array &$data) => string|null`; each write whose formatter returns a non-empty string appends that string as one JSONL line to the segment's `.idx` (return `null`/`''` to skip the entry). `scan_index( fn ( $line, $seg ) => ..., $newest_first )` walks those JSONL entries (a no-op when no formatter is set), and `read_at( $seg, $off, $len )` seeks into the `.log` using positions the formatter recorded. There is no default binary index format — the previous `(segment_id, offset)` 8-byte sidecar was removed; indexing now always goes through `with_index`/JSONL.
 
 **There is NO `Partition::write()` method** — the only way bytes enter a Partition is `fill()`. (The doc once claimed a `write( $line )` class API; it does not exist and never did.) `fill()` packs the whole message via `Message::packed()` (+ `"\n"`) and appends to the current segment. All TYPE flags pass through — Partition is a generic transport including control messages (TM_REQUEST, TM_ERROR, TM_EOF). The pivoted-cli IPC pattern relies on this: cli ↔ worker round-trips drain markers (TM_EOF), error responses (TM_COMMAND|TM_ERROR), and introspection requests (TM_REQUEST) through Partition-as-bus. Data partitions like firehose.log only ever see TM_BYTESTREAM / TM_STRUCT in practice, so the broader contract is a no-op for production paths.
 
