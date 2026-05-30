@@ -2,7 +2,7 @@
 /**
  * M3CommandDispatchE2ETest: M3 acceptance test for the whole substrate stack.
  *
- * Proves that every substrate CI mounted by the substrate plugin's
+ * Proves that every substrate interpreter mounted by the substrate plugin's
  * `newspack_nodes/request_graph_ready` listener (Classes_CI, Layouts_CI,
  * Topologies_CI) responds end-to-end to a representative verb when
  * driven through the production `HTTP_In` endpoint. The
@@ -12,17 +12,17 @@
  *                                    →  ensure_request_graph (lazy-builds
  *                                       _router / _command_interpreter / _http)
  *                                    →  do_action newspack_nodes/request_graph_ready
- *                                       (mount hook installs each substrate CI
- *                                       via $base_ci->make_node())
+ *                                       (mount hook installs each substrate interpreter
+ *                                       via $base_interpreter->make_node())
  *                                    →  Router (peels TO head)
- *                                    →  substrate CI (interpret + run verb)
- *                                    →  CI sink → base CI → Router
+ *                                    →  substrate interpreter (interpret + run verb)
+ *                                    →  interpreter sink → base interpreter → Router
  *                                    →  HTTP_In (writes packed Message)
  *                                    →  ob_get_clean captures the body
  *
  * Mirrors the application-side M2CommandDispatchE2ETest in
  * newspack-event-logger-nodes — same test pattern, same uniform path,
- * different CIs. Layouts_CI checks `manage_options` per-verb, so
+ * different interpreters. Layouts_CI checks `manage_options` per-verb, so
  * setUp seeds `_wp_test_current_user_can`.
  *
  * @package Newspack_Nodes
@@ -119,7 +119,7 @@ class M3CommandDispatchE2ETest extends TestCase {
 	}
 
 	/**
-	 * Representative verb per substrate CI. Each verb is read-only and
+	 * Representative verb per substrate interpreter. Each verb is read-only and
 	 * takes either no payload or a minimal safe one. Verbs that mutate
 	 * (save / delete) trigger side effects like `restart_fleet` and are
 	 * covered by per-verb tests — this test proves the dispatch path,

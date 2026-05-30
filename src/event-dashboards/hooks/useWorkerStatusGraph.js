@@ -9,7 +9,7 @@
  *   workerstatus:transform  (snapshot → enriched render model)
  *   workerstatus:view       (the view-model node React reads + pending-Promise registry)
  *
- * EVERY node sinks into the CI; flow is steered ONLY by each node's `target`.
+ * EVERY node sinks into the interpreter; flow is steered ONLY by each node's `target`.
  * The bespoke `workerstatus:poll` Node is gone — `_http` owns the network call.
  *
  * The hook OWNS the poll interval: a setInterval at the current refresh ms
@@ -27,7 +27,7 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
-import { HttpOut } from '../../runtime/httpOut';
+import { HttpOutNode } from '../../runtime/http-out-node';
 import { CommandClient } from '../../runtime/command_client';
 import {
 	newMessage,
@@ -67,7 +67,7 @@ function makeOpId() {
 }
 
 /**
- * Build a TM_COMMAND addressed at the `workers` CI: TO=`_http/workers` so the
+ * Build a TM_COMMAND addressed at the `workers` interpreter: TO=`_http/workers` so the
  * router peels `_http` and HttpOut POSTs the bare command. `from` is the reply
  * pivot — `workerstatus:transform` for dump_metadata (reply computes the
  * model), `workerstatus:view` for restart (reply settles a pending Promise).
@@ -129,8 +129,8 @@ export function useWorkerStatusGraph( opts = {} ) {
 		initialRefresh( refreshMs )
 	);
 
-	// Live CI handle for the interval effect + control callbacks.
-	const ciRef = useRef( null );
+	// Live interpreter handle for the interval effect + control callbacks.
+	const interpreterRef = useRef( null );
 	const isPageVisible = usePageVisibility();
 
 	// Flipped true once the graph (and its view node) is mounted, so the
@@ -142,11 +142,11 @@ export function useWorkerStatusGraph( opts = {} ) {
 		const data =
 			( typeof window !== 'undefined' && window.NewspackNodesData ) || {};
 
-		// The canonical backbone every node clips onto: everything → CI → router.
-		const { ci, teardown: teardownSpine } = mountExospine();
+		// The canonical backbone every node clips onto: everything → interpreter → router.
+		const { interpreter, teardown: teardownSpine } = mountExospine();
 
 		// I/O boundary — the substrate's HttpOut.
-		const http = new HttpOut();
+		const http = new HttpOutNode();
 		http.client =
 			optsRef.current.commandClient ||
 			new CommandClient( {
@@ -154,22 +154,24 @@ export function useWorkerStatusGraph( opts = {} ) {
 				nonce: data.nonce || '',
 			} );
 		http.setName( HTTP );
-		http.sink = ci;
+		http.sink = interpreter;
 
 		// Application chain.
 		const transform = createWorkerStatusTransform( TRANSFORM );
 		const view = createWorkerStatusView( VIEW );
-		transform.sink = ci;
+		transform.sink = interpreter;
 		transform.target = VIEW;
-		view.sink = ci;
+		view.sink = interpreter;
 
-		ciRef.current = ci;
+		interpreterRef.current = interpreter;
 
 		// Re-render so useNodeState re-subscribes to the freshly-mounted view node.
 		setViewReady( true );
 
 		// Fire one immediate dump_metadata (the canonical mount-time poll).
-		ci.fill( buildCommand( 'dump_metadata', null, TRANSFORM, makeOpId() ) );
+		interpreter.fill(
+			buildCommand( 'dump_metadata', null, TRANSFORM, makeOpId() )
+		);
 
 		return () => {
 			view.close();
@@ -177,7 +179,7 @@ export function useWorkerStatusGraph( opts = {} ) {
 				Core.unregisterNode( name );
 			}
 			teardownSpine();
-			ciRef.current = null;
+			interpreterRef.current = null;
 		};
 	}, [] );
 
@@ -194,11 +196,11 @@ export function useWorkerStatusGraph( opts = {} ) {
 		}
 		const intervalMs = parseInt( refreshInterval, 10 );
 		const id = setInterval( () => {
-			const ci = ciRef.current;
-			if ( ! ci ) {
+			const interpreter = interpreterRef.current;
+			if ( ! interpreter ) {
 				return;
 			}
-			ci.fill(
+			interpreter.fill(
 				buildCommand( 'dump_metadata', null, TRANSFORM, makeOpId() )
 			);
 		}, intervalMs );
@@ -208,8 +210,8 @@ export function useWorkerStatusGraph( opts = {} ) {
 	// Request a graceful restart for a worker type. Returns a Promise the view
 	// settles via the pending-Map (resolve on success, reject on TM_ERROR).
 	const restart = useCallback( ( type ) => {
-		const ci = ciRef.current;
-		if ( ! ci ) {
+		const interpreter = interpreterRef.current;
+		if ( ! interpreter ) {
 			return Promise.reject( new Error( 'graph not mounted' ) );
 		}
 		const view = Core.node( VIEW );
@@ -220,7 +222,7 @@ export function useWorkerStatusGraph( opts = {} ) {
 		const promise = new Promise( ( resolve, reject ) => {
 			view.pending.set( id, { resolve, reject } );
 		} );
-		ci.fill(
+		interpreter.fill(
 			buildCommand(
 				'restart',
 				{ types: [ type ], partition: -1 },

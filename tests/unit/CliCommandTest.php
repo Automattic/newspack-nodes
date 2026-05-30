@@ -1011,7 +1011,7 @@ class CliCommandTest extends TestCase {
 
 		$this->assertSame( 'ls', $msg[ \Newspack_Nodes\Message::VALUE ]['name'] );
 		$this->assertSame( 'completion', $msg[ \Newspack_Nodes\Message::KEY ] );
-		// Bare mode: empty pivot path → empty TO (local CI).
+		// Bare mode: empty pivot path → empty TO (local interpreter).
 		$this->assertSame( '', $msg[ \Newspack_Nodes\Message::TO ] );
 	}
 
@@ -1148,7 +1148,7 @@ class CliCommandTest extends TestCase {
 
 	public function test_send_completion_queries_emits_help_and_ls_through_shell(): void {
 		// Refresh sends BOTH a help and an ls completion query through the Shell
-		// (so they ride the same Command_Signer/CI path as any other command).
+		// (so they ride the same Command_Signer/interpreter path as any other command).
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
 		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();

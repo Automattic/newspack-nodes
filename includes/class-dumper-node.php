@@ -1,0 +1,359 @@
+<?php
+/**
+ * Dumper: terminal output node for the REPL.
+ *
+ * @package Newspack_Nodes
+ */
+
+namespace Newspack_Nodes;
+
+\defined( 'ABSPATH' ) || exit;
+
+class Dumper_Node extends Node {
+	private const ANSI_SAVE_CURSOR    = "\033[s";
+	private const ANSI_RESTORE_CURSOR = "\033[u";
+	private const ANSI_CR_CLEAR_LINE  = "\r\033[2K";
+
+	/** @var resource */
+	private $stdout;
+
+	private ?Shell_Node $shell = null;
+
+	/** Whether a prompt is on screen; public so the Cli readline loop can flip it per iteration. */
+	public bool $prompt_displayed = false;
+
+	/** Whether stdout is a real terminal, cached at construction; false → plain writes. */
+	private bool $stdout_is_tty;
+
+	/** Readline path skips readline_redisplay in the async redraw to keep it in sync. */
+	private bool $readline_mode = false;
+
+	/**
+	 * @param resource|null $stdout    Defaults to STDOUT. Pass php://memory for tests.
+	 * @param bool|null     $force_tty If non-null, override the posix_isatty() detection.
+	 */
+	public function __construct( $stdout = null, ?bool $force_tty = null ) {
+		$this->stdout = $stdout ?? \STDOUT;
+
+		if ( null !== $force_tty ) {
+			$this->stdout_is_tty = $force_tty;
+		} else {
+			$this->stdout_is_tty = \is_resource( $this->stdout )
+				&& \function_exists( 'posix_isatty' )
+				&& @\posix_isatty( $this->stdout );
+		}
+	}
+
+	public function set_shell( Shell_Node $shell ): void {
+		$this->shell = $shell;
+	}
+
+	public function set_readline_mode( bool $on ): void {
+		$this->readline_mode = $on;
+	}
+
+	/** Multi-session TO filter (this cli's $pid); render only matching or empty-TO messages. */
+	private string $to_filter = '';
+
+	/**
+	 * Fired when a TM_EOF echo matching to_filter arrives (stdin-close drain marker).
+	 *
+	 * @var callable|null
+	 */
+	private $on_eof = null;
+
+	public function on_eof( ?callable $cb ): void {
+		$this->on_eof = $cb;
+	}
+
+	/**
+	 * Tab-completion intercept. Gets first crack at every inbound message; if it
+	 * returns true the message is consumed (a completion reply) and rendered as
+	 * nothing. Null → no interception.
+	 *
+	 * Signature: `function ( array $message ): bool` (true = consumed).
+	 *
+	 * @var callable|null
+	 */
+	private $completion_sink = null;
+
+	public function set_completion_sink( ?callable $cb ): void {
+		$this->completion_sink = $cb;
+	}
+
+	public function set_to_filter( string $pid ): void {
+		$this->to_filter = $pid;
+	}
+
+	/**
+	 * Render-verbosity dial: 0 = curated, 1 = + per-message header, 2 = + full envelope dump.
+	 *
+	 * @var int 0, 1, or 2.
+	 */
+	private int $debug_level = 0;
+
+	/**
+	 * Set the debug-render level (clamped to [0, 2]); returns the applied value.
+	 */
+	public function set_debug_level( int $level ): int {
+		$this->debug_level = \max( 0, \min( 2, $level ) );
+		return $this->debug_level;
+	}
+
+	public function debug_level(): int {
+		return $this->debug_level;
+	}
+
+	/**
+	 * Render a TM-flag bitmask as a human-readable string (multi-flag types concatenated).
+	 */
+	private static function format_type_flags( int $type ): string {
+		static $map = [
+			Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
+			Message::TM_EOF        => 'TM_EOF',
+			Message::TM_PING       => 'TM_PING',
+			Message::TM_COMMAND    => 'TM_COMMAND',
+			Message::TM_RESPONSE   => 'TM_RESPONSE',
+			Message::TM_ERROR      => 'TM_ERROR',
+			Message::TM_INFO       => 'TM_INFO',
+			Message::TM_STRUCT     => 'TM_STRUCT',
+			Message::TM_REQUEST    => 'TM_REQUEST',
+		];
+		$flags = [];
+		foreach ( $map as $flag => $name ) {
+			if ( $type & $flag ) {
+				$flags[] = $name;
+			}
+		}
+		return $flags ? \implode( ' | ', $flags ) : \sprintf( 'TM_UNKNOWN(0x%x)', $type );
+	}
+
+	/**
+	 * Level-2 dump: full envelope as a structural multi-line render.
+	 */
+	private function format_envelope_dump( array $message ): string {
+		$type      = (int) ( $message[ Message::TYPE ] ?? 0 );
+		$flags     = self::format_type_flags( $type );
+		$ts        = (string) ( $message[ Message::TIMESTAMP ] ?? '' );
+		$ts_human  = '' !== $ts && \is_numeric( $ts )
+			? \gmdate( 'Y-m-d H:i:s', (int) $ts ) . ' UTC'
+			: '';
+		$value     = self::stringify_value( $message[ Message::VALUE ] ?? '', true );
+
+		$lines = [
+			'Message {',
+			'    type:      ' . $flags,
+			'    from:      ' . (string) ( $message[ Message::FROM ] ?? '' ),
+			'    to:        ' . (string) ( $message[ Message::TO ] ?? '' ),
+			'    id:        ' . (string) ( $message[ Message::ID ] ?? '' ),
+			'    key:       ' . (string) ( $message[ Message::KEY ] ?? '' ),
+			'    timestamp: ' . $ts . ( '' !== $ts_human ? ' (' . $ts_human . ')' : '' ),
+			'    value:     ' . self::indent_following_lines( $value, '               ' ),
+			'}',
+		];
+		return \implode( "\n", $lines );
+	}
+
+	/**
+	 * Render a command-response `payload` for terminal display (arrays → pretty JSON).
+	 *
+	 * @param mixed $payload The `payload` field of a response VALUE.
+	 */
+	private static function render_payload( $payload ): string {
+		if ( \is_array( $payload ) ) {
+			return (string) \wp_json_encode( $payload, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
+		}
+		return (string) $payload;
+	}
+
+	/**
+	 * Stringify a Message::VALUE for the level-2 envelope dump (arrays/JSON-strings → JSON).
+	 *
+	 * @param mixed $value      Raw VALUE.
+	 * @param bool  $structured Whether to use JSON_PRETTY_PRINT for arrays.
+	 */
+	private static function stringify_value( $value, bool $structured ): string {
+		if ( \is_array( $value ) ) {
+			$flags = JSON_UNESCAPED_SLASHES;
+			if ( $structured ) {
+				$flags |= JSON_PRETTY_PRINT;
+			}
+			return (string) \wp_json_encode( $value, $flags );
+		}
+		if ( \is_string( $value ) && '' !== $value && ( '{' === $value[0] || '[' === $value[0] ) ) {
+			$decoded = \json_decode( $value, true );
+			if ( \is_array( $decoded ) ) {
+				$flags = JSON_UNESCAPED_SLASHES;
+				if ( $structured ) {
+					$flags |= JSON_PRETTY_PRINT;
+				}
+				return (string) \wp_json_encode( $decoded, $flags );
+			}
+		}
+		return (string) $value;
+	}
+
+	/**
+	 * Indent every line after the first by $prefix.
+	 */
+	private static function indent_following_lines( string $text, string $prefix ): string {
+		$lines = \explode( "\n", $text );
+		if ( \count( $lines ) <= 1 ) {
+			return $text;
+		}
+		return $lines[0] . "\n" . \implode( "\n", \array_map( static fn ( $l ) => $prefix . $l, \array_slice( $lines, 1 ) ) );
+	}
+
+	/**
+	 * Mark that a prompt is on screen so the next async write wipes-and-redraws.
+	 */
+	public function mark_prompt_displayed(): void {
+		$this->prompt_displayed = true;
+	}
+
+	/**
+	 * Write the cli prompt onto our owned stdout stream and flip the flag.
+	 */
+	public function write_prompt( string $prompt ): void {
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+		\fwrite( $this->stdout, $prompt );
+		$this->prompt_displayed = true;
+	}
+
+	public function fill( array &$message ): void {
+		++$this->counter;
+
+		// Drop messages addressed to a different cli session; empty TO always renders.
+		if ( '' !== $this->to_filter ) {
+			$to = (string) $message[ Message::TO ];
+			if ( '' !== $to
+				&& ! \preg_match( '/^(?:_output\/)?' . \preg_quote( $this->to_filter, '/' ) . '$/', $to )
+			) {
+				return;
+			}
+		}
+
+		// Tab-completion replies are consumed before render — they feed the cli's
+		// candidate cache, not the terminal.
+		if ( null !== $this->completion_sink && ( $this->completion_sink )( $message ) ) {
+			return;
+		}
+
+		$type = $message[ Message::TYPE ];
+
+		if ( $this->debug_level >= 2 ) {
+			$this->write_async( $this->format_envelope_dump( $message ) );
+			return;
+		}
+		if ( $this->debug_level >= 1 ) {
+			$flags = self::format_type_flags( (int) $type );
+			$from  = (string) ( $message[ Message::FROM ] ?? '' );
+			$this->write_async( $flags . ' from ' . $from . ':' );
+		}
+
+		// TM_EOF: drain marker — fire the callback, render nothing.
+		if ( $type & Message::TM_EOF ) {
+			if ( null !== $this->on_eof ) {
+				( $this->on_eof )();
+			}
+			return;
+		}
+
+		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_RESPONSE ) ) {
+			$cmd = $message[ Message::VALUE ];
+			if ( \is_array( $cmd ) ) {
+				$name    = (string) ( $cmd['name'] ?? '' );
+				$payload = self::render_payload( $cmd['payload'] ?? '' );
+
+				if ( 'prompt' === $name && null !== $this->shell ) {
+					$this->shell->prompt = $payload;
+					return;
+				}
+
+				$this->write_async( $payload );
+				return;
+			}
+		}
+
+		// TM_COMMAND|TM_ERROR: a verb threw — render the unwrapped payload.
+		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_ERROR ) ) {
+			$cmd     = $message[ Message::VALUE ];
+			$payload = \is_array( $cmd ) ? self::render_payload( $cmd['payload'] ?? '' ) : (string) $cmd;
+			$this->write_async( $payload );
+			return;
+		}
+
+		// TM_PING: bounced reply; VALUE is the send timestamp, render as RTT.
+		if ( $type & Message::TM_PING ) {
+			$sent = (float) $message[ Message::VALUE ];
+			$rtt  = ( Core::$now - $sent ) * 1000.0;
+			$this->write_async( \sprintf( 'round trip time: %.2f ms', $rtt ) );
+			return;
+		}
+
+		if ( $type & Message::TM_STRUCT ) {
+			$value = $message[ Message::VALUE ];
+			$line  = \is_string( $value ) ? $value : \wp_json_encode( $value, JSON_UNESCAPED_SLASHES );
+			$this->write_async( (string) $line );
+			return;
+		}
+
+		$this->write_async( (string) $message[ Message::VALUE ] );
+	}
+
+	/**
+	 * Async-output path: on a TTY with a prompt up, wipe-and-redraw; otherwise plain write.
+	 */
+	private function write_async( string $text ): void {
+		if ( ! $this->stdout_is_tty || ! $this->prompt_displayed || null === $this->shell ) {
+			$this->write( $this->stdout, $text, true );
+			return;
+		}
+
+		if ( ! \str_ends_with( $text, "\n" ) ) {
+			$text .= "\n";
+		}
+
+		// stdout/stderr are the cli's own terminal streams — not WP-Filesystem paths.
+		// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+		if ( $this->readline_mode ) {
+			// Readline runs with an empty prompt; never call readline_redisplay (flips into incremental-search).
+			\fwrite(
+				$this->stdout,
+				self::ANSI_CR_CLEAR_LINE . $text . $this->shell->prompt
+			);
+			return;
+		}
+
+		\fwrite(
+			$this->stdout,
+			self::ANSI_SAVE_CURSOR
+				. self::ANSI_CR_CLEAR_LINE
+				. $text
+				. $this->shell->prompt
+				. self::ANSI_RESTORE_CURSOR
+		);
+		// phpcs:enable
+	}
+
+	/**
+	 * Write to a stream; $ensure_newline appends "\n" only if absent. stderr is left raw.
+	 */
+	private function write( $stream, string $text, bool $ensure_newline ): void {
+		if ( $ensure_newline && ! \str_ends_with( $text, "\n" ) ) {
+			$text .= "\n";
+		}
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
+		\fwrite( $stream, $text );
+	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Hidden',
+			'description' => 'REPL output — printed to stream, not user-placeable in topology graphs.',
+			'arguments'        => [],
+			'commands'       => [],
+			'has_target'  => false,
+		];
+	}
+}

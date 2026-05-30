@@ -244,7 +244,7 @@ class WorkerBaseTest extends TestCase {
 		$worker = new TestableWorker( $this->tmp, 'happy-path', 0 );
 
 		$topology_lock_path = "{$this->tmp}/locks/happy-path.p0.lock.d";
-		$topology = function ( $ci, $partition ) use ( $topology_lock_path ): void {
+		$topology = function ( $interpreter, $partition ) use ( $topology_lock_path ): void {
 			// Drop the restart flag inside the topology closure so the first
 			// drain iteration exits cleanly.
 			\Newspack_Nodes\Lock_Node::request_restart_at( $topology_lock_path );
@@ -270,7 +270,7 @@ class WorkerBaseTest extends TestCase {
 		// respawned worker resumes past consumed commands (no replay).
 		$worker = new TestableWorker( $this->tmp, 'ckpt-exec', 0 );
 		$lock   = "{$this->tmp}/locks/ckpt-exec.p0.lock.d";
-		$topology = function ( $ci, $partition ) use ( $lock ): void {
+		$topology = function ( $interpreter, $partition ) use ( $lock ): void {
 			\Newspack_Nodes\Lock_Node::request_restart_at( $lock );
 		};
 

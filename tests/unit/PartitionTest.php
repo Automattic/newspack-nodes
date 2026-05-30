@@ -804,9 +804,9 @@ class PartitionTest extends TestCase {
 		$this->assertTrue( $ref->hasMethod( 'loop_fwrite' ) );
 	}
 
-	// ── A1: sibling-CI + node_schema ─────────────────────────
+	// ── A1: sibling-interpreter + node_schema ─────────────────────────
 
-	public function test_partition_constructs_sibling_ci(): void {
+	public function test_partition_constructs_sibling_interpreter(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp} 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$p->name( 'my_part' );
@@ -1096,7 +1096,7 @@ class PartitionTest extends TestCase {
 		//   1. fill() — message lives in $batch.
 		//   2. remove_node() — Partition cascades close_handle + write_lock,
 		//      Timer cascades stop_timer (deferred onto Core's closing queue),
-		//      Node clears registrations + sibling CI + name registration.
+		//      Node clears registrations + sibling interpreter + name registration.
 		//   3. Core::run_closing() — drains the deferred queue, which fires
 		//      EventFramework::stop_timer($p), dropping the EF's back-ref into
 		//      $timers (the second of two cycles holding the Partition alive).

@@ -101,7 +101,7 @@ class CLI_Command {
 	}
 
 	/**
-	 * Build the REPL node graph (bare: _shell → CI → _router → _output; pivoted adds IPC nodes).
+	 * Build the REPL node graph (bare: _shell → interpreter → _router → _output; pivoted adds IPC nodes).
 	 *
 	 * @param array{input:string,output:string,type:string,partition:int}|null $ipc
 	 * @return array{0:Shell_Node,1:Dumper_Node}
@@ -381,7 +381,7 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 	 * Build a completion-query Message (`help` for verbs, `ls` for node names),
 	 * routed to the current pivot (cwd) so candidates come from the right graph.
 	 *
-	 * KEY='completion' makes the CI's help / list_nodes verbs emit a bare
+	 * KEY='completion' makes the interpreter's help / list_nodes verbs emit a bare
 	 * newline-separated candidate list (no headers, no column flags). FROM is the
 	 * cli's reply path so the answer lands on this session's Dumper; LOCAL marks
 	 * it in-process (Command_Signer re-signs it for the IPC wire in pivoted mode).

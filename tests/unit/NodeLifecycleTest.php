@@ -8,8 +8,8 @@
  *
  * Why this matters: Timer-bearing nodes (Partition, Consumer, Tail, the
  * Cli's stdin reader) keep a back-reference inside EventFramework's
- * `$timers` array. Sibling-CI-bearing nodes (Partition, JobIntake)
- * close a Partition↔CI cycle via the patron back-pointer. If
+ * `$timers` array. Sibling-interpreter-bearing nodes (Partition, JobIntake)
+ * close a Partition↔interpreter cycle via the patron back-pointer. If
  * `remove_node()` doesn't cascade those refs out, `unset()` can't drop
  * refcount to zero, `__destruct` doesn't fire synchronously, and any
  * batched bytes the Partition was holding for the upcoming timer-flush

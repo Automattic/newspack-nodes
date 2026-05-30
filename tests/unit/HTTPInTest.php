@@ -28,15 +28,15 @@ class HTTPInTest extends TestCase {
 	}
 
 	/**
-	 * Production-shaped graph: Router + base CI sinking into Router +
+	 * Production-shaped graph: Router + base interpreter sinking into Router +
 	 * HTTP_In registered at _http with a status_header recorder seam.
 	 */
 	private function build_graph(): Command_Interpreter_Node {
 		$router = new Router_Node();
 		$router->name( '_router' );
-		$base_ci = new Command_Interpreter_Node();
-		$base_ci->name( '_command_interpreter' );
-		$base_ci->sink( $router );
+		$base_interpreter = new Command_Interpreter_Node();
+		$base_interpreter->name( '_command_interpreter' );
+		$base_interpreter->sink( $router );
 
 		$self     = $this;
 		$http_out = new HTTP_In_Node(
@@ -45,7 +45,7 @@ class HTTPInTest extends TestCase {
 			}
 		);
 		$http_out->name( '_http' );
-		return $base_ci;
+		return $base_interpreter;
 	}
 
 	/**
@@ -103,10 +103,10 @@ class HTTPInTest extends TestCase {
 	}
 
 	public function test_local_command_writes_packed_response_to_http_body(): void {
-		$base_ci = $this->build_graph();
+		$base_interpreter = $this->build_graph();
 		$echo    = new Command_Interpreter_Node();
 		$echo->name( 'echo_service' );
-		$echo->sink( $base_ci );
+		$echo->sink( $base_interpreter );
 		$echo->commands(
 			[
 				'echo' => static fn( $self, $args ): string => "got: {$args}",
@@ -171,11 +171,11 @@ class HTTPInTest extends TestCase {
 		$this->assertStringContainsString( '_command_interpreter:', (string) $msg[ Message::VALUE ] );
 	}
 
-	public function test_empty_to_command_is_interpreted_by_the_request_scope_ci(): void {
+	public function test_empty_to_command_is_interpreted_by_the_request_scope_interpreter(): void {
 		// A command addressed to the request scope itself (TO='') — e.g. the browser
 		// `cd /_sse; <verb>` — must be interpreted by the base CommandInterpreter,
 		// NOT dropped by _router (which can't peel an empty TO). dispatch sinks
-		// through the base CI, mirroring the client's Shell → CI → _router spine.
+		// through the base interpreter, mirroring the client's Shell → interpreter → _router spine.
 		$this->build_graph();
 
 		$req = $this->make_request(
@@ -206,10 +206,10 @@ class HTTPInTest extends TestCase {
 		// dispatches each in order through the one request graph. This is what
 		// lets the topology dashboard send `connect_worker_input` immediately
 		// before its real pivoted command in the SAME request.
-		$base_ci = $this->build_graph();
+		$base_interpreter = $this->build_graph();
 		$echo    = new Command_Interpreter_Node();
 		$echo->name( 'echo_service' );
-		$echo->sink( $base_ci );
+		$echo->sink( $base_interpreter );
 		$calls = [];
 		$echo->commands(
 			[
@@ -261,10 +261,10 @@ class HTTPInTest extends TestCase {
 	}
 
 	public function test_blank_from_defaults_to_underscore_http(): void {
-		$base_ci = $this->build_graph();
+		$base_interpreter = $this->build_graph();
 		$echo    = new Command_Interpreter_Node();
 		$echo->name( 'echo_service' );
-		$echo->sink( $base_ci );
+		$echo->sink( $base_interpreter );
 		$echo->commands( [ 'echo' => static fn( $self, $args ): string => 'ok' ] );
 
 		$req = $this->make_request(
@@ -292,22 +292,22 @@ class HTTPInTest extends TestCase {
 		// request-scope graph for it. Dispatch must lazy-build _router /
 		// _command_interpreter / _http and fire the
 		// `newspack_nodes/request_graph_ready` hook so applications can
-		// mount their CIs via $base_ci->make_node(...).
+		// mount their interpreters via $base_interpreter->make_node(...).
 		$this->assertNull( Core::node( '_router' ), 'pre-condition: no graph yet' );
 		$this->assertNull( Core::node( '_command_interpreter' ) );
 		$this->assertNull( Core::node( '_http' ) );
 
-		// Capture hook fires and the CI argument the hook receives.
+		// Capture hook fires and the interpreter argument the hook receives.
 		$fires = [];
 		\add_action(
 			'newspack_nodes/request_graph_ready',
-			static function ( $base_ci ) use ( &$fires ): void {
-				$fires[] = $base_ci;
-				// Application code mounts its CIs here. Use a tiny echo CI
-				// to prove dispatch can route through a hook-mounted CI.
+			static function ( $base_interpreter ) use ( &$fires ): void {
+				$fires[] = $base_interpreter;
+				// Application code mounts its interpreters here. Use a tiny echo interpreter
+				// to prove dispatch can route through a hook-mounted interpreter.
 				$echo = new Command_Interpreter_Node();
 				$echo->name( 'hook_echo' );
-				$echo->sink( $base_ci );
+				$echo->sink( $base_interpreter );
 				$echo->commands(
 					[ 'echo' => static fn( $self, $args ): string => "got: {$args}" ]
 				);
@@ -330,7 +330,7 @@ class HTTPInTest extends TestCase {
 		$ctrl->dispatch( $req );
 		$body = (string) \ob_get_clean();
 
-		// Hook fired exactly once with the base CI as the argument.
+		// Hook fired exactly once with the base interpreter as the argument.
 		$this->assertCount( 1, $fires, 'request_graph_ready hook must fire exactly once' );
 		$this->assertInstanceOf( Command_Interpreter_Node::class, $fires[0] );
 		$this->assertSame( '_command_interpreter', $fires[0]->name() );
@@ -355,21 +355,21 @@ class HTTPInTest extends TestCase {
 		// Pre-build the graph (as a real Bootstrap would for non-REST entry
 		// points) and prove that the second dispatch doesn't double-create
 		// or re-fire the hook.
-		$base_ci = $this->build_graph();
+		$base_interpreter = $this->build_graph();
 		$echo    = new Command_Interpreter_Node();
 		$echo->name( 'idem_echo' );
-		$echo->sink( $base_ci );
+		$echo->sink( $base_interpreter );
 		$echo->commands( [ 'echo' => static fn( $self, $args ): string => 'ok' ] );
 
 		$pre_router  = Core::node( '_router' );
-		$pre_base_ci = Core::node( '_command_interpreter' );
+		$pre_base_interpreter = Core::node( '_command_interpreter' );
 		$pre_http    = Core::node( '_http' );
 
 		$fires = [];
 		\add_action(
 			'newspack_nodes/request_graph_ready',
-			static function ( $ci ) use ( &$fires ): void {
-				$fires[] = $ci;
+			static function ( $interpreter ) use ( &$fires ): void {
+				$fires[] = $interpreter;
 			}
 		);
 
@@ -390,12 +390,12 @@ class HTTPInTest extends TestCase {
 
 		// Graph nodes are the SAME instances — no re-creation.
 		$this->assertSame( $pre_router,  Core::node( '_router' ) );
-		$this->assertSame( $pre_base_ci, Core::node( '_command_interpreter' ) );
+		$this->assertSame( $pre_base_interpreter, Core::node( '_command_interpreter' ) );
 		$this->assertSame( $pre_http,    Core::node( '_http' ) );
 
 		// Hook still fires (application code may need to mount per-request).
 		$this->assertCount( 1, $fires );
-		$this->assertSame( $pre_base_ci, $fires[0] );
+		$this->assertSame( $pre_base_interpreter, $fires[0] );
 	}
 
 	/**
@@ -405,20 +405,20 @@ class HTTPInTest extends TestCase {
 	 * action handler run twice in a single request — likely via plugin file
 	 * re-loaded by some bootstrap path — and the second call fatals with
 	 * `node name collision: workers already registered`. That kills the whole
-	 * REST response with a 500. Idempotency is the cheap fix: skip if the CIs
-	 * are already mounted under this base CI.
+	 * REST response with a 500. Idempotency is the cheap fix: skip if the interpreters
+	 * are already mounted under this base interpreter.
 	 */
 	public function test_mount_substrate_cis_is_idempotent(): void {
-		$base_ci = $this->build_graph();
+		$base_interpreter = $this->build_graph();
 		$names   = [ 'classes', 'layouts', 'topologies', 'raw-logs', 'workers' ];
 
-		\newspack_nodes_mount_substrate_cis( $base_ci );
+		\newspack_nodes_mount_substrate_cis( $base_interpreter );
 		foreach ( $names as $name ) {
 			$this->assertNotNull( Core::node( $name ), "first mount must create '{$name}'" );
 		}
 
 		// Second invocation must not throw "node name collision".
-		\newspack_nodes_mount_substrate_cis( $base_ci );
+		\newspack_nodes_mount_substrate_cis( $base_interpreter );
 
 		foreach ( $names as $name ) {
 			$this->assertNotNull( Core::node( $name ), "second mount must leave '{$name}' present" );

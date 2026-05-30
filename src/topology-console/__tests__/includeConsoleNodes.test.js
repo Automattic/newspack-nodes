@@ -4,19 +4,19 @@
  */
 
 import '../includeConsoleNodes';
-import { CommandInterpreter } from '../../runtime/command_interpreter';
+import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
 import { Core } from '../../runtime/core';
-import { Metadata } from '../../runtime/metadata';
+import { MetadataNode } from '../../runtime/metadata-node';
 
 beforeEach( () => Core.reset() );
 
 describe( 'includeConsoleNodes', () => {
 	it( 'make_node resolves a console node class registered via the side-effect import', () => {
-		const ci = new CommandInterpreter();
-		ci.setName( '_command_interpreter' );
-		ci.dispatch( 'make_node', 'Metadata mymeta' );
+		const interpreter = new CommandInterpreterNode();
+		interpreter.setName( '_command_interpreter' );
+		interpreter.dispatch( 'make_node', 'Metadata mymeta' );
 		const node = Core.node( 'mymeta' );
-		expect( node ).toBeInstanceOf( Metadata );
-		expect( node.sink ).toBe( ci );
+		expect( node ).toBeInstanceOf( MetadataNode );
+		expect( node.sink ).toBe( interpreter );
 	} );
 } );

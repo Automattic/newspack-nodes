@@ -5,7 +5,7 @@
  * bespoke `workerstatus:poll` Node to the substrate's HttpOut: the hook owns a
  * setInterval that fires a TM_COMMAND (FROM=`workerstatus:transform` for
  * fire-and-forget poll, FROM=`workerstatus:view` for awaited restart) through
- * the CI. _http.client is injected so the hook never touches the network.
+ * the interpreter. _http.client is injected so the hook never touches the network.
  *
  * The view follows the canonical pending-Map pattern: `restart()` returns a
  * Promise the view resolves/rejects by matching `message[ID]` against
@@ -35,7 +35,7 @@ jest.mock( '../../../shared/hooks/usePageVisibility', () => ( {
 import { useWorkerStatusGraph } from '../useWorkerStatusGraph';
 
 const REFRESH_KEY = 'newspack-nodes-worker-refresh';
-const CI = '_command_interpreter';
+const INTERPRETER = '_command_interpreter';
 const ROUTER = '_router';
 const HTTP = '_http';
 const TRANSFORM = 'workerstatus:transform';
@@ -97,18 +97,18 @@ const verbsOf = ( client ) =>
 	client.batches.flat().map( ( m ) => m[ VALUE ]?.name );
 
 describe( 'useWorkerStatusGraph — exospine + I/O boundary wiring', () => {
-	test( 'mounts the backbone + the I/O boundary node + transform + view, each sinking into the CI', async () => {
+	test( 'mounts the backbone + the I/O boundary node + transform + view, each sinking into the interpreter', async () => {
 		const client = makeFakeClient();
 		renderHook( () => useWorkerStatusGraph( { commandClient: client } ) );
 		await act( async () => {} );
 
-		const ci = Core.node( CI );
-		expect( ci ).toBeTruthy();
+		const interpreter = Core.node( INTERPRETER );
+		expect( interpreter ).toBeTruthy();
 		expect( Core.node( ROUTER ) ).toBeTruthy();
 		for ( const name of ALL_GRAPH_NAMES ) {
 			const node = Core.node( name );
 			expect( node ).toBeTruthy();
-			expect( node.sink ).toBe( ci );
+			expect( node.sink ).toBe( interpreter );
 		}
 	} );
 
@@ -314,7 +314,7 @@ describe( 'useWorkerStatusGraph — teardown', () => {
 		);
 		await act( async () => {} );
 		unmount();
-		for ( const name of [ ...ALL_GRAPH_NAMES, CI, ROUTER ] ) {
+		for ( const name of [ ...ALL_GRAPH_NAMES, INTERPRETER, ROUTER ] ) {
 			expect( Core.node( name ) ).toBeNull();
 		}
 	} );

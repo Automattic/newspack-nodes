@@ -1866,7 +1866,7 @@ class ConsumerTest extends TestCase {
 		$this->assertNotSame( '', $schema['description'] );
 		$this->assertIsArray( $schema['arguments'] );
 		$this->assertIsArray( $schema['commands'] );
-		$this->assertSame( [], $schema['commands'], 'Consumer has no sibling-CI verbs' );
+		$this->assertSame( [], $schema['commands'], 'Consumer has no sibling-interpreter verbs' );
 
 		// Three ctor params: source_base_dir (required), source_partition
 		// (required, default <partition>), offsetlog_base_dir (default '').

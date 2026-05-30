@@ -25,8 +25,8 @@ class WorkerLifecycleTest extends TestCase {
 
 		$interpreter = $w->build_scaffolding();
 
-		$topology = function ( $ci, int $partition ) {
-			$ci->dispatch( 'make_node', 'Capture_Sink echo' );
+		$topology = function ( $interpreter, int $partition ) {
+			$interpreter->dispatch( 'make_node', 'Capture_Sink echo' );
 		};
 		$w->run_topology( $topology, $interpreter );
 

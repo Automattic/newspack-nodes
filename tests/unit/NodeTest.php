@@ -340,11 +340,11 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_dump_config_suppresses_set_sink_for_default_command_interpreter_sink(): void {
-		$ci = new Capture_Sink_Node();
-		$ci->name( '_command_interpreter' );
+		$interpreter = new Capture_Sink_Node();
+		$interpreter->name( '_command_interpreter' );
 		$n  = new Capture_Sink_Node();
 		$n->name( 'alice' );
-		$n->sink( $ci );
+		$n->sink( $interpreter );
 
 		$out = $n->dump_config();
 		$this->assertStringNotContainsString( 'set_sink', $out );
@@ -369,7 +369,7 @@ class NodeTest extends TestCase {
 		$this->assertStringContainsString( 'connect_node alice bob', $out );
 	}
 
-	// ── A1: sibling-CI plumbing ──────────────────────────────
+	// ── A1: sibling-interpreter plumbing ──────────────────────────────
 
 	public function test_attach_interpreter_keeps_sibling_synced_with_patron_name(): void {
 		$patron = new Capture_Sink_Node();
@@ -492,7 +492,7 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_patron_setter_records_passed_node(): void {
-		// Patron pointer is set on plumbing nodes — sibling CIs and Lock /
+		// Patron pointer is set on plumbing nodes — sibling interpreters and Lock /
 		// heartbeat helpers Partition creates inside a running event loop.
 		// dump_metadata filters any node with patron() !== null from the
 		// canvas feed.
@@ -519,7 +519,7 @@ class NodeTest extends TestCase {
 	// ── interpreter() getter ─────────────────────────────────────────────
 
 	public function test_interpreter_returns_null_when_unattached(): void {
-		// Nodes without sibling-CI plumbing return null from interpreter().
+		// Nodes without sibling-interpreter plumbing return null from interpreter().
 		$n = new Capture_Sink_Node();
 		$this->assertNull( $n->interpreter() );
 	}
@@ -881,7 +881,7 @@ class NodeTest extends TestCase {
 		$this->assertSame( 2, \substr_count( $buf, 'same text' ) );
 	}
 
-	// ---- base ctor auto-wires the sibling :config CI from node_schema -----
+	// ---- base ctor auto-wires the sibling :config interpreter from node_schema -----
 
 	public function test_node_with_schema_handlers_auto_wires_config_interpreter(): void {
 		$node = new class() extends Node {
@@ -890,7 +890,7 @@ class NodeTest extends TestCase {
 					'commands' => [
 						[
 							'name'    => 'ping_back',
-							'handler' => static fn ( $ci, string $args ): string => 'pong:' . $args,
+							'handler' => static fn ( $interpreter, string $args ): string => 'pong:' . $args,
 						],
 					],
 				] );
@@ -898,21 +898,21 @@ class NodeTest extends TestCase {
 		};
 		$node->name( 'demo-node' );
 
-		$ci = $node->interpreter();
-		$this->assertInstanceOf( \Newspack_Nodes\Command_Interpreter_Node::class, $ci );
-		$this->assertSame( 'demo-node:config', $ci->name() );
-		$this->assertSame( $node, $ci->patron() );
-		$this->assertArrayHasKey( 'ping_back', $ci->commands() );
+		$interpreter = $node->interpreter();
+		$this->assertInstanceOf( \Newspack_Nodes\Command_Interpreter_Node::class, $interpreter );
+		$this->assertSame( 'demo-node:config', $interpreter->name() );
+		$this->assertSame( $node, $interpreter->patron() );
+		$this->assertArrayHasKey( 'ping_back', $interpreter->commands() );
 	}
 
 	public function test_node_without_schema_handlers_has_no_config_interpreter(): void {
-		// Base node_schema declares no verbs → no sibling CI.
+		// Base node_schema declares no verbs → no sibling interpreter.
 		$n = new Node();
 		$this->assertNull( $n->interpreter() );
 	}
 
-	public function test_schema_verb_without_handler_does_not_wire_a_ci(): void {
-		// A catalog-only verb (no handler) must not spawn a sibling CI.
+	public function test_schema_verb_without_handler_does_not_wire_an_interpreter(): void {
+		// A catalog-only verb (no handler) must not spawn a sibling interpreter.
 		$node = new class() extends Node {
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [
@@ -924,15 +924,15 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_command_interpreter_does_not_get_a_sibling_interpreter(): void {
-		// A CI dispatches its own verbs; it must never attach a sibling :config CI.
-		$ci = new \Newspack_Nodes\Command_Interpreter_Node();
-		$this->assertNull( $ci->interpreter() );
+		// An interpreter dispatches its own verbs; it must never attach a sibling :config interpreter.
+		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
+		$this->assertNull( $interpreter->interpreter() );
 	}
 
 	public function test_auto_wire_is_idempotent_across_a_double_parent_call(): void {
 		// A subclass that chains parent::__construct() more than once (e.g. one at
 		// the top for base registrations, one at the end) must NOT build a second
-		// sibling CI — the auto-wire skips when an interpreter is already attached.
+		// sibling interpreter — the auto-wire skips when an interpreter is already attached.
 		$node = new class() extends Node {
 			public function __construct() {
 				parent::__construct();
@@ -943,7 +943,7 @@ class NodeTest extends TestCase {
 					'commands' => [
 						[
 							'name'    => 'noop',
-							'handler' => static fn ( $ci, string $args ): string => 'ok',
+							'handler' => static fn ( $interpreter, string $args ): string => 'ok',
 						],
 					],
 				] );
@@ -951,7 +951,7 @@ class NodeTest extends TestCase {
 		};
 		$first = $node->interpreter();
 		$this->assertInstanceOf( \Newspack_Nodes\Command_Interpreter_Node::class, $first );
-		// Second parent call must not have replaced the first CI.
+		// Second parent call must not have replaced the first interpreter.
 		$this->assertSame( $first, $node->interpreter() );
 	}
 }

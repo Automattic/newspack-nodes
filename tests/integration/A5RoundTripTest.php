@@ -26,12 +26,12 @@ class A5RoundTripTest extends TestCase {
 		$w = new Worker_Base( $this->tmp, 'integration-test', 0 );
 		$this->assertTrue( $w->acquire() );
 
-		$ci = $w->build_scaffolding();
+		$interpreter = $w->build_scaffolding();
 
-		$topology = function ( $ci, int $partition ) {
-			$ci->dispatch( 'make_node', 'Capture_Sink target' );
+		$topology = function ( $interpreter, int $partition ) {
+			$interpreter->dispatch( 'make_node', 'Capture_Sink target' );
 		};
-		$w->run_topology( $topology, $ci );
+		$w->run_topology( $topology, $interpreter );
 
 		// Send a message through _router → target.
 		$router = Core::node( '_router' );

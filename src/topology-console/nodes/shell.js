@@ -297,7 +297,7 @@ export class Shell extends Node {
 		const msg = newMessage();
 		msg[ FROM ] = this.replyFrom( names.OUTPUT );
 		// LOCAL provenance taint — minted in this Shell. Stripped at the wire
-		// (pack()), so it authorizes only the in-browser CI; the server verifies HMAC.
+		// (pack()), so it authorizes only the in-browser interpreter; the server verifies HMAC.
 		msg[ LOCAL ] = true;
 
 		if ( 'ping' === verb ) {
@@ -387,7 +387,7 @@ export class Shell extends Node {
 	 * it through this.sink. Mirrors Tachikoma::Nodes::Shell::send_command —
 	 * callers issue commands as method calls instead of via parse().
 	 *
-	 * @param {string} path Routing target (TO). Empty = local CI.
+	 * @param {string} path Routing target (TO). Empty = local interpreter.
 	 * @param {string} name Command verb (e.g. 'connect_node').
 	 * @param {string} args Positional argument string.
 	 * @return {void}

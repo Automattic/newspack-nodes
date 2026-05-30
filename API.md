@@ -205,14 +205,14 @@ Fires from `HTTP_In_Node::dispatch()` after the request-scope graph has been bui
 **Signature:**
 
 ```php
-do_action( 'newspack_nodes/request_graph_ready', \Newspack_Nodes\Command_Interpreter_Node $base_ci );
+do_action( 'newspack_nodes/request_graph_ready', \Newspack_Nodes\Command_Interpreter_Node $base_interpreter );
 ```
 
 **Canonical usage** — applications mount their service CIs through the base CI's `make_node()`:
 
 ```php
-function my_app_mount_service_cis( \Newspack_Nodes\Command_Interpreter_Node $base_ci ): void {
-    $base_ci->make_node( 'My_Service_CI', 'my-service', $dep1, $dep2 );
+function my_app_mount_service_cis( \Newspack_Nodes\Command_Interpreter_Node $base_interpreter ): void {
+    $base_interpreter->make_node( 'My_Service_CI', 'my-service', $dep1, $dep2 );
     // ... more service CIs ...
 }
 \add_action( 'newspack_nodes/request_graph_ready', 'my_app_mount_service_cis' );

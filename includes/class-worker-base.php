@@ -154,10 +154,10 @@ class Worker_Base {
 	 * @return Command_Interpreter_Node So topology closures can drive graph construction.
 	 */
 	public function build_scaffolding(): Command_Interpreter_Node {
-		// This worker process is a command VERIFIER: every CI it builds — the main
-		// _command_interpreter plus the patron CIs embedded in Partitions — must
+		// This worker process is a command VERIFIER: every interpreter it builds — the main
+		// _command_interpreter plus the patron interpreters embedded in Partitions — must
 		// HMAC-check commands arriving over IPC (which strips the LOCAL taint). Set
-		// the process-wide authorization policy once, before any CI is constructed.
+		// the process-wide authorization policy once, before any interpreter is constructed.
 		Command_Interpreter_Node::$default_authorize = Command_Auth::verifier();
 
 		$ipc_dir = "{$this->base_dir}/ipc/{$this->worker_type}.p{$this->partition}";
@@ -224,9 +224,9 @@ class Worker_Base {
 		$this->ipc_input_consumer?->checkpoint();
 	}
 
-	/** Invoke the topology closure (receives the CI + this worker's partition number). */
-	public function run_topology( callable $topology, Command_Interpreter_Node $ci ): void {
-		$topology( $ci, $this->partition );
+	/** Invoke the topology closure (receives the interpreter + this worker's partition number). */
+	public function run_topology( callable $topology, Command_Interpreter_Node $interpreter ): void {
+		$topology( $interpreter, $this->partition );
 	}
 
 	/**
@@ -257,7 +257,7 @@ class Worker_Base {
 	 *
 	 * Idempotent shutdown via $shutdown_handled (handler + finally) so release+respawn happens once.
 	 *
-	 * @param callable $topology  Topology closure (signature: ($ci, $partition)).
+	 * @param callable $topology  Topology closure (signature: ($interpreter, $partition)).
 	 * @param string   $spawn_url Spawn endpoint URL for self-respawn.
 	 * @param string   $token     Current HMAC spawn token.
 	 * @return array{status: string, reason?: string}
@@ -283,8 +283,8 @@ class Worker_Base {
 		\usleep( (int) ( self::LOCK_CHECK_GRACE_S * 1_000_000 ) );
 
 		try {
-			$ci = $this->build_scaffolding();
-			$this->run_topology( $topology, $ci );
+			$interpreter = $this->build_scaffolding();
+			$this->run_topology( $topology, $interpreter );
 
 			$ef = Event_Framework::instance();
 			$ef->install_signal_handlers();

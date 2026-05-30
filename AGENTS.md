@@ -130,13 +130,12 @@ These are intentional. Don't "fix" them.
 | `includes/cli/class-worker-cli-command.php` | `wp nodes {types,run,restart,status}` |
 | `includes/rest/class-spawn-controller.php` | `POST /newspack-nodes/v1/workers/spawn` (HMAC-validated) |
 | `includes/rest/class-http-in.php` | `POST /newspack-nodes/v1/command` controller + the `_http` egress Node (double-duty) |
-| `includes/rest/class-sse-out.php` | `GET /newspack-nodes/v1/messages/stream` controller + the `_sse` egress Node (double-duty) |
+| `includes/rest/class-sse-out.php` | `GET /newspack-nodes/v1/messages/stream` controller + the `_sse` egress Node (double-duty); carries the inlined SSE wire helpers (headers, event framing, flush) |
 | `includes/class-http-filter.php` | `_http` filter Node used inside SSE-stream processes (forwards `dump_metadata`/`uptime` replies back to the browser) |
 | `includes/rest/class-{classes,layouts,topologies,raw-logs,workers}-ci.php` | Substrate service `*_CI_Node`s mounted via `newspack_nodes/request_graph_ready` |
-| `includes/rest/trait-sse-stream.php` | `SSE_Stream_Trait` — shared SSE wire helpers used by `SSE_Out_Node` |
-| `includes/class-service-ci.php` | `Service_CI_Node` — abstract base that builds a CI's verb table from its `node_schema()` |
+| `includes/class-service-ci.php` | `Service_CI_Node` — abstract base that builds an interpreter's verb table from its `node_schema()` |
 | `includes/class-command-auth.php` | HMAC envelope sign/verify (`Command_Auth::sign()` / `Command_Auth::verifier()`); the server-tier `authorize` closure that gates wire-arrived commands |
-| `includes/class-command-signer.php` | `Command_Signer_Node` — Shell-side wrapper that stashes the HMAC envelope into VALUE['auth'] on the way out to a remote CI (pivoted cli, hub→spoke) |
+| `includes/class-command-signer.php` | `Command_Signer_Node` — Shell-side wrapper that stashes the HMAC envelope into VALUE['auth'] on the way out to a remote interpreter (pivoted cli, hub→spoke) |
 | `includes/class-{topology-loader,topology-registry}.php` | Topology TSL parser + per-plugin `register_plugin()` entry-point |
 | `includes/class-{log-cleaner,log-discovery,node-names,sse-slot-pool,config-utils,formatters}.php` | Internal helpers — log retention sweep, log-name discovery, reserved-name registry, SSE slot pool, config schema utils, formatter registry |
 | `includes/admin/class-admin.php` | Substrate settings UI |
@@ -155,10 +154,10 @@ These are mistakes that have actually happened. Pay attention.
 - **Worker lock release before spawn.** `Worker_Base::execute()`'s `finally` block does `release()` THEN `self_respawn()`. Don't reorder; the reverse leaves a 15-second slot gap.
 - **HMAC spawn token has TWO accepted windows.** Validates current AND previous 10-second window. Don't tighten to one — race tolerance is intentional.
 - **Partition and Topic pack ALL message types** — including TM_REQUEST, TM_ERROR, TM_EOF. The earlier "drop control messages" rule broke `request_node`, `send_eof`, pivoted-mode error responses (TM_COMMAND|TM_ERROR), and the cli's TM_EOF round-trip drain. Data partitions only see TM_BYTESTREAM / TM_STRUCT in practice; allowing other types through is a no-op there and makes IPC work.
-- **TM_EOF round-trip drains the cli on stdin close.** Cli emits TM_EOF (FROM=`_output/$pid`); the CI it lands on (local in bare mode, the worker's in pivoted mode) bounces TO=FROM; the cli's Dumper sees the echo and flips the exit flag. Mirrors Tachikoma `FileHandle::handle_EOF` → `send_EOF`. There's a 5s deadline fallback so a dead worker doesn't hang the cli.
+- **TM_EOF round-trip drains the cli on stdin close.** Cli emits TM_EOF (FROM=`_output/$pid`); the interpreter it lands on (local in bare mode, the worker's in pivoted mode) bounces TO=FROM; the cli's Dumper sees the echo and flips the exit flag. Mirrors Tachikoma `FileHandle::handle_EOF` → `send_EOF`. There's a 5s deadline fallback so a dead worker doesn't hang the cli.
 - **Don't reintroduce TM_PERSIST.** The removal is intentional. See decision 3.
 - **Skip readline when STDIN isn't a TTY.** `readline_callback_read_char()` reads from the TTY layer, not the stream descriptor; piping into `wp nodes cli` without the gate burns 100% CPU. Already gated; don't remove.
-- **Command_Interpreter_Node only handles TM_COMMAND with empty TO.** Non-empty TO means the message is in transit toward another node — CI forwards to Router. If you "fix" CI to also dispatch on non-empty TO, every CI in a path-routed graph eats commands intended for downstream peers.
+- **Command_Interpreter_Node only handles TM_COMMAND with empty TO.** Non-empty TO means the message is in transit toward another node — interpreter forwards to Router. If you "fix" interpreter to also dispatch on non-empty TO, every interpreter in a path-routed graph eats commands intended for downstream peers.
 - **Verb handlers throw freely; `interpret()` wraps as TM_COMMAND|TM_ERROR.** Don't add per-verb `try/catch` — the central catch is the contract. Keep `return 'error: ...'` only for canonical-OK-shaped argument-validation paths where you want to return without error semantics.
 - **Constructors set `$this->arguments` directly.** No `dump_config()` override per class. `dump_config()` reads the field to emit a round-trippable `make_node <type> <name> <args>` line; if you forget to set it, `dump_config` emits without args and the round-trip silently produces a different node.
 - **`Log`'s `prune_rotated()` reserves the `{filename}-` prefix.** Sibling discovery uses `glob({filename}-*)`; storing unrelated files under the same prefix (e.g. `out.log-keep_forever`) makes them eligible for pruning. Document and don't co-locate other artifacts.

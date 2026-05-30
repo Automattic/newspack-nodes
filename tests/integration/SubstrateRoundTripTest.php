@@ -14,14 +14,14 @@ class SubstrateRoundTripTest extends TestCase {
 		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$ci = new Command_Interpreter_Node();
-		$ci->name( '_command_interpreter' );
-		$ci->sink( $router );
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( $router );
 
 		// Build app graph via shell verbs.
-		$this->assertSame( 'ok', $ci->dispatch( 'make_node', 'Capture_Sink alice' ) );
-		$this->assertSame( 'ok', $ci->dispatch( 'make_node', 'Capture_Sink bob' ) );
-		$this->assertSame( 'ok', $ci->dispatch( 'connect_node', 'alice bob' ) );
+		$this->assertSame( 'ok', $interpreter->dispatch( 'make_node', 'Capture_Sink alice' ) );
+		$this->assertSame( 'ok', $interpreter->dispatch( 'make_node', 'Capture_Sink bob' ) );
+		$this->assertSame( 'ok', $interpreter->dispatch( 'connect_node', 'alice bob' ) );
 
 		// Send addressed message: TO=alice, expects router → alice (capture).
 		$msg                  = Message::new_message();

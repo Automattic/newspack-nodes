@@ -3,7 +3,7 @@
  * rule-#2 backbone (`_command_interpreter → _router`) using the substrate's
  * I/O boundary nodes — the same ones the topology console uses:
  *
- *   _sse        (SseIn — EventSource ingress, args `'{log-key} {restUrl} {nonce}'`)
+ *   _sse        (SseInNode — EventSource ingress, args `'{log-key} {restUrl} {nonce}'`)
  *   _http       (HttpOut — POST /command boundary; .client = CommandClient)
  *   _heartbeat  (Heartbeat — slot keep-alive; target = `_http/workers`)
  *
@@ -13,7 +13,7 @@
  *                        is inlined here — the former `rawlogs:route` and
  *                        `rawlogs:transform` chain is gone)
  *
- * EVERY node sinks into the CI; flow is steered ONLY by each node's `target`.
+ * EVERY node sinks into the interpreter; flow is steered ONLY by each node's `target`.
  * The bespoke `rawlogs:stream` Node and inlined slot-heartbeat loop are gone —
  * `_sse` owns the EventSource, `_heartbeat` owns the slot poke.
  *
@@ -28,9 +28,9 @@
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
-import { SseIn } from '../../runtime/sseIn';
-import { HttpOut } from '../../runtime/httpOut';
-import { Heartbeat } from '../../runtime/heartbeat';
+import { SseInNode } from '../../runtime/sse-in-node';
+import { HttpOutNode } from '../../runtime/http-out-node';
+import { HeartbeatNode } from '../../runtime/heartbeat-node';
 import { CommandClient } from '../../runtime/command_client';
 import {
 	newMessage,
@@ -105,23 +105,23 @@ export function useRawLogsGraph( opts = {} ) {
 		const data =
 			( typeof window !== 'undefined' && window.NewspackNodesData ) || {};
 
-		// The canonical backbone every node clips onto: everything → CI → router.
-		const { ci, teardown: teardownSpine } = mountExospine();
+		// The canonical backbone every node clips onto: everything → interpreter → router.
+		const { interpreter, teardown: teardownSpine } = mountExospine();
 
 		// I/O boundary nodes — the same ones useRequestLogGraph mounts.
-		// SseIn (SseConnector) requires baseUrl/nonce/subscribe; we assign the
+		// SseInNode (SseConnector) requires baseUrl/nonce/subscribe; we assign the
 		// substrate-required fields directly instead of going through the
 		// positional `arguments=` setter, since there's no log selected yet.
 		// The list_logs reply (or selectLog) sets the real subscribe + start()s.
-		const sse = new SseIn();
+		const sse = new SseInNode();
 		sse.baseUrl = data.restUrl || '/wp-json/';
 		sse.nonce = data.nonce || '';
 		sse.subscribe = [];
 		sse.setName( SSE );
-		sse.sink = ci;
+		sse.sink = interpreter;
 		sse.target = VIEW;
 
-		const http = new HttpOut();
+		const http = new HttpOutNode();
 		http.client =
 			optsRef.current.commandClient ||
 			new CommandClient( {
@@ -129,11 +129,11 @@ export function useRawLogsGraph( opts = {} ) {
 				nonce: data.nonce || '',
 			} );
 		http.setName( HTTP );
-		http.sink = ci;
+		http.sink = interpreter;
 
-		const heartbeat = new Heartbeat();
+		const heartbeat = new HeartbeatNode();
 		heartbeat.setName( HEARTBEAT );
-		heartbeat.sink = ci;
+		heartbeat.sink = interpreter;
 		// `_http/workers` — the SSE_Slot_Pool's `heartbeat` verb lives on the
 		// request-scope `workers` CI. Bypass the _sse pid-pivot: the reply is
 		// discarded by Heartbeat.fill anyway.
@@ -141,7 +141,7 @@ export function useRawLogsGraph( opts = {} ) {
 
 		// View-model node — envelope→row shaping is inlined into its fill().
 		const view = createRawLogsView( VIEW );
-		view.sink = ci;
+		view.sink = interpreter;
 
 		// Slot bridge: a `connected`-event subscriber on `_sse` pushes the live
 		// slot into `_heartbeat`. Mirrors useRequestLogGraph.
@@ -181,7 +181,7 @@ export function useRawLogsGraph( opts = {} ) {
 		const listFuture = new Promise( ( resolve, reject ) => {
 			view.pending.set( listId, { resolve, reject } );
 		} );
-		ci.fill( buildListCommand( listId ) );
+		interpreter.fill( buildListCommand( listId ) );
 		listFuture
 			.then( ( logs ) => {
 				if ( ! Array.isArray( logs ) || 0 === logs.length ) {

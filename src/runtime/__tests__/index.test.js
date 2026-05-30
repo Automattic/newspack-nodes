@@ -2,13 +2,13 @@ import * as runtime from '../index';
 
 test( 'public surface exports everything used by dashboards', () => {
 	expect( runtime.Node ).toBeDefined();
-	expect( runtime.Router ).toBeDefined();
-	expect( runtime.Tee ).toBeDefined();
-	expect( runtime.Hook ).toBeDefined();
-	expect( runtime.Callback ).toBeDefined();
-	expect( runtime.Timer ).toBeDefined();
-	expect( runtime.CommandInterpreter ).toBeDefined();
-	expect( runtime.SseConnector ).toBeDefined();
+	expect( runtime.RouterNode ).toBeDefined();
+	expect( runtime.TeeNode ).toBeDefined();
+	expect( runtime.HookNode ).toBeDefined();
+	expect( runtime.CallbackNode ).toBeDefined();
+	expect( runtime.TimerNode ).toBeDefined();
+	expect( runtime.CommandInterpreterNode ).toBeDefined();
+	expect( runtime.SseConnectorNode ).toBeDefined();
 	expect( runtime.CommandClient ).toBeDefined();
 	expect( runtime.Core ).toBeDefined();
 	expect( runtime.useNodeState ).toBeDefined();

@@ -1,12 +1,12 @@
 <?php
 /**
- * LayoutsCITest: unit tests for Layouts_CI, the M3 service-CI for
+ * LayoutsCITest: unit tests for Layouts_CI, the M3 service-interpreter for
  * topology layout persistence. Mirrors ClassesCITest's VerbHarness
  * pattern with a per-test filesystem fixture (use_base_dir() points
  * Config at a tmp directory; the verb writes its .layout file under
  * `{base}/layouts/`).
  *
- * The CI returns raw payloads (decoded JSON) rather than the legacy
+ * The interpreter returns raw payloads (decoded JSON) rather than the legacy
  * {code, message, status} envelopes. Errors bubble as RuntimeException;
  * CommandInterpreter::interpret() catches them and emits TM_COMMAND |
  * TM_ERROR. VerbHarness::fire() unwraps the success payload and
@@ -163,7 +163,7 @@ class LayoutsCITest extends TestCase {
 	}
 
 	public function test_get_rejects_invalid_name(): void {
-		// Substrate CI contract: verb throws RuntimeException →
+		// Substrate interpreter contract: verb throws RuntimeException →
 		// CommandInterpreter::interpret() catches it and emits the
 		// message string as a TM_COMMAND|TM_ERROR payload. VerbHarness
 		// returns the raw string (the message isn't valid JSON).
@@ -257,9 +257,9 @@ class LayoutsCITest extends TestCase {
 	}
 
 	public function test_save_then_get_round_trips_positions(): void {
-		$ci = new Layouts_CI_Node();
+		$interpreter = new Layouts_CI_Node();
 		VerbHarness::fire(
-			$ci,
+			$interpreter,
 			'layouts',
 			'save',
 			[

@@ -41,7 +41,7 @@ list_nodes -a [-clst] [<glob>]      # all nodes filtered by anchored regex
 dump_node <node> [<keys>]           # config + state of one node (alias: dump)
 dump_config                         # full topology as round-trippable shell verbs
 dump_metadata                       # JSON object keyed by node name; class/counter/sink/target/debug_state/arguments/lgst_msg/bytes_read/bytes_written — one round-trip gives a visualizer the graph. Patron-linked (`{node}:config`) CIs are filtered out. NOT the same verb as `Workers_CI`'s `dump_metadata` over REST (that returns `{workers[], supervisor, logs, num_partitions, num_segments, segment_size, timestamp}`).
-debug_state [<node>] [<level>]      # toggle/set node's debug_state level (0/1/N). No args toggles the CI's own.
+debug_state [<node>] [<level>]      # toggle/set node's debug_state level (0/1/N). No args toggles the interpreter's own.
 uptime                              # clock-time + days+HH:MM:SS since Core::reset() (worker spawn)
 stats [-a] [<regex>]                # NAME COUNT LGST_MSG READ WRITTEN columns; default scope is siblings, -a all
 reply_to <node path> <command>      # run <command> HERE but route reply to <node path> (inverse of command_node)
@@ -67,7 +67,7 @@ The `<path>` arg to `tell_node` / `send_node` / `command_node` / `request_node` 
 
 `ping`, `tell`, and command responses use the FROM=`_output/$pid` stamp so replies walk back through `_router → _output`. `_output` is the Dumper instance; its TO filter matches `(?:_output/)?$pid` so other cli sessions' replies fall through silently.
 
-CommandInterpreter only handles TM_COMMAND with empty TO. A non-empty TO means the message is in transit toward another node; CI forwards it to its sink (Router) and lets the addressed node decide. Any exception thrown by a verb is caught and returned as `TM_COMMAND|TM_ERROR` along the FROM trail — the cli's Dumper writes the payload to stderr (no `ERROR:` prefix).
+CommandInterpreter only handles TM_COMMAND with empty TO. A non-empty TO means the message is in transit toward another node; interpreter forwards it to its sink (Router) and lets the addressed node decide. Any exception thrown by a verb is caught and returned as `TM_COMMAND|TM_ERROR` along the FROM trail — the cli's Dumper writes the payload to stderr (no `ERROR:` prefix).
 
 ### Piping into the REPL
 

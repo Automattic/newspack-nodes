@@ -4,21 +4,21 @@
  * `make_node` lookup table. Import this module for its side-effect.
  */
 
-import { CommandInterpreter } from '../runtime/command_interpreter';
-import { Dumper } from '../runtime/dumper';
-import { Metadata } from '../runtime/metadata';
-import { Uptime } from '../runtime/uptime';
-import { Completion } from '../runtime/completion';
-import { Heartbeat } from '../runtime/heartbeat';
-import { HttpOut } from '../runtime/httpOut';
-import { SseIn } from '../runtime/sseIn';
+import { CommandInterpreterNode } from '../runtime/command-interpreter-node';
+import { DumperNode } from '../runtime/dumper-node';
+import { MetadataNode } from '../runtime/metadata-node';
+import { UptimeNode } from '../runtime/uptime-node';
+import { CompletionNode } from '../runtime/completion-node';
+import { HeartbeatNode } from '../runtime/heartbeat-node';
+import { HttpOutNode } from '../runtime/http-out-node';
+import { SseInNode } from '../runtime/sse-in-node';
 
-Object.assign( CommandInterpreter.includeNodes, {
-	Dumper,
-	Metadata,
-	Uptime,
-	Completion,
-	Heartbeat,
-	HttpOut,
-	SseIn,
+Object.assign( CommandInterpreterNode.includeNodes, {
+	Dumper: DumperNode,
+	Metadata: MetadataNode,
+	Uptime: UptimeNode,
+	Completion: CompletionNode,
+	Heartbeat: HeartbeatNode,
+	HttpOut: HttpOutNode,
+	SseIn: SseInNode,
 } );

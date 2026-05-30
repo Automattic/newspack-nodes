@@ -19,7 +19,7 @@ const EMPTY_GRAPH = { nodes: [], edges: [] };
  * @param {boolean}  [_active]          Currently unused; kept for API parity (the
  *                                      subscription is naturally inert when no _metadata).
  * @param {Object}   shell              Shell instance owned by DebugOverlay; sink wired
- *                                      to the local CI.
+ *                                      to the local interpreter.
  * @param {Array}    [catalogClasses]   Class catalog entries (shell_name + is_interpreter);
  *                                      the Inspector uses it to decide whether to target
  *                                      a node's `:config` sibling or the node itself.

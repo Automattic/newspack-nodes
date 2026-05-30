@@ -101,8 +101,6 @@ class RouterTimerTest extends TestCase {
 		$this->assertSame( 1, $timer->fire_count() );
 
 		$timer->stop_timer();
-		// Run deferred-cleanup queue (production drain() does this between iterations).
-		\Newspack_Nodes\Core::run_closing();
 
 		$router->fire_cb();
 		$router->fire_cb();
@@ -111,28 +109,23 @@ class RouterTimerTest extends TestCase {
 	}
 
 	/**
-	 * stop_timer is deferred via Core::run_closing() to avoid mid-iteration mutation of
-	 * EventFramework $timers / Router $registrations. The Timer should still fire if a
-	 * stop_timer call happens before run_closing() drains the queue.
+	 * stop_timer unregisters the hitchhiked Timer from the Router immediately — no
+	 * closing-queue drain needed. PHP foreach iterates a copy of the registration
+	 * list (Node::notify even unset()s entries mid-loop), so synchronous unregister
+	 * is safe; the Timer must not fire on the next tick.
 	 */
-	public function test_stop_timer_is_deferred_until_run_closing(): void {
+	public function test_stop_timer_unregisters_immediately(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
 
 		$timer = new Timer_Node();
-		$timer->name( 'deferred' );
+		$timer->name( 'sync' );
 		$timer->set_timer();
 
 		$timer->stop_timer();
-		// Deferred cleanup has NOT yet run; registration is still there.
-		// fire_cb on the timer side has already cleared $active, but Router still knows.
+		// No run_closing(): teardown already happened synchronously.
 		$router->fire_cb();
-		// Should fire because run_closing() hasn't been called yet.
-		$this->assertSame( 1, $timer->fire_count() );
-
-		\Newspack_Nodes\Core::run_closing();
-
-		$router->fire_cb();
-		$this->assertSame( 1, $timer->fire_count() );
+		$this->assertSame( 0, $timer->fire_count(), 'stop_timer must unregister immediately so the Timer never fires' );
+		$this->assertFalse( $timer->is_active() );
 	}
 }

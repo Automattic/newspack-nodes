@@ -86,10 +86,10 @@ Full type-flag bitmask from `includes/class-message.php`: `TM_BYTESTREAM=1`, `TM
 - A Node with runtime-mutable config overrides `dump_config()` to emit replay verbs from its own state. Reference: `Partition_Node`'s emission of `allow_large_writes` + `with_index` formatter name.
 - A diff that reintroduces `mark_verb_invoked()` / `$invoked_verbs` is wrong — the recorder was deleted in v0.6.0; config lives in the node, not a side-channel ledger.
 
-### 8d. Tachikoma rule #2 — everything sinks into CI
+### 8d. Tachikoma rule #2 — everything sinks into the interpreter
 
-- JS dashboards mount onto `mountExospine()` (returns `{ ci, router, teardown }`); every node has `sink = ci`, and flow is steered via `target` / `TO` through `_router`.
-- A diff that adds bespoke `nodeA.sink = nodeB` chains, `controlSink` side-channels, or skips the CI is a substrate-conformance regression.
+- JS dashboards mount onto `mountExospine()` (returns `{ interpreter, router, teardown }`); every node has `sink = interpreter`, and flow is steered via `target` / `TO` through `_router`.
+- A diff that adds bespoke `nodeA.sink = nodeB` chains, `controlSink` side-channels, or skips the interpreter is a substrate-conformance regression.
 
 ### 9. Dumper rendering
 
@@ -97,7 +97,7 @@ If the diff changes how Dumper renders a TYPE flag, double-check that the cli ou
 
 ### 10. CommandInterpreter dispatch contract
 
-CI handles a TM_COMMAND only when TO is empty. Non-empty TO means the message is mid-route toward a downstream node; CI forwards to its sink (Router). Don't relax that — every CI in a path-routed graph would otherwise consume commands intended for someone else.
+interpreter handles a TM_COMMAND only when TO is empty. Non-empty TO means the message is mid-route toward a downstream node; interpreter forwards to its sink (Router). Don't relax that — every interpreter in a path-routed graph would otherwise consume commands intended for someone else.
 
 Verb handlers may throw freely. `interpret()` catches `\Throwable` and turns the response into `TM_COMMAND|TM_ERROR` addressed back along FROM. Don't restore explicit `try/catch` inside individual `cmd_foo` methods — the central catch is the contract. Reserve `return 'error: ...'` for canonical-OK-shaped argument-validation paths (e.g. malformed args before any work happens).
 

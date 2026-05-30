@@ -1,7 +1,7 @@
 <?php
 /**
- * MigratedServiceCiHandlerGuardTest: cross-CI guards for the three substrate
- * service CIs migrated off bespoke `__construct`/`verb_table` command setup
+ * MigratedServiceCiHandlerGuardTest: cross-interpreter guards for the three substrate
+ * service interpreters migrated off bespoke `__construct`/`verb_table` command setup
  * onto the schema-driven mechanism (handlers live in node_schema()['commands'][]).
  *
  * Two contracts, asserted for Raw_Logs_CI, Layouts_CI, and Workers_CI:
@@ -10,7 +10,7 @@
  *      single source of truth, so a verb without one would be invisible to
  *      Service_CI_Node::commands_from_schema() and dispatch to nothing.
  *
- *   2. Constructing the CI emits NO "no callable handler" warning — proves the
+ *   2. Constructing the interpreter emits NO "no callable handler" warning — proves the
  *      migration didn't drop a handler in the move (commands_from_schema warns +
  *      skips any named verb that lacks a callable handler).
  *
@@ -39,7 +39,7 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 
 	/**
 	 * Build a fresh Workers_CI with a duck-typed Cli stub. (Raw_Logs_CI and
-	 * Layouts_CI take no ctor args; Workers_CI is the one stateful CI.)
+	 * Layouts_CI take no ctor args; Workers_CI is the one stateful interpreter.)
 	 */
 	private function workers_ci(): Workers_CI_Node {
 		$cli = new class {
@@ -47,9 +47,9 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 			public function live_position( $cache, string $type, int $partition ): ?array { return null; }
 			public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int { return 0; }
 		};
-		$ci      = new Workers_CI_Node();
-		$ci->cli = $cli;
-		return $ci;
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $cli;
+		return $interpreter;
 	}
 
 	public function test_raw_logs_schema_verbs_all_carry_callable_handlers(): void {
@@ -115,8 +115,8 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 			'workers'  => [ $this->workers_ci(), Workers_CI_Node::node_schema() ],
 		];
 
-		foreach ( $cases as $label => [ $ci, $schema ] ) {
-			$commands = $ci->commands();
+		foreach ( $cases as $label => [ $interpreter, $schema ] ) {
+			$commands = $interpreter->commands();
 			foreach ( $schema['commands'] as $verb ) {
 				$this->assertArrayHasKey(
 					$verb['name'],
