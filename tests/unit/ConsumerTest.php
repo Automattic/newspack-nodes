@@ -2159,4 +2159,115 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 0, $seg->getValue( $c2 ) );
 		$this->assertSame( 0, $off->getValue( $c2 ) );
 	}
+
+	public function test_named_consumer_registers_source_sibling(): void {
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 " );
+		$c->name( 'feed' );
+		$this->assertSame( $c, Core::node( 'feed' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'feed:source' ) );
+	}
+
+	public function test_named_consumer_registers_offsetlog_sibling_when_offsetlog_set(): void {
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'feed' );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'feed:source' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'feed:offsetlog' ) );
+	}
+
+	public function test_consumer_without_offsetlog_does_not_register_offsetlog_sibling(): void {
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 " );
+		$c->name( 'feed' );
+		$this->assertNull( Core::node( 'feed:offsetlog' ) );
+	}
+
+	public function test_renaming_consumer_renames_children_and_unregisters_old_names(): void {
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'old' );
+		// PHPUnit promotes E_WARNING to a failure, so a $node-typo undefined-
+		// variable in the parent:: call surfaces here without an extra guard.
+		$c->name( 'new' );
+		$this->assertNull( Core::node( 'old' ) );
+		$this->assertNull( Core::node( 'old:source' ) );
+		$this->assertNull( Core::node( 'old:offsetlog' ) );
+		$this->assertSame( $c, Core::node( 'new' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'new:source' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'new:offsetlog' ) );
+	}
+
+	public function test_naming_consumer_null_throws(): void {
+		// A named Consumer is committed until remove_node(); name(null) throws.
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'feed' );
+		$this->expectException( \RuntimeException::class );
+		$c->name( null );
+	}
+
+	public function test_naming_consumer_empty_string_throws(): void {
+		// '' is the other "no value" input — name('') throws too.
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'feed' );
+		$this->expectException( \RuntimeException::class );
+		$c->name( '' );
+	}
+
+	public function test_remove_node_unregisters_self_and_children(): void {
+		// remove_node() (not name(null)) is the teardown path; it cascades to
+		// both Partition children.
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'feed' );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'feed:source' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( 'feed:offsetlog' ) );
+
+		$c->remove_node();
+		$this->assertNull( Core::node( 'feed' ) );
+		$this->assertNull( Core::node( 'feed:source' ) );
+		$this->assertNull( Core::node( 'feed:offsetlog' ) );
+	}
+
+	public function test_child_name_collision_throws_via_check_name_availability(): void {
+		$squatter = new Partition_Node();
+		$squatter->name( 'feed:source' );
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 " );
+		$this->expectException( \RuntimeException::class );
+		$c->name( 'feed' );
+	}
+
+	public function test_sink_cascades_to_both_children(): void {
+		$downstream = new Capture_Sink_Node();
+		$c          = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'feed' );
+		$c->sink( $downstream );
+		$this->assertSame( $downstream, Core::node( 'feed:source' )->sink() );
+		$this->assertSame( $downstream, Core::node( 'feed:offsetlog' )->sink() );
+		$this->assertSame( $downstream, $c->sink() );
+	}
+
+	public function test_remove_node_removes_both_children(): void {
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'feed' );
+		$c->remove_node();
+		$this->assertNull( Core::node( 'feed' ) );
+		$this->assertNull( Core::node( 'feed:source' ) );
+		$this->assertNull( Core::node( 'feed:offsetlog' ) );
+	}
+
+	public function test_consumer_named_zero_registers_zero_prefixed_children(): void {
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->name( '0' );
+		$this->assertSame( '0', $c->name() );
+		$this->assertSame( $c, Core::node( '0' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( '0:source' ) );
+		$this->assertInstanceOf( Partition_Node::class, Core::node( '0:offsetlog' ) );
+	}
 }
