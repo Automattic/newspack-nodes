@@ -61,6 +61,9 @@ function readStoredTheme( key ) {
  * host page's own live Core.nodes graph in the shared GraphView and lets you
  * poke it (connect/remove/invoke) via the page's own CommandInterpreter.
  *
+ * Reset Graph uses `Core.reinit` — the host graph's rebuild handle stashed on the
+ * per-page Core by mountExospine — to restore the dashboard's default wiring.
+ *
  * @param {Object} props
  * @param {string} [props.search]     Injectable location.search (tests).
  * @param {string} [props.storageKey] Layout persistence key (per dashboard).
@@ -74,6 +77,9 @@ export default function DebugOverlay( {
 	const [ open, setOpen ] = useState( false );
 	const [ selected, setSelected ] = useState( null );
 	const [ replExpanded, setReplExpanded ] = useState( false );
+	// Set when the user rewires a connection in the canvas. Reset Graph can then
+	// restore the host's default wiring (via reinit) even with no user nodes.
+	const [ graphDirty, setGraphDirty ] = useState( false );
 	const replInputRef = useRef( null );
 	// Theme + palette keys are global — shared with the topology console
 	// so a preference picked in either surface applies in both. Palette
@@ -135,6 +141,10 @@ export default function DebugOverlay( {
 	// the next render and rebinds shell.sink so the REPL doesn't silently drop
 	// wire commands (a stale-null shell.sink is what `s.sink?.fill(...)` masks).
 	const interpreter = Core.node( names.COMMAND_INTERPRETER );
+	// The host graph's rebuild handle, stashed on the per-page Core by
+	// mountExospine. Read every render (like `interpreter` above) so it's
+	// populated once the dashboard's mount effect has run.
+	const reinit = Core.reinit;
 	useEffect( () => {
 		shell.sink = interpreter;
 	}, [ shell, interpreter ] );
@@ -154,6 +164,7 @@ export default function DebugOverlay( {
 		onViewportChange,
 		onSeedLayout,
 		resetLayout,
+		markDirty,
 	} = useDebugLayout( `${ storageKey }:${ cwdScope }` );
 	// Catalog must be resolved before useDebugGraph so the Inspector handler
 	// can look up `is_interpreter` for non-local-scope nodes.
@@ -241,40 +252,30 @@ export default function DebugOverlay( {
 		// Global frame key — same overlay dimensions across every dashboard.
 	} = useDebugFrame( 'newspack-nodes:debug:frame', enabled && open );
 
-	// "Reset graph" in the overlay = remove every node the user added via the
-	// overlay since the panel first opened, leaving the dashboard's own nodes
-	// (and the overlay's spine: _output, _command_interpreter, _router, etc.)
-	// in place. Mirrors the console's resetLocalGraph (Core.unregisterNode
-	// everything outside a protected set) — except the "protected" set is
-	// computed dynamically at first-open since the dashboard's node names
-	// vary per page.
-	const baselineNamesRef = useRef( null );
-	useEffect( () => {
-		if ( ! ( enabled && open ) ) {
-			return;
-		}
-		if ( baselineNamesRef.current ) {
-			return;
-		}
-		// Capture after a tick so useDebugGraph + useDebugRepl have registered
-		// their nodes (exospine interpreter/router, _output Dumper). Anything in Core
-		// at this point is considered "original" and won't be removed by reset.
-		const id = setTimeout( () => {
-			baselineNamesRef.current = new Set( Core.nodes.keys() );
-		}, 0 );
-		return () => clearTimeout( id );
-	}, [ enabled, open ] );
-
+	// "Reset graph" = restore the host's default wiring (reinit rebuilds the
+	// dashboard's build-registered nodes fresh, undoing in-canvas rewires) THEN
+	// drop every node outside the keep-set. The keep-set is sourced from Core,
+	// not a first-open snapshot: reserved infra names ∪ Core.reinitNames (the
+	// nodes the dashboard build registered). Deterministic — independent of when
+	// the panel opened or what was registered before it.
+	const reservedNames = useMemo(
+		() => new Set( Object.values( names ) ),
+		[]
+	);
 	const resetGraph = () => {
-		const baseline = baselineNamesRef.current;
-		if ( ! baseline ) {
-			return;
+		if ( reinit ) {
+			reinit();
 		}
+		const keep = new Set( [
+			...reservedNames,
+			...( Core.reinitNames ?? [] ),
+		] );
 		for ( const name of [ ...Core.nodes.keys() ] ) {
-			if ( ! baseline.has( name ) ) {
+			if ( ! keep.has( name ) ) {
 				Core.unregisterNode( name );
 			}
 		}
+		setGraphDirty( false );
 	};
 
 	// "Reset Layout" appears only when the user has modified the layout.
@@ -282,16 +283,32 @@ export default function DebugOverlay( {
 	// or onViewportChange in useDebugLayout, cleared by resetLayout (and by
 	// the initial autoLayout seed via onSeedLayout, which writes dirty=false).
 	const hasLayoutToReset = isLayoutDirty;
-	const baseline = baselineNamesRef.current;
 	// Only meaningful in the local scope — `graph` is remote (server's
-	// dump_metadata payload) when cwd is `/_http` etc., and every remote
-	// name looks "new" against the local baseline. Reset_graph removes
-	// nodes from the LOCAL Core, which can't be done from a remote view.
+	// dump_metadata payload) when cwd is `/_http` etc., and every remote name
+	// looks "new" against the local registry. Reset_graph removes nodes from the
+	// LOCAL Core, which can't be done from a remote view.
 	const isLocalScope = ! cwd;
 	const hasUserNodes =
 		isLocalScope &&
-		baseline !== null &&
-		graph.nodes.some( ( n ) => ! baseline.has( n.id ) );
+		graph.nodes.some(
+			( n ) =>
+				! reservedNames.has( n.id ) &&
+				! ( Core.reinitNames ?? [] ).includes( n.id )
+		);
+	// Reset Graph shows when there's something to restore: user-added nodes, or
+	// an in-canvas rewire that `reinit` can undo (a rewire with no host reinit
+	// has nothing to restore, so the chip stays hidden). Local-scope only —
+	// reinit rebuilds the LOCAL host graph, meaningless from a remote view.
+	const canResetGraph =
+		isLocalScope && !! reinit && ( graphDirty || hasUserNodes );
+
+	// A connection rewire dirties the layout (surfaces Reset Layout) and flags
+	// the graph dirty (surfaces Reset Graph when reinit can restore it).
+	const onConnectDirtying = ( from, to ) => {
+		handlers.onConnect( from, to );
+		markDirty();
+		setGraphDirty( true );
+	};
 
 	// Ctrl+` toggles the panel while enabled.
 	useEffect( () => {
@@ -400,7 +417,7 @@ export default function DebugOverlay( {
 								onResetLayout: hasLayoutToReset
 									? resetLayout
 									: null,
-								onResetGraph: hasUserNodes ? resetGraph : null,
+								onResetGraph: canResetGraph ? resetGraph : null,
 							} }
 							resetKey={ storageKey }
 							interactive
@@ -417,7 +434,7 @@ export default function DebugOverlay( {
 							onSeedLayout={ onSeedLayout }
 							viewport={ viewport }
 							onViewportChange={ onViewportChange }
-							onConnect={ handlers.onConnect }
+							onConnect={ onConnectDirtying }
 							onRemoveNode={ handlers.onRemoveNode }
 							onDropNode={ handlers.onDropNode }
 							onInspectorAction={ ( action, nodeId, payload ) => {

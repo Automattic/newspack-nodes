@@ -357,4 +357,39 @@ describe( 'useDebugLayout', () => {
 		expect( () => act( () => result.current.resetLayout() ) ).not.toThrow();
 		window.localStorage.setItem = original;
 	} );
+
+	it( 'markDirty flips dirty=true and persists (a connection rewire dirties the layout)', () => {
+		const { result } = renderHook( () => useDebugLayout( KEY ) );
+		expect( result.current.isDirty ).toBe( false );
+		act( () => result.current.markDirty() );
+		expect( result.current.isDirty ).toBe( true );
+		expect( JSON.parse( window.localStorage.getItem( KEY ) ).dirty ).toBe(
+			true
+		);
+	} );
+
+	it( 'markDirty preserves existing positions and viewport', () => {
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( {
+				positions: { a: { x: 1, y: 2 } },
+				viewport: { x: 0, y: 0, k: 1 },
+				dirty: false,
+			} )
+		);
+		const { result } = renderHook( () => useDebugLayout( KEY ) );
+		act( () => result.current.markDirty() );
+		expect( result.current.positions ).toEqual( { a: { x: 1, y: 2 } } );
+		expect( result.current.viewport ).toEqual( { x: 0, y: 0, k: 1 } );
+		expect( result.current.isDirty ).toBe( true );
+	} );
+
+	it( 'markDirty is a no-op when already dirty (keeps the same positions object)', () => {
+		const { result } = renderHook( () => useDebugLayout( KEY ) );
+		act( () => result.current.onPositionChange( 'a', { x: 1, y: 1 } ) );
+		const before = result.current.positions;
+		act( () => result.current.markDirty() );
+		expect( result.current.positions ).toBe( before );
+		expect( result.current.isDirty ).toBe( true );
+	} );
 } );

@@ -28,6 +28,7 @@ import {
 	TM_RESPONSE,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
+import { useNodeState } from '../../../runtime/react';
 
 // Minimal FakeEventSource — same shape as the substrate's `sse_connector.test.js`.
 class FakeEventSource {
@@ -265,5 +266,49 @@ describe( 'useRawLogsGraph — control callbacks', () => {
 		await act( async () => {} );
 		act( () => result.current.setPaused( true ) );
 		expect( Core.node( VIEW ).setStateCache.view.paused ).toBe( true );
+	} );
+
+	test( 'Core.reinit rebuilds the graph nodes fresh (backbone preserved)', async () => {
+		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		await act( async () => {} );
+		const firstView = Core.node( VIEW );
+		const firstHttp = Core.node( HTTP );
+		const backbone = Core.node( INTERPRETER );
+		expect( firstView ).not.toBeNull();
+		expect( typeof Core.reinit ).toBe( 'function' );
+
+		await act( async () => {
+			Core.reinit();
+		} );
+
+		// Soft nodes are fresh instances under the same names; backbone survives.
+		expect( Core.node( VIEW ) ).not.toBe( firstView );
+		expect( Core.node( HTTP ) ).not.toBe( firstHttp );
+		expect( Core.node( VIEW ).sink ).toBe( Core.node( INTERPRETER ) );
+		expect( Core.node( INTERPRETER ) ).toBe( backbone );
+	} );
+
+	test( 'Core.reinit re-renders the consumer so useNodeState re-subscribes to the fresh view', async () => {
+		const client = makeFakeClient( { list_logs: oneLogReply() } );
+		const { result } = renderHook( () => {
+			const graph = useRawLogsGraph( { commandClient: client } );
+			const view = useNodeState( VIEW, 'view' );
+			return { graph, view };
+		} );
+		await act( async () => {} );
+		const firstView = Core.node( VIEW );
+
+		await act( async () => {
+			Core.reinit();
+		} );
+		const freshView = Core.node( VIEW );
+		expect( freshView ).not.toBe( firstView );
+
+		// The fresh view publishes state; the consumer must observe it (proving
+		// it re-subscribed to freshView, not the removed firstView).
+		await act( async () => {
+			freshView.setState( 'view', { selected: 'sentinel' } );
+		} );
+		expect( result.current.view ).toEqual( { selected: 'sentinel' } );
 	} );
 } );
