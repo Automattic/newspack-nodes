@@ -1,4 +1,49 @@
-import { viewportCull, isEdgeVisible } from '../viewportCull';
+import { viewportCull, isEdgeVisible, clipSegmentExit } from '../viewportCull';
+
+describe( 'clipSegmentExit', () => {
+	const region = { x: 0, y: 0, w: 100, h: 100 };
+
+	it( 'exits at the right boundary for a rightward segment', () => {
+		expect( clipSegmentExit( 50, 50, 200, 50, region ) ).toEqual( {
+			x: 100,
+			y: 50,
+		} );
+	} );
+
+	it( 'exits at the bottom boundary for a downward segment', () => {
+		expect( clipSegmentExit( 50, 50, 50, 300, region ) ).toEqual( {
+			x: 50,
+			y: 100,
+		} );
+	} );
+
+	it( 'exits diagonally (whichever boundary it reaches first)', () => {
+		// From centre toward the bottom-right far corner: dx=dy, so it exits the
+		// corner at (100,100).
+		expect( clipSegmentExit( 50, 50, 1050, 1050, region ) ).toEqual( {
+			x: 100,
+			y: 100,
+		} );
+	} );
+
+	it( 'returns the target unchanged when it is already inside', () => {
+		expect( clipSegmentExit( 50, 50, 60, 60, region ) ).toEqual( {
+			x: 60,
+			y: 60,
+		} );
+	} );
+} );
+
+describe( 'viewportCull region (for edge clipping)', () => {
+	it( 'returns the on-screen region rect', () => {
+		const { region } = viewportCull(
+			[],
+			{ x: 0, y: 0, w: 1000, h: 1000 },
+			{ w: 1000, h: 1000 }
+		);
+		expect( region ).toEqual( { x: 0, y: 0, w: 1000, h: 1000 } );
+	} );
+} );
 
 describe( 'isEdgeVisible', () => {
 	const vis = new Set( [ 'a', 'b' ] ); // a, b on-screen; c, d off-screen

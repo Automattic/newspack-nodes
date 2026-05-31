@@ -18,7 +18,11 @@ import {
 	Y_PAD,
 	Y_STEP,
 } from '../utils/autoLayout';
-import { viewportCull, isEdgeVisible } from '../utils/viewportCull';
+import {
+	viewportCull,
+	isEdgeVisible,
+	clipSegmentExit,
+} from '../utils/viewportCull';
 
 const NODE_W = 196;
 const NODE_H = 84;
@@ -493,7 +497,7 @@ export default function SchematicCanvas( {
 	// every card (and every label) in the DOM. Only nodes intersecting the viewBox
 	// render; below a readable scale the cards drop to bare rects (LOD). Recomputed
 	// on viewport / node-position / canvas-size changes, not on hover.
-	const { visibleIds, showDetail, scale } = useMemo(
+	const { visibleIds, showDetail, scale, region } = useMemo(
 		() =>
 			viewportCull( displayNodes, vb, canvasPx, {
 				nodeW: NODE_W,
@@ -832,7 +836,46 @@ export default function SchematicCanvas( {
 							selectedEdge &&
 							selectedEdge.from === e.from &&
 							selectedEdge.to === e.to;
-						const d = edgePath( a, b );
+						// One endpoint off-screen: draw a straight stub from the
+						// visible port toward the off-screen port, clipped to the
+						// viewport — not a giant bezier whose control points balloon
+						// out to the off-screen peer. Drop the arrowhead (it points
+						// off-screen). Both visible → the normal node-to-node bezier.
+						const fromVis = visibleIds.has( e.from );
+						const toVis = visibleIds.has( e.to );
+						let d;
+						let stub = false;
+						if ( fromVis && toVis ) {
+							d = edgePath( a, b );
+						} else {
+							const visP = fromVis
+								? {
+										x: a.position.x + NODE_W,
+										y: a.position.y + NODE_H / 2,
+								  }
+								: {
+										x: b.position.x,
+										y: b.position.y + NODE_H / 2,
+								  };
+							const offP = fromVis
+								? {
+										x: b.position.x,
+										y: b.position.y + NODE_H / 2,
+								  }
+								: {
+										x: a.position.x + NODE_W,
+										y: a.position.y + NODE_H / 2,
+								  };
+							const exit = clipSegmentExit(
+								visP.x,
+								visP.y,
+								offP.x,
+								offP.y,
+								region
+							);
+							d = `M ${ visP.x },${ visP.y } L ${ exit.x },${ exit.y }`;
+							stub = true;
+						}
 						return (
 							<g key={ `edge-${ i }-${ e.from }-${ e.to }` }>
 								<path
@@ -842,7 +885,11 @@ export default function SchematicCanvas( {
 										isEdgeSelected ? ' is-selected' : ''
 									}${ e.virtual ? ' is-virtual' : '' }` }
 									d={ d }
-									markerEnd="url(#topology-arrow-active)"
+									markerEnd={
+										stub
+											? undefined
+											: 'url(#topology-arrow-active)'
+									}
 								/>
 								{ /* Fat hit-target, edit mode only; skip virtual edges. */ }
 								{ editMode && onSelectEdge && ! e.virtual && (

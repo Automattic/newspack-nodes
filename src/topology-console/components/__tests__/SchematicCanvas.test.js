@@ -1253,4 +1253,45 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		const bg = container.querySelector( '.topology-node__bg' );
 		expect( Number( bg.getAttribute( 'width' ) ) ).toBe( 196 );
 	} );
+
+	it( 'truncates a one-endpoint-visible edge to a straight stub, no arrow', () => {
+		stubW = 1000;
+		stubH = 1000;
+		const { container } = render(
+			<SchematicCanvas
+				{ ...lodProps }
+				parsed={ {
+					nodes: [ { id: 'a' }, { id: 'b' } ],
+					edges: [ { from: 'a', to: 'b' } ],
+				} }
+				positionOverrides={ {
+					a: { x: 100, y: 100 },
+					b: { x: 90000, y: 100 }, // far off-screen to the right
+				} }
+				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
+			/>
+		);
+		const edge = container.querySelector( '.topology-edge--active' );
+		// a in-view, b far off-view → a straight stub (M..L..), NOT a bezier (C),
+		// and no arrowhead (it points off-screen).
+		expect( edge.getAttribute( 'd' ) ).toMatch( /^M [\d.,-]+ L [\d.,-]+$/ );
+		expect( edge.getAttribute( 'd' ) ).not.toContain( 'C' );
+		expect( edge.getAttribute( 'marker-end' ) ).toBeNull();
+	} );
+
+	it( 'keeps the full bezier (+ arrow) when both endpoints are visible', () => {
+		stubW = 1000;
+		stubH = 1000;
+		const { container } = render(
+			<SchematicCanvas
+				{ ...lodProps }
+				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
+			/>
+		);
+		const edge = container.querySelector( '.topology-edge--active' );
+		expect( edge.getAttribute( 'd' ) ).toContain( 'C' );
+		expect( edge.getAttribute( 'marker-end' ) ).toBe(
+			'url(#topology-arrow-active)'
+		);
+	} );
 } );
