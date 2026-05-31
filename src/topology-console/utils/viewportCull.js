@@ -17,7 +17,8 @@
  * @param {number}                                          [opts.nodeW=196]
  * @param {number}                                          [opts.nodeH=84]
  * @param {number}                                          [opts.detailScale=0.35] px/unit below which labels are dropped.
- * @param {number}                                          [opts.margin]           World-unit cull margin (default 2 node-widths).
+ * @param {number}                                          [opts.overscan=0]       Off-screen render band as a fraction of the viewBox per axis.
+ * @param {number}                                          [opts.margin]           Absolute world-unit cull margin (overrides overscan, both axes).
  * @return {{visibleIds:Set<string>, showDetail:boolean, scale:number}} The set of
  *   node ids to render, whether to draw labels, and the px/unit scale.
  */
@@ -25,9 +26,13 @@ export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
 	const nodeW = opts.nodeW ?? 196;
 	const nodeH = opts.nodeH ?? 84;
 	const detailScale = opts.detailScale ?? 0.35;
-	// Strict by default: only nodes intersecting the viewBox render (edges to a
-	// just-off-screen node still draw — they anchor at the on-screen endpoint).
-	const margin = opts.margin ?? 0;
+	// Overscan: render a band of just-off-screen nodes (a fraction of the viewBox
+	// on each axis) so panning scrolls smoothly instead of popping the leading
+	// edge — and a narrow column doesn't vanish when nudged sideways. Default 0
+	// (strict). An absolute `margin` (used by tests) overrides it on both axes.
+	const overscan = opts.overscan ?? 0;
+	const marginX = opts.margin ?? viewBox.w * overscan;
+	const marginY = opts.margin ?? viewBox.h * overscan;
 
 	// Effective scale (px per world unit) under SVG preserveAspectRatio="meet":
 	// the smaller of the width- and height-fit ratios. A tall-narrow graph is
@@ -39,10 +44,10 @@ export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
 		: Infinity;
 	const showDetail = scale >= detailScale;
 
-	const left = viewBox.x - margin;
-	const right = viewBox.x + viewBox.w + margin;
-	const top = viewBox.y - margin;
-	const bottom = viewBox.y + viewBox.h + margin;
+	const left = viewBox.x - marginX;
+	const right = viewBox.x + viewBox.w + marginX;
+	const top = viewBox.y - marginY;
+	const bottom = viewBox.y + viewBox.h + marginY;
 
 	const visibleIds = new Set();
 	for ( const n of nodes ) {
@@ -61,29 +66,15 @@ export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
 }
 
 /**
- * Whether an edge should render, given which nodes are on-screen and each node's
- * degree. Both endpoints visible → always. Neither → never. Exactly one visible →
- * only when that node is low-degree; a high-degree hub would otherwise flood the
- * canvas with edges to its (off-screen) neighbours.
+ * Whether an edge should render: show it if EITHER endpoint is on-screen, and
+ * cull only when BOTH are off-screen. An edge with one visible endpoint anchors
+ * there and trails toward its off-screen peer.
  *
  * @param {string}      from
  * @param {string}      to
- * @param {Set<string>} visibleIds         Node ids intersecting the viewport.
- * @param {Object}      degree             Map of node id → edge count.
- * @param {Object}      [opts]
- * @param {number}      [opts.lodDegree=8] Max degree for an off-screen edge to draw.
+ * @param {Set<string>} visibleIds Node ids intersecting the viewport.
  * @return {boolean} True if the edge should be rendered.
  */
-export function isEdgeVisible( from, to, visibleIds, degree, opts = {} ) {
-	const lodDegree = opts.lodDegree ?? 8;
-	const fromVis = visibleIds.has( from );
-	const toVis = visibleIds.has( to );
-	if ( fromVis && toVis ) {
-		return true;
-	}
-	if ( ! fromVis && ! toVis ) {
-		return false;
-	}
-	const visNode = fromVis ? from : to;
-	return ( degree[ visNode ] ?? 0 ) <= lodDegree;
+export function isEdgeVisible( from, to, visibleIds ) {
+	return visibleIds.has( from ) || visibleIds.has( to );
 }
