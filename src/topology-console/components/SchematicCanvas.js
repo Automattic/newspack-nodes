@@ -18,7 +18,7 @@ import {
 	Y_PAD,
 	Y_STEP,
 } from '../utils/autoLayout';
-import { viewportCull } from '../utils/viewportCull';
+import { viewportCull, isEdgeVisible } from '../utils/viewportCull';
 
 const NODE_W = 196;
 const NODE_H = 84;
@@ -106,6 +106,10 @@ const ZOOM_MIN = 0.25;
 // can still be zoomed in to read individual cards — not capped relative to the
 // (tiny) whole-graph fit. A node is NODE_W wide, so 3 px/unit ≈ a 588px card.
 const SCALE_MAX = 3;
+// Below this scale, edges are unreadable spaghetti and just thousands of paths to
+// paint — skip the whole edge layer so a multi-thousand-node OVERVIEW stays light
+// (an LOD step below the per-node detail cull). Edges return as you zoom in.
+const EDGE_MIN_SCALE = 0.05;
 
 // Parse "x y w h" into an object; safe fallback on malformed input.
 function parseViewBox( str ) {
@@ -453,27 +457,59 @@ export default function SchematicCanvas( {
 		return { w: el.clientWidth, h: el.clientHeight };
 	};
 
+	// Track the canvas pixel size reactively (a ref read isn't) so the autofit and
+	// the viewport cull recompute when the overlay panel is resized — otherwise the
+	// cull keeps deciding against a stale canvas size until the next pan/zoom.
+	const [ canvasPx, setCanvasPx ] = useState( { w: 0, h: 0 } );
+	useEffect( () => {
+		const el = svgRef.current;
+		if ( ! el ) {
+			return undefined;
+		}
+		const measure = () =>
+			setCanvasPx( { w: el.clientWidth, h: el.clientHeight } );
+		measure();
+		if ( typeof window === 'undefined' || ! window.ResizeObserver ) {
+			return undefined;
+		}
+		const ro = new window.ResizeObserver( measure );
+		ro.observe( el );
+		return () => ro.disconnect();
+	}, [] );
+
 	const defaultViewBox = useMemo(
-		() => tightViewBoxFor( displayNodes, canvasSize() ),
-		[ displayNodes ]
+		() => tightViewBoxFor( displayNodes, canvasPx.w ? canvasPx : null ),
+		[ displayNodes, canvasPx ]
 	);
 	const viewBox = viewport
 		? `${ viewport.x } ${ viewport.y } ${ viewport.w } ${ viewport.h }`
 		: defaultViewBox;
+	const vb = viewport || parseViewBox( defaultViewBox );
+
+	// Per-node edge count, for edge-LOD: a high-degree hub's edges to off-screen
+	// neighbours are culled so the hub doesn't flood the canvas when it scrolls in.
+	const degree = useMemo( () => {
+		const d = {};
+		for ( const e of edges ) {
+			d[ e.from ] = ( d[ e.from ] || 0 ) + 1;
+			d[ e.to ] = ( d[ e.to ] || 0 ) + 1;
+		}
+		return d;
+	}, [ edges ] );
 
 	// Cull for the current viewport so a multi-thousand-node graph doesn't put
-	// every card (and every label) in the DOM. Only nodes intersecting the
-	// viewBox render, and when zoomed out past readability the cards drop to bare
-	// rects. Recomputed on viewport / node-position changes, not on hover.
-	const { visibleIds, showDetail } = useMemo( () => {
-		const vb = viewport || parseViewBox( defaultViewBox );
-		const cs = canvasSize() || { w: 0, h: 0 };
-		return viewportCull( displayNodes, vb, cs, {
-			nodeW: NODE_W,
-			nodeH: NODE_H,
-		} );
+	// every card (and every label) in the DOM. Only nodes intersecting the viewBox
+	// render; below a readable scale the cards drop to bare rects (LOD). Recomputed
+	// on viewport / node-position / canvas-size changes, not on hover.
+	const { visibleIds, showDetail, scale } = useMemo(
+		() =>
+			viewportCull( displayNodes, vb, canvasPx, {
+				nodeW: NODE_W,
+				nodeH: NODE_H,
+			} ),
 		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [ viewport, defaultViewBox, displayNodes ] );
+		[ viewport, defaultViewBox, displayNodes, canvasPx ]
+	);
 	// Freeze the autofit on first render so node drags don't live-shift
 	// the whole canvas (viewport=null otherwise re-fits every render).
 	// Keyed on nodes.length, reading nodesRef (not displayNodes) so an
@@ -567,12 +603,12 @@ export default function SchematicCanvas( {
 		}
 		p.dragged = true;
 		// Read the actual rendered scale (min rect/vb) so pan matches cursor.
-		const scale = Math.min(
+		const panScale = Math.min(
 			p.rect.width / p.startVb.w,
 			p.rect.height / p.startVb.h
 		);
-		const worldDx = dxScreen / scale;
-		const worldDy = dyScreen / scale;
+		const worldDx = dxScreen / panScale;
+		const worldDy = dyScreen / panScale;
 		setViewport( {
 			x: p.startVb.x - worldDx,
 			y: p.startVb.y - worldDy,
@@ -763,72 +799,74 @@ export default function SchematicCanvas( {
 				pointerEvents="none"
 			/>
 
-			<g className="topology-edges">
-				{ edges.map( ( e, i ) => {
-					const a = nodeById.get( e.from );
-					const b = nodeById.get( e.to );
-					if ( ! a || ! b ) {
-						return null;
-					}
-					// Cull edges with both endpoints off-viewport.
-					if (
-						! visibleIds.has( e.from ) &&
-						! visibleIds.has( e.to )
-					) {
-						return null;
-					}
-					const hoverTouches =
-						hoveredId === e.from || hoveredId === e.to;
-					const selectTouches =
-						! hoveredId &&
-						( selectedId === e.from || selectedId === e.to );
-					// Hover highlights + dims the rest; selection highlights
-					// without dimming so surrounding context stays visible.
-					const touches = hoverTouches || selectTouches;
-					const dimmed = hoveredId && ! hoverTouches;
-					const isEdgeSelected =
-						selectedEdge &&
-						selectedEdge.from === e.from &&
-						selectedEdge.to === e.to;
-					const d = edgePath( a, b );
-					return (
-						<g key={ `edge-${ i }-${ e.from }-${ e.to }` }>
-							<path
-								className={ `topology-edge topology-edge--active${
-									touches ? ' is-touched' : ''
-								}${ dimmed ? ' is-dimmed' : '' }${
-									isEdgeSelected ? ' is-selected' : ''
-								}${ e.virtual ? ' is-virtual' : '' }` }
-								d={ d }
-								markerEnd="url(#topology-arrow-active)"
-								style={ {
-									animationDelay: `${ 200 + i * 80 }ms`,
-								} }
-							/>
-							{ /* Fat hit-target, edit mode only; skip virtual edges. */ }
-							{ editMode && onSelectEdge && ! e.virtual && (
+			{ scale >= EDGE_MIN_SCALE && (
+				<g className="topology-edges">
+					{ edges.map( ( e, i ) => {
+						const a = nodeById.get( e.from );
+						const b = nodeById.get( e.to );
+						if ( ! a || ! b ) {
+							return null;
+						}
+						// Edge-LOD cull: both endpoints visible → draw; one visible →
+						// draw only if that node is low-degree (a hub would flood);
+						// neither → drop.
+						if (
+							! isEdgeVisible( e.from, e.to, visibleIds, degree )
+						) {
+							return null;
+						}
+						const hoverTouches =
+							hoveredId === e.from || hoveredId === e.to;
+						const selectTouches =
+							! hoveredId &&
+							( selectedId === e.from || selectedId === e.to );
+						// Hover highlights + dims the rest; selection highlights
+						// without dimming so surrounding context stays visible.
+						const touches = hoverTouches || selectTouches;
+						const dimmed = hoveredId && ! hoverTouches;
+						const isEdgeSelected =
+							selectedEdge &&
+							selectedEdge.from === e.from &&
+							selectedEdge.to === e.to;
+						const d = edgePath( a, b );
+						return (
+							<g key={ `edge-${ i }-${ e.from }-${ e.to }` }>
 								<path
-									className="topology-edge-hit"
+									className={ `topology-edge topology-edge--active${
+										touches ? ' is-touched' : ''
+									}${ dimmed ? ' is-dimmed' : '' }${
+										isEdgeSelected ? ' is-selected' : ''
+									}${ e.virtual ? ' is-virtual' : '' }${
+										showDetail ? '' : ' is-static'
+									}` }
 									d={ d }
-									onMouseDown={ ( ev ) => {
-										ev.stopPropagation();
-										onSelectEdge( {
-											from: e.from,
-											to: e.to,
-										} );
-									} }
-									onPointerDown={ ( ev ) =>
-										ev.stopPropagation()
-									}
+									markerEnd="url(#topology-arrow-active)"
 								/>
-							) }
-						</g>
-					);
-				} ) }
-			</g>
+								{ /* Fat hit-target, edit mode only; skip virtual edges. */ }
+								{ editMode && onSelectEdge && ! e.virtual && (
+									<path
+										className="topology-edge-hit"
+										d={ d }
+										onMouseDown={ ( ev ) => {
+											ev.stopPropagation();
+											onSelectEdge( {
+												from: e.from,
+												to: e.to,
+											} );
+										} }
+										onPointerDown={ ( ev ) =>
+											ev.stopPropagation()
+										}
+									/>
+								) }
+							</g>
+						);
+					} ) }
+				</g>
+			) }
 
 			<g className="topology-nodes">
-				{ displayNodes.map( ( n, i ) => {
+				{ displayNodes.map( ( n ) => {
 					// Cull off-viewport nodes (always render the one being dragged).
 					if (
 						! visibleIds.has( n.id ) &&
@@ -847,9 +885,10 @@ export default function SchematicCanvas( {
 								isSelected ? ' is-selected' : ''
 							}${ isHovered ? ' is-hovered' : '' }${
 								isFaded ? ' is-faded' : ''
-							}${ isDragging ? ' is-dragging' : '' }` }
+							}${ isDragging ? ' is-dragging' : '' }${
+								showDetail ? '' : ' is-static'
+							}` }
 							transform={ `translate(${ n.position.x },${ n.position.y })` }
-							style={ { animationDelay: `${ i * 50 }ms` } }
 							onClick={ ( ev ) => {
 								ev.stopPropagation();
 								// Suppress selection after a real drag.
