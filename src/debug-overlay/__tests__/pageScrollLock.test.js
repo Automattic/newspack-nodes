@@ -1,38 +1,46 @@
 import { lockPageScroll, unlockPageScroll } from '../pageScrollLock';
 
 describe( 'pageScrollLock', () => {
-	const el = () => document.scrollingElement || document.documentElement;
+	const html = () => document.documentElement;
+	const body = () => document.body;
 
 	afterEach( () => {
 		unlockPageScroll();
-		el().style.overflow = '';
-		el().style.paddingRight = '';
+		html().style.overflow = '';
+		html().style.paddingRight = '';
+		body().style.overflow = '';
 	} );
 
-	it( 'locks the page scroll element to overflow:hidden', () => {
+	it( 'locks BOTH html and body overflow (Safari ignores html alone)', () => {
 		lockPageScroll();
-		expect( el().style.overflow ).toBe( 'hidden' );
+		expect( html().style.overflow ).toBe( 'hidden' );
+		expect( body().style.overflow ).toBe( 'hidden' );
 	} );
 
-	it( 'restores the previous overflow on unlock', () => {
-		el().style.overflow = 'auto';
+	it( 'restores the previous overflow on both elements on unlock', () => {
+		html().style.overflow = 'auto';
+		body().style.overflow = 'scroll';
 		lockPageScroll();
-		expect( el().style.overflow ).toBe( 'hidden' );
+		expect( html().style.overflow ).toBe( 'hidden' );
+		expect( body().style.overflow ).toBe( 'hidden' );
 		unlockPageScroll();
-		expect( el().style.overflow ).toBe( 'auto' );
+		expect( html().style.overflow ).toBe( 'auto' );
+		expect( body().style.overflow ).toBe( 'scroll' );
 	} );
 
 	it( 'is idempotent — a second lock does not clobber the saved state', () => {
-		el().style.overflow = 'scroll';
+		html().style.overflow = 'visible';
+		body().style.overflow = 'visible';
 		lockPageScroll();
-		lockPageScroll(); // no-op; must NOT re-save the already-hidden value
+		lockPageScroll(); // no-op; must NOT re-save the already-hidden values
 		unlockPageScroll();
-		expect( el().style.overflow ).toBe( 'scroll' );
+		expect( html().style.overflow ).toBe( 'visible' );
+		expect( body().style.overflow ).toBe( 'visible' );
 	} );
 
 	it( 'unlock is a no-op when not locked', () => {
-		el().style.overflow = 'visible';
+		html().style.overflow = 'visible';
 		unlockPageScroll();
-		expect( el().style.overflow ).toBe( 'visible' );
+		expect( html().style.overflow ).toBe( 'visible' );
 	} );
 } );
