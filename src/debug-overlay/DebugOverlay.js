@@ -12,6 +12,7 @@ import GraphView from '../topology-console/components/GraphView';
 import { NewNodeModal } from '../topology-console/components/Modal';
 import { makeReplDismissHandler } from '../topology-console/utils/replDismissHandler';
 import Header from '../topology-console/components/Header';
+import { lockPageScroll, unlockPageScroll } from './pageScrollLock';
 import ReplFooter from '../topology-console/components/ReplFooter';
 import { useJsCatalog } from '../topology-console/hooks/useJsCatalog';
 import { useClassCatalog } from '../topology-console/hooks/useClassCatalog';
@@ -377,6 +378,17 @@ export default function DebugOverlay( {
 		return () => el.removeEventListener( 'wheel', onWheel );
 	}, [ open ] );
 
+	// Callback ref for the panel: tracks the node AND releases the page-scroll
+	// lock the instant the panel detaches (close, unmount, or remount) — more
+	// reliable than onPointerLeave (which never fires on unmount) or an
+	// open-keyed effect cleanup (which misses a remount while still open).
+	const setPanelRef = useCallback( ( node ) => {
+		panelRef.current = node;
+		if ( ! node ) {
+			unlockPageScroll();
+		}
+	}, [] );
+
 	if ( ! enabled ) {
 		return null;
 	}
@@ -411,10 +423,15 @@ export default function DebugOverlay( {
 			) }
 			{ open && (
 				<div
-					ref={ panelRef }
+					ref={ setPanelRef }
 					className="nodes-debug__panel"
 					data-testid="debug-panel"
 					style={ frameStyle }
+					// Block the page behind the overlay from scrolling whenever the
+					// pointer is inside the panel (Safari ignores the canvas wheel's
+					// preventDefault, so pin the page physically instead).
+					onPointerEnter={ lockPageScroll }
+					onPointerLeave={ unlockPageScroll }
 				>
 					<div
 						className={ `topology-app theme-${ theme }${
