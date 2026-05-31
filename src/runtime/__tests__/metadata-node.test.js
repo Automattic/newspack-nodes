@@ -9,6 +9,7 @@ import {
 	MetadataNode,
 	dumpMetadataPayload,
 	parseMetadata,
+	computePollIntervalMs,
 } from '../metadata-node';
 import { Node } from '../node';
 import { TimerNode } from '../timer-node';
@@ -110,22 +111,84 @@ describe( 'Metadata node', () => {
 			expect( m[ FROM ] ).toBe( '_metadata' );
 		} );
 
-		it( 'always emits while a sink exists (no pollTo gate; _cwd handles every scope)', () => {
+		it( 'throttles repeated ticks within interval_ms (first fires, second does not)', () => {
 			const node = new MetadataNode();
 			node.setName( '_metadata' );
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = '_cwd';
-			node.fire();
-			node.fire();
+			node.interval_ms = 5000;
+			node.fire(); // first tick: lastFired=0 -> fires
+			node.fire(); // same instant, < 5s elapsed, same path -> throttled
+			expect( sent ).toHaveLength( 1 );
+		} );
+
+		it( 're-polls once interval_ms has elapsed', () => {
+			const node = new MetadataNode();
+			node.setName( '_metadata' );
+			const sent = [];
+			node.sink = { fill: ( m ) => sent.push( m ) };
+			node.target = '_cwd';
+			node.interval_ms = 2000;
+			node.fire(); // fires, lastFired = now
+			node.fire(); // throttled (< 2s) — proves the gate is closed
+			node.lastFired = Core.now() - 3; // pretend 3s passed (> 2s gate)
+			node.fire(); // gate reopened -> fires
 			expect( sent ).toHaveLength( 2 );
-			expect( node.pollTo ).toBeUndefined();
+		} );
+
+		it( 're-polls immediately when the pivot path changes (within interval_ms)', () => {
+			const cwd = new Node();
+			cwd.setName( '_cwd' );
+			cwd.target = '_sse/a';
+			const node = new MetadataNode();
+			node.setName( '_metadata' );
+			const sent = [];
+			node.sink = { fill: ( m ) => sent.push( m ) };
+			node.target = '_cwd';
+			node.interval_ms = 60000; // long gate so only a path change can re-fire
+			node.fire(); // path '_sse/a' -> fires, lastPath = '_sse/a'
+			node.fire(); // same path, < 60s -> throttled (proves the gate)
+			cwd.target = '_sse/b'; // user cd'd to another worker
+			node.fire(); // same instant, but path changed -> fires
+			expect( sent ).toHaveLength( 2 );
+			expect( sent[ 1 ][ TO ] ).toBe( '_cwd' );
 		} );
 
 		it( 'emits nothing when there is no sink', () => {
 			const node = new MetadataNode();
 			node.target = '_cwd';
 			expect( () => node.fire() ).not.toThrow();
+		} );
+	} );
+
+	describe( 'computePollIntervalMs (nodeCount * 10ms, rounded)', () => {
+		it( 'rounds to the nearest second and floors at 1s', () => {
+			expect( computePollIntervalMs( 0 ) ).toBe( 1000 );
+			expect( computePollIntervalMs( 30 ) ).toBe( 1000 ); // 0.3s -> 1s
+			expect( computePollIntervalMs( 100 ) ).toBe( 1000 ); // 1.0s
+			expect( computePollIntervalMs( 250 ) ).toBe( 3000 ); // 2.5s -> 3s
+			expect( computePollIntervalMs( 500 ) ).toBe( 5000 ); // 5.0s
+		} );
+
+		it( 'rounds to the nearest 5 seconds once past 5s', () => {
+			expect( computePollIntervalMs( 600 ) ).toBe( 5000 ); // 6s -> 5s
+			expect( computePollIntervalMs( 800 ) ).toBe( 10000 ); // 8s -> 10s
+			expect( computePollIntervalMs( 3000 ) ).toBe( 30000 ); // 30s
+			expect( computePollIntervalMs( 3145 ) ).toBe( 30000 ); // 31.45s -> 30s
+		} );
+	} );
+
+	describe( 'fill() scales the poll interval to graph size', () => {
+		it( 'sets interval_ms from the parsed node count on each response', () => {
+			const node = new MetadataNode();
+			const payload = {};
+			for ( let i = 0; i < 600; i++ ) {
+				payload[ `n${ i }` ] = { class: 'Echo', target: '' };
+			}
+			node.fill( msg( TM_STRUCT, payload ) );
+			// 600 nodes -> 6000ms -> 6s -> nearest 5s -> 5000.
+			expect( node.interval_ms ).toBe( 5000 );
 		} );
 	} );
 

@@ -5,6 +5,7 @@
 import { useEffect, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { ModalShell, PromptModal } from './Modal';
+import { computePollIntervalMs } from '../../runtime/metadata-node';
 
 // The Inspector hides config-edit affordances (Routing/Constructor/Verbs/
 // rename/Delete/class-catalog verb buttons) for the worker-auto-mounted
@@ -129,6 +130,27 @@ function formatByteRate( rate ) {
 
 // Inspector sparkline (wider/taller variant of the node-card one).
 const INSP_SPARK_HISTORY_MAX = 60;
+
+// Honest "last ~Ns" label for the Activity sparkline. It holds
+// INSP_SPARK_HISTORY_MAX samples, one per metadata poll, and the poll cadence
+// scales with graph size (computePollIntervalMs) — so the real trailing window
+// is sample-count * interval, not a fixed minute. Rolls to minutes past 120s.
+export function formatActivityWindow( nodeCount ) {
+	const windowSec =
+		( INSP_SPARK_HISTORY_MAX * computePollIntervalMs( nodeCount ) ) / 1000;
+	if ( windowSec < 120 ) {
+		return sprintf(
+			// translators: %d: trailing activity window length in seconds.
+			__( 'last ~%ds', 'newspack-nodes' ),
+			Math.round( windowSec )
+		);
+	}
+	return sprintf(
+		// translators: %d: trailing activity window length in minutes.
+		__( 'last ~%dm', 'newspack-nodes' ),
+		Math.round( windowSec / 60 )
+	);
+}
 function inspectorSparklinePath( history, width, height ) {
 	if ( ! history || history.length < 2 ) {
 		return null;
@@ -1161,7 +1183,7 @@ export default function Inspector( {
 				rateInfo?.hasWritten ) && (
 				<Section
 					title={ __( 'Activity', 'newspack-nodes' ) }
-					meta={ __( 'last ~60s', 'newspack-nodes' ) }
+					meta={ formatActivityWindow( parsed.nodes.length ) }
 				>
 					{ rateInfo.hasMessages && (
 						<SparklineRow
