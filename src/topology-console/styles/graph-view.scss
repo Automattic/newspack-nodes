@@ -561,11 +561,18 @@
 		opacity: 0.4;
 	}
 
-	// Overview / zoomed-out: skip the entrance fade so panning a huge graph
-	// doesn't restart an animation on every node that crosses the viewport.
-	// (No opacity override — a faded node stays faded.)
+	// Overview / zoomed-out (LOD): skip the entrance fade so panning a huge graph
+	// doesn't restart an animation on every node that crosses the viewport. The
+	// bare rect is all that's drawn here, and at tiny scale the 1px stroke is
+	// sub-pixel — so fill it with a strong ink (not the near-background
+	// --paper-2) to carry the contrast and keep LOD nodes legible.
 	&.is-static {
 		animation: none;
+
+		.topology-node__bg {
+			fill: var(--ink-2);
+			stroke: none;
+		}
 	}
 
 	// While being dragged: cursor flips to grabbing and the node sits
@@ -727,13 +734,6 @@
 		animation:
 			topology-draw 0.8s ease-out 0.2s forwards,
 			topology-flow 0.8s linear 1s infinite;
-	}
-
-	// Past a readable zoom (LOD), the marching-ants flow on thousands of edges is
-	// wasted repaints — render them as static, fully-drawn dashes instead.
-	&.is-static {
-		animation: none;
-		stroke-dashoffset: 0;
 	}
 
 	&.is-selected {

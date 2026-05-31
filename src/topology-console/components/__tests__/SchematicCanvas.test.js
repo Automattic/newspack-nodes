@@ -1164,16 +1164,21 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		classCatalog: {},
 	};
 
-	it( 'drops the entire edge layer when zoomed out below EDGE_MIN_SCALE', () => {
+	it( 'drops the edge layer below the detail (text) scale, with the text', () => {
 		stubW = 1000;
 		stubH = 1000;
-		// 1000px across a 50000-unit viewBox = 0.02 px/unit < EDGE_MIN_SCALE (0.05).
+		// 1000px across a 5000-unit viewBox = 0.2 px/unit — the OLD EDGE_MIN_SCALE
+		// (0.05) gate kept edges here, but it's below the 0.35 detail scale, so
+		// edges now LOD away at the same zoom as the labels.
 		const { container } = render(
 			<SchematicCanvas
 				{ ...lodProps }
-				viewport={ { x: 0, y: 0, w: 50000, h: 50000 } }
+				viewport={ { x: 0, y: 0, w: 5000, h: 5000 } }
 			/>
 		);
+		expect(
+			container.querySelectorAll( '.topology-node.is-static' ).length
+		).toBeGreaterThan( 0 ); // confirm we ARE below the detail scale
 		expect(
 			container.querySelectorAll( '.topology-edge--active' )
 		).toHaveLength( 0 );
