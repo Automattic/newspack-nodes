@@ -581,6 +581,22 @@ export default function SchematicCanvas( {
 		} );
 	};
 
+	// Attach the wheel zoom NON-PASSIVELY so preventDefault() actually stops the
+	// page scrolling behind the canvas. React's onWheel is passive — Safari honors
+	// that and scrolls the page; Chrome/FF log "Unable to preventDefault inside
+	// passive event listener". A ref holds the latest closure so we attach once.
+	const handleWheelRef = useRef( handleWheel );
+	handleWheelRef.current = handleWheel;
+	useEffect( () => {
+		const el = svgRef.current;
+		if ( ! el ) {
+			return undefined;
+		}
+		const onWheel = ( e ) => handleWheelRef.current( e );
+		el.addEventListener( 'wheel', onWheel, { passive: false } );
+		return () => el.removeEventListener( 'wheel', onWheel );
+	}, [] );
+
 	// Pan on background drag (nodes stopPropagation); a non-drag click
 	// becomes deselect/autofit.
 	const handleBgPointerDown = ( e ) => {
@@ -751,7 +767,6 @@ export default function SchematicCanvas( {
 			onPointerMove={ handleBgPointerMove }
 			onPointerUp={ handleBgPointerUp }
 			onPointerCancel={ handleBgPointerUp }
-			onWheel={ handleWheel }
 			onDragOver={ handleDragOver }
 			onDrop={ handleDrop }
 		>
