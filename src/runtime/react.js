@@ -1,4 +1,10 @@
-import { useState, useEffect, useCallback, useId } from '@wordpress/element';
+import {
+	useState,
+	useEffect,
+	useCallback,
+	useId,
+	useSyncExternalStore,
+} from '@wordpress/element';
 import { Core } from './core';
 
 /**
@@ -35,6 +41,30 @@ export function useNodeState( nodeName, event ) {
 		return () => node.unregister( event, listenerId );
 	}, [ node, event, reactId ] );
 	return value;
+}
+
+// Stable references for useSyncExternalStore — defined once so the `subscribe`
+// identity never changes across renders (an inline arrow would unsubscribe +
+// re-subscribe every render, churning Core's listener set). getSnapshot doubles
+// as the server snapshot (the counter is 0 on a fresh module, SSR-safe).
+const subscribeGeneration = ( onChange ) =>
+	Core.subscribeGraphGeneration( onChange );
+const getGeneration = () => Core.graphGeneration;
+
+/**
+ * Subscribe to Core's full-graph-rebuild signal. A change re-renders the caller
+ * and, when included in a graph-building effect's deps, re-runs that effect
+ * (cleanup tears down its nodes, the effect rebuilds them). The overlay's Reset
+ * Graph bumps it to reconstruct the entire graph in place.
+ *
+ * @return {number} The current graph generation.
+ */
+export function useGraphGeneration() {
+	return useSyncExternalStore(
+		subscribeGeneration,
+		getGeneration,
+		getGeneration
+	);
 }
 
 /**

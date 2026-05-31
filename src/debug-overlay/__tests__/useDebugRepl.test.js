@@ -37,6 +37,64 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
+	it( 'rebuilds its infra nodes on a graphGeneration bump (overlay half of Reset Graph)', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		renderHook( () => useDebugRepl( true, shell ) );
+		const firstOutput = Core.node( names.OUTPUT );
+		const firstMetadata = Core.node( names.METADATA );
+		expect( firstOutput ).not.toBeNull();
+
+		act( () => Core.bumpGraphGeneration() );
+
+		// Fresh instances under the same names — the overlay's own nodes rebuild
+		// off the same signal the dashboard graph does.
+		expect( Core.node( names.OUTPUT ) ).not.toBeNull();
+		expect( Core.node( names.OUTPUT ) ).not.toBe( firstOutput );
+		expect( Core.node( names.METADATA ) ).not.toBe( firstMetadata );
+		teardown();
+	} );
+
+	it( 'unmount unregisters _metadata TIMER from the router (no stale-closure leak)', () => {
+		const { teardown } = mountExospine();
+		const router = Core.node( names.ROUTER );
+		const shell = makeShell();
+		const { unmount } = renderHook( () => useDebugRepl( true, shell ) );
+		// _metadata's poll closure is registered on the router's TIMER.
+		expect( router.registrations.TIMER?.[ names.METADATA ] ).toBeTruthy();
+
+		unmount();
+
+		// Cleanup detaches it — the router (a sibling-owned backbone node) survives
+		// a panel close, so a lingering closure would poll a dead _metadata forever.
+		expect( router.registrations.TIMER?.[ names.METADATA ] ).toBeFalsy();
+		teardown();
+	} );
+
+	it( 'after a bump, _metadata re-registers its TIMER on the FRESH router (the critical ordering)', () => {
+		// Build-delegated mount → mountExospine subscribes, so the bump rebuilds the
+		// backbone. This is the production case the bare-mount test above can't cover:
+		// the fresh _router must exist (sync fullRebuild) BEFORE useDebugRepl's async
+		// effect re-registers _metadata's TIMER onto it — else the canvas freezes.
+		const { teardown } = mountExospine( () => {} );
+		const shell = makeShell();
+		renderHook( () => useDebugRepl( true, shell ) );
+		const firstRouter = Core.node( names.ROUTER );
+		expect(
+			firstRouter.registrations.TIMER?.[ names.METADATA ]
+		).toBeTruthy();
+
+		act( () => Core.bumpGraphGeneration() );
+
+		const freshRouter = Core.node( names.ROUTER );
+		expect( freshRouter ).not.toBe( firstRouter );
+		// The TIMER lands on the FRESH router, not the torn-down one.
+		expect(
+			freshRouter.registrations.TIMER?.[ names.METADATA ]
+		).toBeTruthy();
+		teardown();
+	} );
+
 	it( 'sendLine echoes a non-empty input into the transcript', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();

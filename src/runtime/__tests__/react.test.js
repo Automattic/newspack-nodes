@@ -1,5 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
-import { useNodeState, useNodeFill } from '../react';
+import { useNodeState, useNodeFill, useGraphGeneration } from '../react';
 import { Node } from '../node';
 import { Core } from '../core';
 import { newMessage, VALUE } from '../message';
@@ -99,4 +99,13 @@ test( 'useNodeFill returns a fill function for the named node', () => {
 	m[ VALUE ] = 'sent';
 	act( () => result.current( m ) );
 	expect( got ).toEqual( [ 'sent' ] );
+} );
+
+test( 'useGraphGeneration returns the current generation and re-renders on bump', () => {
+	const { result } = renderHook( () => useGraphGeneration() );
+	expect( result.current ).toBe( 0 );
+	act( () => Core.bumpGraphGeneration() );
+	expect( result.current ).toBe( 1 );
+	act( () => Core.bumpGraphGeneration() );
+	expect( result.current ).toBe( 2 );
 } );

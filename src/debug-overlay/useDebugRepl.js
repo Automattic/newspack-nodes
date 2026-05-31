@@ -11,6 +11,7 @@ import { splitStatements } from '../topology-console/nodes/shell';
 import { DumperNode } from '../runtime/dumper-node';
 import { CompletionNode } from '../runtime/completion-node';
 import { MetadataNode } from '../runtime/metadata-node';
+import { useGraphGeneration } from '../runtime/react';
 import { LOCAL, FROM, TO, VALUE } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 
@@ -43,6 +44,10 @@ export function useDebugRepl( active = true, shell ) {
 	// subscriptions bind to nodes registered in this hook's useEffect.
 	const [ cwd, setCwd ] = useState( '' );
 	const [ , setMounted ] = useState( false );
+	// The full-rebuild signal: a bump re-runs this effect (cleanup tears down the
+	// overlay's infra nodes, the effect rebuilds them off the fresh backbone) so
+	// "Reset Graph" reconstructs the overlay's half of the graph too.
+	const generation = useGraphGeneration();
 
 	useEffect( () => {
 		if ( ! active ) {
@@ -88,6 +93,10 @@ export function useDebugRepl( active = true, shell ) {
 		} );
 		return () => {
 			dumper.unregister( 'transcript', listenerId );
+			// Detach _metadata's poll closure from the router's TIMER — the router
+			// (a sibling-owned backbone node) survives a panel close, so removeNode
+			// alone would leave a closure polling a dead _metadata every tick.
+			router?.unregister( 'TIMER', names.METADATA );
 			dumper.removeNode();
 			completion.removeNode();
 			metadata.removeNode();
@@ -97,7 +106,7 @@ export function useDebugRepl( active = true, shell ) {
 			setTranscript( EMPTY_TRANSCRIPT );
 			setMounted( false );
 		};
-	}, [ active, shell ] );
+	}, [ active, shell, generation ] );
 
 	const append = useCallback( ( entry ) => {
 		dumperRef.current?.append( entry );

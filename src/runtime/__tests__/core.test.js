@@ -160,3 +160,38 @@ test( 'initTime is a number set at construction and re-set by reset()', () => {
 	expect( Core.initTime ).toBe( 5_000 );
 	nowSpy.mockRestore();
 } );
+
+describe( 'graphGeneration — full-rebuild signal', () => {
+	test( 'starts at 0 and bumpGraphGeneration increments it', () => {
+		expect( Core.graphGeneration ).toBe( 0 );
+		Core.bumpGraphGeneration();
+		expect( Core.graphGeneration ).toBe( 1 );
+		Core.bumpGraphGeneration();
+		expect( Core.graphGeneration ).toBe( 2 );
+	} );
+
+	test( 'notifies subscribers on every bump; unsubscribe stops them', () => {
+		let calls = 0;
+		const unsub = Core.subscribeGraphGeneration( () => {
+			calls += 1;
+		} );
+		Core.bumpGraphGeneration();
+		Core.bumpGraphGeneration();
+		expect( calls ).toBe( 2 );
+		unsub();
+		Core.bumpGraphGeneration();
+		expect( calls ).toBe( 2 );
+	} );
+
+	test( 'reset() returns the generation to 0 and drops subscribers', () => {
+		let calls = 0;
+		Core.subscribeGraphGeneration( () => {
+			calls += 1;
+		} );
+		Core.bumpGraphGeneration();
+		Core.reset();
+		expect( Core.graphGeneration ).toBe( 0 );
+		Core.bumpGraphGeneration();
+		expect( calls ).toBe( 1 ); // the pre-reset bump only; post-reset has no subscribers
+	} );
+} );
