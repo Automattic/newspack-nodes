@@ -137,26 +137,22 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				cwdNode.sink = interpreter;
 				cwdNode.target = shell.path;
 				// Mirror the real timer wiring so the cadence test exercises the
-				// Router TIMER → Metadata/Uptime onTimer → interpreter → … → HttpOut path.
+				// Router TIMER → notify_timer → Metadata/Uptime fire → … → HttpOut path.
 				metadata.sink = interpreter;
 				uptime.sink = interpreter;
 				metadata.target = reserved.CWD;
 				uptime.target = reserved.CWD;
 				router.beforeTimerNotify = () => httpOut.lock();
 				router.afterTimerNotify = () => httpOut.flush();
-				router.register( 'TIMER', reserved.METADATA, () =>
-					metadata.onTimer()
-				);
-				router.register( 'TIMER', reserved.UPTIME, () =>
-					uptime.onTimer()
-				);
-				// Router auto-starts a 1s real-timer in its constructor
-				// (Tachikoma fidelity). The initial `_tick()` has already fired
-				// (the cadence test depends on it for the immediate-paint
-				// assertion); stop the recurring interval so that under heavy
-				// parallel-coverage CPU pressure a slow test (>1s) doesn't see a
-				// surprise dump_metadata round-trip overwrite test-injected
-				// metadata state. The cadence test re-installs its own
+				// Metadata/Uptime hitchhike the _router TIMER (set_timer() no args):
+				// notify_timer calls their fireCb -> fire each tick.
+				metadata.setTimer();
+				uptime.setTimer();
+				// Router self-starts a 1s real-timer slot in its constructor
+				// (setTimer(1000), no immediate fire). Stop the recurring interval so
+				// that under heavy parallel-coverage CPU pressure a slow test (>1s)
+				// doesn't see a surprise dump_metadata round-trip overwrite
+				// test-injected metadata state. The cadence test re-installs its own
 				// fake-timer interval below before relying on it.
 				router.stopTimer();
 				globalThis.__shell = shell;
@@ -677,9 +673,11 @@ describe( 'TopologyConsole boot', () => {
 			// The useConsoleGraph mock stops the Router's auto-started 1s
 			// timer (real-timer flake mitigation for OTHER tests). Re-install
 			// the 1s cadence here so jest.advanceTimersByTime(1000) below
-			// triggers the next dump_metadata round-trip.
+			// triggers the next dump_metadata round-trip, then drive one tick
+			// (setTimer doesn't fire immediately) for the initial paint.
 			act( () => {
-				Core.node( names.ROUTER ).startTimer( 1000 );
+				Core.node( names.ROUTER ).setTimer( 1000 );
+				Core.node( names.ROUTER ).fireCb();
 			} );
 			const verbOf = ( m ) => m[ VALUE ] && m[ VALUE ].name;
 			const fromOf = ( m ) => m[ FROM ];

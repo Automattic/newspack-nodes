@@ -10,7 +10,15 @@ import {
 	useState,
 } from '@wordpress/element';
 
-import { autoLayout, X_PAD, X_STEP, Y_PAD, Y_STEP } from '../utils/autoLayout';
+import {
+	autoLayout,
+	placeNewNode,
+	X_PAD,
+	X_STEP,
+	Y_PAD,
+	Y_STEP,
+} from '../utils/autoLayout';
+import { viewportCull } from '../utils/viewportCull';
 
 const NODE_W = 196;
 const NODE_H = 84;
@@ -92,8 +100,12 @@ function tightViewBoxFor( nodes, canvasSize = null ) {
 
 // Wheel zoom step (multiplicative), cursor-anchored.
 const ZOOM_STEP = 1.12;
+// How far past the whole-graph fit you can zoom OUT.
 const ZOOM_MIN = 0.25;
-const ZOOM_MAX = 4.0;
+// Deepest zoom-IN, as an ABSOLUTE scale (CSS px per world unit) so a giant graph
+// can still be zoomed in to read individual cards — not capped relative to the
+// (tiny) whole-graph fit. A node is NODE_W wide, so 3 px/unit ≈ a 588px card.
+const SCALE_MAX = 3;
 
 // Parse "x y w h" into an object; safe fallback on malformed input.
 function parseViewBox( str ) {
@@ -179,50 +191,55 @@ export default function SchematicCanvas( {
 	// is already populated or the user has touched anything).
 	onSeedLayout = null,
 } ) {
-	// User-pinned overrides win over autoLayout output (keyed by node name
-	// so they survive restarts that re-seed counters).
-	const { nodes: laidOutNodes, edges } = useMemo(
-		() => autoLayout( parsed ),
-		[ parsed ]
-	);
-	const nodes = useMemo( () => {
-		if ( ! positionOverrides ) {
-			return laidOutNodes;
+	const edges = useMemo( () => parsed?.edges ?? [], [ parsed ] );
+	// Positions: a single autoLayout pass places the INITIAL graph (no pins yet);
+	// after that, a pinned node keeps its override and a newly-appeared node gets a
+	// cheap placeNewNode spot near its connection. autoLayout never re-runs on a
+	// metadata / connection change, so a placed node never re-flows.
+	const nodePositions = useMemo( () => {
+		const overrides = positionOverrides || {};
+		const parsedNodes = parsed?.nodes ?? [];
+		if ( Object.keys( overrides ).length === 0 ) {
+			const out = {};
+			for ( const n of autoLayout( parsed ).nodes ) {
+				out[ n.id ] = n.position;
+			}
+			return out;
 		}
-		return laidOutNodes.map( ( n ) =>
-			positionOverrides[ n.id ]
-				? { ...n, position: positionOverrides[ n.id ] }
-				: n
-		);
-	}, [ laidOutNodes, positionOverrides ] );
+		const out = { ...overrides };
+		for ( const n of parsedNodes ) {
+			if ( ! out[ n.id ] ) {
+				out[ n.id ] = placeNewNode( n.id, parsed, out );
+			}
+		}
+		return out;
+	}, [ parsed, positionOverrides ] );
+	const nodes = useMemo(
+		() =>
+			( parsed?.nodes ?? [] ).map( ( n ) => ( {
+				...n,
+				position: nodePositions[ n.id ],
+			} ) ),
+		[ parsed, nodePositions ]
+	);
 
 	// Mirror of `nodes` for the freeze effect (keyed on length, reads identity).
 	const nodesRef = useRef( nodes );
 	nodesRef.current = nodes;
 
-	// Seed the parent's saved layout once: when there are no overrides yet
-	// and autoLayout has produced a non-empty set, ship the positions up.
-	// The receiving hook is idempotent; this fires on every render where
-	// the conditions hold, which is harmless (no-op after the first save).
+	// Ship the computed positions up to the parent's layout store. The receiving
+	// hook merges in a position only for nodes not yet pinned (never overwriting an
+	// existing one), so this pins the initial autoLayout once and each newcomer's
+	// placeNewNode spot once, then is a no-op.
 	useEffect( () => {
 		if ( ! onSeedLayout ) {
 			return;
 		}
-		if (
-			positionOverrides &&
-			Object.keys( positionOverrides ).length > 0
-		) {
+		if ( Object.keys( nodePositions ).length === 0 ) {
 			return;
 		}
-		if ( ! laidOutNodes || laidOutNodes.length === 0 ) {
-			return;
-		}
-		const seed = {};
-		for ( const n of laidOutNodes ) {
-			seed[ n.id ] = n.position;
-		}
-		onSeedLayout( seed );
-	}, [ laidOutNodes, positionOverrides, onSeedLayout ] );
+		onSeedLayout( nodePositions );
+	}, [ nodePositions, onSeedLayout ] );
 
 	// Active-drag state; snap + commit happen on pointerup.
 	const [ drag, setDrag ] = useState( null );
@@ -443,6 +460,20 @@ export default function SchematicCanvas( {
 	const viewBox = viewport
 		? `${ viewport.x } ${ viewport.y } ${ viewport.w } ${ viewport.h }`
 		: defaultViewBox;
+
+	// Cull for the current viewport so a multi-thousand-node graph doesn't put
+	// every card (and every label) in the DOM. Only nodes intersecting the
+	// viewBox render, and when zoomed out past readability the cards drop to bare
+	// rects. Recomputed on viewport / node-position changes, not on hover.
+	const { visibleIds, showDetail } = useMemo( () => {
+		const vb = viewport || parseViewBox( defaultViewBox );
+		const cs = canvasSize() || { w: 0, h: 0 };
+		return viewportCull( displayNodes, vb, cs, {
+			nodeW: NODE_W,
+			nodeH: NODE_H,
+		} );
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [ viewport, defaultViewBox, displayNodes ] );
 	// Freeze the autofit on first render so node drags don't live-shift
 	// the whole canvas (viewport=null otherwise re-fits every render).
 	// Keyed on nodes.length, reading nodesRef (not displayNodes) so an
@@ -469,13 +500,30 @@ export default function SchematicCanvas( {
 		const svg = e.currentTarget;
 		const world = screenToSvg( svg, e.clientX, e.clientY );
 		const current = viewport || parseViewBox( defaultViewBox );
+		const measured = canvasSize();
+		// Unmeasured (first render / tests): fall back to the viewBox's own size
+		// so zoom still scales by `factor` and keeps the current aspect.
+		const cs =
+			measured && measured.w && measured.h
+				? measured
+				: { w: current.w, h: current.h };
 		const factor = e.deltaY > 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
-		// Clamp via size against the original default (bigger = zoomed out).
-		const baseW = parseViewBox( defaultViewBox ).w;
-		const minW = baseW / ZOOM_MAX;
-		const maxW = baseW / ZOOM_MIN;
-		const nextW = Math.max( minW, Math.min( maxW, current.w * factor ) );
-		const nextH = ( current.h / current.w ) * nextW;
+		// Work in scale-space (px per world unit) so the limits are ABSOLUTE: a
+		// giant graph can still be zoomed in to read. The displayed scale under
+		// preserveAspectRatio="meet" is the smaller of the width/height fits.
+		const baseVb = parseViewBox( defaultViewBox );
+		const fitScale = Math.min( cs.w / baseVb.w, cs.h / baseVb.h );
+		const curScale = Math.min( cs.w / current.w, cs.h / current.h );
+		const minScale = fitScale * ZOOM_MIN;
+		const maxScale = Math.max( fitScale, SCALE_MAX );
+		const nextScale = Math.max(
+			minScale,
+			Math.min( maxScale, curScale / factor )
+		);
+		// Zoomed regions take the CANVAS aspect so they fill the panel instead of
+		// letterboxing a tall-narrow graph into an unreadable thin strip.
+		const nextW = cs.w / nextScale;
+		const nextH = cs.h / nextScale;
 		const fracX = ( world.x - current.x ) / current.w;
 		const fracY = ( world.y - current.y ) / current.h;
 		setViewport( {
@@ -722,6 +770,13 @@ export default function SchematicCanvas( {
 					if ( ! a || ! b ) {
 						return null;
 					}
+					// Cull edges with both endpoints off-viewport.
+					if (
+						! visibleIds.has( e.from ) &&
+						! visibleIds.has( e.to )
+					) {
+						return null;
+					}
 					const hoverTouches =
 						hoveredId === e.from || hoveredId === e.to;
 					const selectTouches =
@@ -774,6 +829,13 @@ export default function SchematicCanvas( {
 
 			<g className="topology-nodes">
 				{ displayNodes.map( ( n, i ) => {
+					// Cull off-viewport nodes (always render the one being dragged).
+					if (
+						! visibleIds.has( n.id ) &&
+						! ( drag && drag.nodeId === n.id )
+					) {
+						return null;
+					}
 					const isSelected = n.id === selectedId;
 					const isHovered = n.id === hoveredId;
 					const isFaded = hoveredId && ! isHovered;
@@ -819,105 +881,113 @@ export default function SchematicCanvas( {
 								width={ NODE_W }
 								height={ NODE_H }
 							/>
-							<line
-								className="topology-node__divider"
-								x1={ 0 }
-								y1={ 22 }
-								x2={ NODE_W }
-								y2={ 22 }
-							/>
-							<text
-								className="topology-node__type"
-								x={ 11 }
-								y={ 15 }
-							>
-								{ n.class }
-							</text>
-							<circle
-								className="topology-node__led"
-								cx={ NODE_W - 12 }
-								cy={ 13 }
-								r={ 3.5 }
-							/>
-							<text
-								className="topology-node__id"
-								x={ 11 }
-								y={ 44 }
-							>
-								{ n.id }
-							</text>
-							{ /* Per-node rate sparkline; hidden under two samples. */ }
-							{ rateRef &&
-								( () => {
-									const history = rateRef.current.get(
-										n.id
-									)?.history;
-									const path = sparklinePath( history );
-									if ( ! path ) {
-										return null;
-									}
-									return (
-										<path
-											className="topology-node__spark"
-											d={ path }
-										/>
-									);
-								} )() }
-							{ /* Per-node rate, bottom-left; quiet nodes show nothing. */ }
-							{ rateRef && (
-								<text
-									className="topology-node__rate"
-									x={ 11 }
-									y={ 76 }
-								>
-									{ formatNodeRate(
-										rateRef.current.get( n.id )?.rate
+							{ /* Labels/sparkline/ports only when zoomed in enough to read. */ }
+							{ showDetail && (
+								<>
+									<line
+										className="topology-node__divider"
+										x1={ 0 }
+										y1={ 22 }
+										x2={ NODE_W }
+										y2={ 22 }
+									/>
+									<text
+										className="topology-node__type"
+										x={ 11 }
+										y={ 15 }
+									>
+										{ n.class }
+									</text>
+									<circle
+										className="topology-node__led"
+										cx={ NODE_W - 12 }
+										cy={ 13 }
+										r={ 3.5 }
+									/>
+									<text
+										className="topology-node__id"
+										x={ 11 }
+										y={ 44 }
+									>
+										{ n.id }
+									</text>
+									{ /* Per-node rate sparkline; hidden under two samples. */ }
+									{ rateRef &&
+										( () => {
+											const history = rateRef.current.get(
+												n.id
+											)?.history;
+											const path =
+												sparklinePath( history );
+											if ( ! path ) {
+												return null;
+											}
+											return (
+												<path
+													className="topology-node__spark"
+													d={ path }
+												/>
+											);
+										} )() }
+									{ /* Per-node rate, bottom-left; quiet nodes show nothing. */ }
+									{ rateRef && (
+										<text
+											className="topology-node__rate"
+											x={ 11 }
+											y={ 76 }
+										>
+											{ formatNodeRate(
+												rateRef.current.get( n.id )
+													?.rate
+											) }
+										</text>
 									) }
-								</text>
-							) }
-							<text
-								className="topology-node__counter"
-								x={ NODE_W - 11 }
-								y={ 76 }
-								textAnchor="end"
-							>
-								{ compactCount( n.count ) }
-							</text>
-							{ ( n.accepts_fill ??
-								classCatalog[ n.class ]?.accepts_fill ??
-								true ) && (
-								<circle
-									className={ `topology-port topology-port--in${
-										wireDrag && wireDrag.hoveredId === n.id
-											? ' is-snap-target'
-											: ''
-									}` }
-									cx={ 0 }
-									cy={ NODE_H / 2 }
-									r={ PORT_R }
-								/>
-							) }
-							{ ( n.has_target ??
-								classCatalog[ n.class ]?.has_target ??
-								true ) && (
-								<circle
-									className={ `topology-port topology-port--out${
-										editMode ? ' is-edit' : ''
-									}${
-										interactive && onConnect
-											? ' is-wire-source'
-											: ''
-									}` }
-									cx={ NODE_W }
-									cy={ NODE_H / 2 }
-									r={ PORT_R }
-									onPointerDown={ ( e ) =>
-										handlePortPointerDown( n.id, e )
-									}
-									onMouseDown={ ( e ) =>
-										handlePortPointerDown( n.id, e )
-									}
-								/>
+									<text
+										className="topology-node__counter"
+										x={ NODE_W - 11 }
+										y={ 76 }
+										textAnchor="end"
+									>
+										{ compactCount( n.count ) }
+									</text>
+									{ ( n.accepts_fill ??
+										classCatalog[ n.class ]?.accepts_fill ??
+										true ) && (
+										<circle
+											className={ `topology-port topology-port--in${
+												wireDrag &&
+												wireDrag.hoveredId === n.id
+													? ' is-snap-target'
+													: ''
+											}` }
+											cx={ 0 }
+											cy={ NODE_H / 2 }
+											r={ PORT_R }
+										/>
+									) }
+									{ ( n.has_target ??
+										classCatalog[ n.class ]?.has_target ??
+										true ) && (
+										<circle
+											className={ `topology-port topology-port--out${
+												editMode ? ' is-edit' : ''
+											}${
+												interactive && onConnect
+													? ' is-wire-source'
+													: ''
+											}` }
+											cx={ NODE_W }
+											cy={ NODE_H / 2 }
+											r={ PORT_R }
+											onPointerDown={ ( e ) =>
+												handlePortPointerDown( n.id, e )
+											}
+											onMouseDown={ ( e ) =>
+												handlePortPointerDown( n.id, e )
+											}
+										/>
+									) }
+								</>
 							) }
 						</g>
 					);
