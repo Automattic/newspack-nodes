@@ -19,8 +19,9 @@
  * @param {number}                                          [opts.detailScale=0.35] px/unit below which labels are dropped.
  * @param {number}                                          [opts.overscan=0]       Off-screen render band as a fraction of the viewBox per axis.
  * @param {number}                                          [opts.margin]           Absolute world-unit cull margin (overrides overscan, both axes).
- * @return {{visibleIds:Set<string>, showDetail:boolean, scale:number}} The set of
- *   node ids to render, whether to draw labels, and the px/unit scale.
+ * @return {{visibleIds:Set<string>, showDetail:boolean, scale:number, region:{x:number,y:number,w:number,h:number}}}
+ *   The node ids to render, whether to draw labels, the px/unit scale, and the
+ *   on-screen clip rect (for truncating one-endpoint-visible edges).
  */
 export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
 	const nodeW = opts.nodeW ?? 196;
@@ -78,7 +79,46 @@ export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
 		}
 	}
 
-	return { visibleIds, showDetail, scale };
+	return {
+		visibleIds,
+		showDetail,
+		scale,
+		// The clip rect (on-screen region + overscan) so a one-endpoint-visible
+		// edge can be truncated to the viewport instead of drawn as a giant bezier
+		// out to its off-screen peer.
+		region: { x: left, y: top, w: right - left, h: bottom - top },
+	};
+}
+
+/**
+ * Exit point where the segment (x0,y0)→(x1,y1) leaves a rect, assuming (x0,y0)
+ * is inside it (Liang-Barsky exit parameter). Used to truncate an edge whose
+ * far endpoint is off-screen to where it crosses the viewport boundary. If the
+ * target is also inside, returns it unchanged.
+ *
+ * @param {number}                                x0
+ * @param {number}                                y0
+ * @param {number}                                x1
+ * @param {number}                                y1
+ * @param {{x:number,y:number,w:number,h:number}} rect
+ * @return {{x:number,y:number}} The clipped endpoint.
+ */
+export function clipSegmentExit( x0, y0, x1, y1, rect ) {
+	const dx = x1 - x0;
+	const dy = y1 - y0;
+	let tExit = 1;
+	// For each outward boundary p·t <= q, the exit bound is q/p when p > 0.
+	const consider = ( p, q ) => {
+		if ( p > 0 ) {
+			tExit = Math.min( tExit, q / p );
+		}
+	};
+	consider( dx, rect.x + rect.w - x0 ); // x <= right
+	consider( -dx, x0 - rect.x ); // x >= left
+	consider( dy, rect.y + rect.h - y0 ); // y <= bottom
+	consider( -dy, y0 - rect.y ); // y >= top
+	tExit = Math.max( 0, Math.min( 1, tExit ) );
+	return { x: x0 + tExit * dx, y: y0 + tExit * dy };
 }
 
 /**
