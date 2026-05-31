@@ -110,6 +110,13 @@ const SCALE_MAX = 3;
 // paint — skip the whole edge layer so a multi-thousand-node OVERVIEW stays light
 // (an LOD step below the per-node detail cull). Edges return as you zoom in.
 const EDGE_MIN_SCALE = 0.05;
+// Floor a node's on-screen size to this many CSS px so a card never shrinks to a
+// sub-pixel rect that some browsers (Firefox) drop entirely. At a tiny scale the
+// bare rect is enlarged in world units so it still paints ~2px.
+const MIN_NODE_PX = 2;
+// Render this fraction of a viewport of off-screen nodes on each side so panning
+// scrolls smoothly and a narrow column doesn't blink out when nudged sideways.
+const NODE_OVERSCAN = 0.5;
 
 // Parse "x y w h" into an object; safe fallback on malformed input.
 function parseViewBox( str ) {
@@ -486,17 +493,6 @@ export default function SchematicCanvas( {
 		: defaultViewBox;
 	const vb = viewport || parseViewBox( defaultViewBox );
 
-	// Per-node edge count, for edge-LOD: a high-degree hub's edges to off-screen
-	// neighbours are culled so the hub doesn't flood the canvas when it scrolls in.
-	const degree = useMemo( () => {
-		const d = {};
-		for ( const e of edges ) {
-			d[ e.from ] = ( d[ e.from ] || 0 ) + 1;
-			d[ e.to ] = ( d[ e.to ] || 0 ) + 1;
-		}
-		return d;
-	}, [ edges ] );
-
 	// Cull for the current viewport so a multi-thousand-node graph doesn't put
 	// every card (and every label) in the DOM. Only nodes intersecting the viewBox
 	// render; below a readable scale the cards drop to bare rects (LOD). Recomputed
@@ -506,10 +502,17 @@ export default function SchematicCanvas( {
 			viewportCull( displayNodes, vb, canvasPx, {
 				nodeW: NODE_W,
 				nodeH: NODE_H,
+				overscan: NODE_OVERSCAN,
 			} ),
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 		[ viewport, defaultViewBox, displayNodes, canvasPx ]
 	);
+	// Minimum node size in WORLD units to keep each card >= MIN_NODE_PX on screen.
+	// scale is px/world-unit; 0 (no floor) when unmeasured (scale === Infinity).
+	const minNodeWorld =
+		Number.isFinite( scale ) && scale > 0 ? MIN_NODE_PX / scale : 0;
+	const nodeRenderW = Math.max( NODE_W, minNodeWorld );
+	const nodeRenderH = Math.max( NODE_H, minNodeWorld );
 	// Freeze the autofit on first render so node drags don't live-shift
 	// the whole canvas (viewport=null otherwise re-fits every render).
 	// Keyed on nodes.length, reading nodesRef (not displayNodes) so an
@@ -807,12 +810,9 @@ export default function SchematicCanvas( {
 						if ( ! a || ! b ) {
 							return null;
 						}
-						// Edge-LOD cull: both endpoints visible → draw; one visible →
-						// draw only if that node is low-degree (a hub would flood);
-						// neither → drop.
-						if (
-							! isEdgeVisible( e.from, e.to, visibleIds, degree )
-						) {
+						// Cull only edges with BOTH endpoints off-screen; one visible
+						// endpoint is enough (it anchors the edge on-screen).
+						if ( ! isEdgeVisible( e.from, e.to, visibleIds ) ) {
 							return null;
 						}
 						const hoverTouches =
@@ -917,8 +917,8 @@ export default function SchematicCanvas( {
 							/>
 							<rect
 								className="topology-node__bg"
-								width={ NODE_W }
-								height={ NODE_H }
+								width={ nodeRenderW }
+								height={ nodeRenderH }
 							/>
 							{ /* Labels/sparkline/ports only when zoomed in enough to read. */ }
 							{ showDetail && (

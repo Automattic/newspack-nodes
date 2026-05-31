@@ -1177,4 +1177,42 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 			container.querySelectorAll( '.topology-node.is-static' )
 		).toHaveLength( 0 );
 	} );
+
+	it( 'floors a bare node to a visible on-screen size at extreme zoom-out', () => {
+		stubW = 1000;
+		stubH = 1000;
+		// 1000px across a 400000-unit viewBox = 0.0025 px/unit; a 196-unit node
+		// would render at ~0.5px (invisible / spotty in Firefox). The floor must
+		// enlarge its rect so it stays >= ~2px (>= 800 world units here).
+		const { container } = render(
+			<SchematicCanvas
+				{ ...lodProps }
+				viewport={ { x: 0, y: 0, w: 400000, h: 400000 } }
+			/>
+		);
+		const bg = container.querySelector( '.topology-node__bg' );
+		const minWorld = 2 / ( 1000 / 400000 ); // MIN_NODE_PX / scale = 800
+		// Bounded both ways: floors UP to ~2px-equivalent, not arbitrarily larger.
+		expect( Number( bg.getAttribute( 'width' ) ) ).toBeCloseTo(
+			minWorld,
+			3
+		);
+		expect( Number( bg.getAttribute( 'height' ) ) ).toBeCloseTo(
+			minWorld,
+			3
+		);
+	} );
+
+	it( 'leaves a node at its natural NODE_W when zoomed in (floor is a no-op)', () => {
+		stubW = 1000;
+		stubH = 1000;
+		const { container } = render(
+			<SchematicCanvas
+				{ ...lodProps }
+				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
+			/>
+		);
+		const bg = container.querySelector( '.topology-node__bg' );
+		expect( Number( bg.getAttribute( 'width' ) ) ).toBe( 196 );
+	} );
 } );

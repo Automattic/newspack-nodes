@@ -1,28 +1,30 @@
 import { viewportCull, isEdgeVisible } from '../viewportCull';
 
 describe( 'isEdgeVisible', () => {
-	const vis = new Set( [ 'a', 'b' ] ); // a, b on-screen; c, hub off-screen
-	const degree = { a: 2, b: 2, hub: 500 };
+	const vis = new Set( [ 'a', 'b' ] ); // a, b on-screen; c, d off-screen
 
 	it( 'renders an edge between two visible nodes', () => {
-		expect( isEdgeVisible( 'a', 'b', vis, degree ) ).toBe( true );
+		expect( isEdgeVisible( 'a', 'b', vis ) ).toBe( true );
 	} );
 
-	it( 'culls an edge with both endpoints off-screen', () => {
-		expect( isEdgeVisible( 'c', 'hub', vis, degree ) ).toBe( false );
+	it( 'culls an edge only when BOTH endpoints are off-screen', () => {
+		expect( isEdgeVisible( 'c', 'd', vis ) ).toBe( false );
 	} );
 
-	it( 'renders an off-screen edge from a low-degree visible node', () => {
-		// a (visible, degree 2) → c (off-screen): a chain connector still draws.
-		expect( isEdgeVisible( 'a', 'c', vis, degree ) ).toBe( true );
+	it( 'renders an edge whose source is on-screen (target off)', () => {
+		expect( isEdgeVisible( 'a', 'c', vis ) ).toBe( true );
 	} );
 
-	it( 'culls an off-screen edge from a high-degree hub', () => {
-		// hub is off-screen with degree 500; an edge hub → a (visible) would,
-		// from a's side, be one of a's 2 edges (rendered). But an edge a → hub
-		// where the VISIBLE node is the hub floods, so a visible hub culls them.
+	it( 'renders an edge whose target is on-screen (source off)', () => {
+		// The bug: an edge to an in-view node was culled because its source
+		// scrolled off — now one visible endpoint is enough.
+		expect( isEdgeVisible( 'c', 'a', vis ) ).toBe( true );
+	} );
+
+	it( 'renders an edge to a visible high-degree hub (no degree LOD)', () => {
+		// One visible endpoint is enough regardless of how many edges it has.
 		const visHub = new Set( [ 'hub' ] );
-		expect( isEdgeVisible( 'hub', 'c', visHub, degree ) ).toBe( false );
+		expect( isEdgeVisible( 'hub', 'c', visHub ) ).toBe( true );
 	} );
 } );
 
@@ -67,6 +69,51 @@ describe( 'viewportCull', () => {
 			{ margin: 200 }
 		);
 		expect( visibleIds.has( 'edge' ) ).toBe( true );
+	} );
+
+	it( 'keeps a node within the overscan band (fraction of the viewBox)', () => {
+		// overscan 0.5 of a 1000-wide viewBox = 500 world units of margin per side,
+		// so a node 300 past the right edge still renders (panning won't blank it).
+		const nodes = [ { id: 'near', position: { x: 1300, y: 0 } } ];
+		const vb = { x: 0, y: 0, w: 1000, h: 1000 };
+		const { visibleIds } = viewportCull(
+			nodes,
+			vb,
+			{ w: 1000, h: 1000 },
+			{ overscan: 0.5 }
+		);
+		expect( visibleIds.has( 'near' ) ).toBe( true );
+	} );
+
+	it( 'still culls a node beyond the overscan band', () => {
+		const nodes = [ { id: 'far', position: { x: 1600, y: 0 } } ];
+		const vb = { x: 0, y: 0, w: 1000, h: 1000 };
+		const { visibleIds } = viewportCull(
+			nodes,
+			vb,
+			{ w: 1000, h: 1000 },
+			{ overscan: 0.5 }
+		);
+		expect( visibleIds.has( 'far' ) ).toBe( false );
+	} );
+
+	it( 'overscans per-axis (a tall-narrow viewBox gets a small X / large Y band)', () => {
+		// viewBox 400 wide x 4000 tall; overscan 0.5 -> 200 X-margin, 2000 Y-margin.
+		const vb = { x: 0, y: 0, w: 400, h: 4000 };
+		const within = viewportCull(
+			[ { id: 'y', position: { x: 0, y: 5500 } } ], // 1500 below, < 2000 Y-band
+			vb,
+			{ w: 400, h: 4000 },
+			{ overscan: 0.5 }
+		);
+		const beyond = viewportCull(
+			[ { id: 'x', position: { x: 700, y: 0 } } ], // 300 right, > 200 X-band
+			vb,
+			{ w: 400, h: 4000 },
+			{ overscan: 0.5 }
+		);
+		expect( within.visibleIds.has( 'y' ) ).toBe( true );
+		expect( beyond.visibleIds.has( 'x' ) ).toBe( false );
 	} );
 
 	it( 'drops detail when the scale is too small to read (zoomed out)', () => {
