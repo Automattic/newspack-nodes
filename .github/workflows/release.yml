@@ -34,7 +34,7 @@ jobs:
 
       - name: Setup PHP
         if: steps.validate.outputs.is_release == 'true'
-        uses: shivammathur/setup-php@v2
+        uses: shivammathur/setup-php@7c071dfe9dc99bdf297fa79cb49ea005b9fcadbc # v2
         with:
           php-version: '8.2'
           tools: composer:v2
@@ -70,7 +70,7 @@ jobs:
 
       - name: Create GitHub Release
         if: steps.validate.outputs.is_release == 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: release/newspack-nodes.zip
           body_path: RELEASE_NOTES.md
