@@ -84,17 +84,22 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 			partition,
 			enabled,
 			debugLevelRef,
-			resetKey,
 		} ) => {
+			// Mirror the real hook: rebuild on a graphGeneration bump (Reset Graph
+			// bumps it via useGraphReset). Rules of hooks require this unconditional
+			// call before the enabled early-return, hence assigned-before-use.
+			// eslint-disable-next-line @wordpress/no-unused-vars-before-return
+			const generation =
+				require( '../../runtime/react' ).useGraphGeneration();
 			if ( ! enabled ) {
 				teardown();
 				return { status: 'closed', ssePid: null, shell: null };
 			}
 			const reader = `${ topology }.p${ partition }`;
-			// Mirror the real useConsoleGraph effect deps: tearing down + rebuilding
-			// on resetKey change too. Without resetKey here the mock would never
-			// re-mount on a reset-graph click, masking cwd-preservation bugs.
-			const key = `${ reader }|${ resetKey || 0 }`;
+			// Tear down + rebuild whenever the reader OR the generation changes —
+			// without the generation here the mock would never re-mount on a
+			// reset-graph click, masking cwd-preservation / wipe bugs.
+			const key = `${ reader }|${ generation }`;
 			if ( globalThis.__graphKey !== key ) {
 				teardown();
 				const router = new RouterNode();
@@ -1672,15 +1677,18 @@ describe( 'TopologyConsole boot', () => {
 		expect( Core.node( '_router' ) ).toBeTruthy();
 	} );
 
-	it( 'reset-graph clears the local-scope layout entry (single key)', async () => {
-		// Reset means RESET — the local-scope layout entry (positions + viewport
-		// + dirty under ONE key) is wiped so the canvas re-autofits cleanly.
+	it( 'reset-graph keeps the layout and surfaces Reset Layout (no shift)', async () => {
+		// New behavior (matches the debug overlay): Reset Graph does NOT wipe the
+		// layout — wiping yanked the canvas into a re-autofit shift. It rebuilds the
+		// graph and markDirty()s the layout so Reset Layout appears, letting the user
+		// re-autofit on demand instead of having it forced.
 		window.history.replaceState( {}, '', '/?topology=demo' );
-		const { findByText } = render( <TopologyConsole /> );
+		const { findByText, queryByText } = render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
-		// Inject a user-added node so the chip is visible to click.
+		// A user node surfaces the reset-graph chip; no layout edits yet → no
+		// reset-layout chip.
 		await fireMsg( {
 			type: TM_STRUCT,
 			to: names.METADATA,
@@ -1688,28 +1696,33 @@ describe( 'TopologyConsole boot', () => {
 				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
 			},
 		} );
-		window.localStorage.setItem(
-			'newspack-nodes:topology:local',
-			JSON.stringify( {
-				positions: { my: { x: 1, y: 1 } },
-				viewport: { x: 0, y: 0, w: 100, h: 100 },
-				dirty: true,
-			} )
-		);
+		expect( queryByText( 'reset-layout' ) ).toBeNull();
 		const chip = await findByText( 'reset-graph' );
 		act( () => {
 			fireEvent.click( chip );
 		} );
-		// After reset: the stale `my` entry must be gone (the reset re-seeds
-		// with the current graph, so positions MAY repopulate with current
-		// ids — but never with the pre-reset stale ones). dirty=false because
-		// the immediate re-seed is autoLayout, not user input.
-		const stored = JSON.parse(
-			window.localStorage.getItem( 'newspack-nodes:topology:local' ) ||
-				'{"positions":{},"dirty":false}'
+		// Reset Graph markDirty()'d the layout → Reset Layout is now offered.
+		expect( await findByText( 'reset-layout' ) ).not.toBeNull();
+	} );
+
+	it( 'live drag-rewire surfaces the Reset Graph chip with no user node (bug 1)', async () => {
+		// Bug 1: dragging a connection between endpoints on the live canvas issues a
+		// connect_node, which the Shell dispatch tap sees → structureDirty → chip.
+		// Previously the gate was node-only (hasUserAddedLocalNodes), so a pure
+		// rewire produced no chip.
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { findByText, queryByText, getByText } = render(
+			<TopologyConsole />
 		);
-		expect( stored.positions ).not.toHaveProperty( 'my' );
-		expect( stored.dirty ).toBe( false );
+		act( () => {
+			lastReplProps.onSubmit( 'cd /' );
+		} );
+		expect( queryByText( 'reset-graph' ) ).toBeNull();
+		// Drag-rewire on the live canvas (no node added).
+		act( () => {
+			fireEvent.click( getByText( 'connect-a-b' ) );
+		} );
+		expect( await findByText( 'reset-graph' ) ).not.toBeNull();
 	} );
 
 	it( 'the palette shows JS classes at the local scope (NOT the PHP catalog)', () => {

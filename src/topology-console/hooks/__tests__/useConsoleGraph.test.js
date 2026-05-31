@@ -101,19 +101,11 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( Core.node( names.SSE ) ).toBe( lastConnector );
 	} );
 
-	it( 'bumping resetKey tears down + rebuilds the graph (fresh Router)', () => {
-		const { rerender } = renderGraph( { resetKey: 0 } );
+	it( 'bumping the graph generation tears down + rebuilds the graph (fresh Router)', () => {
+		renderGraph();
 		const first = Core.node( names.ROUTER );
 		expect( first ).toBeInstanceOf( RouterNode );
-		act( () => {
-			rerender( {
-				topology: 'demo',
-				partition: 0,
-				enabled: true,
-				debugLevelRef: { current: 0 },
-				resetKey: 1,
-			} );
-		} );
+		act( () => Core.bumpGraphGeneration() );
 		const second = Core.node( names.ROUTER );
 		expect( second ).toBeInstanceOf( RouterNode );
 		expect( second ).not.toBe( first );

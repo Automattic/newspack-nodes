@@ -3,6 +3,7 @@ import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import names from '../../runtime/reserved-node-names.json';
 import { Shell } from '../../topology-console/nodes/shell';
+import { VALUE } from '../../runtime/message';
 import { useDebugRepl } from '../useDebugRepl';
 
 // Build a Shell configured the same way DebugOverlay does — empty cwd, sinks
@@ -138,6 +139,19 @@ describe( 'useDebugRepl', () => {
 		);
 		expect( recv ).toBeTruthy();
 		expect( recv.text ).toBe( 'hello world' );
+		teardown();
+	} );
+
+	it( 'routes a typed wire command through shell.dispatch so the onDispatch tap fires', () => {
+		// Bug 3: a REPL rewire must dirty the graph like a GUI rewire. Both now
+		// funnel through Shell.dispatch, where useGraphReset taps onDispatch.
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const seen = [];
+		shell.onDispatch = ( m ) => seen.push( m[ VALUE ].name );
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		act( () => result.current.sendLine( 'connect_node a b' ) );
+		expect( seen ).toEqual( [ 'connect_node' ] );
 		teardown();
 	} );
 

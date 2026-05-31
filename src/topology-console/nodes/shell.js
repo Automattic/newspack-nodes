@@ -127,6 +127,11 @@ export class Shell extends Node {
 		this.statusLines = [];
 		// When true, parsed lines are reported back to the host for echoing.
 		this.showParse = false;
+		// Dispatch tap: invoked with every outgoing Message just before it fills
+		// the sink. The UI sets this to observe graph-mutating commands (make_node
+		// / connect_node / …) for the Reset Graph chip. Verb-agnostic — the Shell
+		// only announces the dispatch; the consumer classifies.
+		this.onDispatch = null;
 	}
 
 	static nodeSchema() {
@@ -400,7 +405,20 @@ export class Shell extends Node {
 		// debug-overlay Inspector clicks honor the live cwd.
 		m[ TO ] = this.prefix( path );
 		m[ LOCAL ] = true;
-		this.sink?.fill( m );
+		this.dispatch( m );
+	}
+
+	/**
+	 * The single send chokepoint: announce the Message to the `onDispatch` tap,
+	 * then fill it into the sink. Every outgoing Message — sendCommand, a parsed
+	 * REPL line, a GUI gesture — routes through here so the tap sees them all.
+	 *
+	 * @param {Array} message Positional Message to send.
+	 * @return {void}
+	 */
+	dispatch( message ) {
+		this.onDispatch?.( message );
+		this.sink?.fill( message );
 	}
 
 	/**
@@ -417,9 +435,7 @@ export class Shell extends Node {
 			return null;
 		}
 		if ( Array.isArray( parsed ) ) {
-			if ( this.sink ) {
-				this.sink.fill( parsed );
-			}
+			this.dispatch( parsed );
 			return null;
 		}
 		// A local-builtin / error signal — hand it back to the host.

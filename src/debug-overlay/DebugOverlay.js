@@ -41,6 +41,7 @@ import { useDebugFrame } from './useDebugFrame';
 import { useDebugGraph } from './useDebugGraph';
 import { useDebugLayout } from './useDebugLayout';
 import { useDebugRepl } from './useDebugRepl';
+import { useGraphReset } from './useGraphReset';
 import './debug-overlay.scss';
 
 // (We reuse the topology console's CanvasFrame directly for visual parity —
@@ -81,9 +82,6 @@ export default function DebugOverlay( {
 	const [ open, setOpen ] = useState( false );
 	const [ selected, setSelected ] = useState( null );
 	const [ replExpanded, setReplExpanded ] = useState( false );
-	// Set when the user rewires a connection in the canvas. Reset Graph can then
-	// restore the host's default wiring (via reinit) even with no user nodes.
-	const [ graphDirty, setGraphDirty ] = useState( false );
 	const replInputRef = useRef( null );
 	const panelRef = useRef( null );
 	// Theme + palette keys are global — shared with the topology console
@@ -257,70 +255,24 @@ export default function DebugOverlay( {
 		// Global frame key — same overlay dimensions across every dashboard.
 	} = useDebugFrame( 'newspack-nodes:debug:frame', enabled && open );
 
-	// Reserved infra names (backbone + overlay nodes), used to tell a user-added
-	// node from the dashboard's own — see hasUserNodes below, which gates the chip.
-	const reservedNames = useMemo(
-		() => new Set( Object.values( names ) ),
-		[]
-	);
-	const resetGraph = () => {
-		// Remove EVERY node — no exceptions (backbone, dashboard, overlay infra,
-		// user-added) — then rebuild the entire graph: bumping the generation
-		// re-runs every graph-building effect (each dashboard's mountExospine + this
-		// overlay's useDebugRepl), so each tears down and rebuilds its nodes fresh.
-		// User-added nodes have no owner, so they stay gone — a clean reset.
-		for ( const node of [ ...Core.nodes.values() ] ) {
-			node.removeNode();
-		}
-		Core.bumpGraphGeneration();
-		setGraphDirty( false );
-		// The graph rebuilt, so the saved layout may no longer fit — surface Reset
-		// Layout (idempotent if already dirty). Better shown when not needed than
-		// missing when needed.
-		markDirty();
-	};
+	// Shared graph-dirty + Reset Graph logic (identical to the topology console).
+	// The Shell dispatch tap flips structureDirty on any graph-mutating command —
+	// GUI gesture OR typed REPL line — so the chip catches them all. Local-scope
+	// only (reinit rebuilds the LOCAL host graph, meaningless from a remote view);
+	// canRebuild = reinit exists to restore the wiring.
+	const { resetGraph, canResetGraph } = useGraphReset( {
+		shell,
+		nodes: graph.nodes,
+		isLocalScope: ! cwd,
+		canRebuild: !! reinit,
+		markDirty,
+	} );
 
 	// "Reset Layout" appears only when the user has modified the layout.
 	// `isLayoutDirty` is the single source of truth — set by onPositionChange
 	// or onViewportChange in useDebugLayout, cleared by resetLayout (and by
 	// the initial autoLayout seed via onSeedLayout, which writes dirty=false).
 	const hasLayoutToReset = isLayoutDirty;
-	// Only meaningful in the local scope — `graph` is remote (server's
-	// dump_metadata payload) when cwd is `/_http` etc., and every remote name
-	// looks "new" against the local registry. Reset_graph removes nodes from the
-	// LOCAL Core, which can't be done from a remote view.
-	const isLocalScope = ! cwd;
-	const hasUserNodes =
-		isLocalScope &&
-		graph.nodes.some(
-			( n ) =>
-				! reservedNames.has( n.id ) &&
-				! ( Core.reinitNames ?? [] ).includes( n.id )
-		);
-	// Reset Graph shows when there's something to restore: user-added nodes, or
-	// an in-canvas rewire that `reinit` can undo (a rewire with no host reinit
-	// has nothing to restore, so the chip stays hidden). Local-scope only —
-	// reinit rebuilds the LOCAL host graph, meaningless from a remote view.
-	const canResetGraph =
-		isLocalScope && !! reinit && ( graphDirty || hasUserNodes );
-
-	// A connection rewire dirties the layout (surfaces Reset Layout) and flags
-	// the graph dirty (surfaces Reset Graph when reinit can restore it).
-	const onConnectDirtying = ( from, to ) => {
-		handlers.onConnect( from, to );
-		markDirty();
-		setGraphDirty( true );
-	};
-
-	// Removing a node (or disconnecting an edge — see onInspectorAction below)
-	// also dirties the graph, so an exospine edit surfaces Reset Graph and is
-	// recoverable — not just a connect. Reset Graph rebuilds the WHOLE graph, so
-	// even removing a backbone node is now undoable in place.
-	const onRemoveNodeDirtying = ( id ) => {
-		handlers.onRemoveNode( id );
-		markDirty();
-		setGraphDirty( true );
-	};
 
 	// Ctrl+` toggles the panel while enabled.
 	useEffect( () => {
@@ -504,20 +456,16 @@ export default function DebugOverlay( {
 							onSeedLayout={ onSeedLayout }
 							viewport={ viewport }
 							onViewportChange={ onViewportChange }
-							onConnect={ onConnectDirtying }
-							onRemoveNode={ onRemoveNodeDirtying }
+							onConnect={ handlers.onConnect }
+							onRemoveNode={ handlers.onRemoveNode }
 							onDropNode={ handlers.onDropNode }
 							onInspectorAction={ ( action, nodeId, payload ) => {
 								// Pop the transcript footer when the user fires an
 								// inspector action — matches the console's UX (the
 								// reply lands in _output and the user should see it).
+								// Graph-mutating actions (disconnect, …) dirty via
+								// the Shell dispatch tap in useGraphReset.
 								setReplExpanded( true );
-								// A disconnect is a graph edit — dirty it so Reset
-								// Graph surfaces (and can rebuild it).
-								if ( 'disconnect' === action ) {
-									markDirty();
-									setGraphDirty( true );
-								}
 								handlers.onInspectorAction(
 									action,
 									nodeId,

@@ -161,7 +161,9 @@ export function useDebugRepl( active = true, shell ) {
 				);
 				return;
 			}
-			s.sink.fill( parsed );
+			// dispatch (not sink.fill) so useGraphReset's onDispatch tap sees the
+			// verb — a REPL rewire dirties the graph exactly like a GUI rewire.
+			s.dispatch( parsed );
 			return;
 		}
 		if ( 'error' === parsed.kind ) {
