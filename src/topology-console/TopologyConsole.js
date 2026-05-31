@@ -27,6 +27,7 @@ import { useDeleteTopology } from './hooks/useDeleteTopology';
 import { useTopology, useTopologyList } from './hooks/useTopologyList';
 import { useConsoleGraph } from './hooks/useConsoleGraph';
 import { useDebugLayout } from '../debug-overlay/useDebugLayout';
+import { useGraphReset } from '../debug-overlay/useGraphReset';
 import { useNodeState, useNodeFill } from '../runtime/react';
 import {
 	addEdge,
@@ -346,11 +347,7 @@ export default function TopologyConsole() {
 	// so the Dumper reads it per-frame without re-binding the graph.
 	const debugLevelRef = useRef( 0 );
 
-	// Bumped by the "reset graph" control to remount the browser console graph
-	// (teardown + rebuild) after a self-inflicted live edit, without reloading.
-	const [ resetKey, setResetKey ] = useState( 0 );
-
-	// resetLocalGraph stashes the cwd here so the [shell] sync effect can restore
+	// The "reset graph" control stashes the cwd here so the [shell] sync effect can restore
 	// it after useConsoleGraph rehomes Shell.path to the default `_sse/{reader}`.
 	// Without this, "reset graph" would yank the user off `/` (or wherever they
 	// were) every time. Null = no restore pending.
@@ -391,7 +388,6 @@ export default function TopologyConsole() {
 		enabled: mode !== 'edit',
 		streamEnabled: null !== workerPollPath( cwd, pathOptions ),
 		debugLevelRef,
-		resetKey,
 	} );
 
 	// Canvas/transcript state lives on dedicated nodes (WIRING-PLAN §4): the
@@ -456,7 +452,20 @@ export default function TopologyConsole() {
 		onSeedLayout,
 		renamePosition,
 		resetLayout,
+		markDirty,
 	} = useDebugLayout( positionStorageKey );
+
+	// Shared graph-dirty + Reset Graph logic (identical to the debug overlay). The
+	// Shell dispatch tap flips structureDirty on any graph-mutating command — drag
+	// gesture OR typed REPL line — and a surviving user node keeps the chip up
+	// across a rebuild. Local-scope only; canRebuild = the live graph is mounted.
+	const { resetGraph: resetLocalGraphCore, canResetGraph } = useGraphReset( {
+		shell,
+		nodes: parsed.nodes,
+		isLocalScope: '' === cwd,
+		canRebuild: mode !== 'edit',
+		markDirty,
+	} );
 
 	useEffect( () => {
 		if ( ! effectiveTopologyName ) {
@@ -787,7 +796,9 @@ export default function TopologyConsole() {
 					} );
 					return;
 				}
-				shell.sink?.fill( parsedLine );
+				// dispatch (not sink.fill) so useGraphReset's onDispatch tap sees
+				// the verb — a canvas/REPL rewire dirties the graph uniformly.
+				shell.dispatch( parsedLine );
 				return;
 			}
 			if ( parsedLine.kind === 'error' ) {
@@ -1180,46 +1191,15 @@ export default function TopologyConsole() {
 		resetLayout();
 	}, [ resetLayout ] );
 
-	// "Reset graph" — a real reset of the local browser graph. Wipes every Core
-	// node that isn't part of the canonical console graph (i.e. user `make_node`s
-	// that survived a self-inflicted break), clears local-scope layout state so
-	// the canvas re-autofits cleanly, then bumps resetKey to rebuild the spine.
-	// cwdRestoreRef carries the user's cwd through the remount (otherwise the
-	// rebuilt Shell snaps path back to `_sse/{reader}` and drags cwd along).
-	const PROTECTED_NODE_NAMES = useMemo(
-		() =>
-			new Set( [
-				names.COMMAND_INTERPRETER,
-				names.ROUTER,
-				names.OUTPUT,
-				names.METADATA,
-				names.UPTIME,
-				names.COMPLETION,
-				names.HEARTBEAT,
-				names.HTTP,
-				names.SSE,
-				names.CWD,
-			] ),
-		[]
-	);
-	const resetLocalGraph = useCallback( () => {
+	// "Reset graph" — the shared useGraphReset rebuild (removeNode all → bump the
+	// generation so useConsoleGraph rebuilds off the canonical wiring → keep the
+	// layout + surface Reset Layout). cwdRestoreRef carries the user's cwd through
+	// the remount (otherwise the rebuilt Shell snaps path back to `_sse/{reader}`
+	// and the [shell] sync effect drags cwd along).
+	const handleResetGraph = useCallback( () => {
 		cwdRestoreRef.current = cwd;
-		for ( const name of [ ...Core.nodes.keys() ] ) {
-			if ( ! PROTECTED_NODE_NAMES.has( name ) ) {
-				Core.unregisterNode( name );
-			}
-		}
-		// resetLocalGraph is only invoked from the local-scope chip (scope.key
-		// === 'local'), so this clears the same key the hook is using.
-		resetLayout();
-		setResetKey( ( k ) => k + 1 );
-	}, [ cwd, PROTECTED_NODE_NAMES, resetLayout ] );
-
-	// Hide the Reset Graph chip when there's nothing to reset (only the
-	// canonical console graph remains). Mirrors the overlay's gating.
-	const hasUserAddedLocalNodes = parsed.nodes.some(
-		( n ) => ! PROTECTED_NODE_NAMES.has( n.id )
-	);
+		resetLocalGraphCore();
+	}, [ cwd, resetLocalGraphCore ] );
 
 	// DELETE shows only for a topology with a user-saved copy (stock is protected).
 	// Keyed off the source of the loaded topology (from the get/save response),
@@ -1561,13 +1541,9 @@ export default function TopologyConsole() {
 					// Only the local in-browser graph (cwd root) is ephemeral;
 					// any pivoted view — a worker over _sse OR the _http
 					// broadcast boundary — self-heals on respawn, so a reset is
-					// meaningless.
-					onResetGraph:
-						mode === 'edit' ||
-						'' !== cwd ||
-						! hasUserAddedLocalNodes
-							? null
-							: resetLocalGraph,
+					// meaningless. canResetGraph already gates on local scope +
+					// live mode + (a mutating edit OR a surviving user node).
+					onResetGraph: canResetGraph ? handleResetGraph : null,
 					editMode: mode === 'edit',
 				} }
 				resetKey={ `${ scope.key }|${ mode }|${ editingName }` }

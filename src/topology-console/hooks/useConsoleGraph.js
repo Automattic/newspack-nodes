@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
+import { useGraphGeneration } from '../../runtime/react';
 import { Node } from '../../runtime/node';
 import { mountExospine } from '../../runtime/exospine';
 import { SseInNode } from '../../runtime/sse-in-node';
@@ -34,7 +35,6 @@ import names from '../../runtime/reserved-node-names.json';
  *                                       so cd-ing off a worker stops streaming without rebuilding the graph. Default
  *                                       true (the initial cwd is the session's own worker).
  * @param {Object}  params.debugLevelRef React ref holding the Dumper verbosity dial.
- * @param {number}  params.resetKey      Bump to tear down + rebuild the graph.
  * @return {{status: string, ssePid: ?number, shell: ?Shell}} Connection state +
  *   the anonymous Shell (the console drives typed input through it).
  */
@@ -44,13 +44,14 @@ export function useConsoleGraph( {
 	enabled,
 	streamEnabled = true,
 	debugLevelRef,
-	// Bumping this re-runs the graph effect: cleanup tears down the spine, the
-	// effect rebuilds it fresh. Lets the "reset" control recover a self-broken
-	// browser graph without a full page reload.
-	resetKey = 0,
 } ) {
 	const [ ssePid, setSsePid ] = useState( null );
 	const [ shell, setShell ] = useState( null );
+
+	// Reset Graph bumps the generation; including it here re-runs the graph effect
+	// (cleanup tears down the spine, the effect rebuilds it fresh off the canonical
+	// wiring) — recovering a self-broken browser graph without a page reload.
+	const generation = useGraphGeneration();
 
 	// Stash the latest debugLevelRef so the effect wires it without re-subscribing.
 	const debugLevelRefRef = useRef( debugLevelRef );
@@ -210,7 +211,7 @@ export function useConsoleGraph( {
 			setSsePid( null );
 			setShell( null );
 		};
-	}, [ topology, partition, enabled, resetKey ] );
+	}, [ topology, partition, enabled, generation ] );
 
 	// SSE stream gating: open the EventSource only while the graph is mounted AND
 	// the cwd is a worker (streamEnabled). Closing on cd-off-worker drops the pid
