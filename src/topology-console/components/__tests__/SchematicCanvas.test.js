@@ -1084,3 +1084,97 @@ describe( 'SchematicCanvas', () => {
 		).not.toBeNull();
 	} );
 } );
+
+// Scale-gated level-of-detail. The default tests run with an unmeasured (0x0)
+// canvas, so scale is Infinity and detail is always on; here we stub the canvas
+// measurement so the zoomed-OUT tier (no edge layer, static nodes) is exercised.
+describe( 'SchematicCanvas scale-gated LOD', () => {
+	let stubW = 0;
+	let stubH = 0;
+
+	beforeAll( () => {
+		Object.defineProperty( window.SVGSVGElement.prototype, 'clientWidth', {
+			configurable: true,
+			get: () => stubW,
+		} );
+		Object.defineProperty( window.SVGSVGElement.prototype, 'clientHeight', {
+			configurable: true,
+			get: () => stubH,
+		} );
+		// A no-op ResizeObserver: the effect's synchronous mount-time measure()
+		// reads the stubbed client size; we don't need observer callbacks here.
+		if ( typeof window.ResizeObserver === 'undefined' ) {
+			window.ResizeObserver = class {
+				observe() {}
+				disconnect() {}
+			};
+		}
+	} );
+
+	afterAll( () => {
+		delete window.SVGSVGElement.prototype.clientWidth;
+		delete window.SVGSVGElement.prototype.clientHeight;
+	} );
+
+	const lodProps = {
+		parsed,
+		selectedId: null,
+		onSelect: () => {},
+		onDeselect: () => {},
+		hoveredId: null,
+		onHover: () => {},
+		positionOverrides: null,
+		onPositionChange: () => {},
+		rateRef: { current: new Map() },
+		viewport: null,
+		onViewportChange: () => {},
+		classCatalog: {},
+	};
+
+	it( 'drops the entire edge layer when zoomed out below EDGE_MIN_SCALE', () => {
+		stubW = 1000;
+		stubH = 1000;
+		// 1000px across a 50000-unit viewBox = 0.02 px/unit < EDGE_MIN_SCALE (0.05).
+		const { container } = render(
+			<SchematicCanvas
+				{ ...lodProps }
+				viewport={ { x: 0, y: 0, w: 50000, h: 50000 } }
+			/>
+		);
+		expect(
+			container.querySelectorAll( '.topology-edge--active' )
+		).toHaveLength( 0 );
+	} );
+
+	it( 'marks visible nodes is-static (no entrance fade) when zoomed out', () => {
+		stubW = 1000;
+		stubH = 1000;
+		const { container } = render(
+			<SchematicCanvas
+				{ ...lodProps }
+				viewport={ { x: 0, y: 0, w: 50000, h: 50000 } }
+			/>
+		);
+		expect(
+			container.querySelectorAll( '.topology-node.is-static' ).length
+		).toBeGreaterThan( 0 );
+	} );
+
+	it( 'restores edges and animated (non-static) nodes when zoomed in', () => {
+		stubW = 1000;
+		stubH = 1000;
+		// 1000/1000 = 1.0 px/unit: detail on, edge layer + node fade restored.
+		const { container } = render(
+			<SchematicCanvas
+				{ ...lodProps }
+				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
+			/>
+		);
+		expect(
+			container.querySelectorAll( '.topology-edge--active' ).length
+		).toBeGreaterThan( 0 );
+		expect(
+			container.querySelectorAll( '.topology-node.is-static' )
+		).toHaveLength( 0 );
+	} );
+} );

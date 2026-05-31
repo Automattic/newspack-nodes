@@ -1,4 +1,30 @@
-import { viewportCull } from '../viewportCull';
+import { viewportCull, isEdgeVisible } from '../viewportCull';
+
+describe( 'isEdgeVisible', () => {
+	const vis = new Set( [ 'a', 'b' ] ); // a, b on-screen; c, hub off-screen
+	const degree = { a: 2, b: 2, hub: 500 };
+
+	it( 'renders an edge between two visible nodes', () => {
+		expect( isEdgeVisible( 'a', 'b', vis, degree ) ).toBe( true );
+	} );
+
+	it( 'culls an edge with both endpoints off-screen', () => {
+		expect( isEdgeVisible( 'c', 'hub', vis, degree ) ).toBe( false );
+	} );
+
+	it( 'renders an off-screen edge from a low-degree visible node', () => {
+		// a (visible, degree 2) → c (off-screen): a chain connector still draws.
+		expect( isEdgeVisible( 'a', 'c', vis, degree ) ).toBe( true );
+	} );
+
+	it( 'culls an off-screen edge from a high-degree hub', () => {
+		// hub is off-screen with degree 500; an edge hub → a (visible) would,
+		// from a's side, be one of a's 2 edges (rendered). But an edge a → hub
+		// where the VISIBLE node is the hub floods, so a visible hub culls them.
+		const visHub = new Set( [ 'hub' ] );
+		expect( isEdgeVisible( 'hub', 'c', visHub, degree ) ).toBe( false );
+	} );
+} );
 
 describe( 'viewportCull', () => {
 	it( 'keeps a node inside the viewBox', () => {
@@ -15,11 +41,31 @@ describe( 'viewportCull', () => {
 		expect( visibleIds.has( 'far' ) ).toBe( false );
 	} );
 
-	it( 'keeps a node just past the edge within the cull margin', () => {
-		// A node one node-width past the right edge still anchors its edges.
-		const nodes = [ { id: 'edge', position: { x: 1100, y: 0 } } ];
+	it( 'culls a node fully outside the viewport (no margin by default)', () => {
+		// Aggressive cull: only nodes intersecting the viewBox render.
+		const nodes = [ { id: 'out', position: { x: 1100, y: 0 } } ];
 		const vb = { x: 0, y: 0, w: 1000, h: 1000 };
 		const { visibleIds } = viewportCull( nodes, vb, { w: 1000, h: 1000 } );
+		expect( visibleIds.has( 'out' ) ).toBe( false );
+	} );
+
+	it( 'keeps a node straddling the viewport edge', () => {
+		// Partially-visible node (its left edge is inside) still renders.
+		const nodes = [ { id: 'straddle', position: { x: 950, y: 0 } } ];
+		const vb = { x: 0, y: 0, w: 1000, h: 1000 };
+		const { visibleIds } = viewportCull( nodes, vb, { w: 1000, h: 1000 } );
+		expect( visibleIds.has( 'straddle' ) ).toBe( true );
+	} );
+
+	it( 'honors an explicit cull margin', () => {
+		const nodes = [ { id: 'edge', position: { x: 1100, y: 0 } } ];
+		const vb = { x: 0, y: 0, w: 1000, h: 1000 };
+		const { visibleIds } = viewportCull(
+			nodes,
+			vb,
+			{ w: 1000, h: 1000 },
+			{ margin: 200 }
+		);
 		expect( visibleIds.has( 'edge' ) ).toBe( true );
 	} );
 

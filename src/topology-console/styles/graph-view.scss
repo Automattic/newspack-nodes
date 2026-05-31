@@ -561,6 +561,13 @@
 		opacity: 0.4;
 	}
 
+	// Overview / zoomed-out: skip the entrance fade so panning a huge graph
+	// doesn't restart an animation on every node that crosses the viewport.
+	// (No opacity override — a faded node stays faded.)
+	&.is-static {
+		animation: none;
+	}
+
 	// While being dragged: cursor flips to grabbing and the node sits
 	// above its peers so it isn't occluded by neighboring shadow
 	// rectangles. No animated transition — drag updates positions
@@ -720,6 +727,13 @@
 		animation:
 			topology-draw 0.8s ease-out 0.2s forwards,
 			topology-flow 0.8s linear 1s infinite;
+	}
+
+	// Past a readable zoom (LOD), the marching-ants flow on thousands of edges is
+	// wasted repaints — render them as static, fully-drawn dashes instead.
+	&.is-static {
+		animation: none;
+		stroke-dashoffset: 0;
 	}
 
 	&.is-selected {
