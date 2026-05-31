@@ -42,6 +42,39 @@ describe( 'DebugOverlay', () => {
 		expect( notCancelled ).toBe( false );
 	} );
 
+	it( 'locks the page scroll while the pointer is inside the panel', () => {
+		// Safari ignores the canvas wheel's preventDefault, so the page is pinned
+		// physically while the pointer is over the overlay panel.
+		mountExospine();
+		const { getByRole, getByTestId } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const panel = getByTestId( 'debug-panel' );
+		const scrollEl = document.scrollingElement || document.documentElement;
+		expect( scrollEl.style.overflow ).not.toBe( 'hidden' );
+		fireEvent.pointerEnter( panel );
+		expect( scrollEl.style.overflow ).toBe( 'hidden' );
+		fireEvent.pointerLeave( panel );
+		expect( scrollEl.style.overflow ).not.toBe( 'hidden' );
+	} );
+
+	it( 'releases the page-scroll lock when the panel unmounts while locked', () => {
+		// onPointerLeave never fires on unmount, so the panel's callback ref must
+		// release the lock — otherwise the page is stuck unscrollable.
+		mountExospine();
+		const { getByRole, getByTestId, unmount } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const panel = getByTestId( 'debug-panel' );
+		const scrollEl = document.scrollingElement || document.documentElement;
+		fireEvent.pointerEnter( panel ); // pointer inside → locked
+		expect( scrollEl.style.overflow ).toBe( 'hidden' );
+		unmount(); // no pointerLeave — the callback ref must still release it
+		expect( scrollEl.style.overflow ).not.toBe( 'hidden' );
+	} );
+
 	it( 'mounts a REPL prompt inside the opened panel', () => {
 		mountExospine();
 		const { getByRole, queryByRole } = render(
