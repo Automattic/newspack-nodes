@@ -700,6 +700,21 @@ describe( 'SchematicCanvas', () => {
 		expect( vp.y + 0.5 * vp.h ).toBeCloseTo( 500, 0 );
 	} );
 
+	it( 'attaches the wheel listener as non-passive (so preventDefault works)', () => {
+		// React's onWheel is passive — its preventDefault is ignored, so the page
+		// scrolls behind the canvas (and Chrome/FF warn). The zoom listener must be
+		// attached via a non-passive addEventListener instead.
+		const addSpy = jest.spyOn(
+			window.SVGSVGElement.prototype,
+			'addEventListener'
+		);
+		render( <SchematicCanvas { ...baseProps } /> );
+		const wheelCall = addSpy.mock.calls.find( ( c ) => c[ 0 ] === 'wheel' );
+		expect( wheelCall ).toBeDefined();
+		expect( wheelCall[ 2 ] ).toEqual( { passive: false } );
+		addSpy.mockRestore();
+	} );
+
 	// === Drag-and-drop (HTML5) ===
 
 	it( 'dragOver in edit mode marks the surface as drop target', () => {
