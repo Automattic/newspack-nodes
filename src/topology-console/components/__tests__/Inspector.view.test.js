@@ -3,7 +3,7 @@
  */
 
 import { render, fireEvent } from '@testing-library/react';
-import Inspector from '../Inspector';
+import Inspector, { formatActivityWindow } from '../Inspector';
 
 const baseProps = {
 	selectedId: null,
@@ -386,5 +386,21 @@ describe( 'Inspector (view mode)', () => {
 		expect( getByText( 'Dump' ) ).not.toBeNull();
 		expect( getByText( 'Send' ) ).not.toBeNull();
 		expect( getByText( 'Trace' ) ).not.toBeNull();
+	} );
+} );
+
+// The "Activity" sparkline shows RATE_HISTORY_MAX (60) samples, one per poll.
+// The poll cadence scales with graph size (computePollIntervalMs), so the real
+// window is 60 * interval — the label must reflect that, not a fixed "~60s".
+describe( 'formatActivityWindow', () => {
+	it( 'reads ~60s for a small graph polled every second', () => {
+		expect( formatActivityWindow( 50 ) ).toBe( 'last ~60s' );
+	} );
+
+	it( 'scales to minutes for a large graph polled less often', () => {
+		// 500 nodes -> 5s poll -> 60 * 5s = 300s = 5m.
+		expect( formatActivityWindow( 500 ) ).toBe( 'last ~5m' );
+		// 3000 nodes -> 30s poll -> 60 * 30s = 1800s = 30m.
+		expect( formatActivityWindow( 3000 ) ).toBe( 'last ~30m' );
 	} );
 } );

@@ -123,15 +123,36 @@ export function parseMetadata( payload ) {
 }
 
 /**
- * Metadata — `_metadata`. A TimerNode hitchhiking the _router: `fire()` emits a
- * dump_metadata poll at `this.target` each tick (the _router calls fireCb -> fire
- * directly); the reply lands on fill() and publishes the parsed graph for the
- * canvas ( useNodeState( '_metadata', 'metadata' ) ).
+ * Self-managed poll cadence for `_metadata`, scaled to graph size: a big graph
+ * is expensive to dump + re-render, so back off. `nodeCount * 10`ms, rounded to
+ * the nearest second (nearest 5s once past 5s) and floored at 1s.
+ *
+ * @param {number} nodeCount Node count of the last parsed graph.
+ * @return {number} Poll interval in milliseconds (>= 1000).
+ */
+export function computePollIntervalMs( nodeCount ) {
+	const seconds = ( nodeCount * 10 ) / 1000;
+	const rounded =
+		seconds > 5 ? Math.round( seconds / 5 ) * 5 : Math.round( seconds );
+	return Math.max( 1, rounded ) * 1000;
+}
+
+/**
+ * Metadata — `_metadata`. A TimerNode hitchhiking the _router: `fire()` runs
+ * every tick (the _router calls fireCb -> fire directly) but self-throttles to
+ * its own `interval_ms` — staying bound to the shared TIMER so the poll batches
+ * with the other per-tick requests. The reply lands on fill() and publishes the
+ * parsed graph for the canvas ( useNodeState( '_metadata', 'metadata' ) ).
  */
 export class MetadataNode extends TimerNode {
 	constructor() {
 		super();
 		this.registrations.metadata = {};
+		// Self-throttle state: lastFired in Core.now() seconds; lastPath is the
+		// pivot we last polled (a cd re-polls immediately). interval_ms is set
+		// from the graph size on each response (computePollIntervalMs).
+		this.lastFired = 0;
+		this.lastPath = null;
 	}
 
 	static nodeSchema() {
@@ -157,14 +178,29 @@ export class MetadataNode extends TimerNode {
 		return m;
 	}
 
-	// Router TIMER subscriber (the _router calls fireCb -> fire): emit a
-	// dump_metadata poll each tick.
+	// Router TIMER subscriber (the _router calls fireCb -> fire each second).
+	// Self-throttle: poll only once interval_ms has elapsed, or immediately when
+	// the pivot path changed (the user cd'd) — staying on the shared TIMER so the
+	// poll batches with the tick's other requests.
 	fire() {
 		if ( ! this.sink ) {
 			return;
 		}
-		this.counter += 1;
-		this.sink.fill( this._pollMessage( 'dump_metadata' ) );
+		const now = Core.now();
+		// The poll routes through `_cwd` (this.target); its `.target` is the live
+		// pivot path, swapped by a cd without remounting us.
+		const cwd = Core.node( this.target );
+		const path = cwd && typeof cwd.target === 'string' ? cwd.target : '';
+		const intervalMs = this.interval_ms || 1000;
+		if (
+			( now - this.lastFired ) * 1000 >= intervalMs ||
+			path !== this.lastPath
+		) {
+			this.lastFired = now;
+			this.lastPath = path;
+			this.counter += 1;
+			this.sink.fill( this._pollMessage( 'dump_metadata' ) );
+		}
 	}
 
 	fill( message ) {
@@ -175,6 +211,9 @@ export class MetadataNode extends TimerNode {
 		if ( meta === null || meta === undefined || meta === '' ) {
 			return;
 		}
-		this.setState( 'metadata', parseMetadata( meta ) );
+		const parsed = parseMetadata( meta );
+		// Scale the self-managed poll cadence to the graph we just received.
+		this.interval_ms = computePollIntervalMs( parsed.nodes.length );
+		this.setState( 'metadata', parsed );
 	}
 }
