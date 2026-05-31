@@ -1,4 +1,5 @@
-import { Node } from './node';
+import { TimerNode } from './timer-node';
+import { MAX_FROM_SIZE } from './node';
 import { Core } from './core';
 import {
 	FROM,
@@ -11,39 +12,38 @@ import {
 	newMessage,
 } from './message';
 
-export class RouterNode extends Node {
+/**
+ * Router — path-based dispatch + the TIMER event hub. Extends Timer: it owns a
+ * self-started 1s event-framework slot whose `fireCb` runs `notifyTimer`, the
+ * DIRECT `fireCb` dispatch to every TIMER-registered node (Tachikoma
+ * Router::fire_cb → notify_timer). The Router has no sink; it routes by peeling
+ * TO and drops what it cannot peel.
+ */
+export class RouterNode extends TimerNode {
 	constructor() {
 		super();
-		// TIMER hitchhike slot — fired once per `startTimer` interval.
+		// TIMER hitchhike slot + the NOT_AVAILABLE state observers can watch.
 		this.registrations.TIMER = {};
-		// Pre-declared so setState('NOT_AVAILABLE', ...) doesn't throw.
 		this.registrations.NOT_AVAILABLE = {};
-		// setInterval handle for the periodic TIMER fire.
-		this._timerHandle = null;
-		// Optional hooks injected by the console to bracket each TIMER notify (e.g.
+		// Optional hooks injected by the console to bracket each tick's notify (e.g.
 		// HttpOut lock/flush so one tick's emissions batch into ONE POST). Kept here
 		// so the substrate Router stays decoupled from any console node.
 		this.beforeTimerNotify = null;
 		this.afterTimerNotify = null;
-		// Router self-starts its 1s TIMER (Tachikoma fidelity: the Router IS
+		// Router self-starts its own 1s slot (Tachikoma fidelity: the Router IS
 		// timer-driven). Tests that don't want it running can stopTimer().
-		this.startTimer( 1000 );
+		this.setTimer( 1000 );
 	}
 
-	// Fire TIMER once immediately, then every `ms`. Mirrors PHP Router notifying
-	// TIMER on its periodic fire; the lock hooks are injected by the console.
-	startTimer( ms ) {
-		this.stopTimer();
-		this._tick();
-		this._timerHandle = setInterval( () => this._tick(), ms );
-	}
-
-	_tick() {
+	// fire_cb (Perl Router::fire_cb): bracket notify_timer with the console's
+	// lock/flush hooks; afterTimerNotify always runs (finally). Overrides Timer's
+	// fire_cb — the Router has no sink and dispatches TIMER instead of emitting.
+	fireCb() {
 		if ( this.beforeTimerNotify ) {
 			this.beforeTimerNotify();
 		}
 		try {
-			this.notify( 'TIMER', { now: Core.now() } );
+			this.notifyTimer();
 		} finally {
 			if ( this.afterTimerNotify ) {
 				this.afterTimerNotify();
@@ -51,17 +51,20 @@ export class RouterNode extends Node {
 		}
 	}
 
-	stopTimer() {
-		if ( null !== this._timerHandle ) {
-			clearInterval( this._timerHandle );
-			this._timerHandle = null;
+	// notify_timer (Perl Router::notify_timer): call each TIMER-registered node's
+	// fireCb DIRECTLY; a name with no live node is warned + dropped (forgot to
+	// unregister). No message, no fill().
+	notifyTimer() {
+		const registrations = this.registrations.TIMER;
+		for ( const name of Object.keys( registrations ) ) {
+			const node = Core.node( name );
+			if ( ! node ) {
+				this.stderr( `WARNING: ${ name } forgot to unregister` );
+				delete registrations[ name ];
+				continue;
+			}
+			node.fireCb();
 		}
-	}
-
-	// Ensure the self-started setInterval doesn't leak past Core.unregisterNode.
-	removeNode() {
-		this.stopTimer();
-		super.removeNode();
 	}
 
 	// The Router has no sink: it routes by peeling TO and drops what it cannot
@@ -82,6 +85,21 @@ export class RouterNode extends Node {
 	fill( message ) {
 		// One inbound miss increments counter by 2 via the bounce (matches PHP).
 		this.counter += 1;
+
+		// Perl Router::fill drops before routing, in this order: an unaddressed
+		// message (empty TO), then one whose FROM trail exceeded MAX_FROM_SIZE
+		// (path explosion on a routing cycle). dropMessage is rate-limited.
+		if ( '' === message[ TO ] ) {
+			this.dropMessage( message, 'message not addressed' );
+			return;
+		}
+		if ( ( message[ FROM ]?.length ?? 0 ) > MAX_FROM_SIZE ) {
+			this.dropMessage(
+				message,
+				`path exceeded ${ MAX_FROM_SIZE } bytes`
+			);
+			return;
+		}
 
 		const to = message[ TO ];
 		const slash = to.indexOf( '/' );

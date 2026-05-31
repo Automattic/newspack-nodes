@@ -41,8 +41,11 @@ function persist( key, state ) {
  * entry at `storageKey` shaped `{ positions, viewport, dirty }`.
  *
  * - If localStorage has an entry: use it.
- * - If not: the canvas computes a layout via autoLayout and calls
- *   `onSeedLayout(positionsMap)`; the hook persists it with `dirty: false`.
+ * - The canvas computes positions via autoLayout and calls `onSeedLayout(map)`;
+ *   the hook MERGES in a position for any node not yet pinned (never overwriting
+ *   an existing one), so a node appearing later is pinned without disturbing the
+ *   rest and a connection-change re-flow can't move placed nodes. The first seed
+ *   (empty layout) lands `dirty: false`.
  * - Any user modification (`onPositionChange`, `onViewportChange`) flips
  *   `dirty: true`. `isDirty` is what the UI gates the "Reset Layout" button on.
  * - `resetLayout()` removes the entry; the next paint re-seeds via the canvas.
@@ -116,34 +119,44 @@ export function useDebugLayout( storageKey ) {
 		[ storageKey ]
 	);
 
-	// Seeded layout sticks (dirty=false) — re-rendering the canvas re-fires
-	// the seed effect, so this must be idempotent. Skip when the user has
-	// already touched anything (dirty), when positions is already populated
-	// (already seeded), or when the seed itself is empty (no graph yet).
+	// Incremental seed: the canvas re-fires the seed effect every render, so this
+	// merges in a position only for nodes not yet pinned and never overwrites an
+	// existing one — it pins a newly-appeared node once (so a later autoLayout
+	// re-flow can't move it) and is a no-op once everything is placed.
 	const onSeedLayout = useCallback(
 		( positionsMap ) => {
 			setState( ( prev ) => {
-				if ( prev.dirty ) {
+				if ( ! positionsMap ) {
 					return prev;
 				}
-				if ( Object.keys( prev.positions ).length > 0 ) {
+				const hadPositions = Object.keys( prev.positions ).length > 0;
+				// Merge in a position for any node not yet pinned; an existing
+				// (seeded or user-dragged) position is never overwritten — so a
+				// node that appears after the first seed gets pinned, and a later
+				// autoLayout re-flow (e.g. on a connection change) can't move an
+				// already-placed node.
+				const positions = { ...prev.positions };
+				let added = false;
+				for ( const id of Object.keys( positionsMap ) ) {
+					if ( ! positions[ id ] && positionsMap[ id ] ) {
+						positions[ id ] = positionsMap[ id ];
+						added = true;
+					}
+				}
+				if ( ! added ) {
 					return prev;
 				}
-				if (
-					! positionsMap ||
-					Object.keys( positionsMap ).length === 0
-				) {
-					return prev;
-				}
-				// Force the canvas to re-autofit to the just-seeded positions:
-				// after a reset → reseed, the canvas's autofit-on-mount effect
-				// may have already committed a viewport based on the pre-seed
-				// (intermediate autoLayout) positions. Clearing viewport here
-				// re-fires that effect with the seeded nodes.
 				const next = {
-					positions: { ...positionsMap },
-					viewport: null,
-					dirty: false,
+					positions,
+					// First seed (was empty): clear the viewport so the canvas
+					// re-autofits to the seeded graph (after a reset → reseed the
+					// autofit-on-mount effect may have committed a viewport sized
+					// for the pre-seed autoLayout positions). Incremental seed into
+					// an existing layout: keep the viewport so the view doesn't jump
+					// when a node appears.
+					viewport: hadPositions ? prev.viewport : null,
+					// A node appearing isn't a user position change — keep dirty.
+					dirty: prev.dirty,
 				};
 				persist( storageKey, next );
 				return next;

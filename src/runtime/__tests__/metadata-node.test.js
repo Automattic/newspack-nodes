@@ -11,7 +11,10 @@ import {
 	parseMetadata,
 } from '../metadata-node';
 import { Node } from '../node';
+import { TimerNode } from '../timer-node';
+import { RouterNode } from '../router-node';
 import { Core } from '../core';
+import names from '../reserved-node-names.json';
 import { DumperNode } from '../dumper-node';
 import { SseConnectorNode } from '../sse-connector-node';
 import { EchoNode } from '../echo-node';
@@ -91,14 +94,14 @@ describe( 'Metadata node', () => {
 		expect( node.counter ).toBe( 2 );
 	} );
 
-	describe( 'onTimer poll emission', () => {
+	describe( 'fire() poll emission', () => {
 		it( 'emits a dump_metadata TM_COMMAND addressed to this.target (the _cwd indirection)', () => {
 			const node = new MetadataNode();
 			node.setName( '_metadata' );
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = '_cwd';
-			node.onTimer();
+			node.fire();
 			expect( sent ).toHaveLength( 1 );
 			const m = sent[ 0 ];
 			expect( m[ TYPE ] ).toBe( TM_COMMAND );
@@ -113,8 +116,8 @@ describe( 'Metadata node', () => {
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = '_cwd';
-			node.onTimer();
-			node.onTimer();
+			node.fire();
+			node.fire();
 			expect( sent ).toHaveLength( 2 );
 			expect( node.pollTo ).toBeUndefined();
 		} );
@@ -122,7 +125,46 @@ describe( 'Metadata node', () => {
 		it( 'emits nothing when there is no sink', () => {
 			const node = new MetadataNode();
 			node.target = '_cwd';
-			expect( () => node.onTimer() ).not.toThrow();
+			expect( () => node.fire() ).not.toThrow();
+		} );
+	} );
+
+	describe( 'TimerNode integration (router-hitchhike via notify_timer)', () => {
+		afterEach( () => Core.reset() );
+
+		it( 'is a TimerNode subclass', () => {
+			expect( new MetadataNode() ).toBeInstanceOf( TimerNode );
+		} );
+
+		it( 'setTimer() registers on the router TIMER; notify_timer fires the poll', () => {
+			const router = new RouterNode();
+			router.setName( names.ROUTER );
+			router.stopTimer();
+			const node = new MetadataNode();
+			node.setName( names.METADATA );
+			const sent = [];
+			node.sink = { fill: ( m ) => sent.push( m ) };
+			node.target = names.CWD;
+			node.setTimer();
+			router.notifyTimer();
+			expect( sent ).toHaveLength( 1 );
+			expect( sent[ 0 ][ VALUE ].name ).toBe( 'dump_metadata' );
+			node.stopTimer();
+		} );
+
+		it( 'removeNode unregisters from the router TIMER (no leak)', () => {
+			const router = new RouterNode();
+			router.setName( names.ROUTER );
+			router.stopTimer();
+			const node = new MetadataNode();
+			node.setName( names.METADATA );
+			node.sink = { fill: () => {} };
+			node.setTimer();
+			node.removeNode();
+			expect( names.METADATA in router.registrations.TIMER ).toBe(
+				false
+			);
+			expect( () => router.notifyTimer() ).not.toThrow();
 		} );
 	} );
 

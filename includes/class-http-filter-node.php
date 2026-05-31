@@ -1,9 +1,9 @@
 <?php
 /**
- * HTTP_Filter: SSE-process Node registered at `_http`. Consumers
+ * HTTP_Filter: SSE-process Node registered at `_output`. Consumers
  * tailing worker output Partitions sink into _router. Worker replies for
- * pivoted commands have TO=`_http/_sse:<originating-sse-pid>/<reply-node>`
- * (the browser `_sse` session node stamps that pivot). _router peels `_http`
+ * pivoted commands have TO=`_output/_sse:<originating-sse-pid>/<reply-node>`
+ * (the browser `_sse` session node stamps that pivot). _router peels `_output`
  * and forwards here with TO=`_sse:<sse-pid>/<reply-node>`; this Node matches the
  * head segment against its own `_sse:<pid>`, strips it, and forwards the
  * remainder (the reply-node, e.g. `_output`) to the SSE writer only on match.
@@ -43,8 +43,8 @@ class HTTP_Filter_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'Per-session pivoted-reply gate; SSE-process equivalent of SSE_Out.',
-			'arguments'        => [],
-			'commands'       => [],
+			'arguments'   => [],
+			'commands'    => [],
 		];
 	}
 }

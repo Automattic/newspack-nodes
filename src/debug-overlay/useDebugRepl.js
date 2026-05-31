@@ -56,7 +56,6 @@ export function useDebugRepl( active = true, shell ) {
 		}
 		// Dumper accumulates entries + publishes `transcript` for React subscribers.
 		const interpreter = Core.node( names.COMMAND_INTERPRETER );
-		const router = Core.node( names.ROUTER );
 		const dumper = new DumperNode();
 		dumper.debugLevelRef = debugLevelRef;
 		dumper.setName( names.OUTPUT );
@@ -71,7 +70,9 @@ export function useDebugRepl( active = true, shell ) {
 		metadata.setName( names.METADATA );
 		metadata.sink = interpreter;
 		metadata.target = names.CWD;
-		router?.register( 'TIMER', names.METADATA, () => metadata.onTimer() );
+		// Hitchhike the _router TIMER: notify_timer calls metadata.fireCb -> fire;
+		// metadata.removeNode -> stop_timer unwinds it.
+		metadata.setTimer();
 		// `_cwd` is the routing indirection — every scope-relative command's TO
 		// stamps through this node, which re-stamps the live cwd. Path menu /
 		// REPL `cd` just sets `_cwd.target`.
@@ -93,10 +94,8 @@ export function useDebugRepl( active = true, shell ) {
 		} );
 		return () => {
 			dumper.unregister( 'transcript', listenerId );
-			// Detach _metadata's poll closure from the router's TIMER — the router
-			// (a sibling-owned backbone node) survives a panel close, so removeNode
-			// alone would leave a closure polling a dead _metadata every tick.
-			router?.unregister( 'TIMER', names.METADATA );
+			// metadata.removeNode() -> stop_timer -> unregister from the _router's
+			// TIMER (TimerNode self-manages the lifecycle; no hand-rolled unregister).
 			dumper.removeNode();
 			completion.removeNode();
 			metadata.removeNode();

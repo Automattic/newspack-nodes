@@ -24,20 +24,6 @@ import { Shell } from '../nodes/shell';
 import { getCommandClient } from '../utils/commandClient';
 import names from '../../runtime/reserved-node-names.json';
 
-// The reply/poll nodes this graph mounts atop the exospine — unregistered on
-// teardown. The backbone (`_command_interpreter` + `_router`) is owned and torn
-// down by mountExospine's teardown(), so it is NOT listed here.
-const GRAPH_NODE_NAMES = [
-	names.OUTPUT,
-	names.METADATA,
-	names.UPTIME,
-	names.COMPLETION,
-	names.HEARTBEAT,
-	names.HTTP,
-	names.SSE,
-	names.CWD,
-];
-
 /**
  * @param {Object}  params
  * @param {string}  params.topology      Topology name.
@@ -192,9 +178,11 @@ export function useConsoleGraph( {
 		heartbeat.target = `${ names.HTTP }/workers`;
 		router.beforeTimerNotify = () => httpOut.lock();
 		router.afterTimerNotify = () => httpOut.flush();
-		router.register( 'TIMER', names.METADATA, () => metadata.onTimer() );
-		router.register( 'TIMER', names.UPTIME, () => uptime.onTimer() );
-		router.register( 'TIMER', names.HEARTBEAT, () => heartbeat.onTimer() );
+		// Each poll node hitchhikes the _router TIMER (set_timer() with no args):
+		// the router's notify_timer calls their fireCb -> fire directly each tick.
+		metadata.setTimer();
+		uptime.setTimer();
+		heartbeat.setTimer();
 
 		setShell( consoleShell );
 		// The EventSource is opened/closed by the stream-gating effect below (it
@@ -205,9 +193,18 @@ export function useConsoleGraph( {
 			heartbeat.clearSlot();
 			sse.unregister( 'connected', 'useConsoleGraph' );
 			sse.close();
-			for ( const name of GRAPH_NODE_NAMES ) {
-				Core.unregisterNode( name );
-			}
+			// Each node owns its teardown: removeNode() clears registrations/sink and,
+			// for the Timer poll nodes, stop_timer -> unregister from the _router's
+			// TIMER set — so a closure can't outlive the node. Before teardownSpine so
+			// the router still exists when those nodes unregister.
+			dumper.removeNode();
+			metadata.removeNode();
+			uptime.removeNode();
+			completion.removeNode();
+			heartbeat.removeNode();
+			httpOut.removeNode();
+			sse.removeNode();
+			cwdNode.removeNode();
 			// The backbone last: stops the router TIMER and removes interpreter + router.
 			teardownSpine();
 			setSsePid( null );

@@ -7,7 +7,10 @@
 
 import { HeartbeatNode } from '../heartbeat-node';
 import { Node } from '../node';
+import { TimerNode } from '../timer-node';
+import { RouterNode } from '../router-node';
 import { Core } from '../core';
+import names from '../reserved-node-names.json';
 import {
 	newMessage,
 	TYPE,
@@ -39,13 +42,13 @@ describe( 'Heartbeat node', () => {
 		expect( node.slot ).toBeNull();
 	} );
 
-	describe( 'onTimer poll emission', () => {
+	describe( 'fire() poll emission', () => {
 		it( 'emits a heartbeat command addressed to this.target when a slot is held', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
 			node.setSlot( 3, 0 );
-			node.onTimer();
+			node.fire();
 			expect( sent ).toHaveLength( 1 );
 			const m = sent[ 0 ];
 			expect( m[ TYPE ] ).toBe( TM_COMMAND );
@@ -60,19 +63,19 @@ describe( 'Heartbeat node', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
-			node.onTimer();
+			node.fire();
 			expect( sent ).toHaveLength( 0 );
 		} );
 
-		it( 'throttles: two onTimer calls <5s apart emit once', () => {
+		it( 'throttles: two fire() calls <5s apart emit once', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
 			node.target = '_sse/workers';
 			node.setSlot( 1, 0 );
 			nowSpy.mockReturnValue( 100 );
-			node.onTimer();
+			node.fire();
 			nowSpy.mockReturnValue( 103 );
-			node.onTimer();
+			node.fire();
 			expect( sent ).toHaveLength( 1 );
 		} );
 
@@ -82,9 +85,9 @@ describe( 'Heartbeat node', () => {
 			node.target = '_sse/workers';
 			node.setSlot( 1, 0 );
 			nowSpy.mockReturnValue( 100 );
-			node.onTimer();
+			node.fire();
 			nowSpy.mockReturnValue( 105 );
-			node.onTimer();
+			node.fire();
 			expect( sent ).toHaveLength( 2 );
 		} );
 
@@ -94,7 +97,7 @@ describe( 'Heartbeat node', () => {
 			node.target = '_sse/workers';
 			node.setSlot( 1, 0 );
 			node.clearSlot();
-			node.onTimer();
+			node.fire();
 			expect( sent ).toHaveLength( 0 );
 		} );
 
@@ -102,7 +105,43 @@ describe( 'Heartbeat node', () => {
 			const node = new HeartbeatNode();
 			node.target = '_sse/workers';
 			node.setSlot( 1, 0 );
-			expect( () => node.onTimer() ).not.toThrow();
+			expect( () => node.fire() ).not.toThrow();
+		} );
+	} );
+
+	describe( 'TimerNode integration (router-hitchhike via notify_timer)', () => {
+		it( 'is a TimerNode subclass', () => {
+			expect( new HeartbeatNode() ).toBeInstanceOf( TimerNode );
+		} );
+
+		it( 'setTimer() registers on the router TIMER; notify_timer fires the poke when a slot is held', () => {
+			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
+			const router = new RouterNode();
+			router.setName( names.ROUTER );
+			router.stopTimer();
+			const { node, sent } = build();
+			node.target = '_sse/workers';
+			node.setSlot( 7, 0 );
+			node.setTimer();
+			router.notifyTimer();
+			expect( sent ).toHaveLength( 1 );
+			expect( sent[ 0 ][ VALUE ].name ).toBe( 'heartbeat' );
+			node.stopTimer();
+		} );
+
+		it( 'removeNode unregisters from the router TIMER (no leak)', () => {
+			const router = new RouterNode();
+			router.setName( names.ROUTER );
+			router.stopTimer();
+			const node = new HeartbeatNode();
+			node.setName( names.HEARTBEAT );
+			node.sink = { fill: () => {} };
+			node.setTimer();
+			node.removeNode();
+			expect( names.HEARTBEAT in router.registrations.TIMER ).toBe(
+				false
+			);
+			expect( () => router.notifyTimer() ).not.toThrow();
 		} );
 	} );
 

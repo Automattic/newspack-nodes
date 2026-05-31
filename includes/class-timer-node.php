@@ -55,6 +55,39 @@ class Timer_Node extends Node {
 		return $this->arguments;
 	}
 
+	public function fire_cb(): void {
+		++$this->fire_count;
+		if ( $this->oneshot ) {
+			$this->active = false;
+			$this->mode   = 'inactive';
+		}
+		if ( null === $this->sink ) {
+			return;
+		}
+		$this->fire();
+	}
+
+	// One tick (Perl Timer::fire). Emit a TM_BYTESTREAM heartbeat carrying the
+	// timestamp ONLY when this timer has a target, or its sink isn't the
+	// CommandInterpreter (the owner/CI guard — a target-less timer sinking into the
+	// interpreter would just spam it); counter++ on emit. Always notify 'FIRE'.
+	protected function fire(): void {
+		if ( '' !== $this->target || ! ( $this->sink instanceof Command_Interpreter_Node ) ) {
+			$msg                       = Message::new_message();
+			$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+			$msg[ Message::TIMESTAMP ] = Core::$now;
+			$msg[ Message::FROM ]      = $this->name;
+			$msg[ Message::TO ]        = $this->target;
+			if ( '' !== $this->key ) {
+				$msg[ Message::KEY ] = $this->key;
+			}
+			$msg[ Message::VALUE ] = (string) Core::$now;
+			++$this->counter;
+			$this->sink->fill( $msg );
+		}
+		$this->notify( 'FIRE', Core::$now );
+	}
+
 	public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
 		$this->oneshot = $oneshot;
 		$this->active  = true;
@@ -109,47 +142,9 @@ class Timer_Node extends Node {
 		return $this->fire_count;
 	}
 
-	public function fill( array &$message ): void {
-		if (
-			( $message[ Message::TYPE ] & Message::TM_INFO )
-			&& 'TIMER' === $message[ Message::KEY ]
-		) {
-			++$this->counter;
-			$this->fire_cb();
-			return;
-		}
-		parent::fill( $message );
-	}
-
-	public function fire_cb(): void {
-		++$this->fire_count;
-		if ( $this->oneshot ) {
-			$this->active = false;
-			$this->mode   = 'inactive';
-		}
-		$this->fire();
-		$this->notify( 'FIRE', Core::$now );
-	}
-
 	public function remove_node(): void {
 		$this->stop_timer();
 		parent::remove_node();
-	}
-
-	protected function fire(): void {
-		if ( null === $this->sink ) {
-			return;
-		}
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$msg[ Message::TIMESTAMP ] = Core::$now;
-		$msg[ Message::FROM ]      = $this->name;
-		$msg[ Message::TO ]        = $this->target;
-		if ( '' !== $this->key ) {
-			$msg[ Message::KEY ] = $this->key;
-		}
-		$msg[ Message::VALUE ]     = (string) Core::$now;
-		$this->sink->fill( $msg );
 	}
 
 	public static function node_schema(): array {

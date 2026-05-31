@@ -44,6 +44,87 @@ class Dumper_Node extends Node {
 		}
 	}
 
+	public function fill( array &$message ): void {
+		++$this->counter;
+
+		// Drop messages addressed to a different cli session; empty TO always renders.
+		if ( '' !== $this->to_filter ) {
+			$to = (string) $message[ Message::TO ];
+			if ( '' !== $to
+				&& ! \preg_match( '/^(?:_output\/)?' . \preg_quote( $this->to_filter, '/' ) . '$/', $to )
+			) {
+				return;
+			}
+		}
+
+		// Tab-completion replies are consumed before render — they feed the cli's
+		// candidate cache, not the terminal.
+		if ( null !== $this->completion_sink && ( $this->completion_sink )( $message ) ) {
+			return;
+		}
+
+		$type = $message[ Message::TYPE ];
+
+		if ( $this->debug_level >= 2 ) {
+			$this->write_async( $this->format_envelope_dump( $message ) );
+			return;
+		}
+		if ( $this->debug_level >= 1 ) {
+			$flags = self::format_type_flags( (int) $type );
+			$from  = (string) ( $message[ Message::FROM ] ?? '' );
+			$this->write_async( $flags . ' from ' . $from . ':' );
+		}
+
+		// TM_EOF: drain marker — fire the callback, render nothing.
+		if ( $type & Message::TM_EOF ) {
+			if ( null !== $this->on_eof ) {
+				( $this->on_eof )();
+			}
+			return;
+		}
+
+		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_RESPONSE ) ) {
+			$cmd = $message[ Message::VALUE ];
+			if ( \is_array( $cmd ) ) {
+				$name    = (string) ( $cmd['name'] ?? '' );
+				$payload = self::render_payload( $cmd['payload'] ?? '' );
+
+				if ( 'prompt' === $name && null !== $this->shell ) {
+					$this->shell->prompt = $payload;
+					return;
+				}
+
+				$this->write_async( $payload );
+				return;
+			}
+		}
+
+		// TM_COMMAND|TM_ERROR: a verb threw — render the unwrapped payload.
+		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_ERROR ) ) {
+			$cmd     = $message[ Message::VALUE ];
+			$payload = \is_array( $cmd ) ? self::render_payload( $cmd['payload'] ?? '' ) : (string) $cmd;
+			$this->write_async( $payload );
+			return;
+		}
+
+		// TM_PING: bounced reply; VALUE is the send timestamp, render as RTT.
+		if ( $type & Message::TM_PING ) {
+			$sent = (float) $message[ Message::VALUE ];
+			$rtt  = ( Core::$now - $sent ) * 1000.0;
+			$this->write_async( \sprintf( 'round trip time: %.2f ms', $rtt ) );
+			return;
+		}
+
+		if ( $type & Message::TM_STRUCT ) {
+			$value = $message[ Message::VALUE ];
+			$line  = \is_string( $value ) ? $value : \wp_json_encode( $value, JSON_UNESCAPED_SLASHES );
+			$this->write_async( (string) $line );
+			return;
+		}
+
+		$this->write_async( (string) $message[ Message::VALUE ] );
+	}
+
 	public function set_shell( Shell_Node $shell ): void {
 		$this->shell = $shell;
 	}
@@ -218,87 +299,6 @@ class Dumper_Node extends Node {
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 		\fwrite( $this->stdout, $prompt );
 		$this->prompt_displayed = true;
-	}
-
-	public function fill( array &$message ): void {
-		++$this->counter;
-
-		// Drop messages addressed to a different cli session; empty TO always renders.
-		if ( '' !== $this->to_filter ) {
-			$to = (string) $message[ Message::TO ];
-			if ( '' !== $to
-				&& ! \preg_match( '/^(?:_output\/)?' . \preg_quote( $this->to_filter, '/' ) . '$/', $to )
-			) {
-				return;
-			}
-		}
-
-		// Tab-completion replies are consumed before render — they feed the cli's
-		// candidate cache, not the terminal.
-		if ( null !== $this->completion_sink && ( $this->completion_sink )( $message ) ) {
-			return;
-		}
-
-		$type = $message[ Message::TYPE ];
-
-		if ( $this->debug_level >= 2 ) {
-			$this->write_async( $this->format_envelope_dump( $message ) );
-			return;
-		}
-		if ( $this->debug_level >= 1 ) {
-			$flags = self::format_type_flags( (int) $type );
-			$from  = (string) ( $message[ Message::FROM ] ?? '' );
-			$this->write_async( $flags . ' from ' . $from . ':' );
-		}
-
-		// TM_EOF: drain marker — fire the callback, render nothing.
-		if ( $type & Message::TM_EOF ) {
-			if ( null !== $this->on_eof ) {
-				( $this->on_eof )();
-			}
-			return;
-		}
-
-		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_RESPONSE ) ) {
-			$cmd = $message[ Message::VALUE ];
-			if ( \is_array( $cmd ) ) {
-				$name    = (string) ( $cmd['name'] ?? '' );
-				$payload = self::render_payload( $cmd['payload'] ?? '' );
-
-				if ( 'prompt' === $name && null !== $this->shell ) {
-					$this->shell->prompt = $payload;
-					return;
-				}
-
-				$this->write_async( $payload );
-				return;
-			}
-		}
-
-		// TM_COMMAND|TM_ERROR: a verb threw — render the unwrapped payload.
-		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_ERROR ) ) {
-			$cmd     = $message[ Message::VALUE ];
-			$payload = \is_array( $cmd ) ? self::render_payload( $cmd['payload'] ?? '' ) : (string) $cmd;
-			$this->write_async( $payload );
-			return;
-		}
-
-		// TM_PING: bounced reply; VALUE is the send timestamp, render as RTT.
-		if ( $type & Message::TM_PING ) {
-			$sent = (float) $message[ Message::VALUE ];
-			$rtt  = ( Core::$now - $sent ) * 1000.0;
-			$this->write_async( \sprintf( 'round trip time: %.2f ms', $rtt ) );
-			return;
-		}
-
-		if ( $type & Message::TM_STRUCT ) {
-			$value = $message[ Message::VALUE ];
-			$line  = \is_string( $value ) ? $value : \wp_json_encode( $value, JSON_UNESCAPED_SLASHES );
-			$this->write_async( (string) $line );
-			return;
-		}
-
-		$this->write_async( (string) $message[ Message::VALUE ] );
 	}
 
 	/**

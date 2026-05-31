@@ -7,15 +7,15 @@
  *
  * Uniformly routes via the substrate's Router (no IPC vs local branches —
  * worker `Partition` Nodes handle IPC). The per-request controller instance
- * registers itself as the `_http` Node; an interpreter response with TO=FROM walks back
- * to it and writes the packed Message to the HTTP body. After Router::fill
- * returns:
+ * registers itself as the `_output` Node; an interpreter response with TO=FROM
+ * walks back to it and writes the packed Message to the HTTP body. After
+ * Router::fill returns:
  *   - sent_headers true  → response already on the wire; exit().
  *   - sent_headers false → async/IPC; emit a 202 ack (real replies arrive
  *                          via the browser's open SSE stream).
- * Every incoming message is stamped with the `_http` boundary name (the client
+ * Every incoming message is stamped with the `_output` boundary name (the client
  * sends a bare reply path — `_output`, `_sse:{pid}/…`, or '' — and never
- * hardcodes `_http`), so a reply's TO=FROM walks `_http/…` back here; a
+ * hardcodes `_output`), so a reply's TO=FROM walks `_output/…` back here; a
  * pivoted `_sse:{pid}` reply is demuxed to the SSE process by HTTP_Filter.
  * test_mode returns instead of exit().
  *
@@ -117,7 +117,7 @@ class HTTP_In_Node extends Node {
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Hidden',
-			'description' => '/command response-writer Node (registered as `_http` at request scope).',
+			'description' => '/command response-writer Node (registered as `_output` at request scope).',
 			'arguments'        => [],
 			'commands'       => [],
 			'has_target'  => false,
@@ -215,11 +215,11 @@ class HTTP_In_Node extends Node {
 		\do_action( 'newspack_nodes/request_graph_ready', $base_interpreter );
 
 		$router = Core::node( Node_Names::ROUTER );
-		$out    = Core::node( Node_Names::HTTP );
+		$out    = Core::node( Node_Names::OUTPUT );
 		if ( ! $router instanceof Router_Node || ! $out instanceof self ) {
 			$this->emit_error(
 				$messages[ \array_key_last( $messages ) ] ?? Message::new_message(),
-				'request-scope graph not initialized (missing _router or _http)'
+				'request-scope graph not initialized (missing _router or _output)'
 			);
 			$this->finish();
 			return;
@@ -239,13 +239,13 @@ class HTTP_In_Node extends Node {
 		$out->reset();
 		foreach ( $messages as $msg ) {
 			// The HTTP boundary stamps its own name onto every incoming message
-			// (I/O-boundary stamping), so a reply's TO=FROM walks `_http/…` back
+			// (I/O-boundary stamping), so a reply's TO=FROM walks `_output/…` back
 			// here. The client sends a bare reply path (`_output`, `_sse:{pid}/…`,
-			// or '') and does NOT hardcode the `_http` prefix; we add it. An empty
-			// FROM stamps to just `_http`. Stamp with the constant, not $this->name:
-			// when the graph was pre-built, the registered `_http` node is a DIFFERENT
+			// or '') and does NOT hardcode the `_output` prefix; we add it. An empty
+			// FROM stamps to just `_output`. Stamp with the constant, not $this->name:
+			// when the graph was pre-built, the registered `_output` node is a DIFFERENT
 			// instance and $this is unnamed.
-			$this->stamp_message( $msg, Node_Names::HTTP );
+			$this->stamp_message( $msg, Node_Names::OUTPUT );
 			// WP already authenticated this request (permission_callback:
 			// manage_options). Sign command provenance on the browser's behalf so
 			// downstream verifier interpreters (request-scope + worker) accept it; the
@@ -292,7 +292,7 @@ class HTTP_In_Node extends Node {
 	 * Lazy-construct the request-scope graph if not already in Core's registry
 	 * (idempotent). Returns the base CommandInterpreter for the
 	 * `newspack_nodes/request_graph_ready` hook. This controller instance IS
-	 * the `_http` response-writer Node.
+	 * the `_output` response-writer Node.
 	 */
 	private function ensure_request_graph(): Command_Interpreter_Node {
 		$router = Core::node( Node_Names::ROUTER );
@@ -306,9 +306,9 @@ class HTTP_In_Node extends Node {
 			$base_interpreter->name( Node_Names::COMMAND_INTERPRETER );
 			$base_interpreter->sink( $router );
 		}
-		// The controller instance IS the _http egress Node (deliberately the same object).
-		if ( ! Core::node( Node_Names::HTTP ) instanceof self ) {
-			$this->name( Node_Names::HTTP );
+		// The controller instance IS the _output egress Node (deliberately the same object).
+		if ( ! Core::node( Node_Names::OUTPUT ) instanceof self ) {
+			$this->name( Node_Names::OUTPUT );
 		}
 		return $base_interpreter;
 	}

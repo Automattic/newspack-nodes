@@ -76,15 +76,14 @@ class Core {
 		self::$memd              = null;
 		// Default handler: stderr is a BROADCAST. Route it to whichever reply sink
 		// THIS process wired — the worker's `_repl` output partition, a REPL
-		// `_output` Dumper, the SSE-stream `_sse` egress, or the `_http` response
+		// `_output` Dumper, the SSE-stream `_sse` egress, or the `_output` response
 		// writer (POST /command, where it rides back in the JSONL body) — so the
 		// line surfaces at the session. Each process registers exactly one, so a
 		// line never doubles. Else error_log.
 		self::$stderr_handler = static function ( string $msg ): void {
 			$sink = self::$nodes_by_name[ Node_Names::REPL ]
-				?? self::$nodes_by_name[ Node_Names::OUTPUT ]
 				?? self::$nodes_by_name[ Node_Names::SSE ]
-				?? self::$nodes_by_name[ Node_Names::HTTP ]
+				?? self::$nodes_by_name[ Node_Names::OUTPUT ]
 				?? null;
 			if ( null !== $sink ) {
 				$m                       = Message::new_message();
@@ -97,8 +96,8 @@ class Core {
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			\error_log( \rtrim( $msg ) );
 		};
-		self::$now            = \microtime( true );
-		self::$init_time      = self::$now;
+		self::$now       = \microtime( true );
+		self::$init_time = self::$now;
 	}
 
 	/** Pre-increment monotonic message-id counter. */

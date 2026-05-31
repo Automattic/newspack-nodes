@@ -654,7 +654,7 @@ class Command_Interpreter_Node extends Node {
 	 * `log <message>` builtin — BROADCAST `$args` through Core's stderr pipeline
 	 * (that's what distinguishes it from `echo`, which replies). Returns nothing;
 	 * the broadcast reaches the session via the wired stderr sink (worker `_repl`,
-	 * REPL `_output`, or the `_http` JSONL body for POST /command).
+	 * REPL `_output` JSONL body for POST /command).
 	 */
 	private static function cmd_log( Command_Interpreter_Node $self, string $args ): string {
 		$self->stderr( $args );

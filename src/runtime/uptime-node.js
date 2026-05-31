@@ -3,7 +3,7 @@
  * it publishes the trimmed uptime string ( useNodeState( '_uptime', 'uptime' ) ).
  */
 
-import { Node } from './node';
+import { TimerNode } from './timer-node';
 import { Core } from './core';
 import {
 	newMessage,
@@ -15,7 +15,7 @@ import {
 	TM_COMMAND,
 } from './message';
 
-export class UptimeNode extends Node {
+export class UptimeNode extends TimerNode {
 	constructor() {
 		super();
 		this.registrations.uptime = {};
@@ -46,10 +46,11 @@ export class UptimeNode extends Node {
 		return m;
 	}
 
-	// Router TIMER subscriber: emit an uptime poll at most every 5s. The timer
-	// only runs while the graph is mounted and `_cwd` handles every scope, so
-	// there's no per-scope gate — emit whenever a sink exists.
-	onTimer() {
+	// Router TIMER subscriber (the _router calls fireCb -> fire): emit an uptime
+	// poll at most every 5s. The timer only runs while the graph is mounted and
+	// `_cwd` handles every scope, so there's no per-scope gate — emit whenever a
+	// sink exists.
+	fire() {
 		if ( ! this.sink ) {
 			return;
 		}

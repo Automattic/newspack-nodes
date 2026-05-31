@@ -625,17 +625,19 @@ class NodeTest extends TestCase {
 	// ── drop_message branches ────────────────────────────────────────────
 
 	public function test_drop_message_routes_NOT_AVAILABLE_to_least_often_in_first_300s(): void {
-		// Spec: "First-300s NOT_AVAILABLE rule" — when Core::$now < 300 and
-		// the error is 'NOT_AVAILABLE', drop_message routes through
-		// print_least_often (suppresses until 10th occurrence) instead of
-		// print_less_often (emits first then suppresses 60s). This dampens
-		// boot-time noise from nodes that haven't been registered yet.
+		// Spec: "First-300s NOT_AVAILABLE rule" — when uptime (Core::$now -
+		// Core::$init_time) < 300 and the error is 'NOT_AVAILABLE', drop_message
+		// routes through print_least_often (suppresses until 10th occurrence)
+		// instead of print_less_often (emits first then suppresses 60s). This
+		// dampens boot-time noise from nodes that haven't been registered yet.
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
 
-		// Force Core::$now to early-boot value.
-		$saved_now = Core::$now;
-		Core::$now = 100.0;
+		// Force uptime into the boot window (100s < 300s).
+		$saved_now       = Core::$now;
+		$saved_init      = Core::$init_time;
+		Core::$init_time = 0.0;
+		Core::$now       = 100.0;
 
 		try {
 			$n   = new Capture_Sink_Node();
@@ -658,7 +660,8 @@ class NodeTest extends TestCase {
 				'10th occurrence must finally emit'
 			);
 		} finally {
-			Core::$now = $saved_now;
+			Core::$now       = $saved_now;
+			Core::$init_time = $saved_init;
 		}
 	}
 

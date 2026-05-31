@@ -84,6 +84,7 @@ export default function DebugOverlay( {
 	// restore the host's default wiring (via reinit) even with no user nodes.
 	const [ graphDirty, setGraphDirty ] = useState( false );
 	const replInputRef = useRef( null );
+	const panelRef = useRef( null );
 	// Theme + palette keys are global — shared with the topology console
 	// so a preference picked in either surface applies in both. Palette
 	// defaults to collapsed; storage='0' means the user explicitly opened it.
@@ -335,6 +336,47 @@ export default function DebugOverlay( {
 		return () => document.removeEventListener( 'keydown', onKey );
 	}, [ enabled ] );
 
+	// Eat wheel scrolls inside the panel so they don't scroll the page behind the
+	// overlay. An inner scrollable (transcript, canvas) that can still scroll in the
+	// gesture's direction keeps it; everything else is consumed. preventDefault needs
+	// a non-passive listener — React's onWheel can't guarantee that — so attach one
+	// to the panel directly.
+	useEffect( () => {
+		const el = panelRef.current;
+		if ( ! open || ! el ) {
+			return undefined;
+		}
+		const consumedByInnerScroll = ( target, deltaY ) => {
+			let node = target;
+			while ( node && node !== el ) {
+				if ( node.scrollHeight > node.clientHeight ) {
+					const oy = window.getComputedStyle( node ).overflowY;
+					if ( 'auto' === oy || 'scroll' === oy ) {
+						const atTop = node.scrollTop <= 0;
+						const atBottom =
+							node.scrollTop + node.clientHeight >=
+							node.scrollHeight - 1;
+						if (
+							( deltaY < 0 && ! atTop ) ||
+							( deltaY > 0 && ! atBottom )
+						) {
+							return true;
+						}
+					}
+				}
+				node = node.parentNode;
+			}
+			return false;
+		};
+		const onWheel = ( e ) => {
+			if ( ! consumedByInnerScroll( e.target, e.deltaY ) ) {
+				e.preventDefault();
+			}
+		};
+		el.addEventListener( 'wheel', onWheel, { passive: false } );
+		return () => el.removeEventListener( 'wheel', onWheel );
+	}, [ open ] );
+
 	if ( ! enabled ) {
 		return null;
 	}
@@ -369,6 +411,7 @@ export default function DebugOverlay( {
 			) }
 			{ open && (
 				<div
+					ref={ panelRef }
 					className="nodes-debug__panel"
 					data-testid="debug-panel"
 					style={ frameStyle }
