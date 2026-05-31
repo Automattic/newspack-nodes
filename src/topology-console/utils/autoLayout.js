@@ -32,6 +32,81 @@ export function snapToGrid( x, y ) {
 	};
 }
 
+/**
+ * Place a single newly-appeared node WITHOUT re-flowing the rest of the graph —
+ * the cheap incremental counterpart to autoLayout. Anchors one column LEFT of a
+ * pinned target, or RIGHT of a pinned source (mirroring autoLayout's left→right
+ * producer→target flow); with no pinned neighbour it drops into a free row at the
+ * left column. Nudges down to the next free grid cell to avoid overlapping a node
+ * already at that spot. `positions` is the map of already-placed nodes (overrides
+ * + earlier newcomers this pass).
+ *
+ * @param {string} nodeId    The new node's id.
+ * @param {Object} parsed    { nodes, edges } graph (for the new node's edges).
+ * @param {Object} positions Map of nodeId → { x, y } already placed.
+ * @return {{x: number, y: number}} A grid position for the new node.
+ */
+export function placeNewNode( nodeId, parsed, positions ) {
+	const edges = parsed?.edges ?? [];
+	let x = X_PAD;
+	let y = Y_PAD;
+	let anchored = false;
+	for ( const e of edges ) {
+		if ( e.from === nodeId && positions[ e.to ] ) {
+			x = positions[ e.to ].x - X_STEP;
+			y = positions[ e.to ].y;
+			anchored = true;
+			break;
+		}
+	}
+	if ( ! anchored ) {
+		for ( const e of edges ) {
+			if ( e.to === nodeId && positions[ e.from ] ) {
+				x = positions[ e.from ].x + X_STEP;
+				y = positions[ e.from ].y;
+				anchored = true;
+				break;
+			}
+		}
+	}
+	if ( ! anchored ) {
+		let maxY = Y_PAD - Y_STEP;
+		for ( const p of Object.values( positions ) ) {
+			if ( p.x === X_PAD && p.y > maxY ) {
+				maxY = p.y;
+			}
+		}
+		y = maxY + Y_STEP;
+	}
+	if ( x < X_PAD ) {
+		x = X_PAD;
+	}
+	while (
+		Object.values( positions ).some( ( p ) => p.x === x && p.y === y )
+	) {
+		y += Y_STEP;
+	}
+	return { x, y };
+}
+
+const snapHalf = ( v ) => Math.round( v * 2 ) / 2;
+const midMinMax = ( arr ) => ( Math.min( ...arr ) + Math.max( ...arr ) ) / 2;
+const median = ( arr ) => {
+	const s = arr.slice().sort( ( a, b ) => a - b );
+	const n = s.length;
+	if ( ! n ) {
+		return 0;
+	}
+	return n % 2 ? s[ ( n - 1 ) / 2 ] : ( s[ n / 2 - 1 ] + s[ n / 2 ] ) / 2;
+};
+// Stable numeric-key sort; ties keep prior order (which is alphabetical here, so
+// the layout stays deterministic regardless of registration order).
+const stableSort = ( arr, key ) =>
+	arr
+		.map( ( v, i ) => [ v, i ] )
+		.sort( ( a, b ) => key( a[ 0 ] ) - key( b[ 0 ] ) || a[ 1 ] - b[ 1 ] )
+		.map( ( x ) => x[ 0 ] );
+
 export function autoLayout( parsed ) {
 	const nodes = parsed?.nodes ?? [];
 	const edges = parsed?.edges ?? [];
@@ -55,306 +130,254 @@ export function autoLayout( parsed ) {
 		return { nodes: positioned, edges };
 	}
 
-	const incoming = new Map();
-	const outgoing = new Map();
-	for ( const e of edges ) {
-		const inList = incoming.get( e.to ) || [];
-		inList.push( e.from );
-		incoming.set( e.to, inList );
-		const outList = outgoing.get( e.from ) || [];
-		outList.push( e.to );
-		outgoing.set( e.from, outList );
-	}
-
-	// Depth assignment via DFS with cycle break.
-	const depth = new Map();
-	const visit = ( name, stack = new Set() ) => {
-		if ( depth.has( name ) ) {
-			return depth.get( name );
-		}
-		if ( stack.has( name ) ) {
-			depth.set( name, 0 );
-			return 0;
-		}
-		stack.add( name );
-		const preds = incoming.get( name ) || [];
-		const d =
-			preds.length === 0
-				? 0
-				: 1 + Math.max( 0, ...preds.map( ( p ) => visit( p, stack ) ) );
-		stack.delete( name );
-		depth.set( name, d );
-		return d;
-	};
-	nodes.forEach( ( n ) => visit( n.id ) );
-
-	// Push each node right to `min(target depths) - 1` to shorten long
-	// forward edges — BUT skip source-only nodes (no incoming). Sources
-	// anchor the left edge; pulling them right just to be closer to a
-	// faraway target marrons col 0 visually empty. Walk in decreasing-
-	// depth order so targets settle first.
-	const sortedByDepthDesc = [ ...nodes ].sort(
-		( a, b ) => depth.get( b.id ) - depth.get( a.id )
-	);
-	for ( const n of sortedByDepthDesc ) {
-		const preds = incoming.get( n.id ) || [];
-		if ( preds.length === 0 ) {
-			continue; // source-only: stays at col 0
-		}
-		const targets = outgoing.get( n.id ) || [];
-		if ( targets.length === 0 ) {
-			continue;
-		}
-		const targetDepths = targets
-			.map( ( t ) => depth.get( t ) )
-			.filter( ( d ) => d !== undefined );
-		if ( targetDepths.length === 0 ) {
-			continue;
-		}
-		const minTargetDepth = Math.min( ...targetDepths );
-		if ( minTargetDepth - 1 > depth.get( n.id ) ) {
-			depth.set( n.id, minTargetDepth - 1 );
-		}
-	}
-
-	// Align sinks (no outgoing) and isolated nodes (no edges) to the max-depth
-	// column. Without this, a fan-out that reaches sinks at uneven natural
-	// depths leaves them scattered across columns — e.g. a request-builder
-	// → completed:tee → partition chain puts some partitions at depth 3 and
-	// some at depth 4. Pushing every leaf right makes them stack cleanly in
-	// the rightmost column, and an isolated node (`_repl` in the live worker
-	// graph) joins them instead of marooning the left edge.
-	let maxDepth = 0;
-	for ( const d of depth.values() ) {
-		if ( d > maxDepth ) {
-			maxDepth = d;
-		}
-	}
-	if ( maxDepth > 0 ) {
-		for ( const n of nodes ) {
-			const outs = outgoing.get( n.id ) || [];
-			if ( outs.length === 0 ) {
-				depth.set( n.id, maxDepth );
-			}
-		}
-	}
-
-	// Bucket nodes by depth.
-	const byDepth = new Map();
-	for ( const n of nodes ) {
-		const d = depth.get( n.id ) ?? 0;
-		if ( ! byDepth.has( d ) ) {
-			byDepth.set( d, [] );
-		}
-		byDepth.get( d ).push( n );
-	}
-	const depthsAscending = Array.from( byDepth.keys() ).sort(
-		( a, b ) => a - b
-	);
-
-	// Pass 1: barycenter row assignment (left-to-right).
-	const row = new Map();
-	for ( const d of depthsAscending ) {
-		const columnNodes = byDepth.get( d );
-		if ( d === 0 ) {
-			columnNodes.forEach( ( n, i ) => row.set( n.id, i ) );
-			continue;
-		}
-		const scored = columnNodes.map( ( n ) => {
-			const preds = incoming.get( n.id ) || [];
-			const predRows = preds
-				.map( ( p ) => row.get( p ) )
-				.filter( ( r ) => r !== undefined );
-			const bary = predRows.length
-				? predRows.reduce( ( a, b ) => a + b, 0 ) / predRows.length
-				: Number.POSITIVE_INFINITY;
-			return { node: n, bary };
-		} );
-		scored.sort( ( a, b ) => {
-			if ( a.bary !== b.bary ) {
-				return a.bary - b.bary;
-			}
-			return a.node.id.localeCompare( b.node.id );
-		} );
-		scored.forEach( ( s, i ) => row.set( s.node.id, i ) );
-	}
-
-	// Pass 2: snap each producer's row to the mean of its target rows,
-	// right-to-left. Mean (not min) sits a producer between split targets.
-	// Snap precision: HALF-row for multi-target fan-outs (so 4 targets at
-	// rows 0,1,2,3 put the source at 1.5 — the visual midpoint between
-	// rows 1 and 2). Single-target snap takes the exact target row so
-	// straight pairs stay on the same row.
-	for ( let i = depthsAscending.length - 1; i >= 0; i-- ) {
-		const d = depthsAscending[ i ];
-		for ( const n of byDepth.get( d ) ) {
-			const targets = outgoing.get( n.id ) || [];
-			const targetRows = targets
-				.map( ( t ) => row.get( t ) )
-				.filter( ( r ) => r !== undefined );
-			if ( targetRows.length === 1 ) {
-				row.set( n.id, targetRows[ 0 ] );
-			} else if ( targetRows.length > 1 ) {
-				const mean =
-					targetRows.reduce( ( a, b ) => a + b, 0 ) /
-					targetRows.length;
-				row.set( n.id, Math.round( mean * 2 ) / 2 );
-			}
-		}
-	}
-
-	// Pass 3: per-column resnap + deconflict, left-to-right.
+	// ── force-layered layout (winner of the autoLayout bake-off + 3145-node bench) ──
+	// x is the DAG-depth column; rows are driven by edge "springs" that pull each
+	// node to the round-half midpoint of its placed neighbours (a fan-out producer /
+	// fan-in sink lands between its targets / sources, a straight chain shares a row),
+	// with intra-column order settled by barycenter crossing-reduction.
 	//
-	// For columns beyond 0, re-snap each node to FLOOR(mean of finalized
-	// predecessor rows) before deconfliction. Pass 1 placed columns by
-	// barycenter using col 0's input-order rows, but Pass 2 + same-column
-	// deconflict have since moved col 0 around — without this resnap,
-	// targets stay at their stale Pass-1 rows and the dashed edges run
-	// diagonally instead of horizontally. Floor (vs round) biases a target
-	// toward its FIRST predecessor, which is the natural pair partner.
-	//
-	// Deconflict tiebreak = "straightness" (more edges whose other endpoint
-	// shares the row keeps it), then alpha.
-	const straightnessAt = ( nodeId, targetRow ) => {
-		let count = 0;
-		for ( const p of incoming.get( nodeId ) || [] ) {
-			if ( row.get( p ) === targetRow ) {
-				count++;
-			}
-		}
-		for ( const t of outgoing.get( nodeId ) || [] ) {
-			if ( row.get( t ) === targetRow ) {
-				count++;
-			}
-		}
-		return count;
-	};
-	for ( const d of depthsAscending ) {
-		const columnNodes = byDepth.get( d ).slice();
-		if ( d > 0 ) {
-			for ( const n of columnNodes ) {
-				// Re-snap LEAVES only — middle nodes keep Pass 2's
-				// target-snap row (= midpoint of fan-out). Re-snapping a
-				// middle node to its predecessor's row would pull it AWAY
-				// from the midpoint of its targets.
-				const outs = outgoing.get( n.id ) || [];
-				if ( outs.length > 0 ) {
-					continue;
-				}
-				const preds = incoming.get( n.id ) || [];
-				// Fan-out leaves (single pred, sibling count > 1) keep the
-				// Pass 1 barycenter row — pulling all siblings to the pred's
-				// row collapses them, then deconflict bumps them DOWNWARD,
-				// shifting the midpoint off the pred. Pass 1's alpha-spread
-				// already centers them around the pred.
-				if ( preds.length === 1 ) {
-					const siblings = outgoing.get( preds[ 0 ] ) || [];
-					if ( siblings.length > 1 ) {
-						continue;
-					}
-				}
-				const predRows = preds
-					.map( ( p ) => row.get( p ) )
-					.filter( ( r ) => r !== undefined );
-				if ( predRows.length ) {
-					const mean =
-						predRows.reduce( ( a, b ) => a + b, 0 ) /
-						predRows.length;
-					row.set( n.id, Math.floor( mean ) );
-				}
-			}
-		}
-		columnNodes.sort( ( a, b ) => {
-			const ra = row.get( a.id );
-			const rb = row.get( b.id );
-			if ( ra !== rb ) {
-				return ra - rb;
-			}
-			const sa = straightnessAt( a.id, ra );
-			const sb = straightnessAt( b.id, rb );
-			if ( sa !== sb ) {
-				return sb - sa; // higher straightness wins the row
-			}
-			return a.id.localeCompare( b.id );
-		} );
-		const seen = new Set();
-		for ( const n of columnNodes ) {
-			let r = row.get( n.id );
-			while ( seen.has( r ) ) {
-				r++;
-			}
-			row.set( n.id, r );
-			seen.add( r );
-		}
-	}
-
-	// Pass 3b: right-to-left re-snap of MIDDLE nodes (nodes with outgoing
-	// edges) to mean of FINAL target rows. After Pass 3's per-column
-	// deconflict, leaves may have shifted (e.g. gyroscope moved from row 2
-	// → row 1 because it now wins the row-1 slot via straightness over an
-	// errors-partition sibling). Pass 2 set middle nodes using the
-	// pre-deconflict rows, so completed:tee at row 1 (mean of completed:
-	// partition row 0 and gyroscope row 2) is stale once gyroscope sits at
-	// row 1. Re-snapping middle nodes here with finalized target rows puts
-	// each middle node at the actual midpoint of its targets.
-	//
-	// Single target → exact target row (preserves straight pairs).
-	// Multi target → round-to-half-row for visual midpoint precision.
-	for ( let i = depthsAscending.length - 1; i >= 0; i-- ) {
-		const d = depthsAscending[ i ];
-		const columnNodes = byDepth.get( d ).slice();
-		for ( const n of columnNodes ) {
-			const outs = outgoing.get( n.id ) || [];
-			if ( outs.length === 0 ) {
-				continue; // leaves stay put
-			}
-			const targetRows = outs
-				.map( ( t ) => row.get( t ) )
-				.filter( ( r ) => r !== undefined );
-			if ( targetRows.length === 1 ) {
-				row.set( n.id, targetRows[ 0 ] );
-			} else if ( targetRows.length > 1 ) {
-				const mean =
-					targetRows.reduce( ( a, b ) => a + b, 0 ) /
-					targetRows.length;
-				row.set( n.id, Math.round( mean * 2 ) / 2 );
-			}
-		}
-		// Deconflict middle nodes against each other in this column. Bumps
-		// are integer-row, which can push a half-row node onto an integer
-		// row — accepted, since the alternative is overlap.
-		columnNodes.sort( ( a, b ) => {
-			const ra = row.get( a.id );
-			const rb = row.get( b.id );
-			if ( ra !== rb ) {
-				return ra - rb;
-			}
-			const sa = straightnessAt( a.id, ra );
-			const sb = straightnessAt( b.id, rb );
-			if ( sa !== sb ) {
-				return sb - sa;
-			}
-			return a.id.localeCompare( b.id );
-		} );
-		const seen = new Set();
-		for ( const n of columnNodes ) {
-			let r = row.get( n.id );
-			while ( seen.has( r ) ) {
-				r++;
-			}
-			row.set( n.id, r );
-			seen.add( r );
-		}
-	}
-
-	const positioned = nodes.map( ( n ) => {
-		const d = depth.get( n.id ) ?? 0;
-		const r = row.get( n.id ) ?? 0;
-		return {
-			...n,
-			position: { x: X_PAD + d * X_STEP, y: Y_PAD + r * Y_STEP },
-		};
+	// Canonicalize to alphabetical node order so the layout is independent of the
+	// order the runtime registers nodes in — the live graph hands them over
+	// backbone-first, which must lay out the same as a topology file (alphabetical).
+	const ids = [ ...nodes ]
+		.map( ( n ) => n.id )
+		.sort( ( a, b ) => String( a ).localeCompare( String( b ) ) );
+	const declIdx = {};
+	const succ = {};
+	const pred = {};
+	ids.forEach( ( id, i ) => {
+		declIdx[ id ] = i;
+		succ[ id ] = [];
+		pred[ id ] = [];
 	} );
+	const nodeSet = new Set( ids );
+	for ( const e of edges ) {
+		// Skip edges whose endpoints aren't real nodes (the old Map-based layout
+		// tolerated these via `|| []`; the plain-object adjacency would throw).
+		if ( ! nodeSet.has( e.from ) || ! nodeSet.has( e.to ) ) {
+			continue;
+		}
+		succ[ e.from ].push( e.to );
+		pred[ e.to ].push( e.from );
+	}
+
+	// Column = longest-path depth (Kahn), every sink/isolated to the deepest column.
+	const depth = {};
+	const indeg = {};
+	for ( const id of ids ) {
+		depth[ id ] = 0;
+		indeg[ id ] = pred[ id ].length;
+	}
+	const queue = ids.filter( ( id ) => indeg[ id ] === 0 );
+	while ( queue.length ) {
+		const u = queue.shift();
+		for ( const v of succ[ u ] ) {
+			if ( depth[ v ] < depth[ u ] + 1 ) {
+				depth[ v ] = depth[ u ] + 1;
+			}
+			if ( --indeg[ v ] === 0 ) {
+				queue.push( v );
+			}
+		}
+	}
+	let maxDepth = 0;
+	for ( const id of ids ) {
+		maxDepth = Math.max( maxDepth, depth[ id ] );
+	}
+	const col = {};
+	for ( const id of ids ) {
+		col[ id ] = succ[ id ].length === 0 ? maxDepth : depth[ id ];
+	}
+
+	const isIsolated = ( id ) =>
+		succ[ id ].length === 0 && pred[ id ].length === 0;
+	const columns = [];
+	for ( let c = 0; c <= maxDepth; c++ ) {
+		columns[ c ] = [];
+	}
+	for ( const id of ids ) {
+		if ( ! isIsolated( id ) ) {
+			columns[ col[ id ] ].push( id );
+		}
+	}
+	const isolated = ids.filter( isIsolated );
+
+	// Anchor = the widest connected column; rows propagate outward from it.
+	let anchor = 0;
+	for ( let c = 0; c <= maxDepth; c++ ) {
+		if ( columns[ c ].length > columns[ anchor ].length ) {
+			anchor = c;
+		}
+	}
+	const sinkSide = anchor > maxDepth / 2;
+
+	// Barycenter crossing-reduction in index space (alternating down/up sweeps).
+	const pos = {};
+	const reindex = () =>
+		columns.forEach( ( a ) => a.forEach( ( id, i ) => ( pos[ id ] = i ) ) );
+	reindex();
+	const baryIndex = ( id, nb ) => {
+		const a = nb.filter( ( x ) => pos[ x ] !== undefined );
+		return a.length
+			? a.reduce( ( s, x ) => s + pos[ x ], 0 ) / a.length
+			: pos[ id ];
+	};
+	for ( let s = 0; s < 12; s++ ) {
+		for ( let c = 1; c <= maxDepth; c++ ) {
+			columns[ c ] = stableSort( columns[ c ], ( id ) =>
+				baryIndex( id, pred[ id ] )
+			);
+			reindex();
+		}
+		for ( let c = maxDepth - 1; c >= 0; c-- ) {
+			columns[ c ] = stableSort( columns[ c ], ( id ) =>
+				baryIndex( id, succ[ id ] )
+			);
+			reindex();
+		}
+	}
+
+	// Integer-stack the anchor in its order; pull every other node to the round-half
+	// midpoint of its already-placed neighbours (the spring step).
+	const assignRows = () => {
+		const r = {};
+		columns[ anchor ].forEach( ( id, i ) => ( r[ id ] = i ) );
+		for ( let c = anchor + 1; c <= maxDepth; c++ ) {
+			for ( const id of columns[ c ] ) {
+				const nb = pred[ id ].filter( ( p ) => r[ p ] !== undefined );
+				if ( nb.length ) {
+					r[ id ] = midMinMax( nb.map( ( p ) => r[ p ] ) );
+				}
+			}
+		}
+		for ( let c = anchor - 1; c >= 0; c-- ) {
+			for ( const id of columns[ c ] ) {
+				const nb = succ[ id ].filter( ( k ) => r[ k ] !== undefined );
+				if ( nb.length ) {
+					r[ id ] = midMinMax( nb.map( ( k ) => r[ k ] ) );
+				}
+			}
+		}
+		return r;
+	};
+	let row = assignRows();
+
+	// Fix the anchor's own order + orientation from its neighbours' rows: pick the
+	// sign that puts the lowest-index anchor node on the side the layout flows from.
+	const anchorKey = ( id ) =>
+		median(
+			( sinkSide ? pred[ id ] : succ[ id ] )
+				.map( ( x ) => row[ x ] )
+				.filter( ( v ) => v !== undefined )
+		);
+	const buildOrder = ( sign ) =>
+		stableSort( columns[ anchor ], ( id ) => sign * anchorKey( id ) );
+	const firstAtTop = ( ord ) => {
+		const first = ord
+			.slice()
+			.sort( ( a, b ) => declIdx[ a ] - declIdx[ b ] )[ 0 ];
+		return ord.indexOf( first ) <= ( ord.length - 1 ) / 2;
+	};
+	let chosen = buildOrder( 1 );
+	for ( const sign of [ 1, -1 ] ) {
+		const ord = buildOrder( sign );
+		if ( firstAtTop( ord ) === sinkSide ) {
+			chosen = ord;
+			break;
+		}
+	}
+	columns[ anchor ] = chosen;
+	row = assignRows();
+
+	// Settle the remaining columns by neighbour-row median (a few relaxation passes).
+	for ( let it = 0; it < 6; it++ ) {
+		for ( let c = anchor + 1; c <= maxDepth; c++ ) {
+			columns[ c ] = stableSort( columns[ c ], ( id ) =>
+				median(
+					pred[ id ]
+						.map( ( x ) => row[ x ] )
+						.filter( ( v ) => v !== undefined )
+				)
+			);
+		}
+		for ( let c = anchor - 1; c >= 0; c-- ) {
+			columns[ c ] = stableSort( columns[ c ], ( id ) =>
+				median(
+					succ[ id ]
+						.map( ( x ) => row[ x ] )
+						.filter( ( v ) => v !== undefined )
+				)
+			);
+		}
+		row = assignRows();
+	}
+
+	// Resolve same-column overlaps by spreading each colliding cluster symmetrically
+	// around its barycenter (pool-adjacent-violators), not just pushing down — so a
+	// producer's fan-out leaves straddle it (tee → out/_repl land above/below tee)
+	// instead of dropping below. Non-overlapping columns are untouched.
+	columns.forEach( ( arr ) => {
+		const sorted = [ ...arr ].sort(
+			( a, b ) => row[ a ] - row[ b ] || declIdx[ a ] - declIdx[ b ]
+		);
+		const blocks = [];
+		for ( const id of sorted ) {
+			let block = { ids: [ id ], first: row[ id ] };
+			// Merge with the previous block while the 1-row-spaced layouts would
+			// overlap; a merged block sits at the barycenter of its members' wants.
+			while ( blocks.length ) {
+				const prev = blocks[ blocks.length - 1 ];
+				if ( block.first >= prev.first + prev.ids.length - 1e-9 ) {
+					break;
+				}
+				const merged = prev.ids.concat( block.ids );
+				let sum = 0;
+				merged.forEach( ( m, k ) => ( sum += row[ m ] - k ) );
+				block = { ids: merged, first: sum / merged.length };
+				blocks.pop();
+			}
+			blocks.push( block );
+		}
+		for ( const b of blocks ) {
+			const first = snapHalf( b.first );
+			b.ids.forEach( ( m, k ) => ( row[ m ] = first + k ) );
+		}
+	} );
+
+	// Isolated nodes stack below the deepest connected column.
+	let maxRow = -Infinity;
+	columns[ maxDepth ].forEach(
+		( id ) => ( maxRow = Math.max( maxRow, row[ id ] ) )
+	);
+	if ( maxRow === -Infinity ) {
+		maxRow = -1;
+	}
+	isolated.forEach( ( id, i ) => {
+		col[ id ] = maxDepth;
+		row[ id ] = maxRow + 1 + i;
+	} );
+
+	// Normalize: shift every row so the topmost is 0 (the barycenter spread can push
+	// a fan-out cluster to negative rows when its producer sits near the top).
+	let minRow = Infinity;
+	for ( const id of ids ) {
+		if ( row[ id ] < minRow ) {
+			minRow = row[ id ];
+		}
+	}
+	if ( minRow !== Infinity && minRow !== 0 ) {
+		for ( const id of ids ) {
+			row[ id ] -= minRow;
+		}
+	}
+
+	const positioned = nodes.map( ( n ) => ( {
+		...n,
+		position: {
+			x: X_PAD + ( col[ n.id ] ?? 0 ) * X_STEP,
+			y: Y_PAD + ( row[ n.id ] ?? 0 ) * Y_STEP,
+		},
+	} ) );
 
 	return { nodes: positioned, edges };
 }

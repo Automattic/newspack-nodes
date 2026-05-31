@@ -147,7 +147,7 @@ describe( 'SchematicCanvas', () => {
 		);
 	} );
 
-	it( 'does not fire onSeedLayout when positionOverrides already covers nodes', () => {
+	it( 'ships the autoLayout seed even when positionOverrides already covers nodes (the layout hook merges/no-ops)', () => {
 		const calls = [];
 		render(
 			<SchematicCanvas
@@ -159,7 +159,36 @@ describe( 'SchematicCanvas', () => {
 				onSeedLayout={ ( map ) => calls.push( map ) }
 			/>
 		);
-		expect( calls ).toHaveLength( 0 );
+		// The canvas always ships autoLayout's positions; useDebugLayout decides
+		// what to pin (merge missing, never overwrite) — so a node appearing later
+		// gets pinned instead of re-flowing on every connection change.
+		expect( calls ).toHaveLength( 1 );
+		expect( Object.keys( calls[ 0 ] ).sort() ).toEqual( [ 'a', 'b' ] );
+	} );
+
+	it( 'places a newcomer via placeNewNode and keeps existing overrides (no graph re-flow)', () => {
+		const calls = [];
+		render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ {
+					nodes: [ { id: 'a' }, { id: 'b' }, { id: 'c' } ],
+					edges: [ { from: 'b', to: 'c' } ], // c is downstream of b
+				} }
+				positionOverrides={ {
+					a: { x: 1, y: 1 },
+					b: { x: 240, y: 80 },
+				} }
+				onSeedLayout={ ( map ) => calls.push( map ) }
+			/>
+		);
+		// Existing overrides are untouched (no autoLayout re-flow); the newcomer c
+		// is placed near its source b, in a distinct cell.
+		expect( calls ).toHaveLength( 1 );
+		expect( calls[ 0 ].a ).toEqual( { x: 1, y: 1 } );
+		expect( calls[ 0 ].b ).toEqual( { x: 240, y: 80 } );
+		expect( calls[ 0 ].c ).toBeDefined();
+		expect( calls[ 0 ].c ).not.toEqual( calls[ 0 ].b );
 	} );
 
 	it( 'does not fire onSeedLayout when the graph is empty', () => {

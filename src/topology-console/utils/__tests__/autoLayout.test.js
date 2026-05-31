@@ -4,6 +4,7 @@
 
 import {
 	autoLayout,
+	placeNewNode,
 	snapToGrid,
 	X_PAD,
 	X_STEP,
@@ -12,6 +13,419 @@ import {
 	NODE_W,
 	NODE_H,
 } from '../autoLayout';
+
+describe( 'placeNewNode (cheap incremental placement, no graph-wide re-flow)', () => {
+	it( 'anchors one column LEFT of a pinned target', () => {
+		const parsed = {
+			nodes: [ { id: 'mid' }, { id: 'newbie' } ],
+			edges: [ { from: 'newbie', to: 'mid' } ],
+		};
+		const positions = { mid: { x: X_PAD + X_STEP, y: Y_PAD } };
+		expect( placeNewNode( 'newbie', parsed, positions ) ).toEqual( {
+			x: X_PAD,
+			y: Y_PAD,
+		} );
+	} );
+
+	it( 'anchors one column RIGHT of a pinned source when it has no pinned target', () => {
+		const parsed = {
+			nodes: [ { id: 'src' }, { id: 'newbie' } ],
+			edges: [ { from: 'src', to: 'newbie' } ],
+		};
+		const positions = { src: { x: X_PAD, y: Y_PAD } };
+		expect( placeNewNode( 'newbie', parsed, positions ) ).toEqual( {
+			x: X_PAD + X_STEP,
+			y: Y_PAD,
+		} );
+	} );
+
+	it( 'drops into a free row at the left column when it has no pinned neighbour', () => {
+		const parsed = { nodes: [ { id: 'a' }, { id: 'lonely' } ], edges: [] };
+		const positions = { a: { x: X_PAD, y: Y_PAD } };
+		expect( placeNewNode( 'lonely', parsed, positions ) ).toEqual( {
+			x: X_PAD,
+			y: Y_PAD + Y_STEP,
+		} );
+	} );
+
+	it( 'nudges down to avoid overlapping an already-placed node', () => {
+		const parsed = {
+			nodes: [ { id: 'mid' }, { id: 'other' }, { id: 'newbie' } ],
+			edges: [ { from: 'newbie', to: 'mid' } ],
+		};
+		const positions = {
+			mid: { x: X_PAD + X_STEP, y: Y_PAD },
+			other: { x: X_PAD, y: Y_PAD }, // sits where newbie would anchor
+		};
+		expect( placeNewNode( 'newbie', parsed, positions ) ).toEqual( {
+			x: X_PAD,
+			y: Y_PAD + Y_STEP,
+		} );
+	} );
+} );
+
+describe( 'autoLayout — no overlapping nodes', () => {
+	// Smallest vertical gap between any two nodes sharing a column (same x);
+	// Infinity if no column has 2+ nodes. Below NODE_H means their cards overlap.
+	// Half-row midpoint snapping used to leave near-collisions (rows 1.0 and 1.5)
+	// that the exact-match deconflict missed.
+	function minColumnGap( nodes ) {
+		const byCol = {};
+		for ( const n of nodes ) {
+			if ( ! byCol[ n.position.x ] ) {
+				byCol[ n.position.x ] = [];
+			}
+			byCol[ n.position.x ].push( n.position.y );
+		}
+		let min = Infinity;
+		for ( const ys of Object.values( byCol ) ) {
+			ys.sort( ( p, q ) => p - q );
+			for ( let i = 1; i < ys.length; i++ ) {
+				min = Math.min( min, ys[ i ] - ys[ i - 1 ] );
+			}
+		}
+		return min;
+	}
+
+	it( 'spreads same-column producers that share a target so they do not overlap', () => {
+		// `a` fans out to t1+t2 (snaps to the 0.5 midpoint); `b` targets only t2
+		// (row 1). Both are column-0 producers — 0.5 vs 1.0 is a 55px overlap.
+		const { nodes } = autoLayout( {
+			nodes: [ { id: 'a' }, { id: 'b' }, { id: 't1' }, { id: 't2' } ],
+			edges: [
+				{ from: 'a', to: 't1' },
+				{ from: 'a', to: 't2' },
+				{ from: 'b', to: 't2' },
+			],
+		} );
+		expect( minColumnGap( nodes ) ).toBeGreaterThanOrEqual( NODE_H );
+	} );
+
+	it( 'keeps a lone midpoint producer at its half-row (no spurious spreading)', () => {
+		// `a` fans out to t1 (row 0) + t2 (row 1), so it snaps to the 0.5 midpoint
+		// and is alone in its column — de-overlap must leave that half-row intact.
+		const { nodes } = autoLayout( {
+			nodes: [ { id: 'a' }, { id: 't1' }, { id: 't2' } ],
+			edges: [
+				{ from: 'a', to: 't1' },
+				{ from: 'a', to: 't2' },
+			],
+		} );
+		expect( minColumnGap( nodes ) ).toBeGreaterThanOrEqual( NODE_H );
+		const a = nodes.find( ( n ) => n.id === 'a' );
+		expect( a.position.y ).toBe( Y_PAD + 0.5 * Y_STEP );
+	} );
+} );
+
+describe( 'autoLayout — fan centering (both directions)', () => {
+	it( 'centers a fan-in sink between its sources, with the sources kept spread', () => {
+		// s1 + s2 → sink. The sink should sit at the vertical midpoint of its two
+		// sources (mirror of the fan-out target-snap), not floored to the top one.
+		const { nodes } = autoLayout( {
+			nodes: [ { id: 's1' }, { id: 's2' }, { id: 'sink' } ],
+			edges: [
+				{ from: 's1', to: 'sink' },
+				{ from: 's2', to: 'sink' },
+			],
+		} );
+		const by = Object.fromEntries(
+			nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+		expect( by.s1.y ).not.toBe( by.s2.y ); // sources spread, not collapsed
+		expect( by.sink.y ).toBe( ( by.s1.y + by.s2.y ) / 2 );
+	} );
+
+	it( 'centers a fan-in MIDDLE node between its sources, keeping the sources spread', () => {
+		// community + releases → summarizer → digest. summarizer is a fan-in that
+		// also feeds forward — it must still center between its two sources, and the
+		// sources must keep their spread (not collapse onto summarizer).
+		const { nodes } = autoLayout( {
+			nodes: [
+				{ id: 'community' },
+				{ id: 'releases' },
+				{ id: 'summarizer' },
+				{ id: 'digest' },
+			],
+			edges: [
+				{ from: 'community', to: 'summarizer' },
+				{ from: 'releases', to: 'summarizer' },
+				{ from: 'summarizer', to: 'digest' },
+			],
+		} );
+		const by = Object.fromEntries(
+			nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+		expect( by.community.y ).not.toBe( by.releases.y );
+		expect( by.summarizer.y ).toBe(
+			( by.community.y + by.releases.y ) / 2
+		);
+		// …and the chain stays straight: summarizer sits on its downstream row.
+		expect( by.summarizer.y ).toBe( by.digest.y );
+	} );
+
+	it( 'centers a fan-out producer between its targets (unchanged)', () => {
+		// a → t1 + t2. The producer sits at the midpoint of its targets.
+		const { nodes } = autoLayout( {
+			nodes: [ { id: 'a' }, { id: 't1' }, { id: 't2' } ],
+			edges: [
+				{ from: 'a', to: 't1' },
+				{ from: 'a', to: 't2' },
+			],
+		} );
+		const by = Object.fromEntries(
+			nodes.map( ( n ) => [ n.id, n.position ] )
+		);
+		expect( by.t1.y ).not.toBe( by.t2.y );
+		expect( by.a.y ).toBe( ( by.t1.y + by.t2.y ) / 2 );
+	} );
+} );
+
+describe( 'autoLayout — real graphs (normalized; relative positions only)', () => {
+	// Shift a position map so its top-left corner sits at (0, 0). Only relative
+	// positions matter, so the layout and the expected output are each normalized
+	// before comparison.
+	function normalize( posMap ) {
+		let minX = Infinity;
+		let minY = Infinity;
+		for ( const p of Object.values( posMap ) ) {
+			minX = Math.min( minX, p.x );
+			minY = Math.min( minY, p.y );
+		}
+		const out = {};
+		for ( const [ id, p ] of Object.entries( posMap ) ) {
+			out[ id ] = { x: p.x - minX, y: p.y - minY };
+		}
+		return out;
+	}
+	function posMapOf( nodes ) {
+		const m = {};
+		for ( const n of nodes ) {
+			m[ n.id ] = { x: n.position.x, y: n.position.y };
+		}
+		return m;
+	}
+
+	// ── Graph A: performance dashboard (sources → tees → sinks; _output fans in) ──
+	const graphA = {
+		nodes: [
+			{ id: '_completion' },
+			{ id: '_cwd' },
+			{ id: '_http' },
+			{ id: '_metadata' },
+			{ id: '_output' },
+			{ id: 'echo1' },
+			{ id: 'echo2' },
+			{ id: 'performance:command' },
+			{ id: 'performance:view' },
+			{ id: 'tee1' },
+			{ id: 'tee2' },
+			{ id: 'tee3' },
+		],
+		edges: [
+			{ from: 'performance:command', to: 'tee1' },
+			{ from: '_metadata', to: 'tee2' },
+			{ from: 'echo1', to: 'tee3' },
+			{ from: 'echo2', to: 'tee3' },
+			{ from: 'tee1', to: 'performance:view' },
+			{ from: 'tee1', to: '_output' },
+			{ from: 'tee2', to: '_cwd' },
+			{ from: 'tee2', to: '_output' },
+			{ from: 'tee3', to: '_output' },
+		],
+	};
+	const graphAExpected1 = {
+		_completion: { x: 540, y: 520 },
+		_cwd: { x: 540, y: 410 },
+		_http: { x: 540, y: 630 },
+		_metadata: { x: 60, y: 410 },
+		_output: { x: 540, y: 245 },
+		echo1: { x: 60, y: 190 },
+		echo2: { x: 60, y: 300 },
+		'performance:command': { x: 60, y: 80 },
+		'performance:view': { x: 540, y: 80 },
+		tee1: { x: 300, y: 80 },
+		tee2: { x: 300, y: 410 },
+		tee3: { x: 300, y: 245 },
+	};
+	const graphAExpected2 = {
+		_completion: { x: 540, y: 685 },
+		_cwd: { x: 540, y: 575 },
+		_http: { x: 540, y: 795 },
+		_metadata: { x: 60, y: 410 },
+		_output: { x: 540, y: 245 },
+		echo1: { x: 60, y: 190 },
+		echo2: { x: 60, y: 300 },
+		'performance:command': { x: 60, y: 80 },
+		'performance:view': { x: 540, y: -85 },
+		tee1: { x: 300, y: 80 },
+		tee2: { x: 300, y: 410 },
+		tee3: { x: 300, y: 245 },
+	};
+
+	// ── Graph B: firehose-workers-and-jobs topology ──
+	const graphB = {
+		nodes: [
+			{ id: '_repl' },
+			{ id: 'completed:partition' },
+			{ id: 'completed:tee' },
+			{ id: 'errors:partition' },
+			{ id: 'firehose:consumer' },
+			{ id: 'firehose:tee' },
+			{ id: 'gyroscope:partition' },
+			{ id: 'job-router' },
+			{ id: 'jobintake:consumer' },
+			{ id: 'jobs:partition' },
+			{ id: 'request-builder' },
+			{ id: 'requests:partition' },
+		],
+		edges: [
+			{ from: 'firehose:consumer', to: 'firehose:tee' },
+			{ from: 'firehose:tee', to: 'request-builder' },
+			{ from: 'firehose:tee', to: 'job-router' },
+			{ from: 'request-builder', to: 'requests:partition' },
+			{ from: 'request-builder', to: 'errors:partition' },
+			{ from: 'request-builder', to: 'completed:tee' },
+			{ from: 'request-builder', to: 'gyroscope:partition' },
+			{ from: 'completed:tee', to: 'completed:partition' },
+			{ from: 'completed:tee', to: 'gyroscope:partition' },
+			{ from: 'job-router', to: 'jobs:partition' },
+			{ from: 'jobintake:consumer', to: 'job-router' },
+		],
+	};
+	const graphBExpected1 = {
+		_repl: { x: 1020, y: 630 },
+		'completed:partition': { x: 1020, y: 80 },
+		'completed:tee': { x: 780, y: 135 },
+		'errors:partition': { x: 1020, y: 300 },
+		'firehose:consumer': { x: 60, y: 410 },
+		'firehose:tee': { x: 300, y: 410 },
+		'gyroscope:partition': { x: 1020, y: 190 },
+		'job-router': { x: 540, y: 520 },
+		'jobintake:consumer': { x: 60, y: 520 },
+		'jobs:partition': { x: 1020, y: 520 },
+		'request-builder': { x: 540, y: 245 },
+		'requests:partition': { x: 1020, y: 410 },
+	};
+	const graphBExpected2 = {
+		...graphBExpected1,
+		'request-builder': { x: 540, y: 300 },
+	};
+
+	it( 'lays out the firehose worker graph (graph B) — already satisfied', () => {
+		const got = normalize( posMapOf( autoLayout( graphB ).nodes ) );
+		expect( [
+			normalize( graphBExpected1 ),
+			normalize( graphBExpected2 ),
+		] ).toContainEqual( got );
+	} );
+
+	it( 'lays out the performance dashboard graph (graph A)', () => {
+		const got = normalize( posMapOf( autoLayout( graphA ).nodes ) );
+		expect( [
+			normalize( graphAExpected1 ),
+			normalize( graphAExpected2 ),
+		] ).toContainEqual( got );
+	} );
+
+	// The runtime registers nodes in an arbitrary order (the live performance
+	// dashboard hands them over backbone-first, not alphabetically). The layout
+	// must be the same regardless — a node's registration order must not change
+	// where it lands. The backbone-first order is the exact one that produced the
+	// wrong live layout before the fix.
+	const reorder = ( graph, order ) => ( {
+		nodes: order.map( ( id ) => ( { id } ) ),
+		edges: graph.edges,
+	} );
+	const permutations = ( graph ) => {
+		const ids = graph.nodes.map( ( n ) => n.id );
+		return [
+			ids,
+			[ ...ids ].reverse(),
+			[ ...ids ].sort(),
+			[ ...ids.slice( 6 ), ...ids.slice( 0, 6 ) ],
+		];
+	};
+
+	it( 'graph A is independent of node registration order (incl. live backbone order)', () => {
+		const liveBackbone = [
+			'_metadata',
+			'_output',
+			'_cwd',
+			'_http',
+			'_completion',
+			'performance:command',
+			'performance:view',
+			'echo1',
+			'echo2',
+			'tee1',
+			'tee2',
+			'tee3',
+		];
+		const orders = [ liveBackbone, ...permutations( graphA ) ];
+		for ( const order of orders ) {
+			const got = normalize(
+				posMapOf( autoLayout( reorder( graphA, order ) ).nodes )
+			);
+			expect( [
+				normalize( graphAExpected1 ),
+				normalize( graphAExpected2 ),
+			] ).toContainEqual( got );
+		}
+	} );
+
+	// ── Graph C: fan-in → straight chain → fan-out (the summarizer pipeline) ──
+	// community/releases → summarizer → digest → tee → out/_repl. The end fan-out
+	// must STRADDLE tee (out/_repl above & below it), mirroring the start fan-in.
+	const graphC = {
+		nodes: [
+			'_repl',
+			'community',
+			'digest',
+			'out',
+			'releases',
+			'summarizer',
+			'tee',
+		].map( ( id ) => ( { id } ) ),
+		edges: [
+			[ 'community', 'summarizer' ],
+			[ 'releases', 'summarizer' ],
+			[ 'summarizer', 'digest' ],
+			[ 'digest', 'tee' ],
+			[ 'tee', 'out' ],
+			[ 'tee', '_repl' ],
+		].map( ( [ from, to ] ) => ( { from, to } ) ),
+	};
+	const graphCExpected = {
+		community: { x: 60, y: 80 },
+		releases: { x: 60, y: 190 },
+		summarizer: { x: 300, y: 135 },
+		digest: { x: 540, y: 135 },
+		tee: { x: 780, y: 135 },
+		_repl: { x: 1020, y: 80 },
+		out: { x: 1020, y: 190 },
+	};
+
+	it( 'straddles a tail fan-out around its producer (graph C, order-independent)', () => {
+		for ( const order of permutations( graphC ) ) {
+			const got = normalize(
+				posMapOf( autoLayout( reorder( graphC, order ) ).nodes )
+			);
+			expect( got ).toEqual( normalize( graphCExpected ) );
+		}
+	} );
+
+	it( 'graph B is independent of node registration order', () => {
+		for ( const order of permutations( graphB ) ) {
+			const got = normalize(
+				posMapOf( autoLayout( reorder( graphB, order ) ).nodes )
+			);
+			expect( [
+				normalize( graphBExpected1 ),
+				normalize( graphBExpected2 ),
+			] ).toContainEqual( got );
+		}
+	} );
+} );
 
 describe( 'autoLayout', () => {
 	it( 'returns empty nodes/edges arrays when input has none', () => {
@@ -198,7 +612,7 @@ describe( 'autoLayout', () => {
 		expect( byId.b.position.y ).not.toBe( byId.c.position.y );
 	} );
 
-	it( 'pairs each source with its target on the same row when col 0 fans into col 1', () => {
+	it( 'pairs a single-source target with its source, and centers a multi-source fan-in between its sources', () => {
 		// Local-Shell topology repro: 5 sources in col 0, 3 targets in col 1.
 		// Two sources share a target (_metadata + _uptime → _cwd); two have
 		// their own target; one source has no target. The desired layout
@@ -227,13 +641,15 @@ describe( 'autoLayout', () => {
 		const rowOf = ( id ) =>
 			( out.nodes.find( ( n ) => n.id === id ).position.y - Y_PAD ) /
 			Y_STEP;
-		// Pairs: each source on its target's row.
-		expect( rowOf( '_metadata' ) ).toBe( rowOf( '_cwd' ) );
+		// Single-source targets stay paired with their source (straight edge).
 		expect( rowOf( '_heartbeat' ) ).toBe( rowOf( '_http' ) );
 		expect( rowOf( '_sse' ) ).toBe( rowOf( '_output' ) );
-		// _uptime shares _cwd but loses the pair to _metadata — it takes a
-		// nearby free row instead of pushing the pair off.
-		expect( rowOf( '_uptime' ) ).not.toBe( rowOf( '_cwd' ) );
+		// _cwd fans in from _metadata + _uptime, so it centers between them (mirror
+		// of fan-out) — the two sources stay spread on different rows.
+		expect( rowOf( '_metadata' ) ).not.toBe( rowOf( '_uptime' ) );
+		expect( rowOf( '_cwd' ) ).toBe(
+			( rowOf( '_metadata' ) + rowOf( '_uptime' ) ) / 2
+		);
 	} );
 
 	it( 'pushes every sink (no outgoing) AND every isolated node (no edges) to the max-depth column', () => {
