@@ -563,8 +563,16 @@ export default function SchematicCanvas( {
 		// letterboxing a tall-narrow graph into an unreadable thin strip.
 		const nextW = cs.w / nextScale;
 		const nextH = cs.h / nextScale;
-		const fracX = ( world.x - current.x ) / current.w;
-		const fracY = ( world.y - current.y ) / current.h;
+		// Anchor on the cursor's SCREEN fraction (of the canvas), not its world
+		// fraction within the viewBox. Under a letterboxed (tall-narrow) autofit
+		// the two diverge wildly — the whole graph renders as a thin strip, so a
+		// world-fraction anchor flings it to the edge on the first zoom. The new
+		// viewBox is canvas-aspect, so screen fraction maps back linearly.
+		const rect = svg.getBoundingClientRect();
+		const fracX = rect.width ? ( e.clientX - rect.left ) / rect.width : 0.5;
+		const fracY = rect.height
+			? ( e.clientY - rect.top ) / rect.height
+			: 0.5;
 		setViewport( {
 			x: world.x - fracX * nextW,
 			y: world.y - fracY * nextH,
