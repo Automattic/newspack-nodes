@@ -19,6 +19,8 @@ class CoreImpl {
 		this.recentLog = []; // bounded stderr tail for the dmesg verb
 		this._inStderr = false; // re-entry guard for the stderr reply-sink emit
 		this.initTime = this.now(); // uptime baseline (mirrors PHP Core::$init_time)
+		this.reinit = null; // current page graph's rebuild handle (set by mountExospine, cleared on teardown)
+		this.reinitNames = null; // names mountExospine's build registered (the reinit-managed set)
 	}
 
 	registerNode( name, node ) {

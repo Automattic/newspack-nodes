@@ -12,10 +12,12 @@
  * EVERY node sinks into the interpreter; flow is steered ONLY by each node's `target`.
  * The bespoke `workerstatus:poll` Node is gone — `_http` owns the network call.
  *
- * The hook OWNS the poll interval: a setInterval at the current refresh ms
- * fires a TM_COMMAND for `dump_metadata` (FROM=`workerstatus:transform` so the
- * reply pivot lands at the transform, which computes the model and emits it to
- * the view). Running only while the page is visible. `restart(type)` builds a
+ * The graph build is handed to `mountExospine( build )`, which snapshots Core so
+ * the soft nodes can be torn down + rebuilt on `reinit()` ("Reset Graph"). The
+ * hook OWNS the poll interval: a setInterval at the current refresh ms fires a
+ * TM_COMMAND for `dump_metadata` (FROM=`workerstatus:transform` so the reply
+ * pivot lands at the transform, which computes the model and emits it to the
+ * view). Running only while the page is visible. `restart(type)` builds a
  * TM_COMMAND with FROM=`workerstatus:view` so the reply lands at the view and
  * settles the Promise via the canonical pending-Map gating.
  *
@@ -56,7 +58,6 @@ const LEGACY_REFRESH_KEY = 'newspack-event-logger-nodes-worker-refresh';
 const HTTP = '_http';
 const TRANSFORM = 'workerstatus:transform';
 const VIEW = 'workerstatus:view';
-const GRAPH_NODE_NAMES = [ HTTP, TRANSFORM, VIEW ];
 
 // Monotonic per-hook-instance ID counter — message[ID] is what the view uses
 // to match a reply back to a pending Promise resolver.
@@ -118,6 +119,7 @@ export function initialRefresh( defaultMs ) {
  * @param {number} [opts.refreshMs]     Fallback interval if nothing is persisted.
  * @return {{ restart: Function, setRefreshInterval: Function, refreshMs: string }}
  *   Control callbacks for the thin React view (the model is read via useNodeState).
+ *   Reset Graph is driven by the overlay via `Core.reinit`, stashed by mountExospine.
  */
 export function useWorkerStatusGraph( opts = {} ) {
 	const { refreshMs = 2000 } = opts;
@@ -133,54 +135,57 @@ export function useWorkerStatusGraph( opts = {} ) {
 	const interpreterRef = useRef( null );
 	const isPageVisible = usePageVisibility();
 
-	// Flipped true once the graph (and its view node) is mounted, so the
-	// consumer's useNodeState re-subscribes to the now-registered view node.
-	const [ , setViewReady ] = useState( false );
+	// Bumped on every (re)build so the consumer re-renders and its useNodeState
+	// rebinds to the freshly-registered view node. A monotonic counter, not a
+	// boolean latch — reinit()'s second build must still force a render.
+	const [ , bumpBuild ] = useState( 0 );
 
 	// Mount the graph once: clip it onto the exospine, then fire one immediate poll.
 	useEffect( () => {
-		const data =
-			( typeof window !== 'undefined' && window.NewspackNodesData ) || {};
+		// The soft view-nodes the backbone clips onto. mountExospine snapshots
+		// Core around this so reinit() removes exactly these and rebuilds them.
+		const build = ( { interpreter } ) => {
+			const data =
+				( typeof window !== 'undefined' && window.NewspackNodesData ) ||
+				{};
 
-		// The canonical backbone every node clips onto: everything → interpreter → router.
-		const { interpreter, teardown: teardownSpine } = mountExospine();
+			// I/O boundary — the substrate's HttpOut.
+			const http = new HttpOutNode();
+			http.client =
+				optsRef.current.commandClient ||
+				new CommandClient( {
+					baseUrl: data.restUrl || '/wp-json/',
+					nonce: data.nonce || '',
+				} );
+			http.setName( HTTP );
+			http.sink = interpreter;
 
-		// I/O boundary — the substrate's HttpOut.
-		const http = new HttpOutNode();
-		http.client =
-			optsRef.current.commandClient ||
-			new CommandClient( {
-				baseUrl: data.restUrl || '/wp-json/',
-				nonce: data.nonce || '',
-			} );
-		http.setName( HTTP );
-		http.sink = interpreter;
+			// Application chain.
+			const transform = createWorkerStatusTransform( TRANSFORM );
+			const view = createWorkerStatusView( VIEW );
+			transform.sink = interpreter;
+			transform.target = VIEW;
+			view.sink = interpreter;
 
-		// Application chain.
-		const transform = createWorkerStatusTransform( TRANSFORM );
-		const view = createWorkerStatusView( VIEW );
-		transform.sink = interpreter;
-		transform.target = VIEW;
-		view.sink = interpreter;
+			interpreterRef.current = interpreter;
 
-		interpreterRef.current = interpreter;
+			// Re-render so useNodeState re-subscribes to the freshly-mounted view.
+			bumpBuild( ( n ) => n + 1 );
 
-		// Re-render so useNodeState re-subscribes to the freshly-mounted view node.
-		setViewReady( true );
+			// Fire one immediate dump_metadata (the canonical mount-time poll).
+			interpreter.fill(
+				buildCommand( 'dump_metadata', null, TRANSFORM, makeOpId() )
+			);
 
-		// Fire one immediate dump_metadata (the canonical mount-time poll).
-		interpreter.fill(
-			buildCommand( 'dump_metadata', null, TRANSFORM, makeOpId() )
-		);
-
-		return () => {
-			view.close();
-			for ( const name of GRAPH_NODE_NAMES ) {
-				Core.unregisterNode( name );
-			}
-			teardownSpine();
-			interpreterRef.current = null;
+			// Non-node side effects undone before the nodes are removed.
+			return () => {
+				view.close();
+				interpreterRef.current = null;
+			};
 		};
+
+		const { teardown } = mountExospine( build );
+		return teardown;
 	}, [] );
 
 	// Persist the refresh choice (matches the old save-to-localStorage effect).

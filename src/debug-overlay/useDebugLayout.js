@@ -198,6 +198,23 @@ export function useDebugLayout( storageKey ) {
 		}
 	}, [ storageKey ] );
 
+	// Mark the layout dirty without moving anything — a connection rewire isn't
+	// a position change, but it should still surface the "Reset Layout" chip.
+	const markDirty = useCallback( () => {
+		setState( ( prev ) => {
+			if ( prev.dirty ) {
+				return prev;
+			}
+			const next = {
+				positions: prev.positions,
+				viewport: prev.viewport,
+				dirty: true,
+			};
+			persist( storageKey, next );
+			return next;
+		} );
+	}, [ storageKey ] );
+
 	return {
 		positions: state.positions,
 		viewport: state.viewport,
@@ -207,5 +224,6 @@ export function useDebugLayout( storageKey ) {
 		onSeedLayout,
 		renamePosition,
 		resetLayout,
+		markDirty,
 	};
 }

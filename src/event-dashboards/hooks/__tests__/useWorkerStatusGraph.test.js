@@ -26,6 +26,7 @@ import {
 	TM_ERROR,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
+import { useNodeState } from '../../../runtime/react';
 
 jest.mock( '../../../shared/hooks/usePageVisibility', () => ( {
 	__esModule: true,
@@ -339,5 +340,55 @@ describe( 'useWorkerStatusGraph — teardown', () => {
 		} finally {
 			jest.useRealTimers();
 		}
+	} );
+} );
+
+describe( 'useWorkerStatusGraph — Core.reinit', () => {
+	test( 'Core.reinit rebuilds the graph nodes fresh (backbone preserved)', async () => {
+		const client = makeFakeClient();
+		renderHook( () => useWorkerStatusGraph( { commandClient: client } ) );
+		await act( async () => {} );
+		const firstView = Core.node( VIEW );
+		const firstTransform = Core.node( TRANSFORM );
+		const backbone = Core.node( INTERPRETER );
+		expect( firstView ).not.toBeNull();
+		expect( typeof Core.reinit ).toBe( 'function' );
+
+		await act( async () => {
+			Core.reinit();
+		} );
+
+		// Soft nodes are fresh instances under the same names; backbone survives.
+		expect( Core.node( VIEW ) ).not.toBe( firstView );
+		expect( Core.node( TRANSFORM ) ).not.toBe( firstTransform );
+		expect( Core.node( TRANSFORM ).target ).toBe( VIEW );
+		expect( Core.node( INTERPRETER ) ).toBe( backbone );
+	} );
+
+	test( 'Core.reinit re-renders the consumer so useNodeState re-subscribes to the fresh view', async () => {
+		const client = makeFakeClient();
+		// A consumer that mounts the graph AND reads the view via useNodeState —
+		// exactly the dashboard wiring. After reinit() the view node is swapped;
+		// the consumer must re-render so useNodeState rebinds to the new node
+		// (a boolean `mounted` latch can't force that second render).
+		const { result } = renderHook( () => {
+			useWorkerStatusGraph( { commandClient: client } );
+			return useNodeState( VIEW, 'view' );
+		} );
+		await act( async () => {} );
+		const firstView = Core.node( VIEW );
+
+		await act( async () => {
+			Core.reinit();
+		} );
+		const freshView = Core.node( VIEW );
+		expect( freshView ).not.toBe( firstView );
+
+		// The fresh view publishes a model; the consumer must observe it (proving
+		// it re-subscribed to freshView, not the removed firstView).
+		await act( async () => {
+			freshView.setState( 'view', { workers: [ 'sentinel' ] } );
+		} );
+		expect( result.current ).toEqual( { workers: [ 'sentinel' ] } );
 	} );
 } );
