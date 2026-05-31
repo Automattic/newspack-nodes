@@ -106,10 +106,6 @@ const ZOOM_MIN = 0.25;
 // can still be zoomed in to read individual cards — not capped relative to the
 // (tiny) whole-graph fit. A node is NODE_W wide, so 3 px/unit ≈ a 588px card.
 const SCALE_MAX = 3;
-// Below this scale, edges are unreadable spaghetti and just thousands of paths to
-// paint — skip the whole edge layer so a multi-thousand-node OVERVIEW stays light
-// (an LOD step below the per-node detail cull). Edges return as you zoom in.
-const EDGE_MIN_SCALE = 0.05;
 // Floor a node's on-screen size to this many CSS px so a card never shrinks to a
 // sub-pixel rect that some browsers (Firefox) drop entirely. At a tiny scale the
 // bare rect is enlarged in world units so it still paints ~2px.
@@ -810,7 +806,7 @@ export default function SchematicCanvas( {
 				pointerEvents="none"
 			/>
 
-			{ scale >= EDGE_MIN_SCALE && (
+			{ showDetail && (
 				<g className="topology-edges">
 					{ edges.map( ( e, i ) => {
 						const a = nodeById.get( e.from );
@@ -844,9 +840,7 @@ export default function SchematicCanvas( {
 										touches ? ' is-touched' : ''
 									}${ dimmed ? ' is-dimmed' : '' }${
 										isEdgeSelected ? ' is-selected' : ''
-									}${ e.virtual ? ' is-virtual' : '' }${
-										showDetail ? '' : ' is-static'
-									}` }
+									}${ e.virtual ? ' is-virtual' : '' }` }
 									d={ d }
 									markerEnd="url(#topology-arrow-active)"
 								/>
