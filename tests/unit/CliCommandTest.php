@@ -379,6 +379,39 @@ class CliCommandTest extends TestCase {
 		\fclose( $stream );
 	}
 
+	public function test_stdin_reader_fire_cb_drains_only_when_it_has_a_sink(): void {
+		// Production drives the reader via the timer's fire_cb(), NOT fire() directly.
+		// fire_cb() inherits Timer_Node's no-sink guard, so a sink-less reader never
+		// reaches fire() and silently ignores stdin — the cli hangs on input. run_repl
+		// sinks the reader into the interpreter to keep the drain alive.
+		$cmd    = new CLI_Command();
+		$shell  = new \Newspack_Nodes\Shell_Node();
+		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
+		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+		$shell->sink( $sink );
+
+		$stream = \fopen( 'php://memory', 'r+' );
+		\fwrite( $stream, "ls\n" );
+		\rewind( $stream );
+
+		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, $stream );
+
+		// No sink → fire_cb() short-circuits, the line is never drained.
+		$reader->fire_cb();
+		$this->assertCount( 0, $sink->captured, 'a sink-less reader ignores input via fire_cb()' );
+
+		// Sunk into a node (as run_repl does) → fire_cb() reaches fire() and drains.
+		$reader->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		$reader->fire_cb();
+		$this->assertCount( 1, $sink->captured, 'a sunk reader drains the queued line via fire_cb()' );
+		$this->assertSame(
+			\Newspack_Nodes\Message::TM_COMMAND,
+			$sink->captured[0][ \Newspack_Nodes\Message::TYPE ]
+		);
+
+		\fclose( $stream );
+	}
+
 	public function test_stdin_reader_constructor_writes_initial_prompt_in_non_readline_mode(): void {
 		// Non-readline mode shows a manual prompt at construction so the
 		// user sees something before typing the first line. The write is

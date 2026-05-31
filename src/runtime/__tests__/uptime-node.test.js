@@ -6,7 +6,10 @@
 
 import { UptimeNode } from '../uptime-node';
 import { Node } from '../node';
+import { TimerNode } from '../timer-node';
+import { RouterNode } from '../router-node';
 import { Core } from '../core';
+import names from '../reserved-node-names.json';
 import {
 	newMessage,
 	TYPE,
@@ -69,7 +72,7 @@ describe( 'Uptime node', () => {
 		expect( node.counter ).toBe( 2 );
 	} );
 
-	describe( 'onTimer poll emission (5s throttle)', () => {
+	describe( 'fire() poll emission (5s throttle)', () => {
 		afterEach( () => {
 			Core.reset();
 			jest.restoreAllMocks();
@@ -87,7 +90,7 @@ describe( 'Uptime node', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const { node, sent } = build();
 			node.target = '_cwd';
-			node.onTimer();
+			node.fire();
 			expect( sent ).toHaveLength( 1 );
 			const m = sent[ 0 ];
 			expect( m[ TYPE ] ).toBe( TM_COMMAND );
@@ -97,14 +100,14 @@ describe( 'Uptime node', () => {
 			expect( node.pollTo ).toBeUndefined();
 		} );
 
-		it( 'throttles: two onTimer calls <5s apart emit once', () => {
+		it( 'throttles: two fire() calls <5s apart emit once', () => {
 			const nowSpy = jest.spyOn( Core, 'now' );
 			const { node, sent } = build();
 			node.target = '_cwd';
 			nowSpy.mockReturnValue( 100 );
-			node.onTimer();
+			node.fire();
 			nowSpy.mockReturnValue( 103 ); // 3s later
-			node.onTimer();
+			node.fire();
 			expect( sent ).toHaveLength( 1 );
 		} );
 
@@ -113,16 +116,57 @@ describe( 'Uptime node', () => {
 			const { node, sent } = build();
 			node.target = '_cwd';
 			nowSpy.mockReturnValue( 100 );
-			node.onTimer();
+			node.fire();
 			nowSpy.mockReturnValue( 105 ); // 5s later
-			node.onTimer();
+			node.fire();
 			expect( sent ).toHaveLength( 2 );
 		} );
 
 		it( 'emits nothing when there is no sink', () => {
 			const node = new UptimeNode();
 			node.target = '_cwd';
-			expect( () => node.onTimer() ).not.toThrow();
+			expect( () => node.fire() ).not.toThrow();
+		} );
+	} );
+
+	describe( 'TimerNode integration (router-hitchhike via notify_timer)', () => {
+		afterEach( () => {
+			Core.reset();
+			jest.restoreAllMocks();
+		} );
+
+		it( 'is a TimerNode subclass', () => {
+			expect( new UptimeNode() ).toBeInstanceOf( TimerNode );
+		} );
+
+		it( 'setTimer() registers on the router TIMER; notify_timer fires the poll', () => {
+			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
+			const router = new RouterNode();
+			router.setName( names.ROUTER );
+			router.stopTimer();
+			const node = new UptimeNode();
+			node.setName( names.UPTIME );
+			const sent = [];
+			node.sink = { fill: ( m ) => sent.push( m ) };
+			node.target = names.CWD;
+			node.setTimer();
+			router.notifyTimer();
+			expect( sent ).toHaveLength( 1 );
+			expect( sent[ 0 ][ VALUE ].name ).toBe( 'uptime' );
+			node.stopTimer();
+		} );
+
+		it( 'removeNode unregisters from the router TIMER (no leak)', () => {
+			const router = new RouterNode();
+			router.setName( names.ROUTER );
+			router.stopTimer();
+			const node = new UptimeNode();
+			node.setName( names.UPTIME );
+			node.sink = { fill: () => {} };
+			node.setTimer();
+			node.removeNode();
+			expect( names.UPTIME in router.registrations.TIMER ).toBe( false );
+			expect( () => router.notifyTimer() ).not.toThrow();
 		} );
 	} );
 } );

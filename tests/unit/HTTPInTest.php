@@ -29,7 +29,9 @@ class HTTPInTest extends TestCase {
 
 	/**
 	 * Production-shaped graph: Router + base interpreter sinking into Router +
-	 * HTTP_In registered at _http with a status_header recorder seam.
+	 * HTTP_In registered at _output (the egress boundary) with a status_header
+	 * recorder seam. A reply's TO=FROM walks `_output/…` back to this node, so
+	 * the recorder captures the 200 status its fill() emits.
 	 */
 	private function build_graph(): Command_Interpreter_Node {
 		$router = new Router_Node();
@@ -44,7 +46,7 @@ class HTTPInTest extends TestCase {
 				$self->status_codes[] = $code;
 			}
 		);
-		$http_out->name( '_http' );
+		$http_out->name( '_output' );
 		return $base_interpreter;
 	}
 
@@ -290,12 +292,12 @@ class HTTPInTest extends TestCase {
 	public function test_dispatch_without_pregraph_lazy_builds_and_fires_request_graph_ready_hook(): void {
 		// Production REST entry point has no prior bootstrap building the
 		// request-scope graph for it. Dispatch must lazy-build _router /
-		// _command_interpreter / _http and fire the
+		// _command_interpreter / _output and fire the
 		// `newspack_nodes/request_graph_ready` hook so applications can
 		// mount their interpreters via $base_interpreter->make_node(...).
 		$this->assertNull( Core::node( '_router' ), 'pre-condition: no graph yet' );
 		$this->assertNull( Core::node( '_command_interpreter' ) );
-		$this->assertNull( Core::node( '_http' ) );
+		$this->assertNull( Core::node( '_output' ) );
 
 		// Capture hook fires and the interpreter argument the hook receives.
 		$fires = [];
@@ -363,7 +365,7 @@ class HTTPInTest extends TestCase {
 
 		$pre_router  = Core::node( '_router' );
 		$pre_base_interpreter = Core::node( '_command_interpreter' );
-		$pre_http    = Core::node( '_http' );
+		$pre_output  = Core::node( '_output' );
 
 		$fires = [];
 		\add_action(
@@ -391,7 +393,7 @@ class HTTPInTest extends TestCase {
 		// Graph nodes are the SAME instances — no re-creation.
 		$this->assertSame( $pre_router,  Core::node( '_router' ) );
 		$this->assertSame( $pre_base_interpreter, Core::node( '_command_interpreter' ) );
-		$this->assertSame( $pre_http,    Core::node( '_http' ) );
+		$this->assertSame( $pre_output,  Core::node( '_output' ) );
 
 		// Hook still fires (application code may need to mount per-request).
 		$this->assertCount( 1, $fires );

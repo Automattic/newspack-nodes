@@ -129,21 +129,34 @@ describe( 'useDebugLayout', () => {
 		} );
 	} );
 
-	it( 'onSeedLayout is a no-op when dirty=true (never overwrites user edits)', () => {
+	it( 'onSeedLayout never overwrites an existing (user-edited) position', () => {
 		const { result } = renderHook( () => useDebugLayout( KEY ) );
 		act( () => result.current.onPositionChange( 'a', { x: 1, y: 2 } ) );
-		const before = result.current.positions;
-		act( () =>
-			result.current.onSeedLayout( {
-				a: { x: 999, y: 999 },
-				b: { x: 999, y: 999 },
-			} )
-		);
-		expect( result.current.positions ).toEqual( before );
+		act( () => result.current.onSeedLayout( { a: { x: 999, y: 999 } } ) );
+		expect( result.current.positions.a ).toEqual( { x: 1, y: 2 } );
 		expect( result.current.isDirty ).toBe( true );
 	} );
 
-	it( 'onSeedLayout is a no-op when positions is already populated (already seeded)', () => {
+	it( 'onSeedLayout incrementally pins a newly-appeared node even when dirty', () => {
+		// The fix for "layout shifts when I change connections": a node that
+		// appears after the first seed gets pinned (so a later autoLayout re-flow
+		// can't move it), without overwriting the user's edited positions.
+		const { result } = renderHook( () => useDebugLayout( KEY ) );
+		act( () => result.current.onPositionChange( 'a', { x: 1, y: 2 } ) );
+		act( () =>
+			result.current.onSeedLayout( {
+				a: { x: 999, y: 999 },
+				b: { x: 5, y: 6 },
+			} )
+		);
+		expect( result.current.positions ).toEqual( {
+			a: { x: 1, y: 2 },
+			b: { x: 5, y: 6 },
+		} );
+		expect( result.current.isDirty ).toBe( true );
+	} );
+
+	it( 'onSeedLayout incrementally adds missing nodes to an already-seeded layout', () => {
 		window.localStorage.setItem(
 			KEY,
 			JSON.stringify( {
@@ -153,9 +166,46 @@ describe( 'useDebugLayout', () => {
 			} )
 		);
 		const { result } = renderHook( () => useDebugLayout( KEY ) );
-		act( () => result.current.onSeedLayout( { a: { x: 60, y: 80 } } ) );
-		expect( result.current.positions ).toEqual( { z: { x: 9, y: 9 } } );
+		act( () =>
+			result.current.onSeedLayout( {
+				z: { x: 1, y: 1 },
+				a: { x: 60, y: 80 },
+			} )
+		);
+		expect( result.current.positions ).toEqual( {
+			z: { x: 9, y: 9 },
+			a: { x: 60, y: 80 },
+		} );
 		expect( result.current.isDirty ).toBe( false );
+	} );
+
+	it( 'onSeedLayout is a no-op when every seeded node is already pinned', () => {
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( {
+				positions: { z: { x: 9, y: 9 } },
+				viewport: null,
+				dirty: false,
+			} )
+		);
+		const { result } = renderHook( () => useDebugLayout( KEY ) );
+		const before = result.current.positions;
+		act( () => result.current.onSeedLayout( { z: { x: 1, y: 1 } } ) );
+		expect( result.current.positions ).toBe( before );
+	} );
+
+	it( 'incremental seed keeps the viewport (no view jump when a node appears)', () => {
+		window.localStorage.setItem(
+			KEY,
+			JSON.stringify( {
+				positions: { z: { x: 9, y: 9 } },
+				viewport: { x: 1, y: 2, scale: 1 },
+				dirty: false,
+			} )
+		);
+		const { result } = renderHook( () => useDebugLayout( KEY ) );
+		act( () => result.current.onSeedLayout( { a: { x: 60, y: 80 } } ) );
+		expect( result.current.viewport ).toEqual( { x: 1, y: 2, scale: 1 } );
 	} );
 
 	it( 'renamePosition moves the entry from oldId to newId, preserves dirty', () => {

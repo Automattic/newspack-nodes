@@ -1,4 +1,5 @@
 import { RouterNode } from '../router-node';
+import { TimerNode } from '../timer-node';
 import { Node } from '../node';
 import { Core } from '../core';
 import { TYPE, FROM, TO, ID, VALUE, TM_ERROR, newMessage } from '../message';
@@ -31,7 +32,7 @@ test( 'setting a sink throws — the Router has none', () => {
 	expect( r.sink ).toBeNull();
 } );
 
-test( 'empty TO is not forwarded to a sink — it yields NOT_AVAILABLE', () => {
+test( 'empty TO is dropped as "message not addressed" — no NOT_AVAILABLE bounce (Perl parity)', () => {
 	const r = new RouterNode();
 	r.setName( '_router' );
 	const origin = new Node();
@@ -41,12 +42,26 @@ test( 'empty TO is not forwarded to a sink — it yields NOT_AVAILABLE', () => {
 
 	const m = newMessage();
 	m[ FROM ] = 'origin';
-	m[ TO ] = ''; // empty head → cannot peel → NOT_AVAILABLE, walked back to FROM
+	m[ TO ] = ''; // unaddressed → dropped before routing, no bounce to FROM
 	r.fill( m );
 
-	expect( got ).toHaveLength( 1 );
-	expect( got[ 0 ][ TYPE ] & TM_ERROR ).toBeTruthy();
-	expect( got[ 0 ][ VALUE ] ).toMatch( /NOT_AVAILABLE/ );
+	expect( got ).toHaveLength( 0 );
+} );
+
+test( 'a FROM trail over MAX_FROM_SIZE is dropped before routing (path-explosion guard; Perl parity)', () => {
+	const r = new RouterNode();
+	r.setName( '_router' );
+	const alpha = new Node();
+	alpha.setName( 'alpha' );
+	const got = [];
+	alpha.fill = ( m ) => got.push( m );
+
+	const m = newMessage();
+	m[ TO ] = 'alpha';
+	m[ FROM ] = 'x'.repeat( 1025 );
+	r.fill( m );
+
+	expect( got ).toHaveLength( 0 );
 } );
 
 test( 'unknown TO head yields NOT_AVAILABLE error walked back to FROM', () => {
@@ -108,32 +123,51 @@ test( 'NOT_AVAILABLE bounce with empty FROM is silently dropped (no throw, no lo
 	expect( () => r.fill( m ) ).not.toThrow();
 } );
 
-describe( 'Router TIMER', () => {
-	test( 'startTimer notifies TIMER immediately and then once per interval', () => {
+describe( 'Router TIMER (notify_timer — direct fire_cb dispatch)', () => {
+	test( "self-started slot fires each registered node's fireCb once per interval", () => {
 		jest.useFakeTimers();
 		try {
 			const r = new RouterNode();
 			r.setName( '_router' );
-			const fires = [];
-			r.register( 'TIMER', 'sub', ( payload ) => {
-				fires.push( payload );
-				return true;
-			} );
-			r.startTimer( 1000 );
-			// Fires once immediately on startTimer.
-			expect( fires ).toHaveLength( 1 );
-			expect( typeof fires[ 0 ].now ).toBe( 'number' );
+			const t = new TimerNode();
+			t.setName( 'sub' );
+			let fires = 0;
+			t.fireCb = () => {
+				fires += 1;
+			};
+			r.register( 'TIMER', 'sub' );
+			// No immediate fire (Perl/PHP parity); first tick after one interval.
+			expect( fires ).toBe( 0 );
 			jest.advanceTimersByTime( 1000 );
-			expect( fires ).toHaveLength( 2 );
+			expect( fires ).toBe( 1 );
 			jest.advanceTimersByTime( 2000 );
-			expect( fires ).toHaveLength( 4 );
+			expect( fires ).toBe( 3 );
 			r.stopTimer();
 		} finally {
 			jest.useRealTimers();
 		}
 	} );
 
-	test( 'beforeTimerNotify runs before, afterTimerNotify after the notify', () => {
+	test( 'a registered name with no live node is warned and dropped (forgot to unregister)', () => {
+		jest.useFakeTimers();
+		const stderr = jest.spyOn( Core, 'stderr' ).mockImplementation();
+		try {
+			const r = new RouterNode();
+			r.setName( '_router' );
+			r.register( 'TIMER', 'ghost' ); // no node named 'ghost' in Core
+			jest.advanceTimersByTime( 1000 );
+			expect( stderr ).toHaveBeenCalledWith(
+				expect.stringMatching( /ghost forgot to unregister/ )
+			);
+			expect( 'ghost' in r.registrations.TIMER ).toBe( false );
+			r.stopTimer();
+		} finally {
+			jest.useRealTimers();
+			stderr.mockRestore();
+		}
+	} );
+
+	test( 'beforeTimerNotify / afterTimerNotify bracket the notify_timer dispatch', () => {
 		jest.useFakeTimers();
 		try {
 			const r = new RouterNode();
@@ -141,19 +175,19 @@ describe( 'Router TIMER', () => {
 			const log = [];
 			r.beforeTimerNotify = () => log.push( 'before' );
 			r.afterTimerNotify = () => log.push( 'after' );
-			r.register( 'TIMER', 'sub', () => {
-				log.push( 'notify' );
-				return true;
-			} );
-			r.startTimer( 1000 );
-			expect( log ).toEqual( [ 'before', 'notify', 'after' ] );
+			const t = new TimerNode();
+			t.setName( 'sub' );
+			t.fireCb = () => log.push( 'fire' );
+			r.register( 'TIMER', 'sub' );
+			jest.advanceTimersByTime( 1000 );
+			expect( log ).toEqual( [ 'before', 'fire', 'after' ] );
 			r.stopTimer();
 		} finally {
 			jest.useRealTimers();
 		}
 	} );
 
-	test( 'afterTimerNotify runs even when a subscriber throws', () => {
+	test( 'afterTimerNotify runs even when notify_timer throws', () => {
 		jest.useFakeTimers();
 		try {
 			const r = new RouterNode();
@@ -161,11 +195,10 @@ describe( 'Router TIMER', () => {
 			const log = [];
 			r.beforeTimerNotify = () => log.push( 'before' );
 			r.afterTimerNotify = () => log.push( 'after' );
-			// notify() swallows nothing; force a throw by stubbing notify.
-			r.notify = () => {
+			r.notifyTimer = () => {
 				throw new Error( 'boom' );
 			};
-			expect( () => r.startTimer( 1000 ) ).toThrow( /boom/ );
+			expect( () => jest.advanceTimersByTime( 1000 ) ).toThrow( /boom/ );
 			expect( log ).toEqual( [ 'before', 'after' ] );
 			r.stopTimer();
 		} finally {
@@ -178,12 +211,14 @@ describe( 'Router TIMER', () => {
 		try {
 			const r = new RouterNode();
 			r.setName( '_router' );
+			const t = new TimerNode();
+			t.setName( 'sub' );
 			let count = 0;
-			r.register( 'TIMER', 'sub', () => {
+			t.fireCb = () => {
 				count += 1;
-				return true;
-			} );
-			r.startTimer( 1000 );
+			};
+			r.register( 'TIMER', 'sub' );
+			jest.advanceTimersByTime( 1000 );
 			expect( count ).toBe( 1 );
 			r.stopTimer();
 			jest.advanceTimersByTime( 5000 );
@@ -193,35 +228,21 @@ describe( 'Router TIMER', () => {
 		}
 	} );
 
-	test( 'startTimer restarts cleanly (no duplicate intervals)', () => {
+	test( 'removeNode stops the self-started interval (no leak)', () => {
 		jest.useFakeTimers();
 		try {
 			const r = new RouterNode();
 			r.setName( '_router' );
+			const t = new TimerNode();
+			t.setName( 'sub' );
 			let count = 0;
-			r.register( 'TIMER', 'sub', () => {
+			t.fireCb = () => {
 				count += 1;
-				return true;
-			} );
-			r.startTimer( 1000 ); // count=1 (immediate)
-			r.startTimer( 1000 ); // stops old, count=2 (immediate)
-			count = 0;
-			jest.advanceTimersByTime( 1000 );
-			expect( count ).toBe( 1 ); // exactly one interval, not two
-			r.stopTimer();
-		} finally {
-			jest.useRealTimers();
-		}
-	} );
-
-	test( 'removeNode clears _timerHandle (no setInterval leak)', () => {
-		jest.useFakeTimers();
-		try {
-			const r = new RouterNode();
-			r.setName( '_router' );
-			expect( r._timerHandle ).not.toBeNull();
+			};
+			r.register( 'TIMER', 'sub' );
 			r.removeNode();
-			expect( r._timerHandle ).toBeNull();
+			jest.advanceTimersByTime( 5000 );
+			expect( count ).toBe( 0 );
 		} finally {
 			jest.useRealTimers();
 		}

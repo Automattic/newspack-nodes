@@ -196,16 +196,30 @@ class CoreTest extends TestCase {
 		$this->assertCount( 0, $out->captured );
 	}
 
-	public function test_stderr_default_handler_falls_back_to_http(): void {
-		// Ephemeral POST /command process: only the _http response writer exists.
-		// stderr is a broadcast, so the line rides back through _http (the JSONL
+	public function test_stderr_default_handler_falls_back_to_output(): void {
+		// Ephemeral POST /command process: only the _output response writer exists.
+		// stderr is a broadcast, so the line rides back through _output (the JSONL
 		// body), not error_log.
 		Core::reset();
-		$http = new Capture_Sink_Node();
-		Core::register_node( Node_Names::HTTP, $http );
-		Core::stderr( 'to http' );
-		$this->assertCount( 1, $http->captured );
-		$this->assertStringContainsString( 'to http', (string) $http->captured[0][ Message::VALUE ] );
+		$out = new Capture_Sink_Node();
+		Core::register_node( Node_Names::OUTPUT, $out );
+		Core::stderr( 'to output' );
+		$this->assertCount( 1, $out->captured );
+		$this->assertStringContainsString( 'to output', (string) $out->captured[0][ Message::VALUE ] );
+	}
+
+	public function test_stderr_prefers_the_sse_egress_over_output(): void {
+		// SSE-stream process: both the `_sse` egress and the `_output` reply filter
+		// are registered. A broadcast (empty TO) must reach the `_sse` egress —
+		// `_output` is the pid-gating HTTP_Filter that drops empty-head messages.
+		Core::reset();
+		$sse = new Capture_Sink_Node();
+		$out = new Capture_Sink_Node();
+		Core::register_node( Node_Names::SSE, $sse );
+		Core::register_node( Node_Names::OUTPUT, $out );
+		Core::stderr( 'to sse' );
+		$this->assertCount( 1, $sse->captured, 'stderr rides the _sse egress' );
+		$this->assertCount( 0, $out->captured, 'never the _output filter' );
 	}
 
 	// ── msg_counter ──────────────────────────────────────────────────────

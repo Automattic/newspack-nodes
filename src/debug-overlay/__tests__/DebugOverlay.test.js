@@ -25,6 +25,23 @@ describe( 'DebugOverlay', () => {
 		expect( queryByTestId( 'debug-panel' ) ).not.toBeNull();
 	} );
 
+	it( 'eats wheel scrolls so the page behind the overlay does not scroll', () => {
+		mountExospine();
+		const { getByRole, getByTestId } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const panel = getByTestId( 'debug-panel' );
+		// fireEvent returns false when a listener called preventDefault — i.e. the
+		// wheel was consumed and won't scroll the page behind the overlay. (No inner
+		// element is scrollable in jsdom, so the panel eats it.)
+		const notCancelled = fireEvent.wheel( panel, {
+			deltaY: 100,
+			cancelable: true,
+		} );
+		expect( notCancelled ).toBe( false );
+	} );
+
 	it( 'mounts a REPL prompt inside the opened panel', () => {
 		mountExospine();
 		const { getByRole, queryByRole } = render(

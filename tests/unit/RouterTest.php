@@ -26,8 +26,9 @@ class RouterTest extends TestCase {
 		$this->assertSame( 'some/path', $dst->captured[0][ Message::TO ] );
 	}
 
-	public function test_empty_TO_with_FROM_sends_NOT_AVAILABLE_back_to_FROM(): void {
-		// No empty-TO->sink shortcut: empty TO -> NOT_AVAILABLE; with FROM set the error walks back to that node.
+	public function test_empty_TO_is_dropped_as_message_not_addressed(): void {
+		// Perl Router::fill drops an unaddressed (empty TO) message before routing —
+		// no NOT_AVAILABLE bounce back to FROM.
 		$router = new Router_Node();
 		$router->name( '_router' );
 		$producer = new Capture_Sink_Node();
@@ -37,10 +38,23 @@ class RouterTest extends TestCase {
 		$msg[ Message::FROM ] = 'producer';
 		$router->fill( $msg );
 
-		$this->assertCount( 1, $producer->captured );
-		$err = $producer->captured[0];
-		$this->assertSame( Message::TM_ERROR, $err[ Message::TYPE ] );
-		$this->assertSame( "NOT_AVAILABLE\n", $err[ Message::VALUE ] );
+		$this->assertCount( 0, $producer->captured );
+	}
+
+	public function test_oversized_FROM_is_dropped_before_routing(): void {
+		// Perl Router::fill drops a message whose FROM trail exceeded MAX_FROM_SIZE
+		// (path explosion on a routing cycle) before peeling the TO head.
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$dst = new Capture_Sink_Node();
+		$dst->name( 'alice' );
+
+		$msg                  = Message::new_message();
+		$msg[ Message::TO ]   = 'alice';
+		$msg[ Message::FROM ] = \str_repeat( 'x', Router_Node::MAX_FROM_SIZE + 1 );
+		$router->fill( $msg );
+
+		$this->assertCount( 0, $dst->captured );
 	}
 
 	public function test_unknown_target_sends_NOT_AVAILABLE_error(): void {
@@ -58,13 +72,34 @@ class RouterTest extends TestCase {
 
 		// Per spec: error re-enters TO-routing and walks the FROM trail. Router strips
 		// 'producer' off the TO head when re-dispatching, leaving TO='' when the producer
-		// finally captures it.
+		// finally captures it. The error's FROM is the unreachable destination
+		// (Tachikoma: $err[FROM] = $message[TO]), here 'nonexistent'.
 		$this->assertCount( 1, $producer->captured );
 		$err = $producer->captured[0];
 		$this->assertSame( Message::TM_ERROR, $err[ Message::TYPE ] );
 		$this->assertSame( "NOT_AVAILABLE\n", $err[ Message::VALUE ] );
 		$this->assertSame( '', $err[ Message::TO ] );
-		$this->assertSame( '_router', $err[ Message::FROM ] );
+		$this->assertSame( 'nonexistent', $err[ Message::FROM ] );
+	}
+
+	public function test_send_error_caches_unreachable_node_name_in_NOT_AVAILABLE_state(): void {
+		// send_error() caches a NOT_AVAILABLE state whose `node` field is the
+		// unreachable destination peeled off TO. The name lives in fill(); a
+		// regression once referenced an undefined $node_name in send_error(),
+		// emitting an "Undefined variable" warning and caching node => null.
+		$router = new Router_Node();
+		$router->name( '_router' );
+
+		$msg                  = Message::new_message();
+		$msg[ Message::TO ]   = 'nonexistent';
+		$msg[ Message::FROM ] = 'producer';
+
+		$router->fill( $msg );
+
+		$ref = new \ReflectionProperty( $router, 'set_state' );
+		$ref->setAccessible( true );
+		$state = $ref->getValue( $router );
+		$this->assertSame( 'nonexistent', $state['NOT_AVAILABLE']['node'] );
 	}
 
 	public function test_unknown_target_drops_TM_ERROR_messages_silently(): void {

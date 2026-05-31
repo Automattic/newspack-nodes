@@ -8,7 +8,9 @@ jest.useFakeTimers();
 
 beforeEach( () => Core.reset() );
 
-// A _router whose self-started tick is stopped, so tests drive notify('TIMER').
+// A live _router whose self-started interval is stopped, so tests drive the
+// TIMER tick explicitly via notifyTimer() — Perl Router::notify_timer, a DIRECT
+// fire_cb dispatch to each registered node (no routed message, no fill()).
 function makeRouter() {
 	const r = new RouterNode();
 	r.setName( names.ROUTER );
@@ -60,16 +62,16 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 		t.stopTimer();
 	} );
 
-	test( 'counter stays inactive in own-slot mode (PHP-parity: fire() is egress, no counter++)', () => {
-		// PHP fire() never touches counter; own-slot ticks go setInterval->fire_cb->fire
-		// (no fill), so counter must stay 0 while fire_count advances.
+	test( 'fire() increments counter per emit (Perl parity: counter++ inside the owner/CI guard)', () => {
+		// Perl Timer::fire does $self->{counter}++ when it emits. A plain-object sink
+		// (not the CommandInterpreter) trips the guard, so each tick emits + counts.
 		const t = new TimerNode();
 		t.setName( 't-counter-own' );
 		t.sink = { fill: () => {} };
 		t.setTimer( 100 );
 		jest.advanceTimersByTime( 300 );
 		expect( t.fire_count ).toBe( 3 );
-		expect( t.counter ).toBe( 0 );
+		expect( t.counter ).toBe( 3 );
 		t.stopTimer();
 	} );
 
@@ -88,6 +90,9 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 	test( 'notify("FIRE") fires registered subscribers each tick', () => {
 		const t = new TimerNode();
 		t.setName( 't4' );
+		// fire_cb returns early without a sink (Perl parity), and notify('FIRE')
+		// lives in fire(), so FIRE only reaches subscribers when a sink is present.
+		t.sink = { fill: () => {} };
 		const ticks = [];
 		t.register( 'FIRE', 'sub', ( now ) => {
 			ticks.push( now );
@@ -98,10 +103,27 @@ describe( 'event-framework mode (own setInterval slot)', () => {
 		expect( ticks ).toHaveLength( 2 );
 		t.stopTimer();
 	} );
+
+	test( 'fire_cb returns early when there is no sink (Perl parity: return if not sink)', () => {
+		// No sink → fire_cb advances fire_count but returns BEFORE fire(), so neither
+		// the egress emit nor notify('FIRE') runs.
+		const t = new TimerNode();
+		t.setName( 't-nosink' );
+		const ticks = [];
+		t.register( 'FIRE', 'sub', () => {
+			ticks.push( 1 );
+			return true;
+		} );
+		t.setTimer( 100 );
+		jest.advanceTimersByTime( 300 );
+		expect( t.fire_count ).toBe( 3 );
+		expect( ticks ).toHaveLength( 0 );
+		t.stopTimer();
+	} );
 } );
 
-describe( 'Router-hitchhike mode (no own slot — rides the _router TIMER tick)', () => {
-	test( 'no-arg setTimer() fires fire_cb on each _router TIMER notify', () => {
+describe( 'Router-hitchhike mode (rides the _router TIMER via notify_timer)', () => {
+	test( 'no-arg setTimer() fires fire_cb on each notify_timer (direct dispatch)', () => {
 		const r = makeRouter();
 		const t = new TimerNode();
 		t.setName( 'hb' );
@@ -109,25 +131,23 @@ describe( 'Router-hitchhike mode (no own slot — rides the _router TIMER tick)'
 		t.sink = { fill: ( m ) => sent.push( m ) };
 		t.target = '_output';
 		t.setTimer();
-		r.notify( 'TIMER', { now: 1 } );
-		r.notify( 'TIMER', { now: 2 } );
+		r.notifyTimer();
+		r.notifyTimer();
 		expect( sent ).toHaveLength( 2 );
 		expect( t.fire_count ).toBe( 2 );
 		t.stopTimer();
 	} );
 
-	test( 'counter advances once per tick (PHP-canon parity; fill must not double-count)', () => {
-		// PHP Timer_Node::fill() calls fire_cb() with NO counter++; counter++ lives
-		// only in fire(). So hitchhike must match own-slot at +1/tick, not +2.
+	test( 'counter advances once per tick (counter++ lives only in fire())', () => {
 		const r = makeRouter();
 		const t = new TimerNode();
 		t.setName( 'hb-counter' );
 		t.sink = { fill: () => {} };
 		t.target = '_output';
 		t.setTimer();
-		r.notify( 'TIMER', { now: 1 } );
-		r.notify( 'TIMER', { now: 2 } );
-		r.notify( 'TIMER', { now: 3 } );
+		r.notifyTimer();
+		r.notifyTimer();
+		r.notifyTimer();
 		expect( t.counter ).toBe( 3 );
 		t.stopTimer();
 	} );
@@ -139,12 +159,12 @@ describe( 'Router-hitchhike mode (no own slot — rides the _router TIMER tick)'
 		const sent = [];
 		t.sink = { fill: ( m ) => sent.push( m ) };
 		t.arguments = '';
-		r.notify( 'TIMER', { now: 1 } );
+		r.notifyTimer();
 		expect( sent ).toHaveLength( 1 );
 		t.stopTimer();
 	} );
 
-	test( 'stopTimer in router mode stops firing on TIMER notify', () => {
+	test( 'stopTimer in router mode stops firing on notify_timer', () => {
 		const r = makeRouter();
 		const t = new TimerNode();
 		t.setName( 'hb3' );
@@ -152,7 +172,7 @@ describe( 'Router-hitchhike mode (no own slot — rides the _router TIMER tick)'
 		t.sink = { fill: ( m ) => sent.push( m ) };
 		t.setTimer();
 		t.stopTimer();
-		r.notify( 'TIMER', { now: 1 } );
+		r.notifyTimer();
 		expect( sent ).toHaveLength( 0 );
 	} );
 

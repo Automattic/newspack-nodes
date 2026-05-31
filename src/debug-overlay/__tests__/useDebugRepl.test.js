@@ -55,19 +55,20 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
-	it( 'unmount unregisters _metadata TIMER from the router (no stale-closure leak)', () => {
+	it( 'unmount unregisters _metadata TIMER from the router (TimerNode self-manages)', () => {
 		const { teardown } = mountExospine();
 		const router = Core.node( names.ROUTER );
 		const shell = makeShell();
 		const { unmount } = renderHook( () => useDebugRepl( true, shell ) );
-		// _metadata's poll closure is registered on the router's TIMER.
-		expect( router.registrations.TIMER?.[ names.METADATA ] ).toBeTruthy();
+		// _metadata hitchhikes the router TIMER by name (set_timer()).
+		expect( names.METADATA in router.registrations.TIMER ).toBe( true );
 
 		unmount();
 
-		// Cleanup detaches it — the router (a sibling-owned backbone node) survives
-		// a panel close, so a lingering closure would poll a dead _metadata forever.
-		expect( router.registrations.TIMER?.[ names.METADATA ] ).toBeFalsy();
+		// metadata.removeNode() -> stop_timer -> unregister: the router (a
+		// sibling-owned backbone node) survives a panel close, so a leaked
+		// registration would poll a dead _metadata forever.
+		expect( names.METADATA in router.registrations.TIMER ).toBe( false );
 		teardown();
 	} );
 
@@ -80,18 +81,18 @@ describe( 'useDebugRepl', () => {
 		const shell = makeShell();
 		renderHook( () => useDebugRepl( true, shell ) );
 		const firstRouter = Core.node( names.ROUTER );
-		expect(
-			firstRouter.registrations.TIMER?.[ names.METADATA ]
-		).toBeTruthy();
+		expect( names.METADATA in firstRouter.registrations.TIMER ).toBe(
+			true
+		);
 
 		act( () => Core.bumpGraphGeneration() );
 
 		const freshRouter = Core.node( names.ROUTER );
 		expect( freshRouter ).not.toBe( firstRouter );
 		// The TIMER lands on the FRESH router, not the torn-down one.
-		expect(
-			freshRouter.registrations.TIMER?.[ names.METADATA ]
-		).toBeTruthy();
+		expect( names.METADATA in freshRouter.registrations.TIMER ).toBe(
+			true
+		);
 		teardown();
 	} );
 

@@ -6,7 +6,7 @@
  */
 
 import { Core } from './core';
-import { Node } from './node';
+import { TimerNode } from './timer-node';
 import {
 	newMessage,
 	TYPE,
@@ -123,11 +123,12 @@ export function parseMetadata( payload ) {
 }
 
 /**
- * Metadata — `_metadata`. Router TIMER subscriber: fires dump_metadata at
- * `this.target` each tick; the reply lands on fill() and publishes the parsed
- * graph for the canvas ( useNodeState( '_metadata', 'metadata' ) ).
+ * Metadata — `_metadata`. A TimerNode hitchhiking the _router: `fire()` emits a
+ * dump_metadata poll at `this.target` each tick (the _router calls fireCb -> fire
+ * directly); the reply lands on fill() and publishes the parsed graph for the
+ * canvas ( useNodeState( '_metadata', 'metadata' ) ).
  */
-export class MetadataNode extends Node {
+export class MetadataNode extends TimerNode {
 	constructor() {
 		super();
 		this.registrations.metadata = {};
@@ -156,8 +157,9 @@ export class MetadataNode extends Node {
 		return m;
 	}
 
-	// Router TIMER subscriber: emit a dump_metadata poll each tick.
-	onTimer() {
+	// Router TIMER subscriber (the _router calls fireCb -> fire): emit a
+	// dump_metadata poll each tick.
+	fire() {
 		if ( ! this.sink ) {
 			return;
 		}

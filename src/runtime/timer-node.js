@@ -4,11 +4,11 @@ import names from './reserved-node-names.json';
 import {
 	newMessage,
 	TYPE,
+	TIMESTAMP,
 	FROM,
 	TO,
 	KEY,
 	VALUE,
-	TM_INFO,
 	TM_BYTESTREAM,
 } from './message';
 
@@ -16,11 +16,12 @@ import {
  * Timer — periodic / one-shot fire in two modes (Tachikoma parity):
  *  - own slot: `setTimer(ms)` / `make_node Timer t 1000` — a setInterval slot.
  *  - Router-hitchhike: `setTimer()` (no args) / `make_node Timer t` — registers
- *    'TIMER' on the _router and rides its per-tick `notify('TIMER')` instead of
- *    spending its own slot.
- * On each fire `fire()` emits a TM_BYTESTREAM carrying the timestamp via sink to
- * target; `fireCb()` also notifies 'FIRE' subscribers. Subclasses override
- * `fire()`; consumers register on 'FIRE'.
+ *    'TIMER' on the _router and rides its per-tick `notify_timer`, which calls
+ *    this node's `fireCb()` DIRECTLY (no routed message). Timer does NOT override
+ *    `fill()`.
+ * `fireCb()` returns early without a sink; otherwise `fire()` emits a TM_BYTESTREAM
+ * carrying the timestamp via sink to target and notifies 'FIRE' subscribers.
+ * Subclasses override `fire()`; consumers register on 'FIRE'.
  */
 export class TimerNode extends Node {
 	constructor() {
@@ -65,10 +66,17 @@ export class TimerNode extends Node {
 		return super.arguments;
 	}
 
-	// Mirror PHP Timer_Node::arguments — empty => Router-hitchhike, numeric =>
-	// own interval, anything else => error.
+	// Mirror PHP Timer_Node::arguments / Perl Timer::arguments — only the BASE Timer
+	// auto-arms from its config string (empty => Router-hitchhike, numeric => own
+	// interval, else error). A subclass (Metadata, Uptime, Heartbeat, …) inherits
+	// the base Node schema-walk via super and arms explicitly with setTimer() in its
+	// wiring — so a hidden make_node('Metadata') doesn't try to hitchhike a _router
+	// that isn't there.
 	set arguments( value ) {
 		super.arguments = value;
+		if ( TimerNode !== this.constructor ) {
+			return;
+		}
 		const raw =
 			null === value || undefined === value ? '' : String( value ).trim();
 		if ( '' === raw ) {
@@ -134,41 +142,46 @@ export class TimerNode extends Node {
 		}
 	}
 
-	// Detect Router-hitchhike TIMER notifications (TM_INFO, KEY='TIMER') and
-	// fire; else forward to sink like any other Node.
-	fill( message ) {
-		if ( message[ TYPE ] & TM_INFO && 'TIMER' === message[ KEY ] ) {
-			this.counter += 1;
-			this.fireCb();
-			return;
-		}
-		super.fill( message );
-	}
-
+	// fire_cb (Perl Timer::fire_cb): deactivate a non-'forever' (oneshot) timer,
+	// then return WITHOUT firing if there is no sink — so a sink-less Timer never
+	// emits and never notifies 'FIRE'. The _router's notify_timer calls this
+	// directly for hitchhikers; the Event_Framework calls it for own-slot timers.
 	fireCb() {
 		this.fire_count += 1;
-		this.fire();
-		this.notify( 'FIRE', Core.now() );
 		if ( this.oneshot ) {
-			this.stopTimer();
+			this.active = false;
+			this.mode = 'inactive';
 		}
-	}
-
-	// One tick: TM_BYTESTREAM with the timestamp (string VALUE, canonical — matches
-	// PHP Timer_Node::fire), FROM=self, TO=target, fill sink.
-	fire() {
 		if ( ! this.sink ) {
 			return;
 		}
-		const m = newMessage();
-		m[ TYPE ] = TM_BYTESTREAM;
-		m[ FROM ] = this.name;
-		m[ TO ] = this.target;
-		if ( '' !== this.key ) {
-			m[ KEY ] = this.key;
+		this.fire();
+	}
+
+	// One tick (Perl Timer::fire). Emit a TM_BYTESTREAM heartbeat carrying the
+	// timestamp ONLY when this timer has a target, or its sink isn't the
+	// CommandInterpreter (the owner/CI guard — a target-less timer sinking into the
+	// interpreter would just spam it); counter++ on emit. Always notify 'FIRE'.
+	// (instanceof would cycle through command-interpreter-node's make_node map, so
+	// the CI is matched by its build-preserved constructor name.)
+	fire() {
+		if (
+			'' !== this.target ||
+			'CommandInterpreterNode' !== this.sink?.constructor?.name
+		) {
+			const m = newMessage();
+			m[ TYPE ] = TM_BYTESTREAM;
+			m[ TIMESTAMP ] = Core.now();
+			m[ FROM ] = this.name;
+			m[ TO ] = this.target;
+			if ( '' !== this.key ) {
+				m[ KEY ] = this.key;
+			}
+			m[ VALUE ] = String( Core.now() );
+			this.counter += 1;
+			this.sink.fill( m );
 		}
-		m[ VALUE ] = String( Core.now() );
-		this.sink.fill( m );
+		this.notify( 'FIRE', Core.now() );
 	}
 
 	removeNode() {

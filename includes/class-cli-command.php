@@ -178,6 +178,11 @@ class CLI_Command {
 		// Skip prompts when stdin is piped — they break `... | grep` consumers.
 		$reader = new CLI_Stdin_Reader_Node( $this, $shell, $dumper, $has_readline, null, $is_tty );
 
+		// Every node sinks into the interpreter (only Router has none). The reader is
+		// a Timer_Node, and Timer_Node::fire_cb() skips fire() when sink is null — so
+		// without this its stdin drain never runs and the REPL ignores all input.
+		$reader->sink( Core::node( Node_Names::COMMAND_INTERPRETER ) );
+
 		// On the worker's TM_EOF echo, flip the exit flag so scripted sessions don't orphan replies.
 		$dumper->on_eof( static function () use ( $reader ): void {
 			$reader->exit = true;

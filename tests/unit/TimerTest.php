@@ -12,8 +12,10 @@ use PHPUnit\Framework\Attributes\CoversClass;
 /**
  * TimerTest — Timer_Node behavior the Router-hitchhike fan-out tests
  * (RouterTimerTest) don't reach: arguments() string parsing, key stamping,
- * own-slot lifecycle, the fire() message shape + null-sink guard, oneshot,
- * and the non-TIMER fill() passthrough.
+ * own-slot lifecycle, the fire() message shape + owner/CI guard + counter++,
+ * the no-sink early return in fire_cb, oneshot, and the inherited Node::fill
+ * passthrough (Timer no longer overrides fill — TIMER is a direct fire_cb
+ * dispatch from the Router, never a routed message).
  */
 #[CoversClass( Timer_Node::class )]
 class TimerTest extends TestCase {
@@ -140,7 +142,35 @@ class TimerTest extends TestCase {
 		$this->assertSame( 1, $timer->fire_count() );
 	}
 
-	// ── non-TIMER fill() passthrough ─────────────────────────────────────────
+	public function test_fire_increments_counter_on_emit(): void {
+		// Perl Timer::fire does $self->{counter}++ inside the owner/CI guard.
+		$timer = new Timer_Node();
+		$timer->name( 't' );
+		$capture = new Capture_Sink_Node(); // non-CI sink → guard passes → emit
+		$timer->sink( $capture );
+		$timer->fire_cb();
+		$this->assertSame( 1, $timer->counter() );
+	}
+
+	public function test_fire_skips_emit_for_interpreter_sink_without_target(): void {
+		// Perl owner/CI guard: a target-less Timer whose sink IS the
+		// CommandInterpreter does NOT emit (it would just spam the interpreter).
+		$interpreter = new class extends \Newspack_Nodes\Command_Interpreter_Node {
+			/** @var array<int,array> */
+			public array $filled = [];
+			public function fill( array &$message ): void {
+				$this->filled[] = $message;
+			}
+		};
+		$timer = new Timer_Node();
+		$timer->name( 't' );
+		$timer->sink( $interpreter );
+		$timer->fire_cb();
+		$this->assertCount( 0, $interpreter->filled );
+		$this->assertSame( 0, $timer->counter() );
+	}
+
+	// ── inherited Node::fill passthrough (Timer no longer overrides fill) ──────
 
 	public function test_non_timer_message_forwards_without_firing(): void {
 		$timer = new Timer_Node();
@@ -150,6 +180,22 @@ class TimerTest extends TestCase {
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$msg[ Message::VALUE ] = 'data';
+		$timer->fill( $msg );
+		$this->assertCount( 1, $capture->captured );
+		$this->assertSame( 0, $timer->fire_count() );
+	}
+
+	public function test_timer_info_message_forwards_and_does_not_fire(): void {
+		// A TM_INFO/KEY=TIMER message is no longer intercepted by fill() — Timer
+		// inherits Node::fill (forward to sink). TIMER fires only via the Router's
+		// direct fire_cb dispatch, never through a routed message.
+		$timer = new Timer_Node();
+		$timer->name( 't' );
+		$capture = new Capture_Sink_Node();
+		$timer->sink( $capture );
+		$msg                  = Message::new_message();
+		$msg[ Message::TYPE ] = Message::TM_INFO;
+		$msg[ Message::KEY ]  = 'TIMER';
 		$timer->fill( $msg );
 		$this->assertCount( 1, $capture->captured );
 		$this->assertSame( 0, $timer->fire_count() );

@@ -333,7 +333,7 @@ class SSE_Out_Node extends Node {
 			$this->sink( $interpreter );
 
 			$http_filter = new HTTP_Filter_Node( (int) \getmypid() );
-			$http_filter->name( Node_Names::HTTP );
+			$http_filter->name( Node_Names::OUTPUT );
 			$http_filter->sink( $this );
 
 			// The ONE exceptional non-interpreter sink: Consumers sink HERE, not
@@ -343,7 +343,7 @@ class SSE_Out_Node extends Node {
 			// breadcrumbs. A plain Node uses the DEFAULT fill(): it stamps TO=`_sse` only
 			// when TO is EMPTY, else leaves TO and forwards. So: empty-TO worker
 			// broadcasts (stderr/events) → TO=`_sse` → egress; non-empty-TO replies keep
-			// their breadcrumb → `_http`. A command addressed `_command_interpreter`
+			// their breadcrumb → `_output`. A command addressed `_command_interpreter`
 			// (TO non-empty here) is NOT stamped; the interpreter forwards it to
 			// `_router`, which peels `_command_interpreter` and re-delivers it to the
 			// interpreter with TO now empty — THEN it interprets. So the _router
@@ -404,7 +404,7 @@ class SSE_Out_Node extends Node {
 			if ( $interpreter instanceof Command_Interpreter_Node ) {
 				$interpreter->remove_node();
 			}
-			$http = Core::node( Node_Names::HTTP );
+			$http = Core::node( Node_Names::OUTPUT );
 			if ( $http instanceof HTTP_Filter_Node ) {
 				$http->remove_node();
 			}

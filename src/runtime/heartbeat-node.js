@@ -10,7 +10,7 @@
  * reconnects every ~minute. Poke at half the TTL so one missed poke survives.
  */
 
-import { Node } from './node';
+import { TimerNode } from './timer-node';
 import { Core } from './core';
 import {
 	newMessage,
@@ -27,7 +27,7 @@ import {
 const SLOT_TTL_S = 10;
 const POKE_INTERVAL_S = 5;
 
-export class HeartbeatNode extends Node {
+export class HeartbeatNode extends TimerNode {
 	constructor() {
 		super();
 		// The SSE slot to refresh + the partition it was acquired at; null until
@@ -79,9 +79,10 @@ export class HeartbeatNode extends Node {
 		return m;
 	}
 
-	// Router TIMER subscriber: poke the slot at most every POKE_INTERVAL_S, only
-	// while a worker stream slot is held (the poke is meaningless without one).
-	onTimer() {
+	// Router TIMER subscriber (the _router calls fireCb -> fire): poke the slot at
+	// most every POKE_INTERVAL_S, only while a worker stream slot is held (the poke
+	// is meaningless without one).
+	fire() {
 		if ( null === this.slot || ! this.sink ) {
 			return;
 		}

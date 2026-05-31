@@ -519,7 +519,9 @@ class Node {
 		}
 		$type_str = empty( $labels ) ? 'unknown' : \implode( '|', $labels );
 
-		$parts = [ "WARNING: $error - $type_str" ];
+		// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl drop_message).
+		$prefix = 'NOT_AVAILABLE' === $error ? "$error - " : "WARNING: $error - ";
+		$parts  = [ "$prefix$type_str" ];
 		if ( '' !== $message[ Message::FROM ] ) {
 			$parts[] = 'from: ' . $message[ Message::FROM ];
 		}
@@ -537,7 +539,7 @@ class Node {
 
 		$line = \implode( ' ', $parts );
 
-		if ( 'NOT_AVAILABLE' === $error && Core::$now < 300.0 ) {
+		if ( 'NOT_AVAILABLE' === $error && Core::$now - Core::$init_time < 300.0 ) {
 			$this->print_least_often( $line );
 			return;
 		}

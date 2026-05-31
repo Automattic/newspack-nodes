@@ -25,18 +25,22 @@ class RouterTimerTest extends TestCase {
 		$this->assertTrue( true );
 	}
 
-	public function test_router_fires_TIMER_to_registrants_on_each_tick(): void {
+	/**
+	 * notify_timer is node-name dispatch (Perl Router::notify_timer): it calls
+	 * Core::node($name)->fire_cb() directly. A registered name with no live node is
+	 * warned + dropped (forgot to unregister), not left polling a dead node.
+	 */
+	public function test_router_drops_a_registered_name_with_no_live_node(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
-
-		$received = 0;
-		$router->register( 'TIMER', 'cb', function () use ( &$received ) { ++$received; } );
+		$router->register( 'TIMER', 'ghost' ); // no node named 'ghost' in Core
 
 		$router->fire_cb();
-		$router->fire_cb();
-		$router->fire_cb();
 
-		$this->assertSame( 3, $received );
+		$prop = ( new \ReflectionObject( $router ) )->getProperty( 'registrations' );
+		$prop->setAccessible( true );
+		$regs = $prop->getValue( $router );
+		$this->assertArrayNotHasKey( 'ghost', $regs['TIMER'] );
 	}
 
 	public function test_timer_with_no_args_registers_with_router_TIMER_event(): void {

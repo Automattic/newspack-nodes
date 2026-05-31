@@ -5,14 +5,37 @@ import {
 	TYPE,
 	KEY,
 	VALUE,
-	TM_INFO,
+	TM_BYTESTREAM,
+	TM_EOF,
+	TM_PING,
 	TM_COMMAND,
+	TM_RESPONSE,
+	TM_ERROR,
+	TM_INFO,
+	TM_STRUCT,
+	TM_REQUEST,
 	newMessage,
 	valueSize,
 } from './message';
 import names from './reserved-node-names.json';
 
 export const MAX_FROM_SIZE = 1024;
+
+// Human-readable message-type labels for the dropMessage audit line (Perl/PHP
+// Node type_names).
+const TYPE_NAMES = [
+	[ TM_BYTESTREAM, 'TM_BYTESTREAM' ],
+	[ TM_EOF, 'TM_EOF' ],
+	[ TM_PING, 'TM_PING' ],
+	[ TM_COMMAND, 'TM_COMMAND' ],
+	[ TM_RESPONSE, 'TM_RESPONSE' ],
+	[ TM_ERROR, 'TM_ERROR' ],
+	[ TM_INFO, 'TM_INFO' ],
+	[ TM_STRUCT, 'TM_STRUCT' ],
+	[ TM_REQUEST, 'TM_REQUEST' ],
+];
+// Types whose VALUE is included in the dropMessage audit line.
+const DROP_PAYLOAD_TYPES = TM_INFO | TM_REQUEST | TM_ERROR | TM_COMMAND;
 
 export class Node {
 	constructor() {
@@ -178,6 +201,51 @@ export class Node {
 
 	print_least_often( text ) {
 		Core.printLeastOften( this.log_midfix( text ) );
+	}
+
+	// Drop a message with a rate-limited audit line (Perl/PHP Node::drop_message):
+	// "WARNING: <error> - <types> [from: …] [to: …] [payload: …]". A NOT_AVAILABLE
+	// drop within the first 300s of uptime uses the rarer print_least_often (it
+	// dampens boot-time noise from not-yet-registered nodes); else print_less_often.
+	// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl). VALUE is included only
+	// for payload-bearing types; an object VALUE is JSON-rendered (the substrate's
+	// structured-VALUE analogue of Perl's string PAYLOAD).
+	dropMessage( message, error ) {
+		const type = message[ TYPE ];
+		const labels = [];
+		for ( const [ bit, label ] of TYPE_NAMES ) {
+			if ( type & bit ) {
+				labels.push( label );
+			}
+		}
+		const typeStr = labels.length ? labels.join( '|' ) : 'unknown';
+
+		const prefix =
+			'NOT_AVAILABLE' === error
+				? `${ error } - `
+				: `WARNING: ${ error } - `;
+		const parts = [ `${ prefix }${ typeStr }` ];
+		if ( '' !== message[ FROM ] ) {
+			parts.push( `from: ${ message[ FROM ] }` );
+		}
+		if ( '' !== message[ TO ] ) {
+			parts.push( `to: ${ message[ TO ] }` );
+		}
+		const value = message[ VALUE ];
+		if ( type & DROP_PAYLOAD_TYPES && '' !== value ) {
+			const valueStr =
+				null !== value && 'object' === typeof value
+					? JSON.stringify( value )
+					: String( value );
+			parts.push( `payload: ${ valueStr }` );
+		}
+		const line = parts.join( ' ' );
+
+		if ( 'NOT_AVAILABLE' === error && Core.now() - Core.initTime < 300 ) {
+			this.print_least_often( line );
+			return;
+		}
+		this.print_less_often( line );
 	}
 
 	/**

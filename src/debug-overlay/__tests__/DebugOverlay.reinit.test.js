@@ -144,7 +144,10 @@ describe( 'DebugOverlay — Reset Graph (full rebuild)', () => {
 	} );
 
 	it( 'drops a user node added BEFORE the overlay opened (no first-open snapshot)', () => {
-		mountExospine();
+		// Build-delegated mount (production overlays are dashboard-mounted): Reset
+		// Graph's fullRebuild recreates _router synchronously, so useDebugRepl re-arms
+		// metadata on the fresh router with no missing-_router transient.
+		mountExospine( () => {} );
 		Core.reinit = jest.fn();
 		// User node exists BEFORE the panel opens.
 		const pre = new Node();
@@ -206,7 +209,8 @@ describe( 'DebugOverlay — dirty-on-rewire', () => {
 	} );
 
 	it( 'Reset Graph re-dirties the layout so Reset Layout reappears (the graph changed)', () => {
-		mountExospine();
+		// Build-delegated mount so Reset Graph's fullRebuild recreates _router.
+		mountExospine( () => {} );
 		Core.reinit = jest.fn();
 		openOverlay();
 		// Rewire → both chips appear.
