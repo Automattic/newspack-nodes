@@ -28,6 +28,23 @@ jest.mock( '../../topology-console/components/GraphView', () => ( props ) => (
 		>
 			do-connect
 		</button>
+		<button
+			type="button"
+			data-testid="do-remove"
+			onClick={ () => props.onRemoveNode && props.onRemoveNode( 'x' ) }
+		>
+			do-remove
+		</button>
+		<button
+			type="button"
+			data-testid="do-disconnect"
+			onClick={ () =>
+				props.onInspectorAction &&
+				props.onInspectorAction( 'disconnect', 'x', null )
+			}
+		>
+			do-disconnect
+		</button>
 		{ props.frameProps && props.frameProps.onResetLayout && (
 			<button
 				type="button"
@@ -77,22 +94,33 @@ function openOverlay() {
 	return utils;
 }
 
-describe( 'DebugOverlay — Reset Graph reinit', () => {
-	it( 'calls the Core.reinit handle when Reset Graph is clicked', () => {
-		mountExospine();
-		// Stash a spy AFTER mountExospine so it isn't overwritten; the overlay
-		// reads Core.reinit on the do-connect re-render.
-		const spy = ( Core.reinit = jest.fn() );
+describe( 'DebugOverlay — Reset Graph (full rebuild)', () => {
+	it( 'removes every node then bumps graphGeneration to rebuild the whole graph', () => {
+		const managedName = mountWithManagedNode();
 		openOverlay();
-		// A rewire surfaces the Reset Graph chip (graphDirty + reinit available).
+		// A user node + a rewire so there is something to reset.
+		act( () => {
+			const u = new Node();
+			u.setName( 'user-added' );
+		} );
 		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );
+		const firstManaged = Core.node( managedName );
+		const bumpSpy = jest.spyOn( Core, 'bumpGraphGeneration' );
+
 		act( () =>
 			fireEvent.click( screen.getByTestId( 'chip-reset-graph' ) )
 		);
-		expect( spy ).toHaveBeenCalledTimes( 1 );
+
+		// Bumped the full-rebuild signal; the user node is gone; the dashboard's
+		// build node rebuilt fresh (a fresh instance, not the original).
+		expect( bumpSpy ).toHaveBeenCalledTimes( 1 );
+		expect( Core.node( 'user-added' ) ).toBeNull();
+		expect( Core.node( managedName ) ).not.toBeNull();
+		expect( Core.node( managedName ) ).not.toBe( firstManaged );
+		bumpSpy.mockRestore();
 	} );
 
-	it( 'drops a user-added node but keeps reserved infra and reinit-managed nodes', () => {
+	it( 'drops a user-added node and rebuilds reserved infra + the dashboard node', () => {
 		const managedName = mountWithManagedNode();
 		Core.reinit = jest.fn();
 		openOverlay();
@@ -156,5 +184,44 @@ describe( 'DebugOverlay — dirty-on-rewire', () => {
 		openOverlay();
 		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );
 		expect( screen.queryByTestId( 'chip-reset-graph' ) ).toBeNull();
+	} );
+
+	it( 'a node removal surfaces both chips (exospine edits are now visible + recoverable)', () => {
+		mountExospine();
+		Core.reinit = jest.fn();
+		openOverlay();
+		expect( screen.queryByTestId( 'chip-reset-graph' ) ).toBeNull();
+		act( () => fireEvent.click( screen.getByTestId( 'do-remove' ) ) );
+		expect( screen.queryByTestId( 'chip-reset-graph' ) ).not.toBeNull();
+		expect( screen.queryByTestId( 'chip-reset-layout' ) ).not.toBeNull();
+	} );
+
+	it( 'a disconnect surfaces the Reset Graph chip', () => {
+		mountExospine();
+		Core.reinit = jest.fn();
+		openOverlay();
+		expect( screen.queryByTestId( 'chip-reset-graph' ) ).toBeNull();
+		act( () => fireEvent.click( screen.getByTestId( 'do-disconnect' ) ) );
+		expect( screen.queryByTestId( 'chip-reset-graph' ) ).not.toBeNull();
+	} );
+
+	it( 'Reset Graph re-dirties the layout so Reset Layout reappears (the graph changed)', () => {
+		mountExospine();
+		Core.reinit = jest.fn();
+		openOverlay();
+		// Rewire → both chips appear.
+		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );
+		// Reset the layout → its chip hides (layout clean).
+		act( () =>
+			fireEvent.click( screen.getByTestId( 'chip-reset-layout' ) )
+		);
+		expect( screen.queryByTestId( 'chip-reset-layout' ) ).toBeNull();
+		// Reset the graph: it rebuilt the node set, so the (now-clean) layout is
+		// re-dirtied and Reset Layout reappears — better shown when not needed
+		// than missing when needed.
+		act( () =>
+			fireEvent.click( screen.getByTestId( 'chip-reset-graph' ) )
+		);
+		expect( screen.queryByTestId( 'chip-reset-layout' ) ).not.toBeNull();
 	} );
 } );

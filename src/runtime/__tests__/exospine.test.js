@@ -155,6 +155,75 @@ describe( 'mountExospine( build )', () => {
 	} );
 } );
 
+describe( 'mountExospine — full rebuild on graphGeneration', () => {
+	test( 'a graphGeneration bump tears down + rebuilds the WHOLE graph fresh (backbone too)', () => {
+		let builds = 0;
+		mountExospine( ( { interpreter } ) => {
+			builds += 1;
+			const view = new Node();
+			view.setName( 'view' );
+			view.sink = interpreter;
+		} );
+		const firstInterpreter = Core.node( names.COMMAND_INTERPRETER );
+		const firstRouter = Core.node( names.ROUTER );
+		const firstView = Core.node( 'view' );
+		expect( builds ).toBe( 1 );
+
+		Core.bumpGraphGeneration();
+
+		// Everything is a fresh instance — no exceptions, the backbone included.
+		expect( builds ).toBe( 2 );
+		expect( Core.node( names.COMMAND_INTERPRETER ) ).not.toBe(
+			firstInterpreter
+		);
+		expect( Core.node( names.ROUTER ) ).not.toBe( firstRouter );
+		expect( Core.node( 'view' ) ).not.toBe( firstView );
+		// The rebuilt soft node sinks into the rebuilt interpreter.
+		expect( Core.node( 'view' ).sink ).toBe(
+			Core.node( names.COMMAND_INTERPRETER )
+		);
+		expect( Core.node( names.COMMAND_INTERPRETER ).sink ).toBe(
+			Core.node( names.ROUTER )
+		);
+	} );
+
+	test( 'build cleanup runs on a graphGeneration full rebuild', () => {
+		const calls = [];
+		mountExospine( () => {
+			const view = new Node();
+			view.setName( 'view' );
+			return () => calls.push( 'cleanup' );
+		} );
+
+		Core.bumpGraphGeneration();
+
+		expect( calls ).toEqual( [ 'cleanup' ] );
+	} );
+
+	test( 'teardown unsubscribes — a later graphGeneration bump does NOT rebuild', () => {
+		let builds = 0;
+		const { teardown } = mountExospine( () => {
+			builds += 1;
+		} );
+		expect( builds ).toBe( 1 );
+
+		teardown();
+		Core.bumpGraphGeneration();
+
+		expect( builds ).toBe( 1 );
+	} );
+
+	test( 'a bare mountExospine() does NOT subscribe (console drives its own resetKey)', () => {
+		const { interpreter, router } = mountExospine();
+
+		Core.bumpGraphGeneration();
+
+		// The backbone is untouched — no full rebuild for a non-delegated graph.
+		expect( Core.node( names.COMMAND_INTERPRETER ) ).toBe( interpreter );
+		expect( Core.node( names.ROUTER ) ).toBe( router );
+	} );
+} );
+
 describe( 'mountExospine — Core.reinit stash', () => {
 	test( 'stashes the spine reinit on Core.reinit (same function)', () => {
 		const spine = mountExospine( () => {} );

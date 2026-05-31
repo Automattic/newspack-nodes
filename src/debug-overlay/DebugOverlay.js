@@ -61,8 +61,11 @@ function readStoredTheme( key ) {
  * host page's own live Core.nodes graph in the shared GraphView and lets you
  * poke it (connect/remove/invoke) via the page's own CommandInterpreter.
  *
- * Reset Graph uses `Core.reinit` — the host graph's rebuild handle stashed on the
- * per-page Core by mountExospine — to restore the dashboard's default wiring.
+ * Reset Graph rebuilds the ENTIRE graph in place: it removes every node, then
+ * bumps `Core.graphGeneration` so every graph-building effect (each dashboard's
+ * mountExospine + this overlay's useDebugRepl) tears down and rebuilds its nodes
+ * fresh. `Core.reinit` (the finer-grained build-nodes-only rebuild stashed by
+ * mountExospine) only gates whether the chip is offered.
  *
  * @param {Object} props
  * @param {string} [props.search]     Injectable location.search (tests).
@@ -252,30 +255,27 @@ export default function DebugOverlay( {
 		// Global frame key — same overlay dimensions across every dashboard.
 	} = useDebugFrame( 'newspack-nodes:debug:frame', enabled && open );
 
-	// "Reset graph" = restore the host's default wiring (reinit rebuilds the
-	// dashboard's build-registered nodes fresh, undoing in-canvas rewires) THEN
-	// drop every node outside the keep-set. The keep-set is sourced from Core,
-	// not a first-open snapshot: reserved infra names ∪ Core.reinitNames (the
-	// nodes the dashboard build registered). Deterministic — independent of when
-	// the panel opened or what was registered before it.
+	// Reserved infra names (backbone + overlay nodes), used to tell a user-added
+	// node from the dashboard's own — see hasUserNodes below, which gates the chip.
 	const reservedNames = useMemo(
 		() => new Set( Object.values( names ) ),
 		[]
 	);
 	const resetGraph = () => {
-		if ( reinit ) {
-			reinit();
+		// Remove EVERY node — no exceptions (backbone, dashboard, overlay infra,
+		// user-added) — then rebuild the entire graph: bumping the generation
+		// re-runs every graph-building effect (each dashboard's mountExospine + this
+		// overlay's useDebugRepl), so each tears down and rebuilds its nodes fresh.
+		// User-added nodes have no owner, so they stay gone — a clean reset.
+		for ( const node of [ ...Core.nodes.values() ] ) {
+			node.removeNode();
 		}
-		const keep = new Set( [
-			...reservedNames,
-			...( Core.reinitNames ?? [] ),
-		] );
-		for ( const name of [ ...Core.nodes.keys() ] ) {
-			if ( ! keep.has( name ) ) {
-				Core.unregisterNode( name );
-			}
-		}
+		Core.bumpGraphGeneration();
 		setGraphDirty( false );
+		// The graph rebuilt, so the saved layout may no longer fit — surface Reset
+		// Layout (idempotent if already dirty). Better shown when not needed than
+		// missing when needed.
+		markDirty();
 	};
 
 	// "Reset Layout" appears only when the user has modified the layout.
@@ -306,6 +306,16 @@ export default function DebugOverlay( {
 	// the graph dirty (surfaces Reset Graph when reinit can restore it).
 	const onConnectDirtying = ( from, to ) => {
 		handlers.onConnect( from, to );
+		markDirty();
+		setGraphDirty( true );
+	};
+
+	// Removing a node (or disconnecting an edge — see onInspectorAction below)
+	// also dirties the graph, so an exospine edit surfaces Reset Graph and is
+	// recoverable — not just a connect. Reset Graph rebuilds the WHOLE graph, so
+	// even removing a backbone node is now undoable in place.
+	const onRemoveNodeDirtying = ( id ) => {
+		handlers.onRemoveNode( id );
 		markDirty();
 		setGraphDirty( true );
 	};
@@ -435,13 +445,19 @@ export default function DebugOverlay( {
 							viewport={ viewport }
 							onViewportChange={ onViewportChange }
 							onConnect={ onConnectDirtying }
-							onRemoveNode={ handlers.onRemoveNode }
+							onRemoveNode={ onRemoveNodeDirtying }
 							onDropNode={ handlers.onDropNode }
 							onInspectorAction={ ( action, nodeId, payload ) => {
 								// Pop the transcript footer when the user fires an
 								// inspector action — matches the console's UX (the
 								// reply lands in _output and the user should see it).
 								setReplExpanded( true );
+								// A disconnect is a graph edit — dirty it so Reset
+								// Graph surfaces (and can rebuild it).
+								if ( 'disconnect' === action ) {
+									markDirty();
+									setGraphDirty( true );
+								}
 								handlers.onInspectorAction(
 									action,
 									nodeId,

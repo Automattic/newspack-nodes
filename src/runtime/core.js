@@ -21,6 +21,29 @@ class CoreImpl {
 		this.initTime = this.now(); // uptime baseline (mirrors PHP Core::$init_time)
 		this.reinit = null; // current page graph's rebuild handle (set by mountExospine, cleared on teardown)
 		this.reinitNames = null; // names mountExospine's build registered (the reinit-managed set)
+		// Full-graph rebuild signal: bumping it re-runs every graph-building React
+		// effect (each dashboard hook's mountExospine + the overlay's useDebugRepl),
+		// so its cleanup tears down its nodes and its effect rebuilds them — a
+		// page-reload-in-place. The overlay's "Reset Graph" removes every node then
+		// bumps this to reconstruct the entire graph.
+		this.graphGeneration = 0;
+		this._generationListeners = new Set();
+	}
+
+	// Bump the full-rebuild signal: increment + notify every subscriber so each
+	// graph-building effect re-runs (tears down + rebuilds its nodes).
+	bumpGraphGeneration() {
+		this.graphGeneration += 1;
+		for ( const listener of this._generationListeners ) {
+			listener();
+		}
+	}
+
+	// Subscribe to graphGeneration bumps (used by useGraphGeneration). Returns an
+	// unsubscribe function.
+	subscribeGraphGeneration( listener ) {
+		this._generationListeners.add( listener );
+		return () => this._generationListeners.delete( listener );
 	}
 
 	registerNode( name, node ) {
