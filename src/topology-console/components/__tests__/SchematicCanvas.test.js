@@ -667,6 +667,39 @@ describe( 'SchematicCanvas', () => {
 		expect( vp.w ).toBeGreaterThan( 0 );
 	} );
 
+	it( 'anchors wheel zoom to the cursor SCREEN fraction, not the viewBox-world fraction', () => {
+		// The bug: on a letterboxed autofit, current.w (viewBox) != the canvas
+		// width, so the cursor's world-fraction within the viewBox diverges from
+		// its screen-fraction and the first zoom flings the graph off. Here the
+		// viewBox is 1700 wide but the canvas is 1000 — a world-fraction anchor
+		// would mis-place the cursor point; the screen-fraction anchor keeps it.
+		const onViewportChange = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				viewport={ { x: 0, y: 0, w: 1700, h: 1700 } }
+				onViewportChange={ onViewportChange }
+			/>
+		);
+		const svg = container.querySelector( 'svg' );
+		svg.getBoundingClientRect = () => ( {
+			x: 0,
+			y: 0,
+			left: 0,
+			top: 0,
+			width: 1000,
+			height: 1000,
+			right: 1000,
+			bottom: 1000,
+		} );
+		// Identity-CTM stub → world under cursor === client coords === (500,500).
+		fireEvent.wheel( svg, { deltaY: -100, clientX: 500, clientY: 500 } );
+		const [ vp ] = onViewportChange.mock.calls.at( -1 );
+		// Cursor screen fraction is 0.5; the world point (500) must stay there.
+		expect( vp.x + 0.5 * vp.w ).toBeCloseTo( 500, 0 );
+		expect( vp.y + 0.5 * vp.h ).toBeCloseTo( 500, 0 );
+	} );
+
 	// === Drag-and-drop (HTML5) ===
 
 	it( 'dragOver in edit mode marks the surface as drop target', () => {

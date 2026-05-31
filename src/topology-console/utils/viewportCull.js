@@ -26,13 +26,7 @@ export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
 	const nodeW = opts.nodeW ?? 196;
 	const nodeH = opts.nodeH ?? 84;
 	const detailScale = opts.detailScale ?? 0.35;
-	// Overscan: render a band of just-off-screen nodes (a fraction of the viewBox
-	// on each axis) so panning scrolls smoothly instead of popping the leading
-	// edge — and a narrow column doesn't vanish when nudged sideways. Default 0
-	// (strict). An absolute `margin` (used by tests) overrides it on both axes.
 	const overscan = opts.overscan ?? 0;
-	const marginX = opts.margin ?? viewBox.w * overscan;
-	const marginY = opts.margin ?? viewBox.h * overscan;
 
 	// Effective scale (px per world unit) under SVG preserveAspectRatio="meet":
 	// the smaller of the width- and height-fit ratios. A tall-narrow graph is
@@ -44,10 +38,32 @@ export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
 		: Infinity;
 	const showDetail = scale >= detailScale;
 
-	const left = viewBox.x - marginX;
-	const right = viewBox.x + viewBox.w + marginX;
-	const top = viewBox.y - marginY;
-	const bottom = viewBox.y + viewBox.h + marginY;
+	// The TRUE on-screen world region under "meet": the viewBox expanded to the
+	// canvas aspect. The under-constrained axis letterboxes, showing world BEYOND
+	// the viewBox — so culling against the raw viewBox would drop a node the moment
+	// a tall-narrow column is panned into that (still-visible) letterbox margin.
+	let visX = viewBox.x;
+	let visY = viewBox.y;
+	let visW = viewBox.w;
+	let visH = viewBox.h;
+	if ( fits ) {
+		visW = canvas.w / scale;
+		visH = canvas.h / scale;
+		visX = viewBox.x + ( viewBox.w - visW ) / 2;
+		visY = viewBox.y + ( viewBox.h - visH ) / 2;
+	}
+
+	// Overscan: render a band of just-off-screen nodes (a fraction of the visible
+	// region on each axis) so panning scrolls smoothly instead of popping the
+	// leading edge. Default 0 (strict). An absolute `margin` (used by tests)
+	// overrides it on both axes.
+	const marginX = opts.margin ?? visW * overscan;
+	const marginY = opts.margin ?? visH * overscan;
+
+	const left = visX - marginX;
+	const right = visX + visW + marginX;
+	const top = visY - marginY;
+	const bottom = visY + visH + marginY;
 
 	const visibleIds = new Set();
 	for ( const n of nodes ) {

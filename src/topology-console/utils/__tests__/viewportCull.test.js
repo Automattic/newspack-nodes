@@ -116,6 +116,18 @@ describe( 'viewportCull', () => {
 		expect( beyond.visibleIds.has( 'x' ) ).toBe( false );
 	} );
 
+	it( 'culls against the meet-expanded (letterbox) region, not the raw viewBox', () => {
+		// A tall-narrow viewBox (400 wide x 4000 tall) in a WIDE canvas (2000x1000)
+		// letterboxes: meet scale = min(2000/400, 1000/4000) = 0.25 (height-bound),
+		// so the on-screen world width is 2000/0.25 = 8000 — far wider than the 400
+		// viewBox. A node 1000 world-units right of the viewBox is still ON SCREEN
+		// in the letterbox margin, so it must NOT be culled (no overscan needed).
+		const vb = { x: 0, y: 0, w: 400, h: 4000 };
+		const nodes = [ { id: 'side', position: { x: 1400, y: 0 } } ];
+		const { visibleIds } = viewportCull( nodes, vb, { w: 2000, h: 1000 } );
+		expect( visibleIds.has( 'side' ) ).toBe( true );
+	} );
+
 	it( 'drops detail when the scale is too small to read (zoomed out)', () => {
 		// 1000 canvas px across a 50000-unit viewBox → 0.02 px/unit.
 		const vb = { x: 0, y: 0, w: 50000, h: 50000 };
