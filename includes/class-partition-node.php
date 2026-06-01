@@ -46,7 +46,7 @@ class Partition_Node extends Timer_Node {
 	/** @var resource|null */
 	protected $idx_fh = null;
 
-	/** @var array<int, array<string, mixed>>|null */
+	/** @var array<int, array{id:int, size:int}>|null Cached on-disk segment list (id + byte size), sorted by id. */
 	protected ?array $segments_cache = null;
 	protected float $segments_cache_time = 0.0;
 

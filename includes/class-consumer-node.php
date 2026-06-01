@@ -458,13 +458,13 @@ class Consumer_Node extends Timer_Node {
 		if ( 'Tee' !== $class ) {
 			return [ [ 'name' => $this->target, 'class' => $class ] ];
 		}
-		$tee_targets = $node->target ?? [];
+		$tee_targets = $node->target;
 		if ( ! \is_array( $tee_targets ) ) {
 			return [ [ 'name' => $this->target, 'class' => 'Tee' ] ];
 		}
 		$out = [];
 		foreach ( $tee_targets as $t ) {
-			if ( ! \is_string( $t ) || '' === $t ) {
+			if ( '' === $t ) {
 				continue;
 			}
 			$tn = Core::node( $t );

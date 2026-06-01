@@ -10,7 +10,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Core {
-	/** @var array<string,object> */
+	/** @var array<string,Node> Registered nodes keyed by name; every entry is a Node ($this from Node::name()). */
 	public static array $nodes_by_name = [];
 
 	/** @var float Microsecond-resolution timestamp; updated by the event loop or in tests. */
@@ -125,7 +125,7 @@ class Core {
 		return (string) $value;
 	}
 
-	public static function register_node( string $name, object $node ): void {
+	public static function register_node( string $name, Node $node ): void {
 		self::$nodes_by_name[ $name ] = $node;
 	}
 
@@ -133,7 +133,7 @@ class Core {
 		unset( self::$nodes_by_name[ $name ] );
 	}
 
-	public static function node( string $name ): ?object {
+	public static function node( string $name ): ?Node {
 		return self::$nodes_by_name[ $name ] ?? null;
 	}
 
@@ -141,13 +141,11 @@ class Core {
 	public static function cleanup_all_nodes(): void {
 		$nodes = self::$nodes_by_name;
 		foreach ( $nodes as $node ) {
-			if ( \method_exists( $node, 'remove_node' ) ) {
-				try {
-					$node->remove_node();
-				} catch ( \Throwable $e ) {
-					// Best-effort: one node's failure shouldn't block the rest.
-					self::stderr( 'cleanup_all_nodes: ' . $e->getMessage() );
-				}
+			try {
+				$node->remove_node();
+			} catch ( \Throwable $e ) {
+				// Best-effort: one node's failure shouldn't block the rest.
+				self::stderr( 'cleanup_all_nodes: ' . $e->getMessage() );
 			}
 		}
 	}

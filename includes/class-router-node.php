@@ -109,7 +109,12 @@ class Router_Node extends Timer_Node {
 				unset( $this->registrations['TIMER'][ $name ] );
 				continue;
 			}
-			$node->fire_cb();
+			// Only Timer_Node (and its Router_Node subclass) defines fire_cb;
+			// Timer_Node::set_timer is the sole TIMER registrar, so a non-Timer
+			// node here is a misregistration — skip it rather than fatal.
+			if ( $node instanceof Timer_Node ) {
+				$node->fire_cb();
+			}
 		}
 	}
 

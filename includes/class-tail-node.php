@@ -98,7 +98,7 @@ class Tail_Node extends Timer_Node {
 		}
 		\fseek( $fh, $this->position );
 		// Bound per-poll read to READ_CHUNK so a multi-MB append doesn't block the loop; later polls drain the rest.
-		$bytes = \fread( $fh, \min( self::READ_CHUNK, $current_size - $this->position ) );
+		$bytes = \fread( $fh, \min( self::READ_CHUNK, \max( 1, $current_size - $this->position ) ) );
 		\fclose( $fh );
 		// phpcs:enable
 		if ( false === $bytes || '' === $bytes ) {

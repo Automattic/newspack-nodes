@@ -16,7 +16,7 @@ class CoreTest extends TestCase {
 	}
 
 	public function test_register_and_lookup_node_by_name(): void {
-		$obj = new \stdClass();
+		$obj = new \Newspack_Nodes\Node();
 		Core::register_node( 'foo', $obj );
 		$this->assertSame( $obj, Core::node( 'foo' ) );
 	}
@@ -26,7 +26,7 @@ class CoreTest extends TestCase {
 	}
 
 	public function test_unregister_removes_node(): void {
-		Core::register_node( 'foo', new \stdClass() );
+		Core::register_node( 'foo', new \Newspack_Nodes\Node() );
 		Core::unregister_node( 'foo' );
 		$this->assertNull( Core::node( 'foo' ) );
 	}
@@ -255,19 +255,10 @@ class CoreTest extends TestCase {
 		$this->assertSame( [ 'a', 'b' ], CoreTest_RecordingNode::$log );
 	}
 
-	public function test_cleanup_all_nodes_skips_objects_without_remove_node(): void {
-		// Pure value objects don't implement remove_node — must not blow up.
-		$plain = new \stdClass();
-		Core::register_node( 'plain', $plain );
-
-		// No exception thrown.
-		Core::cleanup_all_nodes();
-
-		// Registry still references the plain object; cleanup doesn't unregister
-		// blindly. The node-side remove_node implementation is responsible for
-		// dropping its own registry entry.
-		$this->assertSame( $plain, Core::node( 'plain' ) );
-	}
+	// Retired: the registry is now Node-typed (Core::register_node(string, Node)),
+	// so every registered value is a Node and always has remove_node(). The
+	// duck-typed-skip path that test_cleanup_all_nodes_skips_objects_without_remove_node
+	// exercised (a non-Node object in the registry) is unreachable.
 
 	public function test_cleanup_all_nodes_keeps_going_when_one_throws(): void {
 		// Spec docs: "Best-effort teardown; one node's failure shouldn't block
@@ -275,7 +266,7 @@ class CoreTest extends TestCase {
 		// from being cleaned up.
 		CoreTest_RecordingNode::$log = [];
 
-		Core::register_node( 'a', new class {
+		Core::register_node( 'a', new class extends \Newspack_Nodes\Node {
 			public function remove_node(): void {
 				throw new \RuntimeException( 'simulated teardown failure' );
 			}
@@ -522,11 +513,12 @@ class CoreTest extends TestCase {
  * pass-by-reference dance through anon-class constructors and survives across
  * multiple instances within a single test.
  */
-class CoreTest_RecordingNode {
+class CoreTest_RecordingNode extends \Newspack_Nodes\Node {
 	public static array $log = [];
 	private string $tag;
 	public function __construct( string $tag ) {
 		$this->tag = $tag;
+		parent::__construct();
 	}
 	public function remove_node(): void {
 		self::$log[] = $this->tag;
@@ -539,11 +531,12 @@ class CoreTest_RecordingNode {
  * iterating — otherwise the self-unregister mutates the iteration source
  * mid-walk and the second node is skipped.
  */
-class CoreTest_SelfUnregisteringNode {
+class CoreTest_SelfUnregisteringNode extends \Newspack_Nodes\Node {
 	public static array $log = [];
 	private string $tag;
 	public function __construct( string $tag ) {
 		$this->tag = $tag;
+		parent::__construct();
 	}
 	public function remove_node(): void {
 		self::$log[] = $this->tag;

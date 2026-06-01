@@ -22,7 +22,7 @@ class Bootstrap {
 	 *
 	 * Overlay option false = full catalog, [] = none, array = that subset (non-catalog names synthesized).
 	 *
-	 * @return array<array-key, mixed> Topology name => entry.
+	 * @return array<string, mixed> Topology name => entry (keys are always non-empty strings).
 	 */
 	public static function get_topologies(): array {
 		$catalog = (array) \apply_filters( 'newspack_nodes/topologies', [] );
@@ -66,7 +66,7 @@ class Bootstrap {
 	/**
 	 * Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS).
 	 *
-	 * @return array<int, array<string, mixed>>
+	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}>
 	 */
 	public static function expand_workers(): array {
 		$topologies = self::get_topologies();

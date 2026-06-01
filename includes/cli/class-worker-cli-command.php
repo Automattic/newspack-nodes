@@ -241,7 +241,7 @@ class Worker_CLI_Command {
 		$workers = Bootstrap::expand_workers();
 		$workers = \array_values( \array_filter(
 			$workers,
-			static fn ( $w ) => ( $w['type'] ?? '' ) === $name
+			static fn ( $w ) => $w['type'] === $name
 		) );
 		if ( empty( $workers ) ) {
 			return;

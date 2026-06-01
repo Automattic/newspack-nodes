@@ -150,14 +150,14 @@ class Admin {
 			return;
 		}
 		$handle  = 'newspack-nodes-event-dashboards';
-		$version = \filemtime( $asset_path ) ?: \NEWSPACK_NODES_VERSION;
+		$version = (string) ( \filemtime( $asset_path ) ?: \NEWSPACK_NODES_VERSION );
 		$deps    = [ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ];
 		\wp_enqueue_script( $handle, $asset_url, $deps, $version, true );
 
 		$css_path = \NEWSPACK_NODES_DIR . 'build/event-dashboards/index.css';
 		$css_url  = ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-dashboards/index.css';
 		if ( \file_exists( $css_path ) ) {
-			$css_version = \filemtime( $css_path ) ?: \NEWSPACK_NODES_VERSION;
+			$css_version = (string) ( \filemtime( $css_path ) ?: \NEWSPACK_NODES_VERSION );
 			\wp_enqueue_style( $handle, $css_url, [ 'wp-components' ], $css_version );
 		}
 
@@ -204,14 +204,14 @@ class Admin {
 			return;
 		}
 		$handle  = 'newspack-nodes-topology-console';
-		$version = \filemtime( $asset_path ) ?: \NEWSPACK_NODES_VERSION;
+		$version = (string) ( \filemtime( $asset_path ) ?: \NEWSPACK_NODES_VERSION );
 		$deps    = [ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ];
 		\wp_enqueue_script( $handle, $asset_url, $deps, $version, true );
 
 		$css_path = \NEWSPACK_NODES_DIR . 'build/topology-console/index.css';
 		$css_url  = ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/topology-console/index.css';
 		if ( \file_exists( $css_path ) ) {
-			$css_version = \filemtime( $css_path ) ?: \NEWSPACK_NODES_VERSION;
+			$css_version = (string) ( \filemtime( $css_path ) ?: \NEWSPACK_NODES_VERSION );
 			\wp_enqueue_style( $handle, $css_url, [ 'wp-components' ], $css_version );
 		}
 

@@ -337,6 +337,7 @@ class Command_Interpreter_Node extends Node {
 	 * No strict_types, so string tokens coerce to the ctor's typed params.
 	 */
 	private static function cmd_make_node( Command_Interpreter_Node $self, string $args ): string {
+		/** @var list<string> $parts Whitespace-split tokens; the /\s+/ split of a string never yields false. */
 		$parts = \preg_split( '/\s+/', \trim( $args ) );
 		if ( \count( $parts ) < 2 ) {
 			return 'usage: make_node <type> <name> [<ctor_args>...]';
@@ -413,11 +414,13 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	private static function cmd_set_sink( string $args ): string {
-		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
+		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
 		if ( '' === $name || '' === $target ) {
 			return 'usage: set_sink <node> <target>';
 		}
+		/** @var \Newspack_Nodes\Node|null $src Source node from the registry. */
 		$src = Core::node( $name );
+		/** @var \Newspack_Nodes\Node|null $dst Target node from the registry. */
 		$dst = Core::node( $target );
 		if ( null === $src || null === $dst ) {
 			return 'unknown node';
@@ -428,10 +431,11 @@ class Command_Interpreter_Node extends Node {
 
 	/** @param array<int, mixed> $envelope The command Message. */
 	private static function cmd_connect_node( string $args, array $envelope = [] ): string {
-		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
+		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
 		if ( '' === $name ) {
 			return 'usage: connect_node <node> [<target>]';
 		}
+		/** @var \Newspack_Nodes\Node|null $src Source node from the registry. */
 		$src = Core::node( $name );
 		if ( null === $src ) {
 			return "unknown node: $name";
@@ -449,10 +453,11 @@ class Command_Interpreter_Node extends Node {
 
 	/** @param array<int, mixed> $envelope The command Message. */
 	private static function cmd_disconnect_node( string $args, array $envelope = [] ): string {
-		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
+		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
 		if ( '' === $name ) {
 			return 'usage: disconnect_node <node> [<target>]';
 		}
+		/** @var \Newspack_Nodes\Node|null $src Source node from the registry. */
 		$src = Core::node( $name );
 		if ( null === $src ) {
 			return "unknown node: $name";
@@ -496,6 +501,7 @@ class Command_Interpreter_Node extends Node {
 			}
 			\sort( $names );
 		} else {
+			/** @var list<string> $names Whitespace-split tokens; the /\s+/ split of a string never yields false. */
 			$names = \preg_split( '/\s+/', $args );
 		}
 
@@ -506,6 +512,7 @@ class Command_Interpreter_Node extends Node {
 			if ( '' === $name ) {
 				continue;
 			}
+			/** @var \Newspack_Nodes\Node|null $node Node from the registry. */
 			$node = Core::node( $name );
 			if ( null === $node ) {
 				$errors[] = "can't find node \"$name\"";
@@ -547,7 +554,7 @@ class Command_Interpreter_Node extends Node {
 		$show_target   = false;
 		$argv          = [];
 
-		foreach ( \preg_split( '/\s+/', \trim( $args ) ) as $tok ) {
+		foreach ( \preg_split( '/\s+/', \trim( $args ) ) ?: [] as $tok ) {
 			if ( '' === $tok ) {
 				continue;
 			}
@@ -602,6 +609,7 @@ class Command_Interpreter_Node extends Node {
 		foreach ( $globs as $glob ) {
 			$matched = false;
 			foreach ( $all_names as $name ) {
+				/** @var \Newspack_Nodes\Node|null $node Node from the registry. */
 				$node = Core::node( $name );
 				if ( null === $node ) {
 					continue;
@@ -611,7 +619,7 @@ class Command_Interpreter_Node extends Node {
 				$target_str = '';
 				if ( \is_array( $target_val ) ) {
 					$target_str = \implode( ', ', $target_val );
-				} elseif ( \is_string( $target_val ) && '' !== $target_val ) {
+				} elseif ( '' !== $target_val ) {
 					$target_str = $target_val;
 				}
 
@@ -677,8 +685,8 @@ class Command_Interpreter_Node extends Node {
 	 * `reply_to` itself returns nothing; the output went to <path>.
 	 */
 	private static function cmd_reply_to( Command_Interpreter_Node $self, string $args ): string {
-		[ $path, $rest ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
-		[ $verb, $verb_args ] = \array_pad( \preg_split( '/\s+/', $rest, 2 ), 2, '' );
+		[ $path, $rest ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
+		[ $verb, $verb_args ] = \array_pad( \preg_split( '/\s+/', $rest, 2 ) ?: [], 2, '' );
 		if ( '' === $path || '' === $verb ) {
 			return 'usage: reply_to <node path> <command>';
 		}
@@ -710,11 +718,13 @@ class Command_Interpreter_Node extends Node {
 	 * sorted for stability, stringified with a class-name header (display-only).
 	 */
 	private static function cmd_dump_node( string $args ): string {
+		/** @var list<string> $parts Whitespace-split tokens; the /\s+/ split of a string never yields false. */
 		$parts = \preg_split( '/\s+/', \trim( $args ) );
 		$name  = $parts[0] ?? '';
 		if ( '' === $name ) {
 			return 'no node specified';
 		}
+		/** @var \Newspack_Nodes\Node|null $node Node from the registry. */
 		$node = Core::node( $name );
 		if ( null === $node ) {
 			return "can't find node \"$name\"";
@@ -753,7 +763,10 @@ class Command_Interpreter_Node extends Node {
 			if ( Node_Names::COMMAND_INTERPRETER === $name || Node_Names::ROUTER === $name || Node_Names::OUTPUT === $name ) {
 				continue; // Skip baseline scaffolding.
 			}
-			$out .= Core::node( $name )->dump_config();
+			// $name comes from array_keys( Core::$nodes_by_name ), so the lookup is always present.
+			/** @var \Newspack_Nodes\Node $node Node from the registry. */
+			$node = Core::node( $name );
+			$out .= $node->dump_config();
 		}
 		return $out;
 	}
@@ -765,6 +778,7 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_dump_metadata(): array {
 		$out = [];
+		/** @var \Newspack_Nodes\Node $node Each registered node. */
 		foreach ( Core::$nodes_by_name as $name => $node ) {
 			// Patron-linked nodes are plumbing; the canvas shouldn't render them.
 			if ( null !== $node->patron() ) {
@@ -803,7 +817,7 @@ class Command_Interpreter_Node extends Node {
 	private static function cmd_stats( Command_Interpreter_Node $self, string $args ): string {
 		$list_matches = false;
 		$argv         = [];
-		foreach ( \preg_split( '/\s+/', \trim( $args ) ) as $tok ) {
+		foreach ( \preg_split( '/\s+/', \trim( $args ) ) ?: [] as $tok ) {
 			if ( '' === $tok ) {
 				continue;
 			}
@@ -820,6 +834,8 @@ class Command_Interpreter_Node extends Node {
 		$all_names = \array_keys( Core::$nodes_by_name );
 		\sort( $all_names );
 		foreach ( $all_names as $name ) {
+			// $name comes from array_keys( Core::$nodes_by_name ), so the lookup is always present.
+			/** @var \Newspack_Nodes\Node $node Node from the registry. */
 			$node      = Core::node( $name );
 			$sink_name = $node->sink() ? $node->sink()->name() : '';
 			if ( $list_matches ) {
@@ -849,7 +865,7 @@ class Command_Interpreter_Node extends Node {
 	 * No args toggles this interpreter; numeric arg sets this interpreter; a name targets that node.
 	 */
 	private static function cmd_debug_state( Command_Interpreter_Node $self, string $args ): string {
-		[ $first, $second ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
+		[ $first, $second ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
 
 		if ( '' === $first ) {
 			$new = $self->debug_state() > 0 ? 0 : 1;
@@ -862,6 +878,7 @@ class Command_Interpreter_Node extends Node {
 			return '_command_interpreter debug_state: ' . $self->debug_state();
 		}
 
+		/** @var \Newspack_Nodes\Node|null $node Node from the registry. */
 		$node = Core::node( $first );
 		if ( null === $node ) {
 			return "unknown node: $first";

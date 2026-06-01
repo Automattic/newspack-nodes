@@ -59,7 +59,9 @@ class Message {
 	public static function packed( array $message ): string {
 		// Positional JSON of the canonical 7 fields only; slicing drops any appended
 		// bookkeeping (LOCAL) so it never crosses a process boundary.
-		return \wp_json_encode( \array_slice( $message, 0, self::LAST_VALUE_INDEX + 1 ), \JSON_UNESCAPED_SLASHES );
+		$json = \wp_json_encode( \array_slice( $message, 0, self::LAST_VALUE_INDEX + 1 ), \JSON_UNESCAPED_SLASHES );
+		// An unencodable VALUE (e.g. invalid UTF-8) yields false; emit '' explicitly.
+		return false === $json ? '' : $json;
 	}
 
 	/**
