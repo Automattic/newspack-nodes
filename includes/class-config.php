@@ -55,10 +55,10 @@ class Config {
 		);
 	}
 
-	/** @var array|null Cached config (file defaults + WordPress options). */
+	/** @var array<string, mixed>|null Cached config (file defaults + WordPress options). */
 	private static $config = null;
 
-	/** @var array|null Cached config defaults from files. */
+	/** @var array<string, mixed>|null Cached config defaults from files. */
 	private static $config_defaults = null;
 
 	/** @var string|null */
@@ -73,7 +73,11 @@ class Config {
 	/** @var string|null */
 	private static ?string $validated_offsets_directory = null;
 
-	/** Option schema — every key loaded on every load_config() call (sanitizers in Config_Utils). */
+	/**
+	 * Option schema — every key loaded on every load_config() call (sanitizers in Config_Utils).
+	 *
+	 * @var array<string, string>
+	 */
 	private static $option_schema = [
 		'base_directory'   => 'path',
 		'num_partitions'   => 'int',
@@ -85,7 +89,11 @@ class Config {
 		'topologies'       => 'array_strings',
 	];
 
-	/** Allowed directories (or subdirectories) for local config override files. */
+	/**
+	 * Allowed directories (or subdirectories) for local config override files.
+	 *
+	 * @var array<int, string>
+	 */
 	private static $allowed_config_dirs = [
 		'/usr/src',
 	];
@@ -93,7 +101,7 @@ class Config {
 	/**
 	 * Load configuration from disk + WordPress options.
 	 *
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public static function load_config(): array {
 		if ( null !== self::$config ) {
@@ -149,7 +157,7 @@ class Config {
 	/**
 	 * Load configuration defaults from file only (no WordPress options).
 	 *
-	 * @return array
+	 * @return array<string, mixed>
 	 */
 	public static function load_config_defaults(): array {
 		if ( null !== self::$config_defaults ) {

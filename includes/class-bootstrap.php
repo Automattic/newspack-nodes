@@ -21,6 +21,8 @@ class Bootstrap {
 	 * Active topology set: the `newspack_nodes/topologies` catalog filtered by the operator overlay.
 	 *
 	 * Overlay option false = full catalog, [] = none, array = that subset (non-catalog names synthesized).
+	 *
+	 * @return array<array-key, mixed> Topology name => entry.
 	 */
 	public static function get_topologies(): array {
 		$catalog = (array) \apply_filters( 'newspack_nodes/topologies', [] );
@@ -52,12 +54,20 @@ class Bootstrap {
 		return $active;
 	}
 
-	/** Full topology catalog (ignores the operator overlay); the admin checkboxes render against this. */
+	/**
+	 * Full topology catalog (ignores the operator overlay); the admin checkboxes render against this.
+	 *
+	 * @return array<array-key, mixed> Topology name => entry.
+	 */
 	public static function get_topology_catalog(): array {
 		return (array) \apply_filters( 'newspack_nodes/topologies', [] );
 	}
 
-	/** Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS). */
+	/**
+	 * Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS).
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
 	public static function expand_workers(): array {
 		$topologies = self::get_topologies();
 		$workers    = [];
@@ -172,6 +182,9 @@ class Bootstrap {
 	/**
 	 * Register a 60-second cron interval for the supervisor tick.
 	 * Wired to the `cron_schedules` filter from the plugin file.
+	 *
+	 * @param array<string, mixed> $schedules Existing cron schedules.
+	 * @return array<string, mixed>
 	 */
 	public static function register_cron_schedules( array $schedules ): array {
 		if ( ! isset( $schedules['newspack_nodes_minute'] ) ) {

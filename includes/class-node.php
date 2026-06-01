@@ -125,7 +125,7 @@ class Node {
 	/**
 	 * Default: stamp TO from target if empty, then forward to sink.
 	 *
-	 * @param array $message Message reference.
+	 * @param array<int, mixed> $message Message reference.
 	 */
 	public function fill( array &$message ): void {
 		if ( '' === $message[ Message::TO ] && \is_string( $this->target ) && '' !== $this->target ) {
@@ -193,7 +193,12 @@ class Node {
 		return $this->sink;
 	}
 
-	/** Get/set target. String or array (Tee uses array form for fan-out). */
+	/**
+	 * Get/set target. String or array (Tee uses array form for fan-out).
+	 *
+	 * @param string|array<int, string>|null $value New target (null = getter).
+	 * @return string|array<int, string>
+	 */
 	public function target( $value = null ) {
 		if ( null !== $value ) {
 			$this->target = $value;
@@ -281,7 +286,7 @@ class Node {
 	 * @param string $name      Command verb (e.g. 'connect_node').
 	 * @param string $arguments Positional argument string.
 	 * @param mixed  $payload   Optional by-name payload.
-	 * @return array A TM_COMMAND Message (the 7-field positional array).
+	 * @return array<int, mixed> A TM_COMMAND Message (the 7-field positional array).
 	 */
 	public function command( string $name, string $arguments = '', mixed $payload = null ): array {
 		$msg                   = Message::new_message();
@@ -296,7 +301,11 @@ class Node {
 
 	public const MAX_FROM_SIZE = 1024;
 
-	/** Prepend $name to message FROM. Returns false if FROM would exceed MAX_FROM_SIZE. */
+	/**
+	 * Prepend $name to message FROM. Returns false if FROM would exceed MAX_FROM_SIZE.
+	 *
+	 * @param array<int, mixed> $message Message reference.
+	 */
 	public function stamp_message( array &$message, string $name ): bool {
 		if ( '' === $name ) {
 			$this->print_less_often( 'ERROR: ' . static::class . ' stamp_message() called with empty name' );
@@ -492,7 +501,11 @@ class Node {
 		return $out;
 	}
 
-	/** Human-readable message-type labels. */
+	/**
+	 * Human-readable message-type labels.
+	 *
+	 * @var array<int, string>
+	 */
 	private static array $type_names = [
 		Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
 		Message::TM_EOF        => 'TM_EOF',
@@ -508,7 +521,11 @@ class Node {
 	/** Message types whose payload is included in the drop_message() audit line. */
 	private const PAYLOAD_TYPES = Message::TM_INFO | Message::TM_REQUEST | Message::TM_ERROR | Message::TM_COMMAND;
 
-	/** Drop a message with an audit trail. */
+	/**
+	 * Drop a message with an audit trail.
+	 *
+	 * @param array<int, mixed> $message Message reference.
+	 */
 	public function drop_message( array &$message, string $error ): void {
 		$type   = $message[ Message::TYPE ];
 		$labels = [];
@@ -612,7 +629,11 @@ class Node {
 		Core::$recent_log_timers[ $key ] = $row;
 	}
 
-	/** Topology console manifest: palette entry + node configuration form. Subclasses override to declare ctor params, verbs, category, description. */
+	/**
+	 * Topology console manifest: palette entry + node configuration form. Subclasses override to declare ctor params, verbs, category, description.
+	 *
+	 * @return array<string, mixed>
+	 */
 	public static function node_schema(): array {
 		return [
 			'category'    => '',

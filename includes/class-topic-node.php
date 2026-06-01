@@ -87,7 +87,7 @@ class Topic_Node extends Node {
 	/**
 	 * Node entry point. Pick a partition (pre-pinned TO, KEY hash, or round-robin) and delegate.
 	 *
-	 * @param array $message Reference; not mutated.
+	 * @param array<int, mixed> $message Reference; not mutated.
 	 */
 	public function fill( array &$message ): void {
 		++$this->counter;

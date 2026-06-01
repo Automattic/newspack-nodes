@@ -68,6 +68,8 @@ class Command_Auth {
 	 * Never TO/FROM (they mutate as Router peels and nodes stamp FROM). Returns
 	 * null when the value can't be JSON-encoded (e.g. non-UTF-8 payload) so the
 	 * caller fails closed instead of collapsing distinct commands onto HMAC('').
+	 *
+	 * @param array<string, mixed> $value Command struct (name/arguments/payload).
 	 */
 	private static function canonical( int $type, array $value, int $ts, string $nonce ): ?string {
 		$encoded = \wp_json_encode(

@@ -42,7 +42,7 @@ class Supervisor extends Supervisor_Base {
 	/** @var int|null Cached num_partitions clamped to MAX_PARTITIONS. */
 	private ?int $num_partitions = null;
 
-	/** @var array<int,array> Worker descriptors built from expand_workers(). */
+	/** @var array<int, array<string, mixed>> Worker descriptors built from expand_workers(). */
 	private array $worker_locks = [];
 
 	/** @var array<string,int> type ⇒ max-partition-count, rebuilt each check_config tick (active fleet). */
@@ -352,6 +352,8 @@ class Supervisor extends Supervisor_Base {
 	/**
 	 * Raw-curl fire-and-forget POST. Bypasses wp_remote_post (Requests floors timeout at 1s);
 	 * CURLOPT_NOSIGNAL + TIMEOUT_MS=10 means CURLE_OPERATION_TIMEDOUT is expected and counted as success.
+	 *
+	 * @param array<string, mixed> $body POST body.
 	 */
 	private static function fire_and_forget_post( string $url, array $body ): ?string {
 		if ( '' === $url ) {
@@ -443,7 +445,11 @@ class Supervisor extends Supervisor_Base {
 		}
 	}
 
-	/** Test hook: expose worker_locks for assertions after check_config(). */
+	/**
+	 * Test hook: expose worker_locks for assertions after check_config().
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
 	public function worker_locks_for_test(): array {
 		return $this->worker_locks;
 	}

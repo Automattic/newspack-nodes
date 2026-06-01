@@ -69,6 +69,7 @@ class Tee_Node extends Node {
 		}
 	}
 
+	/** @param array<int, mixed> $message Incoming request Message. */
 	private function handle_request( array $message ): void {
 		$value   = (string) $message[ Message::VALUE ];
 		$verb    = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );

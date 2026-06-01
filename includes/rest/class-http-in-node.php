@@ -319,6 +319,7 @@ class HTTP_In_Node extends Node {
 		}
 	}
 
+	/** @param array<int, mixed> $msg The Message that triggered the error. */
 	private function emit_error( array $msg, string $err ): void {
 		\status_header( 500 );
 		\header( 'Content-Type: application/json' );

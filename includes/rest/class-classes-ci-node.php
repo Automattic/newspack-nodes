@@ -36,6 +36,7 @@ class Classes_CI_Node extends Command_Interpreter_Node {
 		];
 	}
 
+	/** @return array<string, callable> Verb name => handler. */
 	private function command_table(): array {
 		return [
 			'list' => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {

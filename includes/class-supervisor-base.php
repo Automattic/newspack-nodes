@@ -35,6 +35,7 @@ class Supervisor_Base {
 		return "{$this->base_dir}/locks/{$type}.p{$partition}.lock.d";
 	}
 
+	/** @param array<string, mixed> $worker Worker descriptor (type, partition, …). */
 	public function worker_needs_spawn( array $worker, float $now ): bool {
 		$type      = $worker['type'];
 		$partition = $worker['partition'];

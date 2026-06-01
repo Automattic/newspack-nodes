@@ -96,9 +96,9 @@ class CLI {
 	/**
 	 * Request restart for one or more worker groups by dropping a `restart` flag.
 	 *
-	 * @param array $workers   List of `[type=>str, partition=>int]`.
-	 * @param array $filter    Optional `[type => bool]`; empty or 'all' = wildcard.
-	 * @param int   $partition Only this partition if >= 0; -1 = any.
+	 * @param array<int, array<string, mixed>> $workers   List of `[type=>str, partition=>int]`.
+	 * @param array<string, bool>              $filter    Optional `[type => bool]`; empty or 'all' = wildcard.
+	 * @param int                              $partition Only this partition if >= 0; -1 = any.
 	 * @return int Number of restart-flag files written.
 	 */
 	public function restart_workers( array $workers, array $filter = [], int $partition = -1 ): int {

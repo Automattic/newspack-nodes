@@ -42,6 +42,7 @@ class Message {
 	public const TM_REQUEST    = 128;
 	public const TM_RESPONSE   = 256;
 
+	/** @return array<int, mixed> The 7-field positional message array. */
 	public static function new_message(): array {
 		return [
 			self::TYPE      => 0,
@@ -54,17 +55,23 @@ class Message {
 		];
 	}
 
+	/** @param array<int, mixed> $message The 7-field positional message array. */
 	public static function packed( array $message ): string {
 		// Positional JSON of the canonical 7 fields only; slicing drops any appended
 		// bookkeeping (LOCAL) so it never crosses a process boundary.
 		return \wp_json_encode( \array_slice( $message, 0, self::LAST_VALUE_INDEX + 1 ), \JSON_UNESCAPED_SLASHES );
 	}
 
-	/** Byte size of the whole packed Message; use this (not value_size) for PIPE_BUF / size checks. */
+	/**
+	 * Byte size of the whole packed Message; use this (not value_size) for PIPE_BUF / size checks.
+	 *
+	 * @param array<int, mixed> $message The 7-field positional message array.
+	 */
 	public static function packed_size( array $message ): int {
 		return \strlen( self::packed( $message ) );
 	}
 
+	/** @return array<int, mixed> The 7-field positional message array. */
 	public static function unpacked( string $data ): array {
 		$decoded = \json_decode( $data, true );
 		if ( \is_array( $decoded ) && \count( $decoded ) == 7 && \array_is_list( $decoded ) ) {

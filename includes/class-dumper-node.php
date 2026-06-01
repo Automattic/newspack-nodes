@@ -211,6 +211,8 @@ class Dumper_Node extends Node {
 
 	/**
 	 * Level-2 dump: full envelope as a structural multi-line render.
+	 *
+	 * @param array<int, mixed> $message The Message to render.
 	 */
 	private function format_envelope_dump( array $message ): string {
 		$type      = (int) ( $message[ Message::TYPE ] ?? 0 );
@@ -338,6 +340,8 @@ class Dumper_Node extends Node {
 
 	/**
 	 * Write to a stream; $ensure_newline appends "\n" only if absent. stderr is left raw.
+	 *
+	 * @param resource $stream Destination stream.
 	 */
 	private function write( $stream, string $text, bool $ensure_newline ): void {
 		if ( $ensure_newline && ! \str_ends_with( $text, "\n" ) ) {

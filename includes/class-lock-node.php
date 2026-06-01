@@ -35,7 +35,7 @@ class Lock_Node extends Node {
 	/**
 	 * Node entry point: KEY='heartbeat' refreshes the lock; anything else forwards via sink.
 	 *
-	 * @param array $message Reference; not mutated by the heartbeat path.
+	 * @param array<int, mixed> $message Reference; not mutated by the heartbeat path.
 	 */
 	public function fill( array &$message ): void {
 		if ( 'heartbeat' === $message[ Message::KEY ] ) {

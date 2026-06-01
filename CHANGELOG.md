@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **PHPStan raised to level 6.** The static-analysis gate now enforces value types on every iterable (`array<…>`), so all method/parameter/return/property arrays carry explicit shapes. Substrate-wide this is PHPDoc-only — the 7-field positional Message is documented as `array<int, mixed>`, `node_schema()` returns as `array<string, mixed>`, and WP-CLI handlers as `array<int, string>` / `array<string, mixed>`. No runtime behavior changes.
+
 ### Fixed
 
 - **The debug overlay now logs the commandline in the transcript when you click a command in the Inspector (or use the canvas gestures).** The overlay's Inspector actions (`dump` / `tail` / `disconnect` / `send` / `trace` / `invoke`) and the connect / remove / `make_node`-drop gestures dispatched straight through `shell.sendCommand`, so only the *reply* landed in the transcript — the command itself was invisible, unlike a typed REPL line or the topology console (both echo a `sent` entry). Every overlay dispatch now routes through a `sendVerb` helper that appends the equivalent commandline to the `_output` Dumper before dispatching, matching `TopologyConsole.handleInspectorAction`. The echo is display-only; dispatch still uses the structured `sendCommand` args, so there's no re-parse/quoting risk.

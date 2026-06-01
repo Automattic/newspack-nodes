@@ -81,6 +81,7 @@ class Config_Utils {
 	/**
 	 * sanitize_text_field wrapper that throws outside WordPress instead of passing through.
 	 *
+	 * @param mixed $value Raw value, cast to string before sanitizing.
 	 * @throws \RuntimeException If WordPress is not loaded.
 	 */
 	public static function sanitize_string( $value ): string {
@@ -136,7 +137,11 @@ class Config_Utils {
 		return $within ? $real_path : null;
 	}
 
-	/** True if $value is only scalars/arrays (depth-bounded); rejects objects/closures/resources. */
+	/**
+	 * True if $value is only scalars/arrays (depth-bounded); rejects objects/closures/resources.
+	 *
+	 * @param mixed $value Value tree to validate.
+	 */
 	public static function validate_config_values( $value, int $depth = 0 ): bool {
 		if ( $depth > 10 ) {
 			return false;
@@ -158,9 +163,10 @@ class Config_Utils {
 	/**
 	 * Load a PHP config file (validated scalar/array tree) and merge it into $config.
 	 *
-	 * @param array  $config           Existing config to merge into.
-	 * @param string $config_file      Absolute path to a PHP file returning array.
-	 * @param string $error_log_prefix Disambiguates error_log lines.
+	 * @param array<string, mixed> $config           Existing config to merge into.
+	 * @param string                $config_file      Absolute path to a PHP file returning array.
+	 * @param string                $error_log_prefix Disambiguates error_log lines.
+	 * @return array<string, mixed>
 	 */
 	public static function load_config_file(
 		array $config,
