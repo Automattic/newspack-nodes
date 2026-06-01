@@ -11,8 +11,7 @@ import {
 } from '@wordpress/element';
 
 import {
-	autoLayout,
-	placeNewNode,
+	computeNodePositions,
 	X_PAD,
 	X_STEP,
 	Y_PAD,
@@ -203,28 +202,12 @@ export default function SchematicCanvas( {
 	onSeedLayout = null,
 } ) {
 	const edges = useMemo( () => parsed?.edges ?? [], [ parsed ] );
-	// Positions: a single autoLayout pass places the INITIAL graph (no pins yet);
-	// after that, a pinned node keeps its override and a newly-appeared node gets a
-	// cheap placeNewNode spot near its connection. autoLayout never re-runs on a
-	// metadata / connection change, so a placed node never re-flows.
-	const nodePositions = useMemo( () => {
-		const overrides = positionOverrides || {};
-		const parsedNodes = parsed?.nodes ?? [];
-		if ( Object.keys( overrides ).length === 0 ) {
-			const out = {};
-			for ( const n of autoLayout( parsed ).nodes ) {
-				out[ n.id ] = n.position;
-			}
-			return out;
-		}
-		const out = { ...overrides };
-		for ( const n of parsedNodes ) {
-			if ( ! out[ n.id ] ) {
-				out[ n.id ] = placeNewNode( n.id, parsed, out );
-			}
-		}
-		return out;
-	}, [ parsed, positionOverrides ] );
+	// Pinned overrides are kept; computeNodePositions lays out the rest (one
+	// autoLayout pass for a fresh/flooded graph, cheap placeNewNode for newcomers).
+	const nodePositions = useMemo(
+		() => computeNodePositions( parsed, positionOverrides ),
+		[ parsed, positionOverrides ]
+	);
 	const nodes = useMemo(
 		() =>
 			( parsed?.nodes ?? [] ).map( ( n ) => ( {

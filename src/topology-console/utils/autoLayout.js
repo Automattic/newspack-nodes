@@ -89,6 +89,54 @@ export function placeNewNode( nodeId, parsed, positions ) {
 	return { x, y };
 }
 
+// Above this many unplaced nodes, batch through one autoLayout pass instead of
+// per-node placeNewNode. placeNewNode is O(edges) per call (+ an O(positions)
+// collision scan), so a flood of unplaced nodes — a different/reconnected graph
+// the saved overrides don't cover — is O(N·E) and froze the console for ~40s.
+// A handful of genuine newcomers stays on the cheap incremental path.
+export const MASS_PLACEMENT_THRESHOLD = 100;
+
+/**
+ * Resolve every node's position for the topology canvas: honour pinned/saved
+ * `overrides`, lay the rest out. With no overrides, one `autoLayout` pass places
+ * the whole graph. With overrides, a few newly-appeared nodes get a cheap
+ * `placeNewNode` spot near their connection; a flood of unplaced nodes is laid
+ * out by a single `autoLayout` pass (positions only filled in for unpinned nodes)
+ * so it stays fast.
+ *
+ * @param {Object} parsed    { nodes, edges } graph.
+ * @param {Object} overrides Map of nodeId → { x, y } pinned/saved positions.
+ * @return {Object} Map of nodeId → { x, y }.
+ */
+export function computeNodePositions( parsed, overrides ) {
+	const ov = overrides || {};
+	if ( Object.keys( ov ).length === 0 ) {
+		const out = {};
+		for ( const n of autoLayout( parsed ).nodes ) {
+			out[ n.id ] = n.position;
+		}
+		return out;
+	}
+	const out = { ...ov };
+	const unplaced = ( parsed?.nodes ?? [] ).filter( ( n ) => ! out[ n.id ] );
+	if ( unplaced.length > MASS_PLACEMENT_THRESHOLD ) {
+		for ( const n of autoLayout( parsed ).nodes ) {
+			if ( ! out[ n.id ] ) {
+				out[ n.id ] = n.position;
+			}
+		}
+		return out;
+	}
+	for ( const n of unplaced ) {
+		// Guard a duplicate id (only hand-authored TSL has these) so it's placed
+		// once — matching the old inline `if (!out[n.id])` memo behaviour.
+		if ( ! out[ n.id ] ) {
+			out[ n.id ] = placeNewNode( n.id, parsed, out );
+		}
+	}
+	return out;
+}
+
 const snapHalf = ( v ) => Math.round( v * 2 ) / 2;
 const midMinMax = ( arr ) => ( Math.min( ...arr ) + Math.max( ...arr ) ) / 2;
 const median = ( arr ) => {
