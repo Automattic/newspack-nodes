@@ -436,6 +436,38 @@ describe( 'DebugOverlay', () => {
 		expect( optionValues ).not.toContain( '_router' );
 	} );
 
+	it( 'keeps the local navigable scopes in the path menu at a remote cwd', () => {
+		// Navigating into `/_http` makes the polled `_metadata` graph reflect the
+		// REMOTE scope (none of the local `_` nodes). The path menu must still
+		// offer the local `cd` targets — they come from the local Core registry,
+		// not the scope-dependent poll. (Before the fix the menu collapsed.)
+		mountExospine();
+		const svc = new Node();
+		svc.setName( '_my_service' ); // a local navigable node, always in Core
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+
+		// Remote-scope poll: the published metadata has NONE of the local nodes.
+		act( () => {
+			Core.node( '_metadata' ).setState( 'metadata', {
+				nodes: [ { id: 'remoteThing', class: 'Echo', target: '' } ],
+				edges: [],
+			} );
+		} );
+
+		const selects = container.querySelectorAll( '.topology-select' );
+		const pathSelect = [ ...selects ].find(
+			( s ) => ! s.classList.contains( 'topology-select--skin' )
+		);
+		expect( pathSelect ).toBeTruthy();
+		const optionValues = [ ...pathSelect.querySelectorAll( 'option' ) ].map(
+			( o ) => o.value
+		);
+		expect( optionValues ).toContain( '_my_service' );
+	} );
+
 	it( 'inspector action through GraphView pops the transcript footer (setReplExpanded=true)', () => {
 		// Drive an inspector-action through the rendered subtree: select a node
 		// (clicking the SVG <g class=topology-node>), then click the Inspector's

@@ -206,15 +206,17 @@ export default function DebugOverlay( {
 			] ),
 		[]
 	);
-	const pathOptions = useMemo( () => {
-		const opts = [ '' ];
-		for ( const { id } of graph.nodes ) {
-			if ( id.startsWith( '_' ) && ! NON_NAVIGABLE.has( id ) ) {
-				opts.push( id );
-			}
+	// Reachable LOCAL `cd` targets, read from the browser's own registry — NOT the
+	// polled `graph`, which reflects the CURRENT cwd's (possibly remote) scope. A
+	// `cd /_http` makes `graph` the remote nodes; sourcing the menu from there
+	// drops the local `_http`/`_*` targets and collapses the menu. Recomputed each
+	// render (the list is tiny) so a rebuild or new node shows up immediately.
+	const pathOptions = [ '' ];
+	for ( const id of Core.nodes.keys() ) {
+		if ( id.startsWith( '_' ) && ! NON_NAVIGABLE.has( id ) ) {
+			pathOptions.push( id );
 		}
-		return opts;
-	}, [ graph.nodes, NON_NAVIGABLE ] );
+	}
 
 	// Tab-completion: subscribe to _completion's published candidates and
 	// expose a requestCompletion(line) that builds the `help` (first token)
