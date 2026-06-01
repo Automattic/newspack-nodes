@@ -128,7 +128,7 @@ export function parseMetadata( payload ) {
  * the nearest 5 seconds and floored at 5s.
  *
  * @param {number} nodeCount Node count of the last parsed graph.
- * @return {number} Poll interval in milliseconds (>= 1000).
+ * @return {number} Poll interval in milliseconds (>= 5000).
  */
 export function computePollIntervalMs( nodeCount ) {
 	const seconds = ( nodeCount * 10 ) / 1000;
