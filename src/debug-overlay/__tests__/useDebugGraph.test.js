@@ -2,9 +2,26 @@ import { renderHook, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import { Node } from '../../runtime/node';
+import { DumperNode } from '../../runtime/dumper-node';
 import { Shell } from '../../topology-console/nodes/shell';
 import names from '../../runtime/reserved-node-names.json';
 import { useDebugGraph } from '../useDebugGraph';
+
+// Mount the `_output` Dumper so transcript echoes are observable, mirroring the
+// real overlay where useDebugRepl owns it. Returns the live transcript array.
+function mountOutput() {
+	const dumper = new DumperNode();
+	dumper.setName( names.OUTPUT );
+	dumper.sink = Core.node( names.COMMAND_INTERPRETER );
+	return dumper;
+}
+
+// The `sent` echo entries the transcript should carry (the command lines).
+function sentLines( dumper ) {
+	return dumper._transcript
+		.filter( ( e ) => 'sent' === e.kind )
+		.map( ( e ) => e.text );
+}
 
 describe( 'useDebugGraph', () => {
 	beforeEach( () => {
@@ -478,6 +495,111 @@ describe( 'useDebugGraph', () => {
 				defaultName: expect.stringMatching( /^tee\d*$/ ),
 				argSchema: [],
 			} )
+		);
+		teardown();
+	} );
+
+	it( 'onInspectorAction echoes the equivalent commandline into the transcript (parity with the console)', () => {
+		// The reported bug: clicking an Inspector command dispatched the verb but
+		// never echoed the commandline, so only the reply showed up — unlike a
+		// typed REPL line (useDebugRepl appends `kind: 'sent'`) and unlike
+		// TopologyConsole.handleInspectorAction (appendTranscript `kind: 'sent'`).
+		const { teardown } = mountExospine();
+		const dumper = mountOutput();
+		const a = new Node();
+		a.setName( 'a' );
+		const shell = new Shell();
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+
+		act( () =>
+			result.current.handlers.onInspectorAction( 'dump', 'a', null )
+		);
+		expect( sentLines( dumper ) ).toContain( 'dump_node a' );
+
+		act( () =>
+			result.current.handlers.onInspectorAction( 'tail', 'a', null )
+		);
+		expect( sentLines( dumper ) ).toContain( 'connect_node a' );
+
+		act( () =>
+			result.current.handlers.onInspectorAction( 'disconnect', 'a', null )
+		);
+		expect( sentLines( dumper ) ).toContain( 'disconnect_node a' );
+
+		act( () =>
+			result.current.handlers.onInspectorAction( 'send', 'a', 'hello' )
+		);
+		expect( sentLines( dumper ) ).toContain( 'send_node a hello' );
+
+		act( () =>
+			result.current.handlers.onInspectorAction( 'trace', 'a', 1 )
+		);
+		expect( sentLines( dumper ) ).toContain( 'debug_state a 1' );
+		teardown();
+	} );
+
+	it( 'onInspectorAction invoke echoes command_node with the resolved target', () => {
+		const { teardown } = mountExospine();
+		const dumper = mountOutput();
+		const node = new Node();
+		node.setName( 'my-node' );
+		const config = new Node();
+		config.setName( 'my-node:config' );
+		const shell = new Shell();
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		const classes = [ { shell_name: 'Node', is_interpreter: false } ];
+		const { result } = renderHook( () =>
+			useDebugGraph( true, shell, classes )
+		);
+		act( () =>
+			result.current.handlers.onInspectorAction( 'invoke', 'my-node', {
+				verb: 'configure',
+				positional: 'foo bar',
+			} )
+		);
+		// Non-interpreter class ⇒ targets the `:config` sibling; the echo mirrors
+		// the console's `command_node <target> <verb> <args>`.
+		expect( sentLines( dumper ) ).toContain(
+			'command_node my-node:config configure foo bar'
+		);
+		teardown();
+	} );
+
+	it( 'onConnect / onRemoveNode echo the equivalent commandline into the transcript', () => {
+		const { teardown } = mountExospine();
+		const dumper = mountOutput();
+		const a = new Node();
+		a.setName( 'a' );
+		const b = new Node();
+		b.setName( 'b' );
+		const shell = new Shell();
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
+		expect( sentLines( dumper ) ).toContain( 'connect_node a b' );
+		act( () => result.current.handlers.onRemoveNode( 'a' ) );
+		expect( sentLines( dumper ) ).toContain( 'remove_node a' );
+		teardown();
+	} );
+
+	it( 'commitDrop echoes make_node into the transcript', () => {
+		const { teardown } = mountExospine();
+		const dumper = mountOutput();
+		const shell = new Shell();
+		shell.sink = Core.node( names.COMMAND_INTERPRETER );
+		const { result } = renderHook( () => useDebugGraph( true, shell ) );
+		act( () =>
+			result.current.handlers.onDropNode( {
+				shellName: 'Tee',
+				x: 0,
+				y: 0,
+			} )
+		);
+		const dropName = result.current.pendingDrop.defaultName;
+		act( () => result.current.commitDrop( { name: dropName, args: '' } ) );
+		expect( sentLines( dumper ) ).toContain(
+			`make_node Tee ${ dropName }`
 		);
 		teardown();
 	} );
