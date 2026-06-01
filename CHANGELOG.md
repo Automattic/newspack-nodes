@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The debug overlay now logs the commandline in the transcript when you click a command in the Inspector (or use the canvas gestures).** The overlay's Inspector actions (`dump` / `tail` / `disconnect` / `send` / `trace` / `invoke`) and the connect / remove / `make_node`-drop gestures dispatched straight through `shell.sendCommand`, so only the *reply* landed in the transcript — the command itself was invisible, unlike a typed REPL line or the topology console (both echo a `sent` entry). Every overlay dispatch now routes through a `sendVerb` helper that appends the equivalent commandline to the `_output` Dumper before dispatching, matching `TopologyConsole.handleInspectorAction`. The echo is display-only; dispatch still uses the structured `sendCommand` args, so there's no re-parse/quoting risk.
+
 ## [0.10.2] - 2026-05-31
 
 ### Changed

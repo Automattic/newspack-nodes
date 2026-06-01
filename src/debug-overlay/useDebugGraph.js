@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from '@wordpress/element';
+import { Core } from '../runtime/core';
 import { useNodeState } from '../runtime/react';
 import { coreToGraph } from '../topology-console/utils/coreToGraph';
 import { generateNodeName } from '../topology-console/utils/draftGraph';
@@ -54,16 +55,39 @@ export function useDebugGraph(
 			? metadataGraph
 			: coreToGraph() ?? EMPTY_GRAPH;
 
+	// Echo the equivalent commandline into the `_output` Dumper, then dispatch via
+	// shell.sendCommand. A GUI gesture / Inspector click must read back in the
+	// transcript like the typed verb would (the reply already routes to _output
+	// via FROM; this adds the matching `sent` line) — parity with
+	// TopologyConsole.handleInspectorAction's appendTranscript echo.
+	const sendVerb = useCallback(
+		( echoText, path, name, args = '' ) => {
+			Core.node( names.OUTPUT )?.append( {
+				kind: 'sent',
+				text: echoText,
+				prompt: `/${ shell.path }`,
+			} );
+			shell.sendCommand( path, name, args );
+		},
+		[ shell ]
+	);
+
 	const handlers = useMemo(
 		() => ( {
-			// Every overlay dispatch goes through shell.sendCommand, which stamps
-			// FROM = _output so verb replies (and `connect_node <id>` with no
-			// target — `tail` mode, defaulting to FROM) route into the transcript
-			// Dumper. Without it, replies fall off the end of the graph (no
-			// return address) and the Inspector buttons appear to do nothing.
+			// Every overlay dispatch goes through sendVerb → shell.sendCommand,
+			// which stamps FROM = _output so verb replies (and `connect_node <id>`
+			// with no target — `tail` mode, defaulting to FROM) route into the
+			// transcript Dumper. Without it, replies fall off the end of the graph
+			// (no return address) and the Inspector buttons appear to do nothing.
 			onConnect: ( from, to ) =>
-				shell.sendCommand( '', 'connect_node', `${ from } ${ to }` ),
-			onRemoveNode: ( id ) => shell.sendCommand( '', 'remove_node', id ),
+				sendVerb(
+					`connect_node ${ from } ${ to }`,
+					'',
+					'connect_node',
+					`${ from } ${ to }`
+				),
+			onRemoveNode: ( id ) =>
+				sendVerb( `remove_node ${ id }`, '', 'remove_node', id ),
 			onDropNode: ( { shellName, x, y } ) => {
 				// Every palette drop in live mode goes through the NewNodeModal
 				// so the user can override the auto-generated name (and add
@@ -80,20 +104,37 @@ export function useDebugGraph(
 				// Parity with TopologyConsole.handleInspectorAction: dump, tail
 				// (connect_node with no target), disconnect, send, trace, invoke.
 				if ( action === 'dump' ) {
-					shell.sendCommand( '', 'dump_node', nodeId );
+					sendVerb(
+						`dump_node ${ nodeId }`,
+						'',
+						'dump_node',
+						nodeId
+					);
 				} else if ( action === 'tail' ) {
-					shell.sendCommand( '', 'connect_node', nodeId );
+					sendVerb(
+						`connect_node ${ nodeId }`,
+						'',
+						'connect_node',
+						nodeId
+					);
 				} else if ( action === 'disconnect' ) {
-					shell.sendCommand( '', 'disconnect_node', nodeId );
+					sendVerb(
+						`disconnect_node ${ nodeId }`,
+						'',
+						'disconnect_node',
+						nodeId
+					);
 				} else if ( action === 'send' ) {
-					shell.sendCommand(
+					sendVerb(
+						`send_node ${ nodeId } ${ payload }`,
 						'',
 						'send_node',
 						`${ nodeId } ${ payload }`
 					);
 				} else if ( action === 'trace' ) {
 					const level = typeof payload === 'number' ? payload : 1;
-					shell.sendCommand(
+					sendVerb(
+						`debug_state ${ nodeId } ${ level }`,
 						'',
 						'debug_state',
 						`${ nodeId } ${ level }`
@@ -117,13 +158,23 @@ export function useDebugGraph(
 					const target = isInterpreter
 						? nodeId
 						: `${ nodeId }:config`;
-					shell.sendCommand( target, verb, positional || '' );
+					const args = positional || '';
+					// Echo as `command_node <target> <verb> [<args>]`, matching the
+					// console's invoke echo so a click reads back like the cmd verb.
+					sendVerb(
+						`command_node ${ target } ${ verb }${
+							args ? ' ' + args : ''
+						}`,
+						target,
+						verb,
+						args
+					);
 				}
 			},
 		} ),
 		// onPositionChange is consumed by commitDrop (below), not by any
 		// handler in this useMemo — onDropNode just stages pendingDrop.
-		[ shell, graph, catalogClasses ]
+		[ sendVerb, graph, catalogClasses ]
 	);
 
 	// Modal "OK" — dispatch make_node with the user-edited name + args, then
@@ -139,7 +190,7 @@ export function useDebugGraph(
 			const line = trimmed
 				? `${ current.shellName } ${ name } ${ trimmed }`
 				: `${ current.shellName } ${ name }`;
-			shell.sendCommand( '', 'make_node', line );
+			sendVerb( `make_node ${ line }`, '', 'make_node', line );
 			if (
 				onPositionChange &&
 				'number' === typeof current.x &&
@@ -149,7 +200,7 @@ export function useDebugGraph(
 			}
 			setPendingDrop( null );
 		},
-		[ shell, onPositionChange ]
+		[ sendVerb, onPositionChange ]
 	);
 
 	const cancelDrop = useCallback( () => setPendingDrop( null ), [] );
