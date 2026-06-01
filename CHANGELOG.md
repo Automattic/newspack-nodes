@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-05-31
+
 ### Changed
 
 - **The debug overlay and topology console now share ONE implementation of the Reset Graph / graph-dirty / chip logic — `useGraphReset` — instead of two drifting copies.** Both surfaces route every graph mutation through the Shell's new single `dispatch()` chokepoint (`sendCommand`, a parsed REPL line, and a GUI gesture all funnel through it), and the hook taps `Shell.onDispatch` to flip a structure-dirty flag whenever a graph-mutating verb (`make_node` / `connect_node` / `disconnect_node` / `remove_node` + their aliases) is sent — so the Reset Graph chip tracks edits identically whether they arrive from the canvas, the Inspector, or a typed command, on either surface. The chip surfaces on `structureDirty || hasUserNodes` (a rewire OR a surviving user node), and Reset Graph runs the same sequence everywhere: tear down every node → `Core.bumpGraphGeneration()` (rebuild off the canonical wiring) → keep the layout → `markDirty()` so Reset Layout resurfaces. To get there, `useConsoleGraph` now subscribes to the generation signal (`useGraphGeneration()` in its effect deps) and its bespoke `resetKey` prop was removed; the Shell stays verb-agnostic (it only announces a dispatch — the hook classifies). The overlay's per-handler dirtying wrappers (`onConnectDirtying` / `onRemoveNodeDirtying` / the disconnect dirtier) and the console's `resetLocalGraph` / `hasUserAddedLocalNodes` / `PROTECTED_NODE_NAMES` are gone, replaced by the one hook.
