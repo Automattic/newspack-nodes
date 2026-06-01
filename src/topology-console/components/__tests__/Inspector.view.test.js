@@ -393,8 +393,9 @@ describe( 'Inspector (view mode)', () => {
 // The poll cadence scales with graph size (computePollIntervalMs), so the real
 // window is 60 * interval — the label must reflect that, not a fixed "~60s".
 describe( 'formatActivityWindow', () => {
-	it( 'reads ~60s for a small graph polled every second', () => {
-		expect( formatActivityWindow( 50 ) ).toBe( 'last ~60s' );
+	it( 'reads ~5m for a small graph (poll cadence floored at 5s)', () => {
+		// 50 nodes -> floored 5s poll -> 60 * 5s = 300s = 5m.
+		expect( formatActivityWindow( 50 ) ).toBe( 'last ~5m' );
 	} );
 
 	it( 'scales to minutes for a large graph polled less often', () => {

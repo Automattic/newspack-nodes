@@ -163,11 +163,11 @@ describe( 'Metadata node', () => {
 	} );
 
 	describe( 'computePollIntervalMs (nodeCount * 10ms, rounded)', () => {
-		it( 'rounds to the nearest second and floors at 1s', () => {
-			expect( computePollIntervalMs( 0 ) ).toBe( 1000 );
-			expect( computePollIntervalMs( 30 ) ).toBe( 1000 ); // 0.3s -> 1s
-			expect( computePollIntervalMs( 100 ) ).toBe( 1000 ); // 1.0s
-			expect( computePollIntervalMs( 250 ) ).toBe( 3000 ); // 2.5s -> 3s
+		it( 'floors at 5s (anything up to ~5s of computed cadence)', () => {
+			expect( computePollIntervalMs( 0 ) ).toBe( 5000 );
+			expect( computePollIntervalMs( 30 ) ).toBe( 5000 ); // 0.3s -> floor 5s
+			expect( computePollIntervalMs( 100 ) ).toBe( 5000 ); // 1.0s -> floor 5s
+			expect( computePollIntervalMs( 250 ) ).toBe( 5000 ); // 2.5s -> floor 5s
 			expect( computePollIntervalMs( 500 ) ).toBe( 5000 ); // 5.0s
 		} );
 
