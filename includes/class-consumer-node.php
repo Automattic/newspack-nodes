@@ -659,13 +659,13 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	protected function check_name_availability( string $name ): void {
+		parent::check_name_availability( $name );
 		if ( null !== $this->source && null !== Core::node( "{$name}:source" ) ) {
 			throw new \RuntimeException( \esc_html( "node name collision: {$name}:source already registered" ) );
 		}
 		if ( null !== $this->offsetlog && null !== Core::node( "{$name}:offsetlog" ) ) {
 			throw new \RuntimeException( \esc_html( "node name collision: {$name}:offsetlog already registered" ) );
 		}
-		parent::check_name_availability( $name );
 	}
 
 	protected function set_sibling_names( ?string $name = null ): void {
