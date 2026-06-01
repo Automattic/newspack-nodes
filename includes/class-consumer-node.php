@@ -168,7 +168,7 @@ class Consumer_Node extends Timer_Node {
 	/**
 	 * Set next read position: 'start' | 'recent' | 'end' | array{seg,off}.
 	 *
-	 * @param string|array $position Magic value or explicit position.
+	 * @param string|array<string, mixed> $position Magic value or explicit position (reads 'seg'/'off').
 	 */
 	public function next_offset( $position ): void {
 		$this->line_remainder = '';
@@ -599,6 +599,7 @@ class Consumer_Node extends Timer_Node {
 		parent::fill( $message );
 	}
 
+	/** @param array<int, mixed> $message Incoming request Message. */
 	private function handle_request( array $message ): void {
 		$value = (string) $message[ Message::VALUE ];
 		$verb  = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
@@ -628,6 +629,7 @@ class Consumer_Node extends Timer_Node {
 		$this->sink?->fill( $reply );
 	}
 
+	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool} */
 	private function compute_lag(): array {
 		\clearstatcache( true, $this->source->partition_dir() );
 		$segments = $this->source->get_segments( true );

@@ -271,7 +271,7 @@ class Spawn_Controller {
 	 * misbehaving worker can't flood the response.
 	 *
 	 * @param mixed $result Worker-reported result (unsanitized from the wire).
-	 * @return array Sanitized projection.
+	 * @return array<string, string|int> Sanitized projection.
 	 */
 	public function sanitize_worker_result( $result ): array {
 		if ( ! \is_array( $result ) ) {

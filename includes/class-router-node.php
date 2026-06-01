@@ -49,6 +49,7 @@ class Router_Node extends Timer_Node {
 		$target->fill( $message );
 	}
 
+	/** @param array<int, mixed> $message Message that failed to route. */
 	public function send_error( array &$message, string $error ): void {
 		if ( $this->handling_error ) {
 			$this->drop_message( $message, 'breaking recursion' );

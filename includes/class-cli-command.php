@@ -21,6 +21,9 @@ class CLI_Command {
 	 * ## EXAMPLES
 	 *
 	 *     wp nodes ls
+	 *
+	 * @param array<int, string>   $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function ls( array $args, array $assoc_args ): void {
 		$cli     = new CLI( $this->base_dir() );
@@ -50,6 +53,9 @@ class CLI_Command {
 	 *
 	 *     wp nodes cli
 	 *     wp nodes cli firehose-workers.p0
+	 *
+	 * @param array<int, string>   $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function cli( array $args, array $assoc_args ): void {
 		[ $shell, $dumper ] = $this->prepare_repl( $args );
@@ -59,7 +65,7 @@ class CLI_Command {
 	/**
 	 * Build the REPL graph + log the mode line, returning [$shell, $dumper] for run_repl.
 	 *
-	 * @param array $args WP_CLI positional arguments. Empty = bare mode; else $args[0] is the worker id.
+	 * @param array<int, string> $args WP_CLI positional arguments. Empty = bare mode; else $args[0] is the worker id.
 	 * @return array{0:Shell_Node,1:Dumper_Node}
 	 */
 	public function prepare_repl( array $args ): array {

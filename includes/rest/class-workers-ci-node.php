@@ -354,6 +354,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 *
 	 * @param object|null $cache    `\Memcached`-shaped instance for live cursor lookups (or null).
 	 * @param string      $base_dir Substrate base directory.
+	 * @return array<string, mixed>
 	 */
 	private static function build_worker_status(
 		string $type,
@@ -448,6 +449,8 @@ class Workers_CI_Node extends Service_CI_Node {
 	/**
 	 * Build the supervisor descriptor (status, heartbeat age, started_at,
 	 * restart_pending). Singleton, so no `partition` field.
+	 *
+	 * @return array<string, mixed>
 	 */
 	private static function build_supervisor_status( string $lock_dir, int $now ): array {
 		$status        = 'dead';
@@ -503,7 +506,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * the frontend; per-log `segment_size` honors any TSL literal override.
 	 *
 	 * @param array<string,int> $segment_size_overrides `{basename => int}` map.
-	 * @return array<int,array{name:string,partitions:array,segment_size:int}>
+	 * @return array<int,array{name:string,partitions:array<int, mixed>,segment_size:int}>
 	 */
 	private static function enumerate_logs(
 		string $log_base,
@@ -574,6 +577,8 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * Scan a log's segment directory and return the per-log status block for
 	 * `inputs_status` / `outputs_status`. Cursor fields included only when both
 	 * `$cursor_seg` and `$cursor_offset` are non-null (else the UI treats it as output-only).
+	 *
+	 * @return array<string, mixed>
 	 */
 	private static function build_log_status_entry(
 		string $log_name,

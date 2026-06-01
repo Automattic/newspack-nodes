@@ -239,7 +239,7 @@ class SSE_Out_Node extends Node {
 	 * Decode the `positions` query parameter (JSON object keyed by
 	 * subscription name). Null when omitted/empty/malformed → tail-seek all.
 	 *
-	 * @return array<string,array>|null
+	 * @return array<array-key, mixed>|null
 	 */
 	public function parse_positions( string $raw ): ?array {
 		if ( '' === $raw ) {
@@ -255,6 +255,8 @@ class SSE_Out_Node extends Node {
 	 *
 	 * Slot acquisition fires BEFORE `init_sse_headers` so a rate-limited
 	 * stream can still return a JSON `WP_Error` (HTTP 429).
+	 *
+	 * @return \WP_Error|void WP_Error on rate-limit (429); otherwise streams and exits.
 	 */
 	public function stream( \WP_REST_Request $request ) {
 		$subs      = $this->parse_subscriptions( (string) $request->get_param( 'subscribe' ) );
@@ -300,8 +302,8 @@ class SSE_Out_Node extends Node {
 	 * Cleanup in `finally` removes every node. The drain predicate consults
 	 * `$check_slot` each iteration; `finally` calls `$release_slot`.
 	 *
-	 * @param array<int,string>        $subs      Subscription names.
-	 * @param array<string,array>|null $positions Per-subscription saved positions.
+	 * @param array<int,string>             $subs      Subscription names.
+	 * @param array<array-key, mixed>|null  $positions Per-subscription saved positions.
 	 * @param int                      $interval  Heartbeat / flush cadence ms.
 	 * @param int                      $slot      Acquired slot index (default 1 = unmetered).
 	 * @param int                      $partition Slot-pool partition (-1 = shared browser).
@@ -434,6 +436,7 @@ class SSE_Out_Node extends Node {
 	 * subscriptions (echoed back), and the heartbeat/flush interval.
 	 *
 	 * @param array<int,string> $subs
+	 * @return array<int, mixed> The 7-field positional Message.
 	 */
 	private function build_connected_msg( int $slot, array $subs, int $interval ): array {
 		$msg                       = Message::new_message();

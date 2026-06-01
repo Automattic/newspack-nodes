@@ -46,6 +46,7 @@ class Partition_Node extends Timer_Node {
 	/** @var resource|null */
 	protected $idx_fh = null;
 
+	/** @var array<int, array<string, mixed>>|null */
 	protected ?array $segments_cache = null;
 	protected float $segments_cache_time = 0.0;
 
@@ -127,7 +128,7 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Node entry point: pack the message and append to the current segment.
 	 *
-	 * @param array $message Reference; not mutated.
+	 * @param array<int, mixed> $message Reference; not mutated.
 	 */
 	public function fill( array &$message ): void {
 		++$this->counter;
@@ -254,7 +255,11 @@ class Partition_Node extends Timer_Node {
 		$this->touch_segments_cache();
 	}
 
-	/** Write one companion-index entry for a packed message at $offset. Caller guards on $index_callback. */
+	/**
+	 * Write one companion-index entry for a packed message at $offset. Caller guards on $index_callback.
+	 *
+	 * @param mixed $data Opaque per-message data passed through to the index callback.
+	 */
 	private function write_index_entry( string $packed, int $offset, int $len, $data ): void {
 		$position = [
 			'segment_id' => $this->current_segment_id,

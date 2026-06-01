@@ -41,6 +41,8 @@ class Worker_CLI_Command {
 	/**
 	 * Expand topologies registered via the `newspack_nodes/topologies` filter
 	 * into a flat list of `{type, partition, stale_timeout}` rows.
+	 *
+	 * @return array<int, array<string, mixed>>
 	 */
 	private function workers(): array {
 		return Bootstrap::expand_workers();
@@ -55,6 +57,9 @@ class Worker_CLI_Command {
 	 *     wp nodes types
 	 *
 	 * @when after_wp_load
+	 *
+	 * @param array<int, string>   $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function types( array $args, array $assoc_args ): void {
 		$topologies = Bootstrap::get_topologies();
@@ -106,6 +111,9 @@ class Worker_CLI_Command {
 	 *     wp nodes run aggregator --partition=0
 	 *
 	 * @when after_wp_load
+	 *
+	 * @param array<int, string>   $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function run( array $args, array $assoc_args ): void {
 		$workers = $this->workers();
@@ -196,6 +204,9 @@ class Worker_CLI_Command {
 	 *     wp nodes restart all --all-partitions
 	 *
 	 * @when after_wp_load
+	 *
+	 * @param array<int, string>   $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function restart( array $args, array $assoc_args ): void {
 		$workers = $this->workers();
@@ -256,6 +267,9 @@ class Worker_CLI_Command {
 	 * ---
 	 *
 	 * @when after_wp_load
+	 *
+	 * @param array<int, string>   $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
 	public function status( array $args, array $assoc_args ): void {
 		$cli      = $this->cli();

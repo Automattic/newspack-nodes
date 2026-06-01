@@ -165,6 +165,8 @@ class Topology_Registry {
 
 	/**
 	 * Build a `[topology, num_partitions, stale_timeout]` entry from a TSL's frontmatter; null if unknown.
+	 *
+	 * @return array<string, mixed>|null
 	 */
 	public static function synthesize_entry(
 		string $name,
@@ -284,8 +286,8 @@ class Topology_Registry {
 	 * operator-overridable substrate option (clamped 1..16); a topology's own
 	 * `var num_partitions` frontmatter overrides via synthesize_entry.
 	 *
-	 * @param array<string,array> $topologies Existing catalog (a prior contributor wins on key collision).
-	 * @return array<string,array>
+	 * @param array<string, array<string, mixed>> $topologies Existing catalog (a prior contributor wins on key collision).
+	 * @return array<string, array<string, mixed>>
 	 */
 	public static function publish_catalog( array $topologies ): array {
 		$cfg        = \Newspack_Nodes\Config::load_config();

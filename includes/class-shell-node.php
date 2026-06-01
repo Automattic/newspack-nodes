@@ -74,6 +74,8 @@ class Shell_Node extends Node {
 
 	/**
 	 * Quote-aware tokenizer ('/"/`): splits on unquoted whitespace, strips the quote chars.
+	 *
+	 * @return array<int, string>
 	 */
 	public function tokenize( string $line ): array {
 		$tokens   = [];
@@ -228,6 +230,8 @@ class Shell_Node extends Node {
 
 	/**
 	 * Parse one line into a Message; null on empty/comment or held continuation.
+	 *
+	 * @return array<int, mixed>|null The 7-field positional Message, or null.
 	 */
 	public function parse( string $line ): ?array {
 		// Backslash continuation: accumulate and return null (caller reads next line).

@@ -84,6 +84,7 @@ class Command_Interpreter_Node extends Node {
 		$this->sink?->fill( $message );
 	}
 
+	/** @param array<int, mixed> $message Incoming command Message to interpret. */
 	private function interpret( array &$message ): void {
 		$cmd = $message[ Message::VALUE ];
 		if ( ! \is_array( $cmd ) || ! isset( $cmd['name'] ) ) {
@@ -402,6 +403,8 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * `pwd` verb: return ` <cwd> -> <envelope.from>`.
+	 *
+	 * @param array<int, mixed> $envelope The command Message.
 	 */
 	private static function cmd_pwd( string $args, array $envelope ): string {
 		$cwd  = '' === $args ? '/' : $args;
@@ -423,6 +426,7 @@ class Command_Interpreter_Node extends Node {
 		return 'ok';
 	}
 
+	/** @param array<int, mixed> $envelope The command Message. */
 	private static function cmd_connect_node( string $args, array $envelope = [] ): string {
 		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
 		if ( '' === $name ) {
@@ -443,6 +447,7 @@ class Command_Interpreter_Node extends Node {
 		return 'ok';
 	}
 
+	/** @param array<int, mixed> $envelope The command Message. */
 	private static function cmd_disconnect_node( string $args, array $envelope = [] ): string {
 		[ $name, $target ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ), 2, '' );
 		if ( '' === $name ) {
@@ -529,6 +534,8 @@ class Command_Interpreter_Node extends Node {
 	 * `list_nodes` (alias `ls`): default=siblings, `-a [glob]`=all, `<name>`=that sink's children.
 	 *
 	 * Flags: `-c` count, `-s` sink, `-t` target, `-l` = -ct.
+	 *
+	 * @param array<int, mixed> $envelope The command Message.
 	 */
 	private static function cmd_list_nodes( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string {
 		// Completion mode: emit bare node names only, ignoring all -clst column
@@ -868,6 +875,8 @@ class Command_Interpreter_Node extends Node {
 
 	/**
 	 * `help` — no args lists all command names tabulated; a topic returns that command's help.
+	 *
+	 * @param array<int, mixed> $envelope The command Message.
 	 */
 	private static function cmd_help( string $args, array $envelope = [] ): string {
 		// Completion mode: bare sorted verb names, newline-separated — no section
