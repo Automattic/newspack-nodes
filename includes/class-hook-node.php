@@ -23,10 +23,15 @@ class Hook_Node extends Node {
 
 	public function fill( array &$message ): void {
 		++$this->counter;
-		if ( $this->filter ) {
-			$message = \apply_filters( $this->hook_name, $message );
-		} else {
-			\do_action( $this->hook_name, $message );
+		// An empty hook_name (unconfigured) is a no-op in WP — apply_filters('')
+		// returns the value unchanged and do_action('') fires nothing — so skip
+		// the dispatch and just forward unchanged.
+		if ( '' !== $this->hook_name ) {
+			if ( $this->filter ) {
+				$message = \apply_filters( $this->hook_name, $message );
+			} else {
+				\do_action( $this->hook_name, $message );
+			}
 		}
 		$this->sink?->fill( $message );
 	}

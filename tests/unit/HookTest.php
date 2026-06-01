@@ -64,6 +64,24 @@ class HookTest extends TestCase {
 		$this->assertSame( 'data', $capture->captured[0][ Message::VALUE ] );
 	}
 
+	/**
+	 * An unconfigured Hook_Node (empty hook_name) must pass the message through
+	 * to its sink unchanged and not error — the guard skips the do_action('') /
+	 * apply_filters('') dispatch that an empty hook name would otherwise make.
+	 */
+	public function test_empty_hook_name_forwards_unchanged_without_dispatch(): void {
+		$hook    = new Hook_Node(); // no arguments() -> hook_name stays ''.
+		$capture = new Capture_Sink_Node();
+		$hook->sink( $capture );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::VALUE ] = 'untouched';
+		$hook->fill( $msg );
+
+		$this->assertCount( 1, $capture->captured );
+		$this->assertSame( 'untouched', $capture->captured[0][ Message::VALUE ] );
+	}
+
 	public function test_filter_mode_replaces_value(): void {
 		\add_filter( 'newspack_nodes/test_filter', function ( array $msg ) {
 			$msg[ Message::VALUE ] = 'transformed';

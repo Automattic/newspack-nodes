@@ -52,7 +52,11 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * that dereference `$self->cli` will fail loud if the bootstrap forgot
 	 * to assign it, rather than constructing into uninitialised-property UB.
 	 *
-	 * @var object|null
+	 * Native type stays `object` (a duck-typed injection seam tests fill with a
+	 * fake); the `@var` names the production CLI shape so static analysis can
+	 * see the worker-control methods the handlers call.
+	 *
+	 * @var \Newspack_Nodes\CLI|null
 	 */
 	public ?object $cli = null;
 
@@ -237,8 +241,8 @@ class Workers_CI_Node extends Service_CI_Node {
 
 		$workers = [];
 		foreach ( $descriptors as $w ) {
-			$type      = (string) ( $w['type'] ?? '' );
-			$partition = (int) ( $w['partition'] ?? 0 );
+			$type      = $w['type'];
+			$partition = $w['partition'];
 			$stale_to  = (int) ( $w['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT );
 			if ( '' === $type ) {
 				continue;

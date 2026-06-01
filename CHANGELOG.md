@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **PHPStan raised to level 7.** Builds on the level-6 value-type work: the node registry is now `Node`-typed (`Core::register_node()`/`Core::node()` and `Event_Framework::set_timer()` take `Node`/`Timer_Node`, matching the "everything is a Node" contract), and the few unguarded builtin returns are made safe — `Message::packed()` guards `wp_json_encode()` (`false`→`''`), `Log_Node` stores a failed `fopen()` as `null`, `Router_Node::notify_timer()` only calls `fire_cb()` on a `Timer_Node` (the sole TIMER registrant), `Hook_Node::fill()` skips an empty hook name, `Supervisor`/`Tail_Node` int bounds are narrowed, and `preg_split()`/`filemtime()` results are coerced explicitly. Behavior-preserving; new tests cover the timer-dispatch and `fopen`-failure paths, and the now-moot duck-typed-registry test was retired. Full substrate suite green.
 - **PHPStan raised to level 6.** The static-analysis gate now enforces value types on every iterable (`array<…>`), so all method/parameter/return/property arrays carry explicit shapes. Substrate-wide this is PHPDoc-only — the 7-field positional Message is documented as `array<int, mixed>`, `node_schema()` returns as `array<string, mixed>`, and WP-CLI handlers as `array<int, string>` / `array<string, mixed>`. No runtime behavior changes.
 
 ### Fixed

@@ -137,6 +137,18 @@ class MessageTest extends TestCase {
 		$this->assertArrayNotHasKey( Message::LOCAL, $decoded );
 	}
 
+	/**
+	 * packed() returns string, never false. An unencodable VALUE (invalid UTF-8)
+	 * makes wp_json_encode() return false; packed() must coerce that to '' and
+	 * never error or leak the false out of its string return contract.
+	 */
+	public function test_packed_returns_empty_string_for_unencodable_value(): void {
+		$m                     = Message::new_message();
+		$m[ Message::VALUE ]   = "\xB1\x31"; // invalid UTF-8 byte sequence; json_encode -> false.
+		$packed                = Message::packed( $m );
+		$this->assertSame( '', $packed );
+	}
+
 	public function test_split_first_splits_on_first_slash(): void {
 		// Single source of truth for taking the leading path segment (Router
 		// dispatch + HTTP_Filter pid gate). Only the first slash splits.

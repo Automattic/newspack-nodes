@@ -54,7 +54,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 						$resolved = Bootstrap::get_topologies();
 						$active   = [];
 						foreach ( $resolved as $name => $_def ) {
-							if ( \is_string( $name ) && '' !== $name ) {
+							if ( '' !== $name ) {
 								$active[ $name ] = true;
 							}
 						}

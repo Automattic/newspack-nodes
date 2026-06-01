@@ -60,7 +60,8 @@ class Log_Node extends Node {
 			@\mkdir( $dir, 0755, true );
 		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
-		$this->fh = \fopen( $this->filename, self::MODE_OVERWRITE === $this->mode ? 'wb' : 'ab' );
+		$fh       = \fopen( $this->filename, self::MODE_OVERWRITE === $this->mode ? 'wb' : 'ab' );
+		$this->fh = false === $fh ? null : $fh;
 		// Track size so max_size triggers auto-rotate; append-mode reopens may start non-zero.
 		$this->size = ( self::MODE_APPEND === $this->mode && \is_resource( $this->fh ) )
 			? (int) \ftell( $this->fh )
@@ -121,7 +122,8 @@ class Log_Node extends Node {
 		$rotated_name = $this->filename . '-' . \date( 'Y-m-d-H:i:s' ) . '-' . Core::msg_counter();
 		// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename, WordPress.WP.AlternativeFunctions.file_system_operations_fopen
 		@\rename( $this->filename, $rotated_name );
-		$this->fh   = \fopen( $this->filename, self::MODE_OVERWRITE === $this->mode ? 'wb' : 'ab' );
+		$fh         = \fopen( $this->filename, self::MODE_OVERWRITE === $this->mode ? 'wb' : 'ab' );
+		$this->fh   = false === $fh ? null : $fh;
 		// phpcs:enable
 		$this->size = 0;
 		$this->set_state( 'ROTATED', [ 'rotated_to' => $rotated_name ] );

@@ -14,7 +14,7 @@ namespace Newspack_Nodes;
 class Event_Framework {
 	private static ?self $instance = null;
 
-	/** @var array<int,array{node:object,interval_ms:int,oneshot:bool,next_fire:float}> */
+	/** @var array<int,array{node:Timer_Node,interval_ms:int,oneshot:bool,next_fire:float}> Timer slots; node is always the Timer_Node that armed it. */
 	private array $timers = [];
 	/** @var array<int,array{node:object,multi:\CurlMultiHandle}> */
 	private array $curl_handles = [];
@@ -39,7 +39,7 @@ class Event_Framework {
 		self::$instance = null;
 	}
 
-	public function set_timer( object $node, int $interval_ms, bool $oneshot = false ): void {
+	public function set_timer( Timer_Node $node, int $interval_ms, bool $oneshot = false ): void {
 		$id = \spl_object_id( $node );
 		$this->timers[ $id ] = [
 			'node'        => $node,
@@ -49,7 +49,7 @@ class Event_Framework {
 		];
 	}
 
-	public function stop_timer( object $node ): void {
+	public function stop_timer( Timer_Node $node ): void {
 		unset( $this->timers[ \spl_object_id( $node ) ] );
 	}
 

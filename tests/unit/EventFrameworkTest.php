@@ -36,7 +36,7 @@ class EventFrameworkTest extends TestCase {
 	public function test_set_timer_fires_after_interval(): void {
 		$ef = Event_Framework::instance();
 
-		$timer_node = new class {
+		$timer_node = new class extends \Newspack_Nodes\Timer_Node {
 			public int $fired = 0;
 			public function fire_cb(): void { ++$this->fired; }
 		};
@@ -55,7 +55,7 @@ class EventFrameworkTest extends TestCase {
 	public function test_oneshot_timer_fires_exactly_once(): void {
 		$ef = Event_Framework::instance();
 
-		$timer_node = new class {
+		$timer_node = new class extends \Newspack_Nodes\Timer_Node {
 			public int $fired = 0;
 			public function fire_cb(): void { ++$this->fired; }
 		};

@@ -4,6 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Timer_Node;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -76,6 +77,26 @@ class RouterTimerTest extends TestCase {
 		$router->fire_cb();
 
 		$this->assertSame( 5, $timer->fire_count(), 'hitchhiked Timer should fire on every Router tick, not self-unregister after the first' );
+	}
+
+	/**
+	 * notify_timer must only call fire_cb() on Timer_Nodes. A plain Node (no
+	 * fire_cb method) registered under TIMER must be skipped, not fataled on —
+	 * the guard protects against a non-Timer registrant slipping through.
+	 */
+	public function test_notify_timer_skips_a_registered_non_timer_node(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+
+		$plain = new Capture_Sink_Node();
+		$plain->name( 'plain' ); // registers in Core; Capture_Sink_Node has no fire_cb().
+		$router->register( 'TIMER', 'plain' );
+
+		// Pre-guard this fataled with "undefined method Node::fire_cb()". The
+		// guard skips the non-Timer registrant, so the call returns normally.
+		$router->notify_timer();
+
+		$this->assertEmpty( $plain->captured, 'a non-Timer node must not be driven by notify_timer' );
 	}
 
 	public function test_set_timer_no_args_throws_when_timer_has_no_name(): void {

@@ -373,6 +373,41 @@ class LogTest extends TestCase {
 		$this->assertSame( [], $schema['commands'] );
 	}
 
+	/**
+	 * An unwritable path (parent is a regular file, so mkdir+fopen both fail)
+	 * must leave $fh as null — not false. The property is typed resource|null;
+	 * the fill() guard relies on is_resource(), but the stored value itself
+	 * must honor the resource|null contract. fill()/rotate() must not fatal.
+	 */
+	public function test_unwritable_path_leaves_fh_null_not_false(): void {
+		// A regular file standing in for the parent directory: mkdir() of the
+		// "directory" fails, and fopen( "{file}/out.log" ) returns false.
+		$blocker = "{$this->tmp}/blocker";
+		\file_put_contents( $blocker, 'x' );
+		$path = "{$blocker}/out.log";
+
+		// The intentionally-failing fopen() emits an expected E_WARNING; swallow
+		// it locally so the assertion (not the warning) is what the test reports.
+		\set_error_handler( static fn (): bool => true, \E_WARNING );
+		try {
+			$log = new Log_Node();
+			$log->arguments( $path );
+
+			$ref = new \ReflectionClass( $log );
+			$fh  = $ref->getProperty( 'fh' )->getValue( $log );
+			$this->assertNull( $fh, 'failed open must store null (resource|null), never false' );
+
+			// fill() and rotate() must degrade gracefully, not fatal, on a null handle.
+			$msg = $this->bytestream( "y\n" );
+			$log->fill( $msg );
+			$log->rotate();
+			$fh_after = $ref->getProperty( 'fh' )->getValue( $log );
+			$this->assertNull( $fh_after, 'rotate() reopen of an unwritable path must also store null, never false' );
+		} finally {
+			\restore_error_handler();
+		}
+	}
+
 	private function bytestream( string $value ): array {
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
