@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.2] - 2026-05-31
+
+### Changed
+
+- **`_metadata` poll cadence floor raised from 1s to 5s.** Small graphs now poll `dump_metadata` every 5 seconds instead of every second (`computePollIntervalMs` floors at 5000ms; the round-to-5s scaling above that is unchanged), cutting idle poll traffic for the common case. The Inspector's activity-window label widens to match (a small graph reads `last ~5m`).
+
+### Fixed
+
+- **The debug overlay's path menu no longer disappears when you `cd` into a remote scope (e.g. `/_http`).** The overlay built its `cd` path options from the polled `graph` (the current cwd's `dump_metadata`), so navigating into `/_http` made `graph` the remote scope, dropped the local `_http`/`_*` nodes, and collapsed `pathOptions` to `['']` — hiding the whole Path selector. It now reads the local `Core` registry, which always holds the navigable scopes regardless of cwd. (The topology console's path menu was unaffected — its options come from a stable topology list, not the scope graph.)
+
 ## [0.10.1] - 2026-05-31
 
 ### Fixed
