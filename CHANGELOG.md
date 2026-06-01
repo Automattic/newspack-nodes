@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **SSE stream crash on a multi-partition subscription.** `/messages/stream` opens one `Consumer` per partition for a multi-partition log subscription (e.g. `gyroscope`, `completed`), but `run_stream_loop()` named them all after the subscription — so with `num_partitions > 1` the second `Consumer::name()` hit the v0.10.0 duplicate-name throw and fataled the entire stream (`node name collision: gyroscope already registered`, surfacing as `…:source already registered` once a child was created). Each Consumer now gets a distinct `{sub}:p{i}` node name; the partition the dashboard parses rides the message stamp/FROM, not the node name, so nothing downstream changes. (Single-partition subscriptions keep the bare `{sub}` name.)
+
 ## [0.10.0] - 2026-05-31
 
 ### Changed

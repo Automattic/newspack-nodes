@@ -116,6 +116,35 @@ class SSEOutTest extends TestCase {
 		$this->rmdir_recursive( $base );
 	}
 
+	public function test_multi_partition_subscription_does_not_collide_on_consumer_name(): void {
+		// A multi-partition log subscription resolves to ONE Consumer per
+		// partition; they must get DISTINCT node names. Naming them all `$sub`
+		// hits Node::name()'s duplicate-name throw and fatals the whole stream
+		// (`node name collision: gyroscope already registered`). The partition the
+		// dashboard reads rides the stamp/FROM, not the node name.
+		$base = $this->make_temp_dir( 'msg-stream-multi-' );
+		\mkdir( "{$base}/logs/gyroscope.log", 0755, true );
+
+		$ctrl = new SSE_Out_Node();
+		$ctrl->set_base_dir( $base );
+		$ctrl->set_num_partitions( 2 );
+		$ctrl->set_test_mode( true );
+		$ctrl->set_test_iterations( 2 );
+
+		\ob_start();
+		// Two partitions → two Consumers. With the bug this throws before the
+		// drain; fixed, it streams to completion and emits the connected envelope.
+		$ctrl->run_stream_loop( [ 'gyroscope' ], null, 500 );
+		$out = \ob_get_clean();
+
+		$events = $this->split_sse_events( $out );
+		$this->assertNotEmpty( $events );
+		$first = \json_decode( $events[0]['data'], true );
+		$this->assertSame( 'connected', $first[ Message::KEY ] );
+
+		$this->rmdir_recursive( $base );
+	}
+
 	/**
 	 * The stream MUST emit flush padding (a FLUSH_SIZE-byte SSE comment) so
 	 * payloads are pushed through fastcgi/nginx buffers rather than sitting
