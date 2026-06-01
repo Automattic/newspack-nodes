@@ -354,9 +354,16 @@ class SSE_Out_Node extends Node {
 			$default_route->target( Node_Names::SSE );
 
 			foreach ( $subs as $sub ) {
-				$pos = $positions[ $sub ] ?? null;
-				foreach ( $this->open_subscription( $sub, $pos ) as $c ) {
-					$c->name( $sub );
+				$pos    = $positions[ $sub ] ?? null;
+				$opened = $this->open_subscription( $sub, $pos );
+				// A subscription can resolve to several Consumers (one per partition
+				// of a multi-partition log). Each needs a DISTINCT node name —
+				// Node::name() throws on a duplicate. The partition the dashboard
+				// reads rides the stamp/FROM, not the node name, so the `:p{i}`
+				// suffix is invisible downstream.
+				$multi = \count( $opened ) > 1;
+				foreach ( $opened as $i => $c ) {
+					$c->name( $multi ? "{$sub}:p{$i}" : $sub );
 					$c->sink( $default_route );
 					$consumers[] = $c;
 				}
