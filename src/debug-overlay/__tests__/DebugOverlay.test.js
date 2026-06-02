@@ -544,6 +544,31 @@ describe( 'DebugOverlay', () => {
 		expect( m[ 6 ].name ).toBe( 'ls' );
 	} );
 
+	it( 'tab completion: a second consecutive Tab lists the ambiguous candidates in the transcript', () => {
+		mountExospine();
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const input = container.querySelector( '.topology-repl__input' );
+		// `dump` is ambiguous (dump / dump_config / dump_metadata / dump_node); the
+		// LCP can't extend the token, so the first Tab bells and the second lists.
+		act( () => fireEvent.change( input, { target: { value: 'dump' } } ) );
+		act( () => fireEvent.keyDown( input, { key: 'Tab' } ) ); // 1st Tab: bell
+		act( () => fireEvent.keyDown( input, { key: 'Tab' } ) ); // 2nd Tab: list
+		// The candidate set is printed into the `_output` transcript (a `recv`
+		// entry) — the second Tab's `onShowCandidates` listing the overlay never
+		// wired before. (The footer only renders the transcript DOM when expanded,
+		// so assert on the transcript data, not container.textContent.)
+		const listed = Core.node( '_output' )._transcript.some(
+			( e ) =>
+				e.kind === 'recv' &&
+				e.text.includes( 'dump_metadata' ) &&
+				e.text.includes( 'dump_node' )
+		);
+		expect( listed ).toBe( true );
+	} );
+
 	it( 'Ctrl+` removes its keydown listener when the overlay unmounts', () => {
 		// Tear-down branch — pressing Ctrl+` after unmount must NOT throw.
 		mountExospine();

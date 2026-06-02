@@ -151,7 +151,7 @@ export default function DebugOverlay( {
 	useEffect( () => {
 		shell.sink = interpreter;
 	}, [ shell, interpreter ] );
-	const { transcript, sendLine, clear, cwd, setPath } = useDebugRepl(
+	const { transcript, sendLine, append, clear, cwd, setPath } = useDebugRepl(
 		enabled && open,
 		shell
 	);
@@ -237,6 +237,16 @@ export default function DebugOverlay( {
 			Core.node( names.COMMAND_INTERPRETER )?.fill( m );
 		},
 		[ cwd ]
+	);
+	// Tab-completion listing: the footer calls this on the 2nd consecutive Tab of
+	// an ambiguous token to print the candidate set into the transcript. Mirrors
+	// TopologyConsole.handleShowCandidates (Rule #4) — without it the second Tab
+	// is a silent no-op.
+	const handleShowCandidates = useCallback(
+		( candidates ) => {
+			append( { kind: 'recv', text: ( candidates || [] ).join( '  ' ) } );
+		},
+		[ append ]
 	);
 	// Catalog is resolved above (just below useDebugRepl). schemasByShellName
 	// drops the array form into a lookup map for the Inspector's class
@@ -487,6 +497,7 @@ export default function DebugOverlay( {
 							transcript={ transcript }
 							completion={ completion }
 							onComplete={ requestCompletion }
+							onShowCandidates={ handleShowCandidates }
 							expanded={ replExpanded }
 							onExpandedChange={ setReplExpanded }
 							inputRef={ replInputRef }
