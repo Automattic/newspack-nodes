@@ -35,6 +35,29 @@ export function longestCommonPrefix( strings ) {
 	return prefix;
 }
 
+/**
+ * Lay candidates out as a single space-padded line whose columns align when the
+ * transcript reflows: each candidate is padded to the longest candidate's width
+ * and joined with a 2-space gap, so wrapping at whitespace (see the
+ * `.topology-repl__entry` CSS — `overflow-wrap`, not `break-all`) lands every
+ * column on a fixed character grid. The in-browser, panel-width-responsive
+ * equivalent of the interpreter's tabulate() (the PHP / Tachikoma `help` grid).
+ *
+ * @param {string[]} candidates
+ * @return {string} The aligned, gap-joined row (no trailing padding).
+ */
+export function tabulateCandidates( candidates ) {
+	const list = candidates || [];
+	if ( 0 === list.length ) {
+		return '';
+	}
+	const width = Math.max( ...list.map( ( c ) => c.length ) );
+	return list
+		.map( ( c ) => c.padEnd( width ) )
+		.join( '  ' )
+		.replace( /\s+$/, '' );
+}
+
 export class CompletionNode extends Node {
 	constructor() {
 		super();

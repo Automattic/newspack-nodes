@@ -83,28 +83,27 @@ class Dumper_Node extends Node {
 			return;
 		}
 
-		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_RESPONSE ) ) {
-			$cmd = $message[ Message::VALUE ];
-			if ( \is_array( $cmd ) ) {
-				$name    = (string) ( $cmd['name'] ?? '' );
-				$payload = self::render_payload( $cmd['payload'] ?? '' );
+		if ( $type & Message::TM_COMMAND ) {
+			if ( $type & Message::TM_RESPONSE ) {
+				$cmd = $message[ Message::VALUE ];
+				if ( \is_array( $cmd ) ) {
+					$name    = (string) ( $cmd['name'] ?? '' );
+					$payload = self::render_payload( $cmd['payload'] ?? '' );
 
-				if ( 'prompt' === $name && null !== $this->shell ) {
-					$this->shell->prompt = $payload;
+					if ( 'prompt' === $name && null !== $this->shell ) {
+						$this->shell->prompt = $payload;
+						return;
+					}
+
+					$this->write_async( $payload );
 					return;
 				}
-
+			} elseif ( $type & Message::TM_ERROR ) {
+				$cmd     = $message[ Message::VALUE ];
+				$payload = \is_array( $cmd ) ? self::render_payload( $cmd['payload'] ?? '' ) : (string) $cmd;
 				$this->write_async( $payload );
 				return;
 			}
-		}
-
-		// TM_COMMAND|TM_ERROR: a verb threw — render the unwrapped payload.
-		if ( ( $type & Message::TM_COMMAND ) && ( $type & Message::TM_ERROR ) ) {
-			$cmd     = $message[ Message::VALUE ];
-			$payload = \is_array( $cmd ) ? self::render_payload( $cmd['payload'] ?? '' ) : (string) $cmd;
-			$this->write_async( $payload );
-			return;
 		}
 
 		// TM_PING: bounced reply; VALUE is the send timestamp, render as RTT.
@@ -115,7 +114,7 @@ class Dumper_Node extends Node {
 			return;
 		}
 
-		if ( $type & Message::TM_STRUCT ) {
+		if ( $type & Message::TM_STRUCT || $type & Message::TM_COMMAND ) {
 			$value = $message[ Message::VALUE ];
 			$line  = \is_string( $value ) ? $value : \wp_json_encode( $value, JSON_UNESCAPED_SLASHES );
 			$this->write_async( (string) $line );

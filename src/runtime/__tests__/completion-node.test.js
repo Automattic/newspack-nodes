@@ -7,7 +7,11 @@
  * Never touches the transcript.
  */
 
-import { CompletionNode, longestCommonPrefix } from '../completion-node';
+import {
+	CompletionNode,
+	longestCommonPrefix,
+	tabulateCandidates,
+} from '../completion-node';
 import { Node } from '../node';
 import {
 	newMessage,
@@ -130,5 +134,27 @@ describe( 'Completion node', () => {
 
 	it( 'declares has_target:false (publishes candidates, never forwards)', () => {
 		expect( CompletionNode.nodeSchema().has_target ).toBe( false );
+	} );
+} );
+
+describe( 'tabulateCandidates', () => {
+	it( 'returns an empty string for no candidates', () => {
+		expect( tabulateCandidates( [] ) ).toBe( '' );
+		expect( tabulateCandidates( null ) ).toBe( '' );
+	} );
+
+	it( 'pads each candidate to the longest width so columns align', () => {
+		// Longest is `make_node` (9); each column starts at a multiple of
+		// width + a 2-space gap (= 11), so the transcript reflows into an
+		// aligned grid instead of wrapping mid-word.
+		const out = tabulateCandidates( [ 'ls', 'make_node', 'rm' ] );
+		expect( out.indexOf( 'make_node' ) ).toBe( 11 );
+		expect( out.indexOf( 'rm' ) ).toBe( 22 );
+	} );
+
+	it( 'leaves no trailing padding after the last candidate', () => {
+		expect(
+			/\s$/.test( tabulateCandidates( [ 'ls', 'make_node', 'rm' ] ) )
+		).toBe( false );
 	} );
 } );

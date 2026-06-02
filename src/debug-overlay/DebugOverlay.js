@@ -18,6 +18,7 @@ import { useJsCatalog } from '../topology-console/hooks/useJsCatalog';
 import { useClassCatalog } from '../topology-console/hooks/useClassCatalog';
 import { Shell } from '../topology-console/nodes/shell';
 import { useNodeState } from '../runtime/react';
+import { tabulateCandidates } from '../runtime/completion-node';
 import {
 	newMessage,
 	TYPE,
@@ -244,7 +245,7 @@ export default function DebugOverlay( {
 	// is a silent no-op.
 	const handleShowCandidates = useCallback(
 		( candidates ) => {
-			append( { kind: 'recv', text: ( candidates || [] ).join( '  ' ) } );
+			append( { kind: 'recv', text: tabulateCandidates( candidates ) } );
 		},
 		[ append ]
 	);

@@ -29,6 +29,7 @@ import { useConsoleGraph } from './hooks/useConsoleGraph';
 import { useDebugLayout } from '../debug-overlay/useDebugLayout';
 import { useGraphReset } from '../debug-overlay/useGraphReset';
 import { useNodeState, useNodeFill } from '../runtime/react';
+import { tabulateCandidates } from '../runtime/completion-node';
 import {
 	addEdge,
 	addNode,
@@ -902,7 +903,7 @@ export default function TopologyConsole() {
 		( candidates ) => {
 			appendTranscript( {
 				kind: 'recv',
-				text: ( candidates || [] ).join( '  ' ),
+				text: tabulateCandidates( candidates ),
 			} );
 		},
 		[ appendTranscript ]
