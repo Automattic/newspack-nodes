@@ -40,10 +40,14 @@ export function useDebugRepl( active = true, shell ) {
 	// cwd reflects the live Shell.path; re-rendered after every dispatch so the
 	// Header path selector + _cwd.target both follow REPL `cd` commands.
 	// String-typed init (consumers concatenate it into `/${cwd}`); a separate
-	// `mounted` flag forces the post-mount re-render so sibling useNodeState
-	// subscriptions bind to nodes registered in this hook's useEffect.
+	// remount counter increments on EVERY (re)mount to force the post-mount
+	// re-render — that's what lets sibling useNodeState subscriptions re-bind to
+	// the nodes (re)registered in this hook's useEffect. A boolean flag would
+	// only fire on the first mount (false→true) and no-op on a Reset-Graph
+	// rebuild, stranding those subscriptions on the removed old nodes (the bug
+	// that silently killed tab completion after the first reset).
 	const [ cwd, setCwd ] = useState( '' );
-	const [ , setMounted ] = useState( false );
+	const [ , bumpRemount ] = useState( 0 );
 	// The full-rebuild signal: a bump re-runs this effect (cleanup tears down the
 	// overlay's infra nodes, the effect rebuilds them off the fresh backbone) so
 	// "Reset Graph" reconstructs the overlay's half of the graph too.
@@ -86,7 +90,7 @@ export function useDebugRepl( active = true, shell ) {
 		dumperRef.current = dumper;
 		shellRef.current = shell;
 		setCwd( shell.path );
-		setMounted( true );
+		bumpRemount( ( n ) => n + 1 );
 		const listenerId = 'useDebugRepl/transcript';
 		dumper.register( 'transcript', listenerId, ( next ) => {
 			setTranscript( next || EMPTY_TRANSCRIPT );
@@ -103,7 +107,6 @@ export function useDebugRepl( active = true, shell ) {
 			dumperRef.current = null;
 			shellRef.current = null;
 			setTranscript( EMPTY_TRANSCRIPT );
-			setMounted( false );
 		};
 	}, [ active, shell, generation ] );
 
