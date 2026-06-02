@@ -22,6 +22,7 @@ import {
 	TM_ERROR,
 	TM_INFO,
 	TM_STRUCT,
+	TM_REQUEST,
 } from './message';
 
 export const TRANSCRIPT_MAX = 200;
@@ -112,16 +113,17 @@ export function renderMessage( message ) {
 		return null;
 	}
 	// A command reply's VALUE is `{ name, payload }`; payload may be structured.
-	const unwrap = () =>
-		value && typeof value === 'object'
-			? stringifyValue( value.payload )
-			: stringifyValue( value );
-	if ( has( type, TM_COMMAND ) && has( type, TM_RESPONSE ) ) {
-		const payload = unwrap();
-		return payload ? { kind: 'recv', text: payload } : null;
-	}
-	if ( has( type, TM_COMMAND ) && has( type, TM_ERROR ) ) {
-		return { kind: 'error', text: unwrap() };
+	if ( has( type, TM_COMMAND ) ) {
+		const unwrap = () =>
+			value && typeof value === 'object'
+				? stringifyValue( value.payload )
+				: stringifyValue( value );
+		if ( has( type, TM_RESPONSE ) ) {
+			const payload = unwrap();
+			return payload ? { kind: 'recv', text: payload } : null;
+		} else if ( has( type, TM_ERROR ) ) {
+			return { kind: 'error', text: unwrap() };
+		}
 	}
 	if ( has( type, TM_ERROR ) ) {
 		return { kind: 'error', text: stringifyValue( value ) };
@@ -134,9 +136,11 @@ export function renderMessage( message ) {
 		return { kind: 'info', text: `round trip time: ${ rtt } ms` };
 	}
 	if (
+		has( type, TM_BYTESTREAM ) ||
 		has( type, TM_STRUCT ) ||
 		has( type, TM_INFO ) ||
-		has( type, TM_BYTESTREAM )
+		has( type, TM_REQUEST ) ||
+		has( type, TM_COMMAND )
 	) {
 		return { kind: 'recv', text: stringifyValue( value ) };
 	}
