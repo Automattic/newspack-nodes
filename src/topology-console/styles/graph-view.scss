@@ -2257,7 +2257,11 @@
 		padding: 2px 0;
 		font: inherit;
 		white-space: pre-wrap;
-		word-break: break-all;
+		// Wrap at whitespace; only break inside a token when it alone can't fit
+		// (vs `break-all`, which broke mid-word mid-line and shattered the
+		// space-padded tab-completion grid). Keeps the tabulated candidate
+		// columns aligned as the panel reflows.
+		overflow-wrap: anywhere;
 
 		// `sent` entries are echoes of what the user typed at the
 		// prompt; render in brass to match the live prompt's caret/
