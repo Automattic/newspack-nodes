@@ -71,7 +71,6 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	m[ VALUE ] = {
 		name: 'echo',
 		arguments: 'hi',
-		payload: '',
 	};
 	m[ LOCAL ] = true; // in-process command — carries the provenance taint
 	interpreter.fill( m );
@@ -109,7 +108,6 @@ test( 'verb throwing returns TM_COMMAND|TM_ERROR with the message', () => {
 	m[ VALUE ] = {
 		name: 'bad',
 		arguments: '',
-		payload: '',
 	};
 	m[ LOCAL ] = true;
 	interpreter.fill( m );
@@ -138,7 +136,7 @@ test( 'command without LOCAL provenance is refused (unauthorized), verb not run'
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
 	m[ FROM ] = 'caller';
-	m[ VALUE ] = { name: 'echo', arguments: '', payload: '' };
+	m[ VALUE ] = { name: 'echo', arguments: '' };
 	// No LOCAL — an injected/off-process command.
 	interpreter.fill( m );
 
@@ -161,7 +159,7 @@ test( 'instance authorize override allows a command without LOCAL', () => {
 
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
-	m[ VALUE ] = { name: 'echo', arguments: '', payload: '' };
+	m[ VALUE ] = { name: 'echo', arguments: '' };
 	interpreter.fill( m );
 
 	expect( got[ 0 ][ TYPE ] & TM_RESPONSE ).toBeTruthy();
@@ -188,7 +186,7 @@ test( 'static defaultAuthorize can refuse even with LOCAL set', () => {
 	try {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
-		m[ VALUE ] = { name: 'echo', arguments: '', payload: '' };
+		m[ VALUE ] = { name: 'echo', arguments: '' };
 		m[ LOCAL ] = true;
 		interpreter.fill( m );
 		expect( ran ).toBe( false );

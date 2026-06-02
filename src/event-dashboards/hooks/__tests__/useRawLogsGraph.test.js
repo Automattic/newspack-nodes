@@ -74,11 +74,11 @@ const ALL_GRAPH_NAMES = [ SSE, HTTP, HEARTBEAT, VIEW ];
 function makeFakeClient( payloadByVerb = {} ) {
 	const client = {
 		batches: [],
-		buildMessage( { to, verb, args = '', payload = null } ) {
+		buildMessage( { to, verb, args = '' } ) {
 			const m = newMessage();
 			m[ TYPE ] = TM_COMMAND;
 			m[ TO ] = to;
-			m[ VALUE ] = { name: verb, arguments: args, payload };
+			m[ VALUE ] = { name: verb, arguments: args };
 			return m;
 		},
 		postBatch( messages ) {

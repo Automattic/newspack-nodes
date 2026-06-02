@@ -69,7 +69,7 @@ describe( 'useLayout', () => {
 			expect( send ).toHaveBeenCalledWith( {
 				to: 'layouts',
 				verb: 'save',
-				payload: { name: 'demo', positions: { a: [ 5, 7 ] } },
+				args: `demo ${ JSON.stringify( { a: [ 5, 7 ] } ) }`,
 			} );
 		} );
 	} );

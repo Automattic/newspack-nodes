@@ -52,25 +52,25 @@ class ServiceCITest extends TestCase {
 	public function test_require_valid_name_returns_name_when_valid(): void {
 		$this->assertSame(
 			'my-topology_42',
-			ServiceCITestProbe::require_valid_name_probe( [ 'name' => 'my-topology_42' ] )
+			ServiceCITestProbe::require_valid_name_probe( 'my-topology_42' )
 		);
 	}
 
-	public function test_require_valid_name_throws_when_name_key_missing(): void {
+	public function test_require_valid_name_throws_when_name_empty(): void {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'invalid name' );
-		ServiceCITestProbe::require_valid_name_probe( [] );
+		ServiceCITestProbe::require_valid_name_probe( '' );
 	}
 
 	public function test_require_valid_name_throws_when_name_violates_default_pattern(): void {
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'invalid name' );
-		ServiceCITestProbe::require_valid_name_probe( [ 'name' => 'has spaces' ] );
+		ServiceCITestProbe::require_valid_name_probe( 'has spaces' );
 	}
 
 	public function test_require_valid_name_throws_on_path_traversal_attempt(): void {
 		$this->expectException( \RuntimeException::class );
-		ServiceCITestProbe::require_valid_name_probe( [ 'name' => '../etc/passwd' ] );
+		ServiceCITestProbe::require_valid_name_probe( '../etc/passwd' );
 	}
 
 	public function test_require_valid_name_respects_custom_pattern(): void {
@@ -78,7 +78,7 @@ class ServiceCITest extends TestCase {
 		$this->assertSame(
 			'firehose:partition.config',
 			ServiceCITestProbe::require_valid_name_probe(
-				[ 'name' => 'firehose:partition.config' ],
+				'firehose:partition.config',
 				'/^[a-zA-Z0-9_:.-]+$/'
 			)
 		);
@@ -87,7 +87,7 @@ class ServiceCITest extends TestCase {
 	public function test_require_valid_name_rejects_when_custom_pattern_excludes_it(): void {
 		$this->expectException( \RuntimeException::class );
 		ServiceCITestProbe::require_valid_name_probe(
-			[ 'name' => 'has-dash' ],
+			'has-dash',
 			'/^[a-zA-Z0-9_]+$/'
 		);
 	}
@@ -107,9 +107,9 @@ class ServiceCITestProbe extends Service_CI_Node {
 	}
 
 	public static function require_valid_name_probe(
-		array $decoded,
+		string $name,
 		string $pattern = '/^[a-zA-Z0-9_-]+$/'
 	): string {
-		return self::require_valid_name( $decoded, $pattern );
+		return self::require_valid_name( $name, $pattern );
 	}
 }

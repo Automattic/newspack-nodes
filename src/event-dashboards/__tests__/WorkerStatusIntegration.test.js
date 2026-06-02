@@ -62,11 +62,11 @@ jest.mock( '../hooks/useWorkerStatusGraph', () => {
 // tests can override per-verb payloads / errors.
 function makeFakeClient( payloadByVerb = {}, opts = {} ) {
 	const client = {
-		buildMessage( { to, verb, args = '', payload = null } ) {
+		buildMessage( { to, verb, args = '' } ) {
 			const m = newMessage();
 			m[ TYPE ] = TM_COMMAND;
 			m[ TO ] = to;
-			m[ VALUE ] = { name: verb, arguments: args, payload };
+			m[ VALUE ] = { name: verb, arguments: args };
 			return m;
 		},
 		postBatch( messages ) {

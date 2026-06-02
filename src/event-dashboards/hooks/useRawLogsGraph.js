@@ -76,7 +76,7 @@ function buildListCommand( id ) {
 	m[ FROM ] = VIEW;
 	m[ TO ] = `${ HTTP }/raw-logs`;
 	m[ ID ] = id;
-	m[ VALUE ] = { name: 'list_logs', arguments: '', payload: null };
+	m[ VALUE ] = { name: 'list_logs', arguments: '' };
 	return m;
 }
 

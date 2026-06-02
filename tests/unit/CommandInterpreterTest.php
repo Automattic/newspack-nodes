@@ -23,7 +23,7 @@ class CommandInterpreterTest extends TestCase {
 		$m                    = Message::new_message();
 		$m[ Message::TYPE ]   = Message::TM_COMMAND;
 		$m[ Message::FROM ]   = '_output/1';
-		$m[ Message::VALUE ]  = [ 'name' => $name, 'arguments' => $args, 'payload' => '' ];
+		$m[ Message::VALUE ]  = [ 'name' => $name, 'arguments' => $args ];
 		if ( $local ) {
 			$m[ Message::LOCAL ] = true;
 		}
@@ -335,7 +335,6 @@ class CommandInterpreterTest extends TestCase {
 		$msg[ Message::VALUE ] = [
 			'name'      => 'make_node',
 			'arguments' => 'Capture_Sink alice',
-			'payload'   => '',
 		];
 		$msg[ Message::LOCAL ] = true; // in-process command — carries the provenance taint
 		$interpreter->fill( $msg );
@@ -718,7 +717,7 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
 
-		$out   = $interpreter->dispatch( 'help', '', null, $this->completion_envelope() );
+		$out   = $interpreter->dispatch( 'help', '', $this->completion_envelope() );
 		$lines = \explode( "\n", $out );
 
 		$this->assertContains( 'list_nodes', $lines );
@@ -786,7 +785,7 @@ class CommandInterpreterTest extends TestCase {
 
 		// -c column flag must be ignored under completion. Completion lists ALL
 		// nodes (like `ls -a`), not just siblings, so `cd <tab>` can reach _-nodes.
-		$out   = $interpreter->dispatch( 'ls', '-c', null, $this->completion_envelope() );
+		$out   = $interpreter->dispatch( 'ls', '-c', $this->completion_envelope() );
 		$lines = \explode( "\n", $out );
 
 		$this->assertContains( 'alice', $lines );
@@ -802,7 +801,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
 
-		$out   = $interpreter->dispatch( 'ls', '-a', null, $this->completion_envelope() );
+		$out   = $interpreter->dispatch( 'ls', '-a', $this->completion_envelope() );
 		$lines = \explode( "\n", $out );
 
 		$this->assertContains( 'alice', $lines );
@@ -1369,7 +1368,7 @@ class CommandInterpreterTest extends TestCase {
 		$envelope                       = Message::new_message();
 		$envelope[ Message::FROM ]      = '_output/4242';
 
-		$out = $interpreter->dispatch( 'connect_node', 'alice', null, $envelope  );
+		$out = $interpreter->dispatch( 'connect_node', 'alice', $envelope );
 		$this->assertSame( 'ok', $out );
 		$this->assertSame( '_output/4242', Core::node( 'alice' )->target() );
 	}
@@ -1420,12 +1419,12 @@ class CommandInterpreterTest extends TestCase {
 		// First wire two targets — one default, one explicit.
 		$envelope                  = Message::new_message();
 		$envelope[ Message::FROM ] = '_output/9999';
-		$interpreter->dispatch( 'connect_node', 'fanout', null, $envelope  );
+		$interpreter->dispatch( 'connect_node', 'fanout', $envelope );
 		$interpreter->dispatch( 'connect_node', 'fanout other_target' );
 		$this->assertSame( [ '_output/9999', 'other_target' ], Core::node( 'fanout' )->target() );
 
 		// disconnect with the same envelope — should remove only the FROM.
-		$out = $interpreter->dispatch( 'disconnect_node', 'fanout', null, $envelope  );
+		$out = $interpreter->dispatch( 'disconnect_node', 'fanout', $envelope );
 		$this->assertSame( 'ok', $out );
 		$this->assertSame( [ 'other_target' ], \array_values( Core::node( 'fanout' )->target() ) );
 	}
@@ -1441,7 +1440,7 @@ class CommandInterpreterTest extends TestCase {
 		$envelope                  = Message::new_message();
 		$envelope[ Message::FROM ] = '_output/abc';
 
-		$out = $interpreter->dispatch( 'pwd', '/some/path', null, $envelope  );
+		$out = $interpreter->dispatch( 'pwd', '/some/path', $envelope );
 		$this->assertSame( ' /some/path -> _output/abc', $out );
 	}
 
@@ -1454,7 +1453,7 @@ class CommandInterpreterTest extends TestCase {
 		$envelope                  = Message::new_message();
 		$envelope[ Message::FROM ] = '_output/abc';
 
-		$out = $interpreter->dispatch( 'pwd', '', null, $envelope  );
+		$out = $interpreter->dispatch( 'pwd', '', $envelope );
 		$this->assertSame( ' / -> _output/abc', $out );
 	}
 

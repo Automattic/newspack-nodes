@@ -73,7 +73,6 @@ export class HeartbeatNode extends TimerNode {
 		m[ VALUE ] = {
 			name: 'heartbeat',
 			arguments: `${ this.slot } ${ SLOT_TTL_S } ${ this.partition }`,
-			payload: '',
 		};
 		m[ LOCAL ] = true;
 		return m;

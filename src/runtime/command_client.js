@@ -25,14 +25,13 @@ export class CommandClient {
 	 * client never hardcodes the `_http` prefix.
 	 *
 	 * @param {Object} params
-	 * @param {string} params.to        Target node path.
-	 * @param {string} params.verb      Command verb to dispatch.
-	 * @param {string} [params.args]    Literal-string argument tail, default ''.
-	 * @param {*}      [params.payload] Optional structured data, default null.
-	 * @param {string} [params.key]     Optional Message KEY field.
+	 * @param {string} params.to     Target node path.
+	 * @param {string} params.verb   Command verb to dispatch.
+	 * @param {string} [params.args] Literal-string argument tail (the verb parses it), default ''.
+	 * @param {string} [params.key]  Optional Message KEY field.
 	 * @return {Array} A 7-element positional Message.
 	 */
-	buildMessage( { to, verb, args = '', payload = null, key = '' } ) {
+	buildMessage( { to, verb, args = '', key = '' } ) {
 		const msg = newMessage();
 		msg[ TYPE ] = TM_COMMAND;
 		msg[ TO ] = to;
@@ -40,7 +39,6 @@ export class CommandClient {
 		msg[ VALUE ] = {
 			name: verb,
 			arguments: args,
-			payload,
 		};
 		return msg;
 	}

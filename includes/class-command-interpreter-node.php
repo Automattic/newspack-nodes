@@ -106,7 +106,6 @@ class Command_Interpreter_Node extends Node {
 				$result = $this->dispatch(
 					(string) $cmd['name'],
 					(string) ( $cmd['arguments'] ?? '' ),
-					$cmd['payload'] ?? null,
 					$message
 				);
 				$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
@@ -136,17 +135,16 @@ class Command_Interpreter_Node extends Node {
 	 * Dispatch a verb by name. Result rides the Message VALUE unencoded (never JSON here).
 	 *
 	 * @param string                  $name     Verb name.
-	 * @param string                  $args     Literal arguments tail.
-	 * @param mixed                   $payload  Optional structured data.
+	 * @param string                  $args     Literal arguments tail (verbs parse it via Command_Args).
 	 * @param array<int,mixed>        $envelope Inbound TM_COMMAND message, or [] for inline calls.
 	 * @return mixed Verb result (string for most verbs; array for dump_metadata).
 	 */
-	public function dispatch( string $name, string $args = '', mixed $payload = null, array $envelope = [] ): mixed {
+	public function dispatch( string $name, string $args = '', array $envelope = [] ): mixed {
 		$commands = $this->commands();
 		if ( ! isset( $commands[ $name ] ) ) {
 			throw new \InvalidArgumentException( \esc_html( "unknown command: {$name}" ) );
 		}
-		return ( $commands[ $name ] )( $this, $args, $envelope, $payload );
+		return ( $commands[ $name ] )( $this, $args, $envelope );
 	}
 
 	/**
@@ -700,7 +698,7 @@ class Command_Interpreter_Node extends Node {
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_COMMAND;
 		$m[ Message::FROM ]  = $path;
-		$m[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $verb_args, 'payload' => '' ];
+		$m[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $verb_args ];
 		$m[ Message::LOCAL ] = true;
 		$self->fill( $m );
 		return '';

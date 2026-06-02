@@ -56,11 +56,11 @@ beforeEach( () => {
 function makeFakeClient( payloadByVerb = {}, opts = {} ) {
 	const client = {
 		batches: [],
-		buildMessage( { to, verb, args = '', payload = null } ) {
+		buildMessage( { to, verb, args = '' } ) {
 			const m = newMessage();
 			m[ TYPE ] = TM_COMMAND;
 			m[ TO ] = to;
-			m[ VALUE ] = { name: verb, arguments: args, payload };
+			m[ VALUE ] = { name: verb, arguments: args };
 			return m;
 		},
 		postBatch( messages ) {
@@ -213,10 +213,9 @@ describe( 'useWorkerStatusGraph — control callbacks', () => {
 		expect( restartMsg ).toBeTruthy();
 		expect( restartMsg[ TO ] ).toBe( 'workers' );
 		expect( restartMsg[ FROM ] ).toBe( VIEW );
-		expect( restartMsg[ VALUE ].payload ).toEqual( {
-			types: [ 'firehose-workers' ],
-			partition: -1,
-		} );
+		// partition -1 (all) is the verb default, so the args are just the type.
+		expect( restartMsg[ VALUE ].arguments ).toBe( 'firehose-workers' );
+		expect( restartMsg[ VALUE ].payload ).toBeUndefined();
 	} );
 
 	test( 'restart(type) resolves the Promise via the view pending Map on success', async () => {

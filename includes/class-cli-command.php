@@ -410,7 +410,6 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 		$msg[ Message::VALUE ]  = [
 			'name'      => $verb,
 			'arguments' => '',
-			'payload'   => '',
 		];
 		return $msg;
 	}

@@ -213,7 +213,7 @@ class WorkersCITest extends TestCase {
 		$interpreter = new Workers_CI_Node();
 		$interpreter->cli = $fake_cli;
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'restart', [ 'types' => [ 'demo-workers' ] ] );
+		$result = VerbHarness::fire( $interpreter, 'workers', 'restart', 'demo-workers' );
 
 		$this->assertSame( [ 'restarted' => 1 ], $result );
 		$this->assertSame( [ 'demo-workers' => true ], $fake_cli->called_with['filter'] );
@@ -243,7 +243,7 @@ class WorkersCITest extends TestCase {
 		$interpreter = new Workers_CI_Node();
 		$interpreter->cli = $fake_cli;
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'restart', [ 'types' => [ 'supervisor' ] ] );
+		$result = VerbHarness::fire( $interpreter, 'workers', 'restart', 'supervisor' );
 
 		$this->assertSame( [ 'restarted' => 1 ], $result );
 		$this->assertSame( 1, $fake_cli->supervisor_calls );
@@ -298,7 +298,7 @@ class WorkersCITest extends TestCase {
 		$interpreter     = new Workers_CI_Node();
 		$interpreter->cli   = $this->stub_cli();
 		$interpreter->cache = \Newspack_Nodes\Core::$memd;
-		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', null, (string) $slot );
+		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', (string) $slot );
 
 		$this->assertSame( [ 'success' => true, 'slot' => 0 ], $result );
 		\Newspack_Nodes\Core::$memd = null;
@@ -317,7 +317,7 @@ class WorkersCITest extends TestCase {
 		$interpreter = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', null, '7' );
+		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', '7' );
 
 		$this->assertSame( 'cache not configured', $result );
 	}
@@ -331,7 +331,7 @@ class WorkersCITest extends TestCase {
 		$interpreter->cli   = $this->stub_cli();
 		$interpreter->cache = \Newspack_Nodes\Core::$memd;
 
-		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', null, '' );  // no slot
+		$result = VerbHarness::fire( $interpreter, 'workers', 'heartbeat', '' );  // no slot
 
 		$this->assertSame( 'slot required', $result );
 		\Newspack_Nodes\Core::$memd = null;

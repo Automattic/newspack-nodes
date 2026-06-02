@@ -42,23 +42,18 @@ class VerbHarness {
 	 * a TM_COMMAND|TM_ERROR response (since `interpret()` puts the thrown
 	 * message into `payload`).
 	 *
-	 * @param Command_Interpreter_Node $interpreter      interpreter under test (already constructed; the
+	 * @param Command_Interpreter_Node $interpreter interpreter under test (already constructed; the
 	 *                                     harness names it and wires it into the
 	 *                                     request-scope graph).
-	 * @param string             $name    Name to register the interpreter under (e.g. 'classes').
-	 * @param string             $verb    Verb to invoke (e.g. 'list').
-	 * @param mixed              $payload Structured data the verb consumes via its
-	 *                                     `$payload` parameter. Pass `null` (default)
-	 *                                     for verbs that take no input.
-	 * @param string             $args    Optional literal-string argument tail (the
-	 *                                     `arguments` field). Most interpreters read structured
-	 *                                     data from `$payload`; this is for the few
-	 *                                     verbs that genuinely take a CLI-style line.
-	 * @param string             $key     Optional KEY field for the inbound message
+	 * @param string             $name Name to register the interpreter under (e.g. 'classes').
+	 * @param string             $verb Verb to invoke (e.g. 'list').
+	 * @param string             $args Literal-string argument tail (the `arguments` field);
+	 *                                     verbs parse it via Command_Args. Empty for nullary verbs.
+	 * @param string             $key  Optional KEY field for the inbound message
 	 *                                     (correlation metadata; rarely needed).
 	 * @return mixed The verb's payload (structure for success verbs; error-message string for TM_ERROR).
 	 */
-	public static function fire( Command_Interpreter_Node $interpreter, string $name, string $verb, mixed $payload = null, string $args = '', string $key = '' ): mixed {
+	public static function fire( Command_Interpreter_Node $interpreter, string $name, string $verb, string $args = '', string $key = '' ): mixed {
 		$router = new Router_Node(); $router->name( '_router' );
 		$base   = new Command_Interpreter_Node(); $base->name( '_command_interpreter' ); $base->sink( $router );
 		$interpreter->name( $name );
@@ -82,7 +77,6 @@ class VerbHarness {
 		$msg[ Message::VALUE ] = [
 			'name'      => $verb,
 			'arguments' => $args,
-			'payload'   => $payload,
 		];
 		// This harness exercises verb LOGIC, not authorization (covered by
 		// CommandAuthTest / CommandInterpreterTest). Mark the command as

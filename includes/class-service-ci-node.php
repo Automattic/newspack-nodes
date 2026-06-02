@@ -92,24 +92,35 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	}
 
 	/**
-	 * Pull a `name` field out of a payload-style associative array and
-	 * validate it against $pattern. Defaults to `[a-zA-Z0-9_-]+` — the
-	 * shape Layouts_CI and Topologies_CI both require. Callers needing a
-	 * wider charset (e.g. layout node ids that include `:` / `.`) pass a
-	 * custom pattern.
+	 * Split an arguments string into its first whitespace-delimited token and the
+	 * VERBATIM remainder (everything after the first run of whitespace). The
+	 * remainder keeps its internal and trailing whitespace, so a verb carrying a
+	 * structured blob (`save <name> <tsl…>` / `<name> <positions-json>`) gets the
+	 * body intact — newlines and all. Leading whitespace is skipped; a lone token
+	 * with no body yields `''`.
 	 *
-	 * @param array<int|string,mixed> $decoded Verb payload, typically the
-	 *                                          structured-data slot of the
-	 *                                          TM_COMMAND envelope.
-	 * @param string                  $pattern Regex with delimiters; default is the
-	 *                                          common file-name-safe pattern.
+	 * @return array{0:string,1:string} [ first_token, remainder ]
+	 */
+	protected static function split_first_token( string $args ): array {
+		if ( \preg_match( '/\A\s*(\S+)\s+(.*)\z/s', $args, $m ) ) {
+			return [ $m[1], $m[2] ];
+		}
+		return [ \trim( $args ), '' ];
+	}
+
+	/**
+	 * Validate a name token (the first positional argument) against $pattern.
+	 * Defaults to `[a-zA-Z0-9_-]+` — the shape Layouts_CI and Topologies_CI
+	 * both require. Callers needing a wider charset pass a custom pattern.
+	 *
+	 * @param string $name    Name token, already split off the arguments string.
+	 * @param string $pattern Regex with delimiters; default is the common file-name-safe pattern.
 	 * @return string The validated name.
 	 */
 	protected static function require_valid_name(
-		array $decoded,
+		string $name,
 		string $pattern = '/^[a-zA-Z0-9_-]+$/'
 	): string {
-		$name = (string) ( $decoded['name'] ?? '' );
 		if ( ! \preg_match( $pattern, $name ) ) {
 			throw new \RuntimeException(
 				\esc_html( "invalid name: must match $pattern" )

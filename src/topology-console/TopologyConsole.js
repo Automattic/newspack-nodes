@@ -890,7 +890,7 @@ export default function TopologyConsole() {
 			m[ FROM ] = names.COMPLETION;
 			m[ TO ] = cwd;
 			m[ KEY ] = 'completion';
-			m[ VALUE ] = { name: verb, arguments: '', payload: '' };
+			m[ VALUE ] = { name: verb, arguments: '' };
 			m[ LOCAL ] = true;
 			fillCommandInterpreter( m );
 		},
@@ -940,7 +940,7 @@ export default function TopologyConsole() {
 				if ( ! shell ) {
 					return;
 				}
-				const { verb, kind, positional, byName } = payload;
+				const { verb, kind, positional } = payload;
 				// A command verb targets the node's `{name}:config` sibling interpreter —
 				// UNLESS the node IS itself a Command_Interpreter_Node, which
 				// handles its verbs directly (no sibling). The catalog's
@@ -989,7 +989,6 @@ export default function TopologyConsole() {
 					m[ VALUE ] = {
 						name: verb,
 						arguments: positional,
-						payload: byName,
 					};
 					echo = `command_node ${ commandTarget } ${ verb }${
 						positional ? ' ' + positional : ''

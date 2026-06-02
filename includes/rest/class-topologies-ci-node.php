@@ -81,7 +81,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'description' => 'Read a topology .tsl by name.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
-						$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
+						$name = self::require_valid_name( \trim( $args ) );
 
 						$path = Topology_Registry::resolve( $name );
 						if ( null === $path ) {
@@ -111,24 +111,24 @@ class Topologies_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'save',
-					'description' => 'Write a user topology .tsl (validated; restarts the active fleet). 64 KiB cap.',
+					'description' => 'Write a user topology: `save <name> <tsl…>` (validated; restarts the active fleet). 64 KiB cap.',
 					'args'        => [
 						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'tsl', 'type' => 'text', 'required' => true ],
 					],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope, mixed $payload ): array {
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
 						self::require_manage_options();
 						if ( Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 							throw new \RuntimeException(
-								\esc_html( 'body too large: topology payload exceeds 64 KiB' )
+								\esc_html( 'body too large: topology arguments exceed 64 KiB' )
 							);
 						}
-						$decoded = \is_array( $payload ) ? $payload : [];
-						$name    = self::require_valid_name( $decoded );
-						if ( ! isset( $decoded['tsl'] ) || ! \is_string( $decoded['tsl'] ) ) {
-							throw new \RuntimeException( 'invalid arguments: tsl must be a string' );
+						// `save <name> <tsl…>`: name is the first token, the rest-of-line (may contain newlines) is the .tsl body.
+						[ $name_raw, $tsl ] = self::split_first_token( $args );
+						$name = self::require_valid_name( $name_raw );
+						if ( '' === $tsl ) {
+							throw new \RuntimeException( 'invalid arguments: tsl (topology body) is required' );
 						}
-						$tsl = $decoded['tsl'];
 
 						// Dry-run validation: each statement passes Shell's syntax check.
 						// Report the 1-based offending line so the editor can position its cursor.
@@ -201,7 +201,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
 						self::require_manage_options();
-						$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
+						$name = self::require_valid_name( \trim( $args ) );
 
 						$user_dir = Topology_Registry::user_dir();
 						if ( '' === $user_dir ) {

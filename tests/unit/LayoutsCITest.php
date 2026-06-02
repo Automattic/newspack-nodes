@@ -69,7 +69,6 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
-			null,
 			'never-saved'
 		);
 
@@ -91,7 +90,6 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
-			null,
 			'saved'
 		);
 
@@ -110,7 +108,6 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
-			null,
 			'garbage'
 		);
 
@@ -129,7 +126,6 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
-			null,
 			'no-positions'
 		);
 
@@ -154,7 +150,6 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
-			null,
 			'extra'
 		);
 
@@ -171,7 +166,6 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
-			null,
 			'bad name!'
 		);
 		$this->assertIsString( $result );
@@ -183,7 +177,6 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
-			null,
 			'a/b'
 		);
 		$this->assertIsString( $result );
@@ -196,7 +189,6 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
-			null,
 			'anything'
 		);
 		$this->assertIsString( $result );
@@ -210,13 +202,10 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
-			[
-					'name'      => 'happy',
-					'positions' => [
-						'node_a' => [ 10.5, 20.5 ],
-						'node_b' => [ -3, 7.25 ],
-					],
-				]
+			'happy ' . (string) \json_encode( [
+				'node_a' => [ 10.5, 20.5 ],
+				'node_b' => [ -3, 7.25 ],
+			] )
 		);
 
 		$this->assertSame( 'happy', $result['name'] );
@@ -247,10 +236,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
-			[
-					'name'      => 'first',
-					'positions' => [ 'n' => [ 1, 2 ] ],
-				]
+			'first ' . (string) \json_encode( [ 'n' => [ 1, 2 ] ] )
 		);
 
 		$this->assertDirectoryExists( "{$this->base_dir}/layouts" );
@@ -262,13 +248,10 @@ class LayoutsCITest extends TestCase {
 			$interpreter,
 			'layouts',
 			'save',
-			[
-					'name'      => 'roundtrip',
-					'positions' => [
-						'alpha' => [ 100.5, 200.25 ],
-						'beta'  => [ -50.5, 75.25 ],
-					],
-				]
+			'roundtrip ' . (string) \json_encode( [
+				'alpha' => [ 100.5, 200.25 ],
+				'beta'  => [ -50.5, 75.25 ],
+			] )
 		);
 		VerbHarness::reset();
 
@@ -276,7 +259,6 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'get',
-			null,
 			'roundtrip'
 		);
 
@@ -293,20 +275,17 @@ class LayoutsCITest extends TestCase {
 		// invalid ones must be dropped silently.
 		// "42" is the only string-key that decodes to an integer key in
 		// PHP — verifies the is_string() guard.
-		$body = [
-			'name'      => 'mixed',
-			'positions' => [
-				'keep_me'   => [ 1, 2 ],
-				'bad node!' => [ 3, 4 ],
-				'also/bad'  => [ 5, 6 ],
-				'bad_val'   => 'not-an-array',
-				'too_short' => [ 1 ],
-				'bad_inf'   => [ '1e500', 2 ],
-				'42'        => [ 7, 8 ],
-			],
+		$positions = [
+			'keep_me'   => [ 1, 2 ],
+			'bad node!' => [ 3, 4 ],
+			'also/bad'  => [ 5, 6 ],
+			'bad_val'   => 'not-an-array',
+			'too_short' => [ 1 ],
+			'bad_inf'   => [ '1e500', 2 ],
+			'42'        => [ 7, 8 ],
 		];
 
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', $body );
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', 'mixed ' . (string) \json_encode( $positions ) );
 
 		$clean = $result['positions'];
 		$this->assertArrayHasKey( 'keep_me', $clean );
@@ -324,15 +303,12 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
-			[
-					'name'      => 'compound',
-					'positions' => [
-						'requests:partition:config' => [ 1, 2 ],
-						'firehose.in'               => [ 3, 4 ],
-						'node-with-dash'            => [ 5, 6 ],
-						'node_with_underscore'      => [ 7, 8 ],
-					],
-				]
+			'compound ' . (string) \json_encode( [
+				'requests:partition:config' => [ 1, 2 ],
+				'firehose.in'               => [ 3, 4 ],
+				'node-with-dash'            => [ 5, 6 ],
+				'node_with_underscore'      => [ 7, 8 ],
+			] )
 		);
 
 		$this->assertCount( 4, $result['positions'] );
@@ -343,7 +319,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
-			[ 'name' => 'empty', 'positions' => [] ]
+			'empty ' . (string) \json_encode( [] )
 		);
 
 		$this->assertSame( [], $result['positions'] );
@@ -354,10 +330,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
-			[
-					'name'      => 'bad name!',
-					'positions' => [],
-				]
+			'bad! ' . (string) \json_encode( [] )
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'invalid name', $result );
@@ -368,7 +341,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
-			[ 'name' => 'foo' ]
+			'foo'
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'positions', $result );
@@ -379,25 +352,19 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
-			[
-					'name'      => 'foo',
-					'positions' => 'oops',
-				]
+			'foo ' . (string) \json_encode( 'oops' )
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'positions', $result );
 	}
 
 	public function test_save_rejects_body_too_large(): void {
-		// Body just over 64 KiB. Use a `_pad` key so it's still
-		// structurally valid JSON when it lands.
-		$prefix = '{"name":"big","positions":{"n":[1,2]},"_pad":"';
-		$suffix = '"}';
-		$pad    = \str_repeat( 'x', 65537 - \strlen( $prefix ) - \strlen( $suffix ) );
-		$body   = $prefix . $pad . $suffix;
-		$this->assertSame( 65537, \strlen( $body ) );
+		// Arguments just over 64 KiB. The size guard measures the whole packed
+		// envelope, so a big positions blob trips it before name/JSON parsing.
+		$args = 'big ' . (string) \json_encode( [ 'n' => [ 1, 2 ], '_pad' => \str_repeat( 'x', 65537 ) ] );
+		$this->assertGreaterThan( 65536, \strlen( $args ) );
 
-		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', $body );
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', $args );
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'too large', $result );
 	}
@@ -408,10 +375,7 @@ class LayoutsCITest extends TestCase {
 			new Layouts_CI_Node(),
 			'layouts',
 			'save',
-			[
-					'name'      => 'nope',
-					'positions' => [],
-				]
+			'nope ' . (string) \json_encode( [] )
 		);
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );

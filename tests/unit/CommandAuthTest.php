@@ -22,10 +22,10 @@ class CommandAuthTest extends TestCase {
 	}
 
 	/** Build a fresh TM_COMMAND with the canonical command VALUE. */
-	private function command( string $name = 'make_node', string $args = 'Tee t', $payload = '' ): array {
+	private function command( string $name = 'make_node', string $args = 'Tee t' ): array {
 		$m                    = Message::new_message();
 		$m[ Message::TYPE ]   = Message::TM_COMMAND;
-		$m[ Message::VALUE ]  = [ 'name' => $name, 'arguments' => $args, 'payload' => $payload ];
+		$m[ Message::VALUE ]  = [ 'name' => $name, 'arguments' => $args ];
 		return $m;
 	}
 
@@ -35,7 +35,6 @@ class CommandAuthTest extends TestCase {
 		$v = $m[ Message::VALUE ];
 		$this->assertSame( 'make_node', $v['name'] );
 		$this->assertSame( 'Tee t', $v['arguments'] );
-		$this->assertSame( '', $v['payload'] );
 		$this->assertIsArray( $v['auth'] );
 		$this->assertSame( 1000, $v['auth']['ts'] );
 		$this->assertMatchesRegularExpression( '/^[0-9a-f]{32}$/', $v['auth']['nonce'] );
@@ -60,13 +59,6 @@ class CommandAuthTest extends TestCase {
 		$m = $this->command();
 		Command_Auth::sign( $m, 1000 );
 		$m[ Message::VALUE ]['arguments'] = 'Tee evil';
-		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
-	}
-
-	public function test_verify_rejects_tampered_payload(): void {
-		$m = $this->command( 'make_node', 'Tee t', 'orig' );
-		Command_Auth::sign( $m, 1000 );
-		$m[ Message::VALUE ]['payload'] = 'tampered';
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 	}
 
@@ -176,10 +168,10 @@ class CommandAuthTest extends TestCase {
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 	}
 
-	public function test_sign_refuses_unencodable_payload(): void {
+	public function test_sign_refuses_unencodable_arguments(): void {
 		// Invalid UTF-8 makes wp_json_encode return false; signing must fail closed
 		// (no auth) rather than collapse onto an HMAC('') collision.
-		$m = $this->command( 'make_node', 'Tee t', "\xB1\x31" );
+		$m = $this->command( 'make_node', "\xB1\x31" );
 		Command_Auth::sign( $m, 1000 );
 		$this->assertArrayNotHasKey( 'auth', $m[ Message::VALUE ] );
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );

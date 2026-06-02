@@ -18,7 +18,7 @@ import { newMessage, TYPE, VALUE, TM_COMMAND } from '../../runtime/message';
 function commandMsg( name, args = '' ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
-	m[ VALUE ] = { name, arguments: args, payload: null };
+	m[ VALUE ] = { name, arguments: args };
 	return m;
 }
 

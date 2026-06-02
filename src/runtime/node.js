@@ -300,15 +300,14 @@ export class Node {
 	 * available on every Node so Shell.sendCommand and overlay callers can
 	 * issue commands without hand-building messages.
 	 *
-	 * @param {string} name      Command verb (e.g. 'connect_node').
-	 * @param {string} args      Positional argument string.
-	 * @param {*}      [payload] Optional by-name payload.
+	 * @param {string} name Command verb (e.g. 'connect_node').
+	 * @param {string} args Positional argument string (the verb parses it).
 	 * @return {Array} A TM_COMMAND Message (the 7-field positional array).
 	 */
-	command( name, args = '', payload = null ) {
+	command( name, args = '' ) {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
-		m[ VALUE ] = { name, arguments: args, payload };
+		m[ VALUE ] = { name, arguments: args };
 		return m;
 	}
 

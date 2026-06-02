@@ -35,7 +35,7 @@ test( 'send leaves FROM empty — the server HTTP_In stamps the _http boundary',
 	await client.send( {
 		to: 'performance',
 		verb: 'overview',
-		payload: { range: '1h' },
+		args: '--range=1h',
 	} );
 	expect( global.fetch ).toHaveBeenCalledTimes( 1 );
 	const [ url, opts ] = global.fetch.mock.calls[ 0 ];
@@ -56,9 +56,9 @@ test( 'send leaves FROM empty — the server HTTP_In stamps the _http boundary',
 	// VALUE is the structured command object directly (no separate stringify).
 	const value = msg[ VALUE ];
 	expect( value.name ).toBe( 'overview' );
-	// `arguments` is the CLI tail; `payload` carries structured args.
-	expect( value.arguments ).toBe( '' );
-	expect( value.payload ).toEqual( { range: '1h' } );
+	// `arguments` is the whole CLI tail the verb parses — no payload slot.
+	expect( value.arguments ).toBe( '--range=1h' );
+	expect( value.payload ).toBeUndefined();
 } );
 
 test( 'send carries the KEY field through (FROM left empty for the server to stamp)', async () => {

@@ -9,13 +9,6 @@ describe( 'Node.command', () => {
 		expect( msg[ VALUE ] ).toEqual( {
 			name: 'connect_node',
 			arguments: 'a b',
-			payload: null,
 		} );
-	} );
-
-	it( 'carries optional payload', () => {
-		const node = new Node();
-		const msg = node.command( 'set_target', 'foo', { extra: 1 } );
-		expect( msg[ VALUE ].payload ).toEqual( { extra: 1 } );
 	} );
 } );

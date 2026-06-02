@@ -10,8 +10,8 @@
  * `verifier()` as CommandInterpreter's authorize policy and refuse anything that
  * doesn't verify.
  *
- * Signs the SEMANTICS, never the routing: name + arguments + payload + ts +
- * nonce. TO/FROM mutate as Router peels and nodes stamp FROM, so they are not
+ * Signs the SEMANTICS, never the routing: name + arguments + ts + nonce.
+ * TO/FROM mutate as Router peels and nodes stamp FROM, so they are not
  * signed. The envelope rides inside VALUE (`auth`) because it must survive IPC
  * to reach the worker — it cannot ride in the stripped Message::LOCAL field.
  *
@@ -66,10 +66,10 @@ class Command_Auth {
 	/**
 	 * Canonical signing string: message TYPE + command semantics + ts + nonce.
 	 * Never TO/FROM (they mutate as Router peels and nodes stamp FROM). Returns
-	 * null when the value can't be JSON-encoded (e.g. non-UTF-8 payload) so the
+	 * null when the value can't be JSON-encoded (e.g. non-UTF-8 arguments) so the
 	 * caller fails closed instead of collapsing distinct commands onto HMAC('').
 	 *
-	 * @param array<string, mixed> $value Command struct (name/arguments/payload).
+	 * @param array<string, mixed> $value Command struct (name/arguments).
 	 */
 	private static function canonical( int $type, array $value, int $ts, string $nonce ): ?string {
 		$encoded = \wp_json_encode(
@@ -77,7 +77,6 @@ class Command_Auth {
 				$type,
 				(string) ( $value['name'] ?? '' ),
 				(string) ( $value['arguments'] ?? '' ),
-				$value['payload'] ?? '',
 				$ts,
 				$nonce,
 			]
@@ -101,9 +100,9 @@ class Command_Auth {
 		$nonce = \bin2hex( \random_bytes( 16 ) );
 		$canon = self::canonical( (int) ( $message[ Message::TYPE ] ?? 0 ), $value, $ts, $nonce );
 		if ( null === $canon ) {
-			// Un-encodable payload: leave the command unsigned so the verifier
+			// Un-encodable arguments: leave the command unsigned so the verifier
 			// refuses it, rather than signing a collision-prone empty canonical.
-			Core::print_less_often( 'Command_Auth: un-encodable command payload; refusing to sign' );
+			Core::print_less_often( 'Command_Auth: un-encodable command arguments; refusing to sign' );
 			return;
 		}
 		$value['auth'] = [
