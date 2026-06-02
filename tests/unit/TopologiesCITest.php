@@ -225,7 +225,6 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'get',
-			null,
 			'some-topology'
 		);
 
@@ -242,7 +241,6 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'get',
-			null,
 			'dual'
 		);
 
@@ -255,7 +253,6 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'get',
-			null,
 			'does-not-exist'
 		);
 
@@ -269,7 +266,6 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'get',
-			null,
 			'../etc/passwd'
 		);
 
@@ -284,10 +280,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			[
-					'name' => 'fresh',
-					'tsl'  => "make_node Echo e\n",
-				]
+			'fresh ' . "make_node Echo e\n"
 		);
 
 		$this->assertSame( 'fresh', $result['name'] );
@@ -305,10 +298,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			[
-					'name' => 'roundtrip',
-					'tsl'  => "make_node Tee t\nmake_node Echo e\n",
-				]
+			'roundtrip ' . "make_node Tee t\nmake_node Echo e\n"
 		);
 		VerbHarness::reset();
 
@@ -316,7 +306,6 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'get',
-			null,
 			'roundtrip'
 		);
 
@@ -331,10 +320,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			[
-					'name' => 'shadowing',
-					'tsl'  => "make_node Echo u\n",
-				]
+			'shadowing ' . "make_node Echo u\n"
 		);
 
 		$this->assertTrue( $result['shadows_stock'] );
@@ -351,10 +337,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			[
-					'name' => 'bad-verb',
-					'tsl'  => $tsl,
-				]
+			'bad-verb ' . $tsl
 		);
 
 		$this->assertIsString( $result );
@@ -364,14 +347,11 @@ class TopologiesCITest extends TestCase {
 	}
 
 	public function test_save_rejects_body_too_large(): void {
-		// Build a JSON envelope whose tsl string puts the total args size
-		// just over 64 KiB. Pad inside a single comment line so it's still
-		// structurally valid TSL when it would land.
-		$prefix  = '{"name":"big","tsl":"#';
-		$suffix  = '"}';
-		$padding = \str_repeat( 'x', 65537 - \strlen( $prefix ) - \strlen( $suffix ) );
-		$args    = $prefix . $padding . $suffix;
-		$this->assertSame( 65537, \strlen( $args ) );
+		// Arguments just over 64 KiB: a `big` name plus a padded comment-line
+		// body. The size guard measures the whole packed envelope and trips
+		// before the body is parsed.
+		$args = 'big ' . '# ' . \str_repeat( 'x', 65537 );
+		$this->assertGreaterThan( 65536, \strlen( $args ) );
 
 		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'save', $args );
 
@@ -384,10 +364,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			[
-					'name' => 'bad.name',
-					'tsl'  => "make_node Echo e\n",
-				]
+			'bad.name ' . "make_node Echo e\n"
 		);
 
 		$this->assertIsString( $result );
@@ -399,7 +376,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			[ 'name' => 'no-body' ]
+			'no-body'
 		);
 
 		$this->assertIsString( $result );
@@ -413,10 +390,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			[
-					'name' => 'nope',
-					'tsl'  => "make_node Echo e\n",
-				]
+			'nope ' . "make_node Echo e\n"
 		);
 
 		$this->assertIsString( $result );
@@ -447,10 +421,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			[
-					'name' => 'active-one',
-					'tsl'  => "make_node Echo e\n",
-				]
+			'active-one ' . "make_node Echo e\n"
 		);
 
 		$this->assertSame( [ 'active-one' ], $result['restarted_fleets'] );
@@ -470,10 +441,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			[
-					'name' => 'dormant',
-					'tsl'  => "make_node Echo e\n",
-				]
+			'dormant ' . "make_node Echo e\n"
 		);
 
 		$this->assertSame( [], $result['restarted_fleets'] );
@@ -488,10 +456,7 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			[
-					'name' => 'auto-mkdir',
-					'tsl'  => "make_node Echo e\n",
-				]
+			'auto-mkdir ' . "make_node Echo e\n"
 		);
 
 		$this->assertDirectoryExists( $nested );
@@ -509,7 +474,6 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'delete',
-			null,
 			'to-delete'
 		);
 
@@ -527,7 +491,6 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'delete',
-			null,
 			'shadowed'
 		);
 
@@ -562,7 +525,6 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'delete',
-			null,
 			'shadowed'
 		);
 
@@ -584,7 +546,6 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'delete',
-			null,
 			'dormant'
 		);
 
@@ -601,7 +562,6 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'delete',
-			null,
 			'stock-only'
 		);
 
@@ -614,7 +574,6 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'delete',
-			null,
 			'../bad'
 		);
 
@@ -630,7 +589,6 @@ class TopologiesCITest extends TestCase {
 			new Topologies_CI_Node(),
 			'topologies',
 			'delete',
-			null,
 			'locked'
 		);
 

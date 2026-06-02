@@ -20,6 +20,7 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
 use Newspack_Nodes\Consumer_Node;
@@ -139,15 +140,15 @@ class Workers_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'restart',
-					'description' => 'Restart matching workers (and/or the supervisor).',
+					'description' => 'Restart matching workers (and/or the supervisor): `restart <type>… [--partition=<n>]`.',
 					'args'        => [
-						[ 'name' => 'types', 'type' => 'json', 'required' => false ],
+						[ 'name' => 'types', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],
 					],
-					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope, mixed $payload ): array {
-						$decoded   = \is_array( $payload ) ? $payload : [];
-						$types     = (array) ( $decoded['types']     ?? [] );
-						$partition = (int)   ( $decoded['partition'] ?? -1 );
+					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
+						$parsed    = Command_Args::parse( $args );
+						$types     = $parsed['positional'];
+						$partition = isset( $parsed['options']['partition'] ) ? (int) $parsed['options']['partition'] : -1;
 						$filter    = [];
 						foreach ( $types as $t ) {
 							$filter[ (string) $t ] = true;

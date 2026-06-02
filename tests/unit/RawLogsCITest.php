@@ -101,7 +101,6 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'log_status',
-			null,
 			'firehose'
 		);
 
@@ -125,7 +124,6 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'log_status',
-			null,
 			'firehose.log'
 		);
 
@@ -142,7 +140,6 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'log_status',
-			null,
 			'bogus-log-name'
 		);
 
@@ -173,7 +170,6 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'log_status',
-			null,
 			'firehose'
 		);
 
@@ -190,7 +186,6 @@ class RawLogsCITest extends TestCase {
 			new Raw_Logs_CI_Node(),
 			'raw-logs',
 			'log_status',
-			null,
 			'firehose'
 		);
 

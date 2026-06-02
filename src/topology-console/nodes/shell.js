@@ -363,7 +363,7 @@ export class Shell extends Node {
 			}
 			msg[ TYPE ] = TM_COMMAND;
 			msg[ TO ] = this.prefix( to );
-			msg[ VALUE ] = { name, arguments: join( 2 ), payload: '' };
+			msg[ VALUE ] = { name, arguments: join( 2 ) };
 			return msg;
 		}
 
@@ -374,7 +374,6 @@ export class Shell extends Node {
 			msg[ VALUE ] = {
 				name: 'pwd',
 				arguments: this.path,
-				payload: '',
 			};
 			return msg;
 		}
@@ -382,7 +381,7 @@ export class Shell extends Node {
 		// Bare verb: TM_COMMAND at the cwd (path).
 		msg[ TYPE ] = TM_COMMAND;
 		msg[ TO ] = this.prefix( '' );
-		msg[ VALUE ] = { name: verb, arguments: join( 0 ), payload: '' };
+		msg[ VALUE ] = { name: verb, arguments: join( 0 ) };
 		return msg;
 	}
 

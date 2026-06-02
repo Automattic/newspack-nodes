@@ -278,7 +278,7 @@ export class CommandInterpreterNode extends Node {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = path;
-		m[ VALUE ] = { name: verb, arguments: verbArgs, payload: '' };
+		m[ VALUE ] = { name: verb, arguments: verbArgs };
 		m[ LOCAL ] = true;
 		this.fill( m );
 		return '';

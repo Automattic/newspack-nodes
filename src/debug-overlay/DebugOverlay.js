@@ -232,7 +232,7 @@ export default function DebugOverlay( {
 			m[ FROM ] = names.COMPLETION;
 			m[ TO ] = cwd;
 			m[ KEY ] = 'completion';
-			m[ VALUE ] = { name: verb, arguments: '', payload: '' };
+			m[ VALUE ] = { name: verb, arguments: '' };
 			m[ LOCAL ] = true;
 			Core.node( names.COMMAND_INTERPRETER )?.fill( m );
 		},

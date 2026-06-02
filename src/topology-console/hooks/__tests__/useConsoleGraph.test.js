@@ -430,7 +430,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = names.METADATA;
 		m[ TO ] = names.CWD;
-		m[ VALUE ] = { name: 'dump_metadata', arguments: '', payload: '' };
+		m[ VALUE ] = { name: 'dump_metadata', arguments: '' };
 		m[ LOCAL ] = true;
 		return m;
 	};

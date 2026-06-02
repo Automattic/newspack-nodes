@@ -144,7 +144,6 @@ describe( 'Shell node — fill() reply pivot + TO', () => {
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'ls',
 			arguments: '-al',
-			payload: '',
 		} );
 	} );
 
@@ -237,7 +236,6 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'dump_metadata',
 			arguments: '',
-			payload: '',
 		} );
 	} );
 
@@ -256,7 +254,6 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'make_node',
 			arguments: 'Echo my_node',
-			payload: '',
 		} );
 	} );
 
@@ -299,7 +296,6 @@ describe( 'Shell node — pwd', () => {
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'pwd',
 			arguments: '_http/demo.p0',
-			payload: '',
 		} );
 	} );
 
@@ -311,7 +307,6 @@ describe( 'Shell node — pwd', () => {
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'pwd',
 			arguments: '',
-			payload: '',
 		} );
 	} );
 } );
@@ -440,7 +435,6 @@ describe( 'Shell node — quote-aware tokenization (PHP parity)', () => {
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'foo',
 			arguments: 'a b c',
-			payload: '',
 		} );
 	} );
 
@@ -469,7 +463,6 @@ describe( 'Shell node — quote-aware tokenization (PHP parity)', () => {
 		expect( filled[ 0 ][ VALUE ] ).toEqual( {
 			name: 'verb',
 			arguments: 'a b c',
-			payload: '',
 		} );
 	} );
 

@@ -284,17 +284,15 @@ class Node {
 	 * issue commands without hand-building messages.
 	 *
 	 * @param string $name      Command verb (e.g. 'connect_node').
-	 * @param string $arguments Positional argument string.
-	 * @param mixed  $payload   Optional by-name payload.
+	 * @param string $arguments Positional argument string (verbs parse it via Command_Args).
 	 * @return array<int, mixed> A TM_COMMAND Message (the 7-field positional array).
 	 */
-	public function command( string $name, string $arguments = '', mixed $payload = null ): array {
+	public function command( string $name, string $arguments = '' ): array {
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
 		$msg[ Message::VALUE ] = [
 			'name'      => $name,
 			'arguments' => $arguments,
-			'payload'   => $payload,
 		];
 		return $msg;
 	}

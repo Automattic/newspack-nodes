@@ -15,13 +15,6 @@ class NodeCommandTest extends TestCase {
 		$this->assertSame( [
 			'name'      => 'connect_node',
 			'arguments' => 'a b',
-			'payload'   => null,
 		], $msg[ Message::VALUE ] );
-	}
-
-	public function test_command_carries_optional_payload(): void {
-		$node = new Node();
-		$msg  = $node->command( 'set_target', 'foo', [ 'extra' => 1 ] );
-		$this->assertSame( [ 'extra' => 1 ], $msg[ Message::VALUE ]['payload'] );
 	}
 }

@@ -363,7 +363,6 @@ class Shell_Node extends Node {
 				$msg[ Message::VALUE ] = [
 					'name'      => $cmd_verb,
 					'arguments' => $cmd_args,
-					'payload'   => '',
 				];
 				break;
 			case 'pwd':
@@ -372,7 +371,6 @@ class Shell_Node extends Node {
 				$msg[ Message::VALUE ] = [
 					'name'      => 'pwd',
 					'arguments' => $this->path,
-					'payload'   => '',
 				];
 				break;
 			case 'ping':
@@ -410,7 +408,6 @@ class Shell_Node extends Node {
 				$msg[ Message::VALUE ] = [
 					'name'      => $verb,
 					'arguments' => \implode( ' ', $args ),
-					'payload'   => '',
 				];
 				break;
 		}

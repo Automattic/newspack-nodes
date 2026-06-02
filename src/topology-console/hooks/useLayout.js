@@ -21,7 +21,8 @@ export function useLayout() {
 		const message = await getCommandClient().send( {
 			to: 'layouts',
 			verb: 'save',
-			payload: { name, positions },
+			// `save <name> <positions-json>`: name then the rest-of-line JSON.
+			args: `${ name } ${ JSON.stringify( positions ) }`,
 		} );
 		return unwrapCommandResponse( message );
 	}, [] );

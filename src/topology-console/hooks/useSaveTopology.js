@@ -12,7 +12,8 @@ export function useSaveTopology() {
 		const message = await getCommandClient().send( {
 			to: 'topologies',
 			verb: 'save',
-			payload: { name, tsl },
+			// `save <name> <tsl…>`: name then the rest-of-line .tsl body.
+			args: `${ name } ${ tsl }`,
 		} );
 		return unwrapCommandResponse( message );
 	}, [] );

@@ -35,7 +35,6 @@ describe( 'Shell.sendCommand', () => {
 		expect( m[ VALUE ] ).toEqual( {
 			name: 'connect_node',
 			arguments: 'a b',
-			payload: null,
 		} );
 	} );
 

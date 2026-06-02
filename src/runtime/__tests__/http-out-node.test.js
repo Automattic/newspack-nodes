@@ -49,7 +49,7 @@ function routed( {
 	m[ TYPE ] = type;
 	m[ FROM ] = from;
 	m[ TO ] = to;
-	m[ VALUE ] = value ?? { name: 'ls', arguments: '', payload: '' };
+	m[ VALUE ] = value ?? { name: 'ls', arguments: '' };
 	return m;
 }
 
@@ -79,7 +79,7 @@ describe( 'HttpOut', () => {
 			routed( {
 				to: 'workers',
 				from: '_http/_sse:9/_heartbeat',
-				value: { name: 'heartbeat', arguments: '1 10 0', payload: '' },
+				value: { name: 'heartbeat', arguments: '1 10 0' },
 			} )
 		);
 		const batch = batchOf( postBatch );
@@ -285,7 +285,7 @@ describe( 'HttpOut', () => {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ TO ] = ''; // _router peeled _http, nothing follows → the HTTP boundary itself
-		m[ VALUE ] = { name: 'ls', arguments: '', payload: '' };
+		m[ VALUE ] = { name: 'ls', arguments: '' };
 		node.fill( m );
 		const batch = batchOf( postBatch );
 		// No connect_worker_input prepend — the request-scope interpreter (HTTP_In) handles it.

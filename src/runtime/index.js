@@ -17,4 +17,5 @@ export { CompletionNode } from './completion-node';
 export { DumperNode } from './dumper-node';
 export { UptimeNode } from './uptime-node';
 export { CommandClient } from './command_client';
+export { formatCommandArgs, parseCommandArgs } from './command-args';
 export { useNodeState, useNodeFill, useGraphGeneration } from './react';

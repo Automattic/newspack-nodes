@@ -40,6 +40,7 @@ import {
 	VALUE,
 	TM_COMMAND,
 } from '../../runtime/message';
+import { formatCommandArgs } from '../../runtime/command-args';
 import { createWorkerStatusTransform } from '../nodes/workerStatusTransform';
 import { createWorkerStatusView } from '../nodes/workerStatusView';
 import usePageVisibility from '../../shared/hooks/usePageVisibility';
@@ -73,19 +74,19 @@ function makeOpId() {
  * pivot — `workerstatus:transform` for dump_metadata (reply computes the
  * model), `workerstatus:view` for restart (reply settles a pending Promise).
  *
- * @param {string} verb    Verb name.
- * @param {*}      payload Verb payload.
- * @param {string} from    Reply-pivot FROM (which node the reply lands at).
- * @param {string} id      Correlator stamped into message[ID].
+ * @param {string} verb Verb name.
+ * @param {string} args Argument tail the verb parses (empty for nullary verbs).
+ * @param {string} from Reply-pivot FROM (which node the reply lands at).
+ * @param {string} id   Correlator stamped into message[ID].
  * @return {Array} A 7-field positional Message.
  */
-function buildCommand( verb, payload, from, id ) {
+function buildCommand( verb, args, from, id ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
 	m[ FROM ] = from;
 	m[ TO ] = `${ HTTP }/workers`;
 	m[ ID ] = id;
-	m[ VALUE ] = { name: verb, arguments: '', payload };
+	m[ VALUE ] = { name: verb, arguments: args };
 	return m;
 }
 
@@ -174,7 +175,7 @@ export function useWorkerStatusGraph( opts = {} ) {
 
 			// Fire one immediate dump_metadata (the canonical mount-time poll).
 			interpreter.fill(
-				buildCommand( 'dump_metadata', null, TRANSFORM, makeOpId() )
+				buildCommand( 'dump_metadata', '', TRANSFORM, makeOpId() )
 			);
 
 			// Non-node side effects undone before the nodes are removed.
@@ -206,7 +207,7 @@ export function useWorkerStatusGraph( opts = {} ) {
 				return;
 			}
 			interpreter.fill(
-				buildCommand( 'dump_metadata', null, TRANSFORM, makeOpId() )
+				buildCommand( 'dump_metadata', '', TRANSFORM, makeOpId() )
 			);
 		}, intervalMs );
 		return () => clearInterval( id );
@@ -228,12 +229,7 @@ export function useWorkerStatusGraph( opts = {} ) {
 			view.pending.set( id, { resolve, reject } );
 		} );
 		interpreter.fill(
-			buildCommand(
-				'restart',
-				{ types: [ type ], partition: -1 },
-				VIEW,
-				id
-			)
+			buildCommand( 'restart', formatCommandArgs( [ type ] ), VIEW, id )
 		);
 		return promise;
 	}, [] );

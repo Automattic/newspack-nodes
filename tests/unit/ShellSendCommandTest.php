@@ -32,7 +32,7 @@ class ShellSendCommandTest extends TestCase {
 		$this->assertSame( Node_Names::OUTPUT . '/' . \getmypid(), $msg[ Message::FROM ] );
 		$this->assertSame( 'connect_node', $msg[ Message::VALUE ]['name'] );
 		$this->assertSame( 'a b', $msg[ Message::VALUE ]['arguments'] );
-		$this->assertNull( $msg[ Message::VALUE ]['payload'] );
+		$this->assertArrayNotHasKey( 'payload', $msg[ Message::VALUE ] );
 		$this->assertTrue( $msg[ Message::LOCAL ] );
 		$this->assertNotSame( '', $msg[ Message::ID ] );
 	}

@@ -43,7 +43,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
 						self::require_manage_options();
-						$name = self::require_valid_name( [ 'name' => \trim( $args ) ] );
+						$name = self::require_valid_name( \trim( $args ) );
 						$path = self::layout_path( $name );
 
 						$positions = null;
@@ -66,25 +66,27 @@ class Layouts_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'save',
-					'description' => 'Persist node positions for a layout name. 64 KiB cap.',
+					'description' => 'Persist node positions for a layout: `save <name> <positions-json>`. 64 KiB cap.',
 					'args'        => [
 						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'positions', 'type' => 'json', 'required' => true ],
 					],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope, mixed $payload ): array {
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
 						self::require_manage_options();
 						if ( Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 							throw new \RuntimeException(
-								\esc_html( 'body too large: layout payload exceeds 64 KiB' )
+								\esc_html( 'body too large: layout arguments exceed 64 KiB' )
 							);
 						}
-						$decoded = \is_array( $payload ) ? $payload : [];
-						$name    = self::require_valid_name( $decoded );
-						if ( ! isset( $decoded['positions'] ) || ! \is_array( $decoded['positions'] ) ) {
+						// `save <name> <positions-json>`: name is the first token, the rest-of-line is the JSON.
+						[ $name_raw, $positions_json ] = self::split_first_token( $args );
+						$name      = self::require_valid_name( $name_raw );
+						$positions = \json_decode( $positions_json, true );
+						if ( ! \is_array( $positions ) ) {
 							throw new \RuntimeException( 'invalid arguments: positions must be an object' );
 						}
 
-						$clean = self::sanitize_positions( $decoded['positions'] );
+						$clean = self::sanitize_positions( $positions );
 						$dir   = self::layouts_dir();
 						if ( ! \is_dir( $dir ) ) {
 							// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
