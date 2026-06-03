@@ -8,12 +8,10 @@ import {
 import { Core } from '../runtime/core';
 import { __ } from '@wordpress/i18n';
 import CanvasFrame from '../topology-console/components/CanvasFrame';
-import GraphView from '../topology-console/components/GraphView';
+import ConsoleShell from '../topology-console/components/ConsoleShell';
 import { NewNodeModal } from '../topology-console/components/Modal';
 import { makeReplDismissHandler } from '../topology-console/utils/replDismissHandler';
-import Header from '../topology-console/components/Header';
 import { lockPageScroll, unlockPageScroll } from './pageScrollLock';
-import ReplFooter from '../topology-console/components/ReplFooter';
 import { useJsCatalog } from '../topology-console/hooks/useJsCatalog';
 import { useClassCatalog } from '../topology-console/hooks/useClassCatalog';
 import { Shell } from '../topology-console/nodes/shell';
@@ -347,78 +345,81 @@ export default function DebugOverlay( {
 							selected ? ' is-inspector-open' : ''
 						}${ paletteCollapsed ? ' is-palette-collapsed' : '' }` }
 					>
-						{ /* display:contents wrapper so the inner <header> stays
-						     a direct grid child (preserving grid-area: header)
-						     while the pointerdown handler still bubbles up. */ }
-						<div
-							className="nodes-debug__header-drag"
-							onPointerDown={ onHeaderPointerDown }
-							onDoubleClick={ ( e ) => {
-								// Skip dbl-click maximize when it lands on a
-								// header control (select, button) — those have
-								// their own behavior.
-								const tag = e.target?.tagName;
-								if (
-									tag === 'SELECT' ||
-									tag === 'BUTTON' ||
-									tag === 'INPUT' ||
-									tag === 'OPTION' ||
-									e.target?.closest?.(
-										'select, button, input'
-									)
-								) {
-									return;
-								}
-								toggleMaximize();
+						<ConsoleShell
+							ready={ ready }
+							graph={ graph }
+							frame={ CanvasFrame }
+							frameProps={ {
+								topology: 'debug',
+								partition: null,
+								isWorker: false,
+								editMode: false,
+								// Hide the chips when there's nothing to reset:
+								// passing null tells CanvasFrame to skip them.
+								onResetLayout: hasLayoutToReset
+									? resetLayout
+									: null,
+								onResetGraph: canResetGraph ? resetGraph : null,
 							} }
-						>
-							<Header
-								theme={ theme }
-								onThemeChange={ onThemeChange }
-								themes={ THEMES }
-								mode="view"
-								pathOptions={ pathOptions }
-								path={ cwd }
-								onPathChange={ setPath }
-								onClose={ () => setOpen( false ) }
-							/>
-						</div>
-						{ ready ? (
-							<GraphView
-								graph={ graph }
-								frame={ CanvasFrame }
-								frameProps={ {
-									topology: 'debug',
-									partition: null,
-									isWorker: false,
-									editMode: false,
-									// Hide the chips when there's nothing to reset:
-									// passing null tells CanvasFrame to skip them.
-									onResetLayout: hasLayoutToReset
-										? resetLayout
-										: null,
-									onResetGraph: canResetGraph
-										? resetGraph
-										: null,
-								} }
-								resetKey={ storageKey }
-								interactive
-								editMode={ false }
-								showPalette
-								paletteLoading={ catalog.loading }
-								paletteCollapsed={ paletteCollapsed }
-								onPaletteToggle={ togglePaletteCollapsed }
-								classCatalog={ schemasByShellName }
-								catalog={ catalog.classes }
-								formatters={ catalog.formatters }
-								positionOverrides={ positions }
-								onPositionChange={ onPositionChange }
-								viewport={ viewport }
-								onViewportChange={ onViewportChange }
-								onConnect={ handlers.onConnect }
-								onRemoveNode={ handlers.onRemoveNode }
-								onDropNode={ handlers.onDropNode }
-								onInspectorAction={ (
+							buildingClassName="nodes-debug__canvas-building"
+							// display:contents wrapper so the inner <header> stays
+							// a direct grid child (grid-area: header) while the
+							// pointerdown handler still bubbles up.
+							wrapHeader={ ( header ) => (
+								<div
+									className="nodes-debug__header-drag"
+									onPointerDown={ onHeaderPointerDown }
+									onDoubleClick={ ( e ) => {
+										// Skip dbl-click maximize on a header
+										// control (select, button) — those have
+										// their own behavior.
+										const tag = e.target?.tagName;
+										if (
+											tag === 'SELECT' ||
+											tag === 'BUTTON' ||
+											tag === 'INPUT' ||
+											tag === 'OPTION' ||
+											e.target?.closest?.(
+												'select, button, input'
+											)
+										) {
+											return;
+										}
+										toggleMaximize();
+									} }
+								>
+									{ header }
+								</div>
+							) }
+							headerProps={ {
+								theme,
+								onThemeChange,
+								themes: THEMES,
+								mode: 'view',
+								pathOptions,
+								path: cwd,
+								onPathChange: setPath,
+								onClose: () => setOpen( false ),
+							} }
+							canvasProps={ {
+								resetKey: storageKey,
+								interactive: true,
+								editMode: false,
+								showPalette: true,
+								paletteLoading: catalog.loading,
+								paletteCollapsed,
+								onPaletteToggle: togglePaletteCollapsed,
+								classCatalog: schemasByShellName,
+								catalog: catalog.classes,
+								formatters: catalog.formatters,
+								positionOverrides: positions,
+								onPositionChange,
+								viewport,
+								onViewportChange,
+								onConnect: handlers.onConnect,
+								onRemoveNode: handlers.onRemoveNode,
+								onDropNode: handlers.onDropNode,
+								onInspectorAction: (
 									action,
 									nodeId,
 									payload
@@ -426,36 +427,32 @@ export default function DebugOverlay( {
 									// Pop the transcript footer when the user fires an
 									// inspector action — matches the console's UX (the
 									// reply lands in _output and the user should see it).
-									// Graph-mutating actions (disconnect, …) dirty via
-									// the Shell dispatch tap in useGraphReset.
+									// Graph-mutating actions dirty via the Shell tap.
 									setReplExpanded( true );
 									handlers.onInspectorAction(
 										action,
 										nodeId,
 										payload
 									);
-								} }
-								onSelectionChange={ setSelected }
-								onBackgroundClickConsumed={
-									onCanvasBackgroundClick
-								}
-							/>
-						) : (
-							<div className="nodes-debug__canvas-building" />
-						) }
-						<ReplFooter
-							prompt={ `/${ cwd }` }
-							canSend={ true }
-							onSubmit={ sendLine }
-							onClear={ clear }
-							transcript={ transcript }
-							completion={ completion }
-							onComplete={ requestCompletion }
-							onShowCandidates={ handleShowCandidates }
-							expanded={ replExpanded }
-							onExpandedChange={ setReplExpanded }
-							inputRef={ replInputRef }
-							maxHeightPx={ replMaxHeightPx }
+								},
+								onSelectionChange: setSelected,
+								onBackgroundClickConsumed:
+									onCanvasBackgroundClick,
+							} }
+							replProps={ {
+								prompt: `/${ cwd }`,
+								canSend: true,
+								onSubmit: sendLine,
+								onClear: clear,
+								transcript,
+								completion,
+								onComplete: requestCompletion,
+								onShowCandidates: handleShowCandidates,
+								expanded: replExpanded,
+								onExpandedChange: setReplExpanded,
+								inputRef: replInputRef,
+								maxHeightPx: replMaxHeightPx,
+							} }
 						/>
 					</div>
 					{ Object.entries( getResizeHandlers() ).map(
