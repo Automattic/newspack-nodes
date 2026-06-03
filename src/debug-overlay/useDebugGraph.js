@@ -108,6 +108,8 @@ export function useDebugGraph(
 				? `${ current.shellName } ${ name } ${ trimmed }`
 				: `${ current.shellName } ${ name }`;
 			sendVerb( `make_node ${ line }`, '', 'make_node', line );
+			// Targeted refresh so the dropped node appears at once (no poll wait).
+			Core.node( names.METADATA )?.refreshNode( name );
 			if (
 				onPositionChange &&
 				'number' === typeof current.x &&

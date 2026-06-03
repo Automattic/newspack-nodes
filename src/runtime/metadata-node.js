@@ -21,11 +21,15 @@ import {
  * Snapshot every registered node into a dump_metadata-shaped object keyed by
  * node name. Patron-linked nodes are plumbing and are skipped.
  *
+ * @param {string} [only] Single node name to snapshot; '' (default) = all nodes.
  * @return {Object} Map of node name to { class, counter, sink, target, debug_state, arguments, lgst_msg, bytes_read, bytes_written }.
  */
-export function dumpMetadataPayload() {
+export function dumpMetadataPayload( only = '' ) {
 	const out = {};
 	for ( const [ name, node ] of Core.nodes ) {
+		if ( only && name !== only ) {
+			continue;
+		}
 		if ( node.patron !== null && node.patron !== undefined ) {
 			continue;
 		}
@@ -168,14 +172,25 @@ export class MetadataNode extends TimerNode {
 	// Build a poll TM_COMMAND addressed to this.target (the `_cwd` node, which
 	// re-stamps the live cwd). FROM = own name is the reply pivot; LOCAL taints
 	// it so the browser interpreter authorizes a local poll.
-	_pollMessage( verb ) {
+	_pollMessage( verb, args = '' ) {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
 		m[ FROM ] = this.name;
 		m[ TO ] = this.target;
-		m[ VALUE ] = { name: verb, arguments: '' };
+		m[ VALUE ] = { name: verb, arguments: args };
 		m[ LOCAL ] = true;
 		return m;
+	}
+
+	// Targeted refresh for one node after a mutation (drop / connect / disconnect /
+	// remove): fire `dump_metadata <name>` so the canvas updates without waiting for
+	// the throttled full poll. The single-node reply pivots back to fill() (which
+	// merges it) because FROM = own name.
+	refreshNode( name ) {
+		if ( ! this.sink || ! name ) {
+			return;
+		}
+		this.sink.fill( this._pollMessage( 'dump_metadata', name ) );
 	}
 
 	// Router TIMER subscriber (the _router calls fireCb -> fire each second).
@@ -206,12 +221,44 @@ export class MetadataNode extends TimerNode {
 	fill( message ) {
 		this.counter += 1;
 		const value = message[ VALUE ];
-		const meta =
-			value && typeof value === 'object' ? value.payload ?? value : value;
+		const isStruct = value && typeof value === 'object';
+		const meta = isStruct ? value.payload ?? value : value;
 		if ( meta === null || meta === undefined || meta === '' ) {
 			return;
 		}
-		const parsed = parseMetadata( meta );
+		// Coerce to the raw name->meta object so we can keep it for future merges.
+		let incoming = meta;
+		if ( typeof meta === 'string' ) {
+			try {
+				incoming = JSON.parse( meta );
+			} catch ( e ) {
+				return;
+			}
+		}
+		if ( ! incoming || typeof incoming !== 'object' ) {
+			return;
+		}
+		// `arguments` set → a targeted single-node reply: merge into the kept raw
+		// map (replace the node if present, drop it if the reply is empty) and
+		// keep the current poll cadence. Empty → a full map: replace + rescale.
+		const targeted =
+			isStruct &&
+			typeof value.arguments === 'string' &&
+			value.arguments !== '';
+		if ( targeted ) {
+			const name = value.arguments;
+			const map = { ...( this.rawMap || {} ) };
+			if ( incoming[ name ] ) {
+				map[ name ] = incoming[ name ];
+			} else {
+				delete map[ name ];
+			}
+			this.rawMap = map;
+			this.setState( 'metadata', parseMetadata( map ) );
+			return;
+		}
+		this.rawMap = incoming;
+		const parsed = parseMetadata( incoming );
 		// Scale the self-managed poll cadence to the graph we just received.
 		this.interval_ms = computePollIntervalMs( parsed.nodes.length );
 		this.setState( 'metadata', parsed );
