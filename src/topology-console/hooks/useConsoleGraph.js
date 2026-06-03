@@ -14,13 +14,7 @@ import { Core } from '../../runtime/core';
 import { useGraphGeneration } from '../../runtime/react';
 import { Node } from '../../runtime/node';
 import { mountExospine } from '../../runtime/exospine';
-import { SseInNode } from '../../runtime/sse-in-node';
-import { HttpOutNode } from '../../runtime/http-out-node';
 import { DumperNode } from '../../runtime/dumper-node';
-import { MetadataNode } from '../../runtime/metadata-node';
-import { UptimeNode } from '../../runtime/uptime-node';
-import { CompletionNode } from '../../runtime/completion-node';
-import { HeartbeatNode } from '../../runtime/heartbeat-node';
 import { Shell } from '../nodes/shell';
 import { getCommandClient } from '../utils/commandClient';
 import names from '../../runtime/reserved-node-names.json';
@@ -84,22 +78,23 @@ export function useConsoleGraph( {
 		// forwarding through sink) — but rule #2 still wires their sink to the interpreter
 		// so the declared topology is uniform: every node sinks into the interpreter, and
 		// _router is the only node left bare.
+		// Dumper stays bare new+named — it needs the debugLevelRef before sink.
 		const dumper = new DumperNode();
 		dumper.debugLevelRef = debugLevelRefRef.current;
 		dumper.setName( names.OUTPUT );
 		dumper.sink = interpreter;
-		const metadata = new MetadataNode();
-		metadata.setName( names.METADATA );
-		const uptime = new UptimeNode();
-		uptime.setName( names.UPTIME );
-		const completion = new CompletionNode();
-		completion.setName( names.COMPLETION );
-		completion.sink = interpreter;
+		// Substrate soft-nodes (registered in includeNodes) via make_node:
+		// name + sink=interpreter + arguments in one call.
+		const metadata = interpreter.makeNode( 'Metadata', names.METADATA );
+		const uptime = interpreter.makeNode( 'Uptime', names.UPTIME );
+		const completion = interpreter.makeNode(
+			'Completion',
+			names.COMPLETION
+		);
 		// Slot keep-alive: a silent poll node that pokes `workers/heartbeat` on the
 		// Router TIMER (batched into the canvas poll's POST) to refresh this
 		// session's SSE slot TTL — the slot is refreshed EXCLUSIVELY by the client.
-		const heartbeat = new HeartbeatNode();
-		heartbeat.setName( names.HEARTBEAT );
+		const heartbeat = interpreter.makeNode( 'Heartbeat', names.HEARTBEAT );
 
 		// `_cwd` is a plain Node whose `target` IS the current working directory.
 		// The poll nodes address `_cwd`; Router peels it, the base Node.fill
@@ -115,22 +110,19 @@ export function useConsoleGraph( {
 		cwdNode.target = `${ names.SSE }/${ reader }`;
 
 		// HTTP boundary: Router peels _http and delivers here (TO={reader}).
-		const httpOut = new HttpOutNode();
+		const httpOut = interpreter.makeNode( 'HttpOut', names.HTTP );
 		httpOut.client = getCommandClient();
-		httpOut.setName( names.HTTP );
-		httpOut.sink = interpreter;
 
 		// SSE in: each parsed Message flows to the Router (NOT the Dumper).
 		// Three-token positional config: `{subscribe} {baseUrl} {nonce}` —
 		// subscribe is comma-joined; SseConnector's arguments= setter splits it.
-		const sse = new SseInNode();
-		sse.arguments = `${ reader } ${ data.restUrl || '/wp-json/' } ${
-			data.nonce || ''
-		}`;
-		sse.setName( names.SSE );
 		// Rule #2: the SSE node sinks into the interpreter (which forwards non-command /
 		// non-empty-TO traffic to the router); steering is the SSE node's target.
-		sse.sink = interpreter;
+		const sse = interpreter.makeNode(
+			'SseIn',
+			names.SSE,
+			`${ reader } ${ data.restUrl || '/wp-json/' } ${ data.nonce || '' }`
+		);
 		// `_sse` is the session boundary: incoming replies/broadcasts route by TO
 		// (target=_output so broadcasts reach the transcript); an outgoing
 		// `cd /_sse/…` command gets its reply-node FROM wrapped with the live pid.

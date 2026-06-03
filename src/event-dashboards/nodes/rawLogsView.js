@@ -53,7 +53,7 @@ function _errorMessage( payload ) {
  *
  * Buffer + LPS logic migrated verbatim from `RawLogs.js`.
  */
-class RawLogsViewNode extends Node {
+export class RawLogsViewNode extends Node {
 	constructor() {
 		super();
 		this.lines = [];

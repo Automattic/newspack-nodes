@@ -55,7 +55,7 @@ function _errorMessage( payload ) {
  *    `clear-removing` so the slide-out animation completes (timer lives here,
  *    in the graph, not in the React view).
  */
-class WorkerStatusViewNode extends Node {
+export class WorkerStatusViewNode extends Node {
 	constructor() {
 		super();
 		this.model = emptyModel();

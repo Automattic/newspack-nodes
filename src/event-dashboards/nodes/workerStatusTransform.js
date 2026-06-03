@@ -31,7 +31,7 @@ import {
  * own `_prevSegments` is advanced synchronously for the NEXT delta. Across the
  * 1s–10s poll cadence this matches the old 500ms-delayed ref update.
  */
-class WorkerStatusTransformNode extends Node {
+export class WorkerStatusTransformNode extends Node {
 	constructor() {
 		super();
 		this._prevPositions = {};

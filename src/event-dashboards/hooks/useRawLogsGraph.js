@@ -29,9 +29,6 @@
 
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine } from '../../runtime/exospine';
-import { SseInNode } from '../../runtime/sse-in-node';
-import { HttpOutNode } from '../../runtime/http-out-node';
-import { HeartbeatNode } from '../../runtime/heartbeat-node';
 import { CommandClient } from '../../runtime/command_client';
 import {
 	newMessage,
@@ -43,7 +40,7 @@ import {
 	TM_COMMAND,
 	TM_STRUCT,
 } from '../../runtime/message';
-import { createRawLogsView } from '../nodes/rawLogsView';
+import '../nodes/register';
 
 // The I/O boundary nodes mounted from the substrate runtime.
 const SSE = '_sse';
@@ -113,34 +110,27 @@ export function useRawLogsGraph( opts = {} ) {
 			// SseInNode requires baseUrl/nonce/subscribe; we assign the
 			// substrate-required fields directly instead of going through the
 			// positional `arguments=` setter, since there's no log selected yet.
-			const sse = new SseInNode();
+			const sse = interpreter.makeNode( 'SseIn', SSE );
 			sse.baseUrl = data.restUrl || '/wp-json/';
 			sse.nonce = data.nonce || '';
 			sse.subscribe = [];
-			sse.setName( SSE );
-			sse.sink = interpreter;
 			sse.target = VIEW;
 
-			const http = new HttpOutNode();
+			const http = interpreter.makeNode( 'HttpOut', HTTP );
 			http.client =
 				optsRef.current.commandClient ||
 				new CommandClient( {
 					baseUrl: data.restUrl || '/wp-json/',
 					nonce: data.nonce || '',
 				} );
-			http.setName( HTTP );
-			http.sink = interpreter;
 
-			const heartbeat = new HeartbeatNode();
-			heartbeat.setName( HEARTBEAT );
-			heartbeat.sink = interpreter;
+			const heartbeat = interpreter.makeNode( 'Heartbeat', HEARTBEAT );
 			// `_http/workers` — the SSE_Slot_Pool's `heartbeat` verb lives on the
 			// request-scope `workers` CI. The reply is discarded by Heartbeat.fill.
 			heartbeat.target = `${ HTTP }/workers`;
 
 			// View-model node — envelope→row shaping is inlined into its fill().
-			const view = createRawLogsView( VIEW );
-			view.sink = interpreter;
+			const view = interpreter.makeNode( 'RawLogsView', VIEW );
 
 			// Slot bridge: a `connected`-event subscriber on `_sse` pushes the
 			// live slot into `_heartbeat`. Mirrors useConsoleGraph.
