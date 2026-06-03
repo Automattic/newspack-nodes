@@ -1,8 +1,13 @@
 /**
  * Compute x/y positions for a parsed {nodes, edges} graph.
  *
- * Left-to-right column layout (column = deepest predecessor + 1) with a
- * three-pass row assignment: barycenter, target-snap, deconflict.
+ * Left-to-right layered layout. Columns come from a Coffman-Graham-flavored
+ * layering: true sources pin to column 0, true sinks to the rightmost column,
+ * and every interior node is placed in the deepest feasible layer that respects
+ * edge direction (between its longest-path-from-source and longest-path-to-sink
+ * bounds), pulled to the barycenter of its neighbours' columns so a "processor
+ * tier" aligns in one column instead of spreading by raw longest-path. Rows are
+ * driven by the unchanged barycenter + spring engine.
  * Returns new node objects with `position: {x, y}`; does not mutate.
  */
 
@@ -100,11 +105,11 @@ export function autoLayout( parsed ) {
 		return { nodes: positioned, edges };
 	}
 
-	// ── force-layered layout (winner of the autoLayout bake-off + 3145-node bench) ──
-	// x is the DAG-depth column; rows are driven by edge "springs" that pull each
-	// node to the round-half midpoint of its placed neighbours (a fan-out producer /
-	// fan-in sink lands between its targets / sources, a straight chain shares a row),
-	// with intra-column order settled by barycenter crossing-reduction.
+	// ── Coffman-Graham columns + force-spring rows ──
+	// Columns: sources→0, sinks→rightmost, interior nodes to the deepest feasible
+	// layer (between longest-path-from-source and longest-path-to-sink), pulled to
+	// the barycenter of their neighbours' columns so a processor tier aligns.
+	// Rows: barycenter crossing-reduction + edge-spring midpoints (unchanged).
 	//
 	// Canonicalize to alphabetical node order so the layout is independent of the
 	// order the runtime registers nodes in — the live graph hands them over
@@ -131,22 +136,26 @@ export function autoLayout( parsed ) {
 		pred[ e.to ].push( e.from );
 	}
 
-	// Column = longest-path depth (Kahn), every sink/isolated to the deepest column.
+	const isSource = ( id ) => pred[ id ].length === 0;
+	const isSink = ( id ) => succ[ id ].length === 0;
+	const isIsolated = ( id ) => isSource( id ) && isSink( id );
+
+	// Longest-path depth from sources (Kahn).
 	const depth = {};
 	const indeg = {};
 	for ( const id of ids ) {
 		depth[ id ] = 0;
 		indeg[ id ] = pred[ id ].length;
 	}
-	const queue = ids.filter( ( id ) => indeg[ id ] === 0 );
-	while ( queue.length ) {
-		const u = queue.shift();
+	const dq = ids.filter( ( id ) => indeg[ id ] === 0 );
+	while ( dq.length ) {
+		const u = dq.shift();
 		for ( const v of succ[ u ] ) {
 			if ( depth[ v ] < depth[ u ] + 1 ) {
 				depth[ v ] = depth[ u ] + 1;
 			}
 			if ( --indeg[ v ] === 0 ) {
-				queue.push( v );
+				dq.push( v );
 			}
 		}
 	}
@@ -154,13 +163,82 @@ export function autoLayout( parsed ) {
 	for ( const id of ids ) {
 		maxDepth = Math.max( maxDepth, depth[ id ] );
 	}
-	const col = {};
+
+	// Longest-path height to sinks (reverse Kahn) — feasibility upper bound.
+	const height = {};
+	const outdeg = {};
 	for ( const id of ids ) {
-		col[ id ] = succ[ id ].length === 0 ? maxDepth : depth[ id ];
+		height[ id ] = 0;
+		outdeg[ id ] = succ[ id ].length;
+	}
+	const hq = ids.filter( ( id ) => outdeg[ id ] === 0 );
+	while ( hq.length ) {
+		const u = hq.shift();
+		for ( const p of pred[ u ] ) {
+			if ( height[ p ] < height[ u ] + 1 ) {
+				height[ p ] = height[ u ] + 1;
+			}
+			if ( --outdeg[ p ] === 0 ) {
+				hq.push( p );
+			}
+		}
 	}
 
-	const isIsolated = ( id ) =>
-		succ[ id ].length === 0 && pred[ id ].length === 0;
+	// Coffman-Graham layering: pin sources to 0 and sinks to the rightmost
+	// column; seed interior nodes at their longest-path depth, then relax each
+	// toward the barycenter of its neighbours' columns inside its feasible band
+	// [depth, maxDepth − height] so a processor tier collapses onto one column.
+	const col = {};
+	for ( const id of ids ) {
+		if ( isIsolated( id ) ) {
+			col[ id ] = null;
+		} else if ( isSource( id ) ) {
+			col[ id ] = 0;
+		} else if ( isSink( id ) ) {
+			col[ id ] = maxDepth;
+		} else {
+			col[ id ] = depth[ id ];
+		}
+	}
+	for ( let pass = 0; pass < 20; pass++ ) {
+		for ( const id of ids ) {
+			if ( col[ id ] === null || isSource( id ) || isSink( id ) ) {
+				continue;
+			}
+			const lo = depth[ id ];
+			const hi = maxDepth - height[ id ];
+			if ( lo >= hi ) {
+				col[ id ] = lo;
+				continue;
+			}
+			const nb = [ ...pred[ id ], ...succ[ id ] ]
+				.map( ( n ) => col[ n ] )
+				.filter( ( v ) => v !== null );
+			if ( ! nb.length ) {
+				col[ id ] = lo;
+				continue;
+			}
+			const bary = nb.reduce( ( a, b ) => a + b, 0 ) / nb.length;
+			col[ id ] = Math.max( lo, Math.min( hi, Math.round( bary ) ) );
+		}
+	}
+
+	// Isolated nodes go left (col 0) only on a deep, source-heavy pipeline (≥3
+	// columns AND sources ≥ depth); otherwise they join the rightmost sink column.
+	// NB: the obvious "≥2 connected components → left" rule was tried and rejected
+	// — it sends the debug-overlay's chain+backbone graph left, breaking its
+	// isolated-on-the-right test. Keep this threshold; don't revert to components.
+	const sourceCount = ids.filter(
+		( id ) => isSource( id ) && ! isIsolated( id )
+	).length;
+	const isolatedToLeft = maxDepth >= 3 && sourceCount >= maxDepth;
+	const isolatedCol = isolatedToLeft ? 0 : maxDepth;
+	for ( const id of ids ) {
+		if ( isIsolated( id ) ) {
+			col[ id ] = isolatedCol;
+		}
+	}
+
 	const columns = [];
 	for ( let c = 0; c <= maxDepth; c++ ) {
 		columns[ c ] = [];
@@ -314,16 +392,16 @@ export function autoLayout( parsed ) {
 		}
 	} );
 
-	// Isolated nodes stack below the deepest connected column.
+	// Isolated nodes stack below the deepest node of whichever column they joined.
 	let maxRow = -Infinity;
-	columns[ maxDepth ].forEach(
+	columns[ isolatedCol ].forEach(
 		( id ) => ( maxRow = Math.max( maxRow, row[ id ] ) )
 	);
 	if ( maxRow === -Infinity ) {
 		maxRow = -1;
 	}
 	isolated.forEach( ( id, i ) => {
-		col[ id ] = maxDepth;
+		col[ id ] = isolatedCol;
 		row[ id ] = maxRow + 1 + i;
 	} );
 
