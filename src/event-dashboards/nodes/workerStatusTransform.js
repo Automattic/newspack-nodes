@@ -239,15 +239,3 @@ export class WorkerStatusTransformNode extends Node {
 		this.sink.fill( out );
 	}
 }
-
-/**
- * Create and register the Worker Status transform node.
- *
- * @param {string} name Node name.
- * @return {WorkerStatusTransformNode} The transform node.
- */
-export function createWorkerStatusTransform( name ) {
-	const node = new WorkerStatusTransformNode();
-	node.setName( name );
-	return node;
-}

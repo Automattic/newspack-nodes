@@ -332,6 +332,70 @@ class TopicTest extends TestCase {
 		$this->assertSame( $new_sink, $partitions[ $partition_idx ]->sink() );
 	}
 
+	/**
+	 * Rule 2 sibling discipline: a named Topic names each materialized Partition
+	 * `{topic_name}:p{i}` (mirrors Consumer's `{name}:source`) and patron-links
+	 * it to the Topic so dump_metadata hides it from the canvas.
+	 */
+	public function test_materialized_partitions_are_named_and_patron_linked(): void {
+		$t = new Topic_Node();
+		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->name( 'firehose' );
+
+		$this->produce_into( $t, 'data', 'k1' );
+		$idx = Partition_Node::hash_to_partition( 'k1', 4 );
+
+		$ref  = new \ReflectionClass( Topic_Node::class );
+		$prop = $ref->getProperty( 'partitions' );
+		$prop->setAccessible( true );
+		$partitions = $prop->getValue( $t );
+
+		$this->assertSame( "firehose:p{$idx}", $partitions[ $idx ]->name() );
+		$this->assertSame( $t, $partitions[ $idx ]->patron() );
+	}
+
+	/**
+	 * The Partition sibling keeps Topic's own sink (the specific sink Topic
+	 * already assigns) — Rule 2's "unless it already sets a specific sink".
+	 */
+	public function test_materialized_partition_inherits_topic_sink(): void {
+		$t = new Topic_Node();
+		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->name( 'firehose' );
+		$sink = new Capture_Sink_Node();
+		$t->sink( $sink );
+
+		$this->produce_into( $t, 'data', 'k1' );
+		$idx = Partition_Node::hash_to_partition( 'k1', 4 );
+
+		$ref  = new \ReflectionClass( Topic_Node::class );
+		$prop = $ref->getProperty( 'partitions' );
+		$prop->setAccessible( true );
+		$partitions = $prop->getValue( $t );
+
+		$this->assertSame( $sink, $partitions[ $idx ]->sink() );
+	}
+
+	/**
+	 * An unnamed Topic leaves its Partition unnamed (mirrors Consumer guarding
+	 * sibling naming on a non-empty owner name) — but still patron-links it.
+	 */
+	public function test_unnamed_topic_leaves_partition_unnamed_but_patron_linked(): void {
+		$t = new Topic_Node();
+		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+
+		$this->produce_into( $t, 'data', 'k1' );
+		$idx = Partition_Node::hash_to_partition( 'k1', 4 );
+
+		$ref  = new \ReflectionClass( Topic_Node::class );
+		$prop = $ref->getProperty( 'partitions' );
+		$prop->setAccessible( true );
+		$partitions = $prop->getValue( $t );
+
+		$this->assertSame( '', $partitions[ $idx ]->name() );
+		$this->assertSame( $t, $partitions[ $idx ]->patron() );
+	}
+
 	public function test_remove_node_tears_down_partitions(): void {
 		$t = new Topic_Node();
 		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );

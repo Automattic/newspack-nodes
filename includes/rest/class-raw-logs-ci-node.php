@@ -18,7 +18,9 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
+use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Service_CI_Node;
 
@@ -28,6 +30,19 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 
 	/** Preferred log key when the operator's `log` arg is missing or unknown. */
 	private const PREFERRED_LOG_KEY = 'firehose';
+
+	/**
+	 * Probe-wiring observation seam. Lazily-defaulted to null; the log_status
+	 * handler invokes it (when set) with each per-partition inspection Partition
+	 * right after naming + patron + sink, before it reads segments and is removed.
+	 * Tests reassign it to capture that the sibling got the Rule-2 treatment
+	 * without faking the rest of the handler.
+	 *
+	 * Signature: `function ( Partition_Node $probe ): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $on_probe = null;
 
 	public static function node_schema(): array {
 		return [
@@ -68,18 +83,33 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 						$partitions     = [];
 						$total_size     = 0;
 						$total_segments = 0;
+						$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
 						for ( $p = 0; $p < $num_partitions; $p++ ) {
+							// Sibling plumbing: name + patron + sink the transient probe, read, then remove.
 							$partition        = new Partition_Node();
+							$partition->name( "{$self->name()}:status:p{$p}" );
+							$partition->patron( $self );
+							if ( null === $partition->sink() && null !== $ci ) {
+								$partition->sink( $ci );
+							}
 							$partition->arguments( "{$log_base}/{$log_file} {$p}" );
-							$segments         = $partition->get_segments( true );
-							$size             = (int) \array_sum( \array_column( $segments, 'size' ) );
-							$partitions[ $p ] = [
-								'segments'      => $segments,
-								'segment_count' => \count( $segments ),
-								'size'          => $size,
-							];
-							$total_size      += $size;
-							$total_segments  += \count( $segments );
+							// finally so a throwing probe/read can't leave the named node registered (it would collide on the next call in a long-lived worker).
+							try {
+								if ( null !== self::$on_probe ) {
+									( self::$on_probe )( $partition );
+								}
+								$segments         = $partition->get_segments( true );
+								$size             = (int) \array_sum( \array_column( $segments, 'size' ) );
+								$partitions[ $p ] = [
+									'segments'      => $segments,
+									'segment_count' => \count( $segments ),
+									'size'          => $size,
+								];
+								$total_size      += $size;
+								$total_segments  += \count( $segments );
+							} finally {
+								$partition->remove_node();
+							}
 						}
 
 						return [

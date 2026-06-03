@@ -61,6 +61,7 @@ class Worker_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
+		// Process lifecycle lock acquired before the graph exists: bare new (no interpreter in scope).
 		$this->lock = new Lock_Node( $this->lock_path(), $this->stale_timeout );
 		if ( ! $this->lock->acquire() ) {
 			return false;
@@ -176,12 +177,12 @@ class Worker_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
-		$repl = new Partition_Node();
-		$repl->arguments( implode( ' ', [ "{$ipc_dir}/output", 0, self::IPC_SEGMENT_SIZE, self::IPC_NUM_SEGMENTS ] ) );
-		$repl->name( Node_Names::REPL );
-		$repl->sink( $interpreter );
-		// allow_large_writes keys its Lock/heartbeat off name + sink, so set those first.
-		$repl->allow_large_writes();
+		// Graph assembly with the interpreter in scope: go through make_node (name -> arguments -> sink=interpreter).
+		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, "{$ipc_dir}/output", 0, self::IPC_SEGMENT_SIZE, self::IPC_NUM_SEGMENTS );
+		// allow_large_writes keys its Lock/heartbeat off name + sink, both set by make_node.
+		if ( $repl instanceof Partition_Node ) {
+			$repl->allow_large_writes();
+		}
 
 		$repl_in = $this->build_ipc_input_consumer( $ipc_dir );
 		$repl_in->sink( $interpreter );
@@ -205,6 +206,7 @@ class Worker_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( $input_dir, 0755, true );
 		}
+		// Intentionally anonymous (pure source, never a routed TO) — stays out of Core's registry.
 		$consumer = new Consumer_Node();
 		$consumer->arguments( "{$input_dir} 0 {$ipc_dir}/input.offsets" );
 		if ( ! $consumer->has_checkpoint() ) {

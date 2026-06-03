@@ -1,10 +1,12 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
@@ -2269,5 +2271,53 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( $c, Core::node( '0' ) );
 		$this->assertInstanceOf( Partition_Node::class, Core::node( '0:source' ) );
 		$this->assertInstanceOf( Partition_Node::class, Core::node( '0:offsetlog' ) );
+	}
+
+	// ============================================================================
+	// Rule 2 sibling contract: source / offsetlog Partitions are plumbing of the
+	// Consumer — named, patron-set to the owning Consumer (so dump_metadata hides
+	// them from the canvas), and sunk via the Consumer's own cascaded sink (their
+	// specific sink, so they're NOT additionally sunk to _command_interpreter).
+	// ============================================================================
+
+	public function test_source_sibling_is_named_and_patron_set_to_consumer(): void {
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 " );
+		$c->name( 'feed' );
+
+		$source = Core::node( 'feed:source' );
+		$this->assertInstanceOf( Partition_Node::class, $source );
+		$this->assertSame( 'feed:source', $source->name() );
+		$this->assertSame( $c, $source->patron(), 'source must mark the Consumer as its patron' );
+	}
+
+	public function test_offsetlog_sibling_is_named_and_patron_set_to_consumer(): void {
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'feed' );
+
+		$offsetlog = Core::node( 'feed:offsetlog' );
+		$this->assertInstanceOf( Partition_Node::class, $offsetlog );
+		$this->assertSame( 'feed:offsetlog', $offsetlog->name() );
+		$this->assertSame( $c, $offsetlog->patron(), 'offsetlog must mark the Consumer as its patron' );
+	}
+
+	public function test_siblings_use_consumer_cascaded_sink_not_interpreter(): void {
+		// Rule 2(c): a sibling that already sets a specific sink is NOT additionally
+		// sunk to _command_interpreter. The Consumer cascades its OWN sink to both
+		// Partition children, so their sink is the downstream node, never the CI.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
+
+		$downstream = new Capture_Sink_Node();
+		$c          = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'feed' );
+		$c->sink( $downstream );
+
+		$this->assertSame( $downstream, Core::node( 'feed:source' )->sink() );
+		$this->assertSame( $downstream, Core::node( 'feed:offsetlog' )->sink() );
+		$this->assertNotSame( $interpreter, Core::node( 'feed:source' )->sink() );
+		$this->assertNotSame( $interpreter, Core::node( 'feed:offsetlog' )->sink() );
 	}
 }

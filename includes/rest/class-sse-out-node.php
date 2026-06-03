@@ -337,6 +337,8 @@ class SSE_Out_Node extends Node {
 			$http_filter = new HTTP_Filter_Node( (int) \getmypid() );
 			$http_filter->name( Node_Names::OUTPUT );
 			$http_filter->sink( $this );
+			// Plumbing of the SSE egress — patron-linked so dump_metadata hides it from the canvas.
+			$http_filter->patron( $this );
 
 			// The ONE exceptional non-interpreter sink: Consumers sink HERE, not
 			// straight into the interpreter, because a Consumer would FORCE TO=target()
@@ -354,6 +356,7 @@ class SSE_Out_Node extends Node {
 			$default_route->name( '_default_route' );
 			$default_route->sink( $interpreter );
 			$default_route->target( Node_Names::SSE );
+			$default_route->patron( $this );
 
 			foreach ( $subs as $sub ) {
 				$pos    = $positions[ $sub ] ?? null;
@@ -367,6 +370,7 @@ class SSE_Out_Node extends Node {
 				foreach ( $opened as $i => $c ) {
 					$c->name( $multi ? "{$sub}:p{$i}" : $sub );
 					$c->sink( $default_route );
+					$c->patron( $this );
 					$consumers[] = $c;
 				}
 			}

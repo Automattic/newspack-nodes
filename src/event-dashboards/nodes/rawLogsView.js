@@ -213,15 +213,3 @@ export class RawLogsViewNode extends Node {
 		} );
 	}
 }
-
-/**
- * Create and register the Raw Logs view-model node.
- *
- * @param {string} name Node name.
- * @return {RawLogsViewNode} The view-model node.
- */
-export function createRawLogsView( name ) {
-	const node = new RawLogsViewNode();
-	node.setName( name );
-	return node;
-}

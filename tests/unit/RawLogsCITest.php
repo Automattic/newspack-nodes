@@ -12,7 +12,10 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Discovery;
+use Newspack_Nodes\Node_Names;
+use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Rest\Raw_Logs_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
@@ -35,6 +38,7 @@ class RawLogsCITest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		Raw_Logs_CI_Node::$on_probe = null;
 		VerbHarness::reset();
 		Log_Discovery::reset();
 		$GLOBALS['_wp_options']               = [];
@@ -191,5 +195,70 @@ class RawLogsCITest extends TestCase {
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'permission denied', $result );
+	}
+
+	// -------------------------------------------------------------------------
+	// Sibling-node discipline (Rule 2): the per-partition inspection Partition
+	// is plumbing — it must be named, patron-set to the owning interpreter, and
+	// sunk into the `_command_interpreter` while it's alive.
+	// -------------------------------------------------------------------------
+
+	public function test_log_status_probe_partition_is_named_patron_set_and_sunk(): void {
+		\mkdir( $this->tmp . '/logs/firehose.log', 0755, true );
+
+		$seen = [];
+		Raw_Logs_CI_Node::$on_probe = static function ( Partition_Node $probe ) use ( &$seen ): void {
+			$seen[] = [
+				'name'   => $probe->name(),
+				'patron' => $probe->patron(),
+				'sink'   => $probe->sink(),
+			];
+		};
+
+		VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'log_status', 'firehose' );
+
+		$this->assertCount( 1, $seen, 'one probe per partition (num_partitions=1)' );
+		$ci    = Core::node( Node_Names::COMMAND_INTERPRETER );
+		$owner = Core::node( 'raw-logs' );
+		$this->assertSame( 'raw-logs:status:p0', $seen[0]['name'] );
+		$this->assertSame( $owner, $seen[0]['patron'], 'patron is the owning interpreter (plumbing-hidden)' );
+		$this->assertSame( $ci, $seen[0]['sink'], 'sunk into the _command_interpreter' );
+	}
+
+	public function test_log_status_probe_partition_is_removed_after_use(): void {
+		\mkdir( $this->tmp . '/logs/firehose.log', 0755, true );
+
+		// Confirm the probe is registered in Core WHILE inspecting (alive), so
+		// the post-handler null assertion proves removal, not "never created".
+		$alive_during = null;
+		Raw_Logs_CI_Node::$on_probe = static function ( Partition_Node $probe ) use ( &$alive_during ): void {
+			$alive_during = Core::node( $probe->name() );
+		};
+
+		VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'log_status', 'firehose' );
+
+		$this->assertInstanceOf( Partition_Node::class, $alive_during, 'probe registered during inspection' );
+		// Transient probe: registered while inspecting, unregistered before the
+		// handler returns so re-invocation in a reused process can't collide.
+		$this->assertNull( Core::node( 'raw-logs:status:p0' ) );
+	}
+
+	public function test_log_status_removes_every_probe_across_partitions(): void {
+		// With >1 partition each probe is named p{N}; all must be removed so a
+		// later inspection of the same log can re-create them collision-free.
+		$this->use_base_dir( $this->tmp, [ 'num_partitions' => 3, 'max_lifespan' => 86400 ] );
+		\mkdir( $this->tmp . '/logs/firehose.log', 0755, true );
+
+		$names = [];
+		Raw_Logs_CI_Node::$on_probe = static function ( Partition_Node $probe ) use ( &$names ): void {
+			$names[] = $probe->name();
+		};
+
+		VerbHarness::fire( new Raw_Logs_CI_Node(), 'raw-logs', 'log_status', 'firehose' );
+
+		$this->assertSame( [ 'raw-logs:status:p0', 'raw-logs:status:p1', 'raw-logs:status:p2' ], $names );
+		foreach ( $names as $name ) {
+			$this->assertNull( Core::node( $name ), "probe {$name} removed after use" );
+		}
 	}
 }

@@ -2,6 +2,9 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Core;
+use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Supervisor;
 use Newspack_Nodes\Supervisor_Base;
 use Newspack_Nodes\Tests\TestCase;
@@ -257,6 +260,54 @@ class BootstrapTest extends TestCase {
 
 		$parts = \explode( ' ', \Newspack_Nodes\Core::node( 'demo.p0' )->arguments() );
 		$this->assertSame( (string) ( 1024 * 1024 ), $parts[2], 'mounted IPC input Partition segment_size must be 1 MiB' );
+	}
+
+	public function test_register_worker_partition_sets_patron_to_interpreter_when_present(): void {
+		// Rule 2: the mounted IPC Partition is a sibling (plumbing). With a
+		// _command_interpreter in scope it must be patron-linked to it so
+		// dump_metadata hides it from the canvas.
+		$ci = new Command_Interpreter_Node();
+		$ci->name( Node_Names::COMMAND_INTERPRETER );
+
+		$base = $this->make_temp_dir();
+		\mkdir( "{$base}/locks/demo.p0.lock.d", 0755, true );
+		\mkdir( "{$base}/ipc/demo.p0/input", 0755, true );
+
+		$this->assertTrue( Bootstrap::register_worker_partition( 'demo.p0', $base ) );
+
+		$part = Core::node( 'demo.p0' );
+		$this->assertSame( $ci, $part->patron(), 'sibling Partition must be patron-linked to the interpreter' );
+	}
+
+	public function test_register_worker_partition_sinks_to_interpreter_when_present(): void {
+		// Rule 2: the sibling has no specific sink of its own, so it must be
+		// sunk into the in-scope _command_interpreter.
+		$ci = new Command_Interpreter_Node();
+		$ci->name( Node_Names::COMMAND_INTERPRETER );
+
+		$base = $this->make_temp_dir();
+		\mkdir( "{$base}/locks/demo.p0.lock.d", 0755, true );
+		\mkdir( "{$base}/ipc/demo.p0/input", 0755, true );
+
+		$this->assertTrue( Bootstrap::register_worker_partition( 'demo.p0', $base ) );
+
+		$part = Core::node( 'demo.p0' );
+		$this->assertSame( $ci, $part->sink(), 'sibling Partition must be sunk into the interpreter' );
+	}
+
+	public function test_register_worker_partition_skips_patron_and_sink_with_no_interpreter(): void {
+		// Rule 4: no _command_interpreter in scope → still NAME the sibling but
+		// skip the interpreter patron/sink (no owning node to plumb for).
+		$base = $this->make_temp_dir();
+		\mkdir( "{$base}/locks/demo.p0.lock.d", 0755, true );
+		\mkdir( "{$base}/ipc/demo.p0/input", 0755, true );
+
+		$this->assertTrue( Bootstrap::register_worker_partition( 'demo.p0', $base ) );
+
+		$part = Core::node( 'demo.p0' );
+		$this->assertSame( 'demo.p0', $part->name(), 'sibling stays named even without an interpreter' );
+		$this->assertNull( $part->patron(), 'no interpreter in scope → no patron' );
+		$this->assertNull( $part->sink(), 'no interpreter in scope → no sink' );
 	}
 
 	// ── expand_workers ────────────────────────────────────────────────────
