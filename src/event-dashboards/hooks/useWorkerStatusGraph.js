@@ -29,7 +29,6 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
-import { HttpOutNode } from '../../runtime/http-out-node';
 import { CommandClient } from '../../runtime/command_client';
 import {
 	newMessage,
@@ -41,8 +40,7 @@ import {
 	TM_COMMAND,
 } from '../../runtime/message';
 import { formatCommandArgs } from '../../runtime/command-args';
-import { createWorkerStatusTransform } from '../nodes/workerStatusTransform';
-import { createWorkerStatusView } from '../nodes/workerStatusView';
+import '../nodes/register';
 import usePageVisibility from '../../shared/hooks/usePageVisibility';
 
 // Refresh-interval options offered to the user (the select in the full-page view).
@@ -151,22 +149,21 @@ export function useWorkerStatusGraph( opts = {} ) {
 				{};
 
 			// I/O boundary — the substrate's HttpOut.
-			const http = new HttpOutNode();
+			const http = interpreter.makeNode( 'HttpOut', HTTP );
 			http.client =
 				optsRef.current.commandClient ||
 				new CommandClient( {
 					baseUrl: data.restUrl || '/wp-json/',
 					nonce: data.nonce || '',
 				} );
-			http.setName( HTTP );
-			http.sink = interpreter;
 
 			// Application chain.
-			const transform = createWorkerStatusTransform( TRANSFORM );
-			const view = createWorkerStatusView( VIEW );
-			transform.sink = interpreter;
+			const transform = interpreter.makeNode(
+				'WorkerStatusTransform',
+				TRANSFORM
+			);
+			const view = interpreter.makeNode( 'WorkerStatusView', VIEW );
 			transform.target = VIEW;
-			view.sink = interpreter;
 
 			interpreterRef.current = interpreter;
 

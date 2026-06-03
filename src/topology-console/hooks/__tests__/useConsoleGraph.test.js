@@ -111,6 +111,31 @@ describe( 'useConsoleGraph — graph topology', () => {
 		expect( second ).not.toBe( first );
 	} );
 
+	it( 'builds the substrate soft-nodes via interpreter.makeNode (Dumper stays new+named for the debugLevelRef)', () => {
+		const spy = jest.spyOn( CommandInterpreterNode.prototype, 'makeNode' );
+		try {
+			renderGraph();
+			const built = spy.mock.calls.map( ( c ) => c[ 0 ] );
+			for ( const type of [
+				'Metadata',
+				'Uptime',
+				'Completion',
+				'Heartbeat',
+				'HttpOut',
+				'SseIn',
+			] ) {
+				expect( built ).toContain( type );
+			}
+			// Dumper needs the debugLevelRef, so it stays bare new + setName.
+			expect( built ).not.toContain( 'Dumper' );
+			expect( Core.node( names.OUTPUT ).debugLevelRef ).toEqual( {
+				current: 0,
+			} );
+		} finally {
+			spy.mockRestore();
+		}
+	} );
+
 	it( 'mounts the _cwd indirection node sinking into the interpreter', () => {
 		renderGraph();
 		const cwd = Core.node( names.CWD );
