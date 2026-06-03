@@ -26,10 +26,13 @@ import { useSaveTopology } from './hooks/useSaveTopology';
 import { useDeleteTopology } from './hooks/useDeleteTopology';
 import { useTopology, useTopologyList } from './hooks/useTopologyList';
 import { useConsoleGraph } from './hooks/useConsoleGraph';
+import { useGraphSource } from './hooks/useGraphSource';
+import { useCompletion } from './hooks/useCompletion';
+import { useGraphHandlers } from './hooks/useGraphHandlers';
+import { usePanelChrome } from './hooks/usePanelChrome';
 import { useCanvasLayout } from './hooks/useCanvasLayout';
 import { useGraphReset } from '../debug-overlay/useGraphReset';
 import { useNodeState, useNodeFill } from '../runtime/react';
-import { tabulateCandidates } from '../runtime/completion-node';
 import {
 	addEdge,
 	addNode,
@@ -46,24 +49,12 @@ import { parseTsl } from './utils/parseTsl';
 import { makeReplDismissHandler } from './utils/replDismissHandler';
 import { serializeTsl } from './utils/serializeTsl';
 import { splitStatements } from './nodes/shell';
+import { dispatchLocalCommand } from './core/dispatchLocalCommand';
 import { Core } from '../runtime/core';
-import {
-	newMessage,
-	TYPE,
-	FROM,
-	TO,
-	KEY,
-	VALUE,
-	LOCAL,
-	TM_COMMAND,
-	TM_REQUEST,
-} from '../runtime/message';
+import { TO } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 import {
 	THEMES,
-	DEFAULT_THEME,
-	isValidTheme,
-	THEME_STORAGE_KEY,
 	PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
 	PALETTE_COLLAPSED_STORAGE_KEY_EDIT,
 } from './themes';
@@ -225,41 +216,13 @@ function initialPartitionFromUrl() {
 }
 
 // Stable empty defaults so unpopulated state keeps a constant reference.
-const EMPTY_GRAPH = { nodes: [], edges: [] };
 const EMPTY_TRANSCRIPT = [];
 
-// Per-mode palette-collapsed: live defaults to collapsed (storage '0' =
-// user opened it); edit defaults to OPEN (storage '1' = user closed it).
+// Per-mode palette key: edit and live store separately (different defaults).
 function paletteKeyFor( mode ) {
 	return 'edit' === mode
 		? PALETTE_COLLAPSED_STORAGE_KEY_EDIT
 		: PALETTE_COLLAPSED_STORAGE_KEY_LIVE;
-}
-function readStoredPaletteCollapsed( mode ) {
-	const key = paletteKeyFor( mode );
-	const def = 'edit' !== mode; // live default: collapsed; edit default: open
-	try {
-		const stored = window.localStorage.getItem( key );
-		if ( stored === '0' ) {
-			return false;
-		}
-		if ( stored === '1' ) {
-			return true;
-		}
-		return def;
-	} catch ( _err ) {
-		return def;
-	}
-}
-
-// Read the persisted skin; unknown/absent/disabled storage falls back to default.
-function readStoredTheme() {
-	try {
-		const slug = window.localStorage.getItem( THEME_STORAGE_KEY );
-		return isValidTheme( slug ) ? slug : DEFAULT_THEME;
-	} catch ( _err ) {
-		return DEFAULT_THEME;
-	}
 }
 
 export default function TopologyConsole() {
@@ -294,38 +257,14 @@ export default function TopologyConsole() {
 	const [ deleteModal, setDeleteModal ] = useState( null );
 	const [ openModalShown, setOpenModalShown ] = useState( false );
 	const [ toast, setToast ] = useState( null );
-	const [ theme, setThemeState ] = useState( readStoredTheme );
-	const setTheme = useCallback( ( slug ) => {
-		const next = isValidTheme( slug ) ? slug : DEFAULT_THEME;
-		setThemeState( next );
-		try {
-			window.localStorage.setItem( THEME_STORAGE_KEY, next );
-		} catch ( _err ) {
-			// localStorage disabled/quota'd; in-session only.
-		}
-	}, [] );
-	const [ paletteCollapsed, setPaletteCollapsedState ] = useState( () =>
-		readStoredPaletteCollapsed( mode )
-	);
-	const togglePaletteCollapsed = useCallback( () => {
-		setPaletteCollapsedState( ( prev ) => {
-			const next = ! prev;
-			try {
-				window.localStorage.setItem(
-					paletteKeyFor( mode ),
-					next ? '1' : '0'
-				);
-			} catch ( _err ) {
-				// localStorage disabled/quota'd; in-session only.
-			}
-			return next;
+	// Theme + palette chrome shared with the debug overlay. The console picks
+	// the palette key by mode (live vs edit, with per-mode defaults); the hook
+	// reloads palette state whenever the key/default change on a mode switch.
+	const { theme, onThemeChange, paletteCollapsed, togglePaletteCollapsed } =
+		usePanelChrome( {
+			paletteKey: paletteKeyFor( mode ),
+			defaultCollapsed: 'edit' !== mode,
 		} );
-	}, [ mode ] );
-	// Switch modes → reload the persisted state for the new mode (each mode
-	// has its own key + default).
-	useEffect( () => {
-		setPaletteCollapsedState( readStoredPaletteCollapsed( mode ) );
-	}, [ mode ] );
 	const saveTopology = useSaveTopology();
 	const deleteTopology = useDeleteTopology();
 	const fetchTopology = useTopology();
@@ -394,7 +333,7 @@ export default function TopologyConsole() {
 	// Canvas/transcript state lives on dedicated nodes (WIRING-PLAN §4): the
 	// Dumper (`_output`) is transcript-only; `_metadata` / `_uptime` publish the
 	// silent-poll replies the Router routes to them.
-	const parsed = useNodeState( names.METADATA, 'metadata' ) ?? EMPTY_GRAPH;
+	const { graph: parsed } = useGraphSource( { coreFallback: false } );
 	const uptime = useNodeState( names.UPTIME, 'uptime' ) ?? null;
 	// Tab-completion candidates from the `_completion` node ( { candidates, seq } ).
 	const completion = useNodeState( names.COMPLETION, 'candidates' ) ?? null;
@@ -762,37 +701,12 @@ export default function TopologyConsole() {
 				appendTranscript( { kind: 'error', text: parsedLine.text } );
 				return;
 			}
-			if ( parsedLine.kind === 'local' ) {
-				if ( parsedLine.name === 'clear' ) {
-					clearTranscript();
-				} else if ( parsedLine.name === 'debug_level' ) {
-					// Substrate Shell semantics: no-arg toggles 0/1, numeric clamps 0..2.
-					if ( parsedLine.level === null ) {
-						debugLevelRef.current =
-							debugLevelRef.current > 0 ? 0 : 1;
-					} else {
-						debugLevelRef.current = Math.max(
-							0,
-							Math.min( 2, parsedLine.level )
-						);
-					}
-					appendTranscript( {
-						kind: 'info',
-						text: `debug_level: ${ debugLevelRef.current }`,
-					} );
-				} else if ( parsedLine.name === 'echo' ) {
-					appendTranscript( { kind: 'recv', text: parsedLine.text } );
-				} else if ( parsedLine.name === 'status' ) {
-					for ( const line of parsedLine.lines ) {
-						appendTranscript( { kind: 'recv', text: line } );
-					}
-				} else if ( parsedLine.name === 'show_parse' ) {
-					appendTranscript( {
-						kind: 'info',
-						text: `show_parse: ${ parsedLine.on ? 'on' : 'off' }`,
-					} );
-				}
-			}
+			dispatchLocalCommand( {
+				parsed: parsedLine,
+				append: appendTranscript,
+				clear: clearTranscript,
+				debugLevelRef,
+			} );
 		},
 		[ shell, ssePid, appendTranscript, clearTranscript, handlePathChange ]
 	);
@@ -828,42 +742,15 @@ export default function TopologyConsole() {
 		}
 	}, [ shell, mode, ssePid, cwd, pathOptions ] );
 
-	// Tab-completion query (WIRING-PLAN §5 sibling of the canvas poll). The verb
-	// depends on cursor context: completing the FIRST token (the command word) →
-	// `help` (verb names); completing a LATER token (a node-name arg) → `ls`
-	// (node names). KEY='completion' tells the worker's interpreter to emit a bare
-	// candidate list; FROM pivots the reply to the silent `_completion` node.
-	const requestCompletion = useCallback(
-		( line ) => {
-			// Completion targets the cwd; only a worker-pivot cwd needs the session.
-			if ( toNeedsSseSession( cwd ) && ! ssePid ) {
-				return;
-			}
-			// First token iff there's no whitespace before the trailing token.
-			const onFirstToken = ! /\s/.test( String( line ).trimStart() );
-			const verb = onFirstToken ? 'help' : 'ls';
-			const m = newMessage();
-			m[ TYPE ] = TM_COMMAND;
-			m[ FROM ] = names.COMPLETION;
-			m[ TO ] = cwd;
-			m[ KEY ] = 'completion';
-			m[ VALUE ] = { name: verb, arguments: '' };
-			m[ LOCAL ] = true;
-			fillCommandInterpreter( m );
-		},
-		[ ssePid, cwd, fillCommandInterpreter ]
-	);
-
-	// List completion candidates into the transcript (readline two-stage).
-	const handleShowCandidates = useCallback(
-		( candidates ) => {
-			appendTranscript( {
-				kind: 'recv',
-				text: tabulateCandidates( candidates ),
-			} );
-		},
-		[ appendTranscript ]
-	);
+	// Tab-completion query (WIRING-PLAN §5 sibling of the canvas poll). Shared with
+	// the debug overlay via useCompletion; the console gates the request on a live
+	// SSE session for a worker-pivot cwd.
+	const { requestCompletion, handleShowCandidates } = useCompletion( {
+		cwd,
+		fill: fillCommandInterpreter,
+		append: appendTranscript,
+		skip: () => toNeedsSseSession( cwd ) && ! ssePid,
+	} );
 
 	// Split on unquoted `;` so `help; ls` dispatches as two commands.
 	const sendLine = useCallback(
@@ -875,94 +762,33 @@ export default function TopologyConsole() {
 		[ dispatchStatement ]
 	);
 
-	// Route Inspector actions through sendLine so they echo in the transcript.
+	// Shared live-mode handlers (connect/remove/disconnect/send/trace/invoke/drop).
+	// Verb lines route through sendLine (which echoes + dispatches through the
+	// useGraphReset tap); invoke builds its raw TM_COMMAND / TM_REQUEST with the
+	// worker-pivot prefix/replyFrom + an SSE-session guard. The console adds its
+	// own edit-mode branches on top (handleConnect / handleRemoveNode /
+	// handleDropNode below) and its repl-expand/focus side-effect on inspector.
+	const liveHandlers = useGraphHandlers( {
+		shell,
+		graph: parsed,
+		catalogClasses: catalog.classes,
+		dispatch: ( echoLine ) => sendLine( echoLine ),
+		append: appendTranscript,
+		onDropStage: setPendingDrop,
+		prefix: ( target ) => shell?.prefix( target ),
+		replyFrom: ( node ) => shell?.replyFrom( node ),
+		sseGuard: ( to ) => ! ( toNeedsSseSession( to ) && ! ssePid ),
+	} );
+
+	// Route Inspector actions through the shared handler, then pop the transcript
+	// + focus the prompt so the worker's reply is visible.
 	const handleInspectorAction = useCallback(
 		( action, nodeId, payload ) => {
-			if ( action === 'dump' ) {
-				sendLine( `dump_node ${ nodeId }` );
-			} else if ( action === 'tail' ) {
-				sendLine( `connect_node ${ nodeId }` );
-			} else if ( action === 'disconnect' ) {
-				sendLine( `disconnect_node ${ nodeId }` );
-			} else if ( action === 'send' ) {
-				sendLine( `send_node ${ nodeId } ${ payload }` );
-			} else if ( action === 'trace' ) {
-				// payload is the target debug level (0 disable, 1 enable).
-				const level = typeof payload === 'number' ? payload : 1;
-				sendLine( `debug_state ${ nodeId } ${ level }` );
-			} else if ( action === 'invoke' ) {
-				// Unified verb invocation: TM_COMMAND (kind 'command') or
-				// TM_REQUEST (kind 'request'), with args delivered both as a
-				// positional string and a by-name payload map.
-				if ( ! shell ) {
-					return;
-				}
-				const { verb, kind, positional } = payload;
-				// A command verb targets the node's `{name}:config` sibling interpreter —
-				// UNLESS the node IS itself a Command_Interpreter_Node, which
-				// handles its verbs directly (no sibling). The catalog's
-				// per-class `is_interpreter` flag is the source of truth: map
-				// nodeId → its node's class (shell_name) → that flag. Requests
-				// are always answered by the node itself.
-				const node = parsed.nodes.find( ( n ) => n.id === nodeId );
-				const cls =
-					node && catalog.classes
-						? catalog.classes.find(
-								( c ) => c.shell_name === node.class
-						  )
-						: null;
-				const isInterpreter = !! ( cls && cls.is_interpreter );
-				const commandTarget =
-					'request' === kind || isInterpreter
-						? nodeId
-						: `${ nodeId }:config`;
-				const m = newMessage();
-				m[ TO ] = shell.prefix( commandTarget );
-				m[ FROM ] = shell.replyFrom( names.OUTPUT );
-				m[ LOCAL ] = true;
-				// Only a worker-pivot target's reply rides the async stream; a
-				// local-graph node invocation interprets in-browser without a pid.
-				if ( toNeedsSseSession( m[ TO ] ) && ! ssePid ) {
-					appendTranscript( {
-						kind: 'error',
-						text: __(
-							'[no sse_pid yet] retry once CONNECTED',
-							'newspack-nodes'
-						),
-					} );
-					return;
-				}
-				let echo;
-				if ( 'request' === kind ) {
-					m[ TYPE ] = TM_REQUEST;
-					m[ VALUE ] = positional
-						? `${ verb } ${ positional }`
-						: verb;
-					echo = `request_node ${ nodeId } ${ verb }${
-						positional ? ' ' + positional : ''
-					}`;
-				} else {
-					m[ TYPE ] = TM_COMMAND;
-					m[ VALUE ] = {
-						name: verb,
-						arguments: positional,
-					};
-					echo = `command_node ${ commandTarget } ${ verb }${
-						positional ? ' ' + positional : ''
-					}`;
-				}
-				appendTranscript( {
-					kind: 'sent',
-					text: echo,
-					prompt: `/${ shell.path }`,
-				} );
-				shell.sink?.fill( m );
-			}
-			// Pop the transcript + focus the prompt to show the worker's reply.
+			liveHandlers.onInspectorAction( action, nodeId, payload );
 			setReplExpanded( true );
 			window.requestAnimationFrame( () => replInputRef.current?.focus() );
 		},
-		[ sendLine, shell, ssePid, appendTranscript, parsed, catalog.classes ]
+		[ liveHandlers ]
 	);
 
 	// Synthesize virtual edges from node_name verb args so autoLayout places
@@ -1083,7 +909,7 @@ export default function TopologyConsole() {
 		( from, to ) => {
 			// Live canvas: the gesture is a live command at the current cwd.
 			if ( mode !== 'edit' ) {
-				sendLine( `connect_node ${ from } ${ to }` );
+				liveHandlers.onConnect( from, to );
 				return;
 			}
 			setDraft( ( g ) => {
@@ -1101,19 +927,19 @@ export default function TopologyConsole() {
 				return addEdge( g, { from, to } );
 			} );
 		},
-		[ mode, sendLine ]
+		[ mode, liveHandlers ]
 	);
 
 	const handleRemoveNode = useCallback(
 		( id ) => {
 			// Live canvas: the gesture is a live command at the current cwd.
 			if ( mode !== 'edit' ) {
-				sendLine( `remove_node ${ id }` );
+				liveHandlers.onRemoveNode( id );
 				return;
 			}
 			setDraft( ( g ) => removeNode( g, id ) );
 		},
-		[ mode, sendLine ]
+		[ mode, liveHandlers ]
 	);
 
 	const handleRemoveEdge = useCallback( ( from, to ) => {
@@ -1397,20 +1223,11 @@ export default function TopologyConsole() {
 
 	const handleDropNode = useCallback(
 		( { shellName, x, y } ) => {
-			// Live canvas: dispatch a live make_node; position is cosmetic and
-			// not sent (poll-reflect lays it out). Name uniqued against the
-			// live graph so it won't collide with an existing node.
+			// Live canvas: stage the NewNodeModal (commitPendingDrop dispatches the
+			// make_node once the user confirms). Position is cosmetic and not sent
+			// (poll-reflect lays it out).
 			if ( mode !== 'edit' ) {
-				// Every live-mode palette drop goes through NewNodeModal so
-				// the user can override the auto-generated name (and add
-				// args when the class declares them). commitPendingDrop
-				// (below) dispatches once the user confirms.
-				const defaultName = generateNodeName( parsed, shellName );
-				const cls = ( catalog?.classes || [] ).find(
-					( c ) => c.shell_name === shellName
-				);
-				const argSchema = cls?.arguments || [];
-				setPendingDrop( { shellName, defaultName, argSchema, x, y } );
+				liveHandlers.onDropNode( { shellName, x, y } );
 				return;
 			}
 			// Snap to the grid so dropped nodes line up and don't drift.
@@ -1428,7 +1245,7 @@ export default function TopologyConsole() {
 		},
 		// sendLine is consumed by commitPendingDrop (below), not this callback —
 		// live-mode drop just stages pendingDrop now.
-		[ mode, parsed, handlePositionChange, catalog?.classes ]
+		[ mode, liveHandlers, handlePositionChange ]
 	);
 
 	// NewNodeModal commit/cancel (live mode).
@@ -1473,7 +1290,7 @@ export default function TopologyConsole() {
 				onDelete={ handleDelete }
 				canDelete={ canDeleteCurrent }
 				theme={ theme }
-				onThemeChange={ setTheme }
+				onThemeChange={ onThemeChange }
 				themes={ THEMES }
 			/>
 			{ layoutReady ? (

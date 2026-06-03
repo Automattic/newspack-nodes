@@ -18,23 +18,11 @@ import { useJsCatalog } from '../topology-console/hooks/useJsCatalog';
 import { useClassCatalog } from '../topology-console/hooks/useClassCatalog';
 import { Shell } from '../topology-console/nodes/shell';
 import { useNodeState } from '../runtime/react';
-import { tabulateCandidates } from '../runtime/completion-node';
-import {
-	newMessage,
-	TYPE,
-	FROM,
-	TO,
-	KEY,
-	VALUE,
-	LOCAL,
-	TM_COMMAND,
-} from '../runtime/message';
+import { useCompletion } from '../topology-console/hooks/useCompletion';
+import { usePanelChrome } from '../topology-console/hooks/usePanelChrome';
 import names from '../runtime/reserved-node-names.json';
 import {
 	THEMES,
-	DEFAULT_THEME,
-	isValidTheme,
-	THEME_STORAGE_KEY,
 	PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
 } from '../topology-console/themes';
 import { isDebugEnabled } from './isDebugEnabled';
@@ -48,16 +36,6 @@ import './debug-overlay.scss';
 // (We reuse the topology console's CanvasFrame directly for visual parity —
 // reticles, paper background, "kissing the header" border seal — and pass
 // only the minimal props it needs. No PlainFrame.)
-
-// Read the persisted theme; unknown/disabled storage falls back to default.
-function readStoredTheme( key ) {
-	try {
-		const slug = window.localStorage.getItem( key );
-		return isValidTheme( slug ) ? slug : DEFAULT_THEME;
-	} catch ( _err ) {
-		return DEFAULT_THEME;
-	}
-}
 
 /**
  * Same-page debug overlay: a debug-gated floating FAB + panel that renders the
@@ -85,48 +63,11 @@ export default function DebugOverlay( {
 	const [ replExpanded, setReplExpanded ] = useState( false );
 	const replInputRef = useRef( null );
 	const panelRef = useRef( null );
-	// Theme + palette keys are global — shared with the topology console
-	// so a preference picked in either surface applies in both. Palette
-	// defaults to collapsed; storage='0' means the user explicitly opened it.
-	const [ theme, setTheme ] = useState( () =>
-		readStoredTheme( THEME_STORAGE_KEY )
-	);
-	// The overlay is always a live view (no edit mode), so it uses the
-	// live key. Defaults to collapsed; '0' = user opened it.
-	const [ paletteCollapsed, setPaletteCollapsed ] = useState( () => {
-		try {
-			return (
-				window.localStorage.getItem(
-					PALETTE_COLLAPSED_STORAGE_KEY_LIVE
-				) !== '0'
-			);
-		} catch ( _err ) {
-			return true;
-		}
-	} );
-	const togglePaletteCollapsed = () => {
-		setPaletteCollapsed( ( prev ) => {
-			const next = ! prev;
-			try {
-				window.localStorage.setItem(
-					PALETTE_COLLAPSED_STORAGE_KEY_LIVE,
-					next ? '1' : '0'
-				);
-			} catch ( _err ) {
-				// localStorage disabled — in-session only.
-			}
-			return next;
-		} );
-	};
-	const onThemeChange = ( slug ) => {
-		const next = isValidTheme( slug ) ? slug : DEFAULT_THEME;
-		setTheme( next );
-		try {
-			window.localStorage.setItem( THEME_STORAGE_KEY, next );
-		} catch ( _err ) {
-			// localStorage disabled — in-session only.
-		}
-	};
+	// Theme + palette are shared with the topology console so a preference
+	// picked in either surface applies in both. The overlay is always live
+	// (no edit mode), so it uses the live palette key (default collapsed).
+	const { theme, onThemeChange, paletteCollapsed, togglePaletteCollapsed } =
+		usePanelChrome( { paletteKey: PALETTE_COLLAPSED_STORAGE_KEY_LIVE } );
 	// One Shell instance per overlay mount, shared by useDebugGraph (handler
 	// dispatch) and useDebugRepl (typed-line dispatch). cwd is empty: the
 	// overlay is local-only. Sink resolution is deferred to useEffect because
@@ -242,36 +183,16 @@ export default function DebugOverlay( {
 		}
 	}
 
-	// Tab-completion: subscribe to _completion's published candidates and
-	// expose a requestCompletion(line) that builds the `help` (first token)
-	// or `ls` (later tokens) query addressed at the cwd. Mirrors
-	// TopologyConsole.requestCompletion (Rule #4).
+	// Tab-completion: subscribe to _completion's published candidates and expose
+	// requestCompletion/handleShowCandidates via the shared useCompletion hook.
+	// The overlay is local-only (no SSE), so it leaves skip at the never-skip
+	// default and fills the page's own CommandInterpreter.
 	const completion = useNodeState( names.COMPLETION, 'candidates' ) ?? null;
-	const requestCompletion = useCallback(
-		( line ) => {
-			const onFirstToken = ! /\s/.test( String( line ).trimStart() );
-			const verb = onFirstToken ? 'help' : 'ls';
-			const m = newMessage();
-			m[ TYPE ] = TM_COMMAND;
-			m[ FROM ] = names.COMPLETION;
-			m[ TO ] = cwd;
-			m[ KEY ] = 'completion';
-			m[ VALUE ] = { name: verb, arguments: '' };
-			m[ LOCAL ] = true;
-			Core.node( names.COMMAND_INTERPRETER )?.fill( m );
-		},
-		[ cwd ]
-	);
-	// Tab-completion listing: the footer calls this on the 2nd consecutive Tab of
-	// an ambiguous token to print the candidate set into the transcript. Mirrors
-	// TopologyConsole.handleShowCandidates (Rule #4) — without it the second Tab
-	// is a silent no-op.
-	const handleShowCandidates = useCallback(
-		( candidates ) => {
-			append( { kind: 'recv', text: tabulateCandidates( candidates ) } );
-		},
-		[ append ]
-	);
+	const { requestCompletion, handleShowCandidates } = useCompletion( {
+		cwd,
+		fill: ( m ) => Core.node( names.COMMAND_INTERPRETER )?.fill( m ),
+		append,
+	} );
 	// Catalog is resolved above (just below useDebugRepl). schemasByShellName
 	// drops the array form into a lookup map for the Inspector's class
 	// metadata reads.
