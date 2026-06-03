@@ -65,6 +65,8 @@ describe( 'SchematicCanvas', () => {
 		};
 	} );
 
+	// positionOverrides is now the COMPLETE map (the canvas no longer lays out);
+	// supply the default a/b graph's autoLayout positions so nodes render.
 	const baseProps = {
 		parsed,
 		selectedId: null,
@@ -72,7 +74,7 @@ describe( 'SchematicCanvas', () => {
 		onDeselect: () => {},
 		hoveredId: null,
 		onHover: () => {},
-		positionOverrides: null,
+		positionOverrides: { a: { x: 60, y: 80 }, b: { x: 300, y: 80 } },
 		onPositionChange: () => {},
 		rateRef: { current: new Map() },
 		rateVersion: 0,
@@ -113,95 +115,56 @@ describe( 'SchematicCanvas', () => {
 		expect( onSelect ).toHaveBeenCalledTimes( 1 );
 	} );
 
-	it( 'applies position overrides on top of auto-layout', () => {
+	it( 'renders a node at its exact positionOverrides coordinates', () => {
 		const { container } = render(
 			<SchematicCanvas
 				{ ...baseProps }
 				positionOverrides={ { a: { x: 999, y: 222 } } }
 			/>
 		);
-		// Verify the override renders without crashing.
+		// The canvas renders the node verbatim at the supplied position.
 		const nodeA = Array.from(
 			container.querySelectorAll( '.topology-node' )
 		).find( ( g ) => g.getAttribute( 'transform' ).includes( '999' ) );
 		expect( nodeA ).not.toBeUndefined();
 	} );
 
-	it( 'fires onSeedLayout with autoLayout positions when overrides are empty', () => {
-		const calls = [];
+	it( 'renders nodes at the exact positionOverrides and never calls onSeedLayout', () => {
+		const onSeedLayout = jest.fn();
+		const localParsed = {
+			nodes: [ { id: 'a' }, { id: 'b' } ],
+			edges: [ { from: 'a', to: 'b' } ],
+		};
+		const positionOverrides = {
+			a: { x: 60, y: 80 },
+			b: { x: 300, y: 80 },
+		};
 		render(
 			<SchematicCanvas
 				{ ...baseProps }
-				positionOverrides={ {} }
-				onSeedLayout={ ( map ) => calls.push( map ) }
+				parsed={ localParsed }
+				positionOverrides={ positionOverrides }
+				onSeedLayout={ onSeedLayout }
 			/>
 		);
-		// Single seed call with one entry per parsed node, top-left coords.
-		expect( calls ).toHaveLength( 1 );
-		expect( Object.keys( calls[ 0 ] ).sort() ).toEqual( [ 'a', 'b' ] );
-		expect( calls[ 0 ].a ).toEqual(
-			expect.objectContaining( {
-				x: expect.any( Number ),
-				y: expect.any( Number ),
-			} )
-		);
+		expect( onSeedLayout ).not.toHaveBeenCalled();
 	} );
 
-	it( 'ships the autoLayout seed even when positionOverrides already covers nodes (the layout hook merges/no-ops)', () => {
-		const calls = [];
-		render(
-			<SchematicCanvas
-				{ ...baseProps }
-				positionOverrides={ {
-					a: { x: 60, y: 80 },
-					b: { x: 300, y: 80 },
-				} }
-				onSeedLayout={ ( map ) => calls.push( map ) }
-			/>
-		);
-		// The canvas always ships autoLayout's positions; useDebugLayout decides
-		// what to pin (merge missing, never overwrite) — so a node appearing later
-		// gets pinned instead of re-flowing on every connection change.
-		expect( calls ).toHaveLength( 1 );
-		expect( Object.keys( calls[ 0 ] ).sort() ).toEqual( [ 'a', 'b' ] );
-	} );
-
-	it( 'places a newcomer via placeNewNode and keeps existing overrides (no graph re-flow)', () => {
-		const calls = [];
-		render(
+	it( 'skips a node that has no position (one-frame gap before the layout hook places it)', () => {
+		const { container } = render(
 			<SchematicCanvas
 				{ ...baseProps }
 				parsed={ {
-					nodes: [ { id: 'a' }, { id: 'b' }, { id: 'c' } ],
-					edges: [ { from: 'b', to: 'c' } ], // c is downstream of b
+					nodes: [ { id: 'a' }, { id: 'late' } ],
+					edges: [],
 				} }
-				positionOverrides={ {
-					a: { x: 1, y: 1 },
-					b: { x: 240, y: 80 },
-				} }
-				onSeedLayout={ ( map ) => calls.push( map ) }
+				positionOverrides={ { a: { x: 60, y: 80 } } }
 			/>
 		);
-		// Existing overrides are untouched (no autoLayout re-flow); the newcomer c
-		// is placed near its source b, in a distinct cell.
-		expect( calls ).toHaveLength( 1 );
-		expect( calls[ 0 ].a ).toEqual( { x: 1, y: 1 } );
-		expect( calls[ 0 ].b ).toEqual( { x: 240, y: 80 } );
-		expect( calls[ 0 ].c ).toBeDefined();
-		expect( calls[ 0 ].c ).not.toEqual( calls[ 0 ].b );
-	} );
-
-	it( 'does not fire onSeedLayout when the graph is empty', () => {
-		const calls = [];
-		render(
-			<SchematicCanvas
-				{ ...baseProps }
-				parsed={ { nodes: [], edges: [] } }
-				positionOverrides={ {} }
-				onSeedLayout={ ( map ) => calls.push( map ) }
-			/>
+		// 'late' has no position → only one node renders.
+		expect( container.querySelectorAll( '.topology-node' ) ).toHaveLength(
+			1
 		);
-		expect( calls ).toHaveLength( 0 );
 	} );
 
 	// The OUT port is a wire-drag source whenever `interactive` + `onConnect`
@@ -1171,7 +1134,7 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 		onDeselect: () => {},
 		hoveredId: null,
 		onHover: () => {},
-		positionOverrides: null,
+		positionOverrides: { a: { x: 60, y: 80 }, b: { x: 300, y: 80 } },
 		onPositionChange: () => {},
 		rateRef: { current: new Map() },
 		viewport: null,

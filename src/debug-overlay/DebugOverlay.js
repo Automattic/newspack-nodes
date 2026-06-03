@@ -40,7 +40,7 @@ import {
 import { isDebugEnabled } from './isDebugEnabled';
 import { useDebugFrame } from './useDebugFrame';
 import { useDebugGraph } from './useDebugGraph';
-import { useDebugLayout } from './useDebugLayout';
+import { useCanvasLayout } from '../topology-console/hooks/useCanvasLayout';
 import { useDebugRepl } from './useDebugRepl';
 import { useGraphReset } from './useGraphReset';
 import './debug-overlay.scss';
@@ -152,24 +152,21 @@ export default function DebugOverlay( {
 	useEffect( () => {
 		shell.sink = interpreter;
 	}, [ shell, interpreter ] );
-	const { transcript, sendLine, append, clear, cwd, setPath } = useDebugRepl(
-		enabled && open,
-		shell
-	);
-	// Layout storage scoped by cwd. Resolved BEFORE useDebugGraph so its
-	// `onPositionChange` callback is in scope when a palette drop records the
-	// position. Same JS hoisting reason as schemasByShellName lower down.
-	const cwdScope = cwd || 'local';
 	const {
-		positions,
-		viewport,
-		isDirty: isLayoutDirty,
-		onPositionChange,
-		onViewportChange,
-		onSeedLayout,
-		resetLayout,
-		markDirty,
-	} = useDebugLayout( `${ storageKey }:${ cwdScope }` );
+		transcript,
+		sendLine,
+		append,
+		clear,
+		cwd,
+		setPath,
+		ready: replReady,
+	} = useDebugRepl( enabled && open, shell );
+	// Layout storage scoped by cwd. useDebugGraph runs first (it needs only
+	// `onPositionChange`, threaded via a ref to break the hoist cycle); then
+	// useCanvasLayout consumes `graph`/`ready` from it and one-shot autoLayouts
+	// the COMPLETE graph once ready.
+	const cwdScope = cwd || 'local';
+	const onPositionChangeRef = useRef( null );
 	// Catalog must be resolved before useDebugGraph so the Inspector handler
 	// can look up `is_interpreter` for non-local-scope nodes.
 	const jsCatalog = useJsCatalog();
@@ -177,13 +174,39 @@ export default function DebugOverlay( {
 		enabled: enabled && open && !! cwd,
 	} );
 	const catalog = cwd ? phpCatalog : jsCatalog;
-	const { graph, handlers, pendingDrop, commitDrop, cancelDrop } =
-		useDebugGraph(
-			enabled && open,
-			shell,
-			catalog.classes || [],
-			onPositionChange
-		);
+	const {
+		graph,
+		ready: graphHasNodes,
+		handlers,
+		pendingDrop,
+		commitDrop,
+		cancelDrop,
+	} = useDebugGraph(
+		enabled && open,
+		shell,
+		catalog.classes || [],
+		( id, p ) => onPositionChangeRef.current?.( id, p )
+	);
+	// Composite readiness: gate layout + the canvas render on BOTH the overlay's
+	// own infra being mounted (replReady) AND the graph carrying nodes. replReady
+	// is what keeps the partial-graph bug dead — coreToGraph() only returns the
+	// COMPLETE local graph (infra included) once useDebugRepl has mounted it.
+	const ready = replReady && graphHasNodes;
+	const {
+		positions,
+		viewport,
+		canReset: isLayoutDirty,
+		onPositionChange,
+		onViewportChange,
+		resetLayout,
+	} = useCanvasLayout( {
+		storageKey: `${ storageKey }:${ cwdScope }`,
+		graph,
+		ready,
+		serverLayout: null,
+	} );
+	// Thread the latest onPositionChange to useDebugGraph's drop recorder.
+	onPositionChangeRef.current = onPositionChange;
 
 	// Reachable path scopes — every top-level substrate-node-name in the
 	// current Core registry that's a legitimate `cd` target (peel-and-route).
@@ -273,18 +296,18 @@ export default function DebugOverlay( {
 	// GUI gesture OR typed REPL line — so the chip catches them all. Local-scope
 	// only (reinit rebuilds the LOCAL host graph, meaningless from a remote view);
 	// canRebuild = reinit exists to restore the wiring.
+	// A graph rewire no longer dirties the LAYOUT — pass a no-op for markDirty.
 	const { resetGraph, canResetGraph } = useGraphReset( {
 		shell,
 		nodes: graph.nodes,
 		isLocalScope: ! cwd,
 		canRebuild: !! reinit,
-		markDirty,
+		markDirty: () => {},
 	} );
 
 	// "Reset Layout" appears only when the user has modified the layout.
-	// `isLayoutDirty` is the single source of truth — set by onPositionChange
-	// or onViewportChange in useDebugLayout, cleared by resetLayout (and by
-	// the initial autoLayout seed via onSeedLayout, which writes dirty=false).
+	// `isLayoutDirty` is the renamed `canReset` from useCanvasLayout — set by a
+	// drag/drop/tuck, cleared by resetLayout (the one-shot init writes modified=false).
 	const hasLayoutToReset = isLayoutDirty;
 
 	// Ctrl+` toggles the panel while enabled.
@@ -439,57 +462,66 @@ export default function DebugOverlay( {
 								onClose={ () => setOpen( false ) }
 							/>
 						</div>
-						<GraphView
-							graph={ graph }
-							frame={ CanvasFrame }
-							frameProps={ {
-								topology: 'debug',
-								partition: null,
-								isWorker: false,
-								editMode: false,
-								// Hide the chips when there's nothing to reset:
-								// passing null tells CanvasFrame to skip them.
-								onResetLayout: hasLayoutToReset
-									? resetLayout
-									: null,
-								onResetGraph: canResetGraph ? resetGraph : null,
-							} }
-							resetKey={ storageKey }
-							interactive
-							editMode={ false }
-							showPalette
-							paletteLoading={ catalog.loading }
-							paletteCollapsed={ paletteCollapsed }
-							onPaletteToggle={ togglePaletteCollapsed }
-							classCatalog={ schemasByShellName }
-							catalog={ catalog.classes }
-							formatters={ catalog.formatters }
-							positionOverrides={ positions }
-							onPositionChange={ onPositionChange }
-							onSeedLayout={ onSeedLayout }
-							viewport={ viewport }
-							onViewportChange={ onViewportChange }
-							onConnect={ handlers.onConnect }
-							onRemoveNode={ handlers.onRemoveNode }
-							onDropNode={ handlers.onDropNode }
-							onInspectorAction={ ( action, nodeId, payload ) => {
-								// Pop the transcript footer when the user fires an
-								// inspector action — matches the console's UX (the
-								// reply lands in _output and the user should see it).
-								// Graph-mutating actions (disconnect, …) dirty via
-								// the Shell dispatch tap in useGraphReset.
-								setReplExpanded( true );
-								handlers.onInspectorAction(
+						{ ready ? (
+							<GraphView
+								graph={ graph }
+								frame={ CanvasFrame }
+								frameProps={ {
+									topology: 'debug',
+									partition: null,
+									isWorker: false,
+									editMode: false,
+									// Hide the chips when there's nothing to reset:
+									// passing null tells CanvasFrame to skip them.
+									onResetLayout: hasLayoutToReset
+										? resetLayout
+										: null,
+									onResetGraph: canResetGraph
+										? resetGraph
+										: null,
+								} }
+								resetKey={ storageKey }
+								interactive
+								editMode={ false }
+								showPalette
+								paletteLoading={ catalog.loading }
+								paletteCollapsed={ paletteCollapsed }
+								onPaletteToggle={ togglePaletteCollapsed }
+								classCatalog={ schemasByShellName }
+								catalog={ catalog.classes }
+								formatters={ catalog.formatters }
+								positionOverrides={ positions }
+								onPositionChange={ onPositionChange }
+								viewport={ viewport }
+								onViewportChange={ onViewportChange }
+								onConnect={ handlers.onConnect }
+								onRemoveNode={ handlers.onRemoveNode }
+								onDropNode={ handlers.onDropNode }
+								onInspectorAction={ (
 									action,
 									nodeId,
 									payload
-								);
-							} }
-							onSelectionChange={ setSelected }
-							onBackgroundClickConsumed={
-								onCanvasBackgroundClick
-							}
-						/>
+								) => {
+									// Pop the transcript footer when the user fires an
+									// inspector action — matches the console's UX (the
+									// reply lands in _output and the user should see it).
+									// Graph-mutating actions (disconnect, …) dirty via
+									// the Shell dispatch tap in useGraphReset.
+									setReplExpanded( true );
+									handlers.onInspectorAction(
+										action,
+										nodeId,
+										payload
+									);
+								} }
+								onSelectionChange={ setSelected }
+								onBackgroundClickConsumed={
+									onCanvasBackgroundClick
+								}
+							/>
+						) : (
+							<div className="nodes-debug__canvas-building" />
+						) }
 						<ReplFooter
 							prompt={ `/${ cwd }` }
 							canSend={ true }

@@ -26,7 +26,7 @@ import { useSaveTopology } from './hooks/useSaveTopology';
 import { useDeleteTopology } from './hooks/useDeleteTopology';
 import { useTopology, useTopologyList } from './hooks/useTopologyList';
 import { useConsoleGraph } from './hooks/useConsoleGraph';
-import { useDebugLayout } from '../debug-overlay/useDebugLayout';
+import { useCanvasLayout } from './hooks/useCanvasLayout';
 import { useGraphReset } from '../debug-overlay/useGraphReset';
 import { useNodeState, useNodeFill } from '../runtime/react';
 import { tabulateCandidates } from '../runtime/completion-node';
@@ -438,42 +438,12 @@ export default function TopologyConsole() {
 	const effectiveTopologyName =
 		mode === 'edit' && editingName ? editingName : topology;
 
-	// One layout entry per scope (same pattern as the debug overlay): a single
-	// localStorage key holds `{ positions, viewport, dirty }`. Edit and view
-	// share the same key so a layout saved in either mode rehydrates on the
-	// other — the user's mental model is "the layout at this scope", not
-	// "the layout at this scope in this mode".
-	const positionStorageKey = `newspack-nodes:topology:${ scope.key }`;
-	const {
-		positions: positionOverrides,
-		viewport,
-		isDirty: layoutDirty,
-		onPositionChange: handlePositionChange,
-		onViewportChange: handleViewportChange,
-		onSeedLayout,
-		renamePosition,
-		resetLayout,
-		markDirty,
-	} = useDebugLayout( positionStorageKey );
-
-	// Shared graph-dirty + Reset Graph logic (identical to the debug overlay). The
-	// Shell dispatch tap flips structureDirty on any graph-mutating command — drag
-	// gesture OR typed REPL line — and a surviving user node keeps the chip up
-	// across a rebuild. Local-scope only; canRebuild = the live graph is mounted.
-	const { resetGraph: resetLocalGraphCore, canResetGraph } = useGraphReset( {
-		shell,
-		nodes: parsed.nodes,
-		isLocalScope: '' === cwd,
-		canRebuild: mode !== 'edit',
-		markDirty,
-	} );
-
 	useEffect( () => {
 		if ( ! effectiveTopologyName ) {
 			setSavedLayout( null );
 			return;
 		}
-		// Null while fetching so the live-mode seed can't lock in stale positions.
+		// Null while fetching so the one-shot init can't lock in stale positions.
 		setSavedLayout( null );
 		fetchLayout( effectiveTopologyName )
 			.then( ( resp ) => {
@@ -504,70 +474,67 @@ export default function TopologyConsole() {
 	}, [] );
 
 	// The server-saved layout describes the TOPOLOGY's nodes (the worker's
-	// graph). It's only the right seed source when the canvas is actually
+	// graph). It's only the right init source when the canvas is actually
 	// showing that topology — i.e. a worker cwd whose label matches the
 	// topology, or in edit mode (where the user is editing the topology's
 	// spec). At cwd="/" the canvas renders the local browser Shell, which
-	// is unrelated to the topology; seeding the server layout there would
+	// is unrelated to the topology; adopting the server layout there would
 	// dump worker-shape node ids (`completed:tee`, `jobs:partition`, …) into
 	// the local scope's localStorage.
 	const isServerScope =
 		mode === 'edit' || ( scope.isWorker && scope.label === topology );
 
-	// Reset-in-edit-mode is the explicit "blow it away" path: it should go
-	// to autoLayout, not replay the server seed. This flag blocks the
-	// server-seed effect (and unblocks the canvas autoLayout seed) for the
-	// rest of the session at the current scope/topology. Cleared whenever
-	// the scope/topology/mode changes — those are fresh-load scenarios where
-	// the server seed should re-apply.
-	const [ serverSeedBlocked, setServerSeedBlocked ] = useState( false );
-	useEffect( () => {
-		setServerSeedBlocked( false );
-	}, [ effectiveTopologyName, scope.key, mode ] );
-
 	const serverPositionsMap = useMemo(
 		() => savedPositionsToOverrides( savedLayout ),
 		[ savedLayout, savedPositionsToOverrides ]
 	);
-	useEffect( () => {
-		if ( ! isServerScope ) {
-			return;
-		}
-		if ( serverSeedBlocked ) {
-			return;
-		}
-		if ( ! serverPositionsMap ) {
-			return;
-		}
-		onSeedLayout( serverPositionsMap );
-	}, [
-		isServerScope,
-		serverSeedBlocked,
-		serverPositionsMap,
-		positionOverrides,
-		onSeedLayout,
-	] );
 
-	// Canvas autoLayout seed. Always runs when:
-	//   - non-server scope (no server layout to defer to), OR
-	//   - server scope but server-seed is blocked (post-edit-Reset path).
-	// Otherwise hold off until the fetch resolves AND no server seed is
-	// available, so autoLayout doesn't lock in before the server arrives.
-	const canvasOnSeedLayout = ( () => {
-		if ( ! isServerScope || serverSeedBlocked ) {
-			return onSeedLayout;
-		}
-		if ( savedLayout === null ) {
-			return null;
-		}
-		if (
-			serverPositionsMap &&
-			Object.keys( serverPositionsMap ).length > 0
-		) {
-			return null;
-		}
-		return onSeedLayout;
-	} )();
+	// The complete graph the canvas renders for this scope: the frozen draft in
+	// edit mode (SSE is off, so `parsed` is empty there), the live metadata in
+	// view mode. useCanvasLayout positions exactly these nodes.
+	const layoutGraph = mode === 'edit' ? draft : parsed;
+
+	// Build the graph first: a worker/local scope is ready once the graph has
+	// nodes; a server scope must also wait for the layout fetch to resolve so
+	// the one-shot init can adopt it instead of autoLayout. An untitled draft
+	// (no topology to fetch) counts as resolved, else the canvas waits forever.
+	const serverFetchResolved = ! effectiveTopologyName || savedLayout !== null; // null === in-flight
+	const layoutReady =
+		layoutGraph.nodes.length > 0 &&
+		( ! isServerScope || serverFetchResolved );
+
+	// One layout entry per scope: a single localStorage key holds
+	// `{ positions, viewport, modified }`. Edit and view share the same key so a
+	// layout saved in either mode rehydrates on the other — the user's mental
+	// model is "the layout at this scope", not "this scope in this mode".
+	const positionStorageKey = `newspack-nodes:topology:${ scope.key }`;
+	const {
+		positions: positionOverrides,
+		viewport,
+		canReset,
+		onPositionChange: handlePositionChange,
+		onViewportChange: handleViewportChange,
+		renamePosition,
+		resetLayout,
+	} = useCanvasLayout( {
+		storageKey: positionStorageKey,
+		graph: layoutGraph,
+		ready: layoutReady,
+		serverLayout: isServerScope ? serverPositionsMap : null,
+	} );
+
+	// Shared graph-dirty + Reset Graph logic (identical to the debug overlay). The
+	// Shell dispatch tap flips structureDirty on any graph-mutating command — drag
+	// gesture OR typed REPL line — and a surviving user node keeps the chip up
+	// across a rebuild. Local-scope only; canRebuild = the live graph is mounted.
+	// A graph rewire no longer dirties the LAYOUT — pass a no-op for markDirty.
+	const { resetGraph: resetLocalGraphCore, canResetGraph } = useGraphReset( {
+		shell,
+		nodes: parsed.nodes,
+		isLocalScope: '' === cwd,
+		canRebuild: mode !== 'edit',
+		markDirty: () => {},
+	} );
 
 	// Comparison the Save Layout chip gates on: only show "save" when the
 	// current positions diverge from what the server has. Reused below by
@@ -575,7 +542,12 @@ export default function TopologyConsole() {
 	// the server's — click to restore".
 	const layoutDivergesFromSaved = useMemo( () => {
 		const saved = ( savedLayout && savedLayout.positions ) || null;
-		const overrideIds = Object.keys( positionOverrides );
+		// Only consider ids still on the canvas; a deleted node's stale override
+		// must not show false divergence.
+		const liveIds = new Set( layoutGraph.nodes.map( ( n ) => n.id ) );
+		const overrideIds = Object.keys( positionOverrides ).filter( ( id ) =>
+			liveIds.has( id )
+		);
 		const savedIds = saved ? Object.keys( saved ) : [];
 		if ( ! saved ) {
 			return overrideIds.length > 0;
@@ -594,43 +566,19 @@ export default function TopologyConsole() {
 			}
 		}
 		return false;
-	}, [ positionOverrides, savedLayout ] );
+	}, [ positionOverrides, savedLayout, layoutGraph ] );
 
-	// "Reset Layout" chip gating differs by mode:
-	// - Live at a server scope (worker matching the topology): show when the
-	//   local positions don't match the server-saved layout. Covers the
-	//   "exited edit after a Reset without saving" case where positions are
-	//   autoLayout but the server still has user-customized positions.
-	// - Live at the local scope (cwd="/"): there's no server reference; the
-	//   reset target is just autoLayout, so show only when the user has
-	//   touched something (dirty).
-	// - Edit: show whenever there's a layout to discard. Hide it when the
-	//   layout already IS autoLayout (post-reset, untouched — clicking again
-	//   would re-run the same autoLayout) — `serverSeedBlocked && !dirty`.
-	const editLayoutIsAutoLayout = serverSeedBlocked && ! layoutDirty;
-	const showResetLayoutChip = ( () => {
-		if ( mode === 'edit' ) {
-			return (
-				Object.keys( positionOverrides ).length > 0 &&
-				! editLayoutIsAutoLayout
-			);
-		}
-		if ( isServerScope ) {
-			return layoutDivergesFromSaved;
-		}
-		return layoutDirty;
-	} )();
-
+	// Live local scope: reset target is autoLayout → show when modified.
+	// Server scope (worker matching the topology) or edit: also show when the
+	// current layout diverges from the server-saved one.
+	const showResetLayoutChip = isServerScope
+		? layoutDivergesFromSaved
+		: canReset;
 	const handleResetLayout = useCallback( () => {
 		if ( mode === 'edit' ) {
 			setResetConfirm( {
 				onConfirm: () => {
 					setResetConfirm( null );
-					// Edit-mode Reset → autoLayout, not the server-saved
-					// layout. Block server-seed for the rest of this session
-					// at this scope+topology so the canvas's autoLayout seed
-					// runs instead.
-					setServerSeedBlocked( true );
 					resetLayout();
 				},
 				onCancel: () => setResetConfirm( null ),
@@ -644,9 +592,17 @@ export default function TopologyConsole() {
 		if ( ! effectiveTopologyName ) {
 			return;
 		}
+		// Only serialize ids still on the canvas; a deleted node's stale override
+		// must not leak back to the server.
+		const liveIds = new Set( layoutGraph.nodes.map( ( n ) => n.id ) );
 		const positions = {};
 		for ( const [ id, p ] of Object.entries( positionOverrides ) ) {
-			if ( p && Number.isFinite( p.x ) && Number.isFinite( p.y ) ) {
+			if (
+				liveIds.has( id ) &&
+				p &&
+				Number.isFinite( p.x ) &&
+				Number.isFinite( p.y )
+			) {
 				positions[ id ] = [ p.x, p.y ];
 			}
 		}
@@ -671,7 +627,7 @@ export default function TopologyConsole() {
 				__( 'Save layout failed', 'newspack-nodes' );
 			setToast( { kind: 'error', text: msg } );
 		}
-	}, [ effectiveTopologyName, positionOverrides, saveLayout ] );
+	}, [ effectiveTopologyName, positionOverrides, saveLayout, layoutGraph ] );
 	const partitions = useMemo( () => partitionList( topology ), [ topology ] );
 
 	// Path selection — shared by the Path menu and REPL `cd`. Sets the cwd to the
@@ -1057,11 +1013,9 @@ export default function TopologyConsole() {
 		[ catalog.classes ]
 	);
 
-	// Server seed runs via useDebugLayout's onSeedLayout — see the earlier
-	// `serverPositionsMap` effect. The old per-mode seed/race plumbing is
-	// gone; the hook is the single source of truth for positions, and the
-	// canvas's onSeedLayout handles the autoLayout fallback when no server
-	// layout is available.
+	// useCanvasLayout owns positions: it runs autoLayout once (or adopts the
+	// serverLayout at a server scope) when the complete graph is ready, then
+	// only drags/drops/tucks mutate the map. No seed plumbing here.
 
 	// Edit-mode toggle. The draft is authoritative; SSE pushes don't clobber it.
 	const handleModeChange = useCallback(
@@ -1522,64 +1476,67 @@ export default function TopologyConsole() {
 				onThemeChange={ setTheme }
 				themes={ THEMES }
 			/>
-			<GraphView
-				graph={ canvasGraph }
-				frame={ CanvasFrame }
-				frameProps={ {
-					topology:
-						mode === 'edit'
-							? editingName || 'untitled'
-							: scope.label,
-					partition: mode === 'edit' ? null : scope.partition,
-					isWorker: mode === 'edit' ? true : scope.isWorker,
-					onResetLayout: showResetLayoutChip
-						? handleResetLayout
-						: null,
-					onSaveLayout: layoutDivergesFromSaved
-						? handleSaveLayout
-						: null,
-					// Only the local in-browser graph (cwd root) is ephemeral;
-					// any pivoted view — a worker over _sse OR the _http
-					// broadcast boundary — self-heals on respawn, so a reset is
-					// meaningless. canResetGraph already gates on local scope +
-					// live mode + (a mutating edit OR a surviving user node).
-					onResetGraph: canResetGraph ? handleResetGraph : null,
-					editMode: mode === 'edit',
-				} }
-				resetKey={ `${ scope.key }|${ mode }|${ editingName }` }
-				interactive={ true }
-				editMode={ mode === 'edit' }
-				showPalette={ true }
-				paletteLoading={ catalog.loading }
-				paletteCollapsed={ paletteCollapsed }
-				onPaletteToggle={ togglePaletteCollapsed }
-				classCatalog={ schemasByShellName }
-				catalog={ catalog.classes }
-				formatters={ catalog.formatters }
-				streamStatus={ status }
-				ssePid={ ssePid }
-				positionOverrides={ positionOverrides }
-				onPositionChange={ handlePositionChange }
-				onSeedLayout={ canvasOnSeedLayout }
-				viewport={ viewport }
-				onViewportChange={ handleViewportChange }
-				onConnect={ handleConnect }
-				onRemoveNode={ handleRemoveNode }
-				onRemoveEdge={ handleRemoveEdge }
-				onDropNode={ handleDropNode }
-				onInspectorAction={ handleInspectorAction }
-				onRenameNode={ handleRenameNode }
-				onUpdateArgs={ handleUpdateArgs }
-				onUpdateVerbs={ handleUpdateVerbs }
-				onSelectionChange={ ( id ) => {
-					setSelectedId( id );
-					refocusReplIfExpanded();
-				} }
-				selection={ selectedId }
-				onBackgroundClickConsumed={
-					handleCanvasBackgroundClickConsumed
-				}
-			/>
+			{ layoutReady ? (
+				<GraphView
+					graph={ canvasGraph }
+					frame={ CanvasFrame }
+					frameProps={ {
+						topology:
+							mode === 'edit'
+								? editingName || 'untitled'
+								: scope.label,
+						partition: mode === 'edit' ? null : scope.partition,
+						isWorker: mode === 'edit' ? true : scope.isWorker,
+						onResetLayout: showResetLayoutChip
+							? handleResetLayout
+							: null,
+						onSaveLayout: layoutDivergesFromSaved
+							? handleSaveLayout
+							: null,
+						// Only the local in-browser graph (cwd root) is ephemeral;
+						// any pivoted view — a worker over _sse OR the _http
+						// broadcast boundary — self-heals on respawn, so a reset is
+						// meaningless. canResetGraph already gates on local scope +
+						// live mode + (a mutating edit OR a surviving user node).
+						onResetGraph: canResetGraph ? handleResetGraph : null,
+						editMode: mode === 'edit',
+					} }
+					resetKey={ `${ scope.key }|${ mode }|${ editingName }` }
+					interactive={ true }
+					editMode={ mode === 'edit' }
+					showPalette={ true }
+					paletteLoading={ catalog.loading }
+					paletteCollapsed={ paletteCollapsed }
+					onPaletteToggle={ togglePaletteCollapsed }
+					classCatalog={ schemasByShellName }
+					catalog={ catalog.classes }
+					formatters={ catalog.formatters }
+					streamStatus={ status }
+					ssePid={ ssePid }
+					positionOverrides={ positionOverrides }
+					onPositionChange={ handlePositionChange }
+					viewport={ viewport }
+					onViewportChange={ handleViewportChange }
+					onConnect={ handleConnect }
+					onRemoveNode={ handleRemoveNode }
+					onRemoveEdge={ handleRemoveEdge }
+					onDropNode={ handleDropNode }
+					onInspectorAction={ handleInspectorAction }
+					onRenameNode={ handleRenameNode }
+					onUpdateArgs={ handleUpdateArgs }
+					onUpdateVerbs={ handleUpdateVerbs }
+					onSelectionChange={ ( id ) => {
+						setSelectedId( id );
+						refocusReplIfExpanded();
+					} }
+					selection={ selectedId }
+					onBackgroundClickConsumed={
+						handleCanvasBackgroundClickConsumed
+					}
+				/>
+			) : (
+				<div className="topology-canvas-building" />
+			) }
 			{ mode !== 'edit' && (
 				<ReplFooter
 					prompt={ `/${ cwd }` }

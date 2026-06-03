@@ -1,9 +1,9 @@
 import { useCallback, useMemo, useRef, useState } from '@wordpress/element';
 import { Core } from '../runtime/core';
 import { useNodeState } from '../runtime/react';
-import { coreToGraph } from '../topology-console/utils/coreToGraph';
 import { generateNodeName } from '../topology-console/utils/draftGraph';
 import { snapToGrid } from '../topology-console/utils/autoLayout';
+import { coreToGraph } from '../topology-console/utils/coreToGraph';
 import names from '../runtime/reserved-node-names.json';
 
 const EMPTY_GRAPH = { nodes: [], edges: [] };
@@ -14,8 +14,9 @@ const EMPTY_GRAPH = { nodes: [], edges: [] };
  * dump_metadata at the live cwd each Router TIMER tick and parses the reply
  * via parseMetadata) — the same data source the topology console uses.
  *
- * Before the first poll lands (or while no Metadata is mounted), falls back
- * to `coreToGraph()` so the canvas isn't empty on first paint.
+ * Before the first poll lands, falls back to `coreToGraph()` so the local
+ * graph paints instantly; `ready` is true as soon as either source yields a
+ * node (coreToGraph can make it sync-true on open).
  *
  * @param {boolean}  [_active]          Currently unused; kept for API parity (the
  *                                      subscription is naturally inert when no _metadata).
@@ -28,7 +29,7 @@ const EMPTY_GRAPH = { nodes: [], edges: [] };
  *                                      dropped node renders at the drop site (snapped to
  *                                      the grid) when the metadata poll surfaces it,
  *                                      instead of autoLayout's choice.
- * @return {{ graph: { nodes: Array, edges: Array }, handlers: Object }} The live graph and gesture handlers.
+ * @return {{ graph: { nodes: Array, edges: Array }, ready: boolean, handlers: Object }} The live graph, readiness flag, and gesture handlers.
  */
 export function useDebugGraph(
 	_active = true,
@@ -46,14 +47,18 @@ export function useDebugGraph(
 	const [ pendingDrop, setPendingDrop ] = useState( null );
 	const pendingDropRef = useRef( null );
 	pendingDropRef.current = pendingDrop;
-	// Evaluate the fallback live every render — useMemo would freeze on the
-	// first render's coreToGraph(), which can fire BEFORE the page's exospine
-	// mounts (DebugOverlay is a sibling of the dashboard graph; both run
-	// useEffect after their first render).
-	const graph =
-		metadataGraph && Array.isArray( metadataGraph.nodes )
-			? metadataGraph
-			: coreToGraph() ?? EMPTY_GRAPH;
+	// Prefer the published metadata graph once it carries ≥1 node; before the
+	// first poll arrives, fall back to coreToGraph() so the in-process graph
+	// paints instantly (DebugOverlay gates layout on its own infra being mounted,
+	// so coreToGraph here always sees the COMPLETE local graph). ready is true as
+	// soon as either source yields a node — coreToGraph can make it sync-true.
+	const hasMetadata = !! (
+		metadataGraph &&
+		Array.isArray( metadataGraph.nodes ) &&
+		metadataGraph.nodes.length > 0
+	);
+	const graph = hasMetadata ? metadataGraph : coreToGraph() ?? EMPTY_GRAPH;
+	const ready = graph.nodes.length > 0;
 
 	// Echo the equivalent commandline into the `_output` Dumper, then dispatch via
 	// shell.sendCommand. A GUI gesture / Inspector click must read back in the
@@ -205,5 +210,5 @@ export function useDebugGraph(
 
 	const cancelDrop = useCallback( () => setPendingDrop( null ), [] );
 
-	return { graph, handlers, pendingDrop, commitDrop, cancelDrop };
+	return { graph, ready, handlers, pendingDrop, commitDrop, cancelDrop };
 }

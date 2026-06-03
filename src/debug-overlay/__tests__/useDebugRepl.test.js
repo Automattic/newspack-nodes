@@ -20,6 +20,37 @@ describe( 'useDebugRepl', () => {
 		Core.reset();
 	} );
 
+	it( 'ready is false when inactive', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( false, shell ) );
+		expect( result.current.ready ).toBe( false );
+		teardown();
+	} );
+
+	it( 'ready becomes true once the mount effect registers the infra nodes', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		// After the commit-phase effect mounts _output/_completion/_metadata/_cwd.
+		expect( Core.node( names.OUTPUT ) ).not.toBeNull();
+		expect( result.current.ready ).toBe( true );
+		teardown();
+	} );
+
+	it( 'ready flips back to false when the panel goes inactive (infra torn down)', () => {
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		const { result, rerender } = renderHook(
+			( { active } ) => useDebugRepl( active, shell ),
+			{ initialProps: { active: true } }
+		);
+		expect( result.current.ready ).toBe( true );
+		rerender( { active: false } );
+		expect( result.current.ready ).toBe( false );
+		teardown();
+	} );
+
 	it( 'registers a transcript node on mount and unregisters on unmount', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();

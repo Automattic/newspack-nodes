@@ -25,7 +25,7 @@
  * @param {Array}    params.nodes        Live graph nodes ({id}); non-reserved = user-added.
  * @param {boolean}  params.isLocalScope Reset only makes sense on the in-browser graph.
  * @param {boolean}  params.canRebuild   A rebuild path exists (overlay: reinit; console: mounted).
- * @param {Function} params.markDirty    Marks the layout dirty (from useDebugLayout).
+ * @param {Function} params.markDirty    Layout-dirty hook (now a no-op; a graph rewire no longer dirties the layout).
  * @return {{structureDirty: boolean, resetGraph: Function, canResetGraph: boolean}} Reset state.
  */
 

@@ -48,6 +48,10 @@ export function useDebugRepl( active = true, shell ) {
 	// that silently killed tab completion after the first reset).
 	const [ cwd, setCwd ] = useState( '' );
 	const [ , bumpRemount ] = useState( 0 );
+	// True once this hook's infra nodes (_output/_completion/_metadata/_cwd) are
+	// mounted. The composite readiness in DebugOverlay gates layout on this so
+	// coreToGraph() never sees a partial graph missing the overlay's own nodes.
+	const [ ready, setReady ] = useState( false );
 	// The full-rebuild signal: a bump re-runs this effect (cleanup tears down the
 	// overlay's infra nodes, the effect rebuilds them off the fresh backbone) so
 	// "Reset Graph" reconstructs the overlay's half of the graph too.
@@ -56,6 +60,7 @@ export function useDebugRepl( active = true, shell ) {
 	useEffect( () => {
 		if ( ! active ) {
 			setTranscript( EMPTY_TRANSCRIPT );
+			setReady( false );
 			return undefined;
 		}
 		// Dumper accumulates entries + publishes `transcript` for React subscribers.
@@ -96,6 +101,8 @@ export function useDebugRepl( active = true, shell ) {
 			setTranscript( next || EMPTY_TRANSCRIPT );
 			return true;
 		} );
+		// All infra nodes are mounted — coreToGraph() now sees the complete graph.
+		setReady( true );
 		return () => {
 			dumper.unregister( 'transcript', listenerId );
 			// metadata.removeNode() -> stop_timer -> unregister from the _router's
@@ -107,6 +114,7 @@ export function useDebugRepl( active = true, shell ) {
 			dumperRef.current = null;
 			shellRef.current = null;
 			setTranscript( EMPTY_TRANSCRIPT );
+			setReady( false );
 		};
 	}, [ active, shell, generation ] );
 
@@ -242,7 +250,7 @@ export function useDebugRepl( active = true, shell ) {
 	);
 
 	return useMemo(
-		() => ( { transcript, sendLine, append, clear, cwd, setPath } ),
-		[ transcript, sendLine, append, clear, cwd, setPath ]
+		() => ( { transcript, sendLine, append, clear, cwd, setPath, ready } ),
+		[ transcript, sendLine, append, clear, cwd, setPath, ready ]
 	);
 }

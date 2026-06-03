@@ -10,13 +10,7 @@ import {
 	useState,
 } from '@wordpress/element';
 
-import {
-	computeNodePositions,
-	X_PAD,
-	X_STEP,
-	Y_PAD,
-	Y_STEP,
-} from '../utils/autoLayout';
+import { X_PAD, X_STEP, Y_PAD, Y_STEP } from '../utils/autoLayout';
 import {
 	viewportCull,
 	isEdgeVisible,
@@ -195,45 +189,25 @@ export default function SchematicCanvas( {
 	onBackgroundClickConsumed,
 	// shell_name → schema; drives port visibility (accepts_fill/has_target).
 	classCatalog = {},
-	// One-shot persistence callback. When defined and `positionOverrides`
-	// is empty, the canvas ships autoLayout's positions up so the parent
-	// can save them. The receiving hook is idempotent (it no-ops if state
-	// is already populated or the user has touched anything).
-	onSeedLayout = null,
 } ) {
 	const edges = useMemo( () => parsed?.edges ?? [], [ parsed ] );
-	// Pinned overrides are kept; computeNodePositions lays out the rest (one
-	// autoLayout pass for a fresh/flooded graph, cheap placeNewNode for newcomers).
-	const nodePositions = useMemo(
-		() => computeNodePositions( parsed, positionOverrides ),
-		[ parsed, positionOverrides ]
-	);
+	// positionOverrides is the COMPLETE position map (owned by useCanvasLayout).
+	// Render only nodes that have a position — a brand-new node may beat the
+	// layout hook's placement by one frame; it appears the next frame.
 	const nodes = useMemo(
 		() =>
-			( parsed?.nodes ?? [] ).map( ( n ) => ( {
-				...n,
-				position: nodePositions[ n.id ],
-			} ) ),
-		[ parsed, nodePositions ]
+			( parsed?.nodes ?? [] )
+				.filter( ( n ) => positionOverrides[ n.id ] )
+				.map( ( n ) => ( {
+					...n,
+					position: positionOverrides[ n.id ],
+				} ) ),
+		[ parsed, positionOverrides ]
 	);
 
 	// Mirror of `nodes` for the freeze effect (keyed on length, reads identity).
 	const nodesRef = useRef( nodes );
 	nodesRef.current = nodes;
-
-	// Ship the computed positions up to the parent's layout store. The receiving
-	// hook merges in a position only for nodes not yet pinned (never overwriting an
-	// existing one), so this pins the initial autoLayout once and each newcomer's
-	// placeNewNode spot once, then is a no-op.
-	useEffect( () => {
-		if ( ! onSeedLayout ) {
-			return;
-		}
-		if ( Object.keys( nodePositions ).length === 0 ) {
-			return;
-		}
-		onSeedLayout( nodePositions );
-	}, [ nodePositions, onSeedLayout ] );
 
 	// Active-drag state; snap + commit happen on pointerup.
 	const [ drag, setDrag ] = useState( null );
