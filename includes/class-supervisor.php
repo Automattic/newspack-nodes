@@ -92,6 +92,7 @@ class Supervisor extends Supervisor_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
+		// Supervisor is not a Node and runs no interpreter: bare new (no-interpreter exception).
 		$this->own_lock = new Lock_Node( $lock_dir, self::SUPERVISOR_STALE_TIMEOUT );
 		if ( ! $this->own_lock->acquire() ) {
 			return;
@@ -433,6 +434,7 @@ class Supervisor extends Supervisor_Base {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
+		// Lifecycle primitive (see run()): bare new per the no-interpreter exception.
 		$this->own_lock = new Lock_Node( "{$this->base_dir}/locks/supervisor.lock.d", self::SUPERVISOR_STALE_TIMEOUT );
 		return $this->own_lock->acquire();
 	}

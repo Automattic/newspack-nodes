@@ -2041,4 +2041,55 @@ class PartitionTest extends TestCase {
 		}
 	}
 
+	/** Read a protected/private property of a node via reflection. */
+	private function read_node_prop( object $node, string $prop ) {
+		$ref = new \ReflectionClass( $node );
+		$p   = $ref->getProperty( $prop );
+		$p->setAccessible( true );
+		return $p->getValue( $node );
+	}
+
+	public function test_allow_large_writes_names_write_lock_sibling(): void {
+		// Rule 2: the Lock sibling is named even in request scope (no drain loop).
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp} 0 " . ( 64 * 1024 ) . " 4 86400" );
+		$p->name( 'big_part' );
+		$p->sink( new \Newspack_Nodes\Echo_Node() );
+		$p->allow_large_writes();
+
+		$lock = $this->read_node_prop( $p, 'write_lock' );
+		$this->assertNotNull( $lock, 'write_lock should be set after allow_large_writes' );
+		$this->assertSame( 'big_part:lock', $lock->name() );
+
+		$p->remove_node();
+	}
+
+	public function test_allow_large_writes_sets_lock_patron_to_partition(): void {
+		// Rule 2: patron marks the Lock as plumbing so dump_metadata hides it.
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp} 0 " . ( 64 * 1024 ) . " 4 86400" );
+		$p->name( 'big_part' );
+		$p->sink( new \Newspack_Nodes\Echo_Node() );
+		$p->allow_large_writes();
+
+		$lock = $this->read_node_prop( $p, 'write_lock' );
+		$this->assertSame( $p, $lock->patron() );
+
+		$p->remove_node();
+	}
+
+	public function test_allow_large_writes_sinks_lock_to_partition_specific_sink(): void {
+		// Rule 2 specific-sink exception: the Lock keeps the partition's own sink.
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp} 0 " . ( 64 * 1024 ) . " 4 86400" );
+		$p->name( 'big_part' );
+		$echo = new \Newspack_Nodes\Echo_Node();
+		$p->sink( $echo );
+		$p->allow_large_writes();
+
+		$lock = $this->read_node_prop( $p, 'write_lock' );
+		$this->assertSame( $echo, $lock->sink() );
+
+		$p->remove_node();
+	}
 }

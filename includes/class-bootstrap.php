@@ -152,8 +152,14 @@ class Bootstrap {
 			return false;
 		}
 		$part = new Partition_Node();
-		$part->arguments( "{$input_dir} 0 " . Worker_Base::IPC_SEGMENT_SIZE . ' ' . Worker_Base::IPC_NUM_SEGMENTS );
 		$part->name( $worker_id );
+		// Sibling plumbing: patron + sink to the in-scope interpreter (Rule 4 skips both when none).
+		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
+		if ( null !== $ci ) {
+			$part->patron( $ci );
+			$part->sink( $ci );
+		}
+		$part->arguments( "{$input_dir} 0 " . Worker_Base::IPC_SEGMENT_SIZE . ' ' . Worker_Base::IPC_NUM_SEGMENTS );
 		return true;
 	}
 

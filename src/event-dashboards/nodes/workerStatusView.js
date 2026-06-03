@@ -142,15 +142,3 @@ export class WorkerStatusViewNode extends Node {
 		this.setState( 'view', this.model );
 	}
 }
-
-/**
- * Create and register the Worker Status view-model node.
- *
- * @param {string} name Node name.
- * @return {WorkerStatusViewNode} The view-model node.
- */
-export function createWorkerStatusView( name ) {
-	const node = new WorkerStatusViewNode();
-	node.setName( name );
-	return node;
-}

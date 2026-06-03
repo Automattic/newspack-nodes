@@ -380,14 +380,16 @@ class Partition_Node extends Timer_Node {
 		$stale_timeout = 60;
 		$lock          = new Lock_Node( "{$this->partition_dir}/write.lock.d", $stale_timeout );
 
-		// Drain active: wire Lock + heartbeat Timer. Request-scope: drive heartbeat from fill().
-		$ef_running = Event_Framework::instance()->is_running();
-		if ( $ef_running ) {
+		// Sibling: name (when the partition is named), keep the partition's own
+		// specific sink, and patron-link so dump_metadata hides it from the canvas.
+		if ( '' !== $this->name ) {
 			$lock->name( "{$this->name}:lock" );
-			$lock->sink( $this->sink );
-			// Patron-linked so dump_metadata hides it from the topology console canvas.
-			$lock->patron( $this );
 		}
+		$lock->sink( $this->sink );
+		$lock->patron( $this );
+
+		// Drain active: arm the heartbeat Timer. Request-scope: drive heartbeat from fill().
+		$ef_running = Event_Framework::instance()->is_running();
 
 		if ( ! $lock->acquire( $max_wait_ms ) ) {
 			throw new \RuntimeException(

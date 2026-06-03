@@ -27,9 +27,17 @@ import {
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
-import { createWorkerStatusView } from '../workerStatusView';
+import { WorkerStatusViewNode } from '../workerStatusView';
 
 beforeEach( () => Core.reset() );
+
+// Construct the node directly (production wires it via interpreter.makeNode;
+// bare-newing the class is fine inside a test).
+function makeView( name ) {
+	const node = new WorkerStatusViewNode();
+	node.setName( name );
+	return node;
+}
 
 // A model envelope from workerstatus:transform.
 function modelMsg( model ) {
@@ -82,7 +90,7 @@ const baseModel = ( overrides = {} ) => ( {
 
 describe( 'workerstatus:view — model publish', () => {
 	test( 'a model message publishes setState("view", model)', () => {
-		const v = createWorkerStatusView( 'workerstatus:view' );
+		const v = makeView( 'workerstatus:view' );
 		const model = baseModel( {
 			workers: [ { type: 'firehose-workers' } ],
 		} );
@@ -91,7 +99,7 @@ describe( 'workerstatus:view — model publish', () => {
 	} );
 
 	test( 'a later model replaces the published view', () => {
-		const v = createWorkerStatusView( 'workerstatus:view' );
+		const v = makeView( 'workerstatus:view' );
 		v.fill( modelMsg( baseModel( { currentTime: 1 } ) ) );
 		v.fill( modelMsg( baseModel( { currentTime: 2 } ) ) );
 		expect( v.setStateCache.view.currentTime ).toBe( 2 );
@@ -100,7 +108,7 @@ describe( 'workerstatus:view — model publish', () => {
 
 describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
 	test( 'resolves a pending Promise on a successful reply matching message[ID]', async () => {
-		const v = createWorkerStatusView( 'workerstatus:view' );
+		const v = makeView( 'workerstatus:view' );
 		const id = 'restart-1';
 		const promise = new Promise( ( resolve, reject ) => {
 			v.pending.set( id, { resolve, reject } );
@@ -110,7 +118,7 @@ describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
 	} );
 
 	test( 'rejects a pending Promise on a TM_ERROR reply matching message[ID]', async () => {
-		const v = createWorkerStatusView( 'workerstatus:view' );
+		const v = makeView( 'workerstatus:view' );
 		const id = 'restart-2';
 		const promise = new Promise( ( resolve, reject ) => {
 			v.pending.set( id, { resolve, reject } );
@@ -120,7 +128,7 @@ describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
 	} );
 
 	test( 'pending-matched TM_ERROR does NOT pollute global view.error', () => {
-		const v = createWorkerStatusView( 'workerstatus:view' );
+		const v = makeView( 'workerstatus:view' );
 		v.fill( modelMsg( baseModel() ) ); // seed a published model
 		const id = 'restart-3';
 		// Stash + immediately catch so the rejection doesn't escape.
@@ -133,7 +141,7 @@ describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
 	} );
 
 	test( 'extracts message from a { message } structured TM_ERROR payload', async () => {
-		const v = createWorkerStatusView( 'workerstatus:view' );
+		const v = makeView( 'workerstatus:view' );
 		const id = 'restart-4';
 		const promise = new Promise( ( resolve, reject ) => {
 			v.pending.set( id, { resolve, reject } );
@@ -147,7 +155,7 @@ describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
 	} );
 
 	test( 'deletes the pending entry after settling', () => {
-		const v = createWorkerStatusView( 'workerstatus:view' );
+		const v = makeView( 'workerstatus:view' );
 		const id = 'restart-5';
 		v.pending.set( id, { resolve: () => {}, reject: () => {} } );
 		v.fill( restartReply( id, null ) );
@@ -157,7 +165,7 @@ describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
 
 describe( 'workerstatus:view — un-correlated TM_ERROR (global error)', () => {
 	test( 'an un-correlated TM_ERROR (no matching pending) surfaces into view.error', () => {
-		const v = createWorkerStatusView( 'workerstatus:view' );
+		const v = makeView( 'workerstatus:view' );
 		v.fill( modelMsg( baseModel() ) );
 		// No pending entry for this id → falls through to the global error path.
 		v.fill( restartErrorReply( 'never-stashed', 'broadcast failure' ) );
@@ -170,7 +178,7 @@ describe( 'workerstatus:view — removing-segment animation', () => {
 	test( 'a model with removingSegments schedules a 400ms clear that blanks them', () => {
 		jest.useFakeTimers();
 		try {
-			const v = createWorkerStatusView( 'workerstatus:view' );
+			const v = makeView( 'workerstatus:view' );
 			v.fill(
 				modelMsg(
 					baseModel( {
@@ -191,7 +199,7 @@ describe( 'workerstatus:view — removing-segment animation', () => {
 	} );
 
 	test( 'a clear-removing control blanks removingSegments and republishes', () => {
-		const v = createWorkerStatusView( 'workerstatus:view' );
+		const v = makeView( 'workerstatus:view' );
 		v.fill(
 			modelMsg(
 				baseModel( {
@@ -206,7 +214,7 @@ describe( 'workerstatus:view — removing-segment animation', () => {
 	test( 'a model with no removals schedules no clear timer', () => {
 		jest.useFakeTimers();
 		try {
-			const v = createWorkerStatusView( 'workerstatus:view' );
+			const v = makeView( 'workerstatus:view' );
 			const spy = jest.spyOn( v, 'setState' );
 			v.fill( modelMsg( baseModel() ) );
 			spy.mockClear();
@@ -222,7 +230,7 @@ describe( 'workerstatus:view — teardown', () => {
 	test( 'close() clears a pending removing-clear timer (no later setState)', () => {
 		jest.useFakeTimers();
 		try {
-			const v = createWorkerStatusView( 'workerstatus:view' );
+			const v = makeView( 'workerstatus:view' );
 			v.fill(
 				modelMsg(
 					baseModel( {
@@ -242,19 +250,19 @@ describe( 'workerstatus:view — teardown', () => {
 	} );
 
 	test( 'close() is safe when no timer is pending', () => {
-		const v = createWorkerStatusView( 'workerstatus:view' );
+		const v = makeView( 'workerstatus:view' );
 		expect( () => v.close() ).not.toThrow();
 	} );
 } );
 
 describe( 'workerstatus:view — node wiring', () => {
 	test( 'names the node', () => {
-		const v = createWorkerStatusView( 'workerstatus:view' );
+		const v = makeView( 'workerstatus:view' );
 		expect( v.name ).toBe( 'workerstatus:view' );
 	} );
 
 	test( 'exposes the pending Map for the hook to stash resolvers', () => {
-		const v = createWorkerStatusView( 'workerstatus:view' );
+		const v = makeView( 'workerstatus:view' );
 		expect( v.pending ).toBeInstanceOf( Map );
 	} );
 } );

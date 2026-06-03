@@ -364,7 +364,8 @@ class Config {
 			}
 
 			try {
-				( new Lock_Node( $path ) )->request_restart();
+				// Static form: no Node created — a fire-and-forget filesystem signal, not a graph participant.
+				Lock_Node::request_restart_at( $path );
 			} catch ( \Throwable $e ) {
 				continue;
 			}

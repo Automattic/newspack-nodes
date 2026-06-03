@@ -23,11 +23,19 @@ import {
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
-import { createWorkerStatusTransform } from '../workerStatusTransform';
+import { WorkerStatusTransformNode } from '../workerStatusTransform';
 
 // setName registers in the per-process Core registry; clear it between tests so
 // re-creating the same-named node doesn't collide (matches the sibling tests).
 beforeEach( () => Core.reset() );
+
+// Construct the node directly (production wires it via interpreter.makeNode;
+// bare-newing the class is fine inside a test).
+function makeTransform( name ) {
+	const node = new WorkerStatusTransformNode();
+	node.setName( name );
+	return node;
+}
 
 // Capture sink: a minimal node whose fill() records every message it receives.
 function capture() {
@@ -109,7 +117,7 @@ const consumerSnapshot = ( cursorOffset ) => ( {
 describe( 'workerstatus:transform — model envelope', () => {
 	test( 'emits a TM_STRUCT { action:"model", model } for a metadata snapshot', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		t.target = 'workerstatus:view';
 		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
@@ -122,7 +130,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'the model carries the canonical shape', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
@@ -145,7 +153,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'forwards the workers / supervisor / logs straight through', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		const snap = producerSnapshot( 100 );
 		snap.supervisor = { type: 'supervisor', status: 'running' };
@@ -159,7 +167,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'passes segment_size and timestamp through to the model', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		const snap = producerSnapshot( 100 );
 		snap.segment_size = 1048576;
@@ -172,7 +180,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'retains the last segment_size when a later poll omits it', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		// Poll 1 carries a segment_size; poll 2 omits it.
 		const withSize = producerSnapshot( 100 );
@@ -186,7 +194,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'retains the last timestamp when a later poll omits it', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		// Poll 1 carries a timestamp; poll 2 omits it.
 		const withTs = producerSnapshot( 100 );
@@ -200,7 +208,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 
 	test( 'first snapshot reports loading=false and a null error', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
@@ -212,7 +220,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 describe( 'workerstatus:transform — rate math from two snapshots', () => {
 	test( 'first snapshot yields no rates (no previous to delta against)', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
 		const { model } = sink.got[ 0 ][ VALUE ];
@@ -223,7 +231,7 @@ describe( 'workerstatus:transform — rate math from two snapshots', () => {
 	test( 'second snapshot computes write rate from total_size delta / time', () => {
 		withClock( ( advance ) => {
 			const sink = capture();
-			const t = createWorkerStatusTransform( 'workerstatus:transform' );
+			const t = makeTransform( 'workerstatus:transform' );
 			t.sink = sink.node;
 			t.fill( metadataMsg( producerSnapshot( 100 ) ) );
 			advance( 2000 ); // 2s between snapshots
@@ -237,7 +245,7 @@ describe( 'workerstatus:transform — rate math from two snapshots', () => {
 	test( 'second snapshot computes per-worker read rate from cursor delta', () => {
 		withClock( ( advance ) => {
 			const sink = capture();
-			const t = createWorkerStatusTransform( 'workerstatus:transform' );
+			const t = makeTransform( 'workerstatus:transform' );
 			t.sink = sink.node;
 			t.fill( metadataMsg( consumerSnapshot( 0 ) ) );
 			advance( 1000 ); // 1s
@@ -251,7 +259,7 @@ describe( 'workerstatus:transform — rate math from two snapshots', () => {
 	test( 'a shrinking total_size clamps the write rate to zero (stale snapshot)', () => {
 		withClock( ( advance ) => {
 			const sink = capture();
-			const t = createWorkerStatusTransform( 'workerstatus:transform' );
+			const t = makeTransform( 'workerstatus:transform' );
 			t.sink = sink.node;
 			t.fill( metadataMsg( producerSnapshot( 1100 ) ) );
 			advance( 2000 );
@@ -266,7 +274,7 @@ describe( 'workerstatus:transform — segment tracking', () => {
 	test( 'a removed segment shows up in removingSegments on the next snapshot', () => {
 		withClock( ( advance ) => {
 			const sink = capture();
-			const t = createWorkerStatusTransform( 'workerstatus:transform' );
+			const t = makeTransform( 'workerstatus:transform' );
 			t.sink = sink.node;
 			// Snapshot 1: two segments.
 			const two = producerSnapshot( 200 );
@@ -292,7 +300,7 @@ describe( 'workerstatus:transform — segment tracking', () => {
 	test( 'prevSegments reflects the PRIOR snapshot ids so new segments animate in', () => {
 		withClock( ( advance ) => {
 			const sink = capture();
-			const t = createWorkerStatusTransform( 'workerstatus:transform' );
+			const t = makeTransform( 'workerstatus:transform' );
 			t.sink = sink.node;
 			// Snapshot 1: one segment.
 			t.fill( metadataMsg( producerSnapshot( 100 ) ) );
@@ -316,7 +324,7 @@ describe( 'workerstatus:transform — segment tracking', () => {
 	test( 'no removals → removingSegments is empty', () => {
 		withClock( ( advance ) => {
 			const sink = capture();
-			const t = createWorkerStatusTransform( 'workerstatus:transform' );
+			const t = makeTransform( 'workerstatus:transform' );
 			t.sink = sink.node;
 			t.fill( metadataMsg( producerSnapshot( 100 ) ) );
 			advance( 2000 );
@@ -330,7 +338,7 @@ describe( 'workerstatus:transform — segment tracking', () => {
 describe( 'workerstatus:transform — non-metadata replies', () => {
 	test( 'ignores a reply for a verb other than dump_metadata', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		t.target = 'workerstatus:view';
 		const reply = newMessage();
@@ -347,7 +355,7 @@ describe( 'workerstatus:transform — non-metadata replies', () => {
 
 	test( 'forwards a TM_ERROR reply to the view (un-correlated poll failure)', () => {
 		const sink = capture();
-		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
 		t.target = 'workerstatus:view';
 		const err = newMessage();
@@ -366,12 +374,12 @@ describe( 'workerstatus:transform — non-metadata replies', () => {
 
 describe( 'workerstatus:transform — node wiring', () => {
 	test( 'names the node', () => {
-		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'workerstatus:transform' );
 		expect( t.name ).toBe( 'workerstatus:transform' );
 	} );
 
 	test( 'does nothing without a sink', () => {
-		const t = createWorkerStatusTransform( 'workerstatus:transform' );
+		const t = makeTransform( 'workerstatus:transform' );
 		expect( () =>
 			t.fill( metadataMsg( producerSnapshot( 100 ) ) )
 		).not.toThrow();
