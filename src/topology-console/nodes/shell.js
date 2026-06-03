@@ -143,6 +143,12 @@ export class Shell extends Node {
 		};
 	}
 
+	// The Shell is the unnamed REPL front-end — naming it would register a
+	// command surface in the graph. Fatal so the rule can't be violated.
+	setName() {
+		throw new Error( 'Shell must not be named' );
+	}
+
 	/**
 	 * Single-tier interpolation: `<name>` → vars, `<config:foo>` → config, unknown → ''.
 	 * Mirrors PHP Shell::interpolate (runs before tokenizing).

@@ -530,3 +530,10 @@ describe( 'splitStatements (unquoted `;` splitter)', () => {
 		expect( splitStatements( ';;;' ) ).toEqual( [] );
 	} );
 } );
+
+describe( 'Shell node — name guard', () => {
+	it( 'Shell refuses to be named', () => {
+		const s = new Shell();
+		expect( () => s.setName( 'x' ) ).toThrow( /shell.*not.*named/i );
+	} );
+} );

@@ -3,7 +3,13 @@ import { TeeNode } from './tee-node';
 import { EchoNode } from './echo-node';
 import { TimerNode } from './timer-node';
 import { Core } from './core';
-import { dumpMetadataPayload } from './metadata-node';
+import { dumpMetadataPayload, MetadataNode } from './metadata-node';
+import { DumperNode } from './dumper-node';
+import { CompletionNode } from './completion-node';
+import { UptimeNode } from './uptime-node';
+import { SseInNode } from './sse-in-node';
+import { HttpOutNode } from './http-out-node';
+import { HeartbeatNode } from './heartbeat-node';
 import {
 	TYPE,
 	TIMESTAMP,
@@ -284,6 +290,23 @@ export class CommandInterpreterNode extends Node {
 		return '';
 	}
 
+	// Programmatic graph construction: create a registered class, name + sink it
+	// into this interpreter, return the node. The make_node verb delegates here.
+	makeNode( type, name, args = '' ) {
+		const NodeClass = CommandInterpreterNode.includeNodes[ type ];
+		if ( ! NodeClass ) {
+			throw new Error( `unknown class: ${ type }` );
+		}
+		const node = new NodeClass();
+		node.setName( name );
+		node.arguments = String( args ?? '' ).trim();
+		node.sink = this;
+		if ( ( this.debugState ?? 0 ) > 0 ) {
+			node.debugState = this.debugState;
+		}
+		return node;
+	}
+
 	// `make_node <type> <name> [<ctor_args>...]` — mirrors PHP
 	// Command_Interpreter_Node::make_node: split the args on whitespace, the
 	// remaining tokens spread straight into the constructor as positional args,
@@ -299,23 +322,13 @@ export class CommandInterpreterNode extends Node {
 			return 'usage: make_node <type> <name> [<ctor_args>...]';
 		}
 		const type = parts.shift();
-		const NodeClass = CommandInterpreterNode.includeNodes[ type ];
-		if ( ! NodeClass ) {
+		// Unknown class returns a string (builds nothing); a name collision still
+		// throws out so interpret()'s central catch wraps it as TM_ERROR.
+		if ( ! CommandInterpreterNode.includeNodes[ type ] ) {
 			return `unknown class: ${ type }`;
 		}
 		const name = parts.shift();
-		// Tachikoma sequence: no-arg ctor, then setName + arguments + sink. Every
-		// config-bearing Node subclass reads its positional config through the
-		// arguments setter (the schema walker assigns each declared arg from the
-		// trailing tokens). name() throws on collision (no pre-check) —
-		// interpret() wraps it.
-		const node = new NodeClass();
-		node.setName( name );
-		node.arguments = parts.join( ' ' );
-		node.sink = this;
-		if ( ( this.debugState ?? 0 ) > 0 ) {
-			node.debugState = this.debugState;
-		}
+		this.makeNode( type, name, parts.join( ' ' ) );
 		return 'ok';
 	}
 
@@ -954,4 +967,18 @@ CommandInterpreterNode.includeNodes = {
 	Echo: EchoNode,
 	Timer: TimerNode,
 	CommandInterpreter: CommandInterpreterNode,
+	Dumper: DumperNode,
+	Completion: CompletionNode,
+	Metadata: MetadataNode,
+	Uptime: UptimeNode,
+	SseIn: SseInNode,
+	HttpOut: HttpOutNode,
+	Heartbeat: HeartbeatNode,
+};
+
+// Plugins/dashboards register their own node classes (the `*View`/`*Transform`
+// factories, ELN's `Performance*`, etc.) by merging a shell-name→class map into
+// includeNodes — mirrors PHP's per-plugin namespace registration.
+CommandInterpreterNode.registerNodeClasses = function ( map ) {
+	Object.assign( CommandInterpreterNode.includeNodes, map );
 };

@@ -357,6 +357,7 @@ export class Node {
 		this.setStateCache = {};
 		this.sink = null;
 		this.target = '';
+		this.patron = null;
 		// Cascade-unregister the sibling interpreter so a name-recycle doesn't collide
 		// with an orphan.
 		if ( this.interpreter && '' !== this.interpreter.name ) {

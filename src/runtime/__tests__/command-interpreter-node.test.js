@@ -932,6 +932,74 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 	} );
 
+	describe( 'makeNode() (public programmatic graph construction)', () => {
+		it( 'creates a registered class, names + sinks it, and returns the node', () => {
+			const interp = makeInterpreter();
+			const tee = interp.makeNode( 'Tee', 'mytee' );
+			expect( Core.node( 'mytee' ) ).toBe( tee );
+			expect( tee ).toBeInstanceOf( TeeNode );
+			expect( tee.sink ).toBe( interp );
+		} );
+
+		it( 'throws unknown class for an unregistered type', () => {
+			const interp = makeInterpreter();
+			expect( () => interp.makeNode( 'Nope', 'x' ) ).toThrow(
+				/unknown class/i
+			);
+			expect( Core.node( 'x' ) ).toBeNull();
+		} );
+
+		it( 'feeds trailing args through the arguments setter', () => {
+			const interp = makeInterpreter();
+			const node = interp.makeNode( 'Tee', 't', 'a b' );
+			expect( node.arguments ).toBe( 'a b' );
+		} );
+
+		it( '_cmdMakeNode delegates to makeNode (still names + sinks)', () => {
+			const interp = makeInterpreter();
+			expect( dispatch( interp, 'make_node', 'Tee delegated' ) ).toBe(
+				'ok'
+			);
+			const node = Core.node( 'delegated' );
+			expect( node ).toBeInstanceOf( TeeNode );
+			expect( node.sink ).toBe( interp );
+		} );
+	} );
+
+	describe( 'includeNodes substrate registry', () => {
+		it( 'registers every substrate node class for make_node', () => {
+			for ( const t of [
+				'Dumper',
+				'Completion',
+				'Metadata',
+				'Uptime',
+				'SseIn',
+				'HttpOut',
+				'Heartbeat',
+			] ) {
+				expect(
+					CommandInterpreterNode.includeNodes[ t ]
+				).toBeDefined();
+			}
+		} );
+
+		it( 'registerNodeClasses merges plugin classes into includeNodes', () => {
+			class FooNode extends Node {}
+			CommandInterpreterNode.registerNodeClasses( { Foo: FooNode } );
+			try {
+				expect( CommandInterpreterNode.includeNodes.Foo ).toBe(
+					FooNode
+				);
+				// Existing substrate entries survive the merge.
+				expect( CommandInterpreterNode.includeNodes.Tee ).toBe(
+					TeeNode
+				);
+			} finally {
+				delete CommandInterpreterNode.includeNodes.Foo;
+			}
+		} );
+	} );
+
 	describe( 'dump_config (mirrors PHP)', () => {
 		it( 'emits a make_node line carrying the arguments', () => {
 			const interpreter = makeInterpreter();
