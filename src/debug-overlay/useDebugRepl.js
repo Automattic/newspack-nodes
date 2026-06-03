@@ -6,17 +6,81 @@ import {
 	useState,
 } from '@wordpress/element';
 import { Core } from '../runtime/core';
-import { Node } from '../runtime/node';
 import { splitStatements } from '../topology-console/nodes/shell';
 import { dispatchLocalCommand } from '../topology-console/core/dispatchLocalCommand';
 import { DumperNode } from '../runtime/dumper-node';
-import { CompletionNode } from '../runtime/completion-node';
-import { MetadataNode } from '../runtime/metadata-node';
 import { useGraphGeneration } from '../runtime/react';
 import { LOCAL, FROM, TO, VALUE } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
 
 const EMPTY_TRANSCRIPT = [];
+
+// Construct the overlay's infra ON the page's existing backbone and return the
+// live nodes + a teardown. Runs render-phase (before the canvas paints), so the
+// graph is complete before auto-layout and shell.sink is bound before any typed
+// line can dispatch — no useEffect creates these nodes, no dispatch-time race.
+function buildInfra( shell, debugLevelRef, onTranscript ) {
+	const interpreter = Core.node( names.COMMAND_INTERPRETER );
+	// Idempotent under StrictMode's double-invoked useState initializer: if the
+	// infra is already registered, reuse the existing Dumper instead of colliding
+	// on the reserved _output name.
+	const existing = Core.node( names.OUTPUT );
+	if ( existing ) {
+		shell.sink = interpreter;
+		return {
+			dumper: existing,
+			teardown: () => {
+				existing.removeNode();
+				Core.node( names.COMPLETION )?.removeNode();
+				Core.node( names.METADATA )?.removeNode();
+				Core.node( names.CWD )?.removeNode();
+			},
+		};
+	}
+	// `_output` Dumper is a backbone-class node (needs its debugLevelRef), so it
+	// stays new+named; the siblings come through the interpreter's make_node.
+	const dumper = new DumperNode();
+	dumper.debugLevelRef = debugLevelRef;
+	dumper.setName( names.OUTPUT );
+	dumper.sink = interpreter;
+	const listenerId = 'useDebugRepl/transcript';
+	dumper.register( 'transcript', listenerId, ( next ) => {
+		onTranscript( next || EMPTY_TRANSCRIPT );
+		return true;
+	} );
+	let completion;
+	let metadata;
+	let cwdNode;
+	if ( interpreter ) {
+		// Tab completion: `_completion` answers help/ls queries off the cwd.
+		completion = interpreter.makeNode( 'Completion', names.COMPLETION );
+		// Canvas-poll: Metadata fires dump_metadata at _cwd each TIMER tick,
+		// publishes the parsed graph via setState('metadata') for the canvas.
+		metadata = interpreter.makeNode( 'Metadata', names.METADATA );
+		metadata.target = names.CWD;
+		// Hitchhike the _router TIMER: notify_timer calls metadata.fireCb -> fire;
+		// metadata.removeNode -> stop_timer unwinds it.
+		metadata.setTimer();
+		// `_cwd` is the routing indirection — every scope-relative command's TO
+		// stamps through this node, which re-stamps the live cwd. Path menu /
+		// REPL `cd` just sets `_cwd.target`.
+		cwdNode = interpreter.makeNode( 'Node', names.CWD );
+		cwdNode.target = shell.path;
+	}
+	// Bind shell.sink to the always-present interpreter as part of the build, so
+	// a fast open-and-type can't find it null — dispatch never null-resolves.
+	shell.sink = interpreter;
+	const teardown = () => {
+		dumper.unregister( 'transcript', listenerId );
+		// metadata.removeNode() -> stop_timer -> unregister from the _router's
+		// TIMER (TimerNode self-manages the lifecycle; no hand-rolled unregister).
+		dumper.removeNode();
+		completion?.removeNode();
+		metadata?.removeNode();
+		cwdNode?.removeNode();
+	};
+	return { dumper, teardown };
+}
 
 /**
  * Mount a Dumper at `_output` for the page's CommandInterpreter, and use the
@@ -36,27 +100,35 @@ export function useDebugRepl( active = true, shell ) {
 	const debugLevelRef = useRef( 0 );
 	// Transcript mirror — driven by a `transcript` subscription on the Dumper so
 	// every append/clear re-renders the prompt subscribers. Defaults to empty so
-	// the first render before the effect runs shows a stable empty list.
+	// the first render before infra is built shows a stable empty list.
 	const [ transcript, setTranscript ] = useState( EMPTY_TRANSCRIPT );
 	// cwd reflects the live Shell.path; re-rendered after every dispatch so the
 	// Header path selector + _cwd.target both follow REPL `cd` commands.
-	// String-typed init (consumers concatenate it into `/${cwd}`); a separate
-	// remount counter increments on EVERY (re)mount to force the post-mount
-	// re-render — that's what lets sibling useNodeState subscriptions re-bind to
-	// the nodes (re)registered in this hook's useEffect. A boolean flag would
-	// only fire on the first mount (false→true) and no-op on a Reset-Graph
-	// rebuild, stranding those subscriptions on the removed old nodes (the bug
-	// that silently killed tab completion after the first reset).
 	const [ cwd, setCwd ] = useState( '' );
 	const [ , bumpRemount ] = useState( 0 );
-	// True once this hook's infra nodes (_output/_completion/_metadata/_cwd) are
-	// mounted. The composite readiness in DebugOverlay gates layout on this so
-	// coreToGraph() never sees a partial graph missing the overlay's own nodes.
+	// True once the infra nodes (_output/_completion/_metadata/_cwd) are mounted.
 	const [ ready, setReady ] = useState( false );
-	// The full-rebuild signal: a bump re-runs this effect (cleanup tears down the
-	// overlay's infra nodes, the effect rebuilds them off the fresh backbone) so
-	// "Reset Graph" reconstructs the overlay's half of the graph too.
+	// The full-rebuild signal: a bump tears down + rebuilds the overlay's infra
+	// off the fresh backbone so "Reset Graph" reconstructs the overlay's half too.
 	const generation = useGraphGeneration();
+
+	// Build-before-render: construct the infra (graph nodes + shell.sink bind) in
+	// this useState lazy-initializer so it runs render-phase, BEFORE the canvas
+	// paints + auto-layouts — never in a useEffect. Reactive state (ready/cwd)
+	// flips in the effect below, which also tears the infra down on cleanup and
+	// rebuilds it across active/shell/generation changes.
+	const infraRef = useRef( null );
+	const buildNow = useCallback( () => {
+		const infra = buildInfra( shell, debugLevelRef, setTranscript );
+		dumperRef.current = infra.dumper;
+		shellRef.current = shell;
+		infraRef.current = infra;
+	}, [ shell ] );
+	useState( () => {
+		if ( active ) {
+			buildNow();
+		}
+	} );
 
 	useEffect( () => {
 		if ( ! active ) {
@@ -64,60 +136,24 @@ export function useDebugRepl( active = true, shell ) {
 			setReady( false );
 			return undefined;
 		}
-		// Dumper accumulates entries + publishes `transcript` for React subscribers.
-		const interpreter = Core.node( names.COMMAND_INTERPRETER );
-		const dumper = new DumperNode();
-		dumper.debugLevelRef = debugLevelRef;
-		dumper.setName( names.OUTPUT );
-		dumper.sink = interpreter;
-		// Tab completion: `_completion` answers help/ls queries off the cwd.
-		const completion = new CompletionNode();
-		completion.setName( names.COMPLETION );
-		completion.sink = interpreter;
-		// Canvas-poll: Metadata fires dump_metadata at _cwd each TIMER tick,
-		// publishes the parsed graph via setState('metadata') for the canvas.
-		const metadata = new MetadataNode();
-		metadata.setName( names.METADATA );
-		metadata.sink = interpreter;
-		metadata.target = names.CWD;
-		// Hitchhike the _router TIMER: notify_timer calls metadata.fireCb -> fire;
-		// metadata.removeNode -> stop_timer unwinds it.
-		metadata.setTimer();
-		// `_cwd` is the routing indirection — every scope-relative command's TO
-		// stamps through this node, which re-stamps the live cwd. Path menu /
-		// REPL `cd` just sets `_cwd.target`.
-		const cwdNode = new Node();
-		cwdNode.setName( names.CWD );
-		cwdNode.sink = interpreter;
-		cwdNode.target = shell.path;
-		// Shell is owned by DebugOverlay; we just adopt the passed-in instance
-		// (its path + sink are already configured) and store it on the ref so
-		// dispatchStatement can reach it.
-		dumperRef.current = dumper;
-		shellRef.current = shell;
+		// The useState initializer built the first instance before render; on a
+		// subsequent active/shell/generation change the previous effect's cleanup
+		// tore it down, so rebuild here off the (possibly fresh) backbone.
+		if ( ! infraRef.current ) {
+			buildNow();
+		}
 		setCwd( shell.path );
-		bumpRemount( ( n ) => n + 1 );
-		const listenerId = 'useDebugRepl/transcript';
-		dumper.register( 'transcript', listenerId, ( next ) => {
-			setTranscript( next || EMPTY_TRANSCRIPT );
-			return true;
-		} );
-		// All infra nodes are mounted — coreToGraph() now sees the complete graph.
 		setReady( true );
+		bumpRemount( ( n ) => n + 1 );
 		return () => {
-			dumper.unregister( 'transcript', listenerId );
-			// metadata.removeNode() -> stop_timer -> unregister from the _router's
-			// TIMER (TimerNode self-manages the lifecycle; no hand-rolled unregister).
-			dumper.removeNode();
-			completion.removeNode();
-			metadata.removeNode();
-			cwdNode.removeNode();
+			infraRef.current?.teardown();
 			dumperRef.current = null;
 			shellRef.current = null;
+			infraRef.current = null;
 			setTranscript( EMPTY_TRANSCRIPT );
 			setReady( false );
 		};
-	}, [ active, shell, generation ] );
+	}, [ active, shell, generation, buildNow ] );
 
 	const append = useCallback( ( entry ) => {
 		dumperRef.current?.append( entry );
@@ -158,12 +194,8 @@ export function useDebugRepl( active = true, shell ) {
 			if ( undefined === parsed[ TO ] ) {
 				parsed[ TO ] = '';
 			}
-			// Resolve the interpreter at dispatch time — the dashboard may register
-			// _command_interpreter after DebugOverlay's bind effect ran, leaving
-			// shell.sink null on a fast open-and-type race. Canary below if none.
-			if ( ! s.sink ) {
-				s.sink = Core.node( names.COMMAND_INTERPRETER );
-			}
+			// shell.sink is bound at build time (build-before-render); a null sink
+			// means the page genuinely has no interpreter — surface, don't drop.
 			if ( ! s.sink ) {
 				const verb = parsed[ VALUE ]?.name || '?';
 				Core.stderr(

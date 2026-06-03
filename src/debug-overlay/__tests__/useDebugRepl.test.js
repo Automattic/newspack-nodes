@@ -1,4 +1,5 @@
 import { renderHook, act } from '@testing-library/react';
+import { StrictMode } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import names from '../../runtime/reserved-node-names.json';
@@ -69,21 +70,39 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
-	it( 'resolves the interpreter at dispatch when shell.sink was left unbound (race fix)', () => {
-		// Race: the dashboard registers _command_interpreter AFTER DebugOverlay's
-		// bind effect runs, so a fast open-and-type finds shell.sink still null and
-		// used to drop the command. Dispatch must resolve the interpreter from Core
-		// at use-time instead of relying on the render-effect having re-bound it.
+	it( 'binds shell.sink to the interpreter at build time, before render — so dispatch never null-resolves', () => {
+		// Build-before-render: the hook constructs its infra in a useState
+		// initializer (render-phase, before the canvas paints) and binds
+		// shell.sink to the always-present interpreter as part of that build. A
+		// fast open-and-type can't hit a null shell.sink, so there is no
+		// dispatch-time resolve. shell.sink is bound on the very first render.
 		const { teardown } = mountExospine();
 		const shell = new Shell();
 		shell.path = '';
-		shell.sink = null; // unbound at type-time (the race)
+		shell.sink = null; // unbound until the hook's build binds it
 		const interpreter = Core.node( names.COMMAND_INTERPRETER );
 		const fillSpy = jest.spyOn( interpreter, 'fill' );
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		// Bound during the build (render-phase), not in a post-render effect.
+		expect( shell.sink ).toBe( interpreter );
 		act( () => result.current.sendLine( 'ls' ) );
 		expect( fillSpy ).toHaveBeenCalled();
-		expect( shell.sink ).toBe( interpreter );
+		teardown();
+	} );
+
+	it( 'survives StrictMode double-invoked initializer without a name collision', () => {
+		// React StrictMode double-invokes useState initializers in development, so
+		// the build-before-render runs twice during render; the second must reuse
+		// the already-registered infra rather than throw a name collision on
+		// _output/_completion/_metadata/_cwd.
+		const { teardown } = mountExospine();
+		const shell = makeShell();
+		expect( () => {
+			renderHook( () => useDebugRepl( true, shell ), {
+				wrapper: StrictMode,
+			} );
+		} ).not.toThrow();
+		expect( Core.node( names.OUTPUT ) ).not.toBeNull();
 		teardown();
 	} );
 
@@ -216,19 +235,20 @@ describe( 'useDebugRepl', () => {
 	} );
 
 	it( 'sendLine of a wire command surfaces a stderr warning naming the dropped verb when there is NO command interpreter', () => {
-		// Dispatch resolves the interpreter from Core at use-time (see the race-fix
-		// test above), so a null shell.sink alone no longer drops. But when the page
-		// genuinely has no _command_interpreter, there's nothing to resolve — surface
-		// the drop via Core.stderr instead of silently no-op'ing.
+		// The build binds shell.sink to the interpreter — but when the page
+		// genuinely has no _command_interpreter there is nothing to bind, so
+		// shell.sink stays null and the command can't be routed. Surface the drop
+		// via Core.stderr (the canary) instead of silently no-op'ing. This is the
+		// genuine-absence case the build-before-render guarantee can't cover.
 		mountExospine();
 		const shell = new Shell();
 		shell.path = '';
 		shell.sink = null;
 		const stderrSpy = jest.spyOn( Core, 'stderr' ).mockImplementation();
-		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		// Remove the interpreter (keep _router for the metadata timer) so the
-		// dispatch-time resolve finds nothing.
+		// build has nothing to bind shell.sink to.
 		Core.nodes.delete( names.COMMAND_INTERPRETER );
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
 		act( () => result.current.sendLine( 'ls' ) );
 		expect( stderrSpy ).toHaveBeenCalledTimes( 1 );
 		expect( stderrSpy.mock.calls[ 0 ][ 0 ] ).toMatch(

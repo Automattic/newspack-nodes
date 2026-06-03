@@ -725,21 +725,26 @@ describe( 'useDebugGraph', () => {
 		teardown();
 	} );
 
-	it( 'GUI dispatch resolves the interpreter when shell.sink was left unbound (race fix)', () => {
-		// Same open-and-type race as the REPL: a GUI gesture fired before the
-		// bind effect re-bound shell.sink used to silently no-op (shell.sendCommand
-		// → this.sink?.fill). sendVerb must resolve the interpreter from Core.
+	it( 'GUI dispatch routes through the already-bound shell.sink without re-resolving it', () => {
+		// Build-before-render: useDebugRepl binds shell.sink to the interpreter
+		// during its build (render-phase), before any canvas gesture is possible.
+		// So sendVerb no longer resolves the interpreter at dispatch time — it
+		// just fills the already-bound sink. A GUI gesture works on the very first
+		// render, and sendVerb leaves shell.sink untouched (no dispatch-time
+		// rebind). Here the test plays the role of the build by pre-binding sink.
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.setName( 'a' );
 		const b = new Node();
 		b.setName( 'b' );
+		const interpreter = Core.node( names.COMMAND_INTERPRETER );
 		const shell = new Shell();
 		shell.path = '';
-		shell.sink = null; // unbound at gesture-time (the race)
+		shell.sink = interpreter; // bound by the build, before render
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
-		expect( shell.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
+		// sendVerb did not re-resolve/rebind — it used the bound sink as-is.
+		expect( shell.sink ).toBe( interpreter );
 		expect( Core.node( 'a' ).target ).toBe( 'b' );
 		teardown();
 	} );

@@ -57,12 +57,8 @@ export function useDebugGraph(
 				text: echoText,
 				prompt: `/${ shell.path }`,
 			} );
-			// Resolve the interpreter at dispatch time — the dashboard may register
-			// it after the bind effect ran, leaving shell.sink null on a fast
-			// open-and-gesture race (mirrors useDebugRepl's dispatch resolve).
-			if ( ! shell.sink ) {
-				shell.sink = Core.node( names.COMMAND_INTERPRETER );
-			}
+			// shell.sink is bound at build time (useDebugRepl's build-before-render);
+			// no dispatch-time resolve — just route through the already-bound sink.
 			shell.sendCommand( path, name, args );
 		},
 		[ shell ]
