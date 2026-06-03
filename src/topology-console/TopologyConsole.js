@@ -12,10 +12,8 @@ import {
 import { __, _n, sprintf } from '@wordpress/i18n';
 
 import CanvasFrame from './components/CanvasFrame';
-import GraphView from './components/GraphView';
-import Header from './components/Header';
+import ConsoleShell from './components/ConsoleShell';
 import { ConfirmModal, PromptModal, NewNodeModal } from './components/Modal';
-import ReplFooter from './components/ReplFooter';
 
 import OpenTopologyModal from './components/OpenTopologyModal';
 
@@ -1275,103 +1273,101 @@ export default function TopologyConsole() {
 				paletteCollapsed ? ' is-palette-collapsed' : ''
 			}` }
 		>
-			<Header
-				pathOptions={ pathOptions }
-				path={ cwd }
-				onPathChange={ handlePathChange }
-				canEdit={ cwd.startsWith( '_sse/' ) }
-				streamStatus={ status }
-				uptime={ uptime }
-				mode={ mode }
-				onModeChange={ handleModeChange }
-				onSave={ handleSave }
-				onOpen={ handleOpen }
-				onNew={ handleNew }
-				onDelete={ handleDelete }
-				canDelete={ canDeleteCurrent }
-				theme={ theme }
-				onThemeChange={ onThemeChange }
-				themes={ THEMES }
-			/>
-			{ layoutReady ? (
-				<GraphView
-					graph={ canvasGraph }
-					frame={ CanvasFrame }
-					frameProps={ {
-						topology:
-							mode === 'edit'
-								? editingName || 'untitled'
-								: scope.label,
-						partition: mode === 'edit' ? null : scope.partition,
-						isWorker: mode === 'edit' ? true : scope.isWorker,
-						onResetLayout: showResetLayoutChip
-							? handleResetLayout
-							: null,
-						onSaveLayout: layoutDivergesFromSaved
-							? handleSaveLayout
-							: null,
-						// Only the local in-browser graph (cwd root) is ephemeral;
-						// any pivoted view — a worker over _sse OR the _http
-						// broadcast boundary — self-heals on respawn, so a reset is
-						// meaningless. canResetGraph already gates on local scope +
-						// live mode + (a mutating edit OR a surviving user node).
-						onResetGraph: canResetGraph ? handleResetGraph : null,
-						editMode: mode === 'edit',
-					} }
-					resetKey={ `${ scope.key }|${ mode }|${ editingName }` }
-					interactive={ true }
-					editMode={ mode === 'edit' }
-					showPalette={ true }
-					paletteLoading={ catalog.loading }
-					paletteCollapsed={ paletteCollapsed }
-					onPaletteToggle={ togglePaletteCollapsed }
-					classCatalog={ schemasByShellName }
-					catalog={ catalog.classes }
-					formatters={ catalog.formatters }
-					streamStatus={ status }
-					ssePid={ ssePid }
-					positionOverrides={ positionOverrides }
-					onPositionChange={ handlePositionChange }
-					viewport={ viewport }
-					onViewportChange={ handleViewportChange }
-					onConnect={ handleConnect }
-					onRemoveNode={ handleRemoveNode }
-					onRemoveEdge={ handleRemoveEdge }
-					onDropNode={ handleDropNode }
-					onInspectorAction={ handleInspectorAction }
-					onRenameNode={ handleRenameNode }
-					onUpdateArgs={ handleUpdateArgs }
-					onUpdateVerbs={ handleUpdateVerbs }
-					onSelectionChange={ ( id ) => {
+			<ConsoleShell
+				ready={ layoutReady }
+				graph={ canvasGraph }
+				frame={ CanvasFrame }
+				frameProps={ {
+					topology:
+						mode === 'edit'
+							? editingName || 'untitled'
+							: scope.label,
+					partition: mode === 'edit' ? null : scope.partition,
+					isWorker: mode === 'edit' ? true : scope.isWorker,
+					onResetLayout: showResetLayoutChip
+						? handleResetLayout
+						: null,
+					onSaveLayout: layoutDivergesFromSaved
+						? handleSaveLayout
+						: null,
+					// Only the local in-browser graph (cwd root) is ephemeral;
+					// any pivoted view — a worker over _sse OR the _http
+					// broadcast boundary — self-heals on respawn, so a reset is
+					// meaningless. canResetGraph already gates on local scope +
+					// live mode + (a mutating edit OR a surviving user node).
+					onResetGraph: canResetGraph ? handleResetGraph : null,
+					editMode: mode === 'edit',
+				} }
+				buildingClassName="topology-canvas-building"
+				showRepl={ mode !== 'edit' }
+				headerProps={ {
+					pathOptions,
+					path: cwd,
+					onPathChange: handlePathChange,
+					canEdit: cwd.startsWith( '_sse/' ),
+					streamStatus: status,
+					uptime,
+					mode,
+					onModeChange: handleModeChange,
+					onSave: handleSave,
+					onOpen: handleOpen,
+					onNew: handleNew,
+					onDelete: handleDelete,
+					canDelete: canDeleteCurrent,
+					theme,
+					onThemeChange,
+					themes: THEMES,
+				} }
+				canvasProps={ {
+					resetKey: `${ scope.key }|${ mode }|${ editingName }`,
+					interactive: true,
+					editMode: mode === 'edit',
+					showPalette: true,
+					paletteLoading: catalog.loading,
+					paletteCollapsed,
+					onPaletteToggle: togglePaletteCollapsed,
+					classCatalog: schemasByShellName,
+					catalog: catalog.classes,
+					formatters: catalog.formatters,
+					streamStatus: status,
+					ssePid,
+					positionOverrides,
+					onPositionChange: handlePositionChange,
+					viewport,
+					onViewportChange: handleViewportChange,
+					onConnect: handleConnect,
+					onRemoveNode: handleRemoveNode,
+					onRemoveEdge: handleRemoveEdge,
+					onDropNode: handleDropNode,
+					onInspectorAction: handleInspectorAction,
+					onRenameNode: handleRenameNode,
+					onUpdateArgs: handleUpdateArgs,
+					onUpdateVerbs: handleUpdateVerbs,
+					onSelectionChange: ( id ) => {
 						setSelectedId( id );
 						refocusReplIfExpanded();
-					} }
-					selection={ selectedId }
-					onBackgroundClickConsumed={
-						handleCanvasBackgroundClickConsumed
-					}
-				/>
-			) : (
-				<div className="topology-canvas-building" />
-			) }
-			{ mode !== 'edit' && (
-				<ReplFooter
-					prompt={ `/${ cwd }` }
-					streamStatus={ status }
+					},
+					selection: selectedId,
+					onBackgroundClickConsumed:
+						handleCanvasBackgroundClickConsumed,
+				} }
+				replProps={ {
+					prompt: `/${ cwd }`,
+					streamStatus: status,
 					// Input is always enabled: a poll/command for any scope routes
-					// through `_cwd`, so there is no scope where the prompt must wait.
-					canSend={ true }
-					onSubmit={ sendLine }
-					onClear={ clearTranscript }
-					transcript={ transcript }
-					expanded={ replExpanded }
-					onExpandedChange={ setReplExpanded }
-					inputRef={ replInputRef }
-					completion={ completion }
-					onComplete={ requestCompletion }
-					onShowCandidates={ handleShowCandidates }
-				/>
-			) }
+					// through `_cwd`, so there is no scope where the prompt waits.
+					canSend: true,
+					onSubmit: sendLine,
+					onClear: clearTranscript,
+					transcript,
+					expanded: replExpanded,
+					onExpandedChange: setReplExpanded,
+					inputRef: replInputRef,
+					completion,
+					onComplete: requestCompletion,
+					onShowCandidates: handleShowCandidates,
+				} }
+			/>
 			{ discardModal && (
 				<ConfirmModal
 					title={ __( 'Discard unsaved changes?', 'newspack-nodes' ) }
