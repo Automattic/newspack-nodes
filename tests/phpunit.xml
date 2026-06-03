@@ -5,6 +5,7 @@
          colors="true"
          cacheDirectory="/tmp/phpunit-cache-newspack-nodes"
          executionOrder="depends,defects"
+         failOnWarning="true"
          beStrictAboutOutputDuringTests="false">
     <php>
         <env name="LOCAL_NEWSPACK_NODES_CONF" value="newspack-nodes-test-config.php"/>
