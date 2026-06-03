@@ -25,9 +25,12 @@ Thumbs.db
 
 # Dev tooling / configs
 .distignore
+babel.config.js
 build-release.sh
 cghooks.lock
 commitlint.config.js
+jest.config.js
+jest.style-mock.js
 package-lock.json
 package.json
 phpcs.xml.dist
@@ -49,3 +52,5 @@ ARCHITECTURE.md
 CHANGELOG.md
 CLAUDE.md
 README.md
+GETTING-STARTED.md
+WRITING-A-PLUGIN.md
