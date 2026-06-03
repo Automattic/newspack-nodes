@@ -134,6 +134,25 @@ describe( 'useCanvasLayout', () => {
 		expect( result.current.canReset ).toBe( false );
 	} );
 
+	it( 'markDirty sets canReset without moving any node, and persists modified', () => {
+		const { result } = render();
+		expect( result.current.canReset ).toBe( false );
+		const before = result.current.positions;
+		act( () => result.current.markDirty() );
+		expect( result.current.canReset ).toBe( true );
+		expect( result.current.positions ).toEqual( before );
+		expect(
+			JSON.parse( window.localStorage.getItem( KEY ) ).modified
+		).toBe( true );
+	} );
+
+	it( 'markDirty is a no-op before init (positions still empty, nothing persisted)', () => {
+		const { result } = render( { ready: false } );
+		act( () => result.current.markDirty() );
+		expect( result.current.canReset ).toBe( false );
+		expect( window.localStorage.getItem( KEY ) ).toBeNull();
+	} );
+
 	it( 'renamePosition moves an entry, leaves canReset unchanged', () => {
 		const { result } = render();
 		act( () => result.current.renamePosition( 'a', 'a2' ) );
