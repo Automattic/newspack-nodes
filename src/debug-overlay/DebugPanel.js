@@ -104,6 +104,7 @@ export default function DebugPanel( { storageKey, onClose } ) {
 		canReset: isLayoutDirty,
 		onPositionChange,
 		onViewportChange,
+		markDirty,
 		resetLayout,
 	} = useCanvasLayout( {
 		storageKey: `${ storageKey }:${ cwdScope }`,
@@ -171,7 +172,7 @@ export default function DebugPanel( { storageKey, onClose } ) {
 		nodes: graph.nodes,
 		isLocalScope: ! cwd,
 		canRebuild: !! reinit,
-		markDirty: () => {},
+		markDirty,
 	} );
 
 	// "Reset Layout" appears only when the user has modified the layout.

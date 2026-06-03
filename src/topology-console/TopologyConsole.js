@@ -421,6 +421,14 @@ export default function TopologyConsole() {
 	const isServerScope =
 		mode === 'edit' || ( scope.isWorker && scope.label === topology );
 
+	// Edit-mode Reset blocks the server seed for the rest of the session at this
+	// scope/topology so the canvas autoLayouts instead of replaying the saved
+	// layout (live mode still loads saved). Cleared on a fresh scope/topology/mode.
+	const [ serverSeedBlocked, setServerSeedBlocked ] = useState( false );
+	useEffect( () => {
+		setServerSeedBlocked( false );
+	}, [ effectiveTopologyName, scope.key, mode ] );
+
 	const serverPositionsMap = useMemo(
 		() => savedPositionsToOverrides( savedLayout ),
 		[ savedLayout, savedPositionsToOverrides ]
@@ -452,25 +460,27 @@ export default function TopologyConsole() {
 		onPositionChange: handlePositionChange,
 		onViewportChange: handleViewportChange,
 		renamePosition,
+		markDirty,
 		resetLayout,
 	} = useCanvasLayout( {
 		storageKey: positionStorageKey,
 		graph: layoutGraph,
 		ready: layoutReady,
-		serverLayout: isServerScope ? serverPositionsMap : null,
+		serverLayout:
+			isServerScope && ! serverSeedBlocked ? serverPositionsMap : null,
 	} );
 
 	// Shared graph-dirty + Reset Graph logic (identical to the debug overlay). The
 	// Shell dispatch tap flips structureDirty on any graph-mutating command — drag
 	// gesture OR typed REPL line — and a surviving user node keeps the chip up
 	// across a rebuild. Local-scope only; canRebuild = the live graph is mounted.
-	// A graph rewire no longer dirties the LAYOUT — pass a no-op for markDirty.
+	// resetGraph marks the layout dirty so Reset Layout surfaces after a rebuild.
 	const { resetGraph: resetLocalGraphCore, canResetGraph } = useGraphReset( {
 		shell,
 		nodes: parsed.nodes,
 		isLocalScope: '' === cwd,
 		canRebuild: mode !== 'edit',
-		markDirty: () => {},
+		markDirty,
 	} );
 
 	// Comparison the Save Layout chip gates on: only show "save" when the
@@ -505,17 +515,32 @@ export default function TopologyConsole() {
 		return false;
 	}, [ positionOverrides, savedLayout, layoutGraph ] );
 
-	// Live local scope: reset target is autoLayout → show when modified.
-	// Server scope (worker matching the topology) or edit: also show when the
-	// current layout diverges from the server-saved one.
-	const showResetLayoutChip = isServerScope
-		? layoutDivergesFromSaved
-		: canReset;
+	// Reset Layout chip gating differs by mode:
+	// - Edit: show whenever there's a layout to discard, but hide it right after a
+	//   Reset (untouched autoLayout — clicking again re-runs the same autoLayout).
+	// - Live server scope (worker matching the topology): show when the local
+	//   layout diverges from the server-saved one (click restores saved).
+	// - Live local scope (cwd "/"): no server reference; show when modified.
+	const editLayoutIsAutoLayout = serverSeedBlocked && ! canReset;
+	const showResetLayoutChip = ( () => {
+		if ( mode === 'edit' ) {
+			return (
+				Object.keys( positionOverrides ).length > 0 &&
+				! editLayoutIsAutoLayout
+			);
+		}
+		if ( isServerScope ) {
+			return layoutDivergesFromSaved;
+		}
+		return canReset;
+	} )();
 	const handleResetLayout = useCallback( () => {
 		if ( mode === 'edit' ) {
 			setResetConfirm( {
 				onConfirm: () => {
 					setResetConfirm( null );
+					// Edit-mode Reset → autoLayout, not the server seed.
+					setServerSeedBlocked( true );
 					resetLayout();
 				},
 				onCancel: () => setResetConfirm( null ),

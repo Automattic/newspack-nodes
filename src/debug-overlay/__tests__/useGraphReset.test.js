@@ -88,14 +88,14 @@ describe( 'useGraphReset', () => {
 		}
 	);
 
-	it( 'also marks the layout dirty on a mutating command (the graph changed, the layout may be stale)', () => {
+	it( 'does NOT mark the layout dirty on a mutating command (a rewire keeps the layout; only Reset Graph dirties it)', () => {
 		const shell = makeShell();
 		let marked = 0;
 		renderHook( () =>
 			useGraphReset( opts( shell, { markDirty: () => ( marked += 1 ) } ) )
 		);
 		act( () => shell.dispatch( commandMsg( 'connect_node', 'a b' ) ) );
-		expect( marked ).toBe( 1 );
+		expect( marked ).toBe( 0 );
 	} );
 
 	it( 'does not mark the layout dirty on a non-mutating command', () => {

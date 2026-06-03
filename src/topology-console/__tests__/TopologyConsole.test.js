@@ -1679,10 +1679,10 @@ describe( 'TopologyConsole boot', () => {
 		expect( Core.node( '_router' ) ).toBeTruthy();
 	} );
 
-	it( 'reset-graph keeps the layout and does NOT surface Reset Layout (rewire no longer dirties the layout)', async () => {
-		// New behavior (matches the debug overlay): a graph rewire no longer
-		// dirties the LAYOUT, so Reset Graph rebuilds the graph but leaves the
-		// layout untouched — Reset Layout is independent and stays hidden.
+	it( 'reset-graph surfaces Reset Layout (a full rebuild offers a fresh auto-fit)', async () => {
+		// A graph rewire alone does not dirty the LAYOUT, but Reset Graph (a full
+		// teardown + rebuild) marks it dirty so Reset Layout surfaces — the rebuilt
+		// graph can be re-auto-fit. Matches the debug overlay.
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { findByText, queryByText } = render( <TopologyConsole /> );
 		act( () => {
@@ -1702,8 +1702,16 @@ describe( 'TopologyConsole boot', () => {
 		act( () => {
 			fireEvent.click( chip );
 		} );
-		// Reset Graph leaves the layout alone — Reset Layout does NOT appear.
-		expect( queryByText( 'reset-layout' ) ).toBeNull();
+		// The rebuilt graph re-polls metadata (the canvas re-renders over it).
+		await fireMsg( {
+			type: TM_STRUCT,
+			to: names.METADATA,
+			value: {
+				n1: { class: 'Echo', counter: 0, sink: '', target: '' },
+			},
+		} );
+		// Reset Graph marked the layout dirty — Reset Layout now appears.
+		expect( queryByText( 'reset-layout' ) ).not.toBeNull();
 	} );
 
 	it( 'live drag-rewire surfaces the Reset Graph chip with no user node (bug 1)', async () => {
@@ -2948,11 +2956,10 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByText( 'reset-layout' ) ).not.toBeNull();
 	} );
 
-	it( 'edit mode hides the reset-layout chip after Reset (re-adopted layout matches the server-saved one)', async () => {
-		// New model: edit-mode Reset Layout wipes the stored map; the one-shot
-		// init re-adopts the server-saved layout. When the server layout covers
-		// every draft node (n1 + the _repl anchor), the re-adopted map matches
-		// saved exactly → no divergence → the chip hides.
+	it( 'edit mode hides the reset-layout chip after Reset (the layout is now an untouched autoLayout)', async () => {
+		// Edit-mode Reset autoLayouts (serverSeedBlocked). Right after Reset the
+		// layout is an untouched auto-fit, so the chip hides (clicking again would
+		// re-run the same autoLayout); it returns once the user drags a node.
 		hooks.fetchLayout.mockResolvedValue( {
 			positions: { n1: [ 500, 600 ], _repl: [ 700, 800 ] },
 		} );
@@ -3006,10 +3013,11 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByText( 'reset-layout' ) ).not.toBeNull();
 	} );
 
-	it( 'handleResetLayout in edit mode re-adopts the server-saved layout', async () => {
-		// New model: edit mode is a server scope, so Reset Layout wipes the
-		// stored map and the one-shot init re-adopts the server-saved layout
-		// (n1 back to 500/600), NOT autoLayout. serverSeedBlocked is gone.
+	it( 'handleResetLayout in edit mode autoLayouts (does NOT re-adopt the server-saved layout)', async () => {
+		// "The way it's been": live mode loads the saved layout, but edit-mode
+		// Reset autoLayouts (serverSeedBlocked blocks the server seed for the rest
+		// of the session at this scope). So after Reset, n1 is at its autoLayout
+		// position, NOT the server-saved {500,600}.
 		hooks.fetchLayout.mockResolvedValue( {
 			positions: { n1: [ 500, 600 ] },
 		} );
@@ -3041,15 +3049,15 @@ describe( 'TopologyConsole boot', () => {
 		await act( async () => {
 			await new Promise( ( r ) => setTimeout( r, 10 ) );
 		} );
-		// localStorage holds the server position for n1 (500/600) — re-adopted
-		// by the one-shot init. Edit + view at this scope share the same key
-		// (scope.key === 'demo.p0' from the mock Shell path).
+		// After edit-mode Reset the layout is autoLayout, NOT the server seed —
+		// n1 is NOT at {500,600}, and the map is a fresh (unmodified) auto-fit.
 		const stored = JSON.parse(
 			window.localStorage.getItem( 'newspack-nodes:topology:demo.p0' ) ||
 				'null'
 		);
 		expect( stored ).not.toBeNull();
-		expect( stored.positions.n1 ).toEqual( { x: 500, y: 600 } );
+		expect( stored.positions.n1 ).toBeDefined();
+		expect( stored.positions.n1 ).not.toEqual( { x: 500, y: 600 } );
 		expect( stored.modified ).toBe( false );
 	} );
 

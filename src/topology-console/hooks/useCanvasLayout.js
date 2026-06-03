@@ -206,6 +206,18 @@ export function useCanvasLayout( {
 		[ storageKey ]
 	);
 
+	// Surface the Reset Layout chip without moving anything — e.g. after Reset Graph.
+	const markDirty = useCallback( () => {
+		setState( ( prev ) => {
+			if ( prev.positions === null || prev.modified ) {
+				return prev;
+			}
+			const next = { ...prev, modified: true };
+			persist( storageKey, next );
+			return next;
+		} );
+	}, [ storageKey ] );
+
 	const resetLayout = useCallback( () => {
 		if ( vpTimer.current ) {
 			clearTimeout( vpTimer.current );
@@ -235,6 +247,7 @@ export function useCanvasLayout( {
 		onPositionChange,
 		onViewportChange,
 		renamePosition,
+		markDirty,
 		resetLayout,
 	};
 }
