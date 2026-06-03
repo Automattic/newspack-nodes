@@ -69,6 +69,24 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
+	it( 'resolves the interpreter at dispatch when shell.sink was left unbound (race fix)', () => {
+		// Race: the dashboard registers _command_interpreter AFTER DebugOverlay's
+		// bind effect runs, so a fast open-and-type finds shell.sink still null and
+		// used to drop the command. Dispatch must resolve the interpreter from Core
+		// at use-time instead of relying on the render-effect having re-bound it.
+		const { teardown } = mountExospine();
+		const shell = new Shell();
+		shell.path = '';
+		shell.sink = null; // unbound at type-time (the race)
+		const interpreter = Core.node( names.COMMAND_INTERPRETER );
+		const fillSpy = jest.spyOn( interpreter, 'fill' );
+		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		act( () => result.current.sendLine( 'ls' ) );
+		expect( fillSpy ).toHaveBeenCalled();
+		expect( shell.sink ).toBe( interpreter );
+		teardown();
+	} );
+
 	it( 'rebuilds its infra nodes on a graphGeneration bump (overlay half of Reset Graph)', () => {
 		const { teardown } = mountExospine();
 		const shell = makeShell();
@@ -197,23 +215,25 @@ describe( 'useDebugRepl', () => {
 		teardown();
 	} );
 
-	it( 'sendLine of a wire command with shell.sink=null surfaces a stderr warning naming the dropped verb', () => {
-		// Bug witnessed in production: DebugOverlay's shell.sink useEffect ran
-		// while the dashboard's interpreter was still null in Core, the lookup
-		// stayed null forever, and every wire-command dispatch via
-		// `s.sink?.fill(parsed)` silently dropped — local builtins (echo, cd)
-		// worked but `ls` / `dump_node` / etc. produced zero /command POSTs and
-		// zero diagnostic. The optional-chain itself is the trap; surface the
-		// drop via Core.stderr so the next operator sees what happened.
+	it( 'sendLine of a wire command surfaces a stderr warning naming the dropped verb when there is NO command interpreter', () => {
+		// Dispatch resolves the interpreter from Core at use-time (see the race-fix
+		// test above), so a null shell.sink alone no longer drops. But when the page
+		// genuinely has no _command_interpreter, there's nothing to resolve — surface
+		// the drop via Core.stderr instead of silently no-op'ing.
 		mountExospine();
 		const shell = new Shell();
 		shell.path = '';
-		shell.sink = null; // simulate the captured-null condition
+		shell.sink = null;
 		const stderrSpy = jest.spyOn( Core, 'stderr' ).mockImplementation();
 		const { result } = renderHook( () => useDebugRepl( true, shell ) );
+		// Remove the interpreter (keep _router for the metadata timer) so the
+		// dispatch-time resolve finds nothing.
+		Core.nodes.delete( names.COMMAND_INTERPRETER );
 		act( () => result.current.sendLine( 'ls' ) );
 		expect( stderrSpy ).toHaveBeenCalledTimes( 1 );
-		expect( stderrSpy.mock.calls[ 0 ][ 0 ] ).toMatch( /shell\.sink/i );
+		expect( stderrSpy.mock.calls[ 0 ][ 0 ] ).toMatch(
+			/no command interpreter/i
+		);
 		expect( stderrSpy.mock.calls[ 0 ][ 0 ] ).toMatch( /\bls\b/ );
 		stderrSpy.mockRestore();
 	} );
