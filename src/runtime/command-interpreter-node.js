@@ -211,8 +211,14 @@ export class CommandInterpreterNode extends Node {
 		resp[ TO ] = message[ FROM ];
 		resp[ ID ] = message[ ID ];
 		resp[ KEY ] = message[ KEY ];
-		// Response VALUE rides as the { name, payload } object directly.
-		resp[ VALUE ] = { name, payload };
+		// Response VALUE rides as { name, arguments, payload } directly — `arguments`
+		// echoes the request so a targeted reply (e.g. `dump_metadata <node>`) is
+		// distinguishable from a full one.
+		const reqArgs =
+			message[ VALUE ] && typeof message[ VALUE ] === 'object'
+				? message[ VALUE ].arguments ?? ''
+				: '';
+		resp[ VALUE ] = { name, arguments: reqArgs, payload };
 		if ( this.sink ) {
 			this.sink.fill( resp );
 		}
@@ -249,7 +255,8 @@ export class CommandInterpreterNode extends Node {
 			dump_node: ( self, args ) =>
 				CommandInterpreterNode._cmdDumpNode( args ),
 			dump: ( self, args ) => CommandInterpreterNode._cmdDumpNode( args ),
-			dump_metadata: () => CommandInterpreterNode._cmdDumpMetadata(),
+			dump_metadata: ( self, args ) =>
+				CommandInterpreterNode._cmdDumpMetadata( args ),
 			dump_config: () => CommandInterpreterNode._cmdDumpConfig(),
 			stats: ( self, args ) => self._cmdStats( args ),
 			uptime: () => CommandInterpreterNode._cmdUptime(),
@@ -680,9 +687,11 @@ export class CommandInterpreterNode extends Node {
 		return out;
 	}
 
-	// dump_metadata — single-round-trip per-node stats snapshot for the GUI canvas.
-	static _cmdDumpMetadata() {
-		return dumpMetadataPayload();
+	// dump_metadata [<node>] — per-node stats snapshot for the GUI canvas. With a
+	// node name, returns just that node (or an empty map if it's gone) so a
+	// post-mutation refresh is a one-node round-trip; bare = the full map.
+	static _cmdDumpMetadata( args ) {
+		return dumpMetadataPayload( String( args ?? '' ).trim() );
 	}
 
 	// stats [-a] [<regex>] — tabular per-node counters.

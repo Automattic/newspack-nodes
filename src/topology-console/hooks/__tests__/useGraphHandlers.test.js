@@ -10,6 +10,7 @@ import {
 	TM_REQUEST,
 } from '../../../runtime/message';
 import names from '../../../runtime/reserved-node-names.json';
+import { Core } from '../../../runtime/core';
 
 // A minimal Shell stand-in whose sink captures every filled message and whose
 // prefix/replyFrom can be injected per-test (the console uses cwd-prefixing).
@@ -41,6 +42,49 @@ const renderHandlers = ( opts ) => {
 	);
 	return { result, dispatch, append, onDropStage, shell };
 };
+
+describe( 'useGraphHandlers — targeted metadata refresh after a mutation', () => {
+	let refreshed;
+	beforeEach( () => {
+		Core.reset();
+		refreshed = [];
+		Core.registerNode( names.METADATA, {
+			name: names.METADATA,
+			refreshNode: ( n ) => refreshed.push( n ),
+		} );
+	} );
+	afterEach( () => Core.reset() );
+
+	it( 'onConnect refreshes the FROM node (its target changed)', () => {
+		const { result } = renderHandlers( {} );
+		result.current.onConnect( 'a', 'b' );
+		expect( refreshed ).toEqual( [ 'a' ] );
+	} );
+
+	it( 'onRemoveNode refreshes the removed node (so it leaves the canvas)', () => {
+		const { result } = renderHandlers( {} );
+		result.current.onRemoveNode( 'x' );
+		expect( refreshed ).toEqual( [ 'x' ] );
+	} );
+
+	it( 'onInspectorAction disconnect refreshes the node', () => {
+		const { result } = renderHandlers( {} );
+		result.current.onInspectorAction( 'disconnect', 'x', null );
+		expect( refreshed ).toEqual( [ 'x' ] );
+	} );
+
+	it( 'onInspectorAction tail refreshes the node (its target changed)', () => {
+		const { result } = renderHandlers( {} );
+		result.current.onInspectorAction( 'tail', 'x', null );
+		expect( refreshed ).toEqual( [ 'x' ] );
+	} );
+
+	it( 'a non-mutating inspector action (dump) does NOT refresh', () => {
+		const { result } = renderHandlers( {} );
+		result.current.onInspectorAction( 'dump', 'x', null );
+		expect( refreshed ).toEqual( [] );
+	} );
+} );
 
 describe( 'useGraphHandlers', () => {
 	it( 'onConnect dispatches a connect_node command line', () => {

@@ -124,8 +124,9 @@ class Command_Interpreter_Node extends Node {
 			$response[ Message::ID ]    = $message[ Message::ID ];
 			$response[ Message::KEY ]   = $message[ Message::KEY ];
 			$response[ Message::VALUE ] = [
-				'name'    => $cmd['name'],
-				'payload' => $result,
+				'name'      => $cmd['name'],
+				'arguments' => (string) ( $cmd['arguments'] ?? '' ),
+				'payload'   => $result,
 			];
 			$this->sink?->fill( $response );
 		}
@@ -289,7 +290,7 @@ class Command_Interpreter_Node extends Node {
 			'dump_node'       => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_node( $args ),
 			'dump'            => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_node( $args ),
 			'dump_config'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_dump_config(),
-			'dump_metadata'   => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_metadata(),
+			'dump_metadata'   => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_metadata( \trim( $args ) ),
 			'stats'           => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_stats( $self, $args ),
 			'uptime'          => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_uptime(),
 			'debug_state'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_debug_state( $self, $args ),
@@ -770,14 +771,20 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `dump_metadata` — single-round-trip per-node stats snapshot for the GUI canvas.
+	 * `dump_metadata [<node>]` — per-node stats snapshot for the GUI canvas. With a
+	 * node name, returns just that node (empty map if it's gone) so a post-mutation
+	 * refresh is a one-node round-trip; bare = the full map.
 	 *
+	 * @param string $only Optional single node name to return.
 	 * @return array<string,array<string,mixed>>
 	 */
-	private static function cmd_dump_metadata(): array {
+	private static function cmd_dump_metadata( string $only = '' ): array {
 		$out = [];
 		/** @var \Newspack_Nodes\Node $node Each registered node. */
 		foreach ( Core::$nodes_by_name as $name => $node ) {
+			if ( '' !== $only && $name !== $only ) {
+				continue;
+			}
 			// Patron-linked nodes are plumbing; the canvas shouldn't render them.
 			if ( null !== $node->patron() ) {
 				continue;

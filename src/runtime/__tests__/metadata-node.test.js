@@ -261,6 +261,92 @@ describe( 'Metadata node', () => {
 		} );
 	} );
 
+	describe( 'dumpMetadataPayload( name ) single-node filter', () => {
+		afterEach( () => Core.reset() );
+
+		it( 'returns only the named node', () => {
+			new EchoNode().setName( 'keep' );
+			new EchoNode().setName( 'other' );
+			expect( Object.keys( dumpMetadataPayload( 'keep' ) ) ).toEqual( [
+				'keep',
+			] );
+		} );
+
+		it( 'returns an empty map for an unknown node', () => {
+			new EchoNode().setName( 'keep' );
+			expect( dumpMetadataPayload( 'ghost' ) ).toEqual( {} );
+		} );
+	} );
+
+	describe( 'fill() targeted single-node merge (response carries arguments)', () => {
+		function respond( node, args, payload ) {
+			const m = newMessage();
+			m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+			m[ VALUE ] = { name: 'dump_metadata', arguments: args, payload };
+			node.fill( m );
+		}
+
+		it( 'merges a single node into the existing map, keeping the others', () => {
+			const node = new MetadataNode();
+			respond( node, '', {
+				a: { class: 'Echo', counter: 1, target: '' },
+				b: { class: 'Echo', counter: 2, target: '' },
+			} );
+			respond( node, 'b', {
+				b: { class: 'Echo', counter: 99, target: '' },
+			} );
+			const meta = node.setStateCache.metadata;
+			expect( meta.nodes ).toHaveLength( 2 );
+			expect( meta.nodes.find( ( n ) => n.id === 'b' ).count ).toBe( 99 );
+			expect( meta.nodes.find( ( n ) => n.id === 'a' ).count ).toBe( 1 );
+		} );
+
+		it( 'adds a newly-dropped node via a targeted update', () => {
+			const node = new MetadataNode();
+			respond( node, '', { a: { class: 'Echo', target: '' } } );
+			respond( node, 'c', { c: { class: 'Tee', target: '' } } );
+			expect(
+				node.setStateCache.metadata.nodes.map( ( n ) => n.id ).sort()
+			).toEqual( [ 'a', 'c' ] );
+		} );
+
+		it( 'removes a node when its targeted update returns an empty map', () => {
+			const node = new MetadataNode();
+			respond( node, '', {
+				a: { class: 'Echo', target: '' },
+				b: { class: 'Echo', target: '' },
+			} );
+			respond( node, 'b', {} );
+			expect(
+				node.setStateCache.metadata.nodes.map( ( n ) => n.id )
+			).toEqual( [ 'a' ] );
+		} );
+
+		it( 'does not rescale the poll interval on a targeted update', () => {
+			const node = new MetadataNode();
+			respond( node, '', { a: { class: 'Echo', target: '' } } );
+			node.interval_ms = 30000;
+			respond( node, 'a', {
+				a: { class: 'Echo', counter: 5, target: '' },
+			} );
+			expect( node.interval_ms ).toBe( 30000 );
+		} );
+
+		it( 'refreshNode( name ) fires a targeted dump_metadata for that node', () => {
+			const node = new MetadataNode();
+			node.setName( '_metadata' );
+			const sent = [];
+			node.sink = { fill: ( m ) => sent.push( m ) };
+			node.target = '_cwd';
+			node.refreshNode( 'mynode' );
+			expect( sent ).toHaveLength( 1 );
+			expect( sent[ 0 ][ VALUE ].name ).toBe( 'dump_metadata' );
+			expect( sent[ 0 ][ VALUE ].arguments ).toBe( 'mynode' );
+			expect( sent[ 0 ][ FROM ] ).toBe( '_metadata' );
+			expect( sent[ 0 ][ TO ] ).toBe( '_cwd' );
+		} );
+	} );
+
 	describe( 'parseMetadata port flags', () => {
 		it( 'carries accepts_fill / has_target onto the graph node', () => {
 			const { nodes } = parseMetadata( {

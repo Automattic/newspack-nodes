@@ -80,9 +80,12 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	expect( got[ 0 ][ TO ] ).toBe( 'caller' );
 	expect( got[ 0 ][ ID ] ).toBe( 'cmd-1' );
 	expect( got[ 0 ][ KEY ] ).toBe( 'gui:typed' );
-	// Response VALUE is the { name, payload } object itself, not a JSON string.
+	// Response VALUE is the { name, arguments, payload } object itself, not a JSON
+	// string. `arguments` echoes the request so a targeted reply (e.g.
+	// `dump_metadata <node>`) can be distinguished from a full one.
 	expect( got[ 0 ][ VALUE ] ).toEqual( {
 		name: 'echo',
+		arguments: 'hi',
 		payload: 'echoed: hi',
 	} );
 } );

@@ -12,6 +12,7 @@ import {
 } from '../../runtime/message';
 import { generateNodeName } from '../utils/draftGraph';
 import names from '../../runtime/reserved-node-names.json';
+import { Core } from '../../runtime/core';
 
 /**
  * Shared canvas/Inspector command handlers for the debug overlay and topology
@@ -52,16 +53,24 @@ export function useGraphHandlers( {
 	replyFrom = ( x ) => x,
 	sseGuard = () => true,
 } ) {
-	return useMemo(
-		() => ( {
-			onConnect: ( from, to ) =>
+	return useMemo( () => {
+		// After a mutation, fire a targeted `dump_metadata <node>` so the canvas
+		// updates immediately instead of waiting for the throttled full poll.
+		const refresh = ( name ) =>
+			name && Core.node( names.METADATA )?.refreshNode( name );
+		return {
+			onConnect: ( from, to ) => {
 				dispatch(
 					`connect_node ${ from } ${ to }`,
 					'connect_node',
 					`${ from } ${ to }`
-				),
-			onRemoveNode: ( id ) =>
-				dispatch( `remove_node ${ id }`, 'remove_node', id ),
+				);
+				refresh( from );
+			},
+			onRemoveNode: ( id ) => {
+				dispatch( `remove_node ${ id }`, 'remove_node', id );
+				refresh( id );
+			},
 			onDropNode: ( { shellName, x, y } ) => {
 				// Live-mode drops always go through the NewNodeModal so the user can
 				// override the auto-generated name (and add args when the class
@@ -83,12 +92,14 @@ export function useGraphHandlers( {
 						'connect_node',
 						nodeId
 					);
+					refresh( nodeId );
 				} else if ( 'disconnect' === action ) {
 					dispatch(
 						`disconnect_node ${ nodeId }`,
 						'disconnect_node',
 						nodeId
 					);
+					refresh( nodeId );
 				} else if ( 'send' === action ) {
 					dispatch(
 						`send_node ${ nodeId } ${ payload }`,
@@ -170,17 +181,16 @@ export function useGraphHandlers( {
 					shell.sink?.fill( m );
 				}
 			},
-		} ),
-		[
-			shell,
-			graph,
-			catalogClasses,
-			dispatch,
-			append,
-			onDropStage,
-			prefix,
-			replyFrom,
-			sseGuard,
-		]
-	);
+		};
+	}, [
+		shell,
+		graph,
+		catalogClasses,
+		dispatch,
+		append,
+		onDropStage,
+		prefix,
+		replyFrom,
+		sseGuard,
+	] );
 }

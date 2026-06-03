@@ -1068,6 +1068,46 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 'Echo', $decoded['e1']['class'] );
 	}
 
+	public function test_response_echoes_the_request_arguments(): void {
+		// The response VALUE carries `arguments` so a targeted reply (e.g.
+		// `dump_metadata <node>`) is distinguishable from a full one by `_metadata`.
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+		$interpreter->commands( [ 'echo' => fn ( $self, $args ) => "echoed: {$args}" ] );
+
+		$msg = $this->command_message( 'echo', 'hi', true );
+		$interpreter->fill( $msg );
+
+		$this->assertCount( 1, $sink->captured );
+		$value = $sink->captured[0][ Message::VALUE ];
+		$this->assertSame( 'echo', $value['name'] );
+		$this->assertSame( 'hi', $value['arguments'] );
+		$this->assertSame( 'echoed: hi', $value['payload'] );
+	}
+
+	public function test_dump_metadata_with_node_arg_returns_only_that_node(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$keep = new Capture_Sink_Node();
+		$keep->name( 'keep' );
+		$other = new Capture_Sink_Node();
+		$other->name( 'other' );
+
+		$decoded = $interpreter->dispatch( 'dump_metadata', 'keep' );
+
+		$this->assertSame( [ 'keep' ], \array_keys( $decoded ) );
+	}
+
+	public function test_dump_metadata_with_unknown_node_returns_empty_map(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$keep = new Capture_Sink_Node();
+		$keep->name( 'keep' );
+
+		$this->assertSame( [], $interpreter->dispatch( 'dump_metadata', 'ghost' ) );
+	}
+
 	public function test_uptime_under_one_minute_shows_seconds_only(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
