@@ -43,6 +43,7 @@ import {
 	withReplAnchor,
 } from './utils/draftGraph';
 import { snapToGrid } from './utils/autoLayout';
+import { augmentWithVirtualEdges } from './utils/virtualEdges';
 import { parseTsl } from './utils/parseTsl';
 import { makeReplDismissHandler } from './utils/replDismissHandler';
 import { serializeTsl } from './utils/serializeTsl';
@@ -436,8 +437,17 @@ export default function TopologyConsole() {
 
 	// The complete graph the canvas renders for this scope: the frozen draft in
 	// edit mode (SSE is off, so `parsed` is empty there), the live metadata in
-	// view mode. useCanvasLayout positions exactly these nodes.
-	const layoutGraph = mode === 'edit' ? draft : parsed;
+	// view mode. Augmented with verb-arg virtual edges so autoLayout places
+	// verb-targeted nodes (e.g. errors:partition) downstream, not stacked at
+	// column 0; view-mode metadata nodes carry no verbInvocations → no-op there.
+	const layoutGraph = useMemo(
+		() =>
+			augmentWithVirtualEdges(
+				mode === 'edit' ? draft : parsed,
+				catalog.classes
+			),
+		[ mode, draft, parsed, catalog.classes ]
+	);
 
 	// Build the graph first: a worker/local scope is ready once the graph has
 	// nodes; a server scope must also wait for the layout fetch to resolve so
@@ -814,54 +824,6 @@ export default function TopologyConsole() {
 		[ liveHandlers ]
 	);
 
-	// Synthesize virtual edges from node_name verb args so autoLayout places
-	// verb-targeted nodes in the right column instead of stacking at column 0.
-	const augmentWithVirtualEdges = useCallback(
-		( graph ) => {
-			const classByName = new Map();
-			for ( const c of catalog.classes || [] ) {
-				classByName.set( c.shell_name, c );
-			}
-			const virtualEdges = [];
-			for ( const node of graph.nodes ) {
-				const schema = classByName.get( node.class );
-				if ( ! schema || ! schema.commands ) {
-					continue;
-				}
-				for ( const inv of node.verbInvocations || [] ) {
-					const cspec = schema.commands.find(
-						( v ) => v.name === inv.verb
-					);
-					if ( ! cspec || ! cspec.args ) {
-						continue;
-					}
-					cspec.args.forEach( ( argSpec, i ) => {
-						if ( argSpec.type !== 'node_name' ) {
-							return;
-						}
-						const targetName = inv.args && inv.args[ i ];
-						if ( ! targetName ) {
-							return;
-						}
-						virtualEdges.push( {
-							from: node.id,
-							to: targetName,
-							virtual: true,
-						} );
-					} );
-				}
-			}
-			if ( ! virtualEdges.length ) {
-				return graph;
-			}
-			return {
-				nodes: graph.nodes,
-				edges: [ ...graph.edges, ...virtualEdges ],
-			};
-		},
-		[ catalog.classes ]
-	);
-
 	// useCanvasLayout owns positions: it runs autoLayout once (or adopts the
 	// serverLayout at a server scope) when the complete graph is ready, then
 	// only drags/drops/tucks mutate the map. No seed plumbing here.
@@ -925,8 +887,8 @@ export default function TopologyConsole() {
 		if ( mode !== 'edit' ) {
 			return baseCanvasGraph;
 		}
-		return augmentWithVirtualEdges( baseCanvasGraph );
-	}, [ baseCanvasGraph, mode, augmentWithVirtualEdges ] );
+		return augmentWithVirtualEdges( baseCanvasGraph, catalog.classes );
+	}, [ baseCanvasGraph, mode, catalog.classes ] );
 
 	const handleConnect = useCallback(
 		( from, to ) => {
