@@ -268,6 +268,13 @@ describe( 'DebugOverlay', () => {
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// GraphView (which hosts the palette) renders only once metadata arrives.
+		act( () => {
+			Core.node( '_metadata' ).setState( 'metadata', {
+				nodes: [ { id: 'a', class: 'Echo', target: '' } ],
+				edges: [],
+			} );
+		} );
 		expect(
 			container.querySelector( '.topology-app.is-palette-collapsed' )
 		).not.toBeNull();
@@ -310,6 +317,13 @@ describe( 'DebugOverlay', () => {
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// GraphView (which hosts the palette) renders only once metadata arrives.
+		act( () => {
+			Core.node( '_metadata' ).setState( 'metadata', {
+				nodes: [ { id: 'a', class: 'Echo', target: '' } ],
+				edges: [],
+			} );
+		} );
 		const toggle = container.querySelector( '.topology-palette__toggle' );
 		const originalSet = window.Storage.prototype.setItem;
 		window.Storage.prototype.setItem = jest.fn( () => {
@@ -481,10 +495,17 @@ describe( 'DebugOverlay', () => {
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// GraphView renders only once metadata arrives (the canvas reads the
+		// published _metadata graph, not Core directly — no coreToGraph fallback).
+		act( () => {
+			Core.node( '_metadata' ).setState( 'metadata', {
+				nodes: [ { id: 'a', class: 'Echo', target: '' } ],
+				edges: [],
+			} );
+		} );
 		// SchematicCanvas renders one <g class="topology-node"> per graph node.
 		const nodeEls = container.querySelectorAll( '.topology-node' );
-		// The dashboard exospine adds _router/_command_interpreter; our test
-		// node 'a' joins them. At least one node element must render.
+		// At least one node element (the published 'a') must render.
 		expect( nodeEls.length ).toBeGreaterThan( 0 );
 		fireEvent.click( nodeEls[ 0 ] );
 		// Inspector renders once a node is selected; the dump button is in the
@@ -577,5 +598,56 @@ describe( 'DebugOverlay', () => {
 		expect( () =>
 			fireEvent.keyDown( document, { key: '`', ctrlKey: true } )
 		).not.toThrow();
+	} );
+
+	it( 'paints the local graph instantly on open via coreToGraph, without waiting for a metadata poll', () => {
+		// F3: the overlay must render GraphView from the in-process graph the
+		// instant its own infra mounts — no ~1-tick wait for the first
+		// dump_metadata poll. With a local visible node in Core and NO metadata
+		// published, opening the panel mounts the infra (replReady) and
+		// coreToGraph yields the node (graphHasNodes) → GraphView renders now.
+		mountExospine();
+		const a = new Node();
+		a.setName( 'a' );
+		const { getByRole, container } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// No metadata.setState — the canvas is ready off coreToGraph alone.
+		expect(
+			container.querySelector( '.nodes-debug__canvas-building' )
+		).toBeNull();
+		expect(
+			container.querySelectorAll( '.topology-node' ).length
+		).toBeGreaterThan( 0 );
+	} );
+
+	it( 'fresh open with empty localStorage lays the COMPLETE graph out once (isolated nodes on the right)', () => {
+		// Graph: s->t connected; iso isolated. autoLayout puts s col0, t+iso at maxDepth(col1).
+		// The bug placed iso in the LEFT column via incremental placeNewNode.
+		// Local-scope reality: the graph's nodes live in Core, so coreToGraph
+		// surfaces the COMPLETE graph the instant the overlay's infra mounts
+		// (replReady) — the one-shot autoLayout runs over s/t/iso together.
+		window.localStorage.clear();
+		mountExospine();
+		const s = new Node();
+		s.setName( 's' );
+		const t = new Node();
+		t.setName( 't' );
+		s.target = 't'; // s -> t edge (coreToGraph derives edges from target)
+		const iso = new Node();
+		iso.setName( 'iso' ); // isolated: no target, no inbound
+		const { getByRole } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const stored = JSON.parse(
+			window.localStorage.getItem( 'newspack-nodes:debug:local' )
+		);
+		// iso must share the deeper column's x (right), not X_PAD (left).
+		expect( stored.positions.iso.x ).toBe( stored.positions.t.x );
+		expect( stored.positions.iso.x ).toBeGreaterThan(
+			stored.positions.s.x
+		);
 	} );
 } );

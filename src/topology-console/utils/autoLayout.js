@@ -33,108 +33,30 @@ export function snapToGrid( x, y ) {
 }
 
 /**
- * Place a single newly-appeared node WITHOUT re-flowing the rest of the graph —
- * the cheap incremental counterpart to autoLayout. Anchors one column LEFT of a
- * pinned target, or RIGHT of a pinned source (mirroring autoLayout's left→right
- * producer→target flow); with no pinned neighbour it drops into a free row at the
- * left column. Nudges down to the next free grid cell to avoid overlapping a node
- * already at that spot. `positions` is the map of already-placed nodes (overrides
- * + earlier newcomers this pass).
+ * Tuck a newly-appeared (undropped) node below the left-most-then-bottom-most
+ * node. Empty map → the origin cell. `positions` should hold only on-screen nodes.
  *
- * @param {string} nodeId    The new node's id.
- * @param {Object} parsed    { nodes, edges } graph (for the new node's edges).
- * @param {Object} positions Map of nodeId → { x, y } already placed.
- * @return {{x: number, y: number}} A grid position for the new node.
+ * @param {Object} positions Map of nodeId → { x, y }.
+ * @return {{x: number, y: number}} The new node's position.
  */
-export function placeNewNode( nodeId, parsed, positions ) {
-	const edges = parsed?.edges ?? [];
-	let x = X_PAD;
-	let y = Y_PAD;
-	let anchored = false;
-	for ( const e of edges ) {
-		if ( e.from === nodeId && positions[ e.to ] ) {
-			x = positions[ e.to ].x - X_STEP;
-			y = positions[ e.to ].y;
-			anchored = true;
-			break;
+export function placeBelow( positions ) {
+	const vals = Object.values( positions || {} );
+	if ( vals.length === 0 ) {
+		return { x: X_PAD, y: Y_PAD };
+	}
+	let minX = Infinity;
+	for ( const p of vals ) {
+		if ( p.x < minX ) {
+			minX = p.x;
 		}
 	}
-	if ( ! anchored ) {
-		for ( const e of edges ) {
-			if ( e.to === nodeId && positions[ e.from ] ) {
-				x = positions[ e.from ].x + X_STEP;
-				y = positions[ e.from ].y;
-				anchored = true;
-				break;
-			}
+	let bottom = -Infinity;
+	for ( const p of vals ) {
+		if ( p.x === minX && p.y > bottom ) {
+			bottom = p.y;
 		}
 	}
-	if ( ! anchored ) {
-		let maxY = Y_PAD - Y_STEP;
-		for ( const p of Object.values( positions ) ) {
-			if ( p.x === X_PAD && p.y > maxY ) {
-				maxY = p.y;
-			}
-		}
-		y = maxY + Y_STEP;
-	}
-	if ( x < X_PAD ) {
-		x = X_PAD;
-	}
-	while (
-		Object.values( positions ).some( ( p ) => p.x === x && p.y === y )
-	) {
-		y += Y_STEP;
-	}
-	return { x, y };
-}
-
-// Above this many unplaced nodes, batch through one autoLayout pass instead of
-// per-node placeNewNode. placeNewNode is O(edges) per call (+ an O(positions)
-// collision scan), so a flood of unplaced nodes — a different/reconnected graph
-// the saved overrides don't cover — is O(N·E) and froze the console for ~40s.
-// A handful of genuine newcomers stays on the cheap incremental path.
-export const MASS_PLACEMENT_THRESHOLD = 100;
-
-/**
- * Resolve every node's position for the topology canvas: honour pinned/saved
- * `overrides`, lay the rest out. With no overrides, one `autoLayout` pass places
- * the whole graph. With overrides, a few newly-appeared nodes get a cheap
- * `placeNewNode` spot near their connection; a flood of unplaced nodes is laid
- * out by a single `autoLayout` pass (positions only filled in for unpinned nodes)
- * so it stays fast.
- *
- * @param {Object} parsed    { nodes, edges } graph.
- * @param {Object} overrides Map of nodeId → { x, y } pinned/saved positions.
- * @return {Object} Map of nodeId → { x, y }.
- */
-export function computeNodePositions( parsed, overrides ) {
-	const ov = overrides || {};
-	if ( Object.keys( ov ).length === 0 ) {
-		const out = {};
-		for ( const n of autoLayout( parsed ).nodes ) {
-			out[ n.id ] = n.position;
-		}
-		return out;
-	}
-	const out = { ...ov };
-	const unplaced = ( parsed?.nodes ?? [] ).filter( ( n ) => ! out[ n.id ] );
-	if ( unplaced.length > MASS_PLACEMENT_THRESHOLD ) {
-		for ( const n of autoLayout( parsed ).nodes ) {
-			if ( ! out[ n.id ] ) {
-				out[ n.id ] = n.position;
-			}
-		}
-		return out;
-	}
-	for ( const n of unplaced ) {
-		// Guard a duplicate id (only hand-authored TSL has these) so it's placed
-		// once — matching the old inline `if (!out[n.id])` memo behaviour.
-		if ( ! out[ n.id ] ) {
-			out[ n.id ] = placeNewNode( n.id, parsed, out );
-		}
-	}
-	return out;
+	return { x: minX, y: bottom + Y_STEP };
 }
 
 const snapHalf = ( v ) => Math.round( v * 2 ) / 2;

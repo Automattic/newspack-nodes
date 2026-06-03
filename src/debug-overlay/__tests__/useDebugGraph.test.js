@@ -30,16 +30,52 @@ describe( 'useDebugGraph', () => {
 	} );
 	afterEach( () => jest.useRealTimers() );
 
-	it( 'falls back to coreToGraph() when _metadata has not published yet', () => {
-		// Without a mounted Metadata, useNodeState returns undefined and the
-		// hook falls back to a single coreToGraph() read on first render.
+	it( 'falls back to coreToGraph when NO metadata is published but Core holds nodes', () => {
+		// Instant local paint: before the first dump_metadata poll publishes,
+		// the canvas reads the in-process graph straight off Core via
+		// coreToGraph(). With a live node in Core (and no metadata), graph comes
+		// from coreToGraph and ready is true synchronously.
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.setName( 'a' );
 		const { result } = renderHook( () => useDebugGraph() );
+		expect( result.current.ready ).toBe( true );
 		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).toContain(
 			'a'
 		);
+		teardown();
+	} );
+
+	it( 'reports ready=false with an empty graph when Core is empty and no _metadata', () => {
+		// Bare exospine: _router/_command_interpreter are SCAFFOLDING-hidden, so
+		// coreToGraph() is empty and no metadata is published — ready=false.
+		const { teardown } = mountExospine();
+		const { result } = renderHook( () => useDebugGraph() );
+		expect( result.current.ready ).toBe( false );
+		expect( result.current.graph ).toEqual( { nodes: [], edges: [] } );
+		teardown();
+	} );
+
+	it( 'published metadata-with-nodes takes precedence over the coreToGraph fallback, and flips ready true', () => {
+		// Core holds a live node `a` (coreToGraph would show it). Once _metadata
+		// publishes a graph with ≥1 node, the metadata source wins and ready=true.
+		const { teardown } = mountExospine();
+		const a = new Node();
+		a.setName( 'a' );
+		const { MetadataNode } = require( '../../runtime/metadata-node' );
+		const metadata = new MetadataNode();
+		metadata.setName( names.METADATA );
+		const { result } = renderHook( () => useDebugGraph() );
+		act( () => {
+			metadata.setState( 'metadata', {
+				nodes: [ { id: 'fromMeta' } ],
+				edges: [],
+			} );
+		} );
+		expect( result.current.ready ).toBe( true );
+		const ids = result.current.graph.nodes.map( ( n ) => n.id );
+		expect( ids ).toContain( 'fromMeta' );
+		expect( ids ).not.toContain( 'a' );
 		teardown();
 	} );
 
@@ -59,6 +95,26 @@ describe( 'useDebugGraph', () => {
 		} );
 		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).toContain(
 			'fromMeta'
+		);
+		teardown();
+	} );
+
+	it( 'an empty metadata graph (no nodes) falls back to coreToGraph', () => {
+		// An empty metadata graph (nodes:[]) is treated as "not yet populated":
+		// the hook falls back to coreToGraph() rather than blanking the canvas.
+		// Here Core holds the mounted _metadata node, so coreToGraph is non-empty
+		// and ready stays true.
+		const { teardown } = mountExospine();
+		const { MetadataNode } = require( '../../runtime/metadata-node' );
+		const metadata = new MetadataNode();
+		metadata.setName( names.METADATA );
+		const { result } = renderHook( () => useDebugGraph() );
+		act( () => {
+			metadata.setState( 'metadata', { nodes: [], edges: [] } );
+		} );
+		expect( result.current.ready ).toBe( true );
+		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).toContain(
+			names.METADATA
 		);
 		teardown();
 	} );
@@ -217,6 +273,9 @@ describe( 'useDebugGraph', () => {
 		// `:config` siblings, so the old check always fell back to nodeId
 		// and misrouted verbs on non-interpreter PHP nodes).
 		const { teardown } = mountExospine();
+		const { MetadataNode } = require( '../../runtime/metadata-node' );
+		const metadata = new MetadataNode();
+		metadata.setName( names.METADATA );
 		const interpreter = new Node();
 		interpreter.setName( 'my-interpreter' );
 		const fillSpy = jest.spyOn( interpreter, 'fill' );
@@ -226,6 +285,14 @@ describe( 'useDebugGraph', () => {
 		const { result } = renderHook( () =>
 			useDebugGraph( true, shell, classes )
 		);
+		// The graph comes only from _metadata now (no coreToGraph fallback);
+		// publish my-interpreter so the invoke logic can resolve its class.
+		act( () => {
+			metadata.setState( 'metadata', {
+				nodes: [ { id: 'my-interpreter', class: 'Node' } ],
+				edges: [],
+			} );
+		} );
 		act( () =>
 			result.current.handlers.onInspectorAction(
 				'invoke',

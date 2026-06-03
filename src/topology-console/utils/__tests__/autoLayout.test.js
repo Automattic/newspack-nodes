@@ -4,7 +4,7 @@
 
 import {
 	autoLayout,
-	placeNewNode,
+	placeBelow,
 	snapToGrid,
 	X_PAD,
 	X_STEP,
@@ -14,50 +14,33 @@ import {
 	NODE_H,
 } from '../autoLayout';
 
-describe( 'placeNewNode (cheap incremental placement, no graph-wide re-flow)', () => {
-	it( 'anchors one column LEFT of a pinned target', () => {
-		const parsed = {
-			nodes: [ { id: 'mid' }, { id: 'newbie' } ],
-			edges: [ { from: 'newbie', to: 'mid' } ],
-		};
-		const positions = { mid: { x: X_PAD + X_STEP, y: Y_PAD } };
-		expect( placeNewNode( 'newbie', parsed, positions ) ).toEqual( {
-			x: X_PAD,
-			y: Y_PAD,
+describe( 'placeBelow — new-node tuck', () => {
+	it( 'returns the origin cell for an empty map', () => {
+		expect( placeBelow( {} ) ).toEqual( { x: X_PAD, y: Y_PAD } );
+	} );
+	it( 'drops one row below a single node', () => {
+		expect( placeBelow( { a: { x: 60, y: 80 } } ) ).toEqual( {
+			x: 60,
+			y: 80 + Y_STEP,
 		} );
 	} );
-
-	it( 'anchors one column RIGHT of a pinned source when it has no pinned target', () => {
-		const parsed = {
-			nodes: [ { id: 'src' }, { id: 'newbie' } ],
-			edges: [ { from: 'src', to: 'newbie' } ],
-		};
-		const positions = { src: { x: X_PAD, y: Y_PAD } };
-		expect( placeNewNode( 'newbie', parsed, positions ) ).toEqual( {
-			x: X_PAD + X_STEP,
-			y: Y_PAD,
-		} );
-	} );
-
-	it( 'drops into a free row at the left column when it has no pinned neighbour', () => {
-		const parsed = { nodes: [ { id: 'a' }, { id: 'lonely' } ], edges: [] };
-		const positions = { a: { x: X_PAD, y: Y_PAD } };
-		expect( placeNewNode( 'lonely', parsed, positions ) ).toEqual( {
-			x: X_PAD,
-			y: Y_PAD + Y_STEP,
-		} );
-	} );
-
-	it( 'nudges down to avoid overlapping an already-placed node', () => {
-		const parsed = {
-			nodes: [ { id: 'mid' }, { id: 'other' }, { id: 'newbie' } ],
-			edges: [ { from: 'newbie', to: 'mid' } ],
-		};
+	it( 'uses the left-most column, then its bottom-most node', () => {
 		const positions = {
-			mid: { x: X_PAD + X_STEP, y: Y_PAD },
-			other: { x: X_PAD, y: Y_PAD }, // sits where newbie would anchor
+			a: { x: X_PAD, y: Y_PAD },
+			b: { x: X_PAD, y: Y_PAD + Y_STEP },
+			c: { x: X_PAD + X_STEP, y: Y_PAD },
 		};
-		expect( placeNewNode( 'newbie', parsed, positions ) ).toEqual( {
+		expect( placeBelow( positions ) ).toEqual( {
+			x: X_PAD,
+			y: Y_PAD + 2 * Y_STEP,
+		} );
+	} );
+	it( 'ignores a deeper column even when it sits lower', () => {
+		const positions = {
+			a: { x: X_PAD, y: Y_PAD },
+			deep: { x: X_PAD + 3 * X_STEP, y: Y_PAD + 9 * Y_STEP },
+		};
+		expect( placeBelow( positions ) ).toEqual( {
 			x: X_PAD,
 			y: Y_PAD + Y_STEP,
 		} );

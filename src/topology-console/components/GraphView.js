@@ -43,7 +43,6 @@ import '../styles/graph-view.scss';
  * @param {Function} props.onSelectionChange         (selectedId) — optional side-effect.
  * @param {string}   props.selection                 Optional controlled selection; when its value changes the internal selection re-syncs to it (lets a consumer re-point selection after a rename or clear it on reset). `undefined` leaves GraphView fully self-controlled.
  * @param {Function} props.onBackgroundClickConsumed — optional; truthy skips canvas deselect.
- * @param {Function} [props.onSeedLayout]            One-shot persistence callback for autoLayout's initial positions (idempotent at the receiving hook).
  * @return {Element} the graph-editing surface as a Fragment.
  */
 export default function GraphView( {
@@ -64,7 +63,6 @@ export default function GraphView( {
 	ssePid,
 	positionOverrides = {},
 	onPositionChange,
-	onSeedLayout = null,
 	viewport = null,
 	onViewportChange,
 	onConnect,
@@ -190,7 +188,6 @@ export default function GraphView( {
 					onSelect={ handleSelectNode }
 					positionOverrides={ positionOverrides }
 					onPositionChange={ onPositionChange }
-					onSeedLayout={ onSeedLayout }
 					onDeselect={ () => {
 						setSelectedId( null );
 						setSelectedEdge( null );

@@ -86,6 +86,12 @@
 			grid-template-columns: 28px 1fr 360px;
 		}
 	}
+
+	// Loading placeholder rendered in place of the canvas during the
+	// not-ready window — pin it to the canvas cell so it doesn't auto-place.
+	.nodes-debug__canvas-building {
+		grid-area: canvas;
+	}
 }
 
 // The overlay's own NewNodeModal (palette-drop prompt) renders as a sibling of
