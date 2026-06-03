@@ -8,6 +8,7 @@ import {
 import { Core } from '../runtime/core';
 import { Node } from '../runtime/node';
 import { splitStatements } from '../topology-console/nodes/shell';
+import { dispatchLocalCommand } from '../topology-console/core/dispatchLocalCommand';
 import { DumperNode } from '../runtime/dumper-node';
 import { CompletionNode } from '../runtime/completion-node';
 import { MetadataNode } from '../runtime/metadata-node';
@@ -181,44 +182,12 @@ export function useDebugRepl( active = true, shell ) {
 			dumper.append( { kind: 'error', text: parsed.text } );
 			return;
 		}
-		if ( 'local' !== parsed.kind ) {
-			return;
-		}
-		if ( 'clear' === parsed.name ) {
-			dumper.clear();
-			return;
-		}
-		if ( 'echo' === parsed.name ) {
-			dumper.append( { kind: 'recv', text: parsed.text } );
-			return;
-		}
-		if ( 'status' === parsed.name ) {
-			for ( const line of parsed.lines ) {
-				dumper.append( { kind: 'recv', text: line } );
-			}
-			return;
-		}
-		if ( 'debug_level' === parsed.name ) {
-			if ( null === parsed.level ) {
-				debugLevelRef.current = debugLevelRef.current > 0 ? 0 : 1;
-			} else {
-				debugLevelRef.current = Math.max(
-					0,
-					Math.min( 2, parsed.level )
-				);
-			}
-			dumper.append( {
-				kind: 'info',
-				text: `debug_level: ${ debugLevelRef.current }`,
-			} );
-			return;
-		}
-		if ( 'show_parse' === parsed.name ) {
-			dumper.append( {
-				kind: 'info',
-				text: `show_parse: ${ parsed.on ? 'on' : 'off' }`,
-			} );
-		}
+		dispatchLocalCommand( {
+			parsed,
+			append: ( entry ) => dumper.append( entry ),
+			clear: () => dumper.clear(),
+			debugLevelRef,
+		} );
 	}, [] );
 
 	const sendLine = useCallback(

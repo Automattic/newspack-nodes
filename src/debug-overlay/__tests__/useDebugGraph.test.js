@@ -5,6 +5,7 @@ import { Node } from '../../runtime/node';
 import { DumperNode } from '../../runtime/dumper-node';
 import { Shell } from '../../topology-console/nodes/shell';
 import names from '../../runtime/reserved-node-names.json';
+import { TO } from '../../runtime/message';
 import { useDebugGraph } from '../useDebugGraph';
 
 // Mount the `_output` Dumper so transcript echoes are observable, mirroring the
@@ -688,6 +689,39 @@ describe( 'useDebugGraph', () => {
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
 		expect( spy ).toHaveBeenCalledWith( '', 'connect_node', 'a b' );
 		expect( Core.node( 'a' ).target ).toBe( 'b' );
+		teardown();
+	} );
+
+	it( 'invoke honors the shell cwd prefix at a non-root scope (Path-menu cd)', () => {
+		// Regression: the old overlay routed invoke through shell.sendCommand,
+		// which applies shell.prefix, so a non-root cwd prefixed the invoke TO.
+		// The shared useGraphHandlers defaults prefix to identity; the overlay
+		// must inject shell.prefix so invoke still honors a Path-menu `cd /_http`.
+		const { teardown } = mountExospine();
+		const node = new Node();
+		node.setName( 'my-node' );
+		const config = new Node();
+		config.setName( 'my-node:config' );
+		// Capture the invoke message at fill time — routing peels TO in place, so a
+		// post-hoc mock.calls read sees the mutated value. A stub sink snapshots it.
+		const captured = [];
+		const shell = new Shell();
+		shell.path = '_http';
+		shell.sink = {
+			fill: ( m ) => captured.push( Array.isArray( m ) ? m.slice() : m ),
+		};
+		const classes = [ { shell_name: 'Node', is_interpreter: false } ];
+		const { result } = renderHook( () =>
+			useDebugGraph( true, shell, classes )
+		);
+		act( () =>
+			result.current.handlers.onInspectorAction( 'invoke', 'my-node', {
+				verb: 'configure',
+				positional: '',
+			} )
+		);
+		expect( captured ).toHaveLength( 1 );
+		expect( captured[ 0 ][ TO ] ).toBe( '_http/my-node:config' );
 		teardown();
 	} );
 } );

@@ -1,12 +1,9 @@
-import { useCallback, useMemo, useRef, useState } from '@wordpress/element';
+import { useCallback, useRef, useState } from '@wordpress/element';
 import { Core } from '../runtime/core';
-import { useNodeState } from '../runtime/react';
-import { generateNodeName } from '../topology-console/utils/draftGraph';
 import { snapToGrid } from '../topology-console/utils/autoLayout';
-import { coreToGraph } from '../topology-console/utils/coreToGraph';
+import { useGraphSource } from '../topology-console/hooks/useGraphSource';
+import { useGraphHandlers } from '../topology-console/hooks/useGraphHandlers';
 import names from '../runtime/reserved-node-names.json';
-
-const EMPTY_GRAPH = { nodes: [], edges: [] };
 
 /**
  * The page's own live graph + the command handlers that mutate it. The
@@ -37,8 +34,6 @@ export function useDebugGraph(
 	catalogClasses = [],
 	onPositionChange = null
 ) {
-	const metadataGraph = useNodeState( names.METADATA, 'metadata' );
-
 	// A drop on a class with declared positional args stages here; the
 	// parent renders the NewNodeModal until commitDrop / cancelDrop. The
 	// ref-mirror lets commitDrop run side effects (sendCommand,
@@ -47,18 +42,8 @@ export function useDebugGraph(
 	const [ pendingDrop, setPendingDrop ] = useState( null );
 	const pendingDropRef = useRef( null );
 	pendingDropRef.current = pendingDrop;
-	// Prefer the published metadata graph once it carries ≥1 node; before the
-	// first poll arrives, fall back to coreToGraph() so the in-process graph
-	// paints instantly (DebugOverlay gates layout on its own infra being mounted,
-	// so coreToGraph here always sees the COMPLETE local graph). ready is true as
-	// soon as either source yields a node — coreToGraph can make it sync-true.
-	const hasMetadata = !! (
-		metadataGraph &&
-		Array.isArray( metadataGraph.nodes ) &&
-		metadataGraph.nodes.length > 0
-	);
-	const graph = hasMetadata ? metadataGraph : coreToGraph() ?? EMPTY_GRAPH;
-	const ready = graph.nodes.length > 0;
+	// Shared metadata‖coreToGraph source; ready = the graph carries a node.
+	const { graph, hasNodes: ready } = useGraphSource( { active: _active } );
 
 	// Echo the equivalent commandline into the `_output` Dumper, then dispatch via
 	// shell.sendCommand. A GUI gesture / Inspector click must read back in the
@@ -77,110 +62,35 @@ export function useDebugGraph(
 		[ shell ]
 	);
 
-	const handlers = useMemo(
-		() => ( {
-			// Every overlay dispatch goes through sendVerb → shell.sendCommand,
-			// which stamps FROM = _output so verb replies (and `connect_node <id>`
-			// with no target — `tail` mode, defaulting to FROM) route into the
-			// transcript Dumper. Without it, replies fall off the end of the graph
-			// (no return address) and the Inspector buttons appear to do nothing.
-			onConnect: ( from, to ) =>
-				sendVerb(
-					`connect_node ${ from } ${ to }`,
-					'',
-					'connect_node',
-					`${ from } ${ to }`
-				),
-			onRemoveNode: ( id ) =>
-				sendVerb( `remove_node ${ id }`, '', 'remove_node', id ),
-			onDropNode: ( { shellName, x, y } ) => {
-				// Every palette drop in live mode goes through the NewNodeModal
-				// so the user can override the auto-generated name (and add
-				// args if the class declares them). commitDrop dispatches
-				// make_node + records the drop position.
-				const defaultName = generateNodeName( graph, shellName );
-				const cls = catalogClasses?.find(
-					( c ) => c.shell_name === shellName
-				);
-				const argSchema = cls?.arguments || [];
-				setPendingDrop( { shellName, defaultName, argSchema, x, y } );
-			},
-			onInspectorAction: ( action, nodeId, payload ) => {
-				// Parity with TopologyConsole.handleInspectorAction: dump, tail
-				// (connect_node with no target), disconnect, send, trace, invoke.
-				if ( action === 'dump' ) {
-					sendVerb(
-						`dump_node ${ nodeId }`,
-						'',
-						'dump_node',
-						nodeId
-					);
-				} else if ( action === 'tail' ) {
-					sendVerb(
-						`connect_node ${ nodeId }`,
-						'',
-						'connect_node',
-						nodeId
-					);
-				} else if ( action === 'disconnect' ) {
-					sendVerb(
-						`disconnect_node ${ nodeId }`,
-						'',
-						'disconnect_node',
-						nodeId
-					);
-				} else if ( action === 'send' ) {
-					sendVerb(
-						`send_node ${ nodeId } ${ payload }`,
-						'',
-						'send_node',
-						`${ nodeId } ${ payload }`
-					);
-				} else if ( action === 'trace' ) {
-					const level = typeof payload === 'number' ? payload : 1;
-					sendVerb(
-						`debug_state ${ nodeId } ${ level }`,
-						'',
-						'debug_state',
-						`${ nodeId } ${ level }`
-					);
-				} else if ( action === 'invoke' && payload ) {
-					const { verb, positional } = payload;
-					// Mirror TopologyConsole: key on the catalog's
-					// is_interpreter flag (the node's class metadata), NOT a
-					// Core.node lookup — in remote scope the browser's Core
-					// never holds server-side `:config` siblings, so a Core
-					// check ALWAYS falls back to nodeId and misroutes verbs
-					// on non-interpreter PHP nodes.
-					const node = graph.nodes.find( ( n ) => n.id === nodeId );
-					const cls =
-						node && catalogClasses
-							? catalogClasses.find(
-									( c ) => c.shell_name === node.class
-							  )
-							: null;
-					const isInterpreter = !! ( cls && cls.is_interpreter );
-					const target = isInterpreter
-						? nodeId
-						: `${ nodeId }:config`;
-					const args = positional || '';
-					// Echo as `command_node <target> <verb> [<args>]`, matching the
-					// console's invoke echo so a click reads back like the cmd verb.
-					sendVerb(
-						`command_node ${ target } ${ verb }${
-							args ? ' ' + args : ''
-						}`,
-						target,
-						verb,
-						args
-					);
-				}
-			},
-		} ),
-		// onPositionChange is consumed by commitDrop (below), not by any
-		// handler in this useMemo — onDropNode just stages pendingDrop.
-		[ sendVerb, graph, catalogClasses ]
+	// Every non-invoke verb echoes + routes through shell.sendCommand (so the
+	// useGraphReset dispatch tap sees a mutating verb). Bound to path '' — the
+	// overlay is local-only.
+	const dispatch = useCallback(
+		( echoLine, name, args ) => sendVerb( echoLine, '', name, args ),
+		[ sendVerb ]
 	);
+
+	// Append straight to the `_output` Dumper (invoke echo + sse error). The
+	// overlay never blocks invoke (no worker pivot), so sseGuard stays default.
+	const append = useCallback(
+		( entry ) => Core.node( names.OUTPUT )?.append( entry ),
+		[]
+	);
+
+	// Shared handlers. Inject the Shell's prefix/replyFrom so invoke honors the
+	// cwd at a non-root scope (the Path menu can `cd /_http`); the old overlay
+	// got this free by routing invoke through shell.sendCommand. sseGuard stays
+	// default (the overlay never blocks invoke — no worker pivot).
+	const handlers = useGraphHandlers( {
+		shell,
+		graph,
+		catalogClasses,
+		dispatch,
+		append,
+		onDropStage: setPendingDrop,
+		prefix: ( target ) => shell?.prefix( target ),
+		replyFrom: ( node ) => shell?.replyFrom( node ),
+	} );
 
 	// Modal "OK" — dispatch make_node with the user-edited name + args, then
 	// record the drop position so the canvas renders the new node at the
