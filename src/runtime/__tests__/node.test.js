@@ -10,6 +10,16 @@ test( 'setName registers in Core', () => {
 	expect( Core.node( 'alice' ) ).toBe( n );
 } );
 
+test( 'removeNode clears patron (no dangling back-pointer)', () => {
+	const owner = new Node();
+	owner.setName( 'owner' );
+	const sib = new Node();
+	sib.setName( 'sib' );
+	sib.patron = owner;
+	sib.removeNode();
+	expect( sib.patron ).toBeNull();
+} );
+
 test( 'rename moves the registry slot', () => {
 	const n = new Node();
 	n.setName( 'alice' );

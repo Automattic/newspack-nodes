@@ -237,4 +237,18 @@ class NodeLifecycleTest extends TestCase {
 	private function is_transit_node( object $node ): bool {
 		return ! ( $node instanceof Tail_Node || $node instanceof Lock_Node || $node instanceof Dumper_Node );
 	}
+
+	/**
+	 * remove_node() must null the patron back-pointer — otherwise a removed
+	 * sibling keeps its owner alive (the Partition↔:config-CI cycle this
+	 * suite guards). Unnamed nodes so there is no Core registration to collide.
+	 */
+	public function test_remove_node_clears_patron(): void {
+		$owner = new Echo_Node();
+		$sib   = new Echo_Node();
+		$sib->patron( $owner );
+		$this->assertSame( $owner, $sib->patron() );
+		$sib->remove_node();
+		$this->assertNull( $sib->patron() );
+	}
 }

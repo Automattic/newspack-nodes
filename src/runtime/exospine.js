@@ -58,6 +58,17 @@ export function mountExospine( build ) {
 	// (Re)create the rule-#2 backbone. Mutable so the FULL rebuild can recreate it,
 	// not just the soft build nodes — "Reset Graph" rebuilds everything.
 	const mountBackbone = () => {
+		// Idempotent under StrictMode's double-invoked useState initializer: if the
+		// backbone is already registered, reuse it instead of colliding on the name.
+		const existing = Core.node( names.COMMAND_INTERPRETER );
+		if ( existing ) {
+			interpreter = existing;
+			router = Core.node( names.ROUTER );
+			spine.interpreter = interpreter;
+			spine.router = router;
+			return;
+		}
+
 		router = new RouterNode();
 		router.setName( names.ROUTER );
 

@@ -30,10 +30,11 @@ class Shell_Node extends Node {
 	public $output_stream = null;
 
 	/**
-	 * Refuse to register the Shell under a node name — shells are anonymous.
+	 * The Shell is the unnamed REPL front-end; naming it would register a command
+	 * surface in the graph. Fatal on any name argument so the rule can't be violated.
 	 */
 	public function name( ?string $name = null ): string {
-		if ( null !== $name ) {
+		if ( \func_num_args() > 0 ) {
 			throw new \RuntimeException( 'named Shell nodes are not allowed' );
 		}
 		return $this->name;
