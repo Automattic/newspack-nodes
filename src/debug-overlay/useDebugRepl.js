@@ -158,18 +158,16 @@ export function useDebugRepl( active = true, shell ) {
 			if ( undefined === parsed[ TO ] ) {
 				parsed[ TO ] = '';
 			}
-			// A null shell.sink swallows the dispatch via the `?.` below — the
-			// production bug it masked: DebugOverlay's shell.sink useEffect ran
-			// while the dashboard's interpreter was still null in Core, the
-			// lookup stayed null forever, and every wire command (`ls` /
-			// `dump_node` / …) silently produced zero /command POSTs and zero
-			// diagnostic. Surface it on Core.stderr so the next time this fires
-			// the operator sees what dropped. The fix is upstream (re-bind in
-			// DebugOverlay's effect deps); this is the visible canary.
+			// Resolve the interpreter at dispatch time — the dashboard may register
+			// _command_interpreter after DebugOverlay's bind effect ran, leaving
+			// shell.sink null on a fast open-and-type race. Canary below if none.
+			if ( ! s.sink ) {
+				s.sink = Core.node( names.COMMAND_INTERPRETER );
+			}
 			if ( ! s.sink ) {
 				const verb = parsed[ VALUE ]?.name || '?';
 				Core.stderr(
-					`useDebugRepl: shell.sink is null — REPL command dropped (${ verb })\n`
+					`useDebugRepl: no command interpreter — REPL command dropped (${ verb })\n`
 				);
 				return;
 			}
