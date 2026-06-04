@@ -83,7 +83,7 @@ class Timer_Node extends Node {
 			}
 			$msg[ Message::VALUE ] = (string) Core::$now;
 			++$this->counter;
-			$this->sink->fill( $msg );
+			$this->sink?->fill( $msg );
 		}
 		$this->notify( 'FIRE', Core::$now );
 	}

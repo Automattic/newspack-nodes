@@ -93,8 +93,9 @@ class Supervisor extends Supervisor_Base {
 			@\mkdir( "{$this->base_dir}/locks", 0755, true );
 		}
 		// Supervisor is not a Node and runs no interpreter: bare new (no-interpreter exception).
-		$this->own_lock = new Lock_Node( $lock_dir, self::SUPERVISOR_STALE_TIMEOUT );
-		if ( ! $this->own_lock->acquire() ) {
+		$lock           = new Lock_Node( $lock_dir, self::SUPERVISOR_STALE_TIMEOUT );
+		$this->own_lock = $lock;
+		if ( ! $lock->acquire() ) {
 			return;
 		}
 		$this->last_heartbeat = $this->start_time;
@@ -105,7 +106,7 @@ class Supervisor extends Supervisor_Base {
 		try {
 			$this->tick_loop();
 		} finally {
-			$this->own_lock->release();
+			$lock->release();
 			$this->own_lock = null;
 			$this->spawn_next_supervisor();
 		}
@@ -113,6 +114,11 @@ class Supervisor extends Supervisor_Base {
 
 	/** The actual 595s tick loop. Extracted for testability + cleaner try/finally. */
 	private function tick_loop(): void {
+		// own_lock is set by run()/init_lock_for_test() before this runs; bail loudly otherwise.
+		$lock = $this->own_lock;
+		if ( null === $lock ) {
+			throw new \RuntimeException( 'tick_loop requires an acquired own_lock' );
+		}
 		$last_token_window = -1;
 		$token             = '';
 		$spawn_url         = \rest_url( 'newspack-nodes/v1/workers/spawn' );
@@ -128,12 +134,12 @@ class Supervisor extends Supervisor_Base {
 			}
 
 			if ( ( $now - $this->last_heartbeat ) >= self::SUPERVISOR_STALE_TIMEOUT / 6 ) {
-				$this->own_lock->heartbeat();
+				$lock->heartbeat();
 				$this->last_heartbeat = $now;
 			}
 
 			// Bail if our lock was stolen or restart requested.
-			if ( $this->own_lock->should_restart() ) {
+			if ( $lock->should_restart() ) {
 				break;
 			}
 

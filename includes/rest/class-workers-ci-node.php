@@ -71,6 +71,19 @@ class Workers_CI_Node extends Service_CI_Node {
 	 */
 	public ?object $cache = null;
 
+	/**
+	 * The injected Cli, materialized non-null. Fails loud if the bootstrap
+	 * forgot to assign `$cli` before a worker-control verb dispatches.
+	 *
+	 * @return \Newspack_Nodes\CLI
+	 */
+	public function cli(): object {
+		if ( null === $this->cli ) {
+			throw new \RuntimeException( 'Workers_CI_Node requires an injected cli; bootstrap must assign $cli first' );
+		}
+		return $this->cli;
+	}
+
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Service',
@@ -85,9 +98,10 @@ class Workers_CI_Node extends Service_CI_Node {
 					// (dispatch() passes $this), so it's typed concretely to read the
 					// ctor-injected cli/cache off it (node_schema is static, can't `use` them).
 					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
-						$workers = $self->cli->ls_workers();
+						$cli     = $self->cli();
+						$workers = $cli->ls_workers();
 						foreach ( $workers as &$w ) {
-							$w['position'] = $self->cli->live_position( $self->cache, $w['type'], $w['partition'] );
+							$w['position'] = $cli->live_position( $self->cache, $w['type'], $w['partition'] );
 						}
 						unset( $w );
 						return $workers;
@@ -157,12 +171,13 @@ class Workers_CI_Node extends Service_CI_Node {
 						// Supervisor lives at `supervisor.lock.d` (no partition
 						// suffix); `restart_workers` only knows the `{type}.p{N}`
 						// shape, so route the supervisor through its own path.
-						if ( isset( $filter['supervisor'] ) && $self->cli->restart_supervisor() ) {
+						$cli = $self->cli();
+						if ( isset( $filter['supervisor'] ) && $cli->restart_supervisor() ) {
 							++$restarted;
 							unset( $filter['supervisor'] );
 						}
 						if ( ! empty( $filter ) || empty( $types ) ) {
-							$restarted += $self->cli->restart_workers( $self->cli->ls_workers(), $filter, $partition );
+							$restarted += $cli->restart_workers( $cli->ls_workers(), $filter, $partition );
 						}
 						return [ 'restarted' => $restarted ];
 					},

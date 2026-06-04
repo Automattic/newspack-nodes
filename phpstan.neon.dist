@@ -1,5 +1,5 @@
 parameters:
-    level: 7
+    level: 8
     # 80200 because:
     #   - includes/rest/trait-sse-stream.php declares constants inside a trait
     #     (PHP 8.2+ syntax)

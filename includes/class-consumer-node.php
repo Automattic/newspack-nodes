@@ -129,6 +129,14 @@ class Consumer_Node extends Timer_Node {
 		return $result;
 	}
 
+	/** Source Partition, materialized by arguments(). Throws if a read runs before configuration. */
+	private function source(): Partition_Node {
+		if ( null === $this->source ) {
+			throw new \RuntimeException( 'Consumer source partition not initialized; call arguments() first' );
+		}
+		return $this->source;
+	}
+
 	/** Override the FROM-stamp used when emitting messages; '' falls back to $this->name. */
 	public function set_stamp_as( string $stamp ): void {
 		$this->stamp_override = $stamp;
@@ -180,7 +188,7 @@ class Consumer_Node extends Timer_Node {
 			return;
 		}
 
-		$segments = $this->source->get_segments( true );
+		$segments = $this->source()->get_segments( true );
 
 		switch ( $position ) {
 			case 'end':
@@ -228,8 +236,8 @@ class Consumer_Node extends Timer_Node {
 		if ( ! $this->at_eof ) {
 			return false;
 		}
-		\clearstatcache( true, $this->source->partition_dir() );
-		$segments = $this->source->get_segments( true );
+		\clearstatcache( true, $this->source()->partition_dir() );
+		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
 			return true;
 		}
@@ -247,8 +255,8 @@ class Consumer_Node extends Timer_Node {
 	 * @return array{id:int,size:int}|null Current segment metadata or null if no segments exist.
 	 */
 	public function open(): ?array {
-		\clearstatcache( true, $this->source->partition_dir() );
-		$segments = $this->source->get_segments( true );
+		\clearstatcache( true, $this->source()->partition_dir() );
+		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
 			return null;
 		}
@@ -275,8 +283,8 @@ class Consumer_Node extends Timer_Node {
 	 * @return int|null New cursor segment id, or null if there's nothing to advance to.
 	 */
 	public function next_segment(): ?int {
-		\clearstatcache( true, $this->source->partition_dir() );
-		$segments = $this->source->get_segments( true );
+		\clearstatcache( true, $this->source()->partition_dir() );
+		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
 			return null;
 		}
@@ -295,7 +303,7 @@ class Consumer_Node extends Timer_Node {
 		}
 
 		if ( $has_curr ) {
-			$current_path = "{$this->source->partition_dir()}/{$this->cursor_seg}.log";
+			$current_path = "{$this->source()->partition_dir()}/{$this->cursor_seg}.log";
 			\clearstatcache( true, $current_path );
 			$mtime = @\filemtime( $current_path );
 			$stale = $mtime ? ( \time() - $mtime ) : PHP_INT_MAX;
@@ -321,8 +329,8 @@ class Consumer_Node extends Timer_Node {
 	 */
 	public function poll(): void {
 		// Defeat the stat cache so size growth from another process's writer is visible.
-		\clearstatcache( true, $this->source->partition_dir() );
-		$segments = $this->source->get_segments( true );
+		\clearstatcache( true, $this->source()->partition_dir() );
+		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
 			$this->at_eof = true;
 			return;
@@ -364,7 +372,7 @@ class Consumer_Node extends Timer_Node {
 				continue;
 			}
 
-			$bytes = ( $len > 0 ) ? $this->source->read_at( $s['id'], $read_start, $len ) : '';
+			$bytes = ( $len > 0 ) ? $this->source()->read_at( $s['id'], $read_start, $len ) : '';
 			// Consumers are the user-facing read nodes, so surface bytes_read here too.
 			$this->bytes_read += \strlen( $bytes );
 
@@ -631,8 +639,8 @@ class Consumer_Node extends Timer_Node {
 
 	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool} */
 	private function compute_lag(): array {
-		\clearstatcache( true, $this->source->partition_dir() );
-		$segments = $this->source->get_segments( true );
+		\clearstatcache( true, $this->source()->partition_dir() );
+		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
 			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true ];
 		}
