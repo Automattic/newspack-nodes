@@ -177,12 +177,12 @@ class HTTP_In_Node extends Node {
 		 *
 		 * @param int $burst Max `/command` POSTs per user per window.
 		 */
-		$burst = (int) \apply_filters( 'newspack_nodes/command_rate_limit', self::RATE_LIMIT_BURST );
+		$burst = \apply_filters( 'newspack_nodes/command_rate_limit', self::RATE_LIMIT_BURST );
 		if ( $burst < 1 ) {
 			$burst = 1;
 		}
 
-		$user_id = \function_exists( 'get_current_user_id' ) ? (int) \get_current_user_id() : 0;
+		$user_id = \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
 		// Bucket by floor(microtime) — each clock-second is an independent
 		// counter, so a steady stream at <BURST/sec stays at count=1 in each
 		// bucket forever instead of accumulating in a single transient that
@@ -191,7 +191,8 @@ class HTTP_In_Node extends Node {
 		$now     = self::$clock_now_seam ?? \microtime( true );
 		$bucket  = (int) \floor( $now );
 		$key     = "newspack_nodes_cmd_rl:{$user_id}:{$bucket}";
-		$count   = (int) \get_transient( $key );
+		$raw_count = \get_transient( $key );
+		$count     = \is_scalar( $raw_count ) ? (int) $raw_count : 0;
 		if ( $count >= $burst ) {
 			return new \WP_Error(
 				'rate_limited',
@@ -207,7 +208,7 @@ class HTTP_In_Node extends Node {
 	}
 
 	public function dispatch( \WP_REST_Request $request ): void {
-		$messages = $this->messages_from_body( (string) $request->get_body() );
+		$messages = $this->messages_from_body( $request->get_body() );
 
 		// Lazy-init the request-scope graph (idempotent), then let applications
 		// mount service interpreters via the request_graph_ready hook.
@@ -251,7 +252,9 @@ class HTTP_In_Node extends Node {
 			// downstream verifier interpreters (request-scope + worker) accept it; the
 			// signature covers semantics only, so the later FROM/TO peeling is fine.
 			// Non-command messages (TM_BYTESTREAM/INFO, or responses) are left alone.
-			if ( ( $msg[ Message::TYPE ] & Message::TM_COMMAND ) && ! ( $msg[ Message::TYPE ] & Message::TM_RESPONSE ) ) {
+			$raw_msg_type = $msg[ Message::TYPE ];
+			$msg_type     = \is_int( $raw_msg_type ) ? $raw_msg_type : 0;
+			if ( ( $msg_type & Message::TM_COMMAND ) && ! ( $msg_type & Message::TM_RESPONSE ) ) {
 				Command_Auth::sign( $msg );
 			}
 			$base_interpreter->fill( $msg );

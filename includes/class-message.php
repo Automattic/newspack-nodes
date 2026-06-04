@@ -76,7 +76,7 @@ class Message {
 	/** @return array<int, mixed> The 7-field positional message array. */
 	public static function unpacked( string $data ): array {
 		$decoded = \json_decode( $data, true );
-		if ( \is_array( $decoded ) && \count( $decoded ) == 7 && \array_is_list( $decoded ) ) {
+		if ( \is_array( $decoded ) && 7 === \count( $decoded ) && \array_is_list( $decoded ) ) {
 			return $decoded;
 		}
 		throw new \InvalidArgumentException( 'Message::unpacked(): expected a 7-element positional array' );

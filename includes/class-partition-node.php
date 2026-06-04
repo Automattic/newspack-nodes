@@ -416,7 +416,7 @@ class Partition_Node extends Timer_Node {
 			$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
 			$this->heartbeat_timer->sink( $this->write_lock );
 			$this->heartbeat_timer->set_key( 'heartbeat' );
-			$this->heartbeat_timer->set_timer( (int) ( $stale_timeout * 1000 / 3 ) );
+			$this->heartbeat_timer->set_timer( $stale_timeout * 1000 / 3 );
 			$this->heartbeat_timer->patron( $this );
 		}
 

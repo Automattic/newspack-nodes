@@ -36,8 +36,22 @@ use Newspack_Nodes\Topology_Registry;
 \defined( 'ABSPATH' ) || exit;
 
 class Topologies_CI_Node extends Service_CI_Node {
-
 	private const MAX_BODY_BYTES = 65536;
+
+	/**
+	 * Reduce a Topology_Registry::describe() entry to its 'user'|'stock'|'both'
+	 * label (shared by list+get so the source flag stays consistent).
+	 *
+	 * @param array{user:?string,stock:array<int,string>} $sources describe() entry.
+	 */
+	private static function source_of( array $sources ): string {
+		$has_user  = null !== ( $sources['user'] ?? null );
+		$has_stock = ! empty( $sources['stock'] );
+		if ( $has_user && $has_stock ) {
+			return 'both';
+		}
+		return $has_user ? 'user' : 'stock';
+	}
 
 	public static function node_schema(): array {
 		return [
@@ -258,20 +272,5 @@ class Topologies_CI_Node extends Service_CI_Node {
 				],
 			],
 		];
-	}
-
-	/**
-	 * Reduce a Topology_Registry::describe() entry to its 'user'|'stock'|'both'
-	 * label (shared by list+get so the source flag stays consistent).
-	 *
-	 * @param array{user:?string,stock:array<int,string>} $sources describe() entry.
-	 */
-	private static function source_of( array $sources ): string {
-		$has_user  = null !== ( $sources['user'] ?? null );
-		$has_stock = ! empty( $sources['stock'] );
-		if ( $has_user && $has_stock ) {
-			return 'both';
-		}
-		return $has_user ? 'user' : 'stock';
 	}
 }

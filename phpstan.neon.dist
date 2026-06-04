@@ -1,5 +1,20 @@
+includes:
+    - vendor/phpstan/phpstan-strict-rules/rules.neon
 parameters:
-    level: 8
+    level: 9
+    # phpstan-strict-rules: the full set EXCEPT rules that fight WordPress /
+    # node-runtime idioms — empty() (pervasive WP), truthy conditionals
+    # (if ($count) / !$str), short ternary ($x ?: $y), and dynamic property /
+    # method access (Node $this->{$name} per make_node decision #11).
+    # checkDynamicProperties is off too (dynamic node config assignment).
+    strictRules:
+        allRules: true
+        disallowedEmpty: false
+        booleansInConditions: false
+        booleansInLoopConditions: false
+        disallowedShortTernary: false
+        noVariableVariables: false
+    checkDynamicProperties: false
     # 80200 because:
     #   - includes/rest/trait-sse-stream.php declares constants inside a trait
     #     (PHP 8.2+ syntax)

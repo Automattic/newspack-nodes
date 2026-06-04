@@ -42,10 +42,33 @@ class Worker_CLI_Command {
 	 * Expand topologies registered via the `newspack_nodes/topologies` filter
 	 * into a flat list of `{type, partition, stale_timeout}` rows.
 	 *
-	 * @return array<int, array<string, mixed>>
+	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}>
 	 */
 	private function workers(): array {
 		return Bootstrap::expand_workers();
+	}
+
+	/**
+	 * Read an int from a topology entry, coercing scalars exactly as `(int)` would.
+	 *
+	 * @param mixed  $entry    Topology entry (array in practice; mixed per the filter contract).
+	 * @param string $key      Key to read.
+	 * @param int    $fallback Default when missing/non-scalar.
+	 */
+	private static function entry_int( $entry, string $key, int $fallback ): int {
+		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? $fallback ) : $fallback;
+		return \is_scalar( $value ) ? (int) $value : $fallback;
+	}
+
+	/**
+	 * Read a string from a topology entry, coercing scalars exactly as `(string)` would.
+	 *
+	 * @param mixed  $entry Topology entry (array in practice; mixed per the filter contract).
+	 * @param string $key   Key to read.
+	 */
+	private static function entry_string( $entry, string $key ): string {
+		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? '' ) : '';
+		return \is_scalar( $value ) ? (string) $value : '';
 	}
 
 	/**
@@ -71,9 +94,9 @@ class Worker_CLI_Command {
 
 		\WP_CLI::log( 'Active topology groups:' );
 		foreach ( $topologies as $name => $config ) {
-			$partitions = (int) ( $config['num_partitions'] ?? 1 );
-			$stale      = (int) ( $config['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT );
-			$path       = (string) ( $config['topology'] ?? '' );
+			$partitions = self::entry_int( $config, 'num_partitions', 1 );
+			$stale      = self::entry_int( $config, 'stale_timeout', Lock_Node::STALE_TIMEOUT );
+			$path       = self::entry_string( $config, 'topology' );
 			$plural     = 1 === $partitions ? 'partition' : 'partitions';
 			\WP_CLI::log( "  - {$name} ({$partitions} {$plural}, stale_timeout={$stale}s)" );
 			if ( '' !== $path ) {
@@ -120,7 +143,7 @@ class Worker_CLI_Command {
 		$valid   = \array_unique( \array_column( $workers, 'type' ) );
 
 		$type      = $args[0] ?? '';
-		$partition = (int) ( $assoc_args['partition'] ?? 0 );
+		$partition = self::entry_int( $assoc_args, 'partition', 0 );
 		$quiet     = isset( $assoc_args['quiet'] );
 
 		if ( '' === $type ) {
@@ -133,7 +156,7 @@ class Worker_CLI_Command {
 		// Find the descriptor for this {type, partition}.
 		$descriptor = null;
 		foreach ( $workers as $w ) {
-			if ( $w['type'] === $type && (int) $w['partition'] === $partition ) {
+			if ( $w['type'] === $type && $w['partition'] === $partition ) {
 				$descriptor = $w;
 				break;
 			}
@@ -143,7 +166,7 @@ class Worker_CLI_Command {
 		}
 
 		// Resolve the TSL topology name and build a closure that runs it via Topology_Loader.
-		$topology_name = (string) ( $descriptor['topology'] ?? '' );
+		$topology_name = self::entry_string( $descriptor, 'topology' );
 		if ( '' === $topology_name || null === Topology_Registry::resolve( $topology_name ) ) {
 			\WP_CLI::error( 'Topology not found in registry: ' . $topology_name );
 		}
@@ -167,7 +190,7 @@ class Worker_CLI_Command {
 			$this->base_dir(),
 			$type,
 			$partition,
-			stale_timeout: (int) ( $descriptor['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT )
+			stale_timeout: self::entry_int( $descriptor, 'stale_timeout', Lock_Node::STALE_TIMEOUT )
 		);
 
 		$spawn_url = \function_exists( 'rest_url' )
@@ -214,7 +237,7 @@ class Worker_CLI_Command {
 
 		$type           = $args[0] ?? '';
 		$all_partitions = isset( $assoc_args['all-partitions'] );
-		$partition      = $all_partitions ? -1 : (int) ( $assoc_args['partition'] ?? -1 );
+		$partition      = $all_partitions ? -1 : self::entry_int( $assoc_args, 'partition', -1 );
 
 		if ( '' === $type ) {
 			\WP_CLI::error( 'Worker type required. Use: wp nodes restart <type>' );
@@ -286,11 +309,11 @@ class Worker_CLI_Command {
 		$rows = [];
 		foreach ( $workers as $w ) {
 			$type     = $w['type'];
-			$p        = (int) $w['partition'];
+			$p        = $w['partition'];
 			$lock_dir = "{$base_dir}/locks/{$type}.p{$p}.lock.d";
 
 			$status        = 'dead';
-			$stale_timeout = (int) ( $w['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT );
+			$stale_timeout = self::entry_int( $w, 'stale_timeout', Lock_Node::STALE_TIMEOUT );
 			$hb            = "{$lock_dir}/heartbeat";
 			\clearstatcache( true, $hb );
 			$mtime = \file_exists( $hb ) ? @\filemtime( $hb ) : false;
@@ -311,7 +334,7 @@ class Worker_CLI_Command {
 				$basename      = $cli->input_basename( $type, $p ) ?: 'firehose';
 				$partition_dir = "{$logs_dir}/{$basename}.log/p{$p}";
 				if ( \is_dir( $partition_dir ) ) {
-					$bytes  = CLI::calculate_behind( $partition_dir, (int) $position['seg'], (int) $position['off'] );
+					$bytes  = CLI::calculate_behind( $partition_dir, $position['seg'], $position['off'] );
 					$behind = CLI::format_bytes( $bytes );
 				}
 			}
@@ -328,7 +351,10 @@ class Worker_CLI_Command {
 			];
 		}
 
-		$format = $assoc_args['format'] ?? 'table';
+		$format = self::entry_string( $assoc_args, 'format' );
+		if ( '' === $format ) {
+			$format = 'table';
+		}
 		if ( \function_exists( 'WP_CLI\\Utils\\format_items' ) ) {
 			\WP_CLI\Utils\format_items( $format, $rows, [ 'Type', 'Partition', 'Status', 'Uptime', 'Behind', 'Restart' ] );
 		} else {

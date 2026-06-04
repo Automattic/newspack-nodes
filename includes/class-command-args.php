@@ -65,7 +65,7 @@ class Command_Args {
 	public static function format( array $positional = [], array $options = [] ): string {
 		$parts = [];
 		foreach ( $positional as $p ) {
-			$parts[] = self::quote_if_needed( (string) $p );
+			$parts[] = self::quote_if_needed( $p );
 		}
 		foreach ( $options as $key => $value ) {
 			if ( true === $value ) {
@@ -73,7 +73,7 @@ class Command_Args {
 				continue;
 			}
 			if ( \is_array( $value ) ) {
-				$value = \implode( ',', $value );
+				$value = \implode( ',', \array_map( '\strval', $value ) );
 			} elseif ( false === $value ) {
 				// `true` is the bare-flag case handled above; the only bool left is false.
 				$value = 'false';

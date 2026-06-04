@@ -18,7 +18,9 @@ namespace Newspack_Nodes;
 class Command_Signer_Node extends Node {
 	public function fill( array &$message ): void {
 		++$this->counter;
-		if ( ( $message[ Message::TYPE ] & Message::TM_COMMAND ) && ! ( $message[ Message::TYPE ] & Message::TM_RESPONSE ) ) {
+		$raw_type = $message[ Message::TYPE ];
+		$type     = \is_int( $raw_type ) ? $raw_type : 0;
+		if ( ( $type & Message::TM_COMMAND ) && ! ( $type & Message::TM_RESPONSE ) ) {
 			Command_Auth::sign( $message );
 		}
 		$this->sink?->fill( $message );

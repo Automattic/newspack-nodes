@@ -71,7 +71,8 @@ class Log_Node extends Node {
 
 	public function fill( array &$message ): void {
 		++$this->counter;
-		$type = $message[ Message::TYPE ];
+		$type_raw = $message[ Message::TYPE ];
+		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
 
 		if ( $type & Message::TM_ERROR ) {
 			return;
@@ -84,7 +85,8 @@ class Log_Node extends Node {
 			return;
 		}
 		if ( $type & Message::TM_REQUEST ) {
-			$value = (string) $message[ Message::VALUE ];
+			$value_raw = $message[ Message::VALUE ];
+			$value     = \is_scalar( $value_raw ) ? (string) $value_raw : '';
 			if ( 'rotate' === $value || 0 === \strpos( $value, 'rotate ' ) ) {
 				$this->rotate();
 			}
@@ -96,7 +98,8 @@ class Log_Node extends Node {
 			Core::print_less_often( "Log: cannot write to {$this->filename} (no open file handle)" );
 			return;
 		}
-		$value                = (string) $message[ Message::VALUE ];
+		$value_raw            = $message[ Message::VALUE ];
+		$value                = \is_scalar( $value_raw ) ? (string) $value_raw : '';
 		$write_len            = \strlen( $value );
 		$this->size          += $write_len;
 		$this->bytes_written += $write_len;

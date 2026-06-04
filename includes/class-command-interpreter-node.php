@@ -67,7 +67,8 @@ class Command_Interpreter_Node extends Node {
 	public function fill( array &$message ): void {
 		++$this->counter;
 
-		$type = $message[ Message::TYPE ];
+		$type_raw = $message[ Message::TYPE ];
+		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
 
 		// TM_PING / TM_EOF with empty TO: bounce back along the FROM trail (drain marker).
 		if ( ( $type & ( Message::TM_PING | Message::TM_EOF ) ) && '' === $message[ Message::TO ] ) {
@@ -91,6 +92,10 @@ class Command_Interpreter_Node extends Node {
 			$this->drop_message( $message, 'invalid command struct' );
 			return;
 		}
+		$name_raw  = $cmd['name'];
+		$args_raw  = $cmd['arguments'] ?? '';
+		$cmd_name  = \is_scalar( $name_raw ) ? (string) $name_raw : '';
+		$cmd_args  = \is_scalar( $args_raw ) ? (string) $args_raw : '';
 
 		// Authorization gate (every command): client tier requires the LOCAL
 		// provenance taint; verifier processes swap in an HMAC check. Refuse
@@ -98,14 +103,14 @@ class Command_Interpreter_Node extends Node {
 		$authorize = $this->authorize ?? self::$default_authorize
 			?? static fn ( array $m ): bool => isset( $m[ Message::LOCAL ] );
 		if ( ! $authorize( $message ) ) {
-			$result    = 'unauthorized: ' . $cmd['name'];
+			$result    = 'unauthorized: ' . $cmd_name;
 			$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
 		} else {
 			// Verb handlers throw freely; wrap as TM_COMMAND|TM_ERROR so the cli renders the error.
 			try {
 				$result = $this->dispatch(
-					(string) $cmd['name'],
-					(string) ( $cmd['arguments'] ?? '' ),
+					$cmd_name,
+					$cmd_args,
 					$message
 				);
 				$resp_type = Message::TM_COMMAND | Message::TM_RESPONSE;
@@ -124,8 +129,8 @@ class Command_Interpreter_Node extends Node {
 			$response[ Message::ID ]    = $message[ Message::ID ];
 			$response[ Message::KEY ]   = $message[ Message::KEY ];
 			$response[ Message::VALUE ] = [
-				'name'      => $cmd['name'],
-				'arguments' => (string) ( $cmd['arguments'] ?? '' ),
+				'name'      => $cmd_name,
+				'arguments' => $cmd_args,
 				'payload'   => $result,
 			];
 			$this->sink?->fill( $response );
@@ -407,8 +412,9 @@ class Command_Interpreter_Node extends Node {
 	 * @param array<int, mixed> $envelope The command Message.
 	 */
 	private static function cmd_pwd( string $args, array $envelope ): string {
-		$cwd  = '' === $args ? '/' : $args;
-		$from = $envelope[ Message::FROM ] ?? '';
+		$cwd      = '' === $args ? '/' : $args;
+		$from_raw = $envelope[ Message::FROM ] ?? '';
+		$from     = \is_scalar( $from_raw ) ? (string) $from_raw : '';
 		return ' ' . $cwd . ' -> ' . $from;
 	}
 
@@ -441,7 +447,8 @@ class Command_Interpreter_Node extends Node {
 		}
 		// No target defaults to the issuing message's FROM — tees the node's flow back to that session.
 		if ( '' === $target ) {
-			$target = (string) ( $envelope[ Message::FROM ] ?? '' );
+			$from   = $envelope[ Message::FROM ] ?? '';
+			$target = \is_scalar( $from ) ? (string) $from : '';
 			if ( '' === $target ) {
 				return 'usage: connect_node <node> [<target>]';
 			}
@@ -463,7 +470,8 @@ class Command_Interpreter_Node extends Node {
 		}
 		// For a Tee, no target removes the issuing FROM from the fan-out (undoes a default connect).
 		if ( '' === $target && \is_array( $src->target() ) ) {
-			$target = (string) ( $envelope[ Message::FROM ] ?? '' );
+			$from   = $envelope[ Message::FROM ] ?? '';
+			$target = \is_scalar( $from ) ? (string) $from : '';
 			if ( '' === $target ) {
 				return 'usage: disconnect_node <node> [<target>]';
 			}
@@ -500,7 +508,7 @@ class Command_Interpreter_Node extends Node {
 			}
 			\sort( $names );
 		} else {
-			/** @var list<string> $names Whitespace-split tokens; the /\s+/ split of a string never yields false. */
+			/** @var non-empty-list<string> $names Whitespace-split tokens; the /\s+/ split of a string never yields false. */
 			$names = \preg_split( '/\s+/', $args );
 		}
 
@@ -733,7 +741,8 @@ class Command_Interpreter_Node extends Node {
 
 		// The class heads the dump (first line, before the body); the rest is the
 		// node's state. Pulled out so it isn't also a body key / a filter target.
-		$class = (string) ( $snapshot['class'] ?? '' );
+		$class_raw = $snapshot['class'] ?? '';
+		$class     = \is_scalar( $class_raw ) ? (string) $class_raw : '';
 		unset( $snapshot['class'] );
 		// `class` is always shown in the header, so requesting it as a key is a
 		// no-op rather than a "can't find key" error.
@@ -976,7 +985,7 @@ class Command_Interpreter_Node extends Node {
 		$max   = \array_fill( 0, $ncols, 0 );
 		if ( null !== $header ) {
 			foreach ( $header as $col => $val ) {
-				$max[ $col ] = \max( $max[ $col ], \strlen( (string) $val ) );
+				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
 			}
 		}
 		foreach ( $rows as $row ) {
@@ -984,7 +993,7 @@ class Command_Interpreter_Node extends Node {
 				if ( $col >= $ncols ) {
 					continue;
 				}
-				$max[ $col ] = \max( $max[ $col ], \strlen( (string) $val ) );
+				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
 			}
 		}
 
@@ -1019,8 +1028,8 @@ class Command_Interpreter_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'Command dispatch — placed implicitly as sibling of patron nodes; not draggable.',
-			'arguments'        => [],
-			'commands'       => [],
+			'arguments'   => [],
+			'commands'    => [],
 		];
 	}
 }

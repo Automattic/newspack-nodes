@@ -158,7 +158,7 @@ class Consumer_Node extends Timer_Node {
 			return;
 		}
 		try {
-			$msg = Message::unpacked( (string) \end( $lines ) );
+			$msg = Message::unpacked( \end( $lines ) );
 		} catch ( \InvalidArgumentException $e ) {
 			// Unparseable entry: start from the default cursor rather than failing construction.
 			$this->print_less_often( "Consumer: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
@@ -166,8 +166,10 @@ class Consumer_Node extends Timer_Node {
 		}
 		$entry = $msg[ Message::VALUE ];
 		if ( \is_array( $entry ) && isset( $entry['seg'], $entry['off'] ) ) {
-			$this->cursor_seg     = (int) $entry['seg'];
-			$this->cursor_off     = (int) $entry['off'];
+			$seg                  = $entry['seg'];
+			$off                  = $entry['off'];
+			$this->cursor_seg     = \is_numeric( $seg ) ? (int) $seg : 0;
+			$this->cursor_off     = \is_numeric( $off ) ? (int) $off : 0;
 			$this->checkpoint_seg = $this->cursor_seg;
 			$this->checkpoint_off = $this->cursor_off;
 		}
@@ -176,15 +178,17 @@ class Consumer_Node extends Timer_Node {
 	/**
 	 * Set next read position: 'start' | 'recent' | 'end' | array{seg,off}.
 	 *
-	 * @param string|array<string, mixed> $position Magic value or explicit position (reads 'seg'/'off').
+	 * @param string|array<array-key, mixed> $position Magic value or explicit position (reads 'seg'/'off').
 	 */
 	public function next_offset( $position ): void {
 		$this->line_remainder = '';
 		$this->at_eof         = false;
 
 		if ( \is_array( $position ) ) {
-			$this->cursor_seg = (int) ( $position['seg'] ?? 0 );
-			$this->cursor_off = \max( 0, (int) ( $position['off'] ?? 0 ) );
+			$seg              = $position['seg'] ?? 0;
+			$off              = $position['off'] ?? 0;
+			$this->cursor_seg = \is_numeric( $seg ) ? (int) $seg : 0;
+			$this->cursor_off = \max( 0, \is_numeric( $off ) ? (int) $off : 0 );
 			return;
 		}
 
@@ -408,7 +412,7 @@ class Consumer_Node extends Timer_Node {
 			$buffer = $this->line_remainder . $bytes;
 			$lines  = \explode( "\n", $buffer );
 			// Trailing partial (empty if buffer ended with \n).
-			$pending = (string) \array_pop( $lines );
+			$pending = \array_pop( $lines );
 
 			$offset_in_buffer = 0;
 			foreach ( $lines as $line ) {
@@ -505,11 +509,7 @@ class Consumer_Node extends Timer_Node {
 			'name'        => $this->name,
 			'target'      => \is_string( $this->target ) ? $this->target : '',
 			'targets'     => $this->resolve_downstream_targets(),
-			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
-			'worker_type' => isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] )
-				// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
-				? (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE']
-				: '',
+			'worker_type' => self::worker_type_env(),
 		];
 		$this->offsetlog->fill( $msg );
 		// Persist synchronously — don't wait for the offsetlog Partition's PIPE_BUF threshold.
@@ -550,6 +550,13 @@ class Consumer_Node extends Timer_Node {
 	 *
 	 * No-op when Memcached is missing or unreachable; a failed connect is sticky for this worker.
 	 */
+	/** Worker-type env tag (set by SpawnController after HMAC auth); '' when unset. */
+	private static function worker_type_env(): string {
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
+		$wt = $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '';
+		return \is_scalar( $wt ) ? (string) $wt : '';
+	}
+
 	private function publish_position(): void {
 		if ( ! \class_exists( '\\Memcached' ) ) {
 			return;
@@ -567,7 +574,8 @@ class Consumer_Node extends Timer_Node {
 			}
 			$memd = new \Memcached();
 			foreach ( $servers as $hp ) {
-				[ $h, $p ] = \array_pad( \explode( ':', \trim( (string) $hp ) ), 2, '11211' );
+				$hp_str    = \is_scalar( $hp ) ? (string) $hp : '';
+				[ $h, $p ] = \array_pad( \explode( ':', \trim( $hp_str ) ), 2, '11211' );
 				$memd->addServer( $h, (int) $p );
 			}
 			if ( empty( $memd->getServerList() ) ) {
@@ -585,11 +593,7 @@ class Consumer_Node extends Timer_Node {
 				'name'        => $this->name,
 				'target'      => \is_string( $this->target ) ? $this->target : '',
 				'targets'     => $this->resolve_downstream_targets(),
-				// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
-				'worker_type' => isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] )
-					// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
-					? (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE']
-					: '',
+				'worker_type' => self::worker_type_env(),
 			],
 			60
 		);
@@ -599,7 +603,8 @@ class Consumer_Node extends Timer_Node {
 	 * Handle TM_REQUEST introspection verbs (reply TO=FROM); else defer to Timer.
 	 */
 	public function fill( array &$message ): void {
-		$type = $message[ Message::TYPE ];
+		$type_raw = $message[ Message::TYPE ];
+		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
 		if ( $type & Message::TM_REQUEST ) {
 			$this->handle_request( $message );
 			return;
@@ -609,7 +614,8 @@ class Consumer_Node extends Timer_Node {
 
 	/** @param array<int, mixed> $message Incoming request Message. */
 	private function handle_request( array $message ): void {
-		$value = (string) $message[ Message::VALUE ];
+		$value_raw = $message[ Message::VALUE ];
+		$value     = \is_scalar( $value_raw ) ? (string) $value_raw : '';
 		$verb  = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
 
 		$payload = null;
@@ -647,8 +653,8 @@ class Consumer_Node extends Timer_Node {
 		$bytes_behind     = 0;
 		$segments_behind  = 0;
 		foreach ( $segments as $s ) {
-			$id   = (int) $s['id'];
-			$size = (int) $s['size'];
+			$id   = $s['id'];
+			$size = $s['size'];
 			if ( $id < $this->cursor_seg ) {
 				continue;
 			}

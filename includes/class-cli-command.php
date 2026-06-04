@@ -444,8 +444,10 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 		if ( ! \is_array( $value ) ) {
 			return false;
 		}
-		$name    = (string) ( $value['name'] ?? '' );
-		$payload = (string) ( $value['payload'] ?? '' );
+		$raw_name    = $value['name'] ?? '';
+		$raw_payload = $value['payload'] ?? '';
+		$name        = \is_scalar( $raw_name ) ? (string) $raw_name : '';
+		$payload     = \is_scalar( $raw_payload ) ? (string) $raw_payload : '';
 		$list    = '' === $payload ? [] : \explode( "\n", $payload );
 
 		if ( 'help' === $name ) {

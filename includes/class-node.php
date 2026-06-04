@@ -81,12 +81,17 @@ class Node {
 	 * @return array<string,callable>
 	 */
 	private static function verbs_with_handlers( array $schema ): array {
-		$table = [];
-		foreach ( $schema['commands'] ?? [] as $verb ) {
+		$table    = [];
+		$commands = $schema['commands'] ?? [];
+		if ( ! \is_array( $commands ) ) {
+			return $table;
+		}
+		foreach ( $commands as $verb ) {
 			if ( ! \is_array( $verb ) ) {
 				continue;
 			}
-			$name = (string) ( $verb['name'] ?? '' );
+			$name_raw = $verb['name'] ?? '';
+			$name     = \is_scalar( $name_raw ) ? (string) $name_raw : '';
 			if ( '' === $name || ! isset( $verb['handler'] ) || ! \is_callable( $verb['handler'] ) ) {
 				continue;
 			}
@@ -246,14 +251,19 @@ class Node {
 		$this->arguments = $args;
 		$schema   = static::node_schema();
 		$declared = $schema['arguments'] ?? [];
-		if ( empty( $declared ) || '' === $args ) {
+		if ( ! \is_array( $declared ) || empty( $declared ) || '' === $args ) {
 			return $this->arguments;
 		}
 		$tokens = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY );
 		foreach ( $declared as $i => $arg_spec ) {
-			$name = $arg_spec['name'];
-			$type = $arg_spec['type'] ?? 'string';
-			if ( ! \property_exists( $this, $name ) ) {
+			if ( ! \is_array( $arg_spec ) ) {
+				continue;
+			}
+			$name_raw = $arg_spec['name'] ?? '';
+			$name     = \is_scalar( $name_raw ) ? (string) $name_raw : '';
+			$type_raw = $arg_spec['type'] ?? 'string';
+			$type     = \is_string( $type_raw ) ? $type_raw : 'string';
+			if ( '' === $name || ! \property_exists( $this, $name ) ) {
 				continue;
 			}
 			if ( isset( $tokens[ $i ] ) ) {
@@ -313,8 +323,9 @@ class Node {
 			$this->print_less_often( 'ERROR: ' . static::class . ' stamp_message() called with empty name' );
 			return false;
 		}
-		$from = $message[ Message::FROM ];
-		$new  = '' === $from ? $name : ( $name . '/' . $from );
+		$from_raw = $message[ Message::FROM ];
+		$from     = \is_scalar( $from_raw ) ? (string) $from_raw : '';
+		$new      = '' === $from ? $name : ( $name . '/' . $from );
 		if ( \strlen( $new ) > self::MAX_FROM_SIZE ) {
 			$this->print_less_often( 'ERROR: path exceeded ' . self::MAX_FROM_SIZE . " bytes; dropping from: $new" );
 			return false;
@@ -530,8 +541,9 @@ class Node {
 	 * @param array<int, mixed> $message Message reference.
 	 */
 	public function drop_message( array &$message, string $error ): void {
-		$type   = $message[ Message::TYPE ];
-		$labels = [];
+		$type_raw = $message[ Message::TYPE ];
+		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
+		$labels   = [];
 		foreach ( self::$type_names as $bit => $label ) {
 			if ( $type & $bit ) {
 				$labels[] = $label;
@@ -540,20 +552,24 @@ class Node {
 		$type_str = empty( $labels ) ? 'unknown' : \implode( '|', $labels );
 
 		// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl drop_message).
-		$prefix = 'NOT_AVAILABLE' === $error ? "$error - " : "WARNING: $error - ";
-		$parts  = [ "$prefix$type_str" ];
-		if ( '' !== $message[ Message::FROM ] ) {
-			$parts[] = 'from: ' . $message[ Message::FROM ];
+		$prefix   = 'NOT_AVAILABLE' === $error ? "$error - " : "WARNING: $error - ";
+		$parts    = [ "$prefix$type_str" ];
+		$from_raw = $message[ Message::FROM ];
+		$from     = \is_scalar( $from_raw ) ? (string) $from_raw : '';
+		if ( '' !== $from ) {
+			$parts[] = 'from: ' . $from;
 		}
-		if ( '' !== $message[ Message::TO ] ) {
-			$parts[] = 'to: ' . $message[ Message::TO ];
+		$to_raw = $message[ Message::TO ];
+		$to     = \is_scalar( $to_raw ) ? (string) $to_raw : '';
+		if ( '' !== $to ) {
+			$parts[] = 'to: ' . $to;
 		}
-		if ( ( $type & self::PAYLOAD_TYPES ) && '' !== $message[ Message::VALUE ] ) {
+		$value = $message[ Message::VALUE ];
+		if ( ( $type & self::PAYLOAD_TYPES ) && '' !== $value ) {
 			// json-encode array VALUEs for the audit line; (string) would emit "Array" and warn.
-			$value     = $message[ Message::VALUE ];
 			$value_str = \is_array( $value )
 				? (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES )
-				: (string) $value;
+				: ( \is_scalar( $value ) ? (string) $value : '' );
 			$parts[] = 'payload: ' . $value_str;
 		}
 
@@ -639,11 +655,10 @@ class Node {
 	 */
 	public static function node_schema(): array {
 		return [
-			'category'    => '',
-			'description' => '',
-			'arguments'        => [],
-			'commands'       => [],
-			// Pure-producers override accepts_fill=false; pure-sinks override has_target=false.
+			'category'     => '',
+			'description'  => '',
+			'arguments'    => [],
+			'commands'     => [],
 			'accepts_fill' => true,
 			'has_target'   => true,
 		];

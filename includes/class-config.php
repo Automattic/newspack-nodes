@@ -149,7 +149,7 @@ class Config {
 			return (int) $value;
 		}
 		if ( \in_array( $type, [ 'memcache_servers', 'array_strings' ], true ) && \is_string( $value ) ) {
-			return \array_values( \array_filter( \array_map( 'trim', \explode( "\n", $value ) ) ) );
+			return \array_values( \array_filter( \array_map( 'trim', \explode( "\n", $value ) ), static fn ( $v ) => (bool) $v ) );
 		}
 		return $value;
 	}
@@ -265,12 +265,13 @@ class Config {
 			return self::$validated_base_directory;
 		}
 
-		$config = self::load_config();
-		if ( empty( $config['base_directory'] ) ) {
+		$config   = self::load_config();
+		$base_dir = $config['base_directory'] ?? null;
+		if ( empty( $base_dir ) || ! \is_scalar( $base_dir ) ) {
 			throw new \RuntimeException( 'base_directory not configured' );
 		}
 
-		self::$validated_base_directory = self::ensure_path( $config['base_directory'] );
+		self::$validated_base_directory = self::ensure_path( (string) $base_dir );
 		return self::$validated_base_directory;
 	}
 
@@ -348,7 +349,6 @@ class Config {
 
 			$matched = false;
 			foreach ( $groups as $group ) {
-				$group = (string) $group;
 				if ( '' === $group ) {
 					continue;
 				}

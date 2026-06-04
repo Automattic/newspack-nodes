@@ -14,6 +14,7 @@ class Callback_Node extends Node {
 	private $cb;
 
 	public function __construct( callable $cb ) {
+		parent::__construct();
 		$this->cb = $cb;
 	}
 
@@ -27,8 +28,8 @@ class Callback_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'Inline PHP closure as a node — invokes a callable on each message.',
-			'arguments'        => [],
-			'commands'       => [],
+			'arguments'   => [],
+			'commands'    => [],
 		];
 	}
 }

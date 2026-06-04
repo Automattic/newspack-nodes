@@ -168,7 +168,7 @@ class Tail_Node extends Timer_Node {
 				}
 				$buf                  = $this->line_remainder . $bytes;
 				$lines                = \explode( "\n", $buf );
-				$this->line_remainder = (string) \array_pop( $lines );
+				$this->line_remainder = \array_pop( $lines );
 				foreach ( $lines as $line ) {
 					$this->emit_message( $line . "\n" );
 				}

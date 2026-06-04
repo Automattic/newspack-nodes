@@ -33,6 +33,7 @@ class Dumper_Node extends Node {
 	 * @param bool|null     $force_tty If non-null, override the posix_isatty() detection.
 	 */
 	public function __construct( $stdout = null, ?bool $force_tty = null ) {
+		parent::__construct();
 		$this->stdout = $stdout ?? \STDOUT;
 
 		if ( null !== $force_tty ) {
@@ -49,7 +50,7 @@ class Dumper_Node extends Node {
 
 		// Drop messages addressed to a different cli session; empty TO always renders.
 		if ( '' !== $this->to_filter ) {
-			$to = (string) $message[ Message::TO ];
+			$to = self::coerce_string( $message[ Message::TO ] );
 			if ( '' !== $to
 				&& ! \preg_match( '/^(?:_output\/)?' . \preg_quote( $this->to_filter, '/' ) . '$/', $to )
 			) {
@@ -63,15 +64,15 @@ class Dumper_Node extends Node {
 			return;
 		}
 
-		$type = $message[ Message::TYPE ];
+		$type = self::coerce_int( $message[ Message::TYPE ] );
 
 		if ( $this->debug_level >= 2 ) {
 			$this->write_async( $this->format_envelope_dump( $message ) );
 			return;
 		}
 		if ( $this->debug_level >= 1 ) {
-			$flags = self::format_type_flags( (int) $type );
-			$from  = (string) ( $message[ Message::FROM ] ?? '' );
+			$flags = self::format_type_flags( $type );
+			$from  = self::coerce_string( $message[ Message::FROM ] ?? '' );
 			$this->write_async( $flags . ' from ' . $from . ':' );
 		}
 
@@ -87,7 +88,7 @@ class Dumper_Node extends Node {
 			if ( $type & Message::TM_RESPONSE ) {
 				$cmd = $message[ Message::VALUE ];
 				if ( \is_array( $cmd ) ) {
-					$name    = (string) ( $cmd['name'] ?? '' );
+					$name    = self::coerce_string( $cmd['name'] ?? '' );
 					$payload = self::render_payload( $cmd['payload'] ?? '' );
 
 					if ( 'prompt' === $name && null !== $this->shell ) {
@@ -100,7 +101,7 @@ class Dumper_Node extends Node {
 				}
 			} elseif ( $type & Message::TM_ERROR ) {
 				$cmd     = $message[ Message::VALUE ];
-				$payload = \is_array( $cmd ) ? self::render_payload( $cmd['payload'] ?? '' ) : (string) $cmd;
+				$payload = \is_array( $cmd ) ? self::render_payload( $cmd['payload'] ?? '' ) : self::coerce_string( $cmd );
 				$this->write_async( $payload );
 				return;
 			}
@@ -108,7 +109,7 @@ class Dumper_Node extends Node {
 
 		// TM_PING: bounced reply; VALUE is the send timestamp, render as RTT.
 		if ( $type & Message::TM_PING ) {
-			$sent = (float) $message[ Message::VALUE ];
+			$sent = self::coerce_float( $message[ Message::VALUE ] );
 			$rtt  = ( Core::$now - $sent ) * 1000.0;
 			$this->write_async( \sprintf( 'round trip time: %.2f ms', $rtt ) );
 			return;
@@ -121,7 +122,7 @@ class Dumper_Node extends Node {
 			return;
 		}
 
-		$this->write_async( (string) $message[ Message::VALUE ] );
+		$this->write_async( self::coerce_string( $message[ Message::VALUE ] ) );
 	}
 
 	public function set_shell( Shell_Node $shell ): void {
@@ -185,6 +186,75 @@ class Dumper_Node extends Node {
 	}
 
 	/**
+	 * Coerce a mixed Message field to string, reproducing PHP's `(string)` cast
+	 * (null→'', scalar→its string form, array→'Array') without a mixed-cast.
+	 *
+	 * @param mixed $v Raw Message field.
+	 */
+	private static function coerce_string( $v ): string {
+		if ( \is_string( $v ) ) {
+			return $v;
+		}
+		if ( null === $v ) {
+			return '';
+		}
+		if ( \is_array( $v ) ) {
+			return 'Array';
+		}
+		if ( \is_object( $v ) ) {
+			return \method_exists( $v, '__toString' ) ? $v->__toString() : '';
+		}
+		if ( \is_scalar( $v ) ) {
+			return (string) $v;
+		}
+		return '';
+	}
+
+	/**
+	 * Coerce a mixed Message field to float, reproducing PHP's `(float)` cast
+	 * (null→0.0, scalar→its float form, non-empty array→1.0) without a mixed-cast.
+	 *
+	 * @param mixed $v Raw Message field.
+	 */
+	private static function coerce_float( $v ): float {
+		if ( null === $v ) {
+			return 0.0;
+		}
+		if ( \is_array( $v ) ) {
+			return empty( $v ) ? 0.0 : 1.0;
+		}
+		if ( \is_object( $v ) ) {
+			return 1.0;
+		}
+		if ( \is_scalar( $v ) ) {
+			return (float) $v;
+		}
+		return 0.0;
+	}
+
+	/**
+	 * Coerce a mixed Message field to int, reproducing PHP's `(int)` cast
+	 * (null→0, scalar→its int form, non-empty array→1) without a mixed-cast.
+	 *
+	 * @param mixed $v Raw Message field.
+	 */
+	private static function coerce_int( $v ): int {
+		if ( null === $v ) {
+			return 0;
+		}
+		if ( \is_array( $v ) ) {
+			return empty( $v ) ? 0 : 1;
+		}
+		if ( \is_object( $v ) ) {
+			return 1;
+		}
+		if ( \is_scalar( $v ) ) {
+			return (int) $v;
+		}
+		return 0;
+	}
+
+	/**
 	 * Render a TM-flag bitmask as a human-readable string (multi-flag types concatenated).
 	 */
 	private static function format_type_flags( int $type ): string {
@@ -214,9 +284,9 @@ class Dumper_Node extends Node {
 	 * @param array<int, mixed> $message The Message to render.
 	 */
 	private function format_envelope_dump( array $message ): string {
-		$type      = (int) ( $message[ Message::TYPE ] ?? 0 );
+		$type      = self::coerce_int( $message[ Message::TYPE ] ?? 0 );
 		$flags     = self::format_type_flags( $type );
-		$ts        = (string) ( $message[ Message::TIMESTAMP ] ?? '' );
+		$ts        = self::coerce_string( $message[ Message::TIMESTAMP ] ?? '' );
 		$ts_human  = '' !== $ts && \is_numeric( $ts )
 			? \gmdate( 'Y-m-d H:i:s', (int) $ts ) . ' UTC'
 			: '';
@@ -225,10 +295,10 @@ class Dumper_Node extends Node {
 		$lines = [
 			'Message {',
 			'    type:      ' . $flags,
-			'    from:      ' . (string) ( $message[ Message::FROM ] ?? '' ),
-			'    to:        ' . (string) ( $message[ Message::TO ] ?? '' ),
-			'    id:        ' . (string) ( $message[ Message::ID ] ?? '' ),
-			'    key:       ' . (string) ( $message[ Message::KEY ] ?? '' ),
+			'    from:      ' . self::coerce_string( $message[ Message::FROM ] ?? '' ),
+			'    to:        ' . self::coerce_string( $message[ Message::TO ] ?? '' ),
+			'    id:        ' . self::coerce_string( $message[ Message::ID ] ?? '' ),
+			'    key:       ' . self::coerce_string( $message[ Message::KEY ] ?? '' ),
 			'    timestamp: ' . $ts . ( '' !== $ts_human ? ' (' . $ts_human . ')' : '' ),
 			'    value:     ' . self::indent_following_lines( $value, '               ' ),
 			'}',
@@ -245,7 +315,7 @@ class Dumper_Node extends Node {
 		if ( \is_array( $payload ) ) {
 			return (string) \wp_json_encode( $payload, \JSON_PRETTY_PRINT | \JSON_UNESCAPED_SLASHES );
 		}
-		return (string) $payload;
+		return self::coerce_string( $payload );
 	}
 
 	/**
@@ -272,7 +342,7 @@ class Dumper_Node extends Node {
 				return (string) \wp_json_encode( $decoded, $flags );
 			}
 		}
-		return (string) $value;
+		return self::coerce_string( $value );
 	}
 
 	/**
@@ -354,8 +424,8 @@ class Dumper_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'REPL output — printed to stream, not user-placeable in topology graphs.',
-			'arguments'        => [],
-			'commands'       => [],
+			'arguments'   => [],
+			'commands'    => [],
 			'has_target'  => false,
 		];
 	}
