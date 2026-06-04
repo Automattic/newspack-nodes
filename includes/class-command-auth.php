@@ -45,20 +45,21 @@ class Command_Auth {
 	 * atomic `Core::$memd->add()`. Tests reassign to exercise the window/HMAC
 	 * logic without a real memcache, and to drive the replay path.
 	 *
-	 * @var \Closure|null
+	 * @var \Closure(string, int): bool|null
 	 */
 	public static ?\Closure $claim_nonce = null;
 
 	/** Per-site HMAC secret, domain-separated from the spawn token. */
 	private static function secret(): string {
-		if ( ! \defined( 'NONCE_SALT' ) || '' === (string) \NONCE_SALT ) {
+		$nonce_salt = \defined( 'NONCE_SALT' ) ? \NONCE_SALT : null;
+		if ( ! \is_string( $nonce_salt ) || '' === $nonce_salt ) {
 			// Fails OPEN otherwise: a public fallback secret is forgeable by anyone.
 			// Warn loudly so the misconfiguration is visible (NONCE_SALT is always
 			// set in a normal WordPress install).
 			Core::print_less_often( 'Command_Auth: NONCE_SALT is not configured; command signatures use a public fallback secret and are forgeable. Set NONCE_SALT.' );
 			$salt = 'fallback-salt-please-set-NONCE_SALT';
 		} else {
-			$salt = (string) \NONCE_SALT;
+			$salt = $nonce_salt;
 		}
 		return \hash_hmac( 'sha256', 'nodes-command-v1', $salt );
 	}
@@ -120,8 +121,8 @@ class Command_Auth {
 	 * Verify a command Message's `auth` envelope: freshness window, HMAC, then a
 	 * single-use nonce claim. Returns false on any failure (fail closed).
 	 *
-	 * @param array<int,mixed> $message Message to verify.
-	 * @param int|null         $now     Verification time; defaults to time().
+	 * @param array<array-key,mixed> $message Message to verify.
+	 * @param int|null               $now     Verification time; defaults to time().
 	 */
 	public static function verify( array $message, ?int $now = null ): bool {
 		$value = $message[ Message::VALUE ] ?? null;

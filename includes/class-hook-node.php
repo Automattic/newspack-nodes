@@ -28,7 +28,16 @@ class Hook_Node extends Node {
 		// the dispatch and just forward unchanged.
 		if ( '' !== $this->hook_name ) {
 			if ( $this->filter ) {
-				$message = \apply_filters( $this->hook_name, $message );
+				// Messages are positional list-arrays; only adopt a filter return
+				// that is still a list. A non-list/non-array return is dropped
+				// (prior message forwarded) rather than passed to
+				// sink->fill( array &$message ), which would fatal on a non-array.
+				$filtered = \apply_filters( $this->hook_name, $message );
+				if ( \is_array( $filtered ) && \array_is_list( $filtered ) ) {
+					$message = $filtered;
+				} else {
+					Core::print_less_often( "Hook_Node '{$this->name}': filter '{$this->hook_name}' returned a non-list value; keeping the prior message." );
+				}
 			} else {
 				\do_action( $this->hook_name, $message );
 			}

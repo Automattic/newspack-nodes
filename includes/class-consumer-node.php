@@ -561,6 +561,7 @@ class Consumer_Node extends Timer_Node {
 		if ( ! \class_exists( '\\Memcached' ) ) {
 			return;
 		}
+		/** @var \Memcached|false|null $memd */
 		static $memd = null;
 		if ( false === $memd ) {
 			return;

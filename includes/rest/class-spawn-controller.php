@@ -47,7 +47,7 @@ class Spawn_Controller {
 					],
 					'partition' => [
 						'required'          => true,
-						'sanitize_callback' => static fn ( $v ) => (int) $v,
+						'sanitize_callback' => static fn ( $v ): int => \is_scalar( $v ) ? (int) $v : 0,
 					],
 					'nonce'     => [
 						'required'          => true,

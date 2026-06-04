@@ -38,7 +38,7 @@ class Core {
 	 * config array. Process-lifetime (NOT cleared by reset(), like namespace
 	 * registrations).
 	 *
-	 * @var array<string,callable> ns => callable(string $key): mixed
+	 * @var array<string,callable(string):mixed> ns => callable(string $key): mixed
 	 */
 	public static array $config_resolvers = [];
 
@@ -120,6 +120,10 @@ class Core {
 		$value = $resolver( $key );
 		if ( null === $value ) {
 			self::print_less_often( "resolve_config_token: <{$ns}:{$key}> resolver returned null" );
+			return '';
+		}
+		if ( ! \is_scalar( $value ) ) {
+			self::print_less_often( "resolve_config_token: <{$ns}:{$key}> resolver returned non-scalar" );
 			return '';
 		}
 		return (string) $value;

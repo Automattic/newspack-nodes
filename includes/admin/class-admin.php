@@ -326,6 +326,9 @@ class Admin {
 			'newspack_nodes_base_directory',
 			[
 				'sanitize_callback' => function ( $value ) {
+					if ( ! \is_string( $value ) ) {
+						return '';
+					}
 					$value = \sanitize_text_field( $value );
 					if ( \str_contains( $value, "\0" ) || \str_contains( $value, '..' ) ) {
 						return '';

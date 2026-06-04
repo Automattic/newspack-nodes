@@ -1,7 +1,7 @@
 includes:
     - vendor/phpstan/phpstan-strict-rules/rules.neon
 parameters:
-    level: 9
+    level: 10
     # phpstan-strict-rules: the full set EXCEPT rules that fight WordPress /
     # node-runtime idioms — empty() (pervasive WP), truthy conditionals
     # (if ($count) / !$str), short ternary ($x ?: $y), and dynamic property /

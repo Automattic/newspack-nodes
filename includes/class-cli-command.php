@@ -341,7 +341,7 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 		};
 		$install(
 			$this->shell->prompt,
-			fn ( $line ) => $this->handle_readline_line( $line )
+			fn ( ?string $line ) => $this->handle_readline_line( $line )
 		);
 		$this->dumper->mark_prompt_displayed();
 	}
@@ -433,7 +433,7 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 	 * they don't print. `help` fills the command cache; `ls`/`list_nodes` the
 	 * node cache. Each ingest REPLACES the relevant list (nodes come and go).
 	 *
-	 * @param array<int,mixed> $message Inbound reply.
+	 * @param array<array-key,mixed> $message Inbound reply.
 	 * @return bool True if this was a completion reply (consume; don't render).
 	 */
 	public function ingest_completion_reply( array $message ): bool {

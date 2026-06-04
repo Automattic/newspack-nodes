@@ -115,7 +115,9 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 	// no-arg ctor + `arguments()` for scalar config; programmatic deps (Cli,
 	// cache) come in via public-property assignment immediately after, since
 	// `arguments()` only handles round-trippable scalar tokens.
-	$cli   = new \Newspack_Nodes\CLI( \Newspack_Nodes\Bootstrap::base_dir() );
+	$cli = new \Newspack_Nodes\CLI( \Newspack_Nodes\Bootstrap::base_dir() );
+	// apply_filters() returns mixed by design; the documented contract is a \Memcached or null.
+	/** @var \Memcached|null $cache */
 	$cache = \function_exists( 'apply_filters' )
 		? \apply_filters( 'newspack_nodes/workers_cache', null )
 		: null;

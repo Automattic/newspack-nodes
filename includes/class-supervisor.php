@@ -325,7 +325,7 @@ class Supervisor extends Supervisor_Base {
 	 *
 	 * Signature: `function (\CurlHandle $ch, array $body): mixed`.
 	 *
-	 * @var \Closure|null
+	 * @var \Closure(\CurlHandle, array<string, mixed>): mixed|null
 	 */
 	public static ?\Closure $curl_exec = null;
 
@@ -388,7 +388,7 @@ class Supervisor extends Supervisor_Base {
 			\CURLOPT_SSL_VERIFYPEER    => false,
 		] );
 		// Default ignores $body (already in POSTFIELDS); the arg only matters to test mocks.
-		$exec = self::$curl_exec ?? static fn ( $h, $b ) => \curl_exec( $h );
+		$exec = self::$curl_exec ?? static fn ( \CurlHandle $h, array $b ) => \curl_exec( $h );
 		$exec( $ch, $body );
 		$errno = \curl_errno( $ch );
 		$err   = ( 0 === $errno || \CURLE_OPERATION_TIMEDOUT === $errno ) ? null : \curl_error( $ch );

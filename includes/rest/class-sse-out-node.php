@@ -70,7 +70,7 @@ class SSE_Out_Node extends Node {
 	 *
 	 * Signature: `function ( string $worker_id, string $base_dir ): array`.
 	 *
-	 * @var \Closure|null
+	 * @var \Closure(string, string): array{input:string,output:string,type:string,partition:int}|null
 	 */
 	public static ?\Closure $attach_to_worker = null;
 
@@ -78,15 +78,25 @@ class SSE_Out_Node extends Node {
 	 * SSE slot-pool seams. The application wires these in to gate concurrent
 	 * SSE connections; unset → acquire returns slot 1, release/check are no-ops.
 	 *
-	 *   * acquire: `function ( int $partition ): int|false` (-1 shared browser
-	 *     pool, >=0 per-partition; false → HTTP 429 before headers).
-	 *   * release: `function ( int $slot, int $partition ): void` (drain `finally`).
-	 *   * check:   `function ( int $slot, int $partition ): bool` (false aborts).
+	 * acquire: `function ( int $partition ): int|false` (-1 shared browser
+	 * pool, >=0 per-partition; false → HTTP 429 before headers).
 	 *
-	 * @var \Closure|null
+	 * @var \Closure(int): (int|false)|null
 	 */
 	public static ?\Closure $acquire_slot = null;
+
+	/**
+	 * release: `function ( int $slot, int $partition ): void` (drain `finally`).
+	 *
+	 * @var \Closure(int, int): void|null
+	 */
 	public static ?\Closure $release_slot = null;
+
+	/**
+	 * check: `function ( int $slot, int $partition ): bool` (false aborts).
+	 *
+	 * @var \Closure(int, int): bool|null
+	 */
 	public static ?\Closure $check_slot   = null;
 
 	/**
@@ -170,6 +180,7 @@ class SSE_Out_Node extends Node {
 		$base = $this->base_dir ?? Bootstrap::base_dir();
 
 		if ( \preg_match( '/^([a-z0-9_-]+)\.p(\d+)$/', $sub, $m ) ) {
+			/** @var \Closure(string, string): array{input:string,output:string,type:string,partition:int} $attach */
 			$attach = self::$attach_to_worker ?? static function ( string $worker_id, string $base_dir ): array {
 				return ( new CLI( $base_dir ) )->attach_to_worker( $worker_id );
 			};
@@ -552,7 +563,7 @@ class SSE_Out_Node extends Node {
 		}
 		// SSE comment line — must reach the client byte-for-byte.
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-		echo ':' . \str_repeat( '.', static::FLUSH_SIZE - 3 ) . "\n\n";
+		echo ':' . \str_repeat( '.', self::FLUSH_SIZE - 3 ) . "\n\n";
 		@\flush();
 		$this->needs_flush = false;
 	}

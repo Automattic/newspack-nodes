@@ -12,7 +12,7 @@ namespace Newspack_Nodes;
 class Node {
 	protected string $name = '';
 	protected ?Node  $sink = null;
-	/** @var string|array<string> */
+	/** @var string|array<int, string> */
 	protected $target = '';
 
 	protected int $counter = 0;

@@ -101,7 +101,7 @@ class Bootstrap {
 
 	/** Build a Supervisor using NONCE_SALT for HMAC (placeholder fallback only in tests). */
 	public static function supervisor(): Supervisor {
-		$nonce_salt = \defined( 'NONCE_SALT' ) ? \NONCE_SALT : 'fallback-salt-please-set-NONCE_SALT';
+		$nonce_salt = \defined( 'NONCE_SALT' ) && \is_string( \NONCE_SALT ) ? \NONCE_SALT : 'fallback-salt-please-set-NONCE_SALT';
 		return new Supervisor( self::base_dir(), $nonce_salt );
 	}
 

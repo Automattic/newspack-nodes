@@ -202,7 +202,7 @@ class Dumper_Node extends Node {
 			return 'Array';
 		}
 		if ( \is_object( $v ) ) {
-			return \method_exists( $v, '__toString' ) ? $v->__toString() : '';
+			return $v instanceof \Stringable ? (string) $v : '';
 		}
 		if ( \is_scalar( $v ) ) {
 			return (string) $v;
@@ -258,6 +258,7 @@ class Dumper_Node extends Node {
 	 * Render a TM-flag bitmask as a human-readable string (multi-flag types concatenated).
 	 */
 	private static function format_type_flags( int $type ): string {
+		/** @var array<int, string> $map */
 		static $map = [
 			Message::TM_BYTESTREAM => 'TM_BYTESTREAM',
 			Message::TM_EOF        => 'TM_EOF',
