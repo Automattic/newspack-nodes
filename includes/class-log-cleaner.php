@@ -97,7 +97,7 @@ class Log_Cleaner {
 		if ( \class_exists( '\\Newspack_Nodes\\Bootstrap' ) ) {
 			try {
 				foreach ( \array_keys( Bootstrap::get_topologies() ) as $name ) {
-					$topology_names[ (string) $name ] = true;
+					$topology_names[ $name ] = true;
 				}
 			} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
 				// Bootstrap is request-scope; tolerate worker contexts.
@@ -106,7 +106,7 @@ class Log_Cleaner {
 		try {
 			foreach ( ( new CLI( $base_dir ) )->ls_workers() as $worker ) {
 				if ( empty( $worker['stale'] ) ) {
-					$topology_names[ (string) $worker['type'] ] = true;
+					$topology_names[ $worker['type'] ] = true;
 				}
 			}
 		} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
@@ -126,7 +126,7 @@ class Log_Cleaner {
 		if ( ! \is_array( $filtered ) ) {
 			return $base;
 		}
-		return \array_values( \array_unique( $filtered ) );
+		return \array_values( \array_unique( \array_map( '\strval', $filtered ) ) );
 	}
 
 	/**

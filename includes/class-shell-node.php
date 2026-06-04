@@ -132,7 +132,7 @@ class Shell_Node extends Node {
 				if ( false !== $colon ) {
 					return Core::resolve_config_token( \substr( $key, 0, $colon ), \substr( $key, $colon + 1 ) );
 				}
-				return (string) ( Core::$var[ $key ] ?? '' );
+				return Core::$var[ $key ] ?? '';
 			},
 			$line
 		);
@@ -306,10 +306,10 @@ class Shell_Node extends Node {
 
 		if ( 'status' === $verb ) {
 			if ( \is_resource( $this->output_stream ) ) {
-				foreach ( $this->status_lines as $line ) {
+				foreach ( $this->status_lines as $status_line ) {
 					// $output_stream is STDOUT or a test memory stream — never a managed path.
 					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-					\fwrite( $this->output_stream, $line . "\n" );
+					\fwrite( $this->output_stream, $status_line . "\n" );
 				}
 			}
 			return null;

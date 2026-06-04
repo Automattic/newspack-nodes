@@ -124,7 +124,8 @@ class Spawn_Controller {
 	 * @return bool|\WP_Error
 	 */
 	public function check_permission( \WP_REST_Request $req ) {
-		$nonce = (string) $req->get_param( 'nonce' );
+		$raw_nonce = $req->get_param( 'nonce' );
+		$nonce     = \is_scalar( $raw_nonce ) ? (string) $raw_nonce : '';
 		if ( '' === $nonce ) {
 			return new \WP_Error( 'invalid_token', 'Missing spawn token', [ 'status' => 403 ] );
 		}
@@ -170,10 +171,10 @@ class Spawn_Controller {
 		if ( ! \function_exists( 'get_transient' ) || ! \function_exists( 'set_transient' ) ) {
 			return true;
 		}
-		$user_id = \function_exists( 'get_current_user_id' ) ? (int) \get_current_user_id() : 0;
+		$user_id = \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
 		$key     = 'newspack_nodes_spawn_rate:' . $user_id;
 		$last    = \get_transient( $key );
-		if ( false !== $last ) {
+		if ( false !== $last && \is_scalar( $last ) ) {
 			$elapsed = \time() - (int) $last;
 			if ( $elapsed < self::RATE_LIMIT_S ) {
 				return new \WP_Error(
@@ -195,8 +196,10 @@ class Spawn_Controller {
 	 * @return \WP_REST_Response|\WP_Error
 	 */
 	public function spawn( \WP_REST_Request $req ) {
-		$type      = (string) $req->get_param( 'type' );
-		$partition = (int) $req->get_param( 'partition' );
+		$raw_type      = $req->get_param( 'type' );
+		$raw_partition = $req->get_param( 'partition' );
+		$type          = \is_scalar( $raw_type ) ? (string) $raw_type : '';
+		$partition     = \is_scalar( $raw_partition ) ? (int) $raw_partition : 0;
 
 		if ( ! $this->validate_partition( $type, $partition ) ) {
 			return new \WP_Error(

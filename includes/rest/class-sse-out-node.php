@@ -159,8 +159,8 @@ class SSE_Out_Node extends Node {
 	 * `InvalidArgumentException` (path-traversal guard for query input).
 	 * `$positions` (keyed by partition) seed each cursor; absent → tail-seek.
 	 *
-	 * @param string                $sub       Subscription name.
-	 * @param array<int,mixed>|null $positions Saved positions, indexed by partition.
+	 * @param string                      $sub       Subscription name.
+	 * @param array<array-key,mixed>|null $positions Saved positions, indexed by partition.
 	 *
 	 * @return array<int,Consumer_Node>
 	 *
@@ -202,7 +202,7 @@ class SSE_Out_Node extends Node {
 				$consumer  = new Consumer_Node();
 				$consumer->arguments( "{$log_base} {$partition} " );
 				if ( isset( $positions[ $partition ] ) ) {
-					$consumer->next_offset( $positions[ $partition ] );
+					$consumer->next_offset( self::position_arg( $positions[ $partition ] ) );
 				} else {
 					$consumer->next_offset( 'end' );
 				}
@@ -213,13 +213,14 @@ class SSE_Out_Node extends Node {
 
 		if ( \preg_match( '/^[a-z0-9_-]+$/', $sub ) ) {
 			$log_base   = "{$base}/logs/{$sub}.log";
-			$partitions = $this->num_partitions ?? (int) ( Config::load_config()['num_partitions'] ?? 1 );
+			$np_raw     = Config::load_config()['num_partitions'] ?? 1;
+			$partitions = $this->num_partitions ?? ( \is_numeric( $np_raw ) ? (int) $np_raw : 1 );
 			$consumers  = [];
 			for ( $p = 0; $p < $partitions; $p++ ) {
 				$consumer = new Consumer_Node();
 				$consumer->arguments( "{$log_base} {$p} " );
 				if ( isset( $positions[ $p ] ) ) {
-					$consumer->next_offset( $positions[ $p ] );
+					$consumer->next_offset( self::position_arg( $positions[ $p ] ) );
 				} else {
 					$consumer->next_offset( 'end' );
 				}
@@ -233,6 +234,21 @@ class SSE_Out_Node extends Node {
 		throw new \InvalidArgumentException(
 			\esc_html( "invalid subscription: {$sub}" )
 		);
+	}
+
+	/**
+	 * Narrow a saved-position value to the `string|array<string,mixed>` shape
+	 * `Consumer_Node::next_offset()` accepts; non-array scalars pass as a magic
+	 * string, anything else falls back to 'start' (next_offset's default case).
+	 *
+	 * @param mixed $position Raw per-partition position.
+	 * @return array<array-key,mixed>|string
+	 */
+	private static function position_arg( $position ) {
+		if ( \is_array( $position ) ) {
+			return $position;
+		}
+		return \is_scalar( $position ) ? (string) $position : 'start';
 	}
 
 	/**
@@ -259,9 +275,11 @@ class SSE_Out_Node extends Node {
 	 * @return \WP_Error|void WP_Error on rate-limit (429); otherwise streams and exits.
 	 */
 	public function stream( \WP_REST_Request $request ) {
-		$subs      = $this->parse_subscriptions( (string) $request->get_param( 'subscribe' ) );
-		$positions = $this->parse_positions( (string) ( $request->get_param( 'positions' ) ?? '' ) );
-		$interval  = self::HEARTBEAT_MS;
+		$subscribe     = $request->get_param( 'subscribe' );
+		$positions_raw = $request->get_param( 'positions' ) ?? '';
+		$subs          = $this->parse_subscriptions( \is_scalar( $subscribe ) ? (string) $subscribe : '' );
+		$positions     = $this->parse_positions( \is_scalar( $positions_raw ) ? (string) $positions_raw : '' );
+		$interval      = self::HEARTBEAT_MS;
 
 		$partition = $this->subscription_partition( $subs );
 		$acquire   = self::$acquire_slot ?? static fn ( int $p ): int => 1;
@@ -359,8 +377,9 @@ class SSE_Out_Node extends Node {
 			$default_route->patron( $this );
 
 			foreach ( $subs as $sub ) {
-				$pos    = $positions[ $sub ] ?? null;
-				$opened = $this->open_subscription( $sub, $pos );
+				$pos_raw = $positions[ $sub ] ?? null;
+				$pos     = \is_array( $pos_raw ) ? $pos_raw : null;
+				$opened  = $this->open_subscription( $sub, $pos );
 				// A subscription can resolve to several Consumers (one per partition
 				// of a multi-partition log). Each needs a DISTINCT node name —
 				// Node::name() throws on a duplicate. The partition the dashboard

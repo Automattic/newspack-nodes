@@ -20,7 +20,8 @@
 		"phpstan/extension-installer": "^1.4",
 		"szepeviktor/phpstan-wordpress": "^2.0",
 		"php-stubs/wp-cli-stubs": "^2.12",
-		"phpunit/phpunit": "^10.0"
+		"phpunit/phpunit": "^10.0",
+		"phpstan/phpstan-strict-rules": "^2.0"
 	},
 	"config": {
 		"platform": {
@@ -36,6 +37,11 @@
 			"pre-commit": "./node_modules/.bin/lint-staged",
 			"commit-msg": "cat $1 | ./node_modules/.bin/commitlint",
 			"pre-push": "./scripts/pre-push"
+		},
+		"phpstan/extension-installer": {
+			"ignore": [
+				"phpstan/phpstan-strict-rules"
+			]
 		}
 	},
 	"scripts": {

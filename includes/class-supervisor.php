@@ -42,7 +42,7 @@ class Supervisor extends Supervisor_Base {
 	/** @var int|null Cached num_partitions clamped to MAX_PARTITIONS. */
 	private ?int $num_partitions = null;
 
-	/** @var array<int, array<string, mixed>> Worker descriptors built from expand_workers(). */
+	/** @var array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}> Worker descriptors built from expand_workers(). */
 	private array $worker_locks = [];
 
 	/** @var array<string,int> type ⇒ max-partition-count, rebuilt each check_config tick (active fleet). */
@@ -154,7 +154,7 @@ class Supervisor extends Supervisor_Base {
 				if ( ! $this->check_config( $now ) ) {
 					break;
 				}
-				Log_Cleaner::cleanup_orphan_partitions( $this->base_dir, (int) ( $this->num_partitions ?? 1 ) );
+				Log_Cleaner::cleanup_orphan_partitions( $this->base_dir, $this->num_partitions ?? 1 );
 				if ( \function_exists( 'do_action' ) ) {
 					\do_action( 'newspack_nodes/supervisor_periodic' );
 				}
@@ -240,6 +240,7 @@ class Supervisor extends Supervisor_Base {
 			$current_set[] = "{$w['type']}.p{$w['partition']}";
 		}
 		\sort( $current_set );
+		/** @var list<string>|null $prior Persisted as $current_set (a list<string>) by this method. */
 		$prior = \get_option( Log_Cleaner::FLEET_DESCRIPTORS_OPTION, null );
 		if ( \is_array( $prior ) && ! empty( \array_diff( $prior, $current_set ) ) ) {
 			\update_option( Log_Cleaner::LOGS_DIRTY_OPTION, '1', false );

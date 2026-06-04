@@ -291,7 +291,8 @@ class Topology_Registry {
 	 */
 	public static function publish_catalog( array $topologies ): array {
 		$cfg        = \Newspack_Nodes\Config::load_config();
-		$default_np = \max( 1, \min( 16, (int) ( $cfg['num_partitions'] ?? 1 ) ) );
+		$cfg_np     = $cfg['num_partitions'] ?? 1;
+		$default_np = \max( 1, \min( 16, (int) ( \is_scalar( $cfg_np ) ? $cfg_np : 1 ) ) );
 		foreach ( self::list() as $name ) {
 			if ( isset( $topologies[ $name ] ) ) {
 				continue;
@@ -314,7 +315,7 @@ class Topology_Registry {
 	 */
 	public static function spawn_worker( string $type, int $partition ): void {
 		foreach ( \Newspack_Nodes\Bootstrap::expand_workers() as $w ) {
-			if ( $w['type'] !== $type || (int) $w['partition'] !== $partition ) {
+			if ( $w['type'] !== $type || $w['partition'] !== $partition ) {
 				continue;
 			}
 			$runner = self::$spawn_runner ?? static function ( string $t, int $p, string $topology_name, int $stale ): void {
@@ -329,7 +330,9 @@ class Topology_Registry {
 			};
 			// App runtime init (autoload, filters) before Topology_Loader::load parses the TSL — only when we actually spawn.
 			\do_action( 'newspack_nodes/before_worker_spawn', $type, $partition );
-			$runner( (string) $w['type'], (int) $w['partition'], (string) $w['topology'], (int) $w['stale_timeout'] );
+			$w_topology = \is_scalar( $w['topology'] ) ? (string) $w['topology'] : '';
+			$w_stale    = \is_scalar( $w['stale_timeout'] ) ? (int) $w['stale_timeout'] : 0;
+			$runner( $w['type'], $w['partition'], $w_topology, $w_stale );
 			break;
 		}
 	}

@@ -11,6 +11,7 @@ namespace Newspack_Nodes;
 
 class Tee_Node extends Node {
 	public function __construct() {
+		parent::__construct();
 		$this->target = [];
 	}
 
@@ -40,8 +41,10 @@ class Tee_Node extends Node {
 	public function fill( array &$message ): void {
 		++$this->counter;
 
-		$type = $message[ Message::TYPE ];
-		$to   = $message[ Message::TO ];
+		$raw_type = $message[ Message::TYPE ];
+		$raw_to   = $message[ Message::TO ];
+		$type     = \is_int( $raw_type ) ? $raw_type : 0;
+		$to       = \is_scalar( $raw_to ) ? (string) $raw_to : '';
 		if ( '' === $to && $type & Message::TM_REQUEST ) {
 			$this->handle_request( $message );
 			return;
@@ -71,7 +74,8 @@ class Tee_Node extends Node {
 
 	/** @param array<int, mixed> $message Incoming request Message. */
 	private function handle_request( array $message ): void {
-		$value   = (string) $message[ Message::VALUE ];
+		$raw     = $message[ Message::VALUE ];
+		$value   = \is_scalar( $raw ) ? (string) $raw : '';
 		$verb    = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
 		$targets = \is_array( $this->target ) ? \array_values( $this->target ) : [];
 		$payload = 'GET_TARGETS' === $verb
@@ -92,8 +96,8 @@ class Tee_Node extends Node {
 		return [
 			'category'    => 'Routing',
 			'description' => 'Fan-out: copies each message to multiple targets via Router.',
-			'arguments'        => [],
-			'commands'       => [],
+			'arguments'   => [],
+			'commands'    => [],
 			'requests'    => [
 				[
 					'name'        => 'GET_TARGETS',

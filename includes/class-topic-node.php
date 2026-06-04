@@ -60,7 +60,7 @@ class Topic_Node extends Node {
 
 	/** Override Node::sink() so child Partitions inherit the new sink. */
 	public function sink( ?Node $node = null ): ?Node {
-		$result = parent::sink( ...\func_get_args() );
+		$result = \func_num_args() > 0 ? parent::sink( $node ) : parent::sink();
 		if ( \func_num_args() > 0 ) {
 			foreach ( $this->partitions as $p ) {
 				$p->sink( $node );
@@ -106,7 +106,9 @@ class Topic_Node extends Node {
 		}
 
 		// Pre-pinned via TO: parse partition index out of TO's leading segment.
-		if ( '' !== $message[ Message::TO ] && \preg_match( '/^p(\d+)/', $message[ Message::TO ], $m ) ) {
+		$raw_to = $message[ Message::TO ];
+		$to     = \is_scalar( $raw_to ) ? (string) $raw_to : '';
+		if ( '' !== $to && \preg_match( '/^p(\d+)/', $to, $m ) ) {
 			$idx = (int) $m[1];
 			if ( $idx >= 0 && $idx < $this->num_partitions ) {
 				$this->partition( $idx )->fill( $message );
@@ -114,7 +116,8 @@ class Topic_Node extends Node {
 			}
 		}
 		// KEY-routed (or round-robin if KEY empty).
-		$key = $message[ Message::KEY ];
+		$raw_key = $message[ Message::KEY ];
+		$key     = \is_scalar( $raw_key ) ? (string) $raw_key : '';
 		if ( '' !== $key ) {
 			$idx = Partition_Node::hash_to_partition( $key, $this->num_partitions );
 		} else {

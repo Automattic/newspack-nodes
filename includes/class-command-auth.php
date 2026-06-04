@@ -69,14 +69,16 @@ class Command_Auth {
 	 * null when the value can't be JSON-encoded (e.g. non-UTF-8 arguments) so the
 	 * caller fails closed instead of collapsing distinct commands onto HMAC('').
 	 *
-	 * @param array<string, mixed> $value Command struct (name/arguments).
+	 * @param array<array-key, mixed> $value Command struct (name/arguments).
 	 */
 	private static function canonical( int $type, array $value, int $ts, string $nonce ): ?string {
-		$encoded = \wp_json_encode(
+		$name      = $value['name'] ?? '';
+		$arguments = $value['arguments'] ?? '';
+		$encoded   = \wp_json_encode(
 			[
 				$type,
-				(string) ( $value['name'] ?? '' ),
-				(string) ( $value['arguments'] ?? '' ),
+				\is_scalar( $name ) ? (string) $name : '',
+				\is_scalar( $arguments ) ? (string) $arguments : '',
 				$ts,
 				$nonce,
 			]
@@ -96,9 +98,10 @@ class Command_Auth {
 		if ( ! \is_array( $value ) || ! isset( $value['name'] ) ) {
 			return;
 		}
-		$ts    = $now ?? \time();
-		$nonce = \bin2hex( \random_bytes( 16 ) );
-		$canon = self::canonical( (int) ( $message[ Message::TYPE ] ?? 0 ), $value, $ts, $nonce );
+		$ts       = $now ?? \time();
+		$nonce    = \bin2hex( \random_bytes( 16 ) );
+		$type_raw = $message[ Message::TYPE ] ?? 0;
+		$canon    = self::canonical( \is_numeric( $type_raw ) ? (int) $type_raw : 0, $value, $ts, $nonce );
 		if ( null === $canon ) {
 			// Un-encodable arguments: leave the command unsigned so the verifier
 			// refuses it, rather than signing a collision-prone empty canonical.
@@ -129,21 +132,25 @@ class Command_Auth {
 		if ( ! \is_array( $auth ) || ! isset( $auth['ts'], $auth['nonce'], $auth['sig'] ) ) {
 			return false;
 		}
-		$ts    = (int) $auth['ts'];
-		$nonce = (string) $auth['nonce'];
-		$now   = $now ?? \time();
+		$ts_raw   = $auth['ts'];
+		$nonce_in = $auth['nonce'];
+		$ts       = \is_numeric( $ts_raw ) ? (int) $ts_raw : 0;
+		$nonce    = \is_scalar( $nonce_in ) ? (string) $nonce_in : '';
+		$now      = $now ?? \time();
 
 		// Freshness: not stale, not implausibly in the future.
 		if ( $now - $ts > self::MAX_PAST_S || $ts - $now > self::MAX_FUTURE_S ) {
 			return false;
 		}
 
-		$canon = self::canonical( (int) ( $message[ Message::TYPE ] ?? 0 ), $value, $ts, $nonce );
+		$type_raw = $message[ Message::TYPE ] ?? 0;
+		$canon    = self::canonical( \is_numeric( $type_raw ) ? (int) $type_raw : 0, $value, $ts, $nonce );
 		if ( null === $canon ) {
 			return false;
 		}
 		$expected = \hash_hmac( 'sha256', $canon, self::secret() );
-		if ( ! \hash_equals( $expected, (string) $auth['sig'] ) ) {
+		$sig      = $auth['sig'];
+		if ( ! \hash_equals( $expected, \is_scalar( $sig ) ? (string) $sig : '' ) ) {
 			return false;
 		}
 

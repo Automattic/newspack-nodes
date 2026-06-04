@@ -20,20 +20,9 @@ use Newspack_Nodes\Node;
 \defined( 'ABSPATH' ) || exit;
 
 class Classes_CI_Node extends Command_Interpreter_Node {
-
 	public function __construct() {
+		parent::__construct();
 		$this->commands( $this->command_table() );
-	}
-
-	public static function node_schema(): array {
-		return [
-			'category'    => 'Service',
-			'description' => 'Class catalog: enumerate every registered node class with its inlined node_schema, plus the formatter registry.',
-			'arguments'        => [],
-			'commands'       => [
-				[ 'name' => 'list', 'description' => 'List registered classes (with schemas) and formatters.', 'args' => [] ],
-			],
-		];
 	}
 
 	/** @return array<string, callable> Verb name => handler. */
@@ -83,8 +72,9 @@ class Classes_CI_Node extends Command_Interpreter_Node {
 						if ( 'Hidden' === $cat || '' === $cat ) {
 							continue;
 						}
-						$seen[ $fqcn ] = true;
-						$classes[]     = [
+						$seen[ $fqcn ]   = true;
+						$schema_commands = $schema['commands'] ?? [];
+						$classes[]       = [
 							'shell_name'   => \substr( $short, 0, -\strlen( '_Node' ) ),
 							'fqcn'         => $fqcn,
 							'category'     => $cat,
@@ -96,7 +86,7 @@ class Classes_CI_Node extends Command_Interpreter_Node {
 							// serializable fields the editor palette consumes. Skip any
 							// malformed command (non-array, or no name) rather than fatal
 							// the whole list (which scans every registered class) on a TypeError.
-							'commands'        => self::strip_commands( $schema['commands'] ?? [] ),
+							'commands'        => self::strip_commands( \is_array( $schema_commands ) ? $schema_commands : [] ),
 							'requests'     => $schema['requests'] ?? [],
 							'accepts_fill' => (bool) ( $schema['accepts_fill'] ?? true ),
 							'has_target'   => (bool) ( $schema['has_target']   ?? true ),
@@ -138,15 +128,32 @@ class Classes_CI_Node extends Command_Interpreter_Node {
 	private static function strip_commands( array $commands ): array {
 		$stripped = [];
 		foreach ( $commands as $command ) {
-			if ( ! \is_array( $command ) || '' === (string) ( $command['name'] ?? '' ) ) {
+			if ( ! \is_array( $command ) ) {
 				continue;
 			}
-			$stripped[] = [
-				'name'        => $command['name'] ?? '',
-				'description' => $command['description'] ?? '',
+			$raw_name = $command['name'] ?? '';
+			$name     = \is_scalar( $raw_name ) ? (string) $raw_name : '';
+			if ( '' === $name ) {
+				continue;
+			}
+			$raw_desc    = $command['description'] ?? '';
+			$stripped[]  = [
+				'name'        => $name,
+				'description' => \is_scalar( $raw_desc ) ? (string) $raw_desc : '',
 				'args'        => $command['args'] ?? [],
 			];
 		}
 		return $stripped;
+	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Service',
+			'description' => 'Class catalog: enumerate every registered node class with its inlined node_schema, plus the formatter registry.',
+			'arguments'   => [],
+			'commands'    => [
+				[ 'name'  => 'list', 'description' => 'List registered classes (with schemas) and formatters.', 'args' => [] ],
+			],
+		];
 	}
 }

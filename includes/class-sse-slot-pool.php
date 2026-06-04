@@ -112,7 +112,7 @@ class SSE_Slot_Pool {
 	}
 
 	public static function user_id(): int {
-		return \function_exists( 'get_current_user_id' ) ? (int) \get_current_user_id() : 0;
+		return \function_exists( 'get_current_user_id' ) ? \get_current_user_id() : 0;
 	}
 
 	/**
@@ -122,6 +122,6 @@ class SSE_Slot_Pool {
 	public static function ip_hash(): string {
 		// phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders, WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
-		return \substr( \md5( (string) $ip ), 0, 8 );
+		return \substr( \md5( \is_scalar( $ip ) ? (string) $ip : 'unknown' ), 0, 8 );
 	}
 }

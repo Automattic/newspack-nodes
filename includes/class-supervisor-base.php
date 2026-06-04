@@ -37,9 +37,11 @@ class Supervisor_Base {
 
 	/** @param array<string, mixed> $worker Worker descriptor (type, partition, …). */
 	public function worker_needs_spawn( array $worker, float $now ): bool {
-		$type      = $worker['type'];
-		$partition = $worker['partition'];
-		$stale     = $worker['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT;
+		$raw_type      = $worker['type'];
+		$raw_partition = $worker['partition'];
+		$type          = \is_scalar( $raw_type ) ? (string) $raw_type : '';
+		$partition     = \is_scalar( $raw_partition ) ? (int) $raw_partition : 0;
+		$stale         = $worker['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT;
 
 		$dir = $this->lock_path( $type, $partition );
 		if ( ! \is_dir( $dir ) ) {
@@ -216,13 +218,13 @@ class Supervisor_Base {
 		if ( \function_exists( 'wp_cache_get' ) ) {
 			$found = false;
 			$value = \wp_cache_get( $cache_key, 'newspack_nodes', false, $found );
-			if ( $found && false !== $value ) {
+			if ( $found && false !== $value && \is_scalar( $value ) ) {
 				return (float) $value;
 			}
 		}
 		if ( \function_exists( 'get_transient' ) ) {
 			$value = \get_transient( $cache_key );
-			if ( false !== $value ) {
+			if ( false !== $value && \is_scalar( $value ) ) {
 				return (float) $value;
 			}
 		}

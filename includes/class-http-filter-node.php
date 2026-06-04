@@ -23,12 +23,14 @@ class HTTP_Filter_Node extends Node {
 	private int $own_pid;
 
 	public function __construct( int $own_pid ) {
+		parent::__construct();
 		$this->own_pid = $own_pid;
 	}
 
 	public function fill( array &$message ): void {
 		++$this->counter;
-		[ $head, $reply_node ] = Message::split_first( $message[ Message::TO ] );
+		$to = $message[ Message::TO ];
+		[ $head, $reply_node ] = Message::split_first( \is_scalar( $to ) ? (string) $to : '' );
 		// Match this session's `_sse:<pid>` head; drop silently otherwise — the
 		// reply belongs to a different session's SSE process.
 		if ( Node_Names::SSE . ':' . $this->own_pid !== $head ) {

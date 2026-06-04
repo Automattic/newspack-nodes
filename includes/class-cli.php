@@ -106,8 +106,10 @@ class CLI {
 		$wildcard  = empty( $filter ) || isset( $filter['all'] );
 
 		foreach ( $workers as $w ) {
-			$type = $w['type'] ?? '';
-			$p    = (int) ( $w['partition'] ?? 0 );
+			$type_raw = $w['type'] ?? '';
+			$type     = \is_scalar( $type_raw ) ? (string) $type_raw : '';
+			$p_raw    = $w['partition'] ?? 0;
+			$p        = \is_numeric( $p_raw ) ? (int) $p_raw : 0;
 			if ( '' === $type ) {
 				continue;
 			}
@@ -160,10 +162,13 @@ class CLI {
 		if ( ! \is_array( $value ) || ! isset( $value['seg'], $value['off'] ) ) {
 			return null;
 		}
+		$seg = $value['seg'];
+		$off = $value['off'];
+		$ts  = $value['ts'] ?? 0;
 		return [
-			'seg' => (int) $value['seg'],
-			'off' => (int) $value['off'],
-			'ts'  => (int) ( $value['ts'] ?? 0 ),
+			'seg' => \is_numeric( $seg ) ? (int) $seg : 0,
+			'off' => \is_numeric( $off ) ? (int) $off : 0,
+			'ts'  => \is_numeric( $ts ) ? (int) $ts : 0,
 		];
 	}
 
@@ -193,7 +198,7 @@ class CLI {
 			return null;
 		}
 		\sort( $segments );
-		$newest_id = (int) \end( $segments );
+		$newest_id = \end( $segments );
 		$path      = "{$offset_dir}/{$newest_id}.log";
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 		$bytes = @\file_get_contents( $path );
@@ -205,14 +210,17 @@ class CLI {
 		if ( empty( $lines ) ) {
 			return null;
 		}
-		$last = \json_decode( (string) \end( $lines ), true );
+		$last = \json_decode( \end( $lines ), true );
 		if ( ! \is_array( $last ) || ! isset( $last['seg'], $last['off'] ) ) {
 			return null;
 		}
+		$seg = $last['seg'];
+		$off = $last['off'];
+		$ts  = $last['ts'] ?? 0;
 		return [
-			'seg' => (int) $last['seg'],
-			'off' => (int) $last['off'],
-			'ts'  => (int) ( $last['ts'] ?? 0 ),
+			'seg' => \is_numeric( $seg ) ? (int) $seg : 0,
+			'off' => \is_numeric( $off ) ? (int) $off : 0,
+			'ts'  => \is_numeric( $ts ) ? (int) $ts : 0,
 		];
 	}
 
@@ -243,7 +251,7 @@ class CLI {
 			return '';
 		}
 		\sort( $segments );
-		$path = "{$offset_dir}/" . (int) \end( $segments ) . '.log';
+		$path = "{$offset_dir}/" . \end( $segments ) . '.log';
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 		$bytes = @\file_get_contents( $path );
 		if ( false === $bytes || '' === $bytes ) {
@@ -253,8 +261,12 @@ class CLI {
 		if ( empty( $lines ) ) {
 			return '';
 		}
-		$last = \json_decode( (string) \end( $lines ), true );
-		return \is_array( $last ) && isset( $last['source_basename'] ) ? (string) $last['source_basename'] : '';
+		$last = \json_decode( \end( $lines ), true );
+		if ( ! \is_array( $last ) || ! isset( $last['source_basename'] ) ) {
+			return '';
+		}
+		$basename = $last['source_basename'];
+		return \is_scalar( $basename ) ? (string) $basename : '';
 	}
 
 	/**

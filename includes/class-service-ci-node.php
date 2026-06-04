@@ -38,6 +38,7 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * Command_Interpreter_Node has no ctor, so there's nothing to chain.
 	 */
 	public function __construct() {
+		parent::__construct();
 		$this->commands( self::commands_from_schema( static::node_schema() ) );
 	}
 
@@ -56,12 +57,17 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * @return array<string,callable>
 	 */
 	private static function commands_from_schema( array $schema ): array {
-		$table = [];
-		foreach ( $schema['commands'] ?? [] as $verb ) {
+		$table    = [];
+		$commands = $schema['commands'] ?? [];
+		if ( ! \is_array( $commands ) ) {
+			return $table;
+		}
+		foreach ( $commands as $verb ) {
 			if ( ! \is_array( $verb ) ) {
 				continue;
 			}
-			$name = (string) ( $verb['name'] ?? '' );
+			$verb_name = $verb['name'] ?? '';
+			$name      = \is_scalar( $verb_name ) ? (string) $verb_name : '';
 			if ( '' === $name ) {
 				continue;
 			}

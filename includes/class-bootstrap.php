@@ -36,7 +36,8 @@ class Bootstrap {
 		if ( ! \is_array( $active_names ) ) {
 			$active_names = [];
 		}
-		$default_np = (int) ( $config['num_partitions'] ?? 1 );
+		$np_raw     = $config['num_partitions'] ?? 1;
+		$default_np = \is_numeric( $np_raw ) ? (int) $np_raw : 1;
 		$active     = [];
 		foreach ( $active_names as $name ) {
 			if ( ! \is_string( $name ) || '' === $name ) {
@@ -72,8 +73,10 @@ class Bootstrap {
 		$topologies = self::get_topologies();
 		$workers    = [];
 		foreach ( $topologies as $type => $config ) {
-			$count = (int) ( $config['num_partitions'] ?? 1 );
-			$count = \min( Supervisor_Base::MAX_PARTITIONS, \max( 1, $count ) );
+			$config   = \is_array( $config ) ? $config : [];
+			$np_raw   = $config['num_partitions'] ?? 1;
+			$count    = \is_numeric( $np_raw ) ? (int) $np_raw : 1;
+			$count    = \min( Supervisor_Base::MAX_PARTITIONS, \max( 1, $count ) );
 			for ( $p = 0; $p < $count; ++$p ) {
 				$workers[] = [
 					'type'          => $type,

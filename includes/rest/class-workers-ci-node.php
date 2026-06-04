@@ -36,7 +36,6 @@ use Newspack_Nodes\Topology_Registry;
 \defined( 'ABSPATH' ) || exit;
 
 class Workers_CI_Node extends Service_CI_Node {
-
 	/**
 	 * Cli helper the `list`/`dump_metadata`/`restart` handlers reach via
 	 * `$self->cli`. Public so the bootstrap (or test) assigns it AFTER
@@ -84,131 +83,6 @@ class Workers_CI_Node extends Service_CI_Node {
 		return $this->cli;
 	}
 
-	public static function node_schema(): array {
-		return [
-			'category'    => 'Service',
-			'description' => 'Worker fleet control: list workers, dump operator metadata, audit/cleanup orphans, restart, and refresh SSE slot heartbeats.',
-			'arguments'        => [],
-			'commands'       => [
-				[
-					'name'        => 'list',
-					'description' => 'List workers with live positions.',
-					'args'        => [],
-					// $self is the dispatching interpreter instance — always a Workers_CI_Node here
-					// (dispatch() passes $this), so it's typed concretely to read the
-					// ctor-injected cli/cache off it (node_schema is static, can't `use` them).
-					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
-						$cli     = $self->cli();
-						$workers = $cli->ls_workers();
-						foreach ( $workers as &$w ) {
-							$w['position'] = $cli->live_position( $self->cache, $w['type'], $w['partition'] );
-						}
-						unset( $w );
-						return $workers;
-					},
-				],
-				[
-					'name'        => 'dump_metadata',
-					'description' => 'Full operator-grade fleet/supervisor/log metadata.',
-					'args'        => [],
-					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
-						self::require_manage_options();
-						return self::collect_dump_metadata( $self->cache );
-					},
-				],
-				[
-					'name'        => 'cleanup_status',
-					'description' => 'Report orphaned worker artifacts vs the expected fleet.',
-					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
-						// Diagnostic: surface what Log_Cleaner reads when deciding which
-						// log dirs to delete, so operators can debug orphan-log sweeps.
-						self::require_manage_options();
-						$base_dir      = RuntimeConfig::get_base_directory();
-						$logs_dir      = $base_dir . '/logs';
-						$dirty_flag    = \get_option( Log_Cleaner::LOGS_DIRTY_OPTION, null );
-						$prior_fleet   = \get_option( Log_Cleaner::FLEET_DESCRIPTORS_OPTION, null );
-						$on_disk       = [];
-						foreach ( @\glob( $logs_dir . '/*.log', \GLOB_ONLYDIR ) ?: [] as $dir ) {
-							if ( \preg_match( '#/([^/]+)\.log$#', $dir, $m ) ) {
-								$on_disk[] = $m[1];
-							}
-						}
-						\sort( $on_disk );
-						// Use the same code path Log_Cleaner uses so the diagnostic
-						// matches the cleanup sweep's actual expected set — substrate
-						// computes the topology-derived basenames, then the filter
-						// appends app runtime basenames.
-						$expected = Log_Cleaner::expected_basenames( $base_dir );
-						\sort( $expected );
-						$orphans = \array_values( \array_diff( $on_disk, $expected ) );
-						return [
-							'logs_dirty_option'        => $dirty_flag,
-							'fleet_descriptors_option' => $prior_fleet,
-							'logs_dir'                 => $logs_dir,
-							'on_disk_basenames'        => $on_disk,
-							'expected_basenames'       => $expected,
-							'orphans'                  => $orphans,
-						];
-					},
-				],
-				[
-					'name'        => 'restart',
-					'description' => 'Restart matching workers (and/or the supervisor): `restart <type>… [--partition=<n>]`.',
-					'args'        => [
-						[ 'name' => 'types', 'type' => 'string', 'required' => false ],
-						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],
-					],
-					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
-						$parsed    = Command_Args::parse( $args );
-						$types     = $parsed['positional'];
-						$partition = isset( $parsed['options']['partition'] ) ? (int) $parsed['options']['partition'] : -1;
-						$filter    = [];
-						foreach ( $types as $t ) {
-							$filter[ (string) $t ] = true;
-						}
-						$restarted = 0;
-						// Supervisor lives at `supervisor.lock.d` (no partition
-						// suffix); `restart_workers` only knows the `{type}.p{N}`
-						// shape, so route the supervisor through its own path.
-						$cli = $self->cli();
-						if ( isset( $filter['supervisor'] ) && $cli->restart_supervisor() ) {
-							++$restarted;
-							unset( $filter['supervisor'] );
-						}
-						if ( ! empty( $filter ) || empty( $types ) ) {
-							$restarted += $cli->restart_workers( $cli->ls_workers(), $filter, $partition );
-						}
-						return [ 'restarted' => $restarted ];
-					},
-				],
-				[
-					'name'        => 'heartbeat',
-					'description' => "Refresh this session's SSE slot TTL.",
-					'args'        => [
-						[ 'name' => 'slot', 'type' => 'int', 'required' => true ],
-						[ 'name' => 'ttl', 'type' => 'int', 'required' => false, 'default' => 10 ],
-						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],
-					],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
-						if ( null === Core::$memd ) {
-							throw new \RuntimeException( 'cache not configured' );
-						}
-						$parts = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY );
-						$slot  = isset( $parts[0] ) ? (int) $parts[0] : -1;
-						if ( $slot < 0 ) {
-							throw new \RuntimeException( 'slot required' );
-						}
-						$ttl       = isset( $parts[1] ) ? (int) $parts[1] : 10;
-						$partition = isset( $parts[2] ) ? (int) $parts[2] : -1;
-						$success   = SSE_Slot_Pool::touch( SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $ttl, $partition );
-						return [ 'success' => $success, 'slot' => $slot ];
-					},
-				],
-			],
-		];
-	}
-
 	// -------------------------------------------------------------------------
 	// dump_metadata helpers — the full operator-grade payload, ported wholesale
 	// from the legacy WorkersController::get_workers + its private helpers.
@@ -226,9 +100,9 @@ class Workers_CI_Node extends Service_CI_Node {
 	private static function collect_dump_metadata( ?object $cache ): array {
 		$now            = \time();
 		$config         = RuntimeConfig::load_config();
-		$num_partitions = (int) ( $config['num_partitions'] ?? 1 );
-		$num_segments   = (int) ( $config['num_segments']   ?? 8 );
-		$segment_size   = (int) ( $config['segment_size']   ?? ( 16 * 1024 * 1024 ) );
+		$num_partitions = self::to_int( $config['num_partitions'] ?? 1 );
+		$num_segments   = self::to_int( $config['num_segments']   ?? 8 );
+		$segment_size   = self::to_int( $config['segment_size']   ?? ( 16 * 1024 * 1024 ) );
 		$base_dir       = RuntimeConfig::get_base_directory();
 		$log_base       = $base_dir . '/logs';
 		$locks_base     = $base_dir . '/locks';
@@ -259,7 +133,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		foreach ( $descriptors as $w ) {
 			$type      = $w['type'];
 			$partition = $w['partition'];
-			$stale_to  = (int) ( $w['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT );
+			$stale_to  = self::to_int( $w['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT );
 			if ( '' === $type ) {
 				continue;
 			}
@@ -303,12 +177,13 @@ class Workers_CI_Node extends Service_CI_Node {
 					? $row['targets']
 					: [ [ 'name' => $row['target'] ] ];
 				foreach ( $targets as $t ) {
-					$handler = (string) ( $t['name'] ?? '' );
-					$worker  = self::build_worker_status(
+					$handler   = self::to_string( $t['name'] ?? '' );
+					$target_nm = isset( $t['name'] ) ? self::to_string( $t['name'] ) : null;
+					$worker    = self::build_worker_status(
 						$type,
 						$partition,
 						$input_log,
-						$t['name'] ?? null,
+						$target_nm,
 						$log_base,
 						$lock_dir,
 						$now,
@@ -325,8 +200,8 @@ class Workers_CI_Node extends Service_CI_Node {
 						self::build_log_status_entry(
 							$input_log,
 							$partition,
-							(int) $worker['cursor_seg'],
-							(int) $worker['cursor_offset'],
+							self::to_int( $worker['cursor_seg'] ),
+							self::to_int( $worker['cursor_offset'] ),
 							$log_base
 						),
 					];
@@ -401,26 +276,26 @@ class Workers_CI_Node extends Service_CI_Node {
 			$partition_obj = new Partition_Node();
 			$partition_obj->arguments( "{$log_base}/{$input_log} {$partition}" );
 			$segments      = $partition_obj->get_segments();
-			$total_size    = (int) \array_sum( \array_column( $segments, 'size' ) );
+			$total_size    = \array_sum( \array_column( $segments, 'size' ) );
 
 			// Cursor: live memcache position, falling back to the on-disk offsetlog.
 			$cursor        = self::get_live_position( $type, $partition, $input_log, $cache, $base_dir );
-			$cursor_seg    = (int) ( $cursor['seg'] ?? 0 );
-			$cursor_offset = (int) ( $cursor['off'] ?? 0 );
+			$cursor_seg    = $cursor['seg'] ?? 0;
+			$cursor_offset = $cursor['off'] ?? 0;
 
 			// Bytes-behind: sum remaining bytes in segments at/after cursor_seg.
 			$behind        = 0;
 			$found_current = false;
 			foreach ( $segments as $seg ) {
-				$sid = (int) $seg['id'];
+				$sid = $seg['id'];
 				if ( $sid === $cursor_seg ) {
 					$found_current = true;
-					$remaining     = (int) $seg['size'] - $cursor_offset;
+					$remaining     = $seg['size'] - $cursor_offset;
 					if ( $remaining > 0 ) {
 						$behind += $remaining;
 					}
 				} elseif ( $found_current || $sid > $cursor_seg ) {
-					$behind += (int) $seg['size'];
+					$behind += $seg['size'];
 				}
 			}
 		}
@@ -433,8 +308,8 @@ class Workers_CI_Node extends Service_CI_Node {
 		if ( \file_exists( $hb_file ) ) {
 			$mtime = @\filemtime( $hb_file );
 			if ( false !== $mtime ) {
-				$heartbeat_at  = (int) $mtime;
-				$heartbeat_age = $now - (int) $mtime;
+				$heartbeat_at  = $mtime;
+				$heartbeat_age = $now - $mtime;
 				if ( $heartbeat_age < $stale_timeout ) {
 					$status = 'running';
 				}
@@ -479,7 +354,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		if ( \file_exists( $hb_file ) ) {
 			$mtime = @\filemtime( $hb_file );
 			if ( false !== $mtime ) {
-				$heartbeat_age = $now - (int) $mtime;
+				$heartbeat_age = $now - $mtime;
 				if ( $heartbeat_age < Lock_Node::STALE_TIMEOUT ) {
 					$status = 'running';
 				}
@@ -512,7 +387,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		}
 		$out = [];
 		foreach ( $topologies as $name => $_cfg ) {
-			$overrides = Topology_Registry::segment_size_overrides_for( (string) $name );
+			$overrides = Topology_Registry::segment_size_overrides_for( $name );
 			foreach ( $overrides as $basename => $size ) {
 				$out[ $basename ] = $size;
 			}
@@ -623,10 +498,10 @@ class Workers_CI_Node extends Service_CI_Node {
 						$mtime      = @\filemtime( $path );
 						$segments[] = [
 							'id'    => (int) $m[1],
-							'size'  => false !== $size ? (int) $size : 0,
-							'mtime' => false !== $mtime ? (int) $mtime : 0,
+							'size'  => false !== $size ? $size : 0,
+							'mtime' => false !== $mtime ? $mtime : 0,
 						];
-						$total_size += false !== $size ? (int) $size : 0;
+						$total_size += false !== $size ? $size : 0;
 					}
 				}
 				\usort( $segments, static fn ( $a, $b ) => $a['id'] <=> $b['id'] );
@@ -660,7 +535,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		if ( null !== $cache && \method_exists( $cache, 'get' ) ) {
 			$val = $cache->get( $cache_key );
 			if ( \is_array( $val ) && isset( $val['seg'], $val['off'] ) ) {
-				return [ 'seg' => (int) $val['seg'], 'off' => (int) $val['off'] ];
+				return [ 'seg' => self::to_int( $val['seg'] ), 'off' => self::to_int( $val['off'] ) ];
 			}
 		}
 		return self::read_offsetlog_position( $input_log, $partition, $base_dir );
@@ -701,16 +576,18 @@ class Workers_CI_Node extends Service_CI_Node {
 			if ( '' === ( $row['worker_type'] ?? '' ) ) {
 				continue;
 			}
+			/** @var array<int,array<string,mixed>> $targets Decoded offsetlog `targets`: a list of `{name,…}` objects. */
+			$targets = \is_array( $row['targets'] ?? null ) ? $row['targets'] : [];
 			$rows[] = [
-				'name'            => (string) ( $row['name']   ?? '' ),
-				'target'          => (string) ( $row['target'] ?? '' ),
-				'targets'         => \is_array( $row['targets'] ?? null ) ? $row['targets'] : [],
-				'worker_type'     => (string) $row['worker_type'],
+				'name'            => self::to_string( $row['name']   ?? '' ),
+				'target'          => self::to_string( $row['target'] ?? '' ),
+				'targets'         => $targets,
+				'worker_type'     => self::to_string( $row['worker_type'] ),
 				'source_basename' => $source_basename,
 				'partition'       => $partition,
-				'seg'             => (int) ( $row['seg'] ?? 0 ),
-				'off'             => (int) ( $row['off'] ?? 0 ),
-				'ts'              => (float) ( $row['ts']  ?? 0 ),
+				'seg'             => self::to_int( $row['seg'] ?? 0 ),
+				'off'             => self::to_int( $row['off'] ?? 0 ),
+				'ts'              => self::to_float( $row['ts']  ?? 0 ),
 			];
 		}
 		return $rows;
@@ -740,9 +617,13 @@ class Workers_CI_Node extends Service_CI_Node {
 			if ( empty( $lines ) ) {
 				return null;
 			}
-			$msg   = Message::unpacked( (string) \end( $lines ) );
-			$entry = $msg[ Message::VALUE ] ?? null;
-			return \is_array( $entry ) ? $entry : null;
+			$msg = Message::unpacked( \end( $lines ) );
+			if ( ! \is_array( $msg[ Message::VALUE ] ?? null ) ) {
+				return null;
+			}
+			/** @var array<string,mixed> $entry The offsetlog VALUE is a decoded JSON object (string keys). */
+			$entry = $msg[ Message::VALUE ];
+			return $entry;
 		} catch ( \Throwable $e ) {
 			return null;
 		}
@@ -759,6 +640,200 @@ class Workers_CI_Node extends Service_CI_Node {
 		if ( null === $entry || ! isset( $entry['seg'], $entry['off'] ) ) {
 			return null;
 		}
-		return [ 'seg' => (int) $entry['seg'], 'off' => (int) $entry['off'] ];
+		return [ 'seg' => self::to_int( $entry['seg'] ), 'off' => self::to_int( $entry['off'] ) ];
+	}
+
+	/**
+	 * Coerce a mixed value to int, reproducing PHP's `(int)` cast
+	 * (null→0, scalar→its int form, non-empty array→1) without a mixed-cast.
+	 *
+	 * @param mixed $v Raw value.
+	 */
+	private static function to_int( $v ): int {
+		if ( null === $v ) {
+			return 0;
+		}
+		if ( \is_array( $v ) ) {
+			return empty( $v ) ? 0 : 1;
+		}
+		if ( \is_object( $v ) ) {
+			return 1;
+		}
+		if ( \is_scalar( $v ) ) {
+			return (int) $v;
+		}
+		return 0;
+	}
+
+	/**
+	 * Coerce a mixed value to float, reproducing PHP's `(float)` cast
+	 * (null→0.0, scalar→its float form, non-empty array→1.0) without a mixed-cast.
+	 *
+	 * @param mixed $v Raw value.
+	 */
+	private static function to_float( $v ): float {
+		if ( null === $v ) {
+			return 0.0;
+		}
+		if ( \is_array( $v ) ) {
+			return empty( $v ) ? 0.0 : 1.0;
+		}
+		if ( \is_object( $v ) ) {
+			return 1.0;
+		}
+		if ( \is_scalar( $v ) ) {
+			return (float) $v;
+		}
+		return 0.0;
+	}
+
+	/**
+	 * Coerce a mixed value to string, reproducing PHP's `(string)` cast
+	 * (null→'', scalar→its string form, array→'Array') without a mixed-cast.
+	 *
+	 * @param mixed $v Raw value.
+	 */
+	private static function to_string( $v ): string {
+		if ( \is_string( $v ) ) {
+			return $v;
+		}
+		if ( null === $v ) {
+			return '';
+		}
+		if ( \is_array( $v ) ) {
+			return 'Array';
+		}
+		if ( \is_object( $v ) ) {
+			return \method_exists( $v, '__toString' ) ? $v->__toString() : '';
+		}
+		if ( \is_scalar( $v ) ) {
+			return (string) $v;
+		}
+		return '';
+	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Service',
+			'description' => 'Worker fleet control: list workers, dump operator metadata, audit/cleanup orphans, restart, and refresh SSE slot heartbeats.',
+			'arguments'        => [],
+			'commands'       => [
+				[
+					'name'        => 'list',
+					'description' => 'List workers with live positions.',
+					'args'        => [],
+					// $self is the dispatching interpreter instance — always a Workers_CI_Node here
+					// (dispatch() passes $this), so it's typed concretely to read the
+					// ctor-injected cli/cache off it (node_schema is static, can't `use` them).
+					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
+						$cli     = $self->cli();
+						$workers = $cli->ls_workers();
+						foreach ( $workers as &$w ) {
+							$w['position'] = $cli->live_position( $self->cache, $w['type'], $w['partition'] );
+						}
+						unset( $w );
+						return $workers;
+					},
+				],
+				[
+					'name'        => 'dump_metadata',
+					'description' => 'Full operator-grade fleet/supervisor/log metadata.',
+					'args'        => [],
+					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
+						self::require_manage_options();
+						return self::collect_dump_metadata( $self->cache );
+					},
+				],
+				[
+					'name'        => 'cleanup_status',
+					'description' => 'Report orphaned worker artifacts vs the expected fleet.',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
+						// Diagnostic: surface what Log_Cleaner reads when deciding which
+						// log dirs to delete, so operators can debug orphan-log sweeps.
+						self::require_manage_options();
+						$base_dir      = RuntimeConfig::get_base_directory();
+						$logs_dir      = $base_dir . '/logs';
+						$dirty_flag    = \get_option( Log_Cleaner::LOGS_DIRTY_OPTION, null );
+						$prior_fleet   = \get_option( Log_Cleaner::FLEET_DESCRIPTORS_OPTION, null );
+						$on_disk       = [];
+						foreach ( @\glob( $logs_dir . '/*.log', \GLOB_ONLYDIR ) ?: [] as $dir ) {
+							if ( \preg_match( '#/([^/]+)\.log$#', $dir, $m ) ) {
+								$on_disk[] = $m[1];
+							}
+						}
+						\sort( $on_disk );
+						// Use the same code path Log_Cleaner uses so the diagnostic
+						// matches the cleanup sweep's actual expected set — substrate
+						// computes the topology-derived basenames, then the filter
+						// appends app runtime basenames.
+						$expected = Log_Cleaner::expected_basenames( $base_dir );
+						\sort( $expected );
+						$orphans = \array_values( \array_diff( $on_disk, $expected ) );
+						return [
+							'logs_dirty_option'        => $dirty_flag,
+							'fleet_descriptors_option' => $prior_fleet,
+							'logs_dir'                 => $logs_dir,
+							'on_disk_basenames'        => $on_disk,
+							'expected_basenames'       => $expected,
+							'orphans'                  => $orphans,
+						];
+					},
+				],
+				[
+					'name'        => 'restart',
+					'description' => 'Restart matching workers (and/or the supervisor): `restart <type>… [--partition=<n>]`.',
+					'args'        => [
+						[ 'name' => 'types', 'type' => 'string', 'required' => false ],
+						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],
+					],
+					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
+						$parsed    = Command_Args::parse( $args );
+						$types     = $parsed['positional'];
+						$partition = isset( $parsed['options']['partition'] ) ? (int) $parsed['options']['partition'] : -1;
+						$filter    = [];
+						foreach ( $types as $t ) {
+							$filter[ $t ] = true;
+						}
+						$restarted = 0;
+						// Supervisor lives at `supervisor.lock.d` (no partition
+						// suffix); `restart_workers` only knows the `{type}.p{N}`
+						// shape, so route the supervisor through its own path.
+						$cli = $self->cli();
+						if ( isset( $filter['supervisor'] ) && $cli->restart_supervisor() ) {
+							++$restarted;
+							unset( $filter['supervisor'] );
+						}
+						if ( ! empty( $filter ) || empty( $types ) ) {
+							$restarted += $cli->restart_workers( $cli->ls_workers(), $filter, $partition );
+						}
+						return [ 'restarted' => $restarted ];
+					},
+				],
+				[
+					'name'        => 'heartbeat',
+					'description' => "Refresh this session's SSE slot TTL.",
+					'args'        => [
+						[ 'name' => 'slot', 'type' => 'int', 'required' => true ],
+						[ 'name' => 'ttl', 'type' => 'int', 'required' => false, 'default' => 10 ],
+						[ 'name' => 'partition', 'type' => 'int', 'required' => false, 'default' => -1 ],
+					],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
+						if ( null === Core::$memd ) {
+							throw new \RuntimeException( 'cache not configured' );
+						}
+						$parts = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY );
+						$slot  = isset( $parts[0] ) ? (int) $parts[0] : -1;
+						if ( $slot < 0 ) {
+							throw new \RuntimeException( 'slot required' );
+						}
+						$ttl       = isset( $parts[1] ) ? (int) $parts[1] : 10;
+						$partition = isset( $parts[2] ) ? (int) $parts[2] : -1;
+						$success   = SSE_Slot_Pool::touch( SSE_Slot_Pool::user_id(), SSE_Slot_Pool::ip_hash(), $slot, $ttl, $partition );
+						return [ 'success' => $success, 'slot' => $slot ];
+					},
+				],
+			],
+		];
 	}
 }

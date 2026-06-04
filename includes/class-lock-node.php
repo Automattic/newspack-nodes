@@ -28,6 +28,7 @@ class Lock_Node extends Node {
 	private bool $is_held = false;
 
 	public function __construct( string $lock_path, int $stale_timeout = self::STALE_TIMEOUT ) {
+		parent::__construct();
 		$this->lock_path     = \rtrim( $lock_path, '/' );
 		$this->stale_timeout = $stale_timeout;
 	}
@@ -112,7 +113,7 @@ class Lock_Node extends Node {
 
 		self::force_release_at( $this->lock_path );
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-		return (bool) @\mkdir( $this->lock_path, 0755, true );
+		return @\mkdir( $this->lock_path, 0755, true );
 	}
 
 	/**
@@ -173,7 +174,7 @@ class Lock_Node extends Node {
 		\clearstatcache( true, $hb );
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 		$pid = @\file_get_contents( $hb );
-		if ( false === $pid || (int) \trim( (string) $pid ) !== \getmypid() ) {
+		if ( false === $pid || (int) \trim( $pid ) !== \getmypid() ) {
 			$this->is_held = false;
 			return false;
 		}
@@ -289,8 +290,8 @@ class Lock_Node extends Node {
 		return [
 			'category'    => 'Hidden',
 			'description' => 'Advisory cooperative file lock with heartbeat; blocks until acquired.',
-			'arguments'        => [],
-			'commands'       => [],
+			'arguments'   => [],
+			'commands'    => [],
 		];
 	}
 }

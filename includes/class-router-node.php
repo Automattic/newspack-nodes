@@ -33,12 +33,14 @@ class Router_Node extends Timer_Node {
 			$this->drop_message( $message, 'message not addressed' );
 			return;
 		}
-		if ( \strlen( $message[ Message::FROM ] ?? '' ) > self::MAX_FROM_SIZE ) {
+		$from = $message[ Message::FROM ] ?? '';
+		if ( \strlen( \is_scalar( $from ) ? (string) $from : '' ) > self::MAX_FROM_SIZE ) {
 			$this->drop_message( $message, 'path exceeded ' . self::MAX_FROM_SIZE . ' bytes' );
 			return;
 		}
 
-		[ $node_name, $remaining ] = Message::split_first( $message[ Message::TO ] );
+		$to = $message[ Message::TO ];
+		[ $node_name, $remaining ] = Message::split_first( \is_scalar( $to ) ? (string) $to : '' );
 		$target = Core::node( $node_name );
 		if ( null === $target ) {
 			$this->send_error( $message, 'NOT_AVAILABLE' );
@@ -58,7 +60,8 @@ class Router_Node extends Timer_Node {
 		$this->handling_error = true;
 		// The unreachable destination is the head segment of TO (Router peels it
 		// in fill() before the lookup that landed here).
-		[ $node_name ] = Message::split_first( $message[ Message::TO ] );
+		$to = $message[ Message::TO ];
+		[ $node_name ] = Message::split_first( \is_scalar( $to ) ? (string) $to : '' );
 		$this->set_state(
 			'NOT_AVAILABLE',
 			[
@@ -70,11 +73,13 @@ class Router_Node extends Timer_Node {
 				'key'  => $message[ Message::KEY  ],
 			]
 		);
-		if ( $message[ Message::TYPE ] & Message::TM_ERROR ) {
+		$type = $message[ Message::TYPE ];
+		if ( ( \is_int( $type ) ? $type : 0 ) & Message::TM_ERROR ) {
 			$this->handling_error = false;
 			return;
 		}
-		if ( $this->has_value( $message[ Message::FROM ] ) ) {
+		$from = $message[ Message::FROM ];
+		if ( self::has_value( \is_scalar( $from ) ? (string) $from : '' ) ) {
 			$err                       = Message::new_message();
 			$err[ Message::TYPE ]      = Message::TM_ERROR;
 			$err[ Message::TIMESTAMP ] = Core::$now;

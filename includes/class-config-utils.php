@@ -46,7 +46,7 @@ class Config_Utils {
 				if ( ! \is_string( $value ) ) {
 					return null;
 				}
-				$servers = \array_filter( \array_map( 'trim', \explode( "\n", $value ) ) );
+				$servers = \array_filter( \array_map( 'trim', \explode( "\n", $value ) ), static fn ( $v ) => (bool) $v );
 				if ( empty( $servers ) ) {
 					return null;
 				}
@@ -85,7 +85,7 @@ class Config_Utils {
 	 * @throws \RuntimeException If WordPress is not loaded.
 	 */
 	public static function sanitize_string( $value ): string {
-		$value = (string) $value;
+		$value = \is_scalar( $value ) ? (string) $value : '';
 		if ( ! \function_exists( 'sanitize_text_field' ) ) {
 			throw new \RuntimeException( 'sanitize_text_field unavailable - WordPress required for sanitization' );
 		}

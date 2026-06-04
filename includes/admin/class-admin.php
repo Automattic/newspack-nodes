@@ -61,7 +61,7 @@ class Admin {
 		if ( ! \function_exists( 'current_user_can' ) ) {
 			return true; // CLI / no user context — don't lock out CLI tools.
 		}
-		return (bool) \current_user_can( 'manage_options' );
+		return \current_user_can( 'manage_options' );
 	}
 
 	/** Top-level menu slug for the topology console (its own admin entry, not under Settings). */
@@ -140,7 +140,7 @@ class Admin {
 			return;
 		}
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$page = isset( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
+		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
 		if ( self::WORKERS_MENU_SLUG !== $page && self::RAWLOGS_MENU_SLUG !== $page ) {
 			return;
 		}
@@ -194,7 +194,7 @@ class Admin {
 			return;
 		}
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$page = isset( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
+		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
 		if ( self::TOPOLOGY_MENU_SLUG !== $page ) {
 			return;
 		}
@@ -218,17 +218,19 @@ class Admin {
 		// Per-topology partition counts for the React dropdown: catalog count, else synthesized frontmatter.
 		$topology_partitions = [];
 		$catalog             = Bootstrap::get_topology_catalog();
-		$default_np          = (int) ( Config::load_config()['num_partitions'] ?? 1 );
+		$config_np           = Config::load_config()['num_partitions'] ?? 1;
+		$default_np          = (int) ( \is_scalar( $config_np ) ? $config_np : 1 );
 		foreach ( \Newspack_Nodes\Topology_Registry::list() as $name ) {
 			if ( '' === $name ) {
 				continue;
 			}
-			if ( isset( $catalog[ $name ]['num_partitions'] ) ) {
-				$topology_partitions[ $name ] = (int) $catalog[ $name ]['num_partitions'];
+			$catalog_entry = $catalog[ $name ] ?? null;
+			if ( \is_array( $catalog_entry ) && isset( $catalog_entry['num_partitions'] ) && \is_scalar( $catalog_entry['num_partitions'] ) ) {
+				$topology_partitions[ $name ] = (int) $catalog_entry['num_partitions'];
 				continue;
 			}
 			$synth = \Newspack_Nodes\Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
-			if ( null !== $synth && isset( $synth['num_partitions'] ) ) {
+			if ( null !== $synth && isset( $synth['num_partitions'] ) && \is_scalar( $synth['num_partitions'] ) ) {
 				$topology_partitions[ $name ] = (int) $synth['num_partitions'];
 			}
 		}
@@ -463,6 +465,9 @@ class Admin {
 		if ( '' === $input || null === $input ) {
 			return '';
 		}
+		if ( ! \is_scalar( $input ) && ! \is_array( $input ) ) {
+			return '';
+		}
 		return \absint( $input );
 	}
 
@@ -474,6 +479,9 @@ class Admin {
 	 */
 	public function sanitize_memcache_servers( $value ): string {
 		if ( '' === $value || null === $value ) {
+			return '';
+		}
+		if ( ! \is_scalar( $value ) ) {
 			return '';
 		}
 		$lines           = \explode( "\n", (string) $value );
@@ -581,11 +589,24 @@ class Admin {
 
 	// -- Field callbacks ----------------------------------------------------
 
+	/**
+	 * Read an int config default, coercing scalars exactly as `(int)` would and falling back when non-scalar.
+	 *
+	 * @param array<string, mixed> $defaults Config defaults.
+	 * @param string               $key      Key to read.
+	 * @param int                  $fallback Default when missing/non-scalar.
+	 */
+	private static function default_int( array $defaults, string $key, int $fallback ): int {
+		$value = $defaults[ $key ] ?? $fallback;
+		return \is_scalar( $value ) ? (int) $value : $fallback;
+	}
+
 	public function base_directory_callback(): void {
 		$defaults = Config::load_config_defaults();
+		$base     = $defaults['base_directory'] ?? '';
 		$this->render_directory_field(
 			'base_directory',
-			(string) ( $defaults['base_directory'] ?? '' ),
+			\is_scalar( $base ) ? (string) $base : '',
 			\__( 'Base directory for logs, locks, and offsets.', 'newspack-nodes' )
 		);
 	}
@@ -594,7 +615,7 @@ class Admin {
 		$defaults = Config::load_config_defaults();
 		$this->render_number_field(
 			'num_partitions',
-			(int) ( $defaults['num_partitions'] ?? 1 ),
+			self::default_int( $defaults, 'num_partitions', 1 ),
 			1,
 			16,
 			\__( 'Number of log partitions for parallel processing.', 'newspack-nodes' )
@@ -605,7 +626,7 @@ class Admin {
 		$defaults = Config::load_config_defaults();
 		$this->render_number_field(
 			'num_segments',
-			(int) ( $defaults['num_segments'] ?? 4 ),
+			self::default_int( $defaults, 'num_segments', 4 ),
 			2,
 			32,
 			\__( 'Number of segments to retain per partition.', 'newspack-nodes' )
@@ -616,7 +637,7 @@ class Admin {
 		$defaults = Config::load_config_defaults();
 		$this->render_number_field(
 			'segment_size',
-			(int) ( $defaults['segment_size'] ?? ( 64 * 1024 * 1024 ) ),
+			self::default_int( $defaults, 'segment_size', 64 * 1024 * 1024 ),
 			1048576,
 			536870912,
 			\__( 'Maximum segment size in bytes.', 'newspack-nodes' )
@@ -627,7 +648,7 @@ class Admin {
 		$defaults = Config::load_config_defaults();
 		$this->render_number_field(
 			'max_lifespan',
-			(int) ( $defaults['max_lifespan'] ?? 86400 ),
+			self::default_int( $defaults, 'max_lifespan', 86400 ),
 			0,
 			604800,
 			\__( 'Minimum retention in seconds. 0 = disabled (pure count-based).', 'newspack-nodes' )
@@ -644,8 +665,11 @@ class Admin {
 		if ( ! \is_array( $default_servers ) ) {
 			$default_servers = [ '127.0.0.1:11211' ];
 		}
-		$default_text = \implode( "\n", $default_servers );
-		$value        = \get_option( 'newspack_nodes_memcache_servers', '' );
+		// Coerce each entry to string exactly as implode/esc_* already would.
+		$default_servers = \array_map( static fn ( $server ): string => \is_scalar( $server ) ? (string) $server : '', $default_servers );
+		$default_text    = \implode( "\n", $default_servers );
+		$value           = \get_option( 'newspack_nodes_memcache_servers', '' );
+		$value           = \is_scalar( $value ) ? (string) $value : '';
 		?>
 		<div style="display: flex; align-items: flex-start; gap: 10px;">
 			<div style="flex: 1;">
@@ -672,9 +696,9 @@ class Admin {
 		$num_partitions = \get_option( 'newspack_nodes_num_partitions', '' );
 
 		// Use config defaults for empty values.
-		$segment_size   = '' === $segment_size ? (int) ( $defaults['segment_size'] ?? ( 64 * 1024 * 1024 ) ) : (int) $segment_size;
-		$num_segments   = '' === $num_segments ? (int) ( $defaults['num_segments'] ?? 4 ) : (int) $num_segments;
-		$num_partitions = '' === $num_partitions ? (int) ( $defaults['num_partitions'] ?? 1 ) : (int) $num_partitions;
+		$segment_size   = '' === $segment_size ? self::default_int( $defaults, 'segment_size', 64 * 1024 * 1024 ) : ( \is_scalar( $segment_size ) ? (int) $segment_size : 0 );
+		$num_segments   = '' === $num_segments ? self::default_int( $defaults, 'num_segments', 4 ) : ( \is_scalar( $num_segments ) ? (int) $num_segments : 0 );
+		$num_partitions = '' === $num_partitions ? self::default_int( $defaults, 'num_partitions', 1 ) : ( \is_scalar( $num_partitions ) ? (int) $num_partitions : 0 );
 
 		// One log stream per `{base}/logs/*.log/` directory.
 		$num_logs    = \count( \Newspack_Nodes\Log_Discovery::on_disk() );
@@ -712,7 +736,7 @@ class Admin {
 	 */
 	public function handle_reset_settings(): void {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-		$nonce = isset( $_POST[ self::RESET_NONCE ] ) ? \sanitize_text_field( \wp_unslash( $_POST[ self::RESET_NONCE ] ) ) : '';
+		$nonce = isset( $_POST[ self::RESET_NONCE ] ) && \is_string( $_POST[ self::RESET_NONCE ] ) ? \sanitize_text_field( \wp_unslash( $_POST[ self::RESET_NONCE ] ) ) : '';
 		if ( '' === $nonce || ! \wp_verify_nonce( $nonce, self::RESET_ACTION ) ) {
 			\wp_die( \esc_html__( 'Security check failed.', 'newspack-nodes' ) );
 		}
@@ -805,7 +829,7 @@ class Admin {
 		try {
 			$config         = Config::load_config();
 			$locks_dir      = Config::get_locks_directory();
-			$num_partitions = (int) ( $config['num_partitions'] ?? 1 );
+			$num_partitions = self::default_int( $config, 'num_partitions', 1 );
 		} catch ( \Throwable $e ) {
 			// Best-effort: the next supervisor pass picks up the new config.
 			return;
@@ -824,6 +848,7 @@ class Admin {
 
 	private function render_directory_field( string $field, string $default, string $description ): void {
 		$value = \get_option( self::OPTION_PREFIX . $field, '' );
+		$value = \is_scalar( $value ) ? (string) $value : '';
 		?>
 		<div style="display: flex; align-items: flex-start; gap: 10px;">
 			<div style="flex: 1;">
@@ -846,6 +871,7 @@ class Admin {
 
 	private function render_number_field( string $field, int $default, int $min, int $max, string $description ): void {
 		$value = \get_option( self::OPTION_PREFIX . $field, '' );
+		$value = \is_scalar( $value ) ? (string) $value : '';
 		// Show empty (placeholder) when unset or equal to default.
 		$display_value = ( '' === $value || (int) $value === $default ) ? '' : $value;
 		$input_class   = $max > 999 ? 'regular-text' : 'small-text';

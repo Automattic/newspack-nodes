@@ -27,7 +27,6 @@ use Newspack_Nodes\Service_CI_Node;
 \defined( 'ABSPATH' ) || exit;
 
 class Raw_Logs_CI_Node extends Service_CI_Node {
-
 	/** Preferred log key when the operator's `log` arg is missing or unknown. */
 	private const PREFERRED_LOG_KEY = 'firehose';
 
@@ -43,6 +42,25 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 	 * @var \Closure|null
 	 */
 	public static ?\Closure $on_probe = null;
+
+	/**
+	 * Map an inbound log argument to a known catalog key. Strips a `.log`
+	 * suffix and falls through to `PREFERRED_LOG_KEY` when present, else the
+	 * first-discovered log.
+	 */
+	private static function resolve_log_key( string $log ): string {
+		$keys = Log_Discovery::on_disk();
+		if ( empty( $keys ) ) {
+			return self::PREFERRED_LOG_KEY;
+		}
+		$index   = \array_flip( $keys );
+		$default = isset( $index[ self::PREFERRED_LOG_KEY ] ) ? self::PREFERRED_LOG_KEY : $keys[0];
+		if ( '' === $log ) {
+			return $default;
+		}
+		$key = \str_replace( '.log', '', $log );
+		return isset( $index[ $key ] ) ? $key : $default;
+	}
 
 	public static function node_schema(): array {
 		return [
@@ -76,7 +94,8 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 
 						$config         = RuntimeConfig::load_config();
 						$base_dir       = RuntimeConfig::get_base_directory();
-						$num_partitions = (int) ( $config['num_partitions'] ?? 1 );
+						$cfg_np         = $config['num_partitions'] ?? 1;
+						$num_partitions = (int) ( \is_scalar( $cfg_np ) ? $cfg_np : 1 );
 						$log_file       = "{$log_key}.log";
 						$log_base       = $base_dir . '/logs';
 
@@ -99,7 +118,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 									( self::$on_probe )( $partition );
 								}
 								$segments         = $partition->get_segments( true );
-								$size             = (int) \array_sum( \array_column( $segments, 'size' ) );
+								$size             = \array_sum( \array_column( $segments, 'size' ) );
 								$partitions[ $p ] = [
 									'segments'      => $segments,
 									'segment_count' => \count( $segments ),
@@ -124,24 +143,5 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 				],
 			],
 		];
-	}
-
-	/**
-	 * Map an inbound log argument to a known catalog key. Strips a `.log`
-	 * suffix and falls through to `PREFERRED_LOG_KEY` when present, else the
-	 * first-discovered log.
-	 */
-	private static function resolve_log_key( string $log ): string {
-		$keys = Log_Discovery::on_disk();
-		if ( empty( $keys ) ) {
-			return self::PREFERRED_LOG_KEY;
-		}
-		$index   = \array_flip( $keys );
-		$default = isset( $index[ self::PREFERRED_LOG_KEY ] ) ? self::PREFERRED_LOG_KEY : $keys[0];
-		if ( '' === $log ) {
-			return $default;
-		}
-		$key = \str_replace( '.log', '', $log );
-		return isset( $index[ $key ] ) ? $key : $default;
 	}
 }
