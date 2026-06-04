@@ -134,7 +134,7 @@ class Partition_Node extends Timer_Node {
 		++$this->counter;
 
 		// No-event-loop heartbeat: heartbeat() returns false if ownership was stolen, so throw.
-		if ( $this->allow_large_writes && null === $this->heartbeat_timer ) {
+		if ( $this->allow_large_writes && null === $this->heartbeat_timer && null !== $this->write_lock ) {
 			$now = \microtime( true );
 			if ( $now - $this->last_lock_heartbeat >= $this->lock_stale_timeout / 3.0 ) {
 				if ( ! $this->write_lock->heartbeat() ) {
@@ -261,13 +261,17 @@ class Partition_Node extends Timer_Node {
 	 * @param mixed $data Opaque per-message data passed through to the index callback.
 	 */
 	private function write_index_entry( string $packed, int $offset, int $len, $data ): void {
+		$callback = $this->index_callback;
+		if ( null === $callback ) {
+			return;
+		}
 		$position = [
 			'segment_id' => $this->current_segment_id,
 			'offset'     => $offset,
 			'length'     => $len,
 		];
 		try {
-			$entry = ( $this->index_callback )( $packed, $position, $data );
+			$entry = $callback( $packed, $position, $data );
 			if ( null !== $entry && '' !== $entry && \is_resource( $this->idx_fh ) ) {
 				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
 				@\fwrite( $this->idx_fh, $entry . "\n" );
@@ -501,7 +505,7 @@ class Partition_Node extends Timer_Node {
 	 * Mirror current_size into segments_cache so a stale hit doesn't misreport the active segment.
 	 */
 	protected function touch_segments_cache(): void {
-		if ( null === $this->segments_cache ) {
+		if ( null === $this->segments_cache || null === $this->current_segment_id ) {
 			return;
 		}
 		$found = false;
@@ -748,20 +752,28 @@ class Partition_Node extends Timer_Node {
 			@\mkdir( $this->partition_dir, 0755, true );
 			// Whole tree got wiped; reset from disk (lands at segment 0).
 			$this->init_current_segment();
-		} elseif ( null !== $this->current_log_path && ! \file_exists( $this->current_log_path ) ) {
-			// Active log file disappeared underneath us — re-init from disk.
+		} elseif ( null === $this->current_log_path || ! \file_exists( $this->current_log_path ) ) {
+			// No active segment yet, or the active log file disappeared underneath us — (re-)init from disk.
 			$this->init_current_segment();
 		}
 
-		if ( null === $this->fh || $this->fh_segment_id !== $this->current_segment_id ) {
+		// init_current_segment() always sets these together; bail if somehow unset.
+		$log_path   = $this->current_log_path;
+		$idx_path   = $this->current_idx_path;
+		$segment_id = $this->current_segment_id;
+		if ( null === $log_path || null === $idx_path || null === $segment_id ) {
+			return null;
+		}
+
+		if ( null === $this->fh || $this->fh_segment_id !== $segment_id ) {
 			$this->close_handle();
 			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-			$fh = @\fopen( $this->current_log_path, 'a' );
+			$fh = @\fopen( $log_path, 'a' );
 			if ( false === $fh ) {
 				return null;
 			}
 			$this->fh            = $fh;
-			$this->fh_segment_id = $this->current_segment_id;
+			$this->fh_segment_id = $segment_id;
 
 			// Single-writer mode: disable PHP's 8KB buffer so readers see writes immediately.
 			if ( $this->allow_large_writes ) {
@@ -772,7 +784,7 @@ class Partition_Node extends Timer_Node {
 			// default mode writes no index, so no empty .idx should materialize.
 			if ( null !== $this->index_callback ) {
 				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-				$idx_fh       = @\fopen( $this->current_idx_path, 'a' );
+				$idx_fh       = @\fopen( $idx_path, 'a' );
 				$this->idx_fh = ( false === $idx_fh ) ? null : $idx_fh;
 			}
 		}

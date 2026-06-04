@@ -264,6 +264,7 @@ class SupervisorTest extends TestCase {
 		// Seed loop state so tick_loop exits via MAX_SUPERVISOR_RUNTIME_S
 		// on the first iteration (start_time well in the past) — we only
 		// need the preamble to run.
+		$this->assertTrue( $s->init_lock_for_test() );
 		$this->seed_loop_state( $s, microtime( true ) - 1000.0 );
 		$this->invoke_tick_loop( $s );
 

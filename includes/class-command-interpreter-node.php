@@ -341,9 +341,9 @@ class Command_Interpreter_Node extends Node {
 		if ( \count( $parts ) < 2 ) {
 			return 'usage: make_node <type> <name> [<ctor_args>...]';
 		}
-		$type = \array_shift( $parts );
-		$name = \array_shift( $parts );
-		$node = $self->make_node( $type, $name, ...$parts );
+		$type = $parts[0];
+		$name = $parts[1];
+		$node = $self->make_node( $type, $name, ...\array_slice( $parts, 2 ) );
 		return null === $node ? "unknown class: $type" : 'ok';
 	}
 
@@ -907,13 +907,13 @@ class Command_Interpreter_Node extends Node {
 		if ( 'completion' === ( $envelope[ Message::KEY ] ?? '' ) ) {
 			// Source from the verb dispatch table, not the help-topic table, so
 			// aliases (ls, rm, make, ...) are offered alongside the canonicals.
-			$names = \array_keys( self::$C );
+			$names = \array_keys( self::$C ?? [] );
 			\sort( $names );
 			return \implode( "\n", $names );
 		}
 		$topic = \trim( $args );
 		if ( '' === $topic ) {
-			$names = \array_keys( self::$H );
+			$names = \array_keys( self::$H ?? [] );
 			\sort( $names );
 			$rows = [];
 			$row  = [];

@@ -27,7 +27,7 @@ class Node {
 	protected string $arguments = '';
 
 	/**
-	 * @var array<string,array<string,callable|string>> Pre-declared events keyed by event name.
+	 * @var array<string,array<string,callable|string|null>> Pre-declared events keyed by event name. Null listener value = Node-name dispatch.
 	 */
 	protected array $registrations = [];
 
@@ -135,7 +135,11 @@ class Node {
 		$this->sink?->fill( $message );
 	}
 
-	/** Perl length()-style presence: false for null and '', true for '0'. */
+	/**
+	 * Perl length()-style presence: false for null and '', true for '0'.
+	 *
+	 * @phpstan-assert-if-true non-empty-string $s
+	 */
 	protected static function has_value( ?string $s ): bool {
 		return null !== $s && '' !== $s;
 	}
