@@ -116,7 +116,8 @@ class Layouts_CI_Node extends Service_CI_Node {
 					],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
 						self::require_manage_options();
-						if ( Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
+						// $envelope is the 7-field positional message array (a list).
+						if ( \array_is_list( $envelope ) && Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 							throw new \RuntimeException(
 								\esc_html( 'body too large: layout arguments exceed 64 KiB' )
 							);

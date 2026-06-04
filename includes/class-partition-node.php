@@ -60,7 +60,7 @@ class Partition_Node extends Timer_Node {
 
 	protected float $last_segment_check = 0.0;
 
-	/** @var callable|null fn(string $line, array $position, ?array &$data) => string|null */
+	/** @var (callable(string, array<string, mixed>, mixed): (string|null))|null fn(string $line, array $position, ?array &$data) => string|null */
 	protected $index_callback = null;
 
 	/** @var string Packed messages awaiting one PIPE_BUF-atomic syswrite. */

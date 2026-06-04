@@ -37,6 +37,15 @@ class ConfigTokenResolverTest extends TestCase {
 		$this->assertSame( '', Core::resolve_config_token( 'acme', 'missing' ) );
 	}
 
+	public function test_resolve_non_scalar_value_returns_empty_string(): void {
+		// Real resolvers (e.g. the `config` ns) can return arrays for keys like
+		// `topologies` / `memcache_servers`. A token resolving to a non-scalar is
+		// not string-interpolatable — it must return '' (with a warning), not fatal
+		// on the `: string` return type.
+		Core::register_config_namespace( 'acme', static fn ( string $key ) => [ 'not', 'a', 'string' ] );
+		$this->assertSame( '', Core::resolve_config_token( 'acme', 'topologies' ) );
+	}
+
 	public function test_interpolate_namespaced_token_uses_registered_resolver(): void {
 		Core::register_config_namespace( 'acme', static fn ( string $key ): string => 'bar' );
 		$shell = new Shell_Node();

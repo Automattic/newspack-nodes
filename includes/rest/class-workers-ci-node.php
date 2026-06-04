@@ -704,7 +704,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			return 'Array';
 		}
 		if ( \is_object( $v ) ) {
-			return \method_exists( $v, '__toString' ) ? $v->__toString() : '';
+			return $v instanceof \Stringable ? $v->__toString() : '';
 		}
 		if ( \is_scalar( $v ) ) {
 			return (string) $v;

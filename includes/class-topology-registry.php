@@ -320,7 +320,7 @@ class Topology_Registry {
 			}
 			$runner = self::$spawn_runner ?? static function ( string $t, int $p, string $topology_name, int $stale ): void {
 				$base_dir   = \Newspack_Nodes\Bootstrap::base_dir();
-				$nonce_salt = \defined( 'NONCE_SALT' ) ? \NONCE_SALT : '';
+				$nonce_salt = \defined( 'NONCE_SALT' ) && \is_string( \NONCE_SALT ) ? \NONCE_SALT : '';
 				$supervisor = new \Newspack_Nodes\Supervisor( $base_dir, $nonce_salt );
 				$wb         = new \Newspack_Nodes\Worker_Base( $base_dir, $t, $p, stale_timeout: $stale );
 				$topology   = static function ( \Newspack_Nodes\Command_Interpreter_Node $interpreter, int $partition_arg ) use ( $topology_name ): void {
