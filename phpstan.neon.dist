@@ -25,12 +25,17 @@ parameters:
     paths:
         - newspack-nodes.php
         - includes
+        - examples
     excludePaths:
         - vendor
         - tests
         - build
         - release
         - node_modules
+        - examples/*/tests/*
+        - examples/*/vendor/*
+        - examples/*/node_modules/*
+        - examples/*/build/*
     bootstrapFiles:
         # newspack-nodes.php defines NEWSPACK_NODES_DIR / NEWSPACK_NODES_URL /
         # NEWSPACK_NODES_VERSION via define() at load time. Bootstrapping it

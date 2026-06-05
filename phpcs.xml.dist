@@ -4,6 +4,7 @@
 
 	<!-- Scan plugin source -->
 	<file>./includes</file>
+	<file>./examples</file>
 
 	<!-- Exclude build, vendor, and dependency directories. Tests are excluded
 	     because they create fixture directories under /tmp/, set $_SERVER

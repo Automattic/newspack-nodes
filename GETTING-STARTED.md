@@ -25,11 +25,11 @@ For the full model — the drain loop, workers, partitions, the REPL — see [AR
 
 ## Feel it in 5 minutes
 
-The repo ships a runnable example: `examples/ai-newsletter/`, a digest pipeline built from four small nodes. It's deterministic — no API keys, no network — so it runs anywhere. Two sources emit canned items, a summarizer condenses each, a builder assembles a markdown draft, and the built-in `Log` writes it to a file.
+The repo ships a runnable example: `examples/newspack-ai-newsletter/`, a digest pipeline built from four small nodes. It's deterministic — no API keys, no network — so it runs anywhere. Two sources emit canned items, a summarizer condenses each, a builder assembles a markdown draft, and the built-in `Log` writes it to a file.
 
 ```bash
 # 1. Build the example's autoloader and activate it (alongside newspack-nodes).
-cd examples/ai-newsletter && composer dump-autoload -o && cd -
+cd examples/newspack-ai-newsletter && composer dump-autoload -o && cd -
 wp plugin activate newspack-nodes newspack-ai-newsletter
 
 # 2. Where the digest gets written (Log appends here).

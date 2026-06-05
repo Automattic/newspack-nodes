@@ -12,7 +12,7 @@
     </testsuites>
     <source>
         <include>
-            <directory suffix=".php">/usr/src/newspack-nodes/examples/ai-newsletter/includes</directory>
+            <directory suffix=".php">/usr/src/newspack-nodes/examples/newspack-ai-newsletter/includes</directory>
         </include>
     </source>
 </phpunit>

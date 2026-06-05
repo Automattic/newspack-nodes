@@ -2,7 +2,7 @@
 
 This walkthrough builds a real pipeline from an empty directory: an AI-newsletter digest that pulls items from independent sources, summarizes each, and assembles a markdown draft. You'll run it after every step and end with a live worker graph you can watch and drive in the topology console.
 
-The finished code is in [`examples/ai-newsletter/`](examples/ai-newsletter/) — read along, or build it yourself and diff.
+The finished code is in [`examples/newspack-ai-newsletter/`](examples/newspack-ai-newsletter/) — read along, or build it yourself and diff.
 
 > **The one thing to hold onto:** every node has a single entry point, `fill( array &$message ): void`. A node does its job and forwards the message to its **sink**. Nodes never call each other's methods; they pass messages. Keep that contract and your node drops into any graph.
 
@@ -429,4 +429,4 @@ That's the bet of Nodes. You add capability by wiring a node, not by editing a s
 - **[GETTING-STARTED.md](GETTING-STARTED.md)** — the five-minute tour (if you skipped it).
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
 - **[API.md](API.md)** — the REST endpoints.
-- **[`examples/ai-newsletter/`](examples/ai-newsletter/)** — the complete, tested code for this walkthrough.
+- **[`examples/newspack-ai-newsletter/`](examples/newspack-ai-newsletter/)** — the complete, tested code for this walkthrough.

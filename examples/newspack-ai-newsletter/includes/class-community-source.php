@@ -1,6 +1,6 @@
 <?php
 /**
- * Releases_Source_Node: emits canned "release notes" items on `tick`.
+ * Community_Source_Node: emits canned "community news" items on `tick`.
  *
  * @package Newspack_AI_Newsletter
  */
@@ -13,13 +13,18 @@ use Newspack_Nodes\Command_Interpreter_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Releases_Source_Node extends Node {
+class Community_Source_Node extends Node {
 
-	/** The ONE seam a real source replaces: return ingest items. Toy = canned. */
+	/**
+	 * The ONE seam a real source replaces: return ingest items. Toy = canned.
+	 *
+	 * @return array<int,array<string,string>>
+	 */
 	protected function items(): array {
 		return [
-			[ 'title' => 'Roundup Block ships', 'url' => 'https://example.test/r1', 'body' => 'AI summarizes selected posts into a draft.' ],
-			[ 'title' => 'Editorial Assistant GA', 'url' => 'https://example.test/r2', 'body' => 'Inline AI assistance in the editor.' ],
+			[ 'title' => 'Reader forum hits 10k members', 'url' => 'https://example.test/c1', 'body' => 'The publisher community forum crossed ten thousand members this week.' ],
+			[ 'title' => 'Local meetup recap', 'url' => 'https://example.test/c2', 'body' => 'Highlights from the latest in-person reader meetup downtown.' ],
+			[ 'title' => 'Volunteer spotlight', 'url' => 'https://example.test/c3', 'body' => 'A community moderator shares why they give their time.' ],
 		];
 	}
 
@@ -30,7 +35,7 @@ class Releases_Source_Node extends Node {
 			$msg                   = Message::new_message();
 			$msg[ Message::TYPE ]  = Message::TM_STRUCT;
 			$msg[ Message::FROM ]  = $this->name;
-			$msg[ Message::VALUE ] = [ 'source' => 'releases' ] + $item;
+			$msg[ Message::VALUE ] = [ 'source' => 'community' ] + $item;
 			// parent::fill stamps TO from a connect_node-set target, then forwards to sink.
 			parent::fill( $msg );
 			++$count;
@@ -41,7 +46,7 @@ class Releases_Source_Node extends Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'     => 'Source',
-			'description'  => 'Emits canned release-notes items on tick.',
+			'description'  => 'Emits canned publisher-community news items on tick.',
 			'arguments'    => [],
 			'commands'     => [
 				[
@@ -49,7 +54,11 @@ class Releases_Source_Node extends Node {
 					'description' => 'Emit the current batch of items.',
 					'args'        => [],
 					// Auto-wired into the sibling `{node}:config` interpreter by Node::__construct().
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => $interpreter->patron()->cmd_tick(),
+					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
+						/** @var self $patron */
+						$patron = $interpreter->patron();
+						return $patron->cmd_tick();
+					},
 				],
 			],
 			'accepts_fill' => false,
