@@ -104,7 +104,9 @@ class ConfigTest extends TestCase {
 	}
 
 	public function test_memcache_servers_wp_option_override_applies(): void {
-		\update_option( 'newspack_nodes_memcache_servers', 'test-host:11211' );
+		// The admin sanitizer now stores the typed (array) shape, so the raw
+		// overlay yields an array and no read-time coercion is needed.
+		\update_option( 'newspack_nodes_memcache_servers', [ 'test-host:11211' ] );
 		Config::reset();
 		$this->assertSame( [ 'test-host:11211' ], Config::load_config()['memcache_servers'] );
 	}
@@ -172,15 +174,9 @@ class ConfigTest extends TestCase {
 		Config::reset();
 		\update_option( 'newspack_nodes_num_partitions', '8' );
 		$config = Config::load_config();
-		$this->assertSame( 8, $config['num_partitions'] );
-	}
-
-	public function test_wp_option_invalid_int_falls_back_to_default(): void {
-		Config::reset();
-		\update_option( 'newspack_nodes_num_partitions', 'not-a-number' );
-		$config = Config::load_config();
-		// Should keep the default from the config file, not the invalid WP option.
-		$this->assertSame( 1, $config['num_partitions'] );
+		// Options are read raw now (no read-time coercion); the stored numeric
+		// string passes through unchanged.
+		$this->assertSame( '8', $config['num_partitions'] );
 	}
 
 	public function test_empty_wp_option_uses_file_default(): void {

@@ -389,18 +389,18 @@ class AdminTest extends TestCase {
 		$this->assertIsArray( $cb );
 		$this->assertSame( 'sanitize_memcache_servers', $cb[1] );
 
-		// Valid: host:port (incl. underscore for Docker container names).
-		$this->assertSame( "127.0.0.1:11211\nmem-cache_1:11211", \call_user_func( $cb, "127.0.0.1:11211\nmem-cache_1:11211" ) );
+		// Valid: host:port (incl. underscore for Docker container names). Stored as the typed array shape.
+		$this->assertSame( [ '127.0.0.1:11211', 'mem-cache_1:11211' ], \call_user_func( $cb, "127.0.0.1:11211\nmem-cache_1:11211" ) );
 
 		// Invalid lines silently dropped; valid ones survive.
-		$this->assertSame( '127.0.0.1:11211', \call_user_func( $cb, "127.0.0.1:11211\nbogus_no_port\nhost:notaport" ) );
+		$this->assertSame( [ '127.0.0.1:11211' ], \call_user_func( $cb, "127.0.0.1:11211\nbogus_no_port\nhost:notaport" ) );
 
-		// All-invalid input → empty string.
-		$this->assertSame( '', \call_user_func( $cb, "no-port-here\nalso-bad" ) );
+		// All-invalid input → empty array.
+		$this->assertSame( [], \call_user_func( $cb, "no-port-here\nalso-bad" ) );
 
-		// Empty / null preserved.
-		$this->assertSame( '', \call_user_func( $cb, '' ) );
-		$this->assertSame( '', \call_user_func( $cb, null ) );
+		// Empty / null → empty array.
+		$this->assertSame( [], \call_user_func( $cb, '' ) );
+		$this->assertSame( [], \call_user_func( $cb, null ) );
 
 		// Memcache servers must NOT be autoloaded (extended option).
 		$this->assertFalse( $GLOBALS['_registered_settings']['newspack_nodes_memcache_servers']['args']['autoload'] );
@@ -826,15 +826,15 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 	}
 
 	public function test_memcache_servers_callback_renders_saved_value(): void {
-		\update_option( 'newspack_nodes_memcache_servers', "10.0.0.1:11211\n10.0.0.2:11211" );
+		// Stored as the typed array shape; the textarea joins entries with newlines.
+		\update_option( 'newspack_nodes_memcache_servers', [ '10.0.0.1:11211', '10.0.0.2:11211' ] );
 		$admin = new Admin();
 
 		\ob_start();
 		$admin->memcache_servers_callback();
 		$html = \ob_get_clean();
 
-		$this->assertStringContainsString( '10.0.0.1:11211', $html );
-		$this->assertStringContainsString( '10.0.0.2:11211', $html );
+		$this->assertStringContainsString( "10.0.0.1:11211\n10.0.0.2:11211", $html );
 	}
 
 	// ---- topologies_callback ---------------------------------------------

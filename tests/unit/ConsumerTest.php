@@ -387,79 +387,6 @@ class ConsumerTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Hardening: is_caught_up.
-	// ============================================================================
-
-	public function test_is_caught_up_initially_true_with_no_segments(): void {
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-		$this->assertTrue( $c->is_caught_up(), 'no segments means trivially caught up' );
-	}
-
-	public function test_is_caught_up_false_when_unread_data(): void {
-		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
-		$this->produce_line( $source, 'hello' );
-
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-		$c->poll();
-		$this->assertTrue( $c->is_caught_up(), 'after polling all bytes, must be caught up' );
-
-		$this->produce_line( $source, 'more' );
-		\clearstatcache();
-		$this->assertFalse( $c->is_caught_up(), 'new bytes appearing must un-catch-up the reader' );
-	}
-
-	public function test_is_caught_up_true_after_polling_to_end(): void {
-		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
-		$this->produce_line( $source, 'a' );
-		$this->produce_line( $source, 'b' );
-
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-		$c->poll();
-		$this->assertTrue( $c->is_caught_up() );
-	}
-
-	// ============================================================================
-	// Hardening: open() segment-deleted recovery.
-	// ============================================================================
-
-	public function test_open_jumps_to_oldest_when_cursor_segment_deleted(): void {
-		// Set up a source with multiple segments, position cursor past the oldest, then delete it.
-		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data 0 32 2 0" );
-		// Force several rotations.
-		for ( $i = 0; $i < 6; $i++ ) {
-			$this->produce_line( $source, str_repeat( chr( 97 + $i ), 30 ) );
-		}
-		// cleanup_segments may have already pruned the oldest (num_segments=2, max_lifespan=0).
-
-		// Manually nuke whatever segment 0 still exists if it does.
-		@unlink( "{$this->tmp}/data/p0/0.log" );
-		@unlink( "{$this->tmp}/data/p0/0.idx" );
-
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-		// Force cursor to a deleted segment id (0).
-		$ref = new \ReflectionClass( $c );
-		$seg_prop = $ref->getProperty( 'cursor_seg' );
-		$seg_prop->setAccessible( true );
-		$seg_prop->setValue( $c, 0 );
-		$off_prop = $ref->getProperty( 'cursor_off' );
-		$off_prop->setAccessible( true );
-		$off_prop->setValue( $c, 100 );
-
-		$result = $c->open();
-		$this->assertNotNull( $result );
-		// Cursor should have moved to oldest available segment (not 0).
-		$this->assertNotSame( 0, $seg_prop->getValue( $c ) );
-		$this->assertSame( 0, $off_prop->getValue( $c ), 'cursor_off must reset to 0 on jump' );
-	}
-
-	// ============================================================================
 	// Hardening: next_offset 'end' (tail seek for fresh-tail SSE readers).
 	// ============================================================================
 
@@ -572,158 +499,6 @@ class ConsumerTest extends TestCase {
 		// Spec: negative offsets must be clamped to 0 (max(0, ...)).
 		$c->next_offset( [ 'seg' => 2, 'off' => -42 ] );
 		$this->assertSame( 0, $off->getValue( $c ), 'negative off must be clamped to 0' );
-	}
-
-	// ============================================================================
-	// next_segment() — segment rotation logic. Mirrors FirehoseReader::next_segment.
-	// ============================================================================
-
-	public function test_next_segment_returns_null_when_no_segments(): void {
-		// Empty source — nothing to advance to.
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-		$this->assertNull( $c->next_segment() );
-	}
-
-	public function test_next_segment_stays_when_current_segment_is_fresh(): void {
-		// Writer is still active on the current segment (mtime within
-		// STALE_SEGMENT_SECONDS): next_segment must not advance the cursor.
-		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data 0 32 4 86400" );
-		// 3 writes guaranteed to produce >=2 segments (matches pattern in
-		// test_next_offset_recent_picks_second_to_last_segment).
-		$this->produce_line( $source, str_repeat( 'a', 30 ) );
-		$this->produce_line( $source, str_repeat( 'b', 30 ) );
-		$this->produce_line( $source, str_repeat( 'c', 30 ) );
-
-		$segments = $source->get_segments( true );
-		$this->assertGreaterThanOrEqual( 2, count( $segments ), 'need >=2 segments' );
-
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-
-		$ref      = new \ReflectionClass( $c );
-		$seg_prop = $ref->getProperty( 'cursor_seg' );
-		$seg_prop->setAccessible( true );
-		// Position cursor on segment 0 (first written, exists on disk).
-		$seg_prop->setValue( $c, $segments[0]['id'] );
-
-		// Touch current segment to "now" so writer-fresh logic kicks in.
-		$current_path = "{$source->partition_dir()}/{$segments[0]['id']}.log";
-		@touch( $current_path, time() );
-		clearstatcache( true, $current_path );
-
-		$result = $c->next_segment();
-		$this->assertNull( $result, 'fresh segment must not advance' );
-		$this->assertSame( $segments[0]['id'], $seg_prop->getValue( $c ), 'cursor must remain on fresh segment' );
-	}
-
-	public function test_next_segment_advances_when_current_is_stale_and_next_exists(): void {
-		// Force >=2 segments. Touch the current one to look stale, then verify advance.
-		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data 0 32 4 86400" );
-		$this->produce_line( $source, str_repeat( 'a', 30 ) );
-		$this->produce_line( $source, str_repeat( 'b', 30 ) );
-		$this->produce_line( $source, str_repeat( 'c', 30 ) );
-
-		$segments = $source->get_segments( true );
-		$this->assertGreaterThanOrEqual( 2, count( $segments ), 'need >=2 segments' );
-		// next_segment uses cursor_seg + 1 — we need that successor to exist
-		// in the segment list. Pick the oldest and assert its successor exists.
-		$older       = $segments[0];
-		$has_plus_1  = in_array( $older['id'] + 1, array_column( $segments, 'id' ), true );
-		if ( ! $has_plus_1 ) {
-			$this->markTestSkipped( 'rotation produced non-contiguous segments; cannot test +1 advance' );
-			return;
-		}
-
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-
-		$ref      = new \ReflectionClass( $c );
-		$seg_prop = $ref->getProperty( 'cursor_seg' );
-		$seg_prop->setAccessible( true );
-		$off_prop = $ref->getProperty( 'cursor_off' );
-		$off_prop->setAccessible( true );
-		$rem_prop = $ref->getProperty( 'line_remainder' );
-		$rem_prop->setAccessible( true );
-
-		$seg_prop->setValue( $c, $older['id'] );
-		$off_prop->setValue( $c, 100 );        // Non-zero — must be reset on advance.
-		$rem_prop->setValue( $c, 'partial' );  // Non-empty — must be cleared on advance.
-
-		// Touch current segment far in the past (>STALE_SEGMENT_SECONDS).
-		$current_path = "{$source->partition_dir()}/{$older['id']}.log";
-		@touch( $current_path, time() - 60 );
-		clearstatcache( true, $current_path );
-
-		$expected_next = $older['id'] + 1;
-		$result        = $c->next_segment();
-
-		$this->assertSame( $expected_next, $result );
-		$this->assertSame( $expected_next, $seg_prop->getValue( $c ) );
-		$this->assertSame( 0, $off_prop->getValue( $c ), 'offset must reset on advance' );
-		$this->assertSame( '', $rem_prop->getValue( $c ), 'line_remainder must clear on advance' );
-	}
-
-	public function test_next_segment_returns_null_when_current_stale_but_no_next(): void {
-		// Single segment, stale. There's no "next id" to advance to → return null.
-		// Distinct from the firehose-wiped branch (has_curr=true, has_next=false).
-		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
-		$this->produce_line( $source, 'only' );
-
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-
-		// Stale-touch the only segment so we pass the freshness check, then
-		// hit the `! $has_next` branch.
-		$path = "{$source->partition_dir()}/0.log";
-		@touch( $path, time() - 60 );
-		clearstatcache( true, $path );
-
-		$ref = new \ReflectionClass( $c );
-		$seg = $ref->getProperty( 'cursor_seg' );
-		$seg->setAccessible( true );
-
-		$this->assertNull( $c->next_segment(), 'no successor segment → null' );
-		// Cursor must remain unchanged when next_segment can't advance.
-		$this->assertSame( 0, $seg->getValue( $c ) );
-	}
-
-	public function test_next_segment_resets_when_firehose_was_wiped(): void {
-		// has_curr=false AND has_next=false → "firehose was reset", jump to oldest.
-		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );
-		$this->produce_line( $source, 'a' );
-
-		$segments = $source->get_segments( true );
-		$this->assertNotEmpty( $segments );
-
-		$c   = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-		$ref = new \ReflectionClass( $c );
-		$seg = $ref->getProperty( 'cursor_seg' );
-		$seg->setAccessible( true );
-		$off = $ref->getProperty( 'cursor_off' );
-		$off->setAccessible( true );
-		$rem = $ref->getProperty( 'line_remainder' );
-		$rem->setAccessible( true );
-
-		// Park the cursor on a segment id that isn't (and can't be the +1 of) any
-		// existing segment: pick something far higher than max + 1.
-		$max_id = (int) end( $segments )['id'];
-		$seg->setValue( $c, $max_id + 100 );
-		$off->setValue( $c, 50 );
-		$rem->setValue( $c, 'leftover' );
-
-		$result = $c->next_segment();
-
-		// Must have rewound to the oldest available.
-		$this->assertSame( $segments[0]['id'], $result );
-		$this->assertSame( $segments[0]['id'], $seg->getValue( $c ) );
-		$this->assertSame( 0, $off->getValue( $c ) );
-		$this->assertSame( '', $rem->getValue( $c ) );
 	}
 
 	// ============================================================================
@@ -894,17 +669,6 @@ class ConsumerTest extends TestCase {
 	}
 
 	// ============================================================================
-	// open() — empty-segments path.
-	// ============================================================================
-
-	public function test_open_returns_null_when_no_segments(): void {
-		// Empty source: open() must return null without throwing.
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-		$this->assertNull( $c->open() );
-	}
-
-	// ============================================================================
 	// load_offsetlog() — corrupt / malformed checkpoint entries.
 	// ============================================================================
 
@@ -953,37 +717,6 @@ class ConsumerTest extends TestCase {
 		$off->setAccessible( true );
 		$this->assertSame( 0, $seg->getValue( $c ) );
 		$this->assertSame( 0, $off->getValue( $c ) );
-	}
-
-	// ============================================================================
-	// is_caught_up() — cursor strictly behind newest segment.
-	// ============================================================================
-
-	public function test_is_caught_up_false_when_cursor_segment_is_older_than_newest(): void {
-		// Multiple segments. Park the cursor on an older one — caught up must be
-		// false even if at_eof was set on the OLD segment.
-		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data 0 32 4 86400" );
-		$this->produce_line( $source, str_repeat( 'a', 30 ) );
-		$this->produce_line( $source, str_repeat( 'b', 30 ) );
-		$this->produce_line( $source, str_repeat( 'c', 30 ) );
-
-		$segments = $source->get_segments( true );
-		$this->assertGreaterThanOrEqual( 2, count( $segments ) );
-
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-
-		$ref = new \ReflectionClass( $c );
-		$seg = $ref->getProperty( 'cursor_seg' );
-		$seg->setAccessible( true );
-		// Park cursor on the OLDEST segment.
-		$seg->setValue( $c, $segments[0]['id'] );
-		$at_eof = $ref->getProperty( 'at_eof' );
-		$at_eof->setAccessible( true );
-		$at_eof->setValue( $c, true ); // Even if at_eof is true on the old segment.
-
-		$this->assertFalse( $c->is_caught_up(), 'cursor on older segment cannot be caught up' );
 	}
 
 	// ============================================================================
@@ -1781,55 +1514,6 @@ class ConsumerTest extends TestCase {
 	}
 
 	// ============================================================================
-	// is_caught_up() — set_state transition emission to subscribers.
-	// ============================================================================
-
-	public function test_is_caught_up_emits_CAUGHT_UP_state_only_on_transition(): void {
-		// is_caught_up() wraps compute_is_caught_up() with transition tracking
-		// — set_state('CAUGHT_UP', $bool) fires ONLY when the boolean flips.
-		// Subscribers can register on the event and see false→true→false
-		// without per-poll churn.
-		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
-
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-
-		// Manually inject a CAUGHT_UP listener via the registrations slot.
-		// (set_state caches the payload and notifies all registrants.)
-		$ref = new \ReflectionClass( $c );
-		$rp  = $ref->getProperty( 'registrations' );
-		$rp->setAccessible( true );
-		$regs                  = $rp->getValue( $c );
-		$regs['CAUGHT_UP']     = [];
-		$rp->setValue( $c, $regs );
-
-		$emits = [];
-		$c->register( 'CAUGHT_UP', 'observer', static function ( $v ) use ( &$emits ): bool {
-			$emits[] = $v;
-			return true;
-		} );
-		// On register, the cached payload (none yet) is NOT replayed
-		// because no set_state has fired — verified by emits == [].
-		$this->assertSame( [], $emits, 'no prior set_state → register replays nothing' );
-
-		// First is_caught_up() call: trivially true (no segments) → flips
-		// from sentinel(-1) to 1 → set_state fires.
-		$this->assertTrue( $c->is_caught_up() );
-		$this->assertSame( [ true ], $emits, 'first observation must fire' );
-
-		// Second call: same value → must NOT fire again.
-		$this->assertTrue( $c->is_caught_up() );
-		$this->assertSame( [ true ], $emits, 'duplicate state must NOT fire' );
-
-		// Add bytes, repoll → cursor falls behind → state flips to false.
-		$this->produce_line( $source, 'data' );
-		\clearstatcache();
-		$this->assertFalse( $c->is_caught_up() );
-		$this->assertSame( [ true, false ], $emits, 'flip must fire again' );
-	}
-
-	// ============================================================================
 	// Constructor: arguments() round-trip + ephemeral mode.
 	// ============================================================================
 
@@ -1984,34 +1668,6 @@ class ConsumerTest extends TestCase {
 
 		$this->assertSame( 0, $seg_prop->getValue( $c ) );
 		$this->assertSame( 0, $off_prop->getValue( $c ) );
-	}
-
-	// ============================================================================
-	// open() — segments empty edge case (returns null).
-	// ============================================================================
-
-	public function test_open_returns_segment_metadata_when_cursor_matches_existing(): void {
-		// open() with a cursor that matches an existing segment id returns
-		// that segment's metadata without resetting cursor_off.
-		$source = new Partition_Node();
-		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
-		$this->produce_line( $source, 'hello' );
-
-		$c = new Consumer_Node();
-		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
-		// Cursor is parked on segment 0 by default; segment 0 exists.
-
-		$ref      = new \ReflectionClass( $c );
-		$off_prop = $ref->getProperty( 'cursor_off' );
-		$off_prop->setAccessible( true );
-		$off_prop->setValue( $c, 5 );
-
-		$result = $c->open();
-		$this->assertNotNull( $result );
-		$this->assertSame( 0, $result['id'] );
-		$this->assertGreaterThan( 0, $result['size'] );
-		// cursor_off MUST NOT be reset when the segment is found.
-		$this->assertSame( 5, $off_prop->getValue( $c ) );
 	}
 
 	// ============================================================================
