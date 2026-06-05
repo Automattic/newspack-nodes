@@ -17,6 +17,9 @@
         <testsuite name="Integration Tests">
             <directory>integration</directory>
         </testsuite>
+        <testsuite name="Examples">
+            <directory suffix="Test.php">../examples</directory>
+        </testsuite>
     </testsuites>
     <source>
         <include>

@@ -37,6 +37,9 @@ phpcs.xml.dist
 phpstan.neon.dist
 sync-shared.sh
 
+# Examples ship as their own zips (build-release.sh)
+/examples
+
 # Dev infrastructure — not part of the installable plugin
 /coverage
 /scripts

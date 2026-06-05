@@ -459,3 +459,10 @@ require_once __DIR__ . '/Helpers/InMemoryMemcached.php';
 	}
 	return false; // simulate "no response received" — we'd hang up anyway.
 };
+
+// Pull in each bundled example's test bootstrap so example test suites run as
+// part of the main suite. Each example bootstrap require_once's THIS file (a
+// no-op mid-include) and registers its namespace for make_node resolution.
+foreach ( \glob( __DIR__ . '/../examples/*/tests/bootstrap.php' ) ?: [] as $example_bootstrap ) {
+	require_once $example_bootstrap;
+}

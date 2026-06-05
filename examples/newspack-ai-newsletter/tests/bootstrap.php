@@ -2,7 +2,7 @@
 /**
  * PHPUnit bootstrap for the ai-newsletter example.
  *
- * The example lives at newspack-nodes/examples/ai-newsletter/, so the substrate
+ * The example lives at newspack-nodes/examples/newspack-ai-newsletter/, so the substrate
  * bootstrap is three dirs up (tests -> ai-newsletter -> examples -> newspack-nodes).
  * It loads Node, Message, Core, Command_Interpreter_Node, and the test helpers
  * (Tests\TestCase, Capture_Sink_Node, VerbHarness).

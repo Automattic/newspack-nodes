@@ -14,18 +14,28 @@ use Newspack_Nodes\Message;
 
 class Summarizer_Node extends Node {
 
-	/** The ONE seam a real summarizer replaces: item -> one-line summary. Toy = deterministic template. */
+	/**
+	 * The ONE seam a real summarizer replaces: item -> one-line summary. Toy = deterministic template.
+	 *
+	 * @param array<string,mixed> $item
+	 */
 	protected function summarize( array $item ): string {
-		$title = $item['title'] ?? '(untitled)';
-		$body  = $item['body'] ?? '';
+		$title = \is_string( $item['title'] ?? null ) ? $item['title'] : '(untitled)';
+		$body  = \is_string( $item['body'] ?? null ) ? $item['body'] : '';
 		return $title . ' — ' . \mb_substr( $body, 0, 80 );
 	}
 
 	public function fill( array &$message ): void {
-		if ( 0 === ( $message[ Message::TYPE ] & Message::TM_STRUCT ) ) {
+		/** @var int $type */
+		$type = $message[ Message::TYPE ];
+		if ( 0 === ( $type & Message::TM_STRUCT ) ) {
 			return;
 		}
-		$item            = $message[ Message::VALUE ];
+		$item = $message[ Message::VALUE ];
+		if ( ! \is_array( $item ) ) {
+			return;
+		}
+		/** @var array<string,mixed> $item */
 		$item['summary'] = $this->summarize( $item );
 
 		$out                   = Message::new_message();

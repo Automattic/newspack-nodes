@@ -19,10 +19,17 @@ class Digest_Builder_Node extends Node {
 	private array $items = [];
 
 	public function fill( array &$message ): void {
-		if ( 0 === ( $message[ Message::TYPE ] & Message::TM_STRUCT ) ) {
+		/** @var int $type */
+		$type = $message[ Message::TYPE ];
+		if ( 0 === ( $type & Message::TM_STRUCT ) ) {
 			return;
 		}
-		$this->items[] = $message[ Message::VALUE ];
+		$value = $message[ Message::VALUE ];
+		if ( ! \is_array( $value ) ) {
+			return;
+		}
+		/** @var array<string,mixed> $value */
+		$this->items[] = $value;
 		++$this->counter;
 	}
 
@@ -30,7 +37,8 @@ class Digest_Builder_Node extends Node {
 	public function cmd_flush(): string {
 		$lines = [ '# Newsletter draft', '' ];
 		foreach ( $this->items as $item ) {
-			$lines[] = '- ' . ( $item['summary'] ?? '' );
+			$summary = $item['summary'] ?? '';
+			$lines[] = '- ' . ( \is_string( $summary ) ? $summary : '' );
 		}
 		$draft = \implode( "\n", $lines ) . "\n";
 
@@ -57,7 +65,11 @@ class Digest_Builder_Node extends Node {
 					'description' => 'Emit the accumulated draft and clear.',
 					'args'        => [],
 					// Auto-wired into the sibling `{node}:config` interpreter by Node::__construct().
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => $interpreter->patron()->cmd_flush(),
+					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
+						/** @var self $patron */
+						$patron = $interpreter->patron();
+						return $patron->cmd_flush();
+					},
 				],
 			],
 			'accepts_fill' => true,
