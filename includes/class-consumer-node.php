@@ -25,9 +25,6 @@ class Consumer_Node extends Timer_Node {
 		return self::POSITION_KEY_PREFIX . "{$host}:{$source_base_dir}:p{$partition}";
 	}
 
-	/** Wait this long for late contributors */
-	public const LINGER_SEGMENT_SECONDS = 5;
-
 	public const POLL_INTERVAL_EOF_MS = 100;
 
 	/** 0 = next event-loop iteration. */
@@ -67,9 +64,6 @@ class Consumer_Node extends Timer_Node {
 	protected string $line_remainder = '';
 
 	protected bool $at_eof = true;
-
-	/** @var int Last is_caught_up() emitted, so CAUGHT_UP fires only on flip. -1 sentinel, 0 false, 1 true. */
-	private int $last_caught_up_emit = -1;
 
 	/**
 	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
@@ -221,109 +215,6 @@ class Consumer_Node extends Timer_Node {
 				$this->cursor_off = 0;
 				break;
 		}
-	}
-
-	/** True if the last poll ran the newest segment to its end. */
-	public function is_caught_up(): bool {
-		$result = $this->compute_is_caught_up();
-		// Emit only when the boolean flips, to avoid per-poll churn.
-		$now = $result ? 1 : 0;
-		if ( $now !== $this->last_caught_up_emit ) {
-			$this->last_caught_up_emit = $now;
-			$this->set_state( 'CAUGHT_UP', $result );
-		}
-		return $result;
-	}
-
-	/** Pure computation extracted so is_caught_up() can wrap with transition tracking. */
-	private function compute_is_caught_up(): bool {
-		if ( ! $this->at_eof ) {
-			return false;
-		}
-		\clearstatcache( true, $this->source()->partition_dir() );
-		$segments = $this->source()->get_segments( true );
-		if ( empty( $segments ) ) {
-			return true;
-		}
-		$newest = \end( $segments );
-		if ( $this->cursor_seg < $newest['id'] ) {
-			return false;
-		}
-		$tail = $this->cursor_off + \strlen( $this->line_remainder );
-		return $tail >= $newest['size'];
-	}
-
-	/**
-	 * Open the source partition and resync if our cursor segment was deleted.
-	 *
-	 * @return array{id:int,size:int}|null Current segment metadata or null if no segments exist.
-	 */
-	public function open(): ?array {
-		\clearstatcache( true, $this->source()->partition_dir() );
-		$segments = $this->source()->get_segments( true );
-		if ( empty( $segments ) ) {
-			return null;
-		}
-		$found = null;
-		foreach ( $segments as $s ) {
-			if ( $s['id'] === $this->cursor_seg ) {
-				$found = $s;
-				break;
-			}
-		}
-		if ( null === $found ) {
-			// Cursor segment was deleted; jump to oldest and resync offset to 0.
-			$found                = $segments[0];
-			$this->cursor_seg     = $found['id'];
-			$this->cursor_off     = 0;
-			$this->line_remainder = '';
-		}
-		return $found;
-	}
-
-	/**
-	 * Move past the current segment after grace period (LINGER_SEGMENT_SECONDS).
-	 *
-	 * @return int|null New cursor segment id, or null if there's nothing to advance to.
-	 */
-	public function next_segment(): ?int {
-		\clearstatcache( true, $this->source()->partition_dir() );
-		$segments = $this->source()->get_segments( true );
-		if ( empty( $segments ) ) {
-			return null;
-		}
-
-		$ids       = \array_column( $segments, 'id' );
-		$next_id   = $this->cursor_seg + 1;
-		$has_next  = \in_array( $next_id, $ids, true );
-		$has_curr  = \in_array( $this->cursor_seg, $ids, true );
-
-		if ( ! $has_next && ! $has_curr ) {
-			// Both gone: firehose was reset; jump to oldest.
-			$this->cursor_seg     = $segments[0]['id'];
-			$this->cursor_off     = 0;
-			$this->line_remainder = '';
-			return $this->cursor_seg;
-		}
-
-		if ( $has_curr ) {
-			$current_path = "{$this->source()->partition_dir()}/{$this->cursor_seg}.log";
-			\clearstatcache( true, $current_path );
-			$mtime = @\filemtime( $current_path );
-			$stale = $mtime ? ( \time() - $mtime ) : PHP_INT_MAX;
-			if ( $stale < self::LINGER_SEGMENT_SECONDS ) {
-				return null; // Writer still active on this segment.
-			}
-		}
-
-		if ( ! $has_next ) {
-			return null;
-		}
-
-		$this->cursor_seg     = $next_id;
-		$this->cursor_off     = 0;
-		$this->line_remainder = '';
-		return $next_id;
 	}
 
 	/**

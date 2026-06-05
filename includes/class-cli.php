@@ -10,8 +10,6 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class CLI {
-	public const STALE_TIMEOUT = 60;
-
 	private string $base_dir;
 
 	public function __construct( string $base_dir ) {
@@ -42,7 +40,7 @@ class CLI {
 			$partition = (int) $m[2];
 			$hb        = "{$locks_dir}/{$entry}/heartbeat";
 			$mtime     = @\filemtime( $hb );
-			$stale     = ( false === $mtime || ( $now - $mtime ) > self::STALE_TIMEOUT );
+			$stale     = ( false === $mtime || ( $now - $mtime ) > Lock_Node::STALE_TIMEOUT );
 			$workers[] = [
 				'type'         => $type,
 				'partition'    => $partition,

@@ -368,6 +368,8 @@ class Admin {
 			self::OPTIONS_GROUP,
 			'newspack_nodes_memcache_servers',
 			[
+				'type'              => 'array',
+				'default'           => [],
 				'sanitize_callback' => [ $this, 'sanitize_memcache_servers' ],
 				'autoload'          => false,
 			]
@@ -477,15 +479,15 @@ class Admin {
 	/**
 	 * Sanitize memcache servers (newline-separated host:port; underscores allowed in hostnames).
 	 *
+	 * Stores the typed (array) shape so the raw option overlay in Config::load_config()
+	 * yields an array directly — consumers (Consumer_Node, ELN init_memcached) gate on is_array().
+	 *
 	 * @param mixed $value Newline-separated server list.
-	 * @return string Sanitized servers (one per line) or empty string if all invalid.
+	 * @return array<int,string> Validated `host:port` entries, or empty array if all invalid.
 	 */
-	public function sanitize_memcache_servers( $value ): string {
-		if ( '' === $value || null === $value ) {
-			return '';
-		}
+	public function sanitize_memcache_servers( $value ): array {
 		if ( ! \is_scalar( $value ) ) {
-			return '';
+			return [];
 		}
 		$lines           = \explode( "\n", (string) $value );
 		$sanitized_lines = [];
@@ -498,7 +500,7 @@ class Admin {
 				$sanitized_lines[] = $line;
 			}
 		}
-		return \implode( "\n", $sanitized_lines );
+		return $sanitized_lines;
 	}
 
 	/**
@@ -671,8 +673,11 @@ class Admin {
 		// Coerce each entry to string exactly as implode/esc_* already would.
 		$default_servers = \array_map( static fn ( $server ): string => \is_scalar( $server ) ? (string) $server : '', $default_servers );
 		$default_text    = \implode( "\n", $default_servers );
-		$value           = \get_option( 'newspack_nodes_memcache_servers', '' );
-		$value           = \is_scalar( $value ) ? (string) $value : '';
+		// Stored as the typed array shape; coerce each entry to string exactly as $default_servers does.
+		$value         = \get_option( 'newspack_nodes_memcache_servers', [] );
+		$value         = \is_array( $value ) ? $value : [];
+		$value         = \array_map( static fn ( $server ): string => \is_scalar( $server ) ? (string) $server : '', $value );
+		$value         = \implode( "\n", $value );
 		?>
 		<div style="display: flex; align-items: flex-start; gap: 10px;">
 			<div style="flex: 1;">
