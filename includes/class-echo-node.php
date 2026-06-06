@@ -13,10 +13,9 @@ class Echo_Node extends Node {
 
 	public function fill( array &$message ): void {
 		$raw_type = $message[ Message::TYPE ];
-		$raw_to   = $message[ Message::TO ];
 		$type     = \is_int( $raw_type ) ? $raw_type : 0;
-		$to       = \is_scalar( $raw_to ) ? (string) $raw_to : '';
-		$target = $this->target;
+		$to       = self::as_string( $message[ Message::TO ] );
+		$target   = $this->target;
 		if ( ( $type & Message::TM_ERROR ) && '' === $to ) {
 			return;
 		}
@@ -32,8 +31,8 @@ class Echo_Node extends Node {
 		return [
 			'category'    => 'Routing',
 			'description' => 'Re-addresses messages: target/TO, bounce, or pass-through.',
-			'arguments'        => [],
-			'commands'       => [],
+			'arguments'   => [],
+			'commands'    => [],
 		];
 	}
 }

@@ -90,8 +90,7 @@ class Node {
 			if ( ! \is_array( $verb ) ) {
 				continue;
 			}
-			$name_raw = $verb['name'] ?? '';
-			$name     = \is_scalar( $name_raw ) ? (string) $name_raw : '';
+			$name = self::as_string( $verb['name'] ?? '' );
 			if ( '' === $name || ! isset( $verb['handler'] ) || ! \is_callable( $verb['handler'] ) ) {
 				continue;
 			}
@@ -147,6 +146,11 @@ class Node {
 	 */
 	protected static function has_value( ?string $s ): bool {
 		return null !== $s && '' !== $s;
+	}
+
+	/** Canonical scalar→string read of a mixed Message field; '' for non-scalars (arrays/objects/null). */
+	protected static function as_string( mixed $value ): string {
+		return \is_scalar( $value ) ? (string) $value : '';
 	}
 
 	public function name( ?string $name = null ): string {
@@ -259,8 +263,7 @@ class Node {
 			if ( ! \is_array( $arg_spec ) ) {
 				continue;
 			}
-			$name_raw = $arg_spec['name'] ?? '';
-			$name     = \is_scalar( $name_raw ) ? (string) $name_raw : '';
+			$name     = self::as_string( $arg_spec['name'] ?? '' );
 			$type_raw = $arg_spec['type'] ?? 'string';
 			$type     = \is_string( $type_raw ) ? $type_raw : 'string';
 			if ( '' === $name || ! \property_exists( $this, $name ) ) {
@@ -323,9 +326,8 @@ class Node {
 			$this->print_less_often( 'ERROR: ' . static::class . ' stamp_message() called with empty name' );
 			return false;
 		}
-		$from_raw = $message[ Message::FROM ];
-		$from     = \is_scalar( $from_raw ) ? (string) $from_raw : '';
-		$new      = '' === $from ? $name : ( $name . '/' . $from );
+		$from = self::as_string( $message[ Message::FROM ] );
+		$new  = '' === $from ? $name : ( $name . '/' . $from );
 		if ( \strlen( $new ) > self::MAX_FROM_SIZE ) {
 			$this->print_less_often( 'ERROR: path exceeded ' . self::MAX_FROM_SIZE . " bytes; dropping from: $new" );
 			return false;
@@ -554,13 +556,11 @@ class Node {
 		// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl drop_message).
 		$prefix   = 'NOT_AVAILABLE' === $error ? "$error - " : "WARNING: $error - ";
 		$parts    = [ "$prefix$type_str" ];
-		$from_raw = $message[ Message::FROM ];
-		$from     = \is_scalar( $from_raw ) ? (string) $from_raw : '';
+		$from     = self::as_string( $message[ Message::FROM ] );
 		if ( '' !== $from ) {
 			$parts[] = 'from: ' . $from;
 		}
-		$to_raw = $message[ Message::TO ];
-		$to     = \is_scalar( $to_raw ) ? (string) $to_raw : '';
+		$to = self::as_string( $message[ Message::TO ] );
 		if ( '' !== $to ) {
 			$parts[] = 'to: ' . $to;
 		}
@@ -569,7 +569,7 @@ class Node {
 			// json-encode array VALUEs for the audit line; (string) would emit "Array" and warn.
 			$value_str = \is_array( $value )
 				? (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES )
-				: ( \is_scalar( $value ) ? (string) $value : '' );
+				: self::as_string( $value );
 			$parts[] = 'payload: ' . $value_str;
 		}
 

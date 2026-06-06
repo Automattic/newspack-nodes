@@ -444,8 +444,7 @@ class Consumer_Node extends Timer_Node {
 	/** Worker-type env tag (set by SpawnController after HMAC auth); '' when unset. */
 	private static function worker_type_env(): string {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
-		$wt = $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '';
-		return \is_scalar( $wt ) ? (string) $wt : '';
+		return self::as_string( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '' );
 	}
 
 	private function publish_position(): void {

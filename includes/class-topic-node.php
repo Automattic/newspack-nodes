@@ -106,8 +106,7 @@ class Topic_Node extends Node {
 		}
 
 		// Pre-pinned via TO: parse partition index out of TO's leading segment.
-		$raw_to = $message[ Message::TO ];
-		$to     = \is_scalar( $raw_to ) ? (string) $raw_to : '';
+		$to = self::as_string( $message[ Message::TO ] );
 		if ( '' !== $to && \preg_match( '/^p(\d+)/', $to, $m ) ) {
 			$idx = (int) $m[1];
 			if ( $idx >= 0 && $idx < $this->num_partitions ) {
@@ -116,8 +115,7 @@ class Topic_Node extends Node {
 			}
 		}
 		// KEY-routed (or round-robin if KEY empty).
-		$raw_key = $message[ Message::KEY ];
-		$key     = \is_scalar( $raw_key ) ? (string) $raw_key : '';
+		$key = self::as_string( $message[ Message::KEY ] );
 		if ( '' !== $key ) {
 			$idx = Partition_Node::hash_to_partition( $key, $this->num_partitions );
 		} else {
