@@ -42,9 +42,8 @@ class Tee_Node extends Node {
 		++$this->counter;
 
 		$raw_type = $message[ Message::TYPE ];
-		$raw_to   = $message[ Message::TO ];
 		$type     = \is_int( $raw_type ) ? $raw_type : 0;
-		$to       = \is_scalar( $raw_to ) ? (string) $raw_to : '';
+		$to       = self::as_string( $message[ Message::TO ] );
 		if ( '' === $to && $type & Message::TM_REQUEST ) {
 			$this->handle_request( $message );
 			return;
@@ -74,8 +73,7 @@ class Tee_Node extends Node {
 
 	/** @param array<int, mixed> $message Incoming request Message. */
 	private function handle_request( array $message ): void {
-		$raw     = $message[ Message::VALUE ];
-		$value   = \is_scalar( $raw ) ? (string) $raw : '';
+		$value   = self::as_string( $message[ Message::VALUE ] );
 		$verb    = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
 		$targets = \is_array( $this->target ) ? \array_values( $this->target ) : [];
 		$payload = 'GET_TARGETS' === $verb

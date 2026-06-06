@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Internal elegance refactor (behavior-preserving).** Extracted the repeated `is_scalar( $x ) ? (string) $x : ''` Message-field read into one named `Node::as_string()` helper and routed the Node-hierarchy call sites through it; aligned two `node_schema()` key blocks. No public contract change; full PHPUnit suite green (1735), PHPStan + PHPCS clean.
+
 - **Bundled examples (`examples/*/`) are now first-class.** Each example builds into its own
   installable release zip (dir name = plugin slug), excluded from the main `newspack-nodes.zip`;
   `build-release.sh` shares one `build_plugin_zip` function across examples + main plugin and the

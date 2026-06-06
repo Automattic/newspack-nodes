@@ -98,8 +98,7 @@ class Log_Node extends Node {
 			Core::print_less_often( "Log: cannot write to {$this->filename} (no open file handle)" );
 			return;
 		}
-		$value_raw            = $message[ Message::VALUE ];
-		$value                = \is_scalar( $value_raw ) ? (string) $value_raw : '';
+		$value                = self::as_string( $message[ Message::VALUE ] );
 		$write_len            = \strlen( $value );
 		$this->size          += $write_len;
 		$this->bytes_written += $write_len;

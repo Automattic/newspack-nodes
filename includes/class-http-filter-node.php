@@ -29,8 +29,7 @@ class HTTP_Filter_Node extends Node {
 
 	public function fill( array &$message ): void {
 		++$this->counter;
-		$to = $message[ Message::TO ];
-		[ $head, $reply_node ] = Message::split_first( \is_scalar( $to ) ? (string) $to : '' );
+		[ $head, $reply_node ] = Message::split_first( self::as_string( $message[ Message::TO ] ) );
 		// Match this session's `_sse:<pid>` head; drop silently otherwise — the
 		// reply belongs to a different session's SSE process.
 		if ( Node_Names::SSE . ':' . $this->own_pid !== $head ) {
