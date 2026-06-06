@@ -1,59 +1,51 @@
-# Files to exclude from the installable plugin zip.
-# Used by `./build-release.sh` via `rsync --exclude-from=.distignore`.
-#
-# NOTE: composer.json / composer.lock are NOT excluded — build-release.sh
-# runs `composer install --no-dev --optimize-autoloader` inside staging after
-# the rsync, so those files must ride along. They're removed from staging
-# right before the zip step.
-
-# OS noise (appears spontaneously during dev/build)
-.DS_Store
 ._*
-*.log
-Thumbs.db
-
-# Build output and staging (avoid self-recursion in rsync)
-.release-staging
-/release
-
-# VCS / IDE
 .claude
+.distignore
+.DS_Store
+.eslintrc.js
 .git
 .github
 .gitignore
+.gitkeep
+.phpstan
+.prettierrc.js
+.release-staging
+.stylelintrc.js
 .vscode
-
-# Dev tooling / configs
-.distignore
-babel.config.js
-build-release.sh
-cghooks.lock
-commitlint.config.js
-jest.config.js
-jest.style-mock.js
-package-lock.json
-package.json
-phpcs.xml.dist
-phpstan.neon.dist
-sync-shared.sh
-
-# Examples ship as their own zips (build-release.sh)
-/examples
-
-# Dev infrastructure — not part of the installable plugin
+*.log
+/.newspack-nodes
+/bin
 /coverage
+/docs
+/examples
+/mu-plugins
+/release
 /scripts
 /src
 /tests
 /vendor
-node_modules
-
-# Dev documentation (WordPress.org reads readme.txt; README.md is GitHub-only)
 AGENTS.md
 API.md
 ARCHITECTURE.md
+babel.config.js
+build-release.sh
+cghooks.lock
 CHANGELOG.md
 CLAUDE.md
-README.md
+commitlint.config.js
 GETTING-STARTED.md
+jest.config.js
+jest.style-mock.js
+MIGRATION.md
+node_modules
+package-lock.json
+package.json
+phpcs.xml.dist
+phpstan.neon.dist
+phpunit-unit.xml
+phpunit.xml
+README.md
+sync-shared.sh
+Thumbs.db
+webpack.config.js
 WRITING-A-PLUGIN.md
