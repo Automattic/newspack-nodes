@@ -3,7 +3,7 @@ import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import { Node } from '../../runtime/node';
 import { DumperNode } from '../../runtime/dumper-node';
-import { Shell } from '../../topology-console/nodes/shell';
+import { ShellNode } from '../../runtime/shell-node';
 import names from '../../runtime/reserved-node-names.json';
 import { TO } from '../../runtime/message';
 import { useDebugGraph } from '../useDebugGraph';
@@ -126,7 +126,7 @@ describe( 'useDebugGraph', () => {
 		a.setName( 'a' );
 		const b = new Node();
 		b.setName( 'b' );
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
@@ -144,7 +144,7 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.setName( 'a' );
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		// tail = `connect_node a` with NO target — connect_node defaults to the
@@ -180,7 +180,7 @@ describe( 'useDebugGraph', () => {
 		// commitDrop dispatches once the modal confirms. Earlier the positional
 		// implementation got `[object Object]` as the shellName.
 		const { teardown } = mountExospine();
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () =>
@@ -211,7 +211,7 @@ describe( 'useDebugGraph', () => {
 		// after sendLine('make_node …'); the overlay does the same via the
 		// onPositionChange callback the consumer passes in.
 		const { teardown } = mountExospine();
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const calls = [];
 		const onPositionChange = ( id, pos ) => calls.push( { id, pos } );
@@ -246,7 +246,7 @@ describe( 'useDebugGraph', () => {
 		// Back-compat: passing no onPositionChange (e.g., from tests that
 		// don't care about layout) MUST NOT crash; make_node still fires.
 		const { teardown } = mountExospine();
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () =>
@@ -280,7 +280,7 @@ describe( 'useDebugGraph', () => {
 		const interpreter = new Node();
 		interpreter.setName( 'my-interpreter' );
 		const fillSpy = jest.spyOn( interpreter, 'fill' );
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const classes = [ { shell_name: 'Node', is_interpreter: true } ];
 		const { result } = renderHook( () =>
@@ -316,7 +316,7 @@ describe( 'useDebugGraph', () => {
 		config.setName( 'my-node:config' );
 		const nodeFillSpy = jest.spyOn( node, 'fill' );
 		const configFillSpy = jest.spyOn( config, 'fill' );
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		// No catalog entry (or is_interpreter:false) ⇒ target :config sibling.
 		const classes = [ { shell_name: 'Node', is_interpreter: false } ];
@@ -338,7 +338,7 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.setName( 'a' );
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
@@ -353,7 +353,7 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.setName( 'a' );
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
@@ -368,7 +368,7 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.setName( 'a' );
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
@@ -383,7 +383,7 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.setName( 'a' );
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
@@ -397,7 +397,7 @@ describe( 'useDebugGraph', () => {
 
 	it( 'onDropNode on a class that DECLARES arguments stages pendingDrop instead of dispatching', () => {
 		const { teardown } = mountExospine();
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
 		const classes = [
@@ -438,7 +438,7 @@ describe( 'useDebugGraph', () => {
 
 	it( 'commitDrop dispatches make_node with the modal-provided name + args and records the drop position', () => {
 		const { teardown } = mountExospine();
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
 		const classes = [
@@ -479,7 +479,7 @@ describe( 'useDebugGraph', () => {
 
 	it( 'commitDrop with empty-trimmed args omits the trailing arg portion', () => {
 		const { teardown } = mountExospine();
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
 		const classes = [
@@ -507,7 +507,7 @@ describe( 'useDebugGraph', () => {
 
 	it( 'cancelDrop clears pendingDrop and never dispatches make_node', () => {
 		const { teardown } = mountExospine();
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
 		const classes = [
@@ -539,7 +539,7 @@ describe( 'useDebugGraph', () => {
 		// user can override the auto-generated name on the way in. The modal
 		// just shows the empty args row with no placeholder.
 		const { teardown } = mountExospine();
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
 		const classes = [ { shell_name: 'Tee', arguments: [] } ];
@@ -576,7 +576,7 @@ describe( 'useDebugGraph', () => {
 		const dumper = mountOutput();
 		const a = new Node();
 		a.setName( 'a' );
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 
@@ -614,7 +614,7 @@ describe( 'useDebugGraph', () => {
 		node.setName( 'my-node' );
 		const config = new Node();
 		config.setName( 'my-node:config' );
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const classes = [ { shell_name: 'Node', is_interpreter: false } ];
 		const { result } = renderHook( () =>
@@ -641,7 +641,7 @@ describe( 'useDebugGraph', () => {
 		a.setName( 'a' );
 		const b = new Node();
 		b.setName( 'b' );
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () => result.current.handlers.onConnect( 'a', 'b' ) );
@@ -654,7 +654,7 @@ describe( 'useDebugGraph', () => {
 	it( 'commitDrop echoes make_node into the transcript', () => {
 		const { teardown } = mountExospine();
 		const dumper = mountOutput();
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
 		act( () =>
@@ -682,7 +682,7 @@ describe( 'useDebugGraph', () => {
 		a.setName( 'a' );
 		const b = new Node();
 		b.setName( 'b' );
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
@@ -705,7 +705,7 @@ describe( 'useDebugGraph', () => {
 		// Capture the invoke message at fill time — routing peels TO in place, so a
 		// post-hoc mock.calls read sees the mutated value. A stub sink snapshots it.
 		const captured = [];
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.path = '_http';
 		shell.sink = {
 			fill: ( m ) => captured.push( Array.isArray( m ) ? m.slice() : m ),
@@ -738,7 +738,7 @@ describe( 'useDebugGraph', () => {
 		const b = new Node();
 		b.setName( 'b' );
 		const interpreter = Core.node( names.COMMAND_INTERPRETER );
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.path = '';
 		shell.sink = interpreter; // bound by the build, before render
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );

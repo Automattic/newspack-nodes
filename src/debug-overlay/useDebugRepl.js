@@ -6,7 +6,7 @@ import {
 	useState,
 } from '@wordpress/element';
 import { Core } from '../runtime/core';
-import { splitStatements } from '../topology-console/nodes/shell';
+import { splitStatements } from '../runtime/shell-node';
 import { dispatchLocalCommand } from '../topology-console/core/dispatchLocalCommand';
 import { DumperNode } from '../runtime/dumper-node';
 import { useGraphGeneration } from '../runtime/react';

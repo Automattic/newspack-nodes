@@ -14,7 +14,7 @@ import { render, act } from '@testing-library/react';
 import { useMemo } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
-import { Shell } from '../../topology-console/nodes/shell';
+import { ShellNode } from '../../runtime/shell-node';
 import { useDebugRepl } from '../useDebugRepl';
 import { useNodeState } from '../../runtime/react';
 import names from '../../runtime/reserved-node-names.json';
@@ -23,7 +23,7 @@ beforeEach( () => Core.reset() );
 
 function Harness() {
 	const shell = useMemo( () => {
-		const s = new Shell();
+		const s = new ShellNode();
 		s.path = '';
 		s.sink = Core.node( names.COMMAND_INTERPRETER );
 		return s;

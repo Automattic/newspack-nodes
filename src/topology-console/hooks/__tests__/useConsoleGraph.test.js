@@ -15,7 +15,7 @@ import { UptimeNode } from '../../../runtime/uptime-node';
 import { CompletionNode } from '../../../runtime/completion-node';
 import { HeartbeatNode } from '../../../runtime/heartbeat-node';
 import { HttpOutNode } from '../../../runtime/http-out-node';
-import { Shell } from '../../nodes/shell';
+import { ShellNode } from '../../../runtime/shell-node';
 import names from '../../../runtime/reserved-node-names.json';
 
 let lastConnector = null;
@@ -191,7 +191,7 @@ describe( 'useConsoleGraph — graph topology', () => {
 	it( 'wires Shell.sink → _command_interpreter → _router', () => {
 		const { result } = renderGraph();
 		const shell = result.current.shell;
-		expect( shell ).toBeInstanceOf( Shell );
+		expect( shell ).toBeInstanceOf( ShellNode );
 		expect( shell.sink ).toBe( Core.node( names.COMMAND_INTERPRETER ) );
 		expect( Core.node( names.COMMAND_INTERPRETER ).sink ).toBe(
 			Core.node( names.ROUTER )

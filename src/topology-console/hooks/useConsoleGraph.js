@@ -15,7 +15,7 @@ import { useGraphGeneration } from '../../runtime/react';
 import { Node } from '../../runtime/node';
 import { mountExospine } from '../../runtime/exospine';
 import { DumperNode } from '../../runtime/dumper-node';
-import { Shell } from '../nodes/shell';
+import { ShellNode } from '../../runtime/shell-node';
 import { getCommandClient } from '../utils/commandClient';
 import usePageVisibility from '../../shared/hooks/usePageVisibility';
 import names from '../../runtime/reserved-node-names.json';
@@ -30,7 +30,7 @@ import names from '../../runtime/reserved-node-names.json';
  *                                       so cd-ing off a worker stops streaming without rebuilding the graph. Default
  *                                       true (the initial cwd is the session's own worker).
  * @param {Object}  params.debugLevelRef React ref holding the Dumper verbosity dial.
- * @return {{status: string, ssePid: ?number, shell: ?Shell}} Connection state +
+ * @return {{status: string, ssePid: ?number, shell: ?ShellNode}} Connection state +
  *   the anonymous Shell (the console drives typed input through it).
  */
 export function useConsoleGraph( {
@@ -138,7 +138,7 @@ export function useConsoleGraph( {
 		// `_sse/{reader}` — routes through `_sse`, which wraps the reply privately.
 		// (`cd /_http/{reader}` opts into broadcast.) Static: the pid lives only in
 		// the wrapped FROM, not the path.
-		const consoleShell = new Shell();
+		const consoleShell = new ShellNode();
 		consoleShell.path = `${ names.SSE }/${ reader }`;
 		consoleShell.sink = interpreter;
 

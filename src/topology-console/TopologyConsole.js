@@ -47,7 +47,7 @@ import { augmentWithVirtualEdges } from './utils/virtualEdges';
 import { parseTsl } from './utils/parseTsl';
 import { makeReplDismissHandler } from './utils/replDismissHandler';
 import { serializeTsl } from './utils/serializeTsl';
-import { splitStatements } from './nodes/shell';
+import { splitStatements } from '../runtime/shell-node';
 import { dispatchLocalCommand } from './core/dispatchLocalCommand';
 import { Core } from '../runtime/core';
 import { TO } from '../runtime/message';

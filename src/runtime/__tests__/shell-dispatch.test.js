@@ -1,5 +1,5 @@
 /**
- * Shell.dispatch — the single chokepoint every outgoing Message routes through
+ * ShellNode.dispatch — the single chokepoint every outgoing Message routes through
  * (sendCommand, parse-then-fill from the REPL, and GUI gestures). It invokes the
  * optional `onDispatch` tap, then fills `this.sink`. The tap lets the UI observe
  * graph-mutating commands (make_node / connect_node / …) uniformly, regardless of
@@ -8,13 +8,13 @@
  * "I dispatched a message".
  */
 
-import { Shell } from '../shell';
-import { VALUE } from '../../../runtime/message';
+import { ShellNode } from '../shell-node';
+import { VALUE } from '../message';
 
-describe( 'Shell.dispatch', () => {
+describe( 'ShellNode.dispatch', () => {
 	it( 'fills the message into sink', () => {
 		const captured = [];
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = { fill: ( m ) => captured.push( m ) };
 		const msg = [];
 
@@ -25,7 +25,7 @@ describe( 'Shell.dispatch', () => {
 
 	it( 'invokes the onDispatch tap with the message before filling sink', () => {
 		const order = [];
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = { fill: () => order.push( 'sink' ) };
 		shell.onDispatch = ( m ) => order.push( `tap:${ m[ VALUE ].name }` );
 
@@ -35,13 +35,13 @@ describe( 'Shell.dispatch', () => {
 	} );
 
 	it( 'is a no-op without sink and tolerates no tap', () => {
-		const shell = new Shell();
+		const shell = new ShellNode();
 		expect( () => shell.dispatch( [] ) ).not.toThrow();
 	} );
 
 	it( 'routes sendCommand through dispatch so the tap sees the command', () => {
 		const seen = [];
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = { fill: () => {} };
 		shell.onDispatch = ( m ) => seen.push( m[ VALUE ].name );
 
@@ -52,7 +52,7 @@ describe( 'Shell.dispatch', () => {
 
 	it( 'routes a parsed REPL line through dispatch so the tap sees the verb', () => {
 		const seen = [];
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = { fill: () => {} };
 		shell.onDispatch = ( m ) => seen.push( m[ VALUE ].name );
 

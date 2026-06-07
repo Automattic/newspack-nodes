@@ -1,5 +1,5 @@
 /**
- * Shell — the anonymous, React-driven REPL parser node. A typed line becomes a
+ * ShellNode — the anonymous, React-driven REPL parser node. A typed line becomes a
  * single positional Message (the substrate's only format) and is filled into
  * the sink (`_command_interpreter`); local builtins (`clear`, `debug_level`)
  * return a `{ kind: 'local', … }` signal for TopologyConsole to act on instead.
@@ -10,7 +10,7 @@
  * to `_output` (the Dumper). TO=`prefix(path)` (path defaults to `_http/{reader}`).
  */
 
-import { Node } from '../../runtime/node';
+import { Node } from './node';
 import {
 	newMessage,
 	TYPE,
@@ -24,13 +24,13 @@ import {
 	TM_BYTESTREAM,
 	TM_EOF,
 	TM_REQUEST,
-} from '../../runtime/message';
-import names from '../../runtime/reserved-node-names.json';
+} from './message';
+import names from './reserved-node-names.json';
 
 /**
  * Quote-aware tokenizer ('/"/`): splits on unquoted whitespace, strips the
  * quote chars; an empty quoted string still counts as a token. Mirrors PHP
- * Shell::tokenize so verb/arg slicing matches byte-for-byte.
+ * Shell_Node::tokenize so verb/arg slicing matches byte-for-byte.
  *
  * @param {string} line Interpolated, trimmed line.
  * @return {string[]} Tokens with quote chars removed and runs collapsed.
@@ -74,7 +74,7 @@ export function tokenize( line ) {
 
 /**
  * Split a typed line on unquoted `;` into statements (quotes shield interior
- * `;`). Mirrors PHP Shell::split_statements for a single line.
+ * `;`). Mirrors PHP Shell_Node::split_statements for a single line.
  *
  * @param {string} line Raw line from the REPL input.
  * @return {string[]} Zero or more individual statements.
@@ -114,7 +114,7 @@ export function splitStatements( line ) {
 	return statements;
 }
 
-export class Shell extends Node {
+export class ShellNode extends Node {
 	constructor() {
 		super();
 		// cwd: the node-path bare verbs route to by default. Settable by the host.
@@ -151,7 +151,7 @@ export class Shell extends Node {
 
 	/**
 	 * Single-tier interpolation: `<name>` → vars, `<config:foo>` → config, unknown → ''.
-	 * Mirrors PHP Shell::interpolate (runs before tokenizing).
+	 * Mirrors PHP Shell_Node::interpolate (runs before tokenizing).
 	 *
 	 * @param {string} line Raw line.
 	 * @return {string} Interpolated line.
@@ -169,7 +169,7 @@ export class Shell extends Node {
 		);
 	}
 
-	// Instance accessor for the quote-aware tokenizer (PHP Shell::tokenize).
+	// Instance accessor for the quote-aware tokenizer (PHP Shell_Node::tokenize).
 	tokenize( line ) {
 		return tokenize( line );
 	}
@@ -194,7 +194,7 @@ export class Shell extends Node {
 	}
 
 	/**
-	 * Resolve a relative/absolute path against the cwd (mirrors PHP Shell::cd).
+	 * Resolve a relative/absolute path against the cwd (mirrors PHP Shell_Node::cd).
 	 * `/` resets to the browser-local graph root; `/x` is absolute; `..` walks up;
 	 * anything else appends. The result is TO-ready (no leading/trailing slash).
 	 *

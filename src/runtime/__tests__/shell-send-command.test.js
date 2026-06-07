@@ -1,27 +1,20 @@
 /**
- * Shell.sendCommand — thin wrapper that builds a TM_COMMAND via Node.command()
+ * ShellNode.sendCommand — thin wrapper that builds a TM_COMMAND via Node.command()
  * (Task 1), stamps the session's FROM (via replyFrom( names.OUTPUT )) + LOCAL
  * provenance + the target TO, and fills it through this.sink. Mirrors
  * Tachikoma::Nodes::Shell::send_command — callers issue commands as method
  * calls instead of via parse().
  */
 
-import { Shell } from '../shell';
-import {
-	TYPE,
-	FROM,
-	TO,
-	VALUE,
-	LOCAL,
-	TM_COMMAND,
-} from '../../../runtime/message';
-import names from '../../../runtime/reserved-node-names.json';
+import { ShellNode } from '../shell-node';
+import { TYPE, FROM, TO, VALUE, LOCAL, TM_COMMAND } from '../message';
+import names from '../reserved-node-names.json';
 
-describe( 'Shell.sendCommand', () => {
+describe( 'ShellNode.sendCommand', () => {
 	it( 'builds a command message, stamps FROM/TO/LOCAL, and fills sink', () => {
 		const captured = [];
 		const sink = { fill: ( m ) => captured.push( m ) };
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.sink = sink;
 
 		shell.sendCommand( 'some/path', 'connect_node', 'a b' );
@@ -39,7 +32,7 @@ describe( 'Shell.sendCommand', () => {
 	} );
 
 	it( 'is a no-op without sink', () => {
-		const shell = new Shell();
+		const shell = new ShellNode();
 		expect( () => shell.sendCommand( '', 'pwd', '' ) ).not.toThrow();
 	} );
 } );

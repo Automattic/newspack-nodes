@@ -3,14 +3,14 @@ import { StrictMode } from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import names from '../../runtime/reserved-node-names.json';
-import { Shell } from '../../topology-console/nodes/shell';
+import { ShellNode } from '../../runtime/shell-node';
 import { VALUE } from '../../runtime/message';
 import { useDebugRepl } from '../useDebugRepl';
 
 // Build a Shell configured the same way DebugOverlay does — empty cwd, sinks
 // into the page's CommandInterpreter. Shared by every test that mounts the hook.
 function makeShell() {
-	const shell = new Shell();
+	const shell = new ShellNode();
 	shell.path = '';
 	shell.sink = Core.node( names.COMMAND_INTERPRETER );
 	return shell;
@@ -77,7 +77,7 @@ describe( 'useDebugRepl', () => {
 		// fast open-and-type can't hit a null shell.sink, so there is no
 		// dispatch-time resolve. shell.sink is bound on the very first render.
 		const { teardown } = mountExospine();
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.path = '';
 		shell.sink = null; // unbound until the hook's build binds it
 		const interpreter = Core.node( names.COMMAND_INTERPRETER );
@@ -241,7 +241,7 @@ describe( 'useDebugRepl', () => {
 		// via Core.stderr (the canary) instead of silently no-op'ing. This is the
 		// genuine-absence case the build-before-render guarantee can't cover.
 		mountExospine();
-		const shell = new Shell();
+		const shell = new ShellNode();
 		shell.path = '';
 		shell.sink = null;
 		const stderrSpy = jest.spyOn( Core, 'stderr' ).mockImplementation();

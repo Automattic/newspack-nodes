@@ -57,7 +57,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 	const { CompletionNode } = require( '../../runtime/completion-node' );
 	const { HttpOutNode } = require( '../../runtime/http-out-node' );
 	const { SseInNode } = require( '../../runtime/sse-in-node' );
-	const { Shell } = require( '../nodes/shell' );
+	const { ShellNode } = require( '../../runtime/shell-node' );
 	const reserved = require( '../../runtime/reserved-node-names.json' );
 	const NAMES = [
 		reserved.ROUTER,
@@ -133,7 +133,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				sse.sink = router;
 				sse.target = reserved.OUTPUT;
 				sse.pid = () => 1234;
-				const shell = new Shell();
+				const shell = new ShellNode();
 				shell.path = `${ reserved.SSE }/${ reader }`;
 				shell.sink = interpreter;
 				// `_cwd` indirection node: a plain Node whose target IS the cwd.
