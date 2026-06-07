@@ -136,6 +136,22 @@ export function scopeFromCwd( cwd ) {
 	return { key: cwd, label, partition: null, isWorker: false };
 }
 
+// The localStorage key the canvas position map persists under, or null to skip
+// persistence. View mode keys by the cwd scope (each worker / `/` / `_sse` keeps
+// its own layout). Edit mode keys by the TOPOLOGY being edited — an unactivated
+// topology has no worker to `cd` onto, so a cwd-derived key would collide every
+// edited topology onto one slot (and stomp the live local-scope layout). An
+// untitled draft has no identity, so it returns null (in-memory only) rather than
+// share a slot. Cross-mode persistence rides the server-saved layout (layouts CI).
+export function layoutStorageKey( { mode, editingName, scopeKey } ) {
+	if ( 'edit' === mode ) {
+		return editingName
+			? `newspack-nodes:topology:edit:${ editingName }`
+			: null;
+	}
+	return `newspack-nodes:topology:${ scopeKey }`;
+}
+
 // The browser console's `status` builtin summary — the JS analogue of the PHP
 // cli's `$shell->status_lines`. Reports the SSE session, the cwd, and which
 // worker (if any) the cwd is pivoted into. `worker` is a longestWorkerPrefix()
@@ -458,11 +474,14 @@ export default function TopologyConsole() {
 		layoutGraph.nodes.length > 0 &&
 		( ! isServerScope || serverFetchResolved );
 
-	// One layout entry per scope: a single localStorage key holds
-	// `{ positions, viewport, modified }`. Edit and view share the same key so a
-	// layout saved in either mode rehydrates on the other — the user's mental
-	// model is "the layout at this scope", not "this scope in this mode".
-	const positionStorageKey = `newspack-nodes:topology:${ scope.key }`;
+	// One layout entry per scope (view) or per edited topology (edit). The key
+	// holds `{ positions, viewport, modified }`; cross-mode persistence rides the
+	// server-saved layout, not this localStorage cache. See layoutStorageKey.
+	const positionStorageKey = layoutStorageKey( {
+		mode,
+		editingName,
+		scopeKey: scope.key,
+	} );
 	const {
 		positions: positionOverrides,
 		viewport,

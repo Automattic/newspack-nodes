@@ -17,6 +17,7 @@ import { mountExospine } from '../../runtime/exospine';
 import { DumperNode } from '../../runtime/dumper-node';
 import { Shell } from '../nodes/shell';
 import { getCommandClient } from '../utils/commandClient';
+import usePageVisibility from '../../shared/hooks/usePageVisibility';
 import names from '../../runtime/reserved-node-names.json';
 
 /**
@@ -41,6 +42,11 @@ export function useConsoleGraph( {
 } ) {
 	const [ ssePid, setSsePid ] = useState( null );
 	const [ shell, setShell ] = useState( null );
+
+	// A long-hidden tab throttles the heartbeat TIMER, so the SSE slot TTLs out and
+	// the stream dies. Gate the stream on visibility (same pattern as the dashboards):
+	// close while hidden, reopen on refocus.
+	const isPageVisible = usePageVisibility();
 
 	// Reset Graph bumps the generation; including it here re-runs the graph effect
 	// (cleanup tears down the spine, the effect rebuilds it fresh off the canonical
@@ -205,10 +211,12 @@ export function useConsoleGraph( {
 		};
 	}, [ topology, partition, enabled, generation ] );
 
-	// SSE stream gating: open the EventSource only while the graph is mounted AND
-	// the cwd is a worker (streamEnabled). Closing on cd-off-worker drops the pid
-	// and the heartbeat slot (the keepalive goes quiet, so the server reclaims the
-	// slot at TTL); cd-ing back reopens and re-acquires via the `connected` event.
+	// SSE stream gating: open the EventSource only while the graph is mounted, the
+	// cwd is a worker (streamEnabled), AND the tab is visible. Closing on
+	// cd-off-worker OR tab-hide drops the pid and the heartbeat slot (the keepalive
+	// goes quiet, so the server reclaims the slot at TTL); cd-ing back or refocusing
+	// reopens and re-acquires via the `connected` event. start() is close()-first,
+	// so re-running while already open is safe.
 	useEffect( () => {
 		if ( ! enabled ) {
 			return undefined;
@@ -217,7 +225,7 @@ export function useConsoleGraph( {
 		if ( ! sse ) {
 			return undefined;
 		}
-		if ( streamEnabled ) {
+		if ( streamEnabled && isPageVisible ) {
 			sse.start();
 		} else {
 			sse.close();
@@ -225,7 +233,7 @@ export function useConsoleGraph( {
 			setSsePid( null );
 		}
 		return undefined;
-	}, [ streamEnabled, topology, partition, enabled ] );
+	}, [ streamEnabled, isPageVisible, topology, partition, enabled ] );
 
 	let status = 'open';
 	if ( ! enabled ) {

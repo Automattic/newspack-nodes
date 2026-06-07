@@ -2519,18 +2519,27 @@ describe( 'TopologyConsole boot', () => {
 		expect( queryByTestId( 'open-modal' ) ).toBeNull();
 	} );
 
-	it( 'edit mode reads positions from the SAME storage key as view mode (no separate :edit: suffix)', async () => {
-		// User saved a layout in a prior session at this scope. Entering edit
-		// mode must rehydrate those positions — NOT fall through to autoLayout
-		// because a separate `:edit:topology` suffix put the load somewhere
-		// else. The mock useConsoleGraph spawns Shell at `_sse/demo.p0`, so
-		// scope.key === 'demo.p0' (worker scope for the active topology).
+	it( 'edit mode reads positions from a per-topology key, NOT the cwd/worker scope key', async () => {
+		// The fix for "unactivated topologies stomping each other": edit mode keys
+		// the layout by the topology being edited (`edit:{name}`), independent of
+		// the cwd. Pre-seed BOTH the worker scope (`demo.p0` — the mock Shell's
+		// cwd) and the per-topology edit key with DIFFERENT positions; entering
+		// edit on `demo` must rehydrate the edit key, proving it ignores the cwd
+		// scope (otherwise two topologies edited from one cwd would collide).
 		window.localStorage.setItem(
 			'newspack-nodes:topology:demo.p0',
 			JSON.stringify( {
 				positions: { n1: { x: 700, y: 900 } },
 				viewport: null,
-				dirty: true,
+				modified: true,
+			} )
+		);
+		window.localStorage.setItem(
+			'newspack-nodes:topology:edit:demo',
+			JSON.stringify( {
+				positions: { n1: { x: 111, y: 222 } },
+				viewport: null,
+				modified: true,
 			} )
 		);
 		hooks.fetchTopology.mockResolvedValueOnce( {
@@ -2546,8 +2555,8 @@ describe( 'TopologyConsole boot', () => {
 			await new Promise( ( r ) => setTimeout( r, 10 ) );
 		} );
 		expect( lastCanvasProps.positionOverrides.n1 ).toEqual( {
-			x: 700,
-			y: 900,
+			x: 111,
+			y: 222,
 		} );
 	} );
 
@@ -3051,9 +3060,11 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		// After edit-mode Reset the layout is autoLayout, NOT the server seed —
 		// n1 is NOT at {500,600}, and the map is a fresh (unmodified) auto-fit.
+		// Edit mode persists under the per-topology key (`edit:demo`), not the cwd.
 		const stored = JSON.parse(
-			window.localStorage.getItem( 'newspack-nodes:topology:demo.p0' ) ||
-				'null'
+			window.localStorage.getItem(
+				'newspack-nodes:topology:edit:demo'
+			) || 'null'
 		);
 		expect( stored ).not.toBeNull();
 		expect( stored.positions.n1 ).toBeDefined();

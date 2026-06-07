@@ -34,6 +34,7 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 			super();
 			this.started = false;
 			this.closed = false;
+			this.startCount = 0;
 			this._pid = null;
 			lastConnector = this;
 		}
@@ -47,6 +48,7 @@ jest.mock( '../../../runtime/sse-in-node', () => {
 		}
 		start() {
 			this.started = true;
+			this.startCount += 1;
 		}
 		close() {
 			this.closed = true;
@@ -279,6 +281,51 @@ describe( 'useConsoleGraph — connection state', () => {
 		} finally {
 			jest.useRealTimers();
 		}
+	} );
+} );
+
+describe( 'useConsoleGraph — visibility-gated streaming', () => {
+	const setVisibility = ( state ) => {
+		Object.defineProperty( document, 'visibilityState', {
+			value: state,
+			configurable: true,
+		} );
+		document.dispatchEvent( new Event( 'visibilitychange' ) );
+	};
+
+	// Other suites assume a visible tab; reset after each visibility test.
+	afterEach( () => setVisibility( 'visible' ) );
+
+	it( 'opens the stream on mount when visible and streaming', () => {
+		renderGraph( { streamEnabled: true } );
+		expect( lastConnector.started ).toBe( true );
+	} );
+
+	it( 'closes the stream and clears the pid when the tab is hidden', () => {
+		// A long-hidden tab throttles the heartbeat TIMER → the slot TTLs out, so
+		// close proactively (same pattern as the dashboards) rather than rot.
+		const { result } = renderGraph( { streamEnabled: true } );
+		act( () => lastConnector.emitConnected( 42 ) );
+		expect( result.current.ssePid ).toBe( 42 );
+		act( () => setVisibility( 'hidden' ) );
+		expect( lastConnector.closed ).toBe( true );
+		expect( result.current.ssePid ).toBeNull();
+	} );
+
+	it( 'reopens the stream when the tab becomes visible again', () => {
+		renderGraph( { streamEnabled: true } );
+		act( () => setVisibility( 'hidden' ) );
+		lastConnector.startCount = 0;
+		act( () => setVisibility( 'visible' ) );
+		expect( lastConnector.startCount ).toBe( 1 );
+	} );
+
+	it( 'does NOT open the stream while streaming is off, even when visible', () => {
+		renderGraph( { streamEnabled: false } );
+		lastConnector.startCount = 0;
+		act( () => setVisibility( 'hidden' ) );
+		act( () => setVisibility( 'visible' ) );
+		expect( lastConnector.startCount ).toBe( 0 );
 	} );
 } );
 

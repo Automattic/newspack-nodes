@@ -148,12 +148,7 @@ class CLI_Command {
 			$ipc_out->arguments( "{$ipc['input']} 0 " . Worker_Base::IPC_SEGMENT_SIZE . ' ' . Worker_Base::IPC_NUM_SEGMENTS );
 			$ipc_out->name( $worker_id );
 			$ipc_out->sink( $interpreter );
-			// Sign commands on the way to the worker: the cli is a local
-			// secret-holding issuer, and the worker verifies provenance (the LOCAL
-			// taint is stripped at the IPC boundary). Shell → Command_Signer → cmd-out.
-			$signer = new Command_Signer_Node();
-			$signer->sink( $interpreter );
-			$shell->sink( $signer );
+			$shell->sink( $interpreter );
 			$shell->path = $worker_id;
 
 			// reply-in: ephemeral, so empty offsetlog_base_dir (no durable cursor).
@@ -395,7 +390,7 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 	 * KEY='completion' makes the interpreter's help / list_nodes verbs emit a bare
 	 * newline-separated candidate list (no headers, no column flags). FROM is the
 	 * cli's reply path so the answer lands on this session's Dumper; LOCAL marks
-	 * it in-process (Command_Signer re-signs it for the IPC wire in pivoted mode).
+	 * it in-process.
 	 *
 	 * @param string $verb Either 'help' (command candidates) or 'ls' (node candidates).
 	 * @return array<int,mixed> The TM_COMMAND Message.
@@ -416,8 +411,8 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 
 	/**
 	 * Send both completion queries through the Shell so they ride the same
-	 * Command_Signer / CommandInterpreter path as any typed command. The replies
-	 * land asynchronously and update the cache for the NEXT Tab — completion is
+	 * CommandInterpreter path as any typed command. The replies land
+	 * asynchronously and update the cache for the NEXT Tab — completion is
 	 * thus one keystroke stale, which is acceptable for an interactive REPL.
 	 */
 	public function send_completion_queries(): void {
