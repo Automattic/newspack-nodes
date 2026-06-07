@@ -23,7 +23,7 @@
     </testsuites>
     <source>
         <include>
-            <directory suffix=".php">/usr/src/newspack-nodes/includes</directory>
+            <directory suffix=".php">../includes</directory>
         </include>
     </source>
 </phpunit>

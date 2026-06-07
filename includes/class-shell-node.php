@@ -209,12 +209,13 @@ class Shell_Node extends Node {
 	 * @return void
 	 */
 	public function send_command( string $path, string $name, string $arguments = '' ): void {
-		$msg                   = $this->command( $name, $arguments );
-		$msg[ Message::ID ]    = $this->generate_id();
-		$msg[ Message::FROM ]  = Node_Names::OUTPUT . '/' . \getmypid();
-		$msg[ Message::TO ]    = $path;
-		$msg[ Message::LOCAL ] = true;
-		$this->sink?->fill( $msg );
+		$message                   = $this->command( $name, $arguments );
+		$message[ Message::ID ]    = $this->generate_id();
+		$message[ Message::FROM ]  = Node_Names::OUTPUT . '/' . \getmypid();
+		$message[ Message::TO ]    = $path;
+		$message[ Message::LOCAL ] = true;
+		Command_Auth::sign( $message );
+		$this->sink?->fill( $message );
 	}
 
 	/**
@@ -222,9 +223,9 @@ class Shell_Node extends Node {
 	 */
 	public function eval_script( string $script ): void {
 		foreach ( $this->split_statements( $script ) as $statement ) {
-			$msg = $this->parse( $statement );
-			if ( null !== $msg && null !== $this->sink ) {
-				$this->sink->fill( $msg );
+			$message = $this->parse( $statement );
+			if ( null !== $message && null !== $this->sink ) {
+				$this->sink->fill( $message );
 			}
 		}
 	}
@@ -344,13 +345,12 @@ class Shell_Node extends Node {
 
 		// FROM=`_output/$pid` so replies route back to this session's Dumper.
 		$id                   = $this->generate_id();
-		$msg                  = Message::new_message();
-		$msg[ Message::ID ]   = $id;
-		$msg[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
+		$message                  = Message::new_message();
+		$message[ Message::ID ]   = $id;
+		$message[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
 		// LOCAL provenance taint — minted in this process. Stripped at the wire
-		// boundary (packed()), so it authorizes only an in-process interpreter; a pivoted
-		// command instead gets HMAC-signed by Command_Signer before IPC.
-		$msg[ Message::LOCAL ] = true;
+		// boundary (packed()), so it authorizes only an in-process interpreter.
+		$message[ Message::LOCAL ] = true;
 
 		switch ( $verb ) {
 			case 'command':
@@ -359,61 +359,61 @@ class Shell_Node extends Node {
 				$cmd_path  = $args[0] ?? '';
 				$cmd_verb  = $args[1] ?? '';
 				$cmd_args  = \implode( ' ', \array_slice( $args, 2 ) );
-				$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-				$msg[ Message::TO ]    = $this->prefix( $cmd_path );
-				$msg[ Message::VALUE ] = [
+				$message[ Message::TYPE ]  = Message::TM_COMMAND;
+				$message[ Message::TO ]    = $this->prefix( $cmd_path );
+				$message[ Message::VALUE ] = [
 					'name'      => $cmd_verb,
 					'arguments' => $cmd_args,
 				];
 				break;
 			case 'pwd':
-				$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-				$msg[ Message::TO ]    = $this->path;
-				$msg[ Message::VALUE ] = [
+				$message[ Message::TYPE ]  = Message::TM_COMMAND;
+				$message[ Message::TO ]    = $this->path;
+				$message[ Message::VALUE ] = [
 					'name'      => 'pwd',
 					'arguments' => $this->path,
 				];
 				break;
 			case 'ping':
 				// Receiver bounces TO=FROM; VALUE is the send timestamp.
-				$msg[ Message::TYPE ]  = Message::TM_PING;
-				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
-				$msg[ Message::VALUE ] = (string) Core::$now;
+				$message[ Message::TYPE ]  = Message::TM_PING;
+				$message[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
+				$message[ Message::VALUE ] = (string) Core::$now;
 				break;
 			case 'request':
 			case 'request_node':
-				$msg[ Message::TYPE ]  = Message::TM_REQUEST;
-				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
-				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
+				$message[ Message::TYPE ]  = Message::TM_REQUEST;
+				$message[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
+				$message[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
 				break;
 			case 'send':
 			case 'send_node':
-				$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
-				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) ) . "\n";
+				$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+				$message[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
+				$message[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) ) . "\n";
 				break;
 			case 'send_eof':
-				$msg[ Message::TYPE ] = Message::TM_EOF;
-				$msg[ Message::TO ]   = $this->prefix( $args[0] ?? '' );
+				$message[ Message::TYPE ] = Message::TM_EOF;
+				$message[ Message::TO ]   = $this->prefix( $args[0] ?? '' );
 				break;
 			case 'tell':
 			case 'tell_node':
-				$msg[ Message::TYPE ]  = Message::TM_INFO;
-				$msg[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
-				$msg[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
+				$message[ Message::TYPE ]  = Message::TM_INFO;
+				$message[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
+				$message[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) );
 				break;
 			default:
 				// TO=cwd: empty → local interpreter; set → routed via _router.
-				$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-				$msg[ Message::TO ]    = $this->prefix( '' );
-				$msg[ Message::VALUE ] = [
+				$message[ Message::TYPE ]  = Message::TM_COMMAND;
+				$message[ Message::TO ]    = $this->prefix( '' );
+				$message[ Message::VALUE ] = [
 					'name'      => $verb,
 					'arguments' => \implode( ' ', $args ),
 				];
 				break;
 		}
 
-		return $msg;
+		return $message;
 	}
 
 	/**
@@ -467,9 +467,9 @@ class Shell_Node extends Node {
 		}
 		while ( ( $line = \fgets( $fh ) ) !== false ) {
 			$line = \rtrim( $line, "\r\n" );
-			$msg  = $this->parse( $line );
-			if ( null !== $msg ) {
-				$this->fill( $msg );
+			$message  = $this->parse( $line );
+			if ( null !== $message ) {
+				$this->fill( $message );
 			}
 		}
 		\fclose( $fh );

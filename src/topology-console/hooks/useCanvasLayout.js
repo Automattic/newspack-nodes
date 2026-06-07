@@ -4,6 +4,10 @@ import { autoLayout, placeBelow } from '../utils/autoLayout';
 const EMPTY = { positions: null, viewport: null, modified: false };
 
 function load( key ) {
+	// A null key (e.g. an untitled draft) is in-memory only — never touch storage.
+	if ( ! key ) {
+		return { ...EMPTY, key };
+	}
 	try {
 		const raw = window.localStorage.getItem( key );
 		if ( ! raw ) {
@@ -25,6 +29,10 @@ function load( key ) {
 }
 
 function persist( key, s ) {
+	// A null key (untitled draft) is in-memory only — never write storage.
+	if ( ! key ) {
+		return;
+	}
 	try {
 		window.localStorage.setItem(
 			key,
@@ -83,38 +91,47 @@ export function useCanvasLayout( {
 	}, [ storageKey ] );
 
 	// One-shot init: autoLayout once (or adopt server layout) when ready + uninitialized.
+	// Functional update + the `prev.key !== storageKey` guard (symmetric with the tuck
+	// effect below) so a concurrent key-change reload wins the race: on a key switch
+	// the reload commits the loaded positions first, and this re-checks `prev` instead
+	// of clobbering them with autoLayout off a stale (null) closure snapshot.
 	useEffect( () => {
-		if ( ! ready || state.positions !== null ) {
+		if ( ! ready ) {
 			return;
 		}
 		const nodes = graph?.nodes ?? [];
 		if ( nodes.length === 0 ) {
 			return;
 		}
-		let positions;
-		if ( serverLayout && Object.keys( serverLayout ).length > 0 ) {
-			positions = { ...serverLayout };
-			for ( const n of nodes ) {
-				if ( ! positions[ n.id ] ) {
-					positions[ n.id ] = placeBelow(
-						visiblePositions( positions, nodes )
-					);
+		setState( ( prev ) => {
+			if ( prev.positions !== null || prev.key !== storageKey ) {
+				return prev;
+			}
+			let positions;
+			if ( serverLayout && Object.keys( serverLayout ).length > 0 ) {
+				positions = { ...serverLayout };
+				for ( const n of nodes ) {
+					if ( ! positions[ n.id ] ) {
+						positions[ n.id ] = placeBelow(
+							visiblePositions( positions, nodes )
+						);
+					}
+				}
+			} else {
+				positions = {};
+				for ( const n of autoLayout( graph ).nodes ) {
+					positions[ n.id ] = n.position;
 				}
 			}
-		} else {
-			positions = {};
-			for ( const n of autoLayout( graph ).nodes ) {
-				positions[ n.id ] = n.position;
-			}
-		}
-		const next = {
-			positions,
-			viewport: state.viewport,
-			modified: false,
-			key: storageKey,
-		};
-		persist( storageKey, next );
-		setState( next );
+			const next = {
+				positions,
+				viewport: prev.viewport,
+				modified: false,
+				key: storageKey,
+			};
+			persist( storageKey, next );
+			return next;
+		} );
 	}, [
 		ready,
 		graph,
@@ -224,6 +241,9 @@ export function useCanvasLayout( {
 			vpTimer.current = null;
 		}
 		setState( { ...EMPTY, key: storageKey } );
+		if ( ! storageKey ) {
+			return;
+		}
 		try {
 			window.localStorage.removeItem( storageKey );
 		} catch ( _e ) {

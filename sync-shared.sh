@@ -43,9 +43,6 @@ sync() {
 sync "$HOOKS/usePageVisibility.js" \
 	../newspack-event-logger-nodes/src/shared/hooks/
 
-sync "$HOOKS/useMessageStream.js" \
-	../newspack-event-logger-nodes/src/shared/hooks/
-
 sync "$HOOKS/useAdminMenuWidth.js" \
 	../newspack-event-logger-nodes/src/shared/hooks/
 

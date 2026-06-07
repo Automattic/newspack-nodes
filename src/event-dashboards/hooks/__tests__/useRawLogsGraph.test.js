@@ -312,3 +312,35 @@ describe( 'useRawLogsGraph — control callbacks', () => {
 		expect( result.current.view ).toEqual( { selected: 'sentinel' } );
 	} );
 } );
+
+describe( 'useRawLogsGraph — visibility-gated streaming', () => {
+	const setVisibility = ( state ) => {
+		Object.defineProperty( document, 'visibilityState', {
+			value: state,
+			configurable: true,
+		} );
+		document.dispatchEvent( new Event( 'visibilitychange' ) );
+	};
+
+	// Other suites assume a visible tab; reset after each visibility test.
+	afterEach( () => setVisibility( 'visible' ) );
+
+	test( 'closes the EventSource when the tab is hidden', async () => {
+		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		await act( async () => {} );
+		const open = FakeEventSource.last;
+		expect( open.closed ).toBe( false );
+		act( () => setVisibility( 'hidden' ) );
+		expect( open.closed ).toBe( true );
+	} );
+
+	test( 'reopens on the selected log when the tab becomes visible again', async () => {
+		mountGraph( makeFakeClient( { list_logs: oneLogReply() } ) );
+		await act( async () => {} );
+		act( () => setVisibility( 'hidden' ) );
+		const before = FakeEventSource.instances.length;
+		act( () => setVisibility( 'visible' ) );
+		expect( FakeEventSource.instances.length ).toBe( before + 1 );
+		expect( FakeEventSource.last.url ).toContain( 'subscribe=firehose' );
+	} );
+} );

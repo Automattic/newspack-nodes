@@ -29,6 +29,7 @@
 
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { mountExospine } from '../../runtime/exospine';
+import usePageVisibility from '../../shared/hooks/usePageVisibility';
 import { CommandClient } from '../../runtime/command_client';
 import {
 	newMessage,
@@ -92,6 +93,12 @@ export function useRawLogsGraph( opts = {} ) {
 	// Live node handles for the control callbacks (stable across renders).
 	const sseRef = useRef( null );
 	const viewRef = useRef( null );
+	const heartbeatRef = useRef( null );
+
+	// A long-hidden tab throttles the heartbeat TIMER, so the SSE slot TTLs out and
+	// the stream dies. Gate the stream on visibility (same pattern as the topology
+	// console + dashboards): close while hidden, reopen the selected log on refocus.
+	const isPageVisible = usePageVisibility();
 
 	// Bumped on every (re)build so a consumer re-renders and its useNodeState
 	// rebinds to the freshly-registered view node. A monotonic counter, not a
@@ -153,6 +160,7 @@ export function useRawLogsGraph( opts = {} ) {
 
 			sseRef.current = sse;
 			viewRef.current = view;
+			heartbeatRef.current = heartbeat;
 
 			// Re-render so useNodeState re-subscribes to the freshly-mounted view.
 			bumpBuild( ( n ) => n + 1 );
@@ -192,12 +200,33 @@ export function useRawLogsGraph( opts = {} ) {
 				sse.close();
 				sseRef.current = null;
 				viewRef.current = null;
+				heartbeatRef.current = null;
 			};
 		};
 
 		const { teardown } = mountExospine( build );
 		return teardown;
 	}, [] );
+
+	// Visibility gate: close the stream while hidden (the slot TTLs out anyway),
+	// reopen the currently-selected log on refocus. The initial open is driven by
+	// the list_logs reply above, so this no-ops until a log is selected.
+	useEffect( () => {
+		const sse = sseRef.current;
+		if ( ! sse ) {
+			return;
+		}
+		if ( isPageVisible ) {
+			const selected = viewRef.current?.setStateCache?.view?.selected;
+			if ( selected ) {
+				sse.subscribe = [ selected ];
+				sse.start();
+			}
+		} else {
+			sse.close();
+			heartbeatRef.current?.clearSlot();
+		}
+	}, [ isPageVisible ] );
 
 	// selectLog: the view clears+sets the selection; `_sse` re-opens for the new log.
 	const selectLog = ( log ) => {

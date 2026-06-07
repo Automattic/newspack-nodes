@@ -200,12 +200,11 @@ class CliCommandTest extends TestCase {
 		$this->assertSame( '/firehose-workers.p0> ', $shell->prompt );
 		$this->assertSame( 'firehose-workers.p0', $shell->path );
 
-		// Shell → Command_Signer → CommandInterpreter: pivoted commands are HMAC-signed,
+		// Shell → CommandInterpreter: pivoted commands are HMAC-signed,
 		// then routed by TO (the Router peels the worker id to the mounted Partition).
-		$this->assertInstanceOf( \Newspack_Nodes\Command_Signer_Node::class, $shell->sink() );
 		$this->assertSame(
 			Core::node( \Newspack_Nodes\Node_Names::COMMAND_INTERPRETER ),
-			$shell->sink()->sink()
+			$shell->sink()
 		);
 
 		Core::cleanup_all_nodes();
@@ -1181,7 +1180,7 @@ class CliCommandTest extends TestCase {
 
 	public function test_send_completion_queries_emits_help_and_ls_through_shell(): void {
 		// Refresh sends BOTH a help and an ls completion query through the Shell
-		// (so they ride the same Command_Signer/interpreter path as any other command).
+		// (so they ride the same interpreter path as any other command).
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
 		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();
