@@ -132,11 +132,14 @@ class Node {
 	 * @param array<int, mixed> $message Message reference.
 	 */
 	public function fill( array &$message ): void {
+		if ( null === $this->sink ) {
+			throw new \RuntimeException( 'Shell::fill requires a wired sink' );
+		}
 		if ( '' === $message[ Message::TO ] && \is_string( $this->target ) && '' !== $this->target ) {
 			$message[ Message::TO ] = $this->target;
 		}
 		++$this->counter;
-		$this->sink?->fill( $message );
+		$this->sink->fill( $message );
 	}
 
 	/**
@@ -305,13 +308,14 @@ class Node {
 	 * @return array<int, mixed> A TM_COMMAND Message (the 7-field positional array).
 	 */
 	public function command( string $name, string $arguments = '' ): array {
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::VALUE ] = [
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::VALUE ] = [
 			'name'      => $name,
 			'arguments' => $arguments,
 		];
-		return $msg;
+		$message[ Message::LOCAL ] = true;
+		return $message;
 	}
 
 	public const MAX_FROM_SIZE = 1024;
@@ -385,13 +389,13 @@ class Node {
 			$this->print_less_often( "WARNING: $listener forgot to unregister from $event on " . $this->name );
 			return false; // Drop the dead registration.
 		}
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_INFO;
-		$msg[ Message::FROM ]  = $this->name;
-		$msg[ Message::TO ]    = $listener;
-		$msg[ Message::KEY ]   = $event;
-		$msg[ Message::VALUE ] = $payload;
-		$target->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = $this->name;
+		$message[ Message::TO ]    = $listener;
+		$message[ Message::KEY ]   = $event;
+		$message[ Message::VALUE ] = $payload;
+		$target->fill( $message );
 		return true;
 	}
 
@@ -410,19 +414,19 @@ class Node {
 		if ( null === $router ) {
 			return;
 		}
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
-		$msg[ Message::TIMESTAMP ] = Core::$now;
-		$msg[ Message::FROM ]      = $this->name;
-		$msg[ Message::TO ]        = Node_Names::REPL;
-		$msg[ Message::VALUE ]     = [
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::TIMESTAMP ] = Core::$now;
+		$message[ Message::FROM ]      = $this->name;
+		$message[ Message::TO ]        = Node_Names::REPL;
+		$message[ Message::VALUE ]     = [
 			'k'     => 'debug_state',
 			'node'  => $this->name,
 			'class' => static::class,
 			'event' => $event,
 			'value' => $payload,
 		];
-		$router->fill( $msg );
+		$router->fill( $message );
 	}
 
 	/** Set target. Tee overrides to append to its fan-out array. */
@@ -589,18 +593,18 @@ class Node {
 	 * tag would be redundant). With a message, chomps a trailing newline,
 	 * prepends the tag to every line, and appends one trailing newline.
 	 */
-	public function log_midfix( ?string $msg = null ): string {
+	public function log_midfix( ?string $message = null ): string {
 		$midfix = '';
 		if ( '' !== $this->name
 			&& 1 !== \preg_match( '/^' . \preg_quote( $this->name, '/' ) . '\b/', Core::argv0() ) ) {
 			$midfix = $this->name . ': ';
 		}
-		if ( null === $msg ) {
+		if ( null === $message ) {
 			return $midfix;
 		}
-		$msg = \rtrim( $msg, "\n" );
-		$msg = $midfix . \str_replace( "\n", "\n" . $midfix, $msg );
-		return $msg . "\n";
+		$message = \rtrim( $message, "\n" );
+		$message = $midfix . \str_replace( "\n", "\n" . $midfix, $message );
+		return $message . "\n";
 	}
 
 	/**
@@ -614,10 +618,10 @@ class Node {
 			return;
 		}
 		if ( 1 === \preg_match( '/^\d{4}-\d\d-\d\d/', $text ) ) {
-			Core::stderr( $text );
+			Core::_stderr( $text );
 			return;
 		}
-		Core::stderr( Core::log_prefix( $this->log_midfix( $text ) ) );
+		Core::stderr( $this->log_midfix( $text ) );
 	}
 
 	/** Emit text on first sight; suppress identical text thereafter. Keyed per-node via log_midfix (shares Core::$recent_log_timers). */

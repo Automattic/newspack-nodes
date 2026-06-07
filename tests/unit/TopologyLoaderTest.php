@@ -39,6 +39,7 @@ class TopologyLoaderTest extends TestCase {
 
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
 
 		Topology_Loader::load( 'two-nodes', 0, $interpreter );
 
@@ -59,6 +60,7 @@ class TopologyLoaderTest extends TestCase {
 
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
 
 		Topology_Loader::load( 'verified', 0, $interpreter );
 
@@ -74,6 +76,7 @@ class TopologyLoaderTest extends TestCase {
 
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
 
 		Topology_Loader::load( 'parted', 7, $interpreter );
 
@@ -88,6 +91,7 @@ class TopologyLoaderTest extends TestCase {
 
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
 
 		// `<config:env_label>` resolves through the registered `config` namespace
 		// resolver, not a per-call array. Snapshot/restore around a custom one.
@@ -108,6 +112,7 @@ class TopologyLoaderTest extends TestCase {
 
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
 
 		$saved = Core::$config_resolvers;
 		Core::register_config_namespace( 'config', static fn ( string $k ) => null );
@@ -127,6 +132,7 @@ class TopologyLoaderTest extends TestCase {
 
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
 
 		Topology_Loader::load( 'comments', 0, $interpreter );
 
@@ -144,6 +150,7 @@ class TopologyLoaderTest extends TestCase {
 
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
 
 		Topology_Loader::load( 'frontmatter', 0, $interpreter );
 
@@ -155,6 +162,7 @@ class TopologyLoaderTest extends TestCase {
 	public function test_load_throws_when_topology_not_found(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'no-such-topology' );

@@ -65,6 +65,9 @@ class Command_Interpreter_Node extends Node {
 	public ?\Closure $authorize = null;
 
 	public function fill( array &$message ): void {
+		if ( null === $this->sink ) {
+			throw new \RuntimeException( 'Command_Interpreter::fill requires a wired sink' );
+		}
 		++$this->counter;
 
 		$type_raw = $message[ Message::TYPE ];
@@ -73,7 +76,7 @@ class Command_Interpreter_Node extends Node {
 		// TM_PING / TM_EOF with empty TO: bounce back along the FROM trail (drain marker).
 		if ( ( $type & ( Message::TM_PING | Message::TM_EOF ) ) && '' === $message[ Message::TO ] ) {
 			$message[ Message::TO ] = $message[ Message::FROM ];
-			$this->sink?->fill( $message );
+			$this->sink->fill( $message );
 			return;
 		}
 
@@ -82,11 +85,14 @@ class Command_Interpreter_Node extends Node {
 			$this->interpret( $message );
 			return;
 		}
-		$this->sink?->fill( $message );
+		$this->sink->fill( $message );
 	}
 
 	/** @param array<int, mixed> $message Incoming command Message to interpret. */
 	private function interpret( array &$message ): void {
+		if ( null === $this->sink ) {
+			throw new \RuntimeException( 'Command_Interpreter::fill requires a wired sink' );
+		}
 		$cmd = $message[ Message::VALUE ];
 		if ( ! \is_array( $cmd ) || ! isset( $cmd['name'] ) ) {
 			$this->drop_message( $message, 'invalid command struct' );
@@ -133,7 +139,7 @@ class Command_Interpreter_Node extends Node {
 				'arguments' => $cmd_args,
 				'payload'   => $result,
 			];
-			$this->sink?->fill( $response );
+			$this->sink->fill( $response );
 		}
 	}
 

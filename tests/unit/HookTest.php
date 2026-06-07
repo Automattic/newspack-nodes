@@ -42,6 +42,7 @@ class HookTest extends TestCase {
 
 		$hook = new Hook_Node();
 		$hook->arguments( 'newspack_nodes/test_action' );
+		$hook->sink( new Capture_Sink_Node() );
 		$msg = Message::new_message();
 		$msg[ Message::VALUE ] = 'data';
 		$hook->fill( $msg );

@@ -17,6 +17,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Hook_Node;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
 class HookNodeTest extends TestCase {
@@ -30,6 +31,7 @@ class HookNodeTest extends TestCase {
 		$node = new Hook_Node();
 		$node->name( 'hooky' );
 		$node->arguments( 'eln_hook_nonlist 1' ); // filter mode on.
+		$node->sink( new Capture_Sink_Node() );
 
 		// A misbehaving filter that returns a non-list (associative) array.
 		\add_filter( 'eln_hook_nonlist', static fn( $msg ) => [ 'not' => 'a list' ] );
@@ -48,6 +50,7 @@ class HookNodeTest extends TestCase {
 		$node = new Hook_Node();
 		$node->name( 'hooky' );
 		$node->arguments( 'eln_hook_list 1' );
+		$node->sink( new Capture_Sink_Node() );
 
 		\add_filter( 'eln_hook_list', static fn( $msg ) => [ 2, 0.0, 'x', '', 0, '', 'new' ] );
 

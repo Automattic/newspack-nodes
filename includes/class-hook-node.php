@@ -22,6 +22,9 @@ class Hook_Node extends Node {
 	}
 
 	public function fill( array &$message ): void {
+		if ( null === $this->sink ) {
+			throw new \RuntimeException( 'Hook::fill requires a wired sink' );
+		}
 		++$this->counter;
 		// An empty hook_name (unconfigured) is a no-op in WP — apply_filters('')
 		// returns the value unchanged and do_action('') fires nothing — so skip
@@ -42,7 +45,7 @@ class Hook_Node extends Node {
 				\do_action( $this->hook_name, $message );
 			}
 		}
-		$this->sink?->fill( $message );
+		$this->sink->fill( $message );
 	}
 
 	public static function node_schema(): array {
