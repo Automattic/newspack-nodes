@@ -88,21 +88,21 @@ class Command_Auth {
 	}
 
 	/**
-	 * Stamp an `auth` envelope onto a command Message's VALUE. No-op if VALUE is
-	 * not a command struct (no `name`).
+	 * Stamp an `auth` envelope onto a command Message's VALUE. No-op if TYPE is
+	 * not TM_COMMAND
 	 *
 	 * @param array<int,mixed> $message Message (mutated in place).
 	 * @param int|null         $now     Signing time; defaults to time().
 	 */
 	public static function sign( array &$message, ?int $now = null ): void {
+		$type  = $message[ Message::TYPE ]  ?? 0;
 		$value = $message[ Message::VALUE ] ?? null;
-		if ( ! \is_array( $value ) || ! isset( $value['name'] ) ) {
+		if ( ! \is_integer( $type ) || ! ( $type & Message::TM_COMMAND ) || ! \is_array( $value ) ) {
 			return;
 		}
-		$ts       = $now ?? \time();
-		$nonce    = \bin2hex( \random_bytes( 16 ) );
-		$type_raw = $message[ Message::TYPE ] ?? 0;
-		$canon    = self::canonical( \is_numeric( $type_raw ) ? (int) $type_raw : 0, $value, $ts, $nonce );
+		$ts    = $now ?? \time();
+		$nonce = \bin2hex( \random_bytes( 16 ) );
+		$canon = self::canonical( $type, $value, $ts, $nonce );
 		if ( null === $canon ) {
 			// Un-encodable arguments: leave the command unsigned so the verifier
 			// refuses it, rather than signing a collision-prone empty canonical.
@@ -125,17 +125,19 @@ class Command_Auth {
 	 * @param int|null               $now     Verification time; defaults to time().
 	 */
 	public static function verify( array $message, ?int $now = null ): bool {
+		$type  = $message[ Message::TYPE ]  ?? 0;
 		$value = $message[ Message::VALUE ] ?? null;
-		if ( ! \is_array( $value ) || ! isset( $value['name'] ) ) {
+		if ( ! \is_integer( $type ) || ! ( $type & Message::TM_COMMAND ) || ! \is_array( $value ) ) {
 			return false;
 		}
 		$auth = $value['auth'] ?? null;
-		if ( ! \is_array( $auth ) || ! isset( $auth['ts'], $auth['nonce'], $auth['sig'] ) ) {
+		if ( ! \is_array( $auth )
+				|| ! isset( $auth['ts'], $auth['nonce'], $auth['sig'] )
+				|| ! \is_integer( $auth['ts'] ) ) {
 			return false;
 		}
-		$ts_raw   = $auth['ts'];
+		$ts       = $auth['ts'];
 		$nonce_in = $auth['nonce'];
-		$ts       = \is_numeric( $ts_raw ) ? (int) $ts_raw : 0;
 		$nonce    = \is_scalar( $nonce_in ) ? (string) $nonce_in : '';
 		$now      = $now ?? \time();
 
@@ -144,8 +146,7 @@ class Command_Auth {
 			return false;
 		}
 
-		$type_raw = $message[ Message::TYPE ] ?? 0;
-		$canon    = self::canonical( \is_numeric( $type_raw ) ? (int) $type_raw : 0, $value, $ts, $nonce );
+		$canon = self::canonical( $type, $value, $ts, $nonce );
 		if ( null === $canon ) {
 			return false;
 		}
