@@ -53,7 +53,7 @@ class Admin {
 	];
 
 	/**
-	 * Permission gate: `manage_options` baseline (no allowed_users whitelist — app plugin owns that).
+	 * Permission gate: `manage_options` baseline.
 	 *
 	 * @return bool True if user is allowed.
 	 */
