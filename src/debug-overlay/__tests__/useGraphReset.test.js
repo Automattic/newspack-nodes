@@ -11,7 +11,7 @@
 import { renderHook, act } from '@testing-library/react';
 import { useGraphReset } from '../useGraphReset';
 import { Core } from '../../runtime/core';
-import { Shell } from '../../topology-console/nodes/shell';
+import { ShellNode } from '../../runtime/shell-node';
 import names from '../../runtime/reserved-node-names.json';
 import { newMessage, TYPE, VALUE, TM_COMMAND } from '../../runtime/message';
 
@@ -23,7 +23,7 @@ function commandMsg( name, args = '' ) {
 }
 
 function makeShell() {
-	const shell = new Shell();
+	const shell = new ShellNode();
 	shell.sink = { fill: () => {} };
 	return shell;
 }

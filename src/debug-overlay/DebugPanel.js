@@ -13,7 +13,7 @@ import { makeReplDismissHandler } from '../topology-console/utils/replDismissHan
 import { lockPageScroll, unlockPageScroll } from './pageScrollLock';
 import { useJsCatalog } from '../topology-console/hooks/useJsCatalog';
 import { useClassCatalog } from '../topology-console/hooks/useClassCatalog';
-import { Shell } from '../topology-console/nodes/shell';
+import { ShellNode } from '../runtime/shell-node';
 import { useNodeState } from '../runtime/react';
 import { useCompletion } from '../topology-console/hooks/useCompletion';
 import { usePanelChrome } from '../topology-console/hooks/usePanelChrome';
@@ -57,7 +57,7 @@ export default function DebugPanel( { storageKey, onClose } ) {
 	// is local-only. useDebugRepl binds shell.sink to the page's interpreter
 	// during its build-before-render — no separate bind effect, no race.
 	const shell = useMemo( () => {
-		const s = new Shell();
+		const s = new ShellNode();
 		s.path = '';
 		return s;
 	}, [] );

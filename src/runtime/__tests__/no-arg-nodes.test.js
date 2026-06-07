@@ -6,18 +6,18 @@
  * machinery has a uniform contract to query.
  */
 
-import { MetadataNode } from '../../../runtime/metadata-node';
-import { UptimeNode } from '../../../runtime/uptime-node';
-import { CompletionNode } from '../../../runtime/completion-node';
-import { HeartbeatNode } from '../../../runtime/heartbeat-node';
-import { Shell } from '../shell';
+import { MetadataNode } from '../metadata-node';
+import { UptimeNode } from '../uptime-node';
+import { CompletionNode } from '../completion-node';
+import { HeartbeatNode } from '../heartbeat-node';
+import { ShellNode } from '../shell-node';
 
 describe.each( [
 	[ 'Metadata', MetadataNode ],
 	[ 'Uptime', UptimeNode ],
 	[ 'Completion', CompletionNode ],
 	[ 'Heartbeat', HeartbeatNode ],
-	[ 'Shell', Shell ],
+	[ 'Shell', ShellNode ],
 ] )( '%s', ( _name, Cls ) => {
 	it( 'constructs with no positional args', () => {
 		const n = new Cls();

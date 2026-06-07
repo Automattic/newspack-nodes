@@ -5,8 +5,8 @@
  * the verb vocabulary of the substrate PHP Shell + the old utils/shell.js.
  */
 
-import { Shell, splitStatements } from '../shell';
-import { Node } from '../../../runtime/node';
+import { ShellNode, splitStatements } from '../shell-node';
+import { Node } from '../node';
 import {
 	TYPE,
 	FROM,
@@ -19,10 +19,10 @@ import {
 	TM_BYTESTREAM,
 	TM_EOF,
 	TM_REQUEST,
-} from '../../../runtime/message';
+} from '../message';
 
 function makeShell( { path = '_http/demo.p0', ssePid = 4242 } = {} ) {
-	const shell = new Shell();
+	const shell = new ShellNode();
 	shell.path = path;
 	shell.ssePid = ssePid;
 	const sink = new Node();
@@ -533,7 +533,7 @@ describe( 'splitStatements (unquoted `;` splitter)', () => {
 
 describe( 'Shell node — name guard', () => {
 	it( 'Shell refuses to be named', () => {
-		const s = new Shell();
+		const s = new ShellNode();
 		expect( () => s.setName( 'x' ) ).toThrow( /shell.*not.*named/i );
 	} );
 } );
