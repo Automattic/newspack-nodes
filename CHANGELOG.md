@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`allowed_users` access whitelist for the substrate admin surface**, mirroring `newspack-event-logger-nodes`, `newspack-pyrobase`, and `newspack-nuclear-gyrobase`. New `allowed_users` config key (`array_strings`; empty by default). `Admin::current_user_allowed()` now requires `manage_options` AND — when the whitelist is non-empty — the current user's `user_login` to be a member; `manage_options` stays mandatory so a demoted account loses access without editing the list. Because every substrate menu registration (Settings, Topology console, Workers, Raw Logs) and the Settings/Topology render methods already funnel through `current_user_allowed()`, populating `allowed_users` hides every Nodes menu and blocks its dashboard pages for non-listed admins. CLI/no-user contexts are never locked out. The key honors WP-option overrides via the standard schema path.
+
 ## [0.11.0] - 2026-06-07
 
 ### Changed

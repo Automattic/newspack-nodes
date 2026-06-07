@@ -186,6 +186,13 @@ class ConfigTest extends TestCase {
 		$this->assertSame( 1, $config['num_partitions'] );
 	}
 
+	public function test_allowed_users_wp_option_override_applies(): void {
+		Config::reset();
+		\update_option( 'newspack_nodes_allowed_users', [ 'alice', 'bob' ] );
+		$config = Config::load_config();
+		$this->assertSame( [ 'alice', 'bob' ], $config['allowed_users'] );
+	}
+
 	public function test_wp_option_uses_substrate_prefix(): void {
 		// Substrate Config reads `newspack_nodes_*` options. The application
 		// `newspack_event_logger_nodes_*` namespace MUST be ignored here.

@@ -7,6 +7,11 @@
  * @package Newspack_Nodes
  */
 
+if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
+	error_log("ERROR: refusing to test as root.");
+	exit( 1 );
+}
+
 // Redirect PHP's error_log() to /dev/null so negative-path tests don't spew
 // into test output. (Matches newspack-event-logger-plugins/tests/bootstrap.php:35.)
 \ini_set( 'error_log', '/dev/null' );
@@ -150,6 +155,12 @@ if ( ! function_exists( 'wp_verify_nonce' ) ) {
 if ( ! function_exists( 'get_current_user_id' ) ) {
 	function get_current_user_id() {
 		return $GLOBALS['_wp_test_current_user_id'] ?? 0;
+	}
+}
+
+if ( ! function_exists( 'wp_get_current_user' ) ) {
+	function wp_get_current_user() {
+		return (object) [ 'user_login' => $GLOBALS['_wp_test_current_user_login'] ?? '' ];
 	}
 }
 

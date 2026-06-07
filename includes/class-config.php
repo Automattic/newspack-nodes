@@ -87,6 +87,8 @@ class Config {
 		'memcache_servers' => 'memcache_servers',
 		// Flat list of active topology names; one worker fleet per entry.
 		'topologies'       => 'array_strings',
+		// Whitelist of user_logins allowed to see menus / access dashboards; empty = any manage_options admin.
+		'allowed_users'    => 'array_strings',
 	];
 
 	/**

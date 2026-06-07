@@ -53,7 +53,13 @@ class Admin {
 	];
 
 	/**
-	 * Permission gate: `manage_options` baseline.
+	 * Permission gate: `manage_options` baseline + optional `allowed_users`
+	 * whitelist from Config.
+	 *
+	 * Empty `allowed_users` means "all users with manage_options". When the
+	 * whitelist is populated, the current user's `user_login` must be a member —
+	 * manage_options is still required, so a demoted account loses access
+	 * immediately without editing the whitelist.
 	 *
 	 * @return bool True if user is allowed.
 	 */
@@ -61,7 +67,21 @@ class Admin {
 		if ( ! \function_exists( 'current_user_can' ) ) {
 			return true; // CLI / no user context — don't lock out CLI tools.
 		}
-		return \current_user_can( 'manage_options' );
+		if ( ! \current_user_can( 'manage_options' ) ) {
+			return false;
+		}
+
+		$config        = Config::load_config();
+		$allowed_users = $config['allowed_users'] ?? [];
+		if ( empty( $allowed_users ) || ! \is_array( $allowed_users ) ) {
+			return true;
+		}
+
+		if ( ! \function_exists( 'wp_get_current_user' ) ) {
+			return true; // No user context — don't lock out CLI tools.
+		}
+		$current_user = \wp_get_current_user();
+		return \in_array( $current_user->user_login, $allowed_users, true );
 	}
 
 	/** Top-level menu slug for the topology console (its own admin entry, not under Settings). */

@@ -292,6 +292,7 @@ class AdminTest extends TestCase {
 		$GLOBALS['_wp_options']                  = [];
 		$GLOBALS['_wp_actions']                  = [];
 		$GLOBALS['_wp_test_current_user_can']    = [ 'manage_options' => true ];
+		$GLOBALS['_wp_test_current_user_login']  = '';
 		$GLOBALS['_last_redirect']               = null;
 		// Sanitize $_GET so enqueue_topology_console_assets() isn't influenced by
 		// a previous test that left a page= behind.
@@ -441,6 +442,34 @@ class AdminTest extends TestCase {
 
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 		$this->assertTrue( Admin::current_user_allowed() );
+	}
+
+	public function test_current_user_allowed_empty_whitelist_allows_any_admin(): void {
+		$this->use_base_dir( $this->base_dir, [ 'allowed_users' => [] ] );
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_test_current_user_login']                 = 'someone';
+		$this->assertTrue( Admin::current_user_allowed() );
+	}
+
+	public function test_current_user_allowed_whitelist_admits_listed_user(): void {
+		$this->use_base_dir( $this->base_dir, [ 'allowed_users' => [ 'alice', 'bob' ] ] );
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_test_current_user_login']                 = 'bob';
+		$this->assertTrue( Admin::current_user_allowed() );
+	}
+
+	public function test_current_user_allowed_whitelist_blocks_unlisted_user(): void {
+		$this->use_base_dir( $this->base_dir, [ 'allowed_users' => [ 'alice', 'bob' ] ] );
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_test_current_user_login']                 = 'carol';
+		$this->assertFalse( Admin::current_user_allowed() );
+	}
+
+	public function test_current_user_allowed_whitelist_still_requires_manage_options(): void {
+		$this->use_base_dir( $this->base_dir, [ 'allowed_users' => [ 'alice' ] ] );
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
+		$GLOBALS['_wp_test_current_user_login']                 = 'alice';
+		$this->assertFalse( Admin::current_user_allowed() );
 	}
 
 	// ---- handle_reset_settings -------------------------------------------
