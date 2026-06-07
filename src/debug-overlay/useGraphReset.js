@@ -25,7 +25,7 @@
  * @param {Array}    params.nodes        Live graph nodes ({id}); non-reserved = user-added.
  * @param {boolean}  params.isLocalScope Reset only makes sense on the in-browser graph.
  * @param {boolean}  params.canRebuild   A rebuild path exists (overlay: reinit; console: mounted).
- * @param {Function} params.markDirty    Layout-dirty hook; resetGraph calls it so Reset Layout surfaces after a Reset Graph (rewires do NOT).
+ * @param {Function} params.markDirty    Layout-dirty hook; called on every structural mutation (and by resetGraph) so Reset Layout surfaces alongside Reset Graph.
  * @return {{structureDirty: boolean, resetGraph: Function, canResetGraph: boolean}} Reset state.
  */
 
@@ -64,7 +64,8 @@ export function useGraphReset( {
 	markDirtyRef.current = markDirty;
 
 	// Tap the Shell's single dispatch chokepoint; a mutating verb flips the Reset
-	// Graph chip. It does NOT dirty the LAYOUT (a rewire keeps positions).
+	// Graph chip AND marks the layout dirty — a drop / connect / disconnect /
+	// remove changes the structure, so offer a fresh auto-fit (Reset Layout) too.
 	useEffect( () => {
 		if ( ! shell ) {
 			return undefined;
@@ -75,6 +76,7 @@ export function useGraphReset( {
 			const name = message?.[ VALUE ]?.name;
 			if ( name && MUTATING_VERBS.has( name ) ) {
 				setStructureDirty( true );
+				markDirtyRef.current();
 			}
 		};
 		shell.onDispatch = tap;

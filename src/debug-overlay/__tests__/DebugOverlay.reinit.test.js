@@ -168,14 +168,14 @@ describe( 'DebugOverlay — Reset Graph (full rebuild)', () => {
 } );
 
 describe( 'DebugOverlay — dirty-on-rewire', () => {
-	it( 'a connect gesture does NOT surface the Reset Layout chip (rewire no longer dirties the layout)', () => {
-		// Under the one-shot-autoLayout model a graph rewire dirties the GRAPH
-		// (Reset Graph), not the LAYOUT — only a drag/drop/tuck flips canReset.
+	it( 'a connect gesture surfaces the Reset Layout chip (a structural change offers a fresh auto-fit)', () => {
+		// A drop / connect / disconnect / remove changes the structure, so the
+		// canvas offers a fresh auto-fit (Reset Layout) alongside Reset Graph.
 		mountExospine();
 		openOverlay();
 		expect( screen.queryByTestId( 'chip-reset-layout' ) ).toBeNull();
 		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );
-		expect( screen.queryByTestId( 'chip-reset-layout' ) ).toBeNull();
+		expect( screen.queryByTestId( 'chip-reset-layout' ) ).not.toBeNull();
 	} );
 
 	it( 'a connect gesture surfaces the Reset Graph chip when reinit is available', () => {
@@ -195,16 +195,15 @@ describe( 'DebugOverlay — dirty-on-rewire', () => {
 		expect( screen.queryByTestId( 'chip-reset-graph' ) ).toBeNull();
 	} );
 
-	it( 'a node removal surfaces the Reset Graph chip only (rewire no longer dirties the layout)', () => {
+	it( 'a node removal surfaces BOTH the Reset Graph and Reset Layout chips', () => {
 		mountExospine();
 		Core.reinit = jest.fn();
 		openOverlay();
 		expect( screen.queryByTestId( 'chip-reset-graph' ) ).toBeNull();
 		act( () => fireEvent.click( screen.getByTestId( 'do-remove' ) ) );
 		expect( screen.queryByTestId( 'chip-reset-graph' ) ).not.toBeNull();
-		// The graph mutation surfaces Reset Graph but NOT Reset Layout — only a
-		// drag/drop/tuck dirties the layout under the one-shot-autoLayout model.
-		expect( screen.queryByTestId( 'chip-reset-layout' ) ).toBeNull();
+		// A structural change also offers a fresh auto-fit (Reset Layout).
+		expect( screen.queryByTestId( 'chip-reset-layout' ) ).not.toBeNull();
 	} );
 
 	it( 'a disconnect surfaces the Reset Graph chip', () => {
@@ -221,10 +220,10 @@ describe( 'DebugOverlay — dirty-on-rewire', () => {
 		mountExospine( () => {} );
 		Core.reinit = jest.fn();
 		openOverlay();
-		// A rewire surfaces Reset Graph but NOT Reset Layout (a rewire keeps the layout).
+		// A connect surfaces both chips; Reset Graph keeps the layout but still
+		// offers a fresh auto-fit (Reset Layout) after the rebuild.
 		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );
-		expect( screen.queryByTestId( 'chip-reset-layout' ) ).toBeNull();
-		// Reset the graph: it marks the layout dirty, so Reset Layout appears.
+		expect( screen.queryByTestId( 'chip-reset-graph' ) ).not.toBeNull();
 		act( () =>
 			fireEvent.click( screen.getByTestId( 'chip-reset-graph' ) )
 		);

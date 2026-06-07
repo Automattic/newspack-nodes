@@ -54,10 +54,12 @@ export function useGraphHandlers( {
 	sseGuard = () => true,
 } ) {
 	return useMemo( () => {
-		// After a mutation, fire a targeted `dump_metadata <node>` so the canvas
-		// updates immediately instead of waiting for the throttled full poll.
-		const refresh = ( name ) =>
-			name && Core.node( names.METADATA )?.refreshNode( name );
+		// After a mutation, optimistically patch the local metadata so the canvas
+		// updates immediately instead of waiting for the throttled full poll (a
+		// dump_metadata round-trip would race the gesture command to a worker). The
+		// next full poll reconciles. `patch === null` drops the node.
+		const patch = ( name, p ) =>
+			name && Core.node( names.METADATA )?.optimisticPatch( name, p );
 		return {
 			onConnect: ( from, to ) => {
 				dispatch(
@@ -65,11 +67,11 @@ export function useGraphHandlers( {
 					'connect_node',
 					`${ from } ${ to }`
 				);
-				refresh( from );
+				patch( from, { target: to } );
 			},
 			onRemoveNode: ( id ) => {
 				dispatch( `remove_node ${ id }`, 'remove_node', id );
-				refresh( id );
+				patch( id, null );
 			},
 			onDropNode: ( { shellName, x, y } ) => {
 				// Live-mode drops always go through the NewNodeModal so the user can
@@ -92,14 +94,14 @@ export function useGraphHandlers( {
 						'connect_node',
 						nodeId
 					);
-					refresh( nodeId );
+					patch( nodeId, { target: names.OUTPUT } );
 				} else if ( 'disconnect' === action ) {
 					dispatch(
 						`disconnect_node ${ nodeId }`,
 						'disconnect_node',
 						nodeId
 					);
-					refresh( nodeId );
+					patch( nodeId, { target: '' } );
 				} else if ( 'send' === action ) {
 					dispatch(
 						`send_node ${ nodeId } ${ payload }`,
