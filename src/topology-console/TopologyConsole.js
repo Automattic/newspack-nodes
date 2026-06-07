@@ -465,9 +465,9 @@ export default function TopologyConsole() {
 		[ mode, draft, parsed, catalog.classes ]
 	);
 
-	// Build the graph first: a worker/local scope is ready once the graph has
-	// nodes; a server scope must also wait for the layout fetch to resolve so
-	// the one-shot init can adopt it instead of autoLayout. An untitled draft
+	// Build the graph first: a local scope is ready once the graph has nodes;
+	// a server scope must also wait for the layout fetch to resolve so the
+	// one-shot init can adopt it instead of autoLayout. An untitled draft
 	// (no topology to fetch) counts as resolved, else the canvas waits forever.
 	const serverFetchResolved = ! effectiveTopologyName || savedLayout !== null; // null === in-flight
 	const layoutReady =
@@ -909,6 +909,57 @@ export default function TopologyConsole() {
 		return augmentWithVirtualEdges( baseCanvasGraph, catalog.classes );
 	}, [ baseCanvasGraph, mode, catalog.classes ] );
 
+	// snapToGrid is imported from utils/autoLayout — same constants the renderer
+	// uses for the existing nodes.
+
+	const handleDropNode = useCallback(
+		( { shellName, x, y } ) => {
+			// Live canvas: stage the NewNodeModal (commitPendingDrop dispatches the
+			// make_node once the user confirms). Position is cosmetic and not sent
+			// (poll-reflect lays it out).
+			if ( mode !== 'edit' ) {
+				liveHandlers.onDropNode( { shellName, x, y } );
+				return;
+			}
+			// Snap to the grid so dropped nodes line up and don't drift.
+			const snapped = snapToGrid( x, y );
+			setDraft( ( g ) => {
+				const name = generateNodeName( g, shellName );
+				handlePositionChange( name, snapped );
+				return addNode( g, {
+					shellName,
+					name,
+					x: snapped.x,
+					y: snapped.y,
+				} );
+			} );
+		},
+		// sendLine is consumed by commitPendingDrop (below), not this callback —
+		// live-mode drop just stages pendingDrop now.
+		[ mode, liveHandlers, handlePositionChange ]
+	);
+
+	// NewNodeModal commit/cancel (live mode).
+	const commitPendingDrop = useCallback(
+		( { name, args } ) => {
+			if ( ! pendingDrop ) {
+				return;
+			}
+			const { shellName, x, y } = pendingDrop;
+			const trimmed = ( args || '' ).trim();
+			const line = trimmed
+				? `make_node ${ shellName } ${ name } ${ trimmed }`
+				: `make_node ${ shellName } ${ name }`;
+			sendLine( line );
+			// Targeted refresh so the dropped node appears at once (no poll wait).
+			Core.node( names.METADATA )?.refreshNode( name );
+			handlePositionChange( name, snapToGrid( x, y ) );
+			setPendingDrop( null );
+		},
+		[ pendingDrop, sendLine, handlePositionChange ]
+	);
+	const cancelPendingDrop = useCallback( () => setPendingDrop( null ), [] );
+
 	const handleConnect = useCallback(
 		( from, to ) => {
 			// Live canvas: the gesture is a live command at the current cwd.
@@ -949,41 +1000,6 @@ export default function TopologyConsole() {
 	const handleRemoveEdge = useCallback( ( from, to ) => {
 		setDraft( ( g ) => removeEdge( g, from, to ) );
 	}, [] );
-
-	// Shared canvas-background-click dismiss pattern (mirrored in the overlay).
-	const handleCanvasBackgroundClickConsumed = makeReplDismissHandler( {
-		replExpanded,
-		setReplExpanded,
-		inputRef: replInputRef,
-	} );
-
-	const handleSave = useCallback( () => {
-		setSaveModal( {} );
-	}, [] );
-
-	const handleOpen = useCallback( () => {
-		setOpenModalShown( true );
-	}, [] );
-
-	const handleNew = useCallback( () => {
-		const blank = { nodes: [], edges: [] };
-		setDraft( blank );
-		setBaseline( blank );
-		setEditingName( '' );
-		setEditingSource( '' );
-		setSelectedId( null );
-		resetLayout();
-	}, [ resetLayout ] );
-
-	// "Reset graph" — the shared useGraphReset rebuild (removeNode all → bump the
-	// generation so useConsoleGraph rebuilds off the canonical wiring → keep the
-	// layout + surface Reset Layout). cwdRestoreRef carries the user's cwd through
-	// the remount (otherwise the rebuilt Shell snaps path back to `_sse/{reader}`
-	// and the [shell] sync effect drags cwd along).
-	const handleResetGraph = useCallback( () => {
-		cwdRestoreRef.current = cwd;
-		resetLocalGraphCore();
-	}, [ cwd, resetLocalGraphCore ] );
 
 	// DELETE shows only for a topology with a user-saved copy (stock is protected).
 	// Keyed off the source of the loaded topology (from the get/save response),
@@ -1042,113 +1058,6 @@ export default function TopologyConsole() {
 			setToast( { kind: 'error', text: msg } );
 		}
 	}, [ deleteModal, deleteTopology, topologyList ] );
-
-	const handleOpenPick = useCallback(
-		async ( name ) => {
-			setOpenModalShown( false );
-			try {
-				const resp = await fetchTopology( name );
-				const next = parseTsl( resp.tsl || '' );
-				// Replace draft AND baseline so the load starts clean.
-				setDraft( next );
-				setBaseline( next );
-				setEditingName( resp.name );
-				setEditingSource( resp.source || '' );
-				setSelectedId( null );
-				// The storage key includes editingName, so the hook auto-loads
-				// the right positions for the opened topology; the server-seed
-				// effect handles the savedLayout fetch.
-				setToast( {
-					kind: 'success',
-					text: sprintf(
-						// translators: 1: topology name, 2: source (stock/user/both).
-						__( 'Loaded %1$s (%2$s).', 'newspack-nodes' ),
-						resp.name,
-						resp.source
-					),
-				} );
-			} catch ( e ) {
-				const msg =
-					( e && e.data && e.data.message ) ||
-					( e && e.message ) ||
-					__( 'Open failed', 'newspack-nodes' );
-				setToast( { kind: 'error', text: msg } );
-			}
-		},
-		[ fetchTopology ]
-	);
-
-	// Class-name → schema map so serializeTsl fills empty positional slots
-	// with schema defaults instead of stripping them as trailing empties.
-	const schemasByShellName = useMemo(
-		() =>
-			Object.fromEntries(
-				( catalog.classes || [] ).map( ( c ) => [ c.shell_name, c ] )
-			),
-		[ catalog.classes ]
-	);
-
-	const handleSaveConfirm = useCallback(
-		async ( name ) => {
-			setSaveModal( null );
-			try {
-				const tsl = serializeTsl( draft, schemasByShellName );
-				const resp = await saveTopology( { name, tsl } );
-				const restartedCount = ( resp.restarted_fleets || [] ).length;
-				const fleetsPhrase = sprintf(
-					// translators: %d: number of restarted fleets.
-					_n(
-						'Restarted %d fleet.',
-						'Restarted %d fleets.',
-						restartedCount,
-						'newspack-nodes'
-					),
-					restartedCount
-				);
-				setToast( {
-					kind: 'success',
-					text: sprintf(
-						// translators: 1: topology name, 2: "Restarted N fleet(s)." phrase.
-						__( 'Saved %1$s. %2$s', 'newspack-nodes' ),
-						resp.name,
-						fleetsPhrase
-					),
-				} );
-				setEditingName( resp.name );
-				// Just-written user copy is now deletable: 'both' when it shadows
-				// a stock copy, else 'user'. Keeps the DELETE button correct after
-				// save without waiting for an Open-modal list refresh.
-				setEditingSource( resp.shadows_stock ? 'both' : 'user' );
-				// Refresh the picker so the next Open sees the new topology.
-				topologyList.reload();
-				setMode( 'view' );
-			} catch ( e ) {
-				const msg =
-					( e && e.data && e.data.message ) ||
-					( e && e.message ) ||
-					__( 'Save failed', 'newspack-nodes' );
-				const lineHint =
-					e && e.data && e.data.line_number
-						? ' ' +
-						  sprintf(
-								// translators: %d: line number in the topology source.
-								__( '(line %d)', 'newspack-nodes' ),
-								e.data.line_number
-						  )
-						: '';
-				setToast( { kind: 'error', text: `${ msg }${ lineHint }` } );
-			}
-		},
-		[ draft, saveTopology, topologyList, schemasByShellName ]
-	);
-
-	useEffect( () => {
-		if ( ! toast ) {
-			return undefined;
-		}
-		const t = setTimeout( () => setToast( null ), 5000 );
-		return () => clearTimeout( t );
-	}, [ toast ] );
 
 	const handleRenameNode = useCallback(
 		( oldId, rawNew ) => {
@@ -1222,56 +1131,147 @@ export default function TopologyConsole() {
 		setDraft( ( g ) => updateNodeVerbs( g, id, verbs ) );
 	}, [] );
 
-	// snapToGrid is imported from utils/autoLayout — same constants the renderer
-	// uses for the existing nodes.
-
-	const handleDropNode = useCallback(
-		( { shellName, x, y } ) => {
-			// Live canvas: stage the NewNodeModal (commitPendingDrop dispatches the
-			// make_node once the user confirms). Position is cosmetic and not sent
-			// (poll-reflect lays it out).
-			if ( mode !== 'edit' ) {
-				liveHandlers.onDropNode( { shellName, x, y } );
-				return;
-			}
-			// Snap to the grid so dropped nodes line up and don't drift.
-			const snapped = snapToGrid( x, y );
-			setDraft( ( g ) => {
-				const name = generateNodeName( g, shellName );
-				handlePositionChange( name, snapped );
-				return addNode( g, {
-					shellName,
-					name,
-					x: snapped.x,
-					y: snapped.y,
+	const handleOpenPick = useCallback(
+		async ( name ) => {
+			setOpenModalShown( false );
+			try {
+				const resp = await fetchTopology( name );
+				const next = parseTsl( resp.tsl || '' );
+				// Replace draft AND baseline so the load starts clean.
+				setDraft( next );
+				setBaseline( next );
+				setEditingName( resp.name );
+				setEditingSource( resp.source || '' );
+				setSelectedId( null );
+				// The storage key includes editingName, so the hook auto-loads
+				// the right positions for the opened topology; the server-seed
+				// effect handles the savedLayout fetch.
+				setToast( {
+					kind: 'success',
+					text: sprintf(
+						// translators: 1: topology name, 2: source (stock/user/both).
+						__( 'Loaded %1$s (%2$s).', 'newspack-nodes' ),
+						resp.name,
+						resp.source
+					),
 				} );
-			} );
+			} catch ( e ) {
+				const msg =
+					( e && e.data && e.data.message ) ||
+					( e && e.message ) ||
+					__( 'Open failed', 'newspack-nodes' );
+				setToast( { kind: 'error', text: msg } );
+			}
 		},
-		// sendLine is consumed by commitPendingDrop (below), not this callback —
-		// live-mode drop just stages pendingDrop now.
-		[ mode, liveHandlers, handlePositionChange ]
+		[ fetchTopology ]
 	);
 
-	// NewNodeModal commit/cancel (live mode).
-	const commitPendingDrop = useCallback(
-		( { name, args } ) => {
-			if ( ! pendingDrop ) {
-				return;
-			}
-			const { shellName, x, y } = pendingDrop;
-			const trimmed = ( args || '' ).trim();
-			const line = trimmed
-				? `make_node ${ shellName } ${ name } ${ trimmed }`
-				: `make_node ${ shellName } ${ name }`;
-			sendLine( line );
-			// Targeted refresh so the dropped node appears at once (no poll wait).
-			Core.node( names.METADATA )?.refreshNode( name );
-			handlePositionChange( name, snapToGrid( x, y ) );
-			setPendingDrop( null );
-		},
-		[ pendingDrop, sendLine, handlePositionChange ]
+	// Shared canvas-background-click dismiss pattern (mirrored in the overlay).
+	const handleCanvasBackgroundClickConsumed = makeReplDismissHandler( {
+		replExpanded,
+		setReplExpanded,
+		inputRef: replInputRef,
+	} );
+
+	const handleSave = useCallback( () => {
+		setSaveModal( {} );
+	}, [] );
+
+	const handleOpen = useCallback( () => {
+		setOpenModalShown( true );
+	}, [] );
+
+	const handleNew = useCallback( () => {
+		const blank = { nodes: [], edges: [] };
+		setDraft( blank );
+		setBaseline( blank );
+		setEditingName( '' );
+		setEditingSource( '' );
+		setSelectedId( null );
+		resetLayout();
+	}, [ resetLayout ] );
+
+	// "Reset graph" — the shared useGraphReset rebuild (removeNode all → bump the
+	// generation so useConsoleGraph rebuilds off the canonical wiring → keep the
+	// layout + surface Reset Layout). cwdRestoreRef carries the user's cwd through
+	// the remount (otherwise the rebuilt Shell snaps path back to `_sse/{reader}`
+	// and the [shell] sync effect drags cwd along).
+	const handleResetGraph = useCallback( () => {
+		cwdRestoreRef.current = cwd;
+		resetLocalGraphCore();
+	}, [ cwd, resetLocalGraphCore ] );
+
+	// Class-name → schema map so serializeTsl fills empty positional slots
+	// with schema defaults instead of stripping them as trailing empties.
+	const schemasByShellName = useMemo(
+		() =>
+			Object.fromEntries(
+				( catalog.classes || [] ).map( ( c ) => [ c.shell_name, c ] )
+			),
+		[ catalog.classes ]
 	);
-	const cancelPendingDrop = useCallback( () => setPendingDrop( null ), [] );
+
+	const handleSaveConfirm = useCallback(
+		async ( name ) => {
+			setSaveModal( null );
+			try {
+				const tsl = serializeTsl( draft, schemasByShellName );
+				const resp = await saveTopology( { name, tsl } );
+				const restartedCount = ( resp.restarted_fleets || [] ).length;
+				const fleetsPhrase = sprintf(
+					// translators: %d: number of restarted fleets.
+					_n(
+						'Restarted %d fleet.',
+						'Restarted %d fleets.',
+						restartedCount,
+						'newspack-nodes'
+					),
+					restartedCount
+				);
+				setToast( {
+					kind: 'success',
+					text: sprintf(
+						// translators: 1: topology name, 2: "Restarted N fleet(s)." phrase.
+						__( 'Saved %1$s. %2$s', 'newspack-nodes' ),
+						resp.name,
+						fleetsPhrase
+					),
+				} );
+				setEditingName( resp.name );
+				// Just-written user copy is now deletable: 'both' when it shadows
+				// a stock copy, else 'user'. Keeps the DELETE button correct after
+				// save without waiting for an Open-modal list refresh.
+				setEditingSource( resp.shadows_stock ? 'both' : 'user' );
+				// Refresh the picker so the next Open sees the new topology.
+				topologyList.reload();
+				setMode( 'view' );
+			} catch ( e ) {
+				const msg =
+					( e && e.data && e.data.message ) ||
+					( e && e.message ) ||
+					__( 'Save failed', 'newspack-nodes' );
+				const lineHint =
+					e && e.data && e.data.line_number
+						? ' ' +
+						  sprintf(
+								// translators: %d: line number in the topology source.
+								__( '(line %d)', 'newspack-nodes' ),
+								e.data.line_number
+						  )
+						: '';
+				setToast( { kind: 'error', text: `${ msg }${ lineHint }` } );
+			}
+		},
+		[ draft, saveTopology, topologyList, schemasByShellName ]
+	);
+
+	useEffect( () => {
+		if ( ! toast ) {
+			return undefined;
+		}
+		const t = setTimeout( () => setToast( null ), 5000 );
+		return () => clearTimeout( t );
+	}, [ toast ] );
 
 	return (
 		<div
