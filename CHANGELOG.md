@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-06-07
+
 ### Changed
 
 - **Internal elegance refactor (behavior-preserving).** Extracted the repeated `is_scalar( $x ) ? (string) $x : ''` Message-field read into one named `Node::as_string()` helper and routed the Node-hierarchy call sites through it; aligned two `node_schema()` key blocks. No public contract change; full PHPUnit suite green (1735), PHPStan + PHPCS clean.
