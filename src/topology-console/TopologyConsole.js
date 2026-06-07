@@ -951,8 +951,12 @@ export default function TopologyConsole() {
 				? `make_node ${ shellName } ${ name } ${ trimmed }`
 				: `make_node ${ shellName } ${ name }`;
 			sendLine( line );
-			// Targeted refresh so the dropped node appears at once (no poll wait).
-			Core.node( names.METADATA )?.refreshNode( name );
+			// Optimistically inject the dropped node so it appears at once (no poll
+			// wait, no dump_metadata round-trip); the next full poll reconciles.
+			Core.node( names.METADATA )?.optimisticPatch( name, {
+				class: shellName,
+				target: '',
+			} );
 			handlePositionChange( name, snapToGrid( x, y ) );
 			setPendingDrop( null );
 		},

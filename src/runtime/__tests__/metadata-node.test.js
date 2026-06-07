@@ -278,72 +278,76 @@ describe( 'Metadata node', () => {
 		} );
 	} );
 
-	describe( 'fill() targeted single-node merge (response carries arguments)', () => {
-		function respond( node, args, payload ) {
+	describe( 'optimisticPatch (local edits, no round-trip)', () => {
+		// Seed the kept rawMap via a normal full-poll reply.
+		function seed( node, payload ) {
 			const m = newMessage();
 			m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-			m[ VALUE ] = { name: 'dump_metadata', arguments: args, payload };
+			m[ VALUE ] = { name: 'dump_metadata', arguments: '', payload };
 			node.fill( m );
 		}
 
-		it( 'merges a single node into the existing map, keeping the others', () => {
+		it( 'adds a newly-dropped node, keeping the others', () => {
 			const node = new MetadataNode();
-			respond( node, '', {
-				a: { class: 'Echo', counter: 1, target: '' },
-				b: { class: 'Echo', counter: 2, target: '' },
-			} );
-			respond( node, 'b', {
-				b: { class: 'Echo', counter: 99, target: '' },
-			} );
+			seed( node, { a: { class: 'Echo', target: '' } } );
+			node.optimisticPatch( 'c', { class: 'Tee', target: '' } );
 			const meta = node.setStateCache.metadata;
-			expect( meta.nodes ).toHaveLength( 2 );
-			expect( meta.nodes.find( ( n ) => n.id === 'b' ).count ).toBe( 99 );
-			expect( meta.nodes.find( ( n ) => n.id === 'a' ).count ).toBe( 1 );
+			expect( meta.nodes.map( ( n ) => n.id ).sort() ).toEqual( [
+				'a',
+				'c',
+			] );
+			expect( meta.nodes.find( ( n ) => n.id === 'c' ).class ).toBe(
+				'Tee'
+			);
 		} );
 
-		it( 'adds a newly-dropped node via a targeted update', () => {
+		it( 'sets a connection (merges target) so the edge appears at once', () => {
 			const node = new MetadataNode();
-			respond( node, '', { a: { class: 'Echo', target: '' } } );
-			respond( node, 'c', { c: { class: 'Tee', target: '' } } );
-			expect(
-				node.setStateCache.metadata.nodes.map( ( n ) => n.id ).sort()
-			).toEqual( [ 'a', 'c' ] );
+			seed( node, {
+				a: { class: 'Echo', counter: 7, target: '' },
+				b: { class: 'Echo', target: '' },
+			} );
+			node.optimisticPatch( 'a', { target: 'b' } );
+			const meta = node.setStateCache.metadata;
+			expect( meta.edges ).toContainEqual( { from: 'a', to: 'b' } );
+			// Shallow-merge keeps the rest of the node's metadata (counter).
+			expect( meta.nodes.find( ( n ) => n.id === 'a' ).count ).toBe( 7 );
 		} );
 
-		it( 'removes a node when its targeted update returns an empty map', () => {
+		it( 'clears a connection (empty target) so the edge disappears', () => {
 			const node = new MetadataNode();
-			respond( node, '', {
+			seed( node, { a: { class: 'Echo', target: 'b' } } );
+			node.optimisticPatch( 'a', { target: '' } );
+			expect( node.setStateCache.metadata.edges ).toHaveLength( 0 );
+		} );
+
+		it( 'removes a node when patched with null', () => {
+			const node = new MetadataNode();
+			seed( node, {
 				a: { class: 'Echo', target: '' },
 				b: { class: 'Echo', target: '' },
 			} );
-			respond( node, 'b', {} );
+			node.optimisticPatch( 'b', null );
 			expect(
 				node.setStateCache.metadata.nodes.map( ( n ) => n.id )
 			).toEqual( [ 'a' ] );
 		} );
 
-		it( 'does not rescale the poll interval on a targeted update', () => {
+		it( 'does not rescale the poll interval', () => {
 			const node = new MetadataNode();
-			respond( node, '', { a: { class: 'Echo', target: '' } } );
+			seed( node, { a: { class: 'Echo', target: '' } } );
 			node.interval_ms = 30000;
-			respond( node, 'a', {
-				a: { class: 'Echo', counter: 5, target: '' },
-			} );
+			node.optimisticPatch( 'a', { target: 'b' } );
 			expect( node.interval_ms ).toBe( 30000 );
 		} );
 
-		it( 'refreshNode( name ) fires a targeted dump_metadata for that node', () => {
+		it( 'ignores an empty name', () => {
 			const node = new MetadataNode();
-			node.setName( '_metadata' );
-			const sent = [];
-			node.sink = { fill: ( m ) => sent.push( m ) };
-			node.target = '_cwd';
-			node.refreshNode( 'mynode' );
-			expect( sent ).toHaveLength( 1 );
-			expect( sent[ 0 ][ VALUE ].name ).toBe( 'dump_metadata' );
-			expect( sent[ 0 ][ VALUE ].arguments ).toBe( 'mynode' );
-			expect( sent[ 0 ][ FROM ] ).toBe( '_metadata' );
-			expect( sent[ 0 ][ TO ] ).toBe( '_cwd' );
+			seed( node, { a: { class: 'Echo', target: '' } } );
+			node.optimisticPatch( '', { target: 'b' } );
+			expect(
+				node.setStateCache.metadata.nodes.map( ( n ) => n.id )
+			).toEqual( [ 'a' ] );
 		} );
 	} );
 

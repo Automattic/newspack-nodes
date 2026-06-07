@@ -182,15 +182,25 @@ export class MetadataNode extends TimerNode {
 		return m;
 	}
 
-	// Targeted refresh for one node after a mutation (drop / connect / disconnect /
-	// remove): fire `dump_metadata <name>` so the canvas updates without waiting for
-	// the throttled full poll. The single-node reply pivots back to fill() (which
-	// merges it) because FROM = own name.
-	refreshNode( name ) {
-		if ( ! this.sink || ! name ) {
+	// Optimistic local edit after a gesture (drop / remove / connect / disconnect):
+	// mutate the kept raw map and re-publish so the canvas updates AT ONCE, with no
+	// dump_metadata round-trip (which races the gesture command to a worker and can
+	// read stale state). `patch === null` removes the node; otherwise it
+	// shallow-merges into the existing entry (seeding a new one for a drop). The
+	// next full poll overwrites rawMap with authoritative state, reconciling any
+	// approximation here (e.g. a Tee's full fan-out).
+	optimisticPatch( name, patch ) {
+		if ( ! name ) {
 			return;
 		}
-		this.sink.fill( this._pollMessage( 'dump_metadata', name ) );
+		const map = { ...( this.rawMap || {} ) };
+		if ( null === patch ) {
+			delete map[ name ];
+		} else {
+			map[ name ] = { ...( map[ name ] || {} ), ...patch };
+		}
+		this.rawMap = map;
+		this.setState( 'metadata', parseMetadata( map ) );
 	}
 
 	// Router TIMER subscriber (the _router calls fireCb -> fire each second).
@@ -236,25 +246,6 @@ export class MetadataNode extends TimerNode {
 			}
 		}
 		if ( ! incoming || typeof incoming !== 'object' ) {
-			return;
-		}
-		// `arguments` set → a targeted single-node reply: merge into the kept raw
-		// map (replace the node if present, drop it if the reply is empty) and
-		// keep the current poll cadence. Empty → a full map: replace + rescale.
-		const targeted =
-			isStruct &&
-			typeof value.arguments === 'string' &&
-			value.arguments !== '';
-		if ( targeted ) {
-			const name = value.arguments;
-			const map = { ...( this.rawMap || {} ) };
-			if ( incoming[ name ] ) {
-				map[ name ] = incoming[ name ];
-			} else {
-				delete map[ name ];
-			}
-			this.rawMap = map;
-			this.setState( 'metadata', parseMetadata( map ) );
 			return;
 		}
 		this.rawMap = incoming;

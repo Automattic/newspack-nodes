@@ -43,46 +43,46 @@ const renderHandlers = ( opts ) => {
 	return { result, dispatch, append, onDropStage, shell };
 };
 
-describe( 'useGraphHandlers — targeted metadata refresh after a mutation', () => {
-	let refreshed;
+describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () => {
+	let patched;
 	beforeEach( () => {
 		Core.reset();
-		refreshed = [];
+		patched = [];
 		Core.registerNode( names.METADATA, {
 			name: names.METADATA,
-			refreshNode: ( n ) => refreshed.push( n ),
+			optimisticPatch: ( name, p ) => patched.push( [ name, p ] ),
 		} );
 	} );
 	afterEach( () => Core.reset() );
 
-	it( 'onConnect refreshes the FROM node (its target changed)', () => {
+	it( 'onConnect sets the FROM node target (edge appears at once)', () => {
 		const { result } = renderHandlers( {} );
 		result.current.onConnect( 'a', 'b' );
-		expect( refreshed ).toEqual( [ 'a' ] );
+		expect( patched ).toEqual( [ [ 'a', { target: 'b' } ] ] );
 	} );
 
-	it( 'onRemoveNode refreshes the removed node (so it leaves the canvas)', () => {
+	it( 'onRemoveNode drops the node (null patch) so it leaves the canvas', () => {
 		const { result } = renderHandlers( {} );
 		result.current.onRemoveNode( 'x' );
-		expect( refreshed ).toEqual( [ 'x' ] );
+		expect( patched ).toEqual( [ [ 'x', null ] ] );
 	} );
 
-	it( 'onInspectorAction disconnect refreshes the node', () => {
+	it( 'onInspectorAction disconnect clears the node target', () => {
 		const { result } = renderHandlers( {} );
 		result.current.onInspectorAction( 'disconnect', 'x', null );
-		expect( refreshed ).toEqual( [ 'x' ] );
+		expect( patched ).toEqual( [ [ 'x', { target: '' } ] ] );
 	} );
 
-	it( 'onInspectorAction tail refreshes the node (its target changed)', () => {
+	it( 'onInspectorAction tail points the node target at _output', () => {
 		const { result } = renderHandlers( {} );
 		result.current.onInspectorAction( 'tail', 'x', null );
-		expect( refreshed ).toEqual( [ 'x' ] );
+		expect( patched ).toEqual( [ [ 'x', { target: names.OUTPUT } ] ] );
 	} );
 
-	it( 'a non-mutating inspector action (dump) does NOT refresh', () => {
+	it( 'a non-mutating inspector action (dump) does NOT patch', () => {
 		const { result } = renderHandlers( {} );
 		result.current.onInspectorAction( 'dump', 'x', null );
-		expect( refreshed ).toEqual( [] );
+		expect( patched ).toEqual( [] );
 	} );
 } );
 

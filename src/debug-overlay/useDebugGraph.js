@@ -108,8 +108,12 @@ export function useDebugGraph(
 				? `${ current.shellName } ${ name } ${ trimmed }`
 				: `${ current.shellName } ${ name }`;
 			sendVerb( `make_node ${ line }`, '', 'make_node', line );
-			// Targeted refresh so the dropped node appears at once (no poll wait).
-			Core.node( names.METADATA )?.refreshNode( name );
+			// Optimistically inject the dropped node so it appears at once (no poll
+			// wait, no dump_metadata round-trip); the next full poll reconciles.
+			Core.node( names.METADATA )?.optimisticPatch( name, {
+				class: current.shellName,
+				target: '',
+			} );
 			if (
 				onPositionChange &&
 				'number' === typeof current.x &&
