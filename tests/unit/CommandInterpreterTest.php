@@ -96,6 +96,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_interpret_allows_command_with_local_provenance(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
 
 		$msg = $this->command_message( 'make_node', 'Capture_Sink real', true ); // LOCAL
 		$interpreter->fill( $msg );
@@ -106,6 +107,7 @@ class CommandInterpreterTest extends TestCase {
 	public function test_instance_authorize_overrides_default_local_check(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
 		$interpreter->authorize = static fn ( array $m ): bool => true;
 
 		$msg = $this->command_message( 'make_node', 'Capture_Sink trusted' ); // no LOCAL
@@ -118,6 +120,7 @@ class CommandInterpreterTest extends TestCase {
 		Command_Interpreter_Node::$default_authorize = static fn ( array $m ): bool => false;
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
 
 		$msg = $this->command_message( 'make_node', 'Capture_Sink nope', true ); // LOCAL set
 		$interpreter->fill( $msg );
@@ -327,6 +330,7 @@ class CommandInterpreterTest extends TestCase {
 
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );
+		$interpreter->sink( new Capture_Sink_Node() );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_COMMAND;

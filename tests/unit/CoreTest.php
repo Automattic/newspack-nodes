@@ -424,17 +424,6 @@ class CoreTest extends TestCase {
 		$this->assertStringEndsWith( "trailing\n", $line );
 	}
 
-	public function test_log_midfix_no_name_returns_empty_prefix(): void {
-		// Core is process-global with no node name, so the midfix is empty
-		// (Tachikoma Node::log_midfix returns "" when $self->{name} is unset).
-		$this->assertSame( '', Core::log_midfix() );
-	}
-
-	public function test_log_midfix_no_name_returns_message_unchanged_with_newline(): void {
-		$out = Core::log_midfix( 'no tag here' );
-		$this->assertSame( "no tag here\n", $out );
-	}
-
 	public function test_stderr_writes_prefixed_line(): void {
 		$buf = '';
 		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );

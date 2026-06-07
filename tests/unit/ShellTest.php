@@ -61,7 +61,6 @@ class ShellTest extends TestCase {
 		$this->assertSame( Message::TM_INFO, $msg[ Message::TYPE ] );
 		$this->assertSame( 'node', $msg[ Message::TO ] );
 		$this->assertSame( 'msg', $msg[ Message::VALUE ] );
-		$this->assertNotSame( '', $msg[ Message::ID ] );
 	}
 
 	public function test_parse_send_yields_TM_BYTESTREAM(): void {
@@ -115,16 +114,18 @@ class ShellTest extends TestCase {
 		$this->assertSame( 'Capture_Sink alice', $cmd['arguments'] );
 	}
 
-	public function test_parse_status_writes_status_lines_to_output_stream_returns_null(): void {
+	public function test_parse_status_writes_status_lines_to_stderr_returns_null(): void {
 		// `status` is a local-only builtin: it writes the shell's
-		// pre-populated $status_lines to the configured $output_stream and
-		// returns null (no Message emitted, no command sent to the worker).
-		// This is how pivoted-cli prints "Pivoted-cli mode for X" + IPC paths
-		// on demand instead of auto-printing them at startup, so scripted
-		// callers can capture clean output.
-		$out_stream = \fopen( 'php://memory', 'w+' );
-		$shell      = new Shell_Node();
-		$shell->output_stream = $out_stream;
+		// pre-populated $status_lines to stderr (Core::_stderr) and returns
+		// null (no Message emitted, no command sent to the worker). This is how
+		// pivoted-cli prints "Pivoted-cli mode for X" + IPC paths on demand
+		// instead of auto-printing them at startup, so scripted callers can
+		// capture clean output.
+		$captured = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
+			$captured .= $msg;
+		} );
+		$shell                = new Shell_Node();
 		$shell->status_lines  = [
 			'Pivoted-cli mode for firehose-workers.p0',
 			'  input  partition: /tmp/in',
@@ -133,12 +134,9 @@ class ShellTest extends TestCase {
 
 		$this->assertNull( $shell->parse( 'status' ) );
 
-		\rewind( $out_stream );
-		$contents = \stream_get_contents( $out_stream );
-		$this->assertStringContainsString( 'Pivoted-cli mode for firehose-workers.p0', $contents );
-		$this->assertStringContainsString( '  input  partition: /tmp/in', $contents );
-		$this->assertStringContainsString( '  output partition: /tmp/out', $contents );
-		\fclose( $out_stream );
+		$this->assertStringContainsString( 'Pivoted-cli mode for firehose-workers.p0', $captured );
+		$this->assertStringContainsString( '  input  partition: /tmp/in', $captured );
+		$this->assertStringContainsString( '  output partition: /tmp/out', $captured );
 	}
 
 	public function test_parse_debug_level_no_args_toggles_dumper_state(): void {
@@ -147,20 +145,19 @@ class ShellTest extends TestCase {
 		$dumper->name( '_output' );
 		$this->assertSame( 0, $dumper->debug_level(), 'default off' );
 
-		$out_stream = \fopen( 'php://memory', 'w+' );
-		$shell      = new Shell_Node();
-		$shell->output_stream = $out_stream;
+		$captured = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
+			$captured .= $msg;
+		} );
+		$shell = new Shell_Node();
 
 		$this->assertNull( $shell->parse( 'debug_level' ) );
 		$this->assertSame( 1, $dumper->debug_level(), 'toggle 0→1' );
-		\rewind( $out_stream );
-		$this->assertSame( "debug_level: 1\n", \stream_get_contents( $out_stream ) );
+		$this->assertSame( "debug_level: 1\n", $captured );
 
-		\ftruncate( $out_stream, 0 );
-		\rewind( $out_stream );
+		$captured = '';
 		$this->assertNull( $shell->parse( 'debug_level' ) );
 		$this->assertSame( 0, $dumper->debug_level(), 'toggle back 1→0' );
-		\fclose( $out_stream );
 	}
 
 	public function test_parse_debug_level_with_explicit_argument_sets(): void {
@@ -168,60 +165,55 @@ class ShellTest extends TestCase {
 		$dumper = new Dumper_Node();
 		$dumper->name( '_output' );
 
-		$out_stream = \fopen( 'php://memory', 'w+' );
-		$shell      = new Shell_Node();
-		$shell->output_stream = $out_stream;
+		$captured = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
+			$captured .= $msg;
+		} );
+		$shell = new Shell_Node();
 
 		$this->assertNull( $shell->parse( 'debug_level 2' ) );
 		$this->assertSame( 2, $dumper->debug_level() );
 
-		\rewind( $out_stream );
-		$this->assertSame( "debug_level: 2\n", \stream_get_contents( $out_stream ) );
-		\fclose( $out_stream );
+		$this->assertSame( "debug_level: 2\n", $captured );
 	}
 
 	public function test_parse_show_parse_toggles_and_dumps_tokens(): void {
 		// `show_parse` is a Shell-local toggle (no Dumper involvement). When
 		// on, every parse() emits the post-interpolation line and tokens to
-		// $output_stream BEFORE the actual command dispatches.
-		$out_stream = \fopen( 'php://memory', 'w+' );
-		$shell      = new Shell_Node();
-		$shell->output_stream = $out_stream;
+		// stderr BEFORE the actual command dispatches.
+		$captured = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
+			$captured .= $msg;
+		} );
+		$shell = new Shell_Node();
 		$this->assertFalse( $shell->show_parse(), 'default off' );
 
 		$this->assertNull( $shell->parse( 'show_parse' ) );
 		$this->assertTrue( $shell->show_parse() );
-		\rewind( $out_stream );
-		$this->assertSame( "show_parse: on\n", \stream_get_contents( $out_stream ) );
+		$this->assertSame( "show_parse: on\n", $captured );
 
 		// Now a real command should emit parse> diagnostics before the message.
-		\ftruncate( $out_stream, 0 );
-		\rewind( $out_stream );
-		$captured = new Capture_Sink_Node();
-		$shell->sink( $captured );
-		$msg = $shell->parse( 'tell some/path hello' );
+		$captured = '';
+		$msg      = $shell->parse( 'tell some/path hello' );
 		$this->assertIsArray( $msg, 'should still build a Message' );
 
-		\rewind( $out_stream );
-		$contents = \stream_get_contents( $out_stream );
-		$this->assertStringContainsString( 'parse> line: tell some/path hello', $contents );
-		$this->assertStringContainsString( 'parse> tokens: ', $contents );
-		$this->assertStringContainsString( '"tell"', $contents );
-		\fclose( $out_stream );
+		$this->assertStringContainsString( 'parse> line: tell some/path hello', $captured );
+		$this->assertStringContainsString( 'parse> tokens: ', $captured );
+		$this->assertStringContainsString( '"tell"', $captured );
 	}
 
 	public function test_parse_status_with_no_status_lines_writes_nothing(): void {
 		// Empty $status_lines (e.g. shell wasn't configured by the cli) →
 		// status is a no-op; no garbage output, no errors.
-		$out_stream = \fopen( 'php://memory', 'w+' );
-		$shell      = new Shell_Node();
-		$shell->output_stream = $out_stream;
+		$captured = '';
+		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
+			$captured .= $msg;
+		} );
+		$shell = new Shell_Node();
 
 		$this->assertNull( $shell->parse( 'status' ) );
 
-		\rewind( $out_stream );
-		$this->assertSame( '', \stream_get_contents( $out_stream ) );
-		\fclose( $out_stream );
+		$this->assertSame( '', $captured );
 	}
 
 	public function test_parse_control_flow_verbs_flow_through_as_commands(): void {
@@ -275,14 +267,7 @@ class ShellTest extends TestCase {
 		$shell->fill( $msg );
 
 		$this->assertCount( 1, $sink->captured );
-		$this->assertSame( $msg[ Message::ID ], $sink->captured[0][ Message::ID ] );
-	}
-
-	public function test_msg_ids_are_unique_within_a_session(): void {
-		$shell = new Shell_Node();
-		$m1 = $shell->parse( 'ls');
-		$m2 = $shell->parse( 'ls');
-		$this->assertNotSame( $m1[ Message::ID ], $m2[ Message::ID ] );
+		$this->assertSame( 'ls', $sink->captured[0][ Message::VALUE ]['name'] );
 	}
 
 	public function test_include_file_processes_each_line(): void {

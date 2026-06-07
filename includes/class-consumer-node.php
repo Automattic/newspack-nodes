@@ -123,98 +123,51 @@ class Consumer_Node extends Timer_Node {
 		return $result;
 	}
 
-	/** Source Partition, materialized by arguments(). Throws if a read runs before configuration. */
-	private function source(): Partition_Node {
-		if ( null === $this->source ) {
-			throw new \RuntimeException( 'Consumer source partition not initialized; call arguments() first' );
-		}
-		return $this->source;
-	}
-
-	/** Override the FROM-stamp used when emitting messages; '' falls back to $this->name. */
-	public function set_stamp_as( string $stamp ): void {
-		$this->stamp_override = $stamp;
-	}
-
-	/** Read the newest offsetlog entry to seed the cursor. No-op when offsetlog is disabled. */
-	protected function load_offsetlog(): void {
-		if ( null === $this->offsetlog ) {
-			return;
-		}
-		$segments = $this->offsetlog->get_segments( true );
-		if ( empty( $segments ) ) {
-			return;
-		}
-		$newest = \end( $segments );
-		$bytes  = $this->offsetlog->read_at( $newest['id'], 0, $newest['size'] );
-		$lines  = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
-		if ( empty( $lines ) ) {
-			return;
-		}
-		try {
-			$msg = Message::unpacked( \end( $lines ) );
-		} catch ( \InvalidArgumentException $e ) {
-			// Unparseable entry: start from the default cursor rather than failing construction.
-			$this->print_less_often( "Consumer: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
-			return;
-		}
-		$entry = $msg[ Message::VALUE ];
-		if ( \is_array( $entry ) && isset( $entry['seg'], $entry['off'] ) ) {
-			$seg                  = $entry['seg'];
-			$off                  = $entry['off'];
-			$this->cursor_seg     = \is_numeric( $seg ) ? (int) $seg : 0;
-			$this->cursor_off     = \is_numeric( $off ) ? (int) $off : 0;
-			$this->checkpoint_seg = $this->cursor_seg;
-			$this->checkpoint_off = $this->cursor_off;
-		}
-	}
-
 	/**
-	 * Set next read position: 'start' | 'recent' | 'end' | array{seg,off}.
-	 *
-	 * @param string|array<array-key, mixed> $position Magic value or explicit position (reads 'seg'/'off').
+	 * Handle TM_REQUEST introspection verbs (reply TO=FROM); else defer to Timer.
 	 */
-	public function next_offset( $position ): void {
-		$this->line_remainder = '';
-		$this->at_eof         = false;
-
-		if ( \is_array( $position ) ) {
-			$seg              = $position['seg'] ?? 0;
-			$off              = $position['off'] ?? 0;
-			$this->cursor_seg = \is_numeric( $seg ) ? (int) $seg : 0;
-			$this->cursor_off = \max( 0, \is_numeric( $off ) ? (int) $off : 0 );
+	public function fill( array &$message ): void {
+		$type_raw = $message[ Message::TYPE ];
+		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
+		if ( $type & Message::TM_REQUEST ) {
+			$this->handle_request( $message );
 			return;
 		}
+		parent::fill( $message );
+	}
 
-		$segments = $this->source()->get_segments( true );
-
-		switch ( $position ) {
-			case 'end':
-				if ( ! empty( $segments ) ) {
-					$newest           = \end( $segments );
-					$this->cursor_seg = $newest['id'];
-					$this->cursor_off = $newest['size'];
-				}
-				break;
-
-			case 'recent':
-				if ( ! empty( $segments ) ) {
-					$count = \count( $segments );
-					if ( $count >= 2 ) {
-						$this->cursor_seg = $segments[ $count - 2 ]['id'];
-					} else {
-						$this->cursor_seg = $segments[0]['id'];
-					}
-					$this->cursor_off = 0;
-				}
-				break;
-
-			case 'start':
-			default:
-				$this->cursor_seg = 0;
-				$this->cursor_off = 0;
-				break;
+	/** @param array<int, mixed> $message Incoming request Message. */
+	private function handle_request( array $message ): void {
+		if ( null === $this->sink ) {
+			throw new \RuntimeException( 'Consumer::fill requires a wired sink' );
 		}
+		$value_raw = $message[ Message::VALUE ];
+		$value     = \is_scalar( $value_raw ) ? (string) $value_raw : '';
+		$verb      = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
+
+		$payload = null;
+		if ( 'GET_LAG' === $verb ) {
+			$payload = $this->compute_lag();
+		} elseif ( 'GET_OFFSET' === $verb ) {
+			$payload = [
+				'cursor_seg'         => $this->cursor_seg,
+				'cursor_off'         => $this->cursor_off,
+				'checkpoint_seg'     => $this->checkpoint_seg,
+				'checkpoint_off'     => $this->checkpoint_off,
+				'last_checkpoint_ts' => (int) $this->last_checkpoint,
+			];
+		} else {
+			$payload = [ 'error' => "unknown request verb: {$verb}" ];
+		}
+
+		$reply                   = Message::new_message();
+        $reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
+		$reply[ Message::FROM ]  = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
+		$reply[ Message::TO ]    = $message[ Message::FROM ];
+		$reply[ Message::ID ]    = $message[ Message::ID ];
+		$reply[ Message::KEY ]   = $message[ Message::KEY ];
+		$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $payload ];
+		$this->sink->fill( $reply );
 	}
 
 	/**
@@ -339,6 +292,100 @@ class Consumer_Node extends Timer_Node {
 
 		$tail_after_remainder = $this->cursor_off + \strlen( $this->line_remainder );
 		$this->at_eof         = ( $this->cursor_seg >= $newest_id ) && ( $tail_after_remainder >= $newest_size );
+	}
+
+	/** Source Partition, materialized by arguments(). Throws if a read runs before configuration. */
+	private function source(): Partition_Node {
+		if ( null === $this->source ) {
+			throw new \RuntimeException( 'Consumer source partition not initialized; call arguments() first' );
+		}
+		return $this->source;
+	}
+
+	/** Override the FROM-stamp used when emitting messages; '' falls back to $this->name. */
+	public function set_stamp_as( string $stamp ): void {
+		$this->stamp_override = $stamp;
+	}
+
+	/** Read the newest offsetlog entry to seed the cursor. No-op when offsetlog is disabled. */
+	protected function load_offsetlog(): void {
+		if ( null === $this->offsetlog ) {
+			return;
+		}
+		$segments = $this->offsetlog->get_segments( true );
+		if ( empty( $segments ) ) {
+			return;
+		}
+		$newest = \end( $segments );
+		$bytes  = $this->offsetlog->read_at( $newest['id'], 0, $newest['size'] );
+		$lines  = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
+		if ( empty( $lines ) ) {
+			return;
+		}
+		try {
+			$msg = Message::unpacked( \end( $lines ) );
+		} catch ( \InvalidArgumentException $e ) {
+			// Unparseable entry: start from the default cursor rather than failing construction.
+			$this->print_less_often( "Consumer: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
+			return;
+		}
+		$entry = $msg[ Message::VALUE ];
+		if ( \is_array( $entry ) && isset( $entry['seg'], $entry['off'] ) ) {
+			$seg                  = $entry['seg'];
+			$off                  = $entry['off'];
+			$this->cursor_seg     = \is_numeric( $seg ) ? (int) $seg : 0;
+			$this->cursor_off     = \is_numeric( $off ) ? (int) $off : 0;
+			$this->checkpoint_seg = $this->cursor_seg;
+			$this->checkpoint_off = $this->cursor_off;
+		}
+	}
+
+	/**
+	 * Set next read position: 'start' | 'recent' | 'end' | array{seg,off}.
+	 *
+	 * @param string|array<array-key, mixed> $position Magic value or explicit position (reads 'seg'/'off').
+	 */
+	public function next_offset( $position ): void {
+		$this->line_remainder = '';
+		$this->at_eof         = false;
+
+		if ( \is_array( $position ) ) {
+			$seg              = $position['seg'] ?? 0;
+			$off              = $position['off'] ?? 0;
+			$this->cursor_seg = \is_numeric( $seg ) ? (int) $seg : 0;
+			$this->cursor_off = \max( 0, \is_numeric( $off ) ? (int) $off : 0 );
+			return;
+		}
+
+		$segments = $this->source()->get_segments( true );
+
+		switch ( $position ) {
+			case 'end':
+				if ( ! empty( $segments ) ) {
+					$newest           = \end( $segments );
+					$this->cursor_seg = $newest['id'];
+					$this->cursor_off = $newest['size'];
+				}
+				break;
+
+			case 'recent':
+				if ( ! empty( $segments ) ) {
+					$count = \count( $segments );
+					if ( $count >= 2 ) {
+						$this->cursor_seg = $segments[ $count - 2 ]['id'];
+					} else {
+						$this->cursor_seg = $segments[0]['id'];
+					}
+					$this->cursor_off = 0;
+				}
+				break;
+
+			case 'start':
+			default:
+				$this->cursor_seg = 0;
+				$this->cursor_off = 0;
+				break;
+		}
 	}
 
 	/**
@@ -488,50 +535,6 @@ class Consumer_Node extends Timer_Node {
 			],
 			60
 		);
-	}
-
-	/**
-	 * Handle TM_REQUEST introspection verbs (reply TO=FROM); else defer to Timer.
-	 */
-	public function fill( array &$message ): void {
-		$type_raw = $message[ Message::TYPE ];
-		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
-		if ( $type & Message::TM_REQUEST ) {
-			$this->handle_request( $message );
-			return;
-		}
-		parent::fill( $message );
-	}
-
-	/** @param array<int, mixed> $message Incoming request Message. */
-	private function handle_request( array $message ): void {
-		$value_raw = $message[ Message::VALUE ];
-		$value     = \is_scalar( $value_raw ) ? (string) $value_raw : '';
-		$verb  = \strtoupper( \explode( ' ', \trim( $value ), 2 )[0] );
-
-		$payload = null;
-		if ( 'GET_LAG' === $verb ) {
-			$payload = $this->compute_lag();
-		} elseif ( 'GET_OFFSET' === $verb ) {
-			$payload = [
-				'cursor_seg'         => $this->cursor_seg,
-				'cursor_off'         => $this->cursor_off,
-				'checkpoint_seg'     => $this->checkpoint_seg,
-				'checkpoint_off'     => $this->checkpoint_off,
-				'last_checkpoint_ts' => (int) $this->last_checkpoint,
-			];
-		} else {
-			$payload = [ 'error' => "unknown request verb: {$verb}" ];
-		}
-
-		$reply                   = Message::new_message();
-        $reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-		$reply[ Message::FROM ]  = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-		$reply[ Message::TO ]    = $message[ Message::FROM ];
-		$reply[ Message::ID ]    = $message[ Message::ID ];
-		$reply[ Message::KEY ]   = $message[ Message::KEY ];
-		$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => $payload ];
-		$this->sink?->fill( $reply );
 	}
 
 	/** @return array{bytes_behind: int, segments_behind: int, caught_up: bool} */

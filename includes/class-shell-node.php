@@ -22,12 +22,42 @@ class Shell_Node extends Node {
 	 */
 	public array $status_lines = [];
 
+	/** Backslash-continuation accumulator. */
+	private string $continuation = '';
+
+	/** When true, every parsed line dumps its interpolated/tokenized form to $output_stream. */
+	private bool $show_parse = false;
+
 	/**
-	 * Output sink for local-only builtins; null = silent.
-	 *
-	 * @var resource|null
+	 * Shell egress. A TM_BYTESTREAM is raw REPL input: parse each statement into a
+	 * Message and dispatch it. Anything else (a pre-built command from
+	 * dispatch_line, a completion query, an EOF/ping marker) passes straight
+	 * through to the sink. Mirrors Tachikoma::Nodes::Shell::fill, which sinks any
+	 * non-TM_BYTESTREAM message rather than dropping it. Every command leaving the
+	 * Shell is signed here so it carries an HMAC envelope across the IPC boundary
+	 * to a worker (Command_Auth::sign is a no-op on non-command types).
 	 */
-	public $output_stream = null;
+	public function fill( array &$message ): void {
+		if ( null === $this->sink ) {
+			throw new \RuntimeException( 'Shell::fill requires a wired sink' );
+		}
+		$type  = $message[ Message::TYPE ]  ?? 0;
+		$value = $message[ Message::VALUE ] ?? null;
+		if ( ! \is_integer( $type ) || ! ( $type & Message::TM_BYTESTREAM ) || ! \is_string( $value ) ) {
+			++$this->counter;
+			Command_Auth::sign( $message );
+			$this->sink->fill( $message );
+			return;
+		}
+		foreach ( $this->split_statements( $value ) as $statement ) {
+			$parsed = $this->parse( $statement );
+			if ( null !== $parsed ) {
+				++$this->counter;
+				Command_Auth::sign( $parsed );
+				$this->sink->fill( $parsed );
+			}
+		}
+	}
 
 	/**
 	 * The Shell is the unnamed REPL front-end; naming it would register a command
@@ -40,109 +70,58 @@ class Shell_Node extends Node {
 		return $this->name;
 	}
 
-	/** Backslash-continuation accumulator. */
-	private string $continuation = '';
-
-	/** When true, every parsed line dumps its interpolated/tokenized form to $output_stream. */
-	private bool $show_parse = false;
-
-	public function show_parse(): bool {
-		return $this->show_parse;
-	}
-
-	public function set_show_parse( bool $on ): void {
-		$this->show_parse = $on;
+	/**
+	 * Build a TM_COMMAND via $this->command(...) (inherited from Node), stamp the
+	 * Shell session's FROM/LOCAL provenance + the target TO ($path), and fill
+	 * it through $this->sink. Mirrors Tachikoma::Nodes::Shell::send_command —
+	 * callers issue commands as method calls instead of via parse().
+	 *
+	 * @param string $path      Routing target (TO). Empty = local interpreter.
+	 * @param string $name      Command verb (e.g. 'connect_node').
+	 * @param string $arguments Positional argument string.
+	 * @return void
+	 */
+	public function send_command( string $path, string $name, string $arguments = '' ): void {
+		if ( null === $this->sink ) {
+			throw new \RuntimeException( 'Shell::send_command requires a wired sink' );
+		}
+		$message                  = $this->command( $name, $arguments );
+		$message[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
+		$message[ Message::TO ]   = $path;
+		Command_Auth::sign( $message );
+		$this->sink->fill( $message );
 	}
 
 	/**
-	 * Syntax-check a single TSL statement; throws on an unterminated backslash
-	 * continuation. Unknown verbs are NOT rejected here — they flow through and
-	 * the target CommandInterpreter answers `unknown command: <verb>`.
+	 * Read & parse a file, filling each non-trivial line through the sink as if typed.
 	 */
-	public function validate_line( string $line ): void {
-		$line = \trim( $line );
-		if ( '' === $line || '#' === $line[0] ) {
+	private function include_file( string $file ): void {
+		if ( '' === $file || ! \is_file( $file ) ) {
+			$this->print_less_often( "Shell: include: file not found: $file" );
 			return;
 		}
-		if ( \str_ends_with( $line, '\\' ) ) {
-			throw new \RuntimeException( 'unterminated backslash continuation' );
+		// Topology files live alongside the plugin, not in WP-managed storage.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+		$fh = @\fopen( $file, 'r' );
+		if ( false === $fh ) {
+			$this->print_less_often( "Shell: include: cannot open: $file" );
+			return;
 		}
-	}
-
-	public function set_variable( string $name, string $value ): void {
-		Core::$var[ $name ] = $value;
+		while ( ( $line = \fgets( $fh ) ) !== false ) {
+			$line = \rtrim( $line, "\r\n" );
+			$this->eval_script( $line );
+		}
+		\fclose( $fh );
 	}
 
 	/**
-	 * Quote-aware tokenizer ('/"/`): splits on unquoted whitespace, strips the quote chars.
-	 *
-	 * @return array<int, string>
+	 * Parse a multi-statement script and dispatch each resulting Message via the sink.
 	 */
-	public function tokenize( string $line ): array {
-		$tokens   = [];
-		$buf      = '';
-		$in_quote = null;
-		$in_token = false;
-		$len      = \strlen( $line );
-
-		for ( $i = 0; $i < $len; ++$i ) {
-			$ch = $line[ $i ];
-			if ( null !== $in_quote ) {
-				if ( $ch === $in_quote ) {
-					$in_quote = null;
-				} else {
-					$buf .= $ch;
-				}
-				continue;
-			}
-			if ( '"' === $ch || "'" === $ch || '`' === $ch ) {
-				$in_quote = $ch;
-				$in_token = true; // empty quoted string still counts as a token.
-				continue;
-			}
-			if ( ' ' === $ch || "\t" === $ch ) {
-				if ( $in_token ) {
-					$tokens[] = $buf;
-					$buf      = '';
-					$in_token = false;
-				}
-				continue;
-			}
-			$buf      .= $ch;
-			$in_token  = true;
-		}
-
-		if ( $in_token ) {
-			$tokens[] = $buf;
-		}
-
-		return $tokens;
-	}
-
-	/**
-	 * Single-tier interpolation: `<ns:key>` → that namespace's registered
-	 * resolver (Core::resolve_config_token); bare `<var>` → Core::$var; unknown → ''.
-	 */
-	public function interpolate( string $line ): string {
-		return (string) \preg_replace_callback(
-			'/<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/',
-			static function ( array $m ): string {
-				$key   = $m[1];
-				$colon = \strpos( $key, ':' );
-				if ( false !== $colon ) {
-					return Core::resolve_config_token( \substr( $key, 0, $colon ), \substr( $key, $colon + 1 ) );
-				}
-				return Core::$var[ $key ] ?? '';
-			},
-			$line
-		);
-	}
-
-	/**
-	 * Generate a message id: time():monotonic-counter.
-	 */
-	private function generate_id(): string {
-		return \sprintf( '%d:%010d', \time(), Core::msg_counter() );
+	public function eval_script( string $script ): void {
+		$message = Message::new_message();
+		$message[ Message::TYPE  ] = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = $script;
+		$this->fill( $message );
 	}
 
 	/**
@@ -198,39 +177,6 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * Build a TM_COMMAND via $this->command(...) (inherited from Node), stamp the
-	 * Shell session's FROM/LOCAL provenance + the target TO ($path), and fill
-	 * it through $this->sink. Mirrors Tachikoma::Nodes::Shell::send_command —
-	 * callers issue commands as method calls instead of via parse().
-	 *
-	 * @param string $path      Routing target (TO). Empty = local interpreter.
-	 * @param string $name      Command verb (e.g. 'connect_node').
-	 * @param string $arguments Positional argument string.
-	 * @return void
-	 */
-	public function send_command( string $path, string $name, string $arguments = '' ): void {
-		$message                   = $this->command( $name, $arguments );
-		$message[ Message::ID ]    = $this->generate_id();
-		$message[ Message::FROM ]  = Node_Names::OUTPUT . '/' . \getmypid();
-		$message[ Message::TO ]    = $path;
-		$message[ Message::LOCAL ] = true;
-		Command_Auth::sign( $message );
-		$this->sink?->fill( $message );
-	}
-
-	/**
-	 * Parse a multi-statement script and dispatch each resulting Message via the sink.
-	 */
-	public function eval_script( string $script ): void {
-		foreach ( $this->split_statements( $script ) as $statement ) {
-			$message = $this->parse( $statement );
-			if ( null !== $message && null !== $this->sink ) {
-				$this->sink->fill( $message );
-			}
-		}
-	}
-
-	/**
 	 * Parse one line into a Message; null on empty/comment or held continuation.
 	 *
 	 * @return array<int, mixed>|null The 7-field positional Message, or null.
@@ -259,10 +205,8 @@ class Shell_Node extends Node {
 			return null;
 		}
 
-		if ( $this->show_parse && \is_resource( $this->output_stream ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-			\fwrite(
-				$this->output_stream,
+		if ( $this->show_parse ) {
+			Core::_stderr(
 				'parse> line: ' . $line . "\n" .
 				'parse> tokens: ' . (string) \wp_json_encode( $tokens ) . "\n"
 			);
@@ -297,31 +241,21 @@ class Shell_Node extends Node {
 					? (int) $args[0]
 					: ( $current > 0 ? 0 : 1 );
 				$applied = $dumper->set_debug_level( $next );
-				if ( \is_resource( $this->output_stream ) ) {
-					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-					\fwrite( $this->output_stream, 'debug_level: ' . $applied . "\n" );
-				}
+				Core::_stderr( 'debug_level: ' . $applied . "\n" );
 			}
 			return null;
 		}
 
 		if ( 'status' === $verb ) {
-			if ( \is_resource( $this->output_stream ) ) {
-				foreach ( $this->status_lines as $status_line ) {
-					// $output_stream is STDOUT or a test memory stream — never a managed path.
-					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-					\fwrite( $this->output_stream, $status_line . "\n" );
-				}
+			foreach ( $this->status_lines as $status_line ) {
+				Core::_stderr( $status_line . "\n" );
 			}
 			return null;
 		}
 
 		if ( 'show_parse' === $verb ) {
 			$this->show_parse = ! $this->show_parse;
-			if ( \is_resource( $this->output_stream ) ) {
-				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-				\fwrite( $this->output_stream, 'show_parse: ' . ( $this->show_parse ? 'on' : 'off' ) . "\n" );
-			}
+			Core::_stderr( 'show_parse: ' . ( $this->show_parse ? 'on' : 'off' ) . "\n" );
 			return null;
 		}
 
@@ -333,10 +267,7 @@ class Shell_Node extends Node {
 				return null;
 			}
 			if ( \str_contains( $name , ':' ) ) {
-				if ( \is_resource( $this->output_stream ) ) {
-					// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-					\fwrite( $this->output_stream, "var: invalid name '{$name}' (':' is reserved for read-only namespaces like config:)\n" );
-				}
+				Core::_stderr( "var: invalid name '{$name}' (':' is reserved for read-only namespaces like config:)\n" );
 				return null;
 			}
 			Core::$var[ $name ] = \implode( ' ', \array_slice( $args, 2 ) );
@@ -344,10 +275,8 @@ class Shell_Node extends Node {
 		}
 
 		// FROM=`_output/$pid` so replies route back to this session's Dumper.
-		$id                   = $this->generate_id();
-		$message                  = Message::new_message();
-		$message[ Message::ID ]   = $id;
-		$message[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
+		$message                   = Message::new_message();
+		$message[ Message::FROM ]  = Node_Names::OUTPUT . '/' . \getmypid();
 		// LOCAL provenance taint — minted in this process. Stripped at the wire
 		// boundary (packed()), so it authorizes only an in-process interpreter.
 		$message[ Message::LOCAL ] = true;
@@ -417,6 +346,52 @@ class Shell_Node extends Node {
 	}
 
 	/**
+	 * Quote-aware tokenizer ('/"/`): splits on unquoted whitespace, strips the quote chars.
+	 *
+	 * @return array<int, string>
+	 */
+	public function tokenize( string $line ): array {
+		$tokens   = [];
+		$buf      = '';
+		$in_quote = null;
+		$in_token = false;
+		$len      = \strlen( $line );
+
+		for ( $i = 0; $i < $len; ++$i ) {
+			$ch = $line[ $i ];
+			if ( null !== $in_quote ) {
+				if ( $ch === $in_quote ) {
+					$in_quote = null;
+				} else {
+					$buf .= $ch;
+				}
+				continue;
+			}
+			if ( '"' === $ch || "'" === $ch || '`' === $ch ) {
+				$in_quote = $ch;
+				$in_token = true; // empty quoted string still counts as a token.
+				continue;
+			}
+			if ( ' ' === $ch || "\t" === $ch ) {
+				if ( $in_token ) {
+					$tokens[] = $buf;
+					$buf      = '';
+					$in_token = false;
+				}
+				continue;
+			}
+			$buf      .= $ch;
+			$in_token  = true;
+		}
+
+		if ( $in_token ) {
+			$tokens[] = $buf;
+		}
+
+		return $tokens;
+	}
+
+	/**
 	 * Slash-join the shell's cwd with an additional `<path>` arg, dropping empty pieces.
 	 */
 	public function prefix( string $path ): string {
@@ -449,38 +424,50 @@ class Shell_Node extends Node {
 		return \trim( $cwd, '/' );
 	}
 
+	public function show_parse(): bool {
+		return $this->show_parse;
+	}
 
-	/**
-	 * Read & parse a file, filling each non-trivial line through the sink as if typed.
-	 */
-	private function include_file( string $file ): void {
-		if ( '' === $file || ! \is_file( $file ) ) {
-			$this->print_less_often( "Shell: include: file not found: $file" );
-			return;
-		}
-		// Topology files live alongside the plugin, not in WP-managed storage.
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
-		$fh = @\fopen( $file, 'r' );
-		if ( false === $fh ) {
-			$this->print_less_often( "Shell: include: cannot open: $file" );
-			return;
-		}
-		while ( ( $line = \fgets( $fh ) ) !== false ) {
-			$line = \rtrim( $line, "\r\n" );
-			$message  = $this->parse( $line );
-			if ( null !== $message ) {
-				$this->fill( $message );
-			}
-		}
-		\fclose( $fh );
+	public function set_show_parse( bool $on ): void {
+		$this->show_parse = $on;
 	}
 
 	/**
-	 * Standard sink-forward, counting the message.
+	 * Syntax-check a single TSL statement; throws on an unterminated backslash
+	 * continuation. Unknown verbs are NOT rejected here — they flow through and
+	 * the target CommandInterpreter answers `unknown command: <verb>`.
 	 */
-	public function fill( array &$message ): void {
-		++$this->counter;
-		$this->sink?->fill( $message );
+	public function validate_line( string $line ): void {
+		$line = \trim( $line );
+		if ( '' === $line || '#' === $line[0] ) {
+			return;
+		}
+		if ( \str_ends_with( $line, '\\' ) ) {
+			throw new \RuntimeException( 'unterminated backslash continuation' );
+		}
+	}
+
+	public function set_variable( string $name, string $value ): void {
+		Core::$var[ $name ] = $value;
+	}
+
+	/**
+	 * Single-tier interpolation: `<ns:key>` → that namespace's registered
+	 * resolver (Core::resolve_config_token); bare `<var>` → Core::$var; unknown → ''.
+	 */
+	public function interpolate( string $line ): string {
+		return (string) \preg_replace_callback(
+			'/<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/',
+			static function ( array $m ): string {
+				$key   = $m[1];
+				$colon = \strpos( $key, ':' );
+				if ( false !== $colon ) {
+					return Core::resolve_config_token( \substr( $key, 0, $colon ), \substr( $key, $colon + 1 ) );
+				}
+				return Core::$var[ $key ] ?? '';
+			},
+			$line
+		);
 	}
 
 	public static function node_schema(): array {

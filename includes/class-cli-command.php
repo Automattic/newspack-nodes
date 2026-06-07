@@ -173,9 +173,6 @@ class CLI_Command {
 		$is_tty       = \function_exists( 'posix_isatty' ) && @\posix_isatty( \STDIN );
 		$has_readline = $is_tty && \function_exists( 'readline_callback_handler_install' );
 
-		// Wire STDOUT into the Shell for the `status` builtin.
-		$shell->output_stream = \STDOUT;
-
 		// Skip prompts when stdin is piped — they break `... | grep` consumers.
 		$reader = new CLI_Stdin_Reader_Node( $this, $shell, $dumper, $has_readline, null, $is_tty );
 
@@ -319,6 +316,10 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 		$msg                  = Message::new_message();
 		$msg[ Message::TYPE ] = Message::TM_EOF;
 		$msg[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
+		// TO=cwd: in pivoted mode this routes the EOF through the worker so its
+		// echo can only return after every preceding reply on the ordered IPC
+		// partition. Empty (bare mode) bounces off the local interpreter.
+		$msg[ Message::TO ]   = $this->shell->path;
 		$this->shell->fill( $msg );
 		$this->eof_sent        = true;
 		$this->eof_deadline_at = \microtime( true ) + $this->eof_deadline_s;

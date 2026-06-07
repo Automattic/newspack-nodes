@@ -165,6 +165,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$c->name( 'firehose:consumer' );
 		$c->target( 'firehose:tee' );
+		$c->sink( new Capture_Sink_Node() );
 		$c->poll();
 		$c->checkpoint();
 
@@ -193,6 +194,7 @@ class ConsumerTest extends TestCase {
 
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->sink( new Capture_Sink_Node() );
 		$c->poll();
 		$c->checkpoint();
 
@@ -732,6 +734,7 @@ class ConsumerTest extends TestCase {
 
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->sink( new Capture_Sink_Node() );
 		$c->poll();
 		$c->checkpoint();
 
@@ -754,6 +757,7 @@ class ConsumerTest extends TestCase {
 
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->sink( new Capture_Sink_Node() );
 		$c->poll();
 		$c->checkpoint();
 
@@ -804,6 +808,7 @@ class ConsumerTest extends TestCase {
 
 		$c   = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->sink( new Capture_Sink_Node() );
 		$ref = new \ReflectionClass( $c );
 
 		Core::$now = \microtime(true); // Ensure now is a real wall-clock value.
@@ -833,6 +838,7 @@ class ConsumerTest extends TestCase {
 
 		$c   = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->sink( new Capture_Sink_Node() );
 		$ref = new \ReflectionClass( $c );
 
 		// Pre-set last_checkpoint to "right now" so the interval gate fails.
@@ -871,6 +877,7 @@ class ConsumerTest extends TestCase {
 
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data 0 " );
+		$c->sink( new Capture_Sink_Node() );
 
 		Core::$now = \microtime(true);
 		$ref  = new \ReflectionClass( $c );
@@ -1021,6 +1028,7 @@ class ConsumerTest extends TestCase {
 
 		$c   = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->sink( new Capture_Sink_Node() );
 		$ref = new \ReflectionClass( $c );
 
 		// Fire twice: first init may construct Memcached + addServer; second
@@ -1326,6 +1334,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$c->name( 'firehose:consumer' );
 		$c->target( 'firehose:tee' );
+		$c->sink( new Capture_Sink_Node() );
 		$c->poll();
 		$c->checkpoint();
 
@@ -1360,6 +1369,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$c->name( 'firehose:consumer' );
 		$c->target( 'firehose:tee' );
+		$c->sink( new Capture_Sink_Node() );
 		$c->poll();
 		$c->checkpoint();
 
@@ -1396,6 +1406,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$c->name( 'firehose:consumer' );
 		$c->target( 'firehose:tee' );
+		$c->sink( new Capture_Sink_Node() );
 		$c->poll();
 		$c->checkpoint();
 
@@ -1469,6 +1480,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$c->name( 'firehose:consumer' );
 		$c->target( 'just-a-processor' );
+		$c->sink( new Capture_Sink_Node() );
 		$c->poll();
 		$c->checkpoint();
 
@@ -1797,6 +1809,7 @@ class ConsumerTest extends TestCase {
 		// throwing, starting from the default cursor (0/0).
 		$c1 = new Consumer_Node();
 		$c1->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c1->sink( new Capture_Sink_Node() );
 		$c1->poll();
 		$c1->checkpoint();
 		unset( $c1 );

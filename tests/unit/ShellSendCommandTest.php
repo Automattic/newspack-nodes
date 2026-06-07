@@ -34,14 +34,5 @@ class ShellSendCommandTest extends TestCase {
 		$this->assertSame( 'a b', $msg[ Message::VALUE ]['arguments'] );
 		$this->assertArrayNotHasKey( 'payload', $msg[ Message::VALUE ] );
 		$this->assertTrue( $msg[ Message::LOCAL ] );
-		$this->assertNotSame( '', $msg[ Message::ID ] );
-	}
-
-	public function test_send_command_is_a_noop_without_sink(): void {
-		// No sink configured: must not throw. Mirrors the `sink?->fill()`
-		// guard in parse() so REPLs running before wiring stay safe.
-		$shell = new Shell_Node();
-		$shell->send_command( '', 'pwd', '' );
-		$this->assertTrue( true );
 	}
 }

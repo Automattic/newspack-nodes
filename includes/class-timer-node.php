@@ -73,6 +73,9 @@ class Timer_Node extends Node {
 	// interpreter would just spam it); counter++ on emit. Always notify 'FIRE'.
 	protected function fire(): void {
 		if ( '' !== $this->target || ! ( $this->sink instanceof Command_Interpreter_Node ) ) {
+			if ( null === $this->sink ) {
+				throw new \RuntimeException( 'Timer::fire requires a wired sink' );
+			}
 			$msg                       = Message::new_message();
 			$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 			$msg[ Message::TIMESTAMP ] = Core::$now;
@@ -83,7 +86,7 @@ class Timer_Node extends Node {
 			}
 			$msg[ Message::VALUE ] = (string) Core::$now;
 			++$this->counter;
-			$this->sink?->fill( $msg );
+			$this->sink->fill( $msg );
 		}
 		$this->notify( 'FIRE', Core::$now );
 	}
