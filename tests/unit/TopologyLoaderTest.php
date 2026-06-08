@@ -47,6 +47,27 @@ class TopologyLoaderTest extends TestCase {
 		$this->assertNotNull( Core::node( 'bob' ) );
 	}
 
+	public function test_load_suppresses_command_replies(): void {
+		// The boot topology has no console to reply to; every successful command's
+		// reply would otherwise route TO=`_output/<pid>`, dead-end on the absent
+		// `_output`, and bounce a dropped NOT_AVAILABLE. The loader runs the Shell
+		// with want_reply off, so the interpreter emits nothing downstream.
+		$this->write_tsl(
+			'replyless',
+			"make_node Capture_Sink alice\nmake_node Capture_Sink bob\n"
+		);
+
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$sink = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+
+		Topology_Loader::load( 'replyless', 0, $interpreter );
+
+		$this->assertNotNull( Core::node( 'alice' ), 'graph still builds' );
+		$this->assertCount( 0, $sink->captured, 'no command replies bounce at boot' );
+	}
+
 	public function test_load_builds_graph_under_worker_verifier_policy(): void {
 		// Regression: a worker installs the HMAC verifier as the process-wide
 		// authorize policy, THEN loads its topology in-process via Shell. The

@@ -53,6 +53,26 @@ class CommandAuthTest extends TestCase {
 		$this->assertTrue( Command_Auth::verify( $m, 1000 ) );
 	}
 
+	public function test_sign_and_verify_round_trip_a_noreply_command(): void {
+		// Topology-load commands carry TM_COMMAND|TM_NOREPLY. The HMAC covers TYPE,
+		// so sign must stamp (and verify accept) the combined type — otherwise every
+		// worker's boot topology fails HMAC and refuses to load.
+		$m                  = $this->command();
+		$m[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_NOREPLY;
+		Command_Auth::sign( $m, 1000 );
+		$this->assertIsArray( $m[ Message::VALUE ]['auth'] );
+		$this->assertTrue( Command_Auth::verify( $m, 1000 ) );
+	}
+
+	public function test_sign_is_a_noop_on_a_command_response(): void {
+		// Responses/errors (TM_COMMAND|TM_RESPONSE, TM_COMMAND|TM_ERROR) are never
+		// signed — only inbound commands are.
+		$m                  = $this->command();
+		$m[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
+		Command_Auth::sign( $m, 1000 );
+		$this->assertArrayNotHasKey( 'auth', $m[ Message::VALUE ] );
+	}
+
 	public function test_verify_rejects_tampered_name(): void {
 		$m = $this->command();
 		Command_Auth::sign( $m, 1000 );

@@ -536,6 +536,7 @@ class Node {
 		Message::TM_INFO       => 'TM_INFO',
 		Message::TM_STRUCT     => 'TM_STRUCT',
 		Message::TM_REQUEST    => 'TM_REQUEST',
+		Message::TM_NOREPLY    => 'TM_NOREPLY',
 	];
 
 	/** Message types whose payload is included in the drop_message() audit line. */

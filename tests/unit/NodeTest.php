@@ -109,6 +109,18 @@ class NodeTest extends TestCase {
 		$this->assertStringContainsString( 'payload: data', $buf );
 	}
 
+	public function test_drop_message_labels_noreply_flag(): void {
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$n   = new Capture_Sink_Node();
+		$n->name( 'alice' );
+		$msg                  = Message::new_message();
+		$msg[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_NOREPLY;
+		$n->drop_message( $msg, 'BAD_INPUT' );
+		$this->assertStringContainsString( 'TM_COMMAND', $buf );
+		$this->assertStringContainsString( 'TM_NOREPLY', $buf );
+	}
+
 	public function test_drop_message_renders_array_value_as_json(): void {
 		// Under the command protocol a TM_COMMAND VALUE is a live PHP array
 		// (`['name'=>,'arguments'=>,'payload'=>]`). A malformed command struct

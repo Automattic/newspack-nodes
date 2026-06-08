@@ -88,8 +88,10 @@ class Command_Auth {
 	}
 
 	/**
-	 * Stamp an `auth` envelope onto a command Message's VALUE. No-op if TYPE is
-	 * not TM_COMMAND
+	 * Stamp an `auth` envelope onto a command Message's VALUE. No-op unless TYPE
+	 * is a request command — TM_COMMAND without TM_RESPONSE/TM_ERROR (TM_NOREPLY
+	 * rides along fine). The HMAC covers TYPE, so the signer's flags must match
+	 * the verifier's.
 	 *
 	 * @param array<int,mixed> $message Message (mutated in place).
 	 * @param int|null         $now     Signing time; defaults to time().
@@ -97,7 +99,10 @@ class Command_Auth {
 	public static function sign( array &$message, ?int $now = null ): void {
 		$type  = $message[ Message::TYPE ]  ?? 0;
 		$value = $message[ Message::VALUE ] ?? null;
-		if ( ! \is_integer( $type ) || Message::TM_COMMAND !== $type || ! \is_array( $value ) ) {
+		if ( ! \is_integer( $type )
+				|| ! ( $type & Message::TM_COMMAND )
+				|| ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) )
+				|| ! \is_array( $value ) ) {
 			return;
 		}
 		$ts    = $now ?? \time();
@@ -128,7 +133,10 @@ class Command_Auth {
 		$type        = $message[ Message::TYPE ]  ?? 0;
 		$value       = $message[ Message::VALUE ] ?? null;
 		$interpreter = Core::node( Node_Names::COMMAND_INTERPRETER );
-		if ( ! \is_integer( $type ) || Message::TM_COMMAND !== $type || ! \is_array( $value ) ) {
+		if ( ! \is_integer( $type )
+				|| ! ( $type & Message::TM_COMMAND )
+				|| ( $type & ( Message::TM_RESPONSE | Message::TM_ERROR ) )
+				|| ! \is_array( $value ) ) {
 			$interpreter?->drop_message( $message, 'verification failed: wrong type' );
 			return false;
 		}

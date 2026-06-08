@@ -34,5 +34,20 @@ class ShellSendCommandTest extends TestCase {
 		$this->assertSame( 'a b', $msg[ Message::VALUE ]['arguments'] );
 		$this->assertArrayNotHasKey( 'payload', $msg[ Message::VALUE ] );
 		$this->assertTrue( $msg[ Message::LOCAL ] );
+		// Default (interactive) Shell wants its reply — no TM_NOREPLY.
+		$this->assertSame( 0, $msg[ Message::TYPE ] & Message::TM_NOREPLY );
+	}
+
+	public function test_send_command_stamps_noreply_when_reply_unwanted(): void {
+		$shell = new Shell_Node();
+		$sink  = new Capture_Sink_Node();
+		$shell->sink( $sink );
+		$shell->want_reply( false );
+
+		$shell->send_command( 'some/path', 'connect_node', 'a b' );
+
+		$msg = $sink->captured[0];
+		$this->assertSame( Message::TM_NOREPLY, $msg[ Message::TYPE ] & Message::TM_NOREPLY );
+		$this->assertSame( Message::TM_COMMAND, $msg[ Message::TYPE ] & Message::TM_COMMAND );
 	}
 }
