@@ -1,7 +1,8 @@
 /**
  * Unwrap the raw Message array from CommandClient.send() into the verb's
  * payload. VALUE is already the structured `{ name, payload }` object (no parse).
- * Canonical copy; synced to the sibling plugin via sync-shared.sh.
+ * Canonical shared module; sibling plugins consume it via the
+ * `@newspack-nodes/shared` alias (esbuild + jest), not a copy.
  *
  * @param {Array} message Seven-field Message tuple from CommandClient.send().
  * @return {*} The payload; null when the verb returned an empty payload.
