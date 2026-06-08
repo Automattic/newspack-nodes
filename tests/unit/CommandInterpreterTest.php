@@ -75,6 +75,36 @@ class CommandInterpreterTest extends TestCase {
 		);
 	}
 
+	public function test_noreply_command_runs_but_emits_no_response(): void {
+		// A TM_NOREPLY command's verb still runs, but its (successful) reply is
+		// suppressed — a topology loaded with no console to reply to mustn't bounce
+		// a response off the absent `_output`.
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+		$msg                  = $this->command_message( 'uptime', '', true );
+		$msg[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_NOREPLY;
+		$interpreter->fill( $msg );
+		$this->assertCount( 0, $sink->captured );
+	}
+
+	public function test_noreply_command_error_is_logged_to_stderr_not_replied(): void {
+		// Tachikoma CommandInterpreter::send_response: a failing TM_NOREPLY command
+		// still surfaces its error via stderr (so a bad boot make_node is visible in
+		// dmesg) — but emits no routed response.
+		$buf = '';
+		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
+		$interpreter = new Command_Interpreter_Node();
+		$sink        = new Capture_Sink_Node();
+		$interpreter->sink( $sink );
+		$msg                  = $this->command_message( 'no_such_verb', '', true );
+		$msg[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_NOREPLY;
+		$interpreter->fill( $msg );
+		$this->assertCount( 0, $sink->captured );
+		$this->assertStringContainsString( 'error from TM_NOREPLY command', $buf );
+		$this->assertStringContainsString( 'no_such_verb', $buf );
+	}
+
 	public function test_interpret_refuses_command_without_local_provenance(): void {
 		$interpreter   = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );

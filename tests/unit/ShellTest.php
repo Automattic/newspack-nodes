@@ -104,6 +104,25 @@ class ShellTest extends TestCase {
 		$this->assertSame( '', $cmd['arguments'] );
 	}
 
+	public function test_want_reply_false_stamps_noreply_on_parsed_commands(): void {
+		// A Shell with want_reply off (topology-load / script mode) marks commands
+		// TM_NOREPLY so the interpreter suppresses their replies — no console to
+		// reply to at boot. Mirrors Tachikoma Shell::send_command's want_reply gate.
+		$shell = new Shell_Node();
+		$shell->want_reply( false );
+		$msg = $shell->parse( 'make_node Capture_Sink alice' );
+		$this->assertSame( Message::TM_NOREPLY, $msg[ Message::TYPE ] & Message::TM_NOREPLY );
+		$this->assertSame( Message::TM_COMMAND, $msg[ Message::TYPE ] & Message::TM_COMMAND );
+	}
+
+	public function test_want_reply_false_does_not_stamp_noreply_on_non_commands(): void {
+		// Only commands get the gate; a ping still expects its bounce.
+		$shell = new Shell_Node();
+		$shell->want_reply( false );
+		$msg = $shell->parse( 'ping _command_interpreter' );
+		$this->assertSame( 0, $msg[ Message::TYPE ] & Message::TM_NOREPLY );
+	}
+
 	public function test_parse_default_verb_with_args(): void {
 		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'make_node Capture_Sink alice');

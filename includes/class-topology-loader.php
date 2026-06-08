@@ -43,6 +43,10 @@ class Topology_Loader {
 
 		$shell = new Shell_Node();
 		$shell->sink( $sink );
+		// No console to reply to at boot: send commands TM_NOREPLY so the
+		// interpreter suppresses replies that would otherwise dead-end on the
+		// absent `_output` and bounce a dropped NOT_AVAILABLE every startup.
+		$shell->want_reply( false );
 
 		// TSL file content is local-disk only — phpcs's remote-fetch rule doesn't apply.
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown

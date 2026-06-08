@@ -126,6 +126,17 @@ class Command_Interpreter_Node extends Node {
 			}
 		}
 
+		// TM_NOREPLY (Tachikoma CommandInterpreter::send_response): suppress the
+		// routed reply, but still surface an error via stderr so a failed boot
+		// command (e.g. a bad topology make_node) stays visible in dmesg.
+		$in_type = $message[ Message::TYPE ];
+		if ( ( \is_int( $in_type ) ? $in_type : 0 ) & Message::TM_NOREPLY ) {
+			if ( ( $resp_type & Message::TM_ERROR ) && '' !== $result ) {
+				$this->stderr( 'error from TM_NOREPLY command: ' . ( \is_scalar( $result ) ? (string) $result : '' ) );
+			}
+			return;
+		}
+
 		// Route TO=FROM (walk the breadcrumb back); KEY is client correlation metadata.
 		if ( '' !== $result ) {
 			$response                   = Message::new_message();

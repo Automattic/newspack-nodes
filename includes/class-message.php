@@ -41,6 +41,7 @@ class Message {
 	public const TM_INFO       = 64;
 	public const TM_REQUEST    = 128;
 	public const TM_RESPONSE   = 256;
+	public const TM_NOREPLY    = 512;
 
 	/** @return array<int, mixed> The 7-field positional message array. */
 	public static function new_message(): array {

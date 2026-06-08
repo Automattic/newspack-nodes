@@ -29,6 +29,14 @@ class Shell_Node extends Node {
 	private bool $show_parse = false;
 
 	/**
+	 * Interactive REPLs want their command replies (default). A script/topology
+	 * loader sets this false so commands go out TM_NOREPLY — the interpreter then
+	 * suppresses replies that would otherwise dead-end (no console at boot).
+	 * Mirrors Tachikoma Shell's $self->{want_reply}.
+	 */
+	private bool $want_reply = true;
+
+	/**
 	 * Shell egress. A TM_BYTESTREAM is raw REPL input: parse each statement into a
 	 * Message and dispatch it. Anything else (a pre-built command from
 	 * dispatch_line, a completion query, an EOF/ping marker) passes straight
@@ -92,11 +100,13 @@ class Shell_Node extends Node {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'Shell::send_command requires a wired sink' );
 		}
+		$sink                     = $this->sink;
 		$message                  = $this->command( $name, $arguments );
 		$message[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
 		$message[ Message::TO ]   = $path;
+		$this->stamp_noreply( $message );
 		Command_Auth::sign( $message );
-		$this->sink->fill( $message );
+		$sink->fill( $message );
 	}
 
 	/**
@@ -347,7 +357,28 @@ class Shell_Node extends Node {
 				break;
 		}
 
+		$this->stamp_noreply( $message );
 		return $message;
+	}
+
+	/**
+	 * When want_reply is off, mark a command TM_NOREPLY (no-op on non-commands).
+	 *
+	 * @param array<int, mixed> $message Message to stamp in place.
+	 */
+	private function stamp_noreply( array &$message ): void {
+		$type = $message[ Message::TYPE ] ?? 0;
+		if ( ! $this->want_reply && \is_int( $type ) && ( $type & Message::TM_COMMAND ) ) {
+			$message[ Message::TYPE ] = $type | Message::TM_NOREPLY;
+		}
+	}
+
+	/** Accessor (Tachikoma Shell want_reply): interactive sessions reply; scripts/topology loads don't. */
+	public function want_reply( ?bool $value = null ): bool {
+		if ( null !== $value ) {
+			$this->want_reply = $value;
+		}
+		return $this->want_reply;
 	}
 
 	/**

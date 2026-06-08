@@ -43,11 +43,19 @@ class MessageTest extends TestCase {
 			Message::TM_INFO,
 			Message::TM_STRUCT,
 			Message::TM_REQUEST,
+			Message::TM_NOREPLY,
 		];
-		$this->assertCount( 9, \array_unique( $flags ), 'Flags must be distinct' );
+		$this->assertCount( 10, \array_unique( $flags ), 'Flags must be distinct' );
 		foreach ( $flags as $flag ) {
 			$this->assertSame( 1, \substr_count( \decbin( $flag ), '1' ), 'Each flag is a single bit' );
 		}
+	}
+
+	public function test_noreply_is_a_distinct_high_bit(): void {
+		// Fire-and-forget command flag (Tachikoma TM_NOREPLY): suppresses the
+		// interpreter's response so a topology loaded with no console to reply
+		// to doesn't bounce NOT_AVAILABLE off an absent `_output`.
+		$this->assertSame( 512, Message::TM_NOREPLY );
 	}
 
 	public function test_new_message_returns_seven_element_array(): void {
