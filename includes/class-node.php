@@ -618,7 +618,7 @@ class Node {
 			return;
 		}
 		if ( 1 === \preg_match( '/^\d{4}-\d\d-\d\d/', $text ) ) {
-			Core::_stderr( $text );
+			Core::stderr( $text );
 			return;
 		}
 		Core::stderr( $this->log_midfix( $text ) );

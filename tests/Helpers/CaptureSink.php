@@ -1,10 +1,14 @@
 <?php
 namespace Newspack_Nodes\Tests;
 
+use Newspack_Nodes\Dumper_Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Node;
 
-class Capture_Sink_Node extends Node {
+// Extends Dumper_Node (itself a Node) so it satisfies `instanceof Dumper_Node`
+// gates — e.g. Shell::stdout() routes builtin output to the `_output` node only
+// when it is a Dumper. fill() is overridden to capture the raw Message instead
+// of rendering, so tests assert on the message, not on rendered terminal text.
+class Capture_Sink_Node extends Dumper_Node {
 	/** @var array<int,array> */
 	public array $captured = [];
 

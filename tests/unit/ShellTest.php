@@ -2,7 +2,6 @@
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Core;
-use Newspack_Nodes\Dumper_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Shell_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -114,17 +113,23 @@ class ShellTest extends TestCase {
 		$this->assertSame( 'Capture_Sink alice', $cmd['arguments'] );
 	}
 
-	public function test_parse_status_writes_status_lines_to_stderr_returns_null(): void {
-		// `status` is a local-only builtin: it writes the shell's
-		// pre-populated $status_lines to stderr (Core::_stderr) and returns
-		// null (no Message emitted, no command sent to the worker). This is how
-		// pivoted-cli prints "Pivoted-cli mode for X" + IPC paths on demand
-		// instead of auto-printing them at startup, so scripted callers can
-		// capture clean output.
-		$captured = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
-			$captured .= $msg;
-		} );
+	/**
+	 * Builtins route output through `Core::node('_output')` when it is a
+	 * Dumper. Capture_Sink_Node extends Dumper_Node, so registering one as
+	 * `_output` captures each emitted bytestream Message for assertion.
+	 */
+	private function register_output_capture(): Capture_Sink_Node {
+		$capture = new Capture_Sink_Node();
+		$capture->name( '_output' );
+		return $capture;
+	}
+
+	public function test_parse_status_writes_status_lines_to_output_returns_null(): void {
+		// `status` is a local-only builtin: it routes the shell's pre-populated
+		// $status_lines through the `_output` Dumper and returns null (no command
+		// sent to the worker). This is how pivoted-cli prints "Pivoted-cli mode
+		// for X" + IPC paths on demand instead of auto-printing them at startup.
+		$capture              = $this->register_output_capture();
 		$shell                = new Shell_Node();
 		$shell->status_lines  = [
 			'Pivoted-cli mode for firehose-workers.p0',
@@ -134,86 +139,73 @@ class ShellTest extends TestCase {
 
 		$this->assertNull( $shell->parse( 'status' ) );
 
-		$this->assertStringContainsString( 'Pivoted-cli mode for firehose-workers.p0', $captured );
-		$this->assertStringContainsString( '  input  partition: /tmp/in', $captured );
-		$this->assertStringContainsString( '  output partition: /tmp/out', $captured );
+		$this->assertSame(
+			[
+				"Pivoted-cli mode for firehose-workers.p0\n",
+				"  input  partition: /tmp/in\n",
+				"  output partition: /tmp/out\n",
+			],
+			\array_column( $capture->captured, Message::VALUE )
+		);
 	}
 
 	public function test_parse_debug_level_no_args_toggles_dumper_state(): void {
 		// `debug_level` with no args toggles between 0 and 1.
-		$dumper = new Dumper_Node();
-		$dumper->name( '_output' );
-		$this->assertSame( 0, $dumper->debug_level(), 'default off' );
+		$capture = $this->register_output_capture();
+		$this->assertSame( 0, $capture->debug_level(), 'default off' );
 
-		$captured = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
-			$captured .= $msg;
-		} );
 		$shell = new Shell_Node();
 
 		$this->assertNull( $shell->parse( 'debug_level' ) );
-		$this->assertSame( 1, $dumper->debug_level(), 'toggle 0→1' );
-		$this->assertSame( "debug_level: 1\n", $captured );
+		$this->assertSame( 1, $capture->debug_level(), 'toggle 0→1' );
+		$this->assertSame( "debug_level: 1\n", $capture->captured[0][ Message::VALUE ] );
 
-		$captured = '';
 		$this->assertNull( $shell->parse( 'debug_level' ) );
-		$this->assertSame( 0, $dumper->debug_level(), 'toggle back 1→0' );
+		$this->assertSame( 0, $capture->debug_level(), 'toggle back 1→0' );
 	}
 
 	public function test_parse_debug_level_with_explicit_argument_sets(): void {
 		// `debug_level 2` explicitly sets to 2 (max).
-		$dumper = new Dumper_Node();
-		$dumper->name( '_output' );
+		$capture = $this->register_output_capture();
 
-		$captured = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
-			$captured .= $msg;
-		} );
 		$shell = new Shell_Node();
 
 		$this->assertNull( $shell->parse( 'debug_level 2' ) );
-		$this->assertSame( 2, $dumper->debug_level() );
-
-		$this->assertSame( "debug_level: 2\n", $captured );
+		$this->assertSame( 2, $capture->debug_level() );
+		$this->assertSame( "debug_level: 2\n", $capture->captured[0][ Message::VALUE ] );
 	}
 
 	public function test_parse_show_parse_toggles_and_dumps_tokens(): void {
-		// `show_parse` is a Shell-local toggle (no Dumper involvement). When
-		// on, every parse() emits the post-interpolation line and tokens to
-		// stderr BEFORE the actual command dispatches.
-		$captured = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
-			$captured .= $msg;
-		} );
-		$shell = new Shell_Node();
+		// `show_parse` is a Shell-local toggle. When on, every parse() routes the
+		// post-interpolation line + tokens through the `_output` Dumper BEFORE the
+		// actual command dispatches.
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
 		$this->assertFalse( $shell->show_parse(), 'default off' );
 
 		$this->assertNull( $shell->parse( 'show_parse' ) );
 		$this->assertTrue( $shell->show_parse() );
-		$this->assertSame( "show_parse: on\n", $captured );
+		$this->assertSame( "show_parse: on\n", $capture->captured[0][ Message::VALUE ] );
 
 		// Now a real command should emit parse> diagnostics before the message.
-		$captured = '';
-		$msg      = $shell->parse( 'tell some/path hello' );
+		$msg  = $shell->parse( 'tell some/path hello' );
 		$this->assertIsArray( $msg, 'should still build a Message' );
+		$dump = $capture->captured[1][ Message::VALUE ];
 
-		$this->assertStringContainsString( 'parse> line: tell some/path hello', $captured );
-		$this->assertStringContainsString( 'parse> tokens: ', $captured );
-		$this->assertStringContainsString( '"tell"', $captured );
+		$this->assertStringContainsString( 'parse> line: tell some/path hello', $dump );
+		$this->assertStringContainsString( 'parse> tokens: ', $dump );
+		$this->assertStringContainsString( '"tell"', $dump );
 	}
 
 	public function test_parse_status_with_no_status_lines_writes_nothing(): void {
 		// Empty $status_lines (e.g. shell wasn't configured by the cli) →
 		// status is a no-op; no garbage output, no errors.
-		$captured = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
-			$captured .= $msg;
-		} );
-		$shell = new Shell_Node();
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
 
 		$this->assertNull( $shell->parse( 'status' ) );
 
-		$this->assertSame( '', $captured );
+		$this->assertCount( 0, $capture->captured );
 	}
 
 	public function test_parse_control_flow_verbs_flow_through_as_commands(): void {
@@ -258,16 +250,80 @@ class ShellTest extends TestCase {
 		$this->assertSame( Message::TM_INFO, $msg2[ Message::TYPE ] );
 	}
 
-	public function test_fill_forwards_to_sink(): void {
+	public function test_fill_parses_bytestream_and_forwards_command_to_sink(): void {
+		// fill() is the bytestream entry point (mirrors Tachikoma Shell::fill,
+		// which splits payload into lines and parse_line's each). A raw 'ls'
+		// line parses to a TM_COMMAND that lands on the sink — it is NOT
+		// re-filled, so it cannot be double-parsed.
 		$shell = new Shell_Node();
 		$sink  = new Capture_Sink_Node();
 		$shell->sink( $sink );
 
-		$msg = $shell->parse( 'ls');
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::VALUE ] = 'ls';
 		$shell->fill( $msg );
 
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( 'ls', $sink->captured[0][ Message::VALUE ]['name'] );
+	}
+
+	public function test_fill_send_verb_emits_bytestream_payload_without_reparsing(): void {
+		// Regression: `send <node> <data>` parses to a TM_BYTESTREAM whose VALUE
+		// is the payload. That bytestream must reach the SINK as-is — it must NOT
+		// be re-filled into the Shell (which would re-parse the payload as a fresh
+		// command line, turning `send _output test` into `unknown command: test`).
+		$shell = new Shell_Node();
+		$sink  = new Capture_Sink_Node();
+		$shell->sink( $sink );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::VALUE ] = 'send _output test';
+		$shell->fill( $msg );
+
+		$this->assertCount( 1, $sink->captured );
+		$out = $sink->captured[0];
+		$this->assertSame( Message::TM_BYTESTREAM, $out[ Message::TYPE ], 'send emits a bytestream, not a re-parsed command' );
+		$this->assertSame( '_output', $out[ Message::TO ] );
+		$this->assertStringContainsString( 'test', (string) $out[ Message::VALUE ] );
+	}
+
+	public function test_fill_throws_on_non_bytestream_non_eof_message(): void {
+		// fill() only accepts bytestream input + TM_EOF (mirrors Tachikoma's
+		// _stdin → _responder, which only ever feeds those two). A stray
+		// command/info/error is a wiring mistake, surfaced rather than sprayed
+		// through the graph.
+		$shell = new Shell_Node();
+		$shell->sink( new Capture_Sink_Node() );
+
+		$msg                  = Message::new_message();
+		$msg[ Message::TYPE ] = Message::TM_COMMAND;
+
+		$this->expectException( \RuntimeException::class );
+		$shell->fill( $msg );
+	}
+
+	public function test_fill_tm_eof_restamps_from_to_session_identity_and_forwards(): void {
+		// On TM_EOF the Shell stamps FROM to its own `_output/$pid` reply
+		// identity (the PHP analog of Tachikoma's _stdin → _responder rewrite)
+		// and TO to its pivot path, then forwards to the sink for the drain
+		// round-trip.
+		$shell       = new Shell_Node();
+		$shell->path = 'firehose-workers.p0';
+		$sink        = new Capture_Sink_Node();
+		$shell->sink( $sink );
+
+		$msg                  = Message::new_message();
+		$msg[ Message::TYPE ] = Message::TM_EOF;
+		$msg[ Message::FROM ] = 'upstream';
+		$shell->fill( $msg );
+
+		$this->assertCount( 1, $sink->captured );
+		$out = $sink->captured[0];
+		$this->assertSame( Message::TM_EOF, $out[ Message::TYPE ] );
+		$this->assertSame( '_output/' . \getmypid(), $out[ Message::FROM ] );
+		$this->assertSame( 'firehose-workers.p0', $out[ Message::TO ] );
 	}
 
 	public function test_include_file_processes_each_line(): void {
