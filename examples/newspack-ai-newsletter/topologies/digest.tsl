@@ -1,20 +1,23 @@
 # AI Newsletter digest pipeline.
 #
 #   releases ─┐
-#             ├─> summarizer ─> digest ─> out (Log)
+#             ├─> summarizer ─> digest ─> log
 #   community ┘
 #
 # Two independent sources fan into one summarizer (fan-in is free — both just
 # point their sink at `summarizer`). The summarizer is source-agnostic; the
-# digest accumulates and, on `flush`, writes one markdown draft. `out` reuses
+# digest accumulates and, on `flush`, writes one markdown draft. `log` reuses
 # the substrate's Log primitive. Adding a third source = one more make_node +
 # one connect_node line; nothing downstream changes.
 make_node Releases_Source   releases
 make_node Community_Source  community
 make_node Summarizer        summarizer
 make_node Digest_Builder    digest
-make_node Log               out  /tmp/newspack-ai-newsletter/digest.md
+make_node Tee               tee
+make_node Log               log /tmp/newspack-ai-newsletter/digest.md append 1 7
 connect_node releases   summarizer
 connect_node community  summarizer
 connect_node summarizer digest
-connect_node digest     out
+connect_node digest     tee
+connect_node tee        log
+connect_node tee        _repl
