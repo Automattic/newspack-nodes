@@ -423,6 +423,9 @@ jest.mock( '../components/Header', () => ( props ) => {
 				open
 			</button>
 			<button onClick={ () => props.onNew && props.onNew() }>new</button>
+			<button onClick={ () => props.onSettings && props.onSettings() }>
+				settings
+			</button>
 			<button onClick={ () => props.onDelete && props.onDelete() }>
 				delete
 			</button>
@@ -2142,6 +2145,70 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'save' ) );
 		} );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
+	} );
+
+	it( 'edits num_partitions in the settings panel and serializes it on save', async () => {
+		hooks.fetchTopology.mockResolvedValueOnce( {
+			tsl: 'make_node Echo e\n',
+			name: 'demo',
+			source: 'user',
+		} );
+		hooks.saveTopology.mockResolvedValueOnce( {
+			name: 'demo',
+			restarted_fleets: [],
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText, getByLabelText, getByRole } = render(
+			<TopologyConsole />
+		);
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		// SETTINGS opens the panel only in edit mode.
+		await act( async () => {
+			fireEvent.click( getByText( 'settings' ) );
+		} );
+		expect(
+			getByRole( 'dialog', { name: /topology settings/i } )
+		).not.toBeNull();
+		await act( async () => {
+			fireEvent.change( getByLabelText( /partitions/i ), {
+				target: { value: '4' },
+			} );
+		} );
+		// Save: name prompt → confirm.
+		await act( async () => {
+			fireEvent.click( getByText( 'save' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'prompt-ok' ) );
+		} );
+		const tslArg =
+			hooks.saveTopology.mock.calls[ 0 ] &&
+			hooks.saveTopology.mock.calls[ 0 ][ 0 ].tsl;
+		expect( tslArg ).toContain( 'var num_partitions = 4' );
+	} );
+
+	it( 'closes the settings panel when starting a New topology', async () => {
+		const { getByText, getByRole, queryByRole } = render(
+			<TopologyConsole />
+		);
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'settings' ) );
+		} );
+		expect(
+			getByRole( 'dialog', { name: /topology settings/i } )
+		).not.toBeNull();
+		// New resets the draft — the panel must close so it reseeds on reopen.
+		await act( async () => {
+			fireEvent.click( getByText( 'new' ) );
+		} );
+		expect(
+			queryByRole( 'dialog', { name: /topology settings/i } )
+		).toBeNull();
 	} );
 
 	it( 'handleOpenPick fetches the picked topology + replaces draft', async () => {

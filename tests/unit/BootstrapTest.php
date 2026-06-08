@@ -169,6 +169,40 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	public function test_frontmatter_num_partitions_above_config_default_expands_to_that_count(): void {
+		// Guards the "support num_partitions = 4 ≠ config" requirement: a
+		// per-topology `var num_partitions = 4` that DIFFERS from the substrate
+		// default (1) must resolve to 4 AND spawn 4 workers (p0..p3).
+		$stock = $this->make_temp_dir( 'tsl-stock-' );
+		\file_put_contents( "$stock/wide.tsl", "var num_partitions = 4\n" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies']     = [ 'wide' ];
+		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 1;
+		\Newspack_Nodes\Config::reset();
+
+		try {
+			$result = Bootstrap::get_topologies();
+			$this->assertSame( 4, $result['wide']['num_partitions'] );
+
+			$workers = Bootstrap::expand_workers();
+			$wide    = \array_values(
+				\array_filter(
+					$workers,
+					static fn ( $w ) => 'wide' === $w['type']
+				)
+			);
+			$this->assertCount( 4, $wide );
+			$this->assertSame( [ 0, 1, 2, 3 ], \array_column( $wide, 'partition' ) );
+		} finally {
+			unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+			unset( $GLOBALS['_wp_options']['newspack_nodes_num_partitions'] );
+			\Newspack_Nodes\Config::reset();
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
 	public function test_get_topologies_drops_operator_names_that_have_no_tsl_file(): void {
 		// Operator option points at a topology with no TSL file (typo or
 		// stale selection after the app removed the file). Must not blow

@@ -22,6 +22,8 @@ export default function Header( {
 	onNew,
 	onDelete,
 	canDelete,
+	onSettings,
+	settingsActive = false,
 	theme,
 	onThemeChange,
 	themes = [],
@@ -114,6 +116,21 @@ export default function Header( {
 							onClick={ () => onSave && onSave() }
 						>
 							{ __( 'SAVE', 'newspack-nodes' ) }
+						</button>
+					) }
+					{ mode === 'edit' && (
+						<button
+							type="button"
+							className={ `topology-mode__btn topology-mode__btn--settings${
+								settingsActive ? ' is-active' : ''
+							}` }
+							onClick={ () => onSettings && onSettings() }
+							title={ __(
+								'Topology settings (partitions and other frontmatter)',
+								'newspack-nodes'
+							) }
+						>
+							{ __( 'SETTINGS', 'newspack-nodes' ) }
 						</button>
 					) }
 					{ mode === 'edit' && canDelete && (

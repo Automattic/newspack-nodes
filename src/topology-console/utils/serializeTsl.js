@@ -112,10 +112,21 @@ function emitVerb( name, invocation, schemas, className ) {
  * @param {Object} schemas Optional class-name → schema map; omitted = no default expansion.
  */
 export function serializeTsl( graph, schemas = null ) {
-	if ( ! graph || ! graph.nodes || graph.nodes.length === 0 ) {
+	if ( ! graph ) {
+		return '';
+	}
+	const hasFrontmatter =
+		graph.frontmatter && Object.keys( graph.frontmatter ).length > 0;
+	if ( ( ! graph.nodes || graph.nodes.length === 0 ) && ! hasFrontmatter ) {
 		return '';
 	}
 	const lines = [];
+	// Frontmatter first (raw `var name = value`, no quoting — values with spaces
+	// round-trip verbatim through the PHP frontmatter parser). Insertion order
+	// preserved for a byte-stable round-trip.
+	for ( const [ name, value ] of Object.entries( graph.frontmatter || {} ) ) {
+		lines.push( `var ${ name } = ${ value }` );
+	}
 	// Reserved anchors (e.g. `_repl`) are auto-mounted by the worker — the
 	// editor never emits their make_node or any wiring FROM them. They remain
 	// valid edge TARGETS.

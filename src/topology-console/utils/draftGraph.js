@@ -17,7 +17,7 @@ export function addNode( graph, { shellName, name, x, y } ) {
 		ctorArgs: [],
 		verbInvocations: [],
 	};
-	return { nodes: [ ...graph.nodes, node ], edges: graph.edges };
+	return { ...graph, nodes: [ ...graph.nodes, node ] };
 }
 
 export function addEdge( graph, { from, to } ) {
@@ -41,7 +41,7 @@ export function addEdge( graph, { from, to } ) {
 			  }
 			: n
 	);
-	return { nodes, edges: [ ...graph.edges, { from, to } ] };
+	return { ...graph, nodes, edges: [ ...graph.edges, { from, to } ] };
 }
 
 // `_repl` is the worker's auto-mounted Partition — `log`/`tell` broadcast
@@ -69,7 +69,7 @@ export function removeNode( graph, id ) {
 	}
 	const nodes = graph.nodes.filter( ( n ) => n.id !== id );
 	const edges = graph.edges.filter( ( e ) => e.from !== id && e.to !== id );
-	return { nodes, edges };
+	return { ...graph, nodes, edges };
 }
 
 /**
@@ -107,28 +107,28 @@ export function renameNode( graph, oldId, newName ) {
 			to: e.to === oldId ? trimmed : e.to,
 		};
 	} );
-	return { nodes, edges };
+	return { ...graph, nodes, edges };
 }
 
 export function removeEdge( graph, fromId, toId ) {
 	const edges = graph.edges.filter(
 		( e ) => ! ( e.from === fromId && e.to === toId )
 	);
-	return { nodes: graph.nodes, edges };
+	return { ...graph, edges };
 }
 
 export function updateNodeArgs( graph, id, ctorArgs ) {
 	const nodes = graph.nodes.map( ( n ) =>
 		n.id === id ? { ...n, ctorArgs: ctorArgs.slice() } : n
 	);
-	return { nodes, edges: graph.edges };
+	return { ...graph, nodes };
 }
 
 export function updateNodeVerbs( graph, id, verbInvocations ) {
 	const nodes = graph.nodes.map( ( n ) =>
 		n.id === id ? { ...n, verbInvocations: verbInvocations.slice() } : n
 	);
-	return { nodes, edges: graph.edges };
+	return { ...graph, nodes };
 }
 
 /**

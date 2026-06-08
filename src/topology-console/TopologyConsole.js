@@ -16,6 +16,7 @@ import ConsoleShell from './components/ConsoleShell';
 import { ConfirmModal, PromptModal, NewNodeModal } from './components/Modal';
 
 import OpenTopologyModal from './components/OpenTopologyModal';
+import TopologySettingsPanel from './components/TopologySettingsPanel';
 
 import { useClassCatalog } from './hooks/useClassCatalog';
 import { useJsCatalog } from './hooks/useJsCatalog';
@@ -255,8 +256,16 @@ export default function TopologyConsole() {
 	// `baseline` is the draft at edit-entry, so the dirty check compares
 	// against real edits rather than live SSE counter churn.
 	const [ mode, setMode ] = useState( 'view' );
-	const [ draft, setDraft ] = useState( { nodes: [], edges: [] } );
-	const [ baseline, setBaseline ] = useState( { nodes: [], edges: [] } );
+	const [ draft, setDraft ] = useState( {
+		nodes: [],
+		edges: [],
+		frontmatter: {},
+	} );
+	const [ baseline, setBaseline ] = useState( {
+		nodes: [],
+		edges: [],
+		frontmatter: {},
+	} );
 	const [ editingName, setEditingName ] = useState( '' );
 	// Source ('stock' | 'user' | 'both' | '') of the topology currently loaded
 	// for editing — from the get/save response. Drives the DELETE button without
@@ -271,6 +280,7 @@ export default function TopologyConsole() {
 	// is up, null otherwise. The actual delete runs in the modal's onConfirm.
 	const [ deleteModal, setDeleteModal ] = useState( null );
 	const [ openModalShown, setOpenModalShown ] = useState( false );
+	const [ settingsOpen, setSettingsOpen ] = useState( false );
 	const [ toast, setToast ] = useState( null );
 	// Theme + palette chrome shared with the debug overlay. The console picks
 	// the palette key by mode (live vs edit, with per-mode defaults); the hook
@@ -621,6 +631,11 @@ export default function TopologyConsole() {
 	}, [ effectiveTopologyName, positionOverrides, saveLayout, layoutGraph ] );
 	const partitions = useMemo( () => partitionList( topology ), [ topology ] );
 
+	const configDefaultPartitions =
+		( window.NewspackNodesData &&
+			window.NewspackNodesData.configNumPartitions ) ||
+		1;
+
 	// Path selection — shared by the Path menu and REPL `cd`. Sets the cwd to the
 	// path verbatim (free navigation: ANY path is allowed), then mounts the
 	// deepest worker whose subtree contains it (the largest worker-prefix among
@@ -853,12 +868,19 @@ export default function TopologyConsole() {
 			if ( next === mode ) {
 				return;
 			}
+			if ( next !== 'edit' ) {
+				setSettingsOpen( false );
+			}
 			if ( next === 'edit' ) {
 				// Auto-load the currently-live topology; blank canvas if none.
 				setMode( 'edit' );
 				setEditingName( '' );
 				setEditingSource( '' );
-				const blank = withReplAnchor( { nodes: [], edges: [] } );
+				const blank = withReplAnchor( {
+					nodes: [],
+					edges: [],
+					frontmatter: {},
+				} );
 				setDraft( blank );
 				setBaseline( blank );
 				if ( topology ) {
@@ -975,7 +997,7 @@ export default function TopologyConsole() {
 				// Non-Tee nodes have a single target slot; Tees fan out.
 				const fromNode = g.nodes.find( ( n ) => n.id === from );
 				if ( fromNode && fromNode.class !== 'Tee' ) {
-					let cleared = { nodes: g.nodes, edges: g.edges };
+					let cleared = { ...g };
 					for ( const e of g.edges ) {
 						if ( e.from === from ) {
 							cleared = removeEdge( cleared, e.from, e.to );
@@ -1135,6 +1157,10 @@ export default function TopologyConsole() {
 		setDraft( ( g ) => updateNodeVerbs( g, id, verbs ) );
 	}, [] );
 
+	const handleFrontmatterChange = useCallback( ( nextFrontmatter ) => {
+		setDraft( ( g ) => ( { ...g, frontmatter: nextFrontmatter } ) );
+	}, [] );
+
 	const handleOpenPick = useCallback(
 		async ( name ) => {
 			setOpenModalShown( false );
@@ -1147,6 +1173,9 @@ export default function TopologyConsole() {
 				setEditingName( resp.name );
 				setEditingSource( resp.source || '' );
 				setSelectedId( null );
+				// Close settings so the panel reseeds from the loaded frontmatter
+				// (re-opening the same name wouldn't remount it otherwise).
+				setSettingsOpen( false );
 				// The storage key includes editingName, so the hook auto-loads
 				// the right positions for the opened topology; the server-seed
 				// effect handles the savedLayout fetch.
@@ -1186,12 +1215,13 @@ export default function TopologyConsole() {
 	}, [] );
 
 	const handleNew = useCallback( () => {
-		const blank = { nodes: [], edges: [] };
+		const blank = { nodes: [], edges: [], frontmatter: {} };
 		setDraft( blank );
 		setBaseline( blank );
 		setEditingName( '' );
 		setEditingSource( '' );
 		setSelectedId( null );
+		setSettingsOpen( false );
 		resetLayout();
 	}, [ resetLayout ] );
 
@@ -1248,6 +1278,7 @@ export default function TopologyConsole() {
 				setEditingSource( resp.shadows_stock ? 'both' : 'user' );
 				// Refresh the picker so the next Open sees the new topology.
 				topologyList.reload();
+				setSettingsOpen( false );
 				setMode( 'view' );
 			} catch ( e ) {
 				const msg =
@@ -1324,6 +1355,8 @@ export default function TopologyConsole() {
 					onSave: handleSave,
 					onOpen: handleOpen,
 					onNew: handleNew,
+					onSettings: () => setSettingsOpen( ( v ) => ! v ),
+					settingsActive: settingsOpen,
 					onDelete: handleDelete,
 					canDelete: canDeleteCurrent,
 					theme,
@@ -1458,6 +1491,15 @@ export default function TopologyConsole() {
 					argSchema={ pendingDrop.argSchema }
 					onConfirm={ commitPendingDrop }
 					onCancel={ cancelPendingDrop }
+				/>
+			) }
+			{ mode === 'edit' && settingsOpen && (
+				<TopologySettingsPanel
+					key={ editingName || 'untitled' }
+					frontmatter={ draft.frontmatter || {} }
+					configDefaultPartitions={ configDefaultPartitions }
+					onChange={ handleFrontmatterChange }
+					onClose={ () => setSettingsOpen( false ) }
 				/>
 			) }
 			{ toast && (

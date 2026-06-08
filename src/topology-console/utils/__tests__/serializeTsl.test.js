@@ -1,6 +1,59 @@
 import { serializeTsl } from '../serializeTsl';
 
 describe( 'serializeTsl', () => {
+	it( 'emits frontmatter var lines first, in insertion order', () => {
+		const g = {
+			frontmatter: { num_partitions: '4', custom_thing: 'a b c' },
+			nodes: [
+				{
+					id: 'echo',
+					name: 'echo',
+					class: 'Echo',
+					ctorArgs: [],
+					verbInvocations: [],
+				},
+			],
+			edges: [],
+		};
+		expect( serializeTsl( g ) ).toBe(
+			'var num_partitions = 4\n' +
+				'var custom_thing = a b c\n' +
+				'make_node Echo echo\n'
+		);
+	} );
+
+	it( 'emits no var lines when frontmatter is empty or absent', () => {
+		const g = {
+			frontmatter: {},
+			nodes: [
+				{
+					id: 'echo',
+					name: 'echo',
+					class: 'Echo',
+					ctorArgs: [],
+					verbInvocations: [],
+				},
+			],
+			edges: [],
+		};
+		expect( serializeTsl( g ) ).toBe( 'make_node Echo echo\n' );
+	} );
+
+	it( 'round-trips frontmatter losslessly through parse -> serialize -> parse', () => {
+		const { parseTsl } = require( '../parseTsl' );
+		const tsl =
+			'var num_partitions = 4\n' +
+			'var stale_timeout = 120\n' +
+			'var custom_thing = a b c\n' +
+			'make_node Echo echo\n';
+		const round = parseTsl( serializeTsl( parseTsl( tsl ) ) );
+		expect( round.frontmatter ).toEqual( {
+			num_partitions: '4',
+			stale_timeout: '120',
+			custom_thing: 'a b c',
+		} );
+	} );
+
 	it( 'returns empty string for an empty graph', () => {
 		expect( serializeTsl( { nodes: [], edges: [] } ) ).toBe( '' );
 	} );
