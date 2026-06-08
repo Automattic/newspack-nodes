@@ -18,6 +18,53 @@ use Newspack_Nodes\Rest\Spawn_Controller;
 
 class Bootstrap {
 	/**
+	 * `\Memcached`-construction seam. Lazily-defaulted to a closure that builds
+	 * the real handle. Tests reassign in setUp to return an in-memory double so
+	 * the server-parsing + empty-check + context-aware-failure path runs as real
+	 * production code rather than being mocked away.
+	 *
+	 * Signature: `function (): \Memcached`.
+	 *
+	 * @var (\Closure(): \Memcached)|null
+	 */
+	public static ?\Closure $memcached_factory = null;
+
+	/**
+	 * Build the one shared `\Memcached` handle on `Core::$memd` from the
+	 * substrate's own `memcache_servers` config. The substrate owns this — every
+	 * substrate path that needs caching (command-auth nonce single-use, SSE slot
+	 * pool, Consumer cursor publish) reads `Core::$memd` and must not depend on
+	 * an application plugin to populate it.
+	 *
+	 * Empty/invalid server list sets `Core::$memd = null` — deliberately NOT a
+	 * fallback handle. Null is what the consumers' own fail paths key on:
+	 * command-auth refuses + logs once (single-use unverifiable), stats fail
+	 * soft, SSE slots fail closed. A non-null fallback (e.g. an unreachable
+	 * localhost) would suppress command-auth's `instanceof` warning and silently
+	 * fail closed instead — the exact bug this replaces. No-op when the PECL
+	 * `\Memcached` class is absent.
+	 */
+	public static function init_memcached(): void {
+		if ( ! \class_exists( '\Memcached' ) ) {
+			return;
+		}
+		$config  = Config::load_config();
+		$servers = $config['memcache_servers'] ?? null;
+		if ( ! \is_array( $servers ) || empty( $servers ) ) {
+			Core::$memd = null;
+			return;
+		}
+		$factory = self::$memcached_factory ?? static fn (): \Memcached => new \Memcached();
+		$memd    = $factory();
+		/** @var int|float|string|bool|null $server */
+		foreach ( $servers as $server ) {
+			$parts = \explode( ':', (string) $server );
+			$memd->addServer( $parts[0], (int) ( $parts[1] ?? 11211 ) );
+		}
+		Core::$memd = empty( $memd->getServerList() ) ? null : $memd;
+	}
+
+	/**
 	 * Active topology set: the `newspack_nodes/topologies` catalog filtered by the operator overlay.
 	 *
 	 * Overlay option false = full catalog, [] = none, array = that subset (non-catalog names synthesized).

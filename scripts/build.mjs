@@ -203,6 +203,10 @@ const ENTRIES = [
 		entry: 'src/topology-console/index.js',
 		outDir: path.resolve( ROOT, 'build/topology-console' ),
 	},
+	{
+		entry: 'src/admin-field-reset/index.js',
+		outDir: path.resolve( ROOT, 'build/admin-field-reset' ),
+	},
 ];
 
 async function main() {

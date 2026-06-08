@@ -70,6 +70,15 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 // tokens resolve against substrate config. Apps register their own namespaces.
 \Newspack_Nodes\Config::register_token_namespace();
 
+// Build the one shared Core::$memd handle from the substrate's own
+// memcache_servers config. Runs at plugin-file scope (before any plugins_loaded
+// callback, so application SSE-slot wiring sees the handle). Guarded so the
+// unit suite — which autoloads classes without including this file — never runs
+// it. Empty/invalid config leaves Core::$memd null; consumers fail closed/soft.
+if ( \function_exists( 'get_option' ) ) {
+	\Newspack_Nodes\Bootstrap::init_memcached();
+}
+
 /**
  * Service-CommandInterpreter (CI) mounting.
  *

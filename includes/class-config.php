@@ -110,17 +110,14 @@ class Config {
 			return self::$config;
 		}
 
-		$config = self::load_config_defaults();
-
-		if ( \defined( 'ABSPATH' ) && \function_exists( 'get_option' ) ) {
-			foreach ( \array_keys( self::$option_schema ) as $key ) {
-				$value = \get_option( "newspack_nodes_{$key}" );
-				if ( false === $value || '' === $value ) {
-					continue;
-				}
-				$config[ $key ] = $value;
-			}
-		}
+		// Presence-based overlay: a stored option (even '' / [] / false / 0) wins
+		// over the file default; only an absent option falls back. Shared rule —
+		// see Config_System\Options_Overlay.
+		$config = Config_System\Options_Overlay::apply(
+			self::load_config_defaults(),
+			\array_keys( self::$option_schema ),
+			'newspack_nodes_'
+		);
 
 		self::$config = $config;
 		return $config;
