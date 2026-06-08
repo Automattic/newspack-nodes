@@ -36,18 +36,18 @@ rm -rf /tmp/newspack-nodes-test 2>/dev/null
 echo ""
 echo "Coverage report: /volumes/pyrobase/tmp/newspack-nodes-coverage/index.html"
 
-rm -rf /tmp/admin-topo-stock-            \
-       /tmp/cmd-ctrl-ipc-                \
-       /tmp/m3-e2e-                      \
-       /tmp/msg-slot-check-              \
-       /tmp/msg-slot-conn-               \
-       /tmp/msg-slot-direct-sink-        \
-       /tmp/msg-slot-release-            \
-       /tmp/msg-stream-cmd-              \
-       /tmp/msg-stream-leak-             \
+rm -rf /tmp/admin-topo-stock-*           \
+       /tmp/cmd-ctrl-ipc-*               \
+       /tmp/m3-e2e-*                     \
+       /tmp/msg-slot-check-*             \
+       /tmp/msg-slot-conn-*              \
+       /tmp/msg-slot-direct-sink-*       \
+       /tmp/msg-slot-release-*           \
+       /tmp/msg-stream-cmd-*             \
+       /tmp/msg-stream-leak-*            \
        /tmp/newspack-nodes-test-*        \
-       /tmp/nodes-lifecycle-             \
+       /tmp/nodes-lifecycle-*            \
        /tmp/phpunit-cache-newspack-nodes \
-       /tmp/sse-sibling-patron-          \
-       /tmp/tsl-default-                 \
+       /tmp/sse-sibling-patron-*         \
+       /tmp/tsl-default-*                \
        /tmp/worker-disc-*
