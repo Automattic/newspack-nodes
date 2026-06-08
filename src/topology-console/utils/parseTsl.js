@@ -4,6 +4,10 @@
  * through unchanged and anything unrecognized is silently dropped.
  */
 
+// Mirrors the PHP Topology_Registry::frontmatter() regex: `var name = value`,
+// value kept as the raw (trimmed) string after `=`. Detected per-line.
+const FRONTMATTER_RE = /^var\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*=\s*(.+)$/;
+
 function tokenize( line ) {
 	// Single-quote-aware tokenization (the serializer only emits single quotes).
 	const out = [];
@@ -34,11 +38,25 @@ export function parseTsl( text ) {
 	const nodesByName = new Map();
 	const nodes = [];
 	const edges = [];
+	const frontmatter = {};
 
 	const lines = String( text || '' ).split( '\n' );
 	for ( const raw of lines ) {
 		const line = raw.trim();
 		if ( ! line || line.startsWith( '#' ) ) {
+			continue;
+		}
+		// Frontmatter scan: split on `;` to match the PHP frontmatter() parser,
+		// which explodes each line on `;` before applying the var regex.
+		let capturedVar = false;
+		for ( const seg of line.split( ';' ) ) {
+			const fm = FRONTMATTER_RE.exec( seg.trim() );
+			if ( fm ) {
+				frontmatter[ fm[ 1 ] ] = fm[ 2 ].trim();
+				capturedVar = true;
+			}
+		}
+		if ( capturedVar ) {
 			continue;
 		}
 		const tokens = tokenize( line );
@@ -85,5 +103,5 @@ export function parseTsl( text ) {
 		}
 	}
 
-	return { nodes, edges };
+	return { nodes, edges, frontmatter };
 }

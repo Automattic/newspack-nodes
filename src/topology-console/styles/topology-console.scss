@@ -137,3 +137,99 @@ body[class*="_page_newspack-nodes-topology"] {
 	letter-spacing: 0.12em;
 	text-transform: uppercase;
 }
+
+// ── TopologySettingsPanel — frontmatter (`var name = value`) editor ──────────
+.topology-settings-panel {
+	position: absolute;
+	top: 56px;
+	right: 16px;
+	z-index: 20;
+	width: 320px;
+	padding: 12px 14px;
+	background: var(--paper-2);
+	color: var(--ink);
+	border: 1px solid var(--paper-shadow);
+	border-radius: 6px;
+	box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+
+	&__head {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		font-weight: 600;
+		margin-bottom: 10px;
+	}
+
+	&__close {
+		background: none;
+		border: 0;
+		cursor: pointer;
+		font-size: 18px;
+		line-height: 1;
+	}
+}
+
+.topology-settings-field {
+	display: block;
+	margin-bottom: 10px;
+
+	span {
+		display: block;
+		font-size: 12px;
+		margin-bottom: 2px;
+	}
+
+	input {
+		width: 100%;
+	}
+
+	small {
+		display: block;
+		opacity: 0.7;
+		font-size: 11px;
+		margin-top: 2px;
+	}
+}
+
+.topology-settings-vars {
+	margin-top: 8px;
+	border-top: 1px solid var(--paper-shadow);
+	padding-top: 8px;
+
+	&__title {
+		font-size: 12px;
+		opacity: 0.8;
+		margin-bottom: 6px;
+	}
+}
+
+.topology-settings-var-row {
+	display: flex;
+	gap: 6px;
+	align-items: center;
+	margin-bottom: 6px;
+
+	&__name {
+		flex: 0 0 38%;
+		font-family: monospace;
+		font-size: 12px;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	input {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	button {
+		flex: 0 0 auto;
+		cursor: pointer;
+	}
+}
+
+.topology-settings-error {
+	color: var(--oxide);
+	font-size: 11px;
+	margin-top: 4px;
+}

@@ -5,7 +5,7 @@
  * streamStatus === 'open'.
  */
 
-import { render, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import Header from '../Header';
 
 const baseProps = {
@@ -196,5 +196,27 @@ describe( 'Header', () => {
 		const { container } = render( <Header { ...baseProps } uptime="5m" /> );
 		const uptime = container.querySelector( '.topology-uptime' );
 		expect( uptime.textContent ).toBe( '5m' );
+	} );
+
+	it( 'shows a SETTINGS button in edit mode and fires onSettings', () => {
+		const onSettings = jest.fn();
+		render(
+			<Header
+				mode="edit"
+				canEdit
+				onSettings={ onSettings }
+				themes={ [] }
+			/>
+		);
+		const btn = screen.getByRole( 'button', { name: /settings/i } );
+		fireEvent.click( btn );
+		expect( onSettings ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	it( 'hides the SETTINGS button outside edit mode', () => {
+		render( <Header mode="view" canEdit themes={ [] } /> );
+		expect(
+			screen.queryByRole( 'button', { name: /settings/i } )
+		).toBeNull();
 	} );
 } );

@@ -302,6 +302,7 @@ class Admin {
 				'version'             => \NEWSPACK_NODES_VERSION,
 				'topologyPartitions'  => $topology_partitions,
 				'activeTopologies'    => $active_topologies,
+				'configNumPartitions' => $default_np,
 			]
 		);
 	}

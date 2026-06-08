@@ -2,7 +2,42 @@ import { parseTsl } from '../parseTsl';
 
 describe( 'parseTsl', () => {
 	it( 'returns an empty graph for empty input', () => {
-		expect( parseTsl( '' ) ).toEqual( { nodes: [], edges: [] } );
+		expect( parseTsl( '' ) ).toEqual( {
+			nodes: [],
+			edges: [],
+			frontmatter: {},
+		} );
+	} );
+
+	it( 'captures var frontmatter into an ordered map', () => {
+		const g = parseTsl(
+			'var num_partitions = 4\n' +
+				'var stale_timeout = 120\n' +
+				'var custom_thing = a b c\n' +
+				'make_node Echo echo\n'
+		);
+		expect( g.frontmatter ).toEqual( {
+			num_partitions: '4',
+			stale_timeout: '120',
+			custom_thing: 'a b c',
+		} );
+		expect( g.nodes ).toHaveLength( 1 );
+		expect( g.nodes[ 0 ].id ).toBe( 'echo' );
+	} );
+
+	it( 'splits a line on ; to capture multiple vars (matches PHP frontmatter parser)', () => {
+		const g = parseTsl(
+			'var num_partitions = 4; var stale_timeout = 120\n'
+		);
+		expect( g.frontmatter ).toEqual( {
+			num_partitions: '4',
+			stale_timeout: '120',
+		} );
+	} );
+
+	it( 'returns an empty frontmatter map when there are no var lines', () => {
+		const g = parseTsl( 'make_node Echo echo\n' );
+		expect( g.frontmatter ).toEqual( {} );
 	} );
 
 	it( 'parses a single bare make_node', () => {

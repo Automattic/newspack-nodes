@@ -14,6 +14,44 @@ import {
 describe( 'draftGraph', () => {
 	const empty = { nodes: [], edges: [] };
 
+	it( 'preserves frontmatter across every mutator', () => {
+		const fm = { num_partitions: '4' };
+		const base = {
+			nodes: [
+				{
+					id: 'a',
+					name: 'a',
+					class: 'Echo',
+					ctorArgs: [],
+					verbInvocations: [],
+				},
+				{
+					id: 'b',
+					name: 'b',
+					class: 'Echo',
+					ctorArgs: [],
+					verbInvocations: [],
+				},
+			],
+			edges: [ { from: 'a', to: 'b' } ],
+			frontmatter: fm,
+		};
+		expect(
+			addNode( base, { shellName: 'Echo', name: 'c', x: 0, y: 0 } )
+				.frontmatter
+		).toEqual( fm );
+		expect( addEdge( base, { from: 'b', to: 'a' } ).frontmatter ).toEqual(
+			fm
+		);
+		expect( removeNode( base, 'a' ).frontmatter ).toEqual( fm );
+		expect( renameNode( base, 'a', 'z' ).frontmatter ).toEqual( fm );
+		expect( removeEdge( base, 'a', 'b' ).frontmatter ).toEqual( fm );
+		expect( updateNodeArgs( base, 'a', [ 'x' ] ).frontmatter ).toEqual(
+			fm
+		);
+		expect( updateNodeVerbs( base, 'a', [] ).frontmatter ).toEqual( fm );
+	} );
+
 	describe( 'addNode', () => {
 		it( 'appends a node and returns a new graph reference', () => {
 			const next = addNode( empty, {
