@@ -68,6 +68,16 @@ test( 'rename collision throws', () => {
 	expect( () => b.setName( 'alice' ) ).toThrow( /already registered/ );
 } );
 
+test( 'command stamps FROM with the node name', () => {
+	// Mirrors PHP Node::command — a node minting a command tags it with its own
+	// name so the issuer is visible. Shell.sendCommand overwrites FROM with the
+	// session reply pivot; an overlay node issuing a command keeps its name.
+	const n = new Node();
+	n.setName( 'alice' );
+	const m = n.command( 'connect_node', 'a b' );
+	expect( m[ FROM ] ).toBe( 'alice' );
+} );
+
 test( 'fill stamps TO from target when message TO is empty', () => {
 	const sink = new Node();
 	sink.setName( 'sink' );
