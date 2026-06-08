@@ -30,7 +30,7 @@ jobs:
 
       - name: Checkout
         if: steps.validate.outputs.is_release == 'true'
-        uses: actions/checkout@v6
+        uses: actions/checkout@v6.0.2
 
       - name: Setup PHP
         if: steps.validate.outputs.is_release == 'true'
