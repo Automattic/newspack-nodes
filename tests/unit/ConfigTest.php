@@ -179,9 +179,21 @@ class ConfigTest extends TestCase {
 		$this->assertSame( '8', $config['num_partitions'] );
 	}
 
-	public function test_empty_wp_option_uses_file_default(): void {
+	public function test_present_empty_wp_option_overrides_file_default(): void {
+		// Presence decides override, not emptiness: a stored '' is a deliberate
+		// value and wins over the file default. To get the default back, the
+		// option must be deleted (see the absence test below), which is what the
+		// admin "reset to defaults" does.
 		Config::reset();
 		\update_option( 'newspack_nodes_num_partitions', '' );
+		$config = Config::load_config();
+		$this->assertSame( '', $config['num_partitions'] );
+	}
+
+	public function test_absent_wp_option_uses_file_default(): void {
+		// Only true absence (no stored row) falls back to the file default.
+		Config::reset();
+		\delete_option( 'newspack_nodes_num_partitions' );
 		$config = Config::load_config();
 		$this->assertSame( 1, $config['num_partitions'] );
 	}

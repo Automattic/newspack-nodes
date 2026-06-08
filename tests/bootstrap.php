@@ -27,6 +27,10 @@ if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
 // emit the forgeable-fallback warning into every /command response body.
 // (CommandAuthTest's no-salt case self-skips when this is set.)
 \define( 'NONCE_SALT', 'newspack-nodes-test-nonce-salt' );
+// The plugin file (loaded below) defines NEWSPACK_NODES_URL only when
+// plugin_dir_url() exists, which the suite doesn't stub — so define it here so
+// asset-enqueue paths model real WP (DIR + URL both present).
+\define( 'NEWSPACK_NODES_URL', 'http://example.test/wp-content/plugins/newspack-nodes/' );
 
 // Minimal WP stubs needed for the plugin file.
 function plugin_dir_path( string $file ): string {

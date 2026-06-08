@@ -13,6 +13,8 @@ namespace Newspack_Nodes\Admin;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Config;
+use Newspack_Nodes\Config_System\Field_Reset_Assets;
+use Newspack_Nodes\Config_System\Reset_Gate;
 use Newspack_Nodes\Lock_Node;
 
 \defined( 'ABSPATH' ) || exit;
@@ -38,12 +40,39 @@ class Admin {
 	public const RESET_ACTION = 'newspack_nodes_reset_settings';
 	public const RESET_NONCE  = 'newspack_nodes_reset_nonce';
 
+	/** Hidden-input array name carrying per-field reset marks ({option} => "1"). */
+	public const RESET_MARK_FIELD = 'newspack_nodes_reset';
+
 	/**
-	 * Substrate option names cleared by handle_reset_settings(); extend via the reset_options filter.
+	 * Every substrate setting EXPOSED in the settings UI. handle_reset_settings()
+	 * deletes all of these so a reset reverts each to its file default, and
+	 * Reset_Gate registers a per-field gate for each. Includes the selection key
+	 * `topologies` (excluded from delete-on-blank, but reset via its toggle).
+	 * Excludes `allowed_users` — a config-file/programmatic option with no
+	 * settings field, so there's nothing to reset here. Extend via the
+	 * reset_options filter.
 	 *
-	 * @var string[]
+	 * @var array<int, string>
 	 */
 	private static array $option_names = [
+		'newspack_nodes_base_directory',
+		'newspack_nodes_num_partitions',
+		'newspack_nodes_num_segments',
+		'newspack_nodes_segment_size',
+		'newspack_nodes_max_lifespan',
+		'newspack_nodes_memcache_servers',
+		'newspack_nodes_topologies',
+	];
+
+	/**
+	 * Text-like subset whose BLANK save deletes the row (so the file default
+	 * resurfaces). Strict subset of $option_names — the selection key
+	 * `topologies` is excluded because an empty selection there is a deliberate
+	 * override, not a reset (it still resets via its ↺ toggle).
+	 *
+	 * @var array<int, string>
+	 */
+	private static array $delete_on_blank_options = [
 		'newspack_nodes_base_directory',
 		'newspack_nodes_num_partitions',
 		'newspack_nodes_num_segments',
@@ -330,7 +359,8 @@ class Admin {
 			<?php
 			// Extension plugins inject sections below the form.
 			\do_action( 'newspack_nodes/settings_after_form' );
-			$this->render_reset_button_handler();
+			Field_Reset_Assets::enqueue();
+			echo Field_Reset_Assets::highlight_style(); // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- static CSS literal.
 			?>
 		</div>
 		<?php
@@ -404,6 +434,11 @@ class Admin {
 				'autoload'          => true,
 			]
 		);
+
+		// Shared per-field reset / delete-on-blank gate (Config_System\Reset_Gate):
+		// a reset toggle (any field) OR a blanked text-like field deletes the row
+		// so the file default resurfaces.
+		Reset_Gate::register( self::RESET_MARK_FIELD, self::$option_names, self::$delete_on_blank_options );
 
 		// Storage section.
 		\add_settings_section(
@@ -578,8 +613,10 @@ class Admin {
 			echo '<p class="description">' . \esc_html__( 'No topologies registered. Application plugins must call Newspack_Nodes\\Topology_Registry::register_stock_dir() at load time.', 'newspack-nodes' ) . '</p>';
 			return;
 		}
-		// Fieldset on the left, `↺` reset chip on the right.
-		echo '<div style="display: flex; align-items: flex-start; gap: 10px;">';
+		// Fieldset on the left, `↺` reset toggle on the right. Resetting deletes
+		// the option so the config-file default set takes over (same per-field
+		// reset mechanism as every other field; no bespoke load-defaults script).
+		echo '<div style="display: flex; align-items: flex-start; gap: 10px;" data-nn-reset="' . \esc_attr( $this->reset_mark_name( 'topologies' ) ) . '">';
 		echo '<div style="flex: 1;">';
 		echo '<fieldset id="newspack-nodes-topologies-fieldset">';
 		foreach ( $available as $name ) {
@@ -590,26 +627,11 @@ class Admin {
 			echo '</label>';
 		}
 		echo '</fieldset>';
-		echo '<p class="description">' . \esc_html__( 'Each checked topology becomes one worker fleet. The supervisor picks up changes on its next loop (~1 minute). Click ↺ to restore the application-shipped defaults, then Save Settings to commit.', 'newspack-nodes' ) . '</p>';
+		echo '<p class="description">' . \esc_html__( 'Each checked topology becomes one worker fleet. The supervisor picks up changes on its next loop (~1 minute). Click ↺ to reset to the application-shipped defaults, then Save Settings to commit.', 'newspack-nodes' ) . '</p>';
 		echo '</div>';
-		echo '<button type="button" class="button button-secondary newspack-nodes-reset-number"'
-			. ' data-newspack-nodes-load-defaults="' . \esc_attr( (string) \wp_json_encode( $defaults ) ) . '"'
-			. ' title="' . \esc_attr__( 'Load defaults from config file', 'newspack-nodes' ) . '">↺</button>';
+		echo '<button type="button" class="button button-secondary" data-nn-reset-toggle'
+			. ' title="' . \esc_attr__( 'Reset to default (toggle, then Save)', 'newspack-nodes' ) . '">↺</button>';
 		echo '</div>';
-		echo '<script>(function(){
-			var btn = document.querySelector( "button[data-newspack-nodes-load-defaults]" );
-			if ( ! btn ) { return; }
-			btn.addEventListener( "click", function () {
-				var defaults;
-				try { defaults = JSON.parse( btn.getAttribute( "data-newspack-nodes-load-defaults" ) ) || []; }
-				catch ( e ) { defaults = []; }
-				var fieldset = document.getElementById( "newspack-nodes-topologies-fieldset" );
-				if ( ! fieldset ) { return; }
-				fieldset.querySelectorAll( "input[type=checkbox][name=\"newspack_nodes_topologies[]\"]" ).forEach( function ( cb ) {
-					cb.checked = defaults.indexOf( cb.value ) !== -1;
-				} );
-			} );
-		})();</script>';
 	}
 
 	// -- Field callbacks ----------------------------------------------------
@@ -699,7 +721,7 @@ class Admin {
 		$value         = \array_map( static fn ( $server ): string => \is_scalar( $server ) ? (string) $server : '', $value );
 		$value         = \implode( "\n", $value );
 		?>
-		<div style="display: flex; align-items: flex-start; gap: 10px;">
+		<div style="display: flex; align-items: flex-start; gap: 10px;" data-nn-reset="<?php echo \esc_attr( $this->reset_mark_name( 'memcache_servers' ) ); ?>">
 			<div style="flex: 1;">
 				<textarea id="memcache_servers" name="newspack_nodes_memcache_servers" rows="3" class="regular-text code" placeholder="<?php echo \esc_attr( $default_text ); ?>"><?php echo \esc_textarea( $value ); ?></textarea>
 				<p class="description">
@@ -707,9 +729,8 @@ class Admin {
 					<br><?php \esc_html_e( 'Default:', 'newspack-nodes' ); ?> <?php echo \esc_html( \implode( ', ', $default_servers ) ); ?>
 				</p>
 			</div>
-			<button type="button" class="button button-secondary newspack-nodes-reset-text"
-				data-newspack-nodes-reset-target="memcache_servers"
-				title="<?php \esc_attr_e( 'Reset to default', 'newspack-nodes' ); ?>">↺</button>
+			<button type="button" class="button button-secondary" data-nn-reset-toggle
+				title="<?php \esc_attr_e( 'Reset to default (toggle, then Save)', 'newspack-nodes' ); ?>">↺</button>
 		</div>
 		<?php
 	}
@@ -878,7 +899,7 @@ class Admin {
 		$value = \get_option( self::OPTION_PREFIX . $field, '' );
 		$value = \is_scalar( $value ) ? (string) $value : '';
 		?>
-		<div style="display: flex; align-items: flex-start; gap: 10px;">
+		<div style="display: flex; align-items: flex-start; gap: 10px;" data-nn-reset="<?php echo \esc_attr( $this->reset_mark_name( $field ) ); ?>">
 			<div style="flex: 1;">
 				<input type="text" id="<?php echo \esc_attr( $field ); ?>"
 					name="<?php echo \esc_attr( self::OPTION_PREFIX . $field ); ?>"
@@ -890,11 +911,15 @@ class Admin {
 					(<?php \esc_html_e( 'default', 'newspack-nodes' ); ?>: <?php echo \esc_html( $default ); ?>)
 				</p>
 			</div>
-			<button type="button" class="button button-secondary newspack-nodes-reset-text"
-				data-newspack-nodes-reset-target="<?php echo \esc_attr( $field ); ?>"
-				title="<?php \esc_attr_e( 'Reset to default', 'newspack-nodes' ); ?>">↺</button>
+			<button type="button" class="button button-secondary" data-nn-reset-toggle
+				title="<?php \esc_attr_e( 'Reset to default (toggle, then Save)', 'newspack-nodes' ); ?>">↺</button>
 		</div>
 		<?php
+	}
+
+	/** Hidden-input name that flags $field for per-field reset (deleted on Save). */
+	private function reset_mark_name( string $field ): string {
+		return Reset_Gate::mark_name( self::RESET_MARK_FIELD, self::OPTION_PREFIX . $field );
 	}
 
 	private function render_number_field( string $field, int $default, int $min, int $max, string $description ): void {
@@ -904,7 +929,7 @@ class Admin {
 		$display_value = ( '' === $value || (int) $value === $default ) ? '' : $value;
 		$input_class   = $max > 999 ? 'regular-text' : 'small-text';
 		?>
-		<div style="display: flex; align-items: flex-start; gap: 10px;">
+		<div style="display: flex; align-items: flex-start; gap: 10px;" data-nn-reset="<?php echo \esc_attr( $this->reset_mark_name( $field ) ); ?>">
 			<div style="flex: 1;">
 				<input type="number" id="<?php echo \esc_attr( $field ); ?>"
 					name="<?php echo \esc_attr( self::OPTION_PREFIX . $field ); ?>"
@@ -915,30 +940,10 @@ class Admin {
 					placeholder="<?php echo \esc_attr( (string) $default ); ?>" />
 				<p class="description"><?php echo \esc_html( $description ); ?></p>
 			</div>
-			<button type="button" class="button button-secondary newspack-nodes-reset-number"
-				data-newspack-nodes-reset-target="<?php echo \esc_attr( $field ); ?>"
-				title="<?php \esc_attr_e( 'Clear (use default from config file)', 'newspack-nodes' ); ?>">↺</button>
+			<button type="button" class="button button-secondary" data-nn-reset-toggle
+				title="<?php \esc_attr_e( 'Reset to default (toggle, then Save)', 'newspack-nodes' ); ?>">↺</button>
 		</div>
 		<?php
 	}
 
-	/**
-	 * Inline `↺` reset handler: clears the bound input so its placeholder (file default) shows.
-	 */
-	public function render_reset_button_handler(): void {
-		?>
-		<script>(function () {
-			document.querySelectorAll( 'button[data-newspack-nodes-reset-target]' ).forEach( function ( btn ) {
-				btn.addEventListener( 'click', function () {
-					var id = btn.getAttribute( 'data-newspack-nodes-reset-target' );
-					var el = document.getElementById( id );
-					if ( el ) {
-						el.value = '';
-						el.dispatchEvent( new Event( 'input', { bubbles: true } ) );
-					}
-				} );
-			} );
-		})();</script>
-		<?php
-	}
 }

@@ -524,6 +524,25 @@ class AdminTest extends TestCase {
 		$this->assertStringContainsString( 'reset=1', $GLOBALS['_last_redirect'] );
 	}
 
+	public function test_handle_reset_settings_clears_topologies(): void {
+		// Reset must delete every UI-exposed setting — including the selection
+		// key `topologies`, which is excluded from delete-on-blank but resets via
+		// its toggle. (allowed_users is NOT a settings field, so it's not in the
+		// reset set.)
+		$_POST = [ Admin::RESET_NONCE => $this->valid_nonce() ];
+		\update_option( 'newspack_nodes_topologies', [ 'combined' ] );
+
+		$admin = new Admin();
+		try {
+			$admin->handle_reset_settings();
+			$this->fail( 'expected RedirectException' );
+		} catch ( RedirectException $e ) {
+			// Expected.
+		}
+
+		$this->assertFalse( \get_option( 'newspack_nodes_topologies' ), 'reset must delete topologies' );
+	}
+
 	public function test_handle_reset_settings_only_deletes_prefixed_options_via_filter(): void {
 		// Filter that tries to inject a non-prefixed option — must be silently dropped.
 		\add_filter(
@@ -708,9 +727,9 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'class="regular-text code"', $html );
 		$this->assertStringContainsString( 'placeholder="', $html );
 		$this->assertStringContainsString( 'Base directory for logs', $html );
-		// Reset button must be wired to render_reset_button_handler (data-newspack-nodes-reset-target).
-		$this->assertStringContainsString( 'newspack-nodes-reset-text', $html );
-		$this->assertStringContainsString( 'data-newspack-nodes-reset-target="base_directory"', $html );
+		// Per-field reset toggle: wrapper carries the marker name, button is the toggle.
+		$this->assertStringContainsString( 'data-nn-reset="newspack_nodes_reset[newspack_nodes_base_directory]"', $html );
+		$this->assertStringContainsString( 'data-nn-reset-toggle', $html );
 	}
 
 	public function test_base_directory_callback_renders_saved_value(): void {
@@ -740,9 +759,9 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'max="16"', $html );
 		// max <= 999 → small-text input class.
 		$this->assertStringContainsString( 'class="small-text"', $html );
-		// Reset-number button (no data-default attribute).
-		$this->assertStringContainsString( 'newspack-nodes-reset-number', $html );
-		$this->assertStringContainsString( 'data-newspack-nodes-reset-target="num_partitions"', $html );
+		// Per-field reset toggle.
+		$this->assertStringContainsString( 'data-nn-reset="newspack_nodes_reset[newspack_nodes_num_partitions]"', $html );
+		$this->assertStringContainsString( 'data-nn-reset-toggle', $html );
 		// No saved option → empty value, default in placeholder.
 		$this->assertStringContainsString( 'value=""', $html );
 	}
@@ -849,9 +868,9 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'one per line', $html );
 		// Empty textarea body.
 		$this->assertMatchesRegularExpression( '/<textarea[^>]*><\/textarea>/', $html );
-		// Reset-text button wired.
-		$this->assertStringContainsString( 'newspack-nodes-reset-text', $html );
-		$this->assertStringContainsString( 'data-newspack-nodes-reset-target="memcache_servers"', $html );
+		// Per-field reset toggle.
+		$this->assertStringContainsString( 'data-nn-reset="newspack_nodes_reset[newspack_nodes_memcache_servers]"', $html );
+		$this->assertStringContainsString( 'data-nn-reset-toggle', $html );
 	}
 
 	public function test_memcache_servers_callback_renders_saved_value(): void {
@@ -902,25 +921,20 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		return [ $all, $subset ];
 	}
 
-	public function test_topologies_callback_restore_button_loads_config_default_not_full_catalog(): void {
-		[ , $subset ] = $this->seed_topology_fixture();
-		$admin        = new Admin();
+	public function test_topologies_callback_renders_per_field_reset_toggle(): void {
+		$this->seed_topology_fixture();
+		$admin = new Admin();
 
 		\ob_start();
 		$admin->topologies_callback();
 		$html = \ob_get_clean();
 
-		// Extract the restore-button payload.
-		$this->assertMatchesRegularExpression(
-			'/data-newspack-nodes-load-defaults="([^"]*)"/',
-			$html
-		);
-		\preg_match( '/data-newspack-nodes-load-defaults="([^"]*)"/', $html, $m );
-		$payload = \json_decode( \html_entity_decode( $m[1] ), true );
-		\sort( $payload );
-
-		// The defaults are the config-file `topologies` SUBSET, NOT the full catalog.
-		$this->assertSame( $subset, $payload );
+		// The selection field has the SAME per-field reset toggle as every other
+		// field — resetting deletes the option so the config-file default subset
+		// takes over (the subset itself is asserted by the unset-render test).
+		$this->assertStringContainsString( 'data-nn-reset="newspack_nodes_reset[newspack_nodes_topologies]"', $html );
+		$this->assertStringContainsString( 'data-nn-reset-toggle', $html );
+		$this->assertStringNotContainsString( 'data-newspack-nodes-load-defaults', $html );
 	}
 
 	public function test_topologies_callback_checks_config_default_when_option_unset(): void {
@@ -996,11 +1010,12 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertMatchesRegularExpression( '/\(\s*\d[\d,.]*\s*GB\s*\)/u', $html );
 	}
 
-	public function test_total_storage_callback_treats_empty_options_as_defaults(): void {
-		// Options stored explicitly as empty strings should fall back to config defaults.
-		\update_option( 'newspack_nodes_segment_size', '' );
-		\update_option( 'newspack_nodes_num_segments', '' );
-		\update_option( 'newspack_nodes_num_partitions', '' );
+	public function test_total_storage_callback_treats_absent_options_as_defaults(): void {
+		// ABSENT options fall back to config defaults (presence-based override:
+		// only a deleted/never-stored row uses the file default).
+		\delete_option( 'newspack_nodes_segment_size' );
+		\delete_option( 'newspack_nodes_num_segments' );
+		\delete_option( 'newspack_nodes_num_partitions' );
 
 		$admin = new Admin();
 
@@ -1010,6 +1025,128 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 		// Should render without error and contain a numeric MB value.
 		$this->assertMatchesRegularExpression( '/[\d,]+\s*MB/u', $html );
+	}
+
+	// ---- blank text-like saves delete the row (presence-based config) --------
+
+	public function test_blank_text_like_option_save_deletes_row_instead_of_storing_empty(): void {
+		// A blank submission for a text-like key means "use the file default",
+		// which under presence-based Config means DELETE the row — not store ''
+		// (which would override the default and, for base_directory, fatal).
+		$admin = new Admin();
+		$admin->register_settings();
+		$GLOBALS['_wp_options']['newspack_nodes_base_directory'] = '/old/path';
+
+		$result = \apply_filters(
+			'pre_update_option_newspack_nodes_base_directory',
+			'',
+			'/old/path',
+			'newspack_nodes_base_directory'
+		);
+
+		$this->assertArrayNotHasKey(
+			'newspack_nodes_base_directory',
+			$GLOBALS['_wp_options'],
+			'blank save must delete the row so the file default resurfaces'
+		);
+		$this->assertSame( '/old/path', $result, 'returns old value so update_option skips the write' );
+	}
+
+	public function test_blank_memcache_textarea_save_deletes_row(): void {
+		// The exact recurrence guard for this incident: a blank memcache textarea
+		// must delete the row (file default wins), NOT store [] (which nulls the
+		// shared handle).
+		$admin = new Admin();
+		$admin->register_settings();
+		$GLOBALS['_wp_options']['newspack_nodes_memcache_servers'] = [ 'host:11211' ];
+
+		$result = \apply_filters(
+			'pre_update_option_newspack_nodes_memcache_servers',
+			[],
+			[ 'host:11211' ],
+			'newspack_nodes_memcache_servers'
+		);
+
+		$this->assertArrayNotHasKey( 'newspack_nodes_memcache_servers', $GLOBALS['_wp_options'] );
+		$this->assertSame( [ 'host:11211' ], $result );
+	}
+
+	public function test_nonblank_text_like_option_save_passes_through(): void {
+		$admin = new Admin();
+		$admin->register_settings();
+		$GLOBALS['_wp_options']['newspack_nodes_segment_size'] = '999';
+
+		$result = \apply_filters(
+			'pre_update_option_newspack_nodes_segment_size',
+			'12345',
+			'999',
+			'newspack_nodes_segment_size'
+		);
+
+		$this->assertSame( '12345', $result, 'a real value must persist' );
+	}
+
+	public function test_empty_topologies_save_is_written_not_deleted(): void {
+		// Selection field with NO reset mark: zero topologies is a deliberate
+		// override and must persist as [] (blank-delete does not apply to it).
+		$admin = new Admin();
+		$admin->register_settings();
+		unset( $_POST[ Admin::RESET_MARK_FIELD ] );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined' ];
+
+		$result = \apply_filters(
+			'pre_update_option_newspack_nodes_topologies',
+			[],
+			[ 'combined' ],
+			'newspack_nodes_topologies'
+		);
+
+		$this->assertSame( [], $result, 'empty topologies is an override, not a reset' );
+		$this->assertArrayHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'] );
+	}
+
+	public function test_reset_marked_selection_field_is_deleted(): void {
+		// A per-field reset toggle marks the option; on save it must delete the
+		// row even for selection keys (excluded from delete-on-blank).
+		$admin = new Admin();
+		$admin->register_settings();
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined' ];
+		$_POST[ Admin::RESET_MARK_FIELD ]                    = [ 'newspack_nodes_topologies' => '1' ];
+
+		try {
+			$result = \apply_filters(
+				'pre_update_option_newspack_nodes_topologies',
+				[ 'combined' ],
+				[ 'combined' ],
+				'newspack_nodes_topologies'
+			);
+			$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'], 'reset-marked field must be deleted' );
+			$this->assertSame( [ 'combined' ], $result, 'short-circuit returns old value' );
+		} finally {
+			unset( $_POST[ Admin::RESET_MARK_FIELD ] );
+		}
+	}
+
+	public function test_reset_marked_text_field_is_deleted_even_when_value_nonblank(): void {
+		// Reset wins over a non-blank submitted value (toggle marked, field not
+		// yet cleared on the server side).
+		$admin = new Admin();
+		$admin->register_settings();
+		$GLOBALS['_wp_options']['newspack_nodes_base_directory'] = '/old';
+		$_POST[ Admin::RESET_MARK_FIELD ]                       = [ 'newspack_nodes_base_directory' => '1' ];
+
+		try {
+			$result = \apply_filters(
+				'pre_update_option_newspack_nodes_base_directory',
+				'/some/typed/value',
+				'/old',
+				'newspack_nodes_base_directory'
+			);
+			$this->assertArrayNotHasKey( 'newspack_nodes_base_directory', $GLOBALS['_wp_options'] );
+			$this->assertSame( '/old', $result );
+		} finally {
+			unset( $_POST[ Admin::RESET_MARK_FIELD ] );
+		}
 	}
 
 	// ---- maybe_request_worker_restart (configuration-error path) --------
@@ -1358,22 +1495,20 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'worker fleet', $html );
 	}
 
-	// ---- render_reset_button_handler -------------------------------------
+	// ---- per-field reset toggle wiring -----------------------------------
 
-	public function test_render_reset_button_handler_outputs_inline_script(): void {
-		$admin = new Admin();
+	public function test_settings_page_enqueues_field_reset_toggle_and_highlight(): void {
+		$GLOBALS['_enqueued_scripts'] = [];
+		$admin                        = new Admin();
 
 		\ob_start();
-		$admin->render_reset_button_handler();
+		$admin->render_settings_page();
 		$html = \ob_get_clean();
 
-		// Inline JS that targets the reset chips by data attribute.
-		$this->assertStringContainsString( '<script>', $html );
-		$this->assertStringContainsString( 'data-newspack-nodes-reset-target', $html );
-		// Reset behavior: set value to '' so placeholder shines through.
-		$this->assertStringContainsString( "value = ''", $html );
-		// Dispatches an input event to notify React-style listeners.
-		$this->assertStringContainsString( 'Event', $html );
+		// The built DOM-only toggle module is enqueued (replaces the old inline
+		// script), and the marked-state highlight style is present.
+		$this->assertArrayHasKey( 'newspack-nodes-field-reset', $GLOBALS['_enqueued_scripts'] );
+		$this->assertStringContainsString( '.is-marked [data-nn-reset-toggle]', $html );
 	}
 
 	// ---- additional handle_reset_settings + filter coverage --------------
@@ -1503,8 +1638,9 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		// NOT the config default → unchecked.
 		$this->assertMatchesRegularExpression( '/blessed"[^>]*checked/', $out );
 		$this->assertDoesNotMatchRegularExpression( '/unblessed"[^>]*checked/', $out );
-		// Reset chip carries the config-file defaults (just `blessed`), not the catalog.
-		$this->assertStringContainsString( 'data-newspack-nodes-load-defaults="[&quot;blessed&quot;]"', $out );
+		// Reset is the uniform per-field toggle (delete → file default), not a
+		// catalog-payload chip.
+		$this->assertStringContainsString( 'data-nn-reset-toggle', $out );
 
 		\Newspack_Nodes\Topology_Registry::reset();
 	}

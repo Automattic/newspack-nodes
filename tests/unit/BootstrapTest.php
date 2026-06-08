@@ -765,4 +765,48 @@ class BootstrapTest extends TestCase {
 			$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']
 		);
 	}
+
+	// ── init_memcached: substrate-owned Core::$memd bootstrap ──────────────
+
+	public function test_init_memcached_builds_handle_from_configured_servers(): void {
+		$GLOBALS['_wp_options']['newspack_nodes_memcache_servers'] = [ 'cachehost:11299' ];
+		\Newspack_Nodes\Config::reset();
+		$saved_memd                  = Core::$memd;
+		$saved_factory               = Bootstrap::$memcached_factory;
+		Bootstrap::$memcached_factory = static fn (): \Memcached => new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		Core::$memd                  = null;
+
+		try {
+			Bootstrap::init_memcached();
+
+			$this->assertInstanceOf( \Memcached::class, Core::$memd );
+			$servers = Core::$memd->getServerList();
+			$this->assertSame( 'cachehost', $servers[0]['host'] );
+			$this->assertSame( 11299, $servers[0]['port'] );
+		} finally {
+			Core::$memd                  = $saved_memd;
+			Bootstrap::$memcached_factory = $saved_factory;
+			unset( $GLOBALS['_wp_options']['newspack_nodes_memcache_servers'] );
+			\Newspack_Nodes\Config::reset();
+		}
+	}
+
+	public function test_init_memcached_nulls_handle_on_empty_servers(): void {
+		// Empty servers must NULL the handle, not build a fallback — null is what
+		// command-auth's `instanceof` check keys on to log + fail closed. A
+		// non-null fallback would silently fail closed (the bug this replaces).
+		$GLOBALS['_wp_options']['newspack_nodes_memcache_servers'] = [];
+		\Newspack_Nodes\Config::reset();
+		$saved_memd = Core::$memd;
+		Core::$memd = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+
+		try {
+			Bootstrap::init_memcached();
+			$this->assertNull( Core::$memd );
+		} finally {
+			Core::$memd = $saved_memd;
+			unset( $GLOBALS['_wp_options']['newspack_nodes_memcache_servers'] );
+			\Newspack_Nodes\Config::reset();
+		}
+	}
 }
