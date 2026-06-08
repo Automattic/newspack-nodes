@@ -203,17 +203,13 @@ class CLI_Command {
 	 * Parse one input line through the Shell graph (split into statements). True if any Message emitted.
 	 */
 	public function dispatch_line( Shell_Node $shell, string $line ): bool {
-		$line     = \rtrim( $line, "\r\n" );
-		$dispatched = false;
-		foreach ( $shell->split_statements( $line ) as $statement ) {
-			$msg = $shell->parse( $statement );
-			if ( null === $msg ) {
-				continue;
-			}
-			$shell->fill( $msg );
-			$dispatched = true;
-		}
-		return $dispatched;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = $line;
+		$before = $shell->counter();
+		$shell->fill( $message );
+		$after = $shell->counter();
+		return $after > $before;
 	}
 }
 
@@ -315,11 +311,6 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 		}
 		$msg                  = Message::new_message();
 		$msg[ Message::TYPE ] = Message::TM_EOF;
-		$msg[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
-		// TO=cwd: in pivoted mode this routes the EOF through the worker so its
-		// echo can only return after every preceding reply on the ordered IPC
-		// partition. Empty (bare mode) bounces off the local interpreter.
-		$msg[ Message::TO ]   = $this->shell->path;
 		$this->shell->fill( $msg );
 		$this->eof_sent        = true;
 		$this->eof_deadline_at = \microtime( true ) + $this->eof_deadline_s;
@@ -394,19 +385,13 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 	 * it in-process.
 	 *
 	 * @param string $verb Either 'help' (command candidates) or 'ls' (node candidates).
-	 * @return array<int,mixed> The TM_COMMAND Message.
+	 * @return array<int,mixed> The TM_BYTESTREAM Message.
 	 */
 	public function build_completion_query( string $verb ): array {
 		$msg                    = Message::new_message();
-		$msg[ Message::TYPE ]   = Message::TM_COMMAND;
-		$msg[ Message::FROM ]   = Node_Names::OUTPUT . '/' . \getmypid();
-		$msg[ Message::TO ]     = $this->shell->path;
+		$msg[ Message::TYPE ]   = Message::TM_BYTESTREAM;
 		$msg[ Message::KEY ]    = 'completion';
-		$msg[ Message::LOCAL ]  = true;
-		$msg[ Message::VALUE ]  = [
-			'name'      => $verb,
-			'arguments' => '',
-		];
+		$msg[ Message::VALUE ]  = $verb;
 		return $msg;
 	}
 

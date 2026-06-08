@@ -97,7 +97,7 @@ class Command_Auth {
 	public static function sign( array &$message, ?int $now = null ): void {
 		$type  = $message[ Message::TYPE ]  ?? 0;
 		$value = $message[ Message::VALUE ] ?? null;
-		if ( ! \is_integer( $type ) || ! ( $type & Message::TM_COMMAND ) || ! \is_array( $value ) ) {
+		if ( ! \is_integer( $type ) || Message::TM_COMMAND !== $type || ! \is_array( $value ) ) {
 			return;
 		}
 		$ts    = $now ?? \time();
@@ -127,7 +127,7 @@ class Command_Auth {
 	public static function verify( array $message, ?int $now = null ): bool {
 		$type  = $message[ Message::TYPE ]  ?? 0;
 		$value = $message[ Message::VALUE ] ?? null;
-		if ( ! \is_integer( $type ) || ! ( $type & Message::TM_COMMAND ) || ! \is_array( $value ) ) {
+		if ( ! \is_integer( $type ) || Message::TM_COMMAND !== $type || ! \is_array( $value ) ) {
 			return false;
 		}
 		$auth = $value['auth'] ?? null;

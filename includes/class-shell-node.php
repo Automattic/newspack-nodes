@@ -43,16 +43,23 @@ class Shell_Node extends Node {
 		}
 		$type  = $message[ Message::TYPE ]  ?? 0;
 		$value = $message[ Message::VALUE ] ?? null;
-		if ( ! \is_integer( $type ) || ! ( $type & Message::TM_BYTESTREAM ) || ! \is_string( $value ) ) {
-			++$this->counter;
-			Command_Auth::sign( $message );
+		if ( ! \is_integer( $type ) ) {
+			throw new \RuntimeException( 'Shell::fill requires a valid message' );
+		}
+		if ( Message::TM_EOF === $type ) {
+			$message[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
+			$message[ Message::TO ]   = $this->path;
 			$this->sink->fill( $message );
 			return;
+		}
+		if ( Message::TM_BYTESTREAM !== $type || ! \is_string( $value ) ) {
+			throw new \RuntimeException( 'Shell::fill requires a TM_BYTESTREAM message with a string VALUE' );
 		}
 		foreach ( $this->split_statements( $value ) as $statement ) {
 			$parsed = $this->parse( $statement );
 			if ( null !== $parsed ) {
 				++$this->counter;
+				$parsed[ Message::KEY ] = $message[ Message::KEY ];
 				Command_Auth::sign( $parsed );
 				$this->sink->fill( $parsed );
 			}
@@ -206,10 +213,9 @@ class Shell_Node extends Node {
 		}
 
 		if ( $this->show_parse ) {
-			Core::_stderr(
-				'parse> line: ' . $line . "\n" .
-				'parse> tokens: ' . (string) \wp_json_encode( $tokens ) . "\n"
-			);
+			$dump = 'parse> line: ' . $line . "\n"
+				. 'parse> tokens: ' . (string) \wp_json_encode( $tokens ) . "\n";
+			$this->stdout( $dump );
 		}
 
 		$verb = \array_shift( $tokens );
@@ -228,8 +234,7 @@ class Shell_Node extends Node {
 		}
 
 		if ( 'echo' === $verb ) {
-			// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- shell-builtin output, not user-facing HTML.
-			echo \implode( ' ', $args ) . "\n";
+			$this->stdout( \implode( ' ', $args ) . "\n" );
 			return null;
 		}
 
@@ -241,21 +246,21 @@ class Shell_Node extends Node {
 					? (int) $args[0]
 					: ( $current > 0 ? 0 : 1 );
 				$applied = $dumper->set_debug_level( $next );
-				Core::_stderr( 'debug_level: ' . $applied . "\n" );
+				$this->stdout( 'debug_level: ' . $applied . "\n" );
 			}
 			return null;
 		}
 
 		if ( 'status' === $verb ) {
 			foreach ( $this->status_lines as $status_line ) {
-				Core::_stderr( $status_line . "\n" );
+				$this->stdout( $status_line . "\n" );
 			}
 			return null;
 		}
 
 		if ( 'show_parse' === $verb ) {
 			$this->show_parse = ! $this->show_parse;
-			Core::_stderr( 'show_parse: ' . ( $this->show_parse ? 'on' : 'off' ) . "\n" );
+			$this->stdout( 'show_parse: ' . ( $this->show_parse ? 'on' : 'off' ) . "\n" );
 			return null;
 		}
 
@@ -267,7 +272,7 @@ class Shell_Node extends Node {
 				return null;
 			}
 			if ( \str_contains( $name , ':' ) ) {
-				Core::_stderr( "var: invalid name '{$name}' (':' is reserved for read-only namespaces like config:)\n" );
+				$this->stdout( "var: invalid name '{$name}' (':' is reserved for namespaces like config:)\n" );
 				return null;
 			}
 			Core::$var[ $name ] = \implode( ' ', \array_slice( $args, 2 ) );
@@ -468,6 +473,16 @@ class Shell_Node extends Node {
 			},
 			$line
 		);
+	}
+
+	public function stdout( string $line ): void {
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = $line;
+		$dumper = Core::node( Node_Names::OUTPUT );
+		if ( $dumper instanceof Dumper_Node ) {
+			$dumper->fill( $message );
+		}
 	}
 
 	public static function node_schema(): array {

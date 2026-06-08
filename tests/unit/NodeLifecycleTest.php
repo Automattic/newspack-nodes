@@ -230,12 +230,18 @@ class NodeLifecycleTest extends TestCase {
 	 * Dumper is a terminal renderer — `fill(TM_ERROR)` writes the
 	 * VALUE directly to its `$stderr` handle (defaulted to PHP's
 	 * STDERR), so feeding it through this transit-node contract test
-	 * would leak the assertion payload to the real terminal. None of
-	 * the three exercise the cross-node error-propagation contract
-	 * this test was written for — skip rather than assert on a no-op.
+	 * would leak the assertion payload to the real terminal. Shell is
+	 * the stdin-fed REPL front-end (the PHP analog of Tachikoma's
+	 * _stdin → _responder): fill() only accepts bytestream input +
+	 * TM_EOF, throws on anything else, and restamps FROM to its own
+	 * `_output/$pid` reply identity on EOF (mirroring Tachikoma's
+	 * _stdin → _responder FROM rewrite) — so neither preserve-FROM nor
+	 * forward-TM_ERROR applies. None of the four exercise the cross-node
+	 * propagation contract this test was written for — skip rather than
+	 * assert on a no-op.
 	 */
 	private function is_transit_node( object $node ): bool {
-		return ! ( $node instanceof Tail_Node || $node instanceof Lock_Node || $node instanceof Dumper_Node );
+		return ! ( $node instanceof Tail_Node || $node instanceof Lock_Node || $node instanceof Dumper_Node || $node instanceof Shell_Node );
 	}
 
 	/**

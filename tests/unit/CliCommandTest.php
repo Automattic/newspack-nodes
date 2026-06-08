@@ -1040,39 +1040,57 @@ class CliCommandTest extends TestCase {
 
 	// ── tab-completion candidate cache ────────────────────────────────────────
 
-	public function test_build_completion_query_help_targets_pivot_with_completion_key(): void {
-		// A completion query for the FIRST token is a `help` command with
-		// KEY='completion', FROM=_output/$pid, TO=the shell pivot path, LOCAL set.
+	public function test_build_completion_query_help_parses_to_pivot_command_with_completion_key(): void {
+		// A completion query is a bytestream verb ('help') tagged KEY='completion'.
+		// Filling it through the Shell parses it into a TM_COMMAND that inherits
+		// the completion KEY plus FROM=_output/$pid, LOCAL, and the pivot TO.
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
 		$shell->path = 'firehose-workers.p0';
+		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+		$shell->sink( $sink );
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
-		$msg = $reader->build_completion_query( 'help' );
+		$query = $reader->build_completion_query( 'help' );
+		$this->assertSame( \Newspack_Nodes\Message::TM_BYTESTREAM, $query[ \Newspack_Nodes\Message::TYPE ] );
+		$this->assertSame( 'completion', $query[ \Newspack_Nodes\Message::KEY ] );
+		$this->assertSame( 'help', $query[ \Newspack_Nodes\Message::VALUE ] );
 
-		$this->assertSame( \Newspack_Nodes\Message::TM_COMMAND, $msg[ \Newspack_Nodes\Message::TYPE ] );
-		$this->assertSame( 'completion', $msg[ \Newspack_Nodes\Message::KEY ] );
-		$this->assertSame( 'firehose-workers.p0', $msg[ \Newspack_Nodes\Message::TO ] );
-		$this->assertStringContainsString( '_output/' . \getmypid(), $msg[ \Newspack_Nodes\Message::FROM ] );
-		$this->assertTrue( $msg[ \Newspack_Nodes\Message::LOCAL ] ?? false );
-		$this->assertSame( 'help', $msg[ \Newspack_Nodes\Message::VALUE ]['name'] );
+		$shell->fill( $query );
+
+		$this->assertCount( 1, $sink->captured );
+		$out = $sink->captured[0];
+		$this->assertSame( 'help', $out[ \Newspack_Nodes\Message::VALUE ]['name'] );
+		$this->assertSame( 'completion', $out[ \Newspack_Nodes\Message::KEY ] );
+		$this->assertSame( 'firehose-workers.p0', $out[ \Newspack_Nodes\Message::TO ] );
+		$this->assertStringContainsString( '_output/' . \getmypid(), $out[ \Newspack_Nodes\Message::FROM ] );
+		$this->assertTrue( $out[ \Newspack_Nodes\Message::LOCAL ] ?? false );
 	}
 
-	public function test_build_completion_query_ls_uses_list_nodes_verb(): void {
-		// The node-name query uses the `ls` verb (CommandInterpreter aliases it
-		// to list_nodes, which honors KEY='completion' for bare names).
+	public function test_build_completion_query_ls_parses_to_local_command_with_completion_key(): void {
+		// The node-name query is the `ls` verb tagged KEY='completion'. In bare
+		// mode (empty pivot path) the parsed command routes to the local
+		// interpreter (empty TO).
 		$cmd    = new CLI_Command();
 		$shell  = new \Newspack_Nodes\Shell_Node();
+		$sink   = new \Newspack_Nodes\Tests\Capture_Sink_Node();
+		$shell->sink( $sink );
 		$dumper = new \Newspack_Nodes\Dumper_Node( \fopen( 'php://memory', 'w+' ) );
 		$reader = new \Newspack_Nodes\CLI_Stdin_Reader_Node( $cmd, $shell, $dumper, false, \fopen( 'php://memory', 'r+' ) );
 
-		$msg = $reader->build_completion_query( 'ls' );
+		$query = $reader->build_completion_query( 'ls' );
+		$this->assertSame( \Newspack_Nodes\Message::TM_BYTESTREAM, $query[ \Newspack_Nodes\Message::TYPE ] );
+		$this->assertSame( 'ls', $query[ \Newspack_Nodes\Message::VALUE ] );
 
-		$this->assertSame( 'ls', $msg[ \Newspack_Nodes\Message::VALUE ]['name'] );
-		$this->assertSame( 'completion', $msg[ \Newspack_Nodes\Message::KEY ] );
+		$shell->fill( $query );
+
+		$this->assertCount( 1, $sink->captured );
+		$out = $sink->captured[0];
+		$this->assertSame( 'ls', $out[ \Newspack_Nodes\Message::VALUE ]['name'] );
+		$this->assertSame( 'completion', $out[ \Newspack_Nodes\Message::KEY ] );
 		// Bare mode: empty pivot path → empty TO (local interpreter).
-		$this->assertSame( '', $msg[ \Newspack_Nodes\Message::TO ] );
+		$this->assertSame( '', $out[ \Newspack_Nodes\Message::TO ] );
 	}
 
 	public function test_ingest_completion_reply_fills_command_cache_from_help(): void {
