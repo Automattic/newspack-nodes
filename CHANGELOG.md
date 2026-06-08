@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`Command_Auth::verify()` now logs each rejection reason via `drop_message`** (wrong type, bad envelope, stale timestamp, signature mismatch) instead of failing silently, so a refused command surfaces at the worker/REPL rather than vanishing.
 - **`Command_Auth::sign()` / `verify()` now gate on the message TYPE, not on the VALUE shape.** Both methods previously decided "is this a command?" by sniffing `is_array( $value ) && isset( $value['name'] )`; they now require `$type` to be exactly `Message::TM_COMMAND` (strict `===`, and VALUE to be an array). A command is identified by its `TM_COMMAND` type — the canonical signal — rather than by the incidental presence of a `name` key, so a command whose VALUE lacks `name` is still signed/verified, and a non-command message that happens to carry a `name` key is left untouched. The exact match means a combined-flag type (e.g. a `TM_COMMAND | TM_ERROR` reply) is never signed or verified. `sign()`, `verify()`, and the http-in issuer (`HTTP_In_Node`) all use the same `=== Message::TM_COMMAND` predicate, keeping signer and verifier symmetric. Behavior-preserving for every real command path; full PHPUnit suite green.
 
 ### Added

@@ -121,19 +121,22 @@ class Command_Auth {
 	 * Verify a command Message's `auth` envelope: freshness window, HMAC, then a
 	 * single-use nonce claim. Returns false on any failure (fail closed).
 	 *
-	 * @param array<array-key,mixed> $message Message to verify.
-	 * @param int|null               $now     Verification time; defaults to time().
+	 * @param array<int, mixed> $message Message to verify.
+	 * @param int|null          $now     Verification time; defaults to time().
 	 */
 	public static function verify( array $message, ?int $now = null ): bool {
-		$type  = $message[ Message::TYPE ]  ?? 0;
-		$value = $message[ Message::VALUE ] ?? null;
+		$type        = $message[ Message::TYPE ]  ?? 0;
+		$value       = $message[ Message::VALUE ] ?? null;
+		$interpreter = Core::node( Node_Names::COMMAND_INTERPRETER );
 		if ( ! \is_integer( $type ) || Message::TM_COMMAND !== $type || ! \is_array( $value ) ) {
+			$interpreter?->drop_message( $message, 'verification failed: wrong type' );
 			return false;
 		}
 		$auth = $value['auth'] ?? null;
 		if ( ! \is_array( $auth )
 				|| ! isset( $auth['ts'], $auth['nonce'], $auth['sig'] )
 				|| ! \is_integer( $auth['ts'] ) ) {
+			$interpreter?->drop_message( $message, 'verification failed: bad envelope' );
 			return false;
 		}
 		$ts       = $auth['ts'];
@@ -143,16 +146,19 @@ class Command_Auth {
 
 		// Freshness: not stale, not implausibly in the future.
 		if ( $now - $ts > self::MAX_PAST_S || $ts - $now > self::MAX_FUTURE_S ) {
+			$interpreter?->drop_message( $message, 'verification failed: timestamp out of range' );
 			return false;
 		}
 
 		$canon = self::canonical( $type, $value, $ts, $nonce );
 		if ( null === $canon ) {
+			$interpreter?->drop_message( $message, 'verification failed: invalid signature' );
 			return false;
 		}
 		$expected = \hash_hmac( 'sha256', $canon, self::secret() );
 		$sig      = $auth['sig'];
 		if ( ! \hash_equals( $expected, \is_scalar( $sig ) ? (string) $sig : '' ) ) {
+			$interpreter?->drop_message( $message, 'verification failed: signature mismatch' );
 			return false;
 		}
 
@@ -176,9 +182,21 @@ class Command_Auth {
 	 * never has it; trusting LOCAL therefore only admits the process's own commands
 	 * (e.g. a worker loading its topology via Shell::eval_script), while every
 	 * wire command still requires a signature.
+	 *
+	 * @return \Closure(array<int, mixed>): bool
 	 */
 	public static function verifier(): \Closure {
-		return static fn ( array $message ): bool =>
-			isset( $message[ Message::LOCAL ] ) || self::verify( $message );
+		return \Closure::fromCallable( [ self::class, 'authorize_command' ] );
+	}
+
+	/**
+	 * The verifier policy: accept an in-process (LOCAL) command, else require a
+	 * valid HMAC. Named (not an inline closure) so its int-keyed Message type is
+	 * honored end-to-end.
+	 *
+	 * @param array<int, mixed> $message
+	 */
+	private static function authorize_command( array $message ): bool {
+		return isset( $message[ Message::LOCAL ] ) || self::verify( $message );
 	}
 }

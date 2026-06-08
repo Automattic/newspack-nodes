@@ -252,13 +252,7 @@ class HTTP_In_Node extends Node {
 			// downstream verifier interpreters (request-scope + worker) accept it; the
 			// signature covers semantics only, so the later FROM/TO peeling is fine.
 			// Non-command messages (TM_BYTESTREAM/INFO, or responses) are left alone.
-			$raw_msg_type = $msg[ Message::TYPE ];
-			$msg_type     = \is_int( $raw_msg_type ) ? $raw_msg_type : 0;
-			// Pure TM_COMMAND only (exact match, matching Command_Auth::sign /
-			// verify): a response or any combined-flag type is left unsigned.
-			if ( Message::TM_COMMAND === $msg_type ) {
-				Command_Auth::sign( $msg );
-			}
+			Command_Auth::sign( $msg );
 			$base_interpreter->fill( $msg );
 		}
 
