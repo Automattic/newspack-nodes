@@ -307,6 +307,7 @@ export class Node {
 	command( name, args = '' ) {
 		const m = newMessage();
 		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = this.name;
 		m[ VALUE ] = { name, arguments: args };
 		return m;
 	}

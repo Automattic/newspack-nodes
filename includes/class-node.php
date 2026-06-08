@@ -310,6 +310,7 @@ class Node {
 	public function command( string $name, string $arguments = '' ): array {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = $this->name;
 		$message[ Message::VALUE ] = [
 			'name'      => $name,
 			'arguments' => $arguments,

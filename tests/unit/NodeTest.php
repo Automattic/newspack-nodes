@@ -109,6 +109,16 @@ class NodeTest extends TestCase {
 		$this->assertStringContainsString( 'payload: data', $buf );
 	}
 
+	public function test_command_stamps_from_with_node_name(): void {
+		// A node minting a command tags it with its own name (FROM), so the issuer
+		// is visible in audit/drop lines. Shell::send_command overwrites FROM with
+		// the session reply path; an overlay node issuing a command keeps its name.
+		$n = new Capture_Sink_Node();
+		$n->name( 'alice' );
+		$m = $n->command( 'connect_node', 'a b' );
+		$this->assertSame( 'alice', $m[ Message::FROM ] );
+	}
+
 	public function test_drop_message_labels_noreply_flag(): void {
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );

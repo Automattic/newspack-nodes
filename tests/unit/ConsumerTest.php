@@ -177,6 +177,8 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 'firehose-workers', $entry['worker_type'] ?? null );
 		$this->assertSame( 'firehose:tee',     $entry['target']      ?? null );
 		$this->assertSame( 'firehose:consumer', $entry['name']       ?? null );
+		// The stored record carries the producing Consumer's identity in FROM.
+		$this->assertSame( 'firehose:consumer', $msg[ Message::FROM ] );
 		// `targets` resolves downstream; with no node registered for
 		// firehose:tee, the row surfaces the name with an empty class.
 		$this->assertSame(

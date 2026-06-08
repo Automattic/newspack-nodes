@@ -440,6 +440,7 @@ class Consumer_Node extends Timer_Node {
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
 		$msg[ Message::TIMESTAMP ] = Core::$now;
+		$msg[ Message::FROM ]      = $this->name;
 		$msg[ Message::VALUE ]     = [
 			'seg'         => $this->cursor_seg,
 			'off'         => $this->cursor_off,
