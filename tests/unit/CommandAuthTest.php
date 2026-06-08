@@ -4,6 +4,8 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use Newspack_Nodes\Command_Auth;
+use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Message;
 
@@ -14,10 +16,13 @@ class CommandAuthTest extends TestCase {
 		// Default the single-use seam to "always claimable" so window/HMAC logic
 		// is what's under test; replay tests install their own stateful claim.
 		Command_Auth::$claim_nonce = static fn ( string $nonce, int $ttl ): bool => true;
+		$interpreter = new Command_Interpreter_Node;
+		$interpreter->name( Node_Names::COMMAND_INTERPRETER );
 	}
 
 	protected function tearDown(): void {
 		Command_Auth::$claim_nonce = null;
+		Core::node( Node_Names::COMMAND_INTERPRETER )->remove_node();
 		parent::tearDown();
 	}
 
