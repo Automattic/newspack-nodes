@@ -1272,4 +1272,105 @@ describe( 'SchematicCanvas scale-gated LOD', () => {
 			'url(#topology-arrow-active)'
 		);
 	} );
+
+	it( 'renders all cards in one bloom-classed group when zoomed in (no reparenting)', () => {
+		stubW = 1000;
+		stubH = 1000;
+		const { container } = render(
+			<SchematicCanvas
+				{ ...lodProps }
+				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
+			/>
+		);
+		// Exactly one nodes group, carrying --bloom, holding every card.
+		const groups = container.querySelectorAll( '.topology-nodes' );
+		expect( groups ).toHaveLength( 1 );
+		expect(
+			groups[ 0 ].classList.contains( 'topology-nodes--bloom' )
+		).toBe( true );
+		expect( groups[ 0 ].querySelectorAll( '.topology-node' ) ).toHaveLength(
+			2
+		);
+	} );
+
+	it( 'drops the bloom class from the nodes group when zoomed out (LOD)', () => {
+		stubW = 1000;
+		stubH = 1000;
+		const { container } = render(
+			<SchematicCanvas
+				{ ...lodProps }
+				viewport={ { x: 0, y: 0, w: 50000, h: 50000 } }
+			/>
+		);
+		const group = container.querySelector( '.topology-nodes' );
+		expect( group.classList.contains( 'topology-nodes--bloom' ) ).toBe(
+			false
+		);
+	} );
+
+	it( 'clips the card label layer and pins the bloom filter to the viewport', () => {
+		const { container } = render( <SchematicCanvas { ...lodProps } /> );
+		// The clip def + a label layer that references it.
+		expect(
+			container.querySelector( '#topology-node-clip' )
+		).not.toBeNull();
+		expect(
+			container.querySelector( '[clip-path="url(#topology-node-clip)"]' )
+		).not.toBeNull();
+		// The bloom filters pin their region to the viewport (not the group bbox).
+		const crt = container.querySelector( '#topology-bloom-crt' );
+		expect( crt.getAttribute( 'filterUnits' ) ).toBe( 'userSpaceOnUse' );
+	} );
+
+	it( 'does not bloom an edge with an endpoint outside the viewport', () => {
+		stubW = 1000;
+		stubH = 1000;
+		const { container } = render(
+			<SchematicCanvas
+				{ ...lodProps }
+				parsed={ {
+					nodes: [ { id: 'a' }, { id: 'b' } ],
+					edges: [ { from: 'a', to: 'b' } ],
+				} }
+				positionOverrides={ {
+					a: { x: 100, y: 100 },
+					b: { x: 90000, y: 100 }, // far off-screen → stub
+				} }
+				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
+			/>
+		);
+		const bloomEdges = container.querySelector( '.topology-edges--bloom' );
+		expect(
+			bloomEdges.querySelectorAll( '.topology-edge--active' )
+		).toHaveLength( 0 );
+		// It still renders, unbloomed, in the plain edge group.
+		expect(
+			container.querySelectorAll( '.topology-edge--active' )
+		).toHaveLength( 1 );
+	} );
+
+	it( 'blooms an edge whose endpoints are both on-screen', () => {
+		stubW = 1000;
+		stubH = 1000;
+		const { container } = render(
+			<SchematicCanvas
+				{ ...lodProps }
+				viewport={ { x: 0, y: 0, w: 1000, h: 800 } }
+			/>
+		);
+		const bloomEdges = container.querySelector( '.topology-edges--bloom' );
+		expect(
+			bloomEdges.querySelectorAll( '.topology-edge--active' )
+		).toHaveLength( 1 );
+	} );
+
+	it( 'defines the group-bloom SVG filters', () => {
+		const { container } = render( <SchematicCanvas { ...lodProps } /> );
+		expect(
+			container.querySelector( '#topology-bloom-crt' )
+		).not.toBeNull();
+		expect(
+			container.querySelector( '#topology-bloom-neo' )
+		).not.toBeNull();
+	} );
 } );

@@ -1620,6 +1620,11 @@
 
 	.topology-brand {
 		font-size: 24px;
+		// Phosphor bloom on the header glyphs (a single chrome element, so a
+		// per-element drop-shadow is fine here — the per-glyph cost only bit the
+		// many node/edge elements, which now bloom via one group pass below).
+		filter: drop-shadow(0 0 2px var(--ink))
+			drop-shadow(0 0 8px color-mix(in srgb, var(--ink) 45%, transparent));
 	}
 
 	.topology-canvas::after {
@@ -1634,26 +1639,15 @@
 		);
 	}
 
-	// Phosphor bloom — an over-driven beam bleeds each bright glyph's own
-	// light into the dark glass: a tight core plus a wide soft halo.
-	.topology-brand,
-	.topology-node__id {
-		filter: drop-shadow(0 0 2px var(--ink))
-			drop-shadow(0 0 8px color-mix(in srgb, var(--ink) 45%, transparent));
-	}
-
-	.topology-node__counter,
-	.topology-node__rate {
-		filter: drop-shadow(0 0 2px var(--oxide))
-			drop-shadow(0 0 7px color-mix(in srgb, var(--oxide) 40%, transparent));
-	}
-
-	.topology-node__led {
-		filter: drop-shadow(0 0 4px var(--sage));
-	}
-
-	.topology-edge--active {
-		filter: drop-shadow(0 0 4px var(--cyan));
+	// Phosphor bloom — an over-driven beam bleeds bright glyphs' light into the
+	// dark glass. ONE group blur pass per on-screen group (not a drop-shadow per
+	// glyph) blurs the real pixels, so each element keeps its own colour — and
+	// the cards themselves bloom for free. Membership is the strict viewport, so
+	// the filter buffer never exceeds the visible region. (Header glyph bloom is
+	// folded into `.topology-brand` above.)
+	.topology-nodes--bloom,
+	.topology-edges--bloom {
+		filter: url(#topology-bloom-crt);
 	}
 }
 
@@ -1972,22 +1966,16 @@
 		opacity: 0.8;
 	}
 
-	// Neon bloom — backlit signage through the rain: a soft white halo on the
-	// HUD glyphs, a tight amber glow on the data, crimson on the live flow.
-	.topology-brand,
-	.topology-node__id {
+	// Neon bloom — backlit signage through the rain. One group blur pass keeps
+	// each glyph's colour (white HUD, amber data, crimson flow) and blooms the
+	// cards too; strict-viewport membership keeps the filter buffer bounded.
+	.topology-brand {
 		filter: drop-shadow(0 0 3px color-mix(in srgb, var(--ink) 55%, transparent));
 	}
 
-	.topology-node__counter,
-	.topology-node__rate,
-	.topology-node__led {
-		filter: drop-shadow(0 0 2px var(--oxide))
-			drop-shadow(0 0 6px color-mix(in srgb, var(--oxide) 55%, transparent));
-	}
-
-	.topology-edge--active {
-		filter: drop-shadow(0 0 5px var(--cyan));
+	.topology-nodes--bloom,
+	.topology-edges--bloom {
+		filter: url(#topology-bloom-neo);
 	}
 }
 
