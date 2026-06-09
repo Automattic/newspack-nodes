@@ -111,10 +111,27 @@ const MIN_NODE_PX = 2;
 // scrolls smoothly and a narrow column doesn't blink out when nudged sideways.
 const NODE_OVERSCAN = 0.5;
 
+// Arrow-key pan: fraction of the viewport shifted per keypress (hold to repeat),
+// and the faster shift+arrow step. Keyed by arrow → [dx, dy] sign.
+const PAN_STEP = 0.08;
+const PAN_STEP_FAST = 0.25;
+const ARROW_PAN = {
+	ArrowLeft: [ -1, 0 ],
+	ArrowRight: [ 1, 0 ],
+	ArrowUp: [ 0, -1 ],
+	ArrowDown: [ 0, 1 ],
+};
+
+// Above this many on-screen edges, suppress the perpetual edge-flow animation
+// (the `--still` modifier). An infinite stroke-dashoffset animation re-rasterizes
+// every dashed bezier every frame — fine for a handful, but hundreds peg the
+// browser's raster threads (Firefox especially). A static graph layer-caches.
+const EDGE_FLOW_MAX = 40;
+
 // Bloom blur radius in SCREEN px (per theme). The SVG filter's stdDeviation is in
 // world units, so it's divided by the px/world scale each render to hold a
 // constant on-screen glow across zoom.
-const BLOOM_STDDEV_PX = { crt: 2.5, neo: 2 };
+const BLOOM_STDDEV_PX = { crt: 5, neo: 4 };
 // stdDeviation (world units) for a screen-constant glow; 0 when unmeasured
 // (scale === Infinity) so jsdom/first-render emit a no-op blur.
 function bloomStdDev( px, scale ) {
@@ -249,6 +266,11 @@ export default function SchematicCanvas( {
 	);
 	// Active pan drag on the empty canvas (stable start origin per move).
 	const panRef = useRef( null );
+	// Whether the pointer is over the canvas — gates arrow-key panning so the
+	// document-level handler only steals arrows (and preventDefault) while the
+	// canvas is hovered. Without this the debug overlay (which mounts this canvas
+	// over an arbitrary admin page) would hijack the host page's arrow scrolling.
+	const canvasHoverRef = useRef( false );
 
 	// Debounce flag for beginDrag — see comment in beginDrag below.
 	const beginDragGuardRef = useRef( false );
@@ -565,6 +587,48 @@ export default function SchematicCanvas( {
 		el.addEventListener( 'wheel', onWheel, { passive: false } );
 		return () => el.removeEventListener( 'wheel', onWheel );
 	}, [] );
+
+	// Arrow keys pan the viewport (hold to repeat; shift pans faster). A `null`
+	// viewport materializes from the autofit viewBox so panning works from the
+	// default fit too. document-level to match the Delete handler, skipped while
+	// typing in a form field; `setViewport` is a no-op when the parent owns no
+	// viewport. A ref feeds the latest viewport so the listener binds once.
+	const panStateRef = useRef( { viewport, defaultViewBox } );
+	panStateRef.current = { viewport, defaultViewBox };
+	useEffect( () => {
+		const onKey = ( e ) => {
+			const dir = ARROW_PAN[ e.key ];
+			if ( ! dir ) {
+				return;
+			}
+			// Only pan (and swallow the arrow) while the canvas is hovered, so the
+			// overlay doesn't steal the host page's arrow scrolling.
+			if ( ! canvasHoverRef.current ) {
+				return;
+			}
+			const tag = e.target && e.target.tagName;
+			if (
+				tag === 'INPUT' ||
+				tag === 'TEXTAREA' ||
+				tag === 'SELECT' ||
+				( e.target && e.target.isContentEditable )
+			) {
+				return;
+			}
+			e.preventDefault();
+			const cur =
+				panStateRef.current.viewport ||
+				parseViewBox( panStateRef.current.defaultViewBox );
+			const step = e.shiftKey ? PAN_STEP_FAST : PAN_STEP;
+			setViewport( {
+				...cur,
+				x: cur.x + dir[ 0 ] * cur.w * step,
+				y: cur.y + dir[ 1 ] * cur.h * step,
+			} );
+		};
+		document.addEventListener( 'keydown', onKey );
+		return () => document.removeEventListener( 'keydown', onKey );
+	}, [ setViewport ] );
 
 	// Pan on background drag (nodes stopPropagation); a non-drag click
 	// becomes deselect/autofit.
@@ -899,6 +963,12 @@ export default function SchematicCanvas( {
 			onPointerMove={ handleBgPointerMove }
 			onPointerUp={ handleBgPointerUp }
 			onPointerCancel={ handleBgPointerUp }
+			onPointerEnter={ () => {
+				canvasHoverRef.current = true;
+			} }
+			onPointerLeave={ () => {
+				canvasHoverRef.current = false;
+			} }
 			onDragOver={ handleDragOver }
 			onDrop={ handleDrop }
 		>
@@ -956,8 +1026,12 @@ export default function SchematicCanvas( {
 				</clipPath>
 				{ /* Group bloom: ONE blur pass per group (vs a drop-shadow per
 				     glyph), blurring real pixels so each element keeps its color and
-				     the cards + names bloom together. Referenced by the --bloom
-				     groups via `filter:url()` in the CRT and Neo-Tokyo themes only.
+				     the cards + names bloom together. The blur is `screen`-blended
+				     OVER the source (not feMerge'd UNDER it) so the glow composites
+				     ADDITIVELY — interior glyph/name/LED glow shows through the
+				     opaque card instead of being painted over by the sharp card on
+				     top (which is what hid it). Referenced by the --bloom groups via
+				     `filter:url()` in the CRT and Neo-Tokyo themes only.
 				     The region is pinned to the strict viewport (userSpaceOnUse) so
 				     the blur buffer is exactly the visible rect — never the full
 				     group bbox (which spans the overscan ring) nor a degenerate
@@ -980,10 +1054,7 @@ export default function SchematicCanvas( {
 						) }
 						result="bloom"
 					/>
-					<feMerge>
-						<feMergeNode in="bloom" />
-						<feMergeNode in="SourceGraphic" />
-					</feMerge>
+					<feBlend mode="screen" in="SourceGraphic" in2="bloom" />
 				</filter>
 				<filter
 					id="topology-bloom-neo"
@@ -1002,10 +1073,7 @@ export default function SchematicCanvas( {
 						) }
 						result="bloom"
 					/>
-					<feMerge>
-						<feMergeNode in="bloom" />
-						<feMergeNode in="SourceGraphic" />
-					</feMerge>
+					<feBlend mode="screen" in="SourceGraphic" in2="bloom" />
 				</filter>
 			</defs>
 
@@ -1037,6 +1105,14 @@ export default function SchematicCanvas( {
 						if ( ! isEdgeVisible( e.from, e.to, visibleIds ) ) {
 							return;
 						}
+						// Animate the flow ONLY where data actually moved this dump:
+						// both endpoints' counters incremented since the last
+						// dump_metadata (rate > 0). Idle connections stay static, so
+						// the per-frame bloom re-raster is paid only for live paths.
+						const fromRate =
+							rateRef?.current?.get( e.from )?.rate ?? 0;
+						const toRate = rateRef?.current?.get( e.to )?.rate ?? 0;
+						const flowing = fromRate > 0 && toRate > 0;
 						const hoverTouches =
 							hoveredId === e.from || hoveredId === e.to;
 						const selectTouches =
@@ -1093,10 +1169,12 @@ export default function SchematicCanvas( {
 							<g key={ `edge-${ i }-${ e.from }-${ e.to }` }>
 								<path
 									className={ `topology-edge topology-edge--active${
-										touches ? ' is-touched' : ''
-									}${ dimmed ? ' is-dimmed' : '' }${
-										isEdgeSelected ? ' is-selected' : ''
-									}${ e.virtual ? ' is-virtual' : '' }` }
+										flowing ? ' topology-edge--flowing' : ''
+									}${ touches ? ' is-touched' : '' }${
+										dimmed ? ' is-dimmed' : ''
+									}${ isEdgeSelected ? ' is-selected' : '' }${
+										e.virtual ? ' is-virtual' : ''
+									}` }
 									d={ d }
 									markerEnd={
 										stub
@@ -1125,12 +1203,23 @@ export default function SchematicCanvas( {
 						);
 						( stub ? plainEdges : bloomEdges ).push( el );
 					} );
+					// Too many on-screen edges → drop the per-frame flow animation
+					// so the raster threads aren't pegged repainting hundreds of
+					// dashed paths every frame.
+					const still =
+						bloomEdges.length + plainEdges.length > EDGE_FLOW_MAX
+							? ' topology-edges--still'
+							: '';
 					return (
 						<>
-							<g className="topology-edges topology-edges--bloom">
+							<g
+								className={ `topology-edges topology-edges--bloom${ still }` }
+							>
 								{ bloomEdges }
 							</g>
-							<g className="topology-edges">{ plainEdges }</g>
+							<g className={ `topology-edges${ still }` }>
+								{ plainEdges }
+							</g>
 						</>
 					);
 				} )() }

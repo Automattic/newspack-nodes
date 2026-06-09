@@ -38,6 +38,13 @@ function registerViewFixture( {
 		setStateCache: {},
 		lines,
 		lps,
+		// Mirror the real node's O(1) windowed read contract the canvas uses.
+		get linesCount() {
+			return this.lines.length;
+		},
+		lineAt( i ) {
+			return this.lines[ i ];
+		},
 		register( event, listener, cb ) {
 			this.registrations[ event ][ listener ] = cb;
 			if ( event in this.setStateCache ) {
@@ -275,6 +282,41 @@ describe( 'RawLogs', () => {
 		tickFrame();
 		tickFrame();
 		expect( useRawLogsGraph.mock.calls.length ).toBe( rendersAfterSettle );
+	} );
+
+	it( 'keeps the staleness clock fresh when new lines arrive at the cap (count pinned, id climbing)', () => {
+		// Keep the suite's manual rAF override (don't let fake timers replace it),
+		// but fake Date/setInterval so setSystemTime + the "now" ticker are driven.
+		jest.useFakeTimers( {
+			doNotFake: [ 'requestAnimationFrame', 'cancelAnimationFrame' ],
+		} );
+		jest.setSystemTime( new Date( '2026-01-01T00:00:00Z' ) );
+		try {
+			const node = registerViewFixture( {
+				logs: [ { key: 'firehose', label: 'F' } ],
+				selected: 'firehose',
+				lines: [
+					{ id: 100, partition: 0, content: 'a', isEven: false },
+				],
+			} );
+			const { container } = render( <RawLogs /> );
+			tickFrame(); // baseline: lastEventTime = t0
+			// Simulate the cap: linesCount stays 1 (pinned), but a NEW line arrived
+			// — the newest row's monotonic id climbed 100 → 101.
+			act( () => jest.advanceTimersByTime( 3000 ) ); // 3s pass; "now" ticks
+			node.lines = [
+				{ id: 101, partition: 0, content: 'b', isEven: false },
+			];
+			tickFrame(); // a new id at a pinned count must reset staleness
+			act( () => jest.advanceTimersByTime( 1000 ) ); // re-render staleSec
+			// Fix: staleness stays fresh (≤1s) because the new arrival is detected
+			// off the monotonic id. The old count-based code would show "4s ago"
+			// (the full elapsed time) because the pinned count reads 0 new rows.
+			expect( container.textContent ).toMatch( /[01]s ago/ );
+			expect( container.textContent ).not.toContain( '4s ago' );
+		} finally {
+			jest.useRealTimers();
+		}
 	} );
 
 	it( 'shows the connection banner when the view model has connectionError', () => {

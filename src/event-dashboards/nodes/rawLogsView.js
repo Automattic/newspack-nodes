@@ -2,7 +2,8 @@ import { Node } from '../../runtime/node';
 import { FROM, ID, KEY, TYPE, VALUE, TM_ERROR } from '../../runtime/message';
 
 const MAX_LINES = 100000;
-const LPS_WINDOW_MS = 10000;
+const LPS_WINDOW_SEC = 10;
+const LPS_SMOOTHING = 0.1;
 const MAX_LINE_LENGTH = 1000;
 const PARTITION_RE = /\.p(\d+)$/;
 
@@ -27,10 +28,14 @@ function _errorMessage( payload ) {
  * `rawlogs:view` — owns the Raw Logs view model.
  *
  * Two cadences, deliberately split for performance:
- * - HIGH frequency (the log stream): `_appendRow` pushes each row onto `this.lines`
- *   and recomputes `this.lps`, but does NOT publish. The React view reads these
- *   directly off the node each animation frame (`Core.node('rawlogs:view').lines`
- *   / `.lps`) so a high-volume stream never re-renders React per line.
+ * - HIGH frequency (the log stream): `_appendRow` writes each row into a fixed
+ *   ring buffer (O(1): write at head, advance, overwrite oldest — no shift, no
+ *   copy, no truncation) and updates `this.lps`, but does NOT publish. The React
+ *   canvas reads the VISIBLE window straight off the ring each frame via
+ *   `linesCount` + `lineAt(i)` (newest-first) — O(rows-on-screen), not O(buffer)
+ *   — so neither a busy stream nor a full buffer re-renders or re-copies per
+ *   frame. `lines` materializes the whole buffer newest-first for the rare
+ *   full-scan consumers (the filter path + tests); it is NOT on the frame path.
  * - LOW frequency (control + catalog): only `_control` publishes the small view
  *   model via `setState('view', { logs, selected, paused, connectionError })` —
  *   the dropdown + pause button + selected value + reconnect banner, consumed by
@@ -51,14 +56,23 @@ function _errorMessage( payload ) {
  *   (logic inlined from the deleted `rawlogs:transform`) and appended newest-first
  *   to a capped buffer (unless paused), updating lines/second.
  *
- * Buffer + LPS logic migrated verbatim from `RawLogs.js`.
+ * @param {number} [maxLines] Buffer cap (defaults to MAX_LINES; injectable for tests).
  */
 export class RawLogsViewNode extends Node {
-	constructor() {
+	constructor( maxLines ) {
 		super();
-		this.lines = [];
+		this.maxLines = maxLines || MAX_LINES;
+		// Ring buffer: rows written at `_head` (mod maxLines), oldest overwritten
+		// once full. `_count` is how many slots hold a live row. No shifting,
+		// concatenation, or truncation — append and cap-drop are both O(1).
+		this._ring = [];
+		this._head = 0;
+		this._count = 0;
 		this.lineCounter = 0;
-		this.lineHistory = [];
+		// Per-second LPS buckets ({ sec, count }) + their running total — bounded
+		// to the window instead of one entry per line.
+		this.lpsBuckets = [];
+		this.lpsWindowTotal = 0;
 		this.smoothedLPS = 0;
 		this.lps = 0;
 		this.logs = [];
@@ -68,6 +82,52 @@ export class RawLogsViewNode extends Node {
 		// Hook-stamped ID → { resolve, reject }; resolved/rejected when the
 		// matching reply lands here. Cleared on resolution.
 		this.pending = new Map();
+	}
+
+	// Number of live rows in the ring (O(1)).
+	get linesCount() {
+		return this._count;
+	}
+
+	// The i-th row newest-first (i=0 is newest), O(1); undefined out of range.
+	// The canvas reads only its on-screen window through this — never the whole
+	// buffer — so the frame cost is O(rows-on-screen) regardless of buffer size.
+	lineAt( i ) {
+		if ( i < 0 || i >= this._count ) {
+			return undefined;
+		}
+		const idx = ( this._head - 1 - i + this.maxLines ) % this.maxLines;
+		return this._ring[ idx ];
+	}
+
+	// The whole buffer materialized newest-first — O(n), for the filter path and
+	// tests only, NOT the per-frame canvas path. Assigning (`node.lines = []` from
+	// handleClear / select) reseeds the ring from the given newest-first array.
+	get lines() {
+		const out = new Array( this._count );
+		for ( let i = 0; i < this._count; i++ ) {
+			out[ i ] = this.lineAt( i );
+		}
+		return out;
+	}
+
+	set lines( value ) {
+		this._ring = [];
+		this._head = 0;
+		this._count = 0;
+		if ( Array.isArray( value ) ) {
+			// Seed oldest-first so the newest row lands last (at head-1).
+			for ( let i = value.length - 1; i >= 0; i-- ) {
+				this._writeRow( value[ i ] );
+			}
+		}
+	}
+
+	// Write one row into the ring at the head and advance, capping at maxLines.
+	_writeRow( row ) {
+		this._ring[ this._head ] = row;
+		this._head = ( this._head + 1 ) % this.maxLines;
+		this._count = Math.min( this._count + 1, this.maxLines );
 	}
 
 	fill( message ) {
@@ -137,22 +197,19 @@ export class RawLogsViewNode extends Node {
 		this._appendRow( partition, line );
 	}
 
-	// Append a shaped row newest-first; capped. The rAF reads this off the
-	// node directly — no setState on the HIGH-frequency path.
+	// Write a shaped row into the ring (O(1)); the canvas reads it back via
+	// lineAt/linesCount. No setState on the HIGH-frequency path.
 	_appendRow( partition, line ) {
 		if ( this.paused ) {
 			return;
 		}
 		this.lineCounter += 1;
-		this.lines.unshift( {
+		this._writeRow( {
 			id: this.lineCounter,
 			partition,
 			content: line,
 			isEven: this.lineCounter % 2 === 0,
 		} );
-		if ( this.lines.length > MAX_LINES ) {
-			this.lines.length = MAX_LINES;
-		}
 		this._updateLinesPerSecond( 1 );
 	}
 
@@ -172,30 +229,41 @@ export class RawLogsViewNode extends Node {
 		}
 	}
 
-	// Clear buffer + counter + LPS history (matches handleLogChange in RawLogs.js).
+	// Clear buffer + counter + LPS window (matches handleLogChange in RawLogs.js).
 	_clear() {
 		this.lines = [];
 		this.lineCounter = 0;
-		this.lineHistory = [];
+		this.lpsBuckets = [];
+		this.lpsWindowTotal = 0;
 		this.smoothedLPS = 0;
 		this.lps = 0;
 	}
 
-	// Lines per second over a 10s window, smoothed with a 0.1 EMA.
+	// Lines per second over a 10s window, smoothed with a 0.1 EMA. Counts are
+	// aggregated into per-second buckets with a running total, so each line is
+	// O(1) (one bucket bump + bounded expiry) — not an O(n) scan of the window.
 	_updateLinesPerSecond( newCount ) {
-		const now = Date.now();
-		if ( newCount > 0 ) {
-			this.lineHistory.push( { time: now, count: newCount } );
+		if ( newCount <= 0 ) {
+			return;
 		}
-		this.lineHistory = this.lineHistory.filter(
-			( entry ) => now - entry.time < LPS_WINDOW_MS
-		);
-		const totalInWindow = this.lineHistory.reduce(
-			( sum, entry ) => sum + entry.count,
-			0
-		);
-		const LPS = totalInWindow / ( LPS_WINDOW_MS / 1000 );
-		this.smoothedLPS += ( LPS - this.smoothedLPS ) * 0.1;
+		const sec = Math.floor( Date.now() / 1000 );
+		const last = this.lpsBuckets[ this.lpsBuckets.length - 1 ];
+		if ( last && last.sec === sec ) {
+			last.count += newCount;
+		} else {
+			this.lpsBuckets.push( { sec, count: newCount } );
+		}
+		this.lpsWindowTotal += newCount;
+		const oldest = sec - LPS_WINDOW_SEC;
+		while (
+			this.lpsBuckets.length > 0 &&
+			this.lpsBuckets[ 0 ].sec <= oldest
+		) {
+			this.lpsWindowTotal -= this.lpsBuckets[ 0 ].count;
+			this.lpsBuckets.shift();
+		}
+		const lps = this.lpsWindowTotal / LPS_WINDOW_SEC;
+		this.smoothedLPS += ( lps - this.smoothedLPS ) * LPS_SMOOTHING;
 		this.lps = this.smoothedLPS;
 	}
 

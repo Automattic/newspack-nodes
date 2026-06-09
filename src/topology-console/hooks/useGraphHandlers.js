@@ -67,7 +67,20 @@ export function useGraphHandlers( {
 					'connect_node',
 					`${ from } ${ to }`
 				);
-				patch( from, { target: to } );
+				// A connect APPENDS a target server-side, so for a Tee fan-out
+				// (array target) append here too — replacing it with the single
+				// new `to` would drop the Tee's other edges from the canvas until
+				// the next dump_metadata reasserts them. Single-target nodes
+				// (string/empty) just take the new target.
+				const current = Core.node( names.METADATA )?.rawMap?.[ from ]
+					?.target;
+				let next = to;
+				if ( Array.isArray( current ) ) {
+					next = current.includes( to )
+						? current
+						: [ ...current, to ];
+				}
+				patch( from, { target: next } );
 			},
 			onRemoveNode: ( id ) => {
 				dispatch( `remove_node ${ id }`, 'remove_node', id );

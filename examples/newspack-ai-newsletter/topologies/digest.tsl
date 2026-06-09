@@ -9,6 +9,7 @@
 # digest accumulates and, on `flush`, writes one markdown draft. `log` reuses
 # the substrate's Log primitive. Adding a third source = one more make_node +
 # one connect_node line; nothing downstream changes.
+var num_partitions = 1
 make_node Releases_Source   releases
 make_node Community_Source  community
 make_node Summarizer        summarizer
