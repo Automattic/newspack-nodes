@@ -23,8 +23,15 @@ namespace Newspack_Nodes\Config_System;
 \defined( 'ABSPATH' ) || exit;
 
 class Field {
-	/** Display label — coerced so a degenerate `__()` stub returning null can't TypeError at build. */
-	public readonly string $label;
+	/**
+	 * Display label, stored unresolved. A plugin passes either a plain string OR
+	 * a `fn(): string` thunk — the thunk defers `__()` to render time so building
+	 * the schema for overlay_keys() (which a worker/CLI does via Config) never
+	 * calls a translation function at load. Resolve via label().
+	 *
+	 * @var string|callable
+	 */
+	private readonly mixed $label_source;
 
 	/** @var callable|null register_setting sanitize_callback (required for option fields). */
 	public readonly mixed $sanitize;
@@ -35,7 +42,7 @@ class Field {
 	/**
 	 * @param string                   $key            Unprefixed option key; '' for a display-only field.
 	 * @param string                   $type           Value-type tag (int/path/memcache_servers/array_strings/bool/text/float) — the sanitize-derivation hook.
-	 * @param mixed                    $label          Settings-field label (coerced to string).
+	 * @param string|callable          $label          Settings-field label, or a `fn(): string` thunk (deferred `__()`).
 	 * @param string                   $section        Section id this field renders under.
 	 * @param string                   $id             add_settings_field id; defaults to $key when empty.
 	 * @param bool                     $delete_on_blank Whether a blank save deletes the row (file default resurfaces).
@@ -58,9 +65,18 @@ class Field {
 		public readonly bool $ui = true,
 		public readonly array $register_args = [],
 	) {
-		$this->label    = \is_string( $label ) ? $label : '';
-		$this->sanitize = \is_callable( $sanitize ) ? $sanitize : null;
-		$this->render   = \is_callable( $render ) ? $render : null;
+		$this->label_source = $label;
+		$this->sanitize     = \is_callable( $sanitize ) ? $sanitize : null;
+		$this->render       = \is_callable( $render ) ? $render : null;
+	}
+
+	/** The resolved label: a thunk is invoked here (render time), a plain string passes through. */
+	public function label(): string {
+		$label = $this->label_source;
+		if ( \is_callable( $label ) ) {
+			$label = $label();
+		}
+		return \is_string( $label ) ? $label : '';
 	}
 
 	/** A real config option (participates in the overlay + autoload sweep). */
