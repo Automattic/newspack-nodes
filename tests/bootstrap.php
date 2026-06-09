@@ -38,7 +38,8 @@ function plugin_dir_path( string $file ): string {
 }
 
 if ( ! function_exists( 'do_action' ) ) {
-	$GLOBALS['_wp_actions'] = [];
+	$GLOBALS['_wp_actions']              = [];
+	$GLOBALS['_wp_action_registrations'] = [];
 	function do_action( string $hook, ...$args ): void {
 		foreach ( $GLOBALS['_wp_actions'][ $hook ] ?? [] as $cb ) {
 			$cb( ...$args );
@@ -46,6 +47,15 @@ if ( ! function_exists( 'do_action' ) ) {
 	}
 	function add_action( string $hook, callable $cb, int $priority = 10, int $accepted_args = 1 ): void {
 		$GLOBALS['_wp_actions'][ $hook ][] = $cb;
+		// Registration metadata is only recorded during plugin load (the
+		// snapshot below); per-test registrations skip the bookkeeping.
+		if ( ! empty( $GLOBALS['_wp_record_registrations'] ) ) {
+			$GLOBALS['_wp_action_registrations'][ $hook ][] = [
+				'callback'      => $cb,
+				'priority'      => $priority,
+				'accepted_args' => $accepted_args,
+			];
+		}
 	}
 	function apply_filters( string $hook, mixed $value, ...$args ): mixed {
 		foreach ( $GLOBALS['_wp_actions'][ $hook ] ?? [] as $cb ) {
@@ -54,7 +64,7 @@ if ( ! function_exists( 'do_action' ) ) {
 		return $value;
 	}
 	function add_filter( string $hook, callable $cb, int $priority = 10, int $accepted_args = 1 ): void {
-		$GLOBALS['_wp_actions'][ $hook ][] = $cb;
+		add_action( $hook, $cb, $priority, $accepted_args );
 	}
 	function remove_action( string $hook, callable $cb, int $priority = 10 ): bool {
 		$list  = $GLOBALS['_wp_actions'][ $hook ] ?? [];
@@ -69,6 +79,13 @@ if ( ! function_exists( 'do_action' ) ) {
 		}
 		$GLOBALS['_wp_actions'][ $hook ] = $keep;
 		return $found;
+	}
+}
+
+if ( ! function_exists( 'current_filter' ) ) {
+	// Tests drive this via $GLOBALS['_wp_test_current_filter'].
+	function current_filter(): string {
+		return (string) ( $GLOBALS['_wp_test_current_filter'] ?? '' );
 	}
 }
 
@@ -114,7 +131,11 @@ if ( ! function_exists( 'wp_next_scheduled' ) ) {
 }
 
 if ( ! function_exists( 'wp_schedule_event' ) ) {
-	function wp_schedule_event( $timestamp, $recurrence, $hook, $args = [] ) {
+	function wp_schedule_event( $timestamp, $recurrence, $hook, $args = [], $wp_error = false ) {
+		if ( isset( $GLOBALS['_wp_test_schedule_event_response'] ) ) {
+			$resp = $GLOBALS['_wp_test_schedule_event_response'];
+			return is_callable( $resp ) ? $resp( $timestamp, $recurrence, $hook, $args, $wp_error ) : $resp;
+		}
 		$GLOBALS['_wp_test_scheduled_events'][] = [
 			'timestamp'  => $timestamp,
 			'recurrence' => $recurrence,
@@ -425,8 +446,12 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
 }
 
 // Load the plugin (which require_once's the class files and calls
-// register_namespace('Newspack_Nodes\\')).
+// register_namespace('Newspack_Nodes\\')) with registration recording on, then
+// freeze the load-time snapshot and stop recording.
+$GLOBALS['_wp_record_registrations'] = true;
 require_once \dirname( __DIR__ ) . '/newspack-nodes.php';
+$GLOBALS['_wp_initial_action_registrations'] = $GLOBALS['_wp_action_registrations'] ?? [];
+unset( $GLOBALS['_wp_record_registrations'] );
 
 // Register the test namespace so `make_node('Capture_Sink')` resolves
 // `Newspack_Nodes\Tests\Capture_Sink_Node` (require'd below; class_exists true).

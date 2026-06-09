@@ -292,8 +292,108 @@ class Bootstrap {
 	/** Activation hook: schedule the supervisor cron at minute cadence. */
 	public static function activate(): void {
 		if ( ! \wp_next_scheduled( 'newspack_nodes/supervisor' ) ) {
-			\wp_schedule_event( \time() + 5, 'newspack_nodes_minute', 'newspack_nodes/supervisor' );
+			$result = \wp_schedule_event( \time() + 5, 'newspack_nodes_minute', 'newspack_nodes/supervisor', [], true );
+			if ( \is_wp_error( $result ) ) {
+				Core::print_less_often(
+					\sprintf(
+						'supervisor cron schedule failed: code=%s message=%s schedule=newspack_nodes_minute',
+						$result->get_error_code(),
+						$result->get_error_message()
+					)
+				);
+			}
 		}
+	}
+
+	/**
+	 * Veto-time diagnostic for the supervisor cron, registered on
+	 * pre_schedule_event AND pre_reschedule_event at PHP_INT_MAX - 2. When an
+	 * earlier callback short-circuits OUR event with false or a WP_Error,
+	 * log the active filter chain — the culprit is in it by definition.
+	 * These filters run inside wp_schedule_event/wp_reschedule_event, which
+	 * every cron runner still calls (Cron Control short-circuits these same
+	 * filters on Atomic), unlike the wp-cron.php-only error actions.
+	 *
+	 * @param mixed $pre   Short-circuit value accumulated by earlier callbacks.
+	 * @param mixed $event Event object (hook, timestamp, schedule, args, interval).
+	 * @return mixed $pre, unchanged.
+	 */
+	public static function log_supervisor_schedule_veto( $pre, $event ) {
+		$hook = \is_object( $event ) && isset( $event->hook ) && \is_string( $event->hook ) ? $event->hook : '';
+		if ( 'newspack_nodes/supervisor' !== $hook ) {
+			return $pre;
+		}
+		// null = nobody intervened; truthy non-error = another runner scheduled it.
+		if ( false !== $pre && ! \is_wp_error( $pre ) ) {
+			return $pre;
+		}
+
+		$filter = (string) \current_filter();
+		$reason = \is_wp_error( $pre ) ? $pre->get_error_code() . ': ' . $pre->get_error_message() : 'false';
+		Core::print_less_often(
+			\sprintf(
+				'supervisor cron vetoed: filter=%s value=%s callbacks=[%s]',
+				$filter,
+				$reason,
+				self::describe_hook_callbacks( $filter )
+			)
+		);
+		return $pre;
+	}
+
+	/** Describe callbacks registered on a WordPress hook without dumping payload data. */
+	private static function describe_hook_callbacks( string $hook_name ): string {
+		global $wp_filter;
+
+		if ( ! \is_array( $wp_filter ) || empty( $wp_filter[ $hook_name ] ) ) {
+			return 'none';
+		}
+
+		$hook_obj = $wp_filter[ $hook_name ];
+		if ( ! \is_object( $hook_obj ) || ! isset( $hook_obj->callbacks ) || ! \is_array( $hook_obj->callbacks ) ) {
+			return 'uninspectable';
+		}
+		$callbacks = $hook_obj->callbacks;
+
+		$names = [];
+		foreach ( $callbacks as $priority => $priority_callbacks ) {
+			if ( ! \is_array( $priority_callbacks ) ) {
+				continue;
+			}
+			foreach ( $priority_callbacks as $callback ) {
+				$function = \is_array( $callback ) && isset( $callback['function'] ) ? $callback['function'] : $callback;
+				$names[]  = "{$priority} " . self::describe_callback( $function );
+			}
+		}
+
+		return empty( $names ) ? 'none' : \implode( ', ', $names );
+	}
+
+	/** Return a compact callback name suitable for error logs. */
+	private static function describe_callback( mixed $function ): string {
+		if ( \is_string( $function ) ) {
+			return $function;
+		}
+		if ( \is_array( $function ) && 2 === \count( $function ) ) {
+			$class  = \is_object( $function[0] ) ? self::describe_class_name( \get_class( $function[0] ) ) : ( \is_string( $function[0] ) ? self::describe_class_name( $function[0] ) : '{unknown}' );
+			$method = \is_string( $function[1] ) ? $function[1] : '{unknown}';
+			return "{$class}::{$method}";
+		}
+		if ( $function instanceof \Closure ) {
+			$ref  = new \ReflectionFunction( $function );
+			$file = $ref->getFileName();
+			$line = $ref->getStartLine();
+			return $file ? '{closure}:' . \basename( $file ) . ":{$line}" : '{closure}';
+		}
+		if ( \is_object( $function ) ) {
+			return self::describe_class_name( \get_class( $function ) ) . '::__invoke';
+		}
+		return '{unknown}';
+	}
+
+	/** Collapse anonymous class names because PHP includes source file metadata in them. */
+	private static function describe_class_name( string $class ): string {
+		return \str_contains( $class, 'class@anonymous' ) ? '{anonymous}' : $class;
 	}
 
 	/** Self-heal (admin_init): re-arm the supervisor cron if it should run but isn't scheduled. */
