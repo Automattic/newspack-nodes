@@ -203,6 +203,69 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	// ── num_partitions_for ─────────────────────────────────────────────────
+
+	public function test_num_partitions_for_reads_frontmatter_var(): void {
+		$stock = $this->make_temp_dir( 'tsl-stock-' );
+		\file_put_contents( "$stock/wide.tsl", "var num_partitions = 5\n" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+
+		try {
+			$this->assertSame( 5, Bootstrap::num_partitions_for( 'wide' ) );
+		} finally {
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
+	public function test_num_partitions_for_prefers_catalog_count(): void {
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ): array {
+				$topologies['grp'] = [ 'topology' => 'grp', 'num_partitions' => 6, 'stale_timeout' => 60 ];
+				return $topologies;
+			}
+		);
+		$this->assertSame( 6, Bootstrap::num_partitions_for( 'grp' ) );
+	}
+
+	public function test_num_partitions_for_clamps_to_supervisor_range(): void {
+		// The menu count must match what the supervisor would SPAWN — and
+		// expand_workers clamps to [1, MAX_PARTITIONS]. An out-of-range count
+		// (frontmatter typo / bad catalog entry) must clamp the same way, else
+		// the Path menu lists workers the supervisor never starts.
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ): array {
+				$topologies['huge'] = [ 'topology' => 'huge', 'num_partitions' => 99, 'stale_timeout' => 60 ];
+				return $topologies;
+			}
+		);
+		$this->assertSame(
+			\Newspack_Nodes\Supervisor_Base::MAX_PARTITIONS,
+			Bootstrap::num_partitions_for( 'huge' )
+		);
+	}
+
+	public function test_num_partitions_for_falls_back_to_config_default(): void {
+		$stock = $this->make_temp_dir( 'tsl-stock-' );
+		\file_put_contents( "$stock/quiet.tsl", "# no var lines here\n" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_num_partitions'] = 7;
+		\Newspack_Nodes\Config::reset();
+
+		try {
+			$this->assertSame( 7, Bootstrap::num_partitions_for( 'quiet' ) );
+		} finally {
+			unset( $GLOBALS['_wp_options']['newspack_nodes_num_partitions'] );
+			\Newspack_Nodes\Config::reset();
+			\Newspack_Nodes\Topology_Registry::reset();
+			$this->rmdir_recursive( $stock );
+		}
+	}
+
 	public function test_get_topologies_drops_operator_names_that_have_no_tsl_file(): void {
 		// Operator option points at a topology with no TSL file (typo or
 		// stale selection after the app removed the file). Must not blow

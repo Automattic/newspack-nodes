@@ -112,6 +112,43 @@ class Bootstrap {
 	}
 
 	/**
+	 * Canonical partition count for a topology: the catalog entry's count, else
+	 * the TSL frontmatter (`var num_partitions`), else the config default —
+	 * clamped to [1, MAX_PARTITIONS] exactly like expand_workers, so the count
+	 * the Path menu shows can never disagree with what the supervisor SPAWNS.
+	 * This is the SINGLE derivation the admin localizer and the `topologies.list`
+	 * verb both call.
+	 *
+	 * @param string $name Topology name.
+	 * @return int Partition count in [1, MAX_PARTITIONS].
+	 */
+	public static function num_partitions_for( string $name ): int {
+		$np_raw     = Config::load_config()['num_partitions'] ?? 1;
+		$default_np = \is_numeric( $np_raw ) ? (int) $np_raw : 1;
+		$count      = $default_np;
+
+		$catalog_entry = self::get_topology_catalog()[ $name ] ?? null;
+		if (
+			\is_array( $catalog_entry ) &&
+			isset( $catalog_entry['num_partitions'] ) &&
+			\is_scalar( $catalog_entry['num_partitions'] )
+		) {
+			$count = (int) $catalog_entry['num_partitions'];
+		} else {
+			$synth = Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
+			if (
+				null !== $synth &&
+				isset( $synth['num_partitions'] ) &&
+				\is_scalar( $synth['num_partitions'] )
+			) {
+				$count = (int) $synth['num_partitions'];
+			}
+		}
+
+		return \min( Supervisor_Base::MAX_PARTITIONS, \max( 1, $count ) );
+	}
+
+	/**
 	 * Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS).
 	 *
 	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}>

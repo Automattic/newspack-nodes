@@ -401,6 +401,15 @@ if ( ! function_exists( 'esc_html' ) ) {
 	}
 }
 
+// i18n passthrough — defined before the plugin require so config/schema labels
+// built at load time resolve (matches production, where `__` is always present
+// when a plugin file runs). AdminTest's own guarded stub becomes a no-op.
+if ( ! function_exists( '__' ) ) {
+	function __( string $text, string $domain = 'default' ): string {
+		return $text;
+	}
+}
+
 if ( ! function_exists( 'wp_unslash' ) ) {
 	function wp_unslash( mixed $value ): mixed {
 		if ( \is_string( $value ) ) {

@@ -187,6 +187,11 @@ globalThis.__hooks = {
 	// producing the act()-warning swarm.
 	fetchLayout: jest.fn( () => new Promise( () => {} ) ),
 	saveLayout: jest.fn().mockResolvedValue( null ),
+	// Live topology catalog: `catalog` null → mirror the real hook's seed from
+	// window.NewspackNodesData (so the existing pathOptions tests keep driving via
+	// the global); set it to override. reloadCatalog asserts the save/delete refresh.
+	reloadCatalog: jest.fn(),
+	catalog: null,
 };
 const hooks = globalThis.__hooks;
 jest.mock( '../hooks/useTopologyList', () => ( {
@@ -198,6 +203,19 @@ jest.mock( '../hooks/useTopologyList', () => ( {
 		reload: () => {},
 	} ),
 	useTopology: () => globalThis.__hooks.fetchTopology,
+} ) );
+jest.mock( '../hooks/useTopologyCatalog', () => ( {
+	useTopologyCatalog: () => {
+		const override = globalThis.__hooks.catalog;
+		const data = globalThis.NewspackNodesData || {};
+		return {
+			partitions: override
+				? override.partitions
+				: data.topologyPartitions || {},
+			active: override ? override.active : data.activeTopologies || [],
+			reload: globalThis.__hooks.reloadCatalog,
+		};
+	},
 } ) );
 // Mutable catalog the hoisted mock reads at call time; tests seed
 // classes (with is_interpreter) before rendering to exercise verb routing.
@@ -615,6 +633,8 @@ describe( 'TopologyConsole boot', () => {
 		hooks.saveLayout.mockReset();
 		hooks.saveLayout.mockResolvedValue( null );
 		hooks.topologies = [];
+		hooks.reloadCatalog.mockReset();
+		hooks.catalog = null;
 		globalThis.__catalog = { classes: [], formatters: [] };
 	} );
 
@@ -1372,6 +1392,67 @@ describe( 'TopologyConsole boot', () => {
 			);
 		} finally {
 			window.NewspackNodesData = prev;
+		}
+	} );
+
+	it( 'pathOptions derives from the live catalog hook, not the static global', () => {
+		// The page-load global still says only `demo`, but the live catalog has
+		// since gained an active `extra` topology. The menu must reflect the live
+		// catalog (the bug: it stayed frozen on the global until a page reload).
+		hooks.catalog = {
+			partitions: { demo: 1, extra: 2 },
+			active: [ 'demo', 'extra' ],
+		};
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		render( <TopologyConsole /> );
+		expect( lastHeaderProps.pathOptions ).toEqual( [
+			'',
+			'_http',
+			'_sse/demo.p0',
+			'_sse/extra.p0',
+			'_sse/extra.p1',
+		] );
+	} );
+
+	it( 'saving a topology refreshes the live catalog', async () => {
+		hooks.fetchTopology.mockResolvedValueOnce( { tsl: '', name: 'demo' } );
+		hooks.saveTopology.mockResolvedValueOnce( {
+			name: 'demo',
+			restarted_fleets: [],
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'save' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'prompt-ok' ) );
+		} );
+		expect( hooks.reloadCatalog ).toHaveBeenCalled();
+	} );
+
+	it( 'deleting a topology refreshes the live catalog', async () => {
+		hooks.topologies = [ { name: 'demo', source: 'user' } ];
+		hooks.fetchTopology.mockResolvedValueOnce( { tsl: '', name: 'demo' } );
+		hooks.deleteTopology.mockResolvedValueOnce( { stock_fallback: false } );
+		try {
+			window.history.replaceState( {}, '', '/?topology=demo' );
+			const { getByText } = render( <TopologyConsole /> );
+			await act( async () => {
+				fireEvent.click( getByText( 'edit' ) );
+			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'delete' ) );
+			} );
+			await act( async () => {
+				fireEvent.click( getByText( 'confirm' ) );
+			} );
+			expect( hooks.reloadCatalog ).toHaveBeenCalled();
+		} finally {
+			hooks.topologies = [];
 		}
 	} );
 

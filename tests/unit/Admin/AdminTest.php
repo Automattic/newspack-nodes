@@ -1236,6 +1236,35 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'No topologies registered', $out );
 	}
 
+	public function test_topologies_callback_advertises_the_config_default_set_per_box(): void {
+		// Each checkbox carries data-nn-reset-default ('1' for the shipped default
+		// set, '0' otherwise) so a ↺ reset restores that set rather than clearing
+		// every box. The config-file default subset here is [ digest, request-workers ].
+		[ , $subset ] = $this->seed_topology_fixture();
+		\update_option( 'newspack_nodes_topologies', [ 'aggregator' ] ); // operator override ≠ defaults
+
+		$admin = new Admin();
+		\ob_start();
+		$admin->topologies_callback();
+		$out = \ob_get_clean();
+
+		foreach ( $subset as $name ) {
+			$this->assertMatchesRegularExpression(
+				'/value="' . \preg_quote( $name, '/' ) . '"[^>]*data-nn-reset-default="1"/',
+				$out,
+				"$name is in the config default set → data-nn-reset-default=1"
+			);
+		}
+		// A catalog entry NOT in the config default set advertises 0.
+		$this->assertMatchesRegularExpression(
+			'/value="aggregator"[^>]*data-nn-reset-default="0"/',
+			$out
+		);
+
+		\delete_option( 'newspack_nodes_topologies' );
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
 	// ---- __construct ------------------------------------------------------
 
 	public function test_constructor_registers_all_admin_hooks(): void {

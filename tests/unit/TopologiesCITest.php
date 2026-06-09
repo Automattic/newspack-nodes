@@ -216,6 +216,40 @@ class TopologiesCITest extends TestCase {
 		$this->assertSame( '120', $entry['frontmatter']['stale_timeout'] );
 	}
 
+	public function test_list_includes_num_partitions_derived_from_frontmatter(): void {
+		\file_put_contents(
+			"{$this->stock}/with-vars.tsl",
+			"var num_partitions = 4\nmake_node Echo e\n"
+		);
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
+		$entry  = $result['topologies'][0];
+
+		// The Path menu needs a numeric partition count; the raw frontmatter
+		// value is a string, so the entry carries a derived int alongside it.
+		$this->assertSame( 4, $entry['num_partitions'] );
+	}
+
+	public function test_list_num_partitions_prefers_catalog_count(): void {
+		\file_put_contents( "{$this->stock}/cat.tsl", '' );
+		\add_filter(
+			'newspack_nodes/topologies',
+			static function ( array $topologies ): array {
+				$topologies['cat'] = [
+					'topology'       => 'cat',
+					'num_partitions' => 3,
+					'stale_timeout'  => 60,
+				];
+				return $topologies;
+			}
+		);
+
+		$result  = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'list' );
+		$by_name = \array_column( $result['topologies'], null, 'name' );
+
+		$this->assertSame( 3, $by_name['cat']['num_partitions'] );
+	}
+
 	// ── get verb ─────────────────────────────────────────────────────────────
 
 	public function test_get_returns_tsl_body_with_source_stock(): void {

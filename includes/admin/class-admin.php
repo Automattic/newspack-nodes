@@ -15,7 +15,9 @@ use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Config_System\Field_Reset_Assets;
 use Newspack_Nodes\Config_System\Reset_Gate;
+use Newspack_Nodes\Config_System\Settings_Renderer;
 use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\Settings_Schema;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -42,44 +44,6 @@ class Admin {
 
 	/** Hidden-input array name carrying per-field reset marks ({option} => "1"). */
 	public const RESET_MARK_FIELD = 'newspack_nodes_reset';
-
-	/**
-	 * Every substrate setting EXPOSED in the settings UI. handle_reset_settings()
-	 * deletes all of these so a reset reverts each to its file default, and
-	 * Reset_Gate registers a per-field gate for each. Includes the selection key
-	 * `topologies` (excluded from delete-on-blank, but reset via its toggle).
-	 * Excludes `allowed_users` — a config-file/programmatic option with no
-	 * settings field, so there's nothing to reset here. Extend via the
-	 * reset_options filter.
-	 *
-	 * @var array<int, string>
-	 */
-	private static array $option_names = [
-		'newspack_nodes_base_directory',
-		'newspack_nodes_num_partitions',
-		'newspack_nodes_num_segments',
-		'newspack_nodes_segment_size',
-		'newspack_nodes_max_lifespan',
-		'newspack_nodes_memcache_servers',
-		'newspack_nodes_topologies',
-	];
-
-	/**
-	 * Text-like subset whose BLANK save deletes the row (so the file default
-	 * resurfaces). Strict subset of $option_names — the selection key
-	 * `topologies` is excluded because an empty selection there is a deliberate
-	 * override, not a reset (it still resets via its ↺ toggle).
-	 *
-	 * @var array<int, string>
-	 */
-	private static array $delete_on_blank_options = [
-		'newspack_nodes_base_directory',
-		'newspack_nodes_num_partitions',
-		'newspack_nodes_num_segments',
-		'newspack_nodes_segment_size',
-		'newspack_nodes_max_lifespan',
-		'newspack_nodes_memcache_servers',
-	];
 
 	/**
 	 * Permission gate: `manage_options` baseline + optional `allowed_users`
@@ -264,30 +228,26 @@ class Admin {
 			\wp_enqueue_style( $handle, $css_url, [ 'wp-components' ], $css_version );
 		}
 
-		// Per-topology partition counts for the React dropdown: catalog count, else synthesized frontmatter.
+		// Per-topology partition counts for the React dropdown — the SAME canonical
+		// derivation the `topologies.list` verb uses, so the page-load snapshot and
+		// the live refetch can't disagree (Bootstrap::num_partitions_for).
 		$topology_partitions = [];
-		$catalog             = Bootstrap::get_topology_catalog();
-		$config_np           = Config::load_config()['num_partitions'] ?? 1;
-		$default_np          = (int) ( \is_scalar( $config_np ) ? $config_np : 1 );
 		foreach ( \Newspack_Nodes\Topology_Registry::list() as $name ) {
 			if ( '' === $name ) {
 				continue;
 			}
-			$catalog_entry = $catalog[ $name ] ?? null;
-			if ( \is_array( $catalog_entry ) && isset( $catalog_entry['num_partitions'] ) && \is_scalar( $catalog_entry['num_partitions'] ) ) {
-				$topology_partitions[ $name ] = (int) $catalog_entry['num_partitions'];
-				continue;
-			}
-			$synth = \Newspack_Nodes\Topology_Registry::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
-			if ( null !== $synth && isset( $synth['num_partitions'] ) && \is_scalar( $synth['num_partitions'] ) ) {
-				$topology_partitions[ $name ] = (int) $synth['num_partitions'];
-			}
+			$topology_partitions[ $name ] = Bootstrap::num_partitions_for( $name );
 		}
 		\ksort( $topology_partitions );
 
 		// Active topologies (catalog + operator overlay) the supervisor would spawn.
 		$active_topologies = \array_keys( Bootstrap::get_topologies() );
 		\sort( $active_topologies );
+
+		// Config default partition count — the client's fallback for a topology
+		// whose live `topologies.list` entry omits num_partitions.
+		$config_np  = Config::load_config()['num_partitions'] ?? 1;
+		$default_np = (int) ( \is_scalar( $config_np ) ? $config_np : 1 );
 
 		// REST root + nonce for apiFetch.
 		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
@@ -368,153 +328,46 @@ class Admin {
 	}
 
 	/**
-	 * Register every substrate option + the Storage and Topologies sections.
+	 * Register every substrate option + the Storage and Topologies sections,
+	 * all derived from the single Settings_Schema declaration.
 	 */
 	public function register_settings(): void {
-		// Path: no null bytes, no `..`, must be absolute, trailing slash stripped.
-		\register_setting(
-			self::OPTIONS_GROUP,
-			'newspack_nodes_base_directory',
-			[
-				'sanitize_callback' => function ( $value ) {
-					if ( ! \is_string( $value ) ) {
-						return '';
-					}
-					$value = \sanitize_text_field( $value );
-					if ( \str_contains( $value, "\0" ) || \str_contains( $value, '..' ) ) {
-						return '';
-					}
-					if ( '' === $value || '/' !== $value[0] ) {
-						return '';
-					}
-					return \rtrim( $value, '/' );
-				},
-			]
-		);
-
-		// Integers — empty string = "use default".
-		\register_setting(
-			self::OPTIONS_GROUP,
-			'newspack_nodes_num_partitions',
-			[ 'sanitize_callback' => [ $this, 'sanitize_int_or_empty' ] ]
-		);
-		\register_setting(
-			self::OPTIONS_GROUP,
-			'newspack_nodes_num_segments',
-			[ 'sanitize_callback' => [ $this, 'sanitize_int_or_empty' ] ]
-		);
-		\register_setting(
-			self::OPTIONS_GROUP,
-			'newspack_nodes_segment_size',
-			[ 'sanitize_callback' => [ $this, 'sanitize_int_or_empty' ] ]
-		);
-		\register_setting(
-			self::OPTIONS_GROUP,
-			'newspack_nodes_max_lifespan',
-			[ 'sanitize_callback' => [ $this, 'sanitize_int_or_empty' ] ]
-		);
-
-		// Newline-separated host:port list. Not autoloaded (read by workers).
-		\register_setting(
-			self::OPTIONS_GROUP,
-			'newspack_nodes_memcache_servers',
-			[
-				'type'              => 'array',
-				'default'           => [],
-				'sanitize_callback' => [ $this, 'sanitize_memcache_servers' ],
-				'autoload'          => false,
-			]
-		);
-
-		// Flat list of active TSL topology names; sanitizer drops names that don't resolve.
-		\register_setting(
-			self::OPTIONS_GROUP,
-			'newspack_nodes_topologies',
-			[
-				'sanitize_callback' => [ $this, 'sanitize_topologies' ],
-				'autoload'          => true,
-			]
-		);
+		$schema = Settings_Schema::get();
+		$schema->register_options( self::OPTIONS_GROUP );
 
 		// Shared per-field reset / delete-on-blank gate (Config_System\Reset_Gate):
 		// a reset toggle (any field) OR a blanked text-like field deletes the row
 		// so the file default resurfaces.
-		Reset_Gate::register( self::RESET_MARK_FIELD, self::$option_names, self::$delete_on_blank_options );
-
-		// Storage section.
-		\add_settings_section(
-			'newspack_nodes_storage_section',
-			\__( 'Storage Settings', 'newspack-nodes' ),
-			[ $this, 'storage_section_callback' ],
-			self::SETTINGS_PAGE
-		);
-		\add_settings_field(
-			'num_partitions',
-			\__( 'Num Partitions', 'newspack-nodes' ),
-			[ $this, 'num_partitions_callback' ],
-			self::SETTINGS_PAGE,
-			'newspack_nodes_storage_section'
-		);
-		\add_settings_field(
-			'num_segments',
-			\__( 'Num Segments', 'newspack-nodes' ),
-			[ $this, 'num_segments_callback' ],
-			self::SETTINGS_PAGE,
-			'newspack_nodes_storage_section'
-		);
-		\add_settings_field(
-			'segment_size',
-			\__( 'Segment Size', 'newspack-nodes' ),
-			[ $this, 'segment_size_callback' ],
-			self::SETTINGS_PAGE,
-			'newspack_nodes_storage_section'
-		);
-		\add_settings_field(
-			'max_lifespan',
-			\__( 'Minimum Retention', 'newspack-nodes' ),
-			[ $this, 'max_lifespan_callback' ],
-			self::SETTINGS_PAGE,
-			'newspack_nodes_storage_section'
-		);
-		\add_settings_field(
-			'total_storage',
-			\__( 'Total Log Storage', 'newspack-nodes' ),
-			[ $this, 'total_storage_callback' ],
-			self::SETTINGS_PAGE,
-			'newspack_nodes_storage_section'
-		);
-		\add_settings_field(
-			'base_directory',
-			\__( 'Base Directory', 'newspack-nodes' ),
-			[ $this, 'base_directory_callback' ],
-			self::SETTINGS_PAGE,
-			'newspack_nodes_storage_section'
-		);
-		\add_settings_field(
-			'memcache_servers',
-			\__( 'Memcache Servers', 'newspack-nodes' ),
-			[ $this, 'memcache_servers_callback' ],
-			self::SETTINGS_PAGE,
-			'newspack_nodes_storage_section'
+		Reset_Gate::register(
+			self::RESET_MARK_FIELD,
+			$schema->setting_option_names(),
+			$schema->delete_on_blank_options()
 		);
 
-		// Topologies section — checkbox list; toggling changes the `topologies` option.
-		\add_settings_section(
-			'newspack_nodes_topologies_section',
-			\__( 'Topologies', 'newspack-nodes' ),
-			[ $this, 'topologies_section_callback' ],
-			self::SETTINGS_PAGE
-		);
-		\add_settings_field(
-			'topologies',
-			\__( 'Active Topologies', 'newspack-nodes' ),
-			[ $this, 'topologies_callback' ],
-			self::SETTINGS_PAGE,
-			'newspack_nodes_topologies_section'
-		);
+		$schema->register_sections_and_fields( self::SETTINGS_PAGE );
 	}
 
 	// -- Sanitizers ---------------------------------------------------------
+
+	/**
+	 * Sanitize a base-directory path: no null bytes, no `..`, must be absolute,
+	 * trailing slash stripped; '' on any violation.
+	 *
+	 * @param mixed $value Input value.
+	 */
+	public static function sanitize_base_directory( $value ): string {
+		if ( ! \is_string( $value ) ) {
+			return '';
+		}
+		$value = \sanitize_text_field( $value );
+		if ( \str_contains( $value, "\0" ) || \str_contains( $value, '..' ) ) {
+			return '';
+		}
+		if ( '' === $value || '/' !== $value[0] ) {
+			return '';
+		}
+		return \rtrim( $value, '/' );
+	}
 
 	/**
 	 * Sanitize integer option, preserving empty string for "use default".
@@ -522,7 +375,7 @@ class Admin {
 	 * @param mixed $input Input value.
 	 * @return string|int Empty string or sanitized integer.
 	 */
-	public function sanitize_int_or_empty( $input ) {
+	public static function sanitize_int_or_empty( $input ) {
 		if ( '' === $input || null === $input ) {
 			return '';
 		}
@@ -541,7 +394,7 @@ class Admin {
 	 * @param mixed $value Newline-separated server list.
 	 * @return array<int,string> Validated `host:port` entries, or empty array if all invalid.
 	 */
-	public function sanitize_memcache_servers( $value ): array {
+	public static function sanitize_memcache_servers( $value ): array {
 		if ( ! \is_scalar( $value ) ) {
 			return [];
 		}
@@ -565,7 +418,7 @@ class Admin {
 	 * @param mixed $value Posted form value (array of topology names).
 	 * @return array<int,string>
 	 */
-	public function sanitize_topologies( $value ): array {
+	public static function sanitize_topologies( $value ): array {
 		if ( ! \is_array( $value ) ) {
 			return [];
 		}
@@ -581,58 +434,48 @@ class Admin {
 		return \array_values( \array_unique( $out ) );
 	}
 
-// -- Section callbacks --------------------------------------------------
+	// -- Section callbacks --------------------------------------------------
 
-	public function storage_section_callback(): void {
+	public static function storage_section_callback(): void {
 		echo '<p>' . \esc_html__( 'Configure log storage and memcache infrastructure. Changing storage layout (base directory, segment size, retention) restarts every worker.', 'newspack-nodes' ) . '</p>';
 	}
 
-	public function topologies_section_callback(): void {
+	public static function topologies_section_callback(): void {
 		echo '<p>' . \esc_html__( 'Pick which TSL topologies the supervisor spawns workers for. Each entry runs as its own worker fleet, named after the topology.', 'newspack-nodes' ) . '</p>';
 	}
 
 	/**
-	 * Render a checkbox per known topology, from Topology_Registry::list().
+	 * Render a checkbox per known topology (from Topology_Registry::list()), each
+	 * advertising whether it is in the config-file default set so ↺ restores that
+	 * set rather than clearing every box.
 	 */
-	public function topologies_callback(): void {
+	public static function topologies_callback(): void {
 		$available = \Newspack_Nodes\Topology_Registry::list();
 		\sort( $available );
+		if ( empty( $available ) ) {
+			echo '<p class="description">' . \esc_html__( 'No topologies registered. Application plugins must call Newspack_Nodes\\Topology_Registry::register_stock_dir() at load time.', 'newspack-nodes' ) . '</p>';
+			return;
+		}
 		// "Defaults" = the config-file `topologies` value (newspack-nodes-config.php,
 		// or a LOCAL_NEWSPACK_NODES_CONF override) — NOT the full catalog of every
-		// registered .tsl. A deployment (docker-admin, docker-render, …) declares the
-		// curated set it wants active; the ↺ button and the unset-option render must
-		// honour that, not check everything.
-		$defaults = (array) ( Config::load_config_defaults()['topologies'] ?? [] );
-		\sort( $defaults );
+		// registered .tsl. A deployment declares the curated set it wants active; ↺
+		// and the unset-option render must honour that, not check everything.
+		$defaults = \array_values( \array_filter( (array) ( Config::load_config_defaults()['topologies'] ?? [] ), '\is_string' ) );
 		// Operator overlay precedence (mirrors Config::load_config): option false/unset
 		// → config-file default; [] → none; array → exact.
 		$option = \get_option( 'newspack_nodes_topologies', false );
 		$active = false === $option
 			? $defaults
-			: ( \is_array( $option ) ? $option : [] );
-		if ( empty( $available ) ) {
-			echo '<p class="description">' . \esc_html__( 'No topologies registered. Application plugins must call Newspack_Nodes\\Topology_Registry::register_stock_dir() at load time.', 'newspack-nodes' ) . '</p>';
-			return;
-		}
-		// Fieldset on the left, `↺` reset toggle on the right. Resetting deletes
-		// the option so the config-file default set takes over (same per-field
-		// reset mechanism as every other field; no bespoke load-defaults script).
-		echo '<div style="display: flex; align-items: flex-start; gap: 10px;" data-nn-reset="' . \esc_attr( $this->reset_mark_name( 'topologies' ) ) . '">';
-		echo '<div style="flex: 1;">';
-		echo '<fieldset id="newspack-nodes-topologies-fieldset">';
-		foreach ( $available as $name ) {
-			$checked = \in_array( $name, $active, true ) ? ' checked' : '';
-			echo '<label style="display:block; margin-bottom: 4px;">';
-			echo '<input type="checkbox" name="newspack_nodes_topologies[]" value="' . \esc_attr( $name ) . '"' . \esc_attr( $checked ) . ' /> ';
-			echo '<code>' . \esc_html( $name ) . '</code>';
-			echo '</label>';
-		}
-		echo '</fieldset>';
-		echo '<p class="description">' . \esc_html__( 'Each checked topology becomes one worker fleet. The supervisor picks up changes on its next loop (~1 minute). Click ↺ to reset to the application-shipped defaults, then Save Settings to commit.', 'newspack-nodes' ) . '</p>';
-		echo '</div>';
-		echo '<button type="button" class="button button-secondary" data-nn-reset-toggle'
-			. ' title="' . \esc_attr__( 'Reset to default (toggle, then Save)', 'newspack-nodes' ) . '">↺</button>';
-		echo '</div>';
+			: ( \is_array( $option ) ? \array_values( \array_filter( $option, '\is_string' ) ) : [] );
+		$html   = Settings_Renderer::checkbox_list(
+			'newspack_nodes_topologies[]',
+			$available,
+			$active,
+			$defaults,
+			\__( 'Each checked topology becomes one worker fleet. The supervisor picks up changes on its next loop (~1 minute). Click ↺ to reset to the application-shipped defaults, then Save Settings to commit.', 'newspack-nodes' ),
+			self::reset_mark_name( 'topologies' )
+		);
+		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.
 	}
 
 	// -- Field callbacks ----------------------------------------------------
@@ -649,65 +492,59 @@ class Admin {
 		return \is_scalar( $value ) ? (int) $value : $fallback;
 	}
 
-	public function base_directory_callback(): void {
+	public static function base_directory_callback(): void {
 		$defaults = Config::load_config_defaults();
 		$base     = $defaults['base_directory'] ?? '';
-		$this->render_directory_field(
+		$value    = \get_option( 'newspack_nodes_base_directory', '' );
+		$html     = Settings_Renderer::directory(
 			'base_directory',
+			'newspack_nodes_base_directory',
+			\is_scalar( $value ) ? (string) $value : '',
 			\is_scalar( $base ) ? (string) $base : '',
-			\__( 'Base directory for logs, locks, and offsets.', 'newspack-nodes' )
+			\__( 'Base directory for logs, locks, and offsets.', 'newspack-nodes' ),
+			self::reset_mark_name( 'base_directory' )
 		);
+		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.
 	}
 
-	public function num_partitions_callback(): void {
-		$defaults = Config::load_config_defaults();
-		$this->render_number_field(
-			'num_partitions',
-			self::default_int( $defaults, 'num_partitions', 1 ),
-			1,
-			16,
-			\__( 'Number of log partitions for parallel processing.', 'newspack-nodes' )
-		);
+	public static function num_partitions_callback(): void {
+		self::render_number( 'num_partitions', 1, 1, 16, \__( 'Number of log partitions for parallel processing.', 'newspack-nodes' ) );
 	}
 
-	public function num_segments_callback(): void {
-		$defaults = Config::load_config_defaults();
-		$this->render_number_field(
-			'num_segments',
-			self::default_int( $defaults, 'num_segments', 4 ),
-			2,
-			32,
-			\__( 'Number of segments to retain per partition.', 'newspack-nodes' )
-		);
+	public static function num_segments_callback(): void {
+		self::render_number( 'num_segments', 4, 2, 32, \__( 'Number of segments to retain per partition.', 'newspack-nodes' ) );
 	}
 
-	public function segment_size_callback(): void {
-		$defaults = Config::load_config_defaults();
-		$this->render_number_field(
-			'segment_size',
-			self::default_int( $defaults, 'segment_size', 64 * 1024 * 1024 ),
-			1048576,
-			536870912,
-			\__( 'Maximum segment size in bytes.', 'newspack-nodes' )
-		);
+	public static function segment_size_callback(): void {
+		self::render_number( 'segment_size', 64 * 1024 * 1024, 1048576, 536870912, \__( 'Maximum segment size in bytes.', 'newspack-nodes' ) );
 	}
 
-	public function max_lifespan_callback(): void {
-		$defaults = Config::load_config_defaults();
-		$this->render_number_field(
-			'max_lifespan',
-			self::default_int( $defaults, 'max_lifespan', 86400 ),
-			0,
-			604800,
-			\__( 'Minimum retention in seconds. 0 = disabled (pure count-based).', 'newspack-nodes' )
+	public static function max_lifespan_callback(): void {
+		self::render_number( 'max_lifespan', 86400, 0, 604800, \__( 'Minimum retention in seconds. 0 = disabled (pure count-based).', 'newspack-nodes' ) );
+	}
+
+	/** Echo a number field: default from the config file, value from the stored option. */
+	private static function render_number( string $field, int $fallback, int $min, int $max, string $description ): void {
+		$default = self::default_int( Config::load_config_defaults(), $field, $fallback );
+		$value   = \get_option( self::OPTION_PREFIX . $field, '' );
+		$html    = Settings_Renderer::number(
+			$field,
+			self::OPTION_PREFIX . $field,
+			\is_scalar( $value ) ? (string) $value : '',
+			$default,
+			$min,
+			$max,
+			$description,
+			self::reset_mark_name( $field )
 		);
+		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.
 	}
 
 	/**
-	 * Memcache servers field callback. Newline-separated `host:port` textarea
-	 * with placeholder showing the configured defaults.
+	 * Memcache servers field: newline-separated `host:port` textarea, default in
+	 * the placeholder (and listed in the description).
 	 */
-	public function memcache_servers_callback(): void {
+	public static function memcache_servers_callback(): void {
 		$defaults        = Config::load_config_defaults();
 		$default_servers = $defaults['memcache_servers'] ?? [ '127.0.0.1:11211' ];
 		if ( ! \is_array( $default_servers ) ) {
@@ -715,31 +552,29 @@ class Admin {
 		}
 		// Coerce each entry to string exactly as implode/esc_* already would.
 		$default_servers = \array_map( static fn ( $server ): string => \is_scalar( $server ) ? (string) $server : '', $default_servers );
-		$default_text    = \implode( "\n", $default_servers );
-		// Stored as the typed array shape; coerce each entry to string exactly as $default_servers does.
-		$value         = \get_option( 'newspack_nodes_memcache_servers', [] );
-		$value         = \is_array( $value ) ? $value : [];
-		$value         = \array_map( static fn ( $server ): string => \is_scalar( $server ) ? (string) $server : '', $value );
-		$value         = \implode( "\n", $value );
-		?>
-		<div style="display: flex; align-items: flex-start; gap: 10px;" data-nn-reset="<?php echo \esc_attr( $this->reset_mark_name( 'memcache_servers' ) ); ?>">
-			<div style="flex: 1;">
-				<textarea id="memcache_servers" name="newspack_nodes_memcache_servers" rows="3" class="regular-text code" placeholder="<?php echo \esc_attr( $default_text ); ?>"><?php echo \esc_textarea( $value ); ?></textarea>
-				<p class="description">
-					<?php \esc_html_e( 'Memcache servers (one per line, format: host:port). Used for stats aggregation and SSE.', 'newspack-nodes' ); ?>
-					<br><?php \esc_html_e( 'Default:', 'newspack-nodes' ); ?> <?php echo \esc_html( \implode( ', ', $default_servers ) ); ?>
-				</p>
-			</div>
-			<button type="button" class="button button-secondary" data-nn-reset-toggle
-				title="<?php \esc_attr_e( 'Reset to default (toggle, then Save)', 'newspack-nodes' ); ?>">↺</button>
-		</div>
-		<?php
+		// Stored as the typed array shape; the textarea joins entries with newlines.
+		$value = \get_option( 'newspack_nodes_memcache_servers', [] );
+		$value = \is_array( $value ) ? $value : [];
+		$value = \array_map( static fn ( $server ): string => \is_scalar( $server ) ? (string) $server : '', $value );
+		$html  = Settings_Renderer::textarea(
+			'memcache_servers',
+			'newspack_nodes_memcache_servers',
+			\implode( "\n", $value ),
+			\implode( "\n", $default_servers ),
+			\sprintf(
+				/* translators: %s: comma-separated default server list. */
+				\__( 'Memcache servers (one per line, format: host:port). Used for stats aggregation and SSE. Default: %s', 'newspack-nodes' ),
+				\implode( ', ', $default_servers )
+			),
+			self::reset_mark_name( 'memcache_servers' )
+		);
+		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.
 	}
 
 	/**
 	 * Total-storage field: segment_size × num_segments × num_partitions × num_logs.
 	 */
-	public function total_storage_callback(): void {
+	public static function total_storage_callback(): void {
 		$defaults       = Config::load_config_defaults();
 		$segment_size   = \get_option( 'newspack_nodes_segment_size', '' );
 		$num_segments   = \get_option( 'newspack_nodes_num_segments', '' );
@@ -794,7 +629,7 @@ class Admin {
 			\wp_die( \esc_html__( 'You do not have permission to perform this action.', 'newspack-nodes' ) );
 		}
 
-		$options = self::$option_names;
+		$options = Settings_Schema::get()->setting_option_names();
 		if ( \function_exists( 'apply_filters' ) ) {
 			$filtered = \apply_filters( 'newspack_nodes/reset_options', $options );
 			if ( \is_array( $filtered ) ) {
@@ -838,31 +673,14 @@ class Admin {
 
 		$short = \substr( $option, \strlen( self::OPTION_PREFIX ) );
 
-		// Supervisor-only (it refreshes config each loop) — no worker restart needed.
-		$supervisor_only_options = [
-			'num_partitions',
-		];
-		if ( \in_array( $short, $supervisor_only_options, true ) ) {
+		// Restart class comes from the schema: 'supervisor_only' restarts nothing
+		// (the supervisor refreshes config each loop), an array names the worker
+		// fleets to restart, [] means no-restart (e.g. topologies, supervisor-pull).
+		$restart = Settings_Schema::get()->restart_for( $short );
+		if ( 'supervisor_only' === $restart ) {
 			return;
 		}
-
-		$all_workers_options = [
-			'base_directory',
-			'num_segments',
-			'segment_size',
-			'max_lifespan',
-		];
-
-		$request_workers_options = [
-			'memcache_servers',
-		];
-
-		$worker_groups = [];
-		if ( \in_array( $short, $all_workers_options, true ) ) {
-			$worker_groups = [ 'request-workers', 'job-workers' ];
-		} elseif ( \in_array( $short, $request_workers_options, true ) ) {
-			$worker_groups = [ 'request-workers' ];
-		}
+		$worker_groups = \is_array( $restart ) ? $restart : [];
 
 		// Let extensions extend the restart groups for options they own.
 		if ( \function_exists( 'apply_filters' ) ) {
@@ -894,57 +712,9 @@ class Admin {
 		}
 	}
 
-	// -- Private renderers --------------------------------------------------
-
-	private function render_directory_field( string $field, string $default, string $description ): void {
-		$value = \get_option( self::OPTION_PREFIX . $field, '' );
-		$value = \is_scalar( $value ) ? (string) $value : '';
-		?>
-		<div style="display: flex; align-items: flex-start; gap: 10px;" data-nn-reset="<?php echo \esc_attr( $this->reset_mark_name( $field ) ); ?>">
-			<div style="flex: 1;">
-				<input type="text" id="<?php echo \esc_attr( $field ); ?>"
-					name="<?php echo \esc_attr( self::OPTION_PREFIX . $field ); ?>"
-					value="<?php echo \esc_attr( $value ); ?>"
-					class="regular-text code"
-					placeholder="<?php echo \esc_attr( $default ); ?>" />
-				<p class="description">
-					<?php echo \esc_html( $description ); ?>
-					(<?php \esc_html_e( 'default', 'newspack-nodes' ); ?>: <?php echo \esc_html( $default ); ?>)
-				</p>
-			</div>
-			<button type="button" class="button button-secondary" data-nn-reset-toggle
-				title="<?php \esc_attr_e( 'Reset to default (toggle, then Save)', 'newspack-nodes' ); ?>">↺</button>
-		</div>
-		<?php
-	}
-
 	/** Hidden-input name that flags $field for per-field reset (deleted on Save). */
-	private function reset_mark_name( string $field ): string {
+	private static function reset_mark_name( string $field ): string {
 		return Reset_Gate::mark_name( self::RESET_MARK_FIELD, self::OPTION_PREFIX . $field );
-	}
-
-	private function render_number_field( string $field, int $default, int $min, int $max, string $description ): void {
-		$value = \get_option( self::OPTION_PREFIX . $field, '' );
-		$value = \is_scalar( $value ) ? (string) $value : '';
-		// Show empty (placeholder) when unset or equal to default.
-		$display_value = ( '' === $value || (int) $value === $default ) ? '' : $value;
-		$input_class   = $max > 999 ? 'regular-text' : 'small-text';
-		?>
-		<div style="display: flex; align-items: flex-start; gap: 10px;" data-nn-reset="<?php echo \esc_attr( $this->reset_mark_name( $field ) ); ?>">
-			<div style="flex: 1;">
-				<input type="number" id="<?php echo \esc_attr( $field ); ?>"
-					name="<?php echo \esc_attr( self::OPTION_PREFIX . $field ); ?>"
-					value="<?php echo \esc_attr( $display_value ); ?>"
-					min="<?php echo \esc_attr( (string) $min ); ?>"
-					max="<?php echo \esc_attr( (string) $max ); ?>"
-					class="<?php echo \esc_attr( $input_class ); ?>"
-					placeholder="<?php echo \esc_attr( (string) $default ); ?>" />
-				<p class="description"><?php echo \esc_html( $description ); ?></p>
-			</div>
-			<button type="button" class="button button-secondary" data-nn-reset-toggle
-				title="<?php \esc_attr_e( 'Reset to default (toggle, then Save)', 'newspack-nodes' ); ?>">↺</button>
-		</div>
-		<?php
 	}
 
 }
