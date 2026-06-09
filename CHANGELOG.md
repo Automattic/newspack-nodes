@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-06-09
+
 ### Changed
 
 - **Config/settings are now declared once in a shared Config System schema, eliminating five parallel hand-maintained lists.** New `Config_System\Field` (one declarative setting: key, type, label, section, sanitizer, renderer, blank-delete policy, worker-restart class) and `Config_System\Schema` (derives the overlay key-list, `option_names`, the delete-on-blank set, the reset list, the worker-restart classification, and the register/render loops from those Fields). The substrate declares its settings once in `Settings_Schema`; `Config` and `Admin` both derive from it — the old `Config::$option_schema`, `Admin::$option_names`, `Admin::$delete_on_blank_options`, the hand-listed `register_setting`/`add_settings_field` calls, and the inline restart-group arrays are gone. Field markup is centralized in `Config_System\Settings_Renderer` (the reset-wrapper + number/directory/textarea/checkbox controls), replacing the copy-pasted per-field HTML. This is the shared layer the sibling plugins (event-logger-nodes, pyrobase) will adopt next; behavior is unchanged.
