@@ -7,8 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Topology-console theme crossfade.** Switching skins now animates through the View Transitions API (`withViewTransition` + `flushSync` commits the new theme class before the transition snapshots), with a graceful fallback where the API is absent. Applies to both the console and the debug overlay (shared `usePanelChrome`).
+- **Bloom on the CRT Phosphor Terminal and Neo-Tokyo HUD skins.** Layered `drop-shadow` glow on bright glyphs, LEDs, counters/rates, and active edges — phosphor-soft on CRT, neon-tight on Neo-Tokyo — derived from each skin's theme vars via `color-mix` (no hardcoded halo colors).
+
 ### Changed
 
+- **Scoped `box-sizing: border-box` baseline** now covers `::before`/`::after` under `.topology-app`, and the event-dashboards bundle gains the same baseline scoped to its React mount roots (`#newspack-nodes-workers`, `#newspack-nodes-rawlogs`) — replacing two now-redundant per-element declarations.
 - **Node-minted messages now stamp `FROM` with the producing node's name** for audit/trace visibility. `Node::command()` (PHP and the JS `Node.command()` mirror) tags the command envelope with `$this->name`, and the `Consumer` offsetlog checkpoint record carries the Consumer's name in `FROM`. Pass-through forwarders are unchanged, and `Shell::send_command` still overwrites `FROM` with the session reply pivot — so this only fills in identity where a minted message previously went out anonymous. `FROM` is not part of the command HMAC (`Command_Auth::canonical()` covers TYPE/name/arguments/ts/nonce), so signing is unaffected.
 - **Retired `sync-shared.sh`.** `src/shared/` stays the canonical home for the shared React hooks/utils, but siblings no longer receive header-stamped copies — `newspack-event-logger-nodes` (which hard-depends on this plugin) now aliases the source directly at build + test time (`@newspack-nodes/shared`), the same pattern as `@newspack-nodes/runtime`. One source of truth, no copy step.
 - **Substrate config is now presence-based (`Config_System\Options_Overlay`).** A stored WP option — even `''`, `[]`, `false`, or `0` — overrides the file-config default; only a truly absent option falls back to the file. Fixes empty/blank options silently masking a non-empty file default (the bug where a blank-saved `memcache_servers` clobbered the configured pool). Resetting a setting deletes its option row (see the per-field reset toggle) rather than storing an empty value.
