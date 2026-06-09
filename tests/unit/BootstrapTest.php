@@ -20,6 +20,7 @@ class BootstrapTest extends TestCase {
 		$GLOBALS['_wp_test_unscheduled_events'] = [];
 		$GLOBALS['_test_outbound_posts']      = [];
 		$GLOBALS['_wp_test_next_scheduled']    = false;
+		unset( $GLOBALS['_wp_test_schedule_event_response'], $GLOBALS['_wp_test_current_filter'], $GLOBALS['wp_filter'] );
 		// Config is statically cached — clear so each test sees fresh option
 		// values. get_topologies() now reads Config::load_config()['num_partitions']
 		// to default synthesized entries, so stale cache here leaks
@@ -578,6 +579,175 @@ class BootstrapTest extends TestCase {
 		Bootstrap::activate();
 		$this->assertEmpty( $GLOBALS['_wp_test_scheduled_events'] );
 	}
+
+	// ── supervisor cron scheduling diagnostics ───────────────────────────
+
+	/** Capture Core::stderr output for the duration of a callable. */
+	private function capture_stderr( callable $fn ): string {
+		$lines = [];
+		Core::set_stderr_handler( function ( string $msg ) use ( &$lines ): void {
+			$lines[] = $msg;
+		} );
+		$fn();
+		return \implode( '', $lines );
+	}
+
+	public function test_activate_logs_code_and_message_on_schedule_error(): void {
+		$GLOBALS['_wp_test_schedule_event_response'] = new \WP_Error( 'invalid_schedule', 'Event schedule does not exist.' );
+
+		$log = $this->capture_stderr( static function (): void {
+			Bootstrap::activate();
+		} );
+
+		$this->assertStringContainsString( 'supervisor cron schedule failed', $log );
+		$this->assertStringContainsString( 'code=invalid_schedule', $log );
+		$this->assertStringContainsString( 'Event schedule does not exist.', $log );
+	}
+
+	public function test_plugin_registers_veto_detector_on_both_pre_schedule_filters(): void {
+		$registrations = $GLOBALS['_wp_initial_action_registrations'];
+
+		foreach ( [ 'pre_schedule_event', 'pre_reschedule_event' ] as $filter ) {
+			$this->assertContains(
+				[
+					'callback'      => [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_veto' ],
+					'priority'      => PHP_INT_MAX - 2,
+					'accepted_args' => 2,
+				],
+				$registrations[ $filter ] ?? [],
+				"missing detector on {$filter}"
+			);
+		}
+	}
+
+	public function test_veto_detector_passes_through_unrelated_hooks_without_logging(): void {
+		$event = (object) [ 'hook' => 'wp_update_plugins' ];
+
+		$log = '';
+		$pre = null;
+		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
+			$pre = Bootstrap::log_supervisor_schedule_veto( false, $event );
+		} );
+
+		$this->assertFalse( $pre );
+		$this->assertSame( '', $log );
+	}
+
+	public function test_veto_detector_passes_through_malformed_events_without_logging(): void {
+		$results = [];
+		$log     = $this->capture_stderr( static function () use ( &$results ): void {
+			$results[] = Bootstrap::log_supervisor_schedule_veto( false, null );
+			$results[] = Bootstrap::log_supervisor_schedule_veto( false, (object) [] );
+			$results[] = Bootstrap::log_supervisor_schedule_veto( false, 'not-an-object' );
+		} );
+
+		$this->assertSame( [ false, false, false ], $results );
+		$this->assertSame( '', $log );
+	}
+
+	public function test_veto_detector_ignores_null_and_truthy_pre(): void {
+		$event = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+
+		$results = [];
+		$log     = $this->capture_stderr( static function () use ( &$results, $event ): void {
+			$results[] = Bootstrap::log_supervisor_schedule_veto( null, $event );
+			$results[] = Bootstrap::log_supervisor_schedule_veto( true, $event );
+		} );
+
+		$this->assertSame( [ null, true ], $results );
+		$this->assertSame( '', $log );
+	}
+
+	public function test_veto_detector_logs_false_veto_with_current_filter_chain(): void {
+		global $wp_filter;
+
+		$GLOBALS['_wp_test_current_filter'] = 'pre_schedule_event';
+		$wp_filter                          = [
+			'pre_schedule_event' => (object) [
+				'callbacks' => [
+					10 => [
+						'newspack_nodes_test_veto_filter' => [
+							'function'      => 'newspack_nodes_test_veto_filter',
+							'accepted_args' => 3,
+						],
+					],
+				],
+			],
+		];
+		$event = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+
+		$pre = null;
+		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
+			$pre = Bootstrap::log_supervisor_schedule_veto( false, $event );
+		} );
+		unset( $GLOBALS['wp_filter'], $GLOBALS['_wp_test_current_filter'] );
+
+		$this->assertFalse( $pre );
+		$this->assertStringContainsString( 'supervisor cron vetoed', $log );
+		$this->assertStringContainsString( 'filter=pre_schedule_event', $log );
+		$this->assertStringContainsString( 'value=false', $log );
+		$this->assertStringContainsString( 'callbacks=[10 newspack_nodes_test_veto_filter]', $log );
+	}
+
+	public function test_veto_detector_logs_wp_error_code_and_message(): void {
+		$GLOBALS['_wp_test_current_filter'] = 'pre_reschedule_event';
+		$event                              = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+		$error                              = new \WP_Error( 'cron_storage_down', 'Could not persist the event.' );
+
+		$pre = null;
+		$log = $this->capture_stderr( static function () use ( &$pre, $event, $error ): void {
+			$pre = Bootstrap::log_supervisor_schedule_veto( $error, $event );
+		} );
+		unset( $GLOBALS['_wp_test_current_filter'] );
+
+		$this->assertSame( $error, $pre );
+		$this->assertStringContainsString( 'filter=pre_reschedule_event', $log );
+		$this->assertStringContainsString( 'value=cron_storage_down: Could not persist the event.', $log );
+	}
+
+	public function test_veto_detector_redacts_anonymous_callback_paths(): void {
+		global $wp_filter;
+
+		$callback = new class() {
+			public function __invoke(): void {}
+		};
+		$GLOBALS['_wp_test_current_filter'] = 'pre_schedule_event';
+		$wp_filter                          = [
+			'pre_schedule_event' => (object) [
+				'callbacks' => [
+					10 => [
+						'anon' => [
+							'function'      => $callback,
+							'accepted_args' => 1,
+						],
+					],
+				],
+			],
+		];
+		$event = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+
+		$log = $this->capture_stderr( static function () use ( $event ): void {
+			Bootstrap::log_supervisor_schedule_veto( false, $event );
+		} );
+		unset( $GLOBALS['wp_filter'], $GLOBALS['_wp_test_current_filter'] );
+
+		$this->assertStringContainsString( 'callbacks=[10 {anonymous}::__invoke]', $log );
+		$this->assertStringNotContainsString( __FILE__, $log );
+	}
+
+	public function test_veto_detector_rate_limits_repeat_logs_within_process(): void {
+		$GLOBALS['_wp_test_current_filter'] = 'pre_schedule_event';
+		$event                              = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+
+		$log = $this->capture_stderr( static function () use ( $event ): void {
+			Bootstrap::log_supervisor_schedule_veto( false, $event );
+			Bootstrap::log_supervisor_schedule_veto( false, $event );
+		} );
+		unset( $GLOBALS['_wp_test_current_filter'] );
+
+		$this->assertSame( 1, \substr_count( $log, 'supervisor cron vetoed' ) );
+	}
+
 
 	// ── self_heal_supervisor_cron ─────────────────────────────────────────
 

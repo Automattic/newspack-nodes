@@ -149,6 +149,11 @@ if ( \function_exists( 'add_action' ) ) {
 	\add_action( 'newspack_nodes/supervisor', [ '\\Newspack_Nodes\\Bootstrap', 'run_supervisor_tick' ] );
 	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\Worker_CLI_Command', 'restart_fleet_by_name' ] );
 	\add_action( 'newspack_nodes/request_graph_ready', 'newspack_nodes_mount_substrate_cis' );
+	// Veto-time supervisor-cron diagnostics: these filters run inside
+	// wp_schedule_event/wp_reschedule_event under ANY cron runner, unlike the
+	// cron_*_event_error actions only wp-cron.php fires.
+	\add_filter( 'pre_schedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_veto' ], PHP_INT_MAX - 2, 2 );
+	\add_filter( 'pre_reschedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_veto' ], PHP_INT_MAX - 2, 2 );
 	// Substrate-owned default spawn handler: spawns any worker in the active set
 	// (expand_workers), ungated by plugin ownership — topologies aren't owned.
 	\add_action( 'newspack_nodes/spawn_worker', [ '\\Newspack_Nodes\\Topology_Registry', 'spawn_worker' ], 10, 2 );
