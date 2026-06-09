@@ -24,9 +24,13 @@ const snapshot = ( control ) =>
 		? { checked: control.checked }
 		: { value: control.value };
 
+// Clearing a marked field shows what Save will produce: the file default.
+// Toggles read `data-nn-reset-default` ('1'/'0'); without it they fall back to
+// unchecked. Text-like controls blank out, surfacing their placeholder default.
 const clear = ( control ) => {
 	if ( isToggleState( control ) ) {
-		control.checked = false;
+		control.checked =
+			'1' === control.getAttribute( 'data-nn-reset-default' );
 	} else {
 		control.value = '';
 	}
