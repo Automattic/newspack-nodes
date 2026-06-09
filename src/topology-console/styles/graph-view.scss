@@ -109,7 +109,9 @@
 	// in SVG-space so it pans/zooms with the content. The .topology-app
 	// keeps its paper background but no overlay grid.
 
-	* {
+	*,
+	*::before,
+	*::after {
 		box-sizing: border-box;
 	}
 }
@@ -1149,7 +1151,6 @@
 	font-family: var(--font-mono);
 	font-size: 12px;
 	color: var(--ink);
-	box-sizing: border-box;
 }
 
 // Wrapper that overlays the X-clear button on the right edge of the
@@ -1633,8 +1634,26 @@
 		);
 	}
 
+	// Phosphor bloom — an over-driven beam bleeds each bright glyph's own
+	// light into the dark glass: a tight core plus a wide soft halo.
+	.topology-brand,
 	.topology-node__id {
-		filter: drop-shadow(0 0 4px rgba(125, 255, 160, 0.5));
+		filter: drop-shadow(0 0 2px var(--ink))
+			drop-shadow(0 0 8px color-mix(in srgb, var(--ink) 45%, transparent));
+	}
+
+	.topology-node__counter,
+	.topology-node__rate {
+		filter: drop-shadow(0 0 2px var(--oxide))
+			drop-shadow(0 0 7px color-mix(in srgb, var(--oxide) 40%, transparent));
+	}
+
+	.topology-node__led {
+		filter: drop-shadow(0 0 4px var(--sage));
+	}
+
+	.topology-edge--active {
+		filter: drop-shadow(0 0 4px var(--cyan));
 	}
 }
 
@@ -1951,6 +1970,24 @@
 	.topology-reticle {
 		border-color: var(--oxide);
 		opacity: 0.8;
+	}
+
+	// Neon bloom — backlit signage through the rain: a soft white halo on the
+	// HUD glyphs, a tight amber glow on the data, crimson on the live flow.
+	.topology-brand,
+	.topology-node__id {
+		filter: drop-shadow(0 0 3px color-mix(in srgb, var(--ink) 55%, transparent));
+	}
+
+	.topology-node__counter,
+	.topology-node__rate,
+	.topology-node__led {
+		filter: drop-shadow(0 0 2px var(--oxide))
+			drop-shadow(0 0 6px color-mix(in srgb, var(--oxide) 55%, transparent));
+	}
+
+	.topology-edge--active {
+		filter: drop-shadow(0 0 5px var(--cyan));
 	}
 }
 
@@ -2351,7 +2388,6 @@
 	font-family: var(--font-mono);
 	font-size: 13px;
 	color: var(--ink);
-	box-sizing: border-box;
 }
 
 .topology-app .topology-modal__input:focus {

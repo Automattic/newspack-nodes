@@ -55,6 +55,22 @@ describe( 'usePanelChrome', () => {
 				DEFAULT_THEME
 			);
 		} );
+
+		it( 'onThemeChange crossfades through a View Transition when supported', () => {
+			const startViewTransition = jest.fn( ( cb ) => {
+				cb();
+				return { finished: Promise.resolve() };
+			} );
+			document.startViewTransition = startViewTransition;
+			try {
+				const { result } = render();
+				act( () => result.current.onThemeChange( 'crt' ) );
+				expect( startViewTransition ).toHaveBeenCalledTimes( 1 );
+				expect( result.current.theme ).toBe( 'crt' );
+			} finally {
+				delete document.startViewTransition;
+			}
+		} );
 	} );
 
 	describe( 'palette-collapsed', () => {

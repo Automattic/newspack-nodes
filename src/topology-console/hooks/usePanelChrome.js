@@ -1,5 +1,11 @@
-import { useCallback, useEffect, useState } from '@wordpress/element';
+import {
+	flushSync,
+	useCallback,
+	useEffect,
+	useState,
+} from '@wordpress/element';
 import { DEFAULT_THEME, isValidTheme, THEME_STORAGE_KEY } from '../themes';
+import withViewTransition from '../withViewTransition';
 
 // Read the persisted skin; unknown/absent/disabled storage falls back to default.
 function readStoredTheme() {
@@ -42,7 +48,9 @@ export function usePanelChrome( { paletteKey, defaultCollapsed = true } ) {
 	const [ theme, setTheme ] = useState( readStoredTheme );
 	const onThemeChange = useCallback( ( slug ) => {
 		const next = isValidTheme( slug ) ? slug : DEFAULT_THEME;
-		setTheme( next );
+		// Crossfade the skin swap; flushSync commits the new theme class
+		// before the transition snapshots the "after" frame.
+		withViewTransition( () => flushSync( () => setTheme( next ) ) );
 		try {
 			window.localStorage.setItem( THEME_STORAGE_KEY, next );
 		} catch ( _err ) {
