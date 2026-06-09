@@ -89,6 +89,160 @@ describe( 'SchematicCanvas', () => {
 		expect( nodes ).toHaveLength( 2 );
 	} );
 
+	it( 'composites the bloom additively (screen) so interior name/LED glow is not occluded by the opaque card', () => {
+		const { container } = render( <SchematicCanvas { ...baseProps } /> );
+		for ( const id of [ 'topology-bloom-crt', 'topology-bloom-neo' ] ) {
+			const filter = container.querySelector( `#${ id }` );
+			expect( filter ).not.toBeNull();
+			// `feMerge[bloom, SourceGraphic]` paints the sharp OPAQUE card over the
+			// blur, hiding the glow that falls inside the card (names, LEDs). A
+			// `screen` blend adds the glow so it shows through the card instead.
+			expect(
+				filter.querySelector( 'feBlend[mode="screen"]' )
+			).not.toBeNull();
+			expect( filter.querySelector( 'feMerge' ) ).toBeNull();
+		}
+	} );
+
+	it( 'suppresses the infinite edge-flow animation above EDGE_FLOW_MAX edges (Firefox raster cost)', () => {
+		// A perpetual stroke-dashoffset flow on each active edge re-rasterizes
+		// every dashed path every frame — fine for a handful, but hundreds peg
+		// Firefox. Above the threshold the edge groups get `--still` (CSS drops
+		// the animation) so the static graph can be layer-cached.
+		const nodes = [ { id: 's' } ];
+		const positionOverrides = { s: { x: 60, y: 80 } };
+		const edges = [];
+		for ( let i = 0; i < 50; i++ ) {
+			nodes.push( { id: `t${ i }` } );
+			positionOverrides[ `t${ i }` ] = { x: 300, y: 80 + i * 12 };
+			edges.push( { from: 's', to: `t${ i }` } );
+		}
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ { nodes, edges } }
+				positionOverrides={ positionOverrides }
+			/>
+		);
+		expect(
+			container.querySelector( '.topology-edges--still' )
+		).not.toBeNull();
+	} );
+
+	it( 'keeps the edge-flow animation for a small graph (no --still)', () => {
+		const { container } = render( <SchematicCanvas { ...baseProps } /> );
+		expect(
+			container.querySelector( '.topology-edges--still' )
+		).toBeNull();
+	} );
+
+	it( 'marks an edge --flowing only when BOTH endpoints incremented in the last dump (rate > 0)', () => {
+		const rateRef = {
+			current: new Map( [
+				[ 'a', { rate: 5 } ],
+				[ 'b', { rate: 3 } ],
+			] ),
+		};
+		const { container } = render(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />
+		);
+		const edge = container.querySelector( '.topology-edge--active' );
+		expect( edge.classList.contains( 'topology-edge--flowing' ) ).toBe(
+			true
+		);
+	} );
+
+	it( 'does NOT mark an edge --flowing when only one endpoint incremented', () => {
+		const rateRef = {
+			current: new Map( [
+				[ 'a', { rate: 5 } ],
+				[ 'b', { rate: 0 } ], // idle this dump
+			] ),
+		};
+		const { container } = render(
+			<SchematicCanvas { ...baseProps } rateRef={ rateRef } />
+		);
+		const edge = container.querySelector( '.topology-edge--active' );
+		expect( edge.classList.contains( 'topology-edge--flowing' ) ).toBe(
+			false
+		);
+	} );
+
+	// Arrow-pan only fires while the canvas is hovered (so the debug overlay
+	// doesn't hijack the host page's arrows) — hover the SVG before pressing.
+	const hoverCanvas = ( container ) =>
+		fireEvent.pointerEnter(
+			container.querySelector( '.topology-canvas-svg' )
+		);
+
+	it( 'arrow keys pan the viewport (Right → +x, Down → +y, by 8% of the viewport)', () => {
+		const onViewportChange = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
+				onViewportChange={ onViewportChange }
+			/>
+		);
+		hoverCanvas( container );
+		fireEvent.keyDown( document, { key: 'ArrowRight' } );
+		expect( onViewportChange ).toHaveBeenLastCalledWith(
+			expect.objectContaining( { x: 80, y: 0, w: 1000, h: 700 } )
+		);
+		fireEvent.keyDown( document, { key: 'ArrowDown' } );
+		expect( onViewportChange ).toHaveBeenLastCalledWith(
+			expect.objectContaining( { y: 56 } )
+		);
+	} );
+
+	it( 'shift+arrow pans faster', () => {
+		const onViewportChange = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
+				onViewportChange={ onViewportChange }
+			/>
+		);
+		hoverCanvas( container );
+		fireEvent.keyDown( document, { key: 'ArrowLeft', shiftKey: true } );
+		expect( onViewportChange ).toHaveBeenLastCalledWith(
+			expect.objectContaining( { x: -250 } )
+		);
+	} );
+
+	it( 'arrow keys do NOT pan while typing in a form field', () => {
+		const onViewportChange = jest.fn();
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
+				onViewportChange={ onViewportChange }
+			/>
+		);
+		hoverCanvas( container );
+		const input = document.createElement( 'input' );
+		document.body.appendChild( input );
+		fireEvent.keyDown( input, { key: 'ArrowRight' } );
+		expect( onViewportChange ).not.toHaveBeenCalled();
+		document.body.removeChild( input );
+	} );
+
+	it( 'arrow keys do NOT pan when the canvas is not hovered (overlay host-page protection)', () => {
+		const onViewportChange = jest.fn();
+		render(
+			<SchematicCanvas
+				{ ...baseProps }
+				viewport={ { x: 0, y: 0, w: 1000, h: 700 } }
+				onViewportChange={ onViewportChange }
+			/>
+		);
+		// No hover → the document arrow handler must NOT pan (and must not
+		// preventDefault, leaving the host page free to scroll).
+		fireEvent.keyDown( document, { key: 'ArrowRight' } );
+		expect( onViewportChange ).not.toHaveBeenCalled();
+	} );
+
 	it( 'renders one edge path per parsed edge', () => {
 		const { container } = render( <SchematicCanvas { ...baseProps } /> );
 		const edges = container.querySelectorAll( '.topology-edge--active' );

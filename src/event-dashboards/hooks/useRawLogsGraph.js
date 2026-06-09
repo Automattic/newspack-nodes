@@ -135,6 +135,11 @@ export function useRawLogsGraph( opts = {} ) {
 			// `_http/workers` — the SSE_Slot_Pool's `heartbeat` verb lives on the
 			// request-scope `workers` CI. The reply is discarded by Heartbeat.fill.
 			heartbeat.target = `${ HTTP }/workers`;
+			// HeartbeatNode hitchhikes the backbone's TIMER (setTimer() with no
+			// args): the _router's notify_timer calls heartbeat.fireCb -> fire each
+			// tick, which pokes the slot keep-alive. Without this the slot TTLs out
+			// and the browser reconnects every ~30s. Mirrors the other SSE graphs.
+			heartbeat.setTimer();
 
 			// View-model node — envelope→row shaping is inlined into its fill().
 			const view = interpreter.makeNode( 'RawLogsView', VIEW );

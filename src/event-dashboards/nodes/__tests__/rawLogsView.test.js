@@ -218,6 +218,65 @@ test( 'select clears node.lps back to zero', () => {
 	expect( v.lps ).toBe( 0 );
 } );
 
+test( 'caps the buffer at maxLines, dropping the oldest and keeping the newest at [0]', () => {
+	const v = new RawLogsViewNode( 3 );
+	v.setName( 'rawlogs:view' );
+	for ( let i = 0; i < 10; i++ ) {
+		v.fill( envelopeMsg( { value: `line ${ i }` } ) );
+	}
+	expect( v.lines ).toHaveLength( 3 );
+	expect( v.lines.map( ( l ) => l.content ) ).toEqual( [
+		'line 9',
+		'line 8',
+		'line 7',
+	] );
+} );
+
+test( 'exposes O(1) windowed reads — linesCount + lineAt (newest-first) — for the canvas', () => {
+	const v = makeView( 'rawlogs:view' );
+	v.fill( envelopeMsg( { value: 'a' } ) );
+	v.fill( envelopeMsg( { value: 'b' } ) );
+	v.fill( envelopeMsg( { value: 'c' } ) );
+	expect( v.linesCount ).toBe( 3 );
+	expect( v.lineAt( 0 ).content ).toBe( 'c' ); // newest
+	expect( v.lineAt( 1 ).content ).toBe( 'b' );
+	expect( v.lineAt( 2 ).content ).toBe( 'a' ); // oldest
+	expect( v.lineAt( 3 ) ).toBeUndefined(); // out of range
+} );
+
+test( 'lineAt + linesCount respect the cap (oldest overwritten) on a small ring', () => {
+	const v = new RawLogsViewNode( 3 );
+	v.setName( 'rawlogs:view' );
+	for ( let i = 0; i < 10; i++ ) {
+		v.fill( envelopeMsg( { value: `line ${ i }` } ) );
+	}
+	expect( v.linesCount ).toBe( 3 );
+	expect( v.lineAt( 0 ).content ).toBe( 'line 9' ); // newest
+	expect( v.lineAt( 2 ).content ).toBe( 'line 7' ); // oldest still in cap
+} );
+
+test( 'a read mid-stream then more appends keeps newest-first across the coalesce boundary', () => {
+	const v = makeView( 'rawlogs:view' );
+	v.fill( envelopeMsg( { value: 'a' } ) );
+	v.fill( envelopeMsg( { value: 'b' } ) );
+	expect( v.lines.map( ( l ) => l.content ) ).toEqual( [ 'b', 'a' ] );
+	v.fill( envelopeMsg( { value: 'c' } ) );
+	expect( v.lines.map( ( l ) => l.content ) ).toEqual( [ 'c', 'b', 'a' ] );
+} );
+
+test( 'LPS tracking aggregates per second, not one entry per line (bounded window)', () => {
+	// Perf contract: the lines/second window must NOT grow one entry per
+	// line (the old `lineHistory.push`-per-line + full filter+reduce was
+	// O(n) per line). A 10s window collapses to per-second buckets, so a
+	// burst of 500 synchronous lines stays a handful of buckets — never 500.
+	const v = makeView( 'rawlogs:view' );
+	for ( let i = 0; i < 500; i++ ) {
+		v.fill( envelopeMsg( { value: `row ${ i }` } ) );
+	}
+	expect( Array.isArray( v.lpsBuckets ) ).toBe( true );
+	expect( v.lpsBuckets.length ).toBeLessThanOrEqual( 12 );
+} );
+
 test( 'defaults connectionError to false in the published model', () => {
 	const v = makeView( 'rawlogs:view' );
 	v.fill( controlMsg( { action: 'pause', paused: false } ) );

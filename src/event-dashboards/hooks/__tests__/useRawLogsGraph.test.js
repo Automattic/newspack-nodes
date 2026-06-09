@@ -224,6 +224,38 @@ describe( 'useRawLogsGraph — heartbeat slot bridge', () => {
 		);
 		expect( Core.node( HEARTBEAT ).slot ).toBeNull();
 	} );
+
+	test( 'the Router TIMER drives heartbeat.fire (via notify_timer) so the slot keep-alive actually fires', async () => {
+		jest.useFakeTimers();
+		try {
+			const client = makeFakeClient( { list_logs: oneLogReply() } );
+			mountGraph( client );
+			await act( async () => {} ); // settle list_logs → EventSource opens
+			act( () => {
+				FakeEventSource.last.dispatch(
+					'msg',
+					pack(
+						connectedEnvelope( { pid: 7, slot: 5, partition: 2 } )
+					)
+				);
+			} );
+			client.batches.length = 0; // ignore the initial list_logs batch
+			// 1s Router TIMER × 5 = past the 5s throttle in HeartbeatNode.fire.
+			act( () => {
+				jest.advanceTimersByTime( 5000 );
+			} );
+			expect( Core.node( HEARTBEAT ).lastFired ).toBeGreaterThan( 0 );
+			const poke = client.batches
+				.flat()
+				.find(
+					( m ) => m && m[ VALUE ] && 'heartbeat' === m[ VALUE ].name
+				);
+			expect( poke ).toBeTruthy();
+			expect( poke[ VALUE ].arguments ).toBe( '5 10 2' );
+		} finally {
+			jest.useRealTimers();
+		}
+	} );
 } );
 
 describe( 'useRawLogsGraph — teardown', () => {

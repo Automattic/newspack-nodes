@@ -61,6 +61,25 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 		expect( patched ).toEqual( [ [ 'a', { target: 'b' } ] ] );
 	} );
 
+	it( 'onConnect APPENDS to a Tee fan-out (array target) instead of replacing it', () => {
+		// A connect appends a target server-side; the optimistic patch must do the
+		// same, or the Tee's other edges vanish from the canvas until the next
+		// dump_metadata reasserts the full array.
+		Core.node( names.METADATA ).rawMap = { tee: { target: [ 'x', 'y' ] } };
+		const { result } = renderHandlers( {} );
+		result.current.onConnect( 'tee', 'z' );
+		expect( patched ).toEqual( [
+			[ 'tee', { target: [ 'x', 'y', 'z' ] } ],
+		] );
+	} );
+
+	it( 'onConnect does not duplicate a target already in the Tee fan-out', () => {
+		Core.node( names.METADATA ).rawMap = { tee: { target: [ 'x', 'y' ] } };
+		const { result } = renderHandlers( {} );
+		result.current.onConnect( 'tee', 'y' );
+		expect( patched ).toEqual( [ [ 'tee', { target: [ 'x', 'y' ] } ] ] );
+	} );
+
 	it( 'onRemoveNode drops the node (null patch) so it leaves the canvas', () => {
 		const { result } = renderHandlers( {} );
 		result.current.onRemoveNode( 'x' );

@@ -722,6 +722,15 @@
 	pointer-events: stroke;
 }
 
+// Large graphs: kill ALL edge animation (the one-shot draw-in AND the active
+// edge's infinite flow) so the browser layer-caches a static graph instead of
+// re-rasterizing hundreds of dashed beziers every frame (pegs Firefox's raster
+// threads). Set by SchematicCanvas above EDGE_FLOW_MAX on-screen edges.
+.topology-edges--still .topology-edge {
+	animation: none;
+	stroke-dashoffset: 0;
+}
+
 .topology-edge {
 	fill: none;
 	stroke: var(--ink-3);
@@ -739,14 +748,32 @@
 		stroke: var(--cyan);
 		stroke-width: 1.6;
 		stroke-dasharray: 5 3;
+		// Cyan + one-shot draw-in for ALL connections; the perpetual flow is
+		// added ONLY by `--flowing` below (edges with live data this dump), so an
+		// idle graph has zero per-frame repaint. Idle (non-flowing) connections
+		// are slightly dimmed so the live paths read brighter; `--flowing`,
+		// hover (is-touched), and selection restore full opacity, and the base
+		// `transition: opacity` fades the change as flow starts/stops.
+		opacity: 0.55;
+	}
+
+	// Live flow: SchematicCanvas adds `--flowing` only to edges whose BOTH
+	// endpoints incremented in the last dump_metadata. `steps(20)` over 1s =
+	// 20 discrete ticks/s, so the browser repaints (and, under a bloom skin,
+	// re-rasterizes the whole-viewport blur) 20×/s instead of every frame —
+	// and only for the handful of genuinely-active paths. A linear flow at any
+	// duration still repaints per frame; stepping is what caps the rate.
+	&--flowing {
+		opacity: 1;
 		animation:
 			topology-draw 0.8s ease-out 0.2s forwards,
-			topology-flow 0.8s linear 1s infinite;
+			topology-flow 1s steps(20) 1s infinite;
 	}
 
 	&.is-selected {
 		stroke: var(--oxide);
 		stroke-width: 2.6;
+		opacity: 1;
 		filter: drop-shadow(0 0 4px var(--oxide));
 	}
 
@@ -768,6 +795,7 @@
 	&.is-touched {
 		stroke: var(--oxide);
 		stroke-width: 2.2;
+		opacity: 1;
 	}
 
 	&.is-dimmed {

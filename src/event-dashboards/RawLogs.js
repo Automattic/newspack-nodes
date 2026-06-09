@@ -10,11 +10,13 @@
  * Two read paths, matching the view node's two cadences:
  * - LOW frequency: `useNodeState('rawlogs:view','view')` for `{ logs, selected,
  *   paused }` (the dropdown, pause button, selected value).
- * - HIGH frequency: the canvas rAF reads `Core.node('rawlogs:view').lines` and
- *   `.lps` directly every frame — a busy stream never re-renders React per line.
+ * - HIGH frequency: the canvas rAF reads `Core.node('rawlogs:view')` directly
+ *   every frame — `.linesCount` + `.lineAt(i)` for the on-screen window only (so
+ *   a full 100k buffer costs O(rows-on-screen), not O(buffer), per frame) plus
+ *   `.lps` — so a busy stream never re-renders React per line.
  */
 
-import { useState, useEffect, useRef, useMemo } from '@wordpress/element';
+import { useState, useEffect, useRef } from '@wordpress/element';
 import { __, _n, sprintf } from '@wordpress/i18n';
 
 import { Core } from '../runtime/core';
@@ -62,11 +64,13 @@ export default function RawLogs() {
 	} = view;
 
 	const [ filter, setFilter ] = useState( '' );
-	// LPS + the rendered line buffer, both fed from the rAF at frame rate (the
-	// original re-rendered LPS per frame and the count per batch; per-frame for
-	// both is visually identical and keeps everything in one cheap state push).
+	// Cheap derived state pushed from the rAF at frame rate: lines/second plus the
+	// two counts the header + spacer need (total rows in the ring, and how many
+	// are visible after the filter). The row DATA is not React state — the canvas
+	// reads its visible window straight off the ring node each frame.
 	const [ linesPerSecond, setLinesPerSecond ] = useState( 0 );
-	const [ lines, setLines ] = useState( [] );
+	const [ totalCount, setTotalCount ] = useState( 0 );
+	const [ visibleCount, setVisibleCount ] = useState( 0 );
 
 	const containerRef = useRef( null );
 	const canvasRef = useRef( null );
@@ -76,13 +80,24 @@ export default function RawLogs() {
 	const scrollTopRef = useRef( 0 );
 	const isAdjustingScrollRef = useRef( false );
 	const rafRef = useRef( null );
-	const filteredLinesRef = useRef( [] );
-	// Last rendered buffer length — drives the smooth/virtual scroll math each
-	// frame (replaces the old per-batch newCount the SSE handler tracked).
-	const lastRenderedCountRef = useRef( 0 );
+	// Last visible-row count — drives spacer-height changes (grow/filter/clear).
+	const lastVisibleCountRef = useRef( 0 );
+	// Newest visible row id the rAF has seen. New arrivals are detected off this
+	// MONOTONIC id (it climbs past the cap, unlike the pinned count) — driving both
+	// staleness AND scroll compensation so they keep working once the buffer caps.
+	const lastTopIdRef = useRef( 0 );
+	// The filter `lastTopIdRef` was last measured under. Filtered and unfiltered
+	// top-ids live in different id-spaces, so a filter toggle must re-baseline
+	// (no phantom new rows) rather than diff across the two.
+	const lastTopFilterRef = useRef( '' );
 	// Last state we pushed to React — so idle frames (nothing changed) push no
-	// new refs and don't re-render. The original only setLines() on new rows.
-	const pushedRef = useRef( { count: -1, filter: null, lps: -1 } );
+	// new state and don't re-render.
+	const pushedRef = useRef( {
+		total: -1,
+		visible: -1,
+		filter: null,
+		lps: -1,
+	} );
 	// Filter kept in a ref so the rAF reads the latest without re-subscribing.
 	const filterRef = useRef( filter );
 	filterRef.current = filter;
@@ -100,8 +115,8 @@ export default function RawLogs() {
 		? Math.max( 0, Math.floor( ( now - lastEventTimeRef.current ) / 1000 ) )
 		: null;
 
-	// Canvas rendering loop. Reads the high-volume buffer (node.lines) directly
-	// every frame and pushes the cheap derived state (count + LPS) to React.
+	// Canvas rendering loop. Reads the ring's visible window (linesCount/lineAt)
+	// directly every frame and pushes the cheap derived state (counts + LPS) to React.
 	useEffect( () => {
 		const canvas = canvasRef.current;
 		const container = containerRef.current;
@@ -130,74 +145,105 @@ export default function RawLogs() {
 		window.addEventListener( 'resize', resize );
 
 		const draw = () => {
-			// Read the high-volume buffer + LPS straight off the node each frame.
+			// Read counts + LPS straight off the ring node each frame. Row data is
+			// read by index (lineAt) only for the on-screen window below — never
+			// the whole buffer — so the frame cost is O(rows-on-screen).
 			const node = Core.node( VIEW_NODE );
-			const buffer = node?.lines ?? [];
+			const count = node?.linesCount ?? 0;
 			const lps = node?.lps ?? 0;
-			const filterLower = filterRef.current.toLowerCase();
+			const activeFilter = filterRef.current;
+			const filterLower = activeFilter.toLowerCase();
 
-			// New rows since last frame → drive scroll + staleness.
-			const newCount = Math.max(
-				0,
-				buffer.length - lastRenderedCountRef.current
-			);
-			if ( newCount > 0 ) {
+			// With a filter active, materialize the matching rows (one O(ring)
+			// scan, and ONLY while filtering). Unfiltered, draw straight off the
+			// ring — no per-frame copy of the buffer.
+			let filteredRows = null;
+			let visible;
+			if ( activeFilter ) {
+				filteredRows = [];
+				for ( let i = 0; i < count; i++ ) {
+					const l = node.lineAt( i );
+					if (
+						l &&
+						l.content.toLowerCase().includes( filterLower )
+					) {
+						filteredRows.push( l );
+					}
+				}
+				visible = filteredRows.length;
+			} else {
+				visible = count;
+			}
+
+			// New rows since last frame, detected off the MONOTONIC newest-visible
+			// id — NOT the visible count, which pins at the cap and would make
+			// `newRows` read 0 forever (freezing staleness AND stalling the
+			// smooth-scroll so rows replace in place = jank). Mirrors Request Log.
+			// A filter toggle switches id-spaces (filtered top-id <= unfiltered),
+			// so re-baseline that frame instead of reporting phantom new rows.
+			const topRow = filteredRows ? filteredRows[ 0 ] : node?.lineAt( 0 );
+			const topId = topRow ? topRow.id : 0;
+			const filterChanged = activeFilter !== lastTopFilterRef.current;
+			lastTopFilterRef.current = activeFilter;
+			let newRows = 0;
+			if ( ! filterChanged && topId > lastTopIdRef.current ) {
+				newRows = filteredRows
+					? ( () => {
+							const firstOld = filteredRows.findIndex(
+								( r ) => r.id <= lastTopIdRef.current
+							);
+							return -1 === firstOld
+								? filteredRows.length
+								: firstOld;
+					  } )()
+					: Math.min( visible, topId - lastTopIdRef.current );
+			}
+			lastTopIdRef.current = topId;
+
+			if ( newRows > 0 ) {
 				lastEventTimeRef.current = Date.now();
 			}
 
-			// Snapshot (and filter) the buffer so a mid-frame append can't mutate
-			// what we draw / count.
-			const snapshot = filterRef.current
-				? buffer.filter( ( l ) =>
-						l.content.toLowerCase().includes( filterLower )
-				  )
-				: buffer.slice();
-
-			// Visible-count delta in the filtered view, for scroll compensation.
-			const visibleNewCount =
-				snapshot.length - filteredLinesRef.current.length;
 			const isAtTop = scrollTopRef.current < ROW_HEIGHT;
 
-			filteredLinesRef.current = snapshot;
+			// Spacer height tracks the visible row count (grows while filling,
+			// shrinks on clear/filter; stable at the cap).
+			if (
+				visible !== lastVisibleCountRef.current &&
+				spacerRef.current
+			) {
+				spacerRef.current.style.height = visible * ROW_HEIGHT + 'px';
+			}
 
-			if ( visibleNewCount > 0 ) {
-				// Update spacer height before scroll adjust so scrollTop isn't clamped.
-				if ( spacerRef.current ) {
-					spacerRef.current.style.height =
-						snapshot.length * ROW_HEIGHT + 'px';
-				}
+			if ( newRows > 0 ) {
 				if ( isAtTop ) {
 					// Compensate offset — decay will smooth-scroll to 0.
-					offsetRef.current -= visibleNewCount * ROW_HEIGHT;
+					offsetRef.current -= newRows * ROW_HEIGHT;
 				} else if ( scrollRef.current ) {
 					// Maintain scroll position when scrolled down.
 					isAdjustingScrollRef.current = true;
 					const newScrollTop =
-						scrollRef.current.scrollTop +
-						visibleNewCount * ROW_HEIGHT;
+						scrollRef.current.scrollTop + newRows * ROW_HEIGHT;
 					scrollRef.current.scrollTop = newScrollTop;
 					scrollTopRef.current = newScrollTop;
 				}
-			} else if ( visibleNewCount < 0 && spacerRef.current ) {
-				// Buffer shrank (Clear / log switch) — collapse the spacer too.
-				spacerRef.current.style.height =
-					snapshot.length * ROW_HEIGHT + 'px';
 			}
 
-			lastRenderedCountRef.current = buffer.length;
+			lastVisibleCountRef.current = visible;
 
-			// Push the cheap derived state ONLY when it changed — count rides
-			// `lines`, plus LPS. Skipping unchanged frames keeps idle (and steady-
-			// LPS) frames from re-rendering React, matching the original's
-			// new-rows-only setLines() + settling smoothed LPS.
+			// Push the cheap derived state ONLY when it changed (counts + LPS).
+			// Skipping unchanged frames keeps idle frames from re-rendering React.
 			const pushed = pushedRef.current;
 			if (
-				snapshot.length !== pushed.count ||
-				filterRef.current !== pushed.filter
+				count !== pushed.total ||
+				visible !== pushed.visible ||
+				activeFilter !== pushed.filter
 			) {
-				setLines( snapshot );
-				pushed.count = snapshot.length;
-				pushed.filter = filterRef.current;
+				setTotalCount( count );
+				setVisibleCount( visible );
+				pushed.total = count;
+				pushed.visible = visible;
+				pushed.filter = activeFilter;
 			}
 			if ( lps !== pushed.lps ) {
 				setLinesPerSecond( lps );
@@ -211,14 +257,13 @@ export default function RawLogs() {
 				offsetRef.current = 0;
 			}
 
-			const visibleLines = filteredLinesRef.current;
 			const scrollTop = scrollTopRef.current;
 			const offset = offsetRef.current;
 
 			// Clear canvas.
 			ctx.clearRect( 0, 0, width, height );
 
-			if ( visibleLines.length === 0 ) {
+			if ( visible === 0 ) {
 				ctx.fillStyle = COLOR_PARTITION;
 				ctx.textAlign = 'center';
 				ctx.fillText(
@@ -242,13 +287,19 @@ export default function RawLogs() {
 				Math.floor( visibleStartPx / ROW_HEIGHT )
 			);
 			const endIndex = Math.min(
-				visibleLines.length,
+				visible,
 				Math.ceil( visibleEndPx / ROW_HEIGHT ) + 1
 			);
 
-			// Draw visible lines.
+			// Draw visible lines — filtered array when filtering, else the ring
+			// directly (lineAt is O(1), so this loop touches only on-screen rows).
 			for ( let i = startIndex; i < endIndex; i++ ) {
-				const line = visibleLines[ i ];
+				const line = filteredRows
+					? filteredRows[ i ]
+					: node.lineAt( i );
+				if ( ! line ) {
+					continue;
+				}
 				const y = i * ROW_HEIGHT - scrollTop + offset;
 
 				// Row background.
@@ -286,30 +337,26 @@ export default function RawLogs() {
 		// isPaused is read inside draw for the empty-state label; re-bind on change.
 	}, [ isPaused ] );
 
-	// Filtered lines for React UI; canvas reads filteredLinesRef separately.
-	const filteredLines = useMemo( () => {
-		if ( ! filter ) {
-			return lines;
-		}
-		const filterLower = filter.toLowerCase();
-		return lines.filter( ( line ) =>
-			line.content.toLowerCase().includes( filterLower )
-		);
-	}, [ lines, filter ] );
+	// Total height for the scroll container (spacer); the rAF keeps the live
+	// height in sync imperatively — this is the React-render seed.
+	const totalHeight = visibleCount * ROW_HEIGHT;
 
-	// Total height for scroll container.
-	const totalHeight = filteredLines.length * ROW_HEIGHT;
-
-	// Clear all lines — clears the node buffer; the next frame reflects 0 lines.
+	// Clear all lines — clears the node ring; the next frame reflects 0 lines.
 	const handleClear = () => {
 		const node = Core.node( VIEW_NODE );
 		if ( node ) {
 			node.lines = [];
 		}
-		filteredLinesRef.current = [];
-		lastRenderedCountRef.current = 0;
-		pushedRef.current = { count: 0, filter: filterRef.current, lps: 0 };
-		setLines( [] );
+		lastVisibleCountRef.current = 0;
+		lastTopIdRef.current = 0;
+		pushedRef.current = {
+			total: 0,
+			visible: 0,
+			filter: filterRef.current,
+			lps: 0,
+		};
+		setTotalCount( 0 );
+		setVisibleCount( 0 );
 		offsetRef.current = 0;
 		scrollTopRef.current = 0;
 		if ( spacerRef.current ) {
@@ -364,21 +411,21 @@ export default function RawLogs() {
 										_n(
 											'%1$d / %2$d line',
 											'%1$d / %2$d lines',
-											lines.length,
+											totalCount,
 											'newspack-nodes'
 										),
-										filteredLines.length,
-										lines.length
+										visibleCount,
+										totalCount
 								  )
 								: sprintf(
 										// translators: %d: number of lines.
 										_n(
 											'%d line',
 											'%d lines',
-											filteredLines.length,
+											visibleCount,
 											'newspack-nodes'
 										),
-										filteredLines.length
+										visibleCount
 								  ) }
 						</span>
 						{ linesPerSecond > 0 && (
