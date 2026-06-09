@@ -608,6 +608,14 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 	} );
 	const steps = [ ...stepsByKey.values() ];
 
+	// Standalone workers (no inputs AND no outputs) aren't part of any log flow.
+	// Render them first — right under Supervisor — instead of letting the topo
+	// sort interleave them into an unrelated log block by mere list position.
+	const isConnected = ( step ) =>
+		step.inputs.length > 0 || step.outputs.length > 0;
+	const orphanSteps = steps.filter( ( s ) => ! isConnected( s ) );
+	const connectedSteps = steps.filter( isConnected );
+
 	// Producer/consumer maps: log name → step key(s).
 	const producers = new Map();
 	const consumers = new Map();
@@ -649,7 +657,7 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 		} );
 		sorted.push( step );
 	};
-	steps.forEach( visit );
+	connectedSteps.forEach( visit );
 
 	// Place each log: above its first consumer if any, else below its last producer.
 	const beforeStep = new Map();
@@ -795,6 +803,10 @@ function buildRenderPlan( workers, logsCatalog = [] ) {
 			hasCursor,
 		} );
 	};
+
+	orphanSteps.forEach( ( step ) => {
+		plan.push( { kind: 'worker', step, showArrows: false } );
+	} );
 
 	sorted.forEach( ( step ) => {
 		( beforeStep.get( step.key ) || [] ).forEach( renderLog );

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Worker Status: standalone workers now render under Supervisor, not inside an unrelated log block.** `buildRenderPlan` topo-sorts workers by their producer→consumer log edges, but a worker with no inputs *and* no outputs (e.g. a timer-driven worker) has no edges, so it fell at its raw list position — landing inside whatever log block happened to precede it (Digest appeared to belong to `requests.log`, Test to `jobs.log`). Such standalone workers are now partitioned out and emitted first, right under Supervisor, with no connector arrow. Connected workers and their logs lay out exactly as before.
+
 ## [0.12.2] - 2026-06-09
 
 ### Changed

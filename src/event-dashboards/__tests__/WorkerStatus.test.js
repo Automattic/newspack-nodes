@@ -405,6 +405,72 @@ describe( 'WorkerStatus', () => {
 		expect( container.textContent ).toMatch( /untouched\.log/ );
 	} );
 
+	it( 'buildRenderPlan: standalone worker (no inputs/outputs) renders before the connected pipeline', () => {
+		// A worker with empty inputs AND outputs isn't part of any log flow, so it
+		// must not be interleaved into a log block by sort position. It renders
+		// first — right under Supervisor — even when listed last.
+		registerViewFixture(
+			viewModel( {
+				workers: [
+					{
+						type: 'firehose-workers',
+						handler: 'firehose-workers',
+						partition: 0,
+						started_at: 1000,
+						inputs: [],
+						outputs: [ 'firehose.log' ],
+						inputs_status: [],
+						outputs_status: [
+							{
+								name: 'firehose.log',
+								segments: [ { id: 1, size: 100 } ],
+								total_size: 100,
+							},
+						],
+					},
+					{
+						type: 'request-workers',
+						handler: 'request-workers',
+						partition: 0,
+						started_at: 1000,
+						inputs: [ 'firehose.log' ],
+						outputs: [],
+						inputs_status: [
+							{
+								name: 'firehose.log',
+								segments: [ { id: 1, size: 100 } ],
+								total_size: 100,
+								cursor_seg: 1,
+								cursor_offset: 50,
+							},
+						],
+						outputs_status: [],
+					},
+					{
+						type: 'digest',
+						handler: 'digest',
+						partition: 0,
+						started_at: 1000,
+						inputs: [],
+						outputs: [],
+						inputs_status: [],
+						outputs_status: [],
+					},
+				],
+			} )
+		);
+		const { container } = render( <WorkerStatus fullPage /> );
+		const flow = container.querySelector( '.pipeline-flow' );
+		const text = flow.textContent;
+		const digestIdx = text.indexOf( 'Digest' );
+		const firehoseIdx = text.indexOf( 'Firehose Workers' );
+		const logIdx = text.indexOf( 'firehose.log' );
+		expect( digestIdx ).toBeGreaterThanOrEqual( 0 );
+		// Standalone worker sits ahead of the producer, the log, and the consumer.
+		expect( digestIdx ).toBeLessThan( firehoseIdx );
+		expect( digestIdx ).toBeLessThan( logIdx );
+	} );
+
 	// Sub-component rendering: SegmentBar / LogSection / WorkerConnector / SupervisorStatus.
 
 	it( 'renders SegmentBar with cursor-relative classes', () => {
