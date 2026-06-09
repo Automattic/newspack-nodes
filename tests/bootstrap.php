@@ -401,9 +401,8 @@ if ( ! function_exists( 'esc_html' ) ) {
 	}
 }
 
-// i18n passthrough — defined before the plugin require so config/schema labels
-// built at load time resolve (matches production, where `__` is always present
-// when a plugin file runs). AdminTest's own guarded stub becomes a no-op.
+// i18n passthrough — matches production, where `__` is always present when a
+// plugin file runs; guards any test code that reaches `__` outside its own stub.
 if ( ! function_exists( '__' ) ) {
 	function __( string $text, string $domain = 'default' ): string {
 		return $text;

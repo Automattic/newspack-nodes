@@ -46,7 +46,7 @@ class Settings_Schema {
 				new Field(
 					key: 'num_partitions',
 					type: 'int',
-					label: \__( 'Num Partitions', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Num Partitions', 'newspack-nodes' ),
 					section: $storage,
 					// Supervisor refreshes config each loop — no worker restart needed.
 					restart: 'supervisor_only',
@@ -56,7 +56,7 @@ class Settings_Schema {
 				new Field(
 					key: 'num_segments',
 					type: 'int',
-					label: \__( 'Num Segments', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Num Segments', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'request-workers', 'job-workers' ],
 					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
@@ -65,7 +65,7 @@ class Settings_Schema {
 				new Field(
 					key: 'segment_size',
 					type: 'int',
-					label: \__( 'Segment Size', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Segment Size', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'request-workers', 'job-workers' ],
 					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
@@ -74,7 +74,7 @@ class Settings_Schema {
 				new Field(
 					key: 'max_lifespan',
 					type: 'int',
-					label: \__( 'Minimum Retention', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Minimum Retention', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'request-workers', 'job-workers' ],
 					sanitize: [ Admin::class, 'sanitize_int_or_empty' ],
@@ -83,14 +83,14 @@ class Settings_Schema {
 				// Display-only readout (no option, no reset).
 				new Field(
 					id: 'total_storage',
-					label: \__( 'Total Log Storage', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Total Log Storage', 'newspack-nodes' ),
 					section: $storage,
 					render: [ Admin::class, 'total_storage_callback' ],
 				),
 				new Field(
 					key: 'base_directory',
 					type: 'path',
-					label: \__( 'Base Directory', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Base Directory', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'request-workers', 'job-workers' ],
 					sanitize: [ Admin::class, 'sanitize_base_directory' ],
@@ -99,7 +99,7 @@ class Settings_Schema {
 				new Field(
 					key: 'memcache_servers',
 					type: 'memcache_servers',
-					label: \__( 'Memcache Servers', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Memcache Servers', 'newspack-nodes' ),
 					section: $storage,
 					restart: [ 'request-workers' ],
 					sanitize: [ Admin::class, 'sanitize_memcache_servers' ],
@@ -109,7 +109,7 @@ class Settings_Schema {
 				new Field(
 					key: 'topologies',
 					type: 'array_strings',
-					label: \__( 'Active Topologies', 'newspack-nodes' ),
+					label: static fn(): string => \__( 'Active Topologies', 'newspack-nodes' ),
 					section: $topos,
 					// An empty selection is a deliberate override, not a reset.
 					delete_on_blank: false,
@@ -129,11 +129,11 @@ class Settings_Schema {
 			],
 			[
 				$storage => [
-					'title'    => \__( 'Storage Settings', 'newspack-nodes' ),
+					'title'    => static fn(): string => \__( 'Storage Settings', 'newspack-nodes' ),
 					'callback' => [ Admin::class, 'storage_section_callback' ],
 				],
 				$topos   => [
-					'title'    => \__( 'Topologies', 'newspack-nodes' ),
+					'title'    => static fn(): string => \__( 'Topologies', 'newspack-nodes' ),
 					'callback' => [ Admin::class, 'topologies_section_callback' ],
 				],
 			]

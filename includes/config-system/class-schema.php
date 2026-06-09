@@ -18,9 +18,9 @@ namespace Newspack_Nodes\Config_System;
 
 class Schema {
 	/**
-	 * @param string                                                   $prefix   WP-option name prefix (e.g. 'newspack_nodes_').
-	 * @param array<int,Field>                                         $fields   The settings, in render order.
-	 * @param array<string,array{title:string,callback:callable}>      $sections Section id => section title + intro callback.
+	 * @param string                                                            $prefix   WP-option name prefix (e.g. 'newspack_nodes_').
+	 * @param array<int,Field>                                                  $fields   The settings, in render order.
+	 * @param array<string,array{title:string|callable,callback:callable}>      $sections Section id => section title (string or `fn(): string` thunk) + intro callback.
 	 */
 	public function __construct(
 		private readonly string $prefix,
@@ -121,13 +121,17 @@ class Schema {
 			}
 			$section_id = $field->section;
 			if ( ! isset( $seen[ $section_id ] ) ) {
-				$section  = $this->sections[ $section_id ] ?? [];
-				$title    = \is_string( $section['title'] ?? null ) ? $section['title'] : '';
+				$section   = $this->sections[ $section_id ] ?? [];
+				$raw_title = $section['title'] ?? '';
+				if ( \is_callable( $raw_title ) ) {
+					$raw_title = $raw_title();
+				}
+				$title    = \is_string( $raw_title ) ? $raw_title : '';
 				$callback = \is_callable( $section['callback'] ?? null ) ? $section['callback'] : static function (): void {};
 				\add_settings_section( $section_id, $title, $callback, $page );
 				$seen[ $section_id ] = true;
 			}
-			\add_settings_field( $field->render_id(), $field->label, $field->render, $page, $section_id );
+			\add_settings_field( $field->render_id(), $field->label(), $field->render, $page, $section_id );
 		}
 	}
 
