@@ -29,6 +29,7 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Dumper_Node;
 use Newspack_Nodes\Echo_Node;
 use Newspack_Nodes\Hook_Node;
+use Newspack_Nodes\Job_Worker_Node;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Log_Node;
 use Newspack_Nodes\Message;
@@ -71,6 +72,7 @@ class NodeLifecycleTest extends TestCase {
 					return $h;
 				},
 			],
+			'Job_Worker'         => [ static fn () => new Job_Worker_Node() ],
 			'Lock'               => [ static fn () => new Lock_Node( "{$base}/lock.d", 5 ) ],
 			'Log'                => [
 				static function () use ( $base ) {

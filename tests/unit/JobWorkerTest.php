@@ -1,0 +1,774 @@
+<?php
+namespace Newspack_Nodes\Tests\Unit;
+
+use Newspack_Nodes\Job_Worker_Node;
+use Newspack_Nodes\Message;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
+use Newspack_Nodes\Tests\TestCase;
+use PHPUnit\Framework\Attributes\CoversClass;
+
+#[CoversClass( Job_Worker_Node::class )]
+class JobWorkerTest extends TestCase {
+
+	protected function setUp(): void {
+		parent::setUp();
+		// Wipe filter/action state between tests so handler-loading and the
+		// before/after-job extension listeners don't leak across cases.
+		$GLOBALS['_wp_actions'] = [];
+	}
+
+	/**
+	 * Build a TM_STRUCT message in the JobRouter-normalized shape:
+	 *   { type, handler, parameters, ts }
+	 */
+	private function job_message( string $handler, array $parameters = [], string $type = 'job' ): array {
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [
+			'type'       => $type,
+			'handler'    => $handler,
+			'parameters' => $parameters,
+			'ts'         => 1700000000.0,
+		];
+		return $msg;
+	}
+
+	public function test_executes_job_via_handler(): void {
+		$jw = new Job_Worker_Node();
+		$received = null;
+		$jw->register_handler( 'a', function ( $payload ) use ( &$received ) {
+			$received = $payload;
+		} );
+
+		$msg = $this->job_message( 'a', [ 'x' => 1 ] );
+		$jw->fill( $msg );
+
+		$this->assertSame( [ 'x' => 1 ], $received );
+		$this->assertSame( 1, $jw->jobs_executed() );
+	}
+
+	// --- Before/after-job extension point -----------------------------------
+
+	public function test_before_and_after_job_actions_fire_with_handler(): void {
+		$jw = new Job_Worker_Node();
+		$jw->register_handler( 'ctx', fn ( $p ) => null );
+
+		$seen = [];
+		add_action( 'newspack_nodes/job_worker/before_job', function ( $h ) use ( &$seen ) { $seen[] = "before:$h"; } );
+		add_action( 'newspack_nodes/job_worker/after_job', function ( $h ) use ( &$seen ) { $seen[] = "after:$h"; } );
+
+		$msg = $this->job_message( 'ctx' );
+		$jw->fill( $msg );
+
+		$this->assertSame( [ 'before:ctx', 'after:ctx' ], $seen );
+	}
+
+	public function test_after_job_action_fires_even_when_handler_throws(): void {
+		$jw = new Job_Worker_Node();
+		$jw->register_handler( 'boom', function () { throw new \RuntimeException( 'x' ); } );
+
+		$after = 0;
+		add_action( 'newspack_nodes/job_worker/after_job', function () use ( &$after ) { ++$after; } );
+
+		$msg = $this->job_message( 'boom' );
+		$jw->fill( $msg ); // swallowed
+
+		$this->assertSame( 1, $after );
+		$this->assertSame( 1, $jw->jobs_executed() );
+	}
+
+	public function test_after_job_fires_and_worker_survives_when_before_job_listener_throws(): void {
+		// before_job is a public extension point: an arbitrary plugin listener
+		// may throw. fill() must NOT let that escape (it would crash the whole
+		// Consumer drain batch) and must STILL fire after_job (else an app's
+		// logger left suspended in before_job never resumes).
+		$jw = new Job_Worker_Node();
+		$handler_ran = false;
+		$jw->register_handler( 'ctx', function () use ( &$handler_ran ) { $handler_ran = true; } );
+
+		$after = 0;
+		add_action( 'newspack_nodes/job_worker/before_job', function () { throw new \RuntimeException( 'listener boom' ); } );
+		add_action( 'newspack_nodes/job_worker/after_job', function () use ( &$after ) { ++$after; } );
+
+		$msg = $this->job_message( 'ctx' );
+		$jw->fill( $msg ); // must not throw out of fill()
+
+		$this->assertSame( 1, $after, 'after_job must fire even when a before_job listener throws' );
+		$this->assertFalse( $handler_ran, 'handler is skipped when before_job throws' );
+		$this->assertSame( 1, $jw->jobs_executed() );
+	}
+
+	public function test_no_actions_wired_still_dispatches(): void {
+		// A worker with no before/after listeners (e.g. a non-event-logger
+		// consumer of the substrate) must dispatch normally.
+		$jw = new Job_Worker_Node();
+		$ran = false;
+		$jw->register_handler( 'plain', function () use ( &$ran ) { $ran = true; } );
+
+		$msg = $this->job_message( 'plain' );
+		$jw->fill( $msg );
+
+		$this->assertTrue( $ran );
+		$this->assertSame( 1, $jw->jobs_executed() );
+	}
+
+	// --- Non-array VALUE handling ------------------------------------------
+
+	public function test_non_array_value_is_dropped(): void {
+		$jw = new Job_Worker_Node();
+		$called = false;
+		$jw->register_handler( 'deep', function () use ( &$called ) { $called = true; } );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = 'not-an-array';
+		$jw->fill( $msg );
+
+		$this->assertFalse( $called, 'non-array VALUE must not reach the handler' );
+		$this->assertSame( 0, $jw->jobs_executed() );
+	}
+
+	// --- Cadence tests ------------------------------------------------------
+
+	public function test_between_jobs_callback_fires_after_each_job(): void {
+		$jw = new Job_Worker_Node();
+		$jw->register_handler( 'noop', fn ( $p ) => null );
+
+		$counters = [];
+		$jw->set_between_jobs_callback( function ( int $count ) use ( &$counters ) {
+			$counters[] = $count;
+		} );
+
+		for ( $i = 0; $i < 5; ++$i ) {
+			$msg = $this->job_message( 'noop' );
+			$jw->fill( $msg );
+		}
+
+		$this->assertSame( [ 1, 2, 3, 4, 5 ], $counters );
+		$this->assertSame( 5, $jw->jobs_executed() );
+	}
+
+	public function test_callback_can_implement_every_n_cadence(): void {
+		$jw = new Job_Worker_Node();
+		$jw->register_handler( 'noop', fn ( $p ) => null );
+
+		$flush_count = 0;
+		$jw->set_between_jobs_callback( function ( int $count ) use ( &$flush_count ) {
+			if ( $count % 3 === 0 ) {
+				++$flush_count;
+			}
+		} );
+
+		for ( $i = 0; $i < 10; ++$i ) {
+			$msg = $this->job_message( 'noop' );
+			$jw->fill( $msg );
+		}
+
+		$this->assertSame( 3, $flush_count );
+	}
+
+	public function test_callback_fires_after_exception(): void {
+		$jw = new Job_Worker_Node();
+		$jw->register_handler( 'boom', function () { throw new \RuntimeException( 'x' ); } );
+
+		$cycles = 0;
+		$jw->set_between_jobs_callback( function () use ( &$cycles ) { ++$cycles; } );
+
+		$msg = $this->job_message( 'boom' );
+		$jw->fill( $msg );
+
+		$this->assertSame( 1, $cycles );
+		$this->assertSame( 1, $jw->jobs_executed() );
+	}
+
+	public function test_set_callback_to_null_clears_it(): void {
+		$jw = new Job_Worker_Node();
+		$jw->register_handler( 'noop', fn ( $p ) => null );
+
+		$cycles = 0;
+		$jw->set_between_jobs_callback( function () use ( &$cycles ) { ++$cycles; } );
+
+		$msg = $this->job_message( 'noop' );
+		$jw->fill( $msg );
+		$this->assertSame( 1, $cycles );
+
+		$jw->set_between_jobs_callback( null );
+		$msg = $this->job_message( 'noop' );
+		$jw->fill( $msg );
+
+		$this->assertSame( 1, $cycles );
+	}
+
+	public function test_handler_exception_caught_and_logged(): void {
+		$jw = new Job_Worker_Node();
+		$jw->register_handler( 'boom', function () { throw new \RuntimeException( 'x' ); } );
+
+		$msg = $this->job_message( 'boom' );
+		$jw->fill( $msg );
+		$this->assertSame( 1, $jw->jobs_executed() );
+	}
+
+	public function test_no_callback_does_not_fire(): void {
+		$jw = new Job_Worker_Node();
+		$jw->register_handler( 'noop', fn ( $p ) => null );
+
+		for ( $i = 0; $i < 3; ++$i ) {
+			$msg = $this->job_message( 'noop' );
+			$jw->fill( $msg );
+		}
+		$this->assertSame( 3, $jw->jobs_executed() );
+	}
+
+	// --- Constructor params + getters ---------------------------------------
+
+	public function test_default_stale_timeout_is_600(): void {
+		$jw = new Job_Worker_Node();
+		$this->assertSame( 600, $jw->get_stale_timeout() );
+	}
+
+	public function test_default_max_runtime_is_600(): void {
+		$jw = new Job_Worker_Node();
+		$this->assertSame( 600, $jw->get_max_runtime() );
+	}
+
+	public function test_constructor_overrides_stale_and_runtime(): void {
+		$jw = new Job_Worker_Node();
+		$jw->arguments( '10 1200 1200' );
+		$this->assertSame( 1200, $jw->get_stale_timeout() );
+		$this->assertSame( 1200, $jw->get_max_runtime() );
+	}
+
+	public function test_cache_flush_interval_default_is_50(): void {
+		$jw = new Job_Worker_Node();
+		$jw->register_handler( 'noop', fn ( $p ) => null );
+
+		for ( $i = 0; $i < 51; ++$i ) {
+			$msg = $this->job_message( 'noop' );
+			$jw->fill( $msg );
+		}
+
+		$this->assertSame( 51, $jw->jobs_executed() );
+	}
+
+	// --- Memory pressure ----------------------------------------------------
+
+	public function test_memory_pressure_starts_false(): void {
+		$jw = new Job_Worker_Node();
+		$this->assertFalse( $jw->memory_pressure() );
+	}
+
+	public function test_is_memory_high_returns_false_when_limit_unlimited(): void {
+		$prev = ini_set( 'memory_limit', '-1' );
+		try {
+			$jw = new Job_Worker_Node();
+			$this->assertFalse( $jw->is_memory_high() );
+		} finally {
+			if ( false !== $prev ) {
+				ini_set( 'memory_limit', $prev );
+			}
+		}
+	}
+
+	// --- Kind validation ----------------------------------------------------
+
+	public function test_non_job_lines_are_skipped(): void {
+		$jw = new Job_Worker_Node();
+		$called = false;
+		$jw->register_handler( 'noop', function () use ( &$called ) { $called = true; } );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [ 'type' => 'start', 'handler' => 'noop', 'parameters' => [] ];
+		$jw->fill( $msg );
+
+		$this->assertFalse( $called );
+		$this->assertSame( 0, $jw->jobs_executed() );
+	}
+
+	// --- Local vs. remote handler split -------------------------------------
+
+	public function test_set_local_handler_dispatches_for_type_job(): void {
+		$jw = new Job_Worker_Node();
+		$received = null;
+		$jw->set_local_handler( 'sync', function ( $p ) use ( &$received ) { $received = $p; } );
+
+		$msg = $this->job_message( 'sync', [ 'k' => 'v' ], 'job' );
+		$jw->fill( $msg );
+
+		$this->assertSame( [ 'k' => 'v' ], $received );
+	}
+
+	public function test_set_remote_handler_dispatches_for_type_remote_job(): void {
+		$jw = new Job_Worker_Node();
+		$received = null;
+		$jw->set_remote_handler( 'hub_op', function ( $p ) use ( &$received ) { $received = $p; } );
+
+		$msg = $this->job_message( 'hub_op', [ 'a' => 1 ], 'remote_job' );
+		$jw->fill( $msg );
+
+		$this->assertSame( [ 'a' => 1 ], $received );
+	}
+
+	public function test_local_handler_does_not_handle_remote_job(): void {
+		$jw = new Job_Worker_Node();
+		$called = false;
+		$jw->set_local_handler( 'priv', function () use ( &$called ) { $called = true; } );
+
+		$msg = $this->job_message( 'priv', [], 'remote_job' );
+		$jw->fill( $msg );
+
+		$this->assertFalse( $called );
+		$this->assertSame( 0, $jw->jobs_executed() );
+	}
+
+	public function test_remote_handler_does_not_handle_local_job(): void {
+		$jw = new Job_Worker_Node();
+		$called = false;
+		$jw->set_remote_handler( 'priv', function () use ( &$called ) { $called = true; } );
+
+		$msg = $this->job_message( 'priv', [], 'job' );
+		$jw->fill( $msg );
+
+		$this->assertFalse( $called );
+	}
+
+	public function test_same_handler_name_in_both_buckets_dispatches_both(): void {
+		$jw = new Job_Worker_Node();
+		$local_calls = 0;
+		$remote_calls = 0;
+		$jw->set_local_handler( 'evTemplate', function () use ( &$local_calls ) { ++$local_calls; } );
+		$jw->set_remote_handler( 'evTemplate', function () use ( &$remote_calls ) { ++$remote_calls; } );
+
+		$msg = $this->job_message( 'evTemplate', [], 'job' );
+		$jw->fill( $msg );
+		$msg = $this->job_message( 'evTemplate', [], 'remote_job' );
+		$jw->fill( $msg );
+		$msg = $this->job_message( 'evTemplate', [], 'job' );
+		$jw->fill( $msg );
+
+		$this->assertSame( 2, $local_calls );
+		$this->assertSame( 1, $remote_calls );
+	}
+
+	public function test_register_handler_is_alias_for_local(): void {
+		$jw = new Job_Worker_Node();
+		$jw->register_handler( 'work', fn () => null );
+
+		$this->assertTrue( $jw->has_local_handler( 'work' ) );
+		$this->assertFalse( $jw->has_remote_handler( 'work' ) );
+		$this->assertTrue( $jw->has_handler( 'work' ) );
+	}
+
+	public function test_load_handlers_from_filters_pulls_both_buckets(): void {
+		add_filter( 'newspack_nodes/job_handlers', function ( $h ) {
+			$h['local_only']  = fn () => null;
+			$h['shared']      = fn () => null;
+			return $h;
+		} );
+		add_filter( 'newspack_nodes/remote_job_handlers', function ( $h ) {
+			$h['remote_only'] = fn () => null;
+			$h['shared']      = fn () => null;
+			return $h;
+		} );
+
+		$jw = new Job_Worker_Node();
+		$jw->load_handlers_from_filters();
+
+		$this->assertTrue( $jw->has_local_handler( 'local_only' ) );
+		$this->assertTrue( $jw->has_local_handler( 'shared' ) );
+		$this->assertFalse( $jw->has_local_handler( 'remote_only' ) );
+
+		$this->assertTrue( $jw->has_remote_handler( 'remote_only' ) );
+		$this->assertTrue( $jw->has_remote_handler( 'shared' ) );
+		$this->assertFalse( $jw->has_remote_handler( 'local_only' ) );
+	}
+
+	public function test_load_handlers_from_filters_skips_invalid_names(): void {
+		add_filter( 'newspack_nodes/job_handlers', function ( $h ) {
+			$h['valid']        = fn () => null;
+			$h['1bad-leading'] = fn () => null;
+			$h['ok']           = 'not-a-callable';
+			return $h;
+		} );
+
+		$jw = new Job_Worker_Node();
+		$jw->load_handlers_from_filters();
+
+		$this->assertTrue( $jw->has_local_handler( 'valid' ) );
+		$this->assertFalse( $jw->has_local_handler( '1bad-leading' ) );
+		$this->assertFalse( $jw->has_local_handler( 'ok' ) );
+	}
+
+	// ── Sibling interpreter + eager handler loading ─────────────────────
+
+	public function test_job_worker_has_no_sibling_interpreter(): void {
+		$jw = new Job_Worker_Node();
+		$jw->name( 'jw' );
+		$this->assertNull( $jw->interpreter() );
+	}
+
+	public function test_job_worker_ctor_eager_loads_handlers_from_filters(): void {
+		\add_filter(
+			'newspack_nodes/job_handlers',
+			static fn ( $h ) => \array_merge( (array) $h, [ 'ctor_test' => static fn () => null ] )
+		);
+		\add_filter(
+			'newspack_nodes/remote_job_handlers',
+			static fn ( $h ) => \array_merge( (array) $h, [ 'ctor_remote' => static fn () => null ] )
+		);
+		$jw = new Job_Worker_Node();
+		$this->assertTrue( $jw->has_local_handler( 'ctor_test' ) );
+		$this->assertTrue( $jw->has_remote_handler( 'ctor_remote' ) );
+	}
+
+	public function test_job_worker_node_schema_no_verbs(): void {
+		$schema = Job_Worker_Node::node_schema();
+		$this->assertSame( 'Control', $schema['category'] );
+		$this->assertSame( [], $schema['commands'] );
+	}
+
+	public function test_job_worker_node_schema_declares_get_health_request(): void {
+		$schema = Job_Worker_Node::node_schema();
+		$this->assertArrayHasKey( 'requests', $schema );
+		$request_names = \array_column( $schema['requests'], 'name' );
+		$this->assertContains( 'GET_HEALTH', $request_names );
+	}
+
+	// --- Constructor clamping ----------------------------------------------
+
+	public function test_constructor_clamps_zero_or_negative_to_one(): void {
+		$jw = new Job_Worker_Node();
+		$jw->arguments( '0 0 -5' );
+		$this->assertSame( 1, $jw->get_stale_timeout() );
+		$this->assertSame( 1, $jw->get_max_runtime() );
+
+		$jw->register_handler( 'noop', fn () => null );
+		$msg = $this->job_message( 'noop' );
+		$jw->fill( $msg );
+		$msg = $this->job_message( 'noop' );
+		$jw->fill( $msg );
+		$this->assertSame( 2, $jw->jobs_executed() );
+	}
+
+	// --- Handler-name validation throw path ---------------------------------
+
+	public function test_set_local_handler_rejects_invalid_name(): void {
+		$jw = new Job_Worker_Node();
+		$this->expectException( \InvalidArgumentException::class );
+		$jw->set_local_handler( '1bad-leading', fn () => null );
+	}
+
+	public function test_set_remote_handler_rejects_invalid_name(): void {
+		$jw = new Job_Worker_Node();
+		$this->expectException( \InvalidArgumentException::class );
+		$jw->set_remote_handler( 'bad name with spaces', fn () => null );
+	}
+
+	public function test_register_handler_rejects_invalid_name(): void {
+		$jw = new Job_Worker_Node();
+		$this->expectException( \InvalidArgumentException::class );
+		$jw->register_handler( '', fn () => null );
+	}
+
+	// --- fill(): malformed messages ----------------------------------------
+
+	public function test_fill_drops_non_struct_messages(): void {
+		$jw = new Job_Worker_Node();
+		$called = false;
+		$jw->register_handler( 'noop', function () use ( &$called ) { $called = true; } );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::VALUE ] = 'not-a-struct';
+		$jw->fill( $msg );
+
+		$this->assertFalse( $called );
+		$this->assertSame( 0, $jw->jobs_executed() );
+	}
+
+	public function test_fill_drops_oversized_entries(): void {
+		$jw = new Job_Worker_Node();
+		$called = false;
+		$jw->register_handler( 'big', function () use ( &$called ) { $called = true; } );
+
+		$huge_param = \str_repeat( 'x', Job_Worker_Node::MAX_JOB_SIZE + 1024 );
+		$msg = $this->job_message( 'big', [ 'blob' => $huge_param ] );
+		$jw->fill( $msg );
+
+		$this->assertFalse( $called );
+		$this->assertSame( 0, $jw->jobs_executed() );
+	}
+
+	public function test_fill_drops_entries_with_invalid_handler_name(): void {
+		$jw = new Job_Worker_Node();
+		$msg = $this->job_message( 'bad name with spaces' );
+		$jw->fill( $msg );
+		$this->assertSame( 0, $jw->jobs_executed() );
+	}
+
+	public function test_fill_drops_unregistered_handler_name(): void {
+		$jw = new Job_Worker_Node();
+		$msg = $this->job_message( 'never_registered' );
+		$jw->fill( $msg );
+		$this->assertSame( 0, $jw->jobs_executed() );
+	}
+
+	// --- handle_request: GET_HEALTH + unknown verb ----------------------------
+
+	public function test_handle_request_get_health_returns_payload(): void {
+		$jw = new Job_Worker_Node();
+		$jw->set_local_handler( 'a', fn () => null );
+		$jw->set_local_handler( 'b', fn () => null );
+		$jw->set_remote_handler( 'c', fn () => null );
+
+		$sink = new Capture_Sink_Node();
+		$jw->sink( $sink );
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'caller';
+		$req[ Message::ID ]    = 'corr-1';
+		$req[ Message::KEY ]   = 'app-key';
+		$req[ Message::VALUE ] = 'GET_HEALTH';
+		$jw->fill( $req );
+
+		$this->assertCount( 1, $sink->captured );
+		$reply = $sink->captured[0];
+		$this->assertSame(
+			Message::TM_RESPONSE | Message::TM_STRUCT,
+			$reply[ Message::TYPE ]
+		);
+		$this->assertSame( 'caller', $reply[ Message::TO ] );
+		$this->assertSame( 'corr-1', $reply[ Message::ID ] );
+		$this->assertSame( 'app-key', $reply[ Message::KEY ] );
+
+		$value = $reply[ Message::VALUE ];
+		$this->assertIsArray( $value );
+		$this->assertSame( 'GET_HEALTH', $value['verb'] );
+
+		$payload = $value['data'];
+		$this->assertIsArray( $payload );
+		$this->assertArrayHasKey( 'memory_used_mb', $payload );
+		$this->assertArrayHasKey( 'memory_limit_mb', $payload );
+		$this->assertArrayHasKey( 'memory_pressure', $payload );
+		$this->assertArrayHasKey( 'jobs_since_cache_flush', $payload );
+		$this->assertArrayHasKey( 'cache_flush_interval', $payload );
+		$this->assertSame( 2, $payload['local_handler_count'] );
+		$this->assertSame( 1, $payload['remote_handler_count'] );
+		$this->assertGreaterThanOrEqual( 1, $payload['counter'] );
+		$this->assertFalse( $payload['memory_pressure'] );
+	}
+
+	public function test_handle_request_unknown_verb_returns_error_payload(): void {
+		$jw = new Job_Worker_Node();
+		$sink = new Capture_Sink_Node();
+		$jw->sink( $sink );
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'caller';
+		$req[ Message::ID ]    = 'corr-2';
+		$req[ Message::VALUE ] = 'BOGUS_VERB';
+		$jw->fill( $req );
+
+		$this->assertCount( 1, $sink->captured );
+		$value = $sink->captured[0][ Message::VALUE ];
+		$this->assertSame( 'BOGUS_VERB', $value['verb'] );
+		$this->assertArrayHasKey( 'error', $value['data'] );
+		$this->assertStringContainsString( 'BOGUS_VERB', $value['data']['error'] );
+	}
+
+	public function test_handle_request_uppercases_verb(): void {
+		$jw = new Job_Worker_Node();
+		$sink = new Capture_Sink_Node();
+		$jw->sink( $sink );
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'caller';
+		$req[ Message::ID ]    = 'corr-3';
+		$req[ Message::VALUE ] = 'get_health';
+		$jw->fill( $req );
+
+		$this->assertSame( 'GET_HEALTH', $sink->captured[0][ Message::VALUE ]['verb'] );
+	}
+
+	public function test_handle_request_ignores_response_messages(): void {
+		$jw = new Job_Worker_Node();
+		$sink = new Capture_Sink_Node();
+		$jw->sink( $sink );
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
+		$req[ Message::FROM ]  = 'caller';
+		$req[ Message::VALUE ] = 'GET_HEALTH';
+		$jw->fill( $req );
+
+		$this->assertCount( 0, $sink->captured );
+	}
+
+	// --- memory_limit_bytes: every unit suffix --------------------------------
+
+	public function test_memory_limit_bytes_parses_g_suffix(): void {
+		$prev = \ini_set( 'memory_limit', '2G' );
+		try {
+			$jw  = new Job_Worker_Node();
+			$ref = new \ReflectionMethod( Job_Worker_Node::class, 'memory_limit_bytes' );
+			$ref->setAccessible( true );
+			$this->assertSame( 2 * 1024 * 1024 * 1024, $ref->invoke( $jw ) );
+		} finally {
+			if ( false !== $prev ) {
+				\ini_set( 'memory_limit', $prev );
+			}
+		}
+	}
+
+	public function test_memory_limit_bytes_parses_m_suffix(): void {
+		$prev = \ini_set( 'memory_limit', '512M' );
+		try {
+			$jw  = new Job_Worker_Node();
+			$ref = new \ReflectionMethod( Job_Worker_Node::class, 'memory_limit_bytes' );
+			$ref->setAccessible( true );
+			$this->assertSame( 512 * 1024 * 1024, $ref->invoke( $jw ) );
+		} finally {
+			if ( false !== $prev ) {
+				\ini_set( 'memory_limit', $prev );
+			}
+		}
+	}
+
+	public function test_memory_limit_bytes_parses_k_suffix(): void {
+		$prev = \ini_set( 'memory_limit', '1048576K' );
+		try {
+			$jw  = new Job_Worker_Node();
+			$ref = new \ReflectionMethod( Job_Worker_Node::class, 'memory_limit_bytes' );
+			$ref->setAccessible( true );
+			$this->assertSame( 1048576 * 1024, $ref->invoke( $jw ) );
+		} finally {
+			if ( false !== $prev ) {
+				\ini_set( 'memory_limit', $prev );
+			}
+		}
+	}
+
+	public function test_memory_limit_bytes_unlimited_returns_negative_one(): void {
+		$prev = \ini_set( 'memory_limit', '-1' );
+		try {
+			$jw  = new Job_Worker_Node();
+			$ref = new \ReflectionMethod( Job_Worker_Node::class, 'memory_limit_bytes' );
+			$ref->setAccessible( true );
+			$this->assertSame( -1, $ref->invoke( $jw ) );
+		} finally {
+			if ( false !== $prev ) {
+				\ini_set( 'memory_limit', $prev );
+			}
+		}
+	}
+
+	// --- is_memory_high branches ----------------------------------------------
+
+	public function test_is_memory_high_returns_false_below_watermark(): void {
+		$prev = \ini_set( 'memory_limit', '16G' );
+		try {
+			$jw = new Job_Worker_Node();
+			$this->assertFalse( $jw->is_memory_high() );
+		} finally {
+			if ( false !== $prev ) {
+				\ini_set( 'memory_limit', $prev );
+			}
+		}
+	}
+
+	public function test_memory_pressure_does_not_latch_when_below_watermark(): void {
+		$prev = \ini_set( 'memory_limit', '16G' );
+		try {
+			$jw = new Job_Worker_Node();
+			$jw->register_handler( 'noop', fn () => null );
+			$this->assertFalse( $jw->memory_pressure() );
+
+			$msg = $this->job_message( 'noop' );
+			$jw->fill( $msg );
+			$msg = $this->job_message( 'noop' );
+			$jw->fill( $msg );
+
+			$this->assertFalse( $jw->memory_pressure() );
+		} finally {
+			if ( false !== $prev ) {
+				\ini_set( 'memory_limit', $prev );
+			}
+		}
+	}
+
+	// --- Cache flush state machine ------------------------------------------
+
+	public function test_cache_flush_state_machine_emits_set_state_event(): void {
+		$jw = new Job_Worker_Node();
+		$jw->arguments( '3' );
+		$jw->register_handler( 'noop', fn () => null );
+
+		$ref = new \ReflectionProperty( \Newspack_Nodes\Node::class, 'registrations' );
+		$ref->setAccessible( true );
+		$registrations             = $ref->getValue( $jw );
+		$flush_observed            = [];
+		$registrations['CACHE_FLUSH'] = [ 'listener_id' => function ( $payload ) use ( &$flush_observed ) {
+			$flush_observed[] = $payload;
+			return true; // keep registered
+		} ];
+		$ref->setValue( $jw, $registrations );
+
+		for ( $i = 0; $i < 3; ++$i ) {
+			$msg = $this->job_message( 'noop' );
+			$jw->fill( $msg );
+		}
+		$this->assertCount( 1, $flush_observed, 'first flush fires at jobs == interval' );
+		$this->assertSame( 3, $flush_observed[0]['jobs'] );
+
+		for ( $i = 0; $i < 2; ++$i ) {
+			$msg = $this->job_message( 'noop' );
+			$jw->fill( $msg );
+		}
+		$this->assertCount( 1, $flush_observed );
+
+		$msg = $this->job_message( 'noop' );
+		$jw->fill( $msg );
+		$this->assertCount( 2, $flush_observed );
+	}
+
+	// ── Tachikoma-parity arguments() ────────────────────────────────────
+
+	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
+		$jw = new Job_Worker_Node();
+		$jw->arguments( '7 120 480' );
+		$ref = new \ReflectionClass( $jw );
+		$this->assertSame( 7,   $ref->getProperty( 'cache_flush_interval' )->getValue( $jw ) );
+		$this->assertSame( 120, $ref->getProperty( 'stale_timeout' )->getValue( $jw ) );
+		$this->assertSame( 480, $ref->getProperty( 'max_runtime' )->getValue( $jw ) );
+		$this->assertSame( 120, $jw->get_stale_timeout() );
+		$this->assertSame( 480, $jw->get_max_runtime() );
+	}
+
+	public function test_arguments_setter_applies_schema_defaults_for_missing_optional_tokens(): void {
+		$jw = new Job_Worker_Node();
+		$jw->arguments( '' );
+		$ref = new \ReflectionClass( $jw );
+		$this->assertSame( Job_Worker_Node::CACHE_FLUSH_INTERVAL,   $ref->getProperty( 'cache_flush_interval' )->getValue( $jw ) );
+		$this->assertSame( Job_Worker_Node::DEFAULT_STALE_TIMEOUT,  $ref->getProperty( 'stale_timeout' )->getValue( $jw ) );
+		$this->assertSame( Job_Worker_Node::DEFAULT_MAX_RUNTIME,    $ref->getProperty( 'max_runtime' )->getValue( $jw ) );
+
+		$jw2 = new Job_Worker_Node();
+		$jw2->arguments( '5' );
+		$ref2 = new \ReflectionClass( $jw2 );
+		$this->assertSame( 5,                                       $ref2->getProperty( 'cache_flush_interval' )->getValue( $jw2 ) );
+		$this->assertSame( Job_Worker_Node::DEFAULT_STALE_TIMEOUT,  $ref2->getProperty( 'stale_timeout' )->getValue( $jw2 ) );
+		$this->assertSame( Job_Worker_Node::DEFAULT_MAX_RUNTIME,    $ref2->getProperty( 'max_runtime' )->getValue( $jw2 ) );
+	}
+
+	public function test_arguments_setter_normalizes_to_minimum_one(): void {
+		$jw = new Job_Worker_Node();
+		$jw->arguments( '0 -3 -5' );
+		$ref = new \ReflectionClass( $jw );
+		$this->assertSame( 1, $ref->getProperty( 'cache_flush_interval' )->getValue( $jw ) );
+		$this->assertSame( 1, $ref->getProperty( 'stale_timeout' )->getValue( $jw ) );
+		$this->assertSame( 1, $ref->getProperty( 'max_runtime' )->getValue( $jw ) );
+	}
+}

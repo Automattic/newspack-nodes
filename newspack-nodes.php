@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Newspack Nodes
  * Description: Node-graph runtime for composable PHP services.
- * Version: 0.11.0
+ * Version: 0.12.0
  * Author: Automattic
  * License: GPL-2.0-or-later
  * Text Domain: newspack-nodes
@@ -14,7 +14,7 @@
 \defined( 'ABSPATH' ) || exit;
 
 if ( ! \defined( 'NEWSPACK_NODES_VERSION' ) ) {
-	\define( 'NEWSPACK_NODES_VERSION', '0.11.0' );
+	\define( 'NEWSPACK_NODES_VERSION', '0.12.0' );
 }
 if ( ! \defined( 'NEWSPACK_NODES_FILE' ) ) {
 	\define( 'NEWSPACK_NODES_FILE', __FILE__ );
@@ -69,6 +69,11 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 // Register the substrate's `config` topology-token namespace so TSL `<config:key>`
 // tokens resolve against substrate config. Apps register their own namespaces.
 \Newspack_Nodes\Config::register_token_namespace();
+
+// Substrate-owned stock topologies (job-worker, …). Apps register their own dirs
+// via Topology_Registry::register_plugin(); the substrate registers its own so
+// generic runtime topologies ship with the runtime, not the application layer.
+\Newspack_Nodes\Topology_Registry::register_stock_dir( __DIR__ . '/topologies' );
 
 // Build the one shared Core::$memd handle from the substrate's own
 // memcache_servers config. Runs at plugin-file scope (before any plugins_loaded
