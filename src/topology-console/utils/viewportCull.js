@@ -19,8 +19,9 @@
  * @param {number}                                          [opts.detailScale=0.35] px/unit below which labels are dropped.
  * @param {number}                                          [opts.overscan=0]       Off-screen render band as a fraction of the viewBox per axis.
  * @param {number}                                          [opts.margin]           Absolute world-unit cull margin (overrides overscan, both axes).
- * @return {{visibleIds:Set<string>, showDetail:boolean, scale:number, region:{x:number,y:number,w:number,h:number}}}
- *   The node ids to render, whether to draw labels, the px/unit scale, and the
+ * @return {{visibleIds:Set<string>, strictVisibleIds:Set<string>, showDetail:boolean, scale:number, region:{x:number,y:number,w:number,h:number}}}
+ *   The node ids to render (with overscan), the strict no-overscan subset (for
+ *   bloom-group membership), whether to draw labels, the px/unit scale, and the
  *   on-screen clip rect (for truncating one-endpoint-visible edges).
  */
 export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
@@ -87,6 +88,12 @@ export function viewportCull( nodes, viewBox, canvas, opts = {} ) {
 		// edge can be truncated to the viewport instead of drawn as a giant bezier
 		// out to its off-screen peer.
 		region: { x: left, y: top, w: right - left, h: bottom - top },
+		// The strict on-screen world rect (NO overscan). The bloom filter pins its
+		// region to this (`filterUnits="userSpaceOnUse"`), so the blur buffer is
+		// exactly the viewport — never the full group bbox (which spans the
+		// overscan ring) and never a degenerate near-zero-height bbox (a row of
+		// horizontal edges), both of which a default objectBoundingBox region hits.
+		visibleRegion: { x: visX, y: visY, w: visW, h: visH },
 	};
 }
 

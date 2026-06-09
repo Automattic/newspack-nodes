@@ -111,6 +111,18 @@ const MIN_NODE_PX = 2;
 // scrolls smoothly and a narrow column doesn't blink out when nudged sideways.
 const NODE_OVERSCAN = 0.5;
 
+// Bloom blur radius in SCREEN px (per theme). The SVG filter's stdDeviation is in
+// world units, so it's divided by the px/world scale each render to hold a
+// constant on-screen glow across zoom.
+const BLOOM_STDDEV_PX = { crt: 2.5, neo: 2 };
+// stdDeviation (world units) for a screen-constant glow; 0 when unmeasured
+// (scale === Infinity) so jsdom/first-render emit a no-op blur.
+function bloomStdDev( px, scale ) {
+	return Number.isFinite( scale ) && scale > 0
+		? ( px / scale ).toFixed( 2 )
+		: 0;
+}
+
 // Parse "x y w h" into an object; safe fallback on malformed input.
 function parseViewBox( str ) {
 	const parts = str.split( /\s+/ ).map( Number );
@@ -454,7 +466,7 @@ export default function SchematicCanvas( {
 	// every card (and every label) in the DOM. Only nodes intersecting the viewBox
 	// render; below a readable scale the cards drop to bare rects (LOD). Recomputed
 	// on viewport / node-position / canvas-size changes, not on hover.
-	const { visibleIds, showDetail, scale, region } = useMemo(
+	const { visibleIds, showDetail, scale, region, visibleRegion } = useMemo(
 		() =>
 			viewportCull( displayNodes, vb, canvasPx, {
 				nodeW: NODE_W,
@@ -714,6 +726,169 @@ export default function SchematicCanvas( {
 		}, 0 );
 	};
 
+	// One node card. Extracted for readability; all visible cards render into the
+	// single nodes group (which carries the bloom filter when zoomed in for text).
+	const renderNode = ( n ) => {
+		const isSelected = n.id === selectedId;
+		const isHovered = n.id === hoveredId;
+		const isFaded = hoveredId && ! isHovered;
+		const isDragging = drag && drag.nodeId === n.id;
+		return (
+			<g
+				key={ n.id }
+				className={ `topology-node${
+					isSelected ? ' is-selected' : ''
+				}${ isHovered ? ' is-hovered' : '' }${
+					isFaded ? ' is-faded' : ''
+				}${ isDragging ? ' is-dragging' : '' }${
+					showDetail ? '' : ' is-static'
+				}` }
+				transform={ `translate(${ n.position.x },${ n.position.y })` }
+				onClick={ ( ev ) => {
+					ev.stopPropagation();
+					// Suppress selection after a real drag.
+					if ( draggedRef.current ) {
+						draggedRef.current = false;
+						return;
+					}
+					if ( onSelect ) {
+						onSelect( n.id );
+					}
+				} }
+				onPointerDown={ ( ev ) => beginDrag( ev, n ) }
+				onMouseDown={ ( ev ) => beginDrag( ev, n ) }
+				onPointerMove={ updateDrag }
+				onPointerUp={ endDrag }
+				onPointerCancel={ endDrag }
+				onMouseEnter={ () => setHovered( n.id ) }
+				onMouseLeave={ () => setHovered( null ) }
+			>
+				<rect
+					className="topology-node__shadow"
+					x={ 3 }
+					y={ 3 }
+					width={ NODE_W }
+					height={ NODE_H }
+				/>
+				<rect
+					className="topology-node__bg"
+					width={ nodeRenderW }
+					height={ nodeRenderH }
+				/>
+				{ /* Labels/sparkline/ports only when zoomed in enough to read. */ }
+				{ showDetail && (
+					<>
+						{ /* Card-clipped label layer: a long id/type can't write
+						     past the card edge (so it can't bloom outside it either).
+						     Ports sit ON the edge, so they stay outside the clip. */ }
+						<g clipPath="url(#topology-node-clip)">
+							<line
+								className="topology-node__divider"
+								x1={ 0 }
+								y1={ 22 }
+								x2={ NODE_W }
+								y2={ 22 }
+							/>
+							<text
+								className="topology-node__type"
+								x={ 11 }
+								y={ 15 }
+							>
+								{ n.class }
+							</text>
+							<circle
+								className="topology-node__led"
+								cx={ NODE_W - 12 }
+								cy={ 13 }
+								r={ 3.5 }
+							/>
+							<text
+								className="topology-node__id"
+								x={ 11 }
+								y={ 44 }
+							>
+								{ n.id }
+							</text>
+							{ /* Per-node rate sparkline; hidden under two samples. */ }
+							{ rateRef &&
+								( () => {
+									const history = rateRef.current.get(
+										n.id
+									)?.history;
+									const path = sparklinePath( history );
+									if ( ! path ) {
+										return null;
+									}
+									return (
+										<path
+											className="topology-node__spark"
+											d={ path }
+										/>
+									);
+								} )() }
+							{ /* Per-node rate, bottom-left; quiet nodes show nothing. */ }
+							{ rateRef && (
+								<text
+									className="topology-node__rate"
+									x={ 11 }
+									y={ 76 }
+								>
+									{ formatNodeRate(
+										rateRef.current.get( n.id )?.rate
+									) }
+								</text>
+							) }
+							<text
+								className="topology-node__counter"
+								x={ NODE_W - 11 }
+								y={ 76 }
+								textAnchor="end"
+							>
+								{ compactCount( n.count ) }
+							</text>
+						</g>
+						{ ( n.accepts_fill ??
+							classCatalog[ n.class ]?.accepts_fill ??
+							true ) && (
+							<circle
+								className={ `topology-port topology-port--in${
+									wireDrag && wireDrag.hoveredId === n.id
+										? ' is-snap-target'
+										: ''
+								}` }
+								cx={ 0 }
+								cy={ NODE_H / 2 }
+								r={ PORT_R }
+							/>
+						) }
+						{ ( n.has_target ??
+							classCatalog[ n.class ]?.has_target ??
+							true ) && (
+							<circle
+								className={ `topology-port topology-port--out${
+									editMode ? ' is-edit' : ''
+								}${
+									interactive && onConnect
+										? ' is-wire-source'
+										: ''
+								}` }
+								cx={ NODE_W }
+								cy={ NODE_H / 2 }
+								r={ PORT_R }
+								onPointerDown={ ( e ) =>
+									handlePortPointerDown( n.id, e )
+								}
+								onMouseDown={ ( e ) =>
+									handlePortPointerDown( n.id, e )
+								}
+							/>
+						) }
+					</>
+				) }
+			</g>
+		);
+	};
+
 	return (
 		<svg
 			ref={ svgRef }
@@ -770,6 +945,68 @@ export default function SchematicCanvas( {
 						className="topology-arrow-head topology-arrow-head--active"
 					/>
 				</marker>
+				{ /* Clip each card's label layer to the card rect so a long id /
+				     type can't write past the edge (nor bloom past it). userSpace
+				     coords are the card-local frame under the node's transform. */ }
+				<clipPath
+					id="topology-node-clip"
+					clipPathUnits="userSpaceOnUse"
+				>
+					<rect x={ 0 } y={ 0 } width={ NODE_W } height={ NODE_H } />
+				</clipPath>
+				{ /* Group bloom: ONE blur pass per group (vs a drop-shadow per
+				     glyph), blurring real pixels so each element keeps its color and
+				     the cards + names bloom together. Referenced by the --bloom
+				     groups via `filter:url()` in the CRT and Neo-Tokyo themes only.
+				     The region is pinned to the strict viewport (userSpaceOnUse) so
+				     the blur buffer is exactly the visible rect — never the full
+				     group bbox (which spans the overscan ring) nor a degenerate
+				     near-zero-height bbox (a row of horizontal edges). stdDeviation
+				     is world units ÷ scale, holding a constant on-screen glow. */ }
+				<filter
+					id="topology-bloom-crt"
+					filterUnits="userSpaceOnUse"
+					x={ visibleRegion.x }
+					y={ visibleRegion.y }
+					width={ visibleRegion.w }
+					height={ visibleRegion.h }
+					colorInterpolationFilters="sRGB"
+				>
+					<feGaussianBlur
+						in="SourceGraphic"
+						stdDeviation={ bloomStdDev(
+							BLOOM_STDDEV_PX.crt,
+							scale
+						) }
+						result="bloom"
+					/>
+					<feMerge>
+						<feMergeNode in="bloom" />
+						<feMergeNode in="SourceGraphic" />
+					</feMerge>
+				</filter>
+				<filter
+					id="topology-bloom-neo"
+					filterUnits="userSpaceOnUse"
+					x={ visibleRegion.x }
+					y={ visibleRegion.y }
+					width={ visibleRegion.w }
+					height={ visibleRegion.h }
+					colorInterpolationFilters="sRGB"
+				>
+					<feGaussianBlur
+						in="SourceGraphic"
+						stdDeviation={ bloomStdDev(
+							BLOOM_STDDEV_PX.neo,
+							scale
+						) }
+						result="bloom"
+					/>
+					<feMerge>
+						<feMergeNode in="bloom" />
+						<feMergeNode in="SourceGraphic" />
+					</feMerge>
+				</filter>
 			</defs>
 
 			{ /* Large origin-centered fill so pan/zoom needs no re-render. */ }
@@ -782,18 +1019,23 @@ export default function SchematicCanvas( {
 				pointerEvents="none"
 			/>
 
-			{ showDetail && (
-				<g className="topology-edges">
-					{ edges.map( ( e, i ) => {
+			{ showDetail &&
+				( () => {
+					// Bloom only full (both-endpoints-visible) connections; a stub
+					// — an edge whose far endpoint is off-screen — renders in the
+					// plain group so its glow never bleeds from off-screen.
+					const bloomEdges = [];
+					const plainEdges = [];
+					edges.forEach( ( e, i ) => {
 						const a = nodeById.get( e.from );
 						const b = nodeById.get( e.to );
 						if ( ! a || ! b ) {
-							return null;
+							return;
 						}
-						// Cull only edges with BOTH endpoints off-screen; one visible
-						// endpoint is enough (it anchors the edge on-screen).
+						// Cull only edges with BOTH endpoints off-screen; one
+						// visible endpoint anchors the edge on-screen.
 						if ( ! isEdgeVisible( e.from, e.to, visibleIds ) ) {
-							return null;
+							return;
 						}
 						const hoverTouches =
 							hoveredId === e.from || hoveredId === e.to;
@@ -808,11 +1050,10 @@ export default function SchematicCanvas( {
 							selectedEdge &&
 							selectedEdge.from === e.from &&
 							selectedEdge.to === e.to;
-						// One endpoint off-screen: draw a straight stub from the
-						// visible port toward the off-screen port, clipped to the
-						// viewport — not a giant bezier whose control points balloon
-						// out to the off-screen peer. Drop the arrowhead (it points
-						// off-screen). Both visible → the normal node-to-node bezier.
+						// One endpoint off-screen: straight stub from the visible
+						// port toward the off-screen port, clipped to the viewport
+						// (no giant bezier to the off-screen peer, no arrowhead).
+						// Both visible → the normal node-to-node bezier.
 						const fromVis = visibleIds.has( e.from );
 						const toVis = visibleIds.has( e.to );
 						let d;
@@ -848,7 +1089,7 @@ export default function SchematicCanvas( {
 							d = `M ${ visP.x },${ visP.y } L ${ exit.x },${ exit.y }`;
 							stub = true;
 						}
-						return (
+						const el = (
 							<g key={ `edge-${ i }-${ e.from }-${ e.to }` }>
 								<path
 									className={ `topology-edge topology-edge--active${
@@ -882,11 +1123,27 @@ export default function SchematicCanvas( {
 								) }
 							</g>
 						);
-					} ) }
-				</g>
-			) }
+						( stub ? plainEdges : bloomEdges ).push( el );
+					} );
+					return (
+						<>
+							<g className="topology-edges topology-edges--bloom">
+								{ bloomEdges }
+							</g>
+							<g className="topology-edges">{ plainEdges }</g>
+						</>
+					);
+				} )() }
 
-			<g className="topology-nodes">
+			{ /* One stable nodes group — no per-frame reparenting (so a drag never
+			     remounts a card and drops pointer capture). It carries the bloom
+			     filter when zoomed in for text; the viewport-pinned filter region
+			     keeps the blur bounded to the visible rect. */ }
+			<g
+				className={ `topology-nodes${
+					showDetail ? ' topology-nodes--bloom' : ''
+				}` }
+			>
 				{ displayNodes.map( ( n ) => {
 					// Cull off-viewport nodes (always render the one being dragged).
 					if (
@@ -895,162 +1152,7 @@ export default function SchematicCanvas( {
 					) {
 						return null;
 					}
-					const isSelected = n.id === selectedId;
-					const isHovered = n.id === hoveredId;
-					const isFaded = hoveredId && ! isHovered;
-					const isDragging = drag && drag.nodeId === n.id;
-					return (
-						<g
-							key={ n.id }
-							className={ `topology-node${
-								isSelected ? ' is-selected' : ''
-							}${ isHovered ? ' is-hovered' : '' }${
-								isFaded ? ' is-faded' : ''
-							}${ isDragging ? ' is-dragging' : '' }${
-								showDetail ? '' : ' is-static'
-							}` }
-							transform={ `translate(${ n.position.x },${ n.position.y })` }
-							onClick={ ( ev ) => {
-								ev.stopPropagation();
-								// Suppress selection after a real drag.
-								if ( draggedRef.current ) {
-									draggedRef.current = false;
-									return;
-								}
-								if ( onSelect ) {
-									onSelect( n.id );
-								}
-							} }
-							onPointerDown={ ( ev ) => beginDrag( ev, n ) }
-							onMouseDown={ ( ev ) => beginDrag( ev, n ) }
-							onPointerMove={ updateDrag }
-							onPointerUp={ endDrag }
-							onPointerCancel={ endDrag }
-							onMouseEnter={ () => setHovered( n.id ) }
-							onMouseLeave={ () => setHovered( null ) }
-						>
-							<rect
-								className="topology-node__shadow"
-								x={ 3 }
-								y={ 3 }
-								width={ NODE_W }
-								height={ NODE_H }
-							/>
-							<rect
-								className="topology-node__bg"
-								width={ nodeRenderW }
-								height={ nodeRenderH }
-							/>
-							{ /* Labels/sparkline/ports only when zoomed in enough to read. */ }
-							{ showDetail && (
-								<>
-									<line
-										className="topology-node__divider"
-										x1={ 0 }
-										y1={ 22 }
-										x2={ NODE_W }
-										y2={ 22 }
-									/>
-									<text
-										className="topology-node__type"
-										x={ 11 }
-										y={ 15 }
-									>
-										{ n.class }
-									</text>
-									<circle
-										className="topology-node__led"
-										cx={ NODE_W - 12 }
-										cy={ 13 }
-										r={ 3.5 }
-									/>
-									<text
-										className="topology-node__id"
-										x={ 11 }
-										y={ 44 }
-									>
-										{ n.id }
-									</text>
-									{ /* Per-node rate sparkline; hidden under two samples. */ }
-									{ rateRef &&
-										( () => {
-											const history = rateRef.current.get(
-												n.id
-											)?.history;
-											const path =
-												sparklinePath( history );
-											if ( ! path ) {
-												return null;
-											}
-											return (
-												<path
-													className="topology-node__spark"
-													d={ path }
-												/>
-											);
-										} )() }
-									{ /* Per-node rate, bottom-left; quiet nodes show nothing. */ }
-									{ rateRef && (
-										<text
-											className="topology-node__rate"
-											x={ 11 }
-											y={ 76 }
-										>
-											{ formatNodeRate(
-												rateRef.current.get( n.id )
-													?.rate
-											) }
-										</text>
-									) }
-									<text
-										className="topology-node__counter"
-										x={ NODE_W - 11 }
-										y={ 76 }
-										textAnchor="end"
-									>
-										{ compactCount( n.count ) }
-									</text>
-									{ ( n.accepts_fill ??
-										classCatalog[ n.class ]?.accepts_fill ??
-										true ) && (
-										<circle
-											className={ `topology-port topology-port--in${
-												wireDrag &&
-												wireDrag.hoveredId === n.id
-													? ' is-snap-target'
-													: ''
-											}` }
-											cx={ 0 }
-											cy={ NODE_H / 2 }
-											r={ PORT_R }
-										/>
-									) }
-									{ ( n.has_target ??
-										classCatalog[ n.class ]?.has_target ??
-										true ) && (
-										<circle
-											className={ `topology-port topology-port--out${
-												editMode ? ' is-edit' : ''
-											}${
-												interactive && onConnect
-													? ' is-wire-source'
-													: ''
-											}` }
-											cx={ NODE_W }
-											cy={ NODE_H / 2 }
-											r={ PORT_R }
-											onPointerDown={ ( e ) =>
-												handlePortPointerDown( n.id, e )
-											}
-											onMouseDown={ ( e ) =>
-												handlePortPointerDown( n.id, e )
-											}
-										/>
-									) }
-								</>
-							) }
-						</g>
-					);
+					return renderNode( n );
 				} ) }
 			</g>
 			{ wireDrag && (

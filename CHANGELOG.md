@@ -10,7 +10,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - **Topology-console theme crossfade.** Switching skins now animates through the View Transitions API (`withViewTransition` + `flushSync` commits the new theme class before the transition snapshots), with a graceful fallback where the API is absent. Applies to both the console and the debug overlay (shared `usePanelChrome`).
-- **Bloom on the CRT Phosphor Terminal and Neo-Tokyo HUD skins.** Layered `drop-shadow` glow on bright glyphs, LEDs, counters/rates, and active edges — phosphor-soft on CRT, neon-tight on Neo-Tokyo — derived from each skin's theme vars via `color-mix` (no hardcoded halo colors).
+- **Bloom on the CRT Phosphor Terminal and Neo-Tokyo HUD skins.** A single SVG `feGaussianBlur` + `feMerge` filter (`#topology-bloom-crt` / `#topology-bloom-neo`) applied to the on-screen node group and the on-screen full-edge group — one blur pass per group, not a `drop-shadow` per glyph — so names, LEDs, counters/rates, active edges AND the cards themselves bloom (when zoomed in for text), each keeping its own color since the filter blurs the real rendered pixels. Details:
+  - **Cards + names bloom, clipped to the card.** Each card's label layer is clipped to the card rect (`#topology-node-clip`), so a long id/type can't write past the edge — nor bloom past it. Ports sit on the edge and stay outside the clip.
+  - **Off-screen connections don't bloom.** A stub (an edge whose far endpoint is off-screen) renders in a separate plain, unfiltered group.
+  - **Filter region pinned to the viewport** (`filterUnits="userSpaceOnUse"`, region = `viewportCull.visibleRegion`), so the blur buffer is exactly the visible rect — never the overscan-spanning group bbox, never a degenerate near-zero-height bbox (a row of horizontal edges).
+  - **Constant on-screen glow across zoom** — `stdDeviation` is world-units ÷ px/world scale.
+  - **One stable nodes group** (the `--bloom` class just toggles on `showDetail`) — no per-frame reparenting, so a drag never remounts a card (which would drop pointer capture and replay the entrance fade) and node paint order is unchanged.
+  - The header `.topology-brand` keeps a per-element drop-shadow (one chrome element). `SchematicCanvas` factors the card markup into a `renderNode` helper.
 
 ### Changed
 

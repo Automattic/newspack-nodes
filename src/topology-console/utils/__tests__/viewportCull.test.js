@@ -202,3 +202,32 @@ describe( 'viewportCull', () => {
 		expect( showDetail ).toBe( true );
 	} );
 } );
+
+describe( 'viewportCull visibleRegion (bloom filter region)', () => {
+	// The bloom filter pins its region to the strict viewport (userSpaceOnUse) so
+	// the blur buffer is exactly the visible rect — not the overscan-expanded
+	// `region`, and not a degenerate group bbox.
+	it( 'returns the strict on-screen rect, excluding the overscan margin', () => {
+		const { region, visibleRegion } = viewportCull(
+			[],
+			{ x: 0, y: 0, w: 1000, h: 1000 },
+			{ w: 1000, h: 1000 },
+			{ overscan: 0.5 }
+		);
+		expect( visibleRegion ).toEqual( { x: 0, y: 0, w: 1000, h: 1000 } );
+		// region carries the 500-unit overscan margin per side; visibleRegion doesn't.
+		expect( region.w ).toBeGreaterThan( visibleRegion.w );
+	} );
+
+	it( 'expands visibleRegion to the meet-letterbox in a wide canvas', () => {
+		// Tall-narrow viewBox (400x4000) in a wide canvas (2000x1000): meet scale
+		// 0.25 (height-bound), so the on-screen world width is 2000/0.25 = 8000.
+		const { visibleRegion } = viewportCull(
+			[],
+			{ x: 0, y: 0, w: 400, h: 4000 },
+			{ w: 2000, h: 1000 }
+		);
+		expect( visibleRegion.w ).toBeCloseTo( 8000, 3 );
+		expect( visibleRegion.h ).toBeCloseTo( 4000, 3 );
+	} );
+} );
