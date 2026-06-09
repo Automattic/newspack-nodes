@@ -11,7 +11,7 @@
  *            `source` is 'user'|'stock'|'both'; `active` follows the operator overlay.
  *   get    — args `{name}`. Returns `{name, source, tsl}`; throws on miss.
  *   save   — args `{name, tsl}`. Returns `{name, path, shadows_stock,
- *            restarted_fleets}`. 64 KiB cap; dry-run validation via
+ *            restarted_fleets}`. 1 MiB cap; dry-run validation via
  *            Shell::validate_line; restarts the matching active fleet.
  *   delete — args `{name}`. Returns `{name, deleted, stock_fallback,
  *            restarted_fleets}`. User copy only (stock immutable); restarts
@@ -36,7 +36,7 @@ use Newspack_Nodes\Topology_Registry;
 \defined( 'ABSPATH' ) || exit;
 
 class Topologies_CI_Node extends Service_CI_Node {
-	private const MAX_BODY_BYTES = 65536;
+	private const MAX_BODY_BYTES = 1048576;
 
 	/**
 	 * Reduce a Topology_Registry::describe() entry to its 'user'|'stock'|'both'
@@ -125,7 +125,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'save',
-					'description' => 'Write a user topology: `save <name> <tsl…>` (validated; restarts the active fleet). 64 KiB cap.',
+					'description' => 'Write a user topology: `save <name> <tsl…>` (validated; restarts the active fleet). 1 MiB cap.',
 					'args'        => [
 						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'tsl', 'type' => 'text', 'required' => true ],
@@ -135,7 +135,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 						// $envelope is the 7-field positional message array (a list).
 						if ( \array_is_list( $envelope ) && Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 							throw new \RuntimeException(
-								\esc_html( 'body too large: topology arguments exceed 64 KiB' )
+								\esc_html( 'body too large: topology arguments exceed 1 MiB' )
 							);
 						}
 						// `save <name> <tsl…>`: name is the first token, the rest-of-line (may contain newlines) is the .tsl body.
