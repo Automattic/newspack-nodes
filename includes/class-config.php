@@ -26,8 +26,9 @@ class Config {
 		if ( ! empty( \get_option( self::AUTOLOAD_FIXED_OPTION ) ) ) {
 			return;
 		}
-		foreach ( \array_keys( self::$option_schema ) as $key ) {
-			\wp_set_option_autoload( "newspack_nodes_{$key}", true );
+		$schema = Settings_Schema::get();
+		foreach ( $schema->overlay_keys() as $key ) {
+			\wp_set_option_autoload( $schema->prefix() . $key, true );
 		}
 		\update_option( self::AUTOLOAD_FIXED_OPTION, '1', false );
 	}
@@ -74,24 +75,6 @@ class Config {
 	private static ?string $validated_offsets_directory = null;
 
 	/**
-	 * Option schema — every key loaded on every load_config() call (sanitizers in Config_Utils).
-	 *
-	 * @var array<string, string>
-	 */
-	private static $option_schema = [
-		'base_directory'   => 'path',
-		'num_partitions'   => 'int',
-		'num_segments'     => 'int',
-		'segment_size'     => 'int',
-		'max_lifespan'     => 'int',
-		'memcache_servers' => 'memcache_servers',
-		// Flat list of active topology names; one worker fleet per entry.
-		'topologies'       => 'array_strings',
-		// Whitelist of user_logins allowed to see menus / access dashboards; empty = any manage_options admin.
-		'allowed_users'    => 'array_strings',
-	];
-
-	/**
 	 * Allowed directories (or subdirectories) for local config override files.
 	 *
 	 * @var array<int, string>
@@ -113,10 +96,11 @@ class Config {
 		// Presence-based overlay: a stored option (even '' / [] / false / 0) wins
 		// over the file default; only an absent option falls back. Shared rule —
 		// see Config_System\Options_Overlay.
+		$schema = Settings_Schema::get();
 		$config = Config_System\Options_Overlay::apply(
 			self::load_config_defaults(),
-			\array_keys( self::$option_schema ),
-			'newspack_nodes_'
+			$schema->overlay_keys(),
+			$schema->prefix()
 		);
 
 		self::$config = $config;

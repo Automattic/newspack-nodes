@@ -24,6 +24,7 @@ import { useLayout } from './hooks/useLayout';
 import { useSaveTopology } from './hooks/useSaveTopology';
 import { useDeleteTopology } from './hooks/useDeleteTopology';
 import { useTopology, useTopologyList } from './hooks/useTopologyList';
+import { useTopologyCatalog } from './hooks/useTopologyCatalog';
 import { useConsoleGraph } from './hooks/useConsoleGraph';
 import { useGraphSource } from './hooks/useGraphSource';
 import { useCompletion } from './hooks/useCompletion';
@@ -59,39 +60,55 @@ import {
 	PALETTE_COLLAPSED_STORAGE_KEY_EDIT,
 } from './themes';
 
-function topologyMap() {
-	return (
-		( window.NewspackNodesData &&
-			window.NewspackNodesData.topologyPartitions ) ||
-		{}
-	);
-}
-
-function activeTopologySet() {
-	const list =
-		( window.NewspackNodesData &&
-			window.NewspackNodesData.activeTopologies ) ||
-		[];
-	return new Set( list );
-}
+// Pure derivations over a catalog — `partitions` is `{ name: num_partitions }`,
+// `active` is the list of active topology names. Shared by the module-level seed
+// (initial topology from the URL) and the live useTopologyCatalog data, so the
+// menu and the seed compute identically.
 
 // Active topologies sort to the top of the dropdown, then alphabetical.
-function sortedTopologies() {
-	const all = Object.keys( topologyMap() );
-	const active = activeTopologySet();
-	return [ ...all ].sort( ( a, b ) => {
-		const ad = active.has( a ) ? 0 : 1;
-		const bd = active.has( b ) ? 0 : 1;
+function sortTopologies( partitions, active ) {
+	const activeSet = new Set( active );
+	return Object.keys( partitions ).sort( ( a, b ) => {
+		const ad = activeSet.has( a ) ? 0 : 1;
+		const bd = activeSet.has( b ) ? 0 : 1;
 		return ad !== bd ? ad - bd : a.localeCompare( b );
 	} );
 }
 
-const TOPOLOGIES = sortedTopologies();
-
-function partitionList( topology ) {
-	const n = topologyMap()[ topology ] || 1;
+function partitionIndices( partitions, topology ) {
+	const n = partitions[ topology ] || 1;
 	return Array.from( { length: n }, ( _, i ) => i );
 }
+
+// Every cwd the Path menu can select: the local graph, the request scope, then
+// one entry per worker — only for ACTIVE topologies (inactive ones have no live
+// workers to reach).
+function buildPathOptions( partitions, active ) {
+	const activeSet = new Set( active );
+	return [
+		'',
+		'_http',
+		...sortTopologies( partitions, active )
+			.filter( ( t ) => activeSet.has( t ) )
+			.flatMap( ( t ) =>
+				partitionIndices( partitions, t ).map(
+					( p ) => `_sse/${ t }.p${ p }`
+				)
+			),
+	];
+}
+
+// The page-load snapshot — ONLY the seed for the initial topology pick; the live
+// menu data comes from useTopologyCatalog (which seeds from this same snapshot).
+const SEED_PARTITIONS =
+	( window.NewspackNodesData &&
+		window.NewspackNodesData.topologyPartitions ) ||
+	{};
+const TOPOLOGIES = sortTopologies(
+	SEED_PARTITIONS,
+	( window.NewspackNodesData && window.NewspackNodesData.activeTopologies ) ||
+		[]
+);
 
 // '_sse/{topology}.p{N}' → { topology, partition }; any other cwd → null.
 function parseWorker( cwd ) {
@@ -222,9 +239,13 @@ function readUrlParam( key ) {
 }
 function initialTopologyFromUrl( fallback ) {
 	const t = readUrlParam( 'topology' );
-	return t && Object.prototype.hasOwnProperty.call( topologyMap(), t )
-		? t
-		: fallback;
+	// Live read at render time (NOT the module-load seed): the localized
+	// snapshot may land after this module is imported.
+	const live =
+		( window.NewspackNodesData &&
+			window.NewspackNodesData.topologyPartitions ) ||
+		{};
+	return t && Object.prototype.hasOwnProperty.call( live, t ) ? t : fallback;
 }
 function initialPartitionFromUrl() {
 	const p = parseInt( readUrlParam( 'partition' ) || '0', 10 );
@@ -325,22 +346,24 @@ export default function TopologyConsole() {
 	// stream gate can read it.
 	const [ cwd, setCwd ] = useState( '' );
 
-	// Every cwd the Path menu can select: the local graph, the request scope, then
-	// one entry per worker — only for ACTIVE topologies (inactive ones have no live
-	// workers to reach). Declared here (above useConsoleGraph) so the SSE stream
-	// gate can resolve the cwd against it. An off-menu cwd is surfaced by the Header.
-	const pathOptions = useMemo( () => {
-		const active = activeTopologySet();
-		return [
-			'',
-			'_http',
-			...sortedTopologies()
-				.filter( ( t ) => active.has( t ) )
-				.flatMap( ( t ) =>
-					partitionList( t ).map( ( p ) => `_sse/${ t }.p${ p }` )
-				),
-		];
-	}, [] );
+	// Live topology catalog: partition counts + active set, refreshed from
+	// `topologies.list` (poll + on save/delete). The page-load snapshot goes
+	// stale the moment a topology is saved/deleted here or a worker is
+	// started/stopped elsewhere — this is what keeps the Path menu reacting
+	// without a full reload.
+	const {
+		partitions: topologyPartitions,
+		active: activeTopologies,
+		reload: reloadCatalog,
+	} = useTopologyCatalog();
+
+	// Every cwd the Path menu can select. Declared here (above useConsoleGraph) so
+	// the SSE stream gate can resolve the cwd against it; recomputes whenever the
+	// live catalog changes. An off-menu cwd is surfaced by the Header.
+	const pathOptions = useMemo(
+		() => buildPathOptions( topologyPartitions, activeTopologies ),
+		[ topologyPartitions, activeTopologies ]
+	);
 
 	// SSE off in edit mode so offline authoring doesn't poke the live worker; the
 	// stream also goes quiet when the cwd isn't a (live) worker (nothing to stream),
@@ -629,7 +652,10 @@ export default function TopologyConsole() {
 			setToast( { kind: 'error', text: msg } );
 		}
 	}, [ effectiveTopologyName, positionOverrides, saveLayout, layoutGraph ] );
-	const partitions = useMemo( () => partitionList( topology ), [ topology ] );
+	const partitions = useMemo(
+		() => partitionIndices( topologyPartitions, topology ),
+		[ topologyPartitions, topology ]
+	);
 
 	const configDefaultPartitions =
 		( window.NewspackNodesData &&
@@ -1072,6 +1098,9 @@ export default function TopologyConsole() {
 					  ),
 			} );
 			topologyList.reload();
+			// A delete restarts (or stock-falls-back) the matching fleet — re-fetch
+			// the live catalog so the Path menu drops/repartitions it without reload.
+			reloadCatalog();
 			// Drop back to view mode; the file no longer exists.
 			setMode( 'view' );
 			setEditingName( '' );
@@ -1083,7 +1112,7 @@ export default function TopologyConsole() {
 				__( 'Delete failed', 'newspack-nodes' );
 			setToast( { kind: 'error', text: msg } );
 		}
-	}, [ deleteModal, deleteTopology, topologyList ] );
+	}, [ deleteModal, deleteTopology, topologyList, reloadCatalog ] );
 
 	const handleRenameNode = useCallback(
 		( oldId, rawNew ) => {
@@ -1278,6 +1307,9 @@ export default function TopologyConsole() {
 				setEditingSource( resp.shadows_stock ? 'both' : 'user' );
 				// Refresh the picker so the next Open sees the new topology.
 				topologyList.reload();
+				// A save restarts the matching fleet — re-fetch the live catalog so
+				// the Path menu picks up the new/repartitioned worker without reload.
+				reloadCatalog();
 				setSettingsOpen( false );
 				setMode( 'view' );
 			} catch ( e ) {
@@ -1297,7 +1329,7 @@ export default function TopologyConsole() {
 				setToast( { kind: 'error', text: `${ msg }${ lineHint }` } );
 			}
 		},
-		[ draft, saveTopology, topologyList, schemasByShellName ]
+		[ draft, saveTopology, topologyList, schemasByShellName, reloadCatalog ]
 	);
 
 	useEffect( () => {

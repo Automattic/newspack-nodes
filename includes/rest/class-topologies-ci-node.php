@@ -7,8 +7,9 @@
  * that resolution order and only mutates the (writable) user dir.
  *
  * Verbs:
- *   list   — `{topologies: [{name, source, active, frontmatter}], user_dir}`.
- *            `source` is 'user'|'stock'|'both'; `active` follows the operator overlay.
+ *   list   — `{topologies: [{name, source, active, num_partitions, frontmatter}], user_dir}`.
+ *            `source` is 'user'|'stock'|'both'; `active` follows the operator overlay;
+ *            `num_partitions` is the canonical count (Bootstrap::num_partitions_for).
  *   get    — args `{name}`. Returns `{name, source, tsl}`; throws on miss.
  *   save   — args `{name, tsl}`. Returns `{name, path, shadows_stock,
  *            restarted_fleets}`. 1 MiB cap; dry-run validation via
@@ -76,10 +77,11 @@ class Topologies_CI_Node extends Service_CI_Node {
 						$out = [];
 						foreach ( Topology_Registry::describe() as $name => $sources ) {
 							$out[] = [
-								'name'        => $name,
-								'source'      => self::source_of( $sources ),
-								'active'      => isset( $active[ $name ] ),
-								'frontmatter' => Topology_Registry::frontmatter( $name ),
+								'name'           => $name,
+								'source'         => self::source_of( $sources ),
+								'active'         => isset( $active[ $name ] ),
+								'num_partitions' => Bootstrap::num_partitions_for( $name ),
+								'frontmatter'    => Topology_Registry::frontmatter( $name ),
 							];
 						}
 						\usort( $out, static fn ( $a, $b ) => $a['name'] <=> $b['name'] );
