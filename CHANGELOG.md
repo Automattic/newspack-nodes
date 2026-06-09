@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-06-09
+
 ### Added
 
 - **Topology-console theme crossfade.** Switching skins now animates through the View Transitions API (`withViewTransition` + `flushSync` commits the new theme class before the transition snapshots), with a graceful fallback where the API is absent. Applies to both the console and the debug overlay (shared `usePanelChrome`).
