@@ -123,6 +123,7 @@ These are intentional. Don't "fix" them.
 | `includes/class-event-framework.php` | `Event_Framework` — drain loop singleton (`curl_multi_select` or `usleep` + timers; no FD machinery) |
 | `includes/class-{tee,tail,log,echo,callback,hook,timer}.php` | Generic node primitives |
 | `includes/class-{partition,topic,consumer}.php` | Storage + log-tailing primitives |
+| `includes/class-job-worker-node.php` | `Job_Worker_Node` — generic async-job dispatch (local/remote handler maps via `newspack_nodes/{job,remote_job}_handlers`; GC + cache-flush cadence; memory-watermark self-restart; `GET_HEALTH`). Fires `newspack_nodes/job_worker/{before,after}_job` actions so apps hook per-job request context. Stock `topologies/job-worker.tsl` |
 | `includes/class-{lock,worker-base,supervisor,supervisor-base,bootstrap}.php` | Lifecycle |
 | `includes/class-{shell,command-interpreter,dumper}.php` | REPL components |
 | `includes/class-cli.php` | Worker-discovery + pivoted-cli IPC helpers (used by both `wp nodes ls` and `wp nodes cli`) |
