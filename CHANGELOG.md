@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-06-09
+
+### Changed
+
+- **Formatting:** wrapped the `.topology-brand` bloom `drop-shadow` filter across lines (stylelint/prettier reflow; no visual change).
+
 ## [0.12.1] - 2026-06-09
 
 ### Fixed
