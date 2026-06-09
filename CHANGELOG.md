@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-06-09
+
 ### Fixed
 
 - **Per-field reset toggle now previews a checkbox's real default.** Arming a reset (`↺`) cleared every checkbox to *unchecked*, so a default-enabled box looked like it would be disabled while the reset was pending (Save was always correct). `clear()` now reads `data-nn-reset-default` on toggle controls and shows that default state; controls without the attribute fall back to unchecked as before.
