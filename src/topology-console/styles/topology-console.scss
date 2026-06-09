@@ -144,7 +144,8 @@ body[class*="_page_newspack-nodes-topology"] {
 	top: 56px;
 	right: 16px;
 	z-index: 20;
-	width: 320px;
+	width: 440px;
+	max-width: calc(100vw - 32px);
 	padding: 12px 14px;
 	background: var(--paper-2);
 	color: var(--ink);
@@ -166,6 +167,12 @@ body[class*="_page_newspack-nodes-topology"] {
 		cursor: pointer;
 		font-size: 18px;
 		line-height: 1;
+		color: var(--ink);
+		transition: color 100ms ease;
+
+		&:hover {
+			color: var(--oxide);
+		}
 	}
 }
 
@@ -210,8 +217,8 @@ body[class*="_page_newspack-nodes-topology"] {
 	margin-bottom: 6px;
 
 	&__name {
-		flex: 0 0 38%;
-		font-family: monospace;
+		flex: 0 0 34%;
+		font-family: var(--font-mono);
 		font-size: 12px;
 		overflow: hidden;
 		text-overflow: ellipsis;
@@ -222,9 +229,41 @@ body[class*="_page_newspack-nodes-topology"] {
 		min-width: 0;
 	}
 
+	// Remove (×) — subtle, themed; hover turns destructive (oxide).
 	button {
 		flex: 0 0 auto;
 		cursor: pointer;
+		background: transparent;
+		border: 1px solid var(--paper-shadow);
+		color: var(--ink);
+		font-size: 15px;
+		line-height: 1;
+		padding: 4px 9px;
+		border-radius: 3px;
+		transition: all 100ms ease;
+
+		&:hover {
+			background: var(--oxide);
+			border-color: var(--oxide);
+			color: var(--paper);
+		}
+	}
+
+	// Add — primary action; mirrors the toolbar SAVE button language.
+	&--add button {
+		background: var(--sage);
+		border-color: var(--ink);
+		color: var(--paper);
+		font: 700 10px var(--font-mono);
+		letter-spacing: 0.12em;
+		text-transform: uppercase;
+		padding: 8px 14px;
+
+		&:hover {
+			background: var(--sage-dark);
+			border-color: var(--ink);
+			color: var(--paper);
+		}
 	}
 }
 
