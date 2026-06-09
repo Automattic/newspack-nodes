@@ -99,6 +99,73 @@ class Settings_Renderer {
 	}
 
 	/**
+	 * A single-boolean checkbox toggle. Emits the hidden `value="0"` sentinel (so an
+	 * unchecked box still posts) followed by the checkbox carrying its file-default
+	 * hint, then a `<label for>`. `checked="checked"` follows `value="1"` adjacently
+	 * — callers match on that. The attr is built directly (not via `\checked()`,
+	 * which echoes) so the method stays a pure string returner.
+	 *
+	 * @param string $id        Checkbox element id (also the label's `for`).
+	 * @param string $name      WP-option name (shared by the hidden sentinel + checkbox).
+	 * @param bool   $checked   Whether the box renders checked (the stored/effective value).
+	 * @param bool   $default   The file default — drives `data-nn-reset-default`, independent of $checked.
+	 * @param string $label     Visible label text.
+	 * @param string $mark_name The per-field reset mark (reset_wrapper's `data-nn-reset`).
+	 */
+	public static function checkbox(
+		string $id,
+		string $name,
+		bool $checked,
+		bool $default,
+		string $label,
+		string $mark_name
+	): string {
+		$checked_attr = $checked ? ' checked="checked"' : '';
+		$inner        = '<input type="hidden" name="' . \esc_attr( $name ) . '" value="0" />'
+			. '<input type="checkbox" id="' . \esc_attr( $id ) . '"'
+			. ' name="' . \esc_attr( $name ) . '" value="1"'
+			. ' data-nn-reset-default="' . ( $default ? '1' : '0' ) . '"'
+			. $checked_attr . ' />'
+			. '<label for="' . \esc_attr( $id ) . '">' . \esc_html( $label ) . '</label>';
+		return self::reset_wrapper( $mark_name, $inner );
+	}
+
+	/**
+	 * A React-mount field: a hidden JSON carrier (`{field}_json`) the form posts
+	 * back, plus the mount `<div>` whose `data-field` / `data-values` / `data-default`
+	 * the React tree reads. Generic — the caller supplies the mount id + class.
+	 *
+	 * @param string $field        Field short-name (drives `data-field` + the carrier id).
+	 * @param string $mount_id     The mount div's id.
+	 * @param string $mount_class  The mount div's class (the React tree's selector).
+	 * @param string $option_name  WP-option name carried by the hidden JSON input.
+	 * @param string $values_json  JSON of the current values.
+	 * @param string $default_json JSON of the file-default values (the ↺ target).
+	 * @param string $description  Field description.
+	 * @param string $mark_name    The per-field reset mark.
+	 */
+	public static function react_mount(
+		string $field,
+		string $mount_id,
+		string $mount_class,
+		string $option_name,
+		string $values_json,
+		string $default_json,
+		string $description,
+		string $mark_name
+	): string {
+		$inner = '<input type="hidden" id="' . \esc_attr( $field ) . '_json"'
+			. ' name="' . \esc_attr( $option_name ) . '" value="' . \esc_attr( $values_json ) . '" />'
+			. '<div id="' . \esc_attr( $mount_id ) . '"'
+			. ' data-field="' . \esc_attr( $field ) . '"'
+			. ' data-values="' . \esc_attr( $values_json ) . '"'
+			. ' data-default="' . \esc_attr( $default_json ) . '"'
+			. ' class="' . \esc_attr( $mount_class ) . '"></div>'
+			. '<p class="description">' . \esc_html( $description ) . '</p>';
+		return self::reset_wrapper( $mark_name, $inner );
+	}
+
+	/**
 	 * A checkbox list. Each box carries `data-nn-reset-default` ('1' if it is in
 	 * the shipped default set) so a ↺ reset restores that set, not "all off".
 	 *

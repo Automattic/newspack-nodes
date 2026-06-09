@@ -51,6 +51,7 @@ class Field {
 	 * @param callable|null            $render         add_settings_field render callback; required for rendered fields.
 	 * @param bool                     $ui             Whether the field appears in the settings page (false = overlay-only key).
 	 * @param array<string,mixed>      $register_args  Extra register_setting args merged in (e.g. autoload, type, default).
+	 * @param bool                     $overlay        Whether load_config() overlays this option (false = registered + resettable, but read directly via get_option, never through the per-request overlay).
 	 */
 	public function __construct(
 		public readonly string $key = '',
@@ -64,6 +65,7 @@ class Field {
 		mixed $render = null,
 		public readonly bool $ui = true,
 		public readonly array $register_args = [],
+		public readonly bool $overlay = true,
 	) {
 		$this->label_source = $label;
 		$this->sanitize     = \is_callable( $sanitize ) ? $sanitize : null;
@@ -79,9 +81,14 @@ class Field {
 		return \is_string( $label ) ? $label : '';
 	}
 
-	/** A real config option (participates in the overlay + autoload sweep). */
+	/** A real config option (participates in the autoload sweep + register/reset surface). */
 	public function is_option(): bool {
 		return '' !== $this->key;
+	}
+
+	/** A config option the per-request load_config() overlay reflects (excludes direct-read options). */
+	public function is_overlaid(): bool {
+		return $this->overlay && '' !== $this->key;
 	}
 
 	/** A rendered option (register_setting, option_names, reset set, restart class). */

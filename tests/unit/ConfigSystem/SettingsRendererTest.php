@@ -107,4 +107,89 @@ class SettingsRendererTest extends TestCase {
 		$html = Settings_Renderer::directory( 'f', 'opt', '"><script>x</script>', '', 'd', 'm' );
 		$this->assertStringNotContainsString( '<script>x</script>', $html );
 	}
+
+	public function test_checkbox_renders_hidden_sentinel_and_checked_input(): void {
+		$html = Settings_Renderer::checkbox(
+			'enable_logging',
+			'newspack_nodes_enable_logging',
+			true,   // currently on
+			true,   // file default
+			'Enable event logging',
+			'mark'
+		);
+		// Hidden zero-value sentinel so an unchecked box still posts a value.
+		$this->assertStringContainsString( 'type="hidden"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_enable_logging" value="0"', $html );
+		// The checkbox itself, id + name + value="1".
+		$this->assertStringContainsString( 'type="checkbox"', $html );
+		$this->assertStringContainsString( 'id="enable_logging"', $html );
+		// `checked` follows value="1" adjacently (callers match on that).
+		$this->assertStringContainsString( 'value="1" data-nn-reset-default="1" checked="checked"', $html );
+		// Label wired to the input id.
+		$this->assertStringContainsString( '<label for="enable_logging">Enable event logging</label>', $html );
+		// Reset wrapper + toggle.
+		$this->assertStringContainsString( 'data-nn-reset="mark"', $html );
+		$this->assertStringContainsString( 'data-nn-reset-toggle', $html );
+	}
+
+	public function test_checkbox_omits_checked_when_off(): void {
+		$html = Settings_Renderer::checkbox( 'log_memory', 'newspack_nodes_log_memory', false, false, 'Log memory', 'mark' );
+		$this->assertStringContainsString( 'type="checkbox"', $html );
+		$this->assertStringNotContainsString( 'checked="checked"', $html );
+		// The default hint reflects the FILE default, not the checked state.
+		$this->assertStringContainsString( 'data-nn-reset-default="0"', $html );
+	}
+
+	public function test_checkbox_default_hint_is_independent_of_checked_state(): void {
+		// Stored 0 (unchecked) but file-default true → hint must say "1".
+		$html = Settings_Renderer::checkbox( 'enable_logging', 'opt', false, true, 'L', 'mark' );
+		$this->assertStringNotContainsString( 'checked="checked"', $html );
+		$this->assertStringContainsString( 'data-nn-reset-default="1"', $html );
+	}
+
+	public function test_checkbox_escapes_label_and_attributes(): void {
+		$html = Settings_Renderer::checkbox( '"><x', 'opt', false, false, '<script>y</script>', 'mark' );
+		$this->assertStringNotContainsString( '<script>y</script>', $html );
+		$this->assertStringNotContainsString( '"><x"', $html );
+	}
+
+	public function test_react_mount_renders_hidden_carrier_and_mount_div(): void {
+		$html = Settings_Renderer::react_mount(
+			'log_urls',
+			'event-logger-log_urls',
+			'event-logger-tag-input',
+			'newspack_event_logger_nodes_log_urls',
+			'["\/calendar","\/events"]',
+			'[]',
+			'Only log URLs containing these substrings.',
+			'mark'
+		);
+		// Hidden carrier id={field}_json carrying the JSON value back to PHP.
+		$this->assertStringContainsString( 'type="hidden"', $html );
+		$this->assertStringContainsString( 'id="log_urls_json"', $html );
+		$this->assertStringContainsString( 'name="newspack_event_logger_nodes_log_urls"', $html );
+		// The React mount div with its data contract.
+		$this->assertStringContainsString( 'id="event-logger-log_urls"', $html );
+		$this->assertStringContainsString( 'data-field="log_urls"', $html );
+		$this->assertStringContainsString( 'data-values=', $html );
+		$this->assertStringContainsString( 'data-default=', $html );
+		$this->assertStringContainsString( 'class="event-logger-tag-input"', $html );
+		// Description + reset wrapper.
+		$this->assertStringContainsString( 'Only log URLs containing these substrings.', $html );
+		$this->assertStringContainsString( 'data-nn-reset="mark"', $html );
+		$this->assertStringContainsString( 'data-nn-reset-toggle', $html );
+	}
+
+	public function test_react_mount_caller_picks_mount_id_and_class(): void {
+		// The renderer is generic — the caller supplies mount id + class.
+		$html = Settings_Renderer::react_mount( 'topics', 'my-mount', 'my-class', 'opt', '[]', '[]', 'd', 'm' );
+		$this->assertStringContainsString( 'id="my-mount"', $html );
+		$this->assertStringContainsString( 'class="my-class"', $html );
+	}
+
+	public function test_react_mount_escapes_json_and_description(): void {
+		$html = Settings_Renderer::react_mount( 'f', 'm', 'c', 'opt', '"><script>z</script>', '[]', '<b>desc</b>', 'mark' );
+		$this->assertStringNotContainsString( '<script>z</script>', $html );
+		$this->assertStringNotContainsString( '<b>desc</b>', $html );
+	}
 }
