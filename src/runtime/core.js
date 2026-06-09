@@ -75,17 +75,7 @@ class CoreImpl {
 	// Per-process identity for log_prefix (Perl $0 / PHP SAPI). The browser has
 	// no SAPI; a fixed label keeps dmesg lines attributable.
 	argv0() {
-		return 'newspack-nodes';
-	}
-
-	// Core mid-line tag (Tachikoma Node::log_midfix). Core is process-global with
-	// no node name, so the tag is empty: null → '', else the message chomped + one
-	// trailing newline. (The per-node `{name}: ` tag lives on Node, which has a name.)
-	log_midfix( msg = null ) {
-		if ( null === msg || undefined === msg ) {
-			return '';
-		}
-		return msg.replace( /\n+$/, '' ) + '\n';
+		return 'browser';
 	}
 
 	// Prepend a `YYYY-MM-DD HH:MM:SS UTC <argv0>: ` prefix to every line — mirrors
@@ -107,14 +97,14 @@ class CoreImpl {
 	// stderr = the JS console (warn, not error, to skip devtools' error counter) +
 	// the bounded recentLog tail the dmesg verb reads. A line already starting with
 	// a date is passed through verbatim (no double-prefix on a re-log); otherwise
-	// apply prefix + midfix like PHP Core::stderr.
+	// apply prefix like PHP Core::stderr.
 	stderr( text ) {
 		if ( '' === text || null === text || undefined === text ) {
 			return;
 		}
 		const line = /^\d{4}-\d\d-\d\d/.test( text )
 			? text.replace( /\n+$/, '' ) + '\n'
-			: this.log_prefix( this.log_midfix( text ) );
+			: this.log_prefix( text );
 		this.recentLog.push( line );
 		while ( this.recentLog.length > RECENT_LOG_MAX ) {
 			this.recentLog.shift();

@@ -557,7 +557,7 @@ class Node {
 				$labels[] = $label;
 			}
 		}
-		$type_str = empty( $labels ) ? 'unknown' : \implode( '|', $labels );
+		$type_str = empty( $labels ) ? 'TYPE_UNKNOWN' : \implode( '|', $labels );
 
 		// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl drop_message).
 		$prefix   = 'NOT_AVAILABLE' === $error ? "$error - " : "WARNING: $error - ";
