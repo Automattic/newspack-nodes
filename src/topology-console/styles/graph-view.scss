@@ -1998,7 +1998,9 @@
 	// each glyph's colour (white HUD, amber data, crimson flow) and blooms the
 	// cards too; strict-viewport membership keeps the filter buffer bounded.
 	.topology-brand {
-		filter: drop-shadow(0 0 3px color-mix(in srgb, var(--ink) 55%, transparent));
+		filter: drop-shadow(
+			0 0 3px color-mix(in srgb, var(--ink) 55%, transparent)
+		);
 	}
 
 	.topology-nodes--bloom,
