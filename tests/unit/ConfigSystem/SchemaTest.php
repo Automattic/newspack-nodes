@@ -198,5 +198,43 @@ namespace Newspack_Nodes\Tests\Unit\ConfigSystem {
 			$this->assertSame( 'num_partitions', $schema->field_for_short( 'num_partitions' )->key );
 			$this->assertNull( $schema->field_for_short( 'nope' ) );
 		}
+
+		public function test_overlay_false_setting_is_registered_but_not_overlaid(): void {
+			// A `overlay: false` option is a real registered + resettable setting,
+			// but read directly via get_option (never through the per-request
+			// load_config overlay) — so it stays OUT of overlay_keys while still
+			// appearing in setting_option_names. (ELN's remote_* fields.)
+			$schema = new Schema(
+				'pfx_',
+				[
+					new Field(
+						key: 'overlaid',
+						type: 'int',
+						label: 'Overlaid',
+						section: 'storage',
+						sanitize: static fn ( $v ) => $v,
+						render: static function (): void {},
+					),
+					new Field(
+						key: 'direct_read',
+						type: 'int',
+						label: 'Direct',
+						section: 'storage',
+						overlay: false,
+						sanitize: static fn ( $v ) => $v,
+						render: static function (): void {},
+					),
+				]
+			);
+			// Excluded from the overlay sweep.
+			$this->assertSame( [ 'overlaid' ], $schema->overlay_keys() );
+			// Still a registered, resettable setting.
+			$this->assertSame( [ 'pfx_overlaid', 'pfx_direct_read' ], $schema->setting_option_names() );
+		}
+
+		public function test_overlay_defaults_to_true(): void {
+			// Existing call sites don't pass `overlay`; every keyed field is overlaid.
+			$this->assertContains( 'num_partitions', $this->sample_schema()->overlay_keys() );
+		}
 	}
 }

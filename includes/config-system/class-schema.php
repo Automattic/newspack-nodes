@@ -38,14 +38,14 @@ class Schema {
 	}
 
 	/**
-	 * Unprefixed keys of every real option — the Options_Overlay key-list and the
-	 * autoload sweep set. Includes overlay-only (ui=false) keys; excludes
-	 * display-only fields.
+	 * Unprefixed keys of every overlaid option — the Options_Overlay key-list.
+	 * Includes overlay-only (ui=false) keys; excludes display-only fields AND
+	 * direct-read options (overlay=false, e.g. ELN's remote_*).
 	 *
 	 * @return array<int,string>
 	 */
 	public function overlay_keys(): array {
-		return $this->collect_keys( static fn ( Field $f ): bool => $f->is_option() );
+		return $this->collect_keys( static fn ( Field $f ): bool => $f->is_overlaid() );
 	}
 
 	/**
