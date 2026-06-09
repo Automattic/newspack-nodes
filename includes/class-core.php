@@ -231,7 +231,7 @@ class Core {
 		}
 		// Already-dated lines are assumed pre-prefixed (Tachikoma's
 		// /^\d{4}-\d\d-\d\d/ guard) — write verbatim to avoid double
-		// prefixing on re-log paths. Otherwise apply prefix + midfix.
+		// prefixing on re-log paths. Otherwise apply prefix.
 		if ( 1 === \preg_match( '/^\d{4}-\d\d-\d\d/', $text ) ) {
 			$line = \rtrim( $text, "\n" ) . "\n";
 		} else {

@@ -64,25 +64,19 @@ test( 'stderr forwards a prefixed line to console.warn', () => {
 	Core.stderr( 'hello' );
 	expect( spy ).toHaveBeenCalledTimes( 1 );
 	expect( spy.mock.calls[ 0 ][ 0 ] ).toMatch(
-		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC newspack-nodes: hello$/
+		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC browser: hello$/
 	);
 	spy.mockRestore();
-} );
-
-test( 'log_midfix is the empty Core tag: null → "", message → chomped + one newline', () => {
-	expect( Core.log_midfix() ).toBe( '' );
-	expect( Core.log_midfix( 'x' ) ).toBe( 'x\n' );
-	expect( Core.log_midfix( 'x\n\n' ) ).toBe( 'x\n' );
 } );
 
 test( 'log_prefix prepends a UTC timestamp + identity to every line, with a trailing newline', () => {
 	const out = Core.log_prefix( 'a\nb' );
 	const lines = out.replace( /\n$/, '' ).split( '\n' );
 	expect( lines[ 0 ] ).toMatch(
-		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC newspack-nodes: a$/
+		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC browser: a$/
 	);
 	expect( lines[ 1 ] ).toMatch(
-		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC newspack-nodes: b$/
+		/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC browser: b$/
 	);
 	expect( out.endsWith( '\n' ) ).toBe( true );
 } );

@@ -218,7 +218,7 @@ export class Node {
 				labels.push( label );
 			}
 		}
-		const typeStr = labels.length ? labels.join( '|' ) : 'unknown';
+		const typeStr = labels.length ? labels.join( '|' ) : 'TYPE_UNKNOWN';
 
 		const prefix =
 			'NOT_AVAILABLE' === error
