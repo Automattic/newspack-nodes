@@ -347,16 +347,33 @@ class TopologiesCITest extends TestCase {
 	}
 
 	public function test_save_rejects_body_too_large(): void {
-		// Arguments just over 64 KiB: a `big` name plus a padded comment-line
+		// Arguments just over 1 MiB: a `big` name plus a padded comment-line
 		// body. The size guard measures the whole packed envelope and trips
 		// before the body is parsed.
-		$args = 'big ' . '# ' . \str_repeat( 'x', 65537 );
-		$this->assertGreaterThan( 65536, \strlen( $args ) );
+		$args = 'big ' . '# ' . \str_repeat( 'x', 1048577 );
+		$this->assertGreaterThan( 1048576, \strlen( $args ) );
 
 		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'save', $args );
 
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'too large', $result );
+	}
+
+	public function test_save_accepts_large_body_under_one_mib(): void {
+		// A real captured graph (hundreds of KiB of make_node lines) is well
+		// over the old 64 KiB guard but under the 1 MiB cap — it must save.
+		$body = '';
+		for ( $i = 0; $i < 10000; $i++ ) {
+			$body .= "make_node Tee t$i\n";
+		}
+		$this->assertGreaterThan( 65536, \strlen( $body ) );
+		$this->assertLessThan( 1048576, \strlen( $body ) );
+
+		$result = VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'save', "big $body" );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'big', $result['name'] );
+		$this->assertSame( $body, \file_get_contents( "{$this->user}/big.tsl" ) );
 	}
 
 	public function test_save_rejects_invalid_name(): void {

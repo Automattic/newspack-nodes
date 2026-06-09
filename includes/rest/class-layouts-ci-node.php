@@ -28,7 +28,7 @@ use Newspack_Nodes\Service_CI_Node;
 
 class Layouts_CI_Node extends Service_CI_Node {
 	private const ID_PATTERN      = '/^[a-zA-Z0-9_:.-]+$/';
-	private const MAX_BODY_BYTES  = 65536;
+	private const MAX_BODY_BYTES  = 1048576;
 
 	/**
 	 * Sanitize a positions blob — drop entries with non-string ids,
@@ -109,7 +109,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 				],
 				[
 					'name'        => 'save',
-					'description' => 'Persist node positions for a layout: `save <name> <positions-json>`. 64 KiB cap.',
+					'description' => 'Persist node positions for a layout: `save <name> <positions-json>`. 1 MiB cap.',
 					'args'        => [
 						[ 'name' => 'name', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'positions', 'type' => 'json', 'required' => true ],
@@ -119,7 +119,7 @@ class Layouts_CI_Node extends Service_CI_Node {
 						// $envelope is the 7-field positional message array (a list).
 						if ( \array_is_list( $envelope ) && Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 							throw new \RuntimeException(
-								\esc_html( 'body too large: layout arguments exceed 64 KiB' )
+								\esc_html( 'body too large: layout arguments exceed 1 MiB' )
 							);
 						}
 						// `save <name> <positions-json>`: name is the first token, the rest-of-line is the JSON.

@@ -359,14 +359,32 @@ class LayoutsCITest extends TestCase {
 	}
 
 	public function test_save_rejects_body_too_large(): void {
-		// Arguments just over 64 KiB. The size guard measures the whole packed
+		// Arguments just over 1 MiB. The size guard measures the whole packed
 		// envelope, so a big positions blob trips it before name/JSON parsing.
-		$args = 'big ' . (string) \json_encode( [ 'n' => [ 1, 2 ], '_pad' => \str_repeat( 'x', 65537 ) ] );
-		$this->assertGreaterThan( 65536, \strlen( $args ) );
+		$args = 'big ' . (string) \json_encode( [ 'n' => [ 1, 2 ], '_pad' => \str_repeat( 'x', 1048577 ) ] );
+		$this->assertGreaterThan( 1048576, \strlen( $args ) );
 
 		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', $args );
 		$this->assertIsString( $result );
 		$this->assertStringContainsString( 'too large', $result );
+	}
+
+	public function test_save_accepts_large_positions_under_one_mib(): void {
+		// A captured graph's layout (thousands of node positions) exceeds the
+		// old 64 KiB guard but stays under the 1 MiB cap — it must save.
+		$positions = [];
+		for ( $i = 0; $i < 6000; $i++ ) {
+			$positions[ "node_$i" ] = [ $i * 1.5, $i * 2.0 ];
+		}
+		$args = 'big ' . (string) \json_encode( $positions );
+		$this->assertGreaterThan( 65536, \strlen( $args ) );
+		$this->assertLessThan( 1048576, \strlen( $args ) );
+
+		$result = VerbHarness::fire( new Layouts_CI_Node(), 'layouts', 'save', $args );
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'big', $result['name'] );
+		$this->assertCount( 6000, $result['positions'] );
 	}
 
 	public function test_save_rejects_without_manage_options(): void {
