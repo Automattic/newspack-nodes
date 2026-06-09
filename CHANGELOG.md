@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-06-09
+
 ### Added
 
 - **Supervisor cron scheduling diagnostics, at veto time and runner-agnostic.** When something blocks scheduling of `newspack_nodes/supervisor`, Nodes now logs who. Two probes: (1) `Bootstrap::log_supervisor_schedule_veto` sits at `PHP_INT_MAX - 2` on `pre_schedule_event` AND `pre_reschedule_event` — when an earlier callback short-circuits our event with `false` or a `WP_Error`, it logs the vetoing filter's full callback chain (the culprit is in it by definition). These filters run inside `wp_schedule_event`/`wp_reschedule_event` under ANY cron runner — Cron Control's WP adapter short-circuits these same filters on Atomic, returning `WP_Error` on its failure paths — unlike the `cron_*_event_error` actions, which only the vanilla `wp-cron.php` runner fires. (2) `activate()` schedules with `$wp_error = true` and logs the error code + message for non-veto failures (`invalid_schedule`, etc.); since self-heal re-arms via `activate()` on `admin_init`, this fires steady-state until fixed. Both probes log through `Core::print_less_often` (process-identity prefix + in-process dedup). Closure/anonymous-class callback names are redacted to `{closure}:file:line` / `{anonymous}` so logs don't leak full source paths.
