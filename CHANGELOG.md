@@ -9,6 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Substrate runtime wiring is no longer built at plugin-file scope.** The node-class namespaces (for `make_node`), the `<config:…>` token namespace, the stock-topology dir, and the shared `Core::$memd` handle moved out of `newspack-nodes.php` file scope into the idempotent `Bootstrap::ensure_runtime_wired()`, called lazily from the entry points that actually use the node graph / cache: `rest_api_init` (priority 1, before route callbacks), the admin and WP-CLI blocks, and the supervisor cron tick. A plain frontend page view touches none of these, so it no longer autoloads the Config System / `Command_Interpreter_Node` / `Topology_Registry` or opens a `\Memcached` connection it never uses — cutting substrate plugin-load from ~1.6ms to ~0.24ms (the per-request hot path the v0.13.0 Config System had regressed). `get_topology_catalog()` self-wires, so the catalog can't be read partially built.
+- **Removed the internal `newspack_nodes/enable_supervisor` filter** (renamed from `newspack_nodes/enable_logging`), which only ever existed to support tests — no config field, no production caller. The supervisor enable gate is now the `Bootstrap::$supervisor_enabled_override` test seam with the same default-on behavior; `is_logging_enabled()` is renamed `is_supervisor_enabled()`. Construction of the `Supervisor` is injectable via the new `Bootstrap::$supervisor_factory` test seam.
 - Raise the declared PHP floor to 8.2, matching production syntax already used by the substrate (`File_Writer` trait constants, plus PHP 8.1 `array_is_list()` calls), and align the bundled example/plugin-writing guide with that floor.
 
 ## [0.15.0] - 2026-06-10
