@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Consumer recovers when its cursor segment is wiped and recreated smaller.** A full retention sweep deletes every segment of a log and the Partition writer restarts numbering at 0 — but the durable offsetlog survives, so a Consumer restoring its checkpoint could land with `cursor_off` far past EOF of the recreated segment. `poll()` only handled the *deleted*-segment case (cursor id missing from the segment list), so the consumer waited forever for the file to grow back past the stale offset; in production this silently wedged `jobs:consumer` (evTemplate and remote-manager jobs piled up in `jobs.log`, unexecuted) while the firehose consumer recovered only because its cursor id happened to no longer exist. Cursor recovery now lives in one shared `normalize_cursor()`: a missing cursor segment rewinds to the oldest segment, and a cursor (plus pending partial line) past the EOF of a recreated segment rewinds to offset 0. Companion fix: `GET_LAG` computed lag from the raw cursor, so both recovery cases read as `bytes_behind=0` / `caught_up=true` — masking a wedged consumer as healthy; it now normalizes first and reports the replay `poll()` will actually do.
+
 ## [0.14.0] - 2026-06-09
 
 ### Added

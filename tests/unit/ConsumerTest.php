@@ -546,6 +546,107 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( 3, count( $cap->captured ), 'rewind must let us read all existing data' );
 	}
 
+	public function test_poll_recovers_when_cursor_segment_was_recreated_smaller(): void {
+		// A retention sweep can delete EVERY segment; the writer then restarts
+		// numbering at 0 while the durable offsetlog survives. The restored
+		// cursor sits past EOF of the recreated (smaller) segment — poll() must
+		// rewind to the segment start instead of waiting forever for the file
+		// to grow back past the stale offset.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
+		$this->produce_line( $source, 'after-wipe' );
+
+		$c   = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$cap = new Capture_Sink_Node();
+		$c->sink( $cap );
+
+		// Stale checkpoint from before the wipe: same segment id (0), offset
+		// far past the recreated segment's size, plus a leftover partial line.
+		$stale_off = 5774576; // any value past the recreated segment's size
+		$ref       = new \ReflectionClass( $c );
+		$off       = $ref->getProperty( 'cursor_off' );
+		$off->setAccessible( true );
+		$off->setValue( $c, $stale_off );
+		$rem = $ref->getProperty( 'line_remainder' );
+		$rem->setAccessible( true );
+		$rem->setValue( $c, 'stale-partial' );
+
+		$c->poll();
+
+		$this->assertCount( 1, $cap->captured, 'cursor past EOF of an existing segment must rewind and drain' );
+		$this->assertSame( 'after-wipe', $cap->captured[0][ Message::VALUE ] );
+		$this->assertSame( '0:0', $cap->captured[0][ Message::ID ], 'rewind must restart at segment offset 0' );
+	}
+
+	public function test_handle_request_GET_LAG_reports_replay_when_cursor_past_eof(): void {
+		// Companion to the recreated-segment recovery: a cursor past EOF means
+		// the whole segment is pending replay. GET_LAG must say so instead of
+		// clamping to bytes_behind=0 / caught_up=true (which masked a wedged
+		// consumer as healthy).
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
+		$this->produce_line( $source, 'after-wipe' );
+		$segment_size = (int) $source->get_segments( true )[0]['size'];
+
+		$c   = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$cap = new Capture_Sink_Node();
+		$c->sink( $cap );
+
+		// Stale cursor past EOF, plus a stale partial line LONGER than the
+		// recreated segment — the old remainder subtraction would clamp
+		// bytes_behind back to 0 and re-mask the wedge.
+		$stale_off = 5774576; // any value past the recreated segment's size
+		$ref       = new \ReflectionClass( $c );
+		$off       = $ref->getProperty( 'cursor_off' );
+		$off->setAccessible( true );
+		$off->setValue( $c, $stale_off );
+		$rem = $ref->getProperty( 'line_remainder' );
+		$rem->setAccessible( true );
+		$rem->setValue( $c, str_repeat( 'x', $segment_size + 1 ) );
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'asker';
+		$req[ Message::VALUE ] = 'GET_LAG';
+		$c->fill( $req );
+
+		$data = $cap->captured[0][ Message::VALUE ]['data'];
+		$this->assertSame( $segment_size, $data['bytes_behind'], 'cursor past EOF replays the whole segment' );
+		$this->assertFalse( $data['caught_up'], 'a wedged cursor must not report caught_up' );
+	}
+
+	public function test_handle_request_GET_LAG_reports_pending_segments_when_cursor_segment_deleted(): void {
+		// Deleted-cursor-segment twin: poll() will rewind to the oldest segment
+		// and replay everything, so GET_LAG must report every segment as
+		// pending — not skip them all because their ids sit below the cursor.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
+		$this->produce_line( $source, 'after-wipe' );
+		$segment_size = (int) $source->get_segments( true )[0]['size'];
+
+		$c   = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$cap = new Capture_Sink_Node();
+		$c->sink( $cap );
+
+		$ref = new \ReflectionClass( $c );
+		$seg = $ref->getProperty( 'cursor_seg' );
+		$seg->setAccessible( true );
+		$seg->setValue( $c, 84 ); // checkpointed segment no longer exists
+
+		$req                   = Message::new_message();
+		$req[ Message::TYPE ]  = Message::TM_REQUEST;
+		$req[ Message::FROM ]  = 'asker';
+		$req[ Message::VALUE ] = 'GET_LAG';
+		$c->fill( $req );
+
+		$data = $cap->captured[0][ Message::VALUE ]['data'];
+		$this->assertSame( $segment_size, $data['bytes_behind'], 'rewind to oldest segment replays everything' );
+		$this->assertFalse( $data['caught_up'], 'a cursor on a deleted segment must not report caught_up' );
+	}
+
 	public function test_poll_advances_across_segment_boundary(): void {
 		// Multi-segment drain: a single poll spanning into a new segment must
 		// reset cursor_off to 0 when it crosses the boundary.

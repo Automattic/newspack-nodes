@@ -184,13 +184,7 @@ class Consumer_Node extends Timer_Node {
 			return;
 		}
 
-		// If the cursor segment was deleted by cleanup, recover.
-		$ids = \array_column( $segments, 'id' );
-		if ( ! \in_array( $this->cursor_seg, $ids, true ) ) {
-			$this->cursor_seg     = $segments[0]['id'];
-			$this->cursor_off     = 0;
-			$this->line_remainder = '';
-		}
+		$this->normalize_cursor( $segments );
 
 		$newest_id   = \end( $segments )['id'];
 		$newest_size = \end( $segments )['size'];
@@ -292,6 +286,29 @@ class Consumer_Node extends Timer_Node {
 
 		$tail_after_remainder = $this->cursor_off + \strlen( $this->line_remainder );
 		$this->at_eof         = ( $this->cursor_seg >= $newest_id ) && ( $tail_after_remainder >= $newest_size );
+	}
+
+	/**
+	 * Clamp the cursor against the live (non-empty) segment list.
+	 *
+	 * Two recoveries: the cursor segment was deleted by cleanup (rewind to the
+	 * oldest segment), or it was wiped and recreated smaller — a full sweep
+	 * restarts ids at 0, so a durable checkpoint can sit past EOF (rewind to
+	 * the segment start instead of waiting forever for the file to grow back).
+	 * Shared by poll() and compute_lag() so reads and lag agree on position.
+	 *
+	 * @param array<int, array{id: int, size: int}> $segments Live segment list.
+	 */
+	protected function normalize_cursor( array $segments ): void {
+		$sizes = \array_column( $segments, 'size', 'id' );
+		if ( ! isset( $sizes[ $this->cursor_seg ] ) ) {
+			$this->cursor_seg     = $segments[0]['id'];
+			$this->cursor_off     = 0;
+			$this->line_remainder = '';
+		} elseif ( $sizes[ $this->cursor_seg ] < $this->cursor_off + \strlen( $this->line_remainder ) ) {
+			$this->cursor_off     = 0;
+			$this->line_remainder = '';
+		}
 	}
 
 	/** Source Partition, materialized by arguments(). Throws if a read runs before configuration. */
@@ -545,6 +562,9 @@ class Consumer_Node extends Timer_Node {
 		if ( empty( $segments ) ) {
 			return [ 'bytes_behind' => 0, 'segments_behind' => 0, 'caught_up' => true ];
 		}
+		// Recover a deleted/recreated cursor segment first so lag reflects the
+		// replay poll() will actually do (a stale cursor otherwise reads as caught up).
+		$this->normalize_cursor( $segments );
 		$bytes_behind     = 0;
 		$segments_behind  = 0;
 		foreach ( $segments as $s ) {
