@@ -14,7 +14,7 @@ class Echo_Node extends Node {
 	public function fill( array &$message ): void {
 		$raw_type = $message[ Message::TYPE ];
 		$type     = \is_int( $raw_type ) ? $raw_type : 0;
-		$to       = self::as_string( $message[ Message::TO ] );
+		$to       = Core::as_string( $message[ Message::TO ] );
 		$target   = $this->target;
 		if ( ( $type & Message::TM_ERROR ) && '' === $to ) {
 			return;

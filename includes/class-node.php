@@ -22,11 +22,6 @@ class Node {
 	/** Only I/O nodes (Partition, Consumer) populate these; logic nodes stay at zero. */
 	protected int $bytes_read    = 0;
 	protected int $bytes_written = 0;
-	/** Count of writes that stalled (disk full / broken pipe) and dropped data; surfaced in dump_node. */
-	protected int $write_failures = 0;
-
-	/** Retry budget for a short/failed write before write_all() gives up and counts a failure. */
-	protected const MAX_WRITE_ATTEMPTS = 5;
 
 	/** Cached config string; dump_config round-trips it back into the make_node line. */
 	protected string $arguments = '';
@@ -46,74 +41,28 @@ class Node {
 	protected ?Node $patron = null;
 
 	/**
-	 * Auto-wire the sibling `:config` interpreter from the concrete subclass's node_schema().
-	 * A node declares its runtime config verbs ONCE — in `node_schema()['commands']`,
-	 * each carrying a `handler` — and the base ctor builds the `{node}:config`
-	 * interpreter from the handler-bearing entries (late static binding reads the subclass
-	 * schema). No verbs with handlers → no sibling. A interpreter dispatches its own verbs,
-	 * so it never gets one (and Command_Interpreter_Node / Service_CI_Node build
-	 * their own table in their own ctors). Subclasses with a constructor of their
-	 * own must call `parent::__construct()` (PHP doesn't auto-chain); set props
-	 * first if the handler closures capture them.
+	 * No-op chain anchor: a node only acquires schema-reflection behavior (positional
+	 * arg parsing, the `{name}:config` interpreter auto-wire) by `use`-ing the
+	 * Schema_Reflection trait and calling its helpers — Node itself carries none.
+	 * This empty ctor exists so subclasses can `parent::__construct()` regardless of
+	 * what intermediate classes do; node-specific setup lives in the subclass ctor.
 	 */
-	public function __construct() {
-		if ( $this instanceof Command_Interpreter_Node ) {
-			return;
-		}
-		// Idempotent: a subclass that chains parent::__construct() more than once,
-		// or one that manually attached its own interpreter, keeps the existing interpreter.
-		if ( null !== $this->interpreter ) {
-			return;
-		}
-		$verbs = self::verbs_with_handlers( static::node_schema() );
-		if ( empty( $verbs ) ) {
-			return;
-		}
-		$interpreter = new Command_Interpreter_Node();
-		$interpreter->patron( $this );
-		$interpreter->commands( $verbs );
-		$this->attach_interpreter( $interpreter );
-	}
+	public function __construct() {}
 
 	/**
-	 * Get/set the node's argument string. The setter ALSO parses the string
-	 * against node_schema()['arguments'] and assigns each declared positional
-	 * argument to the matching $this->{$name} property. Tokens beyond the
-	 * declared positions are ignored; missing optional tokens use their
-	 * schema-declared defaults. Mirrors Tachikoma::Node::arguments.
-	 *
-	 * Subclasses override the whole method when the default schema walk isn't
-	 * enough (multi-token args, derived state, validation).
+	 * Get/set the node's raw argument string — the trivial Tachikoma getter/setter
+	 * (`if (@_) { $self->{arguments} = shift } return $self->{arguments}`). It does
+	 * NOT parse the string. A node that wants positional config calls the
+	 * Schema_Reflection trait's parse_schema_args() from its own arguments()
+	 * override, then derives — gating both on a non-empty string so a bare
+	 * `make_node Foo` assigns nothing and triggers no side-effects.
 	 *
 	 * @param string|null $args New raw arguments string (null = pure getter).
 	 * @return string Last-set raw arguments string.
 	 */
 	public function arguments( ?string $args = null ): string {
-		if ( null === $args ) {
-			return $this->arguments;
-		}
-		$this->arguments = $args;
-		$schema   = static::node_schema();
-		$declared = $schema['arguments'] ?? [];
-		if ( ! \is_array( $declared ) || empty( $declared ) || '' === $args ) {
-			return $this->arguments;
-		}
-		$tokens = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY );
-		foreach ( $declared as $i => $arg_spec ) {
-			if ( ! \is_array( $arg_spec ) ) {
-				continue;
-			}
-			$name     = self::as_string( $arg_spec['name'] ?? '' );
-			$type_raw = $arg_spec['type'] ?? 'string';
-			$type     = \is_string( $type_raw ) ? $type_raw : 'string';
-			if ( '' === $name || ! \property_exists( $this, $name ) ) {
-				continue;
-			}
-			if ( isset( $tokens[ $i ] ) ) {
-				$this->{$name} = self::coerce_argument( $tokens[ $i ], $type );
-			} elseif ( \array_key_exists( 'default', $arg_spec ) ) {
-				$this->{$name} = $arg_spec['default'];
-			}
+		if ( null !== $args ) {
+			$this->arguments = $args;
 		}
 		return $this->arguments;
 	}
@@ -132,43 +81,6 @@ class Node {
 		}
 		++$this->counter;
 		$this->sink->fill( $message );
-	}
-
-	/**
-	 * Collect the node_schema verbs[] that carry a callable handler — the
-	 * `{node}:config` dispatch table. Silent: catalog-only verbs (no handler)
-	 * are skipped, not flagged, because a plain node legitimately declares
-	 * description-only verbs for the palette. (Service_CI_Node, where every verb
-	 * MUST dispatch, keeps its own warn-on-missing-handler builder.)
-	 *
-	 * @param array<string,mixed> $schema
-	 * @return array<string,callable>
-	 */
-	private static function verbs_with_handlers( array $schema ): array {
-		$table    = [];
-		$commands = $schema['commands'] ?? [];
-		if ( ! \is_array( $commands ) ) {
-			return $table;
-		}
-		foreach ( $commands as $verb ) {
-			if ( ! \is_array( $verb ) ) {
-				continue;
-			}
-			$name = self::as_string( $verb['name'] ?? '' );
-			if ( '' === $name || ! isset( $verb['handler'] ) || ! \is_callable( $verb['handler'] ) ) {
-				continue;
-			}
-			$table[ $name ] = $verb['handler'];
-		}
-		return $table;
-	}
-
-	/** Attach a sibling CommandInterpreter, adopting `{patron_name}:config`. */
-	public function attach_interpreter( Command_Interpreter_Node $interpreter ): void {
-		$this->interpreter = $interpreter;
-		if ( '' !== $this->name ) {
-			$this->interpreter->name( $this->name . ':config' );
-		}
 	}
 
 	public function interpreter(): ?Command_Interpreter_Node {
@@ -190,20 +102,6 @@ class Node {
 		return $this->debug_state;
 	}
 
-	/**
-	 * Perl length()-style presence: false for null and '', true for '0'.
-	 *
-	 * @phpstan-assert-if-true non-empty-string $s
-	 */
-	protected static function has_value( ?string $s ): bool {
-		return null !== $s && '' !== $s;
-	}
-
-	/** Canonical scalar→string read of a mixed Message field; '' for non-scalars (arrays/objects/null). */
-	protected static function as_string( mixed $value ): string {
-		return \is_scalar( $value ) ? (string) $value : '';
-	}
-
 	public function name( ?string $name = null ): string {
 		if ( \func_num_args() > 0 ) {
 			// A node is committed to a name once set: name(null)/name('') is not
@@ -211,7 +109,7 @@ class Node {
 			// classic getter-passthrough mistake (an override doing
 			// `parent::name( $name )` with a null default) into a loud failure
 			// instead of a silent unregister.
-			if ( ! self::has_value( $name ) ) {
+			if ( ! Core::has_value( $name ) ) {
 				throw new \RuntimeException( 'name() requires a non-empty name; use remove_node() to unregister' );
 			}
 			if ( $name === $this->name ) {
@@ -286,85 +184,6 @@ class Node {
 		return $this->bytes_written;
 	}
 
-	public function write_failures(): int {
-		return $this->write_failures;
-	}
-
-	/**
-	 * The substrate's single fail-loud write seam: write every byte of $bytes to
-	 * $fh, retrying short writes up to MAX_WRITE_ATTEMPTS, and on a stall (disk
-	 * full / broken pipe) count a write_failure and emit one rate-limited line —
-	 * a failed write is never silently swallowed. Returns the bytes that actually
-	 * landed so the caller advances its size/offset by the real amount, never
-	 * drifting against the file. The happy path is one fwrite.
-	 *
-	 * @param resource    $fh      Open, writable handle.
-	 * @param string      $bytes   Bytes to write.
-	 * @param string|null $context Path/label for the failure line (cold path only).
-	 * @return int Bytes written (== strlen( $bytes ) on full success).
-	 */
-	protected function write_all( $fh, string $bytes, ?string $context = null ): int {
-		$total     = \strlen( $bytes );
-		$remaining = $bytes;
-		$attempts  = 0;
-		while ( '' !== $remaining ) {
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-			$written = @\fwrite( $fh, $remaining );
-			if ( false === $written || 0 === $written ) {
-				if ( ++$attempts >= static::MAX_WRITE_ATTEMPTS ) {
-					++$this->write_failures;
-					// Keep the byte count OUT of the message: print_less_often keys on
-					// the text, so a varying count would defeat dedup under sustained ENOSPC.
-					$where = ( null === $context || '' === $context ) ? '' : " for $context";
-					$this->print_less_often( "write stalled after $attempts attempts$where" );
-					break;
-				}
-				continue;
-			}
-			$this->bytes_written += $written;
-			$remaining            = \substr( $remaining, $written );
-		}
-		return $total - \strlen( $remaining );
-	}
-
-	/**
-	 * Coerce a raw string token to the declared schema type. Unknown types
-	 * fall through as string.
-	 *
-	 * @param string $token Raw token from the arguments string.
-	 * @param string $type  Schema-declared type ('string'|'int'|'bool'|'float').
-	 * @return mixed
-	 */
-	private static function coerce_argument( string $token, string $type ): mixed {
-		return match ( $type ) {
-			'int'   => (int) $token,
-			'float' => (float) $token,
-			'bool'  => \in_array( \strtolower( $token ), [ '1', 'true', 'yes', 'on' ], true ),
-			default => $token,
-		};
-	}
-
-	/**
-	 * Build a TM_COMMAND message envelope. Mirrors Tachikoma::Node::command —
-	 * available on every Node so Shell::send_command and overlay callers can
-	 * issue commands without hand-building messages.
-	 *
-	 * @param string $name      Command verb (e.g. 'connect_node').
-	 * @param string $arguments Positional argument string (verbs parse it via Command_Args).
-	 * @return array<int, mixed> A TM_COMMAND Message (the 7-field positional array).
-	 */
-	public function command( string $name, string $arguments = '' ): array {
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_COMMAND;
-		$message[ Message::FROM ]  = $this->name;
-		$message[ Message::VALUE ] = [
-			'name'      => $name,
-			'arguments' => $arguments,
-		];
-		$message[ Message::LOCAL ] = true;
-		return $message;
-	}
-
 	public const MAX_FROM_SIZE = 1024;
 
 	/**
@@ -377,7 +196,7 @@ class Node {
 			$this->print_less_often( 'ERROR: ' . static::class . ' stamp_message() called with empty name' );
 			return false;
 		}
-		$from = self::as_string( $message[ Message::FROM ] );
+		$from = Core::as_string( $message[ Message::FROM ] );
 		$new  = '' === $from ? $name : ( $name . '/' . $from );
 		if ( \strlen( $new ) > self::MAX_FROM_SIZE ) {
 			$this->print_less_often( 'ERROR: path exceeded ' . self::MAX_FROM_SIZE . " bytes; dropping from: $new" );
@@ -404,7 +223,7 @@ class Node {
 		$this->registrations[ $event ][ $listener ] = $cb; // null means "Node-name dispatch".
 
 		if ( \array_key_exists( $event, $this->set_state ) ) {
-			$this->dispatch_listener( $event, $listener, $this->set_state[ $event ] );
+			$this->_notify_registered( $event, $listener, $this->set_state[ $event ] );
 		}
 	}
 
@@ -418,7 +237,7 @@ class Node {
 			return;
 		}
 		foreach ( $this->registrations[ $event ] as $listener => $cb ) {
-			$keep = $this->dispatch_listener( $event, $listener, $payload );
+			$keep = $this->_notify_registered( $event, $listener, $payload );
 			if ( false === $keep ) {
 				unset( $this->registrations[ $event ][ $listener ] );
 			}
@@ -426,7 +245,7 @@ class Node {
 	}
 
 	/** Dispatch a single listener: closure (return value gates keep/unregister) or Node-name (TM_INFO). */
-	private function dispatch_listener( string $event, string $listener, mixed $payload ): mixed {
+	private function _notify_registered( string $event, string $listener, mixed $payload ): mixed {
 		$cb = $this->registrations[ $event ][ $listener ] ?? null;
 		if ( null !== $cb && \is_callable( $cb ) ) {
 			return $cb( $payload );
@@ -450,30 +269,24 @@ class Node {
 	public function set_state( string $event, mixed $payload = null ): void {
 		$this->set_state[ $event ] = $payload;
 		if ( $this->debug_state > 0 ) {
-			$this->emit_debug_state_trace( $event, $payload );
+			$router = Core::node( Node_Names::ROUTER );
+			if ( null !== $router ) {
+				$message                       = Message::new_message();
+				$message[ Message::TYPE ]      = Message::TM_STRUCT;
+				$message[ Message::TIMESTAMP ] = Core::$now;
+				$message[ Message::FROM ]      = $this->name;
+				$message[ Message::TO ]        = Node_Names::REPL;
+				$message[ Message::VALUE ]     = [
+					'k'     => 'debug_state',
+					'node'  => $this->name,
+					'class' => static::class,
+					'event' => $event,
+					'value' => $payload,
+				];
+				$router->fill( $message );
+			}
 		}
 		$this->notify( $event, $payload );
-	}
-
-	/** Build and route a TM_STRUCT debug trace to `_repl`. No-op when `_router` isn't registered. */
-	private function emit_debug_state_trace( string $event, mixed $payload ): void {
-		$router = Core::node( Node_Names::ROUTER );
-		if ( null === $router ) {
-			return;
-		}
-		$message                       = Message::new_message();
-		$message[ Message::TYPE ]      = Message::TM_STRUCT;
-		$message[ Message::TIMESTAMP ] = Core::$now;
-		$message[ Message::FROM ]      = $this->name;
-		$message[ Message::TO ]        = Node_Names::REPL;
-		$message[ Message::VALUE ]     = [
-			'k'     => 'debug_state',
-			'node'  => $this->name,
-			'class' => static::class,
-			'event' => $event,
-			'value' => $payload,
-		];
-		$router->fill( $message );
 	}
 
 	/** Set target. Tee overrides to append to its fan-out array. */
@@ -533,7 +346,7 @@ class Node {
 			}
 			// Redact a non-empty credential (string token or array of secrets);
 			// an empty one stays visible so the operator can tell it's unset.
-			if ( self::is_secret_property( $key )
+			if ( self::_is_secret_property( $key )
 				&& ( ( \is_string( $value ) && '' !== $value ) || ( \is_array( $value ) && [] !== $value ) ) ) {
 				$value = '[REDACTED]';
 			}
@@ -554,7 +367,7 @@ class Node {
 	}
 
 	/** True if the property name reads as a credential (see SECRET_NAME_PATTERNS). */
-	private static function is_secret_property( string $name ): bool {
+	private static function _is_secret_property( string $name ): bool {
 		$lower = \strtolower( $name );
 		foreach ( self::SECRET_NAME_PATTERNS as $needle ) {
 			if ( false !== \strpos( $lower, $needle ) ) {
@@ -634,11 +447,11 @@ class Node {
 		// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl drop_message).
 		$prefix   = 'NOT_AVAILABLE' === $error ? "$error - " : "WARNING: $error - ";
 		$parts    = [ "$prefix$type_str" ];
-		$from     = self::as_string( $message[ Message::FROM ] );
+		$from     = Core::as_string( $message[ Message::FROM ] );
 		if ( '' !== $from ) {
 			$parts[] = 'from: ' . $from;
 		}
-		$to = self::as_string( $message[ Message::TO ] );
+		$to = Core::as_string( $message[ Message::TO ] );
 		if ( '' !== $to ) {
 			$parts[] = 'to: ' . $to;
 		}
@@ -647,7 +460,7 @@ class Node {
 			// json-encode array VALUEs for the audit line; (string) would emit "Array" and warn.
 			$value_str = \is_array( $value )
 				? (string) \wp_json_encode( $value, \JSON_UNESCAPED_SLASHES )
-				: self::as_string( $value );
+				: Core::as_string( $value );
 			$parts[] = 'payload: ' . $value_str;
 		}
 

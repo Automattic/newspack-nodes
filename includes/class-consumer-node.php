@@ -12,6 +12,8 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Consumer_Node extends Timer_Node {
+	use Schema_Reflection;
+
 	public const OFFSETLOG_SEGMENT_SIZE = 65536;
 	public const OFFSETLOG_NUM_SEGMENTS = 2;
 	public const MAX_LINE_BUFFER_SIZE = 20971520;
@@ -41,9 +43,8 @@ class Consumer_Node extends Timer_Node {
 	protected string $source_base_dir = '';
 	protected int $source_partition   = 0;
 	/**
-	 * Raw token written by the base schema walker — kept as documentation
-	 * of the input shape. The override normalizes it (rtrim '/') into the
-	 * derived $offsetlog_dir below.
+	 * Raw token assigned by parse_schema_args() — the override normalizes it
+	 * (rtrim '/') into the derived $offsetlog_dir below.
 	 */
 	protected string $offsetlog_base_dir = '';
 	protected string $offsetlog_dir      = '';
@@ -65,22 +66,16 @@ class Consumer_Node extends Timer_Node {
 
 	protected bool $at_eof = true;
 
-	/**
-	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
-	 * which the base setter parses against `node_schema()['arguments']`. The
-	 * override below normalizes the assigned values and materializes the
-	 * source / offsetlog Partitions + seeds the cursor from disk.
-	 */
+	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
 		parent::__construct();
 	}
 
 	/**
-	 * Setter chains through the base schema walker (which assigns
-	 * source_base_dir / source_partition / offsetlog_base_dir from positional
-	 * tokens or schema defaults), then normalizes the assigned values, derives
-	 * the final offsetlog_dir, materializes the source / offsetlog Partitions
-	 * and seeds the in-memory cursor from any existing offsetlog entries.
+	 * Store the raw string, parse positional tokens via parse_schema_args()
+	 * (source_base_dir / source_partition / offsetlog_base_dir), then normalize,
+	 * derive offsetlog_dir, materialize the source / offsetlog Partitions and seed
+	 * the in-memory cursor from any existing offsetlog entries.
 	 *
 	 * @param string|null $args
 	 * @return string
@@ -90,10 +85,11 @@ class Consumer_Node extends Timer_Node {
 			return parent::arguments();
 		}
 		$result = parent::arguments( $args );
-		// Empty-string args mirrors the base setter's no-op (no schema walk).
+		// Bare make_node: store the raw string but don't walk the schema or build children.
 		if ( '' === $args ) {
 			return $result;
 		}
+		$this->parse_schema_args( $args );
 		$this->source_base_dir = \rtrim( $this->source_base_dir, '/' );
 		$this->offsetlog_dir   = \rtrim( $this->offsetlog_base_dir, '/' );
 
@@ -509,7 +505,7 @@ class Consumer_Node extends Timer_Node {
 	/** Worker-type env tag (set by SpawnController after HMAC auth); '' when unset. */
 	private static function worker_type_env(): string {
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
-		return self::as_string( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '' );
+		return Core::as_string( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ?? '' );
 	}
 
 	private function publish_position(): void {

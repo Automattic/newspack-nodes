@@ -100,10 +100,16 @@ class Shell_Node extends Node {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'Shell::send_command requires a wired sink' );
 		}
-		$sink                     = $this->sink;
-		$message                  = $this->command( $name, $arguments );
-		$message[ Message::FROM ] = Node_Names::OUTPUT . '/' . \getmypid();
-		$message[ Message::TO ]   = $path;
+		$sink                      = $this->sink;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = Node_Names::OUTPUT . '/' . \getmypid();
+		$message[ Message::TO ]    = $path;
+		$message[ Message::VALUE ] = [
+			'name'      => $name,
+			'arguments' => $arguments,
+		];
+		$message[ Message::LOCAL ] = true;
 		$this->stamp_noreply( $message );
 		Command_Auth::sign( $message );
 		$sink->fill( $message );

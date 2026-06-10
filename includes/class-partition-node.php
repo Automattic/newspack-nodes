@@ -12,6 +12,9 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Partition_Node extends Timer_Node {
+	use Schema_Reflection;
+	use File_Writer;
+
 	public const DEFAULT_SEGMENT_SIZE = 67108864;
 	public const DEFAULT_NUM_SEGMENTS = 4;
 	public const DEFAULT_MAX_LIFESPAN = 0;
@@ -67,23 +70,18 @@ class Partition_Node extends Timer_Node {
 	/** @var list<array{packed:string,len:int,data:mixed}> Flushed in lockstep with $batch. */
 	protected array $batch_index_args = [];
 
-	/**
-	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
-	 * which the base setter parses against `node_schema()['arguments']`. The
-	 * override below re-normalizes after that walk and re-derives partition_dir.
-	 */
+	/** Tachikoma-parity: no-arg ctor. Wires the sibling :config interpreter; positional config arrives via arguments(). */
 	public function __construct() {
-		// Chains Timer_Node → Node; the base ctor auto-wires the sibling :config
-		// interpreter from node_schema()['commands'] (handlers are static + read $interpreter->patron()
-		// lazily, so running before arguments() populates the props below is fine).
 		parent::__construct();
+		// Build the {name}:config interpreter from node_schema()['commands']
+		// (handlers read $interpreter->patron() lazily, so running before
+		// arguments() populates the props below is fine).
+		$this->auto_wire_interpreter();
 	}
 
 	/**
-	 * Setter chains through the base schema walker (which assigns base_dir,
-	 * partition, segment_size, num_segments, max_lifespan from positional
-	 * tokens or schema defaults), then normalizes the assigned values and
-	 * re-derives partition_dir. Getter returns the last-set raw string.
+	 * Store the raw string, parse positional tokens via parse_schema_args(), then
+	 * normalize the values and re-derive partition_dir. Getter returns the raw string.
 	 *
 	 * @param string|null $args
 	 * @return string
@@ -93,12 +91,13 @@ class Partition_Node extends Timer_Node {
 			return parent::arguments();
 		}
 		$result = parent::arguments( $args );
-		// Empty-string args mirrors the base setter's no-op (no schema walk,
-		// no token-driven assignment): don't re-derive partition_dir from
-		// declaration-default props (would yield '/p0' at filesystem root).
+		// Bare make_node: store the raw string but don't walk the schema or
+		// derive — partition_dir from default props would be '/p0' at the
+		// filesystem root.
 		if ( '' === $args ) {
 			return $result;
 		}
+		$this->parse_schema_args( $args );
 		$this->base_dir      = \rtrim( $this->base_dir, '/' );
 		$this->segment_size  = \max( 1, $this->segment_size );
 		$this->num_segments  = \max( 2, $this->num_segments );
@@ -769,14 +768,14 @@ class Partition_Node extends Timer_Node {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'I/O',
 			'description' => 'Append-only segmented log; data file + offset index per partition.',
-			'arguments'        => [
+			'arguments'   => [
 				[ 'name' => 'base_dir',     'type' => 'string', 'required' => true ],
 				[ 'name' => 'partition',    'type' => 'int',    'required' => true ],
 				[ 'name' => 'segment_size', 'type' => 'int',    'default' => self::DEFAULT_SEGMENT_SIZE ],
 				[ 'name' => 'num_segments', 'type' => 'int',    'default' => self::DEFAULT_NUM_SEGMENTS ],
 				[ 'name' => 'max_lifespan', 'type' => 'int',    'default' => self::DEFAULT_MAX_LIFESPAN ],
 			],
-			'commands'       => [
+			'commands'    => [
 				[
 					'name'        => 'allow_large_writes',
 					'description' => 'Lift the 4KB PIPE_BUF cap; acquire per-partition write lock.',

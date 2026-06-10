@@ -129,6 +129,20 @@ class Core {
 		return (string) $value;
 	}
 
+	/**
+	 * Perl length()-style presence: false for null and '', true for '0'.
+	 *
+	 * @phpstan-assert-if-true non-empty-string $s
+	 */
+	public static function has_value( ?string $s ): bool {
+		return null !== $s && '' !== $s;
+	}
+
+	/** Canonical scalar→string read of a mixed Message field; '' for non-scalars (arrays/objects/null). */
+	public static function as_string( mixed $value ): string {
+		return \is_scalar( $value ) ? (string) $value : '';
+	}
+
 	public static function register_node( string $name, Node $node ): void {
 		self::$nodes_by_name[ $name ] = $node;
 	}

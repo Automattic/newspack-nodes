@@ -14,9 +14,16 @@ use Newspack_Nodes\Command_Interpreter_Node;
 \defined( 'ABSPATH' ) || exit;
 
 class Digest_Builder_Node extends Node {
+	use \Newspack_Nodes\Schema_Reflection;
 
 	/** @var array<int,array<string,mixed>> Accumulated summarized items. */
 	private array $items = [];
+
+	/** Wire the sibling {name}:config interpreter so the `flush` verb is dispatchable. */
+	public function __construct() {
+		parent::__construct();
+		$this->auto_wire_interpreter();
+	}
 
 	public function fill( array &$message ): void {
 		/** @var int $type */
@@ -64,7 +71,7 @@ class Digest_Builder_Node extends Node {
 					'name'        => 'flush',
 					'description' => 'Emit the accumulated draft and clear.',
 					'args'        => [],
-					// Auto-wired into the sibling `{node}:config` interpreter by Node::__construct().
+					// Dispatched via the {node}:config interpreter (auto_wire_interpreter() in __construct).
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
 						/** @var self $patron */
 						$patron = $interpreter->patron();

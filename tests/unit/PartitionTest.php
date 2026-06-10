@@ -744,11 +744,12 @@ class PartitionTest extends TestCase {
 		$this->assertSame( [ $value ], $this->read_partition_values( $p ) );
 	}
 
-	public function test_write_all_primitive_inherited_from_base_node(): void {
-		// The partial-write loop is the shared Node::write_all primitive;
-		// Partition inherits it rather than open-coding its own fwrite handling.
+	public function test_write_all_primitive_comes_from_file_writer_trait(): void {
+		// The partial-write loop is the shared File_Writer::write_all primitive;
+		// Partition `use`s the trait rather than open-coding its own fwrite handling.
 		$ref = new \ReflectionClass( Partition_Node::class );
 		$this->assertTrue( $ref->hasMethod( 'write_all' ) );
+		$this->assertContains( 'Newspack_Nodes\\File_Writer', \class_uses( Partition_Node::class ) );
 	}
 
 	// ── A1: sibling-interpreter + node_schema ─────────────────────────

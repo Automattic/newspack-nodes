@@ -9,14 +9,26 @@ use PHPUnit\Framework\Attributes\CoversClass;
 // file (alongside the test class) so it stays a fixture and doesn't
 // pollute the main autoloader / composer classmap (palette catalog).
 class Test_Args_Node extends Node {
+	use \Newspack_Nodes\Schema_Reflection;
+
 	public string $name_field = '';
 	public int    $count      = 0;
 	public bool   $flag       = false;
 
+	/** Standard override: store the raw string, then walk the schema via the trait. */
+	public function arguments( ?string $args = null ): string {
+		if ( null === $args ) {
+			return parent::arguments();
+		}
+		$result = parent::arguments( $args );
+		$this->parse_schema_args( $args );
+		return $result;
+	}
+
 	public static function node_schema(): array {
 		return [
 			'category'     => 'Test',
-			'description'  => 'Sibling fixture exercising the base arguments() setter.',
+			'description'  => 'Sibling fixture exercising parse_schema_args() via its arguments() override.',
 			'arguments'    => [
 				[ 'name' => 'name_field', 'type' => 'string', 'required' => true ],
 				[ 'name' => 'count',      'type' => 'int',    'default'  => 0 ],

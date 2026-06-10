@@ -10,6 +10,8 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Tail_Node extends Timer_Node {
+	use Schema_Reflection;
+
 	public const READ_CHUNK = 65536;
 
 	/** Hard cap on cross-poll trailing-line buffer (20MB); DoS guard against a no-newline file ballooning line_remainder until OOM. */
@@ -30,18 +32,14 @@ class Tail_Node extends Timer_Node {
 	/** True once the last poll consumed everything available. */
 	protected bool $at_eof = true;
 
-	/**
-	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
-	 * which the base setter parses against `node_schema()['arguments']`. The
-	 * override below kicks off the EOF-cadence poll timer.
-	 */
+	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
 		parent::__construct();
 	}
 
 	/**
-	 * Setter chains through the base schema walker (which assigns filename /
-	 * buffer_mode from positional tokens), then arms the poll timer.
+	 * Store the raw string, parse positional tokens via parse_schema_args() (filename /
+	 * buffer_mode), then arm the poll timer.
 	 *
 	 * @param string|null $args
 	 * @return string
@@ -54,6 +52,7 @@ class Tail_Node extends Timer_Node {
 		if ( '' === $args ) {
 			return $result;
 		}
+		$this->parse_schema_args( $args );
 		// fire() re-arms with set_timer(0)/(100) based on bytes available.
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
 		return $result;

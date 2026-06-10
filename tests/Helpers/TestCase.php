@@ -8,6 +8,9 @@ use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Topic_Node;
 
 abstract class TestCase extends PHPUnitTestCase {
+	/** @var array<int,string> Temp dirs created via make_temp_dir(), auto-removed in tearDown. */
+	private array $temp_dirs = [];
+
 	protected function setUp(): void {
 		parent::setUp();
 		if ( \class_exists( '\Newspack_Nodes\Core' ) ) {
@@ -45,8 +48,21 @@ abstract class TestCase extends PHPUnitTestCase {
 		}
 	}
 
+	/** Remove every temp dir make_temp_dir() handed out — a temp dir is only temporary if someone deletes it. */
+	protected function tearDown(): void {
+		foreach ( $this->temp_dirs as $dir ) {
+			$this->rmdir_recursive( $dir );
+		}
+		$this->temp_dirs = [];
+		parent::tearDown();
+	}
+
 	protected function make_temp_dir( string $prefix = 'newspack-nodes-test-' ): string {
-		$dir = \sys_get_temp_dir() . '/' . $prefix . \uniqid();
+		// PID + more-entropy uniqid: bare uniqid() is microtime-based and collides
+		// across PARALLEL processes (run-coverage runs nodes/ELN/pyrobase at once),
+		// which let two suites share one temp dir + its `/tmp/locks` rotate lock —
+		// a real cross-process flake. PID guarantees inter-process uniqueness.
+		$dir = \sys_get_temp_dir() . '/' . $prefix . \getmypid() . '-' . \uniqid( '', true );
 		\mkdir( $dir, 0755, true );
 		return $dir;
 	}

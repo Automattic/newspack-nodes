@@ -12,6 +12,8 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Topic_Node extends Node {
+	use Schema_Reflection;
+
 	protected string $base_dir      = '';
 	protected int $num_partitions   = 1;
 	protected int $segment_size     = Partition_Node::DEFAULT_SEGMENT_SIZE;
@@ -23,20 +25,15 @@ class Topic_Node extends Node {
 
 	protected static int $rr_counter = 0;
 
-	/**
-	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
-	 * which the base setter parses against `node_schema()['arguments']`.
-	 */
+	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
 		$this->registrations = [ 'READY' => [] ];
-		// Chain to the base ctor (no-op today — no handler-bearing node_schema
-		// verbs — but keeps the :config auto-wire available if any are added).
 		parent::__construct();
 	}
 
 	/**
-	 * Setter chains through the base schema walker, then normalizes the
-	 * assigned values (rtrim base_dir, clamp num_partitions to ≥1).
+	 * Store the raw string, parse positional tokens via parse_schema_args(), then
+	 * normalize (rtrim base_dir, clamp num_partitions to ≥1).
 	 *
 	 * @param string|null $args
 	 * @return string
@@ -49,6 +46,7 @@ class Topic_Node extends Node {
 		if ( '' === $args ) {
 			return $result;
 		}
+		$this->parse_schema_args( $args );
 		$this->base_dir       = \rtrim( $this->base_dir, '/' );
 		$this->num_partitions = \max( 1, $this->num_partitions );
 		return $result;
@@ -106,7 +104,7 @@ class Topic_Node extends Node {
 		}
 
 		// Pre-pinned via TO: parse partition index out of TO's leading segment.
-		$to = self::as_string( $message[ Message::TO ] );
+		$to = Core::as_string( $message[ Message::TO ] );
 		if ( '' !== $to && \preg_match( '/^p(\d+)/', $to, $m ) ) {
 			$idx = (int) $m[1];
 			if ( $idx >= 0 && $idx < $this->num_partitions ) {
@@ -115,7 +113,7 @@ class Topic_Node extends Node {
 			}
 		}
 		// KEY-routed (or round-robin if KEY empty).
-		$key = self::as_string( $message[ Message::KEY ] );
+		$key = Core::as_string( $message[ Message::KEY ] );
 		if ( '' !== $key ) {
 			$idx = Partition_Node::hash_to_partition( $key, $this->num_partitions );
 		} else {

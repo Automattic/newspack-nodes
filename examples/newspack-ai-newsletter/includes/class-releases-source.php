@@ -14,6 +14,13 @@ use Newspack_Nodes\Command_Interpreter_Node;
 \defined( 'ABSPATH' ) || exit;
 
 class Releases_Source_Node extends Node {
+	use \Newspack_Nodes\Schema_Reflection;
+
+	/** Wire the sibling {name}:config interpreter so the `tick` verb is dispatchable. */
+	public function __construct() {
+		parent::__construct();
+		$this->auto_wire_interpreter();
+	}
 
 	/**
 	 * The ONE seam a real source replaces: return ingest items. Toy = canned.
@@ -52,7 +59,7 @@ class Releases_Source_Node extends Node {
 					'name'        => 'tick',
 					'description' => 'Emit the current batch of items.',
 					'args'        => [],
-					// Auto-wired into the sibling `{node}:config` interpreter by Node::__construct().
+					// Dispatched via the {node}:config interpreter (auto_wire_interpreter() in __construct).
 					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
 						/** @var self $patron */
 						$patron = $interpreter->patron();
