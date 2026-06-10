@@ -86,6 +86,9 @@ class Lock_Node extends Node {
 	/**
 	 * Steal an existing lock dir if orphaned (no heartbeat, past grace) or stale (mtime > timeout).
 	 *
+	 * Non-blocking: the orphan grace is judged by the dir's own mtime, never by
+	 * sleeping — acquire() runs in request scope (SSE / CLI) and must not stall.
+	 *
 	 * @return bool True if the dir is now ours.
 	 */
 	private function try_steal_orphan_or_stale(): bool {
@@ -93,13 +96,20 @@ class Lock_Node extends Node {
 		\clearstatcache( true, $hb );
 
 		if ( ! \file_exists( $hb ) ) {
-			// Orphan dir (no heartbeat). Holder may be mid-acquire; honor grace.
-			\sleep( self::ORPHAN_GRACE_S );
-			\clearstatcache( true, $hb );
-			if ( \file_exists( $hb ) ) {
-				return false; // Heartbeat appeared during grace — back off.
+			// Orphan dir (no heartbeat): the owner is between mkdir and the
+			// heartbeat write. Judge by the dir's own age instead of sleeping —
+			// only steal once it has sat heartbeat-less past the grace window.
+			// Invariant: nothing is written INTO the dir before the heartbeat
+			// (write_acquire_files is the first child write), so a real orphan's
+			// dir mtime stays at its mkdir creation time and this age test is
+			// exactly "how long has this dir sat empty". Don't drop a marker file
+			// at mkdir time or this breaks.
+			\clearstatcache( true, $this->lock_path );
+			$dir_mtime = @\filemtime( $this->lock_path );
+			if ( false === $dir_mtime || ( \time() - $dir_mtime ) < self::ORPHAN_GRACE_S ) {
+				return false; // Too fresh — assume the owner is mid-acquire.
 			}
-			// Still no heartbeat — treat as stale and steal.
+			// Past grace, still no heartbeat — owner died mid-acquire. Steal.
 		} else {
 			$mtime = @\filemtime( $hb );
 			if ( false === $mtime ) {
@@ -111,7 +121,33 @@ class Lock_Node extends Node {
 			}
 		}
 
-		self::force_release_at( $this->lock_path );
+		return $this->steal_atomically();
+	}
+
+	/**
+	 * Atomically take over the lock dir. rename() of a directory is atomic, so
+	 * of two stealers racing the same dir exactly one rename succeeds; the
+	 * loser's rename fails (source already gone) and it backs off. This closes
+	 * the force_release_at()+mkdir() window where both racers could delete each
+	 * other's heartbeat and both believe they hold the lock.
+	 *
+	 * The single-holder guarantee ultimately rests on mkdir, not rename: between
+	 * the rename (line below) and the recreate the canonical path is briefly
+	 * absent, so a plain acquire()-top `mkdir` racer can also claim it. That's
+	 * still safe — both the racer's mkdir and our recreate mkdir target the same
+	 * path and mkdir-on-existing fails, so exactly one becomes the holder and the
+	 * other returns false. Keep the recreate an `mkdir` (an unconditional
+	 * rename-back or removing the existence check would reopen a double-holder).
+	 *
+	 * @return bool True if WE won the recreate and now hold the dir.
+	 */
+	private function steal_atomically(): bool {
+		$aside = $this->lock_path . '.stealing.' . \getmypid() . '.' . \uniqid( '', true );
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename
+		if ( ! @\rename( $this->lock_path, $aside ) ) {
+			return false; // Lost the steal — another racer renamed/removed it first.
+		}
+		self::force_release_at( $aside ); // Discard the stolen dir + its files.
 		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
 		return @\mkdir( $this->lock_path, 0755, true );
 	}

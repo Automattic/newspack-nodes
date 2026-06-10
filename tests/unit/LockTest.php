@@ -228,16 +228,51 @@ class LockTest extends TestCase {
 
 	// --- Grace period for orphan dirs ---------------------------------------
 
-	public function test_acquire_takes_over_orphan_dir_after_grace(): void {
-		// Lock dir exists but no heartbeat file (crash during creation).
-		// After ORPHAN_GRACE_S seconds with no heartbeat appearing, acquire() steals it.
-		// The grace is implemented as a real sleep() inside the production
-		// code; phpunit.xml's `defaultTimeLimit` accommodates the wait.
+	public function test_acquire_does_not_steal_fresh_orphan_and_does_not_block(): void {
+		// A just-created heartbeat-less dir means the owner is mid-acquire
+		// (mkdir done, heartbeat not yet written). acquire() must NOT steal it,
+		// and must NOT block the calling request to find that out.
 		mkdir( "{$this->tmp}/orphan.lock.d", 0755, true );
 
-		$lock = new Lock_Node( "{$this->tmp}/orphan.lock.d" );
-		$this->assertTrue( $lock->acquire() );
+		$lock    = new Lock_Node( "{$this->tmp}/orphan.lock.d" );
+		$started = microtime( true );
+		$result  = $lock->acquire();
+		$elapsed = microtime( true ) - $started;
+
+		$this->assertFalse( $result, 'A fresh orphan dir must not be stolen.' );
+		$this->assertLessThan(
+			Lock_Node::ORPHAN_GRACE_S,
+			$elapsed,
+			'acquire() must not sleep in request scope while judging an orphan dir.'
+		);
+	}
+
+	public function test_acquire_steals_aged_orphan_dir_without_blocking(): void {
+		// Lock dir exists but no heartbeat file (crash during creation), and it
+		// has sat heartbeat-less past the grace window — the owner died
+		// mid-acquire. acquire() steals it, judging staleness by the dir's own
+		// mtime (no real sleep).
+		mkdir( "{$this->tmp}/orphan.lock.d", 0755, true );
+		touch( "{$this->tmp}/orphan.lock.d", time() - ( Lock_Node::ORPHAN_GRACE_S + 5 ) );
+
+		$lock    = new Lock_Node( "{$this->tmp}/orphan.lock.d" );
+		$started = microtime( true );
+		$result  = $lock->acquire();
+		$elapsed = microtime( true ) - $started;
+
+		$this->assertTrue( $result, 'An aged heartbeat-less orphan dir must be stolen.' );
 		$this->assertFileExists( "{$this->tmp}/orphan.lock.d/heartbeat" );
+		$this->assertLessThan(
+			Lock_Node::ORPHAN_GRACE_S,
+			$elapsed,
+			'acquire() must judge orphan age by mtime, not by sleeping.'
+		);
+		// The atomic steal must not leave a renamed-aside scratch dir behind.
+		$this->assertSame(
+			[],
+			glob( "{$this->tmp}/orphan.lock.d.stealing.*" ),
+			'Atomic steal must clean up its renamed-aside scratch dir.'
+		);
 	}
 
 	// --- Path getter --------------------------------------------------------
