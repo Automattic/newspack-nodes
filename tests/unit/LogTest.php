@@ -408,6 +408,27 @@ class LogTest extends TestCase {
 		}
 	}
 
+	public function test_fill_counts_and_announces_a_failed_write(): void {
+		// A full disk (/dev/full reports ENOSPC on every write) must NOT make
+		// the log line vanish silently: the node records a write_failures count
+		// and emits one loud, rate-limited line. This is the [22] "fail loud"
+		// contract — a swallowed fwrite() is a data-loss bug with no signal.
+		$log = new Log_Node();
+		$log->arguments( '/dev/full' );
+
+		$warned = '';
+		\Newspack_Nodes\Core::set_stderr_handler( static function ( $msg ) use ( &$warned ) {
+			$warned .= $msg;
+		} );
+
+		$msg = $this->bytestream( "cannot land\n" );
+		$log->fill( $msg );
+		$log->remove_node();
+
+		$this->assertSame( 1, $log->write_failures(), 'a failed write must be counted, not swallowed' );
+		$this->assertStringContainsString( 'write stalled', $warned );
+	}
+
 	private function bytestream( string $value ): array {
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;

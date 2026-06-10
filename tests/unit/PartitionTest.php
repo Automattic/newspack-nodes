@@ -744,10 +744,11 @@ class PartitionTest extends TestCase {
 		$this->assertSame( [ $value ], $this->read_partition_values( $p ) );
 	}
 
-	public function test_loop_fwrite_protected_helper_exists(): void {
-		// Defensive check: the partial-write loop method must exist on the class.
+	public function test_write_all_primitive_inherited_from_base_node(): void {
+		// The partial-write loop is the shared Node::write_all primitive;
+		// Partition inherits it rather than open-coding its own fwrite handling.
 		$ref = new \ReflectionClass( Partition_Node::class );
-		$this->assertTrue( $ref->hasMethod( 'loop_fwrite' ) );
+		$this->assertTrue( $ref->hasMethod( 'write_all' ) );
 	}
 
 	// ── A1: sibling-interpreter + node_schema ─────────────────────────
@@ -1577,34 +1578,66 @@ class PartitionTest extends TestCase {
 	}
 
 	// ============================================================================
-	// Coverage: loop_fwrite partial-write stall loop.
+	// Coverage: write_all partial-write stall loop (shared base-Node primitive).
 	// ============================================================================
 
-	public function test_loop_fwrite_returns_false_after_MAX_PARTIAL_WRITE_ATTEMPTS(): void {
-		// A read-only file handle makes fwrite() return false. loop_fwrite
-		// must increment $attempts on each failure and bail with return false
-		// once $attempts >= MAX_PARTIAL_WRITE_ATTEMPTS — covering the
-		// rate-limited stderr emit on the way out.
-		$probe   = "{$this->tmp}/loop-fwrite-probe.bin";
+	public function test_write_all_returns_zero_and_counts_failure_when_nothing_lands(): void {
+		// A read-only file handle makes fwrite() return false. write_all must
+		// retry on each failure and, once attempts exhaust, report 0 bytes
+		// written, record a write_failures count, and emit one loud,
+		// rate-limited line. A stalled write is never silently swallowed.
+		$probe = "{$this->tmp}/write-all-probe.bin";
 		\file_put_contents( $probe, 'seed' );
 		$ro_fh = \fopen( $probe, 'rb' );
 		$this->assertNotFalse( $ro_fh );
 
 		$p = new Partition_Node();
-
 		$p->arguments( "{$this->tmp} 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$ref = new \ReflectionClass( $p );
-		$lf  = $ref->getMethod( 'loop_fwrite' );
-		$lf->setAccessible( true );
+		$wa  = $ref->getMethod( 'write_all' );
+		$wa->setAccessible( true );
 
-		// loop_fwrite calls print_less_often on stall. Capture any stderr so
-		// it doesn't leak into test output; the assertion is just "false".
-		\Newspack_Nodes\Core::set_stderr_handler( static function () { /* swallow */ } );
+		$warned = '';
+		\Newspack_Nodes\Core::set_stderr_handler( static function ( $msg ) use ( &$warned ) {
+			$warned .= $msg;
+		} );
 
-		$result = $lf->invoke( $p, $ro_fh, 'payload-to-write' );
+		$result = $wa->invoke( $p, $ro_fh, 'payload-to-write', $probe );
 		\fclose( $ro_fh );
 
-		$this->assertFalse( $result, 'loop_fwrite must return false after exhausting retries' );
+		$this->assertSame( 0, $result, 'write_all must report 0 bytes written after exhausting retries' );
+		$this->assertSame( 1, $p->write_failures(), 'a stalled write must be counted' );
+		$this->assertStringContainsString( 'write stalled', $warned );
+	}
+
+	public function test_write_all_reports_bytes_actually_written_on_a_partial_stall(): void {
+		// A disk that fills mid-write accepts some bytes, then ENOSPC. write_all
+		// must report how many bytes ACTUALLY landed (not just success/failure)
+		// so the caller advances current_size by the real amount and the segment
+		// offset never drifts against the file — while still counting the stall.
+		PartialWriteStreamWrapper::$accept_bytes = 4;
+		\stream_wrapper_register( 'nnpartial', PartialWriteStreamWrapper::class );
+		try {
+			$fh = \fopen( 'nnpartial://x', 'w' );
+			$this->assertNotFalse( $fh );
+
+			$p = new Partition_Node();
+			$p->arguments( "{$this->tmp} 0 " . ( 64 * 1024 ) . " 4 86400" );
+			$ref = new \ReflectionClass( $p );
+			$wa  = $ref->getMethod( 'write_all' );
+			$wa->setAccessible( true );
+
+			\Newspack_Nodes\Core::set_stderr_handler( static function () {} );
+
+			// 10 bytes offered, only 4 accepted before the stream stalls.
+			$wrote = $wa->invoke( $p, $fh, 'ABCDEFGHIJ', 'seg' );
+			\fclose( $fh );
+
+			$this->assertSame( 4, $wrote, 'write_all must report the bytes that actually landed' );
+			$this->assertSame( 1, $p->write_failures(), 'a partial-then-stall still counts as a failure' );
+		} finally {
+			\stream_wrapper_unregister( 'nnpartial' );
+		}
 	}
 
 	// ============================================================================
@@ -2009,7 +2042,7 @@ class PartitionTest extends TestCase {
 
 		// File-content sanity: nothing was written to a real segment because
 		// the open failed. (No assertion against the value of bytes_written:
-		// loop_fwrite never ran.)
+		// write_all never ran.)
 		$this->assertTrue( \is_dir( "{$this->tmp}/p0/blocker" ), 'blocker dir must still be present (fill must not have unlinked it)' );
 	}
 
@@ -2092,4 +2125,35 @@ class PartitionTest extends TestCase {
 
 		$p->remove_node();
 	}
+}
+
+/**
+ * Test stream wrapper that accepts a fixed byte budget, then stalls (returns 0)
+ * — simulating a disk that fills mid-write so write_all() sees a partial write.
+ */
+class PartialWriteStreamWrapper {
+	public static int $accept_bytes = 0;
+	/** @var resource */
+	public $context;
+	private int $written = 0;
+
+	public function stream_open( string $path, string $mode, int $options, ?string &$opened_path ): bool {
+		return true;
+	}
+
+	public function stream_write( string $data ): int {
+		$budget = self::$accept_bytes - $this->written;
+		if ( $budget <= 0 ) {
+			return 0;
+		}
+		$take           = \min( $budget, \strlen( $data ) );
+		$this->written += $take;
+		return $take;
+	}
+
+	public function stream_eof(): bool {
+		return false;
+	}
+
+	public function stream_close(): void {}
 }
