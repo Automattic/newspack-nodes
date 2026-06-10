@@ -71,6 +71,65 @@ class Node {
 	}
 
 	/**
+	 * Get/set the node's argument string. The setter ALSO parses the string
+	 * against node_schema()['arguments'] and assigns each declared positional
+	 * argument to the matching $this->{$name} property. Tokens beyond the
+	 * declared positions are ignored; missing optional tokens use their
+	 * schema-declared defaults. Mirrors Tachikoma::Node::arguments.
+	 *
+	 * Subclasses override the whole method when the default schema walk isn't
+	 * enough (multi-token args, derived state, validation).
+	 *
+	 * @param string|null $args New raw arguments string (null = pure getter).
+	 * @return string Last-set raw arguments string.
+	 */
+	public function arguments( ?string $args = null ): string {
+		if ( null === $args ) {
+			return $this->arguments;
+		}
+		$this->arguments = $args;
+		$schema   = static::node_schema();
+		$declared = $schema['arguments'] ?? [];
+		if ( ! \is_array( $declared ) || empty( $declared ) || '' === $args ) {
+			return $this->arguments;
+		}
+		$tokens = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY );
+		foreach ( $declared as $i => $arg_spec ) {
+			if ( ! \is_array( $arg_spec ) ) {
+				continue;
+			}
+			$name     = self::as_string( $arg_spec['name'] ?? '' );
+			$type_raw = $arg_spec['type'] ?? 'string';
+			$type     = \is_string( $type_raw ) ? $type_raw : 'string';
+			if ( '' === $name || ! \property_exists( $this, $name ) ) {
+				continue;
+			}
+			if ( isset( $tokens[ $i ] ) ) {
+				$this->{$name} = self::coerce_argument( $tokens[ $i ], $type );
+			} elseif ( \array_key_exists( 'default', $arg_spec ) ) {
+				$this->{$name} = $arg_spec['default'];
+			}
+		}
+		return $this->arguments;
+	}
+
+	/**
+	 * Default: stamp TO from target if empty, then forward to sink.
+	 *
+	 * @param array<int, mixed> $message Message reference.
+	 */
+	public function fill( array &$message ): void {
+		if ( null === $this->sink ) {
+			throw new \RuntimeException( 'Shell::fill requires a wired sink' );
+		}
+		if ( '' === $message[ Message::TO ] && \is_string( $this->target ) && '' !== $this->target ) {
+			$message[ Message::TO ] = $this->target;
+		}
+		++$this->counter;
+		$this->sink->fill( $message );
+	}
+
+	/**
 	 * Collect the node_schema verbs[] that carry a callable handler — the
 	 * `{node}:config` dispatch table. Silent: catalog-only verbs (no handler)
 	 * are skipped, not flagged, because a plain node legitimately declares
@@ -124,22 +183,6 @@ class Node {
 			$this->debug_state = \max( 0, $level );
 		}
 		return $this->debug_state;
-	}
-
-	/**
-	 * Default: stamp TO from target if empty, then forward to sink.
-	 *
-	 * @param array<int, mixed> $message Message reference.
-	 */
-	public function fill( array &$message ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'Shell::fill requires a wired sink' );
-		}
-		if ( '' === $message[ Message::TO ] && \is_string( $this->target ) && '' !== $this->target ) {
-			$message[ Message::TO ] = $this->target;
-		}
-		++$this->counter;
-		$this->sink->fill( $message );
 	}
 
 	/**
@@ -236,49 +279,6 @@ class Node {
 
 	public function bytes_written(): int {
 		return $this->bytes_written;
-	}
-
-	/**
-	 * Get/set the node's argument string. The setter ALSO parses the string
-	 * against node_schema()['arguments'] and assigns each declared positional
-	 * argument to the matching $this->{$name} property. Tokens beyond the
-	 * declared positions are ignored; missing optional tokens use their
-	 * schema-declared defaults. Mirrors Tachikoma::Node::arguments.
-	 *
-	 * Subclasses override the whole method when the default schema walk isn't
-	 * enough (multi-token args, derived state, validation).
-	 *
-	 * @param string|null $args New raw arguments string (null = pure getter).
-	 * @return string Last-set raw arguments string.
-	 */
-	public function arguments( ?string $args = null ): string {
-		if ( null === $args ) {
-			return $this->arguments;
-		}
-		$this->arguments = $args;
-		$schema   = static::node_schema();
-		$declared = $schema['arguments'] ?? [];
-		if ( ! \is_array( $declared ) || empty( $declared ) || '' === $args ) {
-			return $this->arguments;
-		}
-		$tokens = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY );
-		foreach ( $declared as $i => $arg_spec ) {
-			if ( ! \is_array( $arg_spec ) ) {
-				continue;
-			}
-			$name     = self::as_string( $arg_spec['name'] ?? '' );
-			$type_raw = $arg_spec['type'] ?? 'string';
-			$type     = \is_string( $type_raw ) ? $type_raw : 'string';
-			if ( '' === $name || ! \property_exists( $this, $name ) ) {
-				continue;
-			}
-			if ( isset( $tokens[ $i ] ) ) {
-				$this->{$name} = self::coerce_argument( $tokens[ $i ], $type );
-			} elseif ( \array_key_exists( 'default', $arg_spec ) ) {
-				$this->{$name} = $arg_spec['default'];
-			}
-		}
-		return $this->arguments;
 	}
 
 	/**
