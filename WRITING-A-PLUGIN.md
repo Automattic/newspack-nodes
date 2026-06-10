@@ -14,11 +14,11 @@ If you haven't run the example yet, do [GETTING-STARTED.md](GETTING-STARTED.md) 
 
 ```
 releases ─┐
-          ├─> summarizer ─> digest ─> out (Log)
+          ├─> summarizer ─> digest ─> log (Log)
 community ┘
 ```
 
-Two **sources** emit items. One **summarizer** condenses each item to a line. One **builder** accumulates the lines and, on command, writes a draft. `out` is the substrate's built-in `Log`. Sources emit on a `tick`; the digest writes on a `flush` — both typeable in the REPL, so you can drive the whole thing by hand.
+Two **sources** emit items. One **summarizer** condenses each item to a line. One **builder** accumulates the lines and, on command, writes a draft. `log` is the substrate's built-in `Log`. Sources emit on a `tick`; the digest writes on a `flush` — both typeable in the REPL, so you can drive the whole thing by hand.
 
 We'll write it in the order you'd actually discover it: one node, run it, wire the next, run it again.
 
@@ -224,7 +224,7 @@ class Digest_Builder_Node extends Node {
 
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'category'    => 'Sink',
+			'category'    => 'Transform',
 			'description' => 'Accumulates summarized items; flush renders a markdown draft.',
 			'commands'    => [
 				[
@@ -269,9 +269,9 @@ The draft has to land somewhere. You don't write a file-writer node — the subs
 
 ```
 > make_node Digest_Builder digest
-> make_node Log out /tmp/newspack-ai-newsletter/digest.md
+> make_node Log log /tmp/newspack-ai-newsletter/digest.md
 > connect_node summarizer digest
-> connect_node digest out
+> connect_node digest log
 > command_node releases:config tick
 > command_node digest:config flush
 flushed 2 summary(ies)
@@ -292,18 +292,29 @@ Four nodes, a working pipeline. You wrote three; `Log` you reused.
 
 Typing `make_node`/`connect_node` by hand is how you explore. To run it as a real, persistent worker, write the same lines to a topology file.
 
-`topologies/digest.tsl`:
+`topologies/digest.tsl` — this is the **finished** file (it already includes the `community` source from step 6 and the `Tee` tap; if you're following along, leave `community` and its `connect_node` out until step 6):
 
 ```
+var num_partitions = 1
 make_node Releases_Source   releases
-make_node Community_Source  community      # (coming in step 6 — leave it out for now, or add it)
+make_node Community_Source  community
 make_node Summarizer        summarizer
 make_node Digest_Builder    digest
-make_node Log               out  /tmp/newspack-ai-newsletter/digest.md
+make_node Tee               tee
+make_node Log               log  /tmp/newspack-ai-newsletter/digest.md append 1 7
 connect_node releases   summarizer
+connect_node community  summarizer
 connect_node summarizer digest
-connect_node digest     out
+connect_node digest     tee
+connect_node tee        log
+connect_node tee        _repl
 ```
+
+A few things this file adds that the by-hand session didn't:
+
+- `var num_partitions = 1` is a topology **variable** — frontmatter the supervisor reads to size the worker pool. (`var <name> = <value>` is a Shell verb; `num_partitions` is the one the runtime acts on. Omit it and the topology still defaults to one partition, but copy the line so the example partitions the way the shipped file does.)
+- A `Tee` fans the draft into **two** sinks — the `Log` file *and* `_repl`. The `_repl` tap is what lets the topology console (and a pivoted `wp nodes cli`) actually *see* the emitted draft scroll by; without it the draft only ever lands in the file. (`Tee` is the fan-out node introduced in step 6.)
+- `Log log … append 1 7` passes the file's full positional `arguments` — `filename`, `mode` (`append`), `max_size`, `max_rotations` — so it rotates and keeps a bounded set of rotated siblings rather than growing forever. The by-hand version omitted them and took the defaults (no rotation).
 
 `register_plugin` (step 1) already pointed at `topologies/`, so this file is now a catalog entry. Activate the plugin, make sure `digest` is in the active set (full catalog is active by default, or enable it under **Settings → Nodes Runtime → Topologies**), and the supervisor spawns it:
 
@@ -421,6 +432,8 @@ You wrote four small classes, each with one `fill()` (or one verb), and a topolo
 And here's the thing worth sitting with: **Ana and Ben never met.** Ana wrote the releases source knowing nothing about summaries. The author of the summarizer never knew either source would exist. Ben added the community feed without reading a line of any of it. Nobody scheduled an integration meeting, because there was nothing to integrate — every node already agreed on the only thing that matters: a message arrives at `fill()`, you do your work, you forward it to your sink.
 
 That's the bet of Nodes. You add capability by wiring a node, not by editing a system. Uphold the contract, and your piece drops into a graph full of pieces you've never seen — and theirs drop into yours.
+
+And the same contract is what makes each node testable in isolation: the example ships PHPUnit suites under [`examples/newspack-ai-newsletter/tests/`](examples/newspack-ai-newsletter/tests/) — one per node, plus a `PipelineTest` that wires the whole graph. Each test does exactly what the substrate does: construct a message, call `fill()`, and assert on what landed in a `Capture_Sink_Node`. No worker, no router, no topology — just the contract.
 
 ---
 

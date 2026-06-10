@@ -27,7 +27,7 @@ Two modes:
 
 **Bare** (`wp nodes cli`) — local-only. Builds Shell + CommandInterpreter + Router + Dumper(`_output`) and runs commands in the wp-cli process itself. Use for testing CommandInterpreter verbs without touching a worker.
 
-**Pivoted** (`wp nodes cli <reader>.p<N>`) — attaches to a live worker via a pair of IPC Partitions. Commands you type get serialized to disk; the worker reads them, processes them in its own event loop, and writes responses back to a different Partition the cli tails. Lets you `dump_node`, `connect_node`, `disconnect_node` against a running graph without disturbing it.
+**Pivoted** (`wp nodes cli <reader>.p<N>`) — attaches to a live worker via a pair of IPC Partitions. Commands you type get serialized to disk; the worker reads them, processes them in its own event loop, and writes responses back to a different Partition the cli tails. Lets you `dump_node`, `connect_node`, `disconnect_node` against a running graph without disturbing it. The `<reader>.p<N>` ids below (e.g. `firehose-workers.p0`) are placeholders — run `wp nodes ls` for the live ids in your environment.
 
 The cli verifies the worker exists by checking for `{base}/locks/{reader}.lock.d/`. Typo'd reader ids fail fast with "no worker '<id>' (run `wp nodes ls` to list active workers)" instead of creating ghost IPC partitions. Staleness is not blocked at attach time — a stale worker is mid-restart and the cli will work once the supervisor respawns it.
 
@@ -40,7 +40,7 @@ list_nodes [-clst] [<node>]         # nodes sinking INTO <node>; -c count -l cou
 list_nodes -a [-clst] [<glob>]      # all nodes filtered by anchored regex
 dump_node <node> [<keys>]           # config + state of one node (alias: dump)
 dump_config                         # full topology as round-trippable shell verbs
-dump_metadata                       # JSON object keyed by node name; class/counter/sink/target/debug_state/arguments/lgst_msg/bytes_read/bytes_written — one round-trip gives a visualizer the graph. Patron-linked (`{node}:config`) CIs are filtered out. NOT the same verb as `Workers_CI`'s `dump_metadata` over REST (that returns `{workers[], supervisor, logs, num_partitions, num_segments, segment_size, timestamp}`).
+dump_metadata                       # JSON object keyed by node name; class/counter/sink/target/debug_state/arguments/lgst_msg/bytes_read/bytes_written/accepts_fill/has_target (the last two are port flags read from the node schema) — one round-trip gives a visualizer the graph. Patron-linked (`{node}:config`) CIs are filtered out. NOT the same verb as `Workers_CI`'s `dump_metadata` over REST (that returns `{workers[], supervisor, logs, num_partitions, num_segments, segment_size, timestamp}`).
 debug_state [<node>] [<level>]      # toggle/set node's debug_state level (0/1/N). No args toggles the interpreter's own.
 uptime                              # clock-time + days+HH:MM:SS since Core::reset() (worker spawn)
 stats [-a] [<regex>]                # NAME COUNT LGST_MSG READ WRITTEN columns; default scope is siblings, -a all
@@ -91,15 +91,27 @@ wp nodes types
 # List active workers + last heartbeat age (live vs stale).
 wp nodes ls
 
-# Status (formats: table, json).
+# Status (formats: table, json, csv, yaml).
 wp nodes status --format=json
 
-# Force-restart by type (sends a restart flag-file via Lock). Run
-# `wp nodes types` first to discover what's live — the substrate itself
-# ships no topologies; topologies come from application plugins (ELN ships
-# `firehose-workers-and-jobs`, `job-workers`, `request-workers`).
-wp nodes restart all --all-partitions   # or a specific type from `wp nodes types`
+# Run a worker directly in the foreground (no spawn endpoint). Useful when
+# diagnosing "worker spawns but immediately exits" — the process stays
+# attached so its boot errors hit your terminal.
+wp nodes run <type> [--partition=<N>] [--quiet]
+
+# Force-restart (sends a restart flag-file via Lock). Run `wp nodes types`
+# first to discover what's live: the substrate ships ONE stock topology
+# (`job-worker`, registered via `Topology_Registry::register_stock_dir` from
+# its own `topologies/` dir); the rest come from application plugins (ELN
+# ships `firehose-workers-and-jobs`, `job-workers`, `request-workers`).
+wp nodes restart all --all-partitions          # every type, every partition
+wp nodes restart <type> --partition=<N>         # one type, one partition
 ```
+
+The visible-dashboard restart (Workers_CI over REST) additionally accepts a
+`supervisor` filter target that restarts the supervisor itself (via
+`CLI::restart_supervisor()`); the `wp nodes restart` verb only targets worker
+types.
 
 A worker reports as `[live]` if its heartbeat file (under `{base}/locks/{type}.p{N}.lock.d/heartbeat`) was touched within `stale_timeout`. `[stale]` means the supervisor will respawn it on the next minute-cron tick.
 
@@ -117,6 +129,8 @@ Application-side log dirs (created by whatever Partition/Log a topology construc
 - `logs/jobintake.log/p{N}/{seg}.log` — large jobs that bypass the firehose
 
 `base_directory` is `/tmp/newspack-nodes` by default; override via `Newspack_Nodes\Config`. (Don't confuse with the legacy event-logger path under `/volumes/pyrobase/tmp/event-logger` — different runtime.)
+
+Listing a partition dir, you'll also see `{seg}.idx` sidecars next to each `{seg}.log`. Partition only writes these when a `with_index()` formatter is set (default mode writes none) — the `.idx` holds a JSONL index for offset lookups. An empty/absent `.idx` for a `.log` is normal, not a sign of corruption.
 
 ## Common failure modes
 

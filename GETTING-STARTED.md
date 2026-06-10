@@ -25,25 +25,28 @@ For the full model — the drain loop, workers, partitions, the REPL — see [AR
 
 ## Feel it in 5 minutes
 
-The repo ships a runnable example: `examples/newspack-ai-newsletter/`, a digest pipeline built from four small nodes. It's deterministic — no API keys, no network — so it runs anywhere. Two sources emit canned items, a summarizer condenses each, a builder assembles a markdown draft, and the built-in `Log` writes it to a file.
+The repo ships a runnable example: `examples/newspack-ai-newsletter/`, a digest pipeline built from four small nodes. It's deterministic — no API keys, no network — so it runs anywhere. Two sources emit canned items, a summarizer condenses each, a builder assembles a markdown draft, and a `Tee` fans that draft to the built-in `Log` (which writes it to a file) and to `_repl` (so you can watch it from the REPL).
 
 ```bash
-# 1. Build the example's autoloader and activate it (alongside newspack-nodes).
+# 1. Build the example's autoloader and activate it. The example is its own
+#    plugin (own composer.json + vendor/autoload) and loads after the substrate,
+#    so newspack-nodes must be active first — it no-ops if the substrate is absent.
 cd examples/newspack-ai-newsletter && composer dump-autoload -o && cd -
 wp plugin activate newspack-nodes newspack-ai-newsletter
 
 # 2. Where the digest gets written (Log appends here).
 mkdir -p /tmp/newspack-ai-newsletter
 
-# 3. See the worker. Activating the example registers its `digest` topology;
-#    if you haven't curated an active set, the full catalog is active, so the
-#    supervisor spawns it. (Otherwise enable `digest` under
-#    Settings → Nodes Runtime → Topologies.)
+# 3. Enable the topology, then see the worker. Activating the example
+#    *registers* its `digest` topology, but the shipped default active set is
+#    empty — nothing spawns by surprise. Go to Settings → Nodes Runtime →
+#    Topologies, check `digest` in the Active Topologies field, and Save.
+#    Now the supervisor spawns it:
 wp nodes ls
 #   ... digest.p0   [live]
 ```
 
-Open the **topology console** (the Nodes admin page): you'll see the `digest` graph — `releases` and `community` both feeding `summarizer`, then `digest`, then `out` — with live message counts on every edge.
+Open the **topology console** (the Nodes admin page): you'll see the `digest` graph — `releases` and `community` both feeding `summarizer`, then `digest`, then a `tee` that fans to the built-in `log` (and to `_repl`) — with live message counts on every edge. The `tee → _repl` hop is why the draft is also visible in the REPL session below.
 
 Now drive it by hand. Pivot a REPL into the running worker and fire the verbs:
 
@@ -54,9 +57,9 @@ wp nodes cli digest.p0
 > command_node releases:config tick     # releases source emits its items
 emitted 2 item(s)
 > command_node community:config tick     # the other source emits its items
-emitted 2 item(s)
+emitted 3 item(s)
 > command_node digest:config flush       # assemble + write the draft
-flushed 4 summary(ies)
+flushed 5 summary(ies)
 ```
 
 Each `tick` flows source → summarizer → digest (watch the counts climb in the console). `flush` writes the assembled draft:

@@ -8,7 +8,7 @@ The traditional WordPress plugin shape — singletons, hooks-as-coupling, monoli
 
 Newspack Nodes is a different bet. The substrate gives you one contract — every node receives messages via `fill( array &$message )`, every node sinks into another node — and that's it. With that uniformity, composition just works: any node connects to any other node, fan-out is a Tee, transforms are Hooks, file I/O is a Tail or Log. New behavior is a new Node class with a new `fill()` body.
 
-The runtime is independent of any application. It owns the substrate (Node, Message, Router, Topic, Partition, Worker, Supervisor, REPL) and ships nothing application-specific. The first application built on top is `newspack-event-logger-nodes`, replacing a 10-plugin event-logging monorepo with a graph of ~10 node classes.
+The runtime is independent of any application. It owns the substrate (Node, Message, Router, Topic, Partition, Worker, Supervisor, Job_Worker, REPL) and ships nothing application-specific — the lone stock topology, `topologies/job-worker.tsl`, drives the generic Job_Worker_Node, and its application context arrives through `before_job` / `after_job` hooks. The first application built on top is `newspack-event-logger-nodes`, replacing a 10-plugin event-logging monorepo with a graph of ~10 node classes.
 
 This is an early implementation of an idea pitched at the team meetup: the Lego-bricks architecture, brought to PHP/WordPress, without giving up production fitness on Atomic / WP-Cloud.
 
@@ -44,11 +44,14 @@ To get workers running, install an application plugin that registers a topology 
 - **Tail** — file follower. Three buffer modes; inode + size-shrink rotation detection.
 - **Log** — file writer (inverse of Tail). Append/overwrite, optional size-based auto-rotate, retention pruning.
 - **Consumer** — Partition reader with offsetlog checkpointing.
+- **Job_Worker** — generic async-job dispatch; local/remote handler maps via the `newspack_nodes/{job,remote_job}_handlers` filters, with per-job context delivered through the `newspack_nodes/job_worker/{before,after}_job` actions. Ships `topologies/job-worker.tsl`.
 - **Echo** — routing helper that re-addresses on the way through (path-prepend, return-to-sender).
 - **Callback** — closure-as-Node adapter for inline transforms.
 - **Hook** — WordPress action / filter as a node. Plugin-extensibility surface.
 - **Timer** — base class for time-driven nodes (Router extends it).
 - **Shell** + **Command_Interpreter** + **Dumper** — REPL components. `make_node` (resolves a node type by namespace prefix + `_Node` suffix) is callable as both a shell verb and a PHP method.
+
+The runtime also exposes an admin settings page, backed by a shared Config System (`includes/config-system/`) that consumer plugins reuse — declarative fields with per-field reset toggles and an `allowed_users` access whitelist gating the substrate's admin surface.
 
 For the full mental model, see [ARCHITECTURE.md](ARCHITECTURE.md). For the substrate's contracts and invariants, see [AGENTS.md](AGENTS.md).
 
@@ -70,4 +73,4 @@ GPL-2.0-or-later
 
 ## Status
 
-v0.8.x. The first application built on the substrate, `newspack-event-logger-nodes`, ships alongside this runtime; the substrate's API is stabilizing toward 1.0 but still pre-1.0 — expect schema-field renames and incremental contract tightening. See [CHANGELOG.md](CHANGELOG.md) for the per-version history.
+v0.14.x. The first application built on the substrate, `newspack-event-logger-nodes`, ships alongside this runtime; the substrate's API is stabilizing toward 1.0 but still pre-1.0 — expect schema-field renames and incremental contract tightening. See [CHANGELOG.md](CHANGELOG.md) for the per-version history.

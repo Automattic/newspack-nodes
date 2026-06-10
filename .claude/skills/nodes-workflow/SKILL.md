@@ -23,9 +23,9 @@ For application-side changes (RequestBuilder, FlameBuilder, REST controllers, da
 
 ### Phase 1: Locate the right layer
 
-The boundary that matters: **does this belong in the substrate?** Substrate code is application-agnostic. If you find yourself reaching for an event-logger-specific concept (request_id, firehose, jobintake, flame), you're in the wrong plugin — go to `newspack-event-logger-nodes/`.
+The boundary that matters: **does this belong in the substrate?** Substrate code is application-agnostic. If you find yourself reaching for an event-logger-specific concept (request_id, firehose, flame), you're in the wrong plugin — go to `newspack-event-logger-nodes/`.
 
-Substrate-appropriate examples: a generic Filter node, a new TYPE flag, a Tail buffering mode, a Router heuristic, a file-writing primitive (Log), a routing helper (Echo). Substrate-inappropriate: a node that knows what a "request" is.
+Substrate-appropriate examples: a generic Filter node, a new TYPE flag, a Tail buffering mode, a Router heuristic, a file-writing primitive (Log), a routing helper (Echo), generic async-job *dispatch* (`Job_Worker_Node`). Substrate-inappropriate: a node that knows what a "request" is. Note the seam: generic job dispatch is substrate, but the per-job request *context* is application-side. `Job_Worker_Node` is the substrate's job seam — apps register handlers via the `newspack_nodes/{job,remote_job}_handlers` filters and hook per-job context via the `newspack_nodes/job_worker/{before,after}_job` actions. When you add job-dispatch-adjacent substrate code, extend through those, and don't pull request-aware code into `Job_Worker_Node`.
 
 ### Phase 2: Implement
 
@@ -55,9 +55,11 @@ cd tests && ../vendor/bin/phpunit --enforce-time-limit
 
 # Restart workers so they pick up the new code (otherwise the old class lives
 # in the running PHP process for ~10 more minutes). Run `wp nodes types`
-# first to see what topologies are actually live — the substrate itself ships
-# no topologies; topologies come from application plugins (ELN ships
-# `firehose-workers-and-jobs`, `job-workers`, `request-workers`, etc.).
+# first to see what topologies are actually live — the substrate ships only
+# the generic `job-worker` stock topology (registered via
+# `Topology_Registry::register_stock_dir`); the rest come from application
+# plugins (ELN ships `firehose-workers-and-jobs`, `job-workers`,
+# `request-workers`, etc.).
 wp nodes restart all --all-partitions   # or a specific type from `wp nodes types`
 
 # Verify workers came back.
@@ -82,7 +84,8 @@ Match what you see against your expectations. If something's off, the `nodes-deb
 - **Constructors must be event-loop-free** for Topic and Partition (and anything with a similar "instantiated per request" lifecycle). No `set_timer`, no `Core::node()` lookup, no `scandir`. The reason is in AGENTS.md decision 5 — the constructor runs in request scope where there's no event loop to fire timers, and the EF hasn't drained anything yet so `Core::node()` returns null.
 - **FROM stamping is for I/O boundaries only.** Consumer and HTTP_In stamp; internal nodes (including Tail) don't. If you find yourself adding `stamp_message()` to a Tee, a Hook, or even Tail itself, you're probably wrong.
 - **Use `Message::new_message()`, not `[]`.** It pre-populates the 7 indices with safe defaults; leaving a slot uninitialized produces null-coalesce errors deep in Router or Dumper.
-- **Don't reintroduce TM_PERSIST.** It was deliberately removed (see AGENTS decision 3). If you think you need ack/cancel, you almost certainly don't — synchronous I/O at every boundary handles backpressure naturally.
+- **Touching a substrate setting? Edit `Settings_Schema`, not parallel lists.** As of v0.13.0 the substrate declares each setting once as a `Config_System\Field` in `class-settings-schema.php`; `Config` (key-list, worker-restart classification) and the `Admin` settings page both *derive* from that schema (`Config_System\Schema` / `Settings_Renderer` / `Options_Overlay`). Add or change a setting in `Settings_Schema` — don't hand-maintain a second array. (The admin surface is gated by the `allowed_users` config key via `Admin::current_user_allowed()`; if you add admin/menu registration, route it through that funnel.)
+- **Don't reintroduce TM_PERSIST.** It was deliberately removed (see AGENTS decision 3). If you think you need ack/cancel, you almost certainly don't — synchronous I/O at every boundary handles backpressure naturally. The one reply-control flag the substrate keeps is `Message::TM_NOREPLY` (added v0.12.0): a Shell with `want_reply(false)` (topology load / script mode) ORs it onto commands and `interpret()` then suppresses the reply. That's the mechanism that stops a worker's boot-topology command from bouncing a `NOT_AVAILABLE` to `_output/<pid>` on startup — it's the only reply-control surface a verb author may touch.
 
 ## After You Land
 
