@@ -2,7 +2,7 @@
  * Asserts the topology-console re-export is the same function as the canonical helper.
  */
 
-import canonical from '../../../shared/utils/unwrapCommandResponse';
+import canonical from '@newspack-nodes/shared/utils/unwrapCommandResponse';
 
 import unwrapCommandResponse from '../unwrapCommandResponse';
 

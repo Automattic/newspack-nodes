@@ -5,10 +5,11 @@
  * `test-unit` override for unit tests. `parserOptions` references our own
  * babel.config.js so JSX/automatic-runtime is understood.
  *
- * `import/core-modules` tells eslint-plugin-import that aliased imports
- * resolve at runtime (build script handles `@newspack-nodes/runtime`; `d3`
- * is provided by the sibling event-logger plugin via shared hooks that are
- * synced here but unused on the substrate side).
+ * `import/core-modules` tells eslint-plugin-import that the bare `@newspack-nodes/*`
+ * aliases resolve at runtime (build.mjs alias + jest moduleNameMapper); `d3` is
+ * a peer the dashboards pull from the WP global. The `@newspack-nodes/shared/*`
+ * subpath alias (canonical shared hooks/utils/components — this plugin IS the
+ * home) is whitelisted via the no-unresolved `ignore` pattern below.
  */
 module.exports = {
 	root: true,
@@ -32,6 +33,13 @@ module.exports = {
 			'error',
 			{ ignoreRestSiblings: true, argsIgnorePattern: '^_' },
 		],
+		// The `@newspack-nodes/shared/*` subpath alias resolves at runtime
+		// (build.mjs alias + jest moduleNameMapper) to this plugin's own
+		// src/shared; the static resolver can't see the alias.
+		'import/no-unresolved': [
+			'error',
+			{ ignore: [ '^@newspack-nodes/shared/' ] },
+		],
 	},
 	overrides: [
 		{
@@ -49,6 +57,10 @@ module.exports = {
 		},
 	],
 	settings: {
-		'import/core-modules': [ '@newspack-nodes/runtime', 'd3' ],
+		'import/core-modules': [
+			'@newspack-nodes/runtime',
+			'@newspack-nodes/debug-overlay',
+			'd3',
+		],
 	},
 };

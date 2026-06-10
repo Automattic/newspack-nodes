@@ -17,7 +17,7 @@ import { mountExospine } from '../../runtime/exospine';
 import { DumperNode } from '../../runtime/dumper-node';
 import { ShellNode } from '../../runtime/shell-node';
 import { getCommandClient } from '../utils/commandClient';
-import usePageVisibility from '../../shared/hooks/usePageVisibility';
+import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 import names from '../../runtime/reserved-node-names.json';
 
 /**

@@ -153,11 +153,23 @@ async function buildEntry( entry, outDir ) {
 			'.svg': 'dataurl',
 			'.png': 'dataurl',
 		},
+		// The public consumption surface. Sibling plugins map these to this
+		// checkout's sources (sibling-checkout layout, with NEWSPACK_NODES_*
+		// env overrides in CI); nodes maps them to its own canonical src so its
+		// bundles dogfood the exact import paths consumers use, instead of
+		// reaching into shared/ via relative paths. esbuild prefix-matches the
+		// bare `shared` alias, so `@newspack-nodes/shared/hooks/x` resolves to
+		// `src/shared/hooks/x`.
 		alias: {
 			'@newspack-nodes/runtime': path.resolve(
 				ROOT,
 				'src/runtime/index.js'
 			),
+			'@newspack-nodes/debug-overlay': path.resolve(
+				ROOT,
+				'src/debug-overlay/DebugOverlay.js'
+			),
+			'@newspack-nodes/shared': path.resolve( ROOT, 'src/shared' ),
 		},
 		plugins: [ wpExternalsPlugin( usedHandles ), scssPlugin() ],
 		logLevel: 'info',

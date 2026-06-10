@@ -5,7 +5,7 @@
  */
 
 import RawLogs from './RawLogs';
-import useAdminMenuWidth from '../shared/hooks/useAdminMenuWidth';
+import useAdminMenuWidth from '@newspack-nodes/shared/hooks/useAdminMenuWidth';
 
 /**
  * Raw Logs page - dedicated view for raw log file content.
