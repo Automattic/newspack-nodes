@@ -42,7 +42,9 @@ The endpoint acknowledges synchronously, then detaches from FPM via `fastcgi_fin
 2. `$_SERVER['NEWSPACK_NODES_WORKER_TYPE']` and `$_SERVER['NEWSPACK_NODES_WORKER_PARTITION']` are populated for sub-actions / logging.
 3. For topology workers, the `newspack_nodes/spawn_worker` action fires with `( string $type, int $partition )`. For `type=supervisor`, the controller instantiates and runs the supervisor synchronously inside the request — no separate fork.
 
-Topology owners hook the `newspack_nodes/spawn_worker` action to instantiate the right worker class for the given `$type` and call `->execute()`. The runtime ships no built-in topologies; application plugins (e.g., `newspack-event-logger-nodes`) register them.
+Topology owners hook the `newspack_nodes/spawn_worker` action to instantiate the right worker class for the given `$type` and call `->execute()`. The runtime ships one stock topology — `job-worker` (the substrate's `Job_Worker_Node`, registered from `topologies/job-worker.tsl` via `Topology_Registry::register_stock_dir`, with `Topology_Registry::spawn_worker` hooked onto `newspack_nodes/spawn_worker`) — and application plugins (e.g., `newspack-event-logger-nodes`) register the rest.
+
+`Job_Worker_Node` is generic async-job dispatch: applications register local/remote handlers via the `newspack_nodes/{job,remote_job}_handlers` filters, and the worker fires `newspack_nodes/job_worker/{before,after}_job` actions around each job so apps can establish/tear down per-job request context.
 
 #### 403 Forbidden
 
@@ -91,6 +93,8 @@ The spawn endpoint applies a 2-second per-user rate limit (`Spawn_Controller::RA
 - `MIN_SPAWN_INTERVAL_S = 15` per `{type}|{partition}` key (`Supervisor_Base::MIN_SPAWN_INTERVAL_S`).
 - Tracked in `Supervisor_Base::$last_spawn_time`; updated after every spawn attempt (success or failure).
 
+The `/command` endpoint applies its own per-user burst limit (`HTTP_In_Node::permission_callback`): `RATE_LIMIT_BURST = 30` POSTs per `RATE_LIMIT_WINDOW_S = 1` second per user, bucketed by clock-second (transient-backed), returning `429 Too Many Requests` on overflow. The burst budget is tunable via the `newspack_nodes/command_rate_limit` filter (clamped to a minimum of 1).
+
 Application plugins that add public-facing endpoints should layer their own rate limits on top.
 
 ## Command Dispatch
@@ -99,7 +103,7 @@ Application plugins that add public-facing endpoints should layer their own rate
 POST  /wp-json/newspack-nodes/v1/command
 ```
 
-Unified non-streaming dispatch endpoint. The browser POSTs a TM_COMMAND envelope; the controller routes it through the request-scope `_router` to the named CI; the CI's reply walks back via `TO=FROM` through `_http` (an `HTTP_In_Node` — a double-duty class that is BOTH the `/command` REST controller and the egress Node registered as `_http`) which writes the packed Message directly to the HTTP response body.
+Unified non-streaming dispatch endpoint. The browser POSTs a TM_COMMAND envelope; the controller routes it through the request-scope `_router` to the named CI; the CI's reply walks back via `TO=FROM` through `_output` (an `HTTP_In_Node` — a double-duty class that is BOTH the `/command` REST controller and the egress Node registered as `_output`, i.e. `Node_Names::OUTPUT`) which writes the packed Message directly to the HTTP response body. (The JS runtime uses `_http` as its egress/Shell.path name, and the SSE process's `HTTP_Filter` egress is also named `_output` — but the PHP `/command` egress is `_output`.)
 
 Permission callback: `current_user_can('manage_options')`. Application CIs may layer additional per-verb capability checks on top — that's an application concern, not the substrate's.
 
@@ -113,11 +117,11 @@ Per-slot semantics (named here for documentation only — the wire is positional
 |------|------|-------------|
 | `TYPE` (index 0) | int | Bitmask. `TM_COMMAND` (`8`) for a dispatch. |
 | `TIMESTAMP` (index 1) | float | Microsecond unix timestamp; the controller does not require it. |
-| `FROM` (index 2) | string | Reply path. The `HTTP_In_Node` stamps `_http` onto it on the way in, so a bare reply path (`_output`, `_sse:{pid}/…`, or empty) walks back to this endpoint. |
+| `FROM` (index 2) | string | Reply path. The `HTTP_In_Node` stamps `_output` onto it on the way in, so a bare reply path (`_output`, `_sse:{pid}/…`, or empty) walks back to this endpoint. |
 | `TO` (index 3) | string | CI shell-name (e.g. `topologies`, `workers`). Router peels the head off; subpaths flow through. Empty TO is dispatched by the base CI in-place. |
 | `ID` (index 4) | string | Caller-chosen correlation id. The CI's reply carries the same `id`. |
 | `KEY` (index 5) | string | Routing/correlation metadata (e.g. `'completion'` triggers REPL completion-list mode on `help`/`ls`). |
-| `VALUE` (index 6) | array | The inner Command_Interpreter envelope `{name, arguments, payload}` as a live JSON array. `name` is the verb. Verbs that take a single scalar read it from `arguments`; structured verbs read from `payload`. |
+| `VALUE` (index 6) | array | The inner Command_Interpreter envelope `{name, arguments}` as a live JSON array. `name` is the verb; every verb (scalar and structured alike) reads its data from the `arguments` string. (The request-side `payload` slot was removed in 0.6.0.) |
 
 The browser's `CommandClient` and the pivoted `wp nodes cli` both produce this exact wire shape via `Message::packed()`.
 
@@ -140,10 +144,10 @@ Returned when `Router_Node::fill()` returned without the `HTTP_In_Node` egress s
 Sent as a packed positional Message (the same wire shape as the request). Example body:
 
 ```json
-[288, 0, "_command", "<request from>", "<request id>", "", "request-scope graph not initialized (missing _router or _http)"]
+[288, 0, "_command", "<request from>", "<request id>", "", "request-scope graph not initialized (missing _router or _output)"]
 ```
 
-`TYPE = 288 = TM_RESPONSE | TM_ERROR` (`256 | 32`). `Content-Type: application/json`. Emitted by `HTTP_In_Node::emit_error()` when `ensure_request_graph()` couldn't build the graph — typically a bootstrap-misconfiguration condition. Operational application errors don't reach this path; they come back as `TM_COMMAND|TM_ERROR` replies (`TYPE = 40`) through the normal sync path with the verb's exception message in `VALUE`.
+`TYPE = 288 = TM_RESPONSE | TM_ERROR` (`256 | 32`). `Content-Type: application/json`. Emitted by `HTTP_In_Node::emit_error()` when `dispatch()`'s post-build instanceof guard fails — `Core::node(_router)` is not a `Router_Node` or `Core::node(_output)` is not the `HTTP_In_Node` self after `ensure_request_graph()` — typically a bootstrap-misconfiguration condition. Operational application errors don't reach this path; they come back as `TM_COMMAND|TM_ERROR` replies (`TYPE = 40`) through the normal sync path with the verb's exception message in `VALUE`.
 
 ### Service CIs
 
@@ -159,17 +163,21 @@ The substrate plugin mounts 5 service CIs via `newspack_nodes/request_graph_read
 
 Every CI also answers a default `help` (sorted list of its own verbs) — injected by `Command_Interpreter_Node::commands()` when a subclass installs a custom verb table without its own `help`.
 
-**Two `dump_metadata` verbs, same name, different CIs.** The `workers` CI's `dump_metadata` returns the dashboard payload (`{ workers[], supervisor, logs, num_partitions, num_segments, segment_size, timestamp }` — one row per `(worker_type, partition, consumer)`). Every `Command_Interpreter_Node` ALSO exposes its own `dump_metadata` for the per-graph node-snapshot the topology console renders (`{ class, counter, sink, target, debug_state, arguments, lgst_msg, bytes_read, bytes_written }`, keyed by node name, patron-linked `:config` CIs filtered out). The dispatching CI is what disambiguates — addressing `dump_metadata` to `workers` gets the dashboard shape; addressing it with empty TO (root CI) gets the per-graph shape.
+**Two `dump_metadata` verbs, same name, different CIs.** The `workers` CI's `dump_metadata` returns the dashboard payload (`{ workers[], supervisor, logs, num_partitions, num_segments, segment_size, timestamp }` — one row per `(worker_type, partition, consumer)`). Every `Command_Interpreter_Node` ALSO exposes its own `dump_metadata` for the per-graph node-snapshot the topology console renders (`{ class, counter, sink, target, debug_state, arguments, lgst_msg, bytes_read, bytes_written, accepts_fill, has_target }`, keyed by node name, patron-linked `:config` CIs filtered out; `accepts_fill`/`has_target` come from the node's `node_schema()` and tell the canvas which ports to draw). The dispatching CI is what disambiguates — addressing `dump_metadata` to `workers` gets the dashboard shape; addressing it with empty TO (root CI) gets the per-graph shape.
+
+Beyond the service CIs, the root (empty-TO) base `Command_Interpreter_Node` answers its own built-in verbs — `make_node` (alias `make`), `connect_node` (alias `connect`), `ls`, `dump_metadata`, `stats`, `debug_state`, `pwd`, `help`, `log`, `dmesg`, and the rest of the graph-introspection set. Addressing a command with empty TO dispatches against this root verb table; a non-empty TO routes to the named CI.
 
 Application plugins layer additional CIs onto the same endpoint (the first being `newspack-event-logger-nodes` with its application-side CIs). The `to` field on the dispatch envelope distinguishes targets — there is no substrate-vs-application namespacing at the endpoint layer.
 
-**`node_schema()` shape.** Each CI's `node_schema()` returns a `Service`-category schema: `{ category, description, arguments, commands }`, where `commands` is a list of `{ name, description, args }` and each arg is `{ name, type, required }`. This is what `Classes_CI`'s `list` verb inlines for the topology-editor palette, and what the live-mode Inspector reads to build verb-invocation forms.
+**`node_schema()` shape.** Each CI's `node_schema()` returns a `Service`-category schema: `{ category, description, arguments, commands }`, where `commands` is a list of `{ name, description, args }` and each arg is `{ name, type, required }` plus an optional `default` (e.g. `workers restart`'s `partition`/`ttl` args carry one). This is what `Classes_CI`'s `list` verb inlines for the topology-editor palette, and what the live-mode Inspector reads to build verb-invocation forms.
 
-**Scalar verbs read positional `arguments`, not `payload`.** Verbs that take a single scalar — `topologies get`/`delete`/`connect_worker_input` (a name or reader id), `layouts get` (a name), `raw-logs log_status` (a log key), `workers heartbeat` (an SSE slot) — read it from the inner envelope's positional `arguments` string so they're typeable straight in the REPL (e.g. `command_node topologies get Home`). Structured verbs (`topologies save` with TSL, `layouts save` with positions, `workers restart` with a `types[]` array) still take their data from `payload`.
+**Every verb reads from the `arguments` string.** Verbs that take a single scalar — `topologies get`/`delete`/`connect_worker_input` (a name or reader id), `layouts get` (a name), `raw-logs log_status` (a log key), `workers heartbeat` (an SSE slot) — read it straight from the inner envelope's `arguments` string, so they're typeable in the REPL (e.g. `command_node topologies get Home`). Structured verbs read from the same string: `topologies save` / `layouts save` take `<name> <rest-of-line>` via `Service_CI_Node::split_first_token` (the rest-of-line carries the TSL body or positions JSON, newlines included); option-flag verbs like `workers restart` parse `<type>… [--partition=<n>]` via `Command_Args::parse`. There is no `payload` input slot.
+
+Verb handlers receive three positional arguments — `( Command_Interpreter_Node $interpreter, string $arguments, array $envelope = [] )`. The `$envelope` is the full 7-field positional Message; the `save` verbs use it to enforce the 1 MiB body cap via `Message::packed_size( $envelope )`.
 
 **`KEY='completion'` mode.** A `help` or `ls` command carrying `KEY='completion'` returns a bare newline-separated candidate list (sorted verb names / bare node names) instead of the tabulated output — the substrate's `TM_COMPLETION` analogue, used by REPL tab-completion. See [ARCHITECTURE.md → Completion-query mode](ARCHITECTURE.md#repl-wp-nodes-cli).
 
-Per-verb args, return shapes, and error semantics are declared on each CI's `node_schema()` (`commands[]`) in `includes/rest/class-{classes,layouts,topologies,raw-logs,workers}-ci.php`; the topology-editor palette and live-mode Inspector consume the same schema. Auth gating is uniform: the `/command` endpoint requires `manage_options` (see "Permission callback" above), and per-verb application-side caps are an application concern.
+Per-verb args, return shapes, and error semantics are declared on each CI's `node_schema()` (`commands[]`) in `includes/rest/class-{classes,layouts,topologies,raw-logs,workers}-ci-node.php`; the topology-editor palette and live-mode Inspector consume the same schema. Auth gating is uniform: the `/command` endpoint requires `manage_options` (see "Permission callback" above), and per-verb application-side caps are an application concern.
 
 ### Test mode
 
@@ -190,7 +198,7 @@ Server-sent-events drain endpoint backed by `SSE_Out_Node` (which is both the `_
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `subscribe` | string | yes | CSV of subscription names. Two shapes per name: `{type}.p{N}` (worker IPC reader, resolved via `CLI::attach_to_worker`) or a bare `[a-z0-9_-]+` log-feed identifier (one Consumer per partition under `{base}/logs/{name}.log`). The `{type}.p{N}` form has two cascading fallbacks if there's no live lock dir: (a) tail the IPC `output/` dir if it still exists on disk (down-but-restarting worker — recovers when it respawns); (b) fall through to `logs/{type}.log/p{N}` (the aggregator-hub case: a name like `firehose.p0` with no worker but a log dir). Anything else throws `InvalidArgumentException` (path-traversal guard). Blank entries between commas are dropped. |
-| `positions` | string | no | Optional resume positions. JSON object keyed by subscription name (one entry per name in `subscribe`); each value is a `{seg, off}` cursor (or one of the `start`/`recent`/`end` string forms `Consumer::next_offset` accepts). Decoded by `SSE_Out_Node::parse_positions()`; malformed JSON / non-object → treated as omitted (tail-seek all). Omit to start at `end` (live tail). |
+| `positions` | string | no | Optional resume positions. JSON object keyed by subscription name (one entry per name in `subscribe`); each value is itself a per-partition map (partition index → cursor), where a cursor is a `{seg, off}` object or one of the `start`/`recent`/`end` string forms `Consumer::next_offset` accepts. (A single-partition subscription still nests under its partition index.) Decoded by `SSE_Out_Node::parse_positions()`; malformed JSON / non-object → treated as omitted (tail-seek all). Omit to start at `end` (live tail). |
 
 ### Response
 
@@ -200,7 +208,7 @@ Standard SSE stream (`Content-Type: text/event-stream`). The application control
 
 ### `newspack_nodes/request_graph_ready`
 
-Fires from `HTTP_In_Node::dispatch()` after the request-scope graph has been built (or confirmed already-built). The substrate has `_router`, `_command_interpreter` (the base CI), and `_http` (the `HTTP_In_Node` egress) registered in `Core`'s node map at this point.
+Fires from `HTTP_In_Node::dispatch()` after the request-scope graph has been built (or confirmed already-built). The substrate has `_router`, `_command_interpreter` (the base CI), and `_output` (the `HTTP_In_Node` egress) registered in `Core`'s node map at this point.
 
 **Signature:**
 
@@ -218,13 +226,14 @@ function my_app_mount_service_cis( \Newspack_Nodes\Command_Interpreter_Node $bas
 \add_action( 'newspack_nodes/request_graph_ready', 'my_app_mount_service_cis' );
 ```
 
-`make_node( $type, $name, ...$ctor_args )` does three things atomically:
+`make_node( $type, $name, ...$ctor_args )` does four things atomically:
 
-1. Resolves and instantiates the first `{$prefix}{$type}_Node` that exists and is a concrete `Node` subclass, looping the prefixes registered via `Command_Interpreter_Node::register_namespace()` at plugin load time. (So `make_node( 'My_Service_CI', ... )` resolves `My_App\My_Service_CI_Node` once `My_App\` is registered. There is no per-class `register_class` registry — applications register their *namespace prefix* once.)
+1. Resolves and instantiates (via no-arg `new $fqcn()`) the first `{$prefix}{$type}_Node` that exists and is a concrete `Node` subclass, looping the prefixes registered via `Command_Interpreter_Node::register_namespace()` at plugin load time. (So `make_node( 'My_Service_CI', ... )` resolves `My_App\My_Service_CI_Node` once `My_App\` is registered. There is no per-class `register_class` registry — applications register their *namespace prefix* once.)
 2. Calls `$node->name( $name )` so Router can find it.
-3. Calls `$node->sink( $this )` so the node's reply routes back through the base CI → `_router` → `_http`.
+3. Calls `$node->arguments( implode( ' ', <scalar ctor args> ) )` — the space-joined scalar positional args are mapped onto the node's declared `node_schema()['arguments']` properties (so config round-trips through `dump_config()`). Non-scalar ctor args are filtered out (assign object dependencies as public properties after `make_node` returns instead).
+4. Calls `$node->sink( $this )` so the node's reply routes back through the base CI → `_router` → `_output`.
 
-Skipping `make_node()` — by constructing and `name()`-ing the node by hand — leaves it unwired. Verb responses (which walk back via `TO=FROM`) have no path to the `HTTP_In_Node` egress and silently drop on the floor. Always go through `make_node()`.
+Skipping `make_node()` — by constructing and `name()`-ing the node by hand — leaves it unwired. Verb responses (which walk back via `TO=FROM`) have no path to the `HTTP_In_Node` egress (`_output`) and silently drop on the floor. Always go through `make_node()`.
 
 The hook fires on every `/command` request after lazy-build; it's idempotent on the CI side because `make_node()` overwrites prior registrations under the same name. Applications can re-mount the same CI on every request without leaking state across requests as long as their CIs aren't holding stateful per-request data (the typical pattern: CIs are pure verb dispatchers, dependencies injected via constructor).
 

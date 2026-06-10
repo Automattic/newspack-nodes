@@ -114,33 +114,36 @@ These are intentional. Don't "fix" them.
 
 | Path | What |
 |------|------|
-| `newspack-nodes.php` | Plugin entry point; registers the substrate namespace prefixes via `Command_Interpreter_Node::register_namespace()` so `make_node($type)` resolves `{$prefix}{$type}_Node` |
+| `newspack-nodes.php` | Plugin entry point; registers the substrate namespace prefixes via `Command_Interpreter_Node::register_namespace()` so `make_node($type)` resolves `{$prefix}{$type}_Node`; registers the `<config:key>` TSL token namespace (`Config::register_token_namespace()`), the stock `topologies/` dir (`Topology_Registry::register_stock_dir`), builds `Core::$memd` (`Bootstrap::init_memcached`), and mounts the substrate service CIs on `newspack_nodes/request_graph_ready` (`newspack_nodes_mount_substrate_cis`) |
 | `includes/class-core.php` | Per-process registries, clock (`Core::$now`), shutdown flag, deferred-cleanup queue, rate-limited stderr |
-| `includes/class-config.php` | Substrate option storage + per-option-group worker-restart dispatch |
+| `includes/class-config.php` | Substrate option storage + per-request config overlay; derives its key-list and worker-restart classification from `Settings_Schema` (see `config-system/`) |
 | `includes/class-message.php` | 7-field array constants, type flags, positional `packed()` / `unpacked()` JSON wire |
 | `includes/class-node.php` | Base contract: `fill()`, `sink` (physical next node) + `target` (logical TO path), `stamp_message()`, `register()` / `notify()` / `set_state()` |
-| `includes/class-router.php` | Path-based dispatch by TO; Timer-hitchhike on each tick |
+| `includes/class-router-node.php` | Path-based dispatch by TO; Timer-hitchhike on each tick |
 | `includes/class-event-framework.php` | `Event_Framework` — drain loop singleton (`curl_multi_select` or `usleep` + timers; no FD machinery) |
-| `includes/class-{tee,tail,log,echo,callback,hook,timer}.php` | Generic node primitives |
-| `includes/class-{partition,topic,consumer}.php` | Storage + log-tailing primitives |
+| `includes/class-{tee,tail,log,echo,callback,hook,timer}-node.php` | Generic node primitives |
+| `includes/class-{partition,topic,consumer}-node.php` | Storage + log-tailing primitives |
 | `includes/class-job-worker-node.php` | `Job_Worker_Node` — generic async-job dispatch (local/remote handler maps via `newspack_nodes/{job,remote_job}_handlers`; GC + cache-flush cadence; memory-watermark self-restart; `GET_HEALTH`). Fires `newspack_nodes/job_worker/{before,after}_job` actions so apps hook per-job request context. Stock `topologies/job-worker.tsl` |
-| `includes/class-{lock,worker-base,supervisor,supervisor-base,bootstrap}.php` | Lifecycle |
-| `includes/class-{shell,command-interpreter,dumper}.php` | REPL components |
+| `includes/class-lock-node.php`, `includes/class-{worker-base,supervisor,supervisor-base,bootstrap}.php` | Lifecycle (`Lock_Node` is a Node subclass; the rest are non-node helpers) |
+| `includes/class-{shell,command-interpreter,dumper}-node.php` | REPL components |
 | `includes/class-cli.php` | Worker-discovery + pivoted-cli IPC helpers (used by both `wp nodes ls` and `wp nodes cli`) |
 | `includes/class-cli-command.php` | `wp nodes {ls,cli}` (bare + pivoted modes); `CLI_Stdin_Reader_Node` extends `Timer_Node` and self-schedules each fire (0ms busy / 10ms post-EOF / 100ms idle) to drain stdin via readline or fgets — no FD registration |
 | `includes/cli/class-worker-cli-command.php` | `wp nodes {types,run,restart,status}` |
 | `includes/rest/class-spawn-controller.php` | `POST /newspack-nodes/v1/workers/spawn` (HMAC-validated) |
-| `includes/rest/class-http-in.php` | `POST /newspack-nodes/v1/command` controller + the `_http` egress Node (double-duty) |
-| `includes/rest/class-sse-out.php` | `GET /newspack-nodes/v1/messages/stream` controller + the `_sse` egress Node (double-duty); carries the inlined SSE wire helpers (headers, event framing, flush) |
-| `includes/class-http-filter.php` | `_http` filter Node used inside SSE-stream processes (forwards `dump_metadata`/`uptime` replies back to the browser) |
-| `includes/rest/class-{classes,layouts,topologies,raw-logs,workers}-ci.php` | Substrate service `*_CI_Node`s mounted via `newspack_nodes/request_graph_ready` |
-| `includes/class-service-ci.php` | `Service_CI_Node` — abstract base that builds an interpreter's verb table from its `node_schema()` |
-| `includes/class-command-auth.php` | HMAC envelope sign/verify (`Command_Auth::sign()` / `Command_Auth::verifier()`); the server-tier `authorize` closure that gates wire-arrived commands |
-| `includes/class-command-signer.php` | `Command_Signer_Node` — Shell-side wrapper that stashes the HMAC envelope into VALUE['auth'] on the way out to a remote interpreter (pivoted cli, hub→spoke) |
+| `includes/rest/class-http-in-node.php` | `POST /newspack-nodes/v1/command` controller + the `_http` egress Node (double-duty) |
+| `includes/rest/class-sse-out-node.php` | `GET /newspack-nodes/v1/messages/stream` controller + the `_sse` egress Node (double-duty); carries the inlined SSE wire helpers (headers, event framing, flush) |
+| `includes/class-http-filter-node.php` | `_http` filter Node used inside SSE-stream processes (forwards `dump_metadata`/`uptime` replies back to the browser) |
+| `includes/rest/class-{classes,layouts,topologies,raw-logs,workers}-ci-node.php` | Substrate service `*_CI_Node`s mounted via `newspack_nodes/request_graph_ready` |
+| `includes/class-service-ci-node.php` | `Service_CI_Node` — abstract base that builds an interpreter's verb table from its `node_schema()` |
+| `includes/class-command-auth.php` | HMAC envelope sign/verify (`Command_Auth::sign()` / `Command_Auth::verifier()`); the server-tier `authorize` closure that gates wire-arrived commands. The Shell signs commands inline via `Command_Auth::sign()` (`class-shell-node.php`) — there is no separate signer Node |
+| `includes/config-system/class-{field,schema,options-overlay,reset-gate,field-reset-assets,settings-renderer}.php` | `Config_System\*` — shared declarative-settings infrastructure (v0.13.0). One `Field` per setting; `Schema` derives every consumer (overlay key-list, option names, reset list, register/render loops); `Options_Overlay` is presence-based per-request config; `Reset_Gate` + `Field_Reset_Assets` drive per-field reset; `Settings_Renderer` renders the settings page. Sibling plugins adopt this same namespace |
+| `includes/class-settings-schema.php` | `Settings_Schema` — the substrate's `Config_System\Schema` declaration (one `Field` per setting); replaces the parallel hand-maintained option/restart arrays `Config` + `Admin` used to keep in lockstep |
+| `includes/class-command-args.php` | `Command_Args` — shared command-argument parsing helper |
 | `includes/class-{topology-loader,topology-registry}.php` | Topology TSL parser + per-plugin `register_plugin()` entry-point |
 | `includes/class-{log-cleaner,log-discovery,node-names,sse-slot-pool,config-utils,formatters}.php` | Internal helpers — log retention sweep, log-name discovery, reserved-name registry, SSE slot pool, config schema utils, formatter registry |
 | `includes/admin/class-admin.php` | Substrate settings UI |
-| `tests/` | PHPUnit suite (`tests/unit/`, `tests/integration/`, plus `Helpers/`) |
+| `examples/newspack-ai-newsletter/` | Bundled walkthrough example plugin — a deterministic digest pipeline built from Nodes (its own `includes/`, `topologies/digest.tsl`, and PHPUnit suite) |
+| `tests/` | PHPUnit suite (`tests/unit/` incl. `ConfigSystem/`, `tests/integration/`, plus `Helpers/` — `CaptureSink` (the `Capture_Sink_Node` double), `TestCase`, `VerbHarness`, `BoundedTicks`, `FakeMemcached` / `InMemoryMemcached`, `WPCLIStub`) |
 
 ## Common Pitfalls
 
@@ -176,3 +179,4 @@ These are mistakes that have actually happened. Pay attention.
 - **Architecture**: `ARCHITECTURE.md` (full substrate design — message format, node contracts, drain loop, REPL)
 - **API**: `API.md` (REST endpoint reference)
 - **Application example**: `../newspack-event-logger-nodes/` — first plugin built on this runtime
+- **Walkthrough example (in-repo)**: `examples/newspack-ai-newsletter/` — a self-contained digest pipeline (`includes/`, `topologies/digest.tsl`, PHPUnit suite) to learn the substrate from

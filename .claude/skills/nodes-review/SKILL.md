@@ -6,7 +6,7 @@ argument-hint: "[file or class]"
 
 # Newspack Nodes Review Checklist
 
-Substrate-specific review pass. Read AGENTS.md decisions 1-9 for the rationale; this skill is the application of those rules to a diff.
+Substrate-specific review pass. Read AGENTS.md decisions 1-11 for the rationale; this skill is the application of those rules to a diff.
 
 ## When to Use
 
@@ -16,9 +16,9 @@ After any code change inside `newspack-nodes/includes/`. Run BEFORE pushing or m
 
 ### 1. PIPE_BUF discipline
 
-If the diff touches Partition::fill, Partition's batch logic, or anywhere else that writes packed Messages to disk:
+If the diff touches `Partition_Node` (shell-name Partition) `fill()`, its batch logic, or anywhere else that writes packed Messages to disk:
 
-- Default `MAX_LINE_SIZE` is 4096 bytes. Anything larger MUST be on an `allow_large_writes()` Partition (which auto-locks via `Lock` at `{partition_dir}/write.lock.d/`).
+- Default `MAX_LINE_SIZE` is 4096 bytes. Anything larger MUST be on an `allow_large_writes()` Partition (which auto-locks via `Lock_Node` at `{partition_dir}/write.lock.d/`).
 - A diff that quietly raises the small-write cap is wrong — that breaks atomic-append for every concurrent producer.
 - A diff that adds a producer of >4KB messages without making the Partition allow-large MUST silently drop the message; verify the drop path.
 
@@ -32,15 +32,18 @@ These get instantiated in request scope (LogManager constructs a Topic per reque
 
 If you see any of those in a constructor, push the work to first-use (first `fill()`, first `read_at()`, etc.).
 
-### 3. FROM stamping at I/O boundaries only
+### 3. FROM stamping — two distinct operations
 
-Consumer and HTTP_In stamp FROM — those are the substrate's I/O boundaries (data entering the graph from a producer Partition, or from an HTTP request). Internal nodes don't stamp; Tail doesn't either (it's a generic file follower, and applications that need stamped-line-from-file build a downstream stamping layer). If the diff adds `stamp_message()` to a Tee, Hook, Callback, Tail, or any application-style forwarder, that's almost certainly a bug — it pollutes the breadcrumb trail and breaks reverse-direction routing.
+Two different things set FROM; don't conflate them:
+
+- **Mint FROM (set FROM=own name).** A node that *mints* a brand-new message sets FROM to its own name. Done by the I/O-boundary minting sources (Timer, Tail, Consumer), by `Node::command()` (the command envelope is tagged with `$this->name`), and by interpreter responses. The Consumer offsetlog checkpoint record also carries the Consumer's name in FROM. None of these are bugs — a reviewer shouldn't flag them.
+- **Breadcrumb-prepend `stamp_message()` (prepend own name to an existing FROM trail).** Used only at the Consumer and HTTP_In I/O boundaries. If the diff adds `stamp_message()` to a Tee, Hook, Callback, or any application-style forwarder, that's almost certainly a bug — it pollutes the breadcrumb trail and breaks reverse-direction routing. Pass-through forwarders relay the existing message untouched; they don't re-stamp.
 
 The `MAX_FROM_SIZE = 1024` guard on `stamp_message` is load-bearing — don't remove it. Cycle scenarios will explode FROM otherwise.
 
 ### 4. CRC32 + 31-bit-mask routing
 
-`Partition::hash_to_partition()` is canonical. Any diff that introduces partition routing (Topic, JobIntake-keyed mode, anything else) MUST call this function — diverging hash families silently misroute the same key to different partitions across producers, which corrupts ordering.
+`Partition_Node::hash_to_partition()` is canonical. Any diff that introduces partition routing (Topic, JobIntake-keyed mode, anything else) MUST call this function — diverging hash families silently misroute the same key to different partitions across producers, which corrupts ordering.
 
 The function strips query strings (`explode('?', $key, 2)[0]`) before hashing. Don't bypass that — `?cache=...` parameters were the bug that motivated it.
 
@@ -69,7 +72,9 @@ If a diff seems to need ack/cancel for a real reason, the right move is to build
 - `TM_STRUCT` (16): VALUE is structured (array)
 - They're mutually exclusive in our convention — pick one based on what VALUE actually is
 
-Full type-flag bitmask from `includes/class-message.php`: `TM_BYTESTREAM=1`, `TM_EOF=2`, `TM_PING=4`, `TM_COMMAND=8`, `TM_STRUCT=16`, `TM_ERROR=32`, `TM_INFO=64`, `TM_REQUEST=128`, `TM_RESPONSE=256`. A consumer that reads `$entry = $message[Message::VALUE]` as an array MUST gate on `TM_STRUCT` (16). Don't conflate with `TM_RESPONSE` (256) — they're different bits.
+Full type-flag bitmask from `includes/class-message.php`: `TM_BYTESTREAM=1`, `TM_EOF=2`, `TM_PING=4`, `TM_COMMAND=8`, `TM_STRUCT=16`, `TM_ERROR=32`, `TM_INFO=64`, `TM_REQUEST=128`, `TM_RESPONSE=256`, `TM_NOREPLY=512`. A consumer that reads `$entry = $message[Message::VALUE]` as an array MUST gate on `TM_STRUCT` (16). Don't conflate with `TM_RESPONSE` (256) — they're different bits.
+
+`TM_NOREPLY` (512) is the only reply-control flag kept from Tachikoma: a Shell with `want_reply(false)` (topology load / script mode) ORs it onto commands, and the interpreter suppresses the reply. `LOCAL` (7) is not a type flag — it's the appended provenance taint that `packed()` strips at the process boundary (so it can't cross processes); the command-auth gate's default tier admits a command only when LOCAL is set or an HMAC verifies.
 
 ### 8b. `arguments()` Tachikoma-parity (v0.6.0)
 
@@ -95,7 +100,29 @@ Full type-flag bitmask from `includes/class-message.php`: `TM_BYTESTREAM=1`, `TM
 
 If the diff changes how Dumper renders a TYPE flag, double-check that the cli output still makes sense for both interactive and piped invocations. The `set_readline_mode` flag gates on `posix_isatty(STDIN)`; piped sessions take the plain-write path, so any ANSI escapes you add must be guarded.
 
+### 9b. Config System schema (single source of settings)
+
+Settings are declared once in `Settings_Schema` via `Config_System\Field` / `Config_System\Schema` (v0.13.0); `Config` and `Admin` both derive their key-list, option names, reset list, and register/render loops from it. A diff that reintroduces a parallel hand-maintained option list (the old `Config::$option_schema`, `Admin::$option_names`, or `$delete_on_blank_options`) is a regression — add the new setting as a `Field` in the schema instead.
+
+### 9c. Presence-based config overlay
+
+`Config_System\Options_Overlay::apply()` is presence-based (v0.12.0): a *stored* option — even `''`, `[]`, `false`, `0` — overrides the file default; only an *absent* option falls back (it sentinels on `get_option(..., $missing)`, not truthiness). A diff that reverts to a truthiness-based overlay (so a blank stored option masks the file default — the `memcache_servers` bug) should be flagged.
+
+### 9d. Substrate-owned `\Memcached` handle
+
+`Core::$memd` is the one shared handle, built by `Bootstrap::init_memcached()` from the `memcache_servers` config. It is `null` on empty/invalid config **deliberately** — command-auth refuses, SSE slots fail closed, stats fail soft. A diff that installs a fallback handle instead of leaving `null` contradicts the design intent; don't add one.
+
+### 9e. Job_Worker_Node contract
+
+`Job_Worker_Node` is a substrate node (promoted in the 0.12–0.14 era). Review against its contract: local/remote handler maps come from `newspack_nodes/{job,remote_job}_handlers` filters; it runs a GC + cache-flush cadence and a memory-watermark self-restart; it answers `GET_HEALTH`; and it fires `newspack_nodes/job_worker/{before,after}_job` actions so apps hook per-job request context. A diff that bypasses the handler-map filters, drops the `after_job` cleanup action, or removes the memory-watermark restart is a smell.
+
+### 9f. Admin access gate
+
+`Admin::current_user_allowed()` is the single funnel for the settings UI: `manage_options` baseline plus the optional `allowed_users` whitelist (v0.12.0; empty list = all `manage_options` users). A diff that bypasses `current_user_allowed()` on an admin entry point, or weakens the whitelist check, is a security-relevant review item.
+
 ### 10. CommandInterpreter dispatch contract
+
+Before any verb dispatch, `interpret()` runs the authorization gate (`Command_Interpreter_Node::$authorize ?? self::$default_authorize`). The default client tier requires the `LOCAL` provenance taint (in-process command); verifier processes (workers, `/command` request scope) swap in `Command_Auth::verifier()`, which admits a command only when LOCAL is set or a valid HMAC verifies. An unauthorized command replies `TM_COMMAND|TM_ERROR` (`unauthorized: <verb>`) without running the handler. A diff touching `interpret()` or the auth wiring MUST be reviewed against this gate — don't drop the authorize call or weaken the verifier tier.
 
 interpreter handles a TM_COMMAND only when TO is empty. Non-empty TO means the message is mid-route toward a downstream node; interpreter forwards to its sink (Router). Don't relax that — every interpreter in a path-routed graph would otherwise consume commands intended for someone else.
 
@@ -112,7 +139,7 @@ Aliases share the same `cmd_foo`. When you add or remove a verb, audit `$C` for 
 
 ## Tests
 
-Substrate tests live in `tests/{unit,integration}/` (77 test classes, ~1600 test methods). When you add a Node subclass, add a test that exercises its `fill()` with a `Capture_Sink_Node` to assert what gets forwarded. When you add a CommandInterpreter verb, add a CommandInterpreterTest case.
+Substrate tests live in `tests/{unit,integration}/` (~87 test files, ~1800 test methods) — including the `tests/unit/ConfigSystem/` and `tests/unit/Admin/` subdirectories. When you add a Node subclass, add a test that exercises its `fill()` with a `Capture_Sink_Node` to assert what gets forwarded. When you add a CommandInterpreter verb, add a CommandInterpreterTest case.
 
 The test bootstrap shims a few WP functions (`wp_json_encode`, `wp_remote_post`, etc.) — check `tests/bootstrap.php` before adding a new global function call.
 
