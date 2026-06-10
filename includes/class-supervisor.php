@@ -266,6 +266,7 @@ class Supervisor extends Supervisor_Base {
 			return;
 		}
 		$locks_dir = "{$this->base_dir}/locks";
+		$this->reap_steal_scratch_dirs( $locks_dir );
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
 		$candidates = \glob( $locks_dir . '/*.lock.d' );
 		if ( empty( $candidates ) ) {
@@ -289,6 +290,32 @@ class Supervisor extends Supervisor_Base {
 				// Skip if a restart flag is already dropped (avoids per-tick disk churn).
 				Lock_Node::request_restart_at( $path );
 			}
+		}
+	}
+
+	/**
+	 * Reap leaked `*.lock.d.stealing.*` scratch dirs from Lock_Node's atomic
+	 * steal. A normal steal removes its scratch dir in two syscalls; a process
+	 * killed in that window leaks one, and nothing else reaps it. Only sweep
+	 * dirs older than STALE_TIMEOUT — far beyond any in-flight steal — so a live
+	 * takeover is never reaped out from under itself.
+	 *
+	 * @param string $locks_dir Absolute path to the locks/ directory.
+	 */
+	private function reap_steal_scratch_dirs( string $locks_dir ): void {
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		$scratch = \glob( $locks_dir . '/*.lock.d.stealing.*', \GLOB_ONLYDIR );
+		if ( empty( $scratch ) ) {
+			return;
+		}
+		$cutoff = \time() - Lock_Node::STALE_TIMEOUT;
+		foreach ( $scratch as $path ) {
+			\clearstatcache( true, $path );
+			$mtime = @\filemtime( $path );
+			if ( false === $mtime || $mtime > $cutoff ) {
+				continue; // Unreadable or possibly an in-flight steal — leave it.
+			}
+			Supervisor_Base::delete_directory_recursive( $path, $locks_dir );
 		}
 	}
 

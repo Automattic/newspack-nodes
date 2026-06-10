@@ -1273,6 +1273,50 @@ class SupervisorTest extends TestCase {
 		$this->assertTrue( is_dir( $fresh_b ), 'fresh type-b orphan must survive' );
 	}
 
+	// ── steal-scratch reaping ──────────────────────────────────────────────
+
+	/**
+	 * Lock_Node's atomic steal renames the dir aside to `*.lock.d.stealing.*`
+	 * and normally removes it microseconds later. A process killed mid-steal
+	 * leaks that scratch dir, and nothing else reaps it. reconcile_lock_dirs
+	 * sweeps aged scratch dirs (past STALE_TIMEOUT — well beyond any in-flight
+	 * steal, so a live steal is never reaped).
+	 */
+	public function test_reconcile_reaps_aged_steal_scratch_dirs(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+
+		$leaked = "{$this->tmp}/locks/firehose-workers.p0.lock.d.stealing.12345.deadbeef";
+		mkdir( $leaked, 0755, true );
+		file_put_contents( "{$leaked}/heartbeat", '12345' );
+		touch( $leaked, time() - ( \Newspack_Nodes\Lock_Node::STALE_TIMEOUT + 5 ) );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$this->assertFalse( is_dir( $leaked ), 'aged steal-scratch dir must be reaped' );
+	}
+
+	/**
+	 * A scratch dir younger than STALE_TIMEOUT may belong to an in-flight steal
+	 * in another process — reconcile must NOT reap it.
+	 */
+	public function test_reconcile_spares_fresh_steal_scratch_dirs(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+
+		$fresh = "{$this->tmp}/locks/firehose-workers.p0.lock.d.stealing.999.cafe";
+		mkdir( $fresh, 0755, true );
+		// mtime ~now (default) — an in-flight steal.
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$this->assertTrue( is_dir( $fresh ), 'a fresh (in-flight) steal-scratch dir must survive' );
+	}
+
 	// ── run() pre-loop instrumentation ─────────────────────────────────────
 
 	/**
