@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **`dump_node` now redacts credentials for every node, not just the one that remembered to.** `Node::dump_node()` reflects every property, so any node holding a secret printed it raw to the REPL (`dump_node my_node`) and into logs — a credential-disclosure vector. Redaction was bolted onto a single `Remote_Source_Node::dump_node()` override (it scrubbed `auth_password`/`auth_token`); every other node was unprotected. The base now redacts any non-empty property whose name reads as a credential (`password`, `passwd`, `secret`, `token`, `credential`, `api_key`, `private_key` — deliberately *not* bare `auth`, so `auth_username` and `authorize` survive), replacing the value with `[REDACTED]`. The bespoke `Remote_Source_Node` override is removed (the base covers its fields). Empty secrets stay visible as `''` so an operator can tell a credential is unset.
+
 ### Changed
 
 - **Nodes now resolves the `@newspack-nodes/{shared,debug-overlay}` aliases in its own build/jest/eslint, and dogfoods them.** The three `@newspack-nodes/*` aliases are the public JS consumption surface, but only `runtime` was wired in nodes' own `build.mjs`/`jest.config.js` — `shared` and `debug-overlay` existed only in *consumer* builds, so nodes' own dashboards reached into `src/shared/` via relative paths (`../../shared/hooks/...`) that a third party reading nodes as the reference can't copy. Both aliases are now wired into `build.mjs` (esbuild), `jest.config.js` (moduleNameMapper), and `.eslintrc.js` (core-modules + no-unresolved ignore), all pointing at nodes' own canonical `src/` (it is the home — no sibling fallback), and the 10 cross-package `shared/` imports were rewritten to `@newspack-nodes/shared/…` so nodes imports shared code through the exact path consumers use.

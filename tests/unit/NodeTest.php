@@ -593,6 +593,34 @@ class NodeTest extends TestCase {
 		$this->assertSame( 'Capture_Sink_Node', $snap['class'] );
 	}
 
+	public function test_dump_node_redacts_secret_named_properties(): void {
+		// dump_node() reflects EVERY property, so a node holding a credential
+		// (an Application Password, a bearer token) would print it raw to the
+		// REPL / logs — a disclosure vector. The base redacts secret-named
+		// properties for every node, so no node author has to remember to.
+		// Non-secret look-alikes (username, an `authorize` flag) must survive,
+		// and an empty secret stays empty so the operator sees it's unset.
+		$node = new class() extends Node {
+			public string $auth_token    = 'super-secret-bearer';
+			public string $auth_password = 'hunter2';
+			public array $api_tokens     = [ 'a', 'b' ];
+			public string $auth_username = 'admin';
+			public bool $authorize       = true;
+			public string $secret        = '';
+			public array $credentials    = [];
+		};
+
+		$snap = $node->dump_node();
+
+		$this->assertSame( '[REDACTED]', $snap['auth_token'], 'a non-empty token must be redacted' );
+		$this->assertSame( '[REDACTED]', $snap['auth_password'], 'a non-empty password must be redacted' );
+		$this->assertSame( '[REDACTED]', $snap['api_tokens'], 'a non-empty array of secrets must be redacted, not dumped raw' );
+		$this->assertSame( 'admin', $snap['auth_username'], 'a username is not a secret' );
+		$this->assertTrue( $snap['authorize'], 'an authorize flag is not a secret' );
+		$this->assertSame( '', $snap['secret'], 'an empty secret stays empty, not [REDACTED]' );
+		$this->assertSame( [], $snap['credentials'], 'an empty credential stays empty, not [REDACTED]' );
+	}
+
 	public function test_dump_node_collapses_sink_to_node_name_string(): void {
 		// dump_node() replaces the sink object reference with the sink's
 		// name() string — the special-cased branch right before the generic
