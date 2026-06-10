@@ -32,7 +32,6 @@ class Timer_Node extends Node {
 
 	public function __construct() {
 		$this->registrations = [ 'FIRE' => [] ];
-		// Chain so the base ctor can auto-wire a sibling :config interpreter from node_schema.
 		parent::__construct();
 	}
 
@@ -154,6 +153,9 @@ class Timer_Node extends Node {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Control',
 			'description' => 'Periodic firing — emits a heartbeat message every N ms.',
+			'arguments'   => [
+				[ 'name' => 'interval_ms', 'type' => 'int', 'required' => false ],
+			],
 		] );
 	}
 }

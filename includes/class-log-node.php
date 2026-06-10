@@ -12,6 +12,9 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Log_Node extends Node {
+	use Schema_Reflection;
+	use File_Writer;
+
 	public const MODE_APPEND    = 'append';
 	public const MODE_OVERWRITE = 'overwrite';
 
@@ -23,19 +26,15 @@ class Log_Node extends Node {
 	/** @var resource|null */
 	protected $fh = null;
 
-	/**
-	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
-	 * which the base setter parses against `node_schema()['arguments']`. The
-	 * override opens the file handle once the path is known.
-	 */
+	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
 		parent::__construct();
 	}
 
 	/**
-	 * Setter chains through the base schema walker (which assigns filename /
-	 * mode / max_size / max_rotations from positional tokens), then normalizes,
-	 * creates the parent dir if missing, and opens the write handle.
+	 * Store the raw string, parse positional tokens via parse_schema_args() (filename /
+	 * mode / max_size / max_rotations), then normalize, create the parent dir if
+	 * missing, and open the write handle.
 	 *
 	 * @param string|null $args
 	 * @return string
@@ -48,6 +47,7 @@ class Log_Node extends Node {
 		if ( '' === $args ) {
 			return $result;
 		}
+		$this->parse_schema_args( $args );
 		$this->max_size      = \max( 0, $this->max_size );
 		$this->max_rotations = \max( 0, $this->max_rotations );
 		// Operator-configured paths, not WP-managed storage. Create the parent
@@ -98,7 +98,7 @@ class Log_Node extends Node {
 			Core::print_less_often( "Log: cannot write to {$this->filename} (no open file handle)" );
 			return;
 		}
-		$value     = self::as_string( $message[ Message::VALUE ] );
+		$value     = Core::as_string( $message[ Message::VALUE ] );
 		$write_len = \strlen( $value );
 		if ( $write_len > $this->largest_msg_sent ) {
 			$this->largest_msg_sent = $write_len;

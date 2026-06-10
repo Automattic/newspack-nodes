@@ -8,6 +8,21 @@ use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
+/** Fixture: a node that auto-wires a :config sibling (handler-bearing verb + Schema_Reflection). */
+final class Config_Sibling_Node extends Node {
+	use \Newspack_Nodes\Schema_Reflection;
+	public function __construct() {
+		$this->auto_wire_interpreter();
+	}
+	public static function node_schema(): array {
+		return \array_merge( parent::node_schema(), [
+			'commands' => [
+				[ 'name' => 'noop', 'handler' => static fn ( $interpreter, string $args ): string => 'ok' ],
+			],
+		] );
+	}
+}
+
 #[CoversClass( Node::class )]
 class NodeTest extends TestCase {
 	public function test_name_set_and_get(): void {
@@ -107,16 +122,6 @@ class NodeTest extends TestCase {
 		$this->assertStringContainsString( 'from: producer', $buf );
 		$this->assertStringContainsString( 'to: consumer', $buf );
 		$this->assertStringContainsString( 'payload: data', $buf );
-	}
-
-	public function test_command_stamps_from_with_node_name(): void {
-		// A node minting a command tags it with its own name (FROM), so the issuer
-		// is visible in audit/drop lines. Shell::send_command overwrites FROM with
-		// the session reply path; an overlay node issuing a command keeps its name.
-		$n = new Capture_Sink_Node();
-		$n->name( 'alice' );
-		$m = $n->command( 'connect_node', 'a b' );
-		$this->assertSame( 'alice', $m[ Message::FROM ] );
 	}
 
 	public function test_drop_message_labels_noreply_flag(): void {
@@ -393,11 +398,9 @@ class NodeTest extends TestCase {
 
 	// ── A1: sibling-interpreter plumbing ──────────────────────────────
 
-	public function test_attach_interpreter_keeps_sibling_synced_with_patron_name(): void {
-		$patron = new Capture_Sink_Node();
-		$sibling = new \Newspack_Nodes\Command_Interpreter_Node();
-		$sibling->patron( $patron );
-		$patron->attach_interpreter( $sibling );
+	public function test_config_sibling_synced_with_patron_name(): void {
+		$patron  = new Config_Sibling_Node();
+		$sibling = $patron->interpreter();
 
 		$patron->name( 'alice' );
 
@@ -413,15 +416,15 @@ class NodeTest extends TestCase {
 		$this->assertNull( $n->interpreter() );
 	}
 
-	public function test_attach_interpreter_named_after_already_named_patron(): void {
-		$patron = new Capture_Sink_Node();
-		$patron->name( 'preset' );
-		$sibling = new \Newspack_Nodes\Command_Interpreter_Node();
-		$sibling->patron( $patron );
-		$patron->attach_interpreter( $sibling );
+	public function test_auto_wired_config_sibling_is_initially_unnamed_then_adopts_patron_name(): void {
+		// The sibling is built at construction (before the node is named), so it
+		// starts unnamed and adopts {patron}:config when the patron is named.
+		$patron = new Config_Sibling_Node();
+		$this->assertInstanceOf( \Newspack_Nodes\Command_Interpreter_Node::class, $patron->interpreter() );
+		$this->assertSame( '', $patron->interpreter()->name() );
 
-		// Sibling adopts the patron's existing name immediately.
-		$this->assertSame( 'preset:config', $sibling->name() );
+		$patron->name( 'preset' );
+		$this->assertSame( 'preset:config', $patron->interpreter()->name() );
 	}
 
 	// ── A1: node_schema() manifest ───────────────────────────
@@ -436,10 +439,8 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_remove_node_cascades_sibling_unregistration(): void {
-		$patron = new Capture_Sink_Node();
-		$sibling = new \Newspack_Nodes\Command_Interpreter_Node();
-		$sibling->patron( $patron );
-		$patron->attach_interpreter( $sibling );
+		$patron  = new Config_Sibling_Node();
+		$sibling = $patron->interpreter();
 		$patron->name( 'alice' );
 
 		$this->assertSame( $sibling, Core::node( 'alice:config' ) );
@@ -504,6 +505,48 @@ class NodeTest extends TestCase {
 
 		$out = $n->dump_config();
 		$this->assertStringContainsString( 'make_node Capture_Sink mynode /var/log /partition 0', $out );
+	}
+
+	public function test_base_arguments_is_a_plain_setter_with_no_schema_walk(): void {
+		// The base arguments() is the trivial Tachikoma getter/setter: it stores
+		// the raw string and does NOT walk node_schema()['arguments']. A node that
+		// wants positional assignment calls parse_schema_args() (the I/O overrides
+		// do); one that declares args but never asks for the walk gets nothing
+		// assigned — no implicit-walk footgun.
+		$node = new class() extends Node {
+			public string $base = '';
+			public static function node_schema(): array {
+				return \array_merge( parent::node_schema(), [
+					'arguments' => [ [ 'name' => 'base', 'type' => 'string' ] ],
+				] );
+			}
+		};
+		$this->assertSame( '/tmp/x', $node->arguments( '/tmp/x' ) );
+		$this->assertSame( '', $node->base, 'base arguments() must NOT auto-walk the schema' );
+	}
+
+	public function test_parse_schema_args_assigns_declared_positional_config(): void {
+		// The schema walk lives in the Schema_Reflection trait's parse_schema_args();
+		// calling it assigns each declared positional prop (coerced to its type).
+		$node = new class() extends Node {
+			use \Newspack_Nodes\Schema_Reflection;
+			public string $base   = '';
+			public int $partition = -1;
+			public static function node_schema(): array {
+				return \array_merge( parent::node_schema(), [
+					'arguments' => [
+						[ 'name' => 'base',      'type' => 'string' ],
+						[ 'name' => 'partition', 'type' => 'int', 'default' => 0 ],
+					],
+				] );
+			}
+			public function parse( string $args ): void {
+				$this->parse_schema_args( $args );
+			}
+		};
+		$node->parse( '/tmp/x 3' );
+		$this->assertSame( '/tmp/x', $node->base );
+		$this->assertSame( 3, $node->partition );
 	}
 
 	// ── patron() getter/setter ───────────────────────────────────────────
@@ -934,10 +977,14 @@ class NodeTest extends TestCase {
 		$this->assertSame( 2, \substr_count( $buf, 'same text' ) );
 	}
 
-	// ---- base ctor auto-wires the sibling :config interpreter from node_schema -----
+	// ---- Schema_Reflection trait auto-wires the sibling :config interpreter (opt-in) -----
 
 	public function test_node_with_schema_handlers_auto_wires_config_interpreter(): void {
 		$node = new class() extends Node {
+			use \Newspack_Nodes\Schema_Reflection;
+			public function __construct() {
+				$this->auto_wire_interpreter();
+			}
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [
 					'commands' => [
@@ -965,8 +1012,13 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_schema_verb_without_handler_does_not_wire_an_interpreter(): void {
-		// A catalog-only verb (no handler) must not spawn a sibling interpreter.
+		// A catalog-only verb (no handler) must not spawn a sibling interpreter,
+		// even when the node opts into auto-wiring.
 		$node = new class() extends Node {
+			use \Newspack_Nodes\Schema_Reflection;
+			public function __construct() {
+				$this->auto_wire_interpreter();
+			}
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [
 					'commands' => [ [ 'name' => 'doc_only' ] ],
@@ -982,14 +1034,14 @@ class NodeTest extends TestCase {
 		$this->assertNull( $interpreter->interpreter() );
 	}
 
-	public function test_auto_wire_is_idempotent_across_a_double_parent_call(): void {
-		// A subclass that chains parent::__construct() more than once (e.g. one at
-		// the top for base registrations, one at the end) must NOT build a second
-		// sibling interpreter — the auto-wire skips when an interpreter is already attached.
+	public function test_auto_wire_is_idempotent_across_a_double_call(): void {
+		// A node that calls auto_wire_interpreter() more than once must NOT build a
+		// second sibling — the auto-wire skips when an interpreter is already attached.
 		$node = new class() extends Node {
+			use \Newspack_Nodes\Schema_Reflection;
 			public function __construct() {
-				parent::__construct();
-				parent::__construct();
+				$this->auto_wire_interpreter();
+				$this->auto_wire_interpreter();
 			}
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [
@@ -1065,8 +1117,7 @@ class NodeTest extends TestCase {
 
 	public function test_rename_cascades_config_sibling(): void {
 		// Renaming renames the :config sibling to {new}:config and unregisters the old.
-		$node = new Capture_Sink_Node();
-		$node->attach_interpreter( new \Newspack_Nodes\Command_Interpreter_Node() );
+		$node = new Config_Sibling_Node();
 		$node->name( 'first' );
 		$this->assertSame( 'first:config', $node->interpreter()->name() );
 		$this->assertSame( $node->interpreter(), Core::node( 'first:config' ) );
@@ -1080,8 +1131,7 @@ class NodeTest extends TestCase {
 	public function test_remove_node_clears_config_sibling(): void {
 		// remove_node() (not name(null)) is the teardown path; it unregisters
 		// the node and cascades to its :config sibling.
-		$node = new Capture_Sink_Node();
-		$node->attach_interpreter( new \Newspack_Nodes\Command_Interpreter_Node() );
+		$node = new Config_Sibling_Node();
 		$node->name( 'host' );
 		$this->assertSame( $node->interpreter(), Core::node( 'host:config' ) );
 
@@ -1103,8 +1153,7 @@ class NodeTest extends TestCase {
 		$squatter = new Capture_Sink_Node();
 		$squatter->name( 'taken:config' );
 
-		$node = new Capture_Sink_Node();
-		$node->attach_interpreter( new \Newspack_Nodes\Command_Interpreter_Node() );
+		$node = new Config_Sibling_Node();
 		$this->expectException( \RuntimeException::class );
 		$node->name( 'taken' );
 	}
@@ -1113,7 +1162,7 @@ class NodeTest extends TestCase {
 		// Perl length()-style presence: null/'' are absent; '0' and 'x' are present.
 		$probe = new class() extends Node {
 			public static function probe( ?string $s ): bool {
-				return self::has_value( $s );
+				return Core::has_value( $s );
 			}
 		};
 		$this->assertFalse( $probe::probe( null ) );

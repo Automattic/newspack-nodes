@@ -43,6 +43,19 @@ final class DigestBuilderTest extends TestCase {
 		$this->assertStringNotContainsString( 'sum:a', $out2[1][ Message::VALUE ] );
 	}
 
+	public function test_flush_verb_is_dispatchable_via_config_interpreter(): void {
+		// The `flush` command must be reachable through the auto-wired {name}:config
+		// sibling interpreter, not only via a direct cmd_flush() call. The node opts
+		// into Schema_Reflection and calls auto_wire_interpreter() in its ctor.
+		$node = new Digest_Builder_Node();
+		$node->name( 'digest' );
+
+		$interpreter = $node->interpreter();
+		$this->assertInstanceOf( \Newspack_Nodes\Command_Interpreter_Node::class, $interpreter );
+		$this->assertSame( 'digest:config', $interpreter->name() );
+		$this->assertArrayHasKey( 'flush', $interpreter->commands() );
+	}
+
 	public function test_ignores_non_struct_messages(): void {
 		$sink = new Capture_Sink_Node();
 		$node = new Digest_Builder_Node();

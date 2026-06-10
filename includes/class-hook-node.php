@@ -10,15 +10,25 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Hook_Node extends Node {
+	use Schema_Reflection;
+
 	protected string $hook_name = '';
 	protected bool $filter      = false;
 
-	/**
-	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
-	 * which the base setter parses against `node_schema()['arguments']`.
-	 */
+	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
 		parent::__construct();
+	}
+
+	/** Assign hook_name / filter from positional tokens (no derived state). */
+	public function arguments( ?string $args = null ): string {
+		if ( null === $args ) {
+			return parent::arguments();
+		}
+		$result = parent::arguments( $args );
+		// No derived state, so no empty-args guard: parse_schema_args() self-no-ops on ''.
+		$this->parse_schema_args( $args );
+		return $result;
 	}
 
 	public function fill( array &$message ): void {

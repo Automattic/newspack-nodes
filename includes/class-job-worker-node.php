@@ -46,6 +46,8 @@ if ( ! \defined( 'ABSPATH' ) ) {
  * Job Worker class.
  */
 class Job_Worker_Node extends Node {
+	use Schema_Reflection;
+
 	public const HANDLER_NAME_PATTERN = '/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/';
 	public const MAX_JOB_SIZE         = 10485760;
 
@@ -81,14 +83,8 @@ class Job_Worker_Node extends Node {
 	protected int $stale_timeout        = self::DEFAULT_STALE_TIMEOUT;
 	protected int $max_runtime          = self::DEFAULT_MAX_RUNTIME;
 
-	/**
-	 * Tachikoma-parity: no-arg ctor. Positional config arrives via `arguments()`,
-	 * which the base setter parses against `node_schema()['arguments']`. The
-	 * override below re-normalizes after that walk.
-	 */
+	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
-		// Base ctor auto-wires a sibling :config interpreter from node_schema()['commands']
-		// handlers — JobWorker declares none, so no sibling is created.
 		parent::__construct();
 
 		// Handler maps are eager init, not config — a JobWorker with
@@ -102,10 +98,9 @@ class Job_Worker_Node extends Node {
 	}
 
 	/**
-	 * Setter chains through the base schema walker (which assigns
-	 * cache_flush_interval / stale_timeout / max_runtime from positional
-	 * tokens or schema defaults), then normalizes each knob to >= 1 to
-	 * match the legacy ctor's `max(1, ...)` clamp.
+	 * Store the raw string, parse positional tokens via parse_schema_args()
+	 * (cache_flush_interval / stale_timeout / max_runtime), then clamp each knob
+	 * to >= 1 to match the legacy ctor's `max(1, ...)`.
 	 *
 	 * @param string|null $args
 	 * @return string
@@ -118,6 +113,7 @@ class Job_Worker_Node extends Node {
 		if ( '' === $args ) {
 			return $result;
 		}
+		$this->parse_schema_args( $args );
 		$this->cache_flush_interval = \max( 1, $this->cache_flush_interval );
 		$this->stale_timeout        = \max( 1, $this->stale_timeout );
 		$this->max_runtime          = \max( 1, $this->max_runtime );

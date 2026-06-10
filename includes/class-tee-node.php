@@ -20,7 +20,7 @@ class Tee_Node extends Node {
 
 		$raw_type = $message[ Message::TYPE ];
 		$type     = \is_int( $raw_type ) ? $raw_type : 0;
-		$to       = self::as_string( $message[ Message::TO ] );
+		$to       = Core::as_string( $message[ Message::TO ] );
 
 		// Prune dead bare-name targets; pass path-shaped targets (with a slash) through as-is for the sink to route.
 		$targets = \is_array( $this->target ) ? $this->target : [];
