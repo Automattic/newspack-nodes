@@ -15,12 +15,8 @@ parameters:
         disallowedShortTernary: false
         noVariableVariables: false
     checkDynamicProperties: false
-    # 80200 because:
-    #   - includes/rest/trait-sse-stream.php declares constants inside a trait
-    #     (PHP 8.2+ syntax)
-    #   - includes/class-message.php uses array_is_list() (PHP 8.1+)
-    # composer.json's `config.platform.php: 8.0` is the minimum-INSTALL floor;
-    # actual runtime is PHP 8.2+. Eve / Atomic ships PHP 8.4.
+    # PHP 8.2+ because File_Writer declares constants inside a trait; Message
+    # also uses array_is_list() (PHP 8.1+). Eve / Atomic ships PHP 8.4.
     phpVersion: 80200
     paths:
         - newspack-nodes.php

@@ -25,7 +25,7 @@ WordPress VIP Go (enforced by `phpcs.xml.dist`):
 - Yoda conditions: `if ( 'value' === $var )`
 - `[]` arrays, arrow functions, spread operator allowed
 - Tab indentation, spaces inside parentheses: `function_name( $param )`
-- PHP 8.0+ typed properties; constructor property promotion where it shortens
+- PHP 8.2+; constructor property promotion where it shortens
 - PHPDoc on public methods
 
 Conventional commits (`feat:`, `fix:`, `refactor:`, `test:`, `docs:`).
