@@ -201,17 +201,4 @@ class CommandAuthTest extends TestCase {
 		$this->assertArrayNotHasKey( 'auth', $m[ Message::VALUE ] );
 		$this->assertFalse( Command_Auth::verify( $m, 1000 ) );
 	}
-
-	public function test_warns_when_nonce_salt_is_unconfigured(): void {
-		if ( \defined( 'NONCE_SALT' ) && '' !== (string) \NONCE_SALT ) {
-			$this->markTestSkipped( 'NONCE_SALT is configured in this environment.' );
-		}
-		$captured = '';
-		Core::set_stderr_handler( static function ( string $t ) use ( &$captured ): void {
-			$captured .= $t;
-		} );
-		$m = $this->command();
-		Command_Auth::sign( $m, 1000 );
-		$this->assertStringContainsString( 'NONCE_SALT', $captured );
-	}
 }

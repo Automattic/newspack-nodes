@@ -37,10 +37,12 @@ if ( ! \defined( 'NEWSPACK_NODES_URL' ) && \function_exists( 'plugin_dir_url' ) 
 require_once NEWSPACK_NODES_DIR . 'vendor/autoload.php';
 
 if ( \function_exists( 'is_admin' ) && \is_admin() ) {
+	\Newspack_Nodes\Bootstrap::ensure_runtime_wired();
 	new \Newspack_Nodes\Admin\Admin();
 }
 
 if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
+	\Newspack_Nodes\Bootstrap::ensure_runtime_wired();
 	// `types`, `run`, `restart`, `status` are instance methods on
 	// WorkerCliCommand. PHP 8+ rejects `[ClassName::class, 'instance_method']`
 	// as a callable (see wp-cli/wp-cli#5472), so register a single shared
@@ -55,34 +57,13 @@ if ( \defined( 'WP_CLI' ) && \WP_CLI ) {
 	\WP_CLI::add_command( 'nodes status',  [ $nodes_worker_cli, 'status' ]  );
 }
 
-// Register the substrate class namespaces so the shell `make_node` verb and the
-// topology-side `$interpreter->make_node()` API resolve node types by short
-// name: `make_node('Tee')` constructs the first `{$prefix}Tee_Node` that exists.
-// Plugins extending the runtime register their own prefix(es). The catalog
-// (Classes_CI) scans the composer classmap under these prefixes; the top-level
-// prefix already string-matches sub-namespaces, but the `\Rest\` prefix is
-// registered too so `make_node('Classes_CI')` resolves the service CIs that the
-// `request_graph_ready` mount constructs by short name.
-\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
-\Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
-
-// Register the substrate's `config` topology-token namespace so TSL `<config:key>`
-// tokens resolve against substrate config. Apps register their own namespaces.
-\Newspack_Nodes\Config::register_token_namespace();
-
-// Substrate-owned stock topologies (job-worker, …). Apps register their own dirs
-// via Topology_Registry::register_plugin(); the substrate registers its own so
-// generic runtime topologies ship with the runtime, not the application layer.
-\Newspack_Nodes\Topology_Registry::register_stock_dir( __DIR__ . '/topologies' );
-
-// Build the one shared Core::$memd handle from the substrate's own
-// memcache_servers config. Runs at plugin-file scope (before any plugins_loaded
-// callback, so application SSE-slot wiring sees the handle). Guarded so the
-// unit suite — which autoloads classes without including this file — never runs
-// it. Empty/invalid config leaves Core::$memd null; consumers fail closed/soft.
-if ( \function_exists( 'get_option' ) ) {
-	\Newspack_Nodes\Bootstrap::init_memcached();
-}
+// The substrate runtime wiring (node-class namespaces, the `<config:…>` token
+// namespace, the stock-topology dir, and the shared Core::$memd handle) is NO
+// LONGER run at plugin-file scope. It moved into the idempotent
+// `Bootstrap::ensure_runtime_wired()` (above's WP-CLI / is_admin blocks +
+// rest_api_init + the supervisor tick) so a plain frontend page view — which
+// touches none of the node graph / cache — stops paying for the Config System
+// autoload + a `\Memcached` connection it never uses. See ensure_runtime_wired().
 
 /**
  * Service-CommandInterpreter (CI) mounting.
@@ -145,6 +126,10 @@ function newspack_nodes_mount_substrate_cis( \Newspack_Nodes\Command_Interpreter
 // Wire WordPress integration: REST routes, cron-driven supervisor tick, activation/deactivation.
 // Skipped in test environments where add_action is a stub but rest_api_init never fires.
 if ( \function_exists( 'add_action' ) ) {
+	// Wire the runtime before any REST callback runs (priority 1, ahead of
+	// register_rest_routes at 10). Covers all REST: command, SSE, spawn, the
+	// service CIs, and spawned workers (which boot inside the /spawn request).
+	\add_action( 'rest_api_init', [ '\\Newspack_Nodes\\Bootstrap', 'ensure_runtime_wired' ], 1 );
 	\add_action( 'rest_api_init', [ '\\Newspack_Nodes\\Bootstrap', 'register_rest_routes' ] );
 	\add_action( 'newspack_nodes/supervisor', [ '\\Newspack_Nodes\\Bootstrap', 'run_supervisor_tick' ] );
 	\add_action( 'newspack_nodes/restart_fleet', [ '\\Newspack_Nodes\\Worker_CLI_Command', 'restart_fleet_by_name' ] );

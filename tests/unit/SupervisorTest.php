@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Supervisor;
@@ -20,6 +21,8 @@ class SupervisorTest extends TestCase {
 		$GLOBALS['_wp_actions']               = [];
 		$GLOBALS['_test_outbound_posts']     = [];
 		$GLOBALS['_wp_test_transients']       = [];
+		Bootstrap::$supervisor_enabled_override = null;
+		Bootstrap::$supervisor_factory          = null;
 		$this->use_base_dir( $this->tmp );
 		// Catalog registration alone no longer activates a topology — the active
 		// set comes from the `topologies` config overlay. These tests drive the
@@ -153,7 +156,7 @@ class SupervisorTest extends TestCase {
 	}
 
 	public function test_check_config_returns_false_when_logging_disabled(): void {
-		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
+		Bootstrap::$supervisor_enabled_override = false;
 		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 
 		$this->assertFalse( $s->check_config( microtime( true ) ) );
@@ -696,7 +699,7 @@ class SupervisorTest extends TestCase {
 	}
 
 	public function test_run_returns_when_logging_disabled(): void {
-		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
+		Bootstrap::$supervisor_enabled_override = false;
 		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 
 		$s->run();
@@ -1042,7 +1045,7 @@ class SupervisorTest extends TestCase {
 		$this->seed_loop_state( $s, microtime( true ), 0.0 );
 
 		// Disable logging globally — first config check returns false → break.
-		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
+		Bootstrap::$supervisor_enabled_override = false;
 
 		$started = microtime( true );
 		$this->invoke_tick_loop( $s );
@@ -1326,7 +1329,7 @@ class SupervisorTest extends TestCase {
 	 */
 	public function test_run_tags_process_as_supervisor_worker(): void {
 		// Disable logging so run() exits at the first check_config — quick test.
-		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
+		Bootstrap::$supervisor_enabled_override = false;
 
 		// Pre-flight: verify clean state.
 		unset(
@@ -1398,7 +1401,7 @@ class SupervisorTest extends TestCase {
 	 */
 	public function test_run_releases_lock_so_next_supervisor_can_acquire(): void {
 		// Disable logging so run() exits before lock acquire — quick path.
-		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
+		Bootstrap::$supervisor_enabled_override = false;
 
 		$first = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
 		$first->run();

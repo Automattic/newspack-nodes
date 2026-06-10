@@ -51,17 +51,7 @@ class Command_Auth {
 
 	/** Per-site HMAC secret, domain-separated from the spawn token. */
 	private static function secret(): string {
-		$nonce_salt = \defined( 'NONCE_SALT' ) ? \NONCE_SALT : null;
-		if ( ! \is_string( $nonce_salt ) || '' === $nonce_salt ) {
-			// Fails OPEN otherwise: a public fallback secret is forgeable by anyone.
-			// Warn loudly so the misconfiguration is visible (NONCE_SALT is always
-			// set in a normal WordPress install).
-			Core::print_less_often( 'Command_Auth: NONCE_SALT is not configured; command signatures use a public fallback secret and are forgeable. Set NONCE_SALT.' );
-			$salt = 'fallback-salt-please-set-NONCE_SALT';
-		} else {
-			$salt = $nonce_salt;
-		}
-		return \hash_hmac( 'sha256', 'nodes-command-v1', $salt );
+		return \hash_hmac( 'sha256', 'nodes-command-v1', \NONCE_SALT );
 	}
 
 	/**

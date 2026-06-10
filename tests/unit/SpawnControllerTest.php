@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Rest\Spawn_Controller;
 use Newspack_Nodes\Supervisor;
 use Newspack_Nodes\Tests\TestCase;
@@ -19,6 +20,8 @@ class SpawnControllerTest extends TestCase {
 		$GLOBALS['_wp_test_current_user_can']  = [];
 		$GLOBALS['_wp_test_valid_nonces']      = [];
 		$GLOBALS['_wp_test_current_user_id']   = 0;
+		Bootstrap::$supervisor_enabled_override = null;
+		Bootstrap::$supervisor_factory          = null;
 		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
 		\Newspack_Nodes\Config::reset();
 		$this->supervisor = new Supervisor( '/tmp', 'NONCE_SALT_FOR_TEST' );
@@ -306,7 +309,7 @@ class SpawnControllerTest extends TestCase {
 		// Disable logging so Supervisor::run() exits early in check_config()
 		// before touching any locks. We just want to verify the dispatch
 		// path; Supervisor's tick loop has its own tests.
-		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
+		Bootstrap::$supervisor_enabled_override = false;
 
 		$req = $this->make_request( [
 			'type'      => 'supervisor',

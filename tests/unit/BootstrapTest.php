@@ -21,6 +21,10 @@ class BootstrapTest extends TestCase {
 		$GLOBALS['_test_outbound_posts']      = [];
 		$GLOBALS['_wp_test_next_scheduled']    = false;
 		unset( $GLOBALS['_wp_test_schedule_event_response'], $GLOBALS['_wp_test_current_filter'], $GLOBALS['wp_filter'] );
+		// Bootstrap supervisor seams are process-static; clear so a test that sets
+		// them doesn't bleed into the next.
+		Bootstrap::$supervisor_enabled_override = null;
+		Bootstrap::$supervisor_factory          = null;
 		// Config is statically cached — clear so each test sees fresh option
 		// values. get_topologies() now reads Config::load_config()['num_partitions']
 		// to default synthesized entries, so stale cache here leaks
@@ -467,21 +471,29 @@ class BootstrapTest extends TestCase {
 		$this->assertCount( 1, $workers );
 	}
 
-	// ── is_logging_enabled ────────────────────────────────────────────────
+	// ── is_supervisor_enabled ────────────────────────────────────────────────
 
-	public function test_is_logging_enabled_defaults_true(): void {
-		$this->assertTrue( Bootstrap::is_logging_enabled() );
+	public function test_is_supervisor_enabled_defaults_true(): void {
+		$this->assertTrue( Bootstrap::is_supervisor_enabled() );
 	}
 
-	public function test_is_logging_enabled_filterable_to_false(): void {
-		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
-		$this->assertFalse( Bootstrap::is_logging_enabled() );
+	public function test_is_supervisor_enabled_override_to_false(): void {
+		Bootstrap::$supervisor_enabled_override = false;
+		$this->assertFalse( Bootstrap::is_supervisor_enabled() );
+	}
+
+	public function test_supervisor_factory_seam_overrides_construction(): void {
+		$fake = new class( '/tmp', 'salt' ) extends Supervisor {
+			public function run(): void {}
+		};
+		Bootstrap::$supervisor_factory = static fn (): Supervisor => $fake;
+		$this->assertSame( $fake, Bootstrap::supervisor() );
 	}
 
 	// ── run_supervisor_tick gate ──────────────────────────────────────────
 
 	public function test_run_supervisor_tick_unschedules_when_logging_disabled(): void {
-		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
+		Bootstrap::$supervisor_enabled_override = false;
 		$GLOBALS['_wp_test_next_scheduled']     = 1234567890;
 		$GLOBALS['_wp_test_unscheduled_events'] = [];
 
@@ -489,13 +501,13 @@ class BootstrapTest extends TestCase {
 
 		$this->assertNotEmpty(
 			$GLOBALS['_wp_test_unscheduled_events'],
-			'enable_logging=false must unschedule the supervisor cron'
+			'supervisor disabled must unschedule the supervisor cron'
 		);
 		$this->assertSame( 'newspack_nodes/supervisor', $GLOBALS['_wp_test_unscheduled_events'][0]['hook'] );
 	}
 
 	public function test_run_supervisor_tick_unschedules_only_when_event_present(): void {
-		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
+		Bootstrap::$supervisor_enabled_override = false;
 		$GLOBALS['_wp_test_next_scheduled']     = false;
 		$GLOBALS['_wp_test_unscheduled_events'] = [];
 
@@ -770,7 +782,7 @@ class BootstrapTest extends TestCase {
 	}
 
 	public function test_self_heal_skips_when_logging_disabled(): void {
-		\add_filter( 'newspack_nodes/enable_logging', fn() => false );
+		Bootstrap::$supervisor_enabled_override = false;
 		\add_filter( 'newspack_nodes/topologies', function ( $topologies ) {
 			$topologies['my-fleet'] = [ 'num_partitions' => 1, 'topology' => '/x.php' ];
 			return $topologies;
@@ -958,19 +970,11 @@ class BootstrapTest extends TestCase {
 		} );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'firehose-workers' ];
 		\Newspack_Nodes\Config::reset();
-		// Disable logging from inside the supervisor so run() bails after the
-		// $_SERVER tag + before-action fire but before tick_loop hits sleep(1).
-		// This keeps the test fast (<1s) while still proving the wrapper code
-		// path is executed.
-		\add_filter( 'newspack_nodes/enable_logging', function ( $allowed ) {
-			static $called = 0;
-			++$called;
-			// First call comes from is_logging_enabled() at the top of
-			// run_supervisor_tick — must return true to proceed past the
-			// guard. Subsequent calls (Supervisor::check_config) return
-			// false so run() bails fast.
-			return 1 === $called;
-		} );
+		// Inject a no-op Supervisor so the wrapper (env tag + before/after actions)
+		// is exercised without running the real 595s spawn loop.
+		Bootstrap::$supervisor_factory = static fn (): Supervisor => new class( '/tmp', 'salt' ) extends Supervisor {
+			public function run(): void {}
+		};
 
 		// Pre-flight: clean state.
 		unset(
@@ -1005,16 +1009,12 @@ class BootstrapTest extends TestCase {
 		} );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'noop' ];
 		\Newspack_Nodes\Config::reset();
-		// First call (run_supervisor_tick guard) → true; later (Supervisor)
-		// throws synthetically before sleeping.
-		\add_filter( 'newspack_nodes/enable_logging', function ( $allowed ) {
-			static $n = 0;
-			++$n;
-			if ( 1 === $n ) {
-				return true;
+		// Inject a Supervisor whose run() throws, to prove the finally still fires.
+		Bootstrap::$supervisor_factory = static fn (): Supervisor => new class( '/tmp', 'salt' ) extends Supervisor {
+			public function run(): void {
+				throw new \RuntimeException( 'simulated supervisor failure' );
 			}
-			throw new \RuntimeException( 'simulated supervisor failure' );
-		} );
+		};
 
 		$after = 0;
 		\add_action( 'newspack_nodes/after_supervisor_run', function () use ( &$after ) { ++$after; } );
@@ -1074,6 +1074,76 @@ class BootstrapTest extends TestCase {
 			Core::$memd = $saved_memd;
 			unset( $GLOBALS['_wp_options']['newspack_nodes_memcache_servers'] );
 			\Newspack_Nodes\Config::reset();
+		}
+	}
+
+	// ── ensure_runtime_wired: deferred file-scope wiring (off the frontend hot path) ──
+
+	public function test_ensure_runtime_wired_registers_substrate_namespaces(): void {
+		$ns_ref = new \ReflectionProperty( \Newspack_Nodes\Command_Interpreter_Node::class, 'namespaces' );
+		$ns_ref->setAccessible( true );
+		$saved_ns    = $ns_ref->getValue();
+		$wired_ref   = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
+		$wired_ref->setAccessible( true );
+		$saved_wired = $wired_ref->getValue();
+
+		try {
+			$ns_ref->setValue( null, [] );
+			$wired_ref->setValue( null, false );
+			Bootstrap::ensure_runtime_wired();
+			$ns = \Newspack_Nodes\Command_Interpreter_Node::registered_namespaces();
+			$this->assertContains( 'Newspack_Nodes\\', $ns );
+			$this->assertContains( 'Newspack_Nodes\\Rest\\', $ns );
+		} finally {
+			$ns_ref->setValue( null, $saved_ns );
+			$wired_ref->setValue( null, $saved_wired );
+		}
+	}
+
+	public function test_ensure_runtime_wired_builds_memcached_handle(): void {
+		$GLOBALS['_wp_options']['newspack_nodes_memcache_servers'] = [ 'cachehost:11299' ];
+		\Newspack_Nodes\Config::reset();
+		$saved_memd    = Core::$memd;
+		$saved_factory = Bootstrap::$memcached_factory;
+		$wired_ref     = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
+		$wired_ref->setAccessible( true );
+		$saved_wired = $wired_ref->getValue();
+
+		Bootstrap::$memcached_factory = static fn (): \Memcached => new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		Core::$memd                   = null;
+
+		try {
+			$wired_ref->setValue( null, false );
+			Bootstrap::ensure_runtime_wired();
+			$this->assertInstanceOf( \Memcached::class, Core::$memd );
+		} finally {
+			$wired_ref->setValue( null, $saved_wired );
+			Core::$memd                   = $saved_memd;
+			Bootstrap::$memcached_factory = $saved_factory;
+			unset( $GLOBALS['_wp_options']['newspack_nodes_memcache_servers'] );
+			\Newspack_Nodes\Config::reset();
+		}
+	}
+
+	public function test_ensure_runtime_wired_is_idempotent(): void {
+		// After the first call wires the runtime, a second call must NOT rebuild
+		// Core::$memd — the guard short-circuits so multiple entry-point hooks
+		// firing in one request don't repeat the config load + memcache connect.
+		$wired_ref = new \ReflectionProperty( Bootstrap::class, 'runtime_wired' );
+		$wired_ref->setAccessible( true );
+		$saved_wired = $wired_ref->getValue();
+		$saved_memd  = Core::$memd;
+
+		try {
+			$wired_ref->setValue( null, false );
+			Bootstrap::ensure_runtime_wired();
+			$sentinel   = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+			Core::$memd = $sentinel;
+			Bootstrap::ensure_runtime_wired();
+			$this->assertSame( $sentinel, Core::$memd, 'second ensure_runtime_wired() must be a no-op' );
+		} finally {
+			$wired_ref->setValue( null, $saved_wired );
+			Core::$memd = $saved_memd;
 		}
 	}
 }
