@@ -504,7 +504,16 @@ class Node {
 	}
 
 	/**
-	 * Snapshot of this node's state for the REPL `dump_node` verb; subclasses override to redact secrets.
+	 * Property-name substrings whose value is a credential. dump_node() reflects
+	 * EVERY property, so any node holding one of these would otherwise print the
+	 * raw secret to the REPL / logs — redacted here for every node by default.
+	 * Deliberately excludes bare `auth` so `auth_username` / `authorize` survive.
+	 */
+	private const SECRET_NAME_PATTERNS = [ 'password', 'passwd', 'secret', 'token', 'credential', 'api_key', 'apikey', 'private_key' ];
+
+	/**
+	 * Snapshot of this node's state for the REPL `dump_node` verb. Secret-named
+	 * properties are redacted for every node (see SECRET_NAME_PATTERNS).
 	 *
 	 * @return array<string, mixed>
 	 */
@@ -522,6 +531,12 @@ class Node {
 			if ( 'sink' === $key && $value instanceof Node ) {
 				$value = $value->name();
 			}
+			// Redact a non-empty credential (string token or array of secrets);
+			// an empty one stays visible so the operator can tell it's unset.
+			if ( self::is_secret_property( $key )
+				&& ( ( \is_string( $value ) && '' !== $value ) || ( \is_array( $value ) && [] !== $value ) ) ) {
+				$value = '[REDACTED]';
+			}
 			if ( \is_object( $value ) ) {
 				$value = '(' . \get_class( $value ) . ')';
 			}
@@ -536,6 +551,17 @@ class Node {
 		// should include it too.
 		$snapshot['class'] = $ref->getShortName();
 		return $snapshot;
+	}
+
+	/** True if the property name reads as a credential (see SECRET_NAME_PATTERNS). */
+	private static function is_secret_property( string $name ): bool {
+		$lower = \strtolower( $name );
+		foreach ( self::SECRET_NAME_PATTERNS as $needle ) {
+			if ( false !== \strpos( $lower, $needle ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** Round-trippable graph snippet: make_node + optional set_sink + connect_node lines (suppresses set_sink for the default _command_interpreter). */
