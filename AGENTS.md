@@ -166,6 +166,7 @@ These are mistakes that have actually happened. Pay attention.
 - **Constructors set `$this->arguments` directly.** No `dump_config()` override per class. `dump_config()` reads the field to emit a round-trippable `make_node <type> <name> <args>` line; if you forget to set it, `dump_config` emits without args and the round-trip silently produces a different node.
 - **`Log`'s `prune_rotated()` reserves the `{filename}-` prefix.** Sibling discovery uses `glob({filename}-*)`; storing unrelated files under the same prefix (e.g. `out.log-keep_forever`) makes them eligible for pruning. Document and don't co-locate other artifacts.
 - **`Echo` drops TM_ERROR with empty TO.** It would otherwise bounce to a producer that isn't expecting the error trail. If you change Echo's routing rules, preserve the drop.
+- **Don't import a `.scss`/`.css` through the `@newspack-nodes/shared/*` alias.** In `jest.config.js` the `^@newspack-nodes/shared/(.*)$` mapper is listed BEFORE the `\.(css|scss)$` style-mock, and first-match wins — so an aliased style import (`@newspack-nodes/shared/styles/x.scss`) resolves to the real file and babel-jest tries to parse SCSS as JS (syntax error) instead of mocking it. Import shared component styles via a RELATIVE path inside the shared component (`./x.scss`), which the style-mock catches. No aliased style import exists today; the consumer (event-logger-nodes) has the identical mapper ordering.
 
 ## Local Skills
 
