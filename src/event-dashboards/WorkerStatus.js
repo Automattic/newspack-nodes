@@ -13,7 +13,7 @@
 import { memo, useMemo } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { useNodeState } from '../runtime/react';
-import ConnectionBanner from '../shared/components/ConnectionBanner';
+import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import {
 	useWorkerStatusGraph,
 	initialRefresh,

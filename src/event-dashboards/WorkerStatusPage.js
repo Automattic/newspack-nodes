@@ -5,7 +5,7 @@
  */
 
 import WorkerStatus from './WorkerStatus';
-import useAdminMenuWidth from '../shared/hooks/useAdminMenuWidth';
+import useAdminMenuWidth from '@newspack-nodes/shared/hooks/useAdminMenuWidth';
 import DebugOverlay from '../debug-overlay/DebugOverlay';
 
 /**

@@ -22,7 +22,7 @@ import { __, _n, sprintf } from '@wordpress/i18n';
 import { Core } from '../runtime/core';
 import { useNodeState } from '../runtime/react';
 import { useRawLogsGraph } from './hooks/useRawLogsGraph';
-import ConnectionBanner from '../shared/components/ConnectionBanner';
+import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import DebugOverlay from '../debug-overlay/DebugOverlay';
 import './styles/raw-logs.scss';
 

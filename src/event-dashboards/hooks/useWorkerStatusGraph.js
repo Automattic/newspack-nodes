@@ -41,7 +41,7 @@ import {
 } from '../../runtime/message';
 import { formatCommandArgs } from '../../runtime/command-args';
 import '../nodes/register';
-import usePageVisibility from '../../shared/hooks/usePageVisibility';
+import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 
 // Refresh-interval options offered to the user (the select in the full-page view).
 export const REFRESH_OPTIONS = [

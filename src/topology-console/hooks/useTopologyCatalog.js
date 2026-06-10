@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { getCommandClient } from '../utils/commandClient';
 import unwrapCommandResponse from '../utils/unwrapCommandResponse';
-import usePageVisibility from '../../shared/hooks/usePageVisibility';
+import usePageVisibility from '@newspack-nodes/shared/hooks/usePageVisibility';
 
 const POLL_INTERVAL_MS = 10000;
 
