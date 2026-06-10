@@ -453,12 +453,15 @@ require_once \dirname( __DIR__ ) . '/newspack-nodes.php';
 $GLOBALS['_wp_initial_action_registrations'] = $GLOBALS['_wp_action_registrations'] ?? [];
 unset( $GLOBALS['_wp_record_registrations'] );
 
+// Wire the substrate runtime (node-class namespaces, the `<config:…>` token
+// namespace, the stock-topology dir, Core::$memd). Production wires this lazily
+// via Bootstrap::ensure_runtime_wired() at its REST/admin/CLI/cron entry points
+// (no longer at plugin-file scope); tests boot it explicitly here.
+\Newspack_Nodes\Bootstrap::ensure_runtime_wired();
+
 // Register the test namespace so `make_node('Capture_Sink')` resolves
 // `Newspack_Nodes\Tests\Capture_Sink_Node` (require'd below; class_exists true).
 \Newspack_Nodes\Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Tests\\' );
-
-// Register the substrate `config` token namespace so `<config:…>` resolves in tests.
-\Newspack_Nodes\Config::register_token_namespace();
 
 // Load test helpers. (CaptureSink.php defines Capture_Sink_Node.)
 require_once __DIR__ . '/Helpers/TestCase.php';

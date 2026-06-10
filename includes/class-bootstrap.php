@@ -30,6 +30,63 @@ class Bootstrap {
 	public static ?\Closure $memcached_factory = null;
 
 	/**
+	 * Supervisor enable/disable test seam. Production leaves this null (enabled) —
+	 * the supervisor has no production off-switch (no config field, no caller).
+	 * Tests set false to exercise the disabled path. Replaced the test-only
+	 * `newspack_nodes/enable_supervisor` filter.
+	 *
+	 * @var bool|null
+	 */
+	public static ?bool $supervisor_enabled_override = null;
+
+	/**
+	 * Supervisor-construction seam. Lazily-defaulted to a closure building the
+	 * real Supervisor. Tests reassign to inject a double so run_supervisor_tick()'s
+	 * wrapper (env tagging, before/after actions, finally-on-throw) is testable
+	 * without running the real 595s spawn loop — DI of a subsystem the wrapper
+	 * doesn't own, not a behavior gate.
+	 *
+	 * Signature: `function (): Supervisor`.
+	 *
+	 * @var (\Closure(): Supervisor)|null
+	 */
+	public static ?\Closure $supervisor_factory = null;
+
+	/** Guards ensure_runtime_wired() so repeat entry-point calls in one request are no-ops. */
+	private static bool $runtime_wired = false;
+
+	/**
+	 * Wire the substrate runtime: node-class namespaces, the `<config:…>` token
+	 * namespace, the stock-topology dir, and the shared `Core::$memd` handle.
+	 *
+	 * Idempotent and lazy — called from the entry points that actually use the
+	 * node graph / cache (`rest_api_init`, admin, WP-CLI, the supervisor tick),
+	 * NOT at plugin-file scope. A plain frontend page view touches none of these,
+	 * so it no longer autoloads the Config System + Command_Interpreter_Node +
+	 * Topology_Registry or builds a `\Memcached` connection it never uses. This is
+	 * the per-request hot-path the v0.13.0 Config System regressed.
+	 */
+	public static function ensure_runtime_wired(): void {
+		if ( self::$runtime_wired ) {
+			return;
+		}
+		self::$runtime_wired = true;
+		// `make_node($type)` resolves `{$prefix}{$type}_Node`; the `\Rest\` prefix
+		// resolves the service CIs the `request_graph_ready` mount builds by short name.
+		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
+		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
+		// `<config:key>` TSL tokens resolve against substrate config.
+		Config::register_token_namespace();
+		// Substrate-owned stock topologies (job-worker, …).
+		Topology_Registry::register_stock_dir( \dirname( __DIR__ ) . '/topologies' );
+		// One shared Core::$memd handle from the substrate's memcache_servers config.
+		// Guarded so the unit suite (autoloads classes without get_option) never runs it.
+		if ( \function_exists( 'get_option' ) ) {
+			self::init_memcached();
+		}
+	}
+
+	/**
 	 * Build the one shared `\Memcached` handle on `Core::$memd` from the
 	 * substrate's own `memcache_servers` config. The substrate owns this — every
 	 * substrate path that needs caching (command-auth nonce single-use, SSE slot
@@ -72,7 +129,7 @@ class Bootstrap {
 	 * @return array<string, mixed> Topology name => entry (keys are always non-empty strings).
 	 */
 	public static function get_topologies(): array {
-		$catalog = (array) \apply_filters( 'newspack_nodes/topologies', [] );
+		$catalog = self::get_topology_catalog();
 		// Active set = the substrate `topologies` config key. Config::load_config()
 		// resolves the precedence: the operator overlay (wp option
 		// `newspack_nodes_topologies`) when set, else the config-file default.
@@ -108,6 +165,7 @@ class Bootstrap {
 	 * @return array<array-key, mixed> Topology name => entry.
 	 */
 	public static function get_topology_catalog(): array {
+		self::ensure_runtime_wired();
 		return (array) \apply_filters( 'newspack_nodes/topologies', [] );
 	}
 
@@ -173,9 +231,9 @@ class Bootstrap {
 		return $workers;
 	}
 
-	/** Logging gate (filter, default true); false makes the supervisor unschedule + exit. */
-	public static function is_logging_enabled(): bool {
-		return (bool) \apply_filters( 'newspack_nodes/enable_logging', true );
+	/** Supervisor enable gate (default true); false makes the supervisor unschedule + exit. */
+	public static function is_supervisor_enabled(): bool {
+		return self::$supervisor_enabled_override ?? true;
 	}
 
 	/** Configured base directory for runtime state (locks/, ipc/). */
@@ -183,10 +241,10 @@ class Bootstrap {
 		return Config::get_base_directory();
 	}
 
-	/** Build a Supervisor using NONCE_SALT for HMAC (placeholder fallback only in tests). */
+	/** Build a Supervisor using NONCE_SALT for HMAC (factory seam injectable by tests). */
 	public static function supervisor(): Supervisor {
-		$nonce_salt = \defined( 'NONCE_SALT' ) && \is_string( \NONCE_SALT ) ? \NONCE_SALT : 'fallback-salt-please-set-NONCE_SALT';
-		return new Supervisor( self::base_dir(), $nonce_salt );
+		$factory = self::$supervisor_factory ?? static fn (): Supervisor => new Supervisor( self::base_dir(), \NONCE_SALT );
+		return $factory();
 	}
 
 	/** Register substrate REST routes — wired to `rest_api_init`. */
@@ -198,7 +256,10 @@ class Bootstrap {
 
 	/** Supervisor cron tick: run Supervisor::run() (595s loop). Cron is the cold-start backstop. */
 	public static function run_supervisor_tick(): void {
-		if ( ! self::is_logging_enabled() ) {
+		// Cron fires outside rest_api_init/admin/CLI, so wire the runtime here —
+		// expand_workers() reads the topology catalog (register_stock_dir).
+		self::ensure_runtime_wired();
+		if ( ! self::is_supervisor_enabled() ) {
 			self::unschedule_supervisor();
 			return;
 		}
@@ -398,7 +459,7 @@ class Bootstrap {
 
 	/** Self-heal (admin_init): re-arm the supervisor cron if it should run but isn't scheduled. */
 	public static function self_heal_supervisor_cron(): void {
-		if ( ! self::is_logging_enabled() ) {
+		if ( ! self::is_supervisor_enabled() ) {
 			return;
 		}
 		if ( empty( self::get_topologies() ) ) {

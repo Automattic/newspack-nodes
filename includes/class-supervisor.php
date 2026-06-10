@@ -195,7 +195,7 @@ class Supervisor extends Supervisor_Base {
 		Config::invalidate_options_cache();
 		Config::reset();
 
-		if ( ! Bootstrap::is_logging_enabled() ) {
+		if ( ! Bootstrap::is_supervisor_enabled() ) {
 			return false;
 		}
 

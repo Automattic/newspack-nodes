@@ -110,8 +110,8 @@ class SettingsRendererTest extends TestCase {
 
 	public function test_checkbox_renders_hidden_sentinel_and_checked_input(): void {
 		$html = Settings_Renderer::checkbox(
-			'enable_logging',
-			'newspack_nodes_enable_logging',
+			'enable_supervisor',
+			'newspack_nodes_enable_supervisor',
 			true,   // currently on
 			true,   // file default
 			'Enable event logging',
@@ -119,14 +119,14 @@ class SettingsRendererTest extends TestCase {
 		);
 		// Hidden zero-value sentinel so an unchecked box still posts a value.
 		$this->assertStringContainsString( 'type="hidden"', $html );
-		$this->assertStringContainsString( 'name="newspack_nodes_enable_logging" value="0"', $html );
+		$this->assertStringContainsString( 'name="newspack_nodes_enable_supervisor" value="0"', $html );
 		// The checkbox itself, id + name + value="1".
 		$this->assertStringContainsString( 'type="checkbox"', $html );
-		$this->assertStringContainsString( 'id="enable_logging"', $html );
+		$this->assertStringContainsString( 'id="enable_supervisor"', $html );
 		// `checked` follows value="1" adjacently (callers match on that).
 		$this->assertStringContainsString( 'value="1" data-nn-reset-default="1" checked="checked"', $html );
 		// Label wired to the input id.
-		$this->assertStringContainsString( '<label for="enable_logging">Enable event logging</label>', $html );
+		$this->assertStringContainsString( '<label for="enable_supervisor">Enable event logging</label>', $html );
 		// Reset wrapper + toggle.
 		$this->assertStringContainsString( 'data-nn-reset="mark"', $html );
 		$this->assertStringContainsString( 'data-nn-reset-toggle', $html );
@@ -142,7 +142,7 @@ class SettingsRendererTest extends TestCase {
 
 	public function test_checkbox_default_hint_is_independent_of_checked_state(): void {
 		// Stored 0 (unchecked) but file-default true → hint must say "1".
-		$html = Settings_Renderer::checkbox( 'enable_logging', 'opt', false, true, 'L', 'mark' );
+		$html = Settings_Renderer::checkbox( 'enable_supervisor', 'opt', false, true, 'L', 'mark' );
 		$this->assertStringNotContainsString( 'checked="checked"', $html );
 		$this->assertStringContainsString( 'data-nn-reset-default="1"', $html );
 	}

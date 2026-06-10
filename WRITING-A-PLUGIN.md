@@ -425,7 +425,57 @@ Two method bodies stand between this walkthrough and a production newsletter pip
 
 ---
 
-## 8. Recap — what you wrote vs. what you never touched
+## 8. Ship it — the essential rigging
+
+The example above runs *inside* this repo. A real plugin lives in its own repo and installs on a site that already has the substrate. Four essentials get you there — no more. (The sibling **`newspack-cache-cozy`** plugin is the minimal, fully-rigged reference: one node + a mu-plugin drop-in, every file below and nothing else. Read it alongside this section.)
+
+### a. Depend on the substrate — declare it, defer your wiring
+
+Two things, and resist adding a third:
+
+- **Declare the dependency** in the plugin header so WordPress 6.5+ keeps the substrate active:
+  ```php
+  * Requires Plugins: newspack-nodes
+  ```
+- **Defer your wiring to `plugins_loaded` priority 11.** WordPress loads plugins alphabetically, so a plugin whose slug sorts before `newspack-nodes` loads *before* the substrate — its classes aren't available at your file-load time. Defer the runtime-dependent wiring, gated on a `class_exists` substrate-presence check (the §1 pattern), so it no-ops cleanly if the substrate isn't loaded:
+  ```php
+  add_action( 'plugins_loaded', static function () use ( $load ): void {
+      if ( \class_exists( '\Newspack_Nodes\Timer_Node' ) ) {  // or whatever you extend
+          $load();
+      }
+  }, 11 );
+  ```
+
+That's the whole story — `Requires Plugins` + a presence check. **Don't build a version-floor / capability-probe / admin-notice "substrate guard."** The plugins deploy together, so "present but too old" isn't a real case; a version floor is just machinery that pins an arbitrary minimum and rots. (If your plugin genuinely needs an API added in a specific substrate release, gate on `class_exists` / `method_exists` of *that exact symbol* — presence of the thing you need, never a version string.)
+
+### b. Test it — the bootstrap is the only non-obvious part
+
+Each node tests exactly as the recap below describes: build a message, call `fill()`, assert on a `Capture_Sink_Node`. The one piece that isn't obvious is the **test bootstrap**, because your tests need the substrate's classes (`Node`, `Timer_Node`, `Core`, `Message`) without a running WordPress. cache-cozy's `tests/bootstrap.php` is the template:
+
+1. Define the handful of WordPress functions your code calls as `if ( ! function_exists() )` stubs (option store, `add_action`/`apply_filters`, `home_url`, …).
+2. `require` the substrate plugin from its sibling checkout, then its test helpers — `tests/Helpers/TestCase.php` (resets `Core` in `setUp`) and `tests/Helpers/CaptureSink.php`.
+3. `require` your own `vendor/autoload.php` (your classmap) and any mu-plugin drop-in.
+
+Your test classes then `extend \Newspack_Nodes\Tests\TestCase`. Add a `tests/phpunit.xml` with `bootstrap="bootstrap.php"` and you're running `../vendor/bin/phpunit`.
+
+### c. Lint to the same bar
+
+Copy two configs and you lint identically to the substrate: `phpcs.xml.dist` (the `WordPress-VIP-Go` ruleset) and `phpstan.neon.dist` (level 10 + `phpstan-strict-rules`). The one node-plugin-specific line tells PHPStan where the substrate's classes are, so your `extends Timer_Node` resolves with real types:
+```neon
+scanDirectories:
+    - ../newspack-nodes/includes
+```
+(Point it at wherever your newspack-nodes checkout lives.) `composer.json` pulls in `automattic/vipwpcs`, `phpstan/phpstan` + `phpstan-strict-rules` + `szepeviktor/phpstan-wordpress` as dev deps; cache-cozy's is a ~50-line copy-and-rename.
+
+### d. Release it
+
+A `build-release.sh` that stages via `.distignore`, runs `composer install --no-dev --optimize-autoloader`, and zips the plugin dir; plus a tag-triggered `.github/workflows/release.yml` that runs it and publishes the zip with the matching `CHANGELOG.md` section as the notes. Pushing a `v1.2.3` tag is the whole release. cache-cozy's pair works as-is after a slug rename.
+
+> **Dashboards are a separate story.** Everything above is server-side PHP. The moment you add a React admin dashboard you're into the substrate's shared-JS build (the `@newspack-nodes/shared` alias, esbuild, jest) — involved enough to deserve its own guide, **WRITING-A-DASHBOARD.md** (forthcoming). This guide stops at a fully-working, fully-tested, headless node plugin.
+
+---
+
+## 9. Recap — what you wrote vs. what you never touched
 
 You wrote four small classes, each with one `fill()` (or one verb), and a topology file. You **reused** `Log`, the `Command_Interpreter`, the router, the worker lifecycle, and the entire topology console — none of which you wrote or configured.
 
@@ -443,3 +493,4 @@ And the same contract is what makes each node testable in isolation: the example
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
 - **[API.md](API.md)** — the REST endpoints.
 - **[`examples/newspack-ai-newsletter/`](examples/newspack-ai-newsletter/)** — the complete, tested code for this walkthrough.
+- **`newspack-cache-cozy`** — the minimal, fully-rigged *standalone* plugin (one node + a mu-plugin drop-in): the §8 essentials — `Requires Plugins` + a deferred presence-gated loader, test bootstrap, phpcs/phpstan, release workflow — as real files to copy.

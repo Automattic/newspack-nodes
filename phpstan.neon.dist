@@ -41,6 +41,9 @@ parameters:
         # NEWSPACK_NODES_VERSION via define() at load time. Bootstrapping it
         # lets PHPStan see those constants when analyzing includes/.
         - newspack-nodes.php
+        # WordPress derives NONCE_SALT from wp-config.php (not a core stub
+        # constant); Bootstrap::supervisor() reads it for HMAC. Stub it.
+        - .phpstan/constants.php
     scanFiles:
         # WP-CLI is loaded only when WP-CLI itself runs (defined('WP_CLI')).
         # szepeviktor/phpstan-wordpress doesn't ship WP-CLI stubs; supply them
