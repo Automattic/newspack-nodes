@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Raise the declared PHP floor to 8.2, matching production syntax already used by the substrate (`File_Writer` trait constants, plus PHP 8.1 `array_is_list()` calls), and align the bundled example/plugin-writing guide with that floor.
+
 ## [0.15.0] - 2026-06-10
 
 ### Security

@@ -7,6 +7,7 @@
  * License: GPL-2.0-or-later
  * Text Domain: newspack-nodes
  * Domain Path: /languages
+ * Requires PHP: 8.2
  *
  * @package Newspack_Nodes
  */

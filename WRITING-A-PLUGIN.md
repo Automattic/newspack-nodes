@@ -34,7 +34,7 @@ A Nodes plugin is an ordinary WordPress plugin. It needs two things: a Composer 
 {
 	"name": "newspack/ai-newsletter-example",
 	"description": "Nodes walkthrough example — deterministic digest pipeline.",
-	"require": { "php": ">=8.0" },
+	"require": { "php": ">=8.2" },
 	"autoload": { "classmap": [ "includes/" ] }
 }
 ```
