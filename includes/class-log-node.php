@@ -98,15 +98,17 @@ class Log_Node extends Node {
 			Core::print_less_often( "Log: cannot write to {$this->filename} (no open file handle)" );
 			return;
 		}
-		$value                = self::as_string( $message[ Message::VALUE ] );
-		$write_len            = \strlen( $value );
-		$this->size          += $write_len;
-		$this->bytes_written += $write_len;
+		$value     = self::as_string( $message[ Message::VALUE ] );
+		$write_len = \strlen( $value );
 		if ( $write_len > $this->largest_msg_sent ) {
 			$this->largest_msg_sent = $write_len;
 		}
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-		\fwrite( $this->fh, $value );
+		// Advance size by what actually landed; don't rotate on a short write.
+		$wrote        = $this->write_all( $this->fh, $value, $this->filename );
+		$this->size  += $wrote;
+		if ( $wrote < $write_len ) {
+			return;
+		}
 		// Rotate AFTER the write so the over-limit bytes land in the rotated file; max_size=0 disables.
 		if ( $this->max_size > 0 && $this->size > $this->max_size ) {
 			$this->rotate();

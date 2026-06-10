@@ -23,8 +23,6 @@ class Partition_Node extends Timer_Node {
 	/** Inter-process rotation lock TTL: anything older counts as stale. */
 	public const ROTATE_LOCK_TTL_SECONDS = 5;
 
-	public const MAX_PARTIAL_WRITE_ATTEMPTS = 5;
-
 	public const DRIFT_RESCAN_INTERVAL_SECONDS = 1.0;
 
 	protected string $base_dir      = '';
@@ -184,8 +182,10 @@ class Partition_Node extends Timer_Node {
 			if ( null === $fh ) {
 				return;
 			}
-			$offset = $this->current_size;
-			if ( ! $this->loop_fwrite( $fh, $packed ) ) {
+			$offset              = $this->current_size;
+			$wrote               = $this->write_all( $fh, $packed, $this->current_log_path );
+			$this->current_size += $wrote;
+			if ( $wrote < $len ) {
 				return;
 			}
 			if ( null !== $this->index_callback ) {
@@ -239,8 +239,10 @@ class Partition_Node extends Timer_Node {
 		if ( null === $fh ) {
 			return;
 		}
-		$start_offset = $this->current_size;
-		if ( ! $this->loop_fwrite( $fh, $batch_bytes ) ) {
+		$start_offset        = $this->current_size;
+		$wrote               = $this->write_all( $fh, $batch_bytes, $this->current_log_path );
+		$this->current_size += $wrote;
+		if ( $wrote < $batch_len ) {
 			return;
 		}
 
@@ -273,8 +275,7 @@ class Partition_Node extends Timer_Node {
 		try {
 			$entry = $callback( $packed, $position, $data );
 			if ( null !== $entry && '' !== $entry && \is_resource( $this->idx_fh ) ) {
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-				@\fwrite( $this->idx_fh, $entry . "\n" );
+				$this->write_all( $this->idx_fh, $entry . "\n", $this->current_idx_path );
 			}
 		} catch ( \Throwable $e ) {
 			$this->print_less_often( 'Partition: index callback threw: ' . $e->getMessage() );
@@ -471,34 +472,6 @@ class Partition_Node extends Timer_Node {
 			$this->current_log_path   = "{$this->partition_dir}/{$this->current_segment_id}.log";
 			$this->current_idx_path   = "{$this->partition_dir}/{$this->current_segment_id}.idx";
 		}
-	}
-
-	/**
-	 * Loop fwrite up to MAX_PARTIAL_WRITE_ATTEMPTS to handle short writes.
-	 *
-	 * @param resource $fh    Open file handle (append mode).
-	 * @param string   $bytes Bytes to write.
-	 * @return bool True if all bytes were written.
-	 */
-	protected function loop_fwrite( $fh, string $bytes ): bool {
-		$remaining = $bytes;
-		$attempts  = 0;
-		while ( '' !== $remaining ) {
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fwrite, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fwrite
-			$written = @\fwrite( $fh, $remaining );
-			if ( false === $written || 0 === $written ) {
-				++$attempts;
-				if ( $attempts >= self::MAX_PARTIAL_WRITE_ATTEMPTS ) {
-					$this->print_less_often( 'Partition: fwrite stalled (' . $attempts . " attempts) for {$this->current_log_path}" );
-					return false;
-				}
-				continue;
-			}
-			$this->current_size  += $written;
-			$this->bytes_written += $written;
-			$remaining            = \substr( $remaining, $written );
-		}
-		return true;
 	}
 
 	/**
