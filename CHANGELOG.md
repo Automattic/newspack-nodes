@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-06-10
+
 ### Security
 
 - **`dump_node` now redacts credentials for every node, not just the one that remembered to.** `Node::dump_node()` reflects every property, so any node holding a secret printed it raw to the REPL (`dump_node my_node`) and into logs — a credential-disclosure vector. Redaction was bolted onto a single `Remote_Source_Node::dump_node()` override (it scrubbed `auth_password`/`auth_token`); every other node was unprotected. The base now redacts any non-empty property whose name reads as a credential (`password`, `passwd`, `secret`, `token`, `credential`, `api_key`, `private_key` — deliberately *not* bare `auth`, so `auth_username` and `authorize` survive), replacing the value with `[REDACTED]`. The bespoke `Remote_Source_Node` override is removed (the base covers its fields). Empty secrets stay visible as `''` so an operator can tell a credential is unset.
