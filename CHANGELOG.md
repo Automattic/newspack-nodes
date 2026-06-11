@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-06-11
+
 ### Added
 
 - Supervisor cron diagnostics now cover late `schedule_event` vetoes too. WordPress reports those as `schedule_event_false`, but by the time a late filter sees the failure the event object has been replaced by a falsy value; Nodes now remembers the supervisor event at the start of the `schedule_event` chain and logs the callback chain if a later callback vetoes it.
