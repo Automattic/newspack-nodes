@@ -140,6 +140,8 @@ if ( \function_exists( 'add_action' ) ) {
 	// cron_*_event_error actions only wp-cron.php fires.
 	\add_filter( 'pre_schedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_veto' ], PHP_INT_MAX - 2, 2 );
 	\add_filter( 'pre_reschedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_veto' ], PHP_INT_MAX - 2, 2 );
+	\add_filter( 'schedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'remember_schedule_event_context' ], PHP_INT_MIN + 2, 1 );
+	\add_filter( 'schedule_event', [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_event_veto' ], PHP_INT_MAX - 2, 1 );
 	// Substrate-owned default spawn handler: spawns any worker in the active set
 	// (expand_workers), ungated by plugin ownership — topologies aren't owned.
 	\add_action( 'newspack_nodes/spawn_worker', [ '\\Newspack_Nodes\\Topology_Registry', 'spawn_worker' ], 10, 2 );
