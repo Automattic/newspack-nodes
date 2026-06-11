@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Supervisor cron diagnostics now cover late `schedule_event` vetoes too. WordPress reports those as `schedule_event_false`, but by the time a late filter sees the failure the event object has been replaced by a falsy value; Nodes now remembers the supervisor event at the start of the `schedule_event` chain and logs the callback chain if a later callback vetoes it.
+
 ### Changed
 
 - **Substrate runtime wiring is no longer built at plugin-file scope.** The node-class namespaces (for `make_node`), the `<config:…>` token namespace, the stock-topology dir, and the shared `Core::$memd` handle moved out of `newspack-nodes.php` file scope into the idempotent `Bootstrap::ensure_runtime_wired()`, called lazily from the entry points that actually use the node graph / cache: `rest_api_init` (priority 1, before route callbacks), the admin and WP-CLI blocks, and the supervisor cron tick. A plain frontend page view touches none of these, so it no longer autoloads the Config System / `Command_Interpreter_Node` / `Topology_Registry` or opens a `\Memcached` connection it never uses — cutting substrate plugin-load from ~1.6ms to ~0.24ms (the per-request hot path the v0.13.0 Config System had regressed). `get_topology_catalog()` self-wires, so the catalog can't be read partially built.

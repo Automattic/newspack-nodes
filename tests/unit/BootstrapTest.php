@@ -632,6 +632,29 @@ class BootstrapTest extends TestCase {
 		}
 	}
 
+	public function test_plugin_registers_schedule_event_veto_detector(): void {
+		$registrations = $GLOBALS['_wp_initial_action_registrations'];
+
+		$this->assertContains(
+			[
+				'callback'      => [ '\\Newspack_Nodes\\Bootstrap', 'remember_schedule_event_context' ],
+				'priority'      => PHP_INT_MIN + 2,
+				'accepted_args' => 1,
+			],
+			$registrations['schedule_event'] ?? [],
+			'missing schedule_event context capture'
+		);
+		$this->assertContains(
+			[
+				'callback'      => [ '\\Newspack_Nodes\\Bootstrap', 'log_supervisor_schedule_event_veto' ],
+				'priority'      => PHP_INT_MAX - 2,
+				'accepted_args' => 1,
+			],
+			$registrations['schedule_event'] ?? [],
+			'missing schedule_event veto detector'
+		);
+	}
+
 	public function test_veto_detector_passes_through_unrelated_hooks_without_logging(): void {
 		$event = (object) [ 'hook' => 'wp_update_plugins' ];
 
@@ -758,6 +781,76 @@ class BootstrapTest extends TestCase {
 		unset( $GLOBALS['_wp_test_current_filter'] );
 
 		$this->assertSame( 1, \substr_count( $log, 'supervisor cron vetoed' ) );
+	}
+
+	public function test_schedule_event_detector_logs_false_veto_with_remembered_supervisor_context(): void {
+		global $wp_filter;
+
+		$this->assertTrue( \is_callable( [ Bootstrap::class, 'remember_schedule_event_context' ] ) );
+		$this->assertTrue( \is_callable( [ Bootstrap::class, 'log_supervisor_schedule_event_veto' ] ) );
+
+		$GLOBALS['_wp_test_current_filter'] = 'schedule_event';
+		$wp_filter                          = [
+			'schedule_event' => (object) [
+				'callbacks' => [
+					10 => [
+						'newspack_nodes_test_schedule_event_veto' => [
+							'function'      => 'newspack_nodes_test_schedule_event_veto',
+							'accepted_args' => 1,
+						],
+					],
+				],
+			],
+		];
+		$event = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+
+		$pre = null;
+		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
+			Bootstrap::remember_schedule_event_context( $event );
+			$pre = Bootstrap::log_supervisor_schedule_event_veto( false );
+		} );
+		unset( $GLOBALS['wp_filter'], $GLOBALS['_wp_test_current_filter'] );
+
+		$this->assertFalse( $pre );
+		$this->assertStringContainsString( 'supervisor cron vetoed', $log );
+		$this->assertStringContainsString( 'filter=schedule_event', $log );
+		$this->assertStringContainsString( 'value=falsy', $log );
+		$this->assertStringContainsString( 'callbacks=[10 newspack_nodes_test_schedule_event_veto]', $log );
+	}
+
+	public function test_schedule_event_detector_logs_null_veto_with_remembered_supervisor_context(): void {
+		$GLOBALS['_wp_test_current_filter'] = 'schedule_event';
+		$event                              = (object) [ 'hook' => 'newspack_nodes/supervisor' ];
+
+		$pre = 'unchanged';
+		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
+			Bootstrap::remember_schedule_event_context( $event );
+			$pre = Bootstrap::log_supervisor_schedule_event_veto( null );
+		} );
+		unset( $GLOBALS['_wp_test_current_filter'] );
+
+		$this->assertNull( $pre );
+		$this->assertStringContainsString( 'supervisor cron vetoed', $log );
+		$this->assertStringContainsString( 'filter=schedule_event', $log );
+		$this->assertStringContainsString( 'value=falsy', $log );
+	}
+
+	public function test_schedule_event_detector_ignores_false_veto_without_supervisor_context(): void {
+		$this->assertTrue( \is_callable( [ Bootstrap::class, 'remember_schedule_event_context' ] ) );
+		$this->assertTrue( \is_callable( [ Bootstrap::class, 'log_supervisor_schedule_event_veto' ] ) );
+
+		$GLOBALS['_wp_test_current_filter'] = 'schedule_event';
+		$event                              = (object) [ 'hook' => 'wp_update_plugins' ];
+
+		$pre = null;
+		$log = $this->capture_stderr( static function () use ( &$pre, $event ): void {
+			Bootstrap::remember_schedule_event_context( $event );
+			$pre = Bootstrap::log_supervisor_schedule_event_veto( false );
+		} );
+		unset( $GLOBALS['_wp_test_current_filter'] );
+
+		$this->assertFalse( $pre );
+		$this->assertSame( '', $log );
 	}
 
 

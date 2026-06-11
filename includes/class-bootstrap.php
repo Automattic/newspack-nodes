@@ -55,6 +55,9 @@ class Bootstrap {
 	/** Guards ensure_runtime_wired() so repeat entry-point calls in one request are no-ops. */
 	private static bool $runtime_wired = false;
 
+	/** Tracks the event entering schedule_event so a late falsy veto still has context. */
+	private static bool $schedule_event_context_is_supervisor = false;
+
 	/**
 	 * Wire the substrate runtime: node-class namespaces, the `<config:…>` token
 	 * namespace, the stock-topology dir, and the shared `Core::$memd` handle.
@@ -380,7 +383,7 @@ class Bootstrap {
 	 * @return mixed $pre, unchanged.
 	 */
 	public static function log_supervisor_schedule_veto( $pre, $event ) {
-		$hook = \is_object( $event ) && isset( $event->hook ) && \is_string( $event->hook ) ? $event->hook : '';
+		$hook = self::event_hook( $event );
 		if ( 'newspack_nodes/supervisor' !== $hook ) {
 			return $pre;
 		}
@@ -400,6 +403,50 @@ class Bootstrap {
 			)
 		);
 		return $pre;
+	}
+
+	/**
+	 * Remember the schedule_event context before later callbacks can replace the
+	 * event object with a falsy veto value.
+	 *
+	 * @param mixed $event Event object being filtered.
+	 * @return mixed $event, unchanged.
+	 */
+	public static function remember_schedule_event_context( $event ) {
+		self::$schedule_event_context_is_supervisor = 'newspack_nodes/supervisor' === self::event_hook( $event );
+		return $event;
+	}
+
+	/**
+	 * Late schedule_event diagnostic for supervisor cron vetoes.
+	 *
+	 * @param mixed $event Event object or falsy veto value after earlier callbacks.
+	 * @return mixed $event, unchanged.
+	 */
+	public static function log_supervisor_schedule_event_veto( $event ) {
+		if ( $event ) {
+			self::$schedule_event_context_is_supervisor = false;
+			return $event;
+		}
+		if ( ! self::$schedule_event_context_is_supervisor ) {
+			return $event;
+		}
+		self::$schedule_event_context_is_supervisor = false;
+
+		$filter = (string) \current_filter();
+		Core::print_less_often(
+			\sprintf(
+				'supervisor cron vetoed: filter=%s value=falsy callbacks=[%s]',
+				$filter,
+				self::describe_hook_callbacks( $filter )
+			)
+		);
+		return $event;
+	}
+
+	/** Extract an event object's hook field, if present. */
+	private static function event_hook( mixed $event ): string {
+		return \is_object( $event ) && isset( $event->hook ) && \is_string( $event->hook ) ? $event->hook : '';
 	}
 
 	/** Describe callbacks registered on a WordPress hook without dumping payload data. */
