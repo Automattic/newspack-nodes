@@ -60,8 +60,8 @@ class Core {
 	/** Re-entry guard for stderr(); the default handler can recurse via _repl write failures. */
 	private static bool $in_stderr = false;
 
-	/** Monotonic counter for shell message IDs; reset by Core::reset(). */
-	private static int $msg_counter = 0;
+	/** Monotonic counter for general purpose IDs; reset by Core::reset(). */
+	private static int $counter = 0;
 
 	public static function reset(): void {
 		self::$nodes_by_name     = [];
@@ -69,7 +69,7 @@ class Core {
 		self::$closing           = [];
 		self::$recent_log        = [];
 		self::$recent_log_timers = [];
-		self::$msg_counter       = 0;
+		self::$counter           = 0;
 		self::$in_stderr         = false;
 		self::$var               = [];
 		// $config_resolvers is process-lifetime (like namespace registrations) — not cleared.
@@ -100,9 +100,9 @@ class Core {
 		self::$init_time = self::$now;
 	}
 
-	/** Pre-increment monotonic message-id counter. */
-	public static function msg_counter(): int {
-		return ++self::$msg_counter;
+	/** Pre-increment monotonic counter. */
+	public static function counter(): int {
+		return ++self::$counter;
 	}
 
 	/** Register a topology `<ns:key>` token resolver for namespace $ns (last writer wins). */
