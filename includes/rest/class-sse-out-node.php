@@ -99,13 +99,6 @@ class SSE_Out_Node extends Node {
 	 */
 	public static ?\Closure $check_slot   = null;
 
-	/**
-	 * Test seam: bounded drain loop. Production loops on `connection_aborted()`;
-	 * test_mode counts iterations so ob_get_clean() can capture SSE bytes.
-	 */
-	private bool $test_mode = false;
-	private int  $test_iterations = 0;
-
 	/** Node egress (terminal, not forwarded): emits each Message as an SSE `msg` event. */
 	public function fill( array &$message ): void {
 		++$this->counter;
@@ -118,14 +111,6 @@ class SSE_Out_Node extends Node {
 
 	public function set_num_partitions( int $n ): void {
 		$this->num_partitions = $n;
-	}
-
-	public function set_test_mode( bool $on ): void {
-		$this->test_mode = $on;
-	}
-
-	public function set_test_iterations( int $n ): void {
-		$this->test_iterations = $n;
 	}
 
 	public function register_routes(): void {
@@ -409,17 +394,13 @@ class SSE_Out_Node extends Node {
 			// stream from a dead one (quiet topologies would otherwise go dark).
 			$heartbeat_interval = \max( 0.1, $interval / 1000.0 );
 			$last_heartbeat     = \microtime( true );
-			$iterations         = 0;
 			Event_Framework::instance()->drain(
-				function () use ( &$iterations, &$last_heartbeat, $heartbeat_interval, $slot, $partition ): bool {
-					if ( $this->test_mode && ++$iterations > $this->test_iterations ) {
-						return false;
-					}
+				function () use ( &$last_heartbeat, $heartbeat_interval, $slot, $partition ): bool {
 					$check = self::$check_slot;
 					if ( null !== $check && ! $check( $slot, $partition ) ) {
 						return false;
 					}
-					if ( ! $this->test_mode && \connection_aborted() ) {
+					if ( \connection_aborted() ) {
 						return false;
 					}
 					$now = \microtime( true );

@@ -12,23 +12,17 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Timer_Node extends Node {
-	protected int $fire_count = 0;
-	protected bool $active = false;
-	protected bool $oneshot = false;
+	public int $interval_ms = 0;
+	public bool $oneshot    = false;
+	public float $next_fire = 0.0;
+	public bool $active     = false;
+	public int $fire_count  = 0;
 
 	/** @var string Tracks scheduling mode: 'inactive' | 'event_framework' | 'router'. */
 	protected string $mode = 'inactive';
 
 	/** Tag stamped onto each emitted message's KEY (Tachikoma uses STREAM; we have no STREAM slot). Empty = unset. */
 	protected string $key = '';
-
-	public function set_key( string $key ): void {
-		$this->key = $key;
-	}
-
-	public function key(): string {
-		return $this->key;
-	}
 
 	public function __construct() {
 		$this->registrations = [ 'FIRE' => [] ];
@@ -91,57 +85,62 @@ class Timer_Node extends Node {
 	}
 
 	public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
-		$this->oneshot = $oneshot;
-		$this->active  = true;
-
+		$this->active = true;
 		if ( null === $ms ) {
 			if ( '' === $this->name ) {
 				throw new \RuntimeException( 'Router-hitchhike requires Timer to have a name' );
 			}
 			$router = Core::node( Node_Names::ROUTER );
-			if ( null === $router ) {
+			if ( ! $router instanceof self ) {
 				throw new \RuntimeException( 'Router-hitchhike requires _router to be present' );
 			}
 			if ( 'event_framework' === $this->mode ) {
-				$this->stop_timer();
+				$this->_stop_timer();
 			}
 			$router->register( 'TIMER', $this->name );
-			$this->mode = 'router';
+			$this->mode        = 'router';
+			$this->interval_ms = $router->interval_ms;
+			$this->oneshot     = false;
 			return;
 		}
 		if ( 'router' === $this->mode ) {
-			$this->stop_timer();
+			$this->_stop_timer();
 		}
-		Event_Framework::instance()->set_timer( $this, $ms, $oneshot );
-		$this->mode = 'event_framework';
+		$this->mode        = 'event_framework';
+		$this->interval_ms = $ms;
+		$this->oneshot     = $oneshot;
+		Event_Framework::instance()->set_timer( $this );
 	}
 
 	public function stop_timer(): void {
+		$this->_stop_timer();
+		$this->active      = false;
+		$this->mode        = 'inactive';
+		$this->interval_ms = 0;
+		$this->oneshot     = false;
+	}
+
+	private function _stop_timer(): void {
 		if ( 'inactive' === $this->mode ) {
 			return;
 		}
-		$mode         = $this->mode;
-		$this->active = false;
-		$this->mode   = 'inactive';
-
-		if ( 'router' === $mode ) {
+		if ( 'router' === $this->mode ) {
 			$router = Core::node( Node_Names::ROUTER );
 			if ( null !== $router && '' !== $this->name ) {
 				$router->unregister( 'TIMER', $this->name );
 			}
 			return;
 		}
-		if ( 'event_framework' === $mode ) {
+		if ( 'event_framework' === $this->mode ) {
 			Event_Framework::instance()->stop_timer( $this );
 		}
 	}
 
-	public function is_active(): bool {
-		return $this->active;
-	}
-
-	public function fire_count(): int {
-		return $this->fire_count;
+	public function key( ?string $key = null ): string {
+		if ( \func_num_args() > 0 ) {
+			$this->key = (string) $key;
+		}
+		return $this->key;
 	}
 
 	public function remove_node(): void {

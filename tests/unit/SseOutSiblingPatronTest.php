@@ -69,8 +69,8 @@ class SseOutSiblingPatronTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'sse-sibling-patron-' ) );
 		$ctrl->set_num_partitions( 1 );
-		$ctrl->set_test_mode( true );
-		$ctrl->set_test_iterations( 1000 );
+		// This test's own check_slot returns false after one inspection pass, so
+		// it terminates the drain — no separate iteration bound needed.
 
 		\ob_start();
 		$ctrl->run_stream_loop( [ 'firehose' ], null, 500, 1, -1 );

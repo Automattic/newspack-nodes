@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Timer scheduling state moved onto `Timer_Node` itself.** A timer now carries its own `interval_ms` / `oneshot` / `next_fire` / `active` / `fire_count` as public properties, and `Event_Framework::set_timer()` takes just the node (`set_timer( Timer_Node $node )`) — the framework reads the cadence off the node and stamps the first fire. `Timer_Node::set_key()` is folded into a `key()` getter/setter, and `is_active()` / `fire_count()` are dropped in favor of the public `$active` / `$fire_count`. Partition's heartbeat timer arms via `arguments()` + `key()` to match. The Router-hitchhike preconditions stay fail-loud: no-arg `set_timer()` throws if the timer is unnamed or no `_router` is present (now covered by tests asserting each message).
+- **SSE drain test seam is the `check_slot` Closure, not `set_test_mode()` / `set_test_iterations()`.** Those helpers — and the bounded-iteration counter inside `run_stream_loop()` — are removed; tests bound the loop by assigning a counting closure to the production slot-liveness seam `SSE_Out_Node::$check_slot`. Production behavior is unchanged: `connection_aborted()` plus the real slot check still terminate the stream.
+
+### Fixed
+
+- **Timers initialize `next_fire` when armed.** `Event_Framework::set_timer()` now stamps `next_fire = now + interval_ms/1000`. Without it a timer fired immediately on the first drain pass and the next-wait calculation went negative, busy-looping instead of sleeping the interval (an idle SSE stream emitted no heartbeats). Partition's heartbeat interval is computed with `intdiv()` so a non-÷3 `stale_timeout` can't produce a non-integer string the Timer argument validator would reject.
+
 ## [0.15.1] - 2026-06-11
 
 ### Added

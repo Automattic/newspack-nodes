@@ -14,8 +14,9 @@ namespace Newspack_Nodes;
 class Event_Framework {
 	private static ?self $instance = null;
 
-	/** @var array<int,array{node:Timer_Node,interval_ms:int,oneshot:bool,next_fire:float}> Timer slots; node is always the Timer_Node that armed it. */
+	/** @var array<int,Timer_Node> Timer slots */
 	private array $timers = [];
+
 	/** @var array<int,array{node:object,multi:\CurlMultiHandle}> */
 	private array $curl_handles = [];
 
@@ -39,14 +40,14 @@ class Event_Framework {
 		self::$instance = null;
 	}
 
-	public function set_timer( Timer_Node $node, int $interval_ms, bool $oneshot = false ): void {
+	public function set_timer( Timer_Node $node ): void {
 		$id = \spl_object_id( $node );
-		$this->timers[ $id ] = [
-			'node'        => $node,
-			'interval_ms' => $interval_ms,
-			'oneshot'     => $oneshot,
-			'next_fire'   => Core::$now + ( $interval_ms / 1000.0 ),
-		];
+		// Schedule the first fire from the node's interval (set by Timer_Node::set_timer
+		// before it hands us the node). Without this, next_fire stays 0.0 → the timer
+		// fires immediately on the first drain pass and next_timer_timeout_us() computes
+		// a negative wait, busy-looping instead of sleeping the interval.
+		$node->next_fire     = Core::$now + ( $node->interval_ms / 1000.0 );
+		$this->timers[ $id ] = $node;
 	}
 
 	public function stop_timer( Timer_Node $node ): void {
@@ -96,7 +97,7 @@ class Event_Framework {
 		}
 		$soonest = PHP_INT_MAX;
 		foreach ( $this->timers as $t ) {
-			$delta_us = (int) ( ( $t['next_fire'] - Core::$now ) * 1_000_000 );
+			$delta_us = (int) ( ( $t->next_fire - Core::$now ) * 1_000_000 );
 			if ( $delta_us < $soonest ) {
 				$soonest = $delta_us;
 			}
@@ -145,16 +146,16 @@ class Event_Framework {
 
 			Core::$now = \microtime( true );
 
-			foreach ( $this->timers as $id => $entry ) {
-				if ( $entry['next_fire'] > Core::$now ) {
+			foreach ( $this->timers as $id => $node ) {
+				if ( $node->next_fire > Core::$now ) {
 					continue;
 				}
-				if ( $entry['oneshot'] ) {
+				if ( $node->oneshot ) {
 					unset( $this->timers[ $id ] );
 				} else {
-					$this->timers[ $id ]['next_fire'] = Core::$now + ( $entry['interval_ms'] / 1000.0 );
+					$node->next_fire = Core::$now + ( $node->interval_ms / 1000.0 );
 				}
-				$entry['node']->fire_cb();
+				$node->fire_cb();
 			}
 		}
 
