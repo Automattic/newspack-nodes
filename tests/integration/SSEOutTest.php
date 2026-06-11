@@ -29,6 +29,12 @@ use PHPUnit\Framework\Attributes\Medium;
 #[Medium]
 class SSEOutTest extends TestCase {
 
+	/** check_slot is process-static; clear it so a bounded closure doesn't leak into another test's drain. */
+	protected function tearDown(): void {
+		SSE_Out_Node::$check_slot = null;
+		parent::tearDown();
+	}
+
 	public function test_fill_emits_msg_event_and_increments_counter(): void {
 		// SSE_Out is double-duty: as a Node, fill() emits the Message as a
 		// single `msg` SSE event and bumps the counter (the egress writer
@@ -74,11 +80,7 @@ class SSEOutTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 1 );
-		$ctrl->set_test_mode( true );
-		// 20 ticks is enough for the Consumer's busy-poll cycle to seek to
-		// 'start', read both lines, emit them through the sink, and let the
-		// SSE writes hit the captured stdout buffer.
-		$ctrl->set_test_iterations( 20 );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 20 );
 
 		\ob_start();
 		// Per-subscription positions, keyed first by subscription name then
@@ -128,8 +130,7 @@ class SSEOutTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 2 );
-		$ctrl->set_test_mode( true );
-		$ctrl->set_test_iterations( 2 );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 2 );
 
 		\ob_start();
 		// Two partitions → two Consumers. With the bug this throws before the
@@ -167,8 +168,7 @@ class SSEOutTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 1 );
-		$ctrl->set_test_mode( true );
-		$ctrl->set_test_iterations( 20 );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 20 );
 
 		\ob_start();
 		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose' => [ 0 => 'start' ] ], 500 );
@@ -214,8 +214,7 @@ class SSEOutTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 1 );
-		$ctrl->set_test_mode( true );
-		$ctrl->set_test_iterations( 20 );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 20 );
 		\ob_start();
 		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose' => [ 0 => 'start' ] ], 500 );
 		$out = \ob_get_clean();
@@ -232,8 +231,7 @@ class SSEOutTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-stream-leak-' ) );
 		$ctrl->set_num_partitions( 1 );
-		$ctrl->set_test_mode( true );
-		$ctrl->set_test_iterations( 5 );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 5 );
 
 		try {
 			\ob_start();
@@ -261,10 +259,7 @@ class SSEOutTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 1 );
-		$ctrl->set_test_mode( true );
-		// 50 ticks over a 1ms heartbeat interval is enough wall time for at
-		// least one heartbeat to fire (real time advances between ticks).
-		$ctrl->set_test_iterations( 50 );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 50 );
 
 		\ob_start();
 		$ctrl->run_stream_loop( [ 'firehose' ], [ 'firehose' => [ 0 => 'start' ] ], 1 );

@@ -97,8 +97,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-slot-release-' ) );
 		$ctrl->set_num_partitions( 1 );
-		$ctrl->set_test_mode( true );
-		$ctrl->set_test_iterations( 2 );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 2 );
 
 		\ob_start();
 		$ctrl->run_stream_loop( [ 'firehose' ], null, 500, 7, -1 );
@@ -118,11 +117,9 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-slot-check-' ) );
 		$ctrl->set_num_partitions( 1 );
-		$ctrl->set_test_mode( true );
-		// Test mode gates on iteration count, not check_slot. We assert that
-		// when check_slot says no, the controller exits the drain BEFORE the
-		// natural iteration cap.
-		$ctrl->set_test_iterations( 1000 );
+		// No bounding closure needed: this test's own check_slot returns false on
+		// the first consult, so it IS what terminates the drain — exactly the
+		// behaviour under test.
 
 		\ob_start();
 		$ctrl->run_stream_loop( [ 'firehose' ], null, 500, 7, -1 );
@@ -137,8 +134,7 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->make_temp_dir( 'msg-slot-conn-' ) );
 		$ctrl->set_num_partitions( 1 );
-		$ctrl->set_test_mode( true );
-		$ctrl->set_test_iterations( 1 );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 1 );
 
 		\ob_start();
 		$ctrl->run_stream_loop( [ 'firehose' ], null, 500, 4, -1 );
@@ -175,12 +171,11 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
 		$ctrl->set_num_partitions( 1 );
-		$ctrl->set_test_mode( true );
 		// Consumer's first fire() is scheduled at POLL_INTERVAL_EOF_MS=100ms.
 		// Drain iterates between events; we need enough iterations that the
 		// timer fires AND its read+callback path completes within the loop.
 		// 3 was empirically flaky under load; 10 leaves room for slow CI.
-		$ctrl->set_test_iterations( 10 );
+		SSE_Out_Node::$check_slot = $this->boundedTicks( 10 );
 
 		// Capture all router fills so we can assert the message landed on
 		// _router (instead of being emitted to SSE). Use a Callback under

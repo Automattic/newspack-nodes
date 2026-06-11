@@ -60,7 +60,7 @@ class EventFrameworkTest extends TestCase {
 			public function fire_cb(): void { ++$this->fired; }
 		};
 
-		$ef->set_timer( $timer_node, 10, true );
+		$timer_node->set_timer( 10, true );
 
 		$start = \microtime( true );
 		$ef->drain( function () use ( $start ): bool {

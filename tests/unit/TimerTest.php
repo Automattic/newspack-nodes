@@ -67,7 +67,23 @@ class TimerTest extends TestCase {
 		$timer = new Timer_Node();
 		$timer->name( 't' );
 		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'Bad arguments for Timer' );
 		$timer->arguments( 'fast' );
+	}
+
+	public function test_fire_throws_when_it_must_emit_but_has_no_sink(): void {
+		// fire() throws if it has work to emit (a non-empty target) but no sink.
+		// fire_cb() guards the null-sink case before delegating, so this path is
+		// only reachable by invoking the protected fire() directly — pin the
+		// exception so that guard contract stays explicit.
+		$timer = new Timer_Node();
+		$timer->name( 't' );
+		$timer->target( 'somewhere' );
+		$fire = new \ReflectionMethod( Timer_Node::class, 'fire' );
+		$fire->setAccessible( true );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'Timer::fire requires a wired sink' );
+		$fire->invoke( $timer );
 	}
 
 	// ── key stamping + fire() message shape ───────────────────────────────────
@@ -75,14 +91,14 @@ class TimerTest extends TestCase {
 	public function test_set_key_round_trips(): void {
 		$timer = new Timer_Node();
 		$this->assertSame( '', $timer->key() );
-		$timer->set_key( 'tick' );
+		$timer->key( 'tick' );
 		$this->assertSame( 'tick', $timer->key() );
 	}
 
 	public function test_fire_stamps_key_and_bytestream_timestamp(): void {
 		$timer = new Timer_Node();
 		$timer->name( 'k' );
-		$timer->set_key( 'heartbeat' );
+		$timer->key( 'heartbeat' );
 		$capture = new Capture_Sink_Node();
 		$timer->sink( $capture );
 		$timer->fire_cb();
@@ -106,7 +122,7 @@ class TimerTest extends TestCase {
 		$timer = new Timer_Node();
 		$timer->name( 't' );
 		$timer->fire_cb();
-		$this->assertSame( 1, $timer->fire_count() );
+		$this->assertSame( 1, $timer->fire_count );
 	}
 
 	// ── lifecycle ──────────────────────────────────────────────────────────────
@@ -114,12 +130,12 @@ class TimerTest extends TestCase {
 	public function test_set_timer_with_ms_enters_event_framework_and_stops_clean(): void {
 		$timer = new Timer_Node();
 		$timer->name( 't' );
-		$this->assertFalse( $timer->is_active() );
+		$this->assertFalse( $timer->active );
 		$timer->set_timer( 100 );
-		$this->assertTrue( $timer->is_active() );
+		$this->assertTrue( $timer->active );
 		$this->assertSame( 'event_framework', $this->mode_of( $timer ) );
 		$timer->stop_timer();
-		$this->assertFalse( $timer->is_active() );
+		$this->assertFalse( $timer->active );
 		$this->assertSame( 'inactive', $this->mode_of( $timer ) );
 	}
 
@@ -137,9 +153,9 @@ class TimerTest extends TestCase {
 		$timer->sink( $capture );
 		$timer->set_timer( 100, true );
 		$timer->fire_cb();
-		$this->assertFalse( $timer->is_active() );
+		$this->assertFalse( $timer->active );
 		$this->assertSame( 'inactive', $this->mode_of( $timer ) );
-		$this->assertSame( 1, $timer->fire_count() );
+		$this->assertSame( 1, $timer->fire_count );
 	}
 
 	public function test_fire_increments_counter_on_emit(): void {
@@ -182,7 +198,7 @@ class TimerTest extends TestCase {
 		$msg[ Message::VALUE ] = 'data';
 		$timer->fill( $msg );
 		$this->assertCount( 1, $capture->captured );
-		$this->assertSame( 0, $timer->fire_count() );
+		$this->assertSame( 0, $timer->fire_count );
 	}
 
 	public function test_timer_info_message_forwards_and_does_not_fire(): void {
@@ -198,6 +214,6 @@ class TimerTest extends TestCase {
 		$msg[ Message::KEY ]  = 'TIMER';
 		$timer->fill( $msg );
 		$this->assertCount( 1, $capture->captured );
-		$this->assertSame( 0, $timer->fire_count() );
+		$this->assertSame( 0, $timer->fire_count );
 	}
 }

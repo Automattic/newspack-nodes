@@ -905,7 +905,7 @@ class CliCommandTest extends TestCase {
 		$this->assertArrayHasKey( $id, $timers, 'reader must register a timer' );
 		$this->assertSame(
 			10,
-			$timers[ $id ]['interval_ms'],
+			$timers[ $id ]->interval_ms,
 			'after EOF emit, re-arm uses EOF_POLL_MS=10'
 		);
 
@@ -939,7 +939,7 @@ class CliCommandTest extends TestCase {
 		$id       = \spl_object_id( $reader );
 
 		$this->assertArrayHasKey( $id, $timers );
-		$this->assertSame( 0, $timers[ $id ]['interval_ms'], 'delivered line re-arms at BUSY_POLL_MS=0' );
+		$this->assertSame( 0, $timers[ $id ]->interval_ms, 'delivered line re-arms at BUSY_POLL_MS=0' );
 
 		\fclose( $stream );
 	}

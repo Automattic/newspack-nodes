@@ -1024,10 +1024,10 @@ class ConsumerTest extends TestCase {
 		$this->assertArrayHasKey( $id, $timers, 'fire() must register a timer with EventFramework' );
 		$this->assertSame(
 			Consumer_Node::POLL_INTERVAL_EOF_MS,
-			$timers[ $id ]['interval_ms'],
+			$timers[ $id ]->interval_ms,
 			'caught-up fire must re-arm with EOF interval'
 		);
-		$this->assertTrue( $timers[ $id ]['oneshot'], 'fire re-arm must be one-shot' );
+		$this->assertTrue( $timers[ $id ]->oneshot, 'fire re-arm must be one-shot' );
 	}
 
 	public function test_fire_rearms_timer_with_busy_interval_when_more_data_pending(): void {
@@ -1065,7 +1065,7 @@ class ConsumerTest extends TestCase {
 		$this->assertArrayHasKey( $id, $timers, 'fire() must register a timer' );
 		$this->assertSame(
 			Consumer_Node::POLL_INTERVAL_BUSY_MS,
-			$timers[ $id ]['interval_ms'],
+			$timers[ $id ]->interval_ms,
 			'busy fire must re-arm with BUSY interval (drain ASAP next tick)'
 		);
 	}
