@@ -222,22 +222,22 @@ class CoreTest extends TestCase {
 		$this->assertCount( 0, $out->captured, 'never the _output filter' );
 	}
 
-	// ── msg_counter ──────────────────────────────────────────────────────
+	// ── counter ──────────────────────────────────────────────────────────
 
-	public function test_msg_counter_pre_increments_starting_from_one(): void {
+	public function test_counter_pre_increments_starting_from_one(): void {
 		// Counter is reset to 0 in reset(); first call must return 1.
 		Core::reset();
-		$this->assertSame( 1, Core::msg_counter() );
-		$this->assertSame( 2, Core::msg_counter() );
-		$this->assertSame( 3, Core::msg_counter() );
+		$this->assertSame( 1, Core::counter() );
+		$this->assertSame( 2, Core::counter() );
+		$this->assertSame( 3, Core::counter() );
 	}
 
-	public function test_msg_counter_resets_with_core(): void {
-		Core::msg_counter();
-		Core::msg_counter();
-		Core::msg_counter();
+	public function test_counter_resets_with_core(): void {
+		Core::counter();
+		Core::counter();
+		Core::counter();
 		Core::reset();
-		$this->assertSame( 1, Core::msg_counter() );
+		$this->assertSame( 1, Core::counter() );
 	}
 
 	// ── cleanup_all_nodes ────────────────────────────────────────────────

@@ -123,7 +123,7 @@ class Log_Node extends Node {
 		}
 		// Server-local timestamp (not gmdate) to match operator timezones when reading rotated logs.
 		// phpcs:ignore WordPress.DateTime.RestrictedFunctions.date_date
-		$rotated_name = $this->filename . '-' . \date( 'Y-m-d-H:i:s' ) . '-' . Core::msg_counter();
+		$rotated_name = $this->filename . '-' . \date( 'Y-m-d-H:i:s' ) . '-' . Core::counter();
 		// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename, WordPress.WP.AlternativeFunctions.file_system_operations_fopen
 		@\rename( $this->filename, $rotated_name );
 		$fh         = \fopen( $this->filename, self::MODE_OVERWRITE === $this->mode ? 'wb' : 'ab' );
