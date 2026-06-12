@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.1] - 2026-06-12
+
 ### Changed
 
 - **`Job_Worker_Node` dispatches on the entry-level `k` field, not `type`.** jobs.log / jobintake.log entries carry the job kind (`job` | `remote_job`) under `k` — the same firehose category field `Job_Intake` writes verbatim, `Job_Router` carries through, and the hub's `Stream_Merger` rewrites `job`→`remote_job` — so the executor reads `k` to pick the local vs. remote handler map. This makes the kind field uniform end-to-end (firehose category → jobintake → jobs.log → worker) with no rename at any hop, and fixes jobintake-sourced jobs being silently dropped when a topology wires `jobintake:consumer` straight to `jobs:partition` (bypassing the router, e.g. event-logger-nodes' `combined` topology). Any plugin that hand-builds a job entry must key the kind as `k`, not `type`.
