@@ -53,15 +53,10 @@ export class Node {
 	}
 
 	/**
-	 * Get/set the node's raw argument string. The setter ALSO parses the
-	 * value against `this.constructor.nodeSchema().arguments` (an array of
-	 * `{ name, type, default?, required? }`) and assigns each declared
-	 * positional argument to `this[name]`. Tokens beyond the declared
-	 * positions are ignored; missing optional tokens use schema-declared
-	 * defaults. Mirrors Tachikoma::Node::arguments and the PHP setter.
-	 *
-	 * Subclasses override the whole accessor pair when the default schema
-	 * walk isn't enough (multi-token args, derived state, validation).
+	 * Get/set the node's raw argument string — the trivial Tachikoma getter/setter.
+	 * It stores the raw string and does NOT parse it. A node that wants positional
+	 * config calls parseSchemaArgs() from its own `set arguments` override (the
+	 * Schema_Reflection mirror), so a bare `make_node Foo` assigns nothing.
 	 *
 	 * @return {string} Last-set raw arguments string.
 	 */
@@ -70,28 +65,7 @@ export class Node {
 	}
 
 	set arguments( value ) {
-		const args = String( value ?? '' );
-		this._arguments = args;
-		const schema = this.constructor.nodeSchema?.() || {};
-		const declared = schema.arguments || [];
-		if ( declared.length === 0 ) {
-			return;
-		}
-		// Empty args still walks declared so schema defaults are applied for
-		// optional fields. Required fields (no default) stay at ctor values.
-		const tokens = args === '' ? [] : args.trim().split( /\s+/ );
-		for ( let i = 0; i < declared.length; i++ ) {
-			const spec = declared[ i ];
-			const { name, type = 'string' } = spec;
-			if ( ! ( name in this ) ) {
-				continue;
-			}
-			if ( i < tokens.length ) {
-				this[ name ] = Node._coerceArgument( tokens[ i ], type );
-			} else if ( 'default' in spec ) {
-				this[ name ] = spec.default;
-			}
-		}
+		this._arguments = String( value ?? '' );
 	}
 
 	fill( message ) {
@@ -107,21 +81,6 @@ export class Node {
 		}
 		this.counter += 1;
 		this.sink.fill( message );
-	}
-
-	static _coerceArgument( token, type ) {
-		switch ( type ) {
-			case 'int':
-				return parseInt( token, 10 );
-			case 'float':
-				return parseFloat( token );
-			case 'bool':
-				return [ '1', 'true', 'yes', 'on' ].includes(
-					token.toLowerCase()
-				);
-			default:
-				return token;
-		}
 	}
 
 	get name() {
@@ -415,5 +374,50 @@ export class Node {
 		}
 		const chomped = msg.replace( /\n+$/, '' );
 		return midfix + chomped.split( '\n' ).join( '\n' + midfix ) + '\n';
+	}
+}
+
+// Coerce a raw string token to its declared schema type; unknown types pass through.
+function coerceArgument( token, type ) {
+	switch ( type ) {
+		case 'int':
+			return parseInt( token, 10 );
+		case 'float':
+			return parseFloat( token );
+		case 'bool':
+			return [ '1', 'true', 'yes', 'on' ].includes( token.toLowerCase() );
+		default:
+			return token;
+	}
+}
+
+/**
+ * The Schema_Reflection positional walk (PHP trait `parse_schema_args`): assign each
+ * token of `args` to its matching declared `nodeSchema().arguments` property on `node`,
+ * coerced to the declared type. Opt-in — the base setter does not call it. No-ops on an
+ * empty string or a node with no declared arguments; excess tokens are ignored; missing
+ * optional tokens fall to their schema default.
+ *
+ * @param {Node}   node A node whose ctor exposes a static nodeSchema().
+ * @param {string} args Raw positional argument string.
+ */
+export function parseSchemaArgs( node, args ) {
+	const raw = String( args ?? '' );
+	if ( '' === raw ) {
+		return;
+	}
+	const declared = node.constructor.nodeSchema?.().arguments || [];
+	const tokens = raw.trim().split( /\s+/ );
+	for ( let i = 0; i < declared.length; i++ ) {
+		const spec = declared[ i ];
+		const { name, type = 'string' } = spec;
+		if ( ! ( name in node ) ) {
+			continue;
+		}
+		if ( i < tokens.length ) {
+			node[ name ] = coerceArgument( tokens[ i ], type );
+		} else if ( 'default' in spec ) {
+			node[ name ] = spec.default;
+		}
 	}
 }

@@ -45,12 +45,7 @@ export class TimerNode extends Node {
 		return super.arguments;
 	}
 
-	// Mirror PHP Timer_Node::arguments / Perl Timer::arguments — only the BASE Timer
-	// auto-arms from its config string (empty => Router-hitchhike, numeric => own
-	// interval, else error). A subclass (Metadata, Uptime, Heartbeat, …) inherits
-	// the base Node schema-walk via super and arms explicitly with setTimer() in its
-	// wiring — so a hidden make_node('Metadata') doesn't try to hitchhike a _router
-	// that isn't there.
+	// Only the BASE Timer auto-arms; interval_ms comes from setTimer(), not a schema walk.
 	set arguments( value ) {
 		super.arguments = value;
 		if ( TimerNode !== this.constructor ) {
