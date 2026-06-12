@@ -11,6 +11,7 @@ const path = require( 'path' );
 
 module.exports = {
 	testEnvironment: 'jsdom',
+	setupFilesAfterEnv: [ '<rootDir>/jest.setup.js' ],
 	testMatch: [ '**/__tests__/**/*.test.[jt]s?(x)' ],
 	moduleNameMapper: {
 		'^@newspack-nodes/runtime$': path.resolve( __dirname, 'src/runtime' ),
