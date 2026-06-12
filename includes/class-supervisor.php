@@ -206,6 +206,17 @@ class Supervisor extends Supervisor_Base {
 			return false;
 		}
 
+		// Refuse a write-conflicting active set (two topologies writing the same
+		// log/offsetlog). The admin sanitizer blocks this at save-time, but a
+		// config-FILE override bypasses it — better no workers than two fleets
+		// corrupting one partition. Exit loudly; the cron retries each minute.
+		$active    = \array_values( \array_unique( \array_column( $workers, 'type' ) ) );
+		$conflicts = Topology_Registry::find_conflicts( $active );
+		if ( ! empty( $conflicts ) ) {
+			Core::stderr( 'Newspack_Nodes\\Supervisor: refusing to spawn — topology write-conflict: ' . Topology_Registry::describe_conflicts( $conflicts ) );
+			return false;
+		}
+
 		// Effective num_partitions: max across topologies, clamped.
 		$max_partitions = 1;
 		foreach ( $workers as $w ) {

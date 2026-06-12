@@ -172,6 +172,31 @@ class SupervisorTest extends TestCase {
 		$this->assertFalse( $s->check_config( microtime( true ) ) );
 	}
 
+	public function test_check_config_refuses_to_spawn_when_active_set_conflicts(): void {
+		// Second line of defense behind the admin sanitizer: a config-FILE override
+		// (LOCAL_NEWSPACK_NODES_CONF) can declare a conflicting active set the admin
+		// UI never vetted. The supervisor must refuse to spawn ANY worker for a set
+		// where two topologies write the same log, and say so loudly — better no
+		// workers than two fleets corrupting the same partition.
+		$stock = $this->make_temp_dir( 'supervisor-conflict-' );
+		\file_put_contents( "{$stock}/combined.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.log <partition>" );
+		\file_put_contents( "{$stock}/rb.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.log <partition>" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined', 'rb' ];
+		\Newspack_Nodes\Config::reset();
+		\Newspack_Nodes\Core::$recent_log = [];
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+
+		$this->assertFalse( $s->check_config( microtime( true ) ), 'conflicting set must abort the supervisor' );
+		$log = \implode( "\n", \Newspack_Nodes\Core::$recent_log );
+		$this->assertStringContainsString( 'conflict', \strtolower( $log ), 'conflict must be logged loudly' );
+
+		$this->rmdir_recursive( $stock );
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
 	// ── dirty-flag mechanism: signals Log_Cleaner that GC may be due ──────
 
 	public function test_check_config_sets_logs_dirty_when_worker_dropped(): void {
