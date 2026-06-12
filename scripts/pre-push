@@ -14,9 +14,10 @@
 
 set -euo pipefail
 
+readonly HOST=$(hostname -s)
 readonly PLUGIN_SLUG="newspack-nodes"
 readonly DEPLOY_SCRIPT="/services/pyrobase/setup/${PLUGIN_SLUG}.sh"
-readonly CONTAINER="eve-pyrobase1-1"
+readonly CONTAINER="${HOST}-pyrobase1-1"
 # /services, not /usr/src: the nodes/eln deploy installs a release zip and never rsyncs into /usr/src (dndocker AGENTS.md: "run straight from /services").
 readonly TEST_DIR_IN_CONTAINER="/services/pyrobase/sources/${PLUGIN_SLUG}/tests"
 
