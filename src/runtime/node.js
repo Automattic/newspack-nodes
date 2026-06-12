@@ -38,7 +38,7 @@ const DROP_PAYLOAD_TYPES = TM_INFO | TM_REQUEST | TM_ERROR | TM_COMMAND;
 
 export class Node {
 	constructor() {
-		this.name = '';
+		this._name = '';
 		this.sink = null;
 		this.target = '';
 		this.counter = 0;
@@ -122,16 +122,20 @@ export class Node {
 		}
 	}
 
-	setName( name ) {
-		if ( '' !== this.name ) {
-			Core.unregisterNode( this.name );
+	get name() {
+		return this._name;
+	}
+
+	set name( name ) {
+		if ( '' !== this._name ) {
+			Core.unregisterNode( this._name );
 		}
-		if ( Core.node( name ) !== null ) {
+		if ( null !== Core.node( name ) ) {
 			throw new Error(
 				`node name collision: ${ name } already registered`
 			);
 		}
-		this.name = name;
+		this._name = name;
 		Core.registerNode( name, this );
 	}
 
@@ -281,7 +285,7 @@ export class Node {
 		this.interpreter = null;
 		if ( '' !== this.name ) {
 			Core.unregisterNode( this.name );
-			this.name = '';
+			this._name = '';
 		}
 	}
 

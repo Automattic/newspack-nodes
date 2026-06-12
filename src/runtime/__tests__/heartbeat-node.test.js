@@ -30,7 +30,7 @@ describe( 'Heartbeat node', () => {
 
 	const build = () => {
 		const node = new HeartbeatNode();
-		node.setName( '_heartbeat' );
+		node.name = '_heartbeat';
 		const sent = [];
 		node.sink = { fill: ( m ) => sent.push( m ) };
 		return { node, sent };
@@ -117,7 +117,7 @@ describe( 'Heartbeat node', () => {
 		it( 'setTimer() registers on the router TIMER; notify_timer fires the poke when a slot is held', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const router = new RouterNode();
-			router.setName( names.ROUTER );
+			router.name = names.ROUTER;
 			router.stopTimer();
 			const { node, sent } = build();
 			node.target = '_sse/workers';
@@ -131,10 +131,10 @@ describe( 'Heartbeat node', () => {
 
 		it( 'removeNode unregisters from the router TIMER (no leak)', () => {
 			const router = new RouterNode();
-			router.setName( names.ROUTER );
+			router.name = names.ROUTER;
 			router.stopTimer();
 			const node = new HeartbeatNode();
-			node.setName( names.HEARTBEAT );
+			node.name = names.HEARTBEAT;
 			node.sink = { fill: () => {} };
 			node.setTimer();
 			node.removeNode();
@@ -160,7 +160,7 @@ describe( 'Heartbeat node', () => {
 
 		it( 'works as a real router sink target (router → heartbeat.fill)', () => {
 			const node = new HeartbeatNode();
-			node.setName( '_heartbeat' );
+			node.name = '_heartbeat';
 			const router = new Node();
 			router.sink = node;
 			const m = newMessage();

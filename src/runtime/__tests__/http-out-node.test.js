@@ -29,7 +29,7 @@ function makeNode() {
 	};
 	const node = new HttpOutNode();
 	node.client = client;
-	node.setName( '_http' );
+	node.name = '_http';
 	return { node, postBatch };
 }
 
@@ -356,14 +356,14 @@ describe( 'HttpOut', () => {
 			};
 			const node = new HttpOutNode();
 			node.client = client;
-			node.setName( '_http' );
+			node.name = '_http';
 			node.fill( routed( { to: 'demo.p0' } ) );
 			expect( postBatch ).toHaveBeenCalledTimes( 1 );
 		} );
 
 		it( 'surfaces a postBatch rejection via print_less_often (no silent swallow)', async () => {
 			const node = new HttpOutNode();
-			node.setName( '_http' );
+			node.name = '_http';
 			node.client = {
 				buildMessage: () => newMessage(),
 				postBatch: () =>

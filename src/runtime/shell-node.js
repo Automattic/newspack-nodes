@@ -149,9 +149,13 @@ export class ShellNode extends Node {
 		};
 	}
 
+	get name() {
+		return this._name;
+	}
+
 	// The Shell is the unnamed REPL front-end — naming it would register a
 	// command surface in the graph. Fatal so the rule can't be violated.
-	setName() {
+	set name( value ) {
 		throw new Error( 'Shell must not be named' );
 	}
 

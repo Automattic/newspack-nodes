@@ -6,15 +6,15 @@ beforeEach( () => Core.reset() );
 
 test( 'setName registers in Core', () => {
 	const n = new Node();
-	n.setName( 'alice' );
+	n.name = 'alice';
 	expect( Core.node( 'alice' ) ).toBe( n );
 } );
 
 test( 'removeNode clears patron (no dangling back-pointer)', () => {
 	const owner = new Node();
-	owner.setName( 'owner' );
+	owner.name = 'owner';
 	const sib = new Node();
-	sib.setName( 'sib' );
+	sib.name = 'sib';
 	sib.patron = owner;
 	sib.removeNode();
 	expect( sib.patron ).toBeNull();
@@ -22,15 +22,15 @@ test( 'removeNode clears patron (no dangling back-pointer)', () => {
 
 test( 'rename moves the registry slot', () => {
 	const n = new Node();
-	n.setName( 'alice' );
-	n.setName( 'bob' );
+	n.name = 'alice';
+	n.name = 'bob';
 	expect( Core.node( 'alice' ) ).toBeNull();
 	expect( Core.node( 'bob' ) ).toBe( n );
 } );
 
 test( 'log_midfix tags each line with the node name', () => {
 	const n = new Node();
-	n.setName( 'mynode' );
+	n.name = 'mynode';
 	expect( n.log_midfix() ).toBe( 'mynode: ' );
 	expect( n.log_midfix( 'a\nb' ) ).toBe( 'mynode: a\nmynode: b\n' );
 } );
@@ -44,7 +44,7 @@ test( 'log_midfix is the empty tag for an unnamed node', () => {
 test( 'stderr emits a prefixed, node-tagged line to recentLog', () => {
 	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
 	const n = new Node();
-	n.setName( 'logger' );
+	n.name = 'logger';
 	n.stderr( 'hello' );
 	expect( Core.recentLog ).toHaveLength( 1 );
 	expect( Core.recentLog[ 0 ] ).toMatch(
@@ -63,9 +63,9 @@ test( 'stderr on an unnamed node carries no node tag', () => {
 
 test( 'rename collision throws', () => {
 	const a = new Node();
-	a.setName( 'alice' );
+	a.name = 'alice';
 	const b = new Node();
-	expect( () => b.setName( 'alice' ) ).toThrow( /already registered/ );
+	expect( () => ( b.name = 'alice' ) ).toThrow( /already registered/ );
 } );
 
 test( 'command stamps FROM with the node name', () => {
@@ -73,14 +73,14 @@ test( 'command stamps FROM with the node name', () => {
 	// name so the issuer is visible. Shell.sendCommand overwrites FROM with the
 	// session reply pivot; an overlay node issuing a command keeps its name.
 	const n = new Node();
-	n.setName( 'alice' );
+	n.name = 'alice';
 	const m = n.command( 'connect_node', 'a b' );
 	expect( m[ FROM ] ).toBe( 'alice' );
 } );
 
 test( 'fill stamps TO from target when message TO is empty', () => {
 	const sink = new Node();
-	sink.setName( 'sink' );
+	sink.name = 'sink';
 	const captured = [];
 	sink.fill = ( m ) => captured.push( [ ...m ] );
 
@@ -195,7 +195,7 @@ test( 'closure returning false unregisters itself', () => {
 test( 'node-name listener mode forwards a TM_INFO to the named node', () => {
 	Core.reset();
 	const targetNode = new Node();
-	targetNode.setName( 'listener' );
+	targetNode.name = 'listener';
 	const got = [];
 	targetNode.fill = ( m ) => got.push( [ ...m ] );
 
@@ -296,7 +296,7 @@ describe( 'Node.registeredListeners', () => {
 test( 'notify prunes a node-name listener whose target was removed', () => {
 	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
 	const target = new Node();
-	target.setName( 'listener' );
+	target.name = 'listener';
 	const n = new Node();
 	n.name = 'producer';
 	n.registrations.EVT = {};
@@ -309,7 +309,7 @@ test( 'notify prunes a node-name listener whose target was removed', () => {
 
 test( 'removeNode clears refs, unregisters from Core, and clears its name', () => {
 	const n = new Node();
-	n.setName( 'doomed' );
+	n.name = 'doomed';
 	n.target = 'somewhere';
 	n.sink = new Node();
 	n.registrations.EVT = { l1: () => {} };
@@ -327,9 +327,9 @@ test( 'removeNode clears refs, unregisters from Core, and clears its name', () =
 
 test( 'removeNode cascade-unregisters the sibling interpreter and clears it', () => {
 	const n = new Node();
-	n.setName( 'parent' );
+	n.name = 'parent';
 	const interpreter = new Node();
-	interpreter.setName( 'parent:config' );
+	interpreter.name = 'parent:config';
 	n.interpreter = interpreter;
 
 	n.removeNode();
@@ -340,9 +340,9 @@ test( 'removeNode cascade-unregisters the sibling interpreter and clears it', ()
 
 test( 'removeNode unregisters its OWN name LAST (Core.node sees null, not a half-torn-down self)', () => {
 	const n = new Node();
-	n.setName( 'self-last' );
+	n.name = 'self-last';
 	const interpreter = new Node();
-	interpreter.setName( 'self-last:config' );
+	interpreter.name = 'self-last:config';
 	n.interpreter = interpreter;
 
 	let selfWhenInterpreterGone = 'unset';

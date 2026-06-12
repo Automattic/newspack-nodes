@@ -35,7 +35,7 @@ describe( 'useGraphSource', () => {
 		// in-process graph straight off Core via coreToGraph().
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const { result } = renderHook( () => useGraphSource() );
 		expect( result.current.hasNodes ).toBe( true );
 		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).toContain(
@@ -49,10 +49,10 @@ describe( 'useGraphSource', () => {
 		// publishes a graph with ≥1 node, the metadata source wins.
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const { MetadataNode } = require( '../../../runtime/metadata-node' );
 		const metadata = new MetadataNode();
-		metadata.setName( names.METADATA );
+		metadata.name = names.METADATA;
 		const { result } = renderHook( () => useGraphSource() );
 		act( () => {
 			metadata.setState( 'metadata', {
@@ -74,7 +74,7 @@ describe( 'useGraphSource', () => {
 		// includes. With coreFallback off and no metadata, the source is empty.
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const { result } = renderHook( () =>
 			useGraphSource( { coreFallback: false } )
 		);
@@ -90,10 +90,10 @@ describe( 'useGraphSource', () => {
 	it( 'coreFallback:false still adopts the published metadata graph', () => {
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const { MetadataNode } = require( '../../../runtime/metadata-node' );
 		const metadata = new MetadataNode();
-		metadata.setName( names.METADATA );
+		metadata.name = names.METADATA;
 		const { result } = renderHook( () =>
 			useGraphSource( { coreFallback: false } )
 		);
@@ -116,7 +116,7 @@ describe( 'useGraphSource', () => {
 		const { teardown } = mountExospine();
 		const { MetadataNode } = require( '../../../runtime/metadata-node' );
 		const metadata = new MetadataNode();
-		metadata.setName( names.METADATA );
+		metadata.name = names.METADATA;
 		const { result } = renderHook( () => useGraphSource() );
 		act( () => {
 			metadata.setState( 'metadata', { nodes: [], edges: [] } );

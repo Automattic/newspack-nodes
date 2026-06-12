@@ -13,7 +13,7 @@ beforeEach( () => Core.reset() );
 describe( 'includeConsoleNodes', () => {
 	it( 'make_node resolves a console node class registered via the side-effect import', () => {
 		const interpreter = new CommandInterpreterNode();
-		interpreter.setName( '_command_interpreter' );
+		interpreter.name = '_command_interpreter';
 		interpreter.dispatch( 'make_node', 'Metadata mymeta' );
 		const node = Core.node( 'mymeta' );
 		expect( node ).toBeInstanceOf( MetadataNode );

@@ -10,7 +10,7 @@ beforeEach( () => Core.reset() );
 describe( 'Node.dropMessage', () => {
 	it( 'emits "WARNING: <error> - <type>" via print_less_often', () => {
 		const n = new Node();
-		n.setName( 'q' );
+		n.name = 'q';
 		const spy = jest
 			.spyOn( n, 'print_less_often' )
 			.mockImplementation( () => {} );

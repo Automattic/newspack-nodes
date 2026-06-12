@@ -36,7 +36,7 @@ describe( 'DebugOverlay composite readiness', () => {
 		mockReplReady = false;
 		mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const { getByRole, container } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
@@ -53,7 +53,7 @@ describe( 'DebugOverlay composite readiness', () => {
 		mockReplReady = true;
 		mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const { getByRole, container } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);

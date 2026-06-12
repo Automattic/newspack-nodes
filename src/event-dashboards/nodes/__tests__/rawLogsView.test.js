@@ -18,7 +18,7 @@ beforeEach( () => Core.reset() );
 // bare-newing the class is fine inside a test).
 function makeView( name ) {
 	const node = new RawLogsViewNode();
-	node.setName( name );
+	node.name = name;
 	return node;
 }
 
@@ -220,7 +220,7 @@ test( 'select clears node.lps back to zero', () => {
 
 test( 'caps the buffer at maxLines, dropping the oldest and keeping the newest at [0]', () => {
 	const v = new RawLogsViewNode( 3 );
-	v.setName( 'rawlogs:view' );
+	v.name = 'rawlogs:view';
 	for ( let i = 0; i < 10; i++ ) {
 		v.fill( envelopeMsg( { value: `line ${ i }` } ) );
 	}
@@ -246,7 +246,7 @@ test( 'exposes O(1) windowed reads — linesCount + lineAt (newest-first) — fo
 
 test( 'lineAt + linesCount respect the cap (oldest overwritten) on a small ring', () => {
 	const v = new RawLogsViewNode( 3 );
-	v.setName( 'rawlogs:view' );
+	v.name = 'rawlogs:view';
 	for ( let i = 0; i < 10; i++ ) {
 		v.fill( envelopeMsg( { value: `line ${ i }` } ) );
 	}

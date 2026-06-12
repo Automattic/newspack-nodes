@@ -98,7 +98,7 @@ describe( 'Metadata node', () => {
 	describe( 'fire() poll emission', () => {
 		it( 'emits a dump_metadata TM_COMMAND addressed to this.target (the _cwd indirection)', () => {
 			const node = new MetadataNode();
-			node.setName( '_metadata' );
+			node.name = '_metadata';
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = '_cwd';
@@ -113,7 +113,7 @@ describe( 'Metadata node', () => {
 
 		it( 'throttles repeated ticks within interval_ms (first fires, second does not)', () => {
 			const node = new MetadataNode();
-			node.setName( '_metadata' );
+			node.name = '_metadata';
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = '_cwd';
@@ -125,7 +125,7 @@ describe( 'Metadata node', () => {
 
 		it( 're-polls once interval_ms has elapsed', () => {
 			const node = new MetadataNode();
-			node.setName( '_metadata' );
+			node.name = '_metadata';
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = '_cwd';
@@ -139,10 +139,10 @@ describe( 'Metadata node', () => {
 
 		it( 're-polls immediately when the pivot path changes (within interval_ms)', () => {
 			const cwd = new Node();
-			cwd.setName( '_cwd' );
+			cwd.name = '_cwd';
 			cwd.target = '_sse/a';
 			const node = new MetadataNode();
-			node.setName( '_metadata' );
+			node.name = '_metadata';
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = '_cwd';
@@ -201,10 +201,10 @@ describe( 'Metadata node', () => {
 
 		it( 'setTimer() registers on the router TIMER; notify_timer fires the poll', () => {
 			const router = new RouterNode();
-			router.setName( names.ROUTER );
+			router.name = names.ROUTER;
 			router.stopTimer();
 			const node = new MetadataNode();
-			node.setName( names.METADATA );
+			node.name = names.METADATA;
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = names.CWD;
@@ -217,10 +217,10 @@ describe( 'Metadata node', () => {
 
 		it( 'removeNode unregisters from the router TIMER (no leak)', () => {
 			const router = new RouterNode();
-			router.setName( names.ROUTER );
+			router.name = names.ROUTER;
 			router.stopTimer();
 			const node = new MetadataNode();
-			node.setName( names.METADATA );
+			node.name = names.METADATA;
 			node.sink = { fill: () => {} };
 			node.setTimer();
 			node.removeNode();
@@ -236,7 +236,7 @@ describe( 'Metadata node', () => {
 
 		it( 'emits has_target:false for a node whose schema declares it (Dumper)', () => {
 			const node = new DumperNode();
-			node.setName( '_output' );
+			node.name = '_output';
 			const meta = dumpMetadataPayload()._output;
 			expect( meta.has_target ).toBe( false );
 			// Dumper omits accepts_fill, so it defaults true.
@@ -245,7 +245,7 @@ describe( 'Metadata node', () => {
 
 		it( 'emits accepts_fill:false for a node whose schema declares it (SseConnector)', () => {
 			const node = new SseConnectorNode();
-			node.setName( '_sse' );
+			node.name = '_sse';
 			const meta = dumpMetadataPayload()._sse;
 			expect( meta.accepts_fill ).toBe( false );
 			// SseConnector omits has_target, so it defaults true.
@@ -254,7 +254,7 @@ describe( 'Metadata node', () => {
 
 		it( 'defaults both flags to true for a plain node with no static schema (Echo)', () => {
 			const node = new EchoNode();
-			node.setName( 'probe' );
+			node.name = 'probe';
 			const meta = dumpMetadataPayload().probe;
 			expect( meta.accepts_fill ).toBe( true );
 			expect( meta.has_target ).toBe( true );
@@ -265,15 +265,15 @@ describe( 'Metadata node', () => {
 		afterEach( () => Core.reset() );
 
 		it( 'returns only the named node', () => {
-			new EchoNode().setName( 'keep' );
-			new EchoNode().setName( 'other' );
+			new EchoNode().name = 'keep';
+			new EchoNode().name = 'other';
 			expect( Object.keys( dumpMetadataPayload( 'keep' ) ) ).toEqual( [
 				'keep',
 			] );
 		} );
 
 		it( 'returns an empty map for an unknown node', () => {
-			new EchoNode().setName( 'keep' );
+			new EchoNode().name = 'keep';
 			expect( dumpMetadataPayload( 'ghost' ) ).toEqual( {} );
 		} );
 	} );
@@ -283,9 +283,9 @@ describe( 'Metadata node', () => {
 
 		it( 'emits node-name registrations and omits closures', () => {
 			const emitter = new EchoNode();
-			emitter.setName( 'emitter' );
+			emitter.name = 'emitter';
 			emitter.registrations = { EVT: {} };
-			new EchoNode().setName( 'listener' );
+			new EchoNode().name = 'listener';
 			emitter.register( 'EVT', 'listener' );
 			emitter.register( 'EVT', 'closure', () => {} );
 
@@ -295,7 +295,7 @@ describe( 'Metadata node', () => {
 		} );
 
 		it( 'omits the registrations field for a node with none', () => {
-			new EchoNode().setName( 'plain' );
+			new EchoNode().name = 'plain';
 			expect( 'registrations' in dumpMetadataPayload().plain ).toBe(
 				false
 			);

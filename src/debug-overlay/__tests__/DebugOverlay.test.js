@@ -430,7 +430,7 @@ describe( 'DebugOverlay', () => {
 		// should surface it as a `cd` target.
 		mountExospine();
 		const httpish = new Node();
-		httpish.setName( '_my_service' );
+		httpish.name = '_my_service';
 		const { getByRole, container } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
@@ -457,7 +457,7 @@ describe( 'DebugOverlay', () => {
 		// not the scope-dependent poll. (Before the fix the menu collapsed.)
 		mountExospine();
 		const svc = new Node();
-		svc.setName( '_my_service' ); // a local navigable node, always in Core
+		svc.name = '_my_service'; // a local navigable node, always in Core
 		const { getByRole, container } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
@@ -490,7 +490,7 @@ describe( 'DebugOverlay', () => {
 		// setReplExpanded(true) — covering lines 417-418.
 		mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const { getByRole, container } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
@@ -608,7 +608,7 @@ describe( 'DebugOverlay', () => {
 		// coreToGraph yields the node (graphHasNodes) → GraphView renders now.
 		mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const { getByRole, container } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);
@@ -631,12 +631,12 @@ describe( 'DebugOverlay', () => {
 		window.localStorage.clear();
 		mountExospine();
 		const s = new Node();
-		s.setName( 's' );
+		s.name = 's';
 		const t = new Node();
-		t.setName( 't' );
+		t.name = 't';
 		s.target = 't'; // s -> t edge (coreToGraph derives edges from target)
 		const iso = new Node();
-		iso.setName( 'iso' ); // isolated: no target, no inbound
+		iso.name = 'iso'; // isolated: no target, no inbound
 		const { getByRole } = render(
 			<DebugOverlay search="?nodes-debug=1" />
 		);

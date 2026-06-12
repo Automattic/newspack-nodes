@@ -9,6 +9,7 @@
 import { SseInNode } from '../sse-in-node';
 import { SseConnectorNode } from '../sse-connector-node';
 import { Node } from '../node';
+import { Core } from '../core';
 import {
 	newMessage,
 	TYPE,
@@ -39,13 +40,14 @@ class FakeEventSource {
 }
 
 beforeEach( () => {
+	Core.reset();
 	global.EventSource = FakeEventSource;
 } );
 
 function makeSseIn() {
 	const sse = new SseInNode();
-	sse.arguments = 'demo.p0 /wp-json/ NONCE';
 	sse.name = '_sse'; // needed so the incoming-stamp breadcrumb has a name
+	sse.arguments = 'demo.p0 /wp-json/ NONCE';
 	const router = new Node();
 	const routed = [];
 	router.fill = ( m ) => routed.push( m );
@@ -205,8 +207,8 @@ describe( 'SseInNode', () => {
 
 		it( 'opens the EventSource using arguments-assigned config', () => {
 			const sse = new SseInNode();
+			sse.name = '_sse';
 			sse.arguments = 'demo.p0 /wp-json/ NONCE';
-			sse.setName( '_sse' );
 			sse.start();
 			expect( FakeEventSource.last.url ).toContain(
 				'newspack-nodes/v1/messages/stream'

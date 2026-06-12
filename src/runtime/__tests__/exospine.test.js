@@ -66,7 +66,7 @@ describe( 'mountExospine( build )', () => {
 	test( 'build registers soft nodes that hang off the spine', () => {
 		mountExospine( ( { interpreter } ) => {
 			const view = new Node();
-			view.setName( 'view' );
+			view.name = 'view';
 			view.sink = interpreter;
 		} );
 
@@ -81,7 +81,7 @@ describe( 'mountExospine( build )', () => {
 		const { reinit } = mountExospine( ( { interpreter } ) => {
 			builds += 1;
 			const view = new Node();
-			view.setName( 'view' );
+			view.name = 'view';
 			view.sink = interpreter;
 		} );
 		const first = Core.node( 'view' );
@@ -110,13 +110,13 @@ describe( 'mountExospine( build )', () => {
 	test( 'reinit preserves nodes registered OUTSIDE build (overlay coexistence)', () => {
 		const { reinit } = mountExospine( ( { interpreter } ) => {
 			const view = new Node();
-			view.setName( 'host:view' );
+			view.name = 'host:view';
 			view.sink = interpreter;
 		} );
 		// A sibling (the debug overlay) registers its own node into the same
 		// per-page Core AFTER mount — reinit must not touch it.
 		const overlay = new Node();
-		overlay.setName( 'overlay:output' );
+		overlay.name = 'overlay:output';
 
 		reinit();
 
@@ -128,7 +128,7 @@ describe( 'mountExospine( build )', () => {
 		const calls = [];
 		const { reinit } = mountExospine( ( { interpreter } ) => {
 			const view = new Node();
-			view.setName( 'view' );
+			view.name = 'view';
 			view.sink = interpreter;
 			return () => calls.push( 'cleanup' );
 		} );
@@ -142,7 +142,7 @@ describe( 'mountExospine( build )', () => {
 		const calls = [];
 		const { teardown } = mountExospine( () => {
 			const view = new Node();
-			view.setName( 'view' );
+			view.name = 'view';
 			return () => calls.push( 'cleanup' );
 		} );
 
@@ -161,7 +161,7 @@ describe( 'mountExospine — full rebuild on graphGeneration', () => {
 		mountExospine( ( { interpreter } ) => {
 			builds += 1;
 			const view = new Node();
-			view.setName( 'view' );
+			view.name = 'view';
 			view.sink = interpreter;
 		} );
 		const firstInterpreter = Core.node( names.COMMAND_INTERPRETER );
@@ -191,7 +191,7 @@ describe( 'mountExospine — full rebuild on graphGeneration', () => {
 		const calls = [];
 		mountExospine( () => {
 			const view = new Node();
-			view.setName( 'view' );
+			view.name = 'view';
 			return () => calls.push( 'cleanup' );
 		} );
 
@@ -248,7 +248,7 @@ describe( 'mountExospine — Core.reinit stash', () => {
 	test( 'stashes the build-registered names on Core.reinitNames', () => {
 		mountExospine( ( { interpreter } ) => {
 			const view = new Node();
-			view.setName( 'view' );
+			view.name = 'view';
 			view.sink = interpreter;
 		} );
 
@@ -258,7 +258,7 @@ describe( 'mountExospine — Core.reinit stash', () => {
 	test( 'clears Core.reinitNames on teardown', () => {
 		const { teardown } = mountExospine( ( { interpreter } ) => {
 			const view = new Node();
-			view.setName( 'view' );
+			view.name = 'view';
 			view.sink = interpreter;
 		} );
 

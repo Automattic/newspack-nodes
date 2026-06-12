@@ -80,7 +80,7 @@ describe( 'Uptime node', () => {
 
 		const build = () => {
 			const node = new UptimeNode();
-			node.setName( '_uptime' );
+			node.name = '_uptime';
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			return { node, sent };
@@ -142,10 +142,10 @@ describe( 'Uptime node', () => {
 		it( 'setTimer() registers on the router TIMER; notify_timer fires the poll', () => {
 			jest.spyOn( Core, 'now' ).mockReturnValue( 100 );
 			const router = new RouterNode();
-			router.setName( names.ROUTER );
+			router.name = names.ROUTER;
 			router.stopTimer();
 			const node = new UptimeNode();
-			node.setName( names.UPTIME );
+			node.name = names.UPTIME;
 			const sent = [];
 			node.sink = { fill: ( m ) => sent.push( m ) };
 			node.target = names.CWD;
@@ -158,10 +158,10 @@ describe( 'Uptime node', () => {
 
 		it( 'removeNode unregisters from the router TIMER (no leak)', () => {
 			const router = new RouterNode();
-			router.setName( names.ROUTER );
+			router.name = names.ROUTER;
 			router.stopTimer();
 			const node = new UptimeNode();
-			node.setName( names.UPTIME );
+			node.name = names.UPTIME;
 			node.sink = { fill: () => {} };
 			node.setTimer();
 			node.removeNode();

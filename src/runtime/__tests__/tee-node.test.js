@@ -22,16 +22,16 @@ test( 'connectNode is idempotent — duplicates are skipped (matches PHP Tee)', 
 
 test( 'fill stamps TO with each owner and forwards N times', () => {
 	const a = new Node();
-	a.setName( 'a' );
+	a.name = 'a';
 	const b = new Node();
-	b.setName( 'b' );
+	b.name = 'b';
 	const ga = [];
 	a.fill = ( m ) => ga.push( [ ...m ] );
 	const gb = [];
 	b.fill = ( m ) => gb.push( [ ...m ] );
 
 	const router = new Node();
-	router.setName( '_router' );
+	router.name = '_router';
 	const routed = [];
 	router.fill = ( m ) => {
 		routed.push( [ ...m ] );

@@ -57,7 +57,7 @@ test( 'TM_COMMAND with empty TO dispatches the named verb', () => {
 	sink.fill = ( m ) => got.push( [ ...m ] );
 
 	const interpreter = new CommandInterpreterNode();
-	interpreter.setName( 'test_interpreter' );
+	interpreter.name = 'test_interpreter';
 	interpreter.sink = sink;
 	interpreter.commands( {
 		echo: ( self, args ) => `echoed: ${ args }`,
@@ -97,7 +97,7 @@ test( 'verb throwing returns TM_COMMAND|TM_ERROR with the message', () => {
 	sink.fill = ( m ) => got.push( [ ...m ] );
 
 	const interpreter = new CommandInterpreterNode();
-	interpreter.setName( 'test_interpreter' );
+	interpreter.name = 'test_interpreter';
 	interpreter.sink = sink;
 	interpreter.commands( {
 		bad: () => {
@@ -128,7 +128,7 @@ test( 'command without LOCAL provenance is refused (unauthorized), verb not run'
 
 	let ran = false;
 	const interpreter = new CommandInterpreterNode();
-	interpreter.setName( 'test_interpreter' );
+	interpreter.name = 'test_interpreter';
 	interpreter.sink = sink;
 	interpreter.commands( {
 		echo: () => {
@@ -156,7 +156,7 @@ test( 'instance authorize override allows a command without LOCAL', () => {
 	sink.fill = ( m ) => got.push( [ ...m ] );
 
 	const interpreter = new CommandInterpreterNode();
-	interpreter.setName( 'test_interpreter' );
+	interpreter.name = 'test_interpreter';
 	interpreter.sink = sink;
 	interpreter.authorize = () => true;
 	interpreter.commands( { echo: () => 'ok' } );
@@ -177,7 +177,7 @@ test( 'static defaultAuthorize can refuse even with LOCAL set', () => {
 
 	let ran = false;
 	const interpreter = new CommandInterpreterNode();
-	interpreter.setName( 'test_interpreter' );
+	interpreter.name = 'test_interpreter';
 	interpreter.sink = sink;
 	interpreter.commands( {
 		echo: () => {
@@ -207,7 +207,7 @@ test( 'TM_NOREPLY command suppresses the routed reply on success', () => {
 
 	let ran = false;
 	const interpreter = new CommandInterpreterNode();
-	interpreter.setName( 'test_interpreter' );
+	interpreter.name = 'test_interpreter';
 	interpreter.sink = sink;
 	interpreter.commands( {
 		echo: () => {
@@ -237,7 +237,7 @@ test( 'TM_NOREPLY command suppresses the reply but surfaces an error to stderr',
 	sink.fill = ( m ) => got.push( [ ...m ] );
 
 	const interpreter = new CommandInterpreterNode();
-	interpreter.setName( 'test_interpreter' );
+	interpreter.name = 'test_interpreter';
 	interpreter.sink = sink;
 	interpreter.commands( {
 		bad: () => {
@@ -357,7 +357,7 @@ const dispatch = ( interpreter, name, args = '', envelope = {} ) =>
 describe( 'built-in verbs — defaults installed on every interpreter', () => {
 	const makeInterpreter = () => {
 		const interpreter = new CommandInterpreterNode();
-		interpreter.setName( '_command_interpreter' );
+		interpreter.name = '_command_interpreter';
 		return interpreter;
 	};
 
@@ -420,9 +420,9 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'points one node sink at another', () => {
 			const interpreter = makeInterpreter();
 			const a = new Node();
-			a.setName( 'a' );
+			a.name = 'a';
 			const b = new Node();
-			b.setName( 'b' );
+			b.name = 'b';
 			expect( dispatch( interpreter, 'set_sink', 'a b' ) ).toBe( 'ok' );
 			expect( a.sink ).toBe( b );
 		} );
@@ -434,7 +434,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 		it( 'reports unknown node', () => {
 			const interpreter = makeInterpreter();
-			new Node().setName( 'a' );
+			new Node().name = 'a';
 			expect( dispatch( interpreter, 'set_sink', 'a nope' ) ).toBe(
 				'unknown node'
 			);
@@ -445,7 +445,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'connects a Tee target', () => {
 			const interpreter = makeInterpreter();
 			const tee = new TeeNode();
-			tee.setName( 't' );
+			tee.name = 't';
 			expect( dispatch( interpreter, 'connect_node', 't dest' ) ).toBe(
 				'ok'
 			);
@@ -454,7 +454,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'defaults the target to the envelope FROM', () => {
 			const interpreter = makeInterpreter();
 			const tee = new TeeNode();
-			tee.setName( 't' );
+			tee.name = 't';
 			const env = newMessage();
 			env[ FROM ] = 'session';
 			expect( dispatch( interpreter, 'connect_node', 't', env ) ).toBe(
@@ -467,7 +467,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			// to setting a single string target — matching PHP Node::connect_node.
 			const interpreter = makeInterpreter();
 			const n = new Node();
-			n.setName( 'plain' );
+			n.name = 'plain';
 			expect(
 				dispatch( interpreter, 'connect_node', 'plain dest' )
 			).toBe( 'ok' );
@@ -488,7 +488,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'disconnect removes a Tee target', () => {
 			const interpreter = makeInterpreter();
 			const tee = new TeeNode();
-			tee.setName( 't' );
+			tee.name = 't';
 			tee.connectNode( 'dest' );
 			expect( dispatch( interpreter, 'disconnect_node', 't dest' ) ).toBe(
 				'ok'
@@ -498,7 +498,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'disconnect calls the node disconnectNode lifecycle method', () => {
 			const interpreter = makeInterpreter();
 			const n = new Node();
-			n.setName( 'plain' );
+			n.name = 'plain';
 			n.target = 'dest';
 			const spy = jest.spyOn( n, 'disconnectNode' );
 			expect(
@@ -513,9 +513,9 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'wires target as a node-name listener for the event on source', () => {
 			const interpreter = makeInterpreter();
 			const src = new Node();
-			src.setName( 'src' );
+			src.name = 'src';
 			src.registrations = { EVT: {} };
-			new Node().setName( 'tgt' );
+			new Node().name = 'tgt';
 			expect( dispatch( interpreter, 'register', 'src tgt EVT' ) ).toBe(
 				'ok'
 			);
@@ -530,7 +530,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'register reports unknown target', () => {
 			const interpreter = makeInterpreter();
 			const src = new Node();
-			src.setName( 'src' );
+			src.name = 'src';
 			src.registrations = { EVT: {} };
 			expect( dispatch( interpreter, 'register', 'src ghost EVT' ) ).toBe(
 				'unknown node: ghost'
@@ -544,15 +544,15 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 		it( 'register usage with no target', () => {
 			const interpreter = makeInterpreter();
-			new Node().setName( 'src' );
+			new Node().name = 'src';
 			expect( dispatch( interpreter, 'register', 'src' ) ).toBe(
 				'usage: register <source name> <target name> <event>'
 			);
 		} );
 		it( 'register on an undeclared event surfaces as a thrown error', () => {
 			const interpreter = makeInterpreter();
-			new Node().setName( 'src' );
-			new Node().setName( 'tgt' );
+			new Node().name = 'src';
+			new Node().name = 'tgt';
 			expect( () =>
 				dispatch( interpreter, 'register', 'src tgt NOPE' )
 			).toThrow( 'no such event: NOPE' );
@@ -560,9 +560,9 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'unregister removes a previously-registered listener', () => {
 			const interpreter = makeInterpreter();
 			const src = new Node();
-			src.setName( 'src' );
+			src.name = 'src';
 			src.registrations = { EVT: {} };
-			new Node().setName( 'tgt' );
+			new Node().name = 'tgt';
 			dispatch( interpreter, 'register', 'src tgt EVT' );
 			expect( dispatch( interpreter, 'unregister', 'src tgt EVT' ) ).toBe(
 				'ok'
@@ -577,7 +577,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 		it( 'unregister usage with no target', () => {
 			const interpreter = makeInterpreter();
-			new Node().setName( 'src' );
+			new Node().name = 'src';
 			expect( dispatch( interpreter, 'unregister', 'src' ) ).toBe(
 				'usage: unregister <source name> <target name> <event>'
 			);
@@ -587,7 +587,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 	describe( 'remove_node', () => {
 		it( 'unregisters a named node from Core', () => {
 			const interpreter = makeInterpreter();
-			new Node().setName( 'gone' );
+			new Node().name = 'gone';
 			expect( dispatch( interpreter, 'remove_node', 'gone' ) ).toBe(
 				'removed gone'
 			);
@@ -596,7 +596,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'calls the node removeNode lifecycle method (full teardown, not bare unregister)', () => {
 			const interpreter = makeInterpreter();
 			const n = new Node();
-			n.setName( 'gone' );
+			n.name = 'gone';
 			n.sink = new Node();
 			const spy = jest.spyOn( n, 'removeNode' );
 			expect( dispatch( interpreter, 'remove_node', 'gone' ) ).toBe(
@@ -615,8 +615,8 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 		it( 'removes formerly-protected scaffolding (_router/_output)', () => {
 			const interpreter = makeInterpreter();
-			new Node().setName( '_router' );
-			new Node().setName( '_output' );
+			new Node().name = '_router';
+			new Node().name = '_output';
 			expect( dispatch( interpreter, 'remove_node', '_router' ) ).toBe(
 				'removed _router'
 			);
@@ -634,8 +634,8 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 		it( '-a removes by anchored regex', () => {
 			const interpreter = makeInterpreter();
-			new Node().setName( 'worker_a' );
-			new Node().setName( 'worker_b' );
+			new Node().name = 'worker_a';
+			new Node().name = 'worker_b';
 			const out = dispatch( interpreter, 'remove_node', '-a worker_.*' );
 			expect( out ).toContain( 'removed worker_a' );
 			expect( out ).toContain( 'removed worker_b' );
@@ -653,19 +653,19 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'default lists sibling node names (sink === this interpreter)', () => {
 			const interpreter = makeInterpreter();
 			const a = new Node();
-			a.setName( 'a' );
+			a.name = 'a';
 			a.sink = interpreter;
 			const b = new Node();
-			b.setName( 'b' );
+			b.name = 'b';
 			b.sink = interpreter;
 			const orphan = new Node();
-			orphan.setName( 'orphan' );
+			orphan.name = 'orphan';
 			const out = dispatch( interpreter, 'ls', '' );
 			expect( out.split( '\n' ).sort() ).toEqual( [ 'a', 'b' ] );
 		} );
 		it( '-a lists all nodes', () => {
 			const interpreter = makeInterpreter();
-			new Node().setName( 'x' );
+			new Node().name = 'x';
 			const out = dispatch( interpreter, 'ls', '-a' );
 			expect( out ).toContain( 'x' );
 			expect( out ).toContain( '_command_interpreter' );
@@ -673,7 +673,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( '-c adds a COUNT column header', () => {
 			const interpreter = makeInterpreter();
 			const a = new Node();
-			a.setName( 'a' );
+			a.name = 'a';
 			a.sink = interpreter;
 			const out = dispatch( interpreter, 'ls', '-c' );
 			expect( out ).toContain( 'COUNT' );
@@ -750,7 +750,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'returns a class-header + pretty-JSON string', () => {
 			const interpreter = makeInterpreter();
 			const n = new Node();
-			n.setName( 'd' );
+			n.name = 'd';
 			const out = dispatch( interpreter, 'dump_node', 'd' );
 			expect( out.startsWith( 'Node ' ) ).toBe( true );
 			const body = JSON.parse( out.slice( 'Node '.length ) );
@@ -761,9 +761,9 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			// PHP keeps `sink` (coerced to the sink's name); requesting it must not error.
 			const interpreter = makeInterpreter();
 			const n = new Node();
-			n.setName( 'd' );
+			n.name = 'd';
 			const downstream = new Node();
-			downstream.setName( 'downstream' );
+			downstream.name = 'downstream';
 			n.sink = downstream;
 			expect( dispatch( interpreter, 'dump_node', 'd' ) ).toContain(
 				'"sink": "downstream"'
@@ -787,7 +787,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'key filter narrows the body, unknown key errors', () => {
 			const interpreter = makeInterpreter();
 			const n = new Node();
-			n.setName( 'd' );
+			n.name = 'd';
 			const out = dispatch( interpreter, 'dump_node', 'd name' );
 			const body = JSON.parse( out.slice( 'Node '.length ) );
 			expect( Object.keys( body ) ).toEqual( [ 'name' ] );
@@ -801,7 +801,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'returns the per-node object the canvas parseMetadata expects', () => {
 			const interpreter = makeInterpreter();
 			const n = new Node();
-			n.setName( 'm' );
+			n.name = 'm';
 			n.sink = interpreter;
 			const meta = dispatch( interpreter, 'dump_metadata', '' );
 			expect( meta.m ).toEqual(
@@ -818,7 +818,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'skips patron-linked plumbing nodes', () => {
 			const interpreter = makeInterpreter();
 			const n = new Node();
-			n.setName( 'plumb' );
+			n.name = 'plumb';
 			n.patron = interpreter;
 			const meta = dispatch( interpreter, 'dump_metadata', '' );
 			expect( meta.plumb ).toBeUndefined();
@@ -829,7 +829,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'tabulates sibling counters with the canonical header', () => {
 			const interpreter = makeInterpreter();
 			const a = new Node();
-			a.setName( 'a' );
+			a.name = 'a';
 			a.sink = interpreter;
 			const out = dispatch( interpreter, 'stats', '' );
 			expect( out ).toContain( 'NAME' );
@@ -887,7 +887,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'name + level sets that node', () => {
 			const interpreter = makeInterpreter();
 			const n = new Node();
-			n.setName( 'n' );
+			n.name = 'n';
 			expect( dispatch( interpreter, 'debug_state', 'n 2' ) ).toBe(
 				'n debug_state: 2'
 			);
@@ -958,10 +958,10 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'ls with KEY=completion returns all bare node names (like -a), no columns', () => {
 			const interpreter = makeInterpreter();
 			const a = new Node();
-			a.setName( 'a' );
+			a.name = 'a';
 			a.sink = interpreter;
 			const b = new Node();
-			b.setName( 'b' );
+			b.name = 'b';
 			b.sink = interpreter;
 			const out = dispatch( interpreter, 'ls', '-c', completionEnv() );
 			const lines = out.split( '\n' );
@@ -974,7 +974,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 
 		it( 'ls -a with KEY=completion returns all bare node names', () => {
 			const interpreter = makeInterpreter();
-			new Node().setName( 'x' );
+			new Node().name = 'x';
 			const out = dispatch( interpreter, 'ls', '-a', completionEnv() );
 			const lines = out.split( '\n' );
 			expect( lines ).toContain( 'x' );
@@ -985,7 +985,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		it( 'ls WITHOUT the completion key is unchanged', () => {
 			const interpreter = makeInterpreter();
 			const a = new Node();
-			a.setName( 'a' );
+			a.name = 'a';
 			a.sink = interpreter;
 			const out = dispatch( interpreter, 'ls', '-c' );
 			expect( out ).toContain( 'COUNT' );
@@ -1169,7 +1169,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 
 		it( 'skips only the backbone (_command_interpreter / _router)', () => {
 			const interpreter = makeInterpreter();
-			new Node().setName( '_router' );
+			new Node().name = '_router';
 			const out = dispatch( interpreter, 'dump_config' );
 			expect( out ).not.toContain( '_command_interpreter' );
 			expect( out ).not.toContain( '_router' );
@@ -1177,7 +1177,7 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 
 		it( 'dumps _output (a real node, no longer skipped scaffolding)', () => {
 			const interpreter = makeInterpreter();
-			new Node().setName( '_output' );
+			new Node().name = '_output';
 			expect( dispatch( interpreter, 'dump_config' ) ).toContain(
 				'_output'
 			);

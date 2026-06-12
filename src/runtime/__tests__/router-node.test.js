@@ -8,10 +8,10 @@ beforeEach( () => Core.reset() );
 
 test( 'peels TO head and forwards to registered node with remaining path', () => {
 	const r = new RouterNode();
-	r.setName( '_router' );
+	r.name = '_router';
 
 	const downstream = new Node();
-	downstream.setName( 'alpha' );
+	downstream.name = 'alpha';
 	const captured = [];
 	downstream.fill = ( m ) => captured.push( [ ...m ] );
 
@@ -25,7 +25,7 @@ test( 'peels TO head and forwards to registered node with remaining path', () =>
 
 test( 'setting a sink throws — the Router has none', () => {
 	const r = new RouterNode();
-	r.setName( '_router' );
+	r.name = '_router';
 	expect( () => {
 		r.sink = new Node();
 	} ).toThrow( /must not have a sink/ );
@@ -34,9 +34,9 @@ test( 'setting a sink throws — the Router has none', () => {
 
 test( 'empty TO is dropped as "message not addressed" — no NOT_AVAILABLE bounce (Perl parity)', () => {
 	const r = new RouterNode();
-	r.setName( '_router' );
+	r.name = '_router';
 	const origin = new Node();
-	origin.setName( 'origin' );
+	origin.name = 'origin';
 	const got = [];
 	origin.fill = ( m ) => got.push( [ ...m ] );
 
@@ -50,9 +50,9 @@ test( 'empty TO is dropped as "message not addressed" — no NOT_AVAILABLE bounc
 
 test( 'a FROM trail over MAX_FROM_SIZE is dropped before routing (path-explosion guard; Perl parity)', () => {
 	const r = new RouterNode();
-	r.setName( '_router' );
+	r.name = '_router';
 	const alpha = new Node();
-	alpha.setName( 'alpha' );
+	alpha.name = 'alpha';
 	const got = [];
 	alpha.fill = ( m ) => got.push( m );
 
@@ -66,10 +66,10 @@ test( 'a FROM trail over MAX_FROM_SIZE is dropped before routing (path-explosion
 
 test( 'unknown TO head yields NOT_AVAILABLE error walked back to FROM', () => {
 	const r = new RouterNode();
-	r.setName( '_router' );
+	r.name = '_router';
 
 	const origin = new Node();
-	origin.setName( 'origin' );
+	origin.name = 'origin';
 	const got = [];
 	origin.fill = ( m ) => got.push( [ ...m ] );
 
@@ -87,7 +87,7 @@ test( 'unknown TO head yields NOT_AVAILABLE error walked back to FROM', () => {
 
 test( 'TM_ERROR on a missing TO is dropped (no error-on-error bounce)', () => {
 	const r = new RouterNode();
-	r.setName( '_router' );
+	r.name = '_router';
 
 	const m = newMessage();
 	m[ TYPE ] = TM_ERROR;
@@ -98,10 +98,10 @@ test( 'TM_ERROR on a missing TO is dropped (no error-on-error bounce)', () => {
 
 test( 'single-segment TO with no slash peels head and forwards with empty TO', () => {
 	const r = new RouterNode();
-	r.setName( '_router' );
+	r.name = '_router';
 
 	const downstream = new Node();
-	downstream.setName( 'alpha' );
+	downstream.name = 'alpha';
 	const captured = [];
 	downstream.fill = ( m ) => captured.push( [ ...m ] );
 
@@ -115,7 +115,7 @@ test( 'single-segment TO with no slash peels head and forwards with empty TO', (
 
 test( 'NOT_AVAILABLE bounce with empty FROM is silently dropped (no throw, no loop)', () => {
 	const r = new RouterNode();
-	r.setName( '_router' );
+	r.name = '_router';
 	// No FROM -> the NOT_AVAILABLE error has empty TO -> empty head -> re-fills as
 	// TM_ERROR and drops on the TM_ERROR branch; no loop, no sink.
 	const m = newMessage();
@@ -128,9 +128,9 @@ describe( 'Router TIMER (notify_timer — direct fire_cb dispatch)', () => {
 		jest.useFakeTimers();
 		try {
 			const r = new RouterNode();
-			r.setName( '_router' );
+			r.name = '_router';
 			const t = new TimerNode();
-			t.setName( 'sub' );
+			t.name = 'sub';
 			let fires = 0;
 			t.fireCb = () => {
 				fires += 1;
@@ -153,7 +153,7 @@ describe( 'Router TIMER (notify_timer — direct fire_cb dispatch)', () => {
 		const stderr = jest.spyOn( Core, 'stderr' ).mockImplementation();
 		try {
 			const r = new RouterNode();
-			r.setName( '_router' );
+			r.name = '_router';
 			r.register( 'TIMER', 'ghost' ); // no node named 'ghost' in Core
 			jest.advanceTimersByTime( 1000 );
 			expect( stderr ).toHaveBeenCalledWith(
@@ -171,12 +171,12 @@ describe( 'Router TIMER (notify_timer — direct fire_cb dispatch)', () => {
 		jest.useFakeTimers();
 		try {
 			const r = new RouterNode();
-			r.setName( '_router' );
+			r.name = '_router';
 			const log = [];
 			r.beforeTimerNotify = () => log.push( 'before' );
 			r.afterTimerNotify = () => log.push( 'after' );
 			const t = new TimerNode();
-			t.setName( 'sub' );
+			t.name = 'sub';
 			t.fireCb = () => log.push( 'fire' );
 			r.register( 'TIMER', 'sub' );
 			jest.advanceTimersByTime( 1000 );
@@ -191,7 +191,7 @@ describe( 'Router TIMER (notify_timer — direct fire_cb dispatch)', () => {
 		jest.useFakeTimers();
 		try {
 			const r = new RouterNode();
-			r.setName( '_router' );
+			r.name = '_router';
 			const log = [];
 			r.beforeTimerNotify = () => log.push( 'before' );
 			r.afterTimerNotify = () => log.push( 'after' );
@@ -210,9 +210,9 @@ describe( 'Router TIMER (notify_timer — direct fire_cb dispatch)', () => {
 		jest.useFakeTimers();
 		try {
 			const r = new RouterNode();
-			r.setName( '_router' );
+			r.name = '_router';
 			const t = new TimerNode();
-			t.setName( 'sub' );
+			t.name = 'sub';
 			let count = 0;
 			t.fireCb = () => {
 				count += 1;
@@ -232,9 +232,9 @@ describe( 'Router TIMER (notify_timer — direct fire_cb dispatch)', () => {
 		jest.useFakeTimers();
 		try {
 			const r = new RouterNode();
-			r.setName( '_router' );
+			r.name = '_router';
 			const t = new TimerNode();
-			t.setName( 'sub' );
+			t.name = 'sub';
 			let count = 0;
 			t.fireCb = () => {
 				count += 1;
