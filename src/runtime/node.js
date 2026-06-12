@@ -295,6 +295,25 @@ export class Node {
 		this.notify( event, payload );
 	}
 
+	// Node-name listeners (null-callback registrations) keyed by event; closures excluded, empty events omitted. Mirrors PHP registered_listeners() for dump_metadata.
+	registeredListeners() {
+		const out = {};
+		for ( const [ event, listeners ] of Object.entries(
+			this.registrations
+		) ) {
+			const listenerNames = [];
+			for ( const [ listener, cb ] of Object.entries( listeners ) ) {
+				if ( null === cb ) {
+					listenerNames.push( listener );
+				}
+			}
+			if ( listenerNames.length ) {
+				out[ event ] = listenerNames;
+			}
+		}
+		return out;
+	}
+
 	/**
 	 * Build a TM_COMMAND message envelope. Mirrors Tachikoma::Node::command —
 	 * available on every Node so Shell.sendCommand and overlay callers can
