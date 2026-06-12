@@ -34,6 +34,9 @@ function makeConnector( {
 } = {} ) {
 	const s = new SseConnectorNode();
 	s.arguments = `${ subscribe.join( ',' ) } ${ baseUrl } ${ nonce }`;
+	// The connector forwards every parsed frame, so it always has a sink in
+	// production; default to a no-op (the forwarding test overrides it).
+	s.sink = { fill: () => {} };
 	return s;
 }
 

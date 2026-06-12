@@ -15,7 +15,6 @@ import {
 	TM_STRUCT,
 	TM_REQUEST,
 	newMessage,
-	valueSize,
 } from './message';
 import names from './reserved-node-names.json';
 
@@ -94,6 +93,9 @@ export class Node {
 	}
 
 	fill( message ) {
+		if ( ! this.sink ) {
+			throw new Error( 'Node.fill requires a wired sink' );
+		}
 		if (
 			'' === message[ TO ] &&
 			'string' === typeof this.target &&
@@ -102,13 +104,7 @@ export class Node {
 			message[ TO ] = this.target;
 		}
 		this.counter += 1;
-		const size = valueSize( message );
-		if ( size > this.largestMsgSent ) {
-			this.largestMsgSent = size;
-		}
-		if ( this.sink ) {
-			this.sink.fill( message );
-		}
+		this.sink.fill( message );
 	}
 
 	static _coerceArgument( token, type ) {
