@@ -789,6 +789,17 @@
 		animation: none;
 	}
 
+	// Registration edges — node-name event wiring (register()/notify()),
+	// distinct from physical connect_node wires and virtual verb-arg edges:
+	// fine dotted in sage, dimmed, no flow animation. Informational only.
+	&.is-registration {
+		stroke: var(--sage-dark);
+		stroke-width: 1;
+		stroke-dasharray: 1 5;
+		opacity: 0.6;
+		animation: none;
+	}
+
 	// Hovering a node lights up its inbound + outbound edges and
 	// dims the rest, so the user can read the flow neighborhood of
 	// any node at a glance.
