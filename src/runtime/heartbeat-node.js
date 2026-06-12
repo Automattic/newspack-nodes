@@ -38,14 +38,26 @@ export class HeartbeatNode extends TimerNode {
 		this.lastFired = 0;
 	}
 
-	static nodeSchema() {
-		return {
-			category: 'Hidden',
-			description:
-				'Pokes `workers/heartbeat` to refresh the SSE slot TTL.',
-			arguments: [],
-			commands: [],
-		};
+	// Consume the heartbeat reply; it carries no canvas state, so swallow it.
+	fill( message ) {
+		this.counter += 1;
+		void message;
+	}
+
+	// Router TIMER subscriber (the _router calls fireCb -> fire): poke the slot at
+	// most every POKE_INTERVAL_S, only while a worker stream slot is held (the poke
+	// is meaningless without one).
+	fire() {
+		if ( null === this.slot || ! this.sink ) {
+			return;
+		}
+		const now = Core.now();
+		if ( now - this.lastFired < POKE_INTERVAL_S ) {
+			return;
+		}
+		this.lastFired = now;
+		this.counter += 1;
+		this.sink.fill( this._pollMessage() );
 	}
 
 	// Record the slot acquired by the live SSE stream (from its `connected`
@@ -78,25 +90,13 @@ export class HeartbeatNode extends TimerNode {
 		return m;
 	}
 
-	// Router TIMER subscriber (the _router calls fireCb -> fire): poke the slot at
-	// most every POKE_INTERVAL_S, only while a worker stream slot is held (the poke
-	// is meaningless without one).
-	fire() {
-		if ( null === this.slot || ! this.sink ) {
-			return;
-		}
-		const now = Core.now();
-		if ( now - this.lastFired < POKE_INTERVAL_S ) {
-			return;
-		}
-		this.lastFired = now;
-		this.counter += 1;
-		this.sink.fill( this._pollMessage() );
-	}
-
-	// Consume the heartbeat reply; it carries no canvas state, so swallow it.
-	fill( message ) {
-		this.counter += 1;
-		void message;
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description:
+				'Pokes `workers/heartbeat` to refresh the SSE slot TTL.',
+			arguments: [],
+			commands: [],
+		};
 	}
 }

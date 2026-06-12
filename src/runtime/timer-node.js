@@ -41,27 +41,6 @@ export class TimerNode extends Node {
 		this.registrations.FIRE = {};
 	}
 
-	setKey( key ) {
-		this.key = key;
-	}
-
-	static nodeSchema() {
-		return {
-			category: 'Control',
-			description:
-				'Periodic firing — emits a heartbeat every N ms, or rides the Router tick when given no interval.',
-			arguments: [
-				{
-					name: 'interval_ms',
-					type: 'int',
-					required: false,
-					default: 0,
-				},
-			],
-			commands: [],
-		};
-	}
-
 	get arguments() {
 		return super.arguments;
 	}
@@ -86,6 +65,48 @@ export class TimerNode extends Node {
 		} else {
 			throw new Error( 'Bad arguments for Timer' );
 		}
+	}
+
+	// fire_cb (Perl Timer::fire_cb): deactivate a non-'forever' (oneshot) timer,
+	// then return WITHOUT firing if there is no sink — so a sink-less Timer never
+	// emits and never notifies 'FIRE'. The _router's notify_timer calls this
+	// directly for hitchhikers; the Event_Framework calls it for own-slot timers.
+	fireCb() {
+		this.fire_count += 1;
+		if ( this.oneshot ) {
+			this.active = false;
+			this.mode = 'inactive';
+		}
+		if ( ! this.sink ) {
+			return;
+		}
+		this.fire();
+	}
+
+	// One tick (Perl Timer::fire). Emit a TM_BYTESTREAM heartbeat carrying the
+	// timestamp ONLY when this timer has a target, or its sink isn't the
+	// CommandInterpreter (the owner/CI guard — a target-less timer sinking into the
+	// interpreter would just spam it); counter++ on emit. Always notify 'FIRE'.
+	// (instanceof would cycle through command-interpreter-node's make_node map, so
+	// the CI is matched by its build-preserved constructor name.)
+	fire() {
+		if (
+			'' !== this.target ||
+			'CommandInterpreterNode' !== this.sink?.constructor?.name
+		) {
+			const m = newMessage();
+			m[ TYPE ] = TM_BYTESTREAM;
+			m[ TIMESTAMP ] = Core.now();
+			m[ FROM ] = this.name;
+			m[ TO ] = this.target;
+			if ( '' !== this.key ) {
+				m[ KEY ] = this.key;
+			}
+			m[ VALUE ] = String( Core.now() );
+			this.counter += 1;
+			this.sink.fill( m );
+		}
+		this.notify( 'FIRE', Core.now() );
 	}
 
 	// No ms => Router-hitchhike (register 'TIMER' on _router); ms => own slot.
@@ -142,50 +163,33 @@ export class TimerNode extends Node {
 		}
 	}
 
-	// fire_cb (Perl Timer::fire_cb): deactivate a non-'forever' (oneshot) timer,
-	// then return WITHOUT firing if there is no sink — so a sink-less Timer never
-	// emits and never notifies 'FIRE'. The _router's notify_timer calls this
-	// directly for hitchhikers; the Event_Framework calls it for own-slot timers.
-	fireCb() {
-		this.fire_count += 1;
-		if ( this.oneshot ) {
-			this.active = false;
-			this.mode = 'inactive';
-		}
-		if ( ! this.sink ) {
-			return;
-		}
-		this.fire();
+	get key() {
+		return this._key;
 	}
 
-	// One tick (Perl Timer::fire). Emit a TM_BYTESTREAM heartbeat carrying the
-	// timestamp ONLY when this timer has a target, or its sink isn't the
-	// CommandInterpreter (the owner/CI guard — a target-less timer sinking into the
-	// interpreter would just spam it); counter++ on emit. Always notify 'FIRE'.
-	// (instanceof would cycle through command-interpreter-node's make_node map, so
-	// the CI is matched by its build-preserved constructor name.)
-	fire() {
-		if (
-			'' !== this.target ||
-			'CommandInterpreterNode' !== this.sink?.constructor?.name
-		) {
-			const m = newMessage();
-			m[ TYPE ] = TM_BYTESTREAM;
-			m[ TIMESTAMP ] = Core.now();
-			m[ FROM ] = this.name;
-			m[ TO ] = this.target;
-			if ( '' !== this.key ) {
-				m[ KEY ] = this.key;
-			}
-			m[ VALUE ] = String( Core.now() );
-			this.counter += 1;
-			this.sink.fill( m );
-		}
-		this.notify( 'FIRE', Core.now() );
+	set key( key ) {
+		this._key = key;
 	}
 
 	removeNode() {
 		this.stopTimer();
 		super.removeNode();
+	}
+
+	static nodeSchema() {
+		return {
+			category: 'Control',
+			description:
+				'Periodic firing — emits a heartbeat every N ms, or rides the Router tick when given no interval.',
+			arguments: [
+				{
+					name: 'interval_ms',
+					type: 'int',
+					required: false,
+					default: 0,
+				},
+			],
+			commands: [],
+		};
 	}
 }
