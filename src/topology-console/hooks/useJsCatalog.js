@@ -24,24 +24,28 @@ import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
 export function useJsCatalog() {
 	const [ classes ] = useState( () => {
 		const table = CommandInterpreterNode.includeNodes || {};
-		return Object.keys( table )
-			.filter(
-				( name ) =>
-					name !== 'Hook' &&
-					name !== 'Router' &&
-					name !== 'CommandInterpreter'
-			)
-			.sort()
-			.map( ( name ) => {
-				const schema = table[ name ]?.nodeSchema?.() || {};
-				return {
-					shell_name: name,
-					category: 'Available',
-					description: '',
-					accepts_fill: schema.accepts_fill ?? true,
-					has_target: schema.has_target ?? true,
-				};
-			} );
+		return (
+			Object.keys( table )
+				.map( ( name ) => {
+					const schema = table[ name ]?.nodeSchema?.() || {};
+					return {
+						shell_name: name,
+						category: schema.category ?? '',
+						description: schema.description ?? '',
+						accepts_fill: schema.accepts_fill ?? true,
+						has_target: schema.has_target ?? true,
+					};
+				} )
+				// PHP Classes_CI skips a class whose schema category is 'Hidden'
+				// or empty — only real-category classes are palette participants.
+				.filter( ( c ) => 'Hidden' !== c.category && '' !== c.category )
+				// Match PHP usort: order by [category, shell_name].
+				.sort(
+					( a, b ) =>
+						a.category.localeCompare( b.category ) ||
+						a.shell_name.localeCompare( b.shell_name )
+				)
+		);
 	} );
 	// Stable identity for the React tree on re-renders.
 	useEffect( () => {}, [] );
