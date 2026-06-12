@@ -52,6 +52,8 @@ class Partition_Node extends Timer_Node {
 	protected float $segments_cache_time = 0.0;
 
 	protected bool $allow_large_writes = false;
+	/** True when the large-write cap was lifted via void_warranty() (no lock) rather than allow_large_writes() (held lock) — drives which verb dump_config round-trips. */
+	private bool $warranty_voided = false;
 	/** Formatter name set via the `with_index` verb — the round-trippable form of the index callback (which itself can't be dumped). */
 	protected ?string $index_formatter_name = null;
 	protected ?Lock_Node $write_lock = null;
@@ -424,6 +426,24 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * Lift the PIPE_BUF cap WITHOUT acquiring the per-partition exclusivity lock —
+	 * the no-lock sibling of allow_large_writes(). The caller ASSERTS it is this
+	 * partition's sole writer (e.g. a worker that already holds its topology lock,
+	 * so the offset/snapshot offsetlog it owns has no other writer). Permits
+	 * > PIPE_BUF writes and skips the rotate-lock, exactly like allow_large_writes(),
+	 * but trusts the caller instead of enforcing exclusivity with a held lock.
+	 *
+	 * WARRANTY VOID: two concurrent writers + this = silent torn-write corruption,
+	 * with no lock to stop the second writer. If you can't guarantee single-writer,
+	 * use allow_large_writes() — it ENFORCES it (and throws on a second writer).
+	 */
+	public function void_warranty(): self {
+		$this->allow_large_writes = true;
+		$this->warranty_voided    = true;
+		return $this;
+	}
+
+	/**
 	 * Enable companion index files via a custom formatter callback.
 	 *
 	 * @param callable $callback fn(string $line, array $position, ?array &$data) => string|null. Return null/'' to skip.
@@ -442,7 +462,8 @@ class Partition_Node extends Timer_Node {
 	public function dump_config(): string {
 		$out = parent::dump_config();
 		if ( $this->allow_large_writes ) {
-			$out .= "cmd {$this->name}:config allow_large_writes\n";
+			$verb = $this->warranty_voided ? 'void_warranty' : 'allow_large_writes';
+			$out .= "cmd {$this->name}:config {$verb}\n";
 		}
 		if ( null !== $this->index_formatter_name ) {
 			$out .= "cmd {$this->name}:config with_index {$this->index_formatter_name}\n";
@@ -784,6 +805,17 @@ class Partition_Node extends Timer_Node {
 						/** @var self $patron */
 						$patron = $interpreter->patron();
 						$patron->allow_large_writes();
+						return 'ok';
+					},
+				],
+				[
+					'name'        => 'void_warranty',
+					'description' => 'Lift the 4KB PIPE_BUF cap with NO write lock — caller asserts single-writer (corrupts under concurrent writers; use allow_large_writes otherwise).',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
+						/** @var self $patron */
+						$patron = $interpreter->patron();
+						$patron->void_warranty();
 						return 'ok';
 					},
 				],

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`Partition_Node::void_warranty()`** — lifts the 4 KB PIPE_BUF write cap WITHOUT acquiring the per-partition exclusivity lock; the no-lock sibling of `allow_large_writes()`. The caller asserts it is the partition's sole writer (e.g. a worker that already owns the topology lock); concurrent writers + this = silent torn-write corruption, so the name is deliberately alarming. `dump_config` round-trips the distinct verb. The lock-acquiring `allow_large_writes()` remains for cross-process write targets.
+- **`Consumer_Node` snapshots a named node's state into the offsetlog** (Tachikoma's `cache_type=snapshot`). `set_snapshot_node()` — a `:config` verb — co-commits `{offset, cache}` as ONE record on each checkpoint, taking the node's duck-typed `save_state()`, and restores it via `restore_state()` on respawn. So a stateful node like the request-builder resumes its in-flight cache aligned with the resumed read offset — no separate state file, no offset/cache drift. The offsetlog is `void_warranty`'d (the worker is its sole writer); a missing snapshot node logs loudly rather than dropping state silently.
+- **`Topology_Registry::find_conflicts()` / `write_set()`** — detect when two enabled topologies would write the same file (a data partition or a Consumer offsetlog) and corrupt it. The write-set is parsed from `make_node Partition` paths + `make_node Consumer` offsetlog args; conflicts are reported as topology pairs + the shared resource. (Enforcement at config-enable and supervisor-spawn time follows; this commit adds the detection primitive.)
+
 ### Changed
 
 - **Timer scheduling state moved onto `Timer_Node` itself.** A timer now carries its own `interval_ms` / `oneshot` / `next_fire` / `active` / `fire_count` as public properties, and `Event_Framework::set_timer()` takes just the node (`set_timer( Timer_Node $node )`) — the framework reads the cadence off the node and stamps the first fire. `Timer_Node::set_key()` is folded into a `key()` getter/setter, and `is_active()` / `fire_count()` are dropped in favor of the public `$active` / `$fire_count`. Partition's heartbeat timer arms via `arguments()` + `key()` to match. The Router-hitchhike preconditions stay fail-loud: no-arg `set_timer()` throws if the timer is unnamed or no `_router` is present (now covered by tests asserting each message).

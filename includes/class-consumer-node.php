@@ -55,6 +55,21 @@ class Consumer_Node extends Timer_Node {
 	/** FROM-stamp override; defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
 	private string $stamp_override = '';
 
+	/**
+	 * Name of a node whose state rides in the offsetlog alongside the cursor
+	 * (Tachikoma's snapshot cache). Empty = offset-only. Set via set_snapshot_node.
+	 */
+	private string $snapshot_node = '';
+
+	/**
+	 * Cache read from the offsetlog at construction but not yet restored — the
+	 * snapshot node usually doesn't exist yet when load_offsetlog() runs, so we
+	 * stash it and restore once set_snapshot_node() names the (now-built) node.
+	 *
+	 * @var array<array-key, mixed>|null
+	 */
+	private ?array $loaded_cache = null;
+
 	/** Cursor segment. cursor_off + line_remainder length is the next read position. */
 	protected int $cursor_seg = 0;
 
@@ -69,6 +84,9 @@ class Consumer_Node extends Timer_Node {
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
 		parent::__construct();
+		// Build the {name}:config interpreter from the schema commands, so the
+		// set_snapshot_node verb is dispatchable; handlers read the patron lazily.
+		$this->auto_wire_interpreter();
 	}
 
 	/**
@@ -320,6 +338,32 @@ class Consumer_Node extends Timer_Node {
 		$this->stamp_override = $stamp;
 	}
 
+	/**
+	 * Name the node whose state is snapshotted into the offsetlog alongside the
+	 * cursor (Tachikoma's `connect_edge` + cache_type=snapshot). On checkpoint the
+	 * named node's save_state() rides in the committed record; on construction the
+	 * Consumer stashes any cache it found, and this restores it into the now-built
+	 * node. Lifts the offsetlog's PIPE_BUF cap (void_warranty) — the worker owning
+	 * the topology lock is the offsetlog's sole writer, so no per-write lock is needed.
+	 */
+	public function set_snapshot_node( string $name ): void {
+		$this->snapshot_node = $name;
+		$this->offsetlog?->void_warranty();
+		if ( null === $this->loaded_cache || '' === $name ) {
+			return;
+		}
+		$node = Core::node( $name );
+		if ( null !== $node && \method_exists( $node, 'restore_state' ) ) {
+			$node->restore_state( $this->loaded_cache );
+		} else {
+			// The offsetlog held a snapshot cache but its node is absent (a typo'd
+			// name, or set_snapshot_node ordered before the node was built). Don't
+			// drop the in-flight state silently — that's the very bug this fixes.
+			$this->print_less_often( "Consumer: snapshot node '{$name}' missing or has no restore_state(); discarding restored cache" );
+		}
+		$this->loaded_cache = null;
+	}
+
 	/** Read the newest offsetlog entry to seed the cursor. No-op when offsetlog is disabled. */
 	protected function load_offsetlog(): void {
 		if ( null === $this->offsetlog ) {
@@ -350,6 +394,10 @@ class Consumer_Node extends Timer_Node {
 			$this->cursor_off     = \is_numeric( $off ) ? (int) $off : 0;
 			$this->checkpoint_seg = $this->cursor_seg;
 			$this->checkpoint_off = $this->cursor_off;
+			// Stash any co-committed snapshot cache; restored once set_snapshot_node
+			// names the (by-then-built) node. Offset + cache come from ONE record,
+			// so the resumed cursor and the restored state are always aligned.
+			$this->loaded_cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
 		}
 	}
 
@@ -454,7 +502,7 @@ class Consumer_Node extends Timer_Node {
 		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
 		$msg[ Message::TIMESTAMP ] = Core::$now;
 		$msg[ Message::FROM ]      = $this->name;
-		$msg[ Message::VALUE ]     = [
+		$value = [
 			'seg'         => $this->cursor_seg,
 			'off'         => $this->cursor_off,
 			'ts'          => Core::$now,
@@ -463,6 +511,15 @@ class Consumer_Node extends Timer_Node {
 			'targets'     => $this->resolve_downstream_targets(),
 			'worker_type' => self::worker_type_env(),
 		];
+		// Co-commit the snapshot node's state with the offset, as ONE record, so a
+		// respawn restores the cache and resumes the cursor in lockstep.
+		if ( '' !== $this->snapshot_node ) {
+			$node = Core::node( $this->snapshot_node );
+			if ( null !== $node && \method_exists( $node, 'save_state' ) ) {
+				$value['cache'] = $node->save_state();
+			}
+		}
+		$msg[ Message::VALUE ]     = $value;
 		$this->offsetlog->fill( $msg );
 		// Persist synchronously — don't wait for the offsetlog Partition's PIPE_BUF threshold.
 		$this->offsetlog->flush();
@@ -632,6 +689,21 @@ class Consumer_Node extends Timer_Node {
 				[ 'name' => 'source_base_dir',    'type' => 'string', 'required' => true ],
 				[ 'name' => 'source_partition',   'type' => 'int',    'required' => true ],
 				[ 'name' => 'offsetlog_base_dir', 'type' => 'string', 'default' => '' ],
+			],
+			'commands'    => [
+				[
+					'name'        => 'set_snapshot_node',
+					'description' => 'Co-commit a named node\'s save_state() into the offsetlog alongside the cursor, so it resumes its in-flight state on respawn (Tachikoma snapshot cache). Lifts the offsetlog PIPE_BUF cap (single-writer).',
+					'args'        => [
+						[ 'name' => 'node', 'type' => 'node_name', 'required' => true ],
+					],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
+						/** @var self $patron */
+						$patron = $interpreter->patron();
+						$patron->set_snapshot_node( \trim( $args ) );
+						return 'ok';
+					},
+				],
 			],
 			'requests'    => [
 				[
