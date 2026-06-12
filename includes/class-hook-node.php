@@ -55,18 +55,18 @@ class Hook_Node extends Node {
 				\do_action( $this->hook_name, $message );
 			}
 		}
-		$this->sink->fill( $message );
+		parent::fill( $message );
 	}
 
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Control',
 			'description' => 'WordPress hook adapter — fires do_action/apply_filters on each message.',
-			'arguments'        => [
+			'arguments'   => [
 				[ 'name' => 'hook_name', 'type' => 'string', 'required' => true ],
 				[ 'name' => 'filter',    'type' => 'bool',   'default' => false ],
 			],
-			'commands'       => [],
+			'commands'    => [],
 		];
 	}
 }
