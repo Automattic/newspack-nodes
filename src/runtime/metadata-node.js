@@ -182,6 +182,26 @@ export function parseMetadata( payload ) {
 		} else if ( typeof target === 'string' && target !== '' ) {
 			edges.push( { from: name, to: headOf( target ) } );
 		}
+		// Registration edges: emitter -> each listener of each event. Dashed
+		// (registration:true) and tooltip-labelled (event) by a later task.
+		const regs = meta.registrations;
+		if ( regs && typeof regs === 'object' ) {
+			for ( const [ event, listeners ] of Object.entries( regs ) ) {
+				if ( ! Array.isArray( listeners ) ) {
+					continue;
+				}
+				for ( const listener of listeners ) {
+					if ( typeof listener === 'string' && listener !== '' ) {
+						edges.push( {
+							from: name,
+							to: headOf( listener ),
+							registration: true,
+							event,
+						} );
+					}
+				}
+			}
+		}
 	}
 	return { nodes, edges, pwd };
 }
