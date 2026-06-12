@@ -30,6 +30,10 @@ const ROW_HEIGHT = 18;
 const PARTITION_WIDTH = 36;
 const FONT = '12px monospace';
 const VIEW_NODE = 'rawlogs:view';
+// The shared SSE connector owns stream liveness — it stamps lastEventTime on
+// every frame AND the server's idle heartbeats — so "Xs ago" reads it, not the
+// view node (which only grows on line arrivals).
+const SSE_NODE = '_sse';
 
 // Dark theme colors (match base.scss).
 const COLOR_BG_ODD = '#2a2a2a';
@@ -101,8 +105,8 @@ export default function RawLogs() {
 	// Filter kept in a ref so the rAF reads the latest without re-subscribing.
 	const filterRef = useRef( filter );
 	filterRef.current = filter;
-	// Last time the node buffer grew — drives the "Xs ago" staleness display
-	// (a row arriving is one `msg` event, matching the old lastEventTime touch).
+	// Last time the _sse connector saw a frame or heartbeat — drives the "Xs ago"
+	// staleness. Synced from the connector's lastEventTime each rAF (below).
 	const lastEventTimeRef = useRef( null );
 
 	// Ticking "Xs ago" display.
@@ -200,9 +204,8 @@ export default function RawLogs() {
 			}
 			lastTopIdRef.current = topId;
 
-			if ( newRows > 0 ) {
-				lastEventTimeRef.current = Date.now();
-			}
+			lastEventTimeRef.current =
+				Core.node( SSE_NODE )?.lastEventTime ?? null;
 
 			const isAtTop = scrollTopRef.current < ROW_HEIGHT;
 

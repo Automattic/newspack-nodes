@@ -77,6 +77,42 @@ test( 'msg event forwards parsed message into sink', () => {
 	expect( got[ 0 ][ VALUE ] ).toBe( 'data line' );
 } );
 
+// --- Connection liveness (drives every SSE dashboard's "Xs ago") ---------
+// The connector is the one node that sees EVERY inbound frame — data rows AND
+// the server's idle heartbeats — so it owns "when did the stream last show
+// life". Dashboards read this for their staleness indicator, which must reset
+// on a heartbeat (a healthy-but-idle stream) and only climb on a real drop.
+
+test( 'lastEventTime starts null (no frame seen yet)', () => {
+	const s = makeConnector();
+	expect( s.lastEventTime ).toBeNull();
+} );
+
+test( 'a msg frame stamps lastEventTime', () => {
+	const s = makeConnector();
+	s.start();
+	const m = newMessage();
+	m[ VALUE ] = 'data line';
+	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
+	expect( typeof s.lastEventTime ).toBe( 'number' );
+} );
+
+test( 'a heartbeat event stamps lastEventTime even with no data frames', () => {
+	const s = makeConnector();
+	s.start();
+	FakeEventSource.last.dispatch( 'heartbeat', JSON.stringify( { ts: 1.5 } ) );
+	expect( typeof s.lastEventTime ).toBe( 'number' );
+} );
+
+test( 'close() clears lastEventTime (a closed/paused stream shows no staleness)', () => {
+	const s = makeConnector();
+	s.start();
+	FakeEventSource.last.dispatch( 'heartbeat', JSON.stringify( { ts: 1.5 } ) );
+	expect( typeof s.lastEventTime ).toBe( 'number' );
+	s.close();
+	expect( s.lastEventTime ).toBeNull();
+} );
+
 test( 'close() closes the EventSource', () => {
 	const s = makeConnector();
 	s.start();
