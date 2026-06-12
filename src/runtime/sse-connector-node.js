@@ -18,6 +18,11 @@ export class SseConnectorNode extends Node {
 		this.baseUrl = '';
 		this.nonce = '';
 		this._es = null;
+		// Wall-clock of the last inbound frame (data row OR idle heartbeat). The
+		// connector is the only node that sees every frame, so it owns stream
+		// liveness — dashboards read this for their "Xs ago" staleness, which must
+		// reset on a heartbeat and only climb on a real drop. null = no live frame.
+		this.lastEventTime = null;
 		this.registrations.connected = {};
 	}
 
@@ -61,7 +66,15 @@ export class SseConnectorNode extends Node {
 			`?subscribe=${ encodeURIComponent( this.subscribe.join( ',' ) ) }` +
 			`&_wpnonce=${ this.nonce }`;
 		this._es = new EventSource( url, { withCredentials: true } );
+		// Idle keepalive: the server sends an `event: heartbeat` every couple of
+		// seconds even when no data flows. It carries no graph payload — its only
+		// job is to prove the stream is alive — so snoop it for liveness, don't
+		// route it (routing would land it in the topology-console transcript).
+		this._es.addEventListener( 'heartbeat', () => {
+			this.lastEventTime = Date.now();
+		} );
 		this._es.addEventListener( 'msg', ( e ) => {
+			this.lastEventTime = Date.now();
 			const msg = unpack( e.data );
 			if ( msg[ TYPE ] & TM_INFO && 'connected' === msg[ KEY ] ) {
 				// Snoop-only: the envelope drives pid()/the `connected` event; it is
@@ -79,6 +92,10 @@ export class SseConnectorNode extends Node {
 			this._es.close();
 		}
 		this._es = null;
+		// A closed stream has no liveness — hide "Xs ago" until a reopen produces a
+		// fresh frame. (A real drop is an EventSource error, not close(), so it
+		// leaves lastEventTime frozen and "ago" climbs as the intended warning.)
+		this.lastEventTime = null;
 		// Forget the session identity so pid() doesn't report a stale pid after a
 		// reopen (the stream can be closed/reopened on cd off/onto a worker); a
 		// fresh `connected` envelope repopulates it.
