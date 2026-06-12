@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.2] - 2026-06-12
+
 ### Changed
 
 - **`SseConnectorNode` (`_sse`) now tracks stream liveness, and the Raw Logs dashboard reads it for "Xs ago".** The connector — the one node that sees every inbound frame — stamps a public `lastEventTime` on each `msg` AND on the server's idle `heartbeat` event (snooped, not routed, so the topology-console transcript is unaffected), and clears it on `close()`. The Raw Logs viewer sources its "Xs ago" staleness from `_sse.lastEventTime` instead of row arrivals, so an idle-but-healthy stream resets the counter on each heartbeat instead of climbing like a dead connection; a real drop (no heartbeats) leaves it frozen and "ago" climbs as the intended warning. Sibling application dashboards (event-logger-nodes) read the same `_sse.lastEventTime`.
