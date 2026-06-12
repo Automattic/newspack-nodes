@@ -53,6 +53,8 @@ const HELP = {
 		"connect_node <node> [<target>]\n    alias: connect\n    note: <target> defaults to the issuing message's FROM.\n",
 	disconnect_node:
 		'disconnect_node <node> [<target>]\n    alias: disconnect\n',
+	register: 'register <source name> <target name> <event>\n',
+	unregister: 'unregister <source name> <target name> <event>\n',
 	remove_node:
 		'remove_node <node name> [<more names>...]\nremove_node -a <anchored regex glob>\n    aliases: remove, rm\n',
 	list_nodes:
@@ -242,6 +244,10 @@ export class CommandInterpreterNode extends Node {
 				CommandInterpreterNode._cmdDisconnect( args, env ),
 			disconnect: ( self, args, env ) =>
 				CommandInterpreterNode._cmdDisconnect( args, env ),
+			register: ( self, args ) =>
+				CommandInterpreterNode._cmdRegister( args ),
+			unregister: ( self, args ) =>
+				CommandInterpreterNode._cmdUnregister( args ),
 			remove_node: ( self, args ) => self._cmdRemove( args ),
 			remove: ( self, args ) => self._cmdRemove( args ),
 			rm: ( self, args ) => self._cmdRemove( args ),
@@ -418,6 +424,51 @@ export class CommandInterpreterNode extends Node {
 		} else if ( src.target === target ) {
 			src.target = '';
 		}
+		return 'ok';
+	}
+
+	// `register <source> <target> <event>` — source registers target as a
+	// node-name listener for event (Tachikoma register; arg order source/target/event
+	// but Node.register takes event first). Undeclared events throw out as TM_ERROR.
+	static _cmdRegister( args ) {
+		const parts = splitArgs( args );
+		const source = parts[ 0 ] ?? '';
+		if ( '' === source ) {
+			return 'usage: register <source name> <target name> <event>';
+		}
+		const src = Core.node( source );
+		if ( null === src ) {
+			return `unknown node: ${ source }`;
+		}
+		const target = parts[ 1 ] ?? '';
+		if ( '' === target ) {
+			return 'usage: register <source name> <target name> <event>';
+		}
+		if ( null === Core.node( target ) ) {
+			return `unknown node: ${ target }`;
+		}
+		src.register( parts.slice( 2 ).join( ' ' ), target );
+		return 'ok';
+	}
+
+	// `unregister <source> <target> <event>` — drop target's node-name
+	// registration for event on source (Tachikoma unregister). No target-existence
+	// check: a vanished target's registration can still be cleared.
+	static _cmdUnregister( args ) {
+		const parts = splitArgs( args );
+		const source = parts[ 0 ] ?? '';
+		if ( '' === source ) {
+			return 'usage: unregister <source name> <target name> <event>';
+		}
+		const src = Core.node( source );
+		if ( null === src ) {
+			return `unknown node: ${ source }`;
+		}
+		const target = parts[ 1 ] ?? '';
+		if ( '' === target ) {
+			return 'usage: unregister <source name> <target name> <event>';
+		}
+		src.unregister( parts.slice( 2 ).join( ' ' ), target );
 		return 'ok';
 	}
 
