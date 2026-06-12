@@ -93,6 +93,24 @@ export class Node {
 		}
 	}
 
+	fill( message ) {
+		if (
+			'' === message[ TO ] &&
+			'string' === typeof this.target &&
+			this.target
+		) {
+			message[ TO ] = this.target;
+		}
+		this.counter += 1;
+		const size = valueSize( message );
+		if ( size > this.largestMsgSent ) {
+			this.largestMsgSent = size;
+		}
+		if ( this.sink ) {
+			this.sink.fill( message );
+		}
+	}
+
 	static _coerceArgument( token, type ) {
 		switch ( type ) {
 			case 'int':
@@ -119,133 +137,6 @@ export class Node {
 		}
 		this.name = name;
 		Core.registerNode( name, this );
-	}
-
-	fill( message ) {
-		if (
-			'' === message[ TO ] &&
-			'string' === typeof this.target &&
-			this.target
-		) {
-			message[ TO ] = this.target;
-		}
-		this.counter += 1;
-		const size = valueSize( message );
-		if ( size > this.largestMsgSent ) {
-			this.largestMsgSent = size;
-		}
-		if ( this.sink ) {
-			this.sink.fill( message );
-		}
-	}
-
-	stampMessage( message, name ) {
-		if ( '' === name ) {
-			// Programming error — unlikely to spam, won't recover.
-			this.stderr(
-				`ERROR: ${ this.constructor.name } stampMessage() called with empty name`
-			);
-			return false;
-		}
-		const from = message[ FROM ];
-		const next = '' === from ? name : `${ name }/${ from }`;
-		if ( next.length > MAX_FROM_SIZE ) {
-			// Rate-limit: a routing cycle could trigger this per-message.
-			this.print_less_often(
-				`ERROR: path exceeded ${ MAX_FROM_SIZE } bytes; dropping from: ${ next }`
-			);
-			return false;
-		}
-		message[ FROM ] = next;
-		return true;
-	}
-
-	// Per-node mid-line tag (Tachikoma Node::log_midfix): `{name}: ` on each line,
-	// unless argv0 already starts with this node's name. null → the bare tag; a
-	// message → tagged, chomped, + one trailing newline.
-	log_midfix( msg = null ) {
-		let midfix = '';
-		if (
-			'' !== this.name &&
-			! new RegExp(
-				'^' + this.name.replace( /[.*+?^${}()|[\]\\]/g, '\\$&' ) + '\\b'
-			).test( Core.argv0() )
-		) {
-			midfix = `${ this.name }: `;
-		}
-		if ( null === msg || undefined === msg ) {
-			return midfix;
-		}
-		const chomped = msg.replace( /\n+$/, '' );
-		return midfix + chomped.split( '\n' ).join( '\n' + midfix ) + '\n';
-	}
-
-	// Emit a stderr line tagged with this node's midfix, via Core's stderr sink.
-	// An already-dated line passes through Core verbatim (no double prefix).
-	stderr( text ) {
-		if ( '' === text || null === text || undefined === text ) {
-			return;
-		}
-		if ( /^\d{4}-\d\d-\d\d/.test( text ) ) {
-			Core.stderr( text );
-			return;
-		}
-		Core.stderr( Core.log_prefix( this.log_midfix( text ) ) );
-	}
-
-	// Node-keyed rate-limited logging (per-node via log_midfix), routed through
-	// Core's limiters so the dedup key + emitted line both carry this node's tag.
-	print_less_often( text ) {
-		Core.printLessOften( this.log_midfix( text ) );
-	}
-
-	print_least_often( text ) {
-		Core.printLeastOften( this.log_midfix( text ) );
-	}
-
-	// Drop a message with a rate-limited audit line (Perl/PHP Node::drop_message):
-	// "WARNING: <error> - <types> [from: …] [to: …] [payload: …]". A NOT_AVAILABLE
-	// drop within the first 300s of uptime uses the rarer print_least_often (it
-	// dampens boot-time noise from not-yet-registered nodes); else print_less_often.
-	// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl). VALUE is included only
-	// for payload-bearing types; an object VALUE is JSON-rendered (the substrate's
-	// structured-VALUE analogue of Perl's string PAYLOAD).
-	dropMessage( message, error ) {
-		const type = message[ TYPE ];
-		const labels = [];
-		for ( const [ bit, label ] of TYPE_NAMES ) {
-			if ( type & bit ) {
-				labels.push( label );
-			}
-		}
-		const typeStr = labels.length ? labels.join( '|' ) : 'TYPE_UNKNOWN';
-
-		const prefix =
-			'NOT_AVAILABLE' === error
-				? `${ error } - `
-				: `WARNING: ${ error } - `;
-		const parts = [ `${ prefix }${ typeStr }` ];
-		if ( '' !== message[ FROM ] ) {
-			parts.push( `from: ${ message[ FROM ] }` );
-		}
-		if ( '' !== message[ TO ] ) {
-			parts.push( `to: ${ message[ TO ] }` );
-		}
-		const value = message[ VALUE ];
-		if ( type & DROP_PAYLOAD_TYPES && '' !== value ) {
-			const valueStr =
-				null !== value && 'object' === typeof value
-					? JSON.stringify( value )
-					: String( value );
-			parts.push( `payload: ${ valueStr }` );
-		}
-		const line = parts.join( ' ' );
-
-		if ( 'NOT_AVAILABLE' === error && Core.now() - Core.initTime < 300 ) {
-			this.print_least_often( line );
-			return;
-		}
-		this.print_less_often( line );
 	}
 
 	/**
@@ -277,6 +168,11 @@ export class Node {
 		}
 	}
 
+	setState( event, payload = null ) {
+		this.setStateCache[ event ] = payload;
+		this.notify( event, payload );
+	}
+
 	notify( event, payload = null ) {
 		const listeners = this.registrations[ event ];
 		if ( ! listeners ) {
@@ -290,9 +186,29 @@ export class Node {
 		}
 	}
 
-	setState( event, payload = null ) {
-		this.setStateCache[ event ] = payload;
-		this.notify( event, payload );
+	_notifyRegistered( event, listener, payload ) {
+		const cb = this.registrations[ event ]?.[ listener ];
+		if ( 'function' === typeof cb ) {
+			return cb( payload );
+		}
+		// Node-name mode: deliver TM_INFO directly to the resolved node. No TO —
+		// stamping it re-routes through _router (across an SSE pivot it lands where
+		// neither listener nor emitter exist, logging a spurious NOT_AVAILABLE).
+		const target = Core.node( listener );
+		if ( ! target ) {
+			// Stale listener could fire on every notify — rate-limit.
+			Core.printLessOften(
+				`WARNING: ${ listener } forgot to unregister from ${ event } on ${ this.name }`
+			);
+			return false;
+		}
+		const msg = newMessage();
+		msg[ TYPE ] = TM_INFO;
+		msg[ FROM ] = this.name;
+		msg[ KEY ] = event;
+		msg[ VALUE ] = payload;
+		target.fill( msg );
+		return true;
 	}
 
 	// Node-name listeners (null-callback registrations) keyed by event; closures excluded, empty events omitted. Mirrors PHP registered_listeners() for dump_metadata.
@@ -312,23 +228,6 @@ export class Node {
 			}
 		}
 		return out;
-	}
-
-	/**
-	 * Build a TM_COMMAND message envelope. Mirrors Tachikoma::Node::command —
-	 * available on every Node so Shell.sendCommand and overlay callers can
-	 * issue commands without hand-building messages.
-	 *
-	 * @param {string} name Command verb (e.g. 'connect_node').
-	 * @param {string} args Positional argument string (the verb parses it).
-	 * @return {Array} A TM_COMMAND Message (the 7-field positional array).
-	 */
-	command( name, args = '' ) {
-		const m = newMessage();
-		m[ TYPE ] = TM_COMMAND;
-		m[ FROM ] = this.name;
-		m[ VALUE ] = { name, arguments: args };
-		return m;
 	}
 
 	// Clear target (matches PHP Node::disconnect_node). Tee overrides to prune
@@ -390,28 +289,129 @@ export class Node {
 		}
 	}
 
-	_notifyRegistered( event, listener, payload ) {
-		const cb = this.registrations[ event ]?.[ listener ];
-		if ( 'function' === typeof cb ) {
-			return cb( payload );
-		}
-		// Node-name mode: deliver TM_INFO directly to the resolved node. No TO —
-		// stamping it re-routes through _router (across an SSE pivot it lands where
-		// neither listener nor emitter exist, logging a spurious NOT_AVAILABLE).
-		const target = Core.node( listener );
-		if ( ! target ) {
-			// Stale listener could fire on every notify — rate-limit.
-			Core.printLessOften(
-				`WARNING: ${ listener } forgot to unregister from ${ event } on ${ this.name }`
+	/**
+	 * Build a TM_COMMAND message envelope. Mirrors Tachikoma::Node::command —
+	 * available on every Node so Shell.sendCommand and overlay callers can
+	 * issue commands without hand-building messages.
+	 *
+	 * @param {string} name Command verb (e.g. 'connect_node').
+	 * @param {string} args Positional argument string (the verb parses it).
+	 * @return {Array} A TM_COMMAND Message (the 7-field positional array).
+	 */
+	command( name, args = '' ) {
+		const m = newMessage();
+		m[ TYPE ] = TM_COMMAND;
+		m[ FROM ] = this.name;
+		m[ VALUE ] = { name, arguments: args };
+		return m;
+	}
+
+	stampMessage( message, name ) {
+		if ( '' === name ) {
+			// Programming error — unlikely to spam, won't recover.
+			this.stderr(
+				`ERROR: ${ this.constructor.name } stampMessage() called with empty name`
 			);
 			return false;
 		}
-		const msg = newMessage();
-		msg[ TYPE ] = TM_INFO;
-		msg[ FROM ] = this.name;
-		msg[ KEY ] = event;
-		msg[ VALUE ] = payload;
-		target.fill( msg );
+		const from = message[ FROM ];
+		const next = '' === from ? name : `${ name }/${ from }`;
+		if ( next.length > MAX_FROM_SIZE ) {
+			// Rate-limit: a routing cycle could trigger this per-message.
+			this.print_less_often(
+				`ERROR: path exceeded ${ MAX_FROM_SIZE } bytes; dropping from: ${ next }`
+			);
+			return false;
+		}
+		message[ FROM ] = next;
 		return true;
+	}
+
+	// Drop a message with a rate-limited audit line (Perl/PHP Node::drop_message):
+	// "WARNING: <error> - <types> [from: …] [to: …] [payload: …]". A NOT_AVAILABLE
+	// drop within the first 300s of uptime uses the rarer print_least_often (it
+	// dampens boot-time noise from not-yet-registered nodes); else print_less_often.
+	// NOT_AVAILABLE keeps no "WARNING:" prefix (matches Perl). VALUE is included only
+	// for payload-bearing types; an object VALUE is JSON-rendered (the substrate's
+	// structured-VALUE analogue of Perl's string PAYLOAD).
+	dropMessage( message, error ) {
+		const type = message[ TYPE ];
+		const labels = [];
+		for ( const [ bit, label ] of TYPE_NAMES ) {
+			if ( type & bit ) {
+				labels.push( label );
+			}
+		}
+		const typeStr = labels.length ? labels.join( '|' ) : 'TYPE_UNKNOWN';
+
+		const prefix =
+			'NOT_AVAILABLE' === error
+				? `${ error } - `
+				: `WARNING: ${ error } - `;
+		const parts = [ `${ prefix }${ typeStr }` ];
+		if ( '' !== message[ FROM ] ) {
+			parts.push( `from: ${ message[ FROM ] }` );
+		}
+		if ( '' !== message[ TO ] ) {
+			parts.push( `to: ${ message[ TO ] }` );
+		}
+		const value = message[ VALUE ];
+		if ( type & DROP_PAYLOAD_TYPES && '' !== value ) {
+			const valueStr =
+				null !== value && 'object' === typeof value
+					? JSON.stringify( value )
+					: String( value );
+			parts.push( `payload: ${ valueStr }` );
+		}
+		const line = parts.join( ' ' );
+
+		if ( 'NOT_AVAILABLE' === error && Core.now() - Core.initTime < 300 ) {
+			this.print_least_often( line );
+			return;
+		}
+		this.print_less_often( line );
+	}
+
+	// Emit a stderr line tagged with this node's midfix, via Core's stderr sink.
+	// An already-dated line passes through Core verbatim (no double prefix).
+	stderr( text ) {
+		if ( '' === text || null === text || undefined === text ) {
+			return;
+		}
+		if ( /^\d{4}-\d\d-\d\d/.test( text ) ) {
+			Core.stderr( text );
+			return;
+		}
+		Core.stderr( Core.log_prefix( this.log_midfix( text ) ) );
+	}
+
+	// Node-keyed rate-limited logging (per-node via log_midfix), routed through
+	// Core's limiters so the dedup key + emitted line both carry this node's tag.
+	print_less_often( text ) {
+		Core.printLessOften( this.log_midfix( text ) );
+	}
+
+	print_least_often( text ) {
+		Core.printLeastOften( this.log_midfix( text ) );
+	}
+
+	// Per-node mid-line tag (Tachikoma Node::log_midfix): `{name}: ` on each line,
+	// unless argv0 already starts with this node's name. null → the bare tag; a
+	// message → tagged, chomped, + one trailing newline.
+	log_midfix( msg = null ) {
+		let midfix = '';
+		if (
+			'' !== this.name &&
+			! new RegExp(
+				'^' + this.name.replace( /[.*+?^${}()|[\]\\]/g, '\\$&' ) + '\\b'
+			).test( Core.argv0() )
+		) {
+			midfix = `${ this.name }: `;
+		}
+		if ( null === msg || undefined === msg ) {
+			return midfix;
+		}
+		const chomped = msg.replace( /\n+$/, '' );
+		return midfix + chomped.split( '\n' ).join( '\n' + midfix ) + '\n';
 	}
 }
