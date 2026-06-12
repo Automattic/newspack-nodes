@@ -1167,6 +1167,9 @@ export default function SchematicCanvas( {
 						}
 						const el = (
 							<g key={ `edge-${ i }-${ e.from }-${ e.to }` }>
+								{ e.registration && e.event && (
+									<title>{ e.event }</title>
+								) }
 								<path
 									className={ `topology-edge topology-edge--active${
 										flowing ? ' topology-edge--flowing' : ''
@@ -1174,6 +1177,8 @@ export default function SchematicCanvas( {
 										dimmed ? ' is-dimmed' : ''
 									}${ isEdgeSelected ? ' is-selected' : '' }${
 										e.virtual ? ' is-virtual' : ''
+									}${
+										e.registration ? ' is-registration' : ''
 									}` }
 									d={ d }
 									markerEnd={
@@ -1182,23 +1187,26 @@ export default function SchematicCanvas( {
 											: 'url(#topology-arrow-active)'
 									}
 								/>
-								{ /* Fat hit-target, edit mode only; skip virtual edges. */ }
-								{ editMode && onSelectEdge && ! e.virtual && (
-									<path
-										className="topology-edge-hit"
-										d={ d }
-										onMouseDown={ ( ev ) => {
-											ev.stopPropagation();
-											onSelectEdge( {
-												from: e.from,
-												to: e.to,
-											} );
-										} }
-										onPointerDown={ ( ev ) =>
-											ev.stopPropagation()
-										}
-									/>
-								) }
+								{ /* Fat hit-target, edit mode only; skip virtual + registration edges. */ }
+								{ editMode &&
+									onSelectEdge &&
+									! e.virtual &&
+									! e.registration && (
+										<path
+											className="topology-edge-hit"
+											d={ d }
+											onMouseDown={ ( ev ) => {
+												ev.stopPropagation();
+												onSelectEdge( {
+													from: e.from,
+													to: e.to,
+												} );
+											} }
+											onPointerDown={ ( ev ) =>
+												ev.stopPropagation()
+											}
+										/>
+									) }
 							</g>
 						);
 						( stub ? plainEdges : bloomEdges ).push( el );

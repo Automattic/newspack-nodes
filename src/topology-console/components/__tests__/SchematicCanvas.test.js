@@ -485,6 +485,42 @@ describe( 'SchematicCanvas', () => {
 		expect( edge ).not.toBeNull();
 	} );
 
+	// Registration edges (parseMetadata's `{ from, to, registration, event }`)
+	// are an informational THIRD edge kind: dotted (is-registration), event-name
+	// <title> tooltip, and no edit-mode hit-target (not click-deletable).
+	const registrationParsed = {
+		nodes: [ { id: 'a' }, { id: 'b' } ],
+		edges: [ { from: 'a', to: 'b', registration: true, event: 'EVT' } ],
+	};
+
+	it( 'tags a registration edge with the is-registration class', () => {
+		const { container } = render(
+			<SchematicCanvas { ...baseProps } parsed={ registrationParsed } />
+		);
+		expect(
+			container.querySelector( '.topology-edge.is-registration' )
+		).toBeTruthy();
+	} );
+
+	it( 'renders the event name as a <title> on a registration edge', () => {
+		const { container } = render(
+			<SchematicCanvas { ...baseProps } parsed={ registrationParsed } />
+		);
+		expect( container.querySelector( 'title' )?.textContent ).toBe( 'EVT' );
+	} );
+
+	it( 'gives a registration edge no edit-mode hit-target', () => {
+		const { container } = render(
+			<SchematicCanvas
+				{ ...baseProps }
+				parsed={ registrationParsed }
+				editMode
+				onSelectEdge={ () => {} }
+			/>
+		);
+		expect( container.querySelector( '.topology-edge-hit' ) ).toBeNull();
+	} );
+
 	it( 'dims unhovered edges when hoveredId is set', () => {
 		const { container } = render(
 			<SchematicCanvas { ...baseProps } hoveredId="c" />
