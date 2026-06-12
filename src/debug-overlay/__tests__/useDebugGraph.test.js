@@ -285,7 +285,9 @@ describe( 'useDebugGraph', () => {
 		metadata.setName( names.METADATA );
 		const interpreter = new Node();
 		interpreter.setName( 'my-interpreter' );
-		const fillSpy = jest.spyOn( interpreter, 'fill' );
+		const fillSpy = jest
+			.spyOn( interpreter, 'fill' )
+			.mockImplementation( () => {} );
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const classes = [ { shell_name: 'Node', is_interpreter: true } ];
@@ -320,8 +322,12 @@ describe( 'useDebugGraph', () => {
 		node.setName( 'my-node' );
 		const config = new Node();
 		config.setName( 'my-node:config' );
-		const nodeFillSpy = jest.spyOn( node, 'fill' );
-		const configFillSpy = jest.spyOn( config, 'fill' );
+		const nodeFillSpy = jest
+			.spyOn( node, 'fill' )
+			.mockImplementation( () => {} );
+		const configFillSpy = jest
+			.spyOn( config, 'fill' )
+			.mockImplementation( () => {} );
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		// No catalog entry (or is_interpreter:false) ⇒ target :config sibling.
@@ -618,8 +624,10 @@ describe( 'useDebugGraph', () => {
 		const dumper = mountOutput();
 		const node = new Node();
 		node.setName( 'my-node' );
+		node.sink = { fill: () => {} };
 		const config = new Node();
 		config.setName( 'my-node:config' );
+		config.sink = { fill: () => {} };
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const classes = [ { shell_name: 'Node', is_interpreter: false } ];
