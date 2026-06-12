@@ -312,7 +312,7 @@ class Command_Interpreter_Node extends Node {
 			'dump_node'       => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_node( $args ),
 			'dump'            => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_node( $args ),
 			'dump_config'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_dump_config(),
-			'dump_metadata'   => fn ( Command_Interpreter_Node $self, string $args ): mixed => self::cmd_dump_metadata( \trim( $args ) ),
+			'dump_metadata'   => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): mixed => self::cmd_dump_metadata( \trim( $args ), \is_string( $envelope[ Message::FROM ] ?? null ) ? $envelope[ Message::FROM ] : '' ),
 			'stats'           => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_stats( $self, $args ),
 			'uptime'          => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_uptime(),
 			'debug_state'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_debug_state( $self, $args ),
@@ -802,9 +802,10 @@ class Command_Interpreter_Node extends Node {
 	 * refresh is a one-node round-trip; bare = the full map.
 	 *
 	 * @param string $only Optional single node name to return.
+	 * @param string $pwd  Requesting session's reply pivot (inbound FROM == reverse_cwd); stamped into `_header` on a full snapshot.
 	 * @return array<string,array<string,mixed>>
 	 */
-	private static function cmd_dump_metadata( string $only = '' ): array {
+	private static function cmd_dump_metadata( string $only = '', string $pwd = '' ): array {
 		$out = [];
 		/** @var \Newspack_Nodes\Node $node Each registered node. */
 		foreach ( Core::$nodes_by_name as $name => $node ) {
@@ -836,6 +837,13 @@ class Command_Interpreter_Node extends Node {
 				'accepts_fill'  => $schema['accepts_fill'] ?? true,
 				'has_target'    => $schema['has_target'] ?? true,
 			];
+		}
+		// Reserved header on a FULL snapshot: this session's reply pivot (the
+		// reverse_cwd) so the GUI can match it against a Tee target to toggle
+		// Connect/Disconnect without reconstructing the runtime-renamed path. A
+		// single-node refresh ('' !== $only) is a delta and carries no header.
+		if ( '' === $only && '' !== $pwd ) {
+			$out['_header'] = [ 'pwd' => $pwd ];
 		}
 		return $out;
 	}

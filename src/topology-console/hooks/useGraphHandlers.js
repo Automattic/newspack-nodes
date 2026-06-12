@@ -101,20 +101,45 @@ export function useGraphHandlers( {
 				if ( 'dump' === action ) {
 					dispatch( `dump_node ${ nodeId }`, 'dump_node', nodeId );
 				} else if ( 'tail' === action ) {
-					// connect_node with NO target defaults to the issuing FROM (_output).
+					// connect_node with NO target appends the issuing FROM — this
+					// session's reply pivot, reported authoritatively as the _header
+					// pwd. Append it to the Tee's fan-out array (don't replace, or the
+					// other edges vanish until the next poll); the bare value also
+					// covers the in-browser tee (pwd === `_output`).
 					dispatch(
 						`connect_node ${ nodeId }`,
 						'connect_node',
 						nodeId
 					);
-					patch( nodeId, { target: names.OUTPUT } );
+					const meta = Core.node( names.METADATA )?.rawMap;
+					const pwd = meta?._header?.pwd;
+					if ( pwd ) {
+						const current = meta?.[ nodeId ]?.target;
+						let next = [ pwd ];
+						if ( Array.isArray( current ) ) {
+							next = current.includes( pwd )
+								? current
+								: [ ...current, pwd ];
+						}
+						patch( nodeId, { target: next } );
+					}
 				} else if ( 'disconnect' === action ) {
+					// disconnect_node with NO target resolves to the issuing FROM and
+					// value-filters JUST that pivot — so optimistically remove only
+					// this session's pwd, preserving the Tee's other fan-out edges.
 					dispatch(
 						`disconnect_node ${ nodeId }`,
 						'disconnect_node',
 						nodeId
 					);
-					patch( nodeId, { target: '' } );
+					const meta = Core.node( names.METADATA )?.rawMap;
+					const pwd = meta?._header?.pwd;
+					const current = meta?.[ nodeId ]?.target;
+					if ( pwd && Array.isArray( current ) ) {
+						patch( nodeId, {
+							target: current.filter( ( t ) => t !== pwd ),
+						} );
+					}
 				} else if ( 'send' === action ) {
 					dispatch(
 						`send_node ${ nodeId } ${ payload }`,
@@ -128,6 +153,9 @@ export function useGraphHandlers( {
 						'debug_state',
 						`${ nodeId } ${ level }`
 					);
+					// Reflect the new trace level at once so the Trace button flips
+					// without waiting out the (5s+) dump_metadata poll.
+					patch( nodeId, { debug_state: level } );
 				} else if ( 'invoke' === action && payload ) {
 					if ( ! shell ) {
 						return;

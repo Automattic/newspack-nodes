@@ -94,4 +94,24 @@ describe( 'augmentWithVirtualEdges', () => {
 
 		expect( augmentWithVirtualEdges( graph, CLASSES ) ).toBe( graph );
 	} );
+
+	it( 'preserves non-edge graph fields (pwd) when it appends a virtual edge', () => {
+		const graph = {
+			nodes: [
+				{
+					id: 'rb',
+					class: 'Request_Builder',
+					verbInvocations: [
+						{ verb: 'set_errors_target', args: [ 'errors' ] },
+					],
+				},
+				{ id: 'errors', class: 'Partition', verbInvocations: [] },
+			],
+			edges: [],
+			pwd: '_repl/_output/_sse:9/_output',
+		};
+		const out = augmentWithVirtualEdges( graph, CLASSES );
+		expect( out.edges.length ).toBe( 1 );
+		expect( out.pwd ).toBe( '_repl/_output/_sse:9/_output' );
+	} );
 } );

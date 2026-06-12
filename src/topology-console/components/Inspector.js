@@ -1063,7 +1063,6 @@ export default function Inspector( {
 	onSelect,
 	onHover,
 	nodeIds,
-	ssePid,
 	editMode = false,
 	catalog = [],
 	formatters = [],
@@ -1128,16 +1127,15 @@ export default function Inspector( {
 	// Button state derived from server metadata, not client bookkeeping.
 	const traceOn = node.debugState > 0;
 	// A tail (`connect_node <node>` with no target) defaults the Tee target to
-	// the issuing command's FROM. That FROM is this session's reply pivot
-	// `_http/_sse:{pid}/_output`, which the worker's reply-in Consumer prefixes
-	// with `_repl/` — so the stored edge target is `_repl/_http/_sse:{pid}/_output`.
+	// the issuing command's FROM — THIS session's reply pivot. The metadata
+	// producer reports that exact pivot as `parsed.pwd` (the reverse_cwd), so the
+	// toggle is a precise match against the node's FULL targets — no reconstructing
+	// the runtime-renamed path, and it works for the worker pivot AND the in-browser
+	// JS tee (where pwd is the bare `_output`). parseMetadata collapses every edge
+	// to its head, flattening all sessions' pivots to one shared `_repl`, so the
+	// full target list is the only place the per-session pivot survives.
 	const tailOn =
-		ssePid &&
-		parsed.edges.some(
-			( e ) =>
-				e.from === selectedId &&
-				e.to === `_repl/_http/_sse:${ ssePid }/_output`
-		);
+		!! parsed.pwd && ( node.targets || [] ).includes( parsed.pwd );
 
 	return (
 		<aside className="topology-inspector">

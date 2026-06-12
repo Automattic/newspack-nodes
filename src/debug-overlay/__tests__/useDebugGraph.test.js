@@ -53,7 +53,13 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const { result } = renderHook( () => useDebugGraph() );
 		expect( result.current.ready ).toBe( false );
-		expect( result.current.graph ).toEqual( { nodes: [], edges: [] } );
+		// coreToGraph stamps the local reply pivot into pwd (the in-browser tail
+		// target is always the bare `_output`), even with no visible nodes.
+		expect( result.current.graph ).toEqual( {
+			nodes: [],
+			edges: [],
+			pwd: '_output',
+		} );
 		teardown();
 	} );
 

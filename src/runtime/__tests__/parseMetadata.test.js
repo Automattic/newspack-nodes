@@ -2,12 +2,36 @@ import { parseMetadata } from '../metadata-node';
 
 describe( 'parseMetadata', () => {
 	it( 'returns empty graph for malformed input', () => {
-		expect( parseMetadata( null ) ).toEqual( { nodes: [], edges: [] } );
-		expect( parseMetadata( '' ) ).toEqual( { nodes: [], edges: [] } );
+		expect( parseMetadata( null ) ).toEqual( {
+			nodes: [],
+			edges: [],
+			pwd: '',
+		} );
+		expect( parseMetadata( '' ) ).toEqual( {
+			nodes: [],
+			edges: [],
+			pwd: '',
+		} );
 		expect( parseMetadata( 'not-json' ) ).toEqual( {
 			nodes: [],
 			edges: [],
+			pwd: '',
 		} );
+	} );
+
+	it( 'extracts the reply pivot from the _header section and excludes it from nodes', () => {
+		const { nodes, pwd } = parseMetadata( {
+			_header: { pwd: '_repl/_output/_sse:346/_output' },
+			alpha: { class: 'Echo', counter: 1, target: '' },
+		} );
+		expect( pwd ).toBe( '_repl/_output/_sse:346/_output' );
+		expect( nodes.map( ( n ) => n.id ) ).toEqual( [ 'alpha' ] );
+	} );
+
+	it( 'defaults pwd to empty string when no _header is present', () => {
+		expect(
+			parseMetadata( { a: { class: 'Echo', counter: 0 } } ).pwd
+		).toBe( '' );
 	} );
 
 	it( 'parses a metadata OBJECT (the post-fix contract: object-in, no JSON string)', () => {
@@ -35,9 +59,40 @@ describe( 'parseMetadata', () => {
 				bytesWritten: 0,
 				accepts_fill: true,
 				has_target: true,
+				targets: [ 'beta' ],
 			},
 		] );
 		expect( edges ).toEqual( [ { from: 'alpha', to: 'beta' } ] );
+	} );
+
+	it( "preserves each node's FULL target list even though edges collapse to the head", () => {
+		// The canvas edge collapses `_repl/_output/_sse:123/_output` to its head
+		// `_repl`, but the Inspector's Connect/Disconnect toggle must still tell
+		// WHICH session's reply pivot is wired — so the node keeps the full paths.
+		const { nodes, edges } = parseMetadata( {
+			tee: {
+				class: 'Tee',
+				counter: 10,
+				target: [ 'request-builder', '_repl/_output/_sse:123/_output' ],
+			},
+		} );
+		expect( edges ).toEqual( [
+			{ from: 'tee', to: 'request-builder' },
+			{ from: 'tee', to: '_repl' },
+		] );
+		expect( nodes[ 0 ].targets ).toEqual( [
+			'request-builder',
+			'_repl/_output/_sse:123/_output',
+		] );
+	} );
+
+	it( 'normalizes a string target and a missing target to a targets array', () => {
+		const { nodes } = parseMetadata( {
+			one: { class: 'Echo', counter: 1, target: 'beta' },
+			two: { class: 'Echo', counter: 1 },
+		} );
+		expect( nodes[ 0 ].targets ).toEqual( [ 'beta' ] );
+		expect( nodes[ 1 ].targets ).toEqual( [] );
 	} );
 
 	it( 'draws an edge to the head node of a path target (router peels the head)', () => {

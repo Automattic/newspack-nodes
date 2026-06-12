@@ -2,7 +2,7 @@ import { useNodeState } from '../../runtime/react';
 import { coreToGraph } from '../utils/coreToGraph';
 import names from '../../runtime/reserved-node-names.json';
 
-const EMPTY_GRAPH = { nodes: [], edges: [] };
+const EMPTY_GRAPH = { nodes: [], edges: [], pwd: '' };
 
 /**
  * Shared graph source for the debug overlay and topology console: prefer the

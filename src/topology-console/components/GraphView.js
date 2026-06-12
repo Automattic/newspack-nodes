@@ -25,7 +25,6 @@ import '../styles/graph-view.scss';
  * @param {Array}    props.catalog                   Class list (Inspector verbs).
  * @param {Array}    props.formatters                Formatter list (Inspector).
  * @param {string}   props.streamStatus              For Inspector display.
- * @param {number}   props.ssePid                    For Inspector display.
  * @param {Object}   props.positionOverrides         Layout positions (consumer-owned).
  * @param {Function} props.onPositionChange          (id, pos)
  * @param {Object}   props.viewport
@@ -60,7 +59,6 @@ export default function GraphView( {
 	catalog = [],
 	formatters = [],
 	streamStatus,
-	ssePid,
 	positionOverrides = {},
 	onPositionChange,
 	viewport = null,
@@ -219,7 +217,6 @@ export default function GraphView( {
 					onSelect={ handleSelectNode }
 					onHover={ setHoveredId }
 					nodeIds={ nodeIds }
-					ssePid={ ssePid }
 					editMode={ editMode }
 					catalog={ catalog }
 					formatters={ formatters }

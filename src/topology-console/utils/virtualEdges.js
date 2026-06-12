@@ -52,8 +52,10 @@ export function augmentWithVirtualEdges( graph, classes ) {
 	if ( ! virtualEdges.length ) {
 		return graph;
 	}
+	// Spread so non-edge fields (e.g. `pwd`, the reply pivot the Inspector matches)
+	// survive the augmentation — only `edges` is replaced.
 	return {
-		nodes: graph.nodes,
+		...graph,
 		edges: [ ...graph.edges, ...virtualEdges ],
 	};
 }

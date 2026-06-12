@@ -1407,7 +1407,6 @@ export default function TopologyConsole() {
 					catalog: catalog.classes,
 					formatters: catalog.formatters,
 					streamStatus: status,
-					ssePid,
 					positionOverrides,
 					onPositionChange: handlePositionChange,
 					viewport,
