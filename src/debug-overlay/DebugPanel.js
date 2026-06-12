@@ -324,6 +324,7 @@ export default function DebugPanel( { storageKey, onClose } ) {
 							viewport,
 							onViewportChange,
 							onConnect: handlers.onConnect,
+							onRemoveEdge: handlers.onRemoveEdge,
 							onRemoveNode: handlers.onRemoveNode,
 							onDropNode: handlers.onDropNode,
 							onInspectorAction: ( action, nodeId, payload ) => {

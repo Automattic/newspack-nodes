@@ -1049,9 +1049,17 @@ export default function TopologyConsole() {
 		[ mode, liveHandlers ]
 	);
 
-	const handleRemoveEdge = useCallback( ( from, to ) => {
-		setDraft( ( g ) => removeEdge( g, from, to ) );
-	}, [] );
+	const handleRemoveEdge = useCallback(
+		( from, to ) => {
+			// Live canvas: the gesture is a live command at the current cwd.
+			if ( mode !== 'edit' ) {
+				liveHandlers.onRemoveEdge( from, to );
+				return;
+			}
+			setDraft( ( g ) => removeEdge( g, from, to ) );
+		},
+		[ mode, liveHandlers ]
+	);
 
 	// DELETE shows only for a topology with a user-saved copy (stock is protected).
 	// Keyed off the source of the loaded topology (from the get/save response),
