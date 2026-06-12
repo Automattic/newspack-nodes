@@ -410,6 +410,88 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( '', Core::node( 'alice' )->target() );
 	}
 
+	/** Source node that pre-declares one event so `register` can attach a listener to it. */
+	private function emitter_with_event( string $name, string $event ): Node {
+		$node = new class( $event ) extends Node {
+			public function __construct( string $event ) {
+				$this->registrations = [ $event => [] ];
+			}
+		};
+		$node->name( $name );
+		return $node;
+	}
+
+	public function test_register_wires_a_node_name_listener_on_the_source(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$source = $this->emitter_with_event( 'source', 'EVT' );
+		( new Echo_Node() )->name( 'target' );
+
+		$this->assertSame( 'ok', $interpreter->dispatch( 'register', 'source target EVT' ) );
+		$this->assertSame( [ 'EVT' => [ 'target' ] ], $source->registered_listeners() );
+	}
+
+	public function test_register_unknown_source_returns_error(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		( new Echo_Node() )->name( 'target' );
+
+		$this->assertSame( 'unknown node: source', $interpreter->dispatch( 'register', 'source target EVT' ) );
+	}
+
+	public function test_register_unknown_target_returns_error(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$this->emitter_with_event( 'source', 'EVT' );
+
+		$this->assertSame( 'unknown node: target', $interpreter->dispatch( 'register', 'source target EVT' ) );
+	}
+
+	public function test_register_missing_args_returns_usage(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$this->assertSame( 'usage: register <source name> <target name> <event>', $interpreter->dispatch( 'register' ) );
+	}
+
+	public function test_register_missing_target_returns_usage(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$this->emitter_with_event( 'source', 'EVT' );
+
+		$this->assertSame( 'usage: register <source name> <target name> <event>', $interpreter->dispatch( 'register', 'source' ) );
+	}
+
+	public function test_register_undeclared_event_surfaces_as_command_error(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$this->emitter_with_event( 'source', 'EVT' );
+		( new Echo_Node() )->name( 'target' );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'no such event: NOPE' );
+		$interpreter->dispatch( 'register', 'source target NOPE' );
+	}
+
+	public function test_unregister_removes_a_previously_registered_listener(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$source = $this->emitter_with_event( 'source', 'EVT' );
+		( new Echo_Node() )->name( 'target' );
+
+		$interpreter->dispatch( 'register', 'source target EVT' );
+		$this->assertSame( 'ok', $interpreter->dispatch( 'unregister', 'source target EVT' ) );
+		$this->assertSame( [], $source->registered_listeners() );
+	}
+
+	public function test_unregister_missing_args_returns_usage(): void {
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$this->assertSame( 'usage: unregister <source name> <target name> <event>', $interpreter->dispatch( 'unregister' ) );
+	}
+
 	public function test_remove_node_removes_single_node(): void {
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );

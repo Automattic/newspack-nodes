@@ -250,6 +250,8 @@ class Command_Interpreter_Node extends Node {
 			'set_sink'  => "set_sink <node> <target>\n",
 			'connect_node' => "connect_node <node> [<target>]\n    alias: connect\n    note: <target> defaults to the issuing message's FROM — tails the node's flow back to your own cli/SSE session.\n",
 			'disconnect_node' => "disconnect_node <node> [<target>]\n    alias: disconnect\n    note: for a Tee, <target> defaults to the issuing message's FROM — undoes a default `connect_node <tee>` for this session.\n",
+			'register' => "register <source name> <target name> <event>\n",
+			'unregister' => "unregister <source name> <target name> <event>\n",
 			'remove_node' => "remove_node <node name> [<more names>...]\n"
 				. "remove_node -a <anchored regex glob>\n"
 				. "    aliases: remove, rm\n",
@@ -302,6 +304,8 @@ class Command_Interpreter_Node extends Node {
 			'connect'         => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_connect_node( $args, $envelope ),
 			'disconnect_node' => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_disconnect_node( $args, $envelope ),
 			'disconnect'      => fn ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string => self::cmd_disconnect_node( $args, $envelope ),
+			'register'        => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_register( $args ),
+			'unregister'      => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_unregister( $args ),
 			'remove_node'     => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_remove_node( $self, $args ),
 			'remove'          => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_remove_node( $self, $args ),
 			'rm'              => fn ( Command_Interpreter_Node $self, string $args ): string => self::cmd_remove_node( $self, $args ),
@@ -494,6 +498,43 @@ class Command_Interpreter_Node extends Node {
 			}
 		}
 		$src->disconnect_node( $target );
+		return 'ok';
+	}
+
+	/** `register <source> <target> <event>` — source registers target as a node-name listener for event (Tachikoma register). */
+	private static function cmd_register( string $args ): string {
+		[ $source, $target, $event ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 3 ) ?: [], 3, '' );
+		if ( '' === $source ) {
+			return 'usage: register <source name> <target name> <event>';
+		}
+		$node = Core::node( $source );
+		if ( null === $node ) {
+			return "unknown node: $source";
+		}
+		if ( '' === $target ) {
+			return 'usage: register <source name> <target name> <event>';
+		}
+		if ( null === Core::node( $target ) ) {
+			return "unknown node: $target";
+		}
+		$node->register( $event, $target );
+		return 'ok';
+	}
+
+	/** `unregister <source> <target> <event>` — drop target's node-name registration for event on source (Tachikoma unregister). */
+	private static function cmd_unregister( string $args ): string {
+		[ $source, $target, $event ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 3 ) ?: [], 3, '' );
+		if ( '' === $source ) {
+			return 'usage: unregister <source name> <target name> <event>';
+		}
+		$node = Core::node( $source );
+		if ( null === $node ) {
+			return "unknown node: $source";
+		}
+		if ( '' === $target ) {
+			return 'usage: unregister <source name> <target name> <event>';
+		}
+		$node->unregister( $event, $target );
 		return 'ok';
 	}
 
