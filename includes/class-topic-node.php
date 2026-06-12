@@ -52,42 +52,6 @@ class Topic_Node extends Node {
 		return $result;
 	}
 
-	public function num_partitions(): int {
-		return $this->num_partitions;
-	}
-
-	/** Override Node::sink() so child Partitions inherit the new sink. */
-	public function sink( ?Node $node = null ): ?Node {
-		$result = \func_num_args() > 0 ? parent::sink( $node ) : parent::sink();
-		if ( \func_num_args() > 0 ) {
-			foreach ( $this->partitions as $p ) {
-				$p->sink( $node );
-			}
-		}
-		return $result;
-	}
-
-	protected function partition( int $i ): Partition_Node {
-		$first = empty( $this->partitions );
-		if ( ! isset( $this->partitions[ $i ] ) ) {
-			$p = new Partition_Node();
-			// Name the sibling `{topic}:p{i}` (mirrors Consumer's `{name}:source`) when the Topic is named.
-			if ( '' !== $this->name ) {
-				$p->name( "{$this->name}:p{$i}" );
-			}
-			$p->arguments( "{$this->base_dir} {$i} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}" );
-			// Keep Topic's own sink (specific) and patron-link so dump_metadata hides it from the canvas.
-			$p->sink( $this->sink );
-			$p->patron( $this );
-			$this->partitions[ $i ] = $p;
-		}
-		if ( $first ) {
-			// set_state caches READY so late registrants get immediate replay.
-			$this->set_state( 'READY', $this->name );
-		}
-		return $this->partitions[ $i ];
-	}
-
 	/**
 	 * Node entry point. Pick a partition (pre-pinned TO, KEY hash, or round-robin) and delegate.
 	 *
@@ -120,6 +84,42 @@ class Topic_Node extends Node {
 			$idx = ( self::$rr_counter++ ) % $this->num_partitions;
 		}
 		$this->partition( $idx )->fill( $message );
+	}
+
+	protected function partition( int $i ): Partition_Node {
+		$first = empty( $this->partitions );
+		if ( ! isset( $this->partitions[ $i ] ) ) {
+			$p = new Partition_Node();
+			// Name the sibling `{topic}:p{i}` (mirrors Consumer's `{name}:source`) when the Topic is named.
+			if ( '' !== $this->name ) {
+				$p->name( "{$this->name}:p{$i}" );
+			}
+			$p->arguments( "{$this->base_dir} {$i} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}" );
+			// Keep Topic's own sink (specific) and patron-link so dump_metadata hides it from the canvas.
+			$p->sink( $this->sink );
+			$p->patron( $this );
+			$this->partitions[ $i ] = $p;
+		}
+		if ( $first ) {
+			// set_state caches READY so late registrants get immediate replay.
+			$this->set_state( 'READY', $this->name );
+		}
+		return $this->partitions[ $i ];
+	}
+
+	/** Override Node::sink() so child Partitions inherit the new sink. */
+	public function sink( ?Node $node = null ): ?Node {
+		$result = \func_num_args() > 0 ? parent::sink( $node ) : parent::sink();
+		if ( \func_num_args() > 0 ) {
+			foreach ( $this->partitions as $p ) {
+				$p->sink( $node );
+			}
+		}
+		return $result;
+	}
+
+	public function num_partitions(): int {
+		return $this->num_partitions;
 	}
 
 	/** Flush every materialized partition's batch (request-scope callers land pending writes). */

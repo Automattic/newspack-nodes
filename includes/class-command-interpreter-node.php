@@ -171,40 +171,6 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Register a class-namespace prefix for `make_node` resolution. Plugins
-	 * call this once at boot (e.g. `register_namespace( 'Newspack_Nodes\\' )`);
-	 * `make_node('Tee')` then resolves `Newspack_Nodes\Tee_Node`.
-	 */
-	public static function register_namespace( string $prefix ): void {
-		self::$namespaces[ $prefix ] = true;
-	}
-
-	/**
-	 * Read-only view of the registered namespace prefixes.
-	 *
-	 * @return array<int,string>
-	 */
-	public static function registered_namespaces(): array {
-		return \array_keys( self::$namespaces );
-	}
-
-	/**
-	 * Registered shell name for a node instance.
-	 *
-	 * `make_node`/topology lines use the shell name (e.g. `Log`, `Tee`), which
-	 * is the class short name minus the `_Node` suffix (`Tee_Node` → `Tee`,
-	 * `Flame_Builder_Node` → `Flame_Builder`). A short name without `_Node`
-	 * (ad-hoc test classes) is returned unchanged.
-	 */
-	public static function shell_name_for( object $node ): string {
-		$short = ( new \ReflectionClass( $node ) )->getShortName();
-		if ( \str_ends_with( $short, '_Node' ) ) {
-			return \substr( $short, 0, -\strlen( '_Node' ) );
-		}
-		return $short;
-	}
-
-	/**
 	 * Per-instance verb-table accessor; falls back to self::$C.
 	 *
 	 * @param array<string,callable>|null $table Replacement verb table.
@@ -225,19 +191,6 @@ class Command_Interpreter_Node extends Node {
 			$this->commands['help'] = static fn ( Command_Interpreter_Node $self, string $args = '', array $envelope = [] ): string => $self->default_help();
 		}
 		return $this->commands;
-	}
-
-	/**
-	 * Default `help` for an interpreter with a custom verb table: its verb names, sorted,
-	 * one per line (includes `help` itself). The base interpreter overrides this with the
-	 * richer sectioned help via its own `help` verb in self::$C.
-	 *
-	 * @return string Newline-separated sorted verb names.
-	 */
-	protected function default_help(): string {
-		$names = \array_keys( $this->commands() );
-		\sort( $names );
-		return \implode( "\n", $names );
 	}
 
 	private static function init_C(): void {
@@ -326,37 +279,6 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * `uptime` — UTC clock-time, plus elapsed-since-Core::reset() scaled by magnitude.
-	 */
-	private static function cmd_uptime(): string {
-		$uptime = (int) ( Core::$now - Core::$init_time );
-		// gmdate (UTC) over date() for predictability across worker timezones.
-		$clock   = \gmdate( 'H:i:s', (int) Core::$now );
-		$elapsed = self::format_uptime( $uptime );
-		return "{$clock}  up {$elapsed}\n";
-	}
-
-	private static function format_uptime( int $seconds ): string {
-		// Trailing components zero-pad to 2 digits so the width stays steady across ticks.
-		if ( $seconds < 60 ) {
-			return \sprintf( '%02ds', $seconds );
-		}
-		if ( $seconds < 3600 ) {
-			$m = (int) ( $seconds / 60 );
-			$s = $seconds % 60;
-			return \sprintf( '%dm %02ds', $m, $s );
-		}
-		if ( $seconds < 86400 ) {
-			$h = (int) ( $seconds / 3600 );
-			$m = (int) ( ( $seconds % 3600 ) / 60 );
-			return \sprintf( '%dh %02dm', $h, $m );
-		}
-		$d   = (int) ( $seconds / 86400 );
-		$rem = $seconds - ( $d * 86400 );
-		return "{$d}d " . \gmdate( 'H:i:s', $rem );
-	}
-
-	/**
 	 * Shell entry: parse `<type> <name> [<ctor_args>...]` and delegate to make_node().
 	 *
 	 * No strict_types, so string tokens coerce to the ctor's typed params.
@@ -419,6 +341,15 @@ class Command_Interpreter_Node extends Node {
 			return $node;
 		}
 		return null;
+	}
+
+	/**
+	 * Read-only view of the registered namespace prefixes.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function registered_namespaces(): array {
+		return \array_keys( self::$namespaces );
 	}
 
 	/**
@@ -725,6 +656,59 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
+	 * Column-aligned table rendering; the last left-aligned column isn't padded.
+	 *
+	 * @param array<int,string>            $dirs   One per column ('left' or 'right').
+	 * @param array<int,string>|null       $header Optional header row; null skips it.
+	 * @param array<int,array<int,string>> $rows
+	 */
+	private static function tabulate( array $dirs, ?array $header, array $rows ): string {
+		$ncols = \count( $dirs );
+		$max   = \array_fill( 0, $ncols, 0 );
+		if ( null !== $header ) {
+			foreach ( $header as $col => $val ) {
+				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
+			}
+		}
+		foreach ( $rows as $row ) {
+			foreach ( $row as $col => $val ) {
+				if ( $col >= $ncols ) {
+					continue;
+				}
+				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
+			}
+		}
+
+		$format_row = function ( array $row ) use ( $dirs, $max, $ncols ): string {
+			$parts = [];
+			for ( $col = 0; $col < $ncols; ++$col ) {
+				// Cells arrive pre-stringified per @param; guard narrows the bare-array element before str_pad.
+				$cell = $row[ $col ] ?? '';
+				$val  = \is_scalar( $cell ) ? (string) $cell : '';
+				$dir  = $dirs[ $col ] ?? 'left';
+				$last = ( $col === $ncols - 1 );
+				if ( 'right' === $dir ) {
+					$parts[] = \str_pad( $val, $max[ $col ], ' ', \STR_PAD_LEFT );
+				} elseif ( $last ) {
+					$parts[] = $val;
+				} else {
+					$parts[] = \str_pad( $val, $max[ $col ], ' ', \STR_PAD_RIGHT );
+				}
+			}
+			return \implode( ' ', $parts );
+		};
+
+		$out = '';
+		if ( null !== $header ) {
+			$out .= $format_row( $header ) . "\n";
+		}
+		foreach ( $rows as $row ) {
+			$out .= $format_row( $row ) . "\n";
+		}
+		return \rtrim( $out, "\n" );
+	}
+
+	/**
 	 * `log <message>` builtin — BROADCAST `$args` through Core's stderr pipeline
 	 * (that's what distinguishes it from `echo`, which replies). Returns nothing;
 	 * the broadcast reaches the session via the wired stderr sink (worker `_repl`,
@@ -732,36 +716,6 @@ class Command_Interpreter_Node extends Node {
 	 */
 	private static function cmd_log( Command_Interpreter_Node $self, string $args ): string {
 		$self->stderr( $args );
-		return '';
-	}
-
-	/**
-	 * `reply_to <node path> <command>` — run `<command>` in THIS interpreter but
-	 * route its reply to `<node path>` (the inverse of `command_node`, which runs
-	 * it AT the path). Mints the sub-command stamped FROM=<path> — interpret()
-	 * replies TO=FROM — and re-enters via fill(). The LOCAL taint authorizes the
-	 * in-process mint (the `reply_to` command itself already passed the auth gate).
-	 * `reply_to` itself returns nothing; the output went to <path>.
-	 */
-	private static function cmd_reply_to( Command_Interpreter_Node $self, string $args ): string {
-		[ $path, $rest ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
-		[ $verb, $verb_args ] = \array_pad( \preg_split( '/\s+/', $rest, 2 ) ?: [], 2, '' );
-		if ( '' === $path || '' === $verb ) {
-			return 'usage: reply_to <node path> <command>';
-		}
-		// reply_to is the only verb that re-enters interpret() with a fresh
-		// sub-command, so refuse to nest it — otherwise `reply_to p reply_to p
-		// reply_to p ... <verb>` recurses synchronously (FROM is set raw, never
-		// stamped, so MAX_FROM_SIZE can't bound it) until the stack blows.
-		if ( 'reply_to' === $verb ) {
-			return 'reply_to cannot invoke reply_to';
-		}
-		$m                   = Message::new_message();
-		$m[ Message::TYPE ]  = Message::TM_COMMAND;
-		$m[ Message::FROM ]  = $path;
-		$m[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $verb_args ];
-		$m[ Message::LOCAL ] = true;
-		$self->fill( $m );
 		return '';
 	}
 
@@ -889,6 +843,22 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
+	 * Registered shell name for a node instance.
+	 *
+	 * `make_node`/topology lines use the shell name (e.g. `Log`, `Tee`), which
+	 * is the class short name minus the `_Node` suffix (`Tee_Node` → `Tee`,
+	 * `Flame_Builder_Node` → `Flame_Builder`). A short name without `_Node`
+	 * (ad-hoc test classes) is returned unchanged.
+	 */
+	public static function shell_name_for( object $node ): string {
+		$short = ( new \ReflectionClass( $node ) )->getShortName();
+		if ( \str_ends_with( $short, '_Node' ) ) {
+			return \substr( $short, 0, -\strlen( '_Node' ) );
+		}
+		return $short;
+	}
+
+	/**
 	 * `stats [-a] [<regex>]` — tabular per-node counters (NAME, COUNT, LGST_MSG, READ, WRITTEN).
 	 *
 	 * Scope matches `cmd_list_nodes`: default=siblings, `-a`=all, `<name>`=that sink's children.
@@ -936,6 +906,37 @@ class Command_Interpreter_Node extends Node {
 			];
 		}
 		return self::tabulate( $dirs, $header, $rows );
+	}
+
+	/**
+	 * `uptime` — UTC clock-time, plus elapsed-since-Core::reset() scaled by magnitude.
+	 */
+	private static function cmd_uptime(): string {
+		$uptime = (int) ( Core::$now - Core::$init_time );
+		// gmdate (UTC) over date() for predictability across worker timezones.
+		$clock   = \gmdate( 'H:i:s', (int) Core::$now );
+		$elapsed = self::format_uptime( $uptime );
+		return "{$clock}  up {$elapsed}\n";
+	}
+
+	private static function format_uptime( int $seconds ): string {
+		// Trailing components zero-pad to 2 digits so the width stays steady across ticks.
+		if ( $seconds < 60 ) {
+			return \sprintf( '%02ds', $seconds );
+		}
+		if ( $seconds < 3600 ) {
+			$m = (int) ( $seconds / 60 );
+			$s = $seconds % 60;
+			return \sprintf( '%dm %02ds', $m, $s );
+		}
+		if ( $seconds < 86400 ) {
+			$h = (int) ( $seconds / 3600 );
+			$m = (int) ( ( $seconds % 3600 ) / 60 );
+			return \sprintf( '%dh %02dm', $h, $m );
+		}
+		$d   = (int) ( $seconds / 86400 );
+		$rem = $seconds - ( $d * 86400 );
+		return "{$d}d " . \gmdate( 'H:i:s', $rem );
 	}
 
 	/**
@@ -1054,56 +1055,55 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Column-aligned table rendering; the last left-aligned column isn't padded.
-	 *
-	 * @param array<int,string>            $dirs   One per column ('left' or 'right').
-	 * @param array<int,string>|null       $header Optional header row; null skips it.
-	 * @param array<int,array<int,string>> $rows
+	 * `reply_to <node path> <command>` — run `<command>` in THIS interpreter but
+	 * route its reply to `<node path>` (the inverse of `command_node`, which runs
+	 * it AT the path). Mints the sub-command stamped FROM=<path> — interpret()
+	 * replies TO=FROM — and re-enters via fill(). The LOCAL taint authorizes the
+	 * in-process mint (the `reply_to` command itself already passed the auth gate).
+	 * `reply_to` itself returns nothing; the output went to <path>.
 	 */
-	private static function tabulate( array $dirs, ?array $header, array $rows ): string {
-		$ncols = \count( $dirs );
-		$max   = \array_fill( 0, $ncols, 0 );
-		if ( null !== $header ) {
-			foreach ( $header as $col => $val ) {
-				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
-			}
+	private static function cmd_reply_to( Command_Interpreter_Node $self, string $args ): string {
+		[ $path, $rest ] = \array_pad( \preg_split( '/\s+/', \trim( $args ), 2 ) ?: [], 2, '' );
+		[ $verb, $verb_args ] = \array_pad( \preg_split( '/\s+/', $rest, 2 ) ?: [], 2, '' );
+		if ( '' === $path || '' === $verb ) {
+			return 'usage: reply_to <node path> <command>';
 		}
-		foreach ( $rows as $row ) {
-			foreach ( $row as $col => $val ) {
-				if ( $col >= $ncols ) {
-					continue;
-				}
-				$max[ $col ] = \max( $max[ $col ], \strlen( $val ) );
-			}
+		// reply_to is the only verb that re-enters interpret() with a fresh
+		// sub-command, so refuse to nest it — otherwise `reply_to p reply_to p
+		// reply_to p ... <verb>` recurses synchronously (FROM is set raw, never
+		// stamped, so MAX_FROM_SIZE can't bound it) until the stack blows.
+		if ( 'reply_to' === $verb ) {
+			return 'reply_to cannot invoke reply_to';
 		}
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_COMMAND;
+		$m[ Message::FROM ]  = $path;
+		$m[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $verb_args ];
+		$m[ Message::LOCAL ] = true;
+		$self->fill( $m );
+		return '';
+	}
 
-		$format_row = function ( array $row ) use ( $dirs, $max, $ncols ): string {
-			$parts = [];
-			for ( $col = 0; $col < $ncols; ++$col ) {
-				// Cells arrive pre-stringified per @param; guard narrows the bare-array element before str_pad.
-				$cell = $row[ $col ] ?? '';
-				$val  = \is_scalar( $cell ) ? (string) $cell : '';
-				$dir  = $dirs[ $col ] ?? 'left';
-				$last = ( $col === $ncols - 1 );
-				if ( 'right' === $dir ) {
-					$parts[] = \str_pad( $val, $max[ $col ], ' ', \STR_PAD_LEFT );
-				} elseif ( $last ) {
-					$parts[] = $val;
-				} else {
-					$parts[] = \str_pad( $val, $max[ $col ], ' ', \STR_PAD_RIGHT );
-				}
-			}
-			return \implode( ' ', $parts );
-		};
+	/**
+	 * Default `help` for an interpreter with a custom verb table: its verb names, sorted,
+	 * one per line (includes `help` itself). The base interpreter overrides this with the
+	 * richer sectioned help via its own `help` verb in self::$C.
+	 *
+	 * @return string Newline-separated sorted verb names.
+	 */
+	protected function default_help(): string {
+		$names = \array_keys( $this->commands() );
+		\sort( $names );
+		return \implode( "\n", $names );
+	}
 
-		$out = '';
-		if ( null !== $header ) {
-			$out .= $format_row( $header ) . "\n";
-		}
-		foreach ( $rows as $row ) {
-			$out .= $format_row( $row ) . "\n";
-		}
-		return \rtrim( $out, "\n" );
+	/**
+	 * Register a class-namespace prefix for `make_node` resolution. Plugins
+	 * call this once at boot (e.g. `register_namespace( 'Newspack_Nodes\\' )`);
+	 * `make_node('Tee')` then resolves `Newspack_Nodes\Tee_Node`.
+	 */
+	public static function register_namespace( string $prefix ): void {
+		self::$namespaces[ $prefix ] = true;
 	}
 
 	public static function node_schema(): array {

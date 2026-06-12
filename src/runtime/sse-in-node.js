@@ -35,20 +35,6 @@ const REPLY_NODES = [
 ];
 
 export class SseInNode extends SseConnectorNode {
-	// Own schema: _sse is BIDIRECTIONAL, so override SseConnector's accepts_fill:false.
-	static nodeSchema() {
-		return {
-			category: 'I/O',
-			description:
-				'Bidirectional SSE session boundary (the `_sse` node).',
-			accepts_fill: true,
-			has_target: true,
-			// Inherit the connector's positional args so the base setter still parses them.
-			arguments: SseConnectorNode.nodeSchema().arguments,
-			commands: [],
-		};
-	}
-
 	fill( message ) {
 		if ( REPLY_NODES.includes( message[ FROM ] ) ) {
 			this.counter += 1;
@@ -80,5 +66,18 @@ export class SseInNode extends SseConnectorNode {
 		// locally-minted one (FROM=`_sse/…`). Routing is by TO, so this is provenance only.
 		this.stampMessage( message, this.name );
 		super.fill( message );
+	}
+	// Own schema: _sse is BIDIRECTIONAL, so override SseConnector's accepts_fill:false.
+	static nodeSchema() {
+		return {
+			category: 'I/O',
+			description:
+				'Bidirectional SSE session boundary (the `_sse` node).',
+			accepts_fill: true,
+			has_target: true,
+			// Inherit the connector's positional args so the base setter still parses them.
+			arguments: SseConnectorNode.nodeSchema().arguments,
+			commands: [],
+		};
 	}
 }

@@ -50,6 +50,15 @@ class Router_Node extends Timer_Node {
 		$target->fill( $message );
 	}
 
+	// fire_cb (Perl Router::fire_cb): dispatch the TIMER tick via notify_timer (the
+	// Router has no sink, so it can't fall through Timer_Node::fire_cb's no-sink
+	// guard), then prune expired logs (Perl Router::update_logs). Overrides
+	// Timer_Node::fire_cb — the Router dispatches TIMER instead of emitting.
+	public function fire_cb(): void {
+		$this->notify_timer();
+		Core::prune_logs();
+	}
+
 	/** @param array<int, mixed> $message Message that failed to route. */
 	public function send_error( array &$message, string $error ): void {
 		if ( $this->handling_error ) {
@@ -88,15 +97,6 @@ class Router_Node extends Timer_Node {
 		}
 		$this->handling_error = false;
 		return;
-	}
-
-	// fire_cb (Perl Router::fire_cb): dispatch the TIMER tick via notify_timer (the
-	// Router has no sink, so it can't fall through Timer_Node::fire_cb's no-sink
-	// guard), then prune expired logs (Perl Router::update_logs). Overrides
-	// Timer_Node::fire_cb — the Router dispatches TIMER instead of emitting.
-	public function fire_cb(): void {
-		$this->notify_timer();
-		Core::prune_logs();
 	}
 
 	// notify_timer (Perl Router::notify_timer): call each TIMER-registered node's

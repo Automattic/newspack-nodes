@@ -49,6 +49,36 @@ class Lock_Node extends Node {
 		parent::fill( $message );
 	}
 
+	/**
+	 * Refresh the heartbeat file. Verifies ownership first; returns false if stolen (flips is_held).
+	 *
+	 * @return bool True if heartbeat refreshed; false if not held or lost.
+	 */
+	public function heartbeat(): bool {
+		if ( ! $this->verify_ownership() ) {
+			return false;
+		}
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_touch
+		@\touch( $this->lock_path . '/' . self::HEARTBEAT_FILE );
+		return true;
+	}
+
+	/** Verify the heartbeat PID still matches getmypid(); flips is_held=false on loss. */
+	public function verify_ownership(): bool {
+		if ( ! $this->is_held ) {
+			return false;
+		}
+		$hb = $this->lock_path . '/' . self::HEARTBEAT_FILE;
+		\clearstatcache( true, $hb );
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		$pid = @\file_get_contents( $hb );
+		if ( false === $pid || (int) \trim( $pid ) !== \getmypid() ) {
+			$this->is_held = false;
+			return false;
+		}
+		return true;
+	}
+
 	public function acquire( int $max_wait_ms = 0 ): bool {
 		$deadline = $max_wait_ms > 0 ? \microtime( true ) + ( $max_wait_ms / 1000.0 ) : 0;
 		do {
@@ -183,38 +213,8 @@ class Lock_Node extends Node {
 		$this->set_state( 'HELD', [ 'path' => $this->lock_path, 'released' => true ] );
 	}
 
-	/**
-	 * Refresh the heartbeat file. Verifies ownership first; returns false if stolen (flips is_held).
-	 *
-	 * @return bool True if heartbeat refreshed; false if not held or lost.
-	 */
-	public function heartbeat(): bool {
-		if ( ! $this->verify_ownership() ) {
-			return false;
-		}
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_touch
-		@\touch( $this->lock_path . '/' . self::HEARTBEAT_FILE );
-		return true;
-	}
-
 	public function is_held(): bool {
 		return $this->is_held;
-	}
-
-	/** Verify the heartbeat PID still matches getmypid(); flips is_held=false on loss. */
-	public function verify_ownership(): bool {
-		if ( ! $this->is_held ) {
-			return false;
-		}
-		$hb = $this->lock_path . '/' . self::HEARTBEAT_FILE;
-		\clearstatcache( true, $hb );
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		$pid = @\file_get_contents( $hb );
-		if ( false === $pid || (int) \trim( $pid ) !== \getmypid() ) {
-			$this->is_held = false;
-			return false;
-		}
-		return true;
 	}
 
 	/** Path used by this Lock instance. */

@@ -65,17 +65,6 @@ export class CompletionNode extends Node {
 		this._seq = 0;
 	}
 
-	static nodeSchema() {
-		return {
-			category: 'Hidden',
-			description: 'Receives tab-completion reply; publishes candidates.',
-			// Receives the reply and publishes candidates; never forwards.
-			has_target: false,
-			arguments: [],
-			commands: [],
-		};
-	}
-
 	fill( message ) {
 		this.counter += 1;
 		const value = message[ VALUE ];
@@ -91,5 +80,16 @@ export class CompletionNode extends Node {
 			.filter( ( line ) => '' !== line );
 		this._seq += 1;
 		this.setState( 'candidates', { candidates, seq: this._seq } );
+	}
+
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description: 'Receives tab-completion reply; publishes candidates.',
+			// Receives the reply and publishes candidates; never forwards.
+			has_target: false,
+			arguments: [],
+			commands: [],
+		};
 	}
 }

@@ -114,16 +114,6 @@ class HTTP_In_Node extends Node {
 		$this->sent_headers = false;
 	}
 
-	public static function node_schema(): array {
-		return [
-			'category'    => 'Hidden',
-			'description' => '/command response-writer Node (registered as `_output` at request scope).',
-			'arguments'        => [],
-			'commands'       => [],
-			'has_target'  => false,
-		];
-	}
-
 	public function set_test_mode( bool $on ): void {
 		$this->test_mode = $on;
 	}
@@ -330,5 +320,15 @@ class HTTP_In_Node extends Node {
 		$r[ Message::VALUE ] = $err;
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo Message::packed( $r );
+	}
+
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Hidden',
+			'description' => '/command response-writer Node (registered as `_output` at request scope).',
+			'arguments'        => [],
+			'commands'       => [],
+			'has_target'  => false,
+		];
 	}
 }

@@ -250,6 +250,38 @@ class Job_Worker_Node extends Node {
 		$this->sink->fill( $reply );
 	}
 
+	private function memory_limit_bytes(): int {
+		$ini = \ini_get( 'memory_limit' );
+		if ( '-1' === $ini ) {
+			return -1;
+		}
+		$num = (int) $ini;
+		switch ( \strtolower( \substr( $ini, -1 ) ) ) {
+			case 'g':
+				$num *= 1024 * 1024 * 1024;
+				break;
+			case 'm':
+				$num *= 1024 * 1024;
+				break;
+			case 'k':
+				$num *= 1024;
+				break;
+		}
+		return $num;
+	}
+
+	/**
+	 * Whether memory_get_usage(true) has crossed MEMORY_WATERMARK_PCT of
+	 * memory_limit. Returns false if memory_limit is unlimited (-1).
+	 */
+	public function is_memory_high(): bool {
+		$limit = $this->memory_limit_bytes();
+		if ( $limit <= 0 ) {
+			return false;
+		}
+		return \memory_get_usage( true ) >= ( $limit * self::MEMORY_WATERMARK_PCT );
+	}
+
 	private function validate_handler_name( string $name ): void {
 		if ( ! \preg_match( self::HANDLER_NAME_PATTERN, $name ) ) {
 			throw new \InvalidArgumentException( \esc_html( "invalid handler name: $name" ) );
@@ -345,38 +377,6 @@ class Job_Worker_Node extends Node {
 	 */
 	public function memory_pressure(): bool {
 		return $this->memory_pressure;
-	}
-
-	/**
-	 * Whether memory_get_usage(true) has crossed MEMORY_WATERMARK_PCT of
-	 * memory_limit. Returns false if memory_limit is unlimited (-1).
-	 */
-	public function is_memory_high(): bool {
-		$limit = $this->memory_limit_bytes();
-		if ( $limit <= 0 ) {
-			return false;
-		}
-		return \memory_get_usage( true ) >= ( $limit * self::MEMORY_WATERMARK_PCT );
-	}
-
-	private function memory_limit_bytes(): int {
-		$ini = \ini_get( 'memory_limit' );
-		if ( '-1' === $ini ) {
-			return -1;
-		}
-		$num = (int) $ini;
-		switch ( \strtolower( \substr( $ini, -1 ) ) ) {
-			case 'g':
-				$num *= 1024 * 1024 * 1024;
-				break;
-			case 'm':
-				$num *= 1024 * 1024;
-				break;
-			case 'k':
-				$num *= 1024;
-				break;
-		}
-		return $num;
 	}
 
 	public static function node_schema(): array {

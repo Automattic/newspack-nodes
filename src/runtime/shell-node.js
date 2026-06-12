@@ -140,91 +140,25 @@ export class ShellNode extends Node {
 		this.onDispatch = null;
 	}
 
-	static nodeSchema() {
-		return {
-			category: 'Hidden',
-			description: 'Anonymous, React-driven REPL parser.',
-			arguments: [],
-			commands: [],
-		};
-	}
-
-	get name() {
-		return this._name;
-	}
-
-	// The Shell is the unnamed REPL front-end — naming it would register a
-	// command surface in the graph. Fatal so the rule can't be violated.
-	set name( value ) {
-		throw new Error( 'Shell must not be named' );
-	}
-
 	/**
-	 * Single-tier interpolation: `<name>` → vars, `<config:foo>` → config, unknown → ''.
-	 * Mirrors PHP Shell_Node::interpolate (runs before tokenizing).
+	 * Parse + dispatch one line. Returns the local/error signal for the host to
+	 * act on, or null when a Message was filled into the sink (or input empty).
 	 *
-	 * @param {string} line Raw line.
-	 * @return {string} Interpolated line.
+	 * @param {string} line Raw REPL line.
+	 * @return {Object|null} A `{ kind: … }` signal, or null.
 	 */
-	interpolate( line ) {
-		return line.replace(
-			/<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/g,
-			( _match, key ) => {
-				if ( key.startsWith( 'config:' ) ) {
-					const cfgKey = key.slice( 7 );
-					return String( this.config[ cfgKey ] ?? '' );
-				}
-				return String( this.vars[ key ] ?? '' );
-			}
-		);
-	}
-
-	// Instance accessor for the quote-aware tokenizer (PHP Shell_Node::tokenize).
-	tokenize( line ) {
-		return tokenize( line );
-	}
-
-	// Slash-join cwd with an extra path arg, dropping empty pieces (PHP prefix()).
-	prefix( path ) {
-		const parts = [];
-		if ( '' !== this.path ) {
-			parts.push( this.path );
+	fill( line ) {
+		this.counter += 1;
+		const parsed = this.parse( line );
+		if ( null === parsed ) {
+			return null;
 		}
-		if ( path ) {
-			parts.push( path );
+		if ( Array.isArray( parsed ) ) {
+			this.dispatch( parsed );
+			return null;
 		}
-		return parts.join( '/' );
-	}
-
-	// FROM = the bare reply node. When the cwd routes through `_sse:{pid}` that
-	// session node wraps it into the private pivot `_http/_sse:{pid}/<reply-node>`;
-	// otherwise (`_http/…`) it stays bare and replies broadcast.
-	replyFrom( replyNode ) {
-		return replyNode;
-	}
-
-	/**
-	 * Resolve a relative/absolute path against the cwd (mirrors PHP Shell_Node::cd).
-	 * `/` resets to the browser-local graph root; `/x` is absolute; `..` walks up;
-	 * anything else appends. The result is TO-ready (no leading/trailing slash).
-	 *
-	 * @param {string} cwd  Current path.
-	 * @param {string} path The `cd` argument.
-	 * @return {string} The new cwd.
-	 */
-	cd( cwd, path ) {
-		if ( '/' !== path && '' !== path && '/' === path[ 0 ] ) {
-			cwd = path;
-		} else if ( '/' === path ) {
-			cwd = '';
-		} else if ( '' !== path && /^\.\.\/?/.test( path ) ) {
-			cwd = cwd.replace( /\/?[^/]+$/, '' );
-			path = path.replace( /^\.\.\/?/, '' );
-			cwd = this.cd( cwd, path );
-		} else if ( '' !== path ) {
-			cwd += '/' + path;
-		}
-		return cwd.replace( /^\/+/, '' ).replace( /\/+$/, '' );
+		// A local-builtin / error signal — hand it back to the host.
+		return parsed;
 	}
 
 	/**
@@ -421,6 +355,113 @@ export class ShellNode extends Node {
 	}
 
 	/**
+	 * Single-tier interpolation: `<name>` → vars, `<config:foo>` → config, unknown → ''.
+	 * Mirrors PHP Shell_Node::interpolate (runs before tokenizing).
+	 *
+	 * @param {string} line Raw line.
+	 * @return {string} Interpolated line.
+	 */
+	interpolate( line ) {
+		return line.replace(
+			/<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/g,
+			( _match, key ) => {
+				if ( key.startsWith( 'config:' ) ) {
+					const cfgKey = key.slice( 7 );
+					return String( this.config[ cfgKey ] ?? '' );
+				}
+				return String( this.vars[ key ] ?? '' );
+			}
+		);
+	}
+
+	/**
+	 * Resolve a relative/absolute path against the cwd (mirrors PHP Shell_Node::cd).
+	 * `/` resets to the browser-local graph root; `/x` is absolute; `..` walks up;
+	 * anything else appends. The result is TO-ready (no leading/trailing slash).
+	 *
+	 * @param {string} cwd  Current path.
+	 * @param {string} path The `cd` argument.
+	 * @return {string} The new cwd.
+	 */
+	cd( cwd, path ) {
+		if ( '/' !== path && '' !== path && '/' === path[ 0 ] ) {
+			cwd = path;
+		} else if ( '/' === path ) {
+			cwd = '';
+		} else if ( '' !== path && /^\.\.\/?/.test( path ) ) {
+			cwd = cwd.replace( /\/?[^/]+$/, '' );
+			path = path.replace( /^\.\.\/?/, '' );
+			cwd = this.cd( cwd, path );
+		} else if ( '' !== path ) {
+			cwd += '/' + path;
+		}
+		return cwd.replace( /^\/+/, '' ).replace( /\/+$/, '' );
+	}
+
+	// FROM = the bare reply node. When the cwd routes through `_sse:{pid}` that
+	// session node wraps it into the private pivot `_http/_sse:{pid}/<reply-node>`;
+	// otherwise (`_http/…`) it stays bare and replies broadcast.
+	replyFrom( replyNode ) {
+		return replyNode;
+	}
+
+	// Slash-join cwd with an extra path arg, dropping empty pieces (PHP prefix()).
+	prefix( path ) {
+		const parts = [];
+		if ( '' !== this.path ) {
+			parts.push( this.path );
+		}
+		if ( path ) {
+			parts.push( path );
+		}
+		return parts.join( '/' );
+	}
+
+	/**
+	 * When want_reply is off, OR TM_NOREPLY onto a TM_COMMAND (no-op otherwise).
+	 * Mirrors PHP Shell_Node::stamp_noreply — mutates in place and returns the
+	 * message so message-return branches can `return this.stampNoreply( msg )`.
+	 *
+	 * @param {Array} message Message to stamp in place.
+	 * @return {Array} The same message.
+	 */
+	stampNoreply( message ) {
+		const type = message[ TYPE ] ?? 0;
+		if ( ! this._wantReply && type & TM_COMMAND ) {
+			message[ TYPE ] = type | TM_NOREPLY;
+		}
+		return message;
+	}
+
+	/**
+	 * The single send chokepoint: announce the Message to the `onDispatch` tap,
+	 * then fill it into the sink. Every outgoing Message — sendCommand, a parsed
+	 * REPL line, a GUI gesture — routes through here so the tap sees them all.
+	 *
+	 * @param {Array} message Positional Message to send.
+	 * @return {void}
+	 */
+	dispatch( message ) {
+		this.onDispatch?.( message );
+		this.sink?.fill( message );
+	}
+
+	get name() {
+		return this._name;
+	}
+
+	// The Shell is the unnamed REPL front-end — naming it would register a
+	// command surface in the graph. Fatal so the rule can't be violated.
+	set name( value ) {
+		throw new Error( 'Shell must not be named' );
+	}
+
+	// Instance accessor for the quote-aware tokenizer (PHP Shell_Node::tokenize).
+	tokenize( line ) {
+		return tokenize( line );
+	}
+
+	/**
 	 * Build a TM_COMMAND via this.command(...) (inherited from Node), stamp the
 	 * Shell session's FROM/LOCAL provenance + the target TO (path), and fill
 	 * it through this.sink. Mirrors Tachikoma::Nodes::Shell::send_command —
@@ -457,53 +498,12 @@ export class ShellNode extends Node {
 		return this._wantReply;
 	}
 
-	/**
-	 * When want_reply is off, OR TM_NOREPLY onto a TM_COMMAND (no-op otherwise).
-	 * Mirrors PHP Shell_Node::stamp_noreply — mutates in place and returns the
-	 * message so message-return branches can `return this.stampNoreply( msg )`.
-	 *
-	 * @param {Array} message Message to stamp in place.
-	 * @return {Array} The same message.
-	 */
-	stampNoreply( message ) {
-		const type = message[ TYPE ] ?? 0;
-		if ( ! this._wantReply && type & TM_COMMAND ) {
-			message[ TYPE ] = type | TM_NOREPLY;
-		}
-		return message;
-	}
-
-	/**
-	 * The single send chokepoint: announce the Message to the `onDispatch` tap,
-	 * then fill it into the sink. Every outgoing Message — sendCommand, a parsed
-	 * REPL line, a GUI gesture — routes through here so the tap sees them all.
-	 *
-	 * @param {Array} message Positional Message to send.
-	 * @return {void}
-	 */
-	dispatch( message ) {
-		this.onDispatch?.( message );
-		this.sink?.fill( message );
-	}
-
-	/**
-	 * Parse + dispatch one line. Returns the local/error signal for the host to
-	 * act on, or null when a Message was filled into the sink (or input empty).
-	 *
-	 * @param {string} line Raw REPL line.
-	 * @return {Object|null} A `{ kind: … }` signal, or null.
-	 */
-	fill( line ) {
-		this.counter += 1;
-		const parsed = this.parse( line );
-		if ( null === parsed ) {
-			return null;
-		}
-		if ( Array.isArray( parsed ) ) {
-			this.dispatch( parsed );
-			return null;
-		}
-		// A local-builtin / error signal — hand it back to the host.
-		return parsed;
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description: 'Anonymous, React-driven REPL parser.',
+			arguments: [],
+			commands: [],
+		};
 	}
 }
