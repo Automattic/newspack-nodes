@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0] - 2026-06-12
+
 ### Added
 
 - **Eslint rule banning the deprecated `isSmall` Button prop.** `react/forbid-component-props` rejects `isSmall` (deprecated in WP 6.2 for `size="small"`) at the JSX-attribute level. This repo has no current usage, but it owns the canonical shared JS the sibling plugins inline via `@newspack-nodes/shared` — the same rule now guards all three repos so the family can't drift back.
