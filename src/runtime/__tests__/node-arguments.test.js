@@ -1,4 +1,4 @@
-import { Node } from '../node';
+import { Node, parseSchemaArgs } from '../node';
 
 class TestArgsNode extends Node {
 	constructor() {
@@ -20,13 +20,14 @@ class TestArgsNode extends Node {
 	}
 }
 
-describe( 'Node arguments accessor', () => {
-	it( 'setter parses tokens and assigns to named properties', () => {
+describe( 'Node arguments accessor (trivial Tachikoma getter/setter)', () => {
+	it( 'setter stores the raw string WITHOUT parsing it onto properties', () => {
 		const n = new TestArgsNode();
 		n.arguments = 'hello 7 true';
-		expect( n.name_field ).toBe( 'hello' );
-		expect( n.count ).toBe( 7 );
-		expect( n.flag ).toBe( true );
+		// Trivial store — no schema walk; declared props stay at ctor values.
+		expect( n.name_field ).toBe( '' );
+		expect( n.count ).toBe( 0 );
+		expect( n.flag ).toBe( false );
 	} );
 
 	it( 'getter returns the last-set raw string', () => {
@@ -34,27 +35,30 @@ describe( 'Node arguments accessor', () => {
 		n.arguments = 'hello 7 true';
 		expect( n.arguments ).toBe( 'hello 7 true' );
 	} );
+} );
+
+describe( 'parseSchemaArgs — the Schema_Reflection positional walk', () => {
+	it( 'parses tokens and assigns to named properties', () => {
+		const n = new TestArgsNode();
+		parseSchemaArgs( n, 'hello 7 true' );
+		expect( n.name_field ).toBe( 'hello' );
+		expect( n.count ).toBe( 7 );
+		expect( n.flag ).toBe( true );
+	} );
 
 	it( 'missing optional tokens use schema defaults', () => {
 		const n = new TestArgsNode();
-		n.arguments = 'hello';
+		parseSchemaArgs( n, 'hello' );
 		expect( n.name_field ).toBe( 'hello' );
 		expect( n.count ).toBe( 0 );
 		expect( n.flag ).toBe( false );
 	} );
 
-	it( 'empty arguments string leaves required fields at ctor defaults', () => {
-		const n = new TestArgsNode();
-		n.arguments = '';
-		expect( n.name_field ).toBe( '' );
-	} );
-
-	it( 'empty arguments string applies schema defaults for optional fields', () => {
+	it( 'empty arguments string is a no-op (leaves ctor values)', () => {
 		class CustomNode extends Node {
 			constructor() {
 				super();
-				// Ctor defaults intentionally DIFFER from schema defaults so
-				// we can tell which one won.
+				// Ctor defaults intentionally DIFFER from schema defaults.
 				this.x = 99;
 				this.y = 'ctor';
 			}
@@ -69,26 +73,37 @@ describe( 'Node arguments accessor', () => {
 			}
 		}
 		const n = new CustomNode();
-		n.arguments = '';
-		expect( n.x ).toBe( 5 );
-		expect( n.y ).toBe( 'schema' );
+		parseSchemaArgs( n, '' );
+		// Mirrors PHP parse_schema_args: '' short-circuits before any assignment.
+		expect( n.x ).toBe( 99 );
+		expect( n.y ).toBe( 'ctor' );
 	} );
 
 	it( 'bool coercion accepts truthy/falsy strings', () => {
 		const n = new TestArgsNode();
-		n.arguments = 'x 0 yes';
+		parseSchemaArgs( n, 'x 0 yes' );
 		expect( n.flag ).toBe( true );
-		n.arguments = 'x 0 1';
+		parseSchemaArgs( n, 'x 0 1' );
 		expect( n.flag ).toBe( true );
-		n.arguments = 'x 0 false';
+		parseSchemaArgs( n, 'x 0 false' );
 		expect( n.flag ).toBe( false );
 	} );
 
 	it( 'excess tokens are ignored', () => {
 		const n = new TestArgsNode();
-		n.arguments = 'hello 7 true extra extra2';
+		parseSchemaArgs( n, 'hello 7 true extra extra2' );
 		expect( n.name_field ).toBe( 'hello' );
 		expect( n.count ).toBe( 7 );
 		expect( n.flag ).toBe( true );
+	} );
+
+	it( 'a node with no declared arguments is left untouched', () => {
+		class BareNode extends Node {
+			static nodeSchema() {
+				return { arguments: [], commands: [] };
+			}
+		}
+		const n = new BareNode();
+		expect( () => parseSchemaArgs( n, 'whatever' ) ).not.toThrow();
 	} );
 } );

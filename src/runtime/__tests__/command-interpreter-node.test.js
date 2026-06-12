@@ -1,5 +1,5 @@
 import { CommandInterpreterNode } from '../command-interpreter-node';
-import { Node } from '../node';
+import { Node, parseSchemaArgs } from '../node';
 import { Core } from '../core';
 import {
 	TYPE,
@@ -1022,19 +1022,43 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( Core.node( 'Tee' ) ).toBeNull();
 		} );
 
-		it( 'routes trailing tokens through the arguments setter (Tachikoma sequence)', () => {
-			// Post Tachikoma-parity refactor (Task 11), make_node uses the
-			// uniform `new NodeClass()` no-arg ctor and feeds the trailing
-			// tokens through `node.arguments = parts.join(' ')`. The schema
-			// walker assigns each declared positional arg from those tokens.
+		it( 'feeds trailing tokens to the arguments setter as a raw string (no implicit walk)', () => {
+			// A plain node that never opts into parseSchemaArgs gets the raw string but NO walk.
 			const interpreter = makeInterpreter();
 			CommandInterpreterNode.includeNodes.ArgSpy = class extends Node {
 				constructor() {
 					super();
-					// Predeclared so the schema walker's `name in this` gate
-					// passes and the tokens get assigned.
+					this.alpha_field = '';
+				}
+				static nodeSchema() {
+					return {
+						arguments: [ { name: 'alpha_field', type: 'string' } ],
+						commands: [],
+					};
+				}
+			};
+			dispatch( interpreter, 'make_node', 'ArgSpy s alpha beta' );
+			const node = Core.node( 's' );
+			expect( node.arguments ).toBe( 'alpha beta' );
+			expect( node.alpha_field ).toBe( '' );
+			delete CommandInterpreterNode.includeNodes.ArgSpy;
+		} );
+
+		it( 'a node that opts into parseSchemaArgs gets its positional config walked', () => {
+			// The Schema_Reflection path: an opt-in setter assigns the declared props.
+			const interpreter = makeInterpreter();
+			CommandInterpreterNode.includeNodes.ArgWalk = class extends Node {
+				constructor() {
+					super();
 					this.alpha_field = '';
 					this.beta_field = '';
+				}
+				get arguments() {
+					return super.arguments;
+				}
+				set arguments( value ) {
+					super.arguments = value;
+					parseSchemaArgs( this, value );
 				}
 				static nodeSchema() {
 					return {
@@ -1046,12 +1070,12 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 					};
 				}
 			};
-			dispatch( interpreter, 'make_node', 'ArgSpy s alpha beta' );
-			const node = Core.node( 's' );
+			dispatch( interpreter, 'make_node', 'ArgWalk w alpha beta' );
+			const node = Core.node( 'w' );
 			expect( node.arguments ).toBe( 'alpha beta' );
 			expect( node.alpha_field ).toBe( 'alpha' );
 			expect( node.beta_field ).toBe( 'beta' );
-			delete CommandInterpreterNode.includeNodes.ArgSpy;
+			delete CommandInterpreterNode.includeNodes.ArgWalk;
 		} );
 
 		it( 'returns "unknown class" for an unregistered type and builds nothing', () => {

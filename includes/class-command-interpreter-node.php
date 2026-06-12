@@ -400,16 +400,11 @@ class Command_Interpreter_Node extends Node {
 			if ( $ref->isAbstract() ) {
 				continue;
 			}
-			// Tachikoma sequence — uniform across every Node subclass. The
-			// no-arg ctor returns a Node in declaration-default state; arguments()
-			// walks node_schema()['arguments'] and assigns each declared
-			// positional arg from the trailing tokens. Service interpreters that depend
-			// on programmatic objects (cli, registry, etc.) expose them as
-			// public properties set by the bootstrap AFTER construction —
-			// not through arguments() (which only handles scalar config).
+			// Tachikoma sequence: the trivial base arguments() stores the raw tokens;
+			// a node opts into parse_schema_args() to assign props.
+			// Object deps are public props set after construction.
 			$node = new $fqcn();
 			$node->name( $name );
-			// Only scalar tokens round-trip through arguments(); object deps belong on public properties (warn so a forgotten assignment isn't silently dropped).
 			$scalar_args = \array_filter( $ctor_args, '\is_scalar' );
 			if ( \count( $scalar_args ) !== \count( $ctor_args ) ) {
 				Core::print_less_often(
@@ -418,7 +413,6 @@ class Command_Interpreter_Node extends Node {
 			}
 			$node->arguments( \implode( ' ', $scalar_args ) );
 			$node->sink( $this );
-			// Inherit debug_state so new nodes trace from birth.
 			if ( $this->debug_state() > 0 ) {
 				$node->debug_state( $this->debug_state() );
 			}
