@@ -449,6 +449,81 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 		} );
 	} );
 
+	describe( 'register / unregister', () => {
+		it( 'wires target as a node-name listener for the event on source', () => {
+			const interpreter = makeInterpreter();
+			const src = new Node();
+			src.setName( 'src' );
+			src.registrations = { EVT: {} };
+			new Node().setName( 'tgt' );
+			expect( dispatch( interpreter, 'register', 'src tgt EVT' ) ).toBe(
+				'ok'
+			);
+			expect( src.registeredListeners() ).toEqual( { EVT: [ 'tgt' ] } );
+		} );
+		it( 'register reports unknown source', () => {
+			const interpreter = makeInterpreter();
+			expect( dispatch( interpreter, 'register', 'ghost tgt EVT' ) ).toBe(
+				'unknown node: ghost'
+			);
+		} );
+		it( 'register reports unknown target', () => {
+			const interpreter = makeInterpreter();
+			const src = new Node();
+			src.setName( 'src' );
+			src.registrations = { EVT: {} };
+			expect( dispatch( interpreter, 'register', 'src ghost EVT' ) ).toBe(
+				'unknown node: ghost'
+			);
+		} );
+		it( 'register usage with no source', () => {
+			const interpreter = makeInterpreter();
+			expect( dispatch( interpreter, 'register', '' ) ).toBe(
+				'usage: register <source name> <target name> <event>'
+			);
+		} );
+		it( 'register usage with no target', () => {
+			const interpreter = makeInterpreter();
+			new Node().setName( 'src' );
+			expect( dispatch( interpreter, 'register', 'src' ) ).toBe(
+				'usage: register <source name> <target name> <event>'
+			);
+		} );
+		it( 'register on an undeclared event surfaces as a thrown error', () => {
+			const interpreter = makeInterpreter();
+			new Node().setName( 'src' );
+			new Node().setName( 'tgt' );
+			expect( () =>
+				dispatch( interpreter, 'register', 'src tgt NOPE' )
+			).toThrow( 'no such event: NOPE' );
+		} );
+		it( 'unregister removes a previously-registered listener', () => {
+			const interpreter = makeInterpreter();
+			const src = new Node();
+			src.setName( 'src' );
+			src.registrations = { EVT: {} };
+			new Node().setName( 'tgt' );
+			dispatch( interpreter, 'register', 'src tgt EVT' );
+			expect( dispatch( interpreter, 'unregister', 'src tgt EVT' ) ).toBe(
+				'ok'
+			);
+			expect( src.registeredListeners() ).toEqual( {} );
+		} );
+		it( 'unregister reports unknown source', () => {
+			const interpreter = makeInterpreter();
+			expect(
+				dispatch( interpreter, 'unregister', 'ghost tgt EVT' )
+			).toBe( 'unknown node: ghost' );
+		} );
+		it( 'unregister usage with no target', () => {
+			const interpreter = makeInterpreter();
+			new Node().setName( 'src' );
+			expect( dispatch( interpreter, 'unregister', 'src' ) ).toBe(
+				'usage: unregister <source name> <target name> <event>'
+			);
+		} );
+	} );
+
 	describe( 'remove_node', () => {
 		it( 'unregisters a named node from Core', () => {
 			const interpreter = makeInterpreter();
