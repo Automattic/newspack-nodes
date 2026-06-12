@@ -221,8 +221,15 @@ describe( 'Inspector (view mode)', () => {
 		expect( getByText( 'Connect' ) ).not.toBeNull();
 	} );
 
-	it( 'flips Connect → Disconnect when an _output edge already exists', () => {
-		const teeNode = { id: 'tee_a', class: 'Tee', count: 0 };
+	it( 'flips Connect → Disconnect when parsed.pwd is in the node FULL targets (edges head-collapse to _repl)', () => {
+		// parseMetadata collapses the reply-pivot edge to its head `_repl`, so the
+		// toggle matches this session's pivot (parsed.pwd) against node.targets.
+		const teeNode = {
+			id: 'tee_a',
+			class: 'Tee',
+			count: 0,
+			targets: [ 'request-builder', '_repl/_output/_sse:9/_output' ],
+		};
 		const { getByText } = render(
 			<Inspector
 				{ ...baseProps }
@@ -230,17 +237,61 @@ describe( 'Inspector (view mode)', () => {
 				parsed={ {
 					nodes: [ teeNode ],
 					edges: [
-						{
-							from: 'tee_a',
-							to: '_repl/_http/_sse:9/_output',
-						},
+						{ from: 'tee_a', to: 'request-builder' },
+						{ from: 'tee_a', to: '_repl' },
 					],
+					pwd: '_repl/_output/_sse:9/_output',
 				} }
 				nodeIds={ new Set( [ 'tee_a' ] ) }
-				ssePid={ 9 }
 			/>
 		);
 		expect( getByText( 'Disconnect' ) ).not.toBeNull();
+	} );
+
+	it( 'works for the in-browser JS tee where pwd is the bare _output', () => {
+		const teeNode = {
+			id: 'tee_a',
+			class: 'Tee',
+			count: 0,
+			targets: [ '_output' ],
+		};
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="tee_a"
+				parsed={ {
+					nodes: [ teeNode ],
+					edges: [],
+					pwd: '_output',
+				} }
+				nodeIds={ new Set( [ 'tee_a' ] ) }
+			/>
+		);
+		expect( getByText( 'Disconnect' ) ).not.toBeNull();
+	} );
+
+	it( 'stays Connect when only ANOTHER session pivot is wired (collapsed _repl edge is shared)', () => {
+		// A different browser's pivot also collapses to `_repl`; the toggle must
+		// not falsely read as connected for this session (parsed.pwd ≠ that target).
+		const teeNode = {
+			id: 'tee_a',
+			class: 'Tee',
+			count: 0,
+			targets: [ '_repl/_output/_sse:777/_output' ],
+		};
+		const { getByText } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="tee_a"
+				parsed={ {
+					nodes: [ teeNode ],
+					edges: [ { from: 'tee_a', to: '_repl' } ],
+					pwd: '_repl/_output/_sse:9/_output',
+				} }
+				nodeIds={ new Set( [ 'tee_a' ] ) }
+			/>
+		);
+		expect( getByText( 'Connect' ) ).not.toBeNull();
 	} );
 
 	it( 'live verb modal node_name select is populated from the live graph', () => {

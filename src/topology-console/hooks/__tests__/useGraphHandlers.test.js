@@ -86,16 +86,48 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 		expect( patched ).toEqual( [ [ 'x', null ] ] );
 	} );
 
-	it( 'onInspectorAction disconnect clears the node target', () => {
+	it( 'onInspectorAction tail APPENDS this session pwd to the Tee fan-out', () => {
+		// connect_node with no target appends the issuing FROM (== pwd) server-side;
+		// the optimistic patch must append it to the array, not replace it — or the
+		// Tee's other edges vanish from the canvas until the next poll.
+		Core.node( names.METADATA ).rawMap = {
+			_header: { pwd: '_repl/_output/_sse:9/_output' },
+			tee: { target: [ 'request-builder', 'job-router' ] },
+		};
 		const { result } = renderHandlers( {} );
-		result.current.onInspectorAction( 'disconnect', 'x', null );
-		expect( patched ).toEqual( [ [ 'x', { target: '' } ] ] );
+		result.current.onInspectorAction( 'tail', 'tee', null );
+		expect( patched ).toEqual( [
+			[
+				'tee',
+				{
+					target: [
+						'request-builder',
+						'job-router',
+						'_repl/_output/_sse:9/_output',
+					],
+				},
+			],
+		] );
 	} );
 
-	it( 'onInspectorAction tail points the node target at _output', () => {
+	it( 'onInspectorAction disconnect REMOVES only this session pwd from the Tee fan-out', () => {
+		Core.node( names.METADATA ).rawMap = {
+			_header: { pwd: '_repl/_output/_sse:9/_output' },
+			tee: {
+				target: [ 'request-builder', '_repl/_output/_sse:9/_output' ],
+			},
+		};
 		const { result } = renderHandlers( {} );
-		result.current.onInspectorAction( 'tail', 'x', null );
-		expect( patched ).toEqual( [ [ 'x', { target: names.OUTPUT } ] ] );
+		result.current.onInspectorAction( 'disconnect', 'tee', null );
+		expect( patched ).toEqual( [
+			[ 'tee', { target: [ 'request-builder' ] } ],
+		] );
+	} );
+
+	it( 'onInspectorAction trace patches debug_state so the Trace button flips at once', () => {
+		const { result } = renderHandlers( {} );
+		result.current.onInspectorAction( 'trace', 'x', 1 );
+		expect( patched ).toEqual( [ [ 'x', { debug_state: 1 } ] ] );
 	} );
 
 	it( 'a non-mutating inspector action (dump) does NOT patch', () => {

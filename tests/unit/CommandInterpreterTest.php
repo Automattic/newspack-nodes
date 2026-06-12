@@ -1068,6 +1068,36 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertSame( 0,  $decoded['alice']['bytes_written'] );
 	}
 
+	public function test_dump_metadata_header_carries_the_request_reply_pivot(): void {
+		// The full snapshot stamps a `_header.pwd` with the requesting session's
+		// reply pivot (the inbound FROM == reverse_cwd) so the GUI can match it
+		// against a Tee target to toggle Connect/Disconnect authoritatively.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$envelope                  = Message::new_message();
+		$envelope[ Message::FROM ] = '_repl/_output/_sse:346/_output';
+		$decoded                   = $interpreter->dispatch( 'dump_metadata', '', $envelope );
+
+		$this->assertIsArray( $decoded );
+		$this->assertArrayHasKey( '_header', $decoded );
+		$this->assertSame( '_repl/_output/_sse:346/_output', $decoded['_header']['pwd'] );
+	}
+
+	public function test_dump_metadata_single_node_refresh_omits_the_header(): void {
+		// A single-node refresh is a delta, not a full snapshot — no header.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+		$alice = new Capture_Sink_Node();
+		$alice->name( 'alice' );
+
+		$envelope                  = Message::new_message();
+		$envelope[ Message::FROM ] = '_repl/_output/_sse:346/_output';
+		$decoded                   = $interpreter->dispatch( 'dump_metadata', 'alice', $envelope );
+
+		$this->assertArrayNotHasKey( '_header', $decoded );
+	}
+
 	public function test_dump_metadata_class_is_the_unqualified_short_name(): void {
 		// The `class` field is the shell name (short name minus `_Node`) the GUI
 		// renders, never the fully-qualified `Newspack_Nodes\Tests\Capture_Sink_Node`.

@@ -7,6 +7,7 @@
 
 import { Core } from './core';
 import { TimerNode } from './timer-node';
+import reservedNames from './reserved-node-names.json';
 import {
 	newMessage,
 	TYPE,
@@ -50,6 +51,14 @@ export function dumpMetadataPayload( only = '' ) {
 			has_target: schema?.has_target ?? true,
 		};
 	}
+	// Reserved header carrying THIS session's reply pivot (reverse_cwd) — only on a
+	// FULL snapshot, not a single-node refresh delta. For the in-browser interpreter
+	// that pivot is the bare Dumper `_output` (the exact FROM a local
+	// `connect_node <tee>` stores), which the Inspector matches to toggle
+	// Connect/Disconnect. The worker tier stamps its own (`_repl/…/_sse:{pid}/…`).
+	if ( '' === only ) {
+		out._header = { pwd: reservedNames.OUTPUT };
+	}
 	return out;
 }
 
@@ -72,17 +81,39 @@ export function parseMetadata( payload ) {
 		try {
 			raw = JSON.parse( payload );
 		} catch ( e ) {
-			return { nodes: [], edges: [] };
+			return { nodes: [], edges: [], pwd: '' };
 		}
 	} else {
-		return { nodes: [], edges: [] };
+		return { nodes: [], edges: [], pwd: '' };
 	}
+
+	// `_header` is the one reserved (non-node) key: the producer (worker or local
+	// Core) stamps `pwd` = THIS session's reply pivot — the reverse_cwd, the exact
+	// FROM a `connect_node` with no target stores as a Tee target. The Inspector
+	// matches it authoritatively instead of reconstructing the (runtime-renamed)
+	// path. Skipped in the node loop so it never renders as a phantom node.
+	const pwd =
+		raw._header && typeof raw._header.pwd === 'string'
+			? raw._header.pwd
+			: '';
 
 	const nodes = [];
 	const edges = [];
 	for ( const [ name, meta ] of Object.entries( raw ) ) {
-		if ( SCAFFOLDING.has( name ) ) {
+		if ( SCAFFOLDING.has( name ) || '_header' === name ) {
 			continue;
+		}
+		// Full target paths, before the edge head-collapse below. The Inspector's
+		// Connect/Disconnect toggle matches THIS session's reply pivot (`pwd`)
+		// against these, since the head-collapsed edges flatten every session's
+		// pivot to a single shared `_repl` and can no longer distinguish them.
+		let targets = [];
+		if ( Array.isArray( meta.target ) ) {
+			targets = meta.target.filter(
+				( t ) => typeof t === 'string' && t !== ''
+			);
+		} else if ( typeof meta.target === 'string' && meta.target !== '' ) {
+			targets = [ meta.target ];
 		}
 		nodes.push( {
 			id: name,
@@ -105,6 +136,7 @@ export function parseMetadata( payload ) {
 					: true,
 			has_target:
 				typeof meta.has_target === 'boolean' ? meta.has_target : true,
+			targets,
 		} );
 		// An edge connects to the HEAD of the target path — `_router` peels the
 		// first `/`-segment and delivers there (`_sse/workers` → `_sse`).
@@ -123,7 +155,7 @@ export function parseMetadata( payload ) {
 			edges.push( { from: name, to: headOf( target ) } );
 		}
 	}
-	return { nodes, edges };
+	return { nodes, edges, pwd };
 }
 
 /**

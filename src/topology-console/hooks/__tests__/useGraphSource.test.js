@@ -20,7 +20,13 @@ describe( 'useGraphSource', () => {
 			useGraphSource( { active: true } )
 		);
 		expect( result.current.hasNodes ).toBe( false );
-		expect( result.current.graph ).toEqual( { nodes: [], edges: [] } );
+		// coreToGraph still stamps the local reply pivot into pwd even with no
+		// visible nodes (the in-browser tail target is always the bare `_output`).
+		expect( result.current.graph ).toEqual( {
+			nodes: [],
+			edges: [],
+			pwd: '_output',
+		} );
 		teardown();
 	} );
 
@@ -73,7 +79,11 @@ describe( 'useGraphSource', () => {
 			useGraphSource( { coreFallback: false } )
 		);
 		expect( result.current.hasNodes ).toBe( false );
-		expect( result.current.graph ).toEqual( { nodes: [], edges: [] } );
+		expect( result.current.graph ).toEqual( {
+			nodes: [],
+			edges: [],
+			pwd: '',
+		} );
 		teardown();
 	} );
 

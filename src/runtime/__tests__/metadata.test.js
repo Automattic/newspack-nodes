@@ -33,4 +33,13 @@ describe( 'dumpMetadataPayload', () => {
 		expect( payload.a ).toBeDefined();
 		expect( payload.b ).toBeUndefined();
 	} );
+
+	it( 'stamps the local reply pivot (_output) into the _header section', () => {
+		const a = new Node();
+		a.setName( 'a' );
+		const payload = dumpMetadataPayload();
+		// The in-browser interpreter's reply pivot is the bare Dumper `_output`,
+		// so a local `connect_node <tee>` stores `_output` — matched against this.
+		expect( payload._header ).toEqual( { pwd: '_output' } );
+	} );
 } );
