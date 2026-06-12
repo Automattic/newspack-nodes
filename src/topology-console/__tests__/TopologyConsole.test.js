@@ -681,7 +681,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'canvas' ).dataset.mode ).toBe( 'view' );
 	} );
 
-	it( 'polls dump_metadata every tick and uptime on the 5s cadence (reply pivots to _metadata/_uptime)', () => {
+	it( 'polls dump_metadata every tick and uptime on the 5s cadence (reply pivots to _metadata/_uptime)', async () => {
 		jest.useFakeTimers();
 		try {
 			globalThis.__httpPosts = [];
@@ -737,9 +737,11 @@ describe( 'TopologyConsole boot', () => {
 		} finally {
 			jest.useRealTimers();
 		}
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'onComplete on the FIRST token dispatches a `help` completion query (KEY=completion, FROM pivots to _completion)', () => {
+	it( 'onComplete on the FIRST token dispatches a `help` completion query (KEY=completion, FROM pivots to _completion)', async () => {
 		globalThis.__httpPosts = [];
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText } = render( <TopologyConsole /> );
@@ -757,9 +759,11 @@ describe( 'TopologyConsole boot', () => {
 		expect( m[ TO ] ).toBe( 'demo.p0' );
 		// Minted in-process → LOCAL taint set (the wire pack() strips it later).
 		expect( m[ LOCAL ] ).toBe( true );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'onComplete on a LATER token dispatches an `ls` completion query', () => {
+	it( 'onComplete on a LATER token dispatches an `ls` completion query', async () => {
 		globalThis.__httpPosts = [];
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		const { getByText } = render( <TopologyConsole /> );
@@ -771,6 +775,8 @@ describe( 'TopologyConsole boot', () => {
 		);
 		expect( completions.length ).toBe( 1 );
 		expect( completions[ 0 ][ VALUE ].name ).toBe( 'ls' );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
 	it( 'onShowCandidates renders the candidate list into the transcript', () => {
@@ -1086,10 +1092,12 @@ describe( 'TopologyConsole boot', () => {
 		expect( items[ 199 ].textContent ).toBe( 'msg-249' );
 	} );
 
-	it( 'URL state: ?topology=demo is read on mount', () => {
+	it( 'URL state: ?topology=demo is read on mount', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo&partition=0' );
 		const { getByTestId } = render( <TopologyConsole /> );
 		expect( getByTestId( 'header' ).dataset.mode ).toBe( 'view' );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
 	it( 'URL state: invalid ?topology fallback to first entry', () => {
@@ -1359,7 +1367,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'header' ) ).not.toBeNull();
 	} );
 
-	it( 'Header receives pathOptions built from topologies + partitions', () => {
+	it( 'Header receives pathOptions built from topologies + partitions', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		// demo has 2 partitions → '', '_http', '_sse/demo.p0', '_sse/demo.p1'.
@@ -1369,9 +1377,11 @@ describe( 'TopologyConsole boot', () => {
 			'_sse/demo.p0',
 			'_sse/demo.p1',
 		] );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'pathOptions lists only ACTIVE topologies (excludes inactive ones)', () => {
+	it( 'pathOptions lists only ACTIVE topologies (excludes inactive ones)', async () => {
 		const prev = window.NewspackNodesData;
 		window.NewspackNodesData = {
 			...prev,
@@ -1393,9 +1403,11 @@ describe( 'TopologyConsole boot', () => {
 		} finally {
 			window.NewspackNodesData = prev;
 		}
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'pathOptions derives from the live catalog hook, not the static global', () => {
+	it( 'pathOptions derives from the live catalog hook, not the static global', async () => {
 		// The page-load global still says only `demo`, but the live catalog has
 		// since gained an active `extra` topology. The menu must reflect the live
 		// catalog (the bug: it stayed frozen on the global until a page reload).
@@ -1412,6 +1424,8 @@ describe( 'TopologyConsole boot', () => {
 			'_sse/extra.p0',
 			'_sse/extra.p1',
 		] );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
 	it( 'saving a topology refreshes the live catalog', async () => {
@@ -1456,16 +1470,18 @@ describe( 'TopologyConsole boot', () => {
 		}
 	} );
 
-	it( 'Header onPathChange to a different worker re-keys the graph (URL follows)', () => {
+	it( 'Header onPathChange to a different worker re-keys the graph (URL follows)', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
 			lastHeaderProps.onPathChange( '_sse/demo.p1' );
 		} );
 		expect( window.location.search ).toMatch( /partition=1/ );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'Header onPathChange to a root path just moves the cwd (no partition URL)', () => {
+	it( 'Header onPathChange to a root path just moves the cwd (no partition URL)', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
@@ -1473,9 +1489,11 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		expect( lastHeaderProps.path ).toBe( '_sse' );
 		expect( window.location.search ).not.toMatch( /partition=/ );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'REPL cd to a different worker re-keys the graph like the menu', () => {
+	it( 'REPL cd to a different worker re-keys the graph like the menu', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
@@ -1483,9 +1501,11 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		expect( window.location.search ).toMatch( /partition=1/ );
 		expect( lastHeaderProps.path ).toBe( '_sse/demo.p1' );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'REPL cd into a sub-node of the CURRENT worker is free navigation (no re-key)', () => {
+	it( 'REPL cd into a sub-node of the CURRENT worker is free navigation (no re-key)', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
@@ -1494,9 +1514,11 @@ describe( 'TopologyConsole boot', () => {
 		// cwd follows the deep path; same worker → no rebuild, no partition URL.
 		expect( lastHeaderProps.path ).toBe( '_sse/demo.p0/firehose-in' );
 		expect( window.location.search ).not.toMatch( /partition=/ );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'REPL cd into a sub-node of a DIFFERENT worker mounts that worker (largest prefix)', () => {
+	it( 'REPL cd into a sub-node of a DIFFERENT worker mounts that worker (largest prefix)', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
@@ -1504,9 +1526,11 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		// Longest menu prefix is _sse/demo.p1 → mount p1.
 		expect( window.location.search ).toMatch( /partition=1/ );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'REPL cd to a non-menu path is free navigation, not clobbered to root', () => {
+	it( 'REPL cd to a non-menu path is free navigation, not clobbered to root', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
@@ -1514,9 +1538,11 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		expect( lastHeaderProps.path ).toBe( '_http/demo.p0' );
 		expect( window.location.search ).not.toMatch( /partition=/ );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'cd into a worker sub-node sets _cwd.target to the cwd verbatim', () => {
+	it( 'cd into a worker sub-node sets _cwd.target to the cwd verbatim', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
@@ -1526,9 +1552,11 @@ describe( 'TopologyConsole boot', () => {
 		expect( Core.node( names.CWD ).target ).toBe(
 			'_sse/demo.p0/firehose-in'
 		);
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'a worker cwd during the connecting window keeps _cwd pointed at the worker (not local)', () => {
+	it( 'a worker cwd during the connecting window keeps _cwd pointed at the worker (not local)', async () => {
 		// Previously the guard pointed _cwd at '' (the local interpreter) during the
 		// connecting window, which made the canvas DISPLAY the local graph at
 		// a worker cwd — misleading. Now _cwd tracks the cwd verbatim; the
@@ -1545,36 +1573,44 @@ describe( 'TopologyConsole boot', () => {
 		} finally {
 			globalThis.__connecting = false;
 		}
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'request scope (cd /_sse) sets _cwd.target to _sse', () => {
+	it( 'request scope (cd /_sse) sets _cwd.target to _sse', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /_sse' );
 		} );
 		expect( Core.node( names.CWD ).target ).toBe( '_sse' );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'local graph (cd /) sets _cwd.target to the empty local-root path', () => {
+	it( 'local graph (cd /) sets _cwd.target to the empty local-root path', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /' );
 		} );
 		expect( Core.node( names.CWD ).target ).toBe( '' );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'cd onto a worker sets _cwd.target to that worker', () => {
+	it( 'cd onto a worker sets _cwd.target to that worker', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
 			lastReplProps.onSubmit( 'cd /_sse/demo.p1' );
 		} );
 		expect( Core.node( names.CWD ).target ).toBe( '_sse/demo.p1' );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'REPL cd echoes into the transcript like other builtins', () => {
+	it( 'REPL cd echoes into the transcript like other builtins', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
@@ -1584,6 +1620,8 @@ describe( 'TopologyConsole boot', () => {
 			( t ) => t.kind === 'sent'
 		);
 		expect( sent.map( ( t ) => t.text ) ).toContain( 'cd /_sse' );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
 	it( 'mounts the receive graph in view mode (Dumper registered as _output)', () => {
@@ -1828,7 +1866,7 @@ describe( 'TopologyConsole boot', () => {
 		expect( await findByText( 'reset-graph' ) ).not.toBeNull();
 	} );
 
-	it( 'the palette shows JS classes at the local scope (NOT the PHP catalog)', () => {
+	it( 'the palette shows JS classes at the local scope (NOT the PHP catalog)', async () => {
 		// At cwd '/', make_node runs against the browser's Core, so the palette
 		// must list the JS-side CommandInterpreter.includeNodes (Tee, Timer,
 		// Node, CommandInterpreter). The PHP `classes.list` catalog (which the
@@ -1849,6 +1887,8 @@ describe( 'TopologyConsole boot', () => {
 			expect.arrayContaining( [ 'Tee', 'Timer' ] )
 		);
 		expect( paletteNames ).not.toContain( 'PHP_Only_Class' );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
 	it( 'the palette shows the PHP catalog when at a worker (or editing a topology)', async () => {
@@ -2111,11 +2151,13 @@ describe( 'TopologyConsole boot', () => {
 		expect( entry.rate ).toBeGreaterThanOrEqual( 0 );
 	}, 5000 );
 
-	it( 'topology with multiple partitions: switching partition clamps when invalid', () => {
+	it( 'topology with multiple partitions: switching partition clamps when invalid', async () => {
 		window.NewspackNodesData.topologyPartitions = { demo: 1 };
 		window.history.replaceState( {}, '', '/?topology=demo&partition=3' );
 		const { getByTestId } = render( <TopologyConsole /> );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
 	it( 'debug_level 2 path: header injection still renders the arrival', async () => {
@@ -2313,26 +2355,32 @@ describe( 'TopologyConsole boot', () => {
 		expect( hooks.fetchTopology ).toHaveBeenCalled();
 	} );
 
-	it( 'canEdit is true when the cwd names a worker', () => {
+	it( 'canEdit is true when the cwd names a worker', async () => {
 		// Default mount lands cwd at _sse/{reader} (a worker).
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		expect( lastHeaderProps.canEdit ).toBe( true );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'canEdit is false when the cwd is a root path', () => {
+	it( 'canEdit is false when the cwd is a root path', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		act( () => {
 			lastHeaderProps.onPathChange( '_sse' );
 		} );
 		expect( lastHeaderProps.canEdit ).toBe( false );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
-	it( 'canDeleteCurrent: returns false when no user-saved topology', () => {
+	it( 'canDeleteCurrent: returns false when no user-saved topology', async () => {
 		window.history.replaceState( {}, '', '/?topology=demo' );
 		render( <TopologyConsole /> );
 		expect( lastHeaderProps.canDelete ).toBe( false );
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
 	it( 'edit mode: canDeleteCurrent=true with a user-saved topology', async () => {
@@ -2419,11 +2467,13 @@ describe( 'TopologyConsole boot', () => {
 		expect( getByTestId( 'canvas' ) ).not.toBeNull();
 	} );
 
-	it( 'switching partition to higher than available clamps to 0', () => {
+	it( 'switching partition to higher than available clamps to 0', async () => {
 		window.NewspackNodesData.topologyPartitions = { demo: 2 };
 		window.history.replaceState( {}, '', '/?topology=demo&partition=5' );
 		const { getByTestId } = render( <TopologyConsole /> );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
+		// Flush the boot fetchLayout().then( setSavedLayout ) microtask in act.
+		await act( async () => {} );
 	} );
 
 	it( 'sendLine: a remote command echoes the sent text', async () => {
