@@ -23,6 +23,7 @@ import {
 	TM_INFO,
 	TM_STRUCT,
 	TM_REQUEST,
+	TM_NOREPLY,
 } from './message';
 
 export const TRANSCRIPT_MAX = 200;
@@ -38,6 +39,8 @@ const TM_LABELS = [
 	[ TM_ERROR, 'TM_ERROR' ],
 	[ TM_INFO, 'TM_INFO' ],
 	[ TM_STRUCT, 'TM_STRUCT' ],
+	[ TM_REQUEST, 'TM_REQUEST' ],
+	[ TM_NOREPLY, 'TM_NOREPLY' ],
 ];
 
 export function formatTypeLabel( type ) {
