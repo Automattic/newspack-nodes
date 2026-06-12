@@ -837,6 +837,11 @@ class Command_Interpreter_Node extends Node {
 				'accepts_fill'  => $schema['accepts_fill'] ?? true,
 				'has_target'    => $schema['has_target'] ?? true,
 			];
+			// Emit only when non-empty, keeping this byte-identical with the JS producer (PHP [] vs JS {}).
+			$registrations = $node->registered_listeners();
+			if ( [] !== $registrations ) {
+				$out[ $name ]['registrations'] = $registrations;
+			}
 		}
 		// Reserved header on a FULL snapshot: this session's reply pivot (the
 		// reverse_cwd) so the GUI can match it against a Tee target to toggle

@@ -2063,4 +2063,40 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertTrue( $decoded['probe']['accepts_fill'] );
 		$this->assertTrue( $decoded['probe']['has_target'] );
 	}
+
+	public function test_dump_metadata_emits_registrations_for_node_name_listeners(): void {
+		// Node-name listeners become canvas edges; closure listeners do not.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$emitter = new class() extends Node {
+			public function __construct() {
+				$this->registrations = [ 'EVT' => [] ];
+			}
+		};
+		$emitter->name( 'emitter' );
+
+		$listener = new Echo_Node();
+		$listener->name( 'listener' );
+
+		$emitter->register( 'EVT', 'listener' );
+		$emitter->register( 'EVT', 'closure', static fn ( $p ) => $p );
+
+		$decoded = $interpreter->dispatch( 'dump_metadata' );
+
+		$this->assertSame( [ 'EVT' => [ 'listener' ] ], $decoded['emitter']['registrations'] );
+	}
+
+	public function test_dump_metadata_omits_registrations_when_empty(): void {
+		// A node with no node-name registrations carries no registrations key.
+		$interpreter = new Command_Interpreter_Node();
+		$interpreter->name( '_command_interpreter' );
+
+		$node = new Echo_Node();
+		$node->name( 'plain' );
+
+		$decoded = $interpreter->dispatch( 'dump_metadata' );
+
+		$this->assertArrayNotHasKey( 'registrations', $decoded['plain'] );
+	}
 }
