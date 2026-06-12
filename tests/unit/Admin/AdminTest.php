@@ -249,6 +249,16 @@ namespace {
 			return 'nonce_' . \substr( \md5( $action ), 0, 10 );
 		}
 	}
+	if ( ! \function_exists( 'add_settings_error' ) ) {
+		function add_settings_error( string $setting, string $code, string $message, string $type = 'error' ): void {
+			$GLOBALS['_settings_errors'][] = [
+				'setting' => $setting,
+				'code'    => $code,
+				'message' => $message,
+				'type'    => $type,
+			];
+		}
+	}
 
 	// Substrate Admin class is normally required by the main plugin file's
 	// `is_admin()` block; in tests `is_admin()` is undefined / falsey, so
@@ -1198,6 +1208,53 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$admin = new Admin();
 		$this->assertSame( [], $admin->sanitize_topologies( null ) );
 		$this->assertSame( [], $admin->sanitize_topologies( 'not-an-array' ) );
+	}
+
+	public function test_sanitize_topologies_rejects_conflicting_set_and_keeps_prior(): void {
+		// `combined` and `rb` both write requests.log — enabling both would let two
+		// worker fleets clobber the same partition. The sanitizer must refuse the
+		// WHOLE change, leave the previously-saved set intact, and raise a settings
+		// error rather than silently accept a corrupting config.
+		$tmp = $this->make_temp_dir( 'tsl-conflict-' );
+		\file_put_contents( "{$tmp}/combined.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.log <partition>" );
+		\file_put_contents( "{$tmp}/rb.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.log <partition>" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
+
+		\update_option( 'newspack_nodes_topologies', [ 'combined' ] );
+		$GLOBALS['_settings_errors'] = [];
+
+		$admin  = new Admin();
+		$result = $admin->sanitize_topologies( [ 'combined', 'rb' ] );
+
+		$this->assertSame( [ 'combined' ], $result, 'rejected change must return the prior saved set unchanged' );
+		$this->assertNotEmpty( $GLOBALS['_settings_errors'], 'a settings error must be raised on conflict' );
+		$this->assertSame( 'newspack_nodes_topologies', $GLOBALS['_settings_errors'][0]['setting'] );
+
+		$this->rmdir_recursive( $tmp );
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	public function test_sanitize_topologies_rejected_conflict_with_no_prior_returns_empty(): void {
+		// No previously-saved set → rejecting the conflicting change falls back to
+		// the safest outcome: nothing active (never a corrupting set).
+		$tmp = $this->make_temp_dir( 'tsl-conflict-noprior-' );
+		\file_put_contents( "{$tmp}/combined.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.log <partition>" );
+		\file_put_contents( "{$tmp}/rb.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.log <partition>" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
+
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		$GLOBALS['_settings_errors'] = [];
+
+		$admin  = new Admin();
+		$result = $admin->sanitize_topologies( [ 'combined', 'rb' ] );
+
+		$this->assertSame( [], $result );
+		$this->assertNotEmpty( $GLOBALS['_settings_errors'] );
+
+		$this->rmdir_recursive( $tmp );
+		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
 	public function test_topologies_callback_renders_checkbox_per_known_topology(): void {

@@ -65,4 +65,55 @@ class TopologyRegistryConflictsTest extends TestCase {
 		$this->assertCount( 1, $conflicts );
 		$this->assertContains( 'offsetlog:<config:offsets_dir>/firehose.p<partition>', $conflicts[0]['shared'] );
 	}
+
+	public function test_topic_is_a_writer_in_the_write_set(): void {
+		// A Topic appends to the partitions under its path exactly like Partition,
+		// so it belongs in the write-set under the same `partition:` namespace —
+		// otherwise a Topic-vs-Partition collision on the same log is invisible.
+		$this->write_tsl( 'producer', "make_node Topic firehose:topic <config:logs_dir>/firehose.log <config:num_partitions>" );
+
+		$this->assertContains(
+			'partition:<config:logs_dir>/firehose.log',
+			Topology_Registry::write_set( 'producer' )
+		);
+	}
+
+	public function test_conflict_when_topic_and_partition_write_the_same_log(): void {
+		$this->write_tsl( 'producer', "make_node Topic firehose:topic <config:logs_dir>/firehose.log <config:num_partitions>" );
+		$this->write_tsl( 'writer', "make_node Partition firehose:partition <config:logs_dir>/firehose.log <partition>" );
+
+		$conflicts = Topology_Registry::find_conflicts( [ 'producer', 'writer' ] );
+		$this->assertCount( 1, $conflicts );
+		$this->assertContains( 'partition:<config:logs_dir>/firehose.log', $conflicts[0]['shared'] );
+	}
+
+	public function test_write_set_is_memoized_until_cache_reset(): void {
+		$this->write_tsl( 'w', "make_node Partition a:partition <config:logs_dir>/a.log <partition>" );
+		$first = Topology_Registry::write_set( 'w' );
+		$this->assertContains( 'partition:<config:logs_dir>/a.log', $first );
+
+		// Rewrite the .tsl to a different path WITHOUT clearing the cache — the
+		// memoized result persists (proves the disk read is cached, not redone).
+		$this->write_tsl( 'w', "make_node Partition b:partition <config:logs_dir>/b.log <partition>" );
+		$this->assertSame( $first, Topology_Registry::write_set( 'w' ), 'cached until the per-tick reset' );
+
+		// reset_basename_cache() (Config::RESET_ACTION on each supervisor tick) picks up the edit.
+		Topology_Registry::reset_basename_cache();
+		$this->assertContains( 'partition:<config:logs_dir>/b.log', Topology_Registry::write_set( 'w' ) );
+	}
+
+	public function test_describe_conflicts_renders_pairs_with_shared_resource(): void {
+		$desc = Topology_Registry::describe_conflicts( [
+			[ 'a' => 'combined', 'b' => 'rb', 'shared' => [ 'partition:x/requests.log' ] ],
+			[ 'a' => 'combined', 'b' => 'jr', 'shared' => [ 'offsetlog:y/firehose.p0' ] ],
+		] );
+		$this->assertStringContainsString( 'combined', $desc );
+		$this->assertStringContainsString( 'rb', $desc );
+		$this->assertStringContainsString( 'partition:x/requests.log', $desc );
+		$this->assertStringContainsString( 'jr', $desc );
+	}
+
+	public function test_describe_conflicts_empty_is_empty_string(): void {
+		$this->assertSame( '', Topology_Registry::describe_conflicts( [] ) );
+	}
 }

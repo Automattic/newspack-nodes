@@ -26,6 +26,9 @@ class Topology_Registry {
 	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides by topology name. */
 	private static array $segment_size_overrides_cache = [];
 
+	/** @var array<string,array<string>> Memoized write-set by topology name; cleared by reset_basename_cache(). */
+	private static array $write_set_cache = [];
+
 	/** @var array<string,bool> Guards register_plugin against double-wiring (a second call would double-spawn). */
 	private static array $registered_plugins = [];
 
@@ -220,8 +223,9 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Resources `$name` WRITES: its data-partition paths (`make_node Partition`)
-	 * and its Consumer offsetlog paths (`make_node Consumer`'s 4th arg). Paths are
+	 * Resources `$name` WRITES: its data-partition paths (`make_node Partition`
+	 * and `make_node Topic`, which both append to the log at their path arg) and
+	 * its Consumer offsetlog paths (`make_node Consumer`'s 4th arg). Paths are
 	 * kept in raw token form (`<config:…>/<partition>`) — identical iff they
 	 * resolve to the same file — and namespaced `partition:` / `offsetlog:` so the
 	 * two kinds can't false-match. A Consumer's SOURCE (2nd arg) is a read, not a
@@ -230,9 +234,12 @@ class Topology_Registry {
 	 * @return array<string>
 	 */
 	public static function write_set( string $name ): array {
+		if ( isset( self::$write_set_cache[ $name ] ) ) {
+			return self::$write_set_cache[ $name ];
+		}
 		$path = self::resolve( $name );
 		if ( null === $path ) {
-			return [];
+			return self::$write_set_cache[ $name ] = [];
 		}
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 		$contents = (string) \file_get_contents( $path );
@@ -242,7 +249,10 @@ class Topology_Registry {
 			if ( '' === $line || '#' === $line[0] ) {
 				continue;
 			}
-			if ( \preg_match( '/^make_node\s+Partition\s+\S+\s+(\S+)/', $line, $m ) ) {
+			// Partition writes one log; Topic appends to the partitions under its
+			// path the same way — both share the `partition:` namespace so a
+			// Topic-vs-Partition collision on the same log is caught.
+			if ( \preg_match( '/^make_node\s+(?:Partition|Topic)\s+\S+\s+(\S+)/', $line, $m ) ) {
 				$seen[ 'partition:' . $m[1] ] = true;
 				continue;
 			}
@@ -253,7 +263,7 @@ class Topology_Registry {
 		}
 		$out = \array_keys( $seen );
 		\sort( $out );
-		return $out;
+		return self::$write_set_cache[ $name ] = $out;
 	}
 
 	/**
@@ -287,6 +297,23 @@ class Topology_Registry {
 			}
 		}
 		return $conflicts;
+	}
+
+	/**
+	 * One-line human summary of find_conflicts() output, shared by the admin
+	 * sanitizer's settings error and the supervisor's refusal log so the two
+	 * gates phrase a conflict identically. Empty input → empty string.
+	 *
+	 * @param array<array{a: string, b: string, shared: array<string>}> $conflicts
+	 */
+	public static function describe_conflicts( array $conflicts ): string {
+		return \implode(
+			', ',
+			\array_map(
+				static fn( array $c ): string => "{$c['a']} ↔ {$c['b']} ({$c['shared'][0]})",
+				$conflicts
+			)
+		);
 	}
 
 	/**
@@ -410,6 +437,7 @@ class Topology_Registry {
 	public static function reset_basename_cache(): void {
 		self::$basename_cache               = [];
 		self::$segment_size_overrides_cache = [];
+		self::$write_set_cache              = [];
 	}
 
 	public static function reset(): void {
