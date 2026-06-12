@@ -83,6 +83,24 @@ export function useGraphHandlers( {
 				}
 				patch( from, { target: next } );
 			},
+			onRemoveEdge: ( from, to ) => {
+				dispatch(
+					`disconnect_node ${ from } ${ to }`,
+					'disconnect_node',
+					`${ from } ${ to }`
+				);
+				// disconnect_node value-filters the target server-side; mirror it —
+				// drop `to` from a Tee fan-out array, or clear a single-target string.
+				const current = Core.node( names.METADATA )?.rawMap?.[ from ]
+					?.target;
+				if ( Array.isArray( current ) ) {
+					patch( from, {
+						target: current.filter( ( t ) => t !== to ),
+					} );
+				} else if ( current === to ) {
+					patch( from, { target: '' } );
+				}
+			},
 			onRemoveNode: ( id ) => {
 				dispatch( `remove_node ${ id }`, 'remove_node', id );
 				patch( id, null );

@@ -69,6 +69,69 @@ describe( 'Inspector (view mode)', () => {
 		expect( container.textContent ).toMatch( /CONNECTING/ );
 	} );
 
+	it( 'live mode renders the targets editor from node.targets; chip × calls onRemoveEdge with the FULL target, dropdown calls onConnect', () => {
+		const onConnect = jest.fn();
+		const onRemoveEdge = jest.fn();
+		// node.targets is the full, uncollapsed runtime target list (NOT the
+		// headOf-collapsed / registration-polluted parsed.edges). A path target
+		// like `_sse/workers` must disconnect by its full value, not its head.
+		const teeParsed = {
+			nodes: [
+				{ id: 'tee', class: 'Tee', targets: [ 'a', '_sse/workers' ] },
+				{ id: 'a', class: 'Echo' },
+				{ id: 'b', class: 'Echo' },
+			],
+			// Deliberately includes a registration edge that must NOT become a chip.
+			edges: [
+				{ from: 'tee', to: '_sse' },
+				{ from: 'tee', to: 'a', registration: true, event: 'EVT' },
+			],
+		};
+		const { getByRole, getByDisplayValue } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="tee"
+				parsed={ teeParsed }
+				nodeIds={ new Set( [ 'tee', 'a', 'b' ] ) }
+				onConnect={ onConnect }
+				onRemoveEdge={ onRemoveEdge }
+			/>
+		);
+		fireEvent.click(
+			getByRole( 'button', { name: /Remove _sse\/workers/i } )
+		);
+		expect( onRemoveEdge ).toHaveBeenCalledWith( 'tee', '_sse/workers' );
+		fireEvent.change( getByDisplayValue( '+ add target…' ), {
+			target: { value: 'b' },
+		} );
+		expect( onConnect ).toHaveBeenCalledWith( 'tee', 'b' );
+	} );
+
+	it( 'live mode does NOT show the targets editor for a reserved node', () => {
+		const onConnect = jest.fn();
+		const onRemoveEdge = jest.fn();
+		const parsedReserved = {
+			nodes: [
+				{ id: '_repl', class: 'CommandInterpreter', targets: [ 'a' ] },
+				{ id: 'a', class: 'Echo' },
+			],
+			edges: [ { from: '_repl', to: 'a' } ],
+		};
+		const { queryByRole } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="_repl"
+				parsed={ parsedReserved }
+				nodeIds={ new Set( [ '_repl', 'a' ] ) }
+				onConnect={ onConnect }
+				onRemoveEdge={ onRemoveEdge }
+			/>
+		);
+		// A reserved node shows the read-only routing display — no editor combobox
+		// (neither the Tee "+ add target…" dropdown nor the single-target select).
+		expect( queryByRole( 'combobox' ) ).toBeNull();
+	} );
+
 	it( 'renders LIVE without crashing when streamStatus is undefined (overlay case)', () => {
 		// The debug overlay reads the page's own Core synchronously — there is no
 		// SSE stream to report, so it omits streamStatus. The Inspector used to

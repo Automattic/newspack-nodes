@@ -1119,6 +1119,17 @@ export default function Inspector( {
 	}
 
 	const targets = parsed.edges.filter( ( e ) => e.from === selectedId );
+	// Other live nodes, for the "+ add target…" dropdown (mirrors EditForm).
+	const nodeNames = parsed.nodes
+		.map( ( n ) => n.id )
+		.filter( ( id ) => id !== selectedId );
+	// The live editor uses the node's FULL uncollapsed target list — NOT
+	// parsed.edges, which are headOf-collapsed (so `_sse/workers` → `_sse`, and a
+	// disconnect would miss) and include registration edges that must get no ×.
+	const editorTargets = ( node.targets || [] ).map( ( to ) => ( {
+		from: selectedId,
+		to,
+	} ) );
 	const type = node.class;
 	// Absent streamStatus = no SSE stream to report (the debug overlay reads
 	// the page's OWN Core synchronously, so the graph is literally always live).
@@ -1153,25 +1164,49 @@ export default function Inspector( {
 			</div>
 
 			<Section title={ __( 'Routing', 'newspack-nodes' ) }>
-				<div className="topology-field-row">
-					<span className="topology-field-row__key">target →</span>
-					<NodeLinks
-						names={ targets.slice( 0, 1 ).map( ( t ) => t.to ) }
-						nodeIds={ nodeIds }
-						onSelect={ onSelect }
-						onHover={ onHover }
+				{ onConnect && onRemoveEdge && ! isReserved( node ) ? (
+					// Live targets editor — the same UI as edit mode, but its
+					// add/remove dispatch runtime connect_node/disconnect_node
+					// (no .tsl write). Read-only fallback for reserved nodes /
+					// when no handlers are wired.
+					<TargetsField
+						node={ node }
+						nodeNames={ nodeNames }
+						targets={ editorTargets }
+						onConnect={ onConnect }
+						onRemoveEdge={ onRemoveEdge }
 					/>
-				</div>
-				{ targets.length > 1 && (
-					<div className="topology-field-row">
-						<span className="topology-field-row__key">also →</span>
-						<NodeLinks
-							names={ targets.slice( 1 ).map( ( t ) => t.to ) }
-							nodeIds={ nodeIds }
-							onSelect={ onSelect }
-							onHover={ onHover }
-						/>
-					</div>
+				) : (
+					<>
+						<div className="topology-field-row">
+							<span className="topology-field-row__key">
+								target →
+							</span>
+							<NodeLinks
+								names={ targets
+									.slice( 0, 1 )
+									.map( ( t ) => t.to ) }
+								nodeIds={ nodeIds }
+								onSelect={ onSelect }
+								onHover={ onHover }
+							/>
+						</div>
+						{ targets.length > 1 && (
+							<div className="topology-field-row">
+								<span className="topology-field-row__key">
+									also →
+								</span>
+								<NodeLinks
+									names={ targets
+										.slice( 1 )
+										.map( ( t ) => t.to ) }
+									nodeIds={ nodeIds }
+									onSelect={ onSelect }
+									onHover={ onHover }
+								/>
+							</div>
+						) }
+					</>
 				) }
 				{ /* sink + from dropped — substrate plumbing, no edit-mode equivalent. */ }
 			</Section>

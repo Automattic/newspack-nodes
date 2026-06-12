@@ -86,6 +86,32 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 		expect( patched ).toEqual( [ [ 'x', null ] ] );
 	} );
 
+	it( 'onRemoveEdge dispatches disconnect_node and drops the target from a Tee array', () => {
+		Core.node( names.METADATA ).rawMap = {
+			tee: { target: [ 'x', 'y', 'z' ] },
+		};
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onRemoveEdge( 'tee', 'y' );
+		expect( dispatch ).toHaveBeenCalledWith(
+			'disconnect_node tee y',
+			'disconnect_node',
+			'tee y'
+		);
+		expect( patched ).toEqual( [ [ 'tee', { target: [ 'x', 'z' ] } ] ] );
+	} );
+
+	it( 'onRemoveEdge clears a single-target (string) node to empty', () => {
+		Core.node( names.METADATA ).rawMap = { n: { target: 'b' } };
+		const { result, dispatch } = renderHandlers( {} );
+		result.current.onRemoveEdge( 'n', 'b' );
+		expect( dispatch ).toHaveBeenCalledWith(
+			'disconnect_node n b',
+			'disconnect_node',
+			'n b'
+		);
+		expect( patched ).toEqual( [ [ 'n', { target: '' } ] ] );
+	} );
+
 	it( 'onInspectorAction tail APPENDS the CANONICAL session pwd to the Tee fan-out', () => {
 		// connect_node with no target appends the issuing FROM server-side, which
 		// ends in the shell's `_output` — but the header pwd arrives ending in the
