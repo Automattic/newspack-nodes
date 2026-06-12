@@ -63,6 +63,130 @@ class Core {
 	/** Monotonic counter for general purpose IDs; reset by Core::reset(). */
 	private static int $counter = 0;
 
+	/** Resolve a `<ns:key>` topology token via its namespace resolver; '' (with a rate-limited warning) if the ns isn't registered or returns null. */
+	public static function resolve_config_token( string $ns, string $key ): string {
+		$resolver = self::$config_resolvers[ $ns ] ?? null;
+		if ( null === $resolver ) {
+			self::print_less_often( "resolve_config_token: unknown namespace <{$ns}:{$key}>" );
+			return '';
+		}
+		$value = $resolver( $key );
+		if ( null === $value ) {
+			self::print_less_often( "resolve_config_token: <{$ns}:{$key}> resolver returned null" );
+			return '';
+		}
+		if ( ! \is_scalar( $value ) ) {
+			self::print_less_often( "resolve_config_token: <{$ns}:{$key}> resolver returned non-scalar" );
+			return '';
+		}
+		return (string) $value;
+	}
+
+	/** Emit text on first sight; suppress identical text thereafter (re-windowed by prune_logs). */
+	public static function print_less_often( string $text ): void {
+		$row = self::$recent_log_timers[ $text ] ?? null;
+		if ( null !== $row ) {
+			++$row['count'];
+		} else {
+			self::stderr( $text );
+			$row = [ 'timestamp' => self::$now, 'count' => 1, ];
+		}
+		self::$recent_log_timers[ $text ] = $row;
+	}
+
+	public static function stderr( string $text ): void {
+		if ( '' === $text ) {
+			return;
+		}
+		// Already-dated lines are assumed pre-prefixed (Tachikoma's
+		// /^\d{4}-\d\d-\d\d/ guard) — write verbatim to avoid double
+		// prefixing on re-log paths. Otherwise apply prefix.
+		if ( 1 === \preg_match( '/^\d{4}-\d\d-\d\d/', $text ) ) {
+			$line = \rtrim( $text, "\n" ) . "\n";
+		} else {
+			$line = self::log_prefix( $text );
+		}
+		self::$recent_log[] = $line;
+		// Bounded tail for the REPL (Tachikoma caps @RECENT_LOG at 100).
+		while ( \count( self::$recent_log ) > 100 ) {
+			\array_shift( self::$recent_log );
+		}
+		self::_stderr( $line );
+	}
+
+	/**
+	 * Per-line timestamp + process-identity prefix (Tachikoma Node::log_prefix,
+	 * root/job branch): "%Y-%m-%d %H:%M:%S %Z <hostname> <argv0>[<pid>]: ".
+	 *
+	 * With no message, returns the bare prefix. With a message, chomps a
+	 * trailing newline, prepends the prefix to every line, and appends one
+	 * trailing newline — matching Perl's `s{^}{$prefix}mg` multiline substitute.
+	 */
+	public static function log_prefix( ?string $msg = null ): string {
+		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC '
+			. ( \gethostname() ?: 'unknown' ) . ' '
+			. self::argv0() . '[' . \getmypid() . ']: ';
+		if ( null === $msg ) {
+			return $prefix;
+		}
+		$msg = \rtrim( $msg, "\n" );
+		// Prepend the prefix to the start of every line (Perl m///mg).
+		$msg = $prefix . \str_replace( "\n", "\n" . $prefix, $msg );
+		return $msg . "\n";
+	}
+
+	/** Process identity for log_prefix (Perl $0): worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
+	public static function argv0(): string {
+		if ( isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && \is_scalar( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && '' !== $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) {
+			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
+			return \sanitize_text_field( \wp_unslash( (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) );
+		}
+		return \PHP_SAPI;
+	}
+
+	public static function _stderr( string $text ): void {
+		if ( self::$in_stderr ) {
+			// Re-entry guard: go straight to error_log to avoid recursion.
+			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
+			\error_log( \rtrim( $text ) );
+			return;
+		}
+		self::$in_stderr = true;
+		try {
+			( self::$stderr_handler )( $text );
+		} finally {
+			// Reset even if the handler throws, else stderr latches to fallback forever.
+			self::$in_stderr = false;
+		}
+	}
+
+	/** Tear down every registered node; snapshots the registry first so unregister doesn't mutate the iteration source. */
+	public static function cleanup_all_nodes(): void {
+		$nodes = self::$nodes_by_name;
+		foreach ( $nodes as $node ) {
+			try {
+				$node->remove_node();
+			} catch ( \Throwable $e ) {
+				// Best-effort: one node's failure shouldn't block the rest.
+				self::stderr( 'cleanup_all_nodes: ' . $e->getMessage() );
+			}
+		}
+	}
+
+	/** Emit once at the 10th identical occurrence; suppress otherwise (re-windowed by prune_logs). */
+	public static function print_least_often( string $text ): void {
+		$row = self::$recent_log_timers[ $text ] ?? null;
+		if ( null !== $row ) {
+			++$row['count'];
+			if ( 10 === $row['count'] ) {
+				self::stderr( $text );
+			}
+		} else {
+			$row = [ 'timestamp' => self::$now, 'count' => 1, ];
+		}
+		self::$recent_log_timers[ $text ] = $row;
+	}
+
 	public static function reset(): void {
 		self::$nodes_by_name     = [];
 		self::$shutting_down     = false;
@@ -110,25 +234,6 @@ class Core {
 		self::$config_resolvers[ $ns ] = $resolver;
 	}
 
-	/** Resolve a `<ns:key>` topology token via its namespace resolver; '' (with a rate-limited warning) if the ns isn't registered or returns null. */
-	public static function resolve_config_token( string $ns, string $key ): string {
-		$resolver = self::$config_resolvers[ $ns ] ?? null;
-		if ( null === $resolver ) {
-			self::print_less_often( "resolve_config_token: unknown namespace <{$ns}:{$key}>" );
-			return '';
-		}
-		$value = $resolver( $key );
-		if ( null === $value ) {
-			self::print_less_often( "resolve_config_token: <{$ns}:{$key}> resolver returned null" );
-			return '';
-		}
-		if ( ! \is_scalar( $value ) ) {
-			self::print_less_often( "resolve_config_token: <{$ns}:{$key}> resolver returned non-scalar" );
-			return '';
-		}
-		return (string) $value;
-	}
-
 	/**
 	 * Perl length()-style presence: false for null and '', true for '0'.
 	 *
@@ -155,19 +260,6 @@ class Core {
 		return self::$nodes_by_name[ $name ] ?? null;
 	}
 
-	/** Tear down every registered node; snapshots the registry first so unregister doesn't mutate the iteration source. */
-	public static function cleanup_all_nodes(): void {
-		$nodes = self::$nodes_by_name;
-		foreach ( $nodes as $node ) {
-			try {
-				$node->remove_node();
-			} catch ( \Throwable $e ) {
-				// Best-effort: one node's failure shouldn't block the rest.
-				self::stderr( 'cleanup_all_nodes: ' . $e->getMessage() );
-			}
-		}
-	}
-
 	public static function push_closing( callable $cb ): void {
 		self::$closing[] = $cb;
 	}
@@ -181,98 +273,6 @@ class Core {
 
 	public static function set_stderr_handler( callable $h ): void {
 		self::$stderr_handler = $h;
-	}
-
-	/** Emit once at the 10th identical occurrence; suppress otherwise (re-windowed by prune_logs). */
-	public static function print_least_often( string $text ): void {
-		$row = self::$recent_log_timers[ $text ] ?? null;
-		if ( null !== $row ) {
-			++$row['count'];
-			if ( 10 === $row['count'] ) {
-				self::stderr( $text );
-			}
-		} else {
-			$row = [ 'timestamp' => self::$now, 'count' => 1, ];
-		}
-		self::$recent_log_timers[ $text ] = $row;
-	}
-
-	/** Emit text on first sight; suppress identical text thereafter (re-windowed by prune_logs). */
-	public static function print_less_often( string $text ): void {
-		$row = self::$recent_log_timers[ $text ] ?? null;
-		if ( null !== $row ) {
-			++$row['count'];
-		} else {
-			self::stderr( $text );
-			$row = [ 'timestamp' => self::$now, 'count' => 1, ];
-		}
-		self::$recent_log_timers[ $text ] = $row;
-	}
-
-	/**
-	 * Per-line timestamp + process-identity prefix (Tachikoma Node::log_prefix,
-	 * root/job branch): "%Y-%m-%d %H:%M:%S %Z <hostname> <argv0>[<pid>]: ".
-	 *
-	 * With no message, returns the bare prefix. With a message, chomps a
-	 * trailing newline, prepends the prefix to every line, and appends one
-	 * trailing newline — matching Perl's `s{^}{$prefix}mg` multiline substitute.
-	 */
-	public static function log_prefix( ?string $msg = null ): string {
-		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC '
-			. ( \gethostname() ?: 'unknown' ) . ' '
-			. self::argv0() . '[' . \getmypid() . ']: ';
-		if ( null === $msg ) {
-			return $prefix;
-		}
-		$msg = \rtrim( $msg, "\n" );
-		// Prepend the prefix to the start of every line (Perl m///mg).
-		$msg = $prefix . \str_replace( "\n", "\n" . $prefix, $msg );
-		return $msg . "\n";
-	}
-
-	/** Process identity for log_prefix (Perl $0): worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
-	public static function argv0(): string {
-		if ( isset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && \is_scalar( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) && '' !== $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) {
-			// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized -- env var is set by SpawnController after HMAC auth.
-			return \sanitize_text_field( \wp_unslash( (string) $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] ) );
-		}
-		return \PHP_SAPI;
-	}
-
-	public static function stderr( string $text ): void {
-		if ( '' === $text ) {
-			return;
-		}
-		// Already-dated lines are assumed pre-prefixed (Tachikoma's
-		// /^\d{4}-\d\d-\d\d/ guard) — write verbatim to avoid double
-		// prefixing on re-log paths. Otherwise apply prefix.
-		if ( 1 === \preg_match( '/^\d{4}-\d\d-\d\d/', $text ) ) {
-			$line = \rtrim( $text, "\n" ) . "\n";
-		} else {
-			$line = self::log_prefix( $text );
-		}
-		self::$recent_log[] = $line;
-		// Bounded tail for the REPL (Tachikoma caps @RECENT_LOG at 100).
-		while ( \count( self::$recent_log ) > 100 ) {
-			\array_shift( self::$recent_log );
-		}
-		self::_stderr( $line );
-	}
-
-	public static function _stderr( string $text ): void {
-		if ( self::$in_stderr ) {
-			// Re-entry guard: go straight to error_log to avoid recursion.
-			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( \rtrim( $text ) );
-			return;
-		}
-		self::$in_stderr = true;
-		try {
-			( self::$stderr_handler )( $text );
-		} finally {
-			// Reset even if the handler throws, else stderr latches to fallback forever.
-			self::$in_stderr = false;
-		}
 	}
 
 	/** Evict rate-limiter entries older than the timeout so stale messages re-emit (per Router tick). */

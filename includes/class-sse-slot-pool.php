@@ -56,17 +56,6 @@ class SSE_Slot_Pool {
 	}
 
 	/**
-	 * Slot cache key. Per-partition pools (>= 0) get their own key space so a
-	 * stream-merger can't crowd browser tabs out of the shared pool.
-	 */
-	private static function slot_key( int $user_id, string $ip_hash, int $slot, int $partition ): string {
-		if ( $partition >= 0 ) {
-			return "evlog:sse:{$user_id}:{$ip_hash}:p{$partition}:{$slot}";
-		}
-		return "evlog:sse:{$user_id}:{$ip_hash}:{$slot}";
-	}
-
-	/**
 	 * Claim the first free slot via atomic add(). Fail-CLOSED: null handle
 	 * returns false so the caller refuses the connection (HTTP 429).
 	 *
@@ -87,28 +76,15 @@ class SSE_Slot_Pool {
 		return false;
 	}
 
-	/** Whether the slot is still held (no TTL refresh). Fail-CLOSED. */
-	public static function check( int $user_id, string $ip_hash, int $slot, int $partition = -1 ): bool {
-		if ( null === Core::$memd ) {
-			return false;
+	/**
+	 * Slot cache key. Per-partition pools (>= 0) get their own key space so a
+	 * stream-merger can't crowd browser tabs out of the shared pool.
+	 */
+	private static function slot_key( int $user_id, string $ip_hash, int $slot, int $partition ): string {
+		if ( $partition >= 0 ) {
+			return "evlog:sse:{$user_id}:{$ip_hash}:p{$partition}:{$slot}";
 		}
-		return false !== Core::$memd->get( self::slot_key( $user_id, $ip_hash, $slot, $partition ) );
-	}
-
-	/** Refresh slot TTL (client heartbeat). Fail-OPEN (true when no memcache). */
-	public static function touch( int $user_id, string $ip_hash, int $slot, int $ttl, int $partition = -1 ): bool {
-		if ( null === Core::$memd ) {
-			return true;
-		}
-		return Core::$memd->touch( self::slot_key( $user_id, $ip_hash, $slot, $partition ), $ttl );
-	}
-
-	/** Release a slot. Fail-OPEN (slots auto-expire via TTL). */
-	public static function release( int $user_id, string $ip_hash, int $slot, int $partition = -1 ): bool {
-		if ( null === Core::$memd ) {
-			return true;
-		}
-		return Core::$memd->delete( self::slot_key( $user_id, $ip_hash, $slot, $partition ) );
+		return "evlog:sse:{$user_id}:{$ip_hash}:{$slot}";
 	}
 
 	public static function user_id(): int {
@@ -123,5 +99,29 @@ class SSE_Slot_Pool {
 		// phpcs:ignore WordPressVIPMinimum.Variables.ServerVariables.UserControlledHeaders, WordPressVIPMinimum.Variables.RestrictedVariables.cache_constraints___SERVER__REMOTE_ADDR__, WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$ip = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
 		return \substr( \md5( \is_scalar( $ip ) ? (string) $ip : 'unknown' ), 0, 8 );
+	}
+
+	/** Release a slot. Fail-OPEN (slots auto-expire via TTL). */
+	public static function release( int $user_id, string $ip_hash, int $slot, int $partition = -1 ): bool {
+		if ( null === Core::$memd ) {
+			return true;
+		}
+		return Core::$memd->delete( self::slot_key( $user_id, $ip_hash, $slot, $partition ) );
+	}
+
+	/** Whether the slot is still held (no TTL refresh). Fail-CLOSED. */
+	public static function check( int $user_id, string $ip_hash, int $slot, int $partition = -1 ): bool {
+		if ( null === Core::$memd ) {
+			return false;
+		}
+		return false !== Core::$memd->get( self::slot_key( $user_id, $ip_hash, $slot, $partition ) );
+	}
+
+	/** Refresh slot TTL (client heartbeat). Fail-OPEN (true when no memcache). */
+	public static function touch( int $user_id, string $ip_hash, int $slot, int $ttl, int $partition = -1 ): bool {
+		if ( null === Core::$memd ) {
+			return true;
+		}
+		return Core::$memd->touch( self::slot_key( $user_id, $ip_hash, $slot, $partition ), $ttl );
 	}
 }

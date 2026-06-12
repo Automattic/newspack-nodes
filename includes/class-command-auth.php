@@ -49,34 +49,6 @@ class Command_Auth {
 	 */
 	public static ?\Closure $claim_nonce = null;
 
-	/** Per-site HMAC secret, domain-separated from the spawn token. */
-	private static function secret(): string {
-		return \hash_hmac( 'sha256', 'nodes-command-v1', \NONCE_SALT );
-	}
-
-	/**
-	 * Canonical signing string: message TYPE + command semantics + ts + nonce.
-	 * Never TO/FROM (they mutate as Router peels and nodes stamp FROM). Returns
-	 * null when the value can't be JSON-encoded (e.g. non-UTF-8 arguments) so the
-	 * caller fails closed instead of collapsing distinct commands onto HMAC('').
-	 *
-	 * @param array<array-key, mixed> $value Command struct (name/arguments).
-	 */
-	private static function canonical( int $type, array $value, int $ts, string $nonce ): ?string {
-		$name      = $value['name'] ?? '';
-		$arguments = $value['arguments'] ?? '';
-		$encoded   = \wp_json_encode(
-			[
-				$type,
-				\is_scalar( $name ) ? (string) $name : '',
-				\is_scalar( $arguments ) ? (string) $arguments : '',
-				$ts,
-				$nonce,
-			]
-		);
-		return false === $encoded ? null : $encoded;
-	}
-
 	/**
 	 * Stamp an `auth` envelope onto a command Message's VALUE. No-op unless TYPE
 	 * is a request command — TM_COMMAND without TM_RESPONSE/TM_ERROR (TM_NOREPLY
@@ -110,6 +82,34 @@ class Command_Auth {
 			'sig'   => \hash_hmac( 'sha256', $canon, self::secret() ),
 		];
 		$message[ Message::VALUE ] = $value;
+	}
+
+	/**
+	 * Canonical signing string: message TYPE + command semantics + ts + nonce.
+	 * Never TO/FROM (they mutate as Router peels and nodes stamp FROM). Returns
+	 * null when the value can't be JSON-encoded (e.g. non-UTF-8 arguments) so the
+	 * caller fails closed instead of collapsing distinct commands onto HMAC('').
+	 *
+	 * @param array<array-key, mixed> $value Command struct (name/arguments).
+	 */
+	private static function canonical( int $type, array $value, int $ts, string $nonce ): ?string {
+		$name      = $value['name'] ?? '';
+		$arguments = $value['arguments'] ?? '';
+		$encoded   = \wp_json_encode(
+			[
+				$type,
+				\is_scalar( $name ) ? (string) $name : '',
+				\is_scalar( $arguments ) ? (string) $arguments : '',
+				$ts,
+				$nonce,
+			]
+		);
+		return false === $encoded ? null : $encoded;
+	}
+
+	/** Per-site HMAC secret, domain-separated from the spawn token. */
+	private static function secret(): string {
+		return \hash_hmac( 'sha256', 'nodes-command-v1', \NONCE_SALT );
 	}
 
 	/**

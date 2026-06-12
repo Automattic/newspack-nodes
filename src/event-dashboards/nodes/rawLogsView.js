@@ -84,52 +84,6 @@ export class RawLogsViewNode extends Node {
 		this.pending = new Map();
 	}
 
-	// Number of live rows in the ring (O(1)).
-	get linesCount() {
-		return this._count;
-	}
-
-	// The i-th row newest-first (i=0 is newest), O(1); undefined out of range.
-	// The canvas reads only its on-screen window through this — never the whole
-	// buffer — so the frame cost is O(rows-on-screen) regardless of buffer size.
-	lineAt( i ) {
-		if ( i < 0 || i >= this._count ) {
-			return undefined;
-		}
-		const idx = ( this._head - 1 - i + this.maxLines ) % this.maxLines;
-		return this._ring[ idx ];
-	}
-
-	// The whole buffer materialized newest-first — O(n), for the filter path and
-	// tests only, NOT the per-frame canvas path. Assigning (`node.lines = []` from
-	// handleClear / select) reseeds the ring from the given newest-first array.
-	get lines() {
-		const out = new Array( this._count );
-		for ( let i = 0; i < this._count; i++ ) {
-			out[ i ] = this.lineAt( i );
-		}
-		return out;
-	}
-
-	set lines( value ) {
-		this._ring = [];
-		this._head = 0;
-		this._count = 0;
-		if ( Array.isArray( value ) ) {
-			// Seed oldest-first so the newest row lands last (at head-1).
-			for ( let i = value.length - 1; i >= 0; i-- ) {
-				this._writeRow( value[ i ] );
-			}
-		}
-	}
-
-	// Write one row into the ring at the head and advance, capping at maxLines.
-	_writeRow( row ) {
-		this._ring[ this._head ] = row;
-		this._head = ( this._head + 1 ) % this.maxLines;
-		this._count = Math.min( this._count + 1, this.maxLines );
-	}
-
 	fill( message ) {
 		const value = message[ VALUE ];
 		const type = message[ TYPE ] || 0;
@@ -169,6 +123,46 @@ export class RawLogsViewNode extends Node {
 		// inline (the work the deleted `rawlogs:transform` used to do) and
 		// append to the HIGH-frequency buffer the rAF reads off the node.
 		this._appendEnvelope( message );
+	}
+
+	_control( value ) {
+		if ( 'select' === value.action ) {
+			this.selected = value.log;
+			this._clear();
+		} else if ( 'pause' === value.action ) {
+			this.paused = value.paused;
+		} else if ( 'logs' === value.action ) {
+			this.logs = value.logs;
+			if ( ! this.selected && value.logs.length > 0 ) {
+				this.selected = value.logs[ 0 ].key;
+			}
+		} else if ( 'connection' === value.action ) {
+			this.connectionError = !! value.connectionError;
+		}
+	}
+
+	// Clear buffer + counter + LPS window (matches handleLogChange in RawLogs.js).
+	_clear() {
+		this.lines = [];
+		this.lineCounter = 0;
+		this.lpsBuckets = [];
+		this.lpsWindowTotal = 0;
+		this.smoothedLPS = 0;
+		this.lps = 0;
+	}
+
+	// Publish ONLY the low-frequency view model. `lines` and `lps` are the
+	// high-frequency buffer the rAF reads off the node directly — keeping them
+	// out of setState is what stops a busy stream re-rendering React per row.
+	// `connectionError` rides here so the reconnect banner re-renders at low
+	// frequency (off the stream's connection controls).
+	_publish() {
+		this.setState( 'view', {
+			logs: this.logs,
+			selected: this.selected,
+			paused: this.paused,
+			connectionError: this.connectionError,
+		} );
 	}
 
 	// Shape a raw SSE log envelope into a row and append. Branches inlined
@@ -213,30 +207,11 @@ export class RawLogsViewNode extends Node {
 		this._updateLinesPerSecond( 1 );
 	}
 
-	_control( value ) {
-		if ( 'select' === value.action ) {
-			this.selected = value.log;
-			this._clear();
-		} else if ( 'pause' === value.action ) {
-			this.paused = value.paused;
-		} else if ( 'logs' === value.action ) {
-			this.logs = value.logs;
-			if ( ! this.selected && value.logs.length > 0 ) {
-				this.selected = value.logs[ 0 ].key;
-			}
-		} else if ( 'connection' === value.action ) {
-			this.connectionError = !! value.connectionError;
-		}
-	}
-
-	// Clear buffer + counter + LPS window (matches handleLogChange in RawLogs.js).
-	_clear() {
-		this.lines = [];
-		this.lineCounter = 0;
-		this.lpsBuckets = [];
-		this.lpsWindowTotal = 0;
-		this.smoothedLPS = 0;
-		this.lps = 0;
+	// Write one row into the ring at the head and advance, capping at maxLines.
+	_writeRow( row ) {
+		this._ring[ this._head ] = row;
+		this._head = ( this._head + 1 ) % this.maxLines;
+		this._count = Math.min( this._count + 1, this.maxLines );
 	}
 
 	// Lines per second over a 10s window, smoothed with a 0.1 EMA. Counts are
@@ -267,17 +242,42 @@ export class RawLogsViewNode extends Node {
 		this.lps = this.smoothedLPS;
 	}
 
-	// Publish ONLY the low-frequency view model. `lines` and `lps` are the
-	// high-frequency buffer the rAF reads off the node directly — keeping them
-	// out of setState is what stops a busy stream re-rendering React per row.
-	// `connectionError` rides here so the reconnect banner re-renders at low
-	// frequency (off the stream's connection controls).
-	_publish() {
-		this.setState( 'view', {
-			logs: this.logs,
-			selected: this.selected,
-			paused: this.paused,
-			connectionError: this.connectionError,
-		} );
+	// Number of live rows in the ring (O(1)).
+	get linesCount() {
+		return this._count;
+	}
+
+	// The i-th row newest-first (i=0 is newest), O(1); undefined out of range.
+	// The canvas reads only its on-screen window through this — never the whole
+	// buffer — so the frame cost is O(rows-on-screen) regardless of buffer size.
+	lineAt( i ) {
+		if ( i < 0 || i >= this._count ) {
+			return undefined;
+		}
+		const idx = ( this._head - 1 - i + this.maxLines ) % this.maxLines;
+		return this._ring[ idx ];
+	}
+
+	// The whole buffer materialized newest-first — O(n), for the filter path and
+	// tests only, NOT the per-frame canvas path. Assigning (`node.lines = []` from
+	// handleClear / select) reseeds the ring from the given newest-first array.
+	get lines() {
+		const out = new Array( this._count );
+		for ( let i = 0; i < this._count; i++ ) {
+			out[ i ] = this.lineAt( i );
+		}
+		return out;
+	}
+
+	set lines( value ) {
+		this._ring = [];
+		this._head = 0;
+		this._count = 0;
+		if ( Array.isArray( value ) ) {
+			// Seed oldest-first so the newest row lands last (at head-1).
+			for ( let i = value.length - 1; i >= 0; i-- ) {
+				this._writeRow( value[ i ] );
+			}
+		}
 	}
 }

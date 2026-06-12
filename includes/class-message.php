@@ -43,17 +43,13 @@ class Message {
 	public const TM_RESPONSE   = 256;
 	public const TM_NOREPLY    = 512;
 
-	/** @return array<int, mixed> The 7-field positional message array. */
-	public static function new_message(): array {
-		return [
-			self::TYPE      => 0,
-			self::TIMESTAMP => \microtime( true ),
-			self::FROM      => '',
-			self::TO        => '',
-			self::ID        => '',
-			self::KEY       => '',
-			self::VALUE     => '',
-		];
+	/**
+	 * Byte size of the whole packed Message; use this (not value_size) for PIPE_BUF / size checks.
+	 *
+	 * @param array<int, mixed> $message The 7-field positional message array.
+	 */
+	public static function packed_size( array $message ): int {
+		return \strlen( self::packed( $message ) );
 	}
 
 	/** @param array<int, mixed> $message The 7-field positional message array. */
@@ -65,13 +61,17 @@ class Message {
 		return false === $json ? '' : $json;
 	}
 
-	/**
-	 * Byte size of the whole packed Message; use this (not value_size) for PIPE_BUF / size checks.
-	 *
-	 * @param array<int, mixed> $message The 7-field positional message array.
-	 */
-	public static function packed_size( array $message ): int {
-		return \strlen( self::packed( $message ) );
+	/** @return array<int, mixed> The 7-field positional message array. */
+	public static function new_message(): array {
+		return [
+			self::TYPE      => 0,
+			self::TIMESTAMP => \microtime( true ),
+			self::FROM      => '',
+			self::TO        => '',
+			self::ID        => '',
+			self::KEY       => '',
+			self::VALUE     => '',
+		];
 	}
 
 	/** @return array<int, mixed> The 7-field positional message array. */

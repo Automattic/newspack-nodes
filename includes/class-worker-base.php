@@ -51,8 +51,54 @@ class Worker_Base {
 		$this->stale_timeout = $stale_timeout;
 	}
 
-	protected function lock_path(): string {
-		return "{$this->base_dir}/locks/{$this->worker_type}.p{$this->partition}.lock.d";
+	/**
+	 * Full lifecycle: acquire → grace → shutdown handler → drain → release + self_respawn.
+	 *
+	 * Idempotent shutdown via $shutdown_handled (handler + finally) so release+respawn happens once.
+	 *
+	 * @param callable $topology  Topology closure (signature: ($interpreter, $partition)).
+	 * @param string   $spawn_url Spawn endpoint URL for self-respawn.
+	 * @param string   $token     Current HMAC spawn token.
+	 * @return array{status: string, reason?: string}
+	 */
+	public function execute( callable $topology, string $spawn_url, string $token ): array {
+		if ( ! $this->acquire() ) {
+			return [ 'status' => 'skipped', 'reason' => 'lock_held' ];
+		}
+
+		\register_shutdown_function( function () use ( $spawn_url, $token ): void {
+			if ( ! $this->shutdown_handled ) {
+				$this->shutdown_handled = true;
+				// Persist the IPC-input cursor before teardown so a clean recycle doesn't replay consumed commands.
+				$this->checkpoint_ipc_input();
+				// Tear down nodes first so Partitions release their locks before the next spawn.
+				Core::cleanup_all_nodes();
+				$this->release();
+				$this->self_respawn( $spawn_url, $token );
+			}
+		} );
+
+		// Brief grace so a concurrent spawn sees we own the lock before retrying.
+		\usleep( (int) ( self::LOCK_CHECK_GRACE_S * 1_000_000 ) );
+
+		try {
+			$interpreter = $this->build_scaffolding();
+			$this->run_topology( $topology, $interpreter );
+
+			$ef = Event_Framework::instance();
+			$ef->install_signal_handlers();
+			$ef->drain( fn() => $this->should_continue() );
+		} finally {
+			if ( ! $this->shutdown_handled ) {
+				$this->shutdown_handled = true;
+				$this->checkpoint_ipc_input();
+				Core::cleanup_all_nodes();
+				$this->release();
+				$this->self_respawn( $spawn_url, $token );
+			}
+		}
+
+		return [ 'status' => 'ok' ];
 	}
 
 	public function acquire(): bool {
@@ -72,6 +118,19 @@ class Worker_Base {
 		return true;
 	}
 
+	protected function lock_path(): string {
+		return "{$this->base_dir}/locks/{$this->worker_type}.p{$this->partition}.lock.d";
+	}
+
+	/**
+	 * Persist the IPC-input read cursor. Called at worker shutdown so a clean
+	 * recycle never replays already-consumed commands (the Consumer otherwise
+	 * only checkpoints on a periodic cadence; the final <1s would re-deliver).
+	 */
+	public function checkpoint_ipc_input(): void {
+		$this->ipc_input_consumer?->checkpoint();
+	}
+
 	public function release(): void {
 		if ( null !== $this->lock ) {
 			$this->lock->release();
@@ -79,74 +138,27 @@ class Worker_Base {
 		}
 	}
 
-	public function should_continue(): bool {
-		$now = \microtime( true );
-
-		if ( null === $this->lock || ! $this->lock->is_held() ) {
-			return false;
+	/**
+	 * Fire-and-forget spawn POST so another process takes over after we exit.
+	 *
+	 * @param string $spawn_url Fully-qualified spawn URL (rest_url + path).
+	 * @param string $token     Current HMAC spawn token.
+	 */
+	public function self_respawn( string $spawn_url, string $token ): void {
+		if ( ! \function_exists( 'wp_remote_post' ) ) {
+			return;
 		}
-		if ( ! \is_dir( $this->lock_path() ) ) {
-			return false;
-		}
-
-		// External request_restart() drops a flag into our lock dir; exit so the supervisor respawns.
-		if ( $this->lock->should_restart() ) {
-			return false;
-		}
-
-		if ( ( $now - $this->start_time ) >= $this->max_runtime ) {
-			return false;
-		}
-
-		if ( $this->memory_over_watermark() ) {
-			return false;
-		}
-
-		if ( ( $now - $this->last_heartbeat ) >= self::HEARTBEAT_INTERVAL_S ) {
-			$this->lock->heartbeat();
-			$this->last_heartbeat = $now;
-		}
-
-		if ( ( $now - $this->last_db_check ) >= self::DB_CHECK_INTERVAL_S ) {
-			$this->last_db_check = $now;
-			if ( ! $this->db_check_passes() ) {
-				++$this->db_failures;
-				if ( $this->db_failures >= self::DB_CHECK_MAX_FAILURES ) {
-					return false;
-				}
-			} else {
-				$this->db_failures = 0;
-			}
-		}
-
-		return true;
-	}
-
-	/** Cheap DB liveness probe; default always passes. N consecutive failures trigger shutdown. */
-	protected function db_check_passes(): bool {
-		return true;
-	}
-
-	protected function memory_over_watermark(): bool {
-		$limit = $this->memory_limit_bytes();
-		if ( $limit <= 0 ) {
-			return false;
-		}
-		return \memory_get_usage( true ) >= ( $limit * self::MEMORY_WATERMARK_PCT );
-	}
-
-	protected function memory_limit_bytes(): int {
-		$ini = \ini_get( 'memory_limit' );
-		if ( '-1' === $ini ) {
-			return -1;
-		}
-		$num = (int) $ini;
-		switch ( \strtolower( \substr( $ini, -1 ) ) ) {
-			case 'g': $num *= 1024 * 1024 * 1024; break;
-			case 'm': $num *= 1024 * 1024;        break;
-			case 'k': $num *= 1024;               break;
-		}
-		return $num;
+		$args = [
+			'method'   => 'POST',
+			'timeout'  => 1, // fire-and-forget
+			'blocking' => false,
+			'body'     => [
+				'type'      => $this->worker_type,
+				'partition' => $this->partition,
+				'nonce'     => $token,
+			],
+		];
+		@\wp_remote_post( $spawn_url, $args );
 	}
 
 	/**
@@ -218,90 +230,78 @@ class Worker_Base {
 		return $consumer;
 	}
 
-	/**
-	 * Persist the IPC-input read cursor. Called at worker shutdown so a clean
-	 * recycle never replays already-consumed commands (the Consumer otherwise
-	 * only checkpoints on a periodic cadence; the final <1s would re-deliver).
-	 */
-	public function checkpoint_ipc_input(): void {
-		$this->ipc_input_consumer?->checkpoint();
-	}
-
 	/** Invoke the topology closure (receives the interpreter + this worker's partition number). */
 	public function run_topology( callable $topology, Command_Interpreter_Node $interpreter ): void {
 		$topology( $interpreter, $this->partition );
 	}
 
-	/**
-	 * Fire-and-forget spawn POST so another process takes over after we exit.
-	 *
-	 * @param string $spawn_url Fully-qualified spawn URL (rest_url + path).
-	 * @param string $token     Current HMAC spawn token.
-	 */
-	public function self_respawn( string $spawn_url, string $token ): void {
-		if ( ! \function_exists( 'wp_remote_post' ) ) {
-			return;
+	public function should_continue(): bool {
+		$now = \microtime( true );
+
+		if ( null === $this->lock || ! $this->lock->is_held() ) {
+			return false;
 		}
-		$args = [
-			'method'   => 'POST',
-			'timeout'  => 1, // fire-and-forget
-			'blocking' => false,
-			'body'     => [
-				'type'      => $this->worker_type,
-				'partition' => $this->partition,
-				'nonce'     => $token,
-			],
-		];
-		@\wp_remote_post( $spawn_url, $args );
+		if ( ! \is_dir( $this->lock_path() ) ) {
+			return false;
+		}
+
+		// External request_restart() drops a flag into our lock dir; exit so the supervisor respawns.
+		if ( $this->lock->should_restart() ) {
+			return false;
+		}
+
+		if ( ( $now - $this->start_time ) >= $this->max_runtime ) {
+			return false;
+		}
+
+		if ( $this->memory_over_watermark() ) {
+			return false;
+		}
+
+		if ( ( $now - $this->last_heartbeat ) >= self::HEARTBEAT_INTERVAL_S ) {
+			$this->lock->heartbeat();
+			$this->last_heartbeat = $now;
+		}
+
+		if ( ( $now - $this->last_db_check ) >= self::DB_CHECK_INTERVAL_S ) {
+			$this->last_db_check = $now;
+			if ( ! $this->db_check_passes() ) {
+				++$this->db_failures;
+				if ( $this->db_failures >= self::DB_CHECK_MAX_FAILURES ) {
+					return false;
+				}
+			} else {
+				$this->db_failures = 0;
+			}
+		}
+
+		return true;
 	}
 
-	/**
-	 * Full lifecycle: acquire → grace → shutdown handler → drain → release + self_respawn.
-	 *
-	 * Idempotent shutdown via $shutdown_handled (handler + finally) so release+respawn happens once.
-	 *
-	 * @param callable $topology  Topology closure (signature: ($interpreter, $partition)).
-	 * @param string   $spawn_url Spawn endpoint URL for self-respawn.
-	 * @param string   $token     Current HMAC spawn token.
-	 * @return array{status: string, reason?: string}
-	 */
-	public function execute( callable $topology, string $spawn_url, string $token ): array {
-		if ( ! $this->acquire() ) {
-			return [ 'status' => 'skipped', 'reason' => 'lock_held' ];
+	protected function memory_over_watermark(): bool {
+		$limit = $this->memory_limit_bytes();
+		if ( $limit <= 0 ) {
+			return false;
 		}
+		return \memory_get_usage( true ) >= ( $limit * self::MEMORY_WATERMARK_PCT );
+	}
 
-		\register_shutdown_function( function () use ( $spawn_url, $token ): void {
-			if ( ! $this->shutdown_handled ) {
-				$this->shutdown_handled = true;
-				// Persist the IPC-input cursor before teardown so a clean recycle doesn't replay consumed commands.
-				$this->checkpoint_ipc_input();
-				// Tear down nodes first so Partitions release their locks before the next spawn.
-				Core::cleanup_all_nodes();
-				$this->release();
-				$this->self_respawn( $spawn_url, $token );
-			}
-		} );
-
-		// Brief grace so a concurrent spawn sees we own the lock before retrying.
-		\usleep( (int) ( self::LOCK_CHECK_GRACE_S * 1_000_000 ) );
-
-		try {
-			$interpreter = $this->build_scaffolding();
-			$this->run_topology( $topology, $interpreter );
-
-			$ef = Event_Framework::instance();
-			$ef->install_signal_handlers();
-			$ef->drain( fn() => $this->should_continue() );
-		} finally {
-			if ( ! $this->shutdown_handled ) {
-				$this->shutdown_handled = true;
-				$this->checkpoint_ipc_input();
-				Core::cleanup_all_nodes();
-				$this->release();
-				$this->self_respawn( $spawn_url, $token );
-			}
+	protected function memory_limit_bytes(): int {
+		$ini = \ini_get( 'memory_limit' );
+		if ( '-1' === $ini ) {
+			return -1;
 		}
+		$num = (int) $ini;
+		switch ( \strtolower( \substr( $ini, -1 ) ) ) {
+			case 'g': $num *= 1024 * 1024 * 1024; break;
+			case 'm': $num *= 1024 * 1024;        break;
+			case 'k': $num *= 1024;               break;
+		}
+		return $num;
+	}
 
-		return [ 'status' => 'ok' ];
+	/** Cheap DB liveness probe; default always passes. N consecutive failures trigger shutdown. */
+	protected function db_check_passes(): bool {
+		return true;
 	}
 }

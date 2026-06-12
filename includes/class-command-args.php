@@ -53,39 +53,6 @@ class Command_Args {
 	}
 
 	/**
-	 * Inverse of parse(): build a canonical argument string.
-	 *
-	 * Boolean true renders as a bare `--key`; false as `--key=false`; arrays
-	 * comma-joined; scalars stringified. Any value with whitespace, quotes, a
-	 * backslash, or empty is double-quoted (escaping `"` and `\`).
-	 *
-	 * @param list<string>                                       $positional
-	 * @param array<string,string|int|float|bool|array<mixed>>   $options
-	 */
-	public static function format( array $positional = [], array $options = [] ): string {
-		$parts = [];
-		foreach ( $positional as $p ) {
-			$parts[] = self::quote_if_needed( $p );
-		}
-		foreach ( $options as $key => $value ) {
-			if ( true === $value ) {
-				$parts[] = '--' . $key;
-				continue;
-			}
-			if ( \is_array( $value ) ) {
-				$value = \implode( ',', \array_map( '\strval', $value ) );
-			} elseif ( false === $value ) {
-				// `true` is the bare-flag case handled above; the only bool left is false.
-				$value = 'false';
-			} else {
-				$value = (string) $value;
-			}
-			$parts[] = '--' . $key . '=' . self::quote_if_needed( $value );
-		}
-		return \implode( ' ', $parts );
-	}
-
-	/**
 	 * Whitespace-split respecting double quotes and `\` escapes inside them.
 	 *
 	 * @return list<string>
@@ -128,6 +95,39 @@ class Command_Args {
 			$tokens[] = $current;
 		}
 		return $tokens;
+	}
+
+	/**
+	 * Inverse of parse(): build a canonical argument string.
+	 *
+	 * Boolean true renders as a bare `--key`; false as `--key=false`; arrays
+	 * comma-joined; scalars stringified. Any value with whitespace, quotes, a
+	 * backslash, or empty is double-quoted (escaping `"` and `\`).
+	 *
+	 * @param list<string>                                       $positional
+	 * @param array<string,string|int|float|bool|array<mixed>>   $options
+	 */
+	public static function format( array $positional = [], array $options = [] ): string {
+		$parts = [];
+		foreach ( $positional as $p ) {
+			$parts[] = self::quote_if_needed( $p );
+		}
+		foreach ( $options as $key => $value ) {
+			if ( true === $value ) {
+				$parts[] = '--' . $key;
+				continue;
+			}
+			if ( \is_array( $value ) ) {
+				$value = \implode( ',', \array_map( '\strval', $value ) );
+			} elseif ( false === $value ) {
+				// `true` is the bare-flag case handled above; the only bool left is false.
+				$value = 'false';
+			} else {
+				$value = (string) $value;
+			}
+			$parts[] = '--' . $key . '=' . self::quote_if_needed( $value );
+		}
+		return \implode( ' ', $parts );
 	}
 
 	/**

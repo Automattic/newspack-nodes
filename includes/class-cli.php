@@ -16,6 +16,125 @@ class CLI {
 		$this->base_dir = \rtrim( $base_dir, '/' );
 	}
 
+	/**
+	 * Resolve IPC paths for a `{type}.p{N}` reader id; verifies the worker's lock dir exists.
+	 *
+	 * @param string $worker_id Worker id in `{type}.p{N}` form.
+	 * @return array{input:string,output:string,type:string,partition:int}
+	 * @throws \InvalidArgumentException If worker_id can't be parsed or no matching lock dir exists.
+	 */
+	public function attach_to_worker( string $worker_id ): array {
+		[ $type, $partition ] = self::parse_worker_id( $worker_id );
+		$lock_dir             = "{$this->base_dir}/locks/{$worker_id}.lock.d";
+		if ( ! \is_dir( $lock_dir ) ) {
+			throw new \InvalidArgumentException(
+				\esc_html( "no worker '{$worker_id}' (run `wp nodes ls` to list active workers)" )
+			);
+		}
+		return [
+			'input'     => "{$this->base_dir}/ipc/{$worker_id}/input",
+			'output'    => "{$this->base_dir}/ipc/{$worker_id}/output",
+			'type'      => $type,
+			'partition' => $partition,
+		];
+	}
+
+	/**
+	 * Parse `{type}.p{N}` into [type, partition].
+	 *
+	 * @param string $worker_id Worker id.
+	 * @return array{0:string,1:int}
+	 * @throws \InvalidArgumentException If worker_id can't be parsed.
+	 */
+	public static function parse_worker_id( string $worker_id ): array {
+		if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $worker_id, $m ) ) {
+			throw new \InvalidArgumentException( \esc_html( "invalid reader id: $worker_id (expected {type}.p{N})" ) );
+		}
+		return [ $m[1], (int) $m[2] ];
+	}
+
+	/**
+	 * Read a live worker-cursor position from memcache.
+	 *
+	 * Hits the same `np:pos:{host}:{source_base_dir}:p{N}` key Consumer_Node
+	 * publishes — derives source_base_dir from the worker's recorded input
+	 * basename, falling back to the conventional `firehose.log` when none yet.
+	 *
+	 * @param object $cache    Anything with a `get(string)` method; null to skip.
+	 * @param string $type     Worker type.
+	 * @param int    $partition Partition index.
+	 * @return array{seg:int,off:int,ts?:int}|null Position or null if not cached / unreachable.
+	 */
+	public function live_position( ?object $cache, string $type, int $partition ): ?array {
+		if ( null === $cache || ! \method_exists( $cache, 'get' ) ) {
+			return null;
+		}
+		$basename        = $this->input_basename( $type, $partition ) ?: 'firehose';
+		$source_base_dir = "{$this->base_dir}/logs/{$basename}.log";
+		$host            = \gethostname() ?: 'unknown';
+		try {
+			$value = $cache->get( Consumer_Node::position_key( $host, $source_base_dir, $partition ) );
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+		if ( ! \is_array( $value ) || ! isset( $value['seg'], $value['off'] ) ) {
+			return null;
+		}
+		$seg = $value['seg'];
+		$off = $value['off'];
+		$ts  = $value['ts'] ?? 0;
+		return [
+			'seg' => \is_numeric( $seg ) ? (int) $seg : 0,
+			'off' => \is_numeric( $off ) ? (int) $off : 0,
+			'ts'  => \is_numeric( $ts ) ? (int) $ts : 0,
+		];
+	}
+
+	/**
+	 * The input-log basename a worker drains, read from its offsetlog's latest
+	 * checkpoint (`source_basename`). Empty string if no offsetlog yet — lets
+	 * callers locate the worker's partition dir without assuming `firehose.log`.
+	 *
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition index.
+	 */
+	public function input_basename( string $type, int $partition ): string {
+		$offset_dir = "{$this->base_dir}/offsets/{$type}.p{$partition}/p0";
+		if ( ! \is_dir( $offset_dir ) ) {
+			return '';
+		}
+		$files = @\scandir( $offset_dir );
+		if ( false === $files ) {
+			return '';
+		}
+		$segments = [];
+		foreach ( $files as $f ) {
+			if ( \preg_match( '/^(\d+)\.log$/', $f, $m ) ) {
+				$segments[] = (int) $m[1];
+			}
+		}
+		if ( empty( $segments ) ) {
+			return '';
+		}
+		\sort( $segments );
+		$path = "{$offset_dir}/" . \end( $segments ) . '.log';
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		$bytes = @\file_get_contents( $path );
+		if ( false === $bytes || '' === $bytes ) {
+			return '';
+		}
+		$lines = \array_filter( \explode( "\n", \rtrim( $bytes, "\n" ) ), static fn ( $l ) => '' !== $l );
+		if ( empty( $lines ) ) {
+			return '';
+		}
+		$last = \json_decode( \end( $lines ), true );
+		if ( ! \is_array( $last ) || ! isset( $last['source_basename'] ) ) {
+			return '';
+		}
+		$basename = $last['source_basename'];
+		return \is_scalar( $basename ) ? (string) $basename : '';
+	}
+
 	public function base_dir(): string {
 		return $this->base_dir;
 	}
@@ -52,43 +171,6 @@ class CLI {
 			[ $a['type'], $a['partition'] ] <=> [ $b['type'], $b['partition'] ]
 		);
 		return $workers;
-	}
-
-	/**
-	 * Resolve IPC paths for a `{type}.p{N}` reader id; verifies the worker's lock dir exists.
-	 *
-	 * @param string $worker_id Worker id in `{type}.p{N}` form.
-	 * @return array{input:string,output:string,type:string,partition:int}
-	 * @throws \InvalidArgumentException If worker_id can't be parsed or no matching lock dir exists.
-	 */
-	public function attach_to_worker( string $worker_id ): array {
-		[ $type, $partition ] = self::parse_worker_id( $worker_id );
-		$lock_dir             = "{$this->base_dir}/locks/{$worker_id}.lock.d";
-		if ( ! \is_dir( $lock_dir ) ) {
-			throw new \InvalidArgumentException(
-				\esc_html( "no worker '{$worker_id}' (run `wp nodes ls` to list active workers)" )
-			);
-		}
-		return [
-			'input'     => "{$this->base_dir}/ipc/{$worker_id}/input",
-			'output'    => "{$this->base_dir}/ipc/{$worker_id}/output",
-			'type'      => $type,
-			'partition' => $partition,
-		];
-	}
-
-	/**
-	 * Parse `{type}.p{N}` into [type, partition].
-	 *
-	 * @param string $worker_id Worker id.
-	 * @return array{0:string,1:int}
-	 * @throws \InvalidArgumentException If worker_id can't be parsed.
-	 */
-	public static function parse_worker_id( string $worker_id ): array {
-		if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $worker_id, $m ) ) {
-			throw new \InvalidArgumentException( \esc_html( "invalid reader id: $worker_id (expected {type}.p{N})" ) );
-		}
-		return [ $m[1], (int) $m[2] ];
 	}
 
 	/**
@@ -131,43 +213,6 @@ class CLI {
 	 */
 	public function restart_supervisor(): bool {
 		return Lock_Node::request_restart_at( "{$this->base_dir}/locks/supervisor.lock.d" );
-	}
-
-	/**
-	 * Read a live worker-cursor position from memcache.
-	 *
-	 * Hits the same `np:pos:{host}:{source_base_dir}:p{N}` key Consumer_Node
-	 * publishes — derives source_base_dir from the worker's recorded input
-	 * basename, falling back to the conventional `firehose.log` when none yet.
-	 *
-	 * @param object $cache    Anything with a `get(string)` method; null to skip.
-	 * @param string $type     Worker type.
-	 * @param int    $partition Partition index.
-	 * @return array{seg:int,off:int,ts?:int}|null Position or null if not cached / unreachable.
-	 */
-	public function live_position( ?object $cache, string $type, int $partition ): ?array {
-		if ( null === $cache || ! \method_exists( $cache, 'get' ) ) {
-			return null;
-		}
-		$basename        = $this->input_basename( $type, $partition ) ?: 'firehose';
-		$source_base_dir = "{$this->base_dir}/logs/{$basename}.log";
-		$host            = \gethostname() ?: 'unknown';
-		try {
-			$value = $cache->get( Consumer_Node::position_key( $host, $source_base_dir, $partition ) );
-		} catch ( \Throwable $e ) {
-			return null;
-		}
-		if ( ! \is_array( $value ) || ! isset( $value['seg'], $value['off'] ) ) {
-			return null;
-		}
-		$seg = $value['seg'];
-		$off = $value['off'];
-		$ts  = $value['ts'] ?? 0;
-		return [
-			'seg' => \is_numeric( $seg ) ? (int) $seg : 0,
-			'off' => \is_numeric( $off ) ? (int) $off : 0,
-			'ts'  => \is_numeric( $ts ) ? (int) $ts : 0,
-		];
 	}
 
 	/**
@@ -220,51 +265,6 @@ class CLI {
 			'off' => \is_numeric( $off ) ? (int) $off : 0,
 			'ts'  => \is_numeric( $ts ) ? (int) $ts : 0,
 		];
-	}
-
-	/**
-	 * The input-log basename a worker drains, read from its offsetlog's latest
-	 * checkpoint (`source_basename`). Empty string if no offsetlog yet — lets
-	 * callers locate the worker's partition dir without assuming `firehose.log`.
-	 *
-	 * @param string $type      Worker type.
-	 * @param int    $partition Partition index.
-	 */
-	public function input_basename( string $type, int $partition ): string {
-		$offset_dir = "{$this->base_dir}/offsets/{$type}.p{$partition}/p0";
-		if ( ! \is_dir( $offset_dir ) ) {
-			return '';
-		}
-		$files = @\scandir( $offset_dir );
-		if ( false === $files ) {
-			return '';
-		}
-		$segments = [];
-		foreach ( $files as $f ) {
-			if ( \preg_match( '/^(\d+)\.log$/', $f, $m ) ) {
-				$segments[] = (int) $m[1];
-			}
-		}
-		if ( empty( $segments ) ) {
-			return '';
-		}
-		\sort( $segments );
-		$path = "{$offset_dir}/" . \end( $segments ) . '.log';
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		$bytes = @\file_get_contents( $path );
-		if ( false === $bytes || '' === $bytes ) {
-			return '';
-		}
-		$lines = \array_filter( \explode( "\n", \rtrim( $bytes, "\n" ) ), static fn ( $l ) => '' !== $l );
-		if ( empty( $lines ) ) {
-			return '';
-		}
-		$last = \json_decode( \end( $lines ), true );
-		if ( ! \is_array( $last ) || ! isset( $last['source_basename'] ) ) {
-			return '';
-		}
-		$basename = $last['source_basename'];
-		return \is_scalar( $basename ) ? (string) $basename : '';
 	}
 
 	/**

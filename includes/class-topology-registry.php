@@ -43,73 +43,31 @@ class Topology_Registry {
 	 */
 	public static ?\Closure $spawn_runner = null;
 
-	public static function register_stock_dir( string $path ): void {
-		$path = \rtrim( $path, '/' );
-		if ( '' === $path ) {
-			return;
-		}
-		if ( ! \in_array( $path, self::$stock_dirs, true ) ) {
-			self::$stock_dirs[] = $path;
-		}
-	}
-
-	public static function set_user_dir( string $path ): void {
-		self::$user_dir = \rtrim( $path, '/' );
-	}
-
-	/** Read-only view of the user-dir path. */
-	public static function user_dir(): string {
-		return self::$user_dir;
-	}
-
 	/**
-	 * Per-name source breakdown across user + stock dirs (powers the REST list `source` field).
+	 * `newspack_nodes/topologies` catalog filter: synthesize an entry for every
+	 * `.tsl` in `list()` (user-authored + every registered stock dir), so the
+	 * catalog reflects what exists on disk, not a per-plugin allowlist. Registered
+	 * once by the substrate (newspack-nodes.php). num_partitions defaults to the
+	 * operator-overridable substrate option (clamped 1..16); a topology's own
+	 * `var num_partitions` frontmatter overrides via synthesize_entry.
 	 *
-	 * @return array<string,array{user:?string,stock:array<int,string>}>
+	 * @param array<string, array<string, mixed>> $topologies Existing catalog (a prior contributor wins on key collision).
+	 * @return array<string, array<string, mixed>>
 	 */
-	public static function describe(): array {
-		$out = [];
-		if ( '' !== self::$user_dir && \is_dir( self::$user_dir ) ) {
-			foreach ( \glob( self::$user_dir . '/*.tsl' ) ?: [] as $path ) {
-				if ( ! \is_file( $path ) ) {
-					continue;
-				}
-				$name                    = \basename( $path, '.tsl' );
-				$out[ $name ]['user']    = $path;
-				$out[ $name ]['stock'] ??= [];
+	public static function publish_catalog( array $topologies ): array {
+		$cfg        = \Newspack_Nodes\Config::load_config();
+		$cfg_np     = $cfg['num_partitions'] ?? 1;
+		$default_np = \max( 1, \min( 16, (int) ( \is_scalar( $cfg_np ) ? $cfg_np : 1 ) ) );
+		foreach ( self::list() as $name ) {
+			if ( isset( $topologies[ $name ] ) ) {
+				continue;
+			}
+			$entry = self::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
+			if ( null !== $entry ) {
+				$topologies[ $name ] = $entry;
 			}
 		}
-		foreach ( self::$stock_dirs as $dir ) {
-			foreach ( \glob( $dir . '/*.tsl' ) ?: [] as $path ) {
-				if ( ! \is_file( $path ) ) {
-					continue;
-				}
-				$name                      = \basename( $path, '.tsl' );
-				$out[ $name ]['user']    ??= null;
-				$out[ $name ]['stock']   ??= [];
-				$out[ $name ]['stock'][]   = $path;
-			}
-		}
-		return $out;
-	}
-
-	/**
-	 * Return the absolute path to `<name>.tsl` or null if unknown (is_file, not file_exists).
-	 */
-	public static function resolve( string $name ): ?string {
-		if ( '' !== self::$user_dir ) {
-			$user_path = self::$user_dir . '/' . $name . '.tsl';
-			if ( \is_file( $user_path ) ) {
-				return $user_path;
-			}
-		}
-		foreach ( self::$stock_dirs as $dir ) {
-			$path = $dir . '/' . $name . '.tsl';
-			if ( \is_file( $path ) ) {
-				return $path;
-			}
-		}
-		return null;
+		return $topologies;
 	}
 
 	/**
@@ -136,6 +94,46 @@ class Topology_Registry {
 			}
 		}
 		return \array_keys( $names );
+	}
+
+	/**
+	 * Build a `[topology, num_partitions, stale_timeout]` entry from a TSL's frontmatter; null if unknown.
+	 *
+	 * @return array<string, mixed>|null
+	 */
+	public static function synthesize_entry(
+		string $name,
+		int $default_num_partitions = 1,
+		int $default_stale_timeout = Lock_Node::STALE_TIMEOUT
+	): ?array {
+		if ( null === self::resolve( $name ) ) {
+			return null;
+		}
+		$front = self::frontmatter( $name );
+		return [
+			'topology'       => $name,
+			'num_partitions' => isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions,
+			'stale_timeout'  => isset( $front['stale_timeout'] ) ? (int) $front['stale_timeout'] : $default_stale_timeout,
+		];
+	}
+
+	/**
+	 * Return the absolute path to `<name>.tsl` or null if unknown (is_file, not file_exists).
+	 */
+	public static function resolve( string $name ): ?string {
+		if ( '' !== self::$user_dir ) {
+			$user_path = self::$user_dir . '/' . $name . '.tsl';
+			if ( \is_file( $user_path ) ) {
+				return $user_path;
+			}
+		}
+		foreach ( self::$stock_dirs as $dir ) {
+			$path = $dir . '/' . $name . '.tsl';
+			if ( \is_file( $path ) ) {
+				return $path;
+			}
+		}
+		return null;
 	}
 
 	/**
@@ -167,59 +165,36 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Build a `[topology, num_partitions, stale_timeout]` entry from a TSL's frontmatter; null if unknown.
+	 * Pairs of topologies in `$names` whose write-sets overlap — i.e. two worker
+	 * processes that would write the same file (data log or cursor) and corrupt
+	 * it. Empty array = the set is safe to run together.
 	 *
-	 * @return array<string, mixed>|null
+	 * @param array<string> $names
+	 * @return array<array{a: string, b: string, shared: array<string>}>
 	 */
-	public static function synthesize_entry(
-		string $name,
-		int $default_num_partitions = 1,
-		int $default_stale_timeout = Lock_Node::STALE_TIMEOUT
-	): ?array {
-		if ( null === self::resolve( $name ) ) {
-			return null;
+	public static function find_conflicts( array $names ): array {
+		$names = \array_values( \array_unique( $names ) );
+		$sets  = [];
+		foreach ( $names as $n ) {
+			$sets[ $n ] = self::write_set( $n );
 		}
-		$front = self::frontmatter( $name );
-		return [
-			'topology'       => $name,
-			'num_partitions' => isset( $front['num_partitions'] ) ? (int) $front['num_partitions'] : $default_num_partitions,
-			'stale_timeout'  => isset( $front['stale_timeout'] ) ? (int) $front['stale_timeout'] : $default_stale_timeout,
-		];
-	}
-
-	/**
-	 * Log basenames declared by `$name`'s Partition nodes (sorted, deduped, `.log` stripped). Memoized.
-	 *
-	 * @return array<string>
-	 */
-	public static function basenames_for( string $name ): array {
-		if ( isset( self::$basename_cache[ $name ] ) ) {
-			return self::$basename_cache[ $name ];
-		}
-		$path = self::resolve( $name );
-		if ( null === $path ) {
-			return self::$basename_cache[ $name ] = [];
-		}
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		$contents = (string) \file_get_contents( $path );
-		$seen     = [];
-		foreach ( \explode( "\n", $contents ) as $raw ) {
-			$line = \trim( $raw );
-			if ( '' === $line || '#' === $line[0] ) {
-				continue;
+		$conflicts = [];
+		$count     = \count( $names );
+		for ( $i = 0; $i < $count; $i++ ) {
+			for ( $j = $i + 1; $j < $count; $j++ ) {
+				$a      = $names[ $i ];
+				$b      = $names[ $j ];
+				$shared = \array_values( \array_intersect( $sets[ $a ], $sets[ $b ] ) );
+				if ( ! empty( $shared ) ) {
+					$conflicts[] = [
+						'a'      => $a,
+						'b'      => $b,
+						'shared' => $shared,
+					];
+				}
 			}
-			if ( ! \preg_match(
-				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.log\b/',
-				$line,
-				$m
-			) ) {
-				continue;
-			}
-			$seen[ $m[1] ] = true;
 		}
-		$out = \array_keys( $seen );
-		\sort( $out );
-		return self::$basename_cache[ $name ] = $out;
+		return $conflicts;
 	}
 
 	/**
@@ -267,53 +242,38 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Pairs of topologies in `$names` whose write-sets overlap — i.e. two worker
-	 * processes that would write the same file (data log or cursor) and corrupt
-	 * it. Empty array = the set is safe to run together.
+	 * Log basenames declared by `$name`'s Partition nodes (sorted, deduped, `.log` stripped). Memoized.
 	 *
-	 * @param array<string> $names
-	 * @return array<array{a: string, b: string, shared: array<string>}>
+	 * @return array<string>
 	 */
-	public static function find_conflicts( array $names ): array {
-		$names = \array_values( \array_unique( $names ) );
-		$sets  = [];
-		foreach ( $names as $n ) {
-			$sets[ $n ] = self::write_set( $n );
+	public static function basenames_for( string $name ): array {
+		if ( isset( self::$basename_cache[ $name ] ) ) {
+			return self::$basename_cache[ $name ];
 		}
-		$conflicts = [];
-		$count     = \count( $names );
-		for ( $i = 0; $i < $count; $i++ ) {
-			for ( $j = $i + 1; $j < $count; $j++ ) {
-				$a      = $names[ $i ];
-				$b      = $names[ $j ];
-				$shared = \array_values( \array_intersect( $sets[ $a ], $sets[ $b ] ) );
-				if ( ! empty( $shared ) ) {
-					$conflicts[] = [
-						'a'      => $a,
-						'b'      => $b,
-						'shared' => $shared,
-					];
-				}
+		$path = self::resolve( $name );
+		if ( null === $path ) {
+			return self::$basename_cache[ $name ] = [];
+		}
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		$contents = (string) \file_get_contents( $path );
+		$seen     = [];
+		foreach ( \explode( "\n", $contents ) as $raw ) {
+			$line = \trim( $raw );
+			if ( '' === $line || '#' === $line[0] ) {
+				continue;
 			}
+			if ( ! \preg_match(
+				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.log\b/',
+				$line,
+				$m
+			) ) {
+				continue;
+			}
+			$seen[ $m[1] ] = true;
 		}
-		return $conflicts;
-	}
-
-	/**
-	 * One-line human summary of find_conflicts() output, shared by the admin
-	 * sanitizer's settings error and the supervisor's refusal log so the two
-	 * gates phrase a conflict identically. Empty input → empty string.
-	 *
-	 * @param array<array{a: string, b: string, shared: array<string>}> $conflicts
-	 */
-	public static function describe_conflicts( array $conflicts ): string {
-		return \implode(
-			', ',
-			\array_map(
-				static fn( array $c ): string => "{$c['a']} ↔ {$c['b']} ({$c['shared'][0]})",
-				$conflicts
-			)
-		);
+		$out = \array_keys( $seen );
+		\sort( $out );
+		return self::$basename_cache[ $name ] = $out;
 	}
 
 	/**
@@ -375,31 +335,85 @@ class Topology_Registry {
 		self::register_stock_dir( $topologies_dir );
 	}
 
+	public static function register_stock_dir( string $path ): void {
+		$path = \rtrim( $path, '/' );
+		if ( '' === $path ) {
+			return;
+		}
+		if ( ! \in_array( $path, self::$stock_dirs, true ) ) {
+			self::$stock_dirs[] = $path;
+		}
+	}
+
+	public static function reset(): void {
+		self::$stock_dirs         = [];
+		self::$user_dir           = '';
+		self::$registered_plugins = [];
+		self::reset_basename_cache();
+	}
+
+	/** Drop only the parsed caches, keeping the dir registrations (wired to Config::RESET_ACTION). */
+	public static function reset_basename_cache(): void {
+		self::$basename_cache               = [];
+		self::$segment_size_overrides_cache = [];
+		self::$write_set_cache              = [];
+	}
+
+	public static function set_user_dir( string $path ): void {
+		self::$user_dir = \rtrim( $path, '/' );
+	}
+
+	/** Read-only view of the user-dir path. */
+	public static function user_dir(): string {
+		return self::$user_dir;
+	}
+
 	/**
-	 * `newspack_nodes/topologies` catalog filter: synthesize an entry for every
-	 * `.tsl` in `list()` (user-authored + every registered stock dir), so the
-	 * catalog reflects what exists on disk, not a per-plugin allowlist. Registered
-	 * once by the substrate (newspack-nodes.php). num_partitions defaults to the
-	 * operator-overridable substrate option (clamped 1..16); a topology's own
-	 * `var num_partitions` frontmatter overrides via synthesize_entry.
+	 * Per-name source breakdown across user + stock dirs (powers the REST list `source` field).
 	 *
-	 * @param array<string, array<string, mixed>> $topologies Existing catalog (a prior contributor wins on key collision).
-	 * @return array<string, array<string, mixed>>
+	 * @return array<string,array{user:?string,stock:array<int,string>}>
 	 */
-	public static function publish_catalog( array $topologies ): array {
-		$cfg        = \Newspack_Nodes\Config::load_config();
-		$cfg_np     = $cfg['num_partitions'] ?? 1;
-		$default_np = \max( 1, \min( 16, (int) ( \is_scalar( $cfg_np ) ? $cfg_np : 1 ) ) );
-		foreach ( self::list() as $name ) {
-			if ( isset( $topologies[ $name ] ) ) {
-				continue;
-			}
-			$entry = self::synthesize_entry( $name, $default_np, Lock_Node::STALE_TIMEOUT );
-			if ( null !== $entry ) {
-				$topologies[ $name ] = $entry;
+	public static function describe(): array {
+		$out = [];
+		if ( '' !== self::$user_dir && \is_dir( self::$user_dir ) ) {
+			foreach ( \glob( self::$user_dir . '/*.tsl' ) ?: [] as $path ) {
+				if ( ! \is_file( $path ) ) {
+					continue;
+				}
+				$name                    = \basename( $path, '.tsl' );
+				$out[ $name ]['user']    = $path;
+				$out[ $name ]['stock'] ??= [];
 			}
 		}
-		return $topologies;
+		foreach ( self::$stock_dirs as $dir ) {
+			foreach ( \glob( $dir . '/*.tsl' ) ?: [] as $path ) {
+				if ( ! \is_file( $path ) ) {
+					continue;
+				}
+				$name                      = \basename( $path, '.tsl' );
+				$out[ $name ]['user']    ??= null;
+				$out[ $name ]['stock']   ??= [];
+				$out[ $name ]['stock'][]   = $path;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * One-line human summary of find_conflicts() output, shared by the admin
+	 * sanitizer's settings error and the supervisor's refusal log so the two
+	 * gates phrase a conflict identically. Empty input → empty string.
+	 *
+	 * @param array<array{a: string, b: string, shared: array<string>}> $conflicts
+	 */
+	public static function describe_conflicts( array $conflicts ): string {
+		return \implode(
+			', ',
+			\array_map(
+				static fn( array $c ): string => "{$c['a']} ↔ {$c['b']} ({$c['shared'][0]})",
+				$conflicts
+			)
+		);
 	}
 
 	/**
@@ -431,19 +445,5 @@ class Topology_Registry {
 			$runner( $w['type'], $w['partition'], $w_topology, $w_stale );
 			break;
 		}
-	}
-
-	/** Drop only the parsed caches, keeping the dir registrations (wired to Config::RESET_ACTION). */
-	public static function reset_basename_cache(): void {
-		self::$basename_cache               = [];
-		self::$segment_size_overrides_cache = [];
-		self::$write_set_cache              = [];
-	}
-
-	public static function reset(): void {
-		self::$stock_dirs         = [];
-		self::$user_dir           = '';
-		self::$registered_plugins = [];
-		self::reset_basename_cache();
 	}
 }

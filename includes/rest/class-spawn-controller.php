@@ -31,91 +31,6 @@ class Spawn_Controller {
 		$this->supervisor = $supervisor;
 	}
 
-	public function register_routes(): void {
-		\register_rest_route(
-			'newspack-nodes/v1',
-			'/workers/spawn',
-			[
-				'methods'             => 'POST',
-				'callback'            => [ $this, 'spawn' ],
-				'permission_callback' => [ $this, 'check_permission' ],
-				'args'                => [
-					'type'      => [
-						'required'          => true,
-						'sanitize_callback' => 'sanitize_text_field',
-						'validate_callback' => [ $this, 'validate_worker_type' ],
-					],
-					'partition' => [
-						'required'          => true,
-						'sanitize_callback' => static fn ( $v ): int => \is_scalar( $v ) ? (int) $v : 0,
-					],
-					'nonce'     => [
-						'required'          => true,
-						'sanitize_callback' => 'sanitize_text_field',
-					],
-				],
-			]
-		);
-	}
-
-	/**
-	 * Validate a worker type: a topology type (via expand_workers) or
-	 * 'supervisor'. Rejecting unknown types blocks arbitrary class instantiation.
-	 *
-	 * @param mixed $type Worker type (unsanitized request param).
-	 * @return bool True if valid.
-	 */
-	public function validate_worker_type( $type ): bool {
-		if ( ! \is_string( $type ) || '' === $type ) {
-			return false;
-		}
-
-		if ( 'supervisor' === $type ) {
-			return true;
-		}
-
-		foreach ( Bootstrap::expand_workers() as $w ) {
-			if ( $w['type'] === $type ) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	/**
-	 * Validate a partition number for a type: [0, num_partitions); supervisor
-	 * requires partition===0.
-	 *
-	 * @param string $type      Worker type.
-	 * @param int    $partition Partition number.
-	 * @return bool True if valid.
-	 */
-	public function validate_partition( string $type, int $partition ): bool {
-		if ( $partition < 0 ) {
-			return false;
-		}
-		if ( $partition >= Supervisor_Base::MAX_PARTITIONS ) {
-			return false;
-		}
-
-		// There can be only one supervisor.
-		if ( 'supervisor' === $type ) {
-			return 0 === $partition;
-		}
-
-		$max = 0;
-		foreach ( Bootstrap::expand_workers() as $w ) {
-			if ( $w['type'] === $type && ( $w['partition'] + 1 ) > $max ) {
-				$max = $w['partition'] + 1;
-			}
-		}
-		if ( 0 === $max ) {
-			// Not in topology — defense-in-depth (validate_worker_type should have caught it).
-			return false;
-		}
-		return $partition < $max;
-	}
-
 	/**
 	 * Permission check: internal HMAC token (current/previous 10s window), else
 	 * external manage_options + valid nonce + 2s per-user rate limit.
@@ -249,6 +164,40 @@ class Spawn_Controller {
 	}
 
 	/**
+	 * Validate a partition number for a type: [0, num_partitions); supervisor
+	 * requires partition===0.
+	 *
+	 * @param string $type      Worker type.
+	 * @param int    $partition Partition number.
+	 * @return bool True if valid.
+	 */
+	public function validate_partition( string $type, int $partition ): bool {
+		if ( $partition < 0 ) {
+			return false;
+		}
+		if ( $partition >= Supervisor_Base::MAX_PARTITIONS ) {
+			return false;
+		}
+
+		// There can be only one supervisor.
+		if ( 'supervisor' === $type ) {
+			return 0 === $partition;
+		}
+
+		$max = 0;
+		foreach ( Bootstrap::expand_workers() as $w ) {
+			if ( $w['type'] === $type && ( $w['partition'] + 1 ) > $max ) {
+				$max = $w['partition'] + 1;
+			}
+		}
+		if ( 0 === $max ) {
+			// Not in topology — defense-in-depth (validate_worker_type should have caught it).
+			return false;
+		}
+		return $partition < $max;
+	}
+
+	/**
 	 * Build a fresh Supervisor and run() it synchronously. try/catch so a
 	 * transient failure doesn't crash the request — the cron backstop catches it.
 	 *
@@ -296,5 +245,56 @@ class Spawn_Controller {
 			}
 		}
 		return $safe;
+	}
+
+	public function register_routes(): void {
+		\register_rest_route(
+			'newspack-nodes/v1',
+			'/workers/spawn',
+			[
+				'methods'             => 'POST',
+				'callback'            => [ $this, 'spawn' ],
+				'permission_callback' => [ $this, 'check_permission' ],
+				'args'                => [
+					'type'      => [
+						'required'          => true,
+						'sanitize_callback' => 'sanitize_text_field',
+						'validate_callback' => [ $this, 'validate_worker_type' ],
+					],
+					'partition' => [
+						'required'          => true,
+						'sanitize_callback' => static fn ( $v ): int => \is_scalar( $v ) ? (int) $v : 0,
+					],
+					'nonce'     => [
+						'required'          => true,
+						'sanitize_callback' => 'sanitize_text_field',
+					],
+				],
+			]
+		);
+	}
+
+	/**
+	 * Validate a worker type: a topology type (via expand_workers) or
+	 * 'supervisor'. Rejecting unknown types blocks arbitrary class instantiation.
+	 *
+	 * @param mixed $type Worker type (unsanitized request param).
+	 * @return bool True if valid.
+	 */
+	public function validate_worker_type( $type ): bool {
+		if ( ! \is_string( $type ) || '' === $type ) {
+			return false;
+		}
+
+		if ( 'supervisor' === $type ) {
+			return true;
+		}
+
+		foreach ( Bootstrap::expand_workers() as $w ) {
+			if ( $w['type'] === $type ) {
+				return true;
+			}
+		}
+		return false;
 	}
 }

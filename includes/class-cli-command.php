@@ -11,36 +11,6 @@ namespace Newspack_Nodes;
 
 class CLI_Command {
 
-	private function base_dir(): string {
-		return Config::get_base_directory();
-	}
-
-	/**
-	 * List live workers, reporting each one's heartbeat age and freshness.
-	 *
-	 * ## EXAMPLES
-	 *
-	 *     wp nodes ls
-	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
-	 */
-	public function ls( array $args, array $assoc_args ): void {
-		$cli     = new CLI( $this->base_dir() );
-		$workers = $cli->ls_workers();
-		if ( empty( $workers ) ) {
-			\WP_CLI::log( 'No workers running. base_dir=' . $this->base_dir() );
-			return;
-		}
-		$now = \time();
-		foreach ( $workers as $w ) {
-			$age      = $w['heartbeat_at'] ? ( $now - $w['heartbeat_at'] ) . 's ago' : 'never';
-			$flag     = $w['stale'] ? '[stale]' : '[live] ';
-			$worker   = "{$w['type']}.p{$w['partition']}";
-			\WP_CLI::log( \sprintf( '%s %-30s heartbeat %s', $flag, $worker, $age ) );
-		}
-	}
-
 	/**
 	 * Open an interactive REPL — bare mode (local graph) or pivoted mode (IPC to a worker).
 	 *
@@ -104,6 +74,10 @@ class CLI_Command {
 		}
 
 		return [ $shell, $dumper ];
+	}
+
+	private function base_dir(): string {
+		return Config::get_base_directory();
 	}
 
 	/**
@@ -196,6 +170,32 @@ class CLI_Command {
 		// Courtesy trailing newline on a TTY; skipped when piped (stray noise breaks consumers).
 		if ( $is_tty ) {
 			\WP_CLI::log( '' );
+		}
+	}
+
+	/**
+	 * List live workers, reporting each one's heartbeat age and freshness.
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp nodes ls
+	 *
+	 * @param array<int, string>   $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 */
+	public function ls( array $args, array $assoc_args ): void {
+		$cli     = new CLI( $this->base_dir() );
+		$workers = $cli->ls_workers();
+		if ( empty( $workers ) ) {
+			\WP_CLI::log( 'No workers running. base_dir=' . $this->base_dir() );
+			return;
+		}
+		$now = \time();
+		foreach ( $workers as $w ) {
+			$age      = $w['heartbeat_at'] ? ( $now - $w['heartbeat_at'] ) . 's ago' : 'never';
+			$flag     = $w['stale'] ? '[stale]' : '[live] ';
+			$worker   = "{$w['type']}.p{$w['partition']}";
+			\WP_CLI::log( \sprintf( '%s %-30s heartbeat %s', $flag, $worker, $age ) );
 		}
 	}
 

@@ -19,6 +19,20 @@ export class CommandClient {
 	}
 
 	/**
+	 * Send a single TM_COMMAND (local sync reply; 202 ack when pivoted).
+	 *
+	 * @param {Object} params See buildMessage().
+	 * @return {Promise<Array>} Parsed response.
+	 */
+	async send( params ) {
+		// The body is JSONL (a verb may emit a stderr/log line AND its response);
+		// the verb response is emitted last, so return the final message. Callers
+		// (dashboards, unwrapCommandResponse) want the single response Message.
+		const msgs = await this.#post( pack( this.buildMessage( params ) ) );
+		return msgs.length ? msgs[ msgs.length - 1 ] : null;
+	}
+
+	/**
 	 * Build a TM_COMMAND as a 7-element positional Message array. FROM is left
 	 * empty: the server's HTTP_In stamps the `_http` boundary onto every incoming
 	 * message, and the per-session reply pivot is applied by the `_sse` node — the
@@ -41,20 +55,6 @@ export class CommandClient {
 			arguments: args,
 		};
 		return msg;
-	}
-
-	/**
-	 * Send a single TM_COMMAND (local sync reply; 202 ack when pivoted).
-	 *
-	 * @param {Object} params See buildMessage().
-	 * @return {Promise<Array>} Parsed response.
-	 */
-	async send( params ) {
-		// The body is JSONL (a verb may emit a stderr/log line AND its response);
-		// the verb response is emitted last, so return the final message. Callers
-		// (dashboards, unwrapCommandResponse) want the single response Message.
-		const msgs = await this.#post( pack( this.buildMessage( params ) ) );
-		return msgs.length ? msgs[ msgs.length - 1 ] : null;
 	}
 
 	/**

@@ -138,29 +138,6 @@ class Config_Utils {
 	}
 
 	/**
-	 * True if $value is only scalars/arrays (depth-bounded); rejects objects/closures/resources.
-	 *
-	 * @param mixed $value Value tree to validate.
-	 */
-	public static function validate_config_values( $value, int $depth = 0 ): bool {
-		if ( $depth > 10 ) {
-			return false;
-		}
-		if ( \is_scalar( $value ) || null === $value ) {
-			return true;
-		}
-		if ( \is_array( $value ) ) {
-			foreach ( $value as $v ) {
-				if ( ! self::validate_config_values( $v, $depth + 1 ) ) {
-					return false;
-				}
-			}
-			return true;
-		}
-		return false;
-	}
-
-	/**
 	 * Load a PHP config file (validated scalar/array tree) and merge it into $config.
 	 *
 	 * @param array<string, mixed> $config           Existing config to merge into.
@@ -185,5 +162,28 @@ class Config_Utils {
 		}
 		Core::stderr( "{$error_log_prefix}::load_config_file() rejected: config must return array of scalar/array values only" );
 		return $config;
+	}
+
+	/**
+	 * True if $value is only scalars/arrays (depth-bounded); rejects objects/closures/resources.
+	 *
+	 * @param mixed $value Value tree to validate.
+	 */
+	public static function validate_config_values( $value, int $depth = 0 ): bool {
+		if ( $depth > 10 ) {
+			return false;
+		}
+		if ( \is_scalar( $value ) || null === $value ) {
+			return true;
+		}
+		if ( \is_array( $value ) ) {
+			foreach ( $value as $v ) {
+				if ( ! self::validate_config_values( $v, $depth + 1 ) ) {
+					return false;
+				}
+			}
+			return true;
+		}
+		return false;
 	}
 }

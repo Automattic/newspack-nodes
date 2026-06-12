@@ -28,15 +28,6 @@ class Schema {
 		private readonly array $sections = [],
 	) {}
 
-	public function prefix(): string {
-		return $this->prefix;
-	}
-
-	/** @return array<int,Field> */
-	public function fields(): array {
-		return $this->fields;
-	}
-
 	/**
 	 * Unprefixed keys of every overlaid option — the Options_Overlay key-list.
 	 * Includes overlay-only (ui=false) keys; excludes display-only fields AND
@@ -49,6 +40,20 @@ class Schema {
 	}
 
 	/**
+	 * @param callable(Field):bool $predicate
+	 * @return array<int,string>
+	 */
+	private function collect_keys( callable $predicate ): array {
+		$out = [];
+		foreach ( $this->fields as $field ) {
+			if ( $predicate( $field ) ) {
+				$out[] = $field->key;
+			}
+		}
+		return $out;
+	}
+
+	/**
 	 * Prefixed option names of every rendered setting — the reset set and the
 	 * register_setting targets. Excludes overlay-only + display fields.
 	 *
@@ -56,6 +61,20 @@ class Schema {
 	 */
 	public function setting_option_names(): array {
 		return $this->prefixed( static fn ( Field $f ): bool => $f->is_setting() );
+	}
+
+	/**
+	 * @param callable(Field):bool $predicate
+	 * @return array<int,string>
+	 */
+	private function prefixed( callable $predicate ): array {
+		$out = [];
+		foreach ( $this->fields as $field ) {
+			if ( $predicate( $field ) ) {
+				$out[] = $this->prefix . $field->key;
+			}
+		}
+		return $out;
 	}
 
 	/**
@@ -70,21 +89,6 @@ class Schema {
 		);
 	}
 
-	/** @return array<int,Field> Fields in the settings-page render loop, in order. */
-	public function rendered_fields(): array {
-		return \array_values( \array_filter( $this->fields, static fn ( Field $f ): bool => $f->is_rendered() ) );
-	}
-
-	/** The Field for an unprefixed option key, or null. */
-	public function field_for_short( string $short ): ?Field {
-		foreach ( $this->fields as $field ) {
-			if ( $field->key === $short ) {
-				return $field;
-			}
-		}
-		return null;
-	}
-
 	/**
 	 * Worker-restart classification for a short option key: the field's restart
 	 * groups, 'supervisor_only', or [] (unknown key or no-restart field).
@@ -96,20 +100,14 @@ class Schema {
 		return null === $field ? [] : $field->restart;
 	}
 
-	/** Register every rendered setting via the WP Settings API. */
-	public function register_options( string $group ): void {
+	/** The Field for an unprefixed option key, or null. */
+	public function field_for_short( string $short ): ?Field {
 		foreach ( $this->fields as $field ) {
-			if ( ! $field->is_setting() || ! \is_callable( $field->sanitize ) ) {
-				continue;
+			if ( $field->key === $short ) {
+				return $field;
 			}
-			/** @var array{type?:string,default?:mixed,autoload?:bool,show_in_rest?:bool|array<mixed>} $extra */
-			$extra = $field->register_args;
-			\register_setting(
-				$group,
-				$this->prefix . $field->key,
-				[ 'sanitize_callback' => $field->sanitize ] + $extra
-			);
 		}
+		return null;
 	}
 
 	/** Add each section then its fields to a settings page (in declaration order). */
@@ -135,31 +133,33 @@ class Schema {
 		}
 	}
 
-	/**
-	 * @param callable(Field):bool $predicate
-	 * @return array<int,string>
-	 */
-	private function collect_keys( callable $predicate ): array {
-		$out = [];
-		foreach ( $this->fields as $field ) {
-			if ( $predicate( $field ) ) {
-				$out[] = $field->key;
-			}
-		}
-		return $out;
+	/** @return array<int,Field> Fields in the settings-page render loop, in order. */
+	public function rendered_fields(): array {
+		return \array_values( \array_filter( $this->fields, static fn ( Field $f ): bool => $f->is_rendered() ) );
 	}
 
-	/**
-	 * @param callable(Field):bool $predicate
-	 * @return array<int,string>
-	 */
-	private function prefixed( callable $predicate ): array {
-		$out = [];
+	public function prefix(): string {
+		return $this->prefix;
+	}
+
+	/** @return array<int,Field> */
+	public function fields(): array {
+		return $this->fields;
+	}
+
+	/** Register every rendered setting via the WP Settings API. */
+	public function register_options( string $group ): void {
 		foreach ( $this->fields as $field ) {
-			if ( $predicate( $field ) ) {
-				$out[] = $this->prefix . $field->key;
+			if ( ! $field->is_setting() || ! \is_callable( $field->sanitize ) ) {
+				continue;
 			}
+			/** @var array{type?:string,default?:mixed,autoload?:bool,show_in_rest?:bool|array<mixed>} $extra */
+			$extra = $field->register_args;
+			\register_setting(
+				$group,
+				$this->prefix . $field->key,
+				[ 'sanitize_callback' => $field->sanitize ] + $extra
+			);
 		}
-		return $out;
 	}
 }

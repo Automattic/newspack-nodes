@@ -58,6 +58,31 @@ class Bootstrap {
 	/** Tracks the event entering schedule_event so a late falsy veto still has context. */
 	private static bool $schedule_event_context_is_supervisor = false;
 
+	/** Supervisor cron tick: run Supervisor::run() (595s loop). Cron is the cold-start backstop. */
+	public static function run_supervisor_tick(): void {
+		// Cron fires outside rest_api_init/admin/CLI, so wire the runtime here —
+		// expand_workers() reads the topology catalog (register_stock_dir).
+		self::ensure_runtime_wired();
+		if ( ! self::is_supervisor_enabled() ) {
+			self::unschedule_supervisor();
+			return;
+		}
+		// Leave the cron scheduled so a re-enabled gate is picked up next tick.
+		if ( empty( self::expand_workers() ) ) {
+			return;
+		}
+		// Tag the env var BEFORE the wrapping action so listeners build scope with worker_type set.
+		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
+		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'supervisor';
+		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = '0';
+		\do_action( 'newspack_nodes/before_supervisor_run' );
+		try {
+			self::supervisor()->run();
+		} finally {
+			\do_action( 'newspack_nodes/after_supervisor_run' );
+		}
+	}
+
 	/**
 	 * Wire the substrate runtime: node-class namespaces, the `<config:…>` token
 	 * namespace, the stock-topology dir, and the shared `Core::$memd` handle.
@@ -124,6 +149,47 @@ class Bootstrap {
 		Core::$memd = empty( $memd->getServerList() ) ? null : $memd;
 	}
 
+	/** Supervisor enable gate (default true); false makes the supervisor unschedule + exit. */
+	public static function is_supervisor_enabled(): bool {
+		return self::$supervisor_enabled_override ?? true;
+	}
+
+	/** Unschedule the supervisor cron event. */
+	public static function unschedule_supervisor(): void {
+		if ( ! \function_exists( 'wp_next_scheduled' ) || ! \function_exists( 'wp_unschedule_event' ) ) {
+			return;
+		}
+		$next = \wp_next_scheduled( 'newspack_nodes/supervisor' );
+		if ( $next ) {
+			\wp_unschedule_event( $next, 'newspack_nodes/supervisor' );
+		}
+	}
+
+	/**
+	 * Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS).
+	 *
+	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}>
+	 */
+	public static function expand_workers(): array {
+		$topologies = self::get_topologies();
+		$workers    = [];
+		foreach ( $topologies as $type => $config ) {
+			$config   = \is_array( $config ) ? $config : [];
+			$np_raw   = $config['num_partitions'] ?? 1;
+			$count    = \is_numeric( $np_raw ) ? (int) $np_raw : 1;
+			$count    = \min( Supervisor_Base::MAX_PARTITIONS, \max( 1, $count ) );
+			for ( $p = 0; $p < $count; ++$p ) {
+				$workers[] = [
+					'type'          => $type,
+					'partition'     => $p,
+					'topology'      => $config['topology'] ?? '',
+					'stale_timeout' => $config['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT,
+				];
+			}
+		}
+		return $workers;
+	}
+
 	/**
 	 * Active topology set: the `newspack_nodes/topologies` catalog filtered by the operator overlay.
 	 *
@@ -172,6 +238,47 @@ class Bootstrap {
 		return (array) \apply_filters( 'newspack_nodes/topologies', [] );
 	}
 
+	/** Build a Supervisor using NONCE_SALT for HMAC (factory seam injectable by tests). */
+	public static function supervisor(): Supervisor {
+		$factory = self::$supervisor_factory ?? static fn (): Supervisor => new Supervisor( self::base_dir(), \NONCE_SALT );
+		return $factory();
+	}
+
+	/** Configured base directory for runtime state (locks/, ipc/). */
+	public static function base_dir(): string {
+		return Config::get_base_directory();
+	}
+
+	/** Self-heal (admin_init): re-arm the supervisor cron if it should run but isn't scheduled. */
+	public static function self_heal_supervisor_cron(): void {
+		if ( ! self::is_supervisor_enabled() ) {
+			return;
+		}
+		if ( empty( self::get_topologies() ) ) {
+			return;
+		}
+		if ( \wp_next_scheduled( 'newspack_nodes/supervisor' ) ) {
+			return;
+		}
+		self::activate();
+	}
+
+	/** Activation hook: schedule the supervisor cron at minute cadence. */
+	public static function activate(): void {
+		if ( ! \wp_next_scheduled( 'newspack_nodes/supervisor' ) ) {
+			$result = \wp_schedule_event( \time() + 5, 'newspack_nodes_minute', 'newspack_nodes/supervisor', [], true );
+			if ( \is_wp_error( $result ) ) {
+				Core::print_less_often(
+					\sprintf(
+						'supervisor cron schedule failed: code=%s message=%s schedule=newspack_nodes_minute',
+						$result->get_error_code(),
+						$result->get_error_message()
+					)
+				);
+			}
+		}
+	}
+
 	/**
 	 * Canonical partition count for a topology: the catalog entry's count, else
 	 * the TSL frontmatter (`var num_partitions`), else the config default —
@@ -210,166 +317,6 @@ class Bootstrap {
 	}
 
 	/**
-	 * Expand topologies to flat worker descriptors, one per partition (count clamped to MAX_PARTITIONS).
-	 *
-	 * @return array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}>
-	 */
-	public static function expand_workers(): array {
-		$topologies = self::get_topologies();
-		$workers    = [];
-		foreach ( $topologies as $type => $config ) {
-			$config   = \is_array( $config ) ? $config : [];
-			$np_raw   = $config['num_partitions'] ?? 1;
-			$count    = \is_numeric( $np_raw ) ? (int) $np_raw : 1;
-			$count    = \min( Supervisor_Base::MAX_PARTITIONS, \max( 1, $count ) );
-			for ( $p = 0; $p < $count; ++$p ) {
-				$workers[] = [
-					'type'          => $type,
-					'partition'     => $p,
-					'topology'      => $config['topology'] ?? '',
-					'stale_timeout' => $config['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT,
-				];
-			}
-		}
-		return $workers;
-	}
-
-	/** Supervisor enable gate (default true); false makes the supervisor unschedule + exit. */
-	public static function is_supervisor_enabled(): bool {
-		return self::$supervisor_enabled_override ?? true;
-	}
-
-	/** Configured base directory for runtime state (locks/, ipc/). */
-	public static function base_dir(): string {
-		return Config::get_base_directory();
-	}
-
-	/** Build a Supervisor using NONCE_SALT for HMAC (factory seam injectable by tests). */
-	public static function supervisor(): Supervisor {
-		$factory = self::$supervisor_factory ?? static fn (): Supervisor => new Supervisor( self::base_dir(), \NONCE_SALT );
-		return $factory();
-	}
-
-	/** Register substrate REST routes — wired to `rest_api_init`. */
-	public static function register_rest_routes(): void {
-		( new Spawn_Controller( self::supervisor() ) )->register_routes();
-		( new SSE_Out_Node() )->register_routes();
-		( new HTTP_In_Node() )->register_routes();
-	}
-
-	/** Supervisor cron tick: run Supervisor::run() (595s loop). Cron is the cold-start backstop. */
-	public static function run_supervisor_tick(): void {
-		// Cron fires outside rest_api_init/admin/CLI, so wire the runtime here —
-		// expand_workers() reads the topology catalog (register_stock_dir).
-		self::ensure_runtime_wired();
-		if ( ! self::is_supervisor_enabled() ) {
-			self::unschedule_supervisor();
-			return;
-		}
-		// Leave the cron scheduled so a re-enabled gate is picked up next tick.
-		if ( empty( self::expand_workers() ) ) {
-			return;
-		}
-		// Tag the env var BEFORE the wrapping action so listeners build scope with worker_type set.
-		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
-		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'supervisor';
-		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = '0';
-		\do_action( 'newspack_nodes/before_supervisor_run' );
-		try {
-			self::supervisor()->run();
-		} finally {
-			\do_action( 'newspack_nodes/after_supervisor_run' );
-		}
-	}
-
-	/**
-	 * Mount one worker's input Partition by reader id (format-validated, idempotent).
-	 *
-	 * @return bool True iff the partition is now mounted.
-	 */
-	public static function register_worker_partition( string $worker_id, string $base_dir ): bool {
-		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/', $worker_id ) ) {
-			return false;
-		}
-		if ( Core::node( $worker_id ) instanceof Partition_Node ) {
-			return true;
-		}
-		// A live worker holds a lock dir; its input dir is what we mount.
-		if ( ! \is_dir( "{$base_dir}/locks/{$worker_id}.lock.d" ) ) {
-			return false;
-		}
-		$input_dir = "{$base_dir}/ipc/{$worker_id}/input";
-		if ( ! \is_dir( $input_dir ) ) {
-			return false;
-		}
-		$part = new Partition_Node();
-		$part->name( $worker_id );
-		// Sibling plumbing: patron + sink to the in-scope interpreter (Rule 4 skips both when none).
-		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
-		if ( null !== $ci ) {
-			$part->patron( $ci );
-			$part->sink( $ci );
-		}
-		$part->arguments( "{$input_dir} 0 " . Worker_Base::IPC_SEGMENT_SIZE . ' ' . Worker_Base::IPC_NUM_SEGMENTS );
-		return true;
-	}
-
-	/** Mount every live worker's input Partition; returns the count registered. */
-	public static function register_worker_partitions( string $base_dir ): int {
-		$count = 0;
-		foreach ( \glob( "{$base_dir}/locks/*.lock.d", \GLOB_ONLYDIR ) ?: [] as $lock_dir ) {
-			if ( self::register_worker_partition( \basename( $lock_dir, '.lock.d' ), $base_dir ) ) {
-				++$count;
-			}
-		}
-		return $count;
-	}
-
-	/** Unschedule the supervisor cron event. */
-	public static function unschedule_supervisor(): void {
-		if ( ! \function_exists( 'wp_next_scheduled' ) || ! \function_exists( 'wp_unschedule_event' ) ) {
-			return;
-		}
-		$next = \wp_next_scheduled( 'newspack_nodes/supervisor' );
-		if ( $next ) {
-			\wp_unschedule_event( $next, 'newspack_nodes/supervisor' );
-		}
-	}
-
-	/**
-	 * Register a 60-second cron interval for the supervisor tick.
-	 * Wired to the `cron_schedules` filter from the plugin file.
-	 *
-	 * @param array<string, mixed> $schedules Existing cron schedules.
-	 * @return array<string, mixed>
-	 */
-	public static function register_cron_schedules( array $schedules ): array {
-		if ( ! isset( $schedules['newspack_nodes_minute'] ) ) {
-			$schedules['newspack_nodes_minute'] = [
-				'interval' => 60,
-				'display'  => 'Every Minute (Newspack Nodes)',
-			];
-		}
-		return $schedules;
-	}
-
-	/** Activation hook: schedule the supervisor cron at minute cadence. */
-	public static function activate(): void {
-		if ( ! \wp_next_scheduled( 'newspack_nodes/supervisor' ) ) {
-			$result = \wp_schedule_event( \time() + 5, 'newspack_nodes_minute', 'newspack_nodes/supervisor', [], true );
-			if ( \is_wp_error( $result ) ) {
-				Core::print_less_often(
-					\sprintf(
-						'supervisor cron schedule failed: code=%s message=%s schedule=newspack_nodes_minute',
-						$result->get_error_code(),
-						$result->get_error_message()
-					)
-				);
-			}
-		}
-	}
-
-	/**
 	 * Veto-time diagnostic for the supervisor cron, registered on
 	 * pre_schedule_event AND pre_reschedule_event at PHP_INT_MAX - 2. When an
 	 * earlier callback short-circuits OUR event with false or a WP_Error,
@@ -403,45 +350,6 @@ class Bootstrap {
 			)
 		);
 		return $pre;
-	}
-
-	/**
-	 * Remember the schedule_event context before later callbacks can replace the
-	 * event object with a falsy veto value.
-	 *
-	 * @param mixed $event Event object being filtered.
-	 * @return mixed $event, unchanged.
-	 */
-	public static function remember_schedule_event_context( $event ) {
-		self::$schedule_event_context_is_supervisor = 'newspack_nodes/supervisor' === self::event_hook( $event );
-		return $event;
-	}
-
-	/**
-	 * Late schedule_event diagnostic for supervisor cron vetoes.
-	 *
-	 * @param mixed $event Event object or falsy veto value after earlier callbacks.
-	 * @return mixed $event, unchanged.
-	 */
-	public static function log_supervisor_schedule_event_veto( $event ) {
-		if ( $event ) {
-			self::$schedule_event_context_is_supervisor = false;
-			return $event;
-		}
-		if ( ! self::$schedule_event_context_is_supervisor ) {
-			return $event;
-		}
-		self::$schedule_event_context_is_supervisor = false;
-
-		$filter = (string) \current_filter();
-		Core::print_less_often(
-			\sprintf(
-				'supervisor cron vetoed: filter=%s value=falsy callbacks=[%s]',
-				$filter,
-				self::describe_hook_callbacks( $filter )
-			)
-		);
-		return $event;
 	}
 
 	/** Extract an event object's hook field, if present. */
@@ -504,18 +412,110 @@ class Bootstrap {
 		return \str_contains( $class, 'class@anonymous' ) ? '{anonymous}' : $class;
 	}
 
-	/** Self-heal (admin_init): re-arm the supervisor cron if it should run but isn't scheduled. */
-	public static function self_heal_supervisor_cron(): void {
-		if ( ! self::is_supervisor_enabled() ) {
-			return;
+	/**
+	 * Late schedule_event diagnostic for supervisor cron vetoes.
+	 *
+	 * @param mixed $event Event object or falsy veto value after earlier callbacks.
+	 * @return mixed $event, unchanged.
+	 */
+	public static function log_supervisor_schedule_event_veto( $event ) {
+		if ( $event ) {
+			self::$schedule_event_context_is_supervisor = false;
+			return $event;
 		}
-		if ( empty( self::get_topologies() ) ) {
-			return;
+		if ( ! self::$schedule_event_context_is_supervisor ) {
+			return $event;
 		}
-		if ( \wp_next_scheduled( 'newspack_nodes/supervisor' ) ) {
-			return;
+		self::$schedule_event_context_is_supervisor = false;
+
+		$filter = (string) \current_filter();
+		Core::print_less_often(
+			\sprintf(
+				'supervisor cron vetoed: filter=%s value=falsy callbacks=[%s]',
+				$filter,
+				self::describe_hook_callbacks( $filter )
+			)
+		);
+		return $event;
+	}
+
+	/** Register substrate REST routes — wired to `rest_api_init`. */
+	public static function register_rest_routes(): void {
+		( new Spawn_Controller( self::supervisor() ) )->register_routes();
+		( new SSE_Out_Node() )->register_routes();
+		( new HTTP_In_Node() )->register_routes();
+	}
+
+	/** Mount every live worker's input Partition; returns the count registered. */
+	public static function register_worker_partitions( string $base_dir ): int {
+		$count = 0;
+		foreach ( \glob( "{$base_dir}/locks/*.lock.d", \GLOB_ONLYDIR ) ?: [] as $lock_dir ) {
+			if ( self::register_worker_partition( \basename( $lock_dir, '.lock.d' ), $base_dir ) ) {
+				++$count;
+			}
 		}
-		self::activate();
+		return $count;
+	}
+
+	/**
+	 * Mount one worker's input Partition by reader id (format-validated, idempotent).
+	 *
+	 * @return bool True iff the partition is now mounted.
+	 */
+	public static function register_worker_partition( string $worker_id, string $base_dir ): bool {
+		if ( ! \preg_match( '/^[a-z0-9_-]+\.p\d+$/', $worker_id ) ) {
+			return false;
+		}
+		if ( Core::node( $worker_id ) instanceof Partition_Node ) {
+			return true;
+		}
+		// A live worker holds a lock dir; its input dir is what we mount.
+		if ( ! \is_dir( "{$base_dir}/locks/{$worker_id}.lock.d" ) ) {
+			return false;
+		}
+		$input_dir = "{$base_dir}/ipc/{$worker_id}/input";
+		if ( ! \is_dir( $input_dir ) ) {
+			return false;
+		}
+		$part = new Partition_Node();
+		$part->name( $worker_id );
+		// Sibling plumbing: patron + sink to the in-scope interpreter (Rule 4 skips both when none).
+		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
+		if ( null !== $ci ) {
+			$part->patron( $ci );
+			$part->sink( $ci );
+		}
+		$part->arguments( "{$input_dir} 0 " . Worker_Base::IPC_SEGMENT_SIZE . ' ' . Worker_Base::IPC_NUM_SEGMENTS );
+		return true;
+	}
+
+	/**
+	 * Remember the schedule_event context before later callbacks can replace the
+	 * event object with a falsy veto value.
+	 *
+	 * @param mixed $event Event object being filtered.
+	 * @return mixed $event, unchanged.
+	 */
+	public static function remember_schedule_event_context( $event ) {
+		self::$schedule_event_context_is_supervisor = 'newspack_nodes/supervisor' === self::event_hook( $event );
+		return $event;
+	}
+
+	/**
+	 * Register a 60-second cron interval for the supervisor tick.
+	 * Wired to the `cron_schedules` filter from the plugin file.
+	 *
+	 * @param array<string, mixed> $schedules Existing cron schedules.
+	 * @return array<string, mixed>
+	 */
+	public static function register_cron_schedules( array $schedules ): array {
+		if ( ! isset( $schedules['newspack_nodes_minute'] ) ) {
+			$schedules['newspack_nodes_minute'] = [
+				'interval' => 60,
+				'display'  => 'Every Minute (Newspack Nodes)',
+			];
+		}
+		return $schedules;
 	}
 
 	/** Deactivation hook: clear the supervisor cron. */
