@@ -263,7 +263,7 @@ export class Node {
 		}
 		this.registrations[ event ][ listener ] = cb;
 		if ( event in this.setStateCache ) {
-			this._dispatchListener(
+			this._notifyRegistered(
 				event,
 				listener,
 				this.setStateCache[ event ]
@@ -283,7 +283,7 @@ export class Node {
 			return;
 		}
 		for ( const listener of Object.keys( listeners ) ) {
-			const keep = this._dispatchListener( event, listener, payload );
+			const keep = this._notifyRegistered( event, listener, payload );
 			if ( false === keep ) {
 				delete this.registrations[ event ][ listener ];
 			}
@@ -390,12 +390,14 @@ export class Node {
 		}
 	}
 
-	_dispatchListener( event, listener, payload ) {
+	_notifyRegistered( event, listener, payload ) {
 		const cb = this.registrations[ event ]?.[ listener ];
 		if ( 'function' === typeof cb ) {
 			return cb( payload );
 		}
-		// Node-name mode: forward TM_INFO to named node.
+		// Node-name mode: deliver TM_INFO directly to the resolved node. No TO —
+		// stamping it re-routes through _router (across an SSE pivot it lands where
+		// neither listener nor emitter exist, logging a spurious NOT_AVAILABLE).
 		const target = Core.node( listener );
 		if ( ! target ) {
 			// Stale listener could fire on every notify — rate-limit.
@@ -407,7 +409,6 @@ export class Node {
 		const msg = newMessage();
 		msg[ TYPE ] = TM_INFO;
 		msg[ FROM ] = this.name;
-		msg[ TO ] = listener;
 		msg[ KEY ] = event;
 		msg[ VALUE ] = payload;
 		target.fill( msg );
