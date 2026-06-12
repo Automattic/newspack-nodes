@@ -2,11 +2,10 @@
 /**
  * Hook_Node filter-mode behavior.
  *
- * Messages are positional list-arrays, so in filter mode Hook_Node only adopts
- * an apply_filters return that is still a list. A non-list / non-array return is
- * dropped (the prior message is forwarded) rather than passed to
- * sink->fill( array &$message ) where it would fatal — but that drop must be
- * surfaced via a rate-limited warning, not swallowed silently.
+ * In filter mode Hook_Node passes the message VALUE through apply_filters and
+ * adopts the return as the new VALUE: a list-array return is structured data
+ * (TYPE becomes TM_STRUCT), anything else is treated as a bytestream payload
+ * (TYPE becomes TM_BYTESTREAM). The surrounding envelope fields are preserved.
  *
  * @package Newspack_Nodes
  */
@@ -15,8 +14,8 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
-use Newspack_Nodes\Core;
 use Newspack_Nodes\Hook_Node;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
@@ -27,36 +26,51 @@ class HookNodeTest extends TestCase {
 		$GLOBALS['_wp_actions'] = [];
 	}
 
-	public function test_filter_returning_non_list_is_dropped_with_a_warning(): void {
+	public function test_filter_list_return_is_adopted_as_struct(): void {
 		$node = new Hook_Node();
 		$node->name( 'hooky' );
-		$node->arguments( 'eln_hook_nonlist 1' ); // filter mode on.
+		$node->arguments( 'eln_hook_list 1' ); // filter mode on.
 		$node->sink( new Capture_Sink_Node() );
 
-		// A misbehaving filter that returns a non-list (associative) array.
-		\add_filter( 'eln_hook_nonlist', static fn( $msg ) => [ 'not' => 'a list' ] );
+		// The filter receives the VALUE ('payload') and returns a list.
+		\add_filter( 'eln_hook_list', static fn( $value ) => [ 'a', 'b', 'c' ] );
 
-		$warned = '';
-		Core::set_stderr_handler( function ( $m ) use ( &$warned ) { $warned .= $m; } );
-
-		$message = [ 1, 0.0, 'from', '', 0, '', 'payload' ];
+		$message = [ Message::TM_BYTESTREAM, 0.0, 'from', '', 0, '', 'payload' ];
 		$node->fill( $message );
 
-		$this->assertSame( [ 1, 0.0, 'from', '', 0, '', 'payload' ], $message, 'A non-list filter return must not be adopted.' );
-		$this->assertStringContainsString( 'eln_hook_nonlist', $warned, 'Dropping a non-list filter return must emit a warning, not swallow it silently.' );
+		$this->assertSame( [ 'a', 'b', 'c' ], $message[ Message::VALUE ], 'A list return becomes the new VALUE.' );
+		$this->assertSame( Message::TM_STRUCT, $message[ Message::TYPE ], 'A list return marks the message TM_STRUCT.' );
+		$this->assertSame( 'from', $message[ Message::FROM ], 'Envelope fields are preserved.' );
 	}
 
-	public function test_filter_returning_a_list_is_adopted(): void {
+	public function test_filter_scalar_return_is_adopted_as_bytestream(): void {
 		$node = new Hook_Node();
 		$node->name( 'hooky' );
-		$node->arguments( 'eln_hook_list 1' );
+		$node->arguments( 'eln_hook_scalar 1' );
 		$node->sink( new Capture_Sink_Node() );
 
-		\add_filter( 'eln_hook_list', static fn( $msg ) => [ 2, 0.0, 'x', '', 0, '', 'new' ] );
+		\add_filter( 'eln_hook_scalar', static fn( $value ) => 'transformed' );
 
-		$message = [ 1, 0.0, 'from', '', 0, '', 'payload' ];
+		$message = [ Message::TM_STRUCT, 0.0, 'from', '', 0, '', [ 'k' => 'v' ] ];
 		$node->fill( $message );
 
-		$this->assertSame( [ 2, 0.0, 'x', '', 0, '', 'new' ], $message, 'A valid list filter return must be adopted.' );
+		$this->assertSame( 'transformed', $message[ Message::VALUE ], 'A scalar return becomes the new VALUE.' );
+		$this->assertSame( Message::TM_BYTESTREAM, $message[ Message::TYPE ], 'A non-list return marks the message TM_BYTESTREAM.' );
+	}
+
+	public function test_filter_non_list_array_return_is_bytestream(): void {
+		$node = new Hook_Node();
+		$node->name( 'hooky' );
+		$node->arguments( 'eln_hook_assoc 1' );
+		$node->sink( new Capture_Sink_Node() );
+
+		// An associative (non-list) array is not structured-list data.
+		\add_filter( 'eln_hook_assoc', static fn( $value ) => [ 'not' => 'a list' ] );
+
+		$message = [ Message::TM_BYTESTREAM, 0.0, 'from', '', 0, '', 'payload' ];
+		$node->fill( $message );
+
+		$this->assertSame( [ 'not' => 'a list' ], $message[ Message::VALUE ] );
+		$this->assertSame( Message::TM_BYTESTREAM, $message[ Message::TYPE ], 'An associative-array return is not a list, so TM_BYTESTREAM.' );
 	}
 }

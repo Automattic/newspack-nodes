@@ -35,7 +35,6 @@ class Hook_Node extends Node {
 		if ( null === $this->sink ) {
 			throw new \RuntimeException( 'Hook::fill requires a wired sink' );
 		}
-		++$this->counter;
 		// An empty hook_name (unconfigured) is a no-op in WP — apply_filters('')
 		// returns the value unchanged and do_action('') fires nothing — so skip
 		// the dispatch and just forward unchanged.

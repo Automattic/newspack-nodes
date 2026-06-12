@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`Hook_Node` passes the message VALUE to the WordPress hook, not the whole positional envelope.** `do_action()` / `apply_filters()` now receive `message[VALUE]` (the payload) instead of the 7-field message array, so hook callbacks work with the data directly. In filter mode the `apply_filters()` return is always adopted as the new `VALUE`, and `TYPE` is set from its shape — a list-array return marks the message `TM_STRUCT`, anything else `TM_BYTESTREAM` (the prior "drop a non-list return and forward the previous message with a warning" behavior is gone). Hook_Node also forwards via `parent::fill()` now, so it participates in the uniform `target`→`TO` stamping contract. **Callbacks registered on a Hook_Node's hook must take/return the payload, not a `[TYPE, …, VALUE]` array.**
+
+### Fixed
+
+- **`Hook_Node::fill()` counted each message twice.** The switch to `parent::fill()` (which increments `counter`) left a redundant local `++$this->counter`; removed so the node counts each message once.
+
 ## [0.16.2] - 2026-06-12
 
 ### Changed
