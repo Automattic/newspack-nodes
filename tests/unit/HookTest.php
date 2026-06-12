@@ -36,8 +36,9 @@ class HookTest extends TestCase {
 
 	public function test_action_mode_fires_do_action(): void {
 		$received = null;
-		\add_action( 'newspack_nodes/test_action', function ( $msg ) use ( &$received ) {
-			$received = $msg;
+		// do_action now receives the message VALUE (payload), not the whole envelope.
+		\add_action( 'newspack_nodes/test_action', function ( $value ) use ( &$received ) {
+			$received = $value;
 		} );
 
 		$hook = new Hook_Node();
@@ -47,8 +48,7 @@ class HookTest extends TestCase {
 		$msg[ Message::VALUE ] = 'data';
 		$hook->fill( $msg );
 
-		$this->assertNotNull( $received );
-		$this->assertSame( 'data', $received[ Message::VALUE ] );
+		$this->assertSame( 'data', $received );
 	}
 
 	public function test_action_mode_forwards_to_sink_unchanged(): void {
@@ -83,11 +83,22 @@ class HookTest extends TestCase {
 		$this->assertSame( 'untouched', $capture->captured[0][ Message::VALUE ] );
 	}
 
+	public function test_fill_increments_counter_once_per_message(): void {
+		$hook = new Hook_Node();
+		$hook->arguments( 'newspack_nodes/test_action' );
+		$hook->sink( new Capture_Sink_Node() );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::VALUE ] = 'data';
+		$hook->fill( $msg );
+
+		$this->assertSame( 1, $hook->counter(), 'fill() must count each message once; parent::fill() already increments.' );
+	}
+
 	public function test_filter_mode_replaces_value(): void {
-		\add_filter( 'newspack_nodes/test_filter', function ( array $msg ) {
-			$msg[ Message::VALUE ] = 'transformed';
-			return $msg;
-		} );
+		// apply_filters now receives the message VALUE and its return becomes the
+		// new VALUE; a scalar (non-list) return marks the message TM_BYTESTREAM.
+		\add_filter( 'newspack_nodes/test_filter', static fn( $value ) => 'transformed' );
 
 		$hook = new Hook_Node();
 		$hook->arguments( 'newspack_nodes/test_filter true' );
@@ -99,5 +110,6 @@ class HookTest extends TestCase {
 		$hook->fill( $msg );
 
 		$this->assertSame( 'transformed', $capture->captured[0][ Message::VALUE ] );
+		$this->assertSame( Message::TM_BYTESTREAM, $capture->captured[0][ Message::TYPE ] );
 	}
 }
