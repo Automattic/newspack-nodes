@@ -75,79 +75,6 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * The Shell is the unnamed REPL front-end; naming it would register a command
-	 * surface in the graph. Fatal on any name argument so the rule can't be violated.
-	 */
-	public function name( ?string $name = null ): string {
-		if ( \func_num_args() > 0 ) {
-			throw new \RuntimeException( 'named Shell nodes are not allowed' );
-		}
-		return $this->name;
-	}
-
-	/**
-	 * Build a TM_COMMAND via $this->command(...) (inherited from Node), stamp the
-	 * Shell session's FROM/LOCAL provenance + the target TO ($path), and fill
-	 * it through $this->sink. Mirrors Tachikoma::Nodes::Shell::send_command —
-	 * callers issue commands as method calls instead of via parse().
-	 *
-	 * @param string $path      Routing target (TO). Empty = local interpreter.
-	 * @param string $name      Command verb (e.g. 'connect_node').
-	 * @param string $arguments Positional argument string.
-	 * @return void
-	 */
-	public function send_command( string $path, string $name, string $arguments = '' ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'Shell::send_command requires a wired sink' );
-		}
-		$sink                      = $this->sink;
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_COMMAND;
-		$message[ Message::FROM ]  = Node_Names::OUTPUT . '/' . \getmypid();
-		$message[ Message::TO ]    = $path;
-		$message[ Message::VALUE ] = [
-			'name'      => $name,
-			'arguments' => $arguments,
-		];
-		$message[ Message::LOCAL ] = true;
-		$this->stamp_noreply( $message );
-		Command_Auth::sign( $message );
-		$sink->fill( $message );
-	}
-
-	/**
-	 * Read & parse a file, filling each non-trivial line through the sink as if typed.
-	 */
-	private function include_file( string $file ): void {
-		if ( '' === $file || ! \is_file( $file ) ) {
-			$this->print_less_often( "Shell: include: file not found: $file" );
-			return;
-		}
-		// Topology files live alongside the plugin, not in WP-managed storage.
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
-		$fh = @\fopen( $file, 'r' );
-		if ( false === $fh ) {
-			$this->print_less_often( "Shell: include: cannot open: $file" );
-			return;
-		}
-		while ( ( $line = \fgets( $fh ) ) !== false ) {
-			$line = \rtrim( $line, "\r\n" );
-			$this->eval_script( $line );
-		}
-		\fclose( $fh );
-	}
-
-	/**
-	 * Parse a multi-statement script and dispatch each resulting Message via the sink.
-	 */
-	public function eval_script( string $script ): void {
-		$message = Message::new_message();
-		$message[ Message::TYPE  ] = Message::TM_BYTESTREAM;
-		$message[ Message::VALUE ] = $script;
-		$this->fill( $message );
-	}
-
-	/**
 	 * Quote-aware statement splitter: comment lines returned whole, others split on unquoted `;`.
 	 *
 	 * @return array<int,string>
@@ -383,23 +310,22 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * When want_reply is off, mark a command TM_NOREPLY (no-op on non-commands).
-	 *
-	 * @param array<int, mixed> $message Message to stamp in place.
+	 * Single-tier interpolation: `<ns:key>` → that namespace's registered
+	 * resolver (Core::resolve_config_token); bare `<var>` → Core::$var; unknown → ''.
 	 */
-	private function stamp_noreply( array &$message ): void {
-		$type = $message[ Message::TYPE ] ?? 0;
-		if ( ! $this->want_reply && \is_int( $type ) && ( $type & Message::TM_COMMAND ) ) {
-			$message[ Message::TYPE ] = $type | Message::TM_NOREPLY;
-		}
-	}
-
-	/** Accessor (Tachikoma Shell want_reply): interactive sessions reply; scripts/topology loads don't. */
-	public function want_reply( ?bool $value = null ): bool {
-		if ( null !== $value ) {
-			$this->want_reply = $value;
-		}
-		return $this->want_reply;
+	public function interpolate( string $line ): string {
+		return (string) \preg_replace_callback(
+			'/<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/',
+			static function ( array $m ): string {
+				$key   = $m[1];
+				$colon = \strpos( $key, ':' );
+				if ( false !== $colon ) {
+					return Core::resolve_config_token( \substr( $key, 0, $colon ), \substr( $key, $colon + 1 ) );
+				}
+				return Core::$var[ $key ] ?? '';
+			},
+			$line
+		);
 	}
 
 	/**
@@ -448,18 +374,46 @@ class Shell_Node extends Node {
 		return $tokens;
 	}
 
+	public function stdout( string $line ): void {
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = $line;
+		$dumper = Core::node( Node_Names::OUTPUT );
+		if ( $dumper instanceof Dumper_Node ) {
+			$dumper->fill( $message );
+		}
+	}
+
 	/**
-	 * Slash-join the shell's cwd with an additional `<path>` arg, dropping empty pieces.
+	 * Read & parse a file, filling each non-trivial line through the sink as if typed.
 	 */
-	public function prefix( string $path ): string {
-		$parts = [];
-		if ( '' !== $this->path ) {
-			$parts[] = $this->path;
+	private function include_file( string $file ): void {
+		if ( '' === $file || ! \is_file( $file ) ) {
+			$this->print_less_often( "Shell: include: file not found: $file" );
+			return;
 		}
-		if ( '' !== $path ) {
-			$parts[] = $path;
+		// Topology files live alongside the plugin, not in WP-managed storage.
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+		$fh = @\fopen( $file, 'r' );
+		if ( false === $fh ) {
+			$this->print_less_often( "Shell: include: cannot open: $file" );
+			return;
 		}
-		return \implode( '/', $parts );
+		while ( ( $line = \fgets( $fh ) ) !== false ) {
+			$line = \rtrim( $line, "\r\n" );
+			$this->eval_script( $line );
+		}
+		\fclose( $fh );
+	}
+
+	/**
+	 * Parse a multi-statement script and dispatch each resulting Message via the sink.
+	 */
+	public function eval_script( string $script ): void {
+		$message = Message::new_message();
+		$message[ Message::TYPE  ] = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = $script;
+		$this->fill( $message );
 	}
 
 	/**
@@ -479,6 +433,81 @@ class Shell_Node extends Node {
 			$cwd .= '/' . $path;
 		}
 		return \trim( $cwd, '/' );
+	}
+
+	/**
+	 * Slash-join the shell's cwd with an additional `<path>` arg, dropping empty pieces.
+	 */
+	public function prefix( string $path ): string {
+		$parts = [];
+		if ( '' !== $this->path ) {
+			$parts[] = $this->path;
+		}
+		if ( '' !== $path ) {
+			$parts[] = $path;
+		}
+		return \implode( '/', $parts );
+	}
+
+	/**
+	 * When want_reply is off, mark a command TM_NOREPLY (no-op on non-commands).
+	 *
+	 * @param array<int, mixed> $message Message to stamp in place.
+	 */
+	private function stamp_noreply( array &$message ): void {
+		$type = $message[ Message::TYPE ] ?? 0;
+		if ( ! $this->want_reply && \is_int( $type ) && ( $type & Message::TM_COMMAND ) ) {
+			$message[ Message::TYPE ] = $type | Message::TM_NOREPLY;
+		}
+	}
+
+	/**
+	 * The Shell is the unnamed REPL front-end; naming it would register a command
+	 * surface in the graph. Fatal on any name argument so the rule can't be violated.
+	 */
+	public function name( ?string $name = null ): string {
+		if ( \func_num_args() > 0 ) {
+			throw new \RuntimeException( 'named Shell nodes are not allowed' );
+		}
+		return $this->name;
+	}
+
+	/**
+	 * Build a TM_COMMAND via $this->command(...) (inherited from Node), stamp the
+	 * Shell session's FROM/LOCAL provenance + the target TO ($path), and fill
+	 * it through $this->sink. Mirrors Tachikoma::Nodes::Shell::send_command —
+	 * callers issue commands as method calls instead of via parse().
+	 *
+	 * @param string $path      Routing target (TO). Empty = local interpreter.
+	 * @param string $name      Command verb (e.g. 'connect_node').
+	 * @param string $arguments Positional argument string.
+	 * @return void
+	 */
+	public function send_command( string $path, string $name, string $arguments = '' ): void {
+		if ( null === $this->sink ) {
+			throw new \RuntimeException( 'Shell::send_command requires a wired sink' );
+		}
+		$sink                      = $this->sink;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = Node_Names::OUTPUT . '/' . \getmypid();
+		$message[ Message::TO ]    = $path;
+		$message[ Message::VALUE ] = [
+			'name'      => $name,
+			'arguments' => $arguments,
+		];
+		$message[ Message::LOCAL ] = true;
+		$this->stamp_noreply( $message );
+		Command_Auth::sign( $message );
+		$sink->fill( $message );
+	}
+
+	/** Accessor (Tachikoma Shell want_reply): interactive sessions reply; scripts/topology loads don't. */
+	public function want_reply( ?bool $value = null ): bool {
+		if ( null !== $value ) {
+			$this->want_reply = $value;
+		}
+		return $this->want_reply;
 	}
 
 	public function show_parse(): bool {
@@ -506,35 +535,6 @@ class Shell_Node extends Node {
 
 	public function set_variable( string $name, string $value ): void {
 		Core::$var[ $name ] = $value;
-	}
-
-	/**
-	 * Single-tier interpolation: `<ns:key>` → that namespace's registered
-	 * resolver (Core::resolve_config_token); bare `<var>` → Core::$var; unknown → ''.
-	 */
-	public function interpolate( string $line ): string {
-		return (string) \preg_replace_callback(
-			'/<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/',
-			static function ( array $m ): string {
-				$key   = $m[1];
-				$colon = \strpos( $key, ':' );
-				if ( false !== $colon ) {
-					return Core::resolve_config_token( \substr( $key, 0, $colon ), \substr( $key, $colon + 1 ) );
-				}
-				return Core::$var[ $key ] ?? '';
-			},
-			$line
-		);
-	}
-
-	public function stdout( string $line ): void {
-		$message = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$message[ Message::VALUE ] = $line;
-		$dumper = Core::node( Node_Names::OUTPUT );
-		if ( $dumper instanceof Dumper_Node ) {
-			$dumper->fill( $message );
-		}
 	}
 
 	public static function node_schema(): array {

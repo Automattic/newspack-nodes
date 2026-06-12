@@ -107,36 +107,6 @@ export class CommandInterpreterNode extends Node {
 		this._commands = CommandInterpreterNode._defaultCommands();
 	}
 
-	/**
-	 * Getter/setter for the verb table; passing a table merges (extends) it over
-	 * the built-in defaults.
-	 *
-	 * @param {Object<string,Function>|null} table Verb table to merge, or null to read.
-	 * @return {Object<string,Function>} The current verb table.
-	 */
-	commands( table = null ) {
-		if ( table !== null ) {
-			this._commands = { ...this._commands, ...table };
-		}
-		return this._commands;
-	}
-
-	/**
-	 * Dispatch a verb by name (inline call path, mirrors PHP dispatch()).
-	 *
-	 * @param {string} name     Verb name.
-	 * @param {string} args     Literal arguments tail.
-	 * @param {Array}  envelope Inbound message, or [] for inline calls.
-	 * @return {*} Verb result.
-	 */
-	dispatch( name, args = '', envelope = [] ) {
-		const verb = this._commands[ name ];
-		if ( typeof verb !== 'function' ) {
-			throw new Error( `unknown command: ${ name }` );
-		}
-		return verb( this, args, envelope );
-	}
-
 	fill( message ) {
 		this.counter += 1;
 		const type = message[ TYPE ];
@@ -235,6 +205,36 @@ export class CommandInterpreterNode extends Node {
 		if ( this.sink ) {
 			this.sink.fill( resp );
 		}
+	}
+
+	/**
+	 * Getter/setter for the verb table; passing a table merges (extends) it over
+	 * the built-in defaults.
+	 *
+	 * @param {Object<string,Function>|null} table Verb table to merge, or null to read.
+	 * @return {Object<string,Function>} The current verb table.
+	 */
+	commands( table = null ) {
+		if ( table !== null ) {
+			this._commands = { ...this._commands, ...table };
+		}
+		return this._commands;
+	}
+
+	/**
+	 * Dispatch a verb by name (inline call path, mirrors PHP dispatch()).
+	 *
+	 * @param {string} name     Verb name.
+	 * @param {string} args     Literal arguments tail.
+	 * @param {Array}  envelope Inbound message, or [] for inline calls.
+	 * @return {*} Verb result.
+	 */
+	dispatch( name, args = '', envelope = [] ) {
+		const verb = this._commands[ name ];
+		if ( typeof verb !== 'function' ) {
+			throw new Error( `unknown command: ${ name }` );
+		}
+		return verb( this, args, envelope );
 	}
 
 	// ----- built-in verb table (1:1 with PHP $C) ----------------------------

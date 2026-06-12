@@ -60,18 +60,6 @@ export class HeartbeatNode extends TimerNode {
 		this.sink.fill( this._pollMessage() );
 	}
 
-	// Record the slot acquired by the live SSE stream (from its `connected`
-	// payload). `partition` is where the subscription resolved.
-	setSlot( slot, partition ) {
-		this.slot = slot;
-		this.partition = partition;
-	}
-
-	// Forget the slot — the SSE stream closed, so there's nothing to refresh.
-	clearSlot() {
-		this.slot = null;
-	}
-
 	// Build the poke TM_COMMAND, addressed to this.target — the REST `workers` CI
 	// via the session boundary (`_sse` wraps FROM into the private reply pivot;
 	// the slot pool's heartbeat verb lives on `workers`, not on the per-worker IPC
@@ -88,6 +76,18 @@ export class HeartbeatNode extends TimerNode {
 		};
 		m[ LOCAL ] = true;
 		return m;
+	}
+
+	// Record the slot acquired by the live SSE stream (from its `connected`
+	// payload). `partition` is where the subscription resolved.
+	setSlot( slot, partition ) {
+		this.slot = slot;
+		this.partition = partition;
+	}
+
+	// Forget the slot — the SSE stream closed, so there's nothing to refresh.
+	clearSlot() {
+		this.slot = null;
 	}
 
 	static nodeSchema() {

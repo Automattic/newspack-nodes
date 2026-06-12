@@ -108,22 +108,6 @@ class Partition_Node extends Timer_Node {
 		return $result;
 	}
 
-	/** Timer fire: drain the batch at the end of the current event-loop iteration. */
-	protected function fire(): void {
-		$this->flush();
-	}
-
-	public function partition_dir(): string {
-		return $this->partition_dir;
-	}
-
-	public function get_segment_path( int $segment_id ): string {
-		if ( $segment_id < 0 ) {
-			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
-		}
-		return "{$this->partition_dir}/{$segment_id}.log";
-	}
-
 	/**
 	 * Node entry point: pack the message and append to the current segment.
 	 *
@@ -215,6 +199,103 @@ class Partition_Node extends Timer_Node {
 		$this->set_timer( 0, true );
 	}
 
+	/** Timer fire: drain the batch at the end of the current event-loop iteration. */
+	protected function fire(): void {
+		$this->flush();
+	}
+
+	/**
+	 * Initialize current segment state from existing segments on disk.
+	 *
+	 * Does NOT create files — segment files materialize on first write via fopen('a').
+	 */
+	protected function init_current_segment(): void {
+		$this->close_handle();
+		$segments = $this->get_segments( true );
+		if ( empty( $segments ) ) {
+			$this->current_segment_id = 0;
+			$this->current_size       = 0;
+			$this->current_log_path   = "{$this->partition_dir}/0.log";
+			$this->current_idx_path   = "{$this->partition_dir}/0.idx";
+			return;
+		}
+		$newest                   = \end( $segments );
+		$this->current_segment_id = $newest['id'];
+		$this->current_size       = $newest['size'];
+		$this->current_log_path   = "{$this->partition_dir}/{$this->current_segment_id}.log";
+		$this->current_idx_path   = "{$this->partition_dir}/{$this->current_segment_id}.idx";
+	}
+
+	protected function close_handle(): void {
+		if ( \is_resource( $this->fh ) ) {
+			@\fclose( $this->fh );
+			$this->fh = null;
+			$this->fh_segment_id = -1;
+		}
+		if ( \is_resource( $this->idx_fh ) ) {
+			@\fclose( $this->idx_fh );
+			$this->idx_fh = null;
+		}
+	}
+
+	/**
+	 * List segments on disk sorted by id, cached for SEGMENT_CACHE_TTL.
+	 *
+	 * @param bool $force_refresh Skip the cache and rescan.
+	 * @return array<int,array{id:int,size:int}>
+	 */
+	public function get_segments( bool $force_refresh = false ): array {
+		$now = \microtime( true );
+		if ( ! $force_refresh && null !== $this->segments_cache && ( $now - $this->segments_cache_time ) < self::SEGMENT_CACHE_TTL ) {
+			return $this->segments_cache;
+		}
+		$segments = [];
+		if ( ! \is_dir( $this->partition_dir ) ) {
+			$this->segments_cache      = [];
+			$this->segments_cache_time = $now;
+			return [];
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_scandir
+		$files = @\scandir( $this->partition_dir );
+		if ( ! $files ) {
+			$this->segments_cache      = [];
+			$this->segments_cache_time = $now;
+			return [];
+		}
+		foreach ( $files as $f ) {
+			if ( \preg_match( self::SEGMENT_PATTERN, $f, $m ) ) {
+				$segments[] = [ 'id' => (int) $m[1], 'size' => @\filesize( "{$this->partition_dir}/{$f}" ) ?: 0 ];
+			}
+		}
+		\usort( $segments, fn ( $a, $b ) => $a['id'] <=> $b['id'] );
+		$this->segments_cache      = $segments;
+		$this->segments_cache_time = $now;
+		return $segments;
+	}
+
+	/**
+	 * Drift / TOCTOU recovery: rescan and follow the newest segment if a peer rotated.
+	 */
+	protected function maybe_rescan_segments(): void {
+		$now = \microtime( true );
+		if ( $now - $this->last_segment_check < self::DRIFT_RESCAN_INTERVAL_SECONDS ) {
+			return;
+		}
+		$this->last_segment_check = $now;
+		$segments                 = $this->get_segments( true );
+		if ( empty( $segments ) ) {
+			return;
+		}
+		$newest = \end( $segments );
+		if ( $newest['id'] !== $this->current_segment_id ) {
+			$this->close_handle();
+			$this->current_segment_id = $newest['id'];
+			$this->current_size       = $newest['size'];
+			$this->current_log_path   = "{$this->partition_dir}/{$this->current_segment_id}.log";
+			$this->current_idx_path   = "{$this->partition_dir}/{$this->current_segment_id}.idx";
+		}
+	}
+
 	/** Append $batch to the current segment, then write companion index entries with post-flush offsets. */
 	public function flush(): void {
 		if ( '' === $this->batch ) {
@@ -255,262 +336,6 @@ class Partition_Node extends Timer_Node {
 		}
 
 		$this->touch_segments_cache();
-	}
-
-	/**
-	 * Write one companion-index entry for a packed message at $offset. Caller guards on $index_callback.
-	 *
-	 * @param mixed $data Opaque per-message data passed through to the index callback.
-	 */
-	private function write_index_entry( string $packed, int $offset, int $len, $data ): void {
-		$callback = $this->index_callback;
-		if ( null === $callback ) {
-			return;
-		}
-		$position = [
-			'segment_id' => $this->current_segment_id,
-			'offset'     => $offset,
-			'length'     => $len,
-		];
-		try {
-			$entry = $callback( $packed, $position, $data );
-			if ( null !== $entry && '' !== $entry && \is_resource( $this->idx_fh ) ) {
-				$this->write_all( $this->idx_fh, $entry . "\n", $this->current_idx_path );
-			}
-		} catch ( \Throwable $e ) {
-			$this->print_less_often( 'Partition: index callback threw: ' . $e->getMessage() );
-		}
-	}
-
-	public function __destruct() {
-		// Flush residual batched messages so request-scope writes aren't GC'd unwritten.
-		$this->flush();
-		$this->close_handle();
-	}
-
-	/** Close file handles + release write lock before normal Node teardown. */
-	public function remove_node(): void {
-		$this->close_handle();
-		if ( null !== $this->write_lock ) {
-			$this->write_lock->release();
-			$this->write_lock = null;
-		}
-		parent::remove_node();
-	}
-
-	protected function close_handle(): void {
-		if ( \is_resource( $this->fh ) ) {
-			@\fclose( $this->fh );
-			$this->fh = null;
-			$this->fh_segment_id = -1;
-		}
-		if ( \is_resource( $this->idx_fh ) ) {
-			@\fclose( $this->idx_fh );
-			$this->idx_fh = null;
-		}
-	}
-
-	public static function hash_to_partition( string $key, int $num_partitions ): int {
-		[ $stripped ] = \explode( '?', $key, 2 );
-		return ( \crc32( $stripped ) & 0x7FFFFFFF ) % $num_partitions;
-	}
-
-	/**
-	 * Initialize current segment state from existing segments on disk.
-	 *
-	 * Does NOT create files — segment files materialize on first write via fopen('a').
-	 */
-	protected function init_current_segment(): void {
-		$this->close_handle();
-		$segments = $this->get_segments( true );
-		if ( empty( $segments ) ) {
-			$this->current_segment_id = 0;
-			$this->current_size       = 0;
-			$this->current_log_path   = "{$this->partition_dir}/0.log";
-			$this->current_idx_path   = "{$this->partition_dir}/0.idx";
-			return;
-		}
-		$newest                   = \end( $segments );
-		$this->current_segment_id = $newest['id'];
-		$this->current_size       = $newest['size'];
-		$this->current_log_path   = "{$this->partition_dir}/{$this->current_segment_id}.log";
-		$this->current_idx_path   = "{$this->partition_dir}/{$this->current_segment_id}.idx";
-	}
-
-	/**
-	 * List segments on disk sorted by id, cached for SEGMENT_CACHE_TTL.
-	 *
-	 * @param bool $force_refresh Skip the cache and rescan.
-	 * @return array<int,array{id:int,size:int}>
-	 */
-	public function get_segments( bool $force_refresh = false ): array {
-		$now = \microtime( true );
-		if ( ! $force_refresh && null !== $this->segments_cache && ( $now - $this->segments_cache_time ) < self::SEGMENT_CACHE_TTL ) {
-			return $this->segments_cache;
-		}
-		$segments = [];
-		if ( ! \is_dir( $this->partition_dir ) ) {
-			$this->segments_cache      = [];
-			$this->segments_cache_time = $now;
-			return [];
-		}
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_scandir
-		$files = @\scandir( $this->partition_dir );
-		if ( ! $files ) {
-			$this->segments_cache      = [];
-			$this->segments_cache_time = $now;
-			return [];
-		}
-		foreach ( $files as $f ) {
-			if ( \preg_match( self::SEGMENT_PATTERN, $f, $m ) ) {
-				$segments[] = [ 'id' => (int) $m[1], 'size' => @\filesize( "{$this->partition_dir}/{$f}" ) ?: 0 ];
-			}
-		}
-		\usort( $segments, fn ( $a, $b ) => $a['id'] <=> $b['id'] );
-		$this->segments_cache      = $segments;
-		$this->segments_cache_time = $now;
-		return $segments;
-	}
-
-	/**
-	 * Lift the line-size limit to 10MB and acquire a Lock serializing cross-process writes.
-	 *
-	 * Requires name() and sink() to be set BEFORE this is called.
-	 *
-	 * @param int $max_wait_ms Lock acquisition timeout (ms).
-	 * @throws \RuntimeException when the lock cannot be acquired.
-	 * @return self
-	 */
-	public function allow_large_writes( int $max_wait_ms = 65000 ): self {
-		$stale_timeout = 60;
-		$lock          = new Lock_Node( "{$this->partition_dir}/write.lock.d", $stale_timeout );
-
-		// Sibling: name (when the partition is named), keep the partition's own
-		// specific sink, and patron-link so dump_metadata hides it from the canvas.
-		if ( '' !== $this->name ) {
-			$lock->name( "{$this->name}:lock" );
-		}
-		$lock->sink( $this->sink );
-		$lock->patron( $this );
-
-		// Drain active: arm the heartbeat Timer. Request-scope: drive heartbeat from fill().
-		$ef_running = Event_Framework::instance()->is_running();
-
-		if ( ! $lock->acquire( $max_wait_ms ) ) {
-			throw new \RuntimeException(
-				\esc_html(
-					"Partition::allow_large_writes() failed to acquire write lock at "
-					. "{$this->partition_dir}/write.lock.d after {$max_wait_ms}ms — another live writer holds it. "
-					. 'Two concurrent writers on the same Partition is unsupported.'
-				)
-			);
-		}
-
-		$this->allow_large_writes  = true;
-		$this->write_lock          = $lock;
-		$this->lock_stale_timeout  = $stale_timeout;
-		$this->last_lock_heartbeat = \microtime( true );
-
-		if ( $ef_running ) {
-			// Heartbeat cadence = stale_timeout/3 ms; three ticks per stale window.
-			$this->heartbeat_timer = new Timer_Node();
-			$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
-			$this->heartbeat_timer->arguments( (string) \intdiv( $stale_timeout * 1000, 3 ) );
-			$this->heartbeat_timer->sink( $this->write_lock );
-			$this->heartbeat_timer->key( 'heartbeat' );
-			$this->heartbeat_timer->patron( $this );
-		}
-
-		return $this;
-	}
-
-	/**
-	 * Lift the PIPE_BUF cap WITHOUT acquiring the per-partition exclusivity lock —
-	 * the no-lock sibling of allow_large_writes(). The caller ASSERTS it is this
-	 * partition's sole writer (e.g. a worker that already holds its topology lock,
-	 * so the offset/snapshot offsetlog it owns has no other writer). Permits
-	 * > PIPE_BUF writes and skips the rotate-lock, exactly like allow_large_writes(),
-	 * but trusts the caller instead of enforcing exclusivity with a held lock.
-	 *
-	 * WARRANTY VOID: two concurrent writers + this = silent torn-write corruption,
-	 * with no lock to stop the second writer. If you can't guarantee single-writer,
-	 * use allow_large_writes() — it ENFORCES it (and throws on a second writer).
-	 */
-	public function void_warranty(): self {
-		$this->allow_large_writes = true;
-		$this->warranty_voided    = true;
-		return $this;
-	}
-
-	/**
-	 * Enable companion index files via a custom formatter callback.
-	 *
-	 * @param callable $callback fn(string $line, array $position, ?array &$data) => string|null. Return null/'' to skip.
-	 * @return self
-	 */
-	public function with_index( callable $callback ): self {
-		$this->index_callback = $callback;
-		return $this;
-	}
-
-	/**
-	 * Emit the base config plus this Partition's verb-config, from STATE — the
-	 * `allow_large_writes` flag and the `with_index` formatter name. (The index
-	 * callback itself can't be dumped; the formatter name is its round-trip form.)
-	 */
-	public function dump_config(): string {
-		$out = parent::dump_config();
-		if ( $this->allow_large_writes ) {
-			$verb = $this->warranty_voided ? 'void_warranty' : 'allow_large_writes';
-			$out .= "cmd {$this->name}:config {$verb}\n";
-		}
-		if ( null !== $this->index_formatter_name ) {
-			$out .= "cmd {$this->name}:config with_index {$this->index_formatter_name}\n";
-		}
-		return $out;
-	}
-
-	/**
-	 * Drift / TOCTOU recovery: rescan and follow the newest segment if a peer rotated.
-	 */
-	protected function maybe_rescan_segments(): void {
-		$now = \microtime( true );
-		if ( $now - $this->last_segment_check < self::DRIFT_RESCAN_INTERVAL_SECONDS ) {
-			return;
-		}
-		$this->last_segment_check = $now;
-		$segments                 = $this->get_segments( true );
-		if ( empty( $segments ) ) {
-			return;
-		}
-		$newest = \end( $segments );
-		if ( $newest['id'] !== $this->current_segment_id ) {
-			$this->close_handle();
-			$this->current_segment_id = $newest['id'];
-			$this->current_size       = $newest['size'];
-			$this->current_log_path   = "{$this->partition_dir}/{$this->current_segment_id}.log";
-			$this->current_idx_path   = "{$this->partition_dir}/{$this->current_segment_id}.idx";
-		}
-	}
-
-	/**
-	 * Mirror current_size into segments_cache so a stale hit doesn't misreport the active segment.
-	 */
-	protected function touch_segments_cache(): void {
-		if ( null === $this->segments_cache || null === $this->current_segment_id ) {
-			return;
-		}
-		$found = false;
-		foreach ( $this->segments_cache as $i => $s ) {
-			if ( $s['id'] === $this->current_segment_id ) {
-				$this->segments_cache[ $i ]['size'] = $this->current_size;
-				$found                              = true;
-				break;
-			}
-		}
-		if ( ! $found ) {
-			$this->segments_cache[] = [ 'id' => $this->current_segment_id, 'size' => $this->current_size ];
-		}
 	}
 
 	/**
@@ -650,6 +475,231 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * Lazily open and cache the .log + .idx handles for the current segment.
+	 *
+	 * @return resource|null Log handle, or null on open failure.
+	 */
+	protected function get_handle() {
+		if ( ! \is_dir( $this->partition_dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+			@\mkdir( $this->partition_dir, 0755, true );
+			// Whole tree got wiped; reset from disk (lands at segment 0).
+			$this->init_current_segment();
+		} elseif ( null === $this->current_log_path || ! \file_exists( $this->current_log_path ) ) {
+			// No active segment yet, or the active log file disappeared underneath us — (re-)init from disk.
+			$this->init_current_segment();
+		}
+
+		// init_current_segment() always sets these together; bail if somehow unset.
+		$log_path   = $this->current_log_path;
+		$idx_path   = $this->current_idx_path;
+		$segment_id = $this->current_segment_id;
+		if ( null === $log_path || null === $idx_path || null === $segment_id ) {
+			return null;
+		}
+
+		if ( null === $this->fh || $this->fh_segment_id !== $segment_id ) {
+			$this->close_handle();
+			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+			$fh = @\fopen( $log_path, 'a' );
+			if ( false === $fh ) {
+				return null;
+			}
+			$this->fh            = $fh;
+			$this->fh_segment_id = $segment_id;
+
+			// Single-writer mode: disable PHP's 8KB buffer so readers see writes immediately.
+			if ( $this->allow_large_writes ) {
+				\stream_set_write_buffer( $this->fh, 0 );
+			}
+
+			// Only open the .idx companion when a with_index() formatter is set —
+			// default mode writes no index, so no empty .idx should materialize.
+			if ( null !== $this->index_callback ) {
+				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
+				$idx_fh       = @\fopen( $idx_path, 'a' );
+				$this->idx_fh = ( false === $idx_fh ) ? null : $idx_fh;
+			}
+		}
+		return $this->fh;
+	}
+
+	/**
+	 * Write one companion-index entry for a packed message at $offset. Caller guards on $index_callback.
+	 *
+	 * @param mixed $data Opaque per-message data passed through to the index callback.
+	 */
+	private function write_index_entry( string $packed, int $offset, int $len, $data ): void {
+		$callback = $this->index_callback;
+		if ( null === $callback ) {
+			return;
+		}
+		$position = [
+			'segment_id' => $this->current_segment_id,
+			'offset'     => $offset,
+			'length'     => $len,
+		];
+		try {
+			$entry = $callback( $packed, $position, $data );
+			if ( null !== $entry && '' !== $entry && \is_resource( $this->idx_fh ) ) {
+				$this->write_all( $this->idx_fh, $entry . "\n", $this->current_idx_path );
+			}
+		} catch ( \Throwable $e ) {
+			$this->print_less_often( 'Partition: index callback threw: ' . $e->getMessage() );
+		}
+	}
+
+	/**
+	 * Mirror current_size into segments_cache so a stale hit doesn't misreport the active segment.
+	 */
+	protected function touch_segments_cache(): void {
+		if ( null === $this->segments_cache || null === $this->current_segment_id ) {
+			return;
+		}
+		$found = false;
+		foreach ( $this->segments_cache as $i => $s ) {
+			if ( $s['id'] === $this->current_segment_id ) {
+				$this->segments_cache[ $i ]['size'] = $this->current_size;
+				$found                              = true;
+				break;
+			}
+		}
+		if ( ! $found ) {
+			$this->segments_cache[] = [ 'id' => $this->current_segment_id, 'size' => $this->current_size ];
+		}
+	}
+
+	public function partition_dir(): string {
+		return $this->partition_dir;
+	}
+
+	public function get_segment_path( int $segment_id ): string {
+		if ( $segment_id < 0 ) {
+			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
+		}
+		return "{$this->partition_dir}/{$segment_id}.log";
+	}
+
+	public function __destruct() {
+		// Flush residual batched messages so request-scope writes aren't GC'd unwritten.
+		$this->flush();
+		$this->close_handle();
+	}
+
+	/** Close file handles + release write lock before normal Node teardown. */
+	public function remove_node(): void {
+		$this->close_handle();
+		if ( null !== $this->write_lock ) {
+			$this->write_lock->release();
+			$this->write_lock = null;
+		}
+		parent::remove_node();
+	}
+
+	public static function hash_to_partition( string $key, int $num_partitions ): int {
+		[ $stripped ] = \explode( '?', $key, 2 );
+		return ( \crc32( $stripped ) & 0x7FFFFFFF ) % $num_partitions;
+	}
+
+	/**
+	 * Lift the line-size limit to 10MB and acquire a Lock serializing cross-process writes.
+	 *
+	 * Requires name() and sink() to be set BEFORE this is called.
+	 *
+	 * @param int $max_wait_ms Lock acquisition timeout (ms).
+	 * @throws \RuntimeException when the lock cannot be acquired.
+	 * @return self
+	 */
+	public function allow_large_writes( int $max_wait_ms = 65000 ): self {
+		$stale_timeout = 60;
+		$lock          = new Lock_Node( "{$this->partition_dir}/write.lock.d", $stale_timeout );
+
+		// Sibling: name (when the partition is named), keep the partition's own
+		// specific sink, and patron-link so dump_metadata hides it from the canvas.
+		if ( '' !== $this->name ) {
+			$lock->name( "{$this->name}:lock" );
+		}
+		$lock->sink( $this->sink );
+		$lock->patron( $this );
+
+		// Drain active: arm the heartbeat Timer. Request-scope: drive heartbeat from fill().
+		$ef_running = Event_Framework::instance()->is_running();
+
+		if ( ! $lock->acquire( $max_wait_ms ) ) {
+			throw new \RuntimeException(
+				\esc_html(
+					"Partition::allow_large_writes() failed to acquire write lock at "
+					. "{$this->partition_dir}/write.lock.d after {$max_wait_ms}ms — another live writer holds it. "
+					. 'Two concurrent writers on the same Partition is unsupported.'
+				)
+			);
+		}
+
+		$this->allow_large_writes  = true;
+		$this->write_lock          = $lock;
+		$this->lock_stale_timeout  = $stale_timeout;
+		$this->last_lock_heartbeat = \microtime( true );
+
+		if ( $ef_running ) {
+			// Heartbeat cadence = stale_timeout/3 ms; three ticks per stale window.
+			$this->heartbeat_timer = new Timer_Node();
+			$this->heartbeat_timer->name( "{$this->name}:heartbeat" );
+			$this->heartbeat_timer->arguments( (string) \intdiv( $stale_timeout * 1000, 3 ) );
+			$this->heartbeat_timer->sink( $this->write_lock );
+			$this->heartbeat_timer->key( 'heartbeat' );
+			$this->heartbeat_timer->patron( $this );
+		}
+
+		return $this;
+	}
+
+	/**
+	 * Lift the PIPE_BUF cap WITHOUT acquiring the per-partition exclusivity lock —
+	 * the no-lock sibling of allow_large_writes(). The caller ASSERTS it is this
+	 * partition's sole writer (e.g. a worker that already holds its topology lock,
+	 * so the offset/snapshot offsetlog it owns has no other writer). Permits
+	 * > PIPE_BUF writes and skips the rotate-lock, exactly like allow_large_writes(),
+	 * but trusts the caller instead of enforcing exclusivity with a held lock.
+	 *
+	 * WARRANTY VOID: two concurrent writers + this = silent torn-write corruption,
+	 * with no lock to stop the second writer. If you can't guarantee single-writer,
+	 * use allow_large_writes() — it ENFORCES it (and throws on a second writer).
+	 */
+	public function void_warranty(): self {
+		$this->allow_large_writes = true;
+		$this->warranty_voided    = true;
+		return $this;
+	}
+
+	/**
+	 * Enable companion index files via a custom formatter callback.
+	 *
+	 * @param callable $callback fn(string $line, array $position, ?array &$data) => string|null. Return null/'' to skip.
+	 * @return self
+	 */
+	public function with_index( callable $callback ): self {
+		$this->index_callback = $callback;
+		return $this;
+	}
+
+	/**
+	 * Emit the base config plus this Partition's verb-config, from STATE — the
+	 * `allow_large_writes` flag and the `with_index` formatter name. (The index
+	 * callback itself can't be dumped; the formatter name is its round-trip form.)
+	 */
+	public function dump_config(): string {
+		$out = parent::dump_config();
+		if ( $this->allow_large_writes ) {
+			$verb = $this->warranty_voided ? 'void_warranty' : 'allow_large_writes';
+			$out .= "cmd {$this->name}:config {$verb}\n";
+		}
+		if ( null !== $this->index_formatter_name ) {
+			$out .= "cmd {$this->name}:config with_index {$this->index_formatter_name}\n";
+		}
+		return $out;
+	}
+
+	/**
 	 * Read bytes from a segment at a given offset (bounds-checked).
 	 *
 	 * @param int $segment_id Segment to read from.
@@ -731,56 +781,6 @@ class Partition_Node extends Timer_Node {
 				}
 			}
 		}
-	}
-
-	/**
-	 * Lazily open and cache the .log + .idx handles for the current segment.
-	 *
-	 * @return resource|null Log handle, or null on open failure.
-	 */
-	protected function get_handle() {
-		if ( ! \is_dir( $this->partition_dir ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $this->partition_dir, 0755, true );
-			// Whole tree got wiped; reset from disk (lands at segment 0).
-			$this->init_current_segment();
-		} elseif ( null === $this->current_log_path || ! \file_exists( $this->current_log_path ) ) {
-			// No active segment yet, or the active log file disappeared underneath us — (re-)init from disk.
-			$this->init_current_segment();
-		}
-
-		// init_current_segment() always sets these together; bail if somehow unset.
-		$log_path   = $this->current_log_path;
-		$idx_path   = $this->current_idx_path;
-		$segment_id = $this->current_segment_id;
-		if ( null === $log_path || null === $idx_path || null === $segment_id ) {
-			return null;
-		}
-
-		if ( null === $this->fh || $this->fh_segment_id !== $segment_id ) {
-			$this->close_handle();
-			// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-			$fh = @\fopen( $log_path, 'a' );
-			if ( false === $fh ) {
-				return null;
-			}
-			$this->fh            = $fh;
-			$this->fh_segment_id = $segment_id;
-
-			// Single-writer mode: disable PHP's 8KB buffer so readers see writes immediately.
-			if ( $this->allow_large_writes ) {
-				\stream_set_write_buffer( $this->fh, 0 );
-			}
-
-			// Only open the .idx companion when a with_index() formatter is set —
-			// default mode writes no index, so no empty .idx should materialize.
-			if ( null !== $this->index_callback ) {
-				// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_fopen
-				$idx_fh       = @\fopen( $idx_path, 'a' );
-				$this->idx_fh = ( false === $idx_fh ) ? null : $idx_fh;
-			}
-		}
-		return $this->fh;
 	}
 
 	/** Topology console manifest: palette entry + ctor form + verb forms. */

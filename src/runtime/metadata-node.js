@@ -239,14 +239,56 @@ export class MetadataNode extends TimerNode {
 		this.lastPath = null;
 	}
 
-	static nodeSchema() {
-		return {
-			category: 'Hidden',
-			description:
-				'Receives `dump_metadata` poll reply; publishes for the canvas.',
-			arguments: [],
-			commands: [],
-		};
+	fill( message ) {
+		this.counter += 1;
+		const value = message[ VALUE ];
+		const isStruct = value && typeof value === 'object';
+		const meta = isStruct ? value.payload ?? value : value;
+		if ( meta === null || meta === undefined || meta === '' ) {
+			return;
+		}
+		// Coerce to the raw name->meta object so we can keep it for future merges.
+		let incoming = meta;
+		if ( typeof meta === 'string' ) {
+			try {
+				incoming = JSON.parse( meta );
+			} catch ( e ) {
+				return;
+			}
+		}
+		if ( ! incoming || typeof incoming !== 'object' ) {
+			return;
+		}
+		this.rawMap = incoming;
+		const parsed = parseMetadata( incoming );
+		// Scale the self-managed poll cadence to the graph we just received.
+		this.interval_ms = computePollIntervalMs( parsed.nodes.length );
+		this.setState( 'metadata', parsed );
+	}
+
+	// Router TIMER subscriber (the _router calls fireCb -> fire each second).
+	// Self-throttle: poll only once interval_ms has elapsed, or immediately when
+	// the pivot path changed (the user cd'd) — staying on the shared TIMER so the
+	// poll batches with the tick's other requests.
+	fire() {
+		if ( ! this.sink ) {
+			return;
+		}
+		const now = Core.now();
+		// The poll routes through `_cwd` (this.target); its `.target` is the live
+		// pivot path, swapped by a cd without remounting us.
+		const cwd = Core.node( this.target );
+		const path = cwd && typeof cwd.target === 'string' ? cwd.target : '';
+		const intervalMs = this.interval_ms || 1000;
+		if (
+			( now - this.lastFired ) * 1000 >= intervalMs ||
+			path !== this.lastPath
+		) {
+			this.lastFired = now;
+			this.lastPath = path;
+			this.counter += 1;
+			this.sink.fill( this._pollMessage( 'dump_metadata' ) );
+		}
 	}
 
 	// Build a poll TM_COMMAND addressed to this.target (the `_cwd` node, which
@@ -283,55 +325,13 @@ export class MetadataNode extends TimerNode {
 		this.setState( 'metadata', parseMetadata( map ) );
 	}
 
-	// Router TIMER subscriber (the _router calls fireCb -> fire each second).
-	// Self-throttle: poll only once interval_ms has elapsed, or immediately when
-	// the pivot path changed (the user cd'd) — staying on the shared TIMER so the
-	// poll batches with the tick's other requests.
-	fire() {
-		if ( ! this.sink ) {
-			return;
-		}
-		const now = Core.now();
-		// The poll routes through `_cwd` (this.target); its `.target` is the live
-		// pivot path, swapped by a cd without remounting us.
-		const cwd = Core.node( this.target );
-		const path = cwd && typeof cwd.target === 'string' ? cwd.target : '';
-		const intervalMs = this.interval_ms || 1000;
-		if (
-			( now - this.lastFired ) * 1000 >= intervalMs ||
-			path !== this.lastPath
-		) {
-			this.lastFired = now;
-			this.lastPath = path;
-			this.counter += 1;
-			this.sink.fill( this._pollMessage( 'dump_metadata' ) );
-		}
-	}
-
-	fill( message ) {
-		this.counter += 1;
-		const value = message[ VALUE ];
-		const isStruct = value && typeof value === 'object';
-		const meta = isStruct ? value.payload ?? value : value;
-		if ( meta === null || meta === undefined || meta === '' ) {
-			return;
-		}
-		// Coerce to the raw name->meta object so we can keep it for future merges.
-		let incoming = meta;
-		if ( typeof meta === 'string' ) {
-			try {
-				incoming = JSON.parse( meta );
-			} catch ( e ) {
-				return;
-			}
-		}
-		if ( ! incoming || typeof incoming !== 'object' ) {
-			return;
-		}
-		this.rawMap = incoming;
-		const parsed = parseMetadata( incoming );
-		// Scale the self-managed poll cadence to the graph we just received.
-		this.interval_ms = computePollIntervalMs( parsed.nodes.length );
-		this.setState( 'metadata', parsed );
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description:
+				'Receives `dump_metadata` poll reply; publishes for the canvas.',
+			arguments: [],
+			commands: [],
+		};
 	}
 }

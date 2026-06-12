@@ -58,6 +58,13 @@ class Tail_Node extends Timer_Node {
 		return $result;
 	}
 
+	/** Timer-driven: poll, emit, then re-arm at 0ms (more bytes) or 100ms (at EOF idle). */
+	protected function fire(): void {
+		$this->poll();
+		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
+		$this->set_timer( $next_ms, true );
+	}
+
 	public function poll(): void {
 		\clearstatcache( true, $this->filename );
 		if ( ! \file_exists( $this->filename ) ) {
@@ -183,13 +190,6 @@ class Tail_Node extends Timer_Node {
 		$msg[ Message::VALUE ]     = $value;
 		// Route through parent::fill so a connect_node-set target gets stamped into TO; otherwise TO='' and Router can't dispatch.
 		parent::fill( $msg );
-	}
-
-	/** Timer-driven: poll, emit, then re-arm at 0ms (more bytes) or 100ms (at EOF idle). */
-	protected function fire(): void {
-		$this->poll();
-		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
-		$this->set_timer( $next_ms, true );
 	}
 
 	public static function node_schema(): array {

@@ -105,6 +105,41 @@ class SSE_Out_Node extends Node {
 		$this->send_sse_event( 'msg', $message );
 	}
 
+	/**
+	 * Emit a single SSE event. SAFE_EVENTS pass through; anything else is
+	 * sanitized via `sanitize_event_name()`. JSON-encodes the payload.
+	 *
+	 * @param string $event Event name.
+	 * @param mixed  $data  JSON-serializable payload.
+	 */
+	protected function send_sse_event( string $event, mixed $data ): void {
+		$event = $this->sanitize_event_name( $event );
+		if ( '' === $event ) {
+			throw new \InvalidArgumentException( 'SSE event name is empty after sanitization; refusing to emit a nameless event.' );
+		}
+		$json    = \wp_json_encode( $data );
+		$payload = "event: {$event}\ndata: {$json}\n\n";
+		// SSE wire format must reach the client byte-for-byte; HTML escaping would corrupt the stream.
+		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
+		echo $payload;
+		@\flush();
+		$this->needs_flush = true;
+	}
+
+	/**
+	 * Strip everything outside [a-zA-Z0-9_-] from an unsafe event name (SSE
+	 * `event:` line injection defense). SAFE_EVENTS pass through verbatim.
+	 *
+	 * @param string $event Caller-supplied event name.
+	 * @return string Sanitized event name (may be empty).
+	 */
+	protected function sanitize_event_name( string $event ): string {
+		if ( isset( self::SAFE_EVENTS[ $event ] ) ) {
+			return $event;
+		}
+		return (string) \preg_replace( '/[^a-zA-Z0-9_-]/', '', $event );
+	}
+
 	public function set_base_dir( string $dir ): void {
 		$this->base_dir = $dir;
 	}
@@ -470,20 +505,6 @@ class SSE_Out_Node extends Node {
 	}
 
 	/**
-	 * Strip everything outside [a-zA-Z0-9_-] from an unsafe event name (SSE
-	 * `event:` line injection defense). SAFE_EVENTS pass through verbatim.
-	 *
-	 * @param string $event Caller-supplied event name.
-	 * @return string Sanitized event name (may be empty).
-	 */
-	protected function sanitize_event_name( string $event ): string {
-		if ( isset( self::SAFE_EVENTS[ $event ] ) ) {
-			return $event;
-		}
-		return (string) \preg_replace( '/[^a-zA-Z0-9_-]/', '', $event );
-	}
-
-	/**
 	 * Disable every buffering layer between PHP and the browser so SSE events
 	 * stream incrementally (output buffers, zlib, mod_deflate, nginx).
 	 */
@@ -508,27 +529,6 @@ class SSE_Out_Node extends Node {
 		\header( 'Connection: keep-alive' );
 		\header( 'X-Accel-Buffering: no' );
 		\header( 'Content-Encoding: none' );
-	}
-
-	/**
-	 * Emit a single SSE event. SAFE_EVENTS pass through; anything else is
-	 * sanitized via `sanitize_event_name()`. JSON-encodes the payload.
-	 *
-	 * @param string $event Event name.
-	 * @param mixed  $data  JSON-serializable payload.
-	 */
-	protected function send_sse_event( string $event, mixed $data ): void {
-		$event = $this->sanitize_event_name( $event );
-		if ( '' === $event ) {
-			throw new \InvalidArgumentException( 'SSE event name is empty after sanitization; refusing to emit a nameless event.' );
-		}
-		$json    = \wp_json_encode( $data );
-		$payload = "event: {$event}\ndata: {$json}\n\n";
-		// SSE wire format must reach the client byte-for-byte; HTML escaping would corrupt the stream.
-		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-		echo $payload;
-		@\flush();
-		$this->needs_flush = true;
 	}
 
 	/**

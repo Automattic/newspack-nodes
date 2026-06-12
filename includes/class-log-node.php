@@ -115,6 +115,14 @@ class Log_Node extends Node {
 		}
 	}
 
+	public function remove_node(): void {
+		if ( \is_resource( $this->fh ) ) {
+			\fclose( $this->fh );
+			$this->fh = null;
+		}
+		parent::remove_node();
+	}
+
 	/** Close, rename with a timestamp suffix, reopen the original path for a fresh file. Mirrors Tachikoma Log.pm:rotate. */
 	public function rotate(): void {
 		if ( \is_resource( $this->fh ) ) {
@@ -158,14 +166,6 @@ class Log_Node extends Node {
 				[ 'removed' => \count( $to_delete ), 'kept' => $this->max_rotations ]
 			);
 		}
-	}
-
-	public function remove_node(): void {
-		if ( \is_resource( $this->fh ) ) {
-			\fclose( $this->fh );
-			$this->fh = null;
-		}
-		parent::remove_node();
 	}
 
 	public static function node_schema(): array {

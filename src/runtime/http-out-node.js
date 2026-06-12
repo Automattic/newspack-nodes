@@ -40,70 +40,6 @@ export class HttpOutNode extends Node {
 		this.connectedReaders = new Set();
 	}
 
-	// Programmatic-deps node: no positional config to round-trip via arguments=.
-	static nodeSchema() {
-		return {
-			category: 'Hidden',
-			description: 'Browser → /command HTTP boundary (the `_http` node).',
-			arguments: [],
-			commands: [],
-		};
-	}
-
-	// The worker reader (`{topology}.p{N}`) a routed Message targets, or null for
-	// an `_http`-level address (empty reader) or a server-CI target (`workers`,
-	// `topologies`, …) — only a worker reader needs its input Partition mounted.
-	_workerReaderOf( message ) {
-		const to = message[ TO ] || '';
-		const slash = to.indexOf( '/' );
-		const reader = -1 === slash ? to : to.slice( 0, slash );
-		return /\.p\d+$/.test( reader ) ? reader : null;
-	}
-
-	// Build the connect_worker_input that mounts {reader}'s input Partition.
-	_connectFor( reader ) {
-		return this.client.buildMessage( {
-			to: 'topologies',
-			verb: 'connect_worker_input',
-			args: reader,
-		} );
-	}
-
-	// Build the postBatch entries for a routed Message: a worker reader gets a
-	// leading connect_worker_input, everything else rides bare.
-	_entriesFor( message ) {
-		const reader = this._workerReaderOf( message );
-		return null === reader
-			? [ message ]
-			: [ this._connectFor( reader ), message ];
-	}
-
-	lock() {
-		this.locked = true;
-	}
-
-	// POST the entries; feed every synchronous reply back into `sink` (the interpreter),
-	// which routes via _router by TO. JSONL body → zero or more reply Messages
-	// (verb response plus any stderr/log lines the command emitted); a routed-
-	// onward command yields [] (bare 202) — its reply arrives over the SSE stream.
-	_post( entries ) {
-		Promise.resolve( this.client.postBatch( entries ) )
-			.then( ( messages ) => {
-				for ( const message of messages ) {
-					this.counter += 1;
-					this.sink?.fill( message );
-				}
-			} )
-			.catch( ( err ) => {
-				// Surface so the user gets feedback when /command fails
-				// (network drop, 5xx, HMAC mismatch). Rate-limited so a
-				// degraded server doesn't flood the console.
-				this.print_less_often(
-					`HttpOut POST failed: ${ err?.message ?? err }`
-				);
-			} );
-	}
-
 	/**
 	 * POST the routed Message (or buffer it while locked); feed any synchronous
 	 * reply back into `_sse`.
@@ -128,6 +64,60 @@ export class HttpOutNode extends Node {
 		this._post( this._entriesFor( message ) );
 	}
 
+	// The worker reader (`{topology}.p{N}`) a routed Message targets, or null for
+	// an `_http`-level address (empty reader) or a server-CI target (`workers`,
+	// `topologies`, …) — only a worker reader needs its input Partition mounted.
+	_workerReaderOf( message ) {
+		const to = message[ TO ] || '';
+		const slash = to.indexOf( '/' );
+		const reader = -1 === slash ? to : to.slice( 0, slash );
+		return /\.p\d+$/.test( reader ) ? reader : null;
+	}
+
+	// Build the postBatch entries for a routed Message: a worker reader gets a
+	// leading connect_worker_input, everything else rides bare.
+	_entriesFor( message ) {
+		const reader = this._workerReaderOf( message );
+		return null === reader
+			? [ message ]
+			: [ this._connectFor( reader ), message ];
+	}
+
+	// Build the connect_worker_input that mounts {reader}'s input Partition.
+	_connectFor( reader ) {
+		return this.client.buildMessage( {
+			to: 'topologies',
+			verb: 'connect_worker_input',
+			args: reader,
+		} );
+	}
+
+	// POST the entries; feed every synchronous reply back into `sink` (the interpreter),
+	// which routes via _router by TO. JSONL body → zero or more reply Messages
+	// (verb response plus any stderr/log lines the command emitted); a routed-
+	// onward command yields [] (bare 202) — its reply arrives over the SSE stream.
+	_post( entries ) {
+		Promise.resolve( this.client.postBatch( entries ) )
+			.then( ( messages ) => {
+				for ( const message of messages ) {
+					this.counter += 1;
+					this.sink?.fill( message );
+				}
+			} )
+			.catch( ( err ) => {
+				// Surface so the user gets feedback when /command fails
+				// (network drop, 5xx, HMAC mismatch). Rate-limited so a
+				// degraded server doesn't flood the console.
+				this.print_less_often(
+					`HttpOut POST failed: ${ err?.message ?? err }`
+				);
+			} );
+	}
+
+	lock() {
+		this.locked = true;
+	}
+
 	// Release the lock and POST everything buffered during the locked window as
 	// ONE batch. An empty buffer posts nothing.
 	flush() {
@@ -139,5 +129,15 @@ export class HttpOutNode extends Node {
 		const batch = this.buffer;
 		this.buffer = [];
 		this._post( batch );
+	}
+
+	// Programmatic-deps node: no positional config to round-trip via arguments=.
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description: 'Browser → /command HTTP boundary (the `_http` node).',
+			arguments: [],
+			commands: [],
+		};
 	}
 }

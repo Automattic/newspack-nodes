@@ -412,6 +412,30 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 	}
 
 	/**
+	 * Body of the readline-callback closure (public for tests): null → EOF, else queue the line.
+	 */
+	public function handle_readline_line( ?string $line ): void {
+		if ( null === $line ) {
+			$this->readline_eof = true;
+			return;
+		}
+		if ( '' !== $line && \function_exists( 'readline_add_history' ) ) {
+			\readline_add_history( $line );
+		}
+		$this->queue[] = $line;
+		$this->dumper->prompt_displayed = false;
+	}
+
+	private function show_prompt_fallback(): void {
+		if ( $this->prompt_displayed ) {
+			return;
+		}
+		// Routed through Dumper so a memory-stream Dumper doesn't pollute phpunit's STDOUT.
+		$this->dumper->write_prompt( $this->shell->prompt );
+		$this->prompt_displayed = true;
+	}
+
+	/**
 	 * Wire tab-completion: register the readline completion callback against the
 	 * live candidate cache, and route the Dumper's completion replies into the
 	 * cache. readline's completion function receives the word + its character
@@ -436,21 +460,6 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 				return $this->complete( $word, $index );
 			}
 		);
-	}
-
-	/**
-	 * Body of the readline-callback closure (public for tests): null → EOF, else queue the line.
-	 */
-	public function handle_readline_line( ?string $line ): void {
-		if ( null === $line ) {
-			$this->readline_eof = true;
-			return;
-		}
-		if ( '' !== $line && \function_exists( 'readline_add_history' ) ) {
-			\readline_add_history( $line );
-		}
-		$this->queue[] = $line;
-		$this->dumper->prompt_displayed = false;
 	}
 
 	/**
@@ -546,15 +555,6 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 	/** @return array<int,string> Test/inspection accessor for the node-name cache. */
 	public function node_candidates(): array {
 		return $this->node_candidates;
-	}
-
-	private function show_prompt_fallback(): void {
-		if ( $this->prompt_displayed ) {
-			return;
-		}
-		// Routed through Dumper so a memory-stream Dumper doesn't pollute phpunit's STDOUT.
-		$this->dumper->write_prompt( $this->shell->prompt );
-		$this->prompt_displayed = true;
 	}
 
 	public static function node_schema(): array {

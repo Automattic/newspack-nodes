@@ -35,53 +35,6 @@ export class RouterNode extends TimerNode {
 		this.setTimer( 1000 );
 	}
 
-	// fire_cb (Perl Router::fire_cb): bracket notify_timer with the console's
-	// lock/flush hooks; afterTimerNotify always runs (finally). Overrides Timer's
-	// fire_cb — the Router has no sink and dispatches TIMER instead of emitting.
-	fireCb() {
-		if ( this.beforeTimerNotify ) {
-			this.beforeTimerNotify();
-		}
-		try {
-			this.notifyTimer();
-		} finally {
-			if ( this.afterTimerNotify ) {
-				this.afterTimerNotify();
-			}
-		}
-	}
-
-	// notify_timer (Perl Router::notify_timer): call each TIMER-registered node's
-	// fireCb DIRECTLY; a name with no live node is warned + dropped (forgot to
-	// unregister). No message, no fill().
-	notifyTimer() {
-		const registrations = this.registrations.TIMER;
-		for ( const name of Object.keys( registrations ) ) {
-			const node = Core.node( name );
-			if ( ! node ) {
-				this.stderr( `WARNING: ${ name } forgot to unregister` );
-				delete registrations[ name ];
-				continue;
-			}
-			node.fireCb();
-		}
-	}
-
-	// The Router has no sink: it routes by peeling TO and drops what it cannot
-	// peel (an empty or unknown head → NOT_AVAILABLE). Reject any attempt to set
-	// one; the getter always returns null. (The base constructor's `this.sink =
-	// null` passes through harmlessly.)
-	get sink() {
-		return null;
-	}
-	set sink( node ) {
-		if ( null !== node ) {
-			throw new Error(
-				'Router must not have a sink; it routes by TO and drops what it cannot peel.'
-			);
-		}
-	}
-
 	fill( message ) {
 		// One inbound miss increments counter by 2 via the bounce (matches PHP).
 		this.counter += 1;
@@ -132,5 +85,52 @@ export class RouterNode extends TimerNode {
 		}
 
 		target.fill( message );
+	}
+
+	// fire_cb (Perl Router::fire_cb): bracket notify_timer with the console's
+	// lock/flush hooks; afterTimerNotify always runs (finally). Overrides Timer's
+	// fire_cb — the Router has no sink and dispatches TIMER instead of emitting.
+	fireCb() {
+		if ( this.beforeTimerNotify ) {
+			this.beforeTimerNotify();
+		}
+		try {
+			this.notifyTimer();
+		} finally {
+			if ( this.afterTimerNotify ) {
+				this.afterTimerNotify();
+			}
+		}
+	}
+
+	// notify_timer (Perl Router::notify_timer): call each TIMER-registered node's
+	// fireCb DIRECTLY; a name with no live node is warned + dropped (forgot to
+	// unregister). No message, no fill().
+	notifyTimer() {
+		const registrations = this.registrations.TIMER;
+		for ( const name of Object.keys( registrations ) ) {
+			const node = Core.node( name );
+			if ( ! node ) {
+				this.stderr( `WARNING: ${ name } forgot to unregister` );
+				delete registrations[ name ];
+				continue;
+			}
+			node.fireCb();
+		}
+	}
+
+	// The Router has no sink: it routes by peeling TO and drops what it cannot
+	// peel (an empty or unknown head → NOT_AVAILABLE). Reject any attempt to set
+	// one; the getter always returns null. (The base constructor's `this.sink =
+	// null` passes through harmlessly.)
+	get sink() {
+		return null;
+	}
+	set sink( node ) {
+		if ( null !== node ) {
+			throw new Error(
+				'Router must not have a sink; it routes by TO and drops what it cannot peel.'
+			);
+		}
 	}
 }
