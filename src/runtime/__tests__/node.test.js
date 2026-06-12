@@ -292,6 +292,25 @@ test( 'notify on an undeclared event is a silent no-op', () => {
 	expect( () => n.notify( 'NEVER', 'data' ) ).not.toThrow();
 } );
 
+describe( 'Node.registeredListeners', () => {
+	it( 'returns node-name listeners only, omitting closures and empty events', () => {
+		const n = new Node();
+		n.registrations = { EVT: {}, OTHER: {} };
+		n.register( 'EVT', 'node_listener' ); // cb null => node-name
+		n.register( 'EVT', 'closure_listener', () => {} ); // closure => excluded
+		expect( n.registeredListeners() ).toEqual( {
+			EVT: [ 'node_listener' ],
+		} );
+	} );
+
+	it( 'returns an empty object when only closures are registered', () => {
+		const n = new Node();
+		n.registrations = { EVT: {} };
+		n.register( 'EVT', 'closure_only', () => {} );
+		expect( n.registeredListeners() ).toEqual( {} );
+	} );
+} );
+
 test( 'notify prunes a node-name listener whose target was removed', () => {
 	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
 	const target = new Node();
