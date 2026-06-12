@@ -39,7 +39,7 @@ Two different things set FROM; don't conflate them:
 - **Mint FROM (set FROM=own name).** A node that *mints* a brand-new message sets FROM to its own name. Done by the I/O-boundary minting sources (Timer, Tail, Consumer), by `Node::command()` (the command envelope is tagged with `$this->name`), and by interpreter responses. The Consumer offsetlog checkpoint record also carries the Consumer's name in FROM. None of these are bugs — a reviewer shouldn't flag them.
 - **Breadcrumb-prepend `stamp_message()` (prepend own name to an existing FROM trail).** Used only at the Consumer and HTTP_In I/O boundaries. If the diff adds `stamp_message()` to a Tee, Hook, Callback, or any application-style forwarder, that's almost certainly a bug — it pollutes the breadcrumb trail and breaks reverse-direction routing. Pass-through forwarders relay the existing message untouched; they don't re-stamp.
 
-The `MAX_FROM_SIZE = 1024` guard on `stamp_message` is load-bearing — don't remove it. Cycle scenarios will explode FROM otherwise.
+The `MAX_FROM_SIZE = 1024` guard on `stamp_message` is essential — don't remove it. Cycle scenarios will explode FROM otherwise.
 
 ### 4. CRC32 + 31-bit-mask routing
 
@@ -145,7 +145,6 @@ The test bootstrap shims a few WP functions (`wp_json_encode`, `wp_remote_post`,
 
 ## Common review nits that aren't bugs
 
-- Tachikoma-isms in comments are fine; we're explicitly inspired by it. The comments help reviewers who know Tachikoma. Don't ask for them to be stripped.
 - "Dead code" that's actually a `*_Node` class resolved dynamically by `make_node` (namespace-prefix + `_Node`) or scanned into the palette catalog, or a REST endpoint controller, is fine. A `*_Node` class has no explicit registration call to grep for — its only "caller" is `make_node`/the classmap scan. Don't flag a `Node` subclass as unused.
 
 ## Related Skills

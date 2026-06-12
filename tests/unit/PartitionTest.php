@@ -1605,7 +1605,7 @@ class PartitionTest extends TestCase {
 		$bargs->setAccessible( true );
 		$bargs->setValue( $p, [ [
 			'packed' => $packed,
-			'len'    => \strlen( $packed ),
+			'size'   => \strlen( $packed ),
 			'data'   => null,
 		] ] );
 
@@ -2033,7 +2033,7 @@ class PartitionTest extends TestCase {
 		$bargs->setAccessible( true );
 		$bargs->setValue( $p, [ [
 			'packed' => $packed,
-			'len'    => \strlen( $packed ),
+			'size'   => \strlen( $packed ),
 			'data'   => null,
 		] ] );
 

@@ -1,6 +1,6 @@
 # Getting Started with Newspack Nodes
 
-You know PHP and WordPress. You've never touched Tachikoma or a "node graph." This page gets you from zero to a running pipeline you can poke at by hand — in about five minutes — and then points you at the walkthrough that teaches you to build your own.
+You know PHP and WordPress. You've never touched a "node graph." This page gets you from zero to a running pipeline you can poke at by hand — in about five minutes — and then points you at the walkthrough that teaches you to build your own.
 
 ## The whole idea, one screen
 

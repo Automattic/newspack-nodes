@@ -1,6 +1,6 @@
 # AGENTS.md — Newspack Nodes
 
-Generic message-passing runtime for PHP/WordPress: a Tachikoma-style node graph. Independent of any application; this plugin owns the substrate (Node, Message, Router, Topic, Partition, Worker, Supervisor, REPL). Applications (the first being `newspack-event-logger-nodes`) compose Nodes on top.
+A **WordPress-internal** runtime that borrows the node *vocabulary* of [Tachikoma](https://github.com/datapoke/tachikoma) (Node, Message, Router, `fill`/`sink`) — not a standalone message bus. Its lifecycle is WordPress: config in the **options table**, the supervisor safety net on **WP-Cron**, worker spawn / command / SSE over the **REST API** behind **HMAC + nonce** auth, live position and stats in **memcache**. This plugin owns that substrate (Node, Message, Router, Topic, Partition, Worker, Supervisor, REPL). It's independent of any *application* — it ships no event-logger logic, so applications (the first being `newspack-event-logger-nodes`) compose Nodes on top — but it does **not** run without WordPress.
 
 Every node honors one contract: `fill( array &$message ): void`. Nodes connect two ways: **`sink`** — a node reference, the physical next hop `fill()` forwards to; and **`target`** — a string path stamped into `message[TO]` when TO is empty (this is Tachikoma's `owner`; we did not port `edge`). `_router` dispatches by peeling `message[TO]`. That uniformity is what lets any node compose with any other.
 

@@ -735,7 +735,7 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_poll_stamps_message_FROM_with_consumer_name(): void {
-		// FROM-stamping is a load-bearing convention — every emitted message must
+		// FROM-stamping is a required convention — every emitted message must
 		// have the Consumer's name stamped onto FROM so downstream nodes can
 		// reply via TO=FROM.
 		$source = new Partition_Node();
