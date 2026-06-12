@@ -33,7 +33,7 @@ test( 'drops TM_ERROR with empty TO (no return path)', () => {
 	expect( sent ).toHaveLength( 0 );
 } );
 
-test( 'TM_ERROR with non-empty FROM still bounces (the error has a return path)', () => {
+test( 'drops a pathless TM_ERROR regardless of FROM (matches Tachikoma)', () => {
 	const e = new EchoNode();
 	const sent = [];
 	e.sink = { fill: ( m ) => sent.push( m ) };
@@ -42,8 +42,19 @@ test( 'TM_ERROR with non-empty FROM still bounces (the error has a return path)'
 	m[ FROM ] = 'alpha';
 	m[ TO ] = '';
 	e.fill( m );
-	expect( sent ).toHaveLength( 1 );
-	expect( sent[ 0 ][ TO ] ).toBe( 'alpha' );
+	expect( sent ).toHaveLength( 0 );
+} );
+
+test( 'with an owner, composes owner/to (symlink pathing)', () => {
+	const e = new EchoNode();
+	e.target = 'foo';
+	const sent = [];
+	e.sink = { fill: ( m ) => sent.push( m ) };
+	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
+	m[ TO ] = 'bar';
+	e.fill( m );
+	expect( sent[ 0 ][ TO ] ).toBe( 'foo/bar' );
 } );
 
 test( 'counter bumps per message', () => {
