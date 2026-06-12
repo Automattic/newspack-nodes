@@ -303,6 +303,84 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 	}
 
 	/**
+	 * Timer override: drain $this->stream, dispatch, re-arm (busy/EOF/idle cadence).
+	 */
+	public function fire(): void {
+		// Exit if TM_EOF was emitted and the echo never came back within the deadline.
+		if ( $this->eof_sent && \microtime( true ) >= $this->eof_deadline_at ) {
+			$this->exit = true;
+			return;
+		}
+
+		$delivered = false;
+
+		if ( $this->has_readline ) {
+			// Gate the readline read on stdin having data — rl_getc blocks on an idle TTY,
+			// stalling the drain loop. Memory streams (tests) throw ValueError → fall through.
+			$ready = 1;
+			try {
+				$read   = [ $this->stream ];
+				$write  = null;
+				$except = null;
+				// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
+				$ready  = (int) @\stream_select( $read, $write, $except, 0, 0 );
+			} catch ( \ValueError $e ) {
+				$ready = 1;
+			}
+			if ( $ready > 0 ) {
+				$read_char = self::$readline_read_char ?? static function (): void {
+					\readline_callback_read_char();
+				};
+				$read_char();
+
+				foreach ( $this->queue as $line ) {
+					$this->cmd->dispatch_line( $this->shell, $line );
+					$delivered = true;
+				}
+				$this->queue = [];
+
+				if ( $this->readline_eof ) {
+					$this->send_eof_marker();
+				} elseif ( $delivered ) {
+					// Handler auto-removed on delivery; re-install for the next prompt.
+					$this->install_handler();
+				}
+
+				$delivered = true;
+			}
+		} else {
+			// Non-readline path: line-buffered fgets, manual prompt.
+			$line = \fgets( $this->stream );
+			if ( false === $line ) {
+				// false on EOF or no-data (non-blocking); distinguish via feof.
+				if ( \feof( $this->stream ) ) {
+					$this->send_eof_marker();
+				}
+			} else {
+				$this->prompt_displayed = false;
+				$this->cmd->dispatch_line( $this->shell, $line );
+				if ( $this->show_prompts ) {
+					$this->show_prompt_fallback();
+				}
+				$delivered = true;
+			}
+		}
+
+		// Re-arm (oneshot — self-schedule each cycle); exit first if $exit got flipped.
+		if ( $this->exit ) {
+			return;
+		}
+		if ( $delivered ) {
+			$next_ms = self::BUSY_POLL_MS;
+		} elseif ( $this->eof_sent ) {
+			$next_ms = self::EOF_POLL_MS;
+		} else {
+			$next_ms = self::IDLE_POLL_MS;
+		}
+		$this->set_timer( $next_ms, true );
+	}
+
+	/**
 	 * Stdin closed: emit a TM_EOF marker through the Shell and arm the deadline. Idempotent.
 	 */
 	private function send_eof_marker(): void {
@@ -479,81 +557,12 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 		$this->prompt_displayed = true;
 	}
 
-	/**
-	 * Timer override: drain $this->stream, dispatch, re-arm (busy/EOF/idle cadence).
-	 */
-	public function fire(): void {
-		// Exit if TM_EOF was emitted and the echo never came back within the deadline.
-		if ( $this->eof_sent && \microtime( true ) >= $this->eof_deadline_at ) {
-			$this->exit = true;
-			return;
-		}
-
-		$delivered = false;
-
-		if ( $this->has_readline ) {
-			// Gate the readline read on stdin having data — rl_getc blocks on an idle TTY,
-			// stalling the drain loop. Memory streams (tests) throw ValueError → fall through.
-			$ready = 1;
-			try {
-				$read   = [ $this->stream ];
-				$write  = null;
-				$except = null;
-				// phpcs:ignore WordPress.PHP.NoSilencedErrors.Discouraged
-				$ready  = (int) @\stream_select( $read, $write, $except, 0, 0 );
-			} catch ( \ValueError $e ) {
-				$ready = 1;
-			}
-			if ( $ready > 0 ) {
-				$read_char = self::$readline_read_char ?? static function (): void {
-					\readline_callback_read_char();
-				};
-				$read_char();
-
-				foreach ( $this->queue as $line ) {
-					$this->cmd->dispatch_line( $this->shell, $line );
-					$delivered = true;
-				}
-				$this->queue = [];
-
-				if ( $this->readline_eof ) {
-					$this->send_eof_marker();
-				} elseif ( $delivered ) {
-					// Handler auto-removed on delivery; re-install for the next prompt.
-					$this->install_handler();
-				}
-
-				$delivered = true;
-			}
-		} else {
-			// Non-readline path: line-buffered fgets, manual prompt.
-			$line = \fgets( $this->stream );
-			if ( false === $line ) {
-				// false on EOF or no-data (non-blocking); distinguish via feof.
-				if ( \feof( $this->stream ) ) {
-					$this->send_eof_marker();
-				}
-			} else {
-				$this->prompt_displayed = false;
-				$this->cmd->dispatch_line( $this->shell, $line );
-				if ( $this->show_prompts ) {
-					$this->show_prompt_fallback();
-				}
-				$delivered = true;
-			}
-		}
-
-		// Re-arm (oneshot — self-schedule each cycle); exit first if $exit got flipped.
-		if ( $this->exit ) {
-			return;
-		}
-		if ( $delivered ) {
-			$next_ms = self::BUSY_POLL_MS;
-		} elseif ( $this->eof_sent ) {
-			$next_ms = self::EOF_POLL_MS;
-		} else {
-			$next_ms = self::IDLE_POLL_MS;
-		}
-		$this->set_timer( $next_ms, true );
+	public static function node_schema(): array {
+		return [
+			'category'    => 'Hidden',
+			'description' => 'Standard input for CLI REPL.',
+			'arguments'   => [],
+			'commands'    => [],
+		];
 	}
 }
