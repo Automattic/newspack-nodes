@@ -39,7 +39,7 @@ class StorageRoundTripTest extends TestCase {
 		$c1->arguments( "{$this->tmp}/firehose.log {$pid} {$this->tmp}/offsets/reader/p{$pid}" );
 		$cap1 = new Capture_Sink_Node();
 		$c1->sink( $cap1 );
-		$c1->poll();
+		$this->pump_consumer( $c1 );
 		$c1->checkpoint();
 
 		$this->assertCount( 2, $cap1->captured );
@@ -53,7 +53,7 @@ class StorageRoundTripTest extends TestCase {
 		$c2->arguments( "{$this->tmp}/firehose.log {$pid} {$this->tmp}/offsets/reader/p{$pid}" );
 		$cap2 = new Capture_Sink_Node();
 		$c2->sink( $cap2 );
-		$c2->poll();
+		$this->pump_consumer( $c2 );
 
 		$this->assertCount( 1, $cap2->captured, 'Restart resumes from checkpoint, sees only the new entry' );
 		$this->assertStringContainsString( 'third', $cap2->captured[0][ Message::VALUE ] );

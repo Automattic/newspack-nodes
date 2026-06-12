@@ -42,6 +42,10 @@ class WorkerScaffoldingTest extends TestCase {
 
 		$w  = new Worker_Base( $this->tmp, 'test', 0 );
 		$in = $w->build_ipc_input_consumer( $ipc_dir );
+		// has_checkpoint is meaningful only after the first poll seeds the cursor
+		// from the offsetlog (construction does no I/O).
+		$in->sink( new \Newspack_Nodes\Tests\Capture_Sink_Node() );
+		$in->poll();
 
 		$this->assertTrue( $in->has_checkpoint(), 'respawn must resume from the durable IPC-input offsetlog' );
 	}
@@ -97,15 +101,15 @@ class WorkerScaffoldingTest extends TestCase {
 
 		$input->arguments( "{$ipc_dir}/input 0" );
 		$this->write_ipc_line( $input, 'cmd1' );
-		$in->poll();                 // consume cmd1 before the recycle
-		$w->checkpoint_ipc_input();  // clean-recycle shutdown checkpoint
+		$this->pump_consumer( $in );   // consume cmd1 before the recycle
+		$w->checkpoint_ipc_input();    // clean-recycle shutdown checkpoint
 
 		$this->write_ipc_line( $input, 'cmd2' );   // queued during the downtime
 
 		$in2 = ( new Worker_Base( $this->tmp, 'ckpt', 0 ) )->build_ipc_input_consumer( $ipc_dir );
 		$cap = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$in2->sink( $cap );
-		$in2->poll();
+		$this->pump_consumer( $in2 );
 
 		$this->assertCount( 1, $cap->captured, 'respawn delivers the queued command, not the already-consumed one' );
 		$this->assertSame( 'cmd2', $cap->captured[0][ \Newspack_Nodes\Message::VALUE ] );
