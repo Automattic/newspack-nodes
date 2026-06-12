@@ -69,7 +69,7 @@ class Partition_Node extends Timer_Node {
 	/** @var string Packed messages awaiting one PIPE_BUF-atomic syswrite. */
 	protected string $batch = '';
 
-	/** @var list<array{packed:string,len:int,data:mixed}> Flushed in lockstep with $batch. */
+	/** @var list<array{packed:string,size:int,data:mixed}> Flushed in lockstep with $batch. */
 	protected array $batch_index_args = [];
 
 	/** Tachikoma-parity: no-arg ctor. Wires the sibling :config interpreter; positional config arrives via arguments(). */
@@ -168,15 +168,14 @@ class Partition_Node extends Timer_Node {
 			$this->init_current_segment();
 		}
 
-		$len = \strlen( $packed );
 		$this->maybe_rescan_segments();
 
 		$data = null;
 
 		// Large messages bypass the batch; flush pending batch first to preserve ordering.
-		if ( $len > self::MAX_LINE_SIZE ) {
+		if ( $size > self::MAX_LINE_SIZE ) {
 			$this->flush();
-			if ( $this->current_size + $len > $this->segment_size ) {
+			if ( $this->current_size + $size > $this->segment_size ) {
 				$this->rotate_segment();
 			}
 			$fh = $this->get_handle();
@@ -186,29 +185,29 @@ class Partition_Node extends Timer_Node {
 			$offset              = $this->current_size;
 			$wrote               = $this->write_all( $fh, $packed, $this->current_log_path );
 			$this->current_size += $wrote;
-			if ( $wrote < $len ) {
+			if ( $wrote < $size ) {
 				return;
 			}
 			if ( null !== $this->index_callback ) {
-				$this->write_index_entry( $packed, $offset, $len, $data );
+				$this->write_index_entry( $packed, $offset, $size, $data );
 			}
 			$this->touch_segments_cache();
 			return;
 		}
 
 		// Flush if this message would push the batch over PIPE_BUF — keeps syswrites atomic.
-		if ( '' !== $this->batch && \strlen( $this->batch ) + $len > self::MAX_LINE_SIZE ) {
+		if ( '' !== $this->batch && \strlen( $this->batch ) + $size > self::MAX_LINE_SIZE ) {
 			$this->flush();
 		}
 
-		if ( $this->current_size + $len > $this->segment_size ) {
+		if ( $this->current_size + $size > $this->segment_size ) {
 			$this->rotate_segment();
 		}
 
 		$this->batch              .= $packed;
 		$this->batch_index_args[]  = [
 			'packed' => $packed,
-			'len'    => $len,
+			'size'   => $size,
 			'data'   => $data,
 		];
 
@@ -250,8 +249,8 @@ class Partition_Node extends Timer_Node {
 		if ( null !== $this->index_callback ) {
 			$offset = $start_offset;
 			foreach ( $batch_args as $item ) {
-				$this->write_index_entry( $item['packed'], $offset, $item['len'], $item['data'] );
-				$offset += $item['len'];
+				$this->write_index_entry( $item['packed'], $offset, $item['size'], $item['data'] );
+				$offset += $item['size'];
 			}
 		}
 

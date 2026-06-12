@@ -946,7 +946,7 @@ class SupervisorTest extends TestCase {
 	 */
 	public function test_tick_loop_fires_periodic_action_on_config_window(): void {
 		// Register a topology so check_config's empty-workers gate doesn't
-		// bail before firing supervisor_periodic. The hook is the load-bearing
+		// bail before firing supervisor_periodic. The hook is the
 		// behavior under test; the worker spawning is a side effect.
 		$this->with_topology( [
 			'noop' => [ 'topology' => '/dev/null', 'stale_timeout' => 60 ],

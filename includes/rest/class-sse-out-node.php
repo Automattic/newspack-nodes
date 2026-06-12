@@ -365,7 +365,7 @@ class SSE_Out_Node extends Node {
 			// (TO non-empty here) is NOT stamped; the interpreter forwards it to
 			// `_router`, which peels `_command_interpreter` and re-delivers it to the
 			// interpreter with TO now empty — THEN it interprets. So the _router
-			// round-trip is load-bearing; don't "simplify" it away.
+			// round-trip matters; don't "simplify" it away.
 			$default_route = new Node();
 			$default_route->name( '_default_route' );
 			$default_route->sink( $interpreter );

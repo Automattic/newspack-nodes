@@ -423,7 +423,7 @@ class SupervisorBaseTest extends TestCase {
 	 * load_spawn_ts caches the persisted value into in-memory state on first
 	 * read (via is_recently_spawned). Subsequent reads use the in-memory copy.
 	 *
-	 * This is a load-bearing optimization: avoids a transient read per tick
+	 * This optimization avoids a transient read per tick
 	 * after the first. We assert by clearing the transient store and showing
 	 * is_recently_spawned still returns true.
 	 */

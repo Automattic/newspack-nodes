@@ -1,7 +1,7 @@
 <?php
 /**
  * Plugin Name: Newspack Nodes
- * Description: Node-graph runtime for composable PHP services.
+ * Description: WordPress-internal node-graph runtime for composable services.
  * Version: 0.15.1
  * Author: Automattic
  * License: GPL-2.0-or-later
