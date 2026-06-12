@@ -218,6 +218,10 @@ class NodeTest extends TestCase {
 		$this->assertSame( Message::TM_INFO, $msg[ Message::TYPE ] );
 		$this->assertSame( 'EVT', $msg[ Message::KEY ] );
 		$this->assertSame( 'payload-x', $msg[ Message::VALUE ] );
+		// Delivered directly to the resolved node with empty TO; stamping TO=listener
+		// re-routes through _router — across an SSE pivot it lands where neither the
+		// listener nor the emitter exist, logging a spurious NOT_AVAILABLE.
+		$this->assertSame( '', $msg[ Message::TO ] );
 	}
 
 	public function test_registered_listeners_returns_node_name_listeners_only(): void {

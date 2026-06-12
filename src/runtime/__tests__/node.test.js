@@ -230,7 +230,10 @@ test( 'node-name listener mode forwards a TM_INFO to the named node', () => {
 	expect( got[ 0 ][ KEY ] ).toBe( 'HELLO' );
 	expect( got[ 0 ][ VALUE ] ).toBe( 'payload-string' );
 	expect( got[ 0 ][ FROM ] ).toBe( 'producer' );
-	expect( got[ 0 ][ TO ] ).toBe( 'listener' );
+	// Delivered directly to the resolved node with empty TO; stamping TO=listener
+	// re-routes through _router — across an SSE pivot it lands where neither the
+	// listener nor the emitter exist, logging a spurious NOT_AVAILABLE.
+	expect( got[ 0 ][ TO ] ).toBe( '' );
 } );
 
 test( 'setState caches payload and replays to late closure registrants', () => {

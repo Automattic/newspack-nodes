@@ -258,7 +258,6 @@ class Node {
 		$message                   = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_INFO;
 		$message[ Message::FROM ]  = $this->name;
-		$message[ Message::TO ]    = $listener;
 		$message[ Message::KEY ]   = $event;
 		$message[ Message::VALUE ] = $payload;
 		$target->fill( $message );
