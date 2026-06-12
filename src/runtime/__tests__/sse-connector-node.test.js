@@ -80,6 +80,26 @@ test( 'msg event forwards parsed message into sink', () => {
 	expect( got[ 0 ][ VALUE ] ).toBe( 'data line' );
 } );
 
+test( 'a late msg frame after close() is dropped (stale stream never forwards)', () => {
+	// On teardown the graph nodes are removed; a frame the closed EventSource
+	// still delivers (a late callback, or a test double that keeps listeners)
+	// must not reach the torn-down sink — fill() throws on a null sink.
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+
+	const s = makeConnector();
+	s.sink = sink;
+	s.start();
+	const source = FakeEventSource.last;
+	s.close();
+
+	const m = newMessage();
+	m[ VALUE ] = 'late line';
+	expect( () => source.dispatch( 'msg', JSON.stringify( m ) ) ).not.toThrow();
+	expect( got ).toHaveLength( 0 );
+} );
+
 // --- Connection liveness (drives every SSE dashboard's "Xs ago") ---------
 // The connector is the one node that sees EVERY inbound frame — data rows AND
 // the server's idle heartbeats — so it owns "when did the stream last show

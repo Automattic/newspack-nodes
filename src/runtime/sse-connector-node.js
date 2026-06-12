@@ -65,15 +65,25 @@ export class SseConnectorNode extends Node {
 			`${ this.baseUrl }newspack-nodes/v1/messages/stream` +
 			`?subscribe=${ encodeURIComponent( this.subscribe.join( ',' ) ) }` +
 			`&_wpnonce=${ this.nonce }`;
-		this._es = new EventSource( url, { withCredentials: true } );
+		const es = new EventSource( url, { withCredentials: true } );
+		this._es = es;
+		// A frame from a stream we've since close()d (or reopened past) must not
+		// drive the graph — on teardown the sink is gone and fill() throws.
+		const stale = () => this._es !== es;
 		// Idle keepalive: the server sends an `event: heartbeat` every couple of
 		// seconds even when no data flows. It carries no graph payload — its only
 		// job is to prove the stream is alive — so snoop it for liveness, don't
 		// route it (routing would land it in the topology-console transcript).
-		this._es.addEventListener( 'heartbeat', () => {
+		es.addEventListener( 'heartbeat', () => {
+			if ( stale() ) {
+				return;
+			}
 			this.lastEventTime = Date.now();
 		} );
-		this._es.addEventListener( 'msg', ( e ) => {
+		es.addEventListener( 'msg', ( e ) => {
+			if ( stale() ) {
+				return;
+			}
 			this.lastEventTime = Date.now();
 			const msg = unpack( e.data );
 			if ( msg[ TYPE ] & TM_INFO && 'connected' === msg[ KEY ] ) {
