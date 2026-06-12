@@ -37,8 +37,12 @@ export function dumpMetadataPayload( only = '' ) {
 		// Per-node port flags from the node's own schema; default true so the
 		// canvas draws both ports when the class declares no static schema.
 		const schema = node.constructor?.nodeSchema?.() ?? null;
+		// Shell name (strip the `_Node` suffix) so the in-browser tier reports the
+		// SAME `class` the worker does (`Tee`, not `TeeNode`) — the Inspector's
+		// `type === 'Tee'` checks and the catalog keying both depend on it.
+		const ctorName = node.constructor?.name ?? 'Node';
 		out[ name ] = {
-			class: node.constructor?.name ?? 'Node',
+			class: ctorName.replace( /Node$/, '' ) || ctorName,
 			counter: node.counter ?? 0,
 			sink: node.sink && node.sink.name ? node.sink.name : '',
 			target: node.target ?? '',
@@ -60,6 +64,21 @@ export function dumpMetadataPayload( only = '' ) {
 		out._header = { pwd: reservedNames.OUTPUT };
 	}
 	return out;
+}
+
+/**
+ * Canonicalize a reply-pivot path to the SHELL's tail (`…/_output`). The
+ * `_header.pwd` arrives ending in the POLLING node's reply segment
+ * (`…/_sse:{pid}/_metadata`), but a Tee tail target (from a shell `connect_node`)
+ * ends in `_output` — so the Connect/Disconnect toggle and its optimistic patch
+ * must both compare on this canonical form. A bare (slash-less) or empty pivot is
+ * returned unchanged.
+ *
+ * @param {string} rawPwd The raw reply pivot from `_header.pwd`.
+ * @return {string} The pivot with its final reply-node segment forced to `_output`.
+ */
+export function canonicalReplyPivot( rawPwd ) {
+	return ( rawPwd || '' ).replace( /\/[^/]+$/, `/${ reservedNames.OUTPUT }` );
 }
 
 // The rule-#2 backbone every node sinks through — hidden from the canvas.
@@ -88,14 +107,17 @@ export function parseMetadata( payload ) {
 	}
 
 	// `_header` is the one reserved (non-node) key: the producer (worker or local
-	// Core) stamps `pwd` = THIS session's reply pivot — the reverse_cwd, the exact
-	// FROM a `connect_node` with no target stores as a Tee target. The Inspector
-	// matches it authoritatively instead of reconstructing the (runtime-renamed)
-	// path. Skipped in the node loop so it never renders as a phantom node.
-	const pwd =
+	// Core) stamps `pwd` = THIS session's reply pivot. It arrives ending in the
+	// POLLING node's reply segment (`…/_sse:{pid}/_metadata`, since the canvas
+	// polls FROM `_metadata`), but a Tee tail target — what the toggle matches —
+	// ends in the SHELL's reply node `_output` (`connect_node` uses the shell's
+	// reply path). Canonicalize the final segment to `_output` so the two agree.
+	// Skipped in the node loop so it never renders as a phantom node.
+	const rawPwd =
 		raw._header && typeof raw._header.pwd === 'string'
 			? raw._header.pwd
 			: '';
+	const pwd = canonicalReplyPivot( rawPwd );
 
 	const nodes = [];
 	const edges = [];

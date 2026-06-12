@@ -912,6 +912,21 @@ class Command_Interpreter_Node extends Node {
 			return "_command_interpreter debug_state: $new";
 		}
 
+		if ( '*' === $first ) {
+			if ( '' === $second ) {
+				$new = $self->debug_state() > 0 ? 0 : 1;
+			} else {
+				$new = (int) $second;
+			}
+			$all_names = \array_keys( Core::$nodes_by_name );
+			foreach ( $all_names as $name ) {
+				/** @var \Newspack_Nodes\Node $node Node from the registry. */
+				$node = Core::node( $name );
+				$node->debug_state( $new );
+			}
+			return "* debug_state: $new";
+		}
+
 		if ( \ctype_digit( $first ) && '' === $second ) {
 			$self->debug_state( (int) $first );
 			return '_command_interpreter debug_state: ' . $self->debug_state();

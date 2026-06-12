@@ -86,12 +86,13 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 		expect( patched ).toEqual( [ [ 'x', null ] ] );
 	} );
 
-	it( 'onInspectorAction tail APPENDS this session pwd to the Tee fan-out', () => {
-		// connect_node with no target appends the issuing FROM (== pwd) server-side;
-		// the optimistic patch must append it to the array, not replace it — or the
-		// Tee's other edges vanish from the canvas until the next poll.
+	it( 'onInspectorAction tail APPENDS the CANONICAL session pwd to the Tee fan-out', () => {
+		// connect_node with no target appends the issuing FROM server-side, which
+		// ends in the shell's `_output` — but the header pwd arrives ending in the
+		// poll node's `_metadata`. The optimistic append must canonicalize to
+		// `_output` (matching the next poll's target), and append, not replace.
 		Core.node( names.METADATA ).rawMap = {
-			_header: { pwd: '_repl/_output/_sse:9/_output' },
+			_header: { pwd: '_repl/_output/_sse:9/_metadata' },
 			tee: { target: [ 'request-builder', 'job-router' ] },
 		};
 		const { result } = renderHandlers( {} );
@@ -110,9 +111,11 @@ describe( 'useGraphHandlers — optimistic metadata patch after a mutation', () 
 		] );
 	} );
 
-	it( 'onInspectorAction disconnect REMOVES only this session pwd from the Tee fan-out', () => {
+	it( 'onInspectorAction disconnect REMOVES only the CANONICAL session pwd from the Tee fan-out', () => {
+		// Header pwd ends in `_metadata`; the stored tail target ends in `_output`.
+		// The optimistic remove must canonicalize before filtering, or it removes nothing.
 		Core.node( names.METADATA ).rawMap = {
-			_header: { pwd: '_repl/_output/_sse:9/_output' },
+			_header: { pwd: '_repl/_output/_sse:9/_metadata' },
 			tee: {
 				target: [ 'request-builder', '_repl/_output/_sse:9/_output' ],
 			},

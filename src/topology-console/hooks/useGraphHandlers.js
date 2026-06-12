@@ -13,6 +13,7 @@ import {
 import { generateNodeName } from '../utils/draftGraph';
 import names from '../../runtime/reserved-node-names.json';
 import { Core } from '../../runtime/core';
+import { canonicalReplyPivot } from '../../runtime/metadata-node';
 
 /**
  * Shared canvas/Inspector command handlers for the debug overlay and topology
@@ -112,7 +113,7 @@ export function useGraphHandlers( {
 						nodeId
 					);
 					const meta = Core.node( names.METADATA )?.rawMap;
-					const pwd = meta?._header?.pwd;
+					const pwd = canonicalReplyPivot( meta?._header?.pwd );
 					if ( pwd ) {
 						const current = meta?.[ nodeId ]?.target;
 						let next = [ pwd ];
@@ -133,7 +134,7 @@ export function useGraphHandlers( {
 						nodeId
 					);
 					const meta = Core.node( names.METADATA )?.rawMap;
-					const pwd = meta?._header?.pwd;
+					const pwd = canonicalReplyPivot( meta?._header?.pwd );
 					const current = meta?.[ nodeId ]?.target;
 					if ( pwd && Array.isArray( current ) ) {
 						patch( nodeId, {

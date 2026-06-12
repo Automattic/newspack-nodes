@@ -1,9 +1,18 @@
 import { Core } from '../core';
 import { Node } from '../node';
+import { TeeNode } from '../tee-node';
 import { dumpMetadataPayload } from '../metadata-node';
 
 describe( 'dumpMetadataPayload', () => {
 	beforeEach( () => Core.reset() );
+
+	it( 'reports the SHELL name (strips the _Node suffix), matching the worker tier', () => {
+		// The worker emits shell names (`Tee`); the in-browser tier must agree, or
+		// the Inspector's `type === 'Tee'` checks (e.g. the Connect button) fail.
+		const tee = new TeeNode();
+		tee.setName( 'firehose:tee' );
+		expect( dumpMetadataPayload()[ 'firehose:tee' ].class ).toBe( 'Tee' );
+	} );
 
 	it( 'maps a node to the dump_metadata field shape', () => {
 		const a = new Node();
