@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.16.0] - 2026-06-11
+
 ### Added
 
 - **`Partition_Node::void_warranty()`** — lifts the 4 KB PIPE_BUF write cap WITHOUT acquiring the per-partition exclusivity lock; the no-lock sibling of `allow_large_writes()`. The caller asserts it is the partition's sole writer (e.g. a worker that already owns the topology lock); concurrent writers + this = silent torn-write corruption, so the name is deliberately alarming. `dump_config` round-trips the distinct verb. The lock-acquiring `allow_large_writes()` remains for cross-process write targets.
