@@ -15,27 +15,56 @@ namespace Newspack_Nodes;
 
 class Worker_CLI_Command {
 
-	private function base_dir(): string {
-		return Config::get_base_directory();
-	}
-
 	/**
-	 * Helper for command implementations to reach the same Cli helper without
-	 * recreating it every time.
-	 */
-	private function cli(): CLI {
-		return new CLI( $this->base_dir() );
-	}
-
-	/**
-	 * Resolve the cache instance applications wire in for live cursor reads.
-	 * If no cache is filtered in, callers fall back to the offsetlog on disk.
+	 * Request a worker restart by writing a `restart` flag into its lock dir.
 	 *
-	 * @return object|null
+	 * The current holder polls `should_restart()` from its drain loop and exits
+	 * cleanly. The supervisor (or self-respawn path) starts a fresh process.
+	 *
+	 * ## OPTIONS
+	 *
+	 * <type>
+	 * : Worker type to restart, or `all` for all types.
+	 *
+	 * [--partition=<partition>]
+	 * : Partition number (0-based).
+	 *
+	 * [--all-partitions]
+	 * : Apply across every partition for the matched type(s).
+	 *
+	 * ## EXAMPLES
+	 *
+	 *     wp nodes restart firehose-workers --partition=0
+	 *     wp nodes restart all --all-partitions
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array<int, string>   $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
-	private function cache(): ?object {
-		$cache = \apply_filters( 'newspack_nodes/worker_cli_cache', null );
-		return \is_object( $cache ) ? $cache : null;
+	public function restart( array $args, array $assoc_args ): void {
+		$workers = $this->workers();
+		$valid   = \array_unique( \array_column( $workers, 'type' ) );
+
+		$type           = $args[0] ?? '';
+		$all_partitions = isset( $assoc_args['all-partitions'] );
+		$partition      = $all_partitions ? -1 : self::entry_int( $assoc_args, 'partition', -1 );
+
+		if ( '' === $type ) {
+			\WP_CLI::error( 'Worker type required. Use: wp nodes restart <type>' );
+		}
+		if ( 'all' !== $type && ! \in_array( $type, $valid, true ) ) {
+			\WP_CLI::error( 'Invalid worker type: ' . $type . '. Available: ' . \implode( ', ', $valid ) . ', all' );
+		}
+		if ( ! $all_partitions && $partition < 0 ) {
+			\WP_CLI::error( 'Specify --partition=<N> or --all-partitions.' );
+		}
+
+		$filter    = ( 'all' === $type ) ? [] : [ $type => true ];
+		$cli       = $this->cli();
+		$restarted = $cli->restart_workers( $workers, $filter, $partition );
+
+		\WP_CLI::success( "Requested restart for {$restarted} worker(s)." );
 	}
 
 	/**
@@ -58,6 +87,129 @@ class Worker_CLI_Command {
 	private static function entry_int( $entry, string $key, int $fallback ): int {
 		$value = \is_array( $entry ) ? ( $entry[ $key ] ?? $fallback ) : $fallback;
 		return \is_scalar( $value ) ? (int) $value : $fallback;
+	}
+
+	/**
+	 * Helper for command implementations to reach the same Cli helper without
+	 * recreating it every time.
+	 */
+	private function cli(): CLI {
+		return new CLI( $this->base_dir() );
+	}
+
+	private function base_dir(): string {
+		return Config::get_base_directory();
+	}
+
+	/**
+	 * Rich worker-status table: Type | Partition | Status | Uptime | Behind | Restart.
+	 *
+	 * ## OPTIONS
+	 *
+	 * [--format=<format>]
+	 * : Output format. Use 'json' for scriptable consumers.
+	 * ---
+	 * default: table
+	 * options:
+	 *   - table
+	 *   - json
+	 *   - csv
+	 *   - yaml
+	 * ---
+	 *
+	 * @when after_wp_load
+	 *
+	 * @param array<int, string>   $args       Positional arguments.
+	 * @param array<string, mixed> $assoc_args Associative arguments.
+	 */
+	public function status( array $args, array $assoc_args ): void {
+		$cli      = $this->cli();
+		$workers  = $this->workers();
+		$base_dir = $this->base_dir();
+		$cache    = $this->cache();
+
+		if ( empty( $workers ) ) {
+			\WP_CLI::warning( 'No topologies registered.' );
+			return;
+		}
+
+		$now  = \time();
+		$rows = [];
+		foreach ( $workers as $w ) {
+			$type     = $w['type'];
+			$p        = $w['partition'];
+			$lock_dir = "{$base_dir}/locks/{$type}.p{$p}.lock.d";
+
+			$status        = 'dead';
+			$stale_timeout = self::entry_int( $w, 'stale_timeout', Lock_Node::STALE_TIMEOUT );
+			$hb            = "{$lock_dir}/heartbeat";
+			\clearstatcache( true, $hb );
+			$mtime = \file_exists( $hb ) ? @\filemtime( $hb ) : false;
+			if ( false !== $mtime && ( $now - $mtime ) < $stale_timeout ) {
+				$status = 'running';
+			}
+
+			$started_at = Lock_Node::get_started_time( $lock_dir );
+			$uptime     = $started_at ? CLI::format_duration( $now - $started_at ) : '-';
+
+			$position = $cli->live_position( $cache, $type, $p ) ?? $cli->saved_position( $type, $p );
+			$behind   = '-';
+			if ( null !== $position ) {
+				// Resolve the worker's actual input-log basename from its offsetlog
+				// (the web console does the same); fall back to the conventional
+				// `firehose.log` when no basename is recorded yet.
+				$logs_dir      = "{$base_dir}/logs";
+				$basename      = $cli->input_basename( $type, $p ) ?: 'firehose';
+				$partition_dir = "{$logs_dir}/{$basename}.log/p{$p}";
+				if ( \is_dir( $partition_dir ) ) {
+					$bytes  = CLI::calculate_behind( $partition_dir, $position['seg'], $position['off'] );
+					$behind = CLI::format_bytes( $bytes );
+				}
+			}
+
+			$restart = Lock_Node::is_restart_pending( $lock_dir ) ? 'yes' : 'no';
+
+			$rows[] = [
+				'Type'      => $type,
+				'Partition' => $p,
+				'Status'    => $status,
+				'Uptime'    => $uptime,
+				'Behind'    => $behind,
+				'Restart'   => $restart,
+			];
+		}
+
+		$format = self::entry_string( $assoc_args, 'format' );
+		if ( '' === $format ) {
+			$format = 'table';
+		}
+		if ( \function_exists( 'WP_CLI\\Utils\\format_items' ) ) {
+			\WP_CLI\Utils\format_items( $format, $rows, [ 'Type', 'Partition', 'Status', 'Uptime', 'Behind', 'Restart' ] );
+		} else {
+			// Test fallback: dump a stable plain-text representation.
+			foreach ( $rows as $row ) {
+				\WP_CLI::log( \sprintf(
+					'%-30s p%-2d  %-7s  %-8s  %-10s  restart=%s',
+					$row['Type'],
+					$row['Partition'],
+					$row['Status'],
+					$row['Uptime'],
+					$row['Behind'],
+					$row['Restart']
+				) );
+			}
+		}
+	}
+
+	/**
+	 * Resolve the cache instance applications wire in for live cursor reads.
+	 * If no cache is filtered in, callers fall back to the offsetlog on disk.
+	 *
+	 * @return object|null
+	 */
+	private function cache(): ?object {
+		$cache = \apply_filters( 'newspack_nodes/worker_cli_cache', null );
+		return \is_object( $cache ) ? $cache : null;
 	}
 
 	/**
@@ -205,58 +357,6 @@ class Worker_CLI_Command {
 	}
 
 	/**
-	 * Request a worker restart by writing a `restart` flag into its lock dir.
-	 *
-	 * The current holder polls `should_restart()` from its drain loop and exits
-	 * cleanly. The supervisor (or self-respawn path) starts a fresh process.
-	 *
-	 * ## OPTIONS
-	 *
-	 * <type>
-	 * : Worker type to restart, or `all` for all types.
-	 *
-	 * [--partition=<partition>]
-	 * : Partition number (0-based).
-	 *
-	 * [--all-partitions]
-	 * : Apply across every partition for the matched type(s).
-	 *
-	 * ## EXAMPLES
-	 *
-	 *     wp nodes restart firehose-workers --partition=0
-	 *     wp nodes restart all --all-partitions
-	 *
-	 * @when after_wp_load
-	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
-	 */
-	public function restart( array $args, array $assoc_args ): void {
-		$workers = $this->workers();
-		$valid   = \array_unique( \array_column( $workers, 'type' ) );
-
-		$type           = $args[0] ?? '';
-		$all_partitions = isset( $assoc_args['all-partitions'] );
-		$partition      = $all_partitions ? -1 : self::entry_int( $assoc_args, 'partition', -1 );
-
-		if ( '' === $type ) {
-			\WP_CLI::error( 'Worker type required. Use: wp nodes restart <type>' );
-		}
-		if ( 'all' !== $type && ! \in_array( $type, $valid, true ) ) {
-			\WP_CLI::error( 'Invalid worker type: ' . $type . '. Available: ' . \implode( ', ', $valid ) . ', all' );
-		}
-		if ( ! $all_partitions && $partition < 0 ) {
-			\WP_CLI::error( 'Specify --partition=<N> or --all-partitions.' );
-		}
-
-		$filter    = ( 'all' === $type ) ? [] : [ $type => true ];
-		$cli       = $this->cli();
-		$restarted = $cli->restart_workers( $workers, $filter, $partition );
-
-		\WP_CLI::success( "Requested restart for {$restarted} worker(s)." );
-	}
-
-	/**
 	 * Action handler (wired to `newspack_nodes/restart_fleet`): restart every
 	 * partition of one fleet by topology name. Best-effort; unknown → no-op.
 	 */
@@ -271,105 +371,5 @@ class Worker_CLI_Command {
 		}
 		$base_dir = Config::get_base_directory();
 		( new CLI( $base_dir ) )->restart_workers( $workers, [ $name => true ], -1 );
-	}
-
-	/**
-	 * Rich worker-status table: Type | Partition | Status | Uptime | Behind | Restart.
-	 *
-	 * ## OPTIONS
-	 *
-	 * [--format=<format>]
-	 * : Output format. Use 'json' for scriptable consumers.
-	 * ---
-	 * default: table
-	 * options:
-	 *   - table
-	 *   - json
-	 *   - csv
-	 *   - yaml
-	 * ---
-	 *
-	 * @when after_wp_load
-	 *
-	 * @param array<int, string>   $args       Positional arguments.
-	 * @param array<string, mixed> $assoc_args Associative arguments.
-	 */
-	public function status( array $args, array $assoc_args ): void {
-		$cli      = $this->cli();
-		$workers  = $this->workers();
-		$base_dir = $this->base_dir();
-		$cache    = $this->cache();
-
-		if ( empty( $workers ) ) {
-			\WP_CLI::warning( 'No topologies registered.' );
-			return;
-		}
-
-		$now  = \time();
-		$rows = [];
-		foreach ( $workers as $w ) {
-			$type     = $w['type'];
-			$p        = $w['partition'];
-			$lock_dir = "{$base_dir}/locks/{$type}.p{$p}.lock.d";
-
-			$status        = 'dead';
-			$stale_timeout = self::entry_int( $w, 'stale_timeout', Lock_Node::STALE_TIMEOUT );
-			$hb            = "{$lock_dir}/heartbeat";
-			\clearstatcache( true, $hb );
-			$mtime = \file_exists( $hb ) ? @\filemtime( $hb ) : false;
-			if ( false !== $mtime && ( $now - $mtime ) < $stale_timeout ) {
-				$status = 'running';
-			}
-
-			$started_at = Lock_Node::get_started_time( $lock_dir );
-			$uptime     = $started_at ? CLI::format_duration( $now - $started_at ) : '-';
-
-			$position = $cli->live_position( $cache, $type, $p ) ?? $cli->saved_position( $type, $p );
-			$behind   = '-';
-			if ( null !== $position ) {
-				// Resolve the worker's actual input-log basename from its offsetlog
-				// (the web console does the same); fall back to the conventional
-				// `firehose.log` when no basename is recorded yet.
-				$logs_dir      = "{$base_dir}/logs";
-				$basename      = $cli->input_basename( $type, $p ) ?: 'firehose';
-				$partition_dir = "{$logs_dir}/{$basename}.log/p{$p}";
-				if ( \is_dir( $partition_dir ) ) {
-					$bytes  = CLI::calculate_behind( $partition_dir, $position['seg'], $position['off'] );
-					$behind = CLI::format_bytes( $bytes );
-				}
-			}
-
-			$restart = Lock_Node::is_restart_pending( $lock_dir ) ? 'yes' : 'no';
-
-			$rows[] = [
-				'Type'      => $type,
-				'Partition' => $p,
-				'Status'    => $status,
-				'Uptime'    => $uptime,
-				'Behind'    => $behind,
-				'Restart'   => $restart,
-			];
-		}
-
-		$format = self::entry_string( $assoc_args, 'format' );
-		if ( '' === $format ) {
-			$format = 'table';
-		}
-		if ( \function_exists( 'WP_CLI\\Utils\\format_items' ) ) {
-			\WP_CLI\Utils\format_items( $format, $rows, [ 'Type', 'Partition', 'Status', 'Uptime', 'Behind', 'Restart' ] );
-		} else {
-			// Test fallback: dump a stable plain-text representation.
-			foreach ( $rows as $row ) {
-				\WP_CLI::log( \sprintf(
-					'%-30s p%-2d  %-7s  %-8s  %-10s  restart=%s',
-					$row['Type'],
-					$row['Partition'],
-					$row['Status'],
-					$row['Uptime'],
-					$row['Behind'],
-					$row['Restart']
-				) );
-			}
-		}
 	}
 }

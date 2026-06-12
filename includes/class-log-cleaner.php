@@ -88,6 +88,26 @@ class Log_Cleaner {
 	}
 
 	/**
+	 * Yield every `p{N}` dir under logs/ and offsets/ where `$is_orphan( N )` is true.
+	 *
+	 * @return iterable<string>
+	 */
+	private static function orphan_dirs( string $base_dir, callable $is_orphan ): iterable {
+		foreach ( @\glob( "{$base_dir}/logs/*.log", \GLOB_ONLYDIR ) ?: [] as $log_dir ) {
+			foreach ( @\glob( "{$log_dir}/p*", \GLOB_ONLYDIR ) ?: [] as $pdir ) {
+				if ( \preg_match( '#/p(\d+)$#', $pdir, $m ) && $is_orphan( (int) $m[1] ) ) {
+					yield $pdir;
+				}
+			}
+		}
+		foreach ( @\glob( "{$base_dir}/offsets/*.p*", \GLOB_ONLYDIR ) ?: [] as $odir ) {
+			if ( \preg_match( '#\.p(\d+)$#', $odir, $m ) && $is_orphan( (int) $m[1] ) ) {
+				yield $odir;
+			}
+		}
+	}
+
+	/**
 	 * Expected-log-basenames set the cleanup gates on (active + non-stale topologies, plus the `newspack_nodes/expected_log_basenames` filter).
 	 *
 	 * @return array<int,string>
@@ -127,25 +147,5 @@ class Log_Cleaner {
 			return $base;
 		}
 		return \array_values( \array_unique( \array_map( '\strval', $filtered ) ) );
-	}
-
-	/**
-	 * Yield every `p{N}` dir under logs/ and offsets/ where `$is_orphan( N )` is true.
-	 *
-	 * @return iterable<string>
-	 */
-	private static function orphan_dirs( string $base_dir, callable $is_orphan ): iterable {
-		foreach ( @\glob( "{$base_dir}/logs/*.log", \GLOB_ONLYDIR ) ?: [] as $log_dir ) {
-			foreach ( @\glob( "{$log_dir}/p*", \GLOB_ONLYDIR ) ?: [] as $pdir ) {
-				if ( \preg_match( '#/p(\d+)$#', $pdir, $m ) && $is_orphan( (int) $m[1] ) ) {
-					yield $pdir;
-				}
-			}
-		}
-		foreach ( @\glob( "{$base_dir}/offsets/*.p*", \GLOB_ONLYDIR ) ?: [] as $odir ) {
-			if ( \preg_match( '#\.p(\d+)$#', $odir, $m ) && $is_orphan( (int) $m[1] ) ) {
-				yield $odir;
-			}
-		}
 	}
 }

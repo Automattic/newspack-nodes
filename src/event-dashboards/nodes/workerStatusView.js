@@ -114,12 +114,8 @@ export class WorkerStatusViewNode extends Node {
 		}
 	}
 
-	// Tear down: cancel the slide-out clear timer so it can't setState post-unmount.
-	close() {
-		if ( this._clearTimer ) {
-			clearTimeout( this._clearTimer );
-			this._clearTimer = null;
-		}
+	_publish() {
+		this.setState( 'view', this.model );
 	}
 
 	_setModel( model ) {
@@ -138,7 +134,11 @@ export class WorkerStatusViewNode extends Node {
 		}
 	}
 
-	_publish() {
-		this.setState( 'view', this.model );
+	// Tear down: cancel the slide-out clear timer so it can't setState post-unmount.
+	close() {
+		if ( this._clearTimer ) {
+			clearTimeout( this._clearTimer );
+			this._clearTimer = null;
+		}
 	}
 }

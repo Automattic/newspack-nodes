@@ -19,19 +19,6 @@ namespace Newspack_Nodes\Config_System;
 \defined( 'ABSPATH' ) || exit;
 
 class Settings_Renderer {
-	/** Flex row: the control(s) on the left, the reset toggle on the right. */
-	public static function reset_wrapper( string $mark_name, string $inner ): string {
-		return '<div style="display: flex; align-items: flex-start; gap: 10px;" data-nn-reset="' . \esc_attr( $mark_name ) . '">'
-			. '<div style="flex: 1;">' . $inner . '</div>'
-			. self::reset_toggle()
-			. '</div>';
-	}
-
-	/** The `↺` reset-toggle button (paired with a reset_wrapper). */
-	public static function reset_toggle(): string {
-		return '<button type="button" class="button button-secondary" data-nn-reset-toggle'
-			. ' title="' . \esc_attr__( 'Reset to default (toggle, then Save)', 'newspack-nodes' ) . '">↺</button>';
-	}
 
 	/**
 	 * A number field. Shows blank (placeholder = default) when unset or equal to
@@ -62,6 +49,19 @@ class Settings_Renderer {
 			. ' placeholder="' . \esc_attr( (string) $default ) . '" />'
 			. '<p class="description">' . \esc_html( $description ) . '</p>';
 		return self::reset_wrapper( $mark_name, $inner );
+	}
+	/** Flex row: the control(s) on the left, the reset toggle on the right. */
+	public static function reset_wrapper( string $mark_name, string $inner ): string {
+		return '<div style="display: flex; align-items: flex-start; gap: 10px;" data-nn-reset="' . \esc_attr( $mark_name ) . '">'
+			. '<div style="flex: 1;">' . $inner . '</div>'
+			. self::reset_toggle()
+			. '</div>';
+	}
+
+	/** The `↺` reset-toggle button (paired with a reset_wrapper). */
+	public static function reset_toggle(): string {
+		return '<button type="button" class="button button-secondary" data-nn-reset-toggle'
+			. ' title="' . \esc_attr__( 'Reset to default (toggle, then Save)', 'newspack-nodes' ) . '">↺</button>';
 	}
 
 	/** A directory/text field whose placeholder advertises the file default. */

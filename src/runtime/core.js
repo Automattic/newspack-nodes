@@ -30,68 +30,19 @@ class CoreImpl {
 		this._generationListeners = new Set();
 	}
 
-	// Bump the full-rebuild signal: increment + notify every subscriber so each
-	// graph-building effect re-runs (tears down + rebuilds its nodes).
-	bumpGraphGeneration() {
-		this.graphGeneration += 1;
-		for ( const listener of this._generationListeners ) {
-			listener();
-		}
-	}
-
-	// Subscribe to graphGeneration bumps (used by useGraphGeneration). Returns an
-	// unsubscribe function.
-	subscribeGraphGeneration( listener ) {
-		this._generationListeners.add( listener );
-		return () => this._generationListeners.delete( listener );
-	}
-
-	registerNode( name, node ) {
-		if ( this.nodes.has( name ) ) {
-			throw new Error(
-				`node name collision: ${ name } already registered`
-			);
-		}
-		this.nodes.set( name, node );
-	}
-
-	unregisterNode( name ) {
-		this.nodes.delete( name );
-	}
-
-	node( name ) {
-		return this.nodes.get( name ) ?? null;
-	}
-
 	now() {
 		return Date.now() / 1000;
 	}
 
-	msgCounter() {
-		this._msgCounter += 1;
-		return this._msgCounter;
-	}
-
-	// Per-process identity for log_prefix (Perl $0 / PHP SAPI). The browser has
-	// no SAPI; a fixed label keeps dmesg lines attributable.
-	argv0() {
-		return 'browser';
-	}
-
-	// Prepend a `YYYY-MM-DD HH:MM:SS UTC <argv0>: ` prefix to every line — mirrors
-	// PHP Core::log_prefix minus hostname + pid (neither is available in-browser).
-	// null → the bare prefix; a message → each line prefixed, chomped, + one newline.
-	log_prefix( msg = null ) {
-		const ts = new Date( this.now() * 1000 )
-			.toISOString()
-			.slice( 0, 19 )
-			.replace( 'T', ' ' );
-		const prefix = `${ ts } UTC ${ this.argv0() }: `;
-		if ( null === msg || undefined === msg ) {
-			return prefix;
+	// At most one print per identical message per 60s window.
+	printLessOften( msg ) {
+		const now = Date.now();
+		const last = this._lastPrint.get( msg ) ?? 0;
+		if ( now - last < PRINT_LESS_OFTEN_WINDOW_MS ) {
+			return;
 		}
-		const chomped = msg.replace( /\n+$/, '' );
-		return prefix + chomped.split( '\n' ).join( '\n' + prefix ) + '\n';
+		this._lastPrint.set( msg, now );
+		this.stderr( msg );
 	}
 
 	// stderr = the JS console (warn, not error, to skip devtools' error counter) +
@@ -130,15 +81,30 @@ class CoreImpl {
 		}
 	}
 
-	// At most one print per identical message per 60s window.
-	printLessOften( msg ) {
-		const now = Date.now();
-		const last = this._lastPrint.get( msg ) ?? 0;
-		if ( now - last < PRINT_LESS_OFTEN_WINDOW_MS ) {
-			return;
+	// Prepend a `YYYY-MM-DD HH:MM:SS UTC <argv0>: ` prefix to every line — mirrors
+	// PHP Core::log_prefix minus hostname + pid (neither is available in-browser).
+	// null → the bare prefix; a message → each line prefixed, chomped, + one newline.
+	log_prefix( msg = null ) {
+		const ts = new Date( this.now() * 1000 )
+			.toISOString()
+			.slice( 0, 19 )
+			.replace( 'T', ' ' );
+		const prefix = `${ ts } UTC ${ this.argv0() }: `;
+		if ( null === msg || undefined === msg ) {
+			return prefix;
 		}
-		this._lastPrint.set( msg, now );
-		this.stderr( msg );
+		const chomped = msg.replace( /\n+$/, '' );
+		return prefix + chomped.split( '\n' ).join( '\n' + prefix ) + '\n';
+	}
+
+	// Per-process identity for log_prefix (Perl $0 / PHP SAPI). The browser has
+	// no SAPI; a fixed label keeps dmesg lines attributable.
+	argv0() {
+		return 'browser';
+	}
+
+	node( name ) {
+		return this.nodes.get( name ) ?? null;
 	}
 
 	// Emits on every Nth occurrence, then resets the counter.
@@ -150,6 +116,40 @@ class CoreImpl {
 		}
 		this._countSince.set( msg, 0 );
 		this.stderr( msg );
+	}
+
+	// Bump the full-rebuild signal: increment + notify every subscriber so each
+	// graph-building effect re-runs (tears down + rebuilds its nodes).
+	bumpGraphGeneration() {
+		this.graphGeneration += 1;
+		for ( const listener of this._generationListeners ) {
+			listener();
+		}
+	}
+
+	// Subscribe to graphGeneration bumps (used by useGraphGeneration). Returns an
+	// unsubscribe function.
+	subscribeGraphGeneration( listener ) {
+		this._generationListeners.add( listener );
+		return () => this._generationListeners.delete( listener );
+	}
+
+	registerNode( name, node ) {
+		if ( this.nodes.has( name ) ) {
+			throw new Error(
+				`node name collision: ${ name } already registered`
+			);
+		}
+		this.nodes.set( name, node );
+	}
+
+	unregisterNode( name ) {
+		this.nodes.delete( name );
+	}
+
+	msgCounter() {
+		this._msgCounter += 1;
+		return this._msgCounter;
 	}
 }
 

@@ -31,126 +31,6 @@ class Supervisor_Base {
 		$this->base_dir = \rtrim( $base_dir, '/' );
 	}
 
-	public function lock_path( string $type, int $partition ): string {
-		return "{$this->base_dir}/locks/{$type}.p{$partition}.lock.d";
-	}
-
-	/** @param array<string, mixed> $worker Worker descriptor (type, partition, …). */
-	public function worker_needs_spawn( array $worker, float $now ): bool {
-		$raw_type      = $worker['type'];
-		$raw_partition = $worker['partition'];
-		$type          = \is_scalar( $raw_type ) ? (string) $raw_type : '';
-		$partition     = \is_scalar( $raw_partition ) ? (int) $raw_partition : 0;
-		$stale         = $worker['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT;
-
-		$dir = $this->lock_path( $type, $partition );
-		if ( ! \is_dir( $dir ) ) {
-			return true;
-		}
-		$hb    = "{$dir}/heartbeat";
-		$mtime = @\filemtime( $hb );
-		if ( false === $mtime ) {
-			return true;
-		}
-		if ( ( $now - $mtime ) > $stale ) {
-			return true;
-		}
-		return false;
-	}
-
-	public function record_spawn( string $type, int $partition, float $when ): void {
-		$key                          = "{$type}|{$partition}";
-		$this->last_spawn_time[ $key ] = $when;
-		$this->persist_spawn_ts( $key, $when );
-	}
-
-	public function is_recently_spawned( string $type, int $partition, float $now ): bool {
-		$key  = "{$type}|{$partition}";
-		// In-memory has priority (current process owns the truth).
-		if ( isset( $this->last_spawn_time[ $key ] ) ) {
-			return ( $now - $this->last_spawn_time[ $key ] ) < self::MIN_SPAWN_INTERVAL_S;
-		}
-		// Otherwise consult cross-process state — covers cron-backstop respawns and self-respawn handoffs.
-		$persisted = $this->load_spawn_ts( $key );
-		if ( null !== $persisted ) {
-			$this->last_spawn_time[ $key ] = $persisted;
-			return ( $now - $persisted ) < self::MIN_SPAWN_INTERVAL_S;
-		}
-		return false;
-	}
-
-	/**
-	 * Recursively delete a directory, depth-bounded and containment-checked under $base_path.
-	 *
-	 * @param string $path      Directory to delete.
-	 * @param string $base_path Containment root (top-level call only).
-	 * @param int    $max_depth Optional override of MAX_DEPTH for tests.
-	 */
-	public static function delete_directory_recursive( string $path, string $base_path, int $max_depth = self::MAX_DEPTH ): void {
-		if ( ! self::is_within( $path, $base_path ) ) {
-			return;
-		}
-		// Strict-proper-subpath: refuse equality so `$base/..` can't wipe the base itself.
-		$real_path = \realpath( $path );
-		$real_base = \realpath( $base_path );
-		if ( false === $real_path || false === $real_base
-			|| \rtrim( $real_path, '/' ) === \rtrim( $real_base, '/' ) ) {
-			return;
-		}
-		self::delete_directory_recursive_inner( $path, $max_depth, 0 );
-	}
-
-	/**
-	 * Internal recursion helper: enforces depth bounds + per-node symlink avoidance.
-	 */
-	private static function delete_directory_recursive_inner( string $path, int $max_depth, int $depth ): void {
-		if ( $depth > $max_depth ) {
-			return;
-		}
-		if ( \is_link( $path ) ) {
-			return;
-		}
-		if ( ! \is_dir( $path ) ) {
-			return;
-		}
-		$items = @\scandir( $path ) ?: [];
-		foreach ( $items as $item ) {
-			if ( '.' === $item || '..' === $item ) {
-				continue;
-			}
-			$child = $path . '/' . $item;
-			if ( \is_dir( $child ) && ! \is_link( $child ) ) {
-				self::delete_directory_recursive_inner( $child, $max_depth, $depth + 1 );
-			} else {
-				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-				@\unlink( $child );
-			}
-		}
-		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
-		@\rmdir( $path );
-	}
-
-	/**
-	 * True if $path equals or is under $base_path after realpath; false if either won't resolve.
-	 *
-	 * @param string $path      Candidate path.
-	 * @param string $base_path Containment root.
-	 * @return bool True if $path is within $base_path.
-	 */
-	public static function is_within( string $path, string $base_path ): bool {
-		$real_path = \realpath( $path );
-		$real_base = \realpath( $base_path );
-		if ( false === $real_path || false === $real_base ) {
-			return false;
-		}
-		// Accept equality — this is a containment predicate; callers reject equality if needed.
-		$real_base_trim = \rtrim( $real_base, '/' );
-		if ( $real_path === $real_base_trim ) {
-			return true;
-		}
-		return \strpos( $real_path, $real_base_trim . '/' ) === 0;
-	}
-
 	/**
 	 * Remove $dir if its newest file mtime exceeds $stale_age_s (symlink-safe, base_dir-contained).
 	 *
@@ -192,6 +72,111 @@ class Supervisor_Base {
 	}
 
 	/**
+	 * Recursively delete a directory, depth-bounded and containment-checked under $base_path.
+	 *
+	 * @param string $path      Directory to delete.
+	 * @param string $base_path Containment root (top-level call only).
+	 * @param int    $max_depth Optional override of MAX_DEPTH for tests.
+	 */
+	public static function delete_directory_recursive( string $path, string $base_path, int $max_depth = self::MAX_DEPTH ): void {
+		if ( ! self::is_within( $path, $base_path ) ) {
+			return;
+		}
+		// Strict-proper-subpath: refuse equality so `$base/..` can't wipe the base itself.
+		$real_path = \realpath( $path );
+		$real_base = \realpath( $base_path );
+		if ( false === $real_path || false === $real_base
+			|| \rtrim( $real_path, '/' ) === \rtrim( $real_base, '/' ) ) {
+			return;
+		}
+		self::delete_directory_recursive_inner( $path, $max_depth, 0 );
+	}
+
+	/**
+	 * True if $path equals or is under $base_path after realpath; false if either won't resolve.
+	 *
+	 * @param string $path      Candidate path.
+	 * @param string $base_path Containment root.
+	 * @return bool True if $path is within $base_path.
+	 */
+	public static function is_within( string $path, string $base_path ): bool {
+		$real_path = \realpath( $path );
+		$real_base = \realpath( $base_path );
+		if ( false === $real_path || false === $real_base ) {
+			return false;
+		}
+		// Accept equality — this is a containment predicate; callers reject equality if needed.
+		$real_base_trim = \rtrim( $real_base, '/' );
+		if ( $real_path === $real_base_trim ) {
+			return true;
+		}
+		return \strpos( $real_path, $real_base_trim . '/' ) === 0;
+	}
+
+	/**
+	 * Internal recursion helper: enforces depth bounds + per-node symlink avoidance.
+	 */
+	private static function delete_directory_recursive_inner( string $path, int $max_depth, int $depth ): void {
+		if ( $depth > $max_depth ) {
+			return;
+		}
+		if ( \is_link( $path ) ) {
+			return;
+		}
+		if ( ! \is_dir( $path ) ) {
+			return;
+		}
+		$items = @\scandir( $path ) ?: [];
+		foreach ( $items as $item ) {
+			if ( '.' === $item || '..' === $item ) {
+				continue;
+			}
+			$child = $path . '/' . $item;
+			if ( \is_dir( $child ) && ! \is_link( $child ) ) {
+				self::delete_directory_recursive_inner( $child, $max_depth, $depth + 1 );
+			} else {
+				// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
+				@\unlink( $child );
+			}
+		}
+		// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_rmdir
+		@\rmdir( $path );
+	}
+
+	/** @param array<string, mixed> $worker Worker descriptor (type, partition, …). */
+	public function worker_needs_spawn( array $worker, float $now ): bool {
+		$raw_type      = $worker['type'];
+		$raw_partition = $worker['partition'];
+		$type          = \is_scalar( $raw_type ) ? (string) $raw_type : '';
+		$partition     = \is_scalar( $raw_partition ) ? (int) $raw_partition : 0;
+		$stale         = $worker['stale_timeout'] ?? Lock_Node::STALE_TIMEOUT;
+
+		$dir = $this->lock_path( $type, $partition );
+		if ( ! \is_dir( $dir ) ) {
+			return true;
+		}
+		$hb    = "{$dir}/heartbeat";
+		$mtime = @\filemtime( $hb );
+		if ( false === $mtime ) {
+			return true;
+		}
+		if ( ( $now - $mtime ) > $stale ) {
+			return true;
+		}
+		return false;
+	}
+
+	public function lock_path( string $type, int $partition ): string {
+		return "{$this->base_dir}/locks/{$type}.p{$partition}.lock.d";
+	}
+
+	public function record_spawn( string $type, int $partition, float $when ): void {
+		$key                          = "{$type}|{$partition}";
+		$this->last_spawn_time[ $key ] = $when;
+		$this->persist_spawn_ts( $key, $when );
+	}
+
+	/**
 	 * Persist a spawn timestamp (memcache, transient fallback) so a respawn honors the rate limit.
 	 */
 	protected function persist_spawn_ts( string $key, float $when ): void {
@@ -207,6 +192,21 @@ class Supervisor_Base {
 		if ( \function_exists( 'set_transient' ) ) {
 			\set_transient( $cache_key, (int) $when, $ttl );
 		}
+	}
+
+	public function is_recently_spawned( string $type, int $partition, float $now ): bool {
+		$key  = "{$type}|{$partition}";
+		// In-memory has priority (current process owns the truth).
+		if ( isset( $this->last_spawn_time[ $key ] ) ) {
+			return ( $now - $this->last_spawn_time[ $key ] ) < self::MIN_SPAWN_INTERVAL_S;
+		}
+		// Otherwise consult cross-process state — covers cron-backstop respawns and self-respawn handoffs.
+		$persisted = $this->load_spawn_ts( $key );
+		if ( null !== $persisted ) {
+			$this->last_spawn_time[ $key ] = $persisted;
+			return ( $now - $persisted ) < self::MIN_SPAWN_INTERVAL_S;
+		}
+		return false;
 	}
 
 	/**
