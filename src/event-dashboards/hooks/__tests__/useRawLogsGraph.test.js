@@ -351,7 +351,9 @@ describe( 'useRawLogsGraph — visibility-gated streaming', () => {
 			value: state,
 			configurable: true,
 		} );
-		document.dispatchEvent( new Event( 'visibilitychange' ) );
+		act( () => {
+			document.dispatchEvent( new Event( 'visibilitychange' ) );
+		} );
 	};
 
 	// Other suites assume a visible tab; reset after each visibility test.
