@@ -54,6 +54,12 @@ export function dumpMetadataPayload( only = '' ) {
 			accepts_fill: schema?.accepts_fill ?? true,
 			has_target: schema?.has_target ?? true,
 		};
+		// Emit registrations only when non-empty, keeping this producer byte-identical
+		// with the PHP one (PHP `[]` vs JS `{}` would diverge if always emitted).
+		const registrations = node.registeredListeners();
+		if ( Object.keys( registrations ).length ) {
+			out[ name ].registrations = registrations;
+		}
 	}
 	// Reserved header carrying THIS session's reply pivot (reverse_cwd) — only on a
 	// FULL snapshot, not a single-node refresh delta. For the in-browser interpreter

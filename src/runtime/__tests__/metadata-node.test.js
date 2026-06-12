@@ -278,6 +278,30 @@ describe( 'Metadata node', () => {
 		} );
 	} );
 
+	describe( 'dumpMetadataPayload registrations', () => {
+		afterEach( () => Core.reset() );
+
+		it( 'emits node-name registrations and omits closures', () => {
+			const emitter = new EchoNode();
+			emitter.setName( 'emitter' );
+			emitter.registrations = { EVT: {} };
+			new EchoNode().setName( 'listener' );
+			emitter.register( 'EVT', 'listener' );
+			emitter.register( 'EVT', 'closure', () => {} );
+
+			expect( dumpMetadataPayload().emitter.registrations ).toEqual( {
+				EVT: [ 'listener' ],
+			} );
+		} );
+
+		it( 'omits the registrations field for a node with none', () => {
+			new EchoNode().setName( 'plain' );
+			expect( 'registrations' in dumpMetadataPayload().plain ).toBe(
+				false
+			);
+		} );
+	} );
+
 	describe( 'optimisticPatch (local edits, no round-trip)', () => {
 		// Seed the kept rawMap via a normal full-poll reply.
 		function seed( node, payload ) {
