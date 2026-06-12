@@ -6,6 +6,7 @@ use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Core;
 use Newspack_Nodes\Event_Framework;
 use Newspack_Nodes\Message;
+use Newspack_Nodes\Node;
 use Newspack_Nodes\Node_Names;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -209,6 +210,46 @@ class ConsumerTest extends TestCase {
 		$entry   = $msg[ Message::VALUE ];
 		$this->assertSame( 0, $entry['seg'] );
 		$this->assertGreaterThan( 0, $entry['off'] );
+	}
+
+	public function test_checkpoint_co_commits_snapshot_node_state_and_restores_it(): void {
+		// Tachikoma snapshot pattern: the Consumer co-commits {offset, cache} as ONE
+		// offsetlog record, so the read offset and the named node's state stay
+		// aligned across a respawn. A >4KB cache also proves set_snapshot_node lifts
+		// the offsetlog's PIPE_BUF cap (void_warranty) — the worker is its sole writer.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
+		$this->produce_line( $source, 'hello' );
+
+		$node       = new Snapshot_Probe();
+		$node->name( 'request-builder' );
+		$node->state = [ 'in_flight' => [ 'r1' => [ 'pad' => \str_repeat( 'x', 5000 ) ] ] ];
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->set_snapshot_node( 'request-builder' );
+		$c->poll();
+		$c->checkpoint();
+
+		// Old worker process dies; the offsetlog file (with the cache) persists.
+		Core::reset();
+
+		$node2 = new Snapshot_Probe();
+		$node2->name( 'request-builder' );
+
+		$c2 = new Consumer_Node();
+		$c2->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" ); // load_offsetlog stashes the cache
+		$c2->name( 'firehose:consumer' );
+		$c2->sink( new Capture_Sink_Node() );
+		$c2->set_snapshot_node( 'request-builder' ); // restores into node2
+
+		$this->assertSame(
+			[ 'in_flight' => [ 'r1' => [ 'pad' => \str_repeat( 'x', 5000 ) ] ] ],
+			$node2->state,
+			'the snapshot node must resume the cache the prior worker committed with the offset'
+		);
 	}
 
 	public function test_restart_resumes_from_last_checkpoint(): void {
@@ -1667,7 +1708,11 @@ class ConsumerTest extends TestCase {
 		$this->assertNotSame( '', $schema['description'] );
 		$this->assertIsArray( $schema['arguments'] );
 		$this->assertIsArray( $schema['commands'] );
-		$this->assertSame( [], $schema['commands'], 'Consumer has no sibling-interpreter verbs' );
+		$this->assertSame(
+			[ 'set_snapshot_node' ],
+			\array_column( $schema['commands'], 'name' ),
+			'Consumer exposes the snapshot-cache config verb'
+		);
 
 		// Three ctor params: source_base_dir (required), source_partition
 		// (required, default <partition>), offsetlog_base_dir (default '').
@@ -2091,5 +2136,17 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( $downstream, Core::node( 'feed:offsetlog' )->sink() );
 		$this->assertNotSame( $interpreter, Core::node( 'feed:source' )->sink() );
 		$this->assertNotSame( $interpreter, Core::node( 'feed:offsetlog' )->sink() );
+	}
+}
+
+/** A node with the duck-typed save_state/restore_state the Consumer snapshots. */
+class Snapshot_Probe extends Node {
+	/** @var array<string, mixed> */
+	public array $state = [];
+	public function save_state(): array {
+		return $this->state;
+	}
+	public function restore_state( array $saved ): void {
+		$this->state = $saved;
 	}
 }

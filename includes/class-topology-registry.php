@@ -220,6 +220,76 @@ class Topology_Registry {
 	}
 
 	/**
+	 * Resources `$name` WRITES: its data-partition paths (`make_node Partition`)
+	 * and its Consumer offsetlog paths (`make_node Consumer`'s 4th arg). Paths are
+	 * kept in raw token form (`<config:…>/<partition>`) — identical iff they
+	 * resolve to the same file — and namespaced `partition:` / `offsetlog:` so the
+	 * two kinds can't false-match. A Consumer's SOURCE (2nd arg) is a read, not a
+	 * write, so it's excluded.
+	 *
+	 * @return array<string>
+	 */
+	public static function write_set( string $name ): array {
+		$path = self::resolve( $name );
+		if ( null === $path ) {
+			return [];
+		}
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		$contents = (string) \file_get_contents( $path );
+		$seen     = [];
+		foreach ( \explode( "\n", $contents ) as $raw ) {
+			$line = \trim( $raw );
+			if ( '' === $line || '#' === $line[0] ) {
+				continue;
+			}
+			if ( \preg_match( '/^make_node\s+Partition\s+\S+\s+(\S+)/', $line, $m ) ) {
+				$seen[ 'partition:' . $m[1] ] = true;
+				continue;
+			}
+			// make_node Consumer <node> <source> <partition> <offsetlog>
+			if ( \preg_match( '/^make_node\s+Consumer\s+\S+\s+\S+\s+\S+\s+(\S+)/', $line, $m ) ) {
+				$seen[ 'offsetlog:' . $m[1] ] = true;
+			}
+		}
+		$out = \array_keys( $seen );
+		\sort( $out );
+		return $out;
+	}
+
+	/**
+	 * Pairs of topologies in `$names` whose write-sets overlap — i.e. two worker
+	 * processes that would write the same file (data log or cursor) and corrupt
+	 * it. Empty array = the set is safe to run together.
+	 *
+	 * @param array<string> $names
+	 * @return array<array{a: string, b: string, shared: array<string>}>
+	 */
+	public static function find_conflicts( array $names ): array {
+		$names = \array_values( \array_unique( $names ) );
+		$sets  = [];
+		foreach ( $names as $n ) {
+			$sets[ $n ] = self::write_set( $n );
+		}
+		$conflicts = [];
+		$count     = \count( $names );
+		for ( $i = 0; $i < $count; $i++ ) {
+			for ( $j = $i + 1; $j < $count; $j++ ) {
+				$a      = $names[ $i ];
+				$b      = $names[ $j ];
+				$shared = \array_values( \array_intersect( $sets[ $a ], $sets[ $b ] ) );
+				if ( ! empty( $shared ) ) {
+					$conflicts[] = [
+						'a'      => $a,
+						'b'      => $b,
+						'shared' => $shared,
+					];
+				}
+			}
+		}
+		return $conflicts;
+	}
+
+	/**
 	 * Per-Partition literal segment_size overrides from `$name`'s TSL (`{basename => int}`). Memoized.
 	 *
 	 * Token-substituted values are omitted; the caller falls back to the global default.

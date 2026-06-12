@@ -168,6 +168,43 @@ class PartitionTest extends TestCase {
 		);
 	}
 
+	public function test_void_warranty_permits_large_writes_without_a_lock(): void {
+		// void_warranty() is the no-lock sibling of allow_large_writes(): it lifts
+		// the PIPE_BUF cap but ASSERTS single-writer rather than acquiring the
+		// exclusivity lock (the worker already owns the topology lock). So a
+		// > PIPE_BUF write round-trips AND no write.lock.d is created.
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp} 0" );
+		$p->void_warranty();
+
+		$big = $this->produce( \str_repeat( 'x', 5000 ) ); // > MAX_LINE_SIZE (4096).
+		$p->fill( $big );
+		$p->flush();
+
+		$this->assertDirectoryDoesNotExist(
+			"{$this->tmp}/p0/write.lock.d",
+			'void_warranty() must NOT acquire the exclusivity lock'
+		);
+		$segs   = $p->get_segments( true );
+		$newest = \end( $segs );
+		$bytes  = $p->read_at( $newest['id'], 0, $newest['size'] );
+		$this->assertStringContainsString( \str_repeat( 'x', 5000 ), $bytes );
+	}
+
+	public function test_void_warranty_dumps_its_own_verb_not_allow_large_writes(): void {
+		// Round-trip fidelity: a void_warranty partition must NOT dump
+		// `allow_large_writes` — replaying that would acquire the very lock we
+		// deliberately skipped.
+		$p = new Partition_Node();
+		$p->arguments( "{$this->tmp} 0" );
+		$p->name( 'pt' );
+		$p->void_warranty();
+
+		$dump = $p->dump_config();
+		$this->assertStringContainsString( 'cmd pt:config void_warranty', $dump );
+		$this->assertStringNotContainsString( 'allow_large_writes', $dump );
+	}
+
 	public function test_fill_accumulates_bytes_written(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp} 0 " . ( 64*1024 ) . " 4 86400" );
