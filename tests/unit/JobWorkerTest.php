@@ -18,14 +18,14 @@ class JobWorkerTest extends TestCase {
 	}
 
 	/**
-	 * Build a TM_STRUCT message in the JobRouter-normalized shape:
-	 *   { type, handler, parameters, ts }
+	 * Build a TM_STRUCT message in the canonical jobs.log shape:
+	 *   { k, handler, parameters, ts }
 	 */
-	private function job_message( string $handler, array $parameters = [], string $type = 'job' ): array {
+	private function job_message( string $handler, array $parameters = [], string $kind = 'job' ): array {
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
 		$msg[ Message::VALUE ] = [
-			'type'       => $type,
+			'k'          => $kind,
 			'handler'    => $handler,
 			'parameters' => $parameters,
 			'ts'         => 1700000000.0,
@@ -278,11 +278,54 @@ class JobWorkerTest extends TestCase {
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::VALUE ] = [ 'type' => 'start', 'handler' => 'noop', 'parameters' => [] ];
+		$msg[ Message::VALUE ] = [ 'k' => 'start', 'handler' => 'noop', 'parameters' => [] ];
 		$jw->fill( $msg );
 
 		$this->assertFalse( $called );
 		$this->assertSame( 0, $jw->jobs_executed() );
+	}
+
+	// --- Canonical `k` discriminator (jobs.log / jobintake.log wire shape) ---
+
+	public function test_dispatches_local_entry_keyed_by_k(): void {
+		// jobs.log + jobintake.log entries carry the job kind under `k` — the
+		// firehose category field, written verbatim by Job_Intake and carried
+		// through by Job_Router. Job_Worker must dispatch on `k`, not `type`.
+		$jw = new Job_Worker_Node();
+		$received = null;
+		$jw->register_handler( 'evtemplate', function ( $p ) use ( &$received ) { $received = $p; } );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [
+			'k'          => 'job',
+			'handler'    => 'evtemplate',
+			'parameters' => [ 'template' => 'Tools/ImportFilmTimes.html' ],
+			'ts'         => 1700000000.0,
+		];
+		$jw->fill( $msg );
+
+		$this->assertSame( [ 'template' => 'Tools/ImportFilmTimes.html' ], $received );
+		$this->assertSame( 1, $jw->jobs_executed() );
+	}
+
+	public function test_dispatches_remote_entry_keyed_by_k(): void {
+		$jw = new Job_Worker_Node();
+		$received = null;
+		$jw->set_remote_handler( 'hub_op', function ( $p ) use ( &$received ) { $received = $p; } );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = [
+			'k'          => 'remote_job',
+			'handler'    => 'hub_op',
+			'parameters' => [ 'a' => 1 ],
+			'ts'         => 1700000000.0,
+		];
+		$jw->fill( $msg );
+
+		$this->assertSame( [ 'a' => 1 ], $received );
+		$this->assertSame( 1, $jw->jobs_executed() );
 	}
 
 	// --- Local vs. remote handler split -------------------------------------

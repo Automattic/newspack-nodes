@@ -6,9 +6,9 @@
  * JobRouter) and dispatches to registered handlers.
  *
  * Two handler maps, registered independently:
- *   - local_handlers  — for entries with type='job'        (every node's own
+ *   - local_handlers  — for entries with k='job'        (every node's own
  *                       JobWorker dispatches here)
- *   - remote_handlers — for entries with type='remote_job' (a hub's JobWorker
+ *   - remote_handlers — for entries with k='remote_job' (a hub's JobWorker
  *                       dispatches here after incoming spoke `k:"job"` lines are
  *                       rewritten to `k:"remote_job"`)
  *
@@ -140,8 +140,10 @@ class Job_Worker_Node extends Node {
 			Core::print_less_often( 'JobWorker: oversized entry, skipping' );
 			return;
 		}
-		// JobRouter normalizes every entry to {type, handler, parameters, ts}.
-		$kind = $entry['type'] ?? '';
+		// Canonical jobs.log / jobintake.log entry: {k, handler, parameters, ts}.
+		// `k` is the firehose category field ('job' | 'remote_job'); Job_Intake
+		// writes it verbatim and Job_Router carries it through unrenamed.
+		$kind = $entry['k'] ?? '';
 		if ( 'job' !== $kind && 'remote_job' !== $kind ) {
 			return;
 		}
@@ -254,13 +256,13 @@ class Job_Worker_Node extends Node {
 		}
 	}
 
-	/** Register a handler that runs for type='job' entries (every node). */
+	/** Register a handler that runs for k='job' entries (every node). */
 	public function set_local_handler( string $name, callable $cb ): void {
 		$this->validate_handler_name( $name );
 		$this->local_handlers[ $name ] = $cb;
 	}
 
-	/** Register a handler that runs for type='remote_job' entries (hub only). */
+	/** Register a handler that runs for k='remote_job' entries (hub only). */
 	public function set_remote_handler( string $name, callable $cb ): void {
 		$this->validate_handler_name( $name );
 		$this->remote_handlers[ $name ] = $cb;
