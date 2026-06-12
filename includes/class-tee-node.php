@@ -53,8 +53,6 @@ class Tee_Node extends Node {
 		}
 		if ( ! \in_array( $target, $this->target, true ) ) {
 			$this->target[] = $target;
-			// Cached so late subscribers (debug_state) see the current target list.
-			$this->set_state( 'TARGETS', $this->target );
 		}
 	}
 
@@ -63,11 +61,7 @@ class Tee_Node extends Node {
 			$this->target = [];
 			return;
 		}
-		$before       = $this->target;
 		$this->target = \array_values( \array_filter( $this->target, fn ( $t ) => $t !== $target ) );
-		if ( $before !== $this->target ) {
-			$this->set_state( 'TARGETS', $this->target );
-		}
 	}
 
 	public static function node_schema(): array {
