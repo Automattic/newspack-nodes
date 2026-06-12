@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **JS runtime missing `TM_NOREPLY` reply-control flag (PHP/JS fidelity drift).** The browser substrate's `message.js` lacked `TM_NOREPLY = 512` and the JS `ShellNode` / `CommandInterpreterNode` had no `want_reply` machinery — so the JS side could never suppress a reply the way the PHP runtime does for script/topology-load commands. Ported the PHP behavior: `message.js` now exports `TM_NOREPLY = 512`; `ShellNode` gains a `wantReply()` accessor (default `true`) and a `stampNoreply()` step that ORs `TM_NOREPLY` onto built `TM_COMMAND` messages (in `parse()` and `sendCommand()`) when reply is unwanted; `CommandInterpreterNode._respond()` now suppresses the routed reply for a `TM_NOREPLY` command, surfacing only an error to stderr — mirroring PHP `Command_Interpreter_Node::interpret()`.
 - **`Hook_Node::fill()` counted each message twice.** The switch to `parent::fill()` (which increments `counter`) left a redundant local `++$this->counter`; removed so the node counts each message once.
 
 ## [0.16.2] - 2026-06-12

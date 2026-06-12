@@ -20,6 +20,7 @@ import {
 	TM_STRUCT,
 	TM_EOF,
 	TM_REQUEST,
+	TM_NOREPLY,
 } from '../message';
 
 function makeShell( { path = '_http/demo.p0', ssePid = 4242 } = {} ) {
@@ -554,6 +555,50 @@ describe( 'splitStatements (unquoted `;` splitter)', () => {
 		expect( splitStatements( '' ) ).toEqual( [] );
 		expect( splitStatements( '   ' ) ).toEqual( [] );
 		expect( splitStatements( ';;;' ) ).toEqual( [] );
+	} );
+} );
+
+describe( 'Shell node — want_reply / TM_NOREPLY (script/topology mode)', () => {
+	it( 'want_reply() defaults to true and reads back', () => {
+		const { shell } = makeShell();
+		expect( shell.wantReply() ).toBe( true );
+	} );
+
+	it( 'want_reply(false) sets and reads back false', () => {
+		const { shell } = makeShell();
+		expect( shell.wantReply( false ) ).toBe( false );
+		expect( shell.wantReply() ).toBe( false );
+	} );
+
+	it( 'a command parsed while want_reply is true does NOT carry TM_NOREPLY', () => {
+		const { shell } = makeShell( { path: '' } );
+		const m = shell.parse( 'make_node Echo n' );
+		expect( m[ TYPE ] & TM_NOREPLY ).toBeFalsy();
+		expect( m[ TYPE ] & TM_COMMAND ).toBeTruthy();
+	} );
+
+	it( 'a command parsed while want_reply is false carries TM_NOREPLY', () => {
+		const { shell } = makeShell( { path: '' } );
+		shell.wantReply( false );
+		const m = shell.parse( 'make_node Echo n' );
+		expect( m[ TYPE ] & TM_NOREPLY ).toBeTruthy();
+		expect( m[ TYPE ] & TM_COMMAND ).toBeTruthy();
+	} );
+
+	it( 'want_reply(false) does NOT stamp TM_NOREPLY onto a non-command (a tell)', () => {
+		const { shell } = makeShell( { path: '' } );
+		shell.wantReply( false );
+		const m = shell.parse( 'tell n hi' );
+		expect( m[ TYPE ] & TM_NOREPLY ).toBeFalsy();
+		expect( m[ TYPE ] ).toBe( TM_INFO );
+	} );
+
+	it( 'sendCommand respects want_reply(false) and stamps TM_NOREPLY', () => {
+		const { shell, filled } = makeShell( { path: '' } );
+		shell.wantReply( false );
+		shell.sendCommand( '', 'connect_node', 'a b' );
+		expect( filled ).toHaveLength( 1 );
+		expect( filled[ 0 ][ TYPE ] & TM_NOREPLY ).toBeTruthy();
 	} );
 } );
 
