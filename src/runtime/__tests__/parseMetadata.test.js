@@ -28,6 +28,24 @@ describe( 'parseMetadata', () => {
 		expect( nodes.map( ( n ) => n.id ) ).toEqual( [ 'alpha' ] );
 	} );
 
+	it( 'canonicalizes the pwd reply-node segment to _output (the tail target)', () => {
+		// The dump_metadata POLL is sent FROM the `_metadata` node, so the header
+		// pwd arrives ending in `_metadata`. But a Tee tail target (from a shell
+		// `connect_node`) ends in `_output`. Canonicalize the final segment to
+		// `_output` so the toggle's exact match against the tail target holds.
+		expect(
+			parseMetadata( {
+				_header: { pwd: '_repl/_output/_sse:346/_metadata' },
+			} ).pwd
+		).toBe( '_repl/_output/_sse:346/_output' );
+	} );
+
+	it( 'leaves a bare (slash-less) pwd untouched — the in-browser _output case', () => {
+		expect( parseMetadata( { _header: { pwd: '_output' } } ).pwd ).toBe(
+			'_output'
+		);
+	} );
+
 	it( 'defaults pwd to empty string when no _header is present', () => {
 		expect(
 			parseMetadata( { a: { class: 'Echo', counter: 0 } } ).pwd
