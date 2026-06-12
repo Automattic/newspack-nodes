@@ -183,7 +183,7 @@ export function parseMetadata( payload ) {
 			edges.push( { from: name, to: headOf( target ) } );
 		}
 		// Registration edges: emitter -> each listener of each event. Dashed
-		// (registration:true) and tooltip-labelled (event) by a later task.
+		// (registration:true) + event-tooltip'd downstream in SchematicCanvas.
 		const regs = meta.registrations;
 		if ( regs && typeof regs === 'object' ) {
 			for ( const [ event, listeners ] of Object.entries( regs ) ) {
