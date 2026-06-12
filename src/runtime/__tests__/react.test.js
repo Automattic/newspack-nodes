@@ -8,7 +8,7 @@ beforeEach( () => Core.reset() );
 
 test( 'useNodeState returns the cached value', () => {
 	const n = new Node();
-	n.setName( 'svc' );
+	n.name = 'svc';
 	n.registrations.data = {};
 	n.setState( 'data', 42 );
 
@@ -18,7 +18,7 @@ test( 'useNodeState returns the cached value', () => {
 
 test( 'useNodeState updates when setState fires', () => {
 	const n = new Node();
-	n.setName( 'svc' );
+	n.name = 'svc';
 	n.registrations.data = {};
 
 	const { result } = renderHook( () => useNodeState( 'svc', 'data' ) );
@@ -31,7 +31,7 @@ test( 'useNodeState updates when setState fires', () => {
 
 test( 'useNodeState auto-pre-declares the event on a node that did not declare it', () => {
 	const n = new Node();
-	n.setName( 'svc' );
+	n.name = 'svc';
 	// Don't pre-declare the event; the hook must auto-declare.
 	const { result } = renderHook( () => useNodeState( 'svc', 'autoevt' ) );
 	expect( result.current ).toBeUndefined();
@@ -44,7 +44,7 @@ test( 'useNodeState auto-pre-declares the event on a node that did not declare i
 test( 'useNodeState re-subscribes when the node under the name is replaced', () => {
 	// The hook must follow a node swap under a stable name.
 	const first = new Node();
-	first.setName( 'session' );
+	first.name = 'session';
 	first.registrations.data = {};
 	first.setState( 'data', 'from-first' );
 
@@ -56,7 +56,7 @@ test( 'useNodeState re-subscribes when the node under the name is replaced', () 
 	act( () => {
 		Core.unregisterNode( 'session' );
 		const second = new Node();
-		second.setName( 'session' );
+		second.name = 'session';
 		second.registrations.data = {};
 		// Re-render so the hook's effect re-runs against the new instance.
 		rerender();
@@ -68,7 +68,7 @@ test( 'useNodeState re-subscribes when the node under the name is replaced', () 
 
 test( 'useNodeState resets to undefined when the replacement node has no cached value', () => {
 	const first = new Node();
-	first.setName( 'session' );
+	first.name = 'session';
 	first.registrations.data = {};
 	first.setState( 'data', 'stale' );
 
@@ -80,7 +80,7 @@ test( 'useNodeState resets to undefined when the replacement node has no cached 
 	act( () => {
 		Core.unregisterNode( 'session' );
 		const second = new Node();
-		second.setName( 'session' );
+		second.name = 'session';
 		second.registrations.data = {};
 		rerender();
 	} );
@@ -90,7 +90,7 @@ test( 'useNodeState resets to undefined when the replacement node has no cached 
 
 test( 'useNodeFill returns a fill function for the named node', () => {
 	const n = new Node();
-	n.setName( 'svc' );
+	n.name = 'svc';
 	const got = [];
 	n.fill = ( m ) => got.push( m[ VALUE ] );
 

@@ -87,7 +87,7 @@ export function useConsoleGraph( {
 		// Dumper stays bare new+named — it needs the debugLevelRef before sink.
 		const dumper = new DumperNode();
 		dumper.debugLevelRef = debugLevelRefRef.current;
-		dumper.setName( names.OUTPUT );
+		dumper.name = names.OUTPUT;
 		dumper.sink = interpreter;
 		// Substrate soft-nodes (registered in includeNodes) via make_node:
 		// name + sink=interpreter + arguments in one call.
@@ -108,7 +108,7 @@ export function useConsoleGraph( {
 		// then forwards to the interpreter. One indirection routes every scope: cd / the
 		// Path menu just set `_cwd.target`.
 		const cwdNode = new Node();
-		cwdNode.setName( names.CWD );
+		cwdNode.name = names.CWD;
 		cwdNode.sink = interpreter;
 		// Seed the cwd to the session's default path (its own worker, the same path
 		// the Shell mounts at below) so the polls route before the TopologyConsole

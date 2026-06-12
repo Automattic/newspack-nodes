@@ -605,6 +605,6 @@ describe( 'Shell node — want_reply / TM_NOREPLY (script/topology mode)', () =>
 describe( 'Shell node — name guard', () => {
 	it( 'Shell refuses to be named', () => {
 		const s = new ShellNode();
-		expect( () => s.setName( 'x' ) ).toThrow( /shell.*not.*named/i );
+		expect( () => ( s.name = 'x' ) ).toThrow( /shell.*not.*named/i );
 	} );
 } );

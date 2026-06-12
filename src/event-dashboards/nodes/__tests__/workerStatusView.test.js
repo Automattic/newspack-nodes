@@ -35,7 +35,7 @@ beforeEach( () => Core.reset() );
 // bare-newing the class is fine inside a test).
 function makeView( name ) {
 	const node = new WorkerStatusViewNode();
-	node.setName( name );
+	node.name = name;
 	return node;
 }
 

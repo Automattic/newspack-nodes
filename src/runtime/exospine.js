@@ -70,10 +70,10 @@ export function mountExospine( build ) {
 		}
 
 		router = new RouterNode();
-		router.setName( names.ROUTER );
+		router.name = names.ROUTER;
 
 		interpreter = new CommandInterpreterNode();
-		interpreter.setName( names.COMMAND_INTERPRETER );
+		interpreter.name = names.COMMAND_INTERPRETER;
 		interpreter.sink = router;
 
 		spine.interpreter = interpreter;

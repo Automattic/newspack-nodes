@@ -10,13 +10,13 @@ describe( 'dumpMetadataPayload', () => {
 		// The worker emits shell names (`Tee`); the in-browser tier must agree, or
 		// the Inspector's `type === 'Tee'` checks (e.g. the Connect button) fail.
 		const tee = new TeeNode();
-		tee.setName( 'firehose:tee' );
+		tee.name = 'firehose:tee';
 		expect( dumpMetadataPayload()[ 'firehose:tee' ].class ).toBe( 'Tee' );
 	} );
 
 	it( 'maps a node to the dump_metadata field shape', () => {
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		a.target = 'b';
 		a.counter = 7;
 		const payload = dumpMetadataPayload();
@@ -34,9 +34,9 @@ describe( 'dumpMetadataPayload', () => {
 
 	it( 'skips patron-linked plumbing nodes', () => {
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const b = new Node();
-		b.setName( 'b' );
+		b.name = 'b';
 		b.patron = a;
 		const payload = dumpMetadataPayload();
 		expect( payload.a ).toBeDefined();
@@ -45,7 +45,7 @@ describe( 'dumpMetadataPayload', () => {
 
 	it( 'stamps the local reply pivot (_output) into the _header section', () => {
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const payload = dumpMetadataPayload();
 		// The in-browser interpreter's reply pivot is the bare Dumper `_output`,
 		// so a local `connect_node <tee>` stores `_output` — matched against this.

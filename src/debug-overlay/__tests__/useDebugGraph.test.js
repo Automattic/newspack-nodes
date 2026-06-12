@@ -12,7 +12,7 @@ import { useDebugGraph } from '../useDebugGraph';
 // real overlay where useDebugRepl owns it. Returns the live transcript array.
 function mountOutput() {
 	const dumper = new DumperNode();
-	dumper.setName( names.OUTPUT );
+	dumper.name = names.OUTPUT;
 	dumper.sink = Core.node( names.COMMAND_INTERPRETER );
 	return dumper;
 }
@@ -38,7 +38,7 @@ describe( 'useDebugGraph', () => {
 		// from coreToGraph and ready is true synchronously.
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const { result } = renderHook( () => useDebugGraph() );
 		expect( result.current.ready ).toBe( true );
 		expect( result.current.graph.nodes.map( ( n ) => n.id ) ).toContain(
@@ -68,10 +68,10 @@ describe( 'useDebugGraph', () => {
 		// publishes a graph with ≥1 node, the metadata source wins and ready=true.
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const { MetadataNode } = require( '../../runtime/metadata-node' );
 		const metadata = new MetadataNode();
-		metadata.setName( names.METADATA );
+		metadata.name = names.METADATA;
 		const { result } = renderHook( () => useDebugGraph() );
 		act( () => {
 			metadata.setState( 'metadata', {
@@ -92,7 +92,7 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const { MetadataNode } = require( '../../runtime/metadata-node' );
 		const metadata = new MetadataNode();
-		metadata.setName( names.METADATA );
+		metadata.name = names.METADATA;
 		const { result } = renderHook( () => useDebugGraph() );
 		act( () => {
 			metadata.setState( 'metadata', {
@@ -114,7 +114,7 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const { MetadataNode } = require( '../../runtime/metadata-node' );
 		const metadata = new MetadataNode();
-		metadata.setName( names.METADATA );
+		metadata.name = names.METADATA;
 		const { result } = renderHook( () => useDebugGraph() );
 		act( () => {
 			metadata.setState( 'metadata', { nodes: [], edges: [] } );
@@ -129,9 +129,9 @@ describe( 'useDebugGraph', () => {
 	it( 'onConnect dispatches connect_node into the local interpreter', () => {
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const b = new Node();
-		b.setName( 'b' );
+		b.name = 'b';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
@@ -149,7 +149,7 @@ describe( 'useDebugGraph', () => {
 		// previously handled only dump + invoke, silently dropping the rest.
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
@@ -282,9 +282,9 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const { MetadataNode } = require( '../../runtime/metadata-node' );
 		const metadata = new MetadataNode();
-		metadata.setName( names.METADATA );
+		metadata.name = names.METADATA;
 		const interpreter = new Node();
-		interpreter.setName( 'my-interpreter' );
+		interpreter.name = 'my-interpreter';
 		const fillSpy = jest
 			.spyOn( interpreter, 'fill' )
 			.mockImplementation( () => {} );
@@ -319,9 +319,9 @@ describe( 'useDebugGraph', () => {
 	it( 'invoke on a non-interpreter class targets the `:config` sibling', () => {
 		const { teardown } = mountExospine();
 		const node = new Node();
-		node.setName( 'my-node' );
+		node.name = 'my-node';
 		const config = new Node();
-		config.setName( 'my-node:config' );
+		config.name = 'my-node:config';
 		const nodeFillSpy = jest
 			.spyOn( node, 'fill' )
 			.mockImplementation( () => {} );
@@ -349,7 +349,7 @@ describe( 'useDebugGraph', () => {
 	it( 'onRemoveNode dispatches remove_node with the node id', () => {
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
@@ -364,7 +364,7 @@ describe( 'useDebugGraph', () => {
 	it( 'onInspectorAction `dump` dispatches dump_node for the target id', () => {
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
@@ -379,7 +379,7 @@ describe( 'useDebugGraph', () => {
 	it( 'onInspectorAction `send` dispatches send_node with id + payload', () => {
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
@@ -394,7 +394,7 @@ describe( 'useDebugGraph', () => {
 	it( 'onInspectorAction `trace` defaults level to 1 when payload is not numeric', () => {
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
@@ -587,7 +587,7 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const dumper = mountOutput();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
@@ -623,10 +623,10 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const dumper = mountOutput();
 		const node = new Node();
-		node.setName( 'my-node' );
+		node.name = 'my-node';
 		node.sink = { fill: () => {} };
 		const config = new Node();
-		config.setName( 'my-node:config' );
+		config.name = 'my-node:config';
 		config.sink = { fill: () => {} };
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
@@ -652,9 +652,9 @@ describe( 'useDebugGraph', () => {
 		const { teardown } = mountExospine();
 		const dumper = mountOutput();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const b = new Node();
-		b.setName( 'b' );
+		b.name = 'b';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const { result } = renderHook( () => useDebugGraph( true, shell ) );
@@ -693,9 +693,9 @@ describe( 'useDebugGraph', () => {
 		// Core.node('a').target proves the dispatch still reaches the interpreter.
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const b = new Node();
-		b.setName( 'b' );
+		b.name = 'b';
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
 		const spy = jest.spyOn( shell, 'sendCommand' );
@@ -713,9 +713,9 @@ describe( 'useDebugGraph', () => {
 		// must inject shell.prefix so invoke still honors a Path-menu `cd /_http`.
 		const { teardown } = mountExospine();
 		const node = new Node();
-		node.setName( 'my-node' );
+		node.name = 'my-node';
 		const config = new Node();
-		config.setName( 'my-node:config' );
+		config.name = 'my-node:config';
 		// Capture the invoke message at fill time — routing peels TO in place, so a
 		// post-hoc mock.calls read sees the mutated value. A stub sink snapshots it.
 		const captured = [];
@@ -748,9 +748,9 @@ describe( 'useDebugGraph', () => {
 		// rebind). Here the test plays the role of the build by pre-binding sink.
 		const { teardown } = mountExospine();
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		const b = new Node();
-		b.setName( 'b' );
+		b.name = 'b';
 		const interpreter = Core.node( names.COMMAND_INTERPRETER );
 		const shell = new ShellNode();
 		shell.path = '';

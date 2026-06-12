@@ -103,18 +103,18 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 			if ( globalThis.__graphKey !== key ) {
 				teardown();
 				const router = new RouterNode();
-				router.setName( reserved.ROUTER );
+				router.name = reserved.ROUTER;
 				const interpreter = new CommandInterpreterNode();
-				interpreter.setName( reserved.COMMAND_INTERPRETER );
+				interpreter.name = reserved.COMMAND_INTERPRETER;
 				interpreter.sink = router;
 				const dumper = new DumperNode();
 				dumper.debugLevelRef = debugLevelRef;
-				dumper.setName( reserved.OUTPUT );
+				dumper.name = reserved.OUTPUT;
 				const metadata = new MetadataNode();
-				metadata.setName( reserved.METADATA );
+				metadata.name = reserved.METADATA;
 				const uptime = new UptimeNode();
-				uptime.setName( reserved.UPTIME );
-				new CompletionNode().setName( reserved.COMPLETION );
+				uptime.name = reserved.UPTIME;
+				new CompletionNode().name = reserved.COMPLETION;
 				// Fake HttpOut: capture the routed message instead of POSTing.
 				const httpOut = new HttpOutNode();
 				httpOut.client = {
@@ -124,12 +124,12 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				httpOut.fill = ( message ) => {
 					globalThis.__httpPosts.push( message );
 				};
-				httpOut.setName( reserved.HTTP );
+				httpOut.name = reserved.HTTP;
 				// `_sse` session node: wraps an outgoing reply-node FROM with the
 				// pid; routing `_sse/{reader}` peels here before `_http`.
 				const sse = new SseInNode();
+				sse.name = reserved.SSE;
 				sse.arguments = `${ reader } / `;
-				sse.setName( reserved.SSE );
 				sse.sink = router;
 				sse.target = reserved.OUTPUT;
 				sse.pid = () => 1234;
@@ -138,7 +138,7 @@ jest.mock( '../hooks/useConsoleGraph', () => {
 				shell.sink = interpreter;
 				// `_cwd` indirection node: a plain Node whose target IS the cwd.
 				const cwdNode = new Node();
-				cwdNode.setName( reserved.CWD );
+				cwdNode.name = reserved.CWD;
 				cwdNode.sink = interpreter;
 				cwdNode.target = shell.path;
 				// Mirror the real timer wiring so the cadence test exercises the
@@ -1736,7 +1736,7 @@ describe( 'TopologyConsole boot', () => {
 		} );
 		// Simulate user `make_node Tee my-tee` having survived from a prior session.
 		const userNode = new Node();
-		userNode.setName( 'my-user-tee' );
+		userNode.name = 'my-user-tee';
 		expect( Core.node( 'my-user-tee' ) ).toBeTruthy();
 		// Surface it in the metadata payload so the chip is visible (the chip
 		// gating reads parsed.nodes, not Core directly).

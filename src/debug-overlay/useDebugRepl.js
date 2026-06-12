@@ -41,7 +41,7 @@ function buildInfra( shell, debugLevelRef, onTranscript ) {
 	// stays new+named; the siblings come through the interpreter's make_node.
 	const dumper = new DumperNode();
 	dumper.debugLevelRef = debugLevelRef;
-	dumper.setName( names.OUTPUT );
+	dumper.name = names.OUTPUT;
 	dumper.sink = interpreter;
 	const listenerId = 'useDebugRepl/transcript';
 	dumper.register( 'transcript', listenerId, ( next ) => {

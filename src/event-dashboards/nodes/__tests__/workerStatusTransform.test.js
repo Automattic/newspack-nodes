@@ -33,7 +33,7 @@ beforeEach( () => Core.reset() );
 // bare-newing the class is fine inside a test).
 function makeTransform( name ) {
 	const node = new WorkerStatusTransformNode();
-	node.setName( name );
+	node.name = name;
 	return node;
 }
 

@@ -79,7 +79,7 @@ function mountWithManagedNode() {
 	const managedName = 'dashboard:view';
 	mountExospine( () => {
 		const view = new Node();
-		view.setName( managedName );
+		view.name = managedName;
 		return {};
 	} );
 	return managedName;
@@ -105,7 +105,7 @@ describe( 'DebugOverlay — Reset Graph (full rebuild)', () => {
 		// A user node + a rewire so there is something to reset.
 		act( () => {
 			const u = new Node();
-			u.setName( 'user-added' );
+			u.name = 'user-added';
 		} );
 		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );
 		const firstManaged = Core.node( managedName );
@@ -131,7 +131,7 @@ describe( 'DebugOverlay — Reset Graph (full rebuild)', () => {
 		// User adds a node AFTER the overlay opened.
 		act( () => {
 			const u = new Node();
-			u.setName( 'user-added' );
+			u.name = 'user-added';
 		} );
 		// Force a re-render so hasUserNodes recomputes from the live graph.
 		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );
@@ -155,7 +155,7 @@ describe( 'DebugOverlay — Reset Graph (full rebuild)', () => {
 		Core.reinit = jest.fn();
 		// User node exists BEFORE the panel opens.
 		const pre = new Node();
-		pre.setName( 'pre-open' );
+		pre.name = 'pre-open';
 		openOverlay();
 		// Surface the chip via a rewire, then reset.
 		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );

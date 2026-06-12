@@ -18,7 +18,7 @@ beforeEach( () => Core.reset() );
 test( 'completion round-trip: a KEY=completion command publishes candidates on _completion', () => {
 	const { interpreter } = mountExospine();
 	const completion = new CompletionNode();
-	completion.setName( names.COMPLETION );
+	completion.name = names.COMPLETION;
 	completion.sink = interpreter;
 
 	let published = null;

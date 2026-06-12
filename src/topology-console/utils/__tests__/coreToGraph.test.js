@@ -11,11 +11,11 @@ describe( 'coreToGraph', () => {
 
 	it( 'produces the SAME graph as parseMetadata over the live payload', () => {
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		a.target = 'b';
 		a.counter = 3;
 		const b = new Node();
-		b.setName( 'b' );
+		b.name = 'b';
 		expect( coreToGraph() ).toEqual(
 			parseMetadata( dumpMetadataPayload() )
 		);
@@ -23,12 +23,12 @@ describe( 'coreToGraph', () => {
 
 	it( 'draws an edge from a node target and hides the backbone', () => {
 		const interpreter = new Node();
-		interpreter.setName( '_command_interpreter' );
+		interpreter.name = '_command_interpreter';
 		const a = new Node();
-		a.setName( 'a' );
+		a.name = 'a';
 		a.target = 'b';
 		const b = new Node();
-		b.setName( 'b' );
+		b.name = 'b';
 		const { nodes, edges } = coreToGraph();
 		expect( nodes.map( ( n ) => n.id ) ).toEqual( [ 'a', 'b' ] );
 		expect( edges ).toEqual( [ { from: 'a', to: 'b' } ] );

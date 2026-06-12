@@ -322,7 +322,7 @@ export class CommandInterpreterNode extends Node {
 			throw new Error( `unknown class: ${ type }` );
 		}
 		const node = new NodeClass();
-		node.setName( name );
+		node.name = name;
 		node.arguments = String( args ?? '' ).trim();
 		node.sink = this;
 		if ( ( this.debugState ?? 0 ) > 0 ) {
@@ -912,9 +912,13 @@ export class CommandInterpreterNode extends Node {
 				snapshot.sink = val && val.name ? val.name : '';
 				continue;
 			}
-			// `arguments` is a prototype accessor backed by `_arguments` (the
-			// own field); rename in the snapshot so the public surface keeps
-			// emitting `arguments` instead of leaking the private backing name.
+			// `name`/`arguments` are prototype accessors backed by own fields
+			// `_name`/`_arguments`; rename so the snapshot keeps the public
+			// surface instead of leaking the private backing names.
+			if ( '_name' === key ) {
+				snapshot.name = val;
+				continue;
+			}
 			if ( '_arguments' === key ) {
 				snapshot.arguments = val;
 				continue;
