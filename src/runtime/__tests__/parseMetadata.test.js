@@ -250,4 +250,33 @@ describe( 'parseMetadata', () => {
 		} );
 		expect( edges ).toEqual( [] );
 	} );
+
+	it( 'builds a dashed registration edge from emitter to node-name listener', () => {
+		const { edges } = parseMetadata( {
+			emitter: {
+				class: 'Echo',
+				target: '',
+				registrations: { EVT: [ 'listener' ] },
+			},
+			listener: { class: 'Echo', target: '' },
+		} );
+		expect( edges ).toContainEqual( {
+			from: 'emitter',
+			to: 'listener',
+			registration: true,
+			event: 'EVT',
+		} );
+	} );
+
+	it( 'omits registration edges whose emitter is hidden scaffolding (_router)', () => {
+		const { edges } = parseMetadata( {
+			_router: {
+				class: 'Router',
+				target: '',
+				registrations: { TIMER: [ 'tick' ] },
+			},
+			tick: { class: 'Timer', target: '' },
+		} );
+		expect( edges.some( ( e ) => e.registration ) ).toBe( false );
+	} );
 } );
