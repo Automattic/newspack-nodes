@@ -25,6 +25,7 @@ import {
 	TM_STRUCT,
 	TM_EOF,
 	TM_REQUEST,
+	TM_NOREPLY,
 } from './message';
 import names from './reserved-node-names.json';
 
@@ -128,6 +129,10 @@ export class ShellNode extends Node {
 		this.statusLines = [];
 		// When true, parsed lines are reported back to the host for echoing.
 		this.showParse = false;
+		// Interactive REPLs want their command replies (default). A script/topology
+		// loader sets this false so commands go out TM_NOREPLY — the interpreter then
+		// suppresses replies that would otherwise dead-end. Mirrors PHP Shell_Node::$want_reply.
+		this._wantReply = true;
 		// Dispatch tap: invoked with every outgoing Message just before it fills
 		// the sink. The UI sets this to observe graph-mutating commands (make_node
 		// / connect_node / …) for the Reset Graph chip. Verb-agnostic — the Shell
@@ -317,7 +322,7 @@ export class ShellNode extends Node {
 			msg[ TO ] = this.prefix( args[ 0 ] ?? '' );
 			// Receiver bounces TO=FROM; VALUE is the send timestamp for RTT.
 			msg[ VALUE ] = Date.now() / 1000;
-			return msg;
+			return this.stampNoreply( msg );
 		}
 		if ( 'tell' === verb || 'tell_node' === verb ) {
 			const to = args[ 0 ] ?? '';
@@ -327,7 +332,7 @@ export class ShellNode extends Node {
 			msg[ TYPE ] = TM_INFO;
 			msg[ TO ] = this.prefix( to );
 			msg[ VALUE ] = join( 1 );
-			return msg;
+			return this.stampNoreply( msg );
 		}
 		if ( 'send' === verb || 'send_node' === verb ) {
 			const to = args[ 0 ] ?? '';
@@ -338,7 +343,7 @@ export class ShellNode extends Node {
 			msg[ TO ] = this.prefix( to );
 			// Line-terminate so line-oriented nodes don't merge sends.
 			msg[ VALUE ] = `${ join( 1 ) }\n`;
-			return msg;
+			return this.stampNoreply( msg );
 		}
 		if ( 'send_struct' === verb || 'send_struct_node' === verb ) {
 			const to = args[ 0 ] ?? '';
@@ -357,7 +362,7 @@ export class ShellNode extends Node {
 			msg[ TYPE ] = TM_STRUCT;
 			msg[ TO ] = this.prefix( to );
 			msg[ VALUE ] = value;
-			return msg;
+			return this.stampNoreply( msg );
 		}
 		if ( 'send_eof' === verb ) {
 			const to = args[ 0 ] ?? '';
@@ -366,7 +371,7 @@ export class ShellNode extends Node {
 			}
 			msg[ TYPE ] = TM_EOF;
 			msg[ TO ] = this.prefix( to );
-			return msg;
+			return this.stampNoreply( msg );
 		}
 		if ( 'request' === verb || 'request_node' === verb ) {
 			const to = args[ 0 ] ?? '';
@@ -376,7 +381,7 @@ export class ShellNode extends Node {
 			msg[ TYPE ] = TM_REQUEST;
 			msg[ TO ] = this.prefix( to );
 			msg[ VALUE ] = join( 1 );
-			return msg;
+			return this.stampNoreply( msg );
 		}
 		if ( 'cmd' === verb || 'command' === verb || 'command_node' === verb ) {
 			const to = args[ 0 ] ?? '';
@@ -390,7 +395,7 @@ export class ShellNode extends Node {
 			msg[ TYPE ] = TM_COMMAND;
 			msg[ TO ] = this.prefix( to );
 			msg[ VALUE ] = { name, arguments: join( 2 ) };
-			return msg;
+			return this.stampNoreply( msg );
 		}
 
 		if ( 'pwd' === verb ) {
@@ -401,14 +406,14 @@ export class ShellNode extends Node {
 				name: 'pwd',
 				arguments: this.path,
 			};
-			return msg;
+			return this.stampNoreply( msg );
 		}
 
 		// Bare verb: TM_COMMAND at the cwd (path).
 		msg[ TYPE ] = TM_COMMAND;
 		msg[ TO ] = this.prefix( '' );
 		msg[ VALUE ] = { name: verb, arguments: join( 0 ) };
-		return msg;
+		return this.stampNoreply( msg );
 	}
 
 	/**
@@ -430,7 +435,38 @@ export class ShellNode extends Node {
 		// debug-overlay Inspector clicks honor the live cwd.
 		m[ TO ] = this.prefix( path );
 		m[ LOCAL ] = true;
+		this.stampNoreply( m );
 		this.dispatch( m );
+	}
+
+	/**
+	 * Accessor (Tachikoma Shell want_reply): interactive sessions reply; scripts /
+	 * topology loads don't. Pass a bool to set; call with no arg to read.
+	 *
+	 * @param {?boolean} value New want_reply, or undefined/null to read.
+	 * @return {boolean} The current want_reply.
+	 */
+	wantReply( value = null ) {
+		if ( null !== value ) {
+			this._wantReply = value;
+		}
+		return this._wantReply;
+	}
+
+	/**
+	 * When want_reply is off, OR TM_NOREPLY onto a TM_COMMAND (no-op otherwise).
+	 * Mirrors PHP Shell_Node::stamp_noreply — mutates in place and returns the
+	 * message so message-return branches can `return this.stampNoreply( msg )`.
+	 *
+	 * @param {Array} message Message to stamp in place.
+	 * @return {Array} The same message.
+	 */
+	stampNoreply( message ) {
+		const type = message[ TYPE ] ?? 0;
+		if ( ! this._wantReply && type & TM_COMMAND ) {
+			message[ TYPE ] = type | TM_NOREPLY;
+		}
+		return message;
 	}
 
 	/**

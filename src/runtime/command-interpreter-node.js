@@ -24,6 +24,7 @@ import {
 	TM_ERROR,
 	TM_PING,
 	TM_EOF,
+	TM_NOREPLY,
 	newMessage,
 } from './message';
 
@@ -204,6 +205,16 @@ export class CommandInterpreterNode extends Node {
 
 	_respond( message, name, payload, kind ) {
 		if ( payload === '' || payload === undefined ) {
+			return;
+		}
+		// TM_NOREPLY (Tachikoma CommandInterpreter::send_response): suppress the
+		// routed reply, but still surface an error to stderr so a failed boot
+		// command (e.g. a bad topology make_node) stays visible in dmesg.
+		const inType = message[ TYPE ];
+		if ( ( typeof inType === 'number' ? inType : 0 ) & TM_NOREPLY ) {
+			if ( kind & TM_ERROR ) {
+				this.stderr( `error from TM_NOREPLY command: ${ payload }` );
+			}
 			return;
 		}
 		const resp = newMessage();

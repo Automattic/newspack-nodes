@@ -22,6 +22,7 @@ export const TM_ERROR = 32;
 export const TM_INFO = 64;
 export const TM_REQUEST = 128;
 export const TM_RESPONSE = 256;
+export const TM_NOREPLY = 512;
 
 export function newMessage() {
 	return [ 0, Date.now() / 1000, '', '', '', '', '' ];

@@ -17,6 +17,7 @@ import {
 	TM_INFO,
 	TM_STRUCT,
 	TM_REQUEST,
+	TM_NOREPLY,
 	newMessage,
 	pack,
 	unpack,
@@ -44,6 +45,7 @@ test( 'TM_* flags are single-bit', () => {
 	expect( TM_INFO ).toBe( 64 );
 	expect( TM_REQUEST ).toBe( 128 );
 	expect( TM_RESPONSE ).toBe( 256 );
+	expect( TM_NOREPLY ).toBe( 512 );
 } );
 
 test( 'newMessage returns a 7-slot array with TYPE=0, blank string slots', () => {

@@ -14,6 +14,7 @@ import {
 	TM_ERROR,
 	TM_PING,
 	TM_EOF,
+	TM_NOREPLY,
 	newMessage,
 } from '../message';
 
@@ -197,6 +198,65 @@ test( 'static defaultAuthorize can refuse even with LOCAL set', () => {
 	} finally {
 		CommandInterpreterNode.defaultAuthorize = null;
 	}
+} );
+
+test( 'TM_NOREPLY command suppresses the routed reply on success', () => {
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+
+	let ran = false;
+	const interpreter = new CommandInterpreterNode();
+	interpreter.setName( 'test_interpreter' );
+	interpreter.sink = sink;
+	interpreter.commands( {
+		echo: () => {
+			ran = true;
+			return 'echoed';
+		},
+	} );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND | TM_NOREPLY;
+	m[ FROM ] = '_output/123';
+	m[ VALUE ] = { name: 'echo', arguments: 'hi' };
+	m[ LOCAL ] = true;
+	interpreter.fill( m );
+
+	// The verb still ran; the reply was suppressed (no console at boot).
+	expect( ran ).toBe( true );
+	expect( got ).toHaveLength( 0 );
+} );
+
+test( 'TM_NOREPLY command suppresses the reply but surfaces an error to stderr', () => {
+	const warnSpy = jest
+		.spyOn( console, 'warn' )
+		.mockImplementation( () => {} );
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+
+	const interpreter = new CommandInterpreterNode();
+	interpreter.setName( 'test_interpreter' );
+	interpreter.sink = sink;
+	interpreter.commands( {
+		bad: () => {
+			throw new Error( 'boom' );
+		},
+	} );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND | TM_NOREPLY;
+	m[ FROM ] = '_output/123';
+	m[ VALUE ] = { name: 'bad', arguments: '' };
+	m[ LOCAL ] = true;
+	interpreter.fill( m );
+
+	// No routed reply, but the error is visible in stderr (dmesg).
+	expect( got ).toHaveLength( 0 );
+	expect( warnSpy ).toHaveBeenCalled();
+	expect( warnSpy.mock.calls.at( -1 )[ 0 ] ).toContain( 'boom' );
+	warnSpy.mockRestore();
 } );
 
 test( 'malformed command struct (non-object VALUE) drops the message silently', () => {
