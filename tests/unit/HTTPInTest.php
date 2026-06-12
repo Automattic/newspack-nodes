@@ -471,7 +471,7 @@ class HTTPInTest extends TestCase {
 		$consumer->arguments( "{$input_dir} 0 " );
 		$consumer->next_offset( 'start' );
 		$consumer->sink( $got = new \Newspack_Nodes\Tests\Capture_Sink_Node() );
-		$consumer->poll();
+		$this->pump_consumer( $consumer );
 		$this->assertCount( 1, $got->captured );
 		$this->assertSame( '_command_interpreter', $got->captured[0][ Message::TO ] );
 		// Consumer overwrites ID with seg:offset; VALUE rode through

@@ -90,7 +90,7 @@ class ConsumerTest extends TestCase {
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$c->sink( new Capture_Sink_Node() );
-		$c->poll();
+		$this->pump_consumer( $c );
 
 		$packed_size = \strlen( Message::packed( $msg_a ) ) + 1; // trailing \n
 		$this->assertSame( $packed_size, $c->bytes_read() );
@@ -107,7 +107,7 @@ class ConsumerTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
 
-		$c->poll();
+		$this->pump_consumer( $c );
 
 		$this->assertCount( 2, $capture->captured );
 		$this->assertSame( 'first',  $capture->captured[0][ Message::VALUE ] );
@@ -140,14 +140,14 @@ class ConsumerTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
 
-		$c->poll();
+		$this->pump_consumer( $c );
 		$this->assertCount( 1, $capture->captured );
 
-		$c->poll();
+		$this->pump_consumer( $c );
 		$this->assertCount( 1, $capture->captured );
 
 		$this->produce_line( $source, 'second' );
-		$c->poll();
+		$this->pump_consumer( $c );
 		$this->assertCount( 2, $capture->captured );
 	}
 
@@ -198,7 +198,7 @@ class ConsumerTest extends TestCase {
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$c->sink( new Capture_Sink_Node() );
-		$c->poll();
+		$this->pump_consumer( $c );
 		$c->checkpoint();
 
 		// Offsetlog stores packed Tachikoma messages whose VALUE is the
@@ -230,20 +230,29 @@ class ConsumerTest extends TestCase {
 		$c->name( 'firehose:consumer' );
 		$c->sink( new Capture_Sink_Node() );
 		$c->set_snapshot_node( 'request-builder' );
-		$c->poll();
+		$this->pump_consumer( $c );
 		$c->checkpoint();
 
 		// Old worker process dies; the offsetlog file (with the cache) persists.
 		Core::reset();
 
+		$c2 = new Consumer_Node();
+		$c2->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c2->name( 'firehose:consumer' );
+		$c2->sink( new Capture_Sink_Node() );
+		// Order-independence (the bug this fixes): the snapshot node is named BEFORE
+		// it is built, exactly as a per-node-serialized topology emits it. Recording
+		// the name must NOT try to restore yet — there is no node to restore into.
+		$c2->set_snapshot_node( 'request-builder' );
 		$node2 = new Snapshot_Probe();
 		$node2->name( 'request-builder' );
 
-		$c2 = new Consumer_Node();
-		$c2->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" ); // load_offsetlog stashes the cache
-		$c2->name( 'firehose:consumer' );
-		$c2->sink( new Capture_Sink_Node() );
-		$c2->set_snapshot_node( 'request-builder' ); // restores into node2
+		// Construction + naming do no restore — state is still empty.
+		$this->assertSame( [], $node2->state, 'restore must be deferred, not run at set_snapshot_node time' );
+
+		// The first poll (poll_init) loads the durable cursor and restores the
+		// snapshot into the by-then-built node — no warning, no discarded cache.
+		$this->pump_consumer( $c2 );
 
 		$this->assertSame(
 			[ 'in_flight' => [ 'r1' => [ 'pad' => \str_repeat( 'x', 5000 ) ] ] ],
@@ -261,7 +270,7 @@ class ConsumerTest extends TestCase {
 		$c1->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$cap1 = new Capture_Sink_Node();
 		$c1->sink( $cap1 );
-		$c1->poll();
+		$this->pump_consumer( $c1 );
 		$c1->checkpoint();
 		unset( $c1 );
 
@@ -271,7 +280,7 @@ class ConsumerTest extends TestCase {
 		$c2->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$cap2 = new Capture_Sink_Node();
 		$c2->sink( $cap2 );
-		$c2->poll();
+		$this->pump_consumer( $c2 );
 
 		$this->assertCount( 1, $cap2->captured );
 		$this->assertSame( 'second', $cap2->captured[0][ Message::VALUE ] );
@@ -297,12 +306,16 @@ class ConsumerTest extends TestCase {
 		$c1 = new Consumer_Node();
 		$c1->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$c1->sink( new Capture_Sink_Node() );
-		$c1->poll();
+		$this->pump_consumer( $c1 );
 		$c1->checkpoint();
 		unset( $c1 );
 
 		$c2 = new Consumer_Node();
 		$c2->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
+		$c2->sink( new Capture_Sink_Node() );
+		// has_checkpoint is meaningful only after the first poll seeds the cursor
+		// from the offsetlog (construction does no I/O).
+		$c2->poll();
 		$this->assertTrue( $c2->has_checkpoint() );
 	}
 
@@ -336,9 +349,9 @@ class ConsumerTest extends TestCase {
 
 		// Append the rest of the line.
 		file_put_contents( "{$this->tmp}/data/p0/0.log", $half2, FILE_APPEND );
-		$c->poll();
+		$this->pump_consumer( $c );
 
-		$this->assertCount( 1, $cap->captured, 'completed line must emit on second poll' );
+		$this->assertCount( 1, $cap->captured, 'completed line must emit once fully written' );
 		$this->assertSame( 'first', $cap->captured[0][ Message::VALUE ] );
 		// Cursor should be at start of segment 0.
 		$this->assertSame( '0:0', $cap->captured[0][ Message::ID ] );
@@ -364,6 +377,7 @@ class ConsumerTest extends TestCase {
 			file_put_contents( "{$this->tmp}/data/p0/0.log", $packed[ $i ], FILE_APPEND );
 			$c->poll();
 		}
+		$this->pump_consumer( $c ); // drain the final block (drain precedes get_batch each poll).
 
 		$this->assertCount( 1, $cap->captured, 'each byte must accumulate into single emit' );
 		$this->assertSame( 'hello', $cap->captured[0][ Message::VALUE ] );
@@ -378,9 +392,9 @@ class ConsumerTest extends TestCase {
 	}
 
 	public function test_oversized_line_buffer_is_bounded_by_guard(): void {
-		// Defensive test: write a multi-MB stream with no newlines and verify line_remainder
-		// stays bounded by MAX_LINE_BUFFER_SIZE. Skip on tight memory_limit since this needs
-		// ~20MB of resident memory across polls.
+		// Defensive test: write a multi-MB stream with no newlines and verify the read
+		// buffer stays bounded by MAX_LINE_BUFFER_SIZE. Skip on tight memory_limit since
+		// this needs ~20MB of resident memory across polls.
 		$limit = ini_get( 'memory_limit' );
 		if ( $limit && '-1' !== $limit ) {
 			$mem_bytes = (int) preg_replace_callback(
@@ -412,20 +426,18 @@ class ConsumerTest extends TestCase {
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
-		// Drive the consumer through several polls. Each poll appends up to MAX_POLL_BYTES (10MB)
-		// to line_remainder. After enough polls the 20MB cap MUST kick in via the discard branch.
-		for ( $i = 0; $i < 5; ++$i ) {
-			$c->poll();
-		}
+		// Drain to EOF. Each poll reads one READ_BLOCK_BYTES block into the buffer;
+		// once it crosses 20MB with no newline, the discard branch MUST fire.
+		$this->pump_consumer( $c );
 
 		$ref = new \ReflectionClass( $c );
-		$rem_prop = $ref->getProperty( 'line_remainder' );
+		$rem_prop = $ref->getProperty( 'buffer' );
 		$rem_prop->setAccessible( true );
 		$rem_after = $rem_prop->getValue( $c );
 		$this->assertLessThanOrEqual(
 			Consumer_Node::MAX_LINE_BUFFER_SIZE,
 			\strlen( $rem_after ),
-			'line_remainder must never exceed MAX_LINE_BUFFER_SIZE'
+			'buffer must never exceed MAX_LINE_BUFFER_SIZE'
 		);
 		// No newlines means no emission, regardless of how much was discarded.
 		$this->assertCount( 0, $cap->captured );
@@ -451,7 +463,7 @@ class ConsumerTest extends TestCase {
 		$this->assertCount( 0, $cap->captured, 'end-seek must skip pre-existing lines' );
 
 		$this->produce_line( $source, 'new1' );
-		$c->poll();
+		$this->pump_consumer( $c );
 		$this->assertCount( 1, $cap->captured );
 		$this->assertSame( 'new1', $cap->captured[0][ Message::VALUE ] );
 	}
@@ -468,7 +480,7 @@ class ConsumerTest extends TestCase {
 
 		$c->next_offset( 'end' );
 		$c->next_offset( 'start' );
-		$c->poll();
+		$this->pump_consumer( $c );
 
 		$this->assertCount( 1, $cap->captured );
 		$this->assertSame( 'alpha', $cap->captured[0][ Message::VALUE ] );
@@ -509,7 +521,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data 0 " );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
-		$c->poll();
+		$this->pump_consumer( $c );
 
 		$this->assertCount( 1, $cap->captured );
 		$this->assertSame( 'hello', $cap->captured[0][ Message::VALUE ] );
@@ -578,10 +590,10 @@ class ConsumerTest extends TestCase {
 		$seg->setValue( $c, $max_id + 50 );
 		$off->setValue( $c, 999 );
 
-		$c->poll();
+		$this->pump_consumer( $c );
 
-		// After rewind + drain, cursor lands on the NEWEST segment (the loop
-		// walked from oldest forward through all segments).
+		// After rewind + drain, cursor lands on the NEWEST segment (poll stepped
+		// from oldest forward through all segments, one per tick).
 		$this->assertSame( $max_id, $seg->getValue( $c ), 'cursor must end on newest segment after full drain' );
 		// All lines should have been emitted: 3 produce_line calls = 3 lines.
 		$this->assertSame( 3, count( $cap->captured ), 'rewind must let us read all existing data' );
@@ -609,11 +621,11 @@ class ConsumerTest extends TestCase {
 		$off       = $ref->getProperty( 'cursor_off' );
 		$off->setAccessible( true );
 		$off->setValue( $c, $stale_off );
-		$rem = $ref->getProperty( 'line_remainder' );
+		$rem = $ref->getProperty( 'buffer' );
 		$rem->setAccessible( true );
 		$rem->setValue( $c, 'stale-partial' );
 
-		$c->poll();
+		$this->pump_consumer( $c );
 
 		$this->assertCount( 1, $cap->captured, 'cursor past EOF of an existing segment must rewind and drain' );
 		$this->assertSame( 'after-wipe', $cap->captured[0][ Message::VALUE ] );
@@ -643,7 +655,7 @@ class ConsumerTest extends TestCase {
 		$off       = $ref->getProperty( 'cursor_off' );
 		$off->setAccessible( true );
 		$off->setValue( $c, $stale_off );
-		$rem = $ref->getProperty( 'line_remainder' );
+		$rem = $ref->getProperty( 'buffer' );
 		$rem->setAccessible( true );
 		$rem->setValue( $c, str_repeat( 'x', $segment_size + 1 ) );
 
@@ -704,7 +716,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
-		$c->poll();
+		$this->pump_consumer( $c );
 
 		// Should have read every line in every segment.
 		$this->assertSame( 3, count( $cap->captured ) );
@@ -736,7 +748,7 @@ class ConsumerTest extends TestCase {
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
-		$c->poll();
+		$this->pump_consumer( $c );
 
 		$this->assertCount( 1, $cap->captured );
 		$this->assertSame( 'my-consumer', $cap->captured[0][ Message::FROM ] );
@@ -756,7 +768,7 @@ class ConsumerTest extends TestCase {
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
-		$c->poll();
+		$this->pump_consumer( $c );
 
 		$this->assertCount( 1, $cap->captured );
 		$this->assertSame( '_repl', $cap->captured[0][ Message::FROM ], 'override must replace name in FROM' );
@@ -776,7 +788,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
-		$c->poll();
+		$this->pump_consumer( $c );
 
 		$this->assertCount( 2, $cap->captured );
 		// First line lands at offset 0 within segment 0.
@@ -806,7 +818,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
-		$c->poll();
+		$this->pump_consumer( $c );
 
 		$this->assertCount( 1, $cap->captured );
 		$this->assertSame( 'producer-key-abc123', $cap->captured[0][ Message::KEY ] );
@@ -933,10 +945,13 @@ class ConsumerTest extends TestCase {
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
 
-		// Invoke protected fire() via reflection.
+		// Invoke protected fire() via reflection. Each fire() drains the prior
+		// block then reads one more, so the first fire reads 'fired' into the
+		// buffer and the second drains it.
 		$ref  = new \ReflectionClass( $c );
 		$fire = $ref->getMethod( 'fire' );
 		$fire->setAccessible( true );
+		$fire->invoke( $c );
 		$fire->invoke( $c );
 
 		$this->assertCount( 1, $cap->captured, 'fire() must drain via poll()' );
@@ -1051,6 +1066,9 @@ class ConsumerTest extends TestCase {
 		$ref  = new \ReflectionClass( $c );
 		$fire = $ref->getMethod( 'fire' );
 		$fire->setAccessible( true );
+		// Drain-then-read: the first fire reads 'a' into the buffer (work still
+		// pending → busy), the second drains it and reaches the true idle EOF.
+		$fire->invoke( $c );
 		$fire->invoke( $c );
 
 		// After fire(), poll() reached EOF (all data consumed, no more bytes).
@@ -1243,7 +1261,7 @@ class ConsumerTest extends TestCase {
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
-		$c->poll();
+		$this->pump_consumer( $c );
 		$c->checkpoint();
 		// poll() forwarded the produced bytestream line to the sink; clear so
 		// captured[0] below is the TM_REQUEST reply we're asserting on.
@@ -1352,11 +1370,11 @@ class ConsumerTest extends TestCase {
 		$this->assertGreaterThan( 0, $data['bytes_behind'] );
 	}
 
-	public function test_handle_request_GET_LAG_subtracts_line_remainder_from_bytes_behind(): void {
-		// `line_remainder` bytes have been READ but not yet emitted — they
-		// must subtract from bytes_behind so the report reflects bytes-still-
-		// to-fetch, not bytes-still-to-emit. (Without the subtraction, a
-		// partial-line accumulator would double-count.)
+	public function test_handle_request_GET_LAG_subtracts_buffer_from_bytes_behind(): void {
+		// Buffered bytes have been READ but not yet emitted — they must subtract
+		// from bytes_behind so the report reflects bytes-still-to-fetch, not
+		// bytes-still-to-emit. (Without the subtraction, the read-ahead buffer
+		// would double-count.)
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data 0 " . ( 64 * 1024 ) . " 4 86400" );
 		$this->produce_line( $source, 'hello' );
@@ -1364,9 +1382,9 @@ class ConsumerTest extends TestCase {
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data 0 {$this->tmp}/offsets/r/p0" );
 
-		// Pretend we already have 3 bytes in line_remainder (already read).
+		// Pretend we already have 3 bytes buffered (already read).
 		$ref = new \ReflectionClass( $c );
-		$rem = $ref->getProperty( 'line_remainder' );
+		$rem = $ref->getProperty( 'buffer' );
 		$rem->setAccessible( true );
 		$rem->setValue( $c, 'xyz' ); // 3 bytes
 
@@ -1656,7 +1674,7 @@ class ConsumerTest extends TestCase {
 		$c->set_stamp_as( 'override-stamp' );
 		$cap = new Capture_Sink_Node();
 		$c->sink( $cap );
-		$c->poll();
+		$this->pump_consumer( $c );
 
 		$this->assertCount( 2, $cap->captured );
 		$this->assertSame( 'override-stamp', $cap->captured[0][ Message::FROM ] );
@@ -1665,7 +1683,7 @@ class ConsumerTest extends TestCase {
 		// Re-set to '' — must fall back to name on the next emit.
 		$c->set_stamp_as( '' );
 		$this->produce_line( $source, 'three' );
-		$c->poll();
+		$this->pump_consumer( $c );
 		$this->assertSame( 'real', $cap->captured[2][ Message::FROM ] );
 	}
 
@@ -1940,7 +1958,7 @@ class ConsumerTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$c->sink( $capture );
 
-		$c->poll();
+		$this->pump_consumer( $c );
 
 		$values = \array_map( static fn ( $m ) => $m[ Message::VALUE ], $capture->captured );
 		$this->assertSame( [ 'keepme' ], $values );

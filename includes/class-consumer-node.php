@@ -17,7 +17,13 @@ class Consumer_Node extends Timer_Node {
 	public const OFFSETLOG_SEGMENT_SIZE = 65536;
 	public const OFFSETLOG_NUM_SEGMENTS = 2;
 	public const MAX_LINE_BUFFER_SIZE = 20971520;
-	public const MAX_POLL_BYTES = 10485760;
+
+	/**
+	 * Bytes read per poll — one block, then yield the event loop (Tachikoma's
+	 * BUFSIZ in Partition::process_get). A poll drains the buffer it already
+	 * holds, reads ONE more block, and returns so other nodes get a turn.
+	 */
+	public const READ_BLOCK_BYTES = 65536;
 
 	/** Memcache key prefix Consumer_Node uses to publish its live cursor (read by Workers_CI + CLI). */
 	public const POSITION_KEY_PREFIX = 'np:pos:';
@@ -34,7 +40,19 @@ class Consumer_Node extends Timer_Node {
 
 	public const CHECKPOINT_INTERVAL_S = 1;
 
+	/** Position is a coarse liveness breadcrumb — publish at most once a second, not every tick. */
+	public const PUBLISH_INTERVAL_S = 1;
+
 	protected float $last_checkpoint = 0.0;
+	protected float $last_publish    = 0.0;
+
+	/**
+	 * Per-tick dispatch (Tachikoma's `$self->{fill}` function pointer). arguments()
+	 * points this at poll_init; the first poll loads the durable cursor + restores
+	 * the snapshot — by which time the whole topology is built — then swaps to
+	 * poll_active. Keeps construction free of I/O and forward-reference order.
+	 */
+	protected ?\Closure $poll_cb = null;
 
 	/** Last (seg, off) committed; skip checkpoint if cursor hasn't advanced. */
 	protected int $checkpoint_seg = -1;
@@ -70,14 +88,14 @@ class Consumer_Node extends Timer_Node {
 	 */
 	private ?array $loaded_cache = null;
 
-	/** Cursor segment. cursor_off + line_remainder length is the next read position. */
+	/** Cursor segment. cursor_off + buffer length is the next read position. */
 	protected int $cursor_seg = 0;
 
-	/** Last offset committed for cursor_seg; always a line boundary. */
+	/** Durable read offset for cursor_seg; always a line boundary (last fully-emitted line). */
 	protected int $cursor_off = 0;
 
-	/** Partial line read past cursor_off but not yet emitted; prepended to the next poll's read. */
-	protected string $line_remainder = '';
+	/** Bytes read past cursor_off but not yet emitted (read-ahead + trailing partial). Tachikoma's buffer. */
+	protected string $buffer = '';
 
 	protected bool $at_eof = true;
 
@@ -127,11 +145,13 @@ class Consumer_Node extends Timer_Node {
 			$this->offsetlog->arguments( implode( ' ', [ "{$this->offsetlog_dir}", 0, self::OFFSETLOG_SEGMENT_SIZE, self::OFFSETLOG_NUM_SEGMENTS ] ) );
 			$this->offsetlog->sink( $this->sink );
 			$this->offsetlog->patron( $this );
-			$this->load_offsetlog();
 		} else {
 			$this->offsetlog = null;
 		}
 
+		// No I/O at construction: the first poll loads the durable cursor and
+		// restores the snapshot, once the whole topology graph exists.
+		$this->poll_cb = $this->poll_init( ... );
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
 
 		return $result;
@@ -184,122 +204,181 @@ class Consumer_Node extends Timer_Node {
 		$this->sink->fill( $reply );
 	}
 
-	/**
-	 * Read new bytes; emit a TM_BYTESTREAM per complete line; advance cursor at line boundaries.
-	 *
-	 * Trailing partial lines carry across polls via $line_remainder so a split line emits intact next poll.
-	 */
+	/** Timer-driven: poll, periodically publish position + checkpoint, then re-arm (busy/EOF cadence). */
+	protected function fire(): void {
+		$this->poll();
+		// Position is a liveness breadcrumb, not a hot read — publish at most once a second.
+		if ( ( Core::$now - $this->last_publish ) >= self::PUBLISH_INTERVAL_S ) {
+			$this->publish_position();
+			$this->last_publish = Core::$now;
+		}
+		// poll() updates the in-memory cursor every read; checkpoint() makes it durable.
+		if (
+			null !== $this->offsetlog
+			&& ( Core::$now - $this->last_checkpoint ) >= self::CHECKPOINT_INTERVAL_S
+		) {
+			$this->checkpoint();
+			$this->last_checkpoint = Core::$now;
+		}
+		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
+		$this->set_timer( $next_ms, true ); // oneshot — fire() re-arms.
+	}
+
+	/** One tick. Dispatches through poll_cb: poll_init on the first call, poll_active after. */
 	public function poll(): void {
-		// Defeat the stat cache so size growth from another process's writer is visible.
+		( $this->poll_cb ?? ( $this->poll_cb = $this->poll_init( ... ) ) )();
+	}
+
+	/**
+	 * INIT phase (Tachikoma's status INIT → ACTIVE): seed the durable cursor from
+	 * the offsetlog and restore the snapshot node's state. Runs on the first poll —
+	 * inside the drain loop, after the whole topology is built — so the snapshot
+	 * node exists no matter what order the topology declared it. A durable
+	 * checkpoint OVERRIDES any pre-poll next_offset() the caller set (resume wins);
+	 * with no checkpoint, that seek stands. Then become the steady-state poller and
+	 * fall through to it so this tick still does work.
+	 */
+	protected function poll_init(): void {
+		$this->load_offsetlog();
+		if ( null !== $this->loaded_cache && '' !== $this->snapshot_node ) {
+			$node = Core::node( $this->snapshot_node );
+			if ( null !== $node && \method_exists( $node, 'restore_state' ) ) {
+				$node->restore_state( $this->loaded_cache );
+			} else {
+				$this->print_less_often( "Consumer: snapshot node '{$this->snapshot_node}' missing or has no restore_state(); discarding restored cache" );
+			}
+		}
+		$this->loaded_cache = null;
+		$this->poll_cb      = $this->poll_active( ... );
+		( $this->poll_cb )();
+	}
+
+	/**
+	 * ACTIVE phase, mirroring Tachikoma fire(): emit whatever is already buffered,
+	 * then read ONE more block, then return so the event loop moves on. A message
+	 * read this tick is emitted next tick — the buffer carries it across.
+	 */
+	protected function poll_active(): void {
+		$this->drain_buffer();
+		$this->get_batch();
+	}
+
+	/** Emit every complete line in $buffer; advance cursor_off past them; keep the trailing partial. */
+	private function drain_buffer(): void {
+		$nl = \strrpos( $this->buffer, "\n" );
+		if ( false === $nl ) {
+			// No complete line. DoS guard: a single line can't grow past MAX_LINE_BUFFER_SIZE.
+			if ( \strlen( $this->buffer ) > self::MAX_LINE_BUFFER_SIZE ) {
+				$this->print_less_often(
+					\sprintf( 'Consumer: line buffer exceeded %d bytes at seg %d - discarding', self::MAX_LINE_BUFFER_SIZE, $this->cursor_seg )
+				);
+				$this->set_state( 'OVERFLOW', [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'limit' => self::MAX_LINE_BUFFER_SIZE ] );
+				$this->cursor_off += \strlen( $this->buffer ); // Skip the garbage so polls don't re-read it.
+				$this->buffer      = '';
+			}
+			return;
+		}
+		$complete     = \substr( $this->buffer, 0, $nl + 1 );
+		$this->buffer = \substr( $this->buffer, $nl + 1 );
+
+		$consumed = 0;
+		foreach ( \explode( "\n", \rtrim( $complete, "\n" ) ) as $line ) {
+			$abs_offset = $this->cursor_off + $consumed;
+			$line_size  = \strlen( $line ) + 1; // +1 for the consumed \n.
+			$consumed  += $line_size;
+			if ( $line_size > $this->largest_msg_sent ) {
+				$this->largest_msg_sent = $line_size;
+			}
+
+			// Each line is a packed Message; unpack, stamp FROM, forward.
+			try {
+				$msg = Message::unpacked( $line );
+			} catch ( \InvalidArgumentException $e ) {
+				$this->print_less_often( "Consumer: skipping unparseable line: {$e->getMessage()}" );
+				continue;
+			}
+			$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
+			if ( '' !== $stamp && ! $this->stamp_message( $msg, $stamp ) ) {
+				continue; // FROM exceeded MAX_FROM_SIZE; drop_message handled.
+			}
+			// Position breadcrumb goes in ID; KEY must stay the producer's routing key.
+			$msg[ Message::ID ] = "{$this->cursor_seg}:{$abs_offset}";
+			parent::fill( $msg );
+		}
+		$this->cursor_off += $consumed;
+	}
+
+	/**
+	 * Read at most one READ_BLOCK_BYTES block into $buffer (Tachikoma get_batch +
+	 * Partition::process_get). Rolls to the next segment when the current one is
+	 * drained, sets at_eof when caught up, and bounds a single oversized line.
+	 */
+	private function get_batch(): void {
+		// Defeat the stat cache so growth from another process's writer is visible.
 		\clearstatcache( true, $this->source()->partition_dir() );
 		$segments = $this->source()->get_segments( true );
 		if ( empty( $segments ) ) {
 			$this->at_eof = true;
 			return;
 		}
-
 		$this->normalize_cursor( $segments );
 
+		$sizes       = \array_column( $segments, 'size', 'id' );
 		$newest_id   = \end( $segments )['id'];
 		$newest_size = \end( $segments )['size'];
 
-		foreach ( $segments as $s ) {
-			if ( $s['id'] < $this->cursor_seg ) {
-				continue;
-			}
+		$seg_size = $sizes[ $this->cursor_seg ] ?? 0;
+		$read_at  = $this->cursor_off + \strlen( $this->buffer );
 
-			// Crossing into a new segment: drop the prior segment's line_remainder and reset cursor.
-			if ( $s['id'] !== $this->cursor_seg ) {
-				$this->cursor_seg     = $s['id'];
-				$this->cursor_off     = 0;
-				$this->line_remainder = '';
+		// Current segment fully read: step to the next live segment (one per poll) or rest at EOF.
+		if ( $read_at >= $seg_size ) {
+			$next = $this->next_segment_id( $segments, $this->cursor_seg );
+			if ( null !== $next ) {
+				$this->cursor_seg = $next;
+				$this->cursor_off = 0;
+				$this->buffer     = '';
+				$this->at_eof     = false;
 				$this->set_state( 'SEGMENT', $this->cursor_seg );
+				return;
 			}
-
-			$remainder_len = \strlen( $this->line_remainder );
-			$read_start    = $this->cursor_off + $remainder_len;
-			$len           = $s['size'] - $read_start;
-
-			if ( $len > self::MAX_POLL_BYTES ) {
-				$len = self::MAX_POLL_BYTES;
-			}
-
-			if ( $len <= 0 && 0 === $remainder_len ) {
-				continue;
-			}
-
-			$bytes = ( $len > 0 ) ? $this->source()->read_at( $s['id'], $read_start, $len ) : '';
-			// Consumers are the user-facing read nodes, so surface bytes_read here too.
-			$this->bytes_read += \strlen( $bytes );
-
-			// DoS guard: reject if buffer would exceed MAX_LINE_BUFFER_SIZE.
-			if ( $remainder_len + \strlen( $bytes ) > self::MAX_LINE_BUFFER_SIZE ) {
-				$this->print_less_often(
-					\sprintf(
-						'Consumer: line buffer exceeded %d bytes at seg %d off %d - discarding',
-						self::MAX_LINE_BUFFER_SIZE,
-						$s['id'],
-						$read_start
-					)
-				);
-				$this->set_state(
-					'OVERFLOW',
-					[ 'seg' => $s['id'], 'off' => $read_start, 'limit' => self::MAX_LINE_BUFFER_SIZE ]
-				);
-				// Discard remainder + sweep cursor past everything read so polls don't re-read it.
-				$this->line_remainder = '';
-				$this->cursor_seg     = $s['id'];
-				$nl                   = \strpos( $bytes, "\n" );
-				if ( false !== $nl ) {
-					// Land after the newline; carry the tail as the new remainder.
-					$this->cursor_off     = $read_start + $nl + 1;
-					$tail                 = \substr( $bytes, $nl + 1 );
-					$this->line_remainder = $tail;
-				} else {
-					$this->cursor_off = $read_start + \strlen( $bytes );
-				}
-				continue;
-			}
-
-			$buffer = $this->line_remainder . $bytes;
-			$lines  = \explode( "\n", $buffer );
-			// Trailing partial (empty if buffer ended with \n).
-			$pending = \array_pop( $lines );
-
-			$offset_in_buffer = 0;
-			foreach ( $lines as $line ) {
-				$abs_offset = $this->cursor_off + $offset_in_buffer;
-				$line_size  = \strlen( $line ) + 1; // +1 for the consumed \n.
-				$offset_in_buffer += $line_size;
-				if ( $line_size > $this->largest_msg_sent ) {
-					$this->largest_msg_sent = $line_size;
-				}
-
-				// Each line is a packed Message; unpack, stamp FROM, forward.
-				try {
-					$msg = Message::unpacked( $line );
-				} catch ( \InvalidArgumentException $e ) {
-					// Skip corrupt lines (cursor already advanced) and keep draining.
-					$this->print_less_often( "Consumer: skipping unparseable line: {$e->getMessage()}" );
-					continue;
-				}
-				$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-				if ( '' !== $stamp && ! $this->stamp_message( $msg, $stamp ) ) {
-					continue; // FROM exceeded MAX_FROM_SIZE; drop_message handled.
-				}
-				// Position breadcrumb goes in ID; KEY must stay the producer's routing key.
-				$msg[ Message::ID ] = "{$s['id']}:{$abs_offset}";
-				parent::fill( $msg );
-			}
-
-			// Commit past emitted lines; trailing partial survives in $line_remainder.
-			$this->cursor_seg     = $s['id'];
-			$this->cursor_off    += $offset_in_buffer;
-			$this->line_remainder = $pending;
+			// Nothing more on disk. drain_buffer ran first this tick, so the buffer
+			// holds at most a trailing partial (never a complete line) here.
+			$this->at_eof = true;
+			return;
 		}
 
-		$tail_after_remainder = $this->cursor_off + \strlen( $this->line_remainder );
-		$this->at_eof         = ( $this->cursor_seg >= $newest_id ) && ( $tail_after_remainder >= $newest_size );
+		$len   = \min( self::READ_BLOCK_BYTES, $seg_size - $read_at );
+		$bytes = $this->source()->read_at( $this->cursor_seg, $read_at, $len );
+		// Consumers are the user-facing read nodes, so surface bytes_read here too.
+		$this->bytes_read += \strlen( $bytes );
+		$this->buffer     .= $bytes;
+
+		// at_eof means "nothing left to do": caught up on disk AND no buffered line
+		// still to drain. Leaving a pending line would back off to the EOF cadence
+		// and stall the burst's trailing record ~100ms.
+		$tail            = $this->cursor_off + \strlen( $this->buffer );
+		$disk_caught_up  = ( $this->cursor_seg >= $newest_id ) && ( $tail >= $newest_size );
+		$this->at_eof    = $disk_caught_up && ! $this->buffer_has_line();
+	}
+
+	/** True when $buffer holds at least one complete (newline-terminated) line still to drain. */
+	private function buffer_has_line(): bool {
+		return false !== \strpos( $this->buffer, "\n" );
+	}
+
+	/**
+	 * Smallest live segment id greater than $after, or null when $after is the newest.
+	 *
+	 * @param array<int, array{id: int, size: int}> $segments Live segment list.
+	 */
+	private function next_segment_id( array $segments, int $after ): ?int {
+		$next = null;
+		foreach ( $segments as $s ) {
+			if ( $s['id'] > $after && ( null === $next || $s['id'] < $next ) ) {
+				$next = $s['id'];
+			}
+		}
+		return $next;
 	}
 
 	/**
@@ -316,12 +395,12 @@ class Consumer_Node extends Timer_Node {
 	protected function normalize_cursor( array $segments ): void {
 		$sizes = \array_column( $segments, 'size', 'id' );
 		if ( ! isset( $sizes[ $this->cursor_seg ] ) ) {
-			$this->cursor_seg     = $segments[0]['id'];
-			$this->cursor_off     = 0;
-			$this->line_remainder = '';
-		} elseif ( $sizes[ $this->cursor_seg ] < $this->cursor_off + \strlen( $this->line_remainder ) ) {
-			$this->cursor_off     = 0;
-			$this->line_remainder = '';
+			$this->cursor_seg = $segments[0]['id'];
+			$this->cursor_off = 0;
+			$this->buffer     = '';
+		} elseif ( $sizes[ $this->cursor_seg ] < $this->cursor_off + \strlen( $this->buffer ) ) {
+			$this->cursor_off = 0;
+			$this->buffer     = '';
 		}
 	}
 
@@ -339,32 +418,11 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * Name the node whose state is snapshotted into the offsetlog alongside the
-	 * cursor (Tachikoma's `connect_edge` + cache_type=snapshot). On checkpoint the
-	 * named node's save_state() rides in the committed record; on construction the
-	 * Consumer stashes any cache it found, and this restores it into the now-built
-	 * node. Lifts the offsetlog's PIPE_BUF cap (void_warranty) — the worker owning
-	 * the topology lock is the offsetlog's sole writer, so no per-write lock is needed.
+	 * Seed the cursor from the newest offsetlog entry and stash any co-committed
+	 * snapshot cache. When a durable checkpoint is found it resumes the cursor from
+	 * it — overriding any pre-poll next_offset() seek (resume wins); otherwise the
+	 * cursor is left as-is (offsetlog disabled, empty, or corrupt).
 	 */
-	public function set_snapshot_node( string $name ): void {
-		$this->snapshot_node = $name;
-		$this->offsetlog?->void_warranty();
-		if ( null === $this->loaded_cache || '' === $name ) {
-			return;
-		}
-		$node = Core::node( $name );
-		if ( null !== $node && \method_exists( $node, 'restore_state' ) ) {
-			$node->restore_state( $this->loaded_cache );
-		} else {
-			// The offsetlog held a snapshot cache but its node is absent (a typo'd
-			// name, or set_snapshot_node ordered before the node was built). Don't
-			// drop the in-flight state silently — that's the very bug this fixes.
-			$this->print_less_often( "Consumer: snapshot node '{$name}' missing or has no restore_state(); discarding restored cache" );
-		}
-		$this->loaded_cache = null;
-	}
-
-	/** Read the newest offsetlog entry to seed the cursor. No-op when offsetlog is disabled. */
 	protected function load_offsetlog(): void {
 		if ( null === $this->offsetlog ) {
 			return;
@@ -382,23 +440,38 @@ class Consumer_Node extends Timer_Node {
 		try {
 			$msg = Message::unpacked( \end( $lines ) );
 		} catch ( \InvalidArgumentException $e ) {
-			// Unparseable entry: start from the default cursor rather than failing construction.
+			// Unparseable entry: keep the current position rather than resuming.
 			$this->print_less_often( "Consumer: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
 			return;
 		}
 		$entry = $msg[ Message::VALUE ];
-		if ( \is_array( $entry ) && isset( $entry['seg'], $entry['off'] ) ) {
-			$seg                  = $entry['seg'];
-			$off                  = $entry['off'];
-			$this->cursor_seg     = \is_numeric( $seg ) ? (int) $seg : 0;
-			$this->cursor_off     = \is_numeric( $off ) ? (int) $off : 0;
-			$this->checkpoint_seg = $this->cursor_seg;
-			$this->checkpoint_off = $this->cursor_off;
-			// Stash any co-committed snapshot cache; restored once set_snapshot_node
-			// names the (by-then-built) node. Offset + cache come from ONE record,
-			// so the resumed cursor and the restored state are always aligned.
-			$this->loaded_cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
+		if ( ! \is_array( $entry ) || ! isset( $entry['seg'], $entry['off'] ) ) {
+			return;
 		}
+		$seg                  = $entry['seg'];
+		$off                  = $entry['off'];
+		$this->cursor_seg     = \is_numeric( $seg ) ? (int) $seg : 0;
+		$this->cursor_off     = \is_numeric( $off ) ? (int) $off : 0;
+		$this->checkpoint_seg = $this->cursor_seg;
+		$this->checkpoint_off = $this->cursor_off;
+		// Offset + cache come from ONE record, so the resumed cursor and the
+		// restored state are always aligned.
+		$this->loaded_cache = \is_array( $entry['cache'] ?? null ) ? $entry['cache'] : null;
+	}
+
+	/**
+	 * Name the node whose state is snapshotted into the offsetlog alongside the
+	 * cursor (Tachikoma's `connect_edge` + cache_type=snapshot). On checkpoint the
+	 * named node's save_state() rides in the committed record; the first poll
+	 * (poll_init) restores it into the by-then-built node. Recording the name is
+	 * all this does — the restore is deferred so topology declaration order can't
+	 * forward-reference a node that doesn't exist yet. Lifts the offsetlog's
+	 * PIPE_BUF cap (void_warranty): the worker holding the topology lock is the
+	 * offsetlog's sole writer, so no per-write lock is needed.
+	 */
+	public function set_snapshot_node( string $name ): void {
+		$this->snapshot_node = $name;
+		$this->offsetlog?->void_warranty();
 	}
 
 	/**
@@ -407,8 +480,8 @@ class Consumer_Node extends Timer_Node {
 	 * @param string|array<array-key, mixed> $position Magic value or explicit position (reads 'seg'/'off').
 	 */
 	public function next_offset( $position ): void {
-		$this->line_remainder = '';
-		$this->at_eof         = false;
+		$this->buffer = '';
+		$this->at_eof = false;
 
 		if ( \is_array( $position ) ) {
 			$seg              = $position['seg'] ?? 0;
@@ -531,27 +604,13 @@ class Consumer_Node extends Timer_Node {
 
 	/**
 	 * True if this Consumer resumed from a durable offsetlog checkpoint (seg/off
-	 * default to -1; load_offsetlog seeds them ≥0). Lets a caller distinguish a
-	 * respawn (resume from cursor) from a first spawn (seek 'end' to skip history).
+	 * default to -1; poll_init's load_offsetlog seeds them ≥0). Only meaningful
+	 * after the first poll — construction does no I/O. To pick a first-spawn start
+	 * position, call next_offset() at build; poll_init resumes from the checkpoint
+	 * when one exists (overriding that seek) and keeps it otherwise.
 	 */
 	public function has_checkpoint(): bool {
 		return -1 !== $this->checkpoint_seg || -1 !== $this->checkpoint_off;
-	}
-
-	/** Timer-driven: poll, publish position, periodically checkpoint, then re-arm (busy/EOF cadence). */
-	protected function fire(): void {
-		$this->poll();
-		$this->publish_position();
-		// poll() updates the in-memory cursor every read; checkpoint() makes it durable.
-		if (
-			null !== $this->offsetlog
-			&& ( Core::$now - $this->last_checkpoint ) >= self::CHECKPOINT_INTERVAL_S
-		) {
-			$this->checkpoint();
-			$this->last_checkpoint = Core::$now;
-		}
-		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
-		$this->set_timer( $next_ms, true ); // oneshot — fire() re-arms.
 	}
 
 	/**
@@ -633,8 +692,8 @@ class Consumer_Node extends Timer_Node {
 				++$segments_behind;
 			}
 		}
-		// Count line_remainder as already-read so lag reflects bytes-still-to-emit.
-		$bytes_behind = \max( 0, $bytes_behind - \strlen( $this->line_remainder ) );
+		// Count buffered (already-read) bytes as consumed so lag reflects bytes-still-to-emit.
+		$bytes_behind = \max( 0, $bytes_behind - \strlen( $this->buffer ) );
 		return [
 			'bytes_behind'    => $bytes_behind,
 			'segments_behind' => $segments_behind,

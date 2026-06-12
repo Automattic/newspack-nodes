@@ -59,7 +59,7 @@ class WorkerDiscoveryTest extends TestCase {
 		$consumer->sink( new Callback_Node( static function ( array &$m ) use ( &$got ): void {
 			$got[] = $m;
 		} ) );
-		$consumer->poll();
+		$this->pump_consumer( $consumer );
 		$this->assertCount( 1, $got );
 		// Consumer overwrites Message::ID with a `seg:offset` position
 		// breadcrumb (see Consumer::poll comment on line ~500). VALUE rode

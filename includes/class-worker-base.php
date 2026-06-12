@@ -209,9 +209,10 @@ class Worker_Base {
 		// Intentionally anonymous (pure source, never a routed TO) — stays out of Core's registry.
 		$consumer = new Consumer_Node();
 		$consumer->arguments( "{$input_dir} 0 {$ipc_dir}/input.offsets" );
-		if ( ! $consumer->has_checkpoint() ) {
-			$consumer->next_offset( 'end' );
-		}
+		// Seek the tail to skip any stale command history. On respawn, poll_init's
+		// load_offsetlog overrides this with the durable checkpoint (resume wins);
+		// on a first spawn there's no checkpoint, so the tail seek stands.
+		$consumer->next_offset( 'end' );
 		$consumer->set_stamp_as( Node_Names::REPL );
 		$this->ipc_input_consumer = $consumer;
 		return $consumer;

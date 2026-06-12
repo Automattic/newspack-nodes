@@ -180,4 +180,26 @@ abstract class TestCase extends PHPUnitTestCase {
 		}
 		return $out;
 	}
+
+	/**
+	 * Drive a Consumer to a fully-drained, caught-up steady state. A Consumer
+	 * reads ONE block per poll and emits the PRIOR block (Tachikoma fire()'s
+	 * drain-then-get_batch), so consuming the data present at start takes several
+	 * polls and segment advance is one step per poll. Stops once caught up with
+	 * no complete line left to drain.
+	 */
+	protected function pump_consumer( \Newspack_Nodes\Consumer_Node $c, int $max = 5000 ): void {
+		$ref = new \ReflectionClass( \Newspack_Nodes\Consumer_Node::class );
+		$eof = $ref->getProperty( 'at_eof' );
+		$eof->setAccessible( true );
+		$buf = $ref->getProperty( 'buffer' );
+		$buf->setAccessible( true );
+		for ( $i = 0; $i < $max; $i++ ) {
+			$c->poll();
+			$has_complete_line = ( false !== \strpos( (string) $buf->getValue( $c ), "\n" ) );
+			if ( $eof->getValue( $c ) && ! $has_complete_line ) {
+				return;
+			}
+		}
+	}
 }
