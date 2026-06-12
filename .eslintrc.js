@@ -33,6 +33,17 @@ module.exports = {
 			'error',
 			{ ignoreRestSiblings: true, argsIgnorePattern: '^_' },
 		],
+		'react/forbid-component-props': [
+			'error',
+			{
+				forbid: [
+					{
+						propName: 'isSmall',
+						message: 'Deprecated in WP 6.2 — use size="small".',
+					},
+				],
+			},
+		],
 		// The `@newspack-nodes/shared/*` subpath alias resolves at runtime
 		// (build.mjs alias + jest moduleNameMapper) to this plugin's own
 		// src/shared; the static resolver can't see the alias.
