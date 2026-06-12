@@ -289,6 +289,27 @@ class Node {
 		$this->notify( $event, $payload );
 	}
 
+	/**
+	 * Node-name listeners (null-callback registrations) keyed by event; closures excluded, empty events omitted. For dump_metadata registration edges.
+	 *
+	 * @return array<string, list<string>> Event name => listener Node names.
+	 */
+	public function registered_listeners(): array {
+		$out = [];
+		foreach ( $this->registrations as $event => $listeners ) {
+			$names = [];
+			foreach ( $listeners as $listener => $cb ) {
+				if ( null === $cb ) {
+					$names[] = $listener;
+				}
+			}
+			if ( [] !== $names ) {
+				$out[ $event ] = $names;
+			}
+		}
+		return $out;
+	}
+
 	/** Set target. Tee overrides to append to its fan-out array. */
 	public function connect_node( string $target ): void {
 		$this->target = $target;

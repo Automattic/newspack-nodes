@@ -220,6 +220,31 @@ class NodeTest extends TestCase {
 		$this->assertSame( 'payload-x', $msg[ Message::VALUE ] );
 	}
 
+	public function test_registered_listeners_returns_node_name_listeners_only(): void {
+		$n = new class extends Node {
+			public function __construct() {
+				$this->registrations = [ 'EVT' => [], 'OTHER' => [] ];
+			}
+		};
+		$n->name( 'emitter' );
+		$n->register( 'EVT', 'node_listener' ); // null cb => node-name dispatch
+		$n->register( 'EVT', 'closure_listener', static fn ( $p ) => $p ); // closure => excluded
+
+		$this->assertSame( [ 'EVT' => [ 'node_listener' ] ], $n->registered_listeners() );
+	}
+
+	public function test_registered_listeners_omits_events_with_no_node_name_listeners(): void {
+		$n = new class extends Node {
+			public function __construct() {
+				$this->registrations = [ 'EVT' => [] ];
+			}
+		};
+		$n->name( 'emitter' );
+		$n->register( 'EVT', 'closure_only', static fn ( $p ) => $p );
+
+		$this->assertSame( [], $n->registered_listeners() );
+	}
+
 	public function test_debug_state_default_zero_no_trace_emitted(): void {
 		// Baseline: with debug_state=0, set_state does NOT emit any trace to
 		// _router (cli/SSE fan-out is silent until explicitly enabled).
