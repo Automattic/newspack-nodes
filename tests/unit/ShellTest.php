@@ -71,6 +71,34 @@ class ShellTest extends TestCase {
 		$this->assertSame( "bytes\n", $msg[ Message::VALUE ] );
 	}
 
+	public function test_parse_send_struct_yields_TM_STRUCT_with_decoded_value(): void {
+		// JSON is single-quoted so the tokenizer keeps the inner double-quotes
+		// as one token (mirrors Tachikoma's `send_hash <path> '<json>'`).
+		$shell = new Shell_Node();
+		$msg   = $shell->parse( "send_struct node '{\"foo\":23,\"bar\":42}'" );
+
+		$this->assertNotNull( $msg );
+		$this->assertSame( Message::TM_STRUCT, $msg[ Message::TYPE ] );
+		$this->assertSame( 'node', $msg[ Message::TO ] );
+		$this->assertSame( [ 'foo' => 23, 'bar' => 42 ], $msg[ Message::VALUE ] );
+	}
+
+	public function test_parse_send_struct_accepts_single_quoted_json_with_spaces(): void {
+		$shell = new Shell_Node();
+		$msg   = $shell->parse( "send_struct node '{ \"foo\": 23, \"bar\": 42 }'" );
+
+		$this->assertSame( Message::TM_STRUCT, $msg[ Message::TYPE ] );
+		$this->assertSame( [ 'foo' => 23, 'bar' => 42 ], $msg[ Message::VALUE ] );
+	}
+
+	public function test_parse_send_struct_invalid_json_reports_error_and_sends_nothing(): void {
+		$capture = $this->register_output_capture();
+		$shell   = new Shell_Node();
+
+		$this->assertNull( $shell->parse( "send_struct node '{bad json}'" ), 'Invalid JSON must not produce a message.' );
+		$this->assertStringContainsString( 'send_struct', $capture->captured[0][ Message::VALUE ] );
+	}
+
 	public function test_parse_send_eof_yields_TM_EOF(): void {
 		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'send_eof node');

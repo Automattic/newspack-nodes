@@ -22,6 +22,7 @@ import {
 	TM_PING,
 	TM_INFO,
 	TM_BYTESTREAM,
+	TM_STRUCT,
 	TM_EOF,
 	TM_REQUEST,
 } from './message';
@@ -337,6 +338,25 @@ export class ShellNode extends Node {
 			msg[ TO ] = this.prefix( to );
 			// Line-terminate so line-oriented nodes don't merge sends.
 			msg[ VALUE ] = `${ join( 1 ) }\n`;
+			return msg;
+		}
+		if ( 'send_struct' === verb || 'send_struct_node' === verb ) {
+			const to = args[ 0 ] ?? '';
+			if ( ! to ) {
+				return {
+					kind: 'error',
+					text: 'usage: send_struct <path> <json>',
+				};
+			}
+			let value;
+			try {
+				value = JSON.parse( join( 1 ) );
+			} catch ( e ) {
+				return { kind: 'error', text: `send_struct: ${ e.message }` };
+			}
+			msg[ TYPE ] = TM_STRUCT;
+			msg[ TO ] = this.prefix( to );
+			msg[ VALUE ] = value;
 			return msg;
 		}
 		if ( 'send_eof' === verb ) {

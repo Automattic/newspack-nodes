@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`send_struct` shell builtin (PHP `Shell_Node` + JS `ShellNode`).** `send_struct <path> <json>` sends a `TM_STRUCT` message whose VALUE is the parsed JSON to `<path>` — the structured-data counterpart to `send` (which sends a `TM_BYTESTREAM` string). Single-quote the JSON so the quote-aware tokenizer keeps it as one token (`send_struct echo '{ "foo": 23, "bar": 42 }'`), exactly as Tachikoma's `send_hash` did. Invalid JSON surfaces the decoder's error and sends nothing (the builtin runs in the Shell, before the command-interpreter's central catch, so it reports the error itself). Renamed from Tachikoma's `send_hash`/`TM_STORABLE` to `send_struct`/`TM_STRUCT` to match our wire vocabulary.
+
 ### Changed
 
 - **`Hook_Node` passes the message VALUE to the WordPress hook, not the whole positional envelope.** `do_action()` / `apply_filters()` now receive `message[VALUE]` (the payload) instead of the 7-field message array, so hook callbacks work with the data directly. In filter mode the `apply_filters()` return is always adopted as the new `VALUE`, and `TYPE` is set from its shape — a list-array return marks the message `TM_STRUCT`, anything else `TM_BYTESTREAM` (the prior "drop a non-list return and forward the previous message with a warning" behavior is gone). Hook_Node also forwards via `parent::fill()` now, so it participates in the uniform `target`→`TO` stamping contract. **Callbacks registered on a Hook_Node's hook must take/return the payload, not a `[TYPE, …, VALUE]` array.**

@@ -17,6 +17,7 @@ import {
 	TM_PING,
 	TM_INFO,
 	TM_BYTESTREAM,
+	TM_STRUCT,
 	TM_EOF,
 	TM_REQUEST,
 } from '../message';
@@ -206,6 +207,31 @@ describe( 'Shell node — verb vocabulary (positional TM_* messages)', () => {
 		expect( m[ TYPE ] ).toBe( TM_BYTESTREAM );
 		expect( m[ TO ] ).toBe( '_http/demo.p0/my_node' );
 		expect( m[ VALUE ] ).toBe( 'payload\n' );
+	} );
+
+	it( 'send_struct <node> <json> → TM_STRUCT with the decoded object as VALUE', () => {
+		// JSON single-quoted so the tokenizer keeps it as one token with the
+		// inner double-quotes intact (mirrors `send_hash <path> '<json>'`).
+		const { m } = drive( 'send_struct my_node \'{"foo":23,"bar":42}\'' );
+		expect( m[ TYPE ] ).toBe( TM_STRUCT );
+		expect( m[ TO ] ).toBe( '_http/demo.p0/my_node' );
+		expect( m[ VALUE ] ).toEqual( { foo: 23, bar: 42 } );
+	} );
+
+	it( 'send_struct with no node → error signal', () => {
+		const { signal, filled } = drive( 'send_struct' );
+		expect( signal ).toEqual( {
+			kind: 'error',
+			text: 'usage: send_struct <path> <json>',
+		} );
+		expect( filled ).toHaveLength( 0 );
+	} );
+
+	it( 'send_struct with invalid JSON → error signal, sends nothing', () => {
+		const { signal, filled } = drive( "send_struct my_node '{bad json}'" );
+		expect( signal.kind ).toBe( 'error' );
+		expect( signal.text ).toContain( 'send_struct' );
+		expect( filled ).toHaveLength( 0 );
 	} );
 
 	it( 'send_eof <node> → TM_EOF, no VALUE', () => {

@@ -342,6 +342,21 @@ class Shell_Node extends Node {
 				$message[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
 				$message[ Message::VALUE ] = \implode( ' ', \array_slice( $args, 1 ) ) . "\n";
 				break;
+			case 'send_struct':
+			case 'send_struct_node':
+				// VALUE is the JSON (the args after the path, re-joined). A builtin
+				// runs here in parse(), before the interpreter's central catch sees
+				// anything, so surface a decode error ourselves and send nothing.
+				try {
+					$decoded = \json_decode( \implode( ' ', \array_slice( $args, 1 ) ), true, 512, \JSON_THROW_ON_ERROR );
+				} catch ( \JsonException $e ) {
+					$this->stdout( 'send_struct: ' . $e->getMessage() . "\n" );
+					return null;
+				}
+				$message[ Message::TYPE ]  = Message::TM_STRUCT;
+				$message[ Message::TO ]    = $this->prefix( $args[0] ?? '' );
+				$message[ Message::VALUE ] = $decoded;
+				break;
 			case 'send_eof':
 				$message[ Message::TYPE ] = Message::TM_EOF;
 				$message[ Message::TO ]   = $this->prefix( $args[0] ?? '' );
