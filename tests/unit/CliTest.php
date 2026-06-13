@@ -4,6 +4,7 @@ namespace Newspack_Nodes\Tests\Unit;
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -324,7 +325,7 @@ class CliTest extends TestCase {
 
 		$cli      = new CLI( $this->tmp );
 		$host     = \gethostname() ?: 'unknown';
-		$expected = Consumer_Node::position_key( $host, "{$this->tmp}/logs/firehose.log", 3 );
+		$expected = Consumer_Node::position_key( $host, 'firehose.p3' );
 
 		$cache = new class() {
 			public string $last_key = '';
@@ -345,14 +346,14 @@ class CliTest extends TestCase {
 	}
 
 	public function test_live_position_key_matches_consumer_publish_key(): void {
-		// The on-disk shape the cli reads from is Consumer_Node's: a
-		// `np:pos:{host}:{source_base_dir}:p{N}` key. Pin the contract via
+		// The cli reads Consumer_Node's per-reader key: `np:pos:{host}:{offset-dir}`
+		// (offset-dir = `{source_basename}.p{N}`). Pin the contract via
 		// Consumer_Node::position_key() so reader and writer can't drift.
 		$this->seed_offsetlog( 'jobs', 2, 'jobintake' );
 
 		$cli      = new CLI( $this->tmp );
 		$host     = \gethostname() ?: 'unknown';
-		$expected = Consumer_Node::position_key( $host, "{$this->tmp}/logs/jobintake.log", 2 );
+		$expected = Consumer_Node::position_key( $host, 'jobintake.p2' );
 
 		$cache = new class() {
 			public string $last_key = '';
@@ -367,10 +368,10 @@ class CliTest extends TestCase {
 	}
 
 	public function test_live_position_falls_back_to_firehose_when_no_offsetlog(): void {
-		// No offsetlog yet → CLI assumes the conventional `firehose.log` source.
+		// No offsetlog yet → CLI assumes the conventional `firehose` source.
 		$cli      = new CLI( $this->tmp );
 		$host     = \gethostname() ?: 'unknown';
-		$expected = Consumer_Node::position_key( $host, "{$this->tmp}/logs/firehose.log", 0 );
+		$expected = Consumer_Node::position_key( $host, 'firehose.p0' );
 
 		$cache = new class() {
 			public string $last_key = '';
@@ -411,110 +412,77 @@ class CliTest extends TestCase {
 		$this->assertSame( 0, $pos['ts'] );
 	}
 
-	// ── saved_position() ───────────────────────────────────────────────────────
+	// ── consumer_rows() / read_offsetlog_entry() ────────────────────────────────
 
-	public function test_saved_position_returns_null_when_offset_dir_missing(): void {
-		$cli = new CLI( $this->tmp );
-		$this->assertNull( $cli->saved_position( 'jobs', 0 ) );
+	/** Seed a real packed-Message checkpoint at offsets/{source_basename}.p{partition}/p0/0.log. */
+	private function seed_packed_checkpoint( string $source_basename, int $partition, array $value ): void {
+		$dir = "{$this->tmp}/offsets/{$source_basename}.p{$partition}/p0";
+		mkdir( $dir, 0755, true );
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
+		$msg[ Message::TIMESTAMP ] = 1700000000.0;
+		$msg[ Message::VALUE ]     = $value;
+		file_put_contents( "{$dir}/0.log", Message::packed( $msg ) . "\n" );
 	}
 
-	public function test_saved_position_returns_null_when_no_segments_present(): void {
-		// Dir exists but no .log files.
-		mkdir( "{$this->tmp}/offsets/jobs.p0/p0", 0755, true );
-		// Random non-segment files should be ignored.
-		touch( "{$this->tmp}/offsets/jobs.p0/p0/random.txt" );
+	public function test_consumer_rows_enumerates_per_consumer_from_packed_checkpoints(): void {
+		// Two readers tail the SAME firehose.log under distinct offset dirs; the
+		// enumeration returns one row per Consumer, keyed by the source-named dir,
+		// carrying the worker_type + real source_log from the packed checkpoint.
+		$this->seed_packed_checkpoint( 'firehose', 0, [
+			'seg' => 5, 'off' => 100, 'ts' => 1700000000.0,
+			'worker_type' => 'combined', 'source_log' => 'firehose.log',
+		] );
+		$this->seed_packed_checkpoint( 'firehose.job-router', 0, [
+			'seg' => 8, 'off' => 7, 'ts' => 1700000001.0,
+			'worker_type' => 'combined', 'source_log' => 'firehose.log',
+		] );
 
-		$cli = new CLI( $this->tmp );
-		$this->assertNull( $cli->saved_position( 'jobs', 0 ) );
+		$rows = ( new CLI( $this->tmp ) )->consumer_rows();
+		\usort( $rows, static fn ( $a, $b ) => $a['source_basename'] <=> $b['source_basename'] );
+
+		$this->assertCount( 2, $rows );
+		$this->assertSame( 'firehose', $rows[0]['source_basename'] );
+		$this->assertSame( 'firehose.log', $rows[0]['source_log'] );
+		$this->assertSame( 'combined', $rows[0]['worker_type'] );
+		$this->assertSame( 5, $rows[0]['seg'] );
+		$this->assertSame( 100, $rows[0]['off'] );
+		$this->assertSame( 'firehose.job-router', $rows[1]['source_basename'] );
+		$this->assertSame( 8, $rows[1]['seg'] );
 	}
 
-	public function test_saved_position_reads_last_line_of_newest_segment(): void {
-		mkdir( "{$this->tmp}/offsets/jobs.p0/p0", 0755, true );
-		// Older segment.
-		file_put_contents(
-			"{$this->tmp}/offsets/jobs.p0/p0/0.log",
-			json_encode( [ 'seg' => 0, 'off' => 100, 'ts' => 1 ] ) . "\n"
-		);
-		// Newest segment with multiple lines — last line wins.
-		file_put_contents(
-			"{$this->tmp}/offsets/jobs.p0/p0/5.log",
-			json_encode( [ 'seg' => 5, 'off' => 200, 'ts' => 1700 ] ) . "\n" .
-			json_encode( [ 'seg' => 5, 'off' => 999, 'ts' => 1800 ] ) . "\n"
-		);
-
-		$cli = new CLI( $this->tmp );
-		$pos = $cli->saved_position( 'jobs', 0 );
-
-		$this->assertSame( 5, $pos['seg'] );
-		$this->assertSame( 999, $pos['off'] );
-		$this->assertSame( 1800, $pos['ts'] );
+	public function test_consumer_rows_skips_checkpoints_without_worker_type(): void {
+		// A checkpoint with no worker_type can't be attributed to a worker — skip it.
+		$this->seed_packed_checkpoint( 'orphan', 0, [ 'seg' => 1, 'off' => 2, 'source_log' => 'orphan.log' ] );
+		$this->assertSame( [], ( new CLI( $this->tmp ) )->consumer_rows() );
 	}
 
-	public function test_saved_position_returns_null_when_segment_empty(): void {
-		mkdir( "{$this->tmp}/offsets/jobs.p0/p0", 0755, true );
-		// Segment file present but empty.
-		touch( "{$this->tmp}/offsets/jobs.p0/p0/0.log" );
-
-		$cli = new CLI( $this->tmp );
-		$this->assertNull( $cli->saved_position( 'jobs', 0 ) );
+	public function test_read_offsetlog_entry_reads_packed_value(): void {
+		$this->seed_packed_checkpoint( 'jobintake', 0, [
+			'seg' => 3, 'off' => 42, 'worker_type' => 'combined', 'source_log' => 'jobintake.log',
+		] );
+		$entry = ( new CLI( $this->tmp ) )->read_offsetlog_entry( 'jobintake.p0' );
+		$this->assertIsArray( $entry );
+		$this->assertSame( 3, $entry['seg'] );
+		$this->assertSame( 42, $entry['off'] );
+		$this->assertSame( 'jobintake.log', $entry['source_log'] );
 	}
 
-	public function test_saved_position_returns_null_when_lines_only_blank(): void {
-		mkdir( "{$this->tmp}/offsets/jobs.p0/p0", 0755, true );
-		// Trailing newlines but no JSON content.
-		file_put_contents( "{$this->tmp}/offsets/jobs.p0/p0/0.log", "\n\n\n" );
-
-		$cli = new CLI( $this->tmp );
-		$this->assertNull( $cli->saved_position( 'jobs', 0 ) );
+	public function test_read_offsetlog_entry_returns_null_for_missing_dir(): void {
+		$this->assertNull( ( new CLI( $this->tmp ) )->read_offsetlog_entry( 'nope.p0' ) );
 	}
 
-	public function test_saved_position_returns_null_for_invalid_json(): void {
-		mkdir( "{$this->tmp}/offsets/jobs.p0/p0", 0755, true );
-		file_put_contents( "{$this->tmp}/offsets/jobs.p0/p0/0.log", "not-json\n" );
+	public function test_read_offsetlog_entry_returns_null_when_value_not_array(): void {
+		// A checkpoint whose Message VALUE is a string (not the expected object)
+		// must be rejected, not returned as a bogus entry.
+		$dir = "{$this->tmp}/offsets/firehose.p0/p0";
+		mkdir( $dir, 0755, true );
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::VALUE ] = 'not-an-object';
+		file_put_contents( "{$dir}/0.log", Message::packed( $msg ) . "\n" );
 
-		$cli = new CLI( $this->tmp );
-		$this->assertNull( $cli->saved_position( 'jobs', 0 ) );
-	}
-
-	public function test_saved_position_returns_null_for_json_missing_required_keys(): void {
-		mkdir( "{$this->tmp}/offsets/jobs.p0/p0", 0755, true );
-		file_put_contents(
-			"{$this->tmp}/offsets/jobs.p0/p0/0.log",
-			json_encode( [ 'unrelated' => 'field' ] ) . "\n"
-		);
-
-		$cli = new CLI( $this->tmp );
-		$this->assertNull( $cli->saved_position( 'jobs', 0 ) );
-	}
-
-	public function test_saved_position_defaults_ts_to_zero_when_missing(): void {
-		mkdir( "{$this->tmp}/offsets/jobs.p0/p0", 0755, true );
-		file_put_contents(
-			"{$this->tmp}/offsets/jobs.p0/p0/0.log",
-			json_encode( [ 'seg' => 1, 'off' => 50 ] ) . "\n"
-		);
-
-		$cli = new CLI( $this->tmp );
-		$pos = $cli->saved_position( 'jobs', 0 );
-		$this->assertSame( 0, $pos['ts'] );
-	}
-
-	public function test_saved_position_picks_highest_numbered_segment_not_alphabetical(): void {
-		mkdir( "{$this->tmp}/offsets/jobs.p0/p0", 0755, true );
-		// '10' would sort before '2' alphabetically; ensure we sort numerically.
-		file_put_contents(
-			"{$this->tmp}/offsets/jobs.p0/p0/2.log",
-			json_encode( [ 'seg' => 2, 'off' => 0 ] ) . "\n"
-		);
-		file_put_contents(
-			"{$this->tmp}/offsets/jobs.p0/p0/10.log",
-			json_encode( [ 'seg' => 10, 'off' => 5000 ] ) . "\n"
-		);
-
-		$cli = new CLI( $this->tmp );
-		$pos = $cli->saved_position( 'jobs', 0 );
-		$this->assertSame( 10, $pos['seg'] );
-		$this->assertSame( 5000, $pos['off'] );
+		$this->assertNull( ( new CLI( $this->tmp ) )->read_offsetlog_entry( 'firehose.p0' ) );
 	}
 
 	// ── calculate_behind() ─────────────────────────────────────────────────────

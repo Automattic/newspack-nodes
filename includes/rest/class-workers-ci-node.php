@@ -20,6 +20,7 @@
 namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\CLI;
 use Newspack_Nodes\Command_Args;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config as RuntimeConfig;
@@ -28,7 +29,6 @@ use Newspack_Nodes\Core;
 use Newspack_Nodes\Lock_Node;
 use Newspack_Nodes\SSE_Slot_Pool;
 use Newspack_Nodes\Log_Cleaner;
-use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Topology_Registry;
@@ -168,7 +168,11 @@ class Workers_CI_Node extends Service_CI_Node {
 			}
 
 			foreach ( $consumer_rows as $row ) {
-				$input_log = "{$row['source_basename']}.log";
+				// Prefer the Consumer's recorded real source log; fall back to the
+				// offset-dir name for checkpoints predating the source_log field.
+				$input_log = '' !== $row['source_log']
+					? $row['source_log']
+					: "{$row['source_basename']}.log";
 				// Each Consumer can have multiple downstream processors
 				// (Tee fan-out: firehose:tee → request-builder + job-router).
 				// Emit one dashboard row per processor so the operator sees
@@ -190,7 +194,8 @@ class Workers_CI_Node extends Service_CI_Node {
 						$stale_to,
 						$handler,
 						$cache,
-						$base_dir
+						$base_dir,
+						$row['source_basename']
 					);
 					$worker['target']         = $t['name'] ?? '';
 					$worker['source']         = $row['name'];
@@ -247,8 +252,14 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * Build the per-worker rich descriptor, adding `live`/`stale`/`heartbeat_at`
 	 * from the heartbeat mtime so the dashboard renders status badges in one round-trip.
 	 *
-	 * @param object|null $cache    `\Memcached`-shaped instance for live cursor lookups (or null).
-	 * @param string      $base_dir Substrate base directory.
+	 * @param object|null $cache           `\Memcached`-shaped instance for live cursor lookups (or null).
+	 * @param string      $base_dir        Substrate base directory.
+	 * @param string      $source_basename Offset-dir basename keying the cursor lookup;
+	 *                                      '' falls back to $input_log. Differs from
+	 *                                      $input_log when two readers tail the same log
+	 *                                      under disambiguated offset dirs (firehose vs
+	 *                                      firehose.job-router) — segments/label use the
+	 *                                      real log, the cursor stays per-reader.
 	 * @return array<string, mixed>
 	 */
 	private static function build_worker_status(
@@ -262,7 +273,8 @@ class Workers_CI_Node extends Service_CI_Node {
 		int $stale_timeout,
 		?string $handler_name,
 		?object $cache,
-		string $base_dir
+		string $base_dir,
+		string $source_basename = ''
 	): array {
 		// Workers without a local tail (e.g. SSE aggregator pulls) have no Partition;
 		// skip the segment lookup and report zeroed stats.
@@ -279,7 +291,9 @@ class Workers_CI_Node extends Service_CI_Node {
 			$total_size    = \array_sum( \array_column( $segments, 'size' ) );
 
 			// Cursor: live memcache position, falling back to the on-disk offsetlog.
-			$cursor        = self::get_live_position( $type, $partition, $input_log, $cache, $base_dir );
+			// Keyed by the offset-dir identity, not the display log, so disambiguated
+			// readers of a shared log keep separate cursors.
+			$cursor        = self::get_live_position( $partition, $source_basename, $cache, $base_dir );
 			$cursor_seg    = $cursor['seg'] ?? 0;
 			$cursor_offset = $cursor['off'] ?? 0;
 
@@ -521,15 +535,15 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Live cursor lookup: prefer memcache (`np:pos:{host}:{source_path}:p{N}`),
-	 * fall back to the Consumer's offsetlog.
+	 * Live cursor lookup, keyed by the reader's offset-dir identity
+	 * (`{source_basename}.p{N}`) so two readers of one log don't collide: prefer
+	 * the per-reader memcache key, fall back to that reader's offsetlog.
 	 *
 	 * @return array{seg:int, off:int}|null
 	 */
-	private static function get_live_position( string $type, int $partition, string $input_log, ?object $cache, string $base_dir ): ?array {
-		$source_path = "{$base_dir}/logs/{$input_log}";
-		$host        = \gethostname() ?: 'unknown';
-		$cache_key   = Consumer_Node::position_key( $host, $source_path, $partition );
+	private static function get_live_position( int $partition, string $source_basename, ?object $cache, string $base_dir ): ?array {
+		$host      = \gethostname() ?: 'unknown';
+		$cache_key = Consumer_Node::position_key( $host, "{$source_basename}.p{$partition}" );
 
 		// Null cache skips to the offsetlog; a raw \Memcached has get(), no is_available().
 		if ( null !== $cache && \method_exists( $cache, 'get' ) ) {
@@ -538,95 +552,18 @@ class Workers_CI_Node extends Service_CI_Node {
 				return [ 'seg' => self::to_int( $val['seg'] ), 'off' => self::to_int( $val['off'] ) ];
 			}
 		}
-		return self::read_offsetlog_position( $input_log, $partition, $base_dir );
+		return self::read_offsetlog_position( $source_basename, $partition, $base_dir );
 	}
 
 	/**
-	 * Scan `{base}/offsets/` and return one entry per active Consumer. Each
-	 * Consumer's latest checkpoint carries name/target/worker_type, enough to
-	 * render a per-Consumer row without a hardcoded map.
+	 * One entry per active Consumer, via the canonical per-Consumer enumeration
+	 * (`CLI::consumer_rows()`) — shared with `wp nodes status` so the dashboard and
+	 * cli read offset checkpoints exactly one way.
 	 *
-	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,partition:int,seg:int,off:int,ts:float}>
+	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,ts:float}>
 	 */
 	private static function enumerate_offsetlog_rows( string $base_dir ): array {
-		$offsets_dir = "{$base_dir}/offsets";
-		if ( ! \is_dir( $offsets_dir ) ) {
-			return [];
-		}
-		$entries = @\scandir( $offsets_dir );
-		if ( false === $entries ) {
-			return [];
-		}
-		$rows = [];
-		foreach ( $entries as $entry ) {
-			if ( '.' === $entry || '..' === $entry ) {
-				continue;
-			}
-			// Expect `{source}.p{N}` directory naming.
-			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $entry, $m ) ) {
-				continue;
-			}
-			$source_basename = $m[1];
-			$partition       = (int) $m[2];
-			$row             = self::read_offsetlog_latest_entry( "{$offsets_dir}/{$entry}" );
-			if ( null === $row ) {
-				continue;
-			}
-			// Skip entries pre-dating the metadata addition (no worker_type to attribute the row).
-			if ( '' === ( $row['worker_type'] ?? '' ) ) {
-				continue;
-			}
-			/** @var array<int,array<string,mixed>> $targets Decoded offsetlog `targets`: a list of `{name,…}` objects. */
-			$targets = \is_array( $row['targets'] ?? null ) ? $row['targets'] : [];
-			$rows[] = [
-				'name'            => self::to_string( $row['name']   ?? '' ),
-				'target'          => self::to_string( $row['target'] ?? '' ),
-				'targets'         => $targets,
-				'worker_type'     => self::to_string( $row['worker_type'] ),
-				'source_basename' => $source_basename,
-				'partition'       => $partition,
-				'seg'             => self::to_int( $row['seg'] ?? 0 ),
-				'off'             => self::to_int( $row['off'] ?? 0 ),
-				'ts'              => self::to_float( $row['ts']  ?? 0 ),
-			];
-		}
-		return $rows;
-	}
-
-	/**
-	 * Read the latest committed offsetlog entry's VALUE array (null if
-	 * empty/unreadable). The offsetlog is itself a single-partition Partition (p0);
-	 * the outer `{source}.p{N}/` dir name encodes the spoke partition.
-	 *
-	 * @return array<string,mixed>|null
-	 */
-	private static function read_offsetlog_latest_entry( string $offsetlog_dir ): ?array {
-		try {
-			$offsetlog = new Partition_Node();
-			$offsetlog->arguments( "{$offsetlog_dir} 0" );
-			$segments  = $offsetlog->get_segments( true );
-			if ( empty( $segments ) ) {
-				return null;
-			}
-			$newest = \end( $segments );
-			$bytes  = $offsetlog->read_at( $newest['id'], 0, $newest['size'] );
-			if ( '' === $bytes ) {
-				return null;
-			}
-			$lines = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
-			if ( empty( $lines ) ) {
-				return null;
-			}
-			$msg = Message::unpacked( \end( $lines ) );
-			if ( ! \is_array( $msg[ Message::VALUE ] ?? null ) ) {
-				return null;
-			}
-			/** @var array<string,mixed> $entry The offsetlog VALUE is a decoded JSON object (string keys). */
-			$entry = $msg[ Message::VALUE ];
-			return $entry;
-		} catch ( \Throwable $e ) {
-			return null;
-		}
+		return ( new CLI( $base_dir ) )->consumer_rows();
 	}
 
 	/**
@@ -634,9 +571,8 @@ class Workers_CI_Node extends Service_CI_Node {
 	 *
 	 * @return array{seg:int, off:int}|null
 	 */
-	private static function read_offsetlog_position( string $input_log, int $partition, string $base_dir ): ?array {
-		$basename = \preg_replace( '/\.log$/', '', $input_log );
-		$entry    = self::read_offsetlog_latest_entry( "{$base_dir}/offsets/{$basename}.p{$partition}" );
+	private static function read_offsetlog_position( string $source_basename, int $partition, string $base_dir ): ?array {
+		$entry = ( new CLI( $base_dir ) )->read_offsetlog_entry( "{$source_basename}.p{$partition}" );
 		if ( null === $entry || ! isset( $entry['seg'], $entry['off'] ) ) {
 			return null;
 		}
@@ -663,28 +599,6 @@ class Workers_CI_Node extends Service_CI_Node {
 			return (int) $v;
 		}
 		return 0;
-	}
-
-	/**
-	 * Coerce a mixed value to float, reproducing PHP's `(float)` cast
-	 * (null→0.0, scalar→its float form, non-empty array→1.0) without a mixed-cast.
-	 *
-	 * @param mixed $v Raw value.
-	 */
-	private static function to_float( $v ): float {
-		if ( null === $v ) {
-			return 0.0;
-		}
-		if ( \is_array( $v ) ) {
-			return empty( $v ) ? 0.0 : 1.0;
-		}
-		if ( \is_object( $v ) ) {
-			return 1.0;
-		}
-		if ( \is_scalar( $v ) ) {
-			return (float) $v;
-		}
-		return 0.0;
 	}
 
 	/**

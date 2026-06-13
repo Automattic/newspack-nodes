@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Live cursor positions are now keyed per-reader (offset-dir identity), not by the shared log path.** `Consumer_Node::position_key()` takes a single `reader_id` (the offset-dir name `{source_basename}.p{N}`) instead of `{source_base_dir, partition}`, and `Consumer_Node::publish_position()` publishes under that per-reader key (new `position_cache_key()` accessor; ephemeral readers with no offsetlog skip publishing). Previously two readers tailing the same log (e.g. `firehose` and `firehose.job-router`) clobbered one shared memcache key, so the Worker Status dashboard could show one reader's cursor for the other. `Workers_CI_Node::get_live_position()` reads the matching per-reader key, so each Consumer row now reports its own live position — and the disambiguated reader gets the live memcache value instead of falling back to the staler offsetlog checkpoint.
+- **`wp nodes status` is now per-Consumer, sharing the dashboard's enumeration.** The per-Consumer offset-checkpoint scan moved into `CLI::consumer_rows()` / `CLI::read_offsetlog_entry()` (reading the real packed-Message checkpoints), and `Workers_CI_Node` now delegates to it — one source of truth for both the dashboard and the cli, instead of two divergent scans. `wp nodes status` gains a **Source** column and shows each Consumer's own Behind, keyed by its per-reader position (`CLI::live_position_for()`), against its real source log. Previously it probed `offsets/{worker_type}.p{N}` (worker types never match the source-named offset dirs) and read a flat checkpoint shape production doesn't write, so every worker's Behind was a `firehose`-reader guess. The now-unused per-worker `CLI::saved_position()` (same broken probe) is removed; `CLI::live_position()` / `input_basename()` remain for the per-worker `list` verb.
+
+### Fixed
+
+- **Worker Status dashboard showed a phantom `firehose.job-router.log` with "No segments".** When two readers tail the same log under disambiguated offset dirs (`firehose` vs `firehose.job-router`, so each keeps a separate cursor), the `dump_metadata` builder inferred the input log name from the offset-dir name — minting a nonexistent `firehose.job-router.log` whose segment scan came up empty. The Consumer now records the real source log basename (`source_log`) in its offsetlog checkpoint, and `Workers_CI_Node` labels/scans segments by that real log while keeping the cursor lookup keyed by the offset-dir identity — so disambiguated readers render the correct shared log (with its segments) without bleeding cursors into each other. Falls back to the old offset-dir inference for checkpoints predating the `source_log` field.
+
 ## [0.17.0] - 2026-06-12
 
 ### Added

@@ -12,6 +12,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\CLI;
 use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Worker_CLI_Command;
@@ -51,6 +52,17 @@ class CliWorkerCommandTest extends TestCase {
 		\Newspack_Nodes\Config::reset();
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
+	}
+
+	/** Seed a real packed-Message Consumer checkpoint at offsets/{source_basename}.p{partition}/p0/0.log. */
+	private function seed_consumer_checkpoint( string $source_basename, int $partition, array $value ): void {
+		$dir = "{$this->tmp}/offsets/{$source_basename}.p{$partition}/p0";
+		\mkdir( $dir, 0755, true );
+		$msg                       = Message::new_message();
+		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
+		$msg[ Message::TIMESTAMP ] = 1700000000.0;
+		$msg[ Message::VALUE ]     = $value;
+		\file_put_contents( "{$dir}/0.log", Message::packed( $msg ) . "\n" );
 	}
 
 	private function register_topology( string $type, int $num_partitions, ?string $topology_path = null ): void {
@@ -374,26 +386,19 @@ class CliWorkerCommandTest extends TestCase {
 		$this->assertMatchesRegularExpression( '/\d+(m|s)/', $haystack );
 	}
 
-	public function test_status_renders_behind_when_partition_dir_present(): void {
-		// `Behind` reads partition file sizes via saved_position fallback.
-		// Without an offsetlog/cache, the column stays '-'; drop a
-		// saved-position file so the Behind column gets populated.
-		$this->register_topology( 'firehose-workers', 1 );
-		$lock = "{$this->tmp}/locks/firehose-workers.p0.lock.d";
+	public function test_status_renders_per_consumer_behind_from_real_offset_dirs(): void {
+		// A worker runs a Consumer whose offset dir is SOURCE-named (firehose),
+		// checkpoint packed with worker_type + real source_log. status() shows
+		// that Consumer's Source + Behind against logs/firehose.log — from the
+		// canonical per-Consumer enumeration, NOT a worker-type guess.
+		$this->register_topology( 'firehose-workers-and-jobs', 1 );
+		$lock = "{$this->tmp}/locks/firehose-workers-and-jobs.p0.lock.d";
 		\mkdir( $lock, 0755, true );
 		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
 
-		// Substrate convention: offsetlog under offsets/{type}.p{partition}/p0/.
-		$offset_dir = "{$this->tmp}/offsets/firehose-workers.p0/p0";
-		\mkdir( $offset_dir, 0755, true );
-		\file_put_contents(
-			"{$offset_dir}/0.log",
-			\json_encode( [ 'seg' => 0, 'off' => 100, 'ts' => \time() ] ) . "\n"
-		);
-
-		// And a firehose.log partition dir under logs/firehose.log/p0 with
-		// content larger than the cursor offset so the "Behind" calculation
-		// has something to report.
+		$this->seed_consumer_checkpoint( 'firehose', 0, [
+			'seg' => 0, 'off' => 100, 'worker_type' => 'firehose-workers-and-jobs', 'source_log' => 'firehose.log',
+		] );
 		$partition_dir = "{$this->tmp}/logs/firehose.log/p0";
 		\mkdir( $partition_dir, 0755, true );
 		// 300 bytes total → 200 bytes behind (300 - 100).
@@ -402,39 +407,35 @@ class CliWorkerCommandTest extends TestCase {
 		( new Worker_CLI_Command() )->status( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
-		// 200B → format_bytes → "200B". At minimum verify the column
-		// changed shape from '-' (no offsetlog path) to a byte literal.
+		$this->assertStringContainsString( 'firehose', $haystack );
 		$this->assertStringContainsString( '200B', $haystack );
 	}
 
-	public function test_status_renders_behind_for_non_firehose_input_log(): void {
-		// A worker whose input log isn't `firehose.log` (e.g. the ai-newsletter
-		// `digest` worker) must still get a real Behind: status() resolves the
-		// basename from the offsetlog's `source_basename` instead of hardcoding
-		// firehose.log.
-		$this->register_topology( 'digest', 1 );
-		$lock = "{$this->tmp}/locks/digest.p0.lock.d";
+	public function test_status_renders_per_consumer_behind_for_disambiguated_readers(): void {
+		// Two Consumers of the SAME log under distinct offset dirs each get their
+		// OWN Behind row — the dashboard's per-Consumer enumeration, in the cli.
+		$this->register_topology( 'firehose-workers-and-jobs', 1 );
+		$lock = "{$this->tmp}/locks/firehose-workers-and-jobs.p0.lock.d";
 		\mkdir( $lock, 0755, true );
 		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
 
-		// Offsetlog declares the worker's real input-log basename.
-		$offset_dir = "{$this->tmp}/offsets/digest.p0/p0";
-		\mkdir( $offset_dir, 0755, true );
-		\file_put_contents(
-			"{$offset_dir}/0.log",
-			\json_encode( [ 'seg' => 0, 'off' => 100, 'ts' => \time(), 'source_basename' => 'digest-in' ] ) . "\n"
-		);
-
-		// The matching partition dir is logs/digest-in.log/p0 — NOT firehose.log.
-		$partition_dir = "{$this->tmp}/logs/digest-in.log/p0";
+		$partition_dir = "{$this->tmp}/logs/firehose.log/p0";
 		\mkdir( $partition_dir, 0755, true );
-		\file_put_contents( "{$partition_dir}/0.log", \str_repeat( 'a', 300 ) );
+		\file_put_contents( "{$partition_dir}/0.log", \str_repeat( 'a', 500 ) );
 
-		// There is deliberately no logs/firehose.log/p0 — the old hardcoded path
-		// would leave Behind at '-'.
+		// request-builder reader at off=100 → 400B behind; job-router at off=300 → 200B.
+		$this->seed_consumer_checkpoint( 'firehose', 0, [
+			'seg' => 0, 'off' => 100, 'worker_type' => 'firehose-workers-and-jobs', 'source_log' => 'firehose.log',
+		] );
+		$this->seed_consumer_checkpoint( 'firehose.job-router', 0, [
+			'seg' => 0, 'off' => 300, 'worker_type' => 'firehose-workers-and-jobs', 'source_log' => 'firehose.log',
+		] );
+
 		( new Worker_CLI_Command() )->status( [], [] );
 
 		$haystack = \implode( "\n", $GLOBALS['_test_wp_cli_logs'] );
+		$this->assertStringContainsString( 'firehose.job-router', $haystack );
+		$this->assertStringContainsString( '400B', $haystack );
 		$this->assertStringContainsString( '200B', $haystack );
 	}
 
@@ -447,6 +448,9 @@ class CliWorkerCommandTest extends TestCase {
 		\mkdir( $lock, 0755, true );
 		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
 
+		$this->seed_consumer_checkpoint( 'firehose', 0, [
+			'seg' => 0, 'off' => 0, 'worker_type' => 'firehose-workers', 'source_log' => 'firehose.log',
+		] );
 		$partition_dir = "{$this->tmp}/logs/firehose.log/p0";
 		\mkdir( $partition_dir, 0755, true );
 		\file_put_contents( "{$partition_dir}/0.log", \str_repeat( 'b', 500 ) );
@@ -466,9 +470,9 @@ class CliWorkerCommandTest extends TestCase {
 		( new Worker_CLI_Command() )->status( [], [] );
 
 		$this->assertNotEmpty( $cache->hits, 'cache must be consulted via live_position' );
-		// CLI hits the same Consumer_Node::position_key shape (np:pos:{host}:{source_base_dir}:p{N}).
+		// CLI hits the same Consumer_Node::position_key shape (np:pos:{host}:{source_basename}.p{N}).
 		$this->assertStringStartsWith( 'np:pos:', $cache->hits[0] );
-		$this->assertStringContainsString( ':p0', $cache->hits[0] );
+		$this->assertStringContainsString( '.p0', $cache->hits[0] );
 	}
 
 	public function test_status_ignores_filter_value_that_is_not_object(): void {
@@ -525,13 +529,10 @@ class CliWorkerCommandTest extends TestCase {
 		\mkdir( $lock, 0755, true );
 		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
 
-		// Offsetlog with a checkpoint — Cli::saved_position returns non-null.
-		$offset_dir = "{$this->tmp}/offsets/firehose-workers.p0/p0";
-		\mkdir( $offset_dir, 0755, true );
-		\file_put_contents(
-			"{$offset_dir}/0.log",
-			\json_encode( [ 'seg' => 0, 'off' => 0, 'ts' => \time() ] ) . "\n"
-		);
+		// Consumer checkpoint exists (non-null position), but no source-log dir.
+		$this->seed_consumer_checkpoint( 'firehose', 0, [
+			'seg' => 0, 'off' => 0, 'worker_type' => 'firehose-workers', 'source_log' => 'firehose.log',
+		] );
 		// Deliberately DO NOT create logs/firehose.log/p0 — that's the branch.
 
 		( new Worker_CLI_Command() )->status( [], [] );

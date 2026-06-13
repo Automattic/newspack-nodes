@@ -190,6 +190,54 @@ class ConsumerTest extends TestCase {
 		unset( $_SERVER['NEWSPACK_NODES_WORKER_TYPE'] );
 	}
 
+	public function test_checkpoint_records_source_log_basename(): void {
+		// Two readers can tail the SAME log under distinct offset-dir names
+		// (firehose vs firehose.job-router) so each keeps a separate cursor.
+		// The dashboard must label both with the REAL log — so the checkpoint
+		// records the source log basename, not just the offset-dir name.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/firehose.log 0 " . ( 64*1024 ) . " 4 86400" );
+		$this->produce_line( $source, 'hello' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/firehose.log 0 {$this->tmp}/offsets/firehose.job-router.p0" );
+		$c->name( 'firehose:consumer' );
+		$c->sink( new Capture_Sink_Node() );
+		$c->poll();
+		$c->checkpoint();
+
+		$offsetlog_path = "{$this->tmp}/offsets/firehose.job-router.p0/p0/0.log";
+		$content        = (string) file_get_contents( $offsetlog_path );
+		$msg            = Message::unpacked( rtrim( $content, "\n" ) );
+		$entry          = $msg[ Message::VALUE ];
+
+		$this->assertSame( 'firehose.log', $entry['source_log'] ?? null );
+	}
+
+	public function test_position_cache_key_is_per_reader_offset_dir(): void {
+		// Two readers tailing the SAME log get DISTINCT live-position keys —
+		// keyed by their offset-dir name, not the shared log path — so their
+		// memcache positions don't collide.
+		$a = new Consumer_Node();
+		$a->arguments( "{$this->tmp}/firehose.log 0 {$this->tmp}/offsets/firehose.job-router.p0" );
+		$b = new Consumer_Node();
+		$b->arguments( "{$this->tmp}/firehose.log 0 {$this->tmp}/offsets/firehose.p0" );
+
+		$this->assertSame(
+			Consumer_Node::position_key( 'h', 'firehose.job-router.p0' ),
+			$a->position_cache_key( 'h' )
+		);
+		$this->assertNotSame( $a->position_cache_key( 'h' ), $b->position_cache_key( 'h' ) );
+	}
+
+	public function test_position_cache_key_empty_for_ephemeral_reader(): void {
+		// Ephemeral reader (no offsetlog) has no durable identity — nothing to
+		// publish under, so the key is empty and publish_position skips it.
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/firehose.log 0" );
+		$this->assertSame( '', $c->position_cache_key( 'h' ) );
+	}
+
 	public function test_checkpoint_writes_offsetlog_entry(): void {
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data 0 " . ( 64*1024 ) . " 4 86400" );

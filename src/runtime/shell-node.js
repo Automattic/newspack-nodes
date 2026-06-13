@@ -249,42 +249,38 @@ export class ShellNode extends Node {
 			return null;
 		}
 
-		const msg = newMessage();
-		msg[ FROM ] = this.replyFrom( names.OUTPUT );
+		const message = newMessage();
+		const to = args[ 0 ] ?? '';
+		message[ FROM ] = this.replyFrom( names.OUTPUT );
+		message[ TO ] = this.prefix( to );
 		// LOCAL provenance taint — minted in this Shell. Stripped at the wire
 		// (pack()), so it authorizes only the in-browser interpreter; the server verifies HMAC.
-		msg[ LOCAL ] = true;
+		message[ LOCAL ] = true;
 
 		if ( 'ping' === verb ) {
-			msg[ TYPE ] = TM_PING;
-			msg[ TO ] = this.prefix( args[ 0 ] ?? '' );
+			message[ TYPE ] = TM_PING;
 			// Receiver bounces TO=FROM; VALUE is the send timestamp for RTT.
-			msg[ VALUE ] = Date.now() / 1000;
-			return this.stampNoreply( msg );
+			message[ VALUE ] = Date.now() / 1000;
+			return this.stampNoreply( message );
 		}
 		if ( 'tell' === verb || 'tell_node' === verb ) {
-			const to = args[ 0 ] ?? '';
 			if ( ! to ) {
 				return { kind: 'error', text: 'usage: tell <path> <bytes>' };
 			}
-			msg[ TYPE ] = TM_INFO;
-			msg[ TO ] = this.prefix( to );
-			msg[ VALUE ] = join( 1 );
-			return this.stampNoreply( msg );
+			message[ TYPE ] = TM_INFO;
+			message[ VALUE ] = join( 1 );
+			return this.stampNoreply( message );
 		}
 		if ( 'send' === verb || 'send_node' === verb ) {
-			const to = args[ 0 ] ?? '';
 			if ( ! to ) {
 				return { kind: 'error', text: 'usage: send <path> <bytes>' };
 			}
-			msg[ TYPE ] = TM_BYTESTREAM;
-			msg[ TO ] = this.prefix( to );
+			message[ TYPE ] = TM_BYTESTREAM;
 			// Line-terminate so line-oriented nodes don't merge sends.
-			msg[ VALUE ] = `${ join( 1 ) }\n`;
-			return this.stampNoreply( msg );
+			message[ VALUE ] = `${ join( 1 ) }\n`;
+			return this.stampNoreply( message );
 		}
 		if ( 'send_struct' === verb || 'send_struct_node' === verb ) {
-			const to = args[ 0 ] ?? '';
 			if ( ! to ) {
 				return {
 					kind: 'error',
@@ -297,32 +293,26 @@ export class ShellNode extends Node {
 			} catch ( e ) {
 				return { kind: 'error', text: `send_struct: ${ e.message }` };
 			}
-			msg[ TYPE ] = TM_STRUCT;
-			msg[ TO ] = this.prefix( to );
-			msg[ VALUE ] = value;
-			return this.stampNoreply( msg );
+			message[ TYPE ] = TM_STRUCT;
+			message[ VALUE ] = value;
+			return this.stampNoreply( message );
 		}
 		if ( 'send_eof' === verb ) {
-			const to = args[ 0 ] ?? '';
 			if ( ! to ) {
 				return { kind: 'error', text: 'usage: send_eof <path>' };
 			}
-			msg[ TYPE ] = TM_EOF;
-			msg[ TO ] = this.prefix( to );
-			return this.stampNoreply( msg );
+			message[ TYPE ] = TM_EOF;
+			return this.stampNoreply( message );
 		}
 		if ( 'request' === verb || 'request_node' === verb ) {
-			const to = args[ 0 ] ?? '';
 			if ( ! to ) {
 				return { kind: 'error', text: 'usage: request <path> <args>' };
 			}
-			msg[ TYPE ] = TM_REQUEST;
-			msg[ TO ] = this.prefix( to );
-			msg[ VALUE ] = join( 1 );
-			return this.stampNoreply( msg );
+			message[ TYPE ] = TM_REQUEST;
+			message[ VALUE ] = join( 1 );
+			return this.stampNoreply( message );
 		}
 		if ( 'cmd' === verb || 'command' === verb || 'command_node' === verb ) {
-			const to = args[ 0 ] ?? '';
 			const name = args[ 1 ] ?? '';
 			if ( ! to || ! name ) {
 				return {
@@ -330,28 +320,27 @@ export class ShellNode extends Node {
 					text: 'usage: cmd <path> <verb> [<args>]',
 				};
 			}
-			msg[ TYPE ] = TM_COMMAND;
-			msg[ TO ] = this.prefix( to );
-			msg[ VALUE ] = { name, arguments: join( 2 ) };
-			return this.stampNoreply( msg );
+			message[ TYPE ] = TM_COMMAND;
+			message[ VALUE ] = { name, arguments: join( 2 ) };
+			return this.stampNoreply( message );
 		}
 
 		if ( 'pwd' === verb ) {
 			// TO is the bare cwd (not prefixed); arguments echo the cwd.
-			msg[ TYPE ] = TM_COMMAND;
-			msg[ TO ] = this.path;
-			msg[ VALUE ] = {
+			message[ TYPE ] = TM_COMMAND;
+			message[ TO ] = this.path;
+			message[ VALUE ] = {
 				name: 'pwd',
 				arguments: this.path,
 			};
-			return this.stampNoreply( msg );
+			return this.stampNoreply( message );
 		}
 
 		// Bare verb: TM_COMMAND at the cwd (path).
-		msg[ TYPE ] = TM_COMMAND;
-		msg[ TO ] = this.prefix( '' );
-		msg[ VALUE ] = { name: verb, arguments: join( 0 ) };
-		return this.stampNoreply( msg );
+		message[ TYPE ] = TM_COMMAND;
+		message[ TO ] = this.prefix( '' );
+		message[ VALUE ] = { name: verb, arguments: join( 0 ) };
+		return this.stampNoreply( message );
 	}
 
 	/**
@@ -420,7 +409,7 @@ export class ShellNode extends Node {
 	/**
 	 * When want_reply is off, OR TM_NOREPLY onto a TM_COMMAND (no-op otherwise).
 	 * Mirrors PHP Shell_Node::stamp_noreply — mutates in place and returns the
-	 * message so message-return branches can `return this.stampNoreply( msg )`.
+	 * message so message-return branches can `return this.stampNoreply( message )`.
 	 *
 	 * @param {Array} message Message to stamp in place.
 	 * @return {Array} The same message.

@@ -56,9 +56,9 @@ class CLI {
 	/**
 	 * Read a live worker-cursor position from memcache.
 	 *
-	 * Hits the same `np:pos:{host}:{source_base_dir}:p{N}` key Consumer_Node
-	 * publishes — derives source_base_dir from the worker's recorded input
-	 * basename, falling back to the conventional `firehose.log` when none yet.
+	 * Hits the same `np:pos:{host}:{source_basename}.p{N}` per-reader key
+	 * Consumer_Node publishes — derives the source basename from the worker's
+	 * recorded input, falling back to the conventional `firehose` when none yet.
 	 *
 	 * @param object $cache    Anything with a `get(string)` method; null to skip.
 	 * @param string $type     Worker type.
@@ -69,14 +69,46 @@ class CLI {
 		if ( null === $cache || ! \method_exists( $cache, 'get' ) ) {
 			return null;
 		}
-		$basename        = $this->input_basename( $type, $partition ) ?: 'firehose';
-		$source_base_dir = "{$this->base_dir}/logs/{$basename}.log";
-		$host            = \gethostname() ?: 'unknown';
+		$basename = $this->input_basename( $type, $partition ) ?: 'firehose';
+		$host     = \gethostname() ?: 'unknown';
 		try {
-			$value = $cache->get( Consumer_Node::position_key( $host, $source_base_dir, $partition ) );
+			$value = $cache->get( Consumer_Node::position_key( $host, "{$basename}.p{$partition}" ) );
 		} catch ( \Throwable $e ) {
 			return null;
 		}
+		return self::normalize_position( $value );
+	}
+
+	/**
+	 * Live cursor for a specific Consumer, keyed by its offset-dir identity
+	 * (`{source_basename}.p{N}`) — the per-reader key `Consumer_Node` publishes.
+	 * Unlike live_position(), this addresses ONE Consumer, not a whole worker type.
+	 *
+	 * @param object|null $cache           `\Memcached`-shaped (or null to skip).
+	 * @param string      $offset_dir_name e.g. `firehose.job-router.p0`.
+	 * @return array{seg:int,off:int,ts?:int}|null
+	 */
+	public function live_position_for( ?object $cache, string $offset_dir_name ): ?array {
+		if ( null === $cache || ! \method_exists( $cache, 'get' ) ) {
+			return null;
+		}
+		$host = \gethostname() ?: 'unknown';
+		try {
+			$value = $cache->get( Consumer_Node::position_key( $host, $offset_dir_name ) );
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+		return self::normalize_position( $value );
+	}
+
+	/**
+	 * Coerce a raw memcache/offsetlog position value to `{seg,off,ts}` ints, or
+	 * null when it's not a usable position record.
+	 *
+	 * @param mixed $value Raw cache value.
+	 * @return array{seg:int,off:int,ts:int}|null
+	 */
+	private static function normalize_position( $value ): ?array {
 		if ( ! \is_array( $value ) || ! isset( $value['seg'], $value['off'] ) ) {
 			return null;
 		}
@@ -216,58 +248,6 @@ class CLI {
 	}
 
 	/**
-	 * Read the latest checkpointed position from a worker's offsetlog dir (memcache fallback).
-	 *
-	 * @param string $type     Worker type.
-	 * @param int    $partition Partition index.
-	 * @return array{seg:int,off:int,ts?:int}|null
-	 */
-	public function saved_position( string $type, int $partition ): ?array {
-		$offset_dir = "{$this->base_dir}/offsets/{$type}.p{$partition}/p0";
-		if ( ! \is_dir( $offset_dir ) ) {
-			return null;
-		}
-		$files = @\scandir( $offset_dir );
-		if ( false === $files ) {
-			return null;
-		}
-		$segments = [];
-		foreach ( $files as $f ) {
-			if ( \preg_match( '/^(\d+)\.log$/', $f, $m ) ) {
-				$segments[] = (int) $m[1];
-			}
-		}
-		if ( empty( $segments ) ) {
-			return null;
-		}
-		\sort( $segments );
-		$newest_id = \end( $segments );
-		$path      = "{$offset_dir}/{$newest_id}.log";
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		$bytes = @\file_get_contents( $path );
-		if ( false === $bytes || '' === $bytes ) {
-			return null;
-		}
-		// Last non-empty line is the latest checkpoint.
-		$lines = \array_filter( \explode( "\n", \rtrim( $bytes, "\n" ) ), static fn ( $l ) => '' !== $l );
-		if ( empty( $lines ) ) {
-			return null;
-		}
-		$last = \json_decode( \end( $lines ), true );
-		if ( ! \is_array( $last ) || ! isset( $last['seg'], $last['off'] ) ) {
-			return null;
-		}
-		$seg = $last['seg'];
-		$off = $last['off'];
-		$ts  = $last['ts'] ?? 0;
-		return [
-			'seg' => \is_numeric( $seg ) ? (int) $seg : 0,
-			'off' => \is_numeric( $off ) ? (int) $off : 0,
-			'ts'  => \is_numeric( $ts ) ? (int) $ts : 0,
-		];
-	}
-
-	/**
 	 * Sum bytes still ahead of a cursor across a partition's segments (the "Behind" column).
 	 *
 	 * @param string $partition_dir Absolute path to the partition directory.
@@ -344,5 +324,123 @@ class CLI {
 			return \floor( $seconds / 3600 ) . 'h';
 		}
 		return \floor( $seconds / 86400 ) . 'd';
+	}
+
+	/**
+	 * Read the latest committed checkpoint VALUE from an offset dir under
+	 * `offsets/` (e.g. `firehose.job-router.p0`). The offsetlog is itself a
+	 * single-partition Partition (p0); the outer dir name encodes the spoke
+	 * partition. Null if empty/unreadable. The checkpoint is a packed Message —
+	 * unpacked here (NOT a flat json_decode of the raw line).
+	 *
+	 * @return array<string,mixed>|null The decoded VALUE object.
+	 */
+	public function read_offsetlog_entry( string $offset_dir_name ): ?array {
+		try {
+			$offsetlog = new Partition_Node();
+			$offsetlog->arguments( "{$this->base_dir}/offsets/{$offset_dir_name} 0" );
+			$segments = $offsetlog->get_segments( true );
+			if ( empty( $segments ) ) {
+				return null;
+			}
+			$newest = \end( $segments );
+			$bytes  = $offsetlog->read_at( $newest['id'], 0, $newest['size'] );
+			if ( '' === $bytes ) {
+				return null;
+			}
+			$lines = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
+			if ( empty( $lines ) ) {
+				return null;
+			}
+			$value = Message::unpacked( \end( $lines ) )[ Message::VALUE ] ?? null;
+			if ( ! \is_array( $value ) ) {
+				return null;
+			}
+			/** @var array<string,mixed> $value The offsetlog VALUE is a decoded JSON object (string keys). */
+			return $value;
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+	}
+
+	/**
+	 * One row per active Consumer: scan `offsets/` for `{source_basename}.p{N}`
+	 * dirs and read each latest checkpoint. Rows whose checkpoint records no
+	 * worker_type are skipped (nothing to attribute them to). This is the
+	 * canonical per-Consumer enumeration shared by the Worker Status dashboard
+	 * (`Workers_CI_Node`) and `wp nodes status`.
+	 *
+	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,ts:float}>
+	 */
+	public function consumer_rows(): array {
+		$offsets_dir = "{$this->base_dir}/offsets";
+		if ( ! \is_dir( $offsets_dir ) ) {
+			return [];
+		}
+		$entries = @\scandir( $offsets_dir );
+		if ( false === $entries ) {
+			return [];
+		}
+		$rows = [];
+		foreach ( $entries as $entry ) {
+			if ( '.' === $entry || '..' === $entry ) {
+				continue;
+			}
+			// Expect `{source_basename}.p{N}` directory naming.
+			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $entry, $m ) ) {
+				continue;
+			}
+			$value = $this->read_offsetlog_entry( $entry );
+			if ( null === $value ) {
+				continue;
+			}
+			$worker_type = self::scalar_string( $value['worker_type'] ?? '' );
+			// Skip entries pre-dating the metadata addition — no worker to attribute to.
+			if ( '' === $worker_type ) {
+				continue;
+			}
+			/** @var array<int,array<string,mixed>> $targets Decoded offsetlog `targets`: a list of `{name,…}` objects. */
+			$targets = \is_array( $value['targets'] ?? null ) ? $value['targets'] : [];
+			$rows[]  = [
+				'name'            => self::scalar_string( $value['name']   ?? '' ),
+				'target'          => self::scalar_string( $value['target'] ?? '' ),
+				'targets'         => $targets,
+				'worker_type'     => $worker_type,
+				'source_basename' => $m[1],
+				'source_log'      => self::scalar_string( $value['source_log'] ?? '' ),
+				'partition'       => (int) $m[2],
+				'seg'             => self::scalar_int( $value['seg'] ?? 0 ),
+				'off'             => self::scalar_int( $value['off'] ?? 0 ),
+				'ts'              => self::scalar_float( $value['ts']  ?? 0 ),
+			];
+		}
+		return $rows;
+	}
+
+	/**
+	 * Coerce a mixed value to string (non-scalar → '').
+	 *
+	 * @param mixed $v Raw value.
+	 */
+	private static function scalar_string( $v ): string {
+		return \is_scalar( $v ) ? (string) $v : '';
+	}
+
+	/**
+	 * Coerce a mixed value to int (non-scalar → 0).
+	 *
+	 * @param mixed $v Raw value.
+	 */
+	private static function scalar_int( $v ): int {
+		return \is_scalar( $v ) ? (int) $v : 0;
+	}
+
+	/**
+	 * Coerce a mixed value to float (non-scalar → 0.0).
+	 *
+	 * @param mixed $v Raw value.
+	 */
+	private static function scalar_float( $v ): float {
+		return \is_scalar( $v ) ? (float) $v : 0.0;
 	}
 }
