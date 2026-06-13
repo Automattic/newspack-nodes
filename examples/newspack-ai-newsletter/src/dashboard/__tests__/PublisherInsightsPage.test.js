@@ -1,6 +1,18 @@
 /* eslint-env jest */
 import { render, screen } from '@testing-library/react';
+import { Core } from '@newspack-nodes/runtime';
+
+// Page-hidden so the mounted graph's poll interval never starts in this smoke
+// test; the one immediate mount-poll uses a default CommandClient whose fetch
+// rejects in jsdom and is swallowed (rate-limited) — no network, no crash.
+jest.mock( '@newspack-nodes/shared/hooks/usePageVisibility', () => ( {
+	__esModule: true,
+	default: () => false,
+} ) );
+
 import PublisherInsightsPage from '../PublisherInsightsPage';
+
+beforeEach( () => Core.reset() );
 
 describe( 'PublisherInsightsPage', () => {
 	it( 'renders the Publisher Insights heading', () => {
@@ -10,8 +22,11 @@ describe( 'PublisherInsightsPage', () => {
 		).toBeInTheDocument();
 	} );
 
-	it( 'shows the no-data placeholder until a data layer lands', () => {
+	it( 'mounts the dashboard structure (empty until the poll fills it)', () => {
 		render( <PublisherInsightsPage /> );
-		expect( screen.getByText( '(no data yet)' ) ).toBeInTheDocument();
+		expect(
+			screen.getByRole( 'heading', { name: 'Top items' } )
+		).toBeInTheDocument();
+		expect( screen.getByRole( 'table' ) ).toBeInTheDocument();
 	} );
 } );
