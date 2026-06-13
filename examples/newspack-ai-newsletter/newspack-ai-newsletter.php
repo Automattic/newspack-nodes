@@ -11,6 +11,19 @@ namespace Newspack_AI_Newsletter;
 
 \defined( 'ABSPATH' ) || exit;
 
+/**
+ * Mount the Publisher Insights service interpreter into the per-request graph,
+ * the same way the substrate mounts its own CIs. Idempotent: a second call
+ * (same request) no-ops rather than colliding on the 'insights' node name.
+ */
+function mount_insights_ci( \Newspack_Nodes\Command_Interpreter_Node $base_interpreter ): void {
+	if ( null !== \Newspack_Nodes\Core::node( 'insights' ) ) {
+		return;
+	}
+	require_once __DIR__ . '/includes/class-insights-ci.php';
+	$base_interpreter->make_node( 'Insights_CI', 'insights' );
+}
+
 // Load after newspack-nodes (its own deferred loader runs at plugins_loaded:11).
 \add_action(
 	'plugins_loaded',
@@ -32,6 +45,9 @@ namespace Newspack_AI_Newsletter;
 			'Newspack_AI_Newsletter\\',
 			__DIR__ . '/topologies'
 		);
+
+		// Mount the Insights service CI into each request graph so the dashboard can poll it.
+		\add_action( 'newspack_nodes/request_graph_ready', __NAMESPACE__ . '\\mount_insights_ci' );
 	},
 	12
 );
