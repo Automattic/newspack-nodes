@@ -28,9 +28,24 @@ class Consumer_Node extends Timer_Node {
 	/** Memcache key prefix Consumer_Node uses to publish its live cursor (read by Workers_CI + CLI). */
 	public const POSITION_KEY_PREFIX = 'np:pos:';
 
-	/** Canonical `np:pos:{host}:{source_base_dir}:p{N}` cursor cache key. */
-	public static function position_key( string $host, string $source_base_dir, int $partition ): string {
-		return self::POSITION_KEY_PREFIX . "{$host}:{$source_base_dir}:p{$partition}";
+	/**
+	 * Canonical `np:pos:{host}:{reader_id}` cursor cache key. `$reader_id` is the
+	 * per-reader offset-dir name (`{source_basename}.p{N}`) — unique per Consumer,
+	 * so two readers tailing the same log don't collide on a shared key.
+	 */
+	public static function position_key( string $host, string $reader_id ): string {
+		return self::POSITION_KEY_PREFIX . "{$host}:{$reader_id}";
+	}
+
+	/**
+	 * This reader's live-position cache key, keyed by its offset-dir name.
+	 * Empty when ephemeral (no durable offsetlog) — publish_position skips it.
+	 */
+	public function position_cache_key( string $host ): string {
+		if ( '' === $this->offsetlog_base_dir ) {
+			return '';
+		}
+		return self::position_key( $host, \basename( $this->offsetlog_base_dir ) );
 	}
 
 	public const POLL_INTERVAL_EOF_MS = 100;
@@ -583,6 +598,10 @@ class Consumer_Node extends Timer_Node {
 			'target'      => \is_string( $this->target ) ? $this->target : '',
 			'targets'     => $this->resolve_downstream_targets(),
 			'worker_type' => self::worker_type_env(),
+			// Real source log basename. Two readers can tail the same log under
+			// distinct offset-dir names (firehose vs firehose.job-router); the
+			// dashboard labels by this, not the disambiguated offset dir.
+			'source_log'  => \basename( $this->source_base_dir ),
 		];
 		// Co-commit the snapshot node's state with the offset, as ONE record, so a
 		// respawn restores the cache and resumes the cursor in lockstep.
@@ -628,6 +647,12 @@ class Consumer_Node extends Timer_Node {
 		if ( ! \class_exists( '\\Memcached' ) ) {
 			return;
 		}
+		// Ephemeral readers (no offsetlog) have no durable per-reader identity — skip.
+		$host = \gethostname() ?: 'unknown';
+		$key  = $this->position_cache_key( $host );
+		if ( '' === $key ) {
+			return;
+		}
 		/** @var \Memcached|false|null $memd */
 		static $memd = null;
 		if ( false === $memd ) {
@@ -651,9 +676,8 @@ class Consumer_Node extends Timer_Node {
 				return;
 			}
 		}
-		$host = \gethostname() ?: 'unknown';
 		$memd->set(
-			self::position_key( $host, $this->source_base_dir, $this->source_partition ),
+			$key,
 			[
 				'seg'         => $this->cursor_seg,
 				'off'         => $this->cursor_off,

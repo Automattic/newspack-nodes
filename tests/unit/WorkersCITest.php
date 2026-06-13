@@ -12,6 +12,7 @@
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Rest\Workers_CI_Node;
 use Newspack_Nodes\Tests\Helpers\FakeMemcached;
@@ -524,6 +525,127 @@ class WorkersCITest extends TestCase {
 		$this->assertNotEmpty( $row['inputs_status'] );
 	}
 
+	public function test_dump_metadata_input_log_uses_recorded_source_log_not_offset_dir_name(): void {
+		// A Consumer whose offset dir is disambiguated (two readers tail the
+		// same log under distinct offset names: `firehose` and
+		// `firehose.job-router`) must still report the REAL source log —
+		// `firehose.log` — as its input, not the offset-dir-derived
+		// `firehose.job-router.log` phantom that scans a nonexistent segment
+		// dir and renders as "No segments".
+		$base = $this->arrange_base_dir();
+		$this->seed_offsetlog(
+			$base,
+			'firehose.job-router',
+			0,
+			[
+				'name'        => 'firehose:consumer',
+				'target'      => 'job-router',
+				'targets'     => [ [ 'name' => 'job-router' ] ],
+				'worker_type' => 'demo-workers',
+				'source_log'  => 'firehose.log',
+			]
+		);
+		$this->seed_heartbeat( $base, 'demo-workers', 0 );
+
+		$interpreter        = new Workers_CI_Node();
+		$interpreter->cli   = $this->stub_cli();
+		$interpreter->cache = new FakeMemcached();
+		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_metadata' );
+
+		$rows = \array_values( \array_filter(
+			$result['workers'],
+			static fn ( $w ) => 'demo-workers' === ( $w['type'] ?? '' )
+		) );
+		$this->assertNotEmpty( $rows, 'expected a demo-workers row' );
+		$row = $rows[0];
+
+		$this->assertSame( [ 'firehose.log' ], $row['inputs'] );
+		$this->assertSame( 'firehose.log', $row['inputs_status'][0]['name'] );
+	}
+
+	public function test_dump_metadata_disambiguated_reader_cursor_reads_its_own_offset_dir(): void {
+		// The disambiguated reader (offset dir `firehose.job-router.p0`) shares
+		// the real log `firehose.log` with a sibling reader (offset dir
+		// `firehose.p0`). Its cursor MUST come from its OWN offset dir, not the
+		// sibling's — even though both now label as `firehose.log`. Regression
+		// guard: keying the cursor by the display log would read the wrong dir.
+		$base = $this->arrange_base_dir();
+		$this->seed_offsetlog(
+			$base,
+			'firehose.job-router',
+			0,
+			[
+				'seg'         => 5,
+				'off'         => 100,
+				'name'        => 'firehose:consumer',
+				'targets'     => [ [ 'name' => 'job-router' ] ],
+				'worker_type' => 'demo-workers',
+				'source_log'  => 'firehose.log',
+			]
+		);
+		// Sibling reader of the same log under the plain offset dir — different
+		// cursor. Present so a wrong-dir lookup would bleed THIS value through.
+		$this->seed_offsetlog( $base, 'firehose', 0, [ 'seg' => 9, 'off' => 999 ] );
+		$this->seed_heartbeat( $base, 'demo-workers', 0 );
+
+		$interpreter        = new Workers_CI_Node();
+		$interpreter->cli   = $this->stub_cli();
+		$interpreter->cache = new FakeMemcached();
+		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_metadata' );
+
+		$rows = \array_values( \array_filter(
+			$result['workers'],
+			static fn ( $w ) => 'demo-workers' === ( $w['type'] ?? '' )
+		) );
+		$this->assertNotEmpty( $rows, 'expected a demo-workers row' );
+		$row = $rows[0];
+
+		$this->assertSame( 5, $row['cursor_seg'], 'cursor must come from the reader\'s own offset dir' );
+		$this->assertSame( 100, $row['cursor_offset'] );
+	}
+
+	public function test_dump_metadata_cursor_prefers_live_per_reader_memcache_key(): void {
+		// The cursor reads the reader's OWN per-reader memcache key (offset-dir
+		// identity), preferring the live position over the staler offsetlog
+		// checkpoint. Two readers of one log no longer collide on a shared key.
+		$base = $this->arrange_base_dir();
+		$this->seed_offsetlog(
+			$base,
+			'firehose.job-router',
+			0,
+			[
+				'seg'         => 5,
+				'off'         => 100,
+				'name'        => 'firehose:consumer',
+				'targets'     => [ [ 'name' => 'job-router' ] ],
+				'worker_type' => 'demo-workers',
+				'source_log'  => 'firehose.log',
+			]
+		);
+		$this->seed_heartbeat( $base, 'demo-workers', 0 );
+
+		$host  = \gethostname() ?: 'unknown';
+		$cache = new FakeMemcached();
+		// Fresher live cursor than the offsetlog checkpoint above, under THIS
+		// reader's per-reader key.
+		$cache->set( Consumer_Node::position_key( $host, 'firehose.job-router.p0' ), [ 'seg' => 8, 'off' => 7 ], 60 );
+
+		$interpreter        = new Workers_CI_Node();
+		$interpreter->cli   = $this->stub_cli();
+		$interpreter->cache = $cache;
+		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_metadata' );
+
+		$rows = \array_values( \array_filter(
+			$result['workers'],
+			static fn ( $w ) => 'demo-workers' === ( $w['type'] ?? '' )
+		) );
+		$this->assertNotEmpty( $rows, 'expected a demo-workers row' );
+		$row = $rows[0];
+
+		$this->assertSame( 8, $row['cursor_seg'], 'cursor must come from the per-reader live key' );
+		$this->assertSame( 7, $row['cursor_offset'] );
+	}
+
 	public function test_dump_metadata_includes_logs_enumeration(): void {
 		// `logs[]` is the per-log per-partition disk-scan output. Each entry
 		// = {name, partitions: [{partition, segments[], total_size}, ...]}.
@@ -712,8 +834,8 @@ class WorkersCITest extends TestCase {
 	}
 
 	public function test_dump_metadata_uses_live_position_from_memcache(): void {
-		// Memcache cursor wins over on-disk offsetlog. Same key shape
-		// the legacy controller uses: `np:pos:{host}:{base}/logs/{input}:p{N}`.
+		// Memcache cursor wins over on-disk offsetlog. Per-reader key shape:
+		// `np:pos:{host}:{source_basename}.p{N}`.
 		$base = $this->arrange_base_dir();
 		$this->seed_offsetlog(
 			$base,
@@ -731,11 +853,10 @@ class WorkersCITest extends TestCase {
 		$this->seed_heartbeat( $base, 'demo-workers', 0 );
 		$this->seed_log_segment( $base, 'firehose', 0, 0, 1000 );
 
-		$cache       = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
-		$source_path = "{$base}/logs/firehose.log";
-		$host        = \gethostname() ?: 'unknown';
+		$cache = new \Newspack_Nodes\Tests\Helpers\InMemoryMemcached();
+		$host  = \gethostname() ?: 'unknown';
 		$cache->set(
-			"np:pos:{$host}:{$source_path}:p0",
+			Consumer_Node::position_key( $host, 'firehose.p0' ),
 			[ 'seg' => 0, 'off' => 600, 'ts' => \microtime( true ) ],
 			60
 		);

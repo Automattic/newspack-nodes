@@ -133,6 +133,14 @@ class Worker_CLI_Command {
 			return;
 		}
 
+		// One row per Consumer (via the canonical enumeration the dashboard uses),
+		// grouped under its worker. A worker with no checkpointed Consumer still
+		// gets a single Source='-' row so its Status/Uptime/Restart show.
+		$consumers_by_worker = [];
+		foreach ( $cli->consumer_rows() as $cr ) {
+			$consumers_by_worker[ $cr['worker_type'] . '|' . $cr['partition'] ][] = $cr;
+		}
+
 		$now  = \time();
 		$rows = [];
 		foreach ( $workers as $w ) {
@@ -151,47 +159,34 @@ class Worker_CLI_Command {
 
 			$started_at = Lock_Node::get_started_time( $lock_dir );
 			$uptime     = $started_at ? CLI::format_duration( $now - $started_at ) : '-';
+			$restart    = Lock_Node::is_restart_pending( $lock_dir ) ? 'yes' : 'no';
 
-			$position = $cli->live_position( $cache, $type, $p ) ?? $cli->saved_position( $type, $p );
-			$behind   = '-';
-			if ( null !== $position ) {
-				// Resolve the worker's actual input-log basename from its offsetlog
-				// (the web console does the same); fall back to the conventional
-				// `firehose.log` when no basename is recorded yet.
-				$logs_dir      = "{$base_dir}/logs";
-				$basename      = $cli->input_basename( $type, $p ) ?: 'firehose';
-				$partition_dir = "{$logs_dir}/{$basename}.log/p{$p}";
-				if ( \is_dir( $partition_dir ) ) {
-					$bytes  = CLI::calculate_behind( $partition_dir, $position['seg'], $position['off'] );
-					$behind = CLI::format_bytes( $bytes );
-				}
+			$consumers = $consumers_by_worker[ "{$type}|{$p}" ] ?? [];
+			if ( empty( $consumers ) ) {
+				$rows[] = self::status_row( $type, $p, '-', $status, $uptime, '-', $restart );
+				continue;
 			}
-
-			$restart = Lock_Node::is_restart_pending( $lock_dir ) ? 'yes' : 'no';
-
-			$rows[] = [
-				'Type'      => $type,
-				'Partition' => $p,
-				'Status'    => $status,
-				'Uptime'    => $uptime,
-				'Behind'    => $behind,
-				'Restart'   => $restart,
-			];
+			foreach ( $consumers as $cr ) {
+				$behind = $this->consumer_behind( $cli, $cache, $cr, $base_dir );
+				$rows[] = self::status_row( $type, $p, $cr['source_basename'], $status, $uptime, $behind, $restart );
+			}
 		}
 
-		$format = self::entry_string( $assoc_args, 'format' );
+		$columns = [ 'Type', 'Partition', 'Source', 'Status', 'Uptime', 'Behind', 'Restart' ];
+		$format  = self::entry_string( $assoc_args, 'format' );
 		if ( '' === $format ) {
 			$format = 'table';
 		}
 		if ( \function_exists( 'WP_CLI\\Utils\\format_items' ) ) {
-			\WP_CLI\Utils\format_items( $format, $rows, [ 'Type', 'Partition', 'Status', 'Uptime', 'Behind', 'Restart' ] );
+			\WP_CLI\Utils\format_items( $format, $rows, $columns );
 		} else {
 			// Test fallback: dump a stable plain-text representation.
 			foreach ( $rows as $row ) {
 				\WP_CLI::log( \sprintf(
-					'%-30s p%-2d  %-7s  %-8s  %-10s  restart=%s',
+					'%-30s p%-2d  %-20s  %-7s  %-8s  %-10s  restart=%s',
 					$row['Type'],
 					$row['Partition'],
+					$row['Source'],
 					$row['Status'],
 					$row['Uptime'],
 					$row['Behind'],
@@ -199,6 +194,44 @@ class Worker_CLI_Command {
 				) );
 			}
 		}
+	}
+
+	/**
+	 * Assemble one `wp nodes status` row.
+	 *
+	 * @return array{Type:string,Partition:int,Source:string,Status:string,Uptime:string,Behind:string,Restart:string}
+	 */
+	private static function status_row( string $type, int $partition, string $source, string $status, string $uptime, string $behind, string $restart ): array {
+		return [
+			'Type'      => $type,
+			'Partition' => $partition,
+			'Source'    => $source,
+			'Status'    => $status,
+			'Uptime'    => $uptime,
+			'Behind'    => $behind,
+			'Restart'   => $restart,
+		];
+	}
+
+	/**
+	 * Bytes-behind for one Consumer: its live per-reader memcache position, or
+	 * the on-disk checkpoint cursor, measured against the real source-log
+	 * partition dir. '-' when that dir doesn't exist yet.
+	 *
+	 * @param array{source_basename:string,partition:int,source_log:string,seg:int,off:int} $cr One `CLI::consumer_rows()` row.
+	 */
+	private function consumer_behind( CLI $cli, ?object $cache, array $cr, string $base_dir ): string {
+		$partition  = $cr['partition'];
+		$source_log = $cr['source_log'];
+		$position   = $cli->live_position_for( $cache, "{$cr['source_basename']}.p{$partition}" )
+			?? [ 'seg' => $cr['seg'], 'off' => $cr['off'] ];
+
+		$partition_dir = "{$base_dir}/logs/{$source_log}/p{$partition}";
+		if ( '' === $source_log || ! \is_dir( $partition_dir ) ) {
+			return '-';
+		}
+		$bytes = CLI::calculate_behind( $partition_dir, $position['seg'], $position['off'] );
+		return CLI::format_bytes( $bytes );
 	}
 
 	/**
