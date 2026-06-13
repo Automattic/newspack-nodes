@@ -50,8 +50,8 @@ class Summarizer_Node extends Node {
 		return [
 			'category'     => 'Transform',
 			'description'  => 'Summarizes one item; emits the item plus a summary. Source-agnostic.',
-			'arguments'         => [],
-			'commands'        => [],
+			'arguments'    => [],
+			'commands'     => [],
 			'accepts_fill' => true,
 			'has_target'   => true,
 		];
