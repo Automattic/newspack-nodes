@@ -1,24 +1,34 @@
-# AI Newsletter digest pipeline.
+# AI Newsletter — scored, durable digest pipeline (dashboard chapter).
 #
-#   releases ─┐
-#             ├─> summarizer ─> digest ─> log
-#   community ┘
+#   community ┐
+#             ├─ summarizer ─ scorer ─ scored:partition      (durable scored.log)
+#   releases ─┘
+#   scored:consumer ─ digest ─ digest:tee ─ digest:log
 #
-# Two independent sources fan into one summarizer (fan-in is free — both just
-# point their sink at `summarizer`). The summarizer is source-agnostic; the
-# digest accumulates and, on `flush`, writes one markdown draft. `log` reuses
-# the substrate's Log primitive. Adding a third source = one more make_node +
-# one connect_node line; nothing downstream changes.
+# summarizer adds a one-line summary; scorer adds a notional priority score and
+# appends each scored item to the durable `scored.log` partition. A Consumer
+# tails that log into the digest, and co-commits the digest's accumulated state
+# (save_state) into its offsetlog via `set_snapshot_node digest` — so a respawned
+# worker restores in lockstep with the cursor. Insights_CI reads that offsetlog
+# snapshot to serve the dashboard. `void_warranty` lifts the partition's 4KB
+# write cap (a scored batch can exceed PIPE_BUF); see ADR-4.
 var num_partitions = 1
-make_node Releases_Source   releases
-make_node Community_Source  community
-make_node Summarizer        summarizer
-make_node Digest_Builder    digest
-make_node Tee               tee
-make_node Log               log /tmp/newspack-ai-newsletter/digest.md append 1 7
-connect_node releases   summarizer
-connect_node community  summarizer
-connect_node summarizer digest
-connect_node digest     tee
-connect_node tee        log
-connect_node tee        _repl
+
+make_node Releases_Source  releases
+make_node Community_Source community
+make_node Summarizer       summarizer
+make_node Digest_Builder   digest
+make_node Tee              digest:tee
+make_node Log              digest:log /tmp/newspack-ai-newsletter/digest.md append 1 7
+make_node Partition        scored:partition <config:logs_dir>/scored.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+cmd scored:partition:config void_warranty
+make_node Consumer         scored:consumer <config:logs_dir>/scored.log <partition> <config:offsets_dir>/scored.p<partition>
+cmd scored:consumer:config set_snapshot_node digest
+make_node Scorer           scorer
+connect_node releases    summarizer
+connect_node community   summarizer
+connect_node summarizer  scorer
+connect_node scorer      scored:partition
+connect_node scored:consumer digest
+connect_node digest      digest:tee
+connect_node digest:tee  digest:log
