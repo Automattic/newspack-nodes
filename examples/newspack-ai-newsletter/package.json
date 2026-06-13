@@ -1,0 +1,32 @@
+{
+	"name": "newspack-ai-newsletter",
+	"version": "0.1.0",
+	"private": true,
+	"description": "Nodes walkthrough example — Publisher Insights dashboard.",
+	"author": "Automattic",
+	"license": "GPL-2.0-or-later",
+	"scripts": {
+		"build": "npm run clean && node scripts/build.mjs",
+		"watch": "node scripts/build.mjs --watch",
+		"clean": "rm -rf build",
+		"test:js": "jest --passWithNoTests"
+	},
+	"dependencies": {
+		"@wordpress/element": "^6.0.0",
+		"@wordpress/i18n": "^6.18.0",
+		"react": "^18.3.1",
+		"react-dom": "^18.3.1"
+	},
+	"devDependencies": {
+		"@babel/preset-env": "^7.29.5",
+		"@babel/preset-react": "^7.28.5",
+		"@testing-library/jest-dom": "^6.4.0",
+		"@testing-library/react": "^16.0.0",
+		"babel-jest": "^30.4.1",
+		"esbuild": "^0.28.0",
+		"jest": "^30.4.2",
+		"jest-environment-jsdom": "^30.4.1",
+		"rtlcss": "^4.3.0",
+		"sass": "^1.99.0"
+	}
+}

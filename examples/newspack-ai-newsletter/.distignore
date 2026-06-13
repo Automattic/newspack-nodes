@@ -1,0 +1,13 @@
+/node_modules
+/src
+/scripts
+/tests
+/.gitignore
+/.distignore
+/babel.config.js
+/jest.config.js
+/jest.setup.js
+/jest.style-mock.js
+/package.json
+/package-lock.json
+/composer.json
