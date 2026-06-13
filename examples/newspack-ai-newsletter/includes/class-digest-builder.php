@@ -16,7 +16,7 @@ use Newspack_Nodes\Command_Interpreter_Node;
 class Digest_Builder_Node extends Node {
 	use \Newspack_Nodes\Schema_Reflection;
 
-	/** @var array<int,array<string,mixed>> Accumulated summarized items. */
+	/** @var array<int,array<array-key,mixed>> Accumulated summarized items (array-key: they round-trip through offsetlog JSON). */
 	private array $items = [];
 
 	/** Wire the sibling {name}:config interpreter so the `flush` verb is dispatchable. */
@@ -59,6 +59,37 @@ class Digest_Builder_Node extends Node {
 		$n           = \count( $this->items );
 		$this->items = [];
 		return "flushed $n summary(ies)";
+	}
+
+	/**
+	 * Snapshot contract: the accumulated items the Consumer co-commits into its
+	 * offsetlog (via `set_snapshot_node digest`), so a respawned worker restores
+	 * this in lockstep with the cursor. Bounded — keep the digest small.
+	 *
+	 * @return array{items: array<int,array<array-key,mixed>>}
+	 */
+	public function save_state(): array {
+		return [ 'items' => $this->items ];
+	}
+
+	/**
+	 * Restore the accumulated items from a snapshot cache. Tolerates a malformed
+	 * payload (resets to empty, drops non-array items) rather than fataling a
+	 * fresh worker on boot.
+	 *
+	 * @param array<string,mixed> $state
+	 */
+	public function restore_state( array $state ): void {
+		$this->items = [];
+		$items       = $state['items'] ?? null;
+		if ( ! \is_array( $items ) ) {
+			return;
+		}
+		foreach ( $items as $item ) {
+			if ( \is_array( $item ) ) {
+				$this->items[] = $item;
+			}
+		}
 	}
 
 	public static function node_schema(): array {

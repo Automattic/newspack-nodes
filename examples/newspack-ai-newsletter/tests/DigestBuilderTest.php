@@ -84,4 +84,44 @@ final class DigestBuilderTest extends TestCase {
 			$this->assertSame( 'out', $m[ Message::TO ] );
 		}
 	}
+
+	public function test_save_state_returns_accumulated_items(): void {
+		$node = new Digest_Builder_Node();
+		$a    = $this->summary( 'a' );
+		$node->fill( $a );
+		$b = $this->summary( 'b' );
+		$node->fill( $b );
+		$state = $node->save_state();
+		$this->assertArrayHasKey( 'items', $state );
+		$this->assertCount( 2, $state['items'] );
+		$this->assertSame( 'sum:a', $state['items'][0]['summary'] );
+	}
+
+	public function test_restore_state_repopulates_so_flush_emits_them(): void {
+		$sink = new Capture_Sink_Node();
+		$node = new Digest_Builder_Node();
+		$node->sink( $sink );
+		$node->restore_state( [ 'items' => [
+			[ 'source' => 'x', 'title' => 't', 'summary' => 'sum:restored' ],
+		] ] );
+		$node->cmd_flush();
+		$this->assertStringContainsString( 'sum:restored', $sink->captured[0][ Message::VALUE ] );
+	}
+
+	public function test_save_restore_round_trip_is_lossless(): void {
+		$a = new Digest_Builder_Node();
+		$m = $this->summary( 'a' );
+		$a->fill( $m );
+		// Model the real transport: the snapshot crosses a JSON boundary in the offsetlog.
+		$transported = \json_decode( (string) \json_encode( $a->save_state() ), true );
+		$b           = new Digest_Builder_Node();
+		$b->restore_state( $transported );
+		$this->assertEquals( $a->save_state(), $b->save_state() );
+	}
+
+	public function test_restore_state_ignores_malformed_payload(): void {
+		$node = new Digest_Builder_Node();
+		$node->restore_state( [ 'items' => 'not-an-array' ] );
+		$this->assertSame( [ 'items' => [] ], $node->save_state() );
+	}
 }
