@@ -1,0 +1,102 @@
+<?php
+declare(strict_types=1);
+
+require_once dirname( __DIR__ ) . '/includes/class-insights-ci.php';
+
+use Newspack_AI_Newsletter\Insights_CI_Node;
+use Newspack_Nodes\Message;
+use Newspack_Nodes\Partition_Node;
+use Newspack_Nodes\Tests\TestCase;
+
+final class InsightsCiTest extends TestCase {
+
+	/** @var string[] Temp dirs created by a test, removed in tearDown. */
+	private array $tmp_dirs = [];
+
+	protected function tearDown(): void {
+		foreach ( $this->tmp_dirs as $dir ) {
+			$this->rmrf( $dir );
+		}
+		$this->tmp_dirs = [];
+		parent::tearDown();
+	}
+
+	private function rmrf( string $dir ): void {
+		if ( ! \is_dir( $dir ) ) {
+			return;
+		}
+		foreach ( \array_diff( (array) \scandir( $dir ), [ '.', '..' ] ) as $name ) {
+			$path = "$dir/$name";
+			\is_dir( $path ) ? $this->rmrf( $path ) : \unlink( $path );
+		}
+		\rmdir( $dir );
+	}
+
+	/** Write one offsetlog-shaped snapshot record (seg/off + cache) into $offsets/scored.p$n. */
+	private function write_snapshot( string $offsets, int $partition, array $items ): void {
+		$ol = new Partition_Node();
+		$ol->name( "t:ol:$partition" );
+		$ol->arguments( "$offsets/scored.p$partition 0" );
+		$ol->void_warranty(); // The real Consumer offsetlog runs large-writes on (set_snapshot_node).
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_STRUCT;
+		$m[ Message::VALUE ] = [ 'seg' => 0, 'off' => 0, 'cache' => [ 'items' => $items ] ];
+		$ol->fill( $m );
+		$ol->flush();
+	}
+
+	public function test_reads_snapshot_and_shapes_model(): void {
+		$offsets          = \sys_get_temp_dir() . '/insights-ci-test-' . \uniqid();
+		$this->tmp_dirs[] = $offsets;
+		\mkdir( $offsets, 0777, true );
+		$this->write_snapshot( $offsets, 0, [
+			[ 'source' => 'releases',  'title' => 'Roundup Block ships',  'summary' => 's1', 'score' => 6.0 ],
+			[ 'source' => 'community', 'title' => 'Reader forum hits 10k', 'summary' => 's2', 'score' => 4.0 ],
+			[ 'source' => 'releases',  'title' => 'Minor fix',             'summary' => 's3', 'score' => 5.0 ],
+		] );
+
+		$model = Insights_CI_Node::read_insights_model( $offsets );
+
+		$this->assertSame( 3, $model['accumulated'] );
+		$this->assertSame( [ 'releases' => 2, 'community' => 1 ], $model['sources'] );
+		// top sorted by score desc.
+		$this->assertSame( 6.0, $model['top'][0]['score'] );
+		$this->assertSame( 'Roundup Block ships', $model['top'][0]['title'] );
+		$this->assertSame( 5.0, $model['top'][1]['score'] );
+	}
+
+	public function test_reads_large_snapshot_over_pipe_buf(): void {
+		$offsets          = \sys_get_temp_dir() . '/insights-ci-large-' . \uniqid();
+		$this->tmp_dirs[] = $offsets;
+		\mkdir( $offsets, 0777, true );
+		// 60 padded items pack to well over PIPE_BUF (4096B) as one offsetlog line —
+		// the realistic accumulating-digest case the small-record tests never reach.
+		$items = [];
+		for ( $i = 0; $i < 60; $i++ ) {
+			$items[] = [ 'source' => 'releases', 'title' => "Item $i " . \str_repeat( 'x', 80 ), 'summary' => 's', 'score' => (float) $i ];
+		}
+		$this->write_snapshot( $offsets, 0, $items );
+
+		$model = Insights_CI_Node::read_insights_model( $offsets );
+		$this->assertSame( 60, $model['accumulated'] );
+		$this->assertSame( 59.0, $model['top'][0]['score'] ); // highest score first
+	}
+
+	public function test_missing_offsets_dir_yields_empty_model(): void {
+		$model = Insights_CI_Node::read_insights_model( '/nonexistent/' . \uniqid() );
+		$this->assertSame( [ 'sources' => [], 'top' => [], 'accumulated' => 0 ], $model );
+	}
+
+	public function test_insights_verb_is_registered_and_returns_json(): void {
+		$ci = new Insights_CI_Node();
+		$ci->name( 'insights' );
+		$this->assertArrayHasKey( 'insights', $ci->commands() );
+		$json = $ci->build_insights_json();
+		$this->assertJson( $json );
+		$decoded = \json_decode( $json, true );
+		$this->assertIsArray( $decoded );
+		$this->assertArrayHasKey( 'sources', $decoded );
+		$this->assertArrayHasKey( 'top', $decoded );
+		$this->assertArrayHasKey( 'accumulated', $decoded );
+	}
+}
