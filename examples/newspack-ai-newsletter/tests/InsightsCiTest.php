@@ -10,26 +10,15 @@ use Newspack_Nodes\Tests\TestCase;
 
 final class InsightsCiTest extends TestCase {
 
-	/** @var string[] Temp dirs created by a test, removed in tearDown. */
-	private array $tmp_dirs = [];
+	/** @var string[] make_temp_dir() doesn't self-register for cleanup, so track + remove here. */
+	private array $created = [];
 
 	protected function tearDown(): void {
-		foreach ( $this->tmp_dirs as $dir ) {
-			$this->rmrf( $dir );
+		foreach ( $this->created as $dir ) {
+			$this->rmdir_recursive( $dir );
 		}
-		$this->tmp_dirs = [];
+		$this->created = [];
 		parent::tearDown();
-	}
-
-	private function rmrf( string $dir ): void {
-		if ( ! \is_dir( $dir ) ) {
-			return;
-		}
-		foreach ( \array_diff( (array) \scandir( $dir ), [ '.', '..' ] ) as $name ) {
-			$path = "$dir/$name";
-			\is_dir( $path ) ? $this->rmrf( $path ) : \unlink( $path );
-		}
-		\rmdir( $dir );
 	}
 
 	/** Write one offsetlog-shaped snapshot record (seg/off + cache) into $offsets/scored.p$n. */
@@ -46,9 +35,8 @@ final class InsightsCiTest extends TestCase {
 	}
 
 	public function test_reads_snapshot_and_shapes_model(): void {
-		$offsets          = \sys_get_temp_dir() . '/insights-ci-test-' . \uniqid();
-		$this->tmp_dirs[] = $offsets;
-		\mkdir( $offsets, 0777, true );
+		$offsets         = $this->make_temp_dir( 'insights-ci-test-' );
+		$this->created[] = $offsets;
 		$this->write_snapshot( $offsets, 0, [
 			[ 'source' => 'releases',  'title' => 'Roundup Block ships',  'summary' => 's1', 'score' => 6.0 ],
 			[ 'source' => 'community', 'title' => 'Reader forum hits 10k', 'summary' => 's2', 'score' => 4.0 ],
@@ -66,9 +54,8 @@ final class InsightsCiTest extends TestCase {
 	}
 
 	public function test_reads_large_snapshot_over_pipe_buf(): void {
-		$offsets          = \sys_get_temp_dir() . '/insights-ci-large-' . \uniqid();
-		$this->tmp_dirs[] = $offsets;
-		\mkdir( $offsets, 0777, true );
+		$offsets         = $this->make_temp_dir( 'insights-ci-large-' );
+		$this->created[] = $offsets;
 		// 60 padded items pack to well over PIPE_BUF (4096B) as one offsetlog line —
 		// the realistic accumulating-digest case the small-record tests never reach.
 		$items = [];
