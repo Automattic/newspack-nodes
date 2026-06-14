@@ -2198,6 +2198,42 @@ class PartitionTest extends TestCase {
 
 		$this->assertNull( Partition_Node::read_latest_value_at( $this->tmp ) );
 	}
+
+	public function test_seam_methods_return_partition_defaults(): void {
+		// Partition's seams describe a DIRECTORY layout writing the packed envelope.
+		// Log overrides these six; pinning the defaults here keeps Partition's own
+		// contract stable as the seams get introduced.
+		$probe = new class() extends \Newspack_Nodes\Partition_Node {
+			public function probe_segment_dir(): string {
+				return $this->segment_dir(); }
+			public function probe_index_path( int $id ): string {
+				return $this->get_index_path( $id ); }
+			public function probe_pattern(): string {
+				return $this->segment_pattern(); }
+			public function probe_record( array $m ): string {
+				return $this->serialize_record( $m ); }
+			public function probe_rotate_lock(): string {
+				return $this->rotate_lock_path(); }
+			public function probe_write_lock(): string {
+				return $this->write_lock_path(); }
+		};
+		$probe->arguments( "{$this->tmp}/p0 1024 2" );
+
+		$this->assertSame( "{$this->tmp}/p0", $probe->probe_segment_dir() );
+		$this->assertSame( "{$this->tmp}/p0/3.log", $probe->get_segment_path( 3 ) );
+		$this->assertSame( "{$this->tmp}/p0/3.idx", $probe->probe_index_path( 3 ) );
+		$this->assertSame( \Newspack_Nodes\Partition_Node::SEGMENT_PATTERN, $probe->probe_pattern() );
+		$this->assertSame( "{$this->tmp}/p0/.rotate.lock.d", $probe->probe_rotate_lock() );
+		$this->assertSame( "{$this->tmp}/p0/write.lock.d", $probe->probe_write_lock() );
+
+		$msg                  = \Newspack_Nodes\Message::new_message();
+		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
+		$msg[ \Newspack_Nodes\Message::VALUE ] = 'hi';
+		$this->assertSame(
+			\Newspack_Nodes\Message::packed( $msg ) . "\n",
+			$probe->probe_record( $msg )
+		);
+	}
 }
 
 /**
