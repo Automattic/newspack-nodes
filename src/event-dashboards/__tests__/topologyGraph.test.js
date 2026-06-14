@@ -33,6 +33,10 @@ it( 'groups workers into one section per topology (type)', () => {
 		'aggregator',
 		'job-router',
 	] );
+	// Each section carries its own workers (so the view needn't re-filter).
+	const agg = sections.find( ( s ) => s.topology === 'aggregator' );
+	expect( agg.workers ).toHaveLength( 1 );
+	expect( agg.workers[ 0 ].type ).toBe( 'aggregator' );
 } );
 
 it( 'roots = source nodes + logs consumed-but-not-produced, alpha-sorted', () => {

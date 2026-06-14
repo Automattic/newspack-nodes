@@ -124,7 +124,9 @@ describe( 'WorkerStatus integration (real graph)', () => {
 		expect(
 			container.querySelector( '.worker-status-header' )
 		).not.toBeNull();
-		expect( container.querySelector( '.pipeline-flow' ) ).not.toBeNull();
+		expect(
+			container.querySelector( '.topology-sections' )
+		).not.toBeNull();
 	} );
 
 	it( 'renders worker rows from a real dump_metadata response', async () => {
@@ -162,5 +164,78 @@ describe( 'WorkerStatus integration (real graph)', () => {
 		const { container } = render( <WorkerStatus fullPage /> );
 		await act( async () => {} );
 		expect( container.textContent ).toMatch( /Server disconnected/ );
+	} );
+
+	it( 'renders one section per topology, keeps the supervisor, and preserves a seeded behind/segment datum', async () => {
+		mockActiveClient = makeFakeClient( {
+			dump_metadata: {
+				supervisor: {
+					type: 'supervisor',
+					status: 'running',
+					started_at: 1000,
+					heartbeat_age: 2,
+					restart_pending: false,
+				},
+				workers: [
+					{
+						type: 'firehose-workers',
+						handler: 'firehose-workers',
+						partition: 0,
+						started_at: 1000,
+						status: 'running',
+						behind: 2 * 1024 * 1024,
+						inputs: [],
+						outputs: [ 'firehose.log' ],
+						inputs_status: [],
+						outputs_status: [],
+					},
+					{
+						type: 'request-workers',
+						handler: 'request-workers',
+						partition: 0,
+						started_at: 1000,
+						status: 'running',
+						inputs: [],
+						outputs: [ 'requests.log' ],
+						inputs_status: [],
+						outputs_status: [],
+					},
+				],
+				logs: [
+					{
+						name: 'firehose.log',
+						partitions: [
+							{
+								partition: 0,
+								segments: [ { id: 1, size: 100 } ],
+								total_size: 100,
+							},
+						],
+					},
+					{
+						name: 'requests.log',
+						partitions: [
+							{ partition: 0, segments: [], total_size: 0 },
+						],
+					},
+				],
+			},
+		} );
+
+		const { container } = render( <WorkerStatus fullPage /> );
+		await act( async () => {} );
+
+		// Two topologies → two sections; supervisor card intact.
+		expect( container.querySelectorAll( '.topology-section' ).length ).toBe(
+			2
+		);
+		expect(
+			container.querySelector( '.supervisor-section' )
+		).not.toBeNull();
+		// The producer's log + its segment survived the transform → view → render path.
+		expect( container.textContent ).toMatch( /firehose\.log/ );
+		expect( container.querySelector( '.worker-segment-h' ) ).not.toBeNull();
+		// The seeded behind datum is rendered on the firehose node row.
+		expect( container.querySelector( '.connector-behind' ) ).not.toBeNull();
 	} );
 } );

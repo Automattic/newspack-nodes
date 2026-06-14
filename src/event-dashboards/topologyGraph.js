@@ -241,6 +241,7 @@ export function buildTopologySections( workers, logsCatalog = [] ) {
 			.map( ( n ) => makeLog( n, new Set() ) );
 		sections.push( {
 			topology,
+			workers: tWorkers,
 			tree: [ ...rootNodes, ...rootLogs ].sort( byName ),
 		} );
 	}
