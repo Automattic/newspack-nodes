@@ -12,7 +12,6 @@ namespace Newspack_AI_Newsletter;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Partition_Node;
-use Newspack_Nodes\Message;
 use Newspack_Nodes\Config;
 
 \defined( 'ABSPATH' ) || exit;
@@ -84,35 +83,19 @@ class Insights_CI_Node extends Service_CI_Node {
 	 * @return array<int,array<array-key,mixed>>
 	 */
 	private static function read_cache_items( string $offset_dir ): array {
-		try {
-			$ol = new Partition_Node();
-			$ol->arguments( "$offset_dir 0" );
-			$segments = $ol->get_segments( true );
-			if ( empty( $segments ) ) {
-				return [];
-			}
-			$newest = \end( $segments );
-			$bytes  = $ol->read_at( $newest['id'], 0, $newest['size'] );
-			$lines  = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
-			if ( empty( $lines ) ) {
-				return [];
-			}
-			$value = Message::unpacked( \end( $lines ) )[ Message::VALUE ] ?? null;
-			$cache = \is_array( $value ) && \is_array( $value['cache'] ?? null ) ? $value['cache'] : [];
-			$items = $cache['items'] ?? null;
-			if ( ! \is_array( $items ) ) {
-				return [];
-			}
-			$out = [];
-			foreach ( $items as $item ) {
-				if ( \is_array( $item ) ) {
-					$out[] = $item;
-				}
-			}
-			return $out;
-		} catch ( \Throwable $e ) {
+		$value = Partition_Node::read_latest_value_at( $offset_dir );
+		$cache = \is_array( $value ) && \is_array( $value['cache'] ?? null ) ? $value['cache'] : [];
+		$items = $cache['items'] ?? null;
+		if ( ! \is_array( $items ) ) {
 			return [];
 		}
+		$out = [];
+		foreach ( $items as $item ) {
+			if ( \is_array( $item ) ) {
+				$out[] = $item;
+			}
+		}
+		return $out;
 	}
 
 	public static function node_schema(): array {

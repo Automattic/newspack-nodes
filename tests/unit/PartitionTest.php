@@ -2163,6 +2163,48 @@ class PartitionTest extends TestCase {
 
 		$p->remove_node();
 	}
+
+	/** Write one record whose VALUE is the given array into the offset dir's p0 partition. */
+	private function write_value_record( string $offset_dir, array $value ): void {
+		$p   = new Partition_Node();
+		$p->arguments( "$offset_dir 0" );
+		$msg                  = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
+		$msg[ Message::VALUE ] = $value;
+		$p->fill( $msg );
+		$p->flush();
+	}
+
+	public function test_read_latest_value_at_returns_null_for_empty_dir(): void {
+		$this->assertNull( Partition_Node::read_latest_value_at( $this->tmp ) );
+	}
+
+	public function test_read_latest_value_at_returns_written_value(): void {
+		$value = [ 'cache' => [ 'items' => [ [ 'title' => 'x' ] ] ], 'k' => 'v' ];
+		$this->write_value_record( $this->tmp, $value );
+
+		$this->assertSame( $value, Partition_Node::read_latest_value_at( $this->tmp ) );
+	}
+
+	public function test_read_latest_value_at_returns_newest_of_many(): void {
+		$this->write_value_record( $this->tmp, [ 'k' => 'first' ] );
+		$this->write_value_record( $this->tmp, [ 'k' => 'second' ] );
+		$this->write_value_record( $this->tmp, [ 'k' => 'third' ] );
+
+		$this->assertSame( [ 'k' => 'third' ], Partition_Node::read_latest_value_at( $this->tmp ) );
+	}
+
+	public function test_read_latest_value_at_returns_null_for_non_array_value(): void {
+		$p   = new Partition_Node();
+		$p->arguments( "{$this->tmp} 0" );
+		$msg                  = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$msg[ Message::VALUE ] = 'just-a-string';
+		$p->fill( $msg );
+		$p->flush();
+
+		$this->assertNull( Partition_Node::read_latest_value_at( $this->tmp ) );
+	}
 }
 
 /**
