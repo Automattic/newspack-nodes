@@ -3,8 +3,8 @@
  * worker rows + the logs catalog supply the STATUS overlay.
  *
  * Per topology, the raw graph collapses into a log-centric vertex graph: a
- * `consumer` node becomes its `reads` log, a `partition`/`topic` becomes its
- * `writes` log, a `tee` is contracted out, and a `logic` node stays itself.
+ * `consumer` node becomes its `reads` log, a `partition`/`topic`/`log` becomes
+ * its `writes` log, a `tee` is contracted out, and a `logic` node stays itself.
  * Roots are in-degree-0 vertices; an alpha-DFS with a cycle guard yields the
  * tree. Collapse keys ONLY on the emitted `kind`/`reads`/`writes` fields —
  * never on node-name suffixes. Within any sibling list, convergent logic
@@ -149,8 +149,8 @@ function collectLogPartitions( logName, ctx ) {
 /**
  * Collapse one topology's raw `.tsl` graph into a log-centric vertex graph.
  *
- * Maps each node to a vertex (consumer→reads log, partition/topic→writes log,
- * logic→itself), contracts every tee (in×out → direct edges) until none remain,
+ * Maps each node to a vertex (consumer→reads log, partition/topic/log→writes
+ * log, logic→itself), contracts every tee (in×out → direct edges) until none remain,
  * then resolves endpoints, drops self-loops, and dedups edges.
  *
  * @param {Object} graphTopo `{ nodes:[{name,kind,reads?,writes?}], edges:[[from,to]] }`.
@@ -164,7 +164,11 @@ function collapseGraph( graphTopo ) {
 		if ( 'consumer' === n.kind ) {
 			return n.reads;
 		}
-		if ( 'partition' === n.kind || 'topic' === n.kind ) {
+		if (
+			'partition' === n.kind ||
+			'topic' === n.kind ||
+			'log' === n.kind
+		) {
 			return n.writes;
 		}
 		return n.name;

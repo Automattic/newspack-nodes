@@ -778,6 +778,56 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
+	public function test_dump_graph_logs_include_log_file_sinks(): void {
+		// A `make_node Log` file-sink (kind 'log') in an active topology gets a
+		// `logs` catalog entry so the dashboard renders it as a LOG entity:
+		// segments stat'd from the literal file + its rotation siblings, with
+		// the newest file carrying the highest segment id, and segment_size set
+		// from the Log's max_size positional arg.
+		$base = $this->arrange_base_dir();
+
+		// A literal-path Log sink: current file + two rotation siblings.
+		$digest_path = "{$base}/digest.md";
+		\file_put_contents( $digest_path,        \str_repeat( 'a', 30 ) );  // current
+		\file_put_contents( "{$digest_path}.0",  \str_repeat( 'b', 20 ) );  // newest rotation
+		\file_put_contents( "{$digest_path}.1",  \str_repeat( 'c', 10 ) );  // oldest rotation
+
+		$stock = "{$base}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/aggregator.tsl",
+			"make_node Log digest:log {$digest_path} append 100 7\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+
+		$interpreter        = new Workers_CI_Node();
+		$interpreter->cli   = $this->stub_cli();
+		$interpreter->cache = new FakeMemcached();
+		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$by_name = [];
+		foreach ( $result['logs'] as $log ) {
+			$by_name[ $log['name'] ] = $log;
+		}
+		$this->assertArrayHasKey( 'digest.md', $by_name );
+		$entry = $by_name['digest.md'];
+		$this->assertSame( 100, $entry['segment_size'] );
+		$this->assertCount( 1, $entry['partitions'] );
+		$segments = $entry['partitions'][0]['segments'];
+		$this->assertCount( 3, $segments );
+		$this->assertSame( 30 + 20 + 10, $entry['partitions'][0]['total_size'] );
+
+		// Newest file (the current `digest.md`, size 30) gets the highest id.
+		$by_id = [];
+		foreach ( $segments as $seg ) {
+			$by_id[ $seg['id'] ] = $seg['size'];
+		}
+		$max_id = \max( \array_keys( $by_id ) );
+		$this->assertSame( 30, $by_id[ $max_id ] );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
 	public function test_dump_metadata_includes_supervisor_descriptor(): void {
 		// The supervisor is a singleton — exactly one entry, always emitted,
 		// at the un-suffixed lock dir `supervisor.lock.d`. No `partition`
