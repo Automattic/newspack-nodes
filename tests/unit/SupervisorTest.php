@@ -3,9 +3,7 @@ namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Lock_Node;
-use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Supervisor;
-use Newspack_Nodes\Supervisor_Base;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\Attributes\Medium;
@@ -195,122 +193,6 @@ class SupervisorTest extends TestCase {
 
 		$this->rmdir_recursive( $stock );
 		\Newspack_Nodes\Topology_Registry::reset();
-	}
-
-	// ── dirty-flag mechanism: signals Log_Cleaner that GC may be due ──────
-
-	public function test_check_config_sets_logs_dirty_when_worker_dropped(): void {
-		// First tick: two-type fleet. Second tick: one type. The drop
-		// should set the `newspack_nodes_logs_dirty` option so Log_Cleaner
-		// knows to scan on its next tick.
-		$this->with_topology( [
-			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
-			'request-workers'  => [ 'num_partitions' => 1, 'topology' => '/y.php' ],
-		] );
-		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
-		$s->check_config( microtime( true ) );
-		$this->assertFalse( ! empty( $GLOBALS['_wp_options'][Log_Cleaner::LOGS_DIRTY_OPTION] ) );
-
-		// Drop request-workers — only firehose-workers left.
-		$GLOBALS['_wp_actions'] = [];
-		$this->with_topology( [
-			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
-		] );
-		$s->check_config( microtime( true ) + 1 );
-
-		$this->assertTrue( ! empty( $GLOBALS['_wp_options'][Log_Cleaner::LOGS_DIRTY_OPTION] ) );
-	}
-
-	public function test_check_config_sets_logs_dirty_when_num_partitions_reduced(): void {
-		// 2→1 partition drop: firehose-workers.p1 disappears from the fleet.
-		$this->with_topology( [
-			'firehose-workers' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
-		] );
-		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
-		$s->check_config( microtime( true ) );
-		$this->assertFalse( ! empty( $GLOBALS['_wp_options'][Log_Cleaner::LOGS_DIRTY_OPTION] ) );
-
-		$GLOBALS['_wp_actions'] = [];
-		$this->with_topology( [
-			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
-		] );
-		$s->check_config( microtime( true ) + 1 );
-
-		$this->assertTrue( ! empty( $GLOBALS['_wp_options'][Log_Cleaner::LOGS_DIRTY_OPTION] ) );
-	}
-
-	public function test_check_config_does_not_set_logs_dirty_when_unchanged(): void {
-		$this->with_topology( [
-			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
-		] );
-		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
-		$s->check_config( microtime( true ) );
-		$s->check_config( microtime( true ) + 1 );
-
-		$this->assertFalse( ! empty( $GLOBALS['_wp_options'][Log_Cleaner::LOGS_DIRTY_OPTION] ) );
-	}
-
-	public function test_check_config_does_not_set_logs_dirty_when_worker_added(): void {
-		// Pure addition (1→2 partitions, or new topology) does not orphan
-		// anything — no cleanup needed.
-		$this->with_topology( [
-			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
-		] );
-		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
-		$s->check_config( microtime( true ) );
-
-		$GLOBALS['_wp_actions'] = [];
-		$this->with_topology( [
-			'firehose-workers' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
-			'job-workers'      => [ 'num_partitions' => 1, 'topology' => '/y.php' ],
-		] );
-		$s->check_config( microtime( true ) + 1 );
-
-		$this->assertFalse( ! empty( $GLOBALS['_wp_options'][Log_Cleaner::LOGS_DIRTY_OPTION] ) );
-	}
-
-	public function test_tick_loop_arms_log_cleaner_on_boot(): void {
-		// Each supervisor process runs one cleanup pass on boot so on-disk
-		// reality gets reconciled even when the fleet-shrink diff is empty
-		// (e.g. a prior supervisor persisted the shrunk fleet_descriptors
-		// before dying; pre-Log_Cleaner upgrade; manual `wp option` edits).
-		// The arm fires once at the top of tick_loop, before the first
-		// check_config call — Log_Cleaner picks it up on its next sweep.
-		$this->with_topology( [
-			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
-		] );
-		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
-
-		// Pre-seed FLEET_DESCRIPTORS to the current set so the existing
-		// shrink-diff branch is a no-op — proves the arm comes from the
-		// new lifecycle preamble, not the diff path.
-		\update_option(
-			Log_Cleaner::FLEET_DESCRIPTORS_OPTION,
-			[ 'firehose-workers.p0' ]
-		);
-
-		// Seed loop state so tick_loop exits via MAX_SUPERVISOR_RUNTIME_S
-		// on the first iteration (start_time well in the past) — we only
-		// need the preamble to run.
-		$this->assertTrue( $s->init_lock_for_test() );
-		$this->seed_loop_state( $s, microtime( true ) - 1000.0 );
-		$this->invoke_tick_loop( $s );
-
-		$this->assertTrue(
-			! empty( $GLOBALS['_wp_options'][ Log_Cleaner::LOGS_DIRTY_OPTION ] ),
-			'tick_loop should arm Log_Cleaner once at boot'
-		);
-	}
-
-	public function test_check_config_clamps_num_partitions_to_max(): void {
-		$this->with_topology( [
-			'huge' => [ 'num_partitions' => 9999, 'topology' => '/x.php' ],
-		] );
-		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
-
-		$s->check_config( microtime( true ) );
-
-		$this->assertSame( Supervisor_Base::MAX_PARTITIONS, $s->num_partitions_for_test() );
 	}
 
 	public function test_check_config_picks_up_added_topology_on_subsequent_call(): void {
@@ -977,31 +859,37 @@ class SupervisorTest extends TestCase {
 	}
 
 	/**
-	 * tick_loop GCs orphan partition directories — `logs/*.log/p{N}/` and
-	 * `offsets/*.p{N}/` where N >= num_partitions and no `*.p{N}.lock.d/`
-	 * exists — once per check_config window. End-to-end: real filesystem,
-	 * real Log_Cleaner, real check_config. Confirms the call is wired into
-	 * the tick_loop, not just present somewhere in the class.
+	 * tick_loop GCs orphan flat log dirs (logs/{name}.p{N}/) against the config-
+	 * declared set once per check_config window. End-to-end: real filesystem,
+	 * real Log_Cleaner, real check_config. Confirms the call is wired into the
+	 * tick_loop, not just present somewhere in the class. Liveness-free: an
+	 * undeclared dir is swept regardless of locks.
 	 */
 	public function test_tick_loop_cleans_orphan_partition_dirs_on_config_window(): void {
-		// Register a single-partition topology so num_partitions resolves to 1.
 		$this->with_topology( [
 			'noop' => [ 'topology' => '/dev/null', 'num_partitions' => 1, 'stale_timeout' => 60 ],
 		] );
 
-		// Seed an orphan p1/ data dir + matching offsetlog dir (no lock dir → safe to clean).
-		\mkdir( "{$this->tmp}/logs/firehose.log/p1", 0755, true );
-		\file_put_contents( "{$this->tmp}/logs/firehose.log/p1/0.log", 'stale' );
-		\mkdir( "{$this->tmp}/offsets/firehose.p1/p0", 0755, true );
-		\file_put_contents( "{$this->tmp}/offsets/firehose.p1/p0/0.log", 'stale' );
+		// A real .tsl declares the kept basename; the GC reads Topology_Registry,
+		// not the supervisor's fleet filter.
+		$stock = "{$this->tmp}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/requests-workers.tsl",
+			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		\Newspack_Nodes\Topology_Registry::reset_basename_cache();
 
-		// Arm the dirty flag — in production, check_config sets it when
-		// it detects a fleet shrink; this test exercises the cleanup
-		// branch downstream of that, so we set the flag directly.
-		\update_option( Log_Cleaner::LOGS_DIRTY_OPTION, '1' );
+		// Declared (kept) + undeclared with a lock dir (still swept — orange is gone).
+		\mkdir( "{$this->tmp}/logs/requests.p0", 0755, true );
+		\file_put_contents( "{$this->tmp}/logs/requests.p0/0.log", 'live' );
+		\mkdir( "{$this->tmp}/logs/ghost.p0", 0755, true );
+		\file_put_contents( "{$this->tmp}/logs/ghost.p0/0.log", 'stale' );
+		\mkdir( "{$this->tmp}/locks/ghost.p0.lock.d", 0755, true );
+		\file_put_contents( "{$this->tmp}/locks/ghost.p0.lock.d/heartbeat", (string) \getmypid() );
 
-		// Periodic hook callback drops the restart flag so iter 2 breaks
-		// the loop. Matches the pattern used by the other tick_loop tests.
+		// Periodic hook callback drops the restart flag so iter 2 breaks the loop.
 		$tmp = $this->tmp;
 		\add_action(
 			'newspack_nodes/supervisor_periodic',
@@ -1016,45 +904,11 @@ class SupervisorTest extends TestCase {
 
 		$this->invoke_tick_loop( $s );
 
-		$this->assertDirectoryDoesNotExist( "{$this->tmp}/logs/firehose.log/p1" );
-		$this->assertDirectoryDoesNotExist( "{$this->tmp}/offsets/firehose.p1" );
+		$this->assertDirectoryExists( "{$this->tmp}/logs/requests.p0" );
+		$this->assertDirectoryDoesNotExist( "{$this->tmp}/logs/ghost.p0" );
 
 		$s->release_lock_for_test();
-	}
-
-	/**
-	 * tick_loop's GC must NOT touch p{N} dirs that still have a live lock —
-	 * that's the "worker is still running, don't yank the rug" gate.
-	 */
-	public function test_tick_loop_skips_partition_dir_when_lock_dir_exists(): void {
-		$this->with_topology( [
-			'noop' => [ 'topology' => '/dev/null', 'num_partitions' => 1, 'stale_timeout' => 60 ],
-		] );
-
-		\mkdir( "{$this->tmp}/logs/firehose.log/p1", 0755, true );
-		\file_put_contents( "{$this->tmp}/logs/firehose.log/p1/0.log", 'guarded' );
-		\mkdir( "{$this->tmp}/locks/firehose-workers.p1.lock.d", 0755, true );
-		\file_put_contents( "{$this->tmp}/locks/firehose-workers.p1.lock.d/heartbeat", (string) \getmypid() );
-		\update_option( Log_Cleaner::LOGS_DIRTY_OPTION, '1' );
-
-		$tmp = $this->tmp;
-		\add_action(
-			'newspack_nodes/supervisor_periodic',
-			function () use ( $tmp ) {
-				Lock_Node::request_restart_at( "{$tmp}/locks/supervisor.lock.d" );
-			}
-		);
-
-		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
-		$this->assertTrue( $s->init_lock_for_test() );
-		$this->seed_loop_state( $s, microtime( true ), 0.0 );
-
-		$this->invoke_tick_loop( $s );
-
-		$this->assertDirectoryExists( "{$this->tmp}/logs/firehose.log/p1" );
-		$this->assertFileExists( "{$this->tmp}/logs/firehose.log/p1/0.log" );
-
-		$s->release_lock_for_test();
+		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
 	/**

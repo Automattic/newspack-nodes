@@ -15,7 +15,7 @@ class Supervisor_Base {
 	/** Min interval between spawning the same worker; updated after every attempt (success or fail). */
 	public const MIN_SPAWN_INTERVAL_S = 15;
 
-	/** Cleanup walks num_partitions..MAX_PARTITIONS. */
+	/** Upper bound on partitions per topology; expand_workers clamps the spawn count to it. */
 	public const MAX_PARTITIONS = 16;
 
 	/** Symlink-loop defense. */

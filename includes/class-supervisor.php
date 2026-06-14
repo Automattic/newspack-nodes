@@ -39,9 +39,6 @@ class Supervisor extends Supervisor_Base {
 
 	private float $last_config_check = 0.0;
 
-	/** @var int|null Cached num_partitions clamped to MAX_PARTITIONS. */
-	private ?int $num_partitions = null;
-
 	/** @var array<int, array{type: string, partition: int, topology: mixed, stale_timeout: mixed}> Worker descriptors built from expand_workers(). */
 	private array $worker_locks = [];
 
@@ -123,9 +120,6 @@ class Supervisor extends Supervisor_Base {
 		$token             = '';
 		$spawn_url         = \rest_url( 'newspack-nodes/v1/workers/spawn' );
 
-		// One reconciliation sweep per lifecycle for drift the fleet-shrink diff misses.
-		\update_option( Log_Cleaner::LOGS_DIRTY_OPTION, '1', false );
-
 		while ( true ) {
 			$now = \microtime( true );
 
@@ -154,7 +148,7 @@ class Supervisor extends Supervisor_Base {
 				if ( ! $this->check_config( $now ) ) {
 					break;
 				}
-				Log_Cleaner::cleanup_orphan_partitions( $this->base_dir, $this->num_partitions ?? 1 );
+				Log_Cleaner::cleanup_orphan_partitions( $this->base_dir );
 				$this->cleanup_orphan_ipc();
 				if ( \function_exists( 'do_action' ) ) {
 					\do_action( 'newspack_nodes/supervisor_periodic' );
@@ -218,15 +212,6 @@ class Supervisor extends Supervisor_Base {
 			return false;
 		}
 
-		// Effective num_partitions: max across topologies, clamped.
-		$max_partitions = 1;
-		foreach ( $workers as $w ) {
-			if ( $w['partition'] + 1 > $max_partitions ) {
-				$max_partitions = $w['partition'] + 1;
-			}
-		}
-		$this->num_partitions = \min( self::MAX_PARTITIONS, \max( 1, $max_partitions ) );
-
 		// Active fleet table: type => max-partition-count (per-type sizing from TSL frontmatter).
 		$new_types = [];
 		foreach ( $workers as $w ) {
@@ -245,21 +230,6 @@ class Supervisor extends Supervisor_Base {
 		}
 		$this->active_types = $new_types;
 		$this->worker_locks = $workers;
-
-		// Detect a shrunk fleet and arm Log_Cleaner; prior set is persisted to survive respawns.
-		$current_set = [];
-		foreach ( $workers as $w ) {
-			$current_set[] = "{$w['type']}.p{$w['partition']}";
-		}
-		\sort( $current_set );
-		/** @var list<string>|null $prior Persisted as $current_set (a list<string>) by this method. */
-		$prior = \get_option( Log_Cleaner::FLEET_DESCRIPTORS_OPTION, null );
-		if ( \is_array( $prior ) && ! empty( \array_diff( $prior, $current_set ) ) ) {
-			\update_option( Log_Cleaner::LOGS_DIRTY_OPTION, '1', false );
-		}
-		if ( $current_set !== $prior ) {
-			\update_option( Log_Cleaner::FLEET_DESCRIPTORS_OPTION, $current_set, false );
-		}
 
 		// Reconcile on-disk lock dirs against the active fleet (removed topology, shrunk count, orphans).
 		$this->reconcile_lock_dirs();
@@ -519,10 +489,5 @@ class Supervisor extends Supervisor_Base {
 	 */
 	public function worker_locks_for_test(): array {
 		return $this->worker_locks;
-	}
-
-	/** Test hook: return the cached, clamped num_partitions value. */
-	public function num_partitions_for_test(): ?int {
-		return $this->num_partitions;
 	}
 }
