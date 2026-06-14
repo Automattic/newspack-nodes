@@ -10,7 +10,7 @@
  * `buildTopologySections`), whose fold state is owned here.
  */
 
-import { memo, useMemo, useState } from '@wordpress/element';
+import { memo, useEffect, useMemo, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import { useNodeState } from '../runtime/react';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
@@ -27,6 +27,53 @@ import './styles/worker-status.scss';
 // Re-exported for backwards-compat (the localStorage migration helper moved into
 // the graph hook, which owns the refresh interval).
 export { initialRefresh };
+
+// Persisted fold state: a JSON array of position keys for the collapsed entities.
+const COLLAPSED_KEY = 'newspack-nodes-worker-status-collapsed';
+
+// Read the persisted collapsed set; tolerate disabled/quota'd/SSR localStorage
+// and malformed JSON by falling back to an empty Set.
+function loadCollapsed() {
+	if ( typeof window === 'undefined' || ! window.localStorage ) {
+		return new Set();
+	}
+	try {
+		const raw = window.localStorage.getItem( COLLAPSED_KEY );
+		const keys = raw ? JSON.parse( raw ) : [];
+		return new Set( Array.isArray( keys ) ? keys : [] );
+	} catch ( e ) {
+		return new Set();
+	}
+}
+
+// Persist the collapsed set; same availability guard as the reader.
+function saveCollapsed( set ) {
+	if ( typeof window === 'undefined' || ! window.localStorage ) {
+		return;
+	}
+	try {
+		window.localStorage.setItem(
+			COLLAPSED_KEY,
+			JSON.stringify( [ ...set ] )
+		);
+	} catch ( e ) {
+		// localStorage disabled/quota'd; in-session fold state only.
+	}
+}
+
+// Every entity key currently in the rendered tree (recursing children).
+function collectKeys( sections ) {
+	const keys = new Set();
+	const walk = ( entities ) =>
+		entities.forEach( ( e ) => {
+			keys.add( e.key );
+			if ( e.children ) {
+				walk( e.children );
+			}
+		} );
+	sections.forEach( ( s ) => walk( s.tree ) );
+	return keys;
+}
 
 // The view model before the first poll publishes one — drives the loading gate.
 const EMPTY_MODEL = {
@@ -272,7 +319,7 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 		() => buildTopologySections( graph, workers, logsCatalog ),
 		[ graph, workers, logsCatalog ]
 	);
-	const [ collapsed, setCollapsed ] = useState( () => new Set() );
+	const [ collapsed, setCollapsed ] = useState( loadCollapsed );
 	const onToggle = ( key ) =>
 		setCollapsed( ( prev ) => {
 			const next = new Set( prev );
@@ -281,8 +328,29 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 			} else {
 				next.add( key );
 			}
+			saveCollapsed( next );
 			return next;
 		} );
+
+	// Trim persisted fold state to what's currently on the page: drop keys for
+	// topologies that were removed/renamed (their position keys no longer exist).
+	// Skip while empty (still loading) so we don't wipe folds before data lands.
+	useEffect( () => {
+		if ( ! sections.length ) {
+			return;
+		}
+		const valid = collectKeys( sections );
+		setCollapsed( ( prev ) => {
+			const next = new Set(
+				[ ...prev ].filter( ( k ) => valid.has( k ) )
+			);
+			if ( next.size === prev.size ) {
+				return prev;
+			}
+			saveCollapsed( next );
+			return next;
+		} );
+	}, [ sections ] );
 
 	if ( loading && workers.length === 0 ) {
 		return (

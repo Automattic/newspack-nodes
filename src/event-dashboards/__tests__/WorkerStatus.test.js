@@ -233,6 +233,44 @@ describe( 'WorkerStatus', () => {
 		expect( container.textContent ).toMatch( /Firehose Workers/ );
 	} );
 
+	it( 'trims persisted fold keys to what is currently on the page', () => {
+		// A stale key (removed/renamed topology) must be dropped from storage.
+		window.localStorage.setItem(
+			'newspack-nodes-worker-status-collapsed',
+			JSON.stringify( [ 'firehose-workers', 'ghost-topology' ] )
+		);
+		registerViewFixture(
+			viewModel( {
+				workers: [
+					{
+						type: 'firehose-workers',
+						handler: 'firehose-workers',
+						partition: 0,
+						started_at: 1000,
+						inputs: [],
+						outputs: [],
+						inputs_status: [],
+						outputs_status: [],
+					},
+				],
+				graph: {
+					'firehose-workers': {
+						nodes: [ { name: 'firehose-workers', kind: 'logic' } ],
+						edges: [],
+					},
+				},
+			} )
+		);
+		render( <WorkerStatus fullPage /> );
+		const stored = JSON.parse(
+			window.localStorage.getItem(
+				'newspack-nodes-worker-status-collapsed'
+			)
+		);
+		expect( stored ).toContain( 'firehose-workers' );
+		expect( stored ).not.toContain( 'ghost-topology' );
+	} );
+
 	it( 'renders the supervisor card when the descriptor is present', () => {
 		registerViewFixture(
 			viewModel( {
@@ -1015,6 +1053,119 @@ describe( 'WorkerStatus', () => {
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
 		expect( container.querySelector( '.segment-slide-in' ) ).not.toBeNull();
+	} );
+
+	it( 'seeds the collapsed set from localStorage so a matching entity renders folded on first render', () => {
+		// A persisted fold for the root log's position key collapses it on mount.
+		window.localStorage.setItem(
+			'newspack-nodes-worker-status-collapsed',
+			JSON.stringify( [ 'firehose.log' ] )
+		);
+		registerViewFixture(
+			viewModel( {
+				workers: [
+					{
+						type: 'firehose-workers',
+						handler: 'firehose-workers',
+						partition: 0,
+						started_at: 1000,
+						inputs: [ 'firehose.log' ],
+						outputs: [],
+						inputs_status: [
+							{
+								name: 'firehose.log',
+								segments: [],
+								cursor_seg: 0,
+								cursor_offset: 0,
+							},
+						],
+						outputs_status: [],
+					},
+				],
+				graph: {
+					'firehose-workers': {
+						nodes: [
+							{
+								name: 'firehose-in',
+								kind: 'consumer',
+								reads: 'firehose.log',
+							},
+							{ name: 'firehose-workers', kind: 'logic' },
+						],
+						edges: [ [ 'firehose-in', 'firehose-workers' ] ],
+					},
+				},
+				logs: [
+					{
+						name: 'firehose.log',
+						partitions: [
+							{ partition: 0, segments: [], total_size: 0 },
+						],
+					},
+				],
+			} )
+		);
+		const { container } = render( <WorkerStatus fullPage /> );
+		// The root log is collapsed → its partition rows + child node are hidden.
+		expect( container.querySelector( '.log-partition-row' ) ).toBeNull();
+		expect( container.textContent ).not.toMatch( /Firehose Workers/ );
+	} );
+
+	it( 'persists the collapsed set to localStorage when a fold is toggled', () => {
+		registerViewFixture(
+			viewModel( {
+				workers: [
+					{
+						type: 'firehose-workers',
+						handler: 'firehose-workers',
+						partition: 0,
+						started_at: 1000,
+						inputs: [ 'firehose.log' ],
+						outputs: [],
+						inputs_status: [
+							{
+								name: 'firehose.log',
+								segments: [],
+								cursor_seg: 0,
+								cursor_offset: 0,
+							},
+						],
+						outputs_status: [],
+					},
+				],
+				graph: {
+					'firehose-workers': {
+						nodes: [
+							{
+								name: 'firehose-in',
+								kind: 'consumer',
+								reads: 'firehose.log',
+							},
+							{ name: 'firehose-workers', kind: 'logic' },
+						],
+						edges: [ [ 'firehose-in', 'firehose-workers' ] ],
+					},
+				},
+				logs: [
+					{
+						name: 'firehose.log',
+						partitions: [
+							{ partition: 0, segments: [], total_size: 0 },
+						],
+					},
+				],
+			} )
+		);
+		const { container } = render( <WorkerStatus fullPage /> );
+		// Toggle the root log's fold caret.
+		fireEvent.click( container.querySelector( '.caret' ) );
+		expect(
+			JSON.parse(
+				window.localStorage.getItem(
+					'newspack-nodes-worker-status-collapsed'
+				)
+			)
+		).toEqual( [ 'firehose.log' ] );
 	} );
 
 	it( 'log rate key strips .log suffix for rate lookups', () => {
