@@ -1,8 +1,13 @@
 <?php
 /**
- * Log: file-writing node — appends each fill()'d message's VALUE (the producer's payload, not the packed envelope) to a file.
+ * Log: append-only segmented log of message VALUEs.
  *
- * Append vs overwrite, optional size-based rotation, and a `rotate` TM_REQUEST. Mirrors Tachikoma::Nodes::Log.
+ * A Log is a Partition that (1) writes the message VALUE (the producer's
+ * payload) instead of the whole packed envelope, and (2) lays segments out as
+ * {file}.{seg} (a file with monotonic numeric suffixes) instead of {dir}/{seg}.log.
+ * Everything else — segments, monotonic rotation, count/age retention, the
+ * multi-writer rotate lock, allow_large_writes()/void_warranty(), batch/flush —
+ * is inherited from Partition_Node. Mirrors Tachikoma::Nodes::Log writing VALUEs.
  *
  * @package Newspack_Nodes
  */
@@ -11,201 +16,73 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Log_Node extends Node {
-	use Schema_Reflection;
-	use File_Writer;
+class Log_Node extends Partition_Node {
 
-	public const MODE_APPEND    = 'append';
-	public const MODE_OVERWRITE = 'overwrite';
-
-	protected string $filename      = '';
-	protected string $mode          = self::MODE_APPEND;
-	protected int $max_size         = 0;
-	protected int $max_rotations    = 0;
-	protected int $size             = 0;
-	/** @var resource|null */
-	protected $fh = null;
-
-	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
-	public function __construct() {
-		parent::__construct();
-	}
+	/** Resolved log file; segments are {file}.0, {file}.1, … (monotonic, highest = current). */
+	protected string $file = '';
 
 	/**
-	 * Store the raw string, parse positional tokens via parse_schema_args() (filename /
-	 * mode / max_size / max_rotations), then normalize, create the parent dir if
-	 * missing, and open the write handle.
+	 * Control messages don't become log lines: TM_ERROR / TM_EOF / TM_REQUEST are
+	 * dropped (Log is append-only — EOF never closes it; segmentation is
+	 * size-driven, so there is no rotate request). Everything else is a data
+	 * record written via the parent's batched segment path using this class's
+	 * VALUE serialize_record seam.
 	 *
-	 * @param string|null $args
-	 * @return string
+	 * @param array<int, mixed> $message
 	 */
-	public function arguments( ?string $args = null ): string {
-		if ( null === $args ) {
-			return parent::arguments();
-		}
-		$result = parent::arguments( $args );
-		if ( '' === $args ) {
-			return $result;
-		}
-		$this->parse_schema_args( $args );
-		$this->max_size      = \max( 0, $this->max_size );
-		$this->max_rotations = \max( 0, $this->max_rotations );
-		// Operator-configured paths, not WP-managed storage. Create the parent
-		// dir so a configured path under a not-yet-existing directory writes
-		// instead of silently failing on a bad fopen (e.g. an example topology's
-		// /tmp/<plugin>/out.log before anything else has made the dir).
-		$dir = \dirname( $this->filename );
-		if ( '' !== $dir && '.' !== $dir && ! \is_dir( $dir ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $dir, 0755, true );
-		}
-		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_fopen
-		$fh       = \fopen( $this->filename, self::MODE_OVERWRITE === $this->mode ? 'wb' : 'ab' );
-		$this->fh = false === $fh ? null : $fh;
-		// Track size so max_size triggers auto-rotate; append-mode reopens may start non-zero.
-		$this->size = ( self::MODE_APPEND === $this->mode && \is_resource( $this->fh ) )
-			? (int) \ftell( $this->fh )
-			: 0;
-		return $result;
-	}
-
 	public function fill( array &$message ): void {
-		++$this->counter;
 		$type_raw = $message[ Message::TYPE ];
 		$type     = \is_numeric( $type_raw ) ? (int) $type_raw : 0;
 
-		if ( $type & Message::TM_ERROR ) {
+		if ( $type & ( Message::TM_ERROR | Message::TM_EOF | Message::TM_REQUEST ) ) {
+			++$this->counter;
 			return;
 		}
-		if ( $type & Message::TM_EOF ) {
-			// Overwrite mode is single-shot; append mode keeps the FD open for later data.
-			if ( self::MODE_OVERWRITE === $this->mode ) {
-				$this->remove_node();
-			}
-			return;
-		}
-		if ( $type & Message::TM_REQUEST ) {
-			$value_raw = $message[ Message::VALUE ];
-			$value     = \is_scalar( $value_raw ) ? (string) $value_raw : '';
-			if ( 'rotate' === $value || 0 === \strpos( $value, 'rotate ' ) ) {
-				$this->rotate();
-			}
-			return;
-		}
-		// No open handle (mkdir/fopen failed — bad path or permissions). Warn
-		// once per window instead of fatally fwrite()-ing to a non-resource.
-		if ( ! \is_resource( $this->fh ) ) {
-			Core::print_less_often( "Log: cannot write to {$this->filename} (no open file handle)" );
-			return;
-		}
-		$value     = Core::as_string( $message[ Message::VALUE ] );
-		$write_len = \strlen( $value );
-		if ( $write_len > $this->largest_msg_sent ) {
-			$this->largest_msg_sent = $write_len;
-		}
-		// Advance size by what actually landed; don't rotate on a short write.
-		$wrote        = $this->write_all( $this->fh, $value, $this->filename );
-		$this->size  += $wrote;
-		if ( $wrote < $write_len ) {
-			return;
-		}
-		// Rotate AFTER the write so the over-limit bytes land in the rotated file; max_size=0 disables.
-		if ( $this->max_size > 0 && $this->size > $this->max_size ) {
-			$this->rotate();
-		}
+
+		parent::fill( $message );
 	}
 
-	public function remove_node(): void {
-		if ( \is_resource( $this->fh ) ) {
-			\fclose( $this->fh );
-			$this->fh = null;
-		}
-		parent::remove_node();
+	/** VALUE seam: write the producer's payload verbatim (no envelope, no added newline). */
+	protected function serialize_record( array $message ): string {
+		return Core::as_string( $message[ Message::VALUE ] );
 	}
 
-	/** logrotate / /var/log style: shift {filename}.N up, rename current → {filename}.0, reopen fresh. Mirrors Tachikoma Log.pm:rotate. */
-	public function rotate(): void {
-		if ( \is_resource( $this->fh ) ) {
-			\fclose( $this->fh );
-			$this->fh = null;
-		}
-		// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename, WordPress.WP.AlternativeFunctions.file_system_operations_fopen
-		$this->shift_rotations();
-		$rotated_name = $this->filename . '.0';
-		@\rename( $this->filename, $rotated_name );
-		$fh         = \fopen( $this->filename, self::MODE_OVERWRITE === $this->mode ? 'wb' : 'ab' );
-		$this->fh   = false === $fh ? null : $fh;
-		// phpcs:enable
-		$this->size = 0;
-		$this->set_state( 'ROTATED', [ 'rotated_to' => $rotated_name ] );
-		$this->prune_rotated();
+	/** Path seam: segments are siblings of the file, suffixed with the segment id. */
+	protected function segment_dir(): string {
+		return \dirname( $this->file );
 	}
 
-	/** Bump each existing {filename}.N up to {filename}.(N+1), highest index first so nothing clobbers. */
-	protected function shift_rotations(): void {
-		$rotations = \glob( $this->filename . '.[0-9]*' ) ?: [];
-		$prefix    = \strlen( $this->filename ) + 1;
-		$indexed   = [];
-		foreach ( $rotations as $path ) {
-			$suffix = \substr( $path, $prefix );
-			if ( \ctype_digit( $suffix ) ) {
-				$indexed[ (int) $suffix ] = $path;
-			}
+	public function get_segment_path( int $segment_id ): string {
+		if ( $segment_id < 0 ) {
+			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
 		}
-		\krsort( $indexed );
-		foreach ( $indexed as $index => $path ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename
-			@\rename( $path, $this->filename . '.' . ( $index + 1 ) );
-		}
+		return "{$this->file}.{$segment_id}";
 	}
 
-	/** Keep the `max_rotations` newest rotated siblings (mtime-ordered), unlink the rest; max_rotations=0 disables. Globs both the numeric `{filename}.N` scheme and the legacy `{filename}-{date}` scheme so pre-existing date-named rotations age out by mtime alongside the new ones; don't co-locate other files under either prefix. */
-	protected function prune_rotated(): void {
-		if ( $this->max_rotations <= 0 ) {
-			return;
-		}
-		$rotated = \array_merge(
-			\glob( $this->filename . '.[0-9]*' ) ?: [],
-			\glob( $this->filename . '-*' ) ?: []
-		);
-		if ( \count( $rotated ) <= $this->max_rotations ) {
-			return;
-		}
-		\usort(
-			$rotated,
-			static fn( $a, $b ) => \filemtime( $a ) <=> \filemtime( $b )
-		);
-		$to_delete = \array_slice( $rotated, 0, \count( $rotated ) - $this->max_rotations );
-		foreach ( $to_delete as $path ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
-			@\unlink( $path );
-		}
-		if ( ! empty( $to_delete ) ) {
-			$this->set_state(
-				'PRUNED',
-				[ 'removed' => \count( $to_delete ), 'kept' => $this->max_rotations ]
-			);
-		}
+	protected function get_index_path( int $segment_id ): string {
+		return "{$this->file}.{$segment_id}.idx";
+	}
+
+	protected function segment_pattern(): string {
+		return '/^' . \preg_quote( \basename( $this->file ), '/' ) . '\.(\d+)$/';
+	}
+
+	protected function rotate_lock_path(): string {
+		return "{$this->file}.rotate.lock.d";
+	}
+
+	protected function write_lock_path(): string {
+		return "{$this->file}.write.lock.d";
 	}
 
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'category'    => 'I/O',
-			'description' => 'Append-only file writer with rotation by line count.',
+			'description' => 'Append-only segmented log of message VALUEs ({file}.{seg}).',
 			'arguments'   => [
-				[ 'name' => 'filename',      'type' => 'string', 'required' => true ],
-				[ 'name' => 'mode',          'type' => 'string', 'default' => self::MODE_APPEND, 'enum' => [ self::MODE_APPEND, self::MODE_OVERWRITE ] ],
-				[ 'name' => 'max_size',      'type' => 'int',    'default' => 0 ],
-				[ 'name' => 'max_rotations', 'type' => 'int',    'default' => 0 ],
+				[ 'name' => 'file',         'type' => 'string', 'required' => true ],
+				[ 'name' => 'segment_size', 'type' => 'int',    'default' => self::DEFAULT_SEGMENT_SIZE ],
+				[ 'name' => 'num_segments', 'type' => 'int',    'default' => self::DEFAULT_NUM_SEGMENTS ],
 			],
-			'commands'    => [],
-			'requests'    => [
-				[
-					'name'        => 'rotate',
-					'description' => 'Rotate the log file: close current, shift {filename}.N up, rename current to {filename}.0, reopen.',
-				],
-			],
-			'has_target'  => false,
 		] );
 	}
 }
