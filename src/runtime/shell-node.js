@@ -212,12 +212,19 @@ export class ShellNode extends Node {
 			};
 		}
 
-		// `var <name> = <value>`: reject `:` names (reserved for read-only namespaces).
+		// `var name=value` (spaces around `=` optional, value may be empty or
+		// multi-word). Splits on the FIRST `=`, matching the .tsl frontmatter
+		// parser; `:` names are reserved for read-only namespaces like config:.
 		if ( 'var' === verb ) {
-			const name = args[ 0 ] ?? '';
-			const eq = args[ 1 ] ?? '';
-			if ( '' === name || '=' !== eq ) {
-				return null;
+			const assignment = join( 0 );
+			const eq = assignment.indexOf( '=' );
+			if ( -1 === eq ) {
+				return { kind: 'error', text: 'var: expected name=value' };
+			}
+			const name = assignment.slice( 0, eq ).trim();
+			const value = assignment.slice( eq + 1 ).trim();
+			if ( '' === name ) {
+				return { kind: 'error', text: 'var: empty name' };
 			}
 			if ( name.includes( ':' ) ) {
 				return {
@@ -225,7 +232,7 @@ export class ShellNode extends Node {
 					text: `var: invalid name '${ name }' (':' is reserved for read-only namespaces like config:)`,
 				};
 			}
-			this.vars[ name ] = join( 2 );
+			this.vars[ name ] = value;
 			return null;
 		}
 
@@ -344,23 +351,54 @@ export class ShellNode extends Node {
 	}
 
 	/**
-	 * Single-tier interpolation: `<name>` → vars, `<config:foo>` → config, unknown → ''.
-	 * Mirrors PHP Shell_Node::interpolate (runs before tokenizing).
+	 * Quote-aware single-tier interpolation (mirrors PHP Shell_Node::interpolate,
+	 * runs before tokenizing). Outside quotes and inside double quotes: `<name>` →
+	 * vars, `<config:foo>` → config, unknown → ''. Inside single quotes or
+	 * backticks the `<…>` is left LITERAL (standard shell semantics) so a token
+	 * can be deferred to a downstream binder — e.g. a Topic line writes
+	 * `<config:logs_dir>/jobs.p'<partition>'`, expanding the dir now and handing
+	 * the raw `<partition>` to Topic. Quote chars survive; tokenize() strips them.
 	 *
 	 * @param {string} line Raw line.
 	 * @return {string} Interpolated line.
 	 */
 	interpolate( line ) {
-		return line.replace(
-			/<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/g,
-			( _match, key ) => {
-				if ( key.startsWith( 'config:' ) ) {
-					const cfgKey = key.slice( 7 );
-					return String( this.config[ cfgKey ] ?? '' );
+		const token = /<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/y;
+		let out = '';
+		let literal = null; // active single-quote or backtick span suppressing expansion.
+		let i = 0;
+		while ( i < line.length ) {
+			const ch = line[ i ];
+			if ( null !== literal ) {
+				out += ch;
+				if ( ch === literal ) {
+					literal = null;
 				}
-				return String( this.vars[ key ] ?? '' );
+				i += 1;
+				continue;
 			}
-		);
+			if ( "'" === ch || '`' === ch ) {
+				literal = ch;
+				out += ch;
+				i += 1;
+				continue;
+			}
+			if ( '<' === ch ) {
+				token.lastIndex = i;
+				const m = token.exec( line );
+				if ( m ) {
+					const key = m[ 1 ];
+					out += key.startsWith( 'config:' )
+						? String( this.config[ key.slice( 7 ) ] ?? '' )
+						: String( this.vars[ key ] ?? '' );
+					i += m[ 0 ].length;
+					continue;
+				}
+			}
+			out += ch;
+			i += 1;
+		}
+		return out;
 	}
 
 	/**

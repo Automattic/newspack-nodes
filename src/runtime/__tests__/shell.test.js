@@ -354,10 +354,23 @@ describe( 'Shell node — var + interpolation', () => {
 		expect( shell.vars[ 'config:x' ] ).toBeUndefined();
 	} );
 
-	it( 'var with no `=` is a silent no-op (null)', () => {
+	it( 'var with no `=` fails loud with an error signal', () => {
 		const { shell } = makeShell();
-		expect( shell.parse( 'var greeting hello' ) ).toBeNull();
+		const sig = shell.parse( 'var greeting hello' );
+		expect( sig.kind ).toBe( 'error' );
 		expect( shell.vars.greeting ).toBeUndefined();
+	} );
+
+	it( 'var name=value without spaces sets the variable', () => {
+		const { shell } = makeShell();
+		expect( shell.parse( 'var spam=eggs' ) ).toBeNull();
+		expect( shell.vars.spam ).toBe( 'eggs' );
+	} );
+
+	it( 'var splits on the first `=`, keeping `=` in the value', () => {
+		const { shell } = makeShell();
+		shell.parse( 'var url=a=b' );
+		expect( shell.vars.url ).toBe( 'a=b' );
 	} );
 
 	it( 'interpolates <var> into a later command line', () => {
@@ -381,6 +394,38 @@ describe( 'Shell node — var + interpolation', () => {
 		shell.fill( 'tell <missing>node hi' );
 		// `<missing>` → '' so the token is `node`.
 		expect( filled[ 0 ][ TO ] ).toBe( 'node' );
+	} );
+
+	it( 'does NOT interpolate inside single quotes (literal, quotes preserved)', () => {
+		const { shell } = makeShell();
+		shell.vars.who = 'alice';
+		expect( shell.interpolate( "echo '<who>'" ) ).toBe( "echo '<who>'" );
+	} );
+
+	it( 'does NOT interpolate inside backticks', () => {
+		const { shell } = makeShell();
+		shell.vars.who = 'alice';
+		expect( shell.interpolate( 'echo `<who>`' ) ).toBe( 'echo `<who>`' );
+	} );
+
+	it( 'still interpolates inside double quotes', () => {
+		const { shell } = makeShell();
+		shell.vars.who = 'alice';
+		expect( shell.interpolate( 'echo "<who>"' ) ).toBe( 'echo "alice"' );
+	} );
+
+	it( 'mixed quoting: expands unquoted, defers single-quoted (Topic template idiom)', () => {
+		const { shell } = makeShell();
+		shell.config = { logs_dir: '/logs' };
+		// <config:logs_dir> expands now; '<partition>' is deferred for Topic.
+		expect(
+			shell.interpolate( "<config:logs_dir>/jobs.p'<partition>'" )
+		).toBe( "/logs/jobs.p'<partition>'" );
+		expect(
+			shell.tokenize(
+				shell.interpolate( "<config:logs_dir>/jobs.p'<partition>'" )
+			)
+		).toEqual( [ '/logs/jobs.p<partition>' ] );
 	} );
 } );
 

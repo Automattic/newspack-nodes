@@ -52,6 +52,47 @@ class ShellTest extends TestCase {
 		$this->assertSame( 'tell  hello', $shell->interpolate( 'tell <ghost> hello' ) );
 	}
 
+	public function test_var_command_accepts_name_equals_value_without_spaces(): void {
+		$shell = new Shell_Node();
+		$this->assertNull( $shell->parse( 'var spam=eggs' ) );
+		$this->assertSame( 'eggs', $shell->interpolate( '<spam>' ) );
+	}
+
+	public function test_var_command_accepts_spaced_form_with_multiword_value(): void {
+		$shell = new Shell_Node();
+		$this->assertNull( $shell->parse( 'var greeting = hello there' ) );
+		$this->assertSame( 'hello there', $shell->interpolate( '<greeting>' ) );
+	}
+
+	public function test_interpolate_does_not_expand_inside_single_quotes(): void {
+		$shell = new Shell_Node();
+		$shell->set_variable( 'who', 'alice' );
+		// Single quotes are literal — the token survives for a downstream node (e.g. Topic) to bind.
+		$this->assertSame( "echo '<who>'", $shell->interpolate( "echo '<who>'" ) );
+	}
+
+	public function test_interpolate_does_not_expand_inside_backticks(): void {
+		$shell = new Shell_Node();
+		$shell->set_variable( 'who', 'alice' );
+		$this->assertSame( 'echo `<who>`', $shell->interpolate( 'echo `<who>`' ) );
+	}
+
+	public function test_interpolate_still_expands_inside_double_quotes(): void {
+		$shell = new Shell_Node();
+		$shell->set_variable( 'who', 'alice' );
+		$this->assertSame( 'echo "alice"', $shell->interpolate( 'echo "<who>"' ) );
+	}
+
+	public function test_interpolate_mixed_quoting_expands_unquoted_defers_single_quoted(): void {
+		$shell = new Shell_Node();
+		$shell->set_variable( 'base', '/logs' );
+		// The Topic-template idiom: <base> expands now; the single-quoted <partition>
+		// is deferred (quote chars survive interpolation, stripped later by tokenize).
+		$this->assertSame( "/logs/jobs.p'<partition>'", $shell->interpolate( "<base>/jobs.p'<partition>'" ) );
+		// End-to-end: after tokenize strips the quotes, the deferred token stands literal.
+		$this->assertSame( [ '/logs/jobs.p<partition>' ], $shell->tokenize( $shell->interpolate( "<base>/jobs.p'<partition>'" ) ) );
+	}
+
 	public function test_parse_tell_yields_TM_INFO(): void {
 		$shell = new Shell_Node();
 		$msg   = $shell->parse( 'tell node msg');
