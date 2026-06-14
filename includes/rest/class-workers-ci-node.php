@@ -5,9 +5,10 @@
  * Verbs:
  *   list           — minimal worker enumeration (Cli::ls_workers() projection +
  *                    live cursor positions) for programmatic callers.
- *   dump_metadata  — full operator-grade 7-field envelope (`{workers[],
- *                    supervisor, logs[], num_partitions, num_segments,
- *                    segment_size, timestamp}`) the dashboard reads; heavyweight.
+ *   dump_graph     — full operator-grade envelope (`{workers[], supervisor,
+ *                    logs[], num_partitions, num_segments, segment_size,
+ *                    timestamp}`) plus a `graph` map of active-topology-name =>
+ *                    `{nodes, edges}`; the dashboard reads it; heavyweight.
  *   cleanup_status — diagnostic of what Log_Cleaner sees vs the expected set.
  *   restart        — request restart for one or more worker types.
  *   heartbeat      — refresh an SSE slot for the current user.
@@ -37,7 +38,7 @@ use Newspack_Nodes\Topology_Registry;
 
 class Workers_CI_Node extends Service_CI_Node {
 	/**
-	 * Cli helper the `list`/`dump_metadata`/`restart` handlers reach via
+	 * Cli helper the `list`/`dump_graph`/`restart` handlers reach via
 	 * `$self->cli`. Public so the bootstrap (or test) assigns it AFTER
 	 * `new Workers_CI_Node()` — the Tachikoma uniform-construction pattern
 	 * (`make_node` calls a no-arg ctor; programmatic deps come in via public
@@ -61,7 +62,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	public ?object $cli = null;
 
 	/**
-	 * `\Memcached`-shaped live-cursor handle (or null) the `list`/`dump_metadata`
+	 * `\Memcached`-shaped live-cursor handle (or null) the `list`/`dump_graph`
 	 * handlers thread through via `$self->cache`. Public for the same
 	 * reason as `$cli`; defaults to null because null is a legitimate
 	 * cache argument (forces offsetlog-only reads).
@@ -84,7 +85,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	// -------------------------------------------------------------------------
-	// dump_metadata helpers — the full operator-grade payload, ported wholesale
+	// dump_graph helpers — the full operator-grade payload, ported wholesale
 	// from the legacy WorkersController::get_workers + its private helpers.
 	// Kept as static helpers on this class (rather than calling the legacy
 	// controller directly) so the legacy file can be deleted without orphaning
@@ -385,6 +386,30 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
+	 * Per-topology structural graph for every active topology: name =>
+	 * `Topology_Registry::graph_for( name )` (`{nodes, edges}`). The dashboard
+	 * renders the .tsl graph alongside the live fleet so operators see node
+	 * wiring next to worker status.
+	 *
+	 * @return array<string,array{nodes: list<array<string,string>>, edges: list<array{0:string,1:string}>}>
+	 */
+	private static function collect_topology_graphs(): array {
+		$topologies = [];
+		if ( \class_exists( '\\Newspack_Nodes\\Bootstrap' ) ) {
+			try {
+				$topologies = Bootstrap::get_topologies();
+			} catch ( \Throwable $e ) {
+				$topologies = [];
+			}
+		}
+		$graphs = [];
+		foreach ( $topologies as $name => $_cfg ) {
+			$graphs[ $name ] = Topology_Registry::graph_for( $name );
+		}
+		return $graphs;
+	}
+
+	/**
 	 * Union the per-Partition `segment_size` overrides across every active
 	 * topology (last-write-wins on basename collision).
 	 *
@@ -650,12 +675,14 @@ class Workers_CI_Node extends Service_CI_Node {
 					},
 				],
 				[
-					'name'        => 'dump_metadata',
-					'description' => 'Full operator-grade fleet/supervisor/log metadata.',
+					'name'        => 'dump_graph',
+					'description' => 'Full operator-grade fleet/supervisor/log metadata + per-topology .tsl graph.',
 					'args'        => [],
 					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
 						self::require_manage_options();
-						return self::collect_dump_metadata( $self->cache );
+						$payload          = self::collect_dump_metadata( $self->cache );
+						$payload['graph'] = self::collect_topology_graphs();
+						return $payload;
 					},
 				],
 				[
