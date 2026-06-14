@@ -84,6 +84,15 @@ class LogTest extends TestCase {
 		$this->assertSame( "x\n", \file_get_contents( "{$path}.0" ) );
 	}
 
+	public function test_partition_dir_reports_the_segment_directory(): void {
+		// Log inherits partition_dir() but its segments live beside the file, so it
+		// must report dirname(file) (not the empty base partition_dir) — Tail's
+		// get_batch() stat-defeats on this path.
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/sub/out.log" );
+		$this->assertSame( "{$this->tmp}/sub", $log->partition_dir() );
+	}
+
 	public function test_segment_size_rolls_to_next_monotonic_segment(): void {
 		// segment_size=10: the second write crosses the cap and rotates to .1.
 		$log = new Log_Node();
