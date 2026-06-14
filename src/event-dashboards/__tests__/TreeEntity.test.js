@@ -146,36 +146,37 @@ it( 'a node row shows a status-colored partition pill and R rate', () => {
 	);
 } );
 
-it( 'folds every instance of a log/node from one identity key', () => {
-	// Same log appears under two different parents — fold state is keyed by
-	// entity.key (identity), so collapsing its key collapses both instances.
-	const logX = {
+it( 'folds only the instance whose position key is collapsed, not its twin', () => {
+	// Same log appears under two different parents, but position-based keys make
+	// the two instances DISTINCT (a>x.log vs b>x.log). Collapsing one instance's
+	// key folds only that instance; the other keeps its segment bar.
+	const logUnder = ( key ) => ( {
 		kind: 'log',
 		name: 'x.log',
-		key: 'log:x.log',
+		key,
 		hasCursor: false,
 		partitions: [ { partition: 0, segments: [ { id: 0, size: 100 } ] } ],
 		children: [],
-	};
+	} );
 	const tree = {
 		kind: 'node',
 		name: 'p',
-		key: 'node:p',
+		key: 'p',
 		workers: [],
 		children: [
 			{
 				kind: 'node',
 				name: 'a',
-				key: 'node:a',
+				key: 'p>a',
 				workers: [],
-				children: [ logX ],
+				children: [ logUnder( 'p>a>x.log' ) ],
 			},
 			{
 				kind: 'node',
 				name: 'b',
-				key: 'node:b',
+				key: 'p>b',
 				workers: [],
-				children: [ logX ],
+				children: [ logUnder( 'p>b>x.log' ) ],
 			},
 		],
 	};
@@ -205,11 +206,11 @@ it( 'folds every instance of a log/node from one identity key', () => {
 			entity={ tree }
 			depth={ 0 }
 			{ ...base }
-			collapsed={ new Set( [ 'log:x.log' ] ) }
+			collapsed={ new Set( [ 'p>a>x.log' ] ) }
 		/>
 	);
-	// Collapsing the one identity key hides the bars in BOTH places.
+	// Collapsing only the 'a' instance leaves exactly one segment bar (the 'b' twin).
 	expect(
 		folded.container.querySelectorAll( '.worker-segment-h' )
-	).toHaveLength( 0 );
+	).toHaveLength( 1 );
 } );

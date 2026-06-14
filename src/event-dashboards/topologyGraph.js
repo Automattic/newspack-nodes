@@ -298,17 +298,18 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 
 		const childrenOf = ( vertex ) =>
 			[ ...( outAdj.get( vertex ) || [] ) ].sort( byLower );
-		const makeVertex = ( vertex, path ) =>
+		const makeVertex = ( vertex, path, prefix ) =>
 			isLog.get( vertex )
-				? makeLog( vertex, path )
-				: makeNode( vertex, path );
-		const makeKids = ( vertex, path ) => {
+				? makeLog( vertex, path, prefix )
+				: makeNode( vertex, path, prefix );
+		const makeKids = ( vertex, path, parentKey ) => {
 			if ( path.has( vertex ) ) {
 				return [];
 			}
 			return makeSiblings(
 				childrenOf( vertex ),
-				new Set( path ).add( vertex )
+				new Set( path ).add( vertex ),
+				parentKey
 			);
 		};
 
@@ -332,8 +333,10 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 		};
 
 		// Emit a sibling list, joining convergent logic-only groups (size >= 2)
-		// onto one entity whose shared subtree is built once.
-		const makeSiblings = ( siblings, path ) => {
+		// onto one entity whose shared subtree is built once. `prefix` is the
+		// parent entity's key; each child key is `${prefix}>${childVertexId}`
+		// so a vertex reached via N parents gets N distinct (position) keys.
+		const makeSiblings = ( siblings, path, prefix = '' ) => {
 			const groups = new Map();
 			siblings.forEach( ( vertex ) => {
 				const groupKey = `${ isLog.get( vertex ) }|${ signatureOf(
@@ -347,58 +350,67 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 			const entities = [];
 			groups.forEach( ( members ) => {
 				if ( joinable( members ) ) {
-					entities.push( makeJoinedNode( members, path ) );
+					entities.push( makeJoinedNode( members, path, prefix ) );
 				} else {
 					members.forEach( ( v ) =>
-						entities.push( makeVertex( v, path ) )
+						entities.push( makeVertex( v, path, prefix ) )
 					);
 				}
 			} );
 			return entities.sort( byName );
 		};
+		// A position key encodes the tree path: roots use their vertex id, a child
+		// uses `${parentKey}>${childVertexId}`. Roots pass prefix ''.
+		const childKey = ( prefix, id ) =>
+			prefix ? `${ prefix }>${ id }` : id;
 		const byName = ( a, b ) => byLower( a.name, b.name );
-		const makeNode = ( vertex, path ) => ( {
-			kind: 'node',
-			name: vertex,
-			key: `node:${ vertex }`,
-			workers: workersByHandler.get( vertex ) || [],
-			children: makeKids( vertex, path ),
-		} );
-		const makeJoinedNode = ( members, path ) => {
+		const makeNode = ( vertex, path, prefix ) => {
+			const key = childKey( prefix, vertex );
+			return {
+				kind: 'node',
+				name: vertex,
+				key,
+				workers: workersByHandler.get( vertex ) || [],
+				children: makeKids( vertex, path, key ),
+			};
+		};
+		const makeJoinedNode = ( members, path, prefix ) => {
 			const ids = [ ...members ].sort();
 			const nextPath = new Set( path );
 			ids.forEach( ( id ) => nextPath.add( id ) );
+			const key = childKey( prefix, ids.join( '+' ) );
 			return {
 				kind: 'node',
 				names: ids,
 				name: ids.join( ', ' ),
-				key: `group:${ ids.join( '|' ) }`,
+				key,
 				workers: ids.flatMap(
 					( id ) => workersByHandler.get( id ) || []
 				),
-				children: makeSiblings( childrenOf( ids[ 0 ] ), nextPath ),
+				children: makeSiblings( childrenOf( ids[ 0 ] ), nextPath, key ),
 			};
 		};
-		const makeLog = ( vertex, path ) => {
+		const makeLog = ( vertex, path, prefix ) => {
 			const { partitions, hasCursor } = collectLogPartitions(
 				vertex,
 				ctx
 			);
+			const key = childKey( prefix, vertex );
 			return {
 				kind: 'log',
 				name: vertex,
-				key: `log:${ vertex }`,
+				key,
 				partitions,
 				hasCursor,
 				segment_size: logSegmentSizeByName.get( vertex ),
-				children: makeKids( vertex, path ),
+				children: makeKids( vertex, path, key ),
 			};
 		};
 
 		const rootVertices = [ ...inDegree.keys() ].filter(
 			( v ) => 0 === inDegree.get( v )
 		);
-		const roots = makeSiblings( rootVertices, new Set() );
+		const roots = makeSiblings( rootVertices, new Set(), '' );
 		sections.push( { topology, workers: tWorkers, tree: roots } );
 	}
 	sections.sort( ( a, b ) => byLower( a.topology, b.topology ) );

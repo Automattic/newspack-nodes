@@ -191,7 +191,7 @@ it( 'overlays partitions from the logs catalog onto a log entity', () => {
 	);
 	const inLog = section.tree[ 0 ];
 	expect( inLog.kind ).toBe( 'log' );
-	expect( inLog.key ).toBe( 'log:in.log' );
+	expect( inLog.key ).toBe( 'in.log' );
 	expect( inLog.segment_size ).toBe( 4096 );
 	expect( inLog.partitions ).toHaveLength( 1 );
 } );
@@ -216,7 +216,7 @@ it( 'overlays this topology worker rows onto a logic node entity by handler', ()
 	const inLog = section.tree[ 0 ];
 	const rb = inLog.children.find( ( e ) => e.name === 'request-builder' );
 	expect( rb.kind ).toBe( 'node' );
-	expect( rb.key ).toBe( 'node:request-builder' );
+	expect( rb.key ).toBe( 'in.log>request-builder' );
 	expect( rb.workers ).toHaveLength( 1 );
 	expect( rb.workers[ 0 ].behind ).toBe( 5 );
 } );
@@ -263,7 +263,7 @@ it( 'joins convergent sibling logic roots onto one node, subtree built once', ()
 	const root = section.tree[ 0 ];
 	expect( root.kind ).toBe( 'node' );
 	expect( root.names ).toEqual( [ 'community', 'releases' ] );
-	expect( root.key ).toBe( 'group:community|releases' );
+	expect( root.key ).toBe( 'community+releases' );
 	expect( names( root.children ) ).toEqual( [ 'summarizer' ] );
 	const summarizer = root.children[ 0 ];
 	expect( names( summarizer.children ) ).toEqual( [ 'scorer' ] );
@@ -317,6 +317,13 @@ it( 'does not join a group that includes a log vertex (multi-writer logs still r
 	const srcB = section.tree.find( ( e ) => e.name === 'srcB' );
 	expect( names( srcA.children ) ).toEqual( [ 'shared.log' ] );
 	expect( names( srcB.children ) ).toEqual( [ 'shared.log' ] );
+	// Position-based keys: the same log under two parents gets DISTINCT keys, so
+	// folding one instance never folds the other.
+	const sharedUnderA = srcA.children[ 0 ];
+	const sharedUnderB = srcB.children[ 0 ];
+	expect( sharedUnderA.key ).toBe( 'srcA>shared.log' );
+	expect( sharedUnderB.key ).toBe( 'srcB>shared.log' );
+	expect( sharedUnderA.key ).not.toBe( sharedUnderB.key );
 } );
 
 it( 'joins nested convergence inside a joined group too', () => {
