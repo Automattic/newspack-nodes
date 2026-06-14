@@ -313,6 +313,30 @@ class LogCleanerTest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
+	// ── active_descriptors: keeps partition numbers ─────────────────────────
+
+	public function test_active_descriptors_expands_topology_partitions(): void {
+		$stock = "{$this->tmp}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/digest.tsl",
+			"var num_partitions = 2\n"
+			. "make_node Partition scored:partition <config:logs_dir>/scored.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'digest' ];
+		\Newspack_Nodes\Config::reset();
+
+		$reflection = new \ReflectionMethod( Log_Cleaner::class, 'active_descriptors' );
+		$reflection->setAccessible( true );
+		$descriptors = $reflection->invoke( null, $this->tmp );
+
+		\sort( $descriptors );
+		$this->assertSame( [ 'digest.p0', 'digest.p1' ], $descriptors );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
 	// ── Dirty-flag gate ───────────────────────────────────────────────────
 
 	public function test_cleanup_is_noop_when_dirty_flag_not_set(): void {
@@ -370,5 +394,50 @@ class LogCleanerTest extends TestCase {
 
 		$this->assertDirectoryExists( "{$this->tmp}/logs/firehose.log/meta" );
 		$this->assertFileExists( "{$this->tmp}/logs/firehose.log/meta/info.json" );
+	}
+
+	// ── offsets-by-name sweep (source dropped from a topology) ──────────────
+
+	public function test_purges_offsetlog_dir_removed_from_topology(): void {
+		$stock = "{$this->tmp}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/digest.tsl",
+			"make_node Consumer scored:consumer <config:logs_dir>/scored.log <partition> <config:offsets_dir>/scored.p<partition>\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'digest' ];
+		\Newspack_Nodes\Config::reset();
+
+		$kept   = $this->seed_offsetlog_partition( 'scored', 0 );      // declared -> kept
+		$orphan = $this->seed_offsetlog_partition( 'summarized', 0 );  // not declared -> purged
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 1 );
+
+		$this->assertDirectoryExists( $kept );
+		$this->assertDirectoryDoesNotExist( $orphan );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	public function test_skips_orphan_offsetlog_when_partition_lock_held(): void {
+		$stock = "{$this->tmp}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/digest.tsl",
+			"make_node Consumer scored:consumer <config:logs_dir>/scored.log <partition> <config:offsets_dir>/scored.p<partition>\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'digest' ];
+		\Newspack_Nodes\Config::reset();
+
+		$orphan = $this->seed_offsetlog_partition( 'summarized', 0 );
+		$this->seed_lock_dir( 'digest', 0 ); // a live worker holds partition 0
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 1 );
+
+		$this->assertDirectoryExists( $orphan );
+
+		\Newspack_Nodes\Topology_Registry::reset();
 	}
 }
