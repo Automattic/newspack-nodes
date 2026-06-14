@@ -351,14 +351,11 @@ class Partition_Node extends Timer_Node {
 			return;
 		}
 
-		$log_name  = \basename( $this->base_dir );
-		$log_base  = \dirname( $this->base_dir );
-		$locks_dir = "{$log_base}/locks";
-		$lock_dir  = "{$locks_dir}/{$log_name}.p{$this->partition}.rotate.lock.d";
+		$lock_dir = "{$this->partition_dir}/.rotate.lock.d";
 
-		if ( ! \is_dir( $locks_dir ) ) {
+		if ( ! \is_dir( $this->partition_dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $locks_dir, 0755, true );
+			@\mkdir( $this->partition_dir, 0755, true );
 		}
 
 		// Atomic acquire via mkdir.

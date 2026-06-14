@@ -307,6 +307,21 @@ class PartitionTest extends TestCase {
 		$this->assertGreaterThan( 1, count( $segments ) );
 	}
 
+	public function test_rotation_does_not_create_sibling_locks_dir(): void {
+		// base_dir nested under logs/ so dirname() is the logs root, matching production.
+		$base = "{$this->tmp}/logs/firehose.log";
+		\mkdir( $base, 0755, true );
+		$p = new Partition_Node();
+		$p->arguments( "{$base} 0 1024 4 86400" );
+		for ( $i = 0; $i < 30; ++$i ) {
+			$this->produce_into( $p, \str_repeat( 'x', 100 ) );
+		}
+		// Old behavior created {$this->tmp}/logs/locks ; new behavior must not.
+		$this->assertDirectoryDoesNotExist( "{$this->tmp}/logs/locks" );
+		// Rotation still happened.
+		$this->assertGreaterThan( 1, \count( $p->get_segments( true ) ) );
+	}
+
 	public function test_cleanup_AND_gated_retention(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp} 0 256 2 86400" );
@@ -1683,13 +1698,11 @@ class PartitionTest extends TestCase {
 	// ============================================================================
 
 	public function test_rotate_segment_creates_locks_dir_when_missing(): void {
-		// rotate_segment derives locks_dir from `dirname(base_dir)/locks`. To
-		// exercise the @mkdir($locks_dir,...) branch we need that dir to NOT
-		// exist when rotate triggers. Use a tmp child dir so dirname is a
-		// freshly-empty parent.
-		$parent = $this->tmp . '/parent';
-		\mkdir( $parent, 0755, true );
-		$base = $parent . '/base'; // dirname($base)/locks = $parent/locks (missing).
+		// rotate_segment locks inside the partition's own data dir
+		// ({base_dir}/p{N}). The first write materializes that dir, so to
+		// exercise the @mkdir($locks_dir,...) branch we just confirm the
+		// partition dir exists after rotation.
+		$base = $this->tmp . '/base';
 		\mkdir( $base, 0755, true );
 
 		$p = new Partition_Node();
@@ -1700,7 +1713,8 @@ class PartitionTest extends TestCase {
 		$this->produce_into( $p, \str_repeat( 'b', 30 ) );
 		$this->produce_into( $p, \str_repeat( 'c', 30 ) );
 
-		$this->assertTrue( \is_dir( "{$parent}/locks" ), 'rotate_segment must materialize the locks directory when absent' );
+		$this->assertTrue( \is_dir( "{$base}/p0" ), 'rotate_segment must materialize the partition dir when absent' );
+		$this->assertFalse( \is_dir( "{$base}/locks" ), 'rotate_segment must not create a sibling locks dir' );
 	}
 
 	// ============================================================================
@@ -1718,10 +1732,8 @@ class PartitionTest extends TestCase {
 		// Land one write so the partition_dir + segment 0 exist.
 		$this->produce_into( $p, \str_repeat( 'a', 10 ) );
 
-		$log_name  = \basename( $this->tmp );
-		$log_base  = \dirname( $this->tmp );
-		$locks_dir = "{$log_base}/locks";
-		$lock_dir  = "{$locks_dir}/{$log_name}.p0.rotate.lock.d";
+		$locks_dir = "{$this->tmp}/p0";
+		$lock_dir  = "{$locks_dir}/.rotate.lock.d";
 		@\mkdir( $locks_dir, 0755, true );
 		@\mkdir( $lock_dir, 0755, true ); // FRESH lock — mtime is now.
 
@@ -1768,10 +1780,8 @@ class PartitionTest extends TestCase {
 		// non-existent target. mkdir on an existing symlink fails; filemtime
 		// on a broken symlink returns false on PHP (errno).
 		$lock_target = $this->tmp . '/nonexistent-target';
-		$log_name    = \basename( $this->tmp );
-		$log_base    = \dirname( $this->tmp );
-		$locks_dir   = "{$log_base}/locks";
-		$lock_dir    = "{$locks_dir}/{$log_name}.p0.rotate.lock.d";
+		$locks_dir   = "{$this->tmp}/p0";
+		$lock_dir    = "{$locks_dir}/.rotate.lock.d";
 		@\mkdir( $locks_dir, 0755, true );
 		@\unlink( $lock_dir );
 		// Broken symlink to a missing target — mkdir rejects existing path,
@@ -1807,10 +1817,8 @@ class PartitionTest extends TestCase {
 		$p->arguments( "{$this->tmp} 0 32 4 86400" );
 		$this->produce_into( $p, \str_repeat( 'a', 20 ) ); // seed seg 0.
 
-		$log_name  = \basename( $this->tmp );
-		$log_base  = \dirname( $this->tmp );
-		$locks_dir = "{$log_base}/locks";
-		$lock_dir  = "{$locks_dir}/{$log_name}.p0.rotate.lock.d";
+		$locks_dir = "{$this->tmp}/p0";
+		$lock_dir  = "{$locks_dir}/.rotate.lock.d";
 		@\mkdir( $locks_dir, 0755, true );
 		@\mkdir( $lock_dir, 0755, true );
 		// Backdate well past the TTL.
