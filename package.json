@@ -37,7 +37,7 @@
 		"@wordpress/prettier-config": "^4.46.0",
 		"@wordpress/stylelint-config": "^23.38.0",
 		"babel-jest": "^30.4.1",
-		"esbuild": "^0.28.0",
+		"esbuild": "^0.28.1",
 		"eslint": "^8.57.1",
 		"jest": "^30.4.2",
 		"jest-environment-jsdom": "^30.4.1",
