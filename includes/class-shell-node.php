@@ -207,18 +207,27 @@ class Shell_Node extends Node {
 			return null;
 		}
 
-		// `var <name> = <value>`: reject `:` names (reserved for read-only namespaces like config:).
+		// `var name=value` (spaces around `=` optional, value may be empty or multi-word).
+		// Splits on the FIRST `=`, matching the .tsl frontmatter parser; `:` names are
+		// reserved for read-only namespaces like config:.
 		if ( 'var' === $verb ) {
-			$name = $args[0] ?? '';
-			$eq   = $args[1] ?? '';
-			if ( '' === $name || '=' !== $eq ) {
+			$assignment = \implode( ' ', $args );
+			$eq         = \strpos( $assignment, '=' );
+			if ( false === $eq ) {
+				$this->stdout( "var: expected name=value\n" );
 				return null;
 			}
-			if ( \str_contains( $name , ':' ) ) {
+			$name  = \trim( \substr( $assignment, 0, $eq ) );
+			$value = \trim( \substr( $assignment, $eq + 1 ) );
+			if ( '' === $name ) {
+				$this->stdout( "var: empty name\n" );
+				return null;
+			}
+			if ( \str_contains( $name, ':' ) ) {
 				$this->stdout( "var: invalid name '{$name}' (':' is reserved for namespaces like config:)\n" );
 				return null;
 			}
-			Core::$var[ $name ] = \implode( ' ', \array_slice( $args, 2 ) );
+			Core::$var[ $name ] = $value;
 			return null;
 		}
 
@@ -310,22 +319,48 @@ class Shell_Node extends Node {
 	}
 
 	/**
-	 * Single-tier interpolation: `<ns:key>` → that namespace's registered
-	 * resolver (Core::resolve_config_token); bare `<var>` → Core::$var; unknown → ''.
+	 * Quote-aware single-tier interpolation. Outside quotes and inside double
+	 * quotes: `<ns:key>` → that namespace's registered resolver
+	 * (Core::resolve_config_token); bare `<var>` → Core::$var; unknown → ''.
+	 * Inside single quotes or backticks the `<…>` is left LITERAL (standard shell
+	 * semantics) so a token can be deferred to a downstream binder — e.g. a Topic
+	 * line writes `<config:logs_dir>/jobs.p'<partition>'`, expanding the dir now
+	 * and handing the raw `<partition>` to Topic. The quote chars survive here;
+	 * tokenize() strips them afterward.
 	 */
 	public function interpolate( string $line ): string {
-		return (string) \preg_replace_callback(
-			'/<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/',
-			static function ( array $m ): string {
+		$out     = '';
+		$literal = null; // active single-quote or backtick span suppressing expansion.
+		$len     = \strlen( $line );
+		for ( $i = 0; $i < $len; ) {
+			$ch = $line[ $i ];
+			if ( null !== $literal ) {
+				$out .= $ch;
+				if ( $ch === $literal ) {
+					$literal = null;
+				}
+				++$i;
+				continue;
+			}
+			if ( "'" === $ch || '`' === $ch ) {
+				$literal = $ch;
+				$out    .= $ch;
+				++$i;
+				continue;
+			}
+			if ( '<' === $ch && \preg_match( '/\G<([a-zA-Z_][a-zA-Z0-9_]*(?::[a-zA-Z_][a-zA-Z0-9_]*)?)>/', $line, $m, 0, $i ) ) {
 				$key   = $m[1];
 				$colon = \strpos( $key, ':' );
-				if ( false !== $colon ) {
-					return Core::resolve_config_token( \substr( $key, 0, $colon ), \substr( $key, $colon + 1 ) );
-				}
-				return Core::$var[ $key ] ?? '';
-			},
-			$line
-		);
+				$out  .= ( false !== $colon )
+					? Core::resolve_config_token( \substr( $key, 0, $colon ), \substr( $key, $colon + 1 ) )
+					: ( Core::$var[ $key ] ?? '' );
+				$i    += \strlen( $m[0] );
+				continue;
+			}
+			$out .= $ch;
+			++$i;
+		}
+		return $out;
 	}
 
 	/**
