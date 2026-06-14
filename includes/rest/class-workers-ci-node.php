@@ -236,7 +236,8 @@ class Workers_CI_Node extends Service_CI_Node {
 		// (`<config:segment_size>`) Partition lines contribute nothing here;
 		// `enumerate_logs` falls back to `$segment_size` for those.
 		$segment_size_overrides = self::collect_segment_size_overrides();
-		$logs                   = self::enumerate_logs( $log_base, $num_partitions, $segment_size, $segment_size_overrides );
+		$partition_overrides    = self::collect_partition_count_overrides();
+		$logs                   = self::enumerate_logs( $log_base, $num_partitions, $segment_size, $segment_size_overrides, $partition_overrides );
 
 		return [
 			'workers'        => $workers,
@@ -386,6 +387,24 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
+	 * The active topology catalog (`name => cfg`), or `[]` if the substrate
+	 * isn't loaded / the lookup throws. Shared preamble for every per-topology
+	 * collector below so the class_exists/try-catch contract lives in one place.
+	 *
+	 * @return array<string,mixed>
+	 */
+	private static function active_topologies(): array {
+		if ( ! \class_exists( '\\Newspack_Nodes\\Bootstrap' ) ) {
+			return [];
+		}
+		try {
+			return Bootstrap::get_topologies();
+		} catch ( \Throwable $e ) {
+			return [];
+		}
+	}
+
+	/**
 	 * Per-topology structural graph for every active topology: name =>
 	 * `Topology_Registry::graph_for( name )` (`{nodes, edges}`). The dashboard
 	 * renders the .tsl graph alongside the live fleet so operators see node
@@ -394,16 +413,8 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * @return array<string,array{nodes: list<array<string,int|string>>, edges: list<array{0:string,1:string}>}>
 	 */
 	private static function collect_topology_graphs(): array {
-		$topologies = [];
-		if ( \class_exists( '\\Newspack_Nodes\\Bootstrap' ) ) {
-			try {
-				$topologies = Bootstrap::get_topologies();
-			} catch ( \Throwable $e ) {
-				$topologies = [];
-			}
-		}
 		$graphs = [];
-		foreach ( $topologies as $name => $_cfg ) {
+		foreach ( self::active_topologies() as $name => $_cfg ) {
 			$graphs[ $name ] = Topology_Registry::graph_for( $name );
 		}
 		return $graphs;
@@ -519,19 +530,31 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * @return array<string,int> `{basename => int}` (basename without `.log`).
 	 */
 	private static function collect_segment_size_overrides(): array {
-		$topologies = [];
-		if ( \class_exists( '\\Newspack_Nodes\\Bootstrap' ) ) {
-			try {
-				$topologies = Bootstrap::get_topologies();
-			} catch ( \Throwable $e ) {
-				$topologies = [];
-			}
-		}
 		$out = [];
-		foreach ( $topologies as $name => $_cfg ) {
+		foreach ( self::active_topologies() as $name => $_cfg ) {
 			$overrides = Topology_Registry::segment_size_overrides_for( $name );
 			foreach ( $overrides as $basename => $size ) {
 				$out[ $basename ] = $size;
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Map each Partition-backed log basename to ITS owning topology's
+	 * `num_partitions`, so `enumerate_logs` pads each log to the right slot
+	 * count instead of the single global default. A log declared in a
+	 * num_partitions=1 topology must not sprout a phantom P1 just because
+	 * another topology (or the global default) runs 2 partitions.
+	 *
+	 * @return array<string,int> `{basename => num_partitions}` (basename without `.log`).
+	 */
+	private static function collect_partition_count_overrides(): array {
+		$out = [];
+		foreach ( self::active_topologies() as $name => $_cfg ) {
+			$count = Bootstrap::num_partitions_for( $name );
+			foreach ( Topology_Registry::basenames_for( $name ) as $basename ) {
+				$out[ $basename ] = $count;
 			}
 		}
 		return $out;
@@ -543,13 +566,15 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * the frontend; per-log `segment_size` honors any TSL literal override.
 	 *
 	 * @param array<string,int> $segment_size_overrides `{basename => int}` map.
+	 * @param array<string,int> $partition_overrides    `{basename => num_partitions}` map.
 	 * @return array<int,array{name:string,partitions:array<int, mixed>,segment_size:int}>
 	 */
 	private static function enumerate_logs(
 		string $log_base,
 		int $num_partitions,
 		int $default_segment_size,
-		array $segment_size_overrides
+		array $segment_size_overrides,
+		array $partition_overrides
 	): array {
 		if ( ! \is_dir( $log_base ) ) {
 			return [];
@@ -577,8 +602,10 @@ class Workers_CI_Node extends Service_CI_Node {
 					$on_disk[ (int) $pm[1] ] = true;
 				}
 			}
+			$basename   = $m[1];
+			$configured = $partition_overrides[ $basename ] ?? $num_partitions;
 			$max_disk   = empty( $on_disk ) ? -1 : \max( \array_keys( $on_disk ) );
-			$slot_count = \max( $num_partitions, $max_disk + 1 );
+			$slot_count = \max( $configured, $max_disk + 1 );
 			if ( $slot_count < 1 ) {
 				continue;
 			}
@@ -600,7 +627,6 @@ class Workers_CI_Node extends Service_CI_Node {
 					];
 				}
 			}
-			$basename = $m[1];
 			$logs[]   = [
 				'name'         => $entry,
 				'partitions'   => $partitions,

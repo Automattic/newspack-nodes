@@ -32,6 +32,9 @@ class Topology_Registry {
 	/** @var array<string,array{nodes:list<array<string,int|string>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name. */
 	private static array $graph_cache = [];
 
+	/** @var array<string,array<string,string>> Memoized parsed `var` frontmatter by topology name; cleared by reset_basename_cache(). */
+	private static array $frontmatter_cache = [];
+
 	/** @var array<string,bool> Guards register_plugin against double-wiring (a second call would double-spawn). */
 	private static array $registered_plugins = [];
 
@@ -145,9 +148,12 @@ class Topology_Registry {
 	 * @return array<string,string>
 	 */
 	public static function frontmatter( string $name ): array {
+		if ( isset( self::$frontmatter_cache[ $name ] ) ) {
+			return self::$frontmatter_cache[ $name ];
+		}
 		$path = self::resolve( $name );
 		if ( null === $path ) {
-			return [];
+			return self::$frontmatter_cache[ $name ] = [];
 		}
 		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
 		$contents = (string) \file_get_contents( $path );
@@ -164,7 +170,7 @@ class Topology_Registry {
 				}
 			}
 		}
-		return $out;
+		return self::$frontmatter_cache[ $name ] = $out;
 	}
 
 	/**
@@ -457,6 +463,7 @@ class Topology_Registry {
 		self::$segment_size_overrides_cache = [];
 		self::$write_set_cache              = [];
 		self::$graph_cache                  = [];
+		self::$frontmatter_cache            = [];
 	}
 
 	public static function set_user_dir( string $path ): void {
