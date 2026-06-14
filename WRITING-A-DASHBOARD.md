@@ -44,6 +44,8 @@ The digest from the first guide accumulates summaries in memory and flushes them
 
 A `Scorer` is a transform exactly like the summarizer: receive a struct item, add a field, forward. The one seam a real scorer replaces is `score()`.
 
+> Each PHP file below opens with the same preamble WRITING-A-PLUGIN.md §2 established — `namespace Newspack_AI_Newsletter;` plus the `use Newspack_Nodes\{ Node, Message, Command_Interpreter_Node };` (or `Service_CI_Node`/`Partition_Node`/`Config`) it needs. The snippets show just the class body.
+
 `includes/class-scorer.php`:
 
 ```php
@@ -160,6 +162,11 @@ class Insights_CI_Node extends Service_CI_Node {
 
 	private const TOP_N = 10;
 
+	/** A score is whatever the Scorer wrote; coerce defensively for sorting/display. */
+	private static function to_float( mixed $value ): float {
+		return \is_numeric( $value ) ? (float) $value : 0.0;
+	}
+
 	public function build_insights_json(): string {
 		$offsets_dir = \Newspack_Nodes\Config::get_offsets_directory();
 		return (string) \wp_json_encode( self::read_insights_model( $offsets_dir ) );
@@ -223,21 +230,26 @@ class Insights_CI_Node extends Service_CI_Node {
 
 > **← a substrate refinement.** `read_cache_items` used to be a 20-line walk: `new Partition_Node`, `arguments`, `get_segments(true)`, find the newest segment, `read_at`, split lines, `Message::unpacked`, pull `VALUE` — guarded and try/caught. The substrate's `CLI::read_offsetlog_entry()` had a byte-identical copy. Reading "the newest committed record's VALUE from an offsetlog" is a substrate concern, so it became **`Partition_Node::read_latest_value_at( $offset_dir )`**, and both callers collapsed to one line. You don't walk segments; you ask the Partition for its latest value.
 
-Declare the verb in `node_schema()` and mount the CI on every request:
+Declare the verb in `node_schema()` (same double-duty schema as a node — `array_merge( parent::node_schema(), … )`) and mount the CI on every request:
 
 ```php
-// node_schema(): one command, gated to admins.
-'commands' => [ [
-	'name'        => 'insights',
-	'description' => 'Return the current Publisher Insights model.',
-	'args'        => [],
-	'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
-		self::require_manage_options();          // the verb is admin-only
-		/** @var self $ci */
-		$ci = $interpreter;                       // a Service_CI verb runs ON the CI
-		return $ci->build_insights_json();        // FULLY-SHAPED model as a JSON string
-	},
-] ],
+public static function node_schema(): array {
+	return \array_merge( parent::node_schema(), [
+		'category'    => 'Service',
+		'description' => 'Serves the Publisher Insights model from the scored offsetlog.',
+		'commands'    => [ [
+			'name'        => 'insights',
+			'description' => 'Return the current Publisher Insights model.',
+			'args'        => [],
+			'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
+				self::require_manage_options();      // the verb is admin-only
+				/** @var self $ci */
+				$ci = $interpreter;                   // a Service_CI verb runs ON the CI
+				return $ci->build_insights_json();    // FULLY-SHAPED model as a JSON string
+			},
+		] ],
+	] );
+}
 ```
 
 ```php
@@ -424,7 +436,19 @@ export function draftNewsletter( items = [] ) {
 }
 ```
 
-The bundle entry mounts the page into the div the PHP enqueue will render, `src/dashboard/index.js`:
+`PublisherInsights` reads `import './styles/insights.scss'` — create that file (any styling you like; the example's is the reference). The build needs it to exist.
+
+Wrap the component in a page so the bundle entry has a single default export to mount, `src/dashboard/PublisherInsightsPage.js`:
+
+```js
+import PublisherInsights from './PublisherInsights';
+
+export default function PublisherInsightsPage() {
+	return <PublisherInsights refreshMs={ 4000 } />;
+}
+```
+
+The bundle entry mounts that page into the div the PHP enqueue will render, `src/dashboard/index.js`:
 
 ```js
 import { createRoot } from '@wordpress/element';
@@ -481,6 +505,29 @@ module.exports = createJestConfig( {
 	pinReactFrom: path.resolve( __dirname, 'node_modules' ),
 } );
 ```
+
+`createJestConfig` resolves two `<rootDir>` files it expects you to provide (jest's convention, not the substrate's) — create both:
+
+```js
+// jest.setup.js — @testing-library matchers (toBeInTheDocument, …)
+import '@testing-library/jest-dom';
+```
+```js
+// jest.style-mock.js — SCSS/CSS imports are stubbed in tests
+module.exports = {};
+```
+
+And the `npm run build` / `npm run test:js` the guide keeps invoking are just `package.json` scripts — the four you need:
+
+```json
+"scripts": {
+	"build":   "npm run clean && node scripts/build.mjs",
+	"watch":   "npm run clean && node scripts/build.mjs --watch",
+	"clean":   "rm -rf build",
+	"test:js": "jest --passWithNoTests"
+}
+```
+(Plus the dev-dependencies any React/esbuild project needs — `esbuild`, `sass`, `rtlcss`, `jest`, `@testing-library/*`, `@wordpress/element`/`i18n`, `react`/`react-dom`; copy the example's `package.json` and `babel.config.js` rather than hand-rolling them.)
 
 > **← two substrate refinements.** `scripts/build.mjs` was ~250 lines — the `@wordpress/*`→global externals plugin, the SCSS plugin, the asset-manifest emitter, the RTL pass, the watch/one-shot orchestration — copy-pasted across the substrate, the example, and the event-logger plugin. It became **`buildDashboards()`** (esbuild/sass/rtlcss are *injected*, so a sibling-checkout plugin with no `node_modules` of its own still resolves them). And the jest config hid a real footgun — the `@newspack-nodes/shared` mapper **must** precede the `\.(css|scss)$` style-mock, or an aliased style import resolves to the mock and the test crashes parsing SCSS as JS. **`createJestConfig()`** bakes that order in so you can't get it wrong. `npm run build`, `npm run test:js`, done.
 
