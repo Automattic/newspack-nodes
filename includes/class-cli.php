@@ -336,31 +336,7 @@ class CLI {
 	 * @return array<string,mixed>|null The decoded VALUE object.
 	 */
 	public function read_offsetlog_entry( string $offset_dir_name ): ?array {
-		try {
-			$offsetlog = new Partition_Node();
-			$offsetlog->arguments( "{$this->base_dir}/offsets/{$offset_dir_name} 0" );
-			$segments = $offsetlog->get_segments( true );
-			if ( empty( $segments ) ) {
-				return null;
-			}
-			$newest = \end( $segments );
-			$bytes  = $offsetlog->read_at( $newest['id'], 0, $newest['size'] );
-			if ( '' === $bytes ) {
-				return null;
-			}
-			$lines = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
-			if ( empty( $lines ) ) {
-				return null;
-			}
-			$value = Message::unpacked( \end( $lines ) )[ Message::VALUE ] ?? null;
-			if ( ! \is_array( $value ) ) {
-				return null;
-			}
-			/** @var array<string,mixed> $value The offsetlog VALUE is a decoded JSON object (string keys). */
-			return $value;
-		} catch ( \Throwable $e ) {
-			return null;
-		}
+		return Partition_Node::read_latest_value_at( "{$this->base_dir}/offsets/{$offset_dir_name}" );
 	}
 
 	/**

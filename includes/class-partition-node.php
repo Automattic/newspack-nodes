@@ -736,6 +736,44 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
+	 * Read the latest committed record's VALUE from an offsetlog directory.
+	 *
+	 * The offsetlog is a single-partition (p0) Partition; this opens it at $offset_dir,
+	 * reads the last non-empty line of the newest segment, unpacks the packed Message,
+	 * and returns its VALUE (a decoded JSON object), or null if empty/unreadable.
+	 *
+	 * @param string $offset_dir Absolute path to the offset dir (e.g. {base}/offsets/firehose.p0).
+	 * @return array<string,mixed>|null The newest record's VALUE, or null.
+	 */
+	public static function read_latest_value_at( string $offset_dir ): ?array {
+		try {
+			$offsetlog = new self();
+			$offsetlog->arguments( "{$offset_dir} 0" );
+			$segments = $offsetlog->get_segments( true );
+			if ( empty( $segments ) ) {
+				return null;
+			}
+			$newest = \end( $segments );
+			$bytes  = $offsetlog->read_at( $newest['id'], 0, $newest['size'] );
+			if ( '' === $bytes ) {
+				return null;
+			}
+			$lines = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
+			if ( empty( $lines ) ) {
+				return null;
+			}
+			$value = Message::unpacked( \end( $lines ) )[ Message::VALUE ] ?? null;
+			if ( ! \is_array( $value ) ) {
+				return null;
+			}
+			/** @var array<string,mixed> $value The offsetlog VALUE is a decoded JSON object (string keys). */
+			return $value;
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+	}
+
+	/**
 	 * Walk every JSONL .idx entry across all segments and invoke the callback per entry.
 	 *
 	 * Only meaningful when a with_index() formatter is installed — without it no
