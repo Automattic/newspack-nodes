@@ -123,16 +123,15 @@ class Log_Node extends Node {
 		parent::remove_node();
 	}
 
-	/** Close, rename with a timestamp suffix, reopen the original path for a fresh file. Mirrors Tachikoma Log.pm:rotate. */
+	/** logrotate / /var/log style: shift {filename}.N up, rename current → {filename}.0, reopen fresh. Mirrors Tachikoma Log.pm:rotate. */
 	public function rotate(): void {
 		if ( \is_resource( $this->fh ) ) {
 			\fclose( $this->fh );
 			$this->fh = null;
 		}
-		// Server-local timestamp (not gmdate) to match operator timezones when reading rotated logs.
-		// phpcs:ignore WordPress.DateTime.RestrictedFunctions.date_date
-		$rotated_name = $this->filename . '-' . \date( 'Y-m-d-H:i:s' ) . '-' . Core::counter();
 		// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename, WordPress.WP.AlternativeFunctions.file_system_operations_fopen
+		$this->shift_rotations();
+		$rotated_name = $this->filename . '.0';
 		@\rename( $this->filename, $rotated_name );
 		$fh         = \fopen( $this->filename, self::MODE_OVERWRITE === $this->mode ? 'wb' : 'ab' );
 		$this->fh   = false === $fh ? null : $fh;
@@ -142,12 +141,33 @@ class Log_Node extends Node {
 		$this->prune_rotated();
 	}
 
-	/** Keep the `max_rotations` newest rotated siblings (mtime-ordered), unlink the rest; max_rotations=0 disables. Globs `{filename}-*`, so don't co-locate other files there. */
+	/** Bump each existing {filename}.N up to {filename}.(N+1), highest index first so nothing clobbers. */
+	protected function shift_rotations(): void {
+		$rotations = \glob( $this->filename . '.[0-9]*' ) ?: [];
+		$prefix    = \strlen( $this->filename ) + 1;
+		$indexed   = [];
+		foreach ( $rotations as $path ) {
+			$suffix = \substr( $path, $prefix );
+			if ( \ctype_digit( $suffix ) ) {
+				$indexed[ (int) $suffix ] = $path;
+			}
+		}
+		\krsort( $indexed );
+		foreach ( $indexed as $index => $path ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_rename
+			@\rename( $path, $this->filename . '.' . ( $index + 1 ) );
+		}
+	}
+
+	/** Keep the `max_rotations` newest rotated siblings (mtime-ordered), unlink the rest; max_rotations=0 disables. Globs both the numeric `{filename}.N` scheme and the legacy `{filename}-{date}` scheme so pre-existing date-named rotations age out by mtime alongside the new ones; don't co-locate other files under either prefix. */
 	protected function prune_rotated(): void {
 		if ( $this->max_rotations <= 0 ) {
 			return;
 		}
-		$rotated = \glob( $this->filename . '-*' ) ?: [];
+		$rotated = \array_merge(
+			\glob( $this->filename . '.[0-9]*' ) ?: [],
+			\glob( $this->filename . '-*' ) ?: []
+		);
 		if ( \count( $rotated ) <= $this->max_rotations ) {
 			return;
 		}
@@ -172,17 +192,17 @@ class Log_Node extends Node {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'I/O',
 			'description' => 'Append-only file writer with rotation by line count.',
-			'arguments'        => [
+			'arguments'   => [
 				[ 'name' => 'filename',      'type' => 'string', 'required' => true ],
 				[ 'name' => 'mode',          'type' => 'string', 'default' => self::MODE_APPEND, 'enum' => [ self::MODE_APPEND, self::MODE_OVERWRITE ] ],
 				[ 'name' => 'max_size',      'type' => 'int',    'default' => 0 ],
 				[ 'name' => 'max_rotations', 'type' => 'int',    'default' => 0 ],
 			],
-			'commands'       => [],
+			'commands'    => [],
 			'requests'    => [
 				[
 					'name'        => 'rotate',
-					'description' => 'Rotate the log file: close current, rename to {filename}-{ts}, reopen.',
+					'description' => 'Rotate the log file: close current, shift {filename}.N up, rename current to {filename}.0, reopen.',
 				],
 			],
 			'has_target'  => false,
