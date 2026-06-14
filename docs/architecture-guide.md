@@ -179,7 +179,7 @@ public function fill( array &$message ): void {
 }
 ```
 
-Subclasses override with their actual behavior. (Several primitives — Shell, Hook, Callback, Dumper, Tail's `emit_message` path — count-and-forward without the TO stamp; only the base `Node::fill` and the subclasses that call `parent::fill` apply it.)
+Subclasses override with their actual behavior. (Several primitives — Shell, Hook, Callback, Dumper — count-and-forward without the TO stamp; only the base `Node::fill` and the subclasses that call `parent::fill` apply it, e.g. Tail's `emit_bytes` and Consumer's `drain_buffer`.)
 
 **`stamp_message`** prepends `$name` to the message's FROM with a `/` separator:
 
@@ -319,7 +319,7 @@ Just another Partition under `offsets/{reader}/p0/`. Each checkpoint is a `TM_ST
 **Consumer** generalizes existing `LogReader`. Tails a source Partition; commits cursor `{seg, off, ts, ...}` to its offsetlog (itself a single-partition Partition). On restart, reads the newest offsetlog entry to seed the cursor.
 
 ```php
-$c = new Consumer( $source_base_dir, $source_partition, $offsetlog_base_dir = '' );
+$c = new Consumer( $source_dir, $offsetlog_dir = '' );
 $c->next_offset( 'start' | 'recent' | 'end' | ['seg'=>, 'off'=>] );  // seek
 $c->poll();         // read new bytes, re-emit each line's Message, advance cursor
 $c->checkpoint();   // append a {seg, off, ts, ...} TM_STRUCT to offsetlog
@@ -327,17 +327,13 @@ $c->checkpoint();   // append a {seg, off, ts, ...} TM_STRUCT to offsetlog
 
 `poll()` reads new bytes since the cursor, splits on `\n`, drops the trailing partial, and for each complete line `Message::unpacked`s it (Partition wrote a packed Message per line), stamps its own name onto FROM, and forwards via `parent::fill`. The position breadcrumb goes in **ID** as `"{seg}:{offset}"` — **NOT KEY**. The code comment is explicit: overwriting KEY would destroy the producer's partition-routing key (rid / handler) and silently break multi-partition queues and RequestBuilder's rid grouping. Corrupt/unparseable lines are skipped (cursor already advanced) rather than aborting the poll.
 
-**Tail** is the file-following primitive (no offsetlog, no Partition awareness — just a plain file). Three buffer modes:
+**Tail** is a subclass of **Consumer** (`Tail extends Consumer`). It reads a **Log**'s `{file}.{seg}` segments (a file layout, via a `Log_Node` source) and emits the raw bytes per `buffer_mode` — instead of unpacking packed Messages — wrapped as `TM_BYTESTREAM`. Three buffer modes:
 
-- `binary` — chunk per message (one TM_BYTESTREAM per `fread`).
-- `block-buffered` — newline-delimited contiguous block as one message (throughput optimization).
-- `line-buffered` (default) — one message per line. Plugs straight into JSONL parsers.
+- `binary` — the read block emitted as-is (one TM_BYTESTREAM per drain; lines may split across messages).
+- `block-buffered` — everything up to the last newline in one message; a trailing partial carries forward.
+- `line-buffered` (default) — one message per complete line. Plugs straight into JSONL parsers.
 
-`READ_CHUNK = 65536` per `fread`; lines >65KB accumulate in `line_remainder` across reads. PIPE_BUF (4096) only matters for *writers*.
-
-Inode + size-shrink rotation detection on every poll (`clearstatcache(true, $path)` first). On rotation: reset position to 0, clear remainder.
-
-**Single timer-driven poll**: Tail extends Timer; each `fire()` polls the file, emits per buffer mode, and re-arms with `set_timer(0, true)` when there are still bytes to drain or `set_timer(100, true)` at EOF (idle backoff). A missing file just no-ops the poll and re-arms on the idle cadence.
+Tail overrides only Consumer's two read seams: the source factory (`make_source` → `Log_Node`) and the deframe/emit step (`drain_buffer`, which advances the cursor by the bytes emitted). It **inherits** the durable offsetlog cursor, snapshot co-commit, live-position publish, behind/ETA, checkpoint cadence, the block reader, and segment-roll follow. A fresh Tail with no durable cursor defaults to **end-of-file** (`default_offset` → `'end'`) — only bytes appended after start — and resumes from its offsetlog checkpoint on restart, which fixes the old every-restart full re-read. The `MAX_LINE_BUFFER_SIZE` (20 MB) DoS guard caps a single un-terminated line in line/block mode. `make_node Tail <name> <source_file> [offsetlog_dir] [buffer_mode]`.
 
 ## Other Node Primitives
 
@@ -372,7 +368,7 @@ Forward direction uses `TO=$this->target` (the path `connect_node` put there). R
 
 Path-based routing via `_router` does the rest. Nodes don't track sockets or addresses; they just stamp FROM at I/O boundaries on the way in, and reverse direction follows the trail back out.
 
-**FROM stamping at I/O boundaries only**: the substrate's source nodes — **Tail** (`emit_message` sets FROM directly) and **Consumer** (`stamp_message`, using `stamp_override` when set — the worker IPC input Consumer stamps `_repl`) — stamp FROM as messages enter the graph. Internal nodes (Tee, Hook, and any application Node subclass) do NOT stamp. A message flowing `tail -> tee -> request-builder` carries `FROM=tail`, NOT `tee/tail`. (There are no `Job` / `Connector` node classes in this substrate; those node types aren't part of it.)
+**FROM stamping at I/O boundaries only**: the substrate's source nodes — **Tail** (`emit_bytes` sets FROM directly, honoring `stamp_override`) and **Consumer** (`stamp_message`, using `stamp_override` when set — the worker IPC input Consumer stamps `_repl`) — stamp FROM as messages enter the graph. Internal nodes (Tee, Hook, and any application Node subclass) do NOT stamp. A message flowing `tail -> tee -> request-builder` carries `FROM=tail`, NOT `tee/tail`. (There are no `Job` / `Connector` node classes in this substrate; those node types aren't part of it.)
 
 ## Event_Framework
 
