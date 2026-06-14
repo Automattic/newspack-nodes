@@ -1459,10 +1459,12 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertArrayHasKey( $handle, $GLOBALS['_enqueued_scripts'] );
 		$enq = $GLOBALS['_enqueued_scripts'][ $handle ];
 		$this->assertStringEndsWith( 'build/topology-console/index.js', (string) $enq['src'] );
-		$this->assertSame( [ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ], $enq['deps'] );
+		// Deps + version now come from the wp-scripts manifest (index.asset.php),
+		// not the old hardcoded fallback — assert against the shipped manifest.
+		$manifest = require \NEWSPACK_NODES_DIR . 'build/topology-console/index.asset.php';
+		$this->assertSame( \array_values( $manifest['dependencies'] ), $enq['deps'] );
+		$this->assertSame( $manifest['version'], $enq['version'] );
 		$this->assertTrue( $enq['in_footer'] );
-		// Version is filemtime() of the asset (truthy).
-		$this->assertNotEmpty( $enq['version'] );
 
 		$this->assertArrayHasKey( $handle, $GLOBALS['_localized_scripts'] );
 		$payload = $GLOBALS['_localized_scripts'][ $handle ];
@@ -1824,7 +1826,10 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertArrayHasKey( $handle, $GLOBALS['_enqueued_scripts'] );
 		$enq = $GLOBALS['_enqueued_scripts'][ $handle ];
 		$this->assertStringEndsWith( 'build/event-dashboards/index.js', (string) $enq['src'] );
-		$this->assertSame( [ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ], $enq['deps'] );
+		// Deps now come from the wp-scripts manifest (index.asset.php), not the
+		// old hardcoded fallback — assert against the shipped manifest.
+		$manifest = require \NEWSPACK_NODES_DIR . 'build/event-dashboards/index.asset.php';
+		$this->assertSame( \array_values( $manifest['dependencies'] ), $enq['deps'] );
 		$this->assertTrue( $enq['in_footer'] );
 
 		$this->assertArrayHasKey( $handle, $GLOBALS['_localized_scripts'] );
