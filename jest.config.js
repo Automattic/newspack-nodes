@@ -29,6 +29,8 @@ module.exports = {
 		'\\.(css|scss)$': '<rootDir>/jest.style-mock.js',
 	},
 	transform: {
-		'\\.[jt]sx?$': 'babel-jest',
+		// `.mjs` covers the build-kit (src/build-kit/index.mjs is ESM build
+		// tooling); jest runs babel-jest over it so its `node:` imports resolve.
+		'\\.m?[jt]sx?$': 'babel-jest',
 	},
 };
