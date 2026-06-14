@@ -29,7 +29,6 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Command_Interpreter_Node;
-use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Shell_Node;
@@ -205,9 +204,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 							$restarted[] = $name;
 						}
 
-						// A save may drop a source; arm the GC so the next supervisor sweep cleans orphaned dirs.
-						\update_option( Log_Cleaner::LOGS_DIRTY_OPTION, '1', false );
-
 						return [
 							'name'             => $name,
 							'path'             => $path,
@@ -257,9 +253,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 							\do_action( 'newspack_nodes/restart_fleet', $name );
 							$restarted[] = $name;
 						}
-
-						// Deleting a user copy orphans its dirs; arm the GC so the next supervisor sweep cleans them.
-						\update_option( Log_Cleaner::LOGS_DIRTY_OPTION, '1', false );
 
 						return [
 							'name'             => $name,

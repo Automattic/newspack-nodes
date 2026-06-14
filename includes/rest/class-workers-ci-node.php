@@ -821,33 +821,29 @@ class Workers_CI_Node extends Service_CI_Node {
 					'args'        => [],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
 						// Diagnostic: surface what Log_Cleaner reads when deciding which
-						// log dirs to delete, so operators can debug orphan-log sweeps.
+						// flat log dirs to delete, so operators can debug orphan-log sweeps.
 						self::require_manage_options();
-						$base_dir      = RuntimeConfig::get_base_directory();
-						$logs_dir      = $base_dir . '/logs';
-						$dirty_flag    = \get_option( Log_Cleaner::LOGS_DIRTY_OPTION, null );
-						$prior_fleet   = \get_option( Log_Cleaner::FLEET_DESCRIPTORS_OPTION, null );
-						$on_disk       = [];
-						foreach ( @\glob( $logs_dir . '/*.log', \GLOB_ONLYDIR ) ?: [] as $dir ) {
-							if ( \preg_match( '#/([^/]+)\.log$#', $dir, $m ) ) {
-								$on_disk[] = $m[1];
+						$base_dir = RuntimeConfig::get_base_directory();
+						$logs_dir = $base_dir . '/logs';
+						$on_disk  = [];
+						foreach ( @\glob( $logs_dir . '/*.p*', \GLOB_ONLYDIR ) ?: [] as $dir ) {
+							$name = \basename( $dir );
+							if ( \preg_match( '/\.p\d+$/', $name ) ) {
+								$on_disk[] = $name;
 							}
 						}
 						\sort( $on_disk );
-						// Use the same code path Log_Cleaner uses so the diagnostic
-						// matches the cleanup sweep's actual expected set — substrate
-						// computes the topology-derived basenames, then the filter
-						// appends app runtime basenames.
-						$expected = Log_Cleaner::expected_basenames( $base_dir );
+						// Same code path Log_Cleaner's sweep uses so the diagnostic
+						// matches the actual declared set (topology declarations +
+						// the registered_log_producers filter).
+						$expected = Log_Cleaner::declared_log_dirs();
 						\sort( $expected );
 						$orphans = \array_values( \array_diff( $on_disk, $expected ) );
 						return [
-							'logs_dirty_option'        => $dirty_flag,
-							'fleet_descriptors_option' => $prior_fleet,
-							'logs_dir'                 => $logs_dir,
-							'on_disk_basenames'        => $on_disk,
-							'expected_basenames'       => $expected,
-							'orphans'                  => $orphans,
+							'logs_dir'           => $logs_dir,
+							'on_disk_basenames'  => $on_disk,
+							'expected_basenames' => $expected,
+							'orphans'            => $orphans,
 						];
 					},
 				],

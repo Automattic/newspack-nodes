@@ -27,7 +27,6 @@ declare(strict_types=1);
 namespace Newspack_Nodes\Tests\Unit;
 
 use Newspack_Nodes\Config;
-use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Rest\Topologies_CI_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
@@ -633,39 +632,39 @@ class TopologiesCITest extends TestCase {
 		$this->assertStringContainsString( 'invalid name', $result );
 	}
 
-	public function test_save_arms_logs_dirty_flag(): void {
-		// A topology edit that drops a source orphans offsetlog/ipc dirs; arming
-		// LOGS_DIRTY_OPTION lets the next supervisor sweep GC them.
-		\delete_option( Log_Cleaner::LOGS_DIRTY_OPTION );
-
-		VerbHarness::fire(
+	public function test_save_succeeds_without_arming_a_gc_flag(): void {
+		// The GC now runs every supervisor config-check tick against the
+		// config-declared set, so save no longer arms a dirty flag — it just
+		// persists the topology.
+		$result = VerbHarness::fire(
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
 			'armed ' . "make_node Partition p\n"
 		);
 
-		$this->assertSame( '1', \get_option( Log_Cleaner::LOGS_DIRTY_OPTION ) );
+		$this->assertSame( 'armed', $result['name'] );
+		$this->assertFileExists( $result['path'] );
 	}
 
-	public function test_delete_arms_logs_dirty_flag(): void {
+	public function test_delete_succeeds_without_arming_a_gc_flag(): void {
 		VerbHarness::fire(
 			new Topologies_CI_Node(),
 			'topologies',
 			'save',
-			'to-arm ' . "make_node Partition p\n"
+			'to-remove ' . "make_node Partition p\n"
 		);
 		VerbHarness::reset();
-		\delete_option( Log_Cleaner::LOGS_DIRTY_OPTION );
 
-		VerbHarness::fire(
+		$result = VerbHarness::fire(
 			new Topologies_CI_Node(),
 			'topologies',
 			'delete',
-			'to-arm'
+			'to-remove'
 		);
 
-		$this->assertSame( '1', \get_option( Log_Cleaner::LOGS_DIRTY_OPTION ) );
+		$this->assertSame( 'to-remove', $result['name'] );
+		$this->assertStringEndsWith( 'to-remove.tsl', $result['deleted'] );
 	}
 
 	public function test_delete_requires_manage_options(): void {

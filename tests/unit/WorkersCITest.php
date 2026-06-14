@@ -394,63 +394,47 @@ class WorkersCITest extends TestCase {
 	// ── cleanup_status verb ─────────────────────────────────────────────────
 
 	public function test_cleanup_status_returns_diagnostic_envelope_with_orphans(): void {
-		// Verb is the Log_Cleaner sweep's mirror: same inputs the sweep
-		// consults (LOGS_DIRTY_OPTION + FLEET_DESCRIPTORS_OPTION +
-		// {base}/logs/*.log/ + 'expected_log_basenames' filter) plus the
-		// computed orphan diff. Without this, dashboard cleanup-status
-		// debugging requires shell access.
-		$base    = $this->arrange_base_dir();
-		$logs    = "{$base}/logs";
-		\mkdir( "{$logs}/firehose.log", 0755, true );
-		\mkdir( "{$logs}/orphan.log",   0755, true );  // not in expected list
+		// Verb mirrors the Log_Cleaner sweep: flat `{base}/logs/*.p*` on disk vs
+		// the config-declared set (Log_Cleaner::declared_log_dirs). Without it,
+		// dashboard cleanup-status debugging requires shell access.
+		$base = $this->arrange_base_dir();
+		$logs = "{$base}/logs";
+		\mkdir( "{$logs}/requests.p0", 0755, true );
+		\mkdir( "{$logs}/ghost.p0",    0755, true );  // not declared
 
-		// Seed the two options the sweep keys on.
-		\update_option( \Newspack_Nodes\Log_Cleaner::LOGS_DIRTY_OPTION, 1 );
-		\update_option(
-			\Newspack_Nodes\Log_Cleaner::FLEET_DESCRIPTORS_OPTION,
-			[ 'demo-workers' => 1 ]
+		// A real .tsl declares 'requests'; the sweep reads Topology_Registry.
+		$stock = "{$base}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/requests-workers.tsl",
+			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
 		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		\Newspack_Nodes\Topology_Registry::reset_basename_cache();
 
-		// Application bootstrap publishes the canonical expected-basenames
-		// list via this filter. Mirror that here so the orphan diff has a
-		// real `expected` to subtract from.
-		\add_filter(
-			'newspack_nodes/expected_log_basenames',
-			static fn ( array $basenames ): array => [ 'firehose' ]
-		);
-
-		$interpreter     = new Workers_CI_Node();
+		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
 		$result = VerbHarness::fire( $interpreter, 'workers', 'cleanup_status' );
 
-		$this->assertSame( 1, $result['logs_dirty_option'] );
-		$this->assertSame( [ 'demo-workers' => 1 ], $result['fleet_descriptors_option'] );
 		$this->assertSame( $logs, $result['logs_dir'] );
-		$this->assertSame( [ 'firehose', 'orphan' ], $result['on_disk_basenames'] );
-		$this->assertSame( [ 'firehose' ], $result['expected_basenames'] );
-		$this->assertSame( [ 'orphan' ], $result['orphans'] );
+		$this->assertSame( [ 'ghost.p0', 'requests.p0' ], $result['on_disk_basenames'] );
+		$this->assertSame( [ 'requests.p0' ], $result['expected_basenames'] );
+		$this->assertSame( [ 'ghost.p0' ], $result['orphans'] );
+
+		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
-	public function test_cleanup_status_handles_missing_options_and_filter(): void {
-		// Defensive: when LOGS_DIRTY_OPTION isn't set, `get_option` returns
-		// null (the explicit default we pass). When the
-		// expected_log_basenames filter returns a non-array, the verb falls
-		// back to an empty list — that branch is otherwise unreachable from
-		// the happy-path test above.
+	public function test_cleanup_status_handles_empty_layout(): void {
+		// Defensive: no flat log dirs on disk and no declared topologies →
+		// every list is empty, no orphans.
 		$base = $this->arrange_base_dir();
 		\mkdir( "{$base}/logs", 0755, true );
+		\Newspack_Nodes\Topology_Registry::reset();
 
-		\add_filter(
-			'newspack_nodes/expected_log_basenames',
-			static fn (): mixed => 'not an array'
-		);
-
-		$interpreter     = new Workers_CI_Node();
+		$interpreter      = new Workers_CI_Node();
 		$interpreter->cli = $this->stub_cli();
 		$result = VerbHarness::fire( $interpreter, 'workers', 'cleanup_status' );
 
-		$this->assertNull( $result['logs_dirty_option'] );
-		$this->assertNull( $result['fleet_descriptors_option'] );
 		$this->assertSame( [], $result['on_disk_basenames'] );
 		$this->assertSame( [], $result['expected_basenames'] );
 		$this->assertSame( [], $result['orphans'] );
