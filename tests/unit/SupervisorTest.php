@@ -1627,6 +1627,97 @@ class SupervisorTest extends TestCase {
 		);
 	}
 
+	// ── cleanup_orphan_ipc (driven via reflection) ──────────────────────────
+
+	private function seed_ipc_dir( string $type, int $partition ): string {
+		$dir = "{$this->tmp}/ipc/{$type}.p{$partition}/output";
+		\mkdir( $dir, 0755, true );
+		\file_put_contents( "{$dir}/0.log", 'ipc data' );
+		return "{$this->tmp}/ipc/{$type}.p{$partition}";
+	}
+
+	private function invoke_cleanup_orphan_ipc( Supervisor $s ): void {
+		$method = new \ReflectionMethod( Supervisor::class, 'cleanup_orphan_ipc' );
+		$method->setAccessible( true );
+		$method->invoke( $s );
+	}
+
+	/**
+	 * cleanup_orphan_ipc reaps ipc dirs for `{type}.p{N}` not in the active
+	 * fleet (worker_locks), and leaves active ones alone. Active set comes
+	 * from check_config's worker_locks build — no re-enumeration.
+	 */
+	public function test_cleanup_orphan_ipc_purges_inactive_topology(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$kept   = $this->seed_ipc_dir( 'firehose-workers', 0 );  // active -> kept
+		$orphan = $this->seed_ipc_dir( 'aggregator', 0 );        // dead topology -> purged
+
+		$this->invoke_cleanup_orphan_ipc( $s );
+
+		$this->assertDirectoryExists( $kept );
+		$this->assertDirectoryDoesNotExist( $orphan );
+	}
+
+	/**
+	 * A live worker's lock for the orphan descriptor defers its own ipc reap —
+	 * the worker may still be flushing through that dir.
+	 */
+	public function test_cleanup_orphan_ipc_skips_when_own_lock_held(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$orphan = $this->seed_ipc_dir( 'aggregator', 0 );
+		\mkdir( "{$this->tmp}/locks/aggregator.p0.lock.d", 0755, true ); // straggler still running
+
+		$this->invoke_cleanup_orphan_ipc( $s );
+
+		$this->assertDirectoryExists( $orphan );
+	}
+
+	/**
+	 * An UNRELATED descriptor's lock must NOT protect a dead topology's ipc
+	 * dir — only the orphan's OWN lock defers it.
+	 */
+	public function test_cleanup_orphan_ipc_purges_despite_unrelated_lock(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$orphan = $this->seed_ipc_dir( 'aggregator', 0 );
+		// Unrelated live worker at firehose-workers.p0 must NOT protect the dead topology's ipc dir.
+		\mkdir( "{$this->tmp}/locks/firehose-workers.p0.lock.d", 0755, true );
+
+		$this->invoke_cleanup_orphan_ipc( $s );
+
+		$this->assertDirectoryDoesNotExist( $orphan );
+	}
+
+	/** A non-`.p{N}` dir under ipc/ is left alone (defensive: never reap a stray dir). */
+	public function test_cleanup_orphan_ipc_leaves_non_partition_dirs_alone(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$stray = "{$this->tmp}/ipc/scratch";
+		\mkdir( $stray, 0755, true );
+
+		$this->invoke_cleanup_orphan_ipc( $s );
+
+		$this->assertDirectoryExists( $stray );
+	}
+
 	// kill_readers MAX_PARTITIONS fallback: a type not in topology is
 	// flagged across the full MAX_PARTITIONS range so any orphan dir is
 	// cleaned up.

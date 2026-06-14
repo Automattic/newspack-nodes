@@ -155,6 +155,7 @@ class Supervisor extends Supervisor_Base {
 					break;
 				}
 				Log_Cleaner::cleanup_orphan_partitions( $this->base_dir, $this->num_partitions ?? 1 );
+				$this->cleanup_orphan_ipc();
 				if ( \function_exists( 'do_action' ) ) {
 					\do_action( 'newspack_nodes/supervisor_periodic' );
 				}
@@ -327,6 +328,25 @@ class Supervisor extends Supervisor_Base {
 				continue; // Unreadable or possibly an in-flight steal — leave it.
 			}
 			Supervisor_Base::delete_directory_recursive( $path, $locks_dir );
+		}
+	}
+
+	/** Reap ipc dirs for workers no longer in the fleet (a live worker's lock defers its own). */
+	private function cleanup_orphan_ipc(): void {
+		$active = [];
+		foreach ( $this->worker_locks as $w ) {
+			$active[ "{$w['type']}.p{$w['partition']}" ] = true;
+		}
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		foreach ( @\glob( "{$this->base_dir}/ipc/*.p*", \GLOB_ONLYDIR ) ?: [] as $dir ) {
+			$name = \basename( $dir );
+			if ( isset( $active[ $name ] ) || ! \preg_match( '/\.p\d+$/', $name ) ) {
+				continue;
+			}
+			if ( \is_dir( "{$this->base_dir}/locks/{$name}.lock.d" ) ) {
+				continue; // a live worker still holds it
+			}
+			Supervisor_Base::delete_directory_recursive( $dir, $this->base_dir );
 		}
 	}
 

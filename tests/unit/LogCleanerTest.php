@@ -60,13 +60,6 @@ class LogCleanerTest extends TestCase {
 		return $dir;
 	}
 
-	private function seed_ipc_dir( string $type, int $partition ): string {
-		$dir = "{$this->tmp}/ipc/{$type}.p{$partition}/input/p0";
-		\mkdir( $dir, 0755, true );
-		\file_put_contents( "{$dir}/0.log", 'ipc data' );
-		return "{$this->tmp}/ipc/{$type}.p{$partition}";
-	}
-
 	public function test_deletes_log_partition_dir_when_n_above_num_partitions_and_no_lock(): void {
 		$p1 = $this->seed_log_partition( 'firehose', 1 );
 		$this->assertDirectoryExists( $p1 );
@@ -454,69 +447,4 @@ class LogCleanerTest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
-	// ── ipc sweep (topology/partition no longer active) ─────────────────────
-
-	public function test_purges_ipc_dir_for_inactive_topology(): void {
-		$stock = "{$this->tmp}/topologies";
-		\mkdir( $stock, 0755, true );
-		\file_put_contents(
-			"{$stock}/digest.tsl",
-			"make_node Partition scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
-		);
-		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'digest' ];
-		\Newspack_Nodes\Config::reset();
-
-		$kept   = $this->seed_ipc_dir( 'digest', 0 );                     // active -> kept
-		$orphan = $this->seed_ipc_dir( 'firehose-workers-and-jobs', 0 );  // dead topology -> purged
-
-		Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 1 );
-
-		$this->assertDirectoryExists( $kept );
-		$this->assertDirectoryDoesNotExist( $orphan );
-
-		\Newspack_Nodes\Topology_Registry::reset();
-	}
-
-	public function test_skips_orphan_ipc_when_partition_lock_held(): void {
-		$stock = "{$this->tmp}/topologies";
-		\mkdir( $stock, 0755, true );
-		\file_put_contents(
-			"{$stock}/digest.tsl",
-			"make_node Partition scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
-		);
-		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'digest' ];
-		\Newspack_Nodes\Config::reset();
-
-		$orphan = $this->seed_ipc_dir( 'firehose-workers-and-jobs', 0 );
-		$this->seed_lock_dir( 'firehose-workers-and-jobs', 0 ); // straggler still running
-
-		Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 1 );
-
-		$this->assertDirectoryExists( $orphan );
-
-		\Newspack_Nodes\Topology_Registry::reset();
-	}
-
-	public function test_purges_orphan_ipc_despite_unrelated_partition_lock(): void {
-		$stock = "{$this->tmp}/topologies";
-		\mkdir( $stock, 0755, true );
-		\file_put_contents(
-			"{$stock}/digest.tsl",
-			"make_node Partition scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
-		);
-		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'digest' ];
-		\Newspack_Nodes\Config::reset();
-
-		$orphan = $this->seed_ipc_dir( 'firehose-workers-and-jobs', 0 );
-		$this->seed_lock_dir( 'digest', 0 ); // unrelated live worker at p0 must NOT protect the dead topology's ipc dir
-
-		Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 1 );
-
-		$this->assertDirectoryDoesNotExist( $orphan );
-
-		\Newspack_Nodes\Topology_Registry::reset();
-	}
 }
