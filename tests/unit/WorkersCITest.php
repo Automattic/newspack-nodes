@@ -749,8 +749,8 @@ class WorkersCITest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/aggregator.tsl",
-			"make_node Partition completed:partition <config:logs_dir>/completed.log <partition> 1048576 <config:num_segments> <config:max_lifespan>\n"
-			. "make_node Partition requests:partition <config:logs_dir>/requests.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			"make_node Partition completed:partition <config:logs_dir>/completed.p<partition> 1048576 <config:num_segments> <config:max_lifespan>\n"
+			. "make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 
@@ -801,7 +801,7 @@ class WorkersCITest extends TestCase {
 		\file_put_contents(
 			"{$stock}/aggregator.tsl",
 			"var num_partitions = 1\n"
-			. "make_node Partition scored:partition <config:logs_dir>/scored.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			. "make_node Partition scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 

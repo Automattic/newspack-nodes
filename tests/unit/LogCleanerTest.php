@@ -258,8 +258,8 @@ class LogCleanerTest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/firehose-workers-only.tsl",
-			"make_node Partition completed:partition <config:logs_dir>/completed.log <partition> 1048576 <config:num_segments> <config:max_lifespan>\n"
-			. "make_node Partition errors:partition <config:logs_dir>/errors.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			"make_node Partition completed:partition <config:logs_dir>/completed.p<partition> 1048576 <config:num_segments> <config:max_lifespan>\n"
+			. "make_node Partition errors:partition <config:logs_dir>/errors.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 
@@ -282,7 +282,7 @@ class LogCleanerTest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/job-workers.tsl",
-			"make_node Partition jobs:partition <config:logs_dir>/jobs.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			"make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'job-workers' ];
@@ -310,7 +310,7 @@ class LogCleanerTest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/request-workers.tsl",
-			"make_node Partition flames:partition <config:logs_dir>/flames.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			"make_node Partition flames:partition <config:logs_dir>/flames.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 
@@ -334,7 +334,7 @@ class LogCleanerTest extends TestCase {
 		\file_put_contents(
 			"{$stock}/digest.tsl",
 			"var num_partitions = 2\n"
-			. "make_node Partition scored:partition <config:logs_dir>/scored.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			. "make_node Partition scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'digest' ];
@@ -416,7 +416,7 @@ class LogCleanerTest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/digest.tsl",
-			"make_node Consumer scored:consumer <config:logs_dir>/scored.log <partition> <config:offsets_dir>/scored.p<partition>\n"
+			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'digest' ];
@@ -438,7 +438,7 @@ class LogCleanerTest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/digest.tsl",
-			"make_node Consumer scored:consumer <config:logs_dir>/scored.log <partition> <config:offsets_dir>/scored.p<partition>\n"
+			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'digest' ];
@@ -461,7 +461,7 @@ class LogCleanerTest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/digest.tsl",
-			"make_node Partition scored:partition <config:logs_dir>/scored.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			"make_node Partition scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'digest' ];
@@ -483,7 +483,7 @@ class LogCleanerTest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/digest.tsl",
-			"make_node Partition scored:partition <config:logs_dir>/scored.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			"make_node Partition scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'digest' ];
@@ -504,7 +504,7 @@ class LogCleanerTest extends TestCase {
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/digest.tsl",
-			"make_node Partition scored:partition <config:logs_dir>/scored.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			"make_node Partition scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'digest' ];
