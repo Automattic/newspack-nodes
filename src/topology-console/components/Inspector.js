@@ -573,6 +573,13 @@ function VerbRow( {
 	);
 }
 
+// Live metadata wins, else the class catalog default, else true — mirrors the
+// SchematicCanvas OUT-port gating so a sink-only node shows no routing UI.
+function nodeHasTarget( node, catalog ) {
+	const schema = catalog.find( ( c ) => c.shell_name === node.class );
+	return node.has_target ?? schema?.has_target ?? true;
+}
+
 // Tee fans out to many targets; everything else has a single target.
 function TargetsField( { node, nodeNames, targets, onConnect, onRemoveEdge } ) {
 	const isTee = node.class === 'Tee';
@@ -812,7 +819,7 @@ function EditForm( {
 				</Section>
 			) }
 
-			{ ! isReserved( node ) && (
+			{ ! isReserved( node ) && nodeHasTarget( node, catalog ) && (
 				<Section title={ __( 'Routing', 'newspack-nodes' ) }>
 					<TargetsField
 						node={ node }
@@ -1163,53 +1170,55 @@ export default function Inspector( {
 					: streamStatus.toUpperCase() }
 			</div>
 
-			<Section title={ __( 'Routing', 'newspack-nodes' ) }>
-				{ onConnect && onRemoveEdge && ! isReserved( node ) ? (
-					// Live targets editor — the same UI as edit mode, but its
-					// add/remove dispatch runtime connect_node/disconnect_node
-					// (no .tsl write). Read-only fallback for reserved nodes /
-					// when no handlers are wired.
-					<TargetsField
-						node={ node }
-						nodeNames={ nodeNames }
-						targets={ editorTargets }
-						onConnect={ onConnect }
-						onRemoveEdge={ onRemoveEdge }
-					/>
-				) : (
-					<>
-						<div className="topology-field-row">
-							<span className="topology-field-row__key">
-								target →
-							</span>
-							<NodeLinks
-								names={ targets
-									.slice( 0, 1 )
-									.map( ( t ) => t.to ) }
-								nodeIds={ nodeIds }
-								onSelect={ onSelect }
-								onHover={ onHover }
-							/>
-						</div>
-						{ targets.length > 1 && (
+			{ nodeHasTarget( node, catalog ) && (
+				<Section title={ __( 'Routing', 'newspack-nodes' ) }>
+					{ onConnect && onRemoveEdge && ! isReserved( node ) ? (
+						// Live targets editor — the same UI as edit mode, but its
+						// add/remove dispatch runtime connect_node/disconnect_node
+						// (no .tsl write). Read-only fallback for reserved nodes /
+						// when no handlers are wired.
+						<TargetsField
+							node={ node }
+							nodeNames={ nodeNames }
+							targets={ editorTargets }
+							onConnect={ onConnect }
+							onRemoveEdge={ onRemoveEdge }
+						/>
+					) : (
+						<>
 							<div className="topology-field-row">
 								<span className="topology-field-row__key">
-									also →
+									target →
 								</span>
 								<NodeLinks
 									names={ targets
-										.slice( 1 )
+										.slice( 0, 1 )
 										.map( ( t ) => t.to ) }
 									nodeIds={ nodeIds }
 									onSelect={ onSelect }
 									onHover={ onHover }
 								/>
 							</div>
-						) }
-					</>
-				) }
-				{ /* sink + from dropped — substrate plumbing, no edit-mode equivalent. */ }
-			</Section>
+							{ targets.length > 1 && (
+								<div className="topology-field-row">
+									<span className="topology-field-row__key">
+										also →
+									</span>
+									<NodeLinks
+										names={ targets
+											.slice( 1 )
+											.map( ( t ) => t.to ) }
+										nodeIds={ nodeIds }
+										onSelect={ onSelect }
+										onHover={ onHover }
+									/>
+								</div>
+							) }
+						</>
+					) }
+					{ /* sink + from dropped — substrate plumbing, no edit-mode equivalent. */ }
+				</Section>
+			) }
 
 			{ ( rateInfo?.hasMessages ||
 				rateInfo?.hasRead ||
