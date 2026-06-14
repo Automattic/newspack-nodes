@@ -145,3 +145,71 @@ it( 'a node row shows a status-colored partition pill and R rate', () => {
 		/R /
 	);
 } );
+
+it( 'folds every instance of a log/node from one identity key', () => {
+	// Same log appears under two different parents — fold state is keyed by
+	// entity.key (identity), so collapsing its key collapses both instances.
+	const logX = {
+		kind: 'log',
+		name: 'x.log',
+		key: 'log:x.log',
+		hasCursor: false,
+		partitions: [ { partition: 0, segments: [ { id: 0, size: 100 } ] } ],
+		children: [],
+	};
+	const tree = {
+		kind: 'node',
+		name: 'p',
+		key: 'node:p',
+		workers: [],
+		children: [
+			{
+				kind: 'node',
+				name: 'a',
+				key: 'node:a',
+				workers: [],
+				children: [ logX ],
+			},
+			{
+				kind: 'node',
+				name: 'b',
+				key: 'node:b',
+				workers: [],
+				children: [ logX ],
+			},
+		],
+	};
+	const base = {
+		byteRates: {},
+		writeRates: {},
+		segmentSize: 1024,
+		currentTime: 0,
+		prevSegments: {},
+		removingSegments: {},
+		onToggle: () => {},
+	};
+	const open = render(
+		<TreeEntity
+			entity={ tree }
+			depth={ 0 }
+			{ ...base }
+			collapsed={ new Set() }
+		/>
+	);
+	// Both x.log instances show their segment bar when expanded.
+	expect(
+		open.container.querySelectorAll( '.worker-segment-h' )
+	).toHaveLength( 2 );
+	const folded = render(
+		<TreeEntity
+			entity={ tree }
+			depth={ 0 }
+			{ ...base }
+			collapsed={ new Set( [ 'log:x.log' ] ) }
+		/>
+	);
+	// Collapsing the one identity key hides the bars in BOTH places.
+	expect(
+		folded.container.querySelectorAll( '.worker-segment-h' )
+	).toHaveLength( 0 );
+} );
