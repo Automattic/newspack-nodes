@@ -245,6 +245,27 @@ class Topology_Registry {
 	}
 
 	/**
+	 * On-disk offset dir basenames `$name` writes at `$partition` (the Consumer
+	 * offsetlog 4th-arg tokens, basename only, `<partition>` substituted). Offsetlogs
+	 * are direct children of offsets/, so the basename is the GC's match key.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function offset_basenames_for( string $name, int $partition ): array {
+		$out = [];
+		foreach ( self::write_set( $name ) as $entry ) {
+			if ( 0 !== \strpos( $entry, 'offsetlog:' ) ) {
+				continue;
+			}
+			$token = \substr( $entry, \strlen( 'offsetlog:' ) );
+			$slash = \strrpos( $token, '/' );
+			$tail  = false === $slash ? $token : \substr( $token, $slash + 1 );
+			$out[ \str_replace( '<partition>', (string) $partition, $tail ) ] = true;
+		}
+		return \array_keys( $out );
+	}
+
+	/**
 	 * Log basenames declared by `$name`'s Partition nodes (sorted, deduped, `.log` stripped). Memoized.
 	 *
 	 * @return array<string>
@@ -277,27 +298,6 @@ class Topology_Registry {
 		$out = \array_keys( $seen );
 		\sort( $out );
 		return self::$basename_cache[ $name ] = $out;
-	}
-
-	/**
-	 * On-disk offset dir basenames `$name` writes at `$partition` (the Consumer
-	 * offsetlog 4th-arg tokens, basename only, `<partition>` substituted). Offsetlogs
-	 * are direct children of offsets/, so the basename is the GC's match key.
-	 *
-	 * @return array<int,string>
-	 */
-	public static function offset_basenames_for( string $name, int $partition ): array {
-		$out = [];
-		foreach ( self::write_set( $name ) as $entry ) {
-			if ( 0 !== \strpos( $entry, 'offsetlog:' ) ) {
-				continue;
-			}
-			$token = \substr( $entry, \strlen( 'offsetlog:' ) );
-			$slash = \strrpos( $token, '/' );
-			$tail  = false === $slash ? $token : \substr( $token, $slash + 1 );
-			$out[ \str_replace( '<partition>', (string) $partition, $tail ) ] = true;
-		}
-		return \array_keys( $out );
 	}
 
 	/**
