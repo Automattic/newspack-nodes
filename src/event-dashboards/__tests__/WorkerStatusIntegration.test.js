@@ -147,6 +147,12 @@ describe( 'WorkerStatus integration (real graph)', () => {
 				],
 				supervisor: null,
 				logs: [],
+				graph: {
+					'firehose-workers': {
+						nodes: [ { name: 'firehose-workers', kind: 'logic' } ],
+						edges: [],
+					},
+				},
 			},
 		} );
 
@@ -219,6 +225,49 @@ describe( 'WorkerStatus integration (real graph)', () => {
 						],
 					},
 				],
+				// Two topologies, each a realistic consumer → logic → partition
+				// chain. Structure now comes from the graph; the consumer/partition
+				// vertices collapse to their logs (their node-names must NOT survive).
+				graph: {
+					'firehose-workers': {
+						nodes: [
+							{
+								name: 'fh-source',
+								kind: 'consumer',
+								reads: 'source.log',
+							},
+							{ name: 'firehose-workers', kind: 'logic' },
+							{
+								name: 'fh-partition',
+								kind: 'partition',
+								writes: 'firehose.log',
+							},
+						],
+						edges: [
+							[ 'fh-source', 'firehose-workers' ],
+							[ 'firehose-workers', 'fh-partition' ],
+						],
+					},
+					'request-workers': {
+						nodes: [
+							{
+								name: 'rq-consumer',
+								kind: 'consumer',
+								reads: 'firehose.log',
+							},
+							{ name: 'request-workers', kind: 'logic' },
+							{
+								name: 'rq-partition',
+								kind: 'partition',
+								writes: 'requests.log',
+							},
+						],
+						edges: [
+							[ 'rq-consumer', 'request-workers' ],
+							[ 'request-workers', 'rq-partition' ],
+						],
+					},
+				},
 			},
 		} );
 
@@ -237,5 +286,9 @@ describe( 'WorkerStatus integration (real graph)', () => {
 		expect( container.querySelector( '.worker-segment-h' ) ).not.toBeNull();
 		// The seeded behind datum is rendered on the firehose node row.
 		expect( container.querySelector( '.connector-behind' ) ).not.toBeNull();
+		// The consumer/partition vertices collapsed to their logs — their raw
+		// node-names never reach the DOM.
+		expect( container.textContent ).not.toMatch( /fh-partition/ );
+		expect( container.textContent ).not.toMatch( /rq-consumer/ );
 	} );
 } );
