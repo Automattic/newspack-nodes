@@ -59,7 +59,7 @@ const EMPTY_MODEL = {
  * @param {boolean} props.isRemoving   Whether this segment is being removed.
  * @return {import('react').ReactElement} Rendered component.
  */
-const SegmentBar = memo( function SegmentBar( {
+export const SegmentBar = memo( function SegmentBar( {
 	segment,
 	maxSize,
 	cursorSeg,
