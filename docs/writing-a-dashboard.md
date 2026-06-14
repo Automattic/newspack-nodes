@@ -1,12 +1,12 @@
 # Writing a Nodes Dashboard
 
-[WRITING-A-PLUGIN.md](WRITING-A-PLUGIN.md) stopped at a fully-working, fully-tested **headless** node plugin: the AI-newsletter digest pipeline. This walkthrough adds the other half — a **React admin dashboard** that reads the pipeline's live state and renders it in wp-admin. We'll end with **Publisher Insights**: a page that shows per-source counts, a score-ranked table of items, and a one-click "Draft newsletter" button.
+[WRITING-A-PLUGIN.md](writing-a-plugin.md) stopped at a fully-working, fully-tested **headless** node plugin: the AI-newsletter digest pipeline. This walkthrough adds the other half — a **React admin dashboard** that reads the pipeline's live state and renders it in wp-admin. We'll end with **Publisher Insights**: a page that shows per-source counts, a score-ranked table of items, and a one-click "Draft newsletter" button.
 
 The finished code is in [`examples/newspack-ai-newsletter/`](examples/newspack-ai-newsletter/) — the same plugin the first guide built, now with a `src/dashboard/` tree and a scored, durable topology. Read along, or build it yourself and diff.
 
 > **The one thing to hold onto:** a dashboard is *not* a new mechanism. It is the **same `fill(message)` contract**, expressed in JavaScript, talking to the same node graph over one HTTP boundary. You already know how to write a node. A dashboard is a few nodes that happen to run in the browser, plus a thin React view that reads one of them.
 
-Do [WRITING-A-PLUGIN.md](WRITING-A-PLUGIN.md) first if you haven't — this guide assumes the digest pipeline (sources → summarizer → digest) and the `fill`/`sink`/`target`/`node_schema` vocabulary.
+Do [WRITING-A-PLUGIN.md](writing-a-plugin.md) first if you haven't — this guide assumes the digest pipeline (sources → summarizer → digest) and the `fill`/`sink`/`target`/`node_schema` vocabulary.
 
 > **A note on how this guide was written.** Every section below ends at a primitive in the substrate — `enqueue_react_page`, `buildDashboards`, `createJestConfig`, `PendingReplies`, `useDashboardGraph`, `read_latest_value_at`. None of those existed when the dashboard was first built: each was 20–250 lines of copy-paste in the example until writing *this* walkthrough made the boilerplate impossible to ignore, at which point it moved into the substrate. That's the same rule the first guide follows — **when a step feels like boilerplate, the fix belongs in the substrate, not the tutorial.** Where a step is one call today, this guide says what it replaced, so you can see the seam.
 
@@ -626,7 +626,7 @@ That table *is* the lesson, and it's the same one the first guide ends on, lifte
 
 ## Where to go next
 
-- **[WRITING-A-PLUGIN.md](WRITING-A-PLUGIN.md)** — the headless pipeline this dashboard reads from.
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — the full model: drain loop, partitions, workers, the REPL, and the JS runtime.
+- **[WRITING-A-PLUGIN.md](writing-a-plugin.md)** — the headless pipeline this dashboard reads from.
+- **[ARCHITECTURE.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, the REPL, and the JS runtime.
 - **[`examples/newspack-ai-newsletter/`](examples/newspack-ai-newsletter/)** — the complete, tested code for this walkthrough, including the `src/dashboard/` suites (each node and hook tested with a fake `CommandClient`, no browser).
 - **`newspack-event-logger-nodes`** — the production application: six real dashboards (performance, gyroscope, request stream, aggregator) built on these same primitives, including the SSE ones this guide's poll shape deliberately doesn't cover.

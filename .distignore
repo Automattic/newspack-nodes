@@ -25,15 +25,12 @@
 /tests
 /vendor
 AGENTS.md
-API.md
-ARCHITECTURE.md
 babel.config.js
 build-release.sh
 cghooks.lock
 CHANGELOG.md
 CLAUDE.md
 commitlint.config.js
-GETTING-STARTED.md
 jest.config.js
 jest.style-mock.js
 MIGRATION.md
@@ -48,4 +45,3 @@ README.md
 sync-shared.sh
 Thumbs.db
 webpack.config.js
-WRITING-A-PLUGIN.md

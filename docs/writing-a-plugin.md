@@ -6,7 +6,7 @@ The finished code is in [`examples/newspack-ai-newsletter/`](examples/newspack-a
 
 > **The one thing to hold onto:** every node has a single entry point, `fill( array &$message ): void`. A node does its job and forwards the message to its **sink**. Nodes never call each other's methods; they pass messages. Keep that contract and your node drops into any graph.
 
-If you haven't run the example yet, do [GETTING-STARTED.md](GETTING-STARTED.md) first — it's the same pipeline, five minutes, no building.
+If you haven't run the example yet, do [GETTING-STARTED.md](getting-started.md) first — it's the same pipeline, five minutes, no building.
 
 ---
 
@@ -471,7 +471,7 @@ scanDirectories:
 
 A `build-release.sh` that stages via `.distignore`, runs `composer install --no-dev --optimize-autoloader`, and zips the plugin dir; plus a tag-triggered `.github/workflows/release.yml` that runs it and publishes the zip with the matching `CHANGELOG.md` section as the notes. Pushing a `v1.2.3` tag is the whole release. cache-cozy's pair works as-is after a slug rename.
 
-> **Dashboards are a separate story.** Everything above is server-side PHP. The moment you add a React admin dashboard you're into the substrate's shared-JS build (the `@newspack-nodes/shared` alias, esbuild, jest) — involved enough to deserve its own guide, **[WRITING-A-DASHBOARD.md](WRITING-A-DASHBOARD.md)**, which picks up this exact pipeline and adds the Publisher Insights dashboard. This guide stops at a fully-working, fully-tested, headless node plugin.
+> **Dashboards are a separate story.** Everything above is server-side PHP. The moment you add a React admin dashboard you're into the substrate's shared-JS build (the `@newspack-nodes/shared` alias, esbuild, jest) — involved enough to deserve its own guide, **[WRITING-A-DASHBOARD.md](writing-a-dashboard.md)**, which picks up this exact pipeline and adds the Publisher Insights dashboard. This guide stops at a fully-working, fully-tested, headless node plugin.
 
 ---
 
@@ -489,8 +489,8 @@ And the same contract is what makes each node testable in isolation: the example
 
 ## Where to go next
 
-- **[GETTING-STARTED.md](GETTING-STARTED.md)** — the five-minute tour (if you skipped it).
-- **[ARCHITECTURE.md](ARCHITECTURE.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
+- **[GETTING-STARTED.md](getting-started.md)** — the five-minute tour (if you skipped it).
+- **[ARCHITECTURE.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
 - **[API.md](API.md)** — the REST endpoints.
 - **[`examples/newspack-ai-newsletter/`](examples/newspack-ai-newsletter/)** — the complete, tested code for this walkthrough.
 - **`newspack-cache-cozy`** — the minimal, fully-rigged *standalone* plugin (one node + a mu-plugin drop-in): the §8 essentials — `Requires Plugins` + a deferred presence-gated loader, test bootstrap, phpcs/phpstan, release workflow — as real files to copy.

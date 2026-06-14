@@ -2,7 +2,7 @@
 
 The runtime ships three REST endpoints — the worker spawn handler, the unified command-dispatch endpoint, and a server-sent-events stream. Application plugins register their own endpoints (dashboards, additional streams, etc.) on top, plus mount service `Command_Interpreter_Node`s into the dispatch endpoint's graph via the `newspack_nodes/request_graph_ready` hook.
 
-For the full architecture and rationale, see [ARCHITECTURE.md](ARCHITECTURE.md).
+For the full architecture and rationale, see [ARCHITECTURE.md](architecture-guide.md).
 
 ## Worker Spawn
 
