@@ -69,7 +69,7 @@ class Partition_Node extends Timer_Node {
 	/** @var string Packed messages awaiting one PIPE_BUF-atomic syswrite. */
 	protected string $batch = '';
 
-	/** @var list<array{packed:string,size:int,data:mixed}> Flushed in lockstep with $batch. */
+	/** @var list<array{record:string,size:int,data:mixed}> Flushed in lockstep with $batch. */
 	protected array $batch_index_args = [];
 
 	/** Tachikoma-parity: no-arg ctor. Wires the sibling :config interpreter; positional config arrives via arguments(). */
@@ -122,7 +122,7 @@ class Partition_Node extends Timer_Node {
 				if ( ! $this->write_lock->heartbeat() ) {
 					throw new \RuntimeException(
 						\esc_html(
-							"Partition: write lock at {$this->partition_dir}/write.lock.d "
+							"Partition: write lock at {$this->write_lock_path()} "
 							. 'no longer owned (stolen via stale-takeover); cannot continue.'
 						)
 					);
@@ -132,9 +132,9 @@ class Partition_Node extends Timer_Node {
 		}
 
 		// Size cap is on the final packed bytes (not VALUE alone) — that's what hits PIPE_BUF.
-		$packed = Message::packed( $message ) . "\n";
+		$record = $this->serialize_record( $message );
 		$max    = $this->allow_large_writes ? self::MAX_LARGE_LINE_SIZE : self::MAX_LINE_SIZE;
-		$size   = \strlen( $packed );
+		$size   = \strlen( $record );
 		if ( $size > $max ) {
 			$this->set_state(
 				'DROPPED',
@@ -166,13 +166,13 @@ class Partition_Node extends Timer_Node {
 				return;
 			}
 			$offset              = $this->current_size;
-			$wrote               = $this->write_all( $fh, $packed, $this->current_log_path );
+			$wrote               = $this->write_all( $fh, $record, $this->current_log_path );
 			$this->current_size += $wrote;
 			if ( $wrote < $size ) {
 				return;
 			}
 			if ( null !== $this->index_callback ) {
-				$this->write_index_entry( $packed, $offset, $size, $data );
+				$this->write_index_entry( $record, $offset, $size, $data );
 			}
 			$this->touch_segments_cache();
 			return;
@@ -187,9 +187,9 @@ class Partition_Node extends Timer_Node {
 			$this->rotate_segment();
 		}
 
-		$this->batch              .= $packed;
+		$this->batch              .= $record;
 		$this->batch_index_args[]  = [
-			'packed' => $packed,
+			'record' => $record,
 			'size'   => $size,
 			'data'   => $data,
 		];
@@ -214,15 +214,15 @@ class Partition_Node extends Timer_Node {
 		if ( empty( $segments ) ) {
 			$this->current_segment_id = 0;
 			$this->current_size       = 0;
-			$this->current_log_path   = "{$this->partition_dir}/0.log";
-			$this->current_idx_path   = "{$this->partition_dir}/0.idx";
+			$this->current_log_path   = $this->get_segment_path( 0 );
+			$this->current_idx_path   = $this->get_index_path( 0 );
 			return;
 		}
 		$newest                   = \end( $segments );
 		$this->current_segment_id = $newest['id'];
 		$this->current_size       = $newest['size'];
-		$this->current_log_path   = "{$this->partition_dir}/{$this->current_segment_id}.log";
-		$this->current_idx_path   = "{$this->partition_dir}/{$this->current_segment_id}.idx";
+		$this->current_log_path   = $this->get_segment_path( $this->current_segment_id );
+		$this->current_idx_path   = $this->get_index_path( $this->current_segment_id );
 	}
 
 	protected function close_handle(): void {
@@ -249,21 +249,23 @@ class Partition_Node extends Timer_Node {
 			return $this->segments_cache;
 		}
 		$segments = [];
-		if ( ! \is_dir( $this->partition_dir ) ) {
+		$dir      = $this->segment_dir();
+		if ( ! \is_dir( $dir ) ) {
 			$this->segments_cache      = [];
 			$this->segments_cache_time = $now;
 			return [];
 		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_scandir
-		$files = @\scandir( $this->partition_dir );
+		$files = @\scandir( $dir );
 		if ( ! $files ) {
 			$this->segments_cache      = [];
 			$this->segments_cache_time = $now;
 			return [];
 		}
+		$pattern = $this->segment_pattern();
 		foreach ( $files as $f ) {
-			if ( \preg_match( self::SEGMENT_PATTERN, $f, $m ) ) {
-				$segments[] = [ 'id' => (int) $m[1], 'size' => @\filesize( "{$this->partition_dir}/{$f}" ) ?: 0 ];
+			if ( \preg_match( $pattern, $f, $m ) ) {
+				$segments[] = [ 'id' => (int) $m[1], 'size' => @\filesize( "{$dir}/{$f}" ) ?: 0 ];
 			}
 		}
 		\usort( $segments, fn ( $a, $b ) => $a['id'] <=> $b['id'] );
@@ -290,8 +292,8 @@ class Partition_Node extends Timer_Node {
 			$this->close_handle();
 			$this->current_segment_id = $newest['id'];
 			$this->current_size       = $newest['size'];
-			$this->current_log_path   = "{$this->partition_dir}/{$this->current_segment_id}.log";
-			$this->current_idx_path   = "{$this->partition_dir}/{$this->current_segment_id}.idx";
+			$this->current_log_path   = $this->get_segment_path( $this->current_segment_id );
+			$this->current_idx_path   = $this->get_index_path( $this->current_segment_id );
 		}
 	}
 
@@ -329,7 +331,7 @@ class Partition_Node extends Timer_Node {
 		if ( null !== $this->index_callback ) {
 			$offset = $start_offset;
 			foreach ( $batch_args as $item ) {
-				$this->write_index_entry( $item['packed'], $offset, $item['size'], $item['data'] );
+				$this->write_index_entry( $item['record'], $offset, $item['size'], $item['data'] );
 				$offset += $item['size'];
 			}
 		}
@@ -350,11 +352,12 @@ class Partition_Node extends Timer_Node {
 			return;
 		}
 
-		$lock_dir = "{$this->partition_dir}/.rotate.lock.d";
+		$lock_dir = $this->rotate_lock_path();
+		$dir      = $this->segment_dir();
 
-		if ( ! \is_dir( $this->partition_dir ) ) {
+		if ( ! \is_dir( $dir ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $this->partition_dir, 0755, true );
+			@\mkdir( $dir, 0755, true );
 		}
 
 		// Atomic acquire via mkdir.
@@ -407,8 +410,8 @@ class Partition_Node extends Timer_Node {
 			if ( $newest['size'] < $this->segment_size ) {
 				$this->current_segment_id = $newest['id'];
 				$this->current_size       = $newest['size'];
-				$this->current_log_path   = "{$this->partition_dir}/{$this->current_segment_id}.log";
-				$this->current_idx_path   = "{$this->partition_dir}/{$this->current_segment_id}.idx";
+				$this->current_log_path   = $this->get_segment_path( $this->current_segment_id );
+				$this->current_idx_path   = $this->get_index_path( $this->current_segment_id );
 				$this->segments_cache     = null;
 				return;
 			}
@@ -418,14 +421,14 @@ class Partition_Node extends Timer_Node {
 
 		$this->current_segment_id = $next_id;
 		$this->current_size       = 0;
-		$this->current_log_path   = "{$this->partition_dir}/{$next_id}.log";
-		$this->current_idx_path   = "{$this->partition_dir}/{$next_id}.idx";
+		$this->current_log_path   = $this->get_segment_path( $next_id );
+		$this->current_idx_path   = $this->get_index_path( $next_id );
 		$this->segments_cache     = null;
 
 		// Materialize the empty file so get_handle()'s missing-file guard doesn't reset to segment 0.
-		if ( ! \is_dir( $this->partition_dir ) ) {
+		if ( ! \is_dir( $this->segment_dir() ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $this->partition_dir, 0755, true );
+			@\mkdir( $this->segment_dir(), 0755, true );
 		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_touch, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_touch
 		if ( ! @\touch( $this->current_log_path ) ) {
@@ -449,7 +452,7 @@ class Partition_Node extends Timer_Node {
 
 		while ( $count > $this->num_segments ) {
 			$oldest = $segments[0];
-			$path   = "{$this->partition_dir}/{$oldest['id']}.log";
+			$path   = $this->get_segment_path( $oldest['id'] );
 			$mtime  = @\filemtime( $path );
 			if ( false === $mtime || ( $now - $mtime ) < $this->max_lifespan ) {
 				break;
@@ -457,7 +460,7 @@ class Partition_Node extends Timer_Node {
 			// Partition's segment directory is base_dir-relative — not WP-managed.
 			// phpcs:disable WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_unlink
 			@\unlink( $path );
-			@\unlink( "{$this->partition_dir}/{$oldest['id']}.idx" );
+			@\unlink( $this->get_index_path( $oldest['id'] ) );
 			// phpcs:enable
 			\array_shift( $segments );
 			--$count;
@@ -476,9 +479,9 @@ class Partition_Node extends Timer_Node {
 	 * @return resource|null Log handle, or null on open failure.
 	 */
 	protected function get_handle() {
-		if ( ! \is_dir( $this->partition_dir ) ) {
+		if ( ! \is_dir( $this->segment_dir() ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $this->partition_dir, 0755, true );
+			@\mkdir( $this->segment_dir(), 0755, true );
 			// Whole tree got wiped; reset from disk (lands at segment 0).
 			$this->init_current_segment();
 		} elseif ( null === $this->current_log_path || ! \file_exists( $this->current_log_path ) ) {
@@ -521,11 +524,11 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Write one companion-index entry for a packed message at $offset. Caller guards on $index_callback.
+	 * Write one companion-index entry for a serialized record at $offset. Caller guards on $index_callback.
 	 *
 	 * @param mixed $data Opaque per-message data passed through to the index callback.
 	 */
-	private function write_index_entry( string $packed, int $offset, int $len, $data ): void {
+	private function write_index_entry( string $record, int $offset, int $len, $data ): void {
 		$callback = $this->index_callback;
 		if ( null === $callback ) {
 			return;
@@ -536,7 +539,7 @@ class Partition_Node extends Timer_Node {
 			'length'     => $len,
 		];
 		try {
-			$entry = $callback( $packed, $position, $data );
+			$entry = $callback( $record, $position, $data );
 			if ( null !== $entry && '' !== $entry && \is_resource( $this->idx_fh ) ) {
 				$this->write_all( $this->idx_fh, $entry . "\n", $this->current_idx_path );
 			}
@@ -569,11 +572,46 @@ class Partition_Node extends Timer_Node {
 		return $this->partition_dir;
 	}
 
+	/** Seam (Log overrides): the directory segments live in. Partition = the resolved dir. */
+	protected function segment_dir(): string {
+		return $this->partition_dir;
+	}
+
+	/** Seam (Log overrides): data-file path for a segment. Partition = {dir}/{seg}.log. */
 	public function get_segment_path( int $segment_id ): string {
 		if ( $segment_id < 0 ) {
 			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
 		}
-		return "{$this->partition_dir}/{$segment_id}.log";
+		return "{$this->segment_dir()}/{$segment_id}.log";
+	}
+
+	/** Seam (Log overrides): companion-index path for a segment. Partition = {dir}/{seg}.idx. */
+	protected function get_index_path( int $segment_id ): string {
+		return "{$this->segment_dir()}/{$segment_id}.idx";
+	}
+
+	/** Seam (Log overrides): regex matching a data filename in segment_dir(); group 1 = id. */
+	protected function segment_pattern(): string {
+		return self::SEGMENT_PATTERN;
+	}
+
+	/**
+	 * Seam (Log overrides): bytes written per fill()'d message. Partition = packed envelope + newline.
+	 *
+	 * @param array<int, mixed> $message
+	 */
+	protected function serialize_record( array $message ): string {
+		return Message::packed( $message ) . "\n";
+	}
+
+	/** Seam (Log overrides): mkdir-lock dir serializing multi-writer rotation. */
+	protected function rotate_lock_path(): string {
+		return "{$this->segment_dir()}/.rotate.lock.d";
+	}
+
+	/** Seam (Log overrides): per-writer exclusivity lock dir for allow_large_writes(). */
+	protected function write_lock_path(): string {
+		return "{$this->segment_dir()}/write.lock.d";
 	}
 
 	public function __destruct() {
@@ -608,7 +646,7 @@ class Partition_Node extends Timer_Node {
 	 */
 	public function allow_large_writes( int $max_wait_ms = 65000 ): self {
 		$stale_timeout = 60;
-		$lock          = new Lock_Node( "{$this->partition_dir}/write.lock.d", $stale_timeout );
+		$lock          = new Lock_Node( $this->write_lock_path(), $stale_timeout );
 
 		// Sibling: name (when the partition is named), keep the partition's own
 		// specific sink, and patron-link so dump_metadata hides it from the canvas.
@@ -625,7 +663,7 @@ class Partition_Node extends Timer_Node {
 			throw new \RuntimeException(
 				\esc_html(
 					"Partition::allow_large_writes() failed to acquire write lock at "
-					. "{$this->partition_dir}/write.lock.d after {$max_wait_ms}ms — another live writer holds it. "
+					. "{$this->write_lock_path()} after {$max_wait_ms}ms — another live writer holds it. "
 					. 'Two concurrent writers on the same Partition is unsupported.'
 				)
 			);
@@ -790,7 +828,7 @@ class Partition_Node extends Timer_Node {
 		}
 
 		foreach ( $segments as $s ) {
-			$idx_path = "{$this->partition_dir}/{$s['id']}.idx";
+			$idx_path = $this->get_index_path( $s['id'] );
 			if ( ! \file_exists( $idx_path ) ) {
 				continue;
 			}
