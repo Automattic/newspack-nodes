@@ -238,3 +238,116 @@ it( 'gives a declared-but-unstaffed logic node an empty worker list', () => {
 	const idle = section.tree[ 0 ].children.find( ( e ) => e.name === 'idle' );
 	expect( idle.workers ).toEqual( [] );
 } );
+
+it( 'joins convergent sibling logic roots onto one node, subtree built once', () => {
+	const [ section ] = buildTopologySections(
+		{
+			digest: {
+				nodes: [
+					gn( 'community', 'logic' ),
+					gn( 'releases', 'logic' ),
+					gn( 'summarizer', 'logic' ),
+					gn( 'scorer', 'logic' ),
+				],
+				edges: [
+					[ 'community', 'summarizer' ],
+					[ 'releases', 'summarizer' ],
+					[ 'summarizer', 'scorer' ],
+				],
+			},
+		},
+		[],
+		[]
+	);
+	expect( section.tree ).toHaveLength( 1 );
+	const root = section.tree[ 0 ];
+	expect( root.kind ).toBe( 'node' );
+	expect( root.names ).toEqual( [ 'community', 'releases' ] );
+	expect( root.key ).toBe( 'group:community|releases' );
+	expect( names( root.children ) ).toEqual( [ 'summarizer' ] );
+	const summarizer = root.children[ 0 ];
+	expect( names( summarizer.children ) ).toEqual( [ 'scorer' ] );
+} );
+
+it( 'does not join siblings whose downstream sets differ', () => {
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'a', 'logic' ),
+					gn( 'b', 'logic' ),
+					gn( 'x', 'logic' ),
+					gn( 'y', 'logic' ),
+				],
+				edges: [
+					[ 'a', 'x' ],
+					[ 'b', 'y' ],
+				],
+			},
+		},
+		[],
+		[]
+	);
+	expect( names( section.tree ) ).toEqual( [ 'a', 'b' ] );
+	expect( section.tree.every( ( e ) => e.names === undefined ) ).toBe( true );
+} );
+
+it( 'does not join a group that includes a log vertex (multi-writer logs still repeat)', () => {
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'wa', 'partition', { writes: 'shared.log' } ),
+					gn( 'wb', 'partition', { writes: 'shared.log' } ),
+					gn( 'srcA', 'logic' ),
+					gn( 'srcB', 'logic' ),
+				],
+				edges: [
+					[ 'srcA', 'wa' ],
+					[ 'srcB', 'wb' ],
+				],
+			},
+		},
+		[],
+		[]
+	);
+	// Two separate logic roots, each with its own shared.log child (logs repeat).
+	expect( names( section.tree ) ).toEqual( [ 'srcA', 'srcB' ] );
+	const srcA = section.tree.find( ( e ) => e.name === 'srcA' );
+	const srcB = section.tree.find( ( e ) => e.name === 'srcB' );
+	expect( names( srcA.children ) ).toEqual( [ 'shared.log' ] );
+	expect( names( srcB.children ) ).toEqual( [ 'shared.log' ] );
+} );
+
+it( 'joins nested convergence inside a joined group too', () => {
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'root1', 'logic' ),
+					gn( 'root2', 'logic' ),
+					gn( 'mid1', 'logic' ),
+					gn( 'mid2', 'logic' ),
+					gn( 'leaf', 'logic' ),
+				],
+				edges: [
+					[ 'root1', 'mid1' ],
+					[ 'root1', 'mid2' ],
+					[ 'root2', 'mid1' ],
+					[ 'root2', 'mid2' ],
+					[ 'mid1', 'leaf' ],
+					[ 'mid2', 'leaf' ],
+				],
+			},
+		},
+		[],
+		[]
+	);
+	expect( section.tree ).toHaveLength( 1 );
+	const root = section.tree[ 0 ];
+	expect( root.names ).toEqual( [ 'root1', 'root2' ] );
+	expect( root.children ).toHaveLength( 1 );
+	const mid = root.children[ 0 ];
+	expect( mid.names ).toEqual( [ 'mid1', 'mid2' ] );
+	expect( names( mid.children ) ).toEqual( [ 'leaf' ] );
+} );
