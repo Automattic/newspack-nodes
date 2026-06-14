@@ -29,6 +29,9 @@ class Topology_Registry {
 	/** @var array<string,array<string>> Memoized write-set by topology name; cleared by reset_basename_cache(). */
 	private static array $write_set_cache = [];
 
+	/** @var array<string,array{nodes:list<array<string,string>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name. */
+	private static array $graph_cache = [];
+
 	/** @var array<string,bool> Guards register_plugin against double-wiring (a second call would double-spawn). */
 	private static array $registered_plugins = [];
 
@@ -336,6 +339,72 @@ class Topology_Registry {
 	}
 
 	/**
+	 * Raw structural graph for `$name` from its TSL: nodes with a class-derived
+	 * kind (+ the log a Partition/Topic writes or a Consumer reads, from the
+	 * path/source ARG — never a name suffix), and edges from `connect_node` plus
+	 * `cmd <node>:config set_*_target <target>`. Memoized.
+	 *
+	 * @return array{nodes: list<array<string,string>>, edges: list<array{0:string,1:string}>}
+	 */
+	public static function graph_for( string $name ): array {
+		if ( isset( self::$graph_cache[ $name ] ) ) {
+			return self::$graph_cache[ $name ];
+		}
+		$path = self::resolve( $name );
+		if ( null === $path ) {
+			return self::$graph_cache[ $name ] = [
+				'nodes' => [],
+				'edges' => [],
+			];
+		}
+		$kind_of  = static fn ( string $cls ): string => match ( $cls ) {
+			'Consumer'  => 'consumer',
+			'Partition' => 'partition',
+			'Topic'     => 'topic',
+			'Tee'       => 'tee',
+			default     => 'logic',
+		};
+		$basename = static function ( string $arg ): string {
+			$slash = \strrpos( $arg, '/' );
+			return false === $slash ? $arg : \substr( $arg, $slash + 1 );
+		};
+		$nodes = [];
+		$edges = [];
+		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
+		foreach ( \explode( "\n", (string) \file_get_contents( $path ) ) as $raw ) {
+			$line = \trim( $raw );
+			if ( '' === $line || '#' === $line[0] ) {
+				continue;
+			}
+			if ( \preg_match( '/^make_node\s+(\S+)\s+(\S+)(?:\s+(\S+))?/', $line, $m ) ) {
+				$kind = $kind_of( $m[1] );
+				$node = [
+					'name' => $m[2],
+					'kind' => $kind,
+				];
+				if ( ( 'partition' === $kind || 'topic' === $kind ) && isset( $m[3] ) ) {
+					$node['writes'] = $basename( $m[3] );
+				} elseif ( 'consumer' === $kind && isset( $m[3] ) ) {
+					$node['reads'] = $basename( $m[3] );
+				}
+				$nodes[] = $node;
+				continue;
+			}
+			if ( \preg_match( '/^connect_node\s+(\S+)\s+(\S+)/', $line, $m ) ) {
+				$edges[] = [ $m[1], $m[2] ];
+				continue;
+			}
+			if ( \preg_match( '/^cmd\s+(\S+?):config\s+set_\w*target\s+(\S+)/', $line, $m ) ) {
+				$edges[] = [ $m[1], $m[2] ];
+			}
+		}
+		return self::$graph_cache[ $name ] = [
+			'nodes' => $nodes,
+			'edges' => $edges,
+		];
+	}
+
+	/**
 	 * Register a plugin's topologies: a node-namespace prefix + a stock dir.
 	 *
 	 * Topologies are NOT owned by the registering plugin. The catalog is built
@@ -378,6 +447,7 @@ class Topology_Registry {
 		self::$basename_cache               = [];
 		self::$segment_size_overrides_cache = [];
 		self::$write_set_cache              = [];
+		self::$graph_cache                  = [];
 	}
 
 	public static function set_user_dir( string $path ): void {
