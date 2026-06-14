@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Partition_Node::rotate_segment()` no longer leaves an empty `locks/` dir as a sibling of the log it writes.** The per-segment rotate lock was `mkdir`-ed under `dirname(base_dir)/locks` — leaving empty `locks/` cruft under `logs/`, `offsets/`, and every `ipc/<worker>.pN/`, because only the inner `.rotate.lock.d` was `@rmdir`'d in the `finally`. The lock now lives inside the partition's own data dir (`{base_dir}/p{N}/.rotate.lock.d`), so it's removed when that dir is rotated/GC'd and never creates a sibling.
 - **Worker Status dashboard showed a phantom `firehose.job-router.log` with "No segments".** When two readers tail the same log under disambiguated offset dirs (`firehose` vs `firehose.job-router`, so each keeps a separate cursor), the `dump_metadata` builder inferred the input log name from the offset-dir name — minting a nonexistent `firehose.job-router.log` whose segment scan came up empty. The Consumer now records the real source log basename (`source_log`) in its offsetlog checkpoint, and `Workers_CI_Node` labels/scans segments by that real log while keeping the cursor lookup keyed by the offset-dir identity — so disambiguated readers render the correct shared log (with its segments) without bleeding cursors into each other. Falls back to the old offset-dir inference for checkpoints predating the `source_log` field.
 
 ## [0.17.0] - 2026-06-12
