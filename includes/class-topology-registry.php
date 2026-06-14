@@ -209,11 +209,12 @@ class Topology_Registry {
 	/**
 	 * Resources `$name` WRITES: its data-partition paths (`make_node Partition`
 	 * and `make_node Topic`, which both append to the log at their path arg) and
-	 * its Consumer offsetlog paths (`make_node Consumer`'s 4th arg). Paths are
-	 * kept in raw token form (`<config:…>/<partition>`) — identical iff they
-	 * resolve to the same file — and namespaced `partition:` / `offsetlog:` so the
-	 * two kinds can't false-match. A Consumer's SOURCE (2nd arg) is a read, not a
-	 * write, so it's excluded.
+	 * its Consumer offsetlog paths (`make_node Consumer`'s 2nd arg after the node
+	 * name, in the flat layout). Paths are kept in raw token form
+	 * (`<config:…>/<basename>.p<partition>`) — identical iff they resolve to the
+	 * same file — and namespaced `partition:` / `offsetlog:` so the two kinds can't
+	 * false-match. A Consumer's SOURCE (1st arg after the node name) is a read, not
+	 * a write, so it's excluded.
 	 *
 	 * @return array<string>
 	 */
@@ -240,8 +241,8 @@ class Topology_Registry {
 				$seen[ 'partition:' . $m[1] ] = true;
 				continue;
 			}
-			// make_node Consumer <node> <source> <partition> <offsetlog>
-			if ( \preg_match( '/^make_node\s+Consumer\s+\S+\s+\S+\s+\S+\s+(\S+)/', $line, $m ) ) {
+			// make_node Consumer <node> <source> <offsetlog> — offsetlog is the 2nd token after the node name in the flat layout.
+			if ( \preg_match( '/^make_node\s+Consumer\s+\S+\s+\S+\s+(\S+)/', $line, $m ) ) {
 				$seen[ 'offsetlog:' . $m[1] ] = true;
 			}
 		}
@@ -272,7 +273,9 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Log basenames declared by `$name`'s Partition nodes (sorted, deduped, `.log` stripped). Memoized.
+	 * Log basenames declared by `$name`'s Partition nodes (sorted, deduped). The
+	 * basename is the part before the `.p<partition>` token in the flat path
+	 * layout (e.g. `requests` from `<config:logs_dir>/requests.p<partition>`). Memoized.
 	 *
 	 * @return array<string>
 	 */
@@ -293,7 +296,7 @@ class Topology_Registry {
 				continue;
 			}
 			if ( ! \preg_match(
-				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.log\b/',
+				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.p<partition>(?:\s|$)/',
 				$line,
 				$m
 			) ) {
@@ -330,8 +333,9 @@ class Topology_Registry {
 				continue;
 			}
 			// Capture basename ($m[1]) + segment_size arg ($m[2]); filter on int after the match.
+			// In the flat layout segment_size is the FIRST arg after the path (the standalone partition arg is gone).
 			if ( ! \preg_match(
-				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.log\s+\S+\s+(\S+)/',
+				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.p<partition>\s+(\S+)/',
 				$line,
 				$m
 			) ) {

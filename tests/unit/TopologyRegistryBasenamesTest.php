@@ -10,7 +10,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
  * Per-topology basename extraction: scans the TSL for
- * `make_node Partition <name>:partition <config:logs_dir>/<basename>.log ...`
+ * `make_node Partition <name>:partition <config:logs_dir>/<basename>.p<partition> ...`
  * declarations and returns the basename list. Replaces
  * `NEWSPACK_EVENT_LOGGER_NODES_TOPOLOGY_BASENAMES` in the application
  * plugin — the TSL is the single source of truth.
@@ -41,9 +41,9 @@ class TopologyRegistryBasenamesTest extends TestCase {
 		$this->write_tsl(
 			'firehose-workers',
 			<<<TSL
-make_node Partition firehose:partition <config:logs_dir>/firehose.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
-make_node Partition errors:partition <config:logs_dir>/errors.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
-make_node Partition requests:partition <config:logs_dir>/requests.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition firehose:partition <config:logs_dir>/firehose.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition errors:partition <config:logs_dir>/errors.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
 TSL
 		);
 
@@ -75,7 +75,7 @@ TSL
 		$this->write_tsl(
 			'mixed',
 			<<<TSL
-make_node Partition real:partition <config:logs_dir>/real.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition real:partition <config:logs_dir>/real.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
 make_node Tee fake:tee <config:logs_dir>/fake.log <partition>
 make_node Tail other:tail <config:logs_dir>/other.log <partition>
 TSL
@@ -88,8 +88,8 @@ TSL
 		$this->write_tsl(
 			'commented',
 			<<<TSL
-# make_node Partition disabled:partition <config:logs_dir>/disabled.log <partition>
-make_node Partition active:partition <config:logs_dir>/active.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+# make_node Partition disabled:partition <config:logs_dir>/disabled.p<partition>
+make_node Partition active:partition <config:logs_dir>/active.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
 TSL
 		);
 
@@ -102,8 +102,8 @@ TSL
 		$this->write_tsl(
 			'doubled',
 			<<<TSL
-make_node Partition a:partition <config:logs_dir>/shared.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
-make_node Partition b:partition <config:logs_dir>/shared.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition a:partition <config:logs_dir>/shared.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition b:partition <config:logs_dir>/shared.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
 TSL
 		);
 
@@ -114,9 +114,9 @@ TSL
 		$this->write_tsl(
 			'order',
 			<<<TSL
-make_node Partition zeta:partition <config:logs_dir>/zeta.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
-make_node Partition alpha:partition <config:logs_dir>/alpha.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
-make_node Partition middle:partition <config:logs_dir>/middle.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition zeta:partition <config:logs_dir>/zeta.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition alpha:partition <config:logs_dir>/alpha.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition middle:partition <config:logs_dir>/middle.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
 TSL
 		);
 
@@ -129,7 +129,7 @@ TSL
 	public function test_memoizes_per_topology(): void {
 		$this->write_tsl(
 			'memo',
-			"make_node Partition foo:partition <config:logs_dir>/foo.log <partition>\n"
+			"make_node Partition foo:partition <config:logs_dir>/foo.p<partition>\n"
 		);
 		$first = Topology_Registry::basenames_for( 'memo' );
 
@@ -137,7 +137,7 @@ TSL
 		// call picks up the new content; with memoization, the cached result wins.
 		$this->write_tsl(
 			'memo',
-			"make_node Partition bar:partition <config:logs_dir>/bar.log <partition>\n"
+			"make_node Partition bar:partition <config:logs_dir>/bar.p<partition>\n"
 		);
 
 		$this->assertSame( $first, Topology_Registry::basenames_for( 'memo' ) );
@@ -152,7 +152,7 @@ TSL
 		// would lose the topology lookup entirely. Pin both halves.
 		$this->write_tsl(
 			'wired',
-			"make_node Partition v1:partition <config:logs_dir>/v1.log <partition>\n"
+			"make_node Partition v1:partition <config:logs_dir>/v1.p<partition>\n"
 		);
 		// Re-register the boot-time wiring; other tests in the suite wipe
 		// `$GLOBALS['_wp_actions']` to isolate, dropping the registration
@@ -167,7 +167,7 @@ TSL
 		// Edit the TSL behind the cache's back.
 		\file_put_contents(
 			"{$this->tmp}/wired.tsl",
-			"make_node Partition v2:partition <config:logs_dir>/v2.log <partition>\n"
+			"make_node Partition v2:partition <config:logs_dir>/v2.p<partition>\n"
 		);
 		\do_action( Config::RESET_ACTION );
 
@@ -193,9 +193,9 @@ TSL
 		$this->write_tsl(
 			'firehose-workers',
 			<<<TSL
-make_node Partition firehose:partition <config:logs_dir>/firehose.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
-make_node Partition completed:partition <config:logs_dir>/completed.log <partition> 1048576 <config:num_segments> <config:max_lifespan>
-make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.log <partition> 1048576 <config:num_segments> <config:max_lifespan>
+make_node Partition firehose:partition <config:logs_dir>/firehose.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition completed:partition <config:logs_dir>/completed.p<partition> 1048576 <config:num_segments> <config:max_lifespan>
+make_node Partition gyroscope:partition <config:logs_dir>/gyroscope.p<partition> 1048576 <config:num_segments> <config:max_lifespan>
 TSL
 		);
 
@@ -214,8 +214,8 @@ TSL
 		$this->write_tsl(
 			'plain',
 			<<<TSL
-make_node Partition foo:partition <config:logs_dir>/foo.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
-make_node Partition bar:partition <config:logs_dir>/bar.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition foo:partition <config:logs_dir>/foo.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition bar:partition <config:logs_dir>/bar.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
 TSL
 		);
 
@@ -233,8 +233,8 @@ TSL
 		$this->write_tsl(
 			'commented',
 			<<<TSL
-# make_node Partition disabled:partition <config:logs_dir>/disabled.log <partition> 999 <config:num_segments> <config:max_lifespan>
-make_node Partition active:partition <config:logs_dir>/active.log <partition> 2048 <config:num_segments> <config:max_lifespan>
+# make_node Partition disabled:partition <config:logs_dir>/disabled.p<partition> 999 <config:num_segments> <config:max_lifespan>
+make_node Partition active:partition <config:logs_dir>/active.p<partition> 2048 <config:num_segments> <config:max_lifespan>
 TSL
 		);
 
@@ -250,7 +250,7 @@ TSL
 		$this->write_tsl(
 			'mixed',
 			<<<TSL
-make_node Partition real:partition <config:logs_dir>/real.log <partition> 4096 <config:num_segments> <config:max_lifespan>
+make_node Partition real:partition <config:logs_dir>/real.p<partition> 4096 <config:num_segments> <config:max_lifespan>
 make_node Tee fake:tee <config:logs_dir>/fake.log <partition>
 make_node Tail other:tail <config:logs_dir>/other.log <partition>
 TSL
@@ -265,8 +265,8 @@ TSL
 	public function test_offset_basenames_for_resolves_partition_token(): void {
 		$this->write_tsl(
 			'digest',
-			"make_node Consumer scored:consumer <config:logs_dir>/scored.log <partition> <config:offsets_dir>/scored.p<partition>\n"
-			. "make_node Consumer summ:consumer <config:logs_dir>/summarized.log <partition> <config:offsets_dir>/digest.summary.p<partition>\n"
+			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
+			. "make_node Consumer summ:consumer <config:logs_dir>/summarized.p<partition> <config:offsets_dir>/digest.summary.p<partition>\n"
 		);
 
 		$result = Topology_Registry::offset_basenames_for( 'digest', 2 );
@@ -277,13 +277,13 @@ TSL
 	public function test_reset_clears_basename_cache(): void {
 		$this->write_tsl(
 			'cleared',
-			"make_node Partition v1:partition <config:logs_dir>/v1.log <partition>\n"
+			"make_node Partition v1:partition <config:logs_dir>/v1.p<partition>\n"
 		);
 		$this->assertSame( [ 'v1' ], Topology_Registry::basenames_for( 'cleared' ) );
 
 		\file_put_contents(
 			"{$this->tmp}/cleared.tsl",
-			"make_node Partition v2:partition <config:logs_dir>/v2.log <partition>\n"
+			"make_node Partition v2:partition <config:logs_dir>/v2.p<partition>\n"
 		);
 		Topology_Registry::reset();
 		Topology_Registry::register_stock_dir( $this->tmp );
