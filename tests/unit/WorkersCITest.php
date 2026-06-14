@@ -778,6 +778,55 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
+	public function test_dump_metadata_logs_honor_per_topology_num_partitions(): void {
+		// A log's partition-slot count must come from ITS owning topology's
+		// `var num_partitions`, NOT the global config default. `scored.log`
+		// lives in a topology declaring 1 partition; even when the global
+		// default is 2, the dashboard must show only P0 — no phantom P1 slot.
+		$base = $this->arrange_base_dir();
+		// Raise the GLOBAL default to 2 — this is what the buggy code padded to.
+		$this->use_base_dir(
+			$base,
+			[
+				'num_partitions' => 2,
+				'num_segments'   => 8,
+				'segment_size'   => 16 * 1024 * 1024,
+			]
+		);
+
+		// `aggregator` is registered (catalog num_partitions=1) by arrange_base_dir().
+		// Declare its `scored.log` Partition so basenames_for() maps scored → aggregator.
+		$stock = "{$base}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/aggregator.tsl",
+			"var num_partitions = 1\n"
+			. "make_node Partition scored:partition <config:logs_dir>/scored.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+
+		$this->seed_log_segment( $base, 'scored', 0, 0, 64 );
+
+		$interpreter        = new Workers_CI_Node();
+		$interpreter->cli   = $this->stub_cli();
+		$interpreter->cache = new FakeMemcached();
+		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$by_name = [];
+		foreach ( $result['logs'] as $log ) {
+			$by_name[ $log['name'] ] = $log;
+		}
+		$this->assertArrayHasKey( 'scored.log', $by_name );
+		$this->assertCount(
+			1,
+			$by_name['scored.log']['partitions'],
+			'scored.log lives in a num_partitions=1 topology; it must not pad to the global default of 2.'
+		);
+		$this->assertSame( 0, $by_name['scored.log']['partitions'][0]['partition'] );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
 	public function test_dump_graph_logs_include_log_file_sinks(): void {
 		// A `make_node Log` file-sink (kind 'log') in an active topology gets a
 		// `logs` catalog entry so the dashboard renders it as a LOG entity:
