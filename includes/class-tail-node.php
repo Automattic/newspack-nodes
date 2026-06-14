@@ -1,6 +1,15 @@
 <?php
 /**
- * Tail: generic file follower. poll() reads new bytes and emits per buffer_mode; inode + size-shrink rotation detection.
+ * Tail: durable, segmented file follower.
+ *
+ * A Tail is a Consumer that reads a Log's {file}.{seg} segments (a file layout,
+ * via a Log_Node source) and emits the raw bytes per buffer_mode (line / block /
+ * binary, wrapped as TM_BYTESTREAM) instead of unpacking packed Messages.
+ * Everything else — the durable offsetlog cursor (resume-after-restart), snapshot
+ * co-commit, live-position publish, behind/ETA, checkpoint cadence, and
+ * segment-roll follow — is inherited from Consumer_Node. A fresh Tail with no
+ * durable cursor defaults to END (only bytes appended after start), which is the
+ * fix for the old every-restart full re-read.
  *
  * @package Newspack_Nodes
  */
@@ -9,195 +18,96 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Tail_Node extends Timer_Node {
-	use Schema_Reflection;
+class Tail_Node extends Consumer_Node {
 
-	public const READ_CHUNK = 65536;
+	/** Source log base path; segments are {source_file}.0, {source_file}.1, … */
+	protected string $source_file = '';
 
-	/** Hard cap on cross-poll trailing-line buffer (20MB); DoS guard against a no-newline file ballooning line_remainder until OOM. */
-	public const MAX_LINE_BUFFER_SIZE = 20971520;
+	/** line-buffered (one msg/line) | block-buffered (one msg up to last NL) | binary (raw chunk). */
+	protected string $buffer_mode = 'line-buffered';
 
-	/** Re-arm interval at EOF (idle backoff). */
-	public const POLL_INTERVAL_EOF_MS = 100;
+	/** Seam: read a Log ({file}.{seg}), not a Partition ({dir}/{seg}.log). */
+	protected function make_source(): Partition_Node {
+		return new Log_Node();
+	}
 
-	/** Re-arm interval when the file has unread bytes. 0 = next event-loop iteration. */
-	public const POLL_INTERVAL_BUSY_MS = 0;
+	/** Seam: Tail's args are source_file + offsetlog_dir. */
+	protected function resolve_args(): array {
+		return [ $this->source_file, $this->offsetlog_dir ];
+	}
 
-	protected string $filename     = '';
-	protected string $buffer_mode  = 'line-buffered';
-	private int $position          = 0;
-	private ?int $inode            = null;
-	private string $line_remainder = '';
-
-	/** True once the last poll consumed everything available. */
-	protected bool $at_eof = true;
-
-	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
-	public function __construct() {
-		parent::__construct();
+	/** Seam: a fresh Tail with no durable cursor starts at END. */
+	protected function default_offset(): ?string {
+		return 'end';
 	}
 
 	/**
-	 * Store the raw string, parse positional tokens via parse_schema_args() (filename /
-	 * buffer_mode), then arm the poll timer.
-	 *
-	 * @param string|null $args
-	 * @return string
+	 * Deframe/emit seam (overrides Consumer's Message-unpacking drain): emit the
+	 * buffered bytes per buffer_mode as TM_BYTESTREAM VALUEs and advance the cursor
+	 * by what was emitted. binary = the whole buffer; line-buffered = one message
+	 * per complete line; block-buffered = everything up to the last newline in one
+	 * message. A trailing partial line carries forward in $buffer (line/block).
 	 */
-	public function arguments( ?string $args = null ): string {
-		if ( null === $args ) {
-			return parent::arguments();
-		}
-		$result = parent::arguments( $args );
-		if ( '' === $args ) {
-			return $result;
-		}
-		$this->parse_schema_args( $args );
-		// fire() re-arms with set_timer(0)/(100) based on bytes available.
-		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
-		return $result;
-	}
-
-	/** Timer-driven: poll, emit, then re-arm at 0ms (more bytes) or 100ms (at EOF idle). */
-	protected function fire(): void {
-		$this->poll();
-		$next_ms = $this->at_eof ? self::POLL_INTERVAL_EOF_MS : self::POLL_INTERVAL_BUSY_MS;
-		$this->set_timer( $next_ms, true );
-	}
-
-	public function poll(): void {
-		\clearstatcache( true, $this->filename );
-		if ( ! \file_exists( $this->filename ) ) {
+	protected function drain_buffer(): void {
+		if ( '' === $this->buffer ) {
 			return;
 		}
 
-		$stat = @\stat( $this->filename );
-		if ( false === $stat ) {
-			return;
-		}
-		$current_inode = $stat['ino'];
-		$current_size  = $stat['size'];
-
-		if ( null !== $this->inode && $current_inode !== $this->inode ) {
-			$this->position       = 0;
-			$this->line_remainder = '';
-			$this->set_state( 'ROTATED', [ 'inode' => $current_inode ] );
-		}
-		if ( $current_size < $this->position ) {
-			$this->position       = 0;
-			$this->line_remainder = '';
-			$this->set_state( 'TRUNCATED', [ 'size' => $current_size ] );
-		}
-		$this->inode = $current_inode;
-
-		if ( $current_size <= $this->position ) {
-			$this->at_eof = true;
+		if ( 'binary' === $this->buffer_mode ) {
+			$bytes             = $this->buffer;
+			$this->buffer      = '';
+			$this->cursor_off += \strlen( $bytes );
+			$this->emit_bytes( $bytes );
 			return;
 		}
 
-		// WP_Filesystem can't tail incrementally — need fopen/fread directly.
-		// phpcs:disable WordPress.WP.AlternativeFunctions.file_system_operations_fopen, WordPress.WP.AlternativeFunctions.file_system_operations_fread
-		$fh = @\fopen( $this->filename, 'r' );
-		if ( false === $fh ) {
-			$this->at_eof = true;
+		$nl = \strrpos( $this->buffer, "\n" );
+		if ( false === $nl ) {
+			// No complete line yet. DoS guard: a single line can't grow past the cap.
+			if ( \strlen( $this->buffer ) > self::MAX_LINE_BUFFER_SIZE ) {
+				$this->print_less_often(
+					\sprintf( 'Tail: line buffer exceeded %d bytes at seg %d - discarding', self::MAX_LINE_BUFFER_SIZE, $this->cursor_seg )
+				);
+				$this->set_state( 'OVERFLOW', [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'limit' => self::MAX_LINE_BUFFER_SIZE ] );
+				$this->cursor_off += \strlen( $this->buffer );
+				$this->buffer      = '';
+			}
 			return;
 		}
-		\fseek( $fh, $this->position );
-		// Bound per-poll read to READ_CHUNK so a multi-MB append doesn't block the loop; later polls drain the rest.
-		$bytes = \fread( $fh, \min( self::READ_CHUNK, \max( 1, $current_size - $this->position ) ) );
-		\fclose( $fh );
-		// phpcs:enable
-		if ( false === $bytes || '' === $bytes ) {
-			$this->at_eof = true;
+
+		$complete         = \substr( $this->buffer, 0, $nl + 1 );
+		$this->buffer     = \substr( $this->buffer, $nl + 1 );
+		$this->cursor_off += \strlen( $complete );
+
+		if ( 'block-buffered' === $this->buffer_mode ) {
+			$this->emit_bytes( $complete );
 			return;
 		}
-		$read_len         = \strlen( $bytes );
-		$this->position  += $read_len;
-		$this->bytes_read += $read_len;
-
-		// at_eof iff we drained the tail this poll; a READ_CHUNK-capped read leaves more waiting (busy mode).
-		$this->at_eof = ( $this->position >= $current_size );
-
-		$this->emit( $bytes );
-	}
-
-	private function emit( string $bytes ): void {
-		switch ( $this->buffer_mode ) {
-			case 'binary':
-				// No line awareness: emit bytes as-is (lines may split across messages).
-				$this->emit_message( $bytes );
-				return;
-			case 'block-buffered':
-				// DoS guard: bound line_remainder.
-				if ( \strlen( $this->line_remainder ) + \strlen( $bytes ) > self::MAX_LINE_BUFFER_SIZE ) {
-					$this->print_less_often(
-						\sprintf(
-							'Tail: line buffer exceeded %d bytes for %s - discarding',
-							self::MAX_LINE_BUFFER_SIZE,
-							$this->filename
-						)
-					);
-					$this->line_remainder = '';
-					$nl                   = \strpos( $bytes, "\n" );
-					if ( false !== $nl ) {
-						$this->line_remainder = \substr( $bytes, $nl + 1 );
-					}
-					return;
-				}
-				// Emit up to (and including) the LAST newline; trailing partial carries forward so a chunk boundary never splits a line.
-				$buf = $this->line_remainder . $bytes;
-				$nl  = \strrpos( $buf, "\n" );
-				if ( false === $nl ) {
-					$this->line_remainder = $buf;
-					return;
-				}
-				$this->emit_message( \substr( $buf, 0, $nl + 1 ) );
-				$this->line_remainder = \substr( $buf, $nl + 1 );
-				return;
-			case 'line-buffered':
-			default:
-				// DoS guard: over-cap means a corrupt no-newline source; discard remainder and resync at the next newline.
-				if ( \strlen( $this->line_remainder ) + \strlen( $bytes ) > self::MAX_LINE_BUFFER_SIZE ) {
-					$this->print_less_often(
-						\sprintf(
-							'Tail: line buffer exceeded %d bytes for %s - discarding',
-							self::MAX_LINE_BUFFER_SIZE,
-							$this->filename
-						)
-					);
-					$this->line_remainder = '';
-					$nl                   = \strpos( $bytes, "\n" );
-					if ( false !== $nl ) {
-						$this->line_remainder = \substr( $bytes, $nl + 1 );
-					}
-					return;
-				}
-				$buf                  = $this->line_remainder . $bytes;
-				$lines                = \explode( "\n", $buf );
-				$this->line_remainder = \array_pop( $lines );
-				foreach ( $lines as $line ) {
-					$this->emit_message( $line . "\n" );
-				}
-				return;
+		foreach ( \explode( "\n", \rtrim( $complete, "\n" ) ) as $line ) {
+			$this->emit_bytes( $line . "\n" );
 		}
 	}
 
-	private function emit_message( string $value ): void {
+	/** Mint a TM_BYTESTREAM carrying raw bytes (FROM-stamped at this I/O boundary) and forward. */
+	private function emit_bytes( string $bytes ): void {
+		$size = \strlen( $bytes );
+		if ( $size > $this->largest_msg_sent ) {
+			$this->largest_msg_sent = $size;
+		}
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 		$msg[ Message::TIMESTAMP ] = Core::$now;
-		$msg[ Message::FROM ]      = $this->name;
-		$msg[ Message::VALUE ]     = $value;
-		// Route through parent::fill so a connect_node-set target gets stamped into TO; otherwise TO='' and Router can't dispatch.
+		$msg[ Message::FROM ]      = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
+		$msg[ Message::VALUE ]     = $bytes;
 		parent::fill( $msg );
 	}
 
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'category'    => 'I/O',
-			'description' => 'Polls a file for appended bytes; emits each line to its sink.',
-			'arguments'        => [
-				[ 'name' => 'filename',    'type' => 'string', 'required' => true ],
+			'description' => 'Tails a Log\'s {file}.{seg} segments; emits raw bytes per buffer_mode to its sink.',
+			'arguments'   => [
+				[ 'name' => 'source_file',   'type' => 'string', 'required' => true ],
+				[ 'name' => 'offsetlog_dir', 'type' => 'string', 'default' => '' ],
 				[
 					'name'    => 'buffer_mode',
 					'type'    => 'string',
@@ -205,7 +115,6 @@ class Tail_Node extends Timer_Node {
 					'enum'    => [ 'line-buffered', 'block-buffered', 'binary' ],
 				],
 			],
-			'accepts_fill' => false,
 		] );
 	}
 }
