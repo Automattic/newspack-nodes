@@ -1,0 +1,85 @@
+/**
+ * Shared jest config factory for dashboard consumers (the substrate, the
+ * bundled example, and the sibling event-logger plugin). Each consumer's
+ * jest.config.js calls `createJestConfig()` with its own resolved paths.
+ *
+ * CommonJS (.cjs) because jest.config.js is loaded by jest's CJS loader and
+ * requires this directly via a real path — NOT the `@newspack-nodes/*` esbuild
+ * alias (those are bundle aliases, not Node module resolution). It imports only
+ * `node:path`, so a sibling-checkout consumer resolves it fine.
+ */
+
+const path = require( 'node:path' );
+
+/**
+ * @param {Object}   opts
+ * @param {string}   opts.aliasBase                 Absolute path to the substrate `src` dir the `@newspack-nodes/*` surface maps to.
+ * @param {string}   [opts.pinReactFrom]            Absolute `node_modules` dir to pin a single React + @wordpress/element copy from (omit for the substrate, which has one copy already).
+ * @param {Object}   [opts.extraMappers]            Extra moduleNameMapper entries (merged BEFORE the css/scss mock), e.g. ELN's d3 pin.
+ * @param {string[]} [opts.testPathIgnorePatterns]  Overrides the default; pass to exclude e.g. `/examples/`.
+ * @param {string[]} [opts.transformIgnorePatterns] esbuild-style ESM allowlist, e.g. ELN's d3 packages.
+ * @return {Object} A jest config object.
+ */
+function createJestConfig( {
+	aliasBase,
+	pinReactFrom = null,
+	extraMappers = {},
+	testPathIgnorePatterns = null,
+	transformIgnorePatterns = null,
+} ) {
+	// Order matters: the @newspack-nodes/shared subpath mapper MUST precede the
+	// css/scss style-mock (first-match wins, so an aliased style import resolves
+	// to the real file, not the mock — the documented AGENTS trap). Building the
+	// object in this order, with the mock added LAST, makes that unbotchable.
+	const moduleNameMapper = {
+		'^@newspack-nodes/runtime$': path.join( aliasBase, 'runtime/index.js' ),
+		'^@newspack-nodes/debug-overlay$': path.join(
+			aliasBase,
+			'debug-overlay/DebugOverlay.js'
+		),
+		'^@newspack-nodes/shared/(.*)$': path.join( aliasBase, 'shared/$1' ),
+		'^@newspack-nodes/shared$': path.join( aliasBase, 'shared' ),
+	};
+
+	// Pin ONE copy of React + @wordpress/element so a substrate hook called from
+	// a consumer's render can't trip "Invalid hook call" (two dispatchers from
+	// two node_modules trees). The substrate itself has a single copy, so it
+	// omits this.
+	if ( pinReactFrom ) {
+		moduleNameMapper[ '^@wordpress/element$' ] = path.join(
+			pinReactFrom,
+			'@wordpress/element'
+		);
+		moduleNameMapper[ '^react$' ] = path.join( pinReactFrom, 'react' );
+		moduleNameMapper[ '^react-dom$' ] = path.join(
+			pinReactFrom,
+			'react-dom'
+		);
+		moduleNameMapper[ '^react/jsx-runtime$' ] = path.join(
+			pinReactFrom,
+			'react/jsx-runtime'
+		);
+	}
+
+	Object.assign( moduleNameMapper, extraMappers );
+	moduleNameMapper[ '\\.(css|scss)$' ] = '<rootDir>/jest.style-mock.js';
+
+	const config = {
+		testEnvironment: 'jsdom',
+		setupFilesAfterEnv: [ '<rootDir>/jest.setup.js' ],
+		testMatch: [ '**/__tests__/**/*.test.[jt]s?(x)' ],
+		moduleNameMapper,
+		// `.mjs` covers ESM build tooling a test may import (e.g. the build-kit
+		// itself); jest runs babel-jest over it so its `node:` imports resolve.
+		transform: { '\\.m?[jt]sx?$': 'babel-jest' },
+	};
+	if ( testPathIgnorePatterns ) {
+		config.testPathIgnorePatterns = testPathIgnorePatterns;
+	}
+	if ( transformIgnorePatterns ) {
+		config.transformIgnorePatterns = transformIgnorePatterns;
+	}
+	return config;
+}
+
+module.exports = { createJestConfig };
