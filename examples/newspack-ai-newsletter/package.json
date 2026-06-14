@@ -7,7 +7,7 @@
 	"license": "GPL-2.0-or-later",
 	"scripts": {
 		"build": "npm run clean && node scripts/build.mjs",
-		"watch": "node scripts/build.mjs --watch",
+		"watch": "npm run clean && node scripts/build.mjs --watch",
 		"clean": "rm -rf build",
 		"test:js": "jest --passWithNoTests"
 	},
