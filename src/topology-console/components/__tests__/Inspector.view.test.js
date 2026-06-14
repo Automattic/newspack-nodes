@@ -132,6 +132,44 @@ describe( 'Inspector (view mode)', () => {
 		expect( queryByRole( 'combobox' ) ).toBeNull();
 	} );
 
+	it( 'hides the Routing section when node.has_target is false', () => {
+		const { queryByText } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="dump"
+				parsed={ {
+					nodes: [
+						{ id: 'dump', class: 'Dumper', has_target: false },
+					],
+					edges: [],
+				} }
+				nodeIds={ new Set( [ 'dump' ] ) }
+			/>
+		);
+		expect( queryByText( 'Routing' ) ).toBeNull();
+	} );
+
+	it( 'hides the Routing section when the catalog schema says has_target is false', () => {
+		const { queryByText } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="dump"
+				parsed={ {
+					nodes: [ { id: 'dump', class: 'Dumper' } ],
+					edges: [],
+				} }
+				nodeIds={ new Set( [ 'dump' ] ) }
+				catalog={ [ { shell_name: 'Dumper', has_target: false } ] }
+			/>
+		);
+		expect( queryByText( 'Routing' ) ).toBeNull();
+	} );
+
+	it( 'shows the Routing section when has_target is absent (defaults to true)', () => {
+		const { queryByText } = renderNode();
+		expect( queryByText( 'Routing' ) ).not.toBeNull();
+	} );
+
 	it( 'renders LIVE without crashing when streamStatus is undefined (overlay case)', () => {
 		// The debug overlay reads the page's own Core synchronously — there is no
 		// SSE stream to report, so it omits streamStatus. The Inspector used to

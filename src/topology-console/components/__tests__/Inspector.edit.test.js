@@ -170,6 +170,21 @@ describe( 'Inspector (edit mode)', () => {
 		} );
 	} );
 
+	it( 'hides the Routing section when the catalog schema says has_target is false', () => {
+		const { queryByText } = render(
+			<Inspector
+				{ ...baseProps }
+				catalog={ [ { shell_name: 'Echo', has_target: false } ] }
+			/>
+		);
+		expect( queryByText( 'Routing' ) ).toBeNull();
+	} );
+
+	it( 'shows the Routing section when has_target defaults to true', () => {
+		const { queryByText } = render( <Inspector { ...baseProps } /> );
+		expect( queryByText( 'Routing' ) ).not.toBeNull();
+	} );
+
 	it( 'Empty Constructor section: surfaces a placeholder', () => {
 		const { container } = render( <Inspector { ...baseProps } /> );
 		expect( container.textContent ).toMatch( /No constructor arguments/ );
