@@ -106,7 +106,7 @@ class WorkersCITest extends TestCase {
 	 * enumerate path picks up the row.
 	 */
 	private function seed_offsetlog( string $base_dir, string $source_basename, int $partition, array $extra = [] ): void {
-		$dir = "{$base_dir}/offsets/{$source_basename}.p{$partition}/p0";
+		$dir = "{$base_dir}/offsets/{$source_basename}.p{$partition}";
 		if ( ! \is_dir( $dir ) ) {
 			\mkdir( $dir, 0755, true );
 		}

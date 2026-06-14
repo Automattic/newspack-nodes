@@ -190,7 +190,7 @@ class Worker_Base {
 			@\mkdir( "{$ipc_dir}/output", 0755, true );
 		}
 		// Graph assembly with the interpreter in scope: go through make_node (name -> arguments -> sink=interpreter).
-		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, "{$ipc_dir}/output", 0, self::IPC_SEGMENT_SIZE, self::IPC_NUM_SEGMENTS );
+		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, "{$ipc_dir}/output", self::IPC_SEGMENT_SIZE, self::IPC_NUM_SEGMENTS );
 		// allow_large_writes keys its Lock/heartbeat off name + sink, both set by make_node.
 		if ( $repl instanceof Partition_Node ) {
 			$repl->allow_large_writes();
@@ -220,7 +220,7 @@ class Worker_Base {
 		}
 		// Intentionally anonymous (pure source, never a routed TO) — stays out of Core's registry.
 		$consumer = new Consumer_Node();
-		$consumer->arguments( "{$input_dir} 0 {$ipc_dir}/input.offsets" );
+		$consumer->arguments( "{$input_dir} {$ipc_dir}/input.offsets" );
 		// Seek the tail to skip any stale command history. On respawn, poll_init's
 		// load_offsetlog overrides this with the durable checkpoint (resume wins);
 		// on a first spawn there's no checkpoint, so the tail seek stands.

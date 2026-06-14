@@ -226,7 +226,9 @@ class Worker_CLI_Command {
 		$position   = $cli->live_position_for( $cache, "{$cr['source_basename']}.p{$partition}" )
 			?? [ 'seg' => $cr['seg'], 'off' => $cr['off'] ];
 
-		$partition_dir = "{$base_dir}/logs/{$source_log}/p{$partition}";
+		// Flat layout: source_log already carries the partition (`firehose.p<N>`),
+		// so it IS the segment dir — no `/p{partition}` to append.
+		$partition_dir = "{$base_dir}/logs/{$source_log}";
 		if ( '' === $source_log || ! \is_dir( $partition_dir ) ) {
 			return '-';
 		}

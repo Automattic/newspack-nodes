@@ -10,7 +10,7 @@ use PHPUnit\Framework\Attributes\CoversClass;
 class CliInputBasenameTest extends TestCase {
 	public function test_input_basename_reads_source_basename_from_offsetlog(): void {
 		$base = \sys_get_temp_dir() . '/nodes-cli-basename-' . \uniqid();
-		$dir  = "{$base}/offsets/digest.p0/p0";
+		$dir  = "{$base}/offsets/digest.p0";
 		\mkdir( $dir, 0777, true );
 		\file_put_contents( "{$dir}/0.log", \json_encode( [ 'seg' => 0, 'off' => 12, 'ts' => 1, 'source_basename' => 'digest-in' ] ) . "\n" );
 		$cli = new CLI( $base );
@@ -27,7 +27,7 @@ class CliInputBasenameTest extends TestCase {
 		// Offsetlog present (seg/off/ts) but no `source_basename` key — callers
 		// must get '' so they can fall back to their convention default.
 		$base = \sys_get_temp_dir() . '/nodes-cli-basename-nokey-' . \uniqid();
-		$dir  = "{$base}/offsets/digest.p0/p0";
+		$dir  = "{$base}/offsets/digest.p0";
 		\mkdir( $dir, 0777, true );
 		\file_put_contents( "{$dir}/0.log", \json_encode( [ 'seg' => 0, 'off' => 12, 'ts' => 1 ] ) . "\n" );
 		$cli = new CLI( $base );
@@ -39,7 +39,7 @@ class CliInputBasenameTest extends TestCase {
 		// Mirror saved_position(): numeric (not alphabetical) segment ordering,
 		// last non-empty line wins.
 		$base = \sys_get_temp_dir() . '/nodes-cli-basename-multi-' . \uniqid();
-		$dir  = "{$base}/offsets/digest.p0/p0";
+		$dir  = "{$base}/offsets/digest.p0";
 		\mkdir( $dir, 0777, true );
 		// '10' sorts before '2' alphabetically; ensure numeric ordering selects 10.log.
 		\file_put_contents( "{$dir}/2.log", \json_encode( [ 'seg' => 2, 'off' => 0, 'source_basename' => 'old-in' ] ) . "\n" );

@@ -437,7 +437,7 @@ class HTTPInTest extends TestCase {
 		// Mount a Partition under the worker's name — same as production
 		// bootstrap after scanning the locks/ dir.
 		$worker_partition = new Partition_Node();
-		$worker_partition->arguments( "{$input_dir} 0" );
+		$worker_partition->arguments( "{$input_dir}" );
 		$worker_partition->name( 'firehose-workers.p0' );
 
 		$req = $this->make_request(
@@ -468,7 +468,7 @@ class HTTPInTest extends TestCase {
 		$worker_partition->flush();
 
 		$consumer = new Consumer_Node();
-		$consumer->arguments( "{$input_dir} 0 " );
+		$consumer->arguments( "{$input_dir} " );
 		$consumer->next_offset( 'start' );
 		$consumer->sink( $got = new \Newspack_Nodes\Tests\Capture_Sink_Node() );
 		$this->pump_consumer( $consumer );

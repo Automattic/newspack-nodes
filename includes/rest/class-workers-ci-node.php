@@ -288,7 +288,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			$behind        = 0;
 		} else {
 			$partition_obj = new Partition_Node();
-			$partition_obj->arguments( "{$log_base}/{$input_log} {$partition}" );
+			$partition_obj->arguments( "{$log_base}/{$input_log}/p{$partition}" );
 			$segments      = $partition_obj->get_segments();
 			$total_size    = \array_sum( \array_column( $segments, 'size' ) );
 

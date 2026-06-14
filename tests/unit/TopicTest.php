@@ -25,20 +25,20 @@ class TopicTest extends TestCase {
 
 	public function test_constructor_does_not_create_partitions(): void {
 		$__topic = new Topic_Node();
-		$__topic->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
-		$this->assertFalse( is_dir( "{$this->tmp}/firehose.log/p0" ) );
+		$__topic->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
+		$this->assertFalse( is_dir( "{$this->tmp}/firehose.p0" ) );
 	}
 
 	public function test_fill_routes_by_key(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 		$this->produce_into( $t, 'data', '/url1' );
 
 		// Key routing is deterministic; whichever partition got it contains the
 		// packed message. Decode the file to assert on VALUE rather than raw bytes.
 		$found = false;
 		for ( $i = 0; $i < 4; ++$i ) {
-			$path = "{$this->tmp}/firehose.log/p{$i}/0.log";
+			$path = "{$this->tmp}/firehose.p{$i}/0.log";
 			if ( file_exists( $path ) ) {
 				$decoded = Message::unpacked( rtrim( file_get_contents( $path ), "\n" ) );
 				if ( 'data' === $decoded[ Message::VALUE ] && '/url1' === $decoded[ Message::KEY ] ) {
@@ -52,13 +52,13 @@ class TopicTest extends TestCase {
 
 	public function test_same_key_routes_to_same_partition(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 		$this->produce_into( $t, 'first', '/url1' );
 		$this->produce_into( $t, 'second', '/url1' );
 
 		// Find the partition that has data; it must contain two packed lines, both with the same key.
 		for ( $i = 0; $i < 4; ++$i ) {
-			$path = "{$this->tmp}/firehose.log/p{$i}/0.log";
+			$path = "{$this->tmp}/firehose.p{$i}/0.log";
 			if ( file_exists( $path ) ) {
 				$lines = array_filter( explode( "\n", file_get_contents( $path ) ), static fn ( $l ) => '' !== $l );
 				$this->assertCount( 2, $lines );
@@ -72,7 +72,7 @@ class TopicTest extends TestCase {
 
 	public function test_node_fill_TM_BYTESTREAM_routes_by_KEY(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 
 		$msg = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -82,7 +82,7 @@ class TopicTest extends TestCase {
 		$t->flush();
 
 		$expected_partition = Partition_Node::hash_to_partition( '/some/url', 4 );
-		$path = "{$this->tmp}/firehose.log/p{$expected_partition}/0.log";
+		$path = "{$this->tmp}/firehose.p{$expected_partition}/0.log";
 		$decoded = Message::unpacked( rtrim( file_get_contents( $path ), "\n" ) );
 		$this->assertSame( 'fill-data', $decoded[ Message::VALUE ] );
 		$this->assertSame( '/some/url', $decoded[ Message::KEY ] );
@@ -90,7 +90,7 @@ class TopicTest extends TestCase {
 
 	public function test_pre_declares_READY_event(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 		$t->name( 'firehose' );
 		// Should not throw — event is pre-declared.
 		$t->register( 'READY', 'cb', function () {} );
@@ -99,7 +99,7 @@ class TopicTest extends TestCase {
 
 	public function test_READY_fires_after_first_partition_materialized(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 		$t->name( 'firehose' );
 
 		$fired = [];
@@ -119,7 +119,7 @@ class TopicTest extends TestCase {
 
 	public function test_READY_replays_to_late_registrants(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 		$t->name( 'firehose' );
 
 		// Materialize first partition before any listener registers.
@@ -136,7 +136,7 @@ class TopicTest extends TestCase {
 
 	public function test_READY_fires_only_once_across_subsequent_partitions(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 		$t->name( 'firehose' );
 
 		$count = 0;
@@ -156,26 +156,46 @@ class TopicTest extends TestCase {
 
 	public function test_num_partitions_returns_constructor_value(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 7 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 7 65536 4 86400" );
 		$this->assertSame( 7, $t->num_partitions() );
 	}
 
 	/**
 	 * Tachikoma-parity constructible: no-arg ctor + arguments() setter walks
-	 * the node_schema and assigns base_dir / num_partitions / segment_size /
+	 * the node_schema and assigns dir_template / num_partitions / segment_size /
 	 * num_segments / max_lifespan to real int properties (not placeholder
 	 * strings, which would TypeError the typed-int property assignment).
 	 */
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 3 1048576 2 0" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 3 1048576 2 0" );
 		$this->assertSame( 3, $t->num_partitions() );
 		$ref = new \ReflectionClass( $t );
-		$this->assertSame( "{$this->tmp}/firehose.log", $ref->getProperty( 'base_dir' )->getValue( $t ) );
+		$this->assertSame( "{$this->tmp}/firehose.p{partition}", $ref->getProperty( 'dir_template' )->getValue( $t ) );
 		$this->assertSame( 3,        $ref->getProperty( 'num_partitions' )->getValue( $t ) );
 		$this->assertSame( 1048576,  $ref->getProperty( 'segment_size' )->getValue( $t ) );
 		$this->assertSame( 2,        $ref->getProperty( 'num_segments' )->getValue( $t ) );
 		$this->assertSame( 0,        $ref->getProperty( 'max_lifespan' )->getValue( $t ) );
+	}
+
+	public function test_child_partition_dir_substitutes_curly_partition_token(): void {
+		$t = new Topic_Node();
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 3 65536 4 86400" );
+		$t->name( 'firehose' );
+
+		// Route three distinct keys; each materialized child must write to
+		// {tmp}/firehose.p{i}/, never to a literal "{partition}" dir.
+		$this->produce_into( $t, 'a', 'k1' );
+		$this->produce_into( $t, 'b', 'k2' );
+		$this->produce_into( $t, 'c', 'k3' );
+
+		$this->assertDirectoryDoesNotExist( "{$this->tmp}/firehose.p{partition}", 'the {partition} token must be substituted, not used literally' );
+		$ref  = new \ReflectionClass( Topic_Node::class );
+		$prop = $ref->getProperty( 'partitions' );
+		$prop->setAccessible( true );
+		foreach ( $prop->getValue( $t ) as $i => $child ) {
+			$this->assertSame( "{$this->tmp}/firehose.p{$i}", $child->partition_dir() );
+		}
 	}
 
 	/**
@@ -186,7 +206,7 @@ class TopicTest extends TestCase {
 	 */
 	public function test_arguments_setter_applies_schema_defaults_for_missing_optional_tokens(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4" );
 		$this->assertSame( 4, $t->num_partitions() );
 		$ref = new \ReflectionClass( $t );
 		$this->assertSame( Partition_Node::DEFAULT_SEGMENT_SIZE, $ref->getProperty( 'segment_size' )->getValue( $t ) );
@@ -198,11 +218,11 @@ class TopicTest extends TestCase {
 		// max(1, $n) clamps zero/negative to 1 — callers that pass bad config don't
 		// trip a divide-by-zero in hash_to_partition.
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 0 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 0 65536 4 86400" );
 		$this->assertSame( 1, $t->num_partitions() );
 
 		$t2 = new Topic_Node();
-		$t2->arguments( "{$this->tmp}/firehose.log -3 65536 4 86400" );
+		$t2->arguments( "{$this->tmp}/firehose.p{partition} -3 65536 4 86400" );
 		$this->assertSame( 1, $t2->num_partitions() );
 	}
 
@@ -212,7 +232,7 @@ class TopicTest extends TestCase {
 		// TM_EOF) round-trip through Topic-as-transport in IPC scenarios,
 		// so Topic packs them like any other type instead of dropping.
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 2 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 2 65536 4 86400" );
 
 		$types = [
 			Message::TM_REQUEST,
@@ -231,7 +251,7 @@ class TopicTest extends TestCase {
 		// All three packed onto the partition (3 lines on disk).
 		$idx     = Partition_Node::hash_to_partition( '/url', 2 );
 		$lines   = \array_values( \array_filter(
-			\explode( "\n", \file_get_contents( "{$this->tmp}/firehose.log/p{$idx}/0.log" ) )
+			\explode( "\n", \file_get_contents( "{$this->tmp}/firehose.p{$idx}/0.log" ) )
 		) );
 		$this->assertCount( 3, $lines );
 		foreach ( $lines as $i => $line ) {
@@ -242,7 +262,7 @@ class TopicTest extends TestCase {
 
 	public function test_fill_pre_pinned_TO_routes_to_specified_partition(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 
 		// TO=p2/... pins partition 2 regardless of KEY.
 		$msg                   = Message::new_message();
@@ -253,17 +273,17 @@ class TopicTest extends TestCase {
 		$t->fill( $msg );
 		$t->flush();
 
-		$this->assertFileExists( "{$this->tmp}/firehose.log/p2/0.log" );
+		$this->assertFileExists( "{$this->tmp}/firehose.p2/0.log" );
 		// Other partitions must not be touched.
-		$this->assertFalse( is_dir( "{$this->tmp}/firehose.log/p0" ) );
-		$this->assertFalse( is_dir( "{$this->tmp}/firehose.log/p1" ) );
-		$this->assertFalse( is_dir( "{$this->tmp}/firehose.log/p3" ) );
+		$this->assertFalse( is_dir( "{$this->tmp}/firehose.p0" ) );
+		$this->assertFalse( is_dir( "{$this->tmp}/firehose.p1" ) );
+		$this->assertFalse( is_dir( "{$this->tmp}/firehose.p3" ) );
 	}
 
 	public function test_fill_pre_pinned_TO_out_of_range_falls_through_to_key_routing(): void {
 		// TO=p99/... where 99 >= num_partitions(2) → falls through to KEY routing.
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 2 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 2 65536 4 86400" );
 
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -276,13 +296,13 @@ class TopicTest extends TestCase {
 		// Whichever partition the key hashes to is materialized; the out-of-range
 		// pin was ignored.
 		$idx = \Newspack_Nodes\Partition_Node::hash_to_partition( 'k', 2 );
-		$this->assertFileExists( "{$this->tmp}/firehose.log/p{$idx}/0.log" );
+		$this->assertFileExists( "{$this->tmp}/firehose.p{$idx}/0.log" );
 	}
 
 	public function test_fill_empty_key_uses_round_robin(): void {
 		// Round-robin counter is static — clear by getting baseline first.
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 
 		// Empty KEY → round-robin. Send 8 messages and confirm at least 2 partitions
 		// got data (deterministic round-robin, but counter is shared across tests).
@@ -297,7 +317,7 @@ class TopicTest extends TestCase {
 
 		$populated = 0;
 		for ( $i = 0; $i < 4; ++$i ) {
-			if ( file_exists( "{$this->tmp}/firehose.log/p{$i}/0.log" ) ) {
+			if ( file_exists( "{$this->tmp}/firehose.p{$i}/0.log" ) ) {
 				++$populated;
 			}
 		}
@@ -307,7 +327,7 @@ class TopicTest extends TestCase {
 
 	public function test_sink_propagates_to_existing_partitions(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 
 		// Materialize a partition first.
 		$this->produce_into( $t, 'data', 'k1' );
@@ -339,7 +359,7 @@ class TopicTest extends TestCase {
 	 */
 	public function test_materialized_partitions_are_named_and_patron_linked(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 		$t->name( 'firehose' );
 
 		$this->produce_into( $t, 'data', 'k1' );
@@ -360,7 +380,7 @@ class TopicTest extends TestCase {
 	 */
 	public function test_materialized_partition_inherits_topic_sink(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 		$t->name( 'firehose' );
 		$sink = new Capture_Sink_Node();
 		$t->sink( $sink );
@@ -382,7 +402,7 @@ class TopicTest extends TestCase {
 	 */
 	public function test_unnamed_topic_leaves_partition_unnamed_but_patron_linked(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 
 		$this->produce_into( $t, 'data', 'k1' );
 		$idx = Partition_Node::hash_to_partition( 'k1', 4 );
@@ -398,7 +418,7 @@ class TopicTest extends TestCase {
 
 	public function test_remove_node_tears_down_partitions(): void {
 		$t = new Topic_Node();
-		$t->arguments( "{$this->tmp}/firehose.log 4 65536 4 86400" );
+		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 
 		// Materialize two partitions.
 		$this->produce_into( $t, 'a', 'k1' );

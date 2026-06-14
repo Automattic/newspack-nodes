@@ -62,7 +62,7 @@ class NodeLifecycleTest extends TestCase {
 		return [
 			'Callback'           => [ static fn () => new Callback_Node( static fn () => true ) ],
 			'CommandInterpreter' => [ static fn () => new Command_Interpreter_Node() ],
-			'Consumer'           => [ static fn () => new Consumer_Node( "{$base}/cdata", 0, "{$base}/coff" ) ],
+			'Consumer'           => [ static fn () => new Consumer_Node() ],
 			'Dumper'             => [ static fn () => new Dumper_Node() ],
 			'Echo_Node'          => [ static fn () => new Echo_Node() ],
 			'Hook'               => [
@@ -84,7 +84,7 @@ class NodeLifecycleTest extends TestCase {
 			'Partition'          => [
 				static function () use ( $base ) {
 					$p = new Partition_Node();
-					$p->arguments( "{$base}/part 0" );
+					$p->arguments( "{$base}/part" );
 					return $p;
 				},
 			],
@@ -102,7 +102,7 @@ class NodeLifecycleTest extends TestCase {
 			'Topic'              => [
 				static function () use ( $base ) {
 					$t = new Topic_Node();
-					$t->arguments( "{$base}/topic 2" );
+					$t->arguments( "{$base}/topic.p{partition} 2" );
 					return $t;
 				},
 			],

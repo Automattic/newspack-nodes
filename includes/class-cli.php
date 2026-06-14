@@ -131,7 +131,7 @@ class CLI {
 	 * @param int    $partition Partition index.
 	 */
 	public function input_basename( string $type, int $partition ): string {
-		$offset_dir = "{$this->base_dir}/offsets/{$type}.p{$partition}/p0";
+		$offset_dir = "{$this->base_dir}/offsets/{$type}.p{$partition}";
 		if ( ! \is_dir( $offset_dir ) ) {
 			return '';
 		}
@@ -328,9 +328,9 @@ class CLI {
 
 	/**
 	 * Read the latest committed checkpoint VALUE from an offset dir under
-	 * `offsets/` (e.g. `firehose.job-router.p0`). The offsetlog is itself a
-	 * single-partition Partition (p0); the outer dir name encodes the spoke
-	 * partition. Null if empty/unreadable. The checkpoint is a packed Message —
+	 * `offsets/` (e.g. `firehose.job-router.p0`). The offsetlog is a flat
+	 * segmented-log dir (`{base}/offsets/{name}/{seg}.log`); the dir name encodes
+	 * the spoke partition. Null if empty/unreadable. The checkpoint is a packed Message —
 	 * unpacked here (NOT a flat json_decode of the raw line).
 	 *
 	 * @return array<string,mixed>|null The decoded VALUE object.

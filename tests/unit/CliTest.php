@@ -387,7 +387,7 @@ class CliTest extends TestCase {
 
 	/** Seed an offsetlog with one checkpoint that records $source_basename. */
 	private function seed_offsetlog( string $type, int $partition, string $source_basename ): void {
-		$dir = "{$this->tmp}/offsets/{$type}.p{$partition}/p0";
+		$dir = "{$this->tmp}/offsets/{$type}.p{$partition}";
 		mkdir( $dir, 0755, true );
 		file_put_contents(
 			"{$dir}/0.log",
@@ -414,9 +414,9 @@ class CliTest extends TestCase {
 
 	// ── consumer_rows() / read_offsetlog_entry() ────────────────────────────────
 
-	/** Seed a real packed-Message checkpoint at offsets/{source_basename}.p{partition}/p0/0.log. */
+	/** Seed a real packed-Message checkpoint at offsets/{source_basename}.p{partition}/0.log. */
 	private function seed_packed_checkpoint( string $source_basename, int $partition, array $value ): void {
-		$dir = "{$this->tmp}/offsets/{$source_basename}.p{$partition}/p0";
+		$dir = "{$this->tmp}/offsets/{$source_basename}.p{$partition}";
 		mkdir( $dir, 0755, true );
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
@@ -475,7 +475,7 @@ class CliTest extends TestCase {
 	public function test_read_offsetlog_entry_returns_null_when_value_not_array(): void {
 		// A checkpoint whose Message VALUE is a string (not the expected object)
 		// must be rejected, not returned as a bogus entry.
-		$dir = "{$this->tmp}/offsets/firehose.p0/p0";
+		$dir = "{$this->tmp}/offsets/firehose.p0";
 		mkdir( $dir, 0755, true );
 		$msg                   = Message::new_message();
 		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
