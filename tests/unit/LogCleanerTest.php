@@ -18,6 +18,12 @@ class LogCleanerTest extends TestCase {
 		// Config caches the topologies overlay statically; reset so a prior
 		// test's active set doesn't leak past the parent's option-only wipe.
 		\Newspack_Nodes\Config::reset();
+		// The _wp_actions wipe above also drops the Config-reset → basename-cache
+		// wiring, so the Config::reset() above can't clear Topology_Registry's
+		// parse caches. Clear them directly (stock dirs preserved) so a prior
+		// test's stale basenames_for() entry — e.g. a request-workers lock cached
+		// as [] before its stock dir was registered — can't leak in by run order.
+		\Newspack_Nodes\Topology_Registry::reset_basename_cache();
 		$this->tmp = $this->make_temp_dir();
 		\mkdir( "{$this->tmp}/logs", 0755, true );
 		\mkdir( "{$this->tmp}/offsets", 0755, true );
