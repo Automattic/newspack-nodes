@@ -113,27 +113,6 @@ class Log_Cleaner {
 			}
 		}
 
-		// Sweep IPC dirs for topologies/partitions no longer active.
-		$active_ipc = \array_flip( $active_descriptors );
-		if ( ! empty( $active_ipc ) ) {
-			foreach ( @\glob( "{$base_dir}/ipc/*.p*", \GLOB_ONLYDIR ) ?: [] as $idir ) {
-				$base = \basename( $idir );
-				if ( isset( $active_ipc[ $base ] ) || ! \preg_match( '/\.p(\d+)$/', $base ) ) {
-					continue;
-				}
-				if ( self::has_lock_for( $base_dir, $base ) ) {
-					$blocked = true;
-					continue;
-				}
-				Supervisor_Base::delete_directory_recursive( $idir, $base_dir );
-				if ( \is_dir( $idir ) ) {
-					$blocked = true;
-					continue;
-				}
-				$deleted[] = $idir;
-			}
-		}
-
 		// Clear the flag only when nothing deferred us (a pre-shrink worker holds it until its lock clears).
 		if ( ! $blocked ) {
 			\delete_option( self::LOGS_DIRTY_OPTION );
