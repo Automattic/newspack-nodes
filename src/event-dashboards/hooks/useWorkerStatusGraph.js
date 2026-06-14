@@ -223,7 +223,7 @@ export function useWorkerStatusGraph( opts = {} ) {
 		}
 		const id = makeOpId();
 		const promise = new Promise( ( resolve, reject ) => {
-			view.pending.set( id, { resolve, reject } );
+			view.replies.add( id, resolve, reject );
 		} );
 		interpreter.fill(
 			buildCommand( 'restart', formatCommandArgs( [ type ] ), VIEW, id )
