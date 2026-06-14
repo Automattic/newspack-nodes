@@ -102,6 +102,23 @@ it( 'collapsed entity hides its detail rows and children', () => {
 	);
 } );
 
+it( 'renders a joined node entity as its member names, Title-Cased and comma-joined', () => {
+	const joined = {
+		kind: 'node',
+		names: [ 'community', 'releases' ],
+		name: 'community, releases',
+		key: 'group:community|releases',
+		workers: [],
+		children: [],
+	};
+	const { container } = render(
+		<TreeEntity entity={ joined } depth={ 0 } { ...props } />
+	);
+	expect( container.querySelector( '.connector-name' ).textContent ).toBe(
+		'Community, Releases'
+	);
+} );
+
 it( 'a node row shows a status-colored partition pill and R rate', () => {
 	const nodeEntity = {
 		kind: 'node',

@@ -173,7 +173,9 @@ const TreeEntity = memo( function TreeEntity( props ) {
 						<span className="log-name">{ entity.name }</span>
 					) : (
 						<span className="connector-name">
-							{ displayName( entity.name ) }
+							{ entity.names
+								? entity.names.map( displayName ).join( ', ' )
+								: displayName( entity.name ) }
 						</span>
 					) }
 					{ entity.kind === 'node' && (
