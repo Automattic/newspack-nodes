@@ -111,7 +111,7 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 							if ( null === $partition->sink() && null !== $ci ) {
 								$partition->sink( $ci );
 							}
-							$partition->arguments( "{$log_base}/{$log_file} {$p}" );
+							$partition->arguments( "{$log_base}/{$log_file}/p{$p}" );
 							// finally so a throwing probe/read can't leave the named node registered (it would collide on the next call in a long-lived worker).
 							try {
 								if ( null !== self::$on_probe ) {

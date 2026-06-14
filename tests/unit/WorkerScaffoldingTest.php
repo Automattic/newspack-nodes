@@ -36,7 +36,7 @@ class WorkerScaffoldingTest extends TestCase {
 		$ipc_dir = "{$this->tmp}/ipc/test.p0";
 		\mkdir( "{$ipc_dir}/input", 0755, true );
 		$seed = new Consumer_Node();
-		$seed->arguments( "{$ipc_dir}/input 0 {$ipc_dir}/input.offsets" );
+		$seed->arguments( "{$ipc_dir}/input {$ipc_dir}/input.offsets" );
 		$seed->checkpoint();
 		unset( $seed );
 
@@ -55,7 +55,7 @@ class WorkerScaffoldingTest extends TestCase {
 		// input partition's retained command history.
 		$ipc_dir = "{$this->tmp}/ipc/test.p0";
 		$input = new Partition_Node();
-		$input->arguments( "{$ipc_dir}/input 0" );
+		$input->arguments( "{$ipc_dir}/input" );
 		$msg                                  = \Newspack_Nodes\Message::new_message();
 		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
 		$msg[ \Newspack_Nodes\Message::VALUE ] = "old-command\n";
@@ -75,7 +75,7 @@ class WorkerScaffoldingTest extends TestCase {
 		$w = new Worker_Base( $this->tmp, 'test', 0 );
 		$w->build_scaffolding();
 		$parts = \explode( ' ', Core::node( '_repl' )->arguments() );
-		$this->assertSame( (string) ( 1024 * 1024 ), $parts[2], 'IPC output Partition segment_size must be 1 MiB' );
+		$this->assertSame( (string) ( 1024 * 1024 ), $parts[1], 'IPC output Partition segment_size must be 1 MiB' );
 	}
 
 	private function write_ipc_line( Partition_Node $partition, string $value ): void {
@@ -99,7 +99,7 @@ class WorkerScaffoldingTest extends TestCase {
 
 		$input = new Partition_Node();
 
-		$input->arguments( "{$ipc_dir}/input 0" );
+		$input->arguments( "{$ipc_dir}/input" );
 		$this->write_ipc_line( $input, 'cmd1' );
 		$this->pump_consumer( $in );   // consume cmd1 before the recycle
 		$w->checkpoint_ipc_input();    // clean-recycle shutdown checkpoint

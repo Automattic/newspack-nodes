@@ -54,9 +54,9 @@ class CliWorkerCommandTest extends TestCase {
 		parent::tearDown();
 	}
 
-	/** Seed a real packed-Message Consumer checkpoint at offsets/{source_basename}.p{partition}/p0/0.log. */
+	/** Seed a real packed-Message Consumer checkpoint at offsets/{source_basename}.p{partition}/0.log. */
 	private function seed_consumer_checkpoint( string $source_basename, int $partition, array $value ): void {
-		$dir = "{$this->tmp}/offsets/{$source_basename}.p{$partition}/p0";
+		$dir = "{$this->tmp}/offsets/{$source_basename}.p{$partition}";
 		\mkdir( $dir, 0755, true );
 		$msg                       = Message::new_message();
 		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
@@ -397,9 +397,9 @@ class CliWorkerCommandTest extends TestCase {
 		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
 
 		$this->seed_consumer_checkpoint( 'firehose', 0, [
-			'seg' => 0, 'off' => 100, 'worker_type' => 'firehose-workers-and-jobs', 'source_log' => 'firehose.log',
+			'seg' => 0, 'off' => 100, 'worker_type' => 'firehose-workers-and-jobs', 'source_log' => 'firehose.p0',
 		] );
-		$partition_dir = "{$this->tmp}/logs/firehose.log/p0";
+		$partition_dir = "{$this->tmp}/logs/firehose.p0";
 		\mkdir( $partition_dir, 0755, true );
 		// 300 bytes total → 200 bytes behind (300 - 100).
 		\file_put_contents( "{$partition_dir}/0.log", \str_repeat( 'a', 300 ) );
@@ -419,16 +419,16 @@ class CliWorkerCommandTest extends TestCase {
 		\mkdir( $lock, 0755, true );
 		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
 
-		$partition_dir = "{$this->tmp}/logs/firehose.log/p0";
+		$partition_dir = "{$this->tmp}/logs/firehose.p0";
 		\mkdir( $partition_dir, 0755, true );
 		\file_put_contents( "{$partition_dir}/0.log", \str_repeat( 'a', 500 ) );
 
 		// request-builder reader at off=100 → 400B behind; job-router at off=300 → 200B.
 		$this->seed_consumer_checkpoint( 'firehose', 0, [
-			'seg' => 0, 'off' => 100, 'worker_type' => 'firehose-workers-and-jobs', 'source_log' => 'firehose.log',
+			'seg' => 0, 'off' => 100, 'worker_type' => 'firehose-workers-and-jobs', 'source_log' => 'firehose.p0',
 		] );
 		$this->seed_consumer_checkpoint( 'firehose.job-router', 0, [
-			'seg' => 0, 'off' => 300, 'worker_type' => 'firehose-workers-and-jobs', 'source_log' => 'firehose.log',
+			'seg' => 0, 'off' => 300, 'worker_type' => 'firehose-workers-and-jobs', 'source_log' => 'firehose.p0',
 		] );
 
 		( new Worker_CLI_Command() )->status( [], [] );
@@ -449,9 +449,9 @@ class CliWorkerCommandTest extends TestCase {
 		\file_put_contents( "{$lock}/heartbeat", (string) \getmypid() );
 
 		$this->seed_consumer_checkpoint( 'firehose', 0, [
-			'seg' => 0, 'off' => 0, 'worker_type' => 'firehose-workers', 'source_log' => 'firehose.log',
+			'seg' => 0, 'off' => 0, 'worker_type' => 'firehose-workers', 'source_log' => 'firehose.p0',
 		] );
-		$partition_dir = "{$this->tmp}/logs/firehose.log/p0";
+		$partition_dir = "{$this->tmp}/logs/firehose.p0";
 		\mkdir( $partition_dir, 0755, true );
 		\file_put_contents( "{$partition_dir}/0.log", \str_repeat( 'b', 500 ) );
 
@@ -531,7 +531,7 @@ class CliWorkerCommandTest extends TestCase {
 
 		// Consumer checkpoint exists (non-null position), but no source-log dir.
 		$this->seed_consumer_checkpoint( 'firehose', 0, [
-			'seg' => 0, 'off' => 0, 'worker_type' => 'firehose-workers', 'source_log' => 'firehose.log',
+			'seg' => 0, 'off' => 0, 'worker_type' => 'firehose-workers', 'source_log' => 'firehose.p0',
 		] );
 		// Deliberately DO NOT create logs/firehose.log/p0 — that's the branch.
 

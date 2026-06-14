@@ -208,7 +208,7 @@ class SSE_Out_Node extends Node {
 				$ipc = $attach( $sub, $base );
 				// Empty offsetlog_base_dir disables checkpointing — ephemeral sessions tail-seek.
 				$consumer = new Consumer_Node();
-				$consumer->arguments( "{$ipc['output']} 0 " );
+				$consumer->arguments( "{$ipc['output']} " );
 				$consumer->next_offset( 'end' );
 				$consumer->set_stamp_as( $sub );
 				return [ $consumer ];
@@ -220,7 +220,7 @@ class SSE_Out_Node extends Node {
 				$ipc_output = "{$base}/ipc/{$sub}/output";
 				if ( \is_dir( $ipc_output ) ) {
 					$consumer = new Consumer_Node();
-					$consumer->arguments( "{$ipc_output} 0 " );
+					$consumer->arguments( "{$ipc_output} " );
 					$consumer->next_offset( 'end' );
 					$consumer->set_stamp_as( $sub );
 					return [ $consumer ];
@@ -231,7 +231,7 @@ class SSE_Out_Node extends Node {
 				$partition = (int) $m[2];
 				$log_base  = "{$base}/logs/{$log_name}.log";
 				$consumer  = new Consumer_Node();
-				$consumer->arguments( "{$log_base} {$partition} " );
+				$consumer->arguments( "{$log_base}/p{$partition} " );
 				if ( isset( $positions[ $partition ] ) ) {
 					$consumer->next_offset( self::position_arg( $positions[ $partition ] ) );
 				} else {
@@ -249,7 +249,7 @@ class SSE_Out_Node extends Node {
 			$consumers  = [];
 			for ( $p = 0; $p < $partitions; $p++ ) {
 				$consumer = new Consumer_Node();
-				$consumer->arguments( "{$log_base} {$p} " );
+				$consumer->arguments( "{$log_base}/p{$p} " );
 				if ( isset( $positions[ $p ] ) ) {
 					$consumer->next_offset( self::position_arg( $positions[ $p ] ) );
 				} else {

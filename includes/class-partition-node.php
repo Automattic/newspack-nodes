@@ -28,12 +28,12 @@ class Partition_Node extends Timer_Node {
 
 	public const DRIFT_RESCAN_INTERVAL_SECONDS = 1.0;
 
-	protected string $base_dir      = '';
-	protected int $partition        = 0;
+	protected string $dir           = '';
 	protected int $segment_size     = self::DEFAULT_SEGMENT_SIZE;
 	protected int $num_segments     = self::DEFAULT_NUM_SEGMENTS;
 	protected int $max_lifespan     = self::DEFAULT_MAX_LIFESPAN;
 
+	/** Resolved segment directory ( = the rtrim'd $dir ); segments live at {partition_dir}/{seg}.log. */
 	protected string $partition_dir = '';
 
 	protected ?int $current_segment_id = null;
@@ -83,7 +83,8 @@ class Partition_Node extends Timer_Node {
 
 	/**
 	 * Store the raw string, parse positional tokens via parse_schema_args(), then
-	 * normalize the values and re-derive partition_dir. Getter returns the raw string.
+	 * normalize the values. partition_dir is the resolved $dir; a bare make_node
+	 * leaves it ''. Getter returns the raw string.
 	 *
 	 * @param string|null $args
 	 * @return string
@@ -94,17 +95,15 @@ class Partition_Node extends Timer_Node {
 		}
 		$result = parent::arguments( $args );
 		// Bare make_node: store the raw string but don't walk the schema or
-		// derive — partition_dir from default props would be '/p0' at the
-		// filesystem root.
+		// derive — partition_dir is the resolved $dir, left '' until handed one.
 		if ( '' === $args ) {
 			return $result;
 		}
 		$this->parse_schema_args( $args );
-		$this->base_dir      = \rtrim( $this->base_dir, '/' );
 		$this->segment_size  = \max( 1, $this->segment_size );
 		$this->num_segments  = \max( 2, $this->num_segments );
 		$this->max_lifespan  = \max( 0, $this->max_lifespan );
-		$this->partition_dir = "{$this->base_dir}/p{$this->partition}";
+		$this->partition_dir = \rtrim( $this->dir, '/' );
 		return $result;
 	}
 
@@ -735,7 +734,7 @@ class Partition_Node extends Timer_Node {
 	/**
 	 * Read the latest committed record's VALUE from an offsetlog directory.
 	 *
-	 * The offsetlog is a single-partition (p0) Partition; this opens it at $offset_dir,
+	 * The offsetlog is a flat segmented-log dir; this opens it at $offset_dir,
 	 * reads the last non-empty line of the newest segment, unpacks the packed Message,
 	 * and returns its VALUE (a decoded JSON object), or null if empty/unreadable.
 	 *
@@ -745,7 +744,7 @@ class Partition_Node extends Timer_Node {
 	public static function read_latest_value_at( string $offset_dir ): ?array {
 		try {
 			$offsetlog = new self();
-			$offsetlog->arguments( "{$offset_dir} 0" );
+			$offsetlog->arguments( $offset_dir );
 			$segments = $offsetlog->get_segments( true );
 			if ( empty( $segments ) ) {
 				return null;
@@ -824,11 +823,10 @@ class Partition_Node extends Timer_Node {
 			'category'    => 'I/O',
 			'description' => 'Append-only segmented log; data file + offset index per partition.',
 			'arguments'   => [
-				[ 'name' => 'base_dir',     'type' => 'string', 'required' => true ],
-				[ 'name' => 'partition',    'type' => 'int',    'required' => true ],
-				[ 'name' => 'segment_size', 'type' => 'int',    'default' => self::DEFAULT_SEGMENT_SIZE ],
-				[ 'name' => 'num_segments', 'type' => 'int',    'default' => self::DEFAULT_NUM_SEGMENTS ],
-				[ 'name' => 'max_lifespan', 'type' => 'int',    'default' => self::DEFAULT_MAX_LIFESPAN ],
+				[ 'name' => 'dir',          'type' => 'string', 'required' => true ],
+				[ 'name' => 'segment_size', 'type' => 'int',    'default'  => self::DEFAULT_SEGMENT_SIZE ],
+				[ 'name' => 'num_segments', 'type' => 'int',    'default'  => self::DEFAULT_NUM_SEGMENTS ],
+				[ 'name' => 'max_lifespan', 'type' => 'int',    'default'  => self::DEFAULT_MAX_LIFESPAN ],
 			],
 			'commands'    => [
 				[

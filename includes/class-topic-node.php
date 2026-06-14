@@ -14,7 +14,7 @@ namespace Newspack_Nodes;
 class Topic_Node extends Node {
 	use Schema_Reflection;
 
-	protected string $base_dir      = '';
+	protected string $dir_template  = '';
 	protected int $num_partitions   = 1;
 	protected int $segment_size     = Partition_Node::DEFAULT_SEGMENT_SIZE;
 	protected int $num_segments     = Partition_Node::DEFAULT_NUM_SEGMENTS;
@@ -33,7 +33,7 @@ class Topic_Node extends Node {
 
 	/**
 	 * Store the raw string, parse positional tokens via parse_schema_args(), then
-	 * normalize (rtrim base_dir, clamp num_partitions to ≥1).
+	 * normalize (rtrim dir_template, clamp num_partitions to ≥1).
 	 *
 	 * @param string|null $args
 	 * @return string
@@ -47,7 +47,7 @@ class Topic_Node extends Node {
 			return $result;
 		}
 		$this->parse_schema_args( $args );
-		$this->base_dir       = \rtrim( $this->base_dir, '/' );
+		$this->dir_template   = \rtrim( $this->dir_template, '/' );
 		$this->num_partitions = \max( 1, $this->num_partitions );
 		return $result;
 	}
@@ -94,7 +94,8 @@ class Topic_Node extends Node {
 			if ( '' !== $this->name ) {
 				$p->name( "{$this->name}:p{$i}" );
 			}
-			$p->arguments( "{$this->base_dir} {$i} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}" );
+			$child_dir = \str_replace( '{partition}', (string) $i, $this->dir_template );
+			$p->arguments( "{$child_dir} {$this->segment_size} {$this->num_segments} {$this->max_lifespan}" );
 			// Keep Topic's own sink (specific) and patron-link so dump_metadata hides it from the canvas.
 			$p->sink( $this->sink );
 			$p->patron( $this );
@@ -143,7 +144,7 @@ class Topic_Node extends Node {
 			'category'    => 'I/O',
 			'description' => 'Multi-partition log abstraction; routes by hash to one of N Partitions.',
 			'arguments'        => [
-				[ 'name' => 'base_dir',       'type' => 'string', 'required' => true ],
+				[ 'name' => 'dir_template',   'type' => 'string', 'required' => true ],
 				[ 'name' => 'num_partitions', 'type' => 'int',    'required' => true ],
 				[ 'name' => 'segment_size',   'type' => 'int',    'default' => Partition_Node::DEFAULT_SEGMENT_SIZE ],
 				[ 'name' => 'num_segments',   'type' => 'int',    'default' => Partition_Node::DEFAULT_NUM_SEGMENTS ],

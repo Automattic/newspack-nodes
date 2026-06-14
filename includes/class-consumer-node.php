@@ -73,8 +73,7 @@ class Consumer_Node extends Timer_Node {
 	protected int $checkpoint_seg = -1;
 	protected int $checkpoint_off = -1;
 
-	protected string $source_base_dir = '';
-	protected int $source_partition   = 0;
+	protected string $source_dir = '';
 	/**
 	 * Raw token assigned by parse_schema_args() — the override normalizes it
 	 * (rtrim '/') into the derived $offsetlog_dir below.
@@ -124,9 +123,10 @@ class Consumer_Node extends Timer_Node {
 
 	/**
 	 * Store the raw string, parse positional tokens via parse_schema_args()
-	 * (source_base_dir / source_partition / offsetlog_base_dir), then normalize,
-	 * derive offsetlog_dir, materialize the source / offsetlog Partitions and seed
-	 * the in-memory cursor from any existing offsetlog entries.
+	 * (source_dir / offsetlog_base_dir), then normalize, derive offsetlog_dir,
+	 * materialize the source / offsetlog Partitions (the offsetlog is a flat
+	 * segmented-log dir) and seed the in-memory cursor from any existing
+	 * offsetlog entries.
 	 *
 	 * @param string|null $args
 	 * @return string
@@ -141,14 +141,14 @@ class Consumer_Node extends Timer_Node {
 			return $result;
 		}
 		$this->parse_schema_args( $args );
-		$this->source_base_dir = \rtrim( $this->source_base_dir, '/' );
-		$this->offsetlog_dir   = \rtrim( $this->offsetlog_base_dir, '/' );
+		$this->source_dir    = \rtrim( $this->source_dir, '/' );
+		$this->offsetlog_dir = \rtrim( $this->offsetlog_base_dir, '/' );
 
 		$this->source = new Partition_Node();
 		if ( '' !== $this->name ) {
 			$this->source->name( "{$this->name}:source" );
 		}
-		$this->source->arguments( "{$this->source_base_dir} {$this->source_partition}" );
+		$this->source->arguments( $this->source_dir );
 		$this->source->sink( $this->sink );
 		$this->source->patron( $this );
 
@@ -157,7 +157,7 @@ class Consumer_Node extends Timer_Node {
 			if ( '' !== $this->name ) {
 				$this->offsetlog->name( "{$this->name}:offsetlog" );
 			}
-			$this->offsetlog->arguments( implode( ' ', [ "{$this->offsetlog_dir}", 0, self::OFFSETLOG_SEGMENT_SIZE, self::OFFSETLOG_NUM_SEGMENTS ] ) );
+			$this->offsetlog->arguments( implode( ' ', [ "{$this->offsetlog_dir}", self::OFFSETLOG_SEGMENT_SIZE, self::OFFSETLOG_NUM_SEGMENTS ] ) );
 			$this->offsetlog->sink( $this->sink );
 			$this->offsetlog->patron( $this );
 		} else {
@@ -601,7 +601,7 @@ class Consumer_Node extends Timer_Node {
 			// Real source log basename. Two readers can tail the same log under
 			// distinct offset-dir names (firehose vs firehose.job-router); the
 			// dashboard labels by this, not the disambiguated offset dir.
-			'source_log'  => \basename( $this->source_base_dir ),
+			'source_log'  => \basename( $this->source_dir ),
 		];
 		// Co-commit the snapshot node's state with the offset, as ONE record, so a
 		// respawn restores the cache and resumes the cursor in lockstep.
@@ -769,8 +769,7 @@ class Consumer_Node extends Timer_Node {
 			'category'    => 'I/O',
 			'description' => 'Tails a Partition; emits each appended message to its sink.',
 			'arguments'        => [
-				[ 'name' => 'source_base_dir',    'type' => 'string', 'required' => true ],
-				[ 'name' => 'source_partition',   'type' => 'int',    'required' => true ],
+				[ 'name' => 'source_dir',         'type' => 'string', 'required' => true ],
 				[ 'name' => 'offsetlog_base_dir', 'type' => 'string', 'default' => '' ],
 			],
 			'commands'    => [
