@@ -523,10 +523,9 @@ class PartitionTest extends TestCase {
 
 		$segments = $p->get_segments( true );
 		$this->assertGreaterThanOrEqual( 2, count( $segments ) );
-		// Lock dir lives at {base_dir}/../locks/{basename(base_dir)}.p0.rotate.lock.d.
+		// Rotate lock dir lives at {base_dir}/p0/.rotate.lock.d.
 		// After rotation completes, it must be released.
-		$locks_base     = dirname( $this->tmp ) . '/locks';
-		$candidate_lock = $locks_base . '/' . basename( $this->tmp ) . '.p0.rotate.lock.d';
+		$candidate_lock = "{$this->tmp}/p0/.rotate.lock.d";
 		$this->assertFalse( is_dir( $candidate_lock ), 'rotate lock dir must be released after rotate' );
 	}
 

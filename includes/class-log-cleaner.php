@@ -80,10 +80,12 @@ class Log_Cleaner {
 			}
 		}
 
+		$active_descriptors = self::active_descriptors( $base_dir );
+
 		// Topology-shrink sweep of orphaned offsetlog dirs (a source dropped from
 		// a topology). Active set = each active descriptor's declared offset basenames.
 		$active_offsets = [];
-		foreach ( self::active_descriptors( $base_dir ) as $descriptor ) {
+		foreach ( $active_descriptors as $descriptor ) {
 			if ( ! \preg_match( '/^(.*)\.p(\d+)$/', $descriptor, $dm ) ) {
 				continue;
 			}
@@ -91,13 +93,14 @@ class Log_Cleaner {
 				$active_offsets[ $basename ] = true;
 			}
 		}
+		// Skip when no active topology declares any Consumer offsetlog (fail-closed: never wipes when the active set is unknown), mirroring the logs sweep's guard.
 		if ( ! empty( $active_offsets ) ) {
 			foreach ( @\glob( "{$base_dir}/offsets/*.p*", \GLOB_ONLYDIR ) ?: [] as $odir ) {
 				$base = \basename( $odir );
-				if ( isset( $active_offsets[ $base ] ) || ! \preg_match( '/\.p(\d+)$/', $base, $pm ) ) {
+				if ( isset( $active_offsets[ $base ] ) || ! \preg_match( '/\.p(\d+)$/', $base ) ) {
 					continue;
 				}
-				if ( self::has_partition_lock( $base_dir, (int) $pm[1] ) ) {
+				if ( self::has_lock_for( $base_dir, $base ) ) {
 					$blocked = true;
 					continue;
 				}
@@ -111,14 +114,14 @@ class Log_Cleaner {
 		}
 
 		// Sweep IPC dirs for topologies/partitions no longer active.
-		$active_ipc = \array_flip( self::active_descriptors( $base_dir ) );
+		$active_ipc = \array_flip( $active_descriptors );
 		if ( ! empty( $active_ipc ) ) {
 			foreach ( @\glob( "{$base_dir}/ipc/*.p*", \GLOB_ONLYDIR ) ?: [] as $idir ) {
 				$base = \basename( $idir );
-				if ( isset( $active_ipc[ $base ] ) || ! \preg_match( '/\.p(\d+)$/', $base, $pm ) ) {
+				if ( isset( $active_ipc[ $base ] ) || ! \preg_match( '/\.p(\d+)$/', $base ) ) {
 					continue;
 				}
-				if ( self::has_partition_lock( $base_dir, (int) $pm[1] ) ) {
+				if ( self::has_lock_for( $base_dir, $base ) ) {
 					$blocked = true;
 					continue;
 				}
@@ -210,15 +213,8 @@ class Log_Cleaner {
 		$seen = [];
 		if ( \class_exists( '\\Newspack_Nodes\\Bootstrap' ) ) {
 			try {
-				foreach ( Bootstrap::get_topologies() as $name => $entry ) {
-					$np  = 1;
-					$raw = \is_array( $entry ) ? ( $entry['num_partitions'] ?? 1 ) : 1;
-					if ( \is_numeric( $raw ) ) {
-						$np = \max( 1, (int) $raw );
-					}
-					for ( $n = 0; $n < $np; ++$n ) {
-						$seen[ "{$name}.p{$n}" ] = true;
-					}
+				foreach ( Bootstrap::expand_workers() as $worker ) {
+					$seen[ "{$worker['type']}.p{$worker['partition']}" ] = true;
 				}
 			} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
 				// Bootstrap is request-scope; tolerate worker contexts.
@@ -236,8 +232,8 @@ class Log_Cleaner {
 		return \array_keys( $seen );
 	}
 
-	/** True if any worker lock dir holds partition `$n` (`{base}/locks/*.p{N}.lock.d`). */
-	private static function has_partition_lock( string $base_dir, int $n ): bool {
-		return ! empty( @\glob( "{$base_dir}/locks/*.p{$n}.lock.d", \GLOB_ONLYDIR ) );
+	/** True if a worker lock dir exists for descriptor `$descriptor` (`{base}/locks/{descriptor}.lock.d`). */
+	private static function has_lock_for( string $base_dir, string $descriptor ): bool {
+		return \is_dir( "{$base_dir}/locks/{$descriptor}.lock.d" );
 	}
 }

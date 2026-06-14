@@ -427,7 +427,7 @@ class LogCleanerTest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
-	public function test_skips_orphan_offsetlog_when_partition_lock_held(): void {
+	public function test_purges_orphan_offsetlog_despite_unrelated_partition_lock(): void {
 		$stock = "{$this->tmp}/topologies";
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
@@ -439,11 +439,11 @@ class LogCleanerTest extends TestCase {
 		\Newspack_Nodes\Config::reset();
 
 		$orphan = $this->seed_offsetlog_partition( 'summarized', 0 );
-		$this->seed_lock_dir( 'digest', 0 ); // a live worker holds partition 0
+		$this->seed_lock_dir( 'digest', 0 ); // an UNRELATED live worker at p0 must NOT protect summarized.p0
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 1 );
 
-		$this->assertDirectoryExists( $orphan );
+		$this->assertDirectoryDoesNotExist( $orphan );
 
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
@@ -489,6 +489,27 @@ class LogCleanerTest extends TestCase {
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 1 );
 
 		$this->assertDirectoryExists( $orphan );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	public function test_purges_orphan_ipc_despite_unrelated_partition_lock(): void {
+		$stock = "{$this->tmp}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/digest.tsl",
+			"make_node Partition scored:partition <config:logs_dir>/scored.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'digest' ];
+		\Newspack_Nodes\Config::reset();
+
+		$orphan = $this->seed_ipc_dir( 'firehose-workers-and-jobs', 0 );
+		$this->seed_lock_dir( 'digest', 0 ); // unrelated live worker at p0 must NOT protect the dead topology's ipc dir
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp, 1 );
+
+		$this->assertDirectoryDoesNotExist( $orphan );
 
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
