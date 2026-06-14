@@ -189,7 +189,7 @@ describe( 'WorkerStatus', () => {
 		expect( container.querySelector( '.worker-status' ) ).not.toBeNull();
 	} );
 
-	it( 'renders a worker row inside the pipeline when workers list is non-empty', () => {
+	it( 'renders a topology section when workers list is non-empty', () => {
 		registerViewFixture(
 			viewModel( {
 				workers: [
@@ -199,6 +199,8 @@ describe( 'WorkerStatus', () => {
 						handlerName: 'firehose-workers',
 						partition: 0,
 						started_at: 1000,
+						inputs: [],
+						outputs: [],
 						inputs_status: [],
 						outputs_status: [],
 					},
@@ -207,7 +209,8 @@ describe( 'WorkerStatus', () => {
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
-		expect( container.querySelector( '.pipeline-flow' ) ).not.toBeNull();
+		expect( container.querySelector( '.topology-section' ) ).not.toBeNull();
+		expect( container.textContent ).toMatch( /Firehose Workers/ );
 	} );
 
 	it( 'renders the supervisor card when the descriptor is present', () => {
@@ -229,14 +232,14 @@ describe( 'WorkerStatus', () => {
 		expect( container.querySelector( '.supervisor-row' ) ).not.toBeNull();
 	} );
 
-	// buildRenderPlan (not exported): asserted via rendered DOM order.
+	// Tree placement (buildTopologySections, not exported here): asserted via rendered DOM order.
 
-	it( 'buildRenderPlan: producer-consumer pair places log between workers', () => {
+	it( 'tree: producer-consumer pair nests the log between the workers', () => {
 		registerViewFixture(
 			viewModel( {
 				workers: [
 					{
-						type: 'firehose-workers',
+						type: 'combined',
 						handler: 'firehose-workers',
 						partition: 0,
 						started_at: 1000,
@@ -252,7 +255,7 @@ describe( 'WorkerStatus', () => {
 						],
 					},
 					{
-						type: 'request-workers',
+						type: 'combined',
 						handler: 'request-workers',
 						partition: 0,
 						started_at: 1000,
@@ -273,10 +276,10 @@ describe( 'WorkerStatus', () => {
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
-		// firehose-workers should appear BEFORE the log, request-workers AFTER.
-		const flow = container.querySelector( '.pipeline-flow' );
-		expect( flow ).not.toBeNull();
-		const text = flow.textContent;
+		// firehose-workers (producer) above the log, request-workers (consumer) below.
+		const section = container.querySelector( '.topology-section' );
+		expect( section ).not.toBeNull();
+		const text = section.textContent;
 		expect( text ).toMatch( /Firehose Workers/ );
 		expect( text ).toMatch( /Request Workers/ );
 		expect( text ).toMatch( /firehose\.log/ );
@@ -287,7 +290,7 @@ describe( 'WorkerStatus', () => {
 		expect( logIdx ).toBeLessThan( requestIdx );
 	} );
 
-	it( 'buildRenderPlan: terminal output (no consumer) renders after producer', () => {
+	it( 'tree: terminal output (no consumer) nests below its producer', () => {
 		registerViewFixture(
 			viewModel( {
 				workers: [
@@ -311,32 +314,15 @@ describe( 'WorkerStatus', () => {
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
-		const flow = container.querySelector( '.pipeline-flow' );
-		const text = flow.textContent;
+		const section = container.querySelector( '.topology-section' );
+		const text = section.textContent;
 		const workerIdx = text.indexOf( 'Firehose Workers' );
 		const logIdx = text.indexOf( 'errors.log' );
 		expect( workerIdx ).toBeLessThan( logIdx );
 		expect( workerIdx ).toBeGreaterThanOrEqual( 0 );
 	} );
 
-	it( 'buildRenderPlan: empty workers + logsCatalog renders catalog-only', () => {
-		registerViewFixture(
-			viewModel( {
-				logs: [
-					{
-						name: 'orphan.log',
-						partitions: [
-							{ partition: 0, segments: [], total_size: 0 },
-						],
-					},
-				],
-			} )
-		);
-		const { container } = render( <WorkerStatus fullPage /> );
-		expect( container.textContent ).toMatch( /orphan\.log/ );
-	} );
-
-	it( 'buildRenderPlan: uses logsCatalog as canonical partition list', () => {
+	it( 'tree: uses logsCatalog as canonical partition list', () => {
 		registerViewFixture(
 			viewModel( {
 				workers: [
@@ -375,8 +361,9 @@ describe( 'WorkerStatus', () => {
 		).toBeGreaterThanOrEqual( 2 );
 	} );
 
-	it( 'buildRenderPlan: catalog log not reached by step-walk still appears', () => {
-		// Log appears via the tail-append pass for catalog logs the step-walk missed.
+	it( 'tree: an orphan catalog log (no producer/consumer worker) is not rendered', () => {
+		// Topology-grouped: logs render as children of nodes within a topology, so a
+		// catalog log with no producer/consumer worker has no tree to hang from.
 		registerViewFixture(
 			viewModel( {
 				workers: [
@@ -402,55 +389,43 @@ describe( 'WorkerStatus', () => {
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
-		expect( container.textContent ).toMatch( /untouched\.log/ );
+		expect( container.textContent ).not.toMatch( /untouched\.log/ );
 	} );
 
-	it( 'buildRenderPlan: standalone worker (no inputs/outputs) renders before the connected pipeline', () => {
-		// A worker with empty inputs AND outputs isn't part of any log flow, so it
-		// must not be interleaved into a log block by sort position. It renders
-		// first — right under Supervisor — even when listed last.
+	it( 'empty workers list renders no topology sections', () => {
+		// With no workers there are no topologies, so the sections region is empty.
+		registerViewFixture(
+			viewModel( {
+				logs: [
+					{
+						name: 'orphan.log',
+						partitions: [
+							{ partition: 0, segments: [], total_size: 0 },
+						],
+					},
+				],
+			} )
+		);
+		const { container } = render( <WorkerStatus fullPage /> );
+		expect(
+			container.querySelector( '.topology-sections' )
+		).not.toBeNull();
+		expect( container.querySelector( '.topology-section' ) ).toBeNull();
+		expect( container.textContent ).not.toMatch( /orphan\.log/ );
+	} );
+
+	it( 'tree: a standalone worker (no inputs/outputs) renders as a section root node', () => {
+		// A worker with empty inputs AND outputs is its own topology section, rendered
+		// as a top-level node entity with no child logs.
 		registerViewFixture(
 			viewModel( {
 				workers: [
-					{
-						type: 'firehose-workers',
-						handler: 'firehose-workers',
-						partition: 0,
-						started_at: 1000,
-						inputs: [],
-						outputs: [ 'firehose.log' ],
-						inputs_status: [],
-						outputs_status: [
-							{
-								name: 'firehose.log',
-								segments: [ { id: 1, size: 100 } ],
-								total_size: 100,
-							},
-						],
-					},
-					{
-						type: 'request-workers',
-						handler: 'request-workers',
-						partition: 0,
-						started_at: 1000,
-						inputs: [ 'firehose.log' ],
-						outputs: [],
-						inputs_status: [
-							{
-								name: 'firehose.log',
-								segments: [ { id: 1, size: 100 } ],
-								total_size: 100,
-								cursor_seg: 1,
-								cursor_offset: 50,
-							},
-						],
-						outputs_status: [],
-					},
 					{
 						type: 'digest',
 						handler: 'digest',
 						partition: 0,
 						started_at: 1000,
+						status: 'running',
 						inputs: [],
 						outputs: [],
 						inputs_status: [],
@@ -460,18 +435,14 @@ describe( 'WorkerStatus', () => {
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
-		const flow = container.querySelector( '.pipeline-flow' );
-		const text = flow.textContent;
-		const digestIdx = text.indexOf( 'Digest' );
-		const firehoseIdx = text.indexOf( 'Firehose Workers' );
-		const logIdx = text.indexOf( 'firehose.log' );
-		expect( digestIdx ).toBeGreaterThanOrEqual( 0 );
-		// Standalone worker sits ahead of the producer, the log, and the consumer.
-		expect( digestIdx ).toBeLessThan( firehoseIdx );
-		expect( digestIdx ).toBeLessThan( logIdx );
+		const section = container.querySelector( '.topology-section' );
+		expect( section ).not.toBeNull();
+		expect( section.textContent ).toMatch( /Digest/ );
+		// No log children hang off a standalone node.
+		expect( section.querySelector( '.log-name' ) ).toBeNull();
 	} );
 
-	// Sub-component rendering: SegmentBar / LogSection / WorkerConnector / SupervisorStatus.
+	// Sub-component rendering: SegmentBar / TopologySection / SupervisorStatus.
 
 	it( 'renders SegmentBar with cursor-relative classes', () => {
 		registerViewFixture(
@@ -531,6 +502,18 @@ describe( 'WorkerStatus', () => {
 		registerViewFixture(
 			viewModel( {
 				segmentSize: 64 * 1024 * 1024, // global default — 64 MiB
+				workers: [
+					{
+						type: 'firehose-workers',
+						handler: 'firehose-workers',
+						partition: 0,
+						started_at: 1000,
+						inputs: [],
+						outputs: [ 'completed.log' ],
+						inputs_status: [],
+						outputs_status: [],
+					},
+				],
 				logs: [
 					{
 						name: 'completed.log',
@@ -555,7 +538,7 @@ describe( 'WorkerStatus', () => {
 		expect( widthPercent ).toBeGreaterThanOrEqual( 99 );
 	} );
 
-	it( 'WorkerConnector renders ALL RUN badge when every worker is running', () => {
+	it( 'TopologySection renders ALL RUN badge when every worker is running', () => {
 		registerViewFixture(
 			viewModel( {
 				workers: [
@@ -588,7 +571,7 @@ describe( 'WorkerStatus', () => {
 		expect( container.textContent ).toMatch( /ALL RUN/ );
 	} );
 
-	it( 'WorkerConnector renders ALL DEAD badge when every worker is dead', () => {
+	it( 'TopologySection renders ALL DEAD badge when every worker is dead', () => {
 		registerViewFixture(
 			viewModel( {
 				workers: [
@@ -610,7 +593,7 @@ describe( 'WorkerStatus', () => {
 		expect( container.textContent ).toMatch( /ALL DEAD/ );
 	} );
 
-	it( 'WorkerConnector restart button calls the graph restart callback', () => {
+	it( 'TopologySection restart button calls the graph restart callback', () => {
 		registerViewFixture(
 			viewModel( {
 				workers: [
@@ -808,7 +791,7 @@ describe( 'WorkerStatus', () => {
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
-		expect( container.querySelector( '.pipeline-flow' ) ).not.toBeNull();
+		expect( container.querySelector( '.topology-section' ) ).not.toBeNull();
 		expect( container.textContent ).toMatch( /Job Workers/ );
 	} );
 
@@ -817,6 +800,18 @@ describe( 'WorkerStatus', () => {
 		// and tags them with the slide-out class.
 		registerViewFixture(
 			viewModel( {
+				workers: [
+					{
+						type: 'firehose-workers',
+						handler: 'firehose-workers',
+						partition: 0,
+						started_at: 1000,
+						inputs: [],
+						outputs: [ 'firehose.log' ],
+						inputs_status: [],
+						outputs_status: [],
+					},
+				],
 				logs: [
 					{
 						name: 'firehose.log',
@@ -844,6 +839,18 @@ describe( 'WorkerStatus', () => {
 		// prevSegments lacks id 2, so the render path flags it new (slide-in).
 		registerViewFixture(
 			viewModel( {
+				workers: [
+					{
+						type: 'firehose-workers',
+						handler: 'firehose-workers',
+						partition: 0,
+						started_at: 1000,
+						inputs: [],
+						outputs: [ 'firehose.log' ],
+						inputs_status: [],
+						outputs_status: [],
+					},
+				],
 				logs: [
 					{
 						name: 'firehose.log',
@@ -866,9 +873,21 @@ describe( 'WorkerStatus', () => {
 		expect( container.querySelector( '.segment-slide-in' ) ).not.toBeNull();
 	} );
 
-	it( 'getLogKey strips .log suffix for rate lookups', () => {
+	it( 'log rate key strips .log suffix for rate lookups', () => {
 		registerViewFixture(
 			viewModel( {
+				workers: [
+					{
+						type: 'firehose-workers',
+						handler: 'firehose-workers',
+						partition: 0,
+						started_at: 1000,
+						inputs: [],
+						outputs: [ 'firehose.log' ],
+						inputs_status: [],
+						outputs_status: [],
+					},
+				],
 				logs: [
 					{
 						name: 'firehose.log',
@@ -880,7 +899,7 @@ describe( 'WorkerStatus', () => {
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
-		// stripped key. Empty stats → "0 B/s".
+		// stripped key (firehose-0). Empty stats → "0 B/s".
 		expect( container.textContent ).toMatch( /W 0 B\/s/ );
 	} );
 } );
