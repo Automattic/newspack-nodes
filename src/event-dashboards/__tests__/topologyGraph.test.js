@@ -196,6 +196,63 @@ it( 'overlays partitions from the logs catalog onto a log entity', () => {
 	expect( inLog.partitions ).toHaveLength( 1 );
 } );
 
+it( 'collapses a Log sink to a log entity named by its file basename', () => {
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'digest', 'logic' ),
+					gn( 'lg', 'log', { writes: 'digest.md' } ),
+				],
+				edges: [ [ 'digest', 'lg' ] ],
+			},
+		},
+		[],
+		[]
+	);
+	// The logic node is the root; the Log sink renders as a LOG entity
+	// named by its file basename, nested under it.
+	const root = section.tree[ 0 ];
+	expect( root.name ).toBe( 'digest' );
+	const log = root.children.find( ( e ) => e.name === 'digest.md' );
+	expect( log ).toBeDefined();
+	expect( log.kind ).toBe( 'log' );
+} );
+
+it( 'overlays catalog segments onto a Log sink log entity', () => {
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'digest', 'logic' ),
+					gn( 'lg', 'log', { writes: 'digest.md' } ),
+				],
+				edges: [ [ 'digest', 'lg' ] ],
+			},
+		},
+		[],
+		[
+			{
+				name: 'digest.md',
+				segment_size: 100,
+				partitions: [
+					{
+						partition: 0,
+						segments: [ { id: 0, size: 42, mtime: 5 } ],
+						total_size: 42,
+					},
+				],
+			},
+		]
+	);
+	const log = section.tree[ 0 ].children.find(
+		( e ) => e.name === 'digest.md'
+	);
+	expect( log.kind ).toBe( 'log' );
+	expect( log.segment_size ).toBe( 100 );
+	expect( log.partitions ).toHaveLength( 1 );
+} );
+
 it( 'overlays this topology worker rows onto a logic node entity by handler', () => {
 	const [ section ] = buildTopologySections(
 		{

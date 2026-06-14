@@ -29,7 +29,7 @@ class Topology_Registry {
 	/** @var array<string,array<string>> Memoized write-set by topology name; cleared by reset_basename_cache(). */
 	private static array $write_set_cache = [];
 
-	/** @var array<string,array{nodes:list<array<string,string>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name. */
+	/** @var array<string,array{nodes:list<array<string,int|string>>,edges:list<array{0:string,1:string}>}> Memoized structural graph by topology name. */
 	private static array $graph_cache = [];
 
 	/** @var array<string,bool> Guards register_plugin against double-wiring (a second call would double-spawn). */
@@ -344,7 +344,7 @@ class Topology_Registry {
 	 * path/source ARG — never a name suffix), and edges from `connect_node` plus
 	 * `cmd <node>:config set_*_target <target>`. Memoized.
 	 *
-	 * @return array{nodes: list<array<string,string>>, edges: list<array{0:string,1:string}>}
+	 * @return array{nodes: list<array<string,int|string>>, edges: list<array{0:string,1:string}>}
 	 */
 	public static function graph_for( string $name ): array {
 		if ( isset( self::$graph_cache[ $name ] ) ) {
@@ -362,6 +362,7 @@ class Topology_Registry {
 			'Partition' => 'partition',
 			'Topic'     => 'topic',
 			'Tee'       => 'tee',
+			'Log'       => 'log',
 			default     => 'logic',
 		};
 		$basename = static function ( string $arg ): string {
@@ -386,6 +387,14 @@ class Topology_Registry {
 					$node['writes'] = $basename( $m[3] );
 				} elseif ( 'consumer' === $kind && isset( $m[3] ) ) {
 					$node['reads'] = $basename( $m[3] );
+				} elseif ( 'log' === $kind && isset( $m[3] ) ) {
+					// make_node Log <name> <path> <mode> <max_size> <max_rotations>.
+					// Carry the raw path + sizes so dump_graph can stat the rotation files.
+					$tokens                 = \preg_split( '/\s+/', $line ) ?: [];
+					$node['writes']         = $basename( $m[3] );
+					$node['path']           = $m[3];
+					$node['max_size']       = isset( $tokens[5] ) && \ctype_digit( $tokens[5] ) ? (int) $tokens[5] : 0;
+					$node['max_rotations']  = isset( $tokens[6] ) && \ctype_digit( $tokens[6] ) ? (int) $tokens[6] : 0;
 				}
 				$nodes[] = $node;
 				continue;

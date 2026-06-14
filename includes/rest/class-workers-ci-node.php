@@ -391,7 +391,7 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * renders the .tsl graph alongside the live fleet so operators see node
 	 * wiring next to worker status.
 	 *
-	 * @return array<string,array{nodes: list<array<string,string>>, edges: list<array{0:string,1:string}>}>
+	 * @return array<string,array{nodes: list<array<string,int|string>>, edges: list<array{0:string,1:string}>}>
 	 */
 	private static function collect_topology_graphs(): array {
 		$topologies = [];
@@ -407,6 +407,109 @@ class Workers_CI_Node extends Service_CI_Node {
 			$graphs[ $name ] = Topology_Registry::graph_for( $name );
 		}
 		return $graphs;
+	}
+
+	/**
+	 * Build `logs` catalog entries for every active topology's `Log` file-sink
+	 * (kind 'log' in `graph_for`). Each Log writes a single rotated file, not a
+	 * partitioned segment dir, so its entry is synthesized by stat'ing the live
+	 * file + its rotation siblings: the current file gets the highest segment id
+	 * (matching the dashboard's `newestSegId = max(id)`), older rotations descend
+	 * by mtime. `segment_size` carries the Log's `max_size` so the bar scales.
+	 *
+	 * Skips sinks whose `<config:KEY>` path can't resolve, and never clobbers an
+	 * existing segmented-log entry on a basename collision.
+	 *
+	 * @param array<array-key,mixed> $logs Existing catalog (each entry `{name,partitions,segment_size}`).
+	 * @return array<array-key,mixed> $logs + Log sink entries.
+	 */
+	private static function append_log_sinks( array $logs ): array {
+		$existing = [];
+		foreach ( $logs as $log ) {
+			if ( \is_array( $log ) && isset( $log['name'] ) && \is_scalar( $log['name'] ) ) {
+				$existing[ (string) $log['name'] ] = true;
+			}
+		}
+		foreach ( self::collect_topology_graphs() as $graph ) {
+			foreach ( $graph['nodes'] as $node ) {
+				if ( 'log' !== ( $node['kind'] ?? '' ) || ! isset( $node['path'] ) ) {
+					continue;
+				}
+				$path = self::resolve_path_token( (string) $node['path'] );
+				if ( '' === $path ) {
+					continue;
+				}
+				$name = \basename( $path );
+				if ( isset( $existing[ $name ] ) ) {
+					continue;
+				}
+				$existing[ $name ] = true;
+				$logs[]            = self::build_log_sink_entry(
+					$path,
+					$name,
+					self::to_int( $node['max_size'] ?? 0 )
+				);
+			}
+		}
+		return $logs;
+	}
+
+	/**
+	 * Synthesize a one-partition catalog entry for a Log sink: stat the current
+	 * file + its `.N` rotations (and legacy `-` rotations), assign segment ids so
+	 * the current file is newest (highest id) and rotations descend by mtime.
+	 *
+	 * @return array{name:string,partitions:array<int,mixed>,segment_size:int}
+	 */
+	private static function build_log_sink_entry( string $path, string $name, int $segment_size ): array {
+		// Rotation siblings, oldest-first by mtime; the current file is appended last (newest).
+		$rotations = \array_merge(
+			\glob( $path . '.[0-9]*' ) ?: [],
+			\glob( $path . '-*' ) ?: []
+		);
+		\usort( $rotations, static fn ( $a, $b ) => @\filemtime( $a ) <=> @\filemtime( $b ) );
+
+		$files = $rotations;
+		if ( \is_file( $path ) ) {
+			$files[] = $path;
+		}
+
+		$segments   = [];
+		$total_size = 0;
+		$id         = 0;
+		foreach ( $files as $file ) {
+			$size       = @\filesize( $file );
+			$mtime      = @\filemtime( $file );
+			$size       = false !== $size ? $size : 0;
+			$segments[] = [
+				'id'    => $id,
+				'size'  => $size,
+				'mtime' => false !== $mtime ? $mtime : 0,
+			];
+			$total_size += $size;
+			++$id;
+		}
+
+		return [
+			'name'         => $name,
+			'partitions'   => [
+				[
+					'partition'  => 0,
+					'segments'   => $segments,
+					'total_size' => $total_size,
+				],
+			],
+			'segment_size' => $segment_size,
+		];
+	}
+
+	/** Resolve any `<config:KEY>` tokens in a Log path; '' if a token can't resolve. */
+	private static function resolve_path_token( string $path ): string {
+		return (string) \preg_replace_callback(
+			'/<([a-zA-Z_][a-zA-Z0-9_]*):([a-zA-Z_][a-zA-Z0-9_]*)>/',
+			static fn ( array $m ): string => Core::resolve_config_token( $m[1], $m[2] ),
+			$path
+		);
 	}
 
 	/**
@@ -682,6 +785,7 @@ class Workers_CI_Node extends Service_CI_Node {
 						self::require_manage_options();
 						$payload          = self::collect_dump_metadata( $self->cache );
 						$payload['graph'] = self::collect_topology_graphs();
+						$payload['logs']  = self::append_log_sinks( (array) $payload['logs'] );
 						return $payload;
 					},
 				],
