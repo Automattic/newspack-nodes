@@ -13,6 +13,8 @@ module.exports = {
 	testEnvironment: 'jsdom',
 	setupFilesAfterEnv: [ '<rootDir>/jest.setup.js' ],
 	testMatch: [ '**/__tests__/**/*.test.[jt]s?(x)' ],
+	// `examples/` are standalone consumer plugins with their own react + runner; running them here picks the wrong React copy.
+	testPathIgnorePatterns: [ '/node_modules/', '/examples/' ],
 	moduleNameMapper: {
 		'^@newspack-nodes/runtime$': path.resolve( __dirname, 'src/runtime' ),
 		'^@newspack-nodes/debug-overlay$': path.resolve(
