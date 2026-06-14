@@ -9,18 +9,18 @@ import {
 } from '../../runtime/message';
 
 /**
- * `workerstatus:transform` — turn a `dump_metadata` reply into the enriched
+ * `workerstatus:transform` — turn a `dump_graph` reply into the enriched
  * render model.
  *
  * Post-migration to substrate `_http`, the transform receives the reply
  * directly from HttpOut (TO=transform, FROM=workers): VALUE = `{ name, payload }`
  * where `payload` is the workers/logs metadata snapshot. Anything other than a
- * `dump_metadata` reply is ignored — the view is the receiver for restart /
+ * `dump_graph` reply is ignored — the view is the receiver for restart /
  * error replies (FROM=view).
  *
  * Stateful: it holds the PREVIOUS snapshot's per-worker positions, per-log
  * total sizes, segment ids/data, and a last-receive time on the node instance.
- * On each dump_metadata reply it computes the delta vs that previous snapshot
+ * On each dump_graph reply it computes the delta vs that previous snapshot
  * (read rate per worker, write rate per log, segment add/remove) using
  * `Date.now()` for the time delta — exactly the math the old
  * `WorkerStatus.fetchWorkers` ran against its refs — then emits
@@ -63,9 +63,9 @@ export class WorkerStatusTransformNode extends Node {
 			}
 			return;
 		}
-		// Only act on dump_metadata replies — the view is the receiver for
+		// Only act on dump_graph replies — the view is the receiver for
 		// restart / error replies (FROM=view).
-		if ( 'dump_metadata' !== value.name ) {
+		if ( 'dump_graph' !== value.name ) {
 			return;
 		}
 		this._emitModel( value.payload || {} );
@@ -211,6 +211,7 @@ export class WorkerStatusTransformNode extends Node {
 			workers: data.workers || [],
 			supervisor: data.supervisor ?? null,
 			logs: data.logs || [],
+			graph: data.graph ?? {},
 			byteRates: newByteRates,
 			writeRates: newWriteRates,
 			segmentSize: this._segmentSize,

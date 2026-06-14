@@ -1,6 +1,6 @@
 /**
  * workerstatus:transform tests — the stateful transform that turns a raw
- * `dump_metadata` reply (VALUE=`{ name, payload }`, payload=the snapshot) into
+ * `dump_graph` reply (VALUE=`{ name, payload }`, payload=the snapshot) into
  * an enriched `{ action:'model', model }`. Post-migration to substrate `_http`,
  * the transform receives the reply directly from HttpOut (TO=transform,
  * FROM=workers); the payload is the metadata. Rate + segment math is ported
@@ -43,12 +43,12 @@ function capture() {
 	return { node: { fill: ( m ) => got.push( m ) }, got };
 }
 
-// A dump_metadata reply Message as HttpOut delivers it: VALUE = { name, payload }
+// A dump_graph reply Message as HttpOut delivers it: VALUE = { name, payload }
 // where `payload` is the workers/logs metadata snapshot.
 function metadataMsg( metadata ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND | TM_RESPONSE;
-	m[ VALUE ] = { name: 'dump_metadata', payload: metadata };
+	m[ VALUE ] = { name: 'dump_graph', payload: metadata };
 	return m;
 }
 
@@ -139,6 +139,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 				'byteRates',
 				'currentTime',
 				'error',
+				'graph',
 				'loading',
 				'logs',
 				'prevSegments',
@@ -149,6 +150,28 @@ describe( 'workerstatus:transform — model envelope', () => {
 				'workers',
 			].sort()
 		);
+	} );
+
+	test( 'threads the graph field from the payload into the model', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		const snap = producerSnapshot( 100 );
+		snap.graph = { 'firehose-workers': [ 'node-a', 'node-b' ] };
+		t.fill( metadataMsg( snap ) );
+		const { model } = sink.got[ 0 ][ VALUE ];
+		expect( model.graph ).toEqual( {
+			'firehose-workers': [ 'node-a', 'node-b' ],
+		} );
+	} );
+
+	test( 'defaults graph to an empty object when the payload omits it', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		t.fill( metadataMsg( producerSnapshot( 100 ) ) );
+		const { model } = sink.got[ 0 ][ VALUE ];
+		expect( model.graph ).toEqual( {} );
 	} );
 
 	test( 'forwards the workers / supervisor / logs straight through', () => {
@@ -336,7 +359,7 @@ describe( 'workerstatus:transform — segment tracking', () => {
 } );
 
 describe( 'workerstatus:transform — non-metadata replies', () => {
-	test( 'ignores a reply for a verb other than dump_metadata', () => {
+	test( 'ignores a reply for a verb other than dump_graph', () => {
 		const sink = capture();
 		const t = makeTransform( 'workerstatus:transform' );
 		t.sink = sink.node;
@@ -345,7 +368,7 @@ describe( 'workerstatus:transform — non-metadata replies', () => {
 		reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
 		reply[ VALUE ] = { name: 'something_else', payload: {} };
 		t.fill( reply );
-		// Transform only acts on dump_metadata replies; anything else is a no-op
+		// Transform only acts on dump_graph replies; anything else is a no-op
 		// (the view is the receiver for restart/error replies).
 		expect( sink.got ).toHaveLength( 0 );
 		// Suppress unused-var lint on TM_STRUCT now that the control-pass-through
@@ -361,7 +384,7 @@ describe( 'workerstatus:transform — non-metadata replies', () => {
 		const err = newMessage();
 		err[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
 		err[ VALUE ] = {
-			name: 'dump_metadata',
+			name: 'dump_graph',
 			payload: 'Server disconnected',
 		};
 		t.fill( err );

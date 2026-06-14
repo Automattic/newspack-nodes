@@ -1,5 +1,5 @@
 /**
- * Pure builder: flat `dump_metadata` worker list → one node/log tree per topology.
+ * Pure builder: flat `dump_graph` worker list → one node/log tree per topology.
  *
  * Each topology (worker `type`) becomes a section whose `tree` roots at source
  * nodes (no inputs) and logs consumed-but-not-produced. A node's children are
@@ -146,7 +146,7 @@ function collectLogPartitions( logName, ctx ) {
 /**
  * Build one node/log tree section per topology.
  *
- * @param {Array} workers     Worker descriptors from `dump_metadata`.
+ * @param {Array} workers     Worker descriptors from `dump_graph`.
  * @param {Array} logsCatalog Top-level `logs` array (canonical per-log slots).
  * @return {Array} Sections `[{ topology, tree }]`, alpha-sorted by topology.
  */

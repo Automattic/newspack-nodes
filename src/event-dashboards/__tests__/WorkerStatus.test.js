@@ -8,7 +8,7 @@
  * model so the view can read it via useNodeState — mirroring RawLogs.test.js.
  *
  * Every DOM assertion that used to drive the component through a mocked
- * dump_metadata response now feeds the SAME shaped model directly, so the
+ * dump_graph response now feeds the SAME shaped model directly, so the
  * rendered DOM + SCSS classes stay byte-for-byte what they were.
  */
 

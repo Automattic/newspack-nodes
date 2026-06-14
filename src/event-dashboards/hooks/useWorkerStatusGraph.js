@@ -12,10 +12,10 @@
  * EVERY node sinks into the interpreter; flow is steered ONLY by each node's `target`.
  * The shared `useDashboardGraph` owns the exospine mount, the `_http` boundary,
  * the immediate + interval poll, and the page-visibility gate; this hook supplies
- * its transform + view nodes and the `dump_metadata` poll command, and keeps the
+ * its transform + view nodes and the `dump_graph` poll command, and keeps the
  * persisted refresh interval + the awaited `restart` verb.
  *
- * The poll fires a TM_COMMAND for `dump_metadata` (FROM=`workerstatus:transform`
+ * The poll fires a TM_COMMAND for `dump_graph` (FROM=`workerstatus:transform`
  * so the reply pivot lands at the transform, which computes the model and emits
  * it to the view). `restart(type)` builds a TM_COMMAND with FROM=`workerstatus:view`
  * so the reply lands at the view and settles the Promise via the canonical
@@ -62,7 +62,7 @@ const VIEW = 'workerstatus:view';
 /**
  * Build a TM_COMMAND addressed at the `workers` interpreter: TO=`_http/workers` so the
  * router peels `_http` and HttpOut POSTs the bare command. `from` is the reply
- * pivot — `workerstatus:transform` for dump_metadata (reply computes the
+ * pivot — `workerstatus:transform` for dump_graph (reply computes the
  * model), `workerstatus:view` for restart (reply settles a pending Promise).
  *
  * @param {string} verb Verb name.
@@ -134,7 +134,7 @@ export function useWorkerStatusGraph( opts = {} ) {
 		poll: ( interpreter ) =>
 			interpreter.fill(
 				buildCommand(
-					'dump_metadata',
+					'dump_graph',
 					'',
 					TRANSFORM,
 					makeOpId( 'workerstatus-op' )
