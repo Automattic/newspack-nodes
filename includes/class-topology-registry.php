@@ -277,6 +277,27 @@ class Topology_Registry {
 	}
 
 	/**
+	 * On-disk offset dir basenames `$name` writes at `$partition` (the Consumer
+	 * offsetlog 4th-arg tokens, basename only, `<partition>` substituted). Offsetlogs
+	 * are direct children of offsets/, so the basename is the GC's match key.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function offset_basenames_for( string $name, int $partition ): array {
+		$out = [];
+		foreach ( self::write_set( $name ) as $entry ) {
+			if ( 0 !== \strpos( $entry, 'offsetlog:' ) ) {
+				continue;
+			}
+			$token = \substr( $entry, \strlen( 'offsetlog:' ) );
+			$slash = \strrpos( $token, '/' );
+			$tail  = false === $slash ? $token : \substr( $token, $slash + 1 );
+			$out[ \str_replace( '<partition>', (string) $partition, $tail ) ] = true;
+		}
+		return \array_keys( $out );
+	}
+
+	/**
 	 * Per-Partition literal segment_size overrides from `$name`'s TSL (`{basename => int}`). Memoized.
 	 *
 	 * Token-substituted values are omitted; the caller falls back to the global default.
