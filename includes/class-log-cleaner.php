@@ -80,6 +80,36 @@ class Log_Cleaner {
 			}
 		}
 
+		// Topology-shrink sweep of orphaned offsetlog dirs (a source dropped from
+		// a topology). Active set = each active descriptor's declared offset basenames.
+		$active_offsets = [];
+		foreach ( self::active_descriptors( $base_dir ) as $descriptor ) {
+			if ( ! \preg_match( '/^(.*)\.p(\d+)$/', $descriptor, $dm ) ) {
+				continue;
+			}
+			foreach ( Topology_Registry::offset_basenames_for( $dm[1], (int) $dm[2] ) as $basename ) {
+				$active_offsets[ $basename ] = true;
+			}
+		}
+		if ( ! empty( $active_offsets ) ) {
+			foreach ( @\glob( "{$base_dir}/offsets/*.p*", \GLOB_ONLYDIR ) ?: [] as $odir ) {
+				$base = \basename( $odir );
+				if ( isset( $active_offsets[ $base ] ) || ! \preg_match( '/\.p(\d+)$/', $base, $pm ) ) {
+					continue;
+				}
+				if ( self::has_partition_lock( $base_dir, (int) $pm[1] ) ) {
+					$blocked = true;
+					continue;
+				}
+				Supervisor_Base::delete_directory_recursive( $odir, $base_dir );
+				if ( \is_dir( $odir ) ) {
+					$blocked = true;
+					continue;
+				}
+				$deleted[] = $odir;
+			}
+		}
+
 		// Clear the flag only when nothing deferred us (a pre-shrink worker holds it until its lock clears).
 		if ( ! $blocked ) {
 			\delete_option( self::LOGS_DIRTY_OPTION );
@@ -147,5 +177,46 @@ class Log_Cleaner {
 			return $base;
 		}
 		return \array_values( \array_unique( \array_map( '\strval', $filtered ) ) );
+	}
+
+	/**
+	 * Active `{name}.p{N}` descriptors: every active topology expanded over its
+	 * num_partitions, unioned with every non-stale live worker's `{type}.p{partition}`.
+	 *
+	 * @return array<int,string>
+	 */
+	private static function active_descriptors( string $base_dir ): array {
+		$seen = [];
+		if ( \class_exists( '\\Newspack_Nodes\\Bootstrap' ) ) {
+			try {
+				foreach ( Bootstrap::get_topologies() as $name => $entry ) {
+					$np  = 1;
+					$raw = \is_array( $entry ) ? ( $entry['num_partitions'] ?? 1 ) : 1;
+					if ( \is_numeric( $raw ) ) {
+						$np = \max( 1, (int) $raw );
+					}
+					for ( $n = 0; $n < $np; ++$n ) {
+						$seen[ "{$name}.p{$n}" ] = true;
+					}
+				}
+			} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
+				// Bootstrap is request-scope; tolerate worker contexts.
+			}
+		}
+		try {
+			foreach ( ( new CLI( $base_dir ) )->ls_workers() as $worker ) {
+				if ( empty( $worker['stale'] ) ) {
+					$seen[ "{$worker['type']}.p{$worker['partition']}" ] = true;
+				}
+			}
+		} catch ( \Throwable $e ) { // phpcs:ignore Generic.CodeAnalysis.EmptyStatement.DetectedCatch
+			// CLI reads $base_dir; tolerate missing dir.
+		}
+		return \array_keys( $seen );
+	}
+
+	/** True if any worker lock dir holds partition `$n` (`{base}/locks/*.p{N}.lock.d`). */
+	private static function has_partition_lock( string $base_dir, int $n ): bool {
+		return ! empty( @\glob( "{$base_dir}/locks/*.p{$n}.lock.d", \GLOB_ONLYDIR ) );
 	}
 }
