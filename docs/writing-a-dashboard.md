@@ -103,7 +103,8 @@ make_node Community_Source community
 make_node Summarizer       summarizer
 make_node Digest_Builder   digest
 make_node Tee              digest:tee
-make_node Log              digest:log /tmp/newspack-ai-newsletter/digest.md append 1 7
+make_node Log              digest:log /tmp/newspack-ai-newsletter/digest.md 1 7
+cmd digest:log:config void_warranty
 make_node Partition        scored:partition <config:logs_dir>/scored.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
 cmd scored:partition:config void_warranty
 make_node Consumer         scored:consumer <config:logs_dir>/scored.log <partition> <config:offsets_dir>/scored.p<partition>
