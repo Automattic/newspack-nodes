@@ -103,9 +103,9 @@ beforeEach( () => {
 } );
 
 describe( 'WorkerStatus integration (real graph)', () => {
-	it( 'leaves the loading gate once the first dump_metadata model is published', async () => {
+	it( 'leaves the loading gate once the first dump_graph model is published', async () => {
 		mockActiveClient = makeFakeClient( {
-			dump_metadata: {
+			dump_graph: {
 				workers: [],
 				supervisor: null,
 				logs: [],
@@ -129,9 +129,9 @@ describe( 'WorkerStatus integration (real graph)', () => {
 		).not.toBeNull();
 	} );
 
-	it( 'renders worker rows from a real dump_metadata response', async () => {
+	it( 'renders worker rows from a real dump_graph response', async () => {
 		mockActiveClient = makeFakeClient( {
-			dump_metadata: {
+			dump_graph: {
 				workers: [
 					{
 						type: 'firehose-workers',
@@ -157,8 +157,8 @@ describe( 'WorkerStatus integration (real graph)', () => {
 
 	it( 'surfaces a disconnect error when the real poll reply carries TM_ERROR', async () => {
 		mockActiveClient = makeFakeClient(
-			{ dump_metadata: 'Server disconnected' },
-			{ errorVerbs: [ 'dump_metadata' ] }
+			{ dump_graph: 'Server disconnected' },
+			{ errorVerbs: [ 'dump_graph' ] }
 		);
 
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -168,7 +168,7 @@ describe( 'WorkerStatus integration (real graph)', () => {
 
 	it( 'renders one section per topology, keeps the supervisor, and preserves a seeded behind/segment datum', async () => {
 		mockActiveClient = makeFakeClient( {
-			dump_metadata: {
+			dump_graph: {
 				supervisor: {
 					type: 'supervisor',
 					status: 'running',

@@ -3,7 +3,7 @@
  *
  * THIN view over the `workerstatus:*` node graph (mounted by
  * `useWorkerStatusGraph`). The graph owns all data: `workerstatus:poll` runs the
- * dump_metadata poll, `workerstatus:transform` computes the read/write rates and
+ * dump_graph poll, `workerstatus:transform` computes the read/write rates and
  * segment add/remove tracking, and `workerstatus:view` holds the render model.
  * This component only reads that model (via `useNodeState`) and renders — the
  * supervisor card plus a `TopologySection` per topology (built by
@@ -39,6 +39,7 @@ const EMPTY_MODEL = {
 	currentTime: Math.floor( Date.now() / 1000 ),
 	prevSegments: {},
 	removingSegments: {},
+	graph: {},
 	error: null,
 	loading: true,
 };

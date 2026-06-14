@@ -11,7 +11,7 @@
  *     view-model's global `error` field — that surface is for un-correlated
  *     errors (e.g. broadcasts).
  *   - TM_STRUCT `{ action:'model', model }` from the transform stores + publishes
- *     the model (the dump_metadata reply path: HttpOut → transform → view).
+ *     the model (the dump_graph reply path: HttpOut → transform → view).
  *   - A model with non-empty removingSegments schedules a 400ms self-fill of
  *     `clear-removing` so the slide-out animation completes.
  */

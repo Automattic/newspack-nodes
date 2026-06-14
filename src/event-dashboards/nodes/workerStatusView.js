@@ -17,6 +17,7 @@ const emptyModel = () => ( {
 	currentTime: Math.floor( Date.now() / 1000 ),
 	prevSegments: {},
 	removingSegments: {},
+	graph: {},
 	error: null,
 	loading: false,
 } );
@@ -33,7 +34,7 @@ const emptyModel = () => ( {
  *    view-model's global `error` field — that surface is for un-correlated
  *    errors (broadcasts, the initial poll).
  *  - TM_STRUCT `{ action:'model', model }` from the transform stores + publishes
- *    the model (the dump_metadata reply path: HttpOut → transform → view).
+ *    the model (the dump_graph reply path: HttpOut → transform → view).
  *  - TM_STRUCT `{ action:'clear-removing' }` blanks removingSegments.
  *  - A model with non-empty removingSegments schedules a 400ms self-fill of
  *    `clear-removing` so the slide-out animation completes (timer lives here,
@@ -74,7 +75,7 @@ export class WorkerStatusViewNode extends Node {
 			return;
 		}
 
-		// Model updates from the transform: the enriched dump_metadata snapshot.
+		// Model updates from the transform: the enriched dump_graph snapshot.
 		if ( 'model' === value.action ) {
 			this._setModel( value.model );
 			return;

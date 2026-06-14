@@ -50,7 +50,7 @@ beforeEach( () => {
 
 // A fake CommandClient matching HttpOut's seam: postBatch returns reply
 // Messages addressed back along FROM (the server's reply pivot). Reply
-// payload is keyed by verb so dump_metadata yields the metadata snapshot and
+// payload is keyed by verb so dump_graph yields the metadata snapshot and
 // restart yields a no-op ack. opts.errorVerbs marks verbs whose replies carry
 // TM_ERROR (caller is responsible for the pending-Map rejection path).
 function makeFakeClient( payloadByVerb = {}, opts = {} ) {
@@ -127,8 +127,8 @@ describe( 'useWorkerStatusGraph — exospine + I/O boundary wiring', () => {
 		expect( Core.node( TRANSFORM ).target ).toBe( VIEW );
 	} );
 
-	test( 'fires one immediate dump_metadata on mount addressed to _http/workers', async () => {
-		const client = makeFakeClient( { dump_metadata: { workers: [] } } );
+	test( 'fires one immediate dump_graph on mount addressed to _http/workers', async () => {
+		const client = makeFakeClient( { dump_graph: { workers: [] } } );
 		renderHook( () => useWorkerStatusGraph( { commandClient: client } ) );
 		await act( async () => {} );
 		expect( client.batches.length ).toBeGreaterThanOrEqual( 1 );
@@ -136,7 +136,7 @@ describe( 'useWorkerStatusGraph — exospine + I/O boundary wiring', () => {
 		// HttpOut strips `_http/` so it's `workers` at postBatch time.
 		expect( msg[ TO ] ).toBe( 'workers' );
 		expect( msg[ FROM ] ).toBe( TRANSFORM );
-		expect( msg[ VALUE ].name ).toBe( 'dump_metadata' );
+		expect( msg[ VALUE ].name ).toBe( 'dump_graph' );
 	} );
 } );
 
@@ -152,7 +152,7 @@ describe( 'useWorkerStatusGraph — end-to-end routing through the exospine', ()
 			],
 			logs: [ { name: 'firehose.log', partitions: [] } ],
 		};
-		const client = makeFakeClient( { dump_metadata: meta } );
+		const client = makeFakeClient( { dump_graph: meta } );
 		renderHook( () => useWorkerStatusGraph( { commandClient: client } ) );
 		await act( async () => {} );
 
@@ -168,7 +168,7 @@ describe( 'useWorkerStatusGraph — poll interval', () => {
 	test( 'polls again on each interval tick while page-visible', async () => {
 		jest.useFakeTimers();
 		try {
-			const client = makeFakeClient( { dump_metadata: { workers: [] } } );
+			const client = makeFakeClient( { dump_graph: { workers: [] } } );
 			renderHook( () =>
 				useWorkerStatusGraph( {
 					commandClient: client,
@@ -177,14 +177,14 @@ describe( 'useWorkerStatusGraph — poll interval', () => {
 			);
 			await act( async () => {} );
 			const afterMount = verbsOf( client ).filter(
-				( v ) => 'dump_metadata' === v
+				( v ) => 'dump_graph' === v
 			).length;
 			expect( afterMount ).toBeGreaterThanOrEqual( 1 );
 			await act( async () => {
 				jest.advanceTimersByTime( 2000 );
 			} );
 			const afterTick = verbsOf( client ).filter(
-				( v ) => 'dump_metadata' === v
+				( v ) => 'dump_graph' === v
 			).length;
 			expect( afterTick ).toBe( afterMount + 1 );
 		} finally {
@@ -196,7 +196,7 @@ describe( 'useWorkerStatusGraph — poll interval', () => {
 describe( 'useWorkerStatusGraph — control callbacks', () => {
 	test( 'restart(type) sends a restart command (FROM=view) with the type and partition -1', async () => {
 		const client = makeFakeClient( {
-			dump_metadata: { workers: [] },
+			dump_graph: { workers: [] },
 			restart: { ok: true },
 		} );
 		const { result } = renderHook( () =>
@@ -220,7 +220,7 @@ describe( 'useWorkerStatusGraph — control callbacks', () => {
 
 	test( 'restart(type) resolves the Promise via the view pending Map on success', async () => {
 		const client = makeFakeClient( {
-			dump_metadata: { workers: [] },
+			dump_graph: { workers: [] },
 			restart: { restarted: 3 },
 		} );
 		const { result } = renderHook( () =>
@@ -237,7 +237,7 @@ describe( 'useWorkerStatusGraph — control callbacks', () => {
 	test( 'restart(type) rejects when the reply carries TM_ERROR', async () => {
 		const client = makeFakeClient(
 			{
-				dump_metadata: { workers: [] },
+				dump_graph: { workers: [] },
 				restart: 'permission denied',
 			},
 			{ errorVerbs: [ 'restart' ] }
@@ -256,7 +256,7 @@ describe( 'useWorkerStatusGraph — control callbacks', () => {
 	test( 'a pending-matched restart error does NOT pollute the global view.error', async () => {
 		const client = makeFakeClient(
 			{
-				dump_metadata: { workers: [] },
+				dump_graph: { workers: [] },
 				restart: 'permission denied',
 			},
 			{ errorVerbs: [ 'restart' ] }
@@ -276,7 +276,7 @@ describe( 'useWorkerStatusGraph — control callbacks', () => {
 	} );
 
 	test( 'setRefreshInterval persists the choice to localStorage', async () => {
-		const client = makeFakeClient( { dump_metadata: { workers: [] } } );
+		const client = makeFakeClient( { dump_graph: { workers: [] } } );
 		const { result } = renderHook( () =>
 			useWorkerStatusGraph( { commandClient: client } )
 		);
@@ -286,7 +286,7 @@ describe( 'useWorkerStatusGraph — control callbacks', () => {
 	} );
 
 	test( 'refreshMs reflects the persisted/selected interval', async () => {
-		const client = makeFakeClient( { dump_metadata: { workers: [] } } );
+		const client = makeFakeClient( { dump_graph: { workers: [] } } );
 		const { result } = renderHook( () =>
 			useWorkerStatusGraph( { commandClient: client } )
 		);
@@ -297,7 +297,7 @@ describe( 'useWorkerStatusGraph — control callbacks', () => {
 
 	test( 'restores the persisted refresh interval on mount', async () => {
 		window.localStorage.setItem( REFRESH_KEY, '10000' );
-		const client = makeFakeClient( { dump_metadata: { workers: [] } } );
+		const client = makeFakeClient( { dump_graph: { workers: [] } } );
 		const { result } = renderHook( () =>
 			useWorkerStatusGraph( { commandClient: client } )
 		);
@@ -308,7 +308,7 @@ describe( 'useWorkerStatusGraph — control callbacks', () => {
 
 describe( 'useWorkerStatusGraph — teardown', () => {
 	test( 'unmount unregisters the graph + the backbone', async () => {
-		const client = makeFakeClient( { dump_metadata: { workers: [] } } );
+		const client = makeFakeClient( { dump_graph: { workers: [] } } );
 		const { unmount } = renderHook( () =>
 			useWorkerStatusGraph( { commandClient: client } )
 		);
@@ -322,7 +322,7 @@ describe( 'useWorkerStatusGraph — teardown', () => {
 	test( 'no further polls after unmount (interval cleared)', async () => {
 		jest.useFakeTimers();
 		try {
-			const client = makeFakeClient( { dump_metadata: { workers: [] } } );
+			const client = makeFakeClient( { dump_graph: { workers: [] } } );
 			const { unmount } = renderHook( () =>
 				useWorkerStatusGraph( {
 					commandClient: client,
