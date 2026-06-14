@@ -301,7 +301,7 @@ make_node Community_Source  community
 make_node Summarizer        summarizer
 make_node Digest_Builder    digest
 make_node Tee               tee
-make_node Log               log  /tmp/newspack-ai-newsletter/digest.md append 1 7
+make_node Log               log  /tmp/newspack-ai-newsletter/digest.md 1 7
 connect_node releases   summarizer
 connect_node community  summarizer
 connect_node summarizer digest
@@ -314,7 +314,7 @@ A few things this file adds that the by-hand session didn't:
 
 - `var num_partitions = 1` is a topology **variable** — frontmatter the supervisor reads to size the worker pool. (`var <name> = <value>` is a Shell verb; `num_partitions` is the one the runtime acts on. Omit it and the topology still defaults to one partition, but copy the line so the example partitions the way the shipped file does.)
 - A `Tee` fans the draft into **two** sinks — the `Log` file *and* `_repl`. The `_repl` tap is what lets the topology console (and a pivoted `wp nodes cli`) actually *see* the emitted draft scroll by; without it the draft only ever lands in the file. (`Tee` is the fan-out node introduced in step 6.)
-- `Log log … append 1 7` passes the file's full positional `arguments` — `filename`, `mode` (`append`), `max_size`, `max_rotations` — so it rotates and keeps a bounded set of rotated siblings rather than growing forever. The by-hand version omitted them and took the defaults (no rotation).
+- `Log log <file> 1 7` passes the file's positional `arguments` — `file`, `segment_size` (`1` → roll every write), `num_segments` (`7` → keep the last 7 segments `{file}.0`…`{file}.6`). The by-hand version omitted them and took the defaults (one large growing segment).
 
 `register_plugin` (step 1) already pointed at `topologies/`, so this file is now a catalog entry. Activate the plugin, make sure `digest` is in the active set (full catalog is active by default, or enable it under **Settings → Nodes Runtime → Topologies**), and the supervisor spawns it:
 
