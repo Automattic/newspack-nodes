@@ -153,10 +153,86 @@ class LogTest extends TestCase {
 		// Current file has only the post-rotate bytes.
 		$this->assertSame( "after\n", \file_get_contents( "{$this->tmp}/out.log" ) );
 
-		// Pre-rotate file landed under a timestamped sibling.
-		$rotated = \glob( "{$this->tmp}/out.log-*" );
-		$this->assertCount( 1, $rotated );
-		$this->assertSame( "0123456789\n", \file_get_contents( $rotated[0] ) );
+		// Pre-rotate file landed in the .0 rotation (logrotate-style).
+		$this->assertFileExists( "{$this->tmp}/out.log.0" );
+		$this->assertSame( "0123456789\n", \file_get_contents( "{$this->tmp}/out.log.0" ) );
+	}
+
+	public function test_rotate_once_moves_current_to_dot_zero_and_reopens_fresh(): void {
+		// logrotate / /var/log style: rotate renames {filename} → {filename}.0
+		// and reopens {filename} fresh (empty).
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log" );
+		$original = $this->bytestream( "original\n" );
+		$log->fill( $original );
+		$log->rotate();
+		$fresh = $this->bytestream( "fresh\n" );
+		$log->fill( $fresh );
+		$log->remove_node();
+
+		$this->assertSame( "original\n", \file_get_contents( "{$this->tmp}/out.log.0" ) );
+		$this->assertSame( "fresh\n",    \file_get_contents( "{$this->tmp}/out.log" ) );
+	}
+
+	public function test_rotate_twice_shifts_dot_zero_up_to_dot_one(): void {
+		// Second rotate shifts the existing .0 up to .1 (highest-index-first,
+		// no clobber) and the new newest rotation becomes .0.
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log" );
+
+		$first = $this->bytestream( "first\n" );
+		$log->fill( $first );
+		$log->rotate();                                   // first → .0
+		$second = $this->bytestream( "second\n" );
+		$log->fill( $second );
+		$log->rotate();                                   // .0 → .1, second → .0
+		$log->remove_node();
+
+		$this->assertSame( "first\n",  \file_get_contents( "{$this->tmp}/out.log.1" ) );
+		$this->assertSame( "second\n", \file_get_contents( "{$this->tmp}/out.log.0" ) );
+	}
+
+	public function test_rotated_state_reports_dot_zero_as_rotated_to(): void {
+		// The ROTATED state's rotated_to is the new {filename}.0 path.
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log" );
+		$log->name( 'mylog' );
+
+		$msg = $this->bytestream( "x\n" );
+		$log->fill( $msg );
+		$log->rotate();
+
+		// set_state caches the ROTATED payload; read it back via reflection.
+		$ref       = new \ReflectionClass( $log );
+		$set_state = $ref->getProperty( 'set_state' )->getValue( $log );
+		$log->remove_node();
+
+		$this->assertArrayHasKey( 'ROTATED', $set_state );
+		$this->assertSame( "{$this->tmp}/out.log.0", $set_state['ROTATED']['rotated_to'] );
+	}
+
+	public function test_prune_ages_out_legacy_and_numeric_by_mtime(): void {
+		// "leave + age out": prune globs BOTH the legacy date-named scheme
+		// ({filename}-<date>) AND the new numeric scheme ({filename}.N), merges,
+		// and keeps the max_rotations newest by mtime. A stale legacy file is
+		// unlinked; a recent legacy file is kept alongside fresh .N files.
+		\file_put_contents( "{$this->tmp}/out.log-2020-01-01-00:00:00-1", 'ancient' );
+		\touch( "{$this->tmp}/out.log-2020-01-01-00:00:00-1", 1000 );
+		\file_put_contents( "{$this->tmp}/out.log-2026-06-14-00:00:00-2", 'recent-legacy' );
+		\touch( "{$this->tmp}/out.log-2026-06-14-00:00:00-2", 9000 );
+
+		$log = new Log_Node();
+		$log->arguments( "{$this->tmp}/out.log append 0 2" );
+		$live = $this->bytestream( "live\n" );
+		$log->fill( $live );
+		$log->rotate();   // live → .0 (mtime = now, newest)
+		$log->remove_node();
+
+		// Candidates by mtime: ancient(1000) < recent-legacy(9000) < .0(now).
+		// max=2 keeps the two newest → ancient legacy unlinked.
+		$this->assertFileDoesNotExist( "{$this->tmp}/out.log-2020-01-01-00:00:00-1" );
+		$this->assertFileExists( "{$this->tmp}/out.log-2026-06-14-00:00:00-2" );
+		$this->assertFileExists( "{$this->tmp}/out.log.0" );
 	}
 
 	public function test_max_rotations_prunes_oldest_rotated_files(): void {
@@ -185,8 +261,12 @@ class LogTest extends TestCase {
 		$this->assertFileDoesNotExist( "{$this->tmp}/out.log-old2" );
 		$this->assertFileExists( "{$this->tmp}/out.log-old3" );
 
-		// Plus the just-rotated file. Total 2 surviving rotated siblings.
-		$this->assertCount( 2, \glob( "{$this->tmp}/out.log-*" ) );
+		// Survivors span both schemes: the recent legacy file + the new .0.
+		$this->assertFileExists( "{$this->tmp}/out.log.0" );
+		$this->assertCount(
+			2,
+			\array_merge( \glob( "{$this->tmp}/out.log-*" ), \glob( "{$this->tmp}/out.log.[0-9]*" ) )
+		);
 	}
 
 	public function test_max_rotations_zero_keeps_all_rotated_files(): void {
@@ -199,7 +279,7 @@ class LogTest extends TestCase {
 		$log->rotate();
 		$log->remove_node();
 
-		$this->assertCount( 3, \glob( "{$this->tmp}/out.log-*" ) );
+		$this->assertCount( 3, \glob( "{$this->tmp}/out.log.[0-9]*" ) );
 	}
 
 	public function test_max_rotations_below_threshold_keeps_all(): void {
@@ -213,7 +293,11 @@ class LogTest extends TestCase {
 		$log->rotate();
 		$log->remove_node();
 
-		$this->assertCount( 4, \glob( "{$this->tmp}/out.log-*" ) );
+		// 3 legacy ({filename}-*) + the new .0; all kept (max=10).
+		$this->assertCount(
+			4,
+			\array_merge( \glob( "{$this->tmp}/out.log-*" ), \glob( "{$this->tmp}/out.log.[0-9]*" ) )
+		);
 	}
 
 	public function test_max_size_zero_disables_auto_rotation(): void {
@@ -229,7 +313,7 @@ class LogTest extends TestCase {
 
 		// Single file accumulates all bytes; no rotated sibling.
 		$this->assertSame( 2000, \strlen( \file_get_contents( "{$this->tmp}/out.log" ) ) );
-		$this->assertCount( 0, \glob( "{$this->tmp}/out.log-*" ) );
+		$this->assertCount( 0, \glob( "{$this->tmp}/out.log.[0-9]*" ) );
 	}
 
 	public function test_TM_REQUEST_rotate_renames_current_file_and_reopens(): void {
@@ -254,10 +338,8 @@ class LogTest extends TestCase {
 		// Fresh file has only post-rotate bytes.
 		$this->assertSame( "after-rotate\n", \file_get_contents( "{$this->tmp}/out.log" ) );
 
-		// Pre-rotate bytes preserved in a renamed sibling.
-		$rotated = \glob( "{$this->tmp}/out.log-*" );
-		$this->assertCount( 1, $rotated );
-		$this->assertSame( "before-rotate\n", \file_get_contents( $rotated[0] ) );
+		// Pre-rotate bytes preserved in the .0 rotation.
+		$this->assertSame( "before-rotate\n", \file_get_contents( "{$this->tmp}/out.log.0" ) );
 	}
 
 	public function test_TM_ERROR_is_dropped(): void {
@@ -338,7 +420,7 @@ class LogTest extends TestCase {
 		$node->remove_node();
 
 		// Rotated sibling exists → max_size took effect.
-		$this->assertCount( 1, \glob( "{$this->tmp}/out.log-*" ) );
+		$this->assertCount( 1, \glob( "{$this->tmp}/out.log.[0-9]*" ) );
 	}
 
 	public function test_dump_config_round_trips_ctor_args(): void {
