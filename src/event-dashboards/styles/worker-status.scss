@@ -73,49 +73,10 @@
 	background: base.$error-surface;
 }
 
-// Pipeline flow layout
-.pipeline-flow {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
-	font-family: base.$mono-font;
-	font-size: 13px;
-	color: base.$dark-text;
-}
-
-// Pipeline separator for different branches
-.pipeline-separator {
-	margin: 12px 0 4px;
-	padding: 4px 12px;
-	font-size: 11px;
-	font-weight: 600;
-	color: base.$dark-text-placeholder;
-	text-transform: uppercase;
-	letter-spacing: 0.5px;
-	border-top: 1px solid base.$dark-header-border;
-}
-
-// Log section (firehose, requests, flames)
-.log-section {
-	background: base.$dark-bg-secondary;
-	border-radius: 6px;
-	padding: 8px 12px;
-}
-
-.log-header {
-	margin-bottom: 6px;
-}
-
 .log-name {
 	font-weight: 600;
 	font-size: 14px;
 	color: base.$dark-info;
-}
-
-.log-partitions {
-	display: flex;
-	flex-direction: column;
-	gap: 4px;
 }
 
 .log-partition-row {
@@ -149,31 +110,6 @@
 	min-width: 150px;
 }
 
-.worker-connector {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	padding: 4px 16px;
-	color: base.$dark-text-placeholder;
-
-	&.dead .connector-name {
-		opacity: 0.5;
-	}
-}
-
-.connector-arrow {
-	font-size: 14px;
-	color: base.$dark-text-dim;
-	width: 10px;
-}
-
-.connector-content {
-	display: flex;
-	align-items: center;
-	gap: 12px;
-	flex: 1;
-}
-
 .connector-trailing {
 	display: flex;
 	align-items: center;
@@ -186,12 +122,6 @@
 	align-items: center;
 	gap: 6px;
 	min-width: 250px;
-}
-
-.connector-age {
-	font-size: 10px;
-	color: base.$dark-text-muted;
-	min-width: 24px;
 }
 
 .connector-heartbeat {
@@ -503,4 +433,69 @@
 	color: base.$dark-text-muted;
 	min-width: 24px;
 	font-family: base.$mono-font;
+}
+
+// Per-topology foldable section + node/log tree
+.topology-section {
+	border: 1px solid #2a2e35;
+	border-radius: 9px;
+	margin-bottom: 14px;
+	overflow: hidden;
+}
+
+.topology-header {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 9px 13px;
+	background: #20242b;
+	border-bottom: 1px solid #2a2e35;
+
+	.topology-name {
+		font-weight: 700;
+	}
+
+	.topology-partition {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+	}
+
+	.connector-trailing {
+		margin-left: auto;
+	}
+}
+
+.topology-body {
+	padding: 8px 13px 12px;
+}
+
+.tree-ent {
+	padding: 4px 0 2px;
+
+	.row {
+		display: flex;
+		align-items: center;
+		gap: 8px;
+	}
+}
+
+.tree-kids {
+	margin-left: 11px;
+	padding-left: 14px;
+	border-left: 1px solid #2a2e35;
+}
+
+.caret {
+	display: inline-block;
+	width: 12px;
+	cursor: pointer;
+	font-size: 10px;
+	color: #8a8f98;
+	user-select: none;
+	transition: transform 0.1s;
+}
+
+.tree-branch.collapsed > .tree-ent > .row .caret {
+	transform: rotate(-90deg);
 }
