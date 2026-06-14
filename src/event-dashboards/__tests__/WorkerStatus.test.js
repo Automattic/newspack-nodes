@@ -70,6 +70,7 @@ function viewModel( {
 	workers = [],
 	supervisor = null,
 	logs = [],
+	graph = {},
 	byteRates = {},
 	writeRates = {},
 	segmentSize = 64 * 1024 * 1024,
@@ -83,6 +84,7 @@ function viewModel( {
 		workers,
 		supervisor,
 		logs,
+		graph,
 		byteRates,
 		writeRates,
 		segmentSize,
@@ -91,6 +93,18 @@ function viewModel( {
 		removingSegments,
 		error,
 		loading,
+	};
+}
+
+// A graph with a single staffed logic node (one topology). Structure now comes
+// from the graph, so a worker-only model would build no tree; this is the
+// minimal graph that renders one section whose header/row reflects the worker.
+function soloLogicGraph( topology ) {
+	return {
+		[ topology ]: {
+			nodes: [ { name: topology, kind: 'logic' } ],
+			edges: [],
+		},
 	};
 }
 
@@ -205,6 +219,12 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: {
+					'firehose-workers': {
+						nodes: [ { name: 'firehose-workers', kind: 'logic' } ],
+						edges: [],
+					},
+				},
 				segmentSize: 1024,
 			} )
 		);
@@ -273,6 +293,28 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: {
+					combined: {
+						nodes: [
+							{ name: 'firehose-workers', kind: 'logic' },
+							{
+								name: 'firehose-out',
+								kind: 'partition',
+								writes: 'firehose.log',
+							},
+							{
+								name: 'firehose-in',
+								kind: 'consumer',
+								reads: 'firehose.log',
+							},
+							{ name: 'request-workers', kind: 'logic' },
+						],
+						edges: [
+							[ 'firehose-workers', 'firehose-out' ],
+							[ 'firehose-in', 'request-workers' ],
+						],
+					},
+				},
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -311,6 +353,19 @@ describe( 'WorkerStatus', () => {
 						],
 					},
 				],
+				graph: {
+					'firehose-workers': {
+						nodes: [
+							{ name: 'firehose-workers', kind: 'logic' },
+							{
+								name: 'errors-out',
+								kind: 'partition',
+								writes: 'errors.log',
+							},
+						],
+						edges: [ [ 'firehose-workers', 'errors-out' ] ],
+					},
+				},
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -344,6 +399,19 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: {
+					'firehose-workers': {
+						nodes: [
+							{
+								name: 'firehose-in',
+								kind: 'consumer',
+								reads: 'firehose.log',
+							},
+							{ name: 'firehose-workers', kind: 'logic' },
+						],
+						edges: [ [ 'firehose-in', 'firehose-workers' ] ],
+					},
+				},
 				logs: [
 					{
 						name: 'firehose.log',
@@ -378,6 +446,12 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: {
+					'firehose-workers': {
+						nodes: [ { name: 'firehose-workers', kind: 'logic' } ],
+						edges: [],
+					},
+				},
 				logs: [
 					{
 						name: 'untouched.log',
@@ -432,6 +506,12 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: {
+					digest: {
+						nodes: [ { name: 'digest', kind: 'logic' } ],
+						edges: [],
+					},
+				},
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -471,6 +551,19 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: {
+					'request-workers': {
+						nodes: [
+							{
+								name: 'firehose-in',
+								kind: 'consumer',
+								reads: 'firehose.log',
+							},
+							{ name: 'request-workers', kind: 'logic' },
+						],
+						edges: [ [ 'firehose-in', 'request-workers' ] ],
+					},
+				},
 				logs: [
 					{
 						name: 'firehose.log',
@@ -514,6 +607,19 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: {
+					'firehose-workers': {
+						nodes: [
+							{ name: 'firehose-workers', kind: 'logic' },
+							{
+								name: 'completed-out',
+								kind: 'partition',
+								writes: 'completed.log',
+							},
+						],
+						edges: [ [ 'firehose-workers', 'completed-out' ] ],
+					},
+				},
 				logs: [
 					{
 						name: 'completed.log',
@@ -565,6 +671,12 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: {
+					'firehose-workers': {
+						nodes: [ { name: 'firehose-workers', kind: 'logic' } ],
+						edges: [],
+					},
+				},
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -587,6 +699,7 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: soloLogicGraph( 'firehose-workers' ),
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -609,6 +722,7 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: soloLogicGraph( 'firehose-workers' ),
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -693,6 +807,7 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: soloLogicGraph( 'firehose-workers' ),
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -718,6 +833,7 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: soloLogicGraph( 'request-workers' ),
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -743,6 +859,7 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: soloLogicGraph( 'firehose-workers' ),
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -788,6 +905,7 @@ describe( 'WorkerStatus', () => {
 						// No inputs/outputs/inputs_status/outputs_status keys.
 					},
 				],
+				graph: soloLogicGraph( 'job-workers' ),
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -812,6 +930,19 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: {
+					'firehose-workers': {
+						nodes: [
+							{ name: 'firehose-workers', kind: 'logic' },
+							{
+								name: 'firehose-out',
+								kind: 'partition',
+								writes: 'firehose.log',
+							},
+						],
+						edges: [ [ 'firehose-workers', 'firehose-out' ] ],
+					},
+				},
 				logs: [
 					{
 						name: 'firehose.log',
@@ -851,6 +982,19 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: {
+					'firehose-workers': {
+						nodes: [
+							{ name: 'firehose-workers', kind: 'logic' },
+							{
+								name: 'firehose-out',
+								kind: 'partition',
+								writes: 'firehose.log',
+							},
+						],
+						edges: [ [ 'firehose-workers', 'firehose-out' ] ],
+					},
+				},
 				logs: [
 					{
 						name: 'firehose.log',
@@ -888,6 +1032,19 @@ describe( 'WorkerStatus', () => {
 						outputs_status: [],
 					},
 				],
+				graph: {
+					'firehose-workers': {
+						nodes: [
+							{ name: 'firehose-workers', kind: 'logic' },
+							{
+								name: 'firehose-out',
+								kind: 'partition',
+								writes: 'firehose.log',
+							},
+						],
+						edges: [ [ 'firehose-workers', 'firehose-out' ] ],
+					},
+				},
 				logs: [
 					{
 						name: 'firehose.log',

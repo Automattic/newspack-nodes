@@ -255,6 +255,7 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 		workers,
 		supervisor,
 		logs: logsCatalog,
+		graph,
 		byteRates,
 		writeRates,
 		segmentSize,
@@ -265,10 +266,11 @@ export default function WorkerStatus( { refreshMs = 2000, fullPage = false } ) {
 		loading,
 	} = model;
 
-	// One node/log tree section per topology, built from the current worker list.
+	// One node/log tree section per topology: structure from the `.tsl` graph,
+	// status overlay from the worker rows + logs catalog.
 	const sections = useMemo(
-		() => buildTopologySections( workers, logsCatalog ),
-		[ workers, logsCatalog ]
+		() => buildTopologySections( graph, workers, logsCatalog ),
+		[ graph, workers, logsCatalog ]
 	);
 	const [ collapsed, setCollapsed ] = useState( () => new Set() );
 	const onToggle = ( key ) =>

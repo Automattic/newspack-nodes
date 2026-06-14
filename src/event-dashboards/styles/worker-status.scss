@@ -452,6 +452,8 @@
 	border-bottom: 1px solid #2a2e35;
 
 	.topology-name {
+		flex: 0 0 auto;
+		min-width: 160px;
 		font-weight: 700;
 	}
 
@@ -459,6 +461,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
+		min-width: 130px;
 	}
 
 	.connector-trailing {
