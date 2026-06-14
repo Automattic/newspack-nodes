@@ -21,6 +21,7 @@ import {
 	newMessage,
 	Core,
 } from '@newspack-nodes/runtime';
+import { PendingReplies } from '@newspack-nodes/shared/pendingReplies';
 import { InsightsViewNode } from '../insightsView';
 
 beforeEach( () => Core.reset() );
@@ -79,21 +80,21 @@ describe( 'insights:view — pending-Map gating', () => {
 		const v = makeView( 'insights:view' );
 		const id = 'op-1';
 		const promise = new Promise( ( resolve, reject ) => {
-			v.pending.set( id, { resolve, reject } );
+			v.replies.add( id, resolve, reject );
 		} );
 		const $msg = insightsReply( id, sampleModel );
 		v.fill( $msg );
 		await expect( promise ).resolves.toEqual(
 			JSON.stringify( sampleModel )
 		);
-		expect( v.pending.has( id ) ).toBe( false );
+		expect( v.replies.has( id ) ).toBe( false );
 	} );
 
 	test( 'rejects a pending Promise on a TM_ERROR reply matching message[ID]', async () => {
 		const v = makeView( 'insights:view' );
 		const id = 'op-2';
 		const promise = new Promise( ( resolve, reject ) => {
-			v.pending.set( id, { resolve, reject } );
+			v.replies.add( id, resolve, reject );
 		} );
 		const $msg = insightsErrorReply( id, 'permission denied' );
 		v.fill( $msg );
@@ -102,18 +103,22 @@ describe( 'insights:view — pending-Map gating', () => {
 
 	test( 'ignores a reply whose ID matches no pending entry (still publishes model)', () => {
 		const v = makeView( 'insights:view' );
-		v.pending.set( 'stashed', { resolve: () => {}, reject: () => {} } );
+		v.replies.add(
+			'stashed',
+			() => {},
+			() => {}
+		);
 		const $msg = insightsReply( 'unrelated', sampleModel );
 		v.fill( $msg );
-		expect( v.pending.has( 'stashed' ) ).toBe( true );
+		expect( v.replies.has( 'stashed' ) ).toBe( true );
 		expect( v.setStateCache.view ).toEqual( sampleModel );
 	} );
 } );
 
 describe( 'insights:view — node wiring', () => {
-	test( 'names the node and exposes a pending Map', () => {
+	test( 'names the node and exposes a PendingReplies registry', () => {
 		const v = makeView( 'insights:view' );
 		expect( v.name ).toBe( 'insights:view' );
-		expect( v.pending ).toBeInstanceOf( Map );
+		expect( v.replies ).toBeInstanceOf( PendingReplies );
 	} );
 } );

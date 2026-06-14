@@ -175,7 +175,7 @@ export function useRawLogsGraph( opts = {} ) {
 			// the EventSource opens on the default-selected log.
 			const listId = makeOpId();
 			const listFuture = new Promise( ( resolve, reject ) => {
-				view.pending.set( listId, { resolve, reject } );
+				view.replies.add( listId, resolve, reject );
 			} );
 			interpreter.fill( buildListCommand( listId ) );
 			listFuture

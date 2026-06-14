@@ -1,28 +1,12 @@
 import { Node } from '../../runtime/node';
-import { FROM, ID, KEY, TYPE, VALUE, TM_ERROR } from '../../runtime/message';
+import { FROM, KEY, VALUE } from '../../runtime/message';
+import { PendingReplies } from '../../shared/pendingReplies';
 
 const MAX_LINES = 100000;
 const LPS_WINDOW_SEC = 10;
 const LPS_SMOOTHING = 0.1;
 const MAX_LINE_LENGTH = 1000;
 const PARTITION_RE = /\.p(\d+)$/;
-
-// Coerce a TM_ERROR payload (string / { message } / anything else) to a
-// human-readable string for the Error / view-model error field.
-function _errorMessage( payload ) {
-	if ( 'string' === typeof payload && payload.length > 0 ) {
-		return payload;
-	}
-	if (
-		payload &&
-		'object' === typeof payload &&
-		'string' === typeof payload.message &&
-		payload.message.length > 0
-	) {
-		return payload.message;
-	}
-	return 'Operation failed';
-}
 
 /**
  * `rawlogs:view` — owns the Raw Logs view model.
@@ -81,33 +65,24 @@ export class RawLogsViewNode extends Node {
 		this.connectionError = false;
 		// Hook-stamped ID → { resolve, reject }; resolved/rejected when the
 		// matching reply lands here. Cleared on resolution.
-		this.pending = new Map();
+		this.replies = new PendingReplies();
 	}
 
 	fill( message ) {
 		const value = message[ VALUE ];
-		const type = message[ TYPE ] || 0;
-		const id = message[ ID ];
 
 		// Pending-Map gating (canonical): settle any Promise the hook stashed
 		// under this ID. A pending-matched reply is the caller's surface — we
 		// don't ALSO act on it locally (so a list_logs reply doesn't accidentally
 		// land in the row buffer below). NOTE: a command reply's VALUE has a
-		// `name` field; the row/control shapes do not.
+		// `name` field; the row/control shapes do not — gate on it so a raw log
+		// envelope can never settle a pending Promise.
 		if (
-			id &&
-			this.pending.has( id ) &&
 			value &&
 			'object' === typeof value &&
-			'name' in value
+			'name' in value &&
+			this.replies.settle( message )
 		) {
-			const { resolve, reject } = this.pending.get( id );
-			this.pending.delete( id );
-			if ( 0 !== ( type & TM_ERROR ) ) {
-				reject( new Error( _errorMessage( value.payload ) ) );
-			} else {
-				resolve( value.payload );
-			}
 			return;
 		}
 

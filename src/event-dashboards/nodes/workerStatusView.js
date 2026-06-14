@@ -1,5 +1,6 @@
 import { Node } from '../../runtime/node';
-import { ID, TYPE, VALUE, TM_ERROR } from '../../runtime/message';
+import { TYPE, VALUE, TM_ERROR } from '../../runtime/message';
+import { errorMessage, PendingReplies } from '../../shared/pendingReplies';
 
 // Segment slide-out animation window — matches the old WorkerStatus 400ms timer.
 const REMOVING_CLEAR_MS = 400;
@@ -19,23 +20,6 @@ const emptyModel = () => ( {
 	error: null,
 	loading: false,
 } );
-
-// Coerce a TM_ERROR payload (string / { message } / anything else) to a
-// human-readable string for the Error / view-model error field.
-function _errorMessage( payload ) {
-	if ( 'string' === typeof payload && payload.length > 0 ) {
-		return payload;
-	}
-	if (
-		payload &&
-		'object' === typeof payload &&
-		'string' === typeof payload.message &&
-		payload.message.length > 0
-	) {
-		return payload.message;
-	}
-	return 'Operation failed';
-}
 
 /**
  * `workerstatus:view` — owns the Worker Status view model, the single surface
@@ -62,7 +46,7 @@ export class WorkerStatusViewNode extends Node {
 		this._clearTimer = null;
 		// Hook-stamped ID → { resolve, reject }; resolved/rejected when the
 		// matching reply lands here. Cleared on resolution.
-		this.pending = new Map();
+		this.replies = new PendingReplies();
 	}
 
 	fill( message ) {
@@ -72,29 +56,18 @@ export class WorkerStatusViewNode extends Node {
 		}
 		const type = message[ TYPE ] || 0;
 		const isError = 0 !== ( type & TM_ERROR );
-		const id = message[ ID ];
 
 		// Pending-Map gating: settle any Promise the hook stashed under this ID.
 		// pendingMatched gates the global-error path below — caller owns the
 		// error surface for awaited verbs (per-row restart, etc.).
-		let pendingMatched = false;
-		if ( id && this.pending.has( id ) ) {
-			const { resolve, reject } = this.pending.get( id );
-			this.pending.delete( id );
-			pendingMatched = true;
-			if ( isError ) {
-				reject( new Error( _errorMessage( value.payload ) ) );
-			} else {
-				resolve( value.payload );
-			}
-		}
+		const pendingMatched = this.replies.settle( message );
 
 		// Un-correlated errors (broadcasts, initial poll) surface globally;
 		// pending-matched ones are owned by the caller's catch.
 		if ( isError && ! pendingMatched ) {
 			this.model = {
 				...this.model,
-				error: _errorMessage( value.payload ),
+				error: errorMessage( value.payload ),
 				loading: false,
 			};
 			this._publish();

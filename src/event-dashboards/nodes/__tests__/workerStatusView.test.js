@@ -27,6 +27,7 @@ import {
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
+import { PendingReplies } from '../../../shared/pendingReplies';
 import { WorkerStatusViewNode } from '../workerStatusView';
 
 beforeEach( () => Core.reset() );
@@ -111,7 +112,7 @@ describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
 		const v = makeView( 'workerstatus:view' );
 		const id = 'restart-1';
 		const promise = new Promise( ( resolve, reject ) => {
-			v.pending.set( id, { resolve, reject } );
+			v.replies.add( id, resolve, reject );
 		} );
 		v.fill( restartReply( id, { restarted: 2 } ) );
 		await expect( promise ).resolves.toEqual( { restarted: 2 } );
@@ -121,7 +122,7 @@ describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
 		const v = makeView( 'workerstatus:view' );
 		const id = 'restart-2';
 		const promise = new Promise( ( resolve, reject ) => {
-			v.pending.set( id, { resolve, reject } );
+			v.replies.add( id, resolve, reject );
 		} );
 		v.fill( restartErrorReply( id, 'permission denied' ) );
 		await expect( promise ).rejects.toThrow( /permission denied/i );
@@ -133,7 +134,7 @@ describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
 		const id = 'restart-3';
 		// Stash + immediately catch so the rejection doesn't escape.
 		const promise = new Promise( ( resolve, reject ) => {
-			v.pending.set( id, { resolve, reject } );
+			v.replies.add( id, resolve, reject );
 		} );
 		promise.catch( () => {} );
 		v.fill( restartErrorReply( id, 'boom' ) );
@@ -144,7 +145,7 @@ describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
 		const v = makeView( 'workerstatus:view' );
 		const id = 'restart-4';
 		const promise = new Promise( ( resolve, reject ) => {
-			v.pending.set( id, { resolve, reject } );
+			v.replies.add( id, resolve, reject );
 		} );
 		v.fill(
 			restartErrorReply( id, { message: 'structured error description' } )
@@ -157,9 +158,13 @@ describe( 'workerstatus:view — pending-Map gating (canonical)', () => {
 	test( 'deletes the pending entry after settling', () => {
 		const v = makeView( 'workerstatus:view' );
 		const id = 'restart-5';
-		v.pending.set( id, { resolve: () => {}, reject: () => {} } );
+		v.replies.add(
+			id,
+			() => {},
+			() => {}
+		);
 		v.fill( restartReply( id, null ) );
-		expect( v.pending.has( id ) ).toBe( false );
+		expect( v.replies.has( id ) ).toBe( false );
 	} );
 } );
 
@@ -261,8 +266,8 @@ describe( 'workerstatus:view — node wiring', () => {
 		expect( v.name ).toBe( 'workerstatus:view' );
 	} );
 
-	test( 'exposes the pending Map for the hook to stash resolvers', () => {
+	test( 'exposes a PendingReplies registry for the hook to stash resolvers', () => {
 		const v = makeView( 'workerstatus:view' );
-		expect( v.pending ).toBeInstanceOf( Map );
+		expect( v.replies ).toBeInstanceOf( PendingReplies );
 	} );
 } );
