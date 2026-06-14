@@ -46,6 +46,21 @@ class ConsumerTest extends TestCase {
 		$this->assertInstanceOf( Partition_Node::class, $ref->getProperty( 'offsetlog' )->getValue( $c ) );
 	}
 
+	public function test_seam_methods_return_consumer_defaults(): void {
+		$probe = new class() extends \Newspack_Nodes\Consumer_Node {
+			public function probe_make_source(): \Newspack_Nodes\Partition_Node { return $this->make_source(); }
+			public function probe_resolve_args(): array { return $this->resolve_args(); }
+			public function probe_default_offset(): ?string { return $this->default_offset(); }
+		};
+		$probe->arguments( "{$this->tmp}/src {$this->tmp}/off" );
+
+		$source = $probe->probe_make_source();
+		$this->assertInstanceOf( \Newspack_Nodes\Partition_Node::class, $source );
+		$this->assertNotInstanceOf( \Newspack_Nodes\Log_Node::class, $source, 'Consumer source is a Partition, not a Log' );
+		$this->assertSame( [ "{$this->tmp}/src", "{$this->tmp}/off" ], $probe->probe_resolve_args() );
+		$this->assertNull( $probe->probe_default_offset(), 'Consumer starts at 0:0 — no default-offset seek' );
+	}
+
 	/**
 	 * Empty `offsetlog_base_dir` token leaves the offsetlog Partition null
 	 * (ephemeral readers skip durable cursors).

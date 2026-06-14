@@ -85,7 +85,7 @@ class Consumer_Node extends Timer_Node {
 	protected ?Partition_Node $offsetlog = null;
 
 	/** FROM-stamp override; defaults to $this->name. The IPC input-Consumer stamps as `_repl`. */
-	private string $stamp_override = '';
+	protected string $stamp_override = '';
 
 	/**
 	 * Name of a node whose state rides in the offsetlog alongside the cursor
@@ -112,6 +112,9 @@ class Consumer_Node extends Timer_Node {
 	protected string $buffer = '';
 
 	protected bool $at_eof = true;
+
+	/** True once next_offset() was called explicitly — suppresses the default_offset() seek. */
+	protected bool $offset_set = false;
 
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(). */
 	public function __construct() {
@@ -141,10 +144,12 @@ class Consumer_Node extends Timer_Node {
 			return $result;
 		}
 		$this->parse_schema_args( $args );
-		$this->source_dir    = \rtrim( $this->source_dir, '/' );
-		$this->offsetlog_dir = \rtrim( $this->offsetlog_base_dir, '/' );
+		[ $source_path, $offsetlog_path ] = $this->resolve_args();
+		$this->source_dir         = \rtrim( $source_path, '/' );
+		$this->offsetlog_base_dir = $offsetlog_path;
+		$this->offsetlog_dir      = \rtrim( $offsetlog_path, '/' );
 
-		$this->source = new Partition_Node();
+		$this->source = $this->make_source();
 		if ( '' !== $this->name ) {
 			$this->source->name( "{$this->name}:source" );
 		}
@@ -264,7 +269,13 @@ class Consumer_Node extends Timer_Node {
 			}
 		}
 		$this->loaded_cache = null;
-		$this->poll_cb      = $this->poll_active( ... );
+		if ( ! $this->has_checkpoint() && ! $this->offset_set ) {
+			$default = $this->default_offset();
+			if ( null !== $default ) {
+				$this->next_offset( $default );
+			}
+		}
+		$this->poll_cb = $this->poll_active( ... );
 		( $this->poll_cb )();
 	}
 
@@ -279,7 +290,7 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/** Emit every complete line in $buffer; advance cursor_off past them; keep the trailing partial. */
-	private function drain_buffer(): void {
+	protected function drain_buffer(): void {
 		$nl = \strrpos( $this->buffer, "\n" );
 		if ( false === $nl ) {
 			// No complete line. DoS guard: a single line can't grow past MAX_LINE_BUFFER_SIZE.
@@ -489,14 +500,39 @@ class Consumer_Node extends Timer_Node {
 		$this->offsetlog?->void_warranty();
 	}
 
+	/** Seam (Tail overrides → Log): the source segmented-log node to read. Consumer reads a Partition. */
+	protected function make_source(): Partition_Node {
+		return new Partition_Node();
+	}
+
+	/**
+	 * Seam (Tail overrides): [source_path, offsetlog_path] from the parsed schema args.
+	 * Consumer's schema args are source_dir + offsetlog_base_dir.
+	 *
+	 * @return array{0:string,1:string}
+	 */
+	protected function resolve_args(): array {
+		return [ $this->source_dir, $this->offsetlog_base_dir ];
+	}
+
+	/**
+	 * Seam (Tail overrides → 'end'): first-spawn cursor when there's no durable
+	 * checkpoint AND no explicit next_offset(). null = leave at the constructed
+	 * default (0:0 = start), which is Consumer's behavior.
+	 */
+	protected function default_offset(): ?string {
+		return null;
+	}
+
 	/**
 	 * Set next read position: 'start' | 'recent' | 'end' | array{seg,off}.
 	 *
 	 * @param string|array<array-key, mixed> $position Magic value or explicit position (reads 'seg'/'off').
 	 */
 	public function next_offset( $position ): void {
-		$this->buffer = '';
-		$this->at_eof = false;
+		$this->offset_set = true;
+		$this->buffer     = '';
+		$this->at_eof     = false;
 
 		if ( \is_array( $position ) ) {
 			$seg              = $position['seg'] ?? 0;

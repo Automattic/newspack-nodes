@@ -569,7 +569,7 @@ class Partition_Node extends Timer_Node {
 	}
 
 	public function partition_dir(): string {
-		return $this->partition_dir;
+		return $this->segment_dir();
 	}
 
 	/** Seam (Log overrides): the directory segments live in. Partition = the resolved dir. */
