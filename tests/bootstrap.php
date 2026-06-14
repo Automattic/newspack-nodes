@@ -439,6 +439,20 @@ if ( ! function_exists( 'wp_unslash' ) ) {
 	}
 }
 
+// The bundled example plugin file gates its admin-hook registration on
+// is_admin() at file scope, and its enqueue site builds asset URLs via
+// plugins_url(); stub both so the Examples suite can load + drive them.
+if ( ! function_exists( 'is_admin' ) ) {
+	function is_admin(): bool {
+		return true;
+	}
+}
+if ( ! function_exists( 'plugins_url' ) ) {
+	function plugins_url( string $path = '', string $plugin = '' ): string {
+		return 'http://example.test/wp-content/plugins/' . \basename( \dirname( $plugin ) ) . '/' . \ltrim( $path, '/' );
+	}
+}
+
 if ( ! function_exists( 'wp_json_encode' ) ) {
 	function wp_json_encode( $data, $options = 0, $depth = 512 ) {
 		return \json_encode( $data, $options, $depth );

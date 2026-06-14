@@ -41,47 +41,21 @@ function register_insights_admin_page(): void {
  * Enqueue the Publisher Insights dashboard bundle on its own admin page.
  */
 function enqueue_insights_assets( string $hook = '' ): void {
-	if ( ! \function_exists( 'wp_enqueue_script' ) ) {
+	if ( ! \function_exists( 'wp_enqueue_script' ) || ! \class_exists( '\Newspack_Nodes\Admin\Admin' ) ) {
 		return;
 	}
-	// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-	$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
-	if ( INSIGHTS_MENU_SLUG !== $page ) {
-		return;
-	}
-	if ( \class_exists( '\Newspack_Nodes\Admin\Admin' ) && ! \Newspack_Nodes\Admin\Admin::current_user_allowed() ) {
+	if ( ! \Newspack_Nodes\Admin\Admin::current_user_allowed() ) {
 		return;
 	}
 
-	$asset_file = __DIR__ . '/build/dashboard/index.asset.php';
-	$script_url = \plugins_url( 'build/dashboard/index.js', __FILE__ );
-	if ( ! \file_exists( $asset_file ) ) {
-		return;
-	}
-	$asset = require $asset_file;
-	if ( ! \is_array( $asset ) ) {
-		return;
-	}
-	$handle   = 'newspack-ai-newsletter-insights';
-	$dep_list = \is_array( $asset['dependencies'] ?? null ) ? $asset['dependencies'] : [];
-	$deps     = \array_values( \array_filter( $dep_list, '\is_string' ) );
-	$version  = \is_string( $asset['version'] ?? null ) ? $asset['version'] : '0.1.0';
-	\wp_enqueue_script( $handle, $script_url, $deps, $version, true );
-
-	$css_file = __DIR__ . '/build/dashboard/index.css';
-	if ( \file_exists( $css_file ) ) {
-		\wp_enqueue_style( $handle, \plugins_url( 'build/dashboard/index.css', __FILE__ ), [], $version );
-	}
-
-	// REST root + nonce for the shared CommandClient (used by a later milestone).
-	$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
-	$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
-	\wp_localize_script(
-		$handle,
-		'NewspackNodesData',
+	\Newspack_Nodes\Admin\Admin::enqueue_react_page(
 		[
-			'restUrl' => \esc_url_raw( $rest_url ),
-			'nonce'   => $nonce,
+			'handle'           => 'newspack-ai-newsletter-insights',
+			'page'             => INSIGHTS_MENU_SLUG,
+			'dir'              => __DIR__ . '/build/dashboard',
+			'url'              => \plugins_url( 'build/dashboard', __FILE__ ),
+			'version_fallback' => '0.1.0',
+			'style_deps'       => [],
 		]
 	);
 }

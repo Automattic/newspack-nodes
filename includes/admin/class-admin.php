@@ -146,45 +146,89 @@ class Admin {
 	}
 
 	/**
+	 * Shared React-dashboard enqueue registrar.
+	 *
+	 * Performs ONLY the mechanics every dashboard enqueue site duplicated:
+	 * page-gate, index.js existence gate, manifest-vs-fallback deps/version,
+	 * CSS sidecar (+ RTL activation), and the NewspackNodesData localize.
+	 * Returns the script handle so callers can layer per-tree extras
+	 * (inline scripts, secondary bundles) on top, or null if it did not enqueue.
+	 *
+	 * @param array{handle:string, page:string|array<int,string>, dir:string, url:string,
+	 *   localize?:array<string,mixed>, version_fallback?:string, style_deps?:array<int,string>} $args
+	 * @return string|null Enqueued script handle, or null if nothing was enqueued.
+	 */
+	public static function enqueue_react_page( array $args ): ?string {
+		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
+			return null;
+		}
+
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$page  = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
+		$pages = (array) $args['page'];
+		if ( ! \in_array( $page, $pages, true ) ) {
+			return null;
+		}
+
+		$dir     = \rtrim( $args['dir'], '/' );
+		$url     = \rtrim( $args['url'], '/' );
+		$js_path = "{$dir}/index.js";
+		if ( ! \file_exists( $js_path ) ) {
+			return null;
+		}
+
+		// Deps + version come from the wp-scripts manifest when present, so a
+		// cache-bust rides the content hash; otherwise hardcoded deps + filemtime.
+		$fallback   = $args['version_fallback'] ?? \NEWSPACK_NODES_VERSION;
+		$asset_path = "{$dir}/index.asset.php";
+		$asset      = \file_exists( $asset_path ) ? require $asset_path : null;
+		if ( \is_array( $asset ) ) {
+			$manifest_deps = \is_array( $asset['dependencies'] ?? null ) ? $asset['dependencies'] : [];
+			$deps          = \array_values( \array_filter( $manifest_deps, '\is_string' ) );
+			$version       = \is_string( $asset['version'] ?? null ) ? $asset['version'] : $fallback;
+		} else {
+			$deps    = [ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ];
+			$version = (string) ( \filemtime( $js_path ) ?: $fallback );
+		}
+
+		$handle = $args['handle'];
+		\wp_enqueue_script( $handle, "{$url}/index.js", $deps, $version, true );
+
+		if ( \file_exists( "{$dir}/index.css" ) ) {
+			\wp_enqueue_style( $handle, "{$url}/index.css", $args['style_deps'] ?? [ 'wp-components' ], $version );
+			if ( \file_exists( "{$dir}/index-rtl.css" ) && \function_exists( 'wp_style_add_data' ) ) {
+				\wp_style_add_data( $handle, 'rtl', 'replace' );
+			}
+		}
+
+		$rest_url  = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
+		$nonce     = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
+		$localized = \array_merge(
+			[
+				'restUrl' => \esc_url_raw( $rest_url ),
+				'nonce'   => $nonce,
+			],
+			$args['localize'] ?? []
+		);
+		\wp_localize_script( $handle, 'NewspackNodesData', $localized );
+
+		return $handle;
+	}
+
+	/**
 	 * Enqueue the event-dashboards bundle on the Workers / Raw Logs pages.
 	 */
 	public function enqueue_event_dashboards_assets( string $hook = '' ): void {
-		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
-			return;
-		}
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
-		if ( self::WORKERS_MENU_SLUG !== $page && self::RAWLOGS_MENU_SLUG !== $page ) {
-			return;
-		}
-		$asset_path = \NEWSPACK_NODES_DIR . 'build/event-dashboards/index.js';
-		$asset_url  = ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-dashboards/index.js';
-		if ( ! \file_exists( $asset_path ) ) {
-			return;
-		}
-		$handle  = 'newspack-nodes-event-dashboards';
-		$version = (string) ( \filemtime( $asset_path ) ?: \NEWSPACK_NODES_VERSION );
-		$deps    = [ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ];
-		\wp_enqueue_script( $handle, $asset_url, $deps, $version, true );
-
-		$css_path = \NEWSPACK_NODES_DIR . 'build/event-dashboards/index.css';
-		$css_url  = ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-dashboards/index.css';
-		if ( \file_exists( $css_path ) ) {
-			$css_version = (string) ( \filemtime( $css_path ) ?: \NEWSPACK_NODES_VERSION );
-			\wp_enqueue_style( $handle, $css_url, [ 'wp-components' ], $css_version );
-		}
-
-		// REST root + nonce for the shared CommandClient.
-		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
-		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
-		\wp_localize_script(
-			$handle,
-			'NewspackNodesData',
+		self::enqueue_react_page(
 			[
-				'restUrl' => $rest_url,
-				'nonce'   => $nonce,
-				'tree'    => 'event-dashboards',
-				'version' => \NEWSPACK_NODES_VERSION,
+				'handle'   => 'newspack-nodes-event-dashboards',
+				'page'     => [ self::WORKERS_MENU_SLUG, self::RAWLOGS_MENU_SLUG ],
+				'dir'      => \NEWSPACK_NODES_DIR . 'build/event-dashboards',
+				'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-dashboards',
+				'localize' => [
+					'tree'    => 'event-dashboards',
+					'version' => \NEWSPACK_NODES_VERSION,
+				],
 			]
 		);
 	}
@@ -206,26 +250,13 @@ class Admin {
 		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
 			return;
 		}
+		// Cheap page-gate before the partition snapshot below: the registrar
+		// re-checks, but this skips the Topology_Registry walk on every other
+		// admin page (fail early, fail cheap).
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
 		if ( self::TOPOLOGY_MENU_SLUG !== $page ) {
 			return;
-		}
-		$asset_path = \NEWSPACK_NODES_DIR . 'build/topology-console/index.js';
-		$asset_url  = ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/topology-console/index.js';
-		if ( ! \file_exists( $asset_path ) ) {
-			return;
-		}
-		$handle  = 'newspack-nodes-topology-console';
-		$version = (string) ( \filemtime( $asset_path ) ?: \NEWSPACK_NODES_VERSION );
-		$deps    = [ 'wp-element', 'wp-components', 'wp-api-fetch', 'wp-i18n' ];
-		\wp_enqueue_script( $handle, $asset_url, $deps, $version, true );
-
-		$css_path = \NEWSPACK_NODES_DIR . 'build/topology-console/index.css';
-		$css_url  = ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/topology-console/index.css';
-		if ( \file_exists( $css_path ) ) {
-			$css_version = (string) ( \filemtime( $css_path ) ?: \NEWSPACK_NODES_VERSION );
-			\wp_enqueue_style( $handle, $css_url, [ 'wp-components' ], $css_version );
 		}
 
 		// Per-topology partition counts for the React dropdown — the SAME canonical
@@ -249,20 +280,19 @@ class Admin {
 		$config_np  = Config::load_config()['num_partitions'] ?? 1;
 		$default_np = (int) ( \is_scalar( $config_np ) ? $config_np : 1 );
 
-		// REST root + nonce for apiFetch.
-		$rest_url = \function_exists( 'rest_url' ) ? \rest_url() : '/wp-json/';
-		$nonce    = \function_exists( 'wp_create_nonce' ) ? \wp_create_nonce( 'wp_rest' ) : '';
-		\wp_localize_script(
-			$handle,
-			'NewspackNodesData',
+		self::enqueue_react_page(
 			[
-				'restUrl'             => $rest_url,
-				'nonce'               => $nonce,
-				'tree'                => 'topology-console',
-				'version'             => \NEWSPACK_NODES_VERSION,
-				'topologyPartitions'  => $topology_partitions,
-				'activeTopologies'    => $active_topologies,
-				'configNumPartitions' => $default_np,
+				'handle'   => 'newspack-nodes-topology-console',
+				'page'     => self::TOPOLOGY_MENU_SLUG,
+				'dir'      => \NEWSPACK_NODES_DIR . 'build/topology-console',
+				'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/topology-console',
+				'localize' => [
+					'tree'                => 'topology-console',
+					'version'             => \NEWSPACK_NODES_VERSION,
+					'topologyPartitions'  => $topology_partitions,
+					'activeTopologies'    => $active_topologies,
+					'configNumPartitions' => $default_np,
+				],
 			]
 		);
 	}
