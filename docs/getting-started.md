@@ -21,7 +21,7 @@ A **message** is a 7-field indexed array — `[ TYPE, TIMESTAMP, FROM, TO, ID, K
 
 That uniformity is the point. Any node can connect to any other node, because they all speak `fill()`. **You add capability by wiring a node, not by editing a system.** Fan-out is a `Tee`; a transform is your own `fill()`; file output is the built-in `Log`. New behavior is a new class with a new `fill()` body — never a change to the ones already running.
 
-For the full model — the drain loop, workers, partitions, the REPL — see [ARCHITECTURE.md](ARCHITECTURE.md).
+For the full model — the drain loop, workers, partitions, the REPL — see [ARCHITECTURE.md](architecture-guide.md).
 
 ## Feel it in 5 minutes
 
@@ -78,4 +78,4 @@ You just watched four independent nodes cooperate without any of them knowing ab
 
 The five-minute tour ran a pipeline. The walkthrough builds it from an empty file, one node at a time, and shows *why* this shape pays off — when a second author drops a new source into the running graph with a single line and changes nothing else.
 
-→ **[WRITING-A-PLUGIN.md](WRITING-A-PLUGIN.md)**
+→ **[WRITING-A-PLUGIN.md](writing-a-plugin.md)**

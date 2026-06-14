@@ -86,29 +86,26 @@ etc.) so the zip holds the plugin directory at root — `wp plugin install
 
 ## Architecture Decisions
 
-These are intentional. Don't "fix" them.
+These are intentional, load-bearing design choices — "fixing" one usually reintroduces a
+bug we already paid for. Each is written up as a rationale-ADR (context, alternatives weighed,
+consequences, and the concrete condition that would reopen it) in
+**[`docs/architecture-decisions.md`](docs/architecture-decisions.md)**. "Decision N" in this
+file and in code comments means **ADR-N** there. The numbers are stable — supersede, don't
+renumber.
 
-1. **Uniform `fill()` contract.** Every node has exactly one entry point: `fill( array &$message )`. No parallel `write()` / `read()` / `process()` API. Callers build the Message inline and call `fill()` directly — no convenience wrappers.
-
-2. **ONE message format: the 7-field positional array.** `[TYPE=0, TIMESTAMP=1, FROM=2, TO=3, ID=4, KEY=5, VALUE=6]` — always use the `Message::*` constants (`$message['type']` coerces to int 0 and silently corrupts TYPE). This is the only shape: in PHP, in JS, on the wire (`packed()`/`unpacked()` = JSON of the array), and in memory. There is **no** `{ type, ts, from, to, id, key, value }` object form — if you see one it is a bug to delete (it crept into the topology-console GUI once and broke the canvas). The fields diverge from Tachikoma on purpose (KEY not STREAM, VALUE not PAYLOAD, TIMESTAMP at index 1). `TM_BYTESTREAM` (string VALUE) and `TM_STRUCT` (array VALUE) are mutually exclusive; array-VALUE consumers gate on TM_STRUCT.
-
-3. **Fire-and-forget messaging.** No producer/consumer ack handshake. Tachikoma's TM_PERSIST / `answer()` / `cancel()` machinery was removed — synchronous I/O at every boundary serializes the whole graph onto one CPU, so there's no decoupled queue to backpressure. If you bring back slot-based flow control, do it at the producer that needs it; don't reintroduce a global persist contract. The one reply-control flag we DO keep is Tachikoma's `TM_NOREPLY`: a Shell with `want_reply(false)` (topology load / script mode) ORs it onto commands, and the interpreter then suppresses the reply (logging only an error to stderr). Without it, a worker's boot-topology command replies route to `_output/<pid>` — which has no node in a worker — and bounce a dropped `NOT_AVAILABLE` on every startup.
-
-4. **PIPE_BUF atomic writes.** Partition's default 4096-byte limit relies on the POSIX guarantee that small append-mode writes don't tear. Producers needing >4KB MUST opt into `Partition::allow_large_writes()`, which auto-locks via `Lock` at `{partition_dir}/write.lock.d/`. Concurrent large writes without the lock silently corrupt.
-
-5. **Lazy init for Topic / Partition.** Constructors run in request scope with NO event loop. No `set_timer` (silent leak), no `Core::node()` lookup (NPE), no `scandir` (wasted syscalls × N partitions per request). File handles open lazily on first `fill()` / `read_at()`.
-
-6. **CRC32 + 31-bit-mask partition routing.** `Partition::hash_to_partition()` is canonical: strip query string with `explode('?')`, CRC32 hash, `& 0x7FFFFFFF` for 32-bit-PHP safety. Topic, JobIntake-keyed mode, and any other partition routing MUST call this same function — divergent hash families silently misroute the same key across producers.
-
-7. **`sink` vs `target`, and TO=FROM replies.** `sink` is the physical next node `fill()` forwards to. `target` is the logical destination — a path string stamped into `message[TO]` ONLY when TO is empty (Tachikoma's `owner`; Tee's `target` is an array for fan-out). `_router` resolves a non-empty TO by peeling the head segment and looking it up in `Core`. Replies (response/ack/error) set `TO=$message[FROM]` to walk the FROM breadcrumb back. The pivot to a remote/other worker is just a `TO` prefix (the Shell's `path`) — not hardwiring.
-
-8. **Worker zombie pattern.** Workers spawn via HTTP POST to a HMAC-validated `/spawn` endpoint, then detach with `ignore_user_abort(true) + fastcgi_finish_request() + set_time_limit(0)`. Lifetime ~595s (sized for Atomic's 15-min cap with margin). Self-respawn fires inside `finally`; `release()` BEFORE `self_respawn()` so the new worker can acquire immediately.
-
-9. **Two-tier safety net.** Workers self-respawn; supervisor catches stale-locked workers (heartbeat > stale_timeout) and force-spawns. Supervisor self-respawns; WP-Cron catches a dead supervisor at minute cadence.
-
-10. **Class names are `Word_Word` with ALL-CAPS acronyms; Node subclasses carry a `_Node` suffix; `make_node` resolves by namespace prefix.** Every PHP class is `Word_Word` (acronyms `HTTP`/`SSE`/`CLI`/`LRU`/`CI` stay all-caps). Node subclasses end `_Node` (`Tee_Node`, `Router_Node`, `Command_Interpreter_Node`, `HTTP_In_Node`, `SSE_Out_Node`, the `*_CI_Node`s); non-node helpers are normalized without it (`Event_Framework`, `Worker_Base`, `Supervisor_Base`, `Spawn_Controller`, `SSE_Slot_Pool`, `CLI`). The *shell name* a topology line / `make_node` uses is the short-name minus `_Node` (`Tee_Node` → `Tee`). There is **no** `register_class` / `class_map`: plugins call `Command_Interpreter_Node::register_namespace( 'My_Prefix\\' )` once, and `make_node($type)` constructs the first `{$prefix}{$type}_Node` that's a concrete Node subclass (abstract ones like `Service_CI_Node` resolve to `null`, not fatal). The palette catalog (`Classes_CI` `list`) scans the composer classmap for `*_Node` Node subclasses with a non-Hidden/non-empty `node_schema()` category — so after adding/renaming a class you MUST `composer dump-autoload -o`. Test infra stays PascalCase (Newspack convention); the one exception is the `Capture_Sink_Node` test double, which is a real `make_node`'d Node.
-
-11. **`make_node` uses the v0.6.0 Tachikoma sequence: no-arg ctor → `name()` → `arguments()` → `sink()`.** Every substrate Node has a no-arg constructor; `make_node` instantiates with `new $fqcn()`, then calls `name()`, then `arguments( implode( ' ', array_filter( $ctor_args, '\is_scalar' ) ) )`, then `sink( $this )`. The base `arguments()` is the trivial Tachikoma getter/setter — it stores the raw string and does NOT parse it. A node that wants its declared positional args assigned to `$this->{$name}` props opts into the `Schema_Reflection` trait and calls `parse_schema_args()` from its own `arguments()` override (JS mirrors this: the base `set arguments` stores only; consumers call the exported `parseSchemaArgs( node, args )`). Config travels as a single space-joined string that round-trips through `dump_config()`. Programmatic dependencies (e.g. `Workers_CI_Node::$cli`) are **public properties** the caller assigns AFTER `make_node` returns; object args passed positionally to `make_node` are silently filtered out (`is_scalar`) because they aren't round-trippable through `arguments`. Subclasses that override `arguments()` for derived state (Partition's `partition_dir`) **must mirror the empty-string short-circuit** (`if ( '' === $args ) return $result;`) — otherwise re-deriving from declaration-default props yields filesystem-root junk like `/p0`. Partition_Node is the reference template.
+| # | Decision | ADR |
+|---|----------|-----|
+| 1 | Uniform `fill()` contract — one entry point per node, no `write()`/`read()`/`process()` | [ADR-1](docs/architecture-decisions.md#adr-1-uniform-fill-contract) |
+| 2 | ONE message format: the 7-field positional array (`Message::*` constants; no object form) | [ADR-2](docs/architecture-decisions.md#adr-2-one-message-format-the-7-field-positional-array) |
+| 3 | Fire-and-forget messaging — no TM_PERSIST ack; the single-threaded drain is the backpressure (keep `TM_NOREPLY`) | [ADR-3](docs/architecture-decisions.md#adr-3-fire-and-forget-messaging) |
+| 4 | PIPE_BUF atomic writes — 4 KB default; >4 KB opts into `allow_large_writes()` + lock | [ADR-4](docs/architecture-decisions.md#adr-4-pipe_buf-atomic-writes) |
+| 5 | Lazy init for Topic / Partition — constructors do no event-loop / filesystem work | [ADR-5](docs/architecture-decisions.md#adr-5-lazy-init-for-topic--partition) |
+| 6 | CRC32 + 31-bit-mask partition routing — `hash_to_partition()` is canonical | [ADR-6](docs/architecture-decisions.md#adr-6-crc32--31-bit-mask-partition-routing) |
+| 7 | `sink` (physical) vs `target` (logical TO path); TO=FROM replies; no `edge` | [ADR-7](docs/architecture-decisions.md#adr-7-sink-vs-target-and-tofrom-replies) |
+| 8 | Worker zombie pattern — detached ~595s requests, release before self-respawn | [ADR-8](docs/architecture-decisions.md#adr-8-worker-zombie-pattern) |
+| 9 | Two-tier safety net — worker → supervisor → WP-Cron | [ADR-9](docs/architecture-decisions.md#adr-9-two-tier-safety-net) |
+| 10 | `Word_Word` / `_Node` naming + `register_namespace` resolution (no `class_map`) | [ADR-10](docs/architecture-decisions.md#adr-10-class-naming--make_node-namespace-resolution) |
+| 11 | `make_node` construction sequence + `arguments()` empty-string short-circuit | [ADR-11](docs/architecture-decisions.md#adr-11-make_node-construction-sequence) |
 
 ## Layout
 
@@ -152,14 +149,14 @@ These are mistakes that have actually happened. Pay attention.
 - **Messages are arrays, not hashes.** Use `Message::TYPE` etc. constants for indexing. `$message['type']` silently fails (PHP coerces string to int 0 → corrupted TYPE).
 - **FROM stamping at sources and I/O boundaries.** A node that *mints* a brand-new message stamps FROM with its own name (Shell stamps `_output/<pid>`, interpreter responses stamp `$this->name`, Timer/Tail/Consumer stamp at the I/O boundary); *pass-through* forwarders (Tee, Hook, application nodes that relay an existing message) don't re-stamp. A message flowing `firehose-in → firehose-fanout → request-builder` carries `FROM=firehose-in`, NOT `firehose-fanout/firehose-in`.
 - **`stamp_message` empty-name guard.** A node with no name (mid-construction or post-rename) emitting `/from` paths breaks Router. Drop with `print_less_often` instead.
-- **Class-API must be event-loop-free.** Constructor for Topic / Partition runs in request scope where there's no `Event_Framework`. See decision 5.
-- **`hash_to_partition` is canonical.** Diverging hash families silently misroute the same key. See decision 6.
+- **Class-API must be event-loop-free.** Constructor for Topic / Partition runs in request scope where there's no `Event_Framework`. See [ADR-5](docs/architecture-decisions.md#adr-5-lazy-init-for-topic--partition).
+- **`hash_to_partition` is canonical.** Diverging hash families silently misroute the same key. See [ADR-6](docs/architecture-decisions.md#adr-6-crc32--31-bit-mask-partition-routing).
 - **`MAX_FROM_SIZE = 1024`.** `stamp_message` returns false and drops if FROM exceeds 1024 bytes. Prevents path explosion on cycles.
 - **Worker lock release before spawn.** `Worker_Base::execute()`'s `finally` block does `release()` THEN `self_respawn()`. Don't reorder; the reverse leaves a 15-second slot gap.
 - **HMAC spawn token has TWO accepted windows.** Validates current AND previous 10-second window. Don't tighten to one — race tolerance is intentional.
 - **Partition and Topic pack ALL message types** — including TM_REQUEST, TM_ERROR, TM_EOF. The earlier "drop control messages" rule broke `request_node`, `send_eof`, pivoted-mode error responses (TM_COMMAND|TM_ERROR), and the cli's TM_EOF round-trip drain. Data partitions only see TM_BYTESTREAM / TM_STRUCT in practice; allowing other types through is a no-op there and makes IPC work.
 - **TM_EOF round-trip drains the cli on stdin close.** Cli emits TM_EOF (FROM=`_output/$pid`); the interpreter it lands on (local in bare mode, the worker's in pivoted mode) bounces TO=FROM; the cli's Dumper sees the echo and flips the exit flag. Mirrors Tachikoma `FileHandle::handle_EOF` → `send_EOF`. There's a 5s deadline fallback so a dead worker doesn't hang the cli.
-- **Don't reintroduce TM_PERSIST.** The removal is intentional. See decision 3.
+- **Don't reintroduce TM_PERSIST.** The removal is intentional. See [ADR-3](docs/architecture-decisions.md#adr-3-fire-and-forget-messaging).
 - **Skip readline when STDIN isn't a TTY.** `readline_callback_read_char()` reads from the TTY layer, not the stream descriptor; piping into `wp nodes cli` without the gate burns 100% CPU. Already gated; don't remove.
 - **Command_Interpreter_Node only handles TM_COMMAND with empty TO.** Non-empty TO means the message is in transit toward another node — interpreter forwards to Router. If you "fix" interpreter to also dispatch on non-empty TO, every interpreter in a path-routed graph eats commands intended for downstream peers.
 - **Verb handlers throw freely; `interpret()` wraps as TM_COMMAND|TM_ERROR.** Don't add per-verb `try/catch` — the central catch is the contract. Keep `return 'error: ...'` only for canonical-OK-shaped argument-validation paths where you want to return without error semantics.
@@ -177,7 +174,7 @@ These are mistakes that have actually happened. Pay attention.
 
 ## References
 
-- **Architecture**: `ARCHITECTURE.md` (full substrate design — message format, node contracts, drain loop, REPL)
-- **API**: `API.md` (REST endpoint reference)
+- **Architecture**: `docs/architecture-guide.md` (full substrate design — message format, node contracts, drain loop, REPL)
+- **API**: `docs/API.md` (REST endpoint reference)
 - **Application example**: `../newspack-event-logger-nodes/` — first plugin built on this runtime
 - **Walkthrough example (in-repo)**: `examples/newspack-ai-newsletter/` — a self-contained digest pipeline (`includes/`, `topologies/digest.tsl`, PHPUnit suite) to learn the substrate from
