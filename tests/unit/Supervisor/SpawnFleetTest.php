@@ -96,4 +96,30 @@ class SpawnFleetTest extends TestCase {
 		$this->assertSame( 0, $count );
 		$this->assertCount( 0, $GLOBALS['_test_outbound_posts'] ?? [] );
 	}
+
+	public function test_spawn_fleet_refuses_a_conflicting_fleet(): void {
+		// Two topologies that WRITE the same partition log. With both in the
+		// active set, spawn_fleet must refuse rather than put a second fleet on a
+		// log a peer already owns (defense-in-depth behind the activate verb).
+		// find_conflicts/write_set read real .tsl from disk, so the conflicting
+		// set must be backed by a stock dir, not synthetic with_topology() descriptors.
+		$stock     = $this->make_temp_dir( 'spawn-fleet-conflict-stock-' );
+		$partition = 'make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>';
+		\file_put_contents( "{$stock}/alpha.tsl", "var num_partitions = 2\n{$partition}\n" );
+		\file_put_contents( "{$stock}/beta.tsl", "var num_partitions = 2\n{$partition}\n" );
+		\Newspack_Nodes\Topology_Registry::reset();
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha', 'beta' ];
+		\Newspack_Nodes\Config::reset();
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+
+		$count = $s->spawn_fleet( 'beta' );
+
+		$this->assertSame( 0, $count, 'a conflicting fleet must not spawn' );
+		$this->assertCount( 0, $GLOBALS['_test_outbound_posts'] ?? [], 'no spawn POST for a conflicting fleet' );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+		$this->rmdir_recursive( $stock );
+	}
 }

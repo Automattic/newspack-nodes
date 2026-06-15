@@ -203,6 +203,31 @@ class TopologiesActivateTest extends TestCase {
 		return $capture->captured[0];
 	}
 
+	public function test_activate_rejects_a_write_conflicting_topology(): void {
+		// Active topology A and a topology B that WRITES the same partition log —
+		// activating B would put two fleets on one log and corrupt it. The verb
+		// must reject (TM_ERROR) BEFORE writing the option or spawning, so the
+		// regression that let the manager toggle create the conflict stays closed.
+		$partition = 'make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>';
+		\file_put_contents( "{$this->stock}/alpha.tsl", "var num_partitions = 2\n{$partition}\n" );
+		\file_put_contents( "{$this->stock}/beta.tsl", "var num_partitions = 2\n{$partition}\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha' ];
+		Config::reset();
+
+		$response = $this->fire_capturing_response( 'activate', 'beta' );
+
+		$type = $response[ Message::TYPE ];
+		$this->assertSame( Message::TM_ERROR, $type & Message::TM_ERROR, 'conflicting activate must reply TM_ERROR' );
+		$this->assertStringContainsString( 'conflict', (string) $response[ Message::VALUE ]['payload'] );
+		$this->assertStringContainsString( 'beta', (string) $response[ Message::VALUE ]['payload'] );
+
+		// A stays active, B never got written, nothing spawned.
+		$active = (array) \get_option( 'newspack_nodes_topologies', [] );
+		$this->assertContains( 'alpha', $active );
+		$this->assertNotContains( 'beta', $active );
+		$this->assertEmpty( $GLOBALS['_test_outbound_posts'] ?? [] );
+	}
+
 	public function test_activate_requires_manage_options(): void {
 		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
 		$GLOBALS['_wp_test_current_user_can'] = [];
