@@ -200,9 +200,10 @@ function dispatchAwaited( interpreterRef, viewName, ci, verb, args ) {
  * @param {Object} [opts.commandClient] CommandClient seam assigned to `_http.client`.
  * @param {number} [opts.refreshMs]     Poll interval in ms (default 4000).
  * @return {{ topologies: Array, supervisor: ?Object, activate: Function,
- *   deactivate: Function, restart: Function, connected: boolean }} The
- *   Topology Manager data + mutations: every topology row (status merged onto
- *   the active ones), the supervisor card, the mutation verbs, and connected.
+ *   deactivate: Function, restart: Function, purgeOrphans: Function,
+ *   connected: boolean }} The Topology Manager data + mutations: every topology
+ *   row (status merged onto the active ones), the supervisor card, the mutation
+ *   verbs (incl. the housekeeping-GC `purgeOrphans`), and connected.
  */
 export function useTopologyManager( opts = {} ) {
 	const { commandClient, refreshMs = 4000 } = opts;
@@ -307,5 +308,27 @@ export function useTopologyManager( opts = {} ) {
 		[ interpreterRef ]
 	);
 
-	return { topologies, supervisor, activate, deactivate, restart, connected };
+	// Run the housekeeping GC (workers `purge_orphans`, no args), resolving with
+	// its `{ removed, count }` payload (FROM=topologymanager:view).
+	const purgeOrphans = useCallback(
+		() =>
+			dispatchAwaited(
+				interpreterRef,
+				TOPOLOGY_VIEW,
+				'workers',
+				'purge_orphans',
+				''
+			),
+		[ interpreterRef ]
+	);
+
+	return {
+		topologies,
+		supervisor,
+		activate,
+		deactivate,
+		restart,
+		purgeOrphans,
+		connected,
+	};
 }

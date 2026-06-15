@@ -177,9 +177,43 @@ const TopologyRow = memo( function TopologyRow( {
  * @return {import('react').ReactElement} Rendered component.
  */
 export default function TopologyManager() {
-	const { topologies, activate, deactivate, restart, connected } =
-		useTopologyManager();
+	const {
+		topologies,
+		activate,
+		deactivate,
+		restart,
+		purgeOrphans,
+		connected,
+	} = useTopologyManager();
 	const [ collapsed, setCollapsed ] = useState( () => new Set() );
+	// Transient result of the last Purge orphans run: { text, error } or null.
+	const [ purgeResult, setPurgeResult ] = useState( null );
+	const onPurge = () => {
+		setPurgeResult( null );
+		Promise.resolve( purgeOrphans() )
+			.then( ( { removed = [], count = 0 } = {} ) => {
+				const text =
+					count > 0
+						? sprintf(
+								// translators: 1: count of removed dirs; 2: comma-separated basenames.
+								__(
+									'Removed %1$d orphan dir(s): %2$s',
+									'newspack-nodes'
+								),
+								count,
+								removed.join( ', ' )
+						  )
+						: __( 'Nothing to purge', 'newspack-nodes' );
+				setPurgeResult( { text, error: false } );
+			} )
+			.catch( ( err ) =>
+				setPurgeResult( {
+					text:
+						err?.message || __( 'Purge failed', 'newspack-nodes' ),
+					error: true,
+				} )
+			);
+	};
 	const onToggleFold = ( key ) =>
 		setCollapsed( ( prev ) => {
 			const next = new Set( prev );
@@ -201,6 +235,26 @@ export default function TopologyManager() {
 				connectionError={ ! connected }
 				message={ __( 'Disconnected — retrying…', 'newspack-nodes' ) }
 			/>
+			<div className="nodes-tm__toolbar">
+				<button
+					type="button"
+					className="nodes-tm__purge"
+					onClick={ onPurge }
+				>
+					{ __( 'Purge orphans', 'newspack-nodes' ) }
+				</button>
+				{ purgeResult && (
+					<span
+						className={ `nodes-tm__purge-result${
+							purgeResult.error
+								? ' nodes-tm__purge-result--error'
+								: ''
+						}` }
+					>
+						{ purgeResult.text }
+					</span>
+				) }
+			</div>
 			{ sorted.map( ( topology ) => (
 				<TopologyRow
 					key={ topology.name }
