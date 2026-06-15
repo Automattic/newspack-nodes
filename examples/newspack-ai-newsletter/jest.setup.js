@@ -1,3 +1,65 @@
 /* eslint-env jest */
-// Jest setup — adds @testing-library/jest-dom matchers (toBeInTheDocument, …).
+// Jest setup — adds @testing-library/jest-dom matchers (toBeInTheDocument, …)
+// and FAILS any test that emits an unexpected console.warn or console.error
+// (mirrors the sibling newspack-nodes setup).
 import '@testing-library/jest-dom';
+
+// The substrate's `Core.stderr()` / `printLessOften()` / `printLeastOften()`
+// (../../src/runtime/core.js) route node faults, rate-limited logs, and
+// dropped-message notices through console.warn (never console.error, to skip
+// devtools' error counter), each line stamped `YYYY-MM-DD HH:MM:SS UTC <argv0>: `.
+// Those are expected spam on any test exercising a fault path, so warn lines
+// matching that signature are dropped. EVERY other console.warn and EVERY
+// console.error (React `act(...)` warnings, third-party deprecations, genuine
+// errors) is recorded and re-thrown in afterEach, failing the test. Throwing in
+// afterEach — not inside the mock — keeps React's render/commit from swallowing
+// the throw or cascading into confusing secondary failures, and the captured
+// Error preserves the call site.
+//
+// Tests that legitimately assert on console.warn/error install their own
+// `jest.spyOn( console, … )`; that shadows the recorder for that test and the
+// afterEach restore unwinds both.
+
+// The Core.stderr() line prefix: ISO-ish date + " UTC <argv0>: ".
+const SUBSTRATE_STDERR = /^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC \S+: /;
+
+let violations = [];
+
+const record =
+	( channel ) =>
+	( ...args ) => {
+		if (
+			'warn' === channel &&
+			'string' === typeof args[ 0 ] &&
+			SUBSTRATE_STDERR.test( args[ 0 ] )
+		) {
+			return;
+		}
+		violations.push(
+			new Error(
+				`Unexpected console.${ channel }: ${ args
+					.map( String )
+					.join( ' ' ) }`
+			)
+		);
+	};
+
+beforeEach( () => {
+	violations = [];
+	jest.spyOn( console, 'warn' ).mockImplementation( record( 'warn' ) );
+	jest.spyOn( console, 'error' ).mockImplementation( record( 'error' ) );
+} );
+
+afterEach( () => {
+	const captured = violations;
+	violations = [];
+	if ( jest.isMockFunction( console.warn ) ) {
+		console.warn.mockRestore();
+	}
+	if ( jest.isMockFunction( console.error ) ) {
+		console.error.mockRestore();
+	}
+	if ( captured.length ) {
+		throw captured[ 0 ];
+	}
+} );
