@@ -71,9 +71,9 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			$this->assertArrayHasKey( 'contrib-tab', $GLOBALS['_enqueued_scripts'] );
 		}
 
-		public function test_enqueues_on_the_overlay_bearing_workers_page(): void {
+		public function test_enqueues_on_the_overlay_bearing_rawlogs_page(): void {
 			$this->register_bundle();
-			$_GET['page'] = Admin::WORKERS_MENU_SLUG;
+			$_GET['page'] = Admin::RAWLOGS_MENU_SLUG;
 			( new Admin() )->enqueue_devtools_tab_bundles();
 			$this->assertArrayHasKey( 'contrib-tab', $GLOBALS['_enqueued_scripts'] );
 		}

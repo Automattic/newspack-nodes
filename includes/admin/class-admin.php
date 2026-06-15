@@ -79,7 +79,6 @@ class Admin {
 
 	/** Top-level menu slug for the DevTools hub — the "Nodes" landing page (Console + Topologies tabs). */
 	public const TOPOLOGY_MENU_SLUG = 'newspack-nodes-topology';
-	public const WORKERS_MENU_SLUG  = 'newspack-nodes-workers';
 	public const RAWLOGS_MENU_SLUG  = 'newspack-nodes-rawlogs';
 
 	public function __construct() {
@@ -126,7 +125,7 @@ class Admin {
 	}
 
 	/**
-	 * Register Workers + Raw Logs as submenus under "Nodes" (priority 11 so they follow Topology).
+	 * Register Raw Logs as a submenu under "Nodes" (priority 11 so it follows Topology).
 	 */
 	public function register_event_dashboard_pages(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -135,14 +134,6 @@ class Admin {
 		if ( ! \function_exists( 'add_submenu_page' ) ) {
 			return;
 		}
-		\add_submenu_page(
-			self::TOPOLOGY_MENU_SLUG,
-			\__( 'Workers', 'newspack-nodes' ),
-			\__( 'Workers', 'newspack-nodes' ),
-			'manage_options',
-			self::WORKERS_MENU_SLUG,
-			static fn () => print( '<div id="newspack-nodes-workers" class="newspack-nodes-workers-page"></div>' )
-		);
 		\add_submenu_page(
 			self::TOPOLOGY_MENU_SLUG,
 			\__( 'Raw Logs', 'newspack-nodes' ),
@@ -224,13 +215,13 @@ class Admin {
 	}
 
 	/**
-	 * Enqueue the event-dashboards bundle on the Workers / Raw Logs pages.
+	 * Enqueue the event-dashboards bundle on the Raw Logs page.
 	 */
 	public function enqueue_event_dashboards_assets( string $hook = '' ): void {
 		self::enqueue_react_page(
 			[
 				'handle'   => 'newspack-nodes-event-dashboards',
-				'page'     => [ self::WORKERS_MENU_SLUG, self::RAWLOGS_MENU_SLUG ],
+				'page'     => self::RAWLOGS_MENU_SLUG,
 				'dir'      => \NEWSPACK_NODES_DIR . 'build/event-dashboards',
 				'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-dashboards',
 				'localize' => [
@@ -264,8 +255,8 @@ class Admin {
 	 *
 	 * A contributor returns `{ handle, dir, url }` (the `enqueue_react_page` shape)
 	 * via the `newspack_nodes/devtools_tab_bundles` filter; each is enqueued on the
-	 * top-level hub page AND the overlay-bearing pages (Workers / Raw Logs) so its
-	 * tabs register in whichever host they target. The per-bundle page-gate +
+	 * top-level hub page AND the overlay-bearing Raw Logs page so its tabs register
+	 * in whichever host they target. The per-bundle page-gate +
 	 * existence/manifest handling is `enqueue_react_page`'s.
 	 */
 	public function enqueue_devtools_tab_bundles( string $hook = '' ): void {
@@ -273,7 +264,7 @@ class Admin {
 		if ( ! \is_array( $bundles ) ) {
 			return;
 		}
-		$pages = [ self::TOPOLOGY_MENU_SLUG, self::WORKERS_MENU_SLUG, self::RAWLOGS_MENU_SLUG ];
+		$pages = [ self::TOPOLOGY_MENU_SLUG, self::RAWLOGS_MENU_SLUG ];
 		foreach ( $bundles as $bundle ) {
 			if ( ! \is_array( $bundle ) || ! isset( $bundle['handle'], $bundle['dir'], $bundle['url'] ) ) {
 				continue;
@@ -297,7 +288,7 @@ class Admin {
 	/**
 	 * Advertise the event-dashboards bundle as a DevTools tab bundle so the hub
 	 * page enqueues it and its `host: 'hub'` Topology Manager tab registers there.
-	 * (event-dashboards is also enqueued directly on Workers / Raw Logs; wp dedupes
+	 * (event-dashboards is also enqueued directly on the Raw Logs page; wp dedupes
 	 * by handle, so the double enqueue is harmless.)
 	 *
 	 * @param array<int,mixed> $bundles Existing tab bundles.

@@ -233,9 +233,6 @@ $focus-shadow: 0 0 0 2px rgba(100, 181, 246, 0.2);
 
 // Scoped border-box baseline — applies only inside each dashboard's React
 // mount root, never leaking into the rest of wp-admin.
-#newspack-nodes-workers *,
-#newspack-nodes-workers *::before,
-#newspack-nodes-workers *::after,
 #newspack-nodes-rawlogs *,
 #newspack-nodes-rawlogs *::before,
 #newspack-nodes-rawlogs *::after {
