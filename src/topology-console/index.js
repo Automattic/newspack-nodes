@@ -1,29 +1,11 @@
 /**
- * Topology Console entry point.
+ * Topology Console bundle entry. 5b removed the standalone console page; the
+ * Console is a hub tab now, so this file's only job is to register that tab when
+ * the bundle loads. The side-effect imports do the work: `./tabs` calls
+ * registerDevtoolsTab, `./includeConsoleNodes` and the stylesheet pull in what
+ * the tab's component needs.
  */
-
-import { createRoot } from '@wordpress/element';
 
 import './includeConsoleNodes';
 import './tabs';
-import TopologyConsole from './TopologyConsole';
 import './styles/topology-console.scss';
-
-const ROOT_ID = 'newspack-nodes-topology-console';
-
-function mount() {
-	const root = document.getElementById( ROOT_ID );
-	if ( ! root ) {
-		return;
-	}
-	createRoot( root ).render( <TopologyConsole /> );
-}
-
-if (
-	document.readyState === 'complete' ||
-	document.readyState === 'interactive'
-) {
-	mount();
-} else {
-	document.addEventListener( 'DOMContentLoaded', mount );
-}

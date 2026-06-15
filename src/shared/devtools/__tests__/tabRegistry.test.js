@@ -147,4 +147,23 @@ describe( 'devtools tab registry', () => {
 			registerDevtoolsTab( { id: 'a', host: 'hub', component: Comp } )
 		).toThrow();
 	} );
+
+	it( 'shares the registry across separately-loaded module instances', () => {
+		// The build emits each bundle as its own IIFE inlining its own copy of
+		// this module. resetModules() simulates that second copy: a tab
+		// registered through one module instance must be visible to a freshly
+		// required instance — i.e. the store lives on the global, not module
+		// scope. A module-local Map would lose the tab here.
+		registerDevtoolsTab( {
+			id: 'cross',
+			label: 'Cross',
+			host: 'hub',
+			component: Comp,
+		} );
+		jest.resetModules();
+		const fresh = require( '../tabRegistry' );
+		expect( fresh.getDevtoolsTabs( 'hub' ).map( ( t ) => t.id ) ).toEqual( [
+			'cross',
+		] );
+	} );
 } );
