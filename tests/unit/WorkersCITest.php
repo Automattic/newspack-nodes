@@ -244,6 +244,24 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
+	public function test_dump_graph_payload_includes_heartbeat_interval(): void {
+		// The dashboard computes a stall threshold from the substrate heartbeat
+		// cadence; dump_graph must emit it so the frontend doesn't hardcode it.
+		$this->arrange_base_dir();
+
+		$interpreter        = new Workers_CI_Node();
+		$interpreter->cli   = $this->stub_cli();
+		$interpreter->cache = new FakeMemcached();
+
+		$result = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$this->assertArrayHasKey( 'heartbeat_interval_s', $result );
+		$this->assertSame(
+			\Newspack_Nodes\Worker_Base::HEARTBEAT_INTERVAL_S,
+			$result['heartbeat_interval_s']
+		);
+	}
+
 	public function test_list_verb_returns_workers_from_cli(): void {
 		$fake_cli = new class {
 			public function ls_workers(): array {
