@@ -40,9 +40,9 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 	public function test_log_partition_subscription_returns_one_consumer_per_partition(): void {
 		// The Partition constructor doesn't require the partition_dir to
 		// pre-exist (get_segments tolerates a missing dir); creating the
-		// base log dir is enough to mirror the production layout
-		// `{base}/logs/{name}.log/p{N}/`.
-		\mkdir( "{$this->tmp}/logs/firehose.log", 0755, true );
+		// flat per-partition log dirs is enough to mirror the production layout
+		// `{base}/logs/{name}.p{N}/`.
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 		$ctrl->set_num_partitions( 3 );
@@ -61,7 +61,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// without a separate sidecar field. Without this, every partition's
 		// stream emits FROM=`firehose` and the dashboard loses the per-row
 		// partition column.
-		\mkdir( "{$this->tmp}/logs/firehose.log", 0755, true );
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
 		$ctrl->set_num_partitions( 3 );
@@ -130,8 +130,8 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// tail the spoke's firehose.log partition 0. There's NO worker
 		// named `firehose.p0` on the spoke (workers live at e.g.
 		// `demo-workers.p0`), so the IPC-attach throws.
-		// Resolver must catch and fall through to log-name + partition.
-		\mkdir( "{$this->tmp}/logs/firehose.log/p0", 0755, true );
+		// Resolver must catch and fall through to the flat concrete partition dir.
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
@@ -140,6 +140,11 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 
 		$this->assertCount( 1, $consumers );
 		$this->assertContainsOnlyInstancesOf( Consumer_Node::class, $consumers );
+		$this->assertStringStartsWith(
+			"{$this->tmp}/logs/firehose.p0",
+			$consumers[0]->arguments(),
+			'log fallback must tail the flat concrete partition dir, not the nested {name}.log/p{N}'
+		);
 	}
 
 	public function test_ipc_subscription_tails_output_dir_when_worker_offline_but_ipc_exists(): void {
@@ -150,7 +155,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// switch is no longer required to recover the live view.
 		\mkdir( "{$this->tmp}/ipc/demo-workers.p0/output", 0755, true );
 		// A same-named log dir exists too — IPC output must win over the log fallback.
-		\mkdir( "{$this->tmp}/logs/demo-workers.log/p0", 0755, true );
+		\mkdir( "{$this->tmp}/logs/demo-workers.p0", 0755, true );
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );
@@ -246,7 +251,7 @@ class MessagesStreamSubscriptionResolverTest extends TestCase {
 		// Browser shape: `{ "0": { seg: 5, off: 1024 }, ... }`. PHP receives
 		// the JSON-decoded version, which matches Consumer::next_offset's
 		// is_array($position) branch (cursor_seg/cursor_off direct seed).
-		\mkdir( "{$this->tmp}/logs/firehose.log/p0", 0755, true );
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $this->tmp );

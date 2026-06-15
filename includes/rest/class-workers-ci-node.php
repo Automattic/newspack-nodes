@@ -543,9 +543,11 @@ class Workers_CI_Node extends Service_CI_Node {
 	 * concrete dir, NAMED by that dir (`requests.p0`) and carrying that single
 	 * partition's data. The resolver's 0..N-1 expansion already enumerates every
 	 * partition dir, present or not (a missing dir stats to empty segments) — no
-	 * `.p{N}` parsing, no padding math here. Per-log `segment_size` honors any TSL
-	 * literal override (keyed by the override basename when the concrete name
-	 * starts with it).
+	 * `.p{N}` parsing, no padding math here. Then unions the request-scope PHP
+	 * producer dirs (`Log_Cleaner::producer_log_dirs`) — firehose / jobintake,
+	 * declared in no .tsl — so the dashboard's `firehose.p{N}` vertex resolves.
+	 * Per-log `segment_size` honors any TSL literal override (keyed by the
+	 * override basename when the concrete name starts with it).
 	 *
 	 * @param array<string,int> $segment_size_overrides `{basename => int}` map.
 	 * @return array<int,array{name:string,partitions:array<int, mixed>,segment_size:int}>
@@ -557,26 +559,36 @@ class Workers_CI_Node extends Service_CI_Node {
 	): array {
 		$logs = [];
 		$seen = [];
+		$add  = function ( string $concrete ) use ( &$logs, &$seen, $log_base, $segment_size_overrides, $default_segment_size ): void {
+			if ( isset( $seen[ $concrete ] ) ) {
+				return;
+			}
+			$seen[ $concrete ] = true;
+			$status            = self::build_log_status_entry( $concrete, 0, null, null, $log_base );
+			$logs[]            = [
+				'name'         => $concrete,
+				'partitions'   => [
+					[
+						'partition'  => 0,
+						'segments'   => $status['segments'] ?? [],
+						'total_size' => $status['total_size'] ?? 0,
+					],
+				],
+				'segment_size' => self::segment_size_for( $concrete, $segment_size_overrides, $default_segment_size ),
+			];
+		};
 		foreach ( self::active_topologies() as $name => $_cfg ) {
 			$resolved = Topology_Registry::resolved_resource_dirs( $name, Bootstrap::num_partitions_for( $name ) );
 			foreach ( $resolved['logs'] as $concrete ) {
-				if ( isset( $seen[ $concrete ] ) ) {
-					continue;
-				}
-				$seen[ $concrete ] = true;
-				$status            = self::build_log_status_entry( $concrete, 0, null, null, $log_base );
-				$logs[]            = [
-					'name'         => $concrete,
-					'partitions'   => [
-						[
-							'partition'  => 0,
-							'segments'   => $status['segments'] ?? [],
-							'total_size' => $status['total_size'] ?? 0,
-						],
-					],
-					'segment_size' => self::segment_size_for( $concrete, $segment_size_overrides, $default_segment_size ),
-				];
+				$add( $concrete );
 			}
+		}
+		// Request-scope PHP producers (firehose / jobintake — Log_Manager /
+		// Job_Intake) are declared in no .tsl, so the topology loop never yields
+		// their dirs. Union them from the same source the GC reads so the
+		// dashboard's `firehose.p{N}` vertex resolves to a concrete entry.
+		foreach ( Log_Cleaner::producer_log_dirs() as $concrete ) {
+			$add( $concrete );
 		}
 		return $logs;
 	}

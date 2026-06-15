@@ -131,9 +131,9 @@ test( 'pause stops appends; the model reflects paused', () => {
 test( 'select sets the log and clears the buffer', () => {
 	const v = makeView( 'rawlogs:view' );
 	v.fill( envelopeMsg( { value: 'old' } ) );
-	v.fill( controlMsg( { action: 'select', log: 'errors' } ) );
+	v.fill( controlMsg( { action: 'select', log: 'errors.p0' } ) );
 	expect( v.lines ).toHaveLength( 0 );
-	expect( v.setStateCache.view.selected ).toBe( 'errors' );
+	expect( v.setStateCache.view.selected ).toBe( 'errors.p0' );
 } );
 
 test( 'the published model carries only { connectionError, logs, selected, paused }', () => {
@@ -141,7 +141,7 @@ test( 'the published model carries only { connectionError, logs, selected, pause
 	v.fill(
 		controlMsg( {
 			action: 'logs',
-			logs: [ { key: 'firehose', label: 'firehose.log' } ],
+			logs: [ { key: 'firehose.p0', label: 'firehose.p0' } ],
 		} )
 	);
 	expect( Object.keys( v.setStateCache.view ).sort() ).toEqual( [
@@ -157,23 +157,23 @@ test( 'logs action populates availableLogs and defaults the selection', () => {
 	v.fill(
 		controlMsg( {
 			action: 'logs',
-			logs: [ { key: 'firehose', label: 'firehose.log' } ],
+			logs: [ { key: 'firehose.p0', label: 'firehose.p0' } ],
 		} )
 	);
 	expect( v.setStateCache.view.logs ).toHaveLength( 1 );
-	expect( v.setStateCache.view.selected ).toBe( 'firehose' );
+	expect( v.setStateCache.view.selected ).toBe( 'firehose.p0' );
 } );
 
 test( 'logs action does NOT override an already-selected log', () => {
 	const v = makeView( 'rawlogs:view' );
-	v.fill( controlMsg( { action: 'select', log: 'errors' } ) );
+	v.fill( controlMsg( { action: 'select', log: 'errors.p0' } ) );
 	v.fill(
 		controlMsg( {
 			action: 'logs',
-			logs: [ { key: 'firehose', label: 'firehose.log' } ],
+			logs: [ { key: 'firehose.p0', label: 'firehose.p0' } ],
 		} )
 	);
-	expect( v.setStateCache.view.selected ).toBe( 'errors' );
+	expect( v.setStateCache.view.selected ).toBe( 'errors.p0' );
 } );
 
 test( 'resume after pause lets rows through again', () => {
@@ -214,7 +214,7 @@ test( 'select clears node.lps back to zero', () => {
 	for ( let i = 0; i < 50; i++ ) {
 		v.fill( envelopeMsg( { value: `row ${ i }` } ) );
 	}
-	v.fill( controlMsg( { action: 'select', log: 'errors' } ) );
+	v.fill( controlMsg( { action: 'select', log: 'errors.p0' } ) );
 	expect( v.lps ).toBe( 0 );
 } );
 

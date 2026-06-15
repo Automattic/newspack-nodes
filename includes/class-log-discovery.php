@@ -1,6 +1,6 @@
 <?php
 /**
- * Log_Discovery — globs `{base}/logs/*.log/` for the sorted basename list (without `.log`). Memoized per-process; cleared on Config::RESET_ACTION.
+ * Log_Discovery — globs the first-level dirs under `{base}/logs` for the sorted concrete dir basename list (flat partition-in-name layout, e.g. `firehose.p0`). Memoized per-process; cleared on Config::RESET_ACTION.
  *
  * @package Newspack_Nodes
  */
@@ -15,7 +15,9 @@ final class Log_Discovery {
 	private static ?array $cached = null;
 
 	/**
-	 * Sorted basenames of every `{base}/logs/*.log/` directory (without `.log`).
+	 * Sorted concrete dir basenames of every first-level directory under
+	 * `{base}/logs` (flat partition-in-name layout, e.g. `firehose.p0`),
+	 * returned verbatim. GLOB_ONLYDIR skips Log file-sink segment files.
 	 *
 	 * @return array<string>
 	 */
@@ -24,14 +26,14 @@ final class Log_Discovery {
 			return self::$cached;
 		}
 		$base_dir = Config::get_base_directory();
-		$matches  = \glob( "{$base_dir}/logs/*.log", \GLOB_ONLYDIR );
+		$matches  = \glob( "{$base_dir}/logs/*", \GLOB_ONLYDIR );
 		if ( false === $matches ) {
 			return self::$cached = [];
 		}
 		\sort( $matches );
 		$out = [];
 		foreach ( $matches as $path ) {
-			$out[] = (string) \preg_replace( '/\.log$/', '', \basename( $path ) );
+			$out[] = \basename( $path );
 		}
 		return self::$cached = $out;
 	}

@@ -978,17 +978,18 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( 'MB', $html );
 		// Calculated-as caption.
 		$this->assertStringContainsString( 'Calculated as', $html );
-		// Description references the segment-MB and partitions/segments breakdown.
+		// Description references the segment-MB and segments/log-partitions breakdown.
 		$this->assertStringContainsString( 'segment ', $html );
-		$this->assertStringContainsString( 'partitions', $html );
-		$this->assertStringContainsString( 'logs', $html );
+		$this->assertStringContainsString( 'segments', $html );
+		$this->assertStringContainsString( 'log partitions', $html );
 	}
 
 	public function test_total_storage_callback_counts_logs_from_disk(): void {
-		// `num_logs` factor now reads from `Log_Discovery::on_disk()`. Seed
-		// five log directories so the calculation breakdown shows `× 5 logs`.
-		foreach ( [ 'a', 'b', 'c', 'd', 'e' ] as $name ) {
-			\mkdir( "{$this->base_dir}/logs/{$name}.log", 0755, true );
+		// The dir-count factor reads from `Log_Discovery::on_disk()`, which now
+		// returns concrete per-partition dirs. Seed five so the breakdown shows
+		// `× 5 log partitions`.
+		foreach ( [ 'a.p0', 'b.p0', 'c.p0', 'd.p0', 'e.p0' ] as $name ) {
+			\mkdir( "{$this->base_dir}/logs/{$name}", 0755, true );
 		}
 		\Newspack_Nodes\Log_Discovery::reset();
 
@@ -998,16 +999,41 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$admin->total_storage_callback();
 		$html = \ob_get_clean();
 
-		$this->assertMatchesRegularExpression( '/×\s*5\s*logs/u', $html );
+		$this->assertMatchesRegularExpression( '/×\s*5\s*log partitions/u', $html );
+	}
+
+	public function test_total_storage_callback_does_not_double_count_partitions(): void {
+		// `Log_Discovery::on_disk()` now returns CONCRETE per-partition dir
+		// names, so the partition dimension is already in the dir count. The
+		// estimate must be segment_size × num_segments × dir_count — NOT
+		// multiplied by num_partitions a second time.
+		\update_option( 'newspack_nodes_segment_size', 10 * 1024 * 1024 );
+		\update_option( 'newspack_nodes_num_segments', 4 );
+		\update_option( 'newspack_nodes_num_partitions', 4 );
+		foreach ( [ 'firehose.p0', 'firehose.p1', 'firehose.p2' ] as $name ) {
+			\mkdir( "{$this->base_dir}/logs/{$name}", 0755, true );
+		}
+		\Newspack_Nodes\Log_Discovery::reset();
+
+		$admin = new Admin();
+
+		\ob_start();
+		$admin->total_storage_callback();
+		$html = \ob_get_clean();
+
+		// 10 MB × 4 segments × 3 dirs = 120 MB. The buggy formula would
+		// multiply by num_partitions (4) again => 480 MB.
+		$this->assertStringContainsString( '120 MB', $html );
+		$this->assertStringNotContainsString( '480 MB', $html );
 	}
 
 	public function test_total_storage_callback_shows_gb_when_total_over_one_gigabyte(): void {
-		// Force a large enough total: 64MB segment × 4 segments × 4 partitions × 2 logs ≈ 2 GB.
+		// Force a large enough total: 64MB segment × 4 segments × 4 on-disk dirs = 1 GB.
 		\update_option( 'newspack_nodes_segment_size', 64 * 1024 * 1024 );
 		\update_option( 'newspack_nodes_num_segments', 4 );
-		\update_option( 'newspack_nodes_num_partitions', 4 );
-		\mkdir( "{$this->base_dir}/logs/one.log", 0755, true );
-		\mkdir( "{$this->base_dir}/logs/two.log", 0755, true );
+		foreach ( [ 'firehose.p0', 'firehose.p1', 'jobs.p0', 'jobs.p1' ] as $name ) {
+			\mkdir( "{$this->base_dir}/logs/{$name}", 0755, true );
+		}
 		\Newspack_Nodes\Log_Discovery::reset();
 
 		$admin = new Admin();

@@ -154,7 +154,8 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		SSE_Out_Node::$acquire_slot = static fn (): int|false => 1;
 
 		$base = $this->make_temp_dir( 'msg-slot-direct-sink-' );
-		$pdir = "{$base}/logs/firehose.log/p0";
+		// Flat layout: the bare-name `firehose` subscription fans out to `firehose.p0`.
+		$pdir = "{$base}/logs/firehose.p0";
 		\mkdir( $pdir, 0755, true );
 
 		// Pre-seed segment 0 of the firehose log partition 0 with a packed

@@ -750,6 +750,50 @@ class WorkersCITest extends TestCase {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
+	public function test_dump_metadata_includes_request_scope_producer_logs(): void {
+		// The request-scope PRODUCER logs (firehose, jobintake — written by ELN's
+		// Log_Manager / Job_Intake, declared in NO .tsl) get NO topology catalog
+		// entry. They must still appear in the dump_graph `logs[]` so the React
+		// `firehose.p<partition>` vertex resolves to a concrete match instead of
+		// rendering the raw template. Sourced from the same
+		// `registered_log_producers` filter the GC uses, × clamped config
+		// num_partitions.
+		$base = $this->arrange_base_dir();
+		// Two partitions so the producer-dir expansion is observable per partition.
+		$this->use_base_dir(
+			$base,
+			[
+				'num_partitions' => 2,
+				'num_segments'   => 8,
+				'segment_size'   => 16 * 1024 * 1024,
+			]
+		);
+		\add_filter(
+			'newspack_nodes/registered_log_producers',
+			static fn (): array => [ 'firehose', 'jobintake' ]
+		);
+		$this->seed_log_segment( $base, 'firehose',  0, 0, 128 );
+		$this->seed_log_segment( $base, 'jobintake', 1, 0, 64 );
+
+		$interpreter        = new Workers_CI_Node();
+		$interpreter->cli   = $this->stub_cli();
+		$interpreter->cache = new FakeMemcached();
+		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$by_name = [];
+		foreach ( $result['logs'] as $log ) {
+			$by_name[ $log['name'] ] = $log;
+		}
+		foreach ( [ 'firehose.p0', 'firehose.p1', 'jobintake.p0', 'jobintake.p1' ] as $name ) {
+			$this->assertArrayHasKey( $name, $by_name, "missing producer catalog entry: {$name}" );
+		}
+		// The seeded segments surface on their concrete dirs.
+		$this->assertCount( 1, $by_name['firehose.p0']['partitions'][0]['segments'] );
+		$this->assertSame( 128, $by_name['firehose.p0']['partitions'][0]['total_size'] );
+		$this->assertCount( 1, $by_name['jobintake.p1']['partitions'][0]['segments'] );
+		$this->assertSame( 64, $by_name['jobintake.p1']['partitions'][0]['total_size'] );
+	}
+
 	public function test_dump_metadata_logs_carry_per_partition_segment_size_overrides(): void {
 		// Workers dashboard surfaces a per-log "max segment size" indicator.
 		// Topologies that hardcode an int as the Partition `segment_size`

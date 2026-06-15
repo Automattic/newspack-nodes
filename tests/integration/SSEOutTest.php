@@ -60,13 +60,15 @@ class SSEOutTest extends TestCase {
 
 	public function test_stream_emits_connected_then_msg_for_each_log_line(): void {
 		$base = $this->make_temp_dir( 'msg-stream-int-' );
-		\mkdir( "{$base}/logs/firehose.log/p0", 0755, true );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
 
 		// Pre-populate the firehose log with two TM_BYTESTREAM lines so the
 		// Consumer has something to drain. Use Partition::fill directly with
 		// a constructed Message (matches how Partition writes data on disk).
+		// Flat layout: the bare-name `firehose` subscription fans out to the
+		// concrete `firehose.p0` dir.
 		$p = new Partition_Node();
-		$p->arguments( "{$base}/logs/firehose.log/p0" );
+		$p->arguments( "{$base}/logs/firehose.p0" );
 		$line1 = Message::new_message();
 		$line1[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$line1[ Message::VALUE ] = "line-one\n";
@@ -125,7 +127,7 @@ class SSEOutTest extends TestCase {
 		// (`node name collision: gyroscope already registered`). The partition the
 		// dashboard reads rides the stamp/FROM, not the node name.
 		$base = $this->make_temp_dir( 'msg-stream-multi-' );
-		\mkdir( "{$base}/logs/gyroscope.log/p0", 0755, true );
+		\mkdir( "{$base}/logs/gyroscope.p0", 0755, true );
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );
@@ -154,11 +156,11 @@ class SSEOutTest extends TestCase {
 	 */
 	public function test_stream_flushes_buffers_with_padding(): void {
 		$base = $this->make_temp_dir( 'msg-stream-flush-' );
-		\mkdir( "{$base}/logs/firehose.log/p0", 0755, true );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
 
 		$p = new Partition_Node();
 
-		$p->arguments( "{$base}/logs/firehose.log/p0" );
+		$p->arguments( "{$base}/logs/firehose.p0" );
 		$line = Message::new_message();
 		$line[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$line[ Message::VALUE ] = "payload\n";
@@ -200,9 +202,9 @@ class SSEOutTest extends TestCase {
 		// honors `positions=start`; worker-IPC Consumers tail-seek to 'end'. Both sink
 		// into `_default_route` → interpreter, so the interpret+route path under test is shared.)
 		$base = $this->make_temp_dir( 'msg-stream-cmd-' );
-		\mkdir( "{$base}/logs/firehose.log/p0", 0755, true );
+		\mkdir( "{$base}/logs/firehose.p0", 0755, true );
 		$p = new Partition_Node();
-		$p->arguments( "{$base}/logs/firehose.log/p0" );
+		$p->arguments( "{$base}/logs/firehose.p0" );
 		$cmd = Message::new_message();
 		$cmd[ Message::TYPE ]  = Message::TM_COMMAND;
 		$cmd[ Message::TO ]    = Node_Names::COMMAND_INTERPRETER;
