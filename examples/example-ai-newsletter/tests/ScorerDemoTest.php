@@ -1,14 +1,14 @@
 <?php
 declare(strict_types=1);
 
-require_once dirname( __DIR__ ) . '/includes/class-scorer.php';
+require_once dirname( __DIR__ ) . '/includes/class-scorer-demo.php';
 
-use Example_AI_Newsletter\Scorer_Node;
+use Example_AI_Newsletter\Scorer_Demo_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
 
-final class ScorerTest extends TestCase {
+final class ScorerDemoTest extends TestCase {
 
 	private function item( array $value ): array {
 		$m                   = Message::new_message();
@@ -19,7 +19,7 @@ final class ScorerTest extends TestCase {
 
 	public function test_adds_deterministic_score_and_forwards(): void {
 		$sink = new Capture_Sink_Node();
-		$node = new Scorer_Node();
+		$node = new Scorer_Demo_Node();
 		$node->sink( $sink );
 
 		$msg = $this->item( [ 'source' => 'releases', 'title' => 'Roundup Block ships', 'summary' => 's' ] );
@@ -40,7 +40,7 @@ final class ScorerTest extends TestCase {
 
 	public function test_unknown_source_gets_base_weight(): void {
 		$sink = new Capture_Sink_Node();
-		$node = new Scorer_Node();
+		$node = new Scorer_Demo_Node();
 		$node->sink( $sink );
 		$msg = $this->item( [ 'source' => 'mystery', 'title' => 'nothing notable', 'summary' => 's' ] );
 		$node->fill( $msg );
@@ -49,7 +49,7 @@ final class ScorerTest extends TestCase {
 
 	public function test_keyword_match_is_word_bounded_not_substring(): void {
 		$sink = new Capture_Sink_Node();
-		$node = new Scorer_Node();
+		$node = new Scorer_Demo_Node();
 		$node->sink( $sink );
 		// "Garage" must not match 'GA', "awarded" must not match 'award' — whole words only.
 		$msg = $this->item( [ 'source' => 'community', 'title' => 'Garage cleanup awarded', 'summary' => 's' ] );
@@ -60,7 +60,7 @@ final class ScorerTest extends TestCase {
 
 	public function test_ignores_non_struct(): void {
 		$sink = new Capture_Sink_Node();
-		$node = new Scorer_Node();
+		$node = new Scorer_Demo_Node();
 		$node->sink( $sink );
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -71,7 +71,7 @@ final class ScorerTest extends TestCase {
 
 	public function test_emitted_item_carries_TO_from_target(): void {
 		$sink = new Capture_Sink_Node();
-		$node = new Scorer_Node();
+		$node = new Scorer_Demo_Node();
 		$node->sink( $sink );
 		$node->connect_node( 'scored:partition' );
 		$msg = $this->item( [ 'source' => 'community', 'title' => 'x', 'summary' => 's' ] );

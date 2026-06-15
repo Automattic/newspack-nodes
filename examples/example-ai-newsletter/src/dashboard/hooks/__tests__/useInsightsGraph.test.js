@@ -111,8 +111,9 @@ describe( 'useInsightsGraph — poll', () => {
 
 		expect( client.batches.length ).toBeGreaterThanOrEqual( 1 );
 		const msg = client.batches[ 0 ][ 0 ];
-		// HttpOut strips `_http/`, so it's bare `insights` at postBatch time.
-		expect( msg[ TO ] ).toBe( 'insights' );
+		// HttpOut strips `_http/`, so it's the bare `insights-demo` server-node
+		// target at postBatch time (the verb name stays `insights`).
+		expect( msg[ TO ] ).toBe( 'insights-demo' );
 		expect( msg[ FROM ] ).toBe( VIEW );
 		expect( msg[ VALUE ].name ).toBe( 'insights' );
 		expect( msg[ VALUE ].arguments ).toBe( '' );

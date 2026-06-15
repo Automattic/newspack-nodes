@@ -9,27 +9,27 @@
 # appends each scored item to the durable `scored` partition. A Consumer
 # tails that log into the digest, and co-commits the digest's accumulated state
 # (save_state) into its offsetlog via `set_snapshot_node digest` — so a respawned
-# worker restores in lockstep with the cursor. Insights_CI reads that offsetlog
+# worker restores in lockstep with the cursor. Insights_CI_Demo reads that offsetlog
 # snapshot to serve the dashboard. `void_warranty` lifts the partition's 4KB
 # write cap (a scored batch can exceed PIPE_BUF); see ADR-4.
 var num_partitions = 1
 
-make_node Releases_Source  releases
-make_node Community_Source community
-make_node Summarizer       summarizer
-make_node Digest_Builder   digest
-make_node Tee              digest:tee
-make_node Log              digest:log /tmp/example-ai-newsletter/digest.md 1 7
+make_node Releases_Source_Demo  releases
+make_node Community_Source_Demo community
+make_node Summarizer_Demo       summarizer
+make_node Digest_Builder_Demo   digest
+make_node Tee                   digest:tee
+make_node Log                   digest:log /tmp/example-ai-newsletter/digest.md 1 7
 cmd digest:log:config void_warranty
-make_node Partition        scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition             scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
 cmd scored:partition:config void_warranty
-make_node Consumer         scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>
+make_node Consumer              scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>
 cmd scored:consumer:config set_snapshot_node digest
-make_node Scorer           scorer
-connect_node releases    summarizer
-connect_node community   summarizer
-connect_node summarizer  scorer
-connect_node scorer      scored:partition
+make_node Scorer_Demo           scorer
+connect_node releases        summarizer
+connect_node community       summarizer
+connect_node summarizer      scorer
+connect_node scorer          scored:partition
 connect_node scored:consumer digest
-connect_node digest      digest:tee
-connect_node digest:tee  digest:log
+connect_node digest          digest:tee
+connect_node digest:tee      digest:log

@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-require_once dirname( __DIR__ ) . '/includes/class-insights-ci.php';
+require_once dirname( __DIR__ ) . '/includes/class-insights-ci-demo.php';
 
-use Example_AI_Newsletter\Insights_CI_Node;
+use Example_AI_Newsletter\Insights_CI_Demo_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tests\TestCase;
@@ -43,7 +43,7 @@ final class InsightsCiTest extends TestCase {
 			[ 'source' => 'releases',  'title' => 'Minor fix',             'summary' => 's3', 'score' => 5.0 ],
 		] );
 
-		$model = Insights_CI_Node::read_insights_model( $offsets );
+		$model = Insights_CI_Demo_Node::read_insights_model( $offsets );
 
 		$this->assertSame( 3, $model['accumulated'] );
 		$this->assertSame( [ 'releases' => 2, 'community' => 1 ], $model['sources'] );
@@ -64,18 +64,18 @@ final class InsightsCiTest extends TestCase {
 		}
 		$this->write_snapshot( $offsets, 0, $items );
 
-		$model = Insights_CI_Node::read_insights_model( $offsets );
+		$model = Insights_CI_Demo_Node::read_insights_model( $offsets );
 		$this->assertSame( 60, $model['accumulated'] );
 		$this->assertSame( 59.0, $model['top'][0]['score'] ); // highest score first
 	}
 
 	public function test_missing_offsets_dir_yields_empty_model(): void {
-		$model = Insights_CI_Node::read_insights_model( '/nonexistent/' . \uniqid() );
+		$model = Insights_CI_Demo_Node::read_insights_model( '/nonexistent/' . \uniqid() );
 		$this->assertSame( [ 'sources' => [], 'top' => [], 'accumulated' => 0 ], $model );
 	}
 
 	public function test_insights_verb_is_registered_and_returns_json(): void {
-		$ci = new Insights_CI_Node();
+		$ci = new Insights_CI_Demo_Node();
 		$ci->name( 'insights' );
 		$this->assertArrayHasKey( 'insights', $ci->commands() );
 		$json = $ci->build_insights_json();

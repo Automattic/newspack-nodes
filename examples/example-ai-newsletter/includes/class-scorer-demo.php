@@ -1,6 +1,6 @@
 <?php
 /**
- * Scorer_Node: assigns a notional priority score to one item. Knows nothing about sources
+ * Scorer_Demo_Node: assigns a notional priority score to one item. Knows nothing about sources
  * beyond a per-source weight. The ONE seam a real scorer replaces is score().
  *
  * @package Example_AI_Newsletter
@@ -13,7 +13,7 @@ use Newspack_Nodes\Message;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Scorer_Node extends Node {
+class Scorer_Demo_Node extends Node {
 
 	/** Per-source base weight; unknown sources score 1.0. */
 	private const SOURCE_WEIGHT = [

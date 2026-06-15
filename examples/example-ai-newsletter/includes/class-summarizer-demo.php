@@ -1,6 +1,6 @@
 <?php
 /**
- * Summarizer_Node: turns one item into one summary. Knows nothing about sources.
+ * Summarizer_Demo_Node: turns one item into one summary. Knows nothing about sources.
  *
  * @package Example_AI_Newsletter
  */
@@ -12,7 +12,7 @@ use Newspack_Nodes\Message;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Summarizer_Node extends Node {
+class Summarizer_Demo_Node extends Node {
 
 	/**
 	 * The ONE seam a real summarizer replaces: item -> one-line summary. Toy = deterministic template.

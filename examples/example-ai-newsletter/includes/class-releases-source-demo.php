@@ -1,6 +1,6 @@
 <?php
 /**
- * Community_Source_Node: emits canned "community news" items on a TICK request.
+ * Releases_Source_Demo_Node: emits canned "release notes" items on a TICK request.
  *
  * @package Example_AI_Newsletter
  */
@@ -12,7 +12,7 @@ use Newspack_Nodes\Message;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Community_Source_Node extends Node {
+class Releases_Source_Demo_Node extends Node {
 
 	/**
 	 * The ONE seam a real source replaces: return ingest items. Toy = canned.
@@ -21,9 +21,8 @@ class Community_Source_Node extends Node {
 	 */
 	protected function items(): array {
 		return [
-			[ 'title' => 'Reader forum hits 10k members', 'url' => 'https://example.test/c1', 'body' => 'The publisher community forum crossed ten thousand members this week.' ],
-			[ 'title' => 'Local meetup recap', 'url' => 'https://example.test/c2', 'body' => 'Highlights from the latest in-person reader meetup downtown.' ],
-			[ 'title' => 'Volunteer spotlight', 'url' => 'https://example.test/c3', 'body' => 'A community moderator shares why they give their time.' ],
+			[ 'title' => 'Roundup Block ships', 'url' => 'https://example.test/r1', 'body' => 'AI summarizes selected posts into a draft.' ],
+			[ 'title' => 'Editorial Assistant GA', 'url' => 'https://example.test/r2', 'body' => 'Inline AI assistance in the editor.' ],
 		];
 	}
 
@@ -52,7 +51,7 @@ class Community_Source_Node extends Node {
 			$msg                   = Message::new_message();
 			$msg[ Message::TYPE ]  = Message::TM_STRUCT;
 			$msg[ Message::FROM ]  = $this->name;
-			$msg[ Message::VALUE ] = [ 'source' => 'community' ] + $item;
+			$msg[ Message::VALUE ] = [ 'source' => 'releases' ] + $item;
 			// parent::fill stamps TO from a connect_node-set target, then forwards to sink.
 			parent::fill( $msg );
 			++$count;
@@ -75,12 +74,12 @@ class Community_Source_Node extends Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'     => 'Source',
-			'description'  => 'Emits canned publisher-community news items on a TICK request (request_node community TICK).',
+			'description'  => 'Emits canned release-notes items on a TICK request (request_node releases TICK).',
 			'arguments'    => [],
 			'requests'     => [
 				[
 					'name'        => 'TICK',
-					'description' => 'Emit the current batch of items. Trigger with `request_node community TICK`.',
+					'description' => 'Emit the current batch of items. Trigger with `request_node releases TICK`.',
 					'reply_shape' => '{ emitted }',
 				],
 			],

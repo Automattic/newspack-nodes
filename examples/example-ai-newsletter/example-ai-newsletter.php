@@ -71,14 +71,14 @@ if ( \is_admin() ) {
 /**
  * Mount the Publisher Insights service interpreter into the per-request graph,
  * the same way the substrate mounts its own CIs. Idempotent: a second call
- * (same request) no-ops rather than colliding on the 'insights' node name.
+ * (same request) no-ops rather than colliding on the 'insights-demo' node name.
  */
 function mount_insights_ci( \Newspack_Nodes\Command_Interpreter_Node $base_interpreter ): void {
-	if ( null !== \Newspack_Nodes\Core::node( 'insights' ) ) {
+	if ( null !== \Newspack_Nodes\Core::node( 'insights-demo' ) ) {
 		return;
 	}
-	require_once __DIR__ . '/includes/class-insights-ci.php';
-	$base_interpreter->make_node( 'Insights_CI', 'insights' );
+	require_once __DIR__ . '/includes/class-insights-ci-demo.php';
+	$base_interpreter->make_node( 'Insights_CI_Demo', 'insights-demo' );
 }
 
 // Load after newspack-nodes (its own deferred loader runs at plugins_loaded:11).

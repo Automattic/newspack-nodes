@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-require_once dirname( __DIR__ ) . '/includes/class-releases-source.php';
+require_once dirname( __DIR__ ) . '/includes/class-releases-source-demo.php';
 
-use Example_AI_Newsletter\Releases_Source_Node;
+use Example_AI_Newsletter\Releases_Source_Demo_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
@@ -20,7 +20,7 @@ final class ReleasesSourceTest extends TestCase {
 
 	public function test_tick_request_emits_canned_items_as_struct_to_sink(): void {
 		$sink   = new Capture_Sink_Node();
-		$source = new Releases_Source_Node();
+		$source = new Releases_Source_Demo_Node();
 		$source->sink( $sink );
 
 		$req = $this->tick_request();
@@ -41,7 +41,7 @@ final class ReleasesSourceTest extends TestCase {
 
 	public function test_tick_request_replies_with_emitted_count_to_caller(): void {
 		$sink   = new Capture_Sink_Node();
-		$source = new Releases_Source_Node();
+		$source = new Releases_Source_Demo_Node();
 		$source->sink( $sink );
 
 		$req = $this->tick_request();
@@ -60,12 +60,12 @@ final class ReleasesSourceTest extends TestCase {
 	}
 
 	public function test_items_seam_is_overridable(): void {
-		$this->assertTrue( method_exists( Releases_Source_Node::class, 'items' ) );
+		$this->assertTrue( method_exists( Releases_Source_Demo_Node::class, 'items' ) );
 	}
 
 	public function test_emitted_message_carries_TO_from_target(): void {
 		$sink   = new Capture_Sink_Node();
-		$source = new Releases_Source_Node();
+		$source = new Releases_Source_Demo_Node();
 		$source->sink( $sink );
 		$source->connect_node( 'summarizer' );
 

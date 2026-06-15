@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-require_once dirname( __DIR__ ) . '/includes/class-digest-builder.php';
+require_once dirname( __DIR__ ) . '/includes/class-digest-builder-demo.php';
 
-use Example_AI_Newsletter\Digest_Builder_Node;
+use Example_AI_Newsletter\Digest_Builder_Demo_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
@@ -35,7 +35,7 @@ final class DigestBuilderTest extends TestCase {
 
 	public function test_flush_request_emits_markdown_with_all_summaries_then_clears(): void {
 		$sink = new Capture_Sink_Node();
-		$node = new Digest_Builder_Node();
+		$node = new Digest_Builder_Demo_Node();
 		$node->sink( $sink );
 
 		foreach ( [ 'a', 'b', 'c' ] as $s ) {
@@ -64,7 +64,7 @@ final class DigestBuilderTest extends TestCase {
 
 	public function test_flush_request_replies_with_count_to_caller(): void {
 		$sink = new Capture_Sink_Node();
-		$node = new Digest_Builder_Node();
+		$node = new Digest_Builder_Demo_Node();
 		$node->sink( $sink );
 
 		foreach ( [ 'a', 'b' ] as $s ) {
@@ -89,7 +89,7 @@ final class DigestBuilderTest extends TestCase {
 	public function test_flush_request_verb_is_documented_in_schema(): void {
 		// FLUSH is a runtime trigger: a TM_REQUEST handled in fill(), documented
 		// under node_schema()['requests'] (NOT a TM_COMMAND verb under 'commands').
-		$schema = Digest_Builder_Node::node_schema();
+		$schema = Digest_Builder_Demo_Node::node_schema();
 		$this->assertArrayHasKey( 'requests', $schema );
 		$names = array_column( $schema['requests'], 'name' );
 		$this->assertContains( 'FLUSH', $names );
@@ -97,7 +97,7 @@ final class DigestBuilderTest extends TestCase {
 
 	public function test_ignores_non_struct_messages(): void {
 		$sink = new Capture_Sink_Node();
-		$node = new Digest_Builder_Node();
+		$node = new Digest_Builder_Demo_Node();
 		$node->sink( $sink );
 		$m                   = Message::new_message();
 		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
@@ -111,7 +111,7 @@ final class DigestBuilderTest extends TestCase {
 
 	public function test_emitted_draft_carries_TO_from_target(): void {
 		$sink = new Capture_Sink_Node();
-		$node = new Digest_Builder_Node();
+		$node = new Digest_Builder_Demo_Node();
 		$node->sink( $sink );
 		$node->connect_node( 'out' );
 
@@ -128,7 +128,7 @@ final class DigestBuilderTest extends TestCase {
 	}
 
 	public function test_save_state_returns_accumulated_items(): void {
-		$node = new Digest_Builder_Node();
+		$node = new Digest_Builder_Demo_Node();
 		$a    = $this->summary( 'a' );
 		$node->fill( $a );
 		$b = $this->summary( 'b' );
@@ -141,7 +141,7 @@ final class DigestBuilderTest extends TestCase {
 
 	public function test_restore_state_repopulates_so_flush_emits_them(): void {
 		$sink = new Capture_Sink_Node();
-		$node = new Digest_Builder_Node();
+		$node = new Digest_Builder_Demo_Node();
 		$node->sink( $sink );
 		$node->restore_state( [ 'items' => [
 			[ 'source' => 'x', 'title' => 't', 'summary' => 'sum:restored' ],
@@ -152,18 +152,18 @@ final class DigestBuilderTest extends TestCase {
 	}
 
 	public function test_save_restore_round_trip_is_lossless(): void {
-		$a = new Digest_Builder_Node();
+		$a = new Digest_Builder_Demo_Node();
 		$m = $this->summary( 'a' );
 		$a->fill( $m );
 		// Model the real transport: the snapshot crosses a JSON boundary in the offsetlog.
 		$transported = \json_decode( (string) \json_encode( $a->save_state() ), true );
-		$b           = new Digest_Builder_Node();
+		$b           = new Digest_Builder_Demo_Node();
 		$b->restore_state( $transported );
 		$this->assertEquals( $a->save_state(), $b->save_state() );
 	}
 
 	public function test_restore_state_ignores_malformed_payload(): void {
-		$node = new Digest_Builder_Node();
+		$node = new Digest_Builder_Demo_Node();
 		$node->restore_state( [ 'items' => 'not-an-array' ] );
 		$this->assertSame( [ 'items' => [] ], $node->save_state() );
 	}

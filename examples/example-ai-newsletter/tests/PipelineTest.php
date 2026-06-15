@@ -9,19 +9,19 @@
 
 declare(strict_types=1);
 
-require_once dirname( __DIR__ ) . '/includes/class-releases-source.php';
-require_once dirname( __DIR__ ) . '/includes/class-community-source.php';
-require_once dirname( __DIR__ ) . '/includes/class-summarizer.php';
-require_once dirname( __DIR__ ) . '/includes/class-scorer.php';
-require_once dirname( __DIR__ ) . '/includes/class-digest-builder.php';
-require_once dirname( __DIR__ ) . '/includes/class-insights-ci.php';
+require_once dirname( __DIR__ ) . '/includes/class-releases-source-demo.php';
+require_once dirname( __DIR__ ) . '/includes/class-community-source-demo.php';
+require_once dirname( __DIR__ ) . '/includes/class-summarizer-demo.php';
+require_once dirname( __DIR__ ) . '/includes/class-scorer-demo.php';
+require_once dirname( __DIR__ ) . '/includes/class-digest-builder-demo.php';
+require_once dirname( __DIR__ ) . '/includes/class-insights-ci-demo.php';
 
-use Example_AI_Newsletter\Releases_Source_Node;
-use Example_AI_Newsletter\Community_Source_Node;
-use Example_AI_Newsletter\Summarizer_Node;
-use Example_AI_Newsletter\Scorer_Node;
-use Example_AI_Newsletter\Digest_Builder_Node;
-use Example_AI_Newsletter\Insights_CI_Node;
+use Example_AI_Newsletter\Releases_Source_Demo_Node;
+use Example_AI_Newsletter\Community_Source_Demo_Node;
+use Example_AI_Newsletter\Summarizer_Demo_Node;
+use Example_AI_Newsletter\Scorer_Demo_Node;
+use Example_AI_Newsletter\Digest_Builder_Demo_Node;
+use Example_AI_Newsletter\Insights_CI_Demo_Node;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
@@ -62,15 +62,15 @@ final class PipelineTest extends TestCase {
 		//           ├─> summarizer ─> scorer ─> digest ─> out
 		// community ┘
 		$out    = new Capture_Sink_Node();
-		$digest = new Digest_Builder_Node();
+		$digest = new Digest_Builder_Demo_Node();
 		$digest->sink( $out );
-		$scorer = new Scorer_Node();
+		$scorer = new Scorer_Demo_Node();
 		$scorer->sink( $digest );
-		$summarizer = new Summarizer_Node();
+		$summarizer = new Summarizer_Demo_Node();
 		$summarizer->sink( $scorer );
-		$releases = new Releases_Source_Node();
+		$releases = new Releases_Source_Demo_Node();
 		$releases->sink( $summarizer );
-		$community = new Community_Source_Node();
+		$community = new Community_Source_Demo_Node();
 		$community->sink( $summarizer );
 
 		$rel_req = $this->request( 'TICK' );
@@ -111,7 +111,7 @@ final class PipelineTest extends TestCase {
 		$this->created[] = $offsets;
 		\mkdir( "$offsets/scored.p0", 0777, true );
 
-		$digest = new Digest_Builder_Node();
+		$digest = new Digest_Builder_Demo_Node();
 		$digest->name( 'digest' );
 		$item = $this->summary_struct( 'releases', 'Roundup Block ships', 7.0 );
 		$digest->fill( $item );
@@ -122,7 +122,7 @@ final class PipelineTest extends TestCase {
 		$consumer->set_snapshot_node( 'digest' );
 		$consumer->checkpoint();
 
-		$model = Insights_CI_Node::read_insights_model( $offsets );
+		$model = Insights_CI_Demo_Node::read_insights_model( $offsets );
 		$this->assertSame( 1, $model['accumulated'] );
 		$this->assertSame( 'Roundup Block ships', $model['top'][0]['title'] );
 	}
