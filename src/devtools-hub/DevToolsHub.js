@@ -24,6 +24,7 @@ export default function DevToolsHub() {
 				right: '0',
 				bottom: '0',
 				zIndex: 99,
+				background: '#1e1e1e',
 				transition: 'left 0.1s ease-in-out',
 				margin: 0,
 				padding: 0,

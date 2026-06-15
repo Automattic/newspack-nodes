@@ -11,7 +11,7 @@
 
 import { memo } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
-import { SegmentBar } from './WorkerStatus';
+import { SegmentBar } from './SegmentBar';
 import { formatByteRate, formatBytes, formatEta } from './formatters';
 
 // A log keeps its filename; a node name is Title-Cased from its slug.

@@ -1,20 +1,37 @@
 .nodes-devtools__tabbar {
 	display: flex;
-	gap: 2px;
-	padding: 4px 4px 0;
+	gap: 4px;
+	padding: 6px 10px 0;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
+// Explicit light colors (not opacity over an inherited color) so the labels are
+// legible on the dark hub/overlay surfaces — inheriting WP-admin's dark text at
+// 60% opacity rendered dark-on-dark.
 .nodes-devtools__tab {
 	border: 0;
+	border-bottom: 2px solid transparent;
 	background: transparent;
-	padding: 4px 10px;
+	padding: 6px 14px;
 	cursor: pointer;
 	font: inherit;
-	opacity: 0.6;
+	font-size: 13px;
+	color: rgba(255, 255, 255, 0.55);
+	transition: color 0.15s, border-color 0.15s;
+
+	&:hover {
+		color: rgba(255, 255, 255, 0.85);
+	}
+
+	&:focus-visible {
+		outline: 2px solid #4493f8;
+		outline-offset: -2px;
+	}
 
 	&.is-active {
-		opacity: 1;
+		color: #fff;
 		font-weight: 600;
+		border-bottom-color: #3fb950;
 	}
 }
 
