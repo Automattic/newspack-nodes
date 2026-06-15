@@ -1,23 +1,25 @@
 import { render, fireEvent } from '@testing-library/react';
 import TreeEntity from '../TreeEntity';
 
+// Flat layout: a log entity is ONE concrete per-partition dir carrying that
+// partition's single slot. Its name is the concrete dir name (`requests.p0`).
 const logEntity = {
 	kind: 'log',
-	name: 'requests.log',
-	key: 'log:requests.log',
+	name: 'requests.p0',
+	key: 'log:requests.p0',
 	hasCursor: false,
 	partitions: [ { partition: 0, segments: [ { id: 0, size: 100 } ] } ],
 	children: [
 		{
 			kind: 'node',
 			name: 'flame-builder',
-			key: 't|flame-builder|requests.log',
+			key: 't|flame-builder|requests.p0',
 			workers: [
 				{
 					partition: 0,
 					status: 'running',
 					behind: 0,
-					source: 'requests.log',
+					source: 'requests.p0',
 					handler: 'flame-builder',
 				},
 			],
@@ -40,8 +42,25 @@ it( 'renders a log name and a reader node nested under it', () => {
 	const { container } = render(
 		<TreeEntity entity={ logEntity } depth={ 0 } { ...props } />
 	);
-	expect( container.textContent ).toMatch( /requests\.log/ );
+	expect( container.textContent ).toMatch( /requests\.p0/ );
 	expect( container.textContent ).toMatch( /flame-builder|Flame Builder/ );
+} );
+
+it( 'keys the log write/read rate on the concrete entry name (no .log strip, no partition suffix)', () => {
+	// The rate key MUST stay byte-identical to workerStatusTransform's recordLog
+	// key (the concrete log.name). With a flat per-partition entity that is just
+	// `entity.name` — `requests.p0` — not `${name.replace(/\.log$/,'')}-${p}`.
+	const { container } = render(
+		<TreeEntity
+			entity={ logEntity }
+			depth={ 0 }
+			{ ...props }
+			writeRates={ { 'requests.p0': 2048 } }
+		/>
+	);
+	expect( container.querySelector( '.log-write-rate' ).textContent ).toMatch(
+		/2/
+	);
 } );
 
 it( 'shows behind on a node row when behind > 0', () => {
@@ -55,7 +74,7 @@ it( 'shows behind on a node row when behind > 0', () => {
 						partition: 0,
 						status: 'running',
 						behind: 2 * 1024 * 1024,
-						source: 'requests.log',
+						source: 'requests.p0',
 						handler: 'flame-builder',
 					},
 				],
@@ -67,7 +86,7 @@ it( 'shows behind on a node row when behind > 0', () => {
 			entity={ e }
 			depth={ 0 }
 			{ ...props }
-			byteRates={ { 'flame-builder-0-requests.log': 0 } }
+			byteRates={ { 'flame-builder-0-requests.p0': 0 } }
 		/>
 	);
 	expect( container.querySelector( '.connector-behind' ) ).not.toBeNull();
@@ -84,7 +103,7 @@ it( 'fold caret toggles via onToggle with the entity key', () => {
 		/>
 	);
 	fireEvent.click( container.querySelector( '.caret' ) );
-	expect( onToggle ).toHaveBeenCalledWith( 'log:requests.log' );
+	expect( onToggle ).toHaveBeenCalledWith( 'log:requests.p0' );
 } );
 
 it( 'collapsed entity hides its detail rows and children', () => {
@@ -93,7 +112,7 @@ it( 'collapsed entity hides its detail rows and children', () => {
 			entity={ logEntity }
 			depth={ 0 }
 			{ ...props }
-			collapsed={ new Set( [ 'log:requests.log' ] ) }
+			collapsed={ new Set( [ 'log:requests.p0' ] ) }
 		/>
 	);
 	expect( container.querySelector( '.worker-segment-h' ) ).toBeNull();

@@ -130,14 +130,15 @@ export class WorkerStatusTransformNode extends Node {
 		// Per-log write rates + segment tracking by (logName, partition); max
 		// total_size and segment union so a stale snapshot can't shrink it.
 		const logSnapshots = new Map();
-		const recordLog = ( log, partition ) => {
+		const recordLog = ( log ) => {
 			if ( ! log || ! log.name ) {
 				return;
 			}
-			const logKey = `${ log.name.replace(
-				/\.log$/,
-				''
-			) }-${ partition }`;
+			// Flat layout: log.name is the concrete per-partition dir
+			// (`firehose.p0`) — already partition-unique, so it IS the rate key.
+			// Must stay byte-identical to TreeEntity's LogRows rateKey. No `.log`
+			// strip, no `-partition` suffix, no `.p{N}` parse.
+			const logKey = log.name;
 			const prior = logSnapshots.get( logKey ) || {
 				total_size: 0,
 				segments: new Map(),
@@ -152,12 +153,8 @@ export class WorkerStatusTransformNode extends Node {
 			logSnapshots.set( logKey, prior );
 		};
 		( data.workers || [] ).forEach( ( w ) => {
-			( w.inputs_status || [] ).forEach( ( log ) =>
-				recordLog( log, w.partition )
-			);
-			( w.outputs_status || [] ).forEach( ( log ) =>
-				recordLog( log, w.partition )
-			);
+			( w.inputs_status || [] ).forEach( ( log ) => recordLog( log ) );
+			( w.outputs_status || [] ).forEach( ( log ) => recordLog( log ) );
 		} );
 
 		logSnapshots.forEach( ( snap, logKey ) => {

@@ -12,6 +12,51 @@
  * the shared subtree is built once; multi-writer logs still repeat per writer.
  */
 
+const PARTITION_TOKEN = '<partition>';
+
+/**
+ * Concrete catalog entries a log VERTEX resolves to, layout-agnostic and
+ * parse-free of position. `graph_for` emits the writes/reads basename verbatim
+ * from the .tsl path arg, so a partitioned vertex carries the literal
+ * `<partition>` token wherever it sits (`firehose.p<partition>`, `<partition>-req`,
+ * …). A concrete catalog entry matches when the vertex's literal text brackets it
+ * (pre…post) AND the substituted middle is a non-empty all-digits string (the
+ * partition NUMBER). That digit check — not a position parse — is what keeps a
+ * token-at-end vertex (`firehose.p<partition>`, pre `firehose.p`) from grabbing a
+ * sibling `firehose.priority.p0` whose middle would be `riority.p0`. A token-free
+ * vertex (a Log sink `digest.md`, a clean logical name) matches only its exact
+ * catalog twin; if nothing matches we fall back to the vertex itself so the tree
+ * still shows the node.
+ *
+ * @param {string}   vertex       The graph log-vertex name.
+ * @param {string[]} catalogNames All concrete catalog entry names.
+ * @return {string[]} Matching concrete names (alpha-sorted), or [vertex].
+ */
+function concreteLogNames( vertex, catalogNames ) {
+	const tokenAt = vertex.indexOf( PARTITION_TOKEN );
+	if ( tokenAt < 0 ) {
+		return [ vertex ];
+	}
+	// Degrade safely on a multi-token vertex (unrealistic): pre = before the
+	// first token, post = after the last; the all-digits middle test then
+	// simply won't match, which is acceptable.
+	const lastTokenAt = vertex.lastIndexOf( PARTITION_TOKEN );
+	const pre = vertex.slice( 0, tokenAt );
+	const post = vertex.slice( lastTokenAt + PARTITION_TOKEN.length );
+	const matches = catalogNames.filter( ( name ) => {
+		if (
+			name.length < pre.length + post.length ||
+			! name.startsWith( pre ) ||
+			! name.endsWith( post )
+		) {
+			return false;
+		}
+		const middle = name.slice( pre.length, name.length - post.length );
+		return middle.length > 0 && /^\d+$/.test( middle );
+	} );
+	return matches.length > 0 ? [ ...matches ].sort( byLower ) : [ vertex ];
+}
+
 const lc = ( s ) => String( s ).toLowerCase();
 const byLower = ( a, b ) => {
 	const x = lc( a );
@@ -300,12 +345,16 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 			workersByHandler.get( handler ).push( wk );
 		} );
 
+		const catalogNames = [ ...logSlotsByName.keys() ];
 		const childrenOf = ( vertex ) =>
 			[ ...( outAdj.get( vertex ) || [] ) ].sort( byLower );
+		// A log vertex expands to N concrete catalog entries (one flat entity
+		// each); a node vertex is one entity. Always returns an array so the
+		// sibling builder can flat-map uniformly.
 		const makeVertex = ( vertex, path, prefix ) =>
 			isLog.get( vertex )
 				? makeLog( vertex, path, prefix )
-				: makeNode( vertex, path, prefix );
+				: [ makeNode( vertex, path, prefix ) ];
 		const makeKids = ( vertex, path, parentKey ) => {
 			if ( path.has( vertex ) ) {
 				return [];
@@ -357,7 +406,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 					entities.push( makeJoinedNode( members, path, prefix ) );
 				} else {
 					members.forEach( ( v ) =>
-						entities.push( makeVertex( v, path, prefix ) )
+						entities.push( ...makeVertex( v, path, prefix ) )
 					);
 				}
 			} );
@@ -394,22 +443,29 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 				children: makeSiblings( childrenOf( ids[ 0 ] ), nextPath, key ),
 			};
 		};
-		const makeLog = ( vertex, path, prefix ) => {
-			const { partitions, hasCursor } = collectLogPartitions(
-				vertex,
-				ctx
-			);
-			const key = childKey( prefix, vertex );
-			return {
-				kind: 'log',
-				name: vertex,
-				key,
-				partitions,
-				hasCursor,
-				segment_size: logSegmentSizeByName.get( vertex ),
-				children: makeKids( vertex, path, key ),
-			};
-		};
+		// A log vertex expands to one flat entity per concrete catalog entry it
+		// resolves to (layout-agnostic, parse-free). Each entity is named by its
+		// concrete entry, carries that entry's single partition's worth, and gets
+		// its OWN position-keyed copy of the downstream subtree (so folding one
+		// concrete sibling never folds its twin, matching the existing
+		// position-key contract). Returns an array.
+		const makeLog = ( vertex, path, prefix ) =>
+			concreteLogNames( vertex, catalogNames ).map( ( name ) => {
+				const { partitions, hasCursor } = collectLogPartitions(
+					name,
+					ctx
+				);
+				const key = childKey( prefix, name );
+				return {
+					kind: 'log',
+					name,
+					key,
+					partitions,
+					hasCursor,
+					segment_size: logSegmentSizeByName.get( name ),
+					children: makeKids( vertex, path, key ),
+				};
+			} );
 
 		const rootVertices = [ ...inDegree.keys() ].filter(
 			( v ) => 0 === inDegree.get( v )
