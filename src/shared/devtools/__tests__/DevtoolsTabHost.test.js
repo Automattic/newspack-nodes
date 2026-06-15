@@ -107,6 +107,34 @@ describe( 'DevtoolsTabHost', () => {
 		expect( content.classList.contains( 'is-full-bleed' ) ).toBe( true );
 	} );
 
+	it( 'reports the initial and switched active tab id via onActiveTabChange', () => {
+		registerDevtoolsTab( {
+			id: 'console',
+			label: 'Console',
+			host: 'hub',
+			order: 0,
+			component: () => <div data-testid="console" />,
+		} );
+		registerDevtoolsTab( {
+			id: 'manager',
+			label: 'Manager',
+			host: 'hub',
+			order: 1,
+			component: () => <div data-testid="manager" />,
+		} );
+		const onActiveTabChange = jest.fn();
+		const { getByRole } = render(
+			<DevtoolsTabHost
+				host="hub"
+				onActiveTabChange={ onActiveTabChange }
+			/>
+		);
+		// The initial active tab (order 0) is reported on mount.
+		expect( onActiveTabChange ).toHaveBeenLastCalledWith( 'console' );
+		fireEvent.click( getByRole( 'tab', { name: 'Manager' } ) );
+		expect( onActiveTabChange ).toHaveBeenLastCalledWith( 'manager' );
+	} );
+
 	it( 'switches the full-bleed policy with the active tab', () => {
 		registerDevtoolsTab( {
 			id: 'console',
