@@ -1,25 +1,36 @@
 import { render, fireEvent } from '@testing-library/react';
 import TreeEntity from '../TreeEntity';
 
-// Flat layout: a log entity is ONE concrete per-partition dir carrying that
-// partition's single slot. Its name is the concrete dir name (`requests.p0`).
+// Grouped layout: a log entity is ONE logical log (`requests`) carrying its
+// concrete partitions as sub-rows.
 const logEntity = {
 	kind: 'log',
-	name: 'requests.p0',
-	key: 'log:requests.p0',
+	name: 'requests',
+	key: 'log:requests',
 	hasCursor: false,
-	partitions: [ { partition: 0, segments: [ { id: 0, size: 100 } ] } ],
+	partitions: [
+		{
+			partition: 0,
+			name: 'requests.p0',
+			segments: [ { id: 0, size: 100 } ],
+		},
+		{
+			partition: 1,
+			name: 'requests.p1',
+			segments: [ { id: 0, size: 100 } ],
+		},
+	],
 	children: [
 		{
 			kind: 'node',
 			name: 'flame-builder',
-			key: 't|flame-builder|requests.p0',
+			key: 't|flame-builder|requests',
 			workers: [
 				{
 					partition: 0,
 					status: 'running',
 					behind: 0,
-					source: 'requests.p0',
+					source: 'requests',
 					handler: 'flame-builder',
 				},
 			],
@@ -38,29 +49,40 @@ const props = {
 	onToggle: () => {},
 };
 
-it( 'renders a log name and a reader node nested under it', () => {
+it( 'renders the logical log name, one row per partition, and a reader node nested under it', () => {
 	const { container } = render(
 		<TreeEntity entity={ logEntity } depth={ 0 } { ...props } />
 	);
-	expect( container.textContent ).toMatch( /requests\.p0/ );
+	expect( container.querySelector( '.log-name' ).textContent ).toBe(
+		'requests'
+	);
+	// Two partition sub-rows, each labelled P{partition}.
+	expect( container.querySelectorAll( '.log-partition-row' ) ).toHaveLength(
+		2
+	);
+	const labels = [
+		...container.querySelectorAll( '.partition-label-inline' ),
+	].map( ( el ) => el.textContent );
+	expect( labels ).toEqual( [ 'P0', 'P1' ] );
 	expect( container.textContent ).toMatch( /flame-builder|Flame Builder/ );
 } );
 
-it( 'keys the log write/read rate on the concrete entry name (no .log strip, no partition suffix)', () => {
+it( 'keys each partition write/read rate on the CONCRETE partition name', () => {
 	// The rate key MUST stay byte-identical to workerStatusTransform's recordLog
-	// key (the concrete log.name). With a flat per-partition entity that is just
-	// `entity.name` — `requests.p0` — not `${name.replace(/\.log$/,'')}-${p}`.
+	// key (the concrete per-partition name), so the W/R rate animations line up.
 	const { container } = render(
 		<TreeEntity
 			entity={ logEntity }
 			depth={ 0 }
 			{ ...props }
-			writeRates={ { 'requests.p0': 2048 } }
+			writeRates={ { 'requests.p1': 2048 } }
 		/>
 	);
-	expect( container.querySelector( '.log-write-rate' ).textContent ).toMatch(
-		/2/
+	const rates = [ ...container.querySelectorAll( '.log-write-rate' ) ].map(
+		( el ) => el.textContent
 	);
+	// P0 has no rate (0 B/s); P1 keyed `requests.p1` shows 2 KB/s.
+	expect( rates[ 1 ] ).toMatch( /2/ );
 } );
 
 it( 'shows behind on a node row when behind > 0', () => {
@@ -74,7 +96,7 @@ it( 'shows behind on a node row when behind > 0', () => {
 						partition: 0,
 						status: 'running',
 						behind: 2 * 1024 * 1024,
-						source: 'requests.p0',
+						source: 'requests',
 						handler: 'flame-builder',
 					},
 				],
@@ -86,7 +108,7 @@ it( 'shows behind on a node row when behind > 0', () => {
 			entity={ e }
 			depth={ 0 }
 			{ ...props }
-			byteRates={ { 'flame-builder-0-requests.p0': 0 } }
+			byteRates={ { 'flame-builder-0-requests': 0 } }
 		/>
 	);
 	expect( container.querySelector( '.connector-behind' ) ).not.toBeNull();
@@ -103,7 +125,7 @@ it( 'fold caret toggles via onToggle with the entity key', () => {
 		/>
 	);
 	fireEvent.click( container.querySelector( '.caret' ) );
-	expect( onToggle ).toHaveBeenCalledWith( 'log:requests.p0' );
+	expect( onToggle ).toHaveBeenCalledWith( 'log:requests' );
 } );
 
 it( 'collapsed entity hides its detail rows and children', () => {
@@ -112,7 +134,7 @@ it( 'collapsed entity hides its detail rows and children', () => {
 			entity={ logEntity }
 			depth={ 0 }
 			{ ...props }
-			collapsed={ new Set( [ 'log:requests.p0' ] ) }
+			collapsed={ new Set( [ 'log:requests' ] ) }
 		/>
 	);
 	expect( container.querySelector( '.worker-segment-h' ) ).toBeNull();
@@ -174,7 +196,13 @@ it( 'folds only the instance whose position key is collapsed, not its twin', () 
 		name: 'x.log',
 		key,
 		hasCursor: false,
-		partitions: [ { partition: 0, segments: [ { id: 0, size: 100 } ] } ],
+		partitions: [
+			{
+				partition: 0,
+				name: 'x.log.p0',
+				segments: [ { id: 0, size: 100 } ],
+			},
+		],
 		children: [],
 	} );
 	const tree = {

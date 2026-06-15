@@ -169,12 +169,87 @@ it( 'terminates on a cycle (log writer feeds a node that writes back)', () => {
 	).not.toThrow();
 } );
 
-it( 'expands a partition-token log vertex into one flat entity per concrete catalog entry', () => {
+it( 'each grouped partition carries its CONCRETE catalog name as the rate key (render === transform)', () => {
+	// THE COUPLED RATE KEY: the transform (recordLog) keys on the concrete
+	// worker-status name verbatim (`firehose.p0`); the render (LogRows) keys on
+	// the partition's concrete `name`. makeLog must stamp that concrete name on
+	// each partition so the two sides are byte-identical by construction — no
+	// logical derivation anywhere in the key path.
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'r', 'consumer', { reads: 'firehose.p<partition>' } ),
+					gn( 'n', 'logic' ),
+				],
+				edges: [ [ 'r', 'n' ] ],
+			},
+		},
+		[],
+		[
+			{
+				name: 'firehose.p0',
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'firehose.p1',
+				partitions: [ { partition: 1, segments: [], total_size: 0 } ],
+			},
+		]
+	);
+	const log = section.tree.find( ( e ) => e.kind === 'log' );
+	// The render-side key is the concrete name verbatim; the transform-side key
+	// (recordLog) is `log.name` — the same concrete catalog string. Equal.
+	expect( log.partitions.map( ( p ) => p.name ) ).toEqual( [
+		'firehose.p0',
+		'firehose.p1',
+	] );
+} );
+
+it( 'the concrete rate key couples render and transform for a NON-.p{N} layout', () => {
+	// The fragility being closed: a partition token NOT in trailing-`.p{N}`
+	// position (`<partition>-req` → `0-req`/`1-req`). The render side keys on the
+	// partition's concrete `name`; the transform keys on the worker-status
+	// `log.name` verbatim. Both are the same concrete catalog string, so they
+	// match regardless of where the partition token sits.
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'r', 'consumer', { reads: '<partition>-req' } ),
+					gn( 'n', 'logic' ),
+				],
+				edges: [ [ 'r', 'n' ] ],
+			},
+		},
+		[],
+		[
+			{
+				name: '0-req',
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+			{
+				name: '1-req',
+				partitions: [ { partition: 1, segments: [], total_size: 0 } ],
+			},
+		]
+	);
+	const log = section.tree.find( ( e ) => e.kind === 'log' );
+	// Render key = partition.name; transform key = the verbatim worker log.name.
+	// They are the same concrete string for every partition — the coupling holds
+	// even though the token is at the FRONT, not a trailing `.p{N}`.
+	expect( log.partitions.map( ( p ) => p.name ) ).toEqual( [
+		'0-req',
+		'1-req',
+	] );
+} );
+
+it( 'groups a partition-token log vertex into ONE logical entity with its partitions as sub-rows', () => {
 	// graph_for emits the writes/reads basename verbatim from the .tsl path arg,
 	// so a partitioned log vertex carries the literal `<partition>` token. The
-	// catalog now holds CONCRETE per-partition entries (firehose.p0, firehose.p1).
-	// The vertex must expand into one flat log entity per matching catalog entry,
-	// named by the concrete entry — no `.p{N}` parse, alpha-sorted siblings.
+	// catalog holds CONCRETE per-partition entries (firehose.p0, firehose.p1).
+	// The vertex must GROUP into one LOGICAL log entity (`firehose`) carrying
+	// both partitions as sub-rows — NOT one flat entity per concrete entry.
 	const [ section ] = buildTopologySections(
 		{
 			t: {
@@ -199,19 +274,94 @@ it( 'expands a partition-token log vertex into one flat entity per concrete cata
 			},
 		]
 	);
-	// Two concrete log entities, one per catalog entry, alpha-sorted adjacent.
+	// Exactly ONE logical log entity, named by the partition-token-stripped vertex.
 	const logs = section.tree.filter( ( e ) => e.kind === 'log' );
-	expect( names( logs ) ).toEqual( [ 'firehose.p0', 'firehose.p1' ] );
-	// Each carries exactly its one partition's worth.
-	expect( logs[ 0 ].partitions ).toHaveLength( 1 );
+	expect( names( logs ) ).toEqual( [ 'firehose' ] );
+	// It carries both partitions as sub-rows.
+	expect( logs[ 0 ].partitions ).toHaveLength( 2 );
 	expect( logs[ 0 ].partitions[ 0 ].partition ).toBe( 0 );
-	expect( logs[ 1 ].partitions[ 0 ].partition ).toBe( 1 );
+	expect( logs[ 0 ].partitions[ 1 ].partition ).toBe( 1 );
+} );
+
+it( 'renders a source log consumer subtree ONCE, not duplicated per partition', () => {
+	// THE BUG (79c9dd6): a SOURCE log feeding a consumer subtree expanded into one
+	// flat entity per partition, DUPLICATING the entire downstream subtree once per
+	// partition. firehose.p<partition> → request-builder → completed.p<partition> /
+	// requests.p<partition> must render the request-builder subtree EXACTLY ONCE.
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'fh-in', 'consumer', {
+						reads: 'firehose.p<partition>',
+					} ),
+					gn( 'request-builder', 'logic' ),
+					gn( 'completed-out', 'partition', {
+						writes: 'completed.p<partition>',
+					} ),
+					gn( 'requests-out', 'partition', {
+						writes: 'requests.p<partition>',
+					} ),
+				],
+				edges: [
+					[ 'fh-in', 'request-builder' ],
+					[ 'request-builder', 'completed-out' ],
+					[ 'request-builder', 'requests-out' ],
+				],
+			},
+		},
+		[],
+		[
+			{
+				name: 'firehose.p0',
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'firehose.p1',
+				partitions: [ { partition: 1, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'completed.p0',
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'completed.p1',
+				partitions: [ { partition: 1, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'requests.p0',
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'requests.p1',
+				partitions: [ { partition: 1, segments: [], total_size: 0 } ],
+			},
+		]
+	);
+	// Walk the built tree, counting every entity by name.
+	const counts = {};
+	const walk = ( ents ) =>
+		ents.forEach( ( e ) => {
+			counts[ e.name ] = ( counts[ e.name ] || 0 ) + 1;
+			walk( e.children );
+		} );
+	walk( section.tree );
+	// (a) exactly ONE firehose logical entity.
+	expect( counts.firehose ).toBe( 1 );
+	// (b) the request-builder subtree appears EXACTLY ONCE.
+	expect( counts[ 'request-builder' ] ).toBe( 1 );
+	// (c) completed/requests each render as ONE grouped logical entity.
+	expect( counts.completed ).toBe( 1 );
+	expect( counts.requests ).toBe( 1 );
+	// And the firehose entity carries both partitions as sub-rows.
+	const firehose = section.tree.find( ( e ) => e.name === 'firehose' );
+	expect( firehose.partitions ).toHaveLength( 2 );
 } );
 
 it( 'does not over-match a sibling log that shares the partition-token prefix', () => {
-	// Vertex `firehose.p<partition>` (token at END) must expand to its own
-	// partitions only — NOT a sibling `firehose.priority.p0` that merely
-	// startsWith the pre `firehose.p`. The substituted middle must be all-digits.
+	// Vertex `firehose.p<partition>` (token at END) must group its own partitions
+	// only — NOT a sibling `firehose.priority.p0` that merely startsWith the pre
+	// `firehose.p`. The substituted middle must be all-digits.
 	const [ section ] = buildTopologySections(
 		{
 			t: {
@@ -244,14 +394,17 @@ it( 'does not over-match a sibling log that shares the partition-token prefix', 
 		]
 	);
 	const logs = section.tree.filter( ( e ) => e.kind === 'log' );
-	expect( names( logs ) ).toEqual( [ 'firehose.p0', 'firehose.p1' ] );
+	// One logical `firehose` entity with exactly its two partitions.
+	expect( names( logs ) ).toEqual( [ 'firehose' ] );
+	expect( logs[ 0 ].partitions.map( ( p ) => p.partition ) ).toEqual( [
+		0, 1,
+	] );
 } );
 
 it( 'matches a token at an arbitrary position and rejects a non-digit middle', () => {
 	// Token in the MIDDLE (`<partition>-req`): `0-req`/`1-req` match (digit
-	// middle), but `0-request` must NOT (its middle vs post `-req` leaves
-	// `0-request`.slice(0, len-4) = `0-req`… actually the middle test guards it:
-	// for `0-request`, pre='' post='-req' → endsWith('-req') is false, rejected).
+	// middle), but `x-req` must NOT (non-digit middle). The logical name is the
+	// token-stripped vertex (`req`) and it groups both digit partitions.
 	const [ section ] = buildTopologySections(
 		{
 			t: {
@@ -282,8 +435,11 @@ it( 'matches a token at an arbitrary position and rejects a non-digit middle', (
 		]
 	);
 	const logs = section.tree.filter( ( e ) => e.kind === 'log' );
-	// `x-req` has a non-digit middle and is rejected; only the digit ones match.
-	expect( names( logs ) ).toEqual( [ '0-req', '1-req' ] );
+	// `x-req` has a non-digit middle and is rejected; only the digit ones group.
+	expect( names( logs ) ).toEqual( [ 'req' ] );
+	expect( logs[ 0 ].partitions.map( ( p ) => p.partition ) ).toEqual( [
+		0, 1,
+	] );
 } );
 
 it( 'a token-free vertex matches its exact catalog twin only', () => {

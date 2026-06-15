@@ -91,56 +91,65 @@ function LogRows( {
 	prevSegments,
 	removingSegments,
 } ) {
-	// Flat layout: the entity IS one concrete per-partition log dir, so it renders
-	// a single row. The rate key is the concrete entry name (`requests.p0`) —
-	// byte-identical to workerStatusTransform's recordLog key. No `.log` strip, no
-	// partition suffix, no `.p{N}` parse. Siblings (`requests.p0`, `requests.p1`)
-	// are separate entities; the tree's alpha-sort lands them adjacent.
-	const rateKey = entity.name;
-	const p = entity.partitions?.[ 0 ] || { partition: 0, segments: [] };
-	const segs = p.segments || [];
-	const newestSegId = segs.length
-		? Math.max( ...segs.map( ( s ) => s.id ) )
-		: 0;
-	const cursor =
-		entity.hasCursor && p.cursor_seg !== undefined && p.cursor_seg !== null
-			? { seg: p.cursor_seg, offset: p.cursor_offset }
-			: undefined;
-	const removing = removingSegments[ rateKey ] || [];
-	const all = [ ...removing, ...segs ].sort( ( a, b ) => a.id - b.id );
-	const removingIds = new Set( removing.map( ( s ) => s.id ) );
-	return (
-		<div className="log-partition-row">
-			<div className="log-partition-info">
-				<span className="log-write-rate">
-					{ entity.hasCursor ? 'R' : 'W' }{ ' ' }
-					{ formatByteRate( writeRates[ rateKey ] ) }
-				</span>
-			</div>
-			<div className="partition-segments">
-				{ all.map( ( seg ) => (
-					<SegmentBar
-						key={ seg.id }
-						segment={ seg }
-						maxSize={ entity.segment_size || segmentSize }
-						cursorSeg={ cursor?.seg }
-						cursorOffset={ cursor?.offset }
-						newestSegId={ newestSegId }
-						isNew={
-							prevSegments?.[ rateKey ] &&
-							! prevSegments[ rateKey ].has( seg.id )
-						}
-						isRemoving={ removingIds.has( seg.id ) }
-					/>
-				) ) }
-				{ all.length === 0 && (
-					<div className="no-segments-h">
-						{ __( 'No segments', 'newspack-nodes' ) }
-					</div>
-				) }
-			</div>
-		</div>
+	// Grouped layout: the entity is ONE logical log; render one sub-row per
+	// concrete partition. The rate key is the partition's CONCRETE catalog name —
+	// byte-identical to workerStatusTransform's recordLog key (which keys on the
+	// worker-status log.name verbatim) — so the W/R rate and segment animations
+	// line up regardless of where the partition token sits.
+	const sorted = [ ...entity.partitions ].sort(
+		( a, b ) => a.partition - b.partition
 	);
+	return sorted.map( ( p ) => {
+		const rateKey = p.name;
+		const segs = p.segments || [];
+		const newestSegId = segs.length
+			? Math.max( ...segs.map( ( s ) => s.id ) )
+			: 0;
+		const cursor =
+			entity.hasCursor &&
+			p.cursor_seg !== undefined &&
+			p.cursor_seg !== null
+				? { seg: p.cursor_seg, offset: p.cursor_offset }
+				: undefined;
+		const removing = removingSegments[ rateKey ] || [];
+		const all = [ ...removing, ...segs ].sort( ( a, b ) => a.id - b.id );
+		const removingIds = new Set( removing.map( ( s ) => s.id ) );
+		return (
+			<div key={ p.partition } className="log-partition-row">
+				<div className="log-partition-info">
+					<span className="partition-label-inline">
+						P{ p.partition }
+					</span>
+					<span className="log-write-rate">
+						{ entity.hasCursor ? 'R' : 'W' }{ ' ' }
+						{ formatByteRate( writeRates[ rateKey ] ) }
+					</span>
+				</div>
+				<div className="partition-segments">
+					{ all.map( ( seg ) => (
+						<SegmentBar
+							key={ seg.id }
+							segment={ seg }
+							maxSize={ entity.segment_size || segmentSize }
+							cursorSeg={ cursor?.seg }
+							cursorOffset={ cursor?.offset }
+							newestSegId={ newestSegId }
+							isNew={
+								prevSegments?.[ rateKey ] &&
+								! prevSegments[ rateKey ].has( seg.id )
+							}
+							isRemoving={ removingIds.has( seg.id ) }
+						/>
+					) ) }
+					{ all.length === 0 && (
+						<div className="no-segments-h">
+							{ __( 'No segments', 'newspack-nodes' ) }
+						</div>
+					) }
+				</div>
+			</div>
+		);
+	} );
 }
 
 const TreeEntity = memo( function TreeEntity( props ) {

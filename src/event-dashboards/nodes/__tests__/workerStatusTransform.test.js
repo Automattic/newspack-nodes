@@ -261,7 +261,8 @@ describe( 'workerstatus:transform — rate math from two snapshots', () => {
 			advance( 2000 ); // 2s between snapshots
 			t.fill( metadataMsg( producerSnapshot( 1100 ) ) );
 			const { model } = sink.got[ 1 ][ VALUE ];
-			// (1100 - 100) bytes / 2s = 500 B/s, keyed by the concrete log name `${name}`.
+			// (1100 - 100) bytes / 2s = 500 B/s, keyed on the CONCRETE log name
+			// verbatim (`firehose.p0`) — byte-identical to the render side.
 			expect( model.writeRates[ 'firehose.p0' ] ).toBe( 500 );
 		} );
 	} );
@@ -277,6 +278,43 @@ describe( 'workerstatus:transform — rate math from two snapshots', () => {
 			const { model } = sink.got[ 1 ][ VALUE ];
 			// processed went 0 → 2000 over 1s; key `${handler}-${partition}-${source}`.
 			expect( model.byteRates[ 'request-workers-0-' ] ).toBe( 2000 );
+		} );
+	} );
+
+	test( 'keys the write rate on a NON-.p{N} concrete name verbatim (layout-agnostic)', () => {
+		withClock( ( advance ) => {
+			const sink = capture();
+			const t = makeTransform( 'workerstatus:transform' );
+			t.sink = sink.node;
+			// A concrete dir whose partition token is NOT a trailing `.p{N}`
+			// (`feed_p0`). The key must be the concrete name verbatim — no
+			// logical derivation — so it matches the render side regardless of
+			// where the partition token sits.
+			const snap = ( total ) => ( {
+				workers: [
+					{
+						type: 'firehose-workers',
+						handler: 'firehose-workers',
+						partition: 0,
+						outputs: [ 'feed_p0' ],
+						inputs_status: [],
+						outputs_status: [
+							{
+								name: 'feed_p0',
+								segments: [ { id: 1, size: total } ],
+								total_size: total,
+							},
+						],
+					},
+				],
+				supervisor: null,
+				logs: [],
+			} );
+			t.fill( metadataMsg( snap( 100 ) ) );
+			advance( 2000 );
+			t.fill( metadataMsg( snap( 1100 ) ) );
+			const { model } = sink.got[ 1 ][ VALUE ];
+			expect( model.writeRates.feed_p0 ).toBe( 500 );
 		} );
 	} );
 
