@@ -260,9 +260,18 @@ export default function TopologyManager() {
 			return next;
 		} );
 
-	const sorted = [ ...topologies ].sort( ( a, b ) =>
-		a.name.localeCompare( b.name )
-	);
+	// Active topologies float to the top (they carry the live tree worth
+	// watching); alphabetical within each group. Normalize `active` to a real
+	// boolean so the group split stays a valid total order even if a row ever
+	// arrives with active undefined/absent.
+	const sorted = [ ...topologies ].sort( ( a, b ) => {
+		const aActive = !! a.active;
+		const bActive = !! b.active;
+		if ( aActive !== bActive ) {
+			return aActive ? -1 : 1;
+		}
+		return a.name.localeCompare( b.name );
+	} );
 
 	return (
 		<div className="nodes-tm">

@@ -212,6 +212,43 @@ test( 'renders every topology with its name and source badge', () => {
 	expect( container.querySelector( '.nodes-tm__badge--user' ) ).toBeTruthy();
 } );
 
+test( 'floats active topologies above inactive ones, alpha within each group', () => {
+	useTopologyManager.mockReturnValue(
+		hookValue( {
+			topologies: [
+				{
+					name: 'alpha',
+					source: 'stock',
+					active: false,
+					num_partitions: 1,
+					status: null,
+				},
+				{
+					name: 'zeta',
+					source: 'stock',
+					active: true,
+					num_partitions: 1,
+					status: activeStatus(),
+				},
+				{
+					name: 'mid',
+					source: 'stock',
+					active: false,
+					num_partitions: 1,
+					status: null,
+				},
+			],
+		} )
+	);
+
+	const { container } = render( <TopologyManager /> );
+	const names = [ ...container.querySelectorAll( '.nodes-tm__name' ) ].map(
+		( n ) => n.textContent
+	);
+	// Active 'zeta' first despite sorting last alphabetically; inactive alpha-sorted after.
+	expect( names ).toEqual( [ 'zeta', 'alpha', 'mid' ] );
+} );
+
 test( 'renders the user-shadows-stock badge for source "both"', () => {
 	useTopologyManager.mockReturnValue(
 		hookValue( {
