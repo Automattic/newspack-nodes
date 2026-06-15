@@ -22,9 +22,13 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit\Rest;
 
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Config;
 use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\Message;
 use Newspack_Nodes\Rest\Topologies_CI_Node;
+use Newspack_Nodes\Router_Node;
+use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
 use Newspack_Nodes\Topology_Registry;
@@ -147,20 +151,56 @@ class TopologiesActivateTest extends TestCase {
 	}
 
 	public function test_activate_rejects_unknown_topology_without_writing(): void {
-		$result = VerbHarness::fire(
-			new Topologies_CI_Node(),
-			'topologies',
-			'activate',
-			'does-not-exist'
-		);
+		// activate must THROW on an unknown name (mirroring get/save/delete), so
+		// interpret() packages the reply as TM_ERROR — not a plain error STRING
+		// that rides back as a SUCCESS (TM_RESPONSE) and lets the JS
+		// `await activate(bad)` resolve as if it worked. Capture the raw response
+		// Message so the TM_ERROR flag is observable (VerbHarness collapses both
+		// shapes to the payload string and can't tell them apart).
+		$response = $this->fire_capturing_response( 'activate', 'does-not-exist' );
 
-		$this->assertIsString( $result );
-		$this->assertStringContainsString( 'error:', $result );
-		$this->assertStringContainsString( 'does-not-exist', $result );
+		$type = $response[ Message::TYPE ];
+		$this->assertSame( Message::TM_ERROR, $type & Message::TM_ERROR, 'unknown activate must reply TM_ERROR' );
+		$this->assertStringContainsString( 'unknown topology', (string) $response[ Message::VALUE ]['payload'] );
+		$this->assertStringContainsString( 'does-not-exist', (string) $response[ Message::VALUE ]['payload'] );
 
 		// No write, no spawn.
 		$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'] );
 		$this->assertEmpty( $GLOBALS['_test_outbound_posts'] ?? [] );
+	}
+
+	/**
+	 * Fire a verb through the interpreter → base → router path, capturing the
+	 * raw response Message (TYPE intact) on a Capture_Sink_Node. Mirrors
+	 * VerbHarness::fire but keeps the wire-level TYPE for TM_ERROR assertions.
+	 *
+	 * @return array<int,mixed> The captured response Message.
+	 */
+	private function fire_capturing_response( string $verb, string $args ): array {
+		$router  = new Router_Node();
+		$router->name( '_router' );
+		$capture = new Capture_Sink_Node();
+		$capture->name( '_output' );
+		$base = new Command_Interpreter_Node();
+		$base->name( '_command_interpreter' );
+		$base->sink( $router );
+
+		$ci = new Topologies_CI_Node();
+		$ci->name( 'topologies' );
+		$ci->sink( $base );
+
+		$msg                   = Message::new_message();
+		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$msg[ Message::FROM ]  = '_output';
+		$msg[ Message::TO ]    = '';
+		$msg[ Message::ID ]    = 'test-' . \bin2hex( \random_bytes( 4 ) );
+		$msg[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args ];
+		$msg[ Message::LOCAL ] = true;
+
+		$ci->fill( $msg );
+
+		$this->assertNotEmpty( $capture->captured, 'no response captured' );
+		return $capture->captured[0];
 	}
 
 	public function test_activate_requires_manage_options(): void {

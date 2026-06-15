@@ -8,14 +8,29 @@
  * See docs/superpowers/specs/2026-06-14-devtools-hub-tab-api-design.md.
  */
 
-// id → descriptor. Last registration with an id wins (shadow), mirroring
-// user-shadows-stock topology resolution.
-const tabs = new Map();
+// The build emits each bundle (devtools-hub, event-dashboards, topology-console)
+// as its own IIFE inlining its own copy of this module — so a module-local Map
+// would give every bundle on the page a SEPARATE registry, and the hub host
+// (which imports no tabs) would never see the tabs the other bundles register.
+// Back the store with a process-wide singleton on the global so all the
+// separately-built copies share ONE registry. Both the `tabs` Map and the
+// `sorted` memo live there, so a register-side memo invalidation is visible to
+// the hub's read.
+const GLOBAL_KEY = '__newspackNodesDevtoolsTabs';
 
-// Memoized sorted view, rebuilt only when a tab registers/resets — settle the
-// sort at the earliest stage, not on every getDevtoolsTabs() call. The per-call
-// work is just the cheap host/gate filter (gate may depend on runtime state).
-let sorted = null;
+// id → descriptor. Last registration with an id wins (shadow), mirroring
+// user-shadows-stock topology resolution. sorted is the memoized sorted view,
+// rebuilt only when a tab registers/resets — settle the sort at the earliest
+// stage, not on every getDevtoolsTabs() call. The per-call work is just the
+// cheap host/gate filter (gate may depend on runtime state).
+function store() {
+	// These IIFE bundles only ever run in the browser (jest provides window
+	// too), matching the bare-window convention in src/shared/utils.
+	if ( ! window[ GLOBAL_KEY ] ) {
+		window[ GLOBAL_KEY ] = { tabs: new Map(), sorted: null };
+	}
+	return window[ GLOBAL_KEY ];
+}
 
 const HOSTS = [ 'overlay', 'hub', 'both' ];
 
@@ -46,8 +61,9 @@ export function registerDevtoolsTab( descriptor ) {
 	// Normalize order to a finite number so the sort comparator can never see
 	// NaN (an explicit non-finite order would otherwise corrupt ordering silently).
 	const order = Number.isFinite( descriptor.order ) ? descriptor.order : 0;
-	tabs.set( id, { ...descriptor, order } );
-	sorted = null;
+	const s = store();
+	s.tabs.set( id, { ...descriptor, order } );
+	s.sorted = null;
 }
 
 /**
@@ -57,12 +73,13 @@ export function registerDevtoolsTab( descriptor ) {
  * @return {Array<Object>} Matching tab descriptors.
  */
 export function getDevtoolsTabs( host ) {
-	if ( null === sorted ) {
-		sorted = [ ...tabs.values() ].sort(
+	const s = store();
+	if ( null === s.sorted ) {
+		s.sorted = [ ...s.tabs.values() ].sort(
 			( a, b ) => a.order - b.order || a.label.localeCompare( b.label )
 		);
 	}
-	return sorted.filter(
+	return s.sorted.filter(
 		( tab ) =>
 			( tab.host === host || 'both' === tab.host ) &&
 			( ! tab.gate || tab.gate() )
@@ -71,6 +88,7 @@ export function getDevtoolsTabs( host ) {
 
 /** Clear the registry — tests only. */
 export function resetDevtoolsTabs() {
-	tabs.clear();
-	sorted = null;
+	const s = store();
+	s.tabs.clear();
+	s.sorted = null;
 }

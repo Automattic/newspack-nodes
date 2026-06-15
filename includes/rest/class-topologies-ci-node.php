@@ -22,7 +22,8 @@
  *                cache, and spawns the fleet immediately. Returns the live array
  *                `{name, active:true, spawned:<int>}` (the command protocol
  *                carries VALUE as a live array, never separately JSON-encoded);
- *                `error: ...` on unknown name.
+ *                throws RuntimeException (→ TM_ERROR) on unknown name, matching
+ *                get/save/delete.
  *   deactivate — args `{name}`. Removes the name from the active set, invalidates
  *                the config cache, and drains the fleet immediately. Returns
  *                `{name, active:false}`.
@@ -286,11 +287,13 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'name'        => 'activate',
 					'description' => 'Activate a topology: add it to the active set, persist, and spawn its fleet now.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array|string {
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
 						self::require_manage_options();
 						$name = \trim( $args );
 						if ( '' === $name || null === Topology_Registry::resolve( $name ) ) {
-							return "error: unknown topology '" . $name . "'";
+							throw new \RuntimeException(
+								\esc_html( "unknown topology '$name'" )
+							);
 						}
 
 						// Materialize the effective active set, add the name, persist.

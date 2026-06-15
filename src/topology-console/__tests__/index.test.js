@@ -1,18 +1,17 @@
 /**
- * topology-console/index — mounts TopologyConsole on the admin page's
- * #newspack-nodes-topology-console root once the DOM is ready.
+ * topology-console/index — the standalone console page was removed in 5b; the
+ * Console is a hub tab now. The bundle entry's only job is to register that tab
+ * when it loads (no standalone createRoot mount, no DOMContentLoaded wiring).
  */
 
 jest.mock( '../TopologyConsole', () => () => null );
 
 describe( 'topology-console/index', () => {
 	let createRootMock;
-	let renderMock;
 
 	beforeEach( () => {
 		jest.resetModules();
-		renderMock = jest.fn();
-		createRootMock = jest.fn().mockReturnValue( { render: renderMock } );
+		createRootMock = jest.fn();
 		jest.doMock( '@wordpress/element', () => {
 			const actual = jest.requireActual( '@wordpress/element' );
 			return { ...actual, createRoot: createRootMock };
@@ -22,48 +21,7 @@ describe( 'topology-console/index', () => {
 		}
 	} );
 
-	it( 'mounts TopologyConsole on #newspack-nodes-topology-console when present', () => {
-		Object.defineProperty( document, 'readyState', {
-			configurable: true,
-			get: () => 'complete',
-		} );
-		const root = document.createElement( 'div' );
-		root.id = 'newspack-nodes-topology-console';
-		document.body.appendChild( root );
-		require( '../index' );
-		expect( createRootMock ).toHaveBeenCalledWith( root );
-		expect( renderMock ).toHaveBeenCalled();
-	} );
-
-	it( 'is a no-op when the mount root is absent', () => {
-		Object.defineProperty( document, 'readyState', {
-			configurable: true,
-			get: () => 'complete',
-		} );
-		require( '../index' );
-		expect( createRootMock ).not.toHaveBeenCalled();
-	} );
-
-	it( 'attaches a DOMContentLoaded listener when document is still loading', () => {
-		Object.defineProperty( document, 'readyState', {
-			configurable: true,
-			get: () => 'loading',
-		} );
-		const root = document.createElement( 'div' );
-		root.id = 'newspack-nodes-topology-console';
-		document.body.appendChild( root );
-		require( '../index' );
-		// Nothing mounted yet; firing DOMContentLoaded triggers mount.
-		expect( createRootMock ).not.toHaveBeenCalled();
-		document.dispatchEvent( new Event( 'DOMContentLoaded' ) );
-		expect( createRootMock ).toHaveBeenCalledWith( root );
-	} );
-
 	it( 'registers the console hub tab on import (so the bundle self-registers)', () => {
-		Object.defineProperty( document, 'readyState', {
-			configurable: true,
-			get: () => 'complete',
-		} );
 		const {
 			getDevtoolsTabs,
 			resetDevtoolsTabs,
@@ -75,5 +33,14 @@ describe( 'topology-console/index', () => {
 		);
 		expect( tab ).toBeTruthy();
 		expect( tab.host ).toBe( 'hub' );
+	} );
+
+	it( 'does not mount a standalone root (the console is a hub tab now)', () => {
+		const root = document.createElement( 'div' );
+		root.id = 'newspack-nodes-topology-console';
+		document.body.appendChild( root );
+		require( '../index' );
+		document.dispatchEvent( new Event( 'DOMContentLoaded' ) );
+		expect( createRootMock ).not.toHaveBeenCalled();
 	} );
 } );
