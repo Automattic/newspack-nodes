@@ -94,26 +94,6 @@
 	}
 }
 
-.nodes-debug__tabbar {
-	display: flex;
-	gap: 2px;
-	padding: 4px 4px 0;
-}
-
-.nodes-debug__tab {
-	border: 0;
-	background: transparent;
-	padding: 4px 10px;
-	cursor: pointer;
-	font: inherit;
-	opacity: 0.6;
-
-	&.is-active {
-		opacity: 1;
-		font-weight: 600;
-	}
-}
-
 // The overlay's own NewNodeModal (palette-drop prompt) renders as a sibling of
 // the panel, so its console-default backdrop z-index (9000) sits BELOW the
 // panel (999998) and is invisible. Lift it above the FAB + panel so the
