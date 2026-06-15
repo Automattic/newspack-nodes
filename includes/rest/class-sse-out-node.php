@@ -185,7 +185,7 @@ class SSE_Out_Node extends Node {
 	 *
 	 * Two shapes: `{type}.p{N}` (IPC reader, resolved via
 	 * `Cli::attach_to_worker`) and `{a-z0-9_-}` (log feed, one Consumer per
-	 * partition under `{base}/logs/{name}.log`). Anything else throws
+	 * concrete partition dir `{base}/logs/{name}.p{N}`). Anything else throws
 	 * `InvalidArgumentException` (path-traversal guard for query input).
 	 * `$positions` (keyed by partition) seed each cursor; absent → tail-seek.
 	 *
@@ -227,11 +227,16 @@ class SSE_Out_Node extends Node {
 				}
 				// Genuinely no worker IPC — fall through to the log-file path. This is the
 				// aggregator hub's path: `firehose.p0` has no worker but a log dir exists.
+				// PRECEDENCE: a concrete log-partition name (`firehose.p0`) reaches the
+				// log feed ONLY via this fallback — the IPC `{type}.p{N}` branch above
+				// matches it FIRST. This relies on worker types never colliding with a
+				// registered producer basename; a collision would silently tail worker
+				// IPC instead of the log.
 				$log_name  = $m[1];
 				$partition = (int) $m[2];
-				$log_base  = "{$base}/logs/{$log_name}.log";
 				$consumer  = new Consumer_Node();
-				$consumer->arguments( "{$log_base}/p{$partition} " );
+				// Flat layout: the concrete partition dir IS `{name}.p{N}`.
+				$consumer->arguments( "{$base}/logs/{$log_name}.p{$partition} " );
 				if ( isset( $positions[ $partition ] ) ) {
 					$consumer->next_offset( self::position_arg( $positions[ $partition ] ) );
 				} else {
@@ -243,13 +248,13 @@ class SSE_Out_Node extends Node {
 		}
 
 		if ( \preg_match( '/^[a-z0-9_-]+$/', $sub ) ) {
-			$log_base   = "{$base}/logs/{$sub}.log";
 			$np_raw     = Config::load_config()['num_partitions'] ?? 1;
 			$partitions = $this->num_partitions ?? ( \is_numeric( $np_raw ) ? (int) $np_raw : 1 );
 			$consumers  = [];
 			for ( $p = 0; $p < $partitions; $p++ ) {
 				$consumer = new Consumer_Node();
-				$consumer->arguments( "{$log_base}/p{$p} " );
+				// Flat layout: fan out across the concrete `{name}.p{N}` dirs.
+				$consumer->arguments( "{$base}/logs/{$sub}.p{$p} " );
 				if ( isset( $positions[ $p ] ) ) {
 					$consumer->next_offset( self::position_arg( $positions[ $p ] ) );
 				} else {

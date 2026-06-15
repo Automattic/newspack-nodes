@@ -117,7 +117,7 @@ function mountGraph( client ) {
 	return renderHook( () => useRawLogsGraph( { commandClient: client } ) );
 }
 
-const oneLogReply = () => [ { key: 'firehose', label: 'firehose.log' } ];
+const oneLogReply = () => [ { key: 'firehose.p0', label: 'firehose.p0' } ];
 
 describe( 'useRawLogsGraph — exospine + I/O boundary wiring', () => {
 	test( 'mounts the backbone + the four graph nodes, each sinking into the interpreter', async () => {
@@ -157,8 +157,8 @@ describe( 'useRawLogsGraph — exospine + I/O boundary wiring', () => {
 	test( 'fires list_logs on mount addressed to _http/raw-logs and pushes it into the view', async () => {
 		const client = makeFakeClient( {
 			list_logs: [
-				{ key: 'firehose', label: 'firehose.log' },
-				{ key: 'errors', label: 'errors.log' },
+				{ key: 'firehose.p0', label: 'firehose.p0' },
+				{ key: 'errors.p0', label: 'errors.p0' },
 			],
 		} );
 		mountGraph( client );
@@ -171,7 +171,7 @@ describe( 'useRawLogsGraph — exospine + I/O boundary wiring', () => {
 		// View received the logs list and defaulted the selection to logs[0].key.
 		const view = Core.node( VIEW );
 		expect( view.setStateCache.view.logs ).toHaveLength( 2 );
-		expect( view.setStateCache.view.selected ).toBe( 'firehose' );
+		expect( view.setStateCache.view.selected ).toBe( 'firehose.p0' );
 	} );
 
 	test( 'opens an EventSource against /messages/stream?subscribe={selected-log}', async () => {
@@ -181,7 +181,7 @@ describe( 'useRawLogsGraph — exospine + I/O boundary wiring', () => {
 		expect( FakeEventSource.last.url ).toContain(
 			'newspack-nodes/v1/messages/stream'
 		);
-		expect( FakeEventSource.last.url ).toContain( 'subscribe=firehose' );
+		expect( FakeEventSource.last.url ).toContain( 'subscribe=firehose.p0' );
 	} );
 } );
 
@@ -280,14 +280,14 @@ describe( 'useRawLogsGraph — control callbacks', () => {
 		);
 		await act( async () => {} );
 		const before = FakeEventSource.last;
-		act( () => result.current.selectLog( 'errors' ) );
+		act( () => result.current.selectLog( 'errors.p0' ) );
 		// Old EventSource closed, a new one opened with subscribe=errors.
 		expect( before.closed ).toBe( true );
 		expect( FakeEventSource.last ).not.toBe( before );
-		expect( FakeEventSource.last.url ).toContain( 'subscribe=errors' );
+		expect( FakeEventSource.last.url ).toContain( 'subscribe=errors.p0' );
 		// View reflects the selection.
 		expect( Core.node( VIEW ).setStateCache.view.selected ).toBe(
-			'errors'
+			'errors.p0'
 		);
 	} );
 
@@ -375,6 +375,6 @@ describe( 'useRawLogsGraph — visibility-gated streaming', () => {
 		const before = FakeEventSource.instances.length;
 		act( () => setVisibility( 'visible' ) );
 		expect( FakeEventSource.instances.length ).toBe( before + 1 );
-		expect( FakeEventSource.last.url ).toContain( 'subscribe=firehose' );
+		expect( FakeEventSource.last.url ).toContain( 'subscribe=firehose.p0' );
 	} );
 } );

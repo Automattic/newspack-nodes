@@ -624,25 +624,25 @@ class Admin {
 	}
 
 	/**
-	 * Total-storage field: segment_size × num_segments × num_partitions × num_logs.
+	 * Total-storage field: segment_size × num_segments × (count of on-disk log-partition dirs).
 	 */
 	public static function total_storage_callback(): void {
-		$defaults       = Config::load_config_defaults();
-		$segment_size   = \get_option( 'newspack_nodes_segment_size', '' );
-		$num_segments   = \get_option( 'newspack_nodes_num_segments', '' );
-		$num_partitions = \get_option( 'newspack_nodes_num_partitions', '' );
+		$defaults     = Config::load_config_defaults();
+		$segment_size = \get_option( 'newspack_nodes_segment_size', '' );
+		$num_segments = \get_option( 'newspack_nodes_num_segments', '' );
 
 		// Use config defaults for empty values.
-		$segment_size   = '' === $segment_size ? self::default_int( $defaults, 'segment_size', 64 * 1024 * 1024 ) : ( \is_scalar( $segment_size ) ? (int) $segment_size : 0 );
-		$num_segments   = '' === $num_segments ? self::default_int( $defaults, 'num_segments', 4 ) : ( \is_scalar( $num_segments ) ? (int) $num_segments : 0 );
-		$num_partitions = '' === $num_partitions ? self::default_int( $defaults, 'num_partitions', 1 ) : ( \is_scalar( $num_partitions ) ? (int) $num_partitions : 0 );
+		$segment_size = '' === $segment_size ? self::default_int( $defaults, 'segment_size', 64 * 1024 * 1024 ) : ( \is_scalar( $segment_size ) ? (int) $segment_size : 0 );
+		$num_segments = '' === $num_segments ? self::default_int( $defaults, 'num_segments', 4 ) : ( \is_scalar( $num_segments ) ? (int) $num_segments : 0 );
 
-		// One log stream per `{base}/logs/*.log/` directory.
-		$num_logs    = \count( \Newspack_Nodes\Log_Discovery::on_disk() );
-		$total_bytes = $segment_size * $num_segments * $num_partitions * $num_logs;
-		$total_mb    = \round( $total_bytes / ( 1024 * 1024 ) );
-		$total_gb    = \round( $total_bytes / ( 1024 * 1024 * 1024 ), 2 );
-		$segment_mb  = \round( $segment_size / ( 1024 * 1024 ) );
+		// `Log_Discovery::on_disk()` returns the concrete per-partition dir
+		// names (e.g. `firehose.p0`), so the partition dimension is already in
+		// this count — don't multiply by num_partitions again.
+		$num_log_dirs = \count( \Newspack_Nodes\Log_Discovery::on_disk() );
+		$total_bytes  = $segment_size * $num_segments * $num_log_dirs;
+		$total_mb     = \round( $total_bytes / ( 1024 * 1024 ) );
+		$total_gb     = \round( $total_bytes / ( 1024 * 1024 * 1024 ), 2 );
+		$segment_mb   = \round( $segment_size / ( 1024 * 1024 ) );
 
 		if ( $total_gb >= 1 ) {
 			$display = \sprintf( '%s MB (%s GB)', \number_format( $total_mb ), \number_format( $total_gb, 2 ) );
@@ -656,12 +656,11 @@ class Admin {
 		<p class="description">
 		<?php
 		\printf(
-			/* translators: 1: segment size in MB, 2: number of segments, 3: number of partitions, 4: number of logs */
-			\esc_html__( 'Calculated as: %1$s MB segment × %2$s segments × %3$s partitions × %4$s logs', 'newspack-nodes' ),
+			/* translators: 1: segment size in MB, 2: number of segments, 3: number of on-disk log partitions */
+			\esc_html__( 'Calculated as: %1$s MB segment × %2$s segments × %3$s log partitions', 'newspack-nodes' ),
 			\esc_html( (string) $segment_mb ),
 			\esc_html( (string) $num_segments ),
-			\esc_html( (string) $num_partitions ),
-			\esc_html( (string) $num_logs )
+			\esc_html( (string) $num_log_dirs )
 		);
 		?>
 		</p>

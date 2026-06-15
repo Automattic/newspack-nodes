@@ -77,11 +77,8 @@ class Log_Cleaner {
 		}
 
 		if ( '' !== $logs_root ) {
-			$cfg_np = self::config_num_partitions();
-			foreach ( self::registered_producers() as $producer ) {
-				for ( $p = 0; $p < $cfg_np; $p++ ) {
-					$logs[ "{$producer}.p{$p}" ] = true;
-				}
+			foreach ( self::producer_log_dirs() as $dir ) {
+				$logs[ $dir ] = true;
 			}
 		}
 
@@ -147,6 +144,26 @@ class Log_Cleaner {
 	 */
 	public static function declared_offset_dirs(): array {
 		return self::declared_dirs()['offsets'] ?? [];
+	}
+
+	/**
+	 * Concrete log dir names for the request-scope PHP producers: each
+	 * `newspack_nodes/registered_log_producers` basename expanded over the
+	 * clamped global config num_partitions in ELN's fixed `{producer}.p{N}`
+	 * writer layout (exactly what Log_Manager / Job_Intake write). Shared by the
+	 * GC's declared set and the Workers dashboard catalog so both read one source.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function producer_log_dirs(): array {
+		$cfg_np = self::config_num_partitions();
+		$dirs   = [];
+		foreach ( self::registered_producers() as $producer ) {
+			for ( $p = 0; $p < $cfg_np; $p++ ) {
+				$dirs[] = "{$producer}.p{$p}";
+			}
+		}
+		return $dirs;
 	}
 
 	/** Global config num_partitions, clamped [1, MAX_PARTITIONS] (mirrors Bootstrap::num_partitions_for). */

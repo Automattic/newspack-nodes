@@ -9,9 +9,11 @@ use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
 /**
- * Disk-discovery primitive — readdir `{base}/logs/*.log/` and return the
- * basename list. Replaces the application's hardcoded log catalogs +
- * `num_logs` filter callback (which used to return `$count + 6`).
+ * Disk-discovery primitive — readdir the first-level dirs under `{base}/logs`
+ * and return the concrete dir basename list verbatim (flat partition-in-name
+ * layout: `firehose.p0`).
+ * Replaces the application's hardcoded log catalogs + `num_logs` filter callback
+ * (which used to return `$count + 6`).
  */
 #[CoversClass( Log_Discovery::class )]
 class LogDiscoveryTest extends TestCase {
@@ -44,51 +46,51 @@ class LogDiscoveryTest extends TestCase {
 		$this->assertSame( [], Log_Discovery::on_disk() );
 	}
 
-	public function test_returns_basenames_without_log_suffix(): void {
-		\mkdir( "{$this->tmp}/logs/firehose.log", 0755, true );
-		\mkdir( "{$this->tmp}/logs/errors.log", 0755, true );
+	public function test_returns_concrete_dir_basenames_verbatim(): void {
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		\mkdir( "{$this->tmp}/logs/errors.p0", 0755, true );
 
-		$this->assertSame( [ 'errors', 'firehose' ], Log_Discovery::on_disk() );
+		$this->assertSame( [ 'errors.p0', 'firehose.p0' ], Log_Discovery::on_disk() );
 	}
 
 	public function test_results_are_sorted_alphabetically(): void {
-		\mkdir( "{$this->tmp}/logs/zeta.log", 0755, true );
-		\mkdir( "{$this->tmp}/logs/alpha.log", 0755, true );
-		\mkdir( "{$this->tmp}/logs/middle.log", 0755, true );
+		\mkdir( "{$this->tmp}/logs/zeta.p0", 0755, true );
+		\mkdir( "{$this->tmp}/logs/alpha.p0", 0755, true );
+		\mkdir( "{$this->tmp}/logs/middle.p0", 0755, true );
 
-		$this->assertSame( [ 'alpha', 'middle', 'zeta' ], Log_Discovery::on_disk() );
+		$this->assertSame( [ 'alpha.p0', 'middle.p0', 'zeta.p0' ], Log_Discovery::on_disk() );
 	}
 
 	public function test_ignores_non_dir_entries(): void {
 		\mkdir( "{$this->tmp}/logs", 0755, true );
-		// Stray file with .log suffix at the wrong level — not a partition dir.
-		\file_put_contents( "{$this->tmp}/logs/stray.log", '' );
-		\mkdir( "{$this->tmp}/logs/real.log", 0755, true );
+		// Stray Log file-sink segment FILE — GLOB_ONLYDIR skips it.
+		\file_put_contents( "{$this->tmp}/logs/digest.md.0", '' );
+		\mkdir( "{$this->tmp}/logs/real.p0", 0755, true );
 
-		$this->assertSame( [ 'real' ], Log_Discovery::on_disk() );
+		$this->assertSame( [ 'real.p0' ], Log_Discovery::on_disk() );
 	}
 
 	public function test_memoizes_within_process(): void {
-		\mkdir( "{$this->tmp}/logs/firehose.log", 0755, true );
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
 		$first = Log_Discovery::on_disk();
 
 		// Add a new log dir AFTER first call. Without memoization the second
 		// call would pick it up; with memoization, the cached result wins.
-		\mkdir( "{$this->tmp}/logs/late.log", 0755, true );
+		\mkdir( "{$this->tmp}/logs/late.p0", 0755, true );
 		$second = Log_Discovery::on_disk();
 
 		$this->assertSame( $first, $second );
-		$this->assertSame( [ 'firehose' ], $second );
+		$this->assertSame( [ 'firehose.p0' ], $second );
 	}
 
 	public function test_reset_clears_cache(): void {
-		\mkdir( "{$this->tmp}/logs/firehose.log", 0755, true );
-		$this->assertSame( [ 'firehose' ], Log_Discovery::on_disk() );
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		$this->assertSame( [ 'firehose.p0' ], Log_Discovery::on_disk() );
 
-		\mkdir( "{$this->tmp}/logs/late.log", 0755, true );
+		\mkdir( "{$this->tmp}/logs/late.p0", 0755, true );
 		Log_Discovery::reset();
 
-		$this->assertSame( [ 'firehose', 'late' ], Log_Discovery::on_disk() );
+		$this->assertSame( [ 'firehose.p0', 'late.p0' ], Log_Discovery::on_disk() );
 	}
 
 	public function test_config_reset_action_clears_cache(): void {
@@ -96,13 +98,13 @@ class LogDiscoveryTest extends TestCase {
 		// invalidate so newly-added logs become visible. setUp() re-registers
 		// the callback (bootstrap-time registration is wiped by sibling tests);
 		// this test pins the behavior the wiring enables.
-		\mkdir( "{$this->tmp}/logs/firehose.log", 0755, true );
-		$this->assertSame( [ 'firehose' ], Log_Discovery::on_disk() );
+		\mkdir( "{$this->tmp}/logs/firehose.p0", 0755, true );
+		$this->assertSame( [ 'firehose.p0' ], Log_Discovery::on_disk() );
 
-		\mkdir( "{$this->tmp}/logs/late.log", 0755, true );
+		\mkdir( "{$this->tmp}/logs/late.p0", 0755, true );
 		\do_action( Config::RESET_ACTION );
 
-		$this->assertSame( [ 'firehose', 'late' ], Log_Discovery::on_disk() );
+		$this->assertSame( [ 'firehose.p0', 'late.p0' ], Log_Discovery::on_disk() );
 	}
 
 	public function test_on_disk_propagates_throw_when_base_directory_unconfigured(): void {

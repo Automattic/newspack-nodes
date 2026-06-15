@@ -533,7 +533,7 @@ class CliWorkerCommandTest extends TestCase {
 		$this->seed_consumer_checkpoint( 'firehose', 0, [
 			'seg' => 0, 'off' => 0, 'worker_type' => 'firehose-workers', 'source_log' => 'firehose.p0',
 		] );
-		// Deliberately DO NOT create logs/firehose.log/p0 — that's the branch.
+		// Deliberately DO NOT create logs/firehose.p0 — that's the branch.
 
 		( new Worker_CLI_Command() )->status( [], [] );
 
