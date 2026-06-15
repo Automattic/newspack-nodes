@@ -1480,20 +1480,26 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 	// ---- register_event_dashboard_pages ----------------------------------
 
-	public function test_register_event_dashboard_pages_registers_workers_and_rawlogs_submenus(): void {
+	public function test_register_event_dashboard_pages_registers_rawlogs_submenu(): void {
+		// The standalone Worker Status dashboard was folded into the Topology
+		// Manager hub tab — only Raw Logs remains as a standalone submenu.
 		$admin = new Admin();
 		$admin->register_event_dashboard_pages();
 
-		$this->assertArrayHasKey( Admin::WORKERS_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
 		$this->assertArrayHasKey( Admin::RAWLOGS_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
-
-		$workers = $GLOBALS['_admin_submenu_pages'][ Admin::WORKERS_MENU_SLUG ];
-		$this->assertSame( Admin::TOPOLOGY_MENU_SLUG, $workers['parent_slug'] );
-		$this->assertSame( 'manage_options', $workers['capability'] );
 
 		$rawlogs = $GLOBALS['_admin_submenu_pages'][ Admin::RAWLOGS_MENU_SLUG ];
 		$this->assertSame( Admin::TOPOLOGY_MENU_SLUG, $rawlogs['parent_slug'] );
 		$this->assertSame( 'manage_options', $rawlogs['capability'] );
+	}
+
+	public function test_register_event_dashboard_pages_does_not_register_workers_submenu(): void {
+		// The standalone Worker Status dashboard is gone — the hub tab is the
+		// sole worker-status home now.
+		$admin = new Admin();
+		$admin->register_event_dashboard_pages();
+
+		$this->assertArrayNotHasKey( 'newspack-nodes-workers', $GLOBALS['_admin_submenu_pages'] );
 	}
 
 	public function test_register_event_dashboard_page_callbacks_print_mount_divs(): void {
@@ -1502,11 +1508,6 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		// blank — drive each callback and assert the mount div renders.
 		$admin = new Admin();
 		$admin->register_event_dashboard_pages();
-
-		$workers_cb = $GLOBALS['_admin_submenu_pages'][ Admin::WORKERS_MENU_SLUG ]['callback'];
-		\ob_start();
-		$workers_cb();
-		$this->assertSame( '<div id="newspack-nodes-workers" class="newspack-nodes-workers-page"></div>', \ob_get_clean() );
 
 		$rawlogs_cb = $GLOBALS['_admin_submenu_pages'][ Admin::RAWLOGS_MENU_SLUG ]['callback'];
 		\ob_start();
@@ -1519,7 +1520,6 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$admin                                                  = new Admin();
 		$admin->register_event_dashboard_pages();
 
-		$this->assertArrayNotHasKey( Admin::WORKERS_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
 		$this->assertArrayNotHasKey( Admin::RAWLOGS_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
 	}
 
@@ -1541,11 +1541,11 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertEmpty( $GLOBALS['_localized_scripts'] );
 	}
 
-	public function test_enqueue_event_dashboards_assets_enqueues_for_workers_page(): void {
+	public function test_enqueue_event_dashboards_assets_enqueues_for_rawlogs_page(): void {
 		$asset_path = \NEWSPACK_NODES_DIR . 'build/event-dashboards/index.js';
 		$this->assertFileExists( $asset_path, 'event-dashboards build asset missing — run `npm run build` before tests' );
 
-		$_GET = [ 'page' => Admin::WORKERS_MENU_SLUG ];
+		$_GET = [ 'page' => Admin::RAWLOGS_MENU_SLUG ];
 
 		$admin = new Admin();
 		$admin->enqueue_event_dashboards_assets();
@@ -1572,15 +1572,14 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertArrayHasKey( 'nonce',   $payload['data'] );
 	}
 
-	public function test_enqueue_event_dashboards_assets_enqueues_for_rawlogs_page(): void {
-		// Same bundle, different page — both pages share one React bundle.
-		// Without this, a regression that ties the bundle to only the
-		// workers page would silently leave rawlogs blank.
-		$_GET = [ 'page' => Admin::RAWLOGS_MENU_SLUG ];
+	public function test_enqueue_event_dashboards_assets_skips_removed_workers_page(): void {
+		// The standalone Worker Status dashboard is gone, so the event-dashboards
+		// bundle must NOT enqueue on its old page slug.
+		$_GET = [ 'page' => 'newspack-nodes-workers' ];
 
 		( new Admin() )->enqueue_event_dashboards_assets();
 
-		$this->assertArrayHasKey( 'newspack-nodes-event-dashboards', $GLOBALS['_enqueued_scripts'] );
+		$this->assertEmpty( $GLOBALS['_enqueued_scripts'] );
 	}
 
 	// ---- enqueue_devtools_hub_assets --------------------------------------

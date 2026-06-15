@@ -193,7 +193,7 @@ class Worker_Base {
 		$repl = $interpreter->make_node( 'Partition', Node_Names::REPL, "{$ipc_dir}/output", self::IPC_SEGMENT_SIZE, self::IPC_NUM_SEGMENTS );
 		// allow_large_writes keys its Lock/heartbeat off name + sink, both set by make_node.
 		if ( $repl instanceof Partition_Node ) {
-			$repl->allow_large_writes();
+			$repl->void_warranty();
 		}
 
 		$repl_in = $this->build_ipc_input_consumer( $ipc_dir );

@@ -1,10 +1,8 @@
 /**
- * event-dashboards/index — mounts WorkerStatusPage / RawLogsPage at
- * their respective DOM nodes. Test the side-effecting mount behavior
- * by stubbing createRoot before importing index.
+ * event-dashboards/index — mounts RawLogsPage at its DOM node. Test the
+ * side-effecting mount behavior by stubbing createRoot before importing index.
  */
 
-jest.mock( '../WorkerStatusPage', () => () => null );
 jest.mock( '../RawLogsPage', () => () => null );
 
 describe( 'event-dashboards/index', () => {
@@ -24,13 +22,12 @@ describe( 'event-dashboards/index', () => {
 		}
 	} );
 
-	it( 'mounts WorkerStatusPage on #newspack-nodes-workers when present', () => {
+	it( 'does not mount anything on the removed #newspack-nodes-workers container', () => {
 		const mount = document.createElement( 'div' );
 		mount.id = 'newspack-nodes-workers';
 		document.body.appendChild( mount );
 		require( '../index' );
-		expect( createRootMock ).toHaveBeenCalledWith( mount );
-		expect( renderMock ).toHaveBeenCalled();
+		expect( createRootMock ).not.toHaveBeenCalled();
 	} );
 
 	it( 'mounts RawLogsPage on #newspack-nodes-rawlogs when present', () => {

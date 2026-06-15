@@ -5,8 +5,8 @@
  * `activate` / `deactivate` / `restart` mutations.
  *
  * DESIGN — option (B): build directly on the shared `useDashboardGraph` ONCE.
- * The two-hook composition of (A) — `useWorkerStatusGraph()` for status+restart
- * plus a second mount for the topologies poll — fights the shared single-mount
+ * The two-hook composition of (A) — a dedicated worker-status hook for
+ * status+restart plus a second mount for the topologies poll — fights the shared single-mount
  * skeleton: each `useDashboardGraph` owns one `mountExospine` (one Core graph,
  * one poll/interval), and `Core` is a per-process singleton, so a second mount
  * would collide. Building on `useDashboardGraph` once gives one mount, one
