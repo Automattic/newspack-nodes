@@ -1,4 +1,5 @@
 import { __ } from '@wordpress/i18n';
+import { itemLabel } from './itemLabel';
 
 /**
  * Render the score-ranked items into a markdown draft, CLIENT-SIDE (no server
@@ -14,9 +15,7 @@ export function draftNewsletter( items = [] ) {
 		'',
 	];
 	for ( const item of items ) {
-		const title =
-			item.title || __( '(untitled)', 'newspack-ai-newsletter' );
-		const source = item.source || '?';
+		const { title, source } = itemLabel( item );
 		lines.push( `- **${ title }** — ${ source }` );
 	}
 	return lines.join( '\n' );

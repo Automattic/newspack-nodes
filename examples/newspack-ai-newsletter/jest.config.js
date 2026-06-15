@@ -10,4 +10,14 @@ const { createJestConfig } = require( '../../src/build-kit/jest.cjs' );
 module.exports = createJestConfig( {
 	aliasBase: path.resolve( __dirname, '../../src' ),
 	pinReactFrom: path.resolve( __dirname, 'node_modules' ),
+	// @wordpress/api-fetch isn't a dependency of this example (the build externals
+	// it to window.wp.apiFetch); jest still needs to resolve the module-level
+	// import in the dashboard, so point it at the substrate's installed copy —
+	// tests inject a fake createDraft, so the real apiFetch is never called.
+	extraMappers: {
+		'^@wordpress/api-fetch$': path.resolve(
+			__dirname,
+			'../../node_modules/@wordpress/api-fetch'
+		),
+	},
 } );
