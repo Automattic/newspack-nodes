@@ -33,6 +33,7 @@ use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Topology_Registry;
+use Newspack_Nodes\Worker_Base;
 
 \defined( 'ABSPATH' ) || exit;
 
@@ -251,6 +252,7 @@ class Workers_CI_Node extends Service_CI_Node {
 			'num_segments'   => $num_segments,
 			'segment_size'   => $segment_size,
 			'timestamp'      => $now,
+			'heartbeat_interval_s' => Worker_Base::HEARTBEAT_INTERVAL_S,
 		];
 	}
 
