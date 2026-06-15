@@ -16,6 +16,7 @@ import {
 	TYPE,
 	TM_COMMAND,
 	TM_RESPONSE,
+	TM_ERROR,
 	Core,
 } from '@newspack-nodes/runtime';
 
@@ -35,7 +36,7 @@ const model = {
 	accumulated: 3,
 };
 
-function clientReturning( jsonModel ) {
+function makeClient( replyType, payload ) {
 	return {
 		buildMessage( { to, verb, args = '' } ) {
 			const m = newMessage();
@@ -47,18 +48,23 @@ function clientReturning( jsonModel ) {
 			return Promise.resolve(
 				messages.map( ( m ) => {
 					const reply = newMessage();
-					reply[ TYPE ] = TM_COMMAND | TM_RESPONSE;
+					reply[ TYPE ] = replyType;
 					reply[ TO ] = m[ FROM ];
 					reply[ ID ] = m[ ID ];
-					reply[ VALUE ] = {
-						name: m[ VALUE ]?.name,
-						payload: jsonModel,
-					};
+					reply[ VALUE ] = { name: m[ VALUE ]?.name, payload };
 					return reply;
 				} )
 			);
 		},
 	};
+}
+
+function clientReturning( jsonModel ) {
+	return makeClient( TM_COMMAND | TM_RESPONSE, jsonModel );
+}
+
+function clientFailing( errorText ) {
+	return makeClient( TM_COMMAND | TM_RESPONSE | TM_ERROR, errorText );
 }
 
 beforeEach( () => Core.reset() );
@@ -99,5 +105,44 @@ describe( 'PublisherInsights', () => {
 		const textarea = screen.getByRole( 'textbox' );
 		expect( textarea.value ).toContain( 'Big release' );
 		expect( textarea.value ).toContain( '# ' );
+	} );
+
+	it( 'shows an empty state (no table) until the pipeline has produced items', async () => {
+		render(
+			<PublisherInsights
+				refreshMs={ 4000 }
+				commandClient={ clientReturning(
+					JSON.stringify( {
+						sources: {},
+						top: [],
+						accumulated: 0,
+					} )
+				) }
+			/>
+		);
+		await waitFor( () =>
+			expect(
+				screen.getByText( /no scored items yet/i )
+			).toBeInTheDocument()
+		);
+		expect( screen.queryByRole( 'table' ) ).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole( 'button', { name: /draft newsletter/i } )
+		).not.toBeInTheDocument();
+	} );
+
+	it( 'surfaces a failed poll as an error notice', async () => {
+		render(
+			<PublisherInsights
+				refreshMs={ 4000 }
+				commandClient={ clientFailing( 'snapshot read failed' ) }
+			/>
+		);
+		await waitFor( () =>
+			expect( screen.getByRole( 'alert' ) ).toBeInTheDocument()
+		);
+		expect( screen.getByRole( 'alert' ).textContent ).toMatch(
+			/snapshot read failed/
+		);
 	} );
 } );

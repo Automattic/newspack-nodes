@@ -15,25 +15,28 @@ const INSIGHTS_MENU_SLUG = 'newspack-ai-newsletter-insights';
 const INSIGHTS_MOUNT_ID  = 'newspack-ai-newsletter-insights';
 
 /**
- * Register the Publisher Insights admin page as a submenu under the substrate's
- * "Nodes" menu. Renders only the React mount point — the dashboard bundle takes over.
+ * Register the Publisher Insights dashboard as its OWN top-level admin menu —
+ * it's this plugin's page, not a Nodes-substrate tool, so it stands alone rather
+ * than nesting under the "Nodes" menu. The callback renders only the React mount
+ * point inside the standard `.wrap`; the dashboard bundle takes over from there.
  */
 function register_insights_admin_page(): void {
-	if ( ! \function_exists( 'add_submenu_page' ) || ! \class_exists( '\Newspack_Nodes\Admin\Admin' ) ) {
+	if ( ! \function_exists( 'add_menu_page' ) || ! \class_exists( '\Newspack_Nodes\Admin\Admin' ) ) {
 		return;
 	}
-	// Honor the substrate's access gate (manage_options + allowed_users whitelist), so this
-	// page's visibility matches the sibling Workers / Raw Logs pages under the same menu.
+	// Honor the substrate's access gate (manage_options + allowed_users whitelist),
+	// since the dashboard reads substrate-managed pipeline state.
 	if ( ! \Newspack_Nodes\Admin\Admin::current_user_allowed() ) {
 		return;
 	}
-	\add_submenu_page(
-		\Newspack_Nodes\Admin\Admin::TOPOLOGY_MENU_SLUG,
+	\add_menu_page(
 		\__( 'Publisher Insights', 'newspack-ai-newsletter' ),
 		\__( 'Publisher Insights', 'newspack-ai-newsletter' ),
 		'manage_options',
 		INSIGHTS_MENU_SLUG,
-		static fn () => print( '<div id="' . \esc_attr( INSIGHTS_MOUNT_ID ) . '" class="newspack-ai-newsletter-insights"></div>' )
+		static fn () => print( '<div class="wrap"><div id="' . \esc_attr( INSIGHTS_MOUNT_ID ) . '" class="newspack-ai-newsletter-insights"></div></div>' ),
+		'dashicons-chart-bar',
+		58.7
 	);
 }
 
