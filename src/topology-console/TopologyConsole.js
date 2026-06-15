@@ -51,6 +51,8 @@ import { makeReplDismissHandler } from './utils/replDismissHandler';
 import { serializeTsl } from './utils/serializeTsl';
 import { splitStatements } from '../runtime/shell-node';
 import { dispatchLocalCommand } from './core/dispatchLocalCommand';
+import { getCommandClient } from './utils/commandClient';
+import unwrapCommandResponse from './utils/unwrapCommandResponse';
 import { Core } from '../runtime/core';
 import { TO } from '../runtime/message';
 import names from '../runtime/reserved-node-names.json';
@@ -297,6 +299,9 @@ export default function TopologyConsole() {
 	// NewNodeModal renders until commit/cancel.
 	const [ pendingDrop, setPendingDrop ] = useState( null );
 	const [ saveModal, setSaveModal ] = useState( null );
+	// `{ name }` while the post-save "Activate now?" prompt is up for a
+	// freshly-created topology, null otherwise. The confirm dispatches activate.
+	const [ activateModal, setActivateModal ] = useState( null );
 	// Pending topology-delete confirmation: `{ name }` while the ConfirmModal
 	// is up, null otherwise. The actual delete runs in the modal's onConfirm.
 	const [ deleteModal, setDeleteModal ] = useState( null );
@@ -1285,6 +1290,13 @@ export default function TopologyConsole() {
 	const handleSaveConfirm = useCallback(
 		async ( name ) => {
 			setSaveModal( null );
+			// Snapshot "new vs existing" against the catalog the console already
+			// holds, BEFORE the save reloads it: a name not previously known is a
+			// freshly-created topology and earns the post-save "Activate now?" prompt.
+			const isNewTopology = ! Object.prototype.hasOwnProperty.call(
+				topologyPartitions,
+				name
+			);
 			try {
 				const tsl = serializeTsl( draft, schemasByShellName );
 				const resp = await saveTopology( { name, tsl } );
@@ -1320,6 +1332,10 @@ export default function TopologyConsole() {
 				reloadCatalog();
 				setSettingsOpen( false );
 				setMode( 'view' );
+				// A brand-new topology saves inactive; offer to activate it now.
+				if ( isNewTopology ) {
+					setActivateModal( { name: resp.name } );
+				}
 			} catch ( e ) {
 				const msg =
 					( e && e.data && e.data.message ) ||
@@ -1337,8 +1353,50 @@ export default function TopologyConsole() {
 				setToast( { kind: 'error', text: `${ msg }${ lineHint }` } );
 			}
 		},
-		[ draft, saveTopology, topologyList, schemasByShellName, reloadCatalog ]
+		[
+			draft,
+			saveTopology,
+			topologyList,
+			schemasByShellName,
+			reloadCatalog,
+			topologyPartitions,
+		]
 	);
+
+	// "Activate now?" confirm — dispatch `topologies activate <name>` through the
+	// same command client the catalog uses for its verbs. A failed activate
+	// toasts rather than crashing; the topology stays saved-but-inactive.
+	const confirmActivate = useCallback( async () => {
+		const name = activateModal?.name;
+		setActivateModal( null );
+		if ( ! name ) {
+			return;
+		}
+		try {
+			unwrapCommandResponse(
+				await getCommandClient().send( {
+					to: 'topologies',
+					verb: 'activate',
+					args: name,
+				} )
+			);
+			reloadCatalog();
+			setToast( {
+				kind: 'success',
+				text: sprintf(
+					// translators: %s: topology name.
+					__( 'Activated %s.', 'newspack-nodes' ),
+					name
+				),
+			} );
+		} catch ( e ) {
+			const msg =
+				( e && e.data && e.data.message ) ||
+				( e && e.message ) ||
+				__( 'Activate failed', 'newspack-nodes' );
+			setToast( { kind: 'error', text: msg } );
+		}
+	}, [ activateModal, reloadCatalog ] );
 
 	useEffect( () => {
 		if ( ! toast ) {
@@ -1498,6 +1556,23 @@ export default function TopologyConsole() {
 					confirmLabel={ __( 'Save', 'newspack-nodes' ) }
 					onConfirm={ handleSaveConfirm }
 					onCancel={ () => setSaveModal( null ) }
+				/>
+			) }
+			{ activateModal && (
+				<ConfirmModal
+					title={ __( 'Activate now?', 'newspack-nodes' ) }
+					body={ sprintf(
+						// translators: %s: topology name.
+						__(
+							'Topology "%s" was saved but is not running. Activate it now to spawn its workers?',
+							'newspack-nodes'
+						),
+						activateModal.name
+					) }
+					confirmLabel={ __( 'Activate', 'newspack-nodes' ) }
+					cancelLabel={ __( 'Not now', 'newspack-nodes' ) }
+					onConfirm={ confirmActivate }
+					onCancel={ () => setActivateModal( null ) }
 				/>
 			) }
 			{ resetConfirm && (

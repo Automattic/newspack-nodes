@@ -597,6 +597,16 @@ jest.mock( '../components/Modal', () => ( {
 	},
 } ) );
 
+// Capture the activate dispatch (a brand-new save prompts "Activate now?",
+// confirming routes through the command client). send() resolves so the
+// post-activate toast path runs in act().
+globalThis.__activateSend = jest.fn().mockResolvedValue( null );
+jest.mock( '../utils/commandClient', () => ( {
+	getCommandClient: () => ( {
+		send: ( ...args ) => globalThis.__activateSend( ...args ),
+	} ),
+} ) );
+
 import TopologyConsole from '../TopologyConsole';
 import { Core } from '../../runtime/core';
 
@@ -622,6 +632,8 @@ describe( 'TopologyConsole boot', () => {
 		hooks.fetchTopology.mockResolvedValue( null );
 		hooks.saveTopology.mockReset();
 		hooks.saveTopology.mockResolvedValue( null );
+		globalThis.__activateSend.mockReset();
+		globalThis.__activateSend.mockResolvedValue( null );
 		hooks.deleteTopology.mockReset();
 		hooks.deleteTopology.mockResolvedValue( null );
 		hooks.fetchLayout.mockReset();
@@ -2268,6 +2280,133 @@ describe( 'TopologyConsole boot', () => {
 			fireEvent.click( getByText( 'save' ) );
 		} );
 		expect( getByTestId( 'header' ) ).not.toBeNull();
+	} );
+
+	it( 'saving a NEW topology prompts "Activate now?"; confirm dispatches activate', async () => {
+		// Catalog knows only `demo`; the prompt mock saves as `newname` — a name
+		// NOT in the prior known set, i.e. a freshly-created topology.
+		hooks.catalog = { partitions: { demo: 2 }, active: [] };
+		hooks.fetchTopology.mockResolvedValueOnce( { tsl: '', name: 'demo' } );
+		hooks.saveTopology.mockResolvedValueOnce( {
+			name: 'newname',
+			restarted_fleets: [],
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'save' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'prompt-ok' ) );
+		} );
+		// The activate prompt is up (a ConfirmModal titled "Activate now?").
+		expect( globalThis.__lastConfirmModal.title ).toMatch( /activate/i );
+		await act( async () => {
+			fireEvent.click( getByText( 'confirm' ) );
+		} );
+		expect( globalThis.__activateSend ).toHaveBeenCalledWith( {
+			to: 'topologies',
+			verb: 'activate',
+			args: 'newname',
+		} );
+	} );
+
+	it( 'dismissing the "Activate now?" prompt dispatches nothing', async () => {
+		hooks.catalog = { partitions: { demo: 2 }, active: [] };
+		hooks.fetchTopology.mockResolvedValueOnce( { tsl: '', name: 'demo' } );
+		hooks.saveTopology.mockResolvedValueOnce( {
+			name: 'newname',
+			restarted_fleets: [],
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'save' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'prompt-ok' ) );
+		} );
+		expect( globalThis.__lastConfirmModal.title ).toMatch( /activate/i );
+		await act( async () => {
+			fireEvent.click( getByText( 'cancel-confirm' ) );
+		} );
+		expect( globalThis.__activateSend ).not.toHaveBeenCalled();
+	} );
+
+	it( 'saving an EXISTING topology shows no activate prompt', async () => {
+		// Catalog already knows `newname` — saving over it is an edit, not new.
+		hooks.catalog = { partitions: { newname: 1 }, active: [] };
+		globalThis.__lastConfirmModal = null;
+		hooks.fetchTopology.mockResolvedValueOnce( { tsl: '', name: 'demo' } );
+		hooks.saveTopology.mockResolvedValueOnce( {
+			name: 'newname',
+			restarted_fleets: [],
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'save' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'prompt-ok' ) );
+		} );
+		expect( globalThis.__lastConfirmModal ).toBeNull();
+		expect( globalThis.__activateSend ).not.toHaveBeenCalled();
+	} );
+
+	it( 'confirming "Activate now?" toasts the error (not success) when the verb returns TM_ERROR', async () => {
+		// The activate verb rejects (e.g. a write-conflict with an already-active
+		// topology): the substrate replies TM_COMMAND|TM_RESPONSE|TM_ERROR at HTTP
+		// 200. send() resolves that Message regardless of TYPE — only
+		// unwrapCommandResponse throws on TM_ERROR. confirmActivate must surface
+		// the error toast and NOT falsely claim activation.
+		globalThis.__activateSend.mockResolvedValueOnce(
+			posMsg( {
+				type: TM_COMMAND | TM_RESPONSE | TM_ERROR,
+				value: {
+					name: 'activate',
+					payload: 'conflicts with active demo',
+				},
+			} )
+		);
+		hooks.catalog = { partitions: { demo: 2 }, active: [ 'demo' ] };
+		hooks.fetchTopology.mockResolvedValueOnce( { tsl: '', name: 'demo' } );
+		hooks.saveTopology.mockResolvedValueOnce( {
+			name: 'newname',
+			restarted_fleets: [],
+		} );
+		window.history.replaceState( {}, '', '/?topology=demo' );
+		const { getByText, container } = render( <TopologyConsole /> );
+		await act( async () => {
+			fireEvent.click( getByText( 'edit' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'save' ) );
+		} );
+		await act( async () => {
+			fireEvent.click( getByText( 'prompt-ok' ) );
+		} );
+		expect( globalThis.__lastConfirmModal.title ).toMatch( /activate/i );
+		await act( async () => {
+			fireEvent.click( getByText( 'confirm' ) );
+		} );
+		const errorToast = container.querySelector( '.topology-toast--error' );
+		expect( errorToast ).not.toBeNull();
+		expect( errorToast.textContent ).toMatch(
+			/conflicts with active demo/
+		);
+		expect(
+			container.querySelector( '.topology-toast--success' )
+		).toBeNull();
 	} );
 
 	it( 'edits num_partitions in the settings panel and serializes it on save', async () => {
