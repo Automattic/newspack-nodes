@@ -22,11 +22,11 @@ describe( 'PublisherInsightsPage', () => {
 		).toBeInTheDocument();
 	} );
 
-	it( 'mounts the dashboard structure (empty until the poll fills it)', () => {
+	it( 'shows the empty state (no table) until the poll fills it', () => {
 		render( <PublisherInsightsPage /> );
 		expect(
-			screen.getByRole( 'heading', { name: 'Top items' } )
+			screen.getByText( /no scored items yet/i )
 		).toBeInTheDocument();
-		expect( screen.getByRole( 'table' ) ).toBeInTheDocument();
+		expect( screen.queryByRole( 'table' ) ).not.toBeInTheDocument();
 	} );
 } );

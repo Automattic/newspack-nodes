@@ -423,7 +423,20 @@ export default function PublisherInsights( { refreshMs = 4000, commandClient } )
 }
 ```
 
-`useNodeState('insights:view', 'view')` is the bridge: it subscribes to the `view` key the node `setState`s, so every poll publish re-renders the table. The `|| emptyModel()` fallback means the first render (before the first reply lands) is still valid — the node guarantees all three fields on every publish.
+`useNodeState('insights:view', 'view')` is the bridge: it subscribes to the `view` key the node `setState`s, so every poll publish re-renders the table. The `|| emptyModel()` fallback means the first render (before the first reply lands) is still valid — the node guarantees its data fields on every publish.
+
+The real component picks one of three branches off that model — an **error notice** (`model.error`, set when a poll reply is `TM_ERROR`), an **empty state** (nothing scored yet), or the **data grid** — rather than rendering an empty table into the void. Surfacing the error and the "drive the pipeline" hint is most of the difference between a demo and something an operator can actually read:
+
+```js
+let content;
+if ( model.error ) {
+	content = <div className="nan-insights__notice nan-insights__notice--error" role="alert">{ model.error }</div>;
+} else if ( 0 === model.accumulated && 0 === model.top.length ) {
+	content = <div className="nan-insights__empty">No scored items yet — drive the pipeline.</div>;
+} else {
+	content = /* the By-source list + score-ranked table + Draft button */;
+}
+```
 
 The **Draft newsletter** button is pure client-side — `draftNewsletter(model.top)` turns the already-ranked items into markdown with no server call:
 
@@ -437,7 +450,7 @@ export function draftNewsletter( items = [] ) {
 }
 ```
 
-`PublisherInsights` reads `import './styles/insights.scss'` — create that file (any styling you like; the example's is the reference). The build needs it to exist.
+`PublisherInsights` reads `import './styles/insights.scss'` — create that file. Style it to the **Newspack in-product design system** ([`docs/DESIGN.product.md`](DESIGN.product.md)): Cobalt (`#003DA5`) for the primary action, neutral surfaces (`#fff` / `#f7f7f7`) and borders (`#ddd`), `#1e1e1e` / `#6c6c6c` text, Inter, the 4/8/16/24 spacing scale, and functional colors (error `#B32D2E` on subtle `#FCF0F1`) only for status. The example's `insights.scss` is the reference. **Lay it out in flow** — a normal block in the admin content column — *not* `position: fixed` / full-bleed: that overlay pattern belongs to the Topology Console and the DevTools hub (which deliberately take over the viewport), and on a standalone admin page it just hides the WP admin bar and menu.
 
 Wrap the component in a page so the bundle entry has a single default export to mount, `src/dashboard/PublisherInsightsPage.js`:
 
@@ -541,16 +554,18 @@ Finally, register the admin page (a menu item + a mount div) and enqueue the bun
 ```php
 const INSIGHTS_MENU_SLUG = 'newspack-ai-newsletter-insights';
 
-// Register the page under the substrate's "Nodes" menu (renders the mount div).
+// Register the dashboard as its OWN top-level menu — it's this plugin's page, not
+// a Nodes-substrate tool, so it stands alone rather than nesting under "Nodes".
+// The callback prints only the React mount div inside the standard `.wrap`.
 function register_insights_admin_page(): void {
 	if ( ! \class_exists( '\Newspack_Nodes\Admin\Admin' )
 		|| ! \Newspack_Nodes\Admin\Admin::current_user_allowed() ) {
 		return;
 	}
-	\add_submenu_page(
-		\Newspack_Nodes\Admin\Admin::TOPOLOGY_MENU_SLUG,
+	\add_menu_page(
 		'Publisher Insights', 'Publisher Insights', 'manage_options', INSIGHTS_MENU_SLUG,
-		static fn () => print( '<div id="' . \esc_attr( INSIGHTS_MENU_SLUG ) . '"></div>' )
+		static fn () => print( '<div class="wrap"><div id="' . \esc_attr( INSIGHTS_MENU_SLUG ) . '"></div></div>' ),
+		'dashicons-chart-bar', 58.7
 	);
 }
 
@@ -576,6 +591,8 @@ if ( \is_admin() ) {
 }
 ```
 
+A standalone plugin dashboard gets its **own** top-level menu (`add_menu_page`) — it shouldn't squat inside the substrate's "Nodes" menu, which is for Nodes' own tools (the Console, the DevTools hub). If your dashboard genuinely *is* a Nodes-internal tool, register it as a `host: 'hub'` DevTools tab (the hub's tab API) rather than an `add_submenu_page` under `Admin::TOPOLOGY_MENU_SLUG`. Either way, the gate above (`current_user_allowed()`) keeps visibility consistent with the substrate.
+
 > **← a substrate refinement.** `enqueue_insights_assets` was ~40 lines: read the `$_GET['page']` and bail if it's not yours; `file_exists` the bundle; `require` the `index.asset.php` manifest for deps + version; `wp_enqueue_script`; the `index.css` sidecar; `wp_localize_script` the REST root + nonce as `NewspackNodesData` (which the JS `CommandClient` reads). Every dashboard repeated it. It became **`Admin::enqueue_react_page( $args )`** — page-gate, manifest deps/version, CSS (and the RTL companion, which no site previously activated), and the `NewspackNodesData` localize, returning the handle so a caller can layer extras. You pass it where your bundle is and which page it's for.
 
 The `NewspackNodesData` the registrar localizes (`{ restUrl, nonce }`) is exactly what the JS `CommandClient` reads to authenticate the `POST /command` — so `enqueue_react_page` (PHP) and `useDashboardGraph`'s lazily-built `CommandClient` (JS) are the two ends of one wire.
@@ -600,7 +617,7 @@ wp nodes cli digest.p0
 > cmd community tick
 ```
 
-Each tick flows `source → summarizer → scorer → scored:partition`; the Consumer tails the scored records into the digest and co-commits the snapshot. Now open **Nodes → Publisher Insights** in wp-admin. The page mounts, the poll fires, and you see it: **By source** counts, the **score-ranked table** (releases items at 6, community at 4–3, exactly the Scorer's weights), and **Draft newsletter** producing the markdown. It refreshes every 4 s while the tab is visible. Tick the sources again and watch the counts climb on the next poll.
+Each tick flows `source → summarizer → scorer → scored:partition`; the Consumer tails the scored records into the digest and co-commits the snapshot. Now open **Publisher Insights** (its own top-level item) in wp-admin. The page mounts, the poll fires, and you see it: **By source** counts, the **score-ranked table** (releases items at 6, community at 4–3, exactly the Scorer's weights), and **Draft newsletter** producing the markdown. It refreshes every 4 s while the tab is visible. Tick the sources again and watch the counts climb on the next poll.
 
 You drove a server-side worker and a browser React app with the same two verbs (`tick`, then a poll of `insights`), because both ends speak the same protocol.
 

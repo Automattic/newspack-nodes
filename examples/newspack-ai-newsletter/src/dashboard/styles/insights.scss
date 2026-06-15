@@ -1,90 +1,192 @@
+/**
+ * Publisher Insights — in-product styling per the Newspack design system
+ * (dndocker/docs/DESIGN.product.md): restrained, Cobalt-led, Inter, light
+ * surfaces, neutral structure. It sits IN FLOW inside wp-admin's content
+ * column — no fixed/overlay positioning — so the admin bar and menu stay put.
+ */
+
+// --- DESIGN.product.md tokens (subset used here) ---
+$cobalt: #003da5;
+$cobalt-hover: #00296e;
+$surface: #fff;
+$surface-subtle: #f7f7f7;
+$text: #1e1e1e;
+$text-secondary: #6c6c6c;
+$border: #ddd;
+$error: #b32d2e;
+$error-subtle: #fcf0f1;
+$font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-serif;
+
 .nan-insights {
-	position: fixed;
-	inset: 0;
-	z-index: 100000;
-	overflow: auto;
-	padding: 32px;
-	background: #1e1e2e;
-	color: #e6e6f0;
-	font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+	max-width: 880px;
+	margin: 16px 20px 0 0;
+	color: $text;
+	font-family: $font;
+	font-size: 16px;
+	line-height: 24px;
+
+	&__header {
+		margin-bottom: 24px;
+	}
 
 	h1 {
-		margin: 0 0 16px;
-		font-size: 28px;
+		margin: 0;
+		padding: 0;
+		font-size: 32px;
+		line-height: 44px;
 		font-weight: 600;
-		color: #fff;
+		color: $text;
+	}
+
+	&__sub {
+		margin: 4px 0 0;
+		font-size: 14px;
+		line-height: 20px;
+		color: $text-secondary;
 	}
 
 	h2 {
-		margin: 24px 0 8px;
+		margin: 0 0 12px;
 		font-size: 16px;
 		font-weight: 600;
-		color: #c9c9e0;
+		color: $text;
 	}
 
-	&__accumulated {
-		margin: 0;
+	// --- Error notice: subtle tinted background + dark text (functional only) ---
+	&__notice {
+		padding: 12px 16px;
+		border-radius: 8px;
 		font-size: 14px;
-		color: #9a9ab0;
+
+		&--error {
+			background: $error-subtle;
+			color: $text;
+			border: 1px solid $error;
+		}
+	}
+
+	// --- Empty state ---
+	&__empty {
+		padding: 32px;
+		text-align: center;
+		background: $surface-subtle;
+		border: 1px solid $border;
+		border-radius: 16px;
+
+		p {
+			margin: 0;
+		}
+
+		// Adjacent-sibling spacing beats an !important override of `p { margin: 0 }`.
+		p + p {
+			margin-top: 8px;
+		}
+
+		&-hint {
+			font-size: 14px;
+			color: $text-secondary;
+		}
+	}
+
+	// --- Cards: white surface, neutral border, rounded 8 ---
+	&__grid {
+		display: flex;
+		flex-direction: column;
+		gap: 24px;
+	}
+
+	&__card {
+		padding: 16px;
+		background: $surface;
+		border: 1px solid $border;
+		border-radius: 8px;
 	}
 
 	&__sources ul {
 		margin: 0;
-		padding-left: 18px;
-		font-size: 14px;
+		padding: 0;
+		list-style: none;
+
+		li {
+			display: flex;
+			justify-content: space-between;
+			padding: 6px 0;
+			font-size: 14px;
+			border-bottom: 1px solid $border;
+
+			&:last-child {
+				border-bottom: 0;
+			}
+		}
+	}
+
+	&__source-name {
+		text-transform: capitalize;
+	}
+
+	&__source-count {
+		font-weight: 600;
+		font-variant-numeric: tabular-nums;
 	}
 
 	&__top table {
-		border-collapse: collapse;
 		width: 100%;
-		max-width: 720px;
+		border-collapse: collapse;
 		font-size: 14px;
 
 		th,
 		td {
-			padding: 6px 12px;
+			padding: 8px 12px;
 			text-align: left;
-			border-bottom: 1px solid #34344a;
+			border-bottom: 1px solid $border;
 		}
 
 		th {
-			color: #9a9ab0;
+			color: $text-secondary;
 			font-weight: 600;
 		}
 
+		// Score is the last column — right-align it via :last-child (higher
+		// specificity than the th,td rule above, so no !important needed).
 		th:last-child,
 		td:last-child {
 			text-align: right;
 			font-variant-numeric: tabular-nums;
 		}
+
+		tbody tr:last-child td {
+			border-bottom: 0;
+		}
 	}
 
-	&__draft {
-		margin-top: 24px;
+	// --- Primary action: Cobalt button ---
+	&__btn {
+		padding: 12px 16px;
+		font-size: 16px;
+		font-family: $font;
+		color: #fff;
+		background: $cobalt;
+		border: 0;
+		border-radius: 8px;
+		cursor: pointer;
+		transition: background 0.15s;
 
-		button {
-			padding: 8px 16px;
-			font-size: 14px;
-			color: #fff;
-			background: #4f46e5;
-			border: 0;
-			border-radius: 6px;
-			cursor: pointer;
+		&:hover {
+			background: $cobalt-hover;
 		}
 	}
 
 	&__draft-text {
 		display: block;
 		width: 100%;
-		max-width: 720px;
 		margin-top: 12px;
 		padding: 12px;
-		font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+		font-family: ui-monospace, sfmono-regular, menlo, monospace;
 		font-size: 13px;
-		color: #e6e6f0;
-		background: #15151f;
-		border: 1px solid #34344a;
-		border-radius: 6px;
+		color: $text;
+		background: $surface-subtle;
+		border: 1px solid $border;
+		border-radius: 8px;
 		resize: vertical;
 	}
 }
