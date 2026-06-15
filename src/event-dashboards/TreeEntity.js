@@ -77,7 +77,6 @@ function NodeRow( { entity, byteRates } ) {
 
 function LogRows( {
 	entity,
-	flat,
 	writeRates,
 	segmentSize,
 	prevSegments,
@@ -110,7 +109,7 @@ function LogRows( {
 			<div key={ p.partition } className="log-partition-row">
 				<div className="log-partition-info">
 					<span className="partition-label-inline">
-						{ flat ? p.name : `P${ p.partition }` }
+						P{ p.partition }
 					</span>
 					<span className="log-write-rate">
 						{ entity.hasCursor ? 'R' : 'W' }{ ' ' }
@@ -146,21 +145,8 @@ function LogRows( {
 
 const TreeEntity = memo( function TreeEntity( props ) {
 	const { entity, depth, collapsed, onToggle } = props;
+	const isCollapsed = collapsed.has( entity.key );
 	const hasChildren = entity.children.length > 0;
-	// A leaf log (segment rows only, no downstream subtree) flattens: no group
-	// label, no fold caret, partition rows labelled with the concrete name.
-	const isFlatLog = entity.kind === 'log' && ! hasChildren;
-	const isCollapsed = ! isFlatLog && collapsed.has( entity.key );
-	if ( isFlatLog ) {
-		return (
-			<div
-				className="tree-branch tree-branch--flat-log"
-				style={ { marginLeft: depth * 14 } }
-			>
-				<LogRows entity={ entity } flat { ...props } />
-			</div>
-		);
-	}
 	return (
 		<div className={ `tree-branch ${ isCollapsed ? 'collapsed' : '' }` }>
 			<div className="tree-ent" style={ { marginLeft: depth * 14 } }>
