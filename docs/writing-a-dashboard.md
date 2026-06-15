@@ -607,19 +607,19 @@ npm run build
 wp nodes ls                       #   digest.p0   [live]
 ```
 
-The worker is live but its snapshot is empty until the pipeline runs. Drive it from the worker's REPL — the sources emit on `tick`:
+The worker is live but its snapshot is empty until the pipeline runs. Drive it from the worker's REPL — the sources emit on a `TICK` runtime request (`request_node`, not an admin command):
 
 ```bash
 wp nodes cli digest.p0
 ```
 ```
-> cmd releases  tick
-> cmd community tick
+> request_node releases  TICK
+> request_node community TICK
 ```
 
-Each tick flows `source → summarizer → scorer → scored:partition`; the Consumer tails the scored records into the digest and co-commits the snapshot. Now open **Publisher Insights** (its own top-level item) in wp-admin. The page mounts, the poll fires, and you see it: **By source** counts, the **score-ranked table** (releases items at 6, community at 4–3, exactly the Scorer's weights), and **Draft newsletter** producing the markdown. It refreshes every 4 s while the tab is visible. Tick the sources again and watch the counts climb on the next poll.
+Each `TICK` flows `source → summarizer → scorer → scored:partition`; the Consumer tails the scored records into the digest and co-commits the snapshot. Now open **Publisher Insights** (its own top-level item) in wp-admin. The page mounts, the poll fires, and you see it: **By source** counts, the **score-ranked table** (releases items at 6, community at 4–3, exactly the Scorer's weights), and **Draft newsletter** producing the markdown. It refreshes every 4 s while the tab is visible. `TICK` the sources again and watch the counts climb on the next poll.
 
-You drove a server-side worker and a browser React app with the same two verbs (`tick`, then a poll of `insights`), because both ends speak the same protocol.
+You drove a server-side worker and a browser React app with the same protocol — a `TICK` runtime request to the sources, then a poll of `insights` — because both ends speak it.
 
 ---
 

@@ -47,6 +47,15 @@ final class PipelineTest extends TestCase {
 		return $m;
 	}
 
+	/** A runtime trigger request (TICK/FLUSH), as the REPL's `request_node <node> <verb>` mints it. */
+	private function request( string $verb ): array {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_REQUEST;
+		$m[ Message::FROM ]  = '_repl';
+		$m[ Message::VALUE ] = $verb;
+		return $m;
+	}
+
 	public function test_two_sources_flow_through_scorer_into_one_draft(): void {
 		// Wire the graph by sink, the way connect_node does at runtime:
 		// releases ─┐
@@ -64,8 +73,10 @@ final class PipelineTest extends TestCase {
 		$community = new Community_Source_Node();
 		$community->sink( $summarizer );
 
-		$releases->cmd_tick();
-		$community->cmd_tick();
+		$rel_req = $this->request( 'TICK' );
+		$releases->fill( $rel_req );
+		$com_req = $this->request( 'TICK' );
+		$community->fill( $com_req );
 
 		// Every item picked up a score from the scorer wired between summarizer and digest —
 		// Ben's lesson again: a node + one wire, nothing else changed. (Guarded so an empty
@@ -76,9 +87,13 @@ final class PipelineTest extends TestCase {
 			$this->assertArrayHasKey( 'score', $item );
 		}
 
-		$digest->cmd_flush();
+		$flush_req = $this->request( 'FLUSH' );
+		$digest->fill( $flush_req );
 
-		$drafts = $out->captured;
+		$drafts = array_values( array_filter(
+			$out->captured,
+			static fn ( $m ) => 0 !== ( $m[ Message::TYPE ] & Message::TM_BYTESTREAM )
+		) );
 		$this->assertCount( 1, $drafts, 'one draft emitted' );
 		$draft = $drafts[0][ Message::VALUE ];
 		$this->assertSame( Message::TM_BYTESTREAM, $drafts[0][ Message::TYPE ] & Message::TM_BYTESTREAM );
