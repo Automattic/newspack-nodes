@@ -499,7 +499,7 @@ test( 'clicking the restart button on an active topology calls restart(name)', (
 	expect( value.restart ).toHaveBeenCalledWith( 'alpha' );
 } );
 
-test( 'a rejected mutation does not crash the render', () => {
+test( 'a rejected mutation does not crash the render', async () => {
 	const value = hookValue( {
 		activate: jest.fn( () => Promise.reject( new Error( 'boom' ) ) ),
 		topologies: [
@@ -518,6 +518,12 @@ test( 'a rejected mutation does not crash the render', () => {
 	const toggle = container.querySelector( '.nodes-tm__toggle' );
 	expect( () => fireEvent.click( toggle ) ).not.toThrow();
 	expect( value.activate ).toHaveBeenCalledWith( 'beta' );
+	// The rejection resolves asynchronously into an alert; await it so the
+	// catch→setAlert update flushes inside act() and we confirm the render
+	// survived rather than crashed.
+	await waitFor( () =>
+		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeTruthy()
+	);
 } );
 
 test( 'renders a stalled pill for a stalled partition', () => {
