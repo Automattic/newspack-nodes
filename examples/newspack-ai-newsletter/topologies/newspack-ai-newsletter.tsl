@@ -1,12 +1,12 @@
 # AI Newsletter — scored, durable digest pipeline (dashboard chapter).
 #
 #   community ┐
-#             ├─ summarizer ─ scorer ─ scored:partition      (durable scored.log)
+#             ├─ summarizer ─ scorer ─ scored:partition      (durable `scored` log)
 #   releases ─┘
 #   scored:consumer ─ digest ─ digest:tee ─ digest:log
 #
 # summarizer adds a one-line summary; scorer adds a notional priority score and
-# appends each scored item to the durable `scored.log` partition. A Consumer
+# appends each scored item to the durable `scored` partition. A Consumer
 # tails that log into the digest, and co-commits the digest's accumulated state
 # (save_state) into its offsetlog via `set_snapshot_node digest` — so a respawned
 # worker restores in lockstep with the cursor. Insights_CI reads that offsetlog
