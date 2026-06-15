@@ -348,4 +348,20 @@ describe( 'RawLogs', () => {
 		const { container } = render( <RawLogs /> );
 		expect( container.textContent ).toMatch( /No logs available/ );
 	} );
+
+	it( 'does not render its own debug overlay — the hub provides one', () => {
+		// As a hub tab, Raw Logs must NOT mount its own DebugOverlay; the hub
+		// renders the overlay on non-console tabs. A self-rendered overlay would
+		// double-up. The overlay enables its FAB off the sticky localStorage flag.
+		window.localStorage.setItem( 'newspack-nodes:debug', '1' );
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+		} );
+		const { queryByRole } = render( <RawLogs /> );
+		expect(
+			queryByRole( 'button', { name: /node debugger/i } )
+		).toBeNull();
+		window.localStorage.clear();
+	} );
 } );

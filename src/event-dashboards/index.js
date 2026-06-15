@@ -1,17 +1,10 @@
 /**
  * Dashboards Entry Point
  *
- * Raw Logs dashboard for Event Logger.
+ * Registers the hub DevTools tabs the event-dashboards bundle owns (Topology
+ * Manager + Raw Logs) via the side-effecting `./tabs` import. There is no
+ * standalone React mount — Raw Logs is a hub tab now.
  */
 
-import { createRoot } from '@wordpress/element';
 import './nodes/register';
 import './tabs';
-import RawLogsPage from './RawLogsPage';
-
-// Mount Raw Logs dashboard.
-const rawlogsMount = document.getElementById( 'newspack-nodes-rawlogs' );
-if ( rawlogsMount ) {
-	const root = createRoot( rawlogsMount );
-	root.render( <RawLogsPage /> );
-}
