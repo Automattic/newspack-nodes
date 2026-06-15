@@ -306,8 +306,8 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
 						self::require_manage_options();
-						$name = \trim( $args );
-						if ( '' === $name || null === Topology_Registry::resolve( $name ) ) {
+						$name = self::require_valid_name( \trim( $args ) );
+						if ( null === Topology_Registry::resolve( $name ) ) {
 							throw new \RuntimeException(
 								\esc_html( "unknown topology '$name'" )
 							);
@@ -343,7 +343,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
 						self::require_manage_options();
-						$name   = \trim( $args );
+						$name   = self::require_valid_name( \trim( $args ) );
 						$active = \array_values( \array_diff( \array_keys( Bootstrap::get_topologies() ), [ $name ] ) );
 						\update_option( 'newspack_nodes_topologies', $active );
 						self::invalidate_config_cache();
