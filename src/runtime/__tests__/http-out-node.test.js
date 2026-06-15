@@ -344,6 +344,10 @@ describe( 'HttpOut', () => {
 			expect( schema.arguments ).toEqual( [] );
 		} );
 
+		it( 'declares has_target:false (POSTs out + routes replies, never targets in-graph — no out-port)', () => {
+			expect( HttpOutNode.nodeSchema().has_target ).toBe( false );
+		} );
+
 		it( 'accepts the client as a public property and POSTs through it', () => {
 			const postBatch = jest.fn().mockResolvedValue( [] );
 			const real = new CommandClient( {

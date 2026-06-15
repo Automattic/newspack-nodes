@@ -32,6 +32,9 @@ export class TopologyManagerViewNode extends Node {
 	}
 
 	fill( message ) {
+		// Terminal node (no sink) — base Node.fill() can't run, so count here
+		// to keep the overlay's per-node throughput honest.
+		this.counter += 1;
 		const value = message[ VALUE ];
 		if ( ! value || 'object' !== typeof value ) {
 			return;
@@ -71,5 +74,17 @@ export class TopologyManagerViewNode extends Node {
 
 	_publish() {
 		this.setState( 'view', this.model );
+	}
+
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description:
+				'Topology Manager list-model sink (the React view node).',
+			// Terminal receiver: settles replies, never sets target → no out-port.
+			has_target: false,
+			arguments: [],
+			commands: [],
+		};
 	}
 }

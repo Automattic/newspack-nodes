@@ -10,7 +10,7 @@
  *    deactivate, and the active restart button calls restart.
  */
 
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, waitFor } from '@testing-library/react';
 import TopologyManager from '../TopologyManager';
 
 jest.mock( '../hooks/useTopologyManager', () => ( {
@@ -542,4 +542,109 @@ test( 'shows a connection banner when not connected', () => {
 	expect(
 		container.querySelector( '.newspack-nodes-connection-banner' )
 	).toBeTruthy();
+} );
+
+test( 'the heading drops the redundant "N partitions" subtitle', () => {
+	useTopologyManager.mockReturnValue(
+		hookValue( {
+			topologies: [
+				{
+					name: 'alpha',
+					source: 'stock',
+					active: true,
+					num_partitions: 2,
+					status: activeStatus(),
+				},
+			],
+		} )
+	);
+
+	const { container } = render( <TopologyManager /> );
+	expect( container.querySelector( '.nodes-tm__sub' ) ).toBeFalsy();
+} );
+
+test( 'the partition pills sit left of the source badge so they scan against the tree', () => {
+	useTopologyManager.mockReturnValue(
+		hookValue( {
+			topologies: [
+				{
+					name: 'alpha',
+					source: 'stock',
+					active: true,
+					num_partitions: 1,
+					status: activeStatus(),
+				},
+			],
+		} )
+	);
+
+	const { container } = render( <TopologyManager /> );
+	const heading = container.querySelector( '.nodes-tm__heading' );
+	const pill = heading.querySelector( '.topology-partition' );
+	const badge = heading.querySelector( '.nodes-tm__badge' );
+	expect( pill ).toBeTruthy();
+	expect( badge ).toBeTruthy();
+	// DOCUMENT_POSITION_FOLLOWING ⇒ badge comes AFTER the pill in DOM order.
+	expect(
+		pill.compareDocumentPosition( badge ) &
+			window.Node.DOCUMENT_POSITION_FOLLOWING
+	).toBeTruthy();
+} );
+
+test( 'a rejected activate surfaces the reason in an alert modal', async () => {
+	const value = hookValue( {
+		topologies: [
+			{
+				name: 'beta',
+				source: 'user',
+				active: false,
+				num_partitions: 1,
+				status: null,
+			},
+		],
+		activate: jest.fn( () =>
+			Promise.reject(
+				new Error( 'conflict: beta and alpha both write requests.p0' )
+			)
+		),
+	} );
+	useTopologyManager.mockReturnValue( value );
+
+	const { container, getByText } = render( <TopologyManager /> );
+	fireEvent.click( container.querySelector( '.nodes-tm__toggle' ) );
+
+	await waitFor( () =>
+		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeTruthy()
+	);
+	expect( getByText( /both write requests\.p0/ ) ).toBeTruthy();
+	// The topology name is named in the modal title so an operator knows which failed.
+	expect(
+		container.querySelector( '.nodes-tm__alert-title' ).textContent
+	).toMatch( /beta/ );
+} );
+
+test( 'a rejected restart/deactivate is swallowed from the render but surfaced in the modal', async () => {
+	const value = hookValue( {
+		topologies: [
+			{
+				name: 'alpha',
+				source: 'stock',
+				active: true,
+				num_partitions: 1,
+				status: activeStatus(),
+			},
+		],
+		deactivate: jest.fn( () =>
+			Promise.reject( new Error( 'drain failed: workers busy' ) )
+		),
+	} );
+	useTopologyManager.mockReturnValue( value );
+
+	const { container, getByText } = render( <TopologyManager /> );
+	fireEvent.click( container.querySelector( '.nodes-tm__toggle.is-on' ) );
+
+	await waitFor( () =>
+		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeTruthy()
+	);
+	expect( getByText( /drain failed: workers busy/ ) ).toBeTruthy();
 } );

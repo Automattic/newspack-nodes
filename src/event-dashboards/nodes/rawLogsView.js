@@ -69,6 +69,10 @@ export class RawLogsViewNode extends Node {
 	}
 
 	fill( message ) {
+		// Terminal node (no sink) — base Node.fill() can't run, so count here
+		// to keep the overlay's per-node throughput honest. (Distinct from the
+		// line-rate counters above.)
+		this.counter += 1;
 		const value = message[ VALUE ];
 
 		// Pending-Map gating (canonical): settle any Promise the hook stashed
@@ -254,5 +258,16 @@ export class RawLogsViewNode extends Node {
 				this._writeRow( value[ i ] );
 			}
 		}
+	}
+
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description: 'Raw Logs render-model sink (the React view node).',
+			// Terminal receiver: settles replies, never sets target → no out-port.
+			has_target: false,
+			arguments: [],
+			commands: [],
+		};
 	}
 }

@@ -470,4 +470,14 @@ describe( 'workerstatus:transform — node wiring', () => {
 			t.fill( metadataMsg( producerSnapshot( 100 ) ) )
 		).not.toThrow();
 	} );
+
+	test( 'fill increments the node counter so the overlay shows throughput', () => {
+		const t = makeTransform( 'workerstatus:transform' );
+		const sink = capture();
+		t.sink = sink.node;
+		t.target = 'workerstatus:view';
+		expect( t.counter ).toBe( 0 );
+		withClock( () => t.fill( metadataMsg( producerSnapshot( 100 ) ) ) );
+		expect( t.counter ).toBe( 1 );
+	} );
 } );

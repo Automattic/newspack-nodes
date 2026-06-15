@@ -1,7 +1,8 @@
 /**
  * Topology Manager hub tab styles. A list of per-topology cards: a flex heading
- * row (name + subtitle on the left; source badge, health, stalled pills, active
- * toggle and restart on the right) over the live worker-status subtree. Palette
+ * row (name + per-partition pills on the left so they scan against the tree's
+ * per-node pills; source badge, health, active toggle and restart pushed to the
+ * right) over the live worker-status subtree. Palette
  * tracks the event-dashboards dark theme (see styles/base.scss) so the embedded
  * worker-status tree stays visually consistent. The live subtree itself is
  * styled by worker-status.scss; this file only dresses the manager chrome.
@@ -35,6 +36,23 @@
 		padding: 12px 14px;
 		background: base.$dark-bg-deep;
 		border-bottom: 1px solid base.$dark-border;
+
+		// Fixed-width pill details so the P0/P1 pills don't reflow as their
+		// uptime / heartbeat values change or a restart marker blinks in.
+		.supervisor-age {
+			width: 34px;
+			text-align: right;
+		}
+
+		.connector-heartbeat {
+			width: 30px;
+			text-align: right;
+		}
+
+		.connector-restart-pending {
+			width: 12px;
+			text-align: center;
+		}
 	}
 
 	&__name {
@@ -43,17 +61,11 @@
 		font-size: 15px;
 	}
 
-	&__sub {
-		font-size: 12px;
-		color: base.$dark-text-muted;
-	}
-
-	// Push everything after the subtitle to the right edge.
-	&__sub + * {
-		margin-left: auto;
-	}
-
+	// Source badge starts the right-hand group (badge, health, toggle, restart);
+	// push it — and everything after — to the right edge, leaving the name +
+	// per-partition pills on the left.
 	&__badge {
+		margin-left: auto;
 		display: inline-block;
 		font-size: 10px;
 		padding: 2px 8px;
@@ -185,5 +197,62 @@
 		font-size: 12px;
 		color: base.$dark-text-muted;
 		margin: 8px 0 4px;
+	}
+
+	// Rejected-mutation alert (e.g. an activate that write-conflicts).
+	&__alert-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 100000;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background: rgba(0, 0, 0, 0.55);
+	}
+
+	&__alert {
+		width: 360px;
+		max-width: calc(100vw - 40px);
+		background: base.$dark-bg-secondary;
+		border: 1px solid base.$dark-border;
+		border-radius: 8px;
+		box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+		overflow: hidden;
+	}
+
+	&__alert-title {
+		padding: 12px 16px;
+		font-weight: 600;
+		font-size: 14px;
+		color: base.$dark-text;
+		background: base.$dark-bg-deep;
+		border-bottom: 1px solid base.$dark-border;
+	}
+
+	&__alert-body {
+		padding: 16px;
+		font-size: 13px;
+		line-height: 1.5;
+		color: base.$dark-text;
+	}
+
+	&__alert-actions {
+		display: flex;
+		justify-content: flex-end;
+		padding: 0 16px 16px;
+	}
+
+	&__alert-ok {
+		padding: 6px 16px;
+		border-radius: 6px;
+		border: 1px solid base.$dark-border;
+		background: base.$dark-bg-tertiary;
+		color: base.$dark-text;
+		cursor: pointer;
+		transition: background 0.15s;
+
+		&:hover {
+			background: base.$dark-bg-hover;
+		}
 	}
 }

@@ -270,4 +270,16 @@ describe( 'workerstatus:view — node wiring', () => {
 		const v = makeView( 'workerstatus:view' );
 		expect( v.replies ).toBeInstanceOf( PendingReplies );
 	} );
+
+	test( 'fill increments the node counter so the overlay shows throughput', () => {
+		const v = makeView( 'workerstatus:view' );
+		expect( v.counter ).toBe( 0 );
+		v.fill( modelMsg( {} ) );
+		v.fill( modelMsg( {} ) );
+		expect( v.counter ).toBe( 2 );
+	} );
+
+	test( 'declares has_target:false (terminal receiver — no out-port)', () => {
+		expect( WorkerStatusViewNode.nodeSchema().has_target ).toBe( false );
+	} );
 } );

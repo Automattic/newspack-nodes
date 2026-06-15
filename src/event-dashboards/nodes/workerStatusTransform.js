@@ -49,6 +49,10 @@ export class WorkerStatusTransformNode extends Node {
 	}
 
 	fill( message ) {
+		// Overrides base Node.fill() (it builds a fresh out-message rather than
+		// forwarding this one), so count here to keep the overlay's per-node
+		// throughput honest.
+		this.counter += 1;
 		const value = message[ VALUE ];
 		if ( ! value || 'object' !== typeof value ) {
 			return;

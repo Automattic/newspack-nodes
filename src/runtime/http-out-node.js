@@ -136,6 +136,9 @@ export class HttpOutNode extends Node {
 		return {
 			category: 'Hidden',
 			description: 'Browser → /command HTTP boundary (the `_http` node).',
+			// POSTs commands out and routes replies back to their FROM node; it
+			// never sets a graph `target`, so it has no out-port on the canvas.
+			has_target: false,
 			arguments: [],
 			commands: [],
 		};

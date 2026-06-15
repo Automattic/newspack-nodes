@@ -16,6 +16,7 @@ import { memo, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import TopologySection from './TopologySection';
+import AlertModal from './AlertModal';
 import { SupervisorStatus } from './SupervisorStatus';
 import { buildTopologySections } from './topologyGraph';
 import { partitionSummaries } from './partitionSummaries';
@@ -70,6 +71,7 @@ function sectionFor( name, status ) {
  * @param {Function} props.onActivate   (name) => Promise.
  * @param {Function} props.onDeactivate (name) => Promise.
  * @param {Function} props.onRestart    (name) => Promise.
+ * @param {Function} props.onError      ({name,message}) => void; a rejected mutation.
  * @param {Set}      props.collapsed    Fold-state set for the live subtree.
  * @param {Function} props.onToggleFold (key) => void fold toggler.
  * @return {import('react').ReactElement} Rendered row.
@@ -79,21 +81,18 @@ const TopologyRow = memo( function TopologyRow( {
 	onActivate,
 	onDeactivate,
 	onRestart,
+	onError,
 	collapsed,
 	onToggleFold,
 } ) {
-	const {
-		name,
-		source,
-		active,
-		num_partitions: numPartitions,
-		health = 'ok',
-		partitions = [],
-	} = topology;
-	// Swallow a rejected mutation so a failed activate/deactivate/restart never
-	// crashes the render (P1: no inline error surfacing yet).
+	const { name, source, active, health = 'ok', partitions = [] } = topology;
+	// A rejected mutation must never crash the render — but instead of swallowing
+	// it, surface the reason (e.g. an activate that write-conflicts) via onError
+	// so the parent can show it in a modal.
 	const fire = ( fn ) => () =>
-		Promise.resolve( fn( name ) ).catch( () => {} );
+		Promise.resolve( fn( name ) ).catch( ( err ) =>
+			onError( { name, message: err?.message || String( err ) } )
+		);
 	const section = active ? sectionFor( name, topology.status ) : null;
 	// Per-partition process summary (uptime + heartbeat + restart_pending) and
 	// the rolled-up ALL RUN / ALL DEAD badge — moved up from the old section
@@ -113,25 +112,6 @@ const TopologyRow = memo( function TopologyRow( {
 				<a className="nodes-tm__name" href={ consoleHref( name ) }>
 					{ name }
 				</a>
-				<span className="nodes-tm__sub">
-					{ sprintf(
-						// translators: %d: number of partitions.
-						__( '%d partitions', 'newspack-nodes' ),
-						numPartitions
-					) }
-				</span>
-				<span
-					className={ `nodes-tm__badge nodes-tm__badge--${ source }` }
-				>
-					{ SOURCE_LABELS[ source ] ?? source }
-				</span>
-				{ active && (
-					<span
-						className={ `nodes-tm__health nodes-tm__health--${ health }` }
-					>
-						{ HEALTH_LABELS[ health ] ?? health }
-					</span>
-				) }
 				{ active &&
 					partitions
 						.filter( ( p ) => p.stalled )
@@ -190,6 +170,18 @@ const TopologyRow = memo( function TopologyRow( {
 				{ allDead && (
 					<span className="worker-status-badge dead small">
 						{ __( 'ALL DEAD', 'newspack-nodes' ) }
+					</span>
+				) }
+				<span
+					className={ `nodes-tm__badge nodes-tm__badge--${ source }` }
+				>
+					{ SOURCE_LABELS[ source ] ?? source }
+				</span>
+				{ active && (
+					<span
+						className={ `nodes-tm__health nodes-tm__health--${ health }` }
+					>
+						{ HEALTH_LABELS[ health ] ?? health }
 					</span>
 				) }
 				<button
@@ -255,6 +247,8 @@ export default function TopologyManager() {
 		connected,
 	} = useTopologyManager();
 	const [ collapsed, setCollapsed ] = useState( () => new Set() );
+	// A rejected mutation ({ name, message }) raises this alert; null = hidden.
+	const [ alert, setAlert ] = useState( null );
 	const onToggleFold = ( key ) =>
 		setCollapsed( ( prev ) => {
 			const next = new Set( prev );
@@ -290,10 +284,22 @@ export default function TopologyManager() {
 					onActivate={ activate }
 					onDeactivate={ deactivate }
 					onRestart={ restart }
+					onError={ setAlert }
 					collapsed={ collapsed }
 					onToggleFold={ onToggleFold }
 				/>
 			) ) }
+			{ alert && (
+				<AlertModal
+					title={ sprintf(
+						// translators: %s: topology name.
+						__( 'Couldn’t update “%s”', 'newspack-nodes' ),
+						alert.name
+					) }
+					message={ alert.message }
+					onClose={ () => setAlert( null ) }
+				/>
+			) }
 		</div>
 	);
 }
