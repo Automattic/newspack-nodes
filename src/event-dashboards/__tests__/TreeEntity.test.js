@@ -49,29 +49,25 @@ const props = {
 	onToggle: () => {},
 };
 
-it( 'flattens a leaf log group: no group label, partition rows labelled with the concrete name', () => {
+it( 'renders a log group label, one P{n} row per partition, and a fold caret', () => {
 	const leaf = { ...logEntity, children: [] };
 	const { container } = render(
 		<TreeEntity entity={ leaf } depth={ 0 } { ...props } />
 	);
-	// The group-label header is gone for a leaf log.
-	expect( container.querySelector( '.log-name' ) ).toBeNull();
-	// Two partition sub-rows, each labelled with the CONCRETE name.
+	// Every log renders its group-label header.
+	expect( container.querySelector( '.log-name' ).textContent ).toBe(
+		'requests'
+	);
+	// Two partition sub-rows, each labelled P{partition}.
 	expect( container.querySelectorAll( '.log-partition-row' ) ).toHaveLength(
 		2
 	);
 	const labels = [
 		...container.querySelectorAll( '.partition-label-inline' ),
 	].map( ( el ) => el.textContent );
-	expect( labels ).toEqual( [ 'requests.p0', 'requests.p1' ] );
-} );
-
-it( 'a leaf log group has no fold caret', () => {
-	const leaf = { ...logEntity, children: [] };
-	const { container } = render(
-		<TreeEntity entity={ leaf } depth={ 0 } { ...props } />
-	);
-	expect( container.querySelector( '.caret' ) ).toBeNull();
+	expect( labels ).toEqual( [ 'P0', 'P1' ] );
+	// Every log is foldable.
+	expect( container.querySelector( '.caret' ) ).not.toBeNull();
 } );
 
 it( 'a source log that feeds a subtree keeps its group label and renders the subtree once', () => {
@@ -233,8 +229,6 @@ it( 'folds only the instance whose position key is collapsed, not its twin', () 
 	// Same log appears under two different parents, but position-based keys make
 	// the two instances DISTINCT (a>x.log vs b>x.log). Collapsing one instance's
 	// key folds only that instance; the other keeps its segment bar.
-	// A source log (has a downstream child) is still foldable per position;
-	// leaf logs flatten and don't fold, so this case must keep a child.
 	const logUnder = ( key ) => ( {
 		kind: 'log',
 		name: 'x.log',
@@ -247,15 +241,7 @@ it( 'folds only the instance whose position key is collapsed, not its twin', () 
 				segments: [ { id: 0, size: 100 } ],
 			},
 		],
-		children: [
-			{
-				kind: 'node',
-				name: 'reader',
-				key: `${ key }>reader`,
-				workers: [],
-				children: [],
-			},
-		],
+		children: [],
 	} );
 	const tree = {
 		kind: 'node',

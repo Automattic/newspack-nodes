@@ -62,5 +62,5 @@ it( 'renders no header — the manager card heading is the sole head', () => {
 it( 'renders the section tree', () => {
 	const { container } = render( <TopologySection { ...props } /> );
 	expect( container.querySelector( '.topology-section' ) ).not.toBeNull();
-	expect( container.textContent ).toMatch( /firehose\.log\.p0/ );
+	expect( container.textContent ).toMatch( /firehose\.log/ );
 } );
