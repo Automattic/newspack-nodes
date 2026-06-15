@@ -86,7 +86,7 @@ class TopologiesCITest extends TestCase {
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
 		$this->assertSame(
-			[ 'connect_worker_input', 'delete', 'get', 'list', 'save' ],
+			[ 'activate', 'connect_worker_input', 'deactivate', 'delete', 'get', 'list', 'save' ],
 			$names
 		);
 		$this->assertNotEmpty( $schema['description'] );
