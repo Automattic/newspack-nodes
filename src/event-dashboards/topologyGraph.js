@@ -15,27 +15,28 @@
 const PARTITION_TOKEN = '<partition>';
 
 /**
- * Concrete catalog entries a log VERTEX resolves to, layout-agnostic and
- * parse-free of position. `graph_for` emits the writes/reads basename verbatim
- * from the .tsl path arg, so a partitioned vertex carries the literal
- * `<partition>` token wherever it sits (`firehose.p<partition>`, `<partition>-req`,
- * …). A concrete catalog entry matches when the vertex's literal text brackets it
- * (pre…post) AND the substituted middle is a non-empty all-digits string (the
- * partition NUMBER). That digit check — not a position parse — is what keeps a
- * token-at-end vertex (`firehose.p<partition>`, pre `firehose.p`) from grabbing a
- * sibling `firehose.priority.p0` whose middle would be `riority.p0`. A token-free
+ * Concrete catalog entries a log VERTEX resolves to, with each match's partition
+ * NUMBER, layout-agnostic and parse-free of position. `graph_for` emits the
+ * writes/reads basename verbatim from the .tsl path arg, so a partitioned vertex
+ * carries the literal `<partition>` token wherever it sits (`firehose.p<partition>`,
+ * `<partition>-req`, …). A concrete catalog entry matches when the vertex's literal
+ * text brackets it (pre…post) AND the substituted middle is a non-empty all-digits
+ * string (the partition NUMBER). That digit check — not a position parse — is what
+ * keeps a token-at-end vertex (`firehose.p<partition>`, pre `firehose.p`) from
+ * grabbing a sibling `firehose.priority.p0` whose middle would be `riority.p0`. The
+ * middle digits ARE the partition value (the substituted token VALUE). A token-free
  * vertex (a Log sink `digest.md`, a clean logical name) matches only its exact
- * catalog twin; if nothing matches we fall back to the vertex itself so the tree
- * still shows the node.
+ * catalog twin (partition 0); if nothing matches we fall back to the vertex itself
+ * so the tree still shows the node.
  *
  * @param {string}   vertex       The graph log-vertex name.
  * @param {string[]} catalogNames All concrete catalog entry names.
- * @return {string[]} Matching concrete names (alpha-sorted), or [vertex].
+ * @return {Array<{name:string,partition:number}>} Matches (partition-sorted), or [{name:vertex,partition:0}].
  */
 function concreteLogNames( vertex, catalogNames ) {
 	const tokenAt = vertex.indexOf( PARTITION_TOKEN );
 	if ( tokenAt < 0 ) {
-		return [ vertex ];
+		return [ { name: vertex, partition: 0 } ];
 	}
 	// Degrade safely on a multi-token vertex (unrealistic): pre = before the
 	// first token, post = after the last; the all-digits middle test then
@@ -43,18 +44,52 @@ function concreteLogNames( vertex, catalogNames ) {
 	const lastTokenAt = vertex.lastIndexOf( PARTITION_TOKEN );
 	const pre = vertex.slice( 0, tokenAt );
 	const post = vertex.slice( lastTokenAt + PARTITION_TOKEN.length );
-	const matches = catalogNames.filter( ( name ) => {
+	const matches = [];
+	catalogNames.forEach( ( name ) => {
 		if (
 			name.length < pre.length + post.length ||
 			! name.startsWith( pre ) ||
 			! name.endsWith( post )
 		) {
-			return false;
+			return;
 		}
 		const middle = name.slice( pre.length, name.length - post.length );
-		return middle.length > 0 && /^\d+$/.test( middle );
+		if ( middle.length > 0 && /^\d+$/.test( middle ) ) {
+			matches.push( { name, partition: Number( middle ) } );
+		}
 	} );
-	return matches.length > 0 ? [ ...matches ].sort( byLower ) : [ vertex ];
+	if ( 0 === matches.length ) {
+		return [ { name: vertex, partition: 0 } ];
+	}
+	return matches.sort( ( a, b ) => a.partition - b.partition );
+}
+
+/**
+ * The LOGICAL display name for a log VERTEX: the `<partition>` token removed plus
+ * one flanking separator cleaned. `firehose.p<partition>` → `firehose`,
+ * `<partition>-req` → `req`, token-free `digest.md` → `digest.md`. Display-only
+ * heuristic: a partition-bearing log renders as ONE logical entity, its concrete
+ * partitions as sub-rows.
+ *
+ * @param {string} vertex The graph log-vertex name.
+ * @return {string} The token-stripped logical name.
+ */
+function logicalLogName( vertex ) {
+	const tokenAt = vertex.indexOf( PARTITION_TOKEN );
+	if ( tokenAt < 0 ) {
+		return vertex;
+	}
+	const lastTokenAt = vertex.lastIndexOf( PARTITION_TOKEN );
+	const pre = vertex
+		.slice( 0, tokenAt )
+		// Drop a trailing `p` partition-prefix then a separator run (`firehose.p` → `firehose`).
+		.replace( /[._-]p$/, '' );
+	const post = vertex
+		.slice( lastTokenAt + PARTITION_TOKEN.length )
+		// Drop a leading separator run (`-req` → `req`).
+		.replace( /^[._-]+/, '' );
+	const name = pre + post;
+	return '' !== name ? name : vertex;
 }
 
 const lc = ( s ) => String( s ).toLowerCase();
@@ -348,13 +383,10 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 		const catalogNames = [ ...logSlotsByName.keys() ];
 		const childrenOf = ( vertex ) =>
 			[ ...( outAdj.get( vertex ) || [] ) ].sort( byLower );
-		// A log vertex expands to N concrete catalog entries (one flat entity
-		// each); a node vertex is one entity. Always returns an array so the
-		// sibling builder can flat-map uniformly.
 		const makeVertex = ( vertex, path, prefix ) =>
 			isLog.get( vertex )
 				? makeLog( vertex, path, prefix )
-				: [ makeNode( vertex, path, prefix ) ];
+				: makeNode( vertex, path, prefix );
 		const makeKids = ( vertex, path, parentKey ) => {
 			if ( path.has( vertex ) ) {
 				return [];
@@ -406,7 +438,7 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 					entities.push( makeJoinedNode( members, path, prefix ) );
 				} else {
 					members.forEach( ( v ) =>
-						entities.push( ...makeVertex( v, path, prefix ) )
+						entities.push( makeVertex( v, path, prefix ) )
 					);
 				}
 			} );
@@ -443,29 +475,45 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 				children: makeSiblings( childrenOf( ids[ 0 ] ), nextPath, key ),
 			};
 		};
-		// A log vertex expands to one flat entity per concrete catalog entry it
-		// resolves to (layout-agnostic, parse-free). Each entity is named by its
-		// concrete entry, carries that entry's single partition's worth, and gets
-		// its OWN position-keyed copy of the downstream subtree (so folding one
-		// concrete sibling never folds its twin, matching the existing
-		// position-key contract). Returns an array.
-		const makeLog = ( vertex, path, prefix ) =>
-			concreteLogNames( vertex, catalogNames ).map( ( name ) => {
-				const { partitions, hasCursor } = collectLogPartitions(
-					name,
-					ctx
-				);
-				const key = childKey( prefix, name );
-				return {
-					kind: 'log',
-					name,
-					key,
-					partitions,
-					hasCursor,
-					segment_size: logSegmentSizeByName.get( name ),
-					children: makeKids( vertex, path, key ),
-				};
-			} );
+		// A log vertex GROUPS its concrete per-partition catalog entries into ONE
+		// logical entity (`firehose`), each concrete entry becoming a partition
+		// sub-row carried on the entity, with the downstream consumer subtree built
+		// ONCE under that single entity (its position key per ancestry). Each
+		// concrete entry's slot is stat'd via `collectLogPartitions` (catalog +
+		// cursor merge) and stamped with its real partition number (the substituted
+		// `<partition>` VALUE) so the partition-keyed rates line up.
+		const makeLog = ( vertex, path, prefix ) => {
+			const concretes = concreteLogNames( vertex, catalogNames );
+			const name = logicalLogName( vertex );
+			let hasCursor = false;
+			const partitions = concretes.map(
+				( { name: concrete, partition } ) => {
+					const collected = collectLogPartitions( concrete, ctx );
+					hasCursor = hasCursor || collected.hasCursor;
+					const slot = collected.partitions[ 0 ] || {};
+					// Carry the CONCRETE catalog name as the rate key: it's the
+					// verbatim string the transform (recordLog) keys on too, so the
+					// W/R rate + segment animations line up regardless of where the
+					// partition token sits (layout-agnostic).
+					return { ...slot, partition, name: concrete };
+				}
+			);
+			const segmentSizeName = concretes.find( ( c ) =>
+				logSegmentSizeByName.has( c.name )
+			);
+			const key = childKey( prefix, name );
+			return {
+				kind: 'log',
+				name,
+				key,
+				partitions,
+				hasCursor,
+				segment_size: segmentSizeName
+					? logSegmentSizeByName.get( segmentSizeName.name )
+					: undefined,
+				children: makeKids( vertex, path, key ),
+			};
+		};
 
 		const rootVertices = [ ...inDegree.keys() ].filter(
 			( v ) => 0 === inDegree.get( v )

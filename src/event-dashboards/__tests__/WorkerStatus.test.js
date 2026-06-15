@@ -927,7 +927,7 @@ describe( 'WorkerStatus', () => {
 		registerViewFixture(
 			viewModel( {
 				byteRates: { 'request-workers-0-': 1024 },
-				writeRates: { 'firehose-0': 2048 },
+				writeRates: { 'firehose.p0': 2048 },
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
@@ -1001,6 +1001,8 @@ describe( 'WorkerStatus', () => {
 					},
 				],
 				removingSegments: {
+					// Grouped render keys on the CONCRETE partition name; a token-free
+					// `firehose.log` is its own concrete name (partition 0).
 					'firehose.log': [ { id: 1, size: 100 } ],
 				},
 			} )
@@ -1214,7 +1216,7 @@ describe( 'WorkerStatus', () => {
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );
-		// stripped key (firehose-0). Empty stats → "0 B/s".
+		// Concrete-name key (firehose.log). Empty stats → "0 B/s".
 		expect( container.textContent ).toMatch( /W 0 B\/s/ );
 	} );
 } );

@@ -188,13 +188,13 @@ describe( 'workerstatus:view — removing-segment animation', () => {
 				modelMsg(
 					baseModel( {
 						removingSegments: {
-							'firehose-0': [ { id: 1, size: 9 } ],
+							'firehose.p0': [ { id: 1, size: 9 } ],
 						},
 					} )
 				)
 			);
 			expect( v.setStateCache.view.removingSegments ).toEqual( {
-				'firehose-0': [ { id: 1, size: 9 } ],
+				'firehose.p0': [ { id: 1, size: 9 } ],
 			} );
 			jest.advanceTimersByTime( 400 );
 			expect( v.setStateCache.view.removingSegments ).toEqual( {} );
@@ -208,7 +208,7 @@ describe( 'workerstatus:view — removing-segment animation', () => {
 		v.fill(
 			modelMsg(
 				baseModel( {
-					removingSegments: { 'firehose-0': [ { id: 1, size: 9 } ] },
+					removingSegments: { 'firehose.p0': [ { id: 1, size: 9 } ] },
 				} )
 			)
 		);
@@ -240,7 +240,7 @@ describe( 'workerstatus:view — teardown', () => {
 				modelMsg(
 					baseModel( {
 						removingSegments: {
-							'firehose-0': [ { id: 1, size: 9 } ],
+							'firehose.p0': [ { id: 1, size: 9 } ],
 						},
 					} )
 				)

@@ -237,6 +237,12 @@
 	font-size: 9px;
 }
 
+.partition-label-inline {
+	color: base.$dark-text-placeholder;
+	font-size: 12px;
+	font-weight: 600;
+}
+
 .partition-segments {
 	display: flex;
 	flex-direction: row;

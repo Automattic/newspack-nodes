@@ -134,10 +134,10 @@ export class WorkerStatusTransformNode extends Node {
 			if ( ! log || ! log.name ) {
 				return;
 			}
-			// Flat layout: log.name is the concrete per-partition dir
-			// (`firehose.p0`) — already partition-unique, so it IS the rate key.
-			// Must stay byte-identical to TreeEntity's LogRows rateKey. No `.log`
-			// strip, no `-partition` suffix, no `.p{N}` parse.
+			// Flat data, grouped render: log.name is the concrete per-partition dir
+			// (`firehose.p0`). Key on that concrete name verbatim — byte-identical
+			// to TreeEntity's LogRows rateKey (the partition's concrete `name`), so
+			// the grouped logical entity's rates line up regardless of layout.
 			const logKey = log.name;
 			const prior = logSnapshots.get( logKey ) || {
 				total_size: 0,
