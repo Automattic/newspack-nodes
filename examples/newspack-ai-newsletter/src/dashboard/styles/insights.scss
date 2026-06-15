@@ -13,6 +13,7 @@ $surface-subtle: #f7f7f7;
 $text: #1e1e1e;
 $text-secondary: #6c6c6c;
 $border: #ddd;
+$success: #007017;
 $error: #b32d2e;
 $error-subtle: #fcf0f1;
 $font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-serif;
@@ -46,13 +47,13 @@ $font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-seri
 	}
 
 	h2 {
-		margin: 0 0 12px;
+		margin: 0 0 16px;
 		font-size: 16px;
 		font-weight: 600;
 		color: $text;
 	}
 
-	// --- Error notice: subtle tinted background + dark text (functional only) ---
+	// --- Notice: subtle tinted background + dark text (functional only) ---
 	&__notice {
 		padding: 12px 16px;
 		border-radius: 8px;
@@ -102,22 +103,56 @@ $font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-seri
 		border-radius: 8px;
 	}
 
+	// --- KPI stat-card row ---
+	&__stats {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 16px;
+	}
+
+	&__stat {
+		flex: 1 1 160px;
+		display: flex;
+		flex-direction: column;
+		gap: 4px;
+		padding: 16px;
+		background: $surface;
+		border: 1px solid $border;
+		border-radius: 8px;
+	}
+
+	// text-xl from DESIGN.product.md: 32px / 600 / 44px line-height.
+	&__stat-num {
+		font-size: 32px;
+		line-height: 44px;
+		font-weight: 600;
+		color: $text;
+		font-variant-numeric: tabular-nums;
+	}
+
+	&__stat-label {
+		font-size: 12px;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: $text-secondary;
+	}
+
+	// --- By source: labeled proportion bars ---
 	&__sources ul {
+		display: flex;
+		flex-direction: column;
+		gap: 16px;
 		margin: 0;
 		padding: 0;
 		list-style: none;
+	}
 
-		li {
-			display: flex;
-			justify-content: space-between;
-			padding: 6px 0;
-			font-size: 14px;
-			border-bottom: 1px solid $border;
-
-			&:last-child {
-				border-bottom: 0;
-			}
-		}
+	&__bar-head {
+		display: flex;
+		justify-content: space-between;
+		margin-bottom: 6px;
+		font-size: 14px;
 	}
 
 	&__source-name {
@@ -129,6 +164,20 @@ $font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-seri
 		font-variant-numeric: tabular-nums;
 	}
 
+	&__bar {
+		height: 8px;
+		background: $surface-subtle;
+		border-radius: 4px;
+		overflow: hidden;
+	}
+
+	&__bar-fill {
+		height: 100%;
+		background: $cobalt;
+		border-radius: 4px;
+	}
+
+	// --- Top items: ranked table with inline score bars ---
 	&__top table {
 		width: 100%;
 		border-collapse: collapse;
@@ -151,7 +200,6 @@ $font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-seri
 		th:last-child,
 		td:last-child {
 			text-align: right;
-			font-variant-numeric: tabular-nums;
 		}
 
 		tbody tr:last-child td {
@@ -159,34 +207,121 @@ $font: 'Inter', -apple-system, blinkmacsystemfont, 'Segoe UI', roboto, sans-seri
 		}
 	}
 
-	// --- Primary action: Cobalt button ---
+	&__rank-col {
+		width: 36px;
+	}
+
+	&__rank {
+		color: $text-secondary;
+		font-variant-numeric: tabular-nums;
+	}
+
+	// The score cell pairs an inline bar with the number, right-aligned.
+	&__score-cell {
+		display: flex;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 8px;
+	}
+
+	&__score-bar-track {
+		flex: 0 1 120px;
+		height: 8px;
+		background: $surface-subtle;
+		border-radius: 4px;
+		overflow: hidden;
+	}
+
+	&__score-bar {
+		height: 100%;
+		background: $cobalt;
+		border-radius: 4px;
+	}
+
+	&__score-num {
+		min-width: 32px;
+		font-variant-numeric: tabular-nums;
+	}
+
+	// --- Draft section ---
+	&__actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 8px;
+	}
+
 	&__btn {
 		padding: 12px 16px;
 		font-size: 16px;
 		font-family: $font;
 		color: #fff;
 		background: $cobalt;
-		border: 0;
+		border: 1px solid $cobalt;
 		border-radius: 8px;
 		cursor: pointer;
 		transition: background 0.15s;
 
 		&:hover {
 			background: $cobalt-hover;
+			border-color: $cobalt-hover;
+		}
+
+		// Secondary: white surface, Cobalt text + border (DESIGN button-secondary).
+		&--secondary {
+			color: $cobalt;
+			background: $surface;
+
+			&:hover {
+				color: #fff;
+				background: $cobalt;
+			}
+		}
+
+		&:disabled {
+			cursor: default;
+			opacity: 0.6;
 		}
 	}
 
-	&__draft-text {
-		display: block;
-		width: 100%;
-		margin-top: 12px;
-		padding: 12px;
-		font-family: ui-monospace, sfmono-regular, menlo, monospace;
-		font-size: 13px;
-		color: $text;
-		background: $surface-subtle;
+	&__copied {
+		font-size: 14px;
+		font-weight: 600;
+		color: $success;
+	}
+
+	&__draft-result {
+		margin: 16px 0 0;
+
+		a {
+			color: $cobalt;
+		}
+	}
+
+	// --- Rendered preview: a styled list, not a raw-markdown textarea ---
+	&__preview {
+		margin: 16px 0 0;
+		padding: 0;
+		list-style: none;
 		border: 1px solid $border;
 		border-radius: 8px;
-		resize: vertical;
+
+		li {
+			display: flex;
+			justify-content: space-between;
+			gap: 16px;
+			padding: 8px 12px;
+			font-size: 14px;
+			border-bottom: 1px solid $border;
+
+			&:last-child {
+				border-bottom: 0;
+			}
+		}
+	}
+
+	&__preview-source {
+		text-transform: capitalize;
+		color: $text-secondary;
 	}
 }

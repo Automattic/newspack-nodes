@@ -12,6 +12,7 @@
 		"test:js": "jest --passWithNoTests"
 	},
 	"dependencies": {
+		"@wordpress/api-fetch": "^7.0.0",
 		"@wordpress/element": "^6.0.0",
 		"@wordpress/i18n": "^6.18.0",
 		"react": "^18.3.1",
