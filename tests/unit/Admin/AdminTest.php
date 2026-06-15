@@ -444,6 +444,23 @@ class AdminTest extends TestCase {
 		}
 	}
 
+	public function test_register_settings_does_not_render_topologies_checkboxes(): void {
+		// The Topology Manager's active toggle is the sole activation UI; the
+		// settings page no longer renders a topologies field or its section.
+		$admin = new Admin();
+		$admin->register_settings();
+
+		$this->assertArrayNotHasKey( 'topologies', $GLOBALS['_registered_fields'], 'topologies must not be a settings field' );
+		$this->assertArrayNotHasKey( 'newspack_nodes_topologies_section', $GLOBALS['_registered_sections'], 'topologies section must not be registered' );
+	}
+
+	public function test_admin_has_no_topologies_render_callbacks(): void {
+		// The checkbox renderer and its section header are deleted — the toggle
+		// is the only activation UI.
+		$this->assertFalse( \method_exists( Admin::class, 'topologies_callback' ) );
+		$this->assertFalse( \method_exists( Admin::class, 'topologies_section_callback' ) );
+	}
+
 	// ---- current_user_allowed --------------------------------------------
 
 	public function test_current_user_allowed_requires_manage_options(): void {
@@ -895,75 +912,6 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertStringContainsString( "10.0.0.1:11211\n10.0.0.2:11211", $html );
 	}
 
-	// ---- topologies_callback ---------------------------------------------
-
-	/**
-	 * Register a 4-topology fixture: a stock dir of .tsl files drives the
-	 * available checkbox list, and the `newspack_nodes/topologies` filter
-	 * publishes the full catalog. The config-file `topologies` default is a
-	 * 2-entry SUBSET — what the admin must treat as "the default".
-	 *
-	 * @return array{0:string[],1:string[]} [ all available names, config default subset ]
-	 */
-	private function seed_topology_fixture(): array {
-		$all    = [ 'aggregator', 'digest', 'firehose-workers-and-jobs', 'request-workers' ];
-		$subset = [ 'digest', 'request-workers' ];
-
-		// Config-file default `topologies` = the curated subset.
-		$this->use_base_dir( $this->base_dir, [ 'topologies' => $subset ] );
-
-		// Stock dir of .tsl files → Topology_Registry::list() (the checkboxes).
-		$stock = $this->make_temp_dir( 'admin-topo-stock-' );
-		foreach ( $all as $name ) {
-			\file_put_contents( "{$stock}/{$name}.tsl", "# {$name}\n" );
-		}
-		\Newspack_Nodes\Topology_Registry::reset();
-		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
-
-		// Catalog filter publishes ALL of them (the OLD, buggy default source).
-		\add_filter(
-			'newspack_nodes/topologies',
-			static function () use ( $all ): array {
-				return \array_fill_keys( $all, [ 'num_partitions' => 1 ] );
-			}
-		);
-
-		return [ $all, $subset ];
-	}
-
-	public function test_topologies_callback_renders_per_field_reset_toggle(): void {
-		$this->seed_topology_fixture();
-		$admin = new Admin();
-
-		\ob_start();
-		$admin->topologies_callback();
-		$html = \ob_get_clean();
-
-		// The selection field has the SAME per-field reset toggle as every other
-		// field — resetting deletes the option so the config-file default subset
-		// takes over (the subset itself is asserted by the unset-render test).
-		$this->assertStringContainsString( 'data-nn-reset="newspack_nodes_reset[newspack_nodes_topologies]"', $html );
-		$this->assertStringContainsString( 'data-nn-reset-toggle', $html );
-		$this->assertStringNotContainsString( 'data-newspack-nodes-load-defaults', $html );
-	}
-
-	public function test_topologies_callback_checks_config_default_when_option_unset(): void {
-		$this->seed_topology_fixture();
-		// No saved option → render reflects the config-file default (the subset).
-		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
-		$admin = new Admin();
-
-		\ob_start();
-		$admin->topologies_callback();
-		$html = \ob_get_clean();
-
-		// Subset entries are checked; non-default catalog entries are not.
-		$this->assertMatchesRegularExpression( '/value="digest" checked/', $html );
-		$this->assertMatchesRegularExpression( '/value="request-workers" checked/', $html );
-		$this->assertDoesNotMatchRegularExpression( '/value="aggregator" checked/', $html );
-		$this->assertDoesNotMatchRegularExpression( '/value="firehose-workers-and-jobs" checked/', $html );
-	}
-
 	// ---- total_storage_callback ------------------------------------------
 
 	public function test_total_storage_callback_renders_storage_display(): void {
@@ -1283,71 +1231,6 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
-	public function test_topologies_callback_renders_checkbox_per_known_topology(): void {
-		$tmp = sys_get_temp_dir() . '/tsl-admin-ui-' . uniqid();
-		mkdir( $tmp, 0755, true );
-		file_put_contents( "{$tmp}/firehose-workers-only.tsl", '' );
-		file_put_contents( "{$tmp}/request-workers.tsl", '' );
-		\Newspack_Nodes\Topology_Registry::reset();
-		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
-
-		\update_option( 'newspack_nodes_topologies', [ 'request-workers' ] );
-		$admin = new Admin();
-		\ob_start();
-		$admin->topologies_callback();
-		$out = \ob_get_clean();
-
-		$this->assertStringContainsString( 'firehose-workers-only', $out );
-		$this->assertStringContainsString( 'request-workers', $out );
-		// request-workers must render checked; firehose-workers-only must not.
-		$this->assertMatchesRegularExpression( '/request-workers"[^>]*checked/', $out );
-		$this->assertDoesNotMatchRegularExpression( '/firehose-workers-only"[^>]*checked/', $out );
-
-		\unlink( "{$tmp}/firehose-workers-only.tsl" );
-		\unlink( "{$tmp}/request-workers.tsl" );
-		\rmdir( $tmp );
-		\delete_option( 'newspack_nodes_topologies' );
-		\Newspack_Nodes\Topology_Registry::reset();
-	}
-
-	public function test_topologies_callback_empty_state_when_registry_empty(): void {
-		\Newspack_Nodes\Topology_Registry::reset();
-		$admin = new Admin();
-		\ob_start();
-		$admin->topologies_callback();
-		$out = \ob_get_clean();
-		$this->assertStringContainsString( 'No topologies registered', $out );
-	}
-
-	public function test_topologies_callback_advertises_the_config_default_set_per_box(): void {
-		// Each checkbox carries data-nn-reset-default ('1' for the shipped default
-		// set, '0' otherwise) so a ↺ reset restores that set rather than clearing
-		// every box. The config-file default subset here is [ digest, request-workers ].
-		[ , $subset ] = $this->seed_topology_fixture();
-		\update_option( 'newspack_nodes_topologies', [ 'aggregator' ] ); // operator override ≠ defaults
-
-		$admin = new Admin();
-		\ob_start();
-		$admin->topologies_callback();
-		$out = \ob_get_clean();
-
-		foreach ( $subset as $name ) {
-			$this->assertMatchesRegularExpression(
-				'/value="' . \preg_quote( $name, '/' ) . '"[^>]*data-nn-reset-default="1"/',
-				$out,
-				"$name is in the config default set → data-nn-reset-default=1"
-			);
-		}
-		// A catalog entry NOT in the config default set advertises 0.
-		$this->assertMatchesRegularExpression(
-			'/value="aggregator"[^>]*data-nn-reset-default="0"/',
-			$out
-		);
-
-		\delete_option( 'newspack_nodes_topologies' );
-		\Newspack_Nodes\Topology_Registry::reset();
-	}
-
 	// ---- __construct ------------------------------------------------------
 
 	public function test_constructor_registers_all_admin_hooks(): void {
@@ -1490,21 +1373,6 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertContains( 'newspack-nodes-topology-console', $handles );
 	}
 
-	// ---- topologies_section_callback -------------------------------------
-
-	public function test_topologies_section_callback_outputs_paragraph(): void {
-		$admin = new Admin();
-
-		\ob_start();
-		$admin->topologies_section_callback();
-		$html = \ob_get_clean();
-
-		$this->assertStringContainsString( '<p>', $html );
-		// Description references the supervisor + fleet behavior.
-		$this->assertStringContainsString( 'supervisor', $html );
-		$this->assertStringContainsString( 'worker fleet', $html );
-	}
-
 	// ---- per-field reset toggle wiring -----------------------------------
 
 	public function test_settings_page_enqueues_field_reset_toggle_and_highlight(): void {
@@ -1608,77 +1476,6 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 		$this->assertFalse( \file_exists( $this->base_dir . '/locks/request-workers.p0.lock.d/restart' ) );
 		$this->assertFalse( \file_exists( $this->base_dir . '/locks/job-workers.p0.lock.d/restart' ) );
-	}
-
-	// ---- topologies_callback (additional branches) -----------------------
-
-	public function test_topologies_callback_defaults_to_config_file_topologies_not_catalog_when_option_unset(): void {
-		// option=false (never saved) → admin renders the config-file `topologies`
-		// default as checked — NOT the full catalog. Both .tsl are available and the
-		// catalog publishes BOTH, but only `blessed` is in the config default, so
-		// only it is checked (proving the source is config, not catalog).
-		\Newspack_Nodes\Topology_Registry::reset();
-		$tmp = $this->make_temp_dir( 'tsl-default-' );
-		\file_put_contents( "{$tmp}/blessed.tsl", '' );
-		\file_put_contents( "{$tmp}/unblessed.tsl", '' );
-		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
-
-		// Catalog publishes BOTH (the old, buggy default source).
-		\add_filter(
-			'newspack_nodes/topologies',
-			static function () {
-				return [
-					'blessed'   => [ 'topology' => 'blessed', 'num_partitions' => 1 ],
-					'unblessed' => [ 'topology' => 'unblessed', 'num_partitions' => 1 ],
-				];
-			}
-		);
-		// Config-file default declares only `blessed` active.
-		$this->use_base_dir( $this->base_dir, [ 'topologies' => [ 'blessed' ] ] );
-
-		// Ensure no operator override.
-		\delete_option( 'newspack_nodes_topologies' );
-
-		$admin = new Admin();
-		\ob_start();
-		$admin->topologies_callback();
-		$out = \ob_get_clean();
-
-		// blessed is the config default → checked. unblessed is in the catalog but
-		// NOT the config default → unchecked.
-		$this->assertMatchesRegularExpression( '/blessed"[^>]*checked/', $out );
-		$this->assertDoesNotMatchRegularExpression( '/unblessed"[^>]*checked/', $out );
-		// Reset is the uniform per-field toggle (delete → file default), not a
-		// catalog-payload chip.
-		$this->assertStringContainsString( 'data-nn-reset-toggle', $out );
-
-		\Newspack_Nodes\Topology_Registry::reset();
-	}
-
-	public function test_topologies_callback_empty_array_option_renders_all_unchecked(): void {
-		// option=[] (operator unchecked everything) is distinct from option=false.
-		\Newspack_Nodes\Topology_Registry::reset();
-		$tmp = \sys_get_temp_dir() . '/tsl-empty-' . \uniqid();
-		\mkdir( $tmp, 0755, true );
-		\file_put_contents( "{$tmp}/one.tsl", '' );
-		\file_put_contents( "{$tmp}/two.tsl", '' );
-		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
-
-		\update_option( 'newspack_nodes_topologies', [] );
-
-		$admin = new Admin();
-		\ob_start();
-		$admin->topologies_callback();
-		$out = \ob_get_clean();
-
-		$this->assertDoesNotMatchRegularExpression( '/one"[^>]*checked/', $out );
-		$this->assertDoesNotMatchRegularExpression( '/two"[^>]*checked/', $out );
-
-		\unlink( "{$tmp}/one.tsl" );
-		\unlink( "{$tmp}/two.tsl" );
-		\rmdir( $tmp );
-		\delete_option( 'newspack_nodes_topologies' );
-		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
 	// ---- register_event_dashboard_pages ----------------------------------
