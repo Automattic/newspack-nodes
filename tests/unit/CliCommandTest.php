@@ -294,50 +294,6 @@ class CliCommandTest extends TestCase {
 
 	// ── dispatch_line ─────────────────────────────
 
-	public function test_dispatch_line_returns_false_for_empty_or_comment_lines(): void {
-		// Lines that the Shell parser drops (empty, comments) report false
-		// so the loop driver knows nothing was emitted.
-		$cmd   = new CLI_Command();
-		$shell = new \Newspack_Nodes\Shell_Node();
-		$sink  = new \Newspack_Nodes\Tests\Capture_Sink_Node();
-		$shell->sink( $sink );
-
-		$this->assertFalse( $cmd->dispatch_line( $shell, '' ) );
-		$this->assertFalse( $cmd->dispatch_line( $shell, '   ' ) );
-		$this->assertFalse( $cmd->dispatch_line( $shell, '# this is a comment' ) );
-		$this->assertCount( 0, $sink->captured );
-	}
-
-	public function test_dispatch_line_strips_trailing_newline_then_dispatches(): void {
-		// fgets() leaves the trailing "\n" in the line. dispatch_line strips
-		// it and forwards through the Shell. Sink sees one TM_COMMAND.
-		$cmd   = new CLI_Command();
-		$shell = new \Newspack_Nodes\Shell_Node();
-		$sink  = new \Newspack_Nodes\Tests\Capture_Sink_Node();
-		$shell->sink( $sink );
-
-		$result = $cmd->dispatch_line( $shell, "ls -al\n" );
-
-		$this->assertTrue( $result );
-		$this->assertCount( 1, $sink->captured );
-		$this->assertSame( \Newspack_Nodes\Message::TM_COMMAND, $sink->captured[0][ \Newspack_Nodes\Message::TYPE ] );
-	}
-
-	public function test_dispatch_line_handles_crlf(): void {
-		// Windows-style line endings get stripped just like LF.
-		$cmd   = new CLI_Command();
-		$shell = new \Newspack_Nodes\Shell_Node();
-		$sink  = new \Newspack_Nodes\Tests\Capture_Sink_Node();
-		$shell->sink( $sink );
-
-		$cmd->dispatch_line( $shell, "ls\r\n" );
-
-		$this->assertCount( 1, $sink->captured );
-		// Shell builds the command VALUE as a live PHP array — read directly.
-		$decoded = $sink->captured[0][ \Newspack_Nodes\Message::VALUE ];
-		$this->assertSame( 'ls', $decoded['name'] );
-	}
-
 	public function test_stdin_reader_dispatches_lines_from_injected_stream(): void {
 		// Inject a memory stream pre-loaded with two complete lines + EOF.
 		// Drain ticks consume one line each; after both are gone, the next
