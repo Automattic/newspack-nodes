@@ -16,7 +16,24 @@ final class DigestBuilderTest extends TestCase {
 		return $m;
 	}
 
-	public function test_flush_emits_markdown_with_all_summaries_then_clears(): void {
+	/** Build a FLUSH request as the REPL's `request_node digest FLUSH` would mint it. */
+	private function flush_request(): array {
+		$m                   = Message::new_message();
+		$m[ Message::TYPE ]  = Message::TM_REQUEST;
+		$m[ Message::FROM ]  = '_repl';
+		$m[ Message::VALUE ] = 'FLUSH';
+		return $m;
+	}
+
+	/** The accumulated drafts captured by the sink (TM_BYTESTREAM, not the response). */
+	private function drafts( Capture_Sink_Node $sink ): array {
+		return array_values( array_filter(
+			$sink->captured,
+			static fn ( $m ) => 0 !== ( $m[ Message::TYPE ] & Message::TM_BYTESTREAM )
+		) );
+	}
+
+	public function test_flush_request_emits_markdown_with_all_summaries_then_clears(): void {
 		$sink = new Capture_Sink_Node();
 		$node = new Digest_Builder_Node();
 		$node->sink( $sink );
@@ -25,9 +42,10 @@ final class DigestBuilderTest extends TestCase {
 			$msg = $this->summary( $s );
 			$node->fill( $msg );
 		}
-		$node->cmd_flush();
+		$req = $this->flush_request();
+		$node->fill( $req );
 
-		$out = $sink->captured;
+		$out = $this->drafts( $sink );
 		$this->assertCount( 1, $out, 'one draft emitted' );
 		$draft = $out[0];
 		$this->assertSame( Message::TM_BYTESTREAM, $draft[ Message::TYPE ] & Message::TM_BYTESTREAM );
@@ -37,23 +55,44 @@ final class DigestBuilderTest extends TestCase {
 		}
 
 		// Second flush with nothing accumulated proves the buffer cleared.
-		$node->cmd_flush();
-		$out2 = $sink->captured;
+		$req2 = $this->flush_request();
+		$node->fill( $req2 );
+		$out2 = $this->drafts( $sink );
 		$this->assertCount( 2, $out2 );
 		$this->assertStringNotContainsString( 'sum:a', $out2[1][ Message::VALUE ] );
 	}
 
-	public function test_flush_verb_is_dispatchable_via_config_interpreter(): void {
-		// The `flush` command must be reachable through the auto-wired {name}:config
-		// sibling interpreter, not only via a direct cmd_flush() call. The node opts
-		// into Schema_Reflection and calls auto_wire_interpreter() in its ctor.
+	public function test_flush_request_replies_with_count_to_caller(): void {
+		$sink = new Capture_Sink_Node();
 		$node = new Digest_Builder_Node();
-		$node->name( 'digest' );
+		$node->sink( $sink );
 
-		$interpreter = $node->interpreter();
-		$this->assertInstanceOf( \Newspack_Nodes\Command_Interpreter_Node::class, $interpreter );
-		$this->assertSame( 'digest:config', $interpreter->name() );
-		$this->assertArrayHasKey( 'flush', $interpreter->commands() );
+		foreach ( [ 'a', 'b' ] as $s ) {
+			$msg = $this->summary( $s );
+			$node->fill( $msg );
+		}
+		$req = $this->flush_request();
+		$node->fill( $req );
+
+		$replies = array_values( array_filter(
+			$sink->captured,
+			static fn ( $m ) => 0 !== ( $m[ Message::TYPE ] & Message::TM_RESPONSE )
+		) );
+		$this->assertCount( 1, $replies, 'exactly one TM_RESPONSE reply' );
+		$reply = $replies[0];
+		$this->assertSame( Message::TM_STRUCT, $reply[ Message::TYPE ] & Message::TM_STRUCT );
+		$this->assertSame( '_repl', $reply[ Message::TO ], 'reply goes to TO=FROM' );
+		$this->assertSame( 'FLUSH', $reply[ Message::VALUE ]['verb'] );
+		$this->assertSame( 2, $reply[ Message::VALUE ]['data']['flushed'] );
+	}
+
+	public function test_flush_request_verb_is_documented_in_schema(): void {
+		// FLUSH is a runtime trigger: a TM_REQUEST handled in fill(), documented
+		// under node_schema()['requests'] (NOT a TM_COMMAND verb under 'commands').
+		$schema = Digest_Builder_Node::node_schema();
+		$this->assertArrayHasKey( 'requests', $schema );
+		$names = array_column( $schema['requests'], 'name' );
+		$this->assertContains( 'FLUSH', $names );
 	}
 
 	public function test_ignores_non_struct_messages(): void {
@@ -64,9 +103,10 @@ final class DigestBuilderTest extends TestCase {
 		$m[ Message::TYPE ]  = Message::TM_BYTESTREAM;
 		$m[ Message::VALUE ] = 'noise';
 		$node->fill( $m );
-		$node->cmd_flush();
+		$req = $this->flush_request();
+		$node->fill( $req );
 		// Only the (empty) draft from flush; the noise was not accumulated.
-		$this->assertStringNotContainsString( 'noise', $sink->captured[0][ Message::VALUE ] );
+		$this->assertStringNotContainsString( 'noise', $this->drafts( $sink )[0][ Message::VALUE ] );
 	}
 
 	public function test_emitted_draft_carries_TO_from_target(): void {
@@ -77,10 +117,12 @@ final class DigestBuilderTest extends TestCase {
 
 		$msg = $this->summary( 'a' );
 		$node->fill( $msg );
-		$node->cmd_flush();
+		$req = $this->flush_request();
+		$node->fill( $req );
 
-		$this->assertNotEmpty( $sink->captured );
-		foreach ( $sink->captured as $m ) {
+		$drafts = $this->drafts( $sink );
+		$this->assertNotEmpty( $drafts );
+		foreach ( $drafts as $m ) {
 			$this->assertSame( 'out', $m[ Message::TO ] );
 		}
 	}
@@ -104,8 +146,9 @@ final class DigestBuilderTest extends TestCase {
 		$node->restore_state( [ 'items' => [
 			[ 'source' => 'x', 'title' => 't', 'summary' => 'sum:restored' ],
 		] ] );
-		$node->cmd_flush();
-		$this->assertStringContainsString( 'sum:restored', $sink->captured[0][ Message::VALUE ] );
+		$req = $this->flush_request();
+		$node->fill( $req );
+		$this->assertStringContainsString( 'sum:restored', $this->drafts( $sink )[0][ Message::VALUE ] );
 	}
 
 	public function test_save_restore_round_trip_is_lossless(): void {

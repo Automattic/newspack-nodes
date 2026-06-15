@@ -48,21 +48,21 @@ wp nodes ls
 
 Open the **topology console** (the Nodes admin page): you'll see the `digest` graph — `releases` and `community` both feeding `summarizer`, then `digest`, then a `tee` that fans to the built-in `log` (and to `_repl`) — with live message counts on every edge. The `tee → _repl` hop is why the draft is also visible in the REPL session below.
 
-Now drive it by hand. Pivot a REPL into the running worker and fire the verbs:
+Now drive it by hand. Pivot a REPL into the running worker and fire the runtime triggers — `TICK`/`FLUSH` are `TM_REQUEST`s (sent with `request_node`), not admin commands:
 
 ```bash
 wp nodes cli digest.p0
 ```
 ```
-> command_node releases:config tick     # releases source emits its items
-emitted 2 item(s)
-> command_node community:config tick     # the other source emits its items
-emitted 3 item(s)
-> command_node digest:config flush       # assemble + write the draft
-flushed 5 summary(ies)
+> request_node releases TICK     # releases source emits its items
+{ "verb": "TICK", "data": { "emitted": 2 } }
+> request_node community TICK     # the other source emits its items
+{ "verb": "TICK", "data": { "emitted": 3 } }
+> request_node digest FLUSH       # assemble + write the draft
+{ "verb": "FLUSH", "data": { "flushed": 5 } }
 ```
 
-Each `tick` flows source → summarizer → digest (watch the counts climb in the console). `flush` writes the assembled draft:
+Each `TICK` flows source → summarizer → digest (watch the counts climb in the console). `FLUSH` writes the assembled draft:
 
 ```bash
 cat /tmp/newspack-ai-newsletter/digest.md

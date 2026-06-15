@@ -18,7 +18,9 @@ releases ─┐
 community ┘
 ```
 
-Two **sources** emit items. One **summarizer** condenses each item to a line. One **builder** accumulates the lines and, on command, writes a draft. `log` is the substrate's built-in `Log`. Sources emit on a `tick`; the digest writes on a `flush` — both typeable in the REPL, so you can drive the whole thing by hand.
+Two **sources** emit items. One **summarizer** condenses each item to a line. One **builder** accumulates the lines and, on request, writes a draft. `log` is the substrate's built-in `Log`. Sources emit on a `TICK` request; the digest writes on a `FLUSH` request — both typeable in the REPL with `request_node`, so you can drive the whole thing by hand.
+
+> **TM_COMMAND vs. TM_REQUEST — the convention.** Two different jobs, two different message types. **`TM_COMMAND`** is the *startup & administration* plane: graph construction (`make_node`/`connect_node`), config verbs, topology load. **`TM_REQUEST`** is the *runtime* plane: live triggers and queries that drive a running graph (`TICK`, `FLUSH`, `GET_LAG`). A request is handled in the node's own `fill()` — branch on `TM_REQUEST`, do the work, and reply `TM_STRUCT | TM_RESPONSE` to `TO = $message[FROM]` (the breadcrumb). You trigger one from the REPL with `request_node <node> <VERB>`. So a *runtime trigger is never a `cmd_*` verb* — `cmd_*` is for admin/config that runs once at build time.
 
 We'll write it in the order you'd actually discover it: one node, run it, wire the next, run it again.
 
@@ -89,7 +91,6 @@ namespace Newspack_AI_Newsletter;
 
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Command_Interpreter_Node;
 
 class Releases_Source_Node extends Node {
 
@@ -101,8 +102,15 @@ class Releases_Source_Node extends Node {
 		];
 	}
 
-	/** `tick` handler: emit each item as a TM_STRUCT message, tagged with this source. */
-	public function cmd_tick(): string {
+	/** TICK is a runtime trigger: a TM_REQUEST handled here in fill(). */
+	public function fill( array &$message ): void {
+		if ( $message[ Message::TYPE ] & Message::TM_REQUEST ) {
+			$this->handle_request( $message );
+		}
+	}
+
+	/** TICK handler: emit each item as a TM_STRUCT message, then reply with the count. */
+	private function handle_request( array $message ): void {
 		$count = 0;
 		foreach ( $this->items() as $item ) {
 			$msg                   = Message::new_message();
@@ -112,31 +120,39 @@ class Releases_Source_Node extends Node {
 			parent::fill( $msg );   // <-- see "the emit pattern" below
 			++$count;
 		}
-		return "emitted $count item(s)";
+
+		// Reply to the caller along the breadcrumb: TO = the request's FROM.
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
+		$reply[ Message::FROM ]  = $this->name;
+		$reply[ Message::TO ]    = $message[ Message::FROM ];
+		$reply[ Message::ID ]    = $message[ Message::ID ];
+		$reply[ Message::VALUE ] = [ 'verb' => 'TICK', 'data' => [ 'emitted' => $count ] ];
+		$this->sink->fill( $reply );
 	}
 }
 ```
 
-**The emit pattern (important).** A node that *generates* a message sends it with `parent::fill( $msg )`, not `$this->fill( $msg )`. The base `Node::fill()` does two things: it stamps `TO` from this node's `target` (whatever `connect_node` wired downstream) and forwards to the `sink`. Calling `$this->fill()` would re-enter *your own* `fill()` and recurse. So: build the message, `parent::fill()`. (Generator nodes across the substrate follow this exact pattern — see `Tail`.)
+**The emit pattern (important).** A node that *generates* a message sends it with `parent::fill( $msg )`, not `$this->fill( $msg )`. The base `Node::fill()` does two things: it stamps `TO` from this node's `target` (whatever `connect_node` wired downstream) and forwards to the `sink`. Calling `$this->fill()` would re-enter *your own* `fill()` and recurse. So: build the message, `parent::fill()`. (Generator nodes across the substrate follow this exact pattern — see `Tail`.) The *reply* is different: it carries its own `TO` (the caller's breadcrumb), so it goes straight to `$this->sink->fill()`.
 
-**Where does `tick` come from?** A plain node is for *data* (via `fill()`); operator *verbs* like `tick` live on a small sibling `Command_Interpreter_Node`. You don't wire that by hand — **declare the verb, with its handler, in `node_schema()`**, and the base `Node` constructor auto-attaches a sibling interpreter named `{node}:config` from every verb that carries a `handler`. So `node_schema()` does double duty: it's both the console-palette manifest *and* the source of the `:config` verb table.
+**Where does `TICK` come from?** It's a **runtime trigger**, so it's a `TM_REQUEST` you handle in `fill()` — *not* a `TM_COMMAND` verb on a sibling interpreter. (Reserve `TM_COMMAND` / `node_schema()['commands']` for *admin/config* that runs at build time; see the convention box in §0.) `fill()` branches on the `TM_REQUEST` flag, does the work, and replies `TM_STRUCT | TM_RESPONSE` back along the FROM breadcrumb. The substrate's own readers do exactly this — see `Consumer_Node::handle_request` (its `GET_LAG` / `GET_OFFSET`).
+
+You still document the verb in `node_schema()`, under a **`requests`** key (the runtime counterpart to `commands`) so the console palette and per-node Inspector list it:
 
 ```php
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'     => 'Source',
-			'description'  => 'Emits canned release-notes items on tick.',
+			'description'  => 'Emits canned release-notes items on a TICK request (request_node releases TICK).',
 			'arguments'    => [],
-			'commands'     => [
+			'requests'     => [
 				[
-					'name'        => 'tick',
-					'description' => 'Emit the current batch of items.',
-					'args'        => [],
-					// The handler is the {node}:config dispatch for `tick`.
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => $interpreter->patron()->cmd_tick(),
+					'name'        => 'TICK',
+					'description' => 'Emit the current batch of items. Trigger with `request_node releases TICK`.',
+					'reply_shape' => '{ emitted }',
 				],
 			],
-			'accepts_fill' => false,
+			'accepts_fill' => true,
 			'has_target'   => true,
 		] );
 	}
@@ -144,12 +160,10 @@ class Releases_Source_Node extends Node {
 
 Two things to internalize:
 
-- **No constructor.** The base `Node::__construct()` reads `node_schema()` and builds the `{node}:config` interpreter from the handler-bearing verbs. A verb *without* a `handler` is palette-only (description/args for the Inspector, nothing to dispatch). A node that needs its own constructor — say it takes ctor args — sets its properties and then calls `parent::__construct()` so the auto-wire still runs.
-- **`$interpreter->patron()`, not `$this`.** `node_schema()` is `static`, so its handler closures can't capture `$this`. Each handler receives the sibling interpreter and reaches the node through `$interpreter->patron()` — the node the interpreter "acts on behalf of." That's the seam: the handler is a thin adapter that calls a real method on the node.
+- **No constructor, no sibling interpreter.** A runtime trigger lives on the node itself (in `fill()`); there's no `{node}:config` interpreter to wire and no `Command_Interpreter_Node` import. (You'd reach for that sibling-interpreter machinery only for *admin/config* verbs — `commands` — which this node has none of.)
+- **`accepts_fill` is now `true`.** The node *does* act on a message arriving at `fill()` — a `TM_REQUEST`. (A pure source that only ever minted on a `cmd_*` verb used to set this `false`; once the trigger is a request, the node has a real `fill()` contract.)
 
-That's also why you address the verb as `releases:config` — the sibling interpreter is named `{node}:config`.
-
-**Run it — standalone, in the bare REPL.** No topology, no wiring yet: just make the node and fire its verb.
+**Run it — standalone, in the bare REPL.** No topology, no wiring yet: just make the node and fire the request.
 
 ```bash
 composer dump-autoload -o
@@ -157,8 +171,8 @@ wp nodes cli            # bare REPL: local nodes only
 ```
 ```
 > make_node Releases_Source releases
-> command_node releases:config tick
-emitted 2 item(s)
+> request_node releases TICK
+{ "verb": "TICK", "data": { "emitted": 2 } }
 ```
 
 It lives. Ana is done — she never wrote a line about summaries or drafts.
@@ -202,19 +216,21 @@ It's a pure transform — no verbs, just `fill()`. Wire a source to it and watch
 ```
 > make_node Summarizer summarizer
 > connect_node releases summarizer          # releases' target = summarizer
-> command_node releases:config tick
-emitted 2 item(s)
+> request_node releases TICK
+{ "verb": "TICK", "data": { "emitted": 2 } }
 ```
 
 `connect_node releases summarizer` set the releases node's `target` to `summarizer`; now each emitted item is stamped `TO=summarizer` and the router delivers it. The summarizer adds a `summary` and forwards. (Add a `Log` after the summarizer if you want to eyeball the struct — or just trust the counts in step 5.)
 
 ---
 
-## 4. The digest builder — accumulate, then `flush`. And reuse `Log`.
+## 4. The digest builder — accumulate, then `FLUSH`. And reuse `Log`.
 
-The builder collects summarized items as they arrive, and on a `flush` verb renders them to markdown and emits the draft as a `TM_BYTESTREAM` string.
+The builder collects summarized items as they arrive, and on a `FLUSH` request renders them to markdown and emits the draft as a `TM_BYTESTREAM` string.
 
-`includes/class-digest-builder.php` (same sibling-interpreter shape as the source, plus an accumulating `fill()`):
+Here `fill()` does **two** jobs, distinguished by message type: a `TM_STRUCT` is *data* to accumulate; a `TM_REQUEST` is the runtime `FLUSH` trigger. That's the general shape of a node that both consumes a stream and answers runtime requests.
+
+`includes/class-digest-builder.php`:
 
 ```php
 class Digest_Builder_Node extends Node {
@@ -225,19 +241,22 @@ class Digest_Builder_Node extends Node {
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Transform',
-			'description' => 'Accumulates summarized items; flush renders a markdown draft.',
-			'commands'    => [
+			'description' => 'Accumulates summarized items; a FLUSH request renders a markdown draft.',
+			'requests'    => [
 				[
-					'name'        => 'flush',
-					'description' => 'Render the accumulated items to a markdown draft and emit it.',
-					'args'        => [],
-					'handler'     => static fn ( Command_Interpreter_Node $interpreter, string $args ): string => $interpreter->patron()->cmd_flush(),
+					'name'        => 'FLUSH',
+					'description' => 'Render the accumulated items to a markdown draft and emit it. Trigger with `request_node digest FLUSH`.',
+					'reply_shape' => '{ flushed }',
 				],
 			],
 		] );
 	}
 
 	public function fill( array &$message ): void {
+		if ( $message[ Message::TYPE ] & Message::TM_REQUEST ) {
+			$this->handle_request( $message );   // FLUSH
+			return;
+		}
 		if ( 0 === ( $message[ Message::TYPE ] & Message::TM_STRUCT ) ) {
 			return;
 		}
@@ -245,7 +264,7 @@ class Digest_Builder_Node extends Node {
 		++$this->counter;
 	}
 
-	public function cmd_flush(): string {
+	private function handle_request( array $message ): void {
 		$lines = [ '# Newsletter draft', '' ];
 		foreach ( $this->items as $item ) {
 			$lines[] = '- ' . ( $item['summary'] ?? '' );
@@ -260,7 +279,15 @@ class Digest_Builder_Node extends Node {
 
 		$n           = \count( $this->items );
 		$this->items = [];
-		return "flushed $n summary(ies)";
+
+		// Reply to the caller along the breadcrumb.
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
+		$reply[ Message::FROM ]  = $this->name;
+		$reply[ Message::TO ]    = $message[ Message::FROM ];
+		$reply[ Message::ID ]    = $message[ Message::ID ];
+		$reply[ Message::VALUE ] = [ 'verb' => 'FLUSH', 'data' => [ 'flushed' => $n ] ];
+		$this->sink->fill( $reply );
 	}
 }
 ```
@@ -272,9 +299,9 @@ The draft has to land somewhere. You don't write a file-writer node — the subs
 > make_node Log log /tmp/newspack-ai-newsletter/digest.md
 > connect_node summarizer digest
 > connect_node digest log
-> command_node releases:config tick
-> command_node digest:config flush
-flushed 2 summary(ies)
+> request_node releases TICK
+> request_node digest FLUSH
+{ "verb": "FLUSH", "data": { "flushed": 2 } }
 ```
 ```bash
 cat /tmp/newspack-ai-newsletter/digest.md
@@ -332,11 +359,11 @@ Open the **topology console**. There's your graph — the same boxes and arrows 
 wp nodes cli digest.p0
 ```
 ```
-> command_node releases:config tick
-> command_node digest:config flush
+> request_node releases TICK
+> request_node digest FLUSH
 ```
 
-Watch the counts climb on `releases → summarizer → digest`, and `digest.md` fill. Click the `tick` and `flush` buttons in the Inspector and the same thing happens — the buttons come straight from each node's `node_schema()`.
+Watch the counts climb on `releases → summarizer → digest`, and `digest.md` fill. Click the `TICK` and `FLUSH` buttons in the Inspector and the same thing happens — the buttons come straight from each node's `node_schema()` `requests`.
 
 ---
 
@@ -358,7 +385,13 @@ class Community_Source_Node extends Node {
 		];
 	}
 
-	public function cmd_tick(): string {
+	public function fill( array &$message ): void {
+		if ( $message[ Message::TYPE ] & Message::TM_REQUEST ) {
+			$this->handle_request( $message );
+		}
+	}
+
+	private function handle_request( array $message ): void {
 		$count = 0;
 		foreach ( $this->items() as $item ) {
 			$msg                   = Message::new_message();
@@ -368,11 +401,18 @@ class Community_Source_Node extends Node {
 			parent::fill( $msg );
 			++$count;
 		}
-		return "emitted $count item(s)";
+
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
+		$reply[ Message::FROM ]  = $this->name;
+		$reply[ Message::TO ]    = $message[ Message::FROM ];
+		$reply[ Message::ID ]    = $message[ Message::ID ];
+		$reply[ Message::VALUE ] = [ 'verb' => 'TICK', 'data' => [ 'emitted' => $count ] ];
+		$this->sink->fill( $reply );
 	}
 
-	// node_schema(): same shape as Releases_Source — category 'Source', a `tick`
-	// verb whose `handler` calls $interpreter->patron()->cmd_tick(). No constructor.
+	// node_schema(): same shape as Releases_Source — category 'Source', a `TICK`
+	// entry under 'requests'. No constructor, no sibling interpreter.
 }
 ```
 
@@ -393,12 +433,12 @@ wp nodes restart digest --all-partitions    # reload the topology
 wp nodes cli digest.p0
 ```
 ```
-> command_node releases:config  tick
-emitted 2 item(s)
-> command_node community:config tick
-emitted 3 item(s)
-> command_node digest:config flush
-flushed 5 summary(ies)
+> request_node releases  TICK
+{ "verb": "TICK", "data": { "emitted": 2 } }
+> request_node community TICK
+{ "verb": "TICK", "data": { "emitted": 3 } }
+> request_node digest FLUSH
+{ "verb": "FLUSH", "data": { "flushed": 5 } }
 ```
 
 Five items in the draft, from two sources. **Ben changed nothing in the summarizer, the digest, the Log, or Ana's source.** He added a node and one wire.

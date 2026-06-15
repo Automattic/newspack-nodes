@@ -1,6 +1,6 @@
 <?php
 /**
- * Community_Source_Node: emits canned "community news" items on `tick`.
+ * Community_Source_Node: emits canned "community news" items on a TICK request.
  *
  * @package Example_AI_Newsletter
  */
@@ -9,18 +9,10 @@ namespace Example_AI_Newsletter;
 
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Message;
-use Newspack_Nodes\Command_Interpreter_Node;
 
 \defined( 'ABSPATH' ) || exit;
 
 class Community_Source_Node extends Node {
-	use \Newspack_Nodes\Schema_Reflection;
-
-	/** Wire the sibling {name}:config interpreter so the `tick` verb is dispatchable. */
-	public function __construct() {
-		parent::__construct();
-		$this->auto_wire_interpreter();
-	}
 
 	/**
 	 * The ONE seam a real source replaces: return ingest items. Toy = canned.
@@ -35,8 +27,26 @@ class Community_Source_Node extends Node {
 		];
 	}
 
-	/** `tick` handler: emit each item as a TM_STRUCT message, tagged with this source. */
-	public function cmd_tick(): string {
+	/**
+	 * TICK is a runtime trigger: a TM_REQUEST handled here in fill() (NOT a
+	 * TM_COMMAND verb — that flag is for startup/admin). Any other type is
+	 * ignored; a source mints, it doesn't consume.
+	 *
+	 * @param array<int, mixed> $message Incoming request Message.
+	 */
+	public function fill( array &$message ): void {
+		$type = \is_numeric( $message[ Message::TYPE ] ) ? (int) $message[ Message::TYPE ] : 0;
+		if ( $type & Message::TM_REQUEST ) {
+			$this->handle_request( $message );
+		}
+	}
+
+	/**
+	 * TICK handler: emit each item as a TM_STRUCT message, then reply with the count.
+	 *
+	 * @param array<int, mixed> $message Incoming request Message.
+	 */
+	private function handle_request( array $message ): void {
 		$count = 0;
 		foreach ( $this->items() as $item ) {
 			$msg                   = Message::new_message();
@@ -47,28 +57,34 @@ class Community_Source_Node extends Node {
 			parent::fill( $msg );
 			++$count;
 		}
-		return "emitted $count item(s)";
+
+		if ( null === $this->sink ) {
+			return;
+		}
+		$verb  = \strtoupper( \trim( \is_scalar( $message[ Message::VALUE ] ) ? (string) $message[ Message::VALUE ] : '' ) );
+		$reply                   = Message::new_message();
+		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
+		$reply[ Message::FROM ]  = $this->name;
+		$reply[ Message::TO ]    = $message[ Message::FROM ];
+		$reply[ Message::ID ]    = $message[ Message::ID ];
+		$reply[ Message::KEY ]   = $message[ Message::KEY ];
+		$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => [ 'emitted' => $count ] ];
+		$this->sink->fill( $reply );
 	}
 
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'category'     => 'Source',
-			'description'  => 'Emits canned publisher-community news items on tick.',
+			'description'  => 'Emits canned publisher-community news items on a TICK request (request_node community TICK).',
 			'arguments'    => [],
-			'commands'     => [
+			'requests'     => [
 				[
-					'name'        => 'tick',
-					'description' => 'Emit the current batch of items.',
-					'args'        => [],
-					// Dispatched via the {node}:config interpreter (auto_wire_interpreter() in __construct).
-					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
-						/** @var self $patron */
-						$patron = $interpreter->patron();
-						return $patron->cmd_tick();
-					},
+					'name'        => 'TICK',
+					'description' => 'Emit the current batch of items. Trigger with `request_node community TICK`.',
+					'reply_shape' => '{ emitted }',
 				],
 			],
-			'accepts_fill' => false,
+			'accepts_fill' => true,
 			'has_target'   => true,
 		] );
 	}
