@@ -31,6 +31,27 @@ class CoreTest extends TestCase {
 		$this->assertNull( Core::node( 'foo' ) );
 	}
 
+	public function test_resolve_config_tokens_substitutes_registered_namespace(): void {
+		Core::register_config_namespace(
+			'config',
+			static fn ( string $key ): string => 'logs_dir' === $key ? '/data/logs' : ''
+		);
+
+		$this->assertSame(
+			'/data/logs/req.p0',
+			Core::resolve_config_tokens( '<config:logs_dir>/req.p0' )
+		);
+	}
+
+	public function test_resolve_config_tokens_replaces_unknown_token_with_empty(): void {
+		Core::$config_resolvers = [];
+
+		$this->assertSame(
+			'/req.p0',
+			Core::resolve_config_tokens( '<config:logs_dir>/req.p0' )
+		);
+	}
+
 	public function test_now_returns_float(): void {
 		Core::$now = \microtime(true);
 		$this->assertIsFloat( Core::$now );

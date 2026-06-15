@@ -82,6 +82,15 @@ class Core {
 		return (string) $value;
 	}
 
+	/** Resolve every `<ns:key>` token in $path via resolve_config_token; an unknown token becomes ''. */
+	public static function resolve_config_tokens( string $path ): string {
+		return (string) \preg_replace_callback(
+			'/<([a-zA-Z_]\w*):([a-zA-Z_]\w*)>/',
+			static fn ( array $m ): string => self::resolve_config_token( $m[1], $m[2] ),
+			$path
+		);
+	}
+
 	/** Emit text on first sight; suppress identical text thereafter (re-windowed by prune_logs). */
 	public static function print_less_often( string $text ): void {
 		$row = self::$recent_log_timers[ $text ] ?? null;

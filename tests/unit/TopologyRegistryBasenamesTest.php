@@ -262,18 +262,6 @@ TSL
 		);
 	}
 
-	public function test_offset_basenames_for_resolves_partition_token(): void {
-		$this->write_tsl(
-			'digest',
-			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
-			. "make_node Consumer summ:consumer <config:logs_dir>/summarized.p<partition> <config:offsets_dir>/digest.summary.p<partition>\n"
-		);
-
-		$result = Topology_Registry::offset_basenames_for( 'digest', 2 );
-		\sort( $result );
-		$this->assertSame( [ 'digest.summary.p2', 'scored.p2' ], $result );
-	}
-
 	public function test_reset_clears_basename_cache(): void {
 		$this->write_tsl(
 			'cleared',

@@ -870,6 +870,12 @@ class SupervisorTest extends TestCase {
 			'noop' => [ 'topology' => '/dev/null', 'num_partitions' => 1, 'stale_timeout' => 60 ],
 		] );
 
+		// Production wires the `<config:…>` token namespace via
+		// Bootstrap::ensure_runtime_wired() before the supervisor's GC tick;
+		// register it here so the resolver-driven declared set resolves
+		// logs_dir/offsets_dir (else Log_Cleaner fail-closes and sweeps nothing).
+		\Newspack_Nodes\Config::register_token_namespace();
+
 		// A real .tsl declares the kept basename; the GC reads Topology_Registry,
 		// not the supervisor's fleet filter.
 		$stock = "{$this->tmp}/topologies";

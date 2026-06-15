@@ -516,11 +516,7 @@ class Workers_CI_Node extends Service_CI_Node {
 
 	/** Resolve any `<config:KEY>` tokens in a Log path; '' if a token can't resolve. */
 	private static function resolve_path_token( string $path ): string {
-		return (string) \preg_replace_callback(
-			'/<([a-zA-Z_][a-zA-Z0-9_]*):([a-zA-Z_][a-zA-Z0-9_]*)>/',
-			static fn ( array $m ): string => Core::resolve_config_token( $m[1], $m[2] ),
-			$path
-		);
+		return Core::resolve_config_tokens( $path );
 	}
 
 	/**
@@ -826,11 +822,11 @@ class Workers_CI_Node extends Service_CI_Node {
 						$base_dir = RuntimeConfig::get_base_directory();
 						$logs_dir = $base_dir . '/logs';
 						$on_disk  = [];
-						foreach ( @\glob( $logs_dir . '/*.p*', \GLOB_ONLYDIR ) ?: [] as $dir ) {
-							$name = \basename( $dir );
-							if ( \preg_match( '/\.p\d+$/', $name ) ) {
-								$on_disk[] = $name;
-							}
+						// Mirror Log_Cleaner::sweep(): glob first-level dirs (GLOB_ONLYDIR,
+						// layout-agnostic — no `.p{N}` regex) so the diagnostic matches
+						// exactly what the GC would delete.
+						foreach ( @\glob( $logs_dir . '/*', \GLOB_ONLYDIR ) ?: [] as $dir ) {
+							$on_disk[] = \basename( $dir );
 						}
 						\sort( $on_disk );
 						// Same code path Log_Cleaner's sweep uses so the diagnostic
