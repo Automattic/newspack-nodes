@@ -348,6 +348,30 @@ class Supervisor extends Supervisor_Base {
 	}
 
 	/**
+	 * Spawn every partition of one fleet NOW (don't wait for the reconcile tick).
+	 *
+	 * Symmetric with kill_readers() (immediate drain). The caller must have
+	 * already added $name to the active set so each worker's self_respawn is
+	 * accepted by Spawn_Controller. Reuses the tick loop's spawn token + post path.
+	 *
+	 * @param string $name Topology / worker type.
+	 * @return int Number of partitions spawned.
+	 */
+	public function spawn_fleet( string $name ): int {
+		$token     = $this->generate_spawn_token( \time() );
+		$spawn_url = \rest_url( 'newspack-nodes/v1/workers/spawn' );
+		$count     = 0;
+		foreach ( Bootstrap::expand_workers() as $worker ) {
+			if ( $worker['type'] !== $name ) {
+				continue;
+			}
+			$this->post_spawn( $spawn_url, $worker['type'], $worker['partition'], $token );
+			++$count;
+		}
+		return $count;
+	}
+
+	/**
 	 * libcurl-call seam. Tests reassign in bootstrap to capture POST bodies without
 	 * short-circuiting the setopt + error-classification path.
 	 *
