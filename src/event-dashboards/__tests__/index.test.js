@@ -1,18 +1,16 @@
 /**
- * event-dashboards/index — mounts RawLogsPage at its DOM node. Test the
- * side-effecting mount behavior by stubbing createRoot before importing index.
+ * event-dashboards/index — registers the hub DevTools tabs (side-effect import
+ * of `./tabs`) and mounts no standalone React tree. Raw Logs is now a hub tab,
+ * so the former `#newspack-nodes-rawlogs` standalone mount is gone. Assert the
+ * entry never calls createRoot regardless of stray DOM nodes.
  */
-
-jest.mock( '../RawLogsPage', () => () => null );
 
 describe( 'event-dashboards/index', () => {
 	let createRootMock;
-	let renderMock;
 
 	beforeEach( () => {
 		jest.resetModules();
-		renderMock = jest.fn();
-		createRootMock = jest.fn().mockReturnValue( { render: renderMock } );
+		createRootMock = jest.fn().mockReturnValue( { render: jest.fn() } );
 		jest.doMock( '@wordpress/element', () => {
 			const actual = jest.requireActual( '@wordpress/element' );
 			return { ...actual, createRoot: createRootMock };
@@ -20,6 +18,14 @@ describe( 'event-dashboards/index', () => {
 		while ( document.body.firstChild ) {
 			document.body.firstChild.remove();
 		}
+	} );
+
+	it( 'does not mount anything on the removed #newspack-nodes-rawlogs container', () => {
+		const mount = document.createElement( 'div' );
+		mount.id = 'newspack-nodes-rawlogs';
+		document.body.appendChild( mount );
+		require( '../index' );
+		expect( createRootMock ).not.toHaveBeenCalled();
 	} );
 
 	it( 'does not mount anything on the removed #newspack-nodes-workers container', () => {
@@ -30,17 +36,14 @@ describe( 'event-dashboards/index', () => {
 		expect( createRootMock ).not.toHaveBeenCalled();
 	} );
 
-	it( 'mounts RawLogsPage on #newspack-nodes-rawlogs when present', () => {
-		const mount = document.createElement( 'div' );
-		mount.id = 'newspack-nodes-rawlogs';
-		document.body.appendChild( mount );
+	it( 'registers the raw-logs hub tab as a side effect of importing', () => {
 		require( '../index' );
-		expect( createRootMock ).toHaveBeenCalledWith( mount );
-		expect( renderMock ).toHaveBeenCalled();
-	} );
-
-	it( 'skips mount when neither container exists', () => {
-		require( '../index' );
-		expect( createRootMock ).not.toHaveBeenCalled();
+		const {
+			getDevtoolsTabs,
+		} = require( '../../shared/devtools/tabRegistry' );
+		const tab = getDevtoolsTabs( 'hub' ).find(
+			( t ) => t.id === 'raw-logs'
+		);
+		expect( tab ).toBeTruthy();
 	} );
 } );

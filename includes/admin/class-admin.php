@@ -77,9 +77,8 @@ class Admin {
 		return \in_array( $current_user->user_login, $allowed_users, true );
 	}
 
-	/** Top-level menu slug for the DevTools hub — the "Nodes" landing page (Console + Topologies tabs). */
+	/** Top-level menu slug for the DevTools hub — the "Nodes" landing page (Console + Topologies + Raw Logs tabs). */
 	public const TOPOLOGY_MENU_SLUG = 'newspack-nodes-topology';
-	public const RAWLOGS_MENU_SLUG  = 'newspack-nodes-rawlogs';
 
 	public function __construct() {
 		\add_action( 'admin_menu', [ $this, 'add_admin_menu' ] );
@@ -125,23 +124,16 @@ class Admin {
 	}
 
 	/**
-	 * Register Raw Logs as a submenu under "Nodes" (priority 11 so it follows Topology).
+	 * Registers the event-dashboard admin pages. Every event dashboard is now a
+	 * `host:'hub'` DevTools tab on the top-level "Nodes" page (Raw Logs was the
+	 * last standalone submenu; it became a hub tab), so there are no standalone
+	 * submenus left to register. Kept as the `admin_menu` (priority 11) seam in
+	 * case a future dashboard needs its own page.
 	 */
 	public function register_event_dashboard_pages(): void {
 		if ( ! self::current_user_allowed() ) {
 			return;
 		}
-		if ( ! \function_exists( 'add_submenu_page' ) ) {
-			return;
-		}
-		\add_submenu_page(
-			self::TOPOLOGY_MENU_SLUG,
-			\__( 'Raw Logs', 'newspack-nodes' ),
-			\__( 'Raw Logs', 'newspack-nodes' ),
-			'manage_options',
-			self::RAWLOGS_MENU_SLUG,
-			static fn () => print( '<div id="newspack-nodes-rawlogs" class="newspack-nodes-rawlogs-page"></div>' )
-		);
 	}
 
 	/**
@@ -215,13 +207,14 @@ class Admin {
 	}
 
 	/**
-	 * Enqueue the event-dashboards bundle on the Raw Logs page.
+	 * Enqueue the event-dashboards bundle on the top-level "Nodes" hub page,
+	 * where its `host:'hub'` tabs (Topology Manager + Raw Logs) register.
 	 */
 	public function enqueue_event_dashboards_assets( string $hook = '' ): void {
 		self::enqueue_react_page(
 			[
 				'handle'   => 'newspack-nodes-event-dashboards',
-				'page'     => self::RAWLOGS_MENU_SLUG,
+				'page'     => self::TOPOLOGY_MENU_SLUG,
 				'dir'      => \NEWSPACK_NODES_DIR . 'build/event-dashboards',
 				'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-dashboards',
 				'localize' => [
@@ -255,16 +248,16 @@ class Admin {
 	 *
 	 * A contributor returns `{ handle, dir, url }` (the `enqueue_react_page` shape)
 	 * via the `newspack_nodes/devtools_tab_bundles` filter; each is enqueued on the
-	 * top-level hub page AND the overlay-bearing Raw Logs page so its tabs register
-	 * in whichever host they target. The per-bundle page-gate +
-	 * existence/manifest handling is `enqueue_react_page`'s.
+	 * top-level "Nodes" hub page so its tabs register in whichever host they
+	 * target (the hub renders the overlay on every non-console tab). The
+	 * per-bundle page-gate + existence/manifest handling is `enqueue_react_page`'s.
 	 */
 	public function enqueue_devtools_tab_bundles( string $hook = '' ): void {
 		$bundles = \apply_filters( 'newspack_nodes/devtools_tab_bundles', [] );
 		if ( ! \is_array( $bundles ) ) {
 			return;
 		}
-		$pages = [ self::TOPOLOGY_MENU_SLUG, self::RAWLOGS_MENU_SLUG ];
+		$pages = [ self::TOPOLOGY_MENU_SLUG ];
 		foreach ( $bundles as $bundle ) {
 			if ( ! \is_array( $bundle ) || ! isset( $bundle['handle'], $bundle['dir'], $bundle['url'] ) ) {
 				continue;
@@ -287,9 +280,10 @@ class Admin {
 
 	/**
 	 * Advertise the event-dashboards bundle as a DevTools tab bundle so the hub
-	 * page enqueues it and its `host: 'hub'` Topology Manager tab registers there.
-	 * (event-dashboards is also enqueued directly on the Raw Logs page; wp dedupes
-	 * by handle, so the double enqueue is harmless.)
+	 * page enqueues it and its `host: 'hub'` tabs (Topology Manager + Raw Logs)
+	 * register there. (event-dashboards is also enqueued directly on the hub page
+	 * via enqueue_event_dashboards_assets; wp dedupes by handle, so the double
+	 * enqueue is harmless.)
 	 *
 	 * @param array<int,mixed> $bundles Existing tab bundles.
 	 * @return array<int,mixed> Bundles with the event-dashboards bundle appended.

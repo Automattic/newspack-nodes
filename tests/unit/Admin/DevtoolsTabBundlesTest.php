@@ -65,15 +65,11 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 		}
 
 		public function test_enqueues_registered_bundle_on_the_hub_page(): void {
+			// The top-level "Nodes" hub is the sole overlay/tab-bearing page now —
+			// Raw Logs became a `host:'hub'` tab, so its former standalone page is
+			// gone. The hub is where every contributor bundle enqueues.
 			$this->register_bundle();
 			$_GET['page'] = Admin::TOPOLOGY_MENU_SLUG;
-			( new Admin() )->enqueue_devtools_tab_bundles();
-			$this->assertArrayHasKey( 'contrib-tab', $GLOBALS['_enqueued_scripts'] );
-		}
-
-		public function test_enqueues_on_the_overlay_bearing_rawlogs_page(): void {
-			$this->register_bundle();
-			$_GET['page'] = Admin::RAWLOGS_MENU_SLUG;
 			( new Admin() )->enqueue_devtools_tab_bundles();
 			$this->assertArrayHasKey( 'contrib-tab', $GLOBALS['_enqueued_scripts'] );
 		}

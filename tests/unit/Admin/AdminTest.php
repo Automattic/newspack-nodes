@@ -1480,17 +1480,14 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 	// ---- register_event_dashboard_pages ----------------------------------
 
-	public function test_register_event_dashboard_pages_registers_rawlogs_submenu(): void {
-		// The standalone Worker Status dashboard was folded into the Topology
-		// Manager hub tab — only Raw Logs remains as a standalone submenu.
+	public function test_register_event_dashboard_pages_registers_no_standalone_submenu(): void {
+		// Raw Logs was folded into the DevTools hub as a `host:'hub'` tab (like
+		// the Worker Status and Topology Manager dashboards before it), so
+		// register_event_dashboard_pages now registers no standalone submenu.
 		$admin = new Admin();
 		$admin->register_event_dashboard_pages();
 
-		$this->assertArrayHasKey( Admin::RAWLOGS_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
-
-		$rawlogs = $GLOBALS['_admin_submenu_pages'][ Admin::RAWLOGS_MENU_SLUG ];
-		$this->assertSame( Admin::TOPOLOGY_MENU_SLUG, $rawlogs['parent_slug'] );
-		$this->assertSame( 'manage_options', $rawlogs['capability'] );
+		$this->assertArrayNotHasKey( 'newspack-nodes-rawlogs', $GLOBALS['_admin_submenu_pages'] );
 	}
 
 	public function test_register_event_dashboard_pages_does_not_register_workers_submenu(): void {
@@ -1500,27 +1497,6 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$admin->register_event_dashboard_pages();
 
 		$this->assertArrayNotHasKey( 'newspack-nodes-workers', $GLOBALS['_admin_submenu_pages'] );
-	}
-
-	public function test_register_event_dashboard_page_callbacks_print_mount_divs(): void {
-		// The callback closures print the React mount points the
-		// event-dashboards bundle attaches to. Without these, the page is
-		// blank — drive each callback and assert the mount div renders.
-		$admin = new Admin();
-		$admin->register_event_dashboard_pages();
-
-		$rawlogs_cb = $GLOBALS['_admin_submenu_pages'][ Admin::RAWLOGS_MENU_SLUG ]['callback'];
-		\ob_start();
-		$rawlogs_cb();
-		$this->assertSame( '<div id="newspack-nodes-rawlogs" class="newspack-nodes-rawlogs-page"></div>', \ob_get_clean() );
-	}
-
-	public function test_register_event_dashboard_pages_skips_unauthorized_user(): void {
-		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
-		$admin                                                  = new Admin();
-		$admin->register_event_dashboard_pages();
-
-		$this->assertArrayNotHasKey( Admin::RAWLOGS_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
 	}
 
 	public function test_register_event_dashboard_pages_does_not_register_separate_hub_submenu(): void {
@@ -1541,11 +1517,14 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertEmpty( $GLOBALS['_localized_scripts'] );
 	}
 
-	public function test_enqueue_event_dashboards_assets_enqueues_for_rawlogs_page(): void {
+	public function test_enqueue_event_dashboards_assets_enqueues_for_hub_page(): void {
+		// Raw Logs is a hub tab now, so the event-dashboards bundle (which
+		// registers the Raw Logs + Topology Manager tabs) loads on the top-level
+		// "Nodes" hub page — not a standalone Raw Logs page.
 		$asset_path = \NEWSPACK_NODES_DIR . 'build/event-dashboards/index.js';
 		$this->assertFileExists( $asset_path, 'event-dashboards build asset missing — run `npm run build` before tests' );
 
-		$_GET = [ 'page' => Admin::RAWLOGS_MENU_SLUG ];
+		$_GET = [ 'page' => Admin::TOPOLOGY_MENU_SLUG ];
 
 		$admin = new Admin();
 		$admin->enqueue_event_dashboards_assets();
