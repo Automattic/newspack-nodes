@@ -6,13 +6,22 @@
  * tab. Capability-gating is the admin page's concern (server-side); this
  * component just renders.
  */
+import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import DevtoolsTabHost from '@newspack-nodes/shared/devtools/DevtoolsTabHost';
 import useAdminMenuWidth from '@newspack-nodes/shared/hooks/useAdminMenuWidth';
+import DebugOverlay from '../debug-overlay/DebugOverlay';
 import './devtools-hub.scss';
+
+// The Console tab IS a live-graph view; mounting the floating overlay there
+// nests a console-in-a-console (and binds to no interpreter). Gate the overlay
+// to every OTHER hub tab — the manager mounts the canonical
+// `_command_interpreter` exospine, giving the overlay's REPL a real backbone.
+const CONSOLE_TAB_ID = 'topology-console';
 
 export default function DevToolsHub() {
 	const menuWidth = useAdminMenuWidth();
+	const [ activeTabId, setActiveTabId ] = useState( null );
 
 	return (
 		<div
@@ -36,12 +45,16 @@ export default function DevToolsHub() {
 		>
 			<DevtoolsTabHost
 				host="hub"
+				onActiveTabChange={ setActiveTabId }
 				emptyState={
 					<p className="nodes-devtools__empty">
 						{ __( 'No tools registered yet.', 'newspack-nodes' ) }
 					</p>
 				}
 			/>
+			{ activeTabId && CONSOLE_TAB_ID !== activeTabId && (
+				<DebugOverlay storageKey="newspack-nodes:debug:hub" />
+			) }
 		</div>
 	);
 }
