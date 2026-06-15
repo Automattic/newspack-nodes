@@ -98,4 +98,48 @@
 		color: #8a8f98;
 		margin: 0 0 0 4px;
 	}
+
+	&__health {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.03em;
+		color: #8a8f98;
+
+		&::before {
+			content: '';
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: currentcolor;
+		}
+
+		&--ok {
+			color: #3fb950;
+		}
+
+		&--behind {
+			color: #d29922;
+		}
+
+		&--stalled {
+			color: #f85149;
+		}
+	}
+
+	&__pill {
+		display: inline-block;
+		font-size: 10px;
+		padding: 2px 7px;
+		border-radius: 10px;
+		font-weight: 600;
+		letter-spacing: 0.03em;
+
+		&--stalled {
+			background: #3b2a2a;
+			color: #f85149;
+		}
+	}
 }

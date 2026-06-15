@@ -141,6 +141,7 @@ describe( 'workerstatus:transform — model envelope', () => {
 				'currentTime',
 				'error',
 				'graph',
+				'heartbeatIntervalS',
 				'loading',
 				'logs',
 				'prevSegments',
@@ -187,6 +188,29 @@ describe( 'workerstatus:transform — model envelope', () => {
 		expect( model.workers ).toEqual( snap.workers );
 		expect( model.supervisor ).toEqual( snap.supervisor );
 		expect( model.logs ).toEqual( snap.logs );
+	} );
+
+	test( 'passes heartbeat_interval_s through to the model', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		const snap = producerSnapshot( 100 );
+		snap.heartbeat_interval_s = 10;
+		t.fill( metadataMsg( snap ) );
+		const { model } = sink.got[ 0 ][ VALUE ];
+		expect( model.heartbeatIntervalS ).toBe( 10 );
+	} );
+
+	test( 'retains the last heartbeat_interval_s when a later poll omits it', () => {
+		const sink = capture();
+		const t = makeTransform( 'workerstatus:transform' );
+		t.sink = sink.node;
+		const withInterval = producerSnapshot( 100 );
+		withInterval.heartbeat_interval_s = 10;
+		t.fill( metadataMsg( withInterval ) );
+		t.fill( metadataMsg( producerSnapshot( 200 ) ) ); // no interval
+		const { model } = sink.got[ 1 ][ VALUE ];
+		expect( model.heartbeatIntervalS ).toBe( 10 );
 	} );
 
 	test( 'passes segment_size and timestamp through to the model', () => {

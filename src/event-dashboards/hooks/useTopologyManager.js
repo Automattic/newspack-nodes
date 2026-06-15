@@ -51,6 +51,10 @@ import {
 } from '@newspack-nodes/shared/hooks/useDashboardGraph';
 import '../nodes/register';
 
+// A partition is stalled when its heartbeat age exceeds interval × STALL_PAD;
+// the pad tolerates a couple of missed beats without flicker.
+export const STALL_PAD = 3;
+
 const HTTP = '_http';
 const TRANSFORM = 'workerstatus:transform';
 const WORKER_VIEW = 'workerstatus:view';
@@ -107,11 +111,60 @@ function sectionsByName( model ) {
 			writeRates: model.writeRates ?? {},
 			segmentSize: model.segmentSize,
 			currentTime: model.currentTime,
+			heartbeatIntervalS: model.heartbeatIntervalS ?? 10,
 			prevSegments: model.prevSegments ?? {},
 			removingSegments: model.removingSegments ?? {},
 		};
 	}
 	return by;
+}
+
+/**
+ * Derive a topology's per-partition stall flags and rolled-up health from its
+ * live status section. A partition is stalled when its (process-level)
+ * heartbeat_age exceeds `heartbeatIntervalS × STALL_PAD`; health rolls up to
+ * `stalled` if any partition stalled, else `behind` if any consumer is behind,
+ * else `ok`. An inactive topology (no section) gets no partitions and `ok`.
+ *
+ * @param {?Object} section A topology's enriched status section (or null).
+ * @return {{ partitions: Array, health: string }} Partition stall flags + health.
+ */
+function deriveHealth( section ) {
+	if ( ! section ) {
+		return { partitions: [], health: 'ok' };
+	}
+	const workers = section.workers || [];
+	const intervalS = section.heartbeatIntervalS ?? 10;
+	const threshold = intervalS * STALL_PAD;
+	const byPartition = new Map();
+	let anyBehind = false;
+	for ( const wk of workers ) {
+		if ( wk.behind > 0 ) {
+			anyBehind = true;
+		}
+		const age = wk.heartbeat_age;
+		const stalled = age !== null && age !== undefined && age > threshold;
+		const cur = byPartition.get( wk.partition );
+		if ( ! cur ) {
+			byPartition.set( wk.partition, {
+				partition: wk.partition,
+				stalled,
+			} );
+		} else if ( stalled ) {
+			cur.stalled = true;
+		}
+	}
+	const partitions = [ ...byPartition.values() ].sort(
+		( a, b ) => a.partition - b.partition
+	);
+	const anyStalled = partitions.some( ( p ) => p.stalled );
+	let health = 'ok';
+	if ( anyStalled ) {
+		health = 'stalled';
+	} else if ( anyBehind ) {
+		health = 'behind';
+	}
+	return { partitions, health };
 }
 
 /**
@@ -197,13 +250,19 @@ export function useTopologyManager( opts = {} ) {
 
 	const rows = topologyModel?.topologies || [];
 	const byName = sectionsByName( workerModel );
-	const topologies = rows.map( ( row ) => ( {
-		name: row.name,
-		source: row.source,
-		active: row.active,
-		num_partitions: row.num_partitions,
-		status: byName[ row.name ] ?? null,
-	} ) );
+	const topologies = rows.map( ( row ) => {
+		const status = byName[ row.name ] ?? null;
+		const { partitions, health } = deriveHealth( status );
+		return {
+			name: row.name,
+			source: row.source,
+			active: row.active,
+			num_partitions: row.num_partitions,
+			status,
+			partitions,
+			health,
+		};
+	} );
 
 	const supervisor = workerModel?.supervisor ?? null;
 	const connected = ! ( topologyModel?.error || workerModel?.error );
