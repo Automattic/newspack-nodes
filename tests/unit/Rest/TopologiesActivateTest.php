@@ -228,6 +228,21 @@ class TopologiesActivateTest extends TestCase {
 		$this->assertEmpty( $GLOBALS['_test_outbound_posts'] ?? [] );
 	}
 
+	public function test_activate_rejects_a_malformed_name(): void {
+		// A malformed name (path traversal / slashes / whitespace) must be
+		// rejected by require_valid_name BEFORE any update_option or spawn —
+		// the active set is consumed downstream as file-name-safe basenames.
+		$response = $this->fire_capturing_response( 'activate', '../evil' );
+
+		$type = $response[ Message::TYPE ];
+		$this->assertSame( Message::TM_ERROR, $type & Message::TM_ERROR, 'malformed activate must reply TM_ERROR' );
+		$this->assertStringContainsString( 'invalid name', (string) $response[ Message::VALUE ]['payload'] );
+
+		// No write, no spawn.
+		$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'] );
+		$this->assertEmpty( $GLOBALS['_test_outbound_posts'] ?? [] );
+	}
+
 	public function test_activate_requires_manage_options(): void {
 		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
 		$GLOBALS['_wp_test_current_user_can'] = [];
@@ -293,6 +308,19 @@ class TopologiesActivateTest extends TestCase {
 		$active = (array) \get_option( 'newspack_nodes_topologies', [] );
 		$this->assertNotContains( 'alpha', $active );
 		$this->assertContains( 'beta', $active );
+	}
+
+	public function test_deactivate_rejects_a_malformed_name(): void {
+		// deactivate must also guard the name before array_diff + update_option,
+		// so a malformed basename can never reach the persisted active set.
+		$response = $this->fire_capturing_response( 'deactivate', 'bad/name' );
+
+		$type = $response[ Message::TYPE ];
+		$this->assertSame( Message::TM_ERROR, $type & Message::TM_ERROR, 'malformed deactivate must reply TM_ERROR' );
+		$this->assertStringContainsString( 'invalid name', (string) $response[ Message::VALUE ]['payload'] );
+
+		// No write.
+		$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'] );
 	}
 
 	public function test_deactivate_requires_manage_options(): void {
