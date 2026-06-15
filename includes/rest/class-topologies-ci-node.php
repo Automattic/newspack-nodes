@@ -17,6 +17,15 @@
  *   delete — args `{name}`. Returns `{name, deleted, stock_fallback,
  *            restarted_fleets}`. User copy only (stock immutable); restarts
  *            the matching active fleet (symmetry with save).
+ *   activate   — args `{name}`. Adds the name to the persisted active set
+ *                (`newspack_nodes_topologies` option), invalidates the config
+ *                cache, and spawns the fleet immediately. Returns the live array
+ *                `{name, active:true, spawned:<int>}` (the command protocol
+ *                carries VALUE as a live array, never separately JSON-encoded);
+ *                `error: ...` on unknown name.
+ *   deactivate — args `{name}`. Removes the name from the active set, invalidates
+ *                the config cache, and drains the fleet immediately. Returns
+ *                `{name, active:false}`.
  *
  * Verb-level auth is capability-only (manage_options); errors throw
  * RuntimeException, which CommandInterpreter::interpret() wraps as TM_ERROR.
@@ -29,6 +38,7 @@ namespace Newspack_Nodes\Rest;
 
 use Newspack_Nodes\Bootstrap;
 use Newspack_Nodes\Command_Interpreter_Node;
+use Newspack_Nodes\Config;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Shell_Node;
@@ -54,10 +64,20 @@ class Topologies_CI_Node extends Service_CI_Node {
 		return $has_user ? 'user' : 'stock';
 	}
 
+	/**
+	 * Drop the per-process option snapshot then the config snapshot so the next
+	 * Bootstrap::get_topologies() / expand_workers() sees the just-written active
+	 * set. Same pair, same order, as Supervisor::check_config().
+	 */
+	private static function invalidate_config_cache(): void {
+		Config::invalidate_options_cache();
+		Config::reset();
+	}
+
 	public static function node_schema(): array {
 		return [
 			'category'    => 'Service',
-			'description' => 'Topology (.tsl) management: list / get / save / delete user topology files, and mount a worker input partition.',
+			'description' => 'Topology (.tsl) management: list / get / save / delete user topology files, activate / deactivate topologies (immediate spawn / drain), and mount a worker input partition.',
 			'arguments'        => [],
 			'commands'       => [
 				[
@@ -259,6 +279,51 @@ class Topologies_CI_Node extends Service_CI_Node {
 							'deleted'          => $path,
 							'stock_fallback'   => $has_stock_fallback,
 							'restarted_fleets' => $restarted,
+						];
+					},
+				],
+				[
+					'name'        => 'activate',
+					'description' => 'Activate a topology: add it to the active set, persist, and spawn its fleet now.',
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array|string {
+						self::require_manage_options();
+						$name = \trim( $args );
+						if ( '' === $name || null === Topology_Registry::resolve( $name ) ) {
+							return "error: unknown topology '" . $name . "'";
+						}
+
+						// Materialize the effective active set, add the name, persist.
+						$active   = \array_keys( Bootstrap::get_topologies() );
+						$active[] = $name;
+						\update_option( 'newspack_nodes_topologies', \array_values( \array_unique( $active ) ) );
+						self::invalidate_config_cache();
+
+						$spawned = Bootstrap::supervisor()->spawn_fleet( $name );
+
+						return [
+							'name'    => $name,
+							'active'  => true,
+							'spawned' => $spawned,
+						];
+					},
+				],
+				[
+					'name'        => 'deactivate',
+					'description' => 'Deactivate a topology: remove it from the active set, persist, and drain its fleet now.',
+					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
+						self::require_manage_options();
+						$name   = \trim( $args );
+						$active = \array_values( \array_diff( \array_keys( Bootstrap::get_topologies() ), [ $name ] ) );
+						\update_option( 'newspack_nodes_topologies', $active );
+						self::invalidate_config_cache();
+
+						Bootstrap::supervisor()->kill_readers( [ $name ] );
+
+						return [
+							'name'   => $name,
+							'active' => false,
 						];
 					},
 				],

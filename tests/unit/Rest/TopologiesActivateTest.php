@@ -1,0 +1,259 @@
+<?php
+/**
+ * TopologiesActivateTest: unit tests for the activate / deactivate verbs on
+ * Topologies_CI_Node — the first CI writers of the `newspack_nodes_topologies`
+ * active-set option.
+ *
+ * activate materializes the effective active set (Bootstrap::get_topologies()),
+ * adds the name, writes the option, invalidates the config cache, then spawns
+ * the fleet immediately via Supervisor::spawn_fleet(). deactivate is the
+ * symmetric drain: remove the name, write, invalidate, then kill the fleet via
+ * Supervisor::kill_readers().
+ *
+ * Spawn is captured via the bootstrap-installed Supervisor::$curl_exec seam,
+ * which records every fire-and-forget POST into $GLOBALS['_test_outbound_posts'].
+ * Drain is asserted via the restart flags kill_readers drops on each live
+ * lock dir (Lock_Node::is_restart_pending).
+ *
+ * @package Newspack_Nodes
+ */
+
+declare(strict_types=1);
+
+namespace Newspack_Nodes\Tests\Unit\Rest;
+
+use Newspack_Nodes\Config;
+use Newspack_Nodes\Lock_Node;
+use Newspack_Nodes\Rest\Topologies_CI_Node;
+use Newspack_Nodes\Tests\Helpers\VerbHarness;
+use Newspack_Nodes\Tests\TestCase;
+use Newspack_Nodes\Topology_Registry;
+use PHPUnit\Framework\Attributes\CoversClass;
+
+#[CoversClass( Topologies_CI_Node::class )]
+class TopologiesActivateTest extends TestCase {
+
+	private string $base_dir;
+	private string $stock;
+	private string $user;
+
+	protected function setUp(): void {
+		parent::setUp();
+		$this->base_dir = $this->make_temp_dir( 'topologies-activate-' );
+		$this->use_base_dir( $this->base_dir );
+
+		$this->stock = $this->make_temp_dir( 'topologies-activate-stock-' );
+		$this->user  = $this->make_temp_dir( 'topologies-activate-user-' );
+		Topology_Registry::reset();
+		Topology_Registry::register_stock_dir( $this->stock );
+		Topology_Registry::set_user_dir( $this->user );
+
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$GLOBALS['_wp_actions']           = [];
+		$GLOBALS['_test_outbound_posts']  = [];
+	}
+
+	protected function tearDown(): void {
+		VerbHarness::reset();
+		Topology_Registry::reset();
+		$this->rmdir_recursive( $this->stock );
+		$this->rmdir_recursive( $this->user );
+		$this->rmdir_recursive( $this->base_dir );
+		$GLOBALS['_wp_test_current_user_can'] = [];
+		$GLOBALS['_wp_actions']               = [];
+		$GLOBALS['_test_outbound_posts']      = [];
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		\putenv(
+			'LOCAL_NEWSPACK_NODES_CONF=' . \dirname( __DIR__, 2 ) . '/newspack-nodes-test-config.php'
+		);
+		Config::reset();
+		parent::tearDown();
+	}
+
+	// ── activate ───────────────────────────────────────────────────────────────
+
+	public function test_activate_adds_name_to_option_and_spawns_fleet(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "var num_partitions = 2\nmake_node Echo e\n" );
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'activate',
+			'alpha'
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'alpha', $result['name'] );
+		$this->assertTrue( $result['active'] );
+		$this->assertSame( 2, $result['spawned'] );
+
+		// The active-set option now contains the name.
+		$this->assertContains( 'alpha', (array) \get_option( 'newspack_nodes_topologies', [] ) );
+
+		// spawn_fleet POSTed one spawn per partition.
+		$posts = $GLOBALS['_test_outbound_posts'] ?? [];
+		$this->assertCount( 2, $posts );
+		foreach ( $posts as $post ) {
+			$this->assertSame( 'alpha', $post['args']['body']['type'] );
+		}
+	}
+
+	public function test_activate_preserves_already_active_names(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
+		\file_put_contents( "{$this->stock}/beta.tsl",  "make_node Echo b\n" );
+		// beta already active.
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'beta' ];
+		Config::reset();
+
+		VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'alpha' );
+
+		$active = (array) \get_option( 'newspack_nodes_topologies', [] );
+		$this->assertContains( 'alpha', $active );
+		$this->assertContains( 'beta', $active );
+	}
+
+	public function test_activate_does_not_duplicate_an_already_active_name(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha' ];
+		Config::reset();
+
+		VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'alpha' );
+
+		$active = (array) \get_option( 'newspack_nodes_topologies', [] );
+		$this->assertSame( [ 'alpha' ], \array_values( $active ) );
+	}
+
+	public function test_activate_preserves_unset_option_default_active_set(): void {
+		// The data-loss-adjacent edge: the WP option `newspack_nodes_topologies`
+		// has NEVER been written, but the config-file default makes the effective
+		// active set non-empty (alpha + beta). activate must materialize from the
+		// effective set (Bootstrap::get_topologies()), not from
+		// get_option(..., []) — otherwise activating a third name would silently
+		// narrow the active set to just that name and drop the file defaults.
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
+		\file_put_contents( "{$this->stock}/beta.tsl",  "make_node Echo b\n" );
+		\file_put_contents( "{$this->stock}/gamma.tsl", "make_node Echo g\n" );
+
+		// File-default active set = [alpha, beta]; WP option remains unset.
+		$this->use_base_dir( $this->base_dir, [ 'topologies' => [ 'alpha', 'beta' ] ] );
+		$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'] );
+
+		VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'activate', 'gamma' );
+
+		$active = (array) \get_option( 'newspack_nodes_topologies', [] );
+		$this->assertContains( 'alpha', $active );
+		$this->assertContains( 'beta', $active );
+		$this->assertContains( 'gamma', $active );
+	}
+
+	public function test_activate_rejects_unknown_topology_without_writing(): void {
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'activate',
+			'does-not-exist'
+		);
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'error:', $result );
+		$this->assertStringContainsString( 'does-not-exist', $result );
+
+		// No write, no spawn.
+		$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'] );
+		$this->assertEmpty( $GLOBALS['_test_outbound_posts'] ?? [] );
+	}
+
+	public function test_activate_requires_manage_options(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
+		$GLOBALS['_wp_test_current_user_can'] = [];
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'activate',
+			'alpha'
+		);
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'permission denied', $result );
+		// Gate prevented the write.
+		$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'] );
+	}
+
+	// ── deactivate ───────────────────────────────────────────────────────────
+
+	public function test_deactivate_removes_name_from_option_and_drains_fleet(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "var num_partitions = 2\nmake_node Echo e\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha' ];
+		Config::reset();
+
+		// Two live workers (lock dirs) so kill_readers has something to flag.
+		foreach ( [ 0, 1 ] as $p ) {
+			$dir = "{$this->base_dir}/locks/alpha.p{$p}.lock.d";
+			\mkdir( $dir, 0755, true );
+			\file_put_contents( "{$dir}/heartbeat", (string) \getmypid() );
+		}
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'deactivate',
+			'alpha'
+		);
+
+		$this->assertIsArray( $result );
+		$this->assertSame( 'alpha', $result['name'] );
+		$this->assertFalse( $result['active'] );
+
+		// Option no longer contains the name.
+		$this->assertNotContains( 'alpha', (array) \get_option( 'newspack_nodes_topologies', [] ) );
+
+		// kill_readers dropped a restart flag on each live lock dir.
+		foreach ( [ 0, 1 ] as $p ) {
+			$this->assertTrue(
+				Lock_Node::is_restart_pending( "{$this->base_dir}/locks/alpha.p{$p}.lock.d" ),
+				"partition p{$p} must have restart flag dropped"
+			);
+		}
+	}
+
+	public function test_deactivate_preserves_other_active_names(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
+		\file_put_contents( "{$this->stock}/beta.tsl",  "make_node Echo b\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha', 'beta' ];
+		Config::reset();
+
+		VerbHarness::fire( new Topologies_CI_Node(), 'topologies', 'deactivate', 'alpha' );
+
+		$active = (array) \get_option( 'newspack_nodes_topologies', [] );
+		$this->assertNotContains( 'alpha', $active );
+		$this->assertContains( 'beta', $active );
+	}
+
+	public function test_deactivate_requires_manage_options(): void {
+		\file_put_contents( "{$this->stock}/alpha.tsl", "make_node Echo a\n" );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'alpha' ];
+		Config::reset();
+		$GLOBALS['_wp_test_current_user_can'] = [];
+
+		$result = VerbHarness::fire(
+			new Topologies_CI_Node(),
+			'topologies',
+			'deactivate',
+			'alpha'
+		);
+
+		$this->assertIsString( $result );
+		$this->assertStringContainsString( 'permission denied', $result );
+		// Gate prevented the write — option unchanged.
+		$this->assertSame( [ 'alpha' ], (array) \get_option( 'newspack_nodes_topologies', [] ) );
+	}
+
+	public function test_node_schema_declares_activate_and_deactivate(): void {
+		$schema = Topologies_CI_Node::node_schema();
+		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
+
+		$this->assertContains( 'activate', $names );
+		$this->assertContains( 'deactivate', $names );
+	}
+}
