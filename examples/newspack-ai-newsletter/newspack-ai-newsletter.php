@@ -93,7 +93,7 @@ function mount_insights_ci( \Newspack_Nodes\Command_Interpreter_Node $base_inter
 
 		// One call wires it all: the Newspack_AI_Newsletter\ namespace (so
 		// make_node resolves *_Node classes), the topologies/ stock dir, a
-		// catalog entry for every *.tsl in it (just digest.tsl here), and a
+		// catalog entry for every *.tsl in it (just newspack-ai-newsletter.tsl here), and a
 		// guarded spawn handler. That's the whole "register a Nodes plugin" story.
 		\Newspack_Nodes\Topology_Registry::register_plugin(
 			'Newspack_AI_Newsletter\\',

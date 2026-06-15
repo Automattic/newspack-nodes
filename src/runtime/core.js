@@ -153,4 +153,17 @@ class CoreImpl {
 	}
 }
 
-export const Core = new CoreImpl();
+// The build emits each dashboard (event-dashboards, devtools-hub, topology-console)
+// as its own IIFE inlining its own copy of this module. The hub renders the active
+// tab's component (event-dashboards bundle) but its own DebugOverlay (devtools-hub
+// bundle); a module-local Core would give each a SEPARATE node graph, so the overlay
+// would see only its own bundle's nodes (just _output) instead of the tab's graph.
+// Back the instance with a process-wide window singleton — like the devtools tab
+// registry — so every separately-built copy shares ONE Core (one graph per page).
+// Bare `window` is safe: these IIFE bundles only ever run in the browser (jest
+// provides window too), matching the tabRegistry convention.
+const GLOBAL_KEY = '__newspackNodesCore';
+if ( ! window[ GLOBAL_KEY ] ) {
+	window[ GLOBAL_KEY ] = new CoreImpl();
+}
+export const Core = window[ GLOBAL_KEY ];

@@ -3,6 +3,24 @@ import { TYPE, VALUE, TM_BYTESTREAM } from '../message';
 
 beforeEach( () => Core.reset() );
 
+describe( 'cross-bundle singleton', () => {
+	// The hub renders the active tab's component (event-dashboards bundle) but its
+	// own DebugOverlay (devtools-hub bundle); each bundle inlines its own copy of
+	// runtime/core. A module-local Core would give them SEPARATE node graphs, so
+	// the overlay would only ever see its own bundle's nodes (just _output). Core
+	// is therefore backed by a process-wide window singleton, exactly like the
+	// devtools tab registry — so every separately-built copy shares ONE graph.
+	test( 'the exported Core IS the window-global singleton', () => {
+		expect( window.__newspackNodesCore ).toBe( Core );
+	} );
+
+	test( "a second bundle's import resolves to the same Core instance", () => {
+		jest.resetModules();
+		const { Core: reimported } = require( '../core' );
+		expect( reimported ).toBe( Core );
+	} );
+} );
+
 test( 'stderr routes the formatted line to a registered _output sink', () => {
 	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
 	const captured = [];

@@ -278,4 +278,47 @@ TSL
 
 		$this->assertSame( [ 'v2' ], Topology_Registry::basenames_for( 'cleared' ) );
 	}
+
+	/**
+	 * The bundled AI-newsletter example ships `newspack-ai-newsletter.tsl`. Its
+	 * `scored` partition must use the flat `.p<partition>` layout so the dashboard
+	 * extracts the basename ("scored") and finds its segments — the pre-flat
+	 * two-arg form (`scored.log <partition>`) yields NO basename (→ "No segments")
+	 * and a "scored.log" label. This pins the shipped example to the layout the
+	 * dashboard understands.
+	 */
+	public function test_bundled_example_uses_flat_partition_layout(): void {
+		Topology_Registry::register_stock_dir(
+			\dirname( __DIR__, 2 ) . '/examples/newspack-ai-newsletter/topologies'
+		);
+
+		$this->assertSame(
+			[ 'scored' ],
+			Topology_Registry::basenames_for( 'newspack-ai-newsletter' )
+		);
+
+		$nodes = Topology_Registry::graph_for( 'newspack-ai-newsletter' )['nodes'];
+
+		$writes = [];
+		foreach ( $nodes as $node ) {
+			if ( 'partition' === $node['kind'] ) {
+				$writes[] = $node['writes'];
+			}
+		}
+		$this->assertSame( [ 'scored.p<partition>' ], $writes );
+
+		// The digest:log Log node must use the current Log signature
+		// (<file> <segment_size> <num_segments>) — not the removed logrotate-era
+		// `<mode>` arg, which graph_for would read as a non-numeric segment_size
+		// and silently shift num_segments.
+		$log = null;
+		foreach ( $nodes as $node ) {
+			if ( 'log' === $node['kind'] ) {
+				$log = $node;
+			}
+		}
+		$this->assertNotNull( $log );
+		$this->assertSame( 1, $log['segment_size'] );
+		$this->assertSame( 7, $log['num_segments'] );
+	}
 }
