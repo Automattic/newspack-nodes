@@ -92,6 +92,7 @@ class Admin {
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_topology_console_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_event_dashboards_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_hub_assets' ] );
+		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_tab_bundles' ] );
 
 		// Both hooks so first + subsequent saves restart correctly.
 		\add_action( 'updated_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
@@ -259,6 +260,41 @@ class Admin {
 				],
 			]
 		);
+	}
+
+	/**
+	 * Enqueue every plugin-registered DevTools tab bundle on both hosts.
+	 *
+	 * A contributor returns `{ handle, dir, url }` (the `enqueue_react_page` shape)
+	 * via the `newspack_nodes/devtools_tab_bundles` filter; each is enqueued on the
+	 * Hub page AND the overlay-bearing pages (Workers / Raw Logs) so its tabs
+	 * register in whichever host they target. The per-bundle page-gate +
+	 * existence/manifest handling is `enqueue_react_page`'s.
+	 */
+	public function enqueue_devtools_tab_bundles( string $hook = '' ): void {
+		$bundles = \apply_filters( 'newspack_nodes/devtools_tab_bundles', [] );
+		if ( ! \is_array( $bundles ) ) {
+			return;
+		}
+		$pages = [ self::HUB_MENU_SLUG, self::WORKERS_MENU_SLUG, self::RAWLOGS_MENU_SLUG ];
+		foreach ( $bundles as $bundle ) {
+			if ( ! \is_array( $bundle ) || ! isset( $bundle['handle'], $bundle['dir'], $bundle['url'] ) ) {
+				continue;
+			}
+			if ( ! \is_scalar( $bundle['handle'] ) || ! \is_scalar( $bundle['dir'] ) || ! \is_scalar( $bundle['url'] ) ) {
+				continue;
+			}
+			$localize = $bundle['localize'] ?? null;
+			self::enqueue_react_page(
+				[
+					'handle'   => (string) $bundle['handle'],
+					'page'     => $pages,
+					'dir'      => (string) $bundle['dir'],
+					'url'      => (string) $bundle['url'],
+					'localize' => \is_array( $localize ) ? \array_filter( $localize, '\is_string', \ARRAY_FILTER_USE_KEY ) : [],
+				]
+			);
+		}
 	}
 
 	/**
