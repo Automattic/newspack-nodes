@@ -831,23 +831,6 @@ class Workers_CI_Node extends Service_CI_Node {
 					},
 				],
 				[
-					'name'        => 'purge_orphans',
-					'description' => 'Run the housekeeping GC, deleting orphaned flat log/offset dirs; reports the basenames reaped.',
-					'args'        => [],
-					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
-						// Trigger the shipped sweep Log_Cleaner runs in housekeeping;
-						// all the keep/delete logic lives there. This verb just fires it
-						// and projects the removed absolute paths to basenames.
-						self::require_manage_options();
-						$base_dir = RuntimeConfig::get_base_directory();
-						$removed  = \array_map( '\basename', Log_Cleaner::cleanup_orphan_partitions( $base_dir ) );
-						return [
-							'removed' => $removed,
-							'count'   => \count( $removed ),
-						];
-					},
-				],
-				[
 					'name'        => 'restart',
 					'description' => 'Restart matching workers (and/or the supervisor): `restart <type>… [--partition=<n>]`.',
 					'args'        => [

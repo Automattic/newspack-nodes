@@ -132,7 +132,6 @@ function buildClient() {
 		activate: { name: 'b', active: true, spawned: 2 },
 		deactivate: { name: 'a', active: false },
 		restart: { restarted: true },
-		purge_orphans: { removed: [ 'stale-one', 'stale-two' ], count: 2 },
 	} );
 }
 
@@ -282,27 +281,6 @@ describe( 'useTopologyManager', () => {
 		const restartSend = sent.find( ( s ) => 'restart' === s.verb );
 		expect( restartSend ).toBeTruthy();
 		expect( restartSend.args ).toBe( 'a' );
-	} );
-
-	it( 'purgeOrphans dispatches the worker `purge_orphans` verb and resolves with { removed, count }', async () => {
-		const { client, sent } = buildClient();
-		const { result } = renderHook( () =>
-			useTopologyManager( { commandClient: client } )
-		);
-		await act( async () => {} );
-
-		expect( typeof result.current.purgeOrphans ).toBe( 'function' );
-		let resolved;
-		await act( async () => {
-			resolved = await result.current.purgeOrphans();
-		} );
-
-		const purgeSend = sent.find( ( s ) => 'purge_orphans' === s.verb );
-		expect( purgeSend ).toBeTruthy();
-		expect( resolved ).toEqual( {
-			removed: [ 'stale-one', 'stale-two' ],
-			count: 2,
-		} );
 	} );
 
 	it( 'activate rejects when the server replies TM_ERROR', async () => {
