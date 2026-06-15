@@ -563,44 +563,6 @@ class Admin {
 		echo '<p>' . \esc_html__( 'Configure log storage and memcache infrastructure. Changing storage layout (base directory, segment size, retention) restarts every worker.', 'newspack-nodes' ) . '</p>';
 	}
 
-	public static function topologies_section_callback(): void {
-		echo '<p>' . \esc_html__( 'Pick which TSL topologies the supervisor spawns workers for. Each entry runs as its own worker fleet, named after the topology.', 'newspack-nodes' ) . '</p>';
-	}
-
-	/**
-	 * Render a checkbox per known topology (from Topology_Registry::list()), each
-	 * advertising whether it is in the config-file default set so ↺ restores that
-	 * set rather than clearing every box.
-	 */
-	public static function topologies_callback(): void {
-		$available = \Newspack_Nodes\Topology_Registry::list();
-		\sort( $available );
-		if ( empty( $available ) ) {
-			echo '<p class="description">' . \esc_html__( 'No topologies registered. Application plugins must call Newspack_Nodes\\Topology_Registry::register_stock_dir() at load time.', 'newspack-nodes' ) . '</p>';
-			return;
-		}
-		// "Defaults" = the config-file `topologies` value (newspack-nodes-config.php,
-		// or a LOCAL_NEWSPACK_NODES_CONF override) — NOT the full catalog of every
-		// registered .tsl. A deployment declares the curated set it wants active; ↺
-		// and the unset-option render must honour that, not check everything.
-		$defaults = \array_values( \array_filter( (array) ( Config::load_config_defaults()['topologies'] ?? [] ), '\is_string' ) );
-		// Operator overlay precedence (mirrors Config::load_config): option false/unset
-		// → config-file default; [] → none; array → exact.
-		$option = \get_option( 'newspack_nodes_topologies', false );
-		$active = false === $option
-			? $defaults
-			: ( \is_array( $option ) ? \array_values( \array_filter( $option, '\is_string' ) ) : [] );
-		$html   = Settings_Renderer::checkbox_list(
-			'newspack_nodes_topologies[]',
-			$available,
-			$active,
-			$defaults,
-			\__( 'Each checked topology becomes one worker fleet. The supervisor picks up changes on its next loop (~1 minute). Click ↺ to reset to the application-shipped defaults, then Save Settings to commit.', 'newspack-nodes' ),
-			self::reset_mark_name( 'topologies' )
-		);
-		echo $html; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Settings_Renderer escapes every field.
-	}
-
 	// -- Field callbacks ----------------------------------------------------
 
 	/**

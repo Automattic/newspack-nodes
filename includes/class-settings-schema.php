@@ -34,7 +34,6 @@ class Settings_Schema {
 		}
 
 		$storage = 'newspack_nodes_storage_section';
-		$topos   = 'newspack_nodes_topologies_section';
 
 		// Literal (matches Admin::OPTION_PREFIX) so building the schema — which a
 		// worker does via Config::overlay_keys() — never autoloads the admin class
@@ -106,17 +105,19 @@ class Settings_Schema {
 					render: [ Admin::class, 'memcache_servers_callback' ],
 					register_args: [ 'type' => 'array', 'default' => [], 'autoload' => false ],
 				),
+				// Registered + sanitized + autoloaded, but NOT rendered on the
+				// settings page: the Topology Manager's active toggle is the sole
+				// activation UI. The activate/deactivate verbs write this option;
+				// keeping it a setting preserves register_setting + sanitizer +
+				// reset wiring. No `render` ⇒ Schema skips it in the field loop.
 				new Field(
 					key: 'topologies',
 					type: 'array_strings',
-					label: static fn(): string => \__( 'Active Topologies', 'newspack-nodes' ),
-					section: $topos,
 					// An empty selection is a deliberate override, not a reset.
 					delete_on_blank: false,
 					// Supervisor picks up topology changes on its next loop — no restart.
 					restart: [],
 					sanitize: [ Admin::class, 'sanitize_topologies' ],
-					render: [ Admin::class, 'topologies_callback' ],
 					register_args: [ 'autoload' => true ],
 				),
 				// Overlay-only: loaded + autoloaded, but no settings field (a
@@ -131,10 +132,6 @@ class Settings_Schema {
 				$storage => [
 					'title'    => static fn(): string => \__( 'Storage Settings', 'newspack-nodes' ),
 					'callback' => [ Admin::class, 'storage_section_callback' ],
-				],
-				$topos   => [
-					'title'    => static fn(): string => \__( 'Topologies', 'newspack-nodes' ),
-					'callback' => [ Admin::class, 'topologies_section_callback' ],
 				],
 			]
 		);
