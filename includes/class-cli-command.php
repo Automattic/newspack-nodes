@@ -38,7 +38,7 @@ class CLI_Command {
 	 * @param array<int, string> $args WP_CLI positional arguments. Empty = bare mode; else $args[0] is the worker id.
 	 * @return array{0:Shell_Node,1:Dumper_Node}
 	 */
-	public function prepare_repl( array $args ): array {
+	private function prepare_repl( array $args ): array {
 		// Refuse root: a root cli would create the IPC dirs root-owned, so non-root clis lose writes.
 		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
 			\WP_CLI::error( 'wp nodes cli must run as the same user as the workers, not root.' );
@@ -148,7 +148,7 @@ class CLI_Command {
 		$has_readline = $is_tty && \function_exists( 'readline_callback_handler_install' );
 
 		// Skip prompts when stdin is piped — they break `... | grep` consumers.
-		$reader = new CLI_Stdin_Reader_Node( $this, $shell, $dumper, $has_readline, null, $is_tty );
+		$reader = new CLI_Stdin_Reader_Node( $shell, $dumper, $has_readline, null, $is_tty );
 
 		// Every node sinks into the interpreter (only Router has none). The reader is
 		// a Timer_Node, and Timer_Node::fire_cb() skips fire() when sink is null — so
@@ -198,19 +198,6 @@ class CLI_Command {
 			\WP_CLI::log( \sprintf( '%s %-30s heartbeat %s', $flag, $worker, $age ) );
 		}
 	}
-
-	/**
-	 * Parse one input line through the Shell graph (split into statements). True if any Message emitted.
-	 */
-	public function dispatch_line( Shell_Node $shell, string $line ): bool {
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$message[ Message::VALUE ] = $line;
-		$before = $shell->counter();
-		$shell->fill( $message );
-		$after = $shell->counter();
-		return $after > $before;
-	}
 }
 
 /**
@@ -258,7 +245,6 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 	/** @var resource */
 	public $stream;
 	public bool $exit = false;
-	private CLI_Command $cmd;
 	private Shell_Node $shell;
 	private Dumper_Node $dumper;
 	private bool $has_readline;
@@ -279,10 +265,9 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 	 * @param bool          $show_prompts   Render the prompt before each read; false when piped.
 	 * @param float         $eof_deadline_s Cap on waiting for the TM_EOF echo after stdin closes.
 	 */
-	public function __construct( CLI_Command $cmd, Shell_Node $shell, Dumper_Node $dumper, bool $has_readline, $stream = null, bool $show_prompts = true, float $eof_deadline_s = 5.0 ) {
+	public function __construct( Shell_Node $shell, Dumper_Node $dumper, bool $has_readline, $stream = null, bool $show_prompts = true, float $eof_deadline_s = 5.0 ) {
 		parent::__construct();
 		$this->stream         = $stream ?? \STDIN;
-		$this->cmd            = $cmd;
 		$this->shell          = $shell;
 		$this->dumper         = $dumper;
 		$this->has_readline   = $has_readline;
@@ -334,7 +319,7 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 				$read_char();
 
 				foreach ( $this->queue as $line ) {
-					$this->cmd->dispatch_line( $this->shell, $line );
+					$this->dispatch_line( $line );
 					$delivered = true;
 				}
 				$this->queue = [];
@@ -358,7 +343,7 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 				}
 			} else {
 				$this->prompt_displayed = false;
-				$this->cmd->dispatch_line( $this->shell, $line );
+				$this->dispatch_line( $line );
 				if ( $this->show_prompts ) {
 					$this->show_prompt_fallback();
 				}
@@ -378,6 +363,16 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 			$next_ms = self::IDLE_POLL_MS;
 		}
 		$this->set_timer( $next_ms, true );
+	}
+
+	/**
+	 * Parse one input line through the Shell graph (split into statements).
+	 */
+	private function dispatch_line( string $line ): void {
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = $line;
+		$this->shell->fill( $message );
 	}
 
 	/**
