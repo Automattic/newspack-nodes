@@ -185,7 +185,7 @@ class WorkersCITest extends TestCase {
 		$names  = \array_map( static fn ( array $v ): string => $v['name'], $schema['commands'] );
 		\sort( $names );
 		$this->assertSame(
-			[ 'cleanup_status', 'dump_graph', 'heartbeat', 'list', 'restart' ],
+			[ 'cleanup_status', 'dump_graph', 'heartbeat', 'list', 'purge_orphans', 'restart' ],
 			$names
 		);
 		$this->assertNotEmpty( $schema['description'] );
@@ -484,6 +484,37 @@ class WorkersCITest extends TestCase {
 		$this->assertSame( [], $result['on_disk_basenames'] );
 		$this->assertSame( [], $result['expected_basenames'] );
 		$this->assertSame( [], $result['orphans'] );
+	}
+
+	public function test_purge_orphans_removes_undeclared_dirs_and_reports_them(): void {
+		// purge_orphans runs the shipped GC (Log_Cleaner::cleanup_orphan_partitions),
+		// which deletes first-level `{base}/logs/*` dirs not in the resolved declared
+		// set. Seed one declared dir (matching the .tsl partition) + one orphan;
+		// assert the orphan is gone from disk + reported by basename, declared survives.
+		$base = $this->arrange_base_dir();
+		$logs = "{$base}/logs";
+		\mkdir( "{$logs}/requests.p0", 0755, true );  // declared by the .tsl below
+		\mkdir( "{$logs}/ghost.p0",    0755, true );  // not declared — the orphan
+
+		$stock = "{$base}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/req-workers.tsl",
+			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+		\Newspack_Nodes\Topology_Registry::reset_basename_cache();
+
+		$interpreter      = new Workers_CI_Node();
+		$interpreter->cli = $this->stub_cli();
+		$result = VerbHarness::fire( $interpreter, 'workers', 'purge_orphans' );
+
+		$this->assertDirectoryDoesNotExist( "{$logs}/ghost.p0" );
+		$this->assertDirectoryExists( "{$logs}/requests.p0" );
+		$this->assertSame( [ 'ghost.p0' ], $result['removed'] );
+		$this->assertSame( 1, $result['count'] );
+
+		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
 	private function stub_cli(): object {
