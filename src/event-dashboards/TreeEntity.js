@@ -14,15 +14,6 @@ import { __ } from '@wordpress/i18n';
 import { SegmentBar } from './SegmentBar';
 import { formatByteRate, formatBytes, formatEta } from './formatters';
 
-// A log keeps its filename; a node name is Title-Cased from its slug.
-const displayName = ( name ) =>
-	name.includes( '.' )
-		? name
-		: name
-				.split( '-' )
-				.map( ( w ) => w.charAt( 0 ).toUpperCase() + w.slice( 1 ) )
-				.join( ' ' );
-
 function NodeRow( { entity, byteRates } ) {
 	const sorted = [ ...entity.workers ].sort(
 		( a, b ) => a.partition - b.partition
@@ -86,6 +77,7 @@ function NodeRow( { entity, byteRates } ) {
 
 function LogRows( {
 	entity,
+	flat,
 	writeRates,
 	segmentSize,
 	prevSegments,
@@ -118,7 +110,7 @@ function LogRows( {
 			<div key={ p.partition } className="log-partition-row">
 				<div className="log-partition-info">
 					<span className="partition-label-inline">
-						P{ p.partition }
+						{ flat ? p.name : `P${ p.partition }` }
 					</span>
 					<span className="log-write-rate">
 						{ entity.hasCursor ? 'R' : 'W' }{ ' ' }
@@ -154,8 +146,21 @@ function LogRows( {
 
 const TreeEntity = memo( function TreeEntity( props ) {
 	const { entity, depth, collapsed, onToggle } = props;
-	const isCollapsed = collapsed.has( entity.key );
 	const hasChildren = entity.children.length > 0;
+	// A leaf log (segment rows only, no downstream subtree) flattens: no group
+	// label, no fold caret, partition rows labelled with the concrete name.
+	const isFlatLog = entity.kind === 'log' && ! hasChildren;
+	const isCollapsed = ! isFlatLog && collapsed.has( entity.key );
+	if ( isFlatLog ) {
+		return (
+			<div
+				className="tree-branch tree-branch--flat-log"
+				style={ { marginLeft: depth * 14 } }
+			>
+				<LogRows entity={ entity } flat { ...props } />
+			</div>
+		);
+	}
 	return (
 		<div className={ `tree-branch ${ isCollapsed ? 'collapsed' : '' }` }>
 			<div className="tree-ent" style={ { marginLeft: depth * 14 } }>
@@ -178,8 +183,8 @@ const TreeEntity = memo( function TreeEntity( props ) {
 					) : (
 						<span className="connector-name">
 							{ entity.names
-								? entity.names.map( displayName ).join( ', ' )
-								: displayName( entity.name ) }
+								? entity.names.join( ', ' )
+								: entity.name }
 						</span>
 					) }
 					{ entity.kind === 'node' && (

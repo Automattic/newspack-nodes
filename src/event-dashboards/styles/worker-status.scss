@@ -117,11 +117,19 @@
 	margin-left: auto;
 }
 
+// The per-partition read-status pills lay out on ONE horizontal row, wrapping
+// only when they overflow the available width.
+.tree-node-row {
+	display: flex;
+	flex-flow: row wrap;
+	align-items: center;
+	gap: 6px 14px;
+}
+
 .connector-partition {
 	display: flex;
 	align-items: center;
 	gap: 6px;
-	min-width: 250px;
 }
 
 .connector-heartbeat {
@@ -443,30 +451,12 @@
 	overflow: hidden;
 }
 
-.topology-header {
-	display: flex;
+// Per-partition process pill (status + uptime + heartbeat) hoisted into the
+// Topology Manager card heading.
+.topology-partition {
+	display: inline-flex;
 	align-items: center;
-	gap: 10px;
-	padding: 9px 13px;
-	background: #20242b;
-	border-bottom: 1px solid #2a2e35;
-
-	.topology-name {
-		flex: 0 0 auto;
-		min-width: 160px;
-		font-weight: 700;
-	}
-
-	.topology-partition {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-		min-width: 130px;
-	}
-
-	.connector-trailing {
-		margin-left: auto;
-	}
+	gap: 5px;
 }
 
 .topology-body {
@@ -487,6 +477,12 @@
 	margin-left: 11px;
 	padding-left: 14px;
 	border-left: 1px solid #2a2e35;
+}
+
+// A flattened leaf-log group: a smidge of vertical gap in place of the removed
+// group label + fold caret.
+.tree-branch--flat-log {
+	margin: 6px 0;
 }
 
 .caret {

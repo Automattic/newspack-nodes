@@ -49,22 +49,48 @@ const props = {
 	onToggle: () => {},
 };
 
-it( 'renders the logical log name, one row per partition, and a reader node nested under it', () => {
+it( 'flattens a leaf log group: no group label, partition rows labelled with the concrete name', () => {
+	const leaf = { ...logEntity, children: [] };
 	const { container } = render(
-		<TreeEntity entity={ logEntity } depth={ 0 } { ...props } />
+		<TreeEntity entity={ leaf } depth={ 0 } { ...props } />
 	);
-	expect( container.querySelector( '.log-name' ).textContent ).toBe(
-		'requests'
-	);
-	// Two partition sub-rows, each labelled P{partition}.
+	// The group-label header is gone for a leaf log.
+	expect( container.querySelector( '.log-name' ) ).toBeNull();
+	// Two partition sub-rows, each labelled with the CONCRETE name.
 	expect( container.querySelectorAll( '.log-partition-row' ) ).toHaveLength(
 		2
 	);
 	const labels = [
 		...container.querySelectorAll( '.partition-label-inline' ),
 	].map( ( el ) => el.textContent );
+	expect( labels ).toEqual( [ 'requests.p0', 'requests.p1' ] );
+} );
+
+it( 'a leaf log group has no fold caret', () => {
+	const leaf = { ...logEntity, children: [] };
+	const { container } = render(
+		<TreeEntity entity={ leaf } depth={ 0 } { ...props } />
+	);
+	expect( container.querySelector( '.caret' ) ).toBeNull();
+} );
+
+it( 'a source log that feeds a subtree keeps its group label and renders the subtree once', () => {
+	const { container } = render(
+		<TreeEntity entity={ logEntity } depth={ 0 } { ...props } />
+	);
+	expect( container.querySelector( '.log-name' ).textContent ).toBe(
+		'requests'
+	);
+	expect( container.querySelectorAll( '.log-partition-row' ) ).toHaveLength(
+		2
+	);
+	// The downstream reader node renders exactly once (no per-partition dup).
+	const labels = [
+		...container.querySelectorAll( '.partition-label-inline' ),
+	].map( ( el ) => el.textContent );
 	expect( labels ).toEqual( [ 'P0', 'P1' ] );
-	expect( container.textContent ).toMatch( /flame-builder|Flame Builder/ );
+	expect( container.querySelectorAll( '.connector-name' ) ).toHaveLength( 1 );
+	expect( container.textContent ).toMatch( /flame-builder/ );
 } );
 
 it( 'keys each partition write/read rate on the CONCRETE partition name', () => {
@@ -143,7 +169,7 @@ it( 'collapsed entity hides its detail rows and children', () => {
 	);
 } );
 
-it( 'renders a joined node entity as its member names, Title-Cased and comma-joined', () => {
+it( 'renders a joined node entity as its raw member names, comma-joined (no Title-Case)', () => {
 	const joined = {
 		kind: 'node',
 		names: [ 'community', 'releases' ],
@@ -156,7 +182,23 @@ it( 'renders a joined node entity as its member names, Title-Cased and comma-joi
 		<TreeEntity entity={ joined } depth={ 0 } { ...props } />
 	);
 	expect( container.querySelector( '.connector-name' ).textContent ).toBe(
-		'Community, Releases'
+		'community, releases'
+	);
+} );
+
+it( 'renders a node name raw (1:1 with the console, no Title-Case)', () => {
+	const nodeEntity = {
+		kind: 'node',
+		name: 'job-router',
+		key: 't|job-router|',
+		children: [],
+		workers: [],
+	};
+	const { container } = render(
+		<TreeEntity entity={ nodeEntity } depth={ 0 } { ...props } />
+	);
+	expect( container.querySelector( '.connector-name' ).textContent ).toBe(
+		'job-router'
 	);
 } );
 
@@ -191,6 +233,8 @@ it( 'folds only the instance whose position key is collapsed, not its twin', () 
 	// Same log appears under two different parents, but position-based keys make
 	// the two instances DISTINCT (a>x.log vs b>x.log). Collapsing one instance's
 	// key folds only that instance; the other keeps its segment bar.
+	// A source log (has a downstream child) is still foldable per position;
+	// leaf logs flatten and don't fold, so this case must keep a child.
 	const logUnder = ( key ) => ( {
 		kind: 'log',
 		name: 'x.log',
@@ -203,7 +247,15 @@ it( 'folds only the instance whose position key is collapsed, not its twin', () 
 				segments: [ { id: 0, size: 100 } ],
 			},
 		],
-		children: [],
+		children: [
+			{
+				kind: 'node',
+				name: 'reader',
+				key: `${ key }>reader`,
+				workers: [],
+				children: [],
+			},
+		],
 	} );
 	const tree = {
 		kind: 'node',
