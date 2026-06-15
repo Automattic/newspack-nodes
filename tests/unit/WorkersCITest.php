@@ -143,17 +143,41 @@ class WorkersCITest extends TestCase {
 	}
 
 	/**
-	 * Seed a segment file in `{base}/logs/{name}.log/p{partition}/{seg}.log`
-	 * so the logs-enumeration walk picks it up. `$log_name` is the basename
-	 * without the `.log` suffix; the outer dir gets the suffix appended to
-	 * match the legacy controller's regex match (`/^(.+)\.log$/`).
+	 * Seed a segment file in the FLAT partition layout
+	 * `{base}/logs/{name}.p{partition}/{seg}.log` so the resolver-driven logs
+	 * enumeration picks it up. `$log_name` is the basename without any suffix;
+	 * the partition is part of the concrete dir NAME (flat Partition layout),
+	 * not a nested `p{N}` subdir.
 	 */
 	private function seed_log_segment( string $base_dir, string $log_name, int $partition, int $segment_id, int $size = 64 ): void {
-		$dir = "{$base_dir}/logs/{$log_name}.log/p{$partition}";
+		$dir = "{$base_dir}/logs/{$log_name}.p{$partition}";
 		if ( ! \is_dir( $dir ) ) {
 			\mkdir( $dir, 0755, true );
 		}
 		\file_put_contents( "{$dir}/{$segment_id}.log", \str_repeat( 'x', $size ) );
+	}
+
+	/**
+	 * Drop a `.tsl` declaring `$name`'s flat-layout Partition nodes so the
+	 * resolver (`resolved_resource_dirs`) yields concrete per-partition log dir
+	 * names for the enumeration. One `make_node Partition` per basename.
+	 *
+	 * @param array<int,string> $basenames Log basenames (e.g. `firehose`, `requests`).
+	 */
+	private function declare_partitions( string $base_dir, string $topology, array $basenames, int $num_partitions = 1 ): void {
+		$stock = "{$base_dir}/topologies";
+		if ( ! \is_dir( $stock ) ) {
+			\mkdir( $stock, 0755, true );
+		}
+		$lines = '';
+		if ( 1 !== $num_partitions ) {
+			$lines .= "var num_partitions = {$num_partitions}\n";
+		}
+		foreach ( $basenames as $basename ) {
+			$lines .= "make_node Partition {$basename}:partition <config:logs_dir>/{$basename}.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n";
+		}
+		\file_put_contents( "{$stock}/{$topology}.tsl", $lines );
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 	}
 
 	public function test_node_schema_declares_its_verbs(): void {
@@ -569,10 +593,10 @@ class WorkersCITest extends TestCase {
 	public function test_dump_metadata_input_log_uses_recorded_source_log_not_offset_dir_name(): void {
 		// A Consumer whose offset dir is disambiguated (two readers tail the
 		// same log under distinct offset names: `firehose` and
-		// `firehose.job-router`) must still report the REAL source log —
-		// `firehose.log` — as its input, not the offset-dir-derived
-		// `firehose.job-router.log` phantom that scans a nonexistent segment
-		// dir and renders as "No segments".
+		// `firehose.job-router`) must still report the REAL physical source log —
+		// the concrete `firehose.p0` recorded as `source_log` — as its input, not
+		// the offset-dir-derived `firehose.job-router.p0` phantom that scans a
+		// nonexistent segment dir and renders as "No segments".
 		$base = $this->arrange_base_dir();
 		$this->seed_offsetlog(
 			$base,
@@ -583,7 +607,7 @@ class WorkersCITest extends TestCase {
 				'target'      => 'job-router',
 				'targets'     => [ [ 'name' => 'job-router' ] ],
 				'worker_type' => 'demo-workers',
-				'source_log'  => 'firehose.log',
+				'source_log'  => 'firehose.p0',
 			]
 		);
 		$this->seed_heartbeat( $base, 'demo-workers', 0 );
@@ -600,8 +624,8 @@ class WorkersCITest extends TestCase {
 		$this->assertNotEmpty( $rows, 'expected a demo-workers row' );
 		$row = $rows[0];
 
-		$this->assertSame( [ 'firehose.log' ], $row['inputs'] );
-		$this->assertSame( 'firehose.log', $row['inputs_status'][0]['name'] );
+		$this->assertSame( [ 'firehose.p0' ], $row['inputs'] );
+		$this->assertSame( 'firehose.p0', $row['inputs_status'][0]['name'] );
 	}
 
 	public function test_dump_metadata_disambiguated_reader_cursor_reads_its_own_offset_dir(): void {
@@ -621,7 +645,7 @@ class WorkersCITest extends TestCase {
 				'name'        => 'firehose:consumer',
 				'targets'     => [ [ 'name' => 'job-router' ] ],
 				'worker_type' => 'demo-workers',
-				'source_log'  => 'firehose.log',
+				'source_log'  => 'firehose.p0',
 			]
 		);
 		// Sibling reader of the same log under the plain offset dir — different
@@ -660,7 +684,7 @@ class WorkersCITest extends TestCase {
 				'name'        => 'firehose:consumer',
 				'targets'     => [ [ 'name' => 'job-router' ] ],
 				'worker_type' => 'demo-workers',
-				'source_log'  => 'firehose.log',
+				'source_log'  => 'firehose.p0',
 			]
 		);
 		$this->seed_heartbeat( $base, 'demo-workers', 0 );
@@ -688,11 +712,12 @@ class WorkersCITest extends TestCase {
 	}
 
 	public function test_dump_metadata_includes_logs_enumeration(): void {
-		// `logs[]` is the per-log per-partition disk-scan output. Each entry
-		// = {name, partitions: [{partition, segments[], total_size}, ...]}.
-		// Configured-but-empty partitions show up as padded slots; on-disk
-		// segments populate segments[] with {id, size, mtime}.
+		// `logs[]` is the resolver-driven concrete-dir scan: ONE flat entry per
+		// concrete partition dir, NAMED by that dir (`firehose.p0`). Each entry
+		// holds a single partition's segments. The 0..N-1 expansion enumerates
+		// every partition dir whether or not it exists on disk.
 		$base = $this->arrange_base_dir();
+		$this->declare_partitions( $base, 'demo-workers', [ 'firehose', 'requests' ] );
 		$this->seed_log_segment( $base, 'firehose', 0, 0, 128 );
 		$this->seed_log_segment( $base, 'firehose', 0, 1, 256 );
 		$this->seed_log_segment( $base, 'requests', 0, 0, 64 );
@@ -704,20 +729,25 @@ class WorkersCITest extends TestCase {
 
 		$this->assertIsArray( $result['logs'] );
 		$names = \array_column( $result['logs'], 'name' );
-		$this->assertContains( 'firehose.log', $names );
-		$this->assertContains( 'requests.log', $names );
+		// Concrete per-partition entry names — no `.log` logical name, no nesting.
+		$this->assertContains( 'firehose.p0', $names );
+		$this->assertContains( 'requests.p0', $names );
 
 		$firehose = null;
 		foreach ( $result['logs'] as $log ) {
-			if ( 'firehose.log' === $log['name'] ) {
+			if ( 'firehose.p0' === $log['name'] ) {
 				$firehose = $log;
 				break;
 			}
 		}
 		$this->assertNotNull( $firehose );
+		// One partition's worth of data — the concrete dir IS one partition.
+		$this->assertCount( 1, $firehose['partitions'] );
 		$this->assertSame( 0, $firehose['partitions'][0]['partition'] );
 		$this->assertCount( 2, $firehose['partitions'][0]['segments'] );
 		$this->assertSame( 128 + 256, $firehose['partitions'][0]['total_size'] );
+
+		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
 	public function test_dump_metadata_logs_carry_per_partition_segment_size_overrides(): void {
@@ -754,14 +784,51 @@ class WorkersCITest extends TestCase {
 		foreach ( $result['logs'] as $log ) {
 			$by_name[ $log['name'] ] = $log;
 		}
-		$this->assertArrayHasKey( 'completed.log', $by_name );
-		$this->assertArrayHasKey( 'requests.log',  $by_name );
+		$this->assertArrayHasKey( 'completed.p0', $by_name );
+		$this->assertArrayHasKey( 'requests.p0',  $by_name );
 		$pollution_hint = 'If this fails in the full suite but passes in isolation '
 			. '(--filter test_dump_metadata_logs_carry_per_partition_segment_size_overrides), '
 			. 'a prior test almost certainly threw mid-run and left Core/Config static '
 			. 'state polluted — fix the throwing test, not this assertion.';
-		$this->assertSame( 1048576,           $by_name['completed.log']['segment_size'], $pollution_hint );
-		$this->assertSame( 16 * 1024 * 1024,  $by_name['requests.log']['segment_size'],  $pollution_hint );
+		$this->assertSame( 1048576,           $by_name['completed.p0']['segment_size'], $pollution_hint );
+		$this->assertSame( 16 * 1024 * 1024,  $by_name['requests.p0']['segment_size'],  $pollution_hint );
+
+		\Newspack_Nodes\Topology_Registry::reset();
+	}
+
+	public function test_segment_size_override_respects_basename_word_boundary(): void {
+		// An override basename that is a string-PREFIX of another concrete log
+		// must not bleed onto it. `job` (override 2048) declared on a `job`
+		// Partition + a sibling `jobs` Partition on the global default: `jobs.p0`
+		// must keep the global default, not inherit `job`'s 2048.
+		$base = $this->arrange_base_dir();
+
+		$stock = "{$base}/topologies";
+		\mkdir( $stock, 0755, true );
+		\file_put_contents(
+			"{$stock}/aggregator.tsl",
+			"make_node Partition job:partition <config:logs_dir>/job.p<partition> 2048 <config:num_segments> <config:max_lifespan>\n"
+			. "make_node Partition jobs:partition <config:logs_dir>/jobs.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+		);
+		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
+
+		$this->seed_log_segment( $base, 'job',  0, 0, 32 );
+		$this->seed_log_segment( $base, 'jobs', 0, 0, 64 );
+
+		$interpreter        = new Workers_CI_Node();
+		$interpreter->cli   = $this->stub_cli();
+		$interpreter->cache = new FakeMemcached();
+		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
+
+		$by_name = [];
+		foreach ( $result['logs'] as $log ) {
+			$by_name[ $log['name'] ] = $log;
+		}
+		$this->assertArrayHasKey( 'job.p0',  $by_name );
+		$this->assertArrayHasKey( 'jobs.p0', $by_name );
+		// `job.p0` keeps its literal override; `jobs.p0` must NOT inherit it.
+		$this->assertSame( 2048,             $by_name['job.p0']['segment_size'] );
+		$this->assertSame( 16 * 1024 * 1024, $by_name['jobs.p0']['segment_size'] );
 
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
@@ -800,17 +867,17 @@ class WorkersCITest extends TestCase {
 		$interpreter->cache = new FakeMemcached();
 		$result             = VerbHarness::fire( $interpreter, 'workers', 'dump_graph' );
 
+		$names = \array_column( $result['logs'], 'name' );
+		// num_partitions=1 → the resolver yields exactly the P0 concrete dir,
+		// `scored.p0`. No phantom `scored.p1` from the global default of 2.
+		$this->assertContains( 'scored.p0', $names );
+		$this->assertNotContains( 'scored.p1', $names );
 		$by_name = [];
 		foreach ( $result['logs'] as $log ) {
 			$by_name[ $log['name'] ] = $log;
 		}
-		$this->assertArrayHasKey( 'scored.log', $by_name );
-		$this->assertCount(
-			1,
-			$by_name['scored.log']['partitions'],
-			'scored.log lives in a num_partitions=1 topology; it must not pad to the global default of 2.'
-		);
-		$this->assertSame( 0, $by_name['scored.log']['partitions'][0]['partition'] );
+		$this->assertCount( 1, $by_name['scored.p0']['partitions'] );
+		$this->assertSame( 0, $by_name['scored.p0']['partitions'][0]['partition'] );
 
 		\Newspack_Nodes\Topology_Registry::reset();
 	}
@@ -922,7 +989,8 @@ class WorkersCITest extends TestCase {
 		$this->assertNotEmpty( $rows );
 		$row    = $rows[0];
 		$status = $row['inputs_status'][0];
-		$this->assertSame( 'firehose.log', $status['name'] );
+		// No source_log recorded → falls back to the concrete offset-dir name `firehose.p0`.
+		$this->assertSame( 'firehose.p0', $status['name'] );
 		$this->assertSame( 0, $status['partition'] );
 		$this->assertIsArray( $status['segments'] );
 		$this->assertCount( 1, $status['segments'] );

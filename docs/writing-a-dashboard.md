@@ -105,9 +105,9 @@ make_node Digest_Builder   digest
 make_node Tee              digest:tee
 make_node Log              digest:log /tmp/newspack-ai-newsletter/digest.md 1 7
 cmd digest:log:config void_warranty
-make_node Partition        scored:partition <config:logs_dir>/scored.log <partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition        scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
 cmd scored:partition:config void_warranty
-make_node Consumer         scored:consumer <config:logs_dir>/scored.log <partition> <config:offsets_dir>/scored.p<partition>
+make_node Consumer         scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>
 cmd scored:consumer:config set_snapshot_node digest
 make_node Scorer           scorer
 connect_node releases    summarizer

@@ -415,7 +415,9 @@ describe( 'WorkerStatus', () => {
 		expect( workerIdx ).toBeGreaterThanOrEqual( 0 );
 	} );
 
-	it( 'tree: uses logsCatalog as canonical partition list', () => {
+	it( 'tree: renders one flat log row per concrete catalog partition entry', () => {
+		// Flat layout: the catalog holds one CONCRETE per-partition entry; the
+		// partition-token consumer vertex expands into one flat log row each.
 		registerViewFixture(
 			viewModel( {
 				workers: [
@@ -424,11 +426,11 @@ describe( 'WorkerStatus', () => {
 						handler: 'firehose-workers',
 						partition: 0,
 						started_at: 1000,
-						inputs: [ 'firehose.log' ],
+						inputs: [ 'firehose.p0' ],
 						outputs: [],
 						inputs_status: [
 							{
-								name: 'firehose.log',
+								name: 'firehose.p0',
 								segments: [],
 								cursor_seg: 0,
 								cursor_offset: 0,
@@ -443,7 +445,7 @@ describe( 'WorkerStatus', () => {
 							{
 								name: 'firehose-in',
 								kind: 'consumer',
-								reads: 'firehose.log',
+								reads: 'firehose.p<partition>',
 							},
 							{ name: 'firehose-workers', kind: 'logic' },
 						],
@@ -452,9 +454,14 @@ describe( 'WorkerStatus', () => {
 				},
 				logs: [
 					{
-						name: 'firehose.log',
+						name: 'firehose.p0',
 						partitions: [
 							{ partition: 0, segments: [], total_size: 0 },
+						],
+					},
+					{
+						name: 'firehose.p1',
+						partitions: [
 							{ partition: 1, segments: [], total_size: 0 },
 						],
 					},
@@ -994,7 +1001,7 @@ describe( 'WorkerStatus', () => {
 					},
 				],
 				removingSegments: {
-					'firehose-0': [ { id: 1, size: 100 } ],
+					'firehose.log': [ { id: 1, size: 100 } ],
 				},
 			} )
 		);
@@ -1048,7 +1055,7 @@ describe( 'WorkerStatus', () => {
 						],
 					},
 				],
-				prevSegments: { 'firehose-0': new Set( [ 1 ] ) },
+				prevSegments: { 'firehose.log': new Set( [ 1 ] ) },
 			} )
 		);
 		const { container } = render( <WorkerStatus fullPage /> );

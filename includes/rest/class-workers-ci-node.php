@@ -169,11 +169,15 @@ class Workers_CI_Node extends Service_CI_Node {
 			}
 
 			foreach ( $consumer_rows as $row ) {
-				// Prefer the Consumer's recorded real source log; fall back to the
-				// offset-dir name for checkpoints predating the source_log field.
+				// Flat layout: the Consumer's recorded `source_log` IS the concrete
+				// physical partition dir (`firehose.p0`) — already the catalog
+				// entry's name, so the dashboard's rate keys line up. Two readers of
+				// one log keep this shared physical name (cursor identity stays
+				// per-reader via source_basename below). Fall back to the offset-dir
+				// concrete name only for pre-source_log checkpoints.
 				$input_log = '' !== $row['source_log']
 					? $row['source_log']
-					: "{$row['source_basename']}.log";
+					: "{$row['source_basename']}.p{$partition}";
 				// Each Consumer can have multiple downstream processors
 				// (Tee fan-out: firehose:tee → request-builder + job-router).
 				// Emit one dashboard row per processor so the operator sees
@@ -223,21 +227,21 @@ class Workers_CI_Node extends Service_CI_Node {
 		// partitioned workers.
 		$supervisor = self::build_supervisor_status( "{$locks_base}/supervisor.lock.d", $now );
 
-		// Per-log per-partition slot list. Lets the dashboard show (a)
-		// configured-but-empty slots when the producer hasn't written yet
-		// and (b) stale slots left over when num_partitions shrinks (orphan
-		// data the producer no longer touches). Cursor data is overlaid by
-		// the frontend from `workers[]`.
+		// Per-log catalog, resolver-driven: one concrete single-partition entry
+		// per declared partition dir (`requests.p0`), enumerated from each active
+		// topology's resolved resource dirs. No padding, no synthesized empty
+		// slots; on-disk orphans the GC will reap are NOT surfaced (consistent
+		// with the dashboard's don't-show-doomed-logs behavior). Cursor data is
+		// overlaid by the frontend from `workers[]`.
 		//
 		// Build a `{basename => int}` overrides map across every active
 		// topology so each log entry reflects the literal `segment_size`
-		// declared in TSL (e.g. `completed.log` / `gyroscope.log` hardcoded
-		// to 1 MiB) instead of the global config default. Token-substituted
+		// declared in TSL (e.g. `completed` / `gyroscope` hardcoded to 1 MiB)
+		// instead of the global config default. Token-substituted
 		// (`<config:segment_size>`) Partition lines contribute nothing here;
 		// `enumerate_logs` falls back to `$segment_size` for those.
 		$segment_size_overrides = self::collect_segment_size_overrides();
-		$partition_overrides    = self::collect_partition_count_overrides();
-		$logs                   = self::enumerate_logs( $log_base, $num_partitions, $segment_size, $segment_size_overrides, $partition_overrides );
+		$logs                   = self::enumerate_logs( $log_base, $segment_size, $segment_size_overrides );
 
 		return [
 			'workers'        => $workers,
@@ -287,8 +291,11 @@ class Workers_CI_Node extends Service_CI_Node {
 			$cursor_offset = 0;
 			$behind        = 0;
 		} else {
+			// Flat layout: `$input_log` IS the concrete physical partition dir
+			// (`firehose.p0`). Stat it directly — no nested `/p{N}`, no `.p{N}`
+			// parse. The cursor stays keyed per-reader by source_basename below.
 			$partition_obj = new Partition_Node();
-			$partition_obj->arguments( "{$log_base}/{$input_log}/p{$partition}" );
+			$partition_obj->arguments( "{$log_base}/{$input_log}" );
 			$segments      = $partition_obj->get_segments();
 			$total_size    = \array_sum( \array_column( $segments, 'size' ) );
 
@@ -529,103 +536,77 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Map each Partition-backed log basename to ITS owning topology's
-	 * `num_partitions`, so `enumerate_logs` pads each log to the right slot
-	 * count instead of the single global default. A log declared in a
-	 * num_partitions=1 topology must not sprout a phantom P1 just because
-	 * another topology (or the global default) runs 2 partitions.
-	 *
-	 * @return array<string,int> `{basename => num_partitions}` (basename without `.log`).
-	 */
-	private static function collect_partition_count_overrides(): array {
-		$out = [];
-		foreach ( self::active_topologies() as $name => $_cfg ) {
-			$count = Bootstrap::num_partitions_for( $name );
-			foreach ( Topology_Registry::basenames_for( $name ) as $basename ) {
-				$out[ $basename ] = $count;
-			}
-		}
-		return $out;
-	}
-
-	/**
-	 * Walk `{logs_dir}/*.log/` and return one entry per log, covering the union
-	 * of configured and on-disk partition slots. Cursor fields are overlaid by
-	 * the frontend; per-log `segment_size` honors any TSL literal override.
+	 * Enumerate the flat partition-in-name log layout: for every active topology,
+	 * ask the layout-agnostic resolver
+	 * (`Topology_Registry::resolved_resource_dirs`) for its concrete per-partition
+	 * log dir names, then stat each dir's segments. Emits ONE flat entry per
+	 * concrete dir, NAMED by that dir (`requests.p0`) and carrying that single
+	 * partition's data. The resolver's 0..N-1 expansion already enumerates every
+	 * partition dir, present or not (a missing dir stats to empty segments) — no
+	 * `.p{N}` parsing, no padding math here. Per-log `segment_size` honors any TSL
+	 * literal override (keyed by the override basename when the concrete name
+	 * starts with it).
 	 *
 	 * @param array<string,int> $segment_size_overrides `{basename => int}` map.
-	 * @param array<string,int> $partition_overrides    `{basename => num_partitions}` map.
 	 * @return array<int,array{name:string,partitions:array<int, mixed>,segment_size:int}>
 	 */
 	private static function enumerate_logs(
 		string $log_base,
-		int $num_partitions,
 		int $default_segment_size,
-		array $segment_size_overrides,
-		array $partition_overrides
+		array $segment_size_overrides
 	): array {
-		if ( ! \is_dir( $log_base ) ) {
-			return [];
-		}
-		$entries = @\scandir( $log_base );
-		if ( false === $entries ) {
-			return [];
-		}
 		$logs = [];
-		foreach ( $entries as $entry ) {
-			if ( '.' === $entry || '..' === $entry ) {
-				continue;
-			}
-			if ( ! \preg_match( '/^(.+)\.log$/', $entry, $m ) ) {
-				continue;
-			}
-			$log_dir      = "{$log_base}/{$entry}";
-			$part_entries = @\scandir( $log_dir );
-			if ( false === $part_entries ) {
-				continue;
-			}
-			$on_disk = [];
-			foreach ( $part_entries as $pe ) {
-				if ( \preg_match( '/^p(\d+)$/', $pe, $pm ) ) {
-					$on_disk[ (int) $pm[1] ] = true;
+		$seen = [];
+		foreach ( self::active_topologies() as $name => $_cfg ) {
+			$resolved = Topology_Registry::resolved_resource_dirs( $name, Bootstrap::num_partitions_for( $name ) );
+			foreach ( $resolved['logs'] as $concrete ) {
+				if ( isset( $seen[ $concrete ] ) ) {
+					continue;
 				}
+				$seen[ $concrete ] = true;
+				$status            = self::build_log_status_entry( $concrete, 0, null, null, $log_base );
+				$logs[]            = [
+					'name'         => $concrete,
+					'partitions'   => [
+						[
+							'partition'  => 0,
+							'segments'   => $status['segments'] ?? [],
+							'total_size' => $status['total_size'] ?? 0,
+						],
+					],
+					'segment_size' => self::segment_size_for( $concrete, $segment_size_overrides, $default_segment_size ),
+				];
 			}
-			$basename   = $m[1];
-			$configured = $partition_overrides[ $basename ] ?? $num_partitions;
-			$max_disk   = empty( $on_disk ) ? -1 : \max( \array_keys( $on_disk ) );
-			$slot_count = \max( $configured, $max_disk + 1 );
-			if ( $slot_count < 1 ) {
-				continue;
-			}
-			$partitions = [];
-			for ( $p = 0; $p < $slot_count; $p++ ) {
-				if ( isset( $on_disk[ $p ] ) ) {
-					$status       = self::build_log_status_entry( $entry, $p, null, null, $log_base );
-					$partitions[] = [
-						'partition'  => $p,
-						'segments'   => $status['segments'] ?? [],
-						'total_size' => $status['total_size'] ?? 0,
-					];
-				} else {
-					// Padded slot: configured partition with no on-disk dir yet — emit empty inline.
-					$partitions[] = [
-						'partition'  => $p,
-						'segments'   => [],
-						'total_size' => 0,
-					];
-				}
-			}
-			$logs[]   = [
-				'name'         => $entry,
-				'partitions'   => $partitions,
-				'segment_size' => $segment_size_overrides[ $basename ] ?? $default_segment_size,
-			];
 		}
 		return $logs;
 	}
 
 	/**
-	 * Scan a log's segment directory and return the per-log status block for
+	 * Pick the per-log `segment_size`: a TSL literal override applies to a concrete
+	 * partition dir when the dir name starts with the override basename AND a word
+	 * boundary follows it (the override is keyed by basename; the concrete name
+	 * carries the partition token inline as `{basename}.p{N}`). The word-boundary
+	 * test stops a prefix override from bleeding onto a sibling — `job` matches
+	 * `job.p0` (next char `.`) but not `jobs.p0` (next char `s`). Falls back to the
+	 * global default.
+	 *
+	 * @param array<string,int> $segment_size_overrides `{basename => int}` map.
+	 */
+	private static function segment_size_for( string $concrete, array $segment_size_overrides, int $default_segment_size ): int {
+		foreach ( $segment_size_overrides as $basename => $size ) {
+			if ( '' === $basename || 0 !== \strpos( $concrete, $basename ) ) {
+				continue;
+			}
+			$next = $concrete[ \strlen( $basename ) ] ?? '';
+			if ( '' === $next || 1 !== \preg_match( '/[A-Za-z0-9_-]/', $next ) ) {
+				return $size;
+			}
+		}
+		return $default_segment_size;
+	}
+
+	/**
+	 * Scan a flat concrete log dir and return the per-log status block for
 	 * `inputs_status` / `outputs_status`. Cursor fields included only when both
 	 * `$cursor_seg` and `$cursor_offset` are non-null (else the UI treats it as output-only).
 	 *
@@ -638,7 +619,7 @@ class Workers_CI_Node extends Service_CI_Node {
 		?int $cursor_offset,
 		string $log_base
 	): array {
-		$segment_dir = "{$log_base}/{$log_name}/p{$partition}";
+		$segment_dir = "{$log_base}/{$log_name}";
 		$segments    = [];
 		$total_size  = 0;
 		if ( \is_dir( $segment_dir ) ) {

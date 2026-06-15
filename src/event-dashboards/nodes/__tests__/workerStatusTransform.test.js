@@ -66,7 +66,8 @@ function withClock( fn ) {
 	}
 }
 
-// One firehose producer writing firehose.log; total_size grows between snapshots.
+// One firehose producer writing the concrete partition dir firehose.p0;
+// total_size grows between snapshots.
 const producerSnapshot = ( totalSize ) => ( {
 	workers: [
 		{
@@ -74,11 +75,11 @@ const producerSnapshot = ( totalSize ) => ( {
 			handler: 'firehose-workers',
 			partition: 0,
 			inputs: [],
-			outputs: [ 'firehose.log' ],
+			outputs: [ 'firehose.p0' ],
 			inputs_status: [],
 			outputs_status: [
 				{
-					name: 'firehose.log',
+					name: 'firehose.p0',
 					segments: [ { id: 1, size: totalSize } ],
 					total_size: totalSize,
 				},
@@ -89,18 +90,18 @@ const producerSnapshot = ( totalSize ) => ( {
 	logs: [],
 } );
 
-// One request consumer reading firehose.log; cursor advances between snapshots.
+// One request consumer reading firehose.p0; cursor advances between snapshots.
 const consumerSnapshot = ( cursorOffset ) => ( {
 	workers: [
 		{
 			type: 'request-workers',
 			handler: 'request-workers',
 			partition: 0,
-			inputs: [ 'firehose.log' ],
+			inputs: [ 'firehose.p0' ],
 			outputs: [],
 			inputs_status: [
 				{
-					name: 'firehose.log',
+					name: 'firehose.p0',
 					segments: [ { id: 1, size: 100000 } ],
 					total_size: 100000,
 					cursor_seg: 1,
@@ -260,8 +261,8 @@ describe( 'workerstatus:transform — rate math from two snapshots', () => {
 			advance( 2000 ); // 2s between snapshots
 			t.fill( metadataMsg( producerSnapshot( 1100 ) ) );
 			const { model } = sink.got[ 1 ][ VALUE ];
-			// (1100 - 100) bytes / 2s = 500 B/s, keyed by `${name}-${partition}`.
-			expect( model.writeRates[ 'firehose-0' ] ).toBe( 500 );
+			// (1100 - 100) bytes / 2s = 500 B/s, keyed by the concrete log name `${name}`.
+			expect( model.writeRates[ 'firehose.p0' ] ).toBe( 500 );
 		} );
 	} );
 
@@ -288,7 +289,7 @@ describe( 'workerstatus:transform — rate math from two snapshots', () => {
 			advance( 2000 );
 			t.fill( metadataMsg( producerSnapshot( 100 ) ) ); // went backwards
 			const { model } = sink.got[ 1 ][ VALUE ];
-			expect( model.writeRates[ 'firehose-0' ] ).toBe( 0 );
+			expect( model.writeRates[ 'firehose.p0' ] ).toBe( 0 );
 		} );
 	} );
 } );
@@ -314,7 +315,7 @@ describe( 'workerstatus:transform — segment tracking', () => {
 			];
 			t.fill( metadataMsg( one ) );
 			const { model } = sink.got[ 1 ][ VALUE ];
-			expect( model.removingSegments[ 'firehose-0' ] ).toEqual( [
+			expect( model.removingSegments[ 'firehose.p0' ] ).toEqual( [
 				{ id: 1, size: 100 },
 			] );
 		} );
@@ -338,7 +339,7 @@ describe( 'workerstatus:transform — segment tracking', () => {
 			const { model } = sink.got[ 1 ][ VALUE ];
 			// The model's prevSegments is the PRIOR snapshot (only id 1), so id 2
 			// is detected as new by the render path.
-			const prev = model.prevSegments[ 'firehose-0' ];
+			const prev = model.prevSegments[ 'firehose.p0' ];
 			expect( prev.has( 1 ) ).toBe( true );
 			expect( prev.has( 2 ) ).toBe( false );
 		} );

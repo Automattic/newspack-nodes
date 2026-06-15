@@ -169,6 +169,152 @@ it( 'terminates on a cycle (log writer feeds a node that writes back)', () => {
 	).not.toThrow();
 } );
 
+it( 'expands a partition-token log vertex into one flat entity per concrete catalog entry', () => {
+	// graph_for emits the writes/reads basename verbatim from the .tsl path arg,
+	// so a partitioned log vertex carries the literal `<partition>` token. The
+	// catalog now holds CONCRETE per-partition entries (firehose.p0, firehose.p1).
+	// The vertex must expand into one flat log entity per matching catalog entry,
+	// named by the concrete entry — no `.p{N}` parse, alpha-sorted siblings.
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'r', 'consumer', { reads: 'firehose.p<partition>' } ),
+					gn( 'n', 'logic' ),
+				],
+				edges: [ [ 'r', 'n' ] ],
+			},
+		},
+		[],
+		[
+			{
+				name: 'firehose.p0',
+				segment_size: 4096,
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'firehose.p1',
+				segment_size: 4096,
+				partitions: [ { partition: 1, segments: [], total_size: 0 } ],
+			},
+		]
+	);
+	// Two concrete log entities, one per catalog entry, alpha-sorted adjacent.
+	const logs = section.tree.filter( ( e ) => e.kind === 'log' );
+	expect( names( logs ) ).toEqual( [ 'firehose.p0', 'firehose.p1' ] );
+	// Each carries exactly its one partition's worth.
+	expect( logs[ 0 ].partitions ).toHaveLength( 1 );
+	expect( logs[ 0 ].partitions[ 0 ].partition ).toBe( 0 );
+	expect( logs[ 1 ].partitions[ 0 ].partition ).toBe( 1 );
+} );
+
+it( 'does not over-match a sibling log that shares the partition-token prefix', () => {
+	// Vertex `firehose.p<partition>` (token at END) must expand to its own
+	// partitions only — NOT a sibling `firehose.priority.p0` that merely
+	// startsWith the pre `firehose.p`. The substituted middle must be all-digits.
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'r', 'consumer', {
+						reads: 'firehose.p<partition>',
+					} ),
+					gn( 'n', 'logic' ),
+				],
+				edges: [ [ 'r', 'n' ] ],
+			},
+		},
+		[],
+		[
+			{
+				name: 'firehose.p0',
+				segment_size: 4096,
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'firehose.p1',
+				segment_size: 4096,
+				partitions: [ { partition: 1, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'firehose.priority.p0',
+				segment_size: 4096,
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+		]
+	);
+	const logs = section.tree.filter( ( e ) => e.kind === 'log' );
+	expect( names( logs ) ).toEqual( [ 'firehose.p0', 'firehose.p1' ] );
+} );
+
+it( 'matches a token at an arbitrary position and rejects a non-digit middle', () => {
+	// Token in the MIDDLE (`<partition>-req`): `0-req`/`1-req` match (digit
+	// middle), but `0-request` must NOT (its middle vs post `-req` leaves
+	// `0-request`.slice(0, len-4) = `0-req`… actually the middle test guards it:
+	// for `0-request`, pre='' post='-req' → endsWith('-req') is false, rejected).
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'r', 'consumer', { reads: '<partition>-req' } ),
+					gn( 'n', 'logic' ),
+				],
+				edges: [ [ 'r', 'n' ] ],
+			},
+		},
+		[],
+		[
+			{
+				name: '0-req',
+				segment_size: 4096,
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+			{
+				name: '1-req',
+				segment_size: 4096,
+				partitions: [ { partition: 1, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'x-req',
+				segment_size: 4096,
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+		]
+	);
+	const logs = section.tree.filter( ( e ) => e.kind === 'log' );
+	// `x-req` has a non-digit middle and is rejected; only the digit ones match.
+	expect( names( logs ) ).toEqual( [ '0-req', '1-req' ] );
+} );
+
+it( 'a token-free vertex matches its exact catalog twin only', () => {
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'digest', 'logic' ),
+					gn( 'lg', 'log', { writes: 'digest.md' } ),
+				],
+				edges: [ [ 'digest', 'lg' ] ],
+			},
+		},
+		[],
+		[
+			{
+				name: 'digest.md',
+				segment_size: 100,
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'digest.markdown',
+				segment_size: 100,
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+		]
+	);
+	const log = section.tree[ 0 ].children.find( ( e ) => e.kind === 'log' );
+	expect( log.name ).toBe( 'digest.md' );
+} );
+
 it( 'overlays partitions from the logs catalog onto a log entity', () => {
 	const [ section ] = buildTopologySections(
 		{
