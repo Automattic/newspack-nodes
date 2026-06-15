@@ -1830,6 +1830,28 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertArrayNotHasKey( Admin::RAWLOGS_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
 	}
 
+	public function test_register_event_dashboard_pages_registers_hub_submenu(): void {
+		$admin = new Admin();
+		$admin->register_event_dashboard_pages();
+
+		$this->assertArrayHasKey( Admin::HUB_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
+		$hub = $GLOBALS['_admin_submenu_pages'][ Admin::HUB_MENU_SLUG ];
+		$this->assertSame( Admin::TOPOLOGY_MENU_SLUG, $hub['parent_slug'] );
+		$this->assertSame( 'manage_options', $hub['capability'] );
+
+		\ob_start();
+		( $hub['callback'] )();
+		$this->assertStringContainsString( 'id="newspack-nodes-hub"', \ob_get_clean() );
+	}
+
+	public function test_register_event_dashboard_pages_hub_skips_unauthorized_user(): void {
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
+		$admin                                                  = new Admin();
+		$admin->register_event_dashboard_pages();
+
+		$this->assertArrayNotHasKey( Admin::HUB_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
+	}
+
 	// ---- enqueue_event_dashboards_assets ----------------------------------
 
 	public function test_enqueue_event_dashboards_assets_skips_on_wrong_page(): void {
@@ -1879,6 +1901,25 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		( new Admin() )->enqueue_event_dashboards_assets();
 
 		$this->assertArrayHasKey( 'newspack-nodes-event-dashboards', $GLOBALS['_enqueued_scripts'] );
+	}
+
+	// ---- enqueue_devtools_hub_assets --------------------------------------
+
+	public function test_enqueue_devtools_hub_assets_enqueues_for_hub_page(): void {
+		$asset_path = \NEWSPACK_NODES_DIR . 'build/devtools-hub/index.js';
+		$this->assertFileExists( $asset_path, 'devtools-hub build asset missing — run `npm run build` before tests' );
+
+		$_GET = [ 'page' => Admin::HUB_MENU_SLUG ];
+
+		( new Admin() )->enqueue_devtools_hub_assets();
+
+		$handle = 'newspack-nodes-devtools-hub';
+		$this->assertArrayHasKey( $handle, $GLOBALS['_enqueued_scripts'] );
+		$enq = $GLOBALS['_enqueued_scripts'][ $handle ];
+		$this->assertStringEndsWith( 'build/devtools-hub/index.js', (string) $enq['src'] );
+
+		$this->assertArrayHasKey( $handle, $GLOBALS['_localized_scripts'] );
+		$this->assertSame( 'devtools-hub', $GLOBALS['_localized_scripts'][ $handle ]['data']['tree'] );
 	}
 
 	// ---- helpers ----------------------------------------------------------

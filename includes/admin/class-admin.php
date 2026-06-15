@@ -81,6 +81,7 @@ class Admin {
 	public const TOPOLOGY_MENU_SLUG = 'newspack-nodes-topology';
 	public const WORKERS_MENU_SLUG  = 'newspack-nodes-workers';
 	public const RAWLOGS_MENU_SLUG  = 'newspack-nodes-rawlogs';
+	public const HUB_MENU_SLUG      = 'newspack-nodes-hub';
 
 	public function __construct() {
 		\add_action( 'admin_menu', [ $this, 'add_admin_menu' ] );
@@ -90,6 +91,7 @@ class Admin {
 		\add_action( 'admin_post_' . self::RESET_ACTION, [ $this, 'handle_reset_settings' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_topology_console_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_event_dashboards_assets' ] );
+		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_hub_assets' ] );
 
 		// Both hooks so first + subsequent saves restart correctly.
 		\add_action( 'updated_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
@@ -142,6 +144,14 @@ class Admin {
 			'manage_options',
 			self::RAWLOGS_MENU_SLUG,
 			static fn () => print( '<div id="newspack-nodes-rawlogs" class="newspack-nodes-rawlogs-page"></div>' )
+		);
+		\add_submenu_page(
+			self::TOPOLOGY_MENU_SLUG,
+			\__( 'Hub', 'newspack-nodes' ),
+			\__( 'Hub', 'newspack-nodes' ),
+			'manage_options',
+			self::HUB_MENU_SLUG,
+			static fn () => print( '<div id="newspack-nodes-hub" class="newspack-nodes-hub-page"></div>' )
 		);
 	}
 
@@ -227,6 +237,24 @@ class Admin {
 				'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-dashboards',
 				'localize' => [
 					'tree'    => 'event-dashboards',
+					'version' => \NEWSPACK_NODES_VERSION,
+				],
+			]
+		);
+	}
+
+	/**
+	 * Enqueue the DevTools hub bundle on the Hub page.
+	 */
+	public function enqueue_devtools_hub_assets( string $hook = '' ): void {
+		self::enqueue_react_page(
+			[
+				'handle'   => 'newspack-nodes-devtools-hub',
+				'page'     => self::HUB_MENU_SLUG,
+				'dir'      => \NEWSPACK_NODES_DIR . 'build/devtools-hub',
+				'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/devtools-hub',
+				'localize' => [
+					'tree'    => 'devtools-hub',
 					'version' => \NEWSPACK_NODES_VERSION,
 				],
 			]
