@@ -3,10 +3,10 @@
  * Scorer_Node: assigns a notional priority score to one item. Knows nothing about sources
  * beyond a per-source weight. The ONE seam a real scorer replaces is score().
  *
- * @package Newspack_AI_Newsletter
+ * @package Example_AI_Newsletter
  */
 
-namespace Newspack_AI_Newsletter;
+namespace Example_AI_Newsletter;
 
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Message;

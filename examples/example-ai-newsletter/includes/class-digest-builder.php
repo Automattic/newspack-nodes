@@ -2,10 +2,10 @@
 /**
  * Digest_Builder_Node: accumulates summaries; `flush` emits a markdown draft.
  *
- * @package Newspack_AI_Newsletter
+ * @package Example_AI_Newsletter
  */
 
-namespace Newspack_AI_Newsletter;
+namespace Example_AI_Newsletter;
 
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Message;

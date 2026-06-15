@@ -50,14 +50,14 @@ namespace {
 		}
 	}
 
-	require_once \dirname( __DIR__ ) . '/newspack-ai-newsletter.php';
+	require_once \dirname( __DIR__ ) . '/example-ai-newsletter.php';
 }
 
-namespace Newspack_AI_Newsletter\Tests {
+namespace Example_AI_Newsletter\Tests {
 
 	use Newspack_Nodes\Tests\TestCase;
-	use function Newspack_AI_Newsletter\enqueue_insights_assets;
-	use const Newspack_AI_Newsletter\INSIGHTS_MENU_SLUG;
+	use function Example_AI_Newsletter\enqueue_insights_assets;
+	use const Example_AI_Newsletter\INSIGHTS_MENU_SLUG;
 
 	final class EnqueueInsightsTest extends TestCase {
 
@@ -86,7 +86,7 @@ namespace Newspack_AI_Newsletter\Tests {
 			$_GET = [ 'page' => INSIGHTS_MENU_SLUG ];
 			enqueue_insights_assets();
 
-			$handle = 'newspack-ai-newsletter-insights';
+			$handle = 'example-ai-newsletter-insights';
 			$this->assertArrayHasKey( $handle, $GLOBALS['_enqueued_scripts'] );
 			$this->assertStringEndsWith( 'build/dashboard/index.js', (string) $GLOBALS['_enqueued_scripts'][ $handle ]['src'] );
 

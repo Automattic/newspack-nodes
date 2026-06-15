@@ -4,10 +4,10 @@
  * latest offsetlog snapshot the Consumer co-commits (the digest's save_state cache)
  * and returns a shaped model — durable, synchronous, no live-worker dependency.
  *
- * @package Newspack_AI_Newsletter
+ * @package Example_AI_Newsletter
  */
 
-namespace Newspack_AI_Newsletter;
+namespace Example_AI_Newsletter;
 
 use Newspack_Nodes\Service_CI_Node;
 use Newspack_Nodes\Command_Interpreter_Node;

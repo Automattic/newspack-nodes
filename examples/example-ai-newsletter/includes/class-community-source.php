@@ -2,10 +2,10 @@
 /**
  * Community_Source_Node: emits canned "community news" items on `tick`.
  *
- * @package Newspack_AI_Newsletter
+ * @package Example_AI_Newsletter
  */
 
-namespace Newspack_AI_Newsletter;
+namespace Example_AI_Newsletter;
 
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Message;

@@ -4,7 +4,7 @@
  * digest assembles one draft. Plus: the digest's accumulated state is durably co-committed
  * to the Consumer's offsetlog and read back exactly as the dashboard reads it.
  *
- * @package Newspack_AI_Newsletter
+ * @package Example_AI_Newsletter
  */
 
 declare(strict_types=1);
@@ -16,12 +16,12 @@ require_once dirname( __DIR__ ) . '/includes/class-scorer.php';
 require_once dirname( __DIR__ ) . '/includes/class-digest-builder.php';
 require_once dirname( __DIR__ ) . '/includes/class-insights-ci.php';
 
-use Newspack_AI_Newsletter\Releases_Source_Node;
-use Newspack_AI_Newsletter\Community_Source_Node;
-use Newspack_AI_Newsletter\Summarizer_Node;
-use Newspack_AI_Newsletter\Scorer_Node;
-use Newspack_AI_Newsletter\Digest_Builder_Node;
-use Newspack_AI_Newsletter\Insights_CI_Node;
+use Example_AI_Newsletter\Releases_Source_Node;
+use Example_AI_Newsletter\Community_Source_Node;
+use Example_AI_Newsletter\Summarizer_Node;
+use Example_AI_Newsletter\Scorer_Node;
+use Example_AI_Newsletter\Digest_Builder_Node;
+use Example_AI_Newsletter\Insights_CI_Node;
 use Newspack_Nodes\Consumer_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Capture_Sink_Node;

@@ -114,10 +114,10 @@ describe( 'PublisherInsights', () => {
 		// Read each card's number by its sibling label, so the score-bar value in
 		// the table can't satisfy the assertion.
 		const nums = [
-			...container.querySelectorAll( '.nan-insights__stat' ),
+			...container.querySelectorAll( '.eai-insights__stat' ),
 		].map(
 			( card ) =>
-				card.querySelector( '.nan-insights__stat-num' ).textContent
+				card.querySelector( '.eai-insights__stat-num' ).textContent
 		);
 		expect( nums ).toEqual( [ '3', '9.5', '2' ] );
 	} );
@@ -137,7 +137,7 @@ describe( 'PublisherInsights', () => {
 		expect( screen.getByText( '#2' ) ).toBeInTheDocument();
 		// At least one score bar with an inline width style; the top item (max
 		// score) fills 100%.
-		const bars = container.querySelectorAll( '.nan-insights__score-bar' );
+		const bars = container.querySelectorAll( '.eai-insights__score-bar' );
 		expect( bars.length ).toBe( 2 );
 		expect( bars[ 0 ].style.width ).toBe( '100%' );
 	} );
@@ -152,7 +152,7 @@ describe( 'PublisherInsights', () => {
 		await waitFor( () =>
 			expect( screen.getByText( 'Big release' ) ).toBeInTheDocument()
 		);
-		const bars = container.querySelectorAll( '.nan-insights__bar-fill' );
+		const bars = container.querySelectorAll( '.eai-insights__bar-fill' );
 		expect( bars.length ).toBe( 2 );
 		// releases = 2 of 3 total → ~66.66%.
 		expect( bars[ 0 ].style.width ).toContain( '66.6' );
@@ -165,7 +165,7 @@ describe( 'PublisherInsights', () => {
 		);
 		// A preview list of items, NOT a raw-markdown textarea.
 		expect( screen.queryByRole( 'textbox' ) ).not.toBeInTheDocument();
-		const preview = await screen.findByTestId( 'nan-insights-preview' );
+		const preview = await screen.findByTestId( 'eai-insights-preview' );
 		expect( preview.textContent ).toContain( 'Big release' );
 		expect( preview.textContent ).toContain( 'Hot thread' );
 	} );

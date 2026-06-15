@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once dirname( __DIR__ ) . '/includes/class-insights-ci.php';
 
-use Newspack_AI_Newsletter\Insights_CI_Node;
+use Example_AI_Newsletter\Insights_CI_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Partition_Node;
 use Newspack_Nodes\Tests\TestCase;

@@ -4,15 +4,15 @@
  * Description: Walkthrough example — a deterministic digest pipeline built from Nodes.
  * Version: 0.1.0
  *
- * @package Newspack_AI_Newsletter
+ * @package Example_AI_Newsletter
  */
 
-namespace Newspack_AI_Newsletter;
+namespace Example_AI_Newsletter;
 
 \defined( 'ABSPATH' ) || exit;
 
-const INSIGHTS_MENU_SLUG = 'newspack-ai-newsletter-insights';
-const INSIGHTS_MOUNT_ID  = 'newspack-ai-newsletter-insights';
+const INSIGHTS_MENU_SLUG = 'example-ai-newsletter-insights';
+const INSIGHTS_MOUNT_ID  = 'example-ai-newsletter-insights';
 
 /**
  * Register the Publisher Insights dashboard as its OWN top-level admin menu —
@@ -30,11 +30,11 @@ function register_insights_admin_page(): void {
 		return;
 	}
 	\add_menu_page(
-		\__( 'Publisher Insights', 'newspack-ai-newsletter' ),
-		\__( 'Publisher Insights', 'newspack-ai-newsletter' ),
+		\__( 'Publisher Insights', 'example-ai-newsletter' ),
+		\__( 'Publisher Insights', 'example-ai-newsletter' ),
 		'manage_options',
 		INSIGHTS_MENU_SLUG,
-		static fn () => print( '<div class="wrap"><div id="' . \esc_attr( INSIGHTS_MOUNT_ID ) . '" class="newspack-ai-newsletter-insights"></div></div>' ),
+		static fn () => print( '<div class="wrap"><div id="' . \esc_attr( INSIGHTS_MOUNT_ID ) . '" class="example-ai-newsletter-insights"></div></div>' ),
 		'dashicons-chart-bar',
 		58.7
 	);
@@ -53,7 +53,7 @@ function enqueue_insights_assets( string $hook = '' ): void {
 
 	\Newspack_Nodes\Admin\Admin::enqueue_react_page(
 		[
-			'handle'           => 'newspack-ai-newsletter-insights',
+			'handle'           => 'example-ai-newsletter-insights',
 			'page'             => INSIGHTS_MENU_SLUG,
 			'dir'              => __DIR__ . '/build/dashboard',
 			'url'              => \plugins_url( 'build/dashboard', __FILE__ ),
@@ -94,12 +94,12 @@ function mount_insights_ci( \Newspack_Nodes\Command_Interpreter_Node $base_inter
 		// up in the topology-console palette + per-node Inspector.
 		require_once __DIR__ . '/vendor/autoload.php';
 
-		// One call wires it all: the Newspack_AI_Newsletter\ namespace (so
+		// One call wires it all: the Example_AI_Newsletter\ namespace (so
 		// make_node resolves *_Node classes), the topologies/ stock dir, a
-		// catalog entry for every *.tsl in it (just newspack-ai-newsletter.tsl here), and a
+		// catalog entry for every *.tsl in it (just example-ai-newsletter.tsl here), and a
 		// guarded spawn handler. That's the whole "register a Nodes plugin" story.
 		\Newspack_Nodes\Topology_Registry::register_plugin(
-			'Newspack_AI_Newsletter\\',
+			'Example_AI_Newsletter\\',
 			__DIR__ . '/topologies'
 		);
 

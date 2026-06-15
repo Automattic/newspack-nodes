@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 require_once dirname( __DIR__ ) . '/includes/class-community-source.php';
 
-use Newspack_AI_Newsletter\Community_Source_Node;
+use Example_AI_Newsletter\Community_Source_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
