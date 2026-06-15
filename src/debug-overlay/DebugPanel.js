@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from '@wordpress/element';
-import { getDevtoolsTabs } from '@newspack-nodes/shared/devtools/tabRegistry';
+import { useEffect, useCallback, useRef } from '@wordpress/element';
+import DevtoolsTabHost from '@newspack-nodes/shared/devtools/DevtoolsTabHost';
 import { lockPageScroll, unlockPageScroll } from './pageScrollLock';
 import { useDebugFrame } from './useDebugFrame';
 
@@ -22,12 +22,6 @@ import { useDebugFrame } from './useDebugFrame';
  * @return {import('react').ReactElement} The panel.
  */
 export default function DebugPanel( { storageKey, onClose } ) {
-	const overlayTabs = getDevtoolsTabs( 'overlay' );
-	const [ activeId, setActiveId ] = useState( overlayTabs[ 0 ]?.id );
-	const active =
-		overlayTabs.find( ( t ) => t.id === activeId ) || overlayTabs[ 0 ];
-	const TabComponent = active?.component;
-
 	const {
 		frame,
 		style: frameStyle,
@@ -98,36 +92,16 @@ export default function DebugPanel( { storageKey, onClose } ) {
 			onPointerEnter={ lockPageScroll }
 			onPointerLeave={ unlockPageScroll }
 		>
-			{ overlayTabs.length > 1 && (
-				<div className="nodes-debug__tabbar" role="tablist">
-					{ overlayTabs.map( ( t ) => (
-						<button
-							key={ t.id }
-							type="button"
-							role="tab"
-							aria-selected={ t.id === active?.id }
-							className={ `nodes-debug__tab${
-								t.id === active?.id ? ' is-active' : ''
-							}` }
-							onClick={ () => setActiveId( t.id ) }
-						>
-							{ t.icon }
-							{ t.label }
-						</button>
-					) ) }
-				</div>
-			) }
-			{ TabComponent && (
-				<TabComponent
-					key={ active.id }
-					host="overlay"
-					storageKey={ storageKey }
-					onClose={ onClose }
-					frame={ frame }
-					onHeaderPointerDown={ onHeaderPointerDown }
-					toggleMaximize={ toggleMaximize }
-				/>
-			) }
+			<DevtoolsTabHost
+				host="overlay"
+				tabProps={ {
+					storageKey,
+					onClose,
+					frame,
+					onHeaderPointerDown,
+					toggleMaximize,
+				} }
+			/>
 			{ Object.entries( getResizeHandlers() ).map( ( [ key, h ] ) => (
 				<div
 					key={ key }
