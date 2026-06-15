@@ -15,6 +15,7 @@ const emptyModel = () => ( {
 	writeRates: {},
 	segmentSize: 64 * 1024 * 1024,
 	currentTime: Math.floor( Date.now() / 1000 ),
+	heartbeatIntervalS: 10,
 	prevSegments: {},
 	removingSegments: {},
 	graph: {},

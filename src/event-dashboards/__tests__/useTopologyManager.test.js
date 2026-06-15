@@ -29,7 +29,7 @@ import {
 	TM_ERROR,
 } from '../../runtime/message';
 import { Core } from '../../runtime/core';
-import { useTopologyManager } from '../hooks/useTopologyManager';
+import { useTopologyManager, STALL_PAD } from '../hooks/useTopologyManager';
 
 jest.mock( '../../shared/hooks/usePageVisibility', () => ( {
 	__esModule: true,
@@ -278,5 +278,130 @@ describe( 'useTopologyManager', () => {
 		);
 		await act( async () => {} );
 		expect( result.current ).toHaveProperty( 'connected' );
+	} );
+} );
+
+// Build a single-active-topology client whose dump_graph carries the given
+// per-partition workers (heartbeat_age / behind) at the given interval.
+function healthClient( { workers, heartbeatIntervalS = 10, currentTime } ) {
+	const dump = {
+		workers,
+		supervisor: {
+			type: 'supervisor',
+			status: 'running',
+			started_at: 1000,
+			heartbeat_age: 2,
+			restart_pending: false,
+		},
+		logs: [],
+		graph: { a: { nodes: [ { name: 'a', kind: 'logic' } ], edges: [] } },
+	};
+	if ( heartbeatIntervalS !== undefined ) {
+		dump.heartbeat_interval_s = heartbeatIntervalS;
+	}
+	if ( currentTime !== undefined ) {
+		dump.timestamp = currentTime;
+	}
+	const topologies = {
+		topologies: [
+			{ name: 'a', source: 'stock', active: true, num_partitions: 2 },
+		],
+		user_dir: '/tmp/topologies',
+	};
+	return makeRecordingClient( { dump_graph: dump, list: topologies } );
+}
+
+function worker( partition, { heartbeatAge, behind } ) {
+	return {
+		type: 'a',
+		handler: 'a',
+		partition,
+		source: '',
+		status: 'running',
+		started_at: 1000,
+		heartbeat_age: heartbeatAge,
+		behind,
+		inputs: [],
+		outputs: [],
+		inputs_status: [],
+		outputs_status: [],
+	};
+}
+
+describe( 'useTopologyManager — partition stall + rolled-up health', () => {
+	it( 'exports STALL_PAD = 3', () => {
+		expect( STALL_PAD ).toBe( 3 );
+	} );
+
+	it( 'flags a partition stalled when heartbeat_age exceeds interval × STALL_PAD', async () => {
+		const { client } = healthClient( {
+			heartbeatIntervalS: 10,
+			workers: [
+				worker( 0, { heartbeatAge: 5, behind: 0 } ),
+				worker( 1, { heartbeatAge: 40, behind: 0 } ),
+			],
+		} );
+		const { result } = renderHook( () =>
+			useTopologyManager( { commandClient: client } )
+		);
+		await act( async () => {} );
+
+		const row = result.current.topologies.find( ( t ) => 'a' === t.name );
+		const byPart = Object.fromEntries(
+			row.partitions.map( ( p ) => [ p.partition, p ] )
+		);
+		expect( byPart[ 0 ].stalled ).toBe( false );
+		expect( byPart[ 1 ].stalled ).toBe( true );
+		expect( row.health ).toBe( 'stalled' );
+	} );
+
+	it( 'rolls up to health=behind when no partition stalled but a consumer is behind', async () => {
+		const { client } = healthClient( {
+			heartbeatIntervalS: 10,
+			workers: [
+				worker( 0, { heartbeatAge: 5, behind: 0 } ),
+				worker( 1, { heartbeatAge: 5, behind: 4096 } ),
+			],
+		} );
+		const { result } = renderHook( () =>
+			useTopologyManager( { commandClient: client } )
+		);
+		await act( async () => {} );
+
+		const row = result.current.topologies.find( ( t ) => 'a' === t.name );
+		expect( row.partitions.every( ( p ) => ! p.stalled ) ).toBe( true );
+		expect( row.health ).toBe( 'behind' );
+	} );
+
+	it( 'rolls up to health=ok when nothing is stalled or behind', async () => {
+		const { client } = healthClient( {
+			heartbeatIntervalS: 10,
+			workers: [
+				worker( 0, { heartbeatAge: 5, behind: 0 } ),
+				worker( 1, { heartbeatAge: 5, behind: 0 } ),
+			],
+		} );
+		const { result } = renderHook( () =>
+			useTopologyManager( { commandClient: client } )
+		);
+		await act( async () => {} );
+
+		const row = result.current.topologies.find( ( t ) => 'a' === t.name );
+		expect( row.health ).toBe( 'ok' );
+	} );
+
+	it( 'does not flag a never-heartbeated worker (heartbeat_age null) as stalled', async () => {
+		const { client } = healthClient( {
+			heartbeatIntervalS: 10,
+			workers: [ worker( 0, { heartbeatAge: null, behind: 0 } ) ],
+		} );
+		const { result } = renderHook( () =>
+			useTopologyManager( { commandClient: client } )
+		);
+		await act( async () => {} );
+
+		const row = result.current.topologies.find( ( t ) => 'a' === t.name );
+		expect( row.partitions.every( ( p ) => ! p.stalled ) ).toBe( true );
+		expect( row.health ).toBe( 'ok' );
 	} );
 } );

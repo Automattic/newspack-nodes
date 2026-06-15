@@ -28,6 +28,13 @@ const SOURCE_LABELS = {
 	both: __( 'user ▸ shadows stock', 'newspack-nodes' ),
 };
 
+// Rolled-up topology health → heading label (dot + text via the scss).
+const HEALTH_LABELS = {
+	ok: __( 'ok', 'newspack-nodes' ),
+	behind: __( 'behind', 'newspack-nodes' ),
+	stalled: __( 'stalled', 'newspack-nodes' ),
+};
+
 // Build the single `TopologySection` model for one active topology's live status.
 // `status` carries the topology's `.tsl` graphTopo + workers (plus the enriched
 // rate/segment/time slices the body threads through); buildTopologySections keys
@@ -64,7 +71,14 @@ const TopologyRow = memo( function TopologyRow( {
 	collapsed,
 	onToggleFold,
 } ) {
-	const { name, source, active, num_partitions: numPartitions } = topology;
+	const {
+		name,
+		source,
+		active,
+		num_partitions: numPartitions,
+		health = 'ok',
+		partitions = [],
+	} = topology;
 	// Swallow a rejected mutation so a failed activate/deactivate/restart never
 	// crashes the render (P1: no inline error surfacing yet).
 	const fire = ( fn ) => () =>
@@ -87,6 +101,28 @@ const TopologyRow = memo( function TopologyRow( {
 				>
 					{ SOURCE_LABELS[ source ] ?? source }
 				</span>
+				{ active && (
+					<span
+						className={ `nodes-tm__health nodes-tm__health--${ health }` }
+					>
+						{ HEALTH_LABELS[ health ] ?? health }
+					</span>
+				) }
+				{ active &&
+					partitions
+						.filter( ( p ) => p.stalled )
+						.map( ( p ) => (
+							<span
+								key={ p.partition }
+								className="nodes-tm__pill nodes-tm__pill--stalled"
+							>
+								{ sprintf(
+									// translators: %d: partition number.
+									__( 'P%d stalled', 'newspack-nodes' ),
+									p.partition
+								) }
+							</span>
+						) ) }
 				<button
 					type="button"
 					role="switch"

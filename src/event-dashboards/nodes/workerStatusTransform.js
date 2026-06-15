@@ -44,6 +44,8 @@ export class WorkerStatusTransformNode extends Node {
 		// match the old useState seeds — 64MB and the client clock.
 		this._segmentSize = 64 * 1024 * 1024;
 		this._currentTime = Math.floor( Date.now() / 1000 );
+		// Worker_Base::HEARTBEAT_INTERVAL_S — the stall-pad denominator.
+		this._heartbeatIntervalS = 10;
 	}
 
 	fill( message ) {
@@ -203,6 +205,9 @@ export class WorkerStatusTransformNode extends Node {
 		if ( data.timestamp ) {
 			this._currentTime = data.timestamp;
 		}
+		if ( data.heartbeat_interval_s ) {
+			this._heartbeatIntervalS = data.heartbeat_interval_s;
+		}
 
 		const model = {
 			workers: data.workers || [],
@@ -213,6 +218,7 @@ export class WorkerStatusTransformNode extends Node {
 			writeRates: newWriteRates,
 			segmentSize: this._segmentSize,
 			currentTime: this._currentTime,
+			heartbeatIntervalS: this._heartbeatIntervalS,
 			prevSegments: modelPrevSegments,
 			removingSegments: newRemoving,
 			error: null,
