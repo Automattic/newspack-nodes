@@ -77,7 +77,7 @@ export default function PublisherInsights( {
 			setDraftError(
 				__(
 					'Clipboard unavailable here — copy from the preview instead.',
-					'newspack-ai-newsletter'
+					'example-ai-newsletter'
 				)
 			);
 			return;
@@ -90,7 +90,7 @@ export default function PublisherInsights( {
 				setDraftError(
 					__(
 						'Could not copy to the clipboard.',
-						'newspack-ai-newsletter'
+						'example-ai-newsletter'
 					)
 				);
 			} );
@@ -107,7 +107,7 @@ export default function PublisherInsights( {
 					setDraftError(
 						__(
 							'Draft created, but no post id was returned.',
-							'newspack-ai-newsletter'
+							'example-ai-newsletter'
 						)
 					);
 					return;
@@ -123,7 +123,7 @@ export default function PublisherInsights( {
 						? err.message
 						: __(
 								'Could not create the draft.',
-								'newspack-ai-newsletter'
+								'example-ai-newsletter'
 						  )
 				);
 			} );
@@ -135,7 +135,7 @@ export default function PublisherInsights( {
 	if ( error ) {
 		content = (
 			<div
-				className="nan-insights__notice nan-insights__notice--error"
+				className="eai-insights__notice eai-insights__notice--error"
 				role="alert"
 			>
 				{ error }
@@ -143,67 +143,65 @@ export default function PublisherInsights( {
 		);
 	} else if ( isEmpty ) {
 		content = (
-			<div className="nan-insights__empty">
-				<p>
-					{ __( 'No scored items yet.', 'newspack-ai-newsletter' ) }
-				</p>
-				<p className="nan-insights__empty-hint">
+			<div className="eai-insights__empty">
+				<p>{ __( 'No scored items yet.', 'example-ai-newsletter' ) }</p>
+				<p className="eai-insights__empty-hint">
 					{ __(
 						'Drive the pipeline — tick the sources — and this updates on the next poll.',
-						'newspack-ai-newsletter'
+						'example-ai-newsletter'
 					) }
 				</p>
 			</div>
 		);
 	} else {
 		content = (
-			<div className="nan-insights__grid">
-				<div className="nan-insights__stats">
-					<div className="nan-insights__stat">
-						<span className="nan-insights__stat-num">
+			<div className="eai-insights__grid">
+				<div className="eai-insights__stats">
+					<div className="eai-insights__stat">
+						<span className="eai-insights__stat-num">
 							{ model.accumulated }
 						</span>
-						<span className="nan-insights__stat-label">
-							{ __( 'Total items', 'newspack-ai-newsletter' ) }
+						<span className="eai-insights__stat-label">
+							{ __( 'Total items', 'example-ai-newsletter' ) }
 						</span>
 					</div>
-					<div className="nan-insights__stat">
-						<span className="nan-insights__stat-num">
+					<div className="eai-insights__stat">
+						<span className="eai-insights__stat-num">
 							{ topScore }
 						</span>
-						<span className="nan-insights__stat-label">
-							{ __( 'Top score', 'newspack-ai-newsletter' ) }
+						<span className="eai-insights__stat-label">
+							{ __( 'Top score', 'example-ai-newsletter' ) }
 						</span>
 					</div>
-					<div className="nan-insights__stat">
-						<span className="nan-insights__stat-num">
+					<div className="eai-insights__stat">
+						<span className="eai-insights__stat-num">
 							{ sources.length }
 						</span>
-						<span className="nan-insights__stat-label">
-							{ __( 'Sources', 'newspack-ai-newsletter' ) }
+						<span className="eai-insights__stat-label">
+							{ __( 'Sources', 'example-ai-newsletter' ) }
 						</span>
 					</div>
 				</div>
 
-				<section className="nan-insights__card nan-insights__sources">
-					<h2>{ __( 'By source', 'newspack-ai-newsletter' ) }</h2>
+				<section className="eai-insights__card eai-insights__sources">
+					<h2>{ __( 'By source', 'example-ai-newsletter' ) }</h2>
 					<ul>
 						{ sources.map( ( [ name, count ] ) => (
 							<li key={ name }>
-								<div className="nan-insights__bar-head">
-									<span className="nan-insights__source-name">
+								<div className="eai-insights__bar-head">
+									<span className="eai-insights__source-name">
 										{ name }
 									</span>
-									<span className="nan-insights__source-count">
+									<span className="eai-insights__source-count">
 										{ count }
 									</span>
 								</div>
 								<div
-									className="nan-insights__bar"
+									className="eai-insights__bar"
 									aria-hidden="true"
 								>
 									<div
-										className="nan-insights__bar-fill"
+										className="eai-insights__bar-fill"
 										style={ {
 											width: `${
 												sourceTotal
@@ -219,47 +217,47 @@ export default function PublisherInsights( {
 					</ul>
 				</section>
 
-				<section className="nan-insights__card nan-insights__top">
-					<h2>{ __( 'Top items', 'newspack-ai-newsletter' ) }</h2>
+				<section className="eai-insights__card eai-insights__top">
+					<h2>{ __( 'Top items', 'example-ai-newsletter' ) }</h2>
 					<table>
 						<thead>
 							<tr>
-								<th className="nan-insights__rank-col">
-									{ __( '#', 'newspack-ai-newsletter' ) }
+								<th className="eai-insights__rank-col">
+									{ __( '#', 'example-ai-newsletter' ) }
 								</th>
 								<th>
-									{ __( 'Source', 'newspack-ai-newsletter' ) }
+									{ __( 'Source', 'example-ai-newsletter' ) }
 								</th>
 								<th>
-									{ __( 'Title', 'newspack-ai-newsletter' ) }
+									{ __( 'Title', 'example-ai-newsletter' ) }
 								</th>
 								<th>
-									{ __( 'Score', 'newspack-ai-newsletter' ) }
+									{ __( 'Score', 'example-ai-newsletter' ) }
 								</th>
 							</tr>
 						</thead>
 						<tbody>
 							{ top.map( ( item, i ) => (
 								<tr key={ `${ item.source }-${ i }` }>
-									<td className="nan-insights__rank">
+									<td className="eai-insights__rank">
 										{ sprintf(
 											/* translators: %d: the item's rank in the score-ordered list. */
 											__(
 												'#%d',
-												'newspack-ai-newsletter'
+												'example-ai-newsletter'
 											),
 											i + 1
 										) }
 									</td>
 									<td>{ item.source }</td>
 									<td>{ item.title }</td>
-									<td className="nan-insights__score-cell">
+									<td className="eai-insights__score-cell">
 										<div
-											className="nan-insights__score-bar-track"
+											className="eai-insights__score-bar-track"
 											aria-hidden="true"
 										>
 											<div
-												className="nan-insights__score-bar"
+												className="eai-insights__score-bar"
 												style={ {
 													width: `${
 														topScore
@@ -272,7 +270,7 @@ export default function PublisherInsights( {
 												} }
 											/>
 										</div>
-										<span className="nan-insights__score-num">
+										<span className="eai-insights__score-num">
 											{ item.score }
 										</span>
 									</td>
@@ -282,57 +280,57 @@ export default function PublisherInsights( {
 					</table>
 				</section>
 
-				<section className="nan-insights__card nan-insights__draft">
-					<h2>{ __( 'Newsletter', 'newspack-ai-newsletter' ) }</h2>
-					<div className="nan-insights__actions">
+				<section className="eai-insights__card eai-insights__draft">
+					<h2>{ __( 'Newsletter', 'example-ai-newsletter' ) }</h2>
+					<div className="eai-insights__actions">
 						<button
 							type="button"
-							className="nan-insights__btn"
+							className="eai-insights__btn"
 							onClick={ () => setDraft( top ) }
 						>
 							{ __(
 								'Draft newsletter',
-								'newspack-ai-newsletter'
+								'example-ai-newsletter'
 							) }
 						</button>
 						<button
 							type="button"
-							className="nan-insights__btn nan-insights__btn--secondary"
+							className="eai-insights__btn eai-insights__btn--secondary"
 							onClick={ onCopy }
 						>
-							{ __( 'Copy markdown', 'newspack-ai-newsletter' ) }
+							{ __( 'Copy markdown', 'example-ai-newsletter' ) }
 						</button>
 						<button
 							type="button"
-							className="nan-insights__btn nan-insights__btn--secondary"
+							className="eai-insights__btn eai-insights__btn--secondary"
 							onClick={ onCreateDraft }
 							disabled={ creating }
 						>
 							{ __(
 								'Create draft post',
-								'newspack-ai-newsletter'
+								'example-ai-newsletter'
 							) }
 						</button>
 						{ copied && (
 							<span
-								className="nan-insights__copied"
+								className="eai-insights__copied"
 								role="status"
 							>
-								{ __( 'Copied', 'newspack-ai-newsletter' ) }
+								{ __( 'Copied', 'example-ai-newsletter' ) }
 							</span>
 						) }
 					</div>
 
 					{ null !== editLink && (
-						<p className="nan-insights__draft-result">
+						<p className="eai-insights__draft-result">
 							<a href={ editLink }>
-								{ __( 'Edit draft', 'newspack-ai-newsletter' ) }
+								{ __( 'Edit draft', 'example-ai-newsletter' ) }
 							</a>
 						</p>
 					) }
 					{ null !== draftError && (
 						<div
-							className="nan-insights__notice nan-insights__notice--error"
+							className="eai-insights__notice eai-insights__notice--error"
 							role="alert"
 						>
 							{ draftError }
@@ -341,17 +339,17 @@ export default function PublisherInsights( {
 
 					{ null !== draft && (
 						<ul
-							className="nan-insights__preview"
-							data-testid="nan-insights-preview"
+							className="eai-insights__preview"
+							data-testid="eai-insights-preview"
 						>
 							{ draft.map( ( item, i ) => {
 								const { title, source } = itemLabel( item );
 								return (
 									<li key={ `${ source }-${ i }` }>
-										<span className="nan-insights__preview-title">
+										<span className="eai-insights__preview-title">
 											{ title }
 										</span>
-										<span className="nan-insights__preview-source">
+										<span className="eai-insights__preview-source">
 											{ source }
 										</span>
 									</li>
@@ -365,15 +363,13 @@ export default function PublisherInsights( {
 	}
 
 	return (
-		<div className="nan-insights">
-			<header className="nan-insights__header">
-				<h1>
-					{ __( 'Publisher Insights', 'newspack-ai-newsletter' ) }
-				</h1>
-				<p className="nan-insights__sub">
+		<div className="eai-insights">
+			<header className="eai-insights__header">
+				<h1>{ __( 'Publisher Insights', 'example-ai-newsletter' ) }</h1>
+				<p className="eai-insights__sub">
 					{ sprintf(
 						/* translators: %d: total items accumulated across the pipeline. */
-						__( 'Accumulated items: %d', 'newspack-ai-newsletter' ),
+						__( 'Accumulated items: %d', 'example-ai-newsletter' ),
 						model.accumulated
 					) }
 				</p>

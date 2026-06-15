@@ -43,7 +43,7 @@ export function newsletterPost( items = [] ) {
 		.join( '' );
 
 	return {
-		title: __( 'Publisher Newsletter', 'newspack-ai-newsletter' ),
+		title: __( 'Publisher Newsletter', 'example-ai-newsletter' ),
 		content: `<ul>${ rows }</ul>`,
 	};
 }

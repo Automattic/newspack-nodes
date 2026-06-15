@@ -2,10 +2,10 @@
 /**
  * Summarizer_Node: turns one item into one summary. Knows nothing about sources.
  *
- * @package Newspack_AI_Newsletter
+ * @package Example_AI_Newsletter
  */
 
-namespace Newspack_AI_Newsletter;
+namespace Example_AI_Newsletter;
 
 use Newspack_Nodes\Node;
 use Newspack_Nodes\Message;

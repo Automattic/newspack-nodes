@@ -2,7 +2,7 @@
 declare(strict_types=1);
 
 require_once dirname( __DIR__ ) . '/includes/class-insights-ci.php';
-require_once dirname( __DIR__ ) . '/newspack-ai-newsletter.php';
+require_once dirname( __DIR__ ) . '/example-ai-newsletter.php';
 
 use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Core;
@@ -18,15 +18,15 @@ final class InsightsMountTest extends TestCase {
 
 	public function test_mount_callback_registers_insights_ci(): void {
 		// The plugin exposes its mount as a named function so it's testable without WP hooks.
-		\Newspack_AI_Newsletter\mount_insights_ci( $this->base_interpreter() );
-		$this->assertInstanceOf( \Newspack_AI_Newsletter\Insights_CI_Node::class, Core::node( 'insights' ) );
+		\Example_AI_Newsletter\mount_insights_ci( $this->base_interpreter() );
+		$this->assertInstanceOf( \Example_AI_Newsletter\Insights_CI_Node::class, Core::node( 'insights' ) );
 	}
 
 	public function test_mount_is_idempotent(): void {
 		$base = $this->base_interpreter();
-		\Newspack_AI_Newsletter\mount_insights_ci( $base );
+		\Example_AI_Newsletter\mount_insights_ci( $base );
 		// A second call (same request) must no-op, not throw on the 'insights' name collision.
-		\Newspack_AI_Newsletter\mount_insights_ci( $base );
-		$this->assertInstanceOf( \Newspack_AI_Newsletter\Insights_CI_Node::class, Core::node( 'insights' ) );
+		\Example_AI_Newsletter\mount_insights_ci( $base );
+		$this->assertInstanceOf( \Example_AI_Newsletter\Insights_CI_Node::class, Core::node( 'insights' ) );
 	}
 }

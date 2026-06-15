@@ -280,7 +280,7 @@ TSL
 	}
 
 	/**
-	 * The bundled AI-newsletter example ships `newspack-ai-newsletter.tsl`. Its
+	 * The bundled AI-newsletter example ships `example-ai-newsletter.tsl`. Its
 	 * `scored` partition must use the flat `.p<partition>` layout so the dashboard
 	 * extracts the basename ("scored") and finds its segments — the pre-flat
 	 * two-arg form (`scored.log <partition>`) yields NO basename (→ "No segments")
@@ -289,15 +289,15 @@ TSL
 	 */
 	public function test_bundled_example_uses_flat_partition_layout(): void {
 		Topology_Registry::register_stock_dir(
-			\dirname( __DIR__, 2 ) . '/examples/newspack-ai-newsletter/topologies'
+			\dirname( __DIR__, 2 ) . '/examples/example-ai-newsletter/topologies'
 		);
 
 		$this->assertSame(
 			[ 'scored' ],
-			Topology_Registry::basenames_for( 'newspack-ai-newsletter' )
+			Topology_Registry::basenames_for( 'example-ai-newsletter' )
 		);
 
-		$nodes = Topology_Registry::graph_for( 'newspack-ai-newsletter' )['nodes'];
+		$nodes = Topology_Registry::graph_for( 'example-ai-newsletter' )['nodes'];
 
 		$writes = [];
 		foreach ( $nodes as $node ) {

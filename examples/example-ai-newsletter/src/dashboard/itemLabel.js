@@ -11,7 +11,7 @@ import { __ } from '@wordpress/i18n';
  */
 export function itemLabel( item = {} ) {
 	return {
-		title: item.title || __( '(untitled)', 'newspack-ai-newsletter' ),
+		title: item.title || __( '(untitled)', 'example-ai-newsletter' ),
 		source: item.source || '?',
 	};
 }

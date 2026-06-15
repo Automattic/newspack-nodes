@@ -7,7 +7,7 @@ module.exports = {
 	rules: {
 		'@wordpress/i18n-text-domain': [
 			'error',
-			{ allowedTextDomain: [ 'newspack-ai-newsletter' ] },
+			{ allowedTextDomain: [ 'example-ai-newsletter' ] },
 		],
 	},
 	ignorePatterns: [ 'build/' ],

@@ -11,7 +11,7 @@ import { itemLabel } from './itemLabel';
  */
 export function draftNewsletter( items = [] ) {
 	const lines = [
-		`# ${ __( 'Publisher Newsletter', 'newspack-ai-newsletter' ) }`,
+		`# ${ __( 'Publisher Newsletter', 'example-ai-newsletter' ) }`,
 		'',
 	];
 	for ( const item of items ) {
