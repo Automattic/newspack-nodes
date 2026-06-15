@@ -430,13 +430,13 @@ class Topology_Registry {
 				} elseif ( 'consumer' === $kind && isset( $m[3] ) ) {
 					$node['reads'] = $basename( $m[3] );
 				} elseif ( 'log' === $kind && isset( $m[3] ) ) {
-					// make_node Log <name> <path> <mode> <max_size> <max_rotations>.
-					// Carry the raw path + sizes so dump_graph can stat the rotation files.
-					$tokens                 = \preg_split( '/\s+/', $line ) ?: [];
-					$node['writes']         = $basename( $m[3] );
-					$node['path']           = $m[3];
-					$node['max_size']       = isset( $tokens[5] ) && \ctype_digit( $tokens[5] ) ? (int) $tokens[5] : 0;
-					$node['max_rotations']  = isset( $tokens[6] ) && \ctype_digit( $tokens[6] ) ? (int) $tokens[6] : 0;
+					// make_node Log <name> <file> [segment_size] [num_segments].
+					// Carry the raw path + sizes so dump_graph can stat the flat segments.
+					$tokens               = \preg_split( '/\s+/', $line ) ?: [];
+					$node['writes']       = $basename( $m[3] );
+					$node['path']         = $m[3];
+					$node['segment_size'] = isset( $tokens[4] ) && \ctype_digit( $tokens[4] ) ? (int) $tokens[4] : 0;
+					$node['num_segments'] = isset( $tokens[5] ) && \ctype_digit( $tokens[5] ) ? (int) $tokens[5] : 0;
 				}
 				$nodes[] = $node;
 				continue;

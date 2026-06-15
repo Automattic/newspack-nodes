@@ -458,7 +458,7 @@ class Workers_CI_Node extends Service_CI_Node {
 				$logs[]            = self::build_log_sink_entry(
 					$path,
 					$name,
-					self::to_int( $node['max_size'] ?? 0 )
+					self::to_int( $node['segment_size'] ?? 0 )
 				);
 			}
 		}
@@ -466,40 +466,32 @@ class Workers_CI_Node extends Service_CI_Node {
 	}
 
 	/**
-	 * Synthesize a one-partition catalog entry for a Log sink: stat the current
-	 * file + its `.N` rotations (and legacy `-` rotations), assign segment ids so
-	 * the current file is newest (highest id) and rotations descend by mtime.
+	 * Synthesize a one-partition catalog entry for a Log sink: stat the flat
+	 * `{file}.{seg}` monotonic segments, deriving each id from the numeric
+	 * suffix (highest id = current/newest).
 	 *
 	 * @return array{name:string,partitions:array<int,mixed>,segment_size:int}
 	 */
 	private static function build_log_sink_entry( string $path, string $name, int $segment_size ): array {
-		// Rotation siblings, oldest-first by mtime; the current file is appended last (newest).
-		$rotations = \array_merge(
-			\glob( $path . '.[0-9]*' ) ?: [],
-			\glob( $path . '-*' ) ?: []
-		);
-		\usort( $rotations, static fn ( $a, $b ) => @\filemtime( $a ) <=> @\filemtime( $b ) );
-
-		$files = $rotations;
-		if ( \is_file( $path ) ) {
-			$files[] = $path;
-		}
+		$files = \glob( $path . '.[0-9]*' ) ?: [];
 
 		$segments   = [];
 		$total_size = 0;
-		$id         = 0;
 		foreach ( $files as $file ) {
+			if ( ! \preg_match( '/\.(\d+)$/', $file, $m ) ) {
+				continue;
+			}
 			$size       = @\filesize( $file );
 			$mtime      = @\filemtime( $file );
 			$size       = false !== $size ? $size : 0;
 			$segments[] = [
-				'id'    => $id,
+				'id'    => (int) $m[1],
 				'size'  => $size,
 				'mtime' => false !== $mtime ? $mtime : 0,
 			];
 			$total_size += $size;
-			++$id;
 		}
+		\usort( $segments, static fn ( array $a, array $b ): int => $a['id'] <=> $b['id'] );
 
 		return [
 			'name'         => $name,
