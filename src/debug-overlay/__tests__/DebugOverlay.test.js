@@ -2,12 +2,28 @@ import { render, fireEvent, act } from '@testing-library/react';
 import { Core } from '../../runtime/core';
 import { mountExospine } from '../../runtime/exospine';
 import { Node } from '../../runtime/node';
+import InspectorTab from '../tabs/InspectorTab';
+import {
+	registerDevtoolsTab,
+	resetDevtoolsTabs,
+} from '@newspack-nodes/shared/devtools/tabRegistry';
 import DebugOverlay from '../DebugOverlay';
 
 describe( 'DebugOverlay', () => {
 	beforeEach( () => {
 		Core.reset();
 		window.localStorage.clear();
+		// The registry's import-side-effect registration runs once and is then
+		// module-cached, so re-registering explicitly here makes every test
+		// deterministic regardless of cache timing.
+		resetDevtoolsTabs();
+		registerDevtoolsTab( {
+			id: 'inspector',
+			label: 'Inspector',
+			host: 'overlay',
+			order: 0,
+			component: InspectorTab,
+		} );
 	} );
 
 	it( 'renders nothing when debug is disabled', () => {
@@ -649,5 +665,26 @@ describe( 'DebugOverlay', () => {
 		expect( stored.positions.iso.x ).toBeGreaterThan(
 			stored.positions.s.x
 		);
+	} );
+
+	it( 'shows a tab bar and switches the mounted tab when >1 overlay tab is registered', () => {
+		registerDevtoolsTab( {
+			id: 'fake',
+			label: 'Fake',
+			host: 'overlay',
+			order: 99,
+			component: () => <div data-testid="fake-tab" />,
+		} );
+		mountExospine();
+		const { getByRole, getByTestId, queryByTestId } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		// Inspector (order 0) is selected first; Fake is not mounted.
+		expect( queryByTestId( 'fake-tab' ) ).toBeNull();
+		// Clicking the Fake tab mounts it and unmounts the Inspector.
+		fireEvent.click( getByRole( 'tab', { name: 'Fake' } ) );
+		expect( getByTestId( 'fake-tab' ) ).not.toBeNull();
+		expect( queryByTestId( 'inspector-tab' ) ).toBeNull();
 	} );
 } );
