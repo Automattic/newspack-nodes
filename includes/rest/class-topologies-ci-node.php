@@ -296,10 +296,19 @@ class Topologies_CI_Node extends Service_CI_Node {
 							);
 						}
 
-						// Materialize the effective active set, add the name, persist.
-						$active   = \array_keys( Bootstrap::get_topologies() );
-						$active[] = $name;
-						\update_option( 'newspack_nodes_topologies', \array_values( \array_unique( $active ) ) );
+						// Materialize the effective active set + the name, then refuse a
+						// write-conflict (two topologies writing the same log/offsetlog)
+						// BEFORE persisting or spawning — so a conflicting set never gets
+						// written and immediately spawned. Mirrors check_config's refusal.
+						$next      = \array_values( \array_unique( \array_merge( \array_keys( Bootstrap::get_topologies() ), [ $name ] ) ) );
+						$conflicts = Topology_Registry::find_conflicts( $next );
+						if ( ! empty( $conflicts ) ) {
+							throw new \RuntimeException(
+								\esc_html( "activating '$name' conflicts: " . Topology_Registry::describe_conflicts( $conflicts ) )
+							);
+						}
+
+						\update_option( 'newspack_nodes_topologies', $next );
 						self::invalidate_config_cache();
 
 						$spawned = Bootstrap::supervisor()->spawn_fleet( $name );

@@ -358,6 +358,15 @@ class Supervisor extends Supervisor_Base {
 	 * @return int Number of partitions spawned.
 	 */
 	public function spawn_fleet( string $name ): int {
+		// Defense-in-depth behind the activate verb: refuse to put a second fleet
+		// on a log/offsetlog a peer already owns. Phrased like check_config.
+		$active    = \array_values( \array_unique( \array_merge( \array_keys( Bootstrap::get_topologies() ), [ $name ] ) ) );
+		$conflicts = Topology_Registry::find_conflicts( $active );
+		if ( ! empty( $conflicts ) ) {
+			Core::stderr( 'Newspack_Nodes\\Supervisor: refusing to spawn_fleet — topology write-conflict: ' . Topology_Registry::describe_conflicts( $conflicts ) );
+			return 0;
+		}
+
 		$token     = $this->generate_spawn_token( \time() );
 		$spawn_url = \rest_url( 'newspack-nodes/v1/workers/spawn' );
 		$count     = 0;
