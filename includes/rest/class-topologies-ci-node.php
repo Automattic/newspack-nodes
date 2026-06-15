@@ -15,8 +15,11 @@
  *            restarted_fleets}`. 1 MiB cap; dry-run validation via
  *            Shell::validate_line; restarts the matching active fleet.
  *   delete — args `{name}`. Returns `{name, deleted, stock_fallback,
- *            restarted_fleets}`. User copy only (stock immutable); restarts
- *            the matching active fleet (symmetry with save).
+ *            pruned_active, restarted_fleets}`. User copy only (stock immutable);
+ *            restarts the matching active fleet (symmetry with save). When no
+ *            stock fallback remains, prunes the now-orphaned name from the active
+ *            set (`newspack_nodes_topologies`); `pruned_active` reports whether it
+ *            was present and removed.
  *   activate   — args `{name}`. Adds the name to the persisted active set
  *                (`newspack_nodes_topologies` option), invalidates the config
  *                cache, and spawns the fleet immediately. Returns the live array
@@ -262,6 +265,19 @@ class Topologies_CI_Node extends Service_CI_Node {
 						// After unlink, resolve() returns the stock copy iff one exists — the fallback signal.
 						$has_stock_fallback = null !== Topology_Registry::resolve( $name );
 
+						// No stock fallback means the name no longer resolves to any
+						// topology — prune it from the active set so the supervisor
+						// stops trying to spawn a fleet that has nothing to load.
+						$pruned = false;
+						if ( ! $has_stock_fallback ) {
+							$active = \array_values( \array_filter( (array) \get_option( 'newspack_nodes_topologies', [] ), '\is_string' ) );
+							$pruned = \in_array( $name, $active, true );
+							if ( $pruned ) {
+								\update_option( 'newspack_nodes_topologies', \array_values( \array_diff( $active, [ $name ] ) ) );
+								self::invalidate_config_cache();
+							}
+						}
+
 						// Restart any active fleet running this topology (symmetry with save)
 						// so the worker reloads the stock copy now shadowed-no-more — keyed
 						// off the catalog filter (what might be running), evaluated AFTER the
@@ -279,6 +295,7 @@ class Topologies_CI_Node extends Service_CI_Node {
 							'name'             => $name,
 							'deleted'          => $path,
 							'stock_fallback'   => $has_stock_fallback,
+							'pruned_active'    => $pruned,
 							'restarted_fleets' => $restarted,
 						];
 					},
