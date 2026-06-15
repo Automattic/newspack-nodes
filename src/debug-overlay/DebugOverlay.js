@@ -2,6 +2,7 @@ import { useEffect, useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import { isDebugEnabled } from './isDebugEnabled';
 import DebugPanel from './DebugPanel';
+import './tabs'; // registers the built-in overlay tabs (Inspector)
 import './debug-overlay.scss';
 
 // (We reuse the topology console's CanvasFrame directly for visual parity —
