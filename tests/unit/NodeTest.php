@@ -63,8 +63,8 @@ class NodeTest extends TestCase {
 
 	public function test_fill_increments_counter_before_dispatch(): void {
 		$n   = new Capture_Sink_Node();
-		$msg = Message::new_message();
-		$n->fill( $msg );
+		$message = Message::new_message();
+		$n->fill( $message );
 		$this->assertSame( 1, $n->counter() );
 	}
 
@@ -73,9 +73,9 @@ class NodeTest extends TestCase {
 		$dst = new Capture_Sink_Node();
 		$src->sink( $dst );
 
-		$msg                       = Message::new_message();
-		$msg[ Message::VALUE ]     = 'payload';
-		$src->fill( $msg );
+		$message                       = Message::new_message();
+		$message[ Message::VALUE ]     = 'payload';
+		$src->fill( $message );
 
 		$this->assertCount( 1, $dst->captured );
 		$this->assertSame( 'payload', $dst->captured[0][ Message::VALUE ] );
@@ -84,26 +84,26 @@ class NodeTest extends TestCase {
 	public function test_stamp_message_sets_from_when_empty(): void {
 		$n = new Capture_Sink_Node();
 		$n->name( 'alice' );
-		$msg = Message::new_message();
-		$this->assertTrue( $n->stamp_message( $msg, 'alice' ) );
-		$this->assertSame( 'alice', $msg[ Message::FROM ] );
+		$message = Message::new_message();
+		$this->assertTrue( $n->stamp_message( $message, 'alice' ) );
+		$this->assertSame( 'alice', $message[ Message::FROM ] );
 	}
 
 	public function test_stamp_message_prepends_to_existing_from(): void {
 		$n = new Capture_Sink_Node();
 		$n->name( 'bob' );
-		$msg                     = Message::new_message();
-		$msg[ Message::FROM ]    = 'alice';
-		$this->assertTrue( $n->stamp_message( $msg, 'bob' ) );
-		$this->assertSame( 'bob/alice', $msg[ Message::FROM ] );
+		$message                     = Message::new_message();
+		$message[ Message::FROM ]    = 'alice';
+		$this->assertTrue( $n->stamp_message( $message, 'bob' ) );
+		$this->assertSame( 'bob/alice', $message[ Message::FROM ] );
 	}
 
 	public function test_stamp_message_drops_if_FROM_exceeds_MAX_FROM_SIZE(): void {
 		$n = new Capture_Sink_Node();
 		$n->name( 'x' );
-		$msg                  = Message::new_message();
-		$msg[ Message::FROM ] = \str_repeat( 'a/', 600 ); // ~1200 chars
-		$this->assertFalse( $n->stamp_message( $msg, 'x' ) );
+		$message                  = Message::new_message();
+		$message[ Message::FROM ] = \str_repeat( 'a/', 600 ); // ~1200 chars
+		$this->assertFalse( $n->stamp_message( $message, 'x' ) );
 	}
 
 	public function test_drop_message_format(): void {
@@ -111,12 +111,12 @@ class NodeTest extends TestCase {
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
 		$n   = new Capture_Sink_Node();
 		$n->name( 'alice' );
-		$msg                     = Message::new_message();
-		$msg[ Message::TYPE ]    = Message::TM_INFO;
-		$msg[ Message::FROM ]    = 'producer';
-		$msg[ Message::TO ]      = 'consumer';
-		$msg[ Message::VALUE ]   = 'data';
-		$n->drop_message( $msg, 'BAD_INPUT' );
+		$message                     = Message::new_message();
+		$message[ Message::TYPE ]    = Message::TM_INFO;
+		$message[ Message::FROM ]    = 'producer';
+		$message[ Message::TO ]      = 'consumer';
+		$message[ Message::VALUE ]   = 'data';
+		$n->drop_message( $message, 'BAD_INPUT' );
 		$this->assertStringContainsString( 'WARNING: BAD_INPUT', $buf );
 		$this->assertStringContainsString( 'TM_INFO', $buf );
 		$this->assertStringContainsString( 'from: producer', $buf );
@@ -129,9 +129,9 @@ class NodeTest extends TestCase {
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
 		$n   = new Capture_Sink_Node();
 		$n->name( 'alice' );
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_NOREPLY;
-		$n->drop_message( $msg, 'BAD_INPUT' );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_NOREPLY;
+		$n->drop_message( $message, 'BAD_INPUT' );
 		$this->assertStringContainsString( 'TM_COMMAND', $buf );
 		$this->assertStringContainsString( 'TM_NOREPLY', $buf );
 	}
@@ -147,10 +147,10 @@ class NodeTest extends TestCase {
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
 		$n   = new Capture_Sink_Node();
 		$n->name( 'alice' );
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::VALUE ] = [ 'arguments' => 'nope' ];
-		$n->drop_message( $msg, 'invalid command struct' );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::VALUE ] = [ 'arguments' => 'nope' ];
+		$n->drop_message( $message, 'invalid command struct' );
 		$this->assertStringContainsString( 'payload: {"arguments":"nope"}', $buf );
 		$this->assertStringNotContainsString( 'payload: Array', $buf );
 	}
@@ -160,10 +160,10 @@ class NodeTest extends TestCase {
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
 		$n   = new Capture_Sink_Node();
 		$n->name( 'alice' );
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_INFO | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = 'should-show';
-		$n->drop_message( $msg, 'X' );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO | Message::TM_RESPONSE;
+		$message[ Message::VALUE ] = 'should-show';
+		$n->drop_message( $message, 'X' );
 		$this->assertStringContainsString( 'payload: should-show', $buf );
 	}
 
@@ -214,14 +214,14 @@ class NodeTest extends TestCase {
 		$n->notify( 'EVT', 'payload-x' );
 
 		$this->assertCount( 1, $listener->captured );
-		$msg = $listener->captured[0];
-		$this->assertSame( Message::TM_INFO, $msg[ Message::TYPE ] );
-		$this->assertSame( 'EVT', $msg[ Message::KEY ] );
-		$this->assertSame( 'payload-x', $msg[ Message::VALUE ] );
+		$message = $listener->captured[0];
+		$this->assertSame( Message::TM_INFO, $message[ Message::TYPE ] );
+		$this->assertSame( 'EVT', $message[ Message::KEY ] );
+		$this->assertSame( 'payload-x', $message[ Message::VALUE ] );
 		// Delivered directly to the resolved node with empty TO; stamping TO=listener
 		// re-routes through _router — across an SSE pivot it lands where neither the
 		// listener nor the emitter exist, logging a spurious NOT_AVAILABLE.
-		$this->assertSame( '', $msg[ Message::TO ] );
+		$this->assertSame( '', $message[ Message::TO ] );
 	}
 
 	public function test_registered_listeners_returns_node_name_listeners_only(): void {
@@ -284,12 +284,12 @@ class NodeTest extends TestCase {
 		$n->set_state( 'READY', 'payload-x' );
 
 		$this->assertCount( 1, $router->captured );
-		$msg = $router->captured[0];
-		$this->assertSame( Message::TM_STRUCT, $msg[ Message::TYPE ] );
-		$this->assertSame( '_repl',             $msg[ Message::TO ] );
-		$this->assertSame( 'producer',          $msg[ Message::FROM ] );
+		$message = $router->captured[0];
+		$this->assertSame( Message::TM_STRUCT, $message[ Message::TYPE ] );
+		$this->assertSame( '_repl',             $message[ Message::TO ] );
+		$this->assertSame( 'producer',          $message[ Message::FROM ] );
 
-		$v = $msg[ Message::VALUE ];
+		$v = $message[ Message::VALUE ];
 		$this->assertIsArray( $v );
 		$this->assertSame( 'debug_state', $v['k'] );
 		$this->assertSame( 'producer',    $v['node'] );
@@ -436,6 +436,20 @@ class NodeTest extends TestCase {
 		$this->assertSame( 'alice', $patron->name() );
 		$this->assertSame( 'alice:config', $sibling->name() );
 		$this->assertSame( $sibling, $patron->interpreter() );
+	}
+
+	public function test_setting_sink_cascades_to_sibling_interpreter(): void {
+		$patron     = new Config_Sibling_Node();
+		$sibling    = $patron->interpreter();
+		$downstream = new Capture_Sink_Node();
+
+		$patron->sink( $downstream );
+
+		// Rule #2: the sibling `:config` CI inherits the patron's sink so it
+		// isn't a dead end — its verb responses (sent via `$this->sink?->fill()`)
+		// route back through the same hop. Mirrors how name() keeps it synced.
+		$this->assertSame( $downstream, $patron->sink() );
+		$this->assertSame( $downstream, $sibling->sink() );
 	}
 
 	public function test_node_without_interpreter_name_unaffected(): void {
@@ -629,11 +643,11 @@ class NodeTest extends TestCase {
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
 
 		$n   = new Capture_Sink_Node();
-		$msg = Message::new_message();
-		$msg[ Message::FROM ] = 'preexisting';
+		$message = Message::new_message();
+		$message[ Message::FROM ] = 'preexisting';
 
-		$this->assertFalse( $n->stamp_message( $msg, '' ) );
-		$this->assertSame( 'preexisting', $msg[ Message::FROM ], 'FROM must NOT be mutated' );
+		$this->assertFalse( $n->stamp_message( $message, '' ) );
+		$this->assertSame( 'preexisting', $message[ Message::FROM ], 'FROM must NOT be mutated' );
 		$this->assertStringContainsString( 'stamp_message() called with empty name', $buf );
 	}
 
@@ -764,17 +778,17 @@ class NodeTest extends TestCase {
 		try {
 			$n   = new Capture_Sink_Node();
 			$n->name( 'boot' );
-			$msg                  = Message::new_message();
-			$msg[ Message::TYPE ] = Message::TM_INFO;
-			$msg[ Message::TO ]   = 'nobody-home';
+			$message                  = Message::new_message();
+			$message[ Message::TYPE ] = Message::TM_INFO;
+			$message[ Message::TO ]   = 'nobody-home';
 
 			// Single call should not emit (print_least_often holds 9 occurrences).
-			$n->drop_message( $msg, 'NOT_AVAILABLE' );
+			$n->drop_message( $message, 'NOT_AVAILABLE' );
 			$this->assertSame( '', $buf, 'first NOT_AVAILABLE in boot window must be suppressed' );
 
 			// Same drop_message 9 more times → on the 10th, it emits.
 			for ( $i = 0; $i < 9; $i++ ) {
-				$n->drop_message( $msg, 'NOT_AVAILABLE' );
+				$n->drop_message( $message, 'NOT_AVAILABLE' );
 			}
 			$this->assertStringContainsString(
 				'NOT_AVAILABLE',
@@ -796,9 +810,9 @@ class NodeTest extends TestCase {
 
 		$n   = new Capture_Sink_Node();
 		$n->name( 'q' );
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_BYTESTREAM;
-		$n->drop_message( $msg, 'TEST_ERROR' );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_BYTESTREAM;
+		$n->drop_message( $message, 'TEST_ERROR' );
 
 		$this->assertStringContainsString( 'WARNING: TEST_ERROR', $buf );
 		$this->assertStringContainsString( 'TM_BYTESTREAM', $buf );
@@ -815,10 +829,10 @@ class NodeTest extends TestCase {
 
 		$n = new Capture_Sink_Node();
 		$n->name( 'q' );
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::VALUE ] = 'should-not-appear';
-		$n->drop_message( $msg, 'X' );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'should-not-appear';
+		$n->drop_message( $message, 'X' );
 
 		$this->assertStringNotContainsString(
 			'payload:',
@@ -949,7 +963,7 @@ class NodeTest extends TestCase {
 		// Node::stderr routes through Core::stderr, which applies the dated
 		// process prefix; Node::log_midfix supplies the "<name>: " tag.
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		$n = new \Newspack_Nodes\Node();
 		$n->name( 'alice' );
 		$n->stderr( 'a warning' );
@@ -958,7 +972,7 @@ class NodeTest extends TestCase {
 
 	public function test_stderr_empty_message_emits_nothing(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		$n = new \Newspack_Nodes\Node();
 		$n->name( 'alice' );
 		$n->stderr( '' );
@@ -967,7 +981,7 @@ class NodeTest extends TestCase {
 
 	public function test_print_less_often_emits_once_per_node(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		$n = new \Newspack_Nodes\Node();
 		$n->name( 'alice' );
 		$n->print_less_often( 'repeated' );
@@ -979,7 +993,7 @@ class NodeTest extends TestCase {
 
 	public function test_print_least_often_emits_at_tenth_call_per_node(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		$n = new \Newspack_Nodes\Node();
 		$n->name( 'alice' );
 		for ( $i = 0; $i < 9; ++$i ) {
@@ -994,7 +1008,7 @@ class NodeTest extends TestCase {
 		// Two differently-named nodes logging the same text must NOT collide
 		// on the shared rate-limiter: the midfixed KEY differs, so both emit.
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		$alice = new \Newspack_Nodes\Node();
 		$alice->name( 'alice' );
 		$bob = new \Newspack_Nodes\Node();
