@@ -306,3 +306,15 @@ test( 'names the node', () => {
 	const v = makeView( 'rawlogs:view' );
 	expect( v.name ).toBe( 'rawlogs:view' );
 } );
+
+test( 'fill increments the node counter so the overlay shows throughput', () => {
+	const v = makeView( 'rawlogs:view' );
+	expect( v.counter ).toBe( 0 );
+	v.fill( envelopeMsg( { value: 'line one' } ) );
+	v.fill( envelopeMsg( { value: 'line two' } ) );
+	expect( v.counter ).toBe( 2 );
+} );
+
+test( 'declares has_target:false (terminal receiver — no out-port)', () => {
+	expect( RawLogsViewNode.nodeSchema().has_target ).toBe( false );
+} );

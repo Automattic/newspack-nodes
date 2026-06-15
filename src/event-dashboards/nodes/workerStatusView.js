@@ -52,6 +52,9 @@ export class WorkerStatusViewNode extends Node {
 	}
 
 	fill( message ) {
+		// Terminal node (no sink) — base Node.fill() can't run, so count here
+		// to keep the overlay's per-node throughput honest.
+		this.counter += 1;
 		const value = message[ VALUE ];
 		if ( ! value || 'object' !== typeof value ) {
 			return;
@@ -115,5 +118,17 @@ export class WorkerStatusViewNode extends Node {
 			clearTimeout( this._clearTimer );
 			this._clearTimer = null;
 		}
+	}
+
+	static nodeSchema() {
+		return {
+			category: 'Hidden',
+			description:
+				'Worker Status render-model sink (the React view node).',
+			// Terminal receiver: settles replies, never sets target → no out-port.
+			has_target: false,
+			arguments: [],
+			commands: [],
+		};
 	}
 }
