@@ -336,6 +336,113 @@ test( 'clicking the active toggle calls deactivate(name)', () => {
 	expect( value.activate ).not.toHaveBeenCalled();
 } );
 
+test( 'the topology name links to the console for that topology', () => {
+	useTopologyManager.mockReturnValue(
+		hookValue( {
+			topologies: [
+				{
+					name: 'alpha',
+					source: 'stock',
+					active: false,
+					num_partitions: 1,
+					status: null,
+				},
+			],
+		} )
+	);
+
+	const { container } = render( <TopologyManager /> );
+	const link = container.querySelector( 'a.nodes-tm__name' );
+	expect( link ).toBeTruthy();
+	expect( link.getAttribute( 'href' ) ).toBe(
+		'admin.php?page=newspack-nodes-topology&topology=alpha'
+	);
+	expect( link.textContent ).toBe( 'alpha' );
+} );
+
+test( 'the manager heading carries the per-partition pills moved from the section header', () => {
+	useTopologyManager.mockReturnValue(
+		hookValue( {
+			topologies: [
+				{
+					name: 'alpha',
+					source: 'stock',
+					active: true,
+					num_partitions: 2,
+					status: {
+						...activeStatus(),
+						workers: [
+							{
+								type: 'alpha',
+								handler: 'producer',
+								partition: 0,
+								source: '',
+								status: 'running',
+								started_at: 1000,
+								heartbeat_age: 2,
+							},
+							{
+								type: 'alpha',
+								handler: 'producer',
+								partition: 1,
+								source: '',
+								status: 'running',
+								started_at: 1000,
+								heartbeat_age: 40,
+							},
+						],
+					},
+				},
+			],
+		} )
+	);
+
+	const { container } = render( <TopologyManager /> );
+	const heading = container.querySelector( '.nodes-tm__heading' );
+	// Two per-partition pills moved up from the old section header.
+	expect( heading.querySelectorAll( '.topology-partition' ) ).toHaveLength(
+		2
+	);
+	// The stale-heartbeat marker rendered for P1 (heartbeat_age 40 > 30).
+	expect(
+		heading.querySelector( '.connector-heartbeat.stale' )
+	).toBeTruthy();
+	// ALL RUN moved up into the heading.
+	expect( heading.textContent ).toMatch( /ALL RUN/ );
+} );
+
+test( 'the manager heading shows ALL DEAD when every partition is dead', () => {
+	useTopologyManager.mockReturnValue(
+		hookValue( {
+			topologies: [
+				{
+					name: 'alpha',
+					source: 'stock',
+					active: true,
+					num_partitions: 1,
+					status: {
+						...activeStatus(),
+						workers: [
+							{
+								type: 'alpha',
+								handler: 'producer',
+								partition: 0,
+								source: '',
+								status: 'dead',
+								started_at: 1000,
+							},
+						],
+					},
+				},
+			],
+		} )
+	);
+
+	const { container } = render( <TopologyManager /> );
+	const heading = container.querySelector( '.nodes-tm__heading' );
+	expect( heading.textContent ).toMatch( /ALL DEAD/ );
+} );
+
 test( 'clicking the restart button on an active topology calls restart(name)', () => {
 	const value = hookValue( {
 		topologies: [

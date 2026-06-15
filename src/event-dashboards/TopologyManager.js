@@ -18,8 +18,17 @@ import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner
 import TopologySection from './TopologySection';
 import { SupervisorStatus } from './SupervisorStatus';
 import { buildTopologySections } from './topologyGraph';
+import { partitionSummaries } from './partitionSummaries';
+import { formatAge } from './formatters';
 import { useTopologyManager } from './hooks/useTopologyManager';
 import './TopologyManager.scss';
+
+// admin.php?page=<console-slug>&topology=<name> — opens the hub's Console tab
+// (page order 0) scoped to that topology (the console reads `?topology=`).
+const consoleHref = ( name ) =>
+	`admin.php?page=newspack-nodes-topology&topology=${ encodeURIComponent(
+		name
+	) }`;
 
 // Source → badge label. Mirrors the topology-resolution provenance: stock-only,
 // user-only, or user-shadows-stock.
@@ -86,11 +95,24 @@ const TopologyRow = memo( function TopologyRow( {
 	const fire = ( fn ) => () =>
 		Promise.resolve( fn( name ) ).catch( () => {} );
 	const section = active ? sectionFor( name, topology.status ) : null;
+	// Per-partition process summary (uptime + heartbeat + restart_pending) and
+	// the rolled-up ALL RUN / ALL DEAD badge — moved up from the old section
+	// header so the manager card heading is the single head.
+	const parts = active
+		? partitionSummaries( topology.status?.workers || [] )
+		: [];
+	const currentTime = topology.status?.currentTime;
+	const allRunning =
+		parts.length > 0 && parts.every( ( p ) => p.status === 'running' );
+	const allDead =
+		parts.length > 0 && parts.every( ( p ) => p.status === 'dead' );
 
 	return (
 		<div className="nodes-tm__topology">
 			<div className="nodes-tm__heading">
-				<span className="nodes-tm__name">{ name }</span>
+				<a className="nodes-tm__name" href={ consoleHref( name ) }>
+					{ name }
+				</a>
 				<span className="nodes-tm__sub">
 					{ sprintf(
 						// translators: %d: number of partitions.
@@ -125,6 +147,51 @@ const TopologyRow = memo( function TopologyRow( {
 								) }
 							</span>
 						) ) }
+				{ parts.map( ( p ) => (
+					<span key={ p.partition } className="topology-partition">
+						<span
+							className={ `worker-status-badge compact ${ p.status }` }
+						>
+							P{ p.partition }
+						</span>
+						<span className="supervisor-age">
+							{ p.started_at && p.status === 'running'
+								? formatAge( p.started_at, currentTime )
+								: '' }
+						</span>
+						{ p.heartbeat_age !== null &&
+							p.heartbeat_age !== undefined && (
+								<span
+									className={ `connector-heartbeat ${
+										p.heartbeat_age > 30 ? 'stale' : ''
+									}` }
+								>
+									{ p.heartbeat_age }s
+								</span>
+							) }
+						{ p.restart_pending && (
+							<span
+								className="connector-restart-pending"
+								title={ __(
+									'Restart pending',
+									'newspack-nodes'
+								) }
+							>
+								⟳
+							</span>
+						) }
+					</span>
+				) ) }
+				{ allRunning && (
+					<span className="worker-status-badge running small">
+						{ __( 'ALL RUN', 'newspack-nodes' ) }
+					</span>
+				) }
+				{ allDead && (
+					<span className="worker-status-badge dead small">
+						{ __( 'ALL DEAD', 'newspack-nodes' ) }
+					</span>
+				) }
 				<button
 					type="button"
 					role="switch"
@@ -144,7 +211,7 @@ const TopologyRow = memo( function TopologyRow( {
 						title={ __( 'Restart fleet', 'newspack-nodes' ) }
 						onClick={ fire( onRestart ) }
 					>
-						⟳
+						↻
 					</button>
 				) }
 			</div>
@@ -161,7 +228,6 @@ const TopologyRow = memo( function TopologyRow( {
 						removingSegments={ topology.status.removingSegments }
 						collapsed={ collapsed }
 						onToggle={ onToggleFold }
-						onRestart={ onRestart }
 					/>
 				) : (
 					<p className="nodes-tm__stopped">

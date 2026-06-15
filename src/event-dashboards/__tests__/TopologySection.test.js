@@ -1,4 +1,4 @@
-import { render, fireEvent } from '@testing-library/react';
+import { render } from '@testing-library/react';
 import TopologySection from '../TopologySection';
 
 const section = {
@@ -10,7 +10,13 @@ const section = {
 			key: 'log:firehose.log',
 			hasCursor: true,
 			partitions: [
-				{ partition: 0, segments: [], cursor_seg: 0, cursor_offset: 0 },
+				{
+					partition: 0,
+					name: 'firehose.log.p0',
+					segments: [],
+					cursor_seg: 0,
+					cursor_offset: 0,
+				},
 			],
 			children: [],
 		},
@@ -45,38 +51,16 @@ const props = {
 	removingSegments: {},
 	collapsed: new Set(),
 	onToggle: () => {},
-	onRestart: jest.fn(),
 };
 
-it( 'header shows per-partition pills with uptime + heartbeat', () => {
+it( 'renders no header — the manager card heading is the sole head', () => {
 	const { container } = render( <TopologySection { ...props } /> );
-	expect( container.querySelector( '.topology-header' ).textContent ).toMatch(
-		/combined/
-	);
-	expect(
-		container.querySelectorAll(
-			'.topology-header .worker-status-badge.compact'
-		).length
-	).toBe( 2 );
-	expect( container.querySelector( '.topology-header' ).textContent ).toMatch(
-		/6m/
-	);
-	expect(
-		container.querySelector( '.connector-heartbeat.stale' )
-	).not.toBeNull();
-} );
-
-it( 'shows ALL RUN and a fleet restart that calls onRestart(topology)', () => {
-	const { container } = render( <TopologySection { ...props } /> );
-	expect( container.textContent ).toMatch( /ALL RUN/ );
-	fireEvent.click(
-		container.querySelector( '.topology-header .worker-restart-btn' )
-	);
-	expect( props.onRestart ).toHaveBeenCalledWith( 'combined' );
+	expect( container.querySelector( '.topology-header' ) ).toBeNull();
+	expect( container.querySelector( '.topology-name' ) ).toBeNull();
 } );
 
 it( 'renders the section tree', () => {
 	const { container } = render( <TopologySection { ...props } /> );
 	expect( container.querySelector( '.topology-section' ) ).not.toBeNull();
-	expect( container.textContent ).toMatch( /firehose\.log/ );
+	expect( container.textContent ).toMatch( /firehose\.log\.p0/ );
 } );
