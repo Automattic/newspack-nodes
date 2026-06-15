@@ -5,11 +5,13 @@
 // graph build.
 import { CommandInterpreterNode } from '../../runtime/command-interpreter-node';
 import { RawLogsViewNode } from './rawLogsView';
+import { TopologyManagerViewNode } from './topologyManagerView';
 import { WorkerStatusTransformNode } from './workerStatusTransform';
 import { WorkerStatusViewNode } from './workerStatusView';
 
 CommandInterpreterNode.registerNodeClasses( {
 	RawLogsView: RawLogsViewNode,
+	TopologyManagerView: TopologyManagerViewNode,
 	WorkerStatusTransform: WorkerStatusTransformNode,
 	WorkerStatusView: WorkerStatusViewNode,
 } );
