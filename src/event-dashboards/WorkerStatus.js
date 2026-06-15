@@ -10,13 +10,14 @@
  * `buildTopologySections`), whose fold state is owned here.
  */
 
-import { memo, useEffect, useMemo, useState } from '@wordpress/element';
-import { __, sprintf } from '@wordpress/i18n';
+import { useEffect, useMemo, useState } from '@wordpress/element';
+import { __ } from '@wordpress/i18n';
 import { useNodeState } from '../runtime/react';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import TopologySection from './TopologySection';
+import { SupervisorStatus } from './SupervisorStatus';
 import { buildTopologySections } from './topologyGraph';
-import { formatBytes, formatByteRate, formatAge } from './formatters';
+import { formatByteRate } from './formatters';
 import {
 	useWorkerStatusGraph,
 	initialRefresh,
@@ -25,8 +26,12 @@ import {
 import './styles/worker-status.scss';
 
 // Re-exported for backwards-compat (the localStorage migration helper moved into
-// the graph hook, which owns the refresh interval).
+// the graph hook, which owns the refresh interval). SegmentBar/SupervisorStatus
+// re-exported from their new homes so existing importers keep working until the
+// module is removed.
 export { initialRefresh };
+export { SegmentBar } from './SegmentBar';
+export { SupervisorStatus } from './SupervisorStatus';
 
 // Persisted fold state: a JSON array of position keys for the collapsed entities.
 const COLLAPSED_KEY = 'newspack-nodes-worker-status-collapsed';
@@ -90,194 +95,6 @@ const EMPTY_MODEL = {
 	error: null,
 	loading: true,
 };
-
-/**
- * Single segment bar visualization (horizontal bar layout).
- *
- * @param {Object}  props              Component props.
- * @param {Object}  props.segment      Segment data { id, size, mtime }.
- * @param {number}  props.maxSize      Max segment size for scaling.
- * @param {number}  props.cursorSeg    Current cursor segment ID.
- * @param {number}  props.cursorOffset Current cursor offset.
- * @param {number}  props.newestSegId  ID of the newest segment.
- * @param {boolean} props.isNew        Whether this segment is newly appeared.
- * @param {boolean} props.isRemoving   Whether this segment is being removed.
- * @return {import('react').ReactElement} Rendered component.
- */
-export const SegmentBar = memo( function SegmentBar( {
-	segment,
-	maxSize,
-	cursorSeg,
-	cursorOffset,
-	newestSegId,
-	isNew,
-	isRemoving,
-} ) {
-	const fillPercent = maxSize > 0 ? ( segment.size / maxSize ) * 100 : 0;
-	// No cursor (output-only log) → treat all segments as processed.
-	const hasReader = cursorSeg !== undefined && cursorSeg !== null;
-	const isCurrent = hasReader && segment.id === cursorSeg;
-	const isProcessed = ! hasReader || segment.id < cursorSeg;
-	const isNewest = segment.id === newestSegId;
-
-	const processedPercent =
-		isCurrent && segment.size > 0
-			? ( cursorOffset / segment.size ) * fillPercent
-			: 0;
-	const pendingPercent = isCurrent ? fillPercent - processedPercent : 0;
-	const pendingClass = isNewest ? 'pending' : ''; // Yellow only for newest, red otherwise.
-
-	const classNames = [
-		'worker-segment-h',
-		isNew ? 'segment-slide-in' : '',
-		isRemoving ? 'segment-slide-out' : '',
-	]
-		.filter( Boolean )
-		.join( ' ' );
-
-	return (
-		<div
-			className={ classNames }
-			title={ sprintf(
-				// translators: 1: segment id, 2: formatted segment size.
-				__( 'Segment %1$s: %2$s', 'newspack-nodes' ),
-				segment.id,
-				formatBytes( segment.size )
-			) }
-		>
-			<div className="segment-label-h">{ segment.id }</div>
-			<div className="segment-bar-h">
-				{ isCurrent ? (
-					<>
-						<div
-							className="segment-fill-h processed"
-							style={ { width: `${ processedPercent }%` } }
-						/>
-						<div
-							className={ `segment-fill-h ${ pendingClass }` }
-							style={ { width: `${ pendingPercent }%` } }
-						/>
-					</>
-				) : (
-					<div
-						className={ `segment-fill-h ${
-							isProcessed ? 'processed' : ''
-						}` }
-						style={ { width: `${ fillPercent }%` } }
-					/>
-				) }
-			</div>
-			<div className="segment-size-h">
-				{ formatBytes( segment.size ) }
-			</div>
-		</div>
-	);
-} );
-
-/**
- * Supervisor status row.
- *
- * @param {Object}   props             Component props.
- * @param {Object}   props.supervisor  Supervisor status descriptor.
- * @param {number}   props.currentTime Current timestamp for age calculation.
- * @param {Function} props.onRestart   Callback to restart the supervisor.
- * @return {import('react').ReactElement} Rendered component.
- */
-const SupervisorStatus = memo( function SupervisorStatus( {
-	supervisor,
-	currentTime,
-	onRestart,
-} ) {
-	if ( ! supervisor ) {
-		return null;
-	}
-
-	const isDead = supervisor.status === 'dead';
-
-	return (
-		<div className="supervisor-section">
-			<div className="supervisor-header">
-				<span className="supervisor-title">
-					{ __( 'Supervisor', 'newspack-nodes' ) }
-				</span>
-			</div>
-			<div className="supervisor-list">
-				<div className={ `supervisor-row ${ isDead ? 'dead' : '' }` }>
-					<span className="supervisor-name">
-						{ __( 'Supervisor', 'newspack-nodes' ) }
-					</span>
-					<div className="supervisor-instance">
-						<span
-							className={ `worker-status-badge compact ${ supervisor.status }` }
-						>
-							{ supervisor.status === 'running'
-								? __( 'RUN', 'newspack-nodes' )
-								: __( 'DEAD', 'newspack-nodes' ) }
-						</span>
-						<span
-							className="supervisor-age"
-							title={ __( 'Uptime', 'newspack-nodes' ) }
-						>
-							{ supervisor.started_at &&
-							supervisor.status === 'running'
-								? formatAge(
-										supervisor.started_at,
-										currentTime
-								  )
-								: '' }
-						</span>
-						{ supervisor.heartbeat_age !== null &&
-							supervisor.heartbeat_age !== undefined && (
-								<span
-									className={ `connector-heartbeat ${
-										supervisor.heartbeat_age > 30
-											? 'stale'
-											: ''
-									}` }
-									title={ __(
-										'Heartbeat age',
-										'newspack-nodes'
-									) }
-								>
-									{ supervisor.heartbeat_age }s
-								</span>
-							) }
-						{ supervisor.restart_pending && (
-							<span
-								className="connector-restart-pending"
-								title="Restart pending"
-							>
-								⟳
-							</span>
-						) }
-					</div>
-					<span className="connector-trailing">
-						{ onRestart &&
-							! isDead &&
-							! supervisor.restart_pending && (
-								<button
-									type="button"
-									className="worker-restart-btn"
-									onClick={ () => onRestart( 'supervisor' ) }
-									title={ __(
-										'Request graceful restart',
-										'newspack-nodes'
-									) }
-								>
-									↻
-								</button>
-							) }
-						{ supervisor.restart_pending && (
-							<span className="worker-restart-pending-label">
-								{ __( 'restarting…', 'newspack-nodes' ) }
-							</span>
-						) }
-					</span>
-				</div>
-			</div>
-		</div>
-	);
-} );
 
 /**
  * Worker Status component.

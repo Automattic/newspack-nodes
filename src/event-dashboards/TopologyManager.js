@@ -16,6 +16,7 @@ import { memo, useState } from '@wordpress/element';
 import { __, sprintf } from '@wordpress/i18n';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
 import TopologySection from './TopologySection';
+import { SupervisorStatus } from './SupervisorStatus';
 import { buildTopologySections } from './topologyGraph';
 import { useTopologyManager } from './hooks/useTopologyManager';
 import './TopologyManager.scss';
@@ -45,7 +46,8 @@ function sectionFor( name, status ) {
 	}
 	const sections = buildTopologySections(
 		{ [ name ]: status.graph },
-		status.workers || []
+		status.workers || [],
+		status.logs
 	);
 	return sections[ 0 ] || null;
 }
@@ -179,6 +181,8 @@ const TopologyRow = memo( function TopologyRow( {
 export default function TopologyManager() {
 	const {
 		topologies,
+		supervisor,
+		currentTime,
 		activate,
 		deactivate,
 		restart,
@@ -255,6 +259,13 @@ export default function TopologyManager() {
 					</span>
 				) }
 			</div>
+			{ supervisor && (
+				<SupervisorStatus
+					supervisor={ supervisor }
+					currentTime={ currentTime }
+					onRestart={ () => restart( 'supervisor' ) }
+				/>
+			) }
 			{ sorted.map( ( topology ) => (
 				<TopologyRow
 					key={ topology.name }

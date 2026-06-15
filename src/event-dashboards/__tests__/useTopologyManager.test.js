@@ -98,7 +98,19 @@ const DUMP_GRAPH = {
 		heartbeat_age: 2,
 		restart_pending: false,
 	},
-	logs: [],
+	logs: [
+		{
+			name: 'a-log',
+			segment_size: 64 * 1024 * 1024,
+			partitions: [
+				{
+					partition: 0,
+					segments: [ { id: 0, size: 1024, mtime: 1000 } ],
+					total_size: 1024,
+				},
+			],
+		},
+	],
 	graph: {
 		a: { nodes: [ { name: 'a', kind: 'logic' } ], edges: [] },
 	},
@@ -183,6 +195,23 @@ describe( 'useTopologyManager', () => {
 		expect( status ).toHaveProperty( 'currentTime' );
 	} );
 
+	it( 'attaches the logs catalog (model.logs) to the active topology status', async () => {
+		const { client } = buildClient();
+		const { result } = renderHook( () =>
+			useTopologyManager( { commandClient: client } )
+		);
+		await act( async () => {} );
+
+		const status = result.current.topologies.find(
+			( t ) => 'a' === t.name
+		).status;
+		expect( status ).toHaveProperty( 'logs' );
+		expect( Array.isArray( status.logs ) ).toBe( true );
+		const log = status.logs.find( ( l ) => 'a-log' === l.name );
+		expect( log ).toBeTruthy();
+		expect( log.partitions[ 0 ].segments ).toHaveLength( 1 );
+	} );
+
 	it( 'passes the supervisor card model through', async () => {
 		const { client } = buildClient();
 		const { result } = renderHook( () =>
@@ -191,6 +220,19 @@ describe( 'useTopologyManager', () => {
 		await act( async () => {} );
 		expect( result.current.supervisor ).not.toBeNull();
 		expect( result.current.supervisor.type ).toBe( 'supervisor' );
+	} );
+
+	it( 'exposes currentTime from the worker-status model', async () => {
+		const { client } = healthClient( {
+			heartbeatIntervalS: 10,
+			currentTime: 2000,
+			workers: [ worker( 0, { heartbeatAge: 5, behind: 0 } ) ],
+		} );
+		const { result } = renderHook( () =>
+			useTopologyManager( { commandClient: client } )
+		);
+		await act( async () => {} );
+		expect( result.current.currentTime ).toBe( 2000 );
 	} );
 
 	it( 'deactivate dispatches `topologies deactivate <name>`', async () => {

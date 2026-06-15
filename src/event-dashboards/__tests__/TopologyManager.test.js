@@ -59,6 +59,7 @@ function hookValue( overrides = {} ) {
 	return {
 		topologies: [],
 		supervisor: null,
+		currentTime: 2000,
 		activate: jest.fn( () => Promise.resolve() ),
 		deactivate: jest.fn( () => Promise.resolve() ),
 		restart: jest.fn( () => Promise.resolve() ),
@@ -72,6 +73,114 @@ function hookValue( overrides = {} ) {
 
 afterEach( () => {
 	useTopologyManager.mockReset();
+} );
+
+// A supervisor descriptor for the supervisor-card tests.
+function supervisorModel() {
+	return {
+		status: 'running',
+		started_at: 1000,
+		heartbeat_age: 2,
+		restart_pending: false,
+	};
+}
+
+// An active status whose logs catalog carries a log with a segment, so the
+// 3-arg buildTopologySections call produces a segment bar in the rendered tree.
+// The graph carries a `partition`-kind node whose `writes` vertex matches the
+// catalog entry name, so makeLog resolves its segments.
+function statusWithSegments() {
+	return {
+		graph: {
+			nodes: [ { name: 'sink', kind: 'partition', writes: 'a-log' } ],
+			edges: [],
+		},
+		workers: [],
+		logs: [
+			{
+				name: 'a-log',
+				segment_size: 64 * 1024 * 1024,
+				partitions: [
+					{
+						partition: 0,
+						segments: [ { id: 0, size: 1024, mtime: 1000 } ],
+						total_size: 1024,
+					},
+				],
+			},
+		],
+		byteRates: {},
+		writeRates: {},
+		segmentSize: 64 * 1024 * 1024,
+		currentTime: 2000,
+		prevSegments: {},
+		removingSegments: {},
+	};
+}
+
+test( 'renders the supervisor card when supervisor is present', () => {
+	useTopologyManager.mockReturnValue(
+		hookValue( { supervisor: supervisorModel() } )
+	);
+
+	const { container } = render( <TopologyManager /> );
+	expect( container.querySelector( '.supervisor-section' ) ).toBeTruthy();
+} );
+
+test( 'does not render the supervisor card when supervisor is null', () => {
+	useTopologyManager.mockReturnValue( hookValue( { supervisor: null } ) );
+
+	const { container } = render( <TopologyManager /> );
+	expect( container.querySelector( '.supervisor-section' ) ).toBeFalsy();
+} );
+
+test( 'renders a non-NaN supervisor uptime (currentTime threaded to the card)', () => {
+	// supervisor started_at 1000, currentTime 2000 → 1000s uptime → "16m".
+	useTopologyManager.mockReturnValue(
+		hookValue( { supervisor: supervisorModel(), currentTime: 2000 } )
+	);
+
+	const { container } = render( <TopologyManager /> );
+	const age = container.querySelector( '.supervisor-age' );
+	expect( age ).toBeTruthy();
+	expect( age.textContent ).not.toContain( 'NaN' );
+	expect( age.textContent ).toMatch( /^\d+[smh]/ );
+	expect( age.textContent ).toBe( '16m' );
+} );
+
+test( 'clicking the supervisor restart button calls restart("supervisor")', () => {
+	const value = hookValue( { supervisor: supervisorModel() } );
+	useTopologyManager.mockReturnValue( value );
+
+	const { container } = render( <TopologyManager /> );
+	const btn = container.querySelector(
+		'.supervisor-section .worker-restart-btn'
+	);
+	expect( btn ).toBeTruthy();
+	fireEvent.click( btn );
+	expect( value.restart ).toHaveBeenCalledWith( 'supervisor' );
+} );
+
+test( "an active topology's logs catalog renders segment bars (3rd buildTopologySections arg flows)", () => {
+	useTopologyManager.mockReturnValue(
+		hookValue( {
+			topologies: [
+				{
+					name: 'alpha',
+					source: 'stock',
+					active: true,
+					num_partitions: 1,
+					status: statusWithSegments(),
+				},
+			],
+		} )
+	);
+
+	const { container } = render( <TopologyManager /> );
+	const section = container.querySelector( '.topology-section' );
+	expect( section ).toBeTruthy();
+	expect( section.querySelector( '.worker-segment-h' ) ).toBeTruthy();
+	expect( section.querySelector( '.segment-bar-h' ) ).toBeTruthy();
 } );
 
 test( 'renders every topology with its name and source badge', () => {

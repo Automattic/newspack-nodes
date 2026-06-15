@@ -107,6 +107,7 @@ function sectionsByName( model ) {
 			workers: workers.filter(
 				( w ) => ( w.type ?? w.handler ) === name
 			),
+			logs: model.logs ?? [],
 			byteRates: model.byteRates ?? {},
 			writeRates: model.writeRates ?? {},
 			segmentSize: model.segmentSize,
@@ -199,11 +200,12 @@ function dispatchAwaited( interpreterRef, viewName, ci, verb, args ) {
  * @param {Object} [opts]               Options (testing seams).
  * @param {Object} [opts.commandClient] CommandClient seam assigned to `_http.client`.
  * @param {number} [opts.refreshMs]     Poll interval in ms (default 4000).
- * @return {{ topologies: Array, supervisor: ?Object, activate: Function,
- *   deactivate: Function, restart: Function, purgeOrphans: Function,
- *   connected: boolean }} The Topology Manager data + mutations: every topology
- *   row (status merged onto the active ones), the supervisor card, the mutation
- *   verbs (incl. the housekeeping-GC `purgeOrphans`), and connected.
+ * @return {{ topologies: Array, supervisor: ?Object, currentTime: ?number,
+ *   activate: Function, deactivate: Function, restart: Function,
+ *   purgeOrphans: Function, connected: boolean }} The Topology Manager data +
+ *   mutations: every topology row (status merged onto the active ones), the
+ *   supervisor card, the clock for supervisor uptime, the mutation verbs (incl.
+ *   the housekeeping-GC `purgeOrphans`), and connected.
  */
 export function useTopologyManager( opts = {} ) {
 	const { commandClient, refreshMs = 4000 } = opts;
@@ -266,6 +268,7 @@ export function useTopologyManager( opts = {} ) {
 	} );
 
 	const supervisor = workerModel?.supervisor ?? null;
+	const currentTime = workerModel?.currentTime;
 	const connected = ! ( topologyModel?.error || workerModel?.error );
 
 	// Request a graceful restart for a worker type (FROM=workerstatus:view so the
@@ -325,6 +328,7 @@ export function useTopologyManager( opts = {} ) {
 	return {
 		topologies,
 		supervisor,
+		currentTime,
 		activate,
 		deactivate,
 		restart,
