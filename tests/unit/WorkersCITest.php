@@ -394,20 +394,24 @@ class WorkersCITest extends TestCase {
 	// ── cleanup_status verb ─────────────────────────────────────────────────
 
 	public function test_cleanup_status_returns_diagnostic_envelope_with_orphans(): void {
-		// Verb mirrors the Log_Cleaner sweep: flat `{base}/logs/*.p*` on disk vs
-		// the config-declared set (Log_Cleaner::declared_log_dirs). Without it,
-		// dashboard cleanup-status debugging requires shell access.
+		// Verb mirrors the Log_Cleaner sweep: it globs the flat `{base}/logs/*` dirs
+		// (GLOB_ONLYDIR, layout-agnostic — no `.p{N}` regex) and diffs against the
+		// resolved declared set, so the diagnostic matches what the GC actually deletes
+		// (including non-`.p{N}`-shaped dir names like `0-req`).
 		$base = $this->arrange_base_dir();
 		$logs = "{$base}/logs";
-		\mkdir( "{$logs}/requests.p0", 0755, true );
-		\mkdir( "{$logs}/ghost.p0",    0755, true );  // not declared
+		\mkdir( "{$logs}/0-req",    0755, true );  // declared (token-in-prefix layout)
+		\mkdir( "{$logs}/1-req",    0755, true );  // declared
+		\mkdir( "{$logs}/ghost",    0755, true );  // not declared, no `.p{N}` suffix
+		\file_put_contents( "{$logs}/req.0", 'X' ); // a Log segment FILE — GLOB_ONLYDIR skips it
 
-		// A real .tsl declares 'requests'; the sweep reads Topology_Registry.
+		// A real .tsl declares the token-in-prefix `<partition>-req` layout (2 parts).
 		$stock = "{$base}/topologies";
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
-			"{$stock}/requests-workers.tsl",
-			"make_node Partition requests:partition <config:logs_dir>/requests.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>\n"
+			"{$stock}/req-workers.tsl",
+			"var num_partitions = 2\n"
+			. "make_node Partition req:p <config:logs_dir>/<partition>-req 1 2 0\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 		\Newspack_Nodes\Topology_Registry::reset_basename_cache();
@@ -417,9 +421,9 @@ class WorkersCITest extends TestCase {
 		$result = VerbHarness::fire( $interpreter, 'workers', 'cleanup_status' );
 
 		$this->assertSame( $logs, $result['logs_dir'] );
-		$this->assertSame( [ 'ghost.p0', 'requests.p0' ], $result['on_disk_basenames'] );
-		$this->assertSame( [ 'requests.p0' ], $result['expected_basenames'] );
-		$this->assertSame( [ 'ghost.p0' ], $result['orphans'] );
+		$this->assertSame( [ '0-req', '1-req', 'ghost' ], $result['on_disk_basenames'] );
+		$this->assertSame( [ '0-req', '1-req' ], $result['expected_basenames'] );
+		$this->assertSame( [ 'ghost' ], $result['orphans'] );
 
 		\Newspack_Nodes\Topology_Registry::reset();
 	}

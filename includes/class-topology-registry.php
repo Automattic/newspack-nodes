@@ -252,24 +252,56 @@ class Topology_Registry {
 	}
 
 	/**
-	 * On-disk offset dir basenames `$name` writes at `$partition` (the Consumer
-	 * offsetlog 4th-arg tokens, basename only, `<partition>` substituted). Offsetlogs
-	 * are direct children of offsets/, so the basename is the GC's match key.
+	 * First-level concrete dir names `$name` writes under logs_dir / offsets_dir,
+	 * layout-agnostic: each `write_set` token is expanded over `0..$num_partitions-1`
+	 * (substituting BOTH `<partition>` angle and `{partition}` curly), its
+	 * `<config:…>` tokens resolved, then the first path segment under the
+	 * respective root is taken — wherever the partition token sits in the path.
+	 * No `.p{N}` regex. `$num_partitions` is passed by the caller (keeps the
+	 * registry free of a Bootstrap dep); pass `Bootstrap::num_partitions_for($name)`.
 	 *
-	 * @return array<int,string>
+	 * @return array{logs: array<int,string>, offsets: array<int,string>}
 	 */
-	public static function offset_basenames_for( string $name, int $partition ): array {
-		$out = [];
+	public static function resolved_resource_dirs( string $name, int $num_partitions ): array {
+		$logs_root    = Core::resolve_config_token( 'config', 'logs_dir' );
+		$offsets_root = Core::resolve_config_token( 'config', 'offsets_dir' );
+		$logs         = [];
+		$offsets      = [];
 		foreach ( self::write_set( $name ) as $entry ) {
-			if ( 0 !== \strpos( $entry, 'offsetlog:' ) ) {
+			[ $kind, $token ] = \explode( ':', $entry, 2 );
+			// Explicit kind→(root, bucket) routing so a future non-namespaced
+			// write_set entry can't silently land in the offset bucket.
+			$root = match ( $kind ) {
+				'partition' => $logs_root,
+				'offsetlog' => $offsets_root,
+				default     => '',
+			};
+			if ( '' === $root ) {
 				continue;
 			}
-			$token = \substr( $entry, \strlen( 'offsetlog:' ) );
-			$slash = \strrpos( $token, '/' );
-			$tail  = false === $slash ? $token : \substr( $token, $slash + 1 );
-			$out[ \str_replace( '<partition>', (string) $partition, $tail ) ] = true;
+			for ( $p = 0; $p < $num_partitions; $p++ ) {
+				$concrete = Core::resolve_config_tokens(
+					\str_replace( [ '<partition>', '{partition}' ], (string) $p, $token )
+				);
+				$prefix = $root . '/';
+				if ( 0 !== \strpos( $concrete, $prefix ) ) {
+					continue;
+				}
+				$first = \explode( '/', \substr( $concrete, \strlen( $prefix ) ) )[0];
+				if ( '' === $first ) {
+					continue;
+				}
+				if ( 'partition' === $kind ) {
+					$logs[ $first ] = true;
+				} else {
+					$offsets[ $first ] = true;
+				}
+			}
 		}
-		return \array_keys( $out );
+		return [
+			'logs'    => \array_keys( $logs ),
+			'offsets' => \array_keys( $offsets ),
+		];
 	}
 
 	/**

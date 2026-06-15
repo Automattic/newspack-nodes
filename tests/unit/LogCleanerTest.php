@@ -1,6 +1,7 @@
 <?php
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Core;
 use Newspack_Nodes\Log_Cleaner;
 use Newspack_Nodes\Topology_Registry;
 use Newspack_Nodes\Config;
@@ -32,6 +33,12 @@ class LogCleanerTest extends TestCase {
 		\mkdir( "{$this->tmp}/logs", 0755, true );
 		\mkdir( "{$this->tmp}/offsets", 0755, true );
 		\mkdir( "{$this->tmp}/locks", 0755, true );
+
+		// The resolver-driven declared set resolves <config:logs_dir> /
+		// <config:offsets_dir> against the base directory, so pin it to $this->tmp
+		// (= the dir the GC sweeps) and register the token namespace.
+		$this->use_base_dir( $this->tmp );
+		Config::register_token_namespace();
 
 		$this->stock = "{$this->tmp}/topologies";
 		\mkdir( $this->stock, 0755, true );
@@ -139,7 +146,47 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $anything );
 	}
 
-	public function test_ignores_non_partition_dirs(): void {
+	public function test_unresolvable_logs_root_skips_log_sweep_despite_producers(): void {
+		// DATA-LOSS guard: a registered producer keeps declared_log_dirs() NON-empty,
+		// but if the `<config:logs_dir>` root can't resolve ('') the topology dirs are
+		// absent from the set — so the sweep would delete every topology dir while only
+		// producer names are protected. Fail closed: skip the whole log sweep.
+		\add_filter(
+			'newspack_nodes/registered_log_producers',
+			static fn (): array => [ 'firehose' ]
+		);
+		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
+
+		$firehose = $this->seed_log_partition( 'firehose', 0 );
+		$requests = $this->seed_log_partition( 'requests', 0 );
+
+		// Drop the `config` namespace so logs_dir/offsets_dir resolve to ''.
+		Core::$config_resolvers = [];
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryExists( $firehose );
+		$this->assertDirectoryExists( $requests );
+	}
+
+	public function test_unresolvable_offsets_root_skips_offset_sweep(): void {
+		// Offset-side fail-closed: unresolvable offsets_dir root → skip the offset sweep.
+		$this->declare_topology(
+			'digest',
+			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
+		);
+		$cursor = $this->seed_offset_dir( 'scored', 0 );
+
+		Core::$config_resolvers = [];
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryExists( $cursor );
+	}
+
+	public function test_sweeps_undeclared_non_partition_dir(): void {
+		// Layout-agnostic: keep ONLY declared first-level dirs. An undeclared dir
+		// whose name has no `.p{N}` suffix is now an orphan and IS swept.
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests' ) );
 
 		\mkdir( "{$this->tmp}/logs/notapartition", 0755, true );
@@ -147,7 +194,29 @@ class LogCleanerTest extends TestCase {
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 
-		$this->assertDirectoryExists( "{$this->tmp}/logs/notapartition" );
+		$this->assertDirectoryDoesNotExist( "{$this->tmp}/logs/notapartition" );
+	}
+
+	public function test_keeps_arbitrary_partition_placement_sweeps_ghost(): void {
+		// A topology declaring `<config:logs_dir>/<partition>-req` (token in PREFIX
+		// position) must keep `0-req`/`1-req` and sweep an undeclared `ghost.p9`.
+		$this->declare_topology(
+			'req-workers',
+			"var num_partitions = 2\n"
+			. "make_node Partition req:p <config:logs_dir>/<partition>-req 1 2 0\n"
+		);
+
+		\mkdir( "{$this->tmp}/logs/0-req", 0755, true );
+		\file_put_contents( "{$this->tmp}/logs/0-req/0.log", 'X' );
+		\mkdir( "{$this->tmp}/logs/1-req", 0755, true );
+		\file_put_contents( "{$this->tmp}/logs/1-req/0.log", 'X' );
+		$ghost = $this->seed_log_partition( 'ghost', 9 );
+
+		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
+
+		$this->assertDirectoryExists( "{$this->tmp}/logs/0-req" );
+		$this->assertDirectoryExists( "{$this->tmp}/logs/1-req" );
+		$this->assertDirectoryDoesNotExist( $ghost );
 	}
 
 	public function test_deletes_recursively_with_nested_subdirs(): void {
@@ -224,7 +293,8 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryExists( $orphan );
 	}
 
-	public function test_ignores_non_partition_offset_dirs(): void {
+	public function test_sweeps_undeclared_non_partition_offset_dir(): void {
+		// Layout-agnostic: an undeclared offset dir is an orphan and IS swept.
 		$this->declare_topology(
 			'digest',
 			"make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
@@ -234,7 +304,7 @@ class LogCleanerTest extends TestCase {
 
 		Log_Cleaner::cleanup_orphan_partitions( $this->tmp );
 
-		$this->assertDirectoryExists( "{$this->tmp}/offsets/notapartition" );
+		$this->assertDirectoryDoesNotExist( "{$this->tmp}/offsets/notapartition" );
 	}
 
 	// ── liveness-free: locks are no longer consulted ───────────────────────
