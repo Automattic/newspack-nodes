@@ -71,19 +71,19 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( 'out.log', $g['nodes'][0]['writes'] );
 	}
 
-	public function test_graph_for_log_sink_emits_kind_writes_path_max_size_and_rotations(): void {
-		// A Log file-sink: make_node Log <name> <path> <mode> <max_size> <max_rotations>.
-		// kind 'log'; writes = basename; path/max_size/max_rotations carried so
-		// dump_graph can stat the rotation files.
-		$this->write_tsl( 'l', "make_node Log lg /tmp/x.md append 100 3\n" );
+	public function test_graph_for_log_sink_emits_kind_writes_path_segment_size_and_num_segments(): void {
+		// A Log file-sink: make_node Log <name> <file> [segment_size] [num_segments].
+		// kind 'log'; writes = basename; path/segment_size/num_segments carried so
+		// dump_graph can stat the flat `{file}.{seg}` segments.
+		$this->write_tsl( 'l', "make_node Log lg /tmp/x.md 100 3\n" );
 		$g = \Newspack_Nodes\Topology_Registry::graph_for( 'l' );
 		$node = $g['nodes'][0];
 		$this->assertSame( 'lg', $node['name'] );
 		$this->assertSame( 'log', $node['kind'] );
 		$this->assertSame( 'x.md', $node['writes'] );
 		$this->assertSame( '/tmp/x.md', $node['path'] );
-		$this->assertSame( 100, $node['max_size'] );
-		$this->assertSame( 3, $node['max_rotations'] );
+		$this->assertSame( 100, $node['segment_size'] );
+		$this->assertSame( 3, $node['num_segments'] );
 	}
 
 	public function test_graph_for_unknown_topology_is_empty(): void {

@@ -818,22 +818,22 @@ class WorkersCITest extends TestCase {
 	public function test_dump_graph_logs_include_log_file_sinks(): void {
 		// A `make_node Log` file-sink (kind 'log') in an active topology gets a
 		// `logs` catalog entry so the dashboard renders it as a LOG entity:
-		// segments stat'd from the literal file + its rotation siblings, with
-		// the newest file carrying the highest segment id, and segment_size set
-		// from the Log's max_size positional arg.
+		// segments stat'd from the flat `{file}.{seg}` monotonic segments, with
+		// the highest-suffix segment current/newest, and segment_size set from
+		// the Log's segment_size positional arg.
 		$base = $this->arrange_base_dir();
 
-		// A literal-path Log sink: current file + two rotation siblings.
+		// A literal-path Log sink: flat monotonic segments, NO bare current file.
 		$digest_path = "{$base}/digest.md";
-		\file_put_contents( $digest_path,        \str_repeat( 'a', 30 ) );  // current
-		\file_put_contents( "{$digest_path}.0",  \str_repeat( 'b', 20 ) );  // newest rotation
-		\file_put_contents( "{$digest_path}.1",  \str_repeat( 'c', 10 ) );  // oldest rotation
+		\file_put_contents( "{$digest_path}.0", \str_repeat( 'c', 10 ) );  // oldest
+		\file_put_contents( "{$digest_path}.1", \str_repeat( 'b', 20 ) );
+		\file_put_contents( "{$digest_path}.2", \str_repeat( 'a', 30 ) );  // newest / current
 
 		$stock = "{$base}/topologies";
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(
 			"{$stock}/aggregator.tsl",
-			"make_node Log digest:log {$digest_path} append 100 7\n"
+			"make_node Log digest:log {$digest_path} 100 7\n"
 		);
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $stock );
 
@@ -852,13 +852,17 @@ class WorkersCITest extends TestCase {
 		$this->assertCount( 1, $entry['partitions'] );
 		$segments = $entry['partitions'][0]['segments'];
 		$this->assertCount( 3, $segments );
-		$this->assertSame( 30 + 20 + 10, $entry['partitions'][0]['total_size'] );
+		$this->assertSame( 10 + 20 + 30, $entry['partitions'][0]['total_size'] );
 
-		// Newest file (the current `digest.md`, size 30) gets the highest id.
+		// Segment ids come from the numeric suffix; highest-suffix is newest.
 		$by_id = [];
 		foreach ( $segments as $seg ) {
 			$by_id[ $seg['id'] ] = $seg['size'];
 		}
+		$this->assertSame( [ 0, 1, 2 ], \array_keys( $by_id ) );
+		$this->assertSame( 10, $by_id[0] );
+		$this->assertSame( 20, $by_id[1] );
+		$this->assertSame( 30, $by_id[2] );
 		$max_id = \max( \array_keys( $by_id ) );
 		$this->assertSame( 30, $by_id[ $max_id ] );
 
