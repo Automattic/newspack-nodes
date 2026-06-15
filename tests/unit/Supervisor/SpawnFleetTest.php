@@ -1,0 +1,99 @@
+<?php
+namespace Newspack_Nodes\Tests\Unit\Supervisor;
+
+use Newspack_Nodes\Bootstrap;
+use Newspack_Nodes\Supervisor;
+use Newspack_Nodes\Tests\TestCase;
+use PHPUnit\Framework\Attributes\CoversClass;
+
+#[CoversClass( Supervisor::class )]
+class SpawnFleetTest extends TestCase {
+	private string $tmp;
+
+	protected function setUp(): void {
+		parent::setUp();
+		$this->tmp                              = $this->make_temp_dir();
+		$GLOBALS['_test_outbound_posts']        = [];
+		Bootstrap::$supervisor_enabled_override = null;
+		Bootstrap::$supervisor_factory          = null;
+		$this->use_base_dir( $this->tmp );
+		// Active set = catalog ∩ this overlay (mirrors SupervisorTest::setUp).
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [
+			'firehose-workers',
+			'job-workers',
+		];
+		\Newspack_Nodes\Config::reset();
+	}
+
+	protected function tearDown(): void {
+		$this->rmdir_recursive( $this->tmp );
+		$GLOBALS['_test_outbound_posts'] = [];
+		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
+		\Newspack_Nodes\Config::reset();
+		parent::tearDown();
+	}
+
+	private function with_topology( array $topologies ): void {
+		\add_filter( 'newspack_nodes/topologies', function () use ( $topologies ) {
+			return $topologies;
+		} );
+	}
+
+	public function test_spawn_fleet_posts_one_spawn_per_partition(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 3, 'topology' => '/x.php' ],
+			'job-workers'      => [ 'num_partitions' => 1, 'topology' => '/y.php' ],
+		] );
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+
+		$count = $s->spawn_fleet( 'firehose-workers' );
+
+		$this->assertSame( 3, $count, 'three partitions → returns 3' );
+
+		$posts = $GLOBALS['_test_outbound_posts'] ?? [];
+		$this->assertCount( 3, $posts, 'three partitions → three spawn POSTs' );
+
+		$pairs = array_map(
+			fn ( $p ) => [ $p['args']['body']['type'], $p['args']['body']['partition'] ],
+			$posts
+		);
+		$this->assertEqualsCanonicalizing(
+			[
+				[ 'firehose-workers', 0 ],
+				[ 'firehose-workers', 1 ],
+				[ 'firehose-workers', 2 ],
+			],
+			$pairs,
+			'one spawn per partition of the named fleet, none for other fleets'
+		);
+	}
+
+	public function test_spawn_fleet_uses_a_valid_spawn_token(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 1, 'topology' => '/x.php' ],
+		] );
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+
+		$s->spawn_fleet( 'firehose-workers' );
+
+		$posts = $GLOBALS['_test_outbound_posts'] ?? [];
+		$this->assertCount( 1, $posts );
+		$token = $posts[0]['args']['body']['nonce'];
+		$this->assertTrue(
+			$s->validate_spawn_token( $token, \time() ),
+			'spawn_fleet reuses the supervisor spawn token'
+		);
+	}
+
+	public function test_spawn_fleet_unknown_name_spawns_nothing(): void {
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
+		] );
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+
+		$count = $s->spawn_fleet( 'does-not-exist' );
+
+		$this->assertSame( 0, $count );
+		$this->assertCount( 0, $GLOBALS['_test_outbound_posts'] ?? [] );
+	}
+}
