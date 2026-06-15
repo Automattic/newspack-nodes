@@ -80,11 +80,16 @@ function buildCommand( ci, verb, args, from, id ) {
 /**
  * Index the worker-status model's per-topology sections by name. The model's
  * `graph` keys ARE topology names; a topology's section is its graph entry plus
- * the workers whose `type` matches. A topology absent from the live graph has
- * no section (→ null), which is what the inactive rows get.
+ * the workers whose `type` matches, carried alongside the SAME enriched
+ * rate/segment/time slices WorkerStatus passes to TopologySection — so the
+ * manager tree renders rates / ETA / segment bars / uptime with full richness,
+ * not a degraded `{ graph, workers }` reduction (which both crashed TreeEntity's
+ * un-defaulted `byteRates` read and would have shown a false 0 B/s under load).
+ * A topology absent from the live graph has no section (→ null), which is what
+ * the inactive rows get.
  *
  * @param {Object} model The worker-status view model (may be null pre-poll).
- * @return {Object} name → section, for every topology present in the graph.
+ * @return {Object} name → enriched section, for every topology in the graph.
  */
 function sectionsByName( model ) {
 	if ( ! model || ! model.graph ) {
@@ -98,6 +103,12 @@ function sectionsByName( model ) {
 			workers: workers.filter(
 				( w ) => ( w.type ?? w.handler ) === name
 			),
+			byteRates: model.byteRates ?? {},
+			writeRates: model.writeRates ?? {},
+			segmentSize: model.segmentSize,
+			currentTime: model.currentTime,
+			prevSegments: model.prevSegments ?? {},
+			removingSegments: model.removingSegments ?? {},
 		};
 	}
 	return by;

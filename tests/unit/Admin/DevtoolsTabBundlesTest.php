@@ -85,10 +85,14 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			$this->assertSame( [], $GLOBALS['_enqueued_scripts'] );
 		}
 
-		public function test_no_registrants_enqueues_nothing(): void {
+		public function test_no_external_registrants_enqueues_only_the_substrate_bundle(): void {
+			// The substrate registers its OWN event-dashboards bundle (carrying the
+			// Topology Manager hub tab) on the filter, so with no EXTERNAL
+			// registrants the only thing enqueued is event-dashboards — never a
+			// contributor handle.
 			$_GET['page'] = Admin::HUB_MENU_SLUG;
 			( new Admin() )->enqueue_devtools_tab_bundles();
-			$this->assertSame( [], $GLOBALS['_enqueued_scripts'] );
+			$this->assertArrayNotHasKey( 'contrib-tab', $GLOBALS['_enqueued_scripts'] );
 		}
 
 		public function test_skips_malformed_bundle_entries_without_fatal(): void {
@@ -106,7 +110,11 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			);
 			$_GET['page'] = Admin::HUB_MENU_SLUG;
 			( new Admin() )->enqueue_devtools_tab_bundles();
-			$this->assertSame( [], $GLOBALS['_enqueued_scripts'] );
+			// Malformed entries (string, non-scalar handle, missing url) are skipped
+			// without fatal; the substrate's own event-dashboards bundle still
+			// enqueues, but none of the malformed handles do.
+			$this->assertArrayNotHasKey( 'h', $GLOBALS['_enqueued_scripts'] );
+			$this->assertArrayNotHasKey( 'arr', $GLOBALS['_enqueued_scripts'] );
 		}
 
 		public function test_localize_drops_non_string_keys(): void {

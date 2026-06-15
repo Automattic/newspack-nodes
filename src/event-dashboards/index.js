@@ -6,6 +6,7 @@
 
 import { createRoot } from '@wordpress/element';
 import './nodes/register';
+import './tabs';
 import WorkerStatusPage from './WorkerStatusPage';
 import RawLogsPage from './RawLogsPage';
 

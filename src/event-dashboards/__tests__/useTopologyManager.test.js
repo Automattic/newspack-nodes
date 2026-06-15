@@ -162,6 +162,26 @@ describe( 'useTopologyManager', () => {
 		expect( byName.b.status ).toBeNull();
 	} );
 
+	it( 'enriches the active section with the worker-status rate/segment/time slices', async () => {
+		const { client } = buildClient();
+		const { result } = renderHook( () =>
+			useTopologyManager( { commandClient: client } )
+		);
+		await act( async () => {} );
+
+		const status = result.current.topologies.find(
+			( t ) => 'a' === t.name
+		).status;
+		// The same enriched model slices WorkerStatus threads into
+		// TopologySection — not a degraded { graph, workers } reduction.
+		expect( status ).toHaveProperty( 'byteRates' );
+		expect( status ).toHaveProperty( 'writeRates' );
+		expect( status ).toHaveProperty( 'prevSegments' );
+		expect( status ).toHaveProperty( 'removingSegments' );
+		expect( status ).toHaveProperty( 'segmentSize' );
+		expect( status ).toHaveProperty( 'currentTime' );
+	} );
+
 	it( 'passes the supervisor card model through', async () => {
 		const { client } = buildClient();
 		const { result } = renderHook( () =>

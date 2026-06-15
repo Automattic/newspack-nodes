@@ -1922,6 +1922,46 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertSame( 'devtools-hub', $GLOBALS['_localized_scripts'][ $handle ]['data']['tree'] );
 	}
 
+	// ---- register_event_dashboards_tab_bundle -----------------------------
+
+	public function test_register_event_dashboards_tab_bundle_appends_event_dashboards_bundle(): void {
+		$admin   = new Admin();
+		$bundles = $admin->register_event_dashboards_tab_bundle( [] );
+
+		$match = null;
+		foreach ( $bundles as $bundle ) {
+			if ( \is_array( $bundle ) && ( $bundle['handle'] ?? '' ) === 'newspack-nodes-event-dashboards' ) {
+				$match = $bundle;
+				break;
+			}
+		}
+		$this->assertNotNull( $match, 'event-dashboards bundle not appended' );
+		$this->assertStringEndsWith( 'build/event-dashboards', (string) $match['dir'] );
+		$this->assertStringEndsWith( 'build/event-dashboards', (string) $match['url'] );
+	}
+
+	public function test_register_event_dashboards_tab_bundle_preserves_existing_bundles(): void {
+		$admin    = new Admin();
+		$existing  = [ 'handle' => 'some-other', 'dir' => '/x', 'url' => '/x' ];
+		$bundles   = $admin->register_event_dashboards_tab_bundle( [ $existing ] );
+
+		$this->assertContains( $existing, $bundles );
+		$this->assertCount( 2, $bundles );
+	}
+
+	public function test_event_dashboards_bundle_registered_on_devtools_tab_bundles_filter(): void {
+		// The constructor must hook register_event_dashboards_tab_bundle onto the
+		// filter so the Hub page enqueues event-dashboards (→ the manager tab).
+		new Admin();
+		$bundles = \apply_filters( 'newspack_nodes/devtools_tab_bundles', [] );
+
+		$handles = \array_map(
+			static fn ( $b ) => \is_array( $b ) ? ( $b['handle'] ?? '' ) : '',
+			\is_array( $bundles ) ? $bundles : []
+		);
+		$this->assertContains( 'newspack-nodes-event-dashboards', $handles );
+	}
+
 	// ---- helpers ----------------------------------------------------------
 
 	private function prepare_lock_dir( string $group, int $partition ): string {
