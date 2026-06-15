@@ -42,6 +42,10 @@ const ENTRIES = [
 		entry: 'src/admin-field-reset/index.js',
 		outDir: path.resolve( ROOT, 'build/admin-field-reset' ),
 	},
+	{
+		entry: 'src/devtools-hub/index.js',
+		outDir: path.resolve( ROOT, 'build/devtools-hub' ),
+	},
 ];
 
 buildDashboards( {
