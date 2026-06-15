@@ -1,0 +1,101 @@
+/**
+ * Topology Manager hub tab styles. Per-row controls (badge / toggle / restart)
+ * follow the manager-layout mockup; the live subtree reuses worker-status.scss.
+ */
+
+.nodes-tm {
+	&__topology {
+		margin-bottom: 14px;
+	}
+
+	&__heading {
+		display: flex;
+		align-items: center;
+		gap: 10px;
+		padding: 8px 0;
+	}
+
+	&__name {
+		font-weight: 600;
+		color: #e6e8eb;
+		font-size: 14px;
+	}
+
+	&__sub {
+		font-size: 11px;
+		color: #8a8f98;
+	}
+
+	&__badge {
+		display: inline-block;
+		font-size: 10px;
+		padding: 2px 7px;
+		border-radius: 10px;
+		font-weight: 600;
+		letter-spacing: 0.03em;
+
+		&--stock {
+			background: #2a313b;
+			color: #9bb4d4;
+		}
+
+		&--user {
+			background: #2d2a3b;
+			color: #b79bd4;
+		}
+
+		&--both {
+			background: #3b352a;
+			color: #d4bf9b;
+		}
+	}
+
+	&__toggle {
+		width: 34px;
+		height: 19px;
+		border-radius: 10px;
+		position: relative;
+		display: inline-block;
+		border: 0;
+		padding: 0;
+		cursor: pointer;
+		background: #3a3f47;
+
+		&::after {
+			content: '';
+			position: absolute;
+			top: 2px;
+			left: 2px;
+			width: 15px;
+			height: 15px;
+			border-radius: 50%;
+			background: #fff;
+			transition: left 0.15s;
+		}
+
+		&.is-on {
+			background: #3fb950;
+
+			&::after {
+				left: 17px;
+			}
+		}
+	}
+
+	&__restart {
+		font-size: 15px;
+		line-height: 1;
+		padding: 4px 9px;
+		border-radius: 6px;
+		background: #2a2d34;
+		color: #d29922;
+		border: 1px solid #353a42;
+		cursor: pointer;
+	}
+
+	&__stopped {
+		font-size: 12px;
+		color: #8a8f98;
+		margin: 0 0 0 4px;
+	}
+}

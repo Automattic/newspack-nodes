@@ -94,6 +94,10 @@ class Admin {
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_hub_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_tab_bundles' ] );
 
+		// The event-dashboards bundle carries the Topology Manager hub tab, so it
+		// must load on the Hub page too — advertise it as a DevTools tab bundle.
+		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_event_dashboards_tab_bundle' ] );
+
 		// Both hooks so first + subsequent saves restart correctly.
 		\add_action( 'updated_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
 		\add_action( 'added_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
@@ -295,6 +299,24 @@ class Admin {
 				]
 			);
 		}
+	}
+
+	/**
+	 * Advertise the event-dashboards bundle as a DevTools tab bundle so the Hub
+	 * page enqueues it and its `host: 'hub'` Topology Manager tab registers there.
+	 * (event-dashboards is also enqueued directly on Workers / Raw Logs; wp dedupes
+	 * by handle, so the double enqueue is harmless.)
+	 *
+	 * @param array<int,mixed> $bundles Existing tab bundles.
+	 * @return array<int,mixed> Bundles with the event-dashboards bundle appended.
+	 */
+	public function register_event_dashboards_tab_bundle( array $bundles ): array {
+		$bundles[] = [
+			'handle' => 'newspack-nodes-event-dashboards',
+			'dir'    => \NEWSPACK_NODES_DIR . 'build/event-dashboards',
+			'url'    => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-dashboards',
+		];
+		return $bundles;
 	}
 
 	/**
