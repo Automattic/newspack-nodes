@@ -38,13 +38,14 @@ const HOSTS = [ 'overlay', 'hub', 'both' ];
  * Register a DevTools tab.
  *
  * @param {Object}   descriptor
- * @param {string}   descriptor.id        Unique id; re-register = shadow.
- * @param {string}   descriptor.label     Tab-bar label.
- * @param {string}   descriptor.host      'overlay' | 'hub' | 'both'.
- * @param {Function} descriptor.component React component for the panel.
- * @param {number}   [descriptor.order=0] Sort weight; alpha by label within a weight.
- * @param {Function} [descriptor.gate]    Optional () => boolean; excluded when it returns false.
- * @param {*}        [descriptor.icon]    Optional @wordpress/icons element.
+ * @param {string}   descriptor.id          Unique id; re-register = shadow.
+ * @param {string}   descriptor.label       Tab-bar label.
+ * @param {string}   descriptor.host        'overlay' | 'hub' | 'both'.
+ * @param {Function} descriptor.component   React component for the panel.
+ * @param {number}   [descriptor.order=0]   Sort weight; alpha by label within a weight.
+ * @param {Function} [descriptor.gate]      Optional () => boolean; excluded when it returns false.
+ * @param {*}        [descriptor.icon]      Optional @wordpress/icons element.
+ * @param {boolean}  [descriptor.fullBleed] Tab owns its own full-height canvas; opts out of the host's default scroll container.
  */
 export function registerDevtoolsTab( descriptor ) {
 	const { id, label, host, component } = descriptor;

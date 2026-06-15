@@ -17,3 +17,20 @@
 		font-weight: 600;
 	}
 }
+
+// The active tab's content region. Scrolls vertically by default so a long
+// list tab stays usable inside a fixed-height host; a flex child so it claims
+// the space below the tab bar. `is-full-bleed` is for a tab that manages its
+// own scrolling/canvas (the console) — let it fill without an outer scrollbar.
+.nodes-devtools__tab-content {
+	flex: 1 1 auto;
+	min-height: 0;
+	overflow-y: auto;
+	overflow-x: hidden;
+
+	&.is-full-bleed {
+		overflow: hidden;
+		display: flex;
+		flex-direction: column;
+	}
+}

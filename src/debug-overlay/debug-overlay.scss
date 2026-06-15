@@ -53,12 +53,29 @@
 	display: flex;
 	flex-direction: column;
 
+	// The InspectorTab's root wrapper. It now sits between the panel and
+	// .topology-app — DevtoolsTabHost wraps the active tab in
+	// .nodes-devtools__tab-content.is-full-bleed (flex column, flex:1), so this
+	// wrapper must keep growing the chain: become a flex column that lets its
+	// single child (.topology-app) claim all the height. Without this, the
+	// wrapper's default display:block/height:auto collapses the cascade and
+	// .topology-app's height:100% resolves against an auto-height parent → the
+	// grid's 1fr canvas row gets no height.
+	.nodes-debug__inspector {
+		flex: 1;
+		min-height: 0;
+		display: flex;
+		flex-direction: column;
+	}
+
 	// Re-shape the shared graph app for the overlay: include the console's
 	// header row (so the themed Header sits INSIDE .topology-app and inherits
 	// the --paper/--ink theme tokens), then palette + canvas + REPL (+
 	// inspector when a node is selected). Reuses the real .topology-app
 	// grid-area names — header / palette / canvas / repl / inspector — so the
-	// shared graph-view.scss rules attach directly.
+	// shared graph-view.scss rules attach directly. .topology-app is now a flex
+	// child of .nodes-debug__inspector (above), so flex:1 + height:100% bound
+	// the grid against the inspector's resolved height.
 	.topology-app {
 		flex: 1;
 		height: 100%;
