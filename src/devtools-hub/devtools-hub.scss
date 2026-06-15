@@ -1,14 +1,15 @@
 /**
  * Full-page DevTools hub layout. The container is a fixed, full-height flex
- * column (tab bar on top, the selected tab filling the rest). A full-screen tab
- * — the Topology Console's `.topology-app` — hardcodes `height: calc(100vh -
- * 32px)` for its standalone mount; inside the hub the tab bar sits above it, so
- * we override it to fill the remaining flex space instead of overflowing by the
+ * column (tab bar on top, then `.nodes-devtools__tab-content` filling the rest —
+ * scrollable for list tabs, full-bleed for the console). A full-screen tab — the
+ * Topology Console's `.topology-app` — hardcodes `height: calc(100vh - 32px)`
+ * for its standalone mount; inside the hub the tab bar sits above it, so we
+ * override it to fill the remaining flex space instead of overflowing by the
  * bar's height.
  */
 
 .nodes-devtools-hub {
-	// The tab bar is a fixed-height row; the active tab takes the rest.
+	// The tab bar is a fixed-height row; the tab-content region takes the rest.
 	.nodes-devtools__tabbar {
 		flex: 0 0 auto;
 	}

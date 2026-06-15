@@ -1,38 +1,61 @@
 /**
- * Topology Manager hub tab styles. Per-row controls (badge / toggle / restart)
- * follow the manager-layout mockup; the live subtree reuses worker-status.scss.
+ * Topology Manager hub tab styles. A list of per-topology cards: a flex heading
+ * row (name + subtitle on the left; source badge, health, stalled pills, active
+ * toggle and restart on the right) over the live worker-status subtree. Palette
+ * tracks the event-dashboards dark theme (see styles/base.scss) so the embedded
+ * worker-status tree stays visually consistent. The live subtree itself is
+ * styled by worker-status.scss; this file only dresses the manager chrome.
  */
 
+@use "styles/base";
+
 .nodes-tm {
+	padding: 20px 16px 24px;
+	color: base.$dark-text;
+	font-family: base.$system-font;
+
 	&__topology {
-		margin-bottom: 14px;
+		margin-bottom: 18px;
+		background: base.$dark-bg-secondary;
+		border: 1px solid base.$dark-border;
+		border-radius: 6px;
+		overflow: hidden;
 	}
 
 	&__heading {
 		display: flex;
 		align-items: center;
 		gap: 10px;
-		padding: 8px 0;
+		padding: 12px 14px;
+		background: base.$dark-bg-deep;
+		border-bottom: 1px solid base.$dark-border;
 	}
 
 	&__name {
 		font-weight: 600;
-		color: #e6e8eb;
-		font-size: 14px;
+		color: base.$dark-text;
+		font-size: 15px;
 	}
 
 	&__sub {
-		font-size: 11px;
-		color: #8a8f98;
+		font-size: 12px;
+		color: base.$dark-text-muted;
+	}
+
+	// Push everything after the subtitle to the right edge.
+	&__sub + * {
+		margin-left: auto;
 	}
 
 	&__badge {
 		display: inline-block;
 		font-size: 10px;
-		padding: 2px 7px;
+		padding: 2px 8px;
 		border-radius: 10px;
 		font-weight: 600;
 		letter-spacing: 0.03em;
+		text-transform: uppercase;
+		white-space: nowrap;
 
 		&--stock {
 			background: #2a313b;
@@ -50,7 +73,55 @@
 		}
 	}
 
+	&__health {
+		display: inline-flex;
+		align-items: center;
+		gap: 5px;
+		font-size: 10px;
+		font-weight: 600;
+		letter-spacing: 0.03em;
+		text-transform: uppercase;
+		color: base.$dark-text-muted;
+
+		&::before {
+			content: '';
+			width: 8px;
+			height: 8px;
+			border-radius: 50%;
+			background: currentcolor;
+			flex: 0 0 auto;
+		}
+
+		&--ok {
+			color: #3fb950;
+		}
+
+		&--behind {
+			color: #d29922;
+		}
+
+		&--stalled {
+			color: #f85149;
+		}
+	}
+
+	&__pill {
+		display: inline-block;
+		font-size: 10px;
+		padding: 2px 8px;
+		border-radius: 10px;
+		font-weight: 600;
+		letter-spacing: 0.03em;
+		white-space: nowrap;
+
+		&--stalled {
+			background: #3b2a2a;
+			color: #f85149;
+		}
+	}
+
 	&__toggle {
+		flex: 0 0 auto;
 		width: 34px;
 		height: 19px;
 		border-radius: 10px;
@@ -59,7 +130,8 @@
 		border: 0;
 		padding: 0;
 		cursor: pointer;
-		background: #3a3f47;
+		background: base.$dark-bg-active;
+		transition: background 0.15s;
 
 		&::after {
 			content: '';
@@ -83,63 +155,29 @@
 	}
 
 	&__restart {
+		flex: 0 0 auto;
 		font-size: 15px;
 		line-height: 1;
 		padding: 4px 9px;
 		border-radius: 6px;
-		background: #2a2d34;
+		background: base.$dark-bg-tertiary;
 		color: #d29922;
-		border: 1px solid #353a42;
+		border: 1px solid base.$dark-border;
 		cursor: pointer;
+		transition: background 0.15s;
+
+		&:hover {
+			background: base.$dark-bg-hover;
+		}
+	}
+
+	&__body {
+		padding: 4px 14px 14px;
 	}
 
 	&__stopped {
 		font-size: 12px;
-		color: #8a8f98;
-		margin: 0 0 0 4px;
-	}
-
-	&__health {
-		display: inline-flex;
-		align-items: center;
-		gap: 5px;
-		font-size: 10px;
-		font-weight: 600;
-		letter-spacing: 0.03em;
-		color: #8a8f98;
-
-		&::before {
-			content: '';
-			width: 8px;
-			height: 8px;
-			border-radius: 50%;
-			background: currentcolor;
-		}
-
-		&--ok {
-			color: #3fb950;
-		}
-
-		&--behind {
-			color: #d29922;
-		}
-
-		&--stalled {
-			color: #f85149;
-		}
-	}
-
-	&__pill {
-		display: inline-block;
-		font-size: 10px;
-		padding: 2px 7px;
-		border-radius: 10px;
-		font-weight: 600;
-		letter-spacing: 0.03em;
-
-		&--stalled {
-			background: #3b2a2a;
-			color: #f85149;
-		}
+		color: base.$dark-text-muted;
+		margin: 8px 0 4px;
 	}
 }

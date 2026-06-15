@@ -7,11 +7,19 @@
  * shell (palette / canvas / inspector) plus header and REPL footer.
  */
 
-// Hide WP admin gunk so we own the viewport. The actual body class
-// is `{parent}_page_newspack-nodes-topology` — the parent slug varies
-// (toplevel vs submenu, slug rename, etc.), so match any class that
-// ends with `_page_newspack-nodes-topology` rather than enumerating.
-body[class*="_page_newspack-nodes-topology"] {
+// Hide WP admin gunk so we own the viewport — but ONLY when the console is
+// actually mounted in the HUB. The page slug `newspack-nodes-topology` is now
+// the DevTools HUB page, where the console is just one tab among several (the
+// Topology Manager is a long scrollable list). Gating on the body class alone
+// leaked these page-level rules (notably `#wpfooter { display: none }` +
+// `#wpbody-content { padding-bottom: 0 }`) onto the hub page whenever the
+// console bundle was enqueued, breaking page scroll on the manager tab. The
+// floating debug OVERLAY also renders a `.topology-app` (its Inspector), so a
+// bare `body:has(.topology-app)` would trigger these rules on any dashboard
+// page the moment the overlay opens. Scope to `.nodes-devtools-hub` (the hub
+// wrapper) so they apply ONLY while the Console tab is active inside the hub,
+// never for the overlay.
+body:has(.nodes-devtools-hub .topology-app) {
 	#wpcontent {
 		padding-left: 0;
 	}

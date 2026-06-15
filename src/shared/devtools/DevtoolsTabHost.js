@@ -5,6 +5,12 @@
  * ONLY the selected tab's component (keyed on the active id so each tab's
  * build-before-render runs fresh on switch). The component is told which `host`
  * it landed in and is spread the host's `tabProps`.
+ *
+ * The active tab mounts inside a per-tab scroll container
+ * (`.nodes-devtools__tab-content`): it scrolls vertically by default, so a long
+ * list tab (the Topology Manager) stays usable inside the hub's fixed wrapper. A
+ * tab declaring `fullBleed: true` (the Topology Console, which owns its own
+ * full-height canvas) opts out via `.is-full-bleed`.
  */
 import { useState } from '@wordpress/element';
 import { getDevtoolsTabs } from './tabRegistry';
@@ -52,8 +58,14 @@ export default function DevtoolsTabHost( {
 					) ) }
 				</div>
 			) }
-			{ /* host must win over any caller-supplied tabProps.host */ }
-			<Active key={ active.id } { ...tabProps } host={ host } />
+			<div
+				className={ `nodes-devtools__tab-content${
+					active.fullBleed ? ' is-full-bleed' : ''
+				}` }
+			>
+				{ /* host must win over any caller-supplied tabProps.host */ }
+				<Active key={ active.id } { ...tabProps } host={ host } />
+			</div>
 		</>
 	);
 }
