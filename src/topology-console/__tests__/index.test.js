@@ -58,4 +58,22 @@ describe( 'topology-console/index', () => {
 		document.dispatchEvent( new Event( 'DOMContentLoaded' ) );
 		expect( createRootMock ).toHaveBeenCalledWith( root );
 	} );
+
+	it( 'registers the console hub tab on import (so the bundle self-registers)', () => {
+		Object.defineProperty( document, 'readyState', {
+			configurable: true,
+			get: () => 'complete',
+		} );
+		const {
+			getDevtoolsTabs,
+			resetDevtoolsTabs,
+		} = require( '../../shared/devtools/tabRegistry' );
+		resetDevtoolsTabs();
+		require( '../index' );
+		const tab = getDevtoolsTabs( 'hub' ).find(
+			( t ) => t.id === 'topology-console'
+		);
+		expect( tab ).toBeTruthy();
+		expect( tab.host ).toBe( 'hub' );
+	} );
 } );
