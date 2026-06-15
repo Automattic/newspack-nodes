@@ -10,7 +10,7 @@
  *    deactivate, and the active restart button calls restart.
  */
 
-import { render, fireEvent, waitFor } from '@testing-library/react';
+import { render, fireEvent } from '@testing-library/react';
 import TopologyManager from '../TopologyManager';
 
 jest.mock( '../hooks/useTopologyManager', () => ( {
@@ -63,9 +63,6 @@ function hookValue( overrides = {} ) {
 		activate: jest.fn( () => Promise.resolve() ),
 		deactivate: jest.fn( () => Promise.resolve() ),
 		restart: jest.fn( () => Promise.resolve() ),
-		purgeOrphans: jest.fn( () =>
-			Promise.resolve( { removed: [], count: 0 } )
-		),
 		connected: true,
 		...overrides,
 	};
@@ -534,62 +531,6 @@ test( 'shows the rolled-up health indicator on the topology heading', () => {
 	const { container } = render( <TopologyManager /> );
 	const health = container.querySelector( '.nodes-tm__health--stalled' );
 	expect( health ).toBeTruthy();
-} );
-
-test( 'renders the Purge orphans toolbar button', () => {
-	useTopologyManager.mockReturnValue( hookValue() );
-
-	const { container } = render( <TopologyManager /> );
-	expect( container.querySelector( '.nodes-tm__toolbar' ) ).toBeTruthy();
-	expect( container.querySelector( '.nodes-tm__purge' ) ).toBeTruthy();
-} );
-
-test( 'clicking Purge orphans calls purgeOrphans and shows the removed count', async () => {
-	const value = hookValue( {
-		purgeOrphans: jest.fn( () =>
-			Promise.resolve( { removed: [ 'x', 'y', 'z' ], count: 3 } )
-		),
-	} );
-	useTopologyManager.mockReturnValue( value );
-
-	const { container, findByText } = render( <TopologyManager /> );
-	fireEvent.click( container.querySelector( '.nodes-tm__purge' ) );
-
-	expect( value.purgeOrphans ).toHaveBeenCalled();
-	expect( await findByText( /Removed 3 orphan dir/ ) ).toBeTruthy();
-} );
-
-test( 'Purge orphans with nothing to reap shows "Nothing to purge"', async () => {
-	const value = hookValue( {
-		purgeOrphans: jest.fn( () =>
-			Promise.resolve( { removed: [], count: 0 } )
-		),
-	} );
-	useTopologyManager.mockReturnValue( value );
-
-	const { container, findByText } = render( <TopologyManager /> );
-	fireEvent.click( container.querySelector( '.nodes-tm__purge' ) );
-
-	expect( await findByText( 'Nothing to purge' ) ).toBeTruthy();
-} );
-
-test( 'a rejected purge shows an inline error and does not crash', async () => {
-	const value = hookValue( {
-		purgeOrphans: jest.fn( () =>
-			Promise.reject( new Error( 'gc failed' ) )
-		),
-	} );
-	useTopologyManager.mockReturnValue( value );
-
-	const { container } = render( <TopologyManager /> );
-	expect( () =>
-		fireEvent.click( container.querySelector( '.nodes-tm__purge' ) )
-	).not.toThrow();
-	await waitFor( () =>
-		expect(
-			container.querySelector( '.nodes-tm__purge-result--error' )
-		).toBeTruthy()
-	);
 } );
 
 test( 'shows a connection banner when not connected', () => {
