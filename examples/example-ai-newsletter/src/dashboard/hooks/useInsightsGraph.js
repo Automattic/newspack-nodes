@@ -37,9 +37,11 @@ const HTTP = '_http';
 const VIEW = 'insights:view';
 
 /**
- * Build the `insights` TM_COMMAND: TO=`_http/insights` so the router peels
- * `_http` and HttpOut POSTs the bare command; FROM=`insights:view` is the reply
- * pivot (the CI replies TO=FROM, landing at the view).
+ * Build the `insights` TM_COMMAND: TO=`_http/insights-demo` so the router peels
+ * `_http` and HttpOut POSTs the bare command to the `insights-demo` server node
+ * (this example's CI mount; the real product owns the unsuffixed `insights`);
+ * FROM=`insights:view` is the reply pivot (the CI replies TO=FROM, landing at
+ * the view). The verb itself is still `insights` — it's namespaced to the node.
  *
  * @param {string} id Correlator stamped into message[ID].
  * @return {Array} A 7-field positional Message.
@@ -48,7 +50,7 @@ function buildInsightsCommand( id ) {
 	const m = newMessage();
 	m[ TYPE ] = TM_COMMAND;
 	m[ FROM ] = VIEW;
-	m[ TO ] = `${ HTTP }/insights`;
+	m[ TO ] = `${ HTTP }/insights-demo`;
 	m[ ID ] = id;
 	m[ VALUE ] = { name: 'insights', arguments: '' };
 	return m;

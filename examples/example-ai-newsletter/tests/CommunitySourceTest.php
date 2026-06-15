@@ -1,9 +1,9 @@
 <?php
 declare(strict_types=1);
 
-require_once dirname( __DIR__ ) . '/includes/class-community-source.php';
+require_once dirname( __DIR__ ) . '/includes/class-community-source-demo.php';
 
-use Example_AI_Newsletter\Community_Source_Node;
+use Example_AI_Newsletter\Community_Source_Demo_Node;
 use Newspack_Nodes\Message;
 use Newspack_Nodes\Tests\Capture_Sink_Node;
 use Newspack_Nodes\Tests\TestCase;
@@ -20,7 +20,7 @@ final class CommunitySourceTest extends TestCase {
 
 	public function test_tick_request_emits_community_items(): void {
 		$sink   = new Capture_Sink_Node();
-		$source = new Community_Source_Node();
+		$source = new Community_Source_Demo_Node();
 		$source->sink( $sink );
 
 		$req = $this->tick_request();
@@ -41,7 +41,7 @@ final class CommunitySourceTest extends TestCase {
 
 	public function test_tick_request_replies_with_emitted_count_to_caller(): void {
 		$sink   = new Capture_Sink_Node();
-		$source = new Community_Source_Node();
+		$source = new Community_Source_Demo_Node();
 		$source->sink( $sink );
 
 		$req = $this->tick_request();
@@ -60,12 +60,12 @@ final class CommunitySourceTest extends TestCase {
 	}
 
 	public function test_items_seam_is_overridable(): void {
-		$this->assertTrue( method_exists( Community_Source_Node::class, 'items' ) );
+		$this->assertTrue( method_exists( Community_Source_Demo_Node::class, 'items' ) );
 	}
 
 	public function test_emitted_message_carries_TO_from_target(): void {
 		$sink   = new Capture_Sink_Node();
-		$source = new Community_Source_Node();
+		$source = new Community_Source_Demo_Node();
 		$source->sink( $sink );
 		$source->connect_node( 'summarizer' );
 

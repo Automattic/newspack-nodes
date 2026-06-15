@@ -1,6 +1,6 @@
 <?php
 /**
- * Digest_Builder_Node: accumulates summaries; a FLUSH request emits a markdown draft.
+ * Digest_Builder_Demo_Node: accumulates summaries; a FLUSH request emits a markdown draft.
  *
  * @package Example_AI_Newsletter
  */
@@ -12,7 +12,7 @@ use Newspack_Nodes\Message;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Digest_Builder_Node extends Node {
+class Digest_Builder_Demo_Node extends Node {
 
 	/** @var array<int,array<array-key,mixed>> Accumulated summarized items (array-key: they round-trip through offsetlog JSON). */
 	private array $items = [];

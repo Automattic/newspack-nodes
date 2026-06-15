@@ -1,6 +1,6 @@
 <?php
 /**
- * Insights_CI_Node: the dashboard's server-side read. Its `insights` verb reads the
+ * Insights_CI_Demo_Node: the dashboard's server-side read. Its `insights` verb reads the
  * latest offsetlog snapshot the Consumer co-commits (the digest's save_state cache)
  * and returns a shaped model — durable, synchronous, no live-worker dependency.
  *
@@ -16,7 +16,7 @@ use Newspack_Nodes\Config;
 
 \defined( 'ABSPATH' ) || exit;
 
-class Insights_CI_Node extends Service_CI_Node {
+class Insights_CI_Demo_Node extends Service_CI_Node {
 
 	private const TOP_N = 10;
 
