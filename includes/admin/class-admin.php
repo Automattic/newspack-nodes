@@ -77,11 +77,10 @@ class Admin {
 		return \in_array( $current_user->user_login, $allowed_users, true );
 	}
 
-	/** Top-level menu slug for the topology console (its own admin entry, not under Settings). */
+	/** Top-level menu slug for the DevTools hub — the "Nodes" landing page (Console + Topologies tabs). */
 	public const TOPOLOGY_MENU_SLUG = 'newspack-nodes-topology';
 	public const WORKERS_MENU_SLUG  = 'newspack-nodes-workers';
 	public const RAWLOGS_MENU_SLUG  = 'newspack-nodes-rawlogs';
-	public const HUB_MENU_SLUG      = 'newspack-nodes-hub';
 
 	public function __construct() {
 		\add_action( 'admin_menu', [ $this, 'add_admin_menu' ] );
@@ -89,14 +88,15 @@ class Admin {
 		\add_action( 'admin_menu', [ $this, 'register_event_dashboard_pages' ], 11 );
 		\add_action( 'admin_init', [ $this, 'register_settings' ] );
 		\add_action( 'admin_post_' . self::RESET_ACTION, [ $this, 'handle_reset_settings' ] );
-		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_topology_console_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_event_dashboards_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_hub_assets' ] );
 		\add_action( 'admin_enqueue_scripts', [ $this, 'enqueue_devtools_tab_bundles' ] );
 
-		// The event-dashboards bundle carries the Topology Manager hub tab, so it
-		// must load on the Hub page too — advertise it as a DevTools tab bundle.
+		// The hub is the top-level "Nodes" page; the console + Topology Manager
+		// load on it as DevTools tab bundles (the console carries the partition
+		// snapshot its dropdown reads).
 		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_event_dashboards_tab_bundle' ] );
+		\add_filter( 'newspack_nodes/devtools_tab_bundles', [ $this, 'register_topology_console_tab_bundle' ] );
 
 		// Both hooks so first + subsequent saves restart correctly.
 		\add_action( 'updated_option', [ $this, 'maybe_request_worker_restart' ], 10, 1 );
@@ -104,7 +104,8 @@ class Admin {
 	}
 
 	/**
-	 * Register the Topology Console as a top-level admin menu (renders the React mount div).
+	 * Register the DevTools hub as the top-level "Nodes" admin menu (renders the
+	 * hub React mount div; the Console + Topologies load on it as tab bundles).
 	 */
 	public function register_topology_admin_page(): void {
 		if ( ! self::current_user_allowed() ) {
@@ -118,7 +119,7 @@ class Admin {
 			\__( 'Nodes', 'newspack-nodes' ),
 			'manage_options',
 			self::TOPOLOGY_MENU_SLUG,
-			[ $this, 'render_topology_page' ],
+			[ $this, 'render_hub_page' ],
 			'dashicons-networking',
 			81
 		);
@@ -149,14 +150,6 @@ class Admin {
 			'manage_options',
 			self::RAWLOGS_MENU_SLUG,
 			static fn () => print( '<div id="newspack-nodes-rawlogs" class="newspack-nodes-rawlogs-page"></div>' )
-		);
-		\add_submenu_page(
-			self::TOPOLOGY_MENU_SLUG,
-			\__( 'Hub', 'newspack-nodes' ),
-			\__( 'Hub', 'newspack-nodes' ),
-			'manage_options',
-			self::HUB_MENU_SLUG,
-			static fn () => print( '<div id="newspack-nodes-hub" class="newspack-nodes-hub-page"></div>' )
 		);
 	}
 
@@ -249,13 +242,13 @@ class Admin {
 	}
 
 	/**
-	 * Enqueue the DevTools hub bundle on the Hub page.
+	 * Enqueue the DevTools hub bundle on the top-level "Nodes" page.
 	 */
 	public function enqueue_devtools_hub_assets( string $hook = '' ): void {
 		self::enqueue_react_page(
 			[
 				'handle'   => 'newspack-nodes-devtools-hub',
-				'page'     => self::HUB_MENU_SLUG,
+				'page'     => self::TOPOLOGY_MENU_SLUG,
 				'dir'      => \NEWSPACK_NODES_DIR . 'build/devtools-hub',
 				'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/devtools-hub',
 				'localize' => [
@@ -271,8 +264,8 @@ class Admin {
 	 *
 	 * A contributor returns `{ handle, dir, url }` (the `enqueue_react_page` shape)
 	 * via the `newspack_nodes/devtools_tab_bundles` filter; each is enqueued on the
-	 * Hub page AND the overlay-bearing pages (Workers / Raw Logs) so its tabs
-	 * register in whichever host they target. The per-bundle page-gate +
+	 * top-level hub page AND the overlay-bearing pages (Workers / Raw Logs) so its
+	 * tabs register in whichever host they target. The per-bundle page-gate +
 	 * existence/manifest handling is `enqueue_react_page`'s.
 	 */
 	public function enqueue_devtools_tab_bundles( string $hook = '' ): void {
@@ -280,7 +273,7 @@ class Admin {
 		if ( ! \is_array( $bundles ) ) {
 			return;
 		}
-		$pages = [ self::HUB_MENU_SLUG, self::WORKERS_MENU_SLUG, self::RAWLOGS_MENU_SLUG ];
+		$pages = [ self::TOPOLOGY_MENU_SLUG, self::WORKERS_MENU_SLUG, self::RAWLOGS_MENU_SLUG ];
 		foreach ( $bundles as $bundle ) {
 			if ( ! \is_array( $bundle ) || ! isset( $bundle['handle'], $bundle['dir'], $bundle['url'] ) ) {
 				continue;
@@ -302,7 +295,7 @@ class Admin {
 	}
 
 	/**
-	 * Advertise the event-dashboards bundle as a DevTools tab bundle so the Hub
+	 * Advertise the event-dashboards bundle as a DevTools tab bundle so the hub
 	 * page enqueues it and its `host: 'hub'` Topology Manager tab registers there.
 	 * (event-dashboards is also enqueued directly on Workers / Raw Logs; wp dedupes
 	 * by handle, so the double enqueue is harmless.)
@@ -320,34 +313,17 @@ class Admin {
 	}
 
 	/**
-	 * Render the topology console mount element.
+	 * Advertise the topology-console bundle as a DevTools tab bundle so the hub
+	 * page enqueues it and its `host: 'hub'` Console tab registers there. Carries
+	 * the partition snapshot the React dropdown reads (the SAME canonical
+	 * derivation the `topologies.list` verb uses, so the page-load snapshot and
+	 * the live refetch can't disagree).
+	 *
+	 * @param array<int,mixed> $bundles Existing tab bundles.
+	 * @return array<int,mixed> Bundles with the topology-console bundle appended.
 	 */
-	public function render_topology_page(): void {
-		if ( ! self::current_user_allowed() ) {
-			\wp_die( \esc_html__( 'You do not have permission to access this page.', 'newspack-nodes' ) );
-		}
-		echo '<div id="newspack-nodes-topology-console" class="newspack-nodes-topology-console-page"></div>';
-	}
-
-	/**
-	 * Enqueue the topology-console bundle on its admin page.
-	 */
-	public function enqueue_topology_console_assets( string $hook = '' ): void {
-		if ( ! \function_exists( 'wp_enqueue_script' ) ) {
-			return;
-		}
-		// Cheap page-gate before the partition snapshot below: the registrar
-		// re-checks, but this skips the Topology_Registry walk on every other
-		// admin page (fail early, fail cheap).
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$page = isset( $_GET['page'] ) && \is_string( $_GET['page'] ) ? \sanitize_text_field( \wp_unslash( $_GET['page'] ) ) : '';
-		if ( self::TOPOLOGY_MENU_SLUG !== $page ) {
-			return;
-		}
-
-		// Per-topology partition counts for the React dropdown — the SAME canonical
-		// derivation the `topologies.list` verb uses, so the page-load snapshot and
-		// the live refetch can't disagree (Bootstrap::num_partitions_for).
+	public function register_topology_console_tab_bundle( array $bundles ): array {
+		// Per-topology partition counts for the React dropdown.
 		$topology_partitions = [];
 		foreach ( \Newspack_Nodes\Topology_Registry::list() as $name ) {
 			if ( '' === $name ) {
@@ -366,21 +342,30 @@ class Admin {
 		$config_np  = Config::load_config()['num_partitions'] ?? 1;
 		$default_np = (int) ( \is_scalar( $config_np ) ? $config_np : 1 );
 
-		self::enqueue_react_page(
-			[
-				'handle'   => 'newspack-nodes-topology-console',
-				'page'     => self::TOPOLOGY_MENU_SLUG,
-				'dir'      => \NEWSPACK_NODES_DIR . 'build/topology-console',
-				'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/topology-console',
-				'localize' => [
-					'tree'                => 'topology-console',
-					'version'             => \NEWSPACK_NODES_VERSION,
-					'topologyPartitions'  => $topology_partitions,
-					'activeTopologies'    => $active_topologies,
-					'configNumPartitions' => $default_np,
-				],
-			]
-		);
+		$bundles[] = [
+			'handle'   => 'newspack-nodes-topology-console',
+			'dir'      => \NEWSPACK_NODES_DIR . 'build/topology-console',
+			'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/topology-console',
+			'localize' => [
+				'tree'                => 'topology-console',
+				'version'             => \NEWSPACK_NODES_VERSION,
+				'topologyPartitions'  => $topology_partitions,
+				'activeTopologies'    => $active_topologies,
+				'configNumPartitions' => $default_np,
+			],
+		];
+		return $bundles;
+	}
+
+	/**
+	 * Render the DevTools hub mount element — the top-level "Nodes" landing page
+	 * (Console + Topologies tabs load on it via the devtools_tab_bundles filter).
+	 */
+	public function render_hub_page(): void {
+		if ( ! self::current_user_allowed() ) {
+			\wp_die( \esc_html__( 'You do not have permission to access this page.', 'newspack-nodes' ) );
+		}
+		echo '<div id="newspack-nodes-hub" class="newspack-nodes-hub-page"></div>';
 	}
 
 	/**

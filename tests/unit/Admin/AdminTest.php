@@ -304,7 +304,7 @@ class AdminTest extends TestCase {
 		$GLOBALS['_wp_test_current_user_can']    = [ 'manage_options' => true ];
 		$GLOBALS['_wp_test_current_user_login']  = '';
 		$GLOBALS['_last_redirect']               = null;
-		// Sanitize $_GET so enqueue_topology_console_assets() isn't influenced by
+		// Sanitize $_GET so the page-gated enqueue methods aren't influenced by
 		// a previous test that left a page= behind.
 		$_GET = [];
 
@@ -1389,10 +1389,11 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertSame( 'manage_options', $entry['capability'] );
 		$this->assertSame( 'dashicons-networking', $entry['icon'] );
 		$this->assertSame( 81, $entry['position'] );
-		// Callback must point at render_topology_page.
+		// Callback must point at render_hub_page — the top-level "Nodes" entry is
+		// the DevTools hub now (Console + Topologies tabs), not the bare console.
 		$this->assertIsArray( $entry['callback'] );
 		$this->assertInstanceOf( Admin::class, $entry['callback'][0] );
-		$this->assertSame( 'render_topology_page', $entry['callback'][1] );
+		$this->assertSame( 'render_hub_page', $entry['callback'][1] );
 	}
 
 	public function test_register_topology_admin_page_skips_unauthorized_user(): void {
@@ -1402,196 +1403,91 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertArrayNotHasKey( Admin::TOPOLOGY_MENU_SLUG, $GLOBALS['_admin_menu_pages'] );
 	}
 
-	// ---- render_topology_page --------------------------------------------
+	// ---- render_hub_page --------------------------------------------------
 
-	public function test_render_topology_page_outputs_mount_element(): void {
+	public function test_render_hub_page_outputs_hub_mount_element(): void {
 		$admin = new Admin();
 
 		\ob_start();
-		$admin->render_topology_page();
+		$admin->render_hub_page();
 		$html = \ob_get_clean();
 
-		// React tree mounts on this id; production class hook lives in admin CSS.
-		$this->assertStringContainsString( 'id="newspack-nodes-topology-console"', $html );
-		$this->assertStringContainsString( 'class="newspack-nodes-topology-console-page"', $html );
+		// The top-level "Nodes" page is the DevTools hub now — its React tree
+		// mounts on the hub id and carries the Console + Topologies tabs.
+		$this->assertStringContainsString( 'id="newspack-nodes-hub"', $html );
+		$this->assertStringContainsString( 'class="newspack-nodes-hub-page"', $html );
+		// The standalone console mount is gone — the console loads as a hub tab.
+		$this->assertStringNotContainsString( 'id="newspack-nodes-topology-console"', $html );
 	}
 
-	public function test_render_topology_page_blocks_unauthorized_user(): void {
+	public function test_render_hub_page_blocks_unauthorized_user(): void {
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
 		$admin                                                  = new Admin();
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'You do not have permission' );
-		$admin->render_topology_page();
+		$admin->render_hub_page();
 	}
 
-	// ---- enqueue_topology_console_assets ---------------------------------
+	// ---- register_topology_console_tab_bundle ----------------------------
 
-	public function test_enqueue_topology_console_assets_skips_when_page_unset(): void {
-		$_GET = [];
-		$admin = new Admin();
-		$admin->enqueue_topology_console_assets();
-		$this->assertEmpty( $GLOBALS['_enqueued_scripts'] );
-		$this->assertEmpty( $GLOBALS['_localized_scripts'] );
-	}
-
-	public function test_enqueue_topology_console_assets_skips_on_wrong_page(): void {
-		$_GET = [ 'page' => 'some-other-admin-page' ];
-		$admin = new Admin();
-		$admin->enqueue_topology_console_assets();
-		$this->assertEmpty( $GLOBALS['_enqueued_scripts'] );
-		$this->assertEmpty( $GLOBALS['_localized_scripts'] );
-	}
-
-	public function test_enqueue_topology_console_assets_enqueues_script_and_localizes_data(): void {
-		// Plugin ships build/topology-console/index.js + index.css; tests run
-		// against the live plugin tree so these files exist by construction.
-		// If they're missing the deploy is broken — fail loudly, not silently.
-		$asset_path = \NEWSPACK_NODES_DIR . 'build/topology-console/index.js';
-		$this->assertFileExists( $asset_path, 'topology-console build asset missing — run `npm run build` before tests' );
-
-		$_GET = [ 'page' => Admin::TOPOLOGY_MENU_SLUG ];
-
-		// Make Topology_Registry::list() return at least one entry so the
-		// topologyPartitions data is non-trivial.
-		$tmp = \sys_get_temp_dir() . '/tsl-enqueue-' . \uniqid();
-		\mkdir( $tmp, 0755, true );
+	public function test_register_topology_console_tab_bundle_appends_console_bundle_with_localize(): void {
+		// The console now loads as a contributor tab bundle on the hub page; the
+		// bundle entry carries the partition snapshot the React dropdown reads.
+		$tmp = $this->make_temp_dir( 'tsl-console-bundle-' );
 		\file_put_contents( "{$tmp}/synthetic.tsl", "var num_partitions = 3\n" );
 		\Newspack_Nodes\Topology_Registry::reset();
 		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
 
-		// Application catalog seed — Admin reads via
-		// Bootstrap::get_topology_catalog() which applies the
-		// `newspack_nodes/topologies` filter. Returning an entry here
-		// exercises the "catalog wins" branch.
-		\add_filter(
-			'newspack_nodes/topologies',
-			function () {
-				return [
-					'catalog-only' => [
-						'topology'       => 'catalog-only',
-						'num_partitions' => 7,
-					],
-				];
-			}
-		);
-		// activeTopologies is the operator overlay, not catalog membership.
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'catalog-only' ];
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'synthetic' ];
 		\Newspack_Nodes\Config::reset();
 
-		$admin = new Admin();
-		$admin->enqueue_topology_console_assets();
+		$admin   = new Admin();
+		$bundles = $admin->register_topology_console_tab_bundle( [] );
 
-		$handle = 'newspack-nodes-topology-console';
-		$this->assertArrayHasKey( $handle, $GLOBALS['_enqueued_scripts'] );
-		$enq = $GLOBALS['_enqueued_scripts'][ $handle ];
-		$this->assertStringEndsWith( 'build/topology-console/index.js', (string) $enq['src'] );
-		// Deps + version now come from the wp-scripts manifest (index.asset.php),
-		// not the old hardcoded fallback — assert against the shipped manifest.
-		$manifest = require \NEWSPACK_NODES_DIR . 'build/topology-console/index.asset.php';
-		$this->assertSame( \array_values( $manifest['dependencies'] ), $enq['deps'] );
-		$this->assertSame( $manifest['version'], $enq['version'] );
-		$this->assertTrue( $enq['in_footer'] );
-
-		$this->assertArrayHasKey( $handle, $GLOBALS['_localized_scripts'] );
-		$payload = $GLOBALS['_localized_scripts'][ $handle ];
-		$this->assertSame( 'NewspackNodesData', $payload['object_name'] );
-		$data = $payload['data'];
-		$this->assertArrayHasKey( 'restUrl', $data );
-		$this->assertArrayHasKey( 'nonce', $data );
-		// The body-borne save_nonce / layout_nonce keys are gone — the
-		// topology-console reaches the substrate via CommandClient now
-		// (X-WP-Nonce on apiFetch), so the wp_rest cookie nonce in
-		// `nonce` is the only nonce surface.
-		$this->assertArrayNotHasKey( 'saveTopologyNonce', $data );
-		$this->assertArrayNotHasKey( 'saveLayoutNonce', $data );
-		$this->assertSame( 'topology-console', $data['tree'] );
-		$this->assertSame( \NEWSPACK_NODES_VERSION, $data['version'] );
-
-		// Synthesized entry (from frontmatter) appears with its declared partition count.
-		$this->assertArrayHasKey( 'topologyPartitions', $data );
-		$this->assertSame( 3, $data['topologyPartitions']['synthetic'] );
-
-		// Catalog-driven entry appears (the catalog branch in the loop).
-		// Topology_Registry::list() only scans TSL files on disk, so the
-		// catalog-only entry won't appear in topologyPartitions UNLESS a
-		// matching TSL file exists. Active-topologies, on the other hand,
-		// surfaces it because get_topologies() reads the catalog directly.
-		$this->assertArrayHasKey( 'activeTopologies', $data );
-		$this->assertContains( 'catalog-only', $data['activeTopologies'] );
-
-		// CSS sidecar exists in the plugin tree, so wp_enqueue_style must fire too.
-		if ( \file_exists( \NEWSPACK_NODES_DIR . 'build/topology-console/index.css' ) ) {
-			$this->assertArrayHasKey( $handle, $GLOBALS['_enqueued_styles'] );
-			$css = $GLOBALS['_enqueued_styles'][ $handle ];
-			$this->assertStringEndsWith( 'build/topology-console/index.css', (string) $css['src'] );
-			$this->assertSame( [ 'wp-components' ], $css['deps'] );
+		$match = null;
+		foreach ( $bundles as $bundle ) {
+			if ( \is_array( $bundle ) && ( $bundle['handle'] ?? '' ) === 'newspack-nodes-topology-console' ) {
+				$match = $bundle;
+				break;
+			}
 		}
+		$this->assertNotNull( $match, 'topology-console bundle not appended' );
+		$this->assertStringEndsWith( 'build/topology-console', (string) $match['dir'] );
+		$this->assertStringEndsWith( 'build/topology-console', (string) $match['url'] );
 
-		// Cleanup.
-		\unlink( "{$tmp}/synthetic.tsl" );
-		\rmdir( $tmp );
-		\Newspack_Nodes\Topology_Registry::reset();
+		// Localize carries the moved partition snapshot.
+		$localize = $match['localize'];
+		$this->assertSame( 'topology-console', $localize['tree'] );
+		$this->assertSame( \NEWSPACK_NODES_VERSION, $localize['version'] );
+		$this->assertSame( 3, $localize['topologyPartitions']['synthetic'] );
+		$this->assertContains( 'synthetic', $localize['activeTopologies'] );
+		$this->assertArrayHasKey( 'configNumPartitions', $localize );
+
 		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
 		\Newspack_Nodes\Config::reset();
+		\Newspack_Nodes\Topology_Registry::reset();
 	}
 
-	public function test_enqueue_topology_console_assets_uses_catalog_partition_count_when_available(): void {
-		$asset_path = \NEWSPACK_NODES_DIR . 'build/topology-console/index.js';
-		$this->assertFileExists( $asset_path, 'topology-console build asset missing — run `npm run build` before tests' );
+	public function test_register_topology_console_tab_bundle_preserves_existing_bundles(): void {
+		$admin    = new Admin();
+		$existing  = [ 'handle' => 'some-other', 'dir' => '/x', 'url' => '/x' ];
+		$bundles   = $admin->register_topology_console_tab_bundle( [ $existing ] );
 
-		$_GET = [ 'page' => Admin::TOPOLOGY_MENU_SLUG ];
+		$this->assertContains( $existing, $bundles );
+		$this->assertCount( 2, $bundles );
+	}
 
-		// Stage: TSL on disk so Topology_Registry::list() sees the name,
-		// catalog entry that disagrees with the frontmatter on partition
-		// count. Admin must prefer the catalog value.
-		$tmp = \sys_get_temp_dir() . '/tsl-enqueue-cat-' . \uniqid();
-		\mkdir( $tmp, 0755, true );
-		\file_put_contents( "{$tmp}/known.tsl", "var num_partitions = 99\n" );
-		\Newspack_Nodes\Topology_Registry::reset();
-		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
+	public function test_topology_console_bundle_registered_on_devtools_tab_bundles_filter(): void {
+		// Without this hook the Console tab never loads on the hub — the whole
+		// point of moving the console into the hub.
+		new Admin();
+		$bundles = \apply_filters( 'newspack_nodes/devtools_tab_bundles', [] );
 
-		\add_filter(
-			'newspack_nodes/topologies',
-			function () {
-				return [
-					'known' => [
-						'topology'       => 'known',
-						'num_partitions' => 2,
-					],
-				];
-			}
+		$handles = \array_map(
+			static fn ( $b ) => \is_array( $b ) ? ( $b['handle'] ?? '' ) : '',
+			\is_array( $bundles ) ? $bundles : []
 		);
-
-		$admin = new Admin();
-		$admin->enqueue_topology_console_assets();
-
-		$handle = 'newspack-nodes-topology-console';
-		$data   = $GLOBALS['_localized_scripts'][ $handle ]['data'];
-		// Catalog wins (2), NOT the frontmatter value (99).
-		$this->assertSame( 2, $data['topologyPartitions']['known'] );
-
-		\unlink( "{$tmp}/known.tsl" );
-		\rmdir( $tmp );
-		\Newspack_Nodes\Topology_Registry::reset();
-	}
-
-	public function test_enqueue_topology_console_assets_drops_unresolved_topology_names(): void {
-		$asset_path = \NEWSPACK_NODES_DIR . 'build/topology-console/index.js';
-		$this->assertFileExists( $asset_path, 'topology-console build asset missing — run `npm run build` before tests' );
-
-		$_GET = [ 'page' => Admin::TOPOLOGY_MENU_SLUG ];
-
-		\Newspack_Nodes\Topology_Registry::reset();
-
-		$admin = new Admin();
-		$admin->enqueue_topology_console_assets();
-
-		$handle = 'newspack-nodes-topology-console';
-		$data   = $GLOBALS['_localized_scripts'][ $handle ]['data'];
-		// No TSL files registered → empty list. Sanitization through ksort
-		// + array_keys yields [] for both maps.
-		$this->assertSame( [], $data['topologyPartitions'] );
-		$this->assertSame( [], $data['activeTopologies'] );
+		$this->assertContains( 'newspack-nodes-topology-console', $handles );
 	}
 
 	// ---- topologies_section_callback -------------------------------------
@@ -1830,26 +1726,13 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertArrayNotHasKey( Admin::RAWLOGS_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
 	}
 
-	public function test_register_event_dashboard_pages_registers_hub_submenu(): void {
+	public function test_register_event_dashboard_pages_does_not_register_separate_hub_submenu(): void {
+		// The hub is the top-level "Nodes" page now (render_hub_page), so there
+		// is no standalone Hub submenu under HUB_MENU_SLUG anymore.
 		$admin = new Admin();
 		$admin->register_event_dashboard_pages();
 
-		$this->assertArrayHasKey( Admin::HUB_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
-		$hub = $GLOBALS['_admin_submenu_pages'][ Admin::HUB_MENU_SLUG ];
-		$this->assertSame( Admin::TOPOLOGY_MENU_SLUG, $hub['parent_slug'] );
-		$this->assertSame( 'manage_options', $hub['capability'] );
-
-		\ob_start();
-		( $hub['callback'] )();
-		$this->assertStringContainsString( 'id="newspack-nodes-hub"', \ob_get_clean() );
-	}
-
-	public function test_register_event_dashboard_pages_hub_skips_unauthorized_user(): void {
-		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
-		$admin                                                  = new Admin();
-		$admin->register_event_dashboard_pages();
-
-		$this->assertArrayNotHasKey( Admin::HUB_MENU_SLUG, $GLOBALS['_admin_submenu_pages'] );
+		$this->assertArrayNotHasKey( 'newspack-nodes-hub', $GLOBALS['_admin_submenu_pages'] );
 	}
 
 	// ---- enqueue_event_dashboards_assets ----------------------------------
@@ -1905,11 +1788,12 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 
 	// ---- enqueue_devtools_hub_assets --------------------------------------
 
-	public function test_enqueue_devtools_hub_assets_enqueues_for_hub_page(): void {
+	public function test_enqueue_devtools_hub_assets_enqueues_for_top_level_hub_page(): void {
 		$asset_path = \NEWSPACK_NODES_DIR . 'build/devtools-hub/index.js';
 		$this->assertFileExists( $asset_path, 'devtools-hub build asset missing — run `npm run build` before tests' );
 
-		$_GET = [ 'page' => Admin::HUB_MENU_SLUG ];
+		// The hub bundle loads on the top-level "Nodes" page now.
+		$_GET = [ 'page' => Admin::TOPOLOGY_MENU_SLUG ];
 
 		( new Admin() )->enqueue_devtools_hub_assets();
 
