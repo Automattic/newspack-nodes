@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once dirname( __DIR__ ) . '/includes/class-insights-ci-demo.php';
+require_once dirname( __DIR__ ) . '/includes/class-insights-ci-demo-node.php';
 require_once dirname( __DIR__ ) . '/example-ai-newsletter.php';
 
 use Newspack_Nodes\Command_Interpreter_Node;

@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once dirname( __DIR__ ) . '/includes/class-scorer-demo.php';
+require_once dirname( __DIR__ ) . '/includes/class-scorer-demo-node.php';
 
 use Example_AI_Newsletter\Scorer_Demo_Node;
 use Newspack_Nodes\Message;

@@ -9,12 +9,12 @@
 
 declare(strict_types=1);
 
-require_once dirname( __DIR__ ) . '/includes/class-releases-source-demo.php';
-require_once dirname( __DIR__ ) . '/includes/class-community-source-demo.php';
-require_once dirname( __DIR__ ) . '/includes/class-summarizer-demo.php';
-require_once dirname( __DIR__ ) . '/includes/class-scorer-demo.php';
-require_once dirname( __DIR__ ) . '/includes/class-digest-builder-demo.php';
-require_once dirname( __DIR__ ) . '/includes/class-insights-ci-demo.php';
+require_once dirname( __DIR__ ) . '/includes/class-releases-source-demo-node.php';
+require_once dirname( __DIR__ ) . '/includes/class-community-source-demo-node.php';
+require_once dirname( __DIR__ ) . '/includes/class-summarizer-demo-node.php';
+require_once dirname( __DIR__ ) . '/includes/class-scorer-demo-node.php';
+require_once dirname( __DIR__ ) . '/includes/class-digest-builder-demo-node.php';
+require_once dirname( __DIR__ ) . '/includes/class-insights-ci-demo-node.php';
 
 use Example_AI_Newsletter\Releases_Source_Demo_Node;
 use Example_AI_Newsletter\Community_Source_Demo_Node;
