@@ -38,8 +38,11 @@ class Insights_CI_Demo_Node extends Service_CI_Node {
 	 * @return array{sources: array<string,int>, top: array<int,array<string,mixed>>, accumulated: int}
 	 */
 	public static function read_insights_model( string $offsets_dir ): array {
+		// `example-scored` (not `scored`) so this demo's offsetlog is isolated from a
+		// real plugin's `scored` log in the same substrate dir. MUST match the scored
+		// partition/consumer paths in topologies/example-ai-newsletter.tsl.
 		$empty = [ 'sources' => [], 'top' => [], 'accumulated' => 0 ];
-		$dirs  = \glob( \rtrim( $offsets_dir, '/' ) . '/scored.p*', \GLOB_ONLYDIR );
+		$dirs  = \glob( \rtrim( $offsets_dir, '/' ) . '/example-scored.p*', \GLOB_ONLYDIR );
 		if ( false === $dirs || [] === $dirs ) {
 			return $empty;
 		}

@@ -109,7 +109,7 @@ final class PipelineTest extends TestCase {
 		// side of a respawn is unit-covered in DigestBuilderTest; this pins the durable read.
 		$offsets         = $this->make_temp_dir( 'pipeline-respawn-' );
 		$this->created[] = $offsets;
-		\mkdir( "$offsets/scored.p0", 0777, true );
+		\mkdir( "$offsets/example-scored.p0", 0777, true );
 
 		$digest = new Digest_Builder_Demo_Node();
 		$digest->name( 'digest' );
@@ -118,7 +118,7 @@ final class PipelineTest extends TestCase {
 
 		$consumer = new Consumer_Node();
 		$consumer->name( 'scored:consumer' );
-		$consumer->arguments( "$offsets/src.log $offsets/scored.p0" );
+		$consumer->arguments( "$offsets/src.log $offsets/example-scored.p0" );
 		$consumer->set_snapshot_node( 'digest' );
 		$consumer->checkpoint();
 
