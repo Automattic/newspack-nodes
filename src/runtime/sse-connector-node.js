@@ -1,5 +1,6 @@
 /* global EventSource */
 import { Node, parseSchemaArgs } from './node';
+import { Core } from './core';
 import { TYPE, KEY, VALUE, TM_INFO, unpack } from './message';
 
 /**
@@ -70,6 +71,18 @@ export class SseConnectorNode extends Node {
 			}
 			this.lastEventTime = Date.now();
 			const message = unpack( e.data );
+			// Every real frame carries a type flag: the server packs full Messages,
+			// and even a tailed log line arrives as a Consumer-unpacked Message with
+			// the producer's type. A typeless frame is therefore always malformed —
+			// a partial/empty flush (e.g. while the server restarts) that unpack()
+			// turned into a pristine Message. Routing it only earns a router
+			// "message not addressed - TYPE_UNKNOWN" drop, so reject it loudly here.
+			if ( ! message[ TYPE ] ) {
+				Core.printLessOften(
+					'SseConnectorNode: dropped a malformed typeless SSE frame'
+				);
+				return;
+			}
 			if ( message[ TYPE ] & TM_INFO && 'connected' === message[ KEY ] ) {
 				// Snoop-only: the envelope drives pid()/the `connected` event; it is
 				// metadata, not a graph message — don't route it (it would land in

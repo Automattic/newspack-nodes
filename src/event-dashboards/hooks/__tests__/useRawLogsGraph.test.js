@@ -26,6 +26,7 @@ import {
 	TM_INFO,
 	TM_COMMAND,
 	TM_RESPONSE,
+	TM_BYTESTREAM,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
 import { useNodeState } from '../../../runtime/react';
@@ -191,8 +192,11 @@ describe( 'useRawLogsGraph — end-to-end routing through the exospine', () => {
 		await act( async () => {} );
 		// Drive a `connected` envelope so the heartbeat has a slot to poke.
 		FakeEventSource.last.dispatch( 'msg', pack( connectedEnvelope() ) );
-		// Drive a real log line.
+		// Drive a real log line — a Consumer-unpacked firehose entry carries the
+		// producer's type (a string VALUE is TM_BYTESTREAM); a typeless frame would
+		// (correctly) be dropped at the SSE ingress boundary.
 		const env = newMessage();
+		env[ TYPE ] = TM_BYTESTREAM;
 		env[ KEY ] = 'p0';
 		env[ FROM ] = 'firehose.p0';
 		env[ VALUE ] = 'a real log line';

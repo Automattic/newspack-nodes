@@ -1,7 +1,14 @@
 import { SseConnectorNode } from '../sse-connector-node';
 import { Node } from '../node';
 import { Core } from '../core';
-import { TYPE, KEY, VALUE, TM_INFO, newMessage } from '../message';
+import {
+	TYPE,
+	KEY,
+	VALUE,
+	TM_INFO,
+	TM_BYTESTREAM,
+	newMessage,
+} from '../message';
 
 class FakeEventSource {
 	constructor( url ) {
@@ -73,11 +80,40 @@ test( 'msg event forwards parsed message into sink', () => {
 	s.start();
 
 	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
 	m[ VALUE ] = 'data line';
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
 
 	expect( got ).toHaveLength( 1 );
 	expect( got[ 0 ][ VALUE ] ).toBe( 'data line' );
+} );
+
+test( 'a malformed typeless frame is dropped at ingress and warns (no router noise on disconnect)', () => {
+	// During a container restart the stream can flush a partial/empty frame;
+	// unpack() turns anything non-canonical into a pristine, typeless Message.
+	// Every real frame carries a type flag, so a typeless one is malformed —
+	// drop it at the boundary (a forward only earns a router "message not
+	// addressed - TYPE_UNKNOWN" drop) and make noise so the bug is visible.
+	const warn = jest
+		.spyOn( Core, 'printLessOften' )
+		.mockImplementation( () => {} );
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+
+	const s = makeConnector();
+	s.sink = sink;
+	s.start();
+
+	FakeEventSource.last.dispatch( 'msg', '' ); // empty frame
+	FakeEventSource.last.dispatch( 'msg', 'not json at all' ); // garbage
+	FakeEventSource.last.dispatch( 'msg', '[]' ); // short array → newMessage()
+
+	expect( got ).toEqual( [] );
+	expect( warn ).toHaveBeenCalledWith(
+		'SseConnectorNode: dropped a malformed typeless SSE frame'
+	);
+	warn.mockRestore();
 } );
 
 test( 'a late msg frame after close() is dropped (stale stream never forwards)', () => {
