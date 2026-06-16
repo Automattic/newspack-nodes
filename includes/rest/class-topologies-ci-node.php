@@ -157,7 +157,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 						[ 'name' => 'tsl', 'type' => 'text', 'required' => true ],
 					],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
-						self::require_manage_options();
 						// $envelope is the 7-field positional message array (a list).
 						if ( \array_is_list( $envelope ) && Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 							throw new \RuntimeException(
@@ -241,7 +240,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'description' => 'Delete a user topology (stock copies are protected).',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
-						self::require_manage_options();
 						$name = self::require_valid_name( \trim( $args ) );
 
 						$user_dir = Topology_Registry::user_dir();
@@ -305,7 +303,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'description' => 'Activate a topology: add it to the active set, persist, and spawn its fleet now.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
-						self::require_manage_options();
 						$name = self::require_valid_name( \trim( $args ) );
 						if ( null === Topology_Registry::resolve( $name ) ) {
 							throw new \RuntimeException(
@@ -342,7 +339,6 @@ class Topologies_CI_Node extends Service_CI_Node {
 					'description' => 'Deactivate a topology: remove it from the active set, persist, and drain its fleet now.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
-						self::require_manage_options();
 						$name   = self::require_valid_name( \trim( $args ) );
 						$active = \array_values( \array_diff( \array_keys( Bootstrap::get_topologies() ), [ $name ] ) );
 						\update_option( 'newspack_nodes_topologies', $active );

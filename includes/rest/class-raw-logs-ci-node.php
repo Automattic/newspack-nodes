@@ -77,7 +77,6 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 					'description' => 'List the on-disk log keys.',
 					'args'        => [],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
-						self::require_manage_options();
 						$result = [];
 						foreach ( Log_Discovery::on_disk() as $key ) {
 							$result[] = [
@@ -93,7 +92,6 @@ class Raw_Logs_CI_Node extends Service_CI_Node {
 					'description' => 'Segment counts and sizes for a single concrete partition dir (defaults to the firehose-ish/first-discovered dir).',
 					'args'        => [ [ 'name' => 'log', 'type' => 'string', 'required' => false ] ],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
-						self::require_manage_options();
 						$log_key  = self::resolve_log_key( \trim( $args ) );
 						$base_dir = RuntimeConfig::get_base_directory();
 						$log_base = $base_dir . '/logs';

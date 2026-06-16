@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **Every Service CI verb now requires `manage_options` — gated by default in the base.** `Service_CI_Node::commands_from_schema()` wraps every derived handler so it calls `require_manage_options()` before the verb runs; there are no public/opt-out verbs. This closes auth gaps where per-verb opt-in was forgotten: `Classes_CI` (`list`), `Topologies_CI` (`list`, `get`, `connect_worker_input`), and `Workers_CI` (`list`, `restart`, `heartbeat`) were previously open and are now gated. The now-redundant per-verb `require_manage_options()` calls were removed from `Topologies_CI`, `Workers_CI`, `Layouts_CI`, and `Raw_Logs_CI` (the base gates them once). The auto-injected `help` verb (added by the base interpreter, not declared in any schema) is wrapped too, so it's gated like every schema verb. Worker requests remain excluded via the `NEWSPACK_NODES_WORKER_TYPE` env tag.
+
 ### Added
 
 - **Topology Manager surfaces a rejected mutation's reason in an alert modal.** A failed `activate` / `deactivate` / `restart` (e.g. an activate that write-conflicts with the active set) used to be silently swallowed so the toggle just snapped back with no explanation. The manager now pops a one-button `AlertModal` titled with the topology name and showing the rejection reason (the verb's TM_ERROR text — for a conflict, the `describe_conflicts` phrasing), so any operator — not just the one who knows the rule — sees WHY. ESC / backdrop / OK dismiss; the render still never crashes on a rejection.

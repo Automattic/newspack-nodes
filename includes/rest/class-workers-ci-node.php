@@ -791,7 +791,6 @@ class Workers_CI_Node extends Service_CI_Node {
 					'description' => 'Full operator-grade fleet/supervisor/log metadata + per-topology .tsl graph.',
 					'args'        => [],
 					'handler'     => static function ( Workers_CI_Node $self, string $args, array $envelope = [] ): array {
-						self::require_manage_options();
 						$payload          = self::collect_dump_metadata( $self->cache );
 						$payload['graph'] = self::collect_topology_graphs();
 						$payload['logs']  = self::append_log_sinks( (array) $payload['logs'] );
@@ -805,7 +804,6 @@ class Workers_CI_Node extends Service_CI_Node {
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
 						// Diagnostic: surface what Log_Cleaner reads when deciding which
 						// flat log dirs to delete, so operators can debug orphan-log sweeps.
-						self::require_manage_options();
 						$base_dir = RuntimeConfig::get_base_directory();
 						$logs_dir = $base_dir . '/logs';
 						$on_disk  = [];

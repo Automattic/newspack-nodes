@@ -14,7 +14,9 @@ declare(strict_types=1);
 
 namespace Newspack_Nodes\Tests\Unit;
 
+use Newspack_Nodes\Command_Interpreter_Node;
 use Newspack_Nodes\Service_CI_Node;
+use Newspack_Nodes\Tests\Helpers\VerbHarness;
 use Newspack_Nodes\Tests\TestCase;
 use PHPUnit\Framework\Attributes\CoversClass;
 
@@ -91,6 +93,30 @@ class ServiceCITest extends TestCase {
 			'/^[a-zA-Z0-9_]+$/'
 		);
 	}
+
+	// ── central gate: commands_from_schema wraps EVERY verb ──────────────────
+
+	public function test_schema_verb_is_denied_without_manage_options(): void {
+		// The probe's `ping` verb itself never calls require_manage_options;
+		// the gate must come from commands_from_schema wrapping it. With the
+		// cap denied (default) the dispatch must return the permission-error
+		// string, not the verb's sentinel.
+		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'ping' );
+		$this->assertSame( 'permission denied: manage_options required', $result );
+	}
+
+	public function test_schema_verb_runs_with_manage_options(): void {
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'ping' );
+		$this->assertSame( 'pong', $result );
+	}
+
+	public function test_auto_injected_help_is_also_gated(): void {
+		// `help` is injected by the base commands() accessor, not declared in the
+		// schema — so the gate must catch it too, else it's an ungated bypass.
+		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'help' );
+		$this->assertSame( 'permission denied: manage_options required', $result );
+	}
 }
 
 /**
@@ -111,5 +137,25 @@ class ServiceCITestProbe extends Service_CI_Node {
 		string $pattern = '/^[a-zA-Z0-9_-]+$/'
 	): string {
 		return self::require_valid_name( $name, $pattern );
+	}
+
+	/**
+	 * One verb whose handler does NOT self-gate — so any auth must come from
+	 * the base's central wrapper in commands_from_schema(). Returns a sentinel
+	 * the gate test asserts against.
+	 */
+	public static function node_schema(): array {
+		return [
+			'category' => 'Hidden',
+			'commands' => [
+				[
+					'name'        => 'ping',
+					'description' => 'Probe verb that returns a sentinel; never self-gates.',
+					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string {
+						return 'pong';
+					},
+				],
+			],
+		];
 	}
 }

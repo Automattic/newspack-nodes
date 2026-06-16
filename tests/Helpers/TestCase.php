@@ -25,6 +25,11 @@ abstract class TestCase extends PHPUnitTestCase {
 		// bleed into this one.
 		$GLOBALS['_wp_options'] = [];
 
+		// Service_CI verbs are gated by default; start every test denied so a
+		// cap granted in one test can't leak into another's deny-path. Classes
+		// that need the cap grant it after parent::setUp().
+		$GLOBALS['_wp_test_current_user_can'] = [];
+
 		// Command_Auth's single-use nonce claim normally hits Core::$memd, which
 		// isn't wired in unit tests. Install a fresh per-test in-memory claim so
 		// the signed-command verifier path works (and replays within a test are

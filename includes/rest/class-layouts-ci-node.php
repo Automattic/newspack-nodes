@@ -85,7 +85,6 @@ class Layouts_CI_Node extends Service_CI_Node {
 					'description' => 'Read saved node positions for a layout name.',
 					'args'        => [ [ 'name' => 'name', 'type' => 'string', 'required' => true ] ],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args ): array {
-						self::require_manage_options();
 						$name = self::require_valid_name( \trim( $args ) );
 						$path = self::layout_path( $name );
 
@@ -115,7 +114,6 @@ class Layouts_CI_Node extends Service_CI_Node {
 						[ 'name' => 'positions', 'type' => 'json', 'required' => true ],
 					],
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): array {
-						self::require_manage_options();
 						// $envelope is the 7-field positional message array (a list).
 						if ( \array_is_list( $envelope ) && Message::packed_size( $envelope ) > self::MAX_BODY_BYTES ) {
 							throw new \RuntimeException(
