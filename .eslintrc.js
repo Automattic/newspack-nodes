@@ -56,6 +56,8 @@ module.exports = {
 		{
 			files: [ '**/@(test|__tests__)/**/*.js', '**/?(*.)test.js' ],
 			extends: [ 'plugin:@wordpress/eslint-plugin/test-unit' ],
+			// jest.setup.js defines this console-assertion helper globally.
+			globals: { expectConsoleWarn: 'readonly' },
 		},
 		{
 			// Build/CLI scripts run under Node and legitimately log to the console.

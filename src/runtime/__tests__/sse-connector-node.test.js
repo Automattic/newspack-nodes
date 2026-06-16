@@ -151,6 +151,7 @@ test( 'a msg frame stamps lastEventTime', () => {
 	const s = makeConnector();
 	s.start();
 	const m = newMessage();
+	m[ TYPE ] = TM_BYTESTREAM;
 	m[ VALUE ] = 'data line';
 	FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
 	expect( typeof s.lastEventTime ).toBe( 'number' );

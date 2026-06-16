@@ -233,6 +233,7 @@ describe( 'useConsoleGraph — connection state', () => {
 	} );
 
 	it( 'pokes workers/heartbeat (with this partition) on the TIMER once a slot is held', () => {
+		expectConsoleWarn( '_http: HttpOut POST failed:' );
 		jest.useFakeTimers();
 		try {
 			const { getCommandClient } = require( '../../utils/commandClient' );
@@ -260,6 +261,7 @@ describe( 'useConsoleGraph — connection state', () => {
 	} );
 
 	it( 'does not poke heartbeat before a slot is acquired', () => {
+		expectConsoleWarn( '_http: HttpOut POST failed:' );
 		jest.useFakeTimers();
 		try {
 			const { getCommandClient } = require( '../../utils/commandClient' );
@@ -427,6 +429,7 @@ describe( 'useConsoleGraph — reply routing through _router', () => {
 	} );
 
 	it( 'a typed Shell command flows Shell → interpreter → Router → HttpOut → POST', () => {
+		expectConsoleWarn( '_http: HttpOut POST failed:' );
 		const { result } = renderGraph();
 		act( () => lastConnector.emitConnected( 4242 ) );
 		const postBatch = jest.fn().mockResolvedValue( null );
@@ -510,6 +513,7 @@ describe( 'useConsoleGraph — _cwd re-stamping routes every scope', () => {
 	};
 
 	it( 'a worker cwd re-stamps the poll TO out to the worker and POSTs (reply rides the stream)', () => {
+		expectConsoleWarn( '_http: HttpOut POST failed:' );
 		renderGraph();
 		act( () => lastConnector.emitConnected( 4242 ) );
 		const postBatch = jest.fn().mockResolvedValue( null );
@@ -566,6 +570,7 @@ describe( 'useConsoleGraph — TIMER batching', () => {
 			.filter( Boolean );
 
 	it( 'batches dump_metadata + uptime into ONE postBatch on the 5s tick', () => {
+		expectConsoleWarn( '_http: HttpOut POST failed:' );
 		jest.useFakeTimers();
 		try {
 			const { getCommandClient } = require( '../../utils/commandClient' );
@@ -596,6 +601,7 @@ describe( 'useConsoleGraph — TIMER batching', () => {
 	} );
 
 	it( 'a non-5s tick posts only dump_metadata (no uptime)', () => {
+		expectConsoleWarn( '_http: HttpOut POST failed:' );
 		jest.useFakeTimers();
 		try {
 			const { getCommandClient } = require( '../../utils/commandClient' );
