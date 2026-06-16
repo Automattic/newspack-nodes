@@ -197,6 +197,25 @@ class Partition_Node extends Timer_Node {
 		$this->flush();
 	}
 
+	/** Seam (Log overrides): per-writer exclusivity lock dir for allow_large_writes(). */
+	protected function write_lock_path(): string {
+		return "{$this->segment_dir()}/write.lock.d";
+	}
+
+	/** Seam (Log overrides): the directory segments live in. Partition = the resolved dir. */
+	protected function segment_dir(): string {
+		return $this->partition_dir;
+	}
+
+	/**
+	 * Seam (Log overrides): bytes written per fill()'d message. Partition = packed envelope + newline.
+	 *
+	 * @param array<int, mixed> $message
+	 */
+	protected function serialize_record( array $message ): string {
+		return Message::packed( $message ) . "\n";
+	}
+
 	/**
 	 * Initialize current segment state from existing segments on disk.
 	 *
@@ -266,6 +285,24 @@ class Partition_Node extends Timer_Node {
 		$this->segments_cache      = $segments;
 		$this->segments_cache_time = $now;
 		return $segments;
+	}
+
+	/** Seam (Log overrides): regex matching a data filename in segment_dir(); group 1 = id. */
+	protected function segment_pattern(): string {
+		return self::SEGMENT_PATTERN;
+	}
+
+	/** Seam (Log overrides): data-file path for a segment. Partition = {dir}/{seg}.log. */
+	public function get_segment_path( int $segment_id ): string {
+		if ( $segment_id < 0 ) {
+			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
+		}
+		return "{$this->segment_dir()}/{$segment_id}.log";
+	}
+
+	/** Seam (Log overrides): companion-index path for a segment. Partition = {dir}/{seg}.idx. */
+	protected function get_index_path( int $segment_id ): string {
+		return "{$this->segment_dir()}/{$segment_id}.idx";
 	}
 
 	/**
@@ -467,6 +504,11 @@ class Partition_Node extends Timer_Node {
 		}
 	}
 
+	/** Seam (Log overrides): mkdir-lock dir serializing multi-writer rotation. */
+	protected function rotate_lock_path(): string {
+		return "{$this->segment_dir()}/.rotate.lock.d";
+	}
+
 	/**
 	 * Lazily open and cache the .log + .idx handles for the current segment.
 	 *
@@ -564,48 +606,6 @@ class Partition_Node extends Timer_Node {
 
 	public function partition_dir(): string {
 		return $this->segment_dir();
-	}
-
-	/** Seam (Log overrides): the directory segments live in. Partition = the resolved dir. */
-	protected function segment_dir(): string {
-		return $this->partition_dir;
-	}
-
-	/** Seam (Log overrides): data-file path for a segment. Partition = {dir}/{seg}.log. */
-	public function get_segment_path( int $segment_id ): string {
-		if ( $segment_id < 0 ) {
-			throw new \InvalidArgumentException( 'Segment ID must be non-negative' );
-		}
-		return "{$this->segment_dir()}/{$segment_id}.log";
-	}
-
-	/** Seam (Log overrides): companion-index path for a segment. Partition = {dir}/{seg}.idx. */
-	protected function get_index_path( int $segment_id ): string {
-		return "{$this->segment_dir()}/{$segment_id}.idx";
-	}
-
-	/** Seam (Log overrides): regex matching a data filename in segment_dir(); group 1 = id. */
-	protected function segment_pattern(): string {
-		return self::SEGMENT_PATTERN;
-	}
-
-	/**
-	 * Seam (Log overrides): bytes written per fill()'d message. Partition = packed envelope + newline.
-	 *
-	 * @param array<int, mixed> $message
-	 */
-	protected function serialize_record( array $message ): string {
-		return Message::packed( $message ) . "\n";
-	}
-
-	/** Seam (Log overrides): mkdir-lock dir serializing multi-writer rotation. */
-	protected function rotate_lock_path(): string {
-		return "{$this->segment_dir()}/.rotate.lock.d";
-	}
-
-	/** Seam (Log overrides): per-writer exclusivity lock dir for allow_large_writes(). */
-	protected function write_lock_path(): string {
-		return "{$this->segment_dir()}/write.lock.d";
 	}
 
 	public function __destruct() {
