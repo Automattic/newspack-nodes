@@ -330,6 +330,7 @@ export class MetadataNode extends TimerNode {
 			category: 'Hidden',
 			description:
 				'Receives `dump_metadata` poll reply; publishes for the canvas.',
+			accepts_fill: false,
 			arguments: [],
 			commands: [],
 		};

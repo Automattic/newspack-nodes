@@ -78,6 +78,7 @@ export class UptimeNode extends TimerNode {
 			category: 'Hidden',
 			description:
 				'Receives `uptime` poll reply; publishes for the canvas footer.',
+			accepts_fill: false,
 			arguments: [],
 			commands: [],
 		};
