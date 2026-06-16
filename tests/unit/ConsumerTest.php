@@ -161,6 +161,75 @@ class ConsumerTest extends TestCase {
 		$this->assertCount( 2, $capture->captured );
 	}
 
+	public function test_line_mode_emits_each_entry_exactly_once_in_order(): void {
+		// Line mode advances cursor_off per emitted line; if it doesn't, the buffer
+		// chop and cursor drift apart and get_batch re-reads already-emitted bytes
+		// (re-emitting whole lines, or mis-aligning a partial into unparseable garbage).
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'a' );
+		$this->produce_line( $source, 'b' );
+		$this->produce_line( $source, 'c' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->set_line_mode( true );
+		$capture = new Capture_Sink_Node();
+		$c->sink( $capture );
+
+		$this->pump_consumer( $c );
+
+		$values = \array_map( static fn ( array $m ): mixed => $m[ Message::VALUE ], $capture->captured );
+		$this->assertSame( [ 'a', 'b', 'c' ], $values );
+	}
+
+	public function test_line_mode_emits_at_most_one_entry_per_poll(): void {
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . ' 4 86400' );
+		$this->produce_line( $source, 'a' );
+		$this->produce_line( $source, 'b' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->set_line_mode( true );
+		$capture = new Capture_Sink_Node();
+		$c->sink( $capture );
+
+		// First poll only loads the read block; then exactly one entry per poll.
+		$c->poll();
+		$this->assertCount( 0, $capture->captured, 'first poll loads the buffer, emits nothing' );
+		$c->poll();
+		$this->assertCount( 1, $capture->captured, 'one entry per poll' );
+		$c->poll();
+		$this->assertCount( 2, $capture->captured );
+	}
+
+	public function test_line_mode_emits_each_entry_exactly_once_across_segment_boundaries(): void {
+		// Tiny segments force a roll per entry, so line mode drains across both
+		// segment boundaries and fresh get_batch reads — the path where a cursor that
+		// drifts from the buffer re-reads or mis-aligns into unparseable garbage.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data/p0 32 4 86400" );
+		$this->produce_line( $source, \str_repeat( 'a', 30 ) );
+		$this->produce_line( $source, \str_repeat( 'b', 30 ) );
+		$this->produce_line( $source, \str_repeat( 'c', 30 ) );
+		$this->assertGreaterThanOrEqual( 2, \count( $source->get_segments( true ) ), 'need multiple segments' );
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->set_line_mode( true );
+		$capture = new Capture_Sink_Node();
+		$c->sink( $capture );
+
+		$this->pump_consumer( $c );
+
+		$values = \array_map( static fn ( array $m ): mixed => $m[ Message::VALUE ], $capture->captured );
+		$this->assertSame(
+			[ \str_repeat( 'a', 30 ), \str_repeat( 'b', 30 ), \str_repeat( 'c', 30 ) ],
+			$values
+		);
+	}
+
 	public function test_checkpoint_records_target_and_worker_type(): void {
 		// Dashboard needs per-Consumer metadata so it can render rows
 		// like "worker X · consumer Y · target Z" instead of the static
@@ -1785,9 +1854,9 @@ class ConsumerTest extends TestCase {
 		$this->assertIsArray( $schema['arguments'] );
 		$this->assertIsArray( $schema['commands'] );
 		$this->assertSame(
-			[ 'set_snapshot_node' ],
+			[ 'set_snapshot_node', 'set_line_mode' ],
 			\array_column( $schema['commands'], 'name' ),
-			'Consumer exposes the snapshot-cache config verb'
+			'Consumer exposes the snapshot-cache + line-mode config verbs'
 		);
 
 		// Two ctor params: source_dir (required), offsetlog_base_dir (default '').

@@ -2,14 +2,14 @@
 /**
  * Tail: durable, segmented file follower.
  *
- * A Tail is a Consumer that reads a Log's {file}.{seg} segments (a file layout,
- * via a Log_Node source) and emits the raw bytes per buffer_mode (line / block /
- * binary, wrapped as TM_BYTESTREAM) instead of unpacking packed Messages.
- * Everything else — the durable offsetlog cursor (resume-after-restart), snapshot
- * co-commit, live-position publish, behind/ETA, checkpoint cadence, and
- * segment-roll follow — is inherited from Consumer_Node. A fresh Tail with no
- * durable cursor defaults to END (only bytes appended after start), which is the
- * fix for the old every-restart full re-read.
+ * A Tail is a Consumer that reads a Log's {file}.{seg} segments (a file layout, via
+ * a Log_Node source) and emits each complete line's raw bytes as a TM_BYTESTREAM
+ * instead of unpacking packed Messages — by overriding the single per-line emit seam,
+ * forward_line(). Everything else — the buffer/cursor scan, the durable offsetlog
+ * cursor (resume-after-restart), snapshot co-commit, live-position publish, behind/ETA,
+ * checkpoint cadence, and segment-roll follow — is inherited from Consumer_Node. A fresh
+ * Tail with no durable cursor defaults to END (only bytes appended after start), the fix
+ * for the old every-restart full re-read.
  *
  * @package Newspack_Nodes
  */
@@ -22,9 +22,6 @@ class Tail_Node extends Consumer_Node {
 
 	/** Source log base path; segments are {source_file}.0, {source_file}.1, … */
 	protected string $source_file = '';
-
-	/** line-buffered (one msg/line) | block-buffered (one msg up to last NL) | binary (raw chunk). */
-	protected string $buffer_mode = 'line-buffered';
 
 	/** Seam: read a Log ({file}.{seg}), not a Partition ({dir}/{seg}.log). */
 	protected function make_source(): Partition_Node {
@@ -42,55 +39,18 @@ class Tail_Node extends Consumer_Node {
 	}
 
 	/**
-	 * Deframe/emit seam (overrides Consumer's Message-unpacking drain): emit the
-	 * buffered bytes per buffer_mode as TM_BYTESTREAM VALUEs and advance the cursor
-	 * by what was emitted. binary = the whole buffer; line-buffered = one message
-	 * per complete line; block-buffered = everything up to the last newline in one
-	 * message. A trailing partial line carries forward in $buffer (line/block).
+	 * Emit seam (overrides Consumer's Message-unpacking forward): emit one complete line's
+	 * raw bytes — newline restored — as a TM_BYTESTREAM, FROM-stamped at this I/O boundary.
+	 * The buffer/cursor scan that hands us each line stays in Consumer::drain_buffer(), so a
+	 * Tail also gets line_mode (one line per poll) for free. $abs_offset is unused: a Tail
+	 * mints a fresh byte message rather than carrying the producer's seg:offset breadcrumb.
+	 *
+	 * @param string $line       One complete line (without its trailing newline).
+	 * @param int    $abs_offset The line's start offset (unused here).
 	 */
-	protected function drain_buffer(): void {
-		if ( '' === $this->buffer ) {
-			return;
-		}
-
-		if ( 'binary' === $this->buffer_mode ) {
-			$bytes             = $this->buffer;
-			$this->buffer      = '';
-			$this->cursor_off += \strlen( $bytes );
-			$this->emit_bytes( $bytes );
-			return;
-		}
-
-		$nl = \strrpos( $this->buffer, "\n" );
-		if ( false === $nl ) {
-			// No complete line yet. DoS guard: a single line can't grow past the cap.
-			if ( \strlen( $this->buffer ) > self::MAX_LINE_BUFFER_SIZE ) {
-				$this->print_less_often(
-					\sprintf( 'Tail: line buffer exceeded %d bytes at seg %d - discarding', self::MAX_LINE_BUFFER_SIZE, $this->cursor_seg )
-				);
-				$this->set_state( 'OVERFLOW', [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'limit' => self::MAX_LINE_BUFFER_SIZE ] );
-				$this->cursor_off += \strlen( $this->buffer );
-				$this->buffer      = '';
-			}
-			return;
-		}
-
-		$complete         = \substr( $this->buffer, 0, $nl + 1 );
-		$this->buffer     = \substr( $this->buffer, $nl + 1 );
-		$this->cursor_off += \strlen( $complete );
-
-		if ( 'block-buffered' === $this->buffer_mode ) {
-			$this->emit_bytes( $complete );
-			return;
-		}
-		foreach ( \explode( "\n", \rtrim( $complete, "\n" ) ) as $line ) {
-			$this->emit_bytes( $line . "\n" );
-		}
-	}
-
-	/** Mint a TM_BYTESTREAM carrying raw bytes (FROM-stamped at this I/O boundary) and forward. */
-	private function emit_bytes( string $bytes ): void {
-		$size = \strlen( $bytes );
+	protected function forward_line( string $line, int $abs_offset ): void {
+		$bytes = $line . "\n";
+		$size  = \strlen( $bytes );
 		if ( $size > $this->largest_msg_sent ) {
 			$this->largest_msg_sent = $size;
 		}
@@ -104,16 +64,10 @@ class Tail_Node extends Consumer_Node {
 
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
-			'description' => 'Tails a Log\'s {file}.{seg} segments; emits raw bytes per buffer_mode to its sink.',
+			'description' => 'Tails a Log\'s {file}.{seg} segments; emits each line as raw TM_BYTESTREAM bytes to its sink.',
 			'arguments'   => [
 				[ 'name' => 'source_file',   'type' => 'string', 'required' => true ],
 				[ 'name' => 'offsetlog_dir', 'type' => 'string', 'default' => '' ],
-				[
-					'name'    => 'buffer_mode',
-					'type'    => 'string',
-					'default' => 'line-buffered',
-					'enum'    => [ 'line-buffered', 'block-buffered', 'binary' ],
-				],
 			],
 		] );
 	}

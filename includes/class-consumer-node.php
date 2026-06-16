@@ -93,6 +93,8 @@ class Consumer_Node extends Timer_Node {
 	 */
 	private string $snapshot_node = '';
 
+	private bool $line_mode = false;
+
 	/**
 	 * Cache read from the offsetlog at construction but not yet restored — the
 	 * snapshot node usually doesn't exist yet when load_offsetlog() runs, so we
@@ -275,63 +277,102 @@ class Consumer_Node extends Timer_Node {
 	}
 
 	/**
-	 * ACTIVE phase, mirroring Tachikoma fire(): emit whatever is already buffered,
-	 * then read ONE more block, then return so the event loop moves on. A message
-	 * read this tick is emitted next tick — the buffer carries it across.
+	 * One ACTIVE-phase tick: drain the buffer, then top it up. Batch pipelines (read a block
+	 * every tick — this tick's read drains next tick), so it stays at full throughput and
+	 * reaches EOF promptly. Line mode reads only once the buffer is dry of complete lines, so
+	 * it never reads ahead and the one-line-per-tick pacing holds.
 	 */
 	protected function poll_active(): void {
-		$this->drain_buffer();
-		$this->get_batch();
+		$drained = $this->drain_buffer();
+		if ( ! $this->line_mode || 0 === $drained ) {
+			$this->get_batch();
+		}
 	}
 
-	/** Emit every complete line in $buffer; advance cursor_off past them; keep the trailing partial. */
-	protected function drain_buffer(): void {
-		$nl = \strrpos( $this->buffer, "\n" );
-		if ( false === $nl ) {
-			// No complete line. DoS guard: a single line can't grow past MAX_LINE_BUFFER_SIZE.
-			if ( \strlen( $this->buffer ) > self::MAX_LINE_BUFFER_SIZE ) {
-				$this->print_less_often(
-					\sprintf( 'Consumer: line buffer exceeded %d bytes at seg %d - discarding', self::MAX_LINE_BUFFER_SIZE, $this->cursor_seg )
-				);
-				$this->set_state( 'OVERFLOW', [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'limit' => self::MAX_LINE_BUFFER_SIZE ] );
-				$this->cursor_off += \strlen( $this->buffer ); // Skip the garbage so polls don't re-read it.
-				$this->buffer      = '';
+	/**
+	 * Forward up to $max complete lines from $buffer to the sink, returning how many were
+	 * consumed. Batch (max = PHP_INT_MAX) and line mode (max = 1) are the same scan with a
+	 * different cap — no second code path to keep in sync.
+	 *
+	 * Scans by offset and chops the buffer ONCE at the end, so batch stays a single O(n)
+	 * pass (no substr-per-line) and an empty line is consumed cleanly (the old rtrim+explode
+	 * silently dropped a trailing empty line's byte). Advancing cursor_off in lockstep with
+	 * the chop is load-bearing: get_batch reads at `cursor_off + strlen(buffer)`, so a chop
+	 * without the matching cursor bump re-reads the gap and mis-aligns the next line into
+	 * unparseable garbage. The cursor advances past skipped (unparseable / over-long-FROM)
+	 * lines too, so a single bad record can't wedge the stream.
+	 */
+	private function drain_buffer(): int {
+		$max     = $this->line_mode ? 1 : \PHP_INT_MAX;
+		$emitted = 0;
+		$pos     = 0;
+		while ( $emitted < $max ) {
+			$nl = \strpos( $this->buffer, "\n", $pos );
+			if ( false === $nl ) {
+				break;
 			}
+			$this->forward_line( \substr( $this->buffer, $pos, $nl - $pos ), $this->cursor_off + $pos );
+			$pos = $nl + 1; // past the consumed \n.
+			++$emitted;
+		}
+		if ( $pos > 0 ) {
+			$this->buffer      = \substr( $this->buffer, $pos );
+			$this->cursor_off += $pos;
+		}
+		// Ran the buffer dry of complete lines (not just hit the cap) — the remainder is a
+		// trailing partial; guard it against unbounded growth.
+		if ( $emitted < $max ) {
+			$this->discard_oversized_partial();
+		}
+		return $emitted;
+	}
+
+	/**
+	 * Unpack one packed line and forward it to the sink: stamp FROM (breadcrumb), record the
+	 * seg:offset breadcrumb in ID, force TO when a target is set. An unparseable line or an
+	 * over-long FROM is logged and dropped — the callers own the cursor and advance past it
+	 * regardless, so a single bad record can't wedge the stream.
+	 *
+	 * The per-line emit seam: Tail overrides this to emit raw bytes instead of unpacking a
+	 * Message, reusing this class's buffer/cursor scan in drain_buffer().
+	 */
+	protected function forward_line( string $line, int $abs_offset ): void {
+		$line_size = \strlen( $line ) + 1; // +1 for the consumed \n.
+		if ( $line_size > $this->largest_msg_sent ) {
+			$this->largest_msg_sent = $line_size;
+		}
+		try {
+			$message = Message::unpacked( $line );
+		} catch ( \InvalidArgumentException $e ) {
+			$this->print_less_often( "Consumer: skipping unparseable line: {$e->getMessage()}" );
 			return;
 		}
-		$complete     = \substr( $this->buffer, 0, $nl + 1 );
-		$this->buffer = \substr( $this->buffer, $nl + 1 );
-
-		$consumed = 0;
-		foreach ( \explode( "\n", \rtrim( $complete, "\n" ) ) as $line ) {
-			$abs_offset = $this->cursor_off + $consumed;
-			$line_size  = \strlen( $line ) + 1; // +1 for the consumed \n.
-			$consumed  += $line_size;
-			if ( $line_size > $this->largest_msg_sent ) {
-				$this->largest_msg_sent = $line_size;
-			}
-
-			// Each line is a packed Message; unpack, stamp FROM, forward.
-			try {
-				$message = Message::unpacked( $line );
-			} catch ( \InvalidArgumentException $e ) {
-				$this->print_less_often( "Consumer: skipping unparseable line: {$e->getMessage()}" );
-				continue;
-			}
-			$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-			if ( '' !== $stamp && ! $this->stamp_message( $message, $stamp ) ) {
-				continue; // FROM exceeded MAX_FROM_SIZE; drop_message handled.
-			}
-			// Position breadcrumb goes in ID; KEY must stay the producer's routing key.
-			$message[ Message::ID ] = "{$this->cursor_seg}:{$abs_offset}";
-			// Force TO if target is set
-			if ( \is_string( $this->target ) && '' !== $this->target ) {
-				$message[ Message::TO ] = $this->target;
-			}
-			++$this->counter;
-			$this->sink?->fill( $message );
+		$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
+		if ( '' !== $stamp && ! $this->stamp_message( $message, $stamp ) ) {
+			return; // FROM exceeded MAX_FROM_SIZE; drop_message handled.
 		}
-		$this->cursor_off += $consumed;
+		// Position breadcrumb goes in ID; KEY must stay the producer's routing key.
+		$message[ Message::ID ] = "{$this->cursor_seg}:{$abs_offset}";
+		if ( \is_string( $this->target ) && '' !== $this->target ) {
+			$message[ Message::TO ] = $this->target;
+		}
+		++$this->counter;
+		$this->sink?->fill( $message );
+	}
+
+	/** DoS guard for a partial line that never terminates: discard once it can't fit a real line. */
+	private function discard_oversized_partial(): void {
+		if ( \strlen( $this->buffer ) <= self::MAX_LINE_BUFFER_SIZE ) {
+			return;
+		}
+		// Short runtime class (e.g. Consumer / Tail) — this guard is inherited, so name the real node.
+		$node_class = \preg_replace( '/^.*\\\\|_Node$/', '', static::class );
+		$this->print_less_often(
+			\sprintf( '%s: line buffer exceeded %d bytes at seg %d - discarding', $node_class, self::MAX_LINE_BUFFER_SIZE, $this->cursor_seg )
+		);
+		$this->set_state( 'OVERFLOW', [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'limit' => self::MAX_LINE_BUFFER_SIZE ] );
+		$this->cursor_off += \strlen( $this->buffer ); // Skip the garbage so polls don't re-read it.
+		$this->buffer      = '';
 	}
 
 	/**
@@ -498,6 +539,10 @@ class Consumer_Node extends Timer_Node {
 	public function set_snapshot_node( string $name ): void {
 		$this->snapshot_node = $name;
 		$this->offsetlog?->void_warranty();
+	}
+
+	public function set_line_mode( bool $flag ): void {
+		$this->line_mode = $flag;
 	}
 
 	/** Seam (Tail overrides → Log): the source segmented-log node to read. Consumer reads a Partition. */
@@ -819,6 +864,17 @@ class Consumer_Node extends Timer_Node {
 						/** @var self $patron */
 						$patron = $interpreter->patron();
 						$patron->set_snapshot_node( \trim( $args ) );
+						return 'ok';
+					},
+				],
+				[
+					'name'        => 'set_line_mode',
+					'description' => 'Fine-grained drain mode: emits one line per event cycle',
+					'args'        => [],
+					'handler'     => static function ( Command_Interpreter_Node $interpreter, string $args ): string {
+						/** @var self $patron */
+						$patron = $interpreter->patron();
+						$patron->set_line_mode( true );
 						return 'ok';
 					},
 				],

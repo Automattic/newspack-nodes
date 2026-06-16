@@ -8,5 +8,6 @@
 var stale_timeout = 600;
 
 make_node Consumer jobs:consumer <config:logs_dir>/jobs.p<partition> <config:offsets_dir>/jobs.p<partition>
+cmd jobs:consumer:config set_line_mode
 make_node Job_Worker job-worker
 connect_node jobs:consumer job-worker
