@@ -6,7 +6,7 @@ The finished code is in [`examples/newspack-ai-newsletter/`](examples/newspack-a
 
 > **The one thing to hold onto:** every node has a single entry point, `fill( array &$message ): void`. A node does its job and forwards the message to its **sink**. Nodes never call each other's methods; they pass messages. Keep that contract and your node drops into any graph.
 
-If you haven't run the example yet, do [GETTING-STARTED.md](getting-started.md) first — it's the same pipeline, five minutes, no building.
+If you haven't run the example yet, do [getting-started.md](getting-started.md) first — it's the same pipeline, five minutes, no building.
 
 ---
 
@@ -529,8 +529,8 @@ And the same contract is what makes each node testable in isolation: the example
 
 ## Where to go next
 
-- **[GETTING-STARTED.md](getting-started.md)** — the five-minute tour (if you skipped it).
-- **[ARCHITECTURE.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
+- **[getting-started.md](getting-started.md)** — the five-minute tour (if you skipped it).
+- **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
 - **[API.md](API.md)** — the REST endpoints.
 - **[`examples/newspack-ai-newsletter/`](examples/newspack-ai-newsletter/)** — the complete, tested code for this walkthrough.
 - **`newspack-cache-cozy`** — the minimal, fully-rigged *standalone* plugin (one node + a mu-plugin drop-in): the §8 essentials — `Requires Plugins` + a deferred presence-gated loader, test bootstrap, phpcs/phpstan, release workflow — as real files to copy.
