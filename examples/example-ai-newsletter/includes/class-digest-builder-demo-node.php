@@ -30,7 +30,7 @@ class Digest_Builder_Demo_Node extends Node {
 			$this->handle_request( $message );
 			return;
 		}
-		if ( 0 === ( $type & Message::TM_STRUCT ) ) {
+		if ( ! ( $type & Message::TM_STRUCT ) ) {
 			return;
 		}
 		$value = $message[ Message::VALUE ];

@@ -47,7 +47,7 @@ class Scorer_Demo_Node extends Node {
 	public function fill( array &$message ): void {
 		/** @var int $type */
 		$type = $message[ Message::TYPE ];
-		if ( 0 === ( $type & Message::TM_STRUCT ) ) {
+		if ( ! ( $type & Message::TM_STRUCT ) ) {
 			return;
 		}
 		$item = $message[ Message::VALUE ];
