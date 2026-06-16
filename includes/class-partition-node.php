@@ -93,18 +93,12 @@ class Partition_Node extends Timer_Node {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
-		$result = parent::arguments( $args );
-		// Bare make_node: store the raw string but don't walk the schema or
-		// derive — partition_dir is the resolved $dir, left '' until handed one.
-		if ( '' === $args ) {
-			return $result;
-		}
 		$this->parse_schema_args( $args );
 		$this->segment_size  = \max( 1, $this->segment_size );
 		$this->num_segments  = \max( 2, $this->num_segments );
 		$this->max_lifespan  = \max( 0, $this->max_lifespan );
 		$this->partition_dir = \rtrim( $this->dir, '/' );
-		return $result;
+		return $args;
 	}
 
 	/**

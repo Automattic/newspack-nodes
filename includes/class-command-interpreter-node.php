@@ -279,7 +279,7 @@ class Command_Interpreter_Node extends Node {
 	}
 
 	/**
-	 * Shell entry: parse `<type> <name> [<ctor_args>...]` and delegate to make_node().
+	 * Shell entry: parse `<type> <name> [<args>...]` and delegate to make_node().
 	 *
 	 * No strict_types, so string tokens coerce to the ctor's typed params.
 	 */
@@ -287,7 +287,7 @@ class Command_Interpreter_Node extends Node {
 		/** @var list<string> $parts Whitespace-split tokens; the /\s+/ split of a string never yields false. */
 		$parts = \preg_split( '/\s+/', \trim( $args ) );
 		if ( \count( $parts ) < 2 ) {
-			return 'usage: make_node <type> <name> [<ctor_args>...]';
+			return 'usage: make_node <type> <name> [<args>...]';
 		}
 		$type = $parts[0];
 		$name = $parts[1];
@@ -298,12 +298,12 @@ class Command_Interpreter_Node extends Node {
 	/**
 	 * Construct a registered Node subclass, name it, sink it to this interpreter, and return it.
 	 *
-	 * @param string $type      Shell name (resolved as `{$prefix}{$type}_Node`, or the bare base `Node`).
-	 * @param string $name      Unique name for the new node (registered with Core).
-	 * @param mixed  ...$ctor_args Positional constructor arguments.
+	 * @param string $type    Shell name (resolved as `{$prefix}{$type}_Node`, or the bare base `Node`).
+	 * @param string $name    Unique name for the new node (registered with Core).
+	 * @param mixed  ...$args Positional constructor arguments.
 	 * @return Node|null Null when no registered namespace yields a matching Node.
 	 */
-	public function make_node( string $type, string $name, ...$ctor_args ): ?Node {
+	public function make_node( string $type, string $name, ...$args ): ?Node {
 		foreach ( self::registered_namespaces() as $prefix ) {
 			// The base Node carries no `_Node` suffix; `make_node Node` resolves it
 			// directly (its default fill() stamps TO=target and forwards to sink — a
@@ -327,8 +327,8 @@ class Command_Interpreter_Node extends Node {
 			// Object deps are public props set after construction.
 			$node = new $fqcn();
 			$node->name( $name );
-			$scalar_args = \array_filter( $ctor_args, '\is_scalar' );
-			if ( \count( $scalar_args ) !== \count( $ctor_args ) ) {
+			$scalar_args = \array_filter( $args, '\is_scalar' );
+			if ( \count( $scalar_args ) !== \count( $args ) ) {
 				Core::print_less_often(
 					"make_node {$type} {$name}: non-scalar positional arg filtered (assign object deps as public properties)"
 				);

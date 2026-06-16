@@ -38,7 +38,6 @@ class ConsumerTest extends TestCase {
 	 */
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "" );
 		$c->arguments( "{$this->tmp}/data/p2 {$this->tmp}/offsets/r/p2" );
 		$ref = new \ReflectionClass( $c );
 		$this->assertSame( "{$this->tmp}/data/p2",      $ref->getProperty( 'source_dir' )->getValue( $c ) );
@@ -67,7 +66,6 @@ class ConsumerTest extends TestCase {
 	 */
 	public function test_arguments_setter_with_empty_offsetlog_skips_offsetlog_partition(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "" );
 		$c->arguments( "{$this->tmp}/data/p0 " );
 		$ref = new \ReflectionClass( $c );
 		$this->assertNull( $ref->getProperty( 'offsetlog' )->getValue( $c ) );
@@ -81,7 +79,6 @@ class ConsumerTest extends TestCase {
 	 */
 	public function test_arguments_setter_applies_empty_default_for_missing_offsetlog(): void {
 		$c = new Consumer_Node();
-		$c->arguments( "" );
 		$c->arguments( "{$this->tmp}/data/p0" );
 		$ref = new \ReflectionClass( $c );
 		$this->assertSame( '', $ref->getProperty( 'offsetlog_dir' )->getValue( $c ) );

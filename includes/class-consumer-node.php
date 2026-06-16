@@ -138,11 +138,6 @@ class Consumer_Node extends Timer_Node {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
-		$result = parent::arguments( $args );
-		// Bare make_node: store the raw string but don't walk the schema or build children.
-		if ( '' === $args ) {
-			return $result;
-		}
 		$this->parse_schema_args( $args );
 		[ $source_path, $offsetlog_path ] = $this->resolve_args();
 		$this->source_dir         = \rtrim( $source_path, '/' );
@@ -174,7 +169,7 @@ class Consumer_Node extends Timer_Node {
 		$this->poll_cb = $this->poll_init( ... );
 		$this->set_timer( self::POLL_INTERVAL_EOF_MS, true );
 
-		return $result;
+		return $args;
 	}
 
 	/**
@@ -215,7 +210,7 @@ class Consumer_Node extends Timer_Node {
 		}
 
 		$reply                   = Message::new_message();
-        $reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
+		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
 		$reply[ Message::FROM ]  = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
 		$reply[ Message::TO ]    = $message[ Message::FROM ];
 		$reply[ Message::ID ]    = $message[ Message::ID ];
@@ -329,12 +324,12 @@ class Consumer_Node extends Timer_Node {
 			}
 			// Position breadcrumb goes in ID; KEY must stay the producer's routing key.
 			$message[ Message::ID ] = "{$this->cursor_seg}:{$abs_offset}";
-            // Force TO if target is set
-            if ( \is_string( $this->target ) && '' !== $this->target ) {
-                $message[ Message::TO ] = $this->target;
-            }
-            ++$this->counter;
-            $this->sink?->fill( $message );
+			// Force TO if target is set
+			if ( \is_string( $this->target ) && '' !== $this->target ) {
+				$message[ Message::TO ] = $this->target;
+			}
+			++$this->counter;
+			$this->sink?->fill( $message );
 		}
 		$this->cursor_off += $consumed;
 	}

@@ -20,16 +20,14 @@ trait Schema_Reflection {
 	/**
 	 * Walk node_schema()['arguments'] and assign each declared positional arg to
 	 * the matching $this->{$name} property, coerced to its declared type. Tokens
-	 * beyond the declared positions are ignored; missing optional tokens fall back
-	 * to their schema default. No-ops on an empty string or a node with no declared
-	 * arguments — the assignment half of Tachikoma's per-node arguments() parsing.
+	 * beyond the declared positions are ignored; a missing token falls back to the
+	 * arg's schema default, or throws if the arg is `required` (so an under-argged
+	 * make_node fails loudly). No-ops only for a node with no declared arguments —
+	 * the assignment half of Tachikoma's per-node arguments() parsing.
 	 *
 	 * @param string $args Raw positional argument string.
 	 */
 	protected function parse_schema_args( string $args ): void {
-		if ( '' === $args ) {
-			return;
-		}
 		$declared = static::node_schema()['arguments'] ?? [];
 		if ( ! \is_array( $declared ) || empty( $declared ) ) {
 			return;
@@ -42,15 +40,21 @@ trait Schema_Reflection {
 			$name     = Core::as_string( $arg_spec['name'] ?? '' );
 			$type_raw = $arg_spec['type'] ?? 'string';
 			$type     = \is_string( $type_raw ) ? $type_raw : 'string';
-			if ( '' === $name || ! \property_exists( $this, $name ) ) {
-				continue;
+			if ( '' === $name ) {
+				throw new \InvalidArgumentException( \esc_html( "Invalid argument specification: missing name at position {$i}" ) );
+			}
+			if ( ! \property_exists( $this, $name ) ) {
+				throw new \InvalidArgumentException( \esc_html( "Invalid argument specification: {$name}" ) );
 			}
 			if ( isset( $tokens[ $i ] ) ) {
 				$this->{$name} = self::coerce_argument( $tokens[ $i ], $type );
 			} elseif ( \array_key_exists( 'default', $arg_spec ) ) {
 				$this->{$name} = $arg_spec['default'];
+			} elseif ( \array_key_exists( 'required', $arg_spec ) && $arg_spec['required'] ) {
+				throw new \InvalidArgumentException( \esc_html( "Missing required argument: {$name}" ) );
 			}
 		}
+		$this->arguments = $args;
 	}
 
 	/** Coerce a raw string token to the declared schema type; unknown types pass through as string. */

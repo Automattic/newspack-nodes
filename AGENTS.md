@@ -105,7 +105,7 @@ renumber.
 | 8 | Worker zombie pattern — detached ~595s requests, release before self-respawn | [ADR-8](docs/architecture-decisions.md#adr-8-worker-zombie-pattern) |
 | 9 | Two-tier safety net — worker → supervisor → WP-Cron | [ADR-9](docs/architecture-decisions.md#adr-9-two-tier-safety-net) |
 | 10 | `Word_Word` / `_Node` naming + `register_namespace` resolution (no `class_map`) | [ADR-10](docs/architecture-decisions.md#adr-10-class-naming--make_node-namespace-resolution) |
-| 11 | `make_node` construction sequence + `arguments()` empty-string short-circuit | [ADR-11](docs/architecture-decisions.md#adr-11-make_node-construction-sequence) |
+| 11 | `make_node` construction sequence; `arguments()` defaults/required centralized in `parse_schema_args()` | [ADR-11](docs/architecture-decisions.md#adr-11-make_node-construction-sequence) |
 
 ## Layout
 

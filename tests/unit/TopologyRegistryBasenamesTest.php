@@ -293,7 +293,7 @@ TSL
 		);
 
 		$this->assertSame(
-			[ 'scored' ],
+			[ 'example-scored' ],
 			Topology_Registry::basenames_for( 'example-ai-newsletter' )
 		);
 
@@ -305,7 +305,7 @@ TSL
 				$writes[] = $node['writes'];
 			}
 		}
-		$this->assertSame( [ 'scored.p<partition>' ], $writes );
+		$this->assertSame( [ 'example-scored.p<partition>' ], $writes );
 
 		// The digest:log Log node must use the current Log signature
 		// (<file> <segment_size> <num_segments>) — not the removed logrotate-era
