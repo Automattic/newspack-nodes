@@ -53,6 +53,13 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 	 * the table to verbs that are actually dispatchable. `is_callable` (not Closure)
 	 * is intentional: string/array callables are legitimately dispatchable.
 	 *
+	 * EVERY derived handler is wrapped to call require_manage_options() before the
+	 * original handler runs. Gate-by-default: there are no public Service CI verbs,
+	 * so authorization lives here once instead of per-verb. The wrapper is
+	 * variadic-transparent — it preserves the handler's exact call signature
+	 * ( Command_Interpreter_Node, string, array ) — and self::require_manage_options()
+	 * resolves through late static binding inside the closure.
+	 *
 	 * @param array<string,mixed> $schema
 	 * @return array<string,callable>
 	 */
@@ -77,7 +84,21 @@ abstract class Service_CI_Node extends Command_Interpreter_Node {
 				);
 				continue;
 			}
-			$table[ $name ] = $verb['handler'];
+			$handler        = $verb['handler'];
+			$table[ $name ] = static function ( ...$args ) use ( $handler ) {
+				self::require_manage_options();
+				return $handler( ...$args );
+			};
+		}
+		// Gate the auto-`help` too: the base commands() accessor injects an
+		// UNgated default help into any interpreter that lacks one. Pre-seed a
+		// wrapped help here so it passes the same cap check as every other verb
+		// (gate-by-default — no ungated bypass).
+		if ( ! isset( $table['help'] ) ) {
+			$table['help'] = static function ( Command_Interpreter_Node $self, string $args = '', array $envelope = [] ): string {
+				self::require_manage_options();
+				return $self->default_help();
+			};
 		}
 		return $table;
 	}

@@ -26,10 +26,24 @@ class ClassesCITest extends TestCase {
 	/** @var array<class-string,string>|null Loader classMap snapshot for restore. */
 	private ?array $classmap_snapshot = null;
 
+	protected function setUp(): void {
+		parent::setUp();
+		// `list` is gated by the Service_CI base; grant the cap so the
+		// catalog assertions run. The explicit deny test below revokes it.
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+	}
+
 	protected function tearDown(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [];
 		$this->restore_classmap();
 		VerbHarness::reset();
 		parent::tearDown();
+	}
+
+	public function test_list_is_denied_without_manage_options(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [];
+		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
+		$this->assertSame( 'permission denied: manage_options required', $result );
 	}
 
 	/**

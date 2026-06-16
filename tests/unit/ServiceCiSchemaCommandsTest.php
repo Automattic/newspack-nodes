@@ -91,7 +91,15 @@ class Malformed_Verbs_CI_Node extends Service_CI_Node {
 #[CoversClass( Service_CI_Node::class )]
 class ServiceCiSchemaCommandsTest extends TestCase {
 
+	protected function setUp(): void {
+		parent::setUp();
+		// Service_CI verbs are gated by default; grant the cap so the
+		// dispatch-mechanism assertions exercise the handler, not the gate.
+		$GLOBALS['_wp_test_current_user_can'] = [ 'manage_options' => true ];
+	}
+
 	protected function tearDown(): void {
+		$GLOBALS['_wp_test_current_user_can'] = [];
 		VerbHarness::reset();
 		parent::tearDown();
 	}
