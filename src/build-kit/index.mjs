@@ -45,10 +45,10 @@ export const WP_EXTERNALS = {
 		global: 'window.wp.i18n',
 		handle: 'wp-i18n',
 	},
-	'@wordpress/icons': {
-		global: 'window.wp.icons',
-		handle: 'wp-icons',
-	},
+	// NOT @wordpress/icons: it is a build-time package (SVG-as-React-components),
+	// not a runtime script — WP exposes no `window.wp.icons` global and registers
+	// no `wp-icons` handle (WP 6.9.1 warns on the unmet dep). Externalizing it left
+	// the icon undefined at runtime; bundle it from node_modules instead.
 	'@wordpress/data': {
 		global: 'window.wp.data',
 		handle: 'wp-data',
