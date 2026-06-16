@@ -120,7 +120,7 @@ class Classes_CI_Node extends Service_CI_Node {
 									'fqcn'         => $fqcn,
 									'category'     => $cat,
 									'description'  => $schema['description'] ?? '',
-									'arguments'         => $schema['arguments']     ?? [],
+									'arguments'    => $schema['arguments']   ?? [],
 									// Strip the non-serializable `handler` closure: each command
 									// is declared once in node_schema (carrying its handler for the
 									// base interpreter's dispatch derivation); the catalog inlines only the

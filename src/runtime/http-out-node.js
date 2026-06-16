@@ -134,7 +134,7 @@ export class HttpOutNode extends Node {
 	// Programmatic-deps node: no positional config to round-trip via arguments=.
 	static nodeSchema() {
 		return {
-			category: 'Hidden',
+			category: 'I/O',
 			description: 'Browser → /command HTTP boundary (the `_http` node).',
 			// POSTs commands out and routes replies back to their FROM node; it
 			// never sets a graph `target`, so it has no out-port on the canvas.
