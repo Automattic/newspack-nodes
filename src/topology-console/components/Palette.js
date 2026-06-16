@@ -5,6 +5,12 @@
 
 const DRAG_MIME = 'application/x-newspack-node';
 
+// Categories that stay in the catalog (so the inspector still resolves their
+// command/request buttons via catalog.find) but are NOT draggable in the palette.
+// Service CIs are mounted into the request graph, never make_node'd, so dragging
+// one would only mint a stray duplicate.
+const NON_DRAGGABLE_CATEGORIES = new Set( [ 'Service' ] );
+
 function groupByCategory( classes ) {
 	const out = {};
 	for ( const c of classes ) {
@@ -61,8 +67,11 @@ export default function Palette( {
 			</aside>
 		);
 	}
-	const grouped = groupByCategory( classes );
-	const total = classes.length;
+	const draggable = classes.filter(
+		( c ) => ! NON_DRAGGABLE_CATEGORIES.has( c.category )
+	);
+	const grouped = groupByCategory( draggable );
+	const total = draggable.length;
 
 	return (
 		<aside className="topology-palette">

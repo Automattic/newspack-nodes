@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Service CIs are no longer draggable in the topology console palette, but keep their inspector verb buttons.** Service CIs are mounted into the request graph (never `make_node`'d), so dragging one from the palette only mints a stray duplicate. The palette now skips the `Service` category, while the class stays in the Classes_CI catalog — so selecting a mounted Service CI in the canvas still renders its command/request buttons in the inspector (which resolves verbs via `catalog.find( shell_name )`, independent of the palette). This is the palette-only hide that `category: 'Hidden'` couldn't give (Hidden drops the class from the catalog entirely, killing the inspector buttons too).
+
 ### Fixed
 
 - **Full-page Topology Console REPL transcript no longer overshoots the canvas under the DevtoolsTabHost tab bar.** The console's `ReplFooter` fell back to a viewport-based ceiling (`window.innerHeight − 134`, accounting only for the admin bar + 64px header + 38px repl bar) that never subtracted the Console/Topologies/Raw Logs tab bar the console now renders inside — so a maximized transcript grew ~39px past the canvas top into the header. `TopologyConsole` now measures its `.topology-app` grid height (via a `ResizeObserver`) and passes an explicit `maxHeightPx = max(80, appHeight − 64 − 38)` (the canvas row of the `64px 1fr 38px` grid), mirroring how the debug overlay's Inspector already measures + passes its own ceiling. The ceiling tracks window resizes and admin-menu collapse, so the transcript fills the canvas exactly and stops at its top edge.
