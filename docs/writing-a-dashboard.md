@@ -645,6 +645,6 @@ That table *is* the lesson, and it's the same one the first guide ends on, lifte
 ## Where to go next
 
 - **[writing-a-plugin.md](writing-a-plugin.md)** — the headless pipeline this dashboard reads from.
-- **[ARCHITECTURE.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, the REPL, and the JS runtime.
+- **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, the REPL, and the JS runtime.
 - **[`examples/example-ai-newsletter/`](examples/example-ai-newsletter/)** — the complete, tested code for this walkthrough, including the `src/dashboard/` suites (each node and hook tested with a fake `CommandClient`, no browser).
 - **`newspack-event-logger-nodes`** — the production application: six real dashboards (performance, gyroscope, request stream, aggregator) built on these same primitives, including the SSE ones this guide's poll shape deliberately doesn't cover.
