@@ -14,7 +14,7 @@ This is an early implementation of an idea pitched at the team meetup: the Lego-
 
 ## Learn it
 
-New to Nodes? Start with **[GETTING-STARTED.md](docs/getting-started.md)** — run the bundled example pipeline in about five minutes — then **[WRITING-A-PLUGIN.md](docs/writing-a-plugin.md)** builds that example from an empty directory, one node at a time, and shows why the shape pays off. The complete code lives in [`examples/newspack-ai-newsletter/`](examples/newspack-ai-newsletter/).
+New to Nodes? Start with **[getting-started.md](docs/getting-started.md)** — run the bundled example pipeline in about five minutes — then **[writing-a-plugin.md](docs/writing-a-plugin.md)** builds that example from an empty directory, one node at a time, and shows why the shape pays off. The complete code lives in [`examples/newspack-ai-newsletter/`](examples/newspack-ai-newsletter/).
 
 ## Quick Start
 
@@ -53,7 +53,7 @@ To get workers running, install an application plugin that registers a topology 
 
 The runtime also exposes an admin settings page, backed by a shared Config System (`includes/config-system/`) that consumer plugins reuse — declarative fields with per-field reset toggles and an `allowed_users` access whitelist gating the substrate's admin surface.
 
-For the full mental model, see [ARCHITECTURE.md](docs/architecture-guide.md). For the substrate's contracts and invariants, see [AGENTS.md](AGENTS.md).
+For the full mental model, see [architecture-guide.md](docs/architecture-guide.md). For the substrate's contracts and invariants, see [AGENTS.md](AGENTS.md).
 
 ## REST API
 
