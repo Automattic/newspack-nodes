@@ -95,6 +95,7 @@ export class HeartbeatNode extends TimerNode {
 			category: 'Hidden',
 			description:
 				'Pokes `workers/heartbeat` to refresh the SSE slot TTL.',
+			accepts_fill: false,
 			arguments: [],
 			commands: [],
 		};
