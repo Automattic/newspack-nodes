@@ -11,15 +11,15 @@ describe( 'replMaxHeight', () => {
 	it( 'subtracts header, prompt bar, AND the measured tab bar from the frame height', () => {
 		// The tab bar now sits above the inspector body, so the transcript must
 		// reserve its measured height too — otherwise the REPL overflows the panel.
-		expect( replMaxHeight( 600, 37 ) ).toBe( 600 - 64 - 40 - 37 );
+		expect( replMaxHeight( 600, 37 ) ).toBe( 600 - 64 - 38 - 37 );
 	} );
 
 	it( 'reserves nothing for the tab bar when its height is 0 (single-tab host, no bar)', () => {
-		expect( replMaxHeight( 600, 0 ) ).toBe( 600 - 64 - 40 );
+		expect( replMaxHeight( 600, 0 ) ).toBe( 600 - 64 - 38 );
 	} );
 
 	it( 'defaults the tab-bar height to 0 when omitted', () => {
-		expect( replMaxHeight( 600 ) ).toBe( 600 - 64 - 40 );
+		expect( replMaxHeight( 600 ) ).toBe( 600 - 64 - 38 );
 	} );
 
 	it( 'floors at 80px so the transcript never collapses', () => {

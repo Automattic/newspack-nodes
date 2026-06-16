@@ -46,16 +46,18 @@ export function measureTabBarHeight( rootEl ) {
 
 /**
  * Max height (px) for the REPL transcript: the panel height minus the 64px
- * header row, the 40px always-visible prompt bar, and the measured tab bar the
- * DevtoolsTabHost renders above this body. Floored at 80px so the transcript
- * never collapses on a tiny panel.
+ * header row, the 38px always-visible prompt bar (`.topology-repl__bar` in
+ * graph-view.scss; the transcript's `bottom: 38px` anchor sits at that bar's
+ * top), and the measured tab bar the DevtoolsTabHost renders above this body.
+ * The panel is content-box, so frame.h excludes its border — no extra reserve.
+ * Floored at 80px so the transcript never collapses on a tiny panel.
  *
  * @param {number} frameHeight  Panel height (frame.h) in px.
  * @param {number} tabBarHeight Measured tab bar height in px (0 if no bar).
  * @return {number} Transcript max-height in px.
  */
 export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
-	return Math.max( 80, frameHeight - 64 - 40 - tabBarHeight );
+	return Math.max( 80, frameHeight - 64 - 38 - tabBarHeight );
 }
 
 /**
