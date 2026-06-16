@@ -321,7 +321,7 @@ or the palette won't see it.
 
 ## ADR-11: `make_node` construction sequence
 
-**Status:** Accepted
+**Status:** Accepted (revised: the empty-string short-circuit was replaced by a centralized default/required ladder in `parse_schema_args()` — see Decision and Revisit-if)
 
 **Context:** Config must round-trip: a live graph has to be able to emit `make_node <type>
 <name> <args>` lines (`dump_config()`) that reconstruct the same graph. That requires a fixed
@@ -339,20 +339,28 @@ exported `parseSchemaArgs( node, args )`). Config travels as a single space-join
 round-trips through `dump_config()`. Programmatic dependencies (e.g. `Workers_CI_Node::$cli`)
 are **public properties** the caller assigns AFTER `make_node` returns; object args passed
 positionally are silently filtered (`is_scalar`) because they aren't round-trippable through
-`arguments`. Subclasses that override `arguments()` for derived state (Partition's
-`partition_dir`) **must mirror the empty-string short-circuit** (`if ( '' === $args ) return
-$result;`) — otherwise re-deriving from declaration-default props yields filesystem-root junk
-like `/p0`. `Partition_Node` is the reference template.
+`arguments`. `parse_schema_args()` records the raw string into `$this->arguments` (so `dump_config()` still
+round-trips) and is the single source of truth for defaults: a missing token takes the arg's
+schema `default`, or throws if the arg is `required`. So an under-argged `make_node` (e.g.
+`make_node Partition foo` with no dir) now throws `Missing required argument: dir` instead of
+deriving filesystem-root junk like `/p0` — fail loud, not silent garbage. Subclasses that derive
+state (Partition's `partition_dir`) compute it after `parse_schema_args()` returns, by which point
+the required tokens are guaranteed present.
 
 **Alternatives considered:** A parsing constructor that takes typed args — rejected because it
 breaks the round-trippable single-string config representation and diverges from the Tachikoma
 construction sequence the rest of the model assumes. Object args through `make_node` — filtered
 out deliberately, because they can't survive `dump_config()`.
 
-**Consequences:** The empty-string short-circuit is a recurring footgun: every config-bearing
-node that overrides `arguments()` must mirror it or derive garbage. It is documented as a
-pitfall precisely because it recurs.
+**Consequences:** Centralizing the default/required ladder in `parse_schema_args()` retired the
+empty-string short-circuit (the recurring footgun where every config-bearing `arguments()`
+override had to mirror `if ( '' === $args ) return;` or derive garbage). The trade: a bare
+`make_node <Type> <name>` of a node with a `required` arg now throws at construction instead of
+yielding an unconfigured node — intended (fail fast and loud). Nodes whose config arrives as
+post-`make_node` public properties (e.g. `Workers_CI_Node::$cli`) declare no required positional
+args, so they still construct bare.
 
-**Revisit if:** the `arguments()` empty-string footgun recurs often enough to justify a parsed
-default in the base — i.e. the cost of every node mirroring the short-circuit exceeds the cost
-of changing the base contract.
+**Revisit if:** *(Acted on)* — the short-circuit's recurring cost triggered exactly this
+revision: the parsed default/required ladder now lives once in `parse_schema_args()`. Revisit
+again only if throw-on-required-at-construction proves too strict for a legitimate deferred-config
+flow that must build a bare node before configuring it.

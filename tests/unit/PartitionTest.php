@@ -80,16 +80,11 @@ class PartitionTest extends TestCase {
 		$this->assertSame( "{$this->tmp}/p1", $p->partition_dir() );
 	}
 
-	public function test_arguments_empty_string_does_not_derive_partition_dir(): void {
-		// `make_node Partition mypart` (no positional tokens) → arguments('').
-		// Base setter early-returns on empty string (no schema walk); the
-		// override must mirror that so we don't synthesize a partition_dir
-		// from declaration-default props (dir='').
+	public function test_arguments_empty_string_throws(): void {
 		$p = new Partition_Node();
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'Missing required argument: dir' );
 		$p->arguments( '' );
-		$ref = new \ReflectionClass( $p );
-		$this->assertSame( '', $ref->getProperty( 'partition_dir' )->getValue( $p ) );
-		$this->assertSame( '', $ref->getProperty( 'dir' )->getValue( $p ) );
 	}
 
 	public function test_get_segment_path_throws_on_negative(): void {

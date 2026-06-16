@@ -66,21 +66,20 @@ class HookTest extends TestCase {
 	}
 
 	/**
-	 * An unconfigured Hook_Node (empty hook_name) must pass the message through
-	 * to its sink unchanged and not error — the guard skips the do_action('') /
-	 * apply_filters('') dispatch that an empty hook name would otherwise make.
+	 * hook_name is a required argument, so an unconfigured Hook_Node (empty
+	 * hook_name, e.g. the no-arg ctor without arguments()) must not silently
+	 * dispatch on '' — fill() throws rather than fire do_action('')/apply_filters('').
 	 */
-	public function test_empty_hook_name_forwards_unchanged_without_dispatch(): void {
-		$hook    = new Hook_Node(); // no arguments() -> hook_name stays ''.
-		$capture = new Capture_Sink_Node();
-		$hook->sink( $capture );
+	public function test_empty_hook_name_fill_throws(): void {
+		$hook = new Hook_Node(); // no arguments() -> hook_name stays ''.
+		$hook->sink( new Capture_Sink_Node() );
 
 		$message                   = Message::new_message();
 		$message[ Message::VALUE ] = 'untouched';
-		$hook->fill( $message );
 
-		$this->assertCount( 1, $capture->captured );
-		$this->assertSame( 'untouched', $capture->captured[0][ Message::VALUE ] );
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'Hook::fill requires a hook_name' );
+		$hook->fill( $message );
 	}
 
 	public function test_fill_increments_counter_once_per_message(): void {

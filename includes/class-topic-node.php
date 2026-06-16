@@ -42,14 +42,10 @@ class Topic_Node extends Node {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
-		$result = parent::arguments( $args );
-		if ( '' === $args ) {
-			return $result;
-		}
 		$this->parse_schema_args( $args );
 		$this->dir_template   = \rtrim( $this->dir_template, '/' );
 		$this->num_partitions = \max( 1, $this->num_partitions );
-		return $result;
+		return $args;
 	}
 
 	/**
@@ -145,7 +141,7 @@ class Topic_Node extends Node {
 			'description' => 'Multi-partition log abstraction; routes by hash to one of N Partitions.',
 			'arguments'        => [
 				[ 'name' => 'dir_template',   'type' => 'string', 'required' => true ],
-				[ 'name' => 'num_partitions', 'type' => 'int',    'required' => true ],
+				[ 'name' => 'num_partitions', 'type' => 'int',    'default'  => 1 ],
 				[ 'name' => 'segment_size',   'type' => 'int',    'default' => Partition_Node::DEFAULT_SEGMENT_SIZE ],
 				[ 'name' => 'num_segments',   'type' => 'int',    'default' => Partition_Node::DEFAULT_NUM_SEGMENTS ],
 				[ 'name' => 'max_lifespan',   'type' => 'int',    'default' => Partition_Node::DEFAULT_MAX_LIFESPAN ],

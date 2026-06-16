@@ -20,9 +20,8 @@ class Test_Args_Node extends Node {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
-		$result = parent::arguments( $args );
 		$this->parse_schema_args( $args );
-		return $result;
+		return $args;
 	}
 
 	public static function node_schema(): array {
@@ -65,10 +64,11 @@ class NodeArgumentsTest extends TestCase {
 		$this->assertSame( false,   $n->flag );
 	}
 
-	public function test_empty_arguments_string_is_a_noop_for_assignment(): void {
+	public function test_empty_arguments_string_throws_exception_for_required_field(): void {
 		$n = new Test_Args_Node();
+		$this->expectException( \InvalidArgumentException::class );
+		$this->expectExceptionMessage( 'Missing required argument: name_field' );
 		$n->arguments( '' );
-		$this->assertSame( '', $n->name_field );
 	}
 
 	public function test_bool_coercion_accepts_truthy_strings(): void {

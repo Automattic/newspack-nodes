@@ -109,15 +109,11 @@ class Job_Worker_Node extends Node {
 		if ( null === $args ) {
 			return parent::arguments();
 		}
-		$result = parent::arguments( $args );
-		if ( '' === $args ) {
-			return $result;
-		}
 		$this->parse_schema_args( $args );
 		$this->cache_flush_interval = \max( 1, $this->cache_flush_interval );
 		$this->stale_timeout        = \max( 1, $this->stale_timeout );
 		$this->max_runtime          = \max( 1, $this->max_runtime );
-		return $result;
+		return $args;
 	}
 
 	public function fill( array &$message ): void {
