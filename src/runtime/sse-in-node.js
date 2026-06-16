@@ -67,10 +67,7 @@ export class SseInNode extends SseConnectorNode {
 		this.stampMessage( message, this.name );
 		super.fill( message );
 	}
-	// accepts_fill is a UI hint — whether you can wire a connection INTO the node in
-	// the topology editor. _sse has a runtime fill() (it's bidirectional), but you
-	// can't drag a connection into it (pivoting cwd onto _sse shows the other leg),
-	// so it declares false. has_target stays true — it forwards the outgoing/reply leg.
+	// accepts_fill is a UI hint (can you wire a connection INTO it); _sse has a fill() but isn't a drag-into target, so false.
 	static nodeSchema() {
 		return {
 			category: 'I/O',
