@@ -74,11 +74,11 @@ class TopicTest extends TestCase {
 		$t = new Topic_Node();
 		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 
-		$msg = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::KEY ]   = '/some/url';
-		$msg[ Message::VALUE ] = 'fill-data';
-		$t->fill( $msg );
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::KEY ]   = '/some/url';
+		$message[ Message::VALUE ] = 'fill-data';
+		$t->fill( $message );
 		$t->flush();
 
 		$expected_partition = Partition_Node::hash_to_partition( '/some/url', 4 );
@@ -240,11 +240,11 @@ class TopicTest extends TestCase {
 			Message::TM_EOF,
 		];
 		foreach ( $types as $type ) {
-			$msg                   = Message::new_message();
-			$msg[ Message::TYPE ]  = $type;
-			$msg[ Message::KEY ]   = '/url'; // Same KEY routes to same partition.
-			$msg[ Message::VALUE ] = 'payload-' . $type;
-			$t->fill( $msg );
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = $type;
+			$message[ Message::KEY ]   = '/url'; // Same KEY routes to same partition.
+			$message[ Message::VALUE ] = 'payload-' . $type;
+			$t->fill( $message );
 		}
 		$t->flush(); // Force the in-memory batch to land on disk synchronously.
 
@@ -265,12 +265,12 @@ class TopicTest extends TestCase {
 		$t->arguments( "{$this->tmp}/firehose.p{partition} 4 65536 4 86400" );
 
 		// TO=p2/... pins partition 2 regardless of KEY.
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::TO ]    = 'p2/some/path';
-		$msg[ Message::KEY ]   = 'unrelated-key';
-		$msg[ Message::VALUE ] = 'pinned-data';
-		$t->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::TO ]    = 'p2/some/path';
+		$message[ Message::KEY ]   = 'unrelated-key';
+		$message[ Message::VALUE ] = 'pinned-data';
+		$t->fill( $message );
 		$t->flush();
 
 		$this->assertFileExists( "{$this->tmp}/firehose.p2/0.log" );
@@ -285,12 +285,12 @@ class TopicTest extends TestCase {
 		$t = new Topic_Node();
 		$t->arguments( "{$this->tmp}/firehose.p{partition} 2 65536 4 86400" );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::TO ]    = 'p99/path';
-		$msg[ Message::KEY ]   = 'k';
-		$msg[ Message::VALUE ] = 'data';
-		$t->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::TO ]    = 'p99/path';
+		$message[ Message::KEY ]   = 'k';
+		$message[ Message::VALUE ] = 'data';
+		$t->fill( $message );
 		$t->flush();
 
 		// Whichever partition the key hashes to is materialized; the out-of-range
@@ -307,11 +307,11 @@ class TopicTest extends TestCase {
 		// Empty KEY → round-robin. Send 8 messages and confirm at least 2 partitions
 		// got data (deterministic round-robin, but counter is shared across tests).
 		for ( $i = 0; $i < 8; ++$i ) {
-			$msg                   = Message::new_message();
-			$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-			$msg[ Message::KEY ]   = '';
-			$msg[ Message::VALUE ] = "msg-{$i}";
-			$t->fill( $msg );
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$message[ Message::KEY ]   = '';
+			$message[ Message::VALUE ] = "msg-{$i}";
+			$t->fill( $message );
 		}
 		$t->flush();
 

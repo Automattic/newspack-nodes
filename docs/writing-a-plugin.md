@@ -113,11 +113,11 @@ class Releases_Source_Node extends Node {
 	private function handle_request( array $message ): void {
 		$count = 0;
 		foreach ( $this->items() as $item ) {
-			$msg                   = Message::new_message();
-			$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-			$msg[ Message::FROM ]  = $this->name;
-			$msg[ Message::VALUE ] = [ 'source' => 'releases' ] + $item;
-			parent::fill( $msg );   // <-- see "the emit pattern" below
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_STRUCT;
+			$message[ Message::FROM ]  = $this->name;
+			$message[ Message::VALUE ] = [ 'source' => 'releases' ] + $item;
+			parent::fill( $message );   // <-- see "the emit pattern" below
 			++$count;
 		}
 
@@ -133,7 +133,7 @@ class Releases_Source_Node extends Node {
 }
 ```
 
-**The emit pattern (important).** A node that *generates* a message sends it with `parent::fill( $msg )`, not `$this->fill( $msg )`. The base `Node::fill()` does two things: it stamps `TO` from this node's `target` (whatever `connect_node` wired downstream) and forwards to the `sink`. Calling `$this->fill()` would re-enter *your own* `fill()` and recurse. So: build the message, `parent::fill()`. (Generator nodes across the substrate follow this exact pattern — see `Tail`.) The *reply* is different: it carries its own `TO` (the caller's breadcrumb), so it goes straight to `$this->sink->fill()`.
+**The emit pattern (important).** A node that *generates* a message sends it with `parent::fill( $message )`, not `$this->fill( $message )`. The base `Node::fill()` does two things: it stamps `TO` from this node's `target` (whatever `connect_node` wired downstream) and forwards to the `sink`. Calling `$this->fill()` would re-enter *your own* `fill()` and recurse. So: build the message, `parent::fill()`. (Generator nodes across the substrate follow this exact pattern — see `Tail`.) The *reply* is different: it carries its own `TO` (the caller's breadcrumb), so it goes straight to `$this->sink->fill()`.
 
 **Where does `TICK` come from?** It's a **runtime trigger**, so it's a `TM_REQUEST` you handle in `fill()` — *not* a `TM_COMMAND` verb on a sibling interpreter. (Reserve `TM_COMMAND` / `node_schema()['commands']` for *admin/config* that runs at build time; see the convention box in §0.) `fill()` branches on the `TM_REQUEST` flag, does the work, and replies `TM_STRUCT | TM_RESPONSE` back along the FROM breadcrumb. The substrate's own readers do exactly this — see `Consumer_Node::handle_request` (its `GET_LAG` / `GET_OFFSET`).
 
@@ -271,11 +271,11 @@ class Digest_Builder_Node extends Node {
 		}
 		$draft = \implode( "\n", $lines ) . "\n";
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;   // a string payload, not a struct
-		$msg[ Message::FROM ]  = $this->name;
-		$msg[ Message::VALUE ] = $draft;
-		parent::fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;   // a string payload, not a struct
+		$message[ Message::FROM ]  = $this->name;
+		$message[ Message::VALUE ] = $draft;
+		parent::fill( $message );
 
 		$n           = \count( $this->items );
 		$this->items = [];
@@ -394,11 +394,11 @@ class Community_Source_Node extends Node {
 	private function handle_request( array $message ): void {
 		$count = 0;
 		foreach ( $this->items() as $item ) {
-			$msg                   = Message::new_message();
-			$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-			$msg[ Message::FROM ]  = $this->name;
-			$msg[ Message::VALUE ] = [ 'source' => 'community' ] + $item;
-			parent::fill( $msg );
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_STRUCT;
+			$message[ Message::FROM ]  = $this->name;
+			$message[ Message::VALUE ] = [ 'source' => 'community' ] + $item;
+			parent::fill( $message );
 			++$count;
 		}
 

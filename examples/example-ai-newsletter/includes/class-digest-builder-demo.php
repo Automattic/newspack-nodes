@@ -55,28 +55,13 @@ class Digest_Builder_Demo_Node extends Node {
 		}
 		$draft = \implode( "\n", $lines ) . "\n";
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::FROM ]  = $this->name;
-		$msg[ Message::VALUE ] = $draft;
+		$response                   = Message::new_message();
+		$response[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$response[ Message::FROM ]  = $this->name;
+		$response[ Message::VALUE ] = $draft;
 		// parent::fill stamps TO from a connect_node-set target, then forwards to sink.
-		parent::fill( $msg );
-
-		$n           = \count( $this->items );
+		parent::fill( $response );
 		$this->items = [];
-
-		if ( null === $this->sink ) {
-			return;
-		}
-		$verb  = \strtoupper( \trim( \is_scalar( $message[ Message::VALUE ] ) ? (string) $message[ Message::VALUE ] : '' ) );
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-		$reply[ Message::FROM ]  = $this->name;
-		$reply[ Message::TO ]    = $message[ Message::FROM ];
-		$reply[ Message::ID ]    = $message[ Message::ID ];
-		$reply[ Message::KEY ]   = $message[ Message::KEY ];
-		$reply[ Message::VALUE ] = [ 'verb' => $verb, 'data' => [ 'flushed' => $n ] ];
-		$this->sink->fill( $reply );
 	}
 
 	/**

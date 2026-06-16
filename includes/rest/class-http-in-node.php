@@ -228,7 +228,7 @@ class HTTP_In_Node extends Node {
 		// addressed to the request scope itself (`cd /_sse`) and forwards a
 		// non-empty TO on to _router. (_router has no sink and would drop empty TO.)
 		$out->reset();
-		foreach ( $messages as $msg ) {
+		foreach ( $messages as $message ) {
 			// The HTTP boundary stamps its own name onto every incoming message
 			// (I/O-boundary stamping), so a reply's TO=FROM walks `_output/…` back
 			// here. The client sends a bare reply path (`_output`, `_sse:{pid}/…`,
@@ -236,14 +236,14 @@ class HTTP_In_Node extends Node {
 			// FROM stamps to just `_output`. Stamp with the constant, not $this->name:
 			// when the graph was pre-built, the registered `_output` node is a DIFFERENT
 			// instance and $this is unnamed.
-			$this->stamp_message( $msg, Node_Names::OUTPUT );
+			$this->stamp_message( $message, Node_Names::OUTPUT );
 			// WP already authenticated this request (permission_callback:
 			// manage_options). Sign command provenance on the browser's behalf so
 			// downstream verifier interpreters (request-scope + worker) accept it; the
 			// signature covers semantics only, so the later FROM/TO peeling is fine.
 			// Non-command messages (TM_BYTESTREAM/INFO, or responses) are left alone.
-			Command_Auth::sign( $msg );
-			$base_interpreter->fill( $msg );
+			Command_Auth::sign( $message );
+			$base_interpreter->fill( $message );
 		}
 
 		if ( ! $out->sent_headers ) {
@@ -308,15 +308,15 @@ class HTTP_In_Node extends Node {
 		}
 	}
 
-	/** @param array<int, mixed> $msg The Message that triggered the error. */
-	private function emit_error( array $msg, string $err ): void {
+	/** @param array<int, mixed> $message The Message that triggered the error. */
+	private function emit_error( array $message, string $err ): void {
 		\status_header( 500 );
 		\header( 'Content-Type: application/json' );
 		$r                   = Message::new_message();
 		$r[ Message::TYPE ]  = Message::TM_RESPONSE | Message::TM_ERROR;
 		$r[ Message::FROM ]  = '_command';
-		$r[ Message::TO ]    = $msg[ Message::FROM ];
-		$r[ Message::ID ]    = $msg[ Message::ID ];
+		$r[ Message::TO ]    = $message[ Message::FROM ];
+		$r[ Message::ID ]    = $message[ Message::ID ];
 		$r[ Message::VALUE ] = $err;
 		// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		echo Message::packed( $r );

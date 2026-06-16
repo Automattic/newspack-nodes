@@ -22,15 +22,15 @@ class JobWorkerTest extends TestCase {
 	 *   { k, handler, parameters, ts }
 	 */
 	private function job_message( string $handler, array $parameters = [], string $kind = 'job' ): array {
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::VALUE ] = [
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = [
 			'k'          => $kind,
 			'handler'    => $handler,
 			'parameters' => $parameters,
 			'ts'         => 1700000000.0,
 		];
-		return $msg;
+		return $message;
 	}
 
 	public function test_executes_job_via_handler(): void {
@@ -40,8 +40,8 @@ class JobWorkerTest extends TestCase {
 			$received = $payload;
 		} );
 
-		$msg = $this->job_message( 'a', [ 'x' => 1 ] );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'a', [ 'x' => 1 ] );
+		$jw->fill( $message );
 
 		$this->assertSame( [ 'x' => 1 ], $received );
 		$this->assertSame( 1, $jw->jobs_executed() );
@@ -57,8 +57,8 @@ class JobWorkerTest extends TestCase {
 		add_action( 'newspack_nodes/job_worker/before_job', function ( $h ) use ( &$seen ) { $seen[] = "before:$h"; } );
 		add_action( 'newspack_nodes/job_worker/after_job', function ( $h ) use ( &$seen ) { $seen[] = "after:$h"; } );
 
-		$msg = $this->job_message( 'ctx' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'ctx' );
+		$jw->fill( $message );
 
 		$this->assertSame( [ 'before:ctx', 'after:ctx' ], $seen );
 	}
@@ -70,8 +70,8 @@ class JobWorkerTest extends TestCase {
 		$after = 0;
 		add_action( 'newspack_nodes/job_worker/after_job', function () use ( &$after ) { ++$after; } );
 
-		$msg = $this->job_message( 'boom' );
-		$jw->fill( $msg ); // swallowed
+		$message = $this->job_message( 'boom' );
+		$jw->fill( $message ); // swallowed
 
 		$this->assertSame( 1, $after );
 		$this->assertSame( 1, $jw->jobs_executed() );
@@ -90,8 +90,8 @@ class JobWorkerTest extends TestCase {
 		add_action( 'newspack_nodes/job_worker/before_job', function () { throw new \RuntimeException( 'listener boom' ); } );
 		add_action( 'newspack_nodes/job_worker/after_job', function () use ( &$after ) { ++$after; } );
 
-		$msg = $this->job_message( 'ctx' );
-		$jw->fill( $msg ); // must not throw out of fill()
+		$message = $this->job_message( 'ctx' );
+		$jw->fill( $message ); // must not throw out of fill()
 
 		$this->assertSame( 1, $after, 'after_job must fire even when a before_job listener throws' );
 		$this->assertFalse( $handler_ran, 'handler is skipped when before_job throws' );
@@ -105,8 +105,8 @@ class JobWorkerTest extends TestCase {
 		$ran = false;
 		$jw->register_handler( 'plain', function () use ( &$ran ) { $ran = true; } );
 
-		$msg = $this->job_message( 'plain' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'plain' );
+		$jw->fill( $message );
 
 		$this->assertTrue( $ran );
 		$this->assertSame( 1, $jw->jobs_executed() );
@@ -119,10 +119,10 @@ class JobWorkerTest extends TestCase {
 		$called = false;
 		$jw->register_handler( 'deep', function () use ( &$called ) { $called = true; } );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::VALUE ] = 'not-an-array';
-		$jw->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = 'not-an-array';
+		$jw->fill( $message );
 
 		$this->assertFalse( $called, 'non-array VALUE must not reach the handler' );
 		$this->assertSame( 0, $jw->jobs_executed() );
@@ -140,8 +140,8 @@ class JobWorkerTest extends TestCase {
 		} );
 
 		for ( $i = 0; $i < 5; ++$i ) {
-			$msg = $this->job_message( 'noop' );
-			$jw->fill( $msg );
+			$message = $this->job_message( 'noop' );
+			$jw->fill( $message );
 		}
 
 		$this->assertSame( [ 1, 2, 3, 4, 5 ], $counters );
@@ -160,8 +160,8 @@ class JobWorkerTest extends TestCase {
 		} );
 
 		for ( $i = 0; $i < 10; ++$i ) {
-			$msg = $this->job_message( 'noop' );
-			$jw->fill( $msg );
+			$message = $this->job_message( 'noop' );
+			$jw->fill( $message );
 		}
 
 		$this->assertSame( 3, $flush_count );
@@ -174,8 +174,8 @@ class JobWorkerTest extends TestCase {
 		$cycles = 0;
 		$jw->set_between_jobs_callback( function () use ( &$cycles ) { ++$cycles; } );
 
-		$msg = $this->job_message( 'boom' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'boom' );
+		$jw->fill( $message );
 
 		$this->assertSame( 1, $cycles );
 		$this->assertSame( 1, $jw->jobs_executed() );
@@ -188,13 +188,13 @@ class JobWorkerTest extends TestCase {
 		$cycles = 0;
 		$jw->set_between_jobs_callback( function () use ( &$cycles ) { ++$cycles; } );
 
-		$msg = $this->job_message( 'noop' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'noop' );
+		$jw->fill( $message );
 		$this->assertSame( 1, $cycles );
 
 		$jw->set_between_jobs_callback( null );
-		$msg = $this->job_message( 'noop' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'noop' );
+		$jw->fill( $message );
 
 		$this->assertSame( 1, $cycles );
 	}
@@ -203,8 +203,8 @@ class JobWorkerTest extends TestCase {
 		$jw = new Job_Worker_Node();
 		$jw->register_handler( 'boom', function () { throw new \RuntimeException( 'x' ); } );
 
-		$msg = $this->job_message( 'boom' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'boom' );
+		$jw->fill( $message );
 		$this->assertSame( 1, $jw->jobs_executed() );
 	}
 
@@ -213,8 +213,8 @@ class JobWorkerTest extends TestCase {
 		$jw->register_handler( 'noop', fn ( $p ) => null );
 
 		for ( $i = 0; $i < 3; ++$i ) {
-			$msg = $this->job_message( 'noop' );
-			$jw->fill( $msg );
+			$message = $this->job_message( 'noop' );
+			$jw->fill( $message );
 		}
 		$this->assertSame( 3, $jw->jobs_executed() );
 	}
@@ -243,8 +243,8 @@ class JobWorkerTest extends TestCase {
 		$jw->register_handler( 'noop', fn ( $p ) => null );
 
 		for ( $i = 0; $i < 51; ++$i ) {
-			$msg = $this->job_message( 'noop' );
-			$jw->fill( $msg );
+			$message = $this->job_message( 'noop' );
+			$jw->fill( $message );
 		}
 
 		$this->assertSame( 51, $jw->jobs_executed() );
@@ -276,10 +276,10 @@ class JobWorkerTest extends TestCase {
 		$called = false;
 		$jw->register_handler( 'noop', function () use ( &$called ) { $called = true; } );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::VALUE ] = [ 'k' => 'start', 'handler' => 'noop', 'parameters' => [] ];
-		$jw->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = [ 'k' => 'start', 'handler' => 'noop', 'parameters' => [] ];
+		$jw->fill( $message );
 
 		$this->assertFalse( $called );
 		$this->assertSame( 0, $jw->jobs_executed() );
@@ -295,15 +295,15 @@ class JobWorkerTest extends TestCase {
 		$received = null;
 		$jw->register_handler( 'evtemplate', function ( $p ) use ( &$received ) { $received = $p; } );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::VALUE ] = [
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = [
 			'k'          => 'job',
 			'handler'    => 'evtemplate',
 			'parameters' => [ 'template' => 'Tools/ImportFilmTimes.html' ],
 			'ts'         => 1700000000.0,
 		];
-		$jw->fill( $msg );
+		$jw->fill( $message );
 
 		$this->assertSame( [ 'template' => 'Tools/ImportFilmTimes.html' ], $received );
 		$this->assertSame( 1, $jw->jobs_executed() );
@@ -314,15 +314,15 @@ class JobWorkerTest extends TestCase {
 		$received = null;
 		$jw->set_remote_handler( 'hub_op', function ( $p ) use ( &$received ) { $received = $p; } );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::VALUE ] = [
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = [
 			'k'          => 'remote_job',
 			'handler'    => 'hub_op',
 			'parameters' => [ 'a' => 1 ],
 			'ts'         => 1700000000.0,
 		];
-		$jw->fill( $msg );
+		$jw->fill( $message );
 
 		$this->assertSame( [ 'a' => 1 ], $received );
 		$this->assertSame( 1, $jw->jobs_executed() );
@@ -335,8 +335,8 @@ class JobWorkerTest extends TestCase {
 		$received = null;
 		$jw->set_local_handler( 'sync', function ( $p ) use ( &$received ) { $received = $p; } );
 
-		$msg = $this->job_message( 'sync', [ 'k' => 'v' ], 'job' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'sync', [ 'k' => 'v' ], 'job' );
+		$jw->fill( $message );
 
 		$this->assertSame( [ 'k' => 'v' ], $received );
 	}
@@ -346,8 +346,8 @@ class JobWorkerTest extends TestCase {
 		$received = null;
 		$jw->set_remote_handler( 'hub_op', function ( $p ) use ( &$received ) { $received = $p; } );
 
-		$msg = $this->job_message( 'hub_op', [ 'a' => 1 ], 'remote_job' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'hub_op', [ 'a' => 1 ], 'remote_job' );
+		$jw->fill( $message );
 
 		$this->assertSame( [ 'a' => 1 ], $received );
 	}
@@ -357,8 +357,8 @@ class JobWorkerTest extends TestCase {
 		$called = false;
 		$jw->set_local_handler( 'priv', function () use ( &$called ) { $called = true; } );
 
-		$msg = $this->job_message( 'priv', [], 'remote_job' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'priv', [], 'remote_job' );
+		$jw->fill( $message );
 
 		$this->assertFalse( $called );
 		$this->assertSame( 0, $jw->jobs_executed() );
@@ -369,8 +369,8 @@ class JobWorkerTest extends TestCase {
 		$called = false;
 		$jw->set_remote_handler( 'priv', function () use ( &$called ) { $called = true; } );
 
-		$msg = $this->job_message( 'priv', [], 'job' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'priv', [], 'job' );
+		$jw->fill( $message );
 
 		$this->assertFalse( $called );
 	}
@@ -382,12 +382,12 @@ class JobWorkerTest extends TestCase {
 		$jw->set_local_handler( 'evTemplate', function () use ( &$local_calls ) { ++$local_calls; } );
 		$jw->set_remote_handler( 'evTemplate', function () use ( &$remote_calls ) { ++$remote_calls; } );
 
-		$msg = $this->job_message( 'evTemplate', [], 'job' );
-		$jw->fill( $msg );
-		$msg = $this->job_message( 'evTemplate', [], 'remote_job' );
-		$jw->fill( $msg );
-		$msg = $this->job_message( 'evTemplate', [], 'job' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'evTemplate', [], 'job' );
+		$jw->fill( $message );
+		$message = $this->job_message( 'evTemplate', [], 'remote_job' );
+		$jw->fill( $message );
+		$message = $this->job_message( 'evTemplate', [], 'job' );
+		$jw->fill( $message );
 
 		$this->assertSame( 2, $local_calls );
 		$this->assertSame( 1, $remote_calls );
@@ -486,10 +486,10 @@ class JobWorkerTest extends TestCase {
 		$this->assertSame( 1, $jw->get_max_runtime() );
 
 		$jw->register_handler( 'noop', fn () => null );
-		$msg = $this->job_message( 'noop' );
-		$jw->fill( $msg );
-		$msg = $this->job_message( 'noop' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'noop' );
+		$jw->fill( $message );
+		$message = $this->job_message( 'noop' );
+		$jw->fill( $message );
 		$this->assertSame( 2, $jw->jobs_executed() );
 	}
 
@@ -520,10 +520,10 @@ class JobWorkerTest extends TestCase {
 		$called = false;
 		$jw->register_handler( 'noop', function () use ( &$called ) { $called = true; } );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::VALUE ] = 'not-a-struct';
-		$jw->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'not-a-struct';
+		$jw->fill( $message );
 
 		$this->assertFalse( $called );
 		$this->assertSame( 0, $jw->jobs_executed() );
@@ -535,8 +535,8 @@ class JobWorkerTest extends TestCase {
 		$jw->register_handler( 'big', function () use ( &$called ) { $called = true; } );
 
 		$huge_param = \str_repeat( 'x', Job_Worker_Node::MAX_JOB_SIZE + 1024 );
-		$msg = $this->job_message( 'big', [ 'blob' => $huge_param ] );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'big', [ 'blob' => $huge_param ] );
+		$jw->fill( $message );
 
 		$this->assertFalse( $called );
 		$this->assertSame( 0, $jw->jobs_executed() );
@@ -544,15 +544,15 @@ class JobWorkerTest extends TestCase {
 
 	public function test_fill_drops_entries_with_invalid_handler_name(): void {
 		$jw = new Job_Worker_Node();
-		$msg = $this->job_message( 'bad name with spaces' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'bad name with spaces' );
+		$jw->fill( $message );
 		$this->assertSame( 0, $jw->jobs_executed() );
 	}
 
 	public function test_fill_drops_unregistered_handler_name(): void {
 		$jw = new Job_Worker_Node();
-		$msg = $this->job_message( 'never_registered' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'never_registered' );
+		$jw->fill( $message );
 		$this->assertSame( 0, $jw->jobs_executed() );
 	}
 
@@ -729,10 +729,10 @@ class JobWorkerTest extends TestCase {
 			$jw->register_handler( 'noop', fn () => null );
 			$this->assertFalse( $jw->memory_pressure() );
 
-			$msg = $this->job_message( 'noop' );
-			$jw->fill( $msg );
-			$msg = $this->job_message( 'noop' );
-			$jw->fill( $msg );
+			$message = $this->job_message( 'noop' );
+			$jw->fill( $message );
+			$message = $this->job_message( 'noop' );
+			$jw->fill( $message );
 
 			$this->assertFalse( $jw->memory_pressure() );
 		} finally {
@@ -760,20 +760,20 @@ class JobWorkerTest extends TestCase {
 		$ref->setValue( $jw, $registrations );
 
 		for ( $i = 0; $i < 3; ++$i ) {
-			$msg = $this->job_message( 'noop' );
-			$jw->fill( $msg );
+			$message = $this->job_message( 'noop' );
+			$jw->fill( $message );
 		}
 		$this->assertCount( 1, $flush_observed, 'first flush fires at jobs == interval' );
 		$this->assertSame( 3, $flush_observed[0]['jobs'] );
 
 		for ( $i = 0; $i < 2; ++$i ) {
-			$msg = $this->job_message( 'noop' );
-			$jw->fill( $msg );
+			$message = $this->job_message( 'noop' );
+			$jw->fill( $message );
 		}
 		$this->assertCount( 1, $flush_observed );
 
-		$msg = $this->job_message( 'noop' );
-		$jw->fill( $msg );
+		$message = $this->job_message( 'noop' );
+		$jw->fill( $message );
 		$this->assertCount( 2, $flush_observed );
 	}
 

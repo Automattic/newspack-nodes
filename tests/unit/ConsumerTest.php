@@ -96,8 +96,8 @@ class ConsumerTest extends TestCase {
 		// volume too.
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data/p0 " . ( 64 * 1024 ) . " 4 86400" );
-		$msg_a  = $this->produce( 'first' );
-		$source->fill( $msg_a );
+		$message_a  = $this->produce( 'first' );
+		$source->fill( $message_a );
 		$source->flush();
 
 		$c = new Consumer_Node();
@@ -105,7 +105,7 @@ class ConsumerTest extends TestCase {
 		$c->sink( new Capture_Sink_Node() );
 		$this->pump_consumer( $c );
 
-		$packed_size = \strlen( Message::packed( $msg_a ) ) + 1; // trailing \n
+		$packed_size = \strlen( Message::packed( $message_a ) ) + 1; // trailing \n
 		$this->assertSame( $packed_size, $c->bytes_read() );
 	}
 
@@ -133,11 +133,11 @@ class ConsumerTest extends TestCase {
 	 * on the read side. Tests use this to simulate real producer flow.
 	 */
 	private function produce_line( Partition_Node $partition, string $value ): void {
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$msg[ Message::TIMESTAMP ] = microtime( true );
-		$msg[ Message::VALUE ]     = $value;
-		$partition->fill( $msg );
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$message[ Message::TIMESTAMP ] = microtime( true );
+		$message[ Message::VALUE ]     = $value;
+		$partition->fill( $message );
 		// Partition::fill batches in memory now — force on-disk visibility
 		// so the Consumer's poll() picks up the bytes synchronously.
 		$partition->flush();
@@ -185,14 +185,14 @@ class ConsumerTest extends TestCase {
 
 		$offsetlog_path = "{$this->tmp}/offsets/r/p0/0.log";
 		$content = (string) file_get_contents( $offsetlog_path );
-		$msg     = Message::unpacked( rtrim( $content, "\n" ) );
-		$entry   = $msg[ Message::VALUE ];
+		$message     = Message::unpacked( rtrim( $content, "\n" ) );
+		$entry   = $message[ Message::VALUE ];
 
 		$this->assertSame( 'firehose-workers', $entry['worker_type'] ?? null );
 		$this->assertSame( 'firehose:tee',     $entry['target']      ?? null );
 		$this->assertSame( 'firehose:consumer', $entry['name']       ?? null );
 		// The stored record carries the producing Consumer's identity in FROM.
-		$this->assertSame( 'firehose:consumer', $msg[ Message::FROM ] );
+		$this->assertSame( 'firehose:consumer', $message[ Message::FROM ] );
 		// `targets` resolves downstream; with no node registered for
 		// firehose:tee, the row surfaces the name with an empty class.
 		$this->assertSame(
@@ -221,8 +221,8 @@ class ConsumerTest extends TestCase {
 
 		$offsetlog_path = "{$this->tmp}/offsets/firehose.job-router.p0/0.log";
 		$content        = (string) file_get_contents( $offsetlog_path );
-		$msg            = Message::unpacked( rtrim( $content, "\n" ) );
-		$entry          = $msg[ Message::VALUE ];
+		$message            = Message::unpacked( rtrim( $content, "\n" ) );
+		$entry          = $message[ Message::VALUE ];
 
 		$this->assertSame( 'firehose.p0', $entry['source_log'] ?? null );
 	}
@@ -267,8 +267,8 @@ class ConsumerTest extends TestCase {
 		$offsetlog_path = "{$this->tmp}/offsets/r/p0/0.log";
 		$this->assertTrue( file_exists( $offsetlog_path ), 'Offsetlog must exist after checkpoint' );
 		$content = (string) file_get_contents( $offsetlog_path );
-		$msg     = Message::unpacked( rtrim( $content, "\n" ) );
-		$entry   = $msg[ Message::VALUE ];
+		$message     = Message::unpacked( rtrim( $content, "\n" ) );
+		$entry   = $message[ Message::VALUE ];
 		$this->assertSame( 0, $entry['seg'] );
 		$this->assertGreaterThan( 0, $entry['off'] );
 	}
@@ -387,11 +387,11 @@ class ConsumerTest extends TestCase {
 	public function test_partial_line_carries_across_polls(): void {
 		// Simulate a writer that writes a single packed line in two halves.
 		// Use raw fwrite to bypass Partition's atomic-line semantics.
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$msg[ Message::TIMESTAMP ] = 1234567890.0;
-		$msg[ Message::VALUE ]     = 'first';
-		$packed                    = Message::packed( $msg ) . "\n";
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$message[ Message::TIMESTAMP ] = 1234567890.0;
+		$message[ Message::VALUE ]     = 'first';
+		$packed                    = Message::packed( $message ) . "\n";
 		$mid                       = (int) ( strlen( $packed ) / 2 );
 		$half1                     = substr( $packed, 0, $mid );
 		$half2                     = substr( $packed, $mid );
@@ -420,11 +420,11 @@ class ConsumerTest extends TestCase {
 
 	public function test_partial_line_does_not_double_emit_bytes(): void {
 		// Writer writes a packed line 1 byte at a time across multiple polls.
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$msg[ Message::TIMESTAMP ] = 1234567890.0;
-		$msg[ Message::VALUE ]     = 'hello';
-		$packed                    = Message::packed( $msg ) . "\n";
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$message[ Message::TIMESTAMP ] = 1234567890.0;
+		$message[ Message::VALUE ]     = 'hello';
+		$packed                    = Message::packed( $message ) . "\n";
 
 		mkdir( "{$this->tmp}/data/p0", 0755, true );
 		file_put_contents( "{$this->tmp}/data/p0/0.log", '' );
@@ -867,12 +867,12 @@ class ConsumerTest extends TestCase {
 		// rid grouping and any multi-partition queue keyed on handler.
 		$source = new Partition_Node();
 		$source->arguments( "{$this->tmp}/data/p0 " . ( 64*1024 ) . " 4 86400" );
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$msg[ Message::TIMESTAMP ] = 1234567890.0;
-		$msg[ Message::KEY ]       = 'producer-key-abc123';
-		$msg[ Message::VALUE ]     = 'hello';
-		$source->fill( $msg );
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$message[ Message::TIMESTAMP ] = 1234567890.0;
+		$message[ Message::KEY ]       = 'producer-key-abc123';
+		$message[ Message::VALUE ]     = 'hello';
+		$source->fill( $message );
 		$source->flush();
 
 		$c   = new Consumer_Node();
@@ -898,11 +898,11 @@ class ConsumerTest extends TestCase {
 		mkdir( "{$this->tmp}/offsets/r/p0", 0755, true );
 
 		// Message with VALUE = string "garbage" (not an array with seg/off).
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
-		$msg[ Message::TIMESTAMP ] = 1234567890.0;
-		$msg[ Message::VALUE ]     = 'garbage';
-		file_put_contents( "{$this->tmp}/offsets/r/p0/0.log", Message::packed( $msg ) . "\n" );
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::TIMESTAMP ] = 1234567890.0;
+		$message[ Message::VALUE ]     = 'garbage';
+		file_put_contents( "{$this->tmp}/offsets/r/p0/0.log", Message::packed( $message ) . "\n" );
 
 		$c = new Consumer_Node();
 		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
@@ -1563,8 +1563,8 @@ class ConsumerTest extends TestCase {
 
 		$offsetlog_path = "{$this->tmp}/offsets/r/p0/0.log";
 		$content        = (string) \file_get_contents( $offsetlog_path );
-		$msg            = Message::unpacked( \rtrim( $content, "\n" ) );
-		$entry          = $msg[ Message::VALUE ];
+		$message            = Message::unpacked( \rtrim( $content, "\n" ) );
+		$entry          = $message[ Message::VALUE ];
 
 		$this->assertCount( 2, $entry['targets'], 'Tee must expand to N targets' );
 		$names = \array_column( $entry['targets'], 'name' );
@@ -1598,8 +1598,8 @@ class ConsumerTest extends TestCase {
 
 		$offsetlog_path = "{$this->tmp}/offsets/r/p0/0.log";
 		$content        = (string) \file_get_contents( $offsetlog_path );
-		$msg            = Message::unpacked( \rtrim( $content, "\n" ) );
-		$entry          = $msg[ Message::VALUE ];
+		$message            = Message::unpacked( \rtrim( $content, "\n" ) );
+		$entry          = $message[ Message::VALUE ];
 
 		$this->assertCount( 1, $entry['targets'] );
 		$this->assertSame( 'ghost', $entry['targets'][0]['name'] );
@@ -1635,8 +1635,8 @@ class ConsumerTest extends TestCase {
 
 		$offsetlog_path = "{$this->tmp}/offsets/r/p0/0.log";
 		$content        = (string) \file_get_contents( $offsetlog_path );
-		$msg            = Message::unpacked( \rtrim( $content, "\n" ) );
-		$entry          = $msg[ Message::VALUE ];
+		$message            = Message::unpacked( \rtrim( $content, "\n" ) );
+		$entry          = $message[ Message::VALUE ];
 
 		$this->assertCount( 1, $entry['targets'], 'empty-string target must be skipped' );
 		$this->assertSame( 'real', $entry['targets'][0]['name'] );
@@ -1709,8 +1709,8 @@ class ConsumerTest extends TestCase {
 
 		$offsetlog_path = "{$this->tmp}/offsets/r/p0/0.log";
 		$content        = (string) \file_get_contents( $offsetlog_path );
-		$msg            = Message::unpacked( \rtrim( $content, "\n" ) );
-		$entry          = $msg[ Message::VALUE ];
+		$message            = Message::unpacked( \rtrim( $content, "\n" ) );
+		$entry          = $message[ Message::VALUE ];
 
 		$this->assertCount( 1, $entry['targets'] );
 		$this->assertSame( 'just-a-processor', $entry['targets'][0]['name'] );

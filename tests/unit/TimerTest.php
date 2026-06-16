@@ -103,10 +103,10 @@ class TimerTest extends TestCase {
 		$timer->sink( $capture );
 		$timer->fire_cb();
 		$this->assertCount( 1, $capture->captured );
-		$msg = $capture->captured[0];
-		$this->assertSame( 'heartbeat', $msg[ Message::KEY ] );
-		$this->assertTrue( (bool) ( $msg[ Message::TYPE ] & Message::TM_BYTESTREAM ) );
-		$this->assertIsString( $msg[ Message::VALUE ] );
+		$message = $capture->captured[0];
+		$this->assertSame( 'heartbeat', $message[ Message::KEY ] );
+		$this->assertTrue( (bool) ( $message[ Message::TYPE ] & Message::TM_BYTESTREAM ) );
+		$this->assertIsString( $message[ Message::VALUE ] );
 	}
 
 	public function test_fire_omits_key_when_unset(): void {
@@ -193,10 +193,10 @@ class TimerTest extends TestCase {
 		$timer->name( 't' );
 		$capture = new Capture_Sink_Node();
 		$timer->sink( $capture );
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::VALUE ] = 'data';
-		$timer->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'data';
+		$timer->fill( $message );
 		$this->assertCount( 1, $capture->captured );
 		$this->assertSame( 0, $timer->fire_count );
 	}
@@ -209,10 +209,10 @@ class TimerTest extends TestCase {
 		$timer->name( 't' );
 		$capture = new Capture_Sink_Node();
 		$timer->sink( $capture );
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_INFO;
-		$msg[ Message::KEY ]  = 'TIMER';
-		$timer->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_INFO;
+		$message[ Message::KEY ]  = 'TIMER';
+		$timer->fill( $message );
 		$this->assertCount( 1, $capture->captured );
 		$this->assertSame( 0, $timer->fire_count );
 	}

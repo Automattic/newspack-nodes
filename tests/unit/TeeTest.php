@@ -33,10 +33,10 @@ class TeeTest extends TestCase {
 		$tee->connect_node( 'a' );
 		$tee->connect_node( 'b' );
 
-		$msg = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::VALUE ] = 'fanout';
-		$tee->fill( $msg );
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'fanout';
+		$tee->fill( $message );
 
 		$this->assertCount( 1, $a->captured );
 		$this->assertCount( 1, $b->captured );
@@ -60,11 +60,11 @@ class TeeTest extends TestCase {
 		$tee->connect_node( 'a' );
 		$tee->connect_node( 'b' );
 
-		$msg = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::TO ]    = 'sub';
-		$msg[ Message::VALUE ] = 'fanout';
-		$tee->fill( $msg );
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::TO ]    = 'sub';
+		$message[ Message::VALUE ] = 'fanout';
+		$tee->fill( $message );
 
 		$this->assertCount( 1, $a->captured );
 		$this->assertCount( 1, $b->captured );
@@ -120,10 +120,10 @@ class TeeTest extends TestCase {
 		$tee->connect_node( 'alive' );
 		$tee->connect_node( 'gone' );
 
-		$msg = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::VALUE ] = 'data';
-		$tee->fill( $msg );
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'data';
+		$tee->fill( $message );
 
 		$this->assertCount( 1, $alive->captured );
 	}
@@ -195,12 +195,12 @@ class TeeTest extends TestCase {
 		$tee->connect_node( 'alive' );
 
 		// Suppress the rate-limited error trail so this test doesn't pollute output.
-		Core::set_stderr_handler( fn( $msg ) => null );
+		Core::set_stderr_handler( fn( $message ) => null );
 
-		$msg = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::VALUE ] = 'data';
-		$tee->fill( $msg );
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'data';
+		$tee->fill( $message );
 
 		// Live target still got the message even though sibling threw.
 		$this->assertCount( 1, $alive->captured );

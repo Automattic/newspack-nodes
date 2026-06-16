@@ -19,11 +19,11 @@ class EchoTest extends TestCase {
 		$sink = new Capture_Sink_Node();
 		$echo->sink( $sink );
 
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_BYTESTREAM;
-		$msg[ Message::TO ]   = 'sub/path';
-		$msg[ Message::VALUE ] = 'data';
-		$echo->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_BYTESTREAM;
+		$message[ Message::TO ]   = 'sub/path';
+		$message[ Message::VALUE ] = 'data';
+		$echo->fill( $message );
 
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( 'downstream/sub/path', $sink->captured[0][ Message::TO ] );
@@ -36,12 +36,12 @@ class EchoTest extends TestCase {
 		$sink = new Capture_Sink_Node();
 		$echo->sink( $sink );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::FROM ]  = 'sender';
-		$msg[ Message::TO ]    = '';
-		$msg[ Message::VALUE ] = 'roundtrip';
-		$echo->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::FROM ]  = 'sender';
+		$message[ Message::TO ]    = '';
+		$message[ Message::VALUE ] = 'roundtrip';
+		$echo->fill( $message );
 
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( 'sender', $sink->captured[0][ Message::TO ] );
@@ -54,11 +54,11 @@ class EchoTest extends TestCase {
 		$sink = new Capture_Sink_Node();
 		$echo->sink( $sink );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::TO ]    = 'preset';
-		$msg[ Message::VALUE ] = 'data';
-		$echo->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::TO ]    = 'preset';
+		$message[ Message::VALUE ] = 'data';
+		$echo->fill( $message );
 
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( 'preset', $sink->captured[0][ Message::TO ] );
@@ -74,12 +74,12 @@ class EchoTest extends TestCase {
 		$sink = new Capture_Sink_Node();
 		$echo->sink( $sink );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::FROM ]  = 'sender';
-		$msg[ Message::TO ]    = '';
-		$msg[ Message::VALUE ] = 'data';
-		$echo->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::FROM ]  = 'sender';
+		$message[ Message::TO ]    = '';
+		$message[ Message::VALUE ] = 'data';
+		$echo->fill( $message );
 
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( 'somewhere', $sink->captured[0][ Message::TO ] );
@@ -93,12 +93,12 @@ class EchoTest extends TestCase {
 		$sink = new Capture_Sink_Node();
 		$echo->sink( $sink );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_ERROR;
-		$msg[ Message::FROM ]  = 'producer';
-		$msg[ Message::TO ]    = '';
-		$msg[ Message::VALUE ] = 'oops';
-		$echo->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_ERROR;
+		$message[ Message::FROM ]  = 'producer';
+		$message[ Message::TO ]    = '';
+		$message[ Message::VALUE ] = 'oops';
+		$echo->fill( $message );
 
 		$this->assertCount( 0, $sink->captured );
 	}
@@ -110,11 +110,11 @@ class EchoTest extends TestCase {
 		$sink = new Capture_Sink_Node();
 		$echo->sink( $sink );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_ERROR;
-		$msg[ Message::TO ]    = 'error-handler';
-		$msg[ Message::VALUE ] = 'oops';
-		$echo->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_ERROR;
+		$message[ Message::TO ]    = 'error-handler';
+		$message[ Message::VALUE ] = 'oops';
+		$echo->fill( $message );
 
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( 'error-handler', $sink->captured[0][ Message::TO ] );

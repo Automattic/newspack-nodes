@@ -597,8 +597,8 @@ class BootstrapTest extends TestCase {
 	/** Capture Core::stderr output for the duration of a callable. */
 	private function capture_stderr( callable $fn ): string {
 		$lines = [];
-		Core::set_stderr_handler( function ( string $msg ) use ( &$lines ): void {
-			$lines[] = $msg;
+		Core::set_stderr_handler( function ( string $message ) use ( &$lines ): void {
+			$lines[] = $message;
 		} );
 		$fn();
 		return \implode( '', $lines );

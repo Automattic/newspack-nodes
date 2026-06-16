@@ -110,8 +110,8 @@ class PartitionTest extends TestCase {
 	public function test_first_fill_creates_partition_dir_and_segment(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}/p0 " . ( 64*1024 ) . " 4 86400" );
-		$msg = $this->produce( 'hello' );
-		$p->fill( $msg );
+		$message = $this->produce( 'hello' );
+		$p->fill( $message );
 		$p->flush();
 		$this->assertTrue( is_dir( "{$this->tmp}/p0" ) );
 		$this->assertSame( [ 'hello' ], $this->read_partition_values( $p ) );
@@ -194,23 +194,23 @@ class PartitionTest extends TestCase {
 	public function test_fill_accumulates_bytes_written(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}/p0 " . ( 64*1024 ) . " 4 86400" );
-		$msg_a = $this->produce( 'hello' );
-		$msg_b = $this->produce( 'world!' );
-		$p->fill( $msg_a );
-		$p->fill( $msg_b );
+		$message_a = $this->produce( 'hello' );
+		$message_b = $this->produce( 'world!' );
+		$p->fill( $message_a );
+		$p->fill( $message_b );
 		$p->flush(); // bytes_written tracks bytes-on-disk; flush forces batch drain.
-		$expected = \strlen( \Newspack_Nodes\Message::packed( $msg_a ) ) + 1
-			+ \strlen( \Newspack_Nodes\Message::packed( $msg_b ) ) + 1; // trailing \n per message
+		$expected = \strlen( \Newspack_Nodes\Message::packed( $message_a ) ) + 1
+			+ \strlen( \Newspack_Nodes\Message::packed( $message_b ) ) + 1; // trailing \n per message
 		$this->assertSame( $expected, $p->bytes_written() );
 	}
 
 	public function test_read_at_accumulates_bytes_read(): void {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}/p0 " . ( 64*1024 ) . " 4 86400" );
-		$msg = $this->produce( 'hello' );
-		$p->fill( $msg );
+		$message = $this->produce( 'hello' );
+		$p->fill( $message );
 		$p->flush();
-		$packed_size = \strlen( \Newspack_Nodes\Message::packed( $msg ) ) + 1;
+		$packed_size = \strlen( \Newspack_Nodes\Message::packed( $message ) ) + 1;
 		$p->read_at( 0, 0, $packed_size );
 		$this->assertSame( $packed_size, $p->bytes_read() );
 	}
@@ -220,8 +220,8 @@ class PartitionTest extends TestCase {
 		// so a 5000-byte VALUE comfortably exceeds the 4096 cap.
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}/p0 " . ( 64*1024 ) . " 4 86400" );
-		$msg = $this->produce( str_repeat( 'x', 5000 ) );
-		$p->fill( $msg );
+		$message = $this->produce( str_repeat( 'x', 5000 ) );
+		$p->fill( $message );
 		$this->assertFalse( file_exists( "{$this->tmp}/p0/0.log" ), 'oversize fill must not touch the segment' );
 	}
 
@@ -394,10 +394,10 @@ class PartitionTest extends TestCase {
 		// and appends a newline. Consumer auto-unpacks on the read side.
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}/p0 " . ( 64*1024 ) . " 4 86400" );
-		$msg = \Newspack_Nodes\Message::new_message();
-		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
-		$msg[ \Newspack_Nodes\Message::VALUE ] = 'from-fill';
-		$p->fill( $msg );
+		$message = \Newspack_Nodes\Message::new_message();
+		$message[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
+		$message[ \Newspack_Nodes\Message::VALUE ] = 'from-fill';
+		$p->fill( $message );
 		$p->flush();
 
 		$content = file_get_contents( "{$this->tmp}/p0/0.log" );
@@ -427,11 +427,11 @@ class PartitionTest extends TestCase {
 			\Newspack_Nodes\Message::TM_COMMAND | \Newspack_Nodes\Message::TM_ERROR,
 		];
 		foreach ( $types as $type ) {
-			$msg                                   = \Newspack_Nodes\Message::new_message();
-			$msg[ \Newspack_Nodes\Message::TYPE ]  = $type;
-			$msg[ \Newspack_Nodes\Message::FROM ]  = 'someone';
-			$msg[ \Newspack_Nodes\Message::VALUE ] = 'payload-' . $type;
-			$p->fill( $msg );
+			$message                                   = \Newspack_Nodes\Message::new_message();
+			$message[ \Newspack_Nodes\Message::TYPE ]  = $type;
+			$message[ \Newspack_Nodes\Message::FROM ]  = 'someone';
+			$message[ \Newspack_Nodes\Message::VALUE ] = 'payload-' . $type;
+			$p->fill( $message );
 		}
 		$p->flush(); // Force the in-memory batch to land on disk synchronously.
 
@@ -882,8 +882,8 @@ class PartitionTest extends TestCase {
 		// what the EventFramework drain loop does at iteration tail.
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );
-		$msg = $this->produce( 'pending' );
-		$p->fill( $msg ); // appends to in-memory batch, doesn't write yet.
+		$message = $this->produce( 'pending' );
+		$p->fill( $message ); // appends to in-memory batch, doesn't write yet.
 
 		$ref  = new \ReflectionClass( $p );
 		$fire = $ref->getMethod( 'fire' );
@@ -1089,8 +1089,8 @@ class PartitionTest extends TestCase {
 		//      synchronously, flush() writes the batch, close_handle() closes.
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );
-		$msg = $this->produce( 'gc-flushed' );
-		$p->fill( $msg );
+		$message = $this->produce( 'gc-flushed' );
+		$p->fill( $message );
 
 		// File doesn't exist yet — batch is in memory.
 		$file = "{$this->tmp}/p0/0.log";
@@ -1272,8 +1272,8 @@ class PartitionTest extends TestCase {
 
 		$this->expectException( \RuntimeException::class );
 		$this->expectExceptionMessage( 'no longer owned' );
-		$msg = $this->produce( 'this-throws' );
-		$p->fill( $msg );
+		$message = $this->produce( 'this-throws' );
+		$p->fill( $message );
 	}
 
 	public function test_fill_refreshes_heartbeat_without_throw_when_lock_still_held(): void {
@@ -1312,8 +1312,8 @@ class PartitionTest extends TestCase {
 		$p->name( 'p-drop' );
 		$p->debug_state( 1 );
 
-		$msg = $this->produce( \str_repeat( 'x', 5000 ) ); // > MAX_LINE_SIZE
-		$p->fill( $msg );
+		$message = $this->produce( \str_repeat( 'x', 5000 ) ); // > MAX_LINE_SIZE
+		$p->fill( $message );
 
 		$dropped_traces = \array_filter(
 			$router->captured,
@@ -1419,8 +1419,8 @@ class PartitionTest extends TestCase {
 		$p->allow_large_writes();
 
 		$value = \str_repeat( 'L', 5000 );
-		$msg   = $this->produce( $value );
-		$p->fill( $msg );
+		$message   = $this->produce( $value );
+		$p->fill( $message );
 
 		// No flush() — large messages were supposed to land synchronously.
 		$bytes = (string) \file_get_contents( "{$this->tmp}/p0/0.log" );
@@ -1439,12 +1439,12 @@ class PartitionTest extends TestCase {
 		$p->arguments( "{$this->tmp}/p0 4500 4 86400" );
 		$p->allow_large_writes();
 		// Pump a 5000-byte VALUE into seg 0.
-		$msg_a = $this->produce( \str_repeat( 'A', 5000 ) );
-		$p->fill( $msg_a );
+		$message_a = $this->produce( \str_repeat( 'A', 5000 ) );
+		$p->fill( $message_a );
 
 		// A second 5000-byte VALUE doesn't fit; rotation must bump to seg 1.
-		$msg_b = $this->produce( \str_repeat( 'B', 5000 ) );
-		$p->fill( $msg_b );
+		$message_b = $this->produce( \str_repeat( 'B', 5000 ) );
+		$p->fill( $message_b );
 
 		$segments = $p->get_segments( true );
 		$ids      = \array_column( $segments, 'id' );
@@ -1520,15 +1520,15 @@ class PartitionTest extends TestCase {
 		// total batch lands around 3KB, but a 3rd 1.5KB push would overflow.
 		// Each packed Message has ~50 bytes of JSON envelope overhead.
 		$value = \str_repeat( 'a', 1500 );
-		$msg1  = $this->produce( $value );
-		$msg2  = $this->produce( $value );
-		$msg3  = $this->produce( $value );
+		$message1  = $this->produce( $value );
+		$message2  = $this->produce( $value );
+		$message3  = $this->produce( $value );
 
-		$p->fill( $msg1 );
-		$p->fill( $msg2 );
-		// Before $msg3 lands, the batch should auto-flush so $msg3 alone is
+		$p->fill( $message1 );
+		$p->fill( $message2 );
+		// Before $message3 lands, the batch should auto-flush so $message3 alone is
 		// the resident batch.
-		$p->fill( $msg3 );
+		$p->fill( $message3 );
 
 		// Force any final residual to disk.
 		$p->flush();
@@ -1594,8 +1594,8 @@ class PartitionTest extends TestCase {
 		$this->assertNull( $cur_seg->getValue( $p ) );
 
 		// Build a real packed message and inject it as the resident batch.
-		$msg    = $this->produce( 'lazy-init' );
-		$packed = \Newspack_Nodes\Message::packed( $msg ) . "\n";
+		$message    = $this->produce( 'lazy-init' );
+		$packed = \Newspack_Nodes\Message::packed( $message ) . "\n";
 
 		$batch = $ref->getProperty( 'batch' );
 		$batch->setAccessible( true );
@@ -1636,8 +1636,8 @@ class PartitionTest extends TestCase {
 		$wa->setAccessible( true );
 
 		$warned = '';
-		\Newspack_Nodes\Core::set_stderr_handler( static function ( $msg ) use ( &$warned ) {
-			$warned .= $msg;
+		\Newspack_Nodes\Core::set_stderr_handler( static function ( $message ) use ( &$warned ) {
+			$warned .= $message;
 		} );
 
 		$result = $wa->invoke( $p, $ro_fh, 'payload-to-write', $probe );
@@ -1854,8 +1854,8 @@ class PartitionTest extends TestCase {
 		// Capture stderr emissions so print_less_often's output doesn't leak.
 		$captured = [];
 		\Newspack_Nodes\Core::set_stderr_handler(
-			static function ( string $msg ) use ( &$captured ) {
-				$captured[] = $msg;
+			static function ( string $message ) use ( &$captured ) {
+				$captured[] = $message;
 			}
 		);
 
@@ -2017,8 +2017,8 @@ class PartitionTest extends TestCase {
 		$cur_size->setValue( $p, 0 );
 
 		// Inject a real packed message as the resident batch.
-		$msg    = $this->produce( 'unreachable' );
-		$packed = \Newspack_Nodes\Message::packed( $msg ) . "\n";
+		$message    = $this->produce( 'unreachable' );
+		$packed = \Newspack_Nodes\Message::packed( $message ) . "\n";
 		$batch  = $ref->getProperty( 'batch' );
 		$batch->setAccessible( true );
 		$batch->setValue( $p, $packed );
@@ -2161,10 +2161,10 @@ class PartitionTest extends TestCase {
 	private function write_value_record( string $offset_dir, array $value ): void {
 		$p   = new Partition_Node();
 		$p->arguments( $offset_dir );
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::VALUE ] = $value;
-		$p->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = $value;
+		$p->fill( $message );
 		$p->flush();
 	}
 
@@ -2190,10 +2190,10 @@ class PartitionTest extends TestCase {
 	public function test_read_latest_value_at_returns_null_for_non_array_value(): void {
 		$p   = new Partition_Node();
 		$p->arguments( $this->tmp );
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::VALUE ] = 'just-a-string';
-		$p->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'just-a-string';
+		$p->fill( $message );
 		$p->flush();
 
 		$this->assertNull( Partition_Node::read_latest_value_at( $this->tmp ) );
@@ -2226,12 +2226,12 @@ class PartitionTest extends TestCase {
 		$this->assertSame( "{$this->tmp}/p0/.rotate.lock.d", $probe->probe_rotate_lock() );
 		$this->assertSame( "{$this->tmp}/p0/write.lock.d", $probe->probe_write_lock() );
 
-		$msg                  = \Newspack_Nodes\Message::new_message();
-		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
-		$msg[ \Newspack_Nodes\Message::VALUE ] = 'hi';
+		$message                  = \Newspack_Nodes\Message::new_message();
+		$message[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
+		$message[ \Newspack_Nodes\Message::VALUE ] = 'hi';
 		$this->assertSame(
-			\Newspack_Nodes\Message::packed( $msg ) . "\n",
-			$probe->probe_record( $msg )
+			\Newspack_Nodes\Message::packed( $message ) . "\n",
+			$probe->probe_record( $message )
 		);
 	}
 }

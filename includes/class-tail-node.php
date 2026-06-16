@@ -94,12 +94,12 @@ class Tail_Node extends Consumer_Node {
 		if ( $size > $this->largest_msg_sent ) {
 			$this->largest_msg_sent = $size;
 		}
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$msg[ Message::TIMESTAMP ] = Core::$now;
-		$msg[ Message::FROM ]      = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-		$msg[ Message::VALUE ]     = $bytes;
-		parent::fill( $msg );
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$message[ Message::TIMESTAMP ] = Core::$now;
+		$message[ Message::FROM ]      = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
+		$message[ Message::VALUE ]     = $bytes;
+		parent::fill( $message );
 	}
 
 	public static function node_schema(): array {

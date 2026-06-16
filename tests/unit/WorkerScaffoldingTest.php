@@ -56,10 +56,10 @@ class WorkerScaffoldingTest extends TestCase {
 		$ipc_dir = "{$this->tmp}/ipc/test.p0";
 		$input = new Partition_Node();
 		$input->arguments( "{$ipc_dir}/input" );
-		$msg                                  = \Newspack_Nodes\Message::new_message();
-		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
-		$msg[ \Newspack_Nodes\Message::VALUE ] = "old-command\n";
-		$input->fill( $msg );
+		$message                                  = \Newspack_Nodes\Message::new_message();
+		$message[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
+		$message[ \Newspack_Nodes\Message::VALUE ] = "old-command\n";
+		$input->fill( $message );
 
 		$w   = new Worker_Base( $this->tmp, 'test', 0 );
 		$in  = $w->build_ipc_input_consumer( $ipc_dir );
@@ -79,10 +79,10 @@ class WorkerScaffoldingTest extends TestCase {
 	}
 
 	private function write_ipc_line( Partition_Node $partition, string $value ): void {
-		$msg                                  = \Newspack_Nodes\Message::new_message();
-		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
-		$msg[ \Newspack_Nodes\Message::VALUE ] = $value;
-		$partition->fill( $msg );
+		$message                                  = \Newspack_Nodes\Message::new_message();
+		$message[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
+		$message[ \Newspack_Nodes\Message::VALUE ] = $value;
+		$partition->fill( $message );
 		$partition->flush();
 	}
 

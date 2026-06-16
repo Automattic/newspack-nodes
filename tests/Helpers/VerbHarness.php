@@ -66,25 +66,25 @@ class VerbHarness {
 		$http_out = new HTTP_In_Node( static fn ( int $c ) => null );
 		$http_out->name( '_http' );
 
-		$msg = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::FROM ]  = '_http';
-		$msg[ Message::TO ]    = '';  // empty TO triggers dispatch in the interpreter's fill()
-		$msg[ Message::ID ]    = 'test-' . \bin2hex( \random_bytes( 4 ) );
-		$msg[ Message::KEY ]   = $key;
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = '_http';
+		$message[ Message::TO ]    = '';  // empty TO triggers dispatch in the interpreter's fill()
+		$message[ Message::ID ]    = 'test-' . \bin2hex( \random_bytes( 4 ) );
+		$message[ Message::KEY ]   = $key;
 		// VALUE is the command struct as a live PHP array — never separately
 		// json-encoded; only the envelope/wire (HTTP_In's packed Message) is JSON.
-		$msg[ Message::VALUE ] = [
+		$message[ Message::VALUE ] = [
 			'name'      => $verb,
 			'arguments' => $args,
 		];
 		// This harness exercises verb LOGIC, not authorization (covered by
 		// CommandAuthTest / CommandInterpreterTest). Mark the command as
 		// in-process so the client-tier authorize gate passes.
-		$msg[ Message::LOCAL ] = true;
+		$message[ Message::LOCAL ] = true;
 
 		\ob_start();
-		$interpreter->fill( $msg );
+		$interpreter->fill( $message );
 		$body = \ob_get_clean();
 
 		if ( '' === $body ) {

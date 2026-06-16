@@ -141,7 +141,7 @@ class ServiceCiSchemaCommandsTest extends TestCase {
 
 	public function test_named_verb_without_callable_handler_warns(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 
 		( new Malformed_Verbs_CI_Node() )->commands();
 

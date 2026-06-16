@@ -76,19 +76,19 @@ class M3CommandDispatchE2ETest extends TestCase {
 		$body = (string) \ob_get_clean();
 
 		$this->assertNotEmpty( $body, "verb '{$verb}' on '{$to}' produced no response" );
-		$msg            = Message::unpacked( $body );
+		$message            = Message::unpacked( $body );
 		$response_flags = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$this->assertSame(
 			"e2e-{$verb}",
-			$msg[ Message::ID ],
+			$message[ Message::ID ],
 			"verb '{$verb}' returned wrong correlation id"
 		);
 		$this->assertSame(
 			$response_flags,
-			$msg[ Message::TYPE ] & ( $response_flags | Message::TM_ERROR ),
+			$message[ Message::TYPE ] & ( $response_flags | Message::TM_ERROR ),
 			// VALUE is a live array now — json-encode it for the failure
 			// message so the diagnostic is readable, not "Array".
-			"verb '{$verb}' returned TM_ERROR or wrong type. VALUE was: " . (string) \wp_json_encode( $msg[ Message::VALUE ] )
+			"verb '{$verb}' returned TM_ERROR or wrong type. VALUE was: " . (string) \wp_json_encode( $message[ Message::VALUE ] )
 		);
 	}
 
@@ -100,18 +100,18 @@ class M3CommandDispatchE2ETest extends TestCase {
 	private function build_request( string $to, string $verb, mixed $payload, string $args = '' ): \WP_REST_Request {
 		// The controller requires a packed 7-element positional Message
 		// (`Message::unpacked()`), so build one rather than a keyed object.
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::FROM ]  = '_http';
-		$msg[ Message::TO ]    = $to;
-		$msg[ Message::ID ]    = "e2e-{$verb}";
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = '_http';
+		$message[ Message::TO ]    = $to;
+		$message[ Message::ID ]    = "e2e-{$verb}";
 		// VALUE is the command struct as a live PHP array — Message::packed
 		// JSON-encodes the whole envelope (the wire), and the controller's
 		// messages_from_body() decodes it back, restoring VALUE as a nested array.
-		$msg[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args, 'payload' => $payload ];
+		$message[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args, 'payload' => $payload ];
 
 		$req = new \WP_REST_Request();
-		$req->set_body( Message::packed( $msg ) );
+		$req->set_body( Message::packed( $message ) );
 		// JSONL-as-text/plain is the command contract (the controller ignores
 		// the header, but keep it consistent with the surrounding comments).
 		$req->set_header( 'content-type', 'text/plain; charset=UTF-8' );

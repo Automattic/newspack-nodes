@@ -23,19 +23,19 @@ class ShellSendCommandTest extends TestCase {
 		$shell->send_command( 'some/path', 'connect_node', 'a b' );
 
 		$this->assertCount( 1, $sink->captured );
-		$msg = $sink->captured[0];
+		$message = $sink->captured[0];
 		$this->assertSame(
 			Message::TM_COMMAND,
-			$msg[ Message::TYPE ] & Message::TM_COMMAND
+			$message[ Message::TYPE ] & Message::TM_COMMAND
 		);
-		$this->assertSame( 'some/path', $msg[ Message::TO ] );
-		$this->assertSame( Node_Names::OUTPUT . '/' . \getmypid(), $msg[ Message::FROM ] );
-		$this->assertSame( 'connect_node', $msg[ Message::VALUE ]['name'] );
-		$this->assertSame( 'a b', $msg[ Message::VALUE ]['arguments'] );
-		$this->assertArrayNotHasKey( 'payload', $msg[ Message::VALUE ] );
-		$this->assertTrue( $msg[ Message::LOCAL ] );
+		$this->assertSame( 'some/path', $message[ Message::TO ] );
+		$this->assertSame( Node_Names::OUTPUT . '/' . \getmypid(), $message[ Message::FROM ] );
+		$this->assertSame( 'connect_node', $message[ Message::VALUE ]['name'] );
+		$this->assertSame( 'a b', $message[ Message::VALUE ]['arguments'] );
+		$this->assertArrayNotHasKey( 'payload', $message[ Message::VALUE ] );
+		$this->assertTrue( $message[ Message::LOCAL ] );
 		// Default (interactive) Shell wants its reply — no TM_NOREPLY.
-		$this->assertSame( 0, $msg[ Message::TYPE ] & Message::TM_NOREPLY );
+		$this->assertSame( 0, $message[ Message::TYPE ] & Message::TM_NOREPLY );
 	}
 
 	public function test_send_command_stamps_noreply_when_reply_unwanted(): void {
@@ -46,8 +46,8 @@ class ShellSendCommandTest extends TestCase {
 
 		$shell->send_command( 'some/path', 'connect_node', 'a b' );
 
-		$msg = $sink->captured[0];
-		$this->assertSame( Message::TM_NOREPLY, $msg[ Message::TYPE ] & Message::TM_NOREPLY );
-		$this->assertSame( Message::TM_COMMAND, $msg[ Message::TYPE ] & Message::TM_COMMAND );
+		$message = $sink->captured[0];
+		$this->assertSame( Message::TM_NOREPLY, $message[ Message::TYPE ] & Message::TM_NOREPLY );
+		$this->assertSame( Message::TM_COMMAND, $message[ Message::TYPE ] & Message::TM_COMMAND );
 	}
 }

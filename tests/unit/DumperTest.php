@@ -34,9 +34,9 @@ class DumperTest extends TestCase {
 		$fired = 0;
 		$dumper->on_eof( function () use ( &$fired ) { ++$fired; } );
 
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_EOF;
-		$dumper->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_EOF;
+		$dumper->fill( $message );
 
 		$this->assertSame( 1, $fired, 'on_eof callback should fire once' );
 		$this->assertSame( '', $this->read_all( $out ) );
@@ -52,10 +52,10 @@ class DumperTest extends TestCase {
 		$fired = 0;
 		$dumper->on_eof( function () use ( &$fired ) { ++$fired; } );
 
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_EOF;
-		$msg[ Message::TO ]   = '_output/99999'; // different pid
-		$dumper->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_EOF;
+		$message[ Message::TO ]   = '_output/99999'; // different pid
+		$dumper->fill( $message );
 
 		$this->assertSame( 0, $fired );
 	}
@@ -66,10 +66,10 @@ class DumperTest extends TestCase {
 		[ $dumper, $out ] = $this->fresh();
 
 		Core::$now = 1234567890.5;
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_PING;
-		$msg[ Message::VALUE ] = '1234567890.0';   // sent 500 ms before "now"
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_PING;
+		$message[ Message::VALUE ] = '1234567890.0';   // sent 500 ms before "now"
+		$dumper->fill( $message );
 
 		$rendered = $this->read_all( $out );
 		$this->assertStringContainsString( 'round trip time:', $rendered );
@@ -80,10 +80,10 @@ class DumperTest extends TestCase {
 		[ $dumper, $out ] = $this->fresh();
 
 		// Response VALUE rides as a live PHP structure — not a JSON string.
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => "alice\nbob" ];
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => "alice\nbob" ];
+		$dumper->fill( $message );
 
 		$this->assertSame( "alice\nbob\n", $this->read_all( $out ) );
 	}
@@ -91,10 +91,10 @@ class DumperTest extends TestCase {
 	public function test_TM_COMMAND_TM_RESPONSE_does_not_double_newline(): void {
 		[ $dumper, $out ] = $this->fresh();
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => "ends-with-newline\n" ];
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => "ends-with-newline\n" ];
+		$dumper->fill( $message );
 
 		$this->assertSame( "ends-with-newline\n", $this->read_all( $out ) );
 	}
@@ -105,10 +105,10 @@ class DumperTest extends TestCase {
 		$shell = new Shell_Node();
 		$dumper->set_shell( $shell );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = [ 'name' => 'prompt', 'payload' => 'pivot> ' ];
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message[ Message::VALUE ] = [ 'name' => 'prompt', 'payload' => 'pivot> ' ];
+		$dumper->fill( $message );
 
 		$this->assertSame( 'pivot> ', $shell->prompt );
 		$this->assertSame( '', $this->read_all( $out ), 'prompt-update must NOT print to stdout' );
@@ -121,10 +121,10 @@ class DumperTest extends TestCase {
 		// stays untouched.
 		[ $dumper, $out ] = $this->fresh();
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_ERROR;
-		$msg[ Message::VALUE ] = "NOT_AVAILABLE\n";
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_ERROR;
+		$message[ Message::VALUE ] = "NOT_AVAILABLE\n";
+		$dumper->fill( $message );
 
 		$this->assertSame( "NOT_AVAILABLE\n", $this->read_all( $out ) );
 	}
@@ -136,11 +136,11 @@ class DumperTest extends TestCase {
 		// `TM_INFO from <from>:` header when verbosity is wanted.
 		[ $dumper, $out ] = $this->fresh();
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_INFO;
-		$msg[ Message::FROM ]  = 'alpha';
-		$msg[ Message::VALUE ] = 'broadcast text';
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = 'alpha';
+		$message[ Message::VALUE ] = 'broadcast text';
+		$dumper->fill( $message );
 
 		$this->assertSame( "broadcast text\n", $this->read_all( $out ) );
 	}
@@ -148,10 +148,10 @@ class DumperTest extends TestCase {
 	public function test_default_type_prints_VALUE(): void {
 		[ $dumper, $out ] = $this->fresh();
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::VALUE ] = 'plain bytes';
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'plain bytes';
+		$dumper->fill( $message );
 
 		$this->assertSame( "plain bytes\n", $this->read_all( $out ) );
 	}
@@ -159,26 +159,26 @@ class DumperTest extends TestCase {
 	public function test_TM_COMMAND_TM_RESPONSE_with_non_array_value_falls_through_to_default(): void {
 		[ $dumper, $out ] = $this->fresh();
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
 		// A bare-string VALUE on a response is malformed (the contract is a
 		// `['name'=>,'payload'=>]` array) — fall through to the default
 		// branch and print VALUE as-is rather than crash.
-		$msg[ Message::VALUE ] = 'not-a-struct';
-		$dumper->fill( $msg );
+		$message[ Message::VALUE ] = 'not-a-struct';
+		$dumper->fill( $message );
 
 		$this->assertSame( "not-a-struct\n", $this->read_all( $out ) );
 	}
 
 	public function test_counter_increments_per_fill(): void {
 		[ $dumper, $out ] = $this->fresh();
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_INFO;
-		$msg[ Message::FROM ]  = 'x';
-		$msg[ Message::VALUE ] = 'a';
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = 'x';
+		$message[ Message::VALUE ] = 'a';
 
-		$dumper->fill( $msg );
-		$dumper->fill( $msg );
+		$dumper->fill( $message );
+		$dumper->fill( $message );
 
 		$this->assertSame( 2, $dumper->counter() );
 	}
@@ -199,11 +199,11 @@ class DumperTest extends TestCase {
 		[ $dumper, $out, $shell ] = $this->fresh_tty();
 		$dumper->mark_prompt_displayed();
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_INFO;
-		$msg[ Message::FROM ]  = 'broadcaster';
-		$msg[ Message::VALUE ] = 'hello world';
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = 'broadcaster';
+		$message[ Message::VALUE ] = 'hello world';
+		$dumper->fill( $message );
 
 		$expected = "\033[s" . "\r\033[2K"
 			. "hello world\n"
@@ -215,11 +215,11 @@ class DumperTest extends TestCase {
 	public function test_TM_INFO_without_prompt_displayed_falls_back_to_plain_write(): void {
 		[ $dumper, $out ] = $this->fresh_tty();
 		// prompt_displayed=false → no wipe, no redraw.
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_INFO;
-		$msg[ Message::FROM ]  = 'x';
-		$msg[ Message::VALUE ] = 'plain';
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = 'x';
+		$message[ Message::VALUE ] = 'plain';
+		$dumper->fill( $message );
 
 		$this->assertSame( "plain\n", $this->read_all( $out ) );
 	}
@@ -232,11 +232,11 @@ class DumperTest extends TestCase {
 		$dumper->set_shell( $shell );
 		$dumper->mark_prompt_displayed();
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_INFO;
-		$msg[ Message::FROM ]  = 'x';
-		$msg[ Message::VALUE ] = 'plain';
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = 'x';
+		$message[ Message::VALUE ] = 'plain';
+		$dumper->fill( $message );
 
 		$out_text = $this->read_all( $out );
 		$this->assertStringNotContainsString( "\033", $out_text, 'non-TTY must not emit ANSI escapes' );
@@ -247,10 +247,10 @@ class DumperTest extends TestCase {
 		[ $dumper, $out, $shell ] = $this->fresh_tty();
 		$dumper->mark_prompt_displayed();
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::VALUE ] = 'data';
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'data';
+		$dumper->fill( $message );
 
 		$expected = "\033[s" . "\r\033[2K" . "data\n" . 'newspack> ' . "\033[u";
 		$this->assertSame( $expected, $this->read_all( $out ) );
@@ -264,10 +264,10 @@ class DumperTest extends TestCase {
 		[ $dumper, $out, $shell ] = $this->fresh_tty();
 		$dumper->mark_prompt_displayed();
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => 'a' ];
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => 'a' ];
+		$dumper->fill( $message );
 
 		$expected = "\033[s" . "\r\033[2K" . "a\n" . 'newspack> ' . "\033[u";
 		$this->assertSame( $expected, $this->read_all( $out ) );
@@ -282,10 +282,10 @@ class DumperTest extends TestCase {
 		[ $dumper, $out, $shell ] = $this->fresh_tty();
 		$dumper->prompt_displayed = false;
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => 'a' ];
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message[ Message::VALUE ] = [ 'name' => 'ls', 'payload' => 'a' ];
+		$dumper->fill( $message );
 
 		$this->assertSame( "a\n", $this->read_all( $out ) );
 	}
@@ -333,10 +333,10 @@ class DumperTest extends TestCase {
 		[ $dumper, $out, $shell ] = $this->fresh_tty();
 		$dumper->mark_prompt_displayed();
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_ERROR;
-		$msg[ Message::VALUE ] = "boom\n";
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_ERROR;
+		$message[ Message::VALUE ] = "boom\n";
+		$dumper->fill( $message );
 
 		$expected = "\033[s" . "\r\033[2K" . "boom\n" . 'newspack> ' . "\033[u";
 		$this->assertSame( $expected, $this->read_all( $out ) );
@@ -351,11 +351,11 @@ class DumperTest extends TestCase {
 		$dumper->mark_prompt_displayed();
 		$dumper->set_readline_mode( true );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_INFO;
-		$msg[ Message::FROM ]  = 'a';
-		$msg[ Message::VALUE ] = 'one';
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = 'a';
+		$message[ Message::VALUE ] = 'one';
+		$dumper->fill( $message );
 
 		// readline_mode path: just CR+clear-line + text + prompt — no save/restore.
 		$expected = "\r\033[2K" . "one\n" . 'newspack> ';
@@ -396,11 +396,11 @@ class DumperTest extends TestCase {
 		[ $dumper, $out ] = $this->fresh();
 		$dumper->set_to_filter( '12345' );
 
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_BYTESTREAM;
-		$msg[ Message::TO ]   = '_output/12345';
-		$msg[ Message::VALUE ] = 'mine';
-		$dumper->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_BYTESTREAM;
+		$message[ Message::TO ]   = '_output/12345';
+		$message[ Message::VALUE ] = 'mine';
+		$dumper->fill( $message );
 
 		$this->assertSame( "mine\n", $this->read_all( $out ) );
 	}
@@ -411,12 +411,12 @@ class DumperTest extends TestCase {
 		[ $dumper, $out ] = $this->fresh();
 		$dumper->set_to_filter( '12345' );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_INFO;
-		$msg[ Message::FROM ]  = 'broadcaster';
-		$msg[ Message::TO ]    = '';
-		$msg[ Message::VALUE ] = 'broadcast';
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_INFO;
+		$message[ Message::FROM ]  = 'broadcaster';
+		$message[ Message::TO ]    = '';
+		$message[ Message::VALUE ] = 'broadcast';
+		$dumper->fill( $message );
 
 		$this->assertSame( "broadcast\n", $this->read_all( $out ) );
 	}
@@ -426,10 +426,10 @@ class DumperTest extends TestCase {
 		// output so users don't see "Array".
 		[ $dumper, $out ] = $this->fresh();
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::VALUE ] = [ 'a' => 1, 'nested' => [ 'b' => 2 ] ];
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = [ 'a' => 1, 'nested' => [ 'b' => 2 ] ];
+		$dumper->fill( $message );
 
 		$rendered = $this->read_all( $out );
 		$decoded  = \json_decode( \rtrim( $rendered, "\n" ), true );
@@ -441,10 +441,10 @@ class DumperTest extends TestCase {
 		// should still render plainly rather than wrapping the string in JSON quotes.
 		[ $dumper, $out ] = $this->fresh();
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::VALUE ] = 'plain';
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::VALUE ] = 'plain';
+		$dumper->fill( $message );
 
 		$this->assertSame( "plain\n", $this->read_all( $out ) );
 	}
@@ -456,11 +456,11 @@ class DumperTest extends TestCase {
 		[ $dumper, $out ] = $this->fresh();
 		$dumper->set_to_filter( '12345' );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_STRUCT;
-		$msg[ Message::TO ]    = 'sse';
-		$msg[ Message::VALUE ] = [ 'rate' => 42.5 ];
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_STRUCT;
+		$message[ Message::TO ]    = 'sse';
+		$message[ Message::VALUE ] = [ 'rate' => 42.5 ];
+		$dumper->fill( $message );
 
 		$this->assertSame( '', $this->read_all( $out ) );
 	}
@@ -471,11 +471,11 @@ class DumperTest extends TestCase {
 		[ $dumper, $out ] = $this->fresh();
 		$this->assertSame( 0, $dumper->debug_level() );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::FROM ]  = 'producer';
-		$msg[ Message::VALUE ] = 'hello';
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::FROM ]  = 'producer';
+		$message[ Message::VALUE ] = 'hello';
+		$dumper->fill( $message );
 
 		$this->assertSame( "hello\n", $this->read_all( $out ) );
 	}
@@ -488,11 +488,11 @@ class DumperTest extends TestCase {
 		[ $dumper, $out ] = $this->fresh();
 		$dumper->set_debug_level( 1 );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::FROM ]  = 'producer';
-		$msg[ Message::VALUE ] = 'hello';
-		$dumper->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::FROM ]  = 'producer';
+		$message[ Message::VALUE ] = 'hello';
+		$dumper->fill( $message );
 
 		$rendered = $this->read_all( $out );
 		$this->assertStringContainsString( "TM_BYTESTREAM from producer:\n", $rendered );
@@ -510,14 +510,14 @@ class DumperTest extends TestCase {
 		[ $dumper, $out ] = $this->fresh();
 		$dumper->set_debug_level( 1 );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::FROM ]  = '_command_interpreter';
-		$msg[ Message::VALUE ] = [
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message[ Message::FROM ]  = '_command_interpreter';
+		$message[ Message::VALUE ] = [
 			'name'    => 'ls',
 			'payload' => "alpha\nbeta\n",
 		];
-		$dumper->fill( $msg );
+		$dumper->fill( $message );
 
 		$rendered = $this->read_all( $out );
 		$this->assertStringContainsString( "TM_COMMAND | TM_RESPONSE from _command_interpreter:\n", $rendered );
@@ -536,14 +536,14 @@ class DumperTest extends TestCase {
 		[ $dumper, $out ] = $this->fresh();
 		$dumper->set_debug_level( 2 );
 
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$msg[ Message::ID ]        = 'abc';
-		$msg[ Message::FROM ]      = 'producer';
-		$msg[ Message::TO ]        = 'consumer';
-		$msg[ Message::TIMESTAMP ] = '1700000000';
-		$msg[ Message::VALUE ]     = 'hello';
-		$dumper->fill( $msg );
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$message[ Message::ID ]        = 'abc';
+		$message[ Message::FROM ]      = 'producer';
+		$message[ Message::TO ]        = 'consumer';
+		$message[ Message::TIMESTAMP ] = '1700000000';
+		$message[ Message::VALUE ]     = 'hello';
+		$dumper->fill( $message );
 
 		$rendered = $this->read_all( $out );
 		// Structural shape — labelled fields, indented payload, opens/closes with braces.
@@ -564,15 +564,15 @@ class DumperTest extends TestCase {
 		[ $dumper, $out ] = $this->fresh();
 		$dumper->set_debug_level( 2 );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::FROM ]  = '_command_interpreter';
-		$msg[ Message::VALUE ] = [
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message[ Message::FROM ]  = '_command_interpreter';
+		$message[ Message::VALUE ] = [
 			'name'      => 'ls',
 			'arguments' => '-al',
 			'payload'   => "alpha\nbeta\n",
 		];
-		$dumper->fill( $msg );
+		$dumper->fill( $message );
 
 		$rendered = $this->read_all( $out );
 		$this->assertStringContainsString( 'TM_COMMAND | TM_RESPONSE',     $rendered );

@@ -69,17 +69,17 @@ class Timer_Node extends Node {
 			if ( null === $this->sink ) {
 				throw new \RuntimeException( 'Timer::fire requires a wired sink' );
 			}
-			$msg                       = Message::new_message();
-			$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-			$msg[ Message::TIMESTAMP ] = Core::$now;
-			$msg[ Message::FROM ]      = $this->name;
-			$msg[ Message::TO ]        = $this->target;
+			$message                       = Message::new_message();
+			$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+			$message[ Message::TIMESTAMP ] = Core::$now;
+			$message[ Message::FROM ]      = $this->name;
+			$message[ Message::TO ]        = $this->target;
 			if ( '' !== $this->key ) {
-				$msg[ Message::KEY ] = $this->key;
+				$message[ Message::KEY ] = $this->key;
 			}
-			$msg[ Message::VALUE ] = (string) Core::$now;
+			$message[ Message::VALUE ] = (string) Core::$now;
 			++$this->counter;
-			$this->sink->fill( $msg );
+			$this->sink->fill( $message );
 		}
 		$this->notify( 'FIRE', Core::$now );
 	}

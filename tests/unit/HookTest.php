@@ -44,9 +44,9 @@ class HookTest extends TestCase {
 		$hook = new Hook_Node();
 		$hook->arguments( 'newspack_nodes/test_action' );
 		$hook->sink( new Capture_Sink_Node() );
-		$msg = Message::new_message();
-		$msg[ Message::VALUE ] = 'data';
-		$hook->fill( $msg );
+		$message = Message::new_message();
+		$message[ Message::VALUE ] = 'data';
+		$hook->fill( $message );
 
 		$this->assertSame( 'data', $received );
 	}
@@ -57,9 +57,9 @@ class HookTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$hook->sink( $capture );
 
-		$msg = Message::new_message();
-		$msg[ Message::VALUE ] = 'data';
-		$hook->fill( $msg );
+		$message = Message::new_message();
+		$message[ Message::VALUE ] = 'data';
+		$hook->fill( $message );
 
 		$this->assertCount( 1, $capture->captured );
 		$this->assertSame( 'data', $capture->captured[0][ Message::VALUE ] );
@@ -75,9 +75,9 @@ class HookTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$hook->sink( $capture );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::VALUE ] = 'untouched';
-		$hook->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::VALUE ] = 'untouched';
+		$hook->fill( $message );
 
 		$this->assertCount( 1, $capture->captured );
 		$this->assertSame( 'untouched', $capture->captured[0][ Message::VALUE ] );
@@ -88,9 +88,9 @@ class HookTest extends TestCase {
 		$hook->arguments( 'newspack_nodes/test_action' );
 		$hook->sink( new Capture_Sink_Node() );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::VALUE ] = 'data';
-		$hook->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::VALUE ] = 'data';
+		$hook->fill( $message );
 
 		$this->assertSame( 1, $hook->counter(), 'fill() must count each message once; parent::fill() already increments.' );
 	}
@@ -105,9 +105,9 @@ class HookTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$hook->sink( $capture );
 
-		$msg = Message::new_message();
-		$msg[ Message::VALUE ] = 'orig';
-		$hook->fill( $msg );
+		$message = Message::new_message();
+		$message[ Message::VALUE ] = 'orig';
+		$hook->fill( $message );
 
 		$this->assertSame( 'transformed', $capture->captured[0][ Message::VALUE ] );
 		$this->assertSame( Message::TM_BYTESTREAM, $capture->captured[0][ Message::TYPE ] );

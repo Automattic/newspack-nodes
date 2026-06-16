@@ -60,18 +60,18 @@ class HTTPInTest extends TestCase {
 	 * @return array<int,mixed> A 7-element positional Message.
 	 */
 	private function fields_to_message( array $fields ): array {
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = (int) ( $fields['type'] ?? Message::TM_COMMAND );
-		$msg[ Message::FROM ]  = (string) ( $fields['from'] ?? '' );
-		$msg[ Message::TO ]    = (string) ( $fields['to'] ?? '' );
-		$msg[ Message::ID ]    = (string) ( $fields['id'] ?? '' );
-		$msg[ Message::KEY ]   = (string) ( $fields['key'] ?? '' );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = (int) ( $fields['type'] ?? Message::TM_COMMAND );
+		$message[ Message::FROM ]  = (string) ( $fields['from'] ?? '' );
+		$message[ Message::TO ]    = (string) ( $fields['to'] ?? '' );
+		$message[ Message::ID ]    = (string) ( $fields['id'] ?? '' );
+		$message[ Message::KEY ]   = (string) ( $fields['key'] ?? '' );
 		// VALUE rides as whatever the test supplies — a command struct is a
 		// live PHP array (`['name'=>,'arguments'=>,'payload'=>]`), not a JSON
 		// string. Only the envelope/wire (Message::packed) is JSON. Don't
 		// string-cast: that would flatten an array VALUE to "Array".
-		$msg[ Message::VALUE ] = $fields['value'] ?? '';
-		return $msg;
+		$message[ Message::VALUE ] = $fields['value'] ?? '';
+		return $message;
 	}
 
 	/**
@@ -133,11 +133,11 @@ class HTTPInTest extends TestCase {
 		$body = \ob_get_clean();
 
 		$this->assertSame( [ 200 ], $this->status_codes );
-		$msg = Message::unpacked( $body );
-		$this->assertSame( Message::TM_COMMAND | Message::TM_RESPONSE, $msg[ Message::TYPE ] );
-		$this->assertSame( 'cmd-1', $msg[ Message::ID ] );
+		$message = Message::unpacked( $body );
+		$this->assertSame( Message::TM_COMMAND | Message::TM_RESPONSE, $message[ Message::TYPE ] );
+		$this->assertSame( 'cmd-1', $message[ Message::ID ] );
 		// Response VALUE rides as a live `['name'=>,'payload'=>]` array.
-		$payload = $msg[ Message::VALUE ];
+		$payload = $message[ Message::VALUE ];
 		$this->assertSame( 'echo', $payload['name'] );
 		$this->assertSame( 'got: hi', $payload['payload'] );
 	}
@@ -167,10 +167,10 @@ class HTTPInTest extends TestCase {
 
 		$lines = \array_values( \array_filter( \explode( "\n", $body ), static fn( $l ) => '' !== $l ) );
 		$this->assertCount( 1, $lines, 'log broadcasts one stderr line and returns no response' );
-		$msg = Message::unpacked( $lines[0] );
-		$this->assertSame( Message::TM_BYTESTREAM, $msg[ Message::TYPE ] );
-		$this->assertStringContainsString( 'hello world', (string) $msg[ Message::VALUE ] );
-		$this->assertStringContainsString( '_command_interpreter:', (string) $msg[ Message::VALUE ] );
+		$message = Message::unpacked( $lines[0] );
+		$this->assertSame( Message::TM_BYTESTREAM, $message[ Message::TYPE ] );
+		$this->assertStringContainsString( 'hello world', (string) $message[ Message::VALUE ] );
+		$this->assertStringContainsString( '_command_interpreter:', (string) $message[ Message::VALUE ] );
 	}
 
 	public function test_empty_to_command_is_interpreted_by_the_request_scope_interpreter(): void {
@@ -197,10 +197,10 @@ class HTTPInTest extends TestCase {
 		$body = \ob_get_clean();
 
 		$this->assertSame( [ 200 ], $this->status_codes );
-		$msg = Message::unpacked( $body );
-		$this->assertSame( Message::TM_COMMAND | Message::TM_RESPONSE, $msg[ Message::TYPE ] );
-		$this->assertSame( 'cmd-empty', $msg[ Message::ID ] );
-		$this->assertSame( 'help', $msg[ Message::VALUE ]['name'] );
+		$message = Message::unpacked( $body );
+		$this->assertSame( Message::TM_COMMAND | Message::TM_RESPONSE, $message[ Message::TYPE ] );
+		$this->assertSame( 'cmd-empty', $message[ Message::ID ] );
+		$this->assertSame( 'help', $message[ Message::VALUE ]['name'] );
 	}
 
 	public function test_dispatch_routes_a_batch_of_messages_in_order(): void {
@@ -257,9 +257,9 @@ class HTTPInTest extends TestCase {
 		$body = \ob_get_clean();
 
 		$this->assertSame( [ 200 ], $this->status_codes );
-		$msg = Message::unpacked( $body );
-		$this->assertTrue( (bool) ( $msg[ Message::TYPE ] & Message::TM_ERROR ) );
-		$this->assertStringContainsString( 'NOT_AVAILABLE', (string) $msg[ Message::VALUE ] );
+		$message = Message::unpacked( $body );
+		$this->assertTrue( (bool) ( $message[ Message::TYPE ] & Message::TM_ERROR ) );
+		$this->assertStringContainsString( 'NOT_AVAILABLE', (string) $message[ Message::VALUE ] );
 	}
 
 	public function test_blank_from_defaults_to_underscore_http(): void {
@@ -285,8 +285,8 @@ class HTTPInTest extends TestCase {
 		$body = \ob_get_clean();
 
 		$this->assertNotSame( '', $body );
-		$msg = Message::unpacked( $body );
-		$this->assertSame( 'cmd-3', $msg[ Message::ID ] );
+		$message = Message::unpacked( $body );
+		$this->assertSame( 'cmd-3', $message[ Message::ID ] );
 	}
 
 	public function test_dispatch_without_pregraph_lazy_builds_and_fires_request_graph_ready_hook(): void {
@@ -341,15 +341,15 @@ class HTTPInTest extends TestCase {
 		// initialized" error). Use the production HTTP_In (not the test
 		// seam) — status_header is a stub in our bootstrap, so it's harmless.
 		$this->assertNotSame( '', $body, 'dispatch produced no body' );
-		$msg            = Message::unpacked( $body );
+		$message            = Message::unpacked( $body );
 		$response_flags = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$this->assertSame(
 			$response_flags,
-			$msg[ Message::TYPE ] & ( $response_flags | Message::TM_ERROR ),
+			$message[ Message::TYPE ] & ( $response_flags | Message::TM_ERROR ),
 			'dispatch returned TM_ERROR — request graph was not lazy-built'
 		);
-		$this->assertSame( 'cmd-lazy-1', $msg[ Message::ID ] );
-		$payload = $msg[ Message::VALUE ];
+		$this->assertSame( 'cmd-lazy-1', $message[ Message::ID ] );
+		$payload = $message[ Message::VALUE ];
 		$this->assertSame( 'got: hi', $payload['payload'] );
 	}
 

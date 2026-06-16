@@ -102,7 +102,7 @@
 		color: base.$dark-text-muted;
 
 		&::before {
-			content: '';
+			content: "";
 			width: 8px;
 			height: 8px;
 			border-radius: 50%;
@@ -152,7 +152,7 @@
 		transition: background 0.15s;
 
 		&::after {
-			content: '';
+			content: "";
 			position: absolute;
 			top: 2px;
 			left: 2px;

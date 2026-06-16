@@ -418,11 +418,11 @@ class CliTest extends TestCase {
 	private function seed_packed_checkpoint( string $source_basename, int $partition, array $value ): void {
 		$dir = "{$this->tmp}/offsets/{$source_basename}.p{$partition}";
 		mkdir( $dir, 0755, true );
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
-		$msg[ Message::TIMESTAMP ] = 1700000000.0;
-		$msg[ Message::VALUE ]     = $value;
-		file_put_contents( "{$dir}/0.log", Message::packed( $msg ) . "\n" );
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::TIMESTAMP ] = 1700000000.0;
+		$message[ Message::VALUE ]     = $value;
+		file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n" );
 	}
 
 	public function test_consumer_rows_enumerates_per_consumer_from_packed_checkpoints(): void {
@@ -477,10 +477,10 @@ class CliTest extends TestCase {
 		// must be rejected, not returned as a bogus entry.
 		$dir = "{$this->tmp}/offsets/firehose.p0";
 		mkdir( $dir, 0755, true );
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::VALUE ] = 'not-an-object';
-		file_put_contents( "{$dir}/0.log", Message::packed( $msg ) . "\n" );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'not-an-object';
+		file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n" );
 
 		$this->assertNull( ( new CLI( $this->tmp ) )->read_offsetlog_entry( 'firehose.p0' ) );
 	}

@@ -162,12 +162,12 @@ class MessagesStreamSlotPoolTest extends TestCase {
 		// Message whose TO is non-empty. Partition writes the JSON-encoded
 		// 7-field message plus a newline — same on-the-wire shape Consumer
 		// reads back per fgets() in poll().
-		$msg                       = \Newspack_Nodes\Message::new_message();
-		$msg[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
-		$msg[ \Newspack_Nodes\Message::FROM ]  = 'firehose';
-		$msg[ \Newspack_Nodes\Message::TO ]    = 'some-target';
-		$msg[ \Newspack_Nodes\Message::VALUE ] = 'pivoted-payload';
-		\file_put_contents( "{$pdir}/0.log", \Newspack_Nodes\Message::packed( $msg ) . "\n" );
+		$message                       = \Newspack_Nodes\Message::new_message();
+		$message[ \Newspack_Nodes\Message::TYPE ]  = \Newspack_Nodes\Message::TM_BYTESTREAM;
+		$message[ \Newspack_Nodes\Message::FROM ]  = 'firehose';
+		$message[ \Newspack_Nodes\Message::TO ]    = 'some-target';
+		$message[ \Newspack_Nodes\Message::VALUE ] = 'pivoted-payload';
+		\file_put_contents( "{$pdir}/0.log", \Newspack_Nodes\Message::packed( $message ) . "\n" );
 
 		$ctrl = new SSE_Out_Node();
 		$ctrl->set_base_dir( $base );

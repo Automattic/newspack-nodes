@@ -189,15 +189,15 @@ class TopologiesActivateTest extends TestCase {
 		$ci->name( 'topologies' );
 		$ci->sink( $base );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::FROM ]  = '_output';
-		$msg[ Message::TO ]    = '';
-		$msg[ Message::ID ]    = 'test-' . \bin2hex( \random_bytes( 4 ) );
-		$msg[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args ];
-		$msg[ Message::LOCAL ] = true;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = '_output';
+		$message[ Message::TO ]    = '';
+		$message[ Message::ID ]    = 'test-' . \bin2hex( \random_bytes( 4 ) );
+		$message[ Message::VALUE ] = [ 'name' => $verb, 'arguments' => $args ];
+		$message[ Message::LOCAL ] = true;
 
-		$ci->fill( $msg );
+		$ci->fill( $message );
 
 		$this->assertNotEmpty( $capture->captured, 'no response captured' );
 		return $capture->captured[0];
