@@ -25,17 +25,17 @@ For the full model — the drain loop, workers, partitions, the REPL — see [ar
 
 ## Feel it in 5 minutes
 
-The repo ships a runnable example: `examples/newspack-ai-newsletter/`, a digest pipeline built from four small nodes. It's deterministic — no API keys, no network — so it runs anywhere. Two sources emit canned items, a summarizer condenses each, a builder assembles a markdown draft, and a `Tee` fans that draft to the built-in `Log` (which writes it to a file) and to `_repl` (so you can watch it from the REPL).
+The repo ships a runnable example: `examples/example-ai-newsletter/`, a digest pipeline built from four small nodes. It's deterministic — no API keys, no network — so it runs anywhere. Two sources emit canned items, a summarizer condenses each, a builder assembles a markdown draft, and a `Tee` fans that draft to the built-in `Log` (which writes it to a file) and to `_repl` (so you can watch it from the REPL).
 
 ```bash
 # 1. Build the example's autoloader and activate it. The example is its own
 #    plugin (own composer.json + vendor/autoload) and loads after the substrate,
 #    so newspack-nodes must be active first — it no-ops if the substrate is absent.
-cd examples/newspack-ai-newsletter && composer dump-autoload -o && cd -
-wp plugin activate newspack-nodes newspack-ai-newsletter
+cd examples/example-ai-newsletter && composer dump-autoload -o && cd -
+wp plugin activate newspack-nodes example-ai-newsletter
 
 # 2. Where the digest gets written (Log appends here).
-mkdir -p /tmp/newspack-ai-newsletter
+mkdir -p /tmp/example-ai-newsletter
 
 # 3. Enable the topology, then see the worker. Activating the example
 #    *registers* its `digest` topology, but the shipped default active set is
@@ -65,7 +65,7 @@ wp nodes cli digest.p0
 Each `TICK` flows source → summarizer → digest (watch the counts climb in the console). `FLUSH` writes the assembled draft:
 
 ```bash
-cat /tmp/newspack-ai-newsletter/digest.md
+cat /tmp/example-ai-newsletter/digest.md
 # # Newsletter draft
 #
 # - Roundup Block ships — AI summarizes selected posts into a draft.

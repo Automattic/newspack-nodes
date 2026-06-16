@@ -681,4 +681,4 @@ Shipped substrate events (as of 0.14.0): Topic `READY` (set_state on first parti
 
 - [AGENTS.md](AGENTS.md) — substrate contracts and invariants (anchored in real bugs).
 - [API.md](API.md) — REST endpoint reference.
-- `examples/newspack-ai-newsletter/` — bundled walkthrough example: a self-contained deterministic digest pipeline built from Nodes (its own `includes/`, `topologies/digest.tsl`, and PHPUnit suite) to learn the substrate from.
+- `examples/example-ai-newsletter/` — bundled walkthrough example: a self-contained deterministic digest pipeline built from Nodes (its own `includes/`, `topologies/digest.tsl`, and PHPUnit suite) to learn the substrate from.
