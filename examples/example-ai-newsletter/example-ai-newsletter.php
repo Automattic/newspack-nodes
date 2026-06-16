@@ -77,7 +77,7 @@ function mount_insights_ci( \Newspack_Nodes\Command_Interpreter_Node $base_inter
 	if ( null !== \Newspack_Nodes\Core::node( 'insights-demo' ) ) {
 		return;
 	}
-	require_once __DIR__ . '/includes/class-insights-ci-demo.php';
+	require_once __DIR__ . '/includes/class-insights-ci-demo-node.php';
 	$base_interpreter->make_node( 'Insights_CI_Demo', 'insights-demo' );
 }
 

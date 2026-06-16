@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once dirname( __DIR__ ) . '/includes/class-community-source-demo.php';
+require_once dirname( __DIR__ ) . '/includes/class-community-source-demo-node.php';
 
 use Example_AI_Newsletter\Community_Source_Demo_Node;
 use Newspack_Nodes\Message;

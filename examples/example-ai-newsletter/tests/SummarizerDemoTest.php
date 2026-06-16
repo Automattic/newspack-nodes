@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require_once dirname( __DIR__ ) . '/includes/class-summarizer-demo.php';
+require_once dirname( __DIR__ ) . '/includes/class-summarizer-demo-node.php';
 
 use Example_AI_Newsletter\Summarizer_Demo_Node;
 use Newspack_Nodes\Message;
