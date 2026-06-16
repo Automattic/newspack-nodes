@@ -183,10 +183,11 @@ describe( 'SseInNode', () => {
 			] );
 		} );
 
-		// Regression guard for the inheritance trap: SseConnector is accepts_fill:false
-		// (pure ingress), but _sse is BIDIRECTIONAL — its own schema must override.
-		it( 'declares accepts_fill:true explicitly (not inheriting the source false)', () => {
-			expect( SseInNode.nodeSchema().accepts_fill ).toBe( true );
+		// accepts_fill is a UI wireability hint, not a claim about the runtime fill().
+		// _sse HAS a fill() (it's bidirectional), but you can't drag a connection into
+		// it in the editor (pivoting cwd onto _sse shows the other leg), so it's false.
+		it( 'declares accepts_fill:false (not a drag-into target despite a runtime fill)', () => {
+			expect( SseInNode.nodeSchema().accepts_fill ).toBe( false );
 		} );
 
 		it( 'declares has_target:true (_sse forwards the outgoing/reply leg)', () => {
