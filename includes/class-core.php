@@ -131,17 +131,17 @@ class Core {
 	 * trailing newline, prepends the prefix to every line, and appends one
 	 * trailing newline — matching Perl's `s{^}{$prefix}mg` multiline substitute.
 	 */
-	public static function log_prefix( ?string $msg = null ): string {
+	public static function log_prefix( ?string $message = null ): string {
 		$prefix = \gmdate( 'Y-m-d H:i:s' ) . ' UTC '
 			. ( \gethostname() ?: 'unknown' ) . ' '
 			. self::argv0() . '[' . \getmypid() . ']: ';
-		if ( null === $msg ) {
+		if ( null === $message ) {
 			return $prefix;
 		}
-		$msg = \rtrim( $msg, "\n" );
+		$message = \rtrim( $message, "\n" );
 		// Prepend the prefix to the start of every line (Perl m///mg).
-		$msg = $prefix . \str_replace( "\n", "\n" . $prefix, $msg );
-		return $msg . "\n";
+		$message = $prefix . \str_replace( "\n", "\n" . $prefix, $message );
+		return $message . "\n";
 	}
 
 	/** Process identity for log_prefix (Perl $0): worker type when set, else SAPI. Public so Node::log_midfix can apply the $0-starts-with-name guard. */
@@ -213,7 +213,7 @@ class Core {
 		// writer (POST /command, where it rides back in the JSONL body) — so the
 		// line surfaces at the session. Each process registers exactly one, so a
 		// line never doubles. Else error_log.
-		self::$stderr_handler = static function ( string $msg ): void {
+		self::$stderr_handler = static function ( string $message ): void {
 			$sink = self::$nodes_by_name[ Node_Names::REPL ]
 				?? self::$nodes_by_name[ Node_Names::SSE ]
 				?? self::$nodes_by_name[ Node_Names::OUTPUT ]
@@ -222,12 +222,12 @@ class Core {
 				$m                       = Message::new_message();
 				$m[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 				$m[ Message::TIMESTAMP ] = self::$now;
-				$m[ Message::VALUE ]     = $msg;
+				$m[ Message::VALUE ]     = $message;
 				$sink->fill( $m );
 				return;
 			}
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
-			\error_log( \rtrim( $msg ) );
+			\error_log( \rtrim( $message ) );
 		};
 		self::$now       = \microtime( true );
 		self::$init_time = self::$now;

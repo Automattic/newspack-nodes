@@ -40,13 +40,13 @@ class SSEOutTest extends TestCase {
 		// single `msg` SSE event and bumps the counter (the egress writer
 		// HTTP_Filter sinks into).
 		$ctrl                  = new SSE_Out_Node();
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::TO ]    = '_output';
-		$msg[ Message::VALUE ] = 'hello';
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::TO ]    = '_output';
+		$message[ Message::VALUE ] = 'hello';
 
 		\ob_start();
-		$ctrl->fill( $msg );
+		$ctrl->fill( $message );
 		$out = \ob_get_clean();
 
 		$this->assertSame( 1, $ctrl->counter() );

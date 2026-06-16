@@ -36,17 +36,17 @@ class WorkerDiscoveryTest extends TestCase {
 
 		Bootstrap::register_worker_partitions( $base );
 
-		$msg = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::FROM ]  = '_http/4242';
-		$msg[ Message::TO ]    = '_command_interpreter';
-		$msg[ Message::ID ]    = 'cmd-xyz';
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = '_http/4242';
+		$message[ Message::TO ]    = '_command_interpreter';
+		$message[ Message::ID ]    = 'cmd-xyz';
 		// A worker-bound command's VALUE is the structured struct (the same
 		// shape Shell/HTTP_In build) — never a separately
 		// json-encoded string. The Partition packs the whole envelope to
 		// disk; only that wire is JSON.
-		$msg[ Message::VALUE ] = [ 'name' => 'dump_metadata', 'arguments' => '', 'payload' => '' ];
-		Core::node( 'firehose-workers.p0' )->fill( $msg );
+		$message[ Message::VALUE ] = [ 'name' => 'dump_metadata', 'arguments' => '', 'payload' => '' ];
+		Core::node( 'firehose-workers.p0' )->fill( $message );
 		// Production: Partition flushes via Timer fire during the worker's
 		// drain loop. Tests have no event loop, so drive the flush directly
 		// — same as TestCase::produce_into().

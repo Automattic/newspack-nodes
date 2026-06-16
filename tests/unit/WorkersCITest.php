@@ -121,11 +121,11 @@ class WorkersCITest extends TestCase {
 			],
 			$extra
 		);
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
-		$msg[ Message::TIMESTAMP ] = \microtime( true );
-		$msg[ Message::VALUE ]     = $entry;
-		\file_put_contents( "{$dir}/0.log", Message::packed( $msg ) . "\n" );
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::TIMESTAMP ] = \microtime( true );
+		$message[ Message::VALUE ]     = $entry;
+		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n" );
 	}
 
 	/**

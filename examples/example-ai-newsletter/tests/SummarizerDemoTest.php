@@ -22,8 +22,8 @@ final class SummarizerDemoTest extends TestCase {
 		$node->sink( $sink );
 
 		foreach ( [ 'releases', 'community', 'anything-else' ] as $src ) {
-			$msg = $this->struct( [ 'source' => $src, 'title' => 'T', 'url' => 'u', 'body' => 'B' ] );
-			$node->fill( $msg );
+			$message = $this->struct( [ 'source' => $src, 'title' => 'T', 'url' => 'u', 'body' => 'B' ] );
+			$node->fill( $message );
 		}
 
 		$out = $sink->captured;
@@ -56,8 +56,8 @@ final class SummarizerDemoTest extends TestCase {
 		$node->sink( $sink );
 		$node->connect_node( 'digest' );
 
-		$msg = $this->struct( [ 'source' => 'releases', 'title' => 'T', 'url' => 'u', 'body' => 'B' ] );
-		$node->fill( $msg );
+		$message = $this->struct( [ 'source' => 'releases', 'title' => 'T', 'url' => 'u', 'body' => 'B' ] );
+		$node->fill( $message );
 
 		$this->assertNotEmpty( $sink->captured );
 		foreach ( $sink->captured as $m ) {

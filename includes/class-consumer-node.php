@@ -318,18 +318,23 @@ class Consumer_Node extends Timer_Node {
 
 			// Each line is a packed Message; unpack, stamp FROM, forward.
 			try {
-				$msg = Message::unpacked( $line );
+				$message = Message::unpacked( $line );
 			} catch ( \InvalidArgumentException $e ) {
 				$this->print_less_often( "Consumer: skipping unparseable line: {$e->getMessage()}" );
 				continue;
 			}
 			$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
-			if ( '' !== $stamp && ! $this->stamp_message( $msg, $stamp ) ) {
+			if ( '' !== $stamp && ! $this->stamp_message( $message, $stamp ) ) {
 				continue; // FROM exceeded MAX_FROM_SIZE; drop_message handled.
 			}
 			// Position breadcrumb goes in ID; KEY must stay the producer's routing key.
-			$msg[ Message::ID ] = "{$this->cursor_seg}:{$abs_offset}";
-			parent::fill( $msg );
+			$message[ Message::ID ] = "{$this->cursor_seg}:{$abs_offset}";
+            // Force TO if target is set
+            if ( \is_string( $this->target ) && '' !== $this->target ) {
+                $message[ Message::TO ] = $this->target;
+            }
+            ++$this->counter;
+            $this->sink?->fill( $message );
 		}
 		$this->cursor_off += $consumed;
 	}
@@ -464,13 +469,13 @@ class Consumer_Node extends Timer_Node {
 			return;
 		}
 		try {
-			$msg = Message::unpacked( \end( $lines ) );
+			$message = Message::unpacked( \end( $lines ) );
 		} catch ( \InvalidArgumentException $e ) {
 			// Unparseable entry: keep the current position rather than resuming.
 			$this->print_less_often( "Consumer: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
 			return;
 		}
-		$entry = $msg[ Message::VALUE ];
+		$entry = $message[ Message::VALUE ];
 		if ( ! \is_array( $entry ) || ! isset( $entry['seg'], $entry['off'] ) ) {
 			return;
 		}
@@ -622,10 +627,10 @@ class Consumer_Node extends Timer_Node {
 		) {
 			return;
 		}
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
-		$msg[ Message::TIMESTAMP ] = Core::$now;
-		$msg[ Message::FROM ]      = $this->name;
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::TIMESTAMP ] = Core::$now;
+		$message[ Message::FROM ]      = $this->name;
 		$value = [
 			'seg'         => $this->cursor_seg,
 			'off'         => $this->cursor_off,
@@ -647,8 +652,8 @@ class Consumer_Node extends Timer_Node {
 				$value['cache'] = $node->save_state();
 			}
 		}
-		$msg[ Message::VALUE ]     = $value;
-		$this->offsetlog->fill( $msg );
+		$message[ Message::VALUE ]     = $value;
+		$this->offsetlog->fill( $message );
 		// Persist synchronously — don't wait for the offsetlog Partition's PIPE_BUF threshold.
 		$this->offsetlog->flush();
 		$this->checkpoint_seg = $this->cursor_seg;

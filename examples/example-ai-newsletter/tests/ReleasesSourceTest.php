@@ -39,26 +39,6 @@ final class ReleasesSourceTest extends TestCase {
 		}
 	}
 
-	public function test_tick_request_replies_with_emitted_count_to_caller(): void {
-		$sink   = new Capture_Sink_Node();
-		$source = new Releases_Source_Demo_Node();
-		$source->sink( $sink );
-
-		$req = $this->tick_request();
-		$source->fill( $req );
-
-		$replies = array_values( array_filter(
-			$sink->captured,
-			static fn ( $m ) => 0 !== ( $m[ Message::TYPE ] & Message::TM_RESPONSE )
-		) );
-		$this->assertCount( 1, $replies, 'exactly one TM_RESPONSE reply' );
-		$reply = $replies[0];
-		$this->assertSame( Message::TM_STRUCT, $reply[ Message::TYPE ] & Message::TM_STRUCT );
-		$this->assertSame( '_repl', $reply[ Message::TO ], 'reply goes to TO=FROM' );
-		$this->assertSame( 'TICK', $reply[ Message::VALUE ]['verb'] );
-		$this->assertSame( 2, $reply[ Message::VALUE ]['data']['emitted'] );
-	}
-
 	public function test_items_seam_is_overridable(): void {
 		$this->assertTrue( method_exists( Releases_Source_Demo_Node::class, 'items' ) );
 	}

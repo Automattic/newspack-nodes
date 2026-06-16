@@ -22,8 +22,8 @@ final class ScorerDemoTest extends TestCase {
 		$node = new Scorer_Demo_Node();
 		$node->sink( $sink );
 
-		$msg = $this->item( [ 'source' => 'releases', 'title' => 'Roundup Block ships', 'summary' => 's' ] );
-		$node->fill( $msg );
+		$message = $this->item( [ 'source' => 'releases', 'title' => 'Roundup Block ships', 'summary' => 's' ] );
+		$node->fill( $message );
 
 		$this->assertCount( 1, $sink->captured );
 		$out = $sink->captured[0];
@@ -33,8 +33,8 @@ final class ScorerDemoTest extends TestCase {
 		// releases weight 5.0 + keyword "ships" 1.0 = 6.0 — deterministic.
 		$this->assertSame( 6.0, $out[ Message::VALUE ]['score'] );
 		// Same input → same score (no clock/random).
-		$msg2 = $this->item( [ 'source' => 'releases', 'title' => 'Roundup Block ships', 'summary' => 's' ] );
-		$node->fill( $msg2 );
+		$message2 = $this->item( [ 'source' => 'releases', 'title' => 'Roundup Block ships', 'summary' => 's' ] );
+		$node->fill( $message2 );
 		$this->assertSame( 6.0, $sink->captured[1][ Message::VALUE ]['score'] );
 	}
 
@@ -42,8 +42,8 @@ final class ScorerDemoTest extends TestCase {
 		$sink = new Capture_Sink_Node();
 		$node = new Scorer_Demo_Node();
 		$node->sink( $sink );
-		$msg = $this->item( [ 'source' => 'mystery', 'title' => 'nothing notable', 'summary' => 's' ] );
-		$node->fill( $msg );
+		$message = $this->item( [ 'source' => 'mystery', 'title' => 'nothing notable', 'summary' => 's' ] );
+		$node->fill( $message );
 		$this->assertSame( 1.0, $sink->captured[0][ Message::VALUE ]['score'] );
 	}
 
@@ -52,8 +52,8 @@ final class ScorerDemoTest extends TestCase {
 		$node = new Scorer_Demo_Node();
 		$node->sink( $sink );
 		// "Garage" must not match 'GA', "awarded" must not match 'award' — whole words only.
-		$msg = $this->item( [ 'source' => 'community', 'title' => 'Garage cleanup awarded', 'summary' => 's' ] );
-		$node->fill( $msg );
+		$message = $this->item( [ 'source' => 'community', 'title' => 'Garage cleanup awarded', 'summary' => 's' ] );
+		$node->fill( $message );
 		// community base 3.0, no whole-word keyword → 3.0 (substring matching would give 5.0).
 		$this->assertSame( 3.0, $sink->captured[0][ Message::VALUE ]['score'] );
 	}
@@ -74,8 +74,8 @@ final class ScorerDemoTest extends TestCase {
 		$node = new Scorer_Demo_Node();
 		$node->sink( $sink );
 		$node->connect_node( 'scored:partition' );
-		$msg = $this->item( [ 'source' => 'community', 'title' => 'x', 'summary' => 's' ] );
-		$node->fill( $msg );
+		$message = $this->item( [ 'source' => 'community', 'title' => 'x', 'summary' => 's' ] );
+		$node->fill( $message );
 		$this->assertSame( 'scored:partition', $sink->captured[0][ Message::TO ] );
 	}
 }

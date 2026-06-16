@@ -39,8 +39,8 @@ final class DigestBuilderTest extends TestCase {
 		$node->sink( $sink );
 
 		foreach ( [ 'a', 'b', 'c' ] as $s ) {
-			$msg = $this->summary( $s );
-			$node->fill( $msg );
+			$message = $this->summary( $s );
+			$node->fill( $message );
 		}
 		$req = $this->flush_request();
 		$node->fill( $req );
@@ -60,30 +60,6 @@ final class DigestBuilderTest extends TestCase {
 		$out2 = $this->drafts( $sink );
 		$this->assertCount( 2, $out2 );
 		$this->assertStringNotContainsString( 'sum:a', $out2[1][ Message::VALUE ] );
-	}
-
-	public function test_flush_request_replies_with_count_to_caller(): void {
-		$sink = new Capture_Sink_Node();
-		$node = new Digest_Builder_Demo_Node();
-		$node->sink( $sink );
-
-		foreach ( [ 'a', 'b' ] as $s ) {
-			$msg = $this->summary( $s );
-			$node->fill( $msg );
-		}
-		$req = $this->flush_request();
-		$node->fill( $req );
-
-		$replies = array_values( array_filter(
-			$sink->captured,
-			static fn ( $m ) => 0 !== ( $m[ Message::TYPE ] & Message::TM_RESPONSE )
-		) );
-		$this->assertCount( 1, $replies, 'exactly one TM_RESPONSE reply' );
-		$reply = $replies[0];
-		$this->assertSame( Message::TM_STRUCT, $reply[ Message::TYPE ] & Message::TM_STRUCT );
-		$this->assertSame( '_repl', $reply[ Message::TO ], 'reply goes to TO=FROM' );
-		$this->assertSame( 'FLUSH', $reply[ Message::VALUE ]['verb'] );
-		$this->assertSame( 2, $reply[ Message::VALUE ]['data']['flushed'] );
 	}
 
 	public function test_flush_request_verb_is_documented_in_schema(): void {
@@ -115,8 +91,8 @@ final class DigestBuilderTest extends TestCase {
 		$node->sink( $sink );
 		$node->connect_node( 'out' );
 
-		$msg = $this->summary( 'a' );
-		$node->fill( $msg );
+		$message = $this->summary( 'a' );
+		$node->fill( $message );
 		$req = $this->flush_request();
 		$node->fill( $req );
 

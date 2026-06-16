@@ -35,11 +35,11 @@ class A5RoundTripTest extends TestCase {
 
 		// Send a message through _router → target.
 		$router = Core::node( '_router' );
-		$msg = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_BYTESTREAM;
-		$msg[ Message::TO ]   = 'target';
-		$msg[ Message::VALUE ] = 'lifecycle-data';
-		$router->fill( $msg );
+		$message = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_BYTESTREAM;
+		$message[ Message::TO ]   = 'target';
+		$message[ Message::VALUE ] = 'lifecycle-data';
+		$router->fill( $message );
 
 		$target = Core::node( 'target' );
 		$this->assertCount( 1, $target->captured );

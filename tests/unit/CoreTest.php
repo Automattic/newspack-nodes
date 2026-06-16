@@ -103,14 +103,14 @@ class CoreTest extends TestCase {
 
 	public function test_print_less_often_emits_first_occurrence(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		Core::print_less_often( 'first warning' );
 		$this->assertStringContainsString( 'first warning', $buf );
 	}
 
 	public function test_print_less_often_suppresses_within_60s(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		Core::$now = 1000.0;
 		Core::print_less_often( 'duplicate' );
 		Core::$now = 1030.0; // 30s later — within window
@@ -120,7 +120,7 @@ class CoreTest extends TestCase {
 
 	public function test_print_least_often_emits_at_tenth_call(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		for ( $i = 0; $i < 9; ++$i ) {
 			Core::print_least_often( 'rare' );
 		}
@@ -135,7 +135,7 @@ class CoreTest extends TestCase {
 		$outer_called = 0;
 		$inner_called = 0;
 		Core::set_stderr_handler(
-			function ( $msg ) use ( &$outer_called, &$inner_called ) {
+			function ( $message ) use ( &$outer_called, &$inner_called ) {
 				++$outer_called;
 				if ( 1 === $outer_called ) {
 					// Fault inside the handler: emit another stderr line.
@@ -171,7 +171,7 @@ class CoreTest extends TestCase {
 		// error_log, silently disabling the configured handler.
 		$call = 0;
 		Core::set_stderr_handler(
-			function ( $msg ) use ( &$call ) {
+			function ( $message ) use ( &$call ) {
 				++$call;
 				if ( 1 === $call ) {
 					throw new \RuntimeException( 'first call' );
@@ -295,7 +295,7 @@ class CoreTest extends TestCase {
 		Core::register_node( 'b', new CoreTest_RecordingNode( 'b' ) );
 
 		// Swallow the rate-limited stderr emission from the thrown error.
-		Core::set_stderr_handler( static function ( string $msg ): void {} );
+		Core::set_stderr_handler( static function ( string $message ): void {} );
 
 		Core::cleanup_all_nodes();
 
@@ -328,7 +328,7 @@ class CoreTest extends TestCase {
 		// + Router::update_logs). Advancing time alone does nothing; the
 		// counter restarts only once the aged entry is pruned.
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 
 		Core::$now = 1000.0;
 		for ( $i = 0; $i < 10; ++$i ) {
@@ -354,7 +354,7 @@ class CoreTest extends TestCase {
 		// timeout; the next rate-limiter call then re-emits. Mirrors Perl
 		// Tachikoma Router::update_logs.
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 
 		Core::$now = 1000.0;
 		Core::print_less_often( 'aged' ); // emit #1
@@ -386,8 +386,8 @@ class CoreTest extends TestCase {
 		// during the first call, the handler itself calls Core::stderr().
 		// The dispatcher's in_stderr flag is set, so the second call hits the
 		// guard and routes to PHP's error_log() instead of the handler.
-		Core::set_stderr_handler( function ( string $msg ): void {
-			if ( \strpos( $msg, 'first' ) !== false ) {
+		Core::set_stderr_handler( function ( string $message ): void {
+			if ( \strpos( $message, 'first' ) !== false ) {
 				// Direct re-entry — must not invoke the handler again.
 				Core::stderr( 'second-direct' );
 			}
@@ -447,7 +447,7 @@ class CoreTest extends TestCase {
 
 	public function test_stderr_writes_prefixed_line(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		Core::stderr( 'a warning' );
 		// The handler receives the fully-prefixed line.
 		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d.*\]: a warning\n$/', $buf );
@@ -458,7 +458,7 @@ class CoreTest extends TestCase {
 		// pre-prefixed and written verbatim (no double prefix). Otherwise it
 		// would prefix twice on re-log paths (cleanup_all_nodes → stderr).
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		Core::stderr( '2026-05-22 00:00:00 UTC host /x[1]: already prefixed' );
 		// Exactly one date at the very start — not prefixed again.
 		$this->assertSame( 1, \preg_match( '/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC host/', $buf ) );
@@ -470,14 +470,14 @@ class CoreTest extends TestCase {
 		// The rate-limited helper must emit a prefixed line, proving it routes
 		// through stderr()'s formatting rather than the raw text.
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		Core::print_less_often( 'rate limited msg' );
 		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d.*\]: rate limited msg\n$/', $buf );
 	}
 
 	public function test_print_least_often_routes_through_stderr_prefix(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		for ( $i = 0; $i < 10; ++$i ) {
 			Core::print_least_often( 'rare prefixed' );
 		}
@@ -489,7 +489,7 @@ class CoreTest extends TestCase {
 		// its own (un-tagged) log_midfix while Node keys by "<name>: text", so
 		// the same raw text from each does not collide — both emit.
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 		$node = new \Newspack_Nodes\Node();
 		$node->name( 'alice' );
 		Core::print_less_often( 'same text' );

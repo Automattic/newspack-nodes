@@ -337,8 +337,8 @@ class ConfigUtilsTest extends TestCase {
 
 	public function test_validate_config_path_uses_custom_error_log_prefix(): void {
 		$captured = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
-			$captured .= $msg;
+		Core::set_stderr_handler( function ( $message ) use ( &$captured ) {
+			$captured .= $message;
 		} );
 		Config_Utils::validate_config_path( '/tmp/nope.txt', [ '/tmp' ], 'MyPrefix' );
 		$this->assertStringContainsString( 'MyPrefix::validate_config_path()', $captured );
@@ -346,8 +346,8 @@ class ConfigUtilsTest extends TestCase {
 
 	public function test_validate_config_path_default_error_log_prefix(): void {
 		$captured = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
-			$captured .= $msg;
+		Core::set_stderr_handler( function ( $message ) use ( &$captured ) {
+			$captured .= $message;
 		} );
 		Config_Utils::validate_config_path( '/tmp/nope.txt', [ '/tmp' ] );
 		$this->assertStringContainsString( 'Config_Utils::validate_config_path()', $captured );
@@ -358,8 +358,8 @@ class ConfigUtilsTest extends TestCase {
 		// the emitted error line. The regex matches `[\x00-\x1f\x7f]` (everything
 		// except null which is rejected earlier).
 		$captured = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
-			$captured .= $msg;
+		Core::set_stderr_handler( function ( $message ) use ( &$captured ) {
+			$captured .= $message;
 		} );
 		Config_Utils::validate_config_path( "/tmp/weird\t\x07config.txt", [ '/tmp' ] );
 		$this->assertStringNotContainsString( "\t", $captured );
@@ -588,8 +588,8 @@ class ConfigUtilsTest extends TestCase {
 		$conf = $this->temp_dir . '/bad-prefix-test.php';
 		\file_put_contents( $conf, "<?php return 'malicious_string';\n" );
 		$captured = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
-			$captured .= $msg;
+		Core::set_stderr_handler( function ( $message ) use ( &$captured ) {
+			$captured .= $message;
 		} );
 		Config_Utils::load_config_file( [], $conf, 'CustomPrefix' );
 		$this->assertStringContainsString( 'CustomPrefix::load_config_file()', $captured );
@@ -599,8 +599,8 @@ class ConfigUtilsTest extends TestCase {
 		$conf = $this->temp_dir . '/bad-default-prefix.php';
 		\file_put_contents( $conf, "<?php return 'malicious_string';\n" );
 		$captured = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$captured ) {
-			$captured .= $msg;
+		Core::set_stderr_handler( function ( $message ) use ( &$captured ) {
+			$captured .= $message;
 		} );
 		Config_Utils::load_config_file( [], $conf );
 		$this->assertStringContainsString( 'Config_Utils::load_config_file()', $captured );

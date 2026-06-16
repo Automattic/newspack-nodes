@@ -17,10 +17,10 @@ class RouterTest extends TestCase {
 		$dst = new Capture_Sink_Node();
 		$dst->name( 'alice' );
 
-		$msg                = Message::new_message();
-		$msg[ Message::TO ] = 'alice/some/path';
+		$message                = Message::new_message();
+		$message[ Message::TO ] = 'alice/some/path';
 
-		$router->fill( $msg );
+		$router->fill( $message );
 
 		$this->assertCount( 1, $dst->captured );
 		$this->assertSame( 'some/path', $dst->captured[0][ Message::TO ] );
@@ -34,9 +34,9 @@ class RouterTest extends TestCase {
 		$producer = new Capture_Sink_Node();
 		$producer->name( 'producer' );
 
-		$msg                  = Message::new_message(); // TO=''
-		$msg[ Message::FROM ] = 'producer';
-		$router->fill( $msg );
+		$message                  = Message::new_message(); // TO=''
+		$message[ Message::FROM ] = 'producer';
+		$router->fill( $message );
 
 		$this->assertCount( 0, $producer->captured );
 	}
@@ -49,10 +49,10 @@ class RouterTest extends TestCase {
 		$dst = new Capture_Sink_Node();
 		$dst->name( 'alice' );
 
-		$msg                  = Message::new_message();
-		$msg[ Message::TO ]   = 'alice';
-		$msg[ Message::FROM ] = \str_repeat( 'x', Router_Node::MAX_FROM_SIZE + 1 );
-		$router->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TO ]   = 'alice';
+		$message[ Message::FROM ] = \str_repeat( 'x', Router_Node::MAX_FROM_SIZE + 1 );
+		$router->fill( $message );
 
 		$this->assertCount( 0, $dst->captured );
 	}
@@ -63,12 +63,12 @@ class RouterTest extends TestCase {
 		$producer = new Capture_Sink_Node();
 		$producer->name( 'producer' );
 
-		$msg                  = Message::new_message();
-		$msg[ Message::TO ]   = 'nonexistent';
-		$msg[ Message::FROM ] = 'producer';
-		$msg[ Message::ID ]   = 'req-1';
+		$message                  = Message::new_message();
+		$message[ Message::TO ]   = 'nonexistent';
+		$message[ Message::FROM ] = 'producer';
+		$message[ Message::ID ]   = 'req-1';
 
-		$router->fill( $msg );
+		$router->fill( $message );
 
 		// Per spec: error re-enters TO-routing and walks the FROM trail. Router strips
 		// 'producer' off the TO head when re-dispatching, leaving TO='' when the producer
@@ -90,11 +90,11 @@ class RouterTest extends TestCase {
 		$router = new Router_Node();
 		$router->name( '_router' );
 
-		$msg                  = Message::new_message();
-		$msg[ Message::TO ]   = 'nonexistent';
-		$msg[ Message::FROM ] = 'producer';
+		$message                  = Message::new_message();
+		$message[ Message::TO ]   = 'nonexistent';
+		$message[ Message::FROM ] = 'producer';
 
-		$router->fill( $msg );
+		$router->fill( $message );
 
 		$ref = new \ReflectionProperty( $router, 'set_state' );
 		$ref->setAccessible( true );
@@ -111,12 +111,12 @@ class RouterTest extends TestCase {
 		$origin = new Capture_Sink_Node();
 		$origin->name( 'someone' );
 
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_ERROR;
-		$msg[ Message::TO ]   = 'gone';
-		$msg[ Message::FROM ] = 'someone';
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_ERROR;
+		$message[ Message::TO ]   = 'gone';
+		$message[ Message::FROM ] = 'someone';
 
-		$router->fill( $msg );
+		$router->fill( $message );
 		$this->assertCount( 0, $origin->captured );
 	}
 

@@ -58,11 +58,11 @@ class CliWorkerCommandTest extends TestCase {
 	private function seed_consumer_checkpoint( string $source_basename, int $partition, array $value ): void {
 		$dir = "{$this->tmp}/offsets/{$source_basename}.p{$partition}";
 		\mkdir( $dir, 0755, true );
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_STRUCT;
-		$msg[ Message::TIMESTAMP ] = 1700000000.0;
-		$msg[ Message::VALUE ]     = $value;
-		\file_put_contents( "{$dir}/0.log", Message::packed( $msg ) . "\n" );
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_STRUCT;
+		$message[ Message::TIMESTAMP ] = 1700000000.0;
+		$message[ Message::VALUE ]     = $value;
+		\file_put_contents( "{$dir}/0.log", Message::packed( $message ) . "\n" );
 	}
 
 	private function register_topology( string $type, int $num_partitions, ?string $topology_path = null ): void {

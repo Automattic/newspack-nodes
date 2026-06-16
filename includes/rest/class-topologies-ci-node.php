@@ -182,9 +182,9 @@ class Topologies_CI_Node extends Service_CI_Node {
 								// (unterminated backslash continuation) — no user text, so no
 								// escaping needed.
 								$line_no = $i + 1;
-								$msg     = $e->getMessage();
-								// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $line_no is int; $msg is a fixed Shell::validate_line string.
-								throw new \RuntimeException( "validation failed at line $line_no: $msg" );
+								$message     = $e->getMessage();
+								// phpcs:ignore WordPress.Security.EscapeOutput.ExceptionNotEscaped -- $line_no is int; $message is a fixed Shell::validate_line string.
+								throw new \RuntimeException( "validation failed at line $line_no: $message" );
 							}
 						}
 

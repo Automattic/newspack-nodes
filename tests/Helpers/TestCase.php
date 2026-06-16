@@ -127,23 +127,23 @@ abstract class TestCase extends PHPUnitTestCase {
 	 * be passed by reference" notice.
 	 */
 	protected function produce( string $value, string $key = '' ): array {
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-		$msg[ Message::TIMESTAMP ] = Core::$now;
-		$msg[ Message::KEY ]       = $key;
-		$msg[ Message::VALUE ]     = $value;
-		return $msg;
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$message[ Message::TIMESTAMP ] = Core::$now;
+		$message[ Message::KEY ]       = $key;
+		$message[ Message::VALUE ]     = $value;
+		return $message;
 	}
 
 	/**
 	 * Build + fill in one call. Avoids the by-ref notice that fires when a
-	 * function-call result is passed directly into a `fill( &$msg )` parameter.
+	 * function-call result is passed directly into a `fill( &$message )` parameter.
 	 *
 	 * @param object $node Anything with a fill() method (Partition, Topic, etc.).
 	 */
 	protected function produce_into( object $node, string $value, string $key = '' ): void {
-		$msg = $this->produce( $value, $key );
-		$node->fill( $msg );
+		$message = $this->produce( $value, $key );
+		$node->fill( $message );
 		// Tests assert on disk state immediately after — force the Partition
 		// to drain its in-memory batch so the next file_get_contents/read_at
 		// call sees the bytes. Production callers rely on size-threshold +
@@ -175,8 +175,8 @@ abstract class TestCase extends PHPUnitTestCase {
 		$lines = \array_filter( \explode( "\n", $bytes ), static fn ( $l ) => '' !== $l );
 		$out   = [];
 		foreach ( $lines as $line ) {
-			$msg   = Message::unpacked( $line );
-			$out[] = $msg[ Message::VALUE ];
+			$message   = Message::unpacked( $line );
+			$out[] = $message[ Message::VALUE ];
 		}
 		return $out;
 	}

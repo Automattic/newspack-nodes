@@ -22,16 +22,16 @@ class LogTest extends TestCase {
 	}
 
 	private function bytestream( string $value ): array {
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::VALUE ] = $value;
-		return $msg;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = $value;
+		return $message;
 	}
 
 	/** fill() takes the message array by reference, so it must be a variable, not an inline call result. */
 	private function write_value( \Newspack_Nodes\Node $node, string $value ): void {
-		$msg = $this->bytestream( $value );
-		$node->fill( $msg );
+		$message = $this->bytestream( $value );
+		$node->fill( $message );
 	}
 
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
@@ -126,10 +126,10 @@ class LogTest extends TestCase {
 		// Control plane, not data — must not pollute the log. Mirrors Tachikoma Log.pm:69.
 		$log = new Log_Node();
 		$log->arguments( "{$this->tmp}/out.log" );
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_ERROR;
-		$msg[ Message::VALUE ] = 'this should NOT land';
-		$log->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_ERROR;
+		$message[ Message::VALUE ] = 'this should NOT land';
+		$log->fill( $message );
 		$log->flush();
 
 		$this->assertFileDoesNotExist( "{$this->tmp}/out.log.0" );

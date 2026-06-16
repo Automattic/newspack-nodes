@@ -81,7 +81,7 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 
 	public function test_raw_logs_construction_emits_no_handlerless_warning(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 
 		new Raw_Logs_CI_Node();
 
@@ -90,7 +90,7 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 
 	public function test_layouts_construction_emits_no_handlerless_warning(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 
 		new Layouts_CI_Node();
 
@@ -99,7 +99,7 @@ class MigratedServiceCiHandlerGuardTest extends TestCase {
 
 	public function test_workers_construction_emits_no_handlerless_warning(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 
 		$this->workers_ci();
 

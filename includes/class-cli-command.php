@@ -382,9 +382,9 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 		if ( $this->eof_sent ) {
 			return;
 		}
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_EOF;
-		$this->shell->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_EOF;
+		$this->shell->fill( $message );
 		$this->eof_sent        = true;
 		$this->eof_deadline_at = \microtime( true ) + $this->eof_deadline_s;
 	}
@@ -470,11 +470,11 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 	 * @return array<int,mixed> The TM_BYTESTREAM Message.
 	 */
 	public function build_completion_query( string $verb ): array {
-		$msg                    = Message::new_message();
-		$msg[ Message::TYPE ]   = Message::TM_BYTESTREAM;
-		$msg[ Message::KEY ]    = 'completion';
-		$msg[ Message::VALUE ]  = $verb;
-		return $msg;
+		$message                    = Message::new_message();
+		$message[ Message::TYPE ]   = Message::TM_BYTESTREAM;
+		$message[ Message::KEY ]    = 'completion';
+		$message[ Message::VALUE ]  = $verb;
+		return $message;
 	}
 
 	/**

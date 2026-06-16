@@ -18,9 +18,9 @@ class CallbackTest extends TestCase {
 		$cb = new Callback_Node( function ( array &$m ) use ( &$received ) {
 			$received = $m[ Message::VALUE ];
 		} );
-		$msg = Message::new_message();
-		$msg[ Message::VALUE ] = 'hello';
-		$cb->fill( $msg );
+		$message = Message::new_message();
+		$message[ Message::VALUE ] = 'hello';
+		$cb->fill( $message );
 		$this->assertSame( 'hello', $received );
 	}
 
@@ -28,17 +28,17 @@ class CallbackTest extends TestCase {
 		$cb = new Callback_Node( function ( array &$m ) {
 			$m[ Message::VALUE ] = 'transformed';
 		} );
-		$msg = Message::new_message();
-		$msg[ Message::VALUE ] = 'orig';
-		$cb->fill( $msg );
-		$this->assertSame( 'transformed', $msg[ Message::VALUE ] );
+		$message = Message::new_message();
+		$message[ Message::VALUE ] = 'orig';
+		$cb->fill( $message );
+		$this->assertSame( 'transformed', $message[ Message::VALUE ] );
 	}
 
 	public function test_counter_increments_per_fill(): void {
 		$cb = new Callback_Node( fn ( array &$m ) => null );
-		$msg = Message::new_message();
-		$cb->fill( $msg );
-		$cb->fill( $msg );
+		$message = Message::new_message();
+		$cb->fill( $message );
+		$cb->fill( $message );
 		$this->assertSame( 2, $cb->counter() );
 	}
 }

@@ -494,19 +494,19 @@ class SSE_Out_Node extends Node {
 	 * @return array<int, mixed> The 7-field positional Message.
 	 */
 	private function build_connected_msg( int $slot, array $subs, int $interval ): array {
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_INFO;
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_INFO;
 		// connected fires before the drain loop seeds `Core::$now`; fall back to microtime().
-		$msg[ Message::TIMESTAMP ] = 0.0 !== Core::$now ? Core::$now : \microtime( true );
-		$msg[ Message::FROM ]      = '_stream';
-		$msg[ Message::KEY ]       = 'connected';
-		$msg[ Message::VALUE ]     = [
+		$message[ Message::TIMESTAMP ] = 0.0 !== Core::$now ? Core::$now : \microtime( true );
+		$message[ Message::FROM ]      = '_stream';
+		$message[ Message::KEY ]       = 'connected';
+		$message[ Message::VALUE ]     = [
 			'pid'           => \getmypid(),
 			'slot'          => $slot,
 			'subscriptions' => $subs,
 			'interval'      => $interval,
 		];
-		return $msg;
+		return $message;
 	}
 
 	/**

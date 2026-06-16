@@ -10,21 +10,21 @@
 
 if ( ! \class_exists( 'WP_CLI', false ) ) {
 	class WP_CLI {
-		public static function log( string $msg ): void {
-			$GLOBALS['_test_wp_cli_logs'][] = $msg;
+		public static function log( string $message ): void {
+			$GLOBALS['_test_wp_cli_logs'][] = $message;
 		}
 
-		public static function warning( string $msg ): void {
-			$GLOBALS['_test_wp_cli_warns'][] = $msg;
+		public static function warning( string $message ): void {
+			$GLOBALS['_test_wp_cli_warns'][] = $message;
 		}
 
-		public static function error( string $msg ): void {
-			$GLOBALS['_test_wp_cli_errors'][] = $msg;
-			throw new \RuntimeException( "WP_CLI::error called: $msg" );
+		public static function error( string $message ): void {
+			$GLOBALS['_test_wp_cli_errors'][] = $message;
+			throw new \RuntimeException( "WP_CLI::error called: $message" );
 		}
 
-		public static function success( string $msg ): void {
-			$GLOBALS['_test_wp_cli_success'][] = $msg;
+		public static function success( string $message ): void {
+			$GLOBALS['_test_wp_cli_success'][] = $message;
 		}
 	}
 }

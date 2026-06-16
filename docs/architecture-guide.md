@@ -116,7 +116,7 @@ Flags compose via bitwise OR: `TM_COMMAND | TM_RESPONSE` = a response to a comma
 
 **ONE shape, everywhere**: the positional indexed array IS the message — in PHP, in JS (`src/runtime/message.js` exports the same indices/flags), in memory, and on the wire. There is **no** `{ type, ts, from, to, id, key, value }` object form anywhere; if you see one it's a bug.
 
-**Wire format**: `Message::packed( array $msg ): string` is `wp_json_encode` of the array; `Message::unpacked( string $data ): array` is `json_decode`. The in-memory indexed array is the wire representation, so there's no key-to-index translation per side. The two ports differ on malformed input — a documented divergence:
+**Wire format**: `Message::packed( array $message ): string` is `wp_json_encode` of the array; `Message::unpacked( string $data ): array` is `json_decode`. The in-memory indexed array is the wire representation, so there's no key-to-index translation per side. The two ports differ on malformed input — a documented divergence:
 
 - **PHP** `unpacked()` accepts ONLY `count() === 7 && array_is_list()`. Anything else **throws** `InvalidArgumentException`. Callers that read off-disk lines (`Consumer::poll`, `Consumer::load_offsetlog`) catch it and skip the bad line.
 - **JS** `unpack()` accepts `Array.isArray && length >= 7` and otherwise (including a JSON parse error) falls back to a fresh `newMessage()` — never throws.

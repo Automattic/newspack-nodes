@@ -24,12 +24,12 @@ class SubstrateRoundTripTest extends TestCase {
 		$this->assertSame( 'ok', $interpreter->dispatch( 'connect_node', 'alice bob' ) );
 
 		// Send addressed message: TO=alice, expects router → alice (capture).
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_BYTESTREAM;
-		$msg[ Message::TO ]   = 'alice';
-		$msg[ Message::FROM ] = 'test';
-		$msg[ Message::VALUE ] = 'payload-x';
-		$router->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_BYTESTREAM;
+		$message[ Message::TO ]   = 'alice';
+		$message[ Message::FROM ] = 'test';
+		$message[ Message::VALUE ] = 'payload-x';
+		$router->fill( $message );
 
 		$alice = Core::node( 'alice' );
 		$this->assertCount( 1, $alice->captured );
@@ -45,10 +45,10 @@ class SubstrateRoundTripTest extends TestCase {
 		$producer = new Capture_Sink_Node();
 		$producer->name( 'producer' );
 
-		$msg                  = Message::new_message();
-		$msg[ Message::TO ]   = 'nowhere';
-		$msg[ Message::FROM ] = 'producer';
-		$router->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TO ]   = 'nowhere';
+		$message[ Message::FROM ] = 'producer';
+		$router->fill( $message );
 
 		$this->assertCount( 1, $producer->captured );
 		$err = $producer->captured[0];

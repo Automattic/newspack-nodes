@@ -154,20 +154,20 @@ class NodeLifecycleTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$capture->name( 'lifecycle_capture' );
 
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_ERROR;
-		$msg[ Message::FROM ]      = 'upstream';
-		$msg[ Message::VALUE ]     = "NOT_AVAILABLE\n";
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_ERROR;
+		$message[ Message::FROM ]      = 'upstream';
+		$message[ Message::VALUE ]     = "NOT_AVAILABLE\n";
 		// The Router has no sink — it routes by TO, so address the named capture;
 		// other transit nodes forward to their sink regardless of TO.
 		if ( $node instanceof Router_Node ) {
-			$msg[ Message::TO ] = 'lifecycle_capture';
+			$message[ Message::TO ] = 'lifecycle_capture';
 		} else {
 			$node->sink( $capture );
-			$msg[ Message::TO ] = 'downstream';
+			$message[ Message::TO ] = 'downstream';
 		}
 
-		$node->fill( $msg );
+		$node->fill( $message );
 
 		// Either forwarded (capture[0] === the message we sent) or absorbed
 		// (capture stays empty). Anything else means the Node rewrote
@@ -200,20 +200,20 @@ class NodeLifecycleTest extends TestCase {
 		$capture = new Capture_Sink_Node();
 		$capture->name( 'lifecycle_capture' );
 
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_EOF;
-		$msg[ Message::FROM ]      = 'upstream';
-		$msg[ Message::VALUE ]     = '';
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_EOF;
+		$message[ Message::FROM ]      = 'upstream';
+		$message[ Message::VALUE ]     = '';
 		// The Router has no sink — it routes by TO, so address the named capture;
 		// other transit nodes forward to their sink regardless of TO.
 		if ( $node instanceof Router_Node ) {
-			$msg[ Message::TO ] = 'lifecycle_capture';
+			$message[ Message::TO ] = 'lifecycle_capture';
 		} else {
 			$node->sink( $capture );
-			$msg[ Message::TO ] = 'downstream';
+			$message[ Message::TO ] = 'downstream';
 		}
 
-		$node->fill( $msg );
+		$node->fill( $message );
 
 		if ( ! empty( $capture->captured ) ) {
 			$out = $capture->captured[0];

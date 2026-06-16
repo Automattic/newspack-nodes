@@ -38,8 +38,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter   = new Command_Interpreter_Node();
 		$sink = new Capture_Sink_Node();
 		$interpreter->sink( $sink );
-		$msg = $this->command_message( 'reply_to', 'some/target uptime', true );
-		$interpreter->fill( $msg );
+		$message = $this->command_message( 'reply_to', 'some/target uptime', true );
+		$interpreter->fill( $message );
 		// reply_to itself replies with nothing; the sub-verb's reply rode to <path>.
 		$this->assertCount( 1, $sink->captured );
 		$this->assertSame( 'some/target', $sink->captured[0][ Message::TO ] );
@@ -50,8 +50,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter   = new Command_Interpreter_Node();
 		$sink = new Capture_Sink_Node();
 		$interpreter->sink( $sink );
-		$msg = $this->command_message( 'reply_to', 'some/target', true );
-		$interpreter->fill( $msg );
+		$message = $this->command_message( 'reply_to', 'some/target', true );
+		$interpreter->fill( $message );
 		$this->assertCount( 1, $sink->captured );
 		$this->assertStringContainsString(
 			'usage: reply_to',
@@ -66,8 +66,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter   = new Command_Interpreter_Node();
 		$sink = new Capture_Sink_Node();
 		$interpreter->sink( $sink );
-		$msg = $this->command_message( 'reply_to', 'a reply_to a uptime', true );
-		$interpreter->fill( $msg );
+		$message = $this->command_message( 'reply_to', 'a reply_to a uptime', true );
+		$interpreter->fill( $message );
 		$this->assertCount( 1, $sink->captured );
 		$this->assertStringContainsString(
 			'reply_to cannot invoke reply_to',
@@ -82,9 +82,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$sink        = new Capture_Sink_Node();
 		$interpreter->sink( $sink );
-		$msg                  = $this->command_message( 'uptime', '', true );
-		$msg[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_NOREPLY;
-		$interpreter->fill( $msg );
+		$message                  = $this->command_message( 'uptime', '', true );
+		$message[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_NOREPLY;
+		$interpreter->fill( $message );
 		$this->assertCount( 0, $sink->captured );
 	}
 
@@ -97,9 +97,9 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter = new Command_Interpreter_Node();
 		$sink        = new Capture_Sink_Node();
 		$interpreter->sink( $sink );
-		$msg                  = $this->command_message( 'no_such_verb', '', true );
-		$msg[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_NOREPLY;
-		$interpreter->fill( $msg );
+		$message                  = $this->command_message( 'no_such_verb', '', true );
+		$message[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_NOREPLY;
+		$interpreter->fill( $message );
 		$this->assertCount( 0, $sink->captured );
 		$this->assertStringContainsString( 'error from TM_NOREPLY command', $buf );
 		$this->assertStringContainsString( 'no_such_verb', $buf );
@@ -111,8 +111,8 @@ class CommandInterpreterTest extends TestCase {
 		$sink = new Capture_Sink_Node();
 		$interpreter->sink( $sink );
 
-		$msg = $this->command_message( 'make_node', 'Capture_Sink ghost' ); // no LOCAL
-		$interpreter->fill( $msg );
+		$message = $this->command_message( 'make_node', 'Capture_Sink ghost' ); // no LOCAL
+		$interpreter->fill( $message );
 
 		// Verb did NOT run — node never created.
 		$this->assertNull( Core::node( 'ghost' ) );
@@ -128,8 +128,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->sink( new Capture_Sink_Node() );
 
-		$msg = $this->command_message( 'make_node', 'Capture_Sink real', true ); // LOCAL
-		$interpreter->fill( $msg );
+		$message = $this->command_message( 'make_node', 'Capture_Sink real', true ); // LOCAL
+		$interpreter->fill( $message );
 
 		$this->assertInstanceOf( Capture_Sink_Node::class, Core::node( 'real' ) );
 	}
@@ -140,8 +140,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->sink( new Capture_Sink_Node() );
 		$interpreter->authorize = static fn ( array $m ): bool => true;
 
-		$msg = $this->command_message( 'make_node', 'Capture_Sink trusted' ); // no LOCAL
-		$interpreter->fill( $msg );
+		$message = $this->command_message( 'make_node', 'Capture_Sink trusted' ); // no LOCAL
+		$interpreter->fill( $message );
 
 		$this->assertInstanceOf( Capture_Sink_Node::class, Core::node( 'trusted' ) );
 	}
@@ -152,14 +152,14 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->sink( new Capture_Sink_Node() );
 
-		$msg = $this->command_message( 'make_node', 'Capture_Sink nope', true ); // LOCAL set
-		$interpreter->fill( $msg );
+		$message = $this->command_message( 'make_node', 'Capture_Sink nope', true ); // LOCAL set
+		$interpreter->fill( $message );
 		$this->assertNull( Core::node( 'nope' ) );
 
 		// Instance override beats the static default.
 		$interpreter->authorize = static fn ( array $m ): bool => true;
-		$msg2 = $this->command_message( 'make_node', 'Capture_Sink yes' );
-		$interpreter->fill( $msg2 );
+		$message2 = $this->command_message( 'make_node', 'Capture_Sink yes' );
+		$interpreter->fill( $message2 );
 		$this->assertInstanceOf( Capture_Sink_Node::class, Core::node( 'yes' ) );
 	}
 
@@ -349,9 +349,9 @@ class CommandInterpreterTest extends TestCase {
 		$downstream = new Capture_Sink_Node();
 		$interpreter->sink( $downstream );
 
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_BYTESTREAM;
-		$interpreter->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_BYTESTREAM;
+		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $downstream->captured );
 	}
@@ -362,16 +362,16 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->name( '_command_interpreter' );
 		$interpreter->sink( new Capture_Sink_Node() );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
 		// VALUE rides as a live PHP structure (no separate json_encode) —
 		// it travels through packed()/unpacked() as a nested object.
-		$msg[ Message::VALUE ] = [
+		$message[ Message::VALUE ] = [
 			'name'      => 'make_node',
 			'arguments' => 'Capture_Sink alice',
 		];
-		$msg[ Message::LOCAL ] = true; // in-process command — carries the provenance taint
-		$interpreter->fill( $msg );
+		$message[ Message::LOCAL ] = true; // in-process command — carries the provenance taint
+		$interpreter->fill( $message );
 
 		$this->assertNotNull( Core::node( 'alice' ) );
 	}
@@ -1017,11 +1017,11 @@ class CommandInterpreterTest extends TestCase {
 		$downstream = new Capture_Sink_Node();
 		$interpreter->sink( $downstream );
 
-		$msg                       = Message::new_message();
-		$msg[ Message::TYPE ]      = Message::TM_PING;
-		$msg[ Message::FROM ]      = '_output/12345';
-		$msg[ Message::VALUE ]     = '1234567890.123456';
-		$interpreter->fill( $msg );
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_PING;
+		$message[ Message::FROM ]      = '_output/12345';
+		$message[ Message::VALUE ]     = '1234567890.123456';
+		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $downstream->captured );
 		$bounced = $downstream->captured[0];
@@ -1042,10 +1042,10 @@ class CommandInterpreterTest extends TestCase {
 		$downstream = new Capture_Sink_Node();
 		$interpreter->sink( $downstream );
 
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_EOF;
-		$msg[ Message::FROM ] = '_output/12345';
-		$interpreter->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_EOF;
+		$message[ Message::FROM ] = '_output/12345';
+		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $downstream->captured );
 		$bounced = $downstream->captured[0];
@@ -1062,11 +1062,11 @@ class CommandInterpreterTest extends TestCase {
 		$downstream = new Capture_Sink_Node();
 		$interpreter->sink( $downstream );
 
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_EOF;
-		$msg[ Message::FROM ] = '_output/12345';
-		$msg[ Message::TO ]   = 'somewhere_else';
-		$interpreter->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_EOF;
+		$message[ Message::FROM ] = '_output/12345';
+		$message[ Message::TO ]   = 'somewhere_else';
+		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $downstream->captured );
 		$this->assertSame( 'somewhere_else', $downstream->captured[0][ Message::TO ], 'TO preserved on transit' );
@@ -1082,11 +1082,11 @@ class CommandInterpreterTest extends TestCase {
 		$downstream = new Capture_Sink_Node();
 		$interpreter->sink( $downstream );
 
-		$msg                  = Message::new_message();
-		$msg[ Message::TYPE ] = Message::TM_PING;
-		$msg[ Message::FROM ] = '_output/12345';
-		$msg[ Message::TO ]   = 'some_other_node';
-		$interpreter->fill( $msg );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_PING;
+		$message[ Message::FROM ] = '_output/12345';
+		$message[ Message::TO ]   = 'some_other_node';
+		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $downstream->captured );
 		$forwarded = $downstream->captured[0];
@@ -1100,9 +1100,9 @@ class CommandInterpreterTest extends TestCase {
 		// alice is a sibling (sinks into _command_interpreter via make_node).
 		$interpreter->dispatch( 'make_node', 'Capture_Sink alice' );
 		$alice                       = Core::node( 'alice' );
-		$msg                         = Message::new_message();
-		$msg[ Message::VALUE ]       = 'twelve bytes';
-		$alice->fill( $msg );
+		$message                         = Message::new_message();
+		$message[ Message::VALUE ]       = 'twelve bytes';
+		$alice->fill( $message );
 
 		$out = $interpreter->dispatch( 'stats' );
 
@@ -1115,7 +1115,7 @@ class CommandInterpreterTest extends TestCase {
 		// Per-node row: name + values. lgst_msg tracks packed-Message
 		// size (not bare VALUE length); compute against the actual envelope
 		// so the assertion survives Message-shape changes.
-		$lgst = \strlen( Message::packed( $msg ) );
+		$lgst = \strlen( Message::packed( $message ) );
 		$this->assertMatchesRegularExpression(
 			"/alice\\s+1\\s+{$lgst}\\s+0\\s+0/",
 			$out,
@@ -1133,9 +1133,9 @@ class CommandInterpreterTest extends TestCase {
 		$alice = new Capture_Sink_Node();
 		$alice->name( 'alice' );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::VALUE ] = 'twelve bytes';
-		$alice->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::VALUE ] = 'twelve bytes';
+		$alice->fill( $message );
 
 		// dump_metadata returns a live PHP structure now — no JSON string to decode.
 		$decoded = $interpreter->dispatch( 'dump_metadata' );
@@ -1143,7 +1143,7 @@ class CommandInterpreterTest extends TestCase {
 		$this->assertIsArray( $decoded );
 		$this->assertArrayHasKey( 'alice', $decoded );
 		$this->assertSame(
-			\strlen( Message::packed( $msg ) ),
+			\strlen( Message::packed( $message ) ),
 			$decoded['alice']['lgst_msg']
 		);
 		$this->assertSame( 0,  $decoded['alice']['bytes_read'] );
@@ -1222,8 +1222,8 @@ class CommandInterpreterTest extends TestCase {
 		$interpreter->sink( $sink );
 		$interpreter->commands( [ 'echo' => fn ( $self, $args ) => "echoed: {$args}" ] );
 
-		$msg = $this->command_message( 'echo', 'hi', true );
-		$interpreter->fill( $msg );
+		$message = $this->command_message( 'echo', 'hi', true );
+		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $sink->captured );
 		$value = $sink->captured[0][ Message::VALUE ];
@@ -1652,8 +1652,8 @@ class CommandInterpreterTest extends TestCase {
 		// operator's transcript stays quiet.
 		$captured = [];
 		Core::set_stderr_handler(
-			static function ( string $msg ) use ( &$captured ): void {
-				$captured[] = $msg;
+			static function ( string $message ) use ( &$captured ): void {
+				$captured[] = $message;
 			}
 		);
 
@@ -1852,12 +1852,12 @@ class CommandInterpreterTest extends TestCase {
 		$downstream = new Capture_Sink_Node();
 		$interpreter->sink( $downstream );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
 		// VALUE is the command struct directly; a bare string (not an array)
 		// is malformed and must be dropped, not echoed.
-		$msg[ Message::VALUE ] = 'this is not a command struct';
-		$interpreter->fill( $msg );
+		$message[ Message::VALUE ] = 'this is not a command struct';
+		$interpreter->fill( $message );
 
 		$this->assertCount( 0, $downstream->captured, 'malformed TM_COMMAND must be dropped, not echoed' );
 	}
@@ -1871,10 +1871,10 @@ class CommandInterpreterTest extends TestCase {
 		$downstream = new Capture_Sink_Node();
 		$interpreter->sink( $downstream );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::VALUE ] = [ 'arguments' => 'nope' ];
-		$interpreter->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::VALUE ] = [ 'arguments' => 'nope' ];
+		$interpreter->fill( $message );
 
 		$this->assertCount( 0, $downstream->captured );
 	}
@@ -1899,12 +1899,12 @@ class CommandInterpreterTest extends TestCase {
 			]
 		);
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::FROM ]  = '_output/777';
-		$msg[ Message::VALUE ] = [ 'name' => 'boom', 'arguments' => '' ];
-		$msg[ Message::LOCAL ] = true;
-		$interpreter->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = '_output/777';
+		$message[ Message::VALUE ] = [ 'name' => 'boom', 'arguments' => '' ];
+		$message[ Message::LOCAL ] = true;
+		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $downstream->captured );
 		$response = $downstream->captured[0];
@@ -1939,12 +1939,12 @@ class CommandInterpreterTest extends TestCase {
 			]
 		);
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::FROM ]  = '_output/55';
-		$msg[ Message::VALUE ] = [ 'name' => 'give_array', 'arguments' => '' ];
-		$msg[ Message::LOCAL ] = true;
-		$interpreter->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = '_output/55';
+		$message[ Message::VALUE ] = [ 'name' => 'give_array', 'arguments' => '' ];
+		$message[ Message::LOCAL ] = true;
+		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $downstream->captured );
 		$payload = $downstream->captured[0][ Message::VALUE ];
@@ -1973,12 +1973,12 @@ class CommandInterpreterTest extends TestCase {
 		$downstream = new Capture_Sink_Node();
 		$interpreter->sink( $downstream );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::FROM ]  = '_output/77';
-		$msg[ Message::VALUE ] = [ 'name' => 'i_do_not_exist', 'arguments' => '' ];
-		$msg[ Message::LOCAL ] = true;
-		$interpreter->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = '_output/77';
+		$message[ Message::VALUE ] = [ 'name' => 'i_do_not_exist', 'arguments' => '' ];
+		$message[ Message::LOCAL ] = true;
+		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $downstream->captured );
 		$response = $downstream->captured[0];
@@ -2002,14 +2002,14 @@ class CommandInterpreterTest extends TestCase {
 		$downstream = new Capture_Sink_Node();
 		$interpreter->sink( $downstream );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::FROM ]  = '_output/42';
-		$msg[ Message::ID ]    = 'corr-id-123';
-		$msg[ Message::KEY ]   = 'gui-tag-abc';
-		$msg[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink coverage_alice' ];
-		$msg[ Message::LOCAL ] = true;
-		$interpreter->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::FROM ]  = '_output/42';
+		$message[ Message::ID ]    = 'corr-id-123';
+		$message[ Message::KEY ]   = 'gui-tag-abc';
+		$message[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink coverage_alice' ];
+		$message[ Message::LOCAL ] = true;
+		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $downstream->captured );
 		$response = $downstream->captured[0];
@@ -2033,11 +2033,11 @@ class CommandInterpreterTest extends TestCase {
 		$downstream = new Capture_Sink_Node();
 		$interpreter->sink( $downstream );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND;
-		$msg[ Message::TO ]    = 'some/path/ahead';
-		$msg[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink not_made' ];
-		$interpreter->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND;
+		$message[ Message::TO ]    = 'some/path/ahead';
+		$message[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink not_made' ];
+		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $downstream->captured );
 		$this->assertSame( 'some/path/ahead', $downstream->captured[0][ Message::TO ], 'TO preserved on transit' );
@@ -2055,10 +2055,10 @@ class CommandInterpreterTest extends TestCase {
 		$downstream = new Capture_Sink_Node();
 		$interpreter->sink( $downstream );
 
-		$msg                   = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
-		$msg[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink ghost_response' ];
-		$interpreter->fill( $msg );
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message[ Message::VALUE ] = [ 'name' => 'make_node', 'arguments' => 'Capture_Sink ghost_response' ];
+		$interpreter->fill( $message );
 
 		$this->assertCount( 1, $downstream->captured );
 		$this->assertNull( Core::node( 'ghost_response' ), 'TM_RESPONSE must not be re-dispatched' );
@@ -2098,7 +2098,7 @@ class CommandInterpreterTest extends TestCase {
 		// $cli via a public property) gets the arg silently dropped. Surface
 		// a rate-limited stderr warning that names the node type.
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 
 		$interpreter = new Command_Interpreter_Node();
 		$interpreter->name( '_command_interpreter' );

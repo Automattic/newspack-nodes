@@ -87,7 +87,7 @@ class ConfigTokenResolverTest extends TestCase {
 
 	public function test_resolve_unknown_namespace_warns_on_stderr(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 
 		// Unknown namespace returns '' for back-compat but must surface a
 		// rate-limited warning so a typo in `<unknown:key>` is diagnosable.
@@ -98,7 +98,7 @@ class ConfigTokenResolverTest extends TestCase {
 
 	public function test_resolve_null_value_warns_on_stderr(): void {
 		$buf = '';
-		Core::set_stderr_handler( function ( $msg ) use ( &$buf ) { $buf .= $msg; } );
+		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
 
 		Core::register_config_namespace( 'acme', static fn ( string $key ) => null );
 		// Null result returns '' for back-compat but must surface a

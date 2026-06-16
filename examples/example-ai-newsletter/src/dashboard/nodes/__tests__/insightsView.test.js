@@ -62,8 +62,8 @@ const sampleModel = {
 describe( 'insights:view — model publish', () => {
 	test( 'parses the JSON payload into the model and publishes setState("view")', () => {
 		const v = makeView( 'insights:view' );
-		const $msg = insightsReply( '', sampleModel );
-		v.fill( $msg );
+		const $message = insightsReply( '', sampleModel );
+		v.fill( $message );
 		expect( v.setStateCache.view ).toEqual( sampleModel );
 	} );
 
@@ -82,8 +82,8 @@ describe( 'insights:view — pending-Map gating', () => {
 		const promise = new Promise( ( resolve, reject ) => {
 			v.replies.add( id, resolve, reject );
 		} );
-		const $msg = insightsReply( id, sampleModel );
-		v.fill( $msg );
+		const $message = insightsReply( id, sampleModel );
+		v.fill( $message );
 		await expect( promise ).resolves.toEqual(
 			JSON.stringify( sampleModel )
 		);
@@ -96,8 +96,8 @@ describe( 'insights:view — pending-Map gating', () => {
 		const promise = new Promise( ( resolve, reject ) => {
 			v.replies.add( id, resolve, reject );
 		} );
-		const $msg = insightsErrorReply( id, 'permission denied' );
-		v.fill( $msg );
+		const $message = insightsErrorReply( id, 'permission denied' );
+		v.fill( $message );
 		await expect( promise ).rejects.toThrow( /permission denied/i );
 	} );
 
@@ -108,8 +108,8 @@ describe( 'insights:view — pending-Map gating', () => {
 			() => {},
 			() => {}
 		);
-		const $msg = insightsReply( 'unrelated', sampleModel );
-		v.fill( $msg );
+		const $message = insightsReply( 'unrelated', sampleModel );
+		v.fill( $message );
 		expect( v.replies.has( 'stashed' ) ).toBe( true );
 		expect( v.setStateCache.view ).toEqual( sampleModel );
 	} );

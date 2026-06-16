@@ -40,10 +40,10 @@ class LegoBricksRoundTripTest extends TestCase {
 			$action_fired = true;
 		} );
 
-		$msg = Message::new_message();
-		$msg[ Message::TYPE ]  = Message::TM_BYTESTREAM;
-		$msg[ Message::VALUE ] = 'broadcast';
-		$tee->fill( $msg );
+		$message = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+		$message[ Message::VALUE ] = 'broadcast';
+		$tee->fill( $message );
 
 		$this->assertTrue( $action_fired );
 		$this->assertCount( 1, $direct->captured );
@@ -63,9 +63,9 @@ class LegoBricksRoundTripTest extends TestCase {
 			$transformer->sink()->fill( $m );
 		} );
 
-		$msg = Message::new_message();
-		$msg[ Message::VALUE ] = 'hello';
-		$chain->fill( $msg );
+		$message = Message::new_message();
+		$message[ Message::VALUE ] = 'hello';
+		$chain->fill( $message );
 
 		$this->assertCount( 1, $capture->captured );
 		$this->assertSame( 'X-hello', $capture->captured[0][ Message::VALUE ] );
