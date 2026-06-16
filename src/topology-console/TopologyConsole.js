@@ -232,6 +232,26 @@ export function toNeedsSseSession( to ) {
 	return /^_sse\/[a-z0-9_-]+\.p\d+(?:\/|$)/.test( to || '' );
 }
 
+// REPL transcript ceiling, derived from the MEASURED `.topology-app` height so
+// it can't drift from the chrome above it. The console grid is `64px 1fr 38px`
+// (header / canvas / repl-bar — see graph-view.scss), so the transcript may fill
+// the canvas row only: appHeight − header − bar. Measuring beats a viewport
+// constant now that the console renders inside the DevtoolsTabHost tab bar, whose
+// height the old `window.innerHeight − FIXED_CHROME_PX` math never subtracted.
+// Returns null before layout (height 0) so ReplFooter keeps its own fallback.
+const CONSOLE_HEADER_PX = 64;
+const CONSOLE_REPL_BAR_PX = 38;
+const REPL_MIN_HEIGHT_PX = 80;
+export function replCeilingFromAppHeight( appHeight ) {
+	if ( ! appHeight || appHeight <= 0 ) {
+		return null;
+	}
+	return Math.max(
+		REPL_MIN_HEIGHT_PX,
+		appHeight - CONSOLE_HEADER_PX - CONSOLE_REPL_BAR_PX
+	);
+}
+
 function readUrlParam( key ) {
 	try {
 		return new URLSearchParams( window.location.search ).get( key );
@@ -333,6 +353,28 @@ export default function TopologyConsole() {
 			window.requestAnimationFrame( () => replInputRef.current?.focus() );
 		}
 	}, [ replExpanded ] );
+
+	// Measure the `.topology-app` grid so the REPL transcript ceiling tracks the
+	// real available height (the console lives inside the DevtoolsTabHost tab bar,
+	// which the window-based fallback can't see). A ResizeObserver keeps it correct
+	// across window resizes + admin-menu collapse.
+	const appRef = useRef( null );
+	const [ appHeight, setAppHeight ] = useState( 0 );
+	useEffect( () => {
+		const el = appRef.current;
+		if ( ! el ) {
+			return undefined;
+		}
+		const measure = () => setAppHeight( el.offsetHeight );
+		measure();
+		if ( typeof window === 'undefined' || ! window.ResizeObserver ) {
+			return undefined;
+		}
+		const ro = new window.ResizeObserver( measure );
+		ro.observe( el );
+		return () => ro.disconnect();
+	}, [] );
+	const replMaxHeightPx = replCeilingFromAppHeight( appHeight );
 
 	// Dumper verbosity dial (0/1/2), mirroring the substrate Dumper. A ref
 	// so the Dumper reads it per-frame without re-binding the graph.
@@ -1408,6 +1450,7 @@ export default function TopologyConsole() {
 
 	return (
 		<div
+			ref={ appRef }
 			className={ `topology-app theme-${ theme }${
 				selectedId ? ' is-inspector-open' : ''
 			}${ mode === 'edit' ? ' is-edit-mode' : '' }${
@@ -1508,6 +1551,7 @@ export default function TopologyConsole() {
 					completion,
 					onComplete: requestCompletion,
 					onShowCandidates: handleShowCandidates,
+					maxHeightPx: replMaxHeightPx,
 				} }
 			/>
 			{ discardModal && (
