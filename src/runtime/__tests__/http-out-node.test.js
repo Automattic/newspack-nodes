@@ -176,6 +176,7 @@ describe( 'HttpOut', () => {
 	} );
 
 	it( 'ignores a null response (bare 202 — routed onward, reply via SSE)', async () => {
+		expectConsoleWarn( '_http: HttpOut POST failed:' );
 		const { Node } = require( '../node' );
 		const { node, postBatch } = makeNode();
 		const got = [];

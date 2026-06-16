@@ -33,6 +33,9 @@ test( 'setting a sink throws — the Router has none', () => {
 } );
 
 test( 'empty TO is dropped as "message not addressed" — no NOT_AVAILABLE bounce (Perl parity)', () => {
+	expectConsoleWarn(
+		'_router: WARNING: message not addressed - TYPE_UNKNOWN'
+	);
 	const r = new RouterNode();
 	r.name = '_router';
 	const origin = new Node();
@@ -49,6 +52,7 @@ test( 'empty TO is dropped as "message not addressed" — no NOT_AVAILABLE bounc
 } );
 
 test( 'a FROM trail over MAX_FROM_SIZE is dropped before routing (path-explosion guard; Perl parity)', () => {
+	expectConsoleWarn( '_router: WARNING: path exceeded 1024 bytes' );
 	const r = new RouterNode();
 	r.name = '_router';
 	const alpha = new Node();
@@ -114,6 +118,7 @@ test( 'single-segment TO with no slash peels head and forwards with empty TO', (
 } );
 
 test( 'NOT_AVAILABLE bounce with empty FROM is silently dropped (no throw, no loop)', () => {
+	expectConsoleWarn( '_router: WARNING: message not addressed - TM_ERROR' );
 	const r = new RouterNode();
 	r.name = '_router';
 	// No FROM -> the NOT_AVAILABLE error has empty TO -> empty head -> re-fills as

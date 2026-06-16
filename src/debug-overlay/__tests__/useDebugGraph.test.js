@@ -127,6 +127,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onConnect dispatches connect_node into the local interpreter', () => {
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -143,6 +144,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onInspectorAction handles tail / disconnect / trace (parity with the console)', () => {
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		// The console's handleInspectorAction routes five non-invoke actions:
 		// dump → dump_node, tail → connect_node <id> (no target = tail), disconnect
 		// → disconnect_node, send → send_node, trace → debug_state. The overlay
@@ -181,6 +183,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onDropNode + commitDrop end-to-end: SchematicCanvas {shellName,x,y} envelope → modal → make_node', () => {
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		// SchematicCanvas.handleDrop calls onDropNode({shellName, x, y}) — a
 		// single OBJECT, not (shellName, pos). The hook stages pendingDrop;
 		// commitDrop dispatches once the modal confirms. Earlier the positional
@@ -211,6 +214,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'commitDrop records the drop position via onPositionChange (snapped to grid)', () => {
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		// Without this, a freshly-dropped node renders at autoLayout's choice
 		// (e.g. column 0, row 0 of the depth grid), not where the user dropped
 		// it. The console records the drop position via handlePositionChange
@@ -249,6 +253,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'commitDrop is silent on position when no onPositionChange is provided', () => {
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		// Back-compat: passing no onPositionChange (e.g., from tests that
 		// don't care about layout) MUST NOT crash; make_node still fires.
 		const { teardown } = mountExospine();
@@ -347,6 +352,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onRemoveNode dispatches remove_node with the node id', () => {
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -362,6 +368,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onInspectorAction `dump` dispatches dump_node for the target id', () => {
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -392,6 +399,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'onInspectorAction `trace` defaults level to 1 when payload is not numeric', () => {
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { teardown } = mountExospine();
 		const a = new Node();
 		a.name = 'a';
@@ -449,6 +457,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'commitDrop dispatches make_node with the modal-provided name + args and records the drop position', () => {
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
@@ -490,6 +499,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'commitDrop with empty-trimmed args omits the trailing arg portion', () => {
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		const { teardown } = mountExospine();
 		const shell = new ShellNode();
 		shell.sink = Core.node( names.COMMAND_INTERPRETER );
@@ -687,6 +697,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'dispatches via the passed-in Shell.sendCommand (not via dispatchLocal)', () => {
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		// Task 3: useDebugGraph accepts a Shell as its second argument and
 		// routes every gesture through shell.sendCommand(path, name, args).
 		// Spying on the shell proves the new wiring; the side-effect on
@@ -740,6 +751,7 @@ describe( 'useDebugGraph', () => {
 	} );
 
 	it( 'GUI dispatch routes through the already-bound shell.sink without re-resolving it', () => {
+		expectConsoleWarn( '_router: WARNING: message not addressed' );
 		// Build-before-render: useDebugRepl binds shell.sink to the interpreter
 		// during its build (render-phase), before any canvas gesture is possible.
 		// So sendVerb no longer resolves the interpreter at dispatch time — it
