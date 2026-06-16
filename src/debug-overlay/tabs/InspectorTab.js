@@ -1,4 +1,10 @@
-import { useMemo, useRef, useState } from '@wordpress/element';
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+} from '@wordpress/element';
 import { Core } from '../../runtime/core';
 import CanvasFrame from '../../topology-console/components/CanvasFrame';
 import ConsoleShell from '../../topology-console/components/ConsoleShell';
@@ -19,6 +25,38 @@ import { useDebugGraph } from '../useDebugGraph';
 import { useCanvasLayout } from '../../topology-console/hooks/useCanvasLayout';
 import { useDebugRepl } from '../useDebugRepl';
 import { useGraphReset } from '../useGraphReset';
+
+/**
+ * Measure the DevtoolsTabHost tab bar (`.nodes-devtools__tabbar`) that the host
+ * renders as the sibling BEFORE this tab's content wrapper. Measured (not a
+ * hardcoded constant) so it can never drift from DevtoolsTabHost.scss, and
+ * returns 0 when there's no bar (single-tab host) or before mount.
+ *
+ * @param {Element|null} rootEl The inspector body's root element.
+ * @return {number} The tab bar's rendered offsetHeight in px, or 0.
+ */
+export function measureTabBarHeight( rootEl ) {
+	const content = rootEl?.closest?.( '.nodes-devtools__tab-content' );
+	const bar = content?.previousElementSibling;
+	if ( ! bar?.classList?.contains( 'nodes-devtools__tabbar' ) ) {
+		return 0;
+	}
+	return bar.offsetHeight;
+}
+
+/**
+ * Max height (px) for the REPL transcript: the panel height minus the 64px
+ * header row, the 40px always-visible prompt bar, and the measured tab bar the
+ * DevtoolsTabHost renders above this body. Floored at 80px so the transcript
+ * never collapses on a tiny panel.
+ *
+ * @param {number} frameHeight  Panel height (frame.h) in px.
+ * @param {number} tabBarHeight Measured tab bar height in px (0 if no bar).
+ * @return {number} Transcript max-height in px.
+ */
+export function replMaxHeight( frameHeight, tabBarHeight = 0 ) {
+	return Math.max( 80, frameHeight - 64 - 40 - tabBarHeight );
+}
 
 /**
  * The Inspector tab — the overlay's live-graph + REPL body, extracted from
@@ -52,6 +90,31 @@ export default function InspectorTab( {
 	const [ selected, setSelected ] = useState( null );
 	const [ replExpanded, setReplExpanded ] = useState( false );
 	const replInputRef = useRef( null );
+	// Measure the DevtoolsTabHost tab bar that sits above this body so the
+	// transcript ceiling reserves exactly its rendered height (it may be absent
+	// on a single-tab host). A ResizeObserver keeps it correct if the bar wraps.
+	const rootRef = useRef( null );
+	const [ tabBarHeight, setTabBarHeight ] = useState( 0 );
+	const measureTabBar = useCallback( () => {
+		setTabBarHeight( measureTabBarHeight( rootRef.current ) );
+	}, [] );
+	useEffect( () => {
+		measureTabBar();
+		const content = rootRef.current?.closest?.(
+			'.nodes-devtools__tab-content'
+		);
+		const bar = content?.previousElementSibling;
+		if (
+			! bar ||
+			typeof window === 'undefined' ||
+			! window.ResizeObserver
+		) {
+			return undefined;
+		}
+		const ro = new window.ResizeObserver( measureTabBar );
+		ro.observe( bar );
+		return () => ro.disconnect();
+	}, [ measureTabBar ] );
 	// Theme + palette are shared with the topology console so a preference picked
 	// in either surface applies in both. The overlay is always live (no edit
 	// mode), so it uses the live palette key (default collapsed).
@@ -175,9 +238,10 @@ export default function InspectorTab( {
 	// "Reset Layout" appears only when the user has modified the layout.
 	const hasLayoutToReset = isLayoutDirty;
 
-	// Cap the transcript at panel-height minus the 64px header row minus the 40px
-	// prompt bar (the ReplFooter is transcript + always-visible prompt stacked).
-	const replMaxHeightPx = Math.max( 80, frame.h - 64 - 40 );
+	// Cap the transcript at panel-height minus the header row, prompt bar, and
+	// the measured tab bar above this body (the ReplFooter is transcript +
+	// always-visible prompt stacked).
+	const replMaxHeightPx = replMaxHeight( frame.h, tabBarHeight );
 	// Shared canvas-background-click dismiss pattern (mirrors the console).
 	const onCanvasBackgroundClick = makeReplDismissHandler( {
 		replExpanded,
@@ -186,7 +250,11 @@ export default function InspectorTab( {
 	} );
 
 	return (
-		<div className="nodes-debug__inspector" data-testid="inspector-tab">
+		<div
+			ref={ rootRef }
+			className="nodes-debug__inspector"
+			data-testid="inspector-tab"
+		>
 			<div
 				className={ `topology-app theme-${ theme }${
 					selected ? ' is-inspector-open' : ''

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Debug overlay REPL transcript no longer overflows past the panel under the new tab bar.** The Inspector body's transcript max-height (`replMaxHeight`) subtracted only the 64px header and 40px prompt bar from the panel height; the DevtoolsTabHost tab bar that now sits above the body went unaccounted for, so a maximized transcript ran under it. The transcript ceiling now also subtracts the tab bar's height, which is *measured* from the live `.nodes-devtools__tabbar` element (via a `ResizeObserver`, so it can't drift from `DevtoolsTabHost.scss` and reserves nothing on a single-tab host with no bar), still floored at 80px.
+
 ### Security
 
 - **Every Service CI verb now requires `manage_options` — gated by default in the base.** `Service_CI_Node::commands_from_schema()` wraps every derived handler so it calls `require_manage_options()` before the verb runs; there are no public/opt-out verbs. This closes auth gaps where per-verb opt-in was forgotten: `Classes_CI` (`list`), `Topologies_CI` (`list`, `get`, `connect_worker_input`), and `Workers_CI` (`list`, `restart`, `heartbeat`) were previously open and are now gated. The now-redundant per-verb `require_manage_options()` calls were removed from `Topologies_CI`, `Workers_CI`, `Layouts_CI`, and `Raw_Logs_CI` (the base gates them once). The auto-injected `help` verb (added by the base interpreter, not declared in any schema) is wrapped too, so it's gated like every schema verb. Worker requests remain excluded via the `NEWSPACK_NODES_WORKER_TYPE` env tag.
