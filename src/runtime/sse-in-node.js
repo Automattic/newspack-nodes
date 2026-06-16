@@ -67,13 +67,16 @@ export class SseInNode extends SseConnectorNode {
 		this.stampMessage( message, this.name );
 		super.fill( message );
 	}
-	// Own schema: _sse is BIDIRECTIONAL, so override SseConnector's accepts_fill:false.
+	// accepts_fill is a UI hint — whether you can wire a connection INTO the node in
+	// the topology editor. _sse has a runtime fill() (it's bidirectional), but you
+	// can't drag a connection into it (pivoting cwd onto _sse shows the other leg),
+	// so it declares false. has_target stays true — it forwards the outgoing/reply leg.
 	static nodeSchema() {
 		return {
 			category: 'I/O',
 			description:
 				'Bidirectional SSE session boundary (the `_sse` node).',
-			accepts_fill: true,
+			accepts_fill: false,
 			has_target: true,
 			// Inherit the connector's positional args so the base setter still parses them.
 			arguments: SseConnectorNode.nodeSchema().arguments,
