@@ -34,6 +34,29 @@ describe( 'Palette', () => {
 		expect( items[ 2 ].dataset.shellName ).toBe( 'Partition' );
 	} );
 
+	it( 'omits non-draggable categories (Service) from the palette and the count', () => {
+		// Service CIs are mounted, not make_node'd — they must not be draggable in
+		// the palette, but they stay in the catalog so the inspector can still
+		// render their command/request buttons (catalog.find by shell_name).
+		const withService = [
+			{ shell_name: 'Echo', category: 'Generic' },
+			{ shell_name: 'Insights_CI', category: 'Service' },
+		];
+		const { container } = render(
+			<Palette classes={ withService } loading={ false } />
+		);
+		const groupNames = Array.from(
+			container.querySelectorAll( '.topology-palette__group' )
+		).map( ( g ) => g.textContent );
+		expect( groupNames ).toEqual( [ 'Generic' ] );
+		expect(
+			container.querySelector( '[data-shell-name="Insights_CI"]' )
+		).toBeNull();
+		expect(
+			container.querySelector( '.topology-palette__count' ).textContent
+		).toBe( '1' );
+	} );
+
 	it( 'shows the total count of classes in the footer', () => {
 		const { container } = render(
 			<Palette classes={ sampleClasses } loading={ false } />
