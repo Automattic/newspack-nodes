@@ -64,6 +64,7 @@ class CliCommandTest extends TestCase {
 	}
 
 	protected function tearDown(): void {
+		CLI_Command::$uid_provider = null;
 		$this->rmdir_recursive( $this->tmp );
 		parent::tearDown();
 	}
@@ -115,21 +116,14 @@ class CliCommandTest extends TestCase {
 	// ── cli (root guard) ──────────────────────────────────────────────────────
 
 	public function test_cli_refuses_to_run_as_root(): void {
-		// We can't actually be root in the test runner, but if we COULD, the cli()
-		// would WP_CLI::error out. Validate the path indirectly: the function
-		// reaches the root check first, and posix_getuid() is the only blocker
-		// before any node graph is built. Run as the test user (non-root) and
-		// verify a different code path runs.
-		if ( \function_exists( 'posix_getuid' ) && 0 === \posix_getuid() ) {
-			$this->expectException( \RuntimeException::class );
-			$this->expectExceptionMessageMatches( '/must run as the same user/' );
-			( new CLI_Command() )->cli( [], [] );
-			return;
-		}
-		// Non-root path: the function will try to construct the REPL graph. We
-		// can't drive the event loop in a unit test, so this is exercised in
-		// the build_repl_graph tests below via reflection.
-		$this->markTestSkipped( 'Root guard branch only reachable when test user has uid 0' );
+		// Simulate uid 0 via the seam (the runner is non-root). The guard must
+		// refuse before any graph is built; WP_CLI::error is stubbed to throw.
+		CLI_Command::$uid_provider = static fn (): int => 0;
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessageMatches( '/must run as the same user/' );
+
+		( new CLI_Command() )->cli( [], [] );
 	}
 
 	// ── base_dir resolution ───────────────────────────────────────────────────
