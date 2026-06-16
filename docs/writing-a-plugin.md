@@ -2,7 +2,7 @@
 
 This walkthrough builds a real pipeline from an empty directory: an AI-newsletter digest that pulls items from independent sources, summarizes each, and assembles a markdown draft. You'll run it after every step and end with a live worker graph you can watch and drive in the topology console.
 
-The finished code is in [`examples/newspack-ai-newsletter/`](examples/newspack-ai-newsletter/) — read along, or build it yourself and diff.
+The finished code is in [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/) — read along, or build it yourself and diff.
 
 > **The one thing to hold onto:** every node has a single entry point, `fill( array &$message ): void`. A node does its job and forwards the message to its **sink**. Nodes never call each other's methods; they pass messages. Keep that contract and your node drops into any graph.
 
@@ -41,7 +41,7 @@ A Nodes plugin is an ordinary WordPress plugin. It needs two things: a Composer 
 }
 ```
 
-`newspack-ai-newsletter.php`:
+`example-ai-newsletter.php`:
 
 ```php
 <?php
@@ -296,7 +296,7 @@ The draft has to land somewhere. You don't write a file-writer node — the subs
 
 ```
 > make_node Digest_Builder digest
-> make_node Log log /tmp/newspack-ai-newsletter/digest.md
+> make_node Log log /tmp/example-ai-newsletter/digest.md
 > connect_node summarizer digest
 > connect_node digest log
 > request_node releases TICK
@@ -304,7 +304,7 @@ The draft has to land somewhere. You don't write a file-writer node — the subs
 { "verb": "FLUSH", "data": { "flushed": 2 } }
 ```
 ```bash
-cat /tmp/newspack-ai-newsletter/digest.md
+cat /tmp/example-ai-newsletter/digest.md
 # # Newsletter draft
 #
 # - Roundup Block ships — AI summarizes selected posts into a draft.
@@ -328,7 +328,7 @@ make_node Community_Source  community
 make_node Summarizer        summarizer
 make_node Digest_Builder    digest
 make_node Tee               tee
-make_node Log               log  /tmp/newspack-ai-newsletter/digest.md 1 7
+make_node Log               log  /tmp/example-ai-newsletter/digest.md 1 7
 connect_node releases   summarizer
 connect_node community  summarizer
 connect_node summarizer digest
@@ -523,7 +523,7 @@ And here's the thing worth sitting with: **Ana and Ben never met.** Ana wrote th
 
 That's the bet of Nodes. You add capability by wiring a node, not by editing a system. Uphold the contract, and your piece drops into a graph full of pieces you've never seen — and theirs drop into yours.
 
-And the same contract is what makes each node testable in isolation: the example ships PHPUnit suites under [`examples/newspack-ai-newsletter/tests/`](examples/newspack-ai-newsletter/tests/) — one per node, plus a `PipelineTest` that wires the whole graph. Each test does exactly what the substrate does: construct a message, call `fill()`, and assert on what landed in a `Capture_Sink_Node`. No worker, no router, no topology — just the contract.
+And the same contract is what makes each node testable in isolation: the example ships PHPUnit suites under [`examples/example-ai-newsletter/tests/`](examples/example-ai-newsletter/tests/) — one per node, plus a `PipelineTest` that wires the whole graph. Each test does exactly what the substrate does: construct a message, call `fill()`, and assert on what landed in a `Capture_Sink_Node`. No worker, no router, no topology — just the contract.
 
 ---
 
@@ -532,5 +532,5 @@ And the same contract is what makes each node testable in isolation: the example
 - **[getting-started.md](getting-started.md)** — the five-minute tour (if you skipped it).
 - **[architecture-guide.md](architecture-guide.md)** — the full model: drain loop, partitions, workers, supervisor, the REPL.
 - **[API.md](API.md)** — the REST endpoints.
-- **[`examples/newspack-ai-newsletter/`](examples/newspack-ai-newsletter/)** — the complete, tested code for this walkthrough.
+- **[`examples/example-ai-newsletter/`](examples/example-ai-newsletter/)** — the complete, tested code for this walkthrough.
 - **`newspack-cache-cozy`** — the minimal, fully-rigged *standalone* plugin (one node + a mu-plugin drop-in): the §8 essentials — `Requires Plugins` + a deferred presence-gated loader, test bootstrap, phpcs/phpstan, release workflow — as real files to copy.
