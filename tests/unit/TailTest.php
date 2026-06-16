@@ -39,17 +39,10 @@ class TailTest extends TestCase {
 
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
 		$t = new Tail_Node();
-		$t->arguments( "{$this->tmp}/data.log {$this->tmp}/off block-buffered" );
-		$ref = new \ReflectionClass( $t );
-		$this->assertSame( "{$this->tmp}/data.log", $ref->getProperty( 'source_file' )->getValue( $t ) );
-		$this->assertSame( 'block-buffered',        $ref->getProperty( 'buffer_mode' )->getValue( $t ) );
-	}
-
-	public function test_arguments_applies_default_buffer_mode(): void {
-		$t = new Tail_Node();
 		$t->arguments( "{$this->tmp}/data.log {$this->tmp}/off" );
 		$ref = new \ReflectionClass( $t );
-		$this->assertSame( 'line-buffered', $ref->getProperty( 'buffer_mode' )->getValue( $t ) );
+		$this->assertSame( "{$this->tmp}/data.log", $ref->getProperty( 'source_file' )->getValue( $t ) );
+		$this->assertSame( "{$this->tmp}/off",      $ref->getProperty( 'offsetlog_dir' )->getValue( $t ) );
 	}
 
 	public function test_source_is_a_log_reading_file_dot_seg_segments(): void {
@@ -92,47 +85,20 @@ class TailTest extends TestCase {
 		$this->assertSame( [ "first\n", "second\n", "third\n" ], $this->values( $cap ) );
 	}
 
-	public function test_block_buffered_emits_complete_run_in_one_message(): void {
+	public function test_line_mode_emits_one_line_per_poll(): void {
+		// A Tail can opt into line_mode (one line per poll) just like any Consumer —
+		// the per-line emit (forward_line) is paced by the shared drain loop.
 		$file = "{$this->tmp}/data.log";
 		$this->write_segment( $file, 0, "first\nsecond\n" );
-		$t   = new Tail_Node();
-		$t->arguments( "{$file} {$this->tmp}/off block-buffered" );
+		$t = new Tail_Node();
+		$t->arguments( "{$file} {$this->tmp}/off" );
 		$t->next_offset( 'start' );
+		$t->set_line_mode( true );
 		$cap = new Capture_Sink_Node();
 		$t->sink( $cap );
 
-		$this->pump( $t );
-		$this->assertSame( [ "first\nsecond\n" ], $this->values( $cap ) );
-	}
-
-	public function test_block_buffered_holds_trailing_partial_across_polls(): void {
-		$file = "{$this->tmp}/data.log";
-		$this->write_segment( $file, 0, "first\nseco" );
-		$t   = new Tail_Node();
-		$t->arguments( "{$file} {$this->tmp}/off block-buffered" );
-		$t->next_offset( 'start' );
-		$cap = new Capture_Sink_Node();
-		$t->sink( $cap );
-
-		$this->pump( $t );
-		$this->assertSame( [ "first\n" ], $this->values( $cap ) );
-
-		\file_put_contents( "{$file}.0", "nd\n", \FILE_APPEND );
 		$this->pump( $t );
 		$this->assertSame( [ "first\n", "second\n" ], $this->values( $cap ) );
-	}
-
-	public function test_binary_emits_raw_bytes_with_no_line_awareness(): void {
-		$file = "{$this->tmp}/data.log";
-		$this->write_segment( $file, 0, "raw bytes no newline" );
-		$t   = new Tail_Node();
-		$t->arguments( "{$file} {$this->tmp}/off binary" );
-		$t->next_offset( 'start' );
-		$cap = new Capture_Sink_Node();
-		$t->sink( $cap );
-
-		$this->pump( $t );
-		$this->assertSame( 'raw bytes no newline', \implode( '', $this->values( $cap ) ) );
 	}
 
 	public function test_follows_segment_roll(): void {
@@ -219,7 +185,7 @@ class TailTest extends TestCase {
 	public function test_node_schema_arguments_and_terminal_shape(): void {
 		$schema = Tail_Node::node_schema();
 		$names  = \array_column( $schema['arguments'], 'name' );
-		$this->assertSame( [ 'source_file', 'offsetlog_dir', 'buffer_mode' ], $names );
+		$this->assertSame( [ 'source_file', 'offsetlog_dir' ], $names );
 		// Pure producer: no IN port, has an OUT target. (Inherited from Consumer.)
 		$this->assertFalse( $schema['accepts_fill'] ?? true );
 		$this->assertTrue( $schema['has_target'] ?? false );

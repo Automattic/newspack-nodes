@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Consumer gains an opt-in `line_mode` (config verb `set_line_mode`) that forwards one line per poll instead of a whole read-block.** A Consumer whose sink does heavy per-message work (e.g. an LLM enrich) would otherwise drain a full 64 KB block in one `fire()`, freezing the worker's heartbeat through the burst; line mode spreads it across drain cycles so the worker stays live. Enable it in a topology before the first poll: `cmd <consumer>:config set_line_mode`. Default (batch) behavior is unchanged — `poll_active` still pipelines a read every tick; line mode reads only once the buffer is dry of complete lines. Internally `drain_buffer()` is one offset-scanning pass capped by `line_mode` (1 line) or unbounded (batch), a single O(n) scan that also fixes a latent batch-mode cursor drift on an empty (`\n\n`) line (the old `rtrim`+`explode` dropped the empty line's byte, mis-aligning the next read), and `forward_line()` is the per-line emit seam.
+
+### Changed
+
+- **`Tail` is line-only and overrides just the `forward_line()` emit seam, reusing Consumer's buffer/cursor scan.** Tail's duplicated drain loop is gone — it customizes only how a line is emitted (raw `TM_BYTESTREAM` bytes vs an unpacked Message). The unused `block-buffered` / `binary` `buffer_mode`s (set by no `.tsl` — only tests) are removed, and a Tail now supports `line_mode` for free. The inherited overflow guard logs the real runtime node class (`Tail:` / `Consumer:`).
+
 ### Changed
 
 - **`arguments()` parsing is centralized in `Schema_Reflection::parse_schema_args()` — a missing token takes the arg's schema `default`, or throws if the arg is `required`.** This retires ADR-11's empty-string short-circuit (the recurring footgun where every config-bearing `arguments()` override had to mirror `if ( '' === $args ) return;` or derive filesystem-root junk like `/p0`). The parser now records the raw string into `$this->arguments` (so `dump_config()` still round-trips) and is the single source of truth for defaults. **Behavior change:** a bare `make_node <Type> <name>` of a node with a `required` arg (Partition `dir`, Consumer `source_dir`, Topic `dir_template`, Hook `hook_name`) now throws at construction (fail fast and loud) instead of yielding an unconfigured node that derives garbage. `Topic`'s `num_partitions` moved from `required` to `default 1` (belt-and-suspenders behind the usual `<config:num_partitions>` token). ADR-11 and its AGENTS.md row are updated to match.
