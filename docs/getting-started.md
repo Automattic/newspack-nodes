@@ -78,4 +78,4 @@ You just watched four independent nodes cooperate without any of them knowing ab
 
 The five-minute tour ran a pipeline. The walkthrough builds it from an empty file, one node at a time, and shows *why* this shape pays off — when a second author drops a new source into the running graph with a single line and changes nothing else.
 
-→ **[WRITING-A-PLUGIN.md](writing-a-plugin.md)**
+→ **[writing-a-plugin.md](writing-a-plugin.md)**
