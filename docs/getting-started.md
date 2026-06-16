@@ -21,7 +21,7 @@ A **message** is a 7-field indexed array — `[ TYPE, TIMESTAMP, FROM, TO, ID, K
 
 That uniformity is the point. Any node can connect to any other node, because they all speak `fill()`. **You add capability by wiring a node, not by editing a system.** Fan-out is a `Tee`; a transform is your own `fill()`; file output is the built-in `Log`. New behavior is a new class with a new `fill()` body — never a change to the ones already running.
 
-For the full model — the drain loop, workers, partitions, the REPL — see [ARCHITECTURE.md](architecture-guide.md).
+For the full model — the drain loop, workers, partitions, the REPL — see [architecture-guide.md](architecture-guide.md).
 
 ## Feel it in 5 minutes
 
