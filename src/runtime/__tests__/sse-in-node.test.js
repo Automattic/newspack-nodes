@@ -19,6 +19,7 @@ import {
 	VALUE,
 	TM_INFO,
 	TM_COMMAND,
+	TM_BYTESTREAM,
 } from '../message';
 import names from '../reserved-node-names.json';
 
@@ -65,6 +66,7 @@ describe( 'SseInNode', () => {
 		const { sse, routed } = makeSseIn();
 		sse.start();
 		const m = newMessage();
+		m[ TYPE ] = TM_BYTESTREAM;
 		m[ VALUE ] = 'data line';
 		FakeEventSource.last.dispatch( 'msg', JSON.stringify( m ) );
 		expect( routed ).toHaveLength( 1 );
