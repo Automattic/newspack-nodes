@@ -72,12 +72,12 @@ class Router_Node extends Timer_Node {
 		$this->set_state(
 			'NOT_AVAILABLE',
 			\implode( ' ', [
-				'NODE' => $node_name,
-				'TYPE' => \is_scalar( $message[ Message::TYPE ] ) ? $message[ Message::TYPE ] : '',
-				'FROM' => \is_scalar( $message[ Message::FROM ] ) ? $message[ Message::FROM ] : '',
-				'TO'   => \is_scalar( $message[ Message::TO   ] ) ? $message[ Message::TO   ] : '',
-				'ID'   => \is_scalar( $message[ Message::ID   ] ) ? $message[ Message::ID   ] : '',
-				'KEY'  => \is_scalar( $message[ Message::KEY  ] ) ? $message[ Message::KEY  ] : '',
+				'NODE', $node_name,
+				'TYPE', \is_scalar( $message[ Message::TYPE ] ) ? $message[ Message::TYPE ] : '',
+				'FROM', \is_scalar( $message[ Message::FROM ] ) ? $message[ Message::FROM ] : '',
+				'TO',   \is_scalar( $message[ Message::TO   ] ) ? $message[ Message::TO   ] : '',
+				'ID',   \is_scalar( $message[ Message::ID   ] ) ? $message[ Message::ID   ] : '',
+				'KEY',  \is_scalar( $message[ Message::KEY  ] ) ? $message[ Message::KEY  ] : '',
 			] )
 		);
 		$type = $message[ Message::TYPE ];

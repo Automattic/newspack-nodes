@@ -8,8 +8,9 @@
  * Roots are in-degree-0 vertices; an alpha-DFS with a cycle guard yields the
  * tree. Collapse keys ONLY on the emitted `kind`/`reads`/`writes` fields —
  * never on node-name suffixes. Within any sibling list, convergent logic
- * siblings (same non-empty all-logic downstream set) join onto one entity so
- * the shared subtree is built once; multi-writer logs still repeat per writer.
+ * siblings (same non-empty downstream set — even a shared log) join onto one
+ * entity so the shared subtree is built once; a log repeats only across
+ * different subtrees / generations, never for same-level siblings.
  */
 
 const PARTITION_TOKEN = '<partition>';
@@ -402,18 +403,20 @@ export function buildTopologySections( graph, workers, logsCatalog = [] ) {
 		const signatureOf = ( vertex ) =>
 			JSON.stringify( [ ...( outAdj.get( vertex ) || [] ) ].sort() );
 
-		// Join only logic siblings that converge on a non-empty shared subtree
-		// of logic nodes — a log out-neighbor must keep repeating once per
-		// writer, and leaves (empty downstream) have nothing to deduplicate.
+		// Join logic siblings that converge on the same non-empty shared subtree —
+		// including when that shared child is a LOG. Siblings here are a group with an
+		// identical out-neighbor signature under one parent (same generation), so they
+		// collapse to a single entity even when they all write to one log (e.g. three
+		// sources → one ingest log). The repeat-per-writer rule is only for producers in
+		// DIFFERENT subtrees (different parents / generations), which never land in the
+		// same sibling group. Leaves (empty downstream) have nothing to deduplicate.
 		const joinable = ( members ) => {
 			if ( members.length < 2 ) {
 				return false;
 			}
 			const shared = childrenOf( members[ 0 ] );
 			return (
-				shared.length > 0 &&
-				members.every( ( v ) => ! isLog.get( v ) ) &&
-				shared.every( ( v ) => ! isLog.get( v ) )
+				shared.length > 0 && members.every( ( v ) => ! isLog.get( v ) )
 			);
 		};
 

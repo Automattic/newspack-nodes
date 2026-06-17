@@ -274,13 +274,7 @@ class Node {
 			$router = Core::node( Node_Names::ROUTER );
 			if ( null !== $router ) {
 				$detail                        = \is_scalar( $payload ) ? $payload : '';
-				$message                       = Message::new_message();
-				$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
-				$message[ Message::TIMESTAMP ] = Core::$now;
-				$message[ Message::FROM ]      = $this->name;
-				$message[ Message::TO ]        = Node_Names::REPL;
-				$message[ Message::VALUE ]     = 'DEBUG: ' . $event . ( '' !== $detail ? ' ' . $detail : '' );
-				$router->fill( $message );
+				$this->stderr( 'DEBUG: ' . $event . ( '' !== $detail ? ' ' . $detail : '' ) );
 			}
 		}
 		$this->notify( $event, $payload );

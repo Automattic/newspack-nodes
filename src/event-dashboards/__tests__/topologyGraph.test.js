@@ -651,7 +651,7 @@ it( 'does not join siblings whose downstream sets differ', () => {
 	expect( section.tree.every( ( e ) => e.names === undefined ) ).toBe( true );
 } );
 
-it( 'does not join a group that includes a log vertex (multi-writer logs still repeat)', () => {
+it( 'joins sibling logic roots that converge on a shared log (one entity, log once)', () => {
 	const [ section ] = buildTopologySections(
 		{
 			t: {
@@ -670,19 +670,12 @@ it( 'does not join a group that includes a log vertex (multi-writer logs still r
 		[],
 		[]
 	);
-	// Two separate logic roots, each with its own shared.log child (logs repeat).
-	expect( names( section.tree ) ).toEqual( [ 'srcA', 'srcB' ] );
-	const srcA = section.tree.find( ( e ) => e.name === 'srcA' );
-	const srcB = section.tree.find( ( e ) => e.name === 'srcB' );
-	expect( names( srcA.children ) ).toEqual( [ 'shared.log' ] );
-	expect( names( srcB.children ) ).toEqual( [ 'shared.log' ] );
-	// Position-based keys: the same log under two parents gets DISTINCT keys, so
-	// folding one instance never folds the other.
-	const sharedUnderA = srcA.children[ 0 ];
-	const sharedUnderB = srcB.children[ 0 ];
-	expect( sharedUnderA.key ).toBe( 'srcA>shared.log' );
-	expect( sharedUnderB.key ).toBe( 'srcB>shared.log' );
-	expect( sharedUnderA.key ).not.toBe( sharedUnderB.key );
+	// srcA and srcB are SIBLINGS (both roots) writing to the same log — they collapse
+	// to one joined entity with `shared.log` rendered once. (The repeat-per-writer rule
+	// is only for producers in different subtrees/generations, never same-level siblings.)
+	expect( names( section.tree ) ).toEqual( [ 'srcA, srcB' ] );
+	const joined = section.tree[ 0 ];
+	expect( names( joined.children ) ).toEqual( [ 'shared.log' ] );
 } );
 
 it( 'joins nested convergence inside a joined group too', () => {
