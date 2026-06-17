@@ -85,7 +85,7 @@ const TopologyRow = memo( function TopologyRow( {
 	collapsed,
 	onToggleFold,
 } ) {
-	const { name, source, active, health = 'ok', partitions = [] } = topology;
+	const { name, source, active, health = 'ok' } = topology;
 	// A rejected mutation must never crash the render — but instead of swallowing
 	// it, surface the reason (e.g. an activate that write-conflicts) via onError
 	// so the parent can show it in a modal.
@@ -112,21 +112,6 @@ const TopologyRow = memo( function TopologyRow( {
 				<a className="nodes-tm__name" href={ consoleHref( name ) }>
 					{ name }
 				</a>
-				{ active &&
-					partitions
-						.filter( ( p ) => p.stalled )
-						.map( ( p ) => (
-							<span
-								key={ p.partition }
-								className="nodes-tm__pill nodes-tm__pill--stalled"
-							>
-								{ sprintf(
-									// translators: %d: partition number.
-									__( 'P%d stalled', 'newspack-nodes' ),
-									p.partition
-								) }
-							</span>
-						) ) }
 				{ parts.map( ( p ) => (
 					<span key={ p.partition } className="topology-partition">
 						<span

@@ -45,13 +45,19 @@
 		}
 
 		.connector-heartbeat {
-			width: 30px;
+			width: 40px;
 			text-align: right;
 		}
 
 		.connector-restart-pending {
 			width: 12px;
 			text-align: center;
+		}
+
+		// Fixed slot per partition so a missing heartbeat can't collapse it and
+		// the trailing badges stay aligned across rows.
+		.topology-partition {
+			min-width: 116px;
 		}
 	}
 
@@ -99,6 +105,8 @@
 		display: inline-flex;
 		align-items: center;
 		gap: 5px;
+		// Fixed slot so ok/behind/stalled don't shift the toggle + restart.
+		min-width: 64px;
 		font-size: 10px;
 		font-weight: 600;
 		letter-spacing: 0.03em;
@@ -123,21 +131,6 @@
 		}
 
 		&--stalled {
-			color: #f85149;
-		}
-	}
-
-	&__pill {
-		display: inline-block;
-		font-size: 10px;
-		padding: 2px 8px;
-		border-radius: 10px;
-		font-weight: 600;
-		letter-spacing: 0.03em;
-		white-space: nowrap;
-
-		&--stalled {
-			background: #3b2a2a;
 			color: #f85149;
 		}
 	}

@@ -528,31 +528,6 @@ test( 'a rejected mutation does not crash the render', async () => {
 	);
 } );
 
-test( 'renders a stalled pill for a stalled partition', () => {
-	useTopologyManager.mockReturnValue(
-		hookValue( {
-			topologies: [
-				{
-					name: 'alpha',
-					source: 'stock',
-					active: true,
-					num_partitions: 2,
-					status: activeStatus(),
-					health: 'stalled',
-					partitions: [
-						{ partition: 0, stalled: false },
-						{ partition: 1, stalled: true },
-					],
-				},
-			],
-		} )
-	);
-
-	const { container } = render( <TopologyManager /> );
-	const pills = container.querySelectorAll( '.nodes-tm__pill--stalled' );
-	expect( pills ).toHaveLength( 1 );
-} );
-
 test( 'shows the rolled-up health indicator on the topology heading', () => {
 	useTopologyManager.mockReturnValue(
 		hookValue( {
