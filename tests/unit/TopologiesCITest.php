@@ -4,7 +4,7 @@
  * replaces the legacy TopologiesController. Mirrors LayoutsCITest's
  * VerbHarness pattern and TopologiesControllerTest's per-test stock/user
  * directory fixture (Topology_Registry::register_stock_dir() +
- * set_user_dir() on temp dirs created in setUp).
+ * register_user_dir() on temp dirs created in setUp).
  *
  * The interpreter returns raw payloads (decoded JSON) rather than the legacy
  * {code, message, status} envelopes. Errors bubble as RuntimeException;
@@ -55,7 +55,7 @@ class TopologiesCITest extends TestCase {
 		$this->user  = $this->make_temp_dir( 'topologies-ci-user-' );
 		Topology_Registry::reset();
 		Topology_Registry::register_stock_dir( $this->stock );
-		Topology_Registry::set_user_dir( $this->user );
+		Topology_Registry::register_user_dir( $this->user );
 
 		// Verbs gate on manage_options for save/delete; allow it by default.
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
@@ -510,7 +510,7 @@ class TopologiesCITest extends TestCase {
 
 	public function test_save_creates_user_dir_when_missing(): void {
 		$nested = $this->user . '/nested/deeper';
-		Topology_Registry::set_user_dir( $nested );
+		Topology_Registry::register_user_dir( $nested );
 
 		$result = VerbHarness::fire(
 			new Topologies_CI_Node(),

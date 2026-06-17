@@ -1,12 +1,12 @@
 <?php
 /**
- * Tests for the substrate Config (file overlay + WP options + path validation
- * + kill_readers). Mirrors the application-side ConfigTest, scoped to substrate
+ * Tests for the substrate Config (file overlay + WP options + path validation).
+ * Mirrors the application-side ConfigTest, scoped to substrate
  * keys (base_directory, num_partitions, num_segments, segment_size,
  * max_lifespan, memcache_servers).
  *
  * Reflection is used to exercise private surfaces (`validate_config_path`,
- * `validate_config_values`, `sanitize_option`).
+ * `validate_config_values`).
  *
  * @package Newspack_Nodes
  */
@@ -267,86 +267,6 @@ class ConfigTest extends TestCase {
 		Config::ensure_path( "/tmp/evil\0path" );
 	}
 
-	// ── sanitize_option: type matrix ──────────────────────────────────────
-
-	public function test_sanitize_option_bool_truthy(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertTrue( $ref->invoke( null, '1', 'bool' ) );
-	}
-
-	public function test_sanitize_option_bool_falsy(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertFalse( $ref->invoke( null, '', 'bool' ) );
-	}
-
-	public function test_sanitize_option_int_valid(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertSame( 42, $ref->invoke( null, '42', 'int' ) );
-	}
-
-	public function test_sanitize_option_int_rejects_non_numeric(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertNull( $ref->invoke( null, 'abc', 'int' ) );
-	}
-
-	public function test_sanitize_option_path_accepts_valid_absolute(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertSame( '/var/www/html', $ref->invoke( null, '/var/www/html', 'path' ) );
-	}
-
-	public function test_sanitize_option_path_rejects_relative(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertNull( $ref->invoke( null, 'relative/path', 'path' ) );
-	}
-
-	public function test_sanitize_option_path_rejects_null_byte(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertNull( $ref->invoke( null, "/tmp/evil\0path", 'path' ) );
-	}
-
-	public function test_sanitize_option_path_rejects_traversal(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertNull( $ref->invoke( null, '/tmp/../etc/passwd', 'path' ) );
-	}
-
-	public function test_sanitize_option_memcache_servers_valid(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertSame(
-			[ 'host1:11211', 'host2:11212' ],
-			$ref->invoke( null, "host1:11211\nhost2:11212", 'memcache_servers' )
-		);
-	}
-
-	public function test_sanitize_option_memcache_servers_filters_invalid(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertSame(
-			[ 'valid:11211', 'ok:1234' ],
-			$ref->invoke( null, "valid:11211\ninvalid\nhost@bad:999999\nok:1234", 'memcache_servers' )
-		);
-	}
-
-	public function test_sanitize_option_memcache_servers_empty_string(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertNull( $ref->invoke( null, '', 'memcache_servers' ) );
-	}
-
-public function test_sanitize_option_unknown_type_returns_null(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertNull( $ref->invoke( null, 'value', 'never-heard-of-this-type' ) );
-	}
-
 	// ── validate_config_path ──────────────────────────────────────────────
 
 	public function test_validate_config_path_rejects_non_php(): void {
@@ -396,62 +316,6 @@ public function test_sanitize_option_unknown_type_returns_null(): void {
 		$this->assertTrue( $ref->invoke( null, [ 'nested' => [ 'k' => 'v' ] ] ) );
 	}
 
-	// ── kill_readers ──────────────────────────────────────────────────────
-
-	public function test_kill_readers_empty_array_noop(): void {
-		Config::kill_readers( [] );
-		$this->assertTrue( true );
-	}
-
-	public function test_kill_readers_no_locks_dir_noop(): void {
-		\update_option( 'newspack_nodes_base_directory', $this->temp_dir . '/no-locks-base' );
-		Config::reset();
-		Config::kill_readers( [ 'firehose-workers' ] );
-		$this->assertTrue( true );
-	}
-
-	public function test_kill_readers_writes_restart_flag_for_partitioned_dir(): void {
-		\update_option( 'newspack_nodes_base_directory', $this->temp_dir . '/with-locks' );
-		Config::reset();
-		$locks = Config::get_locks_directory();
-
-		$lock_dir = "{$locks}/firehose-workers.p0.lock.d";
-		@\mkdir( $lock_dir, 0755, true );
-		\file_put_contents( "{$lock_dir}/heartbeat", (string) \getmypid() );
-
-		Config::kill_readers( [ 'firehose-workers' ] );
-
-		$this->assertFileExists( "{$lock_dir}/restart" );
-	}
-
-	public function test_kill_readers_writes_restart_flag_for_singleton_dir(): void {
-		\update_option( 'newspack_nodes_base_directory', $this->temp_dir . '/with-singleton' );
-		Config::reset();
-		$locks = Config::get_locks_directory();
-
-		$lock_dir = "{$locks}/aggregator.lock.d";
-		@\mkdir( $lock_dir, 0755, true );
-		\file_put_contents( "{$lock_dir}/heartbeat", (string) \getmypid() );
-
-		Config::kill_readers( [ 'aggregator' ] );
-
-		$this->assertFileExists( "{$lock_dir}/restart" );
-	}
-
-	public function test_kill_readers_skips_non_matching_groups(): void {
-		\update_option( 'newspack_nodes_base_directory', $this->temp_dir . '/skip-test' );
-		Config::reset();
-		$locks = Config::get_locks_directory();
-
-		$other = "{$locks}/some-other-worker.p0.lock.d";
-		@\mkdir( $other, 0755, true );
-		\file_put_contents( "{$other}/heartbeat", (string) \getmypid() );
-
-		Config::kill_readers( [ 'firehose-workers' ] );
-
-		$this->assertFileDoesNotExist( "{$other}/restart" );
-	}
-
 	// ── ensure_path: symlink rejection ─────────────────────────────────────
 
 	public function test_ensure_path_rejects_symlinks_outside_canonical(): void {
@@ -475,62 +339,6 @@ public function test_sanitize_option_unknown_type_returns_null(): void {
 		// false → throws RuntimeException.
 		$this->expectException( \RuntimeException::class );
 		Config::ensure_path( '/proc/sys/newspack-nodes-test-cant-create' );
-	}
-
-	// ── sanitize_option additional types ───────────────────────────────────
-
-	public function test_sanitize_option_float_valid(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertSame( 3.14, $ref->invoke( null, '3.14', 'float' ) );
-		$this->assertSame( 0.0, $ref->invoke( null, 0, 'float' ) );
-	}
-
-	public function test_sanitize_option_float_rejects_non_numeric(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertNull( $ref->invoke( null, 'not-a-number', 'float' ) );
-	}
-
-	public function test_sanitize_option_array_strings_keeps_string_int_bool_values(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$result = $ref->invoke(
-			null,
-			[
-				'key1' => 'value1',
-				'key2' => 42,
-				'key3' => true,
-				'key4' => 3.14,           // dropped (not string/int/bool)
-				'key5' => new \stdClass(), // dropped
-				'key6' => [ 'nested' ],   // dropped
-			],
-			'array_strings'
-		);
-		$this->assertSame( 'value1', $result['key1'] );
-		$this->assertSame( 42, $result['key2'] );
-		$this->assertTrue( $result['key3'] );
-		$this->assertArrayNotHasKey( 'key4', $result );
-		$this->assertArrayNotHasKey( 'key5', $result );
-		$this->assertArrayNotHasKey( 'key6', $result );
-	}
-
-	public function test_sanitize_option_array_strings_rejects_non_array(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertNull( $ref->invoke( null, 'not-array', 'array_strings' ) );
-	}
-
-public function test_sanitize_option_memcache_servers_rejects_non_string(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertNull( $ref->invoke( null, [ 'array', 'instead' ], 'memcache_servers' ) );
-	}
-
-	public function test_sanitize_option_path_rejects_non_string(): void {
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_option' );
-		$ref->setAccessible( true );
-		$this->assertNull( $ref->invoke( null, 12345, 'path' ) );
 	}
 
 	// ── load_config_file rejects bogus return shape ────────────────────────
@@ -620,21 +428,6 @@ public function test_sanitize_option_memcache_servers_rejects_non_string(): void
 		// Second call must return the same string from cache (no second mkdir).
 		$second = Config::get_offsets_directory();
 		$this->assertSame( $first, $second );
-	}
-
-	// ── sanitize_string fallback ───────────────────────────────────────────
-
-	public function test_sanitize_string_throws_when_wp_unavailable(): void {
-		// We can't really un-define sanitize_text_field at runtime in a single test
-		// process. Instead we verify the documented contract by inspecting the throw
-		// path via reflection: invoking sanitize_string with a value that requires
-		// the WP function still works (since we're in a test bootstrap that defines
-		// it), but the throw branch is documented as the failure mode.
-		$ref = new \ReflectionMethod( Config_Utils::class, 'sanitize_string' );
-		$ref->setAccessible( true );
-		// Pass a value with leading/trailing whitespace — confirm sanitize_text_field
-		// (the bootstrap stub) is what's stripping it.
-		$this->assertSame( 'hello', $ref->invoke( null, '  hello  ' ) );
 	}
 
 	// ── Helpers ───────────────────────────────────────────────────────────

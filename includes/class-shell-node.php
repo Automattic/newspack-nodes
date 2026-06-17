@@ -507,46 +507,12 @@ class Shell_Node extends Node {
 		return $this->name;
 	}
 
-	/**
-	 * Build a TM_COMMAND via $this->command(...) (inherited from Node), stamp the
-	 * Shell session's FROM/LOCAL provenance + the target TO ($path), and fill
-	 * it through $this->sink. Mirrors Tachikoma::Nodes::Shell::send_command —
-	 * callers issue commands as method calls instead of via parse().
-	 *
-	 * @param string $path      Routing target (TO). Empty = local interpreter.
-	 * @param string $name      Command verb (e.g. 'connect_node').
-	 * @param string $arguments Positional argument string.
-	 * @return void
-	 */
-	public function send_command( string $path, string $name, string $arguments = '' ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'Shell::send_command requires a wired sink' );
-		}
-		$sink                      = $this->sink;
-		$message                   = Message::new_message();
-		$message[ Message::TYPE ]  = Message::TM_COMMAND;
-		$message[ Message::FROM ]  = Node_Names::OUTPUT . '/' . \getmypid();
-		$message[ Message::TO ]    = $path;
-		$message[ Message::VALUE ] = [
-			'name'      => $name,
-			'arguments' => $arguments,
-		];
-		$message[ Message::LOCAL ] = true;
-		$this->stamp_noreply( $message );
-		Command_Auth::sign( $message );
-		$sink->fill( $message );
-	}
-
 	/** Accessor (Tachikoma Shell want_reply): interactive sessions reply; scripts/topology loads don't. */
 	public function want_reply( ?bool $value = null ): bool {
 		if ( null !== $value ) {
 			$this->want_reply = $value;
 		}
 		return $this->want_reply;
-	}
-
-	public function show_parse(): bool {
-		return $this->show_parse;
 	}
 
 	/**
@@ -562,10 +528,6 @@ class Shell_Node extends Node {
 		if ( \str_ends_with( $line, '\\' ) ) {
 			throw new \RuntimeException( 'unterminated backslash continuation' );
 		}
-	}
-
-	public function set_variable( string $name, string $value ): void {
-		Core::$var[ $name ] = $value;
 	}
 
 	public static function node_schema(): array {

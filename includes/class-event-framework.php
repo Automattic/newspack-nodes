@@ -36,6 +36,7 @@ class Event_Framework {
 		return self::$instance;
 	}
 
+	/** @api Support for unit tests. */
 	public static function reset(): void {
 		self::$instance = null;
 	}
@@ -54,10 +55,12 @@ class Event_Framework {
 		unset( $this->timers[ \spl_object_id( $node ) ] );
 	}
 
+	/** @api Support for SSE streams. */
 	public function register_curl_handle( object $node, \CurlMultiHandle $multi ): void {
 		$this->curl_handles[ \spl_object_id( $node ) ] = [ 'node' => $node, 'multi' => $multi ];
 	}
 
+	/** @api Support for SSE streams. */
 	public function unregister_curl_handle( object $node ): void {
 		unset( $this->curl_handles[ \spl_object_id( $node ) ] );
 	}
@@ -115,7 +118,7 @@ class Event_Framework {
 		}
 	}
 
-	/** Hot loop — clock refresh, run_closing, and the expired-timer scan are inlined to save a call frame per tick. */
+	/** Hot loop — clock refresh, and the expired-timer scan are inlined to save a call frame per tick. */
 	private function drain_inner( callable $should_continue, bool $has_pcntl ): void {
 		Core::$now = \microtime( true );
 		while ( $should_continue() ) {
@@ -140,10 +143,6 @@ class Event_Framework {
 				\pcntl_signal_dispatch();
 			}
 
-			while ( ! empty( Core::$closing ) ) {
-				( \array_shift( Core::$closing ) )();
-			}
-
 			Core::$now = \microtime( true );
 
 			foreach ( $this->timers as $id => $node ) {
@@ -157,11 +156,6 @@ class Event_Framework {
 				}
 				$node->fire_cb();
 			}
-		}
-
-		// Post-loop drain so close-handlers scheduled during shutdown still run.
-		while ( ! empty( Core::$closing ) ) {
-			( \array_shift( Core::$closing ) )();
 		}
 	}
 }

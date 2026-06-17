@@ -60,18 +60,14 @@ class Bootstrap {
 
 	/** Supervisor cron tick: run Supervisor::run() (595s loop). Cron is the cold-start backstop. */
 	public static function run_supervisor_tick(): void {
-		// Cron fires outside rest_api_init/admin/CLI, so wire the runtime here —
-		// expand_workers() reads the topology catalog (register_stock_dir).
 		self::ensure_runtime_wired();
 		if ( ! self::is_supervisor_enabled() ) {
 			self::unschedule_supervisor();
 			return;
 		}
-		// Leave the cron scheduled so a re-enabled gate is picked up next tick.
 		if ( empty( self::expand_workers() ) ) {
 			return;
 		}
-		// Tag the env var BEFORE the wrapping action so listeners build scope with worker_type set.
 		// phpcs:ignore WordPress.Security.ValidatedSanitizedInput.InputNotSanitized
 		$_SERVER['NEWSPACK_NODES_WORKER_TYPE']      = 'supervisor';
 		$_SERVER['NEWSPACK_NODES_WORKER_PARTITION'] = '0';
@@ -99,18 +95,14 @@ class Bootstrap {
 			return;
 		}
 		self::$runtime_wired = true;
-		// `make_node($type)` resolves `{$prefix}{$type}_Node`; the `\Rest\` prefix
-		// resolves the service CIs the `request_graph_ready` mount builds by short name.
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\' );
 		Command_Interpreter_Node::register_namespace( 'Newspack_Nodes\\Rest\\' );
-		// `<config:key>` TSL tokens resolve against substrate config.
 		Config::register_token_namespace();
-		// Substrate-owned stock topologies (job-worker, …).
 		Topology_Registry::register_stock_dir( \dirname( __DIR__ ) . '/topologies' );
-		// One shared Core::$memd handle from the substrate's memcache_servers config.
-		// Guarded so the unit suite (autoloads classes without get_option) never runs it.
+		Topology_Registry::register_user_dir( Bootstrap::base_dir() . '/topologies' );
 		if ( \function_exists( 'get_option' ) ) {
 			self::init_memcached();
+			SSE_Slot_Pool::wire();
 		}
 	}
 

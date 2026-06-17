@@ -129,24 +129,6 @@ class Log_Cleaner {
 	}
 
 	/**
-	 * Declared OFFSET dir names: every on-disk topology's resolved first-level
-	 * offset dirs (`Topology_Registry::resolved_resource_dirs`, layout-agnostic),
-	 * expanded over its SPAWN-aligned partition count. An unresolvable
-	 * `<config:offsets_dir>` root yields `[]` (the GC fail-closes).
-	 *
-	 * Known limitation: `write_set()` only recognizes `make_node Consumer`
-	 * offsetlogs, not `make_node Tail`. No production or example .tsl uses Tail
-	 * (only a substrate test fixture), so a Tail offsetlog is not in the declared
-	 * set and would be swept. Extend the registry parser if a Tail-with-offsetlog
-	 * topology ever ships.
-	 *
-	 * @return array<int,string>
-	 */
-	public static function declared_offset_dirs(): array {
-		return self::declared_dirs()['offsets'] ?? [];
-	}
-
-	/**
 	 * Concrete log dir names for the request-scope PHP producers: each
 	 * `newspack_nodes/registered_log_producers` basename expanded over the
 	 * clamped global config num_partitions in ELN's fixed `{producer}.p{N}`

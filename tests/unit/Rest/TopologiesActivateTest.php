@@ -50,7 +50,7 @@ class TopologiesActivateTest extends TestCase {
 		$this->user  = $this->make_temp_dir( 'topologies-activate-user-' );
 		Topology_Registry::reset();
 		Topology_Registry::register_stock_dir( $this->stock );
-		Topology_Registry::set_user_dir( $this->user );
+		Topology_Registry::register_user_dir( $this->user );
 
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
 		$GLOBALS['_wp_actions']           = [];

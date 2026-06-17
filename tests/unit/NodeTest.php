@@ -14,6 +14,9 @@ final class Config_Sibling_Node extends Node {
 	public function __construct() {
 		$this->auto_wire_interpreter();
 	}
+	public function interpreter(): \Newspack_Nodes\Command_Interpreter_Node {
+		return $this->interpreter;
+	}
 	public static function node_schema(): array {
 		return \array_merge( parent::node_schema(), [
 			'commands' => [
@@ -445,7 +448,7 @@ class NodeTest extends TestCase {
 		$n = new Capture_Sink_Node();
 		$n->name( 'bob' );
 		$this->assertSame( 'bob', $n->name() );
-		$this->assertNull( $n->interpreter() );
+		$this->assertNull( \Newspack_Nodes\Core::node( 'bob:config' ) );
 	}
 
 	public function test_auto_wired_config_sibling_is_initially_unnamed_then_adopts_patron_name(): void {
@@ -618,7 +621,8 @@ class NodeTest extends TestCase {
 	public function test_interpreter_returns_null_when_unattached(): void {
 		// Nodes without sibling-interpreter plumbing return null from interpreter().
 		$n = new Capture_Sink_Node();
-		$this->assertNull( $n->interpreter() );
+		$ref = new \ReflectionClass( $n );
+		$this->assertNull( $ref->getProperty( 'interpreter' )->getValue( $n ) );
 	}
 
 	// ── stamp_message empty-name guard ───────────────────────────────────
@@ -749,45 +753,24 @@ class NodeTest extends TestCase {
 
 	// ── drop_message branches ────────────────────────────────────────────
 
-	public function test_drop_message_routes_NOT_AVAILABLE_to_least_often_in_first_300s(): void {
+	public function test_drop_message_routes_NOT_AVAILABLE_to_less_often(): void {
 		// Spec: "First-300s NOT_AVAILABLE rule" — when uptime (Core::$now -
 		// Core::$init_time) < 300 and the error is 'NOT_AVAILABLE', drop_message
-		// routes through print_least_often (suppresses until 10th occurrence)
+		// routes through print_less_often (suppresses until 10th occurrence)
 		// instead of print_less_often (emits first then suppresses 60s). This
 		// dampens boot-time noise from nodes that haven't been registered yet.
 		$buf = '';
 		Core::set_stderr_handler( function ( $m ) use ( &$buf ) { $buf .= $m; } );
 
-		// Force uptime into the boot window (100s < 300s).
-		$saved_now       = Core::$now;
-		$saved_init      = Core::$init_time;
-		Core::$init_time = 0.0;
-		Core::$now       = 100.0;
+		$n   = new Capture_Sink_Node();
+		$n->name( 'q' );
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_INFO;
+		$message[ Message::TO ]   = 'nobody-home';
 
-		try {
-			$n   = new Capture_Sink_Node();
-			$n->name( 'boot' );
-			$message                  = Message::new_message();
-			$message[ Message::TYPE ] = Message::TM_INFO;
-			$message[ Message::TO ]   = 'nobody-home';
-
-			// Single call should not emit (print_least_often holds 9 occurrences).
-			$n->drop_message( $message, 'NOT_AVAILABLE' );
-			$this->assertSame( '', $buf, 'first NOT_AVAILABLE in boot window must be suppressed' );
-
-			// Same drop_message 9 more times → on the 10th, it emits.
-			for ( $i = 0; $i < 9; $i++ ) {
-				$n->drop_message( $message, 'NOT_AVAILABLE' );
-			}
-			$this->assertStringContainsString(
-				'NOT_AVAILABLE',
-				$buf,
-				'10th occurrence must finally emit'
-			);
-		} finally {
-			Core::$now       = $saved_now;
-			Core::$init_time = $saved_init;
-		}
+		// Single call should emit
+		$n->drop_message( $message, 'NOT_AVAILABLE' );
+		$this->assertStringContainsString( 'NOT_AVAILABLE', $buf, 'first NOT_AVAILABLE in boot window is not suppressed' );
 	}
 
 	public function test_drop_message_handles_empty_FROM_and_TO_fields(): void {
@@ -980,19 +963,6 @@ class NodeTest extends TestCase {
 		$this->assertStringContainsString( 'alice: repeated', $buf );
 	}
 
-	public function test_print_least_often_emits_at_tenth_call_per_node(): void {
-		$buf = '';
-		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
-		$n = new \Newspack_Nodes\Node();
-		$n->name( 'alice' );
-		for ( $i = 0; $i < 9; ++$i ) {
-			$n->print_least_often( 'rare' );
-		}
-		$this->assertStringNotContainsString( 'rare', $buf );
-		$n->print_least_often( 'rare' ); // 10th
-		$this->assertStringContainsString( 'alice: rare', $buf );
-	}
-
 	public function test_print_less_often_keyed_per_node_not_shared(): void {
 		// Two differently-named nodes logging the same text must NOT collide
 		// on the shared rate-limiter: the midfixed KEY differs, so both emit.
@@ -1017,6 +987,9 @@ class NodeTest extends TestCase {
 			public function __construct() {
 				$this->auto_wire_interpreter();
 			}
+			public function interpreter(): \Newspack_Nodes\Command_Interpreter_Node {
+				return $this->interpreter;
+			}
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [
 					'commands' => [
@@ -1040,7 +1013,8 @@ class NodeTest extends TestCase {
 	public function test_node_without_schema_handlers_has_no_config_interpreter(): void {
 		// Base node_schema declares no verbs → no sibling interpreter.
 		$n = new Node();
-		$this->assertNull( $n->interpreter() );
+		$ref = new \ReflectionClass( $n );
+		$this->assertNull( $ref->getProperty( 'interpreter' )->getValue( $n ) );
 	}
 
 	public function test_schema_verb_without_handler_does_not_wire_an_interpreter(): void {
@@ -1050,6 +1024,9 @@ class NodeTest extends TestCase {
 			use \Newspack_Nodes\Schema_Reflection;
 			public function __construct() {
 				$this->auto_wire_interpreter();
+			}
+			public function interpreter(): \Newspack_Nodes\Command_Interpreter_Node|null {
+				return $this->interpreter;
 			}
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [
@@ -1063,7 +1040,8 @@ class NodeTest extends TestCase {
 	public function test_command_interpreter_does_not_get_a_sibling_interpreter(): void {
 		// An interpreter dispatches its own verbs; it must never attach a sibling :config interpreter.
 		$interpreter = new \Newspack_Nodes\Command_Interpreter_Node();
-		$this->assertNull( $interpreter->interpreter() );
+		$ref = new \ReflectionClass( $interpreter );
+		$this->assertNull( $ref->getProperty( 'interpreter' )->getValue( $interpreter ) );
 	}
 
 	public function test_auto_wire_is_idempotent_across_a_double_call(): void {
@@ -1074,6 +1052,9 @@ class NodeTest extends TestCase {
 			public function __construct() {
 				$this->auto_wire_interpreter();
 				$this->auto_wire_interpreter();
+			}
+			public function interpreter(): \Newspack_Nodes\Command_Interpreter_Node {
+				return $this->interpreter;
 			}
 			public static function node_schema(): array {
 				return \array_merge( parent::node_schema(), [

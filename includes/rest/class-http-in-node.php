@@ -114,6 +114,7 @@ class HTTP_In_Node extends Node {
 		$this->sent_headers = false;
 	}
 
+	/** @api Support for unit tests. */
 	public function set_test_mode( bool $on ): void {
 		$this->test_mode = $on;
 	}

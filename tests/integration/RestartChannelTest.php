@@ -34,7 +34,7 @@ class RestartChannelTest extends TestCase {
 
 		// External requester drops the flag (e.g., a REST endpoint or admin action).
 		$external = new Lock_Node( "{$this->tmp}/locks/restart-test.p0.lock.d" );
-		$this->assertTrue( $external->request_restart() );
+		$this->assertTrue( $external->request_restart_at( "{$this->tmp}/locks/restart-test.p0.lock.d" ) );
 
 		// Worker's next drain-loop tick exits cleanly.
 		$this->assertFalse( $worker->should_continue() );
@@ -47,7 +47,7 @@ class RestartChannelTest extends TestCase {
 		$worker->acquire();
 
 		$external = new Lock_Node( "{$this->tmp}/locks/restart-test.p0.lock.d" );
-		$external->request_restart();
+		$external->request_restart_at( "{$this->tmp}/locks/restart-test.p0.lock.d" );
 
 		$this->assertFalse( $worker->should_continue() );
 		$worker->release();

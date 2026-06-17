@@ -142,7 +142,11 @@ class Schema {
 		return $this->prefix;
 	}
 
-	/** @return array<int,Field> */
+	/**
+	 * @api Used by external plugins
+	 *
+	 * @return array<int,Field>
+	 */
 	public function fields(): array {
 		return $this->fields;
 	}

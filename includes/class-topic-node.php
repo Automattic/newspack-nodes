@@ -115,11 +115,7 @@ class Topic_Node extends Node {
 		return $result;
 	}
 
-	public function num_partitions(): int {
-		return $this->num_partitions;
-	}
-
-	/** Flush every materialized partition's batch (request-scope callers land pending writes). */
+	/** @api Flush every materialized partition's batch (request-scope callers land pending writes). */
 	public function flush(): void {
 		foreach ( $this->partitions as $p ) {
 			$p->flush();

@@ -15,8 +15,6 @@ class Timer_Node extends Node {
 	public int $interval_ms = 0;
 	public bool $oneshot    = false;
 	public float $next_fire = 0.0;
-	public bool $active     = false;
-	public int $fire_count  = 0;
 
 	/** @var string Tracks scheduling mode: 'inactive' | 'event_framework' | 'router'. */
 	protected string $mode = 'inactive';
@@ -49,10 +47,8 @@ class Timer_Node extends Node {
 	}
 
 	public function fire_cb(): void {
-		++$this->fire_count;
 		if ( $this->oneshot ) {
-			$this->active = false;
-			$this->mode   = 'inactive';
+			$this->mode = 'inactive';
 		}
 		if ( null === $this->sink ) {
 			return;
@@ -85,7 +81,6 @@ class Timer_Node extends Node {
 	}
 
 	public function set_timer( ?int $ms = null, bool $oneshot = false ): void {
-		$this->active = true;
 		if ( null === $ms ) {
 			if ( '' === $this->name ) {
 				throw new \RuntimeException( 'Router-hitchhike requires Timer to have a name' );
@@ -114,7 +109,6 @@ class Timer_Node extends Node {
 
 	public function stop_timer(): void {
 		$this->_stop_timer();
-		$this->active      = false;
 		$this->mode        = 'inactive';
 		$this->interval_ms = 0;
 		$this->oneshot     = false;

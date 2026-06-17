@@ -13,6 +13,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
+/** @api Used to prevent naming drift */
 final class Node_Names {
 	public const ROUTER              = '_router';
 	public const COMMAND_INTERPRETER = '_command_interpreter';

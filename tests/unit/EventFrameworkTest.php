@@ -23,16 +23,6 @@ class EventFrameworkTest extends TestCase {
 		$this->assertSame( 4, $ticks );
 	}
 
-	public function test_drain_runs_closing_queue_post_loop(): void {
-		$ef = Event_Framework::instance();
-		$post_loop_ran = false;
-		\Newspack_Nodes\Core::push_closing( function () use ( &$post_loop_ran ) {
-			$post_loop_ran = true;
-		} );
-		$ef->drain( fn () => false );
-		$this->assertTrue( $post_loop_ran, 'Core::run_closing() must drain after the loop terminates' );
-	}
-
 	public function test_set_timer_fires_after_interval(): void {
 		$ef = Event_Framework::instance();
 

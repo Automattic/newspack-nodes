@@ -229,7 +229,7 @@ class Config {
 	}
 
 	/**
-	 * Get the logs directory path ({base}/logs).
+	 * @api Get the logs directory path ({base}/logs).
 	 *
 	 * @return string
 	 */
@@ -266,63 +266,4 @@ class Config {
 		self::$validated_offsets_directory = self::ensure_path( self::get_base_directory() . '/offsets' );
 		return self::$validated_offsets_directory;
 	}
-
-	/**
-	 * Drop a restart flag on worker locks matching the given group prefixes (best-effort).
-	 *
-	 * @param string[] $groups Group-name prefixes to match against lock-dir basenames.
-	 */
-	public static function kill_readers( array $groups ): void {
-		if ( empty( $groups ) ) {
-			return;
-		}
-
-		try {
-			$locks_dir = self::get_locks_directory();
-		} catch ( \Throwable $e ) {
-			return;
-		}
-
-		$entries = @\scandir( $locks_dir );
-		if ( false === $entries ) {
-			return;
-		}
-
-		foreach ( $entries as $entry ) {
-			if ( '.' === $entry || '..' === $entry ) {
-				continue;
-			}
-			if ( '.lock.d' !== \substr( $entry, -7 ) ) {
-				continue;
-			}
-			$path = "{$locks_dir}/{$entry}";
-			if ( ! \is_dir( $path ) ) {
-				continue;
-			}
-
-			$matched = false;
-			foreach ( $groups as $group ) {
-				if ( '' === $group ) {
-					continue;
-				}
-				if ( $entry === "{$group}.lock.d"
-					|| 0 === \strpos( $entry, "{$group}.p" )
-				) {
-					$matched = true;
-					break;
-				}
-			}
-			if ( ! $matched ) {
-				continue;
-			}
-
-			try {
-				// Static form: no Node created — a fire-and-forget filesystem signal, not a graph participant.
-				Lock_Node::request_restart_at( $path );
-			} catch ( \Throwable $e ) {
-				continue;
-			}
-		}
-	}
-
 }

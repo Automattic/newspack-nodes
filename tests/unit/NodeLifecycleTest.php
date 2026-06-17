@@ -2,9 +2,9 @@
 /**
  * Architectural invariant: every Node subclass must be reapable.
  *
- * The contract: after `$node->remove_node()` + `Core::run_closing()` +
- * dropping local references, refcount must reach zero and PHP must
- * collect the object — verified via `WeakReference::get() === null`.
+ * The contract: after `$node->remove_node()` + dropping local
+ * references, refcount must reach zero and PHP must collect the object
+ * — verified via `WeakReference::get() === null`.
  *
  * Why this matters: Timer-bearing nodes (Partition, Consumer, Tail, the
  * Cli's stdin reader) keep a back-reference inside EventFramework's
@@ -115,17 +115,15 @@ class NodeLifecycleTest extends TestCase {
 		$weak = \WeakReference::create( $node );
 
 		// Production cleanup chain: remove_node cascades close_handle +
-		// stop_timer (deferred) + Node base cleanup. run_closing drains
-		// the deferred queue (drops EventFramework $timers refs). unset
-		// removes the only remaining local reference.
+		// stop_timer + Node base cleanup. unset removes the only remaining
+		// local reference.
 		$node->remove_node();
-		Core::run_closing();
 		$node = null;
 		\gc_collect_cycles();
 
 		$this->assertNull(
 			$weak->get(),
-			'Node must reach refcount=0 after remove_node() + Core::run_closing() + unset()'
+			'Node must reach refcount=0 after remove_node() + unset()'
 		);
 	}
 

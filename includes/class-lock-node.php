@@ -217,11 +217,6 @@ class Lock_Node extends Node {
 		return $this->is_held;
 	}
 
-	/** Path used by this Lock instance. */
-	public function path(): string {
-		return $this->lock_path;
-	}
-
 	/**
 	 * Static unconditional release: clear a lock dir regardless of staleness.
 	 *
@@ -243,16 +238,7 @@ class Lock_Node extends Node {
 	}
 
 	/**
-	 * Drop a `restart` flag in the lock dir; the holder exits when it polls should_restart().
-	 *
-	 * Does NOT require holding the lock (cross-process signal). Static form: request_restart_at().
-	 */
-	public function request_restart(): bool {
-		return self::request_restart_at( $this->lock_path );
-	}
-
-	/**
-	 * Static variant of request_restart for callers that only have a lock-dir path.
+	 * Static politely request restart: create a file inside the lock dir.
 	 *
 	 * @param string $lock_dir The lock directory path.
 	 * @return bool True if the flag file was created.

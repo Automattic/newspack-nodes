@@ -30,14 +30,14 @@ class TopologyRegistryTest extends TestCase {
 
 	public function test_resolve_returns_stock_when_no_user_override(): void {
 		Topology_Registry::register_stock_dir( $this->stock );
-		Topology_Registry::set_user_dir( $this->user );
+		Topology_Registry::register_user_dir( $this->user );
 
 		$this->assertSame( "{$this->stock}/only-stock.tsl", Topology_Registry::resolve( 'only-stock' ) );
 	}
 
 	public function test_resolve_prefers_user_dir_over_stock(): void {
 		Topology_Registry::register_stock_dir( $this->stock );
-		Topology_Registry::set_user_dir( $this->user );
+		Topology_Registry::register_user_dir( $this->user );
 
 		$this->assertSame(
 			"{$this->user}/firehose-workers.tsl",
@@ -47,14 +47,14 @@ class TopologyRegistryTest extends TestCase {
 
 	public function test_resolve_returns_null_for_unknown_topology(): void {
 		Topology_Registry::register_stock_dir( $this->stock );
-		Topology_Registry::set_user_dir( $this->user );
+		Topology_Registry::register_user_dir( $this->user );
 
 		$this->assertNull( Topology_Registry::resolve( 'no-such-topology' ) );
 	}
 
 	public function test_list_unions_stock_and_user_topologies(): void {
 		Topology_Registry::register_stock_dir( $this->stock );
-		Topology_Registry::set_user_dir( $this->user );
+		Topology_Registry::register_user_dir( $this->user );
 		\file_put_contents( "{$this->user}/only-user.tsl", '' );
 
 		$names = Topology_Registry::list();
@@ -121,7 +121,7 @@ class TopologyRegistryTest extends TestCase {
 		\file_put_contents( "{$second}/only-stock.tsl", '' );
 		Topology_Registry::register_stock_dir( $this->stock );
 		Topology_Registry::register_stock_dir( $second );
-		Topology_Registry::set_user_dir( $this->user );
+		Topology_Registry::register_user_dir( $this->user );
 
 		$this->assertSame(
 			"{$this->stock}/only-stock.tsl",
@@ -140,7 +140,7 @@ class TopologyRegistryTest extends TestCase {
 
 		Topology_Registry::reset();
 		Topology_Registry::register_stock_dir( $stock );
-		Topology_Registry::set_user_dir( $user );
+		Topology_Registry::register_user_dir( $user );
 
 		$desc = Topology_Registry::describe();
 		$this->assertArrayHasKey( 'stock-only', $desc );
@@ -161,7 +161,7 @@ class TopologyRegistryTest extends TestCase {
 
 	public function test_user_dir_getter_returns_set_value(): void {
 		Topology_Registry::reset();
-		Topology_Registry::set_user_dir( '/tmp/np-a4-user-getter' );
+		Topology_Registry::register_user_dir( '/tmp/np-a4-user-getter' );
 		$this->assertSame( '/tmp/np-a4-user-getter', Topology_Registry::user_dir() );
 	}
 }

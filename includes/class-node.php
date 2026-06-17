@@ -83,10 +83,6 @@ class Node {
 		$this->sink->fill( $message );
 	}
 
-	public function interpreter(): ?Command_Interpreter_Node {
-		return $this->interpreter;
-	}
-
 	/** Patron getter/setter. */
 	public function patron( ?Node $node = null ): ?Node {
 		if ( null !== $node ) {
@@ -479,7 +475,7 @@ class Node {
 		$line = \implode( ' ', $parts );
 
 		if ( 'NOT_AVAILABLE' === $error && Core::$now - Core::$init_time < 300.0 ) {
-			$this->print_least_often( $line );
+			$this->print_less_often( $line );
 			return;
 		}
 		$this->print_less_often( $line );
@@ -531,21 +527,6 @@ class Node {
 			++$row['count'];
 		} else {
 			$this->stderr( $text );
-			$row = [ 'timestamp' => Core::$now, 'count' => 1, ];
-		}
-		Core::$recent_log_timers[ $key ] = $row;
-	}
-
-	/** Emit once at the 10th identical occurrence; suppress otherwise. Keyed per-node via log_midfix (shares Core::$recent_log_timers). */
-	public function print_least_often( string $text ): void {
-		$key = $this->log_midfix( $text );
-		$row = Core::$recent_log_timers[ $key ] ?? null;
-		if ( null !== $row ) {
-			++$row['count'];
-			if ( 10 === $row['count'] ) {
-				$this->stderr( $text );
-			}
-		} else {
 			$row = [ 'timestamp' => Core::$now, 'count' => 1, ];
 		}
 		Core::$recent_log_timers[ $key ] = $row;
