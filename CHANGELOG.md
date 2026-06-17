@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.3] - 2026-06-17
+
 ### Fixed
 
 - **The Topology dashboard resolves a `Topic`'s `{partition}` template instead of rendering the literal token.** The graph view recognized only the `<partition>` (angle) token, so a multi-partition `Topic` vertex (`firehose.p{partition}` — e.g. the aggregator's hub fan-in) showed the literal token with "No segments" rather than grouping into one `firehose` entity with its concrete per-partition rows. It now matches both the `<partition>` and `{partition}` tokens.
