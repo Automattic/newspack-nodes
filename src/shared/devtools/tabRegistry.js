@@ -43,6 +43,7 @@ const HOSTS = [ 'overlay', 'hub', 'both' ];
  * @param {string}   descriptor.host        'overlay' | 'hub' | 'both'.
  * @param {Function} descriptor.component   React component for the panel.
  * @param {number}   [descriptor.order=0]   Sort weight; alpha by label within a weight.
+ * @param {string}   [descriptor.slug]      URL slug for deep-linking (`?tab=<slug>`); defaults to `id`.
  * @param {Function} [descriptor.gate]      Optional () => boolean; excluded when it returns false.
  * @param {*}        [descriptor.icon]      Optional @wordpress/icons element.
  * @param {boolean}  [descriptor.fullBleed] Tab owns its own full-height canvas; opts out of the host's default scroll container.
@@ -62,8 +63,11 @@ export function registerDevtoolsTab( descriptor ) {
 	// Normalize order to a finite number so the sort comparator can never see
 	// NaN (an explicit non-finite order would otherwise corrupt ordering silently).
 	const order = Number.isFinite( descriptor.order ) ? descriptor.order : 0;
+	// Slug defaults to the id, mirroring `order`'s normalize-at-write so the
+	// read side never has to fall back.
+	const slug = descriptor.slug || id;
 	const s = store();
-	s.tabs.set( id, { ...descriptor, order } );
+	s.tabs.set( id, { ...descriptor, order, slug } );
 	s.sorted = null;
 }
 

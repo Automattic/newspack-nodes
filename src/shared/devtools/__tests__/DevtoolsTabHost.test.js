@@ -162,4 +162,137 @@ describe( 'DevtoolsTabHost', () => {
 		// Manager scrolls → not full-bleed.
 		expect( content().classList.contains( 'is-full-bleed' ) ).toBe( false );
 	} );
+
+	describe( 'URL routing', () => {
+		const ConsoleTab = () => <div data-testid="console" />;
+		const ManagerTab = () => <div data-testid="manager" />;
+		const RawLogsTab = () => <div data-testid="raw-logs" />;
+
+		const registerThree = () => {
+			registerDevtoolsTab( {
+				id: 'topology-console',
+				label: 'Console',
+				host: 'hub',
+				slug: 'console',
+				order: 0,
+				component: ConsoleTab,
+			} );
+			registerDevtoolsTab( {
+				id: 'topology-manager',
+				label: 'Topologies',
+				host: 'hub',
+				slug: 'topologies',
+				order: 10,
+				component: ManagerTab,
+			} );
+			registerDevtoolsTab( {
+				id: 'raw-logs',
+				label: 'Raw Logs',
+				host: 'hub',
+				slug: 'raw-logs',
+				order: 20,
+				component: RawLogsTab,
+			} );
+		};
+
+		const tabParam = () =>
+			new URLSearchParams( window.location.search ).get( 'tab' );
+
+		beforeEach( () => {
+			window.history.replaceState( {}, '', '/' );
+		} );
+
+		describe( 'without syncUrl (default)', () => {
+			it( 'selects the first tab and writes no URL', () => {
+				registerThree();
+				const { getByTestId } = render(
+					<DevtoolsTabHost host="hub" />
+				);
+				expect( getByTestId( 'console' ) ).not.toBeNull();
+				expect( window.location.search ).toBe( '' );
+			} );
+
+			it( 'switching tabs writes no URL', () => {
+				registerThree();
+				const { getByRole } = render( <DevtoolsTabHost host="hub" /> );
+				fireEvent.click( getByRole( 'tab', { name: 'Topologies' } ) );
+				expect( window.location.search ).toBe( '' );
+			} );
+
+			it( 'ignores ?tab= when syncUrl is off', () => {
+				window.history.replaceState( {}, '', '/?tab=topologies' );
+				registerThree();
+				const { getByTestId } = render(
+					<DevtoolsTabHost host="hub" />
+				);
+				expect( getByTestId( 'console' ) ).not.toBeNull();
+			} );
+		} );
+
+		describe( 'with syncUrl', () => {
+			it( 'honors ?tab= for the initial tab', () => {
+				window.history.replaceState( {}, '', '/?tab=topologies' );
+				registerThree();
+				const { getByTestId } = render(
+					<DevtoolsTabHost host="hub" syncUrl />
+				);
+				expect( getByTestId( 'manager' ) ).not.toBeNull();
+			} );
+
+			it( 'falls back to the first tab for an unknown ?tab=', () => {
+				window.history.replaceState( {}, '', '/?tab=nope' );
+				registerThree();
+				const { getByTestId } = render(
+					<DevtoolsTabHost host="hub" syncUrl />
+				);
+				expect( getByTestId( 'console' ) ).not.toBeNull();
+			} );
+
+			it( 'falls back to the first tab when ?tab= is absent', () => {
+				registerThree();
+				const { getByTestId } = render(
+					<DevtoolsTabHost host="hub" syncUrl />
+				);
+				expect( getByTestId( 'console' ) ).not.toBeNull();
+			} );
+
+			it( 'canonicalizes a bare URL to the resolved tab slug on mount', () => {
+				registerThree();
+				render( <DevtoolsTabHost host="hub" syncUrl /> );
+				expect( tabParam() ).toBe( 'console' );
+			} );
+
+			it( 'preserves other params when canonicalizing on mount', () => {
+				window.history.replaceState( {}, '', '/?topology=alpha' );
+				registerThree();
+				render( <DevtoolsTabHost host="hub" syncUrl /> );
+				const params = new URLSearchParams( window.location.search );
+				expect( params.get( 'topology' ) ).toBe( 'alpha' );
+				expect( params.get( 'tab' ) ).toBe( 'console' );
+			} );
+
+			it( 'writes the slug on a tab switch, preserving other params', () => {
+				window.history.replaceState( {}, '', '/?log=firehose' );
+				registerThree();
+				const { getByRole } = render(
+					<DevtoolsTabHost host="hub" syncUrl />
+				);
+				fireEvent.click( getByRole( 'tab', { name: 'Raw Logs' } ) );
+				const params = new URLSearchParams( window.location.search );
+				expect( params.get( 'tab' ) ).toBe( 'raw-logs' );
+				expect( params.get( 'log' ) ).toBe( 'firehose' );
+			} );
+
+			it( 'switching uses replaceState, not pushState', () => {
+				registerThree();
+				const pushSpy = jest.spyOn( window.history, 'pushState' );
+				const { getByRole } = render(
+					<DevtoolsTabHost host="hub" syncUrl />
+				);
+				fireEvent.click( getByRole( 'tab', { name: 'Topologies' } ) );
+				expect( pushSpy ).not.toHaveBeenCalled();
+				pushSpy.mockRestore();
+			} );
+		} );
+	} );
 } );

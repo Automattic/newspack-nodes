@@ -391,7 +391,7 @@ test( 'the topology name links to the console for that topology', () => {
 	const link = container.querySelector( 'a.nodes-tm__name' );
 	expect( link ).toBeTruthy();
 	expect( link.getAttribute( 'href' ) ).toBe(
-		'admin.php?page=newspack-nodes-topology&topology=alpha'
+		'admin.php?page=newspack-nodes-hub&tab=console&topology=alpha'
 	);
 	expect( link.textContent ).toBe( 'alpha' );
 } );

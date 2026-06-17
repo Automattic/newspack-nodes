@@ -9,6 +9,22 @@ describe( 'DevToolsHub', () => {
 	beforeEach( () => {
 		resetDevtoolsTabs();
 		window.localStorage.clear();
+		window.history.replaceState( {}, '', '/' );
+	} );
+
+	it( 'syncs the active tab into ?tab= (deep-linkable)', () => {
+		registerDevtoolsTab( {
+			id: 'topology-console',
+			label: 'Console',
+			host: 'hub',
+			slug: 'console',
+			order: 0,
+			component: () => <div data-testid="console" />,
+		} );
+		render( <DevToolsHub /> );
+		expect(
+			new URLSearchParams( window.location.search ).get( 'tab' )
+		).toBe( 'console' );
 	} );
 
 	it( 'shows the empty state when no hub tabs are registered', () => {

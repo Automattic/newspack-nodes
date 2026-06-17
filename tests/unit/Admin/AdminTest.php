@@ -1180,8 +1180,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$admin = new Admin();
 		$admin->register_topology_admin_page();
 
-		$this->assertArrayHasKey( Admin::TOPOLOGY_MENU_SLUG, $GLOBALS['_admin_menu_pages'] );
-		$entry = $GLOBALS['_admin_menu_pages'][ Admin::TOPOLOGY_MENU_SLUG ];
+		$this->assertArrayHasKey( Admin::HUB_MENU_SLUG, $GLOBALS['_admin_menu_pages'] );
+		$entry = $GLOBALS['_admin_menu_pages'][ Admin::HUB_MENU_SLUG ];
 		$this->assertSame( 'manage_options', $entry['capability'] );
 		$this->assertSame( 'dashicons-networking', $entry['icon'] );
 		$this->assertSame( 81, $entry['position'] );
@@ -1196,7 +1196,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$GLOBALS['_wp_test_current_user_can']['manage_options'] = false;
 		$admin                                                  = new Admin();
 		$admin->register_topology_admin_page();
-		$this->assertArrayNotHasKey( Admin::TOPOLOGY_MENU_SLUG, $GLOBALS['_admin_menu_pages'] );
+		$this->assertArrayNotHasKey( Admin::HUB_MENU_SLUG, $GLOBALS['_admin_menu_pages'] );
 	}
 
 	// ---- render_hub_page --------------------------------------------------
@@ -1437,7 +1437,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$asset_path = \NEWSPACK_NODES_DIR . 'build/event-dashboards/index.js';
 		$this->assertFileExists( $asset_path, 'event-dashboards build asset missing — run `npm run build` before tests' );
 
-		$_GET = [ 'page' => Admin::TOPOLOGY_MENU_SLUG ];
+		$_GET = [ 'page' => Admin::HUB_MENU_SLUG ];
 
 		$admin = new Admin();
 		$admin->enqueue_event_dashboards_assets();
@@ -1481,7 +1481,7 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertFileExists( $asset_path, 'devtools-hub build asset missing — run `npm run build` before tests' );
 
 		// The hub bundle loads on the top-level "Nodes" page now.
-		$_GET = [ 'page' => Admin::TOPOLOGY_MENU_SLUG ];
+		$_GET = [ 'page' => Admin::HUB_MENU_SLUG ];
 
 		( new Admin() )->enqueue_devtools_hub_assets();
 

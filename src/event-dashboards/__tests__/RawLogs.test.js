@@ -164,6 +164,117 @@ describe( 'RawLogs', () => {
 		expect( selectLog ).toHaveBeenCalledWith( 'errors' );
 	} );
 
+	describe( '?log= deep-linking', () => {
+		beforeEach( () => {
+			window.history.replaceState( {}, '', '/' );
+		} );
+
+		it( 'seeds selectLog from ?log= once the log is available', () => {
+			window.history.replaceState( {}, '', '/?log=errors' );
+			registerViewFixture( {
+				logs: [
+					{ key: 'firehose', label: 'Firehose' },
+					{ key: 'errors', label: 'Errors' },
+				],
+				selected: 'firehose',
+			} );
+			render( <RawLogs /> );
+			expect( selectLog ).toHaveBeenCalledWith( 'errors' );
+		} );
+
+		it( 'does not seed a ?log= that arrives only in a later catalog (no clobber)', () => {
+			window.history.replaceState( {}, '', '/?log=errors' );
+			// First non-empty catalog lacks 'errors' — the one seed chance is spent.
+			const node = registerViewFixture( {
+				logs: [ { key: 'firehose', label: 'Firehose' } ],
+				selected: 'firehose',
+			} );
+			render( <RawLogs /> );
+			expect( selectLog ).not.toHaveBeenCalledWith( 'errors' );
+
+			// 'errors' shows up in a later update — it must NOT override the selection.
+			act( () =>
+				node.setState( 'view', {
+					logs: [
+						{ key: 'firehose', label: 'Firehose' },
+						{ key: 'errors', label: 'Errors' },
+					],
+					selected: 'firehose',
+					paused: false,
+					connectionError: false,
+				} )
+			);
+			expect( selectLog ).not.toHaveBeenCalledWith( 'errors' );
+		} );
+
+		it( 'seeds at most once even across re-renders', () => {
+			window.history.replaceState( {}, '', '/?log=errors' );
+			registerViewFixture( {
+				logs: [
+					{ key: 'firehose', label: 'Firehose' },
+					{ key: 'errors', label: 'Errors' },
+				],
+				selected: 'firehose',
+			} );
+			const { rerender } = render( <RawLogs /> );
+			rerender( <RawLogs /> );
+			expect(
+				selectLog.mock.calls.filter( ( c ) => c[ 0 ] === 'errors' )
+					.length
+			).toBe( 1 );
+		} );
+
+		it( 'does not seed when ?log= matches the already-selected log', () => {
+			window.history.replaceState( {}, '', '/?log=firehose' );
+			registerViewFixture( {
+				logs: [ { key: 'firehose', label: 'Firehose' } ],
+				selected: 'firehose',
+			} );
+			render( <RawLogs /> );
+			expect( selectLog ).not.toHaveBeenCalled();
+		} );
+
+		it( 'does not seed when ?log= is not among the available logs', () => {
+			window.history.replaceState( {}, '', '/?log=ghost' );
+			registerViewFixture( {
+				logs: [ { key: 'firehose', label: 'Firehose' } ],
+				selected: 'firehose',
+			} );
+			render( <RawLogs /> );
+			expect( selectLog ).not.toHaveBeenCalled();
+		} );
+
+		it( 'does not seed when ?log= is absent', () => {
+			registerViewFixture( {
+				logs: [
+					{ key: 'firehose', label: 'Firehose' },
+					{ key: 'errors', label: 'Errors' },
+				],
+				selected: 'firehose',
+			} );
+			render( <RawLogs /> );
+			expect( selectLog ).not.toHaveBeenCalled();
+		} );
+
+		it( 'choosing a log writes ?log=<name>', () => {
+			registerViewFixture( {
+				logs: [
+					{ key: 'firehose', label: 'Firehose' },
+					{ key: 'errors', label: 'Errors' },
+				],
+				selected: 'firehose',
+			} );
+			const { container } = render( <RawLogs /> );
+			fireEvent.change(
+				container.querySelector( '.newspack-nodes-raw-logs-select' ),
+				{ target: { value: 'errors' } }
+			);
+			expect(
+				new URLSearchParams( window.location.search ).get( 'log' )
+			).toBe( 'errors' );
+		} );
+	} );
+
 	it( 'renders the filter input + line count from the node buffer', () => {
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],

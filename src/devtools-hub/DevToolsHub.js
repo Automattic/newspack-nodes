@@ -45,6 +45,7 @@ export default function DevToolsHub() {
 		>
 			<DevtoolsTabHost
 				host="hub"
+				syncUrl
 				onActiveTabChange={ setActiveTabId }
 				emptyState={
 					<p className="nodes-devtools__empty">

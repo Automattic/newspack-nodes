@@ -131,6 +131,27 @@ describe( 'devtools tab registry', () => {
 		] );
 	} );
 
+	it( 'defaults slug to the tab id when none is given', () => {
+		registerDevtoolsTab( {
+			id: 'topology-console',
+			label: 'Console',
+			host: 'hub',
+			component: Comp,
+		} );
+		expect( getDevtoolsTabs( 'hub' )[ 0 ].slug ).toBe( 'topology-console' );
+	} );
+
+	it( 'preserves an explicit slug', () => {
+		registerDevtoolsTab( {
+			id: 'topology-console',
+			label: 'Console',
+			host: 'hub',
+			slug: 'console',
+			component: Comp,
+		} );
+		expect( getDevtoolsTabs( 'hub' )[ 0 ].slug ).toBe( 'console' );
+	} );
+
 	it( 'throws on a bad host', () => {
 		expect( () =>
 			registerDevtoolsTab( {
