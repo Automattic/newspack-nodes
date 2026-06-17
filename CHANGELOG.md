@@ -29,6 +29,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Topology Manager headings align, and the redundant per-partition "stalled" pill is gone.** The per-partition stalled pill duplicated both the partition badge and the right-hand health rollup (three "stalled"s); it's removed, leaving the health rollup as the single stalled indicator. The per-partition cluster and the health field now have fixed-width slots so the badges line up across rows.
+
 - **`Node::set_state()` no longer emits a PHP 8.4 deprecation.** Its `$payload` parameter was implicitly nullable (`string $payload = null`); it's now explicitly `?string $payload = null`.
 
 - **The debug overlay behaves when you switch DevTools hub tabs.** Each hub tab now persists its OWN overlay canvas layout — the node-position key is per-tab (`…:hub:<tab>`) instead of one shared `…:hub:local` key that loaded one tab's positions as garbage anchors on every other tab (this happened even with the overlay closed during the switch). And the overlay's graph follows the active tab on a switch instead of collapsing to `_output` or freezing on the previous tab. The destructive auto-resync (a `resetGraph()` on the mount bump that tore down the freshly-mounted tab's nodes) is removed; the build-delegated mount bump is kept but now only makes the overlay rebuild its `_metadata` poll on the fresh backbone — the previous code left that poll hitchhiking the torn-down `_router`, so the graph froze on the old tab (clicking Reset Graph + Reset Layout was the manual workaround). The window position stays global (only node positions are per-tab); the manual chips still work.
