@@ -84,7 +84,10 @@ export default function DevtoolsTabHost( {
 							className={ `nodes-devtools__tab${
 								t.id === active.id ? ' is-active' : ''
 							}` }
-							onClick={ () => setActiveId( t.id ) }
+							onClick={ () => {
+								setActiveId( t.id );
+								onActiveTabChange?.( t.id );
+							} }
 						>
 							{ t.icon }
 							{ t.label }
