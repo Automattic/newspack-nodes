@@ -498,50 +498,6 @@ class Admin {
 		return $sanitized_lines;
 	}
 
-	/**
-	 * Sanitize the active-topologies list, dropping entries that don't resolve via
-	 * Topology_Registry. If the resolved set has a write-conflict (two topologies
-	 * writing the same partition or offsetlog — see Topology_Registry::find_conflicts),
-	 * reject the WHOLE change: raise a settings error and return the previously-saved
-	 * set unchanged, so an operator can never enable a set that corrupts its own logs.
-	 *
-	 * @param mixed $value Posted form value (array of topology names).
-	 * @return array<int,string>
-	 */
-	public static function sanitize_topologies( $value ): array {
-		if ( ! \is_array( $value ) ) {
-			return [];
-		}
-		$out = [];
-		foreach ( $value as $name ) {
-			if ( ! \is_string( $name ) || '' === $name ) {
-				continue;
-			}
-			if ( null !== \Newspack_Nodes\Topology_Registry::resolve( $name ) ) {
-				$out[] = $name;
-			}
-		}
-		$out = \array_values( \array_unique( $out ) );
-
-		$conflicts = \Newspack_Nodes\Topology_Registry::find_conflicts( $out );
-		if ( ! empty( $conflicts ) ) {
-			$pairs = \Newspack_Nodes\Topology_Registry::describe_conflicts( $conflicts );
-			\add_settings_error(
-				'newspack_nodes_topologies',
-				'newspack_nodes_topology_conflict',
-				\sprintf(
-					/* translators: %s: comma-separated list of conflicting topology pairs. */
-					\__( 'Topology selection rejected: these enabled topologies would write the same log files and corrupt each other — %s. Your previous selection was kept.', 'newspack-nodes' ),
-					$pairs
-				)
-			);
-			$prior = \get_option( 'newspack_nodes_topologies', [] );
-			return \is_array( $prior ) ? \array_values( \array_filter( $prior, '\is_string' ) ) : [];
-		}
-
-		return $out;
-	}
-
 	// -- Section callbacks --------------------------------------------------
 
 	public static function storage_section_callback(): void {

@@ -551,11 +551,10 @@ class AdminTest extends TestCase {
 		$this->assertStringContainsString( 'reset=1', $GLOBALS['_last_redirect'] );
 	}
 
-	public function test_handle_reset_settings_clears_topologies(): void {
-		// Reset must delete every UI-exposed setting — including the selection
-		// key `topologies`, which is excluded from delete-on-blank but resets via
-		// its toggle. (allowed_users is NOT a settings field, so it's not in the
-		// reset set.)
+	public function test_handle_reset_settings_preserves_topologies(): void {
+		// Reset clears the UI-exposed settings, but `topologies` is overlay-only
+		// (managed by the Topology Manager / activate verbs), so it is NOT in the
+		// reset set: a settings reset must leave the active set intact.
 		$_POST = [ Admin::RESET_NONCE => $this->valid_nonce() ];
 		\update_option( 'newspack_nodes_topologies', [ 'combined' ] );
 
@@ -567,7 +566,7 @@ class AdminTest extends TestCase {
 			// Expected.
 		}
 
-		$this->assertFalse( \get_option( 'newspack_nodes_topologies' ), 'reset must delete topologies' );
+		$this->assertSame( [ 'combined' ], \get_option( 'newspack_nodes_topologies' ), 'reset must NOT touch the active topology set' );
 	}
 
 	public function test_handle_reset_settings_only_deletes_prefixed_options_via_filter(): void {
@@ -1070,28 +1069,10 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertSame( '12345', $result, 'a real value must persist' );
 	}
 
-	public function test_empty_topologies_save_is_written_not_deleted(): void {
-		// Selection field with NO reset mark: zero topologies is a deliberate
-		// override and must persist as [] (blank-delete does not apply to it).
-		$admin = new Admin();
-		$admin->register_settings();
-		unset( $_POST[ Admin::RESET_MARK_FIELD ] );
-		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined' ];
-
-		$result = \apply_filters(
-			'pre_update_option_newspack_nodes_topologies',
-			[],
-			[ 'combined' ],
-			'newspack_nodes_topologies'
-		);
-
-		$this->assertSame( [], $result, 'empty topologies is an override, not a reset' );
-		$this->assertArrayHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'] );
-	}
-
-	public function test_reset_marked_selection_field_is_deleted(): void {
-		// A per-field reset toggle marks the option; on save it must delete the
-		// row even for selection keys (excluded from delete-on-blank).
+	public function test_topologies_is_outside_the_reset_gate(): void {
+		// Overlay-only: topologies has no `pre_update_option_*` reset-gate filter,
+		// so neither a blank save nor a per-field reset mark can delete the active
+		// set — only the Topology Manager / activate verbs write it.
 		$admin = new Admin();
 		$admin->register_settings();
 		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [ 'combined' ];
@@ -1104,8 +1085,8 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 				[ 'combined' ],
 				'newspack_nodes_topologies'
 			);
-			$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'], 'reset-marked field must be deleted' );
-			$this->assertSame( [ 'combined' ], $result, 'short-circuit returns old value' );
+			$this->assertArrayHasKey( 'newspack_nodes_topologies', $GLOBALS['_wp_options'], 'overlay-only field must not be reset-gated' );
+			$this->assertSame( [ 'combined' ], $result );
 		} finally {
 			unset( $_POST[ Admin::RESET_MARK_FIELD ] );
 		}
@@ -1150,85 +1131,17 @@ public function test_storage_section_callback_outputs_paragraph(): void {
 		$this->assertTrue( true );
 	}
 
-	// ---- topologies setting + sanitizer + UI ------------------------------
+	// ---- topologies: overlay-only, never a settings-form option -----------
 
-	public function test_register_settings_registers_topologies_option(): void {
+	public function test_register_settings_does_not_register_topologies_as_a_settings_option(): void {
+		// The active-topologies set is managed by the Topology Manager / activate
+		// verbs, NOT the Nodes Runtime settings form. Registering it as a settings-group
+		// option made Save (which never renders it) wipe the active set: options.php
+		// sanitizes every registered option from $_POST, and an absent one sanitized
+		// to []. Keep it overlay-only so Save can't touch it.
 		$admin = new Admin();
 		$admin->register_settings();
-		$this->assertArrayHasKey( 'newspack_nodes_topologies', $GLOBALS['_registered_settings'] );
-		$cb = $GLOBALS['_registered_settings']['newspack_nodes_topologies']['args']['sanitize_callback'];
-		$this->assertIsArray( $cb );
-		$this->assertSame( 'sanitize_topologies', $cb[1] );
-	}
-
-	public function test_sanitize_topologies_drops_unknown_names(): void {
-		$tmp = sys_get_temp_dir() . '/tsl-admin-' . uniqid();
-		mkdir( $tmp, 0755, true );
-		file_put_contents( "{$tmp}/known.tsl", '' );
-		\Newspack_Nodes\Topology_Registry::reset();
-		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
-
-		$admin = new Admin();
-		$result = $admin->sanitize_topologies( [ 'known', 'bogus', 'known' ] );
-		// `bogus` dropped (not in registry); duplicates collapsed.
-		$this->assertSame( [ 'known' ], $result );
-
-		\unlink( "{$tmp}/known.tsl" );
-		\rmdir( $tmp );
-		\Newspack_Nodes\Topology_Registry::reset();
-	}
-
-	public function test_sanitize_topologies_handles_non_array_input(): void {
-		$admin = new Admin();
-		$this->assertSame( [], $admin->sanitize_topologies( null ) );
-		$this->assertSame( [], $admin->sanitize_topologies( 'not-an-array' ) );
-	}
-
-	public function test_sanitize_topologies_rejects_conflicting_set_and_keeps_prior(): void {
-		// `combined` and `rb` both write requests.log — enabling both would let two
-		// worker fleets clobber the same partition. The sanitizer must refuse the
-		// WHOLE change, leave the previously-saved set intact, and raise a settings
-		// error rather than silently accept a corrupting config.
-		$tmp = $this->make_temp_dir( 'tsl-conflict-' );
-		\file_put_contents( "{$tmp}/combined.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.log <partition>" );
-		\file_put_contents( "{$tmp}/rb.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.log <partition>" );
-		\Newspack_Nodes\Topology_Registry::reset();
-		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
-
-		\update_option( 'newspack_nodes_topologies', [ 'combined' ] );
-		$GLOBALS['_settings_errors'] = [];
-
-		$admin  = new Admin();
-		$result = $admin->sanitize_topologies( [ 'combined', 'rb' ] );
-
-		$this->assertSame( [ 'combined' ], $result, 'rejected change must return the prior saved set unchanged' );
-		$this->assertNotEmpty( $GLOBALS['_settings_errors'], 'a settings error must be raised on conflict' );
-		$this->assertSame( 'newspack_nodes_topologies', $GLOBALS['_settings_errors'][0]['setting'] );
-
-		$this->rmdir_recursive( $tmp );
-		\Newspack_Nodes\Topology_Registry::reset();
-	}
-
-	public function test_sanitize_topologies_rejected_conflict_with_no_prior_returns_empty(): void {
-		// No previously-saved set → rejecting the conflicting change falls back to
-		// the safest outcome: nothing active (never a corrupting set).
-		$tmp = $this->make_temp_dir( 'tsl-conflict-noprior-' );
-		\file_put_contents( "{$tmp}/combined.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.log <partition>" );
-		\file_put_contents( "{$tmp}/rb.tsl", "make_node Partition requests:partition <config:logs_dir>/requests.log <partition>" );
-		\Newspack_Nodes\Topology_Registry::reset();
-		\Newspack_Nodes\Topology_Registry::register_stock_dir( $tmp );
-
-		unset( $GLOBALS['_wp_options']['newspack_nodes_topologies'] );
-		$GLOBALS['_settings_errors'] = [];
-
-		$admin  = new Admin();
-		$result = $admin->sanitize_topologies( [ 'combined', 'rb' ] );
-
-		$this->assertSame( [], $result );
-		$this->assertNotEmpty( $GLOBALS['_settings_errors'] );
-
-		$this->rmdir_recursive( $tmp );
-		\Newspack_Nodes\Topology_Registry::reset();
+		$this->assertArrayNotHasKey( 'newspack_nodes_topologies', $GLOBALS['_registered_settings'] );
 	}
 
 	// ---- __construct ------------------------------------------------------
