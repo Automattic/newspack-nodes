@@ -139,7 +139,7 @@ renumber.
 | `includes/class-{topology-loader,topology-registry}.php` | Topology TSL parser + per-plugin `register_plugin()` entry-point |
 | `includes/class-{log-cleaner,log-discovery,node-names,sse-slot-pool,config-utils,formatters}.php` | Internal helpers — log retention sweep, log-name discovery, reserved-name registry, SSE slot pool, config schema utils, formatter registry |
 | `includes/admin/class-admin.php` | Substrate settings UI |
-| `examples/newspack-ai-newsletter/` | Bundled walkthrough example plugin — a deterministic digest pipeline built from Nodes (its own `includes/`, `topologies/digest.tsl`, and PHPUnit suite) |
+| `examples/example-ai-newsletter/` | Bundled walkthrough example plugin — a deterministic digest pipeline built from Nodes (its own `includes/`, `topologies/example-ai-newsletter.tsl`, and PHPUnit suite) |
 | `tests/` | PHPUnit suite (`tests/unit/` incl. `ConfigSystem/`, `tests/integration/`, plus `Helpers/` — `CaptureSink` (the `Capture_Sink_Node` double), `TestCase`, `VerbHarness`, `BoundedTicks`, `FakeMemcached` / `InMemoryMemcached`, `WPCLIStub`) |
 
 ## Common Pitfalls
@@ -177,4 +177,4 @@ These are mistakes that have actually happened. Pay attention.
 - **Architecture**: `docs/architecture-guide.md` (full substrate design — message format, node contracts, drain loop, REPL)
 - **API**: `docs/API.md` (REST endpoint reference)
 - **Application example**: `../newspack-event-logger-nodes/` — first plugin built on this runtime
-- **Walkthrough example (in-repo)**: `examples/newspack-ai-newsletter/` — a self-contained digest pipeline (`includes/`, `topologies/digest.tsl`, PHPUnit suite) to learn the substrate from
+- **Walkthrough example (in-repo)**: `examples/example-ai-newsletter/` — a self-contained digest pipeline (`includes/`, `topologies/example-ai-newsletter.tsl`, PHPUnit suite) to learn the substrate from

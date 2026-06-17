@@ -349,5 +349,5 @@ The first guide's lesson was that you add a dashboard by composing primitives. T
 - **[writing-a-dashboard.md](writing-a-dashboard.md)** — the toy this guide hardens; the poll loop, the view node, the enqueue.
 - **[writing-a-real-plugin.md](writing-a-real-plugin.md)** — this guide's sibling: the real headless pipeline (connectors, the `Source` seam) and the full `Config_System` field model §6 only gestures at.
 - **[writing-a-plugin.md](writing-a-plugin.md)** — the original toy pipeline walkthrough, if you skipped it.
-- **[ARCHITECTURE.md](architecture-guide.md)** — the substrate model behind the catalog, the tab host, and the build kit.
+- **[architecture-guide.md](architecture-guide.md)** — the substrate model behind the catalog, the tab host, and the build kit.
 - **`newspack-event-logger-nodes`** — the production application: six real dashboards on these surfaces, including the SSE ones, and the second consumer that proves the shared-alias rebuild rule.

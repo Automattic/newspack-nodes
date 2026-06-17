@@ -14,7 +14,7 @@ This is an early implementation of an idea pitched at the team meetup: the Lego-
 
 ## Learn it
 
-New to Nodes? Start with **[getting-started.md](docs/getting-started.md)** — run the bundled example pipeline in about five minutes — then **[writing-a-plugin.md](docs/writing-a-plugin.md)** builds that example from an empty directory, one node at a time, and shows why the shape pays off. The complete code lives in [`examples/newspack-ai-newsletter/`](examples/newspack-ai-newsletter/).
+New to Nodes? Start with **[getting-started.md](docs/getting-started.md)** — run the bundled example pipeline in about five minutes — then **[writing-a-plugin.md](docs/writing-a-plugin.md)** builds that example from an empty directory, one node at a time, and shows why the shape pays off. The complete code lives in [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/).
 
 ## Quick Start
 
@@ -31,7 +31,7 @@ wp nodes ls
 wp nodes cli
 ```
 
-To get workers running, install an application plugin that registers a topology — one call, `Topology_Registry::register_plugin( 'My_Namespace\\', __DIR__ . '/topologies' )`. The bundled [`examples/newspack-ai-newsletter/`](examples/newspack-ai-newsletter/) is the smallest complete example; `newspack-event-logger-nodes` is the production one.
+To get workers running, install an application plugin that registers a topology — one call, `Topology_Registry::register_plugin( 'My_Namespace\\', __DIR__ . '/topologies' )`. The bundled [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/) is the smallest complete example; `newspack-event-logger-nodes` is the production one.
 
 ## Concepts
 
@@ -41,7 +41,7 @@ To get workers running, install an application plugin that registers a topology 
 - **Topic** — multi-Partition wrapper, KEY-routed via CRC32.
 - **Partition** — file-segmented append-only log. Storage primitive AND Node.
 - **Tee** — fan-out. Per-target try/catch isolates failures; dead targets pruned at fill.
-- **Tail** — file follower. Three buffer modes; inode + size-shrink rotation detection.
+- **Tail** — line-oriented file follower; inode + size-shrink rotation detection.
 - **Log** — file writer (inverse of Tail). Append/overwrite, optional size-based auto-rotate, retention pruning.
 - **Consumer** — Partition reader with offsetlog checkpointing.
 - **Job_Worker** — generic async-job dispatch; local/remote handler maps via the `newspack_nodes/{job,remote_job}_handlers` filters, with per-job context delivered through the `newspack_nodes/job_worker/{before,after}_job` actions. Ships `topologies/job-worker.tsl`.
@@ -73,4 +73,4 @@ GPL-2.0-or-later
 
 ## Status
 
-v0.14.x. The first application built on the substrate, `newspack-event-logger-nodes`, ships alongside this runtime; the substrate's API is stabilizing toward 1.0 but still pre-1.0 — expect schema-field renames and incremental contract tightening. See [CHANGELOG.md](CHANGELOG.md) for the per-version history.
+v0.18.x. The first application built on the substrate, `newspack-event-logger-nodes`, ships alongside this runtime; the substrate's API is stabilizing toward 1.0 but still pre-1.0 — expect schema-field renames and incremental contract tightening. See [CHANGELOG.md](CHANGELOG.md) for the per-version history.

@@ -25,7 +25,7 @@ For the full model — the drain loop, workers, partitions, the REPL — see [ar
 
 ## Feel it in 5 minutes
 
-The repo ships a runnable example: `examples/example-ai-newsletter/`, a digest pipeline built from four small nodes. It's deterministic — no API keys, no network — so it runs anywhere. Two sources emit canned items, a summarizer condenses each, a builder assembles a markdown draft, and a `Tee` fans that draft to the built-in `Log` (which writes it to a file) and to `_repl` (so you can watch it from the REPL).
+The repo ships a runnable example: `examples/example-ai-newsletter/`, a scored, durable digest pipeline built from small nodes. It's deterministic — no API keys, no network — so it runs anywhere. Two sources (`releases`, `community`) emit canned items into a `summarizer` that condenses each, then a `scorer` adds a notional priority and appends each item to the durable `example-scored` partition. A `Consumer` tails that log into the `digest` builder, which assembles a markdown draft and fans it through a `Tee` to the built-in `Log` (which writes it to a file).
 
 ```bash
 # 1. Build the example's autoloader and activate it. The example is its own
@@ -37,32 +37,30 @@ wp plugin activate newspack-nodes example-ai-newsletter
 # 2. Where the digest gets written (Log appends here).
 mkdir -p /tmp/example-ai-newsletter
 
-# 3. Enable the topology, then see the worker. Activating the example
-#    *registers* its `digest` topology, but the shipped default active set is
-#    empty — nothing spawns by surprise. Go to Settings → Nodes Runtime →
-#    Topologies, check `digest` in the Active Topologies field, and Save.
+# 3. Activate the topology, then see the worker. Activating the example
+#    *registers* its `example-ai-newsletter` topology, but the shipped default
+#    active set is empty — nothing spawns by surprise. Activate it either from
+#    the Topology Manager (Nodes → Hub → Topologies) or from the REPL:
+#        wp nodes cli   →   topologies activate example-ai-newsletter
 #    Now the supervisor spawns it:
 wp nodes ls
-#   ... digest.p0   [live]
+#   ... example-ai-newsletter.p0   [live]
 ```
 
-Open the **topology console** (the Nodes admin page): you'll see the `digest` graph — `releases` and `community` both feeding `summarizer`, then `digest`, then a `tee` that fans to the built-in `log` (and to `_repl`) — with live message counts on every edge. The `tee → _repl` hop is why the draft is also visible in the REPL session below.
+Open the **topology console** (the Nodes admin page): you'll see the `example-ai-newsletter` graph — `releases` and `community` both feeding `summarizer`, then `scorer` appending to the durable `scored:partition`, a `scored:consumer` tailing that log into `digest`, then a `digest:tee` that fans to the built-in `digest:log` — with live message counts on every edge.
 
-Now drive it by hand. Pivot a REPL into the running worker and fire the runtime triggers — `TICK`/`FLUSH` are `TM_REQUEST`s (sent with `request_node`), not admin commands:
+Now drive it by hand. Pivot a REPL into the running worker and fire the runtime triggers — `TICK`/`FLUSH` are `TM_REQUEST`s (sent with `request_node`), not admin commands. The sources are fire-and-forget: a `TICK` emits items but sends no reply, so watch the edge counts climb in the topology console rather than expecting REPL output:
 
 ```bash
-wp nodes cli digest.p0
+wp nodes cli example-ai-newsletter.p0
 ```
 ```
-> request_node releases TICK     # releases source emits its items
-{ "verb": "TICK", "data": { "emitted": 2 } }
-> request_node community TICK     # the other source emits its items
-{ "verb": "TICK", "data": { "emitted": 3 } }
-> request_node digest FLUSH       # assemble + write the draft
-{ "verb": "FLUSH", "data": { "flushed": 5 } }
+> request_node releases TICK      # releases source emits its items
+> request_node community TICK      # the other source emits its items
+> request_node digest FLUSH        # assemble + write the draft
 ```
 
-Each `TICK` flows source → summarizer → digest (watch the counts climb in the console). `FLUSH` writes the assembled draft:
+Each `TICK` flows source → summarizer → scorer → scored:partition → scored:consumer → digest (watch the counts climb in the console). `FLUSH` writes the assembled draft:
 
 ```bash
 cat /tmp/example-ai-newsletter/digest.md
@@ -72,7 +70,7 @@ cat /tmp/example-ai-newsletter/digest.md
 # - ...
 ```
 
-You just watched four independent nodes cooperate without any of them knowing about the others — only the message shape they pass.
+You just watched a handful of independent nodes cooperate without any of them knowing about the others — only the message shape they pass.
 
 ## Next: build one yourself
 
