@@ -283,6 +283,46 @@ it( 'groups a partition-token log vertex into ONE logical entity with its partit
 	expect( logs[ 0 ].partitions[ 1 ].partition ).toBe( 1 );
 } );
 
+it( 'groups a Topic vertex carrying the curly {partition} token like an angle-token log', () => {
+	// A Topic's path template uses the deferred curly `{partition}` token (distinct
+	// from the shell's `<partition>`), so graph_for emits `firehose.p{partition}`
+	// for the topic vertex. It must resolve to the SAME concrete catalog entries
+	// (firehose.p0, firehose.p1) and group into one logical `firehose` entity —
+	// exactly like the `<partition>` case — not render the literal token with no
+	// segments (the aggregator-tab bug).
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'src', 'logic' ),
+					gn( 'topic', 'topic', { writes: 'firehose.p{partition}' } ),
+				],
+				edges: [ [ 'src', 'topic' ] ],
+			},
+		},
+		[],
+		[
+			{
+				name: 'firehose.p0',
+				segment_size: 4096,
+				partitions: [ { partition: 0, segments: [], total_size: 0 } ],
+			},
+			{
+				name: 'firehose.p1',
+				segment_size: 4096,
+				partitions: [ { partition: 1, segments: [], total_size: 0 } ],
+			},
+		]
+	);
+	// The topic's writes-log is a child of its producer; it must be ONE logical
+	// `firehose` entity carrying both concrete partitions — not the literal token.
+	const log = section.tree[ 0 ].children.find( ( e ) => e.kind === 'log' );
+	expect( log.name ).toBe( 'firehose' );
+	expect( log.partitions ).toHaveLength( 2 );
+	expect( log.partitions[ 0 ].partition ).toBe( 0 );
+	expect( log.partitions[ 1 ].partition ).toBe( 1 );
+} );
+
 it( 'renders a source log consumer subtree ONCE, not duplicated per partition', () => {
 	// THE BUG (79c9dd6): a SOURCE log feeding a consumer subtree expanded into one
 	// flat entity per partition, DUPLICATING the entire downstream subtree once per
