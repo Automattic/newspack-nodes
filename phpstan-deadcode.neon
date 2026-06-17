@@ -1,0 +1,20 @@
+# Opt-in dead-code audit — NOT part of the commit/push lint gate.
+#
+# shipmonk/dead-code-detector is excluded from the auto-loaded extension set
+# (see composer.json extra.phpstan/extension-installer.ignore) so the normal
+# `phpstan analyse` gate stays fast and free of its findings. This config layers
+# the detector on top of the main config for an on-demand sweep:
+#
+#     composer deadcode
+#
+# Caveat: this is a SUBSTRATE. tests/ are excluded (inherited from the main
+# config) so test-only methods surface, and cross-plugin consumers (ELN /
+# pyrobase / ai-newsletter) live in separate repos the analysis can't see — so
+# most findings are public API, WP/CLI entrypoints, JS↔PHP wire constants, or
+# deliberate test seams, NOT genuinely dead. Verify each finding against ALL
+# call paths (dynamic dispatch, hooks, reflection, the sibling repos, and JS)
+# before deleting. `@api` tags can be added later to quiet the known-public
+# surface.
+includes:
+    - phpstan.neon.dist
+    - vendor/shipmonk/dead-code-detector/rules.neon

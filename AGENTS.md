@@ -44,6 +44,11 @@ cd tests && phpunit --enforce-time-limit
 # Lint PHP.
 npm run lint:php
 
+# Opt-in dead-code audit (NOT in the lint gate). Substrate caveat: most findings
+# are public API / WP-CLI entrypoints / JS-PHP wire constants / test seams, not
+# real dead code — verify every call path (incl siblings + JS + dynamic) first.
+composer deadcode
+
 # REPL against a live worker.
 wp nodes ls
 wp nodes cli firehose-workers.p0

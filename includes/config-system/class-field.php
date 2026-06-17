@@ -81,11 +81,6 @@ class Field {
 		return \is_string( $label ) ? $label : '';
 	}
 
-	/** A real config option (participates in the autoload sweep + register/reset surface). */
-	public function is_option(): bool {
-		return '' !== $this->key;
-	}
-
 	/** A config option the per-request load_config() overlay reflects (excludes direct-read options). */
 	public function is_overlaid(): bool {
 		return $this->overlay && '' !== $this->key;

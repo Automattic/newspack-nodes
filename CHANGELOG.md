@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- **Three unused members** flagged by a dead-code audit and verified to have no caller anywhere (production, tests, sibling plugins, dynamic dispatch): `Shell_Node::set_show_parse()`, `Config_System\Field::is_option()`, and the `Job_Worker_Node::MAX_JSON_DEPTH` constant.
+
+### Internal
+
+- **Opt-in dead-code audit** via `shipmonk/dead-code-detector`, wired as a *separate* config (`phpstan-deadcode.neon`, run with `composer deadcode`) and kept OUT of the commit/push lint gate. Most findings on a substrate are public API / WP-CLI entrypoints / JS↔PHP wire constants / test seams, not real dead code — verify against all call paths before deleting.
+
 ## [0.18.3] - 2026-06-17
 
 ### Fixed

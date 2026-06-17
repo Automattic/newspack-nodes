@@ -549,10 +549,6 @@ class Shell_Node extends Node {
 		return $this->show_parse;
 	}
 
-	public function set_show_parse( bool $on ): void {
-		$this->show_parse = $on;
-	}
-
 	/**
 	 * Syntax-check a single TSL statement; throws on an unterminated backslash
 	 * continuation. Unknown verbs are NOT rejected here — they flow through and
