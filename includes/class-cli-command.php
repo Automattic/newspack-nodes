@@ -36,6 +36,8 @@ class CLI_Command {
 	 *     wp nodes cli
 	 *     wp nodes cli firehose-workers.p0
 	 *
+	 * @api WP-CLI subcommand `wp nodes cli` — invoked by WP-CLI via reflection, not called in PHP.
+	 *
 	 * @param array<int, string>   $args       Positional arguments.
 	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
@@ -194,6 +196,8 @@ class CLI_Command {
 	 * ## EXAMPLES
 	 *
 	 *     wp nodes ls
+	 *
+	 * @api WP-CLI subcommand `wp nodes ls` — invoked by WP-CLI via reflection, not called in PHP.
 	 *
 	 * @param array<int, string>   $args       Positional arguments.
 	 * @param array<string, mixed> $assoc_args Associative arguments.
@@ -557,12 +561,22 @@ class CLI_Stdin_Reader_Node extends Timer_Node {
 		);
 	}
 
-	/** @return array<int,string> Test/inspection accessor for the command-verb cache. */
+	/**
+	 * Test/inspection accessor for the command-verb cache.
+	 *
+	 * @api Read only by tests / REPL inspection; production reads the private field directly.
+	 * @return array<int,string>
+	 */
 	public function command_candidates(): array {
 		return $this->command_candidates;
 	}
 
-	/** @return array<int,string> Test/inspection accessor for the node-name cache. */
+	/**
+	 * Test/inspection accessor for the node-name cache.
+	 *
+	 * @api Read only by tests / REPL inspection; production reads the private field directly.
+	 * @return array<int,string>
+	 */
 	public function node_candidates(): array {
 		return $this->node_candidates;
 	}
