@@ -167,9 +167,6 @@ class CLI {
 		return \is_scalar( $basename ) ? (string) $basename : '';
 	}
 
-	public function base_dir(): string {
-		return $this->base_dir;
-	}
 
 	/**
 	 * Enumerate worker lock dirs and report each one's staleness.

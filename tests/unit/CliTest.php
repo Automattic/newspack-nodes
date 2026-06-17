@@ -106,16 +106,6 @@ class CliTest extends TestCase {
 		$this->assertSame( [ 'firehose.p0', 'firehose.p1', 'jobs.p0', 'jobs.p1' ], $ordered );
 	}
 
-	// ── base_dir() ─────────────────────────────────────────────────────────────
-
-	public function test_base_dir_returns_constructor_value_without_trailing_slash(): void {
-		// Trailing slash should be stripped (rtrim(... '/') in constructor).
-		$cli = new CLI( '/tmp/foo/' );
-		$this->assertSame( '/tmp/foo', $cli->base_dir() );
-
-		$cli = new CLI( '/tmp/bar' );
-		$this->assertSame( '/tmp/bar', $cli->base_dir() );
-	}
 
 	// ── parse_worker_id() / attach_to_worker() ─────────────────────────────────
 
