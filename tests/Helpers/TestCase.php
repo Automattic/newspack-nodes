@@ -193,6 +193,36 @@ abstract class TestCase extends PHPUnitTestCase {
 	 * polls and segment advance is one step per poll. Stops once caught up with
 	 * no complete line left to drain.
 	 */
+	/**
+	 * Register a job handler the way production does — via the
+	 * `newspack_nodes/{job,remote_job}_handlers` filter — then reload the
+	 * worker's maps. Replaces the removed set_local_handler / set_remote_handler /
+	 * register_handler test-only setters so tests exercise the real load path.
+	 */
+	protected function register_job_handler( \Newspack_Nodes\Job_Worker_Node $jw, string $name, callable $cb, bool $remote = false ): void {
+		$hook = $remote ? 'newspack_nodes/remote_job_handlers' : 'newspack_nodes/job_handlers';
+		\add_filter(
+			$hook,
+			static function ( $handlers ) use ( $name, $cb ) {
+				$handlers[ $name ] = $cb;
+				return $handlers;
+			}
+		);
+		$jw->load_handlers_from_filters();
+	}
+
+	/** Read a private/protected property — these nodes expose internal state to tests via reflection, not getters. */
+	protected function read_private( object $obj, string $prop ): mixed {
+		$ref = new \ReflectionProperty( $obj, $prop );
+		$ref->setAccessible( true );
+		return $ref->getValue( $obj );
+	}
+
+	/** Worker's private executed-job counter (increments even when a handler throws; no public accessor by design). */
+	protected function jobs_executed( \Newspack_Nodes\Job_Worker_Node $jw ): int {
+		return (int) $this->read_private( $jw, 'jobs_executed' );
+	}
+
 	protected function pump_consumer( \Newspack_Nodes\Consumer_Node $c, int $max = 5000 ): void {
 		$ref = new \ReflectionClass( \Newspack_Nodes\Consumer_Node::class );
 		$eof = $ref->getProperty( 'at_eof' );

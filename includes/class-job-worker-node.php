@@ -20,8 +20,8 @@
  * Plugins typically register via WP filters at plugin load:
  *   add_filter( 'newspack_nodes/job_handlers',        ... );
  *   add_filter( 'newspack_nodes/remote_job_handlers', ... );
- * The job-workers topology runs apply_filters and feeds the result via
- * set_local_handler / set_remote_handler.
+ * The worker eager-loads both filters in its constructor via
+ * load_handlers_from_filters().
  *
  * Per-job request context (suspending a parent logger, rewriting $_SERVER to a
  * synthetic /jobs/{handler} URL, etc.) is NOT a substrate concern: fill() fires
@@ -70,9 +70,6 @@ class Job_Worker_Node extends Node {
 	private array $remote_handlers = [];
 	private int $jobs_executed = 0;
 	private int $jobs_since_cache_flush = 0;
-
-	/** @var callable|null */
-	private $between_jobs_cb = null;
 
 	/** Latched true when a per-job memory check crossed the watermark. */
 	private bool $memory_pressure = false;
@@ -189,16 +186,12 @@ class Job_Worker_Node extends Node {
 		}
 
 		// Memory watermark check. If we cross 80% of memory_limit, latch the
-		// pressure flag — topology code reads memory_pressure() in its drain
-		// predicate and exits cleanly so the supervisor respawns.
+		// pressure flag and emit the MEMORY_PRESSURE set_state event (also
+		// surfaced in GET_HEALTH) so the supervisor can respawn into a fresh
+		// process. Latched so the event fires once per pressure episode.
 		if ( $this->is_memory_high() && ! $this->memory_pressure ) {
 			$this->set_state( 'MEMORY_PRESSURE', \implode( ' ', [ 'USAGE', \memory_get_usage( true ) ] ) );
 			$this->memory_pressure = true;
-		}
-
-		if ( null !== $this->between_jobs_cb ) {
-			// Pass the counter so the callback owns cadence decisions.
-			( $this->between_jobs_cb )( $this->jobs_executed );
 		}
 	}
 
@@ -273,44 +266,6 @@ class Job_Worker_Node extends Node {
 		return \memory_get_usage( true ) >= ( $limit * self::MEMORY_WATERMARK_PCT );
 	}
 
-	private function validate_handler_name( string $name ): void {
-		if ( ! \preg_match( self::HANDLER_NAME_PATTERN, $name ) ) {
-			throw new \InvalidArgumentException( \esc_html( "invalid handler name: $name" ) );
-		}
-	}
-
-	/** Register a handler that runs for k='job' entries (every node). */
-	public function set_local_handler( string $name, callable $cb ): void {
-		$this->validate_handler_name( $name );
-		$this->local_handlers[ $name ] = $cb;
-	}
-
-	/** Register a handler that runs for k='remote_job' entries (hub only). */
-	public function set_remote_handler( string $name, callable $cb ): void {
-		$this->validate_handler_name( $name );
-		$this->remote_handlers[ $name ] = $cb;
-	}
-
-	/**
-	 * Backward-compatible alias for set_local_handler. Pre-split callers
-	 * registered everything as a single handler set.
-	 */
-	public function register_handler( string $name, callable $cb ): void {
-		$this->set_local_handler( $name, $cb );
-	}
-
-	public function has_local_handler( string $name ): bool {
-		return isset( $this->local_handlers[ $name ] );
-	}
-
-	public function has_remote_handler( string $name ): bool {
-		return isset( $this->remote_handlers[ $name ] );
-	}
-
-	public function has_handler( string $name ): bool {
-		return $this->has_local_handler( $name ) || $this->has_remote_handler( $name );
-	}
-
 	/**
 	 * Load handlers from the standard WordPress filters. Called by the
 	 * job-workers topology after make_node so plugins that register via
@@ -336,38 +291,6 @@ class Job_Worker_Node extends Node {
 				}
 			}
 		}
-	}
-
-	/**
-	 * Register a between-jobs callback that fires after every job. Pass null to
-	 * clear. The callback receives the jobs_executed counter as its single arg
-	 * so it can decide its own cadence.
-	 */
-	public function set_between_jobs_callback( ?callable $cb ): void {
-		$this->between_jobs_cb = $cb;
-	}
-
-	public function jobs_executed(): int {
-		return $this->jobs_executed;
-	}
-
-	/** Stale-timeout hint exposed for topology config. */
-	public function get_stale_timeout(): int {
-		return $this->stale_timeout;
-	}
-
-	/** Max-runtime hint exposed for topology config. */
-	public function get_max_runtime(): int {
-		return $this->max_runtime;
-	}
-
-	/**
-	 * Whether a previous job's memory check tripped the watermark. Topology
-	 * code (or the worker's drain predicate) reads this to decide whether to
-	 * exit cleanly so the supervisor can respawn into a fresh process.
-	 */
-	public function memory_pressure(): bool {
-		return $this->memory_pressure;
 	}
 
 	public static function node_schema(): array {
