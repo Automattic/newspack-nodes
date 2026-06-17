@@ -90,9 +90,6 @@ class Command_Interpreter_Node extends Node {
 
 	/** @param array<int, mixed> $message Incoming command Message to interpret. */
 	private function interpret( array &$message ): void {
-		if ( null === $this->sink ) {
-			throw new \RuntimeException( 'Command_Interpreter::fill requires a wired sink' );
-		}
 		$cmd = $message[ Message::VALUE ];
 		if ( ! \is_array( $cmd ) || ! isset( $cmd['name'] ) ) {
 			$this->drop_message( $message, 'invalid command struct' );
@@ -111,6 +108,7 @@ class Command_Interpreter_Node extends Node {
 		if ( ! $authorize( $message ) ) {
 			$result    = 'unauthorized: ' . $cmd_name;
 			$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
+			$this->drop_message( $message, $result );
 		} else {
 			// Verb handlers throw freely; wrap as TM_COMMAND|TM_ERROR so the cli renders the error.
 			try {
@@ -124,6 +122,10 @@ class Command_Interpreter_Node extends Node {
 				$result    = $e->getMessage();
 				$resp_type = Message::TM_COMMAND | Message::TM_ERROR;
 			}
+		}
+
+		if ( null === $this->sink ) {
+			throw new \RuntimeException( 'Command_Interpreter::fill requires a wired sink' );
 		}
 
 		// TM_NOREPLY (Tachikoma CommandInterpreter::send_response): suppress the
