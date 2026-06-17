@@ -250,29 +250,28 @@ class NodeTest extends TestCase {
 	}
 
 	public function test_debug_state_default_zero_no_trace_emitted(): void {
-		// Baseline: with debug_state=0, set_state does NOT emit any trace to
-		// _router (cli/SSE fan-out is silent until explicitly enabled).
-		$router = new Capture_Sink_Node();
-		$router->name( '_router' );
-
+		// Baseline: with debug_state=0, set_state emits NO debug trace (the stderr
+		// fan-out is silent until explicitly enabled).
 		$n = new class extends Node {
 			public function __construct() {
 				$this->registrations = [ 'READY' => [] ];
 			}
 		};
 		$n->name( 'producer' );
+		\Newspack_Nodes\Core::$recent_log = [];
 		$this->assertSame( 0, $n->debug_state(), 'default off' );
 		$n->set_state( 'READY', 'payload' );
 
-		$this->assertCount( 0, $router->captured, 'no trace emitted at level 0' );
+		$this->assertEmpty( \Newspack_Nodes\Core::$recent_log, 'no trace emitted at level 0' );
 	}
 
-	public function test_debug_state_level_1_emits_trace_to_repl_sse(): void {
-		// Level 1: set_state fires the normal notify AND additionally emits
-		// a TM_STRUCT trace addressed to _repl/sse so cli (with show_sse on)
-		// and the SSE controller both see the transition.
+	public function test_debug_state_level_1_emits_trace_to_stderr(): void {
+		// Level 1: set_state fires the normal notify AND additionally emits a flat
+		// Tachikoma-style `DEBUG: <event> <payload>` line to stderr (Core::$recent_log),
+		// but only when a _router is registered (i.e. inside a live graph).
 		$router = new Capture_Sink_Node();
 		$router->name( '_router' );
+		\Newspack_Nodes\Core::$recent_log = [];
 
 		$n = new class extends Node {
 			public function __construct() {
@@ -283,13 +282,11 @@ class NodeTest extends TestCase {
 		$n->debug_state( 1 );
 		$n->set_state( 'READY', 'payload-x' );
 
-		$this->assertCount( 1, $router->captured );
-		$message = $router->captured[0];
-		// Flat Tachikoma-style trace: a `DEBUG: <event> <payload>` line, the node in FROM.
-		$this->assertSame( Message::TM_BYTESTREAM, $message[ Message::TYPE ] );
-		$this->assertSame( '_repl',                $message[ Message::TO ] );
-		$this->assertSame( 'producer',             $message[ Message::FROM ] );
-		$this->assertSame( 'DEBUG: READY payload-x', $message[ Message::VALUE ] );
+		$this->assertNotEmpty( \Newspack_Nodes\Core::$recent_log );
+		$this->assertStringContainsString(
+			'DEBUG: READY payload-x',
+			\implode( "\n", \Newspack_Nodes\Core::$recent_log )
+		);
 	}
 
 	public function test_debug_state_silent_when_no_router_registered(): void {
