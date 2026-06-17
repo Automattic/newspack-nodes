@@ -25,7 +25,6 @@ import { useDebugGraph } from '../useDebugGraph';
 import { useCanvasLayout } from '../../topology-console/hooks/useCanvasLayout';
 import { useDebugRepl } from '../useDebugRepl';
 import { useGraphReset } from '../useGraphReset';
-import { useHostGraphResync } from '../useHostGraphResync';
 
 /**
  * Measure the DevtoolsTabHost tab bar (`.nodes-devtools__tabbar`) that the host
@@ -238,16 +237,6 @@ export default function InspectorTab( {
 		markDirty,
 	} );
 
-	// While the panel is open, auto-resync to the host graph on a host tab switch
-	// (a fresh exospine bumps graphGeneration): run Reset Graph then Reset Layout
-	// so the overlay re-syncs with no manual clicks. The manual Reset Graph chip
-	// routes through the returned guarded resetGraph so its own bump can't trip a
-	// redundant auto-resync — both paths share one loop guard.
-	const { resetGraph: onResetGraphChip } = useHostGraphResync( {
-		resetGraph,
-		resetLayout,
-	} );
-
 	// "Reset Layout" appears only when the user has modified the layout.
 	const hasLayoutToReset = isLayoutDirty;
 
@@ -285,7 +274,7 @@ export default function InspectorTab( {
 						// Hide the chips when there's nothing to reset:
 						// passing null tells CanvasFrame to skip them.
 						onResetLayout: hasLayoutToReset ? resetLayout : null,
-						onResetGraph: canResetGraph ? onResetGraphChip : null,
+						onResetGraph: canResetGraph ? resetGraph : null,
 					} }
 					buildingClassName="nodes-debug__canvas-building"
 					// display:contents wrapper so the inner <header> stays a
