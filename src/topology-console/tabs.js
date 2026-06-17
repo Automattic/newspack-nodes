@@ -15,6 +15,7 @@ registerDevtoolsTab( {
 	label: __( 'Console', 'newspack-nodes' ),
 	host: 'hub',
 	slug: 'console',
+	param: 'topology',
 	order: 0,
 	fullBleed: true,
 	component: TopologyConsole,

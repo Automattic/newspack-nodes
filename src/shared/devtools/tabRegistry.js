@@ -44,6 +44,7 @@ const HOSTS = [ 'overlay', 'hub', 'both' ];
  * @param {Function} descriptor.component   React component for the panel.
  * @param {number}   [descriptor.order=0]   Sort weight; alpha by label within a weight.
  * @param {string}   [descriptor.slug]      URL slug for deep-linking (`?tab=<slug>`); defaults to `id`.
+ * @param {string}   [descriptor.param]     Query param the tab owns (e.g. `topology`, `log`); cleared from the URL when another tab is active.
  * @param {Function} [descriptor.gate]      Optional () => boolean; excluded when it returns false.
  * @param {*}        [descriptor.icon]      Optional @wordpress/icons element.
  * @param {boolean}  [descriptor.fullBleed] Tab owns its own full-height canvas; opts out of the host's default scroll container.

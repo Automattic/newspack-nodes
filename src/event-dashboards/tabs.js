@@ -27,6 +27,7 @@ registerDevtoolsTab( {
 	label: __( 'Raw Logs', 'newspack-nodes' ),
 	host: 'hub',
 	slug: 'raw-logs',
+	param: 'log',
 	order: 20,
 	fullBleed: true,
 	component: RawLogs,

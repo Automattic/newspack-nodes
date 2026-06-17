@@ -174,6 +174,7 @@ describe( 'DevtoolsTabHost', () => {
 				label: 'Console',
 				host: 'hub',
 				slug: 'console',
+				param: 'topology',
 				order: 0,
 				component: ConsoleTab,
 			} );
@@ -190,6 +191,7 @@ describe( 'DevtoolsTabHost', () => {
 				label: 'Raw Logs',
 				host: 'hub',
 				slug: 'raw-logs',
+				param: 'log',
 				order: 20,
 				component: RawLogsTab,
 			} );
@@ -271,16 +273,40 @@ describe( 'DevtoolsTabHost', () => {
 				expect( params.get( 'tab' ) ).toBe( 'console' );
 			} );
 
-			it( 'writes the slug on a tab switch, preserving other params', () => {
-				window.history.replaceState( {}, '', '/?log=firehose' );
+			it( "preserves the active tab's own param across canonicalization", () => {
+				window.history.replaceState(
+					{},
+					'',
+					'/?tab=raw-logs&log=firehose'
+				);
+				registerThree();
+				render( <DevtoolsTabHost host="hub" syncUrl /> );
+				const params = new URLSearchParams( window.location.search );
+				expect( params.get( 'tab' ) ).toBe( 'raw-logs' );
+				// Raw Logs owns `log`, so it stays.
+				expect( params.get( 'log' ) ).toBe( 'firehose' );
+			} );
+
+			it( "drops another tab's deep-link param on switch", () => {
+				window.history.replaceState(
+					{},
+					'',
+					'/?tab=console&topology=alpha&log=firehose'
+				);
 				registerThree();
 				const { getByRole } = render(
 					<DevtoolsTabHost host="hub" syncUrl />
 				);
+				// Land on console: its own `topology` stays, raw-logs' `log` is dropped.
+				let params = new URLSearchParams( window.location.search );
+				expect( params.get( 'topology' ) ).toBe( 'alpha' );
+				expect( params.get( 'log' ) ).toBeNull();
+
+				// Switch to Raw Logs: now `topology` (console's) is dropped.
 				fireEvent.click( getByRole( 'tab', { name: 'Raw Logs' } ) );
-				const params = new URLSearchParams( window.location.search );
+				params = new URLSearchParams( window.location.search );
 				expect( params.get( 'tab' ) ).toBe( 'raw-logs' );
-				expect( params.get( 'log' ) ).toBe( 'firehose' );
+				expect( params.get( 'topology' ) ).toBeNull();
 			} );
 
 			it( 'switching uses replaceState, not pushState', () => {
