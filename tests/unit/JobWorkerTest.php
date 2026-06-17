@@ -764,7 +764,8 @@ class JobWorkerTest extends TestCase {
 			$jw->fill( $message );
 		}
 		$this->assertCount( 1, $flush_observed, 'first flush fires at jobs == interval' );
-		$this->assertSame( 3, $flush_observed[0]['jobs'] );
+		// CACHE_FLUSH payload is now a flat string (the job count).
+		$this->assertSame( '3', $flush_observed[0] );
 
 		for ( $i = 0; $i < 2; ++$i ) {
 			$message = $this->job_message( 'noop' );

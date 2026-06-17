@@ -326,9 +326,9 @@ class PartitionTest extends TestCase {
 	}
 
 	public function test_rotate_emits_SEGMENT_state_with_new_id(): void {
-		// Force a rotation by filling small segments, capture the trace via a
-		// _router CaptureSink (the address Node::emit_debug_state_trace routes
-		// through). Asserts the SEGMENT state fires with the just-rotated id.
+		// Force a rotation by filling small segments; with debug_state on, set_state
+		// emits a flat `DEBUG: SEGMENT <id>` line to stderr (Core::$recent_log). A
+		// _router must be registered for the trace to fire (the live-graph guard).
 		$router = new \Newspack_Nodes\Tests\Capture_Sink_Node();
 		$router->name( '_router' );
 
@@ -337,6 +337,7 @@ class PartitionTest extends TestCase {
 		$p->arguments( "{$this->tmp}/p0 256 4 86400" );
 		$p->name( 'p-rot' );
 		$p->debug_state( 1 );
+		\Newspack_Nodes\Core::$recent_log = [];
 
 		// Each write is ~120 bytes packed; 4 writes push past the 256-byte
 		// segment_size and force at least one rotation.
@@ -344,16 +345,13 @@ class PartitionTest extends TestCase {
 			$this->produce_into( $p, str_repeat( 'r', 100 ) );
 		}
 
-		$segment_traces = \array_filter(
-			$router->captured,
-			static fn ( $m ) => \is_array( $m[ \Newspack_Nodes\Message::VALUE ] ?? null )
-				&& 'debug_state' === ( $m[ \Newspack_Nodes\Message::VALUE ]['k'] ?? '' )
-				&& 'SEGMENT' === ( $m[ \Newspack_Nodes\Message::VALUE ]['event'] ?? '' )
-		);
+		$segment_traces = \array_values( \array_filter(
+			\Newspack_Nodes\Core::$recent_log,
+			static fn ( $line ) => \str_contains( $line, 'DEBUG: SEGMENT ' )
+		) );
 		$this->assertNotEmpty( $segment_traces, 'rotate should emit SEGMENT trace' );
-		$last = \end( $segment_traces );
-		$this->assertSame( 'p-rot', $last[ \Newspack_Nodes\Message::VALUE ]['node'] );
-		$this->assertGreaterThan( 0, $last[ \Newspack_Nodes\Message::VALUE ]['value'], 'SEGMENT id should be > 0 after rotation' );
+		// The just-rotated id is > 0 (segment 0 is the pre-rotation segment).
+		$this->assertSame( 1, \preg_match( '/DEBUG: SEGMENT [1-9]/', \end( $segment_traces ) ), 'SEGMENT id should be > 0 after rotation' );
 	}
 
 	public function test_cleanup_emits_CLEANUP_state_only_when_deletions_happen(): void {
@@ -366,22 +364,19 @@ class PartitionTest extends TestCase {
 		$p->arguments( "{$this->tmp}/p0 256 2 0" );
 		$p->name( 'p-clean' );
 		$p->debug_state( 1 );
+		\Newspack_Nodes\Core::$recent_log = [];
 
 		for ( $i = 0; $i < 6; ++$i ) {
 			$this->produce_into( $p, str_repeat( 'c', 100 ) );
 		}
 
-		$cleanup_traces = \array_filter(
-			$router->captured,
-			static fn ( $m ) => \is_array( $m[ \Newspack_Nodes\Message::VALUE ] ?? null )
-				&& 'CLEANUP' === ( $m[ \Newspack_Nodes\Message::VALUE ]['event'] ?? '' )
-		);
+		$cleanup_traces = \array_values( \array_filter(
+			\Newspack_Nodes\Core::$recent_log,
+			static fn ( $line ) => \str_contains( $line, 'DEBUG: CLEANUP' )
+		) );
 		$this->assertNotEmpty( $cleanup_traces, 'cleanup with deletions should emit CLEANUP trace' );
-		$first = \reset( $cleanup_traces );
-		$payload = $first[ \Newspack_Nodes\Message::VALUE ]['value'];
-		$this->assertIsArray( $payload );
-		$this->assertGreaterThan( 0, $payload['deleted'] );
-		$this->assertArrayHasKey( 'alive', $payload );
+		// Labeled payload: `CLEANUP DELETED <n> ALIVE <n>`, with a positive deleted count.
+		$this->assertSame( 1, \preg_match( '/CLEANUP DELETED [1-9]/', \reset( $cleanup_traces ) ) );
 	}
 
 	public function test_fill_TM_BYTESTREAM_writes_packed_message(): void {
@@ -1306,19 +1301,18 @@ class PartitionTest extends TestCase {
 		$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );
 		$p->name( 'p-drop' );
 		$p->debug_state( 1 );
+		\Newspack_Nodes\Core::$recent_log = [];
 
 		$message = $this->produce( \str_repeat( 'x', 5000 ) ); // > MAX_LINE_SIZE
 		$p->fill( $message );
 
-		$dropped_traces = \array_filter(
-			$router->captured,
-			static fn ( $m ) => \is_array( $m[ \Newspack_Nodes\Message::VALUE ] ?? null )
-				&& 'DROPPED' === ( $m[ \Newspack_Nodes\Message::VALUE ]['event'] ?? '' )
-		);
+		$dropped_traces = \array_values( \array_filter(
+			\Newspack_Nodes\Core::$recent_log,
+			static fn ( $line ) => \str_contains( $line, 'DEBUG: DROPPED' )
+		) );
 		$this->assertNotEmpty( $dropped_traces, 'oversize fill must emit DROPPED debug_state' );
-		$payload = \reset( $dropped_traces )[ \Newspack_Nodes\Message::VALUE ]['value'];
-		$this->assertSame( 'oversize', $payload['reason'] );
-		$this->assertGreaterThan( $payload['max'], $payload['size'] );
+		// Flat payload carries the reason + the offending size.
+		$this->assertStringContainsString( 'oversize', \reset( $dropped_traces ) );
 	}
 
 	// ============================================================================

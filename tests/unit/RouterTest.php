@@ -99,7 +99,9 @@ class RouterTest extends TestCase {
 		$ref = new \ReflectionProperty( $router, 'set_state' );
 		$ref->setAccessible( true );
 		$state = $ref->getValue( $router );
-		$this->assertSame( 'nonexistent', $state['NOT_AVAILABLE']['node'] );
+		// The NOT_AVAILABLE payload is now a flat string; the unreachable node name leads it.
+		$this->assertIsString( $state['NOT_AVAILABLE'] );
+		$this->assertStringContainsString( 'nonexistent', $state['NOT_AVAILABLE'] );
 	}
 
 	public function test_unknown_target_drops_TM_ERROR_messages_silently(): void {
