@@ -71,14 +71,14 @@ class Router_Node extends Timer_Node {
 		[ $node_name ] = Message::split_first( Core::as_string( $message[ Message::TO ] ) );
 		$this->set_state(
 			'NOT_AVAILABLE',
-			[
-				'node' => $node_name,
-				'type' => $message[ Message::TYPE ],
-				'from' => $message[ Message::FROM ],
-				'to'   => $message[ Message::TO   ],
-				'id'   => $message[ Message::ID   ],
-				'key'  => $message[ Message::KEY  ],
-			]
+			\implode( ' ', [
+				'NODE' => $node_name,
+				'TYPE' => \is_scalar( $message[ Message::TYPE ] ) ? $message[ Message::TYPE ] : '',
+				'FROM' => \is_scalar( $message[ Message::FROM ] ) ? $message[ Message::FROM ] : '',
+				'TO'   => \is_scalar( $message[ Message::TO   ] ) ? $message[ Message::TO   ] : '',
+				'ID'   => \is_scalar( $message[ Message::ID   ] ) ? $message[ Message::ID   ] : '',
+				'KEY'  => \is_scalar( $message[ Message::KEY  ] ) ? $message[ Message::KEY  ] : '',
+			] )
 		);
 		$type = $message[ Message::TYPE ];
 		if ( ( \is_int( $type ) ? $type : 0 ) & Message::TM_ERROR ) {

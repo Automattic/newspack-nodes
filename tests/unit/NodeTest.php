@@ -285,19 +285,11 @@ class NodeTest extends TestCase {
 
 		$this->assertCount( 1, $router->captured );
 		$message = $router->captured[0];
-		$this->assertSame( Message::TM_STRUCT, $message[ Message::TYPE ] );
-		$this->assertSame( '_repl',             $message[ Message::TO ] );
-		$this->assertSame( 'producer',          $message[ Message::FROM ] );
-
-		$v = $message[ Message::VALUE ];
-		$this->assertIsArray( $v );
-		$this->assertSame( 'debug_state', $v['k'] );
-		$this->assertSame( 'producer',    $v['node'] );
-		$this->assertSame( 'READY',       $v['event'] );
-		$this->assertSame( 'payload-x',   $v['value'] );
-		// `class` exposes the FQCN so dashboards / readers can render
-		// subclass-specific metadata without reflecting on the node itself.
-		$this->assertArrayHasKey( 'class', $v );
+		// Flat Tachikoma-style trace: a `DEBUG: <event> <payload>` line, the node in FROM.
+		$this->assertSame( Message::TM_BYTESTREAM, $message[ Message::TYPE ] );
+		$this->assertSame( '_repl',                $message[ Message::TO ] );
+		$this->assertSame( 'producer',             $message[ Message::FROM ] );
+		$this->assertSame( 'DEBUG: READY payload-x', $message[ Message::VALUE ] );
 	}
 
 	public function test_debug_state_silent_when_no_router_registered(): void {

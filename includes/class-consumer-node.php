@@ -262,7 +262,7 @@ class Consumer_Node extends Timer_Node {
 			if ( null !== $node && \method_exists( $node, 'restore_state' ) ) {
 				$node->restore_state( $this->loaded_cache );
 			} else {
-				$this->print_less_often( "Consumer: snapshot node '{$this->snapshot_node}' missing or has no restore_state(); discarding restored cache" );
+				$this->print_less_often( "WARNING: snapshot node '{$this->snapshot_node}' missing or has no restore_state(); discarding restored cache" );
 			}
 		}
 		$this->loaded_cache = null;
@@ -344,7 +344,7 @@ class Consumer_Node extends Timer_Node {
 		try {
 			$message = Message::unpacked( $line );
 		} catch ( \InvalidArgumentException $e ) {
-			$this->print_less_often( "Consumer: skipping unparseable line: {$e->getMessage()}" );
+			$this->print_less_often( "WARNING: skipping unparseable line: {$e->getMessage()}" );
 			return;
 		}
 		$stamp = '' !== $this->stamp_override ? $this->stamp_override : $this->name;
@@ -365,12 +365,10 @@ class Consumer_Node extends Timer_Node {
 		if ( \strlen( $this->buffer ) <= self::MAX_LINE_BUFFER_SIZE ) {
 			return;
 		}
-		// Short runtime class (e.g. Consumer / Tail) — this guard is inherited, so name the real node.
-		$node_class = \preg_replace( '/^.*\\\\|_Node$/', '', static::class );
 		$this->print_less_often(
-			\sprintf( '%s: line buffer exceeded %d bytes at seg %d - discarding', $node_class, self::MAX_LINE_BUFFER_SIZE, $this->cursor_seg )
+			\sprintf( 'WARNING: line buffer exceeded %d bytes at seg %d - discarding', self::MAX_LINE_BUFFER_SIZE, $this->cursor_seg )
 		);
-		$this->set_state( 'OVERFLOW', [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off, 'limit' => self::MAX_LINE_BUFFER_SIZE ] );
+		$this->set_state( 'OVERFLOW', \implode( ' ', [ 'SEGMENT' => $this->cursor_seg, 'OFFSET' => $this->cursor_off, 'LIMIT' => self::MAX_LINE_BUFFER_SIZE ] ) );
 		$this->cursor_off += \strlen( $this->buffer ); // Skip the garbage so polls don't re-read it.
 		$this->buffer      = '';
 	}
@@ -405,7 +403,7 @@ class Consumer_Node extends Timer_Node {
 				$this->cursor_off = 0;
 				$this->buffer     = '';
 				$this->at_eof     = false;
-				$this->set_state( 'SEGMENT', $this->cursor_seg );
+				$this->set_state( 'SEGMENT', (string) $this->cursor_seg );
 				return;
 			}
 			// Nothing more on disk. drain_buffer ran first this tick, so the buffer
@@ -508,7 +506,7 @@ class Consumer_Node extends Timer_Node {
 			$message = Message::unpacked( \end( $lines ) );
 		} catch ( \InvalidArgumentException $e ) {
 			// Unparseable entry: keep the current position rather than resuming.
-			$this->print_less_often( "Consumer: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
+			$this->print_less_often( "WARNING: ignoring unparseable offsetlog entry while seeding cursor: {$e->getMessage()}" );
 			return;
 		}
 		$entry = $message[ Message::VALUE ];
@@ -699,7 +697,7 @@ class Consumer_Node extends Timer_Node {
 		$this->checkpoint_seg = $this->cursor_seg;
 		$this->checkpoint_off = $this->cursor_off;
 
-		$this->set_state( 'CHECKPOINT', [ 'seg' => $this->cursor_seg, 'off' => $this->cursor_off ] );
+		$this->set_state( 'CHECKPOINT', \implode( ' ', [ 'SEGMENT' => $this->cursor_seg, 'OFFSET' => $this->cursor_off ] ) );
 	}
 
 	/**

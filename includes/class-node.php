@@ -264,24 +264,22 @@ class Node {
 		return true;
 	}
 
-	/** Notify + cache so new registrants get the payload at register-time. Emits a debug trace if enabled. */
-	public function set_state( string $event, mixed $payload = null ): void {
+	/**
+	  * Notify + cache so new registrants get the payload at register-time.
+	  * With debug_state on, emit a flat Tachikoma-style `DEBUG: <event> <payload>`
+	  */
+	public function set_state( string $event, string $payload = null ): void {
 		$this->set_state[ $event ] = $payload;
 		if ( $this->debug_state > 0 ) {
 			$router = Core::node( Node_Names::ROUTER );
 			if ( null !== $router ) {
+				$detail                        = \is_scalar( $payload ) ? $payload : '';
 				$message                       = Message::new_message();
-				$message[ Message::TYPE ]      = Message::TM_STRUCT;
+				$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
 				$message[ Message::TIMESTAMP ] = Core::$now;
 				$message[ Message::FROM ]      = $this->name;
 				$message[ Message::TO ]        = Node_Names::REPL;
-				$message[ Message::VALUE ]     = [
-					'k'     => 'debug_state',
-					'node'  => $this->name,
-					'class' => static::class,
-					'event' => $event,
-					'value' => $payload,
-				];
+				$message[ Message::VALUE ]     = 'DEBUG: ' . $event . ( '' !== $detail ? ' ' . $detail : '' );
 				$router->fill( $message );
 			}
 		}

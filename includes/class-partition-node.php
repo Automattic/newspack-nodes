@@ -132,7 +132,7 @@ class Partition_Node extends Timer_Node {
 		if ( $size > $max ) {
 			$this->set_state(
 				'DROPPED',
-				[ 'reason' => 'oversize', 'size' => $size, 'max' => $max ]
+				\implode( ' ', [ 'REASON' => 'oversize', 'SIZE' => $size, 'MAX' => $max ] )
 			);
 			return;
 		}
@@ -463,12 +463,12 @@ class Partition_Node extends Timer_Node {
 		}
 		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_touch, WordPressVIPMinimum.Functions.RestrictedFunctions.file_ops_touch
 		if ( ! @\touch( $this->current_log_path ) ) {
-			$this->print_less_often( "Partition: touch() failed for {$this->current_log_path}" );
+			$this->print_less_often( "WARNING: touch() failed for {$this->current_log_path}" );
 		}
 
 		$this->cleanup_segments();
 
-		$this->set_state( 'SEGMENT', $this->current_segment_id );
+		$this->set_state( 'SEGMENT', (string) $this->current_segment_id );
 	}
 
 	/**
@@ -500,7 +500,7 @@ class Partition_Node extends Timer_Node {
 
 		$deleted = $initial_count - $count;
 		if ( $deleted > 0 ) {
-			$this->set_state( 'CLEANUP', [ 'deleted' => $deleted, 'alive' => $count ] );
+			$this->set_state( 'CLEANUP', \implode( ' ', [ 'DELETED' => $deleted, 'ALIVE' => $count ] ) );
 		}
 	}
 
@@ -580,7 +580,7 @@ class Partition_Node extends Timer_Node {
 				$this->write_all( $this->idx_fh, $entry . "\n", $this->current_idx_path );
 			}
 		} catch ( \Throwable $e ) {
-			$this->print_less_often( 'Partition: index callback threw: ' . $e->getMessage() );
+			$this->print_less_often( 'WARNING: index callback threw: ' . $e->getMessage() );
 		}
 	}
 
