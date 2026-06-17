@@ -224,20 +224,16 @@ describe( 'mountExospine — full rebuild on graphGeneration', () => {
 	} );
 } );
 
-describe( 'mountExospine — no bump on mount', () => {
-	test( 'a build-delegated mount does NOT bump graphGeneration (mounting must not tear down a freshly-mounted tab)', () => {
+describe( 'mountExospine — host-mount signal', () => {
+	test( 'a build-delegated mount bumps graphGeneration (so an open overlay rebuilds its poll on a host tab switch)', () => {
 		const before = Core.graphGeneration;
 
 		mountExospine( () => {} );
 
-		// A mount-time bump used to auto-resync the overlay on a tab switch, but it
-		// also tore down the newly-mounted tab's nodes (the new exospine subscribes
-		// fullRebuild AFTER the bump). The graph VIEW re-derives from live Core.nodes
-		// by name, so no bump is needed — and emitting one here is destructive.
-		expect( Core.graphGeneration ).toBe( before );
+		expect( Core.graphGeneration ).toBe( before + 1 );
 	} );
 
-	test( 'a build-delegated mount runs build exactly once (no self-rebuild)', () => {
+	test( 'a build-delegated mount runs build exactly once (the pre-subscribe bump does not self-rebuild)', () => {
 		let builds = 0;
 		mountExospine( () => {
 			builds += 1;
@@ -246,7 +242,7 @@ describe( 'mountExospine — no bump on mount', () => {
 		expect( builds ).toBe( 1 );
 	} );
 
-	test( 'a bare mount does NOT bump graphGeneration', () => {
+	test( 'a bare mount does NOT bump graphGeneration (the console must not self-loop)', () => {
 		const before = Core.graphGeneration;
 
 		mountExospine();
