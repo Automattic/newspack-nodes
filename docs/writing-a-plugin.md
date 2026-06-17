@@ -8,6 +8,8 @@ The finished code is in [`examples/example-ai-newsletter/`](examples/example-ai-
 
 If you haven't run the example yet, do [getting-started.md](getting-started.md) first — it's the same pipeline, five minutes, no building.
 
+> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets below use bare names (`Releases_Source_Node`, `Summarizer_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Releases_Source_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-ai-newsletter`) that can be loaded in the same WP. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`) and the durable log is `example-scored.p*`. So when you diff against [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/), map each bare name → its `_Demo` form. The teaching code reads cleaner without the suffix; the example needs it.
+
 ---
 
 ## 0. What we're building
@@ -109,33 +111,24 @@ class Releases_Source_Node extends Node {
 		}
 	}
 
-	/** TICK handler: emit each item as a TM_STRUCT message, then reply with the count. */
+	/** TICK handler: emit each item as a TM_STRUCT message. Fire-and-forget — no reply. */
 	private function handle_request( array $message ): void {
-		$count = 0;
 		foreach ( $this->items() as $item ) {
 			$message                   = Message::new_message();
 			$message[ Message::TYPE ]  = Message::TM_STRUCT;
 			$message[ Message::FROM ]  = $this->name;
 			$message[ Message::VALUE ] = [ 'source' => 'releases' ] + $item;
 			parent::fill( $message );   // <-- see "the emit pattern" below
-			++$count;
 		}
-
-		// Reply to the caller along the breadcrumb: TO = the request's FROM.
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-		$reply[ Message::FROM ]  = $this->name;
-		$reply[ Message::TO ]    = $message[ Message::FROM ];
-		$reply[ Message::ID ]    = $message[ Message::ID ];
-		$reply[ Message::VALUE ] = [ 'verb' => 'TICK', 'data' => [ 'emitted' => $count ] ];
-		$this->sink->fill( $reply );
 	}
 }
 ```
 
-**The emit pattern (important).** A node that *generates* a message sends it with `parent::fill( $message )`, not `$this->fill( $message )`. The base `Node::fill()` does two things: it stamps `TO` from this node's `target` (whatever `connect_node` wired downstream) and forwards to the `sink`. Calling `$this->fill()` would re-enter *your own* `fill()` and recurse. So: build the message, `parent::fill()`. (Generator nodes across the substrate follow this exact pattern — see `Tail`.) The *reply* is different: it carries its own `TO` (the caller's breadcrumb), so it goes straight to `$this->sink->fill()`.
+**The emit pattern (important).** A node that *generates* a message sends it with `parent::fill( $message )`, not `$this->fill( $message )`. The base `Node::fill()` does two things: it stamps `TO` from this node's `target` (whatever `connect_node` wired downstream) and forwards to the `sink`. Calling `$this->fill()` would re-enter *your own* `fill()` and recurse. So: build the message, `parent::fill()`. (Generator nodes across the substrate follow this exact pattern — see `Tail`.)
 
-**Where does `TICK` come from?** It's a **runtime trigger**, so it's a `TM_REQUEST` you handle in `fill()` — *not* a `TM_COMMAND` verb on a sibling interpreter. (Reserve `TM_COMMAND` / `node_schema()['commands']` for *admin/config* that runs at build time; see the convention box in §0.) `fill()` branches on the `TM_REQUEST` flag, does the work, and replies `TM_STRUCT | TM_RESPONSE` back along the FROM breadcrumb. The substrate's own readers do exactly this — see `Consumer_Node::handle_request` (its `GET_LAG` / `GET_OFFSET`).
+**Sources are fire-and-forget.** The TICK handler emits and returns — it sends **no reply**. Triggering `request_node releases TICK` drives the emit; you won't see a `{ emitted }` echo back. (A node *can* reply along the breadcrumb — `TO = $message[FROM]`, `TM_STRUCT | TM_RESPONSE` — and the substrate's own readers do, e.g. `Consumer_Node::handle_request`'s `GET_LAG`. But a source has nothing to report, so it doesn't.)
+
+**Where does `TICK` come from?** It's a **runtime trigger**, so it's a `TM_REQUEST` you handle in `fill()` — *not* a `TM_COMMAND` verb on a sibling interpreter. (Reserve `TM_COMMAND` / `node_schema()['commands']` for *admin/config* that runs at build time; see the convention box in §0.) `fill()` branches on the `TM_REQUEST` flag and does the work. A request handler *may* reply `TM_STRUCT | TM_RESPONSE` back along the FROM breadcrumb — the substrate's own readers do (see `Consumer_Node::handle_request`'s `GET_LAG` / `GET_OFFSET`) — but this source doesn't: it emits and returns.
 
 You still document the verb in `node_schema()`, under a **`requests`** key (the runtime counterpart to `commands`) so the console palette and per-node Inspector list it:
 
@@ -172,10 +165,9 @@ wp nodes cli            # bare REPL: local nodes only
 ```
 > make_node Releases_Source releases
 > request_node releases TICK
-{ "verb": "TICK", "data": { "emitted": 2 } }
 ```
 
-It lives. Ana is done — she never wrote a line about summaries or drafts.
+The source is fire-and-forget, so there's no reply to print — the two items were emitted to the (not-yet-wired) sink and dropped. It lives. Ana is done — she never wrote a line about summaries or drafts.
 
 ---
 
@@ -217,10 +209,9 @@ It's a pure transform — no verbs, just `fill()`. Wire a source to it and watch
 > make_node Summarizer summarizer
 > connect_node releases summarizer          # releases' target = summarizer
 > request_node releases TICK
-{ "verb": "TICK", "data": { "emitted": 2 } }
 ```
 
-`connect_node releases summarizer` set the releases node's `target` to `summarizer`; now each emitted item is stamped `TO=summarizer` and the router delivers it. The summarizer adds a `summary` and forwards. (Add a `Log` after the summarizer if you want to eyeball the struct — or just trust the counts in step 5.)
+`connect_node releases summarizer` set the releases node's `target` to `summarizer`; now each emitted item is stamped `TO=summarizer` and the router delivers it. (The source is fire-and-forget — the TICK prints nothing; the items flow to the summarizer.) The summarizer adds a `summary` and forwards. (Add a `Log` after the summarizer if you want to eyeball the struct — or just trust the counts in step 5.)
 
 ---
 
@@ -319,7 +310,7 @@ Four nodes, a working pipeline. You wrote three; `Log` you reused.
 
 Typing `make_node`/`connect_node` by hand is how you explore. To run it as a real, persistent worker, write the same lines to a topology file.
 
-`topologies/digest.tsl` — this is the **finished** file (it already includes the `community` source from step 6 and the `Tee` tap; if you're following along, leave `community` and its `connect_node` out until step 6):
+`topologies/example-ai-newsletter.tsl` — shown here **simplified for teaching** (it already includes the `community` source from step 6 and the `Tee` tap; if you're following along, leave `community` and its `connect_node` out until step 6):
 
 ```
 var num_partitions = 1
@@ -337,18 +328,20 @@ connect_node tee        log
 connect_node tee        _repl
 ```
 
+> **The shipped `.tsl` does more.** This is a teaching reduction. The real [`topologies/example-ai-newsletter.tsl`](examples/example-ai-newsletter/topologies/example-ai-newsletter.tsl) additionally inserts a `Scorer` between the summarizer and a **durable scored `Partition`** (`example-scored.p<partition>`), with a `Consumer` tailing it back into the digest and `set_snapshot_node digest` co-committing the digest's state — that's the durability the [dashboard guide](writing-a-dashboard.md) reads from. Ignore that middle for now; it's [writing-a-dashboard.md](writing-a-dashboard.md)'s §1.
+
 A few things this file adds that the by-hand session didn't:
 
 - `var num_partitions = 1` is a topology **variable** — frontmatter the supervisor reads to size the worker pool. (`var <name> = <value>` is a Shell verb; `num_partitions` is the one the runtime acts on. Omit it and the topology still defaults to one partition, but copy the line so the example partitions the way the shipped file does.)
 - A `Tee` fans the draft into **two** sinks — the `Log` file *and* `_repl`. The `_repl` tap is what lets the topology console (and a pivoted `wp nodes cli`) actually *see* the emitted draft scroll by; without it the draft only ever lands in the file. (`Tee` is the fan-out node introduced in step 6.)
 - `Log log <file> 1 7` passes the file's positional `arguments` — `file`, `segment_size` (`1` → roll every write), `num_segments` (`7` → keep the last 7 segments `{file}.0`…`{file}.6`). The by-hand version omitted them and took the defaults (one large growing segment).
 
-`register_plugin` (step 1) already pointed at `topologies/`, so this file is now a catalog entry. Activate the plugin, make sure `digest` is in the active set (full catalog is active by default, or enable it under **Settings → Nodes Runtime → Topologies**), and the supervisor spawns it:
+`register_plugin` (step 1) already pointed at `topologies/`, so this file is now a catalog entry. Activate the plugin, make sure `example-ai-newsletter` is in the active set (full catalog is active by default, or enable it under **Settings → Nodes Runtime → Topologies**), and the supervisor spawns it:
 
 ```bash
 composer dump-autoload -o
 wp nodes ls
-#   digest.p0   [live]
+#   example-ai-newsletter.p0   [live]
 ```
 
 Open the **topology console**. There's your graph — the same boxes and arrows you drew above — now live, with a message count on every edge. This is the payoff of the uniform contract: because every node speaks `fill()` and announces itself via `node_schema()`, the dashboard can render and drive a graph it has never seen. You didn't build any of this observability.
@@ -356,7 +349,7 @@ Open the **topology console**. There's your graph — the same boxes and arrows 
 `cd` into the worker and drive it from the console's REPL — or pivot a terminal in:
 
 ```bash
-wp nodes cli digest.p0
+wp nodes cli example-ai-newsletter.p0
 ```
 ```
 > request_node releases TICK
@@ -392,23 +385,13 @@ class Community_Source_Node extends Node {
 	}
 
 	private function handle_request( array $message ): void {
-		$count = 0;
 		foreach ( $this->items() as $item ) {
 			$message                   = Message::new_message();
 			$message[ Message::TYPE ]  = Message::TM_STRUCT;
 			$message[ Message::FROM ]  = $this->name;
 			$message[ Message::VALUE ] = [ 'source' => 'community' ] + $item;
-			parent::fill( $message );
-			++$count;
+			parent::fill( $message );   // fire-and-forget — emit, no reply
 		}
-
-		$reply                   = Message::new_message();
-		$reply[ Message::TYPE ]  = Message::TM_STRUCT | Message::TM_RESPONSE;
-		$reply[ Message::FROM ]  = $this->name;
-		$reply[ Message::TO ]    = $message[ Message::FROM ];
-		$reply[ Message::ID ]    = $message[ Message::ID ];
-		$reply[ Message::VALUE ] = [ 'verb' => 'TICK', 'data' => [ 'emitted' => $count ] ];
-		$this->sink->fill( $reply );
 	}
 
 	// node_schema(): same shape as Releases_Source — category 'Source', a `TICK`
@@ -429,14 +412,12 @@ Then he adds his node to the topology and points it at the summarizer — **one 
 
 ```bash
 composer dump-autoload -o
-wp nodes restart digest --all-partitions    # reload the topology
-wp nodes cli digest.p0
+wp nodes restart example-ai-newsletter --all-partitions    # reload the topology
+wp nodes cli example-ai-newsletter.p0
 ```
 ```
 > request_node releases  TICK
-{ "verb": "TICK", "data": { "emitted": 2 } }
 > request_node community TICK
-{ "verb": "TICK", "data": { "emitted": 3 } }
 > request_node digest FLUSH
 { "verb": "FLUSH", "data": { "flushed": 5 } }
 ```

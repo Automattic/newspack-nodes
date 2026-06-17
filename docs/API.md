@@ -2,7 +2,7 @@
 
 The runtime ships three REST endpoints — the worker spawn handler, the unified command-dispatch endpoint, and a server-sent-events stream. Application plugins register their own endpoints (dashboards, additional streams, etc.) on top, plus mount service `Command_Interpreter_Node`s into the dispatch endpoint's graph via the `newspack_nodes/request_graph_ready` hook.
 
-For the full architecture and rationale, see [ARCHITECTURE.md](architecture-guide.md).
+For the full architecture and rationale, see [architecture-guide.md](architecture-guide.md).
 
 ## Worker Spawn
 
@@ -157,7 +157,7 @@ The substrate plugin mounts 5 service CIs via `newspack_nodes/request_graph_read
 |---------------|-------|-------|
 | `classes` | `Classes_CI_Node` | `list` |
 | `layouts` | `Layouts_CI_Node` | `get`, `save` |
-| `topologies` | `Topologies_CI_Node` | `list`, `get`, `save`, `delete`, `connect_worker_input` |
+| `topologies` | `Topologies_CI_Node` | `list`, `get`, `save`, `delete`, `activate`, `deactivate`, `connect_worker_input` |
 | `raw-logs` | `Raw_Logs_CI_Node` | `list_logs`, `log_status` |
 | `workers` | `Workers_CI_Node` | `list`, `dump_graph`, `cleanup_status`, `restart`, `heartbeat` |
 
@@ -175,7 +175,7 @@ Application plugins layer additional CIs onto the same endpoint (the first being
 
 Verb handlers receive three positional arguments — `( Command_Interpreter_Node $interpreter, string $arguments, array $envelope = [] )`. The `$envelope` is the full 7-field positional Message; the `save` verbs use it to enforce the 1 MiB body cap via `Message::packed_size( $envelope )`.
 
-**`KEY='completion'` mode.** A `help` or `ls` command carrying `KEY='completion'` returns a bare newline-separated candidate list (sorted verb names / bare node names) instead of the tabulated output — the substrate's `TM_COMPLETION` analogue, used by REPL tab-completion. See [ARCHITECTURE.md → Completion-query mode](ARCHITECTURE.md#repl-wp-nodes-cli).
+**`KEY='completion'` mode.** A `help` or `ls` command carrying `KEY='completion'` returns a bare newline-separated candidate list (sorted verb names / bare node names) instead of the tabulated output — the substrate's `TM_COMPLETION` analogue, used by REPL tab-completion. See [architecture-guide.md → Completion-query mode](architecture-guide.md#repl-wp-nodes-cli).
 
 Per-verb args, return shapes, and error semantics are declared on each CI's `node_schema()` (`commands[]`) in `includes/rest/class-{classes,layouts,topologies,raw-logs,workers}-ci-node.php`; the topology-editor palette and live-mode Inspector consume the same schema. Auth gating is uniform: the `/command` endpoint requires `manage_options` (see "Permission callback" above), and per-verb application-side caps are an application concern.
 

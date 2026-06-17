@@ -8,6 +8,8 @@ The finished code is in [`examples/example-ai-newsletter/`](examples/example-ai-
 
 Do [writing-a-plugin.md](writing-a-plugin.md) first if you haven't — this guide assumes the digest pipeline (sources → summarizer → digest) and the `fill`/`sink`/`target`/`node_schema` vocabulary.
 
+> **Diffing against the shipped code — the `_Demo` suffix.** The teaching snippets use bare names (`Scorer_Node`, `Insights_CI_Node`, …), but the bundled example carries a `_Demo` suffix on every class — `Scorer_Demo_Node`, `Insights_CI_Demo_Node`, files `class-*-demo-node.php`, namespace `Example_AI_Newsletter` — to deconflict from the real sibling plugin (`newspack-ai-newsletter`) that can be loaded in the same WP. Likewise the topology file is `topologies/example-ai-newsletter.tsl` (name `example-ai-newsletter`), the durable log is `example-scored.p*`, and the mounted server CI node is `insights-demo`. So when you diff against [`examples/example-ai-newsletter/`](examples/example-ai-newsletter/), map each bare name → its `_Demo` form.
+
 > **A note on how this guide was written.** Every section below ends at a primitive in the substrate — `enqueue_react_page`, `buildDashboards`, `createJestConfig`, `PendingReplies`, `useDashboardGraph`, `read_latest_value_at`. None of those existed when the dashboard was first built: each was 20–250 lines of copy-paste in the example until writing *this* walkthrough made the boilerplate impossible to ignore, at which point it moved into the substrate. That's the same rule the first guide follows — **when a step feels like boilerplate, the fix belongs in the substrate, not the tutorial.** Where a step is one call today, this guide says what it replaced, so you can see the seam.
 
 ---
@@ -23,7 +25,7 @@ Do [writing-a-plugin.md](writing-a-plugin.md) first if you haven't — this guid
                                │  POST /newspack-nodes/v1/command   {verb: "insights"}
                                ▼
    ════════════════════════════ server ════════════════════════════
-   Insights_CI  ──reads──>  offsets/scored.p0   (the durable snapshot the worker wrote)
+   Insights_CI  ──reads──>  offsets/example-scored.p0   (the durable snapshot the worker wrote)
 ```
 
 The dashboard graph is **two nodes** clipped onto the substrate's REPL backbone: `_http` (the HTTP egress boundary) and `insights:view` (a view-model node that holds the data React reads). A page-visibility-gated poll fires an `insights` command; it travels over `_http` to a server-side **service interpreter** (`Insights_CI`), which reads the worker's durable snapshot and replies with the model. `insights:view` publishes the model; React re-renders. No SSE — the repeated poll *is* the live data.
@@ -93,7 +95,7 @@ It slots between the summarizer and the digest: `summarizer → scorer → …`.
 
 The dashboard runs in a **web request**, a different process from the worker. It can't read the digest node's in-memory `$items`. So the pipeline has to write its state somewhere durable, and the substrate already has the parts: a **`Partition`** (an append-only log) and a **`Consumer`** (tails a log and forwards each record), plus the Consumer's **snapshot** feature, which co-commits a node's `save_state()` alongside its read cursor.
 
-Here is the finished `topologies/digest.tsl` for this chapter — the scored, durable graph:
+Here is the finished `topologies/example-ai-newsletter.tsl` for this chapter — the scored, durable graph (the durable log is `example-scored.p*`, not bare `scored.p*`, to keep the demo's data isolated from a real plugin's `scored` log in the same substrate dir):
 
 ```
 var num_partitions = 1
@@ -105,9 +107,9 @@ make_node Digest_Builder   digest
 make_node Tee              digest:tee
 make_node Log              digest:log /tmp/example-ai-newsletter/digest.md 1 7
 cmd digest:log:config void_warranty
-make_node Partition        scored:partition <config:logs_dir>/scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
+make_node Partition        scored:partition <config:logs_dir>/example-scored.p<partition> <config:segment_size> <config:num_segments> <config:max_lifespan>
 cmd scored:partition:config void_warranty
-make_node Consumer         scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>
+make_node Consumer         scored:consumer <config:logs_dir>/example-scored.p<partition> <config:offsets_dir>/example-scored.p<partition>
 cmd scored:consumer:config set_snapshot_node digest
 make_node Scorer           scorer
 connect_node releases    summarizer
@@ -148,7 +150,7 @@ public function restore_state( array $state ): void {
 }
 ```
 
-That's the whole durability story: the worker writes a snapshot the web request can read. Restart the worker, drive the pipeline, and `offsets/scored.p0` now holds the digest's scored items. Nothing in the dashboard reads in-memory state — it reads that snapshot.
+That's the whole durability story: the worker writes a snapshot the web request can read. Restart the worker, drive the pipeline, and `offsets/example-scored.p0` now holds the digest's scored items. Nothing in the dashboard reads in-memory state — it reads that snapshot.
 
 ---
 
@@ -176,7 +178,7 @@ class Insights_CI_Node extends Service_CI_Node {
 	/** Shape the dashboard model from the scored offsetlog snapshot(s). */
 	public static function read_insights_model( string $offsets_dir ): array {
 		$empty = [ 'sources' => [], 'top' => [], 'accumulated' => 0 ];
-		$dirs  = \glob( \rtrim( $offsets_dir, '/' ) . '/scored.p*', \GLOB_ONLYDIR );
+		$dirs  = \glob( \rtrim( $offsets_dir, '/' ) . '/example-scored.p*', \GLOB_ONLYDIR );
 		if ( false === $dirs || [] === $dirs ) {
 			return $empty;
 		}
@@ -256,11 +258,11 @@ public static function node_schema(): array {
 ```php
 // In the plugin file: mount the CI into every request graph (idempotent).
 function mount_insights_ci( \Newspack_Nodes\Command_Interpreter_Node $base ): void {
-	if ( null !== \Newspack_Nodes\Core::node( 'insights' ) ) {
+	if ( null !== \Newspack_Nodes\Core::node( 'insights-demo' ) ) {
 		return;
 	}
 	require_once __DIR__ . '/includes/class-insights-ci.php';
-	$base->make_node( 'Insights_CI', 'insights' );
+	$base->make_node( 'Insights_CI', 'insights-demo' );
 }
 add_action( 'newspack_nodes/request_graph_ready', __NAMESPACE__ . '\\mount_insights_ci' );
 ```
@@ -270,9 +272,9 @@ The verb returns the **fully-shaped model as a JSON string** — there is no tra
 You can verify this half **with no browser at all** — it's just PHP:
 
 ```bash
-wp eval '$m = \Newspack_AI_Newsletter\Insights_CI_Node::read_insights_model(
+wp eval '$m = \Example_AI_Newsletter\Insights_CI_Demo_Node::read_insights_model(
   \Newspack_Nodes\Config::get_offsets_directory() ); echo json_encode( $m );'
-# {"sources":{"releases":6,"community":6},"top":[{"source":"releases","title":"Roundup Block ships","score":6}, …],"accumulated":12}
+# {"sources":{"releases":2,"community":3},"top":[{"source":"releases","title":"Roundup Block ships","score":6}, …],"accumulated":5}
 ```
 
 Server-side done. Now the browser.
@@ -356,12 +358,12 @@ import '../nodes/register';
 const HTTP = '_http';
 const VIEW = 'insights:view';
 
-/** Build the `insights` TM_COMMAND: TO=`_http/insights`, FROM=view (the reply pivot). */
+/** Build the `insights` TM_COMMAND: TO=`_http/insights-demo`, FROM=view (the reply pivot). */
 function buildInsightsCommand( id ) {
 	const m = newMessage();
 	m[ TYPE ]  = TM_COMMAND;
 	m[ FROM ]  = VIEW;
-	m[ TO ]    = `${ HTTP }/insights`;
+	m[ TO ]    = `${ HTTP }/insights-demo`;
 	m[ ID ]    = id;
 	m[ VALUE ] = { name: 'insights', arguments: '' };
 	return m;
@@ -379,7 +381,7 @@ export function useInsightsGraph( { commandClient, refreshMs = 4000 } = {} ) {
 
 That's the whole hook. You supply two closures — **`mountNodes`** (mount your view node) and **`poll`** (fire your command) — and `useDashboardGraph` owns the rest.
 
-The command itself is worth reading once, because it's the routing in miniature: `TO=_http/insights` means the router peels `_http` (delivering the bare command to the `HttpOut` egress, which POSTs it), and `FROM=insights:view` is the reply pivot — the server CI replies `TO=FROM`, so the reply lands back at the view. Same TO/FROM mechanics as the PHP side; the only new node is `_http`, the boundary between the browser graph and the server.
+The command itself is worth reading once, because it's the routing in miniature: `TO=_http/insights-demo` means the router peels `_http` (delivering the bare command to the `HttpOut` egress, which POSTs it), and `FROM=insights:view` is the reply pivot — the server CI replies `TO=FROM`, so the reply lands back at the view. Same TO/FROM mechanics as the PHP side; the only new node is `_http`, the boundary between the browser graph and the server.
 
 > **← a substrate refinement.** `useInsightsGraph` was ~120 lines: a `useEffect` that called `mountExospine`, mounted an `HttpOut` and built a `CommandClient` from `window.NewspackNodesData`, bumped a re-render so `useNodeState` rebinds, fired an immediate poll, then a second `useEffect` running a page-visibility-gated `setInterval` — plus its own `makeOpId`. Every poll dashboard repeated it. It became **`useDashboardGraph({ mountNodes, poll, refreshMs, commandClient })`** (it returns `{ interpreterRef }` for dashboards that also fire awaited verbs, like WorkerStatus's restart). The `commandClient` parameter is the test seam — pass a fake and the hook never touches the network. **Not every dashboard fits it:** the SSE dashboards (a live request stream) keep their own `_sse`/`_heartbeat` mount, because they aren't a poll. Adopting it there would be a false fit — the substrate gives you the shape that's genuinely shared, not one stretched over cases that differ.
 
@@ -604,13 +606,13 @@ The `NewspackNodesData` the registrar localizes (`{ restUrl, nonce }`) is exactl
 ```bash
 # Build the bundle, then deploy/activate the plugin on a site with the substrate.
 npm run build
-wp nodes ls                       #   digest.p0   [live]
+wp nodes ls                       #   example-ai-newsletter.p0   [live]
 ```
 
 The worker is live but its snapshot is empty until the pipeline runs. Drive it from the worker's REPL — the sources emit on a `TICK` runtime request (`request_node`, not an admin command):
 
 ```bash
-wp nodes cli digest.p0
+wp nodes cli example-ai-newsletter.p0
 ```
 ```
 > request_node releases  TICK
