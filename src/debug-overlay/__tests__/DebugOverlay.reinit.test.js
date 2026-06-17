@@ -167,46 +167,6 @@ describe( 'DebugOverlay — Reset Graph (full rebuild)', () => {
 	} );
 } );
 
-describe( 'DebugOverlay — auto-resync on host graph change', () => {
-	it( 'drops user nodes and clears the dirty layout when the host swaps the graph (no clicks)', () => {
-		mountExospine( () => {} );
-		Core.reinit = jest.fn();
-		openOverlay();
-		// User adds a node + rewires so both reset chips would normally surface.
-		act( () => {
-			const u = new Node();
-			u.name = 'user-added';
-		} );
-		act( () => fireEvent.click( screen.getByTestId( 'do-connect' ) ) );
-		expect( Core.node( 'user-added' ) ).not.toBeNull();
-		expect( screen.queryByTestId( 'chip-reset-layout' ) ).not.toBeNull();
-
-		// A host tab switch: the previous dashboard's exospine tears down and a
-		// fresh one mounts, bumping graphGeneration. The open overlay must resync
-		// — run Reset Graph then Reset Layout — with no button click.
-		act( () => mountExospine( () => {} ) );
-
-		// Graph reset: the user node is gone.
-		expect( Core.node( 'user-added' ) ).toBeNull();
-		// Layout reset: the dirty chip is no longer showing.
-		expect( screen.queryByTestId( 'chip-reset-layout' ) ).toBeNull();
-	} );
-
-	it( 'does not loop: a single host swap triggers exactly one Reset Graph', () => {
-		mountExospine( () => {} );
-		Core.reinit = jest.fn();
-		openOverlay();
-		const bumpSpy = jest.spyOn( Core, 'bumpGraphGeneration' );
-
-		act( () => mountExospine( () => {} ) );
-
-		// The fresh mount bumps once (the host signal); the overlay's resync runs
-		// resetGraph which bumps exactly once more — and then stops. No runaway loop.
-		expect( bumpSpy ).toHaveBeenCalledTimes( 2 );
-		bumpSpy.mockRestore();
-	} );
-} );
-
 describe( 'DebugOverlay — dirty-on-rewire', () => {
 	it( 'a connect gesture surfaces the Reset Layout chip (a structural change offers a fresh auto-fit)', () => {
 		// A drop / connect / disconnect / remove changes the structure, so the

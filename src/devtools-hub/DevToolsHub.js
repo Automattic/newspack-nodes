@@ -54,7 +54,9 @@ export default function DevToolsHub() {
 				}
 			/>
 			{ activeTabId && CONSOLE_TAB_ID !== activeTabId && (
-				<DebugOverlay storageKey="newspack-nodes:debug:hub" />
+				<DebugOverlay
+					storageKey={ `newspack-nodes:debug:hub:${ activeTabId }` }
+				/>
 			) }
 		</div>
 	);
