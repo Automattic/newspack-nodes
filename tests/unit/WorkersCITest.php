@@ -912,7 +912,7 @@ class WorkersCITest extends TestCase {
 		);
 
 		// `aggregator` is registered (catalog num_partitions=1) by arrange_base_dir().
-		// Declare its `scored.log` Partition so basenames_for() maps scored → aggregator.
+		// Declare its `scored.log` Partition so resolved_resource_dirs() maps scored → aggregator.
 		$stock = "{$base}/topologies";
 		\mkdir( $stock, 0755, true );
 		\file_put_contents(

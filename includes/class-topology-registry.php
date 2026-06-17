@@ -20,9 +20,6 @@ class Topology_Registry {
 	/** @var string Writable per-deployment user dir. */
 	private static string $user_dir = '';
 
-	/** @var array<string,array<string>> Per-topology basename cache; cleared by reset(). */
-	private static array $basename_cache = [];
-
 	/** @var array<string,array<string,int>> Memoized per-Partition segment_size overrides by topology name. */
 	private static array $segment_size_overrides_cache = [];
 
@@ -305,43 +302,6 @@ class Topology_Registry {
 	}
 
 	/**
-	 * Log basenames declared by `$name`'s Partition nodes (sorted, deduped). The
-	 * basename is the part before the `.p<partition>` token in the flat path
-	 * layout (e.g. `requests` from `<config:logs_dir>/requests.p<partition>`). Memoized.
-	 *
-	 * @return array<string>
-	 */
-	public static function basenames_for( string $name ): array {
-		if ( isset( self::$basename_cache[ $name ] ) ) {
-			return self::$basename_cache[ $name ];
-		}
-		$path = self::resolve( $name );
-		if ( null === $path ) {
-			return self::$basename_cache[ $name ] = [];
-		}
-		// phpcs:ignore WordPressVIPMinimum.Performance.FetchingRemoteData.FileGetContentsUnknown
-		$contents = (string) \file_get_contents( $path );
-		$seen     = [];
-		foreach ( \explode( "\n", $contents ) as $raw ) {
-			$line = \trim( $raw );
-			if ( '' === $line || '#' === $line[0] ) {
-				continue;
-			}
-			if ( ! \preg_match(
-				'/^make_node\s+Partition\s+\S+\s+\S*\/([A-Za-z0-9_-]+)\.p<partition>(?:\s|$)/',
-				$line,
-				$m
-			) ) {
-				continue;
-			}
-			$seen[ $m[1] ] = true;
-		}
-		$out = \array_keys( $seen );
-		\sort( $out );
-		return self::$basename_cache[ $name ] = $out;
-	}
-
-	/**
 	 * Per-Partition literal segment_size overrides from `$name`'s TSL (`{basename => int}`). Memoized.
 	 *
 	 * Token-substituted values are omitted; the caller falls back to the global default.
@@ -495,7 +455,6 @@ class Topology_Registry {
 
 	/** Drop only the parsed caches, keeping the dir registrations (wired to Config::RESET_ACTION). */
 	public static function reset_basename_cache(): void {
-		self::$basename_cache               = [];
 		self::$segment_size_overrides_cache = [];
 		self::$write_set_cache              = [];
 		self::$graph_cache                  = [];
