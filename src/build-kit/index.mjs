@@ -41,6 +41,18 @@ export const WP_EXTERNALS = {
 		global: 'window.wp.components',
 		handle: 'wp-components',
 	},
+	// Block model + the editor's markdown-paste engine (pasteHandler/serialize).
+	'@wordpress/blocks': {
+		global: 'window.wp.blocks',
+		handle: 'wp-blocks',
+	},
+	// Core block registry (registerCoreBlocks). Large, but a real runtime WP
+	// script — externalize so WP enqueues it and the dashboard reuses the same
+	// registry the editor does, instead of bundling a duplicate.
+	'@wordpress/block-library': {
+		global: 'window.wp.blockLibrary',
+		handle: 'wp-block-library',
+	},
 	'@wordpress/i18n': {
 		global: 'window.wp.i18n',
 		handle: 'wp-i18n',
