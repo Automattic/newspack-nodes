@@ -953,6 +953,61 @@ class ConsumerTest extends TestCase {
 		$this->assertSame( '0:0', $cap->captured[0][ Message::ID ] );
 	}
 
+	public function test_poll_overwrites_existing_TO_with_target(): void {
+		// Consumer forces TO = its target on every emitted line, OVERWRITING any
+		// TO the stored message already carried (forward_line()). This is unlike
+		// plain Node, which stamps TO only when it's empty (see the companion
+		// test below). `wp nodes cli` relies on the distinction: it routes the
+		// shared output-IPC partition through a plain Node, NOT a Consumer, so
+		// each reply keeps its own TO and the Dumper's per-PID to_filter can drop
+		// other sessions' traffic — a Consumer here would rewrite every reply's
+		// TO to _output and dump all sessions into the REPL.
+		$source = new Partition_Node();
+		$source->arguments( "{$this->tmp}/data/p0 " . ( 64*1024 ) . " 4 86400" );
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$message[ Message::TIMESTAMP ] = 1234567890.0;
+		$message[ Message::TO ]        = '_sse/browser-99';
+		$message[ Message::VALUE ]     = 'reply';
+		$source->fill( $message );
+		$source->flush();
+
+		$c = new Consumer_Node();
+		$c->arguments( "{$this->tmp}/data/p0 {$this->tmp}/offsets/r/p0" );
+		$c->target( Node_Names::OUTPUT );
+		$cap = new Capture_Sink_Node();
+		$c->sink( $cap );
+		$this->pump_consumer( $c );
+
+		$this->assertCount( 1, $cap->captured );
+		$this->assertSame(
+			Node_Names::OUTPUT,
+			$cap->captured[0][ Message::TO ],
+			'Consumer must overwrite an already-set TO with its target'
+		);
+	}
+
+	public function test_plain_node_preserves_existing_TO_when_target_set(): void {
+		// The soft-route contrast that makes the cli fix work: a plain Node with
+		// a target leaves a non-empty TO untouched (stamps only when TO is empty).
+		$node = new Node();
+		$node->target( Node_Names::OUTPUT );
+		$cap = new Capture_Sink_Node();
+		$node->sink( $cap );
+
+		$message                  = Message::new_message();
+		$message[ Message::TYPE ] = Message::TM_BYTESTREAM;
+		$message[ Message::TO ]   = '_sse/browser-99';
+		$node->fill( $message );
+
+		$this->assertCount( 1, $cap->captured );
+		$this->assertSame(
+			'_sse/browser-99',
+			$cap->captured[0][ Message::TO ],
+			'plain Node must NOT overwrite an already-set TO'
+		);
+	}
+
 	// ============================================================================
 	// load_offsetlog() — corrupt / malformed checkpoint entries.
 	// ============================================================================
