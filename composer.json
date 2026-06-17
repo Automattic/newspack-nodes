@@ -21,7 +21,8 @@
 		"szepeviktor/phpstan-wordpress": "^2.0",
 		"php-stubs/wp-cli-stubs": "^2.12",
 		"phpunit/phpunit": "^10.0",
-		"phpstan/phpstan-strict-rules": "^2.0"
+		"phpstan/phpstan-strict-rules": "^2.0",
+		"shipmonk/dead-code-detector": "^1.2"
 	},
 	"config": {
 		"platform": {
@@ -40,13 +41,15 @@
 		},
 		"phpstan/extension-installer": {
 			"ignore": [
-				"phpstan/phpstan-strict-rules"
+				"phpstan/phpstan-strict-rules",
+				"shipmonk/dead-code-detector"
 			]
 		}
 	},
 	"scripts": {
 		"lint": "phpcs",
 		"lint:fix": "phpcbf",
+		"deadcode": "phpstan analyse -c phpstan-deadcode.neon --memory-limit=2G",
 		"build:autoloaders": "composer install --optimize-autoloader",
 		"build-release": "./build-release.sh",
 		"post-install-cmd": [
