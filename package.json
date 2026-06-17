@@ -62,6 +62,8 @@
 	"overrides": {
 		"@typescript-eslint/typescript-estree": {
 			"minimatch": "^9.0.7"
-		}
+		},
+		"@babel/core": "^7.29.6",
+		"js-yaml": "^4.2.0"
 	}
 }
