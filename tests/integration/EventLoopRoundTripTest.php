@@ -53,7 +53,7 @@ class EventLoopRoundTripTest extends TestCase {
 			$router->fire_cb();
 		}
 
-		$this->assertSame( 5, $piggy->fire_count );
+		$this->assertSame( 5, $piggy->counter() );
 		$this->assertCount( 5, $capture->captured );
 	}
 }

@@ -99,7 +99,7 @@ class Settings_Renderer {
 	}
 
 	/**
-	 * A single-boolean checkbox toggle. Emits the hidden `value="0"` sentinel (so an
+	 * @api A single-boolean checkbox toggle. Emits the hidden `value="0"` sentinel (so an
 	 * unchecked box still posts) followed by the checkbox carrying its file-default
 	 * hint, then a `<label for>`. `checked="checked"` follows `value="1"` adjacently
 	 * — callers match on that. The attr is built directly (not via `\checked()`,
@@ -131,7 +131,7 @@ class Settings_Renderer {
 	}
 
 	/**
-	 * A React-mount field: a hidden JSON carrier (`{field}_json`) the form posts
+	 * @api A React-mount field: a hidden JSON carrier (`{field}_json`) the form posts
 	 * back, plus the mount `<div>` whose `data-field` / `data-values` / `data-default`
 	 * the React tree reads. Generic — the caller supplies the mount id + class.
 	 *
@@ -161,40 +161,6 @@ class Settings_Renderer {
 			. ' data-values="' . \esc_attr( $values_json ) . '"'
 			. ' data-default="' . \esc_attr( $default_json ) . '"'
 			. ' class="' . \esc_attr( $mount_class ) . '"></div>'
-			. '<p class="description">' . \esc_html( $description ) . '</p>';
-		return self::reset_wrapper( $mark_name, $inner );
-	}
-
-	/**
-	 * A checkbox list. Each box carries `data-nn-reset-default` ('1' if it is in
-	 * the shipped default set) so a ↺ reset restores that set, not "all off".
-	 *
-	 * @param string             $name        Array-input name (e.g. `opt[]`).
-	 * @param array<int,string>  $options     Every available value.
-	 * @param array<int,string>  $checked     Currently-checked values.
-	 * @param array<int,string>  $defaults    The file-default set (the ↺ target).
-	 */
-	public static function checkbox_list(
-		string $name,
-		array $options,
-		array $checked,
-		array $defaults,
-		string $description,
-		string $mark_name
-	): string {
-		$boxes = '';
-		foreach ( $options as $value ) {
-			// `checked` directly follows `value` (callers match on that adjacency);
-			// the default hint trails so the field-reset JS can restore the set.
-			$is_checked = \in_array( $value, $checked, true ) ? ' checked' : '';
-			$is_default = \in_array( $value, $defaults, true ) ? '1' : '0';
-			$boxes     .= '<label style="display:block; margin-bottom: 4px;">'
-				. '<input type="checkbox" name="' . \esc_attr( $name ) . '" value="' . \esc_attr( $value ) . '"'
-				. \esc_attr( $is_checked ) . ' data-nn-reset-default="' . \esc_attr( $is_default ) . '" /> '
-				. '<code>' . \esc_html( $value ) . '</code>'
-				. '</label>';
-		}
-		$inner = '<fieldset>' . $boxes . '</fieldset>'
 			. '<p class="description">' . \esc_html( $description ) . '</p>';
 		return self::reset_wrapper( $mark_name, $inner );
 	}

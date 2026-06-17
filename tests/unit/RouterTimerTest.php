@@ -16,6 +16,12 @@ class RouterTimerTest extends TestCase {
 		Event_Framework::reset();
 	}
 
+	private function mode_of( Timer_Node $timer ): string {
+		$prop = ( new \ReflectionObject( $timer ) )->getProperty( 'mode' );
+		$prop->setAccessible( true );
+		return (string) $prop->getValue( $timer );
+	}
+
 	public function test_router_pre_declares_TIMER_event(): void {
 		$router = new Router_Node();
 		$router->name( '_router' );
@@ -50,11 +56,12 @@ class RouterTimerTest extends TestCase {
 
 		$timer = new Timer_Node();
 		$timer->name( 'piggyback' );
+		$timer->sink( $router );
 		$timer->set_timer();
 
-		$before = $timer->fire_count;
+		$before = $timer->counter();
 		$router->fire_cb();
-		$this->assertSame( $before + 1, $timer->fire_count );
+		$this->assertSame( $before + 1, $timer->counter() );
 	}
 
 	/**
@@ -68,6 +75,7 @@ class RouterTimerTest extends TestCase {
 
 		$timer = new Timer_Node();
 		$timer->name( 'persistent' );
+		$timer->sink( $router );
 		$timer->set_timer();
 
 		$router->fire_cb();
@@ -76,7 +84,7 @@ class RouterTimerTest extends TestCase {
 		$router->fire_cb();
 		$router->fire_cb();
 
-		$this->assertSame( 5, $timer->fire_count, 'hitchhiked Timer should fire on every Router tick, not self-unregister after the first' );
+		$this->assertSame( 5, $timer->counter(), 'hitchhiked Timer should fire on every Router tick, not self-unregister after the first' );
 	}
 
 	/**
@@ -132,17 +140,18 @@ class RouterTimerTest extends TestCase {
 
 		$timer = new Timer_Node();
 		$timer->name( 'pulse' );
+		$timer->sink( $router );
 		$timer->set_timer();
 
 		$router->fire_cb();
-		$this->assertSame( 1, $timer->fire_count );
+		$this->assertSame( 1, $timer->counter() );
 
 		$timer->stop_timer();
 
 		$router->fire_cb();
 		$router->fire_cb();
-		$this->assertSame( 1, $timer->fire_count, 'stop_timer must unregister hitchhiked Timer so it stops firing' );
-		$this->assertFalse( $timer->active );
+		$this->assertSame( 1, $timer->counter(), 'stop_timer must unregister hitchhiked Timer so it stops firing' );
+		$this->assertSame( 'inactive', $this->mode_of( $timer ));
 	}
 
 	/**
@@ -162,7 +171,7 @@ class RouterTimerTest extends TestCase {
 		$timer->stop_timer();
 		// No run_closing(): teardown already happened synchronously.
 		$router->fire_cb();
-		$this->assertSame( 0, $timer->fire_count, 'stop_timer must unregister immediately so the Timer never fires' );
-		$this->assertFalse( $timer->active );
+		$this->assertSame( 0, $timer->counter(), 'stop_timer must unregister immediately so the Timer never fires' );
+		$this->assertSame( 'inactive', $this->mode_of( $timer ));
 	}
 }

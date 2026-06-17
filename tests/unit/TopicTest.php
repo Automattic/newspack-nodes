@@ -154,10 +154,11 @@ class TopicTest extends TestCase {
 		$this->assertSame( 1, $count, 'READY must fire exactly once across partition lifetime' );
 	}
 
-	public function test_num_partitions_returns_constructor_value(): void {
+	public function test_num_partitions_contains_constructor_value(): void {
 		$t = new Topic_Node();
 		$t->arguments( "{$this->tmp}/firehose.p{partition} 7 65536 4 86400" );
-		$this->assertSame( 7, $t->num_partitions() );
+		$ref = new \ReflectionClass( $t );
+		$this->assertSame( 7, $ref->getProperty( 'num_partitions' )->getValue( $t ) );
 	}
 
 	/**
@@ -169,7 +170,6 @@ class TopicTest extends TestCase {
 	public function test_constructible_via_no_arg_ctor_and_arguments_setter(): void {
 		$t = new Topic_Node();
 		$t->arguments( "{$this->tmp}/firehose.p{partition} 3 1048576 2 0" );
-		$this->assertSame( 3, $t->num_partitions() );
 		$ref = new \ReflectionClass( $t );
 		$this->assertSame( "{$this->tmp}/firehose.p{partition}", $ref->getProperty( 'dir_template' )->getValue( $t ) );
 		$this->assertSame( 3,        $ref->getProperty( 'num_partitions' )->getValue( $t ) );
@@ -207,8 +207,8 @@ class TopicTest extends TestCase {
 	public function test_arguments_setter_applies_schema_defaults_for_missing_optional_tokens(): void {
 		$t = new Topic_Node();
 		$t->arguments( "{$this->tmp}/firehose.p{partition} 4" );
-		$this->assertSame( 4, $t->num_partitions() );
 		$ref = new \ReflectionClass( $t );
+		$this->assertSame( 4, $ref->getProperty( 'num_partitions' )->getValue( $t ) );
 		$this->assertSame( Partition_Node::DEFAULT_SEGMENT_SIZE, $ref->getProperty( 'segment_size' )->getValue( $t ) );
 		$this->assertSame( Partition_Node::DEFAULT_NUM_SEGMENTS, $ref->getProperty( 'num_segments' )->getValue( $t ) );
 		$this->assertSame( Partition_Node::DEFAULT_MAX_LIFESPAN, $ref->getProperty( 'max_lifespan' )->getValue( $t ) );
@@ -219,11 +219,13 @@ class TopicTest extends TestCase {
 		// trip a divide-by-zero in hash_to_partition.
 		$t = new Topic_Node();
 		$t->arguments( "{$this->tmp}/firehose.p{partition} 0 65536 4 86400" );
-		$this->assertSame( 1, $t->num_partitions() );
+		$ref = new \ReflectionClass( $t );
+		$this->assertSame( 1, $ref->getProperty( 'num_partitions' )->getValue( $t ) );
 
 		$t2 = new Topic_Node();
 		$t2->arguments( "{$this->tmp}/firehose.p{partition} -3 65536 4 86400" );
-		$this->assertSame( 1, $t2->num_partitions() );
+		$ref2 = new \ReflectionClass( $t );
+		$this->assertSame( 1, $ref2->getProperty( 'num_partitions' )->getValue( $t2 ) );
 	}
 
 	public function test_fill_packs_TM_REQUEST_TM_ERROR_TM_EOF(): void {

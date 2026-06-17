@@ -140,10 +140,12 @@ class SSE_Out_Node extends Node {
 		return (string) \preg_replace( '/[^a-zA-Z0-9_-]/', '', $event );
 	}
 
+	/** @api Support for unit tests. */
 	public function set_base_dir( string $dir ): void {
 		$this->base_dir = $dir;
 	}
 
+	/** @api Support for unit tests. */
 	public function set_num_partitions( int $n ): void {
 		$this->num_partitions = $n;
 	}

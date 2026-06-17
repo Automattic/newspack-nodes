@@ -83,24 +83,6 @@ class CoreTest extends TestCase {
 		$this->assertNull( Core::$memd, 'Core::reset() must clear the shared Memcached handle for test isolation' );
 	}
 
-	public function test_run_closing_executes_callbacks_in_order(): void {
-		$order = [];
-		Core::push_closing( function () use ( &$order ) { $order[] = 'a'; } );
-		Core::push_closing( function () use ( &$order ) { $order[] = 'b'; } );
-		Core::push_closing( function () use ( &$order ) { $order[] = 'c'; } );
-
-		Core::run_closing();
-		$this->assertSame( [ 'a', 'b', 'c' ], $order );
-	}
-
-	public function test_run_closing_drains_queue(): void {
-		$count = 0;
-		Core::push_closing( function () use ( &$count ) { ++$count; } );
-		Core::run_closing();
-		Core::run_closing(); // should be no-op now
-		$this->assertSame( 1, $count );
-	}
-
 	public function test_print_less_often_emits_first_occurrence(): void {
 		$buf = '';
 		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
@@ -116,17 +98,6 @@ class CoreTest extends TestCase {
 		Core::$now = 1030.0; // 30s later — within window
 		Core::print_less_often( 'duplicate' );
 		$this->assertSame( 1, \substr_count( $buf, 'duplicate' ) );
-	}
-
-	public function test_print_least_often_emits_at_tenth_call(): void {
-		$buf = '';
-		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
-		for ( $i = 0; $i < 9; ++$i ) {
-			Core::print_least_often( 'rare' );
-		}
-		$this->assertStringNotContainsString( 'rare', $buf );
-		Core::print_least_often( 'rare' ); // 10th
-		$this->assertStringContainsString( 'rare', $buf );
 	}
 
 	public function test_emit_stderr_falls_back_when_handler_re_enters(): void {
@@ -243,24 +214,6 @@ class CoreTest extends TestCase {
 		$this->assertCount( 0, $out->captured, 'never the _output filter' );
 	}
 
-	// ── counter ──────────────────────────────────────────────────────────
-
-	public function test_counter_pre_increments_starting_from_one(): void {
-		// Counter is reset to 0 in reset(); first call must return 1.
-		Core::reset();
-		$this->assertSame( 1, Core::counter() );
-		$this->assertSame( 2, Core::counter() );
-		$this->assertSame( 3, Core::counter() );
-	}
-
-	public function test_counter_resets_with_core(): void {
-		Core::counter();
-		Core::counter();
-		Core::counter();
-		Core::reset();
-		$this->assertSame( 1, Core::counter() );
-	}
-
 	// ── cleanup_all_nodes ────────────────────────────────────────────────
 
 	public function test_cleanup_all_nodes_calls_remove_node_on_each_registered(): void {
@@ -317,36 +270,6 @@ class CoreTest extends TestCase {
 		$this->assertSame( [ 'x', 'y' ], CoreTest_SelfUnregisteringNode::$log );
 		$this->assertNull( Core::node( 'x' ) );
 		$this->assertNull( Core::node( 'y' ) );
-	}
-
-	// ── print_least_often window expiration ─────────────────────────────
-
-	public function test_print_least_often_resets_after_window_expires(): void {
-		// print_least_often emits once at the 10th call. Re-windowing is NOT
-		// inline: it happens when prune_logs() ages the entry out (the Router
-		// calls it each tick) — matches Perl Tachikoma (Node::print_least_often
-		// + Router::update_logs). Advancing time alone does nothing; the
-		// counter restarts only once the aged entry is pruned.
-		$buf = '';
-		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
-
-		Core::$now = 1000.0;
-		for ( $i = 0; $i < 10; ++$i ) {
-			Core::print_least_often( 'flaky' );
-		}
-		$this->assertSame( 1, \substr_count( $buf, 'flaky' ), 'first emission at 10th call' );
-
-		// Advance past the timeout and prune (simulating the Router tick) to
-		// evict the 'flaky' entry, restarting the counter.
-		Core::$now = 1070.0;
-		Core::prune_logs();
-		for ( $i = 0; $i < 9; ++$i ) {
-			Core::print_least_often( 'flaky' );
-		}
-		$this->assertSame( 1, \substr_count( $buf, 'flaky' ), 'no second emission until 10th call in new window' );
-
-		Core::print_least_often( 'flaky' );
-		$this->assertSame( 2, \substr_count( $buf, 'flaky' ), 'second emission lands at the 10th call of the new window' );
 	}
 
 	public function test_prune_logs_evicts_entries_older_than_timeout(): void {
@@ -475,15 +398,6 @@ class CoreTest extends TestCase {
 		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d.*\]: rate limited msg\n$/', $buf );
 	}
 
-	public function test_print_least_often_routes_through_stderr_prefix(): void {
-		$buf = '';
-		Core::set_stderr_handler( function ( $message ) use ( &$buf ) { $buf .= $message; } );
-		for ( $i = 0; $i < 10; ++$i ) {
-			Core::print_least_often( 'rare prefixed' );
-		}
-		$this->assertMatchesRegularExpression( '/^\d{4}-\d\d-\d\d.*\]: rare prefixed\n$/', $buf );
-	}
-
 	public function test_print_less_often_keys_by_log_midfix(): void {
 		// Core and a named Node share Core::$recent_log_timers. Core keys by
 		// its own (un-tagged) log_midfix while Node keys by "<name>: text", so
@@ -496,25 +410,6 @@ class CoreTest extends TestCase {
 		$node->print_less_often( 'same text' );
 		$this->assertSame( 2, \substr_count( $buf, 'same text' ) );
 		$this->assertStringContainsString( 'alice: same text', $buf );
-	}
-
-	// ── push_closing / run_closing edge cases ────────────────────────────
-
-	public function test_run_closing_handles_callbacks_pushed_during_drain(): void {
-		// A callback may push another callback while draining. run_closing()'s
-		// `while ( ! empty( ... ) )` loop must keep draining until the queue
-		// is truly empty.
-		$order = [];
-		Core::push_closing( function () use ( &$order ) {
-			$order[] = 'outer';
-			Core::push_closing( function () use ( &$order ) {
-				$order[] = 'inner';
-			} );
-		} );
-
-		Core::run_closing();
-
-		$this->assertSame( [ 'outer', 'inner' ], $order );
 	}
 }
 

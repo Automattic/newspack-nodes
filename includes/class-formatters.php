@@ -18,6 +18,7 @@ class Formatters {
 	 */
 	private static array $registry = [];
 
+	/** @api Used by external plugins */
 	public static function register( string $name, callable $cb ): void {
 		self::$registry[ $name ] = $cb;
 	}
@@ -33,7 +34,7 @@ class Formatters {
 		return \array_keys( self::$registry );
 	}
 
-	/** Test seam. Production code never calls this — formatters persist for the request. */
+	/** @api Support for unit tests. */
 	public static function reset(): void {
 		self::$registry = [];
 	}

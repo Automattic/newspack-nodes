@@ -94,7 +94,7 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 	public function test_catalog_includes_user_dir_topologies(): void {
 		// The editor's "New" writes a .tsl into the user dir, owned by no plugin.
 		$user_dir = $this->make_temp_dir();
-		Topology_Registry::set_user_dir( $user_dir );
+		Topology_Registry::register_user_dir( $user_dir );
 		$this->seed_topology( $user_dir, 'my-custom' );
 
 		$catalog = \apply_filters( 'newspack_nodes/topologies', [] );
@@ -149,7 +149,7 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 	public function test_spawn_worker_runs_for_a_user_created_topology(): void {
 		// No plugin owns it — proves spawn is gated on the active set, not ownership.
 		$user_dir = $this->make_temp_dir();
-		Topology_Registry::set_user_dir( $user_dir );
+		Topology_Registry::register_user_dir( $user_dir );
 		$this->seed_topology( $user_dir, 'hand-rolled' );
 
 		$captured                        = [];

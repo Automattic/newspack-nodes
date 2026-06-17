@@ -1,6 +1,6 @@
 <?php
 /**
- * Core: global registries + clock + closing queue + stderr.
+ * Core: global registries + clock + stderr.
  *
  * @package Newspack_Nodes
  */
@@ -20,13 +20,6 @@ class Core {
 	public static float $init_time = 0.0;
 
 	public static bool $shutting_down = false;
-
-	/**
-	 * Deferred-cleanup queue; public so the hot drain loop can shift it without a method frame.
-	 *
-	 * @var array<int, callable>
-	 */
-	public static array $closing = [];
 
 	/** @var array<string,string> Process-global Shell variable map. */
 	public static array $var = [];
@@ -59,9 +52,6 @@ class Core {
 
 	/** Re-entry guard for stderr(); the default handler can recurse via _repl write failures. */
 	private static bool $in_stderr = false;
-
-	/** Monotonic counter for general purpose IDs; reset by Core::reset(). */
-	private static int $counter = 0;
 
 	/** Resolve a `<ns:key>` topology token via its namespace resolver; '' (with a rate-limited warning) if the ns isn't registered or returns null. */
 	public static function resolve_config_token( string $ns, string $key ): string {
@@ -182,27 +172,11 @@ class Core {
 		}
 	}
 
-	/** Emit once at the 10th identical occurrence; suppress otherwise (re-windowed by prune_logs). */
-	public static function print_least_often( string $text ): void {
-		$row = self::$recent_log_timers[ $text ] ?? null;
-		if ( null !== $row ) {
-			++$row['count'];
-			if ( 10 === $row['count'] ) {
-				self::stderr( $text );
-			}
-		} else {
-			$row = [ 'timestamp' => self::$now, 'count' => 1, ];
-		}
-		self::$recent_log_timers[ $text ] = $row;
-	}
-
 	public static function reset(): void {
 		self::$nodes_by_name     = [];
 		self::$shutting_down     = false;
-		self::$closing           = [];
 		self::$recent_log        = [];
 		self::$recent_log_timers = [];
-		self::$counter           = 0;
 		self::$in_stderr         = false;
 		self::$var               = [];
 		// $config_resolvers is process-lifetime (like namespace registrations) — not cleared.
@@ -213,7 +187,7 @@ class Core {
 		// writer (POST /command, where it rides back in the JSONL body) — so the
 		// line surfaces at the session. Each process registers exactly one, so a
 		// line never doubles. Else error_log.
-		self::$stderr_handler = static function ( string $message ): void {
+		self::set_stderr_handler( static function ( string $message ): void {
 			$sink = self::$nodes_by_name[ Node_Names::REPL ]
 				?? self::$nodes_by_name[ Node_Names::SSE ]
 				?? self::$nodes_by_name[ Node_Names::OUTPUT ]
@@ -228,14 +202,9 @@ class Core {
 			}
 			// phpcs:ignore WordPress.PHP.DevelopmentFunctions.error_log_error_log
 			\error_log( \rtrim( $message ) );
-		};
+		} );
 		self::$now       = \microtime( true );
 		self::$init_time = self::$now;
-	}
-
-	/** Pre-increment monotonic counter. */
-	public static function counter(): int {
-		return ++self::$counter;
 	}
 
 	/** Register a topology `<ns:key>` token resolver for namespace $ns (last writer wins). */
@@ -267,17 +236,6 @@ class Core {
 
 	public static function node( string $name ): ?Node {
 		return self::$nodes_by_name[ $name ] ?? null;
-	}
-
-	public static function push_closing( callable $cb ): void {
-		self::$closing[] = $cb;
-	}
-
-	public static function run_closing(): void {
-		while ( ! empty( self::$closing ) ) {
-			$cb = \array_shift( self::$closing );
-			$cb();
-		}
 	}
 
 	public static function set_stderr_handler( callable $h ): void {

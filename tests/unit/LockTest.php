@@ -110,22 +110,22 @@ class LockTest extends TestCase {
 		$this->assertFalse( $lock->should_restart() );
 	}
 
-	public function test_request_restart_creates_flag_seen_by_should_restart(): void {
+	public function test_request_restart_at_creates_flag_seen_by_should_restart(): void {
 		$holder = new Lock_Node( "{$this->tmp}/test.lock.d" );
 		$this->assertTrue( $holder->acquire() );
 
 		// Different Lock instance pointing at the same path simulates an
 		// external requester (REST endpoint, admin action, supervisor).
 		$external = new Lock_Node( "{$this->tmp}/test.lock.d" );
-		$this->assertTrue( $external->request_restart() );
+		$this->assertTrue( Lock_Node::request_restart_at( "{$this->tmp}/test.lock.d" ) );
 
 		$this->assertTrue( $holder->should_restart() );
 		$this->assertFileExists( "{$this->tmp}/test.lock.d/" . Lock_Node::RESTART_FLAG );
 	}
 
-	public function test_request_restart_returns_false_when_lock_dir_missing(): void {
+	public function test_request_restart_at_returns_false_when_lock_dir_missing(): void {
 		$lock = new Lock_Node( "{$this->tmp}/nonexistent.lock.d" );
-		$this->assertFalse( $lock->request_restart() );
+		$this->assertFalse( Lock_Node::request_restart_at( "{$this->tmp}/nonexistent.lock.d" ) );
 		$this->assertFalse( $lock->should_restart() );
 	}
 
@@ -147,14 +147,14 @@ class LockTest extends TestCase {
 		$holder->acquire();
 
 		$this->assertFalse( Lock_Node::is_restart_pending( "{$this->tmp}/test.lock.d" ) );
-		$holder->request_restart();
+		Lock_Node::request_restart_at( "{$this->tmp}/test.lock.d" );
 		$this->assertTrue( Lock_Node::is_restart_pending( "{$this->tmp}/test.lock.d" ) );
 	}
 
 	public function test_release_implicitly_removes_restart_flag(): void {
 		$lock = new Lock_Node( "{$this->tmp}/test.lock.d" );
 		$lock->acquire();
-		$lock->request_restart();
+		Lock_Node::request_restart_at( "{$this->tmp}/test.lock.d" );
 		$this->assertTrue( $lock->should_restart() );
 
 		$lock->release();
@@ -273,18 +273,6 @@ class LockTest extends TestCase {
 			glob( "{$this->tmp}/orphan.lock.d.stealing.*" ),
 			'Atomic steal must clean up its renamed-aside scratch dir.'
 		);
-	}
-
-	// --- Path getter --------------------------------------------------------
-
-	public function test_path_returns_lock_directory(): void {
-		$lock = new Lock_Node( "{$this->tmp}/test.lock.d" );
-		$this->assertSame( "{$this->tmp}/test.lock.d", $lock->path() );
-	}
-
-	public function test_path_strips_trailing_slash(): void {
-		$lock = new Lock_Node( "{$this->tmp}/test.lock.d/" );
-		$this->assertSame( "{$this->tmp}/test.lock.d", $lock->path() );
 	}
 
 	// --- fill() dispatch -----------------------------------------------------

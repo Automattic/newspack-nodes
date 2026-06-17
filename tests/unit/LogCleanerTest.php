@@ -323,7 +323,7 @@ class LogCleanerTest extends TestCase {
 		$this->assertDirectoryDoesNotExist( $ghost );
 	}
 
-	// ── declared_log_dirs / declared_offset_dirs ───────────────────────────
+	// ── declared_log_dirs ───────────────────────────
 
 	public function test_declared_log_dirs_unions_topology_and_producers(): void {
 		$this->declare_topology( 'requests-workers', $this->partition_tsl( 'requests', 2 ) );
@@ -353,19 +353,6 @@ class LogCleanerTest extends TestCase {
 		\sort( $result );
 
 		$this->assertSame( [ 'firehose.p0', 'requests.p0' ], $result );
-	}
-
-	public function test_declared_offset_dirs_expands_consumer_offsetlogs(): void {
-		$this->declare_topology(
-			'digest',
-			"var num_partitions = 2\n"
-			. "make_node Consumer scored:consumer <config:logs_dir>/scored.p<partition> <config:offsets_dir>/scored.p<partition>\n"
-		);
-
-		$result = Log_Cleaner::declared_offset_dirs();
-		\sort( $result );
-
-		$this->assertSame( [ 'scored.p0', 'scored.p1' ], $result );
 	}
 
 	// ── frontmatter-less, multi-partition: SPAWN-aligned partition count ─────

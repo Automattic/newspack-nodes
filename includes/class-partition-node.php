@@ -802,7 +802,7 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * Walk every JSONL .idx entry across all segments and invoke the callback per entry.
+	 * @api Walk every JSONL .idx entry across all segments and invoke the callback per entry.
 	 *
 	 * Only meaningful when a with_index() formatter is installed — without it no
 	 * .idx is written, so this early-returns. Callback signature: fn(string $line,

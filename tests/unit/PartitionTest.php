@@ -786,7 +786,7 @@ class PartitionTest extends TestCase {
 		$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );
 		$p->name( 'my_part' );
 
-		$sibling = $p->interpreter();
+		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
 		$this->assertNotNull( $sibling );
 		$this->assertSame( 'my_part:config', $sibling->name() );
 		$this->assertSame( $p, $sibling->patron() );
@@ -796,8 +796,9 @@ class PartitionTest extends TestCase {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );
 		$p->name( 'my_part' );
+		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
 
-		$result = $p->interpreter()->dispatch( 'allow_large_writes' );
+		$result = $sibling->dispatch( 'allow_large_writes' );
 		$this->assertSame( 'ok', $result );
 
 		$dump = $p->dump_config();
@@ -817,8 +818,9 @@ class PartitionTest extends TestCase {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );
 		$p->name( 'my_part' );
+		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
 
-		$result = $p->interpreter()->dispatch( 'with_index', 'a2-test-formatter' );
+		$result = $sibling->dispatch( 'with_index', 'a2-test-formatter' );
 		$this->assertSame( 'ok', $result );
 
 		// Verb installs the formatter as the patron's index callback.
@@ -839,8 +841,9 @@ class PartitionTest extends TestCase {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );
 		$p->name( 'my_part' );
+		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
 
-		$result = $p->interpreter()->dispatch( 'with_index', 'no-such-formatter' );
+		$result = $sibling->dispatch( 'with_index', 'no-such-formatter' );
 		$this->assertStringContainsString( 'unknown formatter', $result );
 	}
 
@@ -848,8 +851,9 @@ class PartitionTest extends TestCase {
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );
 		$p->name( 'my_part' );
+		$sibling = \Newspack_Nodes\Core::node( 'my_part:config' );
 
-		$result = $p->interpreter()->dispatch( 'with_index' );
+		$result = $sibling->dispatch( 'with_index' );
 		$this->assertStringContainsString( 'usage', $result );
 	}
 
@@ -1072,10 +1076,7 @@ class PartitionTest extends TestCase {
 		//   2. remove_node() — Partition cascades close_handle + write_lock,
 		//      Timer cascades stop_timer (deferred onto Core's closing queue),
 		//      Node clears registrations + sibling interpreter + name registration.
-		//   3. Core::run_closing() — drains the deferred queue, which fires
-		//      EventFramework::stop_timer($p), dropping the EF's back-ref into
-		//      $timers (the second of two cycles holding the Partition alive).
-		//   4. unset($p) — refcount now actually drops to 0, __destruct fires
+		//   3. unset($p) — refcount now actually drops to 0, __destruct fires
 		//      synchronously, flush() writes the batch, close_handle() closes.
 		$p = new Partition_Node();
 		$p->arguments( "{$this->tmp}/p0 " . ( 64 * 1024 ) . " 4 86400" );
@@ -1087,7 +1088,6 @@ class PartitionTest extends TestCase {
 		$this->assertFalse( \file_exists( $file ), 'batch must not have flushed yet' );
 
 		$p->remove_node();
-		Core::run_closing();
 		unset( $p );
 
 		$this->assertTrue( \file_exists( $file ), '__destruct must materialize the segment file' );
@@ -1611,8 +1611,8 @@ class PartitionTest extends TestCase {
 	public function test_write_all_returns_zero_and_counts_failure_when_nothing_lands(): void {
 		// A read-only file handle makes fwrite() return false. write_all must
 		// retry on each failure and, once attempts exhaust, report 0 bytes
-		// written, record a write_failures count, and emit one loud,
-		// rate-limited line. A stalled write is never silently swallowed.
+		// written, and emit one loud, rate-limited line.
+		// A stalled write is never silently swallowed.
 		$probe = "{$this->tmp}/write-all-probe.bin";
 		\file_put_contents( $probe, 'seed' );
 		$ro_fh = \fopen( $probe, 'rb' );
@@ -1633,7 +1633,6 @@ class PartitionTest extends TestCase {
 		\fclose( $ro_fh );
 
 		$this->assertSame( 0, $result, 'write_all must report 0 bytes written after exhausting retries' );
-		$this->assertSame( 1, $p->write_failures(), 'a stalled write must be counted' );
 		$this->assertStringContainsString( 'write stalled', $warned );
 	}
 
@@ -1661,7 +1660,6 @@ class PartitionTest extends TestCase {
 			\fclose( $fh );
 
 			$this->assertSame( 4, $wrote, 'write_all must report the bytes that actually landed' );
-			$this->assertSame( 1, $p->write_failures(), 'a partial-then-stall still counts as a failure' );
 		} finally {
 			\stream_wrapper_unregister( 'nnpartial' );
 		}

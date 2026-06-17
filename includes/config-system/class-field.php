@@ -55,6 +55,7 @@ class Field {
 	 */
 	public function __construct(
 		public readonly string $key = '',
+		/** @api */
 		public readonly string $type = '',
 		mixed $label = '',
 		public readonly string $section = '',

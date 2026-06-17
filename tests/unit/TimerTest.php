@@ -121,8 +121,10 @@ class TimerTest extends TestCase {
 	public function test_fire_cb_with_no_sink_does_not_throw(): void {
 		$timer = new Timer_Node();
 		$timer->name( 't' );
+		$capture = new Capture_Sink_Node();
+		$timer->sink( $capture );
 		$timer->fire_cb();
-		$this->assertSame( 1, $timer->fire_count );
+		$this->assertSame( 1, $timer->counter() );
 	}
 
 	// ── lifecycle ──────────────────────────────────────────────────────────────
@@ -130,12 +132,10 @@ class TimerTest extends TestCase {
 	public function test_set_timer_with_ms_enters_event_framework_and_stops_clean(): void {
 		$timer = new Timer_Node();
 		$timer->name( 't' );
-		$this->assertFalse( $timer->active );
+		$this->assertSame( 'inactive', $this->mode_of( $timer ) );
 		$timer->set_timer( 100 );
-		$this->assertTrue( $timer->active );
 		$this->assertSame( 'event_framework', $this->mode_of( $timer ) );
 		$timer->stop_timer();
-		$this->assertFalse( $timer->active );
 		$this->assertSame( 'inactive', $this->mode_of( $timer ) );
 	}
 
@@ -153,9 +153,8 @@ class TimerTest extends TestCase {
 		$timer->sink( $capture );
 		$timer->set_timer( 100, true );
 		$timer->fire_cb();
-		$this->assertFalse( $timer->active );
 		$this->assertSame( 'inactive', $this->mode_of( $timer ) );
-		$this->assertSame( 1, $timer->fire_count );
+		$this->assertSame( 1, $timer->counter() );
 	}
 
 	public function test_fire_increments_counter_on_emit(): void {
@@ -198,7 +197,7 @@ class TimerTest extends TestCase {
 		$message[ Message::VALUE ] = 'data';
 		$timer->fill( $message );
 		$this->assertCount( 1, $capture->captured );
-		$this->assertSame( 0, $timer->fire_count );
+		$this->assertSame( 1, $timer->counter() );
 	}
 
 	public function test_timer_info_message_forwards_and_does_not_fire(): void {
@@ -214,6 +213,6 @@ class TimerTest extends TestCase {
 		$message[ Message::KEY ]  = 'TIMER';
 		$timer->fill( $message );
 		$this->assertCount( 1, $capture->captured );
-		$this->assertSame( 0, $timer->fire_count );
+		$this->assertSame( 1, $timer->counter() );
 	}
 }

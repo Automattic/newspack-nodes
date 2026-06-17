@@ -82,26 +82,6 @@ class SettingsRendererTest extends TestCase {
 		$this->assertStringContainsString( 'placeholder="127.0.0.1:11211"', $html );
 	}
 
-	public function test_checkbox_list_marks_checked_and_emits_default_hint_per_box(): void {
-		$html = Settings_Renderer::checkbox_list(
-			'newspack_nodes_topologies[]',
-			[ 'alpha', 'beta', 'gamma' ], // available
-			[ 'alpha', 'gamma' ],          // currently checked
-			[ 'alpha', 'beta' ],           // file-default set (the ↺ target)
-			'Pick topologies.',
-			'mark'
-		);
-		// Currently-checked boxes carry `checked`.
-		$this->assertMatchesRegularExpression( '/value="alpha"[^>]*checked/', $html );
-		$this->assertMatchesRegularExpression( '/value="gamma"[^>]*checked/', $html );
-		$this->assertDoesNotMatchRegularExpression( '/value="beta"[^>]*checked/', $html );
-		// THE FIX: each box advertises whether it is in the shipped default set,
-		// so a ↺ reset restores that set instead of clearing everything.
-		$this->assertMatchesRegularExpression( '/value="alpha"[^>]*data-nn-reset-default="1"/', $html );
-		$this->assertMatchesRegularExpression( '/value="beta"[^>]*data-nn-reset-default="1"/', $html );
-		$this->assertMatchesRegularExpression( '/value="gamma"[^>]*data-nn-reset-default="0"/', $html );
-	}
-
 	public function test_renderers_escape_attributes(): void {
 		// A hostile value must not break out of the attribute.
 		$html = Settings_Renderer::directory( 'f', 'opt', '"><script>x</script>', '', 'd', 'm' );

@@ -489,7 +489,7 @@ class Supervisor extends Supervisor_Base {
 	}
 
 	/**
-	 * Test hook: drive a single tick without the sleep loop.
+	 * @api Test hook: drive a single tick without the sleep loop.
 	 *
 	 * @param float $now Simulated clock for this tick.
 	 * @return bool True if the loop would continue, false if it would exit.
@@ -526,7 +526,7 @@ class Supervisor extends Supervisor_Base {
 		return true;
 	}
 
-	/** Test hook: install the supervisor's own lock without entering the run loop. */
+	/** @api Test hook: install the supervisor's own lock without entering the run loop. */
 	public function init_lock_for_test(): bool {
 		if ( ! \is_dir( "{$this->base_dir}/locks" ) ) {
 			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
@@ -537,7 +537,7 @@ class Supervisor extends Supervisor_Base {
 		return $this->own_lock->acquire();
 	}
 
-	/** Test hook: release the lock from init_lock_for_test. */
+	/** @api Test hook: release the lock from init_lock_for_test. */
 	public function release_lock_for_test(): void {
 		if ( null !== $this->own_lock ) {
 			$this->own_lock->release();
@@ -546,7 +546,7 @@ class Supervisor extends Supervisor_Base {
 	}
 
 	/**
-	 * Test hook: expose worker_locks for assertions after check_config().
+	 * @api Test hook: expose worker_locks for assertions after check_config().
 	 *
 	 * @return array<int, array<string, mixed>>
 	 */
