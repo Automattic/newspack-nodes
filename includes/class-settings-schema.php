@@ -105,20 +105,18 @@ class Settings_Schema {
 					render: [ Admin::class, 'memcache_servers_callback' ],
 					register_args: [ 'type' => 'array', 'default' => [], 'autoload' => false ],
 				),
-				// Registered + sanitized + autoloaded, but NOT rendered on the
-				// settings page: the Topology Manager's active toggle is the sole
-				// activation UI. The activate/deactivate verbs write this option;
-				// keeping it a setting preserves register_setting + sanitizer +
-				// reset wiring. No `render` ⇒ Schema skips it in the field loop.
+				// Overlay-only (ui:false): loaded + autoloaded for the per-request
+				// config overlay, but NOT a settings-API setting. The Topology
+				// Manager's active toggle + the activate/deactivate verbs are the sole
+				// writers (update_option). Registering it as a settings-group option
+				// made Save on the Nodes Runtime page — which never renders it — wipe
+				// the active set (options.php sanitizes every registered option from
+				// $_POST, and an absent one collapsed to []). Conflict protection lives
+				// in the activate verb + Supervisor::check_config, not a form sanitizer.
 				new Field(
 					key: 'topologies',
 					type: 'array_strings',
-					// An empty selection is a deliberate override, not a reset.
-					delete_on_blank: false,
-					// Supervisor picks up topology changes on its next loop — no restart.
-					restart: [],
-					sanitize: [ Admin::class, 'sanitize_topologies' ],
-					register_args: [ 'autoload' => true ],
+					ui: false,
 				),
 				// Overlay-only: loaded + autoloaded, but no settings field (a
 				// config-file/programmatic access whitelist).

@@ -206,8 +206,8 @@ class Supervisor extends Supervisor_Base {
 		}
 
 		// Refuse a write-conflicting active set (two topologies writing the same
-		// log/offsetlog). The admin sanitizer blocks this at save-time, but a
-		// config-FILE override bypasses it — better no workers than two fleets
+		// log/offsetlog). The activate verb rejects conflicts before persisting, but
+		// a config-FILE override bypasses that — better no workers than two fleets
 		// corrupting one partition. Exit loudly; the cron retries each minute.
 		$active    = \array_values( \array_unique( \array_column( $workers, 'type' ) ) );
 		$conflicts = Topology_Registry::find_conflicts( $active );
