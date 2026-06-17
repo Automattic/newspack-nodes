@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.1] - 2026-06-17
+
+### Fixed
+
+- **`wp nodes cli` no longer dumps other sessions' IPC (including browser traffic) into a pivoted REPL.** The reply path read the shared worker output partition with a `Consumer` targeting `_output`, and `Consumer::forward_line()` *unconditionally* overwrites each emitted message's TO with its target — so every session's replies were rewritten to `_output` and the Dumper's per-PID `to_filter` could no longer drop the ones addressed elsewhere. The output-IPC consumer now sinks through a plain `Node`, which stamps TO from its target only when TO is empty (soft route), so each reply keeps its own TO and other sessions are filtered out. A regression test pins the `Consumer` (unconditional) vs `Node` (soft) TO behavior.
+
+### Security
+
+- **Pinned the `@babel/core` (≤7.29.0) and `js-yaml` (≤4.1.1) transitive dev dependencies to patched versions** (`^7.29.6` / `^4.2.0`) via `overrides`, clearing the Dependabot advisories that had no auto-fix PR.
+
+### Changed
+
+- **Release CI now builds on Node 24 / npm 11** (was Node 20 / npm 10), matching contributors' toolchain so committed lockfiles stay in sync.
+
 ## [0.18.0] - 2026-06-17
 
 ### Added
