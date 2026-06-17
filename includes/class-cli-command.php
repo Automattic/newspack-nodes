@@ -139,11 +139,13 @@ class CLI_Command {
 			$shell->path = $worker_id;
 
 			// reply-in: ephemeral, so empty offsetlog_base_dir (no durable cursor).
-			$reply_in = new Consumer_Node();
-			$reply_in->arguments( "{$ipc['output']}" );
-			$reply_in->next_offset( 'end' );
+			$reply_in = new Node();
 			$reply_in->sink( $router );
 			$reply_in->target( Node_Names::OUTPUT );
+			$ipc_in = new Consumer_Node();
+			$ipc_in->arguments( "{$ipc['output']}" );
+			$ipc_in->next_offset( 'end' );
+			$ipc_in->sink( $reply_in );
 		}
 
 		// TO filter matches `_output/$pid` and `$pid`; empty TO always renders, other sessions drop.
