@@ -50,15 +50,20 @@ export default function DevtoolsTabHost( {
 	const active = tabs.find( ( t ) => t.id === activeId ) || tabs[ 0 ];
 	const Active = active?.component;
 
-	// Canonicalize the URL to the resolved tab's slug on mount (so a bare
-	// `?page=...` gains `&tab=...`) and whenever the resolved tab changes.
-	// Preserves sibling params (`&topology=`/`&log=`) — setQueryParam is surgical.
+	// Canonicalize the URL to the resolved tab's slug on mount and on a switch,
+	// dropping other tabs' deep-link params so only the active tab's remains.
 	const resolvedSlug = active?.slug;
 	useEffect( () => {
-		if ( syncUrl && resolvedSlug ) {
-			setQueryParam( 'tab', resolvedSlug );
+		if ( ! syncUrl || ! resolvedSlug ) {
+			return;
 		}
-	}, [ syncUrl, resolvedSlug ] );
+		setQueryParam( 'tab', resolvedSlug );
+		for ( const t of getDevtoolsTabs( host ) ) {
+			if ( t.param && t.slug !== resolvedSlug ) {
+				setQueryParam( t.param, null );
+			}
+		}
+	}, [ syncUrl, resolvedSlug, host ] );
 
 	// Report the RESOLVED active id (which may differ from activeId when the
 	// stored id no longer matches a tab) so the host always learns the real tab.
