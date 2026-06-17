@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0] - 2026-06-17
+
 ### Added
 
 - **Consumer gains an opt-in `line_mode` (config verb `set_line_mode`) that forwards one line per poll instead of a whole read-block.** A Consumer whose sink does heavy per-message work (e.g. an LLM enrich) would otherwise drain a full 64 KB block in one `fire()`, freezing the worker's heartbeat through the burst; line mode spreads it across drain cycles so the worker stays live. Enable it in a topology before the first poll: `cmd <consumer>:config set_line_mode`. Default (batch) behavior is unchanged — `poll_active` still pipelines a read every tick; line mode reads only once the buffer is dry of complete lines. Internally `drain_buffer()` is one offset-scanning pass capped by `line_mode` (1 line) or unbounded (batch), a single O(n) scan that also fixes a latent batch-mode cursor drift on an empty (`\n\n`) line (the old `rtrim`+`explode` dropped the empty line's byte, mis-aligning the next read), and `forward_line()` is the per-line emit seam.
