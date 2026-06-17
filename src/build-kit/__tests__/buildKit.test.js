@@ -28,6 +28,20 @@ describe( 'build-kit pure exports', () => {
 		} );
 	} );
 
+	test( 'WP_EXTERNALS maps @wordpress/blocks to the wp-blocks handle', () => {
+		expect( kit.WP_EXTERNALS[ '@wordpress/blocks' ] ).toEqual( {
+			global: 'window.wp.blocks',
+			handle: 'wp-blocks',
+		} );
+	} );
+
+	test( 'WP_EXTERNALS maps @wordpress/block-library to the wp-block-library handle', () => {
+		expect( kit.WP_EXTERNALS[ '@wordpress/block-library' ] ).toEqual( {
+			global: 'window.wp.blockLibrary',
+			handle: 'wp-block-library',
+		} );
+	} );
+
 	test( 'emitAssetPhp emits a sorted, deduped, quoted dependency manifest', () => {
 		const php = kit.emitAssetPhp(
 			new Set( [ 'wp-element', 'wp-api-fetch', 'wp-element' ] ),
