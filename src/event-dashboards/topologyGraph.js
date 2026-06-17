@@ -13,7 +13,12 @@
  * different subtrees / generations, never for same-level siblings.
  */
 
-const PARTITION_TOKEN = '<partition>';
+// Partition/Consumer paths carry `<partition>`; a Topic's path template carries
+// the deferred curly `{partition}` (left untouched by shell interpolation on
+// purpose). A vertex carries at most one syntax — match whichever is present.
+const PARTITION_TOKENS = [ '<partition>', '{partition}' ];
+const partitionTokenIn = ( vertex ) =>
+	PARTITION_TOKENS.find( ( t ) => vertex.includes( t ) ) ?? null;
 
 /**
  * Concrete catalog entries a log VERTEX resolves to, with each match's partition
@@ -35,16 +40,17 @@ const PARTITION_TOKEN = '<partition>';
  * @return {Array<{name:string,partition:number}>} Matches (partition-sorted), or [{name:vertex,partition:0}].
  */
 function concreteLogNames( vertex, catalogNames ) {
-	const tokenAt = vertex.indexOf( PARTITION_TOKEN );
-	if ( tokenAt < 0 ) {
+	const token = partitionTokenIn( vertex );
+	if ( null === token ) {
 		return [ { name: vertex, partition: 0 } ];
 	}
 	// Degrade safely on a multi-token vertex (unrealistic): pre = before the
 	// first token, post = after the last; the all-digits middle test then
 	// simply won't match, which is acceptable.
-	const lastTokenAt = vertex.lastIndexOf( PARTITION_TOKEN );
+	const tokenAt = vertex.indexOf( token );
+	const lastTokenAt = vertex.lastIndexOf( token );
 	const pre = vertex.slice( 0, tokenAt );
-	const post = vertex.slice( lastTokenAt + PARTITION_TOKEN.length );
+	const post = vertex.slice( lastTokenAt + token.length );
 	const matches = [];
 	catalogNames.forEach( ( name ) => {
 		if (
@@ -76,17 +82,18 @@ function concreteLogNames( vertex, catalogNames ) {
  * @return {string} The token-stripped logical name.
  */
 function logicalLogName( vertex ) {
-	const tokenAt = vertex.indexOf( PARTITION_TOKEN );
-	if ( tokenAt < 0 ) {
+	const token = partitionTokenIn( vertex );
+	if ( null === token ) {
 		return vertex;
 	}
-	const lastTokenAt = vertex.lastIndexOf( PARTITION_TOKEN );
+	const tokenAt = vertex.indexOf( token );
+	const lastTokenAt = vertex.lastIndexOf( token );
 	const pre = vertex
 		.slice( 0, tokenAt )
 		// Drop a trailing `p` partition-prefix then a separator run (`firehose.p` → `firehose`).
 		.replace( /[._-]p$/, '' );
 	const post = vertex
-		.slice( lastTokenAt + PARTITION_TOKEN.length )
+		.slice( lastTokenAt + token.length )
 		// Drop a leading separator run (`-req` → `req`).
 		.replace( /^[._-]+/, '' );
 	const name = pre + post;
