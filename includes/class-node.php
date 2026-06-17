@@ -268,7 +268,7 @@ class Node {
 	  * Notify + cache so new registrants get the payload at register-time.
 	  * With debug_state on, emit a flat Tachikoma-style `DEBUG: <event> <payload>`
 	  */
-	public function set_state( string $event, string $payload = null ): void {
+	public function set_state( string $event, ?string $payload = null ): void {
 		$this->set_state[ $event ] = $payload;
 		if ( $this->debug_state > 0 ) {
 			$router = Core::node( Node_Names::ROUTER );
