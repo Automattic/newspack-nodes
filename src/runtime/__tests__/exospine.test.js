@@ -224,6 +224,57 @@ describe( 'mountExospine — full rebuild on graphGeneration', () => {
 	} );
 } );
 
+describe( 'mountExospine — host-mount signal', () => {
+	test( 'a fresh build-delegated mount bumps graphGeneration so an open overlay sees the host swap', () => {
+		const before = Core.graphGeneration;
+
+		mountExospine( () => {} );
+
+		// The host (re)mount — a dashboard tab switch — is observable on the shared
+		// generation channel; an open debug overlay subscribes to it to auto-resync.
+		expect( Core.graphGeneration ).toBe( before + 1 );
+	} );
+
+	test( 'the bump fires generation listeners on a fresh build-delegated mount', () => {
+		const listener = jest.fn();
+		Core.subscribeGraphGeneration( listener );
+
+		mountExospine( () => {} );
+
+		expect( listener ).toHaveBeenCalledTimes( 1 );
+	} );
+
+	test( 'a BARE mount does NOT bump (the console re-runs its whole effect on a bump — it must not self-loop)', () => {
+		const before = Core.graphGeneration;
+
+		mountExospine();
+
+		expect( Core.graphGeneration ).toBe( before );
+	} );
+
+	test( 'a build-delegated mount does NOT self-rebuild on its own announcement (build runs once)', () => {
+		let builds = 0;
+		mountExospine( () => {
+			builds += 1;
+		} );
+
+		// The mount-time bump is emitted BEFORE fullRebuild subscribes, so this
+		// exospine doesn't rebuild itself off its own announcement.
+		expect( builds ).toBe( 1 );
+	} );
+
+	test( 'a graphGeneration-driven full rebuild does NOT re-bump (no loop)', () => {
+		mountExospine( () => {} );
+		const afterMount = Core.graphGeneration;
+
+		// A bump drives fullRebuild (teardown + recreate the backbone). The recreate
+		// must NOT itself bump — that would loop with the overlay's resync subscriber.
+		Core.bumpGraphGeneration();
+
+		expect( Core.graphGeneration ).toBe( afterMount + 1 );
+	} );
+} );
+
 describe( 'mountExospine — Core.reinit stash', () => {
 	test( 'stashes the spine reinit on Core.reinit (same function)', () => {
 		const spine = mountExospine( () => {} );

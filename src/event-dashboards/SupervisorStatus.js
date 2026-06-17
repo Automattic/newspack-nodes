@@ -92,7 +92,7 @@ export const SupervisorStatus = memo( function SupervisorStatus( {
 							! supervisor.restart_pending && (
 								<button
 									type="button"
-									className="worker-restart-btn"
+									className="nodes-tm__restart"
 									onClick={ () => onRestart( 'supervisor' ) }
 									title={ __(
 										'Request graceful restart',

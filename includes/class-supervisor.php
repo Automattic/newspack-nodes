@@ -198,6 +198,10 @@ class Supervisor extends Supervisor_Base {
 
 		// No topologies → no work; exit so the cron skips until config changes.
 		if ( empty( $workers ) ) {
+			// Whole fleet deactivated at once: drain running workers so they exit now (reconcile bails on an empty set); cold start drains nothing.
+			if ( ! empty( $this->active_types ) ) {
+				$this->drain_all_workers();
+			}
 			return false;
 		}
 
@@ -272,6 +276,32 @@ class Supervisor extends Supervisor_Base {
 				// Skip if a restart flag is already dropped (avoids per-tick disk churn).
 				Lock_Node::request_restart_at( $path );
 			}
+		}
+	}
+
+	/**
+	 * Flag every worker lock dir for restart when the whole fleet is deactivated.
+	 *
+	 * reconcile_lock_dirs() bails on an empty active set, so this is the drain path
+	 * for "all topologies off". The `.p<N>` shape naturally excludes supervisor.lock.d.
+	 */
+	private function drain_all_workers(): void {
+		$locks_dir = "{$this->base_dir}/locks";
+		// phpcs:ignore WordPress.WP.AlternativeFunctions.file_system_operations_glob -- Operator storage, never WP-managed.
+		$candidates = \glob( $locks_dir . '/*.p*.lock.d', \GLOB_ONLYDIR );
+		if ( empty( $candidates ) ) {
+			return;
+		}
+		foreach ( $candidates as $path ) {
+			$base = \basename( $path, '.lock.d' );
+			if ( ! \preg_match( '/\.p\d+$/', $base ) ) {
+				continue;
+			}
+			if ( \file_exists( $path . '/' . Lock_Node::RESTART_FLAG ) ) {
+				// Skip if a restart flag is already dropped (avoids per-tick disk churn).
+				continue;
+			}
+			Lock_Node::request_restart_at( $path );
 		}
 	}
 

@@ -150,8 +150,10 @@ test( 'clicking the supervisor restart button calls restart("supervisor")', () =
 	useTopologyManager.mockReturnValue( value );
 
 	const { container } = render( <TopologyManager /> );
+	// The supervisor restart control uses the same class as the per-topology
+	// restart buttons so the two match visually.
 	const btn = container.querySelector(
-		'.supervisor-section .worker-restart-btn'
+		'.supervisor-section .nodes-tm__restart'
 	);
 	expect( btn ).toBeTruthy();
 	fireEvent.click( btn );

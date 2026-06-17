@@ -425,6 +425,73 @@ class SupervisorTest extends TestCase {
 		);
 	}
 
+	public function test_check_config_drains_all_workers_when_every_topology_deactivated(): void {
+		// A fleet is running, then the operator deactivates EVERY topology at once
+		// (e.g. saving the settings page with nothing checked). expand_workers()
+		// returns empty, so check_config short-circuits before reconcile_lock_dirs;
+		// without an explicit drain the running workers keep heartbeating for ~10
+		// more minutes. The supervisor must flag every worker lock dir for restart.
+		$this->with_topology( [
+			'firehose-workers' => [ 'num_partitions' => 2, 'topology' => '/x.php' ],
+		] );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+		$s->check_config( microtime( true ) );
+
+		$locks_dir = $this->tmp . '/locks';
+		\mkdir( $locks_dir, 0755, true );
+		\mkdir( "{$locks_dir}/firehose-workers.p0.lock.d" );
+		\mkdir( "{$locks_dir}/firehose-workers.p1.lock.d" );
+		\mkdir( "{$locks_dir}/supervisor.lock.d" );
+
+		// Operator deactivates everything — the active set goes empty.
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [];
+		\Newspack_Nodes\Config::reset();
+
+		$this->assertFalse(
+			$s->check_config( microtime( true ) + 100 ),
+			'an empty active set must exit the supervisor'
+		);
+
+		$this->assertFileExists(
+			"{$locks_dir}/firehose-workers.p0.lock.d/" . Lock_Node::RESTART_FLAG,
+			'deactivating all topologies must drain p0'
+		);
+		$this->assertFileExists(
+			"{$locks_dir}/firehose-workers.p1.lock.d/" . Lock_Node::RESTART_FLAG,
+			'deactivating all topologies must drain p1'
+		);
+		$this->assertFileDoesNotExist(
+			"{$locks_dir}/supervisor.lock.d/" . Lock_Node::RESTART_FLAG,
+			'the supervisor must not drain its own lock'
+		);
+	}
+
+	public function test_check_config_cold_start_with_empty_fleet_drops_no_restart_flags(): void {
+		// Fresh supervisor that never had an active fleet: active_types stays
+		// empty AND expand_workers() is empty. A stray worker lock dir inherited
+		// on disk must NOT be flagged — cold-start semantics are "exit quietly,
+		// touch nothing".
+		$this->with_topology( [] );
+		$GLOBALS['_wp_options']['newspack_nodes_topologies'] = [];
+		\Newspack_Nodes\Config::reset();
+
+		$locks_dir = $this->tmp . '/locks';
+		\mkdir( $locks_dir, 0755, true );
+		\mkdir( "{$locks_dir}/firehose-workers.p0.lock.d" );
+
+		$s = new Supervisor( $this->tmp, 'NONCE_SALT_FOR_TEST' );
+
+		$this->assertFalse(
+			$s->check_config( microtime( true ) ),
+			'an empty fleet must exit the supervisor'
+		);
+		$this->assertFileDoesNotExist(
+			"{$locks_dir}/firehose-workers.p0.lock.d/" . Lock_Node::RESTART_FLAG,
+			'cold start must not drop restart flags'
+		);
+	}
+
 	// ── tick_for_test: spawn iteration ─────────────────────────────────────
 
 	public function test_tick_spawns_for_missing_lock(): void {

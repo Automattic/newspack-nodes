@@ -199,24 +199,6 @@
 	}
 }
 
-.worker-restart-btn {
-	background: transparent;
-	border: 1px solid base.$dark-border-light;
-	color: base.$dark-text-muted;
-	padding: 2px 8px;
-	border-radius: 3px;
-	font-size: 12px;
-	cursor: pointer;
-	margin-left: auto;
-	transition: all 0.2s ease;
-
-	&:hover {
-		background: base.$dark-bg-hover;
-		border-color: base.$dark-info;
-		color: base.$dark-info;
-	}
-}
-
 .worker-restart-pending-label {
 	font-size: 10px;
 	color: base.$warning-color;
