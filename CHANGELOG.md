@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`Command_Interpreter_Node` now logs unauthorized commands instead of failing silently.** A rejected command emits a rate-limited `WARNING: unauthorized: <verb> - TM_COMMAND from: <path> payload: ...` audit line (via `drop_message`). This surfaces cross-session REPL/IPC traffic — e.g. a `cmd` issued in one pivoted session reaching another session's interpreter, where the auth gate correctly refuses it. Rejection behavior is unchanged (still refused with a `TM_COMMAND|TM_ERROR` reply); this only adds the audit log.
+
 ## [0.18.1] - 2026-06-17
 
 ### Fixed
