@@ -8,8 +8,8 @@
  */
 
 // Hide WP admin gunk so we own the viewport — but ONLY when the console is
-// actually mounted in the HUB. The page slug `newspack-nodes-topology` is now
-// the DevTools HUB page, where the console is just one tab among several (the
+// actually mounted in the HUB. The page slug `newspack-nodes-hub` is the
+// DevTools HUB page, where the console is just one tab among several (the
 // Topology Manager is a long scrollable list). Gating on the body class alone
 // leaked these page-level rules (notably `#wpfooter { display: none }` +
 // `#wpbody-content { padding-bottom: 0 }`) onto the hub page whenever the

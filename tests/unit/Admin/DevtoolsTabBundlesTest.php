@@ -69,7 +69,7 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			// Raw Logs became a `host:'hub'` tab, so its former standalone page is
 			// gone. The hub is where every contributor bundle enqueues.
 			$this->register_bundle();
-			$_GET['page'] = Admin::TOPOLOGY_MENU_SLUG;
+			$_GET['page'] = Admin::HUB_MENU_SLUG;
 			( new Admin() )->enqueue_devtools_tab_bundles();
 			$this->assertArrayHasKey( 'contrib-tab', $GLOBALS['_enqueued_scripts'] );
 		}
@@ -85,7 +85,7 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 			// The substrate registers its OWN bundles (event-dashboards + the
 			// topology-console) on the filter, so with no EXTERNAL registrants none
 			// of the contributor handles are enqueued.
-			$_GET['page'] = Admin::TOPOLOGY_MENU_SLUG;
+			$_GET['page'] = Admin::HUB_MENU_SLUG;
 			( new Admin() )->enqueue_devtools_tab_bundles();
 			$this->assertArrayNotHasKey( 'contrib-tab', $GLOBALS['_enqueued_scripts'] );
 		}
@@ -103,7 +103,7 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 					]
 				)
 			);
-			$_GET['page'] = Admin::TOPOLOGY_MENU_SLUG;
+			$_GET['page'] = Admin::HUB_MENU_SLUG;
 			( new Admin() )->enqueue_devtools_tab_bundles();
 			// Malformed entries (string, non-scalar handle, missing url) are skipped
 			// without fatal; the substrate's own event-dashboards bundle still
@@ -121,7 +121,7 @@ namespace Newspack_Nodes\Tests\Unit\Admin {
 					[ [ 'handle' => 'contrib-tab', 'dir' => $dir, 'url' => 'http://x/contrib', 'localize' => [ 'good' => 'v', 0 => 'bad' ] ] ]
 				)
 			);
-			$_GET['page'] = Admin::TOPOLOGY_MENU_SLUG;
+			$_GET['page'] = Admin::HUB_MENU_SLUG;
 			( new Admin() )->enqueue_devtools_tab_bundles();
 			$this->assertArrayHasKey( 'contrib-tab', $GLOBALS['_localized_scripts'] );
 			$data = $GLOBALS['_localized_scripts']['contrib-tab']['data'];

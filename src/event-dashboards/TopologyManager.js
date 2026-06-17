@@ -24,10 +24,10 @@ import { formatAge } from './formatters';
 import { useTopologyManager } from './hooks/useTopologyManager';
 import './TopologyManager.scss';
 
-// admin.php?page=<console-slug>&topology=<name> — opens the hub's Console tab
-// (page order 0) scoped to that topology (the console reads `?topology=`).
+// Opens the DevTools hub's Console tab scoped to that topology (the console
+// reads `?topology=`; the hub reads `?tab=` to pick the Console tab).
 const consoleHref = ( name ) =>
-	`admin.php?page=newspack-nodes-topology&topology=${ encodeURIComponent(
+	`admin.php?page=newspack-nodes-hub&tab=console&topology=${ encodeURIComponent(
 		name
 	) }`;
 

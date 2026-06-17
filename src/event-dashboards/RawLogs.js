@@ -23,6 +23,10 @@ import { Core } from '../runtime/core';
 import { useNodeState } from '../runtime/react';
 import { useRawLogsGraph } from './hooks/useRawLogsGraph';
 import ConnectionBanner from '@newspack-nodes/shared/components/ConnectionBanner';
+import {
+	getQueryParam,
+	setQueryParam,
+} from '@newspack-nodes/shared/utils/queryParams';
 import './styles/raw-logs.scss';
 
 const ROW_HEIGHT = 18;
@@ -65,6 +69,33 @@ export default function RawLogs() {
 		paused: isPaused,
 		connectionError,
 	} = view;
+
+	// One-shot deep-link seed: `?log=` (read once at mount) selects that log on the
+	// FIRST non-empty catalog, then disarms — so a later incremental catalog update
+	// can never clobber a user's pick. Best-effort: if the target isn't in that
+	// first catalog, the user's selection (or the default) stands.
+	const urlLogRef = useRef( getQueryParam( 'log' ) );
+	const seededLogRef = useRef( false );
+	useEffect( () => {
+		if ( seededLogRef.current || 0 === availableLogs.length ) {
+			return;
+		}
+		seededLogRef.current = true;
+		const urlLog = urlLogRef.current;
+		if (
+			urlLog &&
+			availableLogs.some( ( l ) => l.key === urlLog ) &&
+			urlLog !== selectedLog
+		) {
+			selectLog( urlLog );
+		}
+	}, [ availableLogs, selectedLog, selectLog ] );
+
+	// User log pick: drive the graph AND reflect it into `?log=` for deep-linking.
+	const handleSelectLog = ( log ) => {
+		selectLog( log );
+		setQueryParam( 'log', log );
+	};
 
 	const [ filter, setFilter ] = useState( '' );
 	// Cheap derived state pushed from the rAF at frame rate: lines/second plus the
@@ -387,7 +418,9 @@ export default function RawLogs() {
 						<select
 							className="newspack-nodes-raw-logs-select"
 							value={ selectedLog }
-							onChange={ ( e ) => selectLog( e.target.value ) }
+							onChange={ ( e ) =>
+								handleSelectLog( e.target.value )
+							}
 						>
 							{ availableLogs.map( ( log ) => (
 								<option key={ log.key } value={ log.key }>

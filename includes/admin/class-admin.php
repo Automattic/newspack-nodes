@@ -77,8 +77,8 @@ class Admin {
 		return \in_array( $current_user->user_login, $allowed_users, true );
 	}
 
-	/** Top-level menu slug for the DevTools hub — the "Nodes" landing page (Console + Topologies + Raw Logs tabs). */
-	public const TOPOLOGY_MENU_SLUG = 'newspack-nodes-topology';
+	/** Top-level menu slug for the DevTools hub — the "Nodes" landing page (Console + Topologies + Raw Logs tabs, deep-linked via `&tab=`). */
+	public const HUB_MENU_SLUG = 'newspack-nodes-hub';
 
 	public function __construct() {
 		\add_action( 'admin_menu', [ $this, 'add_admin_menu' ] );
@@ -116,7 +116,7 @@ class Admin {
 			\__( 'Newspack Nodes', 'newspack-nodes' ),
 			\__( 'Nodes', 'newspack-nodes' ),
 			'manage_options',
-			self::TOPOLOGY_MENU_SLUG,
+			self::HUB_MENU_SLUG,
 			[ $this, 'render_hub_page' ],
 			'dashicons-networking',
 			81
@@ -214,7 +214,7 @@ class Admin {
 		self::enqueue_react_page(
 			[
 				'handle'   => 'newspack-nodes-event-dashboards',
-				'page'     => self::TOPOLOGY_MENU_SLUG,
+				'page'     => self::HUB_MENU_SLUG,
 				'dir'      => \NEWSPACK_NODES_DIR . 'build/event-dashboards',
 				'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/event-dashboards',
 				'localize' => [
@@ -232,7 +232,7 @@ class Admin {
 		self::enqueue_react_page(
 			[
 				'handle'   => 'newspack-nodes-devtools-hub',
-				'page'     => self::TOPOLOGY_MENU_SLUG,
+				'page'     => self::HUB_MENU_SLUG,
 				'dir'      => \NEWSPACK_NODES_DIR . 'build/devtools-hub',
 				'url'      => ( \defined( 'NEWSPACK_NODES_URL' ) ? \NEWSPACK_NODES_URL : '' ) . 'build/devtools-hub',
 				'localize' => [
@@ -257,7 +257,7 @@ class Admin {
 		if ( ! \is_array( $bundles ) ) {
 			return;
 		}
-		$pages = [ self::TOPOLOGY_MENU_SLUG ];
+		$pages = [ self::HUB_MENU_SLUG ];
 		foreach ( $bundles as $bundle ) {
 			if ( ! \is_array( $bundle ) || ! isset( $bundle['handle'], $bundle['dir'], $bundle['url'] ) ) {
 				continue;

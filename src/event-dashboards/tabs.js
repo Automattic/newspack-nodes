@@ -17,6 +17,7 @@ registerDevtoolsTab( {
 	id: 'topology-manager',
 	label: __( 'Topologies', 'newspack-nodes' ),
 	host: 'hub',
+	slug: 'topologies',
 	order: 10,
 	component: TopologyManager,
 } );
@@ -25,6 +26,7 @@ registerDevtoolsTab( {
 	id: 'raw-logs',
 	label: __( 'Raw Logs', 'newspack-nodes' ),
 	host: 'hub',
+	slug: 'raw-logs',
 	order: 20,
 	fullBleed: true,
 	component: RawLogs,
