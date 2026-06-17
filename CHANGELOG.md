@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Unused members** flagged by a dead-code audit and verified to have no caller anywhere (production, tests, sibling plugins, dynamic dispatch): `Shell_Node::set_show_parse()`, `Config_System\Field::is_option()`, and the `Job_Worker_Node::MAX_JSON_DEPTH` constant.
 - **`Bootstrap::register_worker_partitions()`** — the batch "mount every live worker's input Partition" wrapper, superseded by the per-worker `connect_worker_input` pivot (`Bootstrap::register_worker_partition()`, singular). It had no production caller; the cli and HTTP/SSE paths mount one worker at a time.
 - **`CLI::base_dir()`** — unused getter; `CLI` builds every path from its private `$base_dir` directly, and the only caller was a getter self-test.
+- **`Job_Worker_Node` test-only handler accessors + dead between-jobs callback** — `set_local_handler()`, `set_remote_handler()`, `register_handler()`, `has_local_handler()`, `has_remote_handler()`, `has_handler()`, `jobs_executed()`, `get_stale_timeout()`, `get_max_runtime()`, `memory_pressure()`, and the `set_between_jobs_callback()` machinery (`$between_jobs_cb` + its `fill()` block, unreachable once the setter was gone). Production registers handlers exclusively via the `newspack_nodes/{job,remote_job}_handlers` filters (eager-loaded in the constructor); the JobWorker tests now drive that path via a `register_job_handler` helper and observe internal state via reflection.
 
 ### Internal
 
