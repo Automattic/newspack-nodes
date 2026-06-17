@@ -152,6 +152,8 @@ export function mountExospine( build ) {
 	// chip) and drives its own resetKey instead of the shared generation.
 	if ( 'function' === typeof build ) {
 		Core.reinit = spine.reinit;
+		// Pre-subscribe bump: an open overlay rebuilds its poll on the new backbone.
+		Core.bumpGraphGeneration();
 		unsubscribe = Core.subscribeGraphGeneration( fullRebuild );
 	}
 
