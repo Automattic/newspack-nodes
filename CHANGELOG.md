@@ -9,7 +9,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- **Three unused members** flagged by a dead-code audit and verified to have no caller anywhere (production, tests, sibling plugins, dynamic dispatch): `Shell_Node::set_show_parse()`, `Config_System\Field::is_option()`, and the `Job_Worker_Node::MAX_JSON_DEPTH` constant.
+- **Unused members** flagged by a dead-code audit and verified to have no caller anywhere (production, tests, sibling plugins, dynamic dispatch): `Shell_Node::set_show_parse()`, `Config_System\Field::is_option()`, and the `Job_Worker_Node::MAX_JSON_DEPTH` constant.
+- **`Bootstrap::register_worker_partitions()`** — the batch "mount every live worker's input Partition" wrapper, superseded by the per-worker `connect_worker_input` pivot (`Bootstrap::register_worker_partition()`, singular). It had no production caller; the cli and HTTP/SSE paths mount one worker at a time.
 
 ### Internal
 

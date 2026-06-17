@@ -446,17 +446,6 @@ class Bootstrap {
 		( new HTTP_In_Node() )->register_routes();
 	}
 
-	/** Mount every live worker's input Partition; returns the count registered. */
-	public static function register_worker_partitions( string $base_dir ): int {
-		$count = 0;
-		foreach ( \glob( "{$base_dir}/locks/*.lock.d", \GLOB_ONLYDIR ) ?: [] as $lock_dir ) {
-			if ( self::register_worker_partition( \basename( $lock_dir, '.lock.d' ), $base_dir ) ) {
-				++$count;
-			}
-		}
-		return $count;
-	}
-
 	/**
 	 * Mount one worker's input Partition by reader id (format-validated, idempotent).
 	 *

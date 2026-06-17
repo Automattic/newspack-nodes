@@ -11,30 +11,13 @@ use Newspack_Nodes\Tests\TestCase;
 
 class WorkerDiscoveryTest extends TestCase {
 
-	public function test_register_worker_partitions_creates_one_partition_per_live_worker(): void {
-		$base = $this->make_temp_dir( 'worker-disc-' );
-		\mkdir( "{$base}/locks/firehose-workers.p0.lock.d", 0755, true );
-		\mkdir( "{$base}/locks/firehose-workers.p1.lock.d", 0755, true );
-		\mkdir( "{$base}/locks/job-workers.p0.lock.d",      0755, true );
-		\mkdir( "{$base}/ipc/firehose-workers.p0/input",    0755, true );
-		\mkdir( "{$base}/ipc/firehose-workers.p1/input",    0755, true );
-		\mkdir( "{$base}/ipc/job-workers.p0/input",         0755, true );
-
-		$count = Bootstrap::register_worker_partitions( $base );
-
-		$this->assertSame( 3, $count );
-		$this->assertInstanceOf( Partition_Node::class, Core::node( 'firehose-workers.p0' ) );
-		$this->assertInstanceOf( Partition_Node::class, Core::node( 'firehose-workers.p1' ) );
-		$this->assertInstanceOf( Partition_Node::class, Core::node( 'job-workers.p0' ) );
-	}
-
 	public function test_filling_a_registered_worker_partition_writes_to_disk(): void {
 		$base = $this->make_temp_dir( 'worker-disc-' );
 		$input_dir = "{$base}/ipc/firehose-workers.p0/input";
 		\mkdir( "{$base}/locks/firehose-workers.p0.lock.d", 0755, true );
 		\mkdir( $input_dir, 0755, true );
 
-		Bootstrap::register_worker_partitions( $base );
+		Bootstrap::register_worker_partition( 'firehose-workers.p0', $base );
 
 		$message = Message::new_message();
 		$message[ Message::TYPE ]  = Message::TM_COMMAND;
@@ -67,17 +50,6 @@ class WorkerDiscoveryTest extends TestCase {
 		// the same message landed on disk.
 		$decoded = $got[0][ Message::VALUE ];
 		$this->assertSame( 'dump_metadata', $decoded['name'] );
-	}
-
-	public function test_skips_workers_with_missing_input_dir(): void {
-		$base = $this->make_temp_dir( 'worker-disc-' );
-		\mkdir( "{$base}/locks/dead-worker.p0.lock.d", 0755, true );
-		// No matching ipc/dead-worker.p0/input dir.
-
-		$count = Bootstrap::register_worker_partitions( $base );
-
-		$this->assertSame( 0, $count );
-		$this->assertNull( Core::node( 'dead-worker.p0' ) );
 	}
 
 	public function test_register_worker_partition_mounts_only_the_named_worker(): void {
