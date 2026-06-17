@@ -132,7 +132,7 @@ class Partition_Node extends Timer_Node {
 		if ( $size > $max ) {
 			$this->set_state(
 				'DROPPED',
-				\implode( ' ', [ 'REASON' => 'oversize', 'SIZE' => $size, 'MAX' => $max ] )
+				\implode( ' ', [ 'REASON', 'oversize', 'SIZE', $size, 'MAX', $max ] )
 			);
 			return;
 		}
@@ -500,7 +500,7 @@ class Partition_Node extends Timer_Node {
 
 		$deleted = $initial_count - $count;
 		if ( $deleted > 0 ) {
-			$this->set_state( 'CLEANUP', \implode( ' ', [ 'DELETED' => $deleted, 'ALIVE' => $count ] ) );
+			$this->set_state( 'CLEANUP', \implode( ' ', [ 'DELETED', $deleted, 'ALIVE', $count ] ) );
 		}
 	}
 

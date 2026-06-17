@@ -194,7 +194,7 @@ class Job_Worker_Node extends Node {
 		// pressure flag — topology code reads memory_pressure() in its drain
 		// predicate and exits cleanly so the supervisor respawns.
 		if ( $this->is_memory_high() && ! $this->memory_pressure ) {
-			$this->set_state( 'MEMORY_PRESSURE', \implode( ' ', [ 'USAGE' => \memory_get_usage( true ) ] ) );
+			$this->set_state( 'MEMORY_PRESSURE', \implode( ' ', [ 'USAGE', \memory_get_usage( true ) ] ) );
 			$this->memory_pressure = true;
 		}
 

@@ -368,7 +368,7 @@ class Consumer_Node extends Timer_Node {
 		$this->print_less_often(
 			\sprintf( 'WARNING: line buffer exceeded %d bytes at seg %d - discarding', self::MAX_LINE_BUFFER_SIZE, $this->cursor_seg )
 		);
-		$this->set_state( 'OVERFLOW', \implode( ' ', [ 'SEGMENT' => $this->cursor_seg, 'OFFSET' => $this->cursor_off, 'LIMIT' => self::MAX_LINE_BUFFER_SIZE ] ) );
+		$this->set_state( 'OVERFLOW', \implode( ' ', [ 'SEGMENT', $this->cursor_seg, 'OFFSET', $this->cursor_off, 'LIMIT', self::MAX_LINE_BUFFER_SIZE ] ) );
 		$this->cursor_off += \strlen( $this->buffer ); // Skip the garbage so polls don't re-read it.
 		$this->buffer      = '';
 	}
@@ -697,7 +697,7 @@ class Consumer_Node extends Timer_Node {
 		$this->checkpoint_seg = $this->cursor_seg;
 		$this->checkpoint_off = $this->cursor_off;
 
-		$this->set_state( 'CHECKPOINT', \implode( ' ', [ 'SEGMENT' => $this->cursor_seg, 'OFFSET' => $this->cursor_off ] ) );
+		$this->set_state( 'CHECKPOINT', \implode( ' ', [ 'SEGMENT', $this->cursor_seg, 'OFFSET', $this->cursor_off ] ) );
 	}
 
 	/**
