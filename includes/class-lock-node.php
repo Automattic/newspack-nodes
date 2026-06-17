@@ -86,7 +86,7 @@ class Lock_Node extends Node {
 			if ( @\mkdir( $this->lock_path, 0755, true ) ) {
 				if ( $this->write_acquire_files() ) {
 					$this->is_held = true;
-					$this->set_state( 'HELD', [ 'path' => $this->lock_path, 'stolen' => false ] );
+					$this->set_state( 'HELD', $this->lock_path );
 					return true;
 				}
 				// Couldn't write required files; roll back the dir so we don't orphan it.
@@ -99,7 +99,7 @@ class Lock_Node extends Node {
 				if ( $this->write_acquire_files() ) {
 					$this->is_held = true;
 					// stolen=true so dashboards can badge the takeover.
-					$this->set_state( 'HELD', [ 'path' => $this->lock_path, 'stolen' => true ] );
+					$this->set_state( 'STOLEN', $this->lock_path );
 					return true;
 				}
 				self::force_release_at( $this->lock_path );
@@ -210,7 +210,7 @@ class Lock_Node extends Node {
 		}
 		self::force_release_at( $this->lock_path );
 		$this->is_held = false;
-		$this->set_state( 'HELD', [ 'path' => $this->lock_path, 'released' => true ] );
+		$this->set_state( 'RELEASED', $this->lock_path );
 	}
 
 	public function is_held(): bool {
