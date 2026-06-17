@@ -59,6 +59,10 @@
 		font-weight: 600;
 		color: base.$dark-text;
 		font-size: 15px;
+		// Reserve a fixed label column so the per-partition pills start at the
+		// same x across rows; sized to clear the longest stock topology name
+		// (firehose-workers-and-jobs). A longer name still pushes its own pills.
+		min-width: 260px;
 	}
 
 	// Source badge starts the right-hand group (badge, health, toggle, restart);

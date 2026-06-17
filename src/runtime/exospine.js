@@ -147,11 +147,18 @@ export function mountExospine( build ) {
 	runBuild();
 
 	// Only a build-delegated graph exposes the rebuild handles + subscribes to the
-	// full-rebuild signal. A bare mountExospine() — the console, or a dashboard
-	// that builds its own nodes — leaves Core.reinit null (hiding the overlay
-	// chip) and drives its own resetKey instead of the shared generation.
+	// full-rebuild signal. A bare mountExospine() — the console — leaves Core.reinit
+	// null (hiding the overlay chip), drives its own resetKey, AND re-runs its whole
+	// effect on a generation bump, so it must NOT emit one here (that would self-loop).
 	if ( 'function' === typeof build ) {
 		Core.reinit = spine.reinit;
+		// Announce this host (re)mount on the shared generation channel BEFORE we
+		// subscribe fullRebuild — a dashboard tab switch tears down the old exospine
+		// and mounts this fresh one, and an open debug overlay subscribes to
+		// graphGeneration to auto-resync to it. Bumping pre-subscribe means this
+		// exospine won't self-rebuild on its own announcement; the build-callback
+		// effect has empty deps so it doesn't re-run on the bump either.
+		Core.bumpGraphGeneration();
 		unsubscribe = Core.subscribeGraphGeneration( fullRebuild );
 	}
 
