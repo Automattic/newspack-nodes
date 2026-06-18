@@ -85,6 +85,18 @@ describe( 'Inspector (edit mode)', () => {
 		expect( container.textContent ).toMatch( /Letters, digits, dash/ );
 	} );
 
+	it( 'NameField: snaps back when the caller refuses a rename', () => {
+		const onRenameNode = jest.fn().mockReturnValue( false );
+		const { container } = render(
+			<Inspector { ...baseProps } onRenameNode={ onRenameNode } />
+		);
+		const input = container.querySelector( '#topology-name-field' );
+		fireEvent.change( input, { target: { value: 'raced' } } );
+		fireEvent.blur( input );
+		expect( input.value ).toBe( 'echo' );
+		expect( container.textContent ).toMatch( /Rename refused/ );
+	} );
+
 	it( 'NameField: Escape reverts the input to the original id', () => {
 		const { container } = render( <Inspector { ...baseProps } /> );
 		const input = container.querySelector( '#topology-name-field' );
@@ -244,6 +256,7 @@ describe( 'Inspector (edit mode)', () => {
 	} );
 
 	it( 'CtorField formatter_name: select renders registered formatters', () => {
+		const onUpdateArgs = jest.fn();
 		const catalog = [
 			{
 				shell_name: 'Echo',
@@ -256,14 +269,18 @@ describe( 'Inspector (edit mode)', () => {
 				{ ...baseProps }
 				catalog={ catalog }
 				formatters={ [ 'Plain', 'JSON' ] }
+				onUpdateArgs={ onUpdateArgs }
 			/>
 		);
 		const select = container.querySelector( '#topology-ctor-format' );
 		expect( select.tagName ).toBe( 'SELECT' );
 		expect( select.options.length ).toBe( 3 ); // (pick…) + Plain + JSON
+		fireEvent.change( select, { target: { value: 'JSON' } } );
+		expect( onUpdateArgs ).toHaveBeenCalledWith( 'echo', [ 'JSON' ] );
 	} );
 
 	it( 'CtorField formatter_name: falls back to text input when no formatters', () => {
+		const onUpdateArgs = jest.fn();
 		const catalog = [
 			{
 				shell_name: 'Echo',
@@ -272,13 +289,21 @@ describe( 'Inspector (edit mode)', () => {
 			},
 		];
 		const { container } = render(
-			<Inspector { ...baseProps } catalog={ catalog } formatters={ [] } />
+			<Inspector
+				{ ...baseProps }
+				catalog={ catalog }
+				formatters={ [] }
+				onUpdateArgs={ onUpdateArgs }
+			/>
 		);
 		const input = container.querySelector( '#topology-ctor-format' );
 		expect( input.tagName ).toBe( 'INPUT' );
+		fireEvent.change( input, { target: { value: 'Plain' } } );
+		expect( onUpdateArgs ).toHaveBeenCalledWith( 'echo', [ 'Plain' ] );
 	} );
 
 	it( 'CtorField node_name: renders a select listing other draft nodes', () => {
+		const onUpdateArgs = jest.fn();
 		const catalog = [
 			{
 				shell_name: 'Echo',
@@ -287,12 +312,34 @@ describe( 'Inspector (edit mode)', () => {
 			},
 		];
 		const { container } = render(
-			<Inspector { ...baseProps } catalog={ catalog } />
+			<Inspector
+				{ ...baseProps }
+				catalog={ catalog }
+				onUpdateArgs={ onUpdateArgs }
+			/>
 		);
 		const select = container.querySelector( '#topology-ctor-route' );
 		expect( select.tagName ).toBe( 'SELECT' );
 		// (pick a node) + sink (excludes the current node 'echo').
 		expect( select.options.length ).toBe( 2 );
+		fireEvent.change( select, { target: { value: 'sink' } } );
+		expect( onUpdateArgs ).toHaveBeenCalledWith( 'echo', [ 'sink' ] );
+	} );
+
+	it( 'CtorField bool defaults render as editable true/false strings', () => {
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				arguments: [ { name: 'enabled', type: 'bool', default: true } ],
+				commands: [],
+			},
+		];
+		const { container } = render(
+			<Inspector { ...baseProps } catalog={ catalog } />
+		);
+		expect(
+			container.querySelector( '#topology-ctor-enabled' ).value
+		).toBe( 'true' );
 	} );
 
 	it( 'Empty Verbs section: surfaces a placeholder', () => {
@@ -354,6 +401,48 @@ describe( 'Inspector (edit mode)', () => {
 		expect( onUpdateVerbs ).toHaveBeenCalledWith( 'echo', [] );
 	} );
 
+	it( 'VerbRow: changing an enabled verb arg rewrites that invocation args array', () => {
+		const onUpdateVerbs = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				arguments: [],
+				commands: [
+					{
+						name: 'set_target',
+						args: [ { name: 'target', type: 'string' } ],
+					},
+				],
+			},
+		];
+		const parsed = {
+			nodes: [
+				{
+					id: 'echo',
+					class: 'Echo',
+					verbInvocations: [
+						{ verb: 'set_target', args: [ 'old' ] },
+					],
+				},
+			],
+			edges: [],
+		};
+		const { container } = render(
+			<Inspector
+				{ ...baseProps }
+				parsed={ parsed }
+				catalog={ catalog }
+				onUpdateVerbs={ onUpdateVerbs }
+			/>
+		);
+		fireEvent.change( container.querySelector( '#topology-ctor-target' ), {
+			target: { value: 'new' },
+		} );
+		expect( onUpdateVerbs ).toHaveBeenCalledWith( 'echo', [
+			{ verb: 'set_target', args: [ 'new' ] },
+		] );
+	} );
+
 	it( 'SingleTargetField: select onChange fires onConnect when picking a new target', () => {
 		const onConnect = jest.fn();
 		const { container } = render(
@@ -392,6 +481,22 @@ describe( 'Inspector (edit mode)', () => {
 		const select = container.querySelector( '#topology-target-input-echo' );
 		fireEvent.change( select, { target: { value: '' } } );
 		expect( onRemoveEdge ).toHaveBeenCalledWith( 'echo', 'sink' );
+	} );
+
+	it( 'SingleTargetField: includes a current target missing from the draft node list', () => {
+		const { container } = render(
+			<Inspector
+				{ ...baseProps }
+				parsed={ {
+					nodes: [ { id: 'echo', class: 'Echo' } ],
+					edges: [ { from: 'echo', to: 'external' } ],
+				} }
+			/>
+		);
+		const values = [
+			...container.querySelector( '#topology-target-input-echo' ).options,
+		].map( ( option ) => option.value );
+		expect( values ).toContain( 'external' );
 	} );
 
 	it( 'Tee TargetsField: renders chips per wired target + an add-target select', () => {
@@ -445,5 +550,22 @@ describe( 'Inspector (edit mode)', () => {
 		const clear = container.querySelector( '.topology-edit-chip__clear' );
 		fireEvent.click( clear );
 		expect( onRemoveEdge ).toHaveBeenCalledWith( 'tee_a', 'a' );
+	} );
+
+	it( 'Tee TargetsField: shows an empty hint when there are no available targets', () => {
+		const { container } = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="tee_a"
+				parsed={ {
+					nodes: [ { id: 'tee_a', class: 'Tee' } ],
+					edges: [],
+				} }
+				catalog={ [
+					{ shell_name: 'Tee', arguments: [], commands: [] },
+				] }
+			/>
+		);
+		expect( container.textContent ).toMatch( /No other nodes to wire/ );
 	} );
 } );

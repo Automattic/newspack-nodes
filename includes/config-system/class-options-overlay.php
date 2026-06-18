@@ -29,7 +29,9 @@ class Options_Overlay {
 	 */
 	public static function apply( array $defaults, array $schema_keys, string $prefix ): array {
 		if ( ! \function_exists( 'get_option' ) ) {
+			// @codeCoverageIgnoreStart
 			return $defaults;
+			// @codeCoverageIgnoreEnd
 		}
 		$missing = "\0__config_system_absent__\0";
 		foreach ( $schema_keys as $key ) {

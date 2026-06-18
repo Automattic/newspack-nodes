@@ -170,6 +170,91 @@ class DumperTest extends TestCase {
 		$this->assertSame( "not-a-struct\n", $this->read_all( $out ) );
 	}
 
+	public function test_TM_COMMAND_TM_ERROR_with_array_value_prints_payload(): void {
+		[ $dumper, $out ] = $this->fresh();
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_ERROR;
+		$message[ Message::VALUE ] = [ 'name' => 'save', 'payload' => 'invalid topology' ];
+		$dumper->fill( $message );
+
+		$this->assertSame( "invalid topology\n", $this->read_all( $out ) );
+	}
+
+	public function test_command_response_array_payload_renders_pretty_json(): void {
+		[ $dumper, $out ] = $this->fresh();
+
+		$message                   = Message::new_message();
+		$message[ Message::TYPE ]  = Message::TM_COMMAND | Message::TM_RESPONSE;
+		$message[ Message::VALUE ] = [
+			'name'    => 'inspect',
+			'payload' => [ 'node' => 'alpha', 'ok' => true ],
+		];
+		$dumper->fill( $message );
+
+		$rendered = $this->read_all( $out );
+		$this->assertStringContainsString( "\"node\": \"alpha\"", $rendered );
+		$this->assertStringContainsString( "\"ok\": true", $rendered );
+	}
+
+	public function test_default_renderer_coerces_non_string_values_like_php_casts(): void {
+		[ $dumper, $out ] = $this->fresh();
+
+		$object = new class {
+			public function __toString(): string {
+				return 'stringable-object';
+			}
+		};
+
+		foreach ( [ null, [ 'x' ], $object, \fopen( 'php://memory', 'r+' ) ] as $value ) {
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_BYTESTREAM;
+			$message[ Message::VALUE ] = $value;
+			$dumper->fill( $message );
+			if ( \is_resource( $value ) ) {
+				\fclose( $value );
+			}
+		}
+
+		$this->assertSame( "\nArray\nstringable-object\n\n", $this->read_all( $out ) );
+	}
+
+	public function test_ping_renderer_coerces_non_scalar_timestamps(): void {
+		[ $dumper, $out ] = $this->fresh();
+		Core::$now = 2.0;
+
+		foreach ( [ null, [], [ 'x' ], new \stdClass(), \fopen( 'php://memory', 'r+' ) ] as $value ) {
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = Message::TM_PING;
+			$message[ Message::VALUE ] = $value;
+			$dumper->fill( $message );
+			if ( \is_resource( $value ) ) {
+				\fclose( $value );
+			}
+		}
+
+		$rendered = $this->read_all( $out );
+		$this->assertSame( 5, \substr_count( $rendered, 'round trip time:' ) );
+		$this->assertStringContainsString( '2000.00 ms', $rendered );
+		$this->assertStringContainsString( '1000.00 ms', $rendered );
+	}
+
+	public function test_type_coercion_accepts_array_object_and_resource_fields(): void {
+		[ $dumper, $out ] = $this->fresh();
+
+		foreach ( [ [], new \stdClass(), \fopen( 'php://memory', 'r+' ) ] as $type ) {
+			$message                   = Message::new_message();
+			$message[ Message::TYPE ]  = $type;
+			$message[ Message::VALUE ] = 'plain';
+			$dumper->fill( $message );
+			if ( \is_resource( $type ) ) {
+				\fclose( $type );
+			}
+		}
+
+		$this->assertSame( "plain\nplain\nplain\n", $this->read_all( $out ) );
+	}
+
 	public function test_counter_increments_per_fill(): void {
 		[ $dumper, $out ] = $this->fresh();
 		$message                   = Message::new_message();
@@ -581,6 +666,23 @@ class DumperTest extends TestCase {
 		$this->assertStringContainsString( '"arguments": "-al"',           $rendered );
 		// Payload is inside the decoded JSON, not in a separate escaped string.
 		$this->assertStringContainsString( '"alpha',                       $rendered );
+	}
+
+	public function test_debug_level_2_decodes_json_string_value_and_skips_timestamp_humanizing_when_non_numeric(): void {
+		[ $dumper, $out ] = $this->fresh();
+		$dumper->set_debug_level( 2 );
+
+		$message                       = Message::new_message();
+		$message[ Message::TYPE ]      = Message::TM_BYTESTREAM;
+		$message[ Message::TIMESTAMP ] = 'not-a-timestamp';
+		$message[ Message::VALUE ]     = '{"alpha":1,"items":["a","b"]}';
+		$dumper->fill( $message );
+
+		$rendered = $this->read_all( $out );
+		$this->assertStringContainsString( 'timestamp: not-a-timestamp', $rendered );
+		$this->assertStringNotContainsString( 'UTC', $rendered );
+		$this->assertStringContainsString( "\"alpha\": 1", $rendered );
+		$this->assertStringContainsString( "\"items\": [", $rendered );
 	}
 
 	public function test_debug_level_clamps_to_0_2_range(): void {

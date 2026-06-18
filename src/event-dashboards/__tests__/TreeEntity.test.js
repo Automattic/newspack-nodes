@@ -150,6 +150,25 @@ it( 'fold caret toggles via onToggle with the entity key', () => {
 	expect( onToggle ).toHaveBeenCalledWith( 'log:requests' );
 } );
 
+it( 'fold caret toggles from the keyboard with Enter and Space', () => {
+	const onToggle = jest.fn();
+	const { container } = render(
+		<TreeEntity
+			entity={ logEntity }
+			depth={ 0 }
+			{ ...props }
+			onToggle={ onToggle }
+		/>
+	);
+	const caret = container.querySelector( '.caret' );
+	fireEvent.keyDown( caret, { key: 'Enter' } );
+	fireEvent.keyDown( caret, { key: ' ' } );
+	expect( onToggle.mock.calls ).toEqual( [
+		[ 'log:requests' ],
+		[ 'log:requests' ],
+	] );
+} );
+
 it( 'collapsed entity hides its detail rows and children', () => {
 	const { container } = render(
 		<TreeEntity

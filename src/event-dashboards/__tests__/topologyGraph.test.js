@@ -482,6 +482,27 @@ it( 'matches a token at an arbitrary position and rejects a non-digit middle', (
 	] );
 } );
 
+it( 'falls back to the literal partition-token vertex when no concrete catalog entry matches', () => {
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'r', 'consumer', { reads: 'missing.p<partition>' } ),
+					gn( 'n', 'logic' ),
+				],
+				edges: [ [ 'r', 'n' ] ],
+			},
+		},
+		[],
+		[]
+	);
+	const log = section.tree.find( ( e ) => e.kind === 'log' );
+	expect( log.name ).toBe( 'missing' );
+	expect( log.partitions ).toEqual( [
+		{ partition: 0, name: 'missing.p<partition>' },
+	] );
+} );
+
 it( 'a token-free vertex matches its exact catalog twin only', () => {
 	const [ section ] = buildTopologySections(
 		{
@@ -536,6 +557,138 @@ it( 'overlays partitions from the logs catalog onto a log entity', () => {
 	expect( inLog.key ).toBe( 'in.log' );
 	expect( inLog.segment_size ).toBe( 4096 );
 	expect( inLog.partitions ).toHaveLength( 1 );
+} );
+
+it( 'merges cursor data from consuming workers onto canonical log slots', () => {
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'r', 'consumer', { reads: 'in.log' } ),
+					gn( 'n', 'logic' ),
+				],
+				edges: [ [ 'r', 'n' ] ],
+			},
+		},
+		[
+			w( {
+				type: 't',
+				handler: 'r',
+				partition: 0,
+				inputs: [ 'in.log' ],
+				inputs_status: [
+					{
+						name: 'in.log',
+						cursor_seg: 2,
+						cursor_offset: 128,
+					},
+				],
+			} ),
+		],
+		[
+			{
+				name: 'in.log',
+				segment_size: 4096,
+				partitions: [
+					{ partition: 0, segments: [ { id: 2 } ], total_size: 512 },
+				],
+			},
+		]
+	);
+	const log = section.tree[ 0 ];
+	expect( log.hasCursor ).toBe( true );
+	expect( log.partitions[ 0 ] ).toEqual(
+		expect.objectContaining( {
+			partition: 0,
+			cursor_seg: 2,
+			cursor_offset: 128,
+			name: 'in.log',
+		} )
+	);
+} );
+
+it( 'falls back to consuming worker input status when the log catalog is absent', () => {
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'r', 'consumer', { reads: 'in.log' } ),
+					gn( 'n', 'logic' ),
+				],
+				edges: [ [ 'r', 'n' ] ],
+			},
+		},
+		[
+			w( {
+				type: 't',
+				handler: 'r',
+				partition: 3,
+				inputs: [ 'in.log' ],
+				inputs_status: [
+					{
+						name: 'in.log',
+						segments: [ { id: 7 } ],
+						total_size: 700,
+						cursor_seg: 7,
+						cursor_offset: 10,
+					},
+				],
+			} ),
+		],
+		[]
+	);
+	const log = section.tree[ 0 ];
+	expect( log.hasCursor ).toBe( true );
+	expect( log.partitions[ 0 ] ).toEqual(
+		expect.objectContaining( {
+			partition: 0,
+			segments: [ { id: 7 } ],
+			total_size: 700,
+			cursor_seg: 7,
+			cursor_offset: 10,
+			name: 'in.log',
+		} )
+	);
+} );
+
+it( 'falls back to producing worker output status when no catalog or cursor status exists', () => {
+	const [ section ] = buildTopologySections(
+		{
+			t: {
+				nodes: [
+					gn( 'src', 'logic' ),
+					gn( 'out', 'partition', { writes: 'out.log' } ),
+				],
+				edges: [ [ 'src', 'out' ] ],
+			},
+		},
+		[
+			w( {
+				type: 't',
+				handler: 'src',
+				partition: 2,
+				outputs: [ 'out.log' ],
+				outputs_status: [
+					{
+						name: 'out.log',
+						segments: [ { id: 4 } ],
+						total_size: 400,
+					},
+				],
+			} ),
+		],
+		[]
+	);
+	const log = section.tree[ 0 ].children[ 0 ];
+	expect( log.hasCursor ).toBe( false );
+	expect( log.partitions[ 0 ] ).toEqual(
+		expect.objectContaining( {
+			partition: 0,
+			segments: [ { id: 4 } ],
+			total_size: 400,
+			name: 'out.log',
+		} )
+	);
 } );
 
 it( 'collapses a Log sink to a log entity named by its file basename', () => {

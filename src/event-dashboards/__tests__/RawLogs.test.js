@@ -362,6 +362,27 @@ describe( 'RawLogs', () => {
 		expect( filter.value ).toBe( 'foo' );
 	} );
 
+	it( 'filters the canvas row window and shows visible / total counts', () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			lines: [
+				{ id: 2, partition: 0, content: 'match me', isEven: true },
+				{ id: 1, partition: 0, content: 'skip me', isEven: false },
+			],
+		} );
+		const { container } = render( <RawLogs /> );
+		const filter = container.querySelector(
+			'.newspack-nodes-raw-logs-search'
+		);
+		fireEvent.change( filter, { target: { value: 'match' } } );
+		tickFrame();
+		const count = container.querySelector(
+			'.newspack-nodes-raw-logs-count'
+		);
+		expect( count.textContent.trim() ).toBe( '1 / 2 lines' );
+	} );
+
 	it( 'displays the lines/second read from the node in the rAF', () => {
 		registerViewFixture( {
 			logs: [ { key: 'firehose', label: 'Firehose' } ],
@@ -474,5 +495,22 @@ describe( 'RawLogs', () => {
 			queryByRole( 'button', { name: /node debugger/i } )
 		).toBeNull();
 		window.localStorage.clear();
+	} );
+
+	it( 'records manual scroll position from the scroll overlay', () => {
+		registerViewFixture( {
+			logs: [ { key: 'firehose', label: 'Firehose' } ],
+			selected: 'firehose',
+			lines: [
+				{ id: 1, partition: 0, content: 'one', isEven: false },
+				{ id: 2, partition: 0, content: 'two', isEven: true },
+			],
+		} );
+		const { container } = render( <RawLogs /> );
+		const scroll = container.querySelector(
+			'.newspack-nodes-raw-logs-scroll'
+		);
+		fireEvent.scroll( scroll, { target: { scrollTop: 36 } } );
+		expect( scroll.scrollTop ).toBe( 36 );
 	} );
 } );

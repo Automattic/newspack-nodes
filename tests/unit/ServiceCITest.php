@@ -117,6 +117,43 @@ class ServiceCITest extends TestCase {
 		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'help' );
 		$this->assertSame( 'permission denied: manage_options required', $result );
 	}
+
+	public function test_auto_injected_help_runs_after_manage_options_gate_passes(): void {
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+
+		$result = VerbHarness::fire( new ServiceCITestProbe(), 'probe', 'help' );
+
+		$this->assertStringContainsString( 'help', $result );
+		$this->assertStringContainsString( 'ping', $result );
+	}
+
+	public function test_schema_with_non_array_commands_installs_no_service_verbs(): void {
+		$probe = new ServiceCINonArrayCommandsProbe();
+
+		$this->assertSame( [ 'help' ], \array_keys( $probe->commands() ) );
+	}
+
+	public function test_schema_skips_non_array_verb_entries(): void {
+		$GLOBALS['_wp_test_current_user_can']['manage_options'] = true;
+
+		$result = VerbHarness::fire( new ServiceCINonArrayVerbProbe(), 'probe', 'ok' );
+
+		$this->assertSame( 'ok', $result );
+	}
+
+	public function test_split_first_token_preserves_verbatim_remainder(): void {
+		$this->assertSame(
+			[ 'save', "topology-name make_node Echo e\n" ],
+			ServiceCITestProbe::split_first_token_probe( "  save topology-name make_node Echo e\n" )
+		);
+	}
+
+	public function test_split_first_token_returns_empty_remainder_for_lone_token(): void {
+		$this->assertSame(
+			[ 'status', '' ],
+			ServiceCITestProbe::split_first_token_probe( '  status  ' )
+		);
+	}
 }
 
 /**
@@ -139,6 +176,10 @@ class ServiceCITestProbe extends Service_CI_Node {
 		return self::require_valid_name( $name, $pattern );
 	}
 
+	public static function split_first_token_probe( string $args ): array {
+		return self::split_first_token( $args );
+	}
+
 	/**
 	 * One verb whose handler does NOT self-gate — so any auth must come from
 	 * the base's central wrapper in commands_from_schema(). Returns a sentinel
@@ -154,6 +195,30 @@ class ServiceCITestProbe extends Service_CI_Node {
 					'handler'     => static function ( Command_Interpreter_Node $self, string $args, array $envelope = [] ): string {
 						return 'pong';
 					},
+				],
+			],
+		];
+	}
+}
+
+class ServiceCINonArrayCommandsProbe extends Service_CI_Node {
+	public static function node_schema(): array {
+		return [
+			'category' => 'Hidden',
+			'commands' => 'not-a-list',
+		];
+	}
+}
+
+class ServiceCINonArrayVerbProbe extends Service_CI_Node {
+	public static function node_schema(): array {
+		return [
+			'category' => 'Hidden',
+			'commands' => [
+				'not-a-verb',
+				[
+					'name'    => 'ok',
+					'handler' => static fn (): string => 'ok',
 				],
 			],
 		];

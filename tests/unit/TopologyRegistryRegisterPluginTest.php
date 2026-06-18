@@ -91,6 +91,26 @@ class TopologyRegistryRegisterPluginTest extends TestCase {
 		$this->assertArrayHasKey( 'b', $catalog, 'no per-plugin allowlist drops one' );
 	}
 
+	public function test_catalog_keeps_existing_entry_when_tsl_name_collides(): void {
+		$dir = $this->make_temp_dir();
+		$this->seed_topology( $dir, 'widget' );
+		Topology_Registry::register_plugin( 'Acme\\', $dir );
+
+		$catalog = \apply_filters(
+			'newspack_nodes/topologies',
+			[
+				'widget' => [
+					'topology'       => 'external-widget',
+					'num_partitions' => 7,
+					'stale_timeout'  => 99,
+				],
+			]
+		);
+
+		$this->assertSame( 'external-widget', $catalog['widget']['topology'] );
+		$this->assertSame( 7, $catalog['widget']['num_partitions'] );
+	}
+
 	public function test_catalog_includes_user_dir_topologies(): void {
 		// The editor's "New" writes a .tsl into the user dir, owned by no plugin.
 		$user_dir = $this->make_temp_dir();

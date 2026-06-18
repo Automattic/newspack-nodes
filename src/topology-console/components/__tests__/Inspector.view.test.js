@@ -212,6 +212,15 @@ describe( 'Inspector (view mode)', () => {
 		expect( onSelect ).toHaveBeenCalledWith( 'tee_a' );
 	} );
 
+	it( 'reports hover enter/leave for known routing target links', () => {
+		const onHover = jest.fn();
+		const { container } = renderNode( { onHover } );
+		const link = container.querySelector( '.topology-field-row__nav' );
+		fireEvent.mouseEnter( link );
+		fireEvent.mouseLeave( link );
+		expect( onHover.mock.calls ).toEqual( [ [ 'tee_a' ], [ null ] ] );
+	} );
+
 	it( 'omits the Activity section when rateInfo has no message/byte signals', () => {
 		const { container } = renderNode();
 		expect( container.textContent ).not.toMatch( /Activity/ );
@@ -227,6 +236,49 @@ describe( 'Inspector (view mode)', () => {
 		} );
 		expect( container.textContent ).toMatch( /Activity/ );
 		expect( container.textContent ).toMatch( /messages \/s/ );
+	} );
+
+	it( 'formats activity and throughput edge values', () => {
+		jest.useFakeTimers();
+		jest.setSystemTime( new Date( '2026-01-01T00:00:00Z' ) );
+		try {
+			const richNode = {
+				id: 'echo',
+				class: 'Echo',
+				count: 0,
+				lgstMsg: -1,
+				bytesRead: 1024 * 1024 * 1024,
+				bytesWritten: 0,
+			};
+			const { container } = render(
+				<Inspector
+					{ ...baseProps }
+					selectedId="echo"
+					parsed={ { nodes: [ richNode ], edges: [] } }
+					nodeIds={ new Set( [ 'echo' ] ) }
+					rateInfo={ {
+						hasMessages: true,
+						history: [ 0, 150 ],
+						rate: 150,
+						hasRead: true,
+						readHistory: [ 0 ],
+						readRate: 0.5,
+						hasWritten: true,
+						writtenHistory: [ 0, 1024 * 1024 * 1024 ],
+						writtenRate: 1024 * 1024 * 1024,
+						lastChangedTs: Date.now() / 1000 - 3600,
+					} }
+				/>
+			);
+
+			expect( container.textContent ).toMatch( /150 \/s/ );
+			expect( container.textContent ).toMatch( /0 B\/s/ );
+			expect( container.textContent ).toMatch( /1\.0 G\/s/ );
+			expect( container.textContent ).toMatch( /1\.0 G/ );
+			expect( container.textContent ).toMatch( /1h ago/ );
+		} finally {
+			jest.useRealTimers();
+		}
 	} );
 
 	it( 'renders bytes formatters in Throughput rows', () => {
@@ -276,6 +328,54 @@ describe( 'Inspector (view mode)', () => {
 		const { getByText } = renderNode( { onAction } );
 		fireEvent.click( getByText( 'Dump' ) );
 		expect( onAction ).toHaveBeenCalledWith( 'dump', 'echo' );
+	} );
+
+	it( 'fires trace and Tee tail/disconnect actions from action buttons', () => {
+		const traceAction = jest.fn();
+		const traceView = renderNode( { onAction: traceAction } );
+		fireEvent.click( traceView.getByText( 'Trace' ) );
+		expect( traceAction ).toHaveBeenCalledWith( 'trace', 'echo', 1 );
+		traceView.unmount();
+
+		const tailAction = jest.fn();
+		const teeNode = { id: 'tee_a', class: 'Tee', count: 0, targets: [] };
+		const tailView = render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="tee_a"
+				parsed={ { nodes: [ teeNode ], edges: [] } }
+				nodeIds={ new Set( [ 'tee_a' ] ) }
+				onAction={ tailAction }
+			/>
+		);
+		fireEvent.click( tailView.getByText( 'Connect' ) );
+		expect( tailAction ).toHaveBeenCalledWith( 'tail', 'tee_a' );
+		tailView.unmount();
+
+		const disconnectAction = jest.fn();
+		render(
+			<Inspector
+				{ ...baseProps }
+				selectedId="tee_a"
+				parsed={ {
+					nodes: [
+						{
+							...teeNode,
+							targets: [ '_output' ],
+						},
+					],
+					edges: [],
+					pwd: '_output',
+				} }
+				nodeIds={ new Set( [ 'tee_a' ] ) }
+				onAction={ disconnectAction }
+			/>
+		);
+		fireEvent.click( document.querySelector( 'button.is-active' ) );
+		expect( disconnectAction ).toHaveBeenCalledWith(
+			'disconnect',
+			'tee_a'
+		);
 	} );
 
 	it( 'opens a send modal and fires onAction("send", id, payload) when confirmed', () => {
@@ -499,6 +599,41 @@ describe( 'Inspector (view mode)', () => {
 			positional: 'json',
 			byName: { formatter: 'json' },
 		} );
+	} );
+
+	it( 'runs a verb with optional blank args as an empty invocation payload', () => {
+		const onAction = jest.fn();
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				commands: [
+					{
+						name: 'optional_arg',
+						args: [ { name: 'maybe', type: 'string' } ],
+					},
+				],
+			},
+		];
+		const { getByText } = renderNode( { catalog, onAction } );
+		fireEvent.click( getByText( 'optional_arg' ) );
+		fireEvent.click( getByText( 'Run' ) );
+		expect( onAction ).toHaveBeenCalledWith( 'invoke', 'echo', {
+			verb: 'optional_arg',
+			kind: 'command',
+			positional: '',
+			byName: {},
+		} );
+	} );
+
+	it( 'clicking a live verb button is a no-op when no action handler is wired', () => {
+		const catalog = [
+			{
+				shell_name: 'Echo',
+				commands: [ { name: 'noop', args: [] } ],
+			},
+		];
+		const { getByText } = renderNode( { catalog, onAction: null } );
+		expect( () => fireEvent.click( getByText( 'noop' ) ) ).not.toThrow();
 	} );
 
 	it( 'hides verb buttons (allow_large_writes, with_index, …) for a reserved spine node', () => {

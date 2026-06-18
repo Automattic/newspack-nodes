@@ -9,6 +9,7 @@ import {
 	TYPE,
 	TM_COMMAND,
 	TM_RESPONSE,
+	TM_ERROR,
 	newMessage,
 } from '../../../runtime/message';
 import { Core } from '../../../runtime/core';
@@ -50,6 +51,17 @@ test( 'fill increments the node counter so the overlay shows throughput', () => 
 	v.fill( listReply( { topologies: [] } ) );
 	v.fill( listReply( { topologies: [] } ) );
 	expect( v.counter ).toBe( 2 );
+} );
+
+test( 'uncorrelated errors publish the global model error', () => {
+	const v = makeView( 'topologymanager:view' );
+	const m = listReply( { message: 'write conflict' } );
+	m[ TYPE ] = TM_COMMAND | TM_RESPONSE | TM_ERROR;
+
+	v.fill( m );
+
+	expect( v.model.error ).toContain( 'write conflict' );
+	expect( v.model.loading ).toBe( false );
 } );
 
 test( 'declares has_target:false (terminal receiver — no out-port)', () => {

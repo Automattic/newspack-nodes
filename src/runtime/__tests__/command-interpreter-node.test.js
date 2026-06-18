@@ -259,6 +259,25 @@ test( 'TM_NOREPLY command suppresses the reply but surfaces an error to stderr',
 	warnSpy.mockRestore();
 } );
 
+test( 'empty verb payload suppresses the routed response', () => {
+	const sink = new Node();
+	const got = [];
+	sink.fill = ( m ) => got.push( [ ...m ] );
+
+	const interpreter = new CommandInterpreterNode();
+	interpreter.name = 'test_interpreter';
+	interpreter.sink = sink;
+	interpreter.commands( { quiet: () => '' } );
+
+	const m = newMessage();
+	m[ TYPE ] = TM_COMMAND;
+	m[ VALUE ] = { name: 'quiet', arguments: '' };
+	m[ LOCAL ] = true;
+	interpreter.fill( m );
+
+	expect( got ).toHaveLength( 0 );
+} );
+
 test( 'malformed command struct (non-object VALUE) drops the message silently', () => {
 	const warnSpy = jest
 		.spyOn( console, 'warn' )
@@ -462,6 +481,14 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			);
 			expect( tee.target ).toContain( 'session' );
 		} );
+		it( 'connect usage when no target and no envelope FROM are available', () => {
+			const interpreter = makeInterpreter();
+			const tee = new TeeNode();
+			tee.name = 't';
+			expect( dispatch( interpreter, 'connect_node', 't' ) ).toBe(
+				'usage: connect_node <node> [<target>]'
+			);
+		} );
 		it( 'connects a non-Tee node by setting its string target (no crash)', () => {
 			// Base Node has no connectNode (only Tee does); the verb must fall back
 			// to setting a single string target — matching PHP Node::connect_node.
@@ -494,6 +521,27 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 				'ok'
 			);
 			expect( tee.target ).not.toContain( 'dest' );
+		} );
+		it( 'disconnect defaults a Tee target to envelope FROM', () => {
+			const interpreter = makeInterpreter();
+			const tee = new TeeNode();
+			tee.name = 't';
+			tee.connectNode( 'session' );
+			const env = newMessage();
+			env[ FROM ] = 'session';
+			expect( dispatch( interpreter, 'disconnect_node', 't', env ) ).toBe(
+				'ok'
+			);
+			expect( tee.target ).toEqual( [] );
+		} );
+		it( 'disconnect usage when a Tee has no target and no envelope FROM', () => {
+			const interpreter = makeInterpreter();
+			const tee = new TeeNode();
+			tee.name = 't';
+			tee.connectNode( 'session' );
+			expect( dispatch( interpreter, 'disconnect_node', 't' ) ).toBe(
+				'usage: disconnect_node <node> [<target>]'
+			);
 		} );
 		it( 'disconnect calls the node disconnectNode lifecycle method', () => {
 			const interpreter = makeInterpreter();
@@ -641,6 +689,18 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( out ).toContain( 'removed worker_b' );
 			expect( Core.node( 'worker_a' ) ).toBeNull();
 		} );
+		it( '-a with no regex returns usage', () => {
+			const interpreter = makeInterpreter();
+			expect( dispatch( interpreter, 'remove_node', '-a' ) ).toBe(
+				'usage: remove_node -a <anchored regex glob>'
+			);
+		} );
+		it( '-a reports no matches for valid regexes that match nothing', () => {
+			const interpreter = makeInterpreter();
+			expect(
+				dispatch( interpreter, 'remove_node', '-a worker_.*' )
+			).toBe( 'no matches' );
+		} );
 		it( 'usage on empty args', () => {
 			const interpreter = makeInterpreter();
 			expect( dispatch( interpreter, 'remove_node', '' ) ).toBe(
@@ -678,6 +738,31 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			const out = dispatch( interpreter, 'ls', '-c' );
 			expect( out ).toContain( 'COUNT' );
 			expect( out ).toContain( 'NAME' );
+		} );
+		it( '-lst shows sink and target columns for string and array targets', () => {
+			const interpreter = makeInterpreter();
+			const sink = new Node();
+			sink.name = 'sink';
+			const a = new Node();
+			a.name = 'a';
+			a.sink = sink;
+			a.target = 'one';
+			const b = new TeeNode();
+			b.name = 'b';
+			b.sink = sink;
+			b.target = [ 'two', 'three' ];
+			const out = dispatch( interpreter, 'ls', '-alst' );
+			expect( out ).toContain( 'SINK' );
+			expect( out ).toContain( 'TARGET' );
+			expect( out ).toContain( '> sink' );
+			expect( out ).toContain( '-> one' );
+			expect( out ).toContain( '-> two, three' );
+		} );
+		it( '-a with a regex reports no matches per glob', () => {
+			const interpreter = makeInterpreter();
+			expect( dispatch( interpreter, 'ls', '-a nope$' ) ).toContain(
+				'no matches'
+			);
 		} );
 		it( 'reports an unknown explicit node', () => {
 			const interpreter = makeInterpreter();
@@ -837,6 +922,13 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( out ).toContain( 'LGST_MSG' );
 			expect( out ).toContain( 'a' );
 		} );
+		it( '-a with an invalid regex yields just the header', () => {
+			const interpreter = makeInterpreter();
+			new Node().name = 'a';
+			const out = dispatch( interpreter, 'stats', '-a [' );
+			expect( out ).toContain( 'NAME' );
+			expect( out ).not.toMatch( /\na\b/ );
+		} );
 	} );
 
 	describe( 'uptime', () => {
@@ -866,6 +958,17 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 
 			nowSpy.mockRestore();
 		} );
+		it( 'formats day-scale uptime with a day count and clock remainder', () => {
+			const interpreter = makeInterpreter();
+			const nowSpy = jest.spyOn( Core, 'now' );
+			nowSpy.mockReturnValue( 1000 );
+			Core.reset();
+			nowSpy.mockReturnValue( 1000 + 90061 );
+			expect( dispatch( interpreter, 'uptime', '' ) ).toMatch(
+				/up 1d 01:01:01/
+			);
+			nowSpy.mockRestore();
+		} );
 	} );
 
 	describe( 'debug_state', () => {
@@ -891,6 +994,27 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( dispatch( interpreter, 'debug_state', 'n 2' ) ).toBe(
 				'n debug_state: 2'
 			);
+			expect( n.debugState ).toBe( 2 );
+		} );
+		it( 'name without level toggles that node', () => {
+			const interpreter = makeInterpreter();
+			const n = new Node();
+			n.name = 'n';
+			expect( dispatch( interpreter, 'debug_state', 'n' ) ).toBe(
+				'n debug_state: 1'
+			);
+			expect( dispatch( interpreter, 'debug_state', 'n' ) ).toBe(
+				'n debug_state: 0'
+			);
+		} );
+		it( '* applies a debug level to every registered node', () => {
+			const interpreter = makeInterpreter();
+			const n = new Node();
+			n.name = 'n';
+			expect( dispatch( interpreter, 'debug_state', '* 2' ) ).toBe(
+				'* debug_state: 2'
+			);
+			expect( interpreter.debugState ).toBe( 2 );
 			expect( n.debugState ).toBe( 2 );
 		} );
 		it( 'unknown node errors', () => {
@@ -1117,6 +1241,13 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( node.arguments ).toBe( 'a b' );
 		} );
 
+		it( 'inherits the interpreter debug state for newly-made nodes', () => {
+			const interp = makeInterpreter();
+			interp.debugState = 3;
+			const node = interp.makeNode( 'Tee', 'debugtee' );
+			expect( node.debugState ).toBe( 3 );
+		} );
+
 		it( '_cmdMakeNode delegates to makeNode (still names + sinks)', () => {
 			const interp = makeInterpreter();
 			expect( dispatch( interp, 'make_node', 'Tee delegated' ) ).toBe(
@@ -1205,6 +1336,34 @@ describe( 'built-in verbs — defaults installed on every interpreter', () => {
 			expect( dispatch( interpreter, 'dump_config' ) ).toContain(
 				'_output'
 			);
+		} );
+	} );
+
+	describe( 'dispatch / table helpers', () => {
+		it( 'dispatch throws for unknown command names', () => {
+			const interpreter = makeInterpreter();
+			expect( () => interpreter.dispatch( 'nope' ) ).toThrow(
+				'unknown command: nope'
+			);
+		} );
+
+		it( '_tabulate ignores cells beyond the declared column count', () => {
+			expect(
+				CommandInterpreterNode._tabulate(
+					[ 'left' ],
+					[ 'ONLY' ],
+					[ [ 'value', 'extra' ] ]
+				)
+			).toBe( 'ONLY\nvalue' );
+		} );
+
+		it( 'dump_node skips function-valued node fields', () => {
+			const interpreter = makeInterpreter();
+			const n = new Node();
+			n.name = 'd';
+			n.helper = () => 'skip me';
+			const out = dispatch( interpreter, 'dump_node', 'd' );
+			expect( out ).not.toContain( 'helper' );
 		} );
 	} );
 } );
