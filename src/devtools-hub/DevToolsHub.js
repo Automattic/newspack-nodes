@@ -10,6 +10,7 @@ import { useState } from '@wordpress/element';
 import { __ } from '@wordpress/i18n';
 import DevtoolsTabHost from '@newspack-nodes/shared/devtools/DevtoolsTabHost';
 import useAdminMenuWidth from '@newspack-nodes/shared/hooks/useAdminMenuWidth';
+import useAdminChromeColors from '@newspack-nodes/shared/hooks/useAdminChromeColors';
 import DebugOverlay from '../debug-overlay/DebugOverlay';
 import './devtools-hub.scss';
 
@@ -21,6 +22,9 @@ const CONSOLE_TAB_ID = 'topology-console';
 
 export default function DevToolsHub() {
 	const menuWidth = useAdminMenuWidth();
+	// Blend the hub chrome with the user's WP admin color scheme instead of a
+	// hardcoded dark strip (the tab bar continues visually from the admin bar).
+	const chrome = useAdminChromeColors();
 	const [ activeTabId, setActiveTabId ] = useState( null );
 
 	return (
@@ -33,7 +37,8 @@ export default function DevToolsHub() {
 				right: '0',
 				bottom: '0',
 				zIndex: 99,
-				background: '#1e1e1e',
+				background: chrome.background,
+				'--nodes-devtools-fg': chrome.foreground,
 				transition: 'left 0.1s ease-in-out',
 				margin: 0,
 				padding: 0,

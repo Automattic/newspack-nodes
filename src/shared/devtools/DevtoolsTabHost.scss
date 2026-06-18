@@ -2,12 +2,14 @@
 	display: flex;
 	gap: 4px;
 	padding: 6px 10px 0;
-	border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+	border-bottom: 1px solid
+		color-mix(in srgb, var(--nodes-devtools-fg, #fff) 12%, transparent);
 }
 
-// Explicit light colors (not opacity over an inherited color) so the labels are
-// legible on the dark hub/overlay surfaces — inheriting WP-admin's dark text at
-// 60% opacity rendered dark-on-dark.
+// Labels derive from --nodes-devtools-fg — the host (DevToolsHub) sets it to the
+// active WP admin scheme's bar text color so the tabs match the chrome. Falls
+// back to white for the standalone overlay, which has no host var and sits on
+// its own dark surface.
 .nodes-devtools__tab {
 	border: 0;
 	border-bottom: 2px solid transparent;
@@ -16,13 +18,17 @@
 	cursor: pointer;
 	font: inherit;
 	font-size: 13px;
-	color: rgba(255, 255, 255, 0.55);
+	color: color-mix(in srgb, var(--nodes-devtools-fg, #fff) 60%, transparent);
 	transition:
 		color 0.15s,
 		border-color 0.15s;
 
 	&:hover {
-		color: rgba(255, 255, 255, 0.85);
+		color: color-mix(
+			in srgb,
+			var(--nodes-devtools-fg, #fff) 88%,
+			transparent
+		);
 	}
 
 	&:focus-visible {
@@ -31,7 +37,7 @@
 	}
 
 	&.is-active {
-		color: #fff;
+		color: var(--nodes-devtools-fg, #fff);
 		font-weight: 600;
 		border-bottom-color: #3fb950;
 	}
