@@ -23,6 +23,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Command_Auth {
+
 	/** Max accepted age of a signature (two 10s windows of straddle tolerance). */
 	public const MAX_PAST_S = 20;
 

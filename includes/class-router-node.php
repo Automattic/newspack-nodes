@@ -14,6 +14,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Router_Node extends Timer_Node {
+
 	public const DEFAULT_TICK_MS = 1000;
 
 	private bool $handling_error = false;

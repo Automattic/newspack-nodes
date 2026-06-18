@@ -12,6 +12,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Timer_Node extends Node {
+
 	public int $interval_ms = 0;
 	public bool $oneshot    = false;
 	public float $next_fire = 0.0;

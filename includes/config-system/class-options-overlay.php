@@ -18,6 +18,7 @@ namespace Newspack_Nodes\Config_System;
 \defined( 'ABSPATH' ) || exit;
 
 class Options_Overlay {
+
 	/**
 	 * Overlay stored WP options onto a copy of the file-config defaults.
 	 *

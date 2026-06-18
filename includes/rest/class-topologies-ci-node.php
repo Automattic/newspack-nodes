@@ -51,6 +51,7 @@ use Newspack_Nodes\Topology_Registry;
 \defined( 'ABSPATH' ) || exit;
 
 class Topologies_CI_Node extends Service_CI_Node {
+
 	private const MAX_BODY_BYTES = 1048576;
 
 	/**

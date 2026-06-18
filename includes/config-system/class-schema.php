@@ -17,6 +17,7 @@ namespace Newspack_Nodes\Config_System;
 \defined( 'ABSPATH' ) || exit;
 
 class Schema {
+
 	/**
 	 * @param string                                                            $prefix   WP-option name prefix (e.g. 'newspack_nodes_').
 	 * @param array<int,Field>                                                  $fields   The settings, in render order.

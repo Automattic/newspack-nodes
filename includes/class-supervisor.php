@@ -14,6 +14,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Supervisor extends Supervisor_Base {
+
 	/** Endpoint accepts current + previous for race tolerance. */
 	public const TOKEN_WINDOW_S = 10;
 

@@ -10,6 +10,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Core {
+
 	/** @var array<string,Node> Registered nodes keyed by name; every entry is a Node ($this from Node::name()). */
 	public static array $nodes_by_name = [];
 

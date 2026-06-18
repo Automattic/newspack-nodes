@@ -19,6 +19,7 @@ use Newspack_Nodes\Supervisor_Base;
 \defined( 'ABSPATH' ) || exit;
 
 class Spawn_Controller {
+
 	/** WordPress nonce action name for external spawn requests. */
 	public const NONCE_ACTION = 'newspack_nodes_spawn_worker';
 

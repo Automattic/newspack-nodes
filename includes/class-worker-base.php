@@ -14,6 +14,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Worker_Base {
+
 	public const DEFAULT_MAX_RUNTIME    = 595;
 	public const MEMORY_WATERMARK_PCT   = 0.80;
 	public const HEARTBEAT_INTERVAL_S   = 10;

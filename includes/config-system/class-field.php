@@ -23,6 +23,7 @@ namespace Newspack_Nodes\Config_System;
 \defined( 'ABSPATH' ) || exit;
 
 class Field {
+
 	/**
 	 * Display label, stored unresolved. A plugin passes either a plain string OR
 	 * a `fn(): string` thunk — the thunk defers `__()` to render time so building

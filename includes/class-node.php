@@ -10,6 +10,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Node {
+
 	protected string $name = '';
 	protected ?Node  $sink = null;
 	/** @var string|array<int, string> */

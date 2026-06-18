@@ -38,6 +38,7 @@ use Newspack_Nodes\Worker_Base;
 \defined( 'ABSPATH' ) || exit;
 
 class Workers_CI_Node extends Service_CI_Node {
+
 	/**
 	 * Cli helper the `list`/`dump_graph`/`restart` handlers reach via
 	 * `$self->cli`. Public so the bootstrap (or test) assigns it AFTER
