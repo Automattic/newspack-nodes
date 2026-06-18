@@ -1678,6 +1678,40 @@
 	}
 }
 
+// Newspack skins — product-system chrome on top of the tokens: clean white
+// rounded node cards, and Cobalt-led metrics so red stays reserved for genuine
+// errors (Tail LED, error toasts) instead of every rate/sparkline/counter.
+.topology-app.theme-newspack,
+.topology-app.theme-newspack-brand {
+	.topology-node__bg {
+		fill: var(--paper);
+		stroke: var(--paper-shadow);
+		rx: 7px;
+		ry: 7px;
+	}
+
+	.topology-node.is-selected .topology-node__bg {
+		stroke: var(--cyan);
+		stroke-width: 2;
+	}
+
+	.topology-node__spark {
+		stroke: var(--cyan);
+	}
+
+	.topology-node__counter {
+		fill: var(--cyan);
+	}
+
+	.topology-node__rate {
+		fill: var(--ink-3);
+	}
+
+	.topology-brand__colon {
+		color: var(--cyan);
+	}
+}
+
 // 01 — Cyanotype Blueprint
 .topology-app.theme-blueprint {
 	--paper: #103a63;

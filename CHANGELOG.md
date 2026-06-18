@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Topology Console: **Newspack** and **Newspack Brand** skins; Newspack is now the default skin.
+- Topology Console: **Newspack** and **Newspack Brand** skins; Newspack is now the default skin. The Newspack skins also restyle the node chrome to the product system — clean white rounded node cards and Cobalt-led metrics (sparkline + counter) — so red is reserved for genuine errors instead of every node's throughput readout.
 
 ### Changed
 

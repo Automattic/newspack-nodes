@@ -4,10 +4,11 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Topology Console — skin gallery</title>
-<!-- The REAL compiled stylesheet: its .topology-app.theme-<slug> blocks define
-     the tokens we render below. This harness consumes the tokens via var(); it
-     uses its OWN g-* layout classes so no skin's component rules (gradients,
-     scanlines, shapes) interfere — the gallery is a pure token/chrome view. -->
+<!-- The REAL compiled stylesheet. The canvas below uses the REAL
+     .topology-* class names (node bg/type/led/id/spark/counter/rate, edge,
+     brand colon) so the gallery exercises the actual component CSS + any
+     per-skin component overrides — not a simplified mock. The header/palette/
+     inspector/repl chrome stays g-* (token-only) since it wasn't the concern. -->
 <link rel="stylesheet" href="../build/topology-console/index.css">
 <style>
 	* { box-sizing: border-box; }
@@ -21,8 +22,6 @@
 	}
 	.card > .label small { font-weight: 400; text-transform: none; letter-spacing: 0; color: #9a9aa0; }
 
-	/* The themed wrapper. We neutralize the app's grid/height layout (inline on
-	   the element) and build our own chrome with g-* classes that read var(). */
 	.g-app {
 		display: block !important; height: auto !important;
 		border-radius: 10px; overflow: hidden; border: 1px solid rgba(0,0,0,.4);
@@ -34,7 +33,7 @@
 		background: var(--paper-2); border-bottom: 1px solid var(--paper-shadow);
 		padding: 10px 14px;
 	}
-	.g-brand { font-family: var(--font-display-brand); font-size: 16px; font-weight: 700; color: var(--ink); }
+	.g-brand { font-family: var(--font-display-brand); font-size: 16px; font-weight: 700; color: var(--ink); letter-spacing: .04em; }
 	.g-sub { font-size: 11px; color: var(--ink-3); }
 	.g-leds { margin-left: auto; display: flex; gap: 12px; }
 	.g-led { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--ink-3); }
@@ -54,22 +53,12 @@
 	}
 	.g-chip i { width: 7px; height: 7px; border-radius: 50%; }
 	.g-canvas {
-		position: relative; min-height: 184px; padding: 14px; background:
+		position: relative; padding: 0; background:
 			linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 22px 22px,
 			linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 22px 22px,
 			var(--paper);
 	}
-	.g-node {
-		position: absolute; width: 124px; border-radius: 7px; background: var(--paper);
-		border: 1px solid var(--paper-shadow); overflow: hidden;
-	}
-	.g-node .nh {
-		background: var(--paper-3); padding: 5px 8px; font-size: 11px; font-weight: 600; color: var(--ink);
-		display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--paper-shadow);
-	}
-	.g-node .nh i { width: 7px; height: 7px; border-radius: 50%; }
-	.g-node .nb { padding: 6px 8px; font-size: 10px; color: var(--ink-3); }
-	.g-edge { position: absolute; height: 2px; background: var(--cyan); transform-origin: left center; }
+	.g-canvas svg { display: block; width: 100%; height: 200px; }
 	.g-insp { background: var(--paper); border-left: 1px solid var(--paper-shadow); padding: 11px; }
 	.g-insp .t { font-family: var(--font-display-brand); font-size: 13px; font-weight: 700; color: var(--ink); }
 	.g-insp .s { font-size: 10px; color: var(--ink-3); margin-bottom: 10px; }
@@ -80,9 +69,9 @@
 	}
 	.g-badge {
 		display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600;
-		padding: 3px 8px; border-radius: 999px; color: #fff; background: var(--sage);
+		padding: 3px 8px; border-radius: 999px; color: var(--paper); background: var(--sage);
 	}
-	.g-badge i { width: 5px; height: 5px; border-radius: 50%; background: #fff; }
+	.g-badge i { width: 5px; height: 5px; border-radius: 50%; background: var(--paper); }
 	.g-repl {
 		background: var(--repl-bg); color: var(--repl-fg); font-family: var(--font-terminal);
 		font-size: 11px; padding: 9px 14px; line-height: 1.7;
@@ -93,7 +82,7 @@
 </head>
 <body>
 <h1>Topology Console — skin gallery</h1>
-<p class="sub">Each card consumes the compiled <code>.topology-app.theme-&lt;slug&gt;</code> tokens. Append <code>?theme=&lt;slug&gt;</code> to isolate one.</p>
+<p class="sub">Canvas uses the REAL <code>.topology-node*</code> / <code>.topology-edge</code> classes so per-skin component rules apply. Append <code>?theme=&lt;slug&gt;</code> to isolate one.</p>
 <div id="root"></div>
 <script>
 const THEMES = [
@@ -113,14 +102,25 @@ const THEMES = [
 	[ 'pastel', 'Pastel Toy' ],
 	[ 'scada', 'Control-Room SCADA' ],
 ];
-const only = new URLSearchParams( location.search ).get( 'theme' );
-const list = only ? THEMES.filter( ( t ) => t[ 0 ] === only ) : THEMES;
+// A real-chrome node: bg rect, uppercase type, led, id, sparkline, counter, rate.
+const node = ( x, y, type, id, led, spark, rate, counter, selected ) => `
+	<g class="topology-node${ selected ? ' is-selected' : '' }">
+		<rect class="topology-node__bg" x="${ x }" y="${ y }" width="186" height="92"/>
+		<text class="topology-node__type" x="${ x + 14 }" y="${ y + 20 }">${ type }</text>
+		<circle class="topology-node__led" cx="${ x + 18 }" cy="${ y + 38 }" r="4.5" style="fill:var(--${ led });stroke:var(--${ led }-dark)"/>
+		<text class="topology-node__id" x="${ x + 30 }" y="${ y + 42 }">${ id }</text>
+		<polyline class="topology-node__spark" points="${ spark.map( ( v, i ) => `${ x + 14 + i * 19 },${ y + 78 - v }` ).join( ' ' ) }"/>
+		<text class="topology-node__rate" x="${ x + 14 }" y="${ y + 84 }">${ rate }</text>
+		<text class="topology-node__counter" x="${ x + 172 }" y="${ y + 84 }" text-anchor="end">${ counter }</text>
+	</g>`;
+const S1 = [ 8, 18, 12, 26, 16, 30, 20, 34 ];
+const S2 = [ 14, 10, 22, 16, 28, 20, 32, 24 ];
 const card = ( slug, name ) => `
 <div class="card">
 	<div class="label">${ slug } <small>— ${ name }</small></div>
 	<div class="g-app topology-app theme-${ slug }">
 		<div class="g-header">
-			<span class="g-brand">Nodes</span>
+			<span class="g-brand">NEWSPACK<span class="topology-brand__colon">::</span>NODES</span>
 			<span class="g-sub">firehose-workers-and-jobs · p0</span>
 			<span class="g-leds">
 				<span class="g-led ok"><i></i>ok</span>
@@ -137,16 +137,14 @@ const card = ( slug, name ) => `
 				<div class="g-chip"><i style="background:var(--brass)"></i>Job_Worker</div>
 				<div class="g-chip"><i style="background:var(--oxide)"></i>Tail</div>
 			</div>
-			<div class="g-canvas">
-				<div class="g-edge" style="left:140px; top:60px; width:120px; transform:rotate(24deg);"></div>
-				<div class="g-node" style="left:16px; top:34px;">
-					<div class="nh"><i style="background:var(--cyan)"></i>intake</div>
-					<div class="nb">Topic · 1.2k/s</div>
-				</div>
-				<div class="g-node" style="left:250px; top:104px;">
-					<div class="nh"><i style="background:var(--sage)"></i>processor</div>
-					<div class="nb">Consumer · behind 0</div>
-				</div>
+			<div class="g-canvas topology-canvas">
+				<svg viewBox="0 0 640 200" preserveAspectRatio="xMidYMid meet">
+					<g class="topology-edges--still">
+						<path class="topology-edge topology-edge--active" d="M 214 64 C 280 64, 300 120, 360 120" fill="none"/>
+					</g>
+					${ node( 20, 22, 'TOPIC', 'intake', 'cyan', S1, '33.1 /s', '2,310', true ) }
+					${ node( 360, 78, 'CONSUMER', 'processor', 'sage', S2, '33.0 /s', '2,303', false ) }
+				</svg>
 			</div>
 			<div class="g-insp">
 				<div class="h">Inspector</div>
@@ -160,6 +158,8 @@ const card = ( slug, name ) => `
 		<div class="g-repl"><span class="p">nodes&gt;</span> make_node Consumer processor &nbsp; <span class="o">ok</span></div>
 	</div>
 </div>`;
+const only = new URLSearchParams( location.search ).get( 'theme' );
+const list = only ? THEMES.filter( ( t ) => t[ 0 ] === only ) : THEMES;
 document.getElementById( 'root' ).innerHTML = list.map( ( t ) => card( t[ 0 ], t[ 1 ] ) ).join( '' );
 </script>
 </body>
