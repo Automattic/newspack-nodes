@@ -17,6 +17,7 @@ import { __, sprintf } from '@wordpress/i18n';
 
 import { useNodeState } from '../runtime/react';
 import { useVaultGraph } from './hooks/useVaultGraph';
+import './VaultAdmin.scss';
 
 // The view model before the first list publishes one — drives the loading gate.
 const EMPTY_MODEL = {

@@ -1,0 +1,9 @@
+// The shared tab host is transparent and the sibling hub tabs are dark-themed,
+// but the Vault admin is plain WP-admin UI — give it the default WordPress
+// admin content background and let it fill the tab's scroll container.
+.event-aggregator-servers-admin {
+	box-sizing: border-box;
+	min-height: 100%;
+	padding: 16px;
+	background: #f0f0f1;
+}
