@@ -42,29 +42,6 @@ export class PendingReplies {
 	}
 
 	/**
-	 * Stash a Promise's resolvers under `id` (the outbound message[ID]).
-	 *
-	 * @param {string}   id      Correlator.
-	 * @param {Function} resolve Promise resolver.
-	 * @param {Function} reject  Promise rejecter.
-	 */
-	add( id, resolve, reject ) {
-		this._map.set( id, { resolve, reject } );
-	}
-
-	/**
-	 * @param {string} id Correlator.
-	 * @return {boolean} Whether an entry is stashed under `id`.
-	 */
-	has( id ) {
-		return this._map.has( id );
-	}
-
-	get size() {
-		return this._map.size;
-	}
-
-	/**
 	 * Settle the entry matching `message[ID]`: reject with an Error on TM_ERROR,
 	 * else resolve with the reply's VALUE.payload. The boolean lets a caller
 	 * either return early or gate a global-error path on whether it matched.
@@ -87,6 +64,29 @@ export class PendingReplies {
 			resolve( payload );
 		}
 		return true;
+	}
+
+	/**
+	 * @param {string} id Correlator.
+	 * @return {boolean} Whether an entry is stashed under `id`.
+	 */
+	has( id ) {
+		return this._map.has( id );
+	}
+
+	/**
+	 * Stash a Promise's resolvers under `id` (the outbound message[ID]).
+	 *
+	 * @param {string}   id      Correlator.
+	 * @param {Function} resolve Promise resolver.
+	 * @param {Function} reject  Promise rejecter.
+	 */
+	add( id, resolve, reject ) {
+		this._map.set( id, { resolve, reject } );
+	}
+
+	get size() {
+		return this._map.size;
 	}
 
 	/**
