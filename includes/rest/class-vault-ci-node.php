@@ -12,10 +12,10 @@
  *            Auth, return a sanitised subset of the response. Auth-gated on
  *            manage_options.
  *
- * Public list/get shape: `{ id, url, enabled, has_credentials, is_config }` —
- * never credentials. Mutating verbs fire the `newspack_nodes/vault/changed`
- * action so applications can react (settings-sync, supervisor restart, etc.)
- * without the substrate knowing those application concerns.
+ * Public list/get shape: `{ id, url, has_credentials, is_config }` — never
+ * credentials. Mutating verbs fire the `newspack_nodes/vault/changed` action so
+ * applications can react (settings-sync, supervisor restart, etc.) without the
+ * substrate knowing those application concerns.
  *
  * Test seam: `Vault_CI::$http_call` is a static `\Closure` that defaults to
  * `\wp_remote_post` at the call site. Tests reassign in their bootstrap to
@@ -65,7 +65,6 @@ class Vault_CI_Node extends Service_CI_Node {
 		return [
 			'id'              => $id,
 			'url'             => (string) $raw_url,
-			'enabled'         => (bool) ( $config['enabled'] ?? false ),
 			'has_credentials' => ! empty( $config['auth_username'] ) && ! empty( $config['auth_password'] ),
 			'is_config'       => $registry->is_config_server( $id ),
 		];
@@ -89,7 +88,6 @@ class Vault_CI_Node extends Service_CI_Node {
 	/**
 	 * Build the canonical full server-config blob from `add`'s parsed options,
 	 * defaulting missing fields to the same shape validate_config expects.
-	 * enabled defaults true.
 	 *
 	 * @param array<string,string|true> $opts Parsed `--key=value` options.
 	 * @return array<string, mixed> Server-config blob ready for registry->add().
@@ -99,15 +97,13 @@ class Vault_CI_Node extends Service_CI_Node {
 			'url'           => (string) ( $opts['url']           ?? '' ),
 			'auth_username' => (string) ( $opts['auth_username'] ?? '' ),
 			'auth_password' => (string) ( $opts['auth_password'] ?? '' ),
-			'enabled'       => self::option_bool( $opts, 'enabled', true ),
 		];
 	}
 
 	/**
 	 * Build the partial-update blob from `update`'s parsed options: only the
 	 * keys ACTUALLY PRESENT in $opts are included, so an absent --key leaves the
-	 * stored field untouched. enabled is coerced to a real bool; the rest stay
-	 * strings.
+	 * stored field untouched.
 	 *
 	 * @param array<string,string|true> $opts Parsed `--key=value` options.
 	 * @return array<string, mixed> Partial config for registry->update().
@@ -119,41 +115,19 @@ class Vault_CI_Node extends Service_CI_Node {
 				$partial[ $key ] = (string) $opts[ $key ];
 			}
 		}
-		if ( isset( $opts['enabled'] ) ) {
-			$partial['enabled'] = self::option_bool( $opts, 'enabled', true );
-		}
 		return $partial;
-	}
-
-	/**
-	 * Coerce a `--enabled=<true|false>` option to a real bool. A bare `--enabled`
-	 * flag (parsed as `true`) reads as true; only `0`/`false` (any case) read as
-	 * false; an absent key falls back to $default. Mirrors the substrate bool
-	 * grammar so `(bool) 'false'` (which PHP would read as TRUE) can't slip in.
-	 *
-	 * @param array<string,string|true> $opts    Parsed options.
-	 * @param string                    $key     Option name.
-	 * @param bool                      $default Fallback when absent.
-	 */
-	private static function option_bool( array $opts, string $key, bool $default ): bool {
-		if ( ! isset( $opts[ $key ] ) ) {
-			return $default;
-		}
-		return ! \in_array( \strtolower( (string) $opts[ $key ] ), [ '0', 'false' ], true );
 	}
 
 	/**
 	 * Announce a Vault mutation so applications can react (settings-sync,
 	 * supervisor restart, etc.) without the substrate knowing those concerns.
 	 *
-	 * @param string $id          Server id.
-	 * @param string $action      added|updated|removed.
-	 * @param bool   $was_enabled Enabled state before the change.
-	 * @param bool   $now_enabled Enabled state after the change.
+	 * @param string $id     Server id.
+	 * @param string $action added|updated|removed.
 	 */
-	private static function fire_changed( string $id, string $action, bool $was_enabled, bool $now_enabled ): void {
+	private static function fire_changed( string $id, string $action ): void {
 		if ( \function_exists( 'do_action' ) ) {
-			\do_action( 'newspack_nodes/vault/changed', $id, $action, $was_enabled, $now_enabled );
+			\do_action( 'newspack_nodes/vault/changed', $id, $action );
 		}
 	}
 
@@ -328,7 +302,6 @@ class Vault_CI_Node extends Service_CI_Node {
 						[ 'name' => 'url', 'type' => 'string', 'required' => true ],
 						[ 'name' => 'auth_username', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'auth_password', 'type' => 'string', 'required' => false ],
-						[ 'name' => 'enabled', 'type' => 'bool', 'required' => false, 'default' => true ],
 					],
 					'handler'     => static function ( Vault_CI_Node $self, string $args, array $envelope = [] ): array {
 						$parsed = Command_Args::parse( $args );
@@ -348,7 +321,7 @@ class Vault_CI_Node extends Service_CI_Node {
 							// missing url, etc.) or hit MAX_SERVERS.
 							throw new \RuntimeException( 'add failed: check URL format (must be HTTPS) and registry capacity' );
 						}
-						self::fire_changed( $id, 'added', false, (bool) ( $config['enabled'] ?? true ) );
+						self::fire_changed( $id, 'added' );
 						return [ 'id' => $id ];
 					},
 				],
@@ -360,7 +333,6 @@ class Vault_CI_Node extends Service_CI_Node {
 						[ 'name' => 'url', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'auth_username', 'type' => 'string', 'required' => false ],
 						[ 'name' => 'auth_password', 'type' => 'string', 'required' => false ],
-						[ 'name' => 'enabled', 'type' => 'bool', 'required' => false ],
 					],
 					'handler'     => static function ( Vault_CI_Node $self, string $args, array $envelope = [] ): array {
 						$parsed = Command_Args::parse( $args );
@@ -381,9 +353,7 @@ class Vault_CI_Node extends Service_CI_Node {
 						if ( ! $registry->update( $id, $partial ) ) {
 							throw new \RuntimeException( 'update failed' );
 						}
-						$was_enabled = true === ( $existing['enabled'] ?? false );
-						$now_enabled = (bool) ( $registry->get( $id )['enabled'] ?? false );
-						self::fire_changed( $id, 'updated', $was_enabled, $now_enabled );
+						self::fire_changed( $id, 'updated' );
 						return [ 'id' => $id ];
 					},
 				],
@@ -404,7 +374,7 @@ class Vault_CI_Node extends Service_CI_Node {
 							// Config-file servers reach here.
 							throw new \RuntimeException( 'delete failed' );
 						}
-						self::fire_changed( $id, 'removed', true, false );
+						self::fire_changed( $id, 'removed' );
 						return [ 'id' => $id ];
 					},
 				],

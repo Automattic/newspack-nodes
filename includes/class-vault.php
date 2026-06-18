@@ -37,7 +37,7 @@ class Vault {
 	/**
 	 * Whitelisted config keys for partial-update merge.
 	 */
-	private const ALLOWED_KEYS = [ 'url', 'auth_username', 'auth_password', 'enabled' ];
+	private const ALLOWED_KEYS = [ 'url', 'auth_username', 'auth_password' ];
 
 	/**
 	 * Singleton instance.
@@ -61,18 +61,17 @@ class Vault {
 	}
 
 	/**
-	 * Get only enabled servers.
+	 * Get enabled servers — now an alias for get_all().
+	 *
+	 * The stored `enabled` boolean was removed: a spoke is "enabled" by being
+	 * present in the Vault (wired into the graph). Kept as a named method so
+	 * callers that express the "enabled spokes" intent stay readable.
 	 *
 	 * @api
 	 * @return array<array-key, array<string, mixed>> Keys are array-key (not string): PHP coerces numeric server-id keys to int.
 	 */
 	public function get_enabled(): array {
-		return \array_filter(
-			$this->get_all(),
-			static function ( $config ) {
-				return ! empty( $config['enabled'] );
-			}
-		);
+		return $this->get_all();
 	}
 
 	/**
@@ -117,7 +116,7 @@ class Vault {
 			}
 
 			// Normalize: ensure all entries have required keys (config-file entries
-			// bypass validate_config and may be missing 'enabled', etc.).
+			// bypass validate_config and may be missing fields).
 			$normalized = [];
 			foreach ( $merged as $id => $server ) {
 				if ( ! \is_array( $server ) ) {
@@ -128,7 +127,6 @@ class Vault {
 					'url'           => '',
 					'auth_username' => '',
 					'auth_password' => '',
-					'enabled'       => true,
 				];
 				// Decrypt credentials (handles both encrypted and legacy plaintext).
 				$pw = $server['auth_password'];
@@ -278,7 +276,6 @@ class Vault {
 			'url'           => \rtrim( $url, '/' ),
 			'auth_username' => '',
 			'auth_password' => '',
-			'enabled'       => true,
 		];
 
 		// auth_username — sanitize + 256-byte cap.
@@ -310,11 +307,6 @@ class Vault {
 				}
 			}
 			$validated['auth_password'] = $password;
-		}
-
-		// enabled flag.
-		if ( \array_key_exists( 'enabled', $config ) ) {
-			$validated['enabled'] = (bool) $config['enabled'];
 		}
 
 		return $validated;
@@ -419,9 +411,8 @@ class Vault {
 	 * Partial-update an existing server. Whitelists keys, merges with current
 	 * config, then validates the result.
 	 *
-	 * Config-file servers (immutable) only allow toggling `enabled` — URL and
-	 * credentials are pinned. Other fields in the partial are silently dropped
-	 * for those entries.
+	 * Config-file servers are fully immutable — URL and credentials are pinned
+	 * by the file, so update() is a no-op (returns false) for those entries.
 	 *
 	 * @api
 	 * @param string $id      Server ID.
@@ -436,12 +427,9 @@ class Vault {
 			return false;
 		}
 
-		// Config-file servers — only `enabled` is editable.
+		// Config-file servers are fully immutable.
 		if ( $this->is_config_server( $id ) ) {
-			if ( ! \array_key_exists( 'enabled', $partial ) ) {
-				return false;
-			}
-			$partial = [ 'enabled' => $partial['enabled'] ];
+			return false;
 		}
 
 		// Whitelist keys before merge.
