@@ -68,6 +68,7 @@ class Job_Worker_Node extends Node {
 	private array $local_handlers = [];
 	/** @var array<string,callable> */
 	private array $remote_handlers = [];
+	/** @api Used by unit tests. */
 	private int $jobs_executed = 0;
 	private int $jobs_since_cache_flush = 0;
 
