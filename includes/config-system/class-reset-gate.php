@@ -17,6 +17,7 @@ namespace Newspack_Nodes\Config_System;
 \defined( 'ABSPATH' ) || exit;
 
 class Reset_Gate {
+
 	/**
 	 * Register the gate on every resettable option's pre_update_option filter.
 	 *

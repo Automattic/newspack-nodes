@@ -12,6 +12,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Config {
+
 	/** Action fired from reset() so dependent Configs can invalidate their caches. */
 	public const RESET_ACTION = 'newspack_nodes/config_reset';
 

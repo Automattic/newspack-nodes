@@ -17,6 +17,7 @@ use Newspack_Nodes\Rest\Spawn_Controller;
 \defined( 'ABSPATH' ) || exit;
 
 class Bootstrap {
+
 	/**
 	 * `\Memcached`-construction seam. Lazily-defaulted to a closure that builds
 	 * the real handle. Tests reassign in setUp to return an in-memory double so

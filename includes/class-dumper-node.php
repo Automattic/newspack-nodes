@@ -10,6 +10,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Dumper_Node extends Node {
+
 	private const ANSI_SAVE_CURSOR    = "\033[s";
 	private const ANSI_RESTORE_CURSOR = "\033[u";
 	private const ANSI_CR_CLEAR_LINE  = "\r\033[2K";

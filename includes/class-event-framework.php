@@ -12,6 +12,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Event_Framework {
+
 	private static ?self $instance = null;
 
 	/** @var array<int,Timer_Node> Timer slots */

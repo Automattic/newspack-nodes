@@ -39,6 +39,7 @@ use Newspack_Nodes\Router_Node;
 \defined( 'ABSPATH' ) || exit;
 
 class HTTP_In_Node extends Node {
+
 	public const REST_NAMESPACE = 'newspack-nodes/v1';
 	public const ROUTE          = '/command';
 

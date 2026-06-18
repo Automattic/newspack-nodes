@@ -16,6 +16,7 @@ namespace Newspack_Nodes\Config_System;
 \defined( 'ABSPATH' ) || exit;
 
 class Field_Reset_Assets {
+
 	/** Enqueue the nodes-built field-reset toggle module (DOM-only, no deps). */
 	public static function enqueue(): void {
 		// Need both constants: DIR to read the asset manifest, URL to build a

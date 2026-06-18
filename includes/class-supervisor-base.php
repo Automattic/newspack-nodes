@@ -12,6 +12,7 @@ if ( ! \defined( 'ABSPATH' ) ) {
 }
 
 class Supervisor_Base {
+
 	/** Min interval between spawning the same worker; updated after every attempt (success or fail). */
 	public const MIN_SPAWN_INTERVAL_S = 15;
 

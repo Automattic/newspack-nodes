@@ -10,6 +10,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Shell_Node extends Node {
+
 	public string $prompt = '/> ';
 
 	/** Current cwd — the node-path non-builtin commands route to by default; empty = local interpreter. */

@@ -12,6 +12,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Message {
+
 	public const TYPE      = 0;
 	public const TIMESTAMP = 1;
 	public const FROM      = 2;

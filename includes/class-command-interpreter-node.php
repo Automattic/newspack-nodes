@@ -14,6 +14,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class Command_Interpreter_Node extends Node {
+
 	/**
 	 * Shared default verb table the bare `_command_interpreter` starts from.
 	 *

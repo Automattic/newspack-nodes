@@ -27,6 +27,7 @@ use Newspack_Nodes\Service_CI_Node;
 \defined( 'ABSPATH' ) || exit;
 
 class Raw_Logs_CI_Node extends Service_CI_Node {
+
 	/** Preferred log-key prefix when the operator's `log` arg is missing or unknown. */
 	private const PREFERRED_LOG_PREFIX = 'firehose';
 

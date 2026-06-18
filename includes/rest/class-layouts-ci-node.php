@@ -27,6 +27,7 @@ use Newspack_Nodes\Service_CI_Node;
 \defined( 'ABSPATH' ) || exit;
 
 class Layouts_CI_Node extends Service_CI_Node {
+
 	private const ID_PATTERN      = '/^[a-zA-Z0-9_:.-]+$/';
 	private const MAX_BODY_BYTES  = 1048576;
 

@@ -24,6 +24,7 @@ use Newspack_Nodes\Config_System\Schema;
 \defined( 'ABSPATH' ) || exit;
 
 class Settings_Schema {
+
 	/** @var Schema|null Memoized — the schema is pure structure (runtime values resolve inside the render callbacks). */
 	private static ?Schema $schema = null;
 

@@ -10,6 +10,7 @@ namespace Newspack_Nodes;
 \defined( 'ABSPATH' ) || exit;
 
 class CLI {
+
 	private string $base_dir;
 
 	public function __construct( string $base_dir ) {
