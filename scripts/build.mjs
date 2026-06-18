@@ -46,6 +46,10 @@ const ENTRIES = [
 		entry: 'src/devtools-hub/index.js',
 		outDir: path.resolve( ROOT, 'build/devtools-hub' ),
 	},
+	{
+		entry: 'src/vault/index.js',
+		outDir: path.resolve( ROOT, 'build/vault' ),
+	},
 ];
 
 buildDashboards( {
