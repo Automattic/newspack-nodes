@@ -12,7 +12,7 @@
  * commands on one timer tick and have them ride to the spoke in a single request.
  *
  * Credentials resolve from the Vault by server id; Basic Auth (or legacy Bearer
- * token), exactly as Remote_Manager::request_args. Never takes a raw URL/credential.
+ * token). Never takes a raw URL/credential.
  *
  * @package Newspack_Nodes
  */
