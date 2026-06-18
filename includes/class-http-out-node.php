@@ -1,11 +1,15 @@
 <?php
 /**
  * HTTP_Out: non-blocking outbound command egress. The push-side counterpart of
- * HTTP_In. On fill() it serializes the incoming message as a packed TM_COMMAND
- * envelope and POSTs it to a remote spoke's /command on the Event_Framework's
- * cURL-multi (fill() never blocks). on_curl_message() forwards each reply Message
+ * HTTP_In. fill() buffers each message as a packed TM_COMMAND envelope and arms a
+ * one-shot timer; on the next drain tick fire() POSTs the whole batch as a single
+ * JSONL body to a remote spoke's /command on the Event_Framework's cURL-multi
+ * (neither fill() nor fire() blocks). on_curl_message() forwards each reply Message
  * in the 200 body to $this->sink — replies self-route by TO=FROM through
  * _command_interpreter → _router (modeled on src/runtime/http-out-node.js).
+ *
+ * Batching one POST per tick (not per fill) lets settings-sync emit N per-setting
+ * commands on one timer tick and have them ride to the spoke in a single request.
  *
  * Credentials resolve from the Vault by server id; Basic Auth (or legacy Bearer
  * token), exactly as Remote_Manager::request_args. Never takes a raw URL/credential.
@@ -17,7 +21,7 @@ namespace Newspack_Nodes;
 
 \defined( 'ABSPATH' ) || exit;
 
-class HTTP_Out_Node extends Node {
+class HTTP_Out_Node extends Timer_Node {
 	use Schema_Reflection;
 
 	/** Outbound request timeout (seconds). */
@@ -59,6 +63,12 @@ class HTTP_Out_Node extends Node {
 	/** @var array<int,array{handle:\CurlHandle,server_id:string,url:string}> Easy-handle id → context for completion attribution. Holds the handle so it isn't GC'd (a freed handle's spl_object_id is reused, colliding keys). */
 	protected array $inflight = [];
 
+	/** @var array<int,array<int,mixed>> Packed TM_COMMAND envelopes buffered between fill() and the next fire(). */
+	protected array $batch = [];
+
+	/** Whether the one-shot flush timer is already armed; gates re-arming without coupling to Timer_Node internals. */
+	protected bool $batch_timer_armed = false;
+
 	/** Tachikoma-parity: no-arg ctor. Positional config arrives via arguments(); no I/O here (ADR-5). */
 	public function __construct() {
 		parent::__construct();
@@ -74,28 +84,57 @@ class HTTP_Out_Node extends Node {
 	}
 
 	/**
-	 * Resolve the spoke from the Vault, build a packed TM_COMMAND envelope, assemble
-	 * auth + SSL opts, and enqueue a POST on the owned multi via the dispatch seam.
-	 * Non-blocking: the transfer is driven by the Event_Framework drain, never here.
+	 * Buffer the incoming message as a packed TM_COMMAND envelope and arm a one-shot
+	 * flush timer; the actual POST happens on the next drain tick in fire(). Never
+	 * blocks and never resolves the Vault (fire() does that once per batch).
 	 *
 	 * @param array<int, mixed> $message The 7-field positional message array.
 	 */
 	public function fill( array &$message ): void {
 		++$this->counter;
 
-		$server = Vault::get_instance()->get( $this->server_id );
-		$url    = \is_array( $server ) ? \rtrim( Core::as_string( $server['url'] ?? '' ), '/' ) : '';
-		if ( '' === $url ) {
-			Core::print_less_often( "HTTP_Out[{$this->server_id}]: no Vault entry / url; dropping message" );
-			return;
-		}
-
 		$envelope                   = Message::new_message();
 		$envelope[ Message::TYPE ]  = Message::TM_COMMAND;
 		$envelope[ Message::FROM ]  = Node_Names::HTTP;
 		$envelope[ Message::TO ]    = Core::as_string( $message[ Message::TO ] );
 		$envelope[ Message::VALUE ] = $message[ Message::VALUE ];
-		$body                       = Message::packed( $envelope ) . "\n";
+		$this->batch[]              = $envelope;
+
+		if ( ! $this->batch_timer_armed ) {
+			$this->set_timer( 0, true );
+			$this->batch_timer_armed = true;
+		}
+	}
+
+	/**
+	 * One-shot flush: resolve the spoke from the Vault once, join the buffered
+	 * envelopes into one JSONL body, assemble auth + SSL opts, and enqueue a single
+	 * POST on the owned multi via the dispatch seam. Non-blocking: the transfer is
+	 * driven by the Event_Framework drain, never here.
+	 *
+	 * Public (widens Timer_Node's protected fire()) so the EF can invoke the flush
+	 * directly and tests can drive one tick without a live event loop.
+	 */
+	public function fire(): void {
+		$batch                   = $this->batch;
+		$this->batch             = [];
+		$this->batch_timer_armed = false;
+		if ( [] === $batch ) {
+			return;
+		}
+
+		$server = Vault::get_instance()->get( $this->server_id );
+		$url    = \is_array( $server ) ? \rtrim( Core::as_string( $server['url'] ?? '' ), '/' ) : '';
+		if ( '' === $url ) {
+			$dropped = \count( $batch );
+			Core::print_less_often( "HTTP_Out[{$this->server_id}]: no Vault entry / url; dropping {$dropped} message(s)" );
+			return;
+		}
+
+		$body = '';
+		foreach ( $batch as $envelope ) {
+			$body .= Message::packed( $envelope ) . "\n";
+		}
 
 		$headers = [ 'Content-Type: text/plain; charset=UTF-8' ];
 		$user    = Core::as_string( $server['auth_username'] ?? '' );
@@ -245,6 +284,7 @@ class HTTP_Out_Node extends Node {
 	 * @api Used by substrate.
 	 */
 	public function remove_node(): void {
+		$this->batch = [];
 		foreach ( $this->inflight as $id => $context ) {
 			$this->detach( $context['handle'] );
 			unset( $this->inflight[ $id ] );
