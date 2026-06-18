@@ -11,6 +11,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Topology Console: **Newspack** and **Newspack Brand** skins; Newspack is now the default skin.
 
+### Changed
+
+- Topology Console: polished the existing skins for legibility — AA-fixed muted text, evened the paper/ink ramps, and split the four status LEDs into distinct hues where they previously collapsed (Blueprint, Nord, Aurora, Neo-Tokyo, SCADA, …). Swiss Brutalist's monochrome and CRT Phosphor Terminal are intentionally unchanged.
+
 ### Removed
 
 - **Unused members** flagged by a dead-code audit and verified to have no caller anywhere (production, tests, sibling plugins, dynamic dispatch): `Shell_Node::set_show_parse()`, `Config_System\Field::is_option()`, and the `Job_Worker_Node::MAX_JSON_DEPTH` constant.
