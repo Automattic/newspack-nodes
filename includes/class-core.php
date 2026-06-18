@@ -54,6 +54,15 @@ class Core {
 	/** Re-entry guard for stderr(); the default handler can recurse via _repl write failures. */
 	private static bool $in_stderr = false;
 
+	/** Resolve every `<ns:key>` token in $path via resolve_config_token; an unknown token becomes ''. */
+	public static function resolve_config_tokens( string $path ): string {
+		return (string) \preg_replace_callback(
+			'/<([a-zA-Z_]\w*):([a-zA-Z_]\w*)>/',
+			static fn ( array $m ): string => self::resolve_config_token( $m[1], $m[2] ),
+			$path
+		);
+	}
+
 	/** Resolve a `<ns:key>` topology token via its namespace resolver; '' (with a rate-limited warning) if the ns isn't registered or returns null. */
 	public static function resolve_config_token( string $ns, string $key ): string {
 		$resolver = self::$config_resolvers[ $ns ] ?? null;
@@ -71,15 +80,6 @@ class Core {
 			return '';
 		}
 		return (string) $value;
-	}
-
-	/** Resolve every `<ns:key>` token in $path via resolve_config_token; an unknown token becomes ''. */
-	public static function resolve_config_tokens( string $path ): string {
-		return (string) \preg_replace_callback(
-			'/<([a-zA-Z_]\w*):([a-zA-Z_]\w*)>/',
-			static fn ( array $m ): string => self::resolve_config_token( $m[1], $m[2] ),
-			$path
-		);
 	}
 
 	/** Emit text on first sight; suppress identical text thereafter (re-windowed by prune_logs). */
@@ -208,6 +208,10 @@ class Core {
 		self::$init_time = self::$now;
 	}
 
+	public static function set_stderr_handler( callable $h ): void {
+		self::$stderr_handler = $h;
+	}
+
 	/** Register a topology `<ns:key>` token resolver for namespace $ns (last writer wins). */
 	public static function register_config_namespace( string $ns, callable $resolver ): void {
 		self::$config_resolvers[ $ns ] = $resolver;
@@ -237,10 +241,6 @@ class Core {
 
 	public static function node( string $name ): ?Node {
 		return self::$nodes_by_name[ $name ] ?? null;
-	}
-
-	public static function set_stderr_handler( callable $h ): void {
-		self::$stderr_handler = $h;
 	}
 
 	/** Evict rate-limiter entries older than the timeout so stale messages re-emit (per Router tick). */

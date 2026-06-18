@@ -89,46 +89,6 @@ class Log_Cleaner {
 	}
 
 	/**
-	 * Delete every first-level dir under `$dir` whose basename is not in `$declared`.
-	 *
-	 * Layout-agnostic: keep is by set-membership against the resolver's concrete
-	 * dir names — no `.p{N}` regex. `GLOB_ONLYDIR` skips files (a Log's flat
-	 * `{file}.{seg}` segments sit at the first level as files, not dirs).
-	 *
-	 * @param string             $dir      Directory to sweep (e.g. `{base}/logs`).
-	 * @param array<string,int>  $declared Declared dir names flipped to a set.
-	 * @param string             $base_dir Jail root for delete_directory_recursive.
-	 * @param array<int,string>  $deleted  Accumulator, appended in place when a dir is gone.
-	 */
-	private static function sweep( string $dir, array $declared, string $base_dir, array &$deleted ): void {
-		foreach ( @\glob( "{$dir}/*", \GLOB_ONLYDIR ) ?: [] as $path ) {
-			if ( isset( $declared[ \basename( $path ) ] ) ) {
-				continue;
-			}
-			Supervisor_Base::delete_directory_recursive( $path, $base_dir );
-			if ( ! \is_dir( $path ) ) {
-				$deleted[] = $path;
-			}
-		}
-	}
-
-	/**
-	 * Declared LOG dir names: every on-disk topology's resolved first-level log
-	 * dirs (`Topology_Registry::resolved_resource_dirs`, layout-agnostic — the
-	 * `<partition>` token may sit anywhere in the path), expanded over its
-	 * SPAWN-aligned partition count (`Bootstrap::num_partitions_for`), unioned
-	 * with each PHP-registered producer (`newspack_nodes/registered_log_producers`)
-	 * expanded over the global config num_partitions in ELN's fixed `{producer}.p{N}`
-	 * writer layout. An unresolvable `<config:logs_dir>` root yields `[]` (the GC
-	 * fail-closes; the diagnostic verb shows nothing declared).
-	 *
-	 * @return array<int,string>
-	 */
-	public static function declared_log_dirs(): array {
-		return self::declared_dirs()['logs'] ?? [];
-	}
-
-	/**
 	 * Concrete log dir names for the request-scope PHP producers: each
 	 * `newspack_nodes/registered_log_producers` basename expanded over the
 	 * clamped global config num_partitions in ELN's fixed `{producer}.p{N}`
@@ -172,5 +132,45 @@ class Log_Cleaner {
 			}
 		}
 		return \array_keys( $out );
+	}
+
+	/**
+	 * Delete every first-level dir under `$dir` whose basename is not in `$declared`.
+	 *
+	 * Layout-agnostic: keep is by set-membership against the resolver's concrete
+	 * dir names — no `.p{N}` regex. `GLOB_ONLYDIR` skips files (a Log's flat
+	 * `{file}.{seg}` segments sit at the first level as files, not dirs).
+	 *
+	 * @param string             $dir      Directory to sweep (e.g. `{base}/logs`).
+	 * @param array<string,int>  $declared Declared dir names flipped to a set.
+	 * @param string             $base_dir Jail root for delete_directory_recursive.
+	 * @param array<int,string>  $deleted  Accumulator, appended in place when a dir is gone.
+	 */
+	private static function sweep( string $dir, array $declared, string $base_dir, array &$deleted ): void {
+		foreach ( @\glob( "{$dir}/*", \GLOB_ONLYDIR ) ?: [] as $path ) {
+			if ( isset( $declared[ \basename( $path ) ] ) ) {
+				continue;
+			}
+			Supervisor_Base::delete_directory_recursive( $path, $base_dir );
+			if ( ! \is_dir( $path ) ) {
+				$deleted[] = $path;
+			}
+		}
+	}
+
+	/**
+	 * Declared LOG dir names: every on-disk topology's resolved first-level log
+	 * dirs (`Topology_Registry::resolved_resource_dirs`, layout-agnostic — the
+	 * `<partition>` token may sit anywhere in the path), expanded over its
+	 * SPAWN-aligned partition count (`Bootstrap::num_partitions_for`), unioned
+	 * with each PHP-registered producer (`newspack_nodes/registered_log_producers`)
+	 * expanded over the global config num_partitions in ELN's fixed `{producer}.p{N}`
+	 * writer layout. An unresolvable `<config:logs_dir>` root yields `[]` (the GC
+	 * fail-closes; the diagnostic verb shows nothing declared).
+	 *
+	 * @return array<int,string>
+	 */
+	public static function declared_log_dirs(): array {
+		return self::declared_dirs()['logs'] ?? [];
 	}
 }
