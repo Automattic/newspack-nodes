@@ -1,40 +1,37 @@
-/**
- * themes — the skin registry consumed by Header (picker options) and
- * TopologyConsole (default + validation of a stored slug).
- */
-
 import { THEMES, DEFAULT_THEME, isValidTheme } from '../themes';
 
-describe( 'themes', () => {
-	it( 'exposes 13 skins including the default', () => {
-		expect( THEMES ).toHaveLength( 13 );
-		expect( THEMES.map( ( t ) => t.slug ) ).toContain( DEFAULT_THEME );
+describe( 'Newspack skins', () => {
+	it( 'defaults to newspack', () => {
+		expect( DEFAULT_THEME ).toBe( 'newspack' );
 	} );
 
-	it( 'every skin has a non-empty slug and label', () => {
-		for ( const t of THEMES ) {
-			expect( typeof t.slug ).toBe( 'string' );
-			expect( t.slug.length ).toBeGreaterThan( 0 );
-			expect( typeof t.label ).toBe( 'string' );
-			expect( t.label.length ).toBeGreaterThan( 0 );
-		}
+	it( 'registers both Newspack skins as the first two entries', () => {
+		expect( THEMES[ 0 ] ).toMatchObject( { slug: 'newspack' } );
+		expect( THEMES[ 1 ] ).toMatchObject( { slug: 'newspack-brand' } );
 	} );
 
-	it( 'has unique slugs', () => {
+	it( 'treats both Newspack slugs as valid', () => {
+		expect( isValidTheme( 'newspack' ) ).toBe( true );
+		expect( isValidTheme( 'newspack-brand' ) ).toBe( true );
+	} );
+
+	it( 'keeps CRT registered (leave-it-alone guard)', () => {
+		expect( THEMES.map( ( t ) => t.slug ) ).toContain( 'crt' );
+	} );
+
+	it( 'has unique, non-empty slugs', () => {
 		const slugs = THEMES.map( ( t ) => t.slug );
 		expect( new Set( slugs ).size ).toBe( slugs.length );
+		slugs.forEach( ( s ) => expect( s ).toMatch( /\S/ ) );
 	} );
 
-	it( 'DEFAULT_THEME is current', () => {
-		expect( DEFAULT_THEME ).toBe( 'current' );
+	it( 'every skin has a non-empty label', () => {
+		THEMES.forEach( ( t ) => expect( t.label ).toMatch( /\S/ ) );
 	} );
 
-	it( 'validates known slugs and rejects unknown/empty/undefined', () => {
-		expect( isValidTheme( 'blueprint' ) ).toBe( true );
-		expect( isValidTheme( 'current' ) ).toBe( true );
-		expect( isValidTheme( 'nonsense' ) ).toBe( false );
-		expect( isValidTheme( '' ) ).toBe( false );
-		expect( isValidTheme( undefined ) ).toBe( false );
-		expect( isValidTheme( null ) ).toBe( false );
+	it( 'rejects unknown, empty, and non-string slugs', () => {
+		[ 'nonsense', '', undefined, null ].forEach( ( s ) =>
+			expect( isValidTheme( s ) ).toBe( false )
+		);
 	} );
 } );

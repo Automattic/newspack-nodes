@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Topology Console — skin gallery</title>
+<!-- The REAL compiled stylesheet: its .topology-app.theme-<slug> blocks define
+     the tokens we render below. This harness consumes the tokens via var(); it
+     uses its OWN g-* layout classes so no skin's component rules (gradients,
+     scanlines, shapes) interfere — the gallery is a pure token/chrome view. -->
+<link rel="stylesheet" href="../build/topology-console/index.css">
+<style>
+	* { box-sizing: border-box; }
+	body { margin: 0; background: #2a2a2e; font-family: Inter, system-ui, sans-serif; padding: 24px; }
+	h1 { color: #f0f0f0; font-size: 18px; font-weight: 700; margin: 0 0 4px; }
+	.sub { color: #9a9aa0; font-size: 13px; margin: 0 0 22px; }
+	.card { max-width: 1100px; margin: 0 auto 30px; }
+	.card > .label {
+		color: #e8e8ec; font-size: 12px; font-weight: 600; letter-spacing: 0.04em;
+		text-transform: uppercase; margin: 0 0 8px;
+	}
+	.card > .label small { font-weight: 400; text-transform: none; letter-spacing: 0; color: #9a9aa0; }
+
+	/* The themed wrapper. We neutralize the app's grid/height layout (inline on
+	   the element) and build our own chrome with g-* classes that read var(). */
+	.g-app {
+		display: block !important; height: auto !important;
+		border-radius: 10px; overflow: hidden; border: 1px solid rgba(0,0,0,.4);
+		box-shadow: 0 10px 30px rgba(0,0,0,.35);
+		background: var(--paper); color: var(--ink); font-family: var(--font-mono);
+	}
+	.g-header {
+		display: flex; align-items: center; gap: 12px;
+		background: var(--paper-2); border-bottom: 1px solid var(--paper-shadow);
+		padding: 10px 14px;
+	}
+	.g-brand { font-family: var(--font-display-brand); font-size: 16px; font-weight: 700; color: var(--ink); }
+	.g-sub { font-size: 11px; color: var(--ink-3); }
+	.g-leds { margin-left: auto; display: flex; gap: 12px; }
+	.g-led { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--ink-3); }
+	.g-led i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+	.g-led.ok i  { background: var(--sage); }
+	.g-led.warn i{ background: var(--brass); }
+	.g-led.info i{ background: var(--cyan); }
+	.g-led.err i { background: var(--oxide); }
+
+	.g-body { display: grid; grid-template-columns: 150px 1fr 190px; }
+	.g-palette { background: var(--paper-2); border-right: 1px solid var(--paper-shadow); padding: 10px; }
+	.g-palette .h, .g-insp .h { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; color: var(--ink-4); margin-bottom: 8px; }
+	.g-chip {
+		font-size: 11px; color: var(--ink-2); background: var(--paper);
+		border: 1px solid var(--paper-shadow); border-radius: 5px; padding: 6px 8px; margin-bottom: 6px;
+		display: flex; align-items: center; gap: 6px;
+	}
+	.g-chip i { width: 7px; height: 7px; border-radius: 50%; }
+	.g-canvas {
+		position: relative; min-height: 184px; padding: 14px; background:
+			linear-gradient(var(--grid) 1px, transparent 1px) 0 0 / 22px 22px,
+			linear-gradient(90deg, var(--grid) 1px, transparent 1px) 0 0 / 22px 22px,
+			var(--paper);
+	}
+	.g-node {
+		position: absolute; width: 124px; border-radius: 7px; background: var(--paper);
+		border: 1px solid var(--paper-shadow); overflow: hidden;
+	}
+	.g-node .nh {
+		background: var(--paper-3); padding: 5px 8px; font-size: 11px; font-weight: 600; color: var(--ink);
+		display: flex; align-items: center; gap: 6px; border-bottom: 1px solid var(--paper-shadow);
+	}
+	.g-node .nh i { width: 7px; height: 7px; border-radius: 50%; }
+	.g-node .nb { padding: 6px 8px; font-size: 10px; color: var(--ink-3); }
+	.g-edge { position: absolute; height: 2px; background: var(--cyan); transform-origin: left center; }
+	.g-insp { background: var(--paper); border-left: 1px solid var(--paper-shadow); padding: 11px; }
+	.g-insp .t { font-family: var(--font-display-brand); font-size: 13px; font-weight: 700; color: var(--ink); }
+	.g-insp .s { font-size: 10px; color: var(--ink-3); margin-bottom: 10px; }
+	.g-insp .f { font-size: 10px; color: var(--ink-3); margin-bottom: 3px; }
+	.g-insp .v {
+		font-size: 11px; color: var(--ink); background: var(--paper-2);
+		border: 1px solid var(--paper-shadow); border-radius: 4px; padding: 5px 7px; margin-bottom: 9px;
+	}
+	.g-badge {
+		display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 600;
+		padding: 3px 8px; border-radius: 999px; color: #fff; background: var(--sage);
+	}
+	.g-badge i { width: 5px; height: 5px; border-radius: 50%; background: #fff; }
+	.g-repl {
+		background: var(--repl-bg); color: var(--repl-fg); font-family: var(--font-terminal);
+		font-size: 11px; padding: 9px 14px; line-height: 1.7;
+	}
+	.g-repl .p { color: var(--cyan); }
+	.g-repl .o { color: var(--sage); }
+</style>
+</head>
+<body>
+<h1>Topology Console — skin gallery</h1>
+<p class="sub">Each card consumes the compiled <code>.topology-app.theme-&lt;slug&gt;</code> tokens. Append <code>?theme=&lt;slug&gt;</code> to isolate one.</p>
+<div id="root"></div>
+<script>
+const THEMES = [
+	[ 'newspack', 'Newspack (Product · default)' ],
+	[ 'newspack-brand', 'Newspack Brand' ],
+	[ 'current', 'Drafting Plotter' ],
+	[ 'blueprint', 'Cyanotype Blueprint' ],
+	[ 'crt', 'CRT Phosphor Terminal (leave alone)' ],
+	[ 'swiss', 'Swiss Brutalist' ],
+	[ 'synthwave', 'Synthwave Outrun' ],
+	[ 'nord', 'Nord Frost' ],
+	[ 'aurora', 'Aurora Glass' ],
+	[ 'solarized', 'Solarized Workshop' ],
+	[ 'botanical', 'Botanical Naturalist' ],
+	[ 'bauhaus', 'Bauhaus Constructivist' ],
+	[ 'neotokyo', 'Neo-Tokyo HUD' ],
+	[ 'pastel', 'Pastel Toy' ],
+	[ 'scada', 'Control-Room SCADA' ],
+];
+const only = new URLSearchParams( location.search ).get( 'theme' );
+const list = only ? THEMES.filter( ( t ) => t[ 0 ] === only ) : THEMES;
+const card = ( slug, name ) => `
+<div class="card">
+	<div class="label">${ slug } <small>— ${ name }</small></div>
+	<div class="g-app topology-app theme-${ slug }">
+		<div class="g-header">
+			<span class="g-brand">Nodes</span>
+			<span class="g-sub">firehose-workers-and-jobs · p0</span>
+			<span class="g-leds">
+				<span class="g-led ok"><i></i>ok</span>
+				<span class="g-led warn"><i></i>warn</span>
+				<span class="g-led info"><i></i>info</span>
+				<span class="g-led err"><i></i>error</span>
+			</span>
+		</div>
+		<div class="g-body">
+			<div class="g-palette">
+				<div class="h">Class library</div>
+				<div class="g-chip"><i style="background:var(--cyan)"></i>Topic</div>
+				<div class="g-chip"><i style="background:var(--sage)"></i>Consumer</div>
+				<div class="g-chip"><i style="background:var(--brass)"></i>Job_Worker</div>
+				<div class="g-chip"><i style="background:var(--oxide)"></i>Tail</div>
+			</div>
+			<div class="g-canvas">
+				<div class="g-edge" style="left:140px; top:60px; width:120px; transform:rotate(24deg);"></div>
+				<div class="g-node" style="left:16px; top:34px;">
+					<div class="nh"><i style="background:var(--cyan)"></i>intake</div>
+					<div class="nb">Topic · 1.2k/s</div>
+				</div>
+				<div class="g-node" style="left:250px; top:104px;">
+					<div class="nh"><i style="background:var(--sage)"></i>processor</div>
+					<div class="nb">Consumer · behind 0</div>
+				</div>
+			</div>
+			<div class="g-insp">
+				<div class="h">Inspector</div>
+				<div class="t">intake</div>
+				<div class="s">Topic</div>
+				<div class="f">partition</div><div class="v">p0</div>
+				<div class="f">batch_threshold</div><div class="v">65536</div>
+				<span class="g-badge"><i></i>live</span>
+			</div>
+		</div>
+		<div class="g-repl"><span class="p">nodes&gt;</span> make_node Consumer processor &nbsp; <span class="o">ok</span></div>
+	</div>
+</div>`;
+document.getElementById( 'root' ).innerHTML = list.map( ( t ) => card( t[ 0 ], t[ 1 ] ) ).join( '' );
+</script>
+</body>
+</html>

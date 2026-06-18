@@ -159,9 +159,9 @@ describe( 'DebugOverlay', () => {
 			<DebugOverlay search="?nodes-debug=1" />
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
-		// Default theme is "current".
+		// Default theme is "newspack".
 		expect(
-			container.querySelector( '.topology-app.theme-current' )
+			container.querySelector( '.topology-app.theme-newspack' )
 		).not.toBeNull();
 		// Theme picker is the shared Header's skin <select>.
 		const themeSelect = container.querySelector( '.topology-select--skin' );
@@ -274,7 +274,7 @@ describe( 'DebugOverlay', () => {
 			);
 			fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 			expect(
-				container.querySelector( '.topology-app.theme-current' )
+				container.querySelector( '.topology-app.theme-newspack' )
 			).not.toBeNull();
 			// Palette init also caught its throw — defaults to collapsed=true.
 			expect(
@@ -305,7 +305,7 @@ describe( 'DebugOverlay', () => {
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		expect(
-			container.querySelector( '.topology-app.theme-current' )
+			container.querySelector( '.topology-app.theme-newspack' )
 		).not.toBeNull();
 	} );
 
@@ -418,13 +418,13 @@ describe( 'DebugOverlay', () => {
 		);
 		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
 		const themeSelect = container.querySelector( '.topology-select--skin' );
-		// Invalid → next = DEFAULT_THEME ('current'); persisted key reflects it.
+		// Invalid → next = DEFAULT_THEME ('newspack'); persisted key reflects it.
 		fireEvent.change( themeSelect, { target: { value: 'not-a-theme' } } );
 		expect(
-			container.querySelector( '.topology-app.theme-current' )
+			container.querySelector( '.topology-app.theme-newspack' )
 		).not.toBeNull();
 		expect( window.localStorage.getItem( 'newspack-nodes:theme' ) ).toBe(
-			'current'
+			'newspack'
 		);
 	} );
 

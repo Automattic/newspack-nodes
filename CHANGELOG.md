@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Topology Console: **Newspack** and **Newspack Brand** skins; Newspack is now the default skin.
+
 ### Removed
 
 - **Unused members** flagged by a dead-code audit and verified to have no caller anywhere (production, tests, sibling plugins, dynamic dispatch): `Shell_Node::set_show_parse()`, `Config_System\Field::is_option()`, and the `Job_Worker_Node::MAX_JSON_DEPTH` constant.

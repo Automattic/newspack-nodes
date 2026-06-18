@@ -11,7 +11,7 @@
 // Google Fonts — imported into the admin page asset graph.
 // @import url is fine here; wp-scripts' sass loader pipes the URL
 // through to the final CSS without trying to inline it.
-@import url(https://fonts.googleapis.com/css2?family=Anonymous+Pro:wght@400;700&family=Archivo:wght@500;700&family=Archivo+Black&family=Barlow+Semi+Condensed:wght@500;700&family=Bitter:wght@500;700&family=Chakra+Petch:wght@400;600&family=DM+Mono:wght@400;500&family=Fira+Code:wght@400;600&family=Fraunces:wght@500;700&family=Fredoka:wght@400;600&family=IBM+Plex+Mono:wght@400;500;600&family=JetBrains+Mono:wght@300;400;500;700&family=Josefin+Sans:wght@500;700&family=Major+Mono+Display&family=Monoton&family=Noto+Sans+JP:wght@500;700&family=Orbitron:wght@500;700&family=Quicksand:wght@500;700&family=Rajdhani:wght@500;600&family=Saira+Condensed:wght@500;700&family=Saira+Stencil+One&family=Share+Tech+Mono&family=Sora:wght@500;700&family=Space+Mono:wght@400;700&family=Spectral:wght@400;600&family=Spline+Sans+Mono:wght@400;500;700&family=Syne:wght@600;800&family=Teko:wght@500;600&family=VT323&family=Workbench&display=swap);
+@import url(https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Anonymous+Pro:wght@400;700&family=Archivo:wght@500;700&family=Archivo+Black&family=Barlow+Semi+Condensed:wght@500;700&family=Bitter:wght@500;700&family=Chakra+Petch:wght@400;600&family=DM+Mono:wght@400;500&family=Fira+Code:wght@400;600&family=Fraunces:wght@500;700&family=Fredoka:wght@400;600&family=IBM+Plex+Mono:wght@400;500;600&family=JetBrains+Mono:wght@300;400;500;700&family=Josefin+Sans:wght@500;700&family=Major+Mono+Display&family=Monoton&family=Noto+Sans+JP:wght@500;700&family=Orbitron:wght@500;700&family=Quicksand:wght@500;700&family=Rajdhani:wght@500;600&family=Saira+Condensed:wght@500;700&family=Saira+Stencil+One&family=Share+Tech+Mono&family=Sora:wght@500;700&family=Space+Mono:wght@400;700&family=Spectral:wght@400;600&family=Spline+Sans+Mono:wght@400;500;700&family=Syne:wght@600;800&family=Teko:wght@500;600&family=VT323&family=Workbench&display=swap);
 
 .topology-app {
 	// Skin tokens. Defaults = the drafting-plotter look. Alternative skins
@@ -1599,6 +1599,83 @@
 .topology-app.theme-neotokyo .topology-select,
 .topology-app.theme-scada .topology-select {
 	background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 10 6' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M0 0L5 6L10 0Z' fill='%23ffffff'/%3E%3C/svg%3E");
+}
+
+// 00 — Newspack (Product · default). DESIGN.product.md: Cobalt + neutrals,
+// status colors only. Light surface, dark REPL (Swiss precedent).
+.topology-app.theme-newspack {
+	--paper: #fff;
+	--paper-2: #f7f7f7;
+	--paper-3: #f0f0f0;
+	--paper-shadow: #ddd;
+	--ink: #1e1e1e;
+	--ink-2: #3e3e3e;
+	--ink-3: #6c6c6c;
+	--ink-4: #949494;
+	--grid: rgba(108, 118, 130, 0.1);
+	--oxide: #b32d2e;
+	--oxide-dark: #8a2324;
+	--brass: #bd8600;
+	--brass-dark: #8a6200;
+	--cyan: #003da5;
+	--cyan-dark: #00296e;
+	--sage: #007017;
+	--sage-dark: #00510f;
+	--repl-bg: #1e1e1e;
+	--repl-fg: #f7f7f7;
+	--font-mono: "Inter", system-ui, sans-serif;
+	--font-terminal: "JetBrains Mono", ui-monospace, monospace;
+	--font-display-brand: "Inter", system-ui, sans-serif;
+	--font-display-stencil: "Inter", system-ui, sans-serif;
+
+	.topology-brand {
+		font-weight: 700;
+		letter-spacing: -0.01em;
+	}
+}
+
+// 00b — Newspack Brand (expressive). Same neutral structure; status LEDs
+// pull from the brand ramp (Emerald / Amber / Morganite). DESIGN.brand.md.
+.topology-app.theme-newspack-brand {
+	--paper: #fff;
+	--paper-2: #f7f7f7;
+	--paper-3: #f0f0f0;
+	--paper-shadow: #ddd;
+	--ink: #1e1e1e;
+	--ink-2: #3e3e3e;
+	--ink-3: #6c6c6c;
+	--ink-4: #949494;
+	--grid: rgba(0, 61, 165, 0.07);
+	--oxide: #d63638;
+	--oxide-dark: #b32d2e;
+	--brass: #ffa300;
+	--brass-dark: #c77e00;
+	--cyan: #003da5;
+	--cyan-dark: #00296e;
+	--sage: #117644;
+	--sage-dark: #09552f;
+	--repl-bg: #1e1e1e;
+	--repl-fg: #f7f7f7;
+	--font-mono: "Inter", system-ui, sans-serif;
+	--font-terminal: "JetBrains Mono", ui-monospace, monospace;
+	--font-display-brand: "Inter", system-ui, sans-serif;
+	--font-display-stencil: "Inter", system-ui, sans-serif;
+
+	.topology-brand {
+		font-weight: 700;
+		letter-spacing: -0.01em;
+	}
+
+	// Morganite is backgrounds-only (brand doc): a barely-there rose wash on
+	// the canvas, the only place the expressive tertiary is allowed.
+	.topology-canvas {
+		background: radial-gradient(
+				120% 120% at 100% 0%,
+				rgba(252, 155, 179, 0.1),
+				transparent 60%
+			),
+			var(--paper);
+	}
 }
 
 // 01 — Cyanotype Blueprint
