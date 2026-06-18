@@ -81,49 +81,6 @@ class CLI {
 	}
 
 	/**
-	 * Live cursor for a specific Consumer, keyed by its offset-dir identity
-	 * (`{source_basename}.p{N}`) — the per-reader key `Consumer_Node` publishes.
-	 * Unlike live_position(), this addresses ONE Consumer, not a whole worker type.
-	 *
-	 * @param object|null $cache           `\Memcached`-shaped (or null to skip).
-	 * @param string      $offset_dir_name e.g. `firehose.job-router.p0`.
-	 * @return array{seg:int,off:int,ts?:int}|null
-	 */
-	public function live_position_for( ?object $cache, string $offset_dir_name ): ?array {
-		if ( null === $cache || ! \method_exists( $cache, 'get' ) ) {
-			return null;
-		}
-		$host = \gethostname() ?: 'unknown';
-		try {
-			$value = $cache->get( Consumer_Node::position_key( $host, $offset_dir_name ) );
-		} catch ( \Throwable $e ) {
-			return null;
-		}
-		return self::normalize_position( $value );
-	}
-
-	/**
-	 * Coerce a raw memcache/offsetlog position value to `{seg,off,ts}` ints, or
-	 * null when it's not a usable position record.
-	 *
-	 * @param mixed $value Raw cache value.
-	 * @return array{seg:int,off:int,ts:int}|null
-	 */
-	private static function normalize_position( $value ): ?array {
-		if ( ! \is_array( $value ) || ! isset( $value['seg'], $value['off'] ) ) {
-			return null;
-		}
-		$seg = $value['seg'];
-		$off = $value['off'];
-		$ts  = $value['ts'] ?? 0;
-		return [
-			'seg' => \is_numeric( $seg ) ? (int) $seg : 0,
-			'off' => \is_numeric( $off ) ? (int) $off : 0,
-			'ts'  => \is_numeric( $ts ) ? (int) $ts : 0,
-		];
-	}
-
-	/**
 	 * The input-log basename a worker drains, read from its offsetlog's latest
 	 * checkpoint (`source_basename`). Empty string if no offsetlog yet — lets
 	 * callers locate the worker's partition dir without assuming `firehose.log`.
@@ -166,6 +123,143 @@ class CLI {
 		}
 		$basename = $last['source_basename'];
 		return \is_scalar( $basename ) ? (string) $basename : '';
+	}
+
+	/**
+	 * Coerce a raw memcache/offsetlog position value to `{seg,off,ts}` ints, or
+	 * null when it's not a usable position record.
+	 *
+	 * @param mixed $value Raw cache value.
+	 * @return array{seg:int,off:int,ts:int}|null
+	 */
+	private static function normalize_position( $value ): ?array {
+		if ( ! \is_array( $value ) || ! isset( $value['seg'], $value['off'] ) ) {
+			return null;
+		}
+		$seg = $value['seg'];
+		$off = $value['off'];
+		$ts  = $value['ts'] ?? 0;
+		return [
+			'seg' => \is_numeric( $seg ) ? (int) $seg : 0,
+			'off' => \is_numeric( $off ) ? (int) $off : 0,
+			'ts'  => \is_numeric( $ts ) ? (int) $ts : 0,
+		];
+	}
+
+	/**
+	 * Live cursor for a specific Consumer, keyed by its offset-dir identity
+	 * (`{source_basename}.p{N}`) — the per-reader key `Consumer_Node` publishes.
+	 * Unlike live_position(), this addresses ONE Consumer, not a whole worker type.
+	 *
+	 * @param object|null $cache           `\Memcached`-shaped (or null to skip).
+	 * @param string      $offset_dir_name e.g. `firehose.job-router.p0`.
+	 * @return array{seg:int,off:int,ts?:int}|null
+	 */
+	public function live_position_for( ?object $cache, string $offset_dir_name ): ?array {
+		if ( null === $cache || ! \method_exists( $cache, 'get' ) ) {
+			return null;
+		}
+		$host = \gethostname() ?: 'unknown';
+		try {
+			$value = $cache->get( Consumer_Node::position_key( $host, $offset_dir_name ) );
+		} catch ( \Throwable $e ) {
+			return null;
+		}
+		return self::normalize_position( $value );
+	}
+
+	/**
+	 * One row per active Consumer: scan `offsets/` for `{source_basename}.p{N}`
+	 * dirs and read each latest checkpoint. Rows whose checkpoint records no
+	 * worker_type are skipped (nothing to attribute them to). This is the
+	 * canonical per-Consumer enumeration shared by the Worker Status dashboard
+	 * (`Workers_CI_Node`) and `wp nodes status`.
+	 *
+	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,ts:float}>
+	 */
+	public function consumer_rows(): array {
+		$offsets_dir = "{$this->base_dir}/offsets";
+		if ( ! \is_dir( $offsets_dir ) ) {
+			return [];
+		}
+		$entries = @\scandir( $offsets_dir );
+		if ( false === $entries ) {
+			return [];
+		}
+		$rows = [];
+		foreach ( $entries as $entry ) {
+			if ( '.' === $entry || '..' === $entry ) {
+				continue;
+			}
+			// Expect `{source_basename}.p{N}` directory naming.
+			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $entry, $m ) ) {
+				continue;
+			}
+			$value = $this->read_offsetlog_entry( $entry );
+			if ( null === $value ) {
+				continue;
+			}
+			$worker_type = self::scalar_string( $value['worker_type'] ?? '' );
+			// Skip entries pre-dating the metadata addition — no worker to attribute to.
+			if ( '' === $worker_type ) {
+				continue;
+			}
+			/** @var array<int,array<string,mixed>> $targets Decoded offsetlog `targets`: a list of `{name,…}` objects. */
+			$targets = \is_array( $value['targets'] ?? null ) ? $value['targets'] : [];
+			$rows[]  = [
+				'name'            => self::scalar_string( $value['name']   ?? '' ),
+				'target'          => self::scalar_string( $value['target'] ?? '' ),
+				'targets'         => $targets,
+				'worker_type'     => $worker_type,
+				'source_basename' => $m[1],
+				'source_log'      => self::scalar_string( $value['source_log'] ?? '' ),
+				'partition'       => (int) $m[2],
+				'seg'             => self::scalar_int( $value['seg'] ?? 0 ),
+				'off'             => self::scalar_int( $value['off'] ?? 0 ),
+				'ts'              => self::scalar_float( $value['ts']  ?? 0 ),
+			];
+		}
+		return $rows;
+	}
+
+	/**
+	 * Read the latest committed checkpoint VALUE from an offset dir under
+	 * `offsets/` (e.g. `firehose.job-router.p0`). The offsetlog is a flat
+	 * segmented-log dir (`{base}/offsets/{name}/{seg}.log`); the dir name encodes
+	 * the spoke partition. Null if empty/unreadable. The checkpoint is a packed Message —
+	 * unpacked here (NOT a flat json_decode of the raw line).
+	 *
+	 * @return array<string,mixed>|null The decoded VALUE object.
+	 */
+	public function read_offsetlog_entry( string $offset_dir_name ): ?array {
+		return Partition_Node::read_latest_value_at( "{$this->base_dir}/offsets/{$offset_dir_name}" );
+	}
+
+	/**
+	 * Coerce a mixed value to string (non-scalar → '').
+	 *
+	 * @param mixed $v Raw value.
+	 */
+	private static function scalar_string( $v ): string {
+		return \is_scalar( $v ) ? (string) $v : '';
+	}
+
+	/**
+	 * Coerce a mixed value to int (non-scalar → 0).
+	 *
+	 * @param mixed $v Raw value.
+	 */
+	private static function scalar_int( $v ): int {
+		return \is_scalar( $v ) ? (int) $v : 0;
+	}
+
+	/**
+	 * Coerce a mixed value to float (non-scalar → 0.0).
+	 *
+	 * @param mixed $v Raw value.
+	 */
+	private static function scalar_float( $v ): float {
+		return \is_scalar( $v ) ? (float) $v : 0.0;
 	}
 
 
@@ -322,99 +416,5 @@ class CLI {
 			return \floor( $seconds / 3600 ) . 'h';
 		}
 		return \floor( $seconds / 86400 ) . 'd';
-	}
-
-	/**
-	 * Read the latest committed checkpoint VALUE from an offset dir under
-	 * `offsets/` (e.g. `firehose.job-router.p0`). The offsetlog is a flat
-	 * segmented-log dir (`{base}/offsets/{name}/{seg}.log`); the dir name encodes
-	 * the spoke partition. Null if empty/unreadable. The checkpoint is a packed Message —
-	 * unpacked here (NOT a flat json_decode of the raw line).
-	 *
-	 * @return array<string,mixed>|null The decoded VALUE object.
-	 */
-	public function read_offsetlog_entry( string $offset_dir_name ): ?array {
-		return Partition_Node::read_latest_value_at( "{$this->base_dir}/offsets/{$offset_dir_name}" );
-	}
-
-	/**
-	 * One row per active Consumer: scan `offsets/` for `{source_basename}.p{N}`
-	 * dirs and read each latest checkpoint. Rows whose checkpoint records no
-	 * worker_type are skipped (nothing to attribute them to). This is the
-	 * canonical per-Consumer enumeration shared by the Worker Status dashboard
-	 * (`Workers_CI_Node`) and `wp nodes status`.
-	 *
-	 * @return array<int,array{name:string,target:string,targets:array<int,array<string,mixed>>,worker_type:string,source_basename:string,source_log:string,partition:int,seg:int,off:int,ts:float}>
-	 */
-	public function consumer_rows(): array {
-		$offsets_dir = "{$this->base_dir}/offsets";
-		if ( ! \is_dir( $offsets_dir ) ) {
-			return [];
-		}
-		$entries = @\scandir( $offsets_dir );
-		if ( false === $entries ) {
-			return [];
-		}
-		$rows = [];
-		foreach ( $entries as $entry ) {
-			if ( '.' === $entry || '..' === $entry ) {
-				continue;
-			}
-			// Expect `{source_basename}.p{N}` directory naming.
-			if ( ! \preg_match( '/^(.+)\.p(\d+)$/', $entry, $m ) ) {
-				continue;
-			}
-			$value = $this->read_offsetlog_entry( $entry );
-			if ( null === $value ) {
-				continue;
-			}
-			$worker_type = self::scalar_string( $value['worker_type'] ?? '' );
-			// Skip entries pre-dating the metadata addition — no worker to attribute to.
-			if ( '' === $worker_type ) {
-				continue;
-			}
-			/** @var array<int,array<string,mixed>> $targets Decoded offsetlog `targets`: a list of `{name,…}` objects. */
-			$targets = \is_array( $value['targets'] ?? null ) ? $value['targets'] : [];
-			$rows[]  = [
-				'name'            => self::scalar_string( $value['name']   ?? '' ),
-				'target'          => self::scalar_string( $value['target'] ?? '' ),
-				'targets'         => $targets,
-				'worker_type'     => $worker_type,
-				'source_basename' => $m[1],
-				'source_log'      => self::scalar_string( $value['source_log'] ?? '' ),
-				'partition'       => (int) $m[2],
-				'seg'             => self::scalar_int( $value['seg'] ?? 0 ),
-				'off'             => self::scalar_int( $value['off'] ?? 0 ),
-				'ts'              => self::scalar_float( $value['ts']  ?? 0 ),
-			];
-		}
-		return $rows;
-	}
-
-	/**
-	 * Coerce a mixed value to string (non-scalar → '').
-	 *
-	 * @param mixed $v Raw value.
-	 */
-	private static function scalar_string( $v ): string {
-		return \is_scalar( $v ) ? (string) $v : '';
-	}
-
-	/**
-	 * Coerce a mixed value to int (non-scalar → 0).
-	 *
-	 * @param mixed $v Raw value.
-	 */
-	private static function scalar_int( $v ): int {
-		return \is_scalar( $v ) ? (int) $v : 0;
-	}
-
-	/**
-	 * Coerce a mixed value to float (non-scalar → 0.0).
-	 *
-	 * @param mixed $v Raw value.
-	 */
-	private static function scalar_float( $v ): float {
-		return \is_scalar( $v ) ? (float) $v : 0.0;
 	}
 }

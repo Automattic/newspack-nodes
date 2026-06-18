@@ -1,11 +1,10 @@
-# Opt-in dead-code audit — NOT part of the commit/push lint gate.
+# PHPStan gate with dead-code detection enabled.
 #
 # shipmonk/dead-code-detector is excluded from the auto-loaded extension set
-# (see composer.json extra.phpstan/extension-installer.ignore) so the normal
-# `phpstan analyse` gate stays fast and free of its findings. This config layers
-# the detector on top of the main config for an on-demand sweep:
+# (see composer.json extra.phpstan/extension-installer.ignore), so use this
+# explicit config whenever running the project PHPStan gate:
 #
-#     npm run lint:deadcode
+#     npm run lint:phpstan
 #
 # Caveat: this is a SUBSTRATE. tests/ are excluded (inherited from the main
 # config) so test-only methods surface, and cross-plugin consumers (ELN /
@@ -18,3 +17,7 @@
 includes:
     - phpstan.neon.dist
     - vendor/shipmonk/dead-code-detector/rules.neon
+parameters:
+    # Keep ShipMonk's collected-data cache project-local. The default global
+    # PHPStan tmp dir can race when multiple plugin gates run concurrently.
+    tmpDir: .phpstan/cache/deadcode

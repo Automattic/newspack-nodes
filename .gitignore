@@ -2,6 +2,7 @@
 /build/
 /node_modules/
 /vendor/
+/.phpstan/cache/
 
 # Test coverage outputs
 /coverage/

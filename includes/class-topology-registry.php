@@ -446,10 +446,6 @@ class Topology_Registry {
 		}
 	}
 
-	public static function register_user_dir( string $path ): void {
-		self::$user_dir = \rtrim( $path, '/' );
-	}
-
 	/** @api Support for unit tests. */
 	public static function reset(): void {
 		self::$stock_dirs         = [];
@@ -464,6 +460,10 @@ class Topology_Registry {
 		self::$write_set_cache              = [];
 		self::$graph_cache                  = [];
 		self::$frontmatter_cache            = [];
+	}
+
+	public static function register_user_dir( string $path ): void {
+		self::$user_dir = \rtrim( $path, '/' );
 	}
 
 	/** Read-only view of the user-dir path. */

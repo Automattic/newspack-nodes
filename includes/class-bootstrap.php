@@ -107,6 +107,11 @@ class Bootstrap {
 		}
 	}
 
+	/** Configured base directory for runtime state (locks/, ipc/). */
+	public static function base_dir(): string {
+		return Config::get_base_directory();
+	}
+
 	/**
 	 * Build the one shared `\Memcached` handle on `Core::$memd` from the
 	 * substrate's own `memcache_servers` config. The substrate owns this — every
@@ -235,11 +240,6 @@ class Bootstrap {
 	public static function supervisor(): Supervisor {
 		$factory = self::$supervisor_factory ?? static fn (): Supervisor => new Supervisor( self::base_dir(), \NONCE_SALT );
 		return $factory();
-	}
-
-	/** Configured base directory for runtime state (locks/, ipc/). */
-	public static function base_dir(): string {
-		return Config::get_base_directory();
 	}
 
 	/** Self-heal (admin_init): re-arm the supervisor cron if it should run but isn't scheduled. */
@@ -440,6 +440,18 @@ class Bootstrap {
 	}
 
 	/**
+	 * Remember the schedule_event context before later callbacks can replace the
+	 * event object with a falsy veto value.
+	 *
+	 * @param mixed $event Event object being filtered.
+	 * @return mixed $event, unchanged.
+	 */
+	public static function remember_schedule_event_context( $event ) {
+		self::$schedule_event_context_is_supervisor = 'newspack_nodes/supervisor' === self::event_hook( $event );
+		return $event;
+	}
+
+	/**
 	 * Mount one worker's input Partition by reader id (format-validated, idempotent).
 	 *
 	 * @return bool True iff the partition is now mounted.
@@ -469,18 +481,6 @@ class Bootstrap {
 		}
 		$part->arguments( $input_dir . ' ' . Worker_Base::IPC_SEGMENT_SIZE . ' ' . Worker_Base::IPC_NUM_SEGMENTS );
 		return true;
-	}
-
-	/**
-	 * Remember the schedule_event context before later callbacks can replace the
-	 * event object with a falsy veto value.
-	 *
-	 * @param mixed $event Event object being filtered.
-	 * @return mixed $event, unchanged.
-	 */
-	public static function remember_schedule_event_context( $event ) {
-		self::$schedule_event_context_is_supervisor = 'newspack_nodes/supervisor' === self::event_hook( $event );
-		return $event;
 	}
 
 	/**

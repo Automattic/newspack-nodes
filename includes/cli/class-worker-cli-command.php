@@ -197,6 +197,17 @@ class Worker_CLI_Command {
 	}
 
 	/**
+	 * Resolve the cache instance applications wire in for live cursor reads.
+	 * If no cache is filtered in, callers fall back to the offsetlog on disk.
+	 *
+	 * @return object|null
+	 */
+	private function cache(): ?object {
+		$cache = \apply_filters( 'newspack_nodes/worker_cli_cache', null );
+		return \is_object( $cache ) ? $cache : null;
+	}
+
+	/**
 	 * Assemble one `wp nodes status` row.
 	 *
 	 * @return array{Type:string,Partition:int,Source:string,Status:string,Uptime:string,Behind:string,Restart:string}
@@ -234,17 +245,6 @@ class Worker_CLI_Command {
 		}
 		$bytes = CLI::calculate_behind( $partition_dir, $position['seg'], $position['off'] );
 		return CLI::format_bytes( $bytes );
-	}
-
-	/**
-	 * Resolve the cache instance applications wire in for live cursor reads.
-	 * If no cache is filtered in, callers fall back to the offsetlog on disk.
-	 *
-	 * @return object|null
-	 */
-	private function cache(): ?object {
-		$cache = \apply_filters( 'newspack_nodes/worker_cli_cache', null );
-		return \is_object( $cache ) ? $cache : null;
 	}
 
 	/**

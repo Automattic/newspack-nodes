@@ -1,6 +1,7 @@
 includes:
     - vendor/phpstan/phpstan-strict-rules/rules.neon
 parameters:
+    tmpDir: .phpstan/cache/phpstan
     level: 10
     # phpstan-strict-rules: the full set EXCEPT rules that fight WordPress /
     # node-runtime idioms — empty() (pervasive WP), truthy conditionals
