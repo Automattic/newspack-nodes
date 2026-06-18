@@ -48,7 +48,64 @@ class HttpOutTest extends TestCase {
 		return $m;
 	}
 
-	public function test_fill_builds_command_envelope_to_spoke(): void {
+	public function test_fill_buffers_without_posting_and_arms_timer(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node = $this->make_node( 'austin' );
+		$a    = $this->command_message( 'settings', 'set', 'newspack_nodes_num_segments 8' );
+		$b    = $this->command_message( 'settings', 'set', 'newspack_nodes_segment_size 65536' );
+		$node->fill( $a );
+		$node->fill( $b );
+		$this->assertCount( 0, $captured );                                  // no POST during fill
+		$this->assertCount( 2, $this->read_private( $node, 'batch' ) );       // buffered
+		$this->assertTrue( $this->read_private( $node, 'batch_timer_armed' ) ); // explicit flag (NOT a Timer_Node field)
+	}
+
+	public function test_fire_posts_one_batched_jsonl_request(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node = $this->make_node( 'austin' );
+		$a    = $this->command_message( 'settings', 'set', 'newspack_nodes_num_segments 8' );
+		$b    = $this->command_message( 'performance', 'set', 'x y' );
+		$node->fill( $a );
+		$node->fill( $b );
+		$node->fire();
+		$this->assertCount( 1, $captured );                                   // ONE POST
+		$lines = array_values( array_filter( explode( "\n", $captured[0][ \CURLOPT_POSTFIELDS ] ) ) );
+		$this->assertCount( 2, $lines );                                      // both commands, JSONL
+		$this->assertSame( 'performance', Message::unpacked( $lines[1] )[ Message::TO ] );
+		$this->assertCount( 0, $this->read_private( $node, 'batch' ) );        // cleared
+	}
+
+	public function test_fire_empty_batch_does_not_post(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node = $this->make_node( 'austin' );
+		$node->fire();
+		$this->assertCount( 0, $captured );
+		$this->assertNull( $this->read_private( $node, 'multi' ) ); // never created the multi
+	}
+
+	public function test_fire_clears_armed_flag_for_next_cycle(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node  = $this->make_node( 'austin' );
+		$first = $this->command_message( 'settings', 'set', 'k v' );
+		$node->fill( $first );
+		$node->fire();
+		$this->assertFalse( $this->read_private( $node, 'batch_timer_armed' ) );
+		// Next fill re-arms and re-buffers.
+		$second = $this->command_message( 'settings', 'set', 'k2 v2' );
+		$node->fill( $second );
+		$this->assertTrue( $this->read_private( $node, 'batch_timer_armed' ) );
+		$this->assertCount( 1, $this->read_private( $node, 'batch' ) );
+	}
+
+	public function test_fire_builds_command_envelope_to_spoke(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'enabled' => true ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
@@ -56,6 +113,7 @@ class HttpOutTest extends TestCase {
 		$node = $this->make_node( 'austin' );
 		$msg  = $this->command_message( 'performance', 'settings_update', 'newspack_nodes_segment_size=64' );
 		$node->fill( $msg );
+		$node->fire();
 
 		$this->assertCount( 1, $captured );
 		$opts = $captured[0];
@@ -70,70 +128,78 @@ class HttpOutTest extends TestCase {
 		$this->assertContains( 'Content-Type: text/plain; charset=UTF-8', $opts[ \CURLOPT_HTTPHEADER ] );
 	}
 
-	public function test_fill_sends_basic_auth_from_vault(): void {
+	public function test_fire_sends_basic_auth_from_vault(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'alice', 'auth_password' => 'secret', 'enabled' => true ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
 		$node = $this->make_node( 'austin' );
 		$msg  = $this->command_message( 'settings', 'update', 'k=v' );
 		$node->fill( $msg );
+		$node->fire();
 		// phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.obfuscation_base64_encode
 		$expected = 'Authorization: Basic ' . \base64_encode( 'alice:secret' );
 		$this->assertContains( $expected, $captured[0][ \CURLOPT_HTTPHEADER ] );
 	}
 
-	public function test_fill_falls_back_to_bearer_token(): void {
+	public function test_fire_falls_back_to_bearer_token(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'token' => 'tok123', 'enabled' => true ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
 		$node = $this->make_node( 'austin' );
 		$msg  = $this->command_message( 'settings', 'update', 'k=v' );
 		$node->fill( $msg );
+		$node->fire();
 		$this->assertContains( 'Authorization: Bearer tok123', $captured[0][ \CURLOPT_HTTPHEADER ] );
 	}
 
-	public function test_fill_drops_when_vault_entry_missing(): void {
+	public function test_fire_drops_when_vault_entry_missing(): void {
 		$captured = [];
 		$this->capture_dispatch( $captured );
 		$node = $this->make_node( 'ghost' ); // nothing seeded
 		$msg  = $this->command_message( 'settings', 'update', 'k=v' );
 		$node->fill( $msg );
+		$node->fire();
 		$this->assertCount( 0, $captured ); // dropped, no throw
 		$this->assertNull( $this->read_private( $node, 'multi' ) ); // never created the multi
 	}
 
-	public function test_fill_drops_when_url_empty(): void {
+	public function test_fire_drops_when_url_empty(): void {
 		$this->seed_vault( 'austin', [ 'url' => '', 'auth_username' => 'u', 'auth_password' => 'p', 'enabled' => true ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
 		$node = $this->make_node( 'austin' );
 		$msg  = $this->command_message( 'settings', 'update', 'k=v' );
 		$node->fill( $msg );
+		$node->fire();
 		$this->assertCount( 0, $captured );
 	}
 
-	public function test_fill_verify_ssl_default_on(): void {
+	public function test_fire_verify_ssl_default_on(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'enabled' => true ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
 		$node = $this->make_node( 'austin' );
 		$msg  = $this->command_message( 'settings', 'update', 'k=v' );
 		$node->fill( $msg );
+		$node->fire();
 		$this->assertTrue( $captured[0][ \CURLOPT_SSL_VERIFYPEER ] );
 		$this->assertSame( 2, $captured[0][ \CURLOPT_SSL_VERIFYHOST ] );
 	}
 
-	public function test_fill_lazily_creates_and_reuses_one_multi(): void {
+	public function test_fire_lazily_creates_and_reuses_one_multi(): void {
 		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p', 'enabled' => true ] );
 		$captured = [];
 		$this->capture_dispatch( $captured );
 		$node  = $this->make_node( 'austin' );
 		$first = $this->command_message( 'settings', 'update', 'k=v' );
 		$node->fill( $first );
+		$node->fire();
 		$multi = $this->read_private( $node, 'multi' );
 		$this->assertInstanceOf( \CurlMultiHandle::class, $multi );
+		// A second batch reuses the same multi and adds one more in-flight handle.
 		$second = $this->command_message( 'settings', 'update', 'k=w' );
 		$node->fill( $second );
+		$node->fire();
 		$this->assertSame( $multi, $this->read_private( $node, 'multi' ) ); // idempotent
 		$this->assertCount( 2, $this->read_private( $node, 'inflight' ) );  // two in-flight
 	}
@@ -174,6 +240,7 @@ class HttpOutTest extends TestCase {
 		$node = $this->make_node( 'austin' );
 		$msg  = $this->command_message( 'settings', 'update', 'k=v' );
 		$node->fill( $msg );
+		$node->fire();
 		return [ $node, $easies[0] ];
 	}
 
@@ -255,11 +322,24 @@ class HttpOutTest extends TestCase {
 		$node = $this->make_node( 'austin' );
 		$msg  = $this->command_message( 'settings', 'update', 'k=v' );
 		$node->fill( $msg );
+		$node->fire();
 		$this->assertInstanceOf( \CurlMultiHandle::class, $this->read_private( $node, 'multi' ) );
 
 		$node->remove_node();
 		$this->assertNull( $this->read_private( $node, 'multi' ) );
 		$this->assertCount( 0, $this->read_private( $node, 'inflight' ) );
+	}
+
+	public function test_remove_node_clears_pending_batch(): void {
+		$this->seed_vault( 'austin', [ 'url' => 'https://austin.example', 'auth_username' => 'u', 'auth_password' => 'p' ] );
+		$captured = [];
+		$this->capture_dispatch( $captured );
+		$node = $this->make_node( 'austin' );
+		$msg  = $this->command_message( 'settings', 'set', 'k v' );
+		$node->fill( $msg );
+		$this->assertCount( 1, $this->read_private( $node, 'batch' ) );
+		$node->remove_node();
+		$this->assertCount( 0, $this->read_private( $node, 'batch' ) );
 	}
 
 	public function test_on_curl_message_malformed_line_is_skipped_not_fatal(): void {
