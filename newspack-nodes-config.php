@@ -37,4 +37,8 @@ return [
 	// becomes one fleet of `num_partitions` workers (sized by the
 	// topology's frontmatter when present).
 	'topologies'       => [],
+
+	// Vault — encrypted aggregator-server registry (managed via the Vault API).
+	'vault'            => [],
+	'vault_verify_ssl' => true,
 ];
