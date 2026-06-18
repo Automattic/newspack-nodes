@@ -383,7 +383,11 @@
 		letter-spacing: 0.22em;
 		color: var(--ink-3);
 		pointer-events: none;
-		z-index: 5;
+		// Below the node SVG (z 1) so nodes occlude the decorative title
+		// instead of painting over them; the interactive layout chips and
+		// reticles stay at z 5. Matches the "title-block (z 0)" intent noted
+		// on .topology-canvas-svg below.
+		z-index: 0;
 	}
 
 	&__topology-name {
@@ -456,6 +460,10 @@
 	fill: none;
 	stroke: var(--grid);
 	stroke-width: 1;
+	// Hold the line at 1 screen-px at every zoom. Without this the stroke is
+	// scaled with the viewBox, so zooming out drives it sub-pixel and the grid
+	// vanishes entirely.
+	vector-effect: non-scaling-stroke;
 	shape-rendering: crispedges;
 }
 
@@ -465,7 +473,9 @@
 	height: 24px;
 	border: 1px solid var(--ink-2);
 	pointer-events: none;
-	z-index: 4;
+	// Behind the node SVG (z 1) — the corner alignment marks are a
+	// backdrop stamp, not chrome that should occlude a node.
+	z-index: 0;
 
 	&::before {
 		content: "";
@@ -1617,7 +1627,9 @@
 	--ink-2: #3e3e3e;
 	--ink-3: #6c6c6c;
 	--ink-4: #949494;
-	--grid: rgba(108, 118, 130, 0.1);
+	// Constant 1px now (non-scaling-stroke), so it needs more than the old
+	// 10%-watermark alpha to read.
+	--grid: rgba(108, 118, 130, 0.22);
 	--oxide: #b32d2e;
 	--oxide-dark: #8a2324;
 	--brass: #bd8600;
@@ -1638,9 +1650,12 @@
 		letter-spacing: -0.01em;
 	}
 
-	// Cobalt leads every chrome accent; red stays for real errors.
+	// Cobalt leads every chrome accent; red stays for real errors. The title
+	// band is a translucent neutral (same approach as Brand's Morganite band)
+	// so it doesn't paint over the inner half of the selection border the way
+	// an opaque fill did — the top edge keeps its full stroke width.
 	.topology-node__header {
-		fill: var(--paper-3);
+		fill: rgba(0, 0, 0, 0.06);
 	}
 
 	.topology-node.is-selected .topology-node__bg {
@@ -1659,6 +1674,18 @@
 	.topology-brand__colon {
 		color: var(--cyan);
 	}
+
+	// Lightened so Cobalt reads on the dark REPL (a flat --cyan would be
+	// near-black on near-black, and an invisible caret). Covers the input-bar
+	// prompt AND the echoed commands in the transcript.
+	.topology-repl__prompt,
+	.topology-repl__entry--sent {
+		color: color-mix(in srgb, var(--cyan) 55%, white);
+	}
+
+	.topology-repl__input {
+		caret-color: color-mix(in srgb, var(--cyan) 55%, white);
+	}
 }
 
 // 00b — Newspack Brand (expressive). Same neutral structure; status LEDs
@@ -1672,7 +1699,7 @@
 	--ink-2: #3e3e3e;
 	--ink-3: #6c6c6c;
 	--ink-4: #949494;
-	--grid: rgba(0, 61, 165, 0.07);
+	--grid: rgba(0, 61, 165, 0.14);
 	--oxide: #d63638;
 	--oxide-dark: #b32d2e;
 	--brass: #ffa300;
@@ -1720,6 +1747,16 @@
 		color: var(--sage);
 	}
 
+	// Lightened so Emerald reads on the dark REPL (prompt + echoed commands).
+	.topology-repl__prompt,
+	.topology-repl__entry--sent {
+		color: color-mix(in srgb, var(--sage) 55%, white);
+	}
+
+	.topology-repl__input {
+		caret-color: color-mix(in srgb, var(--sage) 55%, white);
+	}
+
 	// Morganite is backgrounds-only (brand doc): a barely-there rose wash on
 	// the canvas, the only place the expressive tertiary is allowed.
 	.topology-canvas {
@@ -1745,6 +1782,43 @@
 
 	.topology-node__rate {
 		fill: var(--ink-3);
+	}
+
+	// Newspack "N" logo mark before the wordmark — a Cobalt rounded square
+	// (the logo color is --cyan, identical in both Newspack skins).
+	.topology-brand {
+		display: flex;
+		align-items: center;
+	}
+
+	.topology-brand::before {
+		content: "N";
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		margin-right: 9px;
+		border-radius: 6px;
+		background: var(--cyan);
+		color: #fff;
+		font-weight: 800;
+		font-size: 16px;
+	}
+
+	// Rounded controls (DESIGN.product) instead of the square chrome — header
+	// selects + mode group, inspector action buttons, and the edit-mode delete.
+	.topology-select,
+	.topology-mode,
+	.topology-insp__actions button,
+	.topology-edit-delete {
+		border-radius: 8px;
+	}
+
+	// Routing target pills + the "+ add target" affordance: smaller radius.
+	.topology-edit-chip,
+	.topology-edit-add-chip {
+		border-radius: 6px;
 	}
 }
 

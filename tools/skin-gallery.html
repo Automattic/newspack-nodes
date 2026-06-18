@@ -104,8 +104,10 @@ const THEMES = [
 ];
 // A real-chrome node: bg rect, uppercase type, led, id, sparkline, counter, rate.
 const node = ( x, y, type, id, led, spark, rate, counter, selected ) => `
+	<clipPath id="nclip-${ id }"><rect x="${ x }" y="${ y }" width="186" height="92" rx="7" ry="7"/></clipPath>
 	<g class="topology-node${ selected ? ' is-selected' : '' }">
 		<rect class="topology-node__bg" x="${ x }" y="${ y }" width="186" height="92"/>
+		<g clip-path="url(#nclip-${ id })">
 		<rect class="topology-node__header" x="${ x }" y="${ y }" width="186" height="22"/>
 		<text class="topology-node__type" x="${ x + 14 }" y="${ y + 20 }">${ type }</text>
 		<circle class="topology-node__led" cx="${ x + 18 }" cy="${ y + 38 }" r="4.5" style="fill:var(--${ led });stroke:var(--${ led }-dark)"/>
@@ -113,6 +115,7 @@ const node = ( x, y, type, id, led, spark, rate, counter, selected ) => `
 		<polyline class="topology-node__spark" points="${ spark.map( ( v, i ) => `${ x + 14 + i * 19 },${ y + 78 - v }` ).join( ' ' ) }"/>
 		<text class="topology-node__rate" x="${ x + 14 }" y="${ y + 84 }">${ rate }</text>
 		<text class="topology-node__counter" x="${ x + 172 }" y="${ y + 84 }" text-anchor="end">${ counter }</text>
+		</g>
 	</g>`;
 const S1 = [ 8, 18, 12, 26, 16, 30, 20, 34 ];
 const S2 = [ 14, 10, 22, 16, 28, 20, 32, 24 ];
@@ -121,7 +124,7 @@ const card = ( slug, name ) => `
 	<div class="label">${ slug } <small>— ${ name }</small></div>
 	<div class="g-app topology-app theme-${ slug }">
 		<div class="g-header">
-			<span class="g-brand">NEWSPACK<span class="topology-brand__colon">::</span>NODES</span>
+			<div class="topology-brand">NEWSPACK<span class="topology-brand__colon">::</span>NODES</div>
 			<span class="g-sub">firehose-workers-and-jobs · p0</span>
 			<span class="g-leds">
 				<span class="g-led ok"><i></i>ok</span>
@@ -129,6 +132,11 @@ const card = ( slug, name ) => `
 				<span class="g-led info"><i></i>info</span>
 				<span class="g-led err"><i></i>error</span>
 			</span>
+			<select class="topology-select"><option>p0</option></select>
+			<div class="topology-mode">
+				<button class="topology-mode__btn">EDIT</button>
+				<button class="topology-mode__btn topology-mode__btn--live is-active">LIVE</button>
+			</div>
 		</div>
 		<div class="g-body">
 			<div class="g-palette">
@@ -156,7 +164,7 @@ const card = ( slug, name ) => `
 				<span class="g-badge"><i></i>live</span>
 			</div>
 		</div>
-		<div class="g-repl"><span class="p">nodes&gt;</span> make_node Consumer processor &nbsp; <span class="o">ok</span></div>
+		<div class="g-repl"><span class="topology-repl__prompt">nodes&gt;</span> make_node Consumer processor &nbsp; <span class="o">ok</span></div>
 	</div>
 </div>`;
 const only = new URLSearchParams( location.search ).get( 'theme' );

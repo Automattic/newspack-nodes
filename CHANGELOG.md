@@ -9,11 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Topology Console: **Newspack** and **Newspack Brand** skins; Newspack is now the default skin. The Newspack skins restyle the node chrome to the product system — clean white rounded node cards with a shaded title band and Cobalt-led metrics (sparkline + counter), so red is reserved for genuine errors instead of every node's throughput readout. **Newspack Brand** leads with the expressive palette to stand clearly apart from Product: Emerald metrics/edges/selection and a Morganite-tinted title band. Node cards gain a `topology-node__header` title-band element (transparent by default; other skins unaffected).
+- Topology Console: **Newspack** and **Newspack Brand** skins; Newspack is now the default skin. The Newspack skins restyle the node chrome to the product system — clean white rounded node cards with a shaded title band and Cobalt-led metrics (sparkline + counter), so red is reserved for genuine errors instead of every node's throughput readout. **Newspack Brand** leads with the expressive palette to stand clearly apart from Product: Emerald metrics/edges/selection and a Morganite-tinted title band. Node cards gain a `topology-node__header` title-band element (transparent by default; other skins unaffected). The Newspack skins also add a Newspack "N" logo mark, rounded header/inspector controls, and on-brand REPL prompt/caret/transcript colors (Cobalt for Newspack, Emerald for Brand).
+- DevTools Hub: the tab-bar chrome now follows the active WordPress admin color scheme — it reads the live admin bar's color so the hub blends with Fresh / Coffee / Ectoplasm / a custom scheme instead of a fixed dark strip.
 
 ### Changed
 
 - Topology Console: polished the existing skins for legibility — AA-fixed muted text, evened the paper/ink ramps, and split the four status LEDs into distinct hues where they previously collapsed (Blueprint, Nord, Aurora, Neo-Tokyo, SCADA, …). Swiss Brutalist's monochrome and CRT Phosphor Terminal are intentionally unchanged.
+- Topology Console (all skins): the canvas grid now stays visible at every zoom — the line is a constant 1px (`non-scaling-stroke`) instead of vanishing sub-pixel when zoomed out — and the decorative title block + corner reticles sit behind nodes instead of painting over them.
 
 ### Removed
 

@@ -1029,7 +1029,15 @@ export default function SchematicCanvas( {
 					id="topology-node-clip"
 					clipPathUnits="userSpaceOnUse"
 				>
-					<rect x={ 0 } y={ 0 } width={ NODE_W } height={ NODE_H } />
+					{ /* rx/ry round the label-clip to the card radius so a shaded title band's top corners follow the rounding (Newspack); harmless for square-card skins. */ }
+					<rect
+						x={ 0 }
+						y={ 0 }
+						width={ NODE_W }
+						height={ NODE_H }
+						rx={ 7 }
+						ry={ 7 }
+					/>
 				</clipPath>
 				{ /* Group bloom: ONE blur pass per group (vs a drop-shadow per
 				     glyph), blurring real pixels so each element keeps its color and
