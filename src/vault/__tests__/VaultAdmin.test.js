@@ -28,14 +28,12 @@ const SAMPLE_SERVERS = [
 	{
 		id: 'spoke-01',
 		url: 'https://a.example.test',
-		enabled: true,
 		has_credentials: true,
 		is_config: false,
 	},
 	{
 		id: 'spoke-02',
 		url: 'https://b.example.test',
-		enabled: false,
 		has_credentials: false,
 		is_config: true,
 	},
@@ -98,7 +96,6 @@ function dialogButton( label ) {
 
 describe( 'VaultAdmin', () => {
 	let addServer;
-	let updateServer;
 	let removeServer;
 	let testServer;
 	const mounted = [];
@@ -106,7 +103,6 @@ describe( 'VaultAdmin', () => {
 	beforeEach( () => {
 		Core.reset();
 		addServer = jest.fn().mockResolvedValue( { id: 'spoke-01' } );
-		updateServer = jest.fn().mockResolvedValue( { id: 'spoke-01' } );
 		removeServer = jest.fn().mockResolvedValue( { id: 'spoke-01' } );
 		testServer = jest
 			.fn()
@@ -114,7 +110,7 @@ describe( 'VaultAdmin', () => {
 		useVaultGraph.mockClear();
 		useVaultGraph.mockReturnValue( {
 			addServer,
-			updateServer,
+			updateServer: jest.fn().mockResolvedValue( { id: 'spoke-01' } ),
 			removeServer,
 			testServer,
 		} );
@@ -163,22 +159,15 @@ describe( 'VaultAdmin', () => {
 		expect( container.textContent ).toContain( 'No servers configured' );
 	} );
 
-	it( 'shows the enabled dashicon for an enabled server', () => {
-		registerViewFixture( {
-			servers: [ SAMPLE_SERVERS[ 0 ] ],
-			loading: false,
-		} );
+	it( 'does NOT render an enabled toggle button or enabled status icons', () => {
+		registerViewFixture( { servers: SAMPLE_SERVERS, loading: false } );
 		const { container } = mount();
-		expect( container.querySelector( '.dashicons-yes-alt' ) ).toBeTruthy();
-	} );
-
-	it( 'shows the disabled dashicon for a disabled server', () => {
-		registerViewFixture( {
-			servers: [ SAMPLE_SERVERS[ 1 ] ],
-			loading: false,
-		} );
-		const { container } = mount();
-		expect( container.querySelector( '.dashicons-no' ) ).toBeTruthy();
+		expect(
+			container.querySelector( '.event-aggregator-toggle' )
+		).toBeNull();
+		expect( container.querySelector( '[data-enabled]' ) ).toBeNull();
+		expect( container.querySelector( '.dashicons-yes-alt' ) ).toBeNull();
+		expect( container.querySelector( '.dashicons-no' ) ).toBeNull();
 	} );
 
 	it( 'renders the add-server form fields with the legacy ids', () => {
@@ -305,24 +294,6 @@ describe( 'VaultAdmin', () => {
 		expect( document.body.textContent ).not.toContain(
 			'Are you sure you want to remove this server?'
 		);
-	} );
-
-	it( 'calls updateServer toggling enabled when the toggle is clicked', async () => {
-		registerViewFixture( {
-			servers: [ SAMPLE_SERVERS[ 0 ] ],
-			loading: false,
-		} );
-		const { container } = mount();
-		const row = container.querySelector( 'tr[data-server-id="spoke-01"]' );
-		await act( async () => {
-			row.querySelector( '.event-aggregator-toggle' ).dispatchEvent(
-				new Event( 'click', { bubbles: true } )
-			);
-		} );
-		// spoke-01 is enabled, so the toggle disables it.
-		expect( updateServer ).toHaveBeenCalledWith( 'spoke-01', {
-			enabled: false,
-		} );
 	} );
 
 	it( 'calls testServer and shows the per-row test status on success', async () => {

@@ -186,7 +186,8 @@ describe( 'useVaultGraph — CRUD callbacks dispatch the verb then re-list', () 
 		expect( returned ).toEqual( { id: 'spoke-01' } );
 
 		// An `add` was dispatched with the fields in the args string: id is the
-		// positional token; the rest are named args (enabled:true → bare --enabled).
+		// positional token; the credentials ride as named args. No enabled flag —
+		// a spoke is "enabled" by being wired into the graph.
 		const add = findVerb( client.batches, 'add' );
 		expect( add ).toBeTruthy();
 		expect( add[ TO ] ).toBe( 'vault' );
@@ -197,13 +198,12 @@ describe( 'useVaultGraph — CRUD callbacks dispatch the verb then re-list', () 
 				url: 'https://x',
 				auth_username: 'u',
 				auth_password: 'p',
-				enabled: true,
 			} )
 		);
 		const addArgs = parseCommandArgs( add[ VALUE ].arguments );
 		expect( addArgs.positional[ 0 ] ).toBe( 'spoke-01' );
 		expect( addArgs.options.url ).toBe( 'https://x' );
-		expect( addArgs.options.enabled ).toBe( true );
+		expect( addArgs.options.enabled ).toBeUndefined();
 
 		// A re-list ran after the mutation (replaces window.location.reload()).
 		const listsAfter = countVerbs( client.batches, 'list' );
@@ -222,15 +222,17 @@ describe( 'useVaultGraph — CRUD callbacks dispatch the verb then re-list', () 
 		const listsBefore = countVerbs( client.batches, 'list' );
 
 		await act( async () => {
-			await result.current.updateServer( 'spoke-01', { enabled: false } );
+			await result.current.updateServer( 'spoke-01', {
+				url: 'https://y',
+			} );
 		} );
 
 		const update = findVerb( client.batches, 'update' );
 		expect( update ).toBeTruthy();
 		expect( update[ VALUE ].payload ).toBeUndefined();
-		// Only the changed field rides as a named arg; enabled:false → --enabled=false.
+		// Only the changed field rides as a named arg.
 		expect( update[ VALUE ].arguments ).toBe(
-			formatCommandArgs( [ 'spoke-01' ], { enabled: false } )
+			formatCommandArgs( [ 'spoke-01' ], { url: 'https://y' } )
 		);
 		expect( countVerbs( client.batches, 'list' ) ).toBeGreaterThan(
 			listsBefore
