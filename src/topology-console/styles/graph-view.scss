@@ -1780,6 +1780,14 @@
 		ry: 7px;
 	}
 
+	// LOD (zoomed out) draws only the bare rect — a white card with a faint
+	// border vanishes on the white canvas. Restore the shared strong-ink LOD
+	// fill, which the equal-specificity __bg override above otherwise clobbers.
+	.topology-node.is-static .topology-node__bg {
+		fill: var(--ink-2);
+		stroke: none;
+	}
+
 	.topology-node__rate {
 		fill: var(--ink-3);
 	}
