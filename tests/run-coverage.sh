@@ -6,11 +6,16 @@
 #   ./run-coverage.sh              # Run all tests with coverage
 #   ./run-coverage.sh --filter X   # Run specific test
 #
-# Coverage report is written to /volumes/pyrobase/tmp/newspack-nodes-coverage/
+# Coverage report is written to ${TEST_TMP} or ${TMPDIR} or /tmp:
+#     newspack-nodes-coverage/
 #
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
+
+OUT=/tmp
+[ -n "$TMPDIR"   ] && OUT="$TMPDIR"
+[ -n "$TEST_TMP" ] && OUT="$TEST_TMP"
 
 # Pin phpunit to the project's vendor binary rather than whatever
 # /usr/bin/phpunit happens to be. The container's system phpunit is
@@ -28,13 +33,13 @@ rm -rf /tmp/newspack-nodes-test 2>/dev/null
 
 # Run PHPUnit with coverage
 "$PHPUNIT" --configuration phpunit.xml \
-    --coverage-clover /volumes/pyrobase/tmp/newspack-nodes-coverage/clover.xml \
-    --coverage-html /volumes/pyrobase/tmp/newspack-nodes-coverage \
+    --coverage-clover ${OUT}/newspack-nodes-coverage/clover.xml \
+    --coverage-html ${OUT}/newspack-nodes-coverage \
 	--enforce-time-limit \
     "$@"
 
 echo ""
-echo "Coverage report: /volumes/pyrobase/tmp/newspack-nodes-coverage/index.html"
+echo "Coverage report: ${OUT}/newspack-nodes-coverage/index.html"
 
 rm -rf /tmp/admin-topo-stock-*           \
        /tmp/cmd-ctrl-ipc-*               \

@@ -13,10 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`Bootstrap::register_worker_partitions()`** — the batch "mount every live worker's input Partition" wrapper, superseded by the per-worker `connect_worker_input` pivot (`Bootstrap::register_worker_partition()`, singular). It had no production caller; the cli and HTTP/SSE paths mount one worker at a time.
 - **`CLI::base_dir()`** — unused getter; `CLI` builds every path from its private `$base_dir` directly, and the only caller was a getter self-test.
 - **`Job_Worker_Node` test-only handler accessors + dead between-jobs callback** — `set_local_handler()`, `set_remote_handler()`, `register_handler()`, `has_local_handler()`, `has_remote_handler()`, `has_handler()`, `jobs_executed()`, `get_stale_timeout()`, `get_max_runtime()`, `memory_pressure()`, and the `set_between_jobs_callback()` machinery (`$between_jobs_cb` + its `fill()` block, unreachable once the setter was gone). Production registers handlers exclusively via the `newspack_nodes/{job,remote_job}_handlers` filters (eager-loaded in the constructor); the JobWorker tests now drive that path via a `register_job_handler` helper and observe internal state via reflection.
+- **`Core` closing-queue** — `Core::run_closing()` and `Core::push_closing()`. Node teardown is now synchronous (`remove_node()` stops timers immediately), leaving the deferred closing queue with no producer or consumer.
+- **`Node::interpreter()`** — the sibling-`:config` CommandInterpreter getter; the protected `$interpreter` property stays. Tests reach the sibling via `Core::node( "{$name}:config" )` or reflection.
+- **More unused accessors** removed by the dead-code audit: `Core::counter()`, the rate-limited `Core::print_least_often()` and `Node::print_least_often()` ("least" variant — the commonly-used `print_less_often` stays), `Lock_Node::path()`, `Lock_Node::request_restart()`, `Topic_Node::num_partitions()`, `Shell_Node::set_variable()` / `show_parse()` / `send_command()` / `write_failures()`, `Settings_Renderer::checkbox_list()`, `Config::set_user_dir()`, `Config::declared_offset_dirs()`, `Config_Utils::sanitize_option()`, and `Config_Utils::sanitize_string()`.
+
+### Changed
+
+- **`kill_readers()` moved from `Config` (static) to `Supervisor` (instance)** — the worker-restart-flag drop now lives with the rest of the supervisor lifecycle control; call it via `Bootstrap::supervisor()->kill_readers( $groups )` instead of `Config::kill_readers( $groups )`.
 
 ### Internal
 
-- **Opt-in dead-code audit** via `shipmonk/dead-code-detector`, wired as a *separate* config (`phpstan-deadcode.neon`, run with `composer deadcode`) and kept OUT of the commit/push lint gate. Most findings on a substrate are public API / WP-CLI entrypoints / JS↔PHP wire constants / test seams, not real dead code — verify against all call paths before deleting.
+- **Opt-in dead-code audit** via `shipmonk/dead-code-detector`, wired as a *separate* config (`phpstan-deadcode.neon`, run with `npm run lint:deadcode`) and kept OUT of the commit/push lint gate. Most findings on a substrate are public API / WP-CLI entrypoints / JS↔PHP wire constants / test seams, not real dead code — verify against all call paths before deleting.
 
 ## [0.18.3] - 2026-06-17
 

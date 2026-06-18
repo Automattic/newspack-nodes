@@ -49,7 +49,6 @@
 	"scripts": {
 		"lint": "phpcs",
 		"lint:fix": "phpcbf",
-		"deadcode": "phpstan analyse -c phpstan-deadcode.neon --memory-limit=2G",
 		"build:autoloaders": "composer install --optimize-autoloader",
 		"build-release": "./build-release.sh",
 		"post-install-cmd": [

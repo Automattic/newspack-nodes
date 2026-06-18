@@ -47,7 +47,7 @@ npm run lint:php
 # Opt-in dead-code audit (NOT in the lint gate). Substrate caveat: most findings
 # are public API / WP-CLI entrypoints / JS-PHP wire constants / test seams, not
 # real dead code — verify every call path (incl siblings + JS + dynamic) first.
-composer deadcode
+npm run lint:deadcode
 
 # REPL against a live worker.
 wp nodes ls
