@@ -410,6 +410,12 @@ if ( ! function_exists( 'get_option' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_salt' ) ) {
+	function wp_salt( string $scheme = 'auth' ): string {
+		return 'TEST_SALT_FOR_' . $scheme;
+	}
+}
+
 if ( ! function_exists( 'esc_url_raw' ) ) {
 	function esc_url_raw( string $url ): string {
 		return \filter_var( $url, FILTER_SANITIZE_URL ) ?: '';
