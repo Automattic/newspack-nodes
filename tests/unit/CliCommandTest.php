@@ -126,6 +126,65 @@ class CliCommandTest extends TestCase {
 		( new CLI_Command() )->cli( [], [] );
 	}
 
+	public function test_cli_bare_repl_exits_on_closed_piped_stdin(): void {
+		CLI_Command::$uid_provider = static fn (): int => 1000;
+		$start = \microtime( true );
+
+		( new CLI_Command() )->cli( [], [] );
+
+		$this->assertLessThan( 1.0, \microtime( true ) - $start );
+		$this->assertSame( [], $GLOBALS['_test_wp_cli_logs'], 'non-TTY stdin should not render prompts or trailing courtesy lines' );
+
+		Core::cleanup_all_nodes();
+	}
+
+	public function test_prepare_repl_bare_mode_sets_local_status_lines(): void {
+		CLI_Command::$uid_provider = static fn (): int => 1000;
+		$ref = new \ReflectionMethod( CLI_Command::class, 'prepare_repl' );
+		$ref->setAccessible( true );
+
+		[ $shell, $dumper ] = $ref->invoke( new CLI_Command(), [] );
+
+		$this->assertInstanceOf( \Newspack_Nodes\Shell_Node::class, $shell );
+		$this->assertInstanceOf( \Newspack_Nodes\Dumper_Node::class, $dumper );
+		$this->assertSame( [ 'Bare cli mode (local nodes only).' ], $shell->status_lines );
+
+		Core::cleanup_all_nodes();
+	}
+
+	public function test_prepare_repl_pivoted_mode_attaches_worker_and_sets_status_lines(): void {
+		CLI_Command::$uid_provider = static fn (): int => 1000;
+		\mkdir( "{$this->tmp}/locks/jobs.p2.lock.d", 0755, true );
+		\mkdir( "{$this->tmp}/ipc/jobs.p2/input", 0755, true );
+		\mkdir( "{$this->tmp}/ipc/jobs.p2/output", 0755, true );
+		$ref = new \ReflectionMethod( CLI_Command::class, 'prepare_repl' );
+		$ref->setAccessible( true );
+
+		[ $shell ] = $ref->invoke( new CLI_Command(), [ 'jobs.p2' ] );
+
+		$this->assertSame(
+			[
+				'Pivoted-cli mode for jobs.p2',
+				"  input  partition: {$this->tmp}/ipc/jobs.p2/input",
+				"  output partition: {$this->tmp}/ipc/jobs.p2/output",
+			],
+			$shell->status_lines
+		);
+
+		Core::cleanup_all_nodes();
+	}
+
+	public function test_prepare_repl_reports_unknown_pivot_worker(): void {
+		CLI_Command::$uid_provider = static fn (): int => 1000;
+		$ref = new \ReflectionMethod( CLI_Command::class, 'prepare_repl' );
+		$ref->setAccessible( true );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'missing.p0' );
+
+		$ref->invoke( new CLI_Command(), [ 'missing.p0' ] );
+	}
+
 	// ── base_dir resolution ───────────────────────────────────────────────────
 
 	public function test_base_dir_picks_up_config_file_value(): void {

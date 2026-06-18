@@ -139,7 +139,7 @@ describe( 'drawLegend', () => {
 } );
 
 describe( 'setupTooltip', () => {
-	const refs = () => {
+	const refs = ( rect = null ) => {
 		const tooltipEl = document.createElement( 'div' );
 		Object.defineProperty( tooltipEl, 'offsetHeight', {
 			configurable: true,
@@ -149,12 +149,13 @@ describe( 'setupTooltip', () => {
 			configurable: true,
 			get: () => 60,
 		} );
-		tooltipEl.getBoundingClientRect = () => ( {
-			left: 0,
-			right: 60,
-			top: 0,
-			bottom: 20,
-		} );
+		tooltipEl.getBoundingClientRect = () =>
+			rect ?? {
+				left: 0,
+				right: 60,
+				top: 0,
+				bottom: 20,
+			};
 		const container = document.createElement( 'div' );
 		const parent = document.createElement( 'div' );
 		Object.defineProperty( parent, 'clientHeight', {
@@ -261,6 +262,85 @@ describe( 'setupTooltip', () => {
 		} );
 		expect( tooltipRef.current.style.display ).toBe( 'block' );
 	} );
+
+	it( 'keeps tooltip inside the viewport when it would overflow', () => {
+		const g = makeFluent();
+		const dates = [ new Date( 2026, 0, 1 ), new Date( 2026, 0, 1, 0, 5 ) ];
+		const xScale = jest.fn( ( d ) => d.getMinutes() * 10 );
+		xScale.invert = jest.fn( () => dates[ 1 ] );
+		const innerHeight = window.innerHeight;
+		const innerWidth = window.innerWidth;
+		Object.defineProperty( window, 'innerHeight', {
+			configurable: true,
+			value: 10,
+		} );
+		Object.defineProperty( window, 'innerWidth', {
+			configurable: true,
+			value: 10,
+		} );
+		const { tooltipRef, containerRef } = refs( {
+			left: -5,
+			right: 80,
+			top: 0,
+			bottom: 40,
+		} );
+		try {
+			setupTooltip( g, {
+				innerW: 200,
+				innerH: 50,
+				dates,
+				x: xScale,
+				formatEntry: () => [],
+				tooltipRef,
+				lastMouseXRef: { current: 25 },
+				containerRef,
+			} );
+			expect( tooltipRef.current.style.top ).toBe( '-24px' );
+			expect( tooltipRef.current.style.left ).toBe( '0px' );
+		} finally {
+			Object.defineProperty( window, 'innerHeight', {
+				configurable: true,
+				value: innerHeight,
+			} );
+			Object.defineProperty( window, 'innerWidth', {
+				configurable: true,
+				value: innerWidth,
+			} );
+		}
+	} );
+
+	it( 'cancels a pending tooltip frame when a newer mousemove arrives', () => {
+		const g = makeFluent();
+		const dates = [ new Date( 2026, 0, 1 ), new Date( 2026, 0, 1, 0, 5 ) ];
+		const xScale = ( d ) => d.getMinutes() * 10;
+		xScale.invert = () => dates[ 0 ];
+		const { tooltipRef, lastMouseXRef, containerRef } = refs();
+		const rafSpy = jest
+			.spyOn( window, 'requestAnimationFrame' )
+			.mockImplementation( () => 101 );
+		const cancelSpy = jest
+			.spyOn( window, 'cancelAnimationFrame' )
+			.mockImplementation( () => {} );
+		try {
+			setupTooltip( g, {
+				innerW: 200,
+				innerH: 50,
+				dates,
+				x: xScale,
+				formatEntry: () => [],
+				tooltipRef,
+				lastMouseXRef,
+				containerRef,
+			} );
+			g.handlers.mousemove( {} );
+			g.handlers.mousemove( {} );
+			expect( cancelSpy ).toHaveBeenCalledWith( 101 );
+			expect( rafSpy ).toHaveBeenCalledTimes( 2 );
+		} finally {
+			rafSpy.mockRestore();
+			cancelSpy.mockRestore();
+		}
+	} );
 } );
 
 describe( 'useTimeChart hook lifecycle', () => {
@@ -288,5 +368,33 @@ describe( 'useTimeChart hook lifecycle', () => {
 		unmount();
 		expect( spy ).toHaveBeenCalledWith( 'resize', expect.any( Function ) );
 		spy.mockRestore();
+	} );
+
+	it( 'hides an open tooltip when the nearest modal content scrolls', () => {
+		let refsFromHook;
+		const modal = document.createElement( 'div' );
+		modal.className = 'components-modal__content';
+		const container = document.createElement( 'div' );
+		const tooltip = document.createElement( 'div' );
+		tooltip.style.display = 'block';
+		modal.appendChild( container );
+		document.body.appendChild( modal );
+
+		const renderFn = jest.fn( ( refs ) => {
+			refsFromHook = refs;
+			refs.containerRef.current = container;
+			refs.tooltipRef.current = tooltip;
+			refs.lastMouseXRef.current = 12;
+		} );
+		const { unmount } = renderHook( () => useTimeChart( renderFn ) );
+		modal.dispatchEvent( new Event( 'scroll' ) );
+		expect( refsFromHook.lastMouseXRef.current ).toBeNull();
+		expect( tooltip.style.display ).toBe( 'none' );
+
+		const spy = jest.spyOn( modal, 'removeEventListener' );
+		unmount();
+		expect( spy ).toHaveBeenCalledWith( 'scroll', expect.any( Function ) );
+		spy.mockRestore();
+		modal.remove();
 	} );
 } );

@@ -63,6 +63,35 @@ test( 'fill with targets but no sink does not throw', () => {
 	expect( t.counter ).toBe( 1 );
 } );
 
+test( 'fill with a path target but no sink throws because it cannot route', () => {
+	const t = new TeeNode();
+	t.target = [ '_router/a' ];
+
+	expect( () => t.fill( newMessage() ) ).toThrow(
+		'Tee.fill requires a wired sink'
+	);
+} );
+
+test( 'fill logs and continues when a routed target throws', () => {
+	const sink = new Node();
+	sink.fill = () => {
+		throw new Error( 'target exploded' );
+	};
+	const t = new TeeNode();
+	t.sink = sink;
+	t.target = [ '_router/a' ];
+	const spy = jest
+		.spyOn( t, 'print_less_often' )
+		.mockImplementation( () => {} );
+
+	t.fill( newMessage() );
+
+	expect( spy ).toHaveBeenCalledWith(
+		expect.stringContaining( 'target exploded' )
+	);
+	spy.mockRestore();
+} );
+
 test( 'fill does not mutate caller TO when fanning out', () => {
 	const sink = new Node();
 	sink.fill = () => {};
@@ -100,4 +129,18 @@ test( 'disconnectNode for a missing target leaves the array untouched', () => {
 	t.connectNode( 'b' );
 	t.disconnectNode( 'missing' );
 	expect( t.target ).toEqual( [ 'a', 'b' ] );
+} );
+
+test( 'connectNode normalizes a string target before appending', () => {
+	const t = new TeeNode();
+	t.target = 'a';
+	t.connectNode( 'b' );
+	expect( t.target ).toEqual( [ 'a', 'b' ] );
+} );
+
+test( 'disconnectNode clears a non-array target shape', () => {
+	const t = new TeeNode();
+	t.target = 'a';
+	t.disconnectNode( 'a' );
+	expect( t.target ).toEqual( [] );
 } );

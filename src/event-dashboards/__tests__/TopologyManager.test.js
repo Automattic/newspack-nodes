@@ -301,6 +301,25 @@ test( 'active topology renders its live TopologySection subtree; inactive render
 	expect( getByText( 'Stopped' ) ).toBeTruthy();
 } );
 
+test( 'an active topology without a graph status falls back to Stopped', () => {
+	useTopologyManager.mockReturnValue(
+		hookValue( {
+			topologies: [
+				{
+					name: 'alpha',
+					source: 'stock',
+					active: true,
+					num_partitions: 1,
+					status: null,
+				},
+			],
+		} )
+	);
+
+	const { getByText } = render( <TopologyManager /> );
+	expect( getByText( 'Stopped' ) ).toBeTruthy();
+} );
+
 test( 'active topology renders a node row with its read rate (not a crash, not 0 B/s)', () => {
 	useTopologyManager.mockReturnValue(
 		hookValue( {
@@ -324,6 +343,30 @@ test( 'active topology renders a node row with its read rate (not a crash, not 0
 	// And it shows the model's actual rate, not a degraded 0 B/s placeholder.
 	expect( rate.textContent ).toContain( '2' );
 	expect( rate.textContent ).not.toContain( '0 B/s' );
+} );
+
+test( 'folding an active topology section hides and restores its segment rows', () => {
+	useTopologyManager.mockReturnValue(
+		hookValue( {
+			topologies: [
+				{
+					name: 'alpha',
+					source: 'stock',
+					active: true,
+					num_partitions: 1,
+					status: statusWithSegments(),
+				},
+			],
+		} )
+	);
+
+	const { container } = render( <TopologyManager /> );
+	const caret = container.querySelector( '.caret' );
+	expect( container.querySelector( '.worker-segment-h' ) ).toBeTruthy();
+	fireEvent.click( caret );
+	expect( container.querySelector( '.worker-segment-h' ) ).toBeFalsy();
+	fireEvent.click( caret );
+	expect( container.querySelector( '.worker-segment-h' ) ).toBeTruthy();
 } );
 
 test( 'clicking the inactive toggle calls activate(name)', () => {
@@ -641,6 +684,30 @@ test( 'a rejected activate surfaces the reason in an alert modal', async () => {
 	expect(
 		container.querySelector( '.nodes-tm__alert-title' ).textContent
 	).toMatch( /beta/ );
+} );
+
+test( 'the alert modal closes via its OK button', async () => {
+	const value = hookValue( {
+		topologies: [
+			{
+				name: 'beta',
+				source: 'user',
+				active: false,
+				num_partitions: 1,
+				status: null,
+			},
+		],
+		activate: jest.fn( () => Promise.reject( new Error( 'boom' ) ) ),
+	} );
+	useTopologyManager.mockReturnValue( value );
+
+	const { container, getByRole } = render( <TopologyManager /> );
+	fireEvent.click( container.querySelector( '.nodes-tm__toggle' ) );
+	await waitFor( () =>
+		expect( container.querySelector( '.nodes-tm__alert' ) ).toBeTruthy()
+	);
+	fireEvent.click( getByRole( 'button', { name: 'OK' } ) );
+	expect( container.querySelector( '.nodes-tm__alert' ) ).toBeFalsy();
 } );
 
 test( 'a rejected restart/deactivate is swallowed from the render but surfaced in the modal', async () => {

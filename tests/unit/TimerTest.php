@@ -127,6 +127,15 @@ class TimerTest extends TestCase {
 		$this->assertSame( 1, $timer->counter() );
 	}
 
+	public function test_fire_cb_with_no_sink_returns_without_firing(): void {
+		$timer = new Timer_Node();
+		$timer->name( 't' );
+
+		$timer->fire_cb();
+
+		$this->assertSame( 0, $timer->counter() );
+	}
+
 	// ── lifecycle ──────────────────────────────────────────────────────────────
 
 	public function test_set_timer_with_ms_enters_event_framework_and_stops_clean(): void {
@@ -144,6 +153,43 @@ class TimerTest extends TestCase {
 		$timer->name( 't' );
 		$timer->stop_timer();
 		$this->assertSame( 'inactive', $this->mode_of( $timer ) );
+	}
+
+	public function test_router_hitchhike_requires_named_timer(): void {
+		$timer = new Timer_Node();
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'Router-hitchhike requires Timer to have a name' );
+
+		$timer->set_timer();
+	}
+
+	public function test_router_hitchhike_requires_router_node(): void {
+		$timer = new Timer_Node();
+		$timer->name( 't' );
+
+		$this->expectException( \RuntimeException::class );
+		$this->expectExceptionMessage( 'Router-hitchhike requires _router to be present' );
+
+		$timer->set_timer();
+	}
+
+	public function test_timer_switches_between_router_and_event_framework_modes(): void {
+		$router = new Router_Node();
+		$router->name( '_router' );
+		$router->interval_ms = 250;
+		$timer = new Timer_Node();
+		$timer->name( 'hb' );
+
+		$timer->set_timer();
+		$this->assertSame( 'router', $this->mode_of( $timer ) );
+		$this->assertSame( 250, $timer->interval_ms );
+
+		$timer->set_timer( 100 );
+		$this->assertSame( 'event_framework', $this->mode_of( $timer ) );
+
+		$timer->set_timer();
+		$this->assertSame( 'router', $this->mode_of( $timer ) );
 	}
 
 	public function test_oneshot_goes_inactive_after_one_fire(): void {

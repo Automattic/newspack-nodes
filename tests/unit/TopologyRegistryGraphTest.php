@@ -86,6 +86,18 @@ class TopologyRegistryGraphTest extends TestCase {
 		$this->assertSame( 3, $node['num_segments'] );
 	}
 
+	public function test_graph_for_topic_kind_and_cache_by_topology_name(): void {
+		$this->write_tsl( 'topic-flow', "make_node Topic topic-node <config:logs_dir>/topic.log 2 group\n" );
+
+		$first = \Newspack_Nodes\Topology_Registry::graph_for( 'topic-flow' );
+		$this->write_tsl( 'topic-flow', "make_node Echo changed\n" );
+		$second = \Newspack_Nodes\Topology_Registry::graph_for( 'topic-flow' );
+
+		$this->assertSame( $first, $second );
+		$this->assertSame( 'topic', $first['nodes'][0]['kind'] );
+		$this->assertSame( 'topic.log', $first['nodes'][0]['writes'] );
+	}
+
 	public function test_graph_for_unknown_topology_is_empty(): void {
 		$this->assertSame( [ 'nodes' => [], 'edges' => [] ], \Newspack_Nodes\Topology_Registry::graph_for( 'nope' ) );
 	}

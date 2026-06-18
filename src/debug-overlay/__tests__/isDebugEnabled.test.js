@@ -24,4 +24,16 @@ describe( 'isDebugEnabled', () => {
 		expect( isDebugEnabled( '?nodes-debug=0' ) ).toBe( false );
 		expect( window.localStorage.getItem( KEY ) ).toBeNull();
 	} );
+
+	it( 'honors ?nodes-debug=1 when localStorage is unavailable', () => {
+		const spy = jest.spyOn( window.Storage.prototype, 'setItem' );
+		spy.mockImplementation( () => {
+			throw new Error( 'blocked' );
+		} );
+		try {
+			expect( isDebugEnabled( '?nodes-debug=1' ) ).toBe( true );
+		} finally {
+			spy.mockRestore();
+		}
+	} );
 } );

@@ -53,4 +53,18 @@ class ResetGateTest extends TestCase {
 	public function test_mark_name_builds_the_hidden_input_name(): void {
 		$this->assertSame( 'tp_reset[tp_base]', Reset_Gate::mark_name( self::MARK, 'tp_base' ) );
 	}
+
+	public function test_register_wires_each_option_to_the_reset_gate(): void {
+		$GLOBALS['_wp_options']['tp_base'] = '/stored';
+
+		Reset_Gate::register( self::MARK, [ 'tp_base', 'tp_topologies' ], [ 'tp_base' ] );
+
+		$this->assertArrayHasKey( 'pre_update_option_tp_base', $GLOBALS['_wp_actions'] );
+		$this->assertArrayHasKey( 'pre_update_option_tp_topologies', $GLOBALS['_wp_actions'] );
+
+		$result = \apply_filters( 'pre_update_option_tp_base', '', '/stored', 'tp_base' );
+
+		$this->assertArrayNotHasKey( 'tp_base', $GLOBALS['_wp_options'] );
+		$this->assertSame( '/stored', $result );
+	}
 }

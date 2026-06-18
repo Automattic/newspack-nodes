@@ -58,6 +58,37 @@ describe( 'DebugOverlay', () => {
 		expect( notCancelled ).toBe( false );
 	} );
 
+	it( 'allows wheel events when an inner scrollable child can consume them', () => {
+		mountExospine();
+		const { getByRole, getByTestId } = render(
+			<DebugOverlay search="?nodes-debug=1" />
+		);
+		fireEvent.click( getByRole( 'button', { name: /debug/i } ) );
+		const panel = getByTestId( 'debug-panel' );
+		const inner = document.createElement( 'div' );
+		inner.style.overflowY = 'auto';
+		Object.defineProperty( inner, 'scrollHeight', {
+			configurable: true,
+			value: 200,
+		} );
+		Object.defineProperty( inner, 'clientHeight', {
+			configurable: true,
+			value: 100,
+		} );
+		Object.defineProperty( inner, 'scrollTop', {
+			configurable: true,
+			value: 25,
+			writable: true,
+		} );
+		panel.appendChild( inner );
+
+		const notCancelled = fireEvent.wheel( inner, {
+			deltaY: 20,
+			cancelable: true,
+		} );
+		expect( notCancelled ).toBe( true );
+	} );
+
 	it( 'locks the page scroll while the pointer is inside the panel', () => {
 		// Safari ignores the canvas wheel's preventDefault, so the page is pinned
 		// physically while the pointer is over the overlay panel.

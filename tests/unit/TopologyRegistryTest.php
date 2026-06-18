@@ -62,6 +62,18 @@ class TopologyRegistryTest extends TestCase {
 		$this->assertSame( [ 'firehose-workers', 'only-stock', 'only-user' ], $names );
 	}
 
+	public function test_list_ignores_tsl_named_directories(): void {
+		Topology_Registry::register_stock_dir( $this->stock );
+		Topology_Registry::register_user_dir( $this->user );
+		\mkdir( "{$this->stock}/stock-directory.tsl" );
+		\mkdir( "{$this->user}/user-directory.tsl" );
+
+		$names = Topology_Registry::list();
+		\sort( $names );
+
+		$this->assertSame( [ 'firehose-workers', 'only-stock' ], $names );
+	}
+
 	public function test_frontmatter_extracts_var_lines(): void {
 		\file_put_contents(
 			"{$this->stock}/aggregator.tsl",
@@ -159,9 +171,68 @@ class TopologyRegistryTest extends TestCase {
 		$this->rmdir_recursive( $user );
 	}
 
+	public function test_describe_ignores_tsl_named_directories(): void {
+		\mkdir( "{$this->stock}/stock-directory.tsl" );
+		\mkdir( "{$this->user}/user-directory.tsl" );
+		Topology_Registry::register_stock_dir( $this->stock );
+		Topology_Registry::register_user_dir( $this->user );
+
+		$desc = Topology_Registry::describe();
+
+		$this->assertArrayNotHasKey( 'stock-directory', $desc );
+		$this->assertArrayNotHasKey( 'user-directory', $desc );
+	}
+
 	public function test_user_dir_getter_returns_set_value(): void {
 		Topology_Registry::reset();
 		Topology_Registry::register_user_dir( '/tmp/np-a4-user-getter' );
 		$this->assertSame( '/tmp/np-a4-user-getter', Topology_Registry::user_dir() );
+	}
+
+	public function test_register_stock_dir_ignores_empty_paths(): void {
+		Topology_Registry::reset();
+
+		Topology_Registry::register_stock_dir( '' );
+
+		$this->assertSame( [], Topology_Registry::list() );
+	}
+
+	public function test_segment_size_overrides_return_literal_partition_sizes_and_cache_by_topology(): void {
+		\file_put_contents(
+			"{$this->stock}/segments.tsl",
+			"# comments and blank lines are skipped\n\n"
+			. "make_node Echo e\n"
+			. "make_node Partition requests:p <config:logs_dir>/requests.p<partition> 4096 2\n"
+			. "make_node Partition dynamic:p <config:logs_dir>/dynamic.p<partition> <config:segment_size> 2\n"
+		);
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		$this->assertSame(
+			[ 'requests' => 4096 ],
+			Topology_Registry::segment_size_overrides_for( 'segments' )
+		);
+
+		\file_put_contents(
+			"{$this->stock}/segments.tsl",
+			"make_node Partition changed:p <config:logs_dir>/changed.p<partition> 8192 2\n"
+		);
+
+		$this->assertSame(
+			[ 'requests' => 4096 ],
+			Topology_Registry::segment_size_overrides_for( 'segments' ),
+			'segment-size overrides are memoized until reset_basename_cache()'
+		);
+
+		Topology_Registry::reset_basename_cache();
+		$this->assertSame(
+			[ 'changed' => 8192 ],
+			Topology_Registry::segment_size_overrides_for( 'segments' )
+		);
+	}
+
+	public function test_segment_size_overrides_return_empty_for_unknown_topology(): void {
+		Topology_Registry::register_stock_dir( $this->stock );
+
+		$this->assertSame( [], Topology_Registry::segment_size_overrides_for( 'missing' ) );
 	}
 }

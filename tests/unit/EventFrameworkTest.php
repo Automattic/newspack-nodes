@@ -23,6 +23,22 @@ class EventFrameworkTest extends TestCase {
 		$this->assertSame( 4, $ticks );
 	}
 
+	public function test_is_running_reflects_drain_loop_state(): void {
+		$ef = Event_Framework::instance();
+		$this->assertFalse( $ef->is_running() );
+
+		$observed = null;
+		$ef->drain(
+			function () use ( $ef, &$observed ): bool {
+				$observed = $ef->is_running();
+				return false;
+			}
+		);
+
+		$this->assertTrue( $observed );
+		$this->assertFalse( $ef->is_running() );
+	}
+
 	public function test_set_timer_fires_after_interval(): void {
 		$ef = Event_Framework::instance();
 
@@ -75,6 +91,21 @@ class EventFrameworkTest extends TestCase {
 		$ef->drain( $this->boundedTicks( 1 ) );
 
 		$this->assertTrue( true, 'drain with empty curl multi handle did not crash' );
+
+		\curl_multi_close( $mh );
+	}
+
+	public function test_unregister_curl_handle_removes_registered_handle(): void {
+		$ef = Event_Framework::instance();
+
+		$node = new class {};
+		$mh   = \curl_multi_init();
+		$ef->register_curl_handle( $node, $mh );
+
+		$ef->unregister_curl_handle( $node );
+
+		$handles = $this->read_private( $ef, 'curl_handles' );
+		$this->assertSame( [], $handles );
 
 		\curl_multi_close( $mh );
 	}
