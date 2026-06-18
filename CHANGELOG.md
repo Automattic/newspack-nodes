@@ -17,6 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Vault: dropped the stored `enabled` flag — presence now means enabled.** A spoke is "enabled" by being wired into the graph, so the boolean is gone from `ALLOWED_KEYS`, the add/update/normalize defaults, and `validate_config`. `Vault::get_enabled()` is now an alias for `get_all()`. Config-file servers are now FULLY immutable — `update()` is a no-op (returns false) for them rather than allowing an `enabled` toggle. The `vault` CI's public list/get shape no longer carries `enabled`, the `add`/`update` verbs no longer accept an `enabled` arg, and the `newspack_nodes/vault/changed` action is now 2-arg `( string $id, string $action )` (the `$was_enabled`/`$now_enabled` params are dropped). Existing entries carrying a stale `enabled` key are harmless — reads ignore it and the next `update()` drops it.
 - Topology Console: polished the existing skins for legibility — AA-fixed muted text, evened the paper/ink ramps, and split the four status LEDs into distinct hues where they previously collapsed (Blueprint, Nord, Aurora, Neo-Tokyo, SCADA, …). Swiss Brutalist's monochrome and CRT Phosphor Terminal are intentionally unchanged.
 - Topology Console (all skins): the canvas grid now stays visible at every zoom — the line is a constant 1px (`non-scaling-stroke`) instead of vanishing sub-pixel when zoomed out — and the decorative title block + corner reticles sit behind nodes instead of painting over them.
 

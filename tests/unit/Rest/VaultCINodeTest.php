@@ -51,7 +51,7 @@ class VaultCINodeTest extends TestCase {
 	// ---------------------------------------------------------------------
 
 	public function test_list_strips_credentials_and_has_no_logs(): void {
-		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p', 'enabled' => true ] );
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'auth_username' => 'u', 'auth_password' => 'p' ] );
 		Vault::get_instance()->reset_cache();
 
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'list' );
@@ -63,6 +63,7 @@ class VaultCINodeTest extends TestCase {
 		$this->assertArrayNotHasKey( 'auth_password', $out['spoke1'] );
 		$this->assertArrayNotHasKey( 'auth_username', $out['spoke1'] );
 		$this->assertArrayNotHasKey( 'logs', $out['spoke1'] );
+		$this->assertArrayNotHasKey( 'enabled', $out['spoke1'] ); // enabled dropped from public shape.
 	}
 
 	public function test_get_returns_single_server_public_shape(): void {
@@ -86,21 +87,19 @@ class VaultCINodeTest extends TestCase {
 		$captured = [];
 		\add_action(
 			'newspack_nodes/vault/changed',
-			static function ( $id, $action, $was, $now ) use ( &$captured ) {
-				$captured = \compact( 'id', 'action', 'was', 'now' );
+			static function ( $id, $action ) use ( &$captured ) {
+				$captured = \compact( 'id', 'action' );
 			},
 			10,
-			4
+			2
 		);
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=https://e.com --enabled=true' );
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'add', 'spoke1 --url=https://e.com' );
 
 		$this->assertIsArray( $out );
 		$this->assertSame( 'spoke1', $out['id'] );
 		$this->assertSame( 'spoke1', $captured['id'] );
 		$this->assertSame( 'added', $captured['action'] );
-		$this->assertFalse( $captured['was'] );
-		$this->assertTrue( $captured['now'] );
 	}
 
 	public function test_add_rejects_unauthorized(): void {
@@ -114,26 +113,25 @@ class VaultCINodeTest extends TestCase {
 		$this->assertNull( Vault::get_instance()->get( 'spoke1' ) );
 	}
 
-	public function test_update_fires_changed_action_with_enable_flip(): void {
-		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com', 'enabled' => false ] );
+	public function test_update_fires_changed_action(): void {
+		Vault::get_instance()->add( 'spoke1', [ 'url' => 'https://e.com' ] );
 		Vault::get_instance()->reset_cache();
 
 		$captured = [];
 		\add_action(
 			'newspack_nodes/vault/changed',
-			static function ( $id, $action, $was, $now ) use ( &$captured ) {
-				$captured = \compact( 'id', 'action', 'was', 'now' );
+			static function ( $id, $action ) use ( &$captured ) {
+				$captured = \compact( 'id', 'action' );
 			},
 			10,
-			4
+			2
 		);
 
-		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke1 --enabled=true' );
+		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'update', 'spoke1 --url=https://changed.example' );
 
 		$this->assertIsArray( $out );
+		$this->assertSame( 'spoke1', $captured['id'] );
 		$this->assertSame( 'updated', $captured['action'] );
-		$this->assertFalse( $captured['was'] );
-		$this->assertTrue( $captured['now'] );
 	}
 
 	public function test_delete_fires_changed_action(): void {
@@ -143,11 +141,11 @@ class VaultCINodeTest extends TestCase {
 		$captured = [];
 		\add_action(
 			'newspack_nodes/vault/changed',
-			static function ( $id, $action, $was, $now ) use ( &$captured ) {
-				$captured = \compact( 'id', 'action', 'was', 'now' );
+			static function ( $id, $action ) use ( &$captured ) {
+				$captured = \compact( 'id', 'action' );
 			},
 			10,
-			4
+			2
 		);
 
 		$out = VerbHarness::fire( new Vault_CI_Node(), 'vault', 'delete', 'spoke1' );
@@ -155,8 +153,6 @@ class VaultCINodeTest extends TestCase {
 		$this->assertIsArray( $out );
 		$this->assertSame( 'spoke1', $out['id'] );
 		$this->assertSame( 'removed', $captured['action'] );
-		$this->assertTrue( $captured['was'] );
-		$this->assertFalse( $captured['now'] );
 		Vault::get_instance()->reset_cache();
 		$this->assertNull( Vault::get_instance()->get( 'spoke1' ) );
 	}
@@ -235,6 +231,7 @@ class VaultCINodeTest extends TestCase {
 		foreach ( [ 'add', 'update' ] as $name ) {
 			$arg_names = \array_map( static fn ( array $a ): string => $a['name'], $verbs[ $name ]['args'] );
 			$this->assertNotContains( 'logs', $arg_names, "'{$name}' must not declare a logs arg" );
+			$this->assertNotContains( 'enabled', $arg_names, "'{$name}' must not declare an enabled arg" );
 		}
 	}
 }
