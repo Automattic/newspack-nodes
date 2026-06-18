@@ -5,7 +5,7 @@
 # `phpstan analyse` gate stays fast and free of its findings. This config layers
 # the detector on top of the main config for an on-demand sweep:
 #
-#     composer deadcode
+#     npm run lint:deadcode
 #
 # Caveat: this is a SUBSTRATE. tests/ are excluded (inherited from the main
 # config) so test-only methods surface, and cross-plugin consumers (ELN /
