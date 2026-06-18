@@ -106,6 +106,7 @@ const THEMES = [
 const node = ( x, y, type, id, led, spark, rate, counter, selected ) => `
 	<g class="topology-node${ selected ? ' is-selected' : '' }">
 		<rect class="topology-node__bg" x="${ x }" y="${ y }" width="186" height="92"/>
+		<rect class="topology-node__header" x="${ x }" y="${ y }" width="186" height="22"/>
 		<text class="topology-node__type" x="${ x + 14 }" y="${ y + 20 }">${ type }</text>
 		<circle class="topology-node__led" cx="${ x + 18 }" cy="${ y + 38 }" r="4.5" style="fill:var(--${ led });stroke:var(--${ led }-dark)"/>
 		<text class="topology-node__id" x="${ x + 30 }" y="${ y + 42 }">${ id }</text>

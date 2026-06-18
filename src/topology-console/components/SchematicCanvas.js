@@ -846,6 +846,13 @@ export default function SchematicCanvas( {
 						     past the card edge (so it can't bloom outside it either).
 						     Ports sit ON the edge, so they stay outside the clip. */ }
 						<g clipPath="url(#topology-node-clip)">
+							{ /* Title band behind the type/id; transparent by
+							     default, filled per-skin (Newspack shades it). */ }
+							<rect
+								className="topology-node__header"
+								width={ NODE_W }
+								height={ 22 }
+							/>
 							<line
 								className="topology-node__divider"
 								x1={ 0 }

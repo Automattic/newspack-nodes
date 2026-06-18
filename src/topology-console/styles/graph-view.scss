@@ -596,6 +596,11 @@
 		fill: rgba(0, 0, 0, 0.04);
 	}
 
+	// Title band behind the type/id row; transparent unless a skin shades it.
+	&__header {
+		fill: none;
+	}
+
 	&__bg {
 		fill: var(--paper-2);
 		stroke: var(--ink);
@@ -1632,6 +1637,28 @@
 		font-weight: 700;
 		letter-spacing: -0.01em;
 	}
+
+	// Cobalt leads every chrome accent; red stays for real errors.
+	.topology-node__header {
+		fill: var(--paper-3);
+	}
+
+	.topology-node.is-selected .topology-node__bg {
+		stroke: var(--cyan);
+		stroke-width: 2;
+	}
+
+	.topology-node__spark {
+		stroke: var(--cyan);
+	}
+
+	.topology-node__counter {
+		fill: var(--cyan);
+	}
+
+	.topology-brand__colon {
+		color: var(--cyan);
+	}
 }
 
 // 00b — Newspack Brand (expressive). Same neutral structure; status LEDs
@@ -1666,6 +1693,33 @@
 		letter-spacing: -0.01em;
 	}
 
+	// The expressive palette leads: Emerald metrics/edges/selection and a
+	// Morganite-tinted title band, so Brand reads as a vibrant green console.
+	.topology-node__header {
+		fill: rgba(252, 155, 179, 0.18);
+	}
+
+	.topology-node.is-selected .topology-node__bg {
+		stroke: var(--sage);
+		stroke-width: 2;
+	}
+
+	.topology-node__spark {
+		stroke: var(--sage);
+	}
+
+	.topology-node__counter {
+		fill: var(--sage);
+	}
+
+	.topology-edge--active {
+		stroke: var(--sage);
+	}
+
+	.topology-brand__colon {
+		color: var(--sage);
+	}
+
 	// Morganite is backgrounds-only (brand doc): a barely-there rose wash on
 	// the canvas, the only place the expressive tertiary is allowed.
 	.topology-canvas {
@@ -1678,9 +1732,8 @@
 	}
 }
 
-// Newspack skins — product-system chrome on top of the tokens: clean white
-// rounded node cards, and Cobalt-led metrics so red stays reserved for genuine
-// errors (Tail LED, error toasts) instead of every rate/sparkline/counter.
+// Newspack skins — shared product chrome: clean white rounded node cards with a
+// shaded title band and a neutral rate readout. Per-skin accent color below.
 .topology-app.theme-newspack,
 .topology-app.theme-newspack-brand {
 	.topology-node__bg {
@@ -1690,25 +1743,8 @@
 		ry: 7px;
 	}
 
-	.topology-node.is-selected .topology-node__bg {
-		stroke: var(--cyan);
-		stroke-width: 2;
-	}
-
-	.topology-node__spark {
-		stroke: var(--cyan);
-	}
-
-	.topology-node__counter {
-		fill: var(--cyan);
-	}
-
 	.topology-node__rate {
 		fill: var(--ink-3);
-	}
-
-	.topology-brand__colon {
-		color: var(--cyan);
 	}
 }
 
