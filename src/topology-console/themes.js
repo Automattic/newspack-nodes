@@ -1,7 +1,7 @@
 /**
- * Topology Console skins. `current` is the default (identity) skin; the
- * others map to `.topology-app.theme-<slug>` override blocks in
- * styles/topology-console.scss.
+ * Topology Console skins. `newspack` is the default skin; every skin maps to a
+ * `.topology-app.theme-<slug>` override block in styles/graph-view.scss, except
+ * `current` (the identity skin), which renders from the base token values.
  */
 import { __ } from '@wordpress/i18n';
 
@@ -18,9 +18,11 @@ export const PALETTE_COLLAPSED_STORAGE_KEY_LIVE =
 export const PALETTE_COLLAPSED_STORAGE_KEY_EDIT =
 	'newspack-nodes:palette-collapsed:edit';
 
-export const DEFAULT_THEME = 'current';
+export const DEFAULT_THEME = 'newspack';
 
 export const THEMES = [
+	{ slug: 'newspack', label: __( 'Newspack', 'newspack-nodes' ) },
+	{ slug: 'newspack-brand', label: __( 'Newspack Brand', 'newspack-nodes' ) },
 	{ slug: 'current', label: __( 'Drafting Plotter', 'newspack-nodes' ) },
 	{
 		slug: 'blueprint',

@@ -3672,9 +3672,9 @@ describe( 'TopologyConsole boot', () => {
 		const rootClass = ( container ) =>
 			container.querySelector( '.topology-app' ).className;
 
-		it( 'defaults to theme-current when localStorage is empty', () => {
+		it( 'defaults to theme-newspack when localStorage is empty', () => {
 			const { container } = render( <TopologyConsole /> );
-			expect( rootClass( container ) ).toContain( 'theme-current' );
+			expect( rootClass( container ) ).toContain( 'theme-newspack' );
 		} );
 
 		it( 'applies a valid stored skin on mount', () => {
@@ -3683,17 +3683,17 @@ describe( 'TopologyConsole boot', () => {
 			expect( rootClass( container ) ).toContain( 'theme-blueprint' );
 		} );
 
-		it( 'falls back to theme-current for an unknown stored skin', () => {
+		it( 'falls back to theme-newspack for an unknown stored skin', () => {
 			window.localStorage.setItem( 'newspack-nodes:theme', 'bogus' );
 			const { container } = render( <TopologyConsole /> );
-			expect( rootClass( container ) ).toContain( 'theme-current' );
+			expect( rootClass( container ) ).toContain( 'theme-newspack' );
 			expect( rootClass( container ) ).not.toContain( 'theme-bogus' );
 		} );
 
 		it( 'passes the current theme + full skin list to the header', () => {
 			render( <TopologyConsole /> );
-			expect( lastHeaderProps.theme ).toBe( 'current' );
-			expect( lastHeaderProps.themes.length ).toBe( 13 );
+			expect( lastHeaderProps.theme ).toBe( 'newspack' );
+			expect( lastHeaderProps.themes.length ).toBe( 15 );
 		} );
 
 		it( 'changing the skin updates the root class and persists', () => {
