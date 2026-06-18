@@ -230,9 +230,11 @@ class Config {
 	}
 
 	/**
-	 * @api Get the logs directory path ({base}/logs).
+	 * Get the logs directory path ({base}/logs).
 	 *
+	 * @api
 	 * @return string
+	 * @throws \RuntimeException If base directory cannot be created or realpath doesn't match, or if logs directory cannot be created or realpath doesn't match.
 	 */
 	public static function get_logs_directory(): string {
 		if ( null !== self::$validated_logs_directory ) {
@@ -246,6 +248,7 @@ class Config {
 	 * Get the locks directory path ({base}/locks).
 	 *
 	 * @return string
+	 * @throws \RuntimeException If base directory cannot be created or realpath doesn't match, or if locks directory cannot be created or realpath doesn't match.
 	 */
 	public static function get_locks_directory(): string {
 		if ( null !== self::$validated_locks_directory ) {
@@ -259,6 +262,7 @@ class Config {
 	 * Get the offsets directory path ({base}/offsets).
 	 *
 	 * @return string
+	 * @throws \RuntimeException If base directory cannot be created or realpath doesn't match, or if offsets directory cannot be created or realpath doesn't match.
 	 */
 	public static function get_offsets_directory(): string {
 		if ( null !== self::$validated_offsets_directory ) {

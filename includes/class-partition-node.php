@@ -802,12 +802,13 @@ class Partition_Node extends Timer_Node {
 	}
 
 	/**
-	 * @api Walk every JSONL .idx entry across all segments and invoke the callback per entry.
+	 * Walk every JSONL .idx entry across all segments and invoke the callback per entry.
 	 *
 	 * Only meaningful when a with_index() formatter is installed — without it no
 	 * .idx is written, so this early-returns. Callback signature: fn(string $line,
 	 * int $segment_id). Return false from the callback to terminate the scan early.
 	 *
+	 * @api
 	 * @param callable $cb           Per-entry callback.
 	 * @param bool     $newest_first Iterate newest segment first when true.
 	 */

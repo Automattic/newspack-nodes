@@ -145,7 +145,6 @@ class Schema {
 
 	/**
 	 * @api Used by external plugins
-	 *
 	 * @return array<int,Field>
 	 */
 	public function fields(): array {
