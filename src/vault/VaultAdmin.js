@@ -7,9 +7,9 @@
  * core admin class names (`wp-list-table`, `form-table`, …) so it inherits the
  * admin styling unchanged.
  *
- * A successful add / toggle / remove re-`list()`s and the table re-renders from
- * the fresh model (no page reload). Test status + the add-form validation
- * messages are local component state.
+ * A successful add / remove re-`list()`s and the table re-renders from the
+ * fresh model (no page reload). Test status + the add-form validation messages
+ * are local component state.
  */
 
 import { useEffect, useRef, useState } from '@wordpress/element';
@@ -105,18 +105,17 @@ function ConfirmRemoveModal( { onCancel, onConfirm } ) {
 }
 
 /**
- * A single server row — id / url / status + Test / Toggle / Remove actions. Owns
- * its own per-row test-status string (set on Test).
+ * A single server row — id / url / status + Test / Remove actions. Owns its own
+ * per-row test-status string (set on Test).
  *
  * @param {Object}   props          Component props.
  * @param {Object}   props.server   Public server shape from the view model.
- * @param {Function} props.onToggle Toggle-enabled callback (id, nextEnabled).
  * @param {Function} props.onRemove Remove callback (id).
  * @param {Function} props.onTest   Test callback (id) → probe promise.
  * @return {import('react').ReactElement} The rendered row.
  */
-function ServerRow( { server, onToggle, onRemove, onTest } ) {
-	const { id, url, enabled } = server;
+function ServerRow( { server, onRemove, onTest } ) {
+	const { id, url } = server;
 	const [ testStatus, setTestStatus ] = useState( { text: '', color: '' } );
 	const [ busy, setBusy ] = useState( false );
 	const [ isConfirmOpen, setIsConfirmOpen ] = useState( false );
@@ -147,15 +146,6 @@ function ServerRow( { server, onToggle, onRemove, onTest } ) {
 		}
 	};
 
-	const handleToggle = async () => {
-		setBusy( true );
-		try {
-			await onToggle( id, ! enabled );
-		} finally {
-			setBusy( false );
-		}
-	};
-
 	// Remove opens a confirm dialog; onConfirm runs the removal.
 	const handleRemove = () => setIsConfirmOpen( true );
 
@@ -178,19 +168,6 @@ function ServerRow( { server, onToggle, onRemove, onTest } ) {
 			</td>
 			<td>{ url }</td>
 			<td>
-				{ enabled ? (
-					<span
-						className="dashicons dashicons-yes-alt"
-						style={ { color: 'green' } }
-						title={ __( 'Enabled', 'newspack-nodes' ) }
-					/>
-				) : (
-					<span
-						className="dashicons dashicons-no"
-						style={ { color: 'gray' } }
-						title={ __( 'Disabled', 'newspack-nodes' ) }
-					/>
-				) }
 				<span
 					className="test-status"
 					style={ { color: testStatus.color } }
@@ -207,18 +184,6 @@ function ServerRow( { server, onToggle, onRemove, onTest } ) {
 					onClick={ handleTest }
 				>
 					{ __( 'Test', 'newspack-nodes' ) }
-				</button>{ ' ' }
-				<button
-					type="button"
-					className="button button-small event-aggregator-toggle"
-					data-server-id={ id }
-					data-enabled={ enabled ? 1 : 0 }
-					disabled={ busy }
-					onClick={ handleToggle }
-				>
-					{ enabled
-						? __( 'Disable', 'newspack-nodes' )
-						: __( 'Enable', 'newspack-nodes' ) }
 				</button>{ ' ' }
 				<button
 					type="button"
@@ -454,15 +419,11 @@ function AddServerForm( { onAdd } ) {
 export default function VaultAdmin() {
 	// Mount the node graph; it owns the list-on-mount, the CRUD transport, and the
 	// re-list-after-mutation.
-	const { addServer, updateServer, removeServer, testServer } =
-		useVaultGraph();
+	const { addServer, removeServer, testServer } = useVaultGraph();
 
 	// The single read surface: the render model the graph publishes.
 	const model = useNodeState( 'vault:view', 'view' ) ?? EMPTY_MODEL;
 	const { servers, error } = model;
-
-	const onToggle = ( id, nextEnabled ) =>
-		updateServer( id, { enabled: nextEnabled } );
 
 	return (
 		<div className="event-aggregator-servers-admin">
@@ -489,7 +450,6 @@ export default function VaultAdmin() {
 							<ServerRow
 								key={ server.id }
 								server={ server }
-								onToggle={ onToggle }
 								onRemove={ removeServer }
 								onTest={ testServer }
 							/>

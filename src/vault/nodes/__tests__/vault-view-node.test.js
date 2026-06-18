@@ -41,14 +41,12 @@ const SAMPLE = {
 	'spoke-01': {
 		id: 'spoke-01',
 		url: 'https://a.example.test',
-		enabled: true,
 		has_credentials: true,
 		is_config: false,
 	},
 	'spoke-02': {
 		id: 'spoke-02',
 		url: 'https://b.example.test',
-		enabled: false,
 		has_credentials: false,
 		is_config: true,
 	},

@@ -180,7 +180,8 @@ export function useVaultGraph( opts = {} ) {
 		[ dispatch ]
 	);
 
-	// id is the positional token; the credentials + enabled flag are named args.
+	// id is the positional token; the credentials are named args. A spoke is
+	// "enabled" by being wired into the graph — there is no enabled flag.
 	const addServer = useCallback(
 		( fields ) =>
 			runMutation(
@@ -189,7 +190,6 @@ export function useVaultGraph( opts = {} ) {
 					url: fields.url,
 					auth_username: fields.auth_username,
 					auth_password: fields.auth_password,
-					enabled: true,
 				} )
 			),
 		[ runMutation ]
