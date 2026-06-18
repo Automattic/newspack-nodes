@@ -98,12 +98,13 @@ class Command_Args {
 	}
 
 	/**
-	 * @api Inverse of parse(): build a canonical argument string.
+	 * Inverse of parse(): build a canonical argument string.
 	 *
 	 * Boolean true renders as a bare `--key`; false as `--key=false`; arrays
 	 * comma-joined; scalars stringified. Any value with whitespace, quotes, a
 	 * backslash, or empty is double-quoted (escaping `"` and `\`).
 	 *
+	 * @api
 	 * @param list<string>                                       $positional
 	 * @param array<string,string|int|float|bool|array<mixed>>   $options
 	 */

@@ -99,12 +99,13 @@ class Settings_Renderer {
 	}
 
 	/**
-	 * @api A single-boolean checkbox toggle. Emits the hidden `value="0"` sentinel (so an
+	 * A single-boolean checkbox toggle. Emits the hidden `value="0"` sentinel (so an
 	 * unchecked box still posts) followed by the checkbox carrying its file-default
 	 * hint, then a `<label for>`. `checked="checked"` follows `value="1"` adjacently
 	 * — callers match on that. The attr is built directly (not via `\checked()`,
 	 * which echoes) so the method stays a pure string returner.
 	 *
+	 * @api
 	 * @param string $id        Checkbox element id (also the label's `for`).
 	 * @param string $name      WP-option name (shared by the hidden sentinel + checkbox).
 	 * @param bool   $checked   Whether the box renders checked (the stored/effective value).
@@ -131,10 +132,11 @@ class Settings_Renderer {
 	}
 
 	/**
-	 * @api A React-mount field: a hidden JSON carrier (`{field}_json`) the form posts
+	 * A React-mount field: a hidden JSON carrier (`{field}_json`) the form posts
 	 * back, plus the mount `<div>` whose `data-field` / `data-values` / `data-default`
 	 * the React tree reads. Generic — the caller supplies the mount id + class.
 	 *
+	 * @api
 	 * @param string $field        Field short-name (drives `data-field` + the carrier id).
 	 * @param string $mount_id     The mount div's id.
 	 * @param string $mount_class  The mount div's class (the React tree's selector).

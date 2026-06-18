@@ -490,8 +490,9 @@ class Supervisor extends Supervisor_Base {
 	}
 
 	/**
-	 * @api Test hook: drive a single tick without the sleep loop.
+	 * Test hook: drive a single tick without the sleep loop.
 	 *
+	 * @api
 	 * @param float $now Simulated clock for this tick.
 	 * @return bool True if the loop would continue, false if it would exit.
 	 */

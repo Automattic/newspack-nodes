@@ -37,7 +37,6 @@ class CLI_Command {
 	 *     wp nodes cli firehose-workers.p0
 	 *
 	 * @api WP-CLI subcommand `wp nodes cli` — invoked by WP-CLI via reflection, not called in PHP.
-	 *
 	 * @param array<int, string>   $args       Positional arguments.
 	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
@@ -198,7 +197,6 @@ class CLI_Command {
 	 *     wp nodes ls
 	 *
 	 * @api WP-CLI subcommand `wp nodes ls` — invoked by WP-CLI via reflection, not called in PHP.
-	 *
 	 * @param array<int, string>   $args       Positional arguments.
 	 * @param array<string, mixed> $assoc_args Associative arguments.
 	 */
