@@ -230,9 +230,11 @@ class RemoteSourceNodeTest extends TestCase {
 		Core::$now = \microtime( true ) + 16;
 		$node->fire(); // sends heartbeat, records send-time
 
-		// Simulate the reply routed back into fill().
+		// Simulate the spoke's heartbeat reply routed back into fill(). The spoke's
+		// interpreter wraps a command response as TM_COMMAND|TM_RESPONSE; fill()
+		// records the RTT for that type and relays anything else to HTTP_Out.
 		$reply                  = Message::new_message();
-		$reply[ Message::TYPE ] = Message::TM_BYTESTREAM;
+		$reply[ Message::TYPE ] = Message::TM_COMMAND | Message::TM_RESPONSE;
 		$reply[ Message::TO ]   = 'remote-austin';
 		$reply[ Message::VALUE ] = [ 'success' => true ];
 		$node->fill( $reply );
