@@ -115,6 +115,88 @@ describe( 'Inspector (edit mode)', () => {
 		expect( event ).toBe( false );
 	} );
 
+	describe( 'multiple verb (1 vs N invocations)', () => {
+		const multiProps = {
+			...baseProps,
+			selectedId: 'ss',
+			parsed: {
+				nodes: [
+					{
+						id: 'ss',
+						class: 'Settings_Sync',
+						verbInvocations: [
+							{
+								verb: 'add_setting',
+								args: [ 'a', 'settings', 'x' ],
+							},
+							{
+								verb: 'add_setting',
+								args: [ 'b', 'settings', 'y' ],
+							},
+							{
+								verb: 'add_setting',
+								args: [ 'c', 'settings', 'z' ],
+							},
+						],
+					},
+				],
+				edges: [],
+			},
+			catalog: [
+				{
+					shell_name: 'Settings_Sync',
+					arguments: [],
+					commands: [
+						{
+							name: 'add_setting',
+							multiple: true,
+							args: [
+								{ name: 'local_option' },
+								{ name: 'to' },
+								{ name: 'remote_option' },
+							],
+						},
+					],
+				},
+			],
+		};
+
+		it( 'renders one editable row per invocation, not just the first', () => {
+			const { container } = render( <Inspector { ...multiProps } /> );
+			const argBlocks = container.querySelectorAll(
+				'.topology-edit-verb__args'
+			);
+			expect( argBlocks.length ).toBe( 3 );
+		} );
+
+		it( 'Add appends a fresh invocation; remove drops the chosen one', () => {
+			const onUpdateVerbs = jest.fn();
+			const { getByText, container } = render(
+				<Inspector { ...multiProps } onUpdateVerbs={ onUpdateVerbs } />
+			);
+			fireEvent.click( getByText( /Add add_setting/ ) );
+			expect( onUpdateVerbs ).toHaveBeenCalledWith(
+				'ss',
+				expect.arrayContaining( [
+					expect.objectContaining( {
+						verb: 'add_setting',
+						args: [ '', '', '' ],
+					} ),
+				] )
+			);
+			onUpdateVerbs.mockClear();
+			const removes = container.querySelectorAll(
+				'.topology-edit-verb__remove'
+			);
+			expect( removes.length ).toBe( 3 );
+			fireEvent.click( removes[ 1 ] );
+			expect( onUpdateVerbs ).toHaveBeenCalledWith( 'ss', [
+				{ verb: 'add_setting', args: [ 'a', 'settings', 'x' ] },
+				{ verb: 'add_setting', args: [ 'c', 'settings', 'z' ] },
+			] );
+		} );
+	} );
+
 	describe( 'reserved anchor (_repl)', () => {
 		const reservedProps = {
 			...baseProps,
