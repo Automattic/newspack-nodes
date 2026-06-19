@@ -19,6 +19,18 @@ class Settings_Sync_Node extends Timer_Node {
 	/** Legacy sweep cadence (seconds) used when arguments() is armed without an explicit interval. */
 	private const DEFAULT_INTERVAL_SECONDS = 300;
 
+	/**
+	 * Options-cache-invalidation seam. Lazily-defaulted to drop the WP options
+	 * cache (alloptions/notoptions) so this long-lived worker reads the CURRENT
+	 * option value in push(), not a frozen snapshot — a concurrent admin save
+	 * (reset-to-default, remote_* change) would otherwise stay invisible until the
+	 * worker respawns. Tests reassign to record/simulate the clear without a real
+	 * cache. Signature: `function (): void`.
+	 *
+	 * @var \Closure|null
+	 */
+	public static ?\Closure $invalidate_options_cache = null;
+
 	/** @var array<string,array{to:string,remote:string}> local_option => target spoke path + remote option name. */
 	protected array $registry = [];
 
@@ -90,6 +102,10 @@ class Settings_Sync_Node extends Timer_Node {
 		if ( null === $spec || null === $this->sink ) {
 			return;
 		}
+		// Long-lived worker: drop the frozen alloptions snapshot so get_option below
+		// reflects a concurrent admin save (reset-to-default, remote_* change) rather
+		// than a stale value the worker cached at first read. Mirrors Discovery_Collector_Node.
+		( self::$invalidate_options_cache ?? static fn () => Config::invalidate_options_cache() )();
 		// App-overridable: ELN resolves a blank remote_* to the file default here.
 		$value     = \apply_filters( 'newspack_nodes/settings_sync/value', \get_option( $local ), $local );
 		$arguments = Command_Args::format( [ $spec['remote'], self::scalarize( $value ) ], [] );
