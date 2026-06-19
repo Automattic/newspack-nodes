@@ -46,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`cd /_sse` (request-scope REPL pivot) replies reach the console again.** A `cd /_sse` command is interpreted in the `/command` request process and its reply comes back synchronously in the POST body addressed `TO=_sse:{pid}/_output`; that reply must re-enter through the `_sse` node, which strips its own `_sse:{pid}` head. The "everything sinks into the interpreter" refactor had re-pointed `HttpOut._post()`'s reply intake from the `_sse` node to `this.sink` (the interpreter), so the body reply hit `_router`, failed to peel the unregistered `_sse:{pid}` head, and dropped (`NOT_AVAILABLE`). `_post()` now feeds replies into `Core.node('_sse') ?? this.sink` — restoring `_sse` as the synchronous-intake convergence point while keeping `sink`=interpreter for the canvas. Worker pivots (`/_sse/{worker}`) were unaffected (their replies arrive async over the EventSource straight into `_sse`).
 - **The Topology dashboard resolves a `Topic`'s `{partition}` template instead of rendering the literal token.** The graph view recognized only the `<partition>` (angle) token, so a multi-partition `Topic` vertex (`firehose.p{partition}` — e.g. the aggregator's hub fan-in) showed the literal token with "No segments" rather than grouping into one `firehose` entity with its concrete per-partition rows. It now matches both the `<partition>` and `{partition}` tokens.
 
 ### Removed
