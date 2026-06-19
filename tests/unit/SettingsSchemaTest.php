@@ -37,6 +37,9 @@ class SettingsSchemaTest extends TestCase {
 		'newspack_nodes_max_lifespan',
 		'newspack_nodes_base_directory',
 		'newspack_nodes_memcache_servers',
+		'newspack_nodes_remote_num_segments',
+		'newspack_nodes_remote_segment_size',
+		'newspack_nodes_remote_max_lifespan',
 	];
 
 	private const RENDERED_IDS = [
@@ -47,6 +50,9 @@ class SettingsSchemaTest extends TestCase {
 		'total_storage',
 		'base_directory',
 		'memcache_servers',
+		'remote_num_segments',
+		'remote_segment_size',
+		'remote_max_lifespan',
 	];
 
 	protected function setUp(): void {
@@ -86,6 +92,34 @@ class SettingsSchemaTest extends TestCase {
 		$this->assertSame( [ 'request-workers' ], $schema->restart_for( 'memcache_servers' ) );
 		$this->assertSame( [], $schema->restart_for( 'topologies' ) );
 		$this->assertSame( [], $schema->restart_for( 'missing_option' ) );
+	}
+
+	/** The remote-spoke geometry settings restart nothing — they push to spokes via the settings-sync graph. */
+	public function test_remote_settings_restart_nothing(): void {
+		$schema = Settings_Schema::get();
+
+		$this->assertSame( [], $schema->restart_for( 'remote_num_segments' ) );
+		$this->assertSame( [], $schema->restart_for( 'remote_segment_size' ) );
+		$this->assertSame( [], $schema->restart_for( 'remote_max_lifespan' ) );
+	}
+
+	/**
+	 * The three remote-spoke settings are registered + resettable options but NOT
+	 * overlay keys (read directly via get_option by the settings-sync node graph).
+	 */
+	public function test_remote_settings_are_options_but_not_overlaid(): void {
+		$schema = Settings_Schema::get();
+
+		foreach ( [ 'remote_num_segments', 'remote_segment_size', 'remote_max_lifespan' ] as $key ) {
+			$field = $schema->field_for_short( $key );
+			$this->assertNotNull( $field, "remote field {$key} must exist" );
+			$this->assertFalse( $field->overlay, "remote field {$key} must not be overlaid" );
+			$this->assertSame( 'newspack_nodes_remote_section', $field->section );
+		}
+
+		$this->assertNotContains( 'remote_num_segments', $schema->overlay_keys() );
+		$this->assertNotContains( 'remote_segment_size', $schema->overlay_keys() );
+		$this->assertNotContains( 'remote_max_lifespan', $schema->overlay_keys() );
 	}
 
 	public function test_prefix_is_the_substrate_prefix_and_get_is_memoized(): void {
