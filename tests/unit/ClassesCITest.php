@@ -159,6 +159,33 @@ class ClassesCITest extends TestCase {
 		}
 	}
 
+	public function test_list_preserves_the_multiple_flag_on_a_multi_verb(): void {
+		// A `multiple: true` verb (settings-sync's add_setting wires N independent
+		// mappings) must carry that flag through the catalog strip, or the topology
+		// console renders only one row instead of all N.
+		$result = VerbHarness::fire( new Classes_CI_Node(), 'classes', 'list' );
+		$settings_sync = null;
+		foreach ( $result['classes'] as $entry ) {
+			if ( 'Settings_Sync' === $entry['shell_name'] ) {
+				$settings_sync = $entry;
+				break;
+			}
+		}
+		$this->assertNotNull( $settings_sync, 'Settings_Sync must appear in the catalog' );
+		$add_setting = null;
+		foreach ( $settings_sync['commands'] as $verb ) {
+			if ( 'add_setting' === $verb['name'] ) {
+				$add_setting = $verb;
+				break;
+			}
+		}
+		$this->assertNotNull( $add_setting, 'add_setting verb must be in the catalog' );
+		$this->assertTrue(
+			$add_setting['multiple'] ?? false,
+			'add_setting must carry multiple:true through the catalog strip'
+		);
+	}
+
 	public function test_list_tolerates_a_malformed_verb_entry(): void {
 		// A registered class whose node_schema's verbs[] mixes a non-array entry
 		// (a bare string) with a well-formed verb must NOT fatal the whole `list`
