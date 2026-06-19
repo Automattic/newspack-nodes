@@ -26,7 +26,7 @@ export class TeeNode extends Node {
 				copy[ TO ] = '' === to ? t : `${ t }/${ to }`;
 				this.sink.fill( copy );
 			} catch ( e ) {
-				this.print_less_often(
+				this.printLessOften(
 					`Tee: target ${ t } threw: ${ e.message }`
 				);
 			}

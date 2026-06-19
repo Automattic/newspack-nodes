@@ -4,17 +4,16 @@
 // (mirrors the sibling newspack-nodes setup).
 import '@testing-library/jest-dom';
 
-// The substrate's `Core.stderr()` / `printLessOften()` / `printLeastOften()`
-// (../../src/runtime/core.js) route node faults, rate-limited logs, and
-// dropped-message notices through console.warn (never console.error, to skip
-// devtools' error counter), each line stamped `YYYY-MM-DD HH:MM:SS UTC <argv0>: `.
-// Those are expected spam on any test exercising a fault path, so warn lines
-// matching that signature are dropped. EVERY other console.warn and EVERY
-// console.error (React `act(...)` warnings, third-party deprecations, genuine
-// errors) is recorded and re-thrown in afterEach, failing the test. Throwing in
-// afterEach — not inside the mock — keeps React's render/commit from swallowing
-// the throw or cascading into confusing secondary failures, and the captured
-// Error preserves the call site.
+// The substrate's `Core.stderr()` / `printLessOften()` (../../src/runtime/core.js)
+// route node faults, rate-limited logs, and dropped-message notices through
+// console.warn (never console.error, to skip devtools' error counter), each line
+// stamped `YYYY-MM-DD HH:MM:SS UTC <argv0>: `. Those are expected spam on any test
+// exercising a fault path, so warn lines matching that signature are dropped. EVERY
+// other console.warn and EVERY console.error (React `act(...)` warnings, third-party
+// deprecations, genuine errors) is recorded and re-thrown in afterEach, failing the
+// test. Throwing in afterEach — not inside the mock — keeps React's render/commit
+// from swallowing the throw or cascading into confusing secondary failures, and the
+// captured Error preserves the call site.
 //
 // Tests that legitimately assert on console.warn/error install their own
 // `jest.spyOn( console, … )`; that shadows the recorder for that test and the

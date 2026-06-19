@@ -80,6 +80,32 @@ class Remote_Source_Node extends Timer_Node {
 	}
 
 	/**
+	 * @api Dynamic entrypoint.
+	 * @param array<int, mixed> $message The 7-field positional message array.
+	 */
+	public function fill( array &$message ): void {
+		++$this->counter;
+		$type = \is_int( $message[ Message::TYPE ] ) ? $message[ Message::TYPE ] : 0;
+		if ( ( Message::TM_COMMAND | Message::TM_RESPONSE ) === $type	
+				|| ( Message::TM_COMMAND | Message::TM_ERROR ) === $type ) {	
+			if ( 0 === $this->last_heartbeat_sent ) {
+				return;
+			}
+			$now = (int) Core::$now;
+			$rtt = $this->last_heartbeat_sent > 0 ? ( $now - $this->last_heartbeat_sent ) : 0;
+			$this->write_status( [
+				'last_heartbeat_response' => $now,
+				'last_heartbeat_rtt'      => $rtt,
+			] );
+			return;
+		}
+		$this->ensure_patrons();
+		if ( null !== $this->http_out ) {
+			$this->http_out->fill( $message );
+		}
+	}
+
+	/**
 	 * Per-tick housekeeping (Timer_Node::fire_cb calls this): drive the passive
 	 * SSE_In, persist the cursor, and keep the slot alive. Idempotent and cheap.
 	 */
@@ -96,25 +122,29 @@ class Remote_Source_Node extends Timer_Node {
 	}
 
 	/**
-	 * Inbound contract: the ONLY message Remote_Source receives is the heartbeat
-	 * reply, self-routed back via TO=FROM after HTTP_Out's reply-forward. Record
-	 * the response time + RTT into the status snapshot. (SSE_In's `msg` output
-	 * flows straight to this node's downstream sink, not here.)
+	 * Merge $data into the status snapshot under the generic per-node key.
 	 *
-	 * @api Dynamic entrypoint.
-	 * @param array<int, mixed> $message The 7-field positional message array.
+	 * @param array<string,mixed> $data
 	 */
-	public function fill( array &$message ): void {
-		++$this->counter;
-		if ( 0 === $this->last_heartbeat_sent ) {
+	private function write_status( array $data ): void {
+		$cache = Core::$memd;
+		if ( null === $cache ) {
 			return;
 		}
-		$now = (int) Core::$now;
-		$rtt = $this->last_heartbeat_sent > 0 ? ( $now - $this->last_heartbeat_sent ) : 0;
-		$this->write_status( [
-			'last_heartbeat_response' => $now,
-			'last_heartbeat_rtt'      => $rtt,
-		] );
+		$key      = $this->status_key();
+		$existing = $cache->get( $key );
+		if ( ! \is_array( $existing ) ) {
+			$existing = [];
+		}
+		$cache->set( $key, \array_merge( $existing, $data ), self::STATUS_TTL );
+	}
+
+	// =========================================================================
+	// Status snapshot — generic per-node memcache key.
+	// =========================================================================
+
+	private function status_key(): string {
+		return "np:remote:{$this->name}:p{$this->partition}";
 	}
 
 	// =========================================================================
@@ -182,43 +212,11 @@ class Remote_Source_Node extends Timer_Node {
 		$http->name( "{$this->name}:remote" );
 		$http->patron( $this );
 		$http->arguments( $this->vault_id );
+		$http->sink( $this->sink );
 		Core::register_node( "{$this->name}:remote", $http );
 		$this->http_out = $http;
 
 		return $sse;
-	}
-
-	// =========================================================================
-	// Durable offsetlog — per-node, keyed by NODE NAME.
-	// =========================================================================
-
-	/** Ensure the per-node offsetlog Partition exists + is registered. Idempotent. */
-	private function ensure_offsetlog(): ?Partition_Node {
-		if ( null !== $this->offsetlog ) {
-			return $this->offsetlog;
-		}
-		if ( '' === $this->name ) {
-			return null;
-		}
-		$offsets_dir = Config::get_offsets_directory();
-		if ( '' === $offsets_dir ) {
-			return null;
-		}
-		$dir = "{$offsets_dir}/{$this->name}.p{$this->partition}";
-		if ( ! \is_dir( $dir ) ) {
-			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
-			@\mkdir( $dir, 0755, true );
-		}
-		$offsetlog = new Partition_Node();
-		$offsetlog->name( "{$this->name}:offsetlog" );
-		$offsetlog->patron( $this );
-		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
-		if ( null === $offsetlog->sink() && null !== $ci ) {
-			$offsetlog->sink( $ci );
-		}
-		$offsetlog->arguments( $dir );
-		$this->offsetlog = $offsetlog;
-		return $offsetlog;
 	}
 
 	/**
@@ -264,6 +262,39 @@ class Remote_Source_Node extends Timer_Node {
 		];
 	}
 
+	// =========================================================================
+	// Durable offsetlog — per-node, keyed by NODE NAME.
+	// =========================================================================
+
+	/** Ensure the per-node offsetlog Partition exists + is registered. Idempotent. */
+	private function ensure_offsetlog(): ?Partition_Node {
+		if ( null !== $this->offsetlog ) {
+			return $this->offsetlog;
+		}
+		if ( '' === $this->name ) {
+			return null;
+		}
+		$offsets_dir = Config::get_offsets_directory();
+		if ( '' === $offsets_dir ) {
+			return null;
+		}
+		$dir = "{$offsets_dir}/{$this->name}.p{$this->partition}";
+		if ( ! \is_dir( $dir ) ) {
+			// phpcs:ignore WordPressVIPMinimum.Functions.RestrictedFunctions.directory_mkdir
+			@\mkdir( $dir, 0755, true );
+		}
+		$offsetlog = new Partition_Node();
+		$offsetlog->name( "{$this->name}:offsetlog" );
+		$offsetlog->patron( $this );
+		$ci = Core::node( Node_Names::COMMAND_INTERPRETER );
+		if ( null === $offsetlog->sink() && null !== $ci ) {
+			$offsetlog->sink( $ci );
+		}
+		$offsetlog->arguments( $dir );
+		$this->offsetlog = $offsetlog;
+		return $offsetlog;
+	}
+
 	/** Write the SSE_In cursor to the offsetlog every ~COMMIT_INTERVAL seconds. */
 	private function maybe_commit_offsetlog(): void {
 		$now = Core::$now ?: \microtime( true );
@@ -283,8 +314,8 @@ class Remote_Source_Node extends Timer_Node {
 		if ( null === $offsetlog ) {
 			return;
 		}
-		$pos                          = $this->sse_in->position();
-		$message                      = Message::new_message();
+		$pos                           = $this->sse_in->position();
+		$message                       = Message::new_message();
 		$message[ Message::TYPE ]      = Message::TM_STRUCT;
 		$message[ Message::TIMESTAMP ] = Core::$now;
 		$message[ Message::VALUE ]     = [
@@ -335,14 +366,6 @@ class Remote_Source_Node extends Timer_Node {
 		$this->write_status( [ 'last_heartbeat_sent' => $now ] );
 	}
 
-	// =========================================================================
-	// Status snapshot — generic per-node memcache key.
-	// =========================================================================
-
-	private function status_key(): string {
-		return "np:remote:{$this->name}:p{$this->partition}";
-	}
-
 	/** Publish the connection-state snapshot from SSE_In::connection(). */
 	private function publish_status(): void {
 		$conn = null !== $this->sse_in
@@ -357,22 +380,10 @@ class Remote_Source_Node extends Timer_Node {
 		] );
 	}
 
-	/**
-	 * Merge $data into the status snapshot under the generic per-node key.
-	 *
-	 * @param array<string,mixed> $data
-	 */
-	private function write_status( array $data ): void {
-		$cache = Core::$memd;
-		if ( null === $cache ) {
-			return;
-		}
-		$key      = $this->status_key();
-		$existing = $cache->get( $key );
-		if ( ! \is_array( $existing ) ) {
-			$existing = [];
-		}
-		$cache->set( $key, \array_merge( $existing, $data ), self::STATUS_TTL );
+	/** Set target. Tee overrides to append to its fan-out array. */
+	public function connect_node( string $target ): void {
+		$this->target = $target;
+		$this->sse_in?->target( $target );
 	}
 
 	/**
@@ -400,8 +411,8 @@ class Remote_Source_Node extends Timer_Node {
 			'description'  => 'Self-sufficient SSE-pull aggregation source for one spoke topic/partition (Vault-resolved).',
 			'arguments'    => [
 				[ 'name' => 'vault_id',     'type' => 'string', 'required' => true ],
-				[ 'name' => 'remote_topic', 'type' => 'string', 'required' => true ],
-				[ 'name' => 'partition',    'type' => 'int',    'default' => 0 ],
+				[ 'name' => 'remote_topic', 'type' => 'string' ],
+				[ 'name' => 'partition',    'type' => 'int' ],
 			],
 			'commands'     => [],
 			'requests'     => [],

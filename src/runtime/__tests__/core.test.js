@@ -118,17 +118,6 @@ test( 'printLessOften rate-limits identical messages and routes via stderr', () 
 	spy.mockRestore();
 } );
 
-test( 'printLeastOften prints only after threshold count, routes via stderr', () => {
-	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
-	for ( let i = 0; i < 9; i++ ) {
-		Core.printLeastOften( 'rare' );
-	}
-	expect( spy ).not.toHaveBeenCalled();
-	Core.printLeastOften( 'rare' );
-	expect( spy ).toHaveBeenCalledTimes( 1 );
-	spy.mockRestore();
-} );
-
 test( 'recentLog is an array that reset() clears', () => {
 	const spy = jest.spyOn( console, 'warn' ).mockImplementation( () => {} );
 	expect( Array.isArray( Core.recentLog ) ).toBe( true );

@@ -47,36 +47,6 @@ class Settings_Sync_Node extends Timer_Node {
 	}
 
 	/**
-	 * Periodic re-push: emit one `set` command for EVERY registered option in a
-	 * single tick, so the downstream batched HTTP_Out coalesces them into one
-	 * POST per spoke.
-	 */
-	public function fire(): void {
-		foreach ( \array_keys( $this->registry ) as $local ) {
-			$this->push( $local );
-		}
-	}
-
-	/**
-	 * Register a local-option → spoke mapping. Three positional tokens:
-	 * `<local_option> <TO> <remote_option>`.
-	 *
-	 * @param string $args Whitespace-separated `<local_option> <TO> <remote_option>`.
-	 * @return string 'ok', or an `error: …` string on arity mismatch.
-	 */
-	public function add_setting( string $args ): string {
-		$parts = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY ) ?: [];
-		if ( 3 !== \count( $parts ) ) {
-			return 'error: add_setting requires <local_option> <TO> <remote_option>';
-		}
-		$this->registry[ $parts[0] ] = [
-			'to'     => $parts[1],
-			'remote' => $parts[2],
-		];
-		return 'ok';
-	}
-
-	/**
 	 * On a settings-change event, push the named option to the spokes.
 	 *
 	 * The consumer feeds a TM_STRUCT carrying only the option NAME
@@ -99,6 +69,17 @@ class Settings_Sync_Node extends Timer_Node {
 	}
 
 	/**
+	 * Periodic re-push: emit one `set` command for EVERY registered option in a
+	 * single tick, so the downstream batched HTTP_Out coalesces them into one
+	 * POST per spoke.
+	 */
+	public function fire(): void {
+		foreach ( \array_keys( $this->registry ) as $local ) {
+			$this->push( $local );
+		}
+	}
+
+	/**
 	 * Build and fan out one `set` command for a single registered local option.
 	 * Drops silently if the option isn't registered or the node has no sink.
 	 *
@@ -113,8 +94,8 @@ class Settings_Sync_Node extends Timer_Node {
 		$value     = \apply_filters( 'newspack_nodes/settings_sync/value', \get_option( $local ), $local );
 		$arguments = Command_Args::format( [ $spec['remote'], self::scalarize( $value ) ], [] );
 
-		$target               = \is_array( $this->target ) ? ( $this->target[0] ?? '' ) : $this->target;
-		$out                  = Message::new_message();
+		$target                = \is_array( $this->target ) ? ( $this->target[0] ?? '' ) : $this->target;
+		$out                   = Message::new_message();
 		$out[ Message::TYPE ]  = Message::TM_COMMAND;
 		$out[ Message::FROM ]  = $this->name;
 		$out[ Message::TO ]    = $target . '/' . $spec['to'];
@@ -128,6 +109,25 @@ class Settings_Sync_Node extends Timer_Node {
 	/** Flatten a value to one positional token: arrays become csv, scalars stringify. */
 	private static function scalarize( mixed $v ): string {
 		return \is_array( $v ) ? \implode( ',', \array_map( '\strval', $v ) ) : Core::as_string( $v );
+	}
+
+	/**
+	 * Register a local-option → spoke mapping. Three positional tokens:
+	 * `<local_option> <TO> <remote_option>`.
+	 *
+	 * @param string $args Whitespace-separated `<local_option> <TO> <remote_option>`.
+	 * @return string 'ok', or an `error: …` string on arity mismatch.
+	 */
+	public function add_setting( string $args ): string {
+		$parts = \preg_split( '/\s+/', \trim( $args ), -1, \PREG_SPLIT_NO_EMPTY ) ?: [];
+		if ( 3 !== \count( $parts ) ) {
+			return 'error: add_setting requires <local_option> <TO> <remote_option>';
+		}
+		$this->registry[ $parts[0] ] = [
+			'to'     => $parts[1],
+			'remote' => $parts[2],
+		];
+		return 'ok';
 	}
 
 	/** Emit the base config plus one round-trippable `cmd {name}:config add_setting …` per registry entry. */

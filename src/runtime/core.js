@@ -2,7 +2,6 @@ import { newMessage, TYPE, TIMESTAMP, VALUE, TM_BYTESTREAM } from './message';
 import names from './reserved-node-names.json';
 
 const PRINT_LESS_OFTEN_WINDOW_MS = 60_000;
-const PRINT_LEAST_OFTEN_THRESHOLD = 10;
 // Bounded stderr tail for the dmesg verb (Tachikoma caps @RECENT_LOG at 100).
 const RECENT_LOG_MAX = 100;
 
@@ -105,17 +104,6 @@ class CoreImpl {
 
 	node( name ) {
 		return this.nodes.get( name ) ?? null;
-	}
-
-	// Emits on every Nth occurrence, then resets the counter.
-	printLeastOften( msg ) {
-		const n = ( this._countSince.get( msg ) ?? 0 ) + 1;
-		if ( n < PRINT_LEAST_OFTEN_THRESHOLD ) {
-			this._countSince.set( msg, n );
-			return;
-		}
-		this._countSince.set( msg, 0 );
-		this.stderr( msg );
 	}
 
 	// Bump the full-rebuild signal: increment + notify every subscriber so each
