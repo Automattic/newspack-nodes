@@ -35,6 +35,7 @@ class Settings_Schema {
 		}
 
 		$storage = 'newspack_nodes_storage_section';
+		$remote  = 'newspack_nodes_remote_section';
 
 		// Literal (matches Admin::OPTION_PREFIX) so building the schema — which a
 		// worker does via Config::overlay_keys() — never autoloads the admin class
@@ -106,6 +107,42 @@ class Settings_Schema {
 					render: [ Admin::class, 'memcache_servers_callback' ],
 					register_args: [ 'type' => 'array', 'default' => [], 'autoload' => false ],
 				),
+				// Storage geometry pushed to remote spokes. Registered + resettable,
+				// but read directly via get_option (the settings-sync node graph) —
+				// never overlaid into load_config().
+				new Field(
+					key: 'remote_num_segments',
+					type: 'int',
+					label: static fn(): string => \__( 'Remote Segment Count', 'newspack-nodes' ),
+					section: $remote,
+					restart: [],
+					sanitize: [ Admin::class, 'sanitize_remote_num_segments' ],
+					render: [ Admin::class, 'remote_num_segments_callback' ],
+					overlay: false,
+					register_args: [ 'type' => 'string' ],
+				),
+				new Field(
+					key: 'remote_segment_size',
+					type: 'int',
+					label: static fn(): string => \__( 'Remote Segment Size', 'newspack-nodes' ),
+					section: $remote,
+					restart: [],
+					sanitize: [ Admin::class, 'sanitize_remote_segment_size' ],
+					render: [ Admin::class, 'remote_segment_size_callback' ],
+					overlay: false,
+					register_args: [ 'type' => 'string' ],
+				),
+				new Field(
+					key: 'remote_max_lifespan',
+					type: 'int',
+					label: static fn(): string => \__( 'Remote Min Retention', 'newspack-nodes' ),
+					section: $remote,
+					restart: [],
+					sanitize: [ Admin::class, 'sanitize_remote_max_lifespan' ],
+					render: [ Admin::class, 'remote_max_lifespan_callback' ],
+					overlay: false,
+					register_args: [ 'type' => 'string' ],
+				),
 				// Overlay-only (ui:false): loaded + autoloaded for the per-request
 				// config overlay, but NOT a settings-API setting. The Topology
 				// Manager's active toggle + the activate/deactivate verbs are the sole
@@ -131,6 +168,10 @@ class Settings_Schema {
 				$storage => [
 					'title'    => static fn(): string => \__( 'Storage Settings', 'newspack-nodes' ),
 					'callback' => [ Admin::class, 'storage_section_callback' ],
+				],
+				$remote  => [
+					'title'    => static fn(): string => \__( 'Remote Servers', 'newspack-nodes' ),
+					'callback' => [ Admin::class, 'remote_settings_section_callback' ],
 				],
 			]
 		);

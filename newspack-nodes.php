@@ -163,6 +163,8 @@ if ( \function_exists( 'add_action' ) ) {
 	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Config', 'correct_option_autoload' ] );
 	// One-time copy of the legacy event-logger aggregator-servers option into the Vault option.
 	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Vault_Migration', 'maybe_migrate' ] );
+	// One-time rename of the ELN remote-spoke geometry options to the substrate names.
+	\add_action( 'admin_init', [ '\\Newspack_Nodes\\Remote_Settings_Migration', 'maybe_migrate' ] );
 }
 if ( \function_exists( 'add_filter' ) ) {
 	// phpcs:ignore WordPress.WP.CronInterval.ChangeDetected -- The 60s interval registered by the callback is intentional (substrate supervisor tick); rule can't see into array-callable targets.

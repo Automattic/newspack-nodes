@@ -515,10 +515,53 @@ class Admin {
 		return $sanitized_lines;
 	}
 
+	/**
+	 * Sanitize the remote num_segments setting: clamp to [2, 16], or '' when unset.
+	 *
+	 * @param int|string|null $value Raw option value (WP sanitize_callback may pass null).
+	 * @return int|string Clamped segment count, or '' when blank/unset.
+	 */
+	public static function sanitize_remote_num_segments( int|string|null $value ): int|string {
+		if ( '' === $value || null === $value ) {
+			return '';
+		}
+		return \max( 2, \min( 16, \absint( $value ) ) );
+	}
+
+	/**
+	 * Sanitize the remote segment_size setting: clamp to [1MB, 256MB], or '' when unset.
+	 *
+	 * @param int|string|null $value Raw option value (WP sanitize_callback may pass null).
+	 * @return int|string Clamped byte size, or '' when blank/unset.
+	 */
+	public static function sanitize_remote_segment_size( int|string|null $value ): int|string {
+		if ( '' === $value || null === $value ) {
+			return '';
+		}
+		return \max( 1024 * 1024, \min( 256 * 1024 * 1024, \absint( $value ) ) );
+	}
+
+	/**
+	 * Sanitize the remote max_lifespan setting: clamp to [60, 604800] seconds, or '' when unset.
+	 *
+	 * @param int|string|null $value Raw option value (WP sanitize_callback may pass null).
+	 * @return int|string Clamped lifespan in seconds, or '' when blank/unset.
+	 */
+	public static function sanitize_remote_max_lifespan( int|string|null $value ): int|string {
+		if ( '' === $value || null === $value ) {
+			return '';
+		}
+		return \max( 60, \min( 604800, \absint( $value ) ) );
+	}
+
 	// -- Section callbacks --------------------------------------------------
 
 	public static function storage_section_callback(): void {
 		echo '<p>' . \esc_html__( 'Configure log storage and memcache infrastructure. Changing storage layout (base directory, segment size, retention) restarts every worker.', 'newspack-nodes' ) . '</p>';
+	}
+
+	public static function remote_settings_section_callback(): void {
+		echo '<p>' . \esc_html__( 'Storage geometry pushed to remote spokes (may differ from hub settings). Blank fields use the config-file default.', 'newspack-nodes' ) . '</p>';
 	}
 
 	// -- Field callbacks ----------------------------------------------------
@@ -564,6 +607,18 @@ class Admin {
 
 	public static function max_lifespan_callback(): void {
 		self::render_number( 'max_lifespan', 86400, 0, 604800, \__( 'Minimum retention in seconds. 0 = disabled (pure count-based).', 'newspack-nodes' ) );
+	}
+
+	public static function remote_num_segments_callback(): void {
+		self::render_number( 'remote_num_segments', 2, 2, 16, \__( 'Number of log segments on remote servers (2-16).', 'newspack-nodes' ) );
+	}
+
+	public static function remote_segment_size_callback(): void {
+		self::render_number( 'remote_segment_size', 10485760, 1024 * 1024, 256 * 1024 * 1024, \__( 'Segment size on remote servers in bytes (1MB-256MB).', 'newspack-nodes' ) );
+	}
+
+	public static function remote_max_lifespan_callback(): void {
+		self::render_number( 'remote_max_lifespan', 3600, 60, 604800, \__( 'Minimum retention on remote servers in seconds. Spokes keep data at least this long for the aggregator to pull.', 'newspack-nodes' ) );
 	}
 
 	/** Echo a number field: default from the config file, value from the stored option. */
