@@ -1196,6 +1196,52 @@
 	text-transform: lowercase;
 }
 
+// A `multiple` verb's per-invocation header: verb name on the left, a small
+// inline remove (×) on the right — not a stacked full-width bar.
+.topology-edit-verb__head {
+	flex-direction: row;
+	align-items: center;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+.topology-app .topology-edit-verb__remove {
+	flex: 0 0 auto;
+	width: 20px;
+	height: 20px;
+	padding: 0;
+	background: transparent;
+	border: 0;
+	color: var(--ink-3);
+	font: 700 14px/1 var(--font-mono);
+	cursor: pointer;
+}
+
+.topology-app .topology-edit-verb__remove:hover {
+	color: var(--oxide);
+}
+
+// "+ Add <verb>" — a modest text button, not a full-width input-styled bar.
+.topology-app .topology-edit-verb__add {
+	margin-top: 4px;
+	padding: 4px 8px;
+	background: transparent;
+	border: 1px dashed var(--ink-3);
+	color: var(--ink-2);
+	font-size: 11px;
+	cursor: pointer;
+}
+
+.topology-app .topology-edit-verb__add:hover {
+	border-color: var(--oxide);
+	color: var(--oxide);
+}
+
+// Space consecutive invocations of a multiple verb apart.
+.topology-edit-verb-group .topology-edit-verb + .topology-edit-verb {
+	margin-top: 6px;
+}
+
 .topology-app .topology-edit-row__input {
 	width: 100%;
 	min-width: 0;

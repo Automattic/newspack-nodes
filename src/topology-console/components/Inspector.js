@@ -550,7 +550,7 @@ function VerbRow( {
 	return (
 		<div className="topology-edit-verb">
 			{ multiple ? (
-				<div className="topology-edit-row">
+				<div className="topology-edit-row topology-edit-verb__head">
 					<span className="topology-edit-row__label">
 						<code>{ spec.name }</code>
 					</span>
