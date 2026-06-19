@@ -101,4 +101,42 @@ class TopologyRegistryGraphTest extends TestCase {
 	public function test_graph_for_unknown_topology_is_empty(): void {
 		$this->assertSame( [ 'nodes' => [], 'edges' => [] ], \Newspack_Nodes\Topology_Registry::graph_for( 'nope' ) );
 	}
+
+	public function test_graph_for_preserves_custom_node_type_and_positional_args(): void {
+		// A custom node type flattens to kind:'logic', but must carry its make_node
+		// type token + positional args so Aggregator_CI can discover wired sources.
+		$this->write_tsl(
+			'spoke',
+			"make_node Remote_Source spoke-x austin firehose 0\n"
+			. "connect_node spoke-x next-step\n"
+		);
+		$g    = \Newspack_Nodes\Topology_Registry::graph_for( 'spoke' );
+		$node = $g['nodes'][0];
+
+		$this->assertSame( 'spoke-x', $node['name'] );
+		$this->assertSame( 'logic', $node['kind'] );
+		$this->assertSame( 'Remote_Source', $node['type'] );
+		$this->assertSame( [ 'austin', 'firehose', '0' ], $node['args'] );
+	}
+
+	public function test_graph_for_builtin_node_carries_type_and_args(): void {
+		// A built-in type likewise carries its type + positional args additively.
+		$this->write_tsl( 'b', "make_node Consumer firehose:consumer src.log <partition> off.p<partition>\n" );
+		$g    = \Newspack_Nodes\Topology_Registry::graph_for( 'b' );
+		$node = $g['nodes'][0];
+
+		$this->assertSame( 'consumer', $node['kind'] );
+		$this->assertSame( 'Consumer', $node['type'] );
+		$this->assertSame( [ 'src.log', '<partition>', 'off.p<partition>' ], $node['args'] );
+	}
+
+	public function test_graph_for_node_without_args_has_empty_args_list(): void {
+		// A bare make_node (type + name only) yields an empty args list.
+		$this->write_tsl( 'e', "make_node Tee completed:tee\n" );
+		$g    = \Newspack_Nodes\Topology_Registry::graph_for( 'e' );
+		$node = $g['nodes'][0];
+
+		$this->assertSame( 'Tee', $node['type'] );
+		$this->assertSame( [], $node['args'] );
+	}
 }
