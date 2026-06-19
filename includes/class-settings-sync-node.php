@@ -144,7 +144,9 @@ class Settings_Sync_Node extends Timer_Node {
 		return \array_merge( parent::node_schema(), [
 			'category'    => 'Control',
 			'description' => 'Pushes registered WP-option changes to connected spokes.',
-			'arguments'   => [],
+			'arguments'   => [
+				[ 'name' => 'interval_seconds', 'type' => 'int', 'required' => false, 'default' => (string) self::DEFAULT_INTERVAL_SECONDS ],
+			],
 			'commands'    => [
 				[
 					'name'        => 'add_setting',
@@ -159,6 +161,7 @@ class Settings_Sync_Node extends Timer_Node {
 						$patron = $interpreter->patron();
 						return $patron->add_setting( $args );
 					},
+					'multiple' => true,
 				],
 			],
 			'has_target'  => true,
